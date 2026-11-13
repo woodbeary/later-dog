@@ -266,7 +266,7 @@ export interface Task {
   waitingForTeammates?: boolean;
   waitingOn?: WireWaitingOn[];
   work?: import("../../shared/work-state").WorkState;
-  plan?: import("../../shared/dog-plan").WirePlan;
+  plan?: import("../../shared/dog-plan").WirePlan | null;
   threadId: string;
   routineRunId?: string;
   projectId?: string;
@@ -323,7 +323,7 @@ export interface Bot {
   waitingForTeammates?: boolean;
   waitingOn?: WireWaitingOn[];
   work?: import("../../shared/work-state").WorkState;
-  plan?: import("../../shared/dog-plan").WirePlan;
+  plan?: import("../../shared/dog-plan").WirePlan | null;
   id: string;
   threadId: string;
   tasks?: Task[];

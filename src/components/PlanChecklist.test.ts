@@ -47,6 +47,7 @@ describe("a dog's plan under its working line", () => {
 
   it("shows nothing without a plan", () => {
     expect(renderToStaticMarkup(createElement(DogPlan, { plan: undefined, working: true }))).toBe("");
+    expect(renderToStaticMarkup(createElement(DogPlan, { plan: null, working: true }))).toBe("");
     expect(renderToStaticMarkup(createElement(DogPlan, { plan: { items: [], updatedAt: 1 }, working: false }))).toBe("");
   });
 });
