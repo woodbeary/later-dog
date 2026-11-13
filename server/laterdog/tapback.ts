@@ -31,8 +31,15 @@ export function withTapback(reactions: ReadonlyArray<Reaction> | undefined, emoj
   return [...(reactions ?? []).filter((reaction) => reaction.by !== by), { emoji, by }];
 }
 
+const WHOLE_TAG = /<\/?[A-Za-z_|][^<>]*>/g;
+const OPEN_TAG_AT_END = /<[^<>]*$/;
+
+function withoutMarkup(text: string): string {
+  return text.replace(WHOLE_TAG, "").replace(OPEN_TAG_AT_END, "");
+}
+
 export function onlyTapbackText(text: string | undefined): boolean {
-  return [...graphemes.segment(text ?? "")].every(({ segment }) => /^[\p{P}\s]+$/u.test(segment) || tapbackEmoji(segment) !== null);
+  return [...graphemes.segment(withoutMarkup(text ?? ""))].every(({ segment }) => /^[\p{P}\p{S}\s]+$/u.test(segment) || tapbackEmoji(segment) !== null);
 }
 
 export function tapbackStreamChunk(buffered: string | undefined, delta: string): { pending?: string; delta?: string } {
