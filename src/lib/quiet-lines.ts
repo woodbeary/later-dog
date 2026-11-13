@@ -165,15 +165,21 @@ function lastAt(item: QuietTranscriptItem): number {
   return item.kind === "message" ? item.message.at : item.messages.at(-1)?.at ?? Number.NEGATIVE_INFINITY;
 }
 
+function firstAt(item: QuietTranscriptItem): number {
+  return item.kind === "message" ? item.message.at : item.messages[0]?.at ?? Number.NEGATIVE_INFINITY;
+}
+
 function takeFailures(
   folded: Array<QuietTranscriptItem>,
   renders: (item: TranscriptItem) => boolean,
 ): { messages: Message[]; since: number } {
   const taken: number[] = [];
-  let since = Number.NEGATIVE_INFINITY;
+  let since: number | undefined;
+  let earliest = Number.NEGATIVE_INFINITY;
   for (let index = folded.length - 1; index >= 0; index -= 1) {
     const candidate = folded[index]!;
-    if (candidate.kind === "message" && needsPerson(candidate.message)) return { messages: [], since };
+    earliest = firstAt(candidate);
+    if (candidate.kind === "message" && needsPerson(candidate.message)) return { messages: [], since: Number.NEGATIVE_INFINITY };
     if (candidate.kind === "message" && turnFailure(candidate.message)) {
       taken.push(index);
       continue;
@@ -191,7 +197,7 @@ function takeFailures(
     const [item] = folded.splice(index, 1);
     if (item?.kind === "message") messages.unshift(item.message);
   }
-  return { messages, since };
+  return { messages, since: since ?? earliest };
 }
 
 export function foldedRuns<R extends { id: string; startedAt: number }>(item: Pick<RecoveredItem, "since" | "recovery">, runs: readonly R[]): R[] {

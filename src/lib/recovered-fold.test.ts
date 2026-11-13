@@ -92,6 +92,15 @@ describe("a dog that recovers by itself", () => {
     expect(folded?.kind === "recovered" && foldedRuns(folded, runs).map((run) => run.id)).toEqual(["failed"]);
   });
 
+  it("folds no work from before the visible window when it starts at the failure", () => {
+    const died = failure(LIVE);
+    const items = visible([died, recovery("watch")]);
+    const folded = items.find((item) => item.kind === "recovered");
+    expect(folded?.kind === "recovered" && folded.since).toBe(died.at);
+    const runs = [{ id: "day before", startedAt: died.at - 86_400_000 }, { id: "failed", startedAt: died.at }];
+    expect(folded?.kind === "recovered" && foldedRuns(folded, runs).map((run) => run.id)).toEqual(["failed"]);
+  });
+
   it("leaves an account switch and a failed recovery visible", () => {
     const switched: Message = { id: "carry", role: "bot", kind: "activity", at: at(), tool: { name: "recovery: Carrying on with Work.", ok: true, carry: { from: "a", to: "b" } } };
     const items = visible([user("Go on"), failure(LIVE), switched]);
