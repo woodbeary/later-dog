@@ -17,12 +17,12 @@ afterAll(() => {
 type Opened = Extract<RuntimeEvent, { type: "request.opened" }>;
 const opened = (extra: Partial<Opened> = {}): Opened => ({
   type: "request.opened", threadId: "t1", provider: "claudeAgent", eventId: "e1", createdAt: "now", requestId: "r1",
-  requestType: "permission", tool: "Bash", summary: "git push", command: { command: "git push origin x", cwd: root }, ...extra,
+  requestType: "permission", tool: "Bash", summary: "git push", command: { command: "pnpm test", cwd: root }, ...extra,
 } as Opened);
 
 describe("the key on an engine's card", () => {
   it("is the dog's program key in the owner's turn and nothing in a guest's turn", () => {
-    expect(cardGrantKey(opened(), [root], { guestDriven: false })).toBe("run:git push");
+    expect(cardGrantKey(opened(), [root], { guestDriven: false })).toBe("run:pnpm test");
     expect(cardGrantKey(opened(), [root], { guestDriven: true })).toBeUndefined();
   });
 

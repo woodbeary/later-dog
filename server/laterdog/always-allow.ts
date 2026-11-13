@@ -1,8 +1,9 @@
-import { realpathSync } from "node:fs";
-import { dirname, isAbsolute, relative, resolve } from "node:path";
+import { lstatSync, readFileSync, readlinkSync, statSync } from "node:fs";
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 
 import {
-  COMPUTER_KEY, EXACT_KEY, FILES_EDIT_KEY, MAX_GRANT_KEY_BYTES, RUN_KEY, TOOL_KEY,
+  COMPUTER_KEY, EXACT_KEY, EXACT_SPLIT, FILES_EDIT_KEY, FILES_READ_KEY, listedCommand, listedName, MAX_GRANT_KEY_BYTES, RUN_KEY,
+  TOOL_KEY, type ListedCommand,
 } from "../../shared/always-allow.ts";
 import { redactSecretsInText } from "../redact.ts";
 import type { BotRecord } from "../store.ts";
@@ -19,63 +20,21 @@ export interface GrantRequest {
 }
 
 const SHELL_META = /[|&;<>()$`\\*?[\]{}~!#\n\r\t\0]/;
-
-const RUNS_CODE = new Set([
-  "sh", "bash", "zsh", "dash", "ksh", "fish", "csh", "tcsh", "env", "xargs", "find", "eval", "exec", "source", ".",
-  "sudo", "doas", "su", "nohup", "time", "nice", "timeout", "watch", "command", "builtin", "parallel", "script",
-  "python", "python2", "python3", "node", "nodejs", "deno", "perl", "ruby", "php", "lua", "luajit", "osascript",
-  "rscript", "pwsh", "powershell", "tclsh", "expect", "sed", "awk", "gawk", "mawk", "nawk", "ssh", "vi", "vim",
-  "nvim", "emacs", "less", "more", "man", "gdb", "lldb", "strace", "dtrace", "open", "launchctl", "crontab",
-]);
-
-const HAS_SUBCOMMAND = new Set([
-  "git", "npm", "pnpm", "yarn", "bun", "docker", "docker-compose", "podman", "kubectl", "gh", "cargo", "go", "pip",
-  "pip3", "brew", "apt", "apt-get", "swift", "wrangler", "terraform", "helm", "poetry", "uv", "rustup", "gcloud",
-  "aws", "az", "flyctl", "vercel", "netlify", "supabase", "prisma", "turbo", "nx", "mix", "dotnet", "composer",
-  "bundle", "rails", "firebase", "heroku", "systemctl", "service", "xcrun", "pod", "fastlane", "expo", "eas",
-]);
-
-const RUNS_A_PACKAGE = new Set(["npx", "bunx", "pnpx", "uvx"]);
-const PACKAGE_SUBCOMMAND = new Set(["dlx", "exec", "x", "create"]);
+const NEVER_KEYED = /(?:^|[^A-Za-z0-9_.-])(?:mail|mailx|sendmail|msmtp|mutt|stripe|osascript)(?:$|[^A-Za-z0-9_.-])/i;
 const DELETES = new Set(["rm", "rmdir", "unlink", "shred", "srm", "trash"]);
-const NEVER_KEYED = new Set(["mail", "mailx", "sendmail", "msmtp", "mutt", "stripe", "osascript"]);
-const NEVER_KEYED_ANYWHERE = /(?:^|[\s|;&(`$"'])(?:mail|mailx|sendmail|msmtp|mutt|stripe|osascript)(?=[\s|;&)`"']|$)/i;
-const EXECUTING_OPTION = /^--?(?:exec|execdir|receive-pack|upload-pack|to-command|use-compress-program|checkpoint-action|rsh|config|config-env|command|shell|eval|c|e|x|interpreter|run|pre|post|hook|editor|pager)(?:=|$)/i;
+const DENIED_EVERYWHERE = /^--?(?:c|exec[\w-]*|receive-pack|upload-pack|config[\w-]*|git-dir|work-tree|namespace|super-prefix|global|system|prefix|registry|userconfig|globalconfig|script-shell|node-options|output|o|e|x)(?:=|$)/i;
+const SCRIPT_NAME = /^[A-Za-z0-9][A-Za-z0-9:_.-]{0,60}$/;
+const REMOTE_NAME = /^[A-Za-z0-9][A-Za-z0-9._-]{0,60}$/;
+const BRANCH_NAME = /^[A-Za-z0-9][A-Za-z0-9._/-]{0,120}$/;
 
-const EDIT_TOOLS = new Set([
-  "edit", "write", "multiedit", "notebookedit", "apply_patch", "create_file", "write_file", "edit_file", "str_replace_editor",
+const EDIT_TOOLS = new Set(["edit", "write", "multiedit", "notebookedit", "apply_patch", "create_file", "write_file", "edit_file", "str_replace_editor"]);
+const READ_TOOLS = new Set(["read", "grep", "glob", "ls"]);
+const READ_ONLY_TOOLS: ReadonlySet<string> = new Set();
+const RUNS_LATER_SEGMENTS = new Set([".git", ".husky", "node_modules", ".claude", ".codex", ".cursor", ".gemini", ".vscode", ".idea"]);
+const RUNS_LATER_FILES = new Set([
+  "package.json", ".npmrc", ".yarnrc", ".yarnrc.yml", ".pnpmfile.cjs", ".bashrc", ".bash_profile", ".bash_login", ".profile",
+  ".zshrc", ".zshenv", ".zprofile", ".zlogin", ".zlogout", ".envrc", ".gitconfig", ".gitattributes", ".gitmodules", "makefile",
 ]);
-const GENERIC_TOOLS = new Set(["tool", "other", "execute", "think", "read", "delete", "move", "mcp", "permissions", "pi", "switch_mode"]);
-const TOOL_NAME = /^[A-Za-z0-9_.:/-]{1,120}$/;
-
-const PAY_TOKENS = new Set([
-  "PAY", "PAYS", "PAYMENT", "PAYMENTS", "PAYOUT", "CHARGE", "REFUND", "TRANSFER", "PURCHASE", "BUY", "CHECKOUT",
-  "ORDER", "INVOICE", "SUBSCRIBE", "SUBSCRIPTION", "WITHDRAW", "WITHDRAWAL", "DEPOSIT", "TRADE", "SWAP",
-]);
-const SEND_TOKENS = new Set(["SEND", "SENDS", "REPLY", "RESPOND", "FORWARD"]);
-const MESSAGE_TOKENS = new Set(["EMAIL", "EMAILS", "MAIL", "GMAIL", "OUTLOOK", "MESSAGE", "MESSAGES", "TEXT", "TEXTS", "SMS", "MMS", "DM", "IMESSAGE", "WHATSAPP", "THREAD"]);
-
-function toolTokens(tool: string): string[] {
-  return tool
-    .replace(/^mcp__/, "")
-    .replace(/([a-z0-9])([A-Z])/g, "$1_$2")
-    .toUpperCase()
-    .split(/[^A-Z0-9]+/)
-    .filter(Boolean);
-}
-
-export function paysOrBuys(tool: string): boolean {
-  return toolTokens(tool).some((token) => PAY_TOKENS.has(token));
-}
-
-export function sendsAsPerson(tool: string): boolean {
-  const tokens = toolTokens(tool);
-  return tokens.some((token) => SEND_TOKENS.has(token)) && tokens.some((token) => MESSAGE_TOKENS.has(token));
-}
-
-export function asksEveryTime(tool: string): boolean {
-  return paysOrBuys(tool) || sendsAsPerson(tool);
-}
 
 function shellWords(command: string): string[] | null {
   if (SHELL_META.test(command)) return null;
@@ -105,75 +64,138 @@ function shellWords(command: string): string[] | null {
   return words.length ? words : null;
 }
 
-function realOrNearest(path: string): string {
-  let probe = path;
-  const rest: string[] = [];
-  for (let steps = 0; steps < 64; steps++) {
-    try {
-      return resolve(realpathSync(probe), ...rest.reverse());
-    } catch {
-      const parent = dirname(probe);
-      if (parent === probe) return path;
-      rest.push(probe.slice(parent.length).replace(/^\/+/, ""));
-      probe = parent;
+export function physicalPath(path: string, hops = 0): string {
+  if (hops > 40) return "/\0";
+  let current = "/";
+  for (const part of path.split(sep)) {
+    if (!part || part === ".") continue;
+    if (part === "..") {
+      current = dirname(current);
+      continue;
     }
+    const next = join(current, part);
+    let link: string | null = null;
+    try {
+      if (lstatSync(next).isSymbolicLink()) link = readlinkSync(next);
+    } catch {}
+    current = link === null ? next : physicalPath(isAbsolute(link) ? link : join(current, link), hops + 1);
   }
-  return path;
+  return current;
+}
+
+function realOrNearest(path: string): string {
+  return physicalPath(isAbsolute(path) ? path : resolve(path));
+}
+
+function joinPath(cwd: string, path: string): string {
+  return isAbsolute(path) ? path : `${cwd}${sep}${path}`;
 }
 
 export function insideRoots(path: string, roots: readonly string[]): boolean {
   if (!isAbsolute(path)) return false;
-  const real = realOrNearest(resolve(path));
+  const real = realOrNearest(path);
   return roots.flatMap((root) => [root, realOrNearest(root)]).some((root) => {
     const rel = relative(root, real);
     return rel === "" || (!rel.startsWith("..") && !isAbsolute(rel));
   });
 }
 
-function pathLike(word: string): string | null {
-  const value = word.startsWith("-") && word.includes("=") ? word.slice(word.indexOf("=") + 1) : word;
-  if (value.startsWith("/") || value === ".." || value.startsWith("../") || value.includes("/../") || value.endsWith("/..")) return value;
+export function pathsIn(word: string): string[] {
+  const found: string[] = [];
+  const add = (value: string) => {
+    const bare = value.replace(/^@+/, "");
+    if (bare && !bare.startsWith("-")) found.push(bare);
+  };
+  if (word.startsWith("-")) {
+    if (word.includes("=")) add(word.slice(word.indexOf("=") + 1));
+    else if (/^-[A-Za-z]./.test(word)) add(word.slice(2));
+    return found;
+  }
+  add(word);
+  if (word.includes("=")) add(word.slice(word.indexOf("=") + 1));
+  return found;
+}
+
+function everyPathInside(words: readonly string[], cwd: string, roots: readonly string[]): boolean {
+  return words.every((word) => pathsIn(word).every((path) => insideRoots(joinPath(cwd, path), roots)));
+}
+
+function gitDir(cwd: string): string | null {
+  let probe = cwd;
+  for (let steps = 0; steps < 64; steps++) {
+    const candidate = join(probe, ".git");
+    try {
+      if (statSync(candidate).isDirectory()) return candidate;
+      const pointer = /^gitdir: (.+)$/m.exec(readFileSync(candidate, "utf8"))?.[1]?.trim();
+      return pointer ? resolve(probe, pointer) : null;
+    } catch {
+      const parent = dirname(probe);
+      if (parent === probe) return null;
+      probe = parent;
+    }
+  }
   return null;
 }
 
-function staysInside(words: readonly string[], cwd: string, roots: readonly string[]): boolean {
-  if (!insideRoots(cwd, roots)) return false;
-  return words.every((word) => {
-    const path = pathLike(word);
-    return path === null || insideRoots(resolve(cwd, path), roots);
-  });
+export function configuredRemotes(cwd: string): Set<string> {
+  const dir = gitDir(cwd);
+  if (!dir) return new Set();
+  try {
+    const text = readFileSync(join(dir, "config"), "utf8");
+    return new Set([...text.matchAll(/^\s*\[remote "([^"\n]+)"\]/gm)].map((match) => match[1]!));
+  } catch {
+    return new Set();
+  }
 }
 
-function exactKey(command: string): string | undefined {
-  if (/[\n\r\0]/.test(command) || redactSecretsInText(command) !== command) return undefined;
-  const key = EXACT_KEY + command;
+function deniedOption(entry: ListedCommand, word: string): boolean {
+  if (!word.startsWith("-")) return false;
+  const name = word.includes("=") ? word.slice(0, word.indexOf("=")) : word;
+  return DENIED_EVERYWHERE.test(word) || (entry.denied ?? []).includes(name);
+}
+
+function argumentsFit(entry: ListedCommand, args: readonly string[], cwd: string, roots: readonly string[]): boolean {
+  if (args.some((arg) => deniedOption(entry, arg))) return false;
+  if (entry.args === "none") return args.every((arg) => (entry.flags ?? []).includes(arg));
+  if (!everyPathInside(args, cwd, roots)) return false;
+  if (entry.args === "checked") return true;
+  const names = args.filter((arg) => !arg.startsWith("-"));
+  if (!names.length) return true;
+  const [remote, ...refs] = names as [string, ...string[]];
+  return REMOTE_NAME.test(remote) && configuredRemotes(cwd).has(remote) && refs.every((ref) => BRANCH_NAME.test(ref));
+}
+
+export function listedKey(words: readonly string[], cwd: string, roots: readonly string[]): string | undefined {
+  const [first, ...rest] = words as [string, ...string[]];
+  const program = first.toLowerCase();
+  for (const take of [3, 2, 1, 0]) {
+    if (take > rest.length) continue;
+    const name = [program, ...rest.slice(0, take)].join(" ");
+    const listed = listedCommand(name);
+    if (!listed) continue;
+    if (listed.script !== undefined && !SCRIPT_NAME.test(listed.script)) return undefined;
+    return argumentsFit(listed.entry, rest.slice(take), cwd, roots) ? RUN_KEY + listedName(listed.entry, listed.script) : undefined;
+  }
+  return undefined;
+}
+
+function hasSecret(text: string): boolean {
+  return redactSecretsInText(text) !== text;
+}
+
+function exactKey(command: string, cwd: string): string | undefined {
+  if (/[\n\r\0]/.test(command) || cwd.includes(EXACT_SPLIT) || /[\n\r\0]/.test(cwd)) return undefined;
+  const key = EXACT_KEY + realOrNearest(cwd) + EXACT_SPLIT + command;
   return Buffer.byteLength(key) <= MAX_GRANT_KEY_BYTES - COMPUTER_KEY.length ? key : undefined;
 }
 
-const SUBCOMMAND = /^[A-Za-z][A-Za-z0-9:_-]{0,40}$/;
-const PROGRAM = /^[A-Za-z0-9][A-Za-z0-9._+-]{0,60}$/;
-
 export function commandKey(command: string, cwd: string, roots: readonly string[]): string | undefined {
   const text = command.trim();
-  if (!text) return undefined;
+  if (!text || !isAbsolute(cwd) || hasSecret(text) || NEVER_KEYED.test(text)) return undefined;
   const words = shellWords(text);
-  if (!words) return NEVER_KEYED_ANYWHERE.test(text) ? undefined : exactKey(text);
-  const [program, ...args] = words as [string, ...string[]];
-  if (NEVER_KEYED.has(program.toLowerCase())) return undefined;
-  if (!PROGRAM.test(program) || RUNS_CODE.has(program.toLowerCase())) return exactKey(text);
-  const inside = staysInside(args, cwd, roots);
-  if (DELETES.has(program)) return inside ? RUN_KEY + program : undefined;
-  if (!inside || args.some((arg) => EXECUTING_OPTION.test(arg))) return exactKey(text);
-  if (RUNS_A_PACKAGE.has(program)) {
-    return args[0] && SUBCOMMAND.test(args[0]) ? `${RUN_KEY}${program} ${args[0]}` : exactKey(text);
-  }
-  if (!HAS_SUBCOMMAND.has(program)) return RUN_KEY + program;
-  const sub = args[0];
-  if (!sub || !SUBCOMMAND.test(sub)) return exactKey(text);
-  if (PACKAGE_SUBCOMMAND.has(sub)) {
-    return args[1] && SUBCOMMAND.test(args[1]) ? `${RUN_KEY}${program} ${sub} ${args[1]}` : exactKey(text);
-  }
-  return `${RUN_KEY}${program} ${sub}`;
+  if (words && DELETES.has(words[0]!.toLowerCase()) && !everyPathInside(words.slice(1), cwd, roots)) return undefined;
+  const listed = words && insideRoots(cwd, roots) ? listedKey(words, cwd, roots) : undefined;
+  return listed ?? exactKey(text, cwd);
 }
 
 function bareTool(tool: string): string {
@@ -181,39 +203,72 @@ function bareTool(tool: string): string {
   return (mcp ? `${mcp[1]}/${mcp[2]}` : tool).toLowerCase();
 }
 
+export function runsLater(path: string): boolean {
+  const parts = resolve(path).split(sep).filter(Boolean);
+  return parts.some((part) => RUNS_LATER_SEGMENTS.has(part.toLowerCase())) || RUNS_LATER_FILES.has(basename(path).toLowerCase());
+}
+
+function filesKey(paths: readonly string[] | undefined, roots: readonly string[], key: string, edits: boolean): string | undefined {
+  if (!paths?.length || !paths.every((path) => insideRoots(path, roots))) return undefined;
+  if (edits && paths.some((path) => runsLater(path) || runsLater(realOrNearest(path)))) return undefined;
+  return key;
+}
+
 function innerKey(request: GrantRequest): string | undefined {
   const name = bareTool(request.tool);
   if (request.command) return commandKey(request.command.command, request.command.cwd, request.roots);
   if (isShellTool(request.tool)) return undefined;
-  if (EDIT_TOOLS.has(name)) {
-    const paths = request.paths ?? [];
-    return paths.length && paths.every((path) => insideRoots(path, request.roots)) ? FILES_EDIT_KEY : undefined;
-  }
-  if (GENERIC_TOOLS.has(name) || !TOOL_NAME.test(request.tool)) return undefined;
-  return TOOL_KEY + name;
+  if (EDIT_TOOLS.has(name)) return filesKey(request.paths, request.roots, FILES_EDIT_KEY, true);
+  if (READ_TOOLS.has(name)) return filesKey(request.paths, request.roots, FILES_READ_KEY, false);
+  return READ_ONLY_TOOLS.has(name) ? TOOL_KEY + name : undefined;
 }
 
 export function grantKeyFor(request: GrantRequest): string | undefined {
-  if (request.requiresExplicitApproval || request.grantable === false || asksEveryTime(request.tool)) return undefined;
+  if (request.requiresExplicitApproval || request.grantable === false) return undefined;
   const key = innerKey(request);
   if (!key) return undefined;
   return request.approvalScope === "local-computer" ? COMPUTER_KEY + key : key;
 }
 
+export function knownReadOnly(tool: string): boolean {
+  return READ_ONLY_TOOLS.has(bareTool(tool));
+}
+
+export const PEER_KEY = /^(?:ask_bot|delegate_bot):/;
+
+export function peerKeysOnly(keys: readonly string[] | undefined): string[] | undefined {
+  return keys?.filter((key) => PEER_KEY.test(key));
+}
+
 type GrantStore = {
   bot(id: string): BotRecord | null;
-  taskByThread(botId: string, threadId: string): { alwaysAllow?: string[] } | undefined;
+  taskByThread(botId: string, threadId: string): { alwaysAllow?: string[]; pausedGrants?: string[] } | undefined;
   tasks(botId: string): { threadId: string; alwaysAllow?: string[] }[];
   patchBot(id: string, patch: Partial<BotRecord>): BotRecord | null;
-  patchTask(botId: string, threadId: string, patch: { alwaysAllow: string[] }): unknown;
+  patchTask(botId: string, threadId: string, patch: { alwaysAllow?: string[]; pausedGrants?: string[] }): unknown;
 };
 
 export const MAX_GRANTS = 200;
 
 export function dogGrantKeys(store: Pick<GrantStore, "bot" | "taskByThread">, botId: string, threadId?: string): string[] {
+  const task = threadId ? store.taskByThread(botId, threadId) : undefined;
+  const paused = new Set(task?.pausedGrants ?? []);
   const dog = store.bot(botId)?.alwaysAllow ?? [];
-  const chat = threadId ? store.taskByThread(botId, threadId)?.alwaysAllow ?? [] : [];
-  return [...new Set([...dog, ...chat])];
+  return [...new Set([...dog, ...(task?.alwaysAllow ?? [])])].filter((key) => !paused.has(key));
+}
+
+export function pauseGrantsInChat(store: Pick<GrantStore, "bot" | "taskByThread" | "patchTask">, botId: string, threadId: string): void {
+  const task = store.taskByThread(botId, threadId);
+  if (!task) return;
+  const every = [...new Set([...(store.bot(botId)?.alwaysAllow ?? []), ...(task.alwaysAllow ?? []), ...(task.pausedGrants ?? [])])];
+  store.patchTask(botId, threadId, { pausedGrants: every });
+}
+
+export function liftGrantPause(store: Pick<GrantStore, "taskByThread" | "patchTask">, botId: string, threadId: string, key?: string): void {
+  const task = store.taskByThread(botId, threadId);
+  if (!task?.pausedGrants?.length) return;
+  const rest = key === undefined ? [] : task.pausedGrants.filter((candidate) => candidate !== key);
+  if (rest.length !== task.pausedGrants.length) store.patchTask(botId, threadId, { pausedGrants: rest.length ? rest : undefined });
 }
 
 export function dogAllows(store: Pick<GrantStore, "bot" | "taskByThread">, botId: string, threadId: string, key: string): boolean {

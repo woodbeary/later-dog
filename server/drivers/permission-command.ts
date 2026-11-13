@@ -15,16 +15,29 @@ export function permissionPaths(values: readonly unknown[], cwd: string | undefi
 }
 
 const CLAUDE_EDITS = new Set(["Edit", "Write", "MultiEdit", "NotebookEdit"]);
+const CLAUDE_READS = new Set(["Read", "Grep", "Glob", "LS"]);
+const ESCAPING_PATTERN = /(^|[\\/])\.\.([\\/]|$)|^[\\/~]|\{|\$/;
 
 export function claudeEditPaths(tool: unknown, input: unknown, cwd: string | undefined): string[] | undefined {
-  if (typeof tool !== "string" || !CLAUDE_EDITS.has(tool) || !input || typeof input !== "object") return undefined;
+  if (typeof tool !== "string" || !input || typeof input !== "object") return undefined;
   const fields = input as Record<string, unknown>;
-  return permissionPaths([fields.file_path ?? fields.notebook_path], cwd);
+  if (CLAUDE_EDITS.has(tool)) return permissionPaths([fields.file_path ?? fields.notebook_path], cwd);
+  if (!CLAUDE_READS.has(tool)) return undefined;
+  if ([fields.pattern, fields.glob].some((pattern) => typeof pattern === "string" && tool !== "Grep" && ESCAPING_PATTERN.test(pattern))) return undefined;
+  if (typeof fields.glob === "string" && ESCAPING_PATTERN.test(fields.glob)) return undefined;
+  return permissionPaths([fields.file_path ?? fields.path ?? cwd], cwd);
+}
+
+function locationPaths(location: unknown): unknown[] {
+  if (!location || typeof location !== "object") return [undefined];
+  const fields = location as { path?: unknown; move_path?: unknown; movePath?: unknown; kind?: { move_path?: unknown; movePath?: unknown } };
+  const moved = fields.move_path ?? fields.movePath ?? fields.kind?.move_path ?? fields.kind?.movePath;
+  return moved === undefined || moved === null ? [fields.path] : [fields.path, moved];
 }
 
 export function locatedPaths(locations: unknown, cwd: string | undefined): string[] | undefined {
   if (!Array.isArray(locations)) return undefined;
-  return permissionPaths(locations.map((location) => location && typeof location === "object" ? (location as { path?: unknown }).path : undefined), cwd);
+  return permissionPaths(locations.flatMap(locationPaths), cwd);
 }
 
 export function permissionLaunchCwd(cwd: string): string | undefined {
