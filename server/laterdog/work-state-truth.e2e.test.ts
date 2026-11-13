@@ -219,20 +219,23 @@ it("a job that ends while the home is down wakes the dog once after the restart"
 
 const alive = (pattern: string) => spawnSync("pgrep", ["-f", pattern]).status === 0;
 
-for (const [shape, seconds, command] of [
-  ["a plain command", 3271, "sleep 3271"],
-  ["a command followed by more", 3272, "sleep 3272; echo fourth > fourth.txt"],
-  ["a command inside another shell", 3273, "bash -c 'sleep 3273; true'"],
+for (const [shape, seconds, command, pattern] of [
+  ["a plain command", 3271, "sleep 3271", "sleep 3271"],
+  ["a command followed by more", 3272, "sleep 3272; echo fourth > fourth.txt", "sleep 3272"],
+  ["a command inside another shell", 3273, "bash -c 'sleep 3273; true'", "sleep 3273"],
+  ["a command that starts its own session", 3274, "python3 daemon.py; sleep 3278", "daemon.py"],
 ] as const) {
   it(`the person's Stop ends ${shape} itself, and nobody is woken`, async () => {
     const bot = await newDog(`Rex${seconds}`);
+    writeFileSync(join(home, "site", "daemon.py"), "import os, time\nif os.fork() == 0:\n    os.setsid()\n    if os.fork() == 0:\n        time.sleep(3274)\n    os._exit(0)\n");
     const after = await jobThatOutlivesItsTurn(bot, seconds, "fourth", command);
     expect(after.work).toMatchObject({ kind: "running", computerJobs: 1 });
-    expect(alive(`sleep ${seconds}`)).toBe(true);
+    expect(await until(async () => alive(pattern), Boolean, "the command to start", 10_000)).toBe(true);
     const stopped = await api("POST", `/api/bots/${bot.id}/interrupt`, { threadId: bot.threadId });
     expect(stopped.status, JSON.stringify(stopped.body)).toBe(200);
     await until(() => botNow(bot.id), (state) => state.work?.kind !== "running", "the chat to stop running", 30_000);
-    expect(alive(`sleep ${seconds}`)).toBe(false);
+    expect(alive(pattern)).toBe(false);
+    expect(alive("sleep 3278")).toBe(false);
     await settle(3_000);
     expect(await wakeLines(bot.threadId)).toEqual([]);
     expect(ledger()).toEqual([]);

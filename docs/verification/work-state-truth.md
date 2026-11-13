@@ -66,10 +66,15 @@ no reply wanted; and the older fields below agree with `work` in every row.
   when the call sees it finish, and keeps it when the call returns while it still runs. A watch in
   `server/index.ts` checks kept jobs every 30 seconds (`LATERDOG_COMPUTER_JOB_CHECK_MS`) on the dog's
   computer without waking it. A job ends only on evidence: its exit record (with the time it was written),
-  its computer asleep, or its computer missing on two checks in a row. Any other state, an error or an
-  empty answer changes nothing, and a job that runs past two hours is not ended: it stays running, marked
+  or the same one of these on two checks in a row: its computer asleep, its computer missing, or none of
+  its processes alive with no exit record. A failed or unsure check starts the count again. Sleep snapshots
+  the disk and destroys the computer's container (`deploy/laterdog/computers/src/computer.ts`), but a
+  failed destroy still records the computer as sleeping, so one reading is not taken as proof. A job whose
+  processes died without an exit record ends quietly with the line "Scout's command on its computer ended
+  without a result." and no wake-up. Any other state, an error or an empty answer changes nothing, and a job that runs past two hours is not ended: it stays running, marked
   `computerBackground`. A job a call is waiting on is never checked twice. Each job runs in its own
-  process group, whose id is kept on the computer next to its log and exit record. When a later
+  process group, whose id is kept on the computer next to its log and exit record, and carries a marker
+  its children inherit: `LATERDOG_RUN_ID` in their environment and an open lock file beside its log. When a later
   turn picks the result up by `run_id`, the call holds the job, so the chat stays running through the
   hand-over and goes idle only when the call has brought the result back.
 - Handoffs: `directHandoffFacts` in `server/laterdog/chat-work.ts`, read from the handoff record
@@ -98,7 +103,9 @@ Bounds, each in `server/laterdog/job-wake.ts` unless named:
 - Once per job: the ending is removed from the saved ledger when its turn has started
   (`ComputerJobs.announced`).
 - At most two wake-ups per message from the person: lines tagged `pickup: "computer"` that start with
-  `recovery:` since the person's last message are counted (`wakesSincePerson`).
+  `recovery:` since the person's own last message are counted (`wakesSincePerson`); a teammate's line, a
+  handoff, a routine or a webhook post does not start the count again (`fromPerson`). The stall watch keeps
+  its own count.
 - Only fresh endings: an ending older than 30 minutes is not announced by a turn (`WAKE_FRESH_MS`), so one
   kept through a usage hold or an account switched off does not fire days later.
 - Never for a job that ran longer than two hours (`whyNotWoken`).
@@ -120,8 +127,10 @@ woken for it.") so nothing is silent.
 
 Only the person's own Stop on that chat (`POST /api/bots/<id>/interrupt` from the app) stops its jobs; Stop
 and send, a dog stopping a teammate, and local tools do not. `server/laterdog/stop-computer-jobs.ts` stops
-each job's whole process group on its computer (`ComputerRuns.stop`) and removes it from the ledger only
-once it is confirmed gone or its computer is asleep. If it cannot be confirmed, the chat keeps showing the
+each job's whole process group on its computer (`ComputerRuns.stop`), then any process still carrying the
+job's marker (one that started its own session), and removes the job only once none is left. Where the
+computer cannot list processes by the marker, a dead group still removes the job and the chat says "part
+of it may still be running". A job on a sleeping computer is left to the watch, which ends it quietly. If it cannot be confirmed, the chat keeps showing the
 job and says "Scout's command on its computer could not be stopped, so it is still running.". The desktop
 shows Stop whenever something of the chat runs: a turn, helpers, a job, or teammates it awaits, even when a
 usage hold or a question outranks them in `work`.
