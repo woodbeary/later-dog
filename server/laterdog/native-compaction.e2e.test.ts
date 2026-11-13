@@ -70,8 +70,14 @@ async function setup(fakeEnv: NodeJS.ProcessEnv) {
     const folds = async () => (await messages()).filter(m => m.kind === "compaction");
     const nativeRows = async () => (await messages()).filter(m => m.kind === "activity" && m.tool?.compaction);
     ready = true;
+    const reconfigure = (edit: (config: any) => void) => restart(() => {
+      const path = join(dataDir, "config.json");
+      const config = JSON.parse(readFileSync(path, "utf8"));
+      edit(config);
+      writeFileSync(path, JSON.stringify(config));
+    });
     return {
-      session, api, cli, bot, thread, messages, task, send, use, folds, nativeRows, restart,
+      session, api, cli, bot, thread, messages, task, send, use, folds, nativeRows, restart, reconfigure,
       turns: () => jsonl(`${plan}.evidence.jsonl`),
       codexPrompts: () => jsonl(codexPrompts).map((entry: any) => String(entry.text)),
       launchArgs: () => JSON.parse(readFileSync(session.fixtureDumpPath, "utf8")).argv as string[],
@@ -191,3 +197,18 @@ it("recalls notes automatically when a session starts and leaves later turns to 
   const prompts = f.turns().map((turn: any) => String(turn.prompt.message.content));
   expect(prompts.map(prompt => prompt.includes("Recalled for this message") && prompt.includes("GARDEN_NOTE"))).toEqual([true, false, true]);
 }), 120_000);
+
+it("keeps later.dog's fold for a model Codex does not list", () => fixture(async f => {
+  await f.api("/api/config", { context: { compactAt: 1 } }, "PATCH");
+  await f.use("codex", "laterdog-unlisted-model");
+  for (const label of ["FIRST request", "SECOND request", "THIRD request", "FOURTH request"]) await f.send(label);
+  expect((await f.folds()).length).toBeGreaterThan(0);
+}), 150_000);
+
+it("keeps later.dog's fold when Claude Code's own compaction is switched off", () => fixture(async f => {
+  await f.reconfigure(config => { config.instances.claude.environment = { ...config.instances.claude.environment, DISABLE_AUTO_COMPACT: "1" }; });
+  await f.api("/api/config", { context: { compactAt: 1 } }, "PATCH");
+  await f.use("claude", "claude-sonnet-4-6");
+  for (const label of ["FIRST request", "SECOND request", "THIRD request", "FOURTH request"]) await f.send(label);
+  expect((await f.folds()).length).toBeGreaterThan(0);
+}), 150_000);

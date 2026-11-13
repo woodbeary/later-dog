@@ -71,6 +71,7 @@ import { claudeContextNote, claudeSeenVolatile } from "../laterdog/volatile-sect
 import { claudeHelperEnvironment } from "../laterdog/helper-model.ts";
 import { agentsServerLaunch, deferRareToolsEnabled } from "../laterdog/tool-loading.ts";
 import { CLAUDE_PICKS_CACHE_LIFETIME, claudeCacheLifetime } from "../laterdog/cache-lifetime.ts";
+import { claudeCompactionSwitchedOff } from "../laterdog/native-compaction.ts";
 
 export function claudeAuthStatus(
   cli: string,
@@ -2324,6 +2325,14 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
           return behavior === "allow" ? "allowed-once" : behavior === "answer" ? "answered" : "rejected";
         },
         hasSession: (threadId) => active.has(threadId),
+        compactionSigns: async () => {
+          const env = environment();
+          let inherited: unknown;
+          if (inheritsUserConfig(env)) {
+            try { inherited = JSON.parse(readFileSync(join(resolveClaudeConfigDir(undefined, env), "settings.json"), "utf8")); } catch {}
+          }
+          return { switchedOff: claudeCompactionSwitchedOff(env, inherited) };
+        },
         nativeCompactAt: async () => {
           const env = environment();
           await learnCliFlags(env);

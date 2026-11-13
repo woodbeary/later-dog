@@ -1857,6 +1857,7 @@ export const CodexDriver: ProviderDriver<CodexConfig> = {
         return decision.behavior === "allow" ? "allowed-once" : decision.behavior === "answer" ? "answered" : "rejected";
       },
       hasSession: (threadId) => active.has(threadId),
+      compactionSigns: async () => ({ managed: Boolean(config.managed), switchedOff: false }),
       stopAll: async () => {
         await Promise.all([...active.values()].map(({ stop }) => stop()));
       },

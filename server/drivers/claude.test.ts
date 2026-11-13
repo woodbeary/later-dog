@@ -2123,6 +2123,18 @@ describe("ClaudeDriver turns (fake CLI)", () => {
     expect(env.CLAUDE_CODE_PROMPT_CACHE_TTL).toBeUndefined();
   });
 
+  it("tells later.dog when an inherited setting or the environment switches Claude Code's compaction off", async () => {
+    const configDir = join(scratch, "inherited-config");
+    mkdirSync(configDir, { recursive: true });
+    writeFileSync(join(configDir, "settings.json"), JSON.stringify({ autoCompactEnabled: false }));
+    await create(undefined, { CLAUDE_CONFIG_DIR: configDir });
+    await expect(instance.adapter.compactionSigns!()).resolves.toEqual({ switchedOff: false });
+    await create(undefined, { CLAUDE_CONFIG_DIR: configDir, LATERDOG_CLAUDE_INHERIT_USER_CONFIG: "1" });
+    await expect(instance.adapter.compactionSigns!()).resolves.toEqual({ switchedOff: true });
+    await create(undefined, { DISABLE_AUTO_COMPACT: "1" });
+    await expect(instance.adapter.compactionSigns!()).resolves.toEqual({ switchedOff: true });
+  });
+
   it("leaves the hour-long cache off for an account that turned it off", async () => {
     const dump = join(scratch, "cache-hour-off.json");
     await create(undefined, { FAKE_CLAUDE_DUMP: dump, ENABLE_PROMPT_CACHING_1H: "0" });

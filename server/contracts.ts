@@ -8,6 +8,7 @@ import type {
 import type { ProviderIcon } from "../shared/provider-icon.ts";
 import type { VolatileSection } from "./laterdog/volatile-sections.ts";
 import type { HelperModelChoice } from "./laterdog/helper-model.ts";
+import type { CompactionSigns } from "./laterdog/native-compaction.ts";
 
 export type { CloudBackend, EffortLevel, ModelSelection } from "../shared/wire.ts";
 export type {
@@ -176,6 +177,7 @@ export interface ProviderAdapter {
   steer?(threadId: ThreadId, text: string, images?: TurnImageInput[], onRead?: () => void): Promise<SteerOutcome>;
   hasSession(threadId: ThreadId): boolean;
   nativeCompactAt?(): Promise<number | undefined>;
+  compactionSigns?(): Promise<CompactionSigns>;
   stopAll(): Promise<void>;
   onEvent(listener: RuntimeEventListener): () => void;
 }
