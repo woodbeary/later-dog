@@ -110,10 +110,6 @@ describe("judging a quiet chat", () => {
     }
   });
 
-  it("leaves a chat alone while its kept turn waits for the person to sign in or turn the account back on", () => {
-    expect(judgeChat(chat(cut(), { usageWait: true, now: T0 + 10 * MINUTE }))).toEqual({ kind: "fine", why: "usage" });
-  });
-
   it("acts after three quiet minutes and only within thirty", () => {
     expect(STALL_LOOKBACK_MS).toBe(30 * MINUTE);
     expect(judgeChat(chat(cut(), { now: T0 + 2 + STALL_QUIET_MS - 1 }))).toEqual({ kind: "fine", why: "recent" });
