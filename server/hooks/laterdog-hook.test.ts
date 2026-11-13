@@ -18,10 +18,10 @@ afterAll(async () => {
   await removeTempDir(dir);
 });
 
-function run(stdin: string, env: Record<string, string>): Promise<{ code: number | null; stdout: string; stderr: string; ms: number }> {
+function run(stdin: string, env: Record<string, string>, argv: string[] = []): Promise<{ code: number | null; stdout: string; stderr: string; ms: number }> {
   return new Promise((resolve) => {
     const started = Date.now();
-    const child = spawn(process.execPath, [HELPER], { env: { ...process.env, ...env }, stdio: ["pipe", "pipe", "pipe"] });
+    const child = spawn(process.execPath, [HELPER, ...argv], { env: { ...process.env, ...env }, stdio: ["pipe", "pipe", "pipe"] });
     child.stdout.setEncoding("utf8");
     child.stderr.setEncoding("utf8");
     let stdout = "";
@@ -135,6 +135,47 @@ describe("laterdog-hook helper: SessionStart context", () => {
       res.end(JSON.stringify({ ok: true, context: "should not be printed" }));
     });
     const result = await run(JSON.stringify({ hook_event_name: "PostToolUse", tool_use_id: "t" }), { LATERDOG_HOOK_URL: url, LATERDOG_HOOK_TOKEN_FILE: tokenFile });
+    expect(result.code).toBe(0);
+    expect(result.stdout).toBe("");
+  }, 15_000);
+});
+
+describe("laterdog-hook helper: the engine's compaction summary", () => {
+  const summary = JSON.stringify({ hook_event_name: "PostCompact", trigger: "auto", compact_summary: "the person chose port 9001" });
+
+  it("posts only where its own command line says, whatever the environment names", async () => {
+    let decoy = 0;
+    const seen: string[] = [];
+    const elsewhere = await listen((_req, res) => { decoy++; res.end("{}"); });
+    const home = await listen((req, res) => { seen.push(String(req.headers.authorization)); res.end(JSON.stringify({ ok: true })); });
+    const decoyToken = join(dir, "decoy-token");
+    writeFileSync(decoyToken, "decoy-token\n", { mode: 0o600 });
+    const result = await run(summary, { LATERDOG_HOOK_URL: elsewhere, LATERDOG_HOOK_TOKEN_FILE: decoyToken }, [home, tokenFile]);
+    expect(result.code).toBe(0);
+    expect(result.stdout).toBe("");
+    expect(decoy).toBe(0);
+    expect(seen).toEqual(["Bearer secret-token-123"]);
+  }, 15_000);
+
+  it("never contacts an address off this machine", async () => {
+    const result = await run(summary, {}, ["http://example.invalid:80", tokenFile]);
+    expect(result.code).toBe(0);
+    expect(result.stdout).toBe("");
+    expect(result.ms).toBeLessThan(3_000);
+  }, 15_000);
+
+  it("exits 0 with no output within its budget when the home never answers", async () => {
+    const home = await listen(() => {});
+    const result = await run(summary, {}, [home, tokenFile]);
+    expect(result.code).toBe(0);
+    expect(result.stdout).toBe("");
+    expect(result.stderr).toBe("");
+    expect(result.ms).toBeLessThan(5_000);
+  }, 15_000);
+
+  it("exits 0 with no output when the home refuses it", async () => {
+    const home = await listen((_req, res) => { res.statusCode = 500; res.end("boom"); });
+    const result = await run(summary, {}, [home, tokenFile]);
     expect(result.code).toBe(0);
     expect(result.stdout).toBe("");
   }, 15_000);

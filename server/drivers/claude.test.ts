@@ -98,6 +98,13 @@ describe("ClaudeDriver.decodeConfig", () => {
     }
   });
 
+  it("names the home's address and the token file on the hook's own command line", () => {
+    const settings = claudeHookSettings("/tmp/helper.ts", { target: { url: "http://127.0.0.1:4321", tokenFile: "/data/it's/token" } }) as { Stop: Array<{ hooks: Array<{ command: string; timeout: number }> }> };
+    const hook = settings.Stop[0]!.hooks[0]!;
+    expect(hook.timeout).toBe(5);
+    if (process.platform !== "win32") expect(hook.command).toMatch(/'\/tmp\/helper\.ts' 'http:\/\/127\.0\.0\.1:4321' '\/data\/it'\\''s\/token'$/);
+  });
+
   it("asks before each shell command only when the home guards heavy commands", () => {
     const plain = claudeHookSettings("/tmp/helper.ts");
     expect(plain).not.toHaveProperty("PreToolUse");
