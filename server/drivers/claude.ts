@@ -501,6 +501,13 @@ export function hookTokenFile(threadId: string, botId?: string): string {
   return join(DATA_DIR, "hook-tokens", `${digest}.token`);
 }
 
+const HOOK_ADDRESS_VARIABLES = ["LATERDOG_HOOK_URL", "LATERDOG_HOOK_TOKEN_FILE"] as const;
+
+export function claudeHookEnvironment(platform: NodeJS.Platform, target: ClaudeHookTarget, helperPath: string): Record<string, string> {
+  if (platform !== "win32") return {};
+  return { LATERDOG_HOOK_URL: target.url, LATERDOG_HOOK_TOKEN_FILE: target.tokenFile, LATERDOG_HOOK_NODE: process.execPath, LATERDOG_HOOK_HELPER: helperPath };
+}
+
 export function claudeUnansweredError(frame: { is_error?: unknown; errors?: unknown; result?: unknown }): string | null {
   if (frame.is_error !== true || !Array.isArray(frame.errors)) return null;
   if (typeof frame.result === "string" && frame.result.trim()) return null;
@@ -1310,12 +1317,10 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
       if (hooks && hookTokenPath) {
         mkdirSync(dirname(hookTokenPath), { recursive: true, mode: 0o700 });
         writeFileAtomicIfChanged(hookTokenPath, hooks.token, { mode: 0o600, durable: false });
-        env.LATERDOG_HOOK_URL = hooks.url;
-        env.LATERDOG_HOOK_TOKEN_FILE = hookTokenPath;
-        env.LATERDOG_HOOK_NODE = process.execPath;
-        env.LATERDOG_HOOK_HELPER = HOOK_HELPER_PATH;
+        Object.assign(env, claudeHookEnvironment(process.platform, { url: hooks.url, tokenFile: hookTokenPath }, HOOK_HELPER_PATH));
         if (process.versions.electron) env.ELECTRON_RUN_AS_NODE = "1";
       }
+      for (const name of HOOK_ADDRESS_VARIABLES) if (!(hooks && process.platform === "win32")) delete env[name];
       const settings: Record<string, unknown> = { ...authSettings };
       if (isolated) settings.claudeMdExcludes = machineClaudeMemoryExcludes(env);
       if (hooks && hookTokenPath) settings.hooks = claudeHookSettings(HOOK_HELPER_PATH, { guardShell: hooks.guardShell === true,

@@ -2148,9 +2148,14 @@ describe("ClaudeDriver turns (fake CLI)", () => {
       await create(undefined, { FAKE_CLAUDE_DUMP: dump, FAKE_CLAUDE_VERSION: version });
       await instance.adapter.sendTurn({ threadId: `t-post-compact-${version}`, text: "hi", integrations: { hooks: { url: "http://127.0.0.1:9", token: "fixture" } } } as any);
       await recorder.until((e) => e.type === "turn.completed");
-      const { settings } = JSON.parse(readFileSync(dump, "utf8"));
+      const { settings, env } = JSON.parse(readFileSync(dump, "utf8"));
       expect(Boolean(settings?.hooks?.PostCompact)).toBe(expected);
       expect(Boolean(settings?.hooks?.PreCompact)).toBe(true);
+      if (process.platform !== "win32") {
+        expect(env.LATERDOG_HOOK_URL).toBeUndefined();
+        expect(env.LATERDOG_HOOK_TOKEN_FILE).toBeUndefined();
+        expect(settings.hooks.Stop[0].hooks[0].command).toContain("'http://127.0.0.1:9'");
+      }
     }
   });
 
