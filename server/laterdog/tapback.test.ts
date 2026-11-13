@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { WireMessage } from "../../shared/wire.ts";
 import { buildNotification } from "../notify.ts";
-import { onlyTapbackText, reactedText, replyTapback, replyTapbackStreamChunk, TAPBACK_NOTE, TAPBACK_PROMPT, tapbackEmoji, tapbackTarget, tapbackStreamChunk, withTapback } from "./tapback.ts";
+import { onlyTapbackText, reactedText, replyTapback, replyTapbackStreamChunk, STEER_TAPBACK_NOTE, TAPBACK_NOTE, TAPBACK_PROMPT, tapbackEmoji, tapbackTarget, tapbackStreamChunk, withTapback } from "./tapback.ts";
 import { ON_IT_NOTE, SHORT_ON_IT_NOTE, STEER_NOTE, withOnItNote, workUpdatesPrompt } from "./work-updates.ts";
 
 const text = (id: string, role: "user" | "bot", body: string): WireMessage => ({ id, role, kind: "text", text: body, at: 1 });
@@ -128,7 +128,7 @@ describe("a dog's tapback", () => {
 describe("what dogs are told about tapbacks", () => {
   it("has every engine answer an acknowledgment with one emoji and keep the react tool for mid-work", () => {
     expect(TAPBACK_PROMPT).toMatch(/"ok", "thanks", "👍" or "got it", reply with one emoji and nothing else; the app shows it as a tapback on their message\./);
-    expect(TAPBACK_PROMPT).toMatch(/To react in the middle of work, use the react tool and carry on\.$/);
+    expect(TAPBACK_PROMPT).toMatch(/If one arrives while you are working, react to it with the react tool instead and carry on\.$/);
     for (const engine of ["claude", "codex", "other", undefined] as const) {
       expect(workUpdatesPrompt({ react: true, engine })).toContain(TAPBACK_PROMPT);
       expect(withOnItNote("thanks", engine)).toContain(TAPBACK_NOTE);
@@ -138,8 +138,10 @@ describe("what dogs are told about tapbacks", () => {
     expect(workUpdatesPrompt()).not.toContain("react tool");
   });
 
-  it("makes the steer and on-it notes allow a one-emoji reply", () => {
-    expect(STEER_NOTE).toMatch(/Reply to it now in a short line.*If it only acknowledges, such as "ok" or "thanks", reply with one emoji and nothing else; the app shows it as a tapback\.\]$/);
+  it("has a dog at work react to a bare acknowledgment and carry on, and allows a one-emoji reply otherwise", () => {
+    expect(STEER_NOTE).toMatch(/Reply to it now in a short line.*If it only acknowledges, such as "ok" or "thanks", react to it with the react tool and carry on\.\]$/);
+    expect(STEER_NOTE).toContain(STEER_TAPBACK_NOTE);
+    expect(STEER_NOTE).not.toContain("one emoji");
     expect(ON_IT_NOTE).toMatch(/A one-emoji reply needs no on-it line\./);
   });
 });

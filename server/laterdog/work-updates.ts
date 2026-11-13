@@ -1,5 +1,5 @@
 import type { GuidanceEngine } from "./dog-guidance.ts";
-import { TAPBACK_NOTE, TAPBACK_PROMPT } from "./tapback.ts";
+import { STEER_TAPBACK_NOTE, TAPBACK_NOTE, TAPBACK_PROMPT } from "./tapback.ts";
 
 export const QUIET_WORK_PROMPT =
   " The app already shows that you are working, so between your one-line updates do not narrate each step, tool, file or search. Screenshots you take are for you; do not describe them. When the person writes to you while you work, reply in a short line straight away, before your next tool call, then carry on.";
@@ -22,7 +22,7 @@ export function withOnItNote(text: string, engine?: GuidanceEngine): string {
   return `${text}\n\n${engine === "other" ? SHORT_ON_IT_NOTE : ON_IT_NOTE}`;
 }
 
-export const STEER_NOTE = `[later.dog note, not typed by the person: the person sent this while you were working. Reply to it now in a short line, before your next tool call, then carry on with any change it asks for.${TAPBACK_NOTE}]`;
+export const STEER_NOTE = `[later.dog note, not typed by the person: the person sent this while you were working. Reply to it now in a short line, before your next tool call, then carry on with any change it asks for.${STEER_TAPBACK_NOTE}]`;
 
 export function withSteerNote(text: string): string {
   return `${text}\n\n${STEER_NOTE}`;

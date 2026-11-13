@@ -3,7 +3,9 @@ import type { WireMessage } from "../../shared/wire.ts";
 type Reaction = NonNullable<WireMessage["reactions"]>[number];
 
 export const TAPBACK_PROMPT =
-  " When a message needs no answer, such as \"ok\", \"thanks\", \"👍\" or \"got it\", reply with one emoji and nothing else; the app shows it as a tapback on their message. To react in the middle of work, use the react tool and carry on.";
+  " When a message needs no answer, such as \"ok\", \"thanks\", \"👍\" or \"got it\", reply with one emoji and nothing else; the app shows it as a tapback on their message. If one arrives while you are working, react to it with the react tool instead and carry on.";
+
+export const STEER_TAPBACK_NOTE = " If it only acknowledges, such as \"ok\" or \"thanks\", react to it with the react tool and carry on.";
 
 export const TAPBACK_NOTE = " If it only acknowledges, such as \"ok\" or \"thanks\", reply with one emoji and nothing else; the app shows it as a tapback.";
 
