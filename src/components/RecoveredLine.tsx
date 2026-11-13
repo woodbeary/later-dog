@@ -1,13 +1,14 @@
 import { RefreshCw } from "lucide-react";
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { statusActivity } from "@/lib/activity-runs";
 import { t } from "@/lib/i18n";
 import type { RecoveredItem } from "@/lib/quiet-lines";
 import type { InstanceInfo } from "@/state/store";
 import { FailedTurnRow } from "./FailedTurnRow";
 
-export function RecoveredLine({ item, engine, botId, threadId, forceOpen = false }: {
+export function RecoveredLine({ item, engine, botId, threadId, forceOpen = false, children }: {
   item: RecoveredItem;
+  children?: ReactNode;
   engine: InstanceInfo | undefined;
   botId?: string;
   threadId?: string;
@@ -35,6 +36,7 @@ export function RecoveredLine({ item, engine, botId, threadId, forceOpen = false
           <FailedTurnRow tool={message.tool} engine={engine} botId={botId} threadId={threadId} />
         </div>
       ))}
+      {open && children}
     </div>
   );
 }

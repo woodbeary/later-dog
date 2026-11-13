@@ -3,6 +3,7 @@ import type { WireExchange } from "../../shared/room-exchange";
 import type { DogColor } from "./mascot";
 import { isRecoveryActivity, isStatusActivity, type TranscriptItem } from "./activity-runs";
 import { failedTurnCause } from "./failed-turn";
+import { isProviderSafetyBlock } from "../../shared/provider-safety";
 import { peerLine } from "./peer-message";
 import { localDay } from "./transcript-derivations";
 
@@ -38,7 +39,10 @@ export interface RecoveredItem {
   recovery: Message;
   messages: Message[];
   folded: Message[];
+  since: number;
 }
+
+const MAC_PERMISSION = /^CUA Driver is not ready\b/;
 
 export type QuietTranscriptItem = TranscriptItem | ExchangeItem | RecoveredItem;
 
@@ -140,30 +144,58 @@ export function carriesOnByItself(message: Message): boolean {
   return message.tool?.ok === true && (pickup === "watch" || pickup === "restart") && isRecoveryActivity(message);
 }
 
-export function turnFailure(message: Message): boolean {
+function failureRow(message: Message): boolean {
   const tool = message.tool;
-  return message.kind === "activity" && tool?.ok === false && failedTurnCause(tool.name) !== null
-    && !tool.pickup && !tool.quota && !tool.place;
+  return message.kind === "activity" && tool?.ok === false && failedTurnCause(tool.name) !== null && !tool.pickup;
+}
+
+export function needsPerson(message: Message): boolean {
+  const tool = message.tool;
+  if (!tool || !failureRow(message)) return false;
+  const raw = tool.detail ?? failedTurnCause(tool.name) ?? "";
+  return Boolean(tool.setup || tool.claudeUpdate || tool.quota || tool.place)
+    || isProviderSafetyBlock(raw) || MAC_PERMISSION.test(raw);
+}
+
+export function turnFailure(message: Message): boolean {
+  return failureRow(message) && !needsPerson(message);
+}
+
+function lastAt(item: QuietTranscriptItem): number {
+  return item.kind === "message" ? item.message.at : item.messages.at(-1)?.at ?? Number.NEGATIVE_INFINITY;
 }
 
 function takeFailures(
   folded: Array<QuietTranscriptItem>,
   renders: (item: TranscriptItem) => boolean,
-): Message[] {
-  const taken: Message[] = [];
+): { messages: Message[]; since: number } {
+  const taken: number[] = [];
+  let since = Number.NEGATIVE_INFINITY;
   for (let index = folded.length - 1; index >= 0; index -= 1) {
     const candidate = folded[index]!;
+    if (candidate.kind === "message" && needsPerson(candidate.message)) return { messages: [], since };
     if (candidate.kind === "message" && turnFailure(candidate.message)) {
-      taken.unshift(candidate.message);
-      folded.splice(index, 1);
+      taken.push(index);
       continue;
     }
     const quiet = candidate.kind === "message"
       ? candidate.message.kind === "digest" || !renders(candidate)
       : candidate.kind === "run" && !renders(candidate);
-    if (!quiet) break;
+    if (!quiet) {
+      since = lastAt(candidate);
+      break;
+    }
   }
-  return taken;
+  const messages: Message[] = [];
+  for (const index of taken) {
+    const [item] = folded.splice(index, 1);
+    if (item?.kind === "message") messages.unshift(item.message);
+  }
+  return { messages, since };
+}
+
+export function foldedRuns<R extends { id: string; startedAt: number }>(item: Pick<RecoveredItem, "since" | "recovery">, runs: readonly R[]): R[] {
+  return runs.filter((run) => run.startedAt >= item.since && run.startedAt < item.recovery.at);
 }
 
 export function foldExchanges<T extends TranscriptItem>(
@@ -176,9 +208,9 @@ export function foldExchanges<T extends TranscriptItem>(
   const folded: Array<T | ExchangeItem | RecoveredItem> = [];
   for (const item of items) {
     if (item.kind === "message" && carriesOnByItself(item.message)) {
-      const failures = takeFailures(folded, renders);
+      const { messages: failures, since } = takeFailures(folded, renders);
       if (failures.length) {
-        folded.push({ kind: "recovered", id: `recovered:${item.message.id}`, recovery: item.message, messages: [...failures, item.message], folded: failures });
+        folded.push({ kind: "recovered", id: `recovered:${item.message.id}`, recovery: item.message, messages: [...failures, item.message], folded: failures, since });
         continue;
       }
     }
