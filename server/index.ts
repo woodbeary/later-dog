@@ -8234,6 +8234,8 @@ async function startTurn(
   const turnLineIds = new Set(opts?.excludeMessageIds ?? []);
   const spoken = opts?.via === "call" || opts?.userMessage?.via === "call" ||
     (turnLineIds.size > 0 && store.messagesFor(threadId).some((message) => turnLineIds.has(message.id) && message.via === "call"));
+  const fromLocalTool = opts?.via === "api" || opts?.userMessage?.via === "api" ||
+    (turnLineIds.size > 0 && store.messagesFor(threadId).some((message) => turnLineIds.has(message.id) && message.via === "api"));
   console.error(turnStartLogLine({
     botId, text: resolvedImages.text, images: turnImages.length, depth: commsDepth, card: Boolean(opts?.cardContinuation), spoken,
   }));
@@ -8951,7 +8953,7 @@ async function startTurn(
         botId: bot.id,
         startupRecovery: cfg.automaticRecovery?.enabled === true &&
           (opts?.automaticRecoveryIndex ?? 0) < ((liveBot ?? bot).fallback?.length || (cfg.automaticRecovery.backup ? 1 : 0)),
-        text: withRecalled(recalled, fromPerson ? withOnItNote(dispatchContext.turnText, guidanceEngine(instance.driverKind)) : dispatchContext.turnText),
+        text: withRecalled(recalled, fromPerson && !fromLocalTool ? withOnItNote(dispatchContext.turnText, guidanceEngine(instance.driverKind)) : dispatchContext.turnText),
         images: turnImages,
         approvalMode: approvalModeForTurn(bot, commsDepth > 0, threadId),
         ...(ownerGrant ? { reviewerGrant: claudeReviewerGrant(cfg.profile?.name, cfg.profile?.askFirst) } : {}),
