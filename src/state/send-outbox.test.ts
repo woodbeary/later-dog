@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { createElement, type Dispatch } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -7,7 +8,8 @@ import { api, initialState, reducer, StoreProvider, useStore, type Action, type 
 import { createSendOutbox } from "./send-outbox";
 import { HELD_GIVE_UP_MS, HELD_NOT_SENT, HELD_SENDS_KEY } from "@/lib/held-sends";
 import { SendingTrack } from "@/components/SendingTrack";
-import { withDeskQueue } from "../../deploy/laterdog/home/src/desk.ts";
+import { SAVED_HEADER, withDeskQueue } from "../../deploy/laterdog/home/src/desk.ts";
+import { EDGE_SAVED_COPY_HEADER, HOME_NO_SUCH_THREAD } from "@/lib/held-thread-check";
 import { deskUserLine } from "../../deploy/laterdog/home/src/desk-stream.ts";
 
 function mount(request: typeof fetch) {
@@ -607,12 +609,12 @@ describe("a message the edge held for a sleeping home", () => {
 
     describe("and the chat does not show the message", () => {
       const cardSend: OutboxItem = { ...sent, card: { botId: "bot", messageId: "card-1" } };
-      const waiting = async (answer: (path: string) => Promise<unknown> = goneAnswer) => {
+      const waiting = async (answer: (path: string) => Promise<unknown> = goneAnswer, more: Partial<Parameters<typeof createSendOutbox>[0]> = {}) => {
         const dispatched: Action[] = [];
         const confirmAtHome = vi.fn();
         const cardAnswered = vi.fn();
         const cardAnswerFailed = vi.fn();
-        const made = await holding(answer, undefined, { lineOnThread: () => false, confirmAtHome, cardAnswered, cardAnswerFailed, dispatch: (action) => dispatched.push(action) }, cardSend);
+        const made = await holding(answer, undefined, { lineOnThread: () => false, confirmAtHome, cardAnswered, cardAnswerFailed, dispatch: (action) => dispatched.push(action), ...more }, cardSend);
         dispatched.length = 0;
         return { ...made, dispatched, confirmAtHome, cardAnswered, cardAnswerFailed };
       };
@@ -654,15 +656,18 @@ describe("a message the edge held for a sleeping home", () => {
       });
 
       describe("and the refresh does not carry the thread it was sent to", () => {
-        const threadReads = (request: ReturnType<typeof vi.fn>) => request.mock.calls.filter(([path]) => String(path).startsWith("/api/threads/")).map(([path]) => String(path));
         const onTaskB = [{ id: "bot", threadId: "task-B", messages: [{ id: "home-line-9", role: "user", text: "other", sendId: "other-send" }] } as never];
-        const answering = (thread: () => Promise<unknown>) => async (path: string) => (path.startsWith("/api/threads/") ? thread() : { held: [], dropped: [] });
+        const jsonAnswer = (status: number, body: unknown, headers: Record<string, string> = {}) => new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json", ...headers } });
+        const homeLines = (...lines: unknown[]) => jsonAnswer(200, { messages: lines, hasMore: false, activeLeafId: null });
+        const reading = (answer: () => Response | Promise<Response>) => vi.fn<(path: string, init: RequestInit) => Promise<Response>>(async () => answer());
+        const reads = (fetchThread: ReturnType<typeof reading>) => fetchThread.mock.calls.map(([path]) => path);
 
         it("reads that thread, and lets a message the home wrote there go as delivered, with no Not sent, no words back and its card answered", async () => {
           const before = failedBefore();
-          const { store, showError, request, outbox, dispatched, cardAnswered, cardAnswerFailed } = await waiting(answering(async () => ({ messages: [{ id: "home-line-1", role: "user", text: "wake up and ship it", sendId: sent.sendId }] })));
+          const fetchThread = reading(() => homeLines({ id: "home-line-1", role: "user", text: "wake up and ship it", sendId: sent.sendId }));
+          const { store, showError, outbox, dispatched, cardAnswered, cardAnswerFailed } = await waiting(goneAnswer, { fetchThread });
           await outbox.settleHeld(onTaskB, [], {});
-          expect(threadReads(request)).toEqual([`/api/threads/thread/messages?limit=200`]);
+          expect(reads(fetchThread)).toEqual(["/api/threads/thread/messages?limit=200"]);
           expect(kept(store)).toEqual([]);
           expect(showError).not.toHaveBeenCalled();
           expect(failedBefore()).toBe(before);
@@ -670,24 +675,42 @@ describe("a message the edge held for a sleeping home", () => {
           expect(cardAnswerFailed).not.toHaveBeenCalled();
           expect(dispatched).toEqual([{ type: "consumePendingQueued", threadId: "thread", queueId: sent.sendId }]);
           await outbox.settleHeld(onTaskB, [], {});
-          expect(threadReads(request)).toHaveLength(1);
+          expect(reads(fetchThread)).toHaveLength(1);
         });
 
-        it("says Not sent with its words once that thread was read and the message is not in it", async () => {
+        it.each([
+          ["the home read the thread and the message is not in it", () => homeLines({ id: `desk-${sent.sendId}`, sendId: sent.sendId }, { id: "home-line-2", sendId: "other-send" })],
+          ["the home says the thread does not exist", () => jsonAnswer(404, { error: HOME_NO_SUCH_THREAD })],
+        ])("says Not sent with its words once, and never reads again, when %s", async (_case, answer) => {
           const before = failedBefore();
-          const { store, showError, outbox, cardAnswerFailed } = await waiting(answering(async () => ({ messages: [{ id: `desk-${sent.sendId}`, sendId: sent.sendId }, { id: "home-line-2", sendId: "other-send" }] })));
+          const fetchThread = reading(answer);
+          const { store, showError, outbox, cardAnswerFailed, timers } = await waiting(goneAnswer, { fetchThread });
           await outbox.settleHeld(onTaskB, [], {});
           expect(kept(store)).toEqual([]);
           expect(failedComposerSends(draft).slice(before)).toEqual([expect.objectContaining({ sendId: sent.sendId, text: "wake up and ship it" })]);
           expect(showError).toHaveBeenCalledOnce();
           expect(showError).toHaveBeenCalledWith(expect.objectContaining({ message: HELD_NOT_SENT }), "thread");
           expect(cardAnswerFailed).toHaveBeenCalledOnce();
+          await outbox.settleHeld(onTaskB, [], {});
+          await timers.fire();
+          expect(reads(fetchThread)).toHaveLength(1);
+          expect(showError).toHaveBeenCalledOnce();
         });
 
-        it("keeps the copy when that thread cannot be read, and settles it on a later refresh that can read it", async () => {
+        it.each([
+          ["the connection fails", () => { throw new TypeError("Failed to fetch"); }],
+          ["the home is waking", () => jsonAnswer(503, { error: "waking", retryAfter: 2 }, { "x-laterdog-home": "waking" })],
+          ["the home fails", () => jsonAnswer(500, { error: "boom" })],
+          ["the person must sign in again", () => jsonAnswer(401, { error: "sign in" })],
+          ["the edge answers Not found for itself", () => new Response("Not found", { status: 404 })],
+          ["a proxy answers 404 with its own page", () => new Response("<html>404</html>", { status: 404, headers: { "content-type": "text/html" } })],
+          ["a 404 names something other than the thread", () => jsonAnswer(404, { error: "no such message" })],
+          ["the edge serves its saved copy of the thread while the home sleeps", () => jsonAnswer(200, { messages: [{ id: "home-line-2", sendId: "other-send" }] }, { [EDGE_SAVED_COPY_HEADER]: new Date(1).toISOString() })],
+        ])("keeps the copy when %s, and settles it on a later refresh that can read the thread", async (_case, answer: () => Response) => {
           const before = failedBefore();
-          let thread: () => Promise<unknown> = async () => { throw Object.assign(new Error("waking"), { status: 503 }); };
-          const { store, showError, request, outbox, confirmAtHome, cardAnswered, cardAnswerFailed } = await waiting(answering(() => thread()));
+          let current: () => Response = answer;
+          const fetchThread = reading(() => current());
+          const { store, showError, outbox, confirmAtHome, cardAnswered, cardAnswerFailed } = await waiting(goneAnswer, { fetchThread });
           await outbox.settleHeld(onTaskB, [], {});
           expect(kept(store)).toEqual([expect.objectContaining({ sendId: sent.sendId })]);
           expect(showError).not.toHaveBeenCalled();
@@ -695,9 +718,9 @@ describe("a message the edge held for a sleeping home", () => {
           expect(confirmAtHome).not.toHaveBeenCalled();
           expect(failedBefore()).toBe(before);
 
-          thread = async () => ({ messages: [{ id: "home-line-1", sendId: sent.sendId }] });
+          current = () => homeLines({ id: "home-line-1", sendId: sent.sendId });
           await outbox.settleHeld(onTaskB, [], {});
-          expect(threadReads(request)).toHaveLength(2);
+          expect(reads(fetchThread)).toHaveLength(2);
           expect(kept(store)).toEqual([]);
           expect(cardAnswered).toHaveBeenCalledOnce();
           expect(showError).not.toHaveBeenCalled();
@@ -705,13 +728,25 @@ describe("a message the edge held for a sleeping home", () => {
 
         it("reads each thread once per refresh however many messages wait on it", async () => {
           const store = memoryStore({ [HELD_SENDS_KEY]: JSON.stringify(["one", "two"].map((id) => ({ sendId: `held-${id}`, threadId: "task-A", draftId: "d", text: id, requestText: id, at: 1 }))) });
-          const request = vi.fn(async (path: string) => (path.startsWith("/api/threads/") ? { messages: [{ id: "home-1", sendId: "held-one" }] } : { held: [], dropped: [] }));
+          const request = vi.fn(async () => ({ held: [], dropped: [] }));
+          const fetchThread = reading(() => homeLines({ id: "home-1", sendId: "held-one" }));
           const showError = vi.fn();
-          const outbox = createSendOutbox({ request, dispatch: vi.fn(), showError, store, now: () => 2_000, after: manualTimers().after, lineOnThread: () => false });
+          const outbox = createSendOutbox({ request, fetchThread, dispatch: vi.fn(), showError, store, now: () => 2_000, after: manualTimers().after, lineOnThread: () => false });
           await outbox.settleHeld(onTaskB, [], {});
-          expect(threadReads(request)).toEqual(["/api/threads/task-A/messages?limit=200"]);
+          expect(reads(fetchThread)).toEqual(["/api/threads/task-A/messages?limit=200"]);
           expect(showError).toHaveBeenCalledOnce();
           expect(kept(store)).toEqual([]);
+        });
+
+        const HOME_THREAD_ROUTE = (() => {
+          const source = readFileSync(new URL("../../server/index.ts", import.meta.url), "utf8");
+          const at = source.indexOf(String.raw`path.match(/^\/api\/threads\/([\w-]+)\/messages$/)`);
+          return at < 0 ? "" : source.slice(at, at + 400);
+        })();
+
+        it("matches what the home and the edge really send", () => {
+          expect(EDGE_SAVED_COPY_HEADER).toBe(SAVED_HEADER);
+          expect(HOME_THREAD_ROUTE).toContain(`json(res, 404, { error: "${HOME_NO_SUCH_THREAD}" })`);
         });
       });
 

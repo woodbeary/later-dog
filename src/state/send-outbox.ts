@@ -11,7 +11,7 @@ import {
   writeHeldSends,
   type HeldSend,
 } from "@/lib/held-sends";
-import { judgeUnconfirmed, threadReader, threadsCoveredBy } from "@/lib/held-thread-check";
+import { judgeUnconfirmed, threadReader, threadsCoveredBy, type FetchThread } from "@/lib/held-thread-check";
 import {
   SEND_ATTEMPT_TIMEOUT_MS,
   browserStore,
@@ -38,6 +38,7 @@ export interface SendOutboxDeps {
   cardAnswerFailed?: (card: OutboxCard) => void;
   lineOnThread?: (threadId: string, sendId: string) => boolean;
   confirmAtHome?: () => void;
+  fetchThread?: FetchThread;
 }
 
 export interface SendHooks {
@@ -144,6 +145,7 @@ interface HeldSendKeeper {
 
 function createHeldSendKeeper(deps: {
   request: SendOutboxDeps["request"];
+  fetchThread: FetchThread;
   store: Store;
   after: (ms: number, run: () => void) => () => void;
   now: () => number;
@@ -188,7 +190,7 @@ function createHeldSendKeeper(deps: {
     }
     let undecided = false;
     const covered = refresh ? threadsCoveredBy([...refresh.bots, ...refresh.groups]) : new Set<string>();
-    const readThread = threadReader(deps.request);
+    const readThread = threadReader(deps.fetchThread);
     for (const group of heldAskGroups(waiting)) {
       const ids = group.map((send) => send.sendId);
       const reply = await deps
@@ -359,6 +361,7 @@ export function createSendOutbox(deps: SendOutboxDeps): SendOutbox {
 
   const heldSends = createHeldSendKeeper({
     request: deps.request,
+    fetchThread: deps.fetchThread ?? ((path, init) => fetch(path, init)),
     store,
     after: deps.after ?? defaultAfter,
     now,

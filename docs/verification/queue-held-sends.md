@@ -64,8 +64,12 @@ the third review's three Should fix items; this note describes that head.
   thread (the message went into a task the person has since left, or the app was
   reloaded), the device reads that thread's messages
   (`/api/threads/:id/messages`, once per thread per refresh): the line there
-  releases the copy as delivered, its absence makes it Not sent, and a failed read
-  keeps the copy for the next refresh. A refresh that has the line releases the
+  releases the copy as delivered, its absence makes it Not sent, and so does the
+  home's own 404 for a chat that does not exist (JSON `{"error":"no such
+  conversation"}`). Every other answer keeps the copy for the next refresh: a
+  network error, a timeout, any other status, the edge's own `Not found`, a 404
+  without that body, and the edge's saved copy of the chat (`x-laterdog-saved-at`)
+  served while the home sleeps, which can be older than the message. A refresh that has the line releases the
   copy as delivered.
 - A card answer travels the same way (`card` on the outbox item and the copy).
   The card shows the answer as waiting until the home's receipt, or until a held
