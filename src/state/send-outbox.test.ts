@@ -9,7 +9,7 @@ import { createSendOutbox } from "./send-outbox";
 import { HELD_GIVE_UP_MS, HELD_NOT_SENT, HELD_SENDS_KEY } from "@/lib/held-sends";
 import { SendingTrack } from "@/components/SendingTrack";
 import { SAVED_HEADER, withDeskQueue } from "../../deploy/laterdog/home/src/desk.ts";
-import { EDGE_SAVED_COPY_HEADER, HOME_NO_SUCH_THREAD } from "@/lib/held-thread-check";
+import { EDGE_SAVED_COPY_HEADER, HOME_NO_SUCH_THREAD, HOME_QUEUES_PATH } from "@/lib/held-thread-check";
 import { deskUserLine } from "../../deploy/laterdog/home/src/desk-stream.ts";
 
 function mount(request: typeof fetch) {
@@ -609,12 +609,19 @@ describe("a message the edge held for a sleeping home", () => {
 
     describe("and the chat does not show the message", () => {
       const cardSend: OutboxItem = { ...sent, card: { botId: "bot", messageId: "card-1" } };
+      const jsonAnswer = (status: number, body: unknown, headers: Record<string, string> = {}) => new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json", ...headers } });
+      const homeLines = (...lines: unknown[]) => jsonAnswer(200, { messages: lines, hasMore: false, activeLeafId: null });
+      const homeQueues = (botQueuedMessages: unknown = {}, groups: unknown[] = []) => jsonAnswer(200, { bots: [{ id: "bot", threadId: "thread", messages: [] }], groups, botQueuedMessages });
+      const reading = (answer: () => Response | Promise<Response>, queues: () => Response | Promise<Response> = () => homeQueues()) =>
+        vi.fn<(path: string, init: RequestInit) => Promise<Response>>(async (path) => (path === HOME_QUEUES_PATH ? queues() : answer()));
+      const reads = (fetchThread: ReturnType<typeof reading>) => fetchThread.mock.calls.map(([path]) => path).filter((path) => path.startsWith("/api/threads/"));
+      const unreachable = () => reading(() => { throw new TypeError("Failed to fetch"); }, () => { throw new TypeError("Failed to fetch"); });
       const waiting = async (answer: (path: string) => Promise<unknown> = goneAnswer, more: Partial<Parameters<typeof createSendOutbox>[0]> = {}) => {
         const dispatched: Action[] = [];
         const confirmAtHome = vi.fn();
         const cardAnswered = vi.fn();
         const cardAnswerFailed = vi.fn();
-        const made = await holding(answer, undefined, { lineOnThread: () => false, confirmAtHome, cardAnswered, cardAnswerFailed, dispatch: (action) => dispatched.push(action), ...more }, cardSend);
+        const made = await holding(answer, undefined, { lineOnThread: () => false, confirmAtHome, cardAnswered, cardAnswerFailed, dispatch: (action) => dispatched.push(action), fetchThread: unreachable(), ...more }, cardSend);
         dispatched.length = 0;
         return { ...made, dispatched, confirmAtHome, cardAnswered, cardAnswerFailed };
       };
@@ -642,10 +649,9 @@ describe("a message the edge held for a sleeping home", () => {
         expect(failedBefore()).toBe(before);
       });
 
-      it("turns it into Not sent with its words only when the home's refresh does not have it either", async () => {
+      it("turns it into Not sent with its words only when a read of the home after the edge's answer does not have it either", async () => {
         const before = failedBefore();
-        const { store, showError, timers, outbox, dispatched, cardAnswered, cardAnswerFailed } = await waiting();
-        await timers.fire();
+        const { store, showError, outbox, dispatched, cardAnswered, cardAnswerFailed } = await waiting(goneAnswer, { fetchThread: reading(() => homeLines()) });
         await outbox.settleHeld([{ threadId: "thread", messages: [] } as never], [], {});
         expect(kept(store)).toEqual([]);
         expect(dispatched).toEqual([{ type: "consumePendingQueued", threadId: "thread", queueId: sent.sendId }]);
@@ -655,12 +661,64 @@ describe("a message the edge held for a sleeping home", () => {
         expect(cardAnswered).not.toHaveBeenCalled();
       });
 
+      it("does not trust a refresh taken before the edge answered: the home's later read has the line, so it is delivered", async () => {
+        const before = failedBefore();
+        const fetchThread = reading(() => homeLines({ id: "home-line-1", sendId: sent.sendId }));
+        const { store, showError, outbox, cardAnswered } = await waiting(goneAnswer, { fetchThread });
+        await outbox.settleHeld([{ threadId: "thread", messages: [] } as never], [], {});
+        expect(reads(fetchThread)).toEqual(["/api/threads/thread/messages?limit=200"]);
+        expect(kept(store)).toEqual([]);
+        expect(showError).not.toHaveBeenCalled();
+        expect(failedBefore()).toBe(before);
+        expect(cardAnswered).toHaveBeenCalledOnce();
+      });
+
+      it("lets it go as delivered when the home holds it in the dog's queue and the chat has no line for it yet", async () => {
+        const before = failedBefore();
+        const fetchThread = reading(() => homeLines(), () => homeQueues({ thread: [{ queueId: "home-queue-1", text: sent.text, sendId: sent.sendId, reason: "capacity" }] }));
+        const { store, showError, outbox, cardAnswered, cardAnswerFailed } = await waiting(goneAnswer, { fetchThread });
+        await outbox.settleHeld([{ threadId: "task-B", messages: [] } as never], [], {});
+        expect(kept(store)).toEqual([]);
+        expect(showError).not.toHaveBeenCalled();
+        expect(failedBefore()).toBe(before);
+        expect(cardAnswered).toHaveBeenCalledOnce();
+        expect(cardAnswerFailed).not.toHaveBeenCalled();
+      });
+
+      it("keeps the copy when the home's queue cannot be read, even if the chat has no line for it", async () => {
+        const fetchThread = reading(() => homeLines(), () => jsonAnswer(200, { bots: [], groups: [], botQueuedMessages: {} }, { [EDGE_SAVED_COPY_HEADER]: new Date(1).toISOString() }));
+        const { store, showError, outbox } = await waiting(goneAnswer, { fetchThread });
+        await outbox.settleHeld([{ threadId: "thread", messages: [] } as never], [], {});
+        expect(kept(store)).toHaveLength(1);
+        expect(showError).not.toHaveBeenCalled();
+      });
+
+      describe("in a room, whose queue the home does not show", () => {
+        const roomHeld = () => memoryStore({ [HELD_SENDS_KEY]: JSON.stringify([{ sendId: "room-send-1", threadId: "room-task", draftId: "d", text: "go", requestText: "go", at: 1 }]) });
+        const room = (working: boolean) => [{ id: "team", threadId: "room-thread", working, busyBotId: working ? "bot" : null, tasks: [{ threadId: "room-thread" }, { threadId: "room-task" }] }];
+        const settleRoom = async (working: boolean) => {
+          const store = roomHeld();
+          const showError = vi.fn();
+          const outbox = createSendOutbox({ request: vi.fn(async () => ({ held: [], dropped: [] })), fetchThread: reading(() => homeLines(), () => homeQueues({}, room(working))), dispatch: vi.fn(), showError, store, now: () => 2_000, after: manualTimers().after, lineOnThread: () => false });
+          await outbox.settleHeld([], [], {});
+          return { store, showError };
+        };
+
+        it("keeps the copy while the room is busy and the line is absent, since the room may have queued it", async () => {
+          const { store, showError } = await settleRoom(true);
+          expect(kept(store)).toHaveLength(1);
+          expect(showError).not.toHaveBeenCalled();
+        });
+
+        it("says Not sent when the room is idle and the line is absent", async () => {
+          const { store, showError } = await settleRoom(false);
+          expect(kept(store)).toEqual([]);
+          expect(showError).toHaveBeenCalledWith(expect.objectContaining({ message: HELD_NOT_SENT }), "room-task");
+        });
+      });
+
       describe("and the refresh does not carry the thread it was sent to", () => {
         const onTaskB = [{ id: "bot", threadId: "task-B", messages: [{ id: "home-line-9", role: "user", text: "other", sendId: "other-send" }] } as never];
-        const jsonAnswer = (status: number, body: unknown, headers: Record<string, string> = {}) => new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json", ...headers } });
-        const homeLines = (...lines: unknown[]) => jsonAnswer(200, { messages: lines, hasMore: false, activeLeafId: null });
-        const reading = (answer: () => Response | Promise<Response>) => vi.fn<(path: string, init: RequestInit) => Promise<Response>>(async () => answer());
-        const reads = (fetchThread: ReturnType<typeof reading>) => fetchThread.mock.calls.map(([path]) => path);
 
         it("reads that thread, and lets a message the home wrote there go as delivered, with no Not sent, no words back and its card answered", async () => {
           const before = failedBefore();
@@ -747,6 +805,11 @@ describe("a message the edge held for a sleeping home", () => {
         it("matches what the home and the edge really send", () => {
           expect(EDGE_SAVED_COPY_HEADER).toBe(SAVED_HEADER);
           expect(HOME_THREAD_ROUTE).toContain(`json(res, 404, { error: "${HOME_NO_SUCH_THREAD}" })`);
+          const home = readFileSync(new URL("../../server/index.ts", import.meta.url), "utf8");
+          expect(HOME_QUEUES_PATH.split("?")[0]).toBe("/api/bots");
+          expect(home).toContain("botQueuedMessages: visible.everything ? queued");
+          expect(home).toMatch(/function publicGroupState[\s\S]{0,600}working:/);
+          expect(readFileSync(new URL("../../server/steer-queue.ts", import.meta.url), "utf8")).toContain("...(item.sendId ? { sendId: item.sendId } : {})");
         });
       });
 

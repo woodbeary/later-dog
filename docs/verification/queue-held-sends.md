@@ -56,21 +56,21 @@ the third review's three Should fix items; this note describes that head.
   an absent chat line is not proof it was lost (the event stream may lag). When
   the edge says so on its own timer and the chat lacks the message, the device
   keeps the copy and asks the home once for its chats (the same read as a
-  refresh); if that read fails it asks again on the next round. Only a settle
-  that carries a real refresh may turn such a message into Not sent, and only on
-  evidence from the message's own thread. A refresh carries the newest lines of
-  each dog's and room's current thread only, so when it carries the message's
-  thread and lacks the line the message is Not sent. When it does not carry that
-  thread (the message went into a task the person has since left, or the app was
-  reloaded), the device reads that thread's messages
-  (`/api/threads/:id/messages`, once per thread per refresh): the line there
-  releases the copy as delivered, its absence makes it Not sent, and so does the
-  home's own 404 for a chat that does not exist (JSON `{"error":"no such
-  conversation"}`). Every other answer keeps the copy for the next refresh: a
-  network error, a timeout, any other status, the edge's own `Not found`, a 404
-  without that body, and the edge's saved copy of the chat (`x-laterdog-saved-at`)
-  served while the home sleeps, which can be older than the message. A refresh that has the line releases the
-  copy as delivered.
+  refresh); if that read fails it asks again on the next round. A refresh or
+  a chat on screen that shows the line releases the copy as delivered. Not sent
+  needs evidence the home gives after the edge's answer, never data fetched
+  before it: the device reads the home's queues (`/api/bots?messages=0`, whose
+  `botQueuedMessages` lists every message a dog's chat holds with its send id)
+  and then the message's own thread (`/api/threads/:id/messages`, once per
+  thread per round). The message is delivered when either shows it. It is Not
+  sent when both reads succeed and neither shows it, or when the home answers
+  its own 404 for a chat that does not exist (JSON `{"error":"no such
+  conversation"}`). The home shows no list of what a room has queued, so a room
+  that is working (`working` or `busyBotId`) keeps the copy until it is idle.
+  Every other answer keeps the copy: a network error, a timeout, any other
+  status, the edge's own `Not found`, a 404 without that body, and the edge's
+  saved copy (`x-laterdog-saved-at`) served while the home sleeps, which can be
+  older than the message.
 - A card answer travels the same way (`card` on the outbox item and the copy).
   The card shows the answer as waiting until the home's receipt, or until a held
   answer is delivered, and only then is marked answered; a refused, dropped or

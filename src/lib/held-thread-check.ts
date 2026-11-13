@@ -4,18 +4,14 @@ export const HELD_THREAD_READ_LIMIT = 200;
 export const HELD_THREAD_READ_TIMEOUT_MS = 10_000;
 export const EDGE_SAVED_COPY_HEADER = "x-laterdog-saved-at";
 export const HOME_NO_SUCH_THREAD = "no such conversation";
+export const HOME_QUEUES_PATH = "/api/bots?messages=0";
 
 type Line = { id?: unknown; sendId?: unknown };
-type Chat = { threadId?: unknown; messages?: readonly Line[] };
 
 export type FetchThread = (path: string, init: RequestInit) => Promise<Response>;
 
 export function isHomeLine(line: Line): boolean {
   return typeof line.id === "string" && !line.id.startsWith("optimistic-") && !line.id.startsWith("desk-");
-}
-
-export function threadsCoveredBy(chats: readonly Chat[]): Set<string> {
-  return new Set(chats.flatMap((chat) => (typeof chat.threadId === "string" && chat.threadId ? [chat.threadId] : [])));
 }
 
 export type ThreadRead = ReadonlySet<string> | "missing" | "unreadable";
@@ -51,23 +47,67 @@ export function threadReader(fetchThread: FetchThread): (threadId: string) => Pr
   };
 }
 
-export async function judgeUnconfirmed(
+export interface HomeQueues {
+  queued: ReadonlySet<string>;
+  busyRoomThreads: ReadonlySet<string>;
+}
+
+type Room = { threadId?: unknown; working?: unknown; busyBotId?: unknown; tasks?: unknown };
+
+function queuedAtHome(queues: unknown): string[] {
+  if (typeof queues !== "object" || queues === null) return [];
+  return Object.values(queues as Record<string, unknown>).flatMap((rows) =>
+    Array.isArray(rows)
+      ? rows.flatMap((row) => {
+          const { sendId, queueId } = (row ?? {}) as { sendId?: unknown; queueId?: unknown };
+          return typeof sendId === "string" && sendId && queueId !== sendId ? [sendId] : [];
+        })
+      : [],
+  );
+}
+
+function busyRoomThreads(rooms: unknown): string[] {
+  if (!Array.isArray(rooms)) return [];
+  return rooms.flatMap((room: Room) => {
+    if (!room || (room.working !== true && !room.busyBotId)) return [];
+    const tasks = Array.isArray(room.tasks) ? room.tasks.map((task: { threadId?: unknown }) => task?.threadId) : [];
+    return [room.threadId, ...tasks].filter((threadId): threadId is string => typeof threadId === "string" && threadId.length > 0);
+  });
+}
+
+export async function homeQueuesAnswer(response: Response): Promise<HomeQueues | "unreadable"> {
+  const body: unknown = await response.json().catch(() => null);
+  if (response.status !== 200 || response.headers.has(EDGE_SAVED_COPY_HEADER) || typeof body !== "object" || body === null) return "unreadable";
+  const { bots, groups, botQueuedMessages } = body as { bots?: unknown; groups?: unknown; botQueuedMessages?: unknown };
+  if (!Array.isArray(bots) || !Array.isArray(groups)) return "unreadable";
+  return { queued: new Set(queuedAtHome(botQueuedMessages)), busyRoomThreads: new Set(busyRoomThreads(groups)) };
+}
+
+export function readHomeQueues(fetchThread: FetchThread): Promise<HomeQueues | "unreadable"> {
+  return fetchThread(HOME_QUEUES_PATH, { headers: { "content-type": "application/json" }, signal: AbortSignal.timeout(HELD_THREAD_READ_TIMEOUT_MS) }).then(
+    homeQueuesAnswer,
+    () => "unreadable" as const,
+  );
+}
+
+export async function judgeAtHome(
   sends: readonly HeldSend[],
-  covered: ReadonlySet<string>,
+  queues: HomeQueues | "unreadable",
   read: (threadId: string) => Promise<ThreadRead>,
 ): Promise<{ delivered: HeldSend[]; notSent: HeldSend[]; unread: HeldSend[] }> {
   const delivered: HeldSend[] = [];
   const notSent: HeldSend[] = [];
   const unread: HeldSend[] = [];
   for (const send of sends) {
-    if (covered.has(send.threadId)) {
-      notSent.push(send);
+    if (queues !== "unreadable" && queues.queued.has(send.sendId)) {
+      delivered.push(send);
       continue;
     }
     const lines = await read(send.threadId);
-    if (lines === "unreadable") unread.push(send);
-    else if (lines === "missing" || !lines.has(send.sendId)) notSent.push(send);
-    else delivered.push(send);
+    if (lines === "missing") notSent.push(send);
+    else if (lines !== "unreadable" && lines.has(send.sendId)) delivered.push(send);
+    else if (lines === "unreadable" || queues === "unreadable" || queues.busyRoomThreads.has(send.threadId)) unread.push(send);
+    else notSent.push(send);
   }
   return { delivered, notSent, unread };
 }

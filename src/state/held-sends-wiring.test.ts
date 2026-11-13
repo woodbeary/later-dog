@@ -315,12 +315,16 @@ describe("held messages through the app's own store", () => {
     expect(posts()).toHaveLength(1);
   });
 
-  it("after a restart, turns a group message's queued row into Not sent with its words once the edge says it neither holds nor dropped it and the chat does not show it", async () => {
+  it("after a restart, turns a group message's queued row into Not sent with its words once the edge says it neither holds nor dropped it and the home's chat and queue, read after that, do not show it", async () => {
     const roomSend = "wiring-room-send-0009";
     const roomDraft = "group:room:room-thread";
     const before = failedComposerSends(roomDraft).length;
     localStorage.setItem(HELD_SENDS_KEY, JSON.stringify([{ sendId: roomSend, threadId: "room-thread", draftId: roomDraft, text: "Room, wake up", requestText: "Room, wake up", at: Date.now() }]));
-    const home: Home = { chats: savedChats, held: { held: [roomSend], dropped: [] } };
+    const home: Home = {
+      chats: savedChats,
+      held: { held: [roomSend], dropped: [] },
+      answer: (path) => (path.startsWith("/api/threads/room-thread/messages") ? new Response(JSON.stringify({ messages: [], hasMore: false, activeLeafId: null })) : undefined),
+    };
     const { asks } = await mount(home);
     expect(seen.pendingQueued["room-thread"]).toEqual([{ queueId: roomSend, text: "Room, wake up" }]);
     expect(keptOnDevice()).toEqual([roomSend]);
