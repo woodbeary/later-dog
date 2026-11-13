@@ -24,6 +24,27 @@ describe("the engine's own compaction summaries", () => {
     expect(readFileSync(path, "utf8")).not.toContain("older summary");
   });
 
+  it("forgets a deleted chat's summary for good", () => {
+    dir = mkdtempSync(join(tmpdir(), "laterdog-engine-summaries-"));
+    const path = join(dir, "engine-summaries.json");
+    const store = fileEngineSummaries(path);
+    store.remember("deleted", { text: "DELETED_CHAT_SUMMARY", throughId: "m1" });
+    store.remember("kept", { text: "kept summary", throughId: "m2" });
+    store.forget(["deleted", "never-stored"]);
+    expect(store.read("deleted")).toBeUndefined();
+    const reread = fileEngineSummaries(path);
+    expect(reread.read("deleted")).toBeUndefined();
+    expect(reread.read("kept")).toBeDefined();
+    expect(readFileSync(path, "utf8")).not.toContain("DELETED_CHAT_SUMMARY");
+  });
+
+  it("keeps secrets out of a stored summary", () => {
+    dir = mkdtempSync(join(tmpdir(), "laterdog-engine-summaries-"));
+    const store = fileEngineSummaries(join(dir, "engine-summaries.json"));
+    store.remember("t", { text: "the key is sk-ant-api03-abcdefghijklmnopqrstuvwxyz0123456789ABCDEFGH", throughId: "m1" });
+    expect(store.read("t")!.text).not.toContain("abcdefghijklmnopqrstuvwxyz0123456789");
+  });
+
   it("ignores empty summaries and keeps only the most recent chats", () => {
     dir = mkdtempSync(join(tmpdir(), "laterdog-engine-summaries-"));
     const path = join(dir, "engine-summaries.json");

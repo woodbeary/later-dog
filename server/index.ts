@@ -5949,7 +5949,10 @@ function ingestEngineHook(capability: InternalCapability, body: unknown): { ok: 
   const threadId = capability.threadId;
   if (name === "PostCompact") {
     const through = store.activePath(threadId).filter(isContextMessage).at(-1)?.id;
-    if (typeof payload.compact_summary === "string" && through) engineSummaries.remember(threadId, { text: payload.compact_summary, throughId: through });
+    if (typeof payload.compact_summary === "string" && through) {
+      engineSummaries.remember(threadId, { text: payload.compact_summary, throughId: through });
+      console.log(`[compaction] engine summary received chat=${threadId} bytes=${Buffer.byteLength(payload.compact_summary)}`);
+    }
     return { ok: true };
   }
   if (name === "PreCompact") {
@@ -9874,6 +9877,7 @@ async function deleteBotWithLifecycle(botId: string, revalidate: () => void = ()
             revokeInternalCapabilitiesForThread(task.threadId);
           }
           await interruptAllDirectThreads(bot.id);
+          engineSummaries.forget(store.tasks(bot.id).map((task) => task.threadId));
           for (const task of store.tasks(bot.id)) {
             purgeTurnAttachmentsForThread(task.threadId);
             clearTurnDigestState(task.threadId);
@@ -16797,6 +16801,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       const updated = store.deleteGroupTask(group.id, m[2]);
       if (!updated) return json(res, 400, { error: "a channel keeps at least one task" });
       clearTurnDigestState(m[2]);
+      engineSummaries.forget([m[2]]);
       revokeInternalCapabilitiesForThread(m[2]);
       rejectDeletedThreadSkillStages(stagedSkillCleanups);
       return json(res, 200, { group: groupWithThread(updated) });
@@ -19088,6 +19093,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       const updated = store.deleteTask(m[1], m[2]);
       if (!updated) return json(res, 404, { error: "no such task" });
       clearTurnDigestState(m[2]);
+      engineSummaries.forget([m[2]]);
       revokeInternalCapabilitiesForThread(m[2]);
       handoffs.forget(m[2]);
       settleDirectFollowup(directTurnGenerationByThread.get(m[2]));

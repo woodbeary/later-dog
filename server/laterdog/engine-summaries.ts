@@ -9,6 +9,7 @@ export const KEPT_CHATS = 500;
 export interface EngineSummaries {
   read(threadId: string): EngineSummary | undefined;
   remember(threadId: string, summary: { text: string; throughId: string }): void;
+  forget(threadIds: readonly string[]): void;
 }
 
 export function fileEngineSummaries(path: string, now: () => number = Date.now): EngineSummaries {
@@ -23,6 +24,10 @@ export function fileEngineSummaries(path: string, now: () => number = Date.now):
     }
     return cache;
   };
+  const save = (next: Record<string, EngineSummary>) => {
+    cache = next;
+    writeFileAtomic(path, `${JSON.stringify(next)}\n`, { mode: 0o600 });
+  };
   return {
     read: (threadId) => {
       const entry = load()[threadId];
@@ -33,8 +38,12 @@ export function fileEngineSummaries(path: string, now: () => number = Date.now):
       if (!text || !summary.throughId) return;
       const all = { ...load(), [threadId]: { text, throughId: summary.throughId, at: now() } };
       const kept = Object.entries(all).sort(([, a], [, b]) => b.at - a.at).slice(0, KEPT_CHATS);
-      cache = Object.fromEntries(kept);
-      writeFileAtomic(path, `${JSON.stringify(cache)}\n`, { mode: 0o600 });
+      save(Object.fromEntries(kept));
+    },
+    forget: (threadIds) => {
+      const all = load();
+      if (!threadIds.some((threadId) => Object.hasOwn(all, threadId))) return;
+      save(Object.fromEntries(Object.entries(all).filter(([threadId]) => !threadIds.includes(threadId))));
     },
   };
 }
