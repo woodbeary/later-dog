@@ -70,6 +70,7 @@ import { claudeToolTouch } from "../laterdog/tool-touches.ts";
 import { claudeContextNote, claudeSeenVolatile } from "../laterdog/volatile-sections.ts";
 import { claudeHelperEnvironment } from "../laterdog/helper-model.ts";
 import { agentsServerLaunch, deferRareToolsEnabled } from "../laterdog/tool-loading.ts";
+import { CLAUDE_PICKS_CACHE_LIFETIME, claudeCacheLifetime } from "../laterdog/cache-lifetime.ts";
 
 export function claudeAuthStatus(
   cli: string,
@@ -1306,7 +1307,8 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
       const authSettingsPath = mcpConfigPath && Object.keys(settings).length
         ? join(dirname(mcpConfigPath), "auth-settings.json") : null;
       if (authSettingsPath) args.push("--settings", authSettingsPath);
-      if (env.ENABLE_PROMPT_CACHING_1H === undefined && env.FORCE_PROMPT_CACHING_5M === undefined) env.CLAUDE_CODE_PROMPT_CACHE_TTL ??= "1h";
+      const cacheLifetime = claudeCacheLifetime(env, Boolean(cliVersion && versionAtLeast(cliVersion, CLAUDE_PICKS_CACHE_LIFETIME)));
+      if (cacheLifetime) env.CLAUDE_CODE_PROMPT_CACHE_TTL = cacheLifetime;
       Object.assign(env, quietWorkEnvironment(turn.quietWork));
       Object.assign(env, claudeHelperEnvironment(turnModel, turn.helperModel, { custom: Boolean(config.managed) || injected.injected }));
       const cwd = turn.cwd ?? homedir();

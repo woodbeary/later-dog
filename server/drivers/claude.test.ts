@@ -2099,15 +2099,28 @@ describe("ClaudeDriver turns (fake CLI)", () => {
     expect(seen.argv).not.toContain("--dangerously-skip-permissions");
   });
 
-  it("keeps each chat's prompt cached for an hour and leaves helpers and compaction on Claude Code's own cache lifetime", async () => {
+  it("keeps each chat's prompt cached for an hour on an older Claude Code and leaves helpers and compaction on its own cache lifetime", async () => {
     const dump = join(scratch, "cache-hour.json");
-    await create(undefined, { FAKE_CLAUDE_DUMP: dump });
+    await create(undefined, { FAKE_CLAUDE_DUMP: dump, FAKE_CLAUDE_VERSION: "2.1.315" });
     await instance.adapter.sendTurn({ threadId: "t-cache-hour", text: "hi" });
     await recorder.until((e) => e.type === "turn.completed");
     const { env } = JSON.parse(readFileSync(dump, "utf8"));
     expect(env.CLAUDE_CODE_PROMPT_CACHE_TTL).toBe("1h");
     expect(env.ENABLE_PROMPT_CACHING_1H).toBeUndefined();
     expect(env.CLAUDE_CODE_SUBAGENT_PROMPT_CACHE_TTL).toBeUndefined();
+  });
+
+  it.each<{ name: string; env: Record<string, string> }>([
+    { name: "a Claude Code that picks the lifetime itself", env: { FAKE_CLAUDE_VERSION: "2.1.316" } },
+    { name: "an API key account", env: { FAKE_CLAUDE_VERSION: "2.1.315", ANTHROPIC_API_KEY: "sk-ant-fixture" } },
+    { name: "an auth token account", env: { FAKE_CLAUDE_VERSION: "2.1.315", ANTHROPIC_AUTH_TOKEN: "fixture" } },
+  ])("does not force the hour-long cache for $name", async ({ env: extra }) => {
+    const dump = join(scratch, "cache-hour-auto.json");
+    await create(undefined, { FAKE_CLAUDE_DUMP: dump, ...extra });
+    await instance.adapter.sendTurn({ threadId: "t-cache-hour-auto", text: "hi" });
+    await recorder.until((e) => e.type === "turn.completed");
+    const { env } = JSON.parse(readFileSync(dump, "utf8"));
+    expect(env.CLAUDE_CODE_PROMPT_CACHE_TTL).toBeUndefined();
   });
 
   it("leaves the hour-long cache off for an account that turned it off", async () => {
