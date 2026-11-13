@@ -4,8 +4,10 @@ const CONTEXT_EVENTS = new Set(["SessionStart", "UserPromptSubmit"]);
 const requestedBudget = Number(process.env.LATERDOG_HOOK_TIMEOUT_MS);
 const budgetMs = Number.isFinite(requestedBudget) && requestedBudget > 0 ? Math.min(requestedBudget, 4_000) : 4_000;
 const MAX_INPUT_BYTES = 1024 * 1024;
-const url = process.env.LATERDOG_HOOK_URL ?? "";
-const tokenFile = process.env.LATERDOG_HOOK_TOKEN_FILE ?? "";
+const [argUrl, argTokenFile] = process.argv.slice(2);
+const fromCommand = argUrl !== undefined && argTokenFile !== undefined;
+const url = (fromCommand ? argUrl : process.env.LATERDOG_HOOK_URL) ?? "";
+const tokenFile = (fromCommand ? argTokenFile : process.env.LATERDOG_HOOK_TOKEN_FILE) ?? "";
 
 const done = (out?: string) => {
   if (out === undefined) process.exit(0);

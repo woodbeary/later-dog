@@ -503,10 +503,16 @@ export function hookTokenFile(threadId: string, botId?: string): string {
 
 export const CLAUDE_POST_COMPACT_HOOK: ClaudeCliVersion = [2, 1, 316];
 
-export function claudeHookSettings(helperPath: string, options: { guardShell?: boolean; postCompact?: boolean } = {}): Record<string, unknown> {
+export interface ClaudeHookTarget {
+  url: string;
+  tokenFile: string;
+}
+
+export function claudeHookSettings(helperPath: string, options: { guardShell?: boolean; postCompact?: boolean; target?: ClaudeHookTarget } = {}): Record<string, unknown> {
+  const target = options.target ? [options.target.url, options.target.tokenFile] : [];
   const command = process.platform === "win32"
     ? '"%LATERDOG_HOOK_NODE%" "%LATERDOG_HOOK_HELPER%"'
-    : [process.execPath, helperPath].map(path => `'${path.replace(/'/g, "'\\''")}'`).join(" ");
+    : [process.execPath, helperPath, ...target].map(path => `'${path.replace(/'/g, "'\\''")}'`).join(" ");
   const entry = [{ matcher: "", hooks: [{ type: "command", command, timeout: 5 }] }];
   const settings: Record<string, unknown> = { PostToolUse: entry, PreCompact: entry, SessionStart: entry, Stop: entry };
   if (options.postCompact) settings.PostCompact = entry;
@@ -1304,8 +1310,9 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
       }
       const settings: Record<string, unknown> = { ...authSettings };
       if (isolated) settings.claudeMdExcludes = machineClaudeMemoryExcludes(env);
-      if (hooks) settings.hooks = claudeHookSettings(HOOK_HELPER_PATH, { guardShell: hooks.guardShell === true,
-        postCompact: Boolean(cliVersion && versionAtLeast(cliVersion, CLAUDE_POST_COMPACT_HOOK)) });
+      if (hooks && hookTokenPath) settings.hooks = claudeHookSettings(HOOK_HELPER_PATH, { guardShell: hooks.guardShell === true,
+        postCompact: Boolean(cliVersion && versionAtLeast(cliVersion, CLAUDE_POST_COMPACT_HOOK)),
+        target: { url: hooks.url, tokenFile: hookTokenPath } });
       if (turn.guestConfined) settings.permissions = GUEST_CLAUDE_PERMISSIONS;
       if (turn.fast) settings.fastMode = true;
       if (turn.reviewerGrant && permissionMode === "auto") settings.autoMode = turn.reviewerGrant;
