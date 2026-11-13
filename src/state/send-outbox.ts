@@ -394,6 +394,13 @@ export function createSendOutbox(deps: SendOutboxDeps): SendOutbox {
     }
   };
 
+  const showHeldCards = (bots: Chats, groups: Chats, queues: unknown) => {
+    const atHome = sendIdsAtHome(bots, groups, queues);
+    for (const send of readHeldSends(store)) {
+      if (send.card && !atHome.has(send.sendId)) deps.dispatch({ type: "cardSending", card: send.card, answer: send.requestText });
+    }
+  };
+
   const forget = (sendId: string) => {
     hooks.delete(sendId);
     outbox.acknowledge(sendId);
@@ -407,6 +414,7 @@ export function createSendOutbox(deps: SendOutboxDeps): SendOutbox {
     },
     pending(bots, groups, queues) {
       showHeldGroupRows(bots, groups, queues);
+      showHeldCards(bots, groups, queues);
       const landed = landedSendIds(bots, groups, queues);
       const atEdge = threadsOfSendsAtEdge(bots, groups, queues);
       for (const item of outbox.items()) {

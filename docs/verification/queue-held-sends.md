@@ -70,7 +70,9 @@ the third review's three Should fix items; this note describes that head.
 - A card answer travels the same way (`card` on the outbox item and the copy).
   The card shows the answer as waiting until the home's receipt, or until a held
   answer is delivered, and only then is marked answered; a refused, dropped or
-  cancelled answer makes the card answerable again. Any send that ends in a
+  cancelled answer makes the card answerable again. After a reload, a card
+  whose answer is still in the outbox or kept as a held copy shows as waiting
+  again at every refresh, so it cannot be answered a second time. Any send that ends in a
   final failure without a composer to recover it records the Not sent row itself.
   In a group room the answer is posted to the room's own messages route the same
   way. The server has no route that saves a room card as answered (the card
