@@ -40,7 +40,8 @@ it("keeps a dog's plan per chat, on the wire, across a restart, and out of a hel
       [dog.id]: { turns: [
         { steps: [{ tool: "set_plan", toolUseId: "toolu_dog_1", arguments: { items: first } }], reply: "On it." },
         { steps: [
-          { tool: "set_plan", toolUseId: "toolu_helper_1", parentToolUseId: "toolu_task_1", arguments: { items: [item("Helper's own step", "in_progress")] } },
+          { tool: "set_plan", toolUseId: "toolu_helper_1", parentToolUseId: "toolu_task_1", announceAfterMs: 400, arguments: { items: [item("Helper's own step", "in_progress")] } },
+          { tool: "set_plan", toolUseId: "toolu_helper_2", agentId: "agent-7", announceAfterMs: 400, arguments: { items: [item("Another helper step", "in_progress")] } },
           { tool: "set_plan", toolUseId: "toolu_dog_2", arguments: { items: second } },
         ], reply: "Login fixed." },
       ] },
@@ -70,6 +71,7 @@ it("keeps a dog's plan per chat, on the wire, across a restart, and out of a hel
     await turn(dog, "thanks, carry on");
     expect(stepResults(dog.id).slice(1)).toEqual([
       "Not recorded: the plan belongs to the dog that talks to the person. Report your progress in your last message instead.",
+      "Not recorded: the plan belongs to the dog that talks to the person. Report your progress in your last message instead.",
       "Plan recorded: 1 of 2 done, now “Write the release note”. The person sees it in the app.",
     ]);
     expect((await wirePlan(dog)).items).toEqual(second);
@@ -77,8 +79,12 @@ it("keeps a dog's plan per chat, on the wire, across a restart, and out of a hel
     await turn(other, "Note this for later");
     expect((await wirePlan(other)).items).toEqual([item("Other dog's work", "pending")]);
     expect((await wirePlan(dog)).items).toEqual(second);
+    const plansFile = () => JSON.parse(readFileSync(join(session.info.dataDir, "dog-plans.json"), "utf8")).map((row: any) => row.threadId).sort();
+    expect(plansFile()).toEqual([dog.activeTaskId, other.activeTaskId].sort());
     const stored = JSON.parse(readFileSync(join(session.info.dataDir, "dog-plans.json"), "utf8"));
-    expect(stored.map((row: any) => row.threadId).sort()).toEqual([dog.activeTaskId, other.activeTaskId].sort());
+    await request(`/api/bots/${other.id}/tasks/${other.activeTaskId}`, { method: "DELETE" }, session.info.url);
+    await expect.poll(plansFile, { timeout: 5_000 }).toEqual([dog.activeTaskId]);
+    expect((await wirePlan(dog)).items).toEqual(second);
     writeFileSync(`${session.info.logPath}.plan.json`, JSON.stringify({ stored, turns: evidence() }, null, 2), { mode: 0o600 });
     console.info(`Plan evidence: ${session.info.logPath}.plan.json`);
   } finally {

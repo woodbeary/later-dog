@@ -1,8 +1,8 @@
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { afterEach, describe, expect, it } from "vitest";
-import { codexPlanSteps, EnginePlans, parsePlanItems, PlanCallers, planRecorded, PlanStore, todoWriteSteps } from "./dog-plan.ts";
+import { codexPlanSteps, corruptPlansPath, EnginePlans, forgetDeletedChats, parsePlanItems, PLAN_CALLERS_KEPT, PlanCallers, planRecorded, PlanStore, todoWriteSteps, visibleText } from "./dog-plan.ts";
 
 const dirs: string[] = [];
 const scratch = () => {
@@ -21,9 +21,22 @@ describe("parsePlanItems", () => {
   it("refuses more than 20 items, long items, blank text and unknown statuses", () => {
     expect(parsePlanItems(Array.from({ length: 21 }, () => ({ text: "x", status: "pending" })))).toMatchObject({ ok: false, error: expect.stringContaining("at most 20 items") });
     expect(parsePlanItems([{ text: "x".repeat(201), status: "pending" }])).toMatchObject({ ok: false, error: expect.stringContaining("keep each item to 200") });
-    expect(parsePlanItems([{ text: " ", status: "pending" }])).toMatchObject({ ok: false, error: "Item 1 needs text." });
+    expect(parsePlanItems([{ text: " ", status: "pending" }])).toMatchObject({ ok: false, error: "Item 1 needs text that can be seen." });
     expect(parsePlanItems([{ text: "x", status: "completed" }])).toMatchObject({ ok: false, error: expect.stringContaining("pending, in_progress or done") });
     expect(parsePlanItems("x")).toMatchObject({ ok: false });
+  });
+});
+
+describe("text that can be seen", () => {
+  it("drops control and format characters before the checks, and refuses an item with nothing visible", () => {
+    expect(visibleText("Fix\u0000 the\u202E login\u200B")).toBe("Fix the login");
+    expect(visibleText("line one\nline two\t")).toBe("line one line two");
+    expect(visibleText("\u200B\u200C\u2060\u0007")).toBe("");
+    expect(visibleText("\u200D")).toBe("");
+    expect(visibleText("Ship 👩‍💻")).toBe("Ship 👩‍💻");
+    expect(parsePlanItems([{ text: "\u200B\u200B", status: "pending" }])).toMatchObject({ ok: false });
+    expect(parsePlanItems([{ text: "\u200B".repeat(300) + "Fix", status: "pending" }])).toEqual({ ok: true, items: [{ text: "Fix", status: "pending" }] });
+    expect(parsePlanItems([{ text: "a", status: "in_progress" }, { text: "b", status: "in_progress" }])).toMatchObject({ ok: true });
   });
 });
 
@@ -33,7 +46,17 @@ describe("engine plans", () => {
       .toEqual([{ text: "Read", status: "done" }, { text: "Fixing", status: "in_progress" }, { text: "Test", status: "pending" }]);
     expect(codexPlanSteps([{ step: "Read", status: "completed" }, { step: "Fix", status: "inProgress" }, { step: "", status: "pending" }]))
       .toEqual([{ text: "Read", status: "done" }, { text: "Fix", status: "in_progress" }]);
-    expect(todoWriteSteps(undefined)).toEqual([]);
+    expect(todoWriteSteps({ todos: [{ content: "\u200B", status: "pending" }, { content: "Real", status: "pending" }] })).toEqual([{ text: "Real", status: "pending" }]);
+  });
+
+  it("ignores a list it cannot read, and clears only on an explicitly empty list", () => {
+    expect(todoWriteSteps(undefined)).toBeNull();
+    expect(todoWriteSteps({ todos: "x" })).toBeNull();
+    expect(todoWriteSteps({ todos: [{ status: "pending" }, 7, { content: "\u200B" }] })).toBeNull();
+    expect(codexPlanSteps({ step: "x" })).toBeNull();
+    expect(codexPlanSteps([{ explanation: "x" }])).toBeNull();
+    expect(todoWriteSteps({ todos: [] })).toEqual([]);
+    expect(codexPlanSteps([])).toEqual([]);
   });
 
   it("hands engine plans to every listener", () => {
@@ -64,13 +87,43 @@ describe("PlanStore", () => {
     expect(new PlanStore(path).get("t2")).toBeUndefined();
   });
 
-  it("keeps only the most recently set chats and survives a broken file", () => {
+  it("keeps only the most recently set chats", () => {
     const path = join(scratch(), "dog-plans.json");
     const plans = new PlanStore(path, Date.now, 2);
     for (const id of ["a", "b", "c"]) plans.set(id, [{ text: id, status: "pending" }]);
     expect(JSON.parse(readFileSync(path, "utf8")).map((row: { threadId: string }) => row.threadId)).toEqual(["b", "c"]);
-    rmSync(path);
-    expect(new PlanStore(path).get("b")).toBeUndefined();
+  });
+
+  it("moves a corrupt file aside, replacing an earlier one, instead of writing over it", () => {
+    const path = join(scratch(), "dog-plans.json");
+    const aside = corruptPlansPath(path);
+    expect(aside).toBe(path.replace(/dog-plans\.json$/, "dog-plans.corrupt.json"));
+    writeFileSync(aside, "older");
+    writeFileSync(path, "[{\"threadId\": \"t1\", trunc");
+    const plans = new PlanStore(path);
+    expect(plans.get("t1")).toBeUndefined();
+    expect(existsSync(path)).toBe(false);
+    expect(readFileSync(aside, "utf8")).toBe("[{\"threadId\": \"t1\", trunc");
+    plans.set("t2", [{ text: "new", status: "pending" }]);
+    expect(readFileSync(aside, "utf8")).toBe("[{\"threadId\": \"t1\", trunc");
+    writeFileSync(path, "{}");
+    new PlanStore(path);
+    expect(readFileSync(aside, "utf8")).toBe("{}");
+  });
+
+  it("forgets the plan of a deleted chat, and only that one", () => {
+    const plans = new PlanStore(join(scratch(), "dog-plans.json"));
+    plans.set("kept", [{ text: "a", status: "pending" }]);
+    plans.set("gone", [{ text: "b", status: "pending" }]);
+    let listener: ((change: { type: string; threadId?: string }) => void) | undefined;
+    const stop = forgetDeletedChats({ onChange: (next) => { listener = next; return () => { listener = undefined; }; } }, plans);
+    listener!({ type: "thread", threadId: "gone" });
+    expect(plans.get("gone")).toBeDefined();
+    listener!({ type: "thread.deleted", threadId: "gone" });
+    expect(plans.get("gone")).toBeUndefined();
+    expect(plans.get("kept")).toBeDefined();
+    stop();
+    expect(listener).toBeUndefined();
   });
 });
 
@@ -85,10 +138,21 @@ describe("PlanCallers", () => {
     expect(await callers.of("never-seen", 10)).toBe("dog");
     expect(await callers.of(undefined, 1_000)).toBe("dog");
   });
+
+  it("remembers enough calls that a busy home does not forget a helper's", async () => {
+    const callers = new PlanCallers();
+    callers.note("helper-call", "helper");
+    for (let index = 0; index < PLAN_CALLERS_KEPT - 1; index += 1) callers.note(`dog-${index}`, "dog");
+    expect(await callers.of("helper-call", 10)).toBe("helper");
+    callers.note("one-more", "dog");
+    expect(await callers.of("helper-call", 10)).toBe("dog");
+  });
 });
 
 it("confirms in one short line", () => {
   expect(planRecorded([{ text: "Read", status: "done" }, { text: "Fix", status: "in_progress" }, { text: "Ship", status: "pending" }]))
     .toBe("Plan recorded: 1 of 3 done, now “Fix”, 1 not started. The person sees it in the app.");
-  expect(planRecorded([])).toBe("Plan cleared.");
+  expect(planRecorded([])).toBe("Plan cleared. The person sees it in the app.");
+  expect(planRecorded([{ text: "Read", status: "pending" }], false)).toBe("Plan recorded: 0 of 1 done, 1 not started.");
+  expect(planRecorded([], false)).toBe("Plan cleared.");
 });

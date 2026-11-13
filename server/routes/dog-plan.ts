@@ -12,6 +12,7 @@ export interface PlanRouteDeps {
   set(threadId: string, items: PlanItem[], botId: string): WirePlan;
   caller(toolUseId: string | undefined): Promise<PlanCaller>;
   changed(threadId: string, botId: string): void;
+  shown(threadId: string): boolean;
   active(capability: unknown): boolean;
 }
 
@@ -26,6 +27,6 @@ export function createPlanRoute(deps: PlanRouteDeps): InternalRouteHandler {
     if (!deps.active(capability)) throw Object.assign(new Error("the internal turn capability has expired"), { status: 401 });
     const plan = deps.set(threadId, parsed.items, sender.id);
     deps.changed(threadId, sender.id);
-    return json(res, 200, { recorded: true, plan, text: planRecorded(plan.items) });
+    return json(res, 200, { recorded: true, plan, text: planRecorded(plan.items, deps.shown(threadId)) });
   };
 }

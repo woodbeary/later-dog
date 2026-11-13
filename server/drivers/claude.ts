@@ -1632,12 +1632,11 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
         appendNative(threadId, { dir: "in", source: "claude.sdk.message", msg: o?.type === "user" && o.isReplay === true && o.message ? diagnosticClaudeUserMessage(o) : o });
         if (claudeChildMessage(o) || !claudeRefreshLockFrame(o, firstText(o.message?.content))) session.nativeActivity.receive(o);
         if (claudeChildMessage(o) && (o.type === "assistant" || o.type === "user" || o.type === "stream_event")) {
-          if (o.type === "assistant" && o.parent_tool_use_id) {
+          if (o.type === "assistant") {
             for (const b of Array.isArray(o.message?.content) ? o.message.content : []) {
-              if (b.type === "tool_use") {
-                session.helpers.noteStep(o.parent_tool_use_id, helperStep(b.name, b.input));
-                enginePlans.callers.note(b.id, "helper");
-              }
+              if (b.type !== "tool_use") continue;
+              if (o.parent_tool_use_id) session.helpers.noteStep(o.parent_tool_use_id, helperStep(b.name, b.input));
+              enginePlans.callers.note(b.id, "helper");
             }
           }
           return;
@@ -1771,7 +1770,8 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
             for (const b of Array.isArray(msg.content) ? msg.content : []) {
               if (b.type === "tool_use" && o.parent_tool_use_id) session.helpers.noteStep(o.parent_tool_use_id, helperStep(b.name, b.input));
               if (b.type === "tool_use") enginePlans.callers.note(b.id, o.parent_tool_use_id ? "helper" : "dog");
-              if (b.type === "tool_use" && b.name === "TodoWrite" && !o.parent_tool_use_id) enginePlans.report(threadId, todoWriteSteps(b.input));
+              const engineSteps = b.type === "tool_use" && b.name === "TodoWrite" && !o.parent_tool_use_id ? todoWriteSteps(b.input) : null;
+              if (engineSteps) enginePlans.report(threadId, engineSteps);
               if (b.type === "tool_use") {
                 emit({
                   ...base(threadId, currentTurnId()),

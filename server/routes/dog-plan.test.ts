@@ -12,13 +12,14 @@ afterEach(async () => {
   await Promise.all(servers.splice(0).map((server) => new Promise((done) => server.close(done))));
 });
 
-async function serve(callers: Record<string, PlanCaller> = {}) {
+async function serve(callers: Record<string, PlanCaller> = {}, shown = true) {
   const plans = new PlanStore(null, () => 7);
   const changed: string[] = [];
   const routes = [createPlanRoute({
     set: (threadId, items, botId) => plans.set(threadId, items, botId),
     caller: async (toolUseId) => (toolUseId && callers[toolUseId]) || "dog",
     changed: (threadId) => changed.push(threadId),
+    shown: () => shown,
     active: () => true,
   })];
   const server = createServer(async (req, res) => {
@@ -53,6 +54,11 @@ describe("set_plan route", () => {
     expect(reply.body).toEqual({ recorded: false, text: HELPER_PLAN_TEXT });
     expect(plans.get("thread-1")?.items).toEqual([{ text: "Dog's item", status: "pending" }]);
     expect(changed).toEqual(["thread-1"]);
+  });
+
+  it("leaves out that the person sees it for a room's plan, which no app shows yet", async () => {
+    const { post } = await serve({}, false);
+    expect((await post({ items: [{ text: "Room work", status: "pending" }] })).body.text).toBe("Plan recorded: 0 of 1 done, 1 not started.");
   });
 
   it("refuses a list it cannot keep", async () => {

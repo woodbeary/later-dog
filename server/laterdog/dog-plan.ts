@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, renameSync } from "node:fs";
 
 import { PLAN_MAX_ITEMS, PLAN_MAX_TEXT, PLAN_STATUSES, type PlanItem, type PlanStatus, type WirePlan } from "../../shared/dog-plan.ts";
 import { writeFileAtomic } from "../atomic.ts";
@@ -6,6 +6,15 @@ import { writeFileAtomic } from "../atomic.ts";
 export const PLAN_CHATS_KEPT = 500;
 
 export type ParsedPlan = { ok: true; items: PlanItem[] } | { ok: false; error: string };
+
+const HIDDEN = /[\p{Cc}\p{Cf}]/gu;
+const VISIBLE = /[^\s\u200D]/u;
+
+export function visibleText(value: unknown): string {
+  if (typeof value !== "string") return "";
+  const text = value.replace(/\s+/g, " ").replace(HIDDEN, (char) => char === "\u200D" ? char : "").replace(/ {2,}/g, " ").trim();
+  return VISIBLE.test(text) ? text : "";
+}
 
 const isStatus = (value: unknown): value is PlanStatus => typeof value === "string" && (PLAN_STATUSES as readonly string[]).includes(value);
 
@@ -15,8 +24,8 @@ export function parsePlanItems(value: unknown): ParsedPlan {
   const items: PlanItem[] = [];
   for (const [index, entry] of value.entries()) {
     const row = entry && typeof entry === "object" ? entry as Record<string, unknown> : {};
-    const text = typeof row.text === "string" ? row.text.replace(/\s+/g, " ").trim() : "";
-    if (!text) return { ok: false, error: `Item ${index + 1} needs text.` };
+    const text = visibleText(row.text);
+    if (!text) return { ok: false, error: `Item ${index + 1} needs text that can be seen.` };
     if (text.length > PLAN_MAX_TEXT) return { ok: false, error: `Item ${index + 1} is ${text.length} characters; keep each item to ${PLAN_MAX_TEXT}.` };
     if (!isStatus(row.status)) return { ok: false, error: `Item ${index + 1} needs status pending, in_progress or done.` };
     items.push({ text, status: row.status });
@@ -30,25 +39,26 @@ export function engineStatus(value: unknown): PlanStatus {
   return "pending";
 }
 
-export function engineSteps(rows: unknown, textKeys: readonly string[]): PlanItem[] {
-  if (!Array.isArray(rows)) return [];
-  return rows.flatMap((value) => {
+export function engineSteps(rows: unknown, textKeys: readonly string[]): PlanItem[] | null {
+  if (!Array.isArray(rows)) return null;
+  const items = rows.flatMap((value) => {
     const row = value && typeof value === "object" ? value as Record<string, unknown> : {};
-    const said = textKeys.map((key) => row[key]).find((field) => typeof field === "string" && field.trim());
-    const text = typeof said === "string" ? said.replace(/\s+/g, " ").trim().slice(0, PLAN_MAX_TEXT) : "";
+    const text = textKeys.map((key) => visibleText(row[key])).find(Boolean)?.slice(0, PLAN_MAX_TEXT) ?? "";
     return text ? [{ text, status: engineStatus(row.status) }] : [];
   }).slice(0, PLAN_MAX_ITEMS);
+  return items.length || !rows.length ? items : null;
 }
 
-export const todoWriteSteps = (input: unknown): PlanItem[] => engineSteps((input as { todos?: unknown } | undefined)?.todos, ["content", "activeForm"]);
+export const todoWriteSteps = (input: unknown): PlanItem[] | null => engineSteps((input as { todos?: unknown } | undefined)?.todos, ["content", "activeForm"]);
 
-export const codexPlanSteps = (plan: unknown): PlanItem[] => engineSteps(plan, ["step"]);
+export const codexPlanSteps = (plan: unknown): PlanItem[] | null => engineSteps(plan, ["step"]);
 
-export function planRecorded(items: readonly PlanItem[]): string {
-  if (!items.length) return "Plan cleared.";
+export function planRecorded(items: readonly PlanItem[], shown = true): string {
+  const seen = shown ? " The person sees it in the app." : "";
+  if (!items.length) return `Plan cleared.${seen}`;
   const count = (status: PlanStatus) => items.filter((item) => item.status === status).length;
   const current = items.find((item) => item.status === "in_progress");
-  return `Plan recorded: ${count("done")} of ${items.length} done${current ? `, now “${current.text}”` : ""}${count("pending") ? `, ${count("pending")} not started` : ""}. The person sees it in the app.`;
+  return `Plan recorded: ${count("done")} of ${items.length} done${current ? `, now “${current.text}”` : ""}${count("pending") ? `, ${count("pending")} not started` : ""}.${seen}`;
 }
 
 interface StoredPlan extends WirePlan {
@@ -72,9 +82,22 @@ export class PlanStore {
     this.now = now;
     this.kept = kept;
     if (!path || !existsSync(path)) return;
+    let parsed: unknown;
     try {
-      const parsed: unknown = JSON.parse(readFileSync(path, "utf8"));
-      for (const row of Array.isArray(parsed) ? parsed.filter(isStored) : []) this.plans.set(row.threadId, row);
+      parsed = JSON.parse(readFileSync(path, "utf8"));
+    } catch {
+      parsed = undefined;
+    }
+    if (!Array.isArray(parsed)) {
+      this.setAside(path);
+      return;
+    }
+    for (const row of parsed.filter(isStored)) this.plans.set(row.threadId, row);
+  }
+
+  private setAside(path: string): void {
+    try {
+      renameSync(path, corruptPlansPath(path));
     } catch {}
   }
 
@@ -103,7 +126,11 @@ export class PlanStore {
   }
 }
 
+export const corruptPlansPath = (path: string): string => path.replace(/(\.json)?$/, ".corrupt.json");
+
 export type PlanCaller = "dog" | "helper";
+
+export const PLAN_CALLERS_KEPT = 2_048;
 
 export class PlanCallers {
   private readonly seen = new Map<string, PlanCaller>();
@@ -112,7 +139,7 @@ export class PlanCallers {
   note(toolUseId: unknown, caller: PlanCaller): void {
     if (typeof toolUseId !== "string" || !toolUseId) return;
     this.seen.set(toolUseId, caller);
-    while (this.seen.size > 256) this.seen.delete(this.seen.keys().next().value!);
+    while (this.seen.size > PLAN_CALLERS_KEPT) this.seen.delete(this.seen.keys().next().value!);
     for (const done of this.waiting.get(toolUseId) ?? []) done(caller);
     this.waiting.delete(toolUseId);
   }
@@ -130,6 +157,16 @@ export class PlanCallers {
       this.waiting.set(toolUseId, [...(this.waiting.get(toolUseId) ?? []), done]);
     });
   }
+}
+
+export interface ThreadChanges {
+  onChange(listener: (change: { type: string; threadId?: string }) => void): () => void;
+}
+
+export function forgetDeletedChats(changes: ThreadChanges, plans: Pick<PlanStore, "forget">): () => void {
+  return changes.onChange((change) => {
+    if (change.type === "thread.deleted" && change.threadId) plans.forget(change.threadId);
+  });
 }
 
 export type EnginePlanListener = (threadId: string, items: PlanItem[]) => void;

@@ -673,7 +673,7 @@ import { openStreamWatch, streamWatchSkips } from "./stream-watch.ts";
 import { createStreamWatchRoutes } from "./routes/stream-watch.ts";
 import { createReactRoute } from "./routes/react.ts";
 import { createPlanRoute, PLAN_CALLER_WAIT_MS } from "./routes/dog-plan.ts";
-import { enginePlans, PlanStore } from "./laterdog/dog-plan.ts";
+import { enginePlans, forgetDeletedChats, PlanStore } from "./laterdog/dog-plan.ts";
 import {
   PHONE_SECRET_PROTOCOL_VERSION,
   PhoneSecretBridge,
@@ -3606,6 +3606,7 @@ const planChanged = (threadId: string) => {
   const bot = store.botByThread(threadId);
   if (bot) broadcast({ kind: "bot", bot: wireBot(bot) });
 };
+forgetDeletedChats(store, dogPlans);
 enginePlans.listen((threadId, items) => {
   dogPlans.set(threadId, items, store.botByThread(threadId)?.id);
   planChanged(threadId);
@@ -3671,7 +3672,7 @@ function previewSystemPrompt(bot: BotRecord) {
   });
   const privateWorkspace = instance && supportsWorkspaceFiles(instance.driverKind);
   const built = buildSystemPrompt(persona, bot.soul ?? "", [
-    ...guidanceParts({ engine: guidanceEngine(instance?.driverKind), model: bot.modelSelection.model, kit: homeKit({
+    ...guidanceParts({ engine: guidanceEngine(instance?.driverKind), agents: agentsMounted, model: bot.modelSelection.model, kit: homeKit({
       cloudHome: Boolean(CLOUD_HOME), agents: agentsMounted, vault: vaultStore.available, macsOnline: sharedComputers.list(CLOUD_HOME_LENDER).length,
     }) }),
     { id: "user-profile", label: "About the user", text: userProfileSystemPrompt(cfg.profile) },
@@ -9108,7 +9109,7 @@ async function startTurn(
       const ownerGrant = ownerGrantFor(approvalModeForTurn(bot, commsDepth > 0, threadId), threadId);
       const ownerAnswers = ownerAnswersFor(bot.id, approvalModeForTurn(bot, commsDepth > 0, threadId), threadId);
       const prompt = buildSystemPrompt(persona, liveBot?.soul ?? bot.soul ?? "", [
-        ...guidanceParts({ engine: guidanceEngine(instance.driverKind), model, kit: homeKit({
+        ...guidanceParts({ engine: guidanceEngine(instance.driverKind), agents: Boolean(integrations.agents), model, kit: homeKit({
           cloudHome: Boolean(CLOUD_HOME), agents: Boolean(integrations.agents), vault: vaultStore.available, macsOnline: sharedComputers.list(CLOUD_HOME_LENDER).length,
           google: credentialPrompt.includes("gmail_search"),
         }) }),
@@ -10871,7 +10872,7 @@ async function runGroupMemberTurn(
   const roomOwnerGrant = ownerGrantFor(roomTurnApprovalMode(readyBot, threadId, orchestration), threadId);
   const roomOwnerAnswers = ownerAnswersFor(readyBot.id, roomTurnApprovalMode(readyBot, threadId, orchestration), threadId);
   const roomSystem = buildSystemPrompt(system, store.bot(bot.id)?.soul ?? bot.soul ?? "", [
-    ...guidanceParts({ engine: guidanceEngine(instance.driverKind), model: instance.instanceId === readyBot.modelSelection.instanceId ? readyBot.modelSelection.model : instance.models.default, kit: homeKit({
+    ...guidanceParts({ engine: guidanceEngine(instance.driverKind), agents: Boolean(integrations.agents), model: instance.instanceId === readyBot.modelSelection.instanceId ? readyBot.modelSelection.model : instance.models.default, kit: homeKit({
       cloudHome: Boolean(CLOUD_HOME), agents: Boolean(integrations.agents), vault: vaultStore.available, macsOnline: sharedComputers.list(CLOUD_HOME_LENDER).length,
     }) }),
     { id: "user-profile", label: "About the user", text: userProfileSystemPrompt(cfg.profile) },
@@ -13568,6 +13569,7 @@ INTERNAL_ROUTES.push(createPlanRoute({
   set: (threadId, items, botId) => dogPlans.set(threadId, items, botId),
   caller: (toolUseId) => enginePlans.callers.of(toolUseId, PLAN_CALLER_WAIT_MS),
   changed: planChanged,
+  shown: (threadId) => !store.groupByThread(threadId),
   active: (capability) => internalCapabilityIsActive(capability as InternalCapability),
 }));
 INTERNAL_ROUTES.push(createEmailMeRoute({

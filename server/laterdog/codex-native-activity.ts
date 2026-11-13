@@ -177,7 +177,8 @@ export class CodexNativeActivity {
       return;
     }
     if (method === "turn/plan/updated") {
-      if (actor.kind === "parent") this.onPlan?.(codexPlanSteps(p.plan));
+      const planned = actor.kind === "parent" ? codexPlanSteps(p.plan) : null;
+      if (planned) this.onPlan?.(planned);
       const steps = Array.isArray(p.plan) ? p.plan.map(value => { const step = record(value); return `${string(step.status) ?? "pending"}: ${text(step.step) ?? ""}`; }).join("\n") : "";
       const done = Array.isArray(p.plan) && p.plan.length > 0 && p.plan.every(value => record(value).status === "completed");
       this.activity(actor, "turn-plan", "plan", "Plan", done ? "done" : "running", { text: [text(p.explanation), steps].filter(Boolean).join("\n") });
