@@ -10,7 +10,7 @@ import { outboundSummary } from "@/lib/approval-summary";
 import { reviewedSkillSha256 } from "../../shared/skill-request";
 import { MAC_ALLOW_KEY } from "../../shared/cloud-home";
 import { useOwnerOrAdmin } from "@/lib/use-owner-or-admin";
-import { grantItem } from "@/lib/allowed";
+import { grantItem, lastingWords } from "@/lib/allowed";
 
 export interface Pending {
   message: Message;
@@ -106,10 +106,10 @@ export function grantCovers(key: string): string | null {
   const item = grantItem(key);
   const where = item.kind !== "command" && item.onComputer ? ` (${t("allowed.onComputer").toLowerCase()})` : "";
   switch (item.kind) {
-    case "run": return t("allowed.run", { program: item.program }) + where;
-    case "exact": return t("allowed.exact", { command: item.command }) + where;
-    case "files": return t("allowed.files") + where;
-    case "tool": return t("allowed.tool", { tool: item.tool }) + where;
+    case "run": case "exact": case "files": case "tool": {
+      const words = lastingWords(item)!;
+      return [words.label, words.detail].filter(Boolean).join(". ") + where;
+    }
     case "connector": return item.tool ? t("allowed.connectorTool", { app: item.app, tool: item.tool }) : null;
     default: return null;
   }

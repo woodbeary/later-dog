@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 
-import { allowedItems, chatOnlyKeys, type AllowedItem } from "@/lib/allowed";
+import { allowedItems, chatOnlyKeys, lastingWords, type AllowedItem } from "@/lib/allowed";
 import { cn } from "@/lib/cn";
 import { t } from "@/lib/i18n";
 import { api, useStore, type Bot, type BotAnnouncement } from "@/state/store";
@@ -24,10 +24,7 @@ function itemWords(item: AllowedItem, dogName: (id: string) => string): { label:
 function kindWords(item: AllowedItem, dogName: (id: string) => string): { label: string; detail?: string } {
   switch (item.kind) {
     case "connector": return { label: item.tool ? t("allowed.connectorTool", { app: item.app, tool: item.tool }) : t("allowed.connector", { app: item.app }) };
-    case "run": return { label: t("allowed.run", { program: item.program }) };
-    case "exact": return { label: t("allowed.exact", { command: item.command }) };
-    case "files": return { label: t("allowed.files") };
-    case "tool": return { label: t("allowed.tool", { tool: item.tool }) };
+    case "run": case "exact": case "files": case "tool": return lastingWords(item)!;
     case "askDog": return { label: t("allowed.askDog", { name: dogName(item.dogId) }) };
     case "delegateDog": return { label: t("allowed.delegateDog", { name: dogName(item.dogId) }) };
     case "vault": return { label: t("allowed.vault", { site: item.site }) };

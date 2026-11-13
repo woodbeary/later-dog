@@ -69,24 +69,34 @@ it("asks once with Always, then answers for the dog in every chat and after a re
     const folder = (await api("GET", `/api/bots/${bot.id}/command-allowlist`)).context.cwd as string;
     const socket = await start(bot);
 
-    const first = await bash(socket, "git push origin feature");
+    const first = await bash(socket, "pnpm test");
     const offered = await shownCard(bot.threadId, first.id);
-    expect(offered).toMatchObject({ allowKey: "run:git push" });
+    expect(offered).toMatchObject({ allowKey: "run:pnpm test" });
     expect(offered.allowSession).toBeUndefined();
     await api("POST", `/api/threads/${bot.threadId}/respond`, { requestId: first.id, behavior: "allow", scope: "always" });
     expect(await first.reply).toMatchObject({ id: first.id, behavior: "allow" });
-    expect((await dog(bot.id)).alwaysAllow).toContain("run:git push");
+    expect((await dog(bot.id)).alwaysAllow).toContain("run:pnpm test");
     expect((await card(bot.threadId, first.id)).answerScope).toBe("always");
 
-    await answeredByHome(bot.threadId, await bash(socket, "git push origin another-branch"));
+    await answeredByHome(bot.threadId, await bash(socket, "pnpm test"));
+    const wider = await bash(socket, "pnpm test --watch");
+    expect((await shownCard(bot.threadId, wider.id)).allowKey).toBe(`exact:${folder} :: pnpm test --watch`);
+    await api("POST", `/api/threads/${bot.threadId}/respond`, { requestId: wider.id, behavior: "deny" });
+    expect(await wider.reply).toMatchObject({ behavior: "deny" });
 
-    const other = await bash(socket, "git status");
-    expect(await shownCard(bot.threadId, other.id)).toMatchObject({ allowKey: "run:git status" });
+    const build = await bash(socket, "make build");
+    expect((await shownCard(bot.threadId, build.id)).allowKey).toBe(`exact:${folder} :: make build`);
+    await api("POST", `/api/threads/${bot.threadId}/respond`, { requestId: build.id, behavior: "allow", scope: "always" });
+    expect(await build.reply).toMatchObject({ behavior: "allow" });
+    await answeredByHome(bot.threadId, await bash(socket, "make build"));
+
+    const other = await bash(socket, "pnpm run lint");
+    expect(await shownCard(bot.threadId, other.id)).toMatchObject({ allowKey: "run:pnpm run lint" });
     await api("POST", `/api/threads/${bot.threadId}/respond`, { requestId: other.id, behavior: "allow" });
     expect(await other.reply).toMatchObject({ behavior: "allow" });
     expect((await card(bot.threadId, other.id)).answerScope).toBe("once");
-    const otherAgain = await bash(socket, "git status");
-    expect(await shownCard(bot.threadId, otherAgain.id)).toMatchObject({ allowKey: "run:git status" });
+    const otherAgain = await bash(socket, "pnpm run lint");
+    expect(await shownCard(bot.threadId, otherAgain.id)).toMatchObject({ allowKey: "run:pnpm run lint" });
     await api("POST", `/api/threads/${bot.threadId}/respond`, { requestId: otherAgain.id, behavior: "deny" });
     expect(await otherAgain.reply).toMatchObject({ behavior: "deny" });
 
@@ -111,7 +121,11 @@ it("asks once with Always, then answers for the dog in every chat and after a re
     const sibling = (await api("POST", `/api/bots/${bot.id}/tasks`, { title: "Another chat" }, 201)).task;
     await api("PATCH", `/api/bots/${bot.id}/tasks/${sibling.threadId}`, { approvalMode: "ask" });
     const siblingSocket = await start(bot, sibling.threadId);
-    await answeredByHome(sibling.threadId, await bash(siblingSocket, "git push origin feature"));
+    await answeredByHome(sibling.threadId, await bash(siblingSocket, "pnpm test"));
+    const elsewhere = await bash(siblingSocket, "make build");
+    expect((await shownCard(sibling.threadId, elsewhere.id)).allowKey).not.toBe(`exact:${folder} :: make build`);
+    await api("POST", `/api/threads/${sibling.threadId}/respond`, { requestId: elsewhere.id, behavior: "deny" });
+    expect(await elsewhere.reply).toMatchObject({ behavior: "deny" });
     await stop(bot, sibling.threadId);
 
     await waitForExit(fixture.child, { signal: "SIGTERM" });
@@ -126,12 +140,12 @@ it("asks once with Always, then answers for the dog in every chat and after a re
       try { return (await fetch(url + "/api/health", { signal: AbortSignal.timeout(1000) })).ok; } catch { return false; }
     }, { timeout: 20_000 }).toBe(true);
     const restartedSocket = await start(bot);
-    await answeredByHome(bot.threadId, await bash(restartedSocket, "git push origin after-restart"));
+    await answeredByHome(bot.threadId, await bash(restartedSocket, "pnpm test"));
 
-    await api("DELETE", `/api/bots/${bot.id}/always-allow?key=${encodeURIComponent("run:git push")}`);
-    expect((await dog(bot.id)).alwaysAllow ?? []).not.toContain("run:git push");
-    const removed = await bash(restartedSocket, "git push origin feature");
-    expect(await shownCard(bot.threadId, removed.id)).toMatchObject({ allowKey: "run:git push" });
+    await api("DELETE", `/api/bots/${bot.id}/always-allow?key=${encodeURIComponent("run:pnpm test")}`);
+    expect((await dog(bot.id)).alwaysAllow ?? []).not.toContain("run:pnpm test");
+    const removed = await bash(restartedSocket, "pnpm test");
+    expect(await shownCard(bot.threadId, removed.id)).toMatchObject({ allowKey: "run:pnpm test" });
     await api("POST", `/api/threads/${bot.threadId}/respond`, { requestId: removed.id, behavior: "deny" });
     expect(await removed.reply).toMatchObject({ behavior: "deny" });
     await stop(bot);

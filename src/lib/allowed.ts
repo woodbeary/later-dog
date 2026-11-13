@@ -1,4 +1,5 @@
 import { readGrantKey } from "../../shared/always-allow";
+import { t } from "./i18n";
 import type { CommandAllowlistRule } from "../../shared/command-allowlist";
 import { vaultAllowSite } from "../../shared/vault";
 
@@ -6,9 +7,9 @@ type Lasting = { key: string; onComputer?: boolean; chatOnly?: boolean };
 
 export type AllowedItem =
   | ({ kind: "connector"; app: string; tool?: string } & Lasting)
-  | ({ kind: "run"; program: string } & Lasting)
-  | ({ kind: "exact"; command: string } & Lasting)
-  | ({ kind: "files" } & Lasting)
+  | ({ kind: "run"; command: string; covers: string } & Lasting)
+  | ({ kind: "exact"; command: string; cwd: string } & Lasting)
+  | ({ kind: "files"; access: "edit" | "read" } & Lasting)
   | ({ kind: "tool"; tool: string } & Lasting)
   | ({ kind: "askDog" | "delegateDog"; dogId: string } & Lasting)
   | ({ kind: "vault"; site: string } & Lasting)
@@ -38,9 +39,9 @@ export function grantItem(key: string): AllowedItem {
   if (grant) {
     const where = grant.onComputer ? { onComputer: true } : {};
     switch (grant.shape.kind) {
-      case "run": return { kind: "run", key, program: grant.shape.program, ...where };
-      case "exact": return { kind: "exact", key, command: grant.shape.command, ...where };
-      case "files": return { kind: "files", key, ...where };
+      case "run": return { kind: "run", key, command: grant.shape.command, covers: grant.shape.covers, ...where };
+      case "exact": return { kind: "exact", key, command: grant.shape.command, cwd: grant.shape.cwd, ...where };
+      case "files": return { kind: "files", key, access: grant.shape.access, ...where };
       case "tool": return { kind: "tool", key, tool: grant.shape.tool, ...where };
     }
   }
@@ -49,6 +50,16 @@ export function grantItem(key: string): AllowedItem {
   const peer = /^(ask_bot|delegate_bot):(.+)$/.exec(key);
   if (peer) return { kind: peer[1] === "ask_bot" ? "askDog" : "delegateDog", key, dogId: peer[2]! };
   return { kind: "other", key };
+}
+
+export function lastingWords(item: AllowedItem): { label: string; detail?: string } | null {
+  switch (item.kind) {
+    case "run": return { label: t("allowed.run", { command: item.command, covers: item.covers }) };
+    case "exact": return { label: t("allowed.exact", { command: item.command }), detail: t("allowed.commandIn", { cwd: item.cwd }) };
+    case "files": return { label: t(item.access === "edit" ? "allowed.files" : "allowed.filesRead") };
+    case "tool": return { label: t("allowed.tool", { tool: item.tool }) };
+    default: return null;
+  }
 }
 
 export function chatOnlyKeys(alwaysAllow: readonly string[] | undefined, tasks: readonly { alwaysAllow?: string[] }[] | undefined): string[] {

@@ -154,7 +154,9 @@ describe("remembering exact command approvals", () => {
     expect(line(view({ allowKey: "ask_bot:kiwi" }).html)).toBe(everywhere);
     const program = view({ allowKey: "run:git push", commandAllowlist: undefined }).html;
     expect(line(program)).toBe(everywhere);
-    expect(program).toContain("Always covers: Run git push, with any options");
+    expect(program).toContain("Always covers: Run git push, which lets it push branches to a remote this repository already has, without force or deleting anything");
+    const once = view({ allowKey: "exact:/work/app :: make build", commandAllowlist: undefined }).html;
+    expect(once).toContain("Always covers: Run this exact command, in this folder: make build. In /work/app");
     expect(view({ allowKey: "run:git push" }).buttons.map((button) => button.props.children)).toEqual(["Allow once", "Don't allow", "Always allow"]);
     expect(line(view({ allowKey: "mac" }).html)).toBe("Always allow lets every dog use this Mac without asking. Never stops them using it.");
     for (const button of command.buttons) expect((button.props as { title?: string }).title).toBeUndefined();
