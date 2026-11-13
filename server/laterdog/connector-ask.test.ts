@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 
-import { TurnToolkits, askedConnector, connectorAllowKey, connectorSendDecision, toolkitOf } from "./connector-ask.ts";
+import {
+  TurnToolkits, askedConnector, connectorAllowKey, connectorGrantKey, connectorSendDecision, connectorToolAllowKey, toolkitOf,
+} from "./connector-ask.ts";
 
 const never = () => false;
 
@@ -24,12 +26,26 @@ describe("connectorSendDecision", () => {
   const gmail = [{ slug: "GMAIL_SEND_EMAIL" }];
 
   it("asks with the connector to remember, and sends once Always allow is kept for it", () => {
-    expect(connectorSendDecision({ calls: gmail, connected: [], alwaysAllow: [], ownerSends: false, skipped: never, allowedThisTurn: never }))
-      .toEqual({ kind: "ask", toolkit: "gmail" });
-    expect(connectorSendDecision({ calls: gmail, connected: [], alwaysAllow: [connectorAllowKey("gmail")], ownerSends: false, skipped: never, allowedThisTurn: never }))
+    const comment = [{ slug: "GITHUB_CREATE_AN_ISSUE_COMMENT" }];
+    expect(connectorSendDecision({ calls: comment, connected: [], alwaysAllow: [], ownerSends: false, skipped: never, allowedThisTurn: never }))
+      .toEqual({ kind: "ask", toolkit: "github" });
+    expect(connectorSendDecision({ calls: comment, connected: [], alwaysAllow: [connectorAllowKey("github")], ownerSends: false, skipped: never, allowedThisTurn: never }))
       .toEqual({ kind: "send", rule: "always-allow" });
-    expect(connectorSendDecision({ calls: gmail, connected: [], alwaysAllow: [connectorAllowKey("slack")], ownerSends: false, skipped: never, allowedThisTurn: never }))
+    expect(connectorSendDecision({ calls: comment, connected: [], alwaysAllow: [connectorToolAllowKey("github", "GITHUB_CREATE_AN_ISSUE_COMMENT")], ownerSends: false, skipped: never, allowedThisTurn: never }))
+      .toEqual({ kind: "send", rule: "always-allow" });
+    expect(connectorSendDecision({ calls: [{ slug: "GITHUB_CREATE_A_PULL_REQUEST" }], connected: [], alwaysAllow: [connectorToolAllowKey("github", "GITHUB_CREATE_AN_ISSUE_COMMENT")], ownerSends: false, skipped: never, allowedThisTurn: never }))
+      .toEqual({ kind: "ask", toolkit: "github" });
+    expect(connectorSendDecision({ calls: comment, connected: [], alwaysAllow: [connectorAllowKey("slack")], ownerSends: false, skipped: never, allowedThisTurn: never }))
+      .toEqual({ kind: "ask", toolkit: "github" });
+  });
+
+  it("asks every time for an email, a text or a payment, even with an older whole-app approval", () => {
+    expect(connectorSendDecision({ calls: gmail, connected: [], alwaysAllow: [connectorAllowKey("gmail")], ownerSends: false, skipped: never, allowedThisTurn: never }))
       .toEqual({ kind: "ask", toolkit: "gmail" });
+    expect(connectorGrantKey(gmail, "gmail")).toBeUndefined();
+    expect(connectorGrantKey([{ slug: "STRIPE_CREATE_REFUND" }], "stripe")).toBeUndefined();
+    expect(connectorGrantKey([{ slug: "GITHUB_CREATE_AN_ISSUE_COMMENT" }], "github")).toBe("connector:github:github_create_an_issue_comment");
+    expect(connectorGrantKey([{ slug: "GITHUB_CREATE_AN_ISSUE_COMMENT" }, { slug: "GITHUB_CREATE_A_PULL_REQUEST" }], "github")).toBeUndefined();
   });
 
   it("asks for a batch across apps even if one of them is always allowed", () => {

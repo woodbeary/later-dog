@@ -46,7 +46,7 @@ import { appendNative } from "./native.ts";
 import { claudeModelAnswered, claudeUsageLimit, rejectedRateLimit, type UsageLimit } from "../laterdog/usage-limit.ts";
 import { claudeLiveReading, noteLiveReading } from "../laterdog/plan-readings.ts";
 import { claudeRefreshGate, claudeRefreshLockFrame, claudeRefreshLockResult, claudeSignInAgainMessage, retryClaudeRefreshLock, type RefreshLockState } from "../laterdog/claude-refresh-lock.ts";
-import { permissionCommand, permissionLaunchCwd } from "./permission-command.ts";
+import { claudeEditPaths, permissionCommand, permissionLaunchCwd } from "./permission-command.ts";
 import { SPAWNED_PROXIES } from "../proxy-paths.ts";
 import { laterdogPreallowedTools } from "../laterdog/own-tools.ts";
 import { enginePlans, todoWriteSteps } from "../laterdog/dog-plan.ts";
@@ -1426,6 +1426,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
                 summary: askSummary(ask),
                 command: ask.kind === "permission" && ask.tool === "Bash"
                   ? permissionCommand(ask.input.command, commandCwd) : undefined,
+                paths: ask.kind === "permission" ? claudeEditPaths(ask.tool, ask.input, commandCwd) : undefined,
                 requiresExplicitApproval: ask.kind === "permission" && ask.tool === "Bash" && ask.input.dangerouslyDisableSandbox === true || undefined,
                 nativeReview,
                 allowSession: ask.kind === "permission" && !(controlsHost && typeof ask.tool === "string" && ask.tool.startsWith("mcp__computer")) ? true : undefined,

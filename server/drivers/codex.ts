@@ -36,7 +36,7 @@ import { readCliVersion, unreadCli } from "../laterdog/cli-version.ts";
 import { augmentedPath, splitCliString } from "../env-path.ts";
 import { classifyError, computeBackoff, interruptibleDelay, RETRY_MAX_ATTEMPTS } from "./retry.ts";
 import { appendNative } from "./native.ts";
-import { permissionCommand, permissionLaunchCwd } from "./permission-command.ts";
+import { locatedPaths, permissionCommand, permissionLaunchCwd } from "./permission-command.ts";
 import { commandSummary, toolDetailPreview } from "../tool-summary.ts";
 import { codexDeveloperInstructions, forgetDeliveredContext, syncCodexInstructions } from "./codex-instructions.ts";
 import { withContextNote } from "./prompt-split.ts";
@@ -865,6 +865,7 @@ export const CodexDriver: ProviderDriver<CodexConfig> = {
 
       const asks = new Map<string, (behavior: "allow" | "deny" | "answer", message?: string, source?: "user" | "timeout" | "system") => void>();
       const nativeRequests = new Map<string, { threadId: string | null; resolve: () => void }>();
+      const changedPaths = new Map<string, string[] | undefined>();
       let nextId = 1;
       const sensitiveResponseIds = new Set<number>();
       const rpcPending = new Map<number, {
@@ -1148,6 +1149,9 @@ export const CodexDriver: ProviderDriver<CodexConfig> = {
               !params.threadId || params.threadId === codexThreadId ? commandCwd : undefined
             )) : undefined,
           choices,
+          paths: method === "item/fileChange/requestApproval" ? changedPaths.get(String(params.itemId))
+            : method === "applyPatchApproval" ? locatedPaths(Object.keys(params.fileChanges ?? {}).map((path) => ({ path })), commandCwd) : undefined,
+          ...(mcpAppApproval ? { grantable: false as const } : {}),
           ...(protocolQuestions ? { questions: protocolQuestions.map((pair) => pair.question) } : {}),
           approvalScope: controlsHost ? "local-computer" : undefined,
           requiresExplicitApproval: isAdditionalPermission || (
@@ -1264,6 +1268,7 @@ export const CodexDriver: ProviderDriver<CodexConfig> = {
           case "item/started": {
             const item = p.item ?? {};
             helpers.receive(item);
+            if (item.type === "fileChange" && typeof item.id === "string") changedPaths.set(item.id, locatedPaths(item.changes, commandCwd));
             if (item.type === "userMessage") steerReads.seen(item.content);
             const runs = item.type === "mcpToolCall" && item.tool === CALL_TOOL && typeof item.server === "string" && directoryMounts.has(item.server)
               ? directoryCallTarget(CALL_TOOL, item.arguments) : undefined;

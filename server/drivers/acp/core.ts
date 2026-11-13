@@ -45,7 +45,7 @@ import { supportsApprovalMode } from "../../../shared/approval-mode.ts";
 import { MAX_QUESTION_TEXT, parseAskQuestions, parseChoices, questionAnswersByQuestion } from "../../../shared/ask-question.ts";
 
 import { appendNative } from "../native.ts";
-import { acpPermissionCommand, permissionLaunchCwd } from "../permission-command.ts";
+import { acpPermissionCommand, locatedPaths, permissionLaunchCwd } from "../permission-command.ts";
 import { commandSummary, toolDetailPreview } from "../../tool-summary.ts";
 import { extractMcpImages } from "../../mcp-tool-images.ts";
 import { redactSecretsInText } from "../../redact.ts";
@@ -1001,6 +1001,7 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
             tool,
             summary,
             command: isShellCommand ? acpPermissionCommand(toolCall.rawInput, commandCwd) : undefined,
+            paths: kind === "edit" ? locatedPaths(toolCall.locations, commandCwd) : undefined,
             requiresExplicitApproval: isShellCommand && (
               toolCall.rawInput?.dangerouslyDisableSandbox === true || toolCall.rawInput?.sandbox_permissions === "require_escalated"
             ) || undefined,

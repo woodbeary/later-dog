@@ -299,6 +299,8 @@ import { probeMcpServer } from "./mcp-probe.ts";
 import { BUILT_IN_DRIVERS } from "./drivers/builtIn.ts";
 import { openCodeProviderKeysAllowed, setOpenCodeProviderKeyPolicy } from "./drivers/acp/opencode-go.ts";
 import { confirmRememberedCommand, recordAnswerScope, type GrantLookup } from "./laterdog/answer-scope.ts";
+import { dogAllows, dogGrantKeys, forgetInChats, grantToDog, revokeFromDog } from "./laterdog/always-allow.ts";
+import { answerFromGrant, cardGrantKey, cardOnBehalfOf, lastingGrantTarget, lastingRefusal } from "./laterdog/always-allow-answer.ts";
 import { getOrCreateChannel } from "./comms-visibility.ts";
 import { readMessageText, recallMessages, recentMessages, searchMessagesAsync, closeMessageSearch, closeMessageDb, chatFollowups, cancelledChatFollowup, settleChatFollowups, threadsReferencing, openPermissionCards, latestMessageAts, reclaimFreePages } from "./message-db.ts";
 import { briefCrossingLabel, claimRecallCrossings, recallCrossingLabel } from "./recall-disclosure.ts";
@@ -547,7 +549,7 @@ import { readThreadEvents } from "./thread-events.ts";
 import { describeTool, readBotActivity } from "./activity.ts";
 import { OutboundRequestService } from "./outbound-requests.ts";
 import { connectorCallsIn, outboundCallsIn } from "../shared/outbound.ts";
-import { TurnToolkits, connectorAllowKey, connectorSendDecision, toolkitOf } from "./laterdog/connector-ask.ts";
+import { TurnToolkits, connectorGrantKey, connectorSendDecision, toolkitOf } from "./laterdog/connector-ask.ts";
 import { bindThreadLogCapProvider } from "./thread-log-rotation.ts";
 import { CLOUD_THREAD_LOG_MAX_BYTES, CLOUD_THREAD_LOG_RETENTION_DAYS, DISK_CHECK_MS, diskUse, isLowDisk, JANITOR_EVERY_MS, runJanitor, type JanitorRun, type WorkspaceTask } from "./laterdog/janitor.ts";
 import { closeTabsScript, forgetUsers, loadTabLedger, parseTargets, recordTabs, saveTabLedger, TAB_SWEEP_MS, tabsToClose, type TabLedger, type Target } from "./laterdog/cloud-tabs.ts";
@@ -2686,7 +2688,7 @@ async function bindTurnComputer(owner: TurnOwner, resource: string, exclusive = 
 const answerGrants: GrantLookup = {
   hasKey(threadId, key, askerBotId) {
     const owner = store.bot(askerBotId ?? "") ?? store.botByThread(threadId);
-    return owner ? (botForThread(owner.id, threadId)?.alwaysAllow ?? []).includes(key) : false;
+    return owner ? dogAllows(store, owner.id, threadId, key) : false;
   },
 };
 
@@ -3807,6 +3809,11 @@ function ownerGrantFor(mode: ApprovalMode, threadId: string): boolean {
 
 function ownerAnswersFor(botId: string, mode: ApprovalMode, threadId: string): boolean {
   return !isUnattended(botId, threadId) && ownerAutoAnswers(mode, ownerAutoScope(threadId));
+}
+
+function grantRoots(bot: BotRecord, threadId: string): string[] {
+  const task = store.taskByThread(bot.id, threadId);
+  return ownerWorkspaceRoots([task?.cwd, bot.cwd, workspaceDir(bot.id), join(TASK_WORKSPACES_DIR, bot.id)]);
 }
 
 function ownerGuardContext(bot: BotRecord, threadId: string, commandCwd: string | undefined): OwnerGuardContext {
@@ -7046,7 +7053,7 @@ bus.subscribe(guardTurnEnd((event: RuntimeEvent) => {
   const completedTurnId = event.turnId;
   const privateImageEvent = event.type === "item.completed" && event.itemType === "assistant_image";
   const tapbackKey = event.turnId ? tapbackTurnKey(event.threadId, event.turnId) : undefined;
-  let publicEvent = event.type === "request.opened" ? { ...event, command: undefined } : event;
+  let publicEvent = event.type === "request.opened" ? { ...event, command: undefined, paths: undefined } : event;
   const replyEmoji = event.type === "item.completed" && event.itemType === "assistant_text" ? replyTapback(event.text) : null;
   let privateTapbackText = Boolean(replyEmoji) || tapbackKey && reactedTurns.has(tapbackKey) && event.type === "item.completed" && event.itemType === "assistant_text" && onlyTapbackText(event.text);
   if (tapbackKey && event.type === "content.delta" && event.streamKind === "assistant_text" && pendingTapbackText.has(tapbackKey)) {
@@ -7184,6 +7191,7 @@ bus.subscribe(guardTurnEnd((event: RuntimeEvent) => {
           commandAllowed: Boolean(command && commandAllowlist.matches(asker.id, command, savedCommandEngine)),
         })
         : null;
+      const grantKey = permission && asker && event.requestId ? cardGrantKey(event, grantRoots(asker, event.threadId), { guestDriven }) : undefined;
       if (
         permission &&
         asker &&
@@ -7205,6 +7213,8 @@ bus.subscribe(guardTurnEnd((event: RuntimeEvent) => {
       }
       const showCard = (ownerHold?: string, ownerAllowKey?: string) => {
         const cardCommand = ownerHold === undefined ? command : null;
+        const cardKey = ownerHold === undefined ? grantKey : ownerAllowKey;
+        const onBehalf = permission && asker ? cardOnBehalfOf(store, bot?.id, asker.id, event.threadId) : undefined;
         const heldContext = { source: ownerHold === undefined ? verdict?.source : undefined, permission };
         const questions = event.questions?.length ? event.questions : undefined;
         const message = pushMessage({
@@ -7227,11 +7237,11 @@ bus.subscribe(guardTurnEnd((event: RuntimeEvent) => {
               ? { version: 1, questions, ...(event.origin === "output" ? { origin: "output" as const } : {}) }
               : undefined,
             commandAllowlist: cardCommand ?? undefined,
-            allowSession: permission && event.allowSession && !event.requiresExplicitApproval && ownerHold === undefined && !guestDriven ? true : undefined,
             held: approvalHeldReason(heldContext),
             heldCode: approvalHeldNote(heldContext),
             approvalScope: event.approvalScope,
-            ...(ownerAllowKey ? { allowKey: ownerAllowKey } : {}),
+            ...(cardKey ? { allowKey: cardKey } : {}),
+            ...(onBehalf ? { forDog: onBehalf } : {}),
           },
         });
         if (event.requestId) askMessageByRequest.set(`${event.threadId}:${event.requestId}`, message.id);
@@ -7352,6 +7362,45 @@ bus.subscribe(guardTurnEnd((event: RuntimeEvent) => {
           });
         })().catch(() => {
           console.error("[approval] Could not record the provider approval result.");
+        });
+        break;
+      }
+      if (grantKey && asker && event.requestId && dogAllows(store, asker.id, event.threadId, grantKey)) {
+        const requestId = event.requestId;
+        const instance = registry.get(event.providerInstanceId ?? asker.modelSelection.instanceId);
+        const sourceGeneration = directTurnGenerationByThread.get(event.threadId);
+        const sourceSpeaker = groupSpeakers.get(event.threadId);
+        const isCurrent = () => !shouldIgnoreProviderEvent(event) && (
+          (sourceGeneration !== undefined && directTurnGenerationByThread.get(event.threadId) === sourceGeneration) ||
+          (sourceSpeaker !== undefined && groupSpeakers.get(event.threadId) === sourceSpeaker)
+        );
+        void answerFromGrant({
+          tool: event.tool,
+          command: event.command?.command,
+          summary: event.summary,
+          guard: ownerGuardContext(asker, event.threadId, event.command?.cwd),
+          ownerAllows: (refusal) => ownerGuardAllowed(asker.id, event.threadId, refusal),
+          allow: () => deliverFullAccessApproval(instance?.adapter, event.threadId, requestId, event.turnId, isCurrent),
+          hold: (question, refusal) => showCard(question, ownerGuardAllowKey(refusal)),
+          isCurrent,
+          approved: () => {
+            pushMessage({ role: "bot", kind: "activity", tool: { name: `approved ${event.tool} (always allowed): ${event.summary.slice(0, 120)}`, ok: true } });
+            appendDecision(DATA_DIR, {
+              threadId: event.threadId, requestId, botId: asker.id, botName: asker.name, tool: event.tool, summary: event.summary,
+              decision: "auto-approved", source: "always-allow", rule: grantKey,
+            });
+          },
+          failed: (outcome) => {
+            watchdog.setWaitingOnHuman(event.threadId, false);
+            if (outcome !== "unavailable") pushMessage({
+              role: "bot", kind: "activity",
+              tool: outcome === "rejected"
+                ? { name: "The provider rejected this action although you allowed it always.", ok: false }
+                : failedTurnTool("could not deliver approval to the provider; retry the task after reconnecting."),
+            });
+          },
+        }).catch(() => {
+          console.error("[approval] Could not answer from a lasting approval.");
         });
         break;
       }
@@ -11618,25 +11667,30 @@ function ownerGuardAllowKey(refusal: OwnerGuardRefusal): string | undefined {
 
 function ownerGuardAllowed(botId: string, threadId: string, refusal: OwnerGuardRefusal): boolean {
   const key = ownerGuardAllowKey(refusal);
-  return key !== undefined && [store.bot(botId), store.projectBotForTask(botId, threadId)].some((bot) => bot?.alwaysAllow?.includes(key) === true);
+  return key !== undefined && dogAllows(store, botId, threadId, key);
 }
 
 function addAlwaysAllow(bot: BotRecord, allowKey: string) {
-  if (allowKey === DELETE_OUTSIDE_WORKSPACE_ALLOW_KEY) {
-    const owner = store.bot(bot.id);
-    if (owner && !owner.alwaysAllow?.includes(allowKey)) store.patchBot(bot.id, { alwaysAllow: [...(owner.alwaysAllow ?? []), allowKey].slice(0, 200) });
-    const visible = wireBot(store.bot(bot.id)!);
-    broadcast({ kind: "bot", bot: visible });
-    return visible;
-  }
-  store.patchTask(bot.id, bot.threadId, {
-    alwaysAllow: [...new Set([...(bot.alwaysAllow ?? []), allowKey])].slice(0, 200),
-  });
-  const live = directTurnBots.get(bot.threadId);
-  if (live) live.alwaysAllow = [...new Set([...(live.alwaysAllow ?? []), allowKey])].slice(0, 200);
+  grantToDog(store, bot.id, allowKey);
   const visible = wireBot(store.bot(bot.id)!);
   broadcast({ kind: "bot", bot: visible });
   return visible;
+}
+
+function lastingGrantRefusal(auth: RequestAuth, threadId: string): string | null {
+  return lastingRefusal({
+    guestDriven: cloudGuestDriven(threadId),
+    sharedMembers: sharedMembership(),
+    session: auth.kind === "session",
+    admin: auth.kind === "session" && auth.scopes.includes("admin"),
+  });
+}
+
+function grantFromAnswer(auth: RequestAuth, threadId: string, requestId: string, behavior: string, body: { scope?: unknown; rememberCommand?: unknown }): void {
+  const target = lastingGrantTarget(store, threadId, requestId, behavior, body);
+  if (!target || target.key === MAC_ALLOW_KEY || lastingGrantRefusal(auth, threadId)) return;
+  const bot = store.bot(target.botId);
+  if (bot) addAlwaysAllow(bot, target.key);
 }
 
 function connectorThread(botId: string, threadId: string) {
@@ -15428,7 +15482,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         const sendDecision = (sender: BotRecord) => connectorSendDecision({
           calls: outboundCalls,
           connected: serviceSlugs,
-          alwaysAllow: botForThread(sender.id, internalCapability.threadId)?.alwaysAllow,
+          alwaysAllow: dogGrantKeys(store, sender.id, internalCapability.threadId),
           ownerSends: ownerSendsWithoutAsking(sourceApprovalMode(sender.id, internalCapability.threadId), ownerAutoScope(internalCapability.threadId)),
           skipped: (toolkit) => connectorSkips.has(internalCapability.threadId, internalCapability.generation, toolkit),
           allowedThisTurn: (toolkit) => connectorAllows.has(internalCapability.threadId, internalCapability.generation, toolkit),
@@ -15470,7 +15524,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
                 options: ["Allow", "Deny"],
                 requestId: held.requestId,
                 tool: outboundTool,
-                ...(decision.toolkit ? { allowKey: connectorAllowKey(decision.toolkit) } : {}),
+                ...(connectorGrantKey(outboundCalls, decision.toolkit) ? { allowKey: connectorGrantKey(outboundCalls, decision.toolkit) } : {}),
                 held: HELD_NOTE["approval.held.outbound"],
                 heldCode: "approval.held.outbound",
                 outboundRequest: { tool: outboundTool, app, calls },
@@ -17467,6 +17521,15 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       return json(res, 405, { error: "Unsupported command allowlist operation" });
     }
     m = path.match(/^\/api\/bots\/([\w-]+)\/always-allow$/);
+    if (m && method === "DELETE") {
+      if (auth.kind === "loopback" && auth.trust === "service") return json(res, 403, { error: "A local service can't change what a dog may do." });
+      const key = url.searchParams.get("key") ?? "";
+      if (!key || !store.bot(m[1])) return json(res, key ? 404 : 400, { error: key ? "no such bot" : "key required" });
+      const updated = revokeFromDog(store, m[1], key)!;
+      const visible = wireBot(updated);
+      broadcast({ kind: "bot", bot: visible });
+      return json(res, 200, { bot: visible });
+    }
     if (m && method === "POST") {
       const body = await readBody(req);
       requirePinnedClientThread(m[1], body?.threadId);
@@ -17482,7 +17545,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       if (!pending) {
         return json(res, 409, { error: "that grant is not on a pending approval for this bot" });
       }
-      const refusal = cardAnswerRefusal(auth, bot.threadId, pending.card!.requestId!, "allow");
+      const refusal = cardAnswerRefusal(auth, bot.threadId, pending.card!.requestId!, "allow") ?? lastingGrantRefusal(auth, bot.threadId);
       if (refusal) return json(res, 403, { error: refusal });
       if (allowKey === MAC_ALLOW_KEY) {
         if (!macApprovals.choose(pending.card!.requestId!, "always")) return json(res, 409, { error: "that grant is not on a pending approval for this bot" });
@@ -17803,6 +17866,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         }
         patch.alwaysAllow = [...new Set(body.alwaysAllow as string[])].slice(0, 200);
       }
+      const grantsBefore = [...(existingBot?.alwaysAllow ?? [])];
       const loosened: string[] = [];
       const trustPatch = patch as Pick<Partial<BotRecord>, "fallback">;
       if (body.fallback !== undefined && trustPatch.fallback?.some(candidate =>
@@ -17902,6 +17966,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         bot = store.patchBot(m[1], patch);
       }
       if (!bot) return json(res, 404, { error: "no such bot" });
+      if (Array.isArray(patch.alwaysAllow)) forgetInChats(store, bot.id, grantsBefore.filter((key) => !bot!.alwaysAllow?.includes(key)));
       if (body.memoryUpkeep === false || body.memoryEnabled === false) memoryUpkeep.dropBot(bot.id);
       if (computerSpecified && requestedComputer !== undefined) store.clearAutoSurfacePins(m[1], requestedComputer);
       if (normalizedSelection && selectedTask) store.patchTask(bot.id, selectedTask.threadId, { modelSelection: undefined,
@@ -18361,7 +18426,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         ? async (currentAtStart: BotRecord): Promise<DirectSendReceipt> => {
             const expectedMode = body.expectedApprovalMode ?? "ask";
             if (approvalModeFor(currentAtStart) !== expectedMode ||
-                (expectedMode === "ask" && (currentAtStart.autoApprove === true || currentAtStart.alwaysAllow?.length))) {
+                (expectedMode === "ask" && (currentAtStart.autoApprove === true || currentAtStart.alwaysAllow?.length || dogGrantKeys(store, currentAtStart.id, threadId).length))) {
               throw Object.assign(new Error("guarded sends require the exact expected approval mode; Ask cannot have remembered permissions"), { status: 409, code: "guarded_permissions" });
             }
             if (store.activeLeaf(threadId) !== body.expectedActiveLeafId) {
@@ -18574,6 +18639,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         if (refusal) return json(res, 403, { error: refusal });
       }
       return await answeringCardAs(auth, bot.threadId, String(body.requestId), async () => {
+        grantFromAnswer(auth, bot.threadId, String(body.requestId), behavior, body);
         recordAnswerScope(store, bot.threadId, String(body.requestId), behavior, body, answerGrants);
         if (resolveAndSendTrust(res, bot.threadId, String(body.requestId), behavior)) return;
         if (resolveAndSendRoutine(res, {
@@ -18653,6 +18719,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         if (refusal) return json(res, 403, { error: refusal });
       }
       return await answeringCardAs(auth, threadId, requestId, async () => {
+        grantFromAnswer(auth, threadId, requestId, behavior, body);
         recordAnswerScope(store, threadId, requestId, behavior, body, answerGrants);
         if (resolveAndSendTrust(res, threadId, requestId, behavior)) return;
         const skillCard = store.messagesFor(threadId).find(

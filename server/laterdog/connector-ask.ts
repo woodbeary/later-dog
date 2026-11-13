@@ -1,4 +1,5 @@
 import type { ConnectorCall } from "../../shared/outbound.ts";
+import { asksEveryTime } from "./always-allow.ts";
 
 const CONNECTOR_ALLOW_PREFIX = "connector:";
 const OPAQUE_CALL = "COMPOSIO_PROXY_EXECUTE";
@@ -24,8 +25,26 @@ export function askedConnector(calls: readonly ConnectorCall[], connected: reado
   return toolkit ?? null;
 }
 
-export function connectorAlwaysAllowed(alwaysAllow: readonly string[] | undefined, toolkit: string | null): boolean {
-  return toolkit !== null && (alwaysAllow ?? []).includes(connectorAllowKey(toolkit));
+export function connectorToolAllowKey(toolkit: string, slug: string): string {
+  return `${CONNECTOR_ALLOW_PREFIX}${toolkit}:${slug.toLowerCase()}`;
+}
+
+export function connectorGrantKey(calls: readonly ConnectorCall[], toolkit: string | null): string | undefined {
+  const slugs = new Set(calls.map((call) => call.slug));
+  if (toolkit === null || slugs.size !== 1) return undefined;
+  const [slug] = slugs as Set<string>;
+  return slug === OPAQUE_CALL || asksEveryTime(slug) ? undefined : connectorToolAllowKey(toolkit, slug);
+}
+
+export function connectorAlwaysAllowed(
+  alwaysAllow: readonly string[] | undefined,
+  toolkit: string | null,
+  calls: readonly ConnectorCall[] = [],
+): boolean {
+  if (toolkit === null || calls.some((call) => asksEveryTime(call.slug))) return false;
+  const keys = alwaysAllow ?? [];
+  if (keys.includes(connectorAllowKey(toolkit))) return true;
+  return calls.length > 0 && calls.every((call) => keys.includes(connectorToolAllowKey(toolkit, call.slug)));
 }
 
 export type ConnectorSendDecision =
@@ -49,7 +68,7 @@ export function connectorSendDecision(input: {
       .find((candidate): candidate is string => candidate !== null && input.skipped(candidate));
     if (skippedToolkit) return { kind: "skipped", toolkit: skippedToolkit };
     if (input.ownerSends) return { kind: "send", rule: "owner-auto" };
-    if (connectorAlwaysAllowed(input.alwaysAllow, toolkit)) return { kind: "send", rule: "always-allow" };
+    if (connectorAlwaysAllowed(input.alwaysAllow, toolkit, input.calls)) return { kind: "send", rule: "always-allow" };
     if (toolkit !== null && input.allowedThisTurn(toolkit)) return { kind: "send", rule: "this-turn" };
   }
   return { kind: "ask", toolkit };

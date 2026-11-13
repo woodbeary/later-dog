@@ -30,7 +30,8 @@ export type DecisionSource =
   | "connector-scope"
   | "outbound"
   | "auto-review"
-  | "auto-review-shadow";
+  | "auto-review-shadow"
+  | "always-allow";
 
 export type DecisionActor =
   | { kind: "session"; sessionId: string; label: string; email?: string; userId?: string }

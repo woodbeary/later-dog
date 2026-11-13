@@ -108,6 +108,8 @@ export type RuntimeEvent = RuntimeEventBase &
         argsDigest?: string;
         argsUnknown?: true;
         command?: { command: string; cwd: string };
+        paths?: string[];
+        grantable?: false;
         choices?: string[];
         questions?: AskQuestion[];
         origin?: "tool" | "output";

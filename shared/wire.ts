@@ -351,6 +351,7 @@ export interface OptionCardData {
   expired?: boolean;
   heldCode?: string;
   allowKey?: string;
+  forDog?: { botId: string; name: string };
   allowSession?: boolean;
   answerScope?: "once" | "always" | "chat";
   commandAllowlist?: CommandAllowlistCandidate;
