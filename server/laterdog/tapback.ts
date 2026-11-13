@@ -3,14 +3,9 @@ import type { WireMessage } from "../../shared/wire.ts";
 type Reaction = NonNullable<WireMessage["reactions"]>[number];
 
 export const TAPBACK_PROMPT =
-  " When a message needs no answer, such as \"ok\", \"thanks\", \"👍\" or \"got it\", react to it with the react tool and end your turn without writing anything; for a plain acknowledgment sent mid-task, the reaction is the short reply, so react and carry on. The tapback is the whole reply.";
-
-export const INCLUDED_TAPBACK_PROMPT =
   " When a message needs no answer, such as \"ok\", \"thanks\", \"👍\" or \"got it\", reply with one emoji and nothing else; the app shows it as a tapback on their message. To react in the middle of work, use the react tool and carry on.";
 
-export const INCLUDED_TAPBACK_NOTE = " If it only acknowledges, such as \"ok\" or \"thanks\", reply with one emoji and nothing else; the app shows it as a tapback.";
-
-export const TAPBACK_NOTE = " If it only acknowledges, such as \"ok\" or \"thanks\", react to it with the react tool instead; that tapback is the reply.";
+export const TAPBACK_NOTE = " If it only acknowledges, such as \"ok\" or \"thanks\", reply with one emoji and nothing else; the app shows it as a tapback.";
 
 const EMOJI = /\p{Extended_Pictographic}|\p{Regional_Indicator}/u;
 const NOT_EMOJI = /[\p{L}\p{N}\s]/u;
@@ -137,5 +132,5 @@ export function tapbackTurnKey(threadId: string, turnId: string): string {
 export function reactedText(emoji: string, target: Pick<WireMessage, "text">): string {
   const said = (target.text ?? "").replace(/\s+/g, " ").trim();
   const quoted = said.length > 60 ? `${said.slice(0, 57)}…` : said;
-  return `Reacted ${emoji} to ${quoted ? `“${quoted}”` : "the message"}. End your turn now without writing anything; the reaction is the reply.`;
+  return `Reacted ${emoji} to ${quoted ? `“${quoted}”` : "the message"}. Carry on with your work; if there is none, end your turn without writing anything.`;
 }

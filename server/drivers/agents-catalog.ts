@@ -587,7 +587,7 @@ const TOOL_DEFINITIONS = [
   },
   {
     name: "react",
-    description: "Tap back on message_id or the person's latest message, then end with no text.",
+    description: "Tap back on message_id or the person's latest message while you work.",
     inputSchema: {
       type: "object",
       additionalProperties: false,
