@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import { availableTools, type CatalogProfile } from "../drivers/agents-catalog.ts";
 import { WATCHER_OPTIONS_CARD_BOT_ID } from "../../shared/options-card.ts";
+import { GOOGLE_PROMPT } from "./google.ts";
 import {
   AGENTS_DEFER_RARE_ENV,
   ALWAYS_LOAD_META,
@@ -51,5 +52,18 @@ describe("tool loading", () => {
     expect(agentsServerLaunch({ command: "node", args: [], env: { A: "1" } }, true)).toEqual({
       command: "node", args: [], env: { A: "1", [AGENTS_DEFER_RARE_ENV]: "1" }, alwaysLoad: true,
     });
+  });
+
+  it("keeps the rule against opening Google's consent page in what every dog always sees, with the setting on or off", () => {
+    const rule = "never open that page in your own browser";
+    expect(GOOGLE_PROMPT).toContain(rule);
+    for (const setting of ["0", "1"]) {
+      const launch = agentsServerLaunch({ command: "node", args: [], env: {} }, deferRareToolsEnabled({ LATERDOG_DEFER_RARE_TOOLS: setting }));
+      const loaded = withToolLoading(availableTools(everything), launch.env)
+        .filter((tool) => (tool as { _meta?: Record<string, unknown> })._meta?.[ALWAYS_LOAD_META] !== false);
+      const connect = loaded.find((tool) => tool.name === "connect_google");
+      expect([setting, Boolean(connect)]).toEqual([setting, setting === "0"]);
+      expect([setting, GOOGLE_PROMPT + loaded.map((tool) => tool.description).join(" ")]).toEqual([setting, expect.stringContaining(rule)]);
+    }
   });
 });
