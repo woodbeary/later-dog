@@ -770,6 +770,7 @@ import { createCompactionLive, fileCompactionLedger } from "./laterdog/compactio
 import { engineWillCompact, rebuildNeedsSummary } from "./laterdog/native-compaction.ts";
 import { withDroppedSummary } from "./laterdog/rebuild-summary.ts";
 import { fileEngineSummaries } from "./laterdog/engine-summaries.ts";
+import { createEngineSummaryWindows } from "./laterdog/engine-summary-window.ts";
 import { recallsThisTurn } from "./laterdog/session-start-recall.ts";
 import { createPromiseNudges } from "./laterdog/promise-nudge.ts";
 import { createStallWatch, handoffWorking, STALL_LOOKBACK_MS, stallWatchMode, type StallFacts } from "./laterdog/stall-watch.ts";
@@ -5646,6 +5647,7 @@ const compactionLive = createCompactionLive({
   },
 });
 const engineSummaries = fileEngineSummaries(join(DATA_DIR, "engine-summaries.json"));
+const engineSummaryWindows = createEngineSummaryWindows();
 liveStatusLine = (threadId) => compactionLive.current(threadId) ?? statusLines.current(threadId);
 statusLines.foldLeftovers();
 compactionLive.foldLeftovers();
@@ -5770,8 +5772,12 @@ bus.subscribe((event: RuntimeEvent) => {
 });
 bus.subscribe((event: RuntimeEvent) => {
   if (shouldIgnoreProviderEvent(event)) return;
-  if (event.type === "session.compacting") compactionLive.started(event.threadId, { turnId: event.turnId, stream: true });
-  else if (event.type === "session.compacted") {
+  if (event.type === "session.started" && event.sessionId) engineSummaryWindows.sessionStarted(event.threadId, event.sessionId);
+  if (event.type === "turn.completed" || event.type === "session.exited") engineSummaryWindows.turnEnded(event.threadId);
+  if (event.type === "session.compacting") {
+    engineSummaryWindows.compacting(event.threadId);
+    compactionLive.started(event.threadId, { turnId: event.turnId, stream: true });
+  } else if (event.type === "session.compacted") {
     const { ok, skipped, error, trigger, preTokens, postTokens, turnId } = event;
     compactionLive.finished(event.threadId, { ok, skipped, error, trigger, preTokens, postTokens, turnId, stream: true });
   } else if (event.type === "turn.completed" || event.type === "session.exited") compactionLive.settle(event.threadId);
@@ -5950,8 +5956,14 @@ function ingestEngineHook(capability: InternalCapability, body: unknown): { ok: 
   if (name === "PostCompact") {
     const through = store.activePath(threadId).filter(isContextMessage).at(-1)?.id;
     if (typeof payload.compact_summary === "string" && through) {
+      const bytes = Buffer.byteLength(payload.compact_summary);
+      const refused = engineSummaryWindows.accept(threadId, payload.session_id);
+      if (refused) {
+        console.log(`[compaction] engine summary refused chat=${threadId} bytes=${bytes} reason=${refused}`);
+        return { ok: false, ignored: refused };
+      }
       engineSummaries.remember(threadId, { text: payload.compact_summary, throughId: through });
-      console.log(`[compaction] engine summary received chat=${threadId} bytes=${Buffer.byteLength(payload.compact_summary)}`);
+      console.log(`[compaction] engine summary received chat=${threadId} bytes=${bytes}`);
     }
     return { ok: true };
   }

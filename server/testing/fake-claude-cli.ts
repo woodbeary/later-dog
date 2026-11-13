@@ -115,7 +115,7 @@ function runHooks(event: string, payload: Record<string, unknown>): string {
       if (hook.type !== "command" || !hook.command) continue;
       const result = spawnSync(hook.command, {
         shell: true,
-        input: JSON.stringify({ hook_event_name: event, session_id: "fake-session", cwd: process.cwd(), ...payload }),
+        input: JSON.stringify({ hook_event_name: event, session_id: sessionId, cwd: process.cwd(), ...payload }),
         env: process.env,
         timeout: ((hook.timeout ?? 5) + 1) * 1000,
         stdio: ["pipe", "pipe", "pipe"],
