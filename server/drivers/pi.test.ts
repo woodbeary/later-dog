@@ -1328,6 +1328,7 @@ describe("PiDriver snapshot", () => {
     const snap = await instance.snapshot();
     expect(snap.state).toBe("unavailable");
     expect(snap.reason).toMatch(/not found/);
+    expect(snap.missing).toBe(true);
     await instance.dispose();
   });
 });
