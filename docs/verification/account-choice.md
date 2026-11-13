@@ -27,7 +27,7 @@ run, via `choiceReadyAt`) and the picker's line (`shownRoute`).
 | The choice is a pin | While the chosen account is on, signed in and not held for the model, the turn runs there, whatever the others have left. Load spreading across accounts is gone. |
 | Cannot run, Keep going on | The same-engine account that is on, signed in, offers the model and is not held, ranked in four groups, best first: known plan room above 5% (with or without paid credits); no reading yet; paid credits but no plan room; 5% or under with no credits. Inside a group, the most left in the binding window (the tighter of session and week), then the person's order. The account already covering stays unless it is 5% or under with no credits and a better one exists, or it is on paid credits only and another account has known plan room. One with no reading is never left, so a chat does not hop while readings arrive after a restart. |
 | Cannot run, Keep going off | The chat waits for usage on the chosen account. |
-| Needs the person | When the chosen account is signed out, failed to sign in or is switched off and no same-engine account can cover, a kept turn is not rerun, and a new message or any queued message for a switched-off account is held instead of run on it (a signed-out account is left to the engine). An engine whose account is switched off refuses every turn with "{account} is turned off" (`server/laterdog/turned-off.ts`), so no other path runs there either. The wait is saved in `limit-hold.json` and found again after a restart. The chat shows Needs you with "Sign in to {account} again" or "Turn {account} back on" (`server/laterdog/account-needs-you.ts`) only when it will carry on by itself; an open question still wins. Such a chat has no carry-on time in `accountBattery.waiting` and does not keep usage readings refreshing. Apps hear once when the wait starts and once when it ends. The usage watch rechecks the decision each tick, right after an account setting changes and right after a pick; cancelling the held message ends the wait; once the account can run, the work carries on by itself (`server/laterdog/person-wait.ts`). |
+| Needs the person | When the chosen account is signed out, failed to sign in or is switched off and no same-engine account can cover, a kept turn is not rerun, and a new message or any queued message for a switched-off account is held instead of run on it (a signed-out account is left to the engine). An engine whose account is switched off refuses every turn with "{account} is turned off" (`server/laterdog/turned-off.ts`), so no other path runs there either. A chat whose own model sits on a switched-off or missing account first gives way to its dog's model and follows the dog; the hold is decided only for the account the turn would then run on (`server/laterdog/turn-selection.ts`). The wait is saved in `limit-hold.json` and found again after a restart. The chat shows Needs you with "Sign in to {account} again" or "Turn {account} back on" (`server/laterdog/account-needs-you.ts`) only when it will carry on by itself; an open question still wins. Such a chat has no carry-on time in `accountBattery.waiting` and does not keep usage readings refreshing. Apps hear once when the wait starts and once when it ends. The usage watch rechecks the decision each tick, right after an account setting changes and right after a pick; cancelling the held message ends the wait; once the account can run, the work carries on by itself (`server/laterdog/person-wait.ts`). |
 | Coming back | The next message after the chosen account can run again goes to it. |
 | Engines | Never crossed by the home. With no same-engine account free the chat waits; the usage and stall watches carry it on. Only a person's own pick on the limit row (`byHand`) moves it to another engine, for that chat until the chosen account is back. |
 | A pick while the dog works | The running turn finishes where it is; the pick takes the next message. The picker says "From the next message" at once. |
@@ -75,12 +75,14 @@ unit tests named; none was confirmed against the home's own logs.
 ## How it was proven
 
 Unit tests (all passing): `server/laterdog/account-choice.test.ts` (every
-rule and every incident above), `account-needs-you.test.ts`, `person-wait.test.ts`,
-`battery-view.test.ts`, `carry-on.test.ts`,
-`carry-on-restart.test.ts`, `usage-watch.test.ts`, `account-battery.test.ts`,
-`account-battery-fallback.test.ts`, `account-pinned-engine.test.ts`,
-`account-used-up.test.ts`, `account-no-early-switch.test.ts`,
-`continue-on-account.test.ts`, `execution-evidence.test.ts`,
+rule and every incident above), and, in the same folder,
+`server/laterdog/account-needs-you.test.ts`, `server/laterdog/person-wait.test.ts`,
+`server/laterdog/battery-view.test.ts`, `server/laterdog/carry-on.test.ts`,
+`server/laterdog/carry-on-restart.test.ts`, `server/laterdog/usage-watch.test.ts`,
+`server/laterdog/account-battery.test.ts`, `server/laterdog/account-battery-fallback.test.ts`,
+`server/laterdog/account-pinned-engine.test.ts`, `server/laterdog/account-used-up.test.ts`,
+`server/laterdog/account-no-early-switch.test.ts`, `server/laterdog/continue-on-account.test.ts`,
+`server/laterdog/execution-evidence.test.ts`, `server/laterdog/turn-selection.test.ts`,
 `src/lib/routed-line.test.ts`, `src/components/ModelPicker.simple.test.ts`,
 `src/components/LimitRow.test.ts`.
 
