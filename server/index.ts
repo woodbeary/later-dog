@@ -760,7 +760,7 @@ import { cloudVaultKey, testVaultKey, VaultStore } from "./laterdog/vault.ts";
 import { transcribeRoute } from "./laterdog/transcribe.ts";
 import { pickTranscriber, xaiVoice } from "./laterdog/transcribe-xai.ts";
 import { withOnItNote, withSteerNote, workUpdatesPrompt } from "./laterdog/work-updates.ts";
-import { onlyTapbackText, tapbackStreamChunk, tapbackTurnKey } from "./laterdog/tapback.ts";
+import { onlyTapbackText, replyTapback, replyTapbackStreamChunk, tapbackTarget, tapbackStreamChunk, tapbackTurnKey, withTapback } from "./laterdog/tapback.ts";
 import { createMacWaits } from "./laterdog/mac-waits.ts";
 import { createMacPromptGate, macPromptOf, macPromptWords } from "./laterdog/mac-prompt.ts";
 import { createStatusLines, fileStatusLineLedger, statusLineTimingFromEnv, threadWork } from "./laterdog/status-lines.ts";
@@ -2824,6 +2824,14 @@ type ParkedTurnAttachment = NonNullable<Message["attachments"]>[number] & { text
 const turnAttachmentsByTurn = new Map<string, Array<ParkedTurnAttachment>>();
 const reactedTurns = new Set<string>();
 const pendingTapbackText = new Map<string, string>();
+const replyTapbackHold = new Map<string, string | null>();
+
+function reactFromReply(threadId: string, turnId: string | undefined, emoji: string, by: string | undefined): boolean {
+  const target = by ? tapbackTarget(store.activePath(threadId), undefined) : null;
+  if (!by || !target || !store.patchMessage(threadId, target.id, { reactions: withTapback(target.reactions, emoji, by) })) return false;
+  if (turnId) reactedTurns.add(tapbackTurnKey(threadId, turnId));
+  return true;
+}
 const speechCache = new SpeechCache();
 
 function turnAttachmentKey(threadId: string, turnId?: string): string {
@@ -3666,7 +3674,7 @@ function previewSystemPrompt(bot: BotRecord) {
     { id: "credential", label: "Credentials", text: agentsMounted ? signInPassage({ secureForm: computerPromptKind === "box" }) : "" },
     { id: "routine", label: "Routines", text: agentsMounted ? ROUTINE_PROMPT : "" },
     { id: "profile", label: "Profile changes", text: agentsMounted ? PROFILE_PROMPT : "" },
-    { id: "updates", label: "Progress updates", text: workUpdatesPrompt({ background: instance?.adapter.capabilities.backgroundWork === true, react: agentsMounted }) },
+    { id: "updates", label: "Progress updates", text: workUpdatesPrompt({ background: instance?.adapter.capabilities.backgroundWork === true, react: agentsMounted, engine: guidanceEngine(instance?.driverKind) }) },
     { id: "memory", label: "Memory", text: memorySystemPrompt(bot.id, { managedWrites: agentsMounted, fileTools: Boolean(privateWorkspace), enabled: bot.memoryEnabled !== false }) },
     { id: "skills", label: "Skills index", text: privateWorkspace ? skillsSystemPrompt(bot.id, skillsLibraryEnabled(cfg) ? bot.assignedSkills : undefined) : "" },
   ], cfg.profile?.name);
@@ -7023,7 +7031,8 @@ bus.subscribe(guardTurnEnd((event: RuntimeEvent) => {
   const privateImageEvent = event.type === "item.completed" && event.itemType === "assistant_image";
   const tapbackKey = event.turnId ? tapbackTurnKey(event.threadId, event.turnId) : undefined;
   let publicEvent = event.type === "request.opened" ? { ...event, command: undefined } : event;
-  let privateTapbackText = tapbackKey && reactedTurns.has(tapbackKey) && event.type === "item.completed" && event.itemType === "assistant_text" && onlyTapbackText(event.text);
+  const replyEmoji = event.type === "item.completed" && event.itemType === "assistant_text" ? replyTapback(event.text) : null;
+  let privateTapbackText = Boolean(replyEmoji) || tapbackKey && reactedTurns.has(tapbackKey) && event.type === "item.completed" && event.itemType === "assistant_text" && onlyTapbackText(event.text);
   if (tapbackKey && event.type === "content.delta" && event.streamKind === "assistant_text" && pendingTapbackText.has(tapbackKey)) {
     const chunk = tapbackStreamChunk(pendingTapbackText.get(tapbackKey), event.delta);
     if (chunk.pending !== undefined) {
@@ -7031,9 +7040,16 @@ bus.subscribe(guardTurnEnd((event: RuntimeEvent) => {
       privateTapbackText = true;
     } else {
       pendingTapbackText.delete(tapbackKey);
+      replyTapbackHold.set(tapbackKey, null);
       publicEvent = { ...event, delta: chunk.delta! };
     }
+  } else if (tapbackKey && event.type === "content.delta" && event.streamKind === "assistant_text") {
+    const chunk = replyTapbackStreamChunk(replyTapbackHold.get(tapbackKey), event.delta);
+    replyTapbackHold.set(tapbackKey, chunk.pending ?? null);
+    if (chunk.pending !== undefined) privateTapbackText = true;
+    else publicEvent = { ...event, delta: chunk.delta! };
   }
+  if (tapbackKey && event.type === "item.completed" && event.itemType === "assistant_text") replyTapbackHold.delete(tapbackKey);
   if (!privateImageEvent && !privateTapbackText) broadcast({ kind: "runtime", event: publicEvent });
   executionEvidence.observe(event);
   if (workSignals.observe(event)) announceHelpersChanged(event.threadId);
@@ -7080,6 +7096,7 @@ bus.subscribe(guardTurnEnd((event: RuntimeEvent) => {
       if (event.itemType === "assistant_text") {
         const text = event.text;
         if (event.turnId && reactedTurns.has(tapbackTurnKey(event.threadId, event.turnId)) && onlyTapbackText(text)) break;
+        if (replyEmoji && reactFromReply(event.threadId, event.turnId, replyEmoji, bot?.id ?? speaker?.botId)) break;
         pushMessage({ role: "bot", kind: "text", text, turnId: event.turnId });
         lastReply.set(event.threadId, text);
       } else if (event.itemType === "assistant_image") {
@@ -7377,6 +7394,7 @@ bus.subscribe(guardTurnEnd((event: RuntimeEvent) => {
         const key = tapbackTurnKey(event.threadId, event.turnId);
         reactedTurns.delete(key);
         pendingTapbackText.delete(key);
+        replyTapbackHold.delete(key);
       }
       settleWaitingOnPersonChips(event.threadId);
       const internal = isInternalTurn(event.threadId);
@@ -9098,7 +9116,7 @@ async function startTurn(
         { id: "routine-execution", label: "Routine execution", text: opts?.automationSource === "schedule" || opts?.automationSource === "manual" ? ROUTINE_EXECUTION_PROMPT : "" },
         { id: "profile", label: "Profile changes", text: profilePrompt },
         { id: "learn", label: "Skill authoring", text: learnPrompt },
-        { id: "updates", label: "Progress updates", text: workUpdatesPrompt({ background: instance.adapter.capabilities.backgroundWork === true, react: Boolean(integrations.agents) }) },
+        { id: "updates", label: "Progress updates", text: workUpdatesPrompt({ background: instance.adapter.capabilities.backgroundWork === true, react: Boolean(integrations.agents), engine: guidanceEngine(instance.driverKind) }) },
         { id: "recent", label: "Recent work", text: recentWorkPrompt(recentWork(recentWorkSources(bot), bot, { userName: cfg.profile?.name?.trim() || "User", currentThreadId: threadId, ...recentWorkFilter() })) },
         { id: "memory", label: "Memory", text: memorySystemPrompt(bot.id, { managedWrites: Boolean(integrations.agents), fileTools: worksInWorkspace, enabled: bot.memoryEnabled !== false, readOnly: foreignTurn }) },
         { id: "skills", label: "Skills index", text: privateWorkspace ? skillsSystemPrompt(bot.id, skillsLibraryEnabled(cfg) ? (store.bot(bot.id)?.assignedSkills ?? bot.assignedSkills) : undefined) : "" },
@@ -10858,7 +10876,7 @@ async function runGroupMemberTurn(
     { id: "recall", label: "Recall", text: integrations.agents && bot.memoryEnabled !== false ? SESSION_SEARCH_SYSTEM_PROMPT : "" },
     { id: "cross-recall", label: "Other dogs' chats", text: integrations.agents && crossDogRecallAllowed(bot, threadId) ? CROSS_DOG_RECALL_PROMPT : "" },
     { id: "recent", label: "Recent work", text: recentWorkPrompt(recentLines) },
-    { id: "updates", label: "Progress updates", text: workUpdatesPrompt({ background: instance.adapter.capabilities.backgroundWork === true, react: Boolean(integrations.agents) }) },
+    { id: "updates", label: "Progress updates", text: workUpdatesPrompt({ background: instance.adapter.capabilities.backgroundWork === true, react: Boolean(integrations.agents), engine: guidanceEngine(instance.driverKind) }) },
     { id: "memory", label: "Memory", text: roomMemory ? `\n${roomMemory.trim()}` : "" },
     { id: "skills", label: "Skills index", text: workspace ? skillsSystemPrompt(bot.id, skillsLibraryEnabled(cfg) ? (store.bot(bot.id)?.assignedSkills ?? bot.assignedSkills) : undefined) : "" },
     { id: "skill-instructions", label: "Skill instructions", text: renderSkillInstructions(selectedSkills, { includeRoot: Boolean(workspace) }) },

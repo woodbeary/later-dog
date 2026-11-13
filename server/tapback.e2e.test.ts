@@ -58,6 +58,26 @@ it("puts a dog's tapback on the person's message and posts no bubble for a turn 
   expect(answers(after)).toEqual(["Glad it landed."]);
 }), 60_000);
 
+it("turns a reply that is only a written-out reaction into a tapback, with no bubble and no raw text streamed", async () => withFixture(async (f) => {
+  const bot = (await f.cli("new-bot", "--name", "Plain reply dog")).bot;
+  f.savePlan({ [bot.id]: { steps: [], reply: "<agents_react>\n{\"emoji\": \"👍\"}\n</agents_react>" } });
+  await f.turn(bot, "thanks");
+
+  const messages = await f.messages(bot.activeTaskId);
+  const asked = messages.find((m: any) => m.role === "user" && m.text?.startsWith("thanks"));
+  expect(asked.reactions).toEqual([{ emoji: "👍", by: bot.id }]);
+  expect(messages.slice(messages.indexOf(asked)).filter((m: any) => m.role === "bot" && m.kind === "text")).toEqual([]);
+  expect(f.frames.some((frame: any) => frame.kind === "message.patch" && frame.message?.id === asked.id && frame.message?.reactions?.[0]?.emoji === "👍")).toBe(true);
+  expect(JSON.stringify(f.frames.filter((frame: any) => frame.kind === "runtime" && frame.event?.threadId === bot.activeTaskId))).not.toContain("agents_react");
+
+  f.savePlan({ [bot.id]: { steps: [], reply: "Glad it worked 👍" } });
+  await f.turn(bot, "ok");
+  const after = await f.messages(bot.activeTaskId);
+  const okAt = after.findIndex((m: any) => m.role === "user" && m.text?.startsWith("ok"));
+  expect(after.slice(okAt).filter((m: any) => m.role === "bot" && m.kind === "text").map((m: any) => m.text)).toEqual(["Glad it worked 👍"]);
+  expect(after[okAt].reactions).toBeUndefined();
+}), 60_000);
+
 it("refuses a tapback that is not one emoji, or that names no message in the chat", async () => withFixture(async (f) => {
   const bot = (await f.cli("new-bot", "--name", "Picky dog")).bot;
   f.savePlan({
