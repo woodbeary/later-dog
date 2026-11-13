@@ -13,7 +13,7 @@ const readAtLaunch = (path: string) => {
 
 export async function runRoomHandoffAgent(argv: string[], planPath: string, prompt?: unknown,
   launch?: { integration: AgentsIntegration; system: string; evidence?: Record<string, unknown> },
-  progress?: (text: string) => void): Promise<string> {
+  progress?: (text: string) => void, announce?: (call: { id: string; name: string; input: unknown; parentToolUseId?: string }) => void): Promise<string> {
   const arg = (flag: string) => argv[argv.indexOf(flag) + 1];
   const integration = launch?.integration ?? Object.values(JSON.parse(readAtLaunch(arg("--mcp-config"))).mcpServers as Record<string, AgentsIntegration>)
     .find(s => s.env?.LATERDOG_BOT_ID);
@@ -88,7 +88,9 @@ export async function runRoomHandoffAgent(argv: string[], planPath: string, prom
       evidence.push(await call("tools/list"));
       evidence.push(await call("tools/call", { name: "list_bots", arguments: {} }));
       for (const step of steps) {
-        const response = await call("tools/call", { name: step.tool ?? "coordinate_bots", arguments: step.arguments });
+        const name = step.tool ?? "coordinate_bots";
+        if (step.toolUseId) announce?.({ id: step.toolUseId, name: `mcp__agents__${name}`, input: step.arguments, parentToolUseId: step.parentToolUseId });
+        const response = await call("tools/call", { name, arguments: step.arguments, ...(step.toolUseId ? { _meta: { "claudecode/toolUseId": step.toolUseId } } : {}) });
         evidence.push({ step, response });
         if (Boolean(response.error || response.result?.isError) !== Boolean(step.expectError)) throw new Error(`Unexpected tool outcome: ${JSON.stringify(response)}`);
       }
