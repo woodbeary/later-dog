@@ -97,7 +97,7 @@ export function codexSignInExpired(raw: string, cloudHome = cloudHomeConfigured(
   return cloudHome ? CODEX_CLOUD_SIGN_IN_AGAIN : `${CODEX_SIGN_IN_EXPIRED} Codex said: ${raw.slice(0, 300)}`;
 }
 
-class CodexRpcError extends Error {
+export class CodexRpcError extends Error {
   code: unknown;
 
   constructor(error: { code?: unknown; message?: string }) {
@@ -106,9 +106,11 @@ class CodexRpcError extends Error {
   }
 }
 
-function missingNativeCodexThread(error: unknown, cursor: string): boolean {
-  return error instanceof CodexRpcError && error.code === -32600 &&
-    error.message === `no rollout found for thread id ${cursor}`;
+export function missingNativeCodexThread(error: unknown, cursor: string): boolean {
+  if (!(error instanceof CodexRpcError)) return false;
+  const message = error.message.trim();
+  return [`no rollout found for thread id ${cursor}`, `no rollout found for conversation id ${cursor}`, `thread not found: ${cursor}`]
+    .includes(message);
 }
 
 export function codexUpdateCommand(cli: string, platform: NodeJS.Platform = process.platform): string {
