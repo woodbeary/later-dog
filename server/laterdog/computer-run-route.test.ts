@@ -20,6 +20,7 @@ const probeWith = (runs: ComputerRuns, box: RunBox) => ({
     const state = await runs.poll(inner, runs.record(job.botId, job.id)!);
     return state.done && state.exitCode !== null ? { exitCode: state.exitCode } : null;
   },
+  liveness: async () => "alive" as const,
 });
 
 const outcome = (state: RunOutcome["state"], exitCode: number | null = 0): RunOutcome => ({ id: "abcd1234", state, exitCode, output: "ok", broughtBack: ["report.txt"], skipped: [], sentFiles: 2, sentBytes: 2048 });

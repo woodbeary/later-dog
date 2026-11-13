@@ -137,7 +137,7 @@ import { makeSpace } from "./laterdog/space-maker.ts";
 import { ComputerRuns, MAX_RUN_MS } from "./laterdog/computer-runs.ts";
 import { ComputerJobs, JOB_CHECK_MS } from "./laterdog/computer-jobs.ts";
 import { directHandoffFacts, handoffWorkDone, olderWorkFields } from "./laterdog/chat-work.ts";
-import { couldNotStopLine, stopComputerJobs } from "./laterdog/stop-computer-jobs.ts";
+import { couldNotStopLine, partlyStoppedLine, stopComputerJobs } from "./laterdog/stop-computer-jobs.ts";
 import { createJobWake } from "./laterdog/job-wake.ts";
 import { HeavyCommandGuard, preToolUseDecision } from "./laterdog/heavy-commands.ts";
 import { computersSelected } from "./laterdog/cloud-computers.ts";
@@ -5762,6 +5762,9 @@ function stopJobsForPerson(threadId: string): void {
     stop: (box, job) => computerRuns.stop(box, job),
     couldNotStop: (id) => {
       store.appendMessage(id, { role: "bot", kind: "activity", tool: { name: couldNotStopLine(restartPickupHost.dog(id)?.name ?? "The dog"), ok: false, pickup: "computer" } });
+    },
+    partlyStopped: (id) => {
+      store.appendMessage(id, { role: "bot", kind: "activity", tool: { name: partlyStoppedLine(restartPickupHost.dog(id)?.name ?? "The dog"), ok: false, pickup: "computer" } });
     },
   }).then((result) => { if (result.stopped.length || result.left.length) console.log(`[computer jobs] stop ${threadId}: stopped ${result.stopped.join(", ") || "none"}, left ${result.left.join(", ") || "none"}`); });
 }
@@ -13610,6 +13613,7 @@ const checkComputerJobs = () => void computerJobs.check({
     const stamp = Number((await box.exec(`date -r runs/.logs/${record.id}.exit +%s`, 10_000).catch(() => ({ stdout: "" }))).stdout.trim());
     return { exitCode: state.exitCode, ...(Number.isFinite(stamp) && stamp > 0 ? { at: stamp * 1000 } : {}) };
   },
+  liveness: (box, job) => computerRuns.liveness(box, job),
 }).then(() => { void restartPickupDone.then(() => jobWake.deliver()); });
 setTimeout(checkComputerJobs, 0).unref();
 setInterval(checkComputerJobs, Math.max(1_000, Number(process.env.LATERDOG_COMPUTER_JOB_CHECK_MS) || JOB_CHECK_MS)).unref();

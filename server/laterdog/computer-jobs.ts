@@ -1,9 +1,9 @@
 import { readFileSync, renameSync } from "node:fs";
 import { z } from "zod";
 import { writeFileAtomic } from "../atomic.ts";
-import type { RunBox } from "./computer-runs.ts";
+import type { RunBox, RunLiveness } from "./computer-runs.ts";
 
-const endSchema = z.object({ how: z.enum(["finished", "failed", "stopped"]), exitCode: z.number().int().optional(), at: z.number() });
+const endSchema = z.object({ how: z.enum(["finished", "failed", "stopped", "lost"]), exitCode: z.number().int().optional(), at: z.number() });
 const jobSchema = z.object({
   id: z.string(), botId: z.string(), threadId: z.string(), command: z.string(), startedAt: z.number(),
   end: endSchema.optional(),
@@ -19,7 +19,10 @@ export type JobComputer = { state: "running"; box: RunBox } | { state: "asleep" 
 export interface ComputerJobProbe {
   computer(botId: string): Promise<JobComputer>;
   exit(box: RunBox, job: ComputerJob): Promise<{ exitCode: number; at?: number } | null>;
+  liveness(box: RunBox, job: ComputerJob): Promise<RunLiveness>;
 }
+
+type Sighting = "asleep" | "gone" | "dead";
 
 export interface ComputerJobLedger {
   started(job: ComputerJob): void;
@@ -45,7 +48,7 @@ export class ComputerJobs implements ComputerJobLedger {
   readonly #jobs = new Map<string, ComputerJob>();
   readonly #held = new Map<string, number>();
   #checking = false;
-  readonly #goneOnce = new Set<string>();
+  readonly #seen = new Map<string, Sighting>();
 
   constructor(file: string | null, options: ComputerJobsOptions = {}) {
     this.#file = file;
@@ -149,18 +152,29 @@ export class ComputerJobs implements ComputerJobLedger {
     const ends = new Map<string, ComputerJobEnd>();
     for (const job of this.#jobs.values()) {
       if (job.end || this.#held.has(job.id)) continue;
+      const before = this.#seen.get(job.id);
+      this.#seen.delete(job.id);
+      let sighting: Sighting | undefined;
       try {
         const computer = await probe.computer(job.botId);
-        const goneBefore = this.#goneOnce.has(job.id);
-        if (computer.state === "gone") this.#goneOnce.add(job.id);
-        else this.#goneOnce.delete(job.id);
-        if (computer.state === "asleep" || (computer.state === "gone" && goneBefore)) ends.set(job.id, jobEnd(null, this.#now()));
-        if (computer.state !== "running") continue;
-        const exit = await probe.exit(computer.box, job);
-        if (exit && Number.isInteger(exit.exitCode)) ends.set(job.id, jobEnd(exit.exitCode, exit.at !== undefined && Number.isFinite(exit.at) ? Math.min(exit.at, this.#now()) : this.#now()));
-      } catch {}
+        if (computer.state === "asleep" || computer.state === "gone") sighting = computer.state;
+        if (computer.state === "running") {
+          const exit = await probe.exit(computer.box, job);
+          if (exit && Number.isInteger(exit.exitCode)) {
+            ends.set(job.id, jobEnd(exit.exitCode, exit.at !== undefined && Number.isFinite(exit.at) ? Math.min(exit.at, this.#now()) : this.#now()));
+            continue;
+          }
+          if (await probe.liveness(computer.box, job) === "dead") sighting = "dead";
+        }
+      } catch {
+        sighting = undefined;
+      }
+      if (!sighting) continue;
+      if (before !== sighting) { this.#seen.set(job.id, sighting); continue; }
+      ends.set(job.id, sighting === "dead" ? { how: "lost", at: this.#now() } : jobEnd(null, this.#now()));
     }
     for (const [id, end] of ends) if (!this.#held.has(id)) this.finished(id, end);
+    for (const id of this.#seen.keys()) if (!this.#jobs.has(id)) this.#seen.delete(id);
     return [...ends.keys()];
   }
 

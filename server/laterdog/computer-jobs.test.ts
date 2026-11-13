@@ -11,7 +11,7 @@ afterAll(() => removeTempDir(dir));
 const box = {} as RunBox;
 const running: JobComputer = { state: "running", box };
 const job = (over: Partial<ComputerJob> = {}): ComputerJob => ({ id: "abcd1234", botId: "dog", threadId: "t1", command: "pnpm test", startedAt: 1_000, ...over });
-const probe = (over: Partial<ComputerJobProbe> = {}): ComputerJobProbe => ({ computer: async () => running, exit: async () => null, ...over });
+const probe = (over: Partial<ComputerJobProbe> = {}): ComputerJobProbe => ({ computer: async () => running, exit: async () => null, liveness: async () => "alive", ...over });
 
 describe("jobs a dog left running on its computer", () => {
   it("counts a job for its chat until it ends, and tells the chat each time", () => {
@@ -42,7 +42,7 @@ describe("jobs a dog left running on its computer", () => {
     expect(said[0]).toContain("unreadable");
   });
 
-  it("ends a job only on evidence: its exit record, or its computer asleep, or seen gone twice", async () => {
+  it("ends a job on its exit record at once, and on its computer asleep or missing only on two readings in a row", async () => {
     const jobs = new ComputerJobs(null, { now: () => 9_000 });
     jobs.started(job({ id: "aaaa0001" }));
     jobs.started(job({ id: "aaaa0002", botId: "asleep" }));
@@ -54,23 +54,38 @@ describe("jobs a dog left running on its computer", () => {
       computer: async (botId) => (botId === "asleep" ? { state: "asleep" } : botId === "gone" ? { state: "gone" } : running),
       exit: async (_box, j) => exits[j.id] ?? null,
     });
-    expect((await jobs.check(look)).sort()).toEqual(["aaaa0001", "aaaa0002", "aaaa0004"]);
-    expect(jobs.live("t1").map((j) => j.id)).toEqual(["aaaa0003", "aaaa0005"]);
-    expect(await jobs.check(look)).toEqual(["aaaa0005"]);
+    expect((await jobs.check(look)).sort()).toEqual(["aaaa0001", "aaaa0004"]);
+    expect((await jobs.check(look)).sort()).toEqual(["aaaa0002", "aaaa0005"]);
+    expect(jobs.live("t1").map((j) => j.id)).toEqual(["aaaa0003"]);
     expect(jobs.unannounced().map((j) => [j.id, j.end.how, j.end.exitCode, j.end.at])).toEqual([
       ["aaaa0001", "finished", 0, 5_000], ["aaaa0002", "stopped", undefined, 9_000], ["aaaa0004", "failed", 2, 9_000], ["aaaa0005", "stopped", undefined, 9_000],
     ]);
   });
 
-  it("changes nothing when the computer is in any other state or cannot be asked", async () => {
+  it("changes nothing when the computer is in any other state or cannot be asked, and a failed reading starts the count again", async () => {
     const jobs = new ComputerJobs(null);
     jobs.started(job());
+    const gone = probe({ computer: async () => ({ state: "gone" }) });
     expect(await jobs.check(probe({ computer: async () => ({ state: "unsure" }) }))).toEqual([]);
     expect(await jobs.check(probe({ computer: async () => { throw new Error("network"); } }))).toEqual([]);
-    expect(await jobs.check(probe({ computer: async () => ({ state: "gone" }) }))).toEqual([]);
-    expect(await jobs.check(probe())).toEqual([]);
-    expect(await jobs.check(probe({ computer: async () => ({ state: "gone" }) }))).toEqual([]);
+    expect(await jobs.check(gone)).toEqual([]);
+    expect(await jobs.check(probe({ computer: async () => { throw new Error("network"); } }))).toEqual([]);
+    expect(await jobs.check(gone)).toEqual([]);
+    expect(await jobs.check(probe({ computer: async () => ({ state: "unsure" }) }))).toEqual([]);
+    expect(await jobs.check(gone)).toEqual([]);
+    expect(await jobs.check(probe({ computer: async () => ({ state: "asleep" }) }))).toEqual([]);
     expect(jobs.count("t1")).toBe(1);
+  });
+
+  it("ends a job whose processes are gone without an exit record quietly, on two readings in a row", async () => {
+    const jobs = new ComputerJobs(null);
+    jobs.started(job());
+    const dead = probe({ liveness: async () => "dead" });
+    expect(await jobs.check(dead)).toEqual([]);
+    expect(await jobs.check(probe({ liveness: async () => "unsure" }))).toEqual([]);
+    expect(await jobs.check(dead)).toEqual([]);
+    expect(await jobs.check(dead)).toEqual(["abcd1234"]);
+    expect(jobs.unannounced().map((j) => j.end.how)).toEqual(["lost"]);
   });
 
   it("never declares a long job ended: past the longest a run may take it is still running", async () => {
