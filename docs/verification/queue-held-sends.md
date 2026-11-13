@@ -57,8 +57,16 @@ the third review's three Should fix items; this note describes that head.
   the edge says so on its own timer and the chat lacks the message, the device
   keeps the copy and asks the home once for its chats (the same read as a
   refresh); if that read fails it asks again on the next round. Only a settle
-  that carries a real refresh may turn such a message into Not sent, and only if
-  the refresh lacks it too. A refresh that has it releases the copy as delivered.
+  that carries a real refresh may turn such a message into Not sent, and only on
+  evidence from the message's own thread. A refresh carries the newest lines of
+  each dog's and room's current thread only, so when it carries the message's
+  thread and lacks the line the message is Not sent. When it does not carry that
+  thread (the message went into a task the person has since left, or the app was
+  reloaded), the device reads that thread's messages
+  (`/api/threads/:id/messages`, once per thread per refresh): the line there
+  releases the copy as delivered, its absence makes it Not sent, and a failed read
+  keeps the copy for the next refresh. A refresh that has the line releases the
+  copy as delivered.
 - A card answer travels the same way (`card` on the outbox item and the copy).
   The card shows the answer as waiting until the home's receipt, or until a held
   answer is delivered, and only then is marked answered; a refused, dropped or

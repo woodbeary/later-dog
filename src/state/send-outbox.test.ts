@@ -607,7 +607,7 @@ describe("a message the edge held for a sleeping home", () => {
 
     describe("and the chat does not show the message", () => {
       const cardSend: OutboxItem = { ...sent, card: { botId: "bot", messageId: "card-1" } };
-      const waiting = async (answer: () => Promise<unknown> = goneAnswer) => {
+      const waiting = async (answer: (path: string) => Promise<unknown> = goneAnswer) => {
         const dispatched: Action[] = [];
         const confirmAtHome = vi.fn();
         const cardAnswered = vi.fn();
@@ -644,13 +644,75 @@ describe("a message the edge held for a sleeping home", () => {
         const before = failedBefore();
         const { store, showError, timers, outbox, dispatched, cardAnswered, cardAnswerFailed } = await waiting();
         await timers.fire();
-        await outbox.settleHeld([{ messages: [] }], [], {});
+        await outbox.settleHeld([{ threadId: "thread", messages: [] } as never], [], {});
         expect(kept(store)).toEqual([]);
         expect(dispatched).toEqual([{ type: "consumePendingQueued", threadId: "thread", queueId: sent.sendId }]);
         expect(failedComposerSends(draft).slice(before)).toEqual([expect.objectContaining({ sendId: sent.sendId, text: "wake up and ship it", requestText: "wake up and ship it", threadId: "thread" })]);
         expect(showError).toHaveBeenCalledWith(expect.objectContaining({ message: HELD_NOT_SENT }), "thread");
         expect(cardAnswerFailed).toHaveBeenCalledOnce();
         expect(cardAnswered).not.toHaveBeenCalled();
+      });
+
+      describe("and the refresh does not carry the thread it was sent to", () => {
+        const threadReads = (request: ReturnType<typeof vi.fn>) => request.mock.calls.filter(([path]) => String(path).startsWith("/api/threads/")).map(([path]) => String(path));
+        const onTaskB = [{ id: "bot", threadId: "task-B", messages: [{ id: "home-line-9", role: "user", text: "other", sendId: "other-send" }] } as never];
+        const answering = (thread: () => Promise<unknown>) => async (path: string) => (path.startsWith("/api/threads/") ? thread() : { held: [], dropped: [] });
+
+        it("reads that thread, and lets a message the home wrote there go as delivered, with no Not sent, no words back and its card answered", async () => {
+          const before = failedBefore();
+          const { store, showError, request, outbox, dispatched, cardAnswered, cardAnswerFailed } = await waiting(answering(async () => ({ messages: [{ id: "home-line-1", role: "user", text: "wake up and ship it", sendId: sent.sendId }] })));
+          await outbox.settleHeld(onTaskB, [], {});
+          expect(threadReads(request)).toEqual([`/api/threads/thread/messages?limit=200`]);
+          expect(kept(store)).toEqual([]);
+          expect(showError).not.toHaveBeenCalled();
+          expect(failedBefore()).toBe(before);
+          expect(cardAnswered).toHaveBeenCalledWith({ botId: "bot", messageId: "card-1" }, "wake up and ship it", "thread");
+          expect(cardAnswerFailed).not.toHaveBeenCalled();
+          expect(dispatched).toEqual([{ type: "consumePendingQueued", threadId: "thread", queueId: sent.sendId }]);
+          await outbox.settleHeld(onTaskB, [], {});
+          expect(threadReads(request)).toHaveLength(1);
+        });
+
+        it("says Not sent with its words once that thread was read and the message is not in it", async () => {
+          const before = failedBefore();
+          const { store, showError, outbox, cardAnswerFailed } = await waiting(answering(async () => ({ messages: [{ id: `desk-${sent.sendId}`, sendId: sent.sendId }, { id: "home-line-2", sendId: "other-send" }] })));
+          await outbox.settleHeld(onTaskB, [], {});
+          expect(kept(store)).toEqual([]);
+          expect(failedComposerSends(draft).slice(before)).toEqual([expect.objectContaining({ sendId: sent.sendId, text: "wake up and ship it" })]);
+          expect(showError).toHaveBeenCalledOnce();
+          expect(showError).toHaveBeenCalledWith(expect.objectContaining({ message: HELD_NOT_SENT }), "thread");
+          expect(cardAnswerFailed).toHaveBeenCalledOnce();
+        });
+
+        it("keeps the copy when that thread cannot be read, and settles it on a later refresh that can read it", async () => {
+          const before = failedBefore();
+          let thread: () => Promise<unknown> = async () => { throw Object.assign(new Error("waking"), { status: 503 }); };
+          const { store, showError, request, outbox, confirmAtHome, cardAnswered, cardAnswerFailed } = await waiting(answering(() => thread()));
+          await outbox.settleHeld(onTaskB, [], {});
+          expect(kept(store)).toEqual([expect.objectContaining({ sendId: sent.sendId })]);
+          expect(showError).not.toHaveBeenCalled();
+          expect(cardAnswerFailed).not.toHaveBeenCalled();
+          expect(confirmAtHome).not.toHaveBeenCalled();
+          expect(failedBefore()).toBe(before);
+
+          thread = async () => ({ messages: [{ id: "home-line-1", sendId: sent.sendId }] });
+          await outbox.settleHeld(onTaskB, [], {});
+          expect(threadReads(request)).toHaveLength(2);
+          expect(kept(store)).toEqual([]);
+          expect(cardAnswered).toHaveBeenCalledOnce();
+          expect(showError).not.toHaveBeenCalled();
+        });
+
+        it("reads each thread once per refresh however many messages wait on it", async () => {
+          const store = memoryStore({ [HELD_SENDS_KEY]: JSON.stringify(["one", "two"].map((id) => ({ sendId: `held-${id}`, threadId: "task-A", draftId: "d", text: id, requestText: id, at: 1 }))) });
+          const request = vi.fn(async (path: string) => (path.startsWith("/api/threads/") ? { messages: [{ id: "home-1", sendId: "held-one" }] } : { held: [], dropped: [] }));
+          const showError = vi.fn();
+          const outbox = createSendOutbox({ request, dispatch: vi.fn(), showError, store, now: () => 2_000, after: manualTimers().after, lineOnThread: () => false });
+          await outbox.settleHeld(onTaskB, [], {});
+          expect(threadReads(request)).toEqual(["/api/threads/task-A/messages?limit=200"]);
+          expect(showError).toHaveBeenCalledOnce();
+          expect(kept(store)).toEqual([]);
+        });
       });
 
       it("keeps the copy and asks again on the next round when the home read fails, once per round", async () => {

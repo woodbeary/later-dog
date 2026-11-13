@@ -11,6 +11,7 @@ import {
   writeHeldSends,
   type HeldSend,
 } from "@/lib/held-sends";
+import { judgeUnconfirmed, threadReader, threadsCoveredBy } from "@/lib/held-thread-check";
 import {
   SEND_ATTEMPT_TIMEOUT_MS,
   browserStore,
@@ -186,6 +187,8 @@ function createHeldSendKeeper(deps: {
       for (const send of held) if (!waitingIds.has(send.sendId)) deps.onReleased(send);
     }
     let undecided = false;
+    const covered = refresh ? threadsCoveredBy([...refresh.bots, ...refresh.groups]) : new Set<string>();
+    const readThread = threadReader(deps.request);
     for (const group of heldAskGroups(waiting)) {
       const ids = group.map((send) => send.sendId);
       const reply = await deps
@@ -195,13 +198,16 @@ function createHeldSendKeeper(deps: {
       const asked = new Set(ids);
       const stillWanted = group.filter((send) => !forgottenWhileAsking.has(send.sendId));
       const { keep, lost, gone } = sortHeldSends(stillWanted, reply, deps.now());
-      const delivered = gone.filter((send) => deps.onThread(send));
-      const unconfirmed = gone.filter((send) => !delivered.includes(send));
-      const notSent = refresh ? unconfirmed : [];
-      const wait = refresh ? [] : unconfirmed;
-      if (wait.length > 0) undecided = true;
-      writeHeldSends(store, [...readHeldSends(store).filter((send) => !asked.has(send.sendId)), ...keep, ...wait]);
-      for (const send of lost) deps.onLost(send);
+      const onThread = gone.filter((send) => deps.onThread(send));
+      const unconfirmed = gone.filter((send) => !onThread.includes(send));
+      const judged = refresh ? await judgeUnconfirmed(unconfirmed, covered, readThread) : { delivered: [], notSent: [], unread: unconfirmed };
+      const wanted = (sends: readonly HeldSend[]) => sends.filter((send) => !forgottenWhileAsking.has(send.sendId));
+      const delivered = wanted([...onThread, ...judged.delivered]);
+      const notSent = wanted(judged.notSent);
+      const wait = wanted(judged.unread);
+      if (!refresh && wait.length > 0) undecided = true;
+      writeHeldSends(store, [...readHeldSends(store).filter((send) => !asked.has(send.sendId)), ...wanted(keep), ...wait]);
+      for (const send of wanted(lost)) deps.onLost(send);
       for (const send of delivered) deps.onGone(send);
       for (const send of notSent) deps.onLost(send);
     }
