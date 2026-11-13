@@ -254,7 +254,7 @@ import { CommandSecrets } from "./laterdog/vault-refs.ts";
 import { createDogQueueRoute, type QueuedMessageRow } from "./routes/dog-queue.ts";
 import { SAFE_STOP_GRACE_MS, safeStopWords, stoppedByLine } from "./laterdog/safe-stop.ts";
 import { withRestingUntil, type AccountUsageInput } from "./laterdog/account-usage.ts";
-import { guidanceEngine, guidancePart, homeGitHubSignedIn, ROOM_TEAM_PROMPT, TEAMMATE_TASK_PROMPT } from "./laterdog/dog-guidance.ts";
+import { guidanceEngine, guidancePart, homeKit, ROOM_TEAM_PROMPT, TEAMMATE_TASK_PROMPT } from "./laterdog/dog-guidance.ts";
 import { CONTINUE_AFTER_PICK, pickMovesTurn, pickNotice } from "./laterdog/account-pick.ts";
 import { codexHome } from "./drivers/codex-identity.ts";
 import { resolveClaudeConfigDir } from "./drivers/claude.ts";
@@ -3596,10 +3596,9 @@ function previewSystemPrompt(bot: BotRecord) {
   });
   const privateWorkspace = instance && supportsWorkspaceFiles(instance.driverKind);
   const built = buildSystemPrompt(persona, bot.soul ?? "", [
-    guidancePart({ engine: guidanceEngine(instance?.driverKind), model: bot.modelSelection.model, kit: {
-      cloudHome: Boolean(CLOUD_HOME), ownComputer: Boolean(CLOUD_HOME && agentsMounted), vault: Boolean(CLOUD_HOME && agentsMounted && vaultStore.available),
-      github: Boolean(CLOUD_HOME) && homeGitHubSignedIn(), mac: agentsMounted && lendingEnabled(),
-    } }),
+    guidancePart({ engine: guidanceEngine(instance?.driverKind), model: bot.modelSelection.model, kit: homeKit({
+      cloudHome: Boolean(CLOUD_HOME), agents: agentsMounted, vault: vaultStore.available, macsOnline: sharedComputers.list(CLOUD_HOME_LENDER).length,
+    }) }),
     { id: "user-profile", label: "About the user", text: userProfileSystemPrompt(cfg.profile) },
     { id: "computer", label: "Computer", text: computerPrompt(computerPromptKind) },
     { id: "plan", label: "Surface", text: previewPlan.computer === undefined ? "" : surfacePrompt({
@@ -8904,10 +8903,10 @@ async function startTurn(
       const ownerGrant = ownerGrantFor(approvalModeForTurn(bot, commsDepth > 0, threadId), threadId);
       const ownerAnswers = ownerAnswersFor(bot.id, approvalModeForTurn(bot, commsDepth > 0, threadId), threadId);
       const prompt = buildSystemPrompt(persona, liveBot?.soul ?? bot.soul ?? "", [
-        guidancePart({ engine: guidanceEngine(instance.driverKind), model, kit: {
-          cloudHome: Boolean(CLOUD_HOME), ownComputer: Boolean(CLOUD_HOME && integrations.agents), vault: Boolean(CLOUD_HOME && integrations.agents && vaultStore.available),
-          github: Boolean(CLOUD_HOME) && homeGitHubSignedIn(), google: credentialPrompt.includes("gmail_search"), mac: Boolean(integrations.agents) && lendingEnabled(),
-        } }),
+        guidancePart({ engine: guidanceEngine(instance.driverKind), model, kit: homeKit({
+          cloudHome: Boolean(CLOUD_HOME), agents: Boolean(integrations.agents), vault: vaultStore.available, macsOnline: sharedComputers.list(CLOUD_HOME_LENDER).length,
+          google: credentialPrompt.includes("gmail_search"),
+        }) }),
         { id: "user-profile", label: "About the user", text: userProfileSystemPrompt(cfg.profile) },
         { id: "owner-grant", label: "Owner's standing grant", text: ownerGrant ? ownerGrantPrompt(cfg.profile?.name) : "" },
         { id: "files", label: "File locations", text: worksInWorkspace ? workspaceLocationsPrompt(bot.id, cwd, liveBot?.cwd ?? bot.cwd) : "" },
@@ -10667,10 +10666,9 @@ async function runGroupMemberTurn(
   const roomOwnerGrant = ownerGrantFor(roomTurnApprovalMode(readyBot, threadId, orchestration), threadId);
   const roomOwnerAnswers = ownerAnswersFor(readyBot.id, roomTurnApprovalMode(readyBot, threadId, orchestration), threadId);
   const roomSystem = buildSystemPrompt(system, store.bot(bot.id)?.soul ?? bot.soul ?? "", [
-    guidancePart({ engine: guidanceEngine(instance.driverKind), model: instance.instanceId === readyBot.modelSelection.instanceId ? readyBot.modelSelection.model : instance.models.default, kit: {
-      cloudHome: Boolean(CLOUD_HOME), ownComputer: Boolean(CLOUD_HOME && integrations.agents), vault: Boolean(CLOUD_HOME && integrations.agents && vaultStore.available),
-      github: Boolean(CLOUD_HOME) && homeGitHubSignedIn(), mac: Boolean(integrations.agents) && lendingEnabled(),
-    } }),
+    guidancePart({ engine: guidanceEngine(instance.driverKind), model: instance.instanceId === readyBot.modelSelection.instanceId ? readyBot.modelSelection.model : instance.models.default, kit: homeKit({
+      cloudHome: Boolean(CLOUD_HOME), agents: Boolean(integrations.agents), vault: vaultStore.available, macsOnline: sharedComputers.list(CLOUD_HOME_LENDER).length,
+    }) }),
     { id: "user-profile", label: "About the user", text: userProfileSystemPrompt(cfg.profile) },
     { id: "owner-grant", label: "Owner's standing grant", text: roomOwnerGrant ? ownerGrantPrompt(cfg.profile?.name) : "" },
     { id: "coordination", label: "Team", text: roomCoordination },

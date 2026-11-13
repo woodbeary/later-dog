@@ -1,6 +1,8 @@
-import { existsSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
+
+import { parse as parseYaml } from "yaml";
 
 export type GuidanceEngine = "claude" | "codex" | "other";
 
@@ -60,8 +62,41 @@ export function modelFamily(model: string | undefined): ModelFamily {
   return FAMILY_PATTERNS.find(([pattern]) => pattern.test(id))?.[1] ?? "other";
 }
 
+function hostSignedIn(host: unknown): boolean {
+  if (!host || typeof host !== "object") return false;
+  const { user, oauth_token: token, users } = host as Record<string, unknown>;
+  const named = (value: unknown) => typeof value === "string" && value.trim() !== "";
+  return named(user) || named(token) || Boolean(users && typeof users === "object" && Object.keys(users).length);
+}
+
 export function homeGitHubSignedIn(env: NodeJS.ProcessEnv = process.env, home: string = homedir()): boolean {
-  return Boolean(env.GH_TOKEN || env.GITHUB_TOKEN) || existsSync(join(home, ".config", "gh", "hosts.yml"));
+  if (env.GH_TOKEN || env.GITHUB_TOKEN) return true;
+  try {
+    const hosts: unknown = parseYaml(readFileSync(join(home, ".config", "gh", "hosts.yml"), "utf8"));
+    return Boolean(hosts && typeof hosts === "object" && Object.values(hosts).some(hostSignedIn));
+  } catch {
+    return false;
+  }
+}
+
+export interface HomeKitInput {
+  cloudHome: boolean;
+  agents: boolean;
+  vault: boolean;
+  macsOnline: number;
+  google?: boolean;
+}
+
+export function homeKit(input: HomeKitInput, githubSignedIn: () => boolean = homeGitHubSignedIn): DogKit {
+  const onHome = input.cloudHome && input.agents;
+  return {
+    cloudHome: input.cloudHome,
+    ownComputer: onHome,
+    vault: onHome && input.vault,
+    github: input.cloudHome && githubSignedIn(),
+    google: input.google,
+    mac: onHome && input.macsOnline > 0,
+  };
 }
 
 export const DOG_CONTEXT =
@@ -91,7 +126,7 @@ export const HELPER_BRIEF =
   "When tool calls do not depend on each other, make them in parallel.";
 
 export const ACTING =
-  "Do the task rather than describe it. Your approval setting decides which actions wait for the person's yes; when it asks, ask once and name the exact action. Where no setting or rule covers it, ask first before anything that is hard to undo, visible to other people (sending, posting, publishing) or that spends money.";
+  "Do the task rather than describe it. Your approval setting decides which actions wait for the person's yes; when it asks, ask once and name the exact action. Where no setting or rule covers it, ask first before anything that is hard to undo, visible to other people (sending, posting, publishing) or that spends money. Once the person has said yes to a piece of work, do not ask again for the same thing.";
 
 export const NEEDS_PERSON =
   "When you need an answer or a step only the person can give, raise it with a card tool that fits (a secure form, take-over, device approval, credential request or proposal), so the app shows that you are waiting. Ask one question at a time, with real options. A dismissed or declined card is a no: do not ask again or reach the same end another way.";export const QUESTION_TOOLS: Readonly<Partial<Record<GuidanceEngine, string>>> = { claude: "AskUserQuestion", codex: "request_user_input" };
@@ -222,7 +257,7 @@ export function kitPrompt(kit: DogKit | undefined): string {
     kit.mac && "a lent Mac through shared_computer",
   ].filter((item): item is string => Boolean(item));
   if (!have.length) return "";
-  return `Already set up for you: ${have.join("; ")}. You do not need the person's Mac, a new sign-in or a fresh approval for work you were given.`;
+  return `Already set up for you: ${have.join("; ")}. Use these before asking the person for a sign-in or for their Mac.`;
 }
 
 export function dogGuidance(input: GuidanceInput): string {

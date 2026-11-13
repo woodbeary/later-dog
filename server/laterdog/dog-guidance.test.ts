@@ -15,6 +15,7 @@ import {
   guidanceEngine,
   guidancePart,
   homeGitHubSignedIn,
+  homeKit,
   kitPrompt,
   medicationBlock,
   modelFamily,
@@ -130,7 +131,8 @@ describe("the guidance every dog gets", () => {
     expect(kit).toMatch(/your own cloud computer .*run_on_computer/);
     expect(kit).toMatch(/the vault \(vault_secret\)/);
     expect(kit).toMatch(/GitHub, signed in on this home/);
-    expect(kit).toMatch(/You do not need the person's Mac, a new sign-in or a fresh approval for work you were given/);
+    expect(kit.endsWith("Use these before asking the person for a sign-in or for their Mac.")).toBe(true);
+    expect(kit).not.toMatch(/approval/);
     expect(kitPrompt({ ownComputer: true })).not.toMatch(/GitHub|vault/);
     expect(kitPrompt({})).toBe("");
     expect(kitPrompt(undefined)).toBe("");
@@ -140,13 +142,29 @@ describe("the guidance every dog gets", () => {
     expect(TEAMMATE_TASK_PROMPT).not.toMatch(/A no from the person/);
   });
 
-  it("reads the home's GitHub sign-in from the token or the gh login file", () => {
+  it("claims a Mac only while one is connected to the home", () => {
+    const home = { cloudHome: true, agents: true, vault: true };
+    const signedOut = () => false;
+    expect(homeKit({ ...home, macsOnline: 0 }, signedOut).mac).toBe(false);
+    expect(kitPrompt(homeKit({ ...home, macsOnline: 0 }, signedOut))).not.toMatch(/Mac through/);
+    expect(kitPrompt(homeKit({ ...home, macsOnline: 1 }, signedOut))).toMatch(/a lent Mac through shared_computer/);
+    expect(homeKit({ ...home, cloudHome: false, macsOnline: 1 }, () => true)).toMatchObject({ mac: false, github: false, ownComputer: false });
+  });
+
+  it("reads the home's GitHub sign-in from the token or a gh login file that names a user or token", () => {
     const home = mkdtempSync(join(tmpdir(), "guidance-gh-"));
+    const hosts = (text: string) => writeFileSync(join(home, ".config", "gh", "hosts.yml"), text);
     try {
       expect(homeGitHubSignedIn({}, home)).toBe(false);
       expect(homeGitHubSignedIn({ GH_TOKEN: "x" }, home)).toBe(true);
       mkdirSync(join(home, ".config", "gh"), { recursive: true });
-      writeFileSync(join(home, ".config", "gh", "hosts.yml"), "github.com: {}\n");
+      for (const loggedOut of ["{}\n", "", "github.com: {}\n", "github.com:\n    git_protocol: https\n"]) {
+        hosts(loggedOut);
+        expect([loggedOut, homeGitHubSignedIn({}, home)]).toEqual([loggedOut, false]);
+      }
+      hosts("github.com:\n    user: sam\n    git_protocol: https\n");
+      expect(homeGitHubSignedIn({}, home)).toBe(true);
+      hosts("github.com:\n    users:\n        sam:\n            oauth_token: x\n");
       expect(homeGitHubSignedIn({}, home)).toBe(true);
     } finally {
       rmSync(home, { recursive: true, force: true });
@@ -156,6 +174,7 @@ describe("the guidance every dog gets", () => {
   it("leaves approvals to the person's setting and keeps a yes for hard-to-undo, visible or paid actions", () => {
     expect(ACTING).toMatch(/Your approval setting decides which actions wait for the person's yes/);
     expect(ACTING).toMatch(/hard to undo, visible to other people \(sending, posting, publishing\) or that spends money/);
+    expect(ACTING.endsWith("Once the person has said yes to a piece of work, do not ask again for the same thing.")).toBe(true);
     expect(PAYMENTS_BLOCK).toContain("Say a check was done only if a tool result in this session showed it before you acted.");
   });
 
