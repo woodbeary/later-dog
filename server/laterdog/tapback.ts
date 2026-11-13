@@ -3,7 +3,7 @@ import type { WireMessage } from "../../shared/wire.ts";
 type Reaction = NonNullable<WireMessage["reactions"]>[number];
 
 export const TAPBACK_PROMPT =
-  " When a message needs no answer, such as \"ok\", \"thanks\", \"👍\" or \"got it\", react to it with the react tool and end your turn without writing anything: the tapback is the whole reply, and a turn that only reacts shows no text bubble. That holds while you work too: for a plain acknowledgment sent mid-task, the reaction is the short reply, so react and carry on. Never answer an acknowledgment with a message that is only an emoji.";
+  " When a message needs no answer, such as \"ok\", \"thanks\", \"👍\" or \"got it\", react to it with the react tool and end your turn without writing anything; for a plain acknowledgment sent mid-task, the reaction is the short reply, so react and carry on. The tapback is the whole reply.";
 
 export const TAPBACK_NOTE = " If it only acknowledges, such as \"ok\" or \"thanks\", react to it with the react tool instead; that tapback is the reply.";
 
@@ -31,8 +31,15 @@ export function withTapback(reactions: ReadonlyArray<Reaction> | undefined, emoj
   return [...(reactions ?? []).filter((reaction) => reaction.by !== by), { emoji, by }];
 }
 
+const WHOLE_TAG = /<\/?[A-Za-z_|][^<>]*>/g;
+const OPEN_TAG_AT_END = /<[^<>]*$/;
+
+function withoutMarkup(text: string): string {
+  return text.replace(WHOLE_TAG, "").replace(OPEN_TAG_AT_END, "");
+}
+
 export function onlyTapbackText(text: string | undefined): boolean {
-  return [...graphemes.segment(text ?? "")].every(({ segment }) => /^[\p{P}\s]+$/u.test(segment) || tapbackEmoji(segment) !== null);
+  return [...graphemes.segment(withoutMarkup(text ?? ""))].every(({ segment }) => /^[\p{P}\p{S}\s]+$/u.test(segment) || tapbackEmoji(segment) !== null);
 }
 
 export function tapbackStreamChunk(buffered: string | undefined, delta: string): { pending?: string; delta?: string } {
@@ -48,5 +55,5 @@ export function tapbackTurnKey(threadId: string, turnId: string): string {
 export function reactedText(emoji: string, target: Pick<WireMessage, "text">): string {
   const said = (target.text ?? "").replace(/\s+/g, " ").trim();
   const quoted = said.length > 60 ? `${said.slice(0, 57)}…` : said;
-  return `Reacted ${emoji} to ${quoted ? `“${quoted}”` : "the message"}. End your turn now without writing anything unless there is more to say; the reaction is the reply.`;
+  return `Reacted ${emoji} to ${quoted ? `“${quoted}”` : "the message"}. End your turn now without writing anything; the reaction is the reply.`;
 }

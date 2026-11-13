@@ -37,8 +37,8 @@ import { classifyError, computeBackoff, interruptibleDelay, RETRY_MAX_ATTEMPTS }
 import { appendNative } from "./native.ts";
 import { permissionCommand, permissionLaunchCwd } from "./permission-command.ts";
 import { commandSummary, toolDetailPreview } from "../tool-summary.ts";
-import { codexDeveloperInstructions, syncCodexInstructions } from "./codex-instructions.ts";
-import { volatileContextNote, withContextNote } from "./prompt-split.ts";
+import { codexDeveloperInstructions, forgetDeliveredContext, syncCodexInstructions } from "./codex-instructions.ts";
+import { withContextNote } from "./prompt-split.ts";
 import type { ApprovalMode } from "../../shared/approval-mode.ts";
 import { CodexDeviceAuthController } from "./codex-device-auth.ts";
 import { codexAccountEmail, codexHome } from "./codex-identity.ts";
@@ -58,6 +58,7 @@ import { CALL_TOOL, DESCRIBE_TOOL, SEARCH_TOOL, directoryCallTarget } from "../m
 import { readEngineModels } from "../laterdog/wait-at-most.ts";
 import { SteerReads } from "./steer-reads.ts";
 import { prepareCodexShellGuard } from "../laterdog/codex-shell-guard.ts";
+import { codexToolTouch } from "../laterdog/tool-touches.ts";
 
 export { decodeCodexSelection, readCodexModelCatalog, STATIC_CODEX_MODELS } from "./codex-catalog.ts";
 
@@ -843,6 +844,7 @@ export const CodexDriver: ProviderDriver<CodexConfig> = {
       let codexTurnId: string | null = null;
       const steerReads = new SteerReads();
       let startingNativeTurn = false;
+      let compacted = false;
       const earlyNotifications: any[] = [];
       const helpers = new CodexHelpers(helper => emit({ ...base(threadId, turnId), type: "helper.updated", helper }));
       const nativeActivity = new CodexNativeActivity(observation => emit({ ...base(threadId, turnId), type: "native.observed", observation }));
@@ -1283,6 +1285,7 @@ export const CodexDriver: ProviderDriver<CodexConfig> = {
                 title,
                 summary: item.type === "commandExecution" ? commandSummary({ command: item.command }) : undefined,
                 input: toolDetailPreview(item.type === "commandExecution" ? { command: item.command, cwd: item.cwd } : item.type === "mcpToolCall" ? (runs ? item.arguments?.arguments ?? {} : item.arguments) : item.type === "fileChange" ? item.changes : item.query),
+                touches: codexToolTouch(item),
               });
             }
             break;
@@ -1291,6 +1294,10 @@ export const CodexDriver: ProviderDriver<CodexConfig> = {
             const item = p.item ?? {};
             helpers.receive(item);
             if (item.type === "userMessage") steerReads.seen(item.content);
+            if (item.type === "contextCompaction") {
+              compacted = true;
+              if (codexThreadId) forgetDeliveredContext(threadId, codexThreadId);
+            }
             if (item.type === "agentMessage") {
               if (item.text?.trim()) {
                 state.lastText = item.text;
@@ -1650,7 +1657,7 @@ export const CodexDriver: ProviderDriver<CodexConfig> = {
           startedModel = started?.model ?? null;
         }
         if (!codexThreadId) throw new Error("Codex did not return a native thread id");
-        const { deliverVolatile, hadVolatile, commitVolatile } = await syncCodexInstructions(
+        const { note: volatileNote, commitVolatile } = await syncCodexInstructions(
           threadId,
           codexThreadId,
           developerInstructions,
@@ -1658,13 +1665,9 @@ export const CodexDriver: ProviderDriver<CodexConfig> = {
           resumedNativeThread,
           request,
           Boolean(turn.mentionTurn),
+          promptSplit ? turn.systemVolatileSections : undefined,
         );
-        if (deliverVolatile) {
-          promptText = withContextNote(
-            volatileContextNote(promptSplit ? turn.systemVolatile ?? "" : "", hadVolatile),
-            promptText,
-          );
-        }
+        promptText = withContextNote(volatileNote, promptText);
         emit({ ...base(threadId, turnId), type: "session.started", sessionId: codexThreadId, model: startedModel ?? turn.model ?? null, ...(rebuiltFromReplay ? { rebuilt: true } : {}) });
         const turnInput = [
           ...(promptText ? [{ type: "text" as const, text: promptText }] : []),
@@ -1688,7 +1691,7 @@ export const CodexDriver: ProviderDriver<CodexConfig> = {
           approvalParams = approvalParams.fallback;
           await startTurn();
         }
-        if (commitVolatile) commitVolatile();
+        if (commitVolatile && !compacted) commitVolatile();
       } catch (e) {
         const failure = e instanceof Error ? e : { text: String(e) };
         const raw = e instanceof Error ? e.message : String(e);

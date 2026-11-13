@@ -826,6 +826,24 @@ describe("Store", () => {
     expect(kept?.lastTurn).not.toHaveProperty("cachedInput");
   });
 
+  it("corrects a legacy Fable context fallback while preserving a provider-reported smaller window", () => {
+    const store = new Store(selection);
+    const bot = store.createBot();
+    store.patchTask(bot.id, bot.threadId, { lastContextModel: "claude:claude-fable-5-2" });
+    store.addTaskUsage(bot.id, bot.threadId, { costUsd: null, context: { tokens: 244_210, window: 200_000 } });
+    const task = store.taskByThread(bot.id, bot.threadId)!;
+    expect(toWireTask(task, bot.modelSelection).usage?.context).toEqual({ tokens: 244_210, window: 1_000_000, windowSource: "model" });
+    expect(task.usage?.context?.window).toBe(200_000);
+    store.patchTask(bot.id, bot.threadId, { lastContextModel: undefined, modelSelection: { instanceId: "claude", model: "claude-fable-5-2" } });
+    expect(toWireTask(task, bot.modelSelection).usage?.context).toEqual({ tokens: 244_210, window: 1_000_000, windowSource: "model" });
+    store.patchTask(bot.id, bot.threadId, { lastContextModel: "claude:claude-sonnet-5" });
+    expect(toWireTask(task, bot.modelSelection).usage?.context).toEqual({ tokens: 244_210, window: 200_000 });
+    store.patchTask(bot.id, bot.threadId, { lastContextModel: undefined });
+    store.addTaskUsage(bot.id, bot.threadId, { costUsd: null, context: { tokens: 150_000, window: 200_000, windowSource: "provider" } });
+    const restored = new Store(selection).taskByThread(bot.id, bot.threadId)!;
+    expect(toWireTask(restored, bot.modelSelection).usage?.context).toEqual({ tokens: 150_000, window: 200_000, windowSource: "provider" });
+  });
+
   it("chain-inserts a late turn artifact after its anchor without stealing the leaf", () => {
     const store = new Store(selection);
     const bot = store.createBot();

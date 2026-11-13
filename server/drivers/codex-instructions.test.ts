@@ -3,7 +3,8 @@ import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import { DATA_DIR } from "../config.ts";
-import { codexDeveloperInstructions, syncCodexInstructions } from "./codex-instructions.ts";
+import { buildSystemPrompt } from "../system-prompt.ts";
+import { codexDeveloperInstructions, forgetDeliveredContext, syncCodexInstructions } from "./codex-instructions.ts";
 
 const receiptPath = (key: string, nativeThreadId: string) =>
   join(DATA_DIR, "codex-instructions", `${createHash("sha256").update(JSON.stringify([key, nativeThreadId])).digest("hex")}.sha256`);
@@ -127,5 +128,28 @@ describe("Codex instruction receipts", () => {
     const after = await syncCodexInstructions(key, "native", "rules", "memory v1", true, request);
     expect(after.deliverVolatile).toBe(false);
     expect(after.commitVolatile).toBeNull();
+  });
+
+  it("sends every context section again after Codex compacts the conversation, the unchanged memory too", async () => {
+    const key = randomUUID();
+    const request = vi.fn().mockResolvedValue({});
+    const build = (day: string) => buildSystemPrompt("You are Scout.", "", [
+      { id: "today", label: "Today", text: ` Today is ${day}.` },
+      { id: "memory", label: "Memory", text: " Your memory: never pay without asking." },
+    ]);
+    const turn = async (day: string, resumed: boolean) => {
+      const built = build(day);
+      const synced = await syncCodexInstructions(key, "native", "rules", built.volatile, resumed, request, false, built.volatileSections);
+      synced.commitVolatile?.();
+      return synced.note;
+    };
+    expect(await turn("Monday", false)).toContain("never pay without asking");
+    expect(await turn("Tuesday", true)).not.toContain("never pay without asking");
+    forgetDeliveredContext(key, "native");
+    const afterCompaction = await turn("Tuesday", true);
+    expect(afterCompaction).toContain("never pay without asking");
+    expect(afterCompaction).toContain("Today is Tuesday");
+    expect(await turn("Tuesday", true)).toBe("");
+    expect(JSON.parse(readFileSync(receiptPath(key, "native"), "utf8")).instructions).toMatch(/^[0-9a-f]{64}$/);
   });
 });

@@ -100,6 +100,16 @@ describe("addressed room request tree", () => {
     engine.sourceSettled("turn", true); engine.tick(); await flush();
     expect(child.status).toBe("completed");
   }));
+  it("keeps the replying dog's results on the completed handoff across a restart", () => fixture(async (engine, hooks, file) => {
+    const results = { files: [{ path: "report.md", change: "created" as const }], commands: 2, extra: "dropped" };
+    hooks.run = vi.fn(async () => ({ ok: true, text: "Wrote the report", results }));
+    const child = engine.enqueue(addr("chief"), "turn", undefined, addr("kennel"), "report", "Write the report").node;
+    engine.sourceSettled("turn", true);
+    engine.tick(); await flush(); engine.tick();
+    expect(child.status).toBe("completed");
+    expect(child.results).toEqual(results);
+    expect(new RoomHandoffs(file, hooks).nodes.get(child.id)?.results).toEqual({ files: [{ path: "report.md", change: "created" }], commands: 2 });
+  }));
   it.each([false, true])("keeps accepted nested work when its lead fails (throws: %s)", throws => fixture(async (engine, hooks) => {
     const chief = { botId: "chief", threadId: "chief" };
     const lead = { botId: "lead", threadId: "lead" };

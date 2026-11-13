@@ -10,6 +10,7 @@ import { teamImportPreview, type PendingTeamImport } from "@/lib/team-import";
 import { useModalDialog } from "@/hooks/use-modal-dialog";
 import { takeImportName } from "../../shared/import-name";
 import { MAX_TEAM_BACKUP_BYTES } from "../../shared/team-backup";
+import { plainClientError } from "@/lib/plain-client-error";
 
 export interface AddDogResult {
   members: number;
@@ -67,7 +68,7 @@ export function AddDogSheet({ source, onClose, onAdded }: {
         if (preview.members.length === 0) throw new Error(t("addDog.noDogs"));
         setPending(preview);
       })
-      .catch((cause) => { if (!cancelled) setError(cause instanceof Error ? cause.message : String(cause)); });
+      .catch((cause) => { if (!cancelled) setError(plainClientError(cause)); });
     return () => { cancelled = true; };
   }, [source]);
 
@@ -91,7 +92,7 @@ export function AddDogSheet({ source, onClose, onAdded }: {
       track("team_imported", { members: response.bots.length, source: "file" in source ? "file" : "link", mode: "add", format: pending.kind });
       onAdded({ members: response.bots.length, ...(response.connections?.length ? { connections: response.connections.length } : {}) });
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : String(cause));
+      setError(plainClientError(cause));
       setAdding(false);
     }
   };

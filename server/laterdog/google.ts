@@ -14,8 +14,7 @@ export const GOOGLE_ACCOUNT_SUFFIX = "/REFRESH_TOKEN";
 export const GMAIL_BODY_CHARS = 20_000;
 
 export const GOOGLE_PROMPT =
-  " To read the owner's Gmail, use gmail_search and gmail_read (read-only). If no Google account is connected, call connect_google: the owner approves on Google's own page on their phone or Mac, never in your browser." +
-  " For an emailed sign-in code, use gmail_code_to_vault, which saves the code in the vault without showing it to you; type it with the vault field of a command.";
+  " To read the owner's Gmail, use gmail_search and gmail_read; for an emailed sign-in code, use gmail_code_to_vault, so the code goes to the vault without passing through you. If no Google account is connected, call connect_google: the owner approves on Google's own consent page on their phone or Mac; never open that page in your own browser.";
 
 export interface GoogleClient {
   clientId: string;

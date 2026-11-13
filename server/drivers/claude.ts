@@ -65,6 +65,10 @@ import {
 } from "../../shared/ask-question.ts";
 import { readEngineModels } from "../laterdog/wait-at-most.ts";
 import { readCliVersion as readCliVersionOf, unreadCli } from "../laterdog/cli-version.ts";
+import { claudeToolTouch } from "../laterdog/tool-touches.ts";
+import { claudeContextNote, claudeSeenVolatile } from "../laterdog/volatile-sections.ts";
+import { claudeHelperEnvironment } from "../laterdog/helper-model.ts";
+import { agentsServerLaunch, deferRareToolsEnabled } from "../laterdog/tool-loading.ts";
 
 export function claudeAuthStatus(
   cli: string,
@@ -334,9 +338,9 @@ const CLAUDE_5_EFFORT: readonly EffortLevel[] = ["low", "medium", "high", "xhigh
 export const STATIC_CLAUDE_MODELS: ModelCatalog = {
   default: "claude-opus-5-5",
   options: [
-    { id: "claude-fable-5-2", label: "Claude Fable 5.2", effortLevels: CLAUDE_5_EFFORT, defaultEffort: "high" },
-    { id: "claude-fable-5-1", label: "Claude Fable 5.1", effortLevels: CLAUDE_5_EFFORT, defaultEffort: "high" },
-    { id: "claude-fable-5", label: "Claude Fable 5", effortLevels: CLAUDE_5_EFFORT, defaultEffort: "high" },
+    { id: "claude-fable-5-2", label: "Claude Fable 5.2", contextWindow: 1_000_000, effortLevels: CLAUDE_5_EFFORT, defaultEffort: "high" },
+    { id: "claude-fable-5-1", label: "Claude Fable 5.1", contextWindow: 1_000_000, effortLevels: CLAUDE_5_EFFORT, defaultEffort: "high" },
+    { id: "claude-fable-5", label: "Claude Fable 5", contextWindow: 1_000_000, effortLevels: CLAUDE_5_EFFORT, defaultEffort: "high" },
     { id: "claude-opus-5-5", label: "Claude Opus 5.5", contextWindow: 1_000_000, effortLevels: CLAUDE_5_EFFORT, defaultEffort: "medium" },
     { id: "claude-opus-5", label: "Claude Opus 5", effortLevels: CLAUDE_5_EFFORT, defaultEffort: "high" },
     { id: "claude-sonnet-5-5", label: "Claude Sonnet 5.5", contextWindow: 1_000_000, effortLevels: CLAUDE_5_EFFORT, defaultEffort: "medium" },
@@ -776,6 +780,15 @@ export interface ClaudeCostSnapshot {
   models: Record<string, [number, number, number, number]>;
 }
 
+export function claudeReportedContextWindow(modelUsage: unknown, model: string | undefined): number | undefined {
+  if (!modelUsage || typeof modelUsage !== "object" || Array.isArray(modelUsage)) return undefined;
+  const rows = modelUsage as Record<string, { contextWindow?: unknown } | null>;
+  const keys = Object.keys(rows);
+  const key = model ? keys.find((key) => key === model) ?? keys.find((key) => key.startsWith(`${model}-`)) : keys.length === 1 ? keys[0] : undefined;
+  const window = key ? rows[key]?.contextWindow : undefined;
+  return typeof window === "number" && Number.isFinite(window) && window > 0 ? window : undefined;
+}
+
 export function claudeCostSnapshot(total: unknown, modelUsage: unknown): ClaudeCostSnapshot | null {
   if (typeof total !== "number" || !Number.isFinite(total)) return null;
   const count = (value: unknown) => (typeof value === "number" && Number.isFinite(value) ? value : 0);
@@ -855,14 +868,6 @@ type ClaudeUserMessage = {
   uuid?: string;
   message: { role: "user"; content: string | ClaudeUserContent[] };
 };
-
-export function claudeVolatileNote(volatile: string, seen: string | null, redeliver = false): string {
-  if (seen === volatile && !redeliver) return "";
-  const body = volatile.trim()
-    ? `This part of your instructions lives here rather than in the system prompt, so it can change without rewriting the conversation. It replaces any earlier copy:\n\n${volatile.trim()}`
-    : seen?.trim() ? "The notes that were in your instructions earlier in this session have been cleared." : "";
-  return body ? `<system-reminder>\n${body}\n</system-reminder>` : "";
-}
 
 function withVolatileNote(text: string, note: string): string {
   if (!note) return text;
@@ -998,6 +1003,8 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
         retryAbort: AbortController;
         settled: boolean;
         sawStreamDelta: boolean;
+        contextTokens?: number;
+        usageModel?: string;
         awaitingInit?: boolean;
         authFailed?: boolean;
         refreshLock?: RefreshLockState;
@@ -1214,7 +1221,6 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
       if (turn.effort) args.push("--effort", claudeEffortArg(turn.effort));
 
       let systemPromptPath: string | null = null;
-      const launchVolatile = turn.systemVolatile ?? "";
 
       const mcpServers: Record<string, unknown> = {};
       const allowed: string[] = [];
@@ -1232,7 +1238,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
         if (!controlsHost) allowed.push("mcp__computer");
       }
       if (turn.integrations?.agents) {
-        mcpServers.agents = { ...turn.integrations.agents, alwaysLoad: true };
+        mcpServers.agents = agentsServerLaunch(turn.integrations.agents, deferRareToolsEnabled());
         allowed.push("mcp__agents");
       }
       if (turn.integrations?.browser) {
@@ -1301,6 +1307,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
       if (authSettingsPath) args.push("--settings", authSettingsPath);
       if (env.ENABLE_PROMPT_CACHING_1H === undefined && env.FORCE_PROMPT_CACHING_5M === undefined) env.CLAUDE_CODE_PROMPT_CACHE_TTL ??= "1h";
       Object.assign(env, quietWorkEnvironment(turn.quietWork));
+      Object.assign(env, claudeHelperEnvironment(turnModel, turn.helperModel, { custom: Boolean(config.managed) || injected.injected }));
       const cwd = turn.cwd ?? homedir();
       const commandCwd = permissionLaunchCwd(cwd);
       const unkeyedFlags = new Set<string>(["--mcp-config", "--settings", ...FLAGS_LEARNED_AFTER_LAUNCH]);
@@ -1317,6 +1324,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
         hooks: Boolean(hooks),
         fast: Boolean(turn.fast),
         quiet: Boolean(turn.quietWork),
+        helpers: env.CLAUDE_CODE_SUBAGENT_MODEL ?? null,
         reviewerGrant: permissionMode === "auto" ? turn.reviewerGrant ?? null : null,
         placement: chosenRemote ? "computer" : "home",
         auth: createHash("sha256").update(JSON.stringify({
@@ -1360,10 +1368,9 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
           }, turnId, broker: live.broker });
           emit({ ...base(threadId, turnId), type: "turn.started" });
           live.nativeActivity.beginTurn();
-          const volatile = turn.systemVolatile ?? "";
-          const note = claudeVolatileNote(volatile, live.volatile, turn.mentionTurn);
+          const { note, seen } = claudeContextNote(turn, live.volatile);
           const message = note ? claudeUserMessage(withVolatileNote(turn.text, note), turn.images) : promptMsg;
-          live.volatile = volatile;
+          live.volatile = seen;
           rememberVolatile(threadId, live);
           const running = live.turn;
           if (!(await writeUser(live, threadId, message)) && !running?.stopRequested) closeSession(threadId, "stdin write failed");
@@ -1377,7 +1384,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
         if (live) {
           const changed = Object.keys(argsParts).filter((key) => live.argsParts[key] !== argsParts[key]);
           if (live.turn || live.helpers.running()) throw new Error("The previous engine is still working.");
-          appendNative(threadId, { dir: "out", source: "claude.session", msg: { changed } });
+          appendNative(threadId, { dir: "out", source: "claude.session", msg: turn.sessionReset ? { close: "context reset" } : { changed } });
           await warmEngines.retire(ownershipKey(threadId), live);
           checkStart();
         }
@@ -1502,7 +1509,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
         systemPromptPath,
         argsKey,
         argsParts,
-        volatile: launchVolatile,
+        volatile: claudeSeenVolatile(turn),
         sessionId: sessionId ?? newSessionId,
         sawInit: false,
         nativePermissionMode: null,
@@ -1666,6 +1673,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
               }
               session.sawInit = true;
               if (session.turn) session.turn.awaitingInit = false;
+              if (session.turn && typeof o.model === "string") session.turn.usageModel = o.model;
               session.nativePermissionMode = typeof o.permissionMode === "string" ? o.permissionMode : null;
               if (typeof o.session_id === "string") {
                 session.sessionId = o.session_id;
@@ -1767,10 +1775,16 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
                   title: b.name,
                   summary: commandSummary(b.input),
                   input: toolDetailPreview(b.input),
+                  touches: claudeToolTouch(b.name, b.input),
                 });
               }
             }
             if (msg.usage) {
+              const contextTokens = (msg.usage.input_tokens || 0) + (msg.usage.cache_read_input_tokens || 0) + (msg.usage.cache_creation_input_tokens || 0);
+              if (session.turn) {
+                session.turn.contextTokens = contextTokens;
+                if (typeof msg.model === "string") session.turn.usageModel = msg.model;
+              }
               emit({
                 ...base(threadId, currentTurnId()),
                 type: "thread.token-usage.updated",
@@ -1779,7 +1793,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
                 ...(typeof msg.usage.cache_read_input_tokens === "number"
                   ? { cachedInput: msg.usage.cache_read_input_tokens }
                   : {}),
-                contextTokens: (msg.usage.input_tokens || 0) + (msg.usage.cache_read_input_tokens || 0) + (msg.usage.cache_creation_input_tokens || 0),
+                contextTokens,
               });
             }
             break;
@@ -1850,6 +1864,10 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
                 : {}),
             };
             const t = session.turn;
+            const contextWindow = claudeReportedContextWindow(o.modelUsage, t?.usageModel ?? injected.model ?? undefined);
+            if (native.usage && contextWindow && t?.contextTokens) {
+              emit({ ...base(threadId, currentTurnId()), type: "thread.token-usage.updated", ...native.usage, contextTokens: t.contextTokens, contextWindow });
+            }
             if (t && !t.settled && session.helpers.backgroundRunning() && native.ok && !t.usageLimited && !t.authFailed && !t.updateRequired) {
               t.deferred = sumNativeTurnResults(t.deferred, native);
               if (t.continuationGrace) clearTimeout(t.continuationGrace);
@@ -2109,7 +2127,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
       session.nativeActivity.beginTurn();
 
       const remembered = sessionId ? deliveredVolatile.get(threadId) : undefined;
-      const launchNote = turn.systemStable === undefined ? "" : claudeVolatileNote(launchVolatile, remembered?.sessionId === sessionId ? remembered.volatile : null, turn.mentionTurn);
+      const launchNote = turn.systemStable === undefined ? "" : claudeContextNote(turn, remembered?.sessionId === sessionId ? remembered.volatile : null).note;
       const launchMsg = launchNote ? claudeUserMessage(withVolatileNote(turn.text, launchNote), turn.images) : promptMsg;
       if (!(await writeUser(session, threadId, launchMsg))) {
         if (!session.turn?.stopRequested) settle(false, "stdin_write_failed");

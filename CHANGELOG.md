@@ -1,7 +1,14 @@
 # Changelog
 
-## 0.3.47 — 2026-11-11
+## 0.3.47 — 2026-11-12
 
+- **Every chat says what its dog is doing:** working, waiting on another dog, needs you, waiting for usage, or stopped and why. A finished turn shows what it changed, with files, a pull request link and the commands it ran, and each exchange between dogs shows what was asked and what came back.
+- **A dog that stops partway carries on by itself**, or says in one line why it stopped. A chat waiting for usage is checked again even when no app is open.
+- **Your account pick holds.** A dog stays on the account you chose while it can run. When it can't, the work moves to the same kind of account with the most left and comes back afterwards, never to a different AI by itself, and the chat shows the account and model that really ran. An account you turned off never runs a turn.
+- **Usage you can trust:** a limit that has reset no longer keeps an account out of use, paid ChatGPT credits show and count, and Claude chats use their real context window.
+- **Dogs answer first, then work.** A dog says what it is doing before it starts, keeps a list of what you asked for, asks with a card when it needs you, and stays quiet with other dogs unless their work is needed. Dogs are told nothing about usage limits.
+- **Less is sent on every request:** only the context that changed since the last turn goes out again.
+- **A message that was delivered is never called Not sent**, and an answer to a card is sent once, also after a retry or a reload.
 - **Chats open in stages and redraw less** while you switch dogs, type or receive a reply.
 - **Messages stay visible while My Cloud wakes.** Send a waiting message now or cancel it; a message the home never accepts keeps its words with Not sent and Send again.
 - **Sidebar rows follow your language**, and a Needs you row opens the task that needs your answer.

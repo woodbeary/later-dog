@@ -205,6 +205,20 @@ describe("group preview", () => {
     expect(markup).not.toContain("[digest]");
   });
 
+  it("says on the room's row who is working or who it waits on, and keeps the old preview when the home sends no work", () => {
+    const base: Group = {
+      id: "group", name: "Planning", threadId: "group-thread", memberIds: [], defaultResponder: { kind: "mentions" }, bulletin: "", unread: false, createdAt: 0,
+      messages: [{ id: "b1", role: "bot", kind: "text", text: "Plan drafted.", at: 2, from: { botId: "atlas", name: "Atlas", color: "green" } }],
+      tasks: [{ threadId: "group-thread", title: "Group conversation", createdAt: 1 }],
+    };
+    const row = (group: Group) => renderToStaticMarkup(createElement(GroupListItem, { group, density: "comfortable", onMenu: vi.fn() }));
+    expect(row({ ...base, work: { kind: "running", dogs: [{ id: "a", name: "Scout" }, { id: "b", name: "Biscuit" }] } })).toContain("Scout and Biscuit are working");
+    expect(row({ ...base, work: { kind: "waiting-on-dog", dogs: [{ id: "b", name: "Biscuit" }] } })).toContain("Waiting on Biscuit");
+    expect(row({ ...base, work: { kind: "needs-you", what: "Allow the deploy?" } })).toContain("Needs you: Allow the deploy?");
+    expect(row({ ...base, work: { kind: "idle" } })).toContain("Atlas: Plan drafted.");
+    expect(row(base)).toContain("Atlas: Plan drafted.");
+  });
+
   it("previews a markdown reply as plain words", () => {
     const group: Group = {
       id: "group", name: "Planning", threadId: "group-thread", memberIds: [], defaultResponder: { kind: "mentions" }, bulletin: "", unread: false, createdAt: 0,

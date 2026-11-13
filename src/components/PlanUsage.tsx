@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { api } from "@/state/store";
-import { t } from "@/lib/i18n";
+import { activeLocale, t } from "@/lib/i18n";
 import { cn } from "@/lib/cn";
 import { resetDistance } from "@/lib/reset-time";
 import { RestCharge, usageLeft, type AccountRest } from "./AccountCharge";
+import { creditsSpendable } from "../../shared/spendable-credits";
 
 export { resetClock, resetDistance } from "@/lib/reset-time";
 
@@ -37,6 +38,7 @@ export interface PlanProvider {
   weekly: PlanWindow;
   extra: PlanExtra[];
   models?: PlanModelUsage[];
+  credits?: { unlimited: boolean; balance: string | null };
 }
 
 export interface PlanUsageReport {
@@ -101,6 +103,7 @@ export function reloadPlanUsage(refresh = false): Promise<void> {
   setPlanUsage({ loading: true });
   const request = api<PlanUsageReport>(refresh ? "/api/plan-usage?refresh=1" : "/api/plan-usage")
     .then((report) => {
+      if (planUsageRequest !== request) return;
       const now = Date.now();
       const merged = keepLastGood(report, lastGood, now);
       for (const provider of report.providers) if (provider.ok) lastGood.set(provider.id, { provider, at: now });
@@ -241,8 +244,16 @@ export function usageReading(provider: PlanProvider | undefined): UsageReading |
 
 export function usageLines(provider: PlanProvider | undefined, now: number): string[] {
   if (!provider?.ok) return [];
-  return [windowLine(t("planUsage.fiveHour"), provider.fiveHour, now), windowLine(t("planUsage.weekly"), provider.weekly, now)]
+  return [windowLine(t("planUsage.fiveHour"), provider.fiveHour, now), windowLine(t("planUsage.weekly"), provider.weekly, now), creditsLine(provider)]
     .filter((line): line is string => line !== null);
+}
+
+export function creditsLine(provider: PlanProvider | undefined): string | null {
+  if (!provider?.ok || !provider.credits || !creditsSpendable(provider.credits)) return null;
+  if (provider.credits.unlimited) return t("planUsage.unlimitedCredits");
+  const balance = Number(provider.credits.balance?.trim() || Number.NaN);
+  if (!Number.isFinite(balance)) return null;
+  return t("planUsage.creditsRemaining", { balance: new Intl.NumberFormat(activeLocale(), { maximumFractionDigits: 2 }).format(balance) });
 }
 
 export function AccountUsage({ provider, now, loading = false, resting }: {
@@ -252,16 +263,19 @@ export function AccountUsage({ provider, now, loading = false, resting }: {
   resting?: AccountRest | undefined;
 }) {
   const quiet = "text-[12px] text-ink-secondary";
-  if (resting && Date.parse(resting.until) > now) return <RestCharge rest={resting} now={now} />;
+  const credits = creditsLine(provider);
+  const balance = credits ? <p data-credit-balance className={cn(quiet, "tabular-nums")}>{credits}</p> : null;
+  if (resting && Date.parse(resting.until) > now) return <div className="flex flex-col gap-2.5"><RestCharge rest={resting} now={now} />{balance}</div>;
   if (!provider) return loading ? <p className={quiet}>{t("planUsage.loading")}</p> : null;
   if (!provider.ok) return null;
   const windows = ([[t("planUsage.fiveHour"), provider.fiveHour], [t("planUsage.weekly"), provider.weekly]] as const).flatMap(([label, window]) => {
     const line = windowLine(label, window, now);
     return line && window.usedPercent != null ? [{ label, line, used: window.usedPercent }] : [];
   });
-  if (windows.length === 0) return null;
+  if (windows.length === 0 && !balance) return null;
   return (
     <div className="flex flex-col gap-2.5">
+      {balance}
       {windows.map((window) => (
         <div key={window.label} className="flex flex-col gap-1">
           <UsageBar used={window.used} label={window.label} className="h-1.5" />

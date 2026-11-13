@@ -19,6 +19,7 @@ import { McpServersPanel } from "./McpServersPanel";
 import { PaneErrorLine } from "./PaneErrorLine";
 import { SponsoredApps } from "./SponsoredApps";
 import { useMenuMotion } from "./MenuMotion";
+import { plainClientError } from "@/lib/plain-client-error";
 
 export interface ToolkitCard {
   slug: string;
@@ -391,7 +392,7 @@ export function PluginsPanel() {
       })
       .catch((cause) => {
         if (!hadCachedInventory) setInventoryPhase("error");
-        setError(cause instanceof Error ? cause.message : String(cause));
+        setError(plainClientError(cause));
         return {};
       });
   }, [refreshConnectedStatus]);
@@ -550,7 +551,7 @@ export function PluginsPanel() {
       }
     } catch (e) {
       if (opening.current !== launch) return;
-      const message = e instanceof Error ? e.message : String(e);
+      const message = plainClientError(e);
       if (requiresAccountAlias(message)) {
         setAliasSlug(slug);
         setAliasDraft("");

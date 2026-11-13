@@ -19,6 +19,16 @@ describe("execution evidence", () => {
     expect(tracker.complete(event({ type: "turn.completed", turnId: "turn", ok: true }) as Extract<RuntimeEvent, { type: "turn.completed" }>)).toBeUndefined();
   });
 
+  it("tells where each running turn is going, by the account and model the provider reported over the dispatch", () => {
+    const tracker = new ExecutionEvidenceTracker();
+    tracker.dispatch("thread", selected, dispatched);
+    expect(tracker.running()).toEqual([["thread", { on: "codex", model: "actual" }]]);
+    tracker.observe(event({ type: "session.started", turnId: "turn", model: "provider-model", providerInstanceId: "codex-two" }));
+    expect(tracker.running()).toEqual([["thread", { on: "codex-two", model: "provider-model" }]]);
+    tracker.complete(event({ type: "turn.completed", turnId: "turn", ok: true }) as Extract<RuntimeEvent, { type: "turn.completed" }>);
+    expect(tracker.running()).toEqual([]);
+  });
+
   it("keeps a newer turn when an old completion or session event arrives", () => {
     const tracker = new ExecutionEvidenceTracker();
     tracker.dispatch("thread", selected, dispatched);

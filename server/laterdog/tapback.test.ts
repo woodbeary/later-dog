@@ -38,6 +38,8 @@ describe("a dog's tapback", () => {
   it("drops a reacting turn's text only when it is just emoji or punctuation", () => {
     for (const quiet of ["", "  ", "👍", "👍!", "❤️ 🎉", "👍🏽", "🇺🇸", "…"]) expect(onlyTapbackText(quiet), quiet).toBe(true);
     for (const said of ["Got it.", "👍 shipped", "Done: 3 files"]) expect(onlyTapbackText(said), said).toBe(false);
+    for (const empty of ["<tool_call>\n\n</tool_call>", "<tool_call></tool_call> 👍", "</tool_call>", "<|tool_call|>", "<tool_ca"]) expect(onlyTapbackText(empty), empty).toBe(true);
+    for (const said of ["<b>Done</b>", "5 < 7 and 9 > 2", "<tool_call>ship it</tool_call>"]) expect(onlyTapbackText(said), said).toBe(false);
   });
 
   it("holds an emoji-only stream, then preserves every character when words follow", () => {
@@ -51,10 +53,17 @@ describe("a dog's tapback", () => {
     expect(shown).toBe("👍 Shipped 🎉");
     expect(tapbackStreamChunk("", "👍")).toEqual({ pending: "👍" });
     expect(tapbackStreamChunk("👍", " ")).toEqual({ pending: "👍 " });
+    let held: string | undefined = "";
+    for (const chunk of ["<tool", "_call>", "\n\n", "</tool_call>"]) {
+      const next = tapbackStreamChunk(held, chunk);
+      expect(next.delta, chunk).toBeUndefined();
+      held = next.pending;
+    }
+    expect(held).toBe("<tool_call>\n\n</tool_call>");
   });
 
   it("tells the dog the tapback is the reply and to end the turn", () => {
-    expect(reactedText("👍", { text: "ok" })).toBe("Reacted 👍 to “ok”. End your turn now without writing anything unless there is more to say; the reaction is the reply.");
+    expect(reactedText("👍", { text: "ok" })).toBe("Reacted 👍 to “ok”. End your turn now without writing anything; the reaction is the reply.");
     expect(reactedText("👍", { text: "x".repeat(80) })).toContain(`“${"x".repeat(57)}…”`);
   });
 
@@ -68,6 +77,7 @@ describe("what dogs are told about tapbacks", () => {
     expect(workUpdatesPrompt({ react: true })).toContain(TAPBACK_PROMPT);
     expect(TAPBACK_PROMPT).toMatch(/"ok", "thanks", "👍" or "got it", react to it with the react tool and end your turn without writing anything/);
     expect(TAPBACK_PROMPT).toMatch(/for a plain acknowledgment sent mid-task, the reaction is the short reply/);
+    expect(TAPBACK_PROMPT.endsWith(" The tapback is the whole reply.")).toBe(true);
     expect(workUpdatesPrompt()).not.toContain("react tool");
   });
 

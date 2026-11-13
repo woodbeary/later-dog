@@ -1,4 +1,5 @@
 import type { Message } from "@/state/store";
+import type { WireExchange } from "../../shared/room-exchange";
 import type { DogColor } from "./mascot";
 import { isStatusActivity, type TranscriptItem } from "./activity-runs";
 import { failedTurnCause } from "./failed-turn";
@@ -200,11 +201,37 @@ export function exchangeWording(item: Pick<ExchangeItem, "rows">): ExchangeWordi
   return { key: item.rows[0]!.direction === "to" ? "chat.exchange.messaged" : "chat.exchange.messageFrom", count };
 }
 
-export type ExchangeState = "Queued" | "Working" | "Done" | "Needs you";
+export type ExchangeState = "Queued" | "Working" | "Done" | "Needs you" | "Failed" | "Stopped";
 
 export interface ExchangeSummary {
   gist: string | null;
   state: ExchangeState;
+  record?: WireExchange;
+}
+
+const RECORD_STATES = {
+  queued: "Queued", running: "Working", waiting: "Working", "needs-you": "Needs you",
+  completed: "Done", failed: "Failed", cancelled: "Stopped",
+} as const satisfies Record<WireExchange["status"], ExchangeState>;
+
+function gistOf(text: string | undefined): string | null {
+  const line = (text ?? "").replace(/^(?:@\S+\s+)+/, "").replace(/\s+/g, " ").trim();
+  return line ? (line.length > 90 ? `${line.slice(0, 89)}…` : line) : null;
+}
+
+export function exchangeRecord(item: Pick<ExchangeItem, "messages">): WireExchange | undefined {
+  return item.messages.find((message) => message.exchange)?.exchange;
+}
+
+export function recordSummary(record: WireExchange): ExchangeSummary {
+  const state: ExchangeState = record.status === "completed" && !record.reply ? "Working" : RECORD_STATES[record.status];
+  return { gist: gistOf(record.request), state, record };
+}
+
+export function exchangeSummary(item: Pick<ExchangeItem, "messages" | "rows">, thread: readonly Message[] | null, working: boolean): ExchangeSummary | null {
+  const record = exchangeRecord(item);
+  if (record) return recordSummary(record);
+  return thread ? exchangeGist(item, thread, working) : null;
 }
 
 export function exchangeGist(item: Pick<ExchangeItem, "messages" | "rows">, thread: readonly Message[], working: boolean): ExchangeSummary {

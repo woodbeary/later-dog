@@ -19,6 +19,10 @@ import type { RoutineRunCardData } from "./routine-run.ts";
 import type { RuntimeEvent } from "./runtime-events.ts";
 import type { Notification } from "./notification.ts";
 import type { Routine, RoutineRun } from "./routines.ts";
+import type { WorkState } from "./work-state.ts";
+import type { WireExchange } from "./room-exchange.ts";
+import type { TurnReceipt } from "./turn-receipt.ts";
+import type { TurnResults } from "./turn-results.ts";
 import type { WebhookAttempt, WebhookTrigger } from "./webhooks.ts";
 
 export const EFFORT_LEVELS = ["none", "low", "medium", "high", "xhigh", "max", "ultra"] as const;
@@ -34,6 +38,12 @@ export interface ModelSelection {
   effort?: EffortLevel;
   variant?: string;
   fast?: boolean;
+}
+
+export interface WireAccountRoute {
+  from: string;
+  on: string;
+  model: string;
 }
 
 export type CloudBackend = "box" | "vps";
@@ -70,7 +80,7 @@ export interface TaskUsage {
   costUsd: number | null;
   turns: number;
   lastTurn?: { input: number; output: number; cachedInput?: number; costUsd: number | null };
-  context?: { tokens: number; window?: number };
+  context?: { tokens: number; window?: number; windowSource?: "provider" | "model" };
 }
 
 export interface GroupThreadUsage extends TaskUsage {
@@ -114,6 +124,7 @@ export interface WireTask {
   turnStartedAt?: number;
   workingStartedAt?: number;
   statusLine?: string;
+  work?: WorkState;
   surface?: Surface;
   surfaceAuto?: true;
   usage?: TaskUsage;
@@ -193,6 +204,7 @@ export interface WireBot {
   voice?: string;
   voiceNotes?: boolean;
   memoryEnabled?: boolean;
+  helperModel?: string;
   parkDirectMessages?: boolean;
   accountPinned?: boolean;
   rewound?: boolean;
@@ -215,6 +227,7 @@ export interface WireBot {
   installedPackage?: InstalledPackageMetadata;
   busy?: boolean;
   activity?: BotActivity;
+  work?: WorkState;
   createdAt: number;
   visibility?: BotVisibility;
 }
@@ -236,6 +249,9 @@ export type CardAnswerer = (
 
 export interface WireMessage {
   roomRequest?: { id: string; phase: "request" | "result" | "reply" };
+  handoffId?: string;
+  exchange?: WireExchange;
+  exchanges?: WireExchange[];
   id: string;
   role: "bot" | "user";
   kind: "text" | "options" | "activity" | "screen" | "connector" | "secret" | "routine.run" | "goal.run" | "digest" | "compaction";
@@ -276,7 +292,7 @@ export interface WireMessage {
     itemId?: string;
     fullResult?: boolean;
     statusLine?: "live" | "folded";
-    pickup?: "restart";
+    pickup?: "restart" | "watch";
     compaction?: true;
   };
   webhookPost?: boolean;
@@ -293,6 +309,8 @@ export interface WireMessage {
   requestCancelled?: boolean;
   requestPending?: boolean;
   turnTerminal?: boolean;
+  ran?: TurnReceipt;
+  results?: TurnResults;
   png?: string;
   mime?: string;
   at: number;
@@ -444,6 +462,7 @@ export interface WireGroup {
   setupSkippedAt?: number | null;
   audienceFloor?: BotVisibility;
   working: boolean;
+  work?: WorkState;
   turnTimeoutMinutes?: number | null;
 }
 

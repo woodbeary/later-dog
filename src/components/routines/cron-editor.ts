@@ -1,4 +1,5 @@
 import { normalizeCronSchedule, nextCronRuns, type RoutineCronSchedule } from "../../../shared/routine-schedule";
+import { plainClientError } from "@/lib/plain-client-error";
 
 export type CronChoice = "monthly" | "yearly" | "cron";
 export type CronDraft = { expression: string; timeZone: string; day: string; month: string; time: string };
@@ -49,6 +50,6 @@ export function cronEditorValue(choice: CronChoice, draft: CronDraft, after: num
     const normalized = normalizeCronSchedule(proposed, after);
     return { schedule: unchanged ?? normalized, runs: nextCronRuns(normalized, after, 3), error: "" };
   } catch (error) {
-    return { schedule: null, runs: [], error: error instanceof Error ? error.message : String(error) };
+    return { schedule: null, runs: [], error: plainClientError(error) };
   }
 }

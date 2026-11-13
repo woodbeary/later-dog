@@ -343,7 +343,7 @@ const TOOL_DEFINITIONS = [
   {
     name: "account_usage",
     description:
-      "How much each Claude and Codex plan account here has left (5-hour and 7-day use, resets), which one this chat is on, and the env var that runs your own CLI work (tests, scripts) on the roomiest. Usage never decides whether to start or continue work: a turn that hits a limit continues on another account by itself.",
+      "How much each Claude and Codex plan account here has left (5-hour and 7-day use, resets) and which one this chat is on. Use it only when the person asks about usage or accounts. Usage never decides whether to start or continue work: a turn that hits a limit continues on another account by itself.",
     inputSchema: { type: "object", additionalProperties: false, properties: {
       refresh: { type: "boolean", description: "Fetch fresh numbers." },
     } },

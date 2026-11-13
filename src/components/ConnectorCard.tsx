@@ -8,6 +8,7 @@ import type { LocaleKey } from "@/locales";
 import { reserveConnectionPage, reusableConnectionUrl, type PendingAuthorization } from "@/lib/connector-oauth";
 import { mcpSignInLink } from "@/lib/mcp-sign-in";
 import { BrandIcon } from "./BrandIcon";
+import { plainClientError } from "@/lib/plain-client-error";
 
 export function ConnectorCard({ botId, threadId, message }: { botId: string; threadId: string; message: Message }) {
   const connector = message.connector!;
@@ -87,7 +88,7 @@ export function ConnectorCard({ botId, threadId, message }: { botId: string; thr
         setLocalError({ key: "connectors.card.popupBlocked" });
       }
     } catch (error) {
-      if (isCurrent()) setLocalError(error instanceof Error ? error.message : String(error));
+      if (isCurrent()) setLocalError(plainClientError(error));
     } finally {
       launch.cancel();
       if (isCurrent()) {
@@ -103,7 +104,7 @@ export function ConnectorCard({ botId, threadId, message }: { botId: string; thr
     try {
       await api(`${endpoint}/resume`, { method: "POST", body: JSON.stringify({ threadId }) });
     } catch (error) {
-      setLocalError(error instanceof Error ? error.message : String(error));
+      setLocalError(plainClientError(error));
     } finally {
       setBusy(false);
     }

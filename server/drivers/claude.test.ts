@@ -24,6 +24,7 @@ import {
   permissionSocketPath,
   readClaudeAuthSettings,
   claudeCostSnapshot,
+  claudeReportedContextWindow,
   restoredCostBase,
   STEERED_CONTINUATION_GRACE_MS,
   sumNativeTurnResults,
@@ -1160,6 +1161,36 @@ describe("ClaudeDriver turns (fake CLI)", () => {
     expect(seen.mcpConfig.mcpServers.dog.alwaysLoad).toBe(true);
   });
 
+  it("asks the agents server to mark rare tools for loading on demand unless the server setting turns it off", async () => {
+    const previous = process.env.LATERDOG_DEFER_RARE_TOOLS;
+    await create();
+    const dump = join(scratch, "rare-tools.json");
+    process.env.FAKE_CLAUDE_DUMP = dump;
+    const launch = async (threadId: string) => {
+      await instance.adapter.sendTurn({
+        threadId,
+        text: "hi",
+        integrations: {
+          agents: { command: process.execPath, args: ["/fake/agents-proxy.js"], env: { LATERDOG_BOT_ID: "b1" } },
+        },
+      });
+      await recorder.until((e) => e.type === "turn.completed");
+      recorder.events.length = 0;
+      return JSON.parse(readFileSync(dump, "utf8")).mcpConfig.mcpServers.agents;
+    };
+    try {
+      process.env.LATERDOG_DEFER_RARE_TOOLS = "0";
+      const off = await launch("t-rare-off");
+      expect(off).toEqual({ command: process.execPath, args: ["/fake/agents-proxy.js"], env: { LATERDOG_BOT_ID: "b1" }, alwaysLoad: true });
+      delete process.env.LATERDOG_DEFER_RARE_TOOLS;
+      const on = await launch("t-rare-on");
+      expect(on).toEqual({ ...off, env: { LATERDOG_BOT_ID: "b1", LATERDOG_AGENTS_DEFER_RARE: "1" } });
+    } finally {
+      if (previous === undefined) delete process.env.LATERDOG_DEFER_RARE_TOOLS;
+      else process.env.LATERDOG_DEFER_RARE_TOOLS = previous;
+    }
+  });
+
   it.each(["ask", "auto"] as const)("pre-allows exactly a dog's three later.dog cloud tools in %s approval", async (approvalMode) => {
     await create();
     const dump = join(scratch, "dump.json");
@@ -1263,6 +1294,69 @@ describe("ClaudeDriver turns (fake CLI)", () => {
     expect(sent[0].message.content.endsWith("one")).toBe(true);
     expect(sent[1].message.content).toContain("dislikes cloud kitchens");
     expect(sent[1].message.content.endsWith("two")).toBe(true);
+  });
+
+  it("sends only the volatile sections that changed to a live session", async () => {
+    await create();
+    const dump = join(scratch, "sections.json");
+    const prompts = join(scratch, "sections-prompts.jsonl");
+    process.env.FAKE_CLAUDE_DUMP = dump;
+    process.env.FAKE_CLAUDE_PROMPTS = prompts;
+    const send = async (text: string, usage: string) => {
+      const sections = [
+        { id: "account", label: "Account", text: ` Session ${usage} left.` },
+        { id: "memory", label: "Memory", text: "\nYour memory:\nlikes tea" },
+      ];
+      await instance.adapter.sendTurn({
+        threadId: "t-sections",
+        text,
+        system: "You are Testy." + sections.map((s) => s.text).join(""),
+        systemStable: "You are Testy.",
+        systemVolatile: sections.map((s) => s.text).join(""),
+        systemVolatileSections: sections,
+      });
+      await recorder.until((e) => e.type === "turn.completed");
+      recorder.events.length = 0;
+    };
+    await send("one", "80%");
+    const firstPid = JSON.parse(readFileSync(dump, "utf8")).pid;
+    await send("two", "80%");
+    await send("three", "41%");
+    expect(JSON.parse(readFileSync(dump, "utf8")).pid).toBe(firstPid);
+    const sent = readFileSync(prompts, "utf8").trim().split("\n").map((line) => JSON.parse(line).message.content);
+    expect(sent).toHaveLength(3);
+    expect(sent[0]).toContain("[Account]\nSession 80% left.");
+    expect(sent[0]).toContain("[Memory]\nYour memory:\nlikes tea");
+    expect(sent[1]).toBe("two");
+    expect(sent[2]).toContain("[Account]\nSession 41% left.");
+    expect(sent[2]).not.toContain("likes tea");
+    expect(sent[2].endsWith("three")).toBe(true);
+  });
+
+  it("launches helpers on the dog's own model by default and on the chosen one when set", async () => {
+    await create();
+    const dump = join(scratch, "helper-model.json");
+    process.env.FAKE_CLAUDE_DUMP = dump;
+    const send = async (helperModel?: string) => {
+      const { turnId } = await instance.adapter.sendTurn({
+        threadId: "t-helper-model",
+        text: "go",
+        model: "claude-opus-5-5",
+        ...(helperModel ? { helperModel } : {}),
+      });
+      await recorder.until((e) => e.type === "turn.completed" && e.turnId === turnId);
+      recorder.events.length = 0;
+      return JSON.parse(readFileSync(dump, "utf8"));
+    };
+    const plain = await send();
+    expect(plain.env.CLAUDE_CODE_SUBAGENT_MODEL).toBeUndefined();
+    const same = await send("same");
+    expect(same.pid).toBe(plain.pid);
+    const lighter = await send("lighter");
+    expect(lighter.env.CLAUDE_CODE_SUBAGENT_MODEL).toBe("sonnet");
+    expect(lighter.pid).not.toBe(plain.pid);
+    const explicit = await send("claude-haiku-5-5");
+    expect(explicit.env.CLAUDE_CODE_SUBAGENT_MODEL).toBe("claude-haiku-5-5");
   });
 
   it("redelivers unchanged mention context on every tagged turn", async () => {
@@ -2033,6 +2127,29 @@ describe("ClaudeDriver turns (fake CLI)", () => {
     await recorder.until(e => e.type === "turn.completed");
     const seen = JSON.parse(readFileSync(dump, "utf8"));
     expect(seen.argv.includes("--forward-subagent-text")).toBe(version === "2.1.211");
+  });
+
+  it.each([1_000_000, 200_000])("reports the parent's native context window %d independently of child models", async (contextWindow) => {
+    const cli = join(scratch, "context-window.mjs");
+    writeFileSync(cli, [
+      "#!/usr/bin/env node",
+      "if (process.argv.includes('--version')) { console.log('2.1.316 (Claude Code)'); process.exit(0); }",
+      "if (process.argv.includes('--help')) { console.log('Usage: claude --autocompact <tokens>'); process.exit(0); }",
+      "const emit = (event) => console.log(JSON.stringify({ session_id: 'context-session', ...event }));",
+      "process.stdin.setEncoding('utf8');",
+      "process.stdin.on('data', () => {",
+      "emit({ type: 'system', subtype: 'init', model: 'claude-fable-5-2' });",
+      "emit({ type: 'assistant', message: { model: 'claude-fable-5-2', content: [{ type: 'text', text: 'Done' }], usage: { input_tokens: 2, cache_read_input_tokens: 243881, cache_creation_input_tokens: 327, output_tokens: 16 } } });",
+      `emit({ type: 'result', subtype: 'success', result: 'Done', modelUsage: { 'claude-opus-5-5': { contextWindow: 200000 }, 'claude-fable-5-2': { contextWindow: ${contextWindow} } }, usage: { input_tokens: 2, cache_read_input_tokens: 243881, cache_creation_input_tokens: 327, output_tokens: 16 } });`,
+      "});",
+    ].join("\n"), { mode: 0o755 });
+    await create(undefined, {}, { cli });
+    await instance.adapter.sendTurn({ threadId: "t-reported-context", text: "Check context", model: "claude-fable-5-2" });
+    await recorder.until((event) => event.type === "turn.completed");
+    expect(recorder.events.filter((event) => event.type === "thread.token-usage.updated").at(-1))
+      .toMatchObject({ contextTokens: 244_210, contextWindow });
+    expect(claudeReportedContextWindow({ other: { contextWindow: 1_000_000 } }, "claude-fable-5-2")).toBeUndefined();
+    expect(claudeReportedContextWindow({ "claude-fable-5-2": { contextWindow: -1 } }, "claude-fable-5-2")).toBeUndefined();
   });
 
   it("keeps native child content and usage out of the parent while preserving its activity", async () => {

@@ -19,24 +19,21 @@ const reading = (id: string, weekly: number): PlanProviderRow => ({
 });
 const READINGS: Record<string, PlanProviderRow> = { jacob: reading("jacob", 97), daniel: reading("daniel", 18), anthony: reading("anthony", 20) };
 
-function battery(pinned: boolean) {
+function battery() {
   return new AccountBattery({
-    config: () => CONFIG, accounts: () => ACCOUNTS, now: () => NOW, usage: (id) => READINGS[id], running: () => ({}),
-    defaultAccount: () => "jacob", ownThread: () => true, pinnedThread: () => pinned,
+    config: () => CONFIG, accounts: () => ACCOUNTS, now: () => NOW, usage: (id) => READINGS[id],
   });
 }
 
 describe("an account that is low but has not hit its limit", () => {
-  it("keeps the dog on its own account, pinned or not, with no notice", () => {
-    for (const pinned of [true, false]) {
-      const kept = battery(pinned);
-      expect(kept.route(ON_JACOB, ACCOUNTS, "dog")).toBe(ON_JACOB);
-      expect(kept.arrive("dog", ON_JACOB, "jacob", ACCOUNTS)).toBeUndefined();
-    }
+  it("keeps the dog on its own account with no notice", () => {
+    const kept = battery();
+    expect(kept.route(ON_JACOB, ACCOUNTS, "dog")).toBe(ON_JACOB);
+    expect(kept.arrive("dog", ON_JACOB, "jacob", ACCOUNTS)).toBeUndefined();
   });
 
   it("moves the dog only once a turn actually hits the limit, to the account with the most room", () => {
-    const moving = battery(true);
+    const moving = battery();
     moving.trackTurn("dog", { generation: "g1", instanceId: "jacob", rerun: vi.fn(async () => undefined) });
     const next = moving.nextAccount({ threadId: "dog", generation: "g1", stopReason: "usage_limit", ranOn: "jacob", selection: ON_JACOB, accounts: ACCOUNTS });
     expect(next?.to.instanceId).toBe("daniel");

@@ -11,6 +11,7 @@ import { MacLocalControl } from "../MacLocalControl";
 import { WakeDog } from "../WakeDog";
 import { ScreenGoals } from "./ScreenGoals";
 import { useComputerHands } from "./useComputerHands";
+import { plainClientError } from "@/lib/plain-client-error";
 
 type Surface = "cloud" | "local" | "vm" | "browser" | "off";
 
@@ -203,7 +204,7 @@ export function ComputerTab({ bot }: { bot: Bot }) {
         setCard({ kind: "waking", fresh, polling: true, held: true });
         return;
       }
-      setCard({ kind: "wakeFailed", fresh, problem: error instanceof Error ? error.message : String(error) });
+      setCard({ kind: "wakeFailed", fresh, problem: plainClientError(error) });
     }
   };
   const turnOn = () => {

@@ -22,6 +22,7 @@ import { useStoreSelector } from "@/state/store-selectors";
 
 import { AddServerToBots } from "./AddServerToBots";
 import { BrandIcon } from "./BrandIcon";
+import { plainClientError } from "@/lib/plain-client-error";
 
 interface Active {
   id: string;
@@ -35,7 +36,7 @@ function failureMessage(result: Extract<ConnectResult, { outcome: "failed" }>, c
   return result.message || t("mcpConnectors.signInFailed", { name: connector.name });
 }
 
-const messageOf = (cause: unknown) => (cause instanceof Error ? cause.message : String(cause));
+const messageOf = (cause: unknown) => (plainClientError(cause));
 
 export function McpConnectorCards({ connectors, refreshKey = 0, grouped, onConnected, onServersChange }: {
   connectors: readonly McpConnector[];

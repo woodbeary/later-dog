@@ -316,8 +316,10 @@ export async function loadPlanUsage(input: {
     now: () => now,
     timeoutMs: input.timeoutMs,
   });
-  cachedReport = { at: now, key, report };
-  for (const row of report.providers) if (row.ok) latestRows.set(row.id, { at: now, row });
+  if (!cachedReport || cachedReport.at <= now) cachedReport = { at: now, key, report };
+  for (const row of report.providers) {
+    if (row.ok && (latestRows.get(row.id)?.at ?? -Infinity) <= now) latestRows.set(row.id, { at: now, row });
+  }
   return report;
 }
 

@@ -7,6 +7,7 @@ import { copyText } from "@/lib/copy-text";
 import { DEVICE_SIGN_IN_COPY, DeviceSignIn, deviceSignInProvider } from "./DeviceSignIn";
 import { ClaudeSignIn } from "./ClaudeSignIn";
 import { AnthropicEveryClaudeBot, ApiKeyRow, OpenAiCompatUrl, type ConfigSection, type TestableProvider } from "./ApiKeys";
+import { plainClientError } from "@/lib/plain-client-error";
 
 type Platform = "darwin" | "win32" | "linux";
 
@@ -173,7 +174,7 @@ function ServerEngineInstall({ instance, mode, command }: { instance: InstanceIn
       await refreshInstances().catch(() => {});
       await refreshModels(instance.instanceId).catch(() => {});
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : String(cause));
+      setError(plainClientError(cause));
     } finally {
       setBusy(false);
     }
@@ -273,7 +274,7 @@ function ManagedEngineSetup({ instance, signInOnly }: { instance: InstanceInfo; 
     setBusy(kind);
     setError(null);
     try { await action(); }
-    catch (cause) { setError(cause instanceof Error ? cause.message : String(cause)); }
+    catch (cause) { setError(plainClientError(cause)); }
     finally { setBusy(null); }
   };
 

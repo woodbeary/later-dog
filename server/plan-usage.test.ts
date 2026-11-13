@@ -412,6 +412,24 @@ describe("plan usage fetcher", () => {
     expect(fetchImpl).toHaveBeenCalledTimes(3);
   });
 
+  it("keeps a newer reset reading when an older refresh completes later", async () => {
+    let finishOlder!: (response: PlanResponse) => void;
+    const fetchImpl = vi.fn<PlanFetch>()
+      .mockImplementationOnce(() => new Promise((resolve) => { finishOlder = resolve; }))
+      .mockResolvedValueOnce(jsonResponse({ five_hour: { utilization: 0 }, seven_day: { utilization: 0 } }));
+    const accounts = [account("claude")];
+    const credentials = { read: () => ({ token: SECRET, accountId: null, expired: false }) };
+    const older = loadPlanUsage({ accounts, now: NOW, fetch: fetchImpl, credentials });
+    await expect.poll(() => fetchImpl.mock.calls.length).toBe(1);
+    await loadPlanUsage({ accounts, refresh: true, now: NOW + 1_000, fetch: fetchImpl, credentials });
+    finishOlder(jsonResponse({ five_hour: { utilization: 100 }, seven_day: { utilization: 100 } }));
+    await older;
+    expect(latestPlanRow("claude")?.weekly.remainingPercent).toBe(100);
+    const cached = await loadPlanUsage({ accounts, now: NOW + 2_000, fetch: fetchImpl, credentials });
+    expect(cached.providers[0]?.weekly.remainingPercent).toBe(100);
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+  });
+
   it("keeps each account's last good reading for the token battery, even after a failed read", async () => {
     let fail = false;
     const fetchImpl = vi.fn<PlanFetch>(async () => fail ? jsonResponse("down", 503) : jsonResponse({

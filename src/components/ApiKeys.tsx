@@ -5,6 +5,7 @@ import { cn } from "@/lib/cn";
 import { useMenuMotion } from "./MenuMotion";
 import { t } from "@/lib/i18n";
 import type { LocaleKey } from "@/locales";
+import { plainClientError } from "@/lib/plain-client-error";
 
 export type ConfigSection = "composio" | "opencodeGo" | "anthropic" | "openai" | "openrouter" | "openaiCompat" | "xai" | "mistral" | "cerebras";
 export type TestableProvider = "anthropic" | "openai" | "openrouter" | "openaiCompat" | "xai" | "mistral" | "cerebras";
@@ -269,7 +270,7 @@ export function ApiKeyRow({
             : t("keys.testUnexpected", { status: String(result.status ?? "?") });
       setVerdict(`${t("keys.testSaved")} ${outcome}`);
     } catch (cause) {
-      if (generation === testGeneration.current) setVerdict(cause instanceof Error ? cause.message : String(cause));
+      if (generation === testGeneration.current) setVerdict(plainClientError(cause));
     } finally {
       if (generation === testGeneration.current) setTesting(false);
     }
@@ -578,7 +579,7 @@ export function ImageGenerationSetup({ onReady }: { onReady?: () => void }) {
       dispatch({ type: "configStatus", config: configured });
       if (configured.imageGen?.configured) onReady?.();
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : String(cause));
+      setError(plainClientError(cause));
     } finally { setSaving(false); }
   };
   return (

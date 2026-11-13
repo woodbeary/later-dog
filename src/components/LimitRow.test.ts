@@ -103,12 +103,19 @@ afterEach(async () => {
 });
 
 describe("the limit message", () => {
-  it("keeps Continue on Codex available when automatic continuation has no pending callback", async () => {
+  it("suggests no other engine, and keeps Continue on Codex a pick by hand when automatic continuation has no pending callback", async () => {
     publish({ instances: [claude("claude", "Personal"), chatgpt("chatgpt", "Codex")] });
     fixture.api.mockResolvedValueOnce({ continued: true });
     await render(limit({ kind: "session" }));
+    expect(button("Continue on Codex")).toBeUndefined();
+    expect(words()).toContain("This dog waits for its own engine to recharge.");
+    const select = card()!.querySelector("select")!;
+    await act(async () => {
+      select.value = "chatgpt";
+      select.dispatchEvent(new Event("change", { bubbles: true }));
+    });
     await click(button("Continue on Codex"));
-    expect(fixture.api).toHaveBeenCalledWith("/api/bots/scout/continue-on", { method: "POST", body: JSON.stringify({ threadId: "thread-scout", instanceId: "chatgpt" }) });
+    expect(fixture.api).toHaveBeenCalledWith("/api/bots/scout/continue-on", { method: "POST", body: JSON.stringify({ threadId: "thread-scout", instanceId: "chatgpt", byHand: true }) });
     publish({ config: { accountBattery: battery({ claude: { until: inHours(2) } }, true) } });
     await settle();
     expect(words()).not.toContain("Continuing automatically");
@@ -216,7 +223,7 @@ describe("the limit message", () => {
     expect(buttons()).toEqual(["Continue on Work"]);
     await click(button("Continue on Work"));
     expect(fixture.api).toHaveBeenCalledWith("/api/bots/scout/continue-on", {
-      method: "POST", body: JSON.stringify({ threadId: "thread-scout", instanceId: "claude-work" }),
+      method: "POST", body: JSON.stringify({ threadId: "thread-scout", instanceId: "claude-work", byHand: true }),
     });
     expect(props.onRetry).not.toHaveBeenCalled();
   });

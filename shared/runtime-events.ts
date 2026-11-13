@@ -1,6 +1,7 @@
 import type { AskQuestion } from "./ask-question.ts";
 import type { Helper } from "./helpers.ts";
 import type { NativeObservation } from "./native-runs.ts";
+import type { ToolTouch } from "./turn-results.ts";
 
 export type DriverKind = string;
 export type InstanceId = string;
@@ -92,6 +93,7 @@ export type RuntimeEvent = RuntimeEventBase &
         title?: string;
         summary?: string;
         input?: string;
+        touches?: ToolTouch;
       }
     | { type: "item.updated"; itemType: "tool" | "reasoning"; tokens?: number | null }
     | { type: "item.completed"; itemType: "tool"; ok: boolean; output?: string }

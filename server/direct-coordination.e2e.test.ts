@@ -123,7 +123,7 @@ it("coordinates a lead and its specialist from ordinary chat in each dog's one c
   for (const gone of ["start_thread", "list_threads", "close_thread"]) expect(chiefTools).not.toContain(gone);
   expect(bots.find((bot: any) => bot.id === f.lead.id).tasks).toHaveLength(1);
   expect(bots.find((bot: any) => bot.id === f.specialist.id).tasks).toHaveLength(1);
-  expect(turn.system).toContain("ask your other dogs for advice or work with coordinate_bots");
+  expect(turn.system).toContain("Ask with coordinate_bots (list_bots shows who they are)");
   expect(turn.system).not.toContain("[TEAM ROSTER]");
 }), 45_000);
 

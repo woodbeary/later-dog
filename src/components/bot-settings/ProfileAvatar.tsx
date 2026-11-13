@@ -11,6 +11,7 @@ import { BotAvatar } from "../Avatar";
 import { ImageGenerationSetup } from "../ApiKeys";
 import { useBotEditor } from "./BotEditorContext";
 import type { BotPatch } from "./useBotSettingsDerived";
+import { plainClientError } from "@/lib/plain-client-error";
 
 const ACCEPT = "image/png,image/jpeg,image/gif,image/webp";
 const PROMPT_MAX = 400;
@@ -130,7 +131,7 @@ export function ProfileAvatar({ bot, state, onPatch, onGenerate, onBusyChange }:
       if (!avatarUrl) throw new Error(t("botSettings.avatar.wrongType"));
       onPatch({ avatarUrl, avatarCrop: crop, ...FRESH_FRAME });
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : String(cause));
+      setError(plainClientError(cause));
     } finally {
       setWorking(null);
     }
@@ -150,7 +151,7 @@ export function ProfileAvatar({ bot, state, onPatch, onGenerate, onBusyChange }:
       onPatch({ avatarUrl: result.avatarUrl, avatarCrop: result.bot.avatarCrop ?? "circle", ...FRESH_FRAME });
       setPrompt("");
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : String(cause));
+      setError(plainClientError(cause));
     } finally {
       setWorking(null);
     }

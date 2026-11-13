@@ -30,6 +30,7 @@ import { TEACH_TRICK_LINE } from "../../shared/learn-request";
 import { BOT_SECTIONS, tabForSection } from "./bot-settings/sections";
 import { SkillReviewDialog, useManagedSkills } from "./bot-settings/SkillsSection";
 import { useBotSettingsDerived } from "./bot-settings/useBotSettingsDerived";
+import { plainClientError } from "@/lib/plain-client-error";
 
 const BREEDS = MASCOT_BODY_IDS.filter((id) => isDogBreed(id));
 
@@ -100,7 +101,7 @@ export function BotSettingsDialog({ bot, overlay = false }: {
       setSource("");
       await skills.refresh();
     } catch (cause) {
-      skills.setError(cause instanceof Error ? cause.message : String(cause));
+      skills.setError(plainClientError(cause));
     } finally {
       setImporting(false);
     }

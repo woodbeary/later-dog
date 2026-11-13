@@ -31,6 +31,7 @@ import { TableFileButton } from "./TableFilePreview";
 import { mermaidCode, richCard } from "../lib/rich-cards";
 import { draftCard, type DraftCard } from "../lib/draft-card";
 import { DARK_PIE, diagramPng, exportableDiagram, saveBlob } from "../lib/diagram-export";
+import { plainClientError } from "@/lib/plain-client-error";
 
 const highlightCache = new Map<string, string>();
 export const HIGHLIGHT_CACHE_MAX = 200;
@@ -446,7 +447,7 @@ export function MermaidDiagram({ code }: MermaidDiagramProps) {
         ? await diagramPng(picture.svg)
         : new Blob([picture.svg], { type: "image/svg+xml;charset=utf-8" }));
     } catch (cause) {
-      setSaveError(cause instanceof Error ? cause.message : String(cause));
+      setSaveError(plainClientError(cause));
     } finally {
       setSaving(null);
     }
@@ -494,7 +495,7 @@ export function MermaidDiagram({ code }: MermaidDiagramProps) {
       })
       .catch((cause: unknown) => {
         if (!alive) return;
-        const message = cause instanceof Error ? cause.message : String(cause);
+        const message = plainClientError(cause);
         setError(message.length > 300 ? `${message.slice(0, 300)}…` : message);
       });
     return () => {

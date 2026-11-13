@@ -5,6 +5,7 @@ import { openExternalLink } from "@/lib/app-links";
 import { t } from "@/lib/i18n";
 import { dangerPillButton, pillButton } from "./LocalVmRows";
 import { SettingRow } from "./SettingsPrimitives";
+import { plainClientError } from "@/lib/plain-client-error";
 
 export type PlanInfo = { status: "none" | "pending" | "active" | "canceled" | "ended"; periodEnd?: string };
 
@@ -30,7 +31,7 @@ export const mayBuyPlan = (status: TrialStatus | null) =>
 const TRIAL_PATH = "/api/computers/trial";
 const POLL_MS: Partial<Record<TrialStatus["state"], number>> = { pending: 3_000, active: 30_000 };
 
-const messageOf = (cause: unknown) => cause instanceof Error ? cause.message : String(cause);
+const messageOf = (cause: unknown) => plainClientError(cause);
 
 export function trialSubtitle(status: TrialStatus): string {
   if ((status.state === "active" || status.state === "used_up") && onPlan(status)) {

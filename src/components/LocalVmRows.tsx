@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { t } from "@/lib/i18n";
 import { waitForLocalVmReady } from "@/lib/local-vm-readiness";
 import { SettingRow } from "./SettingsPrimitives";
+import { plainClientError } from "@/lib/plain-client-error";
 
 export const LOCAL_VM_POLL_MS = 5000;
 export const DOCKER_URL = "https://www.docker.com/products/docker-desktop/";
@@ -91,7 +92,7 @@ export function LocalVmRows() {
       } catch (e) {
         if (active && !(e instanceof DOMException && e.name === "AbortError")) {
           setStatus(null);
-          setError(e instanceof Error ? e.message : String(e));
+          setError(plainClientError(e));
         }
       } finally {
         if (active) {
@@ -131,7 +132,7 @@ export function LocalVmRows() {
       setRefreshKey((key) => key + 1);
     } catch (e) {
       if (controller.signal.aborted) return;
-      setError(e instanceof Error ? e.message : String(e));
+      setError(plainClientError(e));
     } finally {
       actionController.current = null;
       if (!controller.signal.aborted) setPending(null);

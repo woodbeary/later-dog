@@ -1117,10 +1117,10 @@ describe("the message field's one AI menu", () => {
   it("shows the server's routed account while the selected account recharges", () => {
     fixture.instances = [claude(), codex];
     fixture.battery = { enabled: true, auto: true, order: {}, sequence: ["codex", "claude"],
-      routed: { "thread-scout": { from: "claude", on: "codex" } },
+      routed: { "thread-scout": { from: "claude", on: "codex", model: "gpt-5.5" } },
       resting: { claude: { until: new Date(NOW + 3_600_000).toISOString() } } };
     const closed = renderPart(bot());
-    expect(closed.html).toContain('title="Claude is used up, running on Codex (ChatGPT)"');
+    expect(closed.html).toContain('title="Running on Codex (ChatGPT) until Claude is back"');
     const opened = openPart(bot());
     const rows = accountMenu(opened)!.props.rows;
     expect(rows.map((row) => row.instance.instanceId)).toEqual(["codex", "claude"]);
@@ -1130,17 +1130,27 @@ describe("the message field's one AI menu", () => {
     expect(opened.html).toContain("Automatically managed");
   });
 
-  it("says the chosen engine is off when the home runs the chat on another engine's account", () => {
-    const chatgpt = { ...engine("codex", "codex", "ChatGPT", "subscription", [{ id: "gpt-6.1-sol", label: "GPT-6.1-Sol" }]), enabled: false };
-    fixture.instances = [chatgpt, { ...claude(), displayName: "jacob" }];
-    fixture.battery = { enabled: true, auto: true, order: {}, sequence: ["codex", "claude"],
-      routed: { "thread-scout": { from: "codex", on: "claude" } }, resting: {} };
-    const closed = renderPart(bot(undefined, "codex", "gpt-6.1-sol"));
-    expect(closed.html).toContain('title="ChatGPT is off, running on jacob (Claude)"');
-    expect(closed.html).toMatch(/data-model-account[^>]*>.*jacob \(Claude\)/);
-    expect(closed.html).toContain("GPT-6.1-Sol, jacob (Claude), ChatGPT is off, running on jacob (Claude)");
-    const opened = openPart(bot(undefined, "codex", "gpt-6.1-sol"));
-    expect(opened.html).toMatch(/data-model-routed[^>]*>ChatGPT is off, running on jacob \(Claude\)</);
+  it("shows the account and model that really ran, and From the next message once the person picked another account", () => {
+    fixture.instances = [{ ...claude(), displayName: "jacob" }, { ...work(), displayName: "daniel" }];
+    fixture.battery = { enabled: true, auto: true, order: {}, sequence: ["claude", "claude-work"],
+      routed: {}, fromNextMessage: { "thread-scout": { from: "claude-work", on: "claude", model: "claude-sonnet-5-5" } }, resting: {} };
+    const closed = renderPart(bot(undefined, "claude-work", "claude-opus-5-5"));
+    expect(closed.html).toContain('title="From the next message"');
+    expect(closed.html).toContain("Sonnet 5.5");
+    expect(closed.html).toMatch(/data-model-account[^>]*>.*jacob/);
+    const opened = openPart(bot(undefined, "claude-work", "claude-opus-5-5"));
+    expect(opened.html).toMatch(/data-model-routed[^>]*>From the next message</);
+    const rows = accountMenu(opened)!.props.rows;
+    expect(rows.find((row) => row.selected)?.instance.instanceId).toBe("claude-work");
+    expect(rows.find((row) => row.inUse)?.instance.instanceId).toBe("claude");
+  });
+
+  it("says where the chat runs until the chosen account is back, and nothing once the person picks the account it runs on", () => {
+    fixture.instances = [{ ...claude(), displayName: "jacob" }, { ...work(), displayName: "daniel" }];
+    fixture.battery = { enabled: true, auto: true, order: {}, sequence: ["claude", "claude-work"],
+      routed: { "thread-scout": { from: "claude", on: "claude-work", model: "claude-opus-5-5" } }, resting: {} };
+    expect(renderPart(bot()).html).toContain('title="Running on daniel until jacob is back"');
+    expect(renderPart(bot(undefined, "claude-work")).html).not.toContain("is back");
   });
 
   it("lets the menu reorder accounts once the server keeps an order", () => {

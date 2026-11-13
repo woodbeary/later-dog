@@ -3,7 +3,7 @@ import type { WireMessage } from "../../shared/wire.ts";
 type Message = WireMessage;
 
 export const PROMISE_NUDGE =
-  "[later.dog: your turn ended right after you said what you would do next, so none of it has happened yet. " +
+  "[later.dog note, not typed by the person: your turn ended right after you said what you would do next, so none of it has happened yet. " +
   "Do it now and keep going until the work is done. Finish with the result, or say in one line what is stopping you " +
   "or what you need from the person.]";
 

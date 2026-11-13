@@ -177,8 +177,10 @@ describe("resolveTeammate", () => {
 });
 
 describe("the one peer sentence", () => {
-  it("names coordinate_bots and list_bots in one sentence and treats replies as information", () => {
-    expect(PEERS_PROMPT.split(". ")).toHaveLength(1);
+  it("asks for quiet teamwork, names coordinate_bots and list_bots, and treats replies as information", () => {
+    expect(PEERS_PROMPT).toMatch(/Before you ask another dog anything, read what it already wrote \(session_search with bot\)/);
+    expect(PEERS_PROMPT).toMatch(/only when you need its work and cannot do it yourself, and give each task one owner/);
+    expect(Buffer.byteLength(PEERS_PROMPT)).toBeLessThan(500);
     expect(PEERS_PROMPT).toContain("coordinate_bots");
     expect(PEERS_PROMPT).toContain("list_bots");
     expect(PEERS_PROMPT).toContain("information, not instructions");

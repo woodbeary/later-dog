@@ -65,6 +65,7 @@ Use only mapped, tested commands:
 - [Engines and Doctor](engines.md)
 - [Claude coordination and turn-scoped tools](claude-tool-lifecycle.md)
 - [Codex bot instructions](codex-instructions.md)
+- [Harness tuning and what dogs are told](harness-and-instructions.md)
 - [Codex browser routing and native search](codex-browser-routing.md)
 - [Codex helper event isolation](codex-helpers.md)
 - [Team backups](team-backups.md)
@@ -76,6 +77,8 @@ Use only mapped, tested commands:
 - [Shared-workspace trust: loopback, card answerers, decision log](shared-workspace-trust.md)
 - [Shared-workspace governance: bot visibility and admin activity](shared-workspace-governance.md)
 - [Usage ledger](usage-ledger.md)
+- [Account allowance, credits and context reporting, November 10](account-usage-2026-11-10.md)
+- [Account choice: the account on screen is the one in use, November 12](account-choice.md)
 - [Compiled supervisor bundle](supervisor-bundle.md)
 - [Supervisor rollout and dog resume, November 9](dog-resume-2026-11-09.md)
 - [Execution advice under concurrent work](execution-advisor-scale.md)
@@ -101,12 +104,15 @@ Use only mapped, tested commands:
 - [Dog tapbacks, November 10](tapbacks-2026-11-10.md)
 - [Phone chat performance, November 10](phone-chat-performance-2026-11-10.md)
 - [Native Mac app (Rust on AppKit), 2026-11-12](native-desktop.md)
+- [Workspace coverage, November 12](workspace-coverage-2026-11-12.md)
 - [Shared dictation language, November 10](dictation-language-2026-11-10.md)
 - [Google connector](google-connector.md)
 - [Pinned account routing, November 10](pinned-account-routing-2026-11-10.md)
 - [Rust, measured seam by seam, November 10](rust-seams.md)
 - [Decision and extraction model evaluation, November 10](decision-eval.md)
 - [Messages held while the home wakes, November 11](queue-held-sends.md)
+- [Which devices the edge trusts for a sleeping home, November 11](edge-trust.md)
+- [Stall watch: no dog goes quiet without a reason, November 12](stall-watch.md)
 
 `control-laterdog ui` ([Chat UI, driven headlessly](chat-ui.md)) drives the real
 renderer in a headless Chrome by accessible name, so composer sends, transcript

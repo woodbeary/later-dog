@@ -1,3 +1,5 @@
+import { readOutboxCard, type OutboxCard } from "./outbox";
+
 export const HELD_SENDS_KEY = "laterdog-held-sends";
 export const HELD_GIVE_UP_MS = 65 * 60 * 1000;
 export const HELD_ASK_MAX = 50;
@@ -12,7 +14,9 @@ export interface HeldSend {
   text: string;
   requestText: string;
   replyToId?: string;
+  card?: OutboxCard;
   at: number;
+  edgeAt?: number;
 }
 
 export interface HeldAnswer {
@@ -24,9 +28,10 @@ type KeyValueStore = Pick<Storage, "getItem" | "setItem" | "removeItem"> | undef
 
 function heldSend(value: unknown): HeldSend | null {
   if (typeof value !== "object" || value === null) return null;
-  const { sendId, threadId, draftId, text, requestText, replyToId, at } = value as Record<string, unknown>;
+  const { sendId, threadId, draftId, text, requestText, replyToId, at, card, edgeAt } = value as Record<string, unknown>;
   if (typeof sendId !== "string" || typeof threadId !== "string" || typeof draftId !== "string" || typeof text !== "string" || typeof requestText !== "string" || typeof at !== "number") return null;
-  return { sendId, threadId, draftId, text, requestText, at, ...(typeof replyToId === "string" ? { replyToId } : {}) };
+  const cardRef = readOutboxCard(card);
+  return { sendId, threadId, draftId, text, requestText, at, ...(typeof replyToId === "string" ? { replyToId } : {}), ...(cardRef ? { card: cardRef } : {}), ...(typeof edgeAt === "number" && Number.isFinite(edgeAt) ? { edgeAt } : {}) };
 }
 
 export function readHeldSends(store: KeyValueStore): HeldSend[] {

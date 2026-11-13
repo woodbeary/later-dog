@@ -3,7 +3,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 
 vi.mock("@/state/store", () => ({ api: vi.fn() }));
-import { AccountUsage, keepLastGood, resetDistance, type PlanProvider } from "./PlanUsage";
+import { AccountUsage, creditsLine, keepLastGood, resetDistance, usageLines, type PlanProvider } from "./PlanUsage";
 
 const HOUR = 60 * 60 * 1000;
 const provider = (overrides: Partial<PlanProvider> = {}): PlanProvider => ({
@@ -30,6 +30,41 @@ describe("reset distance", () => {
 });
 
 describe("Account usage presentation", () => {
+  it("shows paid credits with an exhausted included allowance and without reported plan windows", () => {
+    const funded = provider({ driver: "codex", credits: { unlimited: false, balance: "49383.7272235000" }, weekly: { available: true, usedPercent: 100, remainingPercent: 0, resetsAt: null } });
+    const html = renderToStaticMarkup(createElement(AccountUsage, { provider: funded, now: Date.now() }));
+    expect(html).toContain("49,383.73 credits remaining");
+    expect(html).toContain("Weekly · 0% left");
+    expect(usageLines(funded, Date.now())).toContain("49,383.73 credits remaining");
+    const unknown = { available: false, usedPercent: null, remainingPercent: null, resetsAt: null };
+    const creditsOnly = renderToStaticMarkup(createElement(AccountUsage, { provider: { ...funded, fiveHour: unknown, weekly: unknown }, now: Date.now() }));
+    expect(creditsOnly).toContain("49,383.73 credits remaining");
+    expect(creditsOnly).not.toContain('role="meter"');
+    expect(creditsLine(provider({ credits: { unlimited: true, balance: null } }))).toBe("Unlimited credits");
+    expect(creditsLine(provider({ credits: { unlimited: false, balance: "0" } }))).toBeNull();
+    expect(creditsLine(provider({ credits: { unlimited: false, balance: "unknown" } }))).toBeNull();
+  });
+
+  it.each([
+    ["zero", { unlimited: false, balance: "0" }, null],
+    ["negative", { unlimited: false, balance: "-3" }, null],
+    ["no", undefined, null],
+    ["unknown", { unlimited: false, balance: null }, null],
+    ["positive", { unlimited: false, balance: "12.5" }, "12.5 credits remaining"],
+    ["unlimited", { unlimited: true, balance: null }, "Unlimited credits"],
+  ] as const)("shows the bar and the resting state unless %s credits are spendable", (_, credits, line) => {
+    const now = Date.now();
+    const usedUp = provider({ driver: "codex", weekly: { available: true, usedPercent: 100, remainingPercent: 0, resetsAt: new Date(now + 72 * HOUR).toISOString() }, ...(credits ? { credits: { ...credits } } : {}) });
+    expect(creditsLine(usedUp)).toBe(line);
+    const html = renderToStaticMarkup(createElement(AccountUsage, { provider: usedUp, now }));
+    expect(html.includes("data-credit-balance")).toBe(line !== null);
+    expect(html).not.toContain("0 credits remaining");
+    expect(html).toContain('role="meter"');
+    const resting = renderToStaticMarkup(createElement(AccountUsage, { provider: usedUp, now, resting: { since: new Date(now - HOUR).toISOString(), until: new Date(now + HOUR).toISOString() } }));
+    expect(resting).toContain("data-rest-charge");
+    expect(resting.includes("data-credit-balance")).toBe(line !== null);
+  });
+
   it("shows each window as a bar that fills as it is used, warming as it runs low, with what is left and its reset", () => {
     const html = renderToStaticMarkup(createElement(AccountUsage, { provider: provider(), now: Date.now() }));
     expect(html.match(/role="meter"/g)).toHaveLength(2);

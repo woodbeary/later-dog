@@ -6,7 +6,7 @@ import { InstanceProviderMark } from "./ProviderIcons";
 import { resetClock } from "@/lib/reset-time";
 import { backAt, SleepingDog, type AccountRest } from "./AccountCharge";
 import { AccountChargeColumns } from "./AccountBattery";
-import { usageReading, type PlanProvider } from "./PlanUsage";
+import { creditsLine, usageReading, type PlanProvider } from "./PlanUsage";
 import { useAccountDrag } from "./account-drag";
 
 export interface AccountMenuRow {
@@ -56,9 +56,10 @@ export function AccountMenu({ rows, onPick, onAdd, onReorder, onSettings, auto =
         const id = row.instance.instanceId;
         const canMove = drag.movable(id);
         const reading = usageReading(row.provider);
+        const credits = creditsLine(row.provider);
         const active = id === activeId;
         const status = row.rest ? restStatus(row.rest, row.selected, now)
-          : reading && reading.used >= 100 && reading.resetsAt ? t("accounts.backAt", { time: resetClock(reading.resetsAt, now) }) : "";
+          : credits ?? (reading && reading.used >= 100 && reading.resetsAt ? t("accounts.backAt", { time: resetClock(reading.resetsAt, now) }) : "");
         return (
           <div key={id} role="none" {...drag.row(id)} className={cn("group", drag.dragging === id && "opacity-50")}>
             <button
@@ -76,14 +77,14 @@ export function AccountMenu({ rows, onPick, onAdd, onReorder, onSettings, auto =
               )}
             >
               <span className="flex size-5 shrink-0 items-center justify-center">
-                {row.rest || (reading && reading.used >= 100) ? <SleepingDog size={19} /> : <InstanceProviderMark instance={row.instance} size={16} />}
+                {row.rest || (reading && reading.used >= 100 && !credits) ? <SleepingDog size={19} /> : <InstanceProviderMark instance={row.instance} size={16} />}
               </span>
               <span data-account-name-line className="flex h-[1lh] min-w-0 flex-auto flex-wrap content-start items-center gap-x-2.5 overflow-hidden">
                 <span data-account-label title={row.label} className="min-w-0 flex-auto truncate">{row.label}</span>
                 {status && <span data-account-status title={status} className="shrink-0 whitespace-nowrap text-[11px] text-ink-secondary">{status}</span>}
                 {row.signIn && <span data-account-sign-in className="shrink-0 whitespace-nowrap text-[12px] font-medium text-accent-text">{t("accounts.signIn")}</span>}
               </span>
-              <AccountChargeColumns used={reading?.used} rest={row.rest} now={now} />
+              <AccountChargeColumns used={credits ? undefined : reading?.used} rest={row.rest} now={now} />
               <span data-account-check={active ? "on" : "off"} className="flex w-4 shrink-0 items-center justify-center">
                 {active && <Check size={14} aria-hidden="true" className="text-accent-text" />}
               </span>

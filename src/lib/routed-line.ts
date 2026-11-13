@@ -4,11 +4,7 @@ export interface RoutedAccount {
   instanceId: string;
   driverKind: string;
   displayName: string;
-  enabled?: boolean;
-  snapshot?: { authenticated?: boolean };
 }
-
-export type RoutedWhy = "off" | "usedUp" | "signedOut";
 
 const ENGINE_NAME: Record<string, string> = { claudeAgent: "Claude", codex: "ChatGPT" };
 
@@ -22,21 +18,9 @@ export function withEngine(account: RoutedAccount): string {
   return engine && !name.toLowerCase().includes(engine.toLowerCase()) ? `${name} (${engine})` : name;
 }
 
-export function routedWhy(chosen: RoutedAccount, resting: boolean): RoutedWhy | null {
-  if (resting) return "usedUp";
-  if (chosen.enabled === false) return "off";
-  if (chosen.snapshot?.authenticated === false) return "signedOut";
-  return null;
-}
-
-export function routedLine(chosen: RoutedAccount | undefined, running: RoutedAccount | undefined, resting: boolean): string | null {
+export function routedLine(chosen: RoutedAccount | undefined, running: RoutedAccount | undefined, nextMessage: boolean): string | null {
   if (!chosen || !running || chosen.instanceId === running.instanceId) return null;
+  if (nextMessage) return t("accounts.fromNextMessage");
   const named = crossEngine(chosen, running) ? withEngine : (account: RoutedAccount) => account.displayName.trim();
-  const from = named(chosen);
-  const name = named(running);
-  const why = routedWhy(chosen, resting);
-  if (why === "off") return t("accounts.routedOff", { from, name });
-  if (why === "usedUp") return t("accounts.routedUsedUp", { from, name });
-  if (why === "signedOut") return t("accounts.routedSignedOut", { from, name });
-  return t("accounts.runningOn", { name });
+  return t("accounts.runningUntilBack", { name: named(running), from: named(chosen) });
 }

@@ -1,6 +1,7 @@
 import { createElement, type Dispatch } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { GENERIC_MESSAGE } from "@/lib/plain-client-error";
 import { createDog, duplicateProfileFor, initialState, reducer, StoreProvider, useStore, type Action, type Bot } from "./store";
 
 const response = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status });
@@ -144,7 +145,7 @@ describe("shared bot creation guard", () => {
     dispatch({ type: "newBot" });
     await flush();
     expect(request).toHaveBeenCalledOnce();
-    expect(onError).toHaveBeenCalledWith("offline");
+    expect(onError).toHaveBeenCalledWith(GENERIC_MESSAGE);
     expect(onCreated).not.toHaveBeenCalled();
     dispatch({ type: "newBot", onCreated });
     await flush();

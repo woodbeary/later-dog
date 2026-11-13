@@ -46,6 +46,10 @@ function walk(value: unknown, depth = 0): Record<string, unknown> | null {
   return null;
 }
 
+export function cloudJobRecord(output: unknown): Record<string, unknown> | null {
+  return walk(output);
+}
+
 export function cloudTaskRefFromToolOutput(toolName: string | undefined, output: unknown): CloudTaskRef | null {
   if (!startsCloudJob(toolName)) return null;
   const job = walk(output);

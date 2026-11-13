@@ -62,6 +62,19 @@ describe("picking up a conversation that waited on a usage limit across a restar
     expect(outcomes).toEqual(["skipped", "skipped", "skipped", "skipped"]);
   });
 
+  it.each([
+    ["signed out", { signedIn: false }, { signedIn: true }],
+    ["switched off", { enabled: false }, { enabled: true }],
+  ] as const)("does not start a turn while the chosen account is %s and nothing can cover, then picks up once it can run", (_why, blocked, back) => {
+    const accounts: BatteryAccount[] = [{ ...claude("one"), ...blocked }, { ...claude("two"), signedIn: false }];
+    const { write, start, input } = setup({ accounts });
+    expect(carryOnAfterRestart(input)).toBe("needs-you");
+    expect([...write.mock.calls, ...start.mock.calls]).toEqual([]);
+    accounts[0] = { ...accounts[0]!, ...back };
+    expect(carryOnAfterRestart(input)).toBe("started");
+    expect(start).toHaveBeenCalledOnce();
+  });
+
   it("says so in the chat when the continued turn cannot start", async () => {
     const { write, input } = setup({ start: async () => { throw new Error("provider settings are being updated"); } });
     expect(carryOnAfterRestart(input)).toBe("started");

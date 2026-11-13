@@ -5,6 +5,7 @@ import { t } from "@/lib/i18n";
 import { SleepingDog } from "./AccountCharge";
 import { BotAvatar } from "./Avatar";
 import { dangerPillButton, pillButton } from "./LocalVmRows";
+import { plainClientError } from "@/lib/plain-client-error";
 
 export interface CloudComputer {
   boxId: string;
@@ -83,7 +84,7 @@ export function CloudComputerRows() {
     const controller = new AbortController();
     setLoading(true);
     refresh(controller.signal)
-      .catch((cause) => { if (!controller.signal.aborted) setProblem(cause instanceof Error ? cause.message : String(cause)); })
+      .catch((cause) => { if (!controller.signal.aborted) setProblem(plainClientError(cause)); })
       .finally(() => { if (!controller.signal.aborted) setLoading(false); });
     return () => controller.abort();
   }, [refresh, keyConfigured]);
@@ -110,9 +111,9 @@ export function CloudComputerRows() {
         if (!deleting.current.has(computer.boxId)) return;
       }
       deleting.current.delete(computer.boxId);
-      await refresh().catch((cause) => setError(cause instanceof Error ? cause.message : String(cause)));
+      await refresh().catch((cause) => setError(plainClientError(cause)));
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : String(cause));
+      setError(plainClientError(cause));
     } finally {
       setPending(null);
     }
@@ -134,7 +135,7 @@ export function CloudComputerRows() {
       if (!response.ok) throw new Error(body.error ?? t(action === "reset" ? "vm.cloud.resetError" : "vm.cloud.updateError"));
       await refresh().catch(() => {});
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : String(cause));
+      setError(plainClientError(cause));
     } finally {
       setPending(null);
     }

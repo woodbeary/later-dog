@@ -877,7 +877,11 @@ describe("onboarding quiz", () => {
   it("hides the quiz when they pick an option", () => {
     const state = { ...initialState, bots: [bot], selectedId: bot.id };
     const next = reducer(state, { type: "answerCard", botId: bot.id, messageId: "q", answer: "Work & projects" });
-    expect(next.bots[0]?.messages.find((message) => message.id === "q")?.card).toMatchObject({
+    const card = next.bots[0]?.messages.find((message) => message.id === "q")?.card;
+    expect(card).toMatchObject({ pendingAnswer: "Work & projects" });
+    expect(card?.answered).toBeUndefined();
+    const received = reducer(next, { type: "cardAnswered", botId: bot.id, messageId: "q", answer: "Work & projects" });
+    expect(received.bots[0]?.messages.find((message) => message.id === "q")?.card).toMatchObject({
       answered: "Work & projects",
       dismissed: true,
     });
@@ -1847,6 +1851,25 @@ describe("scrollback pages", () => {
   });
 });
 
+describe("a room's work state frames", () => {
+  const room = { id: "room", threadId: "room-thread", name: "Room", memberIds: [], defaultResponder: { kind: "mentions" }, createdAt: 1, bulletin: "", unread: false, messages: [] } as never as Group;
+  const running = { kind: "running" as const, dogs: [{ id: "scout", name: "Scout" }] };
+
+  it("keeps the room's work from a frame and updates it with the next one, and leaves it alone when a frame has none", () => {
+    const first = reducer({ ...initialState, groups: [room] }, { type: "groupPatched", group: { id: "room", work: running } });
+    expect(first.groups[0]!.work).toEqual(running);
+    const asking = reducer(first, { type: "groupPatched", group: { id: "room", work: { kind: "needs-you", what: "Allow?" } } });
+    expect(asking.groups[0]!.work).toEqual({ kind: "needs-you", what: "Allow?" });
+    expect(reducer(asking, { type: "groupPatched", group: { id: "room", unread: true } }).groups[0]!.work).toEqual({ kind: "needs-you", what: "Allow?" });
+    expect(reducer({ ...initialState, groups: [room] }, { type: "groupPatched", group: { id: "room", name: "Renamed" } }).groups[0]!.work).toBeUndefined();
+  });
+
+  it("keeps the work of a room it first hears of", () => {
+    const next = reducer(initialState, { type: "groupPatched", group: { id: "new", threadId: "t", name: "New", work: running } as never as Group });
+    expect(next.groups[0]!.work).toEqual(running);
+  });
+});
+
 describe("messageAdded leaf adoption", () => {
   const baseBot = {
     id: "bot-1",
@@ -2303,5 +2326,40 @@ describe("live call state", () => {
     expect(liveCallFromFrame({ kind: "live.call", botId: "b1", threadId: "t1" })).toBeNull();
     expect(liveCallFromFrame({ kind: "live.call", call: "c1" })).toBeNull();
     expect(liveCallFromFrame({ kind: "live.call", call: { status: "live" } })).toBeNull();
+  });
+});
+
+describe("work state frames", () => {
+  const owner: Bot = { id: "owner", threadId: "main", name: "Owner", title: "", description: "", notifications: true,
+    color: "green", unread: false, modelSelection: { instanceId: "codex", model: "default" }, messages: [], busy: true, work: { kind: "running" },
+    tasks: [{ threadId: "main", title: "Main", createdAt: 1, busy: true, work: { kind: "running" } }, { threadId: "side", title: "Side", createdAt: 1, work: { kind: "idle" } }] };
+  const apply = (state: AppState, event: RuntimeEvent) => {
+    const action = runtimeFrameAction(event);
+    return action ? reducer(state, action) : state;
+  };
+  const frame = (body: Record<string, unknown>, threadId = "main") =>
+    ({ eventId: "e", provider: "codex", threadId, createdAt: "2026-11-11T00:00:00Z", ...body }) as RuntimeEvent;
+
+  it("keeps retry and computer-wait frames instead of dropping them", () => {
+    const retrying = apply({ ...initialState, bots: [owner] }, frame({ type: "turn.retrying", attempt: 1, delayMs: 1000, reason: "busy" }));
+    expect(currentTaskBot(retrying.bots[0]!, "main").work).toEqual({ kind: "retrying", attempt: 2 });
+    expect(retrying.bots[0]!.work).toEqual({ kind: "retrying", attempt: 2 });
+    const waiting = apply(retrying, frame({ type: "turn.wait_started", resource: "mac", holder: { name: "Patch" } }));
+    expect(currentTaskBot(waiting.bots[0]!, "main").work).toEqual({ kind: "waiting-for-computer", holder: "Patch" });
+    const back = apply(waiting, frame({ type: "turn.wait_ended", resource: "mac", waitedMs: 1, outcome: "acquired" }));
+    expect(currentTaskBot(back.bots[0]!, "main").work).toEqual({ kind: "running" });
+  });
+
+  it("leaves other tasks and unchanged states alone", () => {
+    const state = { ...initialState, bots: [owner] };
+    expect(apply(state, frame({ type: "turn.retrying", attempt: 1, delayMs: 1, reason: "x" }, "side"))).toBe(state);
+    expect(apply(state, frame({ type: "turn.wait_ended", resource: "mac", waitedMs: 1, outcome: "acquired" }))).toBe(state);
+  });
+
+  it("takes the home's next announcement as the answer", () => {
+    const retrying = apply({ ...initialState, bots: [owner] }, frame({ type: "turn.retrying", attempt: 1, delayMs: 1, reason: "x" }));
+    const { messages: _messages, ...announced } = { ...owner, work: { kind: "needs-you" as const, what: "Allow?" } };
+    const next = reducer(retrying, { type: "botPatched", bot: announced });
+    expect(next.bots[0]!.work).toEqual({ kind: "needs-you", what: "Allow?" });
   });
 });
