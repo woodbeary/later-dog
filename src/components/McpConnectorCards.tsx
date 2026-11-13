@@ -280,7 +280,7 @@ export function McpConnectorCards({ connectors, refreshKey = 0, grouped, onConne
                   <span className="min-w-0 truncate text-[11.5px] text-ink-secondary">{t("policy.managedBy", { organization: server.managedBy })}</span>
                 ) : null}
               </div>
-              <p className="mt-0.5 truncate text-[12px] leading-snug text-ink-secondary" title={description}>{description}</p>
+              <p className="mt-0.5 line-clamp-2 text-[12px] leading-snug text-ink-secondary" title={description}>{description}</p>
             </div>
             <a
               href={connector.docs}

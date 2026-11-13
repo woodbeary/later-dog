@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { Check, Copy, Download, Share } from "lucide-react";
 
 import { cn } from "@/lib/cn";
+import { t } from "@/lib/i18n";
 import { useMenuMotion } from "./MenuMotion";
 import {
   copyTranscriptToClipboard,
@@ -116,8 +117,8 @@ export function ExportTranscriptMenu({
           aria-label="Export options"
           className={cn("absolute right-0 top-full z-40 mt-1 w-[220px] overflow-hidden rounded-menu origin-top-right border border-hairline/50 bg-card py-1.5 shadow-popover", motion.className)} {...motion.exitProps}
         >
-          <div className="px-3 py-1 text-[11px] font-semibold uppercase tracking-wider text-ink-tertiary">
-            Export Conversation
+          <div className="px-3 py-1 text-[11.5px] font-medium text-ink-tertiary">
+            {t("chat.export.heading")}
           </div>
 
           {!hasMessages ? (
@@ -138,13 +139,13 @@ export function ExportTranscriptMenu({
                   <Copy size={14} className="shrink-0 text-ink-secondary" />
                 )}
                 <span className="flex-1 truncate">
-                  {copied ? "Copied to clipboard!" : "Copy as Markdown"}
+                  {copied ? t("chat.export.copied") : t("chat.export.copy")}
                 </span>
               </button>
 
               {copyFailed && (
                 <div role="status" className="px-3 py-2 text-[12px] text-ink-secondary">
-                  Clipboard unavailable. Download the Markdown file instead.
+                  {t("chat.export.copyFailed")}
                 </div>
               )}
 
@@ -155,7 +156,7 @@ export function ExportTranscriptMenu({
                 className="flex w-full items-center gap-2.5 px-3 py-2 text-left text-[13px] text-ink hover:bg-raised/70"
               >
                 <Download size={14} className="shrink-0 text-ink-secondary" />
-                <span className="flex-1 truncate">Download as .md</span>
+                <span className="flex-1 truncate">{t("chat.export.download")}</span>
               </button>
             </>
           )}

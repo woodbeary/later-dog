@@ -170,12 +170,12 @@ describe("the Usage page", () => {
 
   it("says no price was reported when the turns carry none", async () => {
     await show([dog("Atlas", "claude", usage({}))], [account("claude", "Personal")], [group("Atlas", 1, null)]);
-    expect(text()).toContain("Estimated cost so far—No price reported yet");
+    expect(text()).toContain("Estimated cost so farNot pricedNo price reported yet");
   });
 
   it("starts empty", async () => {
     await show([], [account("claude", "Personal")], []);
-    expect(text()).toContain("Estimated cost so far—Nothing spent yet");
+    expect(text()).toContain("Estimated cost so farNothing yetFigures appear after a dog's first turn.");
   });
 });
 

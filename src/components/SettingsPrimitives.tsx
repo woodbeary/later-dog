@@ -59,21 +59,23 @@ export function SettingRow({
   subtitle,
   children,
   message,
+  stacked = false,
 }: {
   title: string;
   subtitle?: React.ReactNode;
   children: React.ReactNode;
   message?: React.ReactNode;
+  stacked?: boolean;
 }) {
   const titleId = useId();
   return (
     <div role="group" aria-labelledby={titleId} className="setting-row border-t border-hairline/40 py-4 first:border-t-0">
-      <div className="grid min-w-0 grid-cols-1 items-center gap-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:gap-6">
+      <div className={cn("grid min-w-0 grid-cols-1 items-center gap-3", !stacked && "sm:grid-cols-[minmax(0,1fr)_auto] sm:gap-6")}>
         <div className="min-w-0">
           <div id={titleId} className="text-[14px] font-medium text-ink">{title}</div>
           {subtitle && <div className="mt-1 text-[12px] leading-relaxed text-ink-secondary">{subtitle}</div>}
         </div>
-        <div className="min-w-0 sm:max-w-[240px]">{children}</div>
+        <div className={cn("min-w-0", !stacked && "sm:max-w-[240px]")}>{children}</div>
       </div>
       {message && <div className="mt-2 text-[12px]">{message}</div>}
     </div>

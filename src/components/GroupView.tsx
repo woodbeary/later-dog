@@ -246,8 +246,8 @@ export function GroupView({ group }: { group: Group }) {
               className="flex items-center gap-1.5 rounded-full py-0.5 pl-1 pr-1.5 hover:bg-raised/60"
             >
               {memberDogs}
-              <span className="flex size-[18px] items-center justify-center rounded-full border border-dashed border-hairline/70 text-ink-secondary">
-                <Plus size={11} />
+              <span data-room-add-member className="flex size-6 items-center justify-center rounded-full border border-dashed border-hairline/70 text-ink-secondary">
+                <Plus size={13} />
               </span>
             </button>
           )}

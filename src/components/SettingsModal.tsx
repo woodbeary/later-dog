@@ -73,7 +73,7 @@ function NameRow() {
   };
 
   return (
-    <SettingRow title={t("settings.profile.name")} subtitle={t("settings.profile.subtitle")}>
+    <SettingRow stacked title={t("settings.profile.name")} subtitle={t("settings.profile.subtitle")}>
       <input
         aria-label={t("settings.profile.name")}
         value={name}

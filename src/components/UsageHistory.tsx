@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Download, Loader2 } from "lucide-react";
+import { Check, ChevronDown, Download, Loader2 } from "lucide-react";
 import { api } from "@/state/store";
 import { cn } from "@/lib/cn";
 import { t } from "@/lib/i18n";
@@ -7,6 +7,7 @@ import { formatMoney } from "@/lib/included-usage";
 import { formatTokens, formatUsd, hasFiniteCost, headlineTokens, tokensColumnLabel } from "@/lib/usage";
 import { BarList, ChartEmpty, ColumnChart, ViewToggle, type ChartView } from "./UsageCharts";
 import { plainClientError } from "@/lib/plain-client-error";
+import { SidebarPopoverMenu } from "./SidebarPopoverMenu";
 
 export type UsageGroupBy = "bot" | "model" | "day";
 export const USAGE_GROUPINGS: readonly UsageGroupBy[] = ["bot", "model", "day"];
@@ -59,6 +60,13 @@ const GROUP_LABEL_KEYS: Record<UsageGroupBy, "usage.history.byBot" | "usage.hist
   bot: "usage.history.byBot",
   model: "usage.history.byModel",
   day: "usage.history.byDay",
+};
+
+const USAGE_PERIODS: readonly UsagePeriod[] = ["month", "lastMonth", "days30"];
+const PERIOD_LABEL_KEYS: Record<UsagePeriod, "usage.history.thisMonth" | "usage.history.lastMonth" | "usage.history.last30Days"> = {
+  month: "usage.history.thisMonth",
+  lastMonth: "usage.history.lastMonth",
+  days30: "usage.history.last30Days",
 };
 
 function estimatedPart(group: UsageGroup): boolean {
@@ -238,16 +246,25 @@ export function UsageHistory({ load = fetchUsage }: { load?: typeof fetchUsage }
       <h3 className="px-4 text-[12px] font-medium text-ink-secondary">{t("usage.history.title")}</h3>
       <div className="rounded-xl bg-card px-4 py-3">
         <div className="mb-3 flex flex-wrap items-center gap-2">
-          <select
-            value={period}
-            onChange={(event) => setPeriod(event.target.value as UsagePeriod)}
-            aria-label={t("usage.history.period")}
-            className="rounded-lg border border-hairline/40 bg-inset px-2 py-1.5 text-[12.5px] text-ink focus:outline-none"
-          >
-            <option value="month">{t("usage.history.thisMonth")}</option>
-            <option value="lastMonth">{t("usage.history.lastMonth")}</option>
-            <option value="days30">{t("usage.history.last30Days")}</option>
-          </select>
+          <SidebarPopoverMenu
+            ariaLabel={t("usage.history.period")}
+            placement="auto"
+            align="start"
+            menuWidth="w-48"
+            items={USAGE_PERIODS.map((option) => ({
+              key: option,
+              label: t(PERIOD_LABEL_KEYS[option]),
+              active: option === period,
+              trailing: option === period ? <Check size={14} aria-hidden="true" className="shrink-0 text-accent" /> : undefined,
+              onSelect: () => setPeriod(option),
+            }))}
+            renderTrigger={({ open }) => (
+              <span data-usage-period={period} className={cn("flex items-center gap-1 rounded-lg px-2.5 py-1 text-[12px] text-ink hover:bg-raised/50", open && "bg-raised/50")}>
+                {t(PERIOD_LABEL_KEYS[period])}
+                <ChevronDown size={12} aria-hidden="true" className="text-ink-tertiary" />
+              </span>
+            )}
+          />
           <div role="tablist" aria-label={t("usage.history.groupBy")} className="flex flex-wrap gap-1">
             {USAGE_GROUPINGS.map((option) => (
               <button

@@ -194,7 +194,7 @@ export function SidebarPopoverMenu({
           onPointerLeave={() => { if (item.submenu) showFlyout(null, CLOSE_DELAY_MS); }}
         >
           {item.separatorBefore && <div className="my-1.5 h-px bg-hairline/50" />}
-          {item.heading && <div className="px-3 pb-0.5 pt-1.5 text-[10px] font-semibold uppercase tracking-[0.08em] text-ink-secondary">{item.heading}</div>}
+          {item.heading && <div className="px-3 pb-0.5 pt-1.5 text-[11.5px] font-medium text-ink-tertiary">{item.heading}</div>}
           <button
             type="button"
             role="menuitem"

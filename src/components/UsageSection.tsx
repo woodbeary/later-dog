@@ -34,7 +34,7 @@ export function UsageSection() {
       <section data-usage-cost="" className="flex flex-col gap-1.5">
         <h3 className="px-4 text-[12px] font-medium text-ink-secondary">{t("usage.costSoFar")}</h3>
         <div className="rounded-xl bg-card px-4 py-3">
-          <div className="text-[22px] font-semibold text-ink">{cost === null ? "—" : formatUsd(cost)}</div>
+          <div className="text-[22px] font-semibold text-ink">{cost !== null ? formatUsd(cost) : !total ? "\u00a0" : total.turns === 0 ? t("usage.nothingYet") : t("usage.notPriced")}</div>
           {caption && <p className="mt-0.5 text-[12px] leading-relaxed text-ink-secondary">{caption}</p>}
         </div>
       </section>
