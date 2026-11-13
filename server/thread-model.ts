@@ -1,6 +1,7 @@
 import type { ModelSelection } from "./contracts.ts";
 import { readyToRun, signedOut, type DefaultSelectionContext, type SelectableInstance } from "./default-model-selection.ts";
 import { sameModelSelection } from "../shared/thread-model.ts";
+import { readingRuns } from "./laterdog/cli-version.ts";
 
 export type ThreadEngine = SelectableInstance & { enabled: boolean };
 
@@ -13,7 +14,7 @@ export interface ThreadModelContext extends DefaultSelectionContext {
 }
 
 function canRunOn(engine: ThreadEngine | undefined, selection: ModelSelection, context: ThreadModelContext): engine is ThreadEngine {
-  return Boolean(engine?.enabled) && engine!.snapshot.state === "available" && context.refusal?.(engine!) === undefined &&
+  return Boolean(engine?.enabled) && readingRuns(engine!.snapshot) && context.refusal?.(engine!) === undefined &&
     context.allows?.(selection) !== false;
 }
 

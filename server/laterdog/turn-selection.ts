@@ -1,5 +1,6 @@
 import type { ModelSelection } from "../contracts.ts";
 import { signedOut } from "../default-model-selection.ts";
+import { programMissing } from "./cli-version.ts";
 import { threadModelFallback, type ThreadEngine, type ThreadModelContext } from "../thread-model.ts";
 
 export interface TurnSelectionInput {
@@ -11,8 +12,8 @@ export interface TurnSelectionInput {
 }
 
 function waitsForPerson(own: ModelSelection, engine: ThreadEngine | undefined, context: ThreadModelContext): engine is ThreadEngine {
-  if (!engine || engine.snapshot.state !== "available" || context.refusal?.(engine) !== undefined || context.allows?.(own) === false) return false;
-  return !engine.enabled || signedOut(engine);
+  if (!engine || context.refusal?.(engine) !== undefined || context.allows?.(own) === false) return false;
+  return engine.enabled ? signedOut(engine) : !programMissing(engine.snapshot);
 }
 
 export function threadGivesWay(input: TurnSelectionInput): boolean {
