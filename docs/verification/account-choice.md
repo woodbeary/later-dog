@@ -25,8 +25,9 @@ run, via `choiceReadyAt`) and the picker's line (`shownRoute`).
 | Rule | What the code does |
 | --- | --- |
 | The choice is a pin | While the chosen account is on, signed in and not held for the model, the turn runs there, whatever the others have left. Load spreading across accounts is gone. |
-| Cannot run, Keep going on | The same-engine account that is on, signed in, offers the model and is not held, ranked by what is left in the binding window (the tighter of session and week). Paid credits count as available. Nothing at 5% or under while another has more; unknown readings come after known room. The account already covering stays while it is as good. |
+| Cannot run, Keep going on | The same-engine account that is on, signed in, offers the model and is not held, ranked in four groups, best first: plan room above 5% (with or without paid credits); paid credits but no plan room; no reading; 5% or under with no credits. Inside a group, the most left in the binding window (the tighter of session and week), then the person's order. The account already covering stays only while it is in the same group as the best one, and never in the last group. |
 | Cannot run, Keep going off | The chat waits for usage on the chosen account. |
+| Needs the person | When the chosen account is signed out, failed to sign in or is switched off and no same-engine account can cover, a kept turn is not rerun, also after a restart. The chat shows Needs you with "Sign in to {account} again" or "Turn {account} back on" (`server/laterdog/account-needs-you.ts`); an open question still wins. The usage watch rechecks it each tick, logs the wait once, and the turn carries on by itself once the account can run. |
 | Coming back | The next message after the chosen account can run again goes to it. |
 | Engines | Never crossed by the home. With no same-engine account free the chat waits; the usage and stall watches carry it on. Only a person's own pick on the limit row (`byHand`) moves it to another engine, for that chat until the chosen account is back. |
 | A pick while the dog works | The running turn finishes where it is; the pick takes the next message. The picker says "From the next message" at once. |
@@ -34,19 +35,27 @@ run, via `choiceReadyAt`) and the picker's line (`shownRoute`).
 
 ## What the person sees
 
-The server sends `accountBattery.routed[threadId]` (`WireAccountRoute` in
-`shared/wire.ts`): `{ from, on, model, next? }`. `on` and `model` come from the
-execution evidence: the running turn's dispatched account and the model the
-provider reported, or, when idle, the last finished turn (saved in
-`account-battery.json` as `ran`). There is no entry when the turn ran on the
-chosen account.
+The server sends two records of `WireAccountRoute` (`shared/wire.ts`,
+`{ from, on, model }`), and a chat is in at most one of them:
 
-The desktop chip and picker show `on` and `model`, keep the chosen account
-marked as selected, and add one quiet line:
+- `accountBattery.routed[threadId]`: the chosen account `from` cannot run and the
+  next message also runs on `on`. This is the meaning every released app reads.
+- `accountBattery.fromNextMessage[threadId]`: the next message goes somewhere
+  other than where the current or last turn ran (a pick, or the chosen account
+  being back). Released apps do not read it, so they never say "running on" about
+  a chat that is not.
 
-- "Running on anthony until daniel is back" while the chosen account cannot run;
-- "From the next message" when the next message goes somewhere other than where
-  the current or last turn ran (a pick, or the chosen account being back).
+`on` and `model` come from the execution evidence: the running turn's dispatched
+account and the model the provider reported, or, when idle, the last finished
+turn (saved in `account-battery.json` as `ran`). There is no entry when the turn
+ran on the chosen account. `AccountBattery.status` splits `shownRoute` into the
+two records.
+
+The desktop chip and picker read both, show `on` and `model`, keep the chosen
+account marked as selected, and add one quiet line:
+
+- "Running on anthony until daniel is back" for `routed`;
+- "From the next message" for `fromNextMessage`.
 
 ## Incidents and their causes
 
@@ -65,8 +74,9 @@ unit tests named; none was confirmed against the home's own logs.
 
 ## How it was proven
 
-Unit tests (all passing): `server/laterdog/account-choice.test.ts` (27: every
-rule and every incident above), `account-battery.test.ts`,
+Unit tests (all passing): `server/laterdog/account-choice.test.ts` (32: every
+rule and every incident above), `account-needs-you.test.ts`, `carry-on.test.ts`,
+`carry-on-restart.test.ts`, `usage-watch.test.ts`, `account-battery.test.ts`,
 `account-battery-fallback.test.ts`, `account-pinned-engine.test.ts`,
 `account-used-up.test.ts`, `account-no-early-switch.test.ts`,
 `continue-on-account.test.ts`, `execution-evidence.test.ts`,
@@ -85,7 +95,7 @@ BATTERY_RECEIPTS_DIR=/path/to/receipts pnpm exec vitest run server/account-batte
 | --- | --- |
 | The chosen account is used, a limit moves to account 2 and comes back after the reset | One switch line, answer from account 2, then "Back on Claude account 1."; usage booked claude, claude, claude-two, claude-two, claude, claude |
 | No other Claude account can run, Codex is free | The chat waits for usage (`accountBattery.waiting`), no Codex thread started, one carry claude to claude-two, no Codex line |
-| Pick account 2 while account 1 is mid-turn | `routed` at once `{ from: claude-two, on: claude, next: true }`; the turn is not interrupted and finishes on account 1; the next message runs on account 2 and the line goes away |
+| Pick account 2 while account 1 is mid-turn | `fromNextMessage` at once `{ from: claude-two, on: claude }`, nothing in `routed`; the turn is not interrupted and finishes on account 1; the next message runs on account 2 and the line goes away |
 | Helper started while its dog is covered | The dog's line reads `{ from: claude, on: claude-two }`; the helper keeps the dog's choice (claude) and runs on claude-two while claude is out |
 | Keep going off | Stays on Claude, reports the limit (existing scenario) |
 
@@ -98,16 +108,19 @@ All 21 scenarios in the file passed in one run.
   the fixtures fall back to the person's order.
 - After a server restart the running-turn half of the line is empty until the
   next turn starts; the last finished turn is kept on disk.
-- The phone app still reads the old `{ from, on }` meaning; see below.
+- The phone app still reads `routed` only and ignores `model`; see below.
+- The sign-in wait has unit tests only: the fake engine can start an account
+  signed out but cannot sign it out or back in during a run.
 
 ## What the phone app must change
 
-1. Read `accountBattery.routed[threadId]` as `{ from, on, model, next? }`: show
-   `on` and `model` in the chip, keep `from` (the person's choice) marked as
-   chosen in the account picker.
-2. Show one line: `next` true, or `from` different from the dog's current
-   choice, gives "From the next message"; otherwise "Running on {on} until
-   {from} is back". Drop "is used up, running on" and the other old lines.
+1. Read `accountBattery.routed[threadId]` as before, plus its `model`: show `on`
+   and `model` in the chip, keep `from` (the person's choice) marked as chosen
+   in the account picker, and say "Running on {on} until {from} is back". Drop
+   "is used up, running on" and the other old lines.
+2. Read `accountBattery.fromNextMessage[threadId]` (`{ from, on, model }`): show
+   `on` and `model` in the chip, keep the choice marked as chosen, and say "From
+   the next message".
 3. A tap on an account while the dog works must not wait for or expect an
    interrupted turn; the line above appears with the next config frame.
 4. On the limit row, send `byHand: true` on every tap that continues on another

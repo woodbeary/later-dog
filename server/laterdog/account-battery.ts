@@ -2,10 +2,10 @@ import { existsSync, readFileSync } from "node:fs";
 import { z } from "zod";
 import { writeFileAtomic } from "../atomic.ts";
 import type { PlanProviderRow } from "../plan-usage.ts";
-import type { ModelSelection } from "../../shared/wire.ts";
+import type { ModelSelection, WireAccountRoute } from "../../shared/wire.ts";
 import { resetInstant } from "./usage-limit.ts";
 import { NEARLY_EMPTY_PERCENT, roomTier } from "./account-spread.ts";
-import { choiceReadyAt, decideAccount, shownRoute, type AccountChoice, type AccountChoiceInput, type Ran, type ShownRoute } from "./account-choice.ts";
+import { choiceReadyAt, decideAccount, shownRoute, type AccountChoice, type AccountChoiceInput, type Ran } from "./account-choice.ts";
 
 export { NEARLY_EMPTY_PERCENT };
 
@@ -91,7 +91,8 @@ export interface BatteryStatus {
   order: Record<string, string[]>;
   sequence: string[];
   resting: Record<string, Rest & { sharedWith?: string }>;
-  routed: Record<string, ShownRoute>;
+  routed: Record<string, WireAccountRoute>;
+  fromNextMessage: Record<string, WireAccountRoute>;
 }
 
 const restSchema = z.object({
@@ -616,13 +617,16 @@ export class AccountBattery {
       if (rest) resting[account.instanceId] = rest;
     }
     const routed: BatteryStatus["routed"] = {};
+    const fromNextMessage: BatteryStatus["fromNextMessage"] = {};
     if (selectionOf) {
       const ran = new Map<string, Ran>(Object.entries(this.state.ran).map(([threadId, last]) => [threadId, { on: last.on, model: last.model }]));
       for (const [threadId, now] of running) ran.set(threadId, now);
       for (const [threadId, last] of ran) {
         const chosen = selectionOf(threadId);
         const shown = chosen ? shownRoute(this.decide(chosen, accounts, threadId), chosen, last) : undefined;
-        if (shown) routed[threadId] = shown;
+        if (!shown) continue;
+        const { next, ...route } = shown;
+        (next ? fromNextMessage : routed)[threadId] = route;
       }
     }
     const order = effectiveOrder({ config, accounts, resting: this.resting(accounts), now: this.now(), usage: this.options.usage });
@@ -630,7 +634,7 @@ export class AccountBattery {
     this.shownOrder = JSON.stringify({ order, sequence });
     this.shownResting = restingKey(resting);
     return { enabled: batteryEnabled(config, accounts), auto: config?.auto === true, order,
-      sequence, resting, routed };
+      sequence, resting, routed, fromNextMessage };
   }
 
   noteReadings(accounts: readonly BatteryAccount[]): void {

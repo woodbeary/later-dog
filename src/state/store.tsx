@@ -521,6 +521,7 @@ export interface ConfigStatus {
     resting?: Record<string, { until: string; since?: string; kind?: string; estimated?: boolean; sharedWith?: string }>;
     waiting?: Record<string, string>;
     routed?: Record<string, WireAccountRoute>;
+    fromNextMessage?: Record<string, WireAccountRoute>;
   };
   localVm: { mode: "shared" | "per-bot" | "pool"; maxInstances: number; idleTimeoutMinutes?: number };
   opencodeGo?: { configured: boolean; providerKeys?: string[] };

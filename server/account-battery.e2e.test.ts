@@ -412,8 +412,11 @@ it("applies a pick made while the dog works from the next message, and the picke
     await expect.poll(async () => (await chat.task()).busy && fixture.firstPrompts().length === 1, { timeout: 20_000 }).toBe(true);
     const second = { instanceId: "claude-two", model: MODEL };
     await api("PATCH", `/api/bots/${chat.bot.id}/tasks/${chat.threadId}`, { modelSelection: second, updateBotDefault: true });
-    const routed = async () => (await api("GET", "/api/config")).accountBattery.routed?.[chat.threadId];
-    expect(await routed()).toEqual({ from: "claude-two", on: "claude", model: MODEL, next: true });
+    const shown = async () => {
+      const battery = (await api("GET", "/api/config")).accountBattery;
+      return { routed: battery.routed?.[chat.threadId], fromNextMessage: battery.fromNextMessage?.[chat.threadId] };
+    };
+    expect(await shown()).toEqual({ routed: undefined, fromNextMessage: { from: "claude-two", on: "claude", model: MODEL } });
     await new Promise((resolve) => setTimeout(resolve, 1_000));
     expect((await chat.task()).busy).toBe(true);
     expect(fixture.secondPrompts()).toHaveLength(0);
@@ -421,12 +424,12 @@ it("applies a pick made while the dog works from the next message, and the picke
     await chat.settled((rows) => lastReply(rows)?.text === "reply to: SLOW_ON_ACCOUNT_ONE");
     const afterFirst = await chat.messages();
     expect(afterFirst.some((row) => row.tool?.carry || /Moved to/.test(row.tool?.name ?? ""))).toBe(false);
-    expect(await routed()).toEqual({ from: "claude-two", on: "claude", model: MODEL, next: true });
+    expect(await shown()).toEqual({ routed: undefined, fromNextMessage: { from: "claude-two", on: "claude", model: MODEL } });
     await chat.send("NEXT_ON_ACCOUNT_TWO");
     await chat.settled((rows) => repliesAfter(rows, "NEXT_ON_ACCOUNT_TWO").some((row) => row.text === "hello from account 2"));
     expect(fixture.firstPrompts()).toHaveLength(1);
     expect(fixture.secondPrompts()).toHaveLength(1);
-    expect(await routed()).toBeUndefined();
+    expect(await shown()).toEqual({ routed: undefined, fromNextMessage: undefined });
     await expect.poll(() => fixture.bookedTo(chat.threadId), { timeout: 10_000 }).toEqual(["claude", "claude-two"]);
     fixture.evidence.push({ pickMidTurn: await chat.messages() });
   });
@@ -446,8 +449,9 @@ it("shows the account a covered turn really ran on, and starts a helper on its d
     writeFileSync(fixture.gate, "limited");
     await chat.send("START_A_HELPER");
     await chat.settled((rows) => lastReply(rows)?.text === "Started a helper.");
-    const routed = (await api("GET", "/api/config")).accountBattery.routed?.[chat.threadId];
-    expect(routed).toEqual({ from: "claude", on: "claude-two", model: MODEL });
+    const battery = (await api("GET", "/api/config")).accountBattery;
+    expect(battery.routed?.[chat.threadId]).toEqual({ from: "claude", on: "claude-two", model: MODEL });
+    expect(battery.fromNextMessage?.[chat.threadId]).toBeUndefined();
     const helpers = async () => (await api("GET", "/api/bots")).bots.find((entry: any) => entry.id === chat.bot.id).tasks.filter((task: any) => task.openedBy);
     await expect.poll(async () => (await helpers()).filter((task: any) => !task.busy && task.title === "Helper").length, { timeout: 30_000 }).toBe(1);
     const [helper] = await helpers();

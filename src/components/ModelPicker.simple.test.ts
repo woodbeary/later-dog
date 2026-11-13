@@ -1133,7 +1133,7 @@ describe("the message field's one AI menu", () => {
   it("shows the account and model that really ran, and From the next message once the person picked another account", () => {
     fixture.instances = [{ ...claude(), displayName: "jacob" }, { ...work(), displayName: "daniel" }];
     fixture.battery = { enabled: true, auto: true, order: {}, sequence: ["claude", "claude-work"],
-      routed: { "thread-scout": { from: "claude-work", on: "claude", model: "claude-sonnet-5-5", next: true } }, resting: {} };
+      routed: {}, fromNextMessage: { "thread-scout": { from: "claude-work", on: "claude", model: "claude-sonnet-5-5" } }, resting: {} };
     const closed = renderPart(bot(undefined, "claude-work", "claude-opus-5-5"));
     expect(closed.html).toContain('title="From the next message"');
     expect(closed.html).toContain("Sonnet 5.5");

@@ -129,7 +129,7 @@ export interface Ran {
   model: string;
 }
 
-export type ShownRoute = WireAccountRoute;
+export type ShownRoute = WireAccountRoute & { next?: true };
 
 export function shownRoute(choice: AccountChoice, chosen: ModelSelection, ran: Ran | undefined): ShownRoute | undefined {
   if (!ran || ran.on === chosen.instanceId) return undefined;

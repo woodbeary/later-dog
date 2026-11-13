@@ -455,6 +455,7 @@ describe("AccountBattery", () => {
       order: { claudeAgent: ["claude-b", "claude", "claude-c"], codex: [] },
       resting: { claude: { until: at(HOUR), since: at(0) }, "claude-c": { until: at(HOUR), since: at(0), sharedWith: "claude" } },
       routed: {},
+      fromNextMessage: {},
     });
   });
 
@@ -612,20 +613,25 @@ describe("AccountBattery", () => {
     instance.noteRan("finished", "claude-b", "claude-sonnet-5");
     const running: Array<[string, { on: string; model: string }]> = [["working", { on: "claude-c", model: "claude-sonnet-5" }], ["unknown", { on: "claude-b", model: "x" }]];
     instance.arrive("working", SELECTION, "claude-c", ACCOUNTS);
-    expect(instance.status(ACCOUNTS, choice, running).routed).toEqual({
+    const covering = instance.status(ACCOUNTS, choice, running);
+    expect(covering.routed).toEqual({
       finished: { from: "claude", on: "claude-b", model: "claude-sonnet-5" },
       working: { from: "claude", on: "claude-c", model: "claude-sonnet-5" },
     });
+    expect(covering.fromNextMessage).toEqual({});
     expect(new AccountBattery({ config: () => ON, file, now: () => now }).status(ACCOUNTS, choice).routed).toEqual({
       finished: { from: "claude", on: "claude-b", model: "claude-sonnet-5" },
     });
     now += HOUR + 1;
-    expect(instance.status(ACCOUNTS, choice, running).routed).toEqual({
-      finished: { from: "claude", on: "claude-b", model: "claude-sonnet-5", next: true },
-      working: { from: "claude", on: "claude-c", model: "claude-sonnet-5", next: true },
+    const back = instance.status(ACCOUNTS, choice, running);
+    expect(back.routed).toEqual({});
+    expect(back.fromNextMessage).toEqual({
+      finished: { from: "claude", on: "claude-b", model: "claude-sonnet-5" },
+      working: { from: "claude", on: "claude-c", model: "claude-sonnet-5" },
     });
     instance.noteRan("finished", "claude", "claude-sonnet-5");
     expect(instance.status(ACCOUNTS, choice).routed).toEqual({});
+    expect(instance.status(ACCOUNTS, choice).fromNextMessage).toEqual({});
     instance.forget("claude");
     expect(JSON.parse(readFileSync(file, "utf8")).ran).toEqual({});
   });
@@ -633,9 +639,9 @@ describe("AccountBattery", () => {
   it("says From the next message at once when the person picks another account while the dog works", () => {
     const instance = new AccountBattery({ config: () => ON, now: () => NOW });
     const picked = { ...SELECTION, instanceId: "claude-b" };
-    expect(instance.status(ACCOUNTS, () => picked, [["working", { on: "claude", model: "claude-sonnet-5" }]]).routed).toEqual({
-      working: { from: "claude-b", on: "claude", model: "claude-sonnet-5", next: true },
-    });
+    const status = instance.status(ACCOUNTS, () => picked, [["working", { on: "claude", model: "claude-sonnet-5" }]]);
+    expect(status.routed).toEqual({});
+    expect(status.fromNextMessage).toEqual({ working: { from: "claude-b", on: "claude", model: "claude-sonnet-5" } });
   });
 
   it("says once that a turn runs on another account while the picked one rests, then that it is back", () => {

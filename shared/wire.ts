@@ -44,7 +44,6 @@ export interface WireAccountRoute {
   from: string;
   on: string;
   model: string;
-  next?: true;
 }
 
 export type CloudBackend = "box" | "vps";

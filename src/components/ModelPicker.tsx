@@ -491,7 +491,8 @@ export function ModelPicker({
   const active = instances.find((instance) => instance.instanceId === selection.instanceId);
   const pickerInstances = signedInModelInstances(instances, selection.instanceId);
   const battery = config?.accountBattery;
-  const shownRoute = battery?.routed?.[threadId ?? bot.threadId];
+  const runningRoute = battery?.routed?.[threadId ?? bot.threadId];
+  const shownRoute = runningRoute ?? battery?.fromNextMessage?.[threadId ?? bot.threadId];
   const routed = shownRoute && shownRoute.on !== selection.instanceId ? shownRoute : undefined;
   const inUse = instances.find((instance) => instance.instanceId === routed?.on) ?? active;
   const switcherAccounts = subscriptionAccounts(instances, battery)
@@ -795,7 +796,7 @@ export function ModelPicker({
     ? chatContextReading(chatTask?.usage?.context, active?.models.options.find((option) => option.id === selection.model)?.contextWindow)
     : null;
   const otherEngine = crossEngine(active, inUse);
-  const routedWords = routed ? routedLine(active, inUse, routed.next === true || routed.from !== selection.instanceId) : null;
+  const routedWords = routed ? routedLine(active, inUse, routed !== runningRoute || routed.from !== selection.instanceId) : null;
   const chatAccountName = inUse && otherEngine ? withEngine(inUse) : inUse && (accountRows.length > 1 || routed)
     && !shownModel.toLowerCase().startsWith(inUse.displayName.trim().toLowerCase()) ? inUse.displayName : null;
   const chatEffortName = selectedVariantLabel
