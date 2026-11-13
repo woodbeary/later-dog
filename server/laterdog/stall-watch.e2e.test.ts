@@ -188,7 +188,8 @@ it("helpers working while the dog's own turn is over show as working, and nothin
     await until(chat.busy, Boolean, 30_000, chat.sample);
     const quiet = await until(async () => ({ busy: await chat.busy(), work: await chat.sample() }), (now) => !now.busy, 60_000);
     fixture.receipt("whenTurnEnded", quiet);
-    expect(quiet.work).toEqual({ kind: "running" });
+    expect(quiet.work).toMatchObject({ kind: "running", helpers: expect.any(Number) });
+    expect((quiet.work as { helpers?: number }).helpers).toBeGreaterThan(0);
     const deadline = Date.now() + 20_000;
     while (Date.now() < deadline) {
       await chat.sample();
