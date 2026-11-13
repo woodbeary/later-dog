@@ -363,6 +363,7 @@ import type { ProviderInstance } from "./contracts.ts";
 import { readyToRun, selectDefaultModelSelection, withNewBotEffort } from "./default-model-selection.ts";
 import type { ThreadEngine } from "./thread-model.ts";
 import { threadGivesWay, turnSelectionFor, type TurnSelectionInput } from "./laterdog/turn-selection.ts";
+import { accountRunsNow, teammateAccountRuns, type ChatAccountFacts } from "./laterdog/chat-account-runs.ts";
 import { computerEngineMoveText, removedComputerInstanceIds, writeComputerEngineMoveLines, type ComputerEngineMove } from "./computer-engine-removal.ts";
 import { namesRetiredInstance, retiredEngineMoveText, retiredInstanceIds } from "./laterdog/engine-trim.ts";
 import { cancelPeerApprovalsFor, cancelPeerApprovalsForThread, dismissStalePeerCards, peerApprovalFailure, requestPeerApproval, resolvePeerComms, type ApprovalBus } from "./peer-approval.ts";
@@ -5721,9 +5722,7 @@ function teammateCanRun(botId: string, threadId: string): boolean {
   const bot = store.bot(botId);
   if (!bot) return true;
   if (store.taskByThread(botId, threadId)?.activity === "dead") return false;
-  const on = onBatteryAccount(store.projectBotForTask(botId, threadId) ?? bot, threadId).modelSelection.instanceId;
-  const account = batteryAccounts().find((candidate) => candidate.instanceId === on);
-  return !account || (account.enabled && account.signedIn !== false);
+  return teammateAccountRuns(chatAccountFacts(bot, threadId));
 }
 const stallWatch = createStallWatch({
   chats: () => store.bots.flatMap((bot) => store.tasks(bot.id)
@@ -6593,12 +6592,16 @@ function setupFallbackFor(threadId: string, ranOn: string | undefined): boolean 
   return accountBattery.route({ ...selection, instanceId: ranOn }, accounts, threadId).instanceId !== ranOn;
 }
 
+function chatAccountFacts(bot: BotRecord, threadId: string): ChatAccountFacts {
+  return {
+    turn: turnSelectionInput(bot.id, threadId), dog: bot.modelSelection, accounts: batteryAccounts(),
+    route: (modelSelection) => onBatteryAccount({ ...bot, modelSelection }, threadId).modelSelection,
+  };
+}
+
 function runnableNow(bot: BotRecord, threadId: string): boolean {
-  const accounts = batteryAccounts();
-  const chat = store.projectBotForTask(bot.id, threadId) ?? bot;
-  const on = onBatteryAccount(chat, threadId).modelSelection.instanceId;
-  const account = accounts.find((candidate) => candidate.instanceId === on);
-  return Boolean(account?.eligible && account.enabled && account.signedIn === true && !accountBattery.restOf(account, accounts));
+  const facts = chatAccountFacts(bot, threadId);
+  return accountRunsNow({ ...facts, resting: (account) => Boolean(accountBattery.restOf(account, facts.accounts)) });
 }
 
 function reviveRunnableDogs(): number {
