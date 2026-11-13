@@ -5529,7 +5529,7 @@ const watchdog = new TurnWatchdog({
     store.appendMessage(turn.threadId, {
       role: "bot",
       kind: "activity",
-      tool: failedTurnTool(detail),
+      tool: failedTurnTool(detail, { who: bot?.name }),
     });
     if (bot && routineRun?.target !== "bot") {
       reportIncident({ kind: "stalled", bot, threadId: turn.threadId, detail });
@@ -7390,7 +7390,7 @@ bus.subscribe(guardTurnEnd((event: RuntimeEvent) => {
       pushMessage({
         role: "bot",
         kind: "activity",
-        tool: failedTurnTool(event.message, { ...event, quota: event.quota && { ...event.quota, instanceId: event.providerInstanceId } }),
+        tool: failedTurnTool(event.message, { ...event, who: bot?.name ?? speaker?.name, quota: event.quota && { ...event.quota, instanceId: event.providerInstanceId } }),
       });
       if (event.setup && bot) {
         store.setTaskActivity(bot.id, event.threadId, "dead");
@@ -11045,7 +11045,7 @@ async function runGroupMemberTurn(
           role: "bot",
           kind: "activity",
           from: { botId: bot.id, name: bot.name, color: bot.color },
-          tool: failedTurnTool(message),
+          tool: failedTurnTool(message, { who: bot.name }),
         });
         onDispatchError?.(message);
         watchdog.settle(threadId);

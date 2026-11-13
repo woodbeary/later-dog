@@ -85,8 +85,9 @@ function failureOf(message: Message): { cause: string; retry: boolean; need: Nee
   const label = tool.name.trim();
   if (!/^error:/i.test(label)) return undefined;
   const cause = sentence(label.replace(/^error:\s*/i, "")) || "an error";
-  const need: Need = TURNED_OFF.test(label) ? "account-off" : tool.setup || SIGN_IN.test(label) ? "sign-in" : PERMISSION.test(label) ? "permission" : "other";
-  return { cause, need, retry: need === "other" && !NEVER_RETRY.test(label) };
+  const said = tool.detail ? `${label} ${tool.detail}` : label;
+  const need: Need = TURNED_OFF.test(label) ? "account-off" : tool.setup || SIGN_IN.test(said) ? "sign-in" : PERMISSION.test(said) ? "permission" : "other";
+  return { cause, need, retry: need === "other" && !NEVER_RETRY.test(said) };
 }
 
 function watchRows(after: readonly Message[]): Message[] {
@@ -263,7 +264,7 @@ export function createStallWatch(host: StallWatchHost, options: { everyMs?: numb
       return;
     }
     if (verdict.kind === "explain") {
-      host.append(threadId, { role: "bot", kind: "activity", tool: { ...failedTurnTool(verdict.line), pickup: "watch" } });
+      host.append(threadId, { role: "bot", kind: "activity", tool: { ...failedTurnTool(verdict.line, { written: true }), pickup: "watch" } });
       record(threadId, { stopped: { cause: verdict.stopped, detail: "stalled" } });
       log(`stall watch: ${threadId} stopped before finishing (${verdict.cause}); said so`);
       return;
@@ -274,7 +275,7 @@ export function createStallWatch(host: StallWatchHost, options: { everyMs?: numb
     log(`stall watch: ${threadId} stopped before finishing (${verdict.cause}); carrying on`);
     void host.start(botId, threadId, verdict.prompt, verdict.source.id).catch((error: unknown) => {
       const line = stoppedLine(host.look(botId, threadId)?.name ?? "The dog");
-      host.append(threadId, { role: "bot", kind: "activity", tool: { ...failedTurnTool(line), pickup: "watch" } });
+      host.append(threadId, { role: "bot", kind: "activity", tool: { ...failedTurnTool(line, { written: true }), pickup: "watch" } });
       record(threadId, { stopped: { cause: "infrastructure", detail: "stalled" } });
       log(`stall watch: ${threadId} could not carry on: ${reasonOf(error)}`);
     }).finally(() => starting.delete(threadId));
