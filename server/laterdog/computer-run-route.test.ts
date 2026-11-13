@@ -226,7 +226,7 @@ describe("one run_on_computer call with the real run store", () => {
     expect(first.text).toContain("Still running");
     const runId = /run_id ([0-9a-f]{8})/.exec(first.text!)![1];
     expect(jobs.live("t1").map((job) => [job.id, job.botId, job.command])).toEqual([[runId, "dog", "pnpm test"]]);
-    expect(await jobs.check({ box: async () => going.box, done: async (box, job) => (await runs.poll(box, runs.record(job.botId, job.id)!)).done })).toEqual([]);
+    expect(await jobs.check({ box: async () => going.box, outcome: async (box, job) => { const state = await runs.poll(box, runs.record(job.botId, job.id)!); return state.done ? { exitCode: state.exitCode } : null; } })).toEqual([]);
     expect(jobs.count("t1")).toBe(1);
     const finished = fakeBox({ exitCode: 0 });
     const second = await handleComputerRun({ ...ask(), body: { run_id: runId }, threadId: "t1" }, { runs, jobs, computer: async () => ({ box: finished.box }), now: () => clock.at });
@@ -240,8 +240,12 @@ describe("one run_on_computer call with the real run store", () => {
     const first = await handleComputerRun({ ...ask(), threadId: "t1" }, { runs, jobs, computer: async () => ({ box: fakeBox().box }), now: () => clock.at });
     const runId = /run_id ([0-9a-f]{8})/.exec(first.text!)![1];
     const finished = fakeBox({ exitCode: 0 });
-    expect(await jobs.check({ box: async () => finished.box, done: async (box, job) => (await runs.poll(box, runs.record(job.botId, job.id)!)).done })).toEqual([runId]);
+    expect(await jobs.check({ box: async () => finished.box, outcome: async (box, job) => { const state = await runs.poll(box, runs.record(job.botId, job.id)!); return state.done ? { exitCode: state.exitCode } : null; } })).toEqual([runId]);
     expect(jobs.count("t1")).toBe(0);
+    expect(jobs.unannounced().map((job) => [job.id, job.end.how])).toEqual([[runId, "finished"]]);
+    const read = await handleComputerRun({ ...ask(), body: { run_id: runId }, threadId: "t1" }, { runs, jobs, computer: async () => ({ box: finished.box }), now: () => clock.at });
+    expect(read.text).toContain("Finished on your cloud computer with exit code 0");
+    expect(jobs.unannounced()).toEqual([]);
   });
 
   it("lets another call on the same computer finish when an overlapping call is abandoned", async () => {
