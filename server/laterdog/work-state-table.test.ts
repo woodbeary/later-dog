@@ -63,7 +63,7 @@ async function project(row: Row) {
   const work = workState({
     busy,
     helpers: busy ? 0 : board.runningCount(CHAT),
-    computerJobs: jobs.count(CHAT),
+    computerJobs: busy ? 0 : jobs.count(CHAT),
     handoffRunning: facts.working,
     ...(awaited ? { waitingOn: awaited } : {}),
     ...(row.needsYou ? { needsYou: { what: "Allow sending?" } } : {}),

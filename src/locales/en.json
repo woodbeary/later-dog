@@ -849,6 +849,8 @@
   "work.stoppedStalled": "Stopped: no progress for too long",
   "work.stoppedClosed": "Stopped: the engine closed",
   "work.roomWorkingOne": "{names} is working",
+  "work.computerJob": "Running a command on its computer",
+  "work.computerJobs": "Running {count} commands on its computer",
   "work.roomWorkingMany": "{names} are working",
   "work.stoppedEngine": "Stopped: the engine reported an error",
   "chat.error.signedOut": "{name} isn't signed in yet. Sign in below, then send your message again.",

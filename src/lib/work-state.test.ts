@@ -15,6 +15,9 @@ describe("the work line", () => {
     [{ kind: "running" }, null],
     [{ kind: "running", dogs: [] }, null],
     [{ kind: "running", dogs: [{ id: "s", name: "Scout" }] }, "Scout is working"],
+    [{ kind: "running", computerJobs: 1, computerSince: 5 }, "Running a command on its computer"],
+    [{ kind: "running", computerJobs: 2 }, "Running 2 commands on its computer"],
+    [{ kind: "running", helpers: 1 }, null],
     [{ kind: "running", dogs: [{ id: "s", name: "Scout" }, { id: "b", name: "Biscuit" }] }, "Scout and Biscuit are working"],
     [{ kind: "waiting-on-dog", dogs: [{ id: "s", name: "Scout" }] }, "Waiting on Scout"],
     [{ kind: "waiting-on-dog", dogs: [{ id: "s", name: "Scout" }, { id: "p", name: "Patch" }] }, "Waiting on Scout and Patch"],
@@ -40,6 +43,7 @@ describe("the work line", () => {
   it("the sidebar leaves questions to the approval wording and keeps your own stop quiet", () => {
     expect(sidebarWorkLine({ kind: "needs-you", what: "x" }, NOW)).toBeNull();
     expect(sidebarWorkLine({ kind: "stopped", cause: "you" }, NOW)).toBeNull();
+    expect(sidebarWorkLine({ kind: "running", computerJobs: 1, computerSince: NOW }, NOW)).toBe("Running a command on its computer");
     expect(sidebarWorkLine({ kind: "retrying", attempt: 3 }, NOW)).toBe("Reconnecting to the engine, try 3");
   });
 });

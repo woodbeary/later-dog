@@ -39,6 +39,7 @@ export function workLine(work: WorkState | undefined, now: number = Date.now()):
     }
     case "running": {
       const names = teammateNames((work.dogs ?? []).map((dog) => ({ botId: dog.id, name: dog.name })));
+      if (!names && work.computerJobs) return work.computerJobs > 1 ? t("work.computerJobs", { count: work.computerJobs }) : t("work.computerJob");
       if (!names) return null;
       return t(work.dogs!.length > 1 ? "work.roomWorkingMany" : "work.roomWorkingOne", { names });
     }

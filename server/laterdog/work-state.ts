@@ -5,6 +5,7 @@ export interface WorkFacts {
   busy: boolean;
   helpers?: number;
   computerJobs?: number;
+  computerSince?: number;
   handoffRunning?: boolean;
   needsYou?: { what?: string };
   usageHold?: { account?: string; until?: number };
@@ -51,7 +52,7 @@ export function workState(facts: WorkFacts): WorkState {
   const helpers = Math.max(0, facts.helpers ?? 0);
   const computerJobs = Math.max(0, facts.computerJobs ?? 0);
   if (facts.busy || facts.handoffRunning || helpers > 0 || computerJobs > 0) {
-    return { kind: "running", ...(helpers ? { helpers } : {}), ...(computerJobs ? { computerJobs } : {}) };
+    return { kind: "running", ...(helpers ? { helpers } : {}), ...(computerJobs ? { computerJobs, ...(facts.computerSince !== undefined && Number.isFinite(facts.computerSince) ? { computerSince: facts.computerSince } : {}) } : {}) };
   }
   if (facts.stopped) return { kind: "stopped", cause: facts.stopped.cause, ...(facts.stopped.detail ? { detail: facts.stopped.detail } : {}) };
   return { kind: "idle" };
