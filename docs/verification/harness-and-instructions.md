@@ -1,6 +1,6 @@
 # Harness tuning and what dogs are told
 
-Three changes to how a dog's turn is put together, and what has and has not been
+Changes to how a dog's turn is put together, and what has and has not been
 proven about them.
 
 ## The changes
@@ -26,6 +26,46 @@ proven about them.
    instructions rather than only in a deferred tool's description: the rule
    against opening Google's consent page is in `GOOGLE_PROMPT`.
 
+4. **The engine compacts its own chat.** For Claude Code and Codex dogs
+   later.dog no longer folds a chat at 80% of the model window and starts the
+   engine cold; the engine compacts at its own default and keeps its session
+   (`harnessCompacts` in `server/laterdog/native-compaction.ts`). Claude Code
+   2.1.311 and later already launch with `--autocompact auto`; later.dog sets
+   neither `model_auto_compact_token_limit` nor `model_context_window` for
+   Codex, so Codex uses the limit from its own model catalog. later.dog still
+   summarises the older part once when it has to start a new session that
+   cannot hold the whole chat: an account switch, an engine switch, an edit
+   to an older message. A Codex `contextCompaction` item now shows the same
+   "Compacting the conversation" row as Claude. Engines without their own
+   compaction keep later.dog's fold. The server setting
+   `context.harnessCompaction: false` in config.json brings back the old fold
+   for Claude and Codex too; it is on by default.
+5. **Recall when a session starts.** A Claude or Codex dog gets the automatic
+   recalled passages on the first turn of a new or rebuilt session only;
+   afterwards the dog searches with the tools it already has. Engines that
+   replay the chat themselves still get recall on every turn
+   (`server/laterdog/session-start-recall.ts`).
+6. **The hour-long cache only where it is free.** later.dog sets
+   `CLAUDE_CODE_PROMPT_CACHE_TTL=1h` only for a subscription account on a
+   Claude Code older than 2.1.316. From 2.1.316 Claude Code picks the lifetime
+   itself (an hour on a subscription within its limits, five minutes on an API
+   key, per its settings schema), and an account that pays per token for cache
+   writes (an API key, an auth token or a cloud provider's
+   endpoint) is left to Claude Code (`server/laterdog/cache-lifetime.ts`).
+7. **Left as they were, with the reason.** The skills index stays in the
+   standing instructions: the native skill links live in the dog's workspace
+   (`server/skills.ts`), but the engine runs in the chat's own folder under
+   `task-workspaces`, so neither engine finds them there. The on-it note stays
+   on every person's message: it was added because a dog with the rule only in
+   its instructions kept copying how it behaved earlier in a long chat.
+
+Flags and settings were read from the installed tools on 2026-11-13: Claude
+Code 2.1.316 (`claude --help`: `--autocompact <auto|tokens>`; the bundled
+settings schema: `autoCompactWindow`, `CLAUDE_CODE_AUTO_COMPACT_WINDOW`,
+`DISABLE_AUTO_COMPACT`, `promptCacheTtl`, `CLAUDE_CODE_PROMPT_CACHE_TTL`) and
+Codex CLI 0.167.2 (config keys `model_auto_compact_token_limit`,
+`model_context_window`, the `contextCompaction` item).
+
 ## Numbers from the measuring scripts
 
 Both scripts run on an invented fixture home and estimate tokens as bytes / 4.
@@ -48,6 +88,27 @@ TMPDIR=<scratch> node --experimental-strip-types scripts/measure-dog-prompt.ts
   growth is 9.5% to 17.9%. Counting the first context note too, a fresh dog's
   first request is 6.1% to 12.8% larger.
 
+`scripts/measure-turn-extras.ts` measures the second pass on the same kind of
+fixture (40 person turns, sessions started at turns 1 and 21):
+
+- Compaction: before, later.dog folded a Claude chat at 160,000 tokens on a
+  200K window (the "161k" the owner saw), at 800,000 on a 1M window and a Codex
+  chat at 217,600 of 272,000, each fold starting the engine cold. Now the
+  engine compacts at its own default; later.dog summarises only to rebuild.
+  In the fixture tests a Claude chat at 190,000 of 200,000 tokens and a Codex
+  chat at 250,000 of 272,000 keep their sessions with no later.dog summary
+  (`server/laterdog/native-compaction.e2e.test.ts`).
+- Auto-recall: up to 3,005 bytes per person turn in this fixture (the cap is
+  6,000 characters). Over 40 turns it added 120,200 bytes to the chat's
+  history before and 6,010 bytes now; the last request carried about 15,025
+  tokens of recalled text before and about 752 now.
+- Cache lifetime: on an API key account a cold start at 60,000 tokens is billed
+  as about 120,000 token-equivalents with a forced hour and 75,000 with five
+  minutes (write prices of 2x and 1.25x the input price, from public pricing,
+  not measured). Subscriptions are unchanged.
+- Skills index: 2,805 bytes (about 702 tokens) for 12 skills, unchanged.
+- On-it note: 290 bytes per person turn, 11,600 bytes over 40 turns, unchanged.
+
 ## Live numbers, 2026-11-12, on a real Claude model
 
 - A fresh dog's first request carried 41,165 input tokens with every tool
@@ -57,6 +118,11 @@ TMPDIR=<scratch> node --experimental-strip-types scripts/measure-dog-prompt.ts
 - A tool loaded on demand was still found and used.
 
 ## Not proven
+
+- Any of the second pass on a real model: when Claude Code and Codex really
+  compact, how good their summaries are, whether a dog still finds old facts
+  through search without per-turn recall, and the cache lifetime Claude Code
+  picks on a real account.
 
 - Codex compaction on a real engine: the reset is covered only by a unit test
   (`server/drivers/codex-instructions.test.ts`), with no live compaction.
