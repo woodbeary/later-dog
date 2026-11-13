@@ -47,8 +47,23 @@ session that cannot replay the whole chat (an account switch, an engine switch,
 an edit to an older message). The rules below apply to other engines, and to
 Claude and Codex when `context.harnessCompaction` is `false`.
 
+A chat stays with later.dog's fold when the engine gives no sign it will
+compact it (`engineWillCompact`): Claude Code with `DISABLE_AUTO_COMPACT` or
+`DISABLE_COMPACT` in its environment, or with the person's own settings
+inherited and `autoCompactEnabled: false`; Codex on a company install or on a
+model its catalog does not list.
+
+When the engine refuses a saved session mid-turn (a session file lost in a
+restore, a corrupt session), the rebuilt session still gets a summary of every
+message that no longer fits: Claude Code's own summary from its last compaction
+(the `PostCompact` hook's `compact_summary`, from 2.1.316, kept per chat in
+`engine-summaries.json` with mode 0600), plus excerpts of the person's oldest
+and newest dropped messages made without a model call. Codex hands back no
+summary text, so its rebuilds get the excerpts alone.
+
 ```sh
 pnpm exec vitest run server/laterdog/native-compaction.test.ts server/laterdog/native-compaction.e2e.test.ts
+pnpm exec vitest run server/laterdog/rebuild-summary.test.ts server/laterdog/engine-summaries.test.ts server/laterdog/cache-lifetime.test.ts
 ```
 
 ## Bounds and limitations

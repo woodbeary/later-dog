@@ -17,6 +17,7 @@ export interface TurnExtras {
   skillsIndexBytes: number;
   onItNote: { bytes: number; historyBytes: number };
   cache: Array<{ account: string; before: string; after: string; coldStartTokensBefore: number; coldStartTokensAfter: number }>;
+  refusedResume: { historyBytes: number; dropped: number; bytesBefore: number; bytesAfter: number; oldestBefore: boolean; oldestAfter: boolean };
 }
 
 export async function measureTurnExtras(): Promise<TurnExtras> {
@@ -30,6 +31,9 @@ export async function measureTurnExtras(): Promise<TurnExtras> {
     const budget = await import("../server/context-budget.ts");
     const native = await import("../server/laterdog/native-compaction.ts");
     const cache = await import("../server/laterdog/cache-lifetime.ts");
+    const rebuild = await import("../server/context-rebuild.ts");
+    const rebuilt = await import("../server/laterdog/rebuild-summary.ts");
+    const turnContext = await import("../server/turn-context.ts");
 
     const botId = "dog-scout";
     const dir = ws.workspaceDir(botId);
@@ -87,7 +91,17 @@ export async function measureTurnExtras(): Promise<TurnExtras> {
         coldStartTokensBefore: price("1h"), coldStartTokensAfter: price(lifetime) };
     });
 
+    const longChat = [{ id: "m0", role: "user" as const, text: "OLDEST_DECISION: deploy only to port 9001" },
+      ...Array.from({ length: 399 }, (_, i) => ({ id: `m${i + 1}`, role: (i % 2 ? "user" : "assistant") as "user" | "assistant", text: `turn ${i + 1} ${"work ".repeat(400)}` }))];
+    const replay = rebuild.selectReplay(longChat, { budgetBytes: rebuild.DEFAULT_REBUILD_BYTES });
+    const recovery = (entries: readonly { role: "user" | "assistant"; text: string }[]) =>
+      turnContext.buildRecoveryText({ text: "which port?", transcript: entries.map(({ role, text }) => ({ role, text })) }) ?? "";
+    const before = recovery(replay.transcript);
+    const after = recovery(rebuilt.withDroppedSummary({ context: longChat, transcript: replay.transcript, representedIds: replay.representedIds, excludedIds: new Set() }));
+
     return {
+      refusedResume: { historyBytes: longChat.reduce((n, e) => n + bytesOf(e.text), 0), dropped: replay.dropped, bytesBefore: bytesOf(before), bytesAfter: bytesOf(after),
+        oldestBefore: before.includes("OLDEST_DECISION"), oldestAfter: after.includes("OLDEST_DECISION") },
       compaction,
       recall: {
         perTurnBytes, historyBytesBefore, historyBytesAfter,
@@ -112,6 +126,8 @@ if (import.meta.main) {
     `recalled text carried by the last request ~${r.lastRequestTokensBefore} tok before, ~${r.lastRequestTokensAfter} tok now`);
   console.log(`\nSkills index in the stable part: ${m.skillsIndexBytes} B (~${tokens(m.skillsIndexBytes)} tok), unchanged: the engines do not see the workspace's native skill links from the chat folder`);
   console.log(`\nOn-it note: ${m.onItNote.bytes} B per person turn, ${m.onItNote.historyBytes} B over ${PERSON_TURNS} turns, unchanged`);
+  const rr = m.refusedResume;
+  console.log(`\nRefused resume of a ${rr.historyBytes} B chat (${rr.dropped} messages dropped): rebuild ${rr.bytesBefore} B without a summary, oldest decision kept: ${rr.oldestBefore}; now ${rr.bytesAfter} B with one, kept: ${rr.oldestAfter}`);
   console.log(`\nCache lifetime (cold start at ${CACHED_CONTEXT_TOKENS} tokens; token-equivalents billed for the write, 0 where the plan includes it)`);
   for (const row of m.cache) console.log(`${row.account} | before ${row.before}, ${row.coldStartTokensBefore} | now ${row.after}, ${row.coldStartTokensAfter}`);
 }

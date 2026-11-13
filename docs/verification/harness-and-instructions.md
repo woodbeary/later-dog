@@ -37,9 +37,23 @@ proven about them.
    cannot hold the whole chat: an account switch, an engine switch, an edit
    to an older message. A Codex `contextCompaction` item now shows the same
    "Compacting the conversation" row as Claude. Engines without their own
-   compaction keep later.dog's fold. The server setting
-   `context.harnessCompaction: false` in config.json brings back the old fold
-   for Claude and Codex too; it is on by default.
+   compaction keep later.dog's fold, and so does any chat where the engine
+   gives no sign it will compact: one rule, `engineWillCompact` in
+   `server/laterdog/native-compaction.ts`, leaves a chat to the engine only
+   for Claude Code without `DISABLE_AUTO_COMPACT`, `DISABLE_COMPACT` or (with
+   the person's own settings inherited) `autoCompactEnabled: false`, and for
+   Codex outside a company install on a model its catalog lists. The server
+   setting `context.harnessCompaction: false` in config.json brings back the
+   old fold for Claude and Codex too; it is on by default.
+   Every rebuild that drops part of the chat, including one the engine forces
+   mid-turn by refusing a saved session, now carries a summary of what was
+   dropped (`server/laterdog/rebuild-summary.ts`). For Claude Code 2.1.316 and
+   later that is Claude's own compaction summary, which its `PostCompact` hook
+   hands over (`compact_summary`, read in the bundled hook schema) and later.dog
+   keeps per chat in `engine-summaries.json`; anything newer than that summary
+   is added as excerpts of the person's oldest and newest messages, made
+   without a model call. Codex 0.167.2 hands back no text: its
+   `ContextCompactionItem` carries only an id, so Codex chats get the excerpts.
 5. **Recall when a session starts.** A Claude or Codex dog gets the automatic
    recalled passages on the first turn of a new or rebuilt session only;
    afterwards the dog searches with the tools it already has. Engines that
@@ -50,8 +64,9 @@ proven about them.
    Claude Code older than 2.1.316. From 2.1.316 Claude Code picks the lifetime
    itself (an hour on a subscription within its limits, five minutes on an API
    key, per its settings schema), and an account that pays per token for cache
-   writes (an API key, an auth token or a cloud provider's
-   endpoint) is left to Claude Code (`server/laterdog/cache-lifetime.ts`).
+   writes (an API key or auth token in the environment or in the account's own
+   settings, an `apiKeyHelper`, or a cloud provider's endpoint) is left to
+   Claude Code (`server/laterdog/cache-lifetime.ts`).
 7. **Left as they were, with the reason.** The skills index stays in the
    standing instructions: the native skill links live in the dog's workspace
    (`server/skills.ts`), but the engine runs in the chat's own folder under
@@ -102,6 +117,9 @@ fixture (40 person turns, sessions started at turns 1 and 21):
   6,000 characters). Over 40 turns it added 120,200 bytes to the chat's
   history before and 6,010 bytes now; the last request carried about 15,025
   tokens of recalled text before and about 752 now.
+- A refused resume of an 801,524-byte chat (389 messages dropped): the rebuild
+  was 22,477 bytes with no summary and lost the oldest decision; it is now
+  28,371 bytes and keeps it.
 - Cache lifetime: on an API key account a cold start at 60,000 tokens is billed
   as about 120,000 token-equivalents with a forced hour and 75,000 with five
   minutes (write prices of 2x and 1.25x the input price, from public pricing,
