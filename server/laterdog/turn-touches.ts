@@ -8,10 +8,10 @@ export interface ObservedTurn {
   links: TurnResultLink[];
 }
 
-const CLOUD_JOB_TOOL = /(?:^|__|[.:/])(?:delegate|correct|review|publish|inspect)_cloud_job$/;
+const PULL_REQUEST_TOOL = /(?:^|__|[.:/])(?:delegate|publish)_cloud_job$/;
 
 export function pullRequestLink(toolName: string | undefined, output: string | undefined): TurnResultLink | undefined {
-  if (!toolName || !CLOUD_JOB_TOOL.test(toolName)) return undefined;
+  if (!toolName || !PULL_REQUEST_TOOL.test(toolName)) return undefined;
   const job = cloudJobRecord(output);
   const url = typeof job?.prUrl === "string" ? job.prUrl.trim() : "";
   const title = typeof job?.title === "string" ? job.title.replace(/\s+/g, " ").trim().slice(0, 200) : "";
