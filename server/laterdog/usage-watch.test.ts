@@ -47,6 +47,24 @@ describe("the usage watch with no app connected", () => {
     expect(lines.some((line) => line.includes("offline"))).toBe(true);
   });
 
+  it("logs a chat waiting on the person once, keeps checking it, and logs when it no longer waits", async () => {
+    let now = NOW;
+    let signedIn = false;
+    const lines: string[] = [];
+    const wake = vi.fn((): "needs-you" | void => signedIn ? undefined : "needs-you");
+    const watch = createUsageWatch({ held: () => [], stranded: () => ["out"], refresh: async () => {}, recheck: vi.fn(), wake, now: () => now, log: (line) => lines.push(line) });
+    for (let tick = 0; tick < 5; tick += 1) {
+      await watch.tick();
+      now += 2 * 60_000;
+    }
+    expect(wake).toHaveBeenCalledTimes(5);
+    expect(lines).toEqual(["usage watch: out waits for the person to sign in or turn its account back on"]);
+    signedIn = true;
+    await watch.tick();
+    expect(lines).toHaveLength(2);
+    expect(lines[1]).toBe("usage watch: out no longer waits for the person; checked it again");
+  });
+
   it("does nothing while no chat waits", async () => {
     const refresh = vi.fn(async () => {});
     const wake = vi.fn();

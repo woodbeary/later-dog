@@ -2,8 +2,9 @@ import type { ModelSelection } from "../../shared/wire.ts";
 import { failedTurnTool, type FailedTurnTool } from "../../shared/failed-turn.ts";
 import { CONTINUE_AFTER_RESET, carryOnNotice, selectionOnAccount, type AccountBattery, type BatteryAccount } from "./account-battery.ts";
 import { latestLimit, type Notice, type PathMessage } from "./continue-on-account.ts";
+import { waitsOnPerson } from "./account-needs-you.ts";
 
-export type RestartOutcome = "started" | "full" | "waiting" | "skipped";
+export type RestartOutcome = "started" | "full" | "waiting" | "needs-you" | "skipped";
 
 export interface RestartInput {
   battery: AccountBattery;
@@ -24,6 +25,7 @@ export function carryOnAfterRestart(input: RestartInput): RestartOutcome {
   if (!request || !limit) return "skipped";
   const to = accounts.find((account) => account.instanceId === battery.route(selection, accounts, threadId).instanceId);
   if (!to?.eligible) return "skipped";
+  if (waitsOnPerson(battery.decide(selection, accounts, threadId))) return "needs-you";
   if (battery.restOf(to, accounts, selectionOnAccount(selection, to, accounts, battery.preferredFor(threadId)).model)) return "waiting";
   if (input.full) return "full";
   battery.arrive(threadId, selection, to.instanceId, accounts);

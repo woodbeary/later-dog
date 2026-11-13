@@ -2,6 +2,7 @@ import type { ModelSelection } from "../../shared/wire.ts";
 import { failedTurnTool, type FailedTurnTool } from "../../shared/failed-turn.ts";
 import { CONTINUE_AFTER_RESET, carryOnNotice, limitRowToReplace, selectionOnAccount, type AccountBattery, type BatteryAccount } from "./account-battery.ts";
 import type { Notice, PathMessage } from "./continue-on-account.ts";
+import { waitsOnPerson } from "./account-needs-you.ts";
 
 export interface CarryOnInput {
   battery: AccountBattery;
@@ -12,7 +13,7 @@ export interface CarryOnInput {
   path: readonly PathMessage[];
 }
 
-export type CarryOnOutcome = "started" | "full" | "skipped";
+export type CarryOnOutcome = "started" | "full" | "skipped" | "needs-you";
 
 function keptRequest(input: CarryOnInput) {
   const { battery, accounts, threadId, selection, path } = input;
@@ -35,6 +36,7 @@ export function carryOnAfterReset(input: CarryOnInput & {
 }): CarryOnOutcome {
   const { battery, accounts, selection, path } = input;
   const kept = keptRequest(input);
+  if (kept && waitsOnPerson(battery.decide(selection, accounts, input.threadId))) return "needs-you";
   if (!kept || battery.restOf(kept.to, accounts, selectionOnAccount(selection, kept.to, accounts, battery.preferredFor(input.threadId)).model)) return "skipped";
   if (input.full) return "full";
   const turn = battery.takeTurn(input.threadId, input.generation)!;

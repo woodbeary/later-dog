@@ -727,7 +727,8 @@ import {
   AccountBattery, BATTERY_DRIVERS, SETUP_STOP, CONTINUE_AFTER_SWITCH, CONTINUE_AFTER_RESET, carryOnNotice, checkBatteryConfig, crossEngineNotice, limitRowToReplace, planResetAt, selectionOnAccount, switchNotice, withoutAccount,
   type BatteryAccount, type BatteryRerun,
 } from "./laterdog/account-battery.ts";
-import { carriesOn, carryOnAfterReset, type CarryOnInput } from "./laterdog/carry-on.ts";
+import { carriesOn, carryOnAfterReset, type CarryOnInput, type CarryOnOutcome } from "./laterdog/carry-on.ts";
+import { accountNeedsYou, personWaitLog } from "./laterdog/account-needs-you.ts";
 import { continueOnAccount } from "./laterdog/continue-on-account.ts";
 import { LimitHold, withWaitingRuns } from "./laterdog/limit-hold.ts";
 import { createUsageWatch } from "./laterdog/usage-watch.ts";
@@ -3562,9 +3563,11 @@ function chatWork(threadId: string, busy: boolean, activity: BotActivity | undef
   const until = limitHold.heldUntil(threadId);
   const usageWait = until !== undefined || (!busy && usageStranded(threadId));
   const stall = stallFacts(threadId);
+  const keptWaiting = !busy && (threadId in limitHold.waiting() || batteryContinuationPending(threadId));
+  const account = keptWaiting ? accountNeedsYou({ keptWaiting, choice: accountBattery.decide(selection, batteryAccounts(), threadId), name: (id) => registry.get(id)?.displayName }) : undefined;
   return workState({
     busy, helpers: busy ? 0 : helpersWorkingIn(threadId), waitingOn, ...workSignals.facts(threadId), ...(stall.stopped ? { stopped: stall.stopped } : {}),
-    ...(asking ? { needsYou: { what: openAsk(store.messagesTail(threadId, 60).messages) } } : stall.needsYou ? { needsYou: stall.needsYou } : {}),
+    ...(asking ? { needsYou: { what: openAsk(store.messagesTail(threadId, 60).messages) } } : stall.needsYou ? { needsYou: stall.needsYou } : account ? { needsYou: { what: account } } : {}),
     ...(usageWait ? { usageHold: { account: registry.get(selection.instanceId)?.displayName, ...(until !== undefined ? { until } : {}) } } : {}),
   });
 }
@@ -6584,7 +6587,7 @@ const usageWatch = createUsageWatch({
   recheck: () => limitHold.recheck(),
   wake: (threadId) => {
     limitHold.hold(threadId);
-    if (!limitHold.holds(threadId)) pickUpAfterReset(threadId);
+    if (!limitHold.holds(threadId) && pickUpAfterReset(threadId) === "needs-you") return "needs-you";
   },
 }, { everyMs: Math.max(1_000, Number(process.env.LATERDOG_USAGE_WATCH_MS) || 2 * 60_000) });
 usageWatch.start();
@@ -6678,11 +6681,11 @@ function carryOnInput(threadId: string): (CarryOnInput & { botId: string }) | un
   };
 }
 
-function pickUpAfterReset(threadId: string): void {
+function pickUpAfterReset(threadId: string): CarryOnOutcome | undefined {
   const input = carryOnInput(threadId);
   if (!input) {
     console.info(`token battery: ${threadId} pickup cancelled or superseded`);
-    return;
+    return undefined;
   }
   const outcome = carryOnAfterReset({
     ...input,
@@ -6693,9 +6696,12 @@ function pickUpAfterReset(threadId: string): void {
       else store.appendMessage(threadId, { role: "bot", kind: "activity", tool });
     },
   });
-  console.info(`token battery: ${threadId} pickup ${outcome}`);
+  if (outcome !== "needs-you") console.info(`token battery: ${threadId} pickup ${outcome}`);
   if (outcome === "full") limitHold.retry(threadId);
+  return outcome;
 }
+
+const restartWaitsOnPerson = personWaitLog((line) => console.info(line));
 
 function pickUpAfterRestart(threadId: string): void {
   const owner = store.botByThread(threadId);
@@ -6710,8 +6716,12 @@ function pickUpAfterRestart(threadId: string): void {
     },
     start: (text, requestMessageId) => startTurn(owner.id, text, { threadId, cardContinuation: true, requestMessageId }),
   });
-  console.info(`token battery: ${threadId} pickup after restart ${outcome}`);
-  if (outcome === "full") limitHold.retry(threadId);
+  if (outcome === "needs-you") restartWaitsOnPerson.waiting(threadId, `token battery: ${threadId} pickup after restart waits for the person`);
+  else {
+    restartWaitsOnPerson.over(threadId);
+    console.info(`token battery: ${threadId} pickup after restart ${outcome}`);
+  }
+  if (outcome === "full" || outcome === "needs-you") limitHold.retry(threadId);
   else if (outcome === "waiting") limitHold.hold(threadId);
   else if (outcome === "skipped") limitHold.release(threadId);
 }

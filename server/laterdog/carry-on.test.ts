@@ -131,3 +131,53 @@ it("keeps the original request when mid-turn messages arrived and resumes exactl
   expect(carryOn()).toBe("skipped");
   expect(rerun).toHaveBeenCalledExactlyOnceWith(CONTINUE_AFTER_RESET);
 });
+
+describe("carrying on when the chosen account needs the person", () => {
+  const waitsFor = (extra: Partial<BatteryAccount>) => {
+    const accounts = [account("claude", "Personal", extra), account("claude-b", "Work", { signedIn: false })];
+    const kept = setup({ accounts, resets: {} });
+    return { ...kept, accounts };
+  };
+
+  it.each([
+    ["signed out", { signedIn: false }, { signedIn: true }],
+    ["switched off", { enabled: false }, { enabled: true }],
+  ] as const)("does not rerun while the chosen account is %s, keeps the turn, then carries on once it can run", (_why, blocked, back) => {
+    const { battery, rerun, input, writes, carryOn, accounts } = waitsFor(blocked);
+    expect(carryOn()).toBe("needs-you");
+    expect(carryOn()).toBe("needs-you");
+    expect(rerun).not.toHaveBeenCalled();
+    expect(writes).toEqual([]);
+    expect(battery.keptTurn("thread-1", "g1")).toBeDefined();
+    expect(carriesOn(input)).toBe(true);
+    accounts[0] = { ...accounts[0]!, ...back };
+    expect(carryOn()).toBe("started");
+    expect(rerun).toHaveBeenCalledOnce();
+    expect(writes).toEqual([{ name: "recovery: Picking up where it stopped, on Personal.", ok: true, replaceId: "l1" }]);
+  });
+
+  it("carries on on another account of the same engine once one can cover", () => {
+    const { rerun, carryOn, accounts } = waitsFor({ signedIn: false });
+    expect(carryOn()).toBe("needs-you");
+    accounts[1] = { ...accounts[1]!, signedIn: true };
+    expect(carryOn()).toBe("started");
+    expect(rerun).toHaveBeenCalledOnce();
+  });
+
+  it("does not rerun after a failed sign-in until its hold ends", () => {
+    const { battery, rerun, carryOn, pass } = waitsFor({});
+    battery.needsSetup("claude");
+    expect(carryOn()).toBe("needs-you");
+    expect(rerun).not.toHaveBeenCalled();
+    pass(31 * 60_000);
+    expect(carryOn()).toBe("started");
+  });
+
+  it("leaves a limit with a ready time as before: skipped until it resets", () => {
+    const { rerun, carryOn, pass } = setup();
+    expect(carryOn()).toBe("skipped");
+    expect(rerun).not.toHaveBeenCalled();
+    pass(HOUR);
+    expect(carryOn()).toBe("started");
+  });
+});

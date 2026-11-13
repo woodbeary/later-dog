@@ -1,3 +1,5 @@
+import { personWaitLog } from "./account-needs-you.ts";
+
 export const USAGE_WATCH_MS = 2 * 60_000;
 export const USAGE_REFRESH_MS = 5 * 60_000;
 
@@ -6,7 +8,7 @@ export interface UsageWatchHost {
   stranded(): readonly string[];
   refresh(): Promise<void>;
   recheck(): void;
-  wake(threadId: string): void;
+  wake(threadId: string): "needs-you" | void;
   now?: () => number;
   log?: (line: string) => void;
 }
@@ -31,6 +33,7 @@ export function createUsageWatch(host: UsageWatchHost, options: { everyMs?: numb
   let lastRefreshAt: number | undefined;
   let timer: ReturnType<typeof setInterval> | undefined;
   let running: Promise<UsageWatchPlan> | undefined;
+  const onPerson = personWaitLog(log);
 
   const run = async (): Promise<UsageWatchPlan> => {
     const plan = planUsageWatch({ held: host.held(), stranded: host.stranded(), lastRefreshAt, now: now(), refreshMs: options.refreshMs });
@@ -43,10 +46,13 @@ export function createUsageWatch(host: UsageWatchHost, options: { everyMs?: numb
       }
       host.recheck();
     }
+    onPerson.keepOnly(plan.wake);
     for (const threadId of plan.wake) {
       try {
-        host.wake(threadId);
-        log(`usage watch: ${threadId} was waiting for usage with nothing checking it; checked it again`);
+        if (host.wake(threadId) === "needs-you") onPerson.waiting(threadId, `usage watch: ${threadId} waits for the person to sign in or turn its account back on`);
+        else if (!onPerson.over(threadId, `usage watch: ${threadId} no longer waits for the person; checked it again`)) {
+          log(`usage watch: ${threadId} was waiting for usage with nothing checking it; checked it again`);
+        }
       } catch (error) {
         log(`usage watch: ${threadId} could not be checked: ${reasonOf(error)}`);
       }
