@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { describeRun, groupActivityRuns, groupTranscript, isFoldedStatusLine, isRecoveryActivity, planTranscript, statusActivity } from "./activity-runs";
+import { describeRun, turnStepsLine, groupActivityRuns, groupTranscript, isFoldedStatusLine, isRecoveryActivity, planTranscript, statusActivity } from "./activity-runs";
 import type { Message } from "@/state/store";
 
 let seq = 0;
@@ -445,5 +445,13 @@ describe("groupTranscript", () => {
 
     const plan = planTranscript([user, asked, resumedLook, resumed, typing, more, submitting, final]);
     expect(plan.byAnchorId.get(final.id)).toMatchObject({ label: "Worked for 10s", messages: [more] });
+  });
+});
+
+describe("turnStepsLine", () => {
+  it("says a finished turn's steps in the past, once each, from the shared table", () => {
+    const step = (name: string, input?: string): Message => ({ ...tool(name), turnId: "turn", tool: { name, ok: true, ...(input ? { input } : {}) } });
+    expect(turnStepsLine([step("Bash", "{\"command\":\"ls\"}"), step("Bash"), step("TodoWrite"), step("mystery")], "turn")).toBe("ran a command, made a plan, did a step");
+    expect(turnStepsLine([step("Bash")], "other")).toBeUndefined();
   });
 });

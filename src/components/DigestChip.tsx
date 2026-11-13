@@ -10,9 +10,10 @@ export function DigestChip({ message }: { message: Message }) {
   if (!digest.tools.length && !digest.toolCalls && !digest.toolsDropped &&
       !files && !digest.memory.length && !digest.memoryDropped) return null;
   const tools = digest.toolCalls ?? `${digest.tools.reduce((n, tool) => n + tool.count, 0)}${digest.toolsDropped ? "+" : ""}`;
+  const one = String(tools) === "1";
   const label = files === null
-    ? t("chat.digestChipNoFiles", { tools })
-    : t("chat.digestChip", { tools, files });
+    ? one ? t("chat.digestChipOneNoFiles") : t("chat.digestChipNoFiles", { tools })
+    : one ? t("chat.digestChipOne", { files }) : t("chat.digestChip", { tools, files });
   return (
     <div className="flex justify-start" data-testid="digest-chip">
       <span

@@ -2,6 +2,7 @@ import type { Message } from "@/state/store";
 import { formatElapsed } from "@/lib/working-time";
 import { t } from "@/lib/i18n";
 import { stepLabel } from "@/lib/live-activity";
+import { UNKNOWN_STEP_WORDS, toolStepWords } from "../../shared/step-words";
 import { failedTurnCause } from "../../shared/failed-turn";
 import { localDay } from "@/lib/transcript-derivations";
 import { screenTouchingTool, toolSurfaceKind } from "../../shared/tool-surface";
@@ -209,4 +210,21 @@ export function describeRun(messages: Message[]): string {
   const shown = names.slice(0, MAX_NAMES).join(", ");
   const rest = names.length > MAX_NAMES ? ` ${t("chat.run.more", { count: names.length - MAX_NAMES })}` : "";
   return t("chat.run.steps", { count: messages.length, tools: `${shown}${rest}` });
+}
+
+export function plainTurnStep(message: Message): boolean {
+  const tool = message.tool;
+  if (message.kind !== "activity" || !tool) return false;
+  if (message.comm || message.threadRef || message.cloudTask || isStatusActivity(message)) return false;
+  return failedTurnCause(tool.name) === null;
+}
+
+export function turnStepsLine(messages: readonly Message[], turnId: string): string | undefined {
+  const done = messages
+    .filter((message) => message.turnId === turnId && plainTurnStep(message))
+    .map((message) => (toolStepWords(message.tool!.name, message.tool!.input) ?? UNKNOWN_STEP_WORDS).done);
+  const names = [...new Set(done)];
+  if (!names.length) return undefined;
+  const rest = names.length > MAX_NAMES ? ` ${t("chat.run.more", { count: names.length - MAX_NAMES })}` : "";
+  return `${names.slice(0, MAX_NAMES).join(", ")}${rest}`;
 }

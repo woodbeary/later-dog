@@ -111,7 +111,7 @@ import { activeLocale, t } from "@/lib/i18n";
 import { needsYouWords, WorkStatusLine } from "./WorkStatusLine";
 import { TurnReceiptLine } from "./TurnReceiptLine";
 import { TurnResultsBlock, hasTurnResults } from "./TurnResultsBlock";
-import { groupTranscript, isStatusActivity, planTranscript, type TranscriptPlan } from "@/lib/activity-runs";
+import { groupTranscript, isStatusActivity, plainTurnStep, planTranscript, turnStepsLine, type TranscriptPlan } from "@/lib/activity-runs";
 import { isUnread, useUnreadBoundary } from "@/lib/unread-boundary";
 import { UnreadDivider } from "./UnreadDivider";
 import { StatusActivityRow } from "@/components/StatusActivityRow";
@@ -712,6 +712,9 @@ const MessagesList = memo(function MessagesList({
   const owner = bots.find(bot => bot.id === botId);
   const nativeRuns = useNativeRuns(threadId, filledWindow[0]?.at);
   const receipts = useMemo(() => nativeReceiptAnchors(nativeRuns, messages), [nativeRuns, messages]);
+  const workedTurns = useMemo(() => new Set(nativeRuns.map((run) => run.turnId)), [nativeRuns]);
+  const foldedIntoWork = (message: Message) => Boolean(message.turnId && workedTurns.has(message.turnId) && plainTurnStep(message));
+  const receipt = (run: (typeof nativeRuns)[number]) => <NativeWork key={run.id} run={run} color={owner?.color} bodyId={owner?.mascotBody} selection={selection} steps={showToolCalls ? turnStepsLine(messages, run.turnId) : undefined} />;
   const arriving = useArrivals(`${botId}/${threadId}`, messages);
   const emerged = useRef(new Set<string>());
   if (emergingId) emerged.current.add(emergingId);
@@ -763,7 +766,7 @@ const MessagesList = memo(function MessagesList({
                         onReply={onReply}
                       />
                     </div>
-                    {receipts.get(message.id)?.map(run => <NativeWork key={run.id} run={run} color={owner?.color} bodyId={owner?.mascotBody} selection={selection} />)}
+                    {receipts.get(message.id)?.map(receipt)}
                   </Fragment>
                 ))}
               </TurnNarrationRun>
@@ -780,7 +783,7 @@ const MessagesList = memo(function MessagesList({
           );
         }
         if (item.kind === "run") {
-          if (!showToolCalls) return null;
+          if (!showToolCalls || item.messages.every(foldedIntoWork)) return null;
           return (
             <div key={item.id} className="contents">
               {newDay && <DaySeparator at={first.at} today={today} />}
@@ -837,6 +840,7 @@ const MessagesList = memo(function MessagesList({
                 );
               }
               if (!showToolCalls && !m.comm && !m.threadRef && !m.cloudTask) return null;
+              if (foldedIntoWork(m)) return null;
               return <ActivityChip message={m} place={place} />;
             }
             case "digest":
@@ -873,7 +877,7 @@ const MessagesList = memo(function MessagesList({
               {unreadDivider([m])}
               {row}
             </div>
-            {receipts.get(m.id)?.map(run => <NativeWork key={run.id} run={run} color={owner?.color} bodyId={owner?.mascotBody} selection={selection} />)}
+            {receipts.get(m.id)?.map(receipt)}
           </Fragment>
         );
       })}
