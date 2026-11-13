@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { AlertTriangle, ArrowLeft, Check, ChevronDown, ChevronRight, Circle, Cloud, ExternalLink, Loader2, MonitorPlay, Square, X } from "lucide-react";
+import { AlertTriangle, ArrowLeft, ChevronDown, ChevronRight, Cloud, ExternalLink, Loader2, MonitorPlay, Square, X } from "lucide-react";
 
 import { ChatMarkdown } from "./ChatMarkdown";
+import { PlanChecklist } from "./PlanChecklist";
 import { openExternalLink } from "@/lib/app-links";
 import { cn } from "@/lib/cn";
 import {
@@ -29,18 +30,8 @@ function panelWidth(): number {
 }
 
 function TodoList({ todos, working }: { todos: CloudTaskTodo[]; working: boolean }) {
-  return (
-    <ul className="space-y-1" aria-label={t("cloudTask.plan")}>
-      {todos.map((todo, index) => (
-        <li key={index} className="flex items-start gap-2 text-[12.5px] leading-5">
-          {todo.status === "completed" ? <Check size={14} className="mt-0.5 shrink-0 text-ink-secondary" aria-hidden="true" />
-            : todo.status === "in_progress" && working ? <Loader2 size={14} className="mt-0.5 shrink-0 animate-spin text-accent" aria-hidden="true" />
-              : <Circle size={12} className="mt-1 shrink-0 text-ink-tertiary" aria-hidden="true" />}
-          <span className={cn(todo.status === "completed" ? "text-ink-secondary line-through decoration-ink-tertiary/60" : "text-ink")}>{todo.text}</span>
-        </li>
-      ))}
-    </ul>
-  );
+  const items = todos.map((todo) => ({ text: todo.text, status: todo.status === "completed" ? "done" as const : todo.status === "in_progress" ? "in_progress" as const : "pending" as const }));
+  return <PlanChecklist items={items} working={working} label={t("cloudTask.plan")} />;
 }
 
 function StepRow({ step }: { step: CloudTaskStep }) {

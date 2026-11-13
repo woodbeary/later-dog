@@ -52,6 +52,7 @@ import { ExchangeViewHost } from "./ExchangeViewHost";
 import { foldExchanges, expandedExchange, quietTranscriptItemShown, shownToPerson } from "@/lib/quiet-lines";
 import { freshenDogName } from "@/lib/dog-refs";
 import { TurnPresence } from "./TurnPresence";
+import { DogPlan } from "./PlanChecklist";
 import { NativeWork, NativeWorkFallbacks, NativeHistoryNotice } from "./NativeWork";
 import { nativeReceiptAnchors, useNativeRuns } from "@/lib/native-runs-state";
 import { showToolCallsEnabled } from "@/lib/feature-flags";
@@ -1248,6 +1249,7 @@ export function ChatView({ bot: profile }: { bot: Bot }) {
             steps={steps}
             updates={updates}
           />
+          <DogPlan plan={bot.plan} working={waiting} />
         </div>
       </div>
 
