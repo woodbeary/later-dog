@@ -9,7 +9,7 @@ export interface WorkDog {
 }
 
 export type WorkState =
-  | { kind: "running"; dogs?: WorkDog[] }
+  | { kind: "running"; dogs?: WorkDog[]; helpers?: number; computerJobs?: number }
   | { kind: "waiting-on-dog"; dogs: WorkDog[] }
   | { kind: "needs-you"; what?: string }
   | { kind: "waiting-for-usage"; account?: string; until?: number }

@@ -200,7 +200,7 @@ export class ComputerRuns {
     writeFileSync(path, JSON.stringify(value));
   }
 
-  async start(box: RunBox, input: { botId: string; folder: string; subdir?: string; command: string; active?: () => boolean; left?: () => number }): Promise<RunRecord & { sentFiles: number; sentBytes: number }> {
+  async start(box: RunBox, input: { botId: string; folder: string; subdir?: string; command: string; active?: () => boolean; left?: () => number; started?: (record: RunRecord) => void }): Promise<RunRecord & { sentFiles: number; sentBytes: number }> {
     const key = runKey(input.folder);
     const id = randomUUID().slice(0, 8);
     const remote = `runs/${key}`;
@@ -241,6 +241,7 @@ export class ComputerRuns {
     must(await box.exec(`if command -v setsid > /dev/null; then setsid ${detached} else ${detached} fi; echo started`, 30_000), "starting the command");
     const record: RunRecord = { id, botId: input.botId, key, folder: input.folder, subdir, command: input.command, startedAt: this.#now(), sent: now, ...(reusedSetup ? { reusedSetup: true } : {}) };
     this.#writeJson(this.#runPath(input.botId, id), record);
+    input.started?.(record);
     return { ...record, sentFiles: changed.length, sentBytes };
   }
 
@@ -287,7 +288,7 @@ export class ComputerRuns {
     return { broughtBack: fetch, skipped, conflicts };
   }
 
-  async run(box: RunBox, input: { botId: string; folder: string; subdir?: string; command: string; active?: () => boolean; left?: () => number }): Promise<RunOutcome> {
+  async run(box: RunBox, input: { botId: string; folder: string; subdir?: string; command: string; active?: () => boolean; left?: () => number; started?: (record: RunRecord) => void }): Promise<RunOutcome> {
     const left = input.left ?? this.window();
     const started = await this.start(box, { ...input, left });
     return this.finish(box, started, { sentFiles: started.sentFiles, sentBytes: started.sentBytes }, left);

@@ -4,6 +4,8 @@ import type { WorkStopCause, WorkStopDetail, WorkState } from "../../shared/work
 export interface WorkFacts {
   busy: boolean;
   helpers?: number;
+  computerJobs?: number;
+  handoffRunning?: boolean;
   needsYou?: { what?: string };
   usageHold?: { account?: string; until?: number };
   waitingOn?: readonly WireWaitingOn[];
@@ -46,7 +48,11 @@ export function workState(facts: WorkFacts): WorkState {
     const attempt = facts.retry.attempt;
     return { kind: "retrying", ...(attempt !== undefined && Number.isInteger(attempt) && attempt > 0 ? { attempt } : {}) };
   }
-  if (facts.busy || (facts.helpers ?? 0) > 0) return { kind: "running" };
+  const helpers = Math.max(0, facts.helpers ?? 0);
+  const computerJobs = Math.max(0, facts.computerJobs ?? 0);
+  if (facts.busy || facts.handoffRunning || helpers > 0 || computerJobs > 0) {
+    return { kind: "running", ...(helpers ? { helpers } : {}), ...(computerJobs ? { computerJobs } : {}) };
+  }
   if (facts.stopped) return { kind: "stopped", cause: facts.stopped.cause, ...(facts.stopped.detail ? { detail: facts.stopped.detail } : {}) };
   return { kind: "idle" };
 }

@@ -476,6 +476,18 @@ export async function heavyRunBox(botId: string, options: { repository?: string;
   return { box };
 }
 
+export async function runningRunBox(botId: string): Promise<RunBox | null> {
+  if (!computersSelected()) return null;
+  const client = ownClient();
+  const computer = await findOwn(client, botId);
+  if (!computer || computer.state !== "running") return null;
+  return {
+    exec: (command, timeoutMs) => runOwn(client, computer.id, command, { timeoutMs }),
+    write: (path, bytes) => client.writeFile(computer.id, path, bytes),
+    read: (path) => client.readFile(computer.id, path),
+  };
+}
+
 export async function engineComputer(botId: string): Promise<{ box: RunBox; stream: () => ReturnType<ComputersClient["process"]> }> {
   if (!computersSelected()) throw new Error("Cloud computers are not configured.");
   const client = ownClient();
