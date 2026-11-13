@@ -193,7 +193,7 @@ function StackedDogs({ members, density, busyBotId }: { members: Bot[]; density:
   return (
     <div data-group-faces className={cn("relative shrink-0", slotSize)}>
       {shown.map((b, index) => (
-        <span key={b.id} className={cn("absolute flex rounded-full", index === 0 ? "left-0 top-0" : "bottom-0 right-0 bg-panel ring-2 ring-panel")}>
+        <span key={b.id} className={cn("absolute flex rounded-full", index === 0 ? "left-0 top-0" : "bottom-0 right-0")}>
           <BotAvatar bot={b} state={b.id === busyBotId ? "thinking" : "happy"} size={face} animated={b.id === busyBotId} />
         </span>
       ))}
