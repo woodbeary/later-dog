@@ -501,6 +501,13 @@ export function hookTokenFile(threadId: string, botId?: string): string {
   return join(DATA_DIR, "hook-tokens", `${digest}.token`);
 }
 
+export function claudeUnansweredError(frame: { is_error?: unknown; errors?: unknown; result?: unknown }): string | null {
+  if (frame.is_error !== true || !Array.isArray(frame.errors)) return null;
+  if (typeof frame.result === "string" && frame.result.trim()) return null;
+  const errors = frame.errors.filter((error): error is string => typeof error === "string" && Boolean(error.trim())).map((error) => error.trim());
+  return errors.length ? errors.join("; ").slice(0, 2_000) : null;
+}
+
 export const CLAUDE_POST_COMPACT_HOOK: ClaudeCliVersion = [2, 1, 316];
 
 export interface ClaudeHookTarget {
@@ -1892,6 +1899,10 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
                 : {}),
             };
             const t = session.turn;
+            const unhandled = claudeUnansweredError(o);
+            if (unhandled && t && !t.settled && !t.authFailed && !t.usageLimited && !t.updateRequired) {
+              emit({ ...base(threadId, currentTurnId()), type: "runtime.error", message: unhandled });
+            }
             const contextWindow = claudeReportedContextWindow(o.modelUsage, t?.usageModel ?? injected.model ?? undefined);
             if (native.usage && contextWindow && t?.contextTokens) {
               emit({ ...base(threadId, currentTurnId()), type: "thread.token-usage.updated", ...native.usage, contextTokens: t.contextTokens, contextWindow });

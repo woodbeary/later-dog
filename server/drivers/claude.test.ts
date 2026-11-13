@@ -4026,12 +4026,20 @@ describe("ClaudeDriver resume recovery (fake CLI)", () => {
     delete process.env.FAKE_CLAUDE_MODE;
     delete process.env.FAKE_CLAUDE_DUMP;
     delete process.env.FAKE_CLAUDE_TEXT_HANG;
+    delete process.env.FAKE_CLAUDE_RESUME_RESULT;
+    delete process.env.FAKE_CLAUDE_ERROR_TEXT;
     recorder?.stop();
     await instance?.dispose();
     await removeTempDir(scratch);
   });
 
-  it("starts a fresh session carrying the rebuild when --resume is refused", async () => {
+  it.each([
+    ["an exit with the refusal on stderr", "dead-session", undefined],
+    ["an error result naming the session", "dead-session-result", undefined],
+    ["the error result Claude Code 2.1.316 returned live", "dead-session-result", join(dirname(FAKE_CLI), "claude-lost-session-result.json")],
+  ])("starts a fresh session carrying the rebuild when --resume is refused by %s", async (_shape, mode, captured) => {
+    process.env.FAKE_CLAUDE_MODE = mode;
+    if (captured) process.env.FAKE_CLAUDE_RESUME_RESULT = captured;
     const dump = join(scratch, "recovered.json");
     process.env.FAKE_CLAUDE_DUMP = dump;
     const dispatch = await instance.adapter.sendTurn({
@@ -4044,6 +4052,7 @@ describe("ClaudeDriver resume recovery (fake CLI)", () => {
 
     expect(recorder.events.filter((e) => e.type === "turn.completed").at(-1)).toMatchObject({ ok: true, turnId: dispatch.turnId });
     expect(recorder.events.find((e) => e.type === "turn.retrying")).toMatchObject({ reason: "resume_rejected" });
+    expect(recorder.events.filter((e) => e.type === "runtime.error")).toEqual([]);
     const started = recorder.events.filter((e) => e.type === "session.started");
     expect(started.length).toBeGreaterThan(0);
     expect(started.at(-1)).not.toMatchObject({ sessionId: "a-session-claude-no-longer-has" });
@@ -4053,6 +4062,16 @@ describe("ClaudeDriver resume recovery (fake CLI)", () => {
     const content = seen.prompt.message.content;
     const text = typeof content === "string" ? content : content.map((c: any) => c.text ?? "").join("");
     expect(text).toBe(REBUILD);
+  });
+
+  it("shows an error result it does not handle as a failure carrying the engine's own words", async () => {
+    process.env.FAKE_CLAUDE_MODE = "error-result";
+    process.env.FAKE_CLAUDE_ERROR_TEXT = "Fixture engine refused: model unavailable";
+    await instance.adapter.sendTurn({ threadId: "t-error-result", text: "hello?" });
+    await recorder.until((e) => e.type === "turn.completed");
+    expect(recorder.events.filter((e) => e.type === "runtime.error").map((e: any) => e.message)).toEqual(["Fixture engine refused: model unavailable"]);
+    expect(recorder.events.filter((e) => e.type === "turn.completed").at(-1)).toMatchObject({ ok: false });
+    expect(recorder.events.find((e) => e.type === "turn.retrying")).toBeUndefined();
   });
 
   it("does not announce a replacement as rebuilt when there was nothing to replay", async () => {
