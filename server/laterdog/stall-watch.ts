@@ -53,12 +53,13 @@ export type StallVerdict =
   | { kind: "continue"; source: Message; cause: string; line: string; prompt: string }
   | { kind: "explain"; source: Message; cause: string; line: string; stopped: WorkStopCause };
 
-type Need = "sign-in" | "permission" | "other";
+type Need = "sign-in" | "permission" | "account-off" | "other";
 
 const TEAMMATE_GAVE_UP = /\b(?:couldn't finish|never got started|was interrupted|ran out of time)$/;
 const SIGN_IN = /sign(?:ed)?[ -]?in|log(?:ged)?[ -]?in|\b401\b|unauthori[sz]ed|api key|credential/i;
 const PERMISSION = /permission|forbidden|not allowed|approval|\b403\b/i;
 const NEVER_RETRY = /safety|classifier|invalid model|spend limit|you stopped/i;
+const TURNED_OFF = / is turned off\.?$/i;
 
 function sentence(text: string, max = 140): string {
   const flat = text.replace(/\s+/g, " ").trim();
@@ -84,7 +85,7 @@ function failureOf(message: Message): { cause: string; retry: boolean; need: Nee
   const label = tool.name.trim();
   if (!/^error:/i.test(label)) return undefined;
   const cause = sentence(label.replace(/^error:\s*/i, "")) || "an error";
-  const need: Need = tool.setup || SIGN_IN.test(label) ? "sign-in" : PERMISSION.test(label) ? "permission" : "other";
+  const need: Need = TURNED_OFF.test(label) ? "account-off" : tool.setup || SIGN_IN.test(label) ? "sign-in" : PERMISSION.test(label) ? "permission" : "other";
   return { cause, need, retry: need === "other" && !NEVER_RETRY.test(label) };
 }
 
@@ -148,6 +149,10 @@ export function signInLine(name: string): string {
   return `${name} stopped because its account needs you to sign in again.`;
 }
 
+export function turnedOffLine(name: string, cause: string): string {
+  return `${name} stopped because ${cause}. Turn it back on or pick another account.`;
+}
+
 export function permissionLine(name: string): string {
   return `${name} stopped because it needs your permission to go on.`;
 }
@@ -168,6 +173,7 @@ export function stallPrompt(text: string, teammate?: string): string {
 function explainLine(name: string, owed: OwedWork): string {
   if (owed.need === "sign-in") return signInLine(name);
   if (owed.need === "permission") return permissionLine(name);
+  if (owed.need === "account-off") return turnedOffLine(name, owed.cause);
   return stoppedLine(name);
 }
 

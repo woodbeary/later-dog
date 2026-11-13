@@ -98,6 +98,12 @@ describe("what the person reads", () => {
     expect(stop("error: permission denied for this action")).toMatchObject({ kind: "explain", line: "Clover stopped because it needs your permission to go on." });
     expect(stop("error: stopped by a safety classifier")).toMatchObject({ kind: "explain", line: "Clover stopped before finishing and has not picked it up again. Send a message to carry on." });
   });
+
+  it("a turn refused because its account is switched off is not retried and says which account to turn back on", () => {
+    const stop = (name: string) => judgeChat(chat([ask(T0), tool(T0 + 1, "t1"), failure(T0 + 2, name)]));
+    expect(stop("error: Work is turned off")).toMatchObject({ kind: "explain", line: "Clover stopped because Work is turned off. Turn it back on or pick another account." });
+    expect(stop("error: API key account is turned off")).toMatchObject({ kind: "explain", line: "Clover stopped because API key account is turned off. Turn it back on or pick another account." });
+  });
 });
 
 describe("judging a quiet chat", () => {
