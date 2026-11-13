@@ -183,6 +183,26 @@ describe("waking a dog when a job on its computer ends", () => {
     expect(jobs.unannounced()).toEqual([]);
   });
 
+  it("says once, without waking, that a job ended without a result", async () => {
+    const { jobs, lines, turns, wake } = setup();
+    jobs.started(job("aaaa0001"));
+    jobs.finished("aaaa0001", { how: "lost", at: NOW - 1_000 });
+    wake.deliver(); await flush();
+    expect(turns).toEqual([]);
+    expect(lines()).toEqual(["Scout's command on its computer ended without a result."]);
+    expect(jobs.unannounced()).toEqual([]);
+  });
+
+  it("counts wake-ups from the person's own last message, not from a teammate, routine or webhook line", async () => {
+    const { jobs, turns, wake, path } = setup();
+    ended(jobs, "c0000001"); wake.deliver(); await flush();
+    path.push({ id: "mate", role: "user", kind: "text", text: "From a teammate", from: { botId: "b", name: "Biscuit", color: "x" }, at: 0 } as unknown as WireMessage);
+    path.push({ id: "hook", role: "user", kind: "text", text: "Webhook", webhookPost: true, at: 0 } as unknown as WireMessage);
+    ended(jobs, "c0000002"); wake.deliver(); await flush();
+    ended(jobs, "c0000003"); wake.deliver(); await flush();
+    expect(turns).toHaveLength(2);
+  });
+
   it("words", () => {
     const one = { ...job("aaaa0001"), end: { how: "finished" as const, exitCode: 0, at: 5 } };
     expect(jobWakeLine("Scout", [one])).toBe("Scout's command finished, so it is carrying on.");

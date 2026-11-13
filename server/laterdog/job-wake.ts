@@ -8,7 +8,7 @@ type NewMessage = Omit<WireMessage, "id" | "at">;
 export const WAKES_PER_MESSAGE = 2;
 export const WAKE_FRESH_MS = 30 * 60_000;
 
-const ENDED_WORDS: Record<EndedComputerJob["end"]["how"], string> = { finished: "finished", failed: "failed", stopped: "was stopped" };
+const ENDED_WORDS: Record<EndedComputerJob["end"]["how"], string> = { finished: "finished", failed: "failed", stopped: "was stopped", lost: "ended without a result" };
 
 function endedPhrase(name: string, jobs: readonly EndedComputerJob[]): string {
   return jobs.length === 1 ? `${name}'s command ${ENDED_WORDS[jobs[0]!.end.how]}` : `${name}'s ${jobs.length} commands ended`;
@@ -20,6 +20,10 @@ export function jobWakeLine(name: string, jobs: readonly EndedComputerJob[]): st
 
 export function jobNotWokenLine(name: string, jobs: readonly EndedComputerJob[]): string {
   return `${endedPhrase(name, jobs)}. ${name} was not woken for it.`;
+}
+
+export function jobLostLine(name: string, jobs: readonly EndedComputerJob[]): string {
+  return jobs.length === 1 ? `${name}'s command on its computer ended without a result.` : `${name}'s ${jobs.length} commands on its computer ended without a result.`;
 }
 
 export function jobWakeFailedLine(name: string): string {
@@ -37,19 +41,25 @@ export function jobWakePrompt(jobs: readonly EndedComputerJob[]): string {
   return `[A command you started on your cloud computer ended after your turn did. This note is from later.dog, not typed by the person.\n${lines.join("\n")}\nRead the result, then carry on with the person's request and finish with one clear answer.]`;
 }
 
+export function fromPerson(message: WireMessage): boolean {
+  return message.role === "user" && message.kind === "text" && !message.from && !message.peerAsk && !message.peerPost && !message.comm
+    && !message.roomRequest && !message.handoffId && !message.webhookPost && !message.ownersRoutine && !message.routineRun;
+}
+
 export function wakesSincePerson(path: readonly WireMessage[]): number {
   let count = 0;
   for (let index = path.length - 1; index >= 0; index -= 1) {
     const message = path[index]!;
-    if (message.role === "user") break;
+    if (fromPerson(message)) break;
     if (message.tool?.pickup === "computer" && message.tool.ok === true && message.tool.name.startsWith("recovery:")) count += 1;
   }
   return count;
 }
 
-export type NotWoken = "stale" | "long" | "handoff" | "bound";
+export type NotWoken = "lost" | "stale" | "long" | "handoff" | "bound";
 
 export function whyNotWoken(job: EndedComputerJob, now: number): NotWoken | null {
+  if (job.end.how === "lost") return "lost";
   if (now - job.end.at > WAKE_FRESH_MS) return "stale";
   if (job.end.at - job.startedAt > MAX_RUN_MS) return "long";
   return null;
@@ -75,7 +85,7 @@ export function createJobWake(jobs: ComputerJobs, host: JobWakeHost) {
 
   const notWoken = (threadId: string, name: string, ended: readonly EndedComputerJob[], why: NotWoken) => {
     jobs.announced(ended.map((job) => job.id));
-    host.append(threadId, { role: "bot", kind: "activity", tool: { name: jobNotWokenLine(name, ended), ok: true, pickup: "computer" } });
+    host.append(threadId, { role: "bot", kind: "activity", tool: { name: why === "lost" ? jobLostLine(name, ended) : jobNotWokenLine(name, ended), ok: true, pickup: "computer" } });
     log(`job wake: ${threadId} not woken (${why}) for ${ended.map((job) => job.id).join(", ")}`);
   };
 
@@ -94,7 +104,7 @@ export function createJobWake(jobs: ComputerJobs, host: JobWakeHost) {
         }
         const at = now();
         const kept: EndedComputerJob[] = [];
-        for (const why of ["stale", "long"] as const) {
+        for (const why of ["lost", "stale", "long"] as const) {
           const out = all.filter((job) => whyNotWoken(job, at) === why);
           if (out.length) notWoken(threadId, dog.name, out, why);
         }
