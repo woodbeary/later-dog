@@ -12622,7 +12622,7 @@ const secureForms = new SecureForms({
     save: (input) => { vaultStore.save(input); },
     addDetails: (details) => { vaultStore.addDetails(details); },
   },
-  allows: (botId, threadId, key) => [store.bot(botId), store.projectBotForTask(botId, threadId)].some((bot) => bot?.alwaysAllow?.includes(key) === true),
+  allows: (botId, threadId, key) => dogAllows(store, botId, threadId, key),
   grant: (botId, _threadId, key) => {
     const bot = store.bot(botId);
     if (!bot || bot.alwaysAllow?.includes(key)) return;

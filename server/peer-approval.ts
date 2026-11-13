@@ -2,6 +2,7 @@
 import { newId } from "./contracts.ts";
 import { buildNotification, type Notification } from "./notify.ts";
 import { peerAllowKey, type PeerAction } from "./peer-approval-key.ts";
+import { dogAllows } from "./laterdog/always-allow.ts";
 import type { BotRecord, Message, Store } from "./store.ts";
 
 export { peerAllowKey } from "./peer-approval-key.ts";
@@ -124,9 +125,9 @@ export function requestPeerApproval(
   action: PeerAction,
   sourceThreadId = from.threadId,
 ): Promise<PeerApprovalOutcome> {
-  const grants = bus.store.projectBotForTask(from.id, sourceThreadId) ?? from;
-  const dog = bus.store.bot(from.id) ?? from;
-  if (bus.autoApply?.(from.id, sourceThreadId) || allowKeyAllowed(grants, peerAllowKey(action, target.id)) || allowKeyAllowed(dog, peerAllowKey(action, target.id))) {
+  const key = peerAllowKey(action, target.id);
+  const granted = bus.store.bot(from.id) ? dogAllows(bus.store, from.id, sourceThreadId, key) : allowKeyAllowed(from, key);
+  if (bus.autoApply?.(from.id, sourceThreadId) || granted) {
     return Promise.resolve("allow");
   }
   return new Promise((resolve) => {
