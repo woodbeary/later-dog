@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { OUTBOX_KEY, type OutboxItem } from "@/lib/outbox";
 import { failedComposerSends } from "@/lib/drafts";
 import { api, initialState, reducer, StoreProvider, useStore, type Action, type AppState, type Bot } from "./store";
-import { createSendOutbox } from "./send-outbox";
+import { createSendOutbox, type SendOutbox } from "./send-outbox";
 import { HELD_GIVE_UP_MS, HELD_NOT_SENT, HELD_SENDS_KEY } from "@/lib/held-sends";
 import { SendingTrack } from "@/components/SendingTrack";
 import { SAVED_HEADER, withDeskQueue } from "../../deploy/laterdog/home/src/desk.ts";
@@ -813,16 +813,40 @@ describe("a message the edge held for a sleeping home", () => {
         });
       });
 
-      it("keeps the copy and asks again on the next round when the home read fails, once per round", async () => {
+      it("asks for a refresh on a growing wait while the home cannot be read, stops asking after the give-up time without deciding, and decides at the next refresh that comes for another reason", async () => {
         const before = failedBefore();
-        const { store, showError, timers, confirmAtHome } = await waiting();
-        await timers.fire();
-        expect(confirmAtHome).toHaveBeenCalledTimes(1);
-        await timers.fire();
-        expect(confirmAtHome).toHaveBeenCalledTimes(2);
+        let outboxRef: SendOutbox | undefined;
+        const confirmAtHome = vi.fn(() => { void outboxRef?.settleHeld([{ threadId: "main", messages: [] } as never], [], {}); });
+        let fetchThread = unreachable();
+        const { store, showError, timers, clock, outbox, cardAnswered, cardAnswerFailed } = await waiting(goneAnswer, { confirmAtHome, fetchThread: (path, init) => fetchThread(path, init) });
+        outboxRef = outbox;
+        const sentAt = clock.now;
+        const delays: number[] = [];
+        while (timers.waiting.length > 0 && delays.length < 40) {
+          const ms = timers.waiting[0]!.ms;
+          delays.push(ms);
+          clock.now += ms;
+          await timers.fire();
+          await answered();
+        }
+        expect(delays.slice(0, 5)).toEqual([30_000, 60_000, 120_000, 240_000, 300_000]);
+        expect(delays.every((ms) => ms <= 300_000)).toBe(true);
+        expect(clock.now - sentAt).toBeGreaterThanOrEqual(HELD_GIVE_UP_MS);
+        expect(clock.now - sentAt - delays.at(-1)!).toBeLessThan(HELD_GIVE_UP_MS);
+        expect(timers.waiting).toEqual([]);
+        expect(confirmAtHome).toHaveBeenCalledTimes(delays.length - 1);
         expect(kept(store)).toHaveLength(1);
         expect(showError).not.toHaveBeenCalled();
+        expect(cardAnswered).not.toHaveBeenCalled();
+        expect(cardAnswerFailed).not.toHaveBeenCalled();
         expect(failedBefore()).toBe(before);
+
+        fetchThread = reading(() => homeLines({ id: "home-line-1", sendId: sent.sendId }));
+        await outbox.settleHeld([{ threadId: "main", messages: [] } as never], [], {});
+        expect(kept(store)).toEqual([]);
+        expect(cardAnswered).toHaveBeenCalledOnce();
+        expect(showError).not.toHaveBeenCalled();
+        expect(timers.waiting).toEqual([]);
       });
     });
   });

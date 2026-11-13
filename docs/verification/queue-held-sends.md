@@ -94,9 +94,13 @@ the third review's three Should fix items; this note describes that head.
 - While a copy exists the device asks the edge's held list (`GET` on `HELD_SENDS_PATH` from
   `deploy/laterdog/home/src/desk.ts`, with `?ids=…`) on a
   timer: 30 seconds, doubling to a five minute cap. Every refresh starts the
-  wait over. The timer stops when nothing is held, when the edge says to sign
-  in again, and when the store goes away; it is never started from the send
-  path's request. At most 50 ids go in one request, and only the ids asked are
+  wait over, except the refresh the held check itself asked for. The timer
+  stops when nothing is held, when the edge says to sign in again, when the
+  store goes away, and when every copy left is one the edge let go whose home
+  could not be read for longer than the hour the edge would hold it: such a
+  copy is neither delivered nor Not sent, and is decided at the next refresh
+  that comes for any other reason. It is never started from the send path's
+  request. At most 50 ids go in one request, and only the ids asked are
   settled.
 - `held` wins over `dropped` for the same id. A failed ask (network error,
   timeout, 5xx) is not an answer: the copy stays and the device asks again.

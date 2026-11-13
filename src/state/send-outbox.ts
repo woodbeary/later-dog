@@ -1,6 +1,7 @@
 import { composerDraftId, rememberFailedComposerSend } from "@/lib/drafts";
 import {
   HELD_ASK_FIRST_MS,
+  HELD_GIVE_UP_MS,
   HELD_NOT_SENT,
   heldAskGroups,
   heldReply,
@@ -162,7 +163,9 @@ function createHeldSendKeeper(deps: {
   let askAgainIn = HELD_ASK_FIRST_MS;
   let stopAskTimer: (() => void) | null = null;
   let disposed = false;
+  let refreshAsked = false;
   const forgottenWhileAsking = new Set<string>();
+  const pastGiveUp = new Set<string>();
 
   const stopAsking = () => {
     stopAskTimer?.();
@@ -171,7 +174,8 @@ function createHeldSendKeeper(deps: {
 
   const askLater = (ms: number) => {
     stopAsking();
-    if (disposed || readHeldSends(store).length === 0) return;
+    const held = readHeldSends(store);
+    if (disposed || held.every((send) => pastGiveUp.has(send.sendId))) return;
     stopAskTimer = deps.after(ms, () => {
       stopAskTimer = null;
       askAgainIn = nextHeldAskDelay(ms);
@@ -208,18 +212,24 @@ function createHeldSendKeeper(deps: {
       const delivered = wanted([...onThread, ...judged.delivered]);
       const notSent = wanted(judged.notSent);
       const wait = wanted(judged.unread);
-      if (!refresh && wait.length > 0) undecided = true;
+      for (const send of stillWanted) pastGiveUp.delete(send.sendId);
+      for (const send of wait) if (deps.now() - send.at >= HELD_GIVE_UP_MS) pastGiveUp.add(send.sendId);
+      if (!refresh && wait.some((send) => !pastGiveUp.has(send.sendId))) undecided = true;
       writeHeldSends(store, [...readHeldSends(store).filter((send) => !asked.has(send.sendId)), ...wanted(keep), ...wait]);
       for (const send of wanted(lost)) deps.onLost(send);
       for (const send of delivered) deps.onGone(send);
       for (const send of notSent) deps.onLost(send);
     }
-    if (undecided) deps.confirmAtHome();
+    if (undecided) {
+      refreshAsked = true;
+      deps.confirmAtHome();
+    }
     return { signedIn: true };
   };
 
   const settle = (refresh: Refresh | null): Promise<void> => {
-    if (refresh) askAgainIn = HELD_ASK_FIRST_MS;
+    if (refresh && refreshAsked) refreshAsked = false;
+    else if (refresh) askAgainIn = HELD_ASK_FIRST_MS;
     if (settling) {
       if (refresh) followUp = refresh;
       return settling;
@@ -254,6 +264,7 @@ function createHeldSendKeeper(deps: {
     forget(sendId) {
       const held = readHeldSends(store);
       const rest = held.filter((send) => send.sendId !== sendId);
+      pastGiveUp.delete(sendId);
       if (rest.length !== held.length) {
         writeHeldSends(store, rest);
         for (const send of held) if (send.sendId === sendId) deps.onCancelled(send);
