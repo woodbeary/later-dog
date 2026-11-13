@@ -3,48 +3,70 @@ import type { ModelSelection } from "../contracts.ts";
 import type { ThreadEngine } from "../thread-model.ts";
 import type { BatteryAccount } from "./account-battery.ts";
 import { decideAccount } from "./account-choice.ts";
-import { switchedOff } from "./account-needs-you.ts";
+import { switchedOff, waitsOnPerson } from "./account-needs-you.ts";
 import { turnSelectionFor } from "./turn-selection.ts";
 
-const engine = (instanceId: string, enabled: boolean): ThreadEngine => ({
-  instanceId, driverKind: "claudeAgent", enabled, snapshot: { state: "available" },
-  models: { options: [{ id: "claude-opus-5", label: "Claude Opus 5" }, { id: "claude-opus-5-5", label: "Claude Opus 5.5" }] },
+type State = "on" | "off" | "signed-out" | "not-installed";
+const DRIVERS: Record<string, string> = { spare: "claudeAgent", claude: "claudeAgent", codex: "codex" };
+const MODELS: Record<string, string> = { claudeAgent: "claude-opus-5", codex: "gpt-6.1-sol" };
+
+const engine = (instanceId: string, state: State): ThreadEngine => ({
+  instanceId, driverKind: DRIVERS[instanceId]!, enabled: state !== "off",
+  snapshot: state === "not-installed" ? { state: "unavailable", reason: "missing" } : { state: "available", authenticated: state !== "signed-out" },
+  models: { options: [{ id: MODELS[DRIVERS[instanceId]!]!, label: "Model" }, { id: "claude-opus-5-5", label: "Claude Opus 5.5" }] },
 } as ThreadEngine);
-const account = (instanceId: string, enabled: boolean): BatteryAccount => ({
-  instanceId, driverKind: "claudeAgent", displayName: instanceId, enabled, eligible: true, signedIn: true,
-  models: ["claude-opus-5", "claude-opus-5-5"], defaultModel: "claude-opus-5-5",
+const account = (instanceId: string, state: State): BatteryAccount => ({
+  instanceId, driverKind: DRIVERS[instanceId]!, displayName: instanceId, enabled: state !== "off", eligible: true,
+  signedIn: state !== "signed-out", models: [MODELS[DRIVERS[instanceId]!]!, "claude-opus-5-5"], defaultModel: MODELS[DRIVERS[instanceId]!]!,
 });
 
 const OWN: ModelSelection = { instanceId: "spare", model: "claude-opus-5" };
-const DOG: ModelSelection = { instanceId: "claude", model: "claude-opus-5-5" };
+const CLAUDE_DOG: ModelSelection = { instanceId: "claude", model: "claude-opus-5-5" };
+const CODEX_DOG: ModelSelection = { instanceId: "codex", model: "gpt-6.1-sol" };
 
-function heldWhileOff(on: Record<string, boolean>, own: ModelSelection | undefined = OWN) {
+function turn(on: Record<string, State>, dog: ModelSelection, own: ModelSelection | undefined = OWN, resting: Record<string, { until: string; since: string }> = {}) {
   const run = turnSelectionFor({
-    own, dog: DOG, projected: own ?? DOG,
+    own, dog, projected: own ?? dog, context: { ownerSelection: own, pinned: true },
     engine: (instanceId) => instanceId in on ? engine(instanceId, on[instanceId]!) : undefined,
   });
-  const accounts = Object.entries(on).map(([instanceId, enabled]) => account(instanceId, enabled));
-  return { run, held: switchedOff(decideAccount({ chosen: run, accounts, keepGoing: false, resting: {}, now: 0 })) };
+  const accounts = Object.entries(on).map(([instanceId, state]) => account(instanceId, state));
+  const choice = decideAccount({ chosen: run, accounts, keepGoing: false, resting, now: 0 });
+  return { run, held: switchedOff(choice), person: waitsOnPerson(choice) };
 }
 
-describe("a chat's own model on a switched-off account", () => {
-  it("gives way to the dog's model before the hold is considered, so the turn runs on the dog's account", () => {
-    expect(heldWhileOff({ spare: false, claude: true })).toEqual({ run: DOG, held: false });
+describe("a chat's own model on an account that cannot run", () => {
+  it("gives way to the dog's model on the same engine when its account is switched off", () => {
+    expect(turn({ spare: "off", claude: "on" }, CLAUDE_DOG)).toEqual({ run: CLAUDE_DOG, held: false, person: false });
   });
 
-  it("gives way when its account is gone altogether", () => {
-    expect(heldWhileOff({ claude: true })).toEqual({ run: DOG, held: false });
+  it("gives way to the dog's model on the same engine when its account is signed out", () => {
+    expect(turn({ spare: "signed-out", claude: "on" }, CLAUDE_DOG)).toEqual({ run: CLAUDE_DOG, held: false, person: false });
+  });
+
+  it("gives way whatever the engine when its account is gone or its engine is not installed", () => {
+    expect(turn({ claude: "on" }, CLAUDE_DOG)).toEqual({ run: CLAUDE_DOG, held: false, person: false });
+    expect(turn({ codex: "on" }, CODEX_DOG)).toEqual({ run: CODEX_DOG, held: false, person: false });
+    expect(turn({ spare: "not-installed", codex: "on" }, CODEX_DOG).run).toEqual(CODEX_DOG);
+  });
+
+  it("keeps the person's pick and is held when its account is switched off and the dog runs on another engine", () => {
+    expect(turn({ spare: "off", codex: "on" }, CODEX_DOG)).toEqual({ run: OWN, held: true, person: true });
+  });
+
+  it("keeps the person's pick and waits for a sign-in when its account is signed out and the dog runs on another engine", () => {
+    expect(turn({ spare: "signed-out", codex: "on" }, CODEX_DOG)).toEqual({ run: OWN, held: false, person: true });
   });
 
   it("is held when the dog's own account is switched off as well", () => {
-    expect(heldWhileOff({ spare: false, claude: false })).toEqual({ run: DOG, held: true });
+    expect(turn({ spare: "off", claude: "off" }, CLAUDE_DOG)).toEqual({ run: CLAUDE_DOG, held: true, person: true });
   });
 
   it("keeps its own model and runs when its account is on", () => {
-    expect(heldWhileOff({ spare: true, claude: true })).toEqual({ run: OWN, held: false });
+    expect(turn({ spare: "on", claude: "on" }, CLAUDE_DOG)).toEqual({ run: OWN, held: false, person: false });
   });
 
-  it("is held when the dog's account is switched off and the chat has no model of its own", () => {
-    expect(heldWhileOff({ claude: false }, undefined)).toEqual({ run: DOG, held: true });
+  it("waits for usage, not for the person, when a kept turn's own account is switched off and the dog's account is resting", () => {
+    const resting = { claude: { until: new Date(3_600_000).toISOString(), since: new Date(0).toISOString() } };
+    expect(turn({ spare: "off", claude: "on" }, CLAUDE_DOG, OWN, resting)).toEqual({ run: CLAUDE_DOG, held: false, person: false });
   });
 });
