@@ -17,6 +17,23 @@ const LEAST_POLL_EXEC_MS = 5_000;
 const NEVER_SENT: ReadonlySet<string> = new Set([".pnpm-store", ".npm"]);
 const SKIPPED_NAMES: ReadonlySet<string> = new Set([...BUILD_OUTPUT_DIRS, ...NEVER_SENT, "dist", "build", "out", "coverage", "test-results", "playwright-report"]);
 
+export const RUN_MARKER = "LATERDOG_RUN_ID";
+
+export type RunStop = "gone" | "partial" | "alive";
+export type RunLiveness = "exited" | "alive" | "dead" | "unsure";
+
+function groupOf(id: string): string {
+  return `pg=$(cat runs/.logs/${id}.pgid 2>/dev/null | tr -cd 0-9); if [ -n "$pg" ] && { [ "$pg" -le 1 ] || [ "$pg" = "$(ps -o pgid= -p $$ | tr -cd 0-9)" ]; }; then pg=; fi;`;
+}
+
+function survivorsOf(id: string): string {
+  const lock = `"$HOME/runs/.logs/${id}.lock"`;
+  return `{ if [ -d /proc/self/fd ]; then for p in /proc/[0-9]*; do q=\${p#/proc/}; [ "$q" = "$$" ] && continue; `
+    + `if tr '\\0' '\\n' < "$p/environ" 2>/dev/null | grep -qx '${RUN_MARKER}=${id}'; then echo "$q"; continue; fi; `
+    + `for f in "$p"/fd/*; do [ "$(readlink "$f" 2>/dev/null)" = ${lock} ] && { echo "$q"; break; }; done; done; `
+    + `elif command -v lsof > /dev/null; then lsof -t ${lock} 2>/dev/null; else echo unsure; fi; } | sort -u | tr '\\n' ' ' | sed 's/ *$//'`;
+}
+
 export interface BoxExec {
   exitCode: number | null;
   stdout: string;
@@ -234,7 +251,7 @@ export class ComputerRuns {
     const remember = setup
       ? `if [ $rc = 0 ] && [ -d "$HOME"/${quote(`${workDir}/node_modules`)} ]; then mkdir -p "$HOME/runs/.setup" && echo ${key} > "$HOME/runs/.setup/${setup}.${id}" && mv -f "$HOME/runs/.setup/${setup}.${id}" "$HOME/runs/.setup/${setup}"; fi; `
       : "";
-    const script = `ps -o pgid= -p $$ | tr -cd 0-9 > "$HOME/runs/.logs/${id}.pgid"; export PATH="$HOME/.local/bin:$PATH"; command -v pnpm > /dev/null || npm install -g --prefix "$HOME/.local" pnpm > /dev/null 2>&1; cd ${quote(workDir)} && touch "$HOME/runs/.logs/${id}.start" && ( ${input.command} ) > "$HOME/runs/.logs/${id}.log" 2>&1; rc=$?; ${remember}echo $rc > "$HOME/runs/.logs/${id}.exit"`;
+    const script = `export ${RUN_MARKER}=${id}; exec 9> "$HOME/runs/.logs/${id}.lock"; ps -o pgid= -p $$ | tr -cd 0-9 > "$HOME/runs/.logs/${id}.pgid"; export PATH="$HOME/.local/bin:$PATH"; command -v pnpm > /dev/null || npm install -g --prefix "$HOME/.local" pnpm > /dev/null 2>&1; cd ${quote(workDir)} && touch "$HOME/runs/.logs/${id}.start" && ( ${input.command} ) > "$HOME/runs/.logs/${id}.log" 2>&1; rc=$?; ${remember}echo $rc > "$HOME/runs/.logs/${id}.exit"`;
     if (input.active && !input.active()) throw Object.assign(new Error("the turn ended before the command started, so nothing was run"), { code: "cancelled" });
     if (input.left && input.left() <= 0) throw Object.assign(new Error("the call's time ran out before the command started, so nothing was run"), { code: "window_ended" });
     const detached = `nohup bash -lc ${quote(script)} > /dev/null 2>&1 < /dev/null &`;
@@ -256,13 +273,25 @@ export class ComputerRuns {
     return { done: code !== "", exitCode: code === "" ? null : Number(code), output: rest.join("<<<\n") };
   }
 
-  async stop(box: RunBox, record: Pick<RunRecord, "id">): Promise<boolean> {
-    if (!/^[0-9a-f]{8}$/.test(record.id)) return false;
+  async stop(box: RunBox, record: Pick<RunRecord, "id">): Promise<RunStop> {
+    if (!/^[0-9a-f]{8}$/.test(record.id)) return "alive";
+    const script = `${groupOf(record.id)} S() { ${survivorsOf(record.id)}; }; `
+      + `if [ -n "$pg" ]; then kill -TERM -- -$pg 2>/dev/null; for i in 1 2 3 4 5; do kill -0 -- -$pg 2>/dev/null || break; sleep 1; done; kill -KILL -- -$pg 2>/dev/null; sleep 0.5; fi; `
+      + `left=$(S); if [ "$left" = "unsure" ]; then if [ -n "$pg" ] && ! kill -0 -- -$pg 2>/dev/null; then echo partial; else echo alive; fi; exit 0; fi; `
+      + `if [ -n "$left" ]; then kill -TERM $left 2>/dev/null; sleep 2; left=$(S); [ -n "$left" ] && kill -KILL $left 2>/dev/null; sleep 0.5; left=$(S); fi; `
+      + `if [ -n "$pg" ] && kill -0 -- -$pg 2>/dev/null; then echo alive; elif [ -n "$left" ]; then echo alive; else echo gone; fi`;
+    const said = (await box.exec(script, 30_000)).stdout.trim();
+    return said === "gone" || said === "partial" ? said : "alive";
+  }
+
+  async liveness(box: RunBox, record: Pick<RunRecord, "id">): Promise<RunLiveness> {
+    if (!/^[0-9a-f]{8}$/.test(record.id)) return "unsure";
     const logs = `runs/.logs/${record.id}`;
-    const script = `pg=$(cat ${logs}.pgid 2>/dev/null | tr -cd 0-9); if [ -z "$pg" ] || [ "$pg" -le 1 ] || [ "$pg" = "$(ps -o pgid= -p $$ | tr -cd 0-9)" ]; then [ -f ${logs}.exit ] && echo gone || echo unknown; exit 0; fi; `
-      + `kill -TERM -- -$pg 2>/dev/null; for i in 1 2 3 4 5; do kill -0 -- -$pg 2>/dev/null || { echo gone; exit 0; }; sleep 1; done; `
-      + `kill -KILL -- -$pg 2>/dev/null; sleep 1; kill -0 -- -$pg 2>/dev/null && echo alive || echo gone`;
-    return (await box.exec(script, 30_000)).stdout.trim() === "gone";
+    const script = `if [ -f ${logs}.exit ]; then echo exited; exit 0; fi; ${groupOf(record.id)} `
+      + `if [ -n "$pg" ] && kill -0 -- -$pg 2>/dev/null; then echo alive; exit 0; fi; left=$(${survivorsOf(record.id)}); `
+      + `if [ "$left" = "unsure" ]; then [ -n "$pg" ] && echo dead || echo unsure; elif [ -n "$left" ]; then echo alive; else echo dead; fi`;
+    const said = (await box.exec(script, 30_000)).stdout.trim();
+    return said === "exited" || said === "alive" || said === "dead" ? said : "unsure";
   }
 
   window(budgetMs = WAIT_IN_ONE_CALL_MS): () => number {
@@ -307,7 +336,7 @@ export class ComputerRuns {
     const state = await this.wait(box, record, left);
     if (!state.done) {
       const overdue = this.#now() - record.startedAt >= MAX_RUN_MS;
-      if (overdue) await this.stop(box, record).catch(() => false);
+      if (overdue) await this.stop(box, record).catch(() => "alive");
       return { id: record.id, state: overdue ? "failed" : "running", exitCode: null, output: state.output, broughtBack: [], skipped: [], ...sent,
         note: overdue ? "Stopped after 2 hours." : `Still running. Call run_on_computer again with run_id "${record.id}" to keep waiting.` };
     }
