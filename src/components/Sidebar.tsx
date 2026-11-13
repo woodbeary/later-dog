@@ -102,6 +102,7 @@ import { LiveCallPill, liveBadgeFor } from "./LiveCallPill";
 import { citationPreviewText } from "@/lib/citations";
 import { markdownPreview } from "../../shared/markdown-preview";
 import { StatusDot } from "./StatusDot";
+import { openQuestion } from "@/lib/open-question";
 import { Collapsible } from "./Collapsible";
 import { copyConversationId } from "@/lib/copy-conversation-id";
 import { attentionKind } from "@/lib/dog-status";
@@ -116,6 +117,7 @@ function sectionLabel(id: string): string {
 export function waitingLine(visible: Message[]): string {
   const proxy = visible.findLast((message) => message.needsYou?.status === "waiting")?.needsYou;
   if (proxy) return t("chat.needsYou.proxy", { name: proxy.botName, label: proxy.label });
+  if (openQuestion(visible)) return t("sidebar.preview.question");
   const open = pendingApprovals(visible).at(-1)?.message.card;
   return open ? t("sidebar.preview.waitingFor", { action: approvalAction(open) }) : t("sidebar.preview.waiting");
 }
@@ -187,18 +189,19 @@ function StackedDogs({ members, density, busyBotId }: { members: Bot[]; density:
   }
   const shown = members.slice(0, 2);
   const extra = members.length - shown.length;
+  const face = iconOnly ? 32 : 22;
   return (
-    <div className={cn("flex shrink-0 items-center justify-center", slotSize)}>
-      <div className="flex items-center -space-x-2.5">
-        {shown.map((b) => (
-          <BotAvatar key={b.id} bot={b} state={b.id === busyBotId ? "thinking" : "happy"} size={iconOnly ? 30 : 20} animated={b.id === busyBotId} />
-        ))}
-        {extra > 0 && (
-          <span className="z-10 flex size-4 items-center justify-center rounded-full border border-hairline/40 bg-raised text-[9px] font-medium text-ink-secondary">
-            +{extra}
-          </span>
-        )}
-      </div>
+    <div data-group-faces className={cn("relative shrink-0", slotSize)}>
+      {shown.map((b, index) => (
+        <span key={b.id} className={cn("absolute flex rounded-full", index === 0 ? "left-0 top-0" : "bottom-0 right-0 bg-panel ring-2 ring-panel")}>
+          <BotAvatar bot={b} state={b.id === busyBotId ? "thinking" : "happy"} size={face} animated={b.id === busyBotId} />
+        </span>
+      ))}
+      {extra > 0 && (
+        <span className="absolute bottom-0 left-0 z-10 flex size-4 items-center justify-center rounded-full border border-hairline/40 bg-raised text-[9px] font-medium text-ink-secondary">
+          +{extra}
+        </span>
+      )}
     </div>
   );
 }
@@ -967,7 +970,7 @@ export const BotListItem = memo(function BotListItem(props: BotRowProps) {
             <span className="flex min-w-0 items-center gap-1.5 truncate text-[11px] text-ink-secondary">
               {working && !work ? (
                 <span className="flex h-[1.5em] items-center" role="status">
-                  <WorkingDots size={3.5} />
+                  <WorkingDots size={4} />
                   <span className="sr-only">{t("sidebar.preview.working")}</span>
                 </span>
               ) : (

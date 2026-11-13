@@ -84,7 +84,18 @@ describe("header name", () => {
     const row = markup.match(/data-chathead-row="true" class="([^"]*)"/)?.[1] ?? "";
     expect(row).toContain("@min-[30rem]/chathead:grid-cols-[minmax(0,1fr)_minmax(0,auto)_minmax(max-content,1fr)]");
     expect(markup).toMatch(/data-chathead-identity="true" class="[^"]*@min-\[30rem\]\/chathead:col-start-2[^"]*justify-self-center/);
-    expect(markup).toMatch(/data-chathead-controls="true" class="[^"]*@min-\[30rem\]\/chathead:col-start-3/);
+    expect(markup).toMatch(/data-chathead-side="true" class="[^"]*@min-\[30rem\]\/chathead:col-start-3/);
+  });
+
+  it("keeps the pill where it is when a state line shows: the line sits in the last column and adds no width", () => {
+    const waiting: Bot = { ...bot, busy: false, work: { kind: "stopped", cause: "engine" }, tasks: [{ ...bot.tasks![0]!, work: { kind: "stopped", cause: "engine" } }] };
+    const markup = renderToStaticMarkup(createElement(ChatView, { bot: waiting }));
+    const identity = markup.slice(markup.indexOf("data-chathead-identity"), markup.indexOf("data-chathead-side"));
+    expect(markup).toContain('data-work-state="stopped"');
+    expect(identity).not.toContain("data-work-state");
+    const state = /data-chathead-state="true" class="([^"]*)"/.exec(markup)![1]!.split(" ");
+    expect(state).toEqual(expect.arrayContaining(["w-0", "min-w-0", "flex-1"]));
+    expect(markup.indexOf("data-chathead-state")).toBeLessThan(markup.indexOf("data-chathead-controls"));
   });
 });
 

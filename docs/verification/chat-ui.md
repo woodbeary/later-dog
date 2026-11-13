@@ -118,7 +118,7 @@ or `Denied` with the tool's short name; the open card offers Allow once
 about one of the owner's Macs offers Allow once, Always allow and Never. The
 exact command shows open in a mono block of capped height, one plain line under
 the lasting choice says how far it reaches, and the dog's sidebar line reads
-`Waiting for you: <action>`. Don't allow always hands the engine the same fixed
+`Asks to <action>` (`Has a question` for a question). Don't allow always hands the engine the same fixed
 denial (`server/laterdog/person-denied.ts`), whatever text the client sent. Only
 the Claude, Codex and ACP drivers pass that text on; the OpenAI-compatible chat
 drivers (`server/drivers/chat-tool-approval.ts`, used by the Grok API and

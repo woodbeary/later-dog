@@ -107,7 +107,7 @@ describe("BotListItem", () => {
       activity: "waiting-on-you",
       messages: [{ id: "c1", role: "bot", kind: "options", at: 2, card: { title: "Approval needed", subtitle: "ls", options: ["Allow", "Deny"], requestId: "r1", tool: "Bash" } }] as Bot["messages"],
     }), "icons");
-    expect(waiting).toContain('aria-label="Atlas · Waiting for you: run a command"');
+    expect(waiting).toContain('aria-label="Atlas · Asks to run a command"');
   });
 
   it("names a row in the list for a screen reader the way the icon rail does, so a row whose contents are not drawn still has a name", () => {
@@ -319,9 +319,9 @@ describe("bot deletion feedback", () => {
         card: { title: "Approval needed", subtitle: "rm -rf build", options: ["Allow", "Deny"], requestId: "r1", tool: "Bash", ...extra },
       }) as Bot["messages"][number];
       const markup = renderRow(bot({ activity: "waiting-on-you", messages: [card()] }));
-      expect(markup).toContain('<span class="truncate text-waiting-text">Waiting for you: run a command</span>');
+      expect(markup).toContain('<span class="truncate text-waiting-text">Asks to run a command</span>');
       expect(markup).not.toContain('<span class="truncate text-waiting-text">Waiting for you…');
-      expect(renderRow(bot({ activity: "waiting-on-you", messages: [card({ tool: "mac_run_command" })] }))).toContain("Waiting for you: run a command on your Mac");
+      expect(renderRow(bot({ activity: "waiting-on-you", messages: [card({ tool: "mac_run_command" })] }))).toContain("Asks to run a command on your Mac");
       expect(renderRow(bot({ activity: "waiting-on-you", messages: [card({ answered: "deny" })] }))).toContain('<span class="truncate text-waiting-text">Waiting for you…');
     });
 

@@ -226,7 +226,7 @@ export function PendingApprovalActions({
   const base = "rounded-full px-4 py-2 text-[13.5px] font-medium transition-colors";
   const quiet = "min-w-[120px] bg-control text-ink hover:bg-control-hover";
   const primary = "min-w-[120px] bg-accent text-white hover:brightness-110";
-  const durable = "rounded-full px-2.5 py-1.5 text-[13px] font-medium text-ink-secondary transition-colors hover:bg-control hover:text-ink";
+  const durable = "rounded-full border border-hairline px-4 py-[7px] text-[13.5px] font-medium text-ink-secondary transition-colors hover:bg-control hover:text-ink";
   const reach = !durableRequest && bot && pending.allowKey
     ? outbound
       ? t("approval.reach.connector", { name: bot.name, app: outbound.app ?? t("approval.reach.connectorApp") })

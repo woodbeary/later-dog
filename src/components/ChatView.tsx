@@ -108,7 +108,7 @@ import { cn } from "@/lib/cn";
 import { chatPane } from "@/state/pane-errors";
 import { PaneErrorLine } from "./PaneErrorLine";
 import { activeLocale, t } from "@/lib/i18n";
-import { WorkStatusLine } from "./WorkStatusLine";
+import { needsYouWords, WorkStatusLine } from "./WorkStatusLine";
 import { TurnReceiptLine } from "./TurnReceiptLine";
 import { TurnResultsBlock, hasTurnResults } from "./TurnResultsBlock";
 import { groupTranscript, isStatusActivity, planTranscript, type TranscriptPlan } from "@/lib/activity-runs";
@@ -840,7 +840,7 @@ const MessagesList = memo(function MessagesList({
               return <ActivityChip message={m} place={place} />;
             }
             case "digest":
-              return showToolCalls ? <DigestChip message={m} /> : null;
+              return showToolCalls && !nativeRuns.some((run) => run.turnId === m.turnId) ? <DigestChip message={m} /> : null;
             case "compaction":
               return <CompactionChip message={m} />;
             case "screen":
@@ -920,6 +920,7 @@ export function ChatView({ bot: profile }: { bot: Bot }) {
   const thread = useMemo(() => visibleMessages({ messages: allMessages, activeLeafId }), [allMessages, activeLeafId]);
   const messages = useMemo(() => thread.filter(shownToPerson), [thread]);
   const exchangeThread = useMemo(() => ({ thread, working: Boolean(bot.busy) }), [thread, bot.busy]);
+  const asking = useMemo(() => needsYouWords(bot.name, messages), [bot.name, messages]);
   const lookups = useMemo(() => transcriptLookups(allMessages, messages), [allMessages, messages]);
   const takeoverOpen = useMemo(
     () => messages.some((m) => m.kind === "options" && m.card?.takeoverRequest && isOpenTakeover(m.card.takeoverRequest.status)),
@@ -1116,11 +1117,14 @@ export function ChatView({ bot: profile }: { bot: Bot }) {
             </span>
             <span className="min-w-0 truncate text-[14px] font-semibold text-ink">{bot.name}</span>
           </button>
-          <WorkStatusLine bot={bot} />
+        </div>
+        <div data-chathead-side className="flex min-w-0 items-center gap-3 @max-[30rem]/chathead:basis-full @min-[30rem]/chathead:col-start-3">
+        <div data-chathead-state className="flex w-0 min-w-0 flex-1 pl-2">
+          <WorkStatusLine bot={bot} what={asking} />
         </div>
         <div
           data-chathead-controls
-          className="flex shrink-0 items-center gap-2 @max-[30rem]/chathead:ml-auto @max-[30rem]/chathead:flex-wrap @max-[30rem]/chathead:justify-end @min-[30rem]/chathead:col-start-3 @min-[30rem]/chathead:justify-self-end"
+          className="flex shrink-0 items-center gap-2 @max-[30rem]/chathead:ml-auto @max-[30rem]/chathead:flex-wrap @max-[30rem]/chathead:justify-end"
           style={controlsShiftStyle}
         >
           <LiveCallChip currentBotId={bot.id} onOpen={(botId, threadId) => openNotificationTarget(dispatch, { botId, threadId }, readStore())} />
@@ -1140,6 +1144,7 @@ export function ChatView({ bot: profile }: { bot: Bot }) {
             <Search size={18} />
           </button>
           <ChatHeaderMenu key={`menu:${bot.threadId}`} bot={bot} messages={messages} />
+        </div>
         </div>
         </div>
       </div>

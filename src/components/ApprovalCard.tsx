@@ -405,7 +405,7 @@ export function ApprovalCard({
         </div>
       </div>
       {outbound?.summary && <div className="mt-0.5 text-[13px] text-ink-secondary">{outbound.summary}</div>}
-      {card.nativeActorLabel && <p className="mt-1 text-[11px] text-ink-secondary">Requested by {card.nativeActorLabel}</p>}
+      {card.nativeActorLabel && card.nativeActorLabel !== bot?.name && <p className="mt-1 text-[11px] text-ink-secondary">Requested by {card.nativeActorLabel}</p>}
 
       {isProposal ? (
         <details className="group mt-1.5 text-[13px] text-ink-secondary">

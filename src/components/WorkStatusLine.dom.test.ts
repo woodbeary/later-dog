@@ -3,6 +3,7 @@ import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { WorkStatusLine } from "./WorkStatusLine";
+import type { Message } from "@/state/store";
 
 let root: Root;
 let host: HTMLDivElement;
@@ -40,4 +41,18 @@ it("says who is working in a room's header, and nothing from a home that sends n
   expect(host.querySelector("[role=status]")?.textContent).toBe("Needs you: Allow the deploy?");
   draw({ busy: true, work: undefined });
   expect(host.textContent).toBe("");
+});
+
+it("names the dog and what it waits for in the header and the sidebar, for a question and for an approval", async () => {
+  const { needsYouWords } = await import("./WorkStatusLine");
+  const { waitingLine } = await import("./Sidebar");
+  const question = { id: "q", role: "bot", kind: "options", at: 1, card: { title: "Your dog has a question", options: [], requestId: "r1", requestType: "question" } } as unknown as Message;
+  const approval = { id: "a", role: "bot", kind: "options", at: 2, card: { title: "Approval needed", options: [], requestId: "r2", tool: "Bash", subtitle: "ls" } } as unknown as Message;
+  expect(needsYouWords("Pepper", [question])).toBe("Pepper has a question");
+  expect(needsYouWords("Pepper", [approval])).toBe("Pepper wants to run a command");
+  expect(needsYouWords("Pepper", [])).toBeUndefined();
+  expect(waitingLine([question])).toBe("Has a question");
+  expect(waitingLine([approval])).toBe("Asks to run a command");
+  act(() => root.render(createElement(WorkStatusLine, { bot: { busy: false, work: { kind: "needs-you", what: "Your dog has a question" } }, what: needsYouWords("Pepper", [question]) })));
+  expect(host.querySelector("[role=status]")?.textContent).toBe("Needs you: Pepper has a question");
 });
