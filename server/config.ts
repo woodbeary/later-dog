@@ -443,6 +443,7 @@ const appConfigSchema = z.object({
   }).strict().optional(),
   threads: threadsConfigSchema.optional(),
   decisions: z.object({ retentionDays: z.number().int().min(1).max(3650).optional() }).strict().optional(),
+  storage: z.object({ foldersAway: z.boolean().optional() }).strict().optional(),
   localVm: localVmConfigSchema.optional(),
   features: featureConfigSchema.optional(),
   onboarding: onboardingConfigSchema.optional(),
@@ -460,7 +461,7 @@ const storedAppConfigSchema = appConfigSchema.extend({
       .optional(),
   }).optional(),
 });
-const appConfigPatchSchema = appConfigSchema.omit({ instances: true, mcpServers: true, cliStartup: true, customDomain: true })
+const appConfigPatchSchema = appConfigSchema.omit({ instances: true, mcpServers: true, cliStartup: true, customDomain: true, storage: true })
   .extend({ threads: threadsPatchSchema.optional(), newBots: newBotsPatchSchema.optional(), accountBattery: accountBatteryPatchSchema.optional() });
 const jsonObjectSchema = z.record(z.string(), z.json());
 
@@ -503,6 +504,7 @@ export interface AppConfig {
   rooms?: { turnTimeoutMinutes: number; handoffIdleMinutes?: number; handoffLifetimeMinutes?: number; handoffMinRunwayMinutes?: number; handoffHardCapMinutes?: number };
   mcp?: { callTimeoutMinutes?: number };
   threads?: { maxConcurrentPerBot: number; eventLogMaxBytes?: number; eventLogRetentionDays?: number };
+  storage?: { foldersAway?: boolean };
   context?: { rebuildBytes?: number; compactAt?: number; autoCompact?: boolean; harnessCompaction?: boolean };
   memory?: { captureQuietMs?: number; tidyHour?: number };
   localVm?: { mode?: "shared" | "per-bot" | "pool"; maxInstances?: number; idleTimeoutMinutes?: number };
@@ -651,6 +653,10 @@ export function maxConcurrentBotThreads(cfg: { threads?: { maxConcurrentPerBot?:
 export function threadEventLogMaxBytes(cfg: AppConfig): number | null {
   const cap = cfg.threads?.eventLogMaxBytes;
   return typeof cap === "number" && Number.isFinite(cap) && cap > 0 ? cap : null;
+}
+
+export function foldersAwayOn(cfg: AppConfig): boolean {
+  return cfg.storage?.foldersAway === true;
 }
 
 export function threadEventLogRetentionDays(cfg: AppConfig): number | null {

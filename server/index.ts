@@ -140,7 +140,7 @@ import { HeavyCommandGuard, preToolUseDecision } from "./laterdog/heavy-commands
 import { computersSelected } from "./laterdog/cloud-computers.ts";
 import { createComputerRunRoute } from "./routes/computer-run.ts";
 import { createStorageRoutes } from "./routes/storage.ts";
-import { AWAY_RULES, createAwayPlanner, type AwayPlannerDeps } from "./laterdog/folder-away-plan.ts";
+import { AWAY_RULES, createAwayPlanner, measureAwayPlan, type AwayPlannerDeps } from "./laterdog/folder-away-plan.ts";
 import * as boat from "./computers.ts";
 import { cloudComputerRpc } from "./cloud-computer-tools.ts";
 import { TeamComputers, teamComputerAssignment, teamComputerCreate, teamComputerOwner, type TeamComputerRecord } from "./team-computers.ts";
@@ -204,6 +204,7 @@ import {
   threadEventLogMaxBytes,
   maxConcurrentBotThreads,
   threadEventLogRetentionDays,
+  foldersAwayOn,
   saveConfig,
   showToolCallsEnabled,
   claudeUserMcpEnabled,
@@ -547,6 +548,7 @@ import { fetchGithubTeam, fetchLibraryTeam, fetchTeamCatalog } from "./team-libr
 import { BOT_PACKAGE_MAX_SKILLS, isBotPackage, packageSummary, parsePackageDocument, renderBotPackageMarkdown, type PackageDocument } from "./bot-package.ts";
 import { createTeamManifest, parseTeamManifest } from "./team-manifest.ts";
 import { LogArchiveCoordinator, claudeSessionIds, logArchiveBridge, outsideSessionOwners } from "./laterdog/log-archive.ts";
+import { FolderAwayCoordinator, PRESSURE_CHECK_MS, SWEEP_EVERY_MS, folderAwayBridge } from "./laterdog/folder-away.ts";
 import { readThreadEvents } from "./thread-events.ts";
 import { describeTool, readBotActivity } from "./activity.ts";
 import { OutboundRequestService } from "./outbound-requests.ts";
@@ -2724,6 +2726,24 @@ const logArchive = CLOUD_SECRETS.LATERDOG_CLOUD_ARCHIVE_TOKEN && process.env.LAT
     sessions: id => claudeSessionIds(store.bots.flatMap(bot => store.tasks(bot.id)).find(task => task.threadId === id)?.resumeCursors),
     outsideSessions: () => outsideSessionOwners(store.bots.map(bot => ({ threadId: bot.threadId, resumeCursors: bot.resumeCursors, tasks: store.tasks(bot.id) })), id => Boolean(store.groupByThread(id))),
     report: message => console.log(`[log archive] ${message}`),
+  }) : null;
+
+const folderAway = CLOUD_SECRETS.LATERDOG_CLOUD_ARCHIVE_TOKEN && process.env.LATERDOG_CLOUD_ARCHIVE_URL
+  ? new FolderAwayCoordinator({
+    bridge: folderAwayBridge(process.env.LATERDOG_CLOUD_ARCHIVE_URL, CLOUD_SECRETS.LATERDOG_CLOUD_ARCHIVE_TOKEN),
+    tasksDir: TASK_WORKSPACES_DIR,
+    enabled: () => foldersAwayOn(cfg),
+    chat: (botId, threadId) => {
+      const state = awayChatState(botId, threadId);
+      return { exists: state.exists, inUse: state.inUse || state.routineSoon };
+    },
+    plan: () => measureAwayPlan(awayPlanDeps()),
+    disk: () => diskUse(DATA_DIR),
+    changed: (botId) => {
+      const bot = store.bot(botId);
+      if (bot) broadcast({ kind: "bot", bot: wireBot(bot) });
+    },
+    log: (line) => console.log(`[folders away] ${line}`),
   }) : null;
 
 function parksBehindCoordination(botId: string, threadId: string): boolean {
@@ -5653,7 +5673,7 @@ const compactionLive = createCompactionLive({
 });
 const engineSummaries = fileEngineSummaries(join(DATA_DIR, "engine-summaries.json"));
 const engineSummaryWindows = createEngineSummaryWindows();
-liveStatusLine = (threadId) => compactionLive.current(threadId) ?? statusLines.current(threadId);
+liveStatusLine = (threadId) => folderAway?.line(threadId) ?? compactionLive.current(threadId) ?? statusLines.current(threadId);
 statusLines.foldLeftovers();
 compactionLive.foldLeftovers();
 let companyShutdown = false;
@@ -8618,6 +8638,9 @@ async function startTurn(
         throw new DirectTurnSetupCancelled("turn stopped while saved logs were restored");
       }
       if (logArchive) watchdog.watch(threadId, bot.id);
+      if (folderAway && !await folderAway.ensurePaths([join(TASK_WORKSPACES_DIR, bot.id, threadId), store.taskByThread(bot.id, threadId)?.cwd], () => directTurnClaimIsCurrent(bot.id, dispatchClaimId, threadId))) {
+        throw new DirectTurnSetupCancelled("turn stopped while the chat's files were brought back");
+      }
       if (enginesRead) {
         await enginesRead;
         if (!directTurnClaimIsCurrent(bot.id, dispatchClaimId, threadId)) throw new DirectTurnSetupCancelled("turn stopped while the engines were read");
@@ -10891,6 +10914,7 @@ async function runGroupMemberTurn(
   const worksInWorkspace = supportsWorkspaceFiles(instance.driverKind);
   const workspace = worksInWorkspace ? ensureWorkspace(bot.id) : undefined;
   if (workspace && bot.memoryEnabled !== false) beginMemoryTurn(bot.id, threadId);
+  if (folderAway && workspace && cloudGuestOpened(threadId) && !await folderAway.ensureChatFolder(bot.id, threadId, () => !isCancelled?.())) return false;
   const cwd = workspace && cloudGuestOpened(threadId)
     ? ensureTaskWorkspace(bot.id, threadId)
     : groupTurnCwd(workspace, () => store.pinGroupCwd(readyGroup.id, threadId));
@@ -13205,6 +13229,7 @@ ROUTES.push(createStreamWatchRoutes({ clients: () => sseClients }));
 ROUTES.push(createStorageRoutes({
   storage: () => cloudStorage(), clean: () => runJanitorNow("low-disk"), measure: () => diskBreakdown.measure(),
   awayPlan: { last: () => awayPlanner.last(), measuring: () => awayPlanner.measuring(), measure: () => awayPlanner.measure() },
+  ...(folderAway ? { bringAllBack: () => folderAway.bringAllBack() } : {}),
 }));
 ROUTES.push(createLinkPreviewRoutes());
 ROUTES.push(createBotMemoryRoutes({
@@ -13600,6 +13625,7 @@ const computerRuns = new ComputerRuns(join(DATA_DIR, "computer-runs"));
 INTERNAL_ROUTES.push(createComputerRunRoute({
   owns: (botId, threadId) => connectorThread(botId, threadId) !== null,
   folders: (botId, threadId) => messageFileRootsForThread(botId, threadId).filter((root) => root !== ATTACHMENTS_DIR),
+  ready: (roots) => folderAway ? folderAway.ensurePaths(roots) : Promise.resolve(true),
   runs: computerRuns,
   computer: boat.heavyRunBox,
   active: (capability) => internalCapabilityIsActive(capability as InternalCapability),
@@ -14539,6 +14565,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         const requestedPath = typeof body.path === "string" ? body.path : "";
         const requestedName = typeof body.name === "string" ? body.name : undefined;
         try {
+          if (folderAway) await folderAway.ensurePaths(messageFileRootsForThread(from.id, threadId));
           const vm = await attachmentVmForTurn(internalCapability);
           const outcome = await attachForTurn(internalCapability, MAX_ATTACHED_FILES_PER_TURN, {
             save: () => {
@@ -16087,6 +16114,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         ? messageFolderEntryName(body.entry)
         : undefined;
       if (folderEntry === null) return json(res, 400, { error: "entry must be one file name" });
+      if (folderAway) await folderAway.ensurePaths([...roots, href]);
       let file: Awaited<ReturnType<typeof openMessageFile>>;
       try {
         file = folderEntry
@@ -21184,6 +21212,13 @@ function awayPlanDeps(): AwayPlannerDeps {
 
 const awayPlanner = createAwayPlanner(awayPlanDeps(), (line) => console.warn(`[folders away] ${line}`));
 
+if (folderAway) {
+  const sweepFolders = () => void folderAway.sweep().catch((error: unknown) => console.warn(`[folders away] sweep deferred: ${error instanceof Error ? error.message : String(error)}`));
+  setTimeout(sweepFolders, 5 * 60_000).unref();
+  setInterval(sweepFolders, SWEEP_EVERY_MS).unref();
+  setInterval(() => void folderAway.pressureCheck()?.catch(() => {}), PRESSURE_CHECK_MS).unref();
+}
+
 let lastJanitorRun: JanitorRun | null = null;
 const diskBreakdown = createDiskBreakdown({ dataDir: DATA_DIR, home: CLOUD_HOME ? homedir() : null, scratch: CLOUD_HOME ? [tmpdir()] : [], dogName: (id) => store.bot(id)?.name ?? null });
 let janitorRunning = false;
@@ -21272,7 +21307,7 @@ function cloudStorage() {
     memory: { totalBytes: totalmem(), availableBytes: process.availableMemory() },
     low: isLowDisk(disk),
     warning: null,
-    archive: logArchive?.status() ?? { enabled: false },
+    archive: { ...(logArchive?.status() ?? { enabled: false }), folders: folderAway?.report() ?? null },
     janitor: lastJanitorRun ? { at: lastJanitorRun.at, freedBytes: lastJanitorRun.freedBytes, stopped: lastJanitorRun.reaped } : null,
     breakdown: diskBreakdown.last(),
   };
