@@ -776,6 +776,7 @@ import { decodeInjectId } from "./drivers/local-inject.ts";
 import { withDroppedSummary } from "./laterdog/rebuild-summary.ts";
 import { foldReason, keptContext, personLine, writeHistorySummary } from "./laterdog/history-summary.ts";
 import { dogWriter } from "./laterdog/dog-writer.ts";
+import { rowForApps } from "./laterdog/compaction-row.ts";
 import { openHandoffsFromRoom, personOwes, recordsText, withRecords } from "./laterdog/rebuild-records.ts";
 import { fileEngineSummaries } from "./laterdog/engine-summaries.ts";
 import { createEngineSummaryWindows } from "./laterdog/engine-summary-window.ts";
@@ -5101,7 +5102,7 @@ function pageSize(raw: string | null): number | null | undefined {
 }
 
 function slimMessage(stored: Message): Message | Record<string, unknown> {
-  const message = exchangeLookup && exchangeIdOf(stored) ? withExchange(stored, exchangeLookup) : stored;
+  const message = rowForApps(exchangeLookup && exchangeIdOf(stored) ? withExchange(stored, exchangeLookup) : stored);
   if (message.kind !== "screen" || !message.png) return message;
   const { png: _png, ...rest } = message;
   return { ...rest, hasImage: true };
@@ -5109,7 +5110,7 @@ function slimMessage(stored: Message): Message | Record<string, unknown> {
 
 function messagePage(threadId: string, limit: number | undefined, before?: string | null, view: PageView = {}) {
   if (limit === undefined) {
-    return { messages: store.messagesFor(threadId), activeLeafId: store.activeLeaf(threadId) };
+    return { messages: store.messagesFor(threadId).map(rowForApps), activeLeafId: store.activeLeaf(threadId) };
   }
   const slim = (message: Message) => slimMessage(view.brief ? briefStep(message) : message);
   if (!before) {
