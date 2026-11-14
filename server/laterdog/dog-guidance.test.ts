@@ -41,6 +41,7 @@ import {
   CHECKLIST_IN_REPLY,
   HELPER_BRIEF,
   NEEDS_PERSON,
+  CARD_SHOWS,
   needsPerson,
   PRECEDENCE,
   ROUTINE_OFFER,
@@ -157,6 +158,8 @@ describe("the guidance every dog gets", () => {
     expect(needsPerson("claude")).toMatch(/questions and choices go through AskUserQuestion, one at a time with real options; a secure form, take-over, device approval, credential request or proposal covers its own case/);
     expect(needsPerson("codex")).toMatch(/questions and choices go through request_user_input/);
     expect(needsPerson("other")).toBe(NEEDS_PERSON);
+    expect(CARD_SHOWS).toBe("The card shows only the choices you give, and the person can always answer in the chat instead, so never name a control on it such as an Other option; you may say they can also answer in their own words.");
+    for (const engine of ["claude", "codex"] as const) expect(needsPerson(engine)).toContain(` ${CARD_SHOWS} `);
     for (const engine of ["claude", "codex"] as const) {
       expect(needsPerson(engine)).toMatch(/A dismissed or declined card is a no/);
       expect(dogGuidance({ engine, model: engine === "claude" ? "claude-opus-5-5" : "gpt-5.6" })).toContain(needsPerson(engine));
