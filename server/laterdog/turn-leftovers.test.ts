@@ -131,6 +131,36 @@ describe("after a turn ends", () => {
     settle();
     expect(swept).toEqual([]);
   });
+
+  function withTemp(work: boolean[]) {
+    const order: string[] = [];
+    const delays: number[] = [];
+    const queued: (() => void)[] = [];
+    const listen = turnUpkeep({
+      atWork: () => work.shift() ?? false,
+      endLeftovers: (mark) => { order.push("processes"); return [proc(40, 1, "node dev-server.mjs", mark)]; },
+      emptyTemp: (threadId) => order.push(`temp ${threadId}`),
+      log: () => {},
+      later: (go, ms) => { delays.push(ms); queued.push(go); },
+    });
+    const settle = () => { while (queued.length) queued.shift()!(); };
+    return { listen, order, delays, settle };
+  }
+
+  it("empties the chat's temp folder after what it left has had time to stop", () => {
+    const { listen, order, delays, settle } = withTemp([]);
+    listen({ type: "turn.completed", threadId: "chat-a" });
+    settle();
+    expect(order).toEqual(["processes", "temp chat-a"]);
+    expect(delays[1]).toBeGreaterThan(5_000);
+  });
+
+  it("never empties the temp folder of a chat whose next turn has begun", () => {
+    const { listen, order, settle } = withTemp([false, true]);
+    listen({ type: "turn.completed", threadId: "chat-a" });
+    settle();
+    expect(order).toEqual(["processes"]);
+  });
 });
 
 describe("reading the home's processes", () => {
@@ -165,6 +195,12 @@ describe("reading the home's processes", () => {
   });
 
   it("gives every engine its chat's mark", () => {
-    expect(chatEngineEnvironment("chat-a")).toEqual({ LATERDOG_CHAT: "chat-a" });
+    expect(chatEngineEnvironment("chat-a", {})).toEqual({ LATERDOG_CHAT: "chat-a" });
+  });
+
+  it("gives an engine on the home its chat's own temp folder as well", () => {
+    const root = join(mkdtempSync(join(tmpdir(), "chat-env-")), "laterdog-chats");
+    const env = chatEngineEnvironment("chat-a", { LATERDOG_CLOUD_ROLE: "home" }, root);
+    expect(env).toEqual({ LATERDOG_CHAT: "chat-a", TMPDIR: join(root, "chat-a"), TMP: join(root, "chat-a"), TEMP: join(root, "chat-a") });
   });
 });

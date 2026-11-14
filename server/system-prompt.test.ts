@@ -342,6 +342,7 @@ describe("cloudHomePrompt", () => {
       expect(text).not.toContain("built-in browser");
       expect(text).not.toMatch(/\blaterdog\b|\bBoat\b|\bbox\b/);
       expect(text).toContain("Never ask them to set up this computer or a Local VM; neither exists here.");
+      expect(text).toContain("$TMPDIR is this chat's own and is emptied when your turn ends, so keep anything you need later in your workspace.");
       expect(text).not.toMatch(/Computer panel|container runtime|configure/i);
     }
   });
