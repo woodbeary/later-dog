@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.3.48 — 2026-11-13
+
+- **Every dog keeps a plan you can see.** It writes down what you asked for, including what you want later, ticks items off as it works and answers "checkpoint?" from it. The plan shows as a checklist under the working line and survives a restart.
+- **A bare "thanks" or "ok" gets one reaction** in place of an extra reply. Sent while a dog works, the work carries on.
+- **When a turn fails you read one plain line** that says what happened and what to do, with the engine's own text under Details. When a dog recovers by itself, the chat shows one recovery line.
+- **A lost conversation is picked back up.** When an engine no longer has a chat's saved session, the dog rebuilds the conversation within the same turn, keeps a summary of what was dropped, and answers.
+- **Claude and ChatGPT dogs compact long chats themselves** and keep their session, where later.dog used to cut the chat and start the engine cold.
+- **A chat stays on its AI.** An account check that fails or times out no longer moves a chat to another AI or asks you to sign in again by mistake.
+
 ## 0.3.47 — 2026-11-12
 
 - **Every chat says what its dog is doing:** working, waiting on another dog, needs you, waiting for usage, or stopped and why. A finished turn shows what it changed, with files, a pull request link and the commands it ran, and each exchange between dogs shows what was asked and what came back.
