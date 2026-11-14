@@ -271,7 +271,7 @@ export function kitPrompt(kit: DogKit | undefined): string {
     kit.google && "Google through connect_google and the gmail tools",
   ].filter((item): item is string => Boolean(item));
   if (!have.length) return "";
-  return `Already set up for you: ${have.join("; ")}. Use these before asking the person for a sign-in or for their Mac.`;
+  return `Already set up for you: ${have.join("; ")}.`;
 }
 
 export function connectedNowPrompt(kit: DogKit | undefined): string {
@@ -280,7 +280,7 @@ export function connectedNowPrompt(kit: DogKit | undefined): string {
     kit?.mac && "a lent Mac through shared_computer",
   ].filter((item): item is string => Boolean(item));
   if (!connected.length) return "";
-  return ` Connected now: ${connected.join("; ")}. Use these before asking the person for a sign-in or for their Mac.`;
+  return ` Connected now: ${connected.join("; ")}.`;
 }
 
 export function dogGuidance(input: GuidanceInput): string {

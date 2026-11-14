@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest";
 
 import { buildSystemPrompt, todayPrompt } from "../system-prompt.ts";
 import { SHORT_ON_IT_NOTE } from "./work-updates.ts";
+import { EXISTING_ACCESS } from "./sign-in-passage.ts";
 import {
   ACTING,
   ACTING_SETTING,
@@ -178,9 +179,10 @@ describe("the guidance every dog gets", () => {
     expect(kit).toMatch(/your own cloud computer .*run_on_computer/);
     expect(kit).toMatch(/the vault \(vault_secret\)/);
     expect(kit).not.toMatch(/GitHub|lent Mac/);
-    expect(connectedNowPrompt({ github: true, mac: true })).toBe(" Connected now: GitHub, signed in on this home; a lent Mac through shared_computer. Use these before asking the person for a sign-in or for their Mac.");
+    expect(connectedNowPrompt({ github: true, mac: true })).toBe(" Connected now: GitHub, signed in on this home; a lent Mac through shared_computer.");
     expect(connectedNowPrompt({ ownComputer: true, vault: true })).toBe("");
-    expect(kit.endsWith("Use these before asking the person for a sign-in or for their Mac.")).toBe(true);
+    expect(kit).not.toMatch(/before asking/);
+    expect(EXISTING_ACCESS).toMatch(/^ Before you raise any sign-in or credential card, check the access you already have .*vault_secret list, signed-in command-line tools, your signed-in browser, a lent Mac/);
     expect(kit).not.toMatch(/approval/);
     expect(kitPrompt({ ownComputer: true })).not.toMatch(/GitHub|vault/);
     expect(kitPrompt({})).toBe("");
