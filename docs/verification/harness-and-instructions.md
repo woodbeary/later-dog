@@ -168,8 +168,8 @@ From the home's own usage ledger and the traces of seven dogs that day.
   middle one 25.3 million (98%), the coordinating model 3.8 million (95%).
 - A newly created dog's first request was about 35,500 tokens, of which
   later.dog's own standing instructions were about 5,500 (22 KB). The 12
-  November figure above, 30,768 with rare tools on demand, was measured on a
-  different dog and day; both are kept.
+  November figure above was 30,768 with rare tools on demand. Why the two
+  differ by about 4,700 tokens has not been worked out; both are kept.
 - What it did not show: each of six helper dogs did its whole job in one turn
   and grew from about 35,000 to between 220,000 and 440,000 tokens without
   compacting, re-reading that context at every step. One waited on a test run
