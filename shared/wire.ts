@@ -126,7 +126,7 @@ export interface WireTask {
   workingStartedAt?: number;
   statusLine?: string;
   work?: WorkState;
-  plan?: WirePlan;
+  plan?: WirePlan | null;
   surface?: Surface;
   surfaceAuto?: true;
   usage?: TaskUsage;
@@ -230,7 +230,7 @@ export interface WireBot {
   busy?: boolean;
   activity?: BotActivity;
   work?: WorkState;
-  plan?: WirePlan;
+  plan?: WirePlan | null;
   createdAt: number;
   visibility?: BotVisibility;
 }
@@ -288,6 +288,7 @@ export interface WireMessage {
   tool?: {
     name: string; ok?: boolean; spoken?: string; setup?: boolean; terminal?: boolean; summary?: string; input?: string; output?: string;
     claudeUpdate?: boolean;
+    detail?: string;
     place?: PlaceRow;
     quota?: FailedTurnQuota;
     carry?: { from: string; to: string };
@@ -295,7 +296,7 @@ export interface WireMessage {
     itemId?: string;
     fullResult?: boolean;
     statusLine?: "live" | "folded";
-    pickup?: "restart" | "watch";
+    pickup?: "restart" | "watch" | "computer";
     compaction?: true;
   };
   webhookPost?: boolean;

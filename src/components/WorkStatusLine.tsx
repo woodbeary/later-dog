@@ -5,6 +5,7 @@ import { openQuestion } from "@/lib/open-question";
 import { t } from "@/lib/i18n";
 import { pendingApprovals } from "./PendingApproval";
 import { approvalAction } from "./ApprovalCard";
+import { WorkingTimer } from "./WorkingIndicator";
 
 export type OpenAsk =
   | { kind: "proxy"; name: string; label: string }
@@ -34,5 +35,6 @@ export function WorkStatusLine({ bot, what }: { bot: Pick<Bot, "work" | "busy" |
   const work = what && bot.work?.kind === "needs-you" ? { ...bot.work, what } : bot.work;
   const line = workLine(work) ?? (!bot.busy && bot.waitingForTeammates ? waitingOnStatus(bot.waitingOn) : null);
   if (!line) return null;
-  return <span data-work-state={bot.work?.kind ?? ""} className="truncate text-[12px] text-ink-secondary" role="status" title={line}>{line}</span>;
+  const since = bot.work?.kind === "running" && !bot.busy ? bot.work.computerSince : undefined;
+  return <span data-work-state={bot.work?.kind ?? ""} className="truncate text-[12px] text-ink-secondary" role="status" title={line}>{line}{since !== undefined && <>{" · "}<WorkingTimer since={since} /></>}</span>;
 }

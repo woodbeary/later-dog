@@ -45,6 +45,7 @@ import { canUseMcpServer, parseToolScope } from "../../shared/tool-scope.ts";
 import { gateServer, mcpStdioServer, resultBudget } from "../mcp-gate-config.ts";
 import { remoteMcpSpec } from "../mcp-http.ts";
 import { SteerReads } from "./steer-reads.ts";
+import { notThere, unreadCli, type CliVersion } from "../laterdog/cli-version.ts";
 
 const DRIVER_KIND = "piAgent";
 const PI_ARGS = ["--mode", "rpc", "--no-session"];
@@ -1008,7 +1009,7 @@ export const PiDriver: ProviderDriver<PiConfig> = {
     };
 
     const snapshot = async (): Promise<ProviderSnapshot> => {
-      const version = await new Promise<string | null>((resolve) => {
+      const read = await new Promise<CliVersion>((resolve) => {
         const child = spawnCli(config.cli, ["--version"], {
           stdio: ["ignore", "pipe", "pipe"],
           env: piEnvironment({ ...process.env, ...input.environment }),
@@ -1020,20 +1021,21 @@ export const PiDriver: ProviderDriver<PiConfig> = {
           try {
             killCliTree(child);
           } catch {}
-          resolve(null);
+          resolve({ starting: true });
         }, 8000);
         timer.unref?.();
-        child.on("error", () => {
+        child.on("error", (error) => {
           clearTimeout(timer);
-          resolve(null);
+          resolve(notThere(error) ? { missing: true } : { failed: true });
         });
         child.on("close", () => {
           clearTimeout(timer);
-          resolve(out.trim() || null);
+          const version = out.trim();
+          resolve(version ? { version } : { failed: true });
         });
       });
-      if (!version) return { state: "unavailable", reason: `\`${config.cli}\` CLI not found` };
-      return { state: "available", version, authenticated: true };
+      if (!("version" in read)) return unreadCli(config.cli, read);
+      return { state: "available", version: read.version, authenticated: true };
     };
 
     return {

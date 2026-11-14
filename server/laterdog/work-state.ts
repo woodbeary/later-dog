@@ -1,10 +1,14 @@
 import type { WireWaitingOn } from "../../shared/wire.ts";
-import type { WorkStopCause, WorkStopDetail, WorkState } from "../../shared/work-state.ts";
+import type { AccountHold, WorkStopCause, WorkStopDetail, WorkState } from "../../shared/work-state.ts";
 
 export interface WorkFacts {
   busy: boolean;
   helpers?: number;
-  needsYou?: { what?: string };
+  computerJobs?: number;
+  computerSince?: number;
+  computerBackground?: number;
+  handoffRunning?: boolean;
+  needsYou?: { what?: string; hold?: AccountHold };
   usageHold?: { account?: string; until?: number };
   waitingOn?: readonly WireWaitingOn[];
   computerWait?: { holder?: string };
@@ -20,7 +24,8 @@ const said = (value: string | undefined): string | undefined => {
 export function workState(facts: WorkFacts): WorkState {
   if (facts.needsYou) {
     const what = said(facts.needsYou.what);
-    return { kind: "needs-you", ...(what ? { what } : {}) };
+    const hold = facts.needsYou.hold;
+    return { kind: "needs-you", ...(what ? { what } : {}), ...(hold ? { hold } : {}) };
   }
   if (facts.usageHold) {
     const account = said(facts.usageHold.account);
@@ -46,7 +51,11 @@ export function workState(facts: WorkFacts): WorkState {
     const attempt = facts.retry.attempt;
     return { kind: "retrying", ...(attempt !== undefined && Number.isInteger(attempt) && attempt > 0 ? { attempt } : {}) };
   }
-  if (facts.busy || (facts.helpers ?? 0) > 0) return { kind: "running" };
+  const helpers = Math.max(0, facts.helpers ?? 0);
+  const computerJobs = Math.max(0, facts.computerJobs ?? 0);
+  if (facts.busy || facts.handoffRunning || helpers > 0 || computerJobs > 0) {
+    return { kind: "running", ...(helpers ? { helpers } : {}), ...(computerJobs ? { computerJobs, ...(facts.computerSince !== undefined && Number.isFinite(facts.computerSince) ? { computerSince: facts.computerSince } : {}), ...(facts.computerBackground ? { computerBackground: facts.computerBackground } : {}) } : {}) };
+  }
   if (facts.stopped) return { kind: "stopped", cause: facts.stopped.cause, ...(facts.stopped.detail ? { detail: facts.stopped.detail } : {}) };
   return { kind: "idle" };
 }

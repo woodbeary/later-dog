@@ -1,8 +1,9 @@
 import type { Message } from "@/state/store";
 import type { WireExchange } from "../../shared/room-exchange";
 import type { DogColor } from "./mascot";
-import { isStatusActivity, type TranscriptItem } from "./activity-runs";
+import { isRecoveryActivity, isStatusActivity, type TranscriptItem } from "./activity-runs";
 import { failedTurnCause } from "./failed-turn";
+import { isProviderSafetyBlock } from "../../shared/provider-safety";
 import { peerLine } from "./peer-message";
 import { localDay } from "./transcript-derivations";
 
@@ -32,7 +33,18 @@ export interface ExchangeItem {
   folded: Message[];
 }
 
-export type QuietTranscriptItem = TranscriptItem | ExchangeItem;
+export interface RecoveredItem {
+  kind: "recovered";
+  id: string;
+  recovery: Message;
+  messages: Message[];
+  folded: Message[];
+  since: number;
+}
+
+const MAC_PERMISSION = /^CUA Driver is not ready\b/;
+
+export type QuietTranscriptItem = TranscriptItem | ExchangeItem | RecoveredItem;
 
 const LEGACY_TO = /^Messaged @/;
 const LEGACY_FROM = /^Message from @/;
@@ -98,7 +110,7 @@ function lastRendered(
 ): QuietTranscriptItem | undefined {
   for (let index = folded.length - 1; index >= 0; index -= 1) {
     const candidate = folded[index]!;
-    if (candidate.kind === "exchange" || candidate.kind === "turn" || renders(candidate)) return candidate;
+    if (candidate.kind === "exchange" || candidate.kind === "turn" || candidate.kind === "recovered" || renders(candidate)) return candidate;
   }
   return undefined;
 }
@@ -127,15 +139,87 @@ export function quietTranscriptItemShown(item: TranscriptItem, showToolCalls: bo
     || isStatusActivity(message) || Boolean(message.tool && failedTurnCause(message.tool.name) !== null);
 }
 
+export function carriesOnByItself(message: Message): boolean {
+  const pickup = message.tool?.pickup;
+  return message.tool?.ok === true && (pickup === "watch" || pickup === "restart") && isRecoveryActivity(message);
+}
+
+function failureRow(message: Message): boolean {
+  const tool = message.tool;
+  return message.kind === "activity" && tool?.ok === false && failedTurnCause(tool.name) !== null && !tool.pickup;
+}
+
+export function needsPerson(message: Message): boolean {
+  const tool = message.tool;
+  if (!tool || !failureRow(message)) return false;
+  const raw = tool.detail ?? failedTurnCause(tool.name) ?? "";
+  return Boolean(tool.setup || tool.claudeUpdate || tool.quota || tool.place)
+    || isProviderSafetyBlock(raw) || MAC_PERMISSION.test(raw);
+}
+
+export function turnFailure(message: Message): boolean {
+  return failureRow(message) && !needsPerson(message);
+}
+
+function lastAt(item: QuietTranscriptItem): number {
+  return item.kind === "message" ? item.message.at : item.messages.at(-1)?.at ?? Number.NEGATIVE_INFINITY;
+}
+
+function firstAt(item: QuietTranscriptItem): number {
+  return item.kind === "message" ? item.message.at : item.messages[0]?.at ?? Number.NEGATIVE_INFINITY;
+}
+
+function takeFailures(
+  folded: Array<QuietTranscriptItem>,
+  renders: (item: TranscriptItem) => boolean,
+): { messages: Message[]; since: number } {
+  const taken: number[] = [];
+  let since: number | undefined;
+  let earliest = Number.NEGATIVE_INFINITY;
+  for (let index = folded.length - 1; index >= 0; index -= 1) {
+    const candidate = folded[index]!;
+    earliest = firstAt(candidate);
+    if (candidate.kind === "message" && needsPerson(candidate.message)) return { messages: [], since: Number.NEGATIVE_INFINITY };
+    if (candidate.kind === "message" && turnFailure(candidate.message)) {
+      taken.push(index);
+      continue;
+    }
+    const quiet = candidate.kind === "message"
+      ? candidate.message.kind === "digest" || !renders(candidate)
+      : candidate.kind === "run" && !renders(candidate);
+    if (!quiet) {
+      since = lastAt(candidate);
+      break;
+    }
+  }
+  const messages: Message[] = [];
+  for (const index of taken) {
+    const [item] = folded.splice(index, 1);
+    if (item?.kind === "message") messages.unshift(item.message);
+  }
+  return { messages, since: since ?? earliest };
+}
+
+export function foldedRuns<R extends { id: string; startedAt: number }>(item: Pick<RecoveredItem, "since" | "recovery">, runs: readonly R[]): R[] {
+  return runs.filter((run) => run.startedAt >= item.since && run.startedAt < item.recovery.at);
+}
+
 export function foldExchanges<T extends TranscriptItem>(
   items: readonly T[],
   { renders = () => true, hasGroup = () => false }: {
     renders?: (item: TranscriptItem) => boolean;
     hasGroup?: (groupId: string) => boolean;
   } = {},
-): Array<T | ExchangeItem> {
-  const folded: Array<T | ExchangeItem> = [];
+): Array<T | ExchangeItem | RecoveredItem> {
+  const folded: Array<T | ExchangeItem | RecoveredItem> = [];
   for (const item of items) {
+    if (item.kind === "message" && carriesOnByItself(item.message)) {
+      const { messages: failures, since } = takeFailures(folded, renders);
+      if (failures.length) {
+        folded.push({ kind: "recovered", id: `recovered:${item.message.id}`, recovery: item.message, messages: [...failures, item.message], folded: failures, since });
+        continue;
+      }
+    }
     const last = lastRendered(folded, renders);
     if (item.kind === "message" && last?.kind === "exchange" && isPeerMessageOf(last, item.message, hasGroup)) {
       last.messages.push(item.message);

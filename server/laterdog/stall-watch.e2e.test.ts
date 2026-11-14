@@ -114,7 +114,7 @@ async function dog(fixture: Fixture, name: string) {
 const replies = (rows: any[]) => rows.filter((row) => row.role === "bot" && row.kind === "text").map((row) => row.text);
 const watchRows = (rows: any[]) => rows.filter((row) => row.tool?.pickup === "watch");
 const plainRows = (rows: any[]) => rows.map((row) => ({ at: new Date(row.at).toISOString(), role: row.role, kind: row.kind,
-  ...(row.text ? { text: row.text } : {}), ...(row.tool ? { tool: { name: row.tool.name, ok: row.tool.ok, ...(row.tool.pickup ? { pickup: row.tool.pickup } : {}) } } : {}),
+  ...(row.text ? { text: row.text } : {}), ...(row.tool ? { tool: { name: row.tool.name, ok: row.tool.ok, ...(row.tool.detail ? { detail: row.tool.detail } : {}), ...(row.tool.pickup ? { pickup: row.tool.pickup } : {}) } } : {}),
   ...(row.turnSucceeded !== undefined ? { turnSucceeded: row.turnSucceeded } : {}) }));
 
 async function until<T>(read: () => Promise<T>, done: (value: T) => boolean, timeout: number, sample?: () => Promise<unknown>): Promise<T> {
@@ -144,6 +144,10 @@ it("an engine that exits mid-turn is carried on by the home with one plain line"
     fixture.receipt("states", chat.states);
     expect(rows.filter((row) => row.role === "user")).toHaveLength(1);
     expect(watchRows(rows).map((row) => row.tool)).toEqual([{ name: "recovery: Exit dog stopped before finishing, so it is carrying on by itself.", ok: true, pickup: "watch" }]);
+    const failed = rows.filter((row) => row.tool?.ok === false && !row.tool.pickup);
+    fixture.receipt("failureRows", failed.map((row) => row.tool));
+    expect(failed.map((row) => row.tool.name)).toContain("error: Exit dog stopped before it finished.");
+    expect(failed.find((row) => row.tool.name === "error: Exit dog stopped before it finished.")?.tool.detail).toMatch(/^claude exited \S+ before result/);
   });
 }, 240_000);
 
@@ -188,7 +192,8 @@ it("helpers working while the dog's own turn is over show as working, and nothin
     await until(chat.busy, Boolean, 30_000, chat.sample);
     const quiet = await until(async () => ({ busy: await chat.busy(), work: await chat.sample() }), (now) => !now.busy, 60_000);
     fixture.receipt("whenTurnEnded", quiet);
-    expect(quiet.work).toEqual({ kind: "running" });
+    expect(quiet.work).toMatchObject({ kind: "running", helpers: expect.any(Number) });
+    expect((quiet.work as { helpers?: number }).helpers).toBeGreaterThan(0);
     const deadline = Date.now() + 20_000;
     while (Date.now() < deadline) {
       await chat.sample();

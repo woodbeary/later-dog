@@ -5,6 +5,15 @@ import type { Helper } from "../../shared/helpers.ts";
 const start = { subtype: "task_started", task_id: "a", task_type: "local_agent", description: "Check the outline", is_backgrounded: true };
 
 describe("Claude helpers", () => {
+  it("tells helpers and background commands apart when the turn stops them", () => {
+    const tasks = new ClaudeTasks(() => {}, () => 0);
+    tasks.receive(start);
+    tasks.receive({ subtype: "background_tasks_changed", tasks: [{ task_id: "a", task_type: "local_agent" }, { task_id: "shell", task_type: "local_bash" }] });
+    expect(tasks.stopAll()).toEqual({ helpers: 1, commands: 1 });
+    expect(tasks.stopAll()).toEqual({ helpers: 0, commands: 0 });
+    expect(tasks.stop()).toBe(0);
+  });
+
   it("collects each helper's own tool calls under it, newest last, without prompts", () => {
     const emitted: Helper[] = [];
     const tasks = new ClaudeTasks(helper => emitted.push(helper), () => 0);

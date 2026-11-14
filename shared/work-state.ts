@@ -2,6 +2,12 @@ export type WorkStopCause = "infrastructure" | "engine" | "you";
 
 export type WorkStopDetail = "stalled" | "closed";
 
+export interface AccountHold {
+  account: string;
+  accountId: string;
+  why: "off" | "signed-out";
+}
+
 export interface WorkDog {
   id: string;
   name: string;
@@ -9,9 +15,9 @@ export interface WorkDog {
 }
 
 export type WorkState =
-  | { kind: "running"; dogs?: WorkDog[] }
+  | { kind: "running"; dogs?: WorkDog[]; helpers?: number; computerJobs?: number; computerSince?: number; computerBackground?: number }
   | { kind: "waiting-on-dog"; dogs: WorkDog[] }
-  | { kind: "needs-you"; what?: string }
+  | { kind: "needs-you"; what?: string; hold?: AccountHold }
   | { kind: "waiting-for-usage"; account?: string; until?: number }
   | { kind: "waiting-for-computer"; holder?: string }
   | { kind: "retrying"; attempt?: number }

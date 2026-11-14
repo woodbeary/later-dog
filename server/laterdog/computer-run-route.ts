@@ -2,7 +2,8 @@ import { execFileSync } from "node:child_process";
 import { lstatSync } from "node:fs";
 import { homedir } from "node:os";
 import { isAbsolute, join, normalize, relative, resolve } from "node:path";
-import { ComputerRuns, WAIT_IN_ONE_CALL_MS, type RunBox, type RunOutcome } from "./computer-runs.ts";
+import type { ComputerJob, ComputerJobLedger } from "./computer-jobs.ts";
+import { ComputerRuns, WAIT_IN_ONE_CALL_MS, type RunBox, type RunOutcome, type RunRecord } from "./computer-runs.ts";
 
 export interface ComputerRunRequest {
   botId: string;
@@ -11,6 +12,7 @@ export interface ComputerRunRequest {
   allowedRoots: readonly string[];
   home?: string;
   active?: () => boolean;
+  threadId?: string;
 }
 
 export interface ComputerRunDeps {
@@ -18,6 +20,8 @@ export interface ComputerRunDeps {
   computer(botId: string, options?: { repository?: string; wanted?: () => boolean; budgetMs?: number }): Promise<{ box: RunBox }>;
   repositoryOf?(folder: string): string | null;
   now?(): number;
+  jobs?: ComputerJobLedger;
+  windowMs?: number;
 }
 
 const GITHUB_REMOTE = /^(?:https:\/\/(?:[^@/]+@)?github\.com\/|git@github\.com:|ssh:\/\/git@github\.com\/)([A-Za-z0-9](?:[A-Za-z0-9-]{0,38})\/[A-Za-z0-9._-]{1,100}?)(?:\.git)?\/?$/;
@@ -76,21 +80,35 @@ export async function handleComputerRun(request: ComputerRunRequest, deps: Compu
   if (!folder) return { status: 400, error: "Pass folder: an existing project folder in the home, such as your working folder." };
   const subdir = typeof request.body.subdir === "string" ? request.body.subdir : undefined;
   if (subdir && !inside(join(folder, subdir), folder)) return { status: 400, error: "subdir must be inside folder." };
+  const windowMs = deps.windowMs ?? WAIT_IN_ONE_CALL_MS;
+  const threadId = request.threadId;
+  const jobs = threadId ? deps.jobs : undefined;
+  const job = (run: RunRecord): ComputerJob => ({ id: run.id, botId: run.botId, threadId: threadId!, command: run.command, startedAt: run.startedAt });
+  const releases: Array<() => void> = [];
+  if (record && jobs) releases.push(jobs.hold(record.id));
+  const recordJob = (run: RunRecord) => { if (!jobs) return; releases.push(jobs.hold(run.id)); jobs.started(job(run)); };
   try {
     const repository = record ? null : (deps.repositoryOf ?? repositoryOf)(folder);
     const now = deps.now ?? Date.now;
     const started = now();
-    const computer = await deps.computer(request.botId, { ...(repository ? { repository } : {}), ...(request.active ? { wanted: request.active } : {}), budgetMs: WAIT_IN_ONE_CALL_MS });
+    const computer = await deps.computer(request.botId, { ...(repository ? { repository } : {}), ...(request.active ? { wanted: request.active } : {}), budgetMs: windowMs });
     if (request.active && !request.active()) return { status: 409, error: ENDED_TEXT };
-    const left = () => started + WAIT_IN_ONE_CALL_MS - now();
+    const left = () => started + windowMs - now();
     const outcome = record
       ? await deps.runs.finish(computer.box, record, undefined, left)
-      : await deps.runs.run(computer.box, { botId: request.botId, folder, subdir, command, left, ...(request.active ? { active: request.active } : {}) });
+      : await deps.runs.run(computer.box, { botId: request.botId, folder, subdir, command, left, started: recordJob, ...(request.active ? { active: request.active } : {}) });
+    if (jobs) {
+      const stillGoing = outcome.state === "running" && outcome.exitCode === null;
+      if (!stillGoing) jobs.ended(outcome.id);
+      else if (record) jobs.started(job(record));
+    }
     return { status: 200, text: outcomeText(outcome), failed: outcome.state === "failed" };
   } catch (error) {
     if ((error as { code?: unknown })?.code === "still_starting") return { status: 200, text: STILL_STARTING_TEXT };
     if ((error as { code?: unknown })?.code === "window_ended") return { status: 200, text: WINDOW_ENDED_TEXT };
     if ((error as { code?: unknown })?.code === "cancelled" || (request.active && !request.active())) return { status: 409, error: ENDED_TEXT };
     return { status: 502, error: error instanceof Error ? error.message : String(error) };
+  } finally {
+    for (const release of releases) release();
   }
 }

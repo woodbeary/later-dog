@@ -7,7 +7,7 @@ import { BOOT_CLOUD_SECRETS } from "./cloud-secrets-boot.ts";
 import { AsyncLocalStorage } from "node:async_hooks";
 import { createHash, randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
 import { existsSync, readFileSync, readdirSync, realpathSync, mkdirSync } from "node:fs";
-import { homedir, totalmem } from "node:os";
+import { homedir, tmpdir, totalmem } from "node:os";
 import { writeFileAtomic } from "./atomic.ts";
 import { rm as removeDirectory } from "node:fs/promises";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
@@ -134,7 +134,12 @@ import { HOME_HEALTH_FILE, startHomeHealthLog } from "./laterdog/home-health-log
 import { startMemoryGuard } from "./laterdog/memory-guard.ts";
 import { parseHelperModelChoice } from "./laterdog/helper-model.ts";
 import { makeSpace } from "./laterdog/space-maker.ts";
-import { ComputerRuns } from "./laterdog/computer-runs.ts";
+import { createDiskBreakdown } from "./laterdog/disk-breakdown.ts";
+import { ComputerRuns, MAX_RUN_MS } from "./laterdog/computer-runs.ts";
+import { ComputerJobs, JOB_CHECK_MS } from "./laterdog/computer-jobs.ts";
+import { directHandoffFacts, handoffWorkDone, olderWorkFields } from "./laterdog/chat-work.ts";
+import { couldNotStopLine, partlyStoppedLine, stopComputerJobs } from "./laterdog/stop-computer-jobs.ts";
+import { createJobWake } from "./laterdog/job-wake.ts";
 import { HeavyCommandGuard, preToolUseDecision } from "./laterdog/heavy-commands.ts";
 import { computersSelected } from "./laterdog/cloud-computers.ts";
 import { createComputerRunRoute } from "./routes/computer-run.ts";
@@ -363,6 +368,8 @@ import type { ProviderInstance } from "./contracts.ts";
 import { readyToRun, selectDefaultModelSelection, withNewBotEffort } from "./default-model-selection.ts";
 import type { ThreadEngine } from "./thread-model.ts";
 import { threadGivesWay, turnSelectionFor, type TurnSelectionInput } from "./laterdog/turn-selection.ts";
+import { accountRunsNow, teammateAccountRuns, type ChatAccountFacts } from "./laterdog/chat-account-runs.ts";
+import { answeredReady, readingReady } from "./laterdog/cli-version.ts";
 import { computerEngineMoveText, removedComputerInstanceIds, writeComputerEngineMoveLines, type ComputerEngineMove } from "./computer-engine-removal.ts";
 import { namesRetiredInstance, retiredEngineMoveText, retiredInstanceIds } from "./laterdog/engine-trim.ts";
 import { cancelPeerApprovalsFor, cancelPeerApprovalsForThread, dismissStalePeerCards, peerApprovalFailure, requestPeerApproval, resolvePeerComms, type ApprovalBus } from "./peer-approval.ts";
@@ -732,7 +739,7 @@ import { removalCandidateOf, replacementAccount, selectionMovedTo, type RemovalC
 import { forgetAccountFolder } from "./laterdog/account-folder.ts";
 import { newChatGptAccount } from "./laterdog/chatgpt-accounts.ts";
 import {
-  AccountBattery, BATTERY_DRIVERS, SETUP_STOP, CONTINUE_AFTER_SWITCH, CONTINUE_AFTER_RESET, carryOnNotice, checkBatteryConfig, crossEngineNotice, limitRowToReplace, planResetAt, selectionOnAccount, switchNotice, withoutAccount,
+  AccountBattery, BATTERY_DRIVERS, SETUP_STOP, CONTINUE_AFTER_SWITCH, CONTINUE_AFTER_RESET, carryOnNotice, checkBatteryConfig, crossEngineNotice, limitRowToReplace, planResetAt, selectionOnAccount, signedInReading, switchNotice, withoutAccount,
   type BatteryAccount, type BatteryRerun,
 } from "./laterdog/account-battery.ts";
 import { carriesOn, carryOnAfterReset, type CarryOnInput } from "./laterdog/carry-on.ts";
@@ -1051,7 +1058,7 @@ function batteryAccounts(): BatteryAccount[] {
       enabled: instance.enabled,
       eligible: instance.instanceId !== CLAUDE_API_INSTANCE && !managedDesktop.owns(instance.instanceId) && !policyModelRefusal(instance) &&
         (configs[instance.instanceId]?.access ?? registry.access(instance.instanceId)) === "subscription" && snapshot?.account?.method !== "api-key",
-      ...(snapshot ? { signedIn: snapshot.state !== "unavailable" && snapshot.authenticated !== false } : {}),
+      ...(snapshot ? signedInReading(snapshot) : {}),
       ...(snapshot?.account?.email ? { email: snapshot.account.email } : {}),
       models: instance.models.options.map((option) => option.id), defaultModel: instance.models.default,
     };
@@ -3571,10 +3578,20 @@ try {
 }
 if (browserCleanupReferencesReconciled) browserCleanup.startPending();
 
-let activeCoordinationForThread = (_threadId: string): boolean => false;
+let doingHandoff = (_threadId: string): boolean => false;
 let teammatesAwaited = (_threadId: string): WireWaitingOn[] => [];
 let liveStatusLine = (_threadId: string): string | undefined => undefined;
 let helpersWorkingIn = (_threadId: string): number => 0;
+const computerJobs = new ComputerJobs(join(DATA_DIR, "computer-jobs.json"), { changed: (threadId) => announceHelpersChanged(threadId) });
+function aliveBehind(threadId: string, busy: boolean): { helpers: number; computerJobs: number } {
+  return busy ? { helpers: 0, computerJobs: 0 } : { helpers: helpersWorkingIn(threadId), computerJobs: computerJobs.count(threadId) };
+}
+function computerJobFacts(threadId: string, busy: boolean): { computerJobs: number; computerSince?: number; computerBackground?: number } {
+  const live = busy ? [] : computerJobs.live(threadId);
+  if (!live.length) return { computerJobs: 0 };
+  const background = live.filter((job) => Date.now() - job.startedAt > MAX_RUN_MS).length;
+  return { computerJobs: live.length, computerSince: Math.min(...live.map((job) => job.startedAt)), ...(background ? { computerBackground: background } : {}) };
+}
 const delegatedWaiting = new Map<string, boolean>();
 function delegatedNeedsYou(threadId: string): boolean {
   if (!delegatedWaiting.has(threadId)) delegatedWaiting.set(threadId, store.messagesFor(threadId).some(message => message.needsYou?.status === "waiting"));
@@ -3592,15 +3609,14 @@ function chatWork(threadId: string, busy: boolean, activity: BotActivity | undef
   const kept = !busy && (threadId in limitHold.waiting() || limitHold.waitsOnPerson(threadId) || batteryContinuationPending(threadId));
   const account = kept ? accountNeedsYou({ carriesOn: carriesOnByItself(threadId), choice: accountBattery.decide(chatSelection(threadId) ?? selection, batteryAccounts(), threadId), name: (id) => registry.get(id)?.displayName }) : undefined;
   return workState({
-    busy, helpers: busy ? 0 : helpersWorkingIn(threadId), waitingOn, ...workSignals.facts(threadId), ...(stall.stopped ? { stopped: stall.stopped } : {}),
-    ...(asking ? { needsYou: { what: openAsk(store.messagesTail(threadId, 60).messages) } } : stall.needsYou ? { needsYou: stall.needsYou } : account ? { needsYou: { what: account } } : {}),
+    busy, helpers: busy ? 0 : helpersWorkingIn(threadId), ...computerJobFacts(threadId, busy), handoffRunning: doingHandoff(threadId), waitingOn, ...workSignals.facts(threadId), ...(stall.stopped ? { stopped: stall.stopped } : {}),
+    ...(asking ? { needsYou: { what: openAsk(store.messagesTail(threadId, 60).messages) } } : stall.needsYou ? { needsYou: stall.needsYou } : account ? { needsYou: account } : {}),
     ...(usageWait ? { usageHold: { account: registry.get(selection.instanceId)?.displayName, ...(until !== undefined ? { until } : {}) } } : {}),
   });
 }
 const dogPlans = new PlanStore(join(DATA_DIR, "dog-plans.json"));
 const planOf = (threadId: string) => {
-  const plan = dogPlans.get(threadId);
-  return plan ? { plan } : {};
+  return { plan: dogPlans.get(threadId) ?? null };
 };
 const planChanged = (threadId: string) => {
   const bot = store.botByThread(threadId);
@@ -3614,10 +3630,11 @@ enginePlans.listen((threadId, items) => {
 const wireTask = (task: TaskRecord, botModel: ModelSelection): WireTask => {
   const { snoozedUntil, ...base } = toWireTask(task, botModel, store.bots);
   const statusLine = liveStatusLine(task.threadId);
-  const waiting = activeCoordinationForThread(task.threadId) && !task.busy;
-  const helpers = task.busy ? 0 : helpersWorkingIn(task.threadId);
-  const coordinated = { ...base, ...(delegatedNeedsYou(task.threadId) ? { activity: "waiting-on-you" as const } : {}), waitingForTeammates: waiting, ...(waiting ? { waitingOn: teammatesAwaited(task.threadId) } : {}), ...(helpers ? { helpersWorking: helpers } : {}), ...(statusLine ? { statusLine } : {}), ...planOf(task.threadId) };
-  coordinated.work = chatWork(task.threadId, Boolean(task.busy), coordinated.activity, coordinated.waitingOn, base.modelSelection ?? botModel);
+  const busy = Boolean(task.busy);
+  const activity = delegatedNeedsYou(task.threadId) ? "waiting-on-you" as const : base.activity;
+  const waitingOn = busy ? undefined : teammatesAwaited(task.threadId);
+  const work = chatWork(task.threadId, busy, activity, waitingOn, base.modelSelection ?? botModel);
+  const coordinated = { ...base, ...olderWorkFields(work, busy, activity, waitingOn, aliveBehind(task.threadId, busy)), ...(statusLine ? { statusLine } : {}), ...planOf(task.threadId), work };
   const asleep = snoozedUntil === 0 || (snoozedUntil !== undefined && snoozedUntil > Date.now());
   return asleep ? { ...coordinated, snoozedUntil } : coordinated;
 };
@@ -3627,13 +3644,12 @@ const wireBot = (bot: BotRecord): WireBot => {
   const visible = approvalGrant && !approvalGrant.threadOnly
     ? { ...rest, approvalMode: "ask" as const, autoApprove: false }
     : rest;
-  const waiting = activeCoordinationForThread(bot.threadId) && !threadBusy(bot.id, bot.threadId);
   const busy = threadBusy(bot.id, bot.threadId);
-  const helpers = busy ? 0 : helpersWorkingIn(bot.threadId);
   const activity = delegatedNeedsYou(bot.threadId) ? "waiting-on-you" as const : visible.activity;
-  const waitingOn = waiting ? teammatesAwaited(bot.threadId) : undefined;
-  return { ...visible, ...(activity ? { activity } : {}), waitingForTeammates: waiting, ...(waitingOn ? { waitingOn } : {}), ...(helpers ? { helpersWorking: helpers } : {}),
-    work: chatWork(bot.threadId, busy, activity, waitingOn, bot.modelSelection), ...planOf(bot.threadId),
+  const waitingOn = busy ? undefined : teammatesAwaited(bot.threadId);
+  const work = chatWork(bot.threadId, busy, activity, waitingOn, bot.modelSelection);
+  return { ...visible, ...olderWorkFields(work, busy, activity, waitingOn, aliveBehind(bot.threadId, busy)),
+    work, ...planOf(bot.threadId),
     avatarUrl: visible.avatarUrl ?? null, ...(tasks ? { tasks: tasks.map((task) => wireTask(task, bot.modelSelection)) } : {}) };
 };
 
@@ -4732,7 +4748,7 @@ function syncDelegatedNeedsYou(node: RoomHandoff): boolean {
     },
   });
 }
-activeCoordinationForThread = threadId => roomHandoffs.activeDirect(threadId);
+doingHandoff = threadId => directHandoffFacts(threadId, roomHandoffs.nodes.values()).working;
 teammatesAwaited = threadId => waitingOn(roomHandoffs.outstandingDirect(threadId), (botId) => store.bot(botId)?.name, (node) => {
   const task = node.threadId ? store.taskByThread(node.botId, node.threadId) : undefined;
   if (task?.activity === "waiting-on-you") return `${store.bot(node.botId)?.name ?? "A teammate"} has a question for you`;
@@ -4770,6 +4786,8 @@ function roomWork(group: GroupRecord): WorkState {
     threadIds: id => [...new Set([store.group(id)?.threadId ?? "", ...store.groupTasks(id).map(task => task.threadId)].filter(Boolean))],
     tail: threadId => store.messagesTail(threadId, 60).messages,
     heldUntil: threadId => limitHold.heldUntil(threadId),
+    helpers: threadId => helpersWorkingIn(threadId),
+    computerJobs: threadId => computerJobs.live(threadId),
     holdAccount: id => {
       const room = store.group(id);
       const botId = room?.busyBotId ?? (room?.defaultResponder.kind === "member" ? room.defaultResponder.botId : undefined);
@@ -5529,7 +5547,7 @@ const watchdog = new TurnWatchdog({
     store.appendMessage(turn.threadId, {
       role: "bot",
       kind: "activity",
-      tool: failedTurnTool(detail),
+      tool: failedTurnTool(detail, { who: bot?.name }),
     });
     if (bot && routineRun?.target !== "bot") {
       reportIncident({ kind: "stalled", bot, threadId: turn.threadId, detail });
@@ -5715,15 +5733,50 @@ bus.subscribe((event: RuntimeEvent) => {
   if (shouldIgnoreProviderEvent(event)) return;
   if (event.type === "turn.completed") pickupStops.settled(event.threadId);
 });
+function mayCarryOnByItself(threadId: string): boolean {
+  return restartPickupHost.dog(threadId) !== null && restartPickupHost.owner(threadId) && !routineRunForTurn(threadId);
+}
+const jobWake = createJobWake(computerJobs, {
+  dog: (threadId) => restartPickupHost.dog(threadId),
+  free: (botId, threadId) => mayCarryOnByItself(threadId) && !roomHandoffs.activeDirect(threadId) && !threadBusy(botId, threadId) && !directTurnDispatchClaims.has(threadId) && !hasQueuedSteeredMessages(botId, threadId) &&
+    !botAtThreadCapacity(botId) && !activeGroupTurnForBot(botId) && !limitHold.holds(threadId) && !limitHold.waitsOnPerson(threadId) &&
+    !usageStranded(threadId) && teammateCanRun(botId, threadId) && !store.hasPendingRequest(threadId) && !delegatedNeedsYou(threadId) &&
+    !waitingOnPerson(threadId) && store.taskByThread(botId, threadId)?.activity !== "waiting-on-you",
+  path: (threadId) => store.activePath(threadId),
+  handoffDone: (threadId) => {
+    const at = store.activePath(threadId).findLast((message) => message.role === "user")?.at;
+    return handoffWorkDone(threadId, roomHandoffs.nodes.values(), at);
+  },
+  request: (threadId) => store.activePath(threadId).findLast((message) => message.role === "user")?.id,
+  append: (threadId, message) => store.appendMessage(threadId, message),
+  start: startContinuation,
+  blocked: isTurnAdmissionBlocked,
+  log: (line) => console.log(`[computer jobs] ${line}`),
+});
+bus.subscribe((event: RuntimeEvent) => {
+  if (event.type === "turn.completed" && computerJobs.unannounced().some((job) => job.threadId === event.threadId)) {
+    setTimeout(() => { void restartPickupDone.then(() => jobWake.deliver()); }, 500).unref();
+  }
+});
+function stopJobsForPerson(threadId: string): void {
+  void stopComputerJobs(computerJobs, threadId, {
+    computer: (botId) => boat.jobComputer(botId),
+    stop: (box, job) => computerRuns.stop(box, job),
+    couldNotStop: (id) => {
+      store.appendMessage(id, { role: "bot", kind: "activity", tool: { name: couldNotStopLine(restartPickupHost.dog(id)?.name ?? "The dog"), ok: false, pickup: "computer" } });
+    },
+    partlyStopped: (id) => {
+      store.appendMessage(id, { role: "bot", kind: "activity", tool: { name: partlyStoppedLine(restartPickupHost.dog(id)?.name ?? "The dog"), ok: false, pickup: "computer" } });
+    },
+  }).then((result) => { if (result.stopped.length || result.left.length) console.log(`[computer jobs] stop ${threadId}: stopped ${result.stopped.join(", ") || "none"}, left ${result.left.join(", ") || "none"}`); });
+}
 let finishRestartPickup = () => {};
 const restartPickupDone = new Promise<void>((resolve) => { finishRestartPickup = resolve; });
 function teammateCanRun(botId: string, threadId: string): boolean {
   const bot = store.bot(botId);
   if (!bot) return true;
   if (store.taskByThread(botId, threadId)?.activity === "dead") return false;
-  const on = onBatteryAccount(store.projectBotForTask(botId, threadId) ?? bot, threadId).modelSelection.instanceId;
-  const account = batteryAccounts().find((candidate) => candidate.instanceId === on);
-  return !account || (account.enabled && account.signedIn !== false);
+  return teammateAccountRuns(chatAccountFacts(bot, threadId));
 }
 const stallWatch = createStallWatch({
   chats: () => store.bots.flatMap((bot) => store.tasks(bot.id)
@@ -5737,11 +5790,11 @@ const stallWatch = createStallWatch({
       name: bot.name, path: store.messagesTail(threadId, 160).messages, now,
       busy: threadBusy(botId, threadId) || watchdog.watching(threadId) || directTurnDispatchClaims.has(threadId),
       requestOpen: watchdog.snapshot(threadId)?.waitingOnHuman === true || delegatedNeedsYou(threadId),
-      helpers: helpersWorkingIn(threadId),
+      helpers: helpersWorkingIn(threadId) + computerJobs.count(threadId),
       usageWait: threadId in limitHold.waiting() || limitHold.waitsOnPerson(threadId) || batteryContinuationPending(threadId),
       queued: hasQueuedSteeredMessages(botId, threadId) || pendingComputerResumes.has(threadId),
       stoppedByPerson: pickupStops.stopped(threadId),
-      mayContinue: restartPickupHost.dog(threadId) !== null && restartPickupHost.owner(threadId) && !routineRunForTurn(threadId),
+      mayContinue: mayCarryOnByItself(threadId),
       routine: (at) => Boolean(routines?.runDuring(threadId, at)),
       teammates: roomHandoffs.outstandingDirect(threadId).map((node) => {
         const mate = store.bot(node.botId);
@@ -6593,12 +6646,16 @@ function setupFallbackFor(threadId: string, ranOn: string | undefined): boolean 
   return accountBattery.route({ ...selection, instanceId: ranOn }, accounts, threadId).instanceId !== ranOn;
 }
 
+function chatAccountFacts(bot: BotRecord, threadId: string): ChatAccountFacts {
+  return {
+    turn: turnSelectionInput(bot.id, threadId), dog: bot.modelSelection, accounts: batteryAccounts(),
+    route: (modelSelection) => onBatteryAccount({ ...bot, modelSelection }, threadId).modelSelection,
+  };
+}
+
 function runnableNow(bot: BotRecord, threadId: string): boolean {
-  const accounts = batteryAccounts();
-  const chat = store.projectBotForTask(bot.id, threadId) ?? bot;
-  const on = onBatteryAccount(chat, threadId).modelSelection.instanceId;
-  const account = accounts.find((candidate) => candidate.instanceId === on);
-  return Boolean(account?.eligible && account.enabled && account.signedIn === true && !accountBattery.restOf(account, accounts));
+  const facts = chatAccountFacts(bot, threadId);
+  return accountRunsNow({ ...facts, resting: (account) => Boolean(accountBattery.restOf(account, facts.accounts)) });
 }
 
 function reviveRunnableDogs(): number {
@@ -7390,7 +7447,7 @@ bus.subscribe(guardTurnEnd((event: RuntimeEvent) => {
       pushMessage({
         role: "bot",
         kind: "activity",
-        tool: failedTurnTool(event.message, { ...event, quota: event.quota && { ...event.quota, instanceId: event.providerInstanceId } }),
+        tool: failedTurnTool(event.message, { ...event, who: bot?.name ?? speaker?.name, quota: event.quota && { ...event.quota, instanceId: event.providerInstanceId } }),
       });
       if (event.setup && bot) {
         store.setTaskActivity(bot.id, event.threadId, "dead");
@@ -11045,7 +11102,7 @@ async function runGroupMemberTurn(
           role: "bot",
           kind: "activity",
           from: { botId: bot.id, name: bot.name, color: bot.color },
-          tool: failedTurnTool(message),
+          tool: failedTurnTool(message, { who: bot.name }),
         });
         onDispatchError?.(message);
         watchdog.settle(threadId);
@@ -13158,7 +13215,7 @@ ROUTES.push(createEnginePlacementRoutes({
   save: (id, computer) => setRemoteEngineBot(DATA_DIR, id, computer),
 }));
 ROUTES.push(createStreamWatchRoutes({ clients: () => sseClients }));
-ROUTES.push(createStorageRoutes({ storage: () => cloudStorage(), clean: () => runJanitorNow("low-disk") }));
+ROUTES.push(createStorageRoutes({ storage: () => cloudStorage(), clean: () => runJanitorNow("low-disk"), measure: () => diskBreakdown.measure() }));
 ROUTES.push(createLinkPreviewRoutes());
 ROUTES.push(createBotMemoryRoutes({
   bot: (id) => store.bot(id),
@@ -13202,7 +13259,7 @@ const firstHelloDeps: FirstHelloDeps = {
   patchMessage: (threadId, messageId, patch) => { store.patchMessage(threadId, messageId, patch); },
   personName: () => cfg.profile?.name,
   canRun: async (instanceId) => (await describeInstances()).some((instance) =>
-    instance.instanceId === instanceId && instance.snapshot.state === "available" && instance.snapshot.authenticated !== false),
+    instance.instanceId === instanceId && readingReady(instance.snapshot)),
   start: (botId, threadId, prompt, introducedBy) => startTurn(botId, prompt, { threadId, cardContinuation: true, ...(introducedBy ? { lentBy: introducedBy } : {}) }),
 };
 ROUTES.push(createDogHelloRoutes(firstHelloDeps, (auth) => sessionLendingPrincipal(auth) ?? undefined));
@@ -13550,10 +13607,26 @@ INTERNAL_ROUTES.push(createSwitchAccountRoute({
   timeZone: () => process.env.TZ,
 }));
 const computerRuns = new ComputerRuns(join(DATA_DIR, "computer-runs"));
+const checkComputerJobs = () => void computerJobs.check({
+  computer: (botId) => boat.jobComputer(botId),
+  exit: async (box, job) => {
+    const record = computerRuns.record(job.botId, job.id);
+    if (!record) return null;
+    const state = await computerRuns.poll(box, record);
+    if (!state.done || state.exitCode === null || !Number.isInteger(state.exitCode)) return null;
+    const stamp = Number((await box.exec(`date -r runs/.logs/${record.id}.exit +%s`, 10_000).catch(() => ({ stdout: "" }))).stdout.trim());
+    return { exitCode: state.exitCode, ...(Number.isFinite(stamp) && stamp > 0 ? { at: stamp * 1000 } : {}) };
+  },
+  liveness: (box, job) => computerRuns.liveness(box, job),
+}).then(() => { void restartPickupDone.then(() => jobWake.deliver()); });
+setTimeout(checkComputerJobs, 0).unref();
+setInterval(checkComputerJobs, Math.max(1_000, Number(process.env.LATERDOG_COMPUTER_JOB_CHECK_MS) || JOB_CHECK_MS)).unref();
 INTERNAL_ROUTES.push(createComputerRunRoute({
   owns: (botId, threadId) => connectorThread(botId, threadId) !== null,
   folders: (botId, threadId) => messageFileRootsForThread(botId, threadId).filter((root) => root !== ATTACHMENTS_DIR),
   runs: computerRuns,
+  jobs: computerJobs,
+  ...(Number(process.env.LATERDOG_COMPUTER_RUN_WAIT_MS) > 0 ? { windowMs: Number(process.env.LATERDOG_COMPUTER_RUN_WAIT_MS) } : {}),
   computer: boat.heavyRunBox,
   active: (capability) => internalCapabilityIsActive(capability as InternalCapability),
 }));
@@ -13711,7 +13784,7 @@ ROUTES.push(createIncludedUsageRoutes());
 if (!process.env.VITEST) setTimeout(() => {
   void (async () => {
     const own = (await describeInstances()).some((instance) => !INCLUDED_AI_INSTANCES.includes(instance.instanceId)
-      && instance.snapshot.state === "available" && instance.snapshot.authenticated !== false);
+      && answeredReady(instance.snapshot));
     if (own) return;
     if (await autoStartTrial({ otherComputers: () => boat.otherComputersConfigured(cfg), cloudHome: Boolean(CLOUD_HOME) })) {
       broadcast({ kind: "config", ...configStatus() });
@@ -18783,6 +18856,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         if (keepsNewerTurn({ seen: body.turnStartedAt, running, resumed: pickupStops.resumed(askedTask.threadId) })) {
           return json(res, 200, { ok: true, kept: "newer" });
         }
+        if (!fromLocalTools(auth)) stopJobsForPerson(askedTask.threadId);
         await stopThreadTurn(bot.id, askedTask.threadId, fromLocalTools(auth) ? "api" : "person");
         return json(res, 200, { ok: true });
       }
@@ -21117,6 +21191,7 @@ function janitorWorkspaces(): WorkspaceTask[] {
 }
 
 let lastJanitorRun: JanitorRun | null = null;
+const diskBreakdown = createDiskBreakdown({ dataDir: DATA_DIR, home: CLOUD_HOME ? homedir() : null, scratch: CLOUD_HOME ? [tmpdir()] : [], dogName: (id) => store.bot(id)?.name ?? null });
 let janitorRunning = false;
 
 function runJanitorNow(reason: JanitorRun["reason"]): JanitorRun | null {
@@ -21148,8 +21223,8 @@ if (logArchive) {
 }
 
 if (CLOUD_HOME) {
-  setTimeout(() => runJanitorNow("startup"), 2 * 60_000).unref();
-  setInterval(() => runJanitorNow("scheduled"), JANITOR_EVERY_MS).unref();
+  setTimeout(() => { runJanitorNow("startup"); if (!diskBreakdown.last()) diskBreakdown.measure(); }, 2 * 60_000).unref();
+  setInterval(() => { runJanitorNow("scheduled"); diskBreakdown.measure(); }, JANITOR_EVERY_MS).unref();
   setInterval(() => { if (isLowDisk(diskUse(DATA_DIR))) runJanitorNow("low-disk"); }, DISK_CHECK_MS).unref();
   setInterval(() => {
     const pressure = readMemoryPressure();
@@ -21205,6 +21280,7 @@ function cloudStorage() {
     warning: null,
     archive: logArchive?.status() ?? { enabled: false },
     janitor: lastJanitorRun ? { at: lastJanitorRun.at, freedBytes: lastJanitorRun.freedBytes, stopped: lastJanitorRun.reaped } : null,
+    breakdown: diskBreakdown.last(),
   };
 }
 

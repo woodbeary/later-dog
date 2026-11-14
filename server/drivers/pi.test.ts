@@ -1328,6 +1328,19 @@ describe("PiDriver snapshot", () => {
     const snap = await instance.snapshot();
     expect(snap.state).toBe("unavailable");
     expect(snap.reason).toMatch(/not found/);
+    expect(snap.missing).toBe(true);
+    await instance.dispose();
+  });
+
+  it("reports a program that is there but answers nothing as a failed check, not missing", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "pi-silent-"));
+    const cli = join(dir, "pi");
+    writeFileSync(cli, "#!/bin/sh\nexit 1\n");
+    chmodSync(cli, 0o755);
+    const instance = await PiDriver.create({ instanceId: "pi-silent", displayName: undefined, environment: {}, enabled: true, config: { cli, fullAuto: false } });
+    const snap = await instance.snapshot();
+    expect(snap).toMatchObject({ state: "unavailable", checkFailed: true });
+    expect(snap.missing).toBeUndefined();
     await instance.dispose();
   });
 });

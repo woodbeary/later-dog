@@ -189,7 +189,7 @@ export interface Message {
   secret?: SecretRequestCardData;
   secureForm?: SecureFormCardData;
   routineRun?: RoutineRunCardData;
-  tool?: { name: string; ok?: boolean; spoken?: string; setup?: boolean; claudeUpdate?: boolean; place?: PlaceRow; quota?: FailedTurnQuota; carry?: { from: string; to: string }; resume?: { handoffId: string }; summary?: string; input?: string; output?: string ; itemId?: string; outputPath?: string; fullResult?: boolean; statusLine?: "live" | "folded" };
+  tool?: { name: string; ok?: boolean; spoken?: string; detail?: string; setup?: boolean; claudeUpdate?: boolean; pickup?: "restart" | "watch"; place?: PlaceRow; quota?: FailedTurnQuota; carry?: { from: string; to: string }; resume?: { handoffId: string }; summary?: string; input?: string; output?: string ; itemId?: string; outputPath?: string; fullResult?: boolean; statusLine?: "live" | "folded" };
   steered?: boolean;
   readAt?: number;
   via?: "api" | "call";
@@ -266,7 +266,7 @@ export interface Task {
   waitingForTeammates?: boolean;
   waitingOn?: WireWaitingOn[];
   work?: import("../../shared/work-state").WorkState;
-  plan?: import("../../shared/dog-plan").WirePlan;
+  plan?: import("../../shared/dog-plan").WirePlan | null;
   threadId: string;
   routineRunId?: string;
   projectId?: string;
@@ -323,7 +323,7 @@ export interface Bot {
   waitingForTeammates?: boolean;
   waitingOn?: WireWaitingOn[];
   work?: import("../../shared/work-state").WorkState;
-  plan?: import("../../shared/dog-plan").WirePlan;
+  plan?: import("../../shared/dog-plan").WirePlan | null;
   id: string;
   threadId: string;
   tasks?: Task[];
