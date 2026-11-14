@@ -35,6 +35,7 @@ import { removeTempDir } from "../testing/cleanup.ts";
 import { ephemeralWorkspaceTokenPath } from "../workspace-backup-policy.ts";
 import * as procs from "../procs.ts";
 import { leftoverProgramsNotice } from "../laterdog/unconfirmed-stop.ts";
+import { HELPER_CONTRACT } from "../laterdog/helper-contract.ts";
 import * as localInject from "./local-inject.ts";
 
 const FAKE_CLI = join(dirname(fileURLToPath(import.meta.url)), "..", "testing", "fake-claude-cli.ts");
@@ -1346,7 +1347,7 @@ describe("ClaudeDriver turns (fake CLI)", () => {
     expect(sent[2].endsWith("three")).toBe(true);
   });
 
-  it("launches helpers on the dog's own model by default and on the chosen one when set", async () => {
+  it("launches helpers one tier below the dog by default, on the dog's own model for same, and on the chosen one when set", async () => {
     await create();
     const dump = join(scratch, "helper-model.json");
     process.env.FAKE_CLAUDE_DUMP = dump;
@@ -1362,12 +1363,13 @@ describe("ClaudeDriver turns (fake CLI)", () => {
       return JSON.parse(readFileSync(dump, "utf8"));
     };
     const plain = await send();
-    expect(plain.env.CLAUDE_CODE_SUBAGENT_MODEL).toBeUndefined();
+    expect(plain.env.CLAUDE_CODE_SUBAGENT_MODEL).toBe("sonnet");
     const same = await send("same");
-    expect(same.pid).toBe(plain.pid);
+    expect(same.env.CLAUDE_CODE_SUBAGENT_MODEL).toBeUndefined();
+    expect(same.pid).not.toBe(plain.pid);
     const lighter = await send("lighter");
     expect(lighter.env.CLAUDE_CODE_SUBAGENT_MODEL).toBe("sonnet");
-    expect(lighter.pid).not.toBe(plain.pid);
+    expect(lighter.pid).not.toBe(same.pid);
     const explicit = await send("claude-haiku-5-5");
     expect(explicit.env.CLAUDE_CODE_SUBAGENT_MODEL).toBe("claude-haiku-5-5");
   });
@@ -2191,6 +2193,17 @@ describe("ClaudeDriver turns (fake CLI)", () => {
     const { env } = JSON.parse(readFileSync(dump, "utf8"));
     expect(env.ENABLE_PROMPT_CACHING_1H).toBe("0");
     expect(env.CLAUDE_CODE_PROMPT_CACHE_TTL).toBeUndefined();
+  });
+
+  it.each(["2.1.315", "2.1.316"])("gives every helper its reporting rules on Claude %s and later", async (version) => {
+    const dump = join(scratch, "helper-contract.json");
+    await create(undefined, { FAKE_CLAUDE_DUMP: dump, FAKE_CLAUDE_VERSION: version });
+    await instance.adapter.sendTurn({ threadId: "t-helper-contract", text: "hi", system: "You are Testy." });
+    await recorder.until(e => e.type === "turn.completed");
+    const seen = JSON.parse(readFileSync(dump, "utf8"));
+    expect(seen.argv.includes("--append-subagent-system-prompt-file")).toBe(version === "2.1.316");
+    expect(seen.helperPrompt).toBe(version === "2.1.316" ? HELPER_CONTRACT : null);
+    expect(seen.systemPrompt).toBe("You are Testy.");
   });
 
   it.each(["2.1.210", "2.1.211"])("gates native child text forwarding for Claude %s", async (version) => {

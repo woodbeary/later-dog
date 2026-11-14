@@ -3,11 +3,20 @@ import { describe, expect, it } from "vitest";
 import { claudeHelperEnvironment, claudeTier, helperModelFor, parseHelperModelChoice } from "./helper-model.ts";
 
 describe("helper model", () => {
-  it("keeps the dog's own model for helpers unless someone chose otherwise", () => {
-    for (const choice of [undefined, "same"] as const) {
-      expect(helperModelFor("claude", "claude-opus-5-5", choice)).toEqual({ kind: "inherit" });
-      expect(claudeHelperEnvironment("claude-opus-5-5", choice, { custom: false })).toEqual({});
-    }
+  it("keeps the dog's own model for helpers when someone chose the same model", () => {
+    expect(helperModelFor("claude", "claude-opus-5-5", "same")).toEqual({ kind: "inherit" });
+    expect(claudeHelperEnvironment("claude-opus-5-5", "same", { custom: false })).toEqual({});
+  });
+
+  it("runs helpers one tier below the dog by default, never below the middle tier", () => {
+    expect(helperModelFor("claude", "claude-fable-5-2", undefined)).toEqual({ kind: "model", model: "opus" });
+    expect(helperModelFor("claude", "claude-opus-5-5", undefined)).toEqual({ kind: "model", model: "sonnet" });
+    expect(helperModelFor("claude", "claude-sonnet-5-5", undefined)).toEqual({ kind: "inherit" });
+    expect(helperModelFor("claude", "claude-haiku-5-5", undefined)).toEqual({ kind: "inherit" });
+    expect(helperModelFor("claude", "kimi-k2.6", undefined)).toEqual({ kind: "inherit" });
+    expect(helperModelFor("codex", "gpt-5.6-sol", undefined)).toEqual({ kind: "inherit" });
+    expect(claudeHelperEnvironment("claude-opus-5-5", undefined, { custom: false })).toEqual({ CLAUDE_CODE_SUBAGENT_MODEL: "sonnet" });
+    expect(claudeHelperEnvironment("claude-opus-5-5", undefined, { custom: true })).toEqual({});
   });
 
   it("steps one tier down within the Claude family and never to the smallest tier from the top", () => {

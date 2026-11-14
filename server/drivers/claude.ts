@@ -69,6 +69,7 @@ import { readCliVersion as readCliVersionOf, unreadCli } from "../laterdog/cli-v
 import { claudeToolTouch } from "../laterdog/tool-touches.ts";
 import { claudeContextNote, claudeSeenVolatile } from "../laterdog/volatile-sections.ts";
 import { claudeHelperEnvironment } from "../laterdog/helper-model.ts";
+import { helperContractArgs, SUBAGENT_PROMPT_FLAG } from "../laterdog/helper-contract.ts";
 import { agentsServerLaunch, deferRareToolsEnabled } from "../laterdog/tool-loading.ts";
 import { CLAUDE_PICKS_CACHE_LIFETIME, claudeCacheLifetime } from "../laterdog/cache-lifetime.ts";
 import { claudeCompactionSwitchedOff } from "../laterdog/native-compaction.ts";
@@ -277,6 +278,7 @@ export const CLAUDE_FLAG_FLOORS = {
   "--system-prompt-snapshot": [2, 1, 267],
   "--restricted": [2, 1, 257],
   "--forward-subagent-text": [2, 1, 211],
+  [SUBAGENT_PROMPT_FLAG]: [2, 1, 316],
 } as const satisfies Record<string, ClaudeCliVersion>;
 
 const FLAGS_LEARNED_AFTER_LAUNCH = ["--autocompact", "--system-prompt-snapshot"] as const;
@@ -1441,11 +1443,13 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
       try {
         checkStart();
         const launchSystem = turn.systemStable ?? turn.system;
-        if (launchSystem) {
-          systemPromptPath = join(mkdtempSync(join(tmpdir(), "laterdog-system-")), "prompt.txt");
+        const helperContract = claudeCliSupports(cliVersion, SUBAGENT_PROMPT_FLAG);
+        if (launchSystem || helperContract) systemPromptPath = join(mkdtempSync(join(tmpdir(), "laterdog-system-")), "prompt.txt");
+        if (launchSystem && systemPromptPath) {
           writeFileSync(systemPromptPath, launchSystem, { mode: 0o600 });
           args.push("--append-system-prompt-file", systemPromptPath);
         }
+        if (helperContract && systemPromptPath) args.push(...helperContractArgs(dirname(systemPromptPath)));
         if (socketPath) {
           const askTools = new Map<string, string | undefined>();
           broker = await createPermissionBroker({

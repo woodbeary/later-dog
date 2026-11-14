@@ -386,7 +386,14 @@ const readLaunchFiles = (): Record<string, unknown> => {
       systemPrompt = readFileSync(systemPromptPath, "utf8");
     } catch {}
   }
-  return { systemPrompt, mcpConfig, settings, settingsMode };
+  const helpersPath = argAfter("--append-subagent-system-prompt-file");
+  let helperPrompt: string | null = null;
+  if (helpersPath) {
+    try {
+      helperPrompt = readFileSync(helpersPath, "utf8");
+    } catch {}
+  }
+  return { systemPrompt, helperPrompt, mcpConfig, settings, settingsMode };
 };
 
 const ASKS_FOR_SCREEN = /\b(computer|desktop|screen|screenshot|chrome|browser)\b/i;

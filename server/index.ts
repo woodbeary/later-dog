@@ -17653,7 +17653,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       if (body.helperModel !== undefined) {
         const helperModel = parseHelperModelChoice(body.helperModel);
         if (!helperModel.ok) return json(res, 400, { error: helperModel.error });
-        patch.helperModel = helperModel.value === "same" ? undefined : helperModel.value;
+        patch.helperModel = helperModel.value;
       }
       if (body.connectorTools !== undefined) {
         if (body.connectorTools === null) {
