@@ -843,6 +843,7 @@ import { createDogActivityRoutes } from "./routes/dog-activity.ts";
 import { createScreenGoalRoutes } from "./routes/screen-goals.ts";
 import { createChatContextRoutes } from "./routes/chat-context.ts";
 import { ChatContextBreakdowns } from "./laterdog/chat-context-breakdowns.ts";
+import { homeToolSizes } from "./laterdog/context-tool-sizes.ts";
 import { createDeviceRoutes } from "./routes/devices.ts";
 import { dispatchInternalRoutes, INTERNAL_ROUTES } from "./routes/internal.ts";
 import { createDesktopViewer, desktopViewerUrl } from "./routes/desktop-viewer.ts";
@@ -9187,7 +9188,7 @@ async function startTurn(
         { id: "mentions", label: "Mentions", text: mentionPrompt(tagged) },
       ], cfg.profile?.name);
       turnPromptBytes.set(threadId, { stable: Buffer.byteLength(prompt.stable), volatile: Buffer.byteLength(prompt.volatile) });
-      contextBreakdowns.dispatched(threadId, { driverKind: instance.driverKind, instanceId, sections: prompt.sections, tools: null });
+      contextBreakdowns.dispatched(threadId, { driverKind: instance.driverKind, instanceId, sections: prompt.sections, tools: homeToolSizes(integrations.agents?.env) });
       if (deskPrompts && threadId === bot.threadId && INCLUDED_AI_INSTANCES.includes(instanceId)) deskPrompts.remember(threadId, { instanceId, model, system: prompt.stable || prompt.text });
       const fromPerson = commsDepth === 0 && !coordinationNode && !opts?.automationSource && !opts?.unattended;
       executionEvidence.dispatch(threadId, (store.projectBotForTask(bot.id, threadId) ?? bot).modelSelection, { instanceId, model, effort });
