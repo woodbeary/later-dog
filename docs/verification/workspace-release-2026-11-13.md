@@ -77,3 +77,92 @@ next image release; the desktop app and the phone update reach them now.
 - After a thank-you the first coding engine still wrote a short reply after its reaction at
   release. Fixed after the release: every engine is told to answer a bare acknowledgment with
   one emoji, which the app shows as a tapback ([tapbacks](tapbacks-2026-11-10.md)).
+
+## Desktop 0.3.48, the evening of November 13
+
+On top of the morning's release a person now has: a plan every dog keeps and shows, one
+reaction for a bare thank-you, one plain line when a turn fails, a lost conversation picked
+back up within the same turn, and long chats compacted by the engine itself.
+
+| Piece | What | Identifier | Undo |
+| --- | --- | --- | --- |
+| Code | `main` adds the plan, the account leftovers, the disk breakdown, the plain failure lines, the second harness pass and the dictation helper fix | `d418a3dc4` | a new commit |
+| The owner's home | Server code as a pushed bundle, in three steps through the day | bundle `bac091c0cefe`, label `33f77c93b` (no server file differs in `d418a3dc4`) | write the earlier pointer (hash `4f25bc29…`, label `0fd339b0f`) back to `dev-code/current.json` |
+| Desktop | later.dog 0.3.48, signed, notarized and stapled | release `v0.3.48`, four files | none: apps that updated stay updated, so a fix is a newer version |
+| Phone | Update on the `beta` channel from phone `main` `4887594`, published that afternoon | update group `0d2c9b4a-2edf-4bce-ad5f-cccb78e9990d` | `eas update:republish --group 673138be-0380-4869-88be-464b418b9233` |
+
+The edge did not change. Other people's homes get the server changes with the next image
+release.
+
+### What was checked
+
+- **Independent reviews.** The plan, the account leftovers, the disk breakdown, the failure
+  lines and the second harness pass were each read by a reviewer who did not write them. The
+  harness pass took four rounds; its last blocking finding (a dog shown as reconnecting while
+  it rebuilt a conversation) is fixed, and the reviewer's own reproduction now reports the
+  dog as working.
+- **A real engine.** An isolated local server showed the lost-conversation fault on the code
+  the home was running, then the engine compacting mid-turn and the fix answering within the
+  turn ([harness and instructions](harness-and-instructions.md#seen-with-a-real-engine-2026-11-13)).
+- **The whole suite** on the harness branch with `main` merged in: 1,332 files and about
+  15,500 tests in eight parts, plus 320 edge tests. Six tests in five files fail, as they do
+  on `main` without the branch: `server/laterdog/computer-runs.test.ts` (needs GNU `stat`),
+  `server/agent-tool-policy.test.ts` (its list of outside-reading tools was not updated when
+  mail search and read joined it), `server/cloud-lending.e2e.test.ts`, one write-heavy test in
+  `server/cloud-lending.test.ts` and `scripts/testing/thinking-timer-ui.e2e.test.ts`.
+- **The final head.** After the suite, three test files with outdated expectations were
+  corrected (below). Typecheck, lint, those files, the handoff fixtures and the comment and
+  naming checks passed on the commit that was merged; `main` holds exactly those files.
+- **The owner's home.** No dog was working, the last save was three minutes old, and the
+  earlier pointer was written down. The server process changed 70 seconds after the push;
+  afterwards all 84 dogs and 160 chats were present and idle.
+- **The desktop build.** The release script ran as a dry run from `d418a3dc4`: the packaged
+  server smoke test passed, the app holds its dictation helper, and Apple accepted the app
+  and the disk image. The built app was launched once in a sealed profile: the first-run
+  screen rendered and its log held no error. The four files published are the ones that were
+  checked (disk image 248,873,801 bytes, zip 250,877,746 bytes).
+- **The published release.** Downloaded again from the public release: the checksum file and
+  the update feed's hash match the zip, the signature is valid, the system accepts the app as
+  notarized, it reports 0.3.48, and the feed installed apps read names 0.3.48.
+
+### What the release build caught
+
+- **0.3.47 went out without desktop dictation.** The first 0.3.48 build was accepted by
+  Apple, and its log said the dictation helper could not be compiled and that packaging went
+  on without it. The same line was in the 0.3.47 log, unread: the published 0.3.47 has no
+  helper, while 0.3.45 and 0.3.46 do. The release Mac's Command Line Tools carry an old
+  Swift module map that defines `SwiftBridging` twice, and 0.3.47 was the first release
+  built from a fresh checkout, with no helper left over from an earlier build.
+- The helper build now recognises that failure and compiles again with the stale file
+  hidden, and the release script stops before notarizing when the app has no helper. The
+  first 0.3.48 build was thrown away and the release was built again from `d418a3dc4`.
+- A build that succeeds is not proof of what is in it. Before publishing, the new app's
+  file list was compared with 0.3.46's. One server file is gone, removed on purpose with the
+  account choice work, and the helper is there. The same comparison between 0.3.46 and
+  0.3.47 shows the missing helper at once.
+
+### What the suite caught
+
+- A pull request merged that afternoon on focused tests alone (a truthful running state for
+  jobs on a dog's computer) broke four dog-to-dog handoff fixtures. The owner's home never
+  ran it. It was reverted before this release and stays out until those fixtures and a whole
+  suite pass with it.
+- Six tests in three files still expected what two other pull requests of the day had
+  changed on purpose: "Issue recorded" beside View work, and a held chat's state without its
+  hold details. The product was right and the tests were updated.
+- The rule that follows: nothing merges to `main` on focused tests. The whole suite runs on
+  the merged result first.
+
+### Not proven
+
+- Compaction at the engine's own default window, on a large model or on a real home, and
+  anything of the second pass on the second coding engine with a real engine.
+- The commits after the afternoon's real-engine run (the plain pick-up line, and showing a
+  dog as working while it rebuilds) are covered by fixtures only: a repeat on the final head
+  was refused by the engine account's weekly limit.
+- That the owner's home runs exactly this bundle rests on the pointer and the changed server
+  process, as with the earlier pushes.
+- That dictation hears and types a word in 0.3.48. The helper asks macOS for speech and
+  microphone access when it starts, so it was not run; it is inside the app, built for the
+  Mac's processor, signed and notarized with it.
+- The phone's message box has still not been seen with an on-screen keyboard on a device.
