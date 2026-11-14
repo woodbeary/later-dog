@@ -284,7 +284,8 @@ describe("most available first", () => {
     battery.noteReadings(ACCOUNTS);
     const resting = battery.status(ACCOUNTS).resting;
     expect(resting).not.toHaveProperty("claude");
-    expect(resting["claude-b"].kind).toBe("opus");
+    expect(resting).not.toHaveProperty("claude-b");
+    expect(battery.restOf(account("claude-b"), ACCOUNTS, "claude-opus-5")).toMatchObject({ kind: "opus", model: "Opus" });
     expect(resting["claude-c"].kind).toBe("setup");
   });
 

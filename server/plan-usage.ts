@@ -141,8 +141,8 @@ export function planAccountsFromInstances(instances: InstanceConfigMap): PlanAcc
   const accounts: PlanAccount[] = [];
   for (const [id, entry] of Object.entries(instances)) {
     const driver = DRIVER_OF[entry.driver];
-    if (!driver) continue;
     const config = asRecord(entry.config);
+    if (!driver || entry.access === "api" || config?.requireApiKey === true) continue;
     const configDir = typeof config?.configDir === "string" ? config.configDir : undefined;
     accounts.push({
       id,
@@ -168,6 +168,10 @@ export function parseClaudeUsage(body: unknown): PlanWindows {
       const model = claudeModelWindow(key);
       if (model) addModelWindow(models, model.name, extraLine(model.window, window));
       else extra.push(extraLine(claudeExtraLabel(key), window));
+    }
+    for (const scoped of claudeModelWeeks(root.limits)) {
+      const known = models.find((model) => model.name.toLowerCase() === scoped.name.toLowerCase());
+      if (!known?.windows.some((line) => line.label === "Weekly")) addModelWindow(models, scoped.name, extraLine("Weekly", scoped.window));
     }
   }
   sortModelWindows(models);
@@ -467,6 +471,17 @@ function claudeModelWindow(key: string): { name: string; window: string } | null
   const family = CLAUDE_MODEL_FAMILIES.find((name) => lower === name || lower.startsWith(`${name}_`));
   if (!family) return null;
   return { name: titleWords(suffix), window: weekly ? "Weekly" : "5-hour" };
+}
+
+function claudeModelWeeks(value: unknown): Array<{ name: string; window: PlanWindow }> {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((item) => {
+    const record = asRecord(item);
+    const name = planLabel(asRecord(asRecord(record?.scope)?.model)?.display_name);
+    const used = finiteNumber(record?.percent ?? record?.utilization);
+    if (record?.kind !== "weekly_scoped" || !name || used == null) return [];
+    return [{ name, window: openWindow(used, isoOrNull(record.resets_at ?? record.resetsAt)) }];
+  });
 }
 
 function addModelWindow(models: PlanModelUsage[], name: string, line: PlanExtra): void {

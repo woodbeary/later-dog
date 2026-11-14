@@ -4,6 +4,13 @@
 
 Started 2026-10-13. This file is the single place that says what is in progress, what is done, and how to pick up any piece of it. Every gate updates it in the same commit as the work.
 
+## Real account limit, November 14
+
+Draft pull request 199, branch `atelier/real-account-limit`, item 30, server half. One model reaching
+its own weekly limit now rests only that model on the account, and `GET /api/plan-usage` rows say which
+limit is hit (`limitsHit`). The API-key entry no longer borrows another account's readings. Fixture
+checks only; the phone screen is a separate lane. See [checks](../verification/account-limits-2026-11-14.md).
+
 ## Desktop 0.3.47 candidate, November 11
 
 The candidate carries main 8395635, including staged chat rendering, fewer store
