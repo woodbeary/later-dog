@@ -3,13 +3,14 @@ import { randomBytes } from "node:crypto";
 import { deterministicSummary } from "../compaction-summary.ts";
 import { boundedContextText, MAX_SUMMARY_BYTES, type ReplayEntry } from "../context-rebuild.ts";
 import type { DogWriter } from "./dog-writer.ts";
+import { saysUsageLimit } from "./usage-limit.ts";
 
 export const SUMMARY_PARTS = ["Asked for", "Decisions", "In progress", "Facts to keep"] as const;
 export const MODEL_SUMMARY_LABEL = "Model-written historical summary (may be incomplete):";
 const EXCERPTS_START = "\n\nHistorical excerpts in chronological order";
 const MATERIAL_BYTES = 60_000;
 const MAX_SUMMARY_CHARS = 8_000;
-const ATTEMPT_MS = 30_000;
+const SUMMARY_MS = 30_000;
 
 export function fencedSummaryPrompt(history: readonly ReplayEntry[], fence = randomBytes(9).toString("hex"), retry = false): string {
   const material = history.map(({ role, text }) => JSON.stringify({ role, text })).join("\n");
@@ -75,11 +76,11 @@ export interface HistorySummary {
 
 const historyBytes = (history: readonly ReplayEntry[]) => history.reduce((n, entry) => n + Buffer.byteLength(entry.text), 0);
 
-async function attempt(write: DogWriter, prompt: string, signal: AbortSignal, timeoutMs: number): Promise<string | undefined> {
-  const limit = AbortSignal.any([signal, AbortSignal.timeout(timeoutMs)]);
+async function attempt(write: DogWriter, prompt: string, limit: AbortSignal): Promise<string | undefined> {
   let abort: (() => void) | undefined;
   try {
     return await new Promise<string>((resolve, reject) => {
+      limit.throwIfAborted();
       abort = () => reject(limit.reason);
       limit.addEventListener("abort", abort, { once: true });
       Promise.resolve().then(() => write(prompt, { signal: limit })).then(resolve, reject);
@@ -100,9 +101,12 @@ export async function writeHistorySummary(history: readonly ReplayEntry[], optio
   const rejected: string[] = [];
   if (options.write) {
     const folded = historyBytes(history);
+    const limit = AbortSignal.any([options.signal, AbortSignal.timeout(options.timeoutMs ?? SUMMARY_MS)]);
     for (const retry of [false, true]) {
-      const answer = await attempt(options.write, fencedSummaryPrompt(history, undefined, retry), options.signal, options.timeoutMs ?? ATTEMPT_MS);
+      const answer = await attempt(options.write, fencedSummaryPrompt(history, undefined, retry), limit);
       options.signal.throwIfAborted();
+      if (answer === undefined) { rejected.push("no answer"); break; }
+      if (saysUsageLimit(answer)) { rejected.push("the account is at its limit"); break; }
       const verdict = checkSummary(answer, folded);
       if (verdict.ok) {
         return {
@@ -110,7 +114,7 @@ export async function writeHistorySummary(history: readonly ReplayEntry[], optio
           by: "model", rejected,
         };
       }
-      rejected.push(answer === undefined ? "no answer" : verdict.reason);
+      rejected.push(verdict.reason);
     }
   }
   return { context: deterministicSummary(history), by: "excerpts", rejected };

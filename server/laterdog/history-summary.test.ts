@@ -95,6 +95,32 @@ it("falls back to excerpts when the writer fails, hangs or is missing", async ()
   expect(await writeHistorySummary(history, { signal })).toEqual({ by: "excerpts", context: deterministicSummary(history), rejected: [] });
 });
 
+it("asks again only after an answer in the wrong shape, never after a failure, a timeout or an account at its limit", async () => {
+  const signal = new AbortController().signal;
+  for (const first of [new Error("down"), "Claude AI usage limit reached|1763150000", "You've hit your usage limit. Try again in 3 hours."]) {
+    const write = writer(first, GOOD);
+    const result = await writeHistorySummary(history, { write, signal });
+    expect(result.by).toBe("excerpts");
+    expect(write.calls).toHaveLength(1);
+  }
+  const calls: string[] = [];
+  const hang = Object.assign((prompt: string) => { calls.push(prompt); return new Promise<string>(() => {}); }, { model: "m" });
+  expect((await writeHistorySummary(history, { write: hang, signal, timeoutMs: 20 })).rejected).toEqual(["no answer"]);
+  expect(calls).toHaveLength(1);
+});
+
+it("holds the turn no longer than one limit for the whole summary, a retry included", async () => {
+  let call = 0;
+  const slowThenHang = Object.assign(() => ++call === 1
+    ? new Promise<string>(resolve => setTimeout(() => resolve(REFUSAL), 150))
+    : new Promise<string>(() => {}), { model: "m" });
+  const started = Date.now();
+  const result = await writeHistorySummary(history, { write: slowThenHang, signal: new AbortController().signal, timeoutMs: 250 });
+  expect(result.by).toBe("excerpts");
+  expect(call).toBe(2);
+  expect(Date.now() - started).toBeLessThan(340);
+});
+
 it("stops when the turn is stopped", async () => {
   const controller = new AbortController();
   const result = writeHistorySummary(history, { write: Object.assign(() => new Promise<string>(() => {}), { model: "m" }), signal: controller.signal });
