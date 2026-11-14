@@ -24,9 +24,30 @@ function words(segment: string): string[] {
   return (plain.match(/'[^']*'|"[^"]*"|\S+/g) ?? []).map((word) => word.replace(/^['"]|['"]$/g, ""));
 }
 
+const HEREDOC = /(?<!<)<<(-?)\s*(['"]?)([A-Za-z_][\w.-]*)\2/g;
+
+export function withoutHeredocBodies(command: string): string {
+  const kept: string[] = [];
+  const ends: { word: string; tabs: boolean }[] = [];
+  for (const line of command.split("\n")) {
+    const open = ends[0];
+    if (open) {
+      if ((open.tabs ? line.replace(/^\t+/, "") : line) === open.word) ends.shift();
+      continue;
+    }
+    kept.push(line);
+    for (const found of line.matchAll(HEREDOC)) ends.push({ word: found[3]!, tabs: found[1] === "-" });
+  }
+  return kept.join("\n");
+}
+
+const ZERO = new Set(["-0", "0", "-SIG0"]);
+
 function killTargets(args: readonly string[]): string[] {
   const rest = [...args];
   if (rest[0] === "-l" || rest[0] === "-L") return [];
+  if (ZERO.has(rest[0] ?? "") && rest[0] !== "0") return [];
+  if ((rest[0] === "-s" || rest[0] === "-n") && ZERO.has(rest[1] ?? "")) return [];
   if (rest[0] === "-s" || rest[0] === "-n") rest.splice(0, 2);
   else if (rest[0]?.startsWith("-") && rest[0] !== "--") rest.splice(0, 1);
   if (rest[0] === "--") rest.splice(0, 1);
@@ -40,13 +61,13 @@ const WHY_OTHER = "that process belongs to another chat, not to you";
 const WHY_FOUND = "it finds the processes to stop by name, which can match the home or other dogs' work";
 
 function refusal(why: string): string {
-  return `later.dog refused this: ${why}. Stop only what you started, by the pid it printed or that ps shows under your own command.`;
+  return `later.dog refused this: ${why}. To stop your own process, find its pid with ps, or with lsof -ti :<port> for a port, then run kill <pid>.`;
 }
 
 const SHELLS = new Set(["bash", "sh", "zsh", "dash", "/bin/bash", "/bin/sh", "/bin/zsh", "/usr/bin/bash"]);
 
 export function signalRefusal(command: string, scene: SignalScene, depth = 0): string | null {
-  const parts = segments(command).map(words).filter((part) => part.length > 0);
+  const parts = segments(withoutHeredocBodies(command)).map(words).filter((part) => part.length > 0);
   for (const [head, ...args] of parts) {
     const flag = args.findIndex((arg) => /^-[a-z]*c[a-z]*$/.test(arg));
     if (!SHELLS.has(head!) || flag === -1 || depth >= 3) continue;

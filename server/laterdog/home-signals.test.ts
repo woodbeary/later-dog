@@ -34,6 +34,16 @@ describe("a dog can never signal the home's server", () => {
   it("refuses a process of the home that is not the server", () => {
     expect(refused("kill 60")).toBe(true);
   });
+
+  it("refuses the home's own processes even when they carry this chat's mark or cannot be read", () => {
+    const odd: SignalScene = { ...scene, home: new Set([1, 7, SERVER, 8]), markOf: (pid) => (pid === SERVER ? "chat-a" : pid === 8 ? undefined : scene.markOf(pid)) };
+    expect(signalRefusal(`kill ${SERVER}`, odd)).toMatch(/home's own/);
+    expect(signalRefusal("kill -9 8", odd)).toMatch(/home's own/);
+  });
+
+  it("refuses a kill started beside a background command", () => {
+    for (const command of [`pnpm dev & kill ${SERVER}`, `sleep 1 & kill -9 ${SERVER}`, "pnpm dev & kill 50", "true &kill 7"]) expect(refused(command), command).toBe(true);
+  });
 });
 
 describe("a dog can never signal another dog's processes", () => {
@@ -54,8 +64,32 @@ describe("a dog can still stop what it started", () => {
     ]) expect(refused(command), command).toBe(false);
   });
 
-  it("says why and what to do instead", () => {
-    expect(signalRefusal(`kill ${SERVER}`, scene)).toBe("later.dog refused this: that process is the home's own, and stopping it cuts off every dog and the person. Stop only what you started, by the pid it printed or that ps shows under your own command.");
+  it("allows asking whether a process is alive, which signals nothing", () => {
+    for (const command of [`kill -0 ${SERVER}`, "kill -0 50", "kill -s 0 50", "kill -n 0 1"]) expect(refused(command), command).toBe(false);
+  });
+
+  it("reads past a heredoc's body, which is text and runs nothing", () => {
+    for (const command of [
+      "cat <<'EOF'\npkill -f old\nEOF",
+      "cat > notes.md <<EOF\nnever run killall\nkill 21\nEOF\necho done",
+      "cat <<-END > x.sh\n\tkill -9 1\n\tEND",
+    ]) expect(refused(command), command).toBe(false);
+    expect(refused("cat <<EOF > x\nhi\nEOF\nkill 21")).toBe(true);
+  });
+
+  it("keeps a background redirect from splitting the command", () => {
+    expect(refused("pnpm dev > dev.log 2>&1 & echo started")).toBe(false);
+    expect(refused("pnpm dev &> dev.log & kill 21")).toBe(true);
+  });
+
+  it("says why and what to do instead, in one line, for a port too", () => {
+    const route = " To stop your own process, find its pid with ps, or with lsof -ti :<port> for a port, then run kill <pid>.";
+    expect(signalRefusal(`kill ${SERVER}`, scene)).toBe(`later.dog refused this: that process is the home's own, and stopping it cuts off every dog and the person.${route}`);
+    for (const command of ["pkill -f vite", "lsof -ti:3000 | xargs kill", "fuser -k 3000/tcp"]) {
+      const why = signalRefusal(command, scene)!;
+      expect(why.endsWith(route), command).toBe(true);
+      expect(why).not.toContain("\n");
+    }
   });
 });
 

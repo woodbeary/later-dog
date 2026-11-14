@@ -49,6 +49,8 @@ describe("heavy commands on a shared Cloud home", () => {
     expect(heavyCommandKind("echo 'a|b' && pnpm install")).toBe("a package install");
     expect(heavyCommandKind("echo \"x;y\" | bun add zod")).toBe("a package install");
     expect(heavyCommandKind("out=$(pnpm build)")).not.toBeNull();
+    expect(heavyCommandKind("sleep 1 & pnpm install")).toBe("a package install");
+    expect(heavyCommandKind("node a.js > log 2>&1 & echo ok")).toBeNull();
   });
 
   it("refuses a heavy command once per chat and lets the same command through when the dog runs it again", () => {
