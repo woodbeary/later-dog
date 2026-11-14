@@ -21,6 +21,10 @@ names out; the attribution the licence requires stays in NOTICE.
 
 Work in progress, its gates, and how to resume any lane: [`docs/laterdog/finish-line.md`](docs/laterdog/finish-line.md). Read it before starting.
 
+Nothing merges to `main` until `pnpm gate` (`scripts/merge-gate.mjs`: typecheck, lint, the
+whole suite in eight parts, the edge tests) ends with `VERDICT: PASS` on the branch with the
+latest `main` merged in. Focused tests alone never qualify a merge.
+
 Before claiming a server or conversation change works, follow
 [`docs/verification/README.md`](docs/verification/README.md). Always launch an
 isolated fixture; never verify mutations against the user's live app or data.
