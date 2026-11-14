@@ -2159,6 +2159,16 @@ describe("ClaudeDriver turns (fake CLI)", () => {
     await expect(instance.adapter.compactionSigns!("t-elsewhere")).resolves.toMatchObject({ switchedOff: false });
   });
 
+  it("tells later.dog about a work folder that switches compaction off on the first turn after a restart, before any turn has run", async () => {
+    const folder = join(scratch, "project-off-after-restart");
+    mkdirSync(join(folder, ".claude"), { recursive: true });
+    writeFileSync(join(folder, ".claude", "settings.json"), JSON.stringify({ autoCompactEnabled: false }));
+    await create();
+    await expect(instance.adapter.compactionSigns!("t-first-after-restart", folder)).resolves.toMatchObject({ switchedOff: true });
+    await expect(instance.adapter.compactionSigns!("t-first-after-restart", join(scratch, "no-such-folder"))).resolves.toMatchObject({ switchedOff: false });
+    await expect(instance.adapter.compactionSigns!("t-first-after-restart")).resolves.toMatchObject({ switchedOff: false });
+  });
+
   it("tells later.dog when Claude Code talks to a model on this machine", async () => {
     await create(undefined, { ANTHROPIC_BASE_URL: "http://127.0.0.1:11434" });
     await expect(instance.adapter.compactionSigns!()).resolves.toMatchObject({ customEndpoint: true });
