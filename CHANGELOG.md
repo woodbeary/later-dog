@@ -8,6 +8,7 @@
 - **A lost conversation is picked back up.** When an engine no longer has a chat's saved session, the dog rebuilds the conversation within the same turn, keeps a summary of what was dropped, and answers.
 - **Claude and ChatGPT dogs compact long chats themselves** and keep their session, where later.dog used to cut the chat and start the engine cold.
 - **A chat stays on its AI.** An account check that fails or times out no longer moves a chat to another AI or asks you to sign in again by mistake.
+- **Dictation is back in the desktop app.** 0.3.47 was built without its dictation helper.
 
 ## 0.3.47 — 2026-11-12
 
