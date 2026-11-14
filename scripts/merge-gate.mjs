@@ -11,6 +11,7 @@ export function gateSteps(shards = SHARDS) {
   return [
     { name: "typecheck", kind: "check", command: ["pnpm", "typecheck"] },
     { name: "lint", kind: "check", command: ["pnpm", "lint"] },
+    { name: "electron", kind: "check", command: ["pnpm", "test:electron"] },
     ...Array.from({ length: shards }, (_, index) => ({
       name: `suite ${index + 1}/${shards}`, kind: "vitest", command: ["pnpm", "exec", "vitest", "run", `--shard=${index + 1}/${shards}`],
     })),
@@ -31,6 +32,19 @@ export function failingFiles(log) {
   return [...files];
 }
 
+export const NO_BROWSER = "no agent-browser binary resolves";
+
+export function browserSkips(log) {
+  const files = new Set();
+  let current = "";
+  for (const line of log.split("\n")) {
+    const source = /^\s*std(?:out|err) \| (\S+)/.exec(line);
+    if (source) current = source[1];
+    if (line.includes(NO_BROWSER)) files.add(current || line.trim());
+  }
+  return [...files];
+}
+
 export function vitestCounts(log) {
   const files = /^\s*Test Files\s+(.+)$/m.exec(log)?.[1]?.trim();
   const tests = /^\s*Tests\s+(.+)$/m.exec(log)?.[1]?.trim();
@@ -38,23 +52,28 @@ export function vitestCounts(log) {
 }
 
 export function judgeStep(step, code, log) {
-  if (step.kind === "base") return { ...step, code, failed: code !== 0, failing: code === 0 ? [] : [step.name], note: log.trim() };
-  if (step.kind === "check") return { ...step, code, failed: code !== 0, failing: code === 0 ? [] : [step.name], note: "" };
+  if (step.kind === "base") return { ...step, code, failed: code !== 0, failing: code === 0 ? [] : [step.name], skippedNoBrowser: [], note: log.trim() };
+  if (step.kind === "check") return { ...step, code, failed: code !== 0, failing: code === 0 ? [] : [step.name], skippedNoBrowser: [], note: "" };
   const files = failingFiles(log);
   const counts = vitestCounts(log);
   const failed = code !== 0 || files.length > 0 || counts === null;
   const failing = files.length ? files : failed ? [`${step.name} (exit ${code}${counts ? "" : ", no test summary"})`] : [];
-  return { ...step, code, failed, failing, note: counts ? `Test Files ${counts.files}; Tests ${counts.tests}` : "" };
+  return { ...step, code, failed, failing, skippedNoBrowser: browserSkips(log), note: counts ? `Test Files ${counts.files}; Tests ${counts.tests}` : "" };
 }
 
-export function verdict(results) {
+export function verdict(results, { noBrowser = false } = {}) {
   const failing = [...new Set(results.flatMap((result) => result.failing))];
-  return { pass: results.length > 0 && failing.length === 0, failing };
+  const skippedNoBrowser = [...new Set(results.flatMap((result) => result.skippedNoBrowser ?? []))];
+  const pass = results.length > 0 && failing.length === 0 && (noBrowser || skippedNoBrowser.length === 0);
+  return { pass, failing, skippedNoBrowser };
 }
 
-export function formatVerdict(results) {
-  const { pass, failing } = verdict(results);
+export function formatVerdict(results, options = {}) {
+  const { pass, failing, skippedNoBrowser } = verdict(results, options);
   const lines = results.map((result) => `${result.failed ? "FAIL" : "ok  "} ${result.name} exit ${result.code}${result.note ? `  ${result.note}` : ""}`);
+  if (skippedNoBrowser.length) {
+    lines.push(`Skipped without a browser: ${skippedNoBrowser.length}${options.noBrowser ? " (allowed by LATERDOG_GATE_NO_BROWSER)" : " (set LATERDOG_GATE_NO_BROWSER=1 only on a machine meant to have none)"}`, ...skippedNoBrowser.map((name) => `  ${name}`));
+  }
   lines.push(`VERDICT: ${pass ? "PASS" : "FAIL"}`);
   if (failing.length) lines.push("Failing:", ...failing.map((name) => `  ${name}`));
   return lines.join("\n");
@@ -101,6 +120,7 @@ async function main() {
   }
   const wrapper = wrapperFrom(process.env.LATERDOG_GATE_WRAP);
   const base = process.env.LATERDOG_GATE_BASE || "origin/main";
+  const options = { noBrowser: process.env.LATERDOG_GATE_NO_BROWSER === "1" };
   const only = process.argv.includes("--only") ? process.argv[process.argv.indexOf("--only") + 1]?.split(",") ?? [] : null;
   const logs = resolve(process.env.LATERDOG_GATE_LOGS || join(tmpdir(), `laterdog-gate-${Date.now()}`));
   mkdirSync(logs, { recursive: true });
@@ -119,10 +139,10 @@ async function main() {
     results.push(result);
     console.log(`${result.failed ? "FAIL" : "ok  "} ${step.name} exit ${code} in ${Math.round((Date.now() - stepStarted) / 1000)}s${result.note ? `  ${result.note}` : ""}`);
   }
-  const report = formatVerdict(results);
+  const report = formatVerdict(results, options);
   writeFileSync(join(logs, "verdict.txt"), `${report}\n`);
   console.log(`\n${report}\nwhole gate ${Math.round((Date.now() - started) / 60_000)} min; logs in ${logs}`);
-  process.exit(verdict(results).pass ? 0 : 1);
+  process.exit(verdict(results, options).pass ? 0 : 1);
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) await main();

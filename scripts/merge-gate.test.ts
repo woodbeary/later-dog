@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
-import { failingFiles, formatVerdict, gateSteps, judgeStep, verdict, vitestCounts, wrapperFrom } from "./merge-gate.mjs";
+import { browserSkips, failingFiles, formatVerdict, gateSteps, judgeStep, verdict, vitestCounts, wrapperFrom } from "./merge-gate.mjs";
 
 const script = fileURLToPath(new URL("./merge-gate.mjs", import.meta.url));
 const passing = " ✓ server/a.test.ts (3 tests) 20ms\n\n Test Files  1 passed (1)\n      Tests  3 passed (3)\n";
@@ -12,8 +12,9 @@ const failing = " FAIL  server/b.test.ts > b > breaks\nAssertionError\n FAIL  se
 const shard = { name: "suite 1/8", kind: "vitest", command: [] };
 
 describe("merge gate verdict", () => {
-  it("runs typecheck, lint, eight suite parts and the edge tests, in that order", () => {
-    expect(gateSteps().map((step) => step.name)).toEqual(["typecheck", "lint", ...Array.from({ length: 8 }, (_, index) => `suite ${index + 1}/8`), "edge"]);
+  it("runs typecheck, lint, the desktop app's node tests, eight suite parts and the edge tests, in that order", () => {
+    expect(gateSteps().find((step) => step.name === "electron")).toMatchObject({ kind: "check", command: ["pnpm", "test:electron"] });
+    expect(gateSteps().map((step) => step.name)).toEqual(["typecheck", "lint", "electron", ...Array.from({ length: 8 }, (_, index) => `suite ${index + 1}/8`), "edge"]);
     expect(gateSteps().at(-1)).toMatchObject({ cwd: "deploy/laterdog/home", command: ["pnpm", "exec", "vitest", "run"] });
   });
 
@@ -34,11 +35,25 @@ describe("merge gate verdict", () => {
   });
 
   it("passes only when every step passed and at least one ran", () => {
-    expect(verdict([])).toEqual({ pass: false, failing: [] });
-    expect(verdict([judgeStep(shard, 0, passing)])).toEqual({ pass: true, failing: [] });
+    expect(verdict([])).toEqual({ pass: false, failing: [], skippedNoBrowser: [] });
+    expect(verdict([judgeStep(shard, 0, passing)])).toEqual({ pass: true, failing: [], skippedNoBrowser: [] });
     const report = formatVerdict([judgeStep(shard, 0, passing), judgeStep({ ...shard, name: "suite 2/8" }, 1, failing)]);
     expect(report).toContain("VERDICT: FAIL");
     expect(report.split("Failing:\n")[1]).toBe("  server/b.test.ts\n  src/c.test.ts");
+  });
+
+  it("fails a run whose interface tests skipped for want of a browser, unless the machine has none on purpose", () => {
+    const skipped = `stdout | scripts/testing/thinking-timer-ui.e2e.test.ts\nskipping thinking-timer ui e2e: no agent-browser binary resolves (looked in x)\n\nstdout | scripts/testing/control-laterdog-ui.e2e.test.ts\nskipping control-laterdog ui e2e: no agent-browser binary resolves (looked in x)\n${passing}`;
+    expect(browserSkips(skipped)).toEqual(["scripts/testing/thinking-timer-ui.e2e.test.ts", "scripts/testing/control-laterdog-ui.e2e.test.ts"]);
+    expect(browserSkips(passing)).toEqual([]);
+    const results = [judgeStep(shard, 0, skipped)];
+    expect(results[0]).toMatchObject({ failed: false, failing: [] });
+    expect(verdict(results)).toMatchObject({ pass: false, skippedNoBrowser: ["scripts/testing/thinking-timer-ui.e2e.test.ts", "scripts/testing/control-laterdog-ui.e2e.test.ts"] });
+    expect(formatVerdict(results)).toContain("Skipped without a browser: 2");
+    expect(formatVerdict(results)).toContain("  scripts/testing/thinking-timer-ui.e2e.test.ts\n");
+    expect(formatVerdict(results)).toContain("VERDICT: FAIL");
+    expect(verdict(results, { noBrowser: true }).pass).toBe(true);
+    expect(formatVerdict(results, { noBrowser: true })).toContain("VERDICT: PASS");
   });
 
   it("splits the wrapper command from its environment variable", () => {
@@ -51,7 +66,7 @@ describe("merge gate exit code", () => {
   const dirs: string[] = [];
   afterEach(() => { for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true }); });
 
-  const gate = (args: string[], fakeFailsOn = "", base = "HEAD") => {
+  const gate = (args: string[], fakeFailsOn = "", base = "HEAD", extra: Record<string, string> = {}) => {
     const dir = mkdtempSync(join(tmpdir(), "laterdog-gate-test-"));
     dirs.push(dir);
     const repo = join(dir, "repo");
@@ -62,11 +77,12 @@ describe("merge gate exit code", () => {
     const fake = join(dir, "fake.mjs");
     writeFileSync(fake, `const words = process.argv.slice(2).join(" ");
 if (${JSON.stringify(fakeFailsOn)} && words.includes(${JSON.stringify(fakeFailsOn)})) { console.log(${JSON.stringify(failing)}); process.exit(1); }
+if (words.includes("--shard=2/8") && process.env.FAKE_NO_BROWSER) console.log("stdout | scripts/testing/thinking-timer-ui.e2e.test.ts\\nskipping thinking-timer ui e2e: no agent-browser binary resolves");
 console.log(words.includes("vitest") ? ${JSON.stringify(passing)} : "checked");
 `);
     return spawnSync(process.execPath, [script, ...args], {
       cwd: repo, encoding: "utf8",
-      env: { ...process.env, LATERDOG_GATE_WRAP: `${process.execPath} ${fake}`, LATERDOG_GATE_BASE: base, LATERDOG_GATE_LOGS: join(dir, "logs") },
+      env: { ...process.env, LATERDOG_GATE_WRAP: `${process.execPath} ${fake}`, LATERDOG_GATE_BASE: base, LATERDOG_GATE_LOGS: join(dir, "logs"), ...extra },
     });
   };
 
@@ -81,6 +97,16 @@ console.log(words.includes("vitest") ? ${JSON.stringify(passing)} : "checked");
     expect(run.stdout).toContain("VERDICT: FAIL");
     expect(run.stdout).toContain("Failing:\n  server/b.test.ts\n  src/c.test.ts");
     expect(run.status).toBe(1);
+  });
+
+  it("exits 1 when an interface test skipped for want of a browser, and 0 when the machine has none on purpose", () => {
+    const skipped = gate(["--only", "electron,suite"], "", "HEAD", { FAKE_NO_BROWSER: "1" });
+    expect(skipped.stdout).toContain("ok   electron exit 0");
+    expect(skipped.stdout).toMatch(/Skipped without a browser: 1 .*\n {2}scripts\/testing\/thinking-timer-ui\.e2e\.test\.ts\n/);
+    expect(skipped.status).toBe(1);
+    const allowed = gate(["--only", "suite"], "", "HEAD", { FAKE_NO_BROWSER: "1", LATERDOG_GATE_NO_BROWSER: "1" });
+    expect(allowed.stdout).toContain("VERDICT: PASS");
+    expect(allowed.status).toBe(0);
   });
 
   it("fails the edge step when its dependencies are not installed", () => {
