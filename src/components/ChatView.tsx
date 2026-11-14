@@ -842,7 +842,7 @@ const MessagesList = memo(function MessagesList({
             case "routine.run":
               return <RoutineRunRow message={m} botId={botId} />;
             case "activity": {
-              if (isStatusActivity(m)) return <StatusActivityRow message={m} />;
+              if (isStatusActivity(m)) return <StatusActivityRow message={m} model={selection.model} />;
               if (m.tool && failedTurnCause(m.tool.name) !== null) {
                 return (
                   <FailedTurnRow

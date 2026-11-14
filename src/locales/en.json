@@ -858,6 +858,7 @@
   "chat.limit.weekly": "{name} hit its weekly limit.",
   "chat.limit.monthly": "{name} hit its monthly limit.",
   "chat.limit.opus": "{name} hit its Opus limit.",
+  "chat.limit.model": "{name} hit its {limit}.",
   "chat.limit.sonnet": "{name} hit its Sonnet limit.",
   "chat.limit.out": "{name} is out of usage for now.",
   "chat.limit.thisAccount": "This account",

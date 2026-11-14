@@ -474,6 +474,7 @@ describe("AccountBattery", () => {
       sequence: ["claude-b", "claude", "claude-c"],
       order: { claudeAgent: ["claude-b", "claude", "claude-c"], codex: [] },
       resting: { claude: { until: at(HOUR), since: at(0) }, "claude-c": { until: at(HOUR), since: at(0), sharedWith: "claude" } },
+      modelResting: {},
       routed: {},
       fromNextMessage: {},
     });

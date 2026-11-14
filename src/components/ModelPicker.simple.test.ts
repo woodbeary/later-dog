@@ -847,6 +847,22 @@ describe("the model picker in Simple mode", () => {
     expect(render(bot()).html).not.toContain("data-usage-ring");
   });
 
+  it("rests the chip's account for the dog's model when only that model waits, and not for a dog on another model", () => {
+    fixture.instances = [claude(), grok];
+    fixture.planUsage = { fetchedAt: new Date(NOW).toISOString(), providers: [usageFor("claude", 80, 30)] };
+    fixture.battery = { enabled: true, order: {}, resting: {}, modelResting: { claude: [{
+      model: "Opus", label: "Opus weekly limit", kind: "opus", since: new Date(NOW - 3_600_000).toISOString(), until: new Date(NOW + 3_600_000).toISOString(),
+    }] } };
+    const waiting = render(bot());
+    expect(waiting.nodes.find((node) => node.type === UsageRing)!.props).toEqual(expect.objectContaining({ level: 50, tone: "accent", charging: true }));
+    expect(String(waiting.nodes.find((node) => node.props["data-tour"] === "model")!.props.title)).toMatch(/\nBack at [^\n]+ · in 1h$/);
+    const other = render(bot(undefined, "claude", "claude-sonnet-5-5"));
+    expect(other.nodes.find((node) => node.type === UsageRing)!.props).toEqual(expect.objectContaining({ level: 20, tone: "warning" }));
+    expect(String(other.nodes.find((node) => node.props["data-tour"] === "model")!.props.title)).not.toContain("Back at");
+    fixture.battery = undefined;
+    fixture.planUsage = null;
+  });
+
   it("dims a provider its organisation blocks and says why, with no setup to offer", () => {
     const blocked: InstanceInfo = { ...openaiKey, policy: { organizationName: "Acme", reason: "Acme allows only company models." } };
     fixture.instances = [claude(), blocked];

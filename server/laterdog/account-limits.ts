@@ -1,3 +1,7 @@
+import { modelFamily, sameModel } from "../../shared/model-family.ts";
+
+export { modelFamily, sameModel };
+
 export const SETUP_STOP = "setup";
 
 export interface LimitedRest {
@@ -26,12 +30,6 @@ const OTHER_LABELS: Readonly<Record<string, string>> = { daily: "Daily limit", m
 
 const own = (names: Readonly<Record<string, string>>, key: string | undefined) => key !== undefined && Object.hasOwn(names, key) ? names[key] : undefined;
 
-export function modelFamily(model: string): string {
-  const lower = model.trim().toLowerCase();
-  const words = lower.split(/[^a-z]+/);
-  return Object.keys(MODEL_NAMES).find((family) => words.includes(family)) ?? lower.replace(/\[[^\]]*\]$/, "");
-}
-
 export function modelLimitName(kind: string | undefined, ranModel: string | undefined): string | undefined {
   if (!kind) return undefined;
   const named = own(MODEL_NAMES, kind) ?? own(MODEL_NAMES, kind.replace(/^(?:seven_day|five_hour)_/, ""));
@@ -43,10 +41,6 @@ export function modelLimitName(kind: string | undefined, ranModel: string | unde
 
 export function restModel(rest: Pick<LimitedRest, "kind" | "model">): string | undefined {
   return rest.model ?? modelLimitName(rest.kind, undefined);
-}
-
-export function sameModel(a: string, b: string): boolean {
-  return modelFamily(a) === modelFamily(b);
 }
 
 export function modelRestKey(instanceId: string, model: string): string {

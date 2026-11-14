@@ -9,7 +9,7 @@ import type { ProviderSnapshot } from "../contracts.ts";
 import { checkUnknown } from "./cli-version.ts";
 import { NEARLY_EMPTY_PERCENT, roomTier } from "./account-spread.ts";
 import { choiceReadyAt, decideAccount, shownRoute, type AccountChoice, type AccountChoiceInput, type Ran } from "./account-choice.ts";
-import { SETUP_STOP, modelLimitName, modelRestKey, restModel, restOwner, sameModel } from "./account-limits.ts";
+import { SETUP_STOP, limitHit, modelLimitName, modelRestKey, restModel, restOwner, sameModel } from "./account-limits.ts";
 
 export { NEARLY_EMPTY_PERCENT, SETUP_STOP };
 
@@ -100,8 +100,30 @@ export interface BatteryStatus {
   order: Record<string, string[]>;
   sequence: string[];
   resting: Record<string, Rest & { sharedWith?: string }>;
+  modelResting: Record<string, ModelRestShown[]>;
   routed: Record<string, WireAccountRoute>;
   fromNextMessage: Record<string, WireAccountRoute>;
+}
+
+export interface ModelRestShown {
+  model: string;
+  label: string;
+  until: string;
+  since: string;
+  kind?: string;
+  estimated?: true;
+  sharedWith?: string;
+}
+
+function modelRestsShown(rests: ReadonlyArray<Rest & { sharedWith?: string }>): ModelRestShown[] {
+  return rests.flatMap((rest) => {
+    const model = restModel(rest);
+    if (!model) return [];
+    return [{
+      model, label: limitHit(rest).label, until: rest.until, since: rest.since,
+      ...(rest.kind ? { kind: rest.kind } : {}), ...(rest.estimated ? { estimated: true as const } : {}), ...(rest.sharedWith ? { sharedWith: rest.sharedWith } : {}),
+    }];
+  });
 }
 
 const restSchema = z.object({
@@ -727,10 +749,13 @@ export class AccountBattery {
   status(accounts: readonly BatteryAccount[], selectionOf?: (threadId: string) => ModelSelection | undefined, running: Iterable<readonly [string, Ran]> = []): BatteryStatus {
     const config = this.options.config();
     const resting: BatteryStatus["resting"] = {};
+    const modelResting: BatteryStatus["modelResting"] = {};
     for (const account of accounts) {
       if (!account.eligible) continue;
       const rest = this.restOf(account, accounts);
       if (rest) resting[account.instanceId] = rest;
+      const models = modelRestsShown(this.limitsOf(account, accounts));
+      if (models.length) modelResting[account.instanceId] = models;
     }
     const routed: BatteryStatus["routed"] = {};
     const fromNextMessage: BatteryStatus["fromNextMessage"] = {};
@@ -750,7 +775,7 @@ export class AccountBattery {
     this.shownOrder = JSON.stringify({ order, sequence });
     this.shownResting = this.limitsKey(accounts);
     return { enabled: batteryEnabled(config, accounts), auto: config?.auto === true, order,
-      sequence, resting, routed, fromNextMessage };
+      sequence, resting, modelResting, routed, fromNextMessage };
   }
 
   noteReadings(accounts: readonly BatteryAccount[]): void {

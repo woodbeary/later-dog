@@ -61,6 +61,15 @@ describe("one model's own limit", () => {
     expect(battery.limitsOf(claude("daniel"), ACCOUNTS)).toEqual([expect.objectContaining({ model: "Fable", until: MONDAY_NINE })]);
   });
 
+  it("tells the apps which model waits in modelResting, apart from the whole-account rests in resting", () => {
+    const { battery } = home({ daniel: reading("daniel", 0, 69), anthony: reading("anthony", 10, 100) });
+    battery.markExhausted("daniel", { resetsAt: MONDAY_NINE, kind: "seven_day_overage_included" }, FABLE);
+    const status = battery.status(ACCOUNTS);
+    expect(status.resting).toEqual({ anthony: expect.objectContaining({ until: WEEK_RESET, kind: "weekly" }) });
+    expect(status.modelResting).toEqual({ daniel: [{ model: "Fable", label: "Fable weekly limit", until: MONDAY_NINE, since: at(0), kind: "seven_day_overage_included" }] });
+    expect(JSON.parse(JSON.stringify(home({ daniel: reading("daniel", 0, 69), anthony: reading("anthony", 10, 40) }).battery.status(ACCOUNTS))).modelResting).toEqual({});
+  });
+
   it("names the model that ran when the engine reports the shared per-model allowance", () => {
     const { battery } = home({});
     expect(battery.markExhausted("daniel", { resetsAt: MONDAY_NINE, kind: "seven_day_overage_included" }, OPUS).model).toBe("Opus");
