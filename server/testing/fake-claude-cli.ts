@@ -8,6 +8,7 @@ import { createPuppies } from "./fake-claude-puppies.ts";
 import { createNativeActivity } from "./fake-claude-native-activity.ts";
 import { runRoomHandoffAgent } from "./room-handoff-agent.ts";
 import { ASKS_COMMAND, ASKS_QUESTION, callDogTool, dogServer } from "./fake-claude-asks.ts";
+import { answerControlRequest, fakeContextMode } from "./fake-claude-context.ts";
 
 const mode = process.env.FAKE_CLAUDE_MODE ?? "happy";
 
@@ -798,6 +799,7 @@ process.stdin.on("data", (c) => {
     } catch {
       continue;
     }
+    if (answerControlRequest(prompt, { mode: fakeContextMode(process.env.FAKE_CLAUDE_CONTEXT), turnsPlayed, seenFile: process.env.FAKE_CLAUDE_CONTEXT_SEEN }, out)) continue;
     if (turnRunning || lateTurnWaiting) {
       if (process.env.FAKE_CLAUDE_LATE_STEER_GATE) lateSteers.push(prompt);
       else {
