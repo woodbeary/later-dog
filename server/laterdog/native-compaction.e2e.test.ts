@@ -215,6 +215,9 @@ it.each(["dead-session", "dead-session-result"])("rebuilds a Claude chat whose s
   expect(f.task().resumeCursors.claude).not.toBe(lost);
   expect(await f.folds()).toHaveLength(0);
   expect((await f.messages()).filter(m => m.kind === "activity" && m.tool?.ok === false)).toEqual([]);
+  const rows = (await f.messages()).filter(m => m.kind === "activity").map(m => String(m.tool?.name));
+  expect(rows).toContain("recovery: Long chat picked the conversation back up.");
+  expect(rows.join("\n")).not.toMatch(/resume_rejected|attempt \d|in \d+s/);
 }, { ...LONG_CHAT, FAKE_CLAUDE_HOOKS: "1", FAKE_CLAUDE_COMPACT_SUMMARY: "ENGINE_SUMMARY the person chose port 9001." }), 150_000);
 
 it("rebuilds a Codex chat whose thread is lost with the person's oldest decision still in front", () => fixture(async f => {

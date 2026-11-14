@@ -61,6 +61,8 @@ describe("runtime frames between home updates", () => {
   it("never outranks a question or invents work for a client with no work state", () => {
     const asking: WorkState = { kind: "needs-you" };
     expect(workAfterEvent(asking, event({ type: "turn.retrying", attempt: 1, delayMs: 1, reason: "x" }))).toBe(asking);
+    const running = { kind: "running" } as const;
+    expect(workAfterEvent(running, event({ type: "turn.retrying", attempt: 1, delayMs: 0, reason: "resume_rejected" }))).toBe(running);
     expect(workAfterEvent(undefined, event({ type: "turn.retrying", attempt: 1, delayMs: 1, reason: "x" }))).toBeUndefined();
   });
 

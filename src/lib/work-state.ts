@@ -2,6 +2,7 @@ import type { RuntimeEvent } from "../../shared/runtime-events";
 import type { WorkState } from "../../shared/work-state";
 import { activeLocale, t } from "@/lib/i18n";
 import { teammateNames } from "@/lib/waiting-on";
+import { RESUME_REJECTED } from "../../shared/resume-pickup";
 
 const LIVE = new Set<WorkState["kind"]>(["running", "retrying", "waiting-for-computer"]);
 
@@ -9,6 +10,7 @@ export function workAfterEvent(work: WorkState | undefined, event: RuntimeEvent)
   if (!work) return work;
   switch (event.type) {
     case "turn.retrying":
+      if (event.reason === RESUME_REJECTED) return work;
       return work.kind === "running" || work.kind === "retrying" ? { kind: "retrying", attempt: event.attempt + 1 } : work;
     case "turn.wait_started":
       return work.kind === "running" || work.kind === "retrying"

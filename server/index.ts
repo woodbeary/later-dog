@@ -775,6 +775,7 @@ import { createMacPromptGate, macPromptOf, macPromptWords } from "./laterdog/mac
 import { createStatusLines, fileStatusLineLedger, statusLineTimingFromEnv, threadWork } from "./laterdog/status-lines.ts";
 import { createCompactionLive, fileCompactionLedger } from "./laterdog/compaction-live.ts";
 import { engineWillCompact, rebuildNeedsSummary } from "./laterdog/native-compaction.ts";
+import { pickedConversationBackUp, RESUME_REJECTED } from "../shared/resume-pickup.ts";
 import { decodeInjectId } from "./drivers/local-inject.ts";
 import { withDroppedSummary } from "./laterdog/rebuild-summary.ts";
 import { fileEngineSummaries } from "./laterdog/engine-summaries.ts";
@@ -7463,7 +7464,9 @@ bus.subscribe(guardTurnEnd((event: RuntimeEvent) => {
       pushMessage({
         role: "bot",
         kind: "activity",
-        tool: { name: `retrying — attempt ${event.attempt + 1}/${RETRY_MAX_ATTEMPTS} in ${Math.round(event.delayMs / 1000)}s — ${event.reason}`, ok: true },
+        tool: event.reason === RESUME_REJECTED
+          ? { name: `recovery: ${pickedConversationBackUp(bot?.name)}`, ok: true }
+          : { name: `retrying — attempt ${event.attempt + 1}/${RETRY_MAX_ATTEMPTS} in ${Math.round(event.delayMs / 1000)}s — ${event.reason}`, ok: true },
       });
       break;
     case "runtime.notice":

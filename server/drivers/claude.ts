@@ -74,6 +74,7 @@ import { CLAUDE_PICKS_CACHE_LIFETIME, claudeCacheLifetime } from "../laterdog/ca
 import { claudeCompactionSwitchedOff } from "../laterdog/native-compaction.ts";
 import { helpersStoppedLine } from "../laterdog/helpers-stopped.ts";
 import { claudeApiErrorFrame } from "../laterdog/claude-api-error.ts";
+import { RESUME_REJECTED } from "../../shared/resume-pickup.ts";
 
 export function claudeAuthStatus(
   cli: string,
@@ -2141,7 +2142,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
               type: "turn.retrying",
               attempt: retry.attempt + 1,
               delayMs: 0,
-              reason: "resume_rejected",
+              reason: RESUME_REJECTED,
             });
             void (async () => {
               try {
