@@ -61,6 +61,20 @@ describe("asking the engine what fills the context window", () => {
     expect(written).toHaveLength(2);
   });
 
+  it("keeps asking an engine that answers late, because a slow engine is not one that refuses", async () => {
+    const { ask, written } = engine(20);
+    const late = (index: number) => ask.receive({ type: "control_response", response: { subtype: "success", request_id: written[index]!.request_id, response: {} } });
+    expect(await ask.ask()).toEqual({ kind: "none" });
+    expect(late(0)).toBe(true);
+    expect(await ask.ask()).toEqual({ kind: "none" });
+    expect(late(1)).toBe(true);
+    expect(ask.knowsRefusal).toBe(false);
+    const third = ask.ask();
+    expect(written).toHaveLength(3);
+    ask.receive({ type: "control_response", response: { subtype: "success", request_id: written[2]!.request_id, response: { ok: 1 } } });
+    expect(await third).toEqual({ kind: "answer", answer: { ok: 1 } });
+  });
+
   it("leaves every other line from the engine alone", () => {
     const { ask } = engine();
     void ask.ask();

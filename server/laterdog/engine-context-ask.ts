@@ -68,9 +68,9 @@ export class EngineContextAsk {
     if (!response || typeof response !== "object") return false;
     const { request_id: requestId, subtype, error } = response as { request_id?: unknown; subtype?: unknown; error?: unknown; response?: unknown };
     if (typeof requestId !== "string" || !requestId.startsWith(ENGINE_CONTEXT_REQUEST_PREFIX)) return false;
+    this.silences = 0;
     const entry = this.waiting.get(requestId);
     if (!entry) return true;
-    this.silences = 0;
     if (subtype === "success") {
       entry.settle({ kind: "answer", answer: (response as { response?: unknown }).response });
       return true;
