@@ -9,9 +9,9 @@ export const EDGE_DIR = "deploy/laterdog/home";
 
 export function gateSteps(shards = SHARDS) {
   return [
-    { name: "typecheck", kind: "check", command: ["pnpm", "typecheck"] },
-    { name: "lint", kind: "check", command: ["pnpm", "lint"] },
-    { name: "electron", kind: "check", command: ["pnpm", "test:electron"] },
+    { name: "typecheck", kind: "check", command: ["pnpm", "typecheck"], refuse: [/error TS\d+/] },
+    { name: "lint", kind: "check", command: ["pnpm", "lint"], refuse: [/Found (?:[1-9]\d* warnings?|\d+ warnings? and [1-9]\d* errors?)/] },
+    { name: "electron", kind: "check", command: ["pnpm", "test:electron"], expect: [/^ℹ tests [1-9]/m], refuse: [/^ℹ fail [1-9]/m] },
     ...Array.from({ length: shards }, (_, index) => ({
       name: `suite ${index + 1}/${shards}`, kind: "vitest", command: ["pnpm", "exec", "vitest", "run", `--shard=${index + 1}/${shards}`],
     })),
@@ -68,14 +68,49 @@ export function vitestCounts(log) {
   return files ? { files, tests: tests ?? "" } : null;
 }
 
+export function checkProblems(step, log) {
+  return [
+    ...(step.expect ?? []).filter((pattern) => !pattern.test(log)).map((pattern) => `expected ${pattern} in its output`),
+    ...(step.refuse ?? []).filter((pattern) => pattern.test(log)).map((pattern) => `printed ${pattern.exec(log)[0]}`),
+  ];
+}
+
+export function reportProblems(report, root = "") {
+  if (!report || typeof report !== "object") return { files: [], problems: ["no JSON report"] };
+  const files = (report.testResults ?? []).filter((file) => file.status === "failed").map((file) => reportFile(file.name, root));
+  const problems = [];
+  if ((report.numFailedTests ?? 0) > 0 || (report.numFailedTestSuites ?? 0) > 0 || report.success === false) {
+    if (!files.length) problems.push(`${report.numFailedTests ?? 0} failed test(s) in the report`);
+  }
+  if (!report.numTotalTests) problems.push("no tests ran");
+  return { files, problems };
+}
+
+export function unhandledErrors(log) {
+  return Number(/^\s*Errors\s+(\d+)\s+errors?/m.exec(log)?.[1] ?? 0);
+}
+
 export function judgeStep(step, code, log, report = null, root = "") {
-  if (step.kind === "base") return { ...step, code, failed: code !== 0, failing: code === 0 ? [] : [step.name], skippedNoBrowser: [], note: log.trim() };
-  if (step.kind === "check") return { ...step, code, failed: code !== 0, failing: code === 0 ? [] : [step.name], skippedNoBrowser: [], note: "" };
-  const files = failingFiles(log);
+  const plain = { ...step, code, skippedNoBrowser: [] };
+  if (step.kind === "base") return { ...plain, failed: code !== 0, failing: code === 0 ? [] : [step.name], note: log.trim() };
+  if (step.kind === "check") {
+    const problems = checkProblems(step, log);
+    const failed = code !== 0 || problems.length > 0;
+    return { ...plain, failed, failing: failed ? [problems.length ? `${step.name} (${problems.join("; ")})` : step.name] : [], note: "" };
+  }
+  const fromReport = reportProblems(report, root);
+  const files = [...new Set([...fromReport.files, ...failingFiles(log)])];
   const counts = vitestCounts(log);
-  const failed = code !== 0 || files.length > 0 || counts === null;
-  const failing = files.length ? files : failed ? [`${step.name} (exit ${code}${counts ? "" : ", no test summary"})`] : [];
-  return { ...step, code, failed, failing, skippedNoBrowser: browserSkips(report, root), note: counts ? `Test Files ${counts.files}; Tests ${counts.tests}` : "" };
+  const errors = unhandledErrors(log);
+  const problems = [
+    ...fromReport.problems,
+    ...(errors ? [`${errors} unhandled error${errors === 1 ? "" : "s"}`] : []),
+    ...(counts && /\bfailed\b/.test(counts.files) && !files.length ? ["its summary counts failed files"] : []),
+    ...(code !== 0 && !files.length && !fromReport.problems.length && !errors ? [`exit ${code}`] : []),
+  ];
+  const failed = code !== 0 || files.length > 0 || problems.length > 0;
+  const failing = [...files, ...(problems.length ? [`${step.name} (${problems.join("; ")})`] : [])];
+  return { ...plain, failed, failing, skippedNoBrowser: browserSkips(report, root), note: counts ? `Test Files ${counts.files}; Tests ${counts.tests}` : "" };
 }
 
 export function verdict(results, { noBrowser = false, partial = false } = {}) {

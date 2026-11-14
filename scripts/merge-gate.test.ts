@@ -28,20 +28,38 @@ describe("merge gate verdict", () => {
     expect(vitestCounts("Segmentation fault")).toBeNull();
   });
 
-  it("fails a suite part that exits non-zero, names a failing file, or never printed its summary", () => {
-    expect(judgeStep(shard, 0, passing)).toMatchObject({ failed: false, failing: [] });
-    expect(judgeStep(shard, 1, failing)).toMatchObject({ failed: true, failing: ["server/b.test.ts", "src/c.test.ts"] });
-    expect(judgeStep(shard, 0, failing)).toMatchObject({ failed: true });
-    expect(judgeStep(shard, 0, "killed")).toMatchObject({ failed: true, failing: ["suite 1/8 (exit 0, no test summary)"] });
-    expect(judgeStep(shard, 137, "killed")).toMatchObject({ failed: true, failing: ["suite 1/8 (exit 137, no test summary)"] });
-    expect(judgeStep({ name: "lint", kind: "check", command: [] }, 1, "")).toMatchObject({ failed: true, failing: ["lint"] });
+  it("fails a suite part on its report, its unhandled errors or its summary, even when a wrapper swallowed the exit code", () => {
+    const clean = recorded("stray.json", "/repo");
+    const strayLog = readFileSync(new URL("./testing/merge-gate-fixtures/stray.log", import.meta.url), "utf8");
+    expect(judgeStep(shard, 0, passing, clean, "/repo")).toMatchObject({ failed: false, failing: [] });
+    expect(judgeStep(shard, 0, strayLog, clean, "/repo")).toMatchObject({ failed: true, failing: ["suite 1/8 (1 unhandled error)"] });
+    expect(judgeStep(shard, 0, passing, recorded("fails.json", "/repo"), "/repo")).toMatchObject({ failed: true, failing: ["scripts/testing/fails.test.mjs"] });
+    expect(judgeStep(shard, 0, passing, null)).toMatchObject({ failed: true, failing: ["suite 1/8 (no JSON report)"] });
+    expect(judgeStep(shard, 0, passing, { ...clean, numTotalTests: 0, testResults: [] })).toMatchObject({ failed: true, failing: ["suite 1/8 (no tests ran)"] });
+    expect(judgeStep(shard, 0, " Test Files  1 failed (1)\n      Tests  1 failed (1)\n", clean, "/repo")).toMatchObject({ failed: true, failing: ["suite 1/8 (its summary counts failed files)"] });
+    expect(judgeStep(shard, 1, failing, clean, "/repo")).toMatchObject({ failed: true, failing: ["server/b.test.ts", "src/c.test.ts"] });
+    expect(judgeStep(shard, 137, "killed", clean, "/repo")).toMatchObject({ failed: true, failing: ["suite 1/8 (exit 137)"] });
+  });
+
+  it("fails typecheck, lint and the node tests on what they print, not only on their exit code", () => {
+    const step = (name: string) => gateSteps().find((candidate) => candidate.name === name)!;
+    expect(judgeStep(step("typecheck"), 0, "")).toMatchObject({ failed: false });
+    expect(judgeStep(step("typecheck"), 0, "src/a.ts(1,1): error TS2322: no")).toMatchObject({ failed: true, failing: ["typecheck (printed error TS2322)"] });
+    expect(judgeStep(step("lint"), 0, "Found 0 warnings and 0 errors.")).toMatchObject({ failed: false });
+    expect(judgeStep(step("lint"), 0, "Found 0 warnings and 2 errors.")).toMatchObject({ failed: true });
+    expect(judgeStep(step("lint"), 0, "Found 3 warnings and 0 errors.")).toMatchObject({ failed: true });
+    expect(judgeStep(step("electron"), 0, "ℹ tests 945\nℹ pass 942\nℹ fail 0\n")).toMatchObject({ failed: false });
+    expect(judgeStep(step("electron"), 0, "ℹ tests 945\nℹ fail 1\n")).toMatchObject({ failed: true });
+    expect(judgeStep(step("electron"), 0, "ℹ tests 0\nℹ fail 0\n")).toMatchObject({ failed: true });
+    expect(judgeStep(step("lint"), 1, "")).toMatchObject({ failed: true, failing: ["lint"] });
   });
 
   it("passes only when every step passed and at least one ran", () => {
+    const clean = recorded("stray.json", "/repo");
     expect(verdict([])).toEqual({ pass: false, label: "FAIL", failing: [], skippedNoBrowser: [] });
-    expect(verdict([judgeStep(shard, 0, passing)], { partial: true })).toMatchObject({ pass: false, label: "PARTIAL" });
-    expect(verdict([judgeStep(shard, 0, passing)])).toEqual({ pass: true, label: "PASS", failing: [], skippedNoBrowser: [] });
-    const report = formatVerdict([judgeStep(shard, 0, passing), judgeStep({ ...shard, name: "suite 2/8" }, 1, failing)]);
+    expect(verdict([judgeStep(shard, 0, passing, clean)], { partial: true })).toMatchObject({ pass: false, label: "PARTIAL" });
+    expect(verdict([judgeStep(shard, 0, passing, clean)])).toEqual({ pass: true, label: "PASS", failing: [], skippedNoBrowser: [] });
+    const report = formatVerdict([judgeStep(shard, 0, passing, clean), judgeStep({ ...shard, name: "suite 2/8" }, 1, failing, clean)]);
     expect(report).toContain("VERDICT: FAIL");
     expect(report.split("Failing:\n")[1]).toBe("  server/b.test.ts\n  src/c.test.ts");
   });
@@ -98,8 +116,9 @@ const words = process.argv.slice(2).join(" ");
 if (${JSON.stringify(failOn)} && words.includes(${JSON.stringify(failOn)})) { console.log(${JSON.stringify(failing)}); process.exit(1); }
 const out = process.argv.find((word) => word.startsWith("--outputFile.json="))?.slice("--outputFile.json=".length);
 const skip = words.includes("--shard=2/8") && process.env.FAKE_NO_BROWSER;
-if (out) require("node:fs").writeFileSync(out, skip ? ${JSON.stringify(JSON.stringify(recorded("skip.json", "<cwd>")))}.replaceAll("<cwd>", process.cwd()) : ${JSON.stringify(JSON.stringify(recorded("fails.json", "<cwd>")))}.replaceAll("<cwd>", process.cwd()).replace(/"status":"failed"/g, '"status":"passed"'));
-console.log(words.includes("vitest") ? ${JSON.stringify(passing)} : "checked");
+if (out) require("node:fs").writeFileSync(out, (skip ? ${JSON.stringify(JSON.stringify(recorded("skip.json", "<cwd>")))} : ${JSON.stringify(JSON.stringify(recorded("stray.json", "<cwd>")))}).replaceAll("<cwd>", process.cwd()));
+if (words.includes("typecheck") && process.env.FAKE_TYPE_ERROR) console.log("src/a.ts(1,1): error TS2322: no");
+console.log(words.includes("vitest") ? ${JSON.stringify(passing)} : words.includes("test:electron") ? "ℹ tests 3\\nℹ fail 0" : "checked");
 `);
     return spawnSync(process.execPath, [script, ...args], {
       cwd: repo, encoding: "utf8",
@@ -143,6 +162,13 @@ console.log(words.includes("vitest") ? ${JSON.stringify(passing)} : "checked");
     const allowed = gate([], { env: { FAKE_NO_BROWSER: "1", LATERDOG_GATE_NO_BROWSER: "1" } });
     expect(allowed.stdout).toContain("VERDICT: PASS");
     expect(allowed.status).toBe(0);
+  });
+
+  it("fails a typecheck that printed errors even when the wrapper reports success", () => {
+    const run = gate(["--only", "typecheck"], { env: { FAKE_TYPE_ERROR: "1" } });
+    expect(run.stdout).toContain("FAIL typecheck exit 0");
+    expect(run.stdout).toContain("VERDICT: FAIL");
+    expect(run.status).toBe(1);
   });
 
   it("fails the edge step when its dependencies are not installed", () => {
