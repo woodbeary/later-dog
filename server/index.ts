@@ -140,6 +140,7 @@ import { HeavyCommandGuard, preToolUseDecision } from "./laterdog/heavy-commands
 import { computersSelected } from "./laterdog/cloud-computers.ts";
 import { createComputerRunRoute } from "./routes/computer-run.ts";
 import { createStorageRoutes } from "./routes/storage.ts";
+import { AWAY_RULES, createAwayPlanner, type AwayPlannerDeps } from "./laterdog/folder-away-plan.ts";
 import * as boat from "./computers.ts";
 import { cloudComputerRpc } from "./cloud-computer-tools.ts";
 import { TeamComputers, teamComputerAssignment, teamComputerCreate, teamComputerOwner, type TeamComputerRecord } from "./team-computers.ts";
@@ -13201,7 +13202,10 @@ ROUTES.push(createEnginePlacementRoutes({
   save: (id, computer) => setRemoteEngineBot(DATA_DIR, id, computer),
 }));
 ROUTES.push(createStreamWatchRoutes({ clients: () => sseClients }));
-ROUTES.push(createStorageRoutes({ storage: () => cloudStorage(), clean: () => runJanitorNow("low-disk"), measure: () => diskBreakdown.measure() }));
+ROUTES.push(createStorageRoutes({
+  storage: () => cloudStorage(), clean: () => runJanitorNow("low-disk"), measure: () => diskBreakdown.measure(),
+  awayPlan: { last: () => awayPlanner.last(), measuring: () => awayPlanner.measuring(), measure: () => awayPlanner.measure() },
+}));
 ROUTES.push(createLinkPreviewRoutes());
 ROUTES.push(createBotMemoryRoutes({
   bot: (id) => store.bot(id),
@@ -21160,6 +21164,25 @@ function janitorWorkspaces(): WorkspaceTask[] {
   }
   return tasks;
 }
+
+function awayChatState(botId: string, threadId: string) {
+  const state = janitorThread(botId, threadId);
+  const group = store.groupByThread(threadId);
+  const inUse = state.busy || Boolean(group && groupIsWorking(group))
+    || registry.instances().some((instance) => instance.adapter.hasSession(threadId))
+    || store.hasPendingRequest(threadId) || roomHandoffs.activeDirect(threadId) || Boolean(activeRoutineRunForThread(threadId));
+  const horizon = Date.now() + AWAY_RULES.routineHorizonMs;
+  const mainThread = store.bot(botId)?.threadId;
+  const routineSoon = (routines?.listRoutines() ?? []).some((routine) => routine.enabled && routine.botId === botId
+    && routine.nextRunAt !== null && routine.nextRunAt <= horizon && (threadId === mainThread || routine.resultsThreadId === threadId));
+  return { exists: state.exists, inUse, routineSoon, lastUsedAt: state.lastActiveAt };
+}
+
+function awayPlanDeps(): AwayPlannerDeps {
+  return { tasksDir: TASK_WORKSPACES_DIR, runsDir: join(DATA_DIR, "computer-runs"), chat: awayChatState, disk: () => diskUse(DATA_DIR) };
+}
+
+const awayPlanner = createAwayPlanner(awayPlanDeps(), (line) => console.warn(`[folders away] ${line}`));
 
 let lastJanitorRun: JanitorRun | null = null;
 const diskBreakdown = createDiskBreakdown({ dataDir: DATA_DIR, home: CLOUD_HOME ? homedir() : null, scratch: CLOUD_HOME ? [tmpdir()] : [], dogName: (id) => store.bot(id)?.name ?? null });

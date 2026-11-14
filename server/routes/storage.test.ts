@@ -32,4 +32,15 @@ describe("the storage routes", () => {
     expect(sent).toEqual([[200, { started: true }], [200, { started: false }]]);
     expect(await route(ctx("GET", "/api/storage/measure", sent))).toBe(PASS);
   });
+
+  it("report and start the read-only plan of which chats' files could move, only when the home has one", async () => {
+    let measuring = false;
+    const route = createStorageRoutes({ storage: () => ({}), clean: () => null, measure: () => false, awayPlan: { last: () => ({ totals: { folders: 2 } }), measuring: () => measuring, measure: () => (measuring ? false : (measuring = true)) } });
+    const sent: unknown[] = [];
+    await route(ctx("POST", "/api/storage/away-plan", sent));
+    await route(ctx("GET", "/api/storage/away-plan", sent));
+    expect(sent).toEqual([[200, { started: true }], [200, { measuring: true, plan: { totals: { folders: 2 } } }]]);
+    const without = createStorageRoutes({ storage: () => ({}), clean: () => null, measure: () => false });
+    expect(await without(ctx("GET", "/api/storage/away-plan", sent))).toBe(PASS);
+  });
 });
