@@ -231,8 +231,8 @@ export class RoomHandoffs {
       ...(requestedBy ? { requestedBy } : {}), ...(lender ? { lender } : {}) };
     const kind = target.groupId && target.groupId === source.groupId ? "assignment" : "work";
     const path = this.path(parent);
-    if (path.some(n => n.botId === target.botId && (!n.groupId || !target.groupId || n.groupId === target.groupId))) {
-      throw new Error("Cannot assign work back to an ancestor; results return automatically");
+    if (reply === "result" && path.some(n => n.botId === target.botId && (!n.groupId || !target.groupId || n.groupId === target.groupId))) {
+      throw new Error("Cannot assign work back to an ancestor; results return automatically. To tell it something, send with reply \"none\".");
     }
     const existing = this.children(parent.id).findLast(n => n.botId === target.botId && n.groupId === target.groupId && n.text === text);
     if (existing && !(rework && terminal(existing))) return { node: existing, duplicate: true };
