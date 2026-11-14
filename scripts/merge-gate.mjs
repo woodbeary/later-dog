@@ -91,24 +91,36 @@ export function formatVerdict(results, options = {}) {
   if (skippedNoBrowser.length) {
     lines.push(`Skipped without a browser: ${skippedNoBrowser.length}${options.noBrowser ? " (allowed by LATERDOG_GATE_NO_BROWSER)" : " (set LATERDOG_GATE_NO_BROWSER=1 only on a machine meant to have none)"}`, ...skippedNoBrowser.map((name) => `  ${name}`));
   }
-  lines.push(`VERDICT: ${label}${label === "PARTIAL" ? ` (ran only: ${results.filter((result) => result.kind !== "base").map((result) => result.name).join(", ")}; a merge needs the whole gate)` : ""}`);
+  const commits = options.commits ? `  head ${options.commits.head}, ${BASE} ${options.commits.base}${options.commits.offline ? " (offline: origin/main not fetched)" : ""}` : "";
+  lines.push(`VERDICT: ${label}${commits}${label === "PARTIAL" ? ` (ran only: ${results.filter((result) => result.kind !== "base").map((result) => result.name).join(", ")}; a merge needs the whole gate)` : ""}`);
   if (failing.length) lines.push("Failing:", ...failing.map((name) => `  ${name}`));
   return lines.join("\n");
 }
 
 function git(root, ...args) {
   const out = spawnSync("git", args, { cwd: root, encoding: "utf8" });
-  return { code: out.status ?? 1, text: (out.stdout ?? "").trim() };
+  return { code: out.status ?? 1, text: (out.stdout ?? "").trim(), error: (out.stderr ?? "").trim() };
 }
 
-export function baseCheck(root, base) {
+export const BASE = "origin/main";
+
+export function baseCheck(root, { offline = false } = {}) {
   const head = git(root, "rev-parse", "--short", "HEAD").text || "unknown";
-  const baseSha = git(root, "rev-parse", "--verify", "--quiet", "--short", `${base}^{commit}`);
-  if (baseSha.code !== 0) return { code: 1, log: `head ${head}; ${base} is not known here, fetch it first` };
-  const merged = git(root, "merge-base", "--is-ancestor", base, "HEAD").code === 0;
-  const changed = git(root, "status", "--porcelain", "--untracked-files=no").text;
-  const tree = changed ? "; tracked files differ from the commit" : "";
-  return { code: merged ? 0 : 1, log: `head ${head}; ${base} ${baseSha.text} ${merged ? "is merged in" : "is NOT merged in"}${tree}` };
+  const commits = { head, base: "unknown", offline };
+  if (!offline) {
+    const fetched = git(root, "fetch", "--quiet", "origin", "main");
+    if (fetched.code !== 0) return { code: 1, commits, log: `head ${head}; could not fetch origin main (${fetched.error.split("\n")[0] || `exit ${fetched.code}`}); set LATERDOG_GATE_OFFLINE=1 only to judge against the origin/main already here` };
+  }
+  const base = git(root, "rev-parse", "--verify", "--quiet", "--short", `${BASE}^{commit}`);
+  if (base.code !== 0) return { code: 1, commits, log: `head ${head}; ${BASE} is not known here` };
+  commits.base = base.text;
+  const merged = git(root, "merge-base", "--is-ancestor", BASE, "HEAD").code === 0;
+  const changed = (spawnSync("git", ["status", "--porcelain"], { cwd: root, encoding: "utf8" }).stdout ?? "").split("\n").filter(Boolean);
+  const problems = [
+    ...(merged ? [] : [`${BASE} ${base.text} is NOT merged in`]),
+    ...(changed.length ? [`${changed.length} file(s) differ from the commit or are untracked: ${changed.slice(0, 5).map((line) => line.slice(3)).join(", ")}${changed.length > 5 ? ", ..." : ""}`] : []),
+  ];
+  return { code: problems.length ? 1 : 0, commits, log: `head ${head}; ${BASE} ${base.text}${offline ? " (offline: not fetched)" : ""}${problems.length ? `; ${problems.join("; ")}` : " is merged in; the tree matches the commit"}` };
 }
 
 function runStep(root, step, wrapper, logFile) {
@@ -136,7 +148,6 @@ async function main() {
     process.exit(2);
   }
   const wrapper = wrapperFrom(process.env.LATERDOG_GATE_WRAP);
-  const base = process.env.LATERDOG_GATE_BASE || "origin/main";
   const chosen = selectSteps(gateSteps(), process.argv.slice(2));
   if (chosen.error) {
     console.error(`merge gate: ${chosen.error}`);
@@ -147,8 +158,9 @@ async function main() {
   mkdirSync(logs, { recursive: true });
   const results = [];
   const started = Date.now();
-  const merged = baseCheck(root, base);
-  results.push(judgeStep({ name: `${base} merged`, kind: "base" }, merged.code, merged.log));
+  const merged = baseCheck(root, { offline: process.env.LATERDOG_GATE_OFFLINE === "1" });
+  options.commits = merged.commits;
+  results.push(judgeStep({ name: `${BASE} merged`, kind: "base" }, merged.code, merged.log));
   console.log(`merge gate in ${root}; logs in ${logs}${wrapper.length ? `; each step through ${wrapper.join(" ")}` : ""}`);
   console.log(`${merged.log}`);
   for (const [index, step] of chosen.steps.entries()) {

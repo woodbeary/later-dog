@@ -67,17 +67,21 @@ describe("merge gate exit code", () => {
   const dirs: string[] = [];
   afterEach(() => { for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true }); });
 
-  const gate = (args: string[], { failOn = "", env = {}, edgeDeps = true }: { failOn?: string; env?: Record<string, string>; edgeDeps?: boolean } = {}) => {
+  interface Setup { failOn?: string; env?: Record<string, string>; edgeDeps?: boolean; before?: (repo: string, git: (cwd: string, ...args: string[]) => void, origin: string) => void }
+  const gate = (args: string[], { failOn = "", env = {}, edgeDeps = true, before }: Setup = {}) => {
     const dir = mkdtempSync(join(tmpdir(), "laterdog-gate-test-"));
     dirs.push(dir);
+    const origin = join(dir, "origin.git");
     const repo = join(dir, "repo");
-    mkdirSync(repo);
-    const git = (...gitArgs: string[]) => spawnSync("git", ["-c", "user.name=t", "-c", "user.email=t@example.com", ...gitArgs], { cwd: repo });
-    git("init", "-q");
+    const git = (cwd: string, ...gitArgs: string[]) => { spawnSync("git", ["-c", "user.name=t", "-c", "user.email=t@example.com", ...gitArgs], { cwd }); };
+    git(dir, "init", "-q", "--bare", "-b", "main", origin);
+    git(dir, "clone", "-q", origin, repo);
     writeFileSync(join(repo, ".gitignore"), "node_modules\n");
-    git("add", ".gitignore");
-    git("commit", "-q", "-m", "start");
+    git(repo, "add", ".gitignore");
+    git(repo, "commit", "-q", "-m", "start");
+    git(repo, "push", "-q", "origin", "HEAD:main");
     if (edgeDeps) mkdirSync(join(repo, "deploy/laterdog/home/node_modules"), { recursive: true });
+    before?.(repo, git, origin);
     const fake = join(dir, "fake.mjs");
     writeFileSync(fake, `const words = process.argv.slice(2).join(" ");
 if (${JSON.stringify(failOn)} && words.includes(${JSON.stringify(failOn)})) { console.log(${JSON.stringify(failing)}); process.exit(1); }
@@ -86,7 +90,7 @@ console.log(words.includes("vitest") ? ${JSON.stringify(passing)} : "checked");
 `);
     return spawnSync(process.execPath, [script, ...args], {
       cwd: repo, encoding: "utf8",
-      env: { ...process.env, LATERDOG_GATE_NO_BROWSER: "", LATERDOG_GATE_WRAP: `${process.execPath} ${fake}`, LATERDOG_GATE_BASE: "HEAD", LATERDOG_GATE_LOGS: join(dir, "logs"), ...env },
+      env: { ...process.env, LATERDOG_GATE_NO_BROWSER: "", LATERDOG_GATE_WRAP: `${process.execPath} ${fake}`, LATERDOG_GATE_OFFLINE: "", LATERDOG_GATE_LOGS: join(dir, "logs"), ...env },
     });
   };
 
@@ -98,7 +102,7 @@ console.log(words.includes("vitest") ? ${JSON.stringify(passing)} : "checked");
 
   it("calls any --only run PARTIAL and exits 3, naming what ran", () => {
     const run = gate(["--only", "typecheck,lint"]);
-    expect(run.stdout).toContain("VERDICT: PARTIAL (ran only: typecheck, lint; a merge needs the whole gate)");
+    expect(run.stdout).toMatch(/VERDICT: PARTIAL {2}head \w+, origin\/main \w+ \(ran only: typecheck, lint; a merge needs the whole gate\)/);
     expect(run.stdout).not.toContain("VERDICT: PASS");
     expect(run.status).toBe(3);
   });
@@ -134,9 +138,39 @@ console.log(words.includes("vitest") ? ${JSON.stringify(passing)} : "checked");
     expect(run.status).toBe(1);
   });
 
-  it("fails when the base branch is not merged in", () => {
-    const run = gate([], { env: { LATERDOG_GATE_BASE: "no-such-branch" } });
-    expect(run.stdout).toContain("FAIL no-such-branch merged exit 1");
+  it("fetches origin main first and fails when it moved past the branch", () => {
+    const run = gate([], { before: (repo, git, origin) => {
+      const other = join(repo, "..", "other");
+      git(join(repo, ".."), "clone", "-q", origin, other);
+      writeFileSync(join(other, "moved.txt"), "main moved\n");
+      git(other, "add", ".");
+      git(other, "commit", "-q", "-m", "main moved");
+      git(other, "push", "-q", "origin", "HEAD:main");
+    } });
+    expect(run.stdout).toMatch(/FAIL origin\/main merged exit 1 .*is NOT merged in/);
     expect(run.status).toBe(1);
+  });
+
+  it("fails when the fetch fails, and says so when an offline run is allowed", () => {
+    const breakOrigin: Setup["before"] = (repo, git) => git(repo, "remote", "set-url", "origin", join(repo, "..", "gone.git"));
+    const failed = gate([], { before: breakOrigin });
+    expect(failed.stdout).toContain("could not fetch origin main");
+    expect(failed.status).toBe(1);
+    const offline = gate([], { before: breakOrigin, env: { LATERDOG_GATE_OFFLINE: "1" } });
+    expect(offline.stdout).toMatch(/VERDICT: PASS {2}head [0-9a-f]+, origin\/main [0-9a-f]+ \(offline: origin\/main not fetched\)/);
+    expect(offline.status).toBe(0);
+  });
+
+  it("fails when a tracked file differs from the commit or an untracked file is present, and ignores ignored ones", () => {
+    const dirty = gate([], { before: (repo) => writeFileSync(join(repo, ".gitignore"), "changed\n") });
+    expect(dirty.stdout).toContain("differ from the commit or are untracked: .gitignore");
+    expect(dirty.status).toBe(1);
+    const untracked = gate([], { before: (repo) => writeFileSync(join(repo, "extra.test.ts"), "") });
+    expect(untracked.stdout).toContain("untracked: extra.test.ts");
+    expect(untracked.status).toBe(1);
+  });
+
+  it("prints the head and origin/main commits on the verdict line", () => {
+    expect(gate([]).stdout).toMatch(/VERDICT: PASS {2}head [0-9a-f]{7,}, origin\/main [0-9a-f]{7,}\n/);
   });
 });
