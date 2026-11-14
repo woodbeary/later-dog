@@ -69,7 +69,7 @@ import { readCliVersion as readCliVersionOf, unreadCli } from "../laterdog/cli-v
 import { claudeToolTouch } from "../laterdog/tool-touches.ts";
 import { claudeContextNote, claudeSeenVolatile } from "../laterdog/volatile-sections.ts";
 import { claudeHelperEnvironment } from "../laterdog/helper-model.ts";
-import { helperContractArgs, SUBAGENT_PROMPT_FLAG } from "../laterdog/helper-contract.ts";
+import { helperContractArgs, helperContractWanted, helperFlagRefused, SUBAGENT_PROMPT_FLAG } from "../laterdog/helper-contract.ts";
 import { disallowedWithOnePlan } from "../laterdog/one-plan.ts";
 import { agentsServerLaunch, deferRareToolsEnabled } from "../laterdog/tool-loading.ts";
 import { CLAUDE_PICKS_CACHE_LIFETIME, claudeCacheLifetime } from "../laterdog/cache-lifetime.ts";
@@ -1443,7 +1443,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
       try {
         checkStart();
         const launchSystem = turn.systemStable ?? turn.system;
-        const helperContract = claudeCliSupports(cliVersion, SUBAGENT_PROMPT_FLAG);
+        const helperContract = helperContractWanted(config.cli, cliVersion && claudeCliSupports(cliVersion, SUBAGENT_PROMPT_FLAG) ? cliVersion.join(".") : null);
         if (launchSystem || helperContract) systemPromptPath = join(mkdtempSync(join(tmpdir(), "laterdog-system-")), "prompt.txt");
         if (launchSystem && systemPromptPath) {
           writeFileSync(systemPromptPath, launchSystem, { mode: 0o600 });
@@ -2035,10 +2035,11 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
           const verdict = classifyError({ exitCode: code, stderr: message });
           const endedBeforeTurn = session.turn.awaitingInit === true;
           const refusedResume = Boolean(session.resumeRefused);
+          const refusedHelperFlag = !session.sawInit && helperFlagRefused(config.cli, cliVersion?.join(".") ?? null, session.stderr);
           if (
             !refusedResume &&
             !retry.cancelled &&
-            (endedBeforeTurn || (
+            (endedBeforeTurn || refusedHelperFlag || (
               code !== 0 &&
               verdict.transient &&
               !session.turn.sawStreamDelta &&
@@ -2062,7 +2063,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
             sessions.delete(threadId);
             session.turn = null;
             let delayMs = 0;
-            if (!endedBeforeTurn) {
+            if (!endedBeforeTurn && !refusedHelperFlag) {
               retry.attempt++;
               delayMs = computeBackoff(retry.attempt - 1);
               emit({
@@ -2092,7 +2093,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
               active.set(threadId, { stop: () => { retry.cancelled = true; retryAbort.abort(); }, turnId });
               try {
                 const cursor = session.sessionId ?? sessionId ?? undefined;
-                await sendTurn({ ...turn, sessionReset: false, resumeCursor: cursor }, turnId);
+                await sendTurn(refusedHelperFlag ? turn : { ...turn, sessionReset: false, resumeCursor: cursor }, turnId);
               } catch (e) {
                 if (active.get(threadId)?.turnId === turnId) active.delete(threadId);
                 retryState.delete(threadId);

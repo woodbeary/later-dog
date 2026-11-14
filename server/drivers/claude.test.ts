@@ -2215,15 +2215,37 @@ describe("ClaudeDriver turns (fake CLI)", () => {
     expect(env.CLAUDE_CODE_PROMPT_CACHE_TTL).toBeUndefined();
   });
 
-  it.each(["2.1.315", "2.1.316"])("gives every helper its reporting rules on Claude %s and later", async (version) => {
+  it.each(["unknown", "2.1.315", "2.1.316"])("gives every helper its reporting rules only on a Claude version read as 2.1.316 or later (%s)", async (version) => {
     const dump = join(scratch, "helper-contract.json");
-    await create(undefined, { FAKE_CLAUDE_DUMP: dump, FAKE_CLAUDE_VERSION: version });
+    await create(undefined, version === "unknown" ? { FAKE_CLAUDE_DUMP: dump, FAKE_CLAUDE_FAIL_VERSION: "1" } : { FAKE_CLAUDE_DUMP: dump, FAKE_CLAUDE_VERSION: version });
     await instance.adapter.sendTurn({ threadId: "t-helper-contract", text: "hi", system: "You are Testy." });
     await recorder.until(e => e.type === "turn.completed");
     const seen = JSON.parse(readFileSync(dump, "utf8"));
     expect(seen.argv.includes("--append-subagent-system-prompt-file")).toBe(version === "2.1.316");
     expect(seen.helperPrompt).toBe(version === "2.1.316" ? HELPER_CONTRACT : null);
     expect(seen.systemPrompt).toBe("You are Testy.");
+  });
+
+  it("starts an engine that does not know the helper flag again once without it, and leaves it off after", async () => {
+    const dump = join(scratch, "helper-flag-refused.json");
+    const refusals = join(scratch, "helper-flag-refusals.txt");
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      await create(undefined, { FAKE_CLAUDE_DUMP: dump, FAKE_CLAUDE_VERSION: "2.1.401", FAKE_CLAUDE_UNKNOWN_FLAGS: "--append-subagent-system-prompt-file", FAKE_CLAUDE_REFUSALS: refusals });
+      await instance.adapter.sendTurn({ threadId: "t-helper-flag-1", text: "hi", system: "You are Testy." });
+      const first = await recorder.until((e) => e.type === "turn.completed");
+      expect(first).toMatchObject({ ok: true });
+      expect(readFileSync(refusals, "utf8").trim().split("\n")).toEqual(["--append-subagent-system-prompt-file"]);
+      expect(JSON.parse(readFileSync(dump, "utf8")).argv).not.toContain("--append-subagent-system-prompt-file");
+      recorder.events.length = 0;
+      await instance.adapter.sendTurn({ threadId: "t-helper-flag-2", text: "again", system: "You are Testy." });
+      expect(await recorder.until((e) => e.type === "turn.completed")).toMatchObject({ ok: true });
+      expect(readFileSync(refusals, "utf8").trim().split("\n")).toHaveLength(1);
+      expect(JSON.parse(readFileSync(dump, "utf8")).argv).not.toContain("--append-subagent-system-prompt-file");
+      expect(warn.mock.calls.filter(([line]) => String(line).includes("--append-subagent-system-prompt-file"))).toHaveLength(1);
+    } finally {
+      warn.mockRestore();
+    }
   });
 
   it.each(["2.1.210", "2.1.211"])("gates native child text forwarding for Claude %s", async (version) => {

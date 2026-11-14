@@ -168,6 +168,13 @@ if (argv[0] === "--help") {
   process.exit(0);
 }
 
+const unknownFlag = (process.env.FAKE_CLAUDE_UNKNOWN_FLAGS ?? "").split(",").find((flag) => flag && argv.includes(flag));
+if (unknownFlag) {
+  if (process.env.FAKE_CLAUDE_REFUSALS) appendFileSync(process.env.FAKE_CLAUDE_REFUSALS, `${unknownFlag}\n`);
+  process.stderr.write(`error: unknown option '${unknownFlag}'\n`);
+  process.exit(1);
+}
+
 if (argv[0] === "update") {
   if (process.env.FAKE_CLAUDE_UPDATE === "fail") {
     process.stderr.write("fake-claude: simulated update failure\n");
