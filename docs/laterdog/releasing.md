@@ -23,6 +23,7 @@ later.dog 0.3.3 and newer update themselves from the newest GitHub release of `w
 - Replacing a release that already exists.
 - A Mac without a Developer ID Application identity in its keychain. macOS installs an update only when it is signed like the running app.
 - An app without its dictation helper. Packaging carries on when the helper cannot be compiled, so that a Mac without a working Swift compiler can still build; a release must not, or dictation does nothing in it. 0.3.47 went out that way.
+- An app missing a file the previous release had, outside `Contents/Resources/server/` and the hashed `ui/assets/` bundles. The script compares the stapled app's files with the previous release's `later.dog-macOS-arm64-files.txt` (or its zip, for releases before that file was published) and names what is gone. When each one is meant to be gone, list them one per line in `LATERDOG_RELEASE_ACCEPT_GONE`; `LATERDOG_PREVIOUS_FILES` points at a local list instead of the published one.
 - A release whose notarization Apple didn't accept, for the app or for the disk image. The script prints Apple's log and publishes nothing.
 
 ## Signing and notarization

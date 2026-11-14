@@ -27,6 +27,14 @@ describe("later.dog builds, tests and releases run from Jacob's Mac", () => {
     expect(text.indexOf("== Notarize and staple the app")).toBeGreaterThan(refused);
   });
 
+  it("compares the stapled app's files with the previous release before the disk image is built, and publishes its own list", () => {
+    const text = readFileSync(new URL("scripts/laterdog-release-mac.sh", root), "utf8");
+    const compared = text.indexOf("node scripts/release-file-list.mjs");
+    expect(compared).toBeGreaterThan(text.indexOf("xcrun stapler staple \"$APP\""));
+    expect(text.indexOf("== Build, sign, notarize and staple the disk image")).toBeGreaterThan(compared);
+    expect(text).toMatch(/assets=\([^)]*out\/later\.dog-macOS-arm64-files\.txt/);
+  });
+
   it("points the release doc at the Mac script, not a workflow", () => {
     const doc = readFileSync(new URL("docs/laterdog/releasing.md", root), "utf8");
     expect(doc).toContain("scripts/laterdog-release-mac.sh");
