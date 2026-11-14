@@ -14,6 +14,9 @@ const previous = [
   `${app}/MacOS/later.dog`,
   `${app}/Resources/later.dog Speech.app/Contents/MacOS/speech-helper`,
   `${app}/Resources/server/laterdog/old-route.js`,
+  `${app}/Resources/server/native/screen.node`,
+  `${app}/Resources/server/bin/helper`,
+  `${app}/Resources/server/model-catalog/snapshot.json`,
   `${app}/Resources/ui/assets/index-Ab12Cd34.js`,
   `${app}/Resources/ui/index.html`,
 ].join("\n");
@@ -35,13 +38,18 @@ describe("release file list", () => {
     expect([...appFiles(`${app}/\n${app}/Info.plist\n\n`)]).toEqual([`${app}/Info.plist`]);
   });
 
-  it("names a file gone outside server/ and the hashed ui bundles, and nothing that was added", () => {
-    expect(goneFiles(previous, current)).toEqual([`${app}/Resources/later.dog Speech.app/Contents/MacOS/speech-helper`]);
+  it("names every file that is gone except server/ scripts and hashed ui bundles, native files in server/ included, and nothing that was added", () => {
+    expect(goneFiles(previous, current)).toEqual([
+      `${app}/Resources/later.dog Speech.app/Contents/MacOS/speech-helper`,
+      `${app}/Resources/server/bin/helper`,
+      `${app}/Resources/server/model-catalog/snapshot.json`,
+      `${app}/Resources/server/native/screen.node`,
+    ]);
     expect(goneFiles(previous, previous)).toEqual([]);
   });
 
   it("lets the person accept a file that is meant to be gone", () => {
-    const accepted = acceptedFrom(`\n  ${app}/Resources/later.dog Speech.app/Contents/MacOS/speech-helper  \n`);
+    const accepted = acceptedFrom(`\n  ${app}/Resources/later.dog Speech.app/Contents/MacOS/speech-helper  \n${app}/Resources/server/bin/helper\n${app}/Resources/server/model-catalog/snapshot.json\n${app}/Resources/server/native/screen.node\n`);
     expect(goneFiles(previous, current, accepted)).toEqual([]);
   });
 
@@ -57,5 +65,11 @@ describe("release file list", () => {
     const same = spawnSync(process.execPath, [script, join(dir, "previous.txt"), join(dir, "previous.txt")], { encoding: "utf8", env });
     expect(same.status).toBe(0);
     expect(spawnSync(process.execPath, [script], { encoding: "utf8" }).status).toBe(2);
+    writeFileSync(join(dir, "empty.txt"), `${app}/\n\n`);
+    for (const pair of [["empty.txt", "current.txt"], ["previous.txt", "empty.txt"]]) {
+      const empty = spawnSync(process.execPath, [script, ...pair.map((name) => join(dir, name))], { encoding: "utf8", env });
+      expect(empty.status, pair.join(" ")).toBe(1);
+      expect(empty.stderr).toContain("file list is empty");
+    }
   });
 });

@@ -10,7 +10,7 @@ export function appFiles(listing) {
 }
 
 export function mayChangeFreely(path) {
-  return path.includes(SERVER_PART) || path.includes(HASHED_UI_PART);
+  return (path.includes(SERVER_PART) && path.endsWith(".js")) || path.includes(HASHED_UI_PART);
 }
 
 export function goneFiles(previous, current, accepted = []) {
@@ -31,13 +31,19 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
   }
   const previous = readFileSync(previousFile, "utf8");
   const current = readFileSync(currentFile, "utf8");
+  for (const [name, listing] of [["previous release", previous], ["new app", current]]) {
+    if (appFiles(listing).size === 0) {
+      console.error(`The ${name}'s file list is empty, so nothing can be compared. Refusing to release.`);
+      process.exit(1);
+    }
+  }
   const gone = goneFiles(previous, current, acceptedFrom(process.env.LATERDOG_RELEASE_ACCEPT_GONE));
   console.log(`Files: ${appFiles(previous).size} in the previous release, ${appFiles(current).size} now`);
   if (gone.length) {
-    console.error(`${gone.length} file(s) outside server/ that the previous release had are gone:`);
+    console.error(`${gone.length} file(s) the previous release had are gone (only server/ scripts and hashed ui/assets may come and go):`);
     for (const path of gone) console.error(`  ${path}`);
     console.error("If each one is meant to be gone, list them one per line in LATERDOG_RELEASE_ACCEPT_GONE and run again.");
     process.exit(1);
   }
-  console.log("Nothing outside server/ is gone.");
+  console.log("Nothing is gone apart from server/ scripts and hashed ui/assets.");
 }
