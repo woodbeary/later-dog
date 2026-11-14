@@ -1346,8 +1346,9 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
       for (const name of HOOK_ADDRESS_VARIABLES) if (!(hooks && process.platform === "win32")) delete env[name];
       const settings: Record<string, unknown> = { ...authSettings };
       if (isolated) settings.claudeMdExcludes = machineClaudeMemoryExcludes(env);
+      const summaryHook = Boolean(hooks && hookTokenPath && cliVersion && versionAtLeast(cliVersion, CLAUDE_POST_COMPACT_HOOK));
       if (hooks && hookTokenPath) settings.hooks = claudeHookSettings(HOOK_HELPER_PATH, { guardShell: hooks.guardShell === true,
-        postCompact: Boolean(cliVersion && versionAtLeast(cliVersion, CLAUDE_POST_COMPACT_HOOK)),
+        postCompact: summaryHook,
         target: { url: hooks.url, tokenFile: hookTokenPath } });
       if (turn.guestConfined) settings.permissions = GUEST_CLAUDE_PERMISSIONS;
       if (turn.fast) settings.fastMode = true;
@@ -1766,7 +1767,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
                 session.volatile = null;
                 rememberVolatile(threadId, session);
               }
-              if (compaction) emit({ ...base(threadId, currentTurnId()), ...compaction });
+              if (compaction) emit({ ...base(threadId, currentTurnId()), ...compaction, ...(compaction.type === "session.compacting" && summaryHook ? { summaryHook } : {}) });
             }
             break;
           case "stream_event": {

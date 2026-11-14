@@ -5804,7 +5804,7 @@ bus.subscribe((event: RuntimeEvent) => {
   if (event.type === "session.started" && event.sessionId) engineSummaryWindows.sessionStarted(event.threadId, event.sessionId);
   if (event.type === "turn.completed" || event.type === "session.exited") engineSummaryWindows.turnEnded(event.threadId);
   if (event.type === "session.compacting") {
-    engineSummaryWindows.compacting(event.threadId);
+    if (event.summaryHook) engineSummaryWindows.compacting(event.threadId);
     compactionLive.started(event.threadId, { turnId: event.turnId, stream: true });
   } else if (event.type === "session.compacted") {
     engineSummaryWindows.compacted(event.threadId);
