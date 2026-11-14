@@ -2384,11 +2384,11 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
           return behavior === "allow" ? "allowed-once" : behavior === "answer" ? "answered" : "rejected";
         },
         hasSession: (threadId) => active.has(threadId),
-        compactionSigns: async (threadId) => {
+        compactionSigns: async (threadId, taskFolder) => {
           const env = environment();
           const read = (path: string): unknown => { try { return JSON.parse(readFileSync(path, "utf8")); } catch { return undefined; } };
           const inherited = inheritsUserConfig(env) ? read(join(resolveClaudeConfigDir(undefined, env), "settings.json")) : undefined;
-          const folder = threadId ? workFolders.get(threadId) : undefined;
+          const folder = taskFolder ?? (threadId ? workFolders.get(threadId) : undefined);
           const project = folder ? read(join(folder, ".claude", "settings.json")) : undefined;
           return {
             switchedOff: claudeCompactionSwitchedOff(env, inherited) || claudeCompactionSwitchedOff({}, project),

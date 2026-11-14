@@ -5780,6 +5780,7 @@ bus.subscribe((event: RuntimeEvent) => {
     engineSummaryWindows.compacting(event.threadId);
     compactionLive.started(event.threadId, { turnId: event.turnId, stream: true });
   } else if (event.type === "session.compacted") {
+    engineSummaryWindows.compacted(event.threadId);
     const { ok, skipped, error, trigger, preTokens, postTokens, turnId } = event;
     compactionLive.finished(event.threadId, { ok, skipped, error, trigger, preTokens, postTokens, turnId, stream: true });
   } else if (event.type === "turn.completed" || event.type === "session.exited") compactionLive.settle(event.threadId);
@@ -7851,7 +7852,7 @@ async function compactConversation(input: {
   if (!history.length) return;
   const reported = task.lastContextModel === `${instance.instanceId}:${model}` && !task.rewound ? chatContext(task, model) : undefined;
   const window = contextWindowFor(model, instance.models, reported?.window);
-  const harness = !manual && engineWillCompact({ driverKind: instance.driverKind, setting: cfg.context, signs: await instance.adapter.compactionSigns?.(threadId),
+  const harness = !manual && engineWillCompact({ driverKind: instance.driverKind, setting: cfg.context, signs: await instance.adapter.compactionSigns?.(threadId, task.cwd),
     modelKnown: instance.models.options.some(option => option.id === model), injectedModel: decodeInjectId(model) !== null, window });
   if (harness && !rebuildNeedsSummary({
     startsFresh: Boolean(task.rewound) || isExternalContextMarker(task.lastInstanceId) || engineIsFresh({ instanceId: instance.instanceId,
