@@ -45,6 +45,7 @@ would make operator cleanup impossible.
 | Method | Path | Authentication |
 | --- | --- | --- |
 | `GET` | `/healthz` | none |
+| `GET` | `/google-oauth/callback` | none; passes Google's answer on to a Cloud home |
 | any | `/api/auth/*` | Better Auth |
 | `GET` | `/v1/me` | account bearer |
 | `GET`, `POST` | `/v1/installations` | account bearer |
@@ -289,6 +290,40 @@ go out through the same Email Sending binding, so when the account's daily email
 quota is what ran out, the alert cannot go out either, unless `ALERT_EMAIL` is a
 verified destination address in Email Routing, whose sends are free and outside
 the daily limit.
+
+### Google connection for Cloud homes
+
+later.dog owns one Google client so a Cloud home can connect Gmail with nothing
+set up by its owner. Three settings switch it on:
+
+- `GOOGLE_CLIENT_ID` (variable): the Web application client's ID. Empty means
+  off; it stays empty in every file in this repository.
+- `GOOGLE_CLIENT_SECRET` (secret, optional): typed by a person with
+  `pnpm exec wrangler secret put GOOGLE_CLIENT_SECRET --config
+  wrangler.production.json`. It is not in `secrets.required`, so the Worker
+  deploys and runs without it, and the connection is off until both are set.
+- `CLOUD_HOME_HOST_SUFFIX` (variable): `-home.later.dog` in production, the same
+  suffix the home Worker uses.
+
+Google sends every approval to `<BETTER_AUTH_URL>/google-oauth/callback`. That
+page reads `state`, which must be `<machine label>.<random part>` with a label
+of `h` and 24 lowercase hex digits, and answers `302` to
+`https://<label><CLOUD_HOME_HOST_SUFFIX>/google-oauth/callback` carrying only
+`state`, `code` and `error`. Anything else gets a `400` page that says the link
+has expired. It answers before the origin check, with `no-store` and
+`no-referrer`.
+
+The home Worker reaches two `AccountsApi` methods. `googleClient()` returns the
+client ID and the fixed redirect address, or `null` when either setting is
+missing. `googleToken(accountId, grant)` exchanges a code (with its PKCE
+verifier) or refreshes a token at Google's token endpoint, adding the client
+ID, the secret and, for a code, the fixed redirect address. It counts at most
+500 calls per account per day in `cloud_google_tokens` (`0013`), times out
+after ten seconds, follows no redirects and returns only `access_token`,
+`expires_in`, `scope` and `refresh_token`. Codes, tokens and email addresses are
+never logged or stored; a failure logs a fixed message and an error code. The
+refresh token itself stays in the home's own vault. The one-time setup and the
+release order are in `docs/laterdog/google-setup.md`.
 
 ## Local checks
 
