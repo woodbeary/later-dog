@@ -1,0 +1,252 @@
+// @vitest-environment happy-dom
+import { act, createElement } from "react";
+import { createRoot, type Root } from "react-dom/client";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { ApiError } from "@/lib/api";
+import { chatContextReading } from "@/lib/chat-context";
+import { forgetBreakdowns } from "@/lib/context-breakdown";
+import { api } from "@/state/store";
+import type { ContextBreakdown } from "../../shared/context-breakdown";
+import { ChatUsageButton } from "./ChatUsageButton";
+
+vi.mock("@/state/store", () => ({ api: vi.fn() }));
+
+const NOW = 1_800_000_000_000;
+
+const COUNTED: ContextBreakdown = {
+  at: NOW - 5_000,
+  source: "engine",
+  total: 198_100,
+  window: 1_000_000,
+  compactsAt: 967_000,
+  parts: [
+    { id: "conversation", tokens: 128_800 },
+    { id: "tools", tokens: 37_200 },
+    { id: "instructions", tokens: 12_500 },
+    { id: "skills", tokens: 10_000 },
+    { id: "memory", tokens: 6_600 },
+    { id: "helpers", tokens: 2_000 },
+    { id: "other", tokens: 1_000 },
+    { id: "reserve", tokens: 33_000 },
+    { id: "free", tokens: 768_900 },
+    { id: "tools", tokens: 451_500, deferred: true },
+  ],
+};
+
+const ESTIMATED: ContextBreakdown = {
+  at: NOW - 3 * 60_000,
+  source: "estimate",
+  total: 40_000,
+  window: 200_000,
+  parts: [
+    { id: "conversation", tokens: 24_400 },
+    { id: "tools", tokens: 10_000 },
+    { id: "instructions", tokens: 2_600 },
+    { id: "memory", tokens: 2_000 },
+    { id: "skills", tokens: 1_000 },
+    { id: "free", tokens: 160_000 },
+  ],
+};
+
+let root: Root;
+let host: HTMLDivElement;
+
+beforeEach(() => {
+  vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+  vi.mocked(api).mockReset();
+  forgetBreakdowns();
+  host = document.createElement("div");
+  document.body.append(host);
+  root = createRoot(host);
+});
+
+afterEach(() => {
+  act(() => root.unmount());
+  host.remove();
+  vi.unstubAllGlobals();
+});
+
+async function openPanel(reading: ReturnType<typeof chatContextReading>, threadId: string | undefined = "thread-1", chat?: { updatedAt?: number; turnStartedAt?: number }) {
+  act(() => root.render(createElement(ChatUsageButton, {
+    mark: "M", title: "Usage", reading, threadId, chat, accountName: null, provider: undefined, resting: undefined, now: NOW, onOpen: () => {}, onSeeAll: () => {},
+  })));
+  await act(async () => { host.querySelector<HTMLButtonElement>("[data-chat-usage]")!.click(); });
+  await act(async () => { for (let tick = 0; tick < 6; tick += 1) await Promise.resolve(); });
+}
+
+const panel = () => host.querySelector("[data-chat-usage-panel]")!;
+const partLines = () => [...host.querySelectorAll("[data-chat-context-part]")].map((line) => [...line.querySelectorAll("span")].map((cell) => cell.textContent));
+const toggle = () => host.querySelector<HTMLButtonElement>("[data-chat-context-toggle]")!;
+
+describe("the context window row in a chat's usage", () => {
+  it("asks the home when the panel opens and shows the engine's count, collapsed, above everything else", async () => {
+    vi.mocked(api).mockResolvedValue(COUNTED);
+    await openPanel(chatContextReading({ tokens: 198_100, window: 1_000_000 }));
+    expect(api).toHaveBeenCalledWith("/api/threads/thread-1/context", expect.objectContaining({ timeoutMs: expect.any(Number) }));
+    const row = panel().querySelector("[data-chat-context-source='engine']")!;
+    expect(panel().firstElementChild).toBe(row);
+    expect(toggle().textContent).toBe("This chat198k of 1M · 20%");
+    expect(toggle().getAttribute("aria-expanded")).toBe("false");
+    expect(host.querySelector("[data-chat-context-parts]")).toBeNull();
+    expect([...host.querySelectorAll("[data-chat-context-segment]")].map((segment) => segment.getAttribute("data-chat-context-segment")))
+      .toEqual(["conversation", "tools", "instructions", "skills", "memory", "other", "reserve"]);
+    expect(row.textContent).not.toContain("about");
+  });
+
+  it("lists the parts largest first when opened, folding the small ones and keeping tools not loaded apart", async () => {
+    vi.mocked(api).mockResolvedValue(COUNTED);
+    await openPanel(chatContextReading({ tokens: 198_100, window: 1_000_000 }));
+    act(() => toggle().click());
+    expect(toggle().getAttribute("aria-expanded")).toBe("true");
+    expect(partLines()).toEqual([
+      ["Conversation", "129k", "12.9%"],
+      ["Tools", "37.2k", "3.7%"],
+      ["Instructions", "12.5k", "1.3%"],
+      ["Tricks", "10k", "1.0%"],
+      ["Memory", "6.6k", "0.7%"],
+      ["Everything else", "3k", "0.3%"],
+      ["Kept free to tidy up", "33k", "3.3%"],
+      ["Free", "769k", "76.9%"],
+      ["Tools not loaded yet", "452k", "—"],
+    ]);
+    expect(host.querySelector("[data-chat-context-as-of]")).toBeNull();
+  });
+
+  it("says about before the total and every part when the numbers are the home's estimate, and how old they are", async () => {
+    vi.mocked(api).mockResolvedValue(ESTIMATED);
+    await openPanel(chatContextReading({ tokens: 40_000, window: 200_000 }));
+    expect(toggle().textContent).toBe("This chatabout 40k of 200k · 20%");
+    act(() => toggle().click());
+    expect(partLines()[0]).toEqual(["Conversation and the AI's own setup", "about 24.4k", "12.2%"]);
+    expect(partLines().every((line) => line[1]!.startsWith("about "))).toBe(true);
+    expect(host.querySelector("[data-chat-context-as-of]")!.textContent).toBe("as of 3 min ago");
+    expect(partLines().some((line) => line[0] === "Tools not loaded yet")).toBe(false);
+  });
+
+  it("keeps the chat's current number in the heading and draws the parts when the count is fresh", async () => {
+    vi.mocked(api).mockResolvedValue(COUNTED);
+    await openPanel(chatContextReading({ tokens: 199_000, window: 1_000_000 }));
+    expect(toggle().textContent).toBe("This chat199k of 1M · 20%");
+    expect(host.querySelector("[data-chat-context-stale]")).toBeNull();
+    expect(host.querySelectorAll("[data-chat-context-segment]").length).toBeGreaterThan(0);
+    expect(host.querySelector("[data-chat-context-as-of]")).toBeNull();
+  });
+
+  it("shows an older count's time even while closed, with the bar drawn from the chat's current number", async () => {
+    vi.mocked(api).mockResolvedValue({ ...COUNTED, at: NOW - 10 * 60_000, total: 12_500, stale: true });
+    await openPanel(chatContextReading({ tokens: 12_600, window: 1_000_000 }));
+    expect(host.querySelector("[data-chat-context-stale]")).not.toBeNull();
+    expect(toggle().textContent).toBe("This chat12.6k of 1M · 1%");
+    expect(host.querySelector("[data-chat-context-as-of]")!.textContent).toBe("as of 10 min ago");
+    expect(host.querySelectorAll("[data-chat-context-segment]")).toHaveLength(0);
+    act(() => toggle().click());
+    expect(partLines()[0]![0]).toBe("Conversation");
+    expect(host.querySelectorAll("[data-chat-context-as-of]")).toHaveLength(1);
+  });
+
+  it("treats a count whose total is more than 2% off the chat's current number as older, even when the home did not", async () => {
+    vi.mocked(api).mockResolvedValue({ ...COUNTED, at: NOW - 10 * 60_000, total: 12_500 });
+    await openPanel(chatContextReading({ tokens: 150_000, window: 1_000_000 }));
+    expect(toggle().textContent).toBe("This chat150k of 1M · 15%");
+    expect(host.querySelector("[data-chat-context-stale]")).not.toBeNull();
+    expect(host.querySelector("[data-chat-context-as-of]")!.textContent).toBe("as of 10 min ago");
+    expect(host.querySelectorAll("[data-chat-context-segment]")).toHaveLength(0);
+  });
+
+  it("calls the conversation just that on an engine count", async () => {
+    vi.mocked(api).mockResolvedValue(COUNTED);
+    await openPanel(chatContextReading({ tokens: 198_100, window: 1_000_000 }));
+    act(() => toggle().click());
+    expect(partLines()[0]![0]).toBe("Conversation");
+    expect(partLines().some((line) => line[1]!.startsWith("about"))).toBe(false);
+  });
+
+  it("says about in the list when the engine's parts add up to more than its heading number", async () => {
+    const parts = [{ id: "conversation", tokens: 10_000 }, { id: "tools", tokens: 10_000 }, { id: "free", tokens: 180_000 }] as ContextBreakdown["parts"];
+    vi.mocked(api).mockResolvedValue({ at: NOW - 1_000, source: "engine", total: 5_000, window: 200_000, parts });
+    await openPanel(chatContextReading({ tokens: 5_000, window: 200_000 }));
+    expect(toggle().textContent).toBe("This chat5k of 200k · 3%");
+    act(() => toggle().click());
+    expect(partLines().slice(0, 2)).toEqual([["Conversation", "about 10k", "5.0%"], ["Tools", "about 10k", "5.0%"]]);
+  });
+
+  it("fills the bar and leaves no free room when the chat is past its window", async () => {
+    vi.mocked(api).mockResolvedValue({ at: NOW - 1_000, source: "engine", total: 250_000, window: 200_000, parts: [{ id: "conversation", tokens: 250_000 }] });
+    await openPanel(chatContextReading({ tokens: 250_000, window: 200_000 }));
+    const segments = [...host.querySelectorAll<HTMLElement>("[data-chat-context-segment]")];
+    expect(segments.map((segment) => segment.style.width)).toEqual(["100%"]);
+    act(() => toggle().click());
+    expect(partLines()).toEqual([["Conversation", "250k", "100.0%"]]);
+  });
+
+  it("still shows the parts when a newer home sends a kind of part this app does not know", async () => {
+    vi.mocked(api).mockResolvedValue({ at: NOW - 1_000, source: "engine", total: 30_000, window: 200_000, parts: [
+      { id: "conversation", tokens: 20_000 }, { id: "added_later", tokens: 10_000 }, { id: "free", tokens: 170_000 }, { id: "fetched_later", tokens: 4_000, deferred: true },
+    ] });
+    await openPanel(chatContextReading({ tokens: 30_000, window: 200_000 }));
+    act(() => toggle().click());
+    expect(partLines()).toEqual([
+      ["Conversation", "20k", "10.0%"],
+      ["Everything else", "10k", "5.0%"],
+      ["Free", "170k", "85.0%"],
+      ["Tools not loaded yet", "4k", "—"],
+    ]);
+  });
+
+  it("calls a count older when the chat has a message newer than it, as the phone does", async () => {
+    vi.mocked(api).mockResolvedValue({ ...COUNTED, at: NOW - 5 * 60_000 });
+    await openPanel(chatContextReading({ tokens: 198_100, window: 1_000_000 }), "thread-1", { updatedAt: NOW - 60_000 });
+    expect(host.querySelector("[data-chat-context-stale]")).not.toBeNull();
+    expect(host.querySelector("[data-chat-context-as-of]")!.textContent).toBe("as of 5 min ago");
+  });
+
+  it("calls a count older while a turn that started after it is running, and fresh when it is newer than the chat", async () => {
+    vi.mocked(api).mockResolvedValue({ ...COUNTED, at: NOW - 5 * 60_000 });
+    await openPanel(chatContextReading({ tokens: 198_100, window: 1_000_000 }), "thread-1", { updatedAt: NOW - 10 * 60_000, turnStartedAt: NOW - 30_000 });
+    expect(host.querySelector("[data-chat-context-stale]")).not.toBeNull();
+    act(() => root.unmount());
+    root = createRoot(host);
+    await openPanel(chatContextReading({ tokens: 198_100, window: 1_000_000 }), "thread-1", { updatedAt: NOW - 10 * 60_000 });
+    expect(host.querySelector("[data-chat-context-stale]")).toBeNull();
+  });
+
+  it("says the row comes after the first reply when the chat has nothing yet", async () => {
+    vi.mocked(api).mockRejectedValue(new ApiError("nothing yet", 404, { error: "nothing yet" }));
+    await openPanel(null);
+    const row = panel().querySelector("[data-chat-context='nothing']")!;
+    expect(row.textContent).toBe("This chatShown after the first reply");
+    expect(panel().textContent).not.toMatch(/\b0%|\b0 tokens/);
+  });
+
+  it("keeps today's single number when the home is older and has no such view", async () => {
+    vi.mocked(api).mockRejectedValue(new ApiError("not found", 404, { error: "not found" }));
+    await openPanel(chatContextReading({ tokens: 30_000, window: 200_000 }));
+    const strip = panel().querySelector("[data-chat-context='15']")!;
+    expect(strip.textContent).toBe("This chat30k of 200k · 15%");
+    expect(host.querySelector("[data-chat-context-toggle]")).toBeNull();
+    expect(host.querySelector("[data-chat-context-source]")).toBeNull();
+  });
+
+  it("shows nothing new when the home is older and the chat has no number either", async () => {
+    vi.mocked(api).mockRejectedValue(new ApiError("not found", 404, { error: "not found" }));
+    await openPanel(null);
+    expect(host.querySelector("[data-chat-context]")).toBeNull();
+  });
+
+  it("shows the total alone when the estimate has no parts to show", async () => {
+    vi.mocked(api).mockResolvedValue({ ...ESTIMATED, parts: [] });
+    await openPanel(null);
+    expect(toggle().disabled).toBe(true);
+    expect(toggle().getAttribute("aria-expanded")).toBeNull();
+    expect(host.querySelectorAll("[data-chat-context-segment]")).toHaveLength(0);
+  });
+
+  it("shows the last answer at once when opened again, before the home answers", async () => {
+    vi.mocked(api).mockResolvedValueOnce(COUNTED).mockReturnValueOnce(new Promise(() => {}));
+    await openPanel(null);
+    await act(async () => { host.querySelector<HTMLButtonElement>("[data-chat-usage]")!.click(); });
+    await act(async () => { host.querySelector<HTMLButtonElement>("[data-chat-usage]")!.click(); });
+    expect(panel().querySelector("[data-chat-context-source='engine']")).not.toBeNull();
+    expect(api).toHaveBeenCalledTimes(2);
+  });
+});
