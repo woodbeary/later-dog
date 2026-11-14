@@ -2420,6 +2420,21 @@ describe("ClaudeDriver turns (fake CLI)", () => {
     expect(seen.argv[seen.argv.indexOf("--disallowedTools") + 1]).toBe("Bash(git *),Edit");
   });
 
+  it("keeps one plan: a dog with set_plan cannot also write the engine's own task list", async () => {
+    await create(undefined, {}, { disallowedTools: ["Edit"] });
+    const dump = join(scratch, "one-plan.json");
+    process.env.FAKE_CLAUDE_DUMP = dump;
+    await instance.adapter.sendTurn({ threadId: "t-one-plan", text: "plan", integrations: { agents: { command: process.execPath, args: ["/fake/agents-proxy.js"], env: { LATERDOG_BOT_ID: "b1" } } } });
+    await recorder.until((event) => event.type === "turn.completed");
+    const withPlan = JSON.parse(readFileSync(dump, "utf8"));
+    expect(withPlan.argv[withPlan.argv.indexOf("--disallowedTools") + 1]).toBe("Edit,TodoWrite,TaskCreate,TaskGet,TaskList,TaskUpdate");
+    recorder.events.length = 0;
+    await instance.adapter.sendTurn({ threadId: "t-no-set-plan", text: "plan" });
+    await recorder.until((event) => event.type === "turn.completed");
+    const without = JSON.parse(readFileSync(dump, "utf8"));
+    expect(without.argv[without.argv.indexOf("--disallowedTools") + 1]).toBe("Edit");
+  });
+
   it("passes an explicit empty available set to disable every Claude built-in", async () => {
     await create(undefined, {}, { tools: [], disallowedTools: [] });
     const dump = join(scratch, "no-builtins.json");

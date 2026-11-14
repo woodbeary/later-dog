@@ -87,7 +87,8 @@ describe("the guidance every dog gets", () => {
     expect(ANSWER_FIRST).toMatch(/one-line update at natural points/);
     expect(ANSWER_FIRST).toMatch(/If you stop before the work is done, say why in plain words/);
     expect(PLAN_PROMPT).toMatch(/^Keep your plan with set_plan; the person sees it in the app\. Add each thing they ask for before you start it, including what they want later \(as pending\)\. Mark an item in progress when work begins, and done only after it was checked and they were told\./);
-    expect(PLAN_PROMPT).toMatch(/whenever a helper or a background command finishes, and make checking the last item/);
+    expect(PLAN_PROMPT).toMatch(/Update it the moment what you are doing changes, before your next tool call: on every new message, when you turn to something it does not show, and when a helper or a background command finishes\./);
+    expect(PLAN_PROMPT).toMatch(/ Only the item you are on is in progress, and steps you dropped come off the list\. Make checking the last item\./);
     expect(PLAN_PROMPT).toMatch(/"not live yet"/);
     expect(PLAN_PROMPT).toMatch(/When they ask where things stand \(a status, a checkpoint, "where are we"\), answer from it: done, in progress, not started/);
     expect(PLAN_PROMPT).toMatch(/a single quick question needs no plan\.$/);

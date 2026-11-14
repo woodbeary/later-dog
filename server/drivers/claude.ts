@@ -70,6 +70,7 @@ import { claudeToolTouch } from "../laterdog/tool-touches.ts";
 import { claudeContextNote, claudeSeenVolatile } from "../laterdog/volatile-sections.ts";
 import { claudeHelperEnvironment } from "../laterdog/helper-model.ts";
 import { helperContractArgs, SUBAGENT_PROMPT_FLAG } from "../laterdog/helper-contract.ts";
+import { disallowedWithOnePlan } from "../laterdog/one-plan.ts";
 import { agentsServerLaunch, deferRareToolsEnabled } from "../laterdog/tool-loading.ts";
 import { CLAUDE_PICKS_CACHE_LIFETIME, claudeCacheLifetime } from "../laterdog/cache-lifetime.ts";
 import { claudeCompactionSwitchedOff } from "../laterdog/native-compaction.ts";
@@ -1233,9 +1234,6 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
       }
       if (turn.guestConfined) args.push("--restricted", "--tools", GUEST_CLAUDE_TOOLS.join(","));
       else if (config.tools !== undefined) args.push("--tools", config.tools.join(","));
-      if (config.disallowedTools?.length) {
-        args.push("--disallowedTools", config.disallowedTools.join(","));
-      }
       const turnEnvironment = environment();
       await learnCliFlags(turnEnvironment);
       if (turn.guestConfined && !claudeCliSupports(cliVersion, "--restricted")) {
@@ -1319,6 +1317,8 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
       mcpServers.dog = { command: process.execPath, args: [PERM_PROXY_PATH, socketPath], env: permissionEnv, alwaysLoad: true };
       allowed.push("mcp__dog");
       if (turn.guestConfined) allowed.splice(0, allowed.length, ...allowed.filter((name) => name === "mcp__dog" || name === "mcp__agents"));
+      const disallowed = disallowedWithOnePlan(config.disallowedTools, !turn.guestConfined && Object.hasOwn(mcpServers, "agents"));
+      if (disallowed.length) args.push("--disallowedTools", disallowed.join(","));
       let mcpConfigPath: string | null = null;
       if (Object.keys(mcpServers).length) {
         mcpConfigPath = join(mkdtempSync(join(tmpdir(), "laterdog-mcp-")), "mcp.json");
