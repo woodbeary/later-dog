@@ -11,8 +11,6 @@ export interface RoomMemberFacts {
 
 export interface RoomWorkFacts {
   members: readonly RoomMemberFacts[];
-  helpers?: number;
-  computerJobs?: number;
   needsYou?: { what?: string };
   usageHold?: { account?: string; until?: number };
 }
@@ -23,16 +21,13 @@ export function roomWork(facts: RoomWorkFacts): WorkState {
     .map((dog) => ({ botId: dog.id, name: dog.name, ...(dog.ask ? { ask: dog.ask } : {}) }));
   const state = workState({
     busy: running.length > 0,
-    helpers: facts.helpers ?? 0,
-    computerJobs: facts.computerJobs ?? 0,
     waitingOn,
     ...(facts.needsYou ? { needsYou: facts.needsYou } : {}),
     ...(facts.usageHold ? { usageHold: facts.usageHold } : {}),
   });
   if (state.kind !== "running") return state;
   const seen = new Set<string>();
-  const dogs = running.filter((dog) => !seen.has(dog.id) && seen.add(dog.id));
-  return { ...state, ...(dogs.length ? { dogs } : {}) };
+  return { kind: "running", dogs: running.filter((dog) => !seen.has(dog.id) && seen.add(dog.id)) };
 }
 
 export interface RoomHandoffView {
@@ -47,13 +42,12 @@ export function roomMemberFacts(
   group: { id: string; memberIds: readonly string[] },
   turnBotIds: ReadonlySet<string>,
   view: RoomHandoffView,
-  jobBotIds: Iterable<string> = [],
 ): { members: RoomMemberFacts[]; needsYouFromHandoff: boolean } {
   const dogOf = (botId: string): WorkDog | undefined => {
     const name = view.name(botId)?.trim();
     return name ? { id: botId, name } : undefined;
   };
-  const running = new Set<string>([...turnBotIds, ...jobBotIds]);
+  const running = new Set<string>(turnBotIds);
   const waiting = new Map<string, WorkDog[]>();
   let needsYouFromHandoff = false;
   for (const node of view.nodes()) {
@@ -84,8 +78,6 @@ export interface RoomWorkDeps extends RoomHandoffView {
   tail(threadId: string): readonly RoomLine[];
   heldUntil(threadId: string): number | undefined;
   holdAccount(groupId: string): string | undefined;
-  helpers?(threadId: string): number;
-  computerJobs?(threadId: string): readonly { botId: string }[];
 }
 
 const said = (value: string | undefined): string | undefined => value?.trim() || undefined;
@@ -101,18 +93,14 @@ function openAskIn(lines: readonly RoomLine[]): { what?: string } | undefined {
 }
 
 export function roomWorkFor(group: { id: string; memberIds: readonly string[] }, deps: RoomWorkDeps): WorkState {
+  const { members, needsYouFromHandoff } = roomMemberFacts(group, deps.turnBotIds(group.id), deps);
   const threads = deps.threadIds(group.id);
-  const jobs = threads.flatMap((threadId) => deps.computerJobs?.(threadId) ?? []);
-  const helpers = threads.reduce((total, threadId) => total + (deps.helpers?.(threadId) ?? 0), 0);
-  const { members, needsYouFromHandoff } = roomMemberFacts(group, deps.turnBotIds(group.id), deps, jobs.map((job) => job.botId));
   const asks = threads.flatMap((threadId) => openAskIn(deps.tail(threadId)) ?? []);
   const needsYou = asks[0] ?? (needsYouFromHandoff ? {} : undefined);
   const holds = threads.flatMap((threadId) => deps.heldUntil(threadId) ?? []);
   const account = holds.length ? deps.holdAccount(group.id) : undefined;
   return roomWork({
     members,
-    helpers,
-    computerJobs: jobs.length,
     ...(needsYou ? { needsYou } : {}),
     ...(holds.length ? { usageHold: { ...(account ? { account } : {}), until: Math.min(...holds) } } : {}),
   });

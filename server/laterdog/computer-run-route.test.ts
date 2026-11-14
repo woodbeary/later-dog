@@ -5,7 +5,6 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import type { ComputerRuns, RunOutcome, RunRecord } from "./computer-runs.ts";
 import { ComputerRuns as RealComputerRuns, WAIT_IN_ONE_CALL_MS, type RunBox } from "./computer-runs.ts";
-import { ComputerJobs } from "./computer-jobs.ts";
 import { STILL_STARTING_TEXT, WINDOW_ENDED_TEXT, allowedFolder, handleComputerRun, outcomeText, repositoryFromRemote, repositoryOf } from "./computer-run-route.ts";
 
 function home() {
@@ -13,15 +12,6 @@ function home() {
   for (const dir of ["site", ".laterdog/task-workspaces/dog/t1/repo", ".claude"]) mkdirSync(join(root, dir), { recursive: true });
   return root;
 }
-
-const probeWith = (runs: ComputerRuns, box: RunBox) => ({
-  computer: async () => ({ state: "running" as const, box }),
-  exit: async (inner: RunBox, job: { botId: string; id: string }) => {
-    const state = await runs.poll(inner, runs.record(job.botId, job.id)!);
-    return state.done && state.exitCode !== null ? { exitCode: state.exitCode } : null;
-  },
-  liveness: async () => "alive" as const,
-});
 
 const outcome = (state: RunOutcome["state"], exitCode: number | null = 0): RunOutcome => ({ id: "abcd1234", state, exitCode, output: "ok", broughtBack: ["report.txt"], skipped: [], sentFiles: 2, sentBytes: 2048 });
 
@@ -225,36 +215,6 @@ describe("one run_on_computer call with the real run store", () => {
     expect(second.text).toContain("Finished on your cloud computer with exit code 0");
     expect(second.text).not.toContain("still there");
     expect(execs.some((exec) => exec.command.includes("python3 -c"))).toBe(true);
-  });
-
-  it("keeps a run that outlives its call counted for its chat until a later call brings it back", async () => {
-    const { clock, runs, ask } = setup();
-    const jobs = new ComputerJobs(null, { now: () => clock.at });
-    const going = fakeBox();
-    const first = await handleComputerRun({ ...ask(), threadId: "t1" }, { runs, jobs, computer: async () => ({ box: going.box }), now: () => clock.at });
-    expect(first.text).toContain("Still running");
-    const runId = /run_id ([0-9a-f]{8})/.exec(first.text!)![1];
-    expect(jobs.live("t1").map((job) => [job.id, job.botId, job.command])).toEqual([[runId, "dog", "pnpm test"]]);
-    expect(await jobs.check(probeWith(runs, going.box))).toEqual([]);
-    expect(jobs.count("t1")).toBe(1);
-    const finished = fakeBox({ exitCode: 0 });
-    const second = await handleComputerRun({ ...ask(), body: { run_id: runId }, threadId: "t1" }, { runs, jobs, computer: async () => ({ box: finished.box }), now: () => clock.at });
-    expect(second.text).toContain("Finished on your cloud computer with exit code 0");
-    expect(jobs.count("t1")).toBe(0);
-  });
-
-  it("ends a job that finished while nobody waited on it, leaving its files for the next call", async () => {
-    const { clock, runs, ask } = setup();
-    const jobs = new ComputerJobs(null, { now: () => clock.at });
-    const first = await handleComputerRun({ ...ask(), threadId: "t1" }, { runs, jobs, computer: async () => ({ box: fakeBox().box }), now: () => clock.at });
-    const runId = /run_id ([0-9a-f]{8})/.exec(first.text!)![1];
-    const finished = fakeBox({ exitCode: 0 });
-    expect(await jobs.check(probeWith(runs, finished.box))).toEqual([runId]);
-    expect(jobs.count("t1")).toBe(0);
-    expect(jobs.unannounced().map((job) => [job.id, job.end.how])).toEqual([[runId, "finished"]]);
-    const read = await handleComputerRun({ ...ask(), body: { run_id: runId }, threadId: "t1" }, { runs, jobs, computer: async () => ({ box: finished.box }), now: () => clock.at });
-    expect(read.text).toContain("Finished on your cloud computer with exit code 0");
-    expect(jobs.unannounced()).toEqual([]);
   });
 
   it("lets another call on the same computer finish when an overlapping call is abandoned", async () => {

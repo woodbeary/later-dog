@@ -9,10 +9,6 @@ const scout = { botId: "scout", name: "Scout", ask: "Check the invoice totals" }
 const every: Required<WorkFacts> = {
   busy: true,
   helpers: 0,
-  computerJobs: 0,
-  computerSince: 0,
-  computerBackground: 0,
-  handoffRunning: false,
   needsYou: { what: "Allow sending the email?" },
   usageHold: { account: "Work account", until: 1_800_000_000_000 },
   waitingOn: [scout],
@@ -28,10 +24,8 @@ describe("one work state per chat", () => {
   it.each<[string, WorkFacts, ReturnType<typeof workState>]>([
     ["nothing happening", { busy: false }, { kind: "idle" }],
     ["a running turn", { busy: true }, { kind: "running" }],
-    ["helpers still working after the dog's own turn", { busy: false, helpers: 2 }, { kind: "running", helpers: 2 }],
-    ["helpers working outrank an earlier stop", { busy: false, helpers: 1, stopped: { cause: "engine" } }, { kind: "running", helpers: 1 }],
-    ["a job on its computer after the turn", { busy: false, computerJobs: 1 }, { kind: "running", computerJobs: 1 }],
-    ["a handoff it is doing for another dog", { busy: false, handoffRunning: true }, { kind: "running" }],
+    ["helpers still working after the dog's own turn", { busy: false, helpers: 2 }, { kind: "running" }],
+    ["helpers working outrank an earlier stop", { busy: false, helpers: 1, stopped: { cause: "engine" } }, { kind: "running" }],
     ["a question for the person", { busy: true, needsYou: { what: " Allow sending? " } }, { kind: "needs-you", what: "Allow sending?" }],
     ["a question with no label", { busy: false, needsYou: {} }, { kind: "needs-you" }],
     ["an account hold", { busy: false, needsYou: { what: "Turn Daniel back on", hold: { account: "Daniel", accountId: "daniel", why: "off" } } },

@@ -296,7 +296,7 @@ export interface WireMessage {
     itemId?: string;
     fullResult?: boolean;
     statusLine?: "live" | "folded";
-    pickup?: "restart" | "watch" | "computer";
+    pickup?: "restart" | "watch";
     compaction?: true;
   };
   webhookPost?: boolean;

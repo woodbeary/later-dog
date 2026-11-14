@@ -41,10 +41,6 @@ export function workLine(work: WorkState | undefined, now: number = Date.now()):
     }
     case "running": {
       const names = teammateNames((work.dogs ?? []).map((dog) => ({ botId: dog.id, name: dog.name })));
-      if (!names && work.computerJobs) {
-        if (work.computerBackground === work.computerJobs) return work.computerJobs > 1 ? t("work.computerBackgroundMany", { count: work.computerJobs }) : t("work.computerBackground");
-        return work.computerJobs > 1 ? t("work.computerJobs", { count: work.computerJobs }) : t("work.computerJob");
-      }
       if (!names) return null;
       return t(work.dogs!.length > 1 ? "work.roomWorkingMany" : "work.roomWorkingOne", { names });
     }
@@ -73,8 +69,4 @@ export function sidebarWorkLine(work: WorkState | undefined, now: number = Date.
 
 export function roomRowLine(work: WorkState | undefined, now: number = Date.now()): string | null {
   return work?.kind === "needs-you" ? workLine(work, now) : sidebarWorkLine(work, now);
-}
-
-export function somethingRunsFor(bot: { waitingForTeammates?: boolean; helpersWorking?: number; waitingOn?: readonly unknown[]; work?: WorkState } | undefined): boolean {
-  return Boolean(bot && (bot.waitingForTeammates || (bot.helpersWorking ?? 0) > 0 || (bot.waitingOn?.length ?? 0) > 0 || bot.work?.kind === "running"));
 }
