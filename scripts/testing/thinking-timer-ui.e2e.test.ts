@@ -76,8 +76,9 @@ function launch(args: string[]): Promise<Launched> {
 const ui = (verb: string, handle: string, ...args: string[]) =>
   runControlLaterDog(["ui", verb, "--ui", handle, ...args]) as Promise<Record<string, any>>;
 
+const PROGRESS_DIALOG_TITLES = ["See progress", "Work details"];
 const progressDialog = `Array.from(document.querySelectorAll('[role="dialog"][aria-modal="true"]')).find(dialog =>
-  document.getElementById(dialog.getAttribute('aria-labelledby') ?? '')?.textContent === 'See progress')`;
+  ${JSON.stringify(PROGRESS_DIALOG_TITLES)}.includes(document.getElementById(dialog.getAttribute('aria-labelledby') ?? '')?.textContent ?? ''))`;
 const progressTimer = async (handle: string): Promise<string | null> =>
   (await ui("eval", handle, "--js", `${progressDialog}?.querySelector('span.tabular-nums')?.textContent ?? null`)).result;
 
