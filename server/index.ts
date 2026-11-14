@@ -718,6 +718,7 @@ import { botNames, dogActivityWords, teammateDoneLabel, teammateResultLabel } fr
 import { INCLUDED_AI_INSTANCE, INCLUDED_AI_INSTANCES } from "./laterdog/included-ai.ts";
 import { createPhonePush } from "./laterdog/phone-push.ts";
 import { cloudEmailDelivery } from "./laterdog/email-me.ts";
+import { cloudGoogleConnection } from "./laterdog/google-shared.ts";
 import { CONNECT_MAC, macOffline, withConnectMac } from "./laterdog/connect-mac.ts";
 import { createHomeActivity, HOME_ACTIVITY_HORIZON_MS, homeActivityFrom } from "./laterdog/home-activity.ts";
 import { createHomeActivityRoute } from "./routes/home-activity.ts";
@@ -13736,6 +13737,7 @@ const googleRouteDeps: GoogleRouteDeps = {
   ownerActing: (threadId) => ownerWorkThread(threadId),
   client: googleClientFromVault,
   redirectUri: googleRedirectUri,
+  cloud: CLOUD_HOME ? { machineId: CLOUD_HOME.machineId, shared: cloudGoogleConnection(CLOUD_ENV.LATERDOG_CLOUD_GOOGLE_URL, CLOUD_ENV.LATERDOG_CLOUD_GOOGLE_TOKEN) } : null,
   accounts: googleAccounts,
   saveAccount: (account, by) => { vaultStore.saveSecret(googleAccountItem(account.email), JSON.stringify(account), by); },
   saveSecret: (name, value, by) => ({ replaced: vaultStore.saveSecret(name, value, by).replaced }),

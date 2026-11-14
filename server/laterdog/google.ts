@@ -26,6 +26,22 @@ export interface GoogleAccountRecord {
   refreshToken: string;
   scope: string;
   connectedAt: number;
+  clientId?: string;
+}
+
+export type GoogleGrant =
+  | { grant: "code"; code: string; verifier: string }
+  | { grant: "refresh"; refreshToken: string };
+
+export interface GoogleIssuer {
+  clientId: string;
+  redirectUri: string;
+  token(grant: GoogleGrant): Promise<Record<string, unknown>>;
+}
+
+export interface SharedGoogleClient {
+  clientId: string;
+  redirectUri: string;
 }
 
 export interface PendingGoogleAuth {
@@ -35,6 +51,7 @@ export interface PendingGoogleAuth {
   threadId: string;
   messageId?: string;
   loginHint?: string;
+  shared?: SharedGoogleClient;
   createdAt: number;
 }
 
@@ -60,7 +77,10 @@ export function parseGoogleAccount(raw: string | null): GoogleAccountRecord | nu
   try {
     const value = JSON.parse(raw) as Partial<GoogleAccountRecord>;
     if (!isGoogleEmail(value.email) || typeof value.refreshToken !== "string" || !value.refreshToken) return null;
-    return { email: value.email, refreshToken: value.refreshToken, scope: String(value.scope ?? ""), connectedAt: Number(value.connectedAt) || 0 };
+    return {
+      email: value.email, refreshToken: value.refreshToken, scope: String(value.scope ?? ""), connectedAt: Number(value.connectedAt) || 0,
+      ...(typeof value.clientId === "string" && value.clientId ? { clientId: value.clientId } : {}),
+    };
   } catch {
     return null;
   }
@@ -71,7 +91,7 @@ export function pkcePair(): { verifier: string; challenge: string } {
   return { verifier, challenge: createHash("sha256").update(verifier).digest("base64url") };
 }
 
-export function googleAuthUrl(input: { client: GoogleClient; redirectUri: string; state: string; challenge: string; loginHint?: string }): string {
+export function googleAuthUrl(input: { client: Pick<GoogleClient, "clientId">; redirectUri: string; state: string; challenge: string; loginHint?: string }): string {
   const url = new URL(GOOGLE_AUTH_URL);
   url.searchParams.set("client_id", input.client.clientId);
   url.searchParams.set("redirect_uri", input.redirectUri);
@@ -94,10 +114,11 @@ export class PendingGoogleAuths {
     this.now = now;
   }
 
-  start(input: Omit<PendingGoogleAuth, "state" | "verifier" | "createdAt">): { pending: PendingGoogleAuth; challenge: string } {
+  start(input: Omit<PendingGoogleAuth, "state" | "verifier" | "createdAt">, statePrefix?: string): { pending: PendingGoogleAuth; challenge: string } {
     this.prune();
     const { verifier, challenge } = pkcePair();
-    const pending: PendingGoogleAuth = { ...input, state: randomBytes(24).toString("base64url"), verifier, createdAt: this.now() };
+    const random = randomBytes(24).toString("base64url");
+    const pending: PendingGoogleAuth = { ...input, state: statePrefix ? `${statePrefix}.${random}` : random, verifier, createdAt: this.now() };
     this.byState.set(pending.state, pending);
     return { pending, challenge };
   }
@@ -137,21 +158,31 @@ export class GoogleError extends Error {
   }
 }
 
-export async function exchangeGoogleCode(fetcher: FetchLike, input: { client: GoogleClient; code: string; verifier: string; redirectUri: string }, now: number): Promise<GoogleAccountRecord> {
-  const token = await googleJson(fetcher, GOOGLE_TOKEN_URL, {
-    method: "POST",
-    headers: { "content-type": "application/x-www-form-urlencoded" },
-    body: new URLSearchParams({
-      code: input.code, client_id: input.client.clientId, client_secret: input.client.clientSecret,
-      redirect_uri: input.redirectUri, grant_type: "authorization_code", code_verifier: input.verifier,
-    }).toString(),
-  }, "Google did not accept the sign-in");
+export function ownGoogleIssuer(fetcher: FetchLike, client: GoogleClient, redirectUri: string): GoogleIssuer {
+  return {
+    clientId: client.clientId,
+    redirectUri,
+    token: (grant) => googleJson(fetcher, GOOGLE_TOKEN_URL, {
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams(grant.grant === "code"
+        ? { code: grant.code, client_id: client.clientId, client_secret: client.clientSecret, redirect_uri: redirectUri, grant_type: "authorization_code", code_verifier: grant.verifier }
+        : { client_id: client.clientId, client_secret: client.clientSecret, refresh_token: grant.refreshToken, grant_type: "refresh_token" }).toString(),
+    }, grant.grant === "code" ? "Google did not accept the sign-in" : "Google refused the saved access"),
+  };
+}
+
+type CodeExchange = { code: string; verifier: string } & ({ issuer: GoogleIssuer } | { client: GoogleClient; redirectUri: string });
+
+export async function exchangeGoogleCode(fetcher: FetchLike, input: CodeExchange, now: number): Promise<GoogleAccountRecord> {
+  const issuer = "issuer" in input ? input.issuer : ownGoogleIssuer(fetcher, input.client, input.redirectUri);
+  const token = await issuer.token({ grant: "code", code: input.code, verifier: input.verifier });
   const scope = String(token.scope ?? "");
   if (!scope.split(/\s+/).includes(GMAIL_READONLY_SCOPE)) throw new GoogleError("Google did not grant read access to Gmail. Connect again and leave the Gmail box ticked.", 400);
   if (typeof token.refresh_token !== "string" || !token.refresh_token) throw new GoogleError("Google sent no refresh token. Remove later.dog under myaccount.google.com/permissions and connect again.", 400);
   const info = await googleJson(fetcher, GOOGLE_USERINFO_URL, { headers: { authorization: `Bearer ${String(token.access_token)}` } }, "Google did not say which account this is");
   if (!isGoogleEmail(info.email)) throw new GoogleError("Google did not say which account this is.", 400);
-  return { email: info.email.toLowerCase(), refreshToken: token.refresh_token, scope, connectedAt: now };
+  return { email: info.email.toLowerCase(), refreshToken: token.refresh_token, scope, connectedAt: now, clientId: issuer.clientId };
 }
 
 export class GoogleAccessTokens {
@@ -168,16 +199,13 @@ export class GoogleAccessTokens {
     this.cache.delete(email);
   }
 
-  async token(client: GoogleClient, account: GoogleAccountRecord): Promise<string> {
+  async token(source: GoogleClient | (() => Promise<GoogleIssuer>), account: GoogleAccountRecord): Promise<string> {
     const cached = this.cache.get(account.email);
     if (cached && cached.until > this.now()) return cached.token;
-    const body = await googleJson(this.fetcher, GOOGLE_TOKEN_URL, {
-      method: "POST",
-      headers: { "content-type": "application/x-www-form-urlencoded" },
-      body: new URLSearchParams({
-        client_id: client.clientId, client_secret: client.clientSecret, refresh_token: account.refreshToken, grant_type: "refresh_token",
-      }).toString(),
-    }, `Google refused ${account.email}'s saved access`);
+    const issuer = typeof source === "function" ? await source() : ownGoogleIssuer(this.fetcher, source, "");
+    const body = await issuer.token({ grant: "refresh", refreshToken: account.refreshToken }).catch((error: unknown) => {
+      throw error instanceof GoogleError ? new GoogleError(`${account.email}: ${error.message}`, error.status) : error;
+    });
     if (typeof body.access_token !== "string" || !body.access_token) throw new GoogleError("Google sent no access token.", 502);
     const token = body.access_token;
     const lifetime = Number(body.expires_in) || 3600;

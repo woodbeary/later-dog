@@ -59,7 +59,7 @@ describe("Google OAuth", () => {
       "https://openidconnect.googleapis.com/v1/userinfo": () => ({ email: "Lopez731@gmail.com" }),
     });
     const account = await exchangeGoogleCode(fetcher, { client: CLIENT, code: "c", verifier: "v", redirectUri: "https://h/cb" }, 5);
-    expect(account).toEqual({ email: "lopez731@gmail.com", refreshToken: "rt", scope: `openid ${GMAIL_READONLY_SCOPE}`, connectedAt: 5 });
+    expect(account).toEqual({ email: "lopez731@gmail.com", refreshToken: "rt", scope: `openid ${GMAIL_READONLY_SCOPE}`, connectedAt: 5, clientId: CLIENT.clientId });
     expect(new URLSearchParams(bodies[0]).get("code_verifier")).toBe("v");
     const narrow = fakeGoogle({ "https://oauth2.googleapis.com/token": () => ({ access_token: "at", refresh_token: "rt", scope: "openid email" }) });
     await expect(exchangeGoogleCode(narrow, { client: CLIENT, code: "c", verifier: "v", redirectUri: "x" }, 0)).rejects.toThrow(/read access to Gmail/);

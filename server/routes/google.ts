@@ -7,13 +7,16 @@ import {
   gmailClient,
   GOOGLE_STATE_MS,
   isGoogleEmail,
+  ownGoogleIssuer,
   type FetchLike,
   type GoogleAccessTokens,
   type GoogleAccountRecord,
   type GoogleClient,
+  type GoogleIssuer,
   type PendingGoogleAuth,
   type PendingGoogleAuths,
 } from "../laterdog/google.ts";
+import { GOOGLE_SHARED_OFF, issuerForAccount, sharedConnectClient, sharedGoogleIssuer, type CloudGoogle } from "../laterdog/google-shared.ts";
 import { secretNameProblem, vaultFingerprint } from "../laterdog/vault-refs.ts";
 import type { BotRecord } from "../store.ts";
 import type { InternalRouteHandler } from "./internal.ts";
@@ -28,6 +31,7 @@ export interface GoogleRouteDeps {
   ownerActing(threadId: string): boolean;
   client(): GoogleClient | null;
   redirectUri(): string | null;
+  cloud?: CloudGoogle | null;
   accounts(): GoogleAccountRecord[];
   saveAccount(account: GoogleAccountRecord, by: string): void;
   saveSecret(name: string, value: string, by: string): { replaced: boolean };
@@ -62,12 +66,15 @@ export function createGoogleRoute(deps: GoogleRouteDeps): InternalRouteHandler {
     const action = String(body.action ?? "");
     const accounts = deps.accounts();
     if (action === "connect") {
-      const client = deps.client();
-      const redirectUri = deps.redirectUri();
+      const own = deps.client();
+      const shared = own ? null : await sharedConnectClient(deps.cloud);
+      const redirectUri = shared?.redirectUri ?? deps.redirectUri();
+      if (!own && !shared && deps.cloud) return json(res, 409, { error: GOOGLE_SHARED_OFF });
       if (!redirectUri) return json(res, 409, { error: "This later.dog has no public address, so Google has nowhere to send the approval back to." });
+      const client = own ?? shared;
       if (!client) return json(res, 409, { error: `${GOOGLE_NEEDS_CLIENT} Redirect address: ${redirectUri}` });
       const hint = isGoogleEmail(body.account) ? body.account.trim().toLowerCase() : undefined;
-      const { pending, challenge } = deps.pending.start({ botId: sender.id, threadId, ...(hint ? { loginHint: hint } : {}) });
+      const { pending, challenge } = deps.pending.start({ botId: sender.id, threadId, ...(hint ? { loginHint: hint } : {}), ...(shared ? { shared } : {}) }, shared ? deps.cloud?.machineId : undefined);
       const url = googleAuthUrl({ client, redirectUri, state: pending.state, challenge, ...(hint ? { loginHint: hint } : {}) });
       const messageId = deps.postCard(sender, threadId, { url, service: `Google${hint ? ` (${hint})` : ""}`, expiresAt: deps.now() + GOOGLE_STATE_MS });
       deps.pending.attach(pending.state, messageId);
@@ -81,11 +88,12 @@ export function createGoogleRoute(deps: GoogleRouteDeps): InternalRouteHandler {
         ? `Connected Google accounts (read-only Gmail): ${accounts.map((a) => a.email).join(", ")}.`
         : "No Google account is connected. Call connect_google." });
     }
-    const client = deps.client();
-    if (!client) return json(res, 409, { error: GOOGLE_NEEDS_CLIENT });
+    const own = deps.client();
+    if (!own && !deps.cloud) return json(res, 409, { error: GOOGLE_NEEDS_CLIENT });
     const account = pickAccount(accounts, body.account);
     if (typeof account === "string") return json(res, 404, { error: account });
-    const gmail = gmailClient(deps.fetcher, () => deps.tokens.token(client, account));
+    let issuer: Promise<GoogleIssuer> | null = null;
+    const gmail = gmailClient(deps.fetcher, () => deps.tokens.token(() => (issuer ??= issuerForAccount({ own, cloud: deps.cloud, fetcher: deps.fetcher }, account)), account));
     try {
       if (action === "search") {
         const query = String(body.query ?? "").trim();
@@ -131,7 +139,7 @@ export function createGoogleRoute(deps: GoogleRouteDeps): InternalRouteHandler {
   };
 }
 
-export async function answerGoogleCallback(deps: Pick<GoogleRouteDeps, "client" | "redirectUri" | "pending" | "fetcher" | "saveAccount" | "finishCard" | "now" | "tokens">, search: URLSearchParams): Promise<{ status: number; html: string }> {
+export async function answerGoogleCallback(deps: Pick<GoogleRouteDeps, "client" | "redirectUri" | "cloud" | "pending" | "fetcher" | "saveAccount" | "finishCard" | "now" | "tokens">, search: URLSearchParams): Promise<{ status: number; html: string }> {
   const state = search.get("state") ?? "";
   const pending = state ? deps.pending.take(state) : null;
   if (!pending) return { status: 400, html: callbackPage("This link has expired", "Go back to later.dog and ask your dog to connect Google again.") };
@@ -140,15 +148,14 @@ export async function answerGoogleCallback(deps: Pick<GoogleRouteDeps, "client" 
     deps.finishCard(pending, "failed", denied === "access_denied" ? "The owner declined on Google's page." : "Google did not approve the connection.");
     return { status: 200, html: callbackPage("Not connected", "Nothing was shared with later.dog. You can close this page.") };
   }
-  const client = deps.client();
-  const redirectUri = deps.redirectUri();
+  const issuer = callbackIssuer(deps, pending);
   const code = search.get("code") ?? "";
-  if (!client || !redirectUri || !code) {
+  if (!issuer || !code) {
     deps.finishCard(pending, "failed", "Google's answer was incomplete.");
     return { status: 400, html: callbackPage("Not connected", "Google's answer was incomplete. Go back to later.dog and try again.") };
   }
   try {
-    const account = await exchangeGoogleCode(deps.fetcher, { client, code, verifier: pending.verifier, redirectUri }, deps.now());
+    const account = await exchangeGoogleCode(deps.fetcher, { issuer, code, verifier: pending.verifier }, deps.now());
     if (pending.loginHint && pending.loginHint !== account.email) throw new GoogleError(`You approved ${account.email}, but this request is for ${pending.loginHint}. Connect again and choose that account.`, 400);
     deps.saveAccount(account, "Google sign-in");
     deps.tokens.forget(account.email);
@@ -160,4 +167,11 @@ export async function answerGoogleCallback(deps: Pick<GoogleRouteDeps, "client" 
     deps.finishCard(pending, "failed", detail);
     return { status: 400, html: callbackPage("Not connected", detail) };
   }
+}
+
+function callbackIssuer(deps: Pick<GoogleRouteDeps, "client" | "redirectUri" | "cloud" | "fetcher">, pending: PendingGoogleAuth): GoogleIssuer | null {
+  if (pending.shared) return deps.cloud?.shared ? sharedGoogleIssuer(deps.cloud.shared, pending.shared) : null;
+  const client = deps.client();
+  const redirectUri = deps.redirectUri();
+  return client && redirectUri ? ownGoogleIssuer(deps.fetcher, client, redirectUri) : null;
 }
