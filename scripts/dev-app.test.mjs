@@ -550,7 +550,19 @@ describe("a checkout with its dependencies missing", () => {
     expect(ran).toEqual([]);
   });
 
-  it("offers the install beside Try Again and Open an Earlier Version, shows it is working, and starts afterwards", async () => {
+  it("gives each install step a time limit and says so when one runs past it", async () => {
+    const checkout = scratch();
+    const limits = [];
+    const run = async (file, args, options) => {
+      limits.push(options.timeout);
+      throw Object.assign(new Error("Command failed"), { killed: true });
+    };
+    await expect(installDependencies(checkout, { run, node: "/n/bin/node", exists: () => false, limit: 120_000 })).rejects.toThrow("It took longer than 2 minutes.");
+    expect(limits).toEqual([120_000]);
+    await expect(installDependencies(checkout, { run: async () => { throw new Error("pnpm: command not found"); }, node: "/n/bin/node", exists: () => false })).rejects.toThrow("pnpm: command not found");
+  });
+
+  it("offers the install beside Try Again, never an earlier version that would need the same files, and starts afterwards", async () => {
     const state = join(scratch(), "state");
     const events = [];
     const asked = [];
@@ -582,7 +594,7 @@ describe("a checkout with its dependencies missing", () => {
     expect(result).toBe("stopped");
     expect(asked).toHaveLength(1);
     expect(asked[0].message).toMatch(/^later\.dog Dev's dependencies are missing in \/fixture\/repo\./);
-    expect(asked[0].buttons).toEqual(["Quit", "Try Again", EARLIER_BUTTON, "Install and Start"]);
+    expect(asked[0].buttons).toEqual(["Quit", "Try Again", "Install and Start"]);
     expect(events.map((line) => line.split(" ")[0])).toEqual(["notify", "install", "session"]);
   });
 

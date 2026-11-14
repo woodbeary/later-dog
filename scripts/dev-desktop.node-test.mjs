@@ -356,9 +356,9 @@ test("nothing is signed while the app bundle to sign is absent, so a signing war
 });
 
 test("a start in a checkout without its dependencies stops with that sentence, before signing or any service", async () => {
-  const root = mkdtempSync(join(tmpdir(), "dev-desktop-missing-"));
   const { spawnSync } = await import("node:child_process");
-  const { copyFileSync } = await import("node:fs");
+  const { copyFileSync, realpathSync } = await import("node:fs");
+  const root = realpathSync(mkdtempSync(join(tmpdir(), "dev-desktop-missing-")));
   mkdirSync(join(root, "scripts"));
   mkdirSync(join(root, "electron"));
   for (const file of ["scripts/dev-desktop.mjs", "scripts/dev-app.mjs", "scripts/dev-safe.mjs", "scripts/dev-home-proxy.mjs", "electron/app-variant.mjs", "electron/app-variant.cjs"]) copyFileSync(join(import.meta.dirname, "..", file), join(root, file));
