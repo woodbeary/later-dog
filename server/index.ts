@@ -776,6 +776,7 @@ import { decodeInjectId } from "./drivers/local-inject.ts";
 import { withDroppedSummary } from "./laterdog/rebuild-summary.ts";
 import { foldReason, keptContext, personLine, writeHistorySummary } from "./laterdog/history-summary.ts";
 import { dogWriter } from "./laterdog/dog-writer.ts";
+import { openHandoffsFromRoom, personOwes, recordsText, withRecords } from "./laterdog/rebuild-records.ts";
 import { fileEngineSummaries } from "./laterdog/engine-summaries.ts";
 import { createEngineSummaryWindows } from "./laterdog/engine-summary-window.ts";
 import { recallsThisTurn } from "./laterdog/session-start-recall.ts";
@@ -8667,8 +8668,10 @@ async function startTurn(
       const replayable = context.filter(m => !skipTranscript.has(m.id));
       const record = latestCompaction(activeMessages);
       const selection = selectReplay(context, { budgetBytes: cfg.context?.rebuildBytes ?? DEFAULT_REBUILD_BYTES, excludedIds: skipTranscript, compaction: record });
-      const transcript = withDroppedSummary({ context, transcript: selection.transcript, representedIds: selection.representedIds,
-        excludedIds: skipTranscript, recordId: record?.id, engine: engineSummaries.read(threadId) }).map(({ role, text }) => ({ role, text }));
+      const records = recordsText({ plan: dogPlans.get(threadId)?.items, waiting: personOwes(activeMessages, cfg.profile?.name),
+        handoffs: openHandoffsFromRoom(roomHandoffs.outstandingDirect(threadId), (id) => store.bot(id)?.name) });
+      const transcript = withRecords(withDroppedSummary({ context, transcript: selection.transcript, representedIds: selection.representedIds,
+        excludedIds: skipTranscript, recordId: record?.id, engine: engineSummaries.read(threadId) }), records).map(({ role, text }) => ({ role, text }));
       const contextReset = selection.compacted > 0 && record?.id !== task.appliedCompactionId;
       if (contextReset) store.patchTask(bot.id, threadId, { resumeCursors: {} });
 

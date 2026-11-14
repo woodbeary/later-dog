@@ -106,9 +106,11 @@ it("keeps a real summary, written by the chat's own model, when a chat moves acc
     expect(prompt).toContain("SUMMARY_MARKER_7731");
     expect(prompt).not.toMatch(REFUSAL);
     expect(prompt).toContain("AFTER_MOVE where are we?");
+    expect(prompt).toContain("From later.dog's own records");
+    expect(prompt).toContain("- Move the bakery site to port 9001 (in progress)");
   }), 150_000);
 
-it("never stores or shows a summariser's refusal: it falls back to excerpts", () =>
+it("never stores or shows a summariser's refusal: it falls back to excerpts and the dog still gets its plan", () =>
   moveAfter("claude-invented-9", async f => {
     const folds = (await f.messages()).filter(m => m.kind === "compaction");
     expect(folds).toHaveLength(1);
@@ -119,4 +121,6 @@ it("never stores or shows a summariser's refusal: it falls back to excerpts", ()
     const prompt = f.lastPrompt();
     expect(prompt).not.toMatch(REFUSAL);
     expect(prompt).toContain("AFTER_MOVE where are we?");
+    expect(prompt).toContain("- Move the bakery site to port 9001 (in progress)");
+    expect(prompt).toContain("- Review Crumb's menu rewrite (not started)");
   }), 150_000);
