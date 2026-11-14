@@ -3,8 +3,8 @@
 A chat's Usage panel shows a row headed This chat, which gives the chat's current number ("31.3k of 200k · 16%").
 Opened, the row lists what fills the window, largest first. Tools the engine can load on demand are listed
 apart, without a share. A Claude Code chat shows the engine's own count. A Codex or included-model chat shows
-the home's estimate, marked "about". When the parts were taken before the chat's last turn, or are more than 2%
-off its number, the row says "as of …" even while closed, and the bar shows only the current number.
+the home's estimate, marked "about". When the parts were taken before the chat's last turn, or fall more than 2%
+short of its number, the row says "as of …" even while closed, and the bar shows only the current number.
 
 ## Contract
 
@@ -14,10 +14,10 @@ service connection cannot read it.
 - 200: `{ at, source: "engine" | "estimate", total, window, parts: [{ id, tokens, deferred? }], compactsAt?, stale? }`
 - `id` is one of: `conversation`, `tools`, `instructions`, `skills`, `memory`, `helpers`, `other`, `reserve`, `free`.
   Tools not loaded yet come as `{ id: "tools", deferred: true }` and sit outside the window.
-- `stale: true` means the home found the parts older than the chat's last turn, or more than 2% off the chat's
+- `stale: true` means the home found the parts older than the chat's last turn, or more than 2% below the chat's
   own number. Each app also decides for itself, with `breakdownIsStale` in `shared/context-breakdown.ts`: the
   parts are older when their `at` is before the chat's `updatedAt` (its last message), before `turnStartedAt` while a
-  turn runs, or more than 2% off `usage.context.tokens`. The heading and bar always show the chat's own number, and
+  turn runs, or more than 2% below `usage.context.tokens`. A total above the chat's number is not out of date by itself. The heading and bar always show the chat's own number, and
   the parts appear only in the list.
 - An app folds a part id it does not know into "Everything else". It drops a part without a valid size, and refuses only
   an answer that is not a breakdown at all.
