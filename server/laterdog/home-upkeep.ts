@@ -1,5 +1,6 @@
+import { readdirSync } from "node:fs";
 import { basename, join } from "node:path";
-import { chatTempName, chatTempRoot, sweepChatTemps, tidyChatTemp, usedBy, type ChatTempSweep } from "./chat-temp.ts";
+import { chatTempDir, chatTempName, chatTempRoot, sweepChatTemps, tidyChatTemp, usedBy, type ChatTempSweep } from "./chat-temp.ts";
 import { fileLadderStore, startDiskLadder } from "./disk-ladder.ts";
 import { openPaths, readHomeProcesses } from "./home-processes.ts";
 import { diskUse, type WorkspaceTask } from "./janitor.ts";
@@ -29,13 +30,20 @@ export function liveTempSweep(atWork: (threadId: string) => boolean): ChatTempSw
   };
 }
 
+function hasEntries(dir: string): boolean {
+  try { return readdirSync(dir).length > 0; } catch { return false; }
+}
+
+export function emptyTempAfterTurn(root: string, threadId: string, sweep: () => ChatTempSweep, log: (line: string) => void): void {
+  if (!hasEntries(chatTempDir(root, threadId))) return;
+  const cleared = tidyChatTemp(root, chatTempName(threadId), sweep());
+  if (cleared.removed.length) log(`laterdog home: chat ${threadId.slice(0, 8)} finished its turn; removed ${cleared.removed.length} temp item(s) nothing was using, freed ${mb(cleared.freed)}`);
+}
+
 export function startHomeUpkeep(deps: HomeUpkeepDeps): void {
   const log = deps.log ?? ((line: string) => console.log(line));
   const root = deps.tempRoot ?? chatTempRoot();
-  const emptyTemp = (threadId: string) => {
-    const cleared = tidyChatTemp(root, chatTempName(threadId), liveTempSweep(deps.atWork));
-    if (cleared.removed.length) log(`laterdog home: chat ${threadId.slice(0, 8)} finished its turn; removed ${cleared.removed.length} temp item(s) nothing was using, freed ${mb(cleared.freed)}`);
-  };
+  const emptyTemp = (threadId: string) => emptyTempAfterTurn(root, threadId, () => liveTempSweep(deps.atWork), log);
   deps.subscribe(turnUpkeep({ atWork: deps.atWork, endLeftovers: (mark) => endLeftovers({ mark, mode: LEFTOVER_MODE }), mode: LEFTOVER_MODE, emptyTemp, log }));
   startDiskLadder({
     disk: () => diskUse(deps.dataDir),
