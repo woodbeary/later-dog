@@ -23,6 +23,7 @@ export interface LimitHit {
 
 const MODEL_NAMES: Readonly<Record<string, string>> = { fable: "Fable", opus: "Opus", sonnet: "Sonnet", haiku: "Haiku" };
 const ALLOWED_MODELS_WEEK = "seven_day_overage_included";
+export const MODEL_CREDITS = "model_credits";
 const ALLOWED_MODEL_BY_DEFAULT = "fable";
 const MODEL_KEY = "#";
 
@@ -34,7 +35,7 @@ export function modelLimitName(kind: string | undefined, ranModel: string | unde
   if (!kind) return undefined;
   const named = own(MODEL_NAMES, kind) ?? own(MODEL_NAMES, kind.replace(/^(?:seven_day|five_hour)_/, ""));
   if (named) return named;
-  if (kind !== ALLOWED_MODELS_WEEK) return undefined;
+  if (kind !== ALLOWED_MODELS_WEEK && kind !== MODEL_CREDITS) return undefined;
   const family = ranModel?.trim() ? modelFamily(ranModel) : ALLOWED_MODEL_BY_DEFAULT;
   return own(MODEL_NAMES, family) ?? ranModel!.trim();
 }
@@ -55,7 +56,7 @@ export function restOwner(key: string): string {
 export function limitHit(rest: LimitedRest): LimitHit {
   const estimated = rest.estimated ? { estimated: true as const } : {};
   const model = restModel(rest);
-  if (model) return { limit: "model", model, label: `${model} ${rest.kind === "session" ? "5-hour" : "weekly"} limit`, until: rest.until, ...estimated };
+  if (model) return { limit: "model", model, label: `${model} ${rest.kind === "session" ? "5-hour " : rest.kind === MODEL_CREDITS ? "" : "weekly "}limit`, until: rest.until, ...estimated };
   if (rest.kind === "session") return { limit: "session", label: "5-hour limit", until: rest.until, ...estimated };
   if (rest.kind === "weekly") return { limit: "week", label: "Weekly limit", until: rest.until, ...estimated };
   if (rest.kind === SETUP_STOP) return { limit: "signIn", label: "Sign-in needed", until: rest.until, ...estimated };

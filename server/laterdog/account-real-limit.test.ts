@@ -30,12 +30,12 @@ const READINGS: Record<string, PlanProviderRow> = {
   anthony: reading("anthony", 12, 40),
 };
 
-const engineRefusal = (info: Record<string, unknown> | undefined, text: string) => ({
+const engineRefusal = (info: Record<string, unknown> | undefined, text: string, apiError = "usage_limit_reached") => ({
   type: "assistant",
   message: { model: "<synthetic>", content: [{ type: "text", text }] },
   error: "rate_limit",
   is_api_error_message: true,
-  ...(info ? { api_error: "usage_limit_reached", api_error_params: { rate_limit_info: info } } : {}),
+  ...(info ? { api_error: apiError, api_error_params: { rate_limit_info: info } } : {}),
 });
 
 function home() {
@@ -50,6 +50,11 @@ describe("daniel's case: one model's own weekly allowance is used up while the a
   it.each([
     ["the frame the engine sends", engineRefusal({ status: "rejected", rateLimitType: "seven_day_overage_included", resetsAt: Date.parse(MONDAY_NINE) / 1000 }, "You've reached your Fable limit.")],
     ["the words alone", engineRefusal(undefined, "You've reached your Fable limit. Switch to another model to continue.")],
+    ["the frame the engine sends when the response named no limit", engineRefusal(
+      { status: "rejected", isUsingOverage: false, resetsAt: Date.parse(MONDAY_NINE) / 1000 },
+      "Fable requires usage credits. Switch to another model to continue.",
+      "model_requires_usage_credits",
+    )],
   ])("from %s leaves daniel ready with 31 percent left and stops only Fable on it until Monday 9:00", (_source, frame) => {
     const text = frame.message.content[0]!.text;
     const quota = claudeUsageLimit(frame, text, NOW, { resetsAt: MONDAY_NINE });

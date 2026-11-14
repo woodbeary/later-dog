@@ -70,6 +70,14 @@ describe("one model's own limit", () => {
     expect(JSON.parse(JSON.stringify(home({ daniel: reading("daniel", 0, 69), anthony: reading("anthony", 10, 40) }).battery.status(ACCOUNTS))).modelResting).toEqual({});
   });
 
+  it("names a model that needs usage credits as that model's own limit, so other models keep the account", () => {
+    const { battery } = home({ daniel: reading("daniel", 0, 69), anthony: reading("anthony", 10, 40) });
+    battery.markExhausted("daniel", { resetsAt: MONDAY_NINE, kind: "model_credits" }, OPUS);
+    expect(battery.route(on("daniel", OPUS), ACCOUNTS, "opus-dog").instanceId).toBe("anthony");
+    expect(battery.route(on("daniel", FABLE), ACCOUNTS, "fable-dog").instanceId).toBe("daniel");
+    expect(battery.status(ACCOUNTS).modelResting.daniel).toEqual([{ model: "Opus", label: "Opus limit", until: MONDAY_NINE, since: at(0), kind: "model_credits" }]);
+  });
+
   it("names the model that ran when the engine reports the shared per-model allowance", () => {
     const { battery } = home({});
     expect(battery.markExhausted("daniel", { resetsAt: MONDAY_NINE, kind: "seven_day_overage_included" }, OPUS).model).toBe("Opus");
@@ -149,12 +157,29 @@ describe("a rest never outlives the limit it is based on", () => {
     expect(battery.limitsOf(claude("daniel"), ACCOUNTS)).toEqual([]);
   });
 
-  it("ends a limit the engine left unnamed once a fresh reading shows room in both windows, never on a reading that agrees", () => {
-    const { battery, readings, advance } = home({ daniel: reading("daniel", 0, 69), anthony: reading("anthony", 10, 40) });
-    battery.markExhausted("daniel", { resetsAt: MONDAY_NINE });
-    advance(MINUTE);
+  it.each([["a usage", "usage"], ["an unnamed", undefined]])("keeps %s limit with a reset the engine reported until that reset, however often a changed reading shows room", (_label, kind) => {
+    const { battery, readings, advance } = home({ daniel: reading("daniel", 10, 60), anthony: reading("anthony", 10, 40) });
+    const quota = kind ? { resetsAt: MONDAY_NINE, kind } : { resetsAt: MONDAY_NINE };
+    battery.markExhausted("daniel", quota, OPUS);
+    let sentBack = 0;
+    for (let refresh = 1; refresh <= 10; refresh += 1) {
+      advance(5 * MINUTE);
+      readings.daniel = reading("daniel", 10 + refresh, 60);
+      if (battery.route(on("daniel", OPUS), ACCOUNTS, "dog").instanceId === "daniel") {
+        sentBack += 1;
+        battery.markExhausted("daniel", quota, OPUS);
+      }
+    }
+    expect(sentBack).toBe(0);
+    expect(battery.restOf(claude("daniel"), ACCOUNTS)?.until).toBe(WEEK_RESET);
+  });
+
+  it("ends a limit later.dog had to estimate once a fresh reading shows room", () => {
+    const { battery, readings, advance } = home({ daniel: reading("daniel", 10, 60), anthony: reading("anthony", 10, 40) });
+    battery.markExhausted("daniel", {}, OPUS);
     expect(battery.route(on("daniel", OPUS), ACCOUNTS, "dog").instanceId).toBe("anthony");
-    readings.daniel = reading("daniel", 3, 70);
+    advance(MINUTE);
+    readings.daniel = reading("daniel", 11, 60);
     expect(battery.route(on("daniel", OPUS), ACCOUNTS, "dog").instanceId).toBe("daniel");
   });
 

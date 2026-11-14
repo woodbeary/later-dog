@@ -325,6 +325,7 @@ export function withReadings(
 }
 
 const KINDS_A_READING_SHOWS: ReadonlySet<string | undefined> = new Set([undefined, "usage", "session", "weekly"]);
+const KINDS_OF_ONE_WINDOW: ReadonlySet<string | undefined> = new Set(["session", "weekly"]);
 
 function quotaReading(row: PlanProviderRow | undefined, rest: Pick<Rest, "kind" | "model">) {
   const readings = readingsUnder(row, rest);
@@ -360,6 +361,7 @@ export function readingsDisprove(
       const left = leftUnder(row, rest, now);
       return left !== undefined && left > NEARLY_EMPTY_PERCENT;
     }
+    if (restModel(rest) === undefined && !KINDS_OF_ONE_WINDOW.has(rest.kind)) return false;
     const reading = quotaReading(row, rest);
     return reading?.hasRoom === true && reading.key !== rest.reading;
   }).map(([key]) => key);
