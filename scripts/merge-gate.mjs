@@ -1,7 +1,7 @@
 import { spawn, spawnSync } from "node:child_process";
 import { createWriteStream, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { isAbsolute, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 export const SHARDS = 8;
@@ -44,17 +44,22 @@ export function failingFiles(log) {
   return [...files];
 }
 
-export const NO_BROWSER = "no agent-browser binary resolves";
+export const NEEDS_BROWSER = /-ui\.e2e\.test\.[cm]?[jt]s$/;
+const NOT_RUN = new Set(["skipped", "pending", "todo"]);
 
-export function browserSkips(log) {
-  const files = new Set();
-  let current = "";
-  for (const line of log.split("\n")) {
-    const source = /^\s*std(?:out|err) \| (\S+)/.exec(line);
-    if (source) current = source[1];
-    if (line.includes(NO_BROWSER)) files.add(current || line.trim());
-  }
-  return [...files];
+export function reportFile(name, root) {
+  return isAbsolute(name) && root ? relative(root, name) : name;
+}
+
+export function browserSkips(report, root = "") {
+  if (!report || !Array.isArray(report.testResults)) return [];
+  return report.testResults
+    .filter((file) => NEEDS_BROWSER.test(file.name ?? "") && (file.assertionResults ?? []).some((test) => NOT_RUN.has(test.status)))
+    .map((file) => reportFile(file.name, root));
+}
+
+export function readReport(file) {
+  try { return JSON.parse(readFileSync(file, "utf8")); } catch { return null; }
 }
 
 export function vitestCounts(log) {
@@ -63,14 +68,14 @@ export function vitestCounts(log) {
   return files ? { files, tests: tests ?? "" } : null;
 }
 
-export function judgeStep(step, code, log) {
+export function judgeStep(step, code, log, report = null, root = "") {
   if (step.kind === "base") return { ...step, code, failed: code !== 0, failing: code === 0 ? [] : [step.name], skippedNoBrowser: [], note: log.trim() };
   if (step.kind === "check") return { ...step, code, failed: code !== 0, failing: code === 0 ? [] : [step.name], skippedNoBrowser: [], note: "" };
   const files = failingFiles(log);
   const counts = vitestCounts(log);
   const failed = code !== 0 || files.length > 0 || counts === null;
   const failing = files.length ? files : failed ? [`${step.name} (exit ${code}${counts ? "" : ", no test summary"})`] : [];
-  return { ...step, code, failed, failing, skippedNoBrowser: browserSkips(log), note: counts ? `Test Files ${counts.files}; Tests ${counts.tests}` : "" };
+  return { ...step, code, failed, failing, skippedNoBrowser: browserSkips(report, root), note: counts ? `Test Files ${counts.files}; Tests ${counts.tests}` : "" };
 }
 
 export function verdict(results, { noBrowser = false, partial = false } = {}) {
@@ -123,7 +128,7 @@ export function baseCheck(root, { offline = false } = {}) {
   return { code: problems.length ? 1 : 0, commits, log: `head ${head}; ${BASE} ${base.text}${offline ? " (offline: not fetched)" : ""}${problems.length ? `; ${problems.join("; ")}` : " is merged in; the tree matches the commit"}` };
 }
 
-function runStep(root, step, wrapper, logFile) {
+function runStep(root, step, wrapper, logFile, reportPath) {
   return new Promise((done) => {
     const cwd = step.cwd ? join(root, step.cwd) : root;
     const out = createWriteStream(logFile);
@@ -131,7 +136,7 @@ function runStep(root, step, wrapper, logFile) {
       out.end(`${step.needs} is missing: install the dependencies in ${step.cwd} first\n`, () => done(1));
       return;
     }
-    const [command, ...args] = [...wrapper, ...step.command];
+    const [command, ...args] = [...wrapper, ...step.command, ...(step.kind === "vitest" ? ["--reporter=default", "--reporter=json", `--outputFile.json=${reportPath}`] : [])];
     const child = spawn(command, args, { cwd, env: { ...process.env, NO_COLOR: "1", FORCE_COLOR: "0", CI: "1" }, stdio: ["ignore", "pipe", "pipe"] });
     child.stdout.pipe(out, { end: false });
     child.stderr.pipe(out, { end: false });
@@ -166,8 +171,9 @@ async function main() {
   for (const [index, step] of chosen.steps.entries()) {
     const logFile = join(logs, `${String(index + 1).padStart(2, "0")}-${step.name.replace(/[^a-z0-9]+/gi, "-")}.log`);
     const stepStarted = Date.now();
-    const code = await runStep(root, step, wrapper, logFile);
-    const result = judgeStep(step, code, readFileSync(logFile, "utf8"));
+    const reportPath = logFile.replace(/\.log$/, ".json");
+    const code = await runStep(root, step, wrapper, logFile, reportPath);
+    const result = judgeStep(step, code, readFileSync(logFile, "utf8"), step.kind === "vitest" ? readReport(reportPath) : null, root);
     results.push(result);
     console.log(`${result.failed ? "FAIL" : "ok  "} ${step.name} exit ${code} in ${Math.round((Date.now() - stepStarted) / 1000)}s${result.note ? `  ${result.note}` : ""}`);
   }

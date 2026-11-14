@@ -1,12 +1,15 @@
-import { spawnSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { execFileSync, spawnSync } from "node:child_process";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
-import { browserSkips, failingFiles, formatVerdict, gateSteps, judgeStep, verdict, vitestCounts, wrapperFrom } from "./merge-gate.mjs";
+import { NEEDS_BROWSER, browserSkips, failingFiles, formatVerdict, gateSteps, judgeStep, verdict, vitestCounts, wrapperFrom } from "./merge-gate.mjs";
 
 const script = fileURLToPath(new URL("./merge-gate.mjs", import.meta.url));
+const repoRoot = fileURLToPath(new URL("..", import.meta.url));
+const HOW_RECORDED = "pnpm exec vitest run --reporter=default --reporter=json --outputFile.json=<file> on a scratch folder of four files: one passing test, one failing test, one test that throws after it finishes, and screen-ui.e2e.test.mjs whose only test is skipped unless LATERDOG_UI_E2E=1, as the interface tests are; the folder's absolute path was then replaced by <root>/scripts/testing";
+const recorded = (name: string, root: string) => JSON.parse(readFileSync(new URL(`./testing/merge-gate-fixtures/${name}`, import.meta.url), "utf8").replaceAll("<root>", root));
 const passing = " ✓ server/a.test.ts (3 tests) 20ms\n\n Test Files  1 passed (1)\n      Tests  3 passed (3)\n";
 const failing = " FAIL  server/b.test.ts > b > breaks\nAssertionError\n FAIL  server/b.test.ts > b > breaks again\n FAIL  src/c.test.ts [ src/c.test.ts ]\n\n Test Files  2 failed | 4 passed (6)\n      Tests  2 failed | 9 passed (11)\n";
 const shard = { name: "suite 1/8", kind: "vitest", command: [] };
@@ -43,18 +46,25 @@ describe("merge gate verdict", () => {
     expect(report.split("Failing:\n")[1]).toBe("  server/b.test.ts\n  src/c.test.ts");
   });
 
-  it("fails a run whose interface tests skipped for want of a browser, unless the machine has none on purpose", () => {
-    const skipped = `stdout | scripts/testing/thinking-timer-ui.e2e.test.ts\nskipping thinking-timer ui e2e: no agent-browser binary resolves (looked in x)\n\nstdout | scripts/testing/control-laterdog-ui.e2e.test.ts\nskipping control-laterdog ui e2e: no agent-browser binary resolves (looked in x)\n${passing}`;
-    expect(browserSkips(skipped)).toEqual(["scripts/testing/thinking-timer-ui.e2e.test.ts", "scripts/testing/control-laterdog-ui.e2e.test.ts"]);
-    expect(browserSkips(passing)).toEqual([]);
-    const results = [judgeStep(shard, 0, skipped)];
+  it(`fails a run whose interface tests skipped, unless the machine has no browser on purpose, judged from a vitest report recorded with ${HOW_RECORDED}`, () => {
+    const report = recorded("skip.json", "/repo");
+    expect(browserSkips(report, "/repo")).toEqual(["scripts/testing/screen-ui.e2e.test.mjs"]);
+    expect(browserSkips(recorded("fails.json", "/repo"), "/repo")).toEqual([]);
+    expect(browserSkips(null)).toEqual([]);
+    const results = [judgeStep(shard, 0, passing, report, "/repo")];
     expect(results[0]).toMatchObject({ failed: false, failing: [] });
-    expect(verdict(results)).toMatchObject({ pass: false, skippedNoBrowser: ["scripts/testing/thinking-timer-ui.e2e.test.ts", "scripts/testing/control-laterdog-ui.e2e.test.ts"] });
-    expect(formatVerdict(results)).toContain("Skipped without a browser: 2");
-    expect(formatVerdict(results)).toContain("  scripts/testing/thinking-timer-ui.e2e.test.ts\n");
-    expect(formatVerdict(results)).toContain("VERDICT: FAIL");
+    expect(verdict(results)).toMatchObject({ pass: false, label: "FAIL", skippedNoBrowser: ["scripts/testing/screen-ui.e2e.test.mjs"] });
+    expect(formatVerdict(results)).toContain("Skipped without a browser: 1");
+    expect(formatVerdict(results)).toContain("\n  scripts/testing/screen-ui.e2e.test.mjs\n");
     expect(verdict(results, { noBrowser: true }).pass).toBe(true);
-    expect(formatVerdict(results, { noBrowser: true })).toContain("VERDICT: PASS");
+  });
+
+  it("treats every interface test as needing the browser by its name, and every test that waits for the browser is named so", () => {
+    const files = execFileSync("git", ["ls-files", "*.test.ts", "*.test.mjs"], { cwd: repoRoot, encoding: "utf8" }).split("\n").filter(Boolean);
+    const waits = files.filter((file) => file !== "scripts/merge-gate.test.ts" && readFileSync(join(repoRoot, file), "utf8").includes("LATERDOG_UI_E2E"));
+    expect(waits.length).toBeGreaterThan(0);
+    expect(waits.filter((file) => !NEEDS_BROWSER.test(file))).toEqual([]);
+    expect(files.filter((file) => NEEDS_BROWSER.test(file) && !waits.includes(file))).toEqual([]);
   });
 
   it("splits the wrapper command from its environment variable", () => {
@@ -83,9 +93,12 @@ describe("merge gate exit code", () => {
     if (edgeDeps) mkdirSync(join(repo, "deploy/laterdog/home/node_modules"), { recursive: true });
     before?.(repo, git, origin);
     const fake = join(dir, "fake.mjs");
-    writeFileSync(fake, `const words = process.argv.slice(2).join(" ");
+    writeFileSync(fake, `const require = (await import("node:module")).createRequire(import.meta.url);
+const words = process.argv.slice(2).join(" ");
 if (${JSON.stringify(failOn)} && words.includes(${JSON.stringify(failOn)})) { console.log(${JSON.stringify(failing)}); process.exit(1); }
-if (words.includes("--shard=2/8") && process.env.FAKE_NO_BROWSER) console.log("stdout | scripts/testing/thinking-timer-ui.e2e.test.ts\\nskipping thinking-timer ui e2e: no agent-browser binary resolves");
+const out = process.argv.find((word) => word.startsWith("--outputFile.json="))?.slice("--outputFile.json=".length);
+const skip = words.includes("--shard=2/8") && process.env.FAKE_NO_BROWSER;
+if (out) require("node:fs").writeFileSync(out, skip ? ${JSON.stringify(JSON.stringify(recorded("skip.json", "<cwd>")))}.replaceAll("<cwd>", process.cwd()) : ${JSON.stringify(JSON.stringify(recorded("fails.json", "<cwd>")))}.replaceAll("<cwd>", process.cwd()).replace(/"status":"failed"/g, '"status":"passed"'));
 console.log(words.includes("vitest") ? ${JSON.stringify(passing)} : "checked");
 `);
     return spawnSync(process.execPath, [script, ...args], {
@@ -125,7 +138,7 @@ console.log(words.includes("vitest") ? ${JSON.stringify(passing)} : "checked");
 
   it("exits 1 when an interface test skipped for want of a browser, and 0 when the machine has none on purpose", () => {
     const skipped = gate([], { env: { FAKE_NO_BROWSER: "1" } });
-    expect(skipped.stdout).toMatch(/Skipped without a browser: 1 .*\n {2}scripts\/testing\/thinking-timer-ui\.e2e\.test\.ts\n/);
+    expect(skipped.stdout).toMatch(/Skipped without a browser: 1 .*\n {2}scripts\/testing\/screen-ui\.e2e\.test\.mjs\n/);
     expect(skipped.status).toBe(1);
     const allowed = gate([], { env: { FAKE_NO_BROWSER: "1", LATERDOG_GATE_NO_BROWSER: "1" } });
     expect(allowed.stdout).toContain("VERDICT: PASS");

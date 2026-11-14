@@ -1,0 +1,34 @@
+
+ RUN  v4.1.10 <root>/.fx
+
+ ✓ stray.test.mjs (1 test) 23ms
+ ✓ passes.test.mjs (1 test) 1ms
+⎯⎯⎯⎯⎯⎯ Unhandled Errors ⎯⎯⎯⎯⎯⎯
+
+Vitest caught 1 unhandled error during the test run.
+This might cause false positive tests. Resolve unhandled errors to make sure your tests are not affected.
+
+⎯⎯⎯⎯⎯ Uncaught Exception ⎯⎯⎯⎯⎯
+Error: stray
+ ❯ Timeout._onTimeout stray.test.mjs:2:69
+      1| import { it } from "vitest";
+      2| it("leaves an error behind", async () => { setTimeout(() => { throw ne…
+       |                                                                     ^
+      3|
+ ❯ listOnTimeout ../node:internal/timers:685:17
+ ❯ processTimers ../node:internal/timers:618:7
+
+This error originated in "stray.test.mjs" test file. It doesn't mean the error was thrown inside the file itself, but while it was running.
+The latest test that might've caused the error is "leaves an error behind". It might mean one of the following:
+- The error was thrown, while Vitest was running this test.
+- If the error occurred after the test had been completed, this was the last documented test before it was thrown.
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
+
+
+ Test Files  2 passed (2)
+      Tests  2 passed (2)
+     Errors  1 error
+   Start at  09:58:29
+   Duration  201ms (transform 11ms, setup 0ms, import 21ms, tests 24ms, environment 0ms)
+
+JSON report written to <tmp>
