@@ -969,7 +969,7 @@ export function ModelPicker({
           )}
           {part === "chat" ? (
             <div data-chat-ai-menu className="flex min-h-0 flex-col">
-            <FadingScroll className="min-h-0 flex-1">
+            <FadingScroll fade={72} className="min-h-0 flex-1">
               {modelGroups.length > 0 && (
                 <section data-chat-ai-models aria-label={t("model.simple.model")} className="shrink-0 pt-1">
                   <p className={CHAT_MENU_HEADING}>{t("model.simple.model")}</p>

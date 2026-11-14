@@ -3,7 +3,9 @@ import { cn } from "@/lib/cn";
 
 const MORE_BELOW_PX = 4;
 
-export function FadingScroll({ className, children, ...rest }: HTMLAttributes<HTMLDivElement> & { children: ReactNode }) {
+const fadeBelow = (length: number) => `linear-gradient(to bottom, black calc(100% - ${length}px), transparent)`;
+
+export function FadingScroll({ className, children, style, fade = 36, ...rest }: HTMLAttributes<HTMLDivElement> & { children: ReactNode; fade?: number }) {
   const outer = useRef<HTMLDivElement>(null);
   const inner = useRef<HTMLDivElement>(null);
   const [moreBelow, setMoreBelow] = useState(false);
@@ -24,7 +26,8 @@ export function FadingScroll({ className, children, ...rest }: HTMLAttributes<HT
       ref={outer}
       onScroll={measure}
       data-more-below={moreBelow || undefined}
-      className={cn("overflow-y-auto", moreBelow && "[mask-image:linear-gradient(to_bottom,black_calc(100%-36px),transparent)]", className)}
+      className={cn("overflow-y-auto", className)}
+      style={moreBelow ? { ...style, maskImage: fadeBelow(fade), WebkitMaskImage: fadeBelow(fade) } : style}
       {...rest}
     >
       <div ref={inner} className="flex flex-col">{children}</div>
