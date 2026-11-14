@@ -141,11 +141,15 @@ const finishTurn = () => {
       },
     });
   }
+  if (process.env.FAKE_CODEX_COMPACT === "1") {
+    notify("item/started", { item: { id: "c1", type: "contextCompaction" } });
+    notify("item/completed", { item: { id: "c1", type: "contextCompaction" } });
+  }
   notify("item/completed", { item: { id: "m1", type: "agentMessage", text: process.env.FAKE_CODEX_REPLY || "done from fake codex" } });
   const carried = process.env.FAKE_CODEX_RESTORED_USAGE ? { inputTokens: 100, cachedInputTokens: 50, outputTokens: 10 } : { inputTokens: 0, cachedInputTokens: 0, outputTokens: 0 };
   notify("thread/tokenUsage/updated", { tokenUsage: {
     total: { inputTokens: carried.inputTokens + 7, cachedInputTokens: carried.cachedInputTokens + 4, outputTokens: carried.outputTokens + 3 },
-    last: { inputTokens: 7, cachedInputTokens: 4, outputTokens: 3 },
+    last: { inputTokens: Number(process.env.FAKE_CODEX_CONTEXT_TOKENS) || 7, cachedInputTokens: 4, outputTokens: 3 },
     modelContextWindow: 272000,
   } });
   dump();

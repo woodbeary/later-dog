@@ -435,6 +435,7 @@ const appConfigSchema = z.object({
     rebuildBytes: z.number().int().min(1_024).max(1_000_000).optional(),
     compactAt: z.number().positive().max(10_000_000).optional(),
     autoCompact: z.boolean().optional(),
+    harnessCompaction: z.boolean().optional(),
   }).optional(),
   memory: z.object({
     captureQuietMs: z.number().int().min(1_000).max(24 * 60 * 60_000).optional(),
@@ -502,7 +503,7 @@ export interface AppConfig {
   rooms?: { turnTimeoutMinutes: number; handoffIdleMinutes?: number; handoffLifetimeMinutes?: number; handoffMinRunwayMinutes?: number; handoffHardCapMinutes?: number };
   mcp?: { callTimeoutMinutes?: number };
   threads?: { maxConcurrentPerBot: number; eventLogMaxBytes?: number; eventLogRetentionDays?: number };
-  context?: { rebuildBytes?: number; compactAt?: number; autoCompact?: boolean };
+  context?: { rebuildBytes?: number; compactAt?: number; autoCompact?: boolean; harnessCompaction?: boolean };
   memory?: { captureQuietMs?: number; tidyHour?: number };
   localVm?: { mode?: "shared" | "per-bot" | "pool"; maxInstances?: number; idleTimeoutMinutes?: number };
   features?: { skillAuthoring?: boolean; showToolCalls?: boolean; stepUpdates?: boolean; browser?: boolean; sharedComputers?: boolean; claudeUserMcp?: boolean; llmThreadTitles?: boolean; autoRecall?: boolean; skillsLibrary?: boolean; cloudDictation?: boolean; typingSuggestions?: boolean; smarterSuggestions?: boolean; autoReview?: boolean; voiceNoteButton?: boolean; callButton?: boolean };

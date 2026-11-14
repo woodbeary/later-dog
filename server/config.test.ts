@@ -90,7 +90,7 @@ describe("configuration boundaries", () => {
     expect(() => parseConfigPatch({ profile: { aboutMe: "x".repeat(24_001) } })).toThrow();
   });
   it("validates context budgets and keeps changes independent of provider reload", () => {
-    const context = { autoCompact: false, compactAt: 0.7, rebuildBytes: 32_000 };
+    const context = { autoCompact: false, compactAt: 0.7, rebuildBytes: 32_000, harnessCompaction: false };
     expect(parseStoredConfig({ context })).toEqual({ context });
     expect(parseConfigPatch({ context })).toEqual({ context });
     expect(providerReloadKeys({ context })).toEqual([]);

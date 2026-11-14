@@ -115,7 +115,7 @@ function runHooks(event: string, payload: Record<string, unknown>): string {
       if (hook.type !== "command" || !hook.command) continue;
       const result = spawnSync(hook.command, {
         shell: true,
-        input: JSON.stringify({ hook_event_name: event, session_id: "fake-session", cwd: process.cwd(), ...payload }),
+        input: JSON.stringify({ hook_event_name: event, session_id: sessionId, cwd: process.cwd(), ...payload }),
         env: process.env,
         timeout: ((hook.timeout ?? 5) + 1) * 1000,
         stdio: ["pipe", "pipe", "pipe"],
@@ -127,6 +127,17 @@ function runHooks(event: string, payload: Record<string, unknown>): string {
   return stdout;
 }
 let turnsPlayed = 0;
+let roomTurnsPlayed = 0;
+
+function playNativeCompaction(): string {
+  out({ type: "system", subtype: "status", status: "compacting" });
+  runHooks("PreCompact", { trigger: "auto" });
+  const context = runHooks("SessionStart", { source: "compact" });
+  out({ type: "system", subtype: "status", status: null, compact_result: "success" });
+  out({ type: "system", subtype: "compact_boundary", compact_metadata: { trigger: "auto", pre_tokens: 182_345, post_tokens: 24_100 } });
+  runHooks("PostCompact", { trigger: "auto", compact_summary: process.env.FAKE_CLAUDE_COMPACT_SUMMARY ?? "Fixture compaction summary." });
+  return context;
+}
 let resumedErrorPlayed = false;
 const argAfter = (flag: string): string | null => {
   const i = argv.indexOf(flag);
@@ -436,6 +447,24 @@ const playTurn = async (prompt: JsonValue, late = false) => {
     ], { stdio: "ignore", timeout: 5_000 });
   }
 
+  if (mode === "dead-session-result" && argv.includes("--resume")) {
+    const id = argAfter("--resume");
+    const captured = process.env.FAKE_CLAUDE_RESUME_RESULT;
+    if (captured) out(JSON.parse(readFileSync(captured, "utf8")));
+    else out({ type: "result", subtype: "error_during_execution", duration_ms: 0, duration_api_ms: 0, is_error: true, num_turns: 0, stop_reason: null,
+      session_id: id, total_cost_usd: 0, usage: { input_tokens: 0, cache_creation_input_tokens: 0, cache_read_input_tokens: 0, output_tokens: 0 },
+      modelUsage: {}, permission_denials: [], errors: [`No conversation found with session ID: ${id}`], result_index: 0 });
+    await new Promise((resolve) => process.stdout.write("", resolve));
+    process.exit(1);
+  }
+
+  if (mode === "error-result") {
+    out({ type: "result", subtype: "error_during_execution", is_error: true, num_turns: 0, stop_reason: null, session_id: "fake-session",
+      total_cost_usd: 0, errors: [process.env.FAKE_CLAUDE_ERROR_TEXT ?? "Fixture engine error"] });
+    await new Promise((resolve) => process.stdout.write("", resolve));
+    process.exit(1);
+  }
+
   if (mode === "dead-session" && argv.includes("--resume")) {
     process.stderr.write(`fake-claude: No conversation found with session ID: ${argAfter("--resume")}\n`);
     process.exit(1);
@@ -498,7 +527,9 @@ const playTurn = async (prompt: JsonValue, late = false) => {
   if (mode === "api-error" || resumedError) {
     const text = process.env.FAKE_CLAUDE_API_ERROR ?? "API Error: 529 Overloaded. This is a server-side issue, usually temporary.";
     out({ type: "assistant", message: { model: "<synthetic>", content: [{ type: "text", text }] }, error: "unknown", is_api_error_message: true });
-    out({ type: "result", is_error: true, stop_reason: "stop_sequence", terminal_reason: "api_error", result: text });
+    out(process.env.FAKE_CLAUDE_API_ERROR_BARE === "1"
+      ? { type: "result", is_error: true, stop_reason: "stop_sequence", terminal_reason: "api_error", errors: [text] }
+      : { type: "result", is_error: true, stop_reason: "stop_sequence", terminal_reason: "api_error", result: text });
     turnRunning = false;
     finishIfDone();
     return;
@@ -561,6 +592,8 @@ const playTurn = async (prompt: JsonValue, late = false) => {
   }
 
   if (process.env.FAKE_CLAUDE_ROOM_PLAN) {
+    roomTurnsPlayed += 1;
+    if (process.env.FAKE_CLAUDE_COMPACT === "1" && (roomTurnsPlayed >= 2 || argv.includes("--resume"))) playNativeCompaction();
     const progress = (text: string) => out({ type: "assistant", message: { content: [{ type: "text", text }] } });
     const announce = (call: { id: string; name: string; input: unknown; parentToolUseId?: string; agentId?: string }) =>
       out({ type: "assistant", parent_tool_use_id: call.parentToolUseId ?? null, ...(call.agentId ? { agent_id: call.agentId } : {}), message: { content: [{ type: "tool_use", id: call.id, name: call.name, input: call.input }] } });
@@ -643,11 +676,7 @@ const playTurn = async (prompt: JsonValue, late = false) => {
   }
   turnsPlayed += 1;
   if (process.env.FAKE_CLAUDE_COMPACT === "1" && turnsPlayed >= 2) {
-    out({ type: "system", subtype: "status", status: "compacting" });
-    runHooks("PreCompact", { trigger: "auto" });
-    const context = runHooks("SessionStart", { source: "compact" });
-    out({ type: "system", subtype: "status", status: null, compact_result: "success" });
-    out({ type: "system", subtype: "compact_boundary", compact_metadata: { trigger: "auto", pre_tokens: 182_345, post_tokens: 24_100 } });
+    const context = playNativeCompaction();
     if (context.trim()) replyParts = [`${context.trim()}\n\n${replyParts[0] ?? ""}`, ...replyParts.slice(1)];
   }
   const usage = { input_tokens: 10, cache_read_input_tokens: 2, output_tokens: 5 };

@@ -38,9 +38,50 @@ Each API fixture retains exact requests, waits and bounded transcripts in
 `<server-log>.context.json`, prints that location, and closes its exact child and
 temporary home. No live account, computer or user workspace is touched.
 
+## Claude Code and Codex compact for themselves
+
+From the second harness pass, later.dog does not fold a Claude Code or Codex
+chat on a threshold. The engine compacts at its own default and keeps its
+session; later.dog summarises the older part only when it must start a new
+session that cannot replay the whole chat (an account switch, an engine switch,
+an edit to an older message). The rules below apply to other engines, and to
+Claude and Codex when `context.harnessCompaction` is `false`.
+
+A chat stays with later.dog's fold when the engine gives no sign it will
+compact it (`engineWillCompact`): Claude Code with `DISABLE_AUTO_COMPACT` or
+`DISABLE_COMPACT` in its environment, or with the person's own settings
+inherited and `autoCompactEnabled: false`; Codex on a company install or on a
+model its catalog does not list.
+
+When the engine refuses a saved session mid-turn (a session file lost in a
+restore, a corrupt session), the rebuilt session still gets a summary of every
+message that no longer fits: Claude Code's own summary from its last compaction
+(the `PostCompact` hook's `compact_summary`, from 2.1.316, kept per chat in
+`engine-summaries.json` with mode 0600), plus excerpts of the person's oldest
+and newest dropped messages made without a model call. Codex hands back no
+summary text, so its rebuilds get the excerpts alone.
+
+The `PostCompact` hook is named only in the per-run settings file later.dog
+passes with `--settings` from a private temporary folder; the person's own
+settings files are not written. The hook runs later.dog's own helper
+(`server/hooks/laterdog-hook.ts`) with the home's address and token file on its
+command line, posts only to 127.0.0.1, gives up within 4 seconds and always
+exits 0 with no output. The stored summary is capped at 6,000 bytes per chat
+and 500 chats, has secrets redacted, and is forgotten when its chat or dog is
+deleted. The home logs `[compaction] engine summary received chat=<id>
+bytes=<n>` when one arrives. Not yet proven on a real engine: that Claude Code
+runs these hooks alongside the person's own, and that a slow or failing hook
+never holds up its compaction. The fake engine cannot show either.
+
+```sh
+pnpm exec vitest run server/laterdog/native-compaction.test.ts server/laterdog/native-compaction.e2e.test.ts
+pnpm exec vitest run server/laterdog/rebuild-summary.test.ts server/laterdog/engine-summaries.test.ts server/laterdog/cache-lifetime.test.ts
+```
+
 ## Bounds and limitations
 
-`context` settings in config.json are optional. `autoCompact: false` disables
+`context` settings in config.json are optional. `harnessCompaction: false`
+puts Claude and Codex back on later.dog's fold, `autoCompact: false` disables
 automatic folding, `compactAt` is a fraction below 1 or a token count, and
 `rebuildBytes` controls replay size (default 24,000 bytes). Context-only settings
 do not reload provider processes. The default threshold is 80% of the known
@@ -93,5 +134,6 @@ in, in either order. A compaction skipped before it started adds no row. A row
 still open when the server stops is closed as stopped on the next start, from
 `compactions-open.json` in the data folder (mode 0600). Rows carry the request
 they belong to and stay out of restart pickups, status lines, digests and the
-memory log. The stream shapes match Claude CLI 2.1.301; other engines report
-nothing new.
+memory log. The stream shapes match Claude CLI 2.1.301. Codex reports a `contextCompaction`
+item, which opens and closes the same row without token counts; other engines
+report nothing new.

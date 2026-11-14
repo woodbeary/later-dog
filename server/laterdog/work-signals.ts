@@ -1,4 +1,5 @@
 import type { RuntimeEvent } from "../../shared/runtime-events.ts";
+import { RESUME_REJECTED } from "../../shared/resume-pickup.ts";
 import type { WorkFacts } from "./work-state.ts";
 
 type Signals = Pick<WorkFacts, "computerWait" | "retry" | "stopped">;
@@ -37,6 +38,7 @@ export class WorkSignals {
         this.parked.delete(event.threadId);
         return this.set(event.threadId, {});
       case "turn.retrying":
+        if (event.reason === RESUME_REJECTED) return false;
         return this.set(event.threadId, { ...current, retry: { attempt: event.attempt + 1 } });
       case "content.delta":
       case "item.started":

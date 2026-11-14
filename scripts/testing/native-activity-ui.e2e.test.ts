@@ -104,7 +104,7 @@ describe("native activity in the isolated real renderer", () => {
     await expect.poll(async () => (await ui("snapshot", info.ui)).snapshot, { timeout: 20_000 }).toContain("View 2 more puppies");
     expect(await evaluate(`document.querySelector('button[aria-label="See progress"]')?.textContent`)).toContain("Searching");
     expect(await evaluate(`document.querySelectorAll('[data-native-work]').length`)).toBe(1);
-    expect(await evaluate(`document.querySelector(${JSON.stringify(rowSelector)})?.textContent`)).toContain("Issue recorded");
+    expect(await evaluate(`document.querySelector(${JSON.stringify(rowSelector)})?.textContent`)).not.toContain("Issue recorded");
     const messages = await api("GET", `/api/threads/${threadId}/messages?limit=100`);
     expect(JSON.stringify(messages.messages)).not.toContain("CHILD_ONLY_");
     expect(await evaluate(`document.querySelector('[role="log"]')?.textContent`)).not.toContain("CHILD_ONLY_");
@@ -149,7 +149,7 @@ describe("native activity in the isolated real renderer", () => {
     await evaluate("setTimeout(() => location.reload(), 10); true");
     await expect.poll(() => evaluate(`document.querySelector(${JSON.stringify(rowSelector)})?.textContent`), { timeout: 30_000 }).toContain("View work");
     await expect.poll(() => evaluate(`document.querySelector('[role="log"]')?.textContent`), { timeout: 30_000 }).toContain("Parent: Native activity fixture complete.");
-    await ui("click", info.ui, "--name", "View work Issue recorded");
+    await ui("click", info.ui, "--name", "View work");
     await expect.poll(() => evaluate(`document.querySelector('nav[aria-label="Agents and tasks"]') !== null`), { timeout: 10_000 }).toBe(true);
     await evaluate(`Array.from(document.querySelectorAll('nav[aria-label="Agents and tasks"] button')).find(button => button.textContent.includes('Checker'))?.click(); true`);
     await expect.poll(() => evaluate(`document.querySelector('[role="dialog"] h3')?.textContent`), { timeout: 10_000 }).toBe("Checker");

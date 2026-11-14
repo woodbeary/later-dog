@@ -9,7 +9,7 @@ import { writeFileAtomic, writeFileAtomicIfChanged } from "../atomic.ts";
 import { augmentedPath } from "../env-path.ts";
 import { brokerSocketPath, describeSpawnFailure, execCli, killCliTree, resolveCli, spawnCli } from "../procs.ts";
 import { engineOpener, notePlacement, planClaudeRemote, remoteEngineBots, spawnPlacedEngine } from "../laterdog/engine-placement.ts";
-import { classifyResumeFailure, mayReplay, recoveryPromptFor } from "../resume-recovery.ts";
+import { claudeResumeRefusal, classifyResumeFailure, mayReplay, recoveryPromptFor } from "../resume-recovery.ts";
 import { ClaudeLoginController } from "./claude-login-auth.ts";
 
 import type {
@@ -70,8 +70,11 @@ import { claudeToolTouch } from "../laterdog/tool-touches.ts";
 import { claudeContextNote, claudeSeenVolatile } from "../laterdog/volatile-sections.ts";
 import { claudeHelperEnvironment } from "../laterdog/helper-model.ts";
 import { agentsServerLaunch, deferRareToolsEnabled } from "../laterdog/tool-loading.ts";
+import { CLAUDE_PICKS_CACHE_LIFETIME, claudeCacheLifetime } from "../laterdog/cache-lifetime.ts";
+import { claudeCompactionSwitchedOff } from "../laterdog/native-compaction.ts";
 import { helpersStoppedLine } from "../laterdog/helpers-stopped.ts";
 import { claudeApiErrorFrame } from "../laterdog/claude-api-error.ts";
+import { RESUME_REJECTED } from "../../shared/resume-pickup.ts";
 
 export function claudeAuthStatus(
   cli: string,
@@ -501,12 +504,45 @@ export function hookTokenFile(threadId: string, botId?: string): string {
   return join(DATA_DIR, "hook-tokens", `${digest}.token`);
 }
 
-export function claudeHookSettings(helperPath: string, options: { guardShell?: boolean } = {}): Record<string, unknown> {
+const HOOK_ADDRESS_VARIABLES = ["LATERDOG_HOOK_URL", "LATERDOG_HOOK_TOKEN_FILE"] as const;
+
+export function claudeHookEnvironment(platform: NodeJS.Platform, target: ClaudeHookTarget, helperPath: string): Record<string, string> {
+  if (platform !== "win32") return {};
+  return { LATERDOG_HOOK_URL: target.url, LATERDOG_HOOK_TOKEN_FILE: target.tokenFile, LATERDOG_HOOK_NODE: process.execPath, LATERDOG_HOOK_HELPER: helperPath };
+}
+
+export function localModelEndpoint(baseUrl: string | undefined): boolean {
+  if (!baseUrl?.trim()) return false;
+  try {
+    const host = new URL(baseUrl).hostname.replace(/^\[|\]$/g, "").toLowerCase();
+    return host === "localhost" || host === "::1" || host.startsWith("127.") || host.endsWith(".local") || host.endsWith(".localhost");
+  } catch {
+    return false;
+  }
+}
+
+export function claudeUnansweredError(frame: { is_error?: unknown; errors?: unknown; result?: unknown }): string | null {
+  if (frame.is_error !== true || !Array.isArray(frame.errors)) return null;
+  if (typeof frame.result === "string" && frame.result.trim()) return null;
+  const errors = frame.errors.filter((error): error is string => typeof error === "string" && Boolean(error.trim())).map((error) => error.trim());
+  return errors.length ? errors.join("; ").slice(0, 2_000) : null;
+}
+
+export const CLAUDE_POST_COMPACT_HOOK: ClaudeCliVersion = [2, 1, 316];
+
+export interface ClaudeHookTarget {
+  url: string;
+  tokenFile: string;
+}
+
+export function claudeHookSettings(helperPath: string, options: { guardShell?: boolean; postCompact?: boolean; target?: ClaudeHookTarget } = {}): Record<string, unknown> {
+  const target = options.target ? [options.target.url, options.target.tokenFile] : [];
   const command = process.platform === "win32"
     ? '"%LATERDOG_HOOK_NODE%" "%LATERDOG_HOOK_HELPER%"'
-    : [process.execPath, helperPath].map(path => `'${path.replace(/'/g, "'\\''")}'`).join(" ");
+    : [process.execPath, helperPath, ...target].map(path => `'${path.replace(/'/g, "'\\''")}'`).join(" ");
   const entry = [{ matcher: "", hooks: [{ type: "command", command, timeout: 5 }] }];
   const settings: Record<string, unknown> = { PostToolUse: entry, PreCompact: entry, SessionStart: entry, Stop: entry };
+  if (options.postCompact) settings.PostCompact = entry;
   if (options.guardShell) settings.PreToolUse = [{ matcher: "Bash", hooks: [{ type: "command", command, timeout: 5 }] }];
   return settings;
 }
@@ -987,6 +1023,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
     };
     const listeners = new Set<RuntimeEventListener>();
     const active = new Map<string, { stop: () => void; turnId: string; broker?: Awaited<ReturnType<typeof createPermissionBroker>> }>();
+    const workFolders = new Map<string, string>();
 
     interface Session {
       child: ReturnType<typeof spawnCli>;
@@ -998,6 +1035,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
       volatile: string | null;
       sessionId: string | null;
       sawInit: boolean;
+      resumeRefused?: string;
       nativePermissionMode: string | null;
       replaysUserMessages: boolean;
       turn: {
@@ -1010,6 +1048,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
         usageModel?: string;
         awaitingInit?: boolean;
         authFailed?: boolean;
+        failureShown?: boolean;
         refreshLock?: RefreshLockState;
         updateRequired?: boolean;
         usageLimited?: boolean;
@@ -1293,25 +1332,28 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
       if (hooks && hookTokenPath) {
         mkdirSync(dirname(hookTokenPath), { recursive: true, mode: 0o700 });
         writeFileAtomicIfChanged(hookTokenPath, hooks.token, { mode: 0o600, durable: false });
-        env.LATERDOG_HOOK_URL = hooks.url;
-        env.LATERDOG_HOOK_TOKEN_FILE = hookTokenPath;
-        env.LATERDOG_HOOK_NODE = process.execPath;
-        env.LATERDOG_HOOK_HELPER = HOOK_HELPER_PATH;
+        Object.assign(env, claudeHookEnvironment(process.platform, { url: hooks.url, tokenFile: hookTokenPath }, HOOK_HELPER_PATH));
         if (process.versions.electron) env.ELECTRON_RUN_AS_NODE = "1";
       }
+      for (const name of HOOK_ADDRESS_VARIABLES) if (!(hooks && process.platform === "win32")) delete env[name];
       const settings: Record<string, unknown> = { ...authSettings };
       if (isolated) settings.claudeMdExcludes = machineClaudeMemoryExcludes(env);
-      if (hooks) settings.hooks = claudeHookSettings(HOOK_HELPER_PATH, { guardShell: hooks.guardShell === true });
+      if (hooks && hookTokenPath) settings.hooks = claudeHookSettings(HOOK_HELPER_PATH, { guardShell: hooks.guardShell === true,
+        postCompact: Boolean(cliVersion && versionAtLeast(cliVersion, CLAUDE_POST_COMPACT_HOOK)),
+        target: { url: hooks.url, tokenFile: hookTokenPath } });
       if (turn.guestConfined) settings.permissions = GUEST_CLAUDE_PERMISSIONS;
       if (turn.fast) settings.fastMode = true;
       if (turn.reviewerGrant && permissionMode === "auto") settings.autoMode = turn.reviewerGrant;
       const authSettingsPath = mcpConfigPath && Object.keys(settings).length
         ? join(dirname(mcpConfigPath), "auth-settings.json") : null;
       if (authSettingsPath) args.push("--settings", authSettingsPath);
-      if (env.ENABLE_PROMPT_CACHING_1H === undefined && env.FORCE_PROMPT_CACHING_5M === undefined) env.CLAUDE_CODE_PROMPT_CACHE_TTL ??= "1h";
+      const cacheLifetime = claudeCacheLifetime(env, Boolean(cliVersion && versionAtLeast(cliVersion, CLAUDE_PICKS_CACHE_LIFETIME)),
+        injected.injected ? {} : readClaudeAuthSettings(env, input.environment));
+      if (cacheLifetime) env.CLAUDE_CODE_PROMPT_CACHE_TTL = cacheLifetime;
       Object.assign(env, quietWorkEnvironment(turn.quietWork));
       Object.assign(env, claudeHelperEnvironment(turnModel, turn.helperModel, { custom: Boolean(config.managed) || injected.injected }));
       const cwd = turn.cwd ?? homedir();
+      workFolders.set(threadId, cwd);
       const commandCwd = permissionLaunchCwd(cwd);
       const unkeyedFlags = new Set<string>(["--mcp-config", "--settings", ...FLAGS_LEARNED_AFTER_LAUNCH]);
       const keyArgs = args.filter((a, i) => a !== "--forward-subagent-text" && !unkeyedFlags.has(a) && !unkeyedFlags.has(args[i - 1] ?? ""));
@@ -1761,6 +1803,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
               delete session.turn.rateLimit;
             }
             if (!o.parent_tool_use_id && text.trim() && claudeApiErrorFrame(o)) {
+              if (session.turn) session.turn.failureShown = true;
               emit({ ...base(threadId, currentTurnId()), type: "runtime.error", message: text.trim() });
               break;
             }
@@ -1846,6 +1889,12 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
               }
               session.helpers.markReported();
             }
+            const refusal = sessionId && session.turn && !session.turn.settled && !session.turn.sawStreamDelta ? claudeResumeRefusal(o) : null;
+            if (refusal) {
+              session.resumeRefused = refusal;
+              appendNative(threadId, { dir: "out", source: "claude.session", msg: { hold: `result: the saved session was refused (${refusal}); rebuilding when the engine exits` } });
+              break;
+            }
             if (recoverRefreshLock(o)) break;
             noteCostState(o.total_cost_usd, o.modelUsage, {
               input: o.usage?.input_tokens || 0,
@@ -1876,6 +1925,10 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
                 : {}),
             };
             const t = session.turn;
+            const unhandled = claudeUnansweredError(o);
+            if (unhandled && t && !t.settled && !t.authFailed && !t.usageLimited && !t.updateRequired && !t.failureShown) {
+              emit({ ...base(threadId, currentTurnId()), type: "runtime.error", message: unhandled });
+            }
             const contextWindow = claudeReportedContextWindow(o.modelUsage, t?.usageModel ?? injected.model ?? undefined);
             if (native.usage && contextWindow && t?.contextTokens) {
               emit({ ...base(threadId, currentTurnId()), type: "thread.token-usage.updated", ...native.usage, contextTokens: t.contextTokens, contextWindow });
@@ -1977,7 +2030,9 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
           const message = `claude exited ${code} before result${session.stderr ? `: ${session.stderr.trim().slice(-300)}` : ""}`;
           const verdict = classifyError({ exitCode: code, stderr: message });
           const endedBeforeTurn = session.turn.awaitingInit === true;
+          const refusedResume = Boolean(session.resumeRefused);
           if (
+            !refusedResume &&
             !retry.cancelled &&
             (endedBeforeTurn || (
               code !== 0 &&
@@ -2055,8 +2110,8 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
           }
           const resumeFailure = classifyResumeFailure({
             attempted: Boolean(sessionId),
-            rejected: !session.sawInit,
-            promptSubmitted: session.sawInit,
+            rejected: refusedResume || !session.sawInit,
+            promptSubmitted: session.sawInit && !refusedResume,
             producedOutput: session.turn.sawStreamDelta,
           });
           if (mayReplay(resumeFailure) && !retry.cancelled) {
@@ -2087,7 +2142,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
               type: "turn.retrying",
               attempt: retry.attempt + 1,
               delayMs: 0,
-              reason: "resume_rejected",
+              reason: RESUME_REJECTED,
             });
             void (async () => {
               try {
@@ -2329,6 +2384,17 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
           return behavior === "allow" ? "allowed-once" : behavior === "answer" ? "answered" : "rejected";
         },
         hasSession: (threadId) => active.has(threadId),
+        compactionSigns: async (threadId) => {
+          const env = environment();
+          const read = (path: string): unknown => { try { return JSON.parse(readFileSync(path, "utf8")); } catch { return undefined; } };
+          const inherited = inheritsUserConfig(env) ? read(join(resolveClaudeConfigDir(undefined, env), "settings.json")) : undefined;
+          const folder = threadId ? workFolders.get(threadId) : undefined;
+          const project = folder ? read(join(folder, ".claude", "settings.json")) : undefined;
+          return {
+            switchedOff: claudeCompactionSwitchedOff(env, inherited) || claudeCompactionSwitchedOff({}, project),
+            customEndpoint: !config.managed && localModelEndpoint(env.ANTHROPIC_BASE_URL),
+          };
+        },
         nativeCompactAt: async () => {
           const env = environment();
           await learnCliFlags(env);

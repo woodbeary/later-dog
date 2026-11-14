@@ -770,6 +770,13 @@ import { createMacWaits } from "./laterdog/mac-waits.ts";
 import { createMacPromptGate, macPromptOf, macPromptWords } from "./laterdog/mac-prompt.ts";
 import { createStatusLines, fileStatusLineLedger, statusLineTimingFromEnv, threadWork } from "./laterdog/status-lines.ts";
 import { createCompactionLive, fileCompactionLedger } from "./laterdog/compaction-live.ts";
+import { engineWillCompact, rebuildNeedsSummary } from "./laterdog/native-compaction.ts";
+import { pickedConversationBackUp, RESUME_REJECTED } from "../shared/resume-pickup.ts";
+import { decodeInjectId } from "./drivers/local-inject.ts";
+import { withDroppedSummary } from "./laterdog/rebuild-summary.ts";
+import { fileEngineSummaries } from "./laterdog/engine-summaries.ts";
+import { createEngineSummaryWindows } from "./laterdog/engine-summary-window.ts";
+import { recallsThisTurn } from "./laterdog/session-start-recall.ts";
 import { createPromiseNudges } from "./laterdog/promise-nudge.ts";
 import { createStallWatch, handoffWorking, STALL_LOOKBACK_MS, stallWatchMode, type StallFacts } from "./laterdog/stall-watch.ts";
 import { createInflightTurns, fileInflightLedger, pickUpAfterRestart as pickUpTurnsAfterRestart, type RestartPickupHost } from "./laterdog/restart-pickup.ts";
@@ -5643,6 +5650,8 @@ const compactionLive = createCompactionLive({
     if (bot) broadcast({ kind: "bot", bot: wireBot(bot) });
   },
 });
+const engineSummaries = fileEngineSummaries(join(DATA_DIR, "engine-summaries.json"));
+const engineSummaryWindows = createEngineSummaryWindows();
 liveStatusLine = (threadId) => compactionLive.current(threadId) ?? statusLines.current(threadId);
 statusLines.foldLeftovers();
 compactionLive.foldLeftovers();
@@ -5765,8 +5774,12 @@ bus.subscribe((event: RuntimeEvent) => {
 });
 bus.subscribe((event: RuntimeEvent) => {
   if (shouldIgnoreProviderEvent(event)) return;
-  if (event.type === "session.compacting") compactionLive.started(event.threadId, { turnId: event.turnId, stream: true });
-  else if (event.type === "session.compacted") {
+  if (event.type === "session.started" && event.sessionId) engineSummaryWindows.sessionStarted(event.threadId, event.sessionId);
+  if (event.type === "turn.completed" || event.type === "session.exited") engineSummaryWindows.turnEnded(event.threadId);
+  if (event.type === "session.compacting") {
+    engineSummaryWindows.compacting(event.threadId);
+    compactionLive.started(event.threadId, { turnId: event.turnId, stream: true });
+  } else if (event.type === "session.compacted") {
     const { ok, skipped, error, trigger, preTokens, postTokens, turnId } = event;
     compactionLive.finished(event.threadId, { ok, skipped, error, trigger, preTokens, postTokens, turnId, stream: true });
   } else if (event.type === "turn.completed" || event.type === "session.exited") compactionLive.settle(event.threadId);
@@ -5942,6 +5955,20 @@ function ingestEngineHook(capability: InternalCapability, body: unknown): { ok: 
   const name = typeof event.event === "string" ? event.event : "";
   const payload = event.payload && typeof event.payload === "object" ? (event.payload as Record<string, unknown>) : {};
   const threadId = capability.threadId;
+  if (name === "PostCompact") {
+    const through = store.activePath(threadId).filter(isContextMessage).at(-1)?.id;
+    if (typeof payload.compact_summary === "string" && through) {
+      const bytes = Buffer.byteLength(payload.compact_summary);
+      const refused = engineSummaryWindows.accept(threadId, payload.session_id);
+      if (refused) {
+        console.log(`[compaction] engine summary refused chat=${threadId} bytes=${bytes} reason=${refused}`);
+        return { ok: false, ignored: refused };
+      }
+      engineSummaries.remember(threadId, { text: payload.compact_summary, throughId: through });
+      console.log(`[compaction] engine summary received chat=${threadId} bytes=${bytes}`);
+    }
+    return { ok: true };
+  }
   if (name === "PreCompact") {
     compactionLive.started(threadId, { turnId: liveTurnByThread.get(threadId), trigger: payload.trigger === "manual" ? "manual" : "auto" });
     return { ok: true };
@@ -7384,7 +7411,9 @@ bus.subscribe(guardTurnEnd((event: RuntimeEvent) => {
       pushMessage({
         role: "bot",
         kind: "activity",
-        tool: { name: `retrying — attempt ${event.attempt + 1}/${RETRY_MAX_ATTEMPTS} in ${Math.round(event.delayMs / 1000)}s — ${event.reason}`, ok: true },
+        tool: event.reason === RESUME_REJECTED
+          ? { name: `recovery: ${pickedConversationBackUp(bot?.name)}`, ok: true }
+          : { name: `retrying — attempt ${event.attempt + 1}/${RETRY_MAX_ATTEMPTS} in ${Math.round(event.delayMs / 1000)}s — ${event.reason}`, ok: true },
       });
       break;
     case "runtime.notice":
@@ -7820,8 +7849,16 @@ async function compactConversation(input: {
   });
   const history = selected.transcript.filter(entry => entry.id);
   if (!history.length) return;
-  const measurement = task.lastContextModel === `${instance.instanceId}:${model}` && !task.rewound ? chatContext(task, model) : undefined;
-  const window = contextWindowFor(model, instance.models, measurement?.window);
+  const reported = task.lastContextModel === `${instance.instanceId}:${model}` && !task.rewound ? chatContext(task, model) : undefined;
+  const window = contextWindowFor(model, instance.models, reported?.window);
+  const harness = !manual && engineWillCompact({ driverKind: instance.driverKind, setting: cfg.context, signs: await instance.adapter.compactionSigns?.(threadId),
+    modelKnown: instance.models.options.some(option => option.id === model), injectedModel: decodeInjectId(model) !== null, window });
+  if (harness && !rebuildNeedsSummary({
+    startsFresh: Boolean(task.rewound) || isExternalContextMarker(task.lastInstanceId) || engineIsFresh({ instanceId: instance.instanceId,
+      lastInstanceId: task.lastInstanceId, resumeCursors: task.resumeCursors, transcript: context.filter(entry => !excludedIds.has(entry.id)) }),
+    droppedFromReplay: selectReplay(context, { budgetBytes: cfg.context?.rebuildBytes ?? DEFAULT_REBUILD_BYTES, excludedIds, compaction: record }).dropped,
+  })) return;
+  const measurement = reported;
   const bytes = history.reduce((n, entry) => n + Buffer.byteLength(entry.text), 0);
   let floor = task.contextFloor;
   if (record && record.id === task.appliedCompactionId && floor === undefined && measurement?.tokens) {
@@ -7829,7 +7866,7 @@ async function compactConversation(input: {
     store.patchTask(bot.id, threadId, { contextFloor: floor });
   }
   const nativeCompactAt = await instance.adapter.nativeCompactAt?.();
-  if (!manual && !shouldCompact({ contextTokens: measurement?.tokens, estimatedBytes: bytes,
+  if (!manual && !harness && !shouldCompact({ contextTokens: measurement?.tokens, estimatedBytes: bytes,
     budget: compactBudget(window, cfg.context?.compactAt, nativeCompactAt), floor, window, nativeCompactAt })) return;
   const fold = manual ? { folded: history, firstKeptId: "" } : foldPoint(history);
   if (!fold) return;
@@ -8623,7 +8660,8 @@ async function startTurn(
       const replayable = context.filter(m => !skipTranscript.has(m.id));
       const record = latestCompaction(activeMessages);
       const selection = selectReplay(context, { budgetBytes: cfg.context?.rebuildBytes ?? DEFAULT_REBUILD_BYTES, excludedIds: skipTranscript, compaction: record });
-      const transcript = selection.transcript.map(({ role, text }) => ({ role, text }));
+      const transcript = withDroppedSummary({ context, transcript: selection.transcript, representedIds: selection.representedIds,
+        excludedIds: skipTranscript, recordId: record?.id, engine: engineSummaries.read(threadId) }).map(({ role, text }) => ({ role, text }));
       const contextReset = selection.compacted > 0 && record?.id !== task.appliedCompactionId;
       if (contextReset) store.patchTask(bot.id, threadId, { resumeCursors: {} });
 
@@ -9147,14 +9185,14 @@ async function startTurn(
       turnPromptBytes.set(threadId, { stable: Buffer.byteLength(prompt.stable), volatile: Buffer.byteLength(prompt.volatile) });
       if (deskPrompts && threadId === bot.threadId && INCLUDED_AI_INSTANCES.includes(instanceId)) deskPrompts.remember(threadId, { instanceId, model, system: prompt.stable || prompt.text });
       const fromPerson = commsDepth === 0 && !coordinationNode && !opts?.automationSource && !opts?.unattended;
-      const recalled = autoRecallPrompt(bot, threadId, resolvedImages.text, {
-        conversations: fromPerson,
-        userName: cfg.profile?.name?.trim() || "User",
-      });
       executionEvidence.dispatch(threadId, (store.projectBotForTask(bot.id, threadId) ?? bot).modelSelection, { instanceId, model, effort });
       runningTurnEngines.set(threadId, instance);
       const dispatchedConfig = sessionConfig(liveBot?.soul ?? bot.soul);
       if (strictResume && !(opts?.cardContinuation && continuingRoutine) && dispatchedConfig !== plannedConfig) dispatchContext = decideContext(dispatchedConfig);
+      const recalled = recallsThisTurn(dispatchContext, instance.driverKind) ? autoRecallPrompt(bot, threadId, resolvedImages.text, {
+        conversations: fromPerson,
+        userName: cfg.profile?.name?.trim() || "User",
+      }) : "";
       handoffs.dispatching(threadId, dispatchClaimId, dispatchContext.handoff);
       const dispatch = await guardTurnDispatch(instance.adapter.sendTurn({
         threadId,
@@ -9859,6 +9897,7 @@ async function deleteBotWithLifecycle(botId: string, revalidate: () => void = ()
             revokeInternalCapabilitiesForThread(task.threadId);
           }
           await interruptAllDirectThreads(bot.id);
+          engineSummaries.forget(store.tasks(bot.id).map((task) => task.threadId));
           for (const task of store.tasks(bot.id)) {
             purgeTurnAttachmentsForThread(task.threadId);
             clearTurnDigestState(task.threadId);
@@ -16782,6 +16821,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       const updated = store.deleteGroupTask(group.id, m[2]);
       if (!updated) return json(res, 400, { error: "a channel keeps at least one task" });
       clearTurnDigestState(m[2]);
+      engineSummaries.forget([m[2]]);
       revokeInternalCapabilitiesForThread(m[2]);
       rejectDeletedThreadSkillStages(stagedSkillCleanups);
       return json(res, 200, { group: groupWithThread(updated) });
@@ -19073,6 +19113,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       const updated = store.deleteTask(m[1], m[2]);
       if (!updated) return json(res, 404, { error: "no such task" });
       clearTurnDigestState(m[2]);
+      engineSummaries.forget([m[2]]);
       revokeInternalCapabilitiesForThread(m[2]);
       handoffs.forget(m[2]);
       settleDirectFollowup(directTurnGenerationByThread.get(m[2]));

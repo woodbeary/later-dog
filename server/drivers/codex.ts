@@ -60,6 +60,7 @@ import { readEngineModels } from "../laterdog/wait-at-most.ts";
 import { SteerReads } from "./steer-reads.ts";
 import { prepareCodexShellGuard } from "../laterdog/codex-shell-guard.ts";
 import { codexToolTouch } from "../laterdog/tool-touches.ts";
+import { codexCompactionEvent } from "../laterdog/native-compaction.ts";
 import { helpersStoppedLine } from "../laterdog/helpers-stopped.ts";
 
 export { decodeCodexSelection, readCodexModelCatalog, STATIC_CODEX_MODELS } from "./codex-catalog.ts";
@@ -97,7 +98,7 @@ export function codexSignInExpired(raw: string, cloudHome = cloudHomeConfigured(
   return cloudHome ? CODEX_CLOUD_SIGN_IN_AGAIN : `${CODEX_SIGN_IN_EXPIRED} Codex said: ${raw.slice(0, 300)}`;
 }
 
-class CodexRpcError extends Error {
+export class CodexRpcError extends Error {
   code: unknown;
 
   constructor(error: { code?: unknown; message?: string }) {
@@ -106,9 +107,11 @@ class CodexRpcError extends Error {
   }
 }
 
-function missingNativeCodexThread(error: unknown, cursor: string): boolean {
-  return error instanceof CodexRpcError && error.code === -32600 &&
-    error.message === `no rollout found for thread id ${cursor}`;
+export function missingNativeCodexThread(error: unknown, cursor: string): boolean {
+  if (!(error instanceof CodexRpcError) || error.code !== -32600) return false;
+  const message = error.message.trim();
+  return [`no rollout found for thread id ${cursor}`, `no rollout found for conversation id ${cursor}`, `thread not found: ${cursor}`]
+    .includes(message);
 }
 
 export function codexUpdateCommand(cli: string, platform: NodeJS.Platform = process.platform): string {
@@ -1267,6 +1270,8 @@ export const CodexDriver: ProviderDriver<CodexConfig> = {
             const item = p.item ?? {};
             helpers.receive(item);
             if (item.type === "userMessage") steerReads.seen(item.content);
+            const compacting = codexCompactionEvent("started", item);
+            if (compacting) emit({ ...base(threadId, turnId), ...compacting });
             const runs = item.type === "mcpToolCall" && item.tool === CALL_TOOL && typeof item.server === "string" && directoryMounts.has(item.server)
               ? directoryCallTarget(CALL_TOOL, item.arguments) : undefined;
             const title =
@@ -1297,9 +1302,11 @@ export const CodexDriver: ProviderDriver<CodexConfig> = {
             const item = p.item ?? {};
             helpers.receive(item);
             if (item.type === "userMessage") steerReads.seen(item.content);
-            if (item.type === "contextCompaction") {
+            const compaction = codexCompactionEvent("completed", item);
+            if (compaction) {
               compacted = true;
               if (codexThreadId) forgetDeliveredContext(threadId, codexThreadId);
+              emit({ ...base(threadId, turnId), ...compaction });
             }
             if (item.type === "agentMessage") {
               if (item.text?.trim()) {
@@ -1854,6 +1861,7 @@ export const CodexDriver: ProviderDriver<CodexConfig> = {
         return decision.behavior === "allow" ? "allowed-once" : decision.behavior === "answer" ? "answered" : "rejected";
       },
       hasSession: (threadId) => active.has(threadId),
+      compactionSigns: async () => ({ managed: Boolean(config.managed), switchedOff: false }),
       stopAll: async () => {
         await Promise.all([...active.values()].map(({ stop }) => stop()));
       },

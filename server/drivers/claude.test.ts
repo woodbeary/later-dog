@@ -98,6 +98,13 @@ describe("ClaudeDriver.decodeConfig", () => {
     }
   });
 
+  it("names the home's address and the token file on the hook's own command line", () => {
+    const settings = claudeHookSettings("/tmp/helper.ts", { target: { url: "http://127.0.0.1:4321", tokenFile: "/data/it's/token" } }) as { Stop: Array<{ hooks: Array<{ command: string; timeout: number }> }> };
+    const hook = settings.Stop[0]!.hooks[0]!;
+    expect(hook.timeout).toBe(5);
+    if (process.platform !== "win32") expect(hook.command).toMatch(/'\/tmp\/helper\.ts' 'http:\/\/127\.0\.0\.1:4321' '\/data\/it'\\''s\/token'$/);
+  });
+
   it("asks before each shell command only when the home guards heavy commands", () => {
     const plain = claudeHookSettings("/tmp/helper.ts");
     expect(plain).not.toHaveProperty("PreToolUse");
@@ -699,6 +706,13 @@ describe("ClaudeDriver turns (fake CLI)", () => {
     expect(recorder.events.filter((event) => event.type === "runtime.error")).toEqual([expect.objectContaining({ message: expect.stringContaining("529 Overloaded") })]);
     expect(recorder.events.some((event) => event.type === "item.completed" && event.itemType === "assistant_text")).toBe(false);
     expect(recorder.events.at(-1)).toMatchObject({ ok: false, stopReason: "stop_sequence" });
+  });
+
+  it("shows one failure when the engine's API error line is followed by an error result naming it", async () => {
+    await create("api-error", { FAKE_CLAUDE_API_ERROR_BARE: "1" });
+    await instance.adapter.sendTurn({ threadId: "t-overloaded-bare", text: "hi" });
+    await recorder.until((event) => event.type === "turn.completed");
+    expect(recorder.events.filter((event) => event.type === "runtime.error")).toEqual([expect.objectContaining({ message: expect.stringContaining("529 Overloaded") })]);
   });
 
   it("retires an outdated child before retry while preserving a healthy pooled session", async () => {
@@ -2098,15 +2112,75 @@ describe("ClaudeDriver turns (fake CLI)", () => {
     expect(seen.argv).not.toContain("--dangerously-skip-permissions");
   });
 
-  it("keeps each chat's prompt cached for an hour and leaves helpers and compaction on Claude Code's own cache lifetime", async () => {
+  it("keeps each chat's prompt cached for an hour on an older Claude Code and leaves helpers and compaction on its own cache lifetime", async () => {
     const dump = join(scratch, "cache-hour.json");
-    await create(undefined, { FAKE_CLAUDE_DUMP: dump });
+    await create(undefined, { FAKE_CLAUDE_DUMP: dump, FAKE_CLAUDE_VERSION: "2.1.315" });
     await instance.adapter.sendTurn({ threadId: "t-cache-hour", text: "hi" });
     await recorder.until((e) => e.type === "turn.completed");
     const { env } = JSON.parse(readFileSync(dump, "utf8"));
     expect(env.CLAUDE_CODE_PROMPT_CACHE_TTL).toBe("1h");
     expect(env.ENABLE_PROMPT_CACHING_1H).toBeUndefined();
     expect(env.CLAUDE_CODE_SUBAGENT_PROMPT_CACHE_TTL).toBeUndefined();
+  });
+
+  it.each<{ name: string; env: Record<string, string> }>([
+    { name: "a Claude Code that picks the lifetime itself", env: { FAKE_CLAUDE_VERSION: "2.1.316" } },
+    { name: "an API key account", env: { FAKE_CLAUDE_VERSION: "2.1.315", ANTHROPIC_API_KEY: "sk-ant-fixture" } },
+    { name: "an auth token account", env: { FAKE_CLAUDE_VERSION: "2.1.315", ANTHROPIC_AUTH_TOKEN: "fixture" } },
+  ])("does not force the hour-long cache for $name", async ({ env: extra }) => {
+    const dump = join(scratch, "cache-hour-auto.json");
+    await create(undefined, { FAKE_CLAUDE_DUMP: dump, ...extra });
+    await instance.adapter.sendTurn({ threadId: "t-cache-hour-auto", text: "hi" });
+    await recorder.until((e) => e.type === "turn.completed");
+    const { env } = JSON.parse(readFileSync(dump, "utf8"));
+    expect(env.CLAUDE_CODE_PROMPT_CACHE_TTL).toBeUndefined();
+  });
+
+  it("tells later.dog when an inherited setting or the environment switches Claude Code's compaction off", async () => {
+    const configDir = join(scratch, "inherited-config");
+    mkdirSync(configDir, { recursive: true });
+    writeFileSync(join(configDir, "settings.json"), JSON.stringify({ autoCompactEnabled: false }));
+    await create(undefined, { CLAUDE_CONFIG_DIR: configDir });
+    await expect(instance.adapter.compactionSigns!()).resolves.toMatchObject({ switchedOff: false });
+    await create(undefined, { CLAUDE_CONFIG_DIR: configDir, LATERDOG_CLAUDE_INHERIT_USER_CONFIG: "1" });
+    await expect(instance.adapter.compactionSigns!()).resolves.toMatchObject({ switchedOff: true });
+    await create(undefined, { DISABLE_AUTO_COMPACT: "1" });
+    await expect(instance.adapter.compactionSigns!()).resolves.toMatchObject({ switchedOff: true });
+  });
+
+  it("tells later.dog when the chat's work folder switches Claude Code's compaction off", async () => {
+    const folder = join(scratch, "project-off");
+    mkdirSync(join(folder, ".claude"), { recursive: true });
+    writeFileSync(join(folder, ".claude", "settings.json"), JSON.stringify({ autoCompactEnabled: false }));
+    await create();
+    await instance.adapter.sendTurn({ threadId: "t-project-off", text: "hi", cwd: folder } as any);
+    await recorder.until((e) => e.type === "turn.completed");
+    await expect(instance.adapter.compactionSigns!("t-project-off")).resolves.toMatchObject({ switchedOff: true });
+    await expect(instance.adapter.compactionSigns!("t-elsewhere")).resolves.toMatchObject({ switchedOff: false });
+  });
+
+  it("tells later.dog when Claude Code talks to a model on this machine", async () => {
+    await create(undefined, { ANTHROPIC_BASE_URL: "http://127.0.0.1:11434" });
+    await expect(instance.adapter.compactionSigns!()).resolves.toMatchObject({ customEndpoint: true });
+    await create(undefined, { ANTHROPIC_BASE_URL: "https://gateway.example.test" });
+    await expect(instance.adapter.compactionSigns!()).resolves.toMatchObject({ customEndpoint: false });
+  });
+
+  it("registers the hook that hands back Claude Code's own compaction summary from 2.1.316", async () => {
+    for (const [version, expected] of [["2.1.315", false], ["2.1.316", true]] as const) {
+      const dump = join(scratch, `post-compact-${version}.json`);
+      await create(undefined, { FAKE_CLAUDE_DUMP: dump, FAKE_CLAUDE_VERSION: version });
+      await instance.adapter.sendTurn({ threadId: `t-post-compact-${version}`, text: "hi", integrations: { hooks: { url: "http://127.0.0.1:9", token: "fixture" } } } as any);
+      await recorder.until((e) => e.type === "turn.completed");
+      const { settings, env } = JSON.parse(readFileSync(dump, "utf8"));
+      expect(Boolean(settings?.hooks?.PostCompact)).toBe(expected);
+      expect(Boolean(settings?.hooks?.PreCompact)).toBe(true);
+      if (process.platform !== "win32") {
+        expect(env.LATERDOG_HOOK_URL).toBeUndefined();
+        expect(env.LATERDOG_HOOK_TOKEN_FILE).toBeUndefined();
+        expect(settings.hooks.Stop[0].hooks[0].command).toContain("'http://127.0.0.1:9'");
+      }
+    }
   });
 
   it("leaves the hour-long cache off for an account that turned it off", async () => {
@@ -3981,12 +4055,20 @@ describe("ClaudeDriver resume recovery (fake CLI)", () => {
     delete process.env.FAKE_CLAUDE_MODE;
     delete process.env.FAKE_CLAUDE_DUMP;
     delete process.env.FAKE_CLAUDE_TEXT_HANG;
+    delete process.env.FAKE_CLAUDE_RESUME_RESULT;
+    delete process.env.FAKE_CLAUDE_ERROR_TEXT;
     recorder?.stop();
     await instance?.dispose();
     await removeTempDir(scratch);
   });
 
-  it("starts a fresh session carrying the rebuild when --resume is refused", async () => {
+  it.each([
+    ["an exit with the refusal on stderr", "dead-session", undefined],
+    ["an error result naming the session", "dead-session-result", undefined],
+    ["the error result Claude Code 2.1.316 returned live", "dead-session-result", join(dirname(FAKE_CLI), "claude-lost-session-result.json")],
+  ])("starts a fresh session carrying the rebuild when --resume is refused by %s", async (_shape, mode, captured) => {
+    process.env.FAKE_CLAUDE_MODE = mode;
+    if (captured) process.env.FAKE_CLAUDE_RESUME_RESULT = captured;
     const dump = join(scratch, "recovered.json");
     process.env.FAKE_CLAUDE_DUMP = dump;
     const dispatch = await instance.adapter.sendTurn({
@@ -3999,6 +4081,7 @@ describe("ClaudeDriver resume recovery (fake CLI)", () => {
 
     expect(recorder.events.filter((e) => e.type === "turn.completed").at(-1)).toMatchObject({ ok: true, turnId: dispatch.turnId });
     expect(recorder.events.find((e) => e.type === "turn.retrying")).toMatchObject({ reason: "resume_rejected" });
+    expect(recorder.events.filter((e) => e.type === "runtime.error")).toEqual([]);
     const started = recorder.events.filter((e) => e.type === "session.started");
     expect(started.length).toBeGreaterThan(0);
     expect(started.at(-1)).not.toMatchObject({ sessionId: "a-session-claude-no-longer-has" });
@@ -4008,6 +4091,16 @@ describe("ClaudeDriver resume recovery (fake CLI)", () => {
     const content = seen.prompt.message.content;
     const text = typeof content === "string" ? content : content.map((c: any) => c.text ?? "").join("");
     expect(text).toBe(REBUILD);
+  });
+
+  it("shows an error result it does not handle as a failure carrying the engine's own words", async () => {
+    process.env.FAKE_CLAUDE_MODE = "error-result";
+    process.env.FAKE_CLAUDE_ERROR_TEXT = "Fixture engine refused: model unavailable";
+    await instance.adapter.sendTurn({ threadId: "t-error-result", text: "hello?" });
+    await recorder.until((e) => e.type === "turn.completed");
+    expect(recorder.events.filter((e) => e.type === "runtime.error").map((e: any) => e.message)).toEqual(["Fixture engine refused: model unavailable"]);
+    expect(recorder.events.filter((e) => e.type === "turn.completed").at(-1)).toMatchObject({ ok: false });
+    expect(recorder.events.find((e) => e.type === "turn.retrying")).toBeUndefined();
   });
 
   it("does not announce a replacement as rebuilt when there was nothing to replay", async () => {

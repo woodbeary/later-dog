@@ -74,8 +74,9 @@ it("recalls, captures, suggests, forgets and tidies a bot's memory", async () =>
     expect(sentSince(before)).toMatch(/your main chat|chat \\"[^"\\]+\\"/);
 
     await api(`/api/bots/${bot.id}`, "PATCH", { memoryEnabled: false });
+    const unrecalled = await api<any>(`/api/bots/${bot.id}/tasks`, "POST", { title: "Memory off" }, 201);
     before = sentCount();
-    await turn(bot.id, second, "Can you suggest some restaurants for Friday?");
+    await turn(bot.id, unrecalled.task?.threadId ?? unrecalled.threadId, "Can you suggest some restaurants for Friday?");
     expect(sentSince(before)).not.toContain("Recalled for this message");
     expect(JSON.stringify(await api(`/api/bots/${bot.id}/system-prompt`))).not.toContain("memory/dining.md");
     await api(`/api/bots/${bot.id}`, "PATCH", { memoryEnabled: true });
