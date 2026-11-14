@@ -39,17 +39,30 @@ describe("DigestChip", () => {
     }
   });
 
-  it("shows compaction as expandable historical text, never executable markup", () => {
+  it("shows compaction as one plain line, never executable markup", () => {
     const html = renderToStaticMarkup(createElement(CompactionChip, { message: {
       id: "context", role: "bot", kind: "compaction", at: 1,
-      compaction: { summary: "Latest correction: <script>bad()</script> x < -5", firstKeptId: "", foldedThroughId: "old", tokensBefore: 1, by: "person" },
+      compaction: { summary: "This chat moved <script>bad()</script> x < -5", context: "Historical excerpts for the dog", firstKeptId: "", foldedThroughId: "old", tokensBefore: 1, by: "person" },
     } }));
     expect(html).toContain("<details");
     expect(html).toContain("Earlier context summarized");
     expect(html).toContain("Your full conversation is still here");
     expect(html).toContain("&lt;script&gt;");
     expect(html).not.toContain("<script>");
+    expect(html).not.toContain("Historical excerpts");
   });
+
+  it("never shows an older row's long text for the dog, such as a model's refusal or raw excerpts", () => {
+    const summary = "Model-written historical summary (may be incomplete):\nModel mismatch: I cannot proceed.\n\nHistorical excerpts in chronological order\n[3 earlier excerpts omitted]";
+    const html = renderToStaticMarkup(createElement(CompactionChip, { message: {
+      id: "old", role: "bot", kind: "compaction", at: 1,
+      compaction: { summary, firstKeptId: "", foldedThroughId: "old", tokensBefore: 1, by: "harness" },
+    } }));
+    expect(html).toContain("Earlier context summarized");
+    expect(html).not.toContain("mismatch");
+    expect(html).not.toContain("excerpts");
+  });
+
   it("shows total counts rather than only the truncated sample", () => {
     const html = renderToStaticMarkup(createElement(DigestChip, { message }));
     expect(html).toContain("Did 19 tool calls · 5 files changed");

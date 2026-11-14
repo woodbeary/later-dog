@@ -225,6 +225,14 @@ if (["text", "json"].includes(argAfter("--output-format") ?? "")) {
       : code === 0 ? text : "");
     process.exit(code);
   };
+  if (process.env.FAKE_CLAUDE_TEXT_OBEYS) {
+    const asked = argAfter("--model") ?? "claude-haiku-4-5";
+    const gate = /stop and report unless you are ([A-Za-z0-9._-]+?)[.,;\s"]/i.exec(prompt)?.[1];
+    if (gate && gate !== asked) {
+      replyText(`**Model mismatch: this turn is running on ${asked}, not ${gate}.**\n\nPer your instruction, I'm stopping before taking actions. I cannot proceed until the thread runs on ${gate}.`);
+    }
+    if (existsSync(process.env.FAKE_CLAUDE_TEXT_OBEYS)) replyText(readFileSync(process.env.FAKE_CLAUDE_TEXT_OBEYS, "utf8"));
+  }
   if (process.env.FAKE_CLAUDE_TEXT_ROUTES && existsSync(process.env.FAKE_CLAUDE_TEXT_ROUTES)) {
     try {
       const routes = JSON.parse(readFileSync(process.env.FAKE_CLAUDE_TEXT_ROUTES, "utf8")) as Record<string, string>;

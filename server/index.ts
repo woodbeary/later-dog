@@ -16,7 +16,7 @@ import { extname, join } from "node:path";
 
 import { z } from "zod";
 import { selectReplay, DEFAULT_REBUILD_BYTES, MAX_SUMMARY_BYTES } from "./context-rebuild.ts";
-import { draftSummary, foldPoint } from "./compaction-summary.ts";
+import { foldPoint } from "./compaction-summary.ts";
 import { compactBudget, contextWindowFor, shouldCompact } from "./context-budget.ts";
 import { completeSharedOperation, provenRequestPerson, SharedComputers, sharedActionsHeader, sharedComputerOperation, sharedComputerOperationProblem, sharedComputerRegistration, sharedComputerScopeRefusal, type SharedComputerOperation, type SharedComputerRegistration } from "./shared-computers.ts";
 import { MAC_ALLOW_KEY, MacApprovals, type MacLasting } from "./mac-approval.ts";
@@ -774,6 +774,7 @@ import { engineWillCompact, rebuildNeedsSummary } from "./laterdog/native-compac
 import { pickedConversationBackUp, RESUME_REJECTED } from "../shared/resume-pickup.ts";
 import { decodeInjectId } from "./drivers/local-inject.ts";
 import { withDroppedSummary } from "./laterdog/rebuild-summary.ts";
+import { foldReason, keptContext, personLine, writeHistorySummary } from "./laterdog/history-summary.ts";
 import { dogWriter } from "./laterdog/dog-writer.ts";
 import { fileEngineSummaries } from "./laterdog/engine-summaries.ts";
 import { createEngineSummaryWindows } from "./laterdog/engine-summary-window.ts";
@@ -7792,7 +7793,7 @@ function isContextMessage(m: Message): boolean {
 
 function latestCompaction(messages: readonly Message[]) {
   const record = messages.findLast(message => message.kind === "compaction" && message.compaction);
-  return record?.compaction ? { ...record.compaction, id: record.id } : undefined;
+  return record?.compaction ? { ...record.compaction, summary: keptContext(record.compaction.context ?? record.compaction.summary), id: record.id } : undefined;
 }
 
 function directPrompt(text: string, replyTo: Message | undefined): string {
@@ -7854,9 +7855,10 @@ async function compactConversation(input: {
   const window = contextWindowFor(model, instance.models, reported?.window);
   const harness = !manual && engineWillCompact({ driverKind: instance.driverKind, setting: cfg.context, signs: await instance.adapter.compactionSigns?.(threadId),
     modelKnown: instance.models.options.some(option => option.id === model), injectedModel: decodeInjectId(model) !== null, window });
+  const startsFresh = Boolean(task.rewound) || isExternalContextMarker(task.lastInstanceId) || engineIsFresh({ instanceId: instance.instanceId,
+    lastInstanceId: task.lastInstanceId, resumeCursors: task.resumeCursors, transcript: context.filter(entry => !excludedIds.has(entry.id)) });
   if (harness && !rebuildNeedsSummary({
-    startsFresh: Boolean(task.rewound) || isExternalContextMarker(task.lastInstanceId) || engineIsFresh({ instanceId: instance.instanceId,
-      lastInstanceId: task.lastInstanceId, resumeCursors: task.resumeCursors, transcript: context.filter(entry => !excludedIds.has(entry.id)) }),
+    startsFresh,
     droppedFromReplay: selectReplay(context, { budgetBytes: cfg.context?.rebuildBytes ?? DEFAULT_REBUILD_BYTES, excludedIds, compaction: record }).dropped,
   })) return;
   const measurement = reported;
@@ -7879,7 +7881,11 @@ async function compactConversation(input: {
   const controller = new AbortController();
   compactionControllers.set(threadId, { generation, controller });
   try {
-    const summary = await draftSummary(fold.folded, { signal: controller.signal, generateText: dogWriter(instance, model) });
+    const written = await writeHistorySummary(fold.folded, { signal: controller.signal, write: dogWriter(instance, model) });
+    if (written.rejected.length) console.warn(`[compaction] summary for ${threadId} not kept (${written.rejected.join("; ")}); ${written.by === "model" ? "the retry was" : "excerpts are"} used`);
+    const moved = Boolean(task.lastInstanceId && !isExternalContextMarker(task.lastInstanceId) && task.lastInstanceId !== instance.instanceId);
+    const reason = foldReason({ manual, startsFresh: harness && startsFresh, moved, driver: instance.driverKind,
+      lastDriver: task.lastInstanceId ? registry.get(task.lastInstanceId)?.driverKind : undefined });
     if (!directTurnClaimIsCurrent(bot.id, generation, threadId)) throw new DirectTurnSetupCancelled("context summarization stopped");
     controller.signal.throwIfAborted();
     if (prefix !== JSON.stringify(store.activePath(threadId).slice(0, messages.length))) {
@@ -7888,7 +7894,7 @@ async function compactConversation(input: {
     }
     store.appendMessage(threadId, {
       role: "bot", kind: "compaction",
-      compaction: { summary, firstKeptId: fold.firstKeptId, foldedThroughId,
+      compaction: { summary: personLine(reason), context: written.context, firstKeptId: fold.firstKeptId, foldedThroughId,
         tokensBefore: measurement?.tokens ?? Math.ceil(bytes / 4), by: manual ? "person" : "harness" },
     }, { kind: "compaction.append", key: `${threadId}:${messages.at(-1)?.id}:${fold.firstKeptId}` });
   } finally {
