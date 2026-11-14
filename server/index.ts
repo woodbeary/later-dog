@@ -841,6 +841,8 @@ import { RoutinePauses } from "./laterdog/routine-pause.ts";
 import { askFirstRules } from "../shared/ask-first.ts";
 import { createDogActivityRoutes } from "./routes/dog-activity.ts";
 import { createScreenGoalRoutes } from "./routes/screen-goals.ts";
+import { createChatContextRoutes } from "./routes/chat-context.ts";
+import { ChatContextBreakdowns } from "./laterdog/chat-context-breakdowns.ts";
 import { createDeviceRoutes } from "./routes/devices.ts";
 import { dispatchInternalRoutes, INTERNAL_ROUTES } from "./routes/internal.ts";
 import { createDesktopViewer, desktopViewerUrl } from "./routes/desktop-viewer.ts";
@@ -2572,6 +2574,7 @@ function settleDirectFollowup(generation: string | undefined, outcome: DirectTur
 }
 const directTurnBots = new Map<string, BotRecord>();
 const turnPromptBytes = new Map<string, { stable: number; volatile: number }>();
+const contextBreakdowns = new ChatContextBreakdowns({ file: join(DATA_DIR, "context-breakdowns.json"), engine: (instanceId) => registry.get(instanceId)?.adapter });
 let providerFleetReloading = false;
 const turnResources = new TurnResources();
 const sharedComputerControl = new SharedComputerControl(turnResources, () => store.bots.some(bot => botComputerControlSnapshot(bot.id).held));
@@ -7572,6 +7575,7 @@ bus.subscribe(guardTurnEnd((event: RuntimeEvent) => {
           ? `${measuredSelection.instanceId}:${measuredSelection.model}` : undefined });
         const promptBytes = turnPromptBytes.get(event.threadId);
         turnPromptBytes.delete(event.threadId);
+        void contextBreakdowns.afterTurn(event.threadId);
         bookTurnUsage({
           botId: bot.id,
           botName: bot.name,
@@ -9183,6 +9187,7 @@ async function startTurn(
         { id: "mentions", label: "Mentions", text: mentionPrompt(tagged) },
       ], cfg.profile?.name);
       turnPromptBytes.set(threadId, { stable: Buffer.byteLength(prompt.stable), volatile: Buffer.byteLength(prompt.volatile) });
+      contextBreakdowns.dispatched(threadId, { driverKind: instance.driverKind, instanceId, sections: prompt.sections, tools: null });
       if (deskPrompts && threadId === bot.threadId && INCLUDED_AI_INSTANCES.includes(instanceId)) deskPrompts.remember(threadId, { instanceId, model, system: prompt.stable || prompt.text });
       const fromPerson = commsDepth === 0 && !coordinationNode && !opts?.automationSource && !opts?.unattended;
       executionEvidence.dispatch(threadId, (store.projectBotForTask(bot.id, threadId) ?? bot).modelSelection, { instanceId, model, effort });
@@ -13382,6 +13387,10 @@ ROUTES.push(createDogActivityRoutes({
   turnTimes: (botId, since) => readUsage(DATA_DIR, { from: new Date(since), to: new Date() }).filter((row) => row.botId === botId).map((row) => Date.parse(row.at)),
 }));
 ROUTES.push(createScreenGoalRoutes({ dogThread: (threadId) => (store.botByThread(threadId) ? store.messagesFor(threadId) : null) }));
+ROUTES.push(createChatContextRoutes({ breakdown: (threadId) => {
+  const bot = store.botByThread(threadId);
+  return bot ? contextBreakdowns.read(threadId, store.taskByThread(bot.id, threadId)?.usage?.context) : undefined;
+} }));
 ROUTES.push(createDeviceRoutes({ sessions }));
 ROUTES.push(createPhonePushRoutes({ push: phonePush }));
 ROUTES.push(createPhoneDeviceRoutes({ desk: phoneDesk, enabled: phoneToolsEnabled, owner: phoneOwner, gone: requestGone }));

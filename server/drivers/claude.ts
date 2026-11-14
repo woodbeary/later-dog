@@ -55,6 +55,7 @@ import { machineClaudeMemoryExcludes } from "../laterdog/claude-memory-isolation
 import { quietWorkEnvironment } from "../laterdog/work-updates.ts";
 import { ENGINE_BYTES, engineIdleLimit, warmEngines } from "../laterdog/warm-engines.ts";
 import { leftoverProgramsNotice } from "../laterdog/unconfirmed-stop.ts";
+import { EngineContextAsk, writeEngineLine } from "../laterdog/engine-context-ask.ts";
 import { extractMcpImages } from "../mcp-tool-images.ts";
 import {
   ASK_USER_QUESTION_TOOL,
@@ -1063,6 +1064,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
       helperTurnId: string;
       helpers: ClaudeTasks;
       nativeActivity: ClaudeNativeActivity;
+      contextAsk: EngineContextAsk;
       helperTimer: ReturnType<typeof setTimeout> | null;
       repliedSinceResult: boolean;
       closing: boolean;
@@ -1112,6 +1114,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
       s.broker = undefined;
       broker?.close();
       appendNative(threadId, { dir: "out", source: "claude.session", msg: { close: why } });
+      s.contextAsk.close();
       try {
         s.child.stdin.end();
       } catch {}
@@ -1563,6 +1566,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
         helperTurnId: turnId,
         helpers: new ClaudeTasks((helper) => emit({ ...base(threadId, session.turn?.turnId ?? session.helperTurnId), type: "helper.updated", helper })),
         nativeActivity: new ClaudeNativeActivity((observation) => emit({ ...base(threadId, session.turn?.turnId ?? session.helperTurnId), type: "native.observed", observation }), { version: cliVersion?.join("."), sessionId: sessionId ?? newSessionId ?? undefined }),
+        contextAsk: new EngineContextAsk((line) => writeEngineLine(child.stdin, line)),
         helperTimer: null,
         repliedSinceResult: false,
         closing: false,
@@ -1673,6 +1677,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
         } catch {
           return;
         }
+        if (session.contextAsk.receive(o)) return;
         appendNative(threadId, { dir: "in", source: "claude.sdk.message", msg: o?.type === "user" && o.isReplay === true && o.message ? diagnosticClaudeUserMessage(o) : o });
         if (claudeChildMessage(o) || !claudeRefreshLockFrame(o, firstText(o.message?.content))) session.nativeActivity.receive(o);
         if (claudeChildMessage(o) && (o.type === "assistant" || o.type === "user" || o.type === "stream_event")) {
@@ -2384,6 +2389,10 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
           return behavior === "allow" ? "allowed-once" : behavior === "answer" ? "answered" : "rejected";
         },
         hasSession: (threadId) => active.has(threadId),
+        contextUsage: async (threadId) => {
+          const live = sessions.get(threadId);
+          return live && !live.closing ? live.contextAsk.ask() : { kind: "none" };
+        },
         compactionSigns: async (threadId) => {
           const env = environment();
           const read = (path: string): unknown => { try { return JSON.parse(readFileSync(path, "utf8")); } catch { return undefined; } };
