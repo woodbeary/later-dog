@@ -1,12 +1,13 @@
 import type { Helper, HelperMember, HelperState, HelperStep } from "../../shared/helpers.ts";
 import { claudeTaskState } from "../laterdog/claude-native-activity.ts";
+import type { StoppedWork } from "../laterdog/helpers-stopped.ts";
 
 type Fields = Record<string, unknown>;
 const fields = (value: unknown): Fields => value && typeof value === "object" && !Array.isArray(value) ? value as Fields : {};
 const text = (value: unknown): string | undefined => typeof value === "string" && value.trim() ? value.trim().slice(0, 500) : undefined;
 const count = (value: unknown): number | undefined => typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : undefined;
 const state = (value: unknown): HelperState => { const native = claudeTaskState(value); return native === "waiting" || native === undefined ? "running" : native === "paused" ? "stopped" : native; };
-interface ClaudeHelper extends Helper { nativeId?: string; generation?: string; paused?: boolean; ambient?: boolean; }
+interface ClaudeHelper extends Helper { nativeId?: string; generation?: string; paused?: boolean; ambient?: boolean; command?: boolean; }
 const RECENT_ACTIVITY_LIMIT = 8;
 export const HELPER_STEP_LIMIT = 40;
 const STEP_FIELDS = ["description", "command", "file_path", "path", "pattern", "url", "query"] as const;
@@ -46,6 +47,7 @@ export function mapClaudeTask(previous: ClaudeHelper | undefined, value: unknown
     : previous?.recentActivity;
   return {
     ...previous, id: generation ? `${id}:run:${generation}` : previous?.id ?? id, nativeId: id, generation: generation ?? previous?.generation, kind: flow ? "workflow" : "agent",
+    ...(event.task_type === "local_bash" || previous?.command ? { command: true } : {}),
     ...(previous?.toolUseId ?? text(event.tool_use_id) ? { toolUseId: previous?.toolUseId ?? text(event.tool_use_id) } : {}),
     label: previous?.label ?? text(event.description) ?? text(event.workflow_name) ?? text(event.subagent_type) ?? "Helper",
     state: status,
@@ -140,13 +142,19 @@ export class ClaudeTasks {
   }
 
   stop(): number {
-    let stopped = 0;
+    const stopped = this.stopAll();
+    return stopped.helpers + stopped.commands;
+  }
+
+  stopAll(): StoppedWork {
+    const stopped: StoppedWork = { helpers: 0, commands: 0 };
     for (const helper of this.helpers.values()) {
       if (helper.state !== "running") continue;
-      const next: Helper = { ...helper, state: "stopped", endedAt: this.now(), members: helper.members?.map(member => member.state === "running" ? { ...member, state: "stopped" } : member) };
+      const next: ClaudeHelper = { ...helper, state: "stopped", endedAt: this.now(), members: helper.members?.map(member => member.state === "running" ? { ...member, state: "stopped" } : member) };
       this.helpers.set(helper.nativeId ?? helper.id, next);
       this.emit(next);
-      stopped += 1;
+      if (helper.command) stopped.commands += 1;
+      else stopped.helpers += 1;
     }
     return stopped;
   }

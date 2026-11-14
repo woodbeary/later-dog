@@ -288,6 +288,7 @@ export interface WireMessage {
   tool?: {
     name: string; ok?: boolean; spoken?: string; setup?: boolean; terminal?: boolean; summary?: string; input?: string; output?: string;
     claudeUpdate?: boolean;
+    detail?: string;
     place?: PlaceRow;
     quota?: FailedTurnQuota;
     carry?: { from: string; to: string };

@@ -115,6 +115,7 @@ Use only mapped, tested commands:
 - [Messages held while the home wakes, November 11](queue-held-sends.md)
 - [Which devices the edge trusts for a sleeping home, November 11](edge-trust.md)
 - [Stall watch: no dog goes quiet without a reason, November 12](stall-watch.md)
+- [A failed turn in plain words, November 13](plain-failures.md)
 - [Workspace release, November 13: what went live, how it was checked, how to undo it](workspace-release-2026-11-13.md)
 
 `control-laterdog ui` ([Chat UI, driven headlessly](chat-ui.md)) drives the real

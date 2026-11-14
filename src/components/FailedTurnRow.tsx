@@ -119,10 +119,11 @@ export function FailedTurnRow({ tool, engine, onRetry, botId, threadId }: {
   if (tool.place && botId) return <PlaceFailedRow place={tool.place} botId={botId} threadId={threadId} onRetry={onRetry} />;
   if (tool.quota) return <LimitRow tool={tool} onRetry={onRetry} botId={botId} threadId={threadId} />;
   const signedOut = signedOutEngine(tool, engine);
+  const said = failedTurnCause(tool.name) ?? tool.name;
   return (
     <ErrorRow
-      message={failedTurnCause(tool.name) ?? tool.name}
-      headline={signedOut && t("chat.error.signedOut", { name: signedOut.displayName })}
+      message={tool.detail ?? said}
+      headline={signedOut ? t("chat.error.signedOut", { name: signedOut.displayName }) : tool.detail ? said : undefined}
       onRetry={onRetry}
       setupInstance={tool.setup ? engine : undefined}
       claudeUpdateInstance={tool.claudeUpdate ? claudeUpdateTarget(engine) : undefined}
