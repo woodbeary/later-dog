@@ -72,6 +72,7 @@ export interface ContextRows {
   used: ContextRow[];
   room: ContextRow[];
   notLoaded: number;
+  usedTokens: number;
 }
 
 export function contextRows(breakdown: ContextBreakdown): ContextRows {
@@ -81,7 +82,9 @@ export function contextRows(breakdown: ContextBreakdown): ContextRows {
     if (part.deferred) notLoaded += part.tokens;
     else sums.set(part.id, (sums.get(part.id) ?? 0) + part.tokens);
   }
-  const percent = (tokens: number) => (tokens / breakdown.window) * 100;
+  const usedTokens = [...sums].reduce((sum, [id, tokens]) => (ROOM_PARTS.has(id) ? sum : sum + tokens), 0);
+  const base = Math.max(breakdown.window, breakdown.total, usedTokens);
+  const percent = (tokens: number) => (tokens / base) * 100;
   let folded = sums.get("other") ?? 0;
   const used: ContextRow[] = [];
   for (const [id, tokens] of sums) {
@@ -95,5 +98,5 @@ export function contextRows(breakdown: ContextBreakdown): ContextRows {
     .map((id) => ({ id, tokens: sums.get(id) ?? 0 }))
     .filter((row) => row.tokens > 0)
     .map((row) => ({ ...row, percent: percent(row.tokens) }));
-  return { used, room, notLoaded };
+  return { used, room, notLoaded, usedTokens };
 }

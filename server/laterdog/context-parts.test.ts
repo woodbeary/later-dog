@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { CONTEXT_PART_IDS, type ContextBreakdown } from "../../shared/context-breakdown.ts";
+import { CONTEXT_PART_IDS, contextRows, type ContextBreakdown } from "../../shared/context-breakdown.ts";
 import { breakdownFromEngine, ENGINE_CATEGORY_PARTS, ENGINE_DEFERRED_CATEGORIES, engineCategoryPart, estimatedBreakdown, estimateSizesOf } from "./context-parts.ts";
 
 const ENGINE_IDS = ["system_prompt", "system_tools", "mcp_tools", "mcp_instructions", "mcp_tools_deferred", "system_tools_deferred", "custom_agents", "memory_files", "skills", "messages", "autocompact_buffer", "compact_buffer", "free_space"];
@@ -104,18 +104,74 @@ describe("the engine's categories become later.dog's parts", () => {
     expect(sum(breakdown, inWindow)).toBe(breakdown.window);
   });
 
-  it("still adds up when the engine's total and its own rows disagree", () => {
+  it("adds the missing tokens to the conversation when the total is higher, and trusts the parts uncut when it is lower", () => {
     const higher = breakdownFromEngine(engineAnswer({ totalTokens: 200_000 }), 1)!;
     expect(sum(higher, used)).toBe(200_000);
     expect(higher.parts.find((part) => part.id === "conversation")!.tokens).toBe(130_700);
     expect(sum(higher, inWindow)).toBe(1_000_000);
     const lower = breakdownFromEngine(engineAnswer({ totalTokens: 60_000 }), 1)!;
-    expect(sum(lower, used)).toBe(60_000);
+    expect(lower.total).toBe(60_000);
+    expect(lower.parts.find((part) => part.id === "conversation")!.tokens).toBe(128_800);
+    expect(sum(lower, used)).toBe(198_100);
     expect(sum(lower, inWindow)).toBe(1_000_000);
     const unknown = breakdownFromEngine(engineAnswer({ categories: [...engineAnswer().categories, { id: "brand_new", name: "Brand new", tokens: 4_000, kind: "used" }], totalTokens: 202_100 }), 1)!;
     expect(unknown.parts).toContainEqual({ id: "other", tokens: 4_000 });
     expect(sum(unknown, used)).toBe(202_100);
     expect(sum(unknown, inWindow)).toBe(1_000_000);
+  });
+
+  it("leaves no free room and never more than the whole when the total is above the window", () => {
+    const over = breakdownFromEngine({ categories: [{ id: "messages", tokens: 250_000 }, { id: "autocompact_buffer", tokens: 33_000 }], totalTokens: 250_000, maxTokens: 200_000 }, 1)!;
+    expect(over.parts).toEqual([{ id: "conversation", tokens: 250_000 }]);
+    const rows = contextRows(over);
+    expect(rows.used.reduce((total, row) => total + row.percent, 0)).toBeCloseTo(100, 5);
+    expect(rows.room).toEqual([]);
+    const estimate = estimatedBreakdown({ instructions: 1_000, memory: 0, skills: 0, tools: 1_000, toolsNotLoaded: 0 }, { tokens: 300_000, window: 200_000 }, 1)!;
+    expect(estimate.parts.some((part) => part.id === "free")).toBe(false);
+    expect(contextRows(estimate).used.reduce((total, row) => total + row.percent, 0)).toBeCloseTo(100, 5);
+  });
+
+  it("reads the real engine's answer before a first turn, with no conversation category, as sizes only", () => {
+    const real = {
+      categories: [
+        { id: "system_prompt", name: "System prompt", tokens: 2_228, color: "promptBorder", kind: "used" },
+        { id: "system_tools", name: "System tools", tokens: 29_893, color: "inactive", kind: "used" },
+        { id: "system_tools_deferred", name: "System tools (deferred)", tokens: 19_391, color: "inactive", isDeferred: true, kind: "deferred" },
+        { id: "skills", name: "Skills", tokens: 2_166, color: "warning", kind: "used" },
+        { id: "autocompact_buffer", name: "Autocompact buffer", tokens: 33_000, color: "inactive", kind: "buffer" },
+        { id: "free_space", name: "Free space", tokens: 932_713, color: "promptBorder", kind: "free" },
+      ],
+      totalTokens: 34_287,
+      maxTokens: 1_000_000,
+      rawMaxTokens: 1_000_000,
+      percentage: 3,
+      autoCompactThreshold: 967_000,
+      isAutoCompactEnabled: true,
+      autocompactSource: "model-default",
+      gridRows: [[{ color: "promptBorder", isFilled: true, categoryName: "System prompt", tokens: 2_228, percentage: 0, squareFullness: 1 }]],
+      model: "fixture-private-model",
+      memoryFiles: [{ path: "/Users/fixture-person/notes/CLAUDE.md", type: "User", tokens: 10 }],
+      mcpTools: [{ name: "mcp__fixture_server__private_tool", serverName: "fixture_server", tokens: 10 }],
+      mcpInstructions: [{ name: "fixture_server", serverName: "fixture_server", tokens: 10, text: "private server instructions" }],
+      agents: [{ agentType: "fixture-private-helper", source: "user", tokens: 10 }],
+      slashCommands: { totalCommands: 3, includedCommands: 3, tokens: 10, names: ["fixture-private-command"] },
+      skills: { totalSkills: 1, includedSkills: 1, tokens: 2_166, skillFrontmatter: [{ name: "fixture-private-trick", source: "user", tokens: 2_166 }] },
+      messageBreakdown: { toolCallsByType: [{ name: "FixturePrivateTool", callTokens: 1, resultTokens: 1 }] },
+      apiUsage: null,
+    };
+    const breakdown = breakdownFromEngine(real, 7)!;
+    expect(breakdown).toEqual({
+      at: 7, source: "engine", total: 34_287, window: 1_000_000, compactsAt: 967_000,
+      parts: [
+        { id: "tools", tokens: 29_893 },
+        { id: "instructions", tokens: 2_228 },
+        { id: "skills", tokens: 2_166 },
+        { id: "reserve", tokens: 33_000 },
+        { id: "free", tokens: 932_713 },
+        { id: "tools", tokens: 19_391, deferred: true },
+      ],
+    });
+    expect(/fixture|private|CLAUDE|server instructions/i.test(JSON.stringify(breakdown))).toBe(false);
   });
 
   it("gives no compaction point when the engine will not compact on its own", () => {

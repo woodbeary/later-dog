@@ -117,7 +117,7 @@ describe("the context window row in a chat's usage", () => {
     await openPanel(chatContextReading({ tokens: 40_000, window: 200_000 }));
     expect(toggle().textContent).toBe("This chatabout 40k of 200k · 20%");
     act(() => toggle().click());
-    expect(partLines()[0]).toEqual(["Conversation", "about 24.4k", "12.2%"]);
+    expect(partLines()[0]).toEqual(["Conversation and the AI's own setup", "about 24.4k", "12.2%"]);
     expect(partLines().every((line) => line[1]!.startsWith("about "))).toBe(true);
     expect(host.querySelector("[data-chat-context-as-of]")!.textContent).toBe("as of 3 min ago");
     expect(partLines().some((line) => line[0] === "Tools not loaded yet")).toBe(false);
@@ -151,6 +151,32 @@ describe("the context window row in a chat's usage", () => {
     expect(host.querySelector("[data-chat-context-stale]")).not.toBeNull();
     expect(host.querySelector("[data-chat-context-as-of]")!.textContent).toBe("as of 10 min ago");
     expect(host.querySelectorAll("[data-chat-context-segment]")).toHaveLength(0);
+  });
+
+  it("calls the conversation just that on an engine count", async () => {
+    vi.mocked(api).mockResolvedValue(COUNTED);
+    await openPanel(chatContextReading({ tokens: 198_100, window: 1_000_000 }));
+    act(() => toggle().click());
+    expect(partLines()[0]![0]).toBe("Conversation");
+    expect(partLines().some((line) => line[1]!.startsWith("about"))).toBe(false);
+  });
+
+  it("says about in the list when the engine's parts add up to more than its heading number", async () => {
+    const parts = [{ id: "conversation", tokens: 10_000 }, { id: "tools", tokens: 10_000 }, { id: "free", tokens: 180_000 }] as ContextBreakdown["parts"];
+    vi.mocked(api).mockResolvedValue({ at: NOW - 1_000, source: "engine", total: 5_000, window: 200_000, parts });
+    await openPanel(chatContextReading({ tokens: 5_000, window: 200_000 }));
+    expect(toggle().textContent).toBe("This chat5k of 200k · 3%");
+    act(() => toggle().click());
+    expect(partLines().slice(0, 2)).toEqual([["Conversation", "about 10k", "5.0%"], ["Tools", "about 10k", "5.0%"]]);
+  });
+
+  it("fills the bar and leaves no free room when the chat is past its window", async () => {
+    vi.mocked(api).mockResolvedValue({ at: NOW - 1_000, source: "engine", total: 250_000, window: 200_000, parts: [{ id: "conversation", tokens: 250_000 }] });
+    await openPanel(chatContextReading({ tokens: 250_000, window: 200_000 }));
+    const segments = [...host.querySelectorAll<HTMLElement>("[data-chat-context-segment]")];
+    expect(segments.map((segment) => segment.style.width)).toEqual(["100%"]);
+    act(() => toggle().click());
+    expect(partLines()).toEqual([["Conversation", "250k", "100.0%"]]);
   });
 
   it("says the row comes after the first reply when the chat has nothing yet", async () => {

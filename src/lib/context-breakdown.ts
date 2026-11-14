@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { api } from "@/state/store";
-import { contextBreakdownOf, type ContextBreakdown, type ContextPartId } from "../../shared/context-breakdown";
+import { contextBreakdownOf, type ContextBreakdown, type ContextPartId, type ContextSource } from "../../shared/context-breakdown";
 import { ApiError } from "./api";
 import { t } from "./i18n";
 import { formatTokens } from "./usage";
@@ -51,8 +51,8 @@ export function useContextBreakdown(threadId: string | undefined, open: boolean)
   return view && view.threadId === threadId ? view.view : null;
 }
 
-export function partLabel(id: ContextPartId): string {
-  return t(`model.context.part.${id}`);
+export function partLabel(id: ContextPartId, source: ContextSource): string {
+  return source === "estimate" && id === "conversation" ? t("model.context.part.conversationEstimate") : t(`model.context.part.${id}`);
 }
 
 export function partShareWords(percent: number): string {

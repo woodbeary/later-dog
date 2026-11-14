@@ -6,7 +6,7 @@ import { cn } from "@/lib/cn";
 import { t } from "@/lib/i18n";
 import { relativeTime } from "@/lib/memory";
 import { formatTokens } from "@/lib/usage";
-import { breakdownIsStale, contextRows, type ContextBreakdown, type ContextRow } from "../../shared/context-breakdown";
+import { breakdownIsStale, contextRows, differsFrom, type ContextBreakdown, type ContextRow } from "../../shared/context-breakdown";
 import { ChatContextStrip } from "./ChatContextStrip";
 
 const FIGURE: Record<ChatContextLevel, string> = { ok: "text-ink-secondary", near: "text-warning", over: "text-danger" };
@@ -56,6 +56,7 @@ function BreakdownRow({ breakdown, current, now }: { breakdown: ContextBreakdown
   const figure = figureOf(breakdown, reading);
   const estimate = breakdown.source === "estimate";
   const rows = contextRows(breakdown);
+  const partsAbout = estimate || (!outdated && differsFrom(rows.usedTokens, reading.tokens));
   const hasParts = rows.used.length > 0;
   const reserve = rows.room.find((row) => row.id === "reserve");
   const old = now - breakdown.at > STALE_AFTER_MS;
@@ -98,12 +99,12 @@ function BreakdownRow({ breakdown, current, now }: { breakdown: ContextBreakdown
         <div id={listId} data-chat-context-parts className="flex flex-col gap-1 pt-1">
           <ul className="flex flex-col gap-1">
             {[...rows.used, ...rows.room].map((row) => (
-              <PartLine key={row.id} label={partLabel(row.id)} tokens={partTokensWords(row.tokens, estimate)} share={partShareWords(row.percent)} />
+              <PartLine key={row.id} label={partLabel(row.id, breakdown.source)} tokens={partTokensWords(row.tokens, partsAbout)} share={partShareWords(row.percent)} />
             ))}
           </ul>
           {rows.notLoaded > 0 && (
             <ul className="mt-1 border-t border-hairline/40 pt-1.5">
-              <PartLine label={t("model.context.notLoaded")} tokens={partTokensWords(rows.notLoaded, estimate)} share="—" muted />
+              <PartLine label={t("model.context.notLoaded")} tokens={partTokensWords(rows.notLoaded, partsAbout)} share="—" muted />
             </ul>
           )}
           {old && !outdated && asOf}

@@ -53,16 +53,9 @@ export function engineCategoryPart(category: { id?: unknown; name?: unknown; kin
 export function settledParts(used: Map<ContextPartId, number>, reserve: number, notLoaded: number, total: number, window: number): ContextPart[] {
   const counted = [...used.values()].reduce((sum, tokens) => sum + tokens, 0);
   if (counted < total) used.set("conversation", (used.get("conversation") ?? 0) + total - counted);
-  let excess = counted - total;
-  for (const id of PART_ORDER) {
-    if (excess <= 0) break;
-    const tokens = used.get(id) ?? 0;
-    const take = Math.min(tokens, excess);
-    used.set(id, tokens - take);
-    excess -= take;
-  }
-  const reserveKept = Math.max(0, Math.min(reserve, window - total));
-  const free = Math.max(0, window - total - reserveKept);
+  const filled = Math.max(total, counted);
+  const reserveKept = Math.max(0, Math.min(reserve, window - filled));
+  const free = Math.max(0, window - filled - reserveKept);
   const parts: ContextPart[] = PART_ORDER
     .filter((id) => id !== "reserve" && id !== "free")
     .map((id) => ({ id, tokens: used.get(id) ?? 0 }))

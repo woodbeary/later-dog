@@ -1271,6 +1271,7 @@
   "model.context.afterFirstReply": "Shown after the first reply",
   "model.context.showParts": "Show what fills this chat",
   "model.context.part.conversation": "Conversation",
+  "model.context.part.conversationEstimate": "Conversation and the AI's own setup",
   "model.context.part.tools": "Tools",
   "model.context.part.instructions": "Instructions",
   "model.context.part.skills": "Tricks",
