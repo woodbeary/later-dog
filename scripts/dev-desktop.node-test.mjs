@@ -354,3 +354,16 @@ test("nothing is signed while the app bundle to sign is absent, so a signing war
   assert.equal(stablySign({ ...input, exists: () => true }), true);
   assert.equal(ran.length, 2);
 });
+
+test("a start in a checkout without its dependencies stops with that sentence, before signing or any service", async () => {
+  const root = mkdtempSync(join(tmpdir(), "dev-desktop-missing-"));
+  const { spawnSync } = await import("node:child_process");
+  const { copyFileSync } = await import("node:fs");
+  mkdirSync(join(root, "scripts"));
+  mkdirSync(join(root, "electron"));
+  for (const file of ["scripts/dev-desktop.mjs", "scripts/dev-app.mjs", "scripts/dev-safe.mjs", "scripts/dev-home-proxy.mjs", "electron/app-variant.mjs", "electron/app-variant.cjs"]) copyFileSync(join(import.meta.dirname, "..", file), join(root, file));
+  const result = spawnSync(process.execPath, [join(root, "scripts/dev-desktop.mjs")], { encoding: "utf8", env: { ...process.env, HOME: root } });
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, new RegExp(`later\\.dog Dev's dependencies are missing in ${root.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\. Run pnpm install --frozen-lockfile`));
+  assert.doesNotMatch(result.stderr, /sign/);
+});

@@ -16,6 +16,7 @@ When a change breaks it:
 
 - Each time it opens, it saves the code it ran, uncommitted and new files included, as `refs/laterdog-dev/opened/<time>` in this repository and keeps the newest 12. Your branch, index and files are not touched.
 - If it can't start, it shows the file, line and error, and offers **Try Again** or **Open an Earlier Version…**.
+- If this checkout's `node_modules`, Vite or Electron's files are gone, the dialog says which one ("later.dog Dev's dependencies are missing" or "Electron's files are missing") and names the checkout, instead of a signing or module error. **Install and Start** runs `pnpm install --frozen-lockfile`, then Electron's own `node node_modules/electron/install.js` while `node_modules/electron/dist` is still absent, and opens the app when it finishes; **Try Again** and **Open an Earlier Version…** stay. The Dev app is not signed while its files are absent. `pnpm dev:desktop` from a terminal stops with the same sentence.
 - **later.dog Dev → Open an Earlier Version…** does the same from a running app, for a change that broke the window rather than the start.
 - An earlier version runs from its own checkout, `~/.laterdog-dev-tools/app/earlier`, with the same dogs and chats, so a dog there can fix this checkout. **Back to the Latest Code** in the same menu returns.
 
