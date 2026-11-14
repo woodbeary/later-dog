@@ -261,3 +261,15 @@ it("shows an engine error result nobody handled as a failed message with the eng
   const failed = (await f.messages()).filter(m => m.kind === "activity" && m.tool?.ok === false);
   expect(failed.map(m => m.tool.name)).toEqual([expect.stringContaining("Fixture engine refused: model unavailable")]);
 }), 150_000);
+
+it("gives the person's profile back at once when the engine compacts inside a turn", () => fixture(async f => {
+  await f.api("/api/config", { profile: { aboutMe: "PROFILE_NOTE Sam keeps an invented bakery and prefers short answers." } }, "PUT");
+  await f.use("claude", "claude-sonnet-4-6");
+  await f.send("FIRST request");
+  await f.send("SECOND request");
+  const replies = (await f.messages()).filter(m => m.kind === "text" && m.role === "bot").map(m => String(m.text));
+  expect(replies.slice(0, -1).join("\n")).not.toContain("PROFILE_NOTE");
+  expect(replies.at(-1)).toContain("Context from later.dog that still holds after the summary");
+  expect(replies.at(-1)).toContain("PROFILE_NOTE Sam keeps an invented bakery");
+  expect((await f.nativeRows()).at(-1)?.tool).toMatchObject({ compaction: true, ok: true });
+}, { ...LONG_CHAT, FAKE_CLAUDE_HOOKS: "1" }), 120_000);

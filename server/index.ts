@@ -766,6 +766,7 @@ import { transcribeRoute } from "./laterdog/transcribe.ts";
 import { pickTranscriber, xaiVoice } from "./laterdog/transcribe-xai.ts";
 import { withOnItNote, withSteerNote, workUpdatesPrompt } from "./laterdog/work-updates.ts";
 import { settledResultsText } from "./laterdog/peer-results.ts";
+import { CompactionCarry } from "./laterdog/after-compaction.ts";
 import { onlyTapbackText, replyTapback, replyTapbackStreamChunk, tapbackTarget, tapbackStreamChunk, tapbackTurnKey, withTapback } from "./laterdog/tapback.ts";
 import { createMacWaits } from "./laterdog/mac-waits.ts";
 import { createMacPromptGate, macPromptOf, macPromptWords } from "./laterdog/mac-prompt.ts";
@@ -5931,6 +5932,7 @@ function observedTurnResults(threadId: string) {
 }
 const turnCheckpoints = new Map<string, { botId: string; cwd: string; hash: string; pin: string }>();
 const liveTurnByThread = new Map<string, string>();
+const compactionCarry = new CompactionCarry();
 
 function forgetTurnCheckpoint(threadId: string): void {
   const checkpoint = turnCheckpoints.get(threadId);
@@ -5944,6 +5946,7 @@ function clearTurnDigestState(threadId: string): void {
   forgetTurnCheckpoint(threadId);
   liveTurnByThread.delete(threadId);
   memoryRowsByThread.delete(threadId);
+  compactionCarry.forget(threadId);
 }
 
 const TOOL_RESULTS_DIR = join(DATA_DIR, "tool-results");
@@ -5979,8 +5982,9 @@ function ingestEngineHook(capability: InternalCapability, body: unknown): { ok: 
     const bot = store.bot(capability.botId);
     const digests = store.activePath(threadId).filter((m) => m.kind === "digest" && m.digest).slice(-DIGESTS_AFTER_COMPACTION);
     compactionLive.finished(threadId, { ok: true, digests: digests.length, turnId: liveTurnByThread.get(threadId) });
-    if (!digests.length) return { ok: true };
-    const context = digests.map((m) => digestPromptLine(m.digest!, m.from?.name ?? store.bot(m.digest!.botId)?.name ?? bot?.name ?? "the bot")).join("\n");
+    const carried = compactionCarry.context(capability.botId, threadId);
+    if (!digests.length && !carried) return { ok: true };
+    const context = [digests.map((m) => digestPromptLine(m.digest!, m.from?.name ?? store.bot(m.digest!.botId)?.name ?? bot?.name ?? "the bot")).join("\n"), carried].filter(Boolean).join("\n\n");
     return { ok: true, context };
   }
   if (name === "Stop") return { ok: true };
@@ -9184,6 +9188,7 @@ async function startTurn(
         { id: "mentions", label: "Mentions", text: mentionPrompt(tagged) },
       ], cfg.profile?.name);
       turnPromptBytes.set(threadId, { stable: Buffer.byteLength(prompt.stable), volatile: Buffer.byteLength(prompt.volatile) });
+      compactionCarry.remember(bot.id, threadId, prompt.volatileSections);
       if (deskPrompts && threadId === bot.threadId && INCLUDED_AI_INSTANCES.includes(instanceId)) deskPrompts.remember(threadId, { instanceId, model, system: prompt.stable || prompt.text });
       const fromPerson = commsDepth === 0 && !coordinationNode && !opts?.automationSource && !opts?.unattended;
       executionEvidence.dispatch(threadId, (store.projectBotForTask(bot.id, threadId) ?? bot).modelSelection, { instanceId, model, effort });
@@ -11035,6 +11040,7 @@ async function runGroupMemberTurn(
     onProviderHandshakeStarted?.();
     providerDispatched = true;
     turnPromptBytes.set(threadId, { stable: Buffer.byteLength(roomSystem.stable), volatile: Buffer.byteLength(roomSystem.volatile) });
+    compactionCarry.remember(readyBot.id, threadId, roomSystem.volatileSections);
     executionEvidence.dispatch(threadId, selectedBot.modelSelection, { instanceId: instance.instanceId, ...(instance.instanceId === readyBot.modelSelection.instanceId ? memberTurnSelection(readyBot.modelSelection) : { model: instance.models.default }) });
     runningTurnEngines.set(threadId, instance);
     const roomRecalled = cardContinuation ? "" : autoRecallPrompt(bot, threadId, resolvedLatestImages.text, { conversations: false, userName });
