@@ -6,7 +6,8 @@ Run the fixtures in isolated homes; nothing here touches a person's app, home or
 pnpm exec vitest run server/laterdog/work-state-table.test.ts server/laterdog/work-state.test.ts server/laterdog/chat-work.test.ts
 pnpm exec vitest run server/laterdog/computer-jobs.test.ts server/laterdog/computer-run-route.test.ts server/laterdog/room-work.test.ts server/laterdog/job-wake.test.ts
 pnpm exec vitest run src/lib/work-state.test.ts server/laterdog/stop-computer-jobs.test.ts
-pnpm exec vitest run server/laterdog/work-state-truth.e2e.test.ts
+pnpm exec vitest run server/laterdog/work-state-truth.e2e.test.ts server/laterdog/handoff-wait.e2e.test.ts
+pnpm exec vitest run server/chief-level-delegation.e2e.test.ts server/thread-aware-bots.e2e.test.ts server/direct-coordination.e2e.test.ts server/delta-context.e2e.test.ts
 ```
 
 ## What each state means
@@ -18,7 +19,7 @@ The home sends one `work` per chat (`shared/work-state.ts`), built by `workState
 | --- | --- |
 | needs-you | an open question, card or sign-in waits on the person |
 | waiting-for-usage | the chat is held until an account's usage resets |
-| waiting-on-dog | the chat sent work that wants a reply, and that work is still open (named dogs) |
+| waiting-on-dog | the chat sent work that wants a reply, its own handoff is still open, and that work is still open (named dogs) |
 | waiting-for-computer | the turn waits for a computer another chat holds |
 | retrying | the turn is reconnecting to its engine |
 | running | a turn runs, helpers still work, a job the dog started on its computer is alive, or the chat is doing a handoff for another dog; `helpers` and `computerJobs` say how many after the turn, `computerSince` when the oldest live job started |
@@ -55,9 +56,13 @@ helpers. A restart reloads the job ledger from disk and starts with an empty hel
 | | | | | | | | yes | yes | waiting-for-usage |
 | | | | yes | | | | | yes | waiting-on-dog |
 
+Two more rows come from the handoff record itself: a teammate's reply that is back but not yet handed
+to the dog (the dog waits for a free slot to take it) is `idle` in `work`, and a dog the person stopped
+while its teammate still works is `idle` too.
+
 The same file checks all 512 combinations: never idle while a turn, a job, a handoff or a
 surviving helper is alive; never running with nothing alive; never waiting-on-dog from work sent with
-no reply wanted; and the older fields below agree with `work` in every row.
+no reply wanted; and the older fields below agree with the handoff record in every row.
 
 ## Where each fact comes from
 
@@ -77,10 +82,11 @@ no reply wanted; and the older fields below agree with `work` in every row.
   its children inherit: `LATERDOG_RUN_ID` in their environment and an open lock file beside its log. When a later
   turn picks the result up by `run_id`, the call holds the job, so the chat stays running through the
   hand-over and goes idle only when the call has brought the result back.
-- Handoffs: `directHandoffFacts` in `server/laterdog/chat-work.ts`, read from the handoff record
-  (`server/room-handoffs.ts`). Work wanting a reply that is still open makes the sender wait on that dog;
-  work sent with `reply: "none"` never does; a handoff node running in this chat makes it running. A
-  handoff waiting in line for a busy dog is not shown as waiting in either chat.
+- Handoffs: read from the handoff record (`server/room-handoffs.ts`) by `handoffWait` and
+  `handoffRunningIn` in `server/laterdog/chat-work.ts`. While no turn runs and the chat's own handoff is
+  open (`activeDirect`), its open work wanting a reply makes the sender wait on that dog; work sent with
+  `reply: "none"` never does; a handoff node running in this chat makes it running. A handoff waiting in
+  line for a busy dog is not shown as waiting in `work` in either chat.
 - Group chats: `roomWorkFor` in `server/laterdog/room-work.ts` adds the helpers and computer jobs of
   every chat in the room; the dogs that own the jobs are named as working.
 - After a restart: the job ledger (`computer-jobs.json` in the data folder) survives and the watch
@@ -146,11 +152,18 @@ until their packs are drafted with `node scripts/generate-locale.mjs <locale>`.
 
 ## Older fields, for the phone
 
-`olderWorkFields` in `server/laterdog/chat-work.ts` now derives these from `work` for every bot and task:
+`olderWorkFields` in `server/laterdog/chat-work.ts` builds these for every bot and task:
 
-- `waitingForTeammates` is true exactly when `work.kind` is `waiting-on-dog`.
-- `waitingOn` is present while teammates it awaits are open and no turn runs, so a usage hold or a
-  question that outranks waiting-on-dog does not hide them.
+- `waitingForTeammates` belongs to the handoff, not to `work`: it is true while no turn runs and the
+  chat's own handoff record is still open (`roomHandoffs.activeDirect`), as before this work. That covers
+  the moment after a teammate's reply is back but before the turn that hands it to the dog has run, and
+  it ends when the person stops the dog, even if a teammate it asked keeps working. `wait_for_conversation`
+  (`scripts/mcp-server.ts`), and so every dog and handoff fixture, calls a chat settled only when it is
+  false and no turn runs. It is never derived from `work`: an earlier version did that, a dog was called
+  settled before its teammate's result had come back to it and never settled after a Stop, and the four
+  handoff fixtures failed (`server/laterdog/handoff-wait.e2e.test.ts` pins both).
+- `waitingOn` is present exactly while `waitingForTeammates` is true, listing the teammates still open, so
+  a usage hold or a question that outranks waiting-on-dog does not hide them. `work` reads the same list.
 - `activity` is `waiting-on-you` exactly when `work.kind` is `needs-you`, and `working` is shown only
   while `work` is running, retrying or waiting for a computer.
 - `helpersWorking` counts helpers plus computer jobs whenever they are alive and no turn runs, whatever
@@ -180,6 +193,10 @@ With these agreeing, the phone can read `work` alone and drop its rebuild from t
   process is gone, nobody is woken and the ledger is empty.
 - `server/laterdog/stop-computer-jobs.test.ts`: the same three shapes stopped by their process group on
   this machine, and a job kept with a line when its stop cannot be confirmed.
+- `server/laterdog/handoff-wait.e2e.test.ts`, a real server with two scripted dogs: a dog whose teammate's
+  result is back but waits for a free slot is not settled and still waits for teammates, and is settled
+  with the result in its next turn once the slot frees; a dog the person stopped while its teammate still
+  works is settled, does not wait on it, and the teammate keeps running.
 - `server/laterdog/job-wake.test.ts`: once per job, one turn for several jobs, waiting while the chat is
   busy, an ending kept when the turn is refused for a free slot with one line, nothing after the dog read
   the result or after Stop, no wake for group chats.
