@@ -34,8 +34,7 @@ function pnpmStorePrune(home: string): void {
   spawnSync("pnpm", ["store", "prune"], { cwd: home, timeout: 120_000, stdio: "ignore", env: { ...process.env, HOME: home } });
 }
 
-export function makeSpace(deps: SpaceMakerDeps): { freed: number; cleared: string[] } {
-  const live = (deps.processes ?? readProcesses)().filter((proc) => !isEngineProcess(proc.argv));
+function clearer() {
   const cleared: string[] = [];
   let freed = 0;
   const clear = (path: string) => {
@@ -47,14 +46,29 @@ export function makeSpace(deps: SpaceMakerDeps): { freed: number; cleared: strin
       cleared.push(path);
     } catch {}
   };
+  return { clear, result: () => ({ freed, cleared }) };
+}
+
+function liveWork(deps: Pick<SpaceMakerDeps, "processes">): ProcessInfo[] {
+  return (deps.processes ?? readProcesses)().filter((proc) => !isEngineProcess(proc.argv));
+}
+
+export function pruneCaches(deps: Pick<SpaceMakerDeps, "home" | "processes" | "pruneStore">, live = liveWork(deps)): { freed: number; cleared: string[] } {
+  const { clear, result } = clearer();
+  if (live.some((proc) => INSTALLER.test(proc.argv))) return result();
+  for (const cache of REBUILT_CACHES) clear(join(deps.home, cache));
+  const storeDir = join(deps.home, ".local/share/pnpm");
+  const before = sizeOf(storeDir);
+  try { (deps.pruneStore ?? (() => pnpmStorePrune(deps.home)))(); } catch {}
+  const done = result();
+  return { freed: done.freed + Math.max(0, before - sizeOf(storeDir)), cleared: done.cleared };
+}
+
+export function makeSpace(deps: SpaceMakerDeps): { freed: number; cleared: string[] } {
+  const live = liveWork(deps);
+  const { clear, result } = clearer();
   for (const path of rebuildableOutput(deps.home, deps.workspacesDir)) if (!inUse(path, deps.busyDirs, live)) clear(path);
-  const installing = live.some((proc) => INSTALLER.test(proc.argv));
-  if (!installing) {
-    for (const cache of REBUILT_CACHES) clear(join(deps.home, cache));
-    const storeDir = join(deps.home, ".local/share/pnpm");
-    const before = sizeOf(storeDir);
-    try { (deps.pruneStore ?? (() => pnpmStorePrune(deps.home)))(); } catch {}
-    freed += Math.max(0, before - sizeOf(storeDir));
-  }
-  return { freed, cleared };
+  const output = result();
+  const caches = pruneCaches(deps, live);
+  return { freed: output.freed + caches.freed, cleared: [...output.cleared, ...caches.cleared] };
 }

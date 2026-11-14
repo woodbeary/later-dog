@@ -1,11 +1,19 @@
-import { chatTempName, chatTempRoot, tidyChatTemp, usedBy, type ChatTempSweep } from "./chat-temp.ts";
+import { basename } from "node:path";
+import { chatTempName, chatTempRoot, sweepChatTemps, tidyChatTemp, usedBy, type ChatTempSweep } from "./chat-temp.ts";
+import { startDiskLadder } from "./disk-ladder.ts";
 import { openPaths, readHomeProcesses } from "./home-processes.ts";
+import { diskUse, type WorkspaceTask } from "./janitor.ts";
+import { readProcesses } from "./process-reaper.ts";
+import { pruneCaches } from "./space-maker.ts";
 import { endLeftovers } from "./turn-leftovers.ts";
 import { turnUpkeep } from "./turn-upkeep.ts";
 
 export interface HomeUpkeepDeps {
   subscribe(listener: (event: { type: string; threadId: string }) => void): void;
   atWork(threadId: string): boolean;
+  chats(): WorkspaceTask[];
+  dataDir: string;
+  home: string;
   tempRoot?: string;
   log?: (line: string) => void;
 }
@@ -29,4 +37,12 @@ export function startHomeUpkeep(deps: HomeUpkeepDeps): void {
     if (cleared.removed.length) log(`laterdog home: chat ${threadId.slice(0, 8)} finished its turn; removed ${cleared.removed.length} temp item(s) nothing was using, freed ${mb(cleared.freed)}`);
   };
   deps.subscribe(turnUpkeep({ atWork: deps.atWork, endLeftovers: (mark) => endLeftovers({ mark }), emptyTemp, log }));
+  startDiskLadder({
+    disk: () => diskUse(deps.dataDir),
+    chats: () => deps.chats().map((chat) => ({ ...chat, busy: chat.busy || deps.atWork(basename(chat.dir)) })),
+    live: () => readProcesses(),
+    sweepTemp: () => sweepChatTemps(root, liveTempSweep(deps.atWork)),
+    pruneCaches: () => pruneCaches({ home: deps.home }).freed,
+    log,
+  });
 }

@@ -21226,6 +21226,9 @@ if (CLOUD_HOME) {
       return runningTurnEngines.has(threadId) || Boolean(bot && threadBusy(bot.id, threadId)) || Boolean(store.groupByThread(threadId)?.busyBotId)
         || helperBoard.running(threadId) || nativeRuns.running(threadId);
     },
+    chats: () => janitorWorkspaces(),
+    dataDir: DATA_DIR,
+    home: homedir(),
   });
 }
 
