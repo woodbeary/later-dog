@@ -7,7 +7,17 @@ import { buildSystemPrompt, todayPrompt } from "../system-prompt.ts";
 import { SHORT_ON_IT_NOTE } from "./work-updates.ts";
 import {
   ACTING,
+  ACTING_SETTING,
+  acting,
   ANSWER_FIRST,
+  ANSWER_FIRST_OPENING,
+  ASK_BEFORE_HARD_TO_UNDO,
+  ASK_ONLY_FOR,
+  CHECK_BEFORE_DONE,
+  DECIDE_YOURSELF,
+  NO_UNCHECKED_ANSWER,
+  VERIFIED_OR_ASSUMED,
+  YES_HOLDS,
   CHECK_WORK,
   DECIDE_DONT_ASK,
   dogGuidance,
@@ -69,7 +79,7 @@ describe("the guidance every dog gets", () => {
   it("covers the eight things the person needs from every dog", () => {
     const text = dogGuidance({ engine: "claude", agents: true, model: "claude-opus-5-5" });
     expect(ANSWER_FIRST).toMatch(/say in one line what you are doing before your first tool call/);
-    expect(ANSWER_FIRST).toMatch(/not what you do not know yet, and never fill the gap with an answer you have not checked/);
+    expect(ANSWER_FIRST).toMatch(/not what you do not know yet\. Give a one-line update at natural points\. Never fill a gap with an answer you have not checked\./);
     expect(ANSWER_FIRST).toMatch(/one-line update at natural points/);
     expect(ANSWER_FIRST).toMatch(/If you stop before the work is done, say why in plain words/);
     expect(PLAN_PROMPT).toMatch(/^Keep your plan with set_plan; the person sees it in the app\. Add each thing they ask for before you start it, including what they want later \(as pending\)\. Mark an item in progress when work begins, and done only after it was checked and they were told\./);
@@ -86,7 +96,9 @@ describe("the guidance every dog gets", () => {
     expect(CHECK_WORK).toMatch(/say plainly what you verified and what you assumed/);
     expect(CHECK_WORK).toMatch(/^Check your work before calling it done/);
     expect(FINISH_WORK).toMatch(/ordinary obstacles/);
-    for (const line of [ANSWER_FIRST, FINISH_WORK, PLAN_PROMPT, CHECK_WORK, DECIDE_DONT_ASK, EVIDENCE_FIRST, ACTING, needsPerson("claude"), SENDING, STAY_FREE, HELPER_BRIEF, STOP_MEANS_STOP, BETWEEN_DOGS, ROUTINE_OFFER, PRECEDENCE]) expect(text).toContain(line);
+    const codex = dogGuidance({ engine: "codex", agents: true, model: "gpt-5.6" });
+    for (const line of [ANSWER_FIRST, FINISH_WORK, PLAN_PROMPT, CHECK_WORK, DECIDE_DONT_ASK, EVIDENCE_FIRST, ACTING, needsPerson("codex"), SENDING, STAY_FREE, HELPER_BRIEF, STOP_MEANS_STOP, BETWEEN_DOGS, ROUTINE_OFFER, PRECEDENCE]) expect(codex).toContain(line);
+    for (const line of [NO_UNCHECKED_ANSWER, PLAN_PROMPT, CHECK_BEFORE_DONE, ASK_ONLY_FOR, EVIDENCE_FIRST, ACTING_SETTING, YES_HOLDS, needsPerson("claude"), SENDING, STAY_FREE, HELPER_BRIEF, STOP_MEANS_STOP, BETWEEN_DOGS, ROUTINE_OFFER, PRECEDENCE]) expect(text).toContain(line);
     expect(text).not.toContain(CHECKLIST_IN_REPLY);
     expect(dogGuidance({ engine: "codex", agents: true, model: "gpt-5.6" })).toContain(PLAN_PROMPT);
   });
@@ -241,8 +253,28 @@ describe("the guidance every dog gets", () => {
     expect(dogGuidance({ engine: "codex", model: "gpt-5.6" })).not.toContain("<medical_guidance>");
   });
 
+  it("leaves out for a Claude dog what its engine already tells it, and keeps it for every other engine", () => {
+    const said = [ANSWER_FIRST_OPENING, FINISH_WORK, VERIFIED_OR_ASSUMED, DECIDE_YOURSELF, ASK_BEFORE_HARD_TO_UNDO];
+    for (const model of ["claude-opus-5-5", "claude-fable-5-2", "claude-sonnet-5-5"]) {
+      const claude = dogGuidance({ engine: "claude", agents: true, model });
+      for (const line of said) expect([model, claude.includes(line)]).toEqual([model, false]);
+      for (const engine of ["codex", "other"] as const) {
+        const other = dogGuidance({ engine, agents: true, model });
+        for (const line of said) expect([engine, model, other.includes(line)]).toEqual([engine, model, true]);
+      }
+    }
+    expect(acting("claude")).toBe(`${ACTING_SETTING} ${YES_HOLDS}`);
+    expect(acting("codex")).toBe(ACTING);
+    expect(modelNotes("fable-5-2", "claude")).toEqual([]);
+    expect(modelNotes("fable-5-2", "other")).toHaveLength(2);
+    expect(modelNotes("sonnet-5-5", "claude").join(" ")).not.toMatch(/Don't add features/);
+    expect(modelNotes("sonnet-5-5", "claude").join(" ")).toMatch(/run a real check that exercises the change/);
+    expect(modelNotes("sonnet-5-5", "codex").join(" ")).toMatch(/Don't add features/);
+    expect(modelNotes("haiku-5-5", "claude").join(" ")).toMatch(/Don't add features/);
+  });
+
   it("adds model lines only where the model's own guidance calls for them", () => {
-    const fable = dogGuidance({ engine: "claude", model: "claude-fable-5-2" });
+    const fable = dogGuidance({ engine: "other", model: "claude-fable-5-2" });
     expect(fable).toMatch(/offering to wait or asking whether to go on, do the next part instead/);
     expect(fable).not.toMatch(/You are the owner and long-term maintainer/);
     expect(modelNotes("opus-5-5")).toEqual([]);

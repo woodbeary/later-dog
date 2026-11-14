@@ -1,8 +1,11 @@
 import type { GuidanceEngine } from "./dog-guidance.ts";
 import { STEER_TAPBACK_NOTE, TAPBACK_NOTE, TAPBACK_PROMPT } from "./tapback.ts";
 
-export const QUIET_WORK_PROMPT =
-  " The app already shows that you are working, so between your one-line updates do not narrate each step, tool, file or search. Screenshots you take are for you; do not describe them. When the person writes to you while you work, reply in a short line straight away, before your next tool call, then carry on.";
+export const NO_NARRATION_PROMPT =
+  " The app already shows that you are working, so between your one-line updates do not narrate each step, tool, file or search.";
+export const SCREENSHOTS_AND_STEERS_PROMPT =
+  " Screenshots you take are for you; do not describe them. When the person writes to you while you work, reply in a short line straight away, before your next tool call, then carry on.";
+export const QUIET_WORK_PROMPT = NO_NARRATION_PROMPT + SCREENSHOTS_AND_STEERS_PROMPT;
 export const MILESTONE_PROMPT =
   " Leave out time estimates unless the person asks how long something will take.";
 
@@ -28,7 +31,8 @@ export function withSteerNote(text: string): string {
   return `${text}\n\n${STEER_NOTE}`;
 }
 
-export function workUpdatesPrompt({ background = false, react = false }: { background?: boolean; react?: boolean; engine?: GuidanceEngine } = {}): string {
+export function workUpdatesPrompt({ background = false, react = false, engine }: { background?: boolean; react?: boolean; engine?: GuidanceEngine } = {}): string {
+  if (engine === "claude") return SCREENSHOTS_AND_STEERS_PROMPT + MILESTONE_PROMPT + (background ? BACKGROUND_WORK_PROMPT : "") + (react ? TAPBACK_PROMPT : "");
   return QUIET_WORK_PROMPT + MILESTONE_PROMPT + (background ? BACKGROUND_WORK_PROMPT + KEEP_GOING_WITH_BACKGROUND_PROMPT : KEEP_GOING_PROMPT) + (react ? TAPBACK_PROMPT : "");
 }
 
