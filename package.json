@@ -39,6 +39,7 @@
     "dev:loop": "node scripts/dev-loop.mjs",
     "build": "tsc -b && tsc -p tsconfig.server.json && vite build",
     "typecheck": "tsc -b && tsc -p tsconfig.server.json",
+    "gate": "node scripts/merge-gate.mjs",
     "test": "vitest run && pnpm broker:test && pnpm test:electron && pnpm test:packaged-server",
     "test:electron": "node --test --test-timeout=60000 --test-force-exit \"electron/*.node-test.mjs\"",
     "bench:observation": "node --experimental-strip-types scripts/bench-observation.ts",
