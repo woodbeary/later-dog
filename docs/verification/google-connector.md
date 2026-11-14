@@ -46,3 +46,44 @@ The isolated real home-server HTTP test passed: the public Google callback
 responds without a later.dog session, rejects an unissued state, and the
 capability-authenticated Google account listing works. Only this targeted index
 test ran (280 unrelated index tests skipped); total focused checks passed: 101.
+
+## later.dog's shared Google connection (item 33, 2026-11-14)
+
+A Cloud home with no client of its own now connects through later.dog's one
+Google client; the setup steps and release order are in
+[google-setup.md](../laterdog/google-setup.md).
+
+- Accounts Worker: `GET /google-oauth/callback` passes `state`, `code` and
+  `error` on to `https://<h + 24 hex><CLOUD_HOME_HOST_SUFFIX>/google-oauth/callback`
+  and nowhere else; `AccountsApi.googleClient()` and `googleToken()` hold the
+  only copy of the secret, add the fixed redirect address, cap each account at
+  500 calls a day, and log only a fixed message and an error code.
+- Worker in front of homes: `google.internal` answers `GET /client` and
+  `POST /token` for the home's own account only, behind a per-home key that a
+  home made before this change also gets, once.
+- Home server: the owner's own client still wins. Otherwise a Cloud home uses
+  the shared client: `state` starts with its machine ID, codes and refreshes go
+  through `google.internal`, and the account record keeps the `clientId` that
+  issued it. The home never sends, holds or logs a client secret on that path.
+
+Checked on the Linux cloud computer against fixtures and a fake Google, never a
+real Google account or a real home: `cloudflare/control-plane` 152 of 152 tests
+(13 new), `deploy/laterdog/home` 332 of 332 (12 new), and in `server/` the
+Google route, protocol, shared-connection and Cloud home tests plus a real home
+server started as a Cloud home whose dog connects, gets called back, and reads
+Gmail through a fake `google.internal` (26 Google tests, 1 end-to-end). Each new
+test was also run against a deliberately broken copy of the code it protects and
+failed there.
+
+Not proven: no real Google client exists yet, so no real consent, code exchange
+or refresh has run; no real accounts Worker, Worker in front of homes or home
+has run this code; the approval reaching a home that is asleep is unchanged and
+unproven (the dog's turn normally keeps it awake for the 15 minutes the approval
+is valid).
+
+Condition before later.dog asks Google to verify the app: the approval must
+return to the device that started it, or the owner must confirm on a page that
+names whose later.dog is being connected. Until then a person with a home of
+their own could send someone else an approval link and, if that person approved,
+read their Gmail; while the app is unverified Google warns about it on its own
+page, so this gives nobody more than a client of their own would.
