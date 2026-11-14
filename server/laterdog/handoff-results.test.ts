@@ -1,0 +1,198 @@
+import { mkdtempSync } from "node:fs";
+import { join } from "node:path";
+import { describe, expect, it, vi } from "vitest";
+import { RoomHandoffs, type RoomHandoff, type RoomHandoffHooks } from "../room-handoffs.ts";
+import type { HandoffRunResult } from "./long-work.ts";
+import { RESULT_MAX_WAIT_MS, RESULT_QUIET_MS, splitResults } from "./handoff-results.ts";
+import { removeTempDir } from "../testing/cleanup.ts";
+
+const lead = { botId: "lead", threadId: "lead-chat" };
+const helper = (name: string) => ({ botId: name, threadId: `${name}-chat` });
+const flush = () => new Promise<void>(resolve => setImmediate(resolve));
+
+interface Team {
+  engine: RoomHandoffs;
+  hooks: RoomHandoffHooks;
+  file: string;
+  clock: { at: number };
+  finish(name: string, text?: string): void;
+  wakes(): { fresh: string[]; earlier: string[]; out: string[] }[];
+  settle(): Promise<void>;
+}
+
+async function team(test: (t: Team) => Promise<void>) {
+  const dir = mkdtempSync(join(process.env.TMPDIR ?? "/tmp", "handoff-results-"));
+  const clock = { at: 1_000_000 };
+  const pending = new Map<string, (result: HandoffRunResult) => void>();
+  const wakes: { fresh: string[]; earlier: string[]; out: string[] }[] = [];
+  let engine!: RoomHandoffs;
+  const hooks: RoomHandoffHooks = {
+    validate: () => undefined, busy: () => false, report: vi.fn(), changed: () => {},
+    run: vi.fn(async (node: RoomHandoff, resumed: boolean) => {
+      if (node.botId === lead.botId && resumed) {
+        const split = splitResults(engine.awaited(node.id), node.startedAt);
+        wakes.push({ fresh: split.fresh.map(n => n.botId), earlier: split.earlier.map(n => n.botId), out: split.out.map(n => n.botId) });
+        return { ok: true, text: "acted on what came back" };
+      }
+      return new Promise<HandoffRunResult>(resolve => pending.set(node.botId, resolve));
+    }),
+  };
+  const file = join(dir, "handoffs.json");
+  engine = new RoomHandoffs(file, hooks, () => clock.at);
+  const settle = async () => { for (let i = 0; i < 6; i++) { engine.tick(); await flush(); } };
+  try {
+    await test({
+      engine, hooks, file, clock, settle, wakes: () => wakes,
+      finish: (name, text = `${name} result`) => { pending.get(name)?.({ ok: true, text }); pending.delete(name); },
+    });
+  } finally { await removeTempDir(dir); }
+}
+
+function sendThree(engine: RoomHandoffs) {
+  for (const name of ["pip", "quill", "rook"]) engine.enqueue(lead, "turn", undefined, helper(name), name, `Lane for ${name}`);
+  engine.sourceSettled("turn", true);
+}
+
+describe("a coordinator is given its helpers' results as they come back", () => {
+  it("wakes for the first results while a slow helper still works, then again for the slow one", () => team(async t => {
+    sendThree(t.engine);
+    await t.settle();
+    t.finish("pip"); await t.settle();
+    t.clock.at += 5_000;
+    t.finish("quill"); await t.settle();
+    expect(t.wakes()).toEqual([]);
+    t.clock.at += RESULT_QUIET_MS;
+    await t.settle();
+    expect(t.wakes()).toEqual([{ fresh: ["pip", "quill"], earlier: [], out: ["rook"] }]);
+    expect(t.engine.nodes.get("turn")?.status).toBe("waiting");
+    t.clock.at += 10 * RESULT_MAX_WAIT_MS;
+    await t.settle();
+    expect(t.wakes()).toHaveLength(1);
+    t.finish("rook"); await t.settle();
+    expect(t.wakes()).toEqual([
+      { fresh: ["pip", "quill"], earlier: [], out: ["rook"] },
+      { fresh: ["rook"], earlier: ["pip", "quill"], out: [] },
+    ]);
+    expect(t.engine.nodes.get("turn")?.status).toBe("completed");
+  }));
+
+  it("does not hold the first result back for longer than the longest wait while results keep trickling in", () => team(async t => {
+    const names = ["a1", "a2", "a3", "a4", "a5"];
+    for (const name of [...names, "rook"]) t.engine.enqueue(lead, "turn", undefined, helper(name), name, `Lane for ${name}`);
+    t.engine.sourceSettled("turn", true);
+    await t.settle();
+    const gap = RESULT_QUIET_MS - 3_000;
+    for (const name of names) {
+      t.finish(name); await t.settle();
+      if (name !== "a5") { t.clock.at += gap; await t.settle(); }
+    }
+    t.clock.at = 1_000_000 + RESULT_MAX_WAIT_MS - 1; await t.settle();
+    expect(t.wakes()).toEqual([]);
+    t.clock.at += 1; await t.settle();
+    expect(t.wakes()).toEqual([{ fresh: names, earlier: [], out: ["rook"] }]);
+  }));
+
+  it("waits for the coordinator's own turn to end, and gives it what arrived meanwhile in one turn", () => team(async t => {
+    let busy = true;
+    t.hooks.busy = node => node.botId === lead.botId && busy;
+    sendThree(t.engine);
+    await t.settle();
+    t.finish("pip"); await t.settle();
+    t.clock.at += RESULT_QUIET_MS; await t.settle();
+    t.finish("quill"); await t.settle();
+    t.clock.at += RESULT_MAX_WAIT_MS; await t.settle();
+    expect(t.wakes()).toEqual([]);
+    busy = false;
+    await t.settle();
+    expect(t.wakes()).toEqual([{ fresh: ["pip", "quill"], earlier: [], out: ["rook"] }]);
+  }));
+
+  it("lets the coordinator answer a result by sending that helper more work, and that result comes back too", () => team(async t => {
+    sendThree(t.engine);
+    const run = t.hooks.run;
+    t.hooks.run = vi.fn(async (node: RoomHandoff, resumed: boolean, signal: AbortSignal) => {
+      const first = node.botId === lead.botId && resumed && t.wakes().length === 0;
+      const done = run(node, resumed, signal);
+      if (first) t.engine.enqueue(lead, "unused", node.id, helper("pip"), "pip", "Fix the boundary case", false, true);
+      return done;
+    });
+    await t.settle();
+    t.finish("pip"); t.finish("quill"); await t.settle();
+    t.clock.at += RESULT_QUIET_MS; await t.settle();
+    expect(t.wakes()).toEqual([{ fresh: ["pip", "quill"], earlier: [], out: ["rook"] }]);
+    expect(t.engine.awaited("turn").map(n => n.botId)).toEqual(["pip", "quill", "rook", "pip"]);
+    t.finish("pip", "boundary fixed"); await t.settle();
+    t.clock.at += RESULT_QUIET_MS; await t.settle();
+    expect(t.wakes()[1]).toEqual({ fresh: ["pip"], earlier: ["pip", "quill"], out: ["rook"] });
+    t.finish("rook"); await t.settle();
+    expect(t.wakes()).toHaveLength(3);
+    expect(t.engine.nodes.get("turn")?.status).toBe("completed");
+  }));
+
+  it("keeps the still-working helpers going when the coordinator's results turn fails", () => team(async t => {
+    sendThree(t.engine);
+    const run = t.hooks.run;
+    t.hooks.run = vi.fn(async (node: RoomHandoff, resumed: boolean, signal: AbortSignal) =>
+      node.botId === lead.botId && resumed ? { ok: false, text: "engine error" } : run(node, resumed, signal));
+    await t.settle();
+    t.finish("pip"); t.finish("quill"); await t.settle();
+    t.clock.at += RESULT_QUIET_MS; await t.settle();
+    expect(t.engine.nodes.get("turn")?.status).toBe("waiting");
+    expect(t.engine.awaited("turn").find(n => n.botId === "rook")?.status).toBe("running");
+  }));
+
+  it("gives the same results again when a results turn times out and is tried once more", () => team(async t => {
+    sendThree(t.engine);
+    const run = t.hooks.run;
+    let timeouts = 0;
+    t.hooks.run = vi.fn(async (node: RoomHandoff, resumed: boolean, signal: AbortSignal) => {
+      if (node.botId === lead.botId && resumed && timeouts++ === 0) { t.clock.at += 1; return { ok: false, timedOut: true, text: "timed out" }; }
+      return run(node, resumed, signal);
+    });
+    await t.settle();
+    t.finish("pip"); t.finish("quill"); await t.settle();
+    t.clock.at += RESULT_QUIET_MS; await t.settle();
+    expect(t.wakes()).toEqual([{ fresh: ["pip", "quill"], earlier: [], out: ["rook"] }]);
+  }));
+
+  it("gives the results again after a restart cut the results turn short", () => team(async t => {
+    sendThree(t.engine);
+    const run = t.hooks.run;
+    t.hooks.run = vi.fn(async (node: RoomHandoff, resumed: boolean, signal: AbortSignal) =>
+      node.botId === lead.botId && resumed ? new Promise<HandoffRunResult>(() => {}) : run(node, resumed, signal));
+    await t.settle();
+    t.finish("pip"); t.finish("quill"); await t.settle();
+    t.clock.at += RESULT_QUIET_MS; await t.settle();
+    expect(t.engine.nodes.get("turn")?.status).toBe("running");
+    const wakes: string[][] = [];
+    const reloaded = new RoomHandoffs(t.file, { ...t.hooks, longWork: () => true,
+      run: vi.fn(async (node: RoomHandoff, resumed: boolean) => {
+        if (node.botId === lead.botId && resumed) wakes.push(splitResults(reloaded.awaited(node.id), node.startedAt).fresh.map(n => n.botId));
+        return new Promise<HandoffRunResult>(() => {});
+      }) }, () => t.clock.at);
+    t.clock.at += RESULT_QUIET_MS;
+    for (let i = 0; i < 4; i++) { reloaded.tick(); await flush(); }
+    expect(wakes).toEqual([["pip", "quill"]]);
+  }));
+
+  it("never wakes for results it did not ask for", () => team(async t => {
+    t.engine.enqueue(lead, "turn", undefined, helper("pip"), "pip", "FYI: the release is live", false, false, "", undefined, undefined, undefined, undefined, false, "none");
+    t.engine.enqueue(lead, "turn", undefined, helper("rook"), "rook", "Long lane");
+    t.engine.sourceSettled("turn", true);
+    await t.settle();
+    t.finish("pip"); await t.settle();
+    t.clock.at += 10 * RESULT_MAX_WAIT_MS; await t.settle();
+    expect(t.wakes()).toEqual([]);
+  }));
+
+  it("keeps a group chat's coordinator waiting for every result, as before", () => team(async t => {
+    const room = (botId: string) => ({ groupId: `${botId}-room`, threadId: `${botId}-room-chat`, botId });
+    t.engine.enqueue(room("lead"), "turn", undefined, room("pip"), "pip", "Lane for pip");
+    t.engine.enqueue(room("lead"), "turn", undefined, room("rook"), "rook", "Lane for rook");
+    t.engine.sourceSettled("turn", true);
+    await t.settle();
+    t.finish("pip"); await t.settle();
+    t.clock.at += 10 * RESULT_MAX_WAIT_MS; await t.settle();
+    expect(vi.mocked(t.hooks.run).mock.calls.filter(([node, resumed]) => node.botId === "lead" && resumed)).toHaveLength(0);
+  }));
+});
