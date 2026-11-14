@@ -109,6 +109,7 @@ Use only mapped, tested commands:
 - [Shared dictation language, November 10](dictation-language-2026-11-10.md)
 - [Google connector](google-connector.md)
 - [Pinned account routing, November 10](pinned-account-routing-2026-11-10.md)
+- [One model's limit and the real account limit, November 14](account-limits-2026-11-14.md)
 - [Rust, measured seam by seam, November 10](rust-seams.md)
 - [Decision and extraction model evaluation, November 10](decision-eval.md)
 - [Messages held while the home wakes, November 11](queue-held-sends.md)
