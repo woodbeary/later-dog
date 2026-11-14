@@ -116,11 +116,20 @@ describe("the guidance every dog gets", () => {
     expect(STAY_FREE).toMatch(/if waiting on something would keep you from answering the person/);
     expect(STAY_FREE).toMatch(/say in one line that it started, and stay available; you are woken when it finishes/);
     expect(STAY_FREE).toMatch(/Send follow-ups on the same work to the same helper, and do quick things yourself/);
-    expect(HELPER_BRIEF).toMatch(/the outcome, what is known, where to look and when to stop/);
-    expect(HELPER_BRIEF).toMatch(/only its last message comes back, so that message starts with done, partial or blocked/);
-    expect(HELPER_BRIEF).toMatch(/after two or three different failed attempts it stops and reports/);
+    expect(HELPER_BRIEF).not.toMatch(/one or two sentences/);
     expect(STOP_MEANS_STOP).toMatch(/stop your helpers and background commands first, and say it has stopped only when nothing is still running/);
     expect(PRECEDENCE).toBe("A tool's description says how to use it; these instructions say when.");
+  });
+
+  it("makes every dog with tools coordinate large work by itself: keep the judgment, hand off complete briefs, pick models by difficulty, check results", () => {
+    const sentences = HELPER_BRIEF.split(/(?<=\.) /);
+    expect(sentences).toHaveLength(4);
+    expect(sentences[0]).toMatch(/^Coordinate large work yourself: keep the planning and the judgment, and hand each well-defined part to a helper or another dog with everything it needs to finish alone: the goal, the context with exact names and values, the steps, the constraints, the form of the answer and what done means\.$/);
+    expect(sentences[1]).toBe("It cannot ask the person anything and only its last message reaches you.");
+    expect(sentences[2]).toMatch(/hard judgment to the strongest model and well-defined execution to a cheaper capable one, never the smallest for real work/);
+    expect(sentences[3]).toBe("Check what comes back before you rely on it.");
+    expect(HELPER_BRIEF).not.toMatch(/\b(may|can|allowed|permitted)\b(?! ask)/);
+    for (const engine of ["claude", "codex", "other"] as const) expect(dogGuidance({ engine, agents: true, model: "x" })).toContain(HELPER_BRIEF);
   });
 
   it("asks with a card, takes a no as final and sends exactly what was asked", () => {
