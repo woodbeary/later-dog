@@ -21,9 +21,13 @@ names out; the attribution the licence requires stays in NOTICE.
 
 Work in progress, its gates, and how to resume any lane: [`docs/laterdog/finish-line.md`](docs/laterdog/finish-line.md). Read it before starting.
 
-Nothing merges to `main` until `pnpm gate` (`scripts/merge-gate.mjs`: typecheck, lint, the
-whole suite in eight parts, the edge tests) ends with `VERDICT: PASS` on the branch with the
-latest `main` merged in. Focused tests alone never qualify a merge.
+Nothing merges to `main` until a complete `pnpm gate` run (`scripts/merge-gate.mjs`) ends with
+`VERDICT: PASS` on a clean checkout of the branch with the freshly fetched `origin/main` merged
+in. The gate runs typecheck, lint, the desktop node tests, the broker tests, the packaged-server
+check, the vitest suite in eight parts, and the tests in `deploy/laterdog/home`,
+`cloudflare/control-plane` and `deploy/laterdog/computers`. A `--only` run is PARTIAL and never
+qualifies; a test set named in `LATERDOG_GATE_UNAVAILABLE` stays listed on the verdict line.
+Focused tests alone never qualify a merge.
 
 Before claiming a server or conversation change works, follow
 [`docs/verification/README.md`](docs/verification/README.md). Always launch an

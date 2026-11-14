@@ -15,10 +15,17 @@ const failing = " FAIL  server/b.test.ts > b > breaks\nAssertionError\n FAIL  se
 const shard = { name: "suite 1/8", kind: "vitest", command: [] };
 
 describe("merge gate verdict", () => {
-  it("runs typecheck, lint, the desktop app's node tests, eight suite parts and the edge tests, in that order", () => {
-    expect(gateSteps().find((step) => step.name === "electron")).toMatchObject({ kind: "check", command: ["pnpm", "test:electron"] });
-    expect(gateSteps().map((step) => step.name)).toEqual(["typecheck", "lint", "electron", ...Array.from({ length: 8 }, (_, index) => `suite ${index + 1}/8`), "edge"]);
-    expect(gateSteps().at(-1)).toMatchObject({ cwd: "deploy/laterdog/home", command: ["pnpm", "exec", "vitest", "run"] });
+  it("runs every test set in the repository, in this order", () => {
+    expect(gateSteps().map((step) => step.name)).toEqual(["typecheck", "lint", "electron", "broker", "packaged-server", ...Array.from({ length: 8 }, (_, index) => `suite ${index + 1}/8`), "edge", "control-plane", "computers"]);
+    const step = (name: string) => gateSteps().find((candidate) => candidate.name === name);
+    expect(step("electron")).toMatchObject({ kind: "check", command: ["pnpm", "test:electron"] });
+    expect(step("broker")).toMatchObject({ kind: "vitest", command: ["pnpm", "exec", "vitest", "run", "--config", "cloudflare/composio-broker/vitest.config.ts"] });
+    expect(step("packaged-server")).toMatchObject({ kind: "check", command: ["pnpm", "test:packaged-server"] });
+    for (const [name, cwd] of [["edge", "deploy/laterdog/home"], ["control-plane", "cloudflare/control-plane"], ["computers", "deploy/laterdog/computers"]]) {
+      expect(step(name)).toMatchObject({ kind: "vitest", cwd, needs: `${cwd}/node_modules`, command: ["pnpm", "exec", "vitest", "run"] });
+    }
+    const pkg = JSON.parse(readFileSync(join(repoRoot, "package.json"), "utf8"));
+    expect(pkg.scripts.test).toBe("vitest run && pnpm broker:test && pnpm test:electron && pnpm test:packaged-server");
   });
 
   it("names each failing test file once and reads the counts", () => {
@@ -56,9 +63,9 @@ describe("merge gate verdict", () => {
 
   it("passes only when every step passed and at least one ran", () => {
     const clean = recorded("stray.json", "/repo");
-    expect(verdict([])).toEqual({ pass: false, label: "FAIL", failing: [], skippedNoBrowser: [] });
+    expect(verdict([])).toEqual({ pass: false, label: "FAIL", failing: [], skippedNoBrowser: [], notRun: [] });
     expect(verdict([judgeStep(shard, 0, passing, clean)], { partial: true })).toMatchObject({ pass: false, label: "PARTIAL" });
-    expect(verdict([judgeStep(shard, 0, passing, clean)])).toEqual({ pass: true, label: "PASS", failing: [], skippedNoBrowser: [] });
+    expect(verdict([judgeStep(shard, 0, passing, clean)])).toEqual({ pass: true, label: "PASS", failing: [], skippedNoBrowser: [], notRun: [] });
     const report = formatVerdict([judgeStep(shard, 0, passing, clean), judgeStep({ ...shard, name: "suite 2/8" }, 1, failing, clean)]);
     expect(report).toContain("VERDICT: FAIL");
     expect(report.split("Failing:\n")[1]).toBe("  server/b.test.ts\n  src/c.test.ts");
@@ -95,8 +102,8 @@ describe("merge gate exit code", () => {
   const dirs: string[] = [];
   afterEach(() => { for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true }); });
 
-  interface Setup { failOn?: string; env?: Record<string, string>; edgeDeps?: boolean; before?: (repo: string, git: (cwd: string, ...args: string[]) => void, origin: string) => void }
-  const gate = (args: string[], { failOn = "", env = {}, edgeDeps = true, before }: Setup = {}) => {
+  interface Setup { failOn?: string; env?: Record<string, string>; deps?: string[]; before?: (repo: string, git: (cwd: string, ...args: string[]) => void, origin: string) => void }
+  const gate = (args: string[], { failOn = "", env = {}, deps = ["deploy/laterdog/home", "cloudflare/control-plane", "deploy/laterdog/computers"], before }: Setup = {}) => {
     const dir = mkdtempSync(join(tmpdir(), "laterdog-gate-test-"));
     dirs.push(dir);
     const origin = join(dir, "origin.git");
@@ -108,7 +115,7 @@ describe("merge gate exit code", () => {
     git(repo, "add", ".gitignore");
     git(repo, "commit", "-q", "-m", "start");
     git(repo, "push", "-q", "origin", "HEAD:main");
-    if (edgeDeps) mkdirSync(join(repo, "deploy/laterdog/home/node_modules"), { recursive: true });
+    for (const dep of deps) mkdirSync(join(repo, dep, "node_modules"), { recursive: true });
     before?.(repo, git, origin);
     const fake = join(dir, "fake.mjs");
     writeFileSync(fake, `const require = (await import("node:module")).createRequire(import.meta.url);
@@ -118,11 +125,11 @@ const out = process.argv.find((word) => word.startsWith("--outputFile.json="))?.
 const skip = words.includes("--shard=2/8") && process.env.FAKE_NO_BROWSER;
 if (out) require("node:fs").writeFileSync(out, (skip ? ${JSON.stringify(JSON.stringify(recorded("skip.json", "<cwd>")))} : ${JSON.stringify(JSON.stringify(recorded("stray.json", "<cwd>")))}).replaceAll("<cwd>", process.cwd()));
 if (words.includes("typecheck") && process.env.FAKE_TYPE_ERROR) console.log("src/a.ts(1,1): error TS2322: no");
-console.log(words.includes("vitest") ? ${JSON.stringify(passing)} : words.includes("test:electron") ? "ℹ tests 3\\nℹ fail 0" : "checked");
+console.log(words.includes("vitest") ? ${JSON.stringify(passing)} : words.includes("test:electron") ? "ℹ tests 3\\nℹ fail 0" : words.includes("test:packaged-server") ? "packaged backup worker exported an encrypted archive ✓" : "checked");
 `);
     return spawnSync(process.execPath, [script, ...args], {
       cwd: repo, encoding: "utf8",
-      env: { ...process.env, LATERDOG_GATE_NO_BROWSER: "", LATERDOG_GATE_WRAP: `${process.execPath} ${fake}`, LATERDOG_GATE_OFFLINE: "", LATERDOG_GATE_LOGS: join(dir, "logs"), ...env },
+      env: { ...process.env, LATERDOG_GATE_NO_BROWSER: "", LATERDOG_GATE_WRAP: `${process.execPath} ${fake}`, LATERDOG_GATE_OFFLINE: "", LATERDOG_GATE_UNAVAILABLE: "", LATERDOG_GATE_LOGS: join(dir, "logs"), ...env },
     });
   };
 
@@ -171,10 +178,22 @@ console.log(words.includes("vitest") ? ${JSON.stringify(passing)} : words.includ
     expect(run.status).toBe(1);
   });
 
-  it("fails the edge step when its dependencies are not installed", () => {
-    const run = gate([], { edgeDeps: false });
-    expect(run.stdout).toContain("FAIL edge exit 1");
-    expect(run.status).toBe(1);
+  it("fails a test set whose dependencies are missing, unless it is named as unavailable here, and then lists it on the verdict line", () => {
+    const missing = gate([], { deps: ["deploy/laterdog/home", "cloudflare/control-plane"] });
+    expect(missing.stdout).toContain("FAIL computers exit 1");
+    expect(missing.status).toBe(1);
+    const named = gate([], { deps: ["deploy/laterdog/home", "cloudflare/control-plane"], env: { LATERDOG_GATE_UNAVAILABLE: "computers" } });
+    expect(named.stdout).toContain("skip computers  not run here");
+    expect(named.stdout).toMatch(/VERDICT: PASS {2}head \w+, origin\/main \w+ \(not run here on purpose: computers\)\n/);
+    expect(named.status).toBe(0);
+    const present = gate([], { env: { LATERDOG_GATE_UNAVAILABLE: "computers" } });
+    expect(present.stdout).toContain("ok   computers exit 0");
+    expect(present.stdout).not.toContain("not run here on purpose");
+    for (const name of ["suite 1/8", "nosuchstep"]) {
+      const refused = gate([], { env: { LATERDOG_GATE_UNAVAILABLE: name } });
+      expect(refused.stderr).toContain("LATERDOG_GATE_UNAVAILABLE names");
+      expect(refused.status).toBe(2);
+    }
   });
 
   it("fetches origin main first and fails when it moved past the branch", () => {

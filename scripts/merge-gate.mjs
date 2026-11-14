@@ -6,16 +6,22 @@ import { fileURLToPath } from "node:url";
 
 export const SHARDS = 8;
 export const EDGE_DIR = "deploy/laterdog/home";
+export const CONTROL_PLANE_DIR = "cloudflare/control-plane";
+export const COMPUTERS_DIR = "deploy/laterdog/computers";
 
 export function gateSteps(shards = SHARDS) {
   return [
     { name: "typecheck", kind: "check", command: ["pnpm", "typecheck"], refuse: [/error TS\d+/] },
     { name: "lint", kind: "check", command: ["pnpm", "lint"], refuse: [/Found (?:[1-9]\d* warnings?|\d+ warnings? and [1-9]\d* errors?)/] },
     { name: "electron", kind: "check", command: ["pnpm", "test:electron"], expect: [/^ℹ tests [1-9]/m], refuse: [/^ℹ fail [1-9]/m] },
+    { name: "broker", kind: "vitest", command: ["pnpm", "exec", "vitest", "run", "--config", "cloudflare/composio-broker/vitest.config.ts"] },
+    { name: "packaged-server", kind: "check", command: ["pnpm", "test:packaged-server"], expect: [/packaged backup worker exported an encrypted archive/] },
     ...Array.from({ length: shards }, (_, index) => ({
       name: `suite ${index + 1}/${shards}`, kind: "vitest", command: ["pnpm", "exec", "vitest", "run", `--shard=${index + 1}/${shards}`],
     })),
     { name: "edge", kind: "vitest", cwd: EDGE_DIR, needs: join(EDGE_DIR, "node_modules"), command: ["pnpm", "exec", "vitest", "run"] },
+    { name: "control-plane", kind: "vitest", cwd: CONTROL_PLANE_DIR, needs: join(CONTROL_PLANE_DIR, "node_modules"), command: ["pnpm", "exec", "vitest", "run"] },
+    { name: "computers", kind: "vitest", cwd: COMPUTERS_DIR, needs: join(COMPUTERS_DIR, "node_modules"), command: ["pnpm", "exec", "vitest", "run"] },
   ];
 }
 
@@ -29,6 +35,17 @@ export function selectSteps(steps, argv) {
   const unknown = names.filter((name) => !steps.some((step) => matches(name, step)));
   if (!names.length || unknown.length) return { error: `unknown step${unknown.length === 1 ? "" : "s"}: ${unknown.join(", ") || value}; steps are ${steps.map((step) => step.name).join(", ")}, or suite for all its parts` };
   return { steps: steps.filter((step) => names.some((name) => matches(name, step))), partial: true };
+}
+
+export function unavailableFrom(value, steps) {
+  const names = (value ?? "").split(",").map((name) => name.trim()).filter(Boolean);
+  const unknown = names.filter((name) => !steps.some((step) => step.name === name && step.needs));
+  if (unknown.length) return { error: `LATERDOG_GATE_UNAVAILABLE names ${unknown.join(", ")}, which is not a step that needs its own dependencies (${steps.filter((step) => step.needs).map((step) => step.name).join(", ")})` };
+  return { names: new Set(names) };
+}
+
+export function notRunHere(step) {
+  return { ...step, code: null, failed: false, failing: [], skippedNoBrowser: [], notRun: true, note: `not run here: ${step.needs} is missing and LATERDOG_GATE_UNAVAILABLE names it` };
 }
 
 export function wrapperFrom(value) {
@@ -116,9 +133,10 @@ export function judgeStep(step, code, log, report = null, root = "") {
 export function verdict(results, { noBrowser = false, partial = false } = {}) {
   const failing = [...new Set(results.flatMap((result) => result.failing))];
   const skippedNoBrowser = [...new Set(results.flatMap((result) => result.skippedNoBrowser ?? []))];
-  const clean = results.length > 0 && failing.length === 0 && (noBrowser || skippedNoBrowser.length === 0);
+  const notRun = results.filter((result) => result.notRun).map((result) => result.name);
+  const clean = results.some((result) => result.kind !== "base" && !result.notRun) && failing.length === 0 && (noBrowser || skippedNoBrowser.length === 0);
   const label = !clean ? "FAIL" : partial ? "PARTIAL" : "PASS";
-  return { pass: label === "PASS", label, failing, skippedNoBrowser };
+  return { pass: label === "PASS", label, failing, skippedNoBrowser, notRun };
 }
 
 export function exitCode(label) {
@@ -126,13 +144,14 @@ export function exitCode(label) {
 }
 
 export function formatVerdict(results, options = {}) {
-  const { label, failing, skippedNoBrowser } = verdict(results, options);
-  const lines = results.map((result) => `${result.failed ? "FAIL" : "ok  "} ${result.name} exit ${result.code}${result.note ? `  ${result.note}` : ""}`);
+  const { label, failing, skippedNoBrowser, notRun } = verdict(results, options);
+  const lines = results.map((result) => result.notRun ? `skip ${result.name}  ${result.note}` : `${result.failed ? "FAIL" : "ok  "} ${result.name} exit ${result.code}${result.note ? `  ${result.note}` : ""}`);
   if (skippedNoBrowser.length) {
     lines.push(`Skipped without a browser: ${skippedNoBrowser.length}${options.noBrowser ? " (allowed by LATERDOG_GATE_NO_BROWSER)" : " (set LATERDOG_GATE_NO_BROWSER=1 only on a machine meant to have none)"}`, ...skippedNoBrowser.map((name) => `  ${name}`));
   }
   const commits = options.commits ? `  head ${options.commits.head}, ${BASE} ${options.commits.base}${options.commits.offline ? " (offline: origin/main not fetched)" : ""}` : "";
-  lines.push(`VERDICT: ${label}${commits}${label === "PARTIAL" ? ` (ran only: ${results.filter((result) => result.kind !== "base").map((result) => result.name).join(", ")}; a merge needs the whole gate)` : ""}`);
+  const skipped = notRun.length ? ` (not run here on purpose: ${notRun.join(", ")})` : "";
+  lines.push(`VERDICT: ${label}${commits}${skipped}${label === "PARTIAL" ? ` (ran only: ${results.filter((result) => result.kind !== "base").map((result) => result.name).join(", ")}; a merge needs the whole gate)` : ""}`);
   if (failing.length) lines.push("Failing:", ...failing.map((name) => `  ${name}`));
   return lines.join("\n");
 }
@@ -168,7 +187,7 @@ function runStep(root, step, wrapper, logFile, reportPath) {
     const cwd = step.cwd ? join(root, step.cwd) : root;
     const out = createWriteStream(logFile);
     if (step.needs && !existsSync(join(root, step.needs))) {
-      out.end(`${step.needs} is missing: install the dependencies in ${step.cwd} first\n`, () => done(1));
+      out.end(`${step.needs} is missing: install the dependencies in ${step.cwd}, or name ${step.name} in LATERDOG_GATE_UNAVAILABLE on a machine meant to go without it\n`, () => done(1));
       return;
     }
     const [command, ...args] = [...wrapper, ...step.command, ...(step.kind === "vitest" ? ["--reporter=default", "--reporter=json", `--outputFile.json=${reportPath}`] : [])];
@@ -193,6 +212,11 @@ async function main() {
     console.error(`merge gate: ${chosen.error}`);
     process.exit(2);
   }
+  const unavailable = unavailableFrom(process.env.LATERDOG_GATE_UNAVAILABLE, gateSteps());
+  if (unavailable.error) {
+    console.error(`merge gate: ${unavailable.error}`);
+    process.exit(2);
+  }
   const options = { noBrowser: process.env.LATERDOG_GATE_NO_BROWSER === "1", partial: chosen.partial };
   const logs = resolve(process.env.LATERDOG_GATE_LOGS || join(tmpdir(), `laterdog-gate-${Date.now()}`));
   mkdirSync(logs, { recursive: true });
@@ -205,6 +229,12 @@ async function main() {
   console.log(`${merged.log}`);
   for (const [index, step] of chosen.steps.entries()) {
     const logFile = join(logs, `${String(index + 1).padStart(2, "0")}-${step.name.replace(/[^a-z0-9]+/gi, "-")}.log`);
+    if (step.needs && unavailable.names.has(step.name) && !existsSync(join(root, step.needs))) {
+      const skipped = notRunHere(step);
+      results.push(skipped);
+      console.log(`skip ${step.name}  ${skipped.note}`);
+      continue;
+    }
     const stepStarted = Date.now();
     const reportPath = logFile.replace(/\.log$/, ".json");
     const code = await runStep(root, step, wrapper, logFile, reportPath);
