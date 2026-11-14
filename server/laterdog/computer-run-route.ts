@@ -15,7 +15,7 @@ export interface ComputerRunRequest {
 
 export interface ComputerRunDeps {
   runs: ComputerRuns;
-  computer(botId: string, options?: { repository?: string; wanted?: () => boolean; budgetMs?: number }): Promise<{ box: RunBox }>;
+  computer(botId: string, options?: { repository?: string; wanted?: () => boolean; budgetMs?: number; fresh?: boolean }): Promise<{ box: RunBox }>;
   repositoryOf?(folder: string): string | null;
   now?(): number;
 }
@@ -80,7 +80,8 @@ export async function handleComputerRun(request: ComputerRunRequest, deps: Compu
     const repository = record ? null : (deps.repositoryOf ?? repositoryOf)(folder);
     const now = deps.now ?? Date.now;
     const started = now();
-    const computer = await deps.computer(request.botId, { ...(repository ? { repository } : {}), ...(request.active ? { wanted: request.active } : {}), budgetMs: WAIT_IN_ONE_CALL_MS });
+    const fresh = !record && request.body.fresh === true;
+    const computer = await deps.computer(request.botId, { ...(repository ? { repository } : {}), ...(request.active ? { wanted: request.active } : {}), ...(fresh ? { fresh } : {}), budgetMs: WAIT_IN_ONE_CALL_MS });
     if (request.active && !request.active()) return { status: 409, error: ENDED_TEXT };
     const left = () => started + WAIT_IN_ONE_CALL_MS - now();
     const outcome = record

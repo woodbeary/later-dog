@@ -395,6 +395,7 @@ const TOOL_DEFINITIONS = [
       folder: { type: "string", description: "Absolute project folder here, e.g. /data/site. Default: your working folder." },
       subdir: { type: "string", description: "Subfolder of folder to run in." },
       run_id: { type: "string", description: "Keep waiting for a run still going." },
+      fresh: { type: "boolean", description: "Only after your cloud computer did not start: replace it with a new one, then run. Your folders here are kept." },
     } },
   },
   {

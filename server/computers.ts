@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 
 import * as boat from "./boat.ts";
 import { cloudComputerStartBudgetMs } from "./laterdog/cloud-start.ts";
+import { createStartWatch, didNotStart } from "./laterdog/computer-start.ts";
 import type { BoatIdentityInspection, ManagedBoatInventory, ManagedBoatInventoryInstance, ManagedBoatMutationClaim, ManagedBoatOwner } from "./boat.ts";
 import { DATA_DIR, type AppConfig } from "./config.ts";
 import { loadEnvironmentId } from "./environment.ts";
@@ -451,23 +452,41 @@ export async function inspectBoatIdentity(cfg: AppConfig, boxId: string): Promis
   return { available: true, identity: computer ? { boxId: computer.id, name: computer.name, state: asBoatState(computer.state) } : null, problem: null };
 }
 
-export async function heavyRunBox(botId: string, options: { repository?: string; wanted?: () => boolean; budgetMs?: number } = {}): Promise<{ box: RunBox }> {
+const starts = createStartWatch(() => cloudComputerStartBudgetMs());
+
+async function replaceOwn(client: ComputersClient, computer: OwnComputer): Promise<void> {
+  try { await client.remove(computer.id); }
+  catch (error) { throw refusal(error, "the cloud computer that did not start could not be replaced: "); }
+  forget(computer.id);
+  starts.settled(computer.id);
+  console.info(`cloud computer ${computer.id}: replaced after it did not start`);
+}
+
+export async function heavyRunBox(botId: string, options: { repository?: string; wanted?: () => boolean; budgetMs?: number; fresh?: boolean } = {}): Promise<{ box: RunBox }> {
   if (!computersSelected()) throw Object.assign(new Error("Cloud computers are not set up here, so run it in your own folder instead."), { status: 409 });
   const client = ownClient();
-  const computer = await findOwn(client, botId) ?? await createOwn(client, botId, ownName(botId), undefined, options.repository);
+  const found = await findOwn(client, botId);
+  const failed = found !== null && (found.state === "error" || (found.state === "starting" && starts.spent(found.id)));
+  if (found && failed && options.fresh) await replaceOwn(client, found);
+  const computer = (failed && options.fresh ? null : found) ?? await createOwn(client, botId, ownName(botId), undefined, options.repository);
   const entry = computer.state;
-  if (entry === "error") throw new Error("your cloud computer reported an error while starting, so it was not woken again; wake it from its computer settings, then try again");
+  if (entry === "error") throw didNotStart((await client.get(computer.id).catch(() => null))?.error);
   if (entry === "unknown") throw new Error("your cloud computer is in a state later.dog does not know, so it was not woken and nothing was run");
+  if (entry === "starting" && starts.spent(computer.id)) throw didNotStart();
+  if (entry === "archived") starts.waking(computer.id);
+  else if (entry === "starting") starts.starting(computer.id);
   const startBudgetMs = cloudComputerStartBudgetMs();
-  const budgetMs = Math.min(options.budgetMs ?? startBudgetMs, startBudgetMs);
+  const budgetMs = Math.max(1, Math.min(options.budgetMs ?? startBudgetMs, startBudgetMs, starts.leftMs(computer.id)));
   const wanted = options.wanted ?? (() => true);
   const ready = await waitRunning(client, computer.id, budgetMs, options.repository, { wanted });
   if (!ready) {
     const current = wanted() ? await client.get(computer.id).catch(() => null) : null;
     const state = current ? asBoatState(current.state) : "unknown";
-    if (state === "starting" && budgetMs < startBudgetMs) throw Object.assign(new Error("your cloud computer is still starting, so nothing was run yet"), { code: "still_starting" });
-    throw new Error(state === "error" ? "your cloud computer did not start; it reported an error while starting" : `your cloud computer did not start within ${Math.round(budgetMs / 1000)} seconds; try again in a minute`);
+    if (state === "starting" && !starts.spent(computer.id)) throw Object.assign(new Error("your cloud computer is still starting, so nothing was run yet"), { code: "still_starting" });
+    if (state === "starting" || state === "error") throw didNotStart(current?.error);
+    throw new Error(`your cloud computer did not start within ${Math.round(budgetMs / 1000)} seconds; try again in a minute`);
   }
+  starts.settled(computer.id);
   const box: RunBox = {
     exec: (command, timeoutMs) => runOwn(client, ready.id, command, { timeoutMs }),
     write: (path, bytes) => client.writeFile(ready.id, path, bytes),

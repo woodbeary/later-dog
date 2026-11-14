@@ -124,6 +124,18 @@ describe("starting the computer inside one run_on_computer call", () => {
     expect(runs.calls).toEqual([]);
   });
 
+  it("asks for a fresh computer only when the dog passes fresh: true for a new command, never when it continues a run", async () => {
+    const root = home();
+    const asked: Array<{ fresh?: boolean }> = [];
+    const computer = async (_botId: string, options?: { fresh?: boolean }) => { asked.push(options?.fresh ? { fresh: options.fresh } : {}); return { box: {} as never }; };
+    const folder = join(root, "site");
+    const request = (body: Record<string, unknown>) => ({ botId: "dog", body, workingFolder: null, allowedRoots: [root], home: root });
+    await handleComputerRun(request({ command: "pnpm test", folder, fresh: true }), { runs: fakeRuns(outcome("finished")).runs, computer, repositoryOf: () => null });
+    await handleComputerRun(request({ command: "pnpm test", folder, fresh: "yes" }), { runs: fakeRuns(outcome("finished")).runs, computer, repositoryOf: () => null });
+    await handleComputerRun(request({ run_id: "abcd1234", fresh: true }), { runs: fakeRuns(outcome("finished"), { id: "abcd1234", folder } as Partial<RunRecord>).runs, computer });
+    expect(asked).toEqual([{ fresh: true }, {}, {}]);
+  });
+
   it.each([[0, WAIT_IN_ONE_CALL_MS], [200_000, WAIT_IN_ONE_CALL_MS - 200_000], [239_000, 1_000]])("after %i ms of startup, leaves %i ms of the call's window for sending and the command", async (startupMs, waitMs) => {
     const root = home();
     let at = 1_000_000;
