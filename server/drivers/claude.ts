@@ -2402,11 +2402,11 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
           const live = sessions.get(threadId);
           return live && !live.closing ? live.contextAsk.ask() : { kind: "none" };
         },
-        compactionSigns: async (threadId) => {
+        compactionSigns: async (threadId, taskFolder) => {
           const env = environment();
           const read = (path: string): unknown => { try { return JSON.parse(readFileSync(path, "utf8")); } catch { return undefined; } };
           const inherited = inheritsUserConfig(env) ? read(join(resolveClaudeConfigDir(undefined, env), "settings.json")) : undefined;
-          const folder = threadId ? workFolders.get(threadId) : undefined;
+          const folder = taskFolder ?? (threadId ? workFolders.get(threadId) : undefined);
           const project = folder ? read(join(folder, ".claude", "settings.json")) : undefined;
           return {
             switchedOff: claudeCompactionSwitchedOff(env, inherited) || claudeCompactionSwitchedOff({}, project),
