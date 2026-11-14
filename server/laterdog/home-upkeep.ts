@@ -1,6 +1,6 @@
-import { basename } from "node:path";
+import { basename, join } from "node:path";
 import { chatTempName, chatTempRoot, sweepChatTemps, tidyChatTemp, usedBy, type ChatTempSweep } from "./chat-temp.ts";
-import { startDiskLadder } from "./disk-ladder.ts";
+import { fileLadderStore, startDiskLadder } from "./disk-ladder.ts";
 import { openPaths, readHomeProcesses } from "./home-processes.ts";
 import { diskUse, type WorkspaceTask } from "./janitor.ts";
 import { readProcesses } from "./process-reaper.ts";
@@ -44,5 +44,6 @@ export function startHomeUpkeep(deps: HomeUpkeepDeps): void {
     sweepTemp: () => sweepChatTemps(root, liveTempSweep(deps.atWork)),
     pruneCaches: () => pruneCaches({ home: deps.home }).freed,
     log,
+    store: fileLadderStore(join(deps.dataDir, "disk-ladder.json")),
   });
 }
