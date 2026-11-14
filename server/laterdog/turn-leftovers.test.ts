@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { homeAncestors, markIn, openPaths, readHomeProcesses, type HomeProcess } from "./home-processes.ts";
-import { endLeftovers, leftoverRoots, leftoversLine } from "./turn-leftovers.ts";
+import { endLeftovers, LEFTOVER_MODE, leftoverRoots, leftoversLine } from "./turn-leftovers.ts";
 import { turnUpkeep } from "./turn-upkeep.ts";
 import { chatEngineEnvironment } from "./chat-environment.ts";
 
@@ -32,14 +32,39 @@ function home(): HomeProcess[] {
 function run(all: HomeProcess[], reread: (pid: number) => HomeProcess | null = (pid) => all.find((p) => p.pid === pid) ?? null) {
   const signals: [number, string][] = [];
   let firm: (() => void) | null = null;
-  const ended = endLeftovers({ mark: "chat-a", processes: () => all, reread, signal: (pid, sig) => signals.push([pid, sig]), later: (go) => { firm = go; }, self: SERVER });
+  const ended = endLeftovers({ mark: "chat-a", mode: "act", processes: () => all, reread, signal: (pid, sig) => signals.push([pid, sig]), later: (go) => { firm = go; }, self: SERVER });
   return { ended, signals, firm: () => firm?.() };
 }
+
+describe("watching what a turn leaves running, before acting on it", () => {
+  it("ships observing", () => {
+    expect(LEFTOVER_MODE).toBe("observe");
+  });
+
+  it("finds the same processes it would stop, and stops nothing", () => {
+    const all = home();
+    const signals: [number, string][] = [];
+    let later = false;
+    const seen = endLeftovers({ mark: "chat-a", processes: () => all, reread: () => { throw new Error("reread"); }, signal: (pid, sig) => signals.push([pid, sig]), later: () => { later = true; }, self: SERVER });
+    expect(seen.map((p) => p.pid)).toEqual([40, 41, 42]);
+    expect(signals).toEqual([]);
+    expect(later).toBe(false);
+  });
+
+  it("says what it would stop, by pid and program only, never the arguments, at most ten", () => {
+    const many = Array.from({ length: 12 }, (_, at) => proc(100 + at, 1, `/usr/local/bin/node server.js --token=sekrit${at}`, "chat-a"));
+    const line = leftoversLine("chat-a-long-id", many, "observe");
+    expect(line).toBe(`laterdog home: chat chat-a-l finished its turn; would stop 12 process(es) it left running: ${many.slice(0, 10).map((p) => `${p.pid} node`).join(", ")} and 2 more`);
+    expect(line).not.toContain("sekrit");
+    expect(line).not.toContain("server.js");
+    expect(leftoversLine("chat-a-long-id", [proc(40, 1, "node dev-server.mjs", "chat-a")], "act")).toBe("laterdog home: chat chat-a-l finished its turn; stopped 1 process(es) it left running: 40 node");
+  });
+});
 
 describe("what a turn leaves running on the home", () => {
   it("ends a process the chat started that is no longer under its engine, with everything under it", () => {
     const { ended, signals, firm } = run(home());
-    expect(ended.map((p) => p.pid)).toEqual([40]);
+    expect(ended.map((p) => p.pid)).toEqual([40, 41, 42]);
     expect(signals).toEqual([[40, "SIGTERM"], [41, "SIGTERM"], [42, "SIGTERM"]]);
     firm();
     expect(signals.slice(3)).toEqual([[40, "SIGKILL"], [41, "SIGKILL"], [42, "SIGKILL"]]);
@@ -88,8 +113,8 @@ describe("what a turn leaves running on the home", () => {
   });
 
   it("names what it stopped in one log line", () => {
-    const line = leftoversLine("chat-a-long-id", [proc(40, 1, "node   dev-server.mjs", "chat-a")]);
-    expect(line).toBe('laterdog home: chat chat-a-l finished its turn; stopped 1 process(es) it left running: "node dev-server.mjs" (pid 40)');
+    const line = leftoversLine("chat-a-long-id", [proc(40, 1, "/usr/bin/node   dev-server.mjs", "chat-a")], "act");
+    expect(line).toBe("laterdog home: chat chat-a-l finished its turn; stopped 1 process(es) it left running: 40 node");
   });
 });
 
@@ -101,6 +126,7 @@ describe("after a turn ends", () => {
     const listen = turnUpkeep({
       atWork: () => atWork,
       endLeftovers: (mark) => { swept.push(mark); return [proc(40, 1, "node dev-server.mjs", mark)]; },
+      mode: "act",
       log: (line) => lines.push(line),
       later: (go) => queued.push(go),
     });
@@ -140,6 +166,7 @@ describe("after a turn ends", () => {
       atWork: () => work.shift() ?? false,
       endLeftovers: (mark) => { order.push("processes"); return [proc(40, 1, "node dev-server.mjs", mark)]; },
       emptyTemp: (threadId) => order.push(`temp ${threadId}`),
+      mode: "act",
       log: () => {},
       later: (go, ms) => { delays.push(ms); queued.push(go); },
     });

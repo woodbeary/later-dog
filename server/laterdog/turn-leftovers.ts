@@ -11,8 +11,13 @@ export function leftoverRoots(mark: string, all: readonly HomeProcess[], self: n
     && byPid.get(proc.ppid)?.mark !== mark);
 }
 
+export type LeftoverMode = "observe" | "act";
+
+export const LEFTOVER_MODE: LeftoverMode = "observe";
+
 export interface LeftoverDeps {
   mark: string;
+  mode?: LeftoverMode;
   processes?: () => HomeProcess[];
   reread?: (pid: number) => HomeProcess | null;
   signal?: (pid: number, signal: NodeJS.Signals) => void;
@@ -30,6 +35,7 @@ export function endLeftovers(deps: LeftoverDeps): HomeProcess[] {
   const targets = withDescendants(roots.map((proc) => proc.pid), all)
     .map((pid) => byPid.get(pid)!)
     .filter((proc) => !kept.has(proc.pid) && proc.pid !== self && (proc.mark === deps.mark || proc.mark === null) && !isEngineProcess(proc.argv));
+  if ((deps.mode ?? LEFTOVER_MODE) === "observe") return targets;
   const signal = deps.signal ?? ((pid, sig) => { try { process.kill(pid, sig); } catch {} });
   const reread = deps.reread ?? ((pid) => readHomeProcess(pid));
   for (const proc of targets) signal(proc.pid, "SIGTERM");
@@ -39,11 +45,18 @@ export function endLeftovers(deps: LeftoverDeps): HomeProcess[] {
       if (now && now.started === proc.started && now.mark === proc.mark) signal(proc.pid, "SIGKILL");
     }
   }, REAP_GRACE_MS);
-  return roots;
+  return targets;
 }
 
-export function leftoversLine(chat: string, ended: readonly HomeProcess[]): string {
-  const named = ended.slice(0, 5).map((proc) => `"${proc.argv.replace(/\s+/g, " ").slice(0, 80)}" (pid ${proc.pid})`).join(", ");
-  const more = ended.length > 5 ? ` and ${ended.length - 5} more` : "";
-  return `laterdog home: chat ${chat.slice(0, 8)} finished its turn; stopped ${ended.length} process(es) it left running: ${named}${more}`;
+const LINE_LIMIT = 10;
+
+function program(argv: string): string {
+  const first = argv.trim().split(/\s+/)[0] ?? "";
+  return first.slice(first.lastIndexOf("/") + 1) || "?";
+}
+
+export function leftoversLine(chat: string, ended: readonly HomeProcess[], mode: LeftoverMode = LEFTOVER_MODE): string {
+  const named = ended.slice(0, LINE_LIMIT).map((proc) => `${proc.pid} ${program(proc.argv)}`).join(", ");
+  const more = ended.length > LINE_LIMIT ? ` and ${ended.length - LINE_LIMIT} more` : "";
+  return `laterdog home: chat ${chat.slice(0, 8)} finished its turn; ${mode === "act" ? "stopped" : "would stop"} ${ended.length} process(es) it left running: ${named}${more}`;
 }
