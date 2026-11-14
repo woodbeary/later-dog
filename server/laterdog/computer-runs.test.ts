@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process";
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readlinkSync, utimesSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readlinkSync, statSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -145,8 +145,7 @@ describe("a heavy command on the dog's own computer", () => {
     const remote = join(computer, "runs", started.key);
     const marker = join(computer, "runs/.logs", `${started.id}.start`);
     expect(spawnSync("touch", ["-r", marker, "report.txt", "src/page.ts", "dist/app.js"], { cwd: remote }).status).toBe(0);
-    const [markerTime, outputTime] = spawnSync("stat", ["-c", "%.9Y", marker, join(remote, "report.txt")], { encoding: "utf8" }).stdout.trim().split("\n");
-    expect(outputTime).toBe(markerTime);
+    expect(statSync(join(remote, "report.txt"), { bigint: true }).mtimeNs).toBe(statSync(marker, { bigint: true }).mtimeNs);
     writeFileSync(join(folder, "src/page.ts"), "mine\n");
     const outcome = await runs.finish(box, started);
     expect(outcome.state).toBe("finished");
