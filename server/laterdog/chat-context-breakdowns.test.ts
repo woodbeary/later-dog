@@ -85,6 +85,37 @@ describe("the latest breakdown kept for each chat", () => {
     expect((await store.read("t1", undefined))?.total).toBe(10_000);
   });
 
+  it("calls a count fresh when it was taken after the last turn and matches the chat's number", async () => {
+    const store = make();
+    dispatchClaude(store);
+    replies.push({ kind: "answer", answer: ANSWER });
+    await store.afterTurn("t1");
+    const read = await store.read("t1", { tokens: 10_150, window: 200_000 });
+    expect(read).toMatchObject({ total: 10_000 });
+    expect(read?.stale).toBeUndefined();
+  });
+
+  it("marks a count stale when a later turn ended without a new answer", async () => {
+    const store = make();
+    dispatchClaude(store);
+    replies.push({ kind: "answer", answer: ANSWER });
+    await store.afterTurn("t1");
+    clock = 600_000;
+    dispatchClaude(store);
+    await store.afterTurn("t1");
+    expect(await store.read("t1", undefined)).toMatchObject({ at: 1_000, total: 10_000, stale: true });
+    expect(await make({}).read("t1", undefined)).toMatchObject({ at: 1_000, stale: true });
+  });
+
+  it("marks a count stale when its total is more than 2% off the chat's number", async () => {
+    const store = make();
+    dispatchClaude(store);
+    replies.push({ kind: "answer", answer: ANSWER });
+    await store.afterTurn("t1");
+    expect(await store.read("t1", { tokens: 150_000, window: 200_000 })).toMatchObject({ total: 10_000, stale: true });
+    expect((await store.read("t1", { tokens: 10_200, window: 200_000 }))?.stale).toBeUndefined();
+  });
+
   it("never estimates for an engine that counts for itself", async () => {
     const store = make();
     dispatchClaude(store);

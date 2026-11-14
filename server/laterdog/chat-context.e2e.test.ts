@@ -90,13 +90,13 @@ describe.skipIf(process.platform === "win32")("what fills a chat's context windo
     rmSync(home, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   });
 
-  it("has nothing before the first reply, then reads the engine's own count back after a turn", async () => {
+  it("has nothing before the first reply, then reads the engine's own count back after a turn, marked older than the fake turn's own 15 tokens", async () => {
     const dog = await dogOn("claudeCounts");
     expect(await api("GET", `/api/threads/${dog.threadId}/context`)).toMatchObject({ status: 404, body: { error: "nothing yet" } });
     await turn(dog.id, "hello");
     await waitFor(async () => (await api("GET", `/api/threads/${dog.threadId}/context`)).status === 200, "the breakdown");
     const { body, text } = await api("GET", `/api/threads/${dog.threadId}/context`);
-    expect(body).toMatchObject({ source: "engine", window: 200_000, compactsAt: 167_000, at: expect.any(Number) });
+    expect(body).toMatchObject({ source: "engine", window: 200_000, compactsAt: 167_000, at: expect.any(Number), stale: true });
     expect(body.total).toBeGreaterThan(30_000);
     const used = body.parts.filter((part: any) => !part.deferred && part.id !== "reserve" && part.id !== "free");
     expect(used.reduce((sum: number, part: any) => sum + part.tokens, 0)).toBe(body.total);
@@ -104,7 +104,7 @@ describe.skipIf(process.platform === "win32")("what fills a chat's context windo
     expect(body.parts).toContainEqual({ id: "tools", tokens: 41_000, deferred: true });
     expect(body.parts.map((part: any) => part.id)).toEqual(["conversation", "tools", "instructions", "skills", "memory", "reserve", "free", "tools"]);
     for (const leak of ["CLAUDE.md", "fixture-person", "fixture_private_tool", "FixturePrivateCommand", "System prompt", "claude-fake"]) expect(text).not.toContain(leak);
-    expect(Object.keys(body).sort()).toEqual(["at", "compactsAt", "parts", "source", "total", "window"]);
+    expect(Object.keys(body).sort()).toEqual(["at", "compactsAt", "parts", "source", "stale", "total", "window"]);
   }, 60_000);
 
   it("keeps working on an engine that does not know the request, and asks it only once", async () => {

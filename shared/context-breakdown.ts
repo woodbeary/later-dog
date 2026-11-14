@@ -17,9 +17,21 @@ export interface ContextBreakdown {
   window: number;
   parts: ContextPart[];
   compactsAt?: number;
+  stale?: true;
 }
 
 export const FOLD_BELOW_PERCENT = 0.5;
+export const SAME_TOTAL_SHARE = 0.02;
+
+export function differsFrom(tokens: number, current: number): boolean {
+  if (current <= 0) return tokens > 0;
+  return Math.abs(tokens - current) / current > SAME_TOTAL_SHARE;
+}
+
+export function breakdownIsStale(breakdown: ContextBreakdown, currentTokens: number | undefined): boolean {
+  if (breakdown.stale) return true;
+  return currentTokens !== undefined && currentTokens > 0 && differsFrom(breakdown.total, currentTokens);
+}
 
 export const ROOM_PARTS: ReadonlySet<ContextPartId> = new Set(["reserve", "free"]);
 
@@ -46,6 +58,7 @@ export function contextBreakdownOf(raw: unknown): ContextBreakdown | null {
     window: Math.round(value.window),
     parts,
     ...(count(value.compactsAt) && value.compactsAt > 0 ? { compactsAt: Math.round(value.compactsAt) } : {}),
+    ...(value.stale === true ? { stale: true as const } : {}),
   };
 }
 

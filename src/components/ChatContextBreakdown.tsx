@@ -6,7 +6,7 @@ import { cn } from "@/lib/cn";
 import { t } from "@/lib/i18n";
 import { relativeTime } from "@/lib/memory";
 import { formatTokens } from "@/lib/usage";
-import { contextRows, type ContextBreakdown, type ContextRow } from "../../shared/context-breakdown";
+import { breakdownIsStale, contextRows, type ContextBreakdown, type ContextRow } from "../../shared/context-breakdown";
 import { ChatContextStrip } from "./ChatContextStrip";
 
 const FIGURE: Record<ChatContextLevel, string> = { ok: "text-ink-secondary", near: "text-warning", over: "text-danger" };
@@ -30,7 +30,7 @@ export function contextRowShown(reading: ChatContextReading | null, view: Contex
 
 export function ChatContextBreakdown({ reading, view, now }: ChatContextBreakdownProps) {
   const breakdown = shownBreakdown(view);
-  if (breakdown) return <BreakdownRow breakdown={breakdown} now={now} />;
+  if (breakdown) return <BreakdownRow breakdown={breakdown} current={reading} now={now} />;
   if (reading) return <ChatContextStrip reading={reading} />;
   if (view?.state === "nothing") {
     return (
@@ -48,18 +48,20 @@ function figureOf(breakdown: ContextBreakdown, reading: ChatContextReading): str
   return t("model.context.figureAbout", { used: formatTokens(reading.tokens), window: formatTokens(reading.window), percent: contextPercentWords(reading.percent) });
 }
 
-function BreakdownRow({ breakdown, now }: { breakdown: ContextBreakdown; now: number }) {
+function BreakdownRow({ breakdown, current, now }: { breakdown: ContextBreakdown; current: ChatContextReading | null; now: number }) {
   const [open, setOpen] = useState(false);
   const listId = useId();
-  const reading = chatContextReading({ tokens: breakdown.total, window: breakdown.window })!;
+  const reading = current ?? chatContextReading({ tokens: breakdown.total, window: breakdown.window })!;
+  const outdated = breakdownIsStale(breakdown, current?.tokens);
   const figure = figureOf(breakdown, reading);
   const estimate = breakdown.source === "estimate";
   const rows = contextRows(breakdown);
   const hasParts = rows.used.length > 0;
   const reserve = rows.room.find((row) => row.id === "reserve");
-  const stale = now - breakdown.at > STALE_AFTER_MS;
+  const old = now - breakdown.at > STALE_AFTER_MS;
+  const asOf = <p data-chat-context-as-of className="text-[11px] text-ink-tertiary">{t("model.context.asOf", { ago: relativeTime(breakdown.at, now) })}</p>;
   return (
-    <div data-chat-context={Math.round(reading.percent ?? 0)} data-chat-context-source={breakdown.source} className="flex shrink-0 flex-col gap-2 px-3.5 pb-3 pt-3">
+    <div data-chat-context={Math.round(reading.percent ?? 0)} data-chat-context-source={breakdown.source} data-chat-context-stale={outdated ? "" : undefined} className="flex shrink-0 flex-col gap-2 px-3.5 pb-3 pt-3">
       <button
         type="button"
         data-chat-context-toggle
@@ -86,11 +88,12 @@ function BreakdownRow({ breakdown, now }: { breakdown: ContextBreakdown; now: nu
         data-chat-context-bar
         className="flex h-1.5 w-full overflow-hidden rounded-full bg-control"
       >
-        {hasParts
+        {hasParts && !outdated
           ? rows.used.map((row, index) => <Segment key={row.id} row={row} ink={INK_STEPS[Math.min(index, INK_STEPS.length - 1)]!} />)
           : <span className="block h-full bg-ink" style={{ width: `${Math.max(2, reading.percent ?? 0)}%` }} />}
-        {hasParts && reserve && <span data-chat-context-segment="reserve" className={cn("ml-auto block h-full", RESERVE_INK)} style={{ width: `${reserve.percent}%` }} />}
+        {hasParts && !outdated && reserve && <span data-chat-context-segment="reserve" className={cn("ml-auto block h-full", RESERVE_INK)} style={{ width: `${reserve.percent}%` }} />}
       </span>
+      {outdated && asOf}
       {open && hasParts && (
         <div id={listId} data-chat-context-parts className="flex flex-col gap-1 pt-1">
           <ul className="flex flex-col gap-1">
@@ -103,7 +106,7 @@ function BreakdownRow({ breakdown, now }: { breakdown: ContextBreakdown; now: nu
               <PartLine label={t("model.context.notLoaded")} tokens={partTokensWords(rows.notLoaded, estimate)} share="—" muted />
             </ul>
           )}
-          {stale && <p data-chat-context-as-of className="pt-0.5 text-[11px] text-ink-tertiary">{t("model.context.asOf", { ago: relativeTime(breakdown.at, now) })}</p>}
+          {old && !outdated && asOf}
         </div>
       )}
     </div>

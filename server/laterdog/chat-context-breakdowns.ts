@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 
-import { contextBreakdownOf, type ContextBreakdown } from "../../shared/context-breakdown.ts";
+import { breakdownIsStale, contextBreakdownOf, type ContextBreakdown } from "../../shared/context-breakdown.ts";
 import { writeFileAtomic } from "../atomic.ts";
 import { breakdownFromEngine, estimatedBreakdown, estimateSizesOf, type EstimateSizes } from "./context-parts.ts";
 import type { EngineContextReply } from "./engine-context-ask.ts";
@@ -17,6 +17,7 @@ interface ChatRecord {
   instanceId: string;
   sizes?: EstimateSizes;
   counted?: ContextBreakdown;
+  turnEndedAt?: number;
 }
 
 export interface ChatContextBreakdownsDeps {
@@ -40,7 +41,21 @@ function recordOf(raw: unknown): ChatRecord | null {
   if (typeof value.driverKind !== "string" || typeof value.instanceId !== "string") return null;
   const sizes = sizesOf(value.sizes);
   const counted = contextBreakdownOf(value.counted);
-  return { driverKind: value.driverKind, instanceId: value.instanceId, ...(sizes ? { sizes } : {}), ...(counted?.source === "engine" ? { counted } : {}) };
+  const turnEndedAt = typeof value.turnEndedAt === "number" && Number.isFinite(value.turnEndedAt) ? value.turnEndedAt : undefined;
+  return {
+    driverKind: value.driverKind,
+    instanceId: value.instanceId,
+    ...(sizes ? { sizes } : {}),
+    ...(counted?.source === "engine" ? { counted } : {}),
+    ...(turnEndedAt !== undefined ? { turnEndedAt } : {}),
+  };
+}
+
+export function markedStale(counted: ContextBreakdown, turnEndedAt: number | undefined, currentTokens: number | undefined): ContextBreakdown {
+  const fresh: ContextBreakdown = { ...counted };
+  delete fresh.stale;
+  const older = turnEndedAt !== undefined && counted.at < turnEndedAt;
+  return older || breakdownIsStale(fresh, currentTokens) ? { ...fresh, stale: true } : fresh;
 }
 
 export class ChatContextBreakdowns {
@@ -71,11 +86,17 @@ export class ChatContextBreakdowns {
       instanceId: turn.instanceId,
       sizes: estimateSizesOf(turn.sections, turn.tools),
       ...(sameEngine && before?.counted ? { counted: before.counted } : {}),
+      ...(sameEngine && before?.turnEndedAt !== undefined ? { turnEndedAt: before.turnEndedAt } : {}),
     });
     this.save();
   }
 
   async afterTurn(threadId: string): Promise<ContextBreakdown | null> {
+    const record = this.chats.get(threadId);
+    if (record) {
+      record.turnEndedAt = this.now();
+      this.save();
+    }
     return this.ask(threadId);
   }
 
@@ -84,7 +105,8 @@ export class ChatContextBreakdowns {
     if (!record) return null;
     if (ENGINE_COUNTING_DRIVERS.has(record.driverKind)) {
       await this.ask(threadId);
-      return this.chats.get(threadId)?.counted ?? null;
+      const current = this.chats.get(threadId);
+      return current?.counted ? markedStale(current.counted, current.turnEndedAt, measured?.tokens) : null;
     }
     return record.sizes ? estimatedBreakdown(record.sizes, measured ?? {}, this.now()) : null;
   }

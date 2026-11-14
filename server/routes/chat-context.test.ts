@@ -72,6 +72,13 @@ describe("GET /api/threads/:id/context", () => {
     for (const leak of ["CLAUDE.md", "/home/person", "private_tool", "Messages", "memoryFiles"]) expect(answer.text).not.toContain(leak);
   });
 
+  it("passes on that a count is older than the chat's current number", async () => {
+    const get = await serve({ "thread-1": { ...COUNTED, stale: true } as ContextBreakdown });
+    expect(JSON.parse((await get("/api/threads/thread-1/context")).text)).toMatchObject({ stale: true, total: 30_000 });
+    const fresh = await serve({ "thread-2": COUNTED });
+    expect("stale" in JSON.parse((await fresh("/api/threads/thread-2/context")).text)).toBe(false);
+  });
+
   it("says 404 when there is nothing yet, and when the chat is not a dog's", async () => {
     const get = await serve({ "thread-1": null });
     const nothing = await get("/api/threads/thread-1/context");

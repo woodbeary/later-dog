@@ -123,6 +123,36 @@ describe("the context window row in a chat's usage", () => {
     expect(partLines().some((line) => line[0] === "Tools not loaded yet")).toBe(false);
   });
 
+  it("keeps the chat's current number in the heading and draws the parts when the count is fresh", async () => {
+    vi.mocked(api).mockResolvedValue(COUNTED);
+    await openPanel(chatContextReading({ tokens: 199_000, window: 1_000_000 }));
+    expect(toggle().textContent).toBe("This chat199k of 1M · 20%");
+    expect(host.querySelector("[data-chat-context-stale]")).toBeNull();
+    expect(host.querySelectorAll("[data-chat-context-segment]").length).toBeGreaterThan(0);
+    expect(host.querySelector("[data-chat-context-as-of]")).toBeNull();
+  });
+
+  it("shows an older count's time even while closed, with the bar drawn from the chat's current number", async () => {
+    vi.mocked(api).mockResolvedValue({ ...COUNTED, at: NOW - 10 * 60_000, total: 12_500, stale: true });
+    await openPanel(chatContextReading({ tokens: 12_600, window: 1_000_000 }));
+    expect(host.querySelector("[data-chat-context-stale]")).not.toBeNull();
+    expect(toggle().textContent).toBe("This chat12.6k of 1M · 1%");
+    expect(host.querySelector("[data-chat-context-as-of]")!.textContent).toBe("as of 10 min ago");
+    expect(host.querySelectorAll("[data-chat-context-segment]")).toHaveLength(0);
+    act(() => toggle().click());
+    expect(partLines()[0]![0]).toBe("Conversation");
+    expect(host.querySelectorAll("[data-chat-context-as-of]")).toHaveLength(1);
+  });
+
+  it("treats a count whose total is more than 2% off the chat's current number as older, even when the home did not", async () => {
+    vi.mocked(api).mockResolvedValue({ ...COUNTED, at: NOW - 10 * 60_000, total: 12_500 });
+    await openPanel(chatContextReading({ tokens: 150_000, window: 1_000_000 }));
+    expect(toggle().textContent).toBe("This chat150k of 1M · 15%");
+    expect(host.querySelector("[data-chat-context-stale]")).not.toBeNull();
+    expect(host.querySelector("[data-chat-context-as-of]")!.textContent).toBe("as of 10 min ago");
+    expect(host.querySelectorAll("[data-chat-context-segment]")).toHaveLength(0);
+  });
+
   it("says the row comes after the first reply when the chat has nothing yet", async () => {
     vi.mocked(api).mockRejectedValue(new ApiError("nothing yet", 404, { error: "nothing yet" }));
     await openPanel(null);

@@ -15,6 +15,7 @@ function sizesOnly(breakdown: ContextBreakdown): ContextBreakdown {
     window: breakdown.window,
     parts: breakdown.parts.map((part) => ({ id: part.id, tokens: part.tokens, ...(part.deferred ? { deferred: true as const } : {}) })),
     ...(breakdown.compactsAt !== undefined ? { compactsAt: breakdown.compactsAt } : {}),
+    ...(breakdown.stale ? { stale: true as const } : {}),
   };
 }
 
