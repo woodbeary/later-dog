@@ -10,7 +10,6 @@ import {
   COMPUTER_ID, ComputersApiError, ComputersClient, computersConnection, computersKey, computersSelected, ownComputersChosen, trialInUse, type Computer,
 } from "./laterdog/cloud-computers.ts";
 import type { RunBox } from "./laterdog/computer-runs.ts";
-import type { JobComputer } from "./laterdog/computer-jobs.ts";
 
 export { MAX_REMOTE_COMMAND_LENGTH, boatNameMatchesBot, boatTurnLifecycleAction, isolatedRemoteCommand, verifyBoatDeletionCredential, verifyToken } from "./boat.ts";
 export type { BoatIdentityInspection, BoatTurnLifecycleAction, ManagedBoatInventory, ManagedBoatInventoryInstance, ManagedBoatMutationClaim, ManagedBoatOwner } from "./boat.ts";
@@ -475,20 +474,6 @@ export async function heavyRunBox(botId: string, options: { repository?: string;
     read: (path) => client.readFile(ready.id, path),
   };
   return { box };
-}
-
-export async function jobComputer(botId: string): Promise<JobComputer> {
-  if (!computersSelected()) return { state: "unsure" };
-  const client = ownClient();
-  const computer = await findOwn(client, botId);
-  if (!computer) return { state: "gone" };
-  if (computer.state === "archived") return { state: "asleep" };
-  if (computer.state !== "running") return { state: "unsure" };
-  return { state: "running", box: {
-    exec: (command, timeoutMs) => runOwn(client, computer.id, command, { timeoutMs }),
-    write: (path, bytes) => client.writeFile(computer.id, path, bytes),
-    read: (path) => client.readFile(computer.id, path),
-  } };
 }
 
 export async function engineComputer(botId: string): Promise<{ box: RunBox; stream: () => ReturnType<ComputersClient["process"]> }> {
