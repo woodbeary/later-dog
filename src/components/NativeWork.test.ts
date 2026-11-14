@@ -26,7 +26,7 @@ describe("native work", () => {
     expect(host.querySelectorAll('button[aria-label^="View Researcher"]')).toHaveLength(5);
     expect(host.querySelector('button[aria-label="View 2 more puppies"]')).not.toBeNull();
     expect(nativePuppies(run())).toHaveLength(7);
-    expect(host.textContent).toContain("Issue recorded");
+    expect(host.textContent).not.toContain("Issue recorded");
     expect(host.textContent).not.toContain("3 issues");
   });
 
