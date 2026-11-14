@@ -354,7 +354,28 @@ function strings(value, limit) {
   return value;
 }
 
-export function archiveHandler(archiver, token) {
+const FOLDER_ID = /^[A-Za-z0-9_-]{1,128}$/;
+
+function chatOf(payload) {
+  if (!FOLDER_ID.test(payload?.botId ?? "") || !FOLDER_ID.test(payload?.threadId ?? "")) throw Object.assign(new Error("not a chat"), { status: 400 });
+  return [payload.botId, payload.threadId];
+}
+
+async function folderRoute(folders, request, path) {
+  if (request.method === "GET" && path === "/folders/status") return folders.status();
+  if (request.method !== "POST") return null;
+  if (path === "/folders/pack") return folders.pack(...chatOf(await body(request)));
+  if (path === "/folders/swap") {
+    const id = (await body(request)).id;
+    if (typeof id !== "string" || !/^[a-f0-9]{16}$/.test(id)) throw Object.assign(new Error("bad id"), { status: 400 });
+    return folders.swap(id);
+  }
+  if (path === "/folders/bring-back") return folders.bringBack(...chatOf(await body(request)));
+  if (path === "/folders/release") return folders.release(...chatOf(await body(request)));
+  return null;
+}
+
+export function archiveHandler(archiver, token, folders = null) {
   return async (request, response) => {
     const reply = (status, payload) => {
       response.writeHead(status, { "content-type": "application/json" });
@@ -363,6 +384,10 @@ export function archiveHandler(archiver, token) {
     try {
       if (!token || !authorized(request, token)) return reply(401, { error: "unauthorized" });
       const path = new URL(request.url ?? "/", "http://archive").pathname;
+      if (folders && path.startsWith("/folders/")) {
+        const answer = await folderRoute(folders, request, path);
+        if (answer) return reply(200, answer);
+      }
       if (request.method === "GET" && path === "/status") return reply(200, await archiver.status());
       if (request.method === "POST" && path === "/archive") return reply(200, await archiver.archive(strings((await body(request)).paths, MAX_PATHS)));
       if (request.method === "POST" && path === "/restore-logs") {
@@ -383,8 +408,8 @@ export function archiveHandler(archiver, token) {
   };
 }
 
-export function serveArchive(archiver, { token, host = "127.0.0.1", port = 0 }) {
-  const server = createServer(archiveHandler(archiver, token));
+export function serveArchive(archiver, { token, host = "127.0.0.1", port = 0, folders = null }) {
+  const server = createServer(archiveHandler(archiver, token, folders));
   return new Promise((resolve, reject) => {
     server.once("error", reject);
     server.listen(port, host, () => {

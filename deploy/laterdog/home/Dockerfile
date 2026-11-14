@@ -15,7 +15,9 @@ RUN if [ -n "$LATERDOG_BUILD" ]; then printf '%s\n' "$LATERDOG_BUILD" > /app/clo
  && node --check /app/cloud/runtime/run.mjs \
  && node --check /app/cloud/runtime/dev-code.mjs \
  && node --check /app/cloud/runtime/archive.mjs \
+ && node --check /app/cloud/runtime/folder-away.mjs \
  && node --input-type=module -e 'import { archiveCompatible } from "/app/cloud/runtime/archive-capability.mjs"; if (!await archiveCompatible("/app/dist-server/cloud-home-start.js")) throw new Error("home server lacks safe log restoration")' \
+ && node --input-type=module -e 'import { bringsFoldersBack } from "/app/cloud/runtime/archive-capability.mjs"; if (!await bringsFoldersBack("/app/dist-server/cloud-home-start.js")) throw new Error("home server cannot bring back chat folders")' \
  && node --check /app/cloud/runtime/archive-launcher.mjs \
  && node --check /app/cloud/runtime/archive-capability.mjs \
  && node --check /app/cloud/runtime/archive-ownership.mjs \

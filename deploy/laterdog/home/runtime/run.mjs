@@ -1,7 +1,8 @@
 import { randomBytes } from "node:crypto";
 import { createArchiver, serveArchive } from "./archive.mjs";
 import { launcherOwnsNoFile } from "./archive-launcher.mjs";
-import { archiveCompatible } from "./archive-capability.mjs";
+import { archiveCompatible, bringsFoldersBack } from "./archive-capability.mjs";
+import { createExclusive, createFolderAway, pushedServerRefusal } from "./folder-away.mjs";
 import { fileIsUnopened } from "./archive-ownership.mjs";
 import { spawn } from "node:child_process";
 import { readFileSync } from "node:fs";
@@ -73,13 +74,23 @@ async function main() {
   const included = await seedIncluded(process.env.LATERDOG_HOME || join(DATA, ".laterdog"), { key: process.env.LATERDOG_INCLUDED_KEY, api: process.env.LATERDOG_INCLUDED_API }, dogOwner());
   if (included === "seeded" || included === "replaced") log("included later.dog AI, voice and decisions are ready");
   if (store && !await archiveCompatible(LAUNCHER)) throw new Error("this image predates safe log restoration; rebuild the home image");
+  const exclusive = createExclusive();
+  const folders = store ? createFolderAway({ tasksDir: join(HEALTH_DIR, "task-workspaces"), ledgerDir: join(HEALTH_DIR, "folders-away"), store, owner: dogOwner(), log, lock: exclusive }) : null;
+  if (folders) await folders.recover().catch((error) => log(`could not check for unfinished folder moves: ${error.message}`));
+  const awayCount = async () => (folders ? (await folders.status()).chats.length : 0);
+  const refusesFolders = async (candidate) => {
+    const away = await awayCount();
+    const refusal = pushedServerRefusal({ away, bringsBack: !away || await bringsFoldersBack(candidate.launcher), hash: candidate.hash });
+    if (refusal) log(refusal);
+    return Boolean(refusal);
+  };
   const environment = { ...process.env };
   const archive = store ? await serveArchive(createArchiver({ root: DATA, store, owner: dogOwner(), log, canRemove: async (file, entry) => {
     const launcher = child;
     if (!await launcherOwnsNoFile(launcher, entry)) return false;
     const clear = await fileIsUnopened(file, { asOwner: dogOwner(), launcherPid: launcher.pid, maxDescriptors: 50_000 });
     return clear && launcher === child && launcher.exitCode === null && launcher.signalCode === null;
-  } }), { token: environment.LATERDOG_CLOUD_ARCHIVE_TOKEN = randomBytes(32).toString("hex") }) : null;
+  } }), { token: environment.LATERDOG_CLOUD_ARCHIVE_TOKEN = randomBytes(32).toString("hex"), folders }) : null;
   if (archive) environment.LATERDOG_CLOUD_ARCHIVE_URL = archive.url;
   delete environment.LATERDOG_STATE_URL;
   delete environment.LATERDOG_STATE_TOKEN;
@@ -92,8 +103,9 @@ async function main() {
     ? devCodeWatcher({ store, base: SERVER_DIR, root: DEV_CODE_DIR, log, onCode: (next) => reload(next), idle: () => homeIdle({ secret: process.env.LATERDOG_CLOUD_BOOTSTRAP_SECRET, port: SERVER_PORT }) })
     : null;
   const offered = devCode ? await devCode.first() : null;
-  const pushed = offered && (!archive || await archiveCompatible(offered.launcher)) ? offered : null;
-  if (offered && !pushed) log("the pushed server predates log restoration; using this image");
+  const restoresLogs = offered && (!archive || await archiveCompatible(offered.launcher));
+  if (offered && !restoresLogs) log("the pushed server predates log restoration; using this image");
+  const pushed = restoresLogs && !await refusesFolders(offered) ? offered : null;
   if (pushed) log(`running pushed server code ${pushed.hash.slice(0, 12)}${pushed.label ? ` (${pushed.label})` : ""}`);
   let launcher = pushed?.launcher ?? LAUNCHER;
   let child = null;
@@ -107,7 +119,7 @@ async function main() {
     if (!store) return Promise.resolve();
     if (running) return running;
     running = restorePoints.keep()
-      .then(() => snapshot(DATA, store, manifest, { scratch: SCRATCH, app: APP, budgetMs: final ? FINAL_SAVE_BUDGET_MS : SAVE_BUDGET_MS, resumeAfter }))
+      .then(() => exclusive.run(() => snapshot(DATA, store, manifest, { scratch: SCRATCH, app: APP, budgetMs: final ? FINAL_SAVE_BUDGET_MS : SAVE_BUDGET_MS, resumeAfter })))
       .then(async (result) => {
         manifest = result.manifest;
         resumeAfter = result.resumeAfter;
@@ -173,6 +185,7 @@ async function main() {
       log("the pushed server predates log restoration; keeping the current server");
       return;
     }
+    if (await refusesFolders(next)) return;
     reloading = true;
     const previous = child;
     const exited = new Promise((resolve) => previous.once("exit", resolve));
