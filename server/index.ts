@@ -774,6 +774,7 @@ import { engineWillCompact, rebuildNeedsSummary } from "./laterdog/native-compac
 import { pickedConversationBackUp, RESUME_REJECTED } from "../shared/resume-pickup.ts";
 import { decodeInjectId } from "./drivers/local-inject.ts";
 import { withDroppedSummary } from "./laterdog/rebuild-summary.ts";
+import { dogWriter } from "./laterdog/dog-writer.ts";
 import { fileEngineSummaries } from "./laterdog/engine-summaries.ts";
 import { createEngineSummaryWindows } from "./laterdog/engine-summary-window.ts";
 import { recallsThisTurn } from "./laterdog/session-start-recall.ts";
@@ -5813,7 +5814,7 @@ const memoryUpkeep = createMemoryUpkeep({
     const bot = store.bot(botId);
     const instance = bot ? registry.get(bot.modelSelection.instanceId) : undefined;
     if (!bot || !instance || policyModelRefusal(instance)) return null;
-    const generate = instance.generateText?.bind(instance);
+    const generate = dogWriter(instance, bot.modelSelection.model);
     return generate ? {
       generateText: async (prompt, options) => {
         assertWithinBudget(cfg, DATA_DIR);
@@ -7878,7 +7879,7 @@ async function compactConversation(input: {
   const controller = new AbortController();
   compactionControllers.set(threadId, { generation, controller });
   try {
-    const summary = await draftSummary(fold.folded, { signal: controller.signal, generateText: instance.generateText?.bind(instance) });
+    const summary = await draftSummary(fold.folded, { signal: controller.signal, generateText: dogWriter(instance, model) });
     if (!directTurnClaimIsCurrent(bot.id, generation, threadId)) throw new DirectTurnSetupCancelled("context summarization stopped");
     controller.signal.throwIfAborted();
     if (prefix !== JSON.stringify(store.activePath(threadId).slice(0, messages.length))) {

@@ -3908,6 +3908,18 @@ describe("ClaudeDriver turns (fake CLI)", () => {
     expect(seen.argv[seen.argv.indexOf("--output-format") + 1]).toBe("text");
   });
 
+  it("writes one-shot text with the model the caller names, and reviews permissions with the quick model", async () => {
+    await create();
+    const dump = join(scratch, "named-model.json");
+    process.env.FAKE_CLAUDE_DUMP = dump;
+    await instance.generateText!("summarize", { model: "claude-fable-5-2" });
+    const named = JSON.parse(readFileSync(dump, "utf8")).argv as string[];
+    expect(named[named.indexOf("--model") + 1]).toBe("claude-fable-5-2");
+    await instance.reviewPermission!("review this request");
+    const review = JSON.parse(readFileSync(dump, "utf8")).argv as string[];
+    expect(review[review.indexOf("--model") + 1]).toBe("claude-haiku-4-5");
+  });
+
   it("gives one-shot launches the compaction window too, before any snapshot or turn", async () => {
     await create();
     const dump = join(scratch, "one-shot-compact.json");
