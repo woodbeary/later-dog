@@ -54,6 +54,18 @@ it.each([
   expect(checkSummary(answer, 2_000).ok).toBe(false);
 });
 
+it.each([
+  ["every part None", ["## Asked for", "None.", "## Decisions", "None.", "## In progress", "None.", "## Facts to keep", `None. ${" ".repeat(300)}Nothing further was recorded in the saved conversation at all.`].join("\n")],
+  ["the task's own heading lines copied back", [
+    "## Asked for: what the person asked for, newest first; mark requests that were cancelled or replaced.", "The bakery site moves to port 9001.",
+    "## Decisions: what was decided, and by whom.", "Port 9001. menu-old.html stays unchanged.",
+    "## In progress: work still under way and who holds it (the helper, another named helper, or the person), and any result still awaited.", "Helper dog Crumb holds the menu rewrite.",
+    "## Facts to keep: exact values to keep: names, paths, numbers, ids, links, models.", "Port 9001; file menu-old.html; helper Crumb.",
+  ].join("\n")],
+])("rejects an answer that is not a summary: %s", (_, answer) => {
+  expect(checkSummary(answer, 2_000).ok).toBe(false);
+});
+
 it("accepts a summary with every part, and quotes the person may have written", () => {
   expect(checkSummary(GOOD, 2_000)).toEqual({ ok: true, text: GOOD });
   expect(checkSummary(GOOD.replace("Port 9001; file", "The person wrote \"you are on the wrong model\"; port 9001; file"), 2_000).ok).toBe(true);
