@@ -268,7 +268,6 @@ export function kitPrompt(kit: DogKit | undefined): string {
   const have = [
     kit.ownComputer && "your own cloud computer for heavy commands, builds and tests (run_on_computer)",
     kit.vault && "the vault (vault_secret) with saved logins and keys",
-    kit.google && "Google through connect_google and the gmail tools",
   ].filter((item): item is string => Boolean(item));
   if (!have.length) return "";
   return `Already set up for you: ${have.join("; ")}.`;
@@ -277,6 +276,7 @@ export function kitPrompt(kit: DogKit | undefined): string {
 export function connectedNowPrompt(kit: DogKit | undefined): string {
   const connected = [
     kit?.github && "GitHub, signed in on this home",
+    kit?.google && "Google through connect_google and the gmail tools",
     kit?.mac && "a lent Mac through shared_computer",
   ].filter((item): item is string => Boolean(item));
   if (!connected.length) return "";

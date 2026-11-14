@@ -36,6 +36,8 @@ import { ephemeralWorkspaceTokenPath } from "../workspace-backup-policy.ts";
 import * as procs from "../procs.ts";
 import { leftoverProgramsNotice } from "../laterdog/unconfirmed-stop.ts";
 import { HELPER_CONTRACT } from "../laterdog/helper-contract.ts";
+import { guidanceParts } from "../laterdog/dog-guidance.ts";
+import { buildSystemPrompt, userProfileSystemPrompt } from "../system-prompt.ts";
 import * as localInject from "./local-inject.ts";
 
 const FAKE_CLI = join(dirname(fileURLToPath(import.meta.url)), "..", "testing", "fake-claude-cli.ts");
@@ -1403,6 +1405,24 @@ describe("ClaudeDriver turns (fake CLI)", () => {
     expect(sent[1].message.content).toContain("Tagged: @Testy");
     expect(sent[1].message.content.endsWith("two")).toBe(true);
     expect(seen.systemPrompt).not.toContain("Tagged: @Testy");
+  });
+
+  it("keeps the same engine when a fact about the person is learned or Google connects", async () => {
+    await create();
+    const dump = join(scratch, "profile-edit.json");
+    process.env.FAKE_CLAUDE_DUMP = dump;
+    const send = async (text: string, aboutMe: string, google: boolean) => {
+      const built = buildSystemPrompt("You are Testy.", "", [
+        ...guidanceParts({ engine: "claude", agents: true, model: "claude-opus-5-5", kit: { cloudHome: true, ownComputer: true, google } }),
+        { id: "user-profile", label: "About the user", text: userProfileSystemPrompt({ aboutMe }) },
+      ]);
+      recorder.events.length = 0;
+      await instance.adapter.sendTurn({ threadId: "t-profile-edit", text, system: built.text, systemStable: built.stable, systemVolatile: built.volatile, systemVolatileSections: built.volatileSections });
+      await recorder.until((e) => e.type === "turn.completed");
+      return JSON.parse(readFileSync(dump, "utf8")).pid;
+    };
+    const first = await send("one", "Sam runs a shop.", false);
+    expect(await send("two", "Sam runs a shop and has a dog called Biscuit.", true)).toBe(first);
   });
 
   it("still relaunches when the stable half of the prompt changes", async () => {

@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
-import { buildSystemPrompt, todayPrompt } from "../system-prompt.ts";
+import { buildSystemPrompt, todayPrompt, userProfileSystemPrompt } from "../system-prompt.ts";
 import { SHORT_ON_IT_NOTE } from "./work-updates.ts";
 import { EXISTING_ACCESS } from "./sign-in-passage.ts";
 import {
@@ -178,7 +178,8 @@ describe("the guidance every dog gets", () => {
     const kit = kitPrompt({ cloudHome: true, ownComputer: true, vault: true, github: true, google: true, mac: true });
     expect(kit).toMatch(/your own cloud computer .*run_on_computer/);
     expect(kit).toMatch(/the vault \(vault_secret\)/);
-    expect(kit).not.toMatch(/GitHub|lent Mac/);
+    expect(kit).not.toMatch(/GitHub|lent Mac|Google|gmail/);
+    expect(connectedNowPrompt({ google: true })).toBe(" Connected now: Google through connect_google and the gmail tools.");
     expect(connectedNowPrompt({ github: true, mac: true })).toBe(" Connected now: GitHub, signed in on this home; a lent Mac through shared_computer.");
     expect(connectedNowPrompt({ ownComputer: true, vault: true })).toBe("");
     expect(kit).not.toMatch(/before asking/);
@@ -361,6 +362,19 @@ describe("the guidance every dog gets", () => {
     expect(first.stable.indexOf("You are Scout")).toBe(0);
     expect(first.stable.indexOf("You are one of the person's dogs")).toBeGreaterThan(first.stable.indexOf("--- END STANDING INSTRUCTIONS ---"));
     expect(first.stable).not.toContain("today is");
+  });
+
+  it("keeps the cached half byte-identical when the person's profile, ask-first rules or Google change, and moves them to the changing part", () => {
+    const build = (aboutMe: string, askFirst: string[], google: boolean) => buildSystemPrompt("You are Scout, a dog in later.dog.", "Be brief.", [
+      ...guidanceParts({ engine: "claude", agents: true, model: "claude-fable-5-2", kit: { cloudHome: true, ownComputer: true, vault: true, google } }),
+      { id: "user-profile", label: "About the user", text: userProfileSystemPrompt({ aboutMe, askFirst }) },
+    ], "Sam");
+    const before = build("Sam runs a small shop.", ["spending money"], false);
+    const learned = build("Sam runs a small shop and has a dog called Biscuit.", ["spending money", "posting in public"], true);
+    expect(learned.stable).toBe(before.stable);
+    expect(before.stable).not.toMatch(/Sam runs a small shop|spending money|gmail/);
+    expect(learned.volatileSections.find((section) => section.id === "user-profile")?.text).toContain("Biscuit");
+    expect(learned.volatileSections.find((section) => section.id === "connected")?.text).toContain("Google through connect_google");
   });
 
   it("keeps the cached half byte-identical when a Mac connects or GitHub signs in, and changes only the connected section", () => {
