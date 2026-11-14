@@ -85,6 +85,12 @@ describe("signals the home records from runtime events", () => {
     expect(workState({ busy: true, ...signals.facts("t1") })).toEqual({ kind: "running" });
   });
 
+  it("picking a conversation back up after a lost session is not shown as a retry", () => {
+    const signals = new WorkSignals();
+    expect(signals.observe(event({ type: "turn.retrying", attempt: 1, delayMs: 0, reason: "resume_rejected" }))).toBe(false);
+    expect(workState({ busy: true, ...signals.facts("t1") })).toEqual({ kind: "running" });
+  });
+
   it("a computer wait names who holds it and ends when acquired", () => {
     const signals = new WorkSignals();
     signals.observe(event({ type: "turn.wait_started", resource: "mac", holder: { name: "Patch" } }));
