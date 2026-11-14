@@ -41,7 +41,7 @@ export function recoveryPromptFor(input: RecoveryPromptInput): RecoveryPrompt {
 
 export const CLAUDE_RESUME_REFUSALS = ["No conversation found with session ID", "Failed to resume session"] as const;
 
-export function claudeResumeRefusal(frame: { is_error?: unknown; errors?: unknown }): string | null {
+export function claudeResumeRefusal(frame: { is_error?: unknown; errors?: unknown; result?: unknown }): string | null {
   if (frame.is_error !== true || !Array.isArray(frame.errors)) return null;
   const refusal = frame.errors.find((error): error is string =>
     typeof error === "string" && CLAUDE_RESUME_REFUSALS.some((start) => error.trim().startsWith(start)));
