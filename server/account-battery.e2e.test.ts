@@ -157,6 +157,7 @@ const switches = (rows: any[]) => rows.filter((row) => row.tool?.name?.startsWit
 const carried = (rows: any[]) => rows.filter((row) => row.tool?.carry);
 const limitRows = (rows: any[]) => rows.filter((row) => row.tool?.ok === false && /hit your session limit/.test(row.tool.name));
 const lastReply = (rows: any[]) => rows.findLast((row) => row.role === "bot" && row.kind === "text");
+const heldForOff = { kind: "needs-you", what: "Turn Claude account 1 back on", hold: { account: "Claude account 1", accountId: "claude", why: "off" } };
 const repliesAfter = (rows: any[], text: string) =>
   rows.slice(rows.findIndex((row) => row.role === "user" && row.text === text)).filter((row) => row.role === "bot" && row.kind === "text");
 
@@ -314,7 +315,7 @@ it("does not run a new message on an account the person switched off when nothin
     console.info(JSON.stringify({ offAccount: { rows: rows.map((row: any) => ({ role: row.role, kind: row.kind, text: row.text, tool: row.tool?.name, requestPending: row.requestPending })), work: task.work, busy: task.busy, firstPrompts: firstPrompts().length, secondPrompts: secondPrompts().length } }));
     expect(firstPrompts()).toHaveLength(0);
     expect(secondPrompts()).toHaveLength(0);
-    expect(task.work).toEqual({ kind: "needs-you", what: "Turn Claude account 1 back on" });
+    expect(task.work).toEqual(heldForOff);
     await api("PATCH", "/api/instances/claude", { enabled: true });
     await expect.poll(async () => lastReply(await chat.messages())?.text, { timeout: 60_000, interval: 500 }).toBe("hello from fake claude");
     expect(firstPrompts()).toHaveLength(1);
@@ -332,7 +333,7 @@ async function holdOnOff(fixture: BatteryFixture, name: string, text: string) {
   await switchOff(fixture, ["claude", "claude-two"]);
   const sent = await fixture.api("POST", `/api/bots/${chat.bot.id}/messages`, { threadId: chat.threadId, text });
   expect(sent.queued).toBe(true);
-  await expect.poll(async () => (await chat.task()).work, { timeout: 10_000 }).toEqual({ kind: "needs-you", what: "Turn Claude account 1 back on" });
+  await expect.poll(async () => (await chat.task()).work, { timeout: 10_000 }).toEqual(heldForOff);
   return { chat, queueId: sent.queueId as string };
 }
 
@@ -348,7 +349,7 @@ it("keeps a held message held across a restart, and runs it once the account is 
     expect(firstPrompts()).toHaveLength(0);
     expect(secondPrompts()).toHaveLength(0);
     expect(rows.some((row: any) => row.role === "user" && row.text === "HELD_OVER_RESTART")).toBe(false);
-    expect((await chat.task()).work).toEqual({ kind: "needs-you", what: "Turn Claude account 1 back on" });
+    expect((await chat.task()).work).toEqual(heldForOff);
     expect((await api("GET", "/api/config")).accountBattery.waiting).toEqual({});
     await api("PATCH", "/api/instances/claude", { enabled: true });
     await expect.poll(async () => lastReply(await chat.messages())?.text, { timeout: 30_000, interval: 500 }).toBe("hello from fake claude");
