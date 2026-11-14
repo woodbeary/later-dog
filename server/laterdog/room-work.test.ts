@@ -97,6 +97,12 @@ describe("a room's work from its chats", () => {
     expect(state).toEqual({ kind: "waiting-for-usage", account: "Codex", until: 50 });
   });
 
+  it("is running while a member's helpers or a computer job it started are still going after the turns end", () => {
+    expect(roomWorkFor(group, deps({ helpers: (id) => (id === "side" ? 2 : 0) }))).toEqual({ kind: "running", helpers: 2 });
+    expect(roomWorkFor(group, deps({ computerJobs: (id) => (id === "room-thread" ? [{ botId: "biscuit" }] : []) })))
+      .toEqual({ kind: "running", computerJobs: 1, dogs: [{ id: "biscuit", name: "Biscuit" }] });
+  });
+
   it("names who is working", () => {
     expect(roomWorkFor(group, deps({ turnBotIds: () => new Set(["scout", "biscuit"]) }))).toEqual({ kind: "running", dogs: [{ id: "scout", name: "Scout" }, { id: "biscuit", name: "Biscuit" }] });
   });
