@@ -44,7 +44,18 @@ export interface ComputerView {
   lastActiveAt: string;
   snapshotAt?: string;
   error?: string;
+  lastStart?: Omit<StartRecord, "at"> & { at: string };
   environment?: { repository: string; restoredFrom?: string; maintenance?: Maintenance & { at: string; ms: number } };
+}
+
+export interface StartRecord {
+  at: number;
+  generation: number;
+  from: "snapshot" | "environment" | "image";
+  restoreBytes?: number;
+  outcome: "starting" | "ready" | "failed";
+  ms?: number;
+  reason?: string;
 }
 
 export interface ExecResult {
@@ -72,6 +83,7 @@ interface ComputerRecord {
   image?: string;
   carry?: Carry;
   error?: string;
+  lastStart?: StartRecord;
   registry?: string;
   trial?: string;
   fullAllowance?: boolean;
@@ -147,6 +159,7 @@ function view(record: ComputerRecord): ComputerView {
     lastActiveAt: iso(record.lastActiveAt),
     ...(record.snapshotAt === undefined ? {} : { snapshotAt: iso(record.snapshotAt) }),
     ...(record.state === "error" && record.error ? { error: record.error } : {}),
+    ...(record.lastStart ? { lastStart: { ...record.lastStart, at: iso(record.lastStart.at) } } : {}),
     ...(record.environment ? { environment: environmentOf(record) } : {}),
   };
 }
@@ -159,6 +172,12 @@ function environmentOf(record: ComputerRecord): NonNullable<ComputerView["enviro
     ...(environment.restoredFrom ? { restoredFrom: environment.restoredFrom } : {}),
     ...(maintenance ? { maintenance: { fetched: maintenance.fetched, installed: maintenance.installed, at: iso(maintenance.at), ms: maintenance.ms } } : {}),
   };
+}
+
+function startLine(start: StartRecord | undefined): string {
+  if (!start) return "";
+  const restored = start.restoreBytes === undefined ? "" : ` of ${start.restoreBytes} bytes`;
+  return ` (generation ${start.generation}, from ${start.from}${restored}, ${start.ms ?? 0} ms after start)`;
 }
 
 function startedFrom(record: ComputerRecord): string {
@@ -656,10 +675,11 @@ export class DogComputer extends DurableObject<Env> {
             r.state = "running";
             r.readyAt = now;
             r.lastActiveAt = now;
+            if (r.lastStart?.generation === generation) Object.assign(r.lastStart, { outcome: "ready", ms: now - begun });
           }
         });
         if (ready?.state === "running" && ready.generation === generation) {
-          console.log(`laterdog computers: ${ready.id} screen answering ${now - begun} ms after start (generation ${generation}, ${startedFrom(ready)})`);
+          console.log(`laterdog computers: ${ready.id} screen answering ${now - begun} ms after start (generation ${generation}, ${startedFrom(ready)}${ready.lastStart?.restoreBytes === undefined ? "" : `, ${ready.lastStart.restoreBytes} bytes restored`})`);
           if (ready.builder) return this.runBuild(generation);
           await this.ctx.storage.setAlarm(Date.now() + READY_POLL_MS);
           await this.publish();
@@ -741,10 +761,11 @@ export class DogComputer extends DurableObject<Env> {
         r.state = "error";
         r.error = why;
         if (r.environment?.restoredIn === generation) r.environment.restoreFailed = true;
+        if (r.lastStart?.generation === generation) Object.assign(r.lastStart, { outcome: "failed", ms: Date.now() - r.lastStart.at, reason: why });
       }
     });
     if (failed?.carry && failed.generation === generation) this.abandonCarry();
-    console.error(`laterdog computers: ${failed?.id} failed to boot: ${why}`);
+    console.error(`laterdog computers: ${failed?.id} failed to boot: ${why}${startLine(failed?.lastStart)}`);
     if (this.ctx.container?.running) await this.ctx.container.destroy().catch(() => undefined);
     if (failed?.builder) return this.finishBuild({ key: failed.builder.key, outcome: "failed", setupMs: 0, error: why });
     await this.charge(true);
@@ -1023,6 +1044,13 @@ export class DogComputer extends DurableObject<Env> {
         r.budgetEndsAt = now + budget.value;
         r.chargedUntil = now;
       }
+      r.lastStart = {
+        at: now,
+        generation: r.generation,
+        from: r.snapshot ? "snapshot" : r.environment?.pending ? "environment" : "image",
+        ...(r.snapshot ? { restoreBytes: r.snapshot.size } : {}),
+        outcome: "starting",
+      };
     })!;
     const common = {
       enableInternet: true,
@@ -1056,10 +1084,12 @@ export class DogComputer extends DurableObject<Env> {
       }
     } catch (error) {
       const why = `The computer could not start: ${describeError(error)}`;
-      this.update((r) => {
+      const failed = this.update((r) => {
         r.state = "error";
         r.error = why;
+        if (r.lastStart?.generation === r.generation) Object.assign(r.lastStart, { outcome: "failed", ms: Date.now() - r.lastStart.at, reason: why });
       });
+      console.error(`laterdog computers: ${record.id} failed to boot: ${why}${startLine(failed?.lastStart)}`);
       await this.charge(true);
       await this.publish();
       return fail(502, "start_failed", why);
@@ -1070,7 +1100,7 @@ export class DogComputer extends DurableObject<Env> {
       console.error(`laterdog computers: ${record.id} could not set the inactivity timeout: ${describeError(error)}`);
     }
     console.log(
-      `laterdog computers: ${record.id} starting (generation ${record.generation}, ${SIZES[record.size]}, ${record.snapshot ? `snapshot ${record.snapshot.id}` : pending ? `environment ${record.environment!.key}` : "fresh image"}); running=${container.running}`,
+      `laterdog computers: ${record.id} starting (generation ${record.generation}, ${SIZES[record.size]}, ${record.snapshot ? `snapshot ${record.snapshot.id} of ${record.snapshot.size} bytes` : pending ? `environment ${record.environment!.key}` : "fresh image"}); running=${container.running}`,
     );
     await this.ctx.storage.setAlarm(Date.now() + READY_POLL_MS);
     await this.publish();
