@@ -179,6 +179,20 @@ describe("the context window row in a chat's usage", () => {
     expect(partLines()).toEqual([["Conversation", "250k", "100.0%"]]);
   });
 
+  it("still shows the parts when a newer home sends a kind of part this app does not know", async () => {
+    vi.mocked(api).mockResolvedValue({ at: NOW - 1_000, source: "engine", total: 30_000, window: 200_000, parts: [
+      { id: "conversation", tokens: 20_000 }, { id: "added_later", tokens: 10_000 }, { id: "free", tokens: 170_000 }, { id: "fetched_later", tokens: 4_000, deferred: true },
+    ] });
+    await openPanel(chatContextReading({ tokens: 30_000, window: 200_000 }));
+    act(() => toggle().click());
+    expect(partLines()).toEqual([
+      ["Conversation", "20k", "10.0%"],
+      ["Everything else", "10k", "5.0%"],
+      ["Free", "170k", "85.0%"],
+      ["Tools not loaded yet", "4k", "—"],
+    ]);
+  });
+
   it("says the row comes after the first reply when the chat has nothing yet", async () => {
     vi.mocked(api).mockRejectedValue(new ApiError("nothing yet", 404, { error: "nothing yet" }));
     await openPanel(null);

@@ -46,10 +46,11 @@ export function contextBreakdownOf(raw: unknown): ContextBreakdown | null {
   if (!Array.isArray(value.parts)) return null;
   const parts: ContextPart[] = [];
   for (const entry of value.parts as unknown[]) {
-    if (!entry || typeof entry !== "object") return null;
+    if (!entry || typeof entry !== "object") continue;
     const part = entry as Record<string, unknown>;
-    if (typeof part.id !== "string" || !PART_IDS.has(part.id) || !count(part.tokens)) return null;
-    parts.push({ id: part.id as ContextPartId, tokens: Math.round(part.tokens), ...(part.deferred === true ? { deferred: true as const } : {}) });
+    if (!count(part.tokens)) continue;
+    const id: ContextPartId = typeof part.id === "string" && PART_IDS.has(part.id) ? part.id as ContextPartId : "other";
+    parts.push({ id, tokens: Math.round(part.tokens), ...(part.deferred === true ? { deferred: true as const } : {}) });
   }
   return {
     at: value.at,
