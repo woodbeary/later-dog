@@ -293,7 +293,7 @@ it("returns nested results after Claude rejects the source's prior resume cursor
   expect(f.nodes().every((node: any) => node.status === "completed")).toBe(true);
   expect(f.evidence().map((turn: any) => turn.botId)).toEqual([f.chief.id, f.chief.id, f.lead.id, f.specialist.id, f.lead.id, f.chief.id]);
   const transcript = await f.messages(f.chief.activeTaskId);
-  expect(transcript.some((message: any) => message.tool?.name?.includes("resume_rejected"))).toBe(true);
+  expect(transcript.some((message: any) => message.tool?.name?.includes("picked the conversation back up"))).toBe(true);
 }, { FAKE_CLAUDE_MODE: "dead-session", FAKE_CLAUDE_EXIT_AFTER_TURN: "1" }), 45_000);
 
 it("runs teammate work on the recipient's own model and level, never the sender's", () => fixture(async f => {
