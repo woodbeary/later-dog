@@ -67,7 +67,6 @@ Use only mapped, tested commands:
 - [Codex bot instructions](codex-instructions.md)
 - [Harness tuning and what dogs are told](harness-and-instructions.md)
 - [A dog's plan, kept per chat](dog-plan.md)
-- [A chat never shows idle while something runs for it](work-state-truth.md)
 - [Codex browser routing and native search](codex-browser-routing.md)
 - [Codex helper event isolation](codex-helpers.md)
 - [Team backups](team-backups.md)
