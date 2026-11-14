@@ -1,7 +1,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { z } from "zod";
 import { writeFileAtomic } from "../atomic.ts";
-import type { PlanProviderRow } from "../plan-usage.ts";
+import type { PlanProviderRow, PlanWindow } from "../plan-usage.ts";
 import type { ModelSelection, WireAccountRoute } from "../../shared/wire.ts";
 import { creditsSpendable } from "../../shared/spendable-credits.ts";
 import { resetInstant } from "./usage-limit.ts";
@@ -9,14 +9,14 @@ import type { ProviderSnapshot } from "../contracts.ts";
 import { checkUnknown } from "./cli-version.ts";
 import { NEARLY_EMPTY_PERCENT, roomTier } from "./account-spread.ts";
 import { choiceReadyAt, decideAccount, shownRoute, type AccountChoice, type AccountChoiceInput, type Ran } from "./account-choice.ts";
+import { SETUP_STOP, modelLimitName, modelRestKey, restModel, restOwner, sameModel } from "./account-limits.ts";
 
-export { NEARLY_EMPTY_PERCENT };
+export { NEARLY_EMPTY_PERCENT, SETUP_STOP };
 
 export const BATTERY_DRIVERS: readonly string[] = ["claudeAgent", "codex"];
 
 export const DEFAULT_REST_MS = 5 * 60 * 60 * 1000;
 export const SETUP_REST_MS = 30 * 60 * 1000;
-export const SETUP_STOP = "setup";
 export const USAGE_FRESH_MS = 2 * 60 * 1000;
 export const USAGE_REFRESH_WAIT_MS = 10_000;
 const MAX_AWAY = 500;
@@ -67,6 +67,7 @@ export function signedInReading(snapshot: ProviderSnapshot): { signedIn?: boolea
 export interface Rest {
   until: string;
   kind?: string;
+  model?: string;
   estimated?: boolean;
   since: string;
   reading?: string;
@@ -106,6 +107,7 @@ export interface BatteryStatus {
 const restSchema = z.object({
   until: z.string().max(64),
   kind: z.string().max(40).optional(),
+  model: z.string().max(80).optional(),
   estimated: z.boolean().optional(),
   since: z.string().max(64),
   reading: z.string().max(512).optional(),
@@ -127,10 +129,20 @@ function readState(file: string | undefined): BatteryState {
   if (!file || !existsSync(file)) return emptyState();
   try {
     const parsed = stateSchema.safeParse(JSON.parse(readFileSync(file, "utf8")));
-    return parsed.success ? parsed.data : emptyState();
+    return parsed.success ? withModelRestsApart(parsed.data) : emptyState();
   } catch {
     return emptyState();
   }
+}
+
+function withModelRestsApart(state: BatteryState): BatteryState {
+  for (const [key, rest] of Object.entries(state.resting)) {
+    const model = restModel(rest);
+    if (!model || restOwner(key) !== key) continue;
+    delete state.resting[key];
+    state.resting[modelRestKey(key, model)] ??= { ...rest, model };
+  }
+  return state;
 }
 
 export function batteryOrder(config: AccountBatteryConfig | undefined, accounts: readonly BatteryAccount[]): Record<string, string[]> {
@@ -145,14 +157,19 @@ export function batteryOrder(config: AccountBatteryConfig | undefined, accounts:
 
 export function restApplies(rest: Rest | undefined, model: string | undefined, now: number): boolean {
   if (!rest || !(Date.parse(rest.until) > now)) return false;
-  if (model === undefined) return true;
-  if (rest.kind === "opus") return /opus/i.test(model);
-  if (rest.kind === "sonnet") return /sonnet/i.test(model);
-  return true;
+  const limited = restModel(rest);
+  return limited === undefined || (model !== undefined && sameModel(model, limited));
 }
 
 const sameLogin = (a: BatteryAccount, b: BatteryAccount) =>
   Boolean(a.driverKind === b.driverKind && a.email && b.email && a.email.trim().toLowerCase() === b.email.trim().toLowerCase());
+
+function restOn(instanceId: string, model: string | undefined, resting: Readonly<Record<string, Rest>>, now: number): Rest | undefined {
+  const whole = resting[instanceId];
+  if (restApplies(whole, model, now)) return whole;
+  const one = model === undefined ? undefined : resting[modelRestKey(instanceId, model)];
+  return restApplies(one, model, now) ? one : undefined;
+}
 
 export function activeRest(
   account: BatteryAccount,
@@ -161,14 +178,35 @@ export function activeRest(
   resting: Readonly<Record<string, Rest>>,
   now: number,
 ): (Rest & { sharedWith?: string }) | undefined {
-  const own = resting[account.instanceId];
-  if (restApplies(own, model, now)) return own;
+  const own = restOn(account.instanceId, model, resting, now);
+  if (own) return own;
   for (const other of accounts) {
     if (other.instanceId === account.instanceId || !sameLogin(account, other)) continue;
-    const shared = resting[other.instanceId];
-    if (restApplies(shared, model, now)) return { ...shared!, sharedWith: other.instanceId };
+    const shared = restOn(other.instanceId, model, resting, now);
+    if (shared) return { ...shared, sharedWith: other.instanceId };
   }
   return undefined;
+}
+
+export function accountRests(
+  account: BatteryAccount,
+  accounts: readonly BatteryAccount[],
+  resting: Readonly<Record<string, Rest>>,
+  now: number,
+): Array<Rest & { sharedWith?: string }> {
+  const found: Array<Rest & { sharedWith?: string }> = [];
+  const whole = activeRest(account, undefined, accounts, resting, now);
+  if (whole) found.push(whole);
+  const owners = [account, ...accounts.filter((other) => other.instanceId !== account.instanceId && sameLogin(account, other))];
+  for (const owner of owners) {
+    for (const [key, rest] of Object.entries(resting)) {
+      const model = restModel(rest);
+      if (!model || restOwner(key) !== owner.instanceId || !(Date.parse(rest.until) > now)) continue;
+      if (found.some((seen) => seen.model !== undefined && sameModel(seen.model, model))) continue;
+      found.push(owner === account ? { ...rest, model } : { ...rest, model, sharedWith: owner.instanceId });
+    }
+  }
+  return found;
 }
 
 interface PickInput {
@@ -201,36 +239,87 @@ export function usedUpRest(row: PlanProviderRow | undefined, now: number): Rest 
   return full ? { until: new Date(full.reset).toISOString(), kind: full.kind, since: new Date(now).toISOString() } : undefined;
 }
 
+interface Reading {
+  usedPercent: number | null;
+  resetsAt: string | null;
+}
+
+const resetOf = (window: Reading) => window.resetsAt ? Date.parse(window.resetsAt) : Number.NaN;
+
+export function usedUpModelRests(row: PlanProviderRow | undefined, now: number): Rest[] {
+  if (!row?.ok || row.driver !== "claude") return [];
+  return row.models.flatMap((model) => {
+    const full = model.windows.filter((window) => window.usedPercent >= USED_UP_PERCENT && resetOf(window) > now)
+      .sort((a, b) => resetOf(b) - resetOf(a))[0];
+    return full
+      ? [{ until: new Date(resetOf(full)).toISOString(), kind: full.label === "5-hour" ? "session" : "weekly", model: model.name, since: new Date(now).toISOString() }]
+      : [];
+  });
+}
+
+function readingsUnder(row: PlanProviderRow | undefined, rest: Pick<Rest, "kind" | "model">): Reading[] {
+  if (!row?.ok) return [];
+  const model = restModel(rest);
+  if (model) {
+    const label = rest.kind === "session" ? "5-hour" : "Weekly";
+    return row.models.filter((entry) => sameModel(entry.name, model)).flatMap((entry) => entry.windows.filter((window) => window.label === label));
+  }
+  const shown = (window: PlanWindow): Reading => ({ usedPercent: window.available ? window.usedPercent : null, resetsAt: window.resetsAt });
+  if (rest.kind === "session") return [shown(row.fiveHour)];
+  if (rest.kind === "weekly") return [shown(row.weekly)];
+  return rest.kind === undefined || rest.kind === "usage" ? [shown(row.fiveHour), shown(row.weekly)] : [];
+}
+
+export function endsByReset(rest: Rest, row: PlanProviderRow | undefined): Rest {
+  const resets = readingsUnder(row, rest).map(resetOf);
+  if (!resets.length || resets.some(Number.isNaN)) return rest;
+  const reset = Math.max(...resets);
+  return reset > Date.parse(rest.since) && reset < Date.parse(rest.until) ? { ...rest, until: new Date(reset).toISOString() } : rest;
+}
+
 export function withReadings(
   resting: Readonly<Record<string, Rest>>,
   accounts: readonly BatteryAccount[],
   usage: PlanReading | undefined,
   now: number,
 ): Record<string, Rest> {
-  const merged: Record<string, Rest> = { ...resting };
-  if (!usage) return merged;
+  if (!usage) return { ...resting };
+  const merged: Record<string, Rest> = Object.fromEntries(Object.entries(resting).map(([key, rest]) => [key, endsByReset(rest, usage(restOwner(key)))]));
   for (const account of accounts) {
-    const reading = usedUpRest(usage(account.instanceId), now);
-    if (!reading) continue;
-    const own = resting[account.instanceId];
+    const row = usage(account.instanceId);
+    const reading = usedUpRest(row, now);
+    const own = merged[account.instanceId];
     const ownApplies = restApplies(own, undefined, now);
-    if (ownApplies && own!.kind === SETUP_STOP) continue;
-    if (!ownApplies || own!.kind === "opus" || own!.kind === "sonnet" || Date.parse(reading.until) > Date.parse(own!.until)) merged[account.instanceId] = reading;
+    if (reading && !(ownApplies && own!.kind === SETUP_STOP) && (!ownApplies || Date.parse(reading.until) > Date.parse(own!.until))) {
+      merged[account.instanceId] = reading;
+    }
+    for (const full of usedUpModelRests(row, now)) {
+      const key = modelRestKey(account.instanceId, full.model!);
+      const kept = merged[key];
+      if (!kept || !(Date.parse(kept.until) > now) || Date.parse(full.until) > Date.parse(kept.until)) merged[key] = full;
+    }
   }
   return merged;
 }
 
-const KINDS_A_READING_SHOWS: ReadonlySet<string | undefined> = new Set([undefined, "session", "weekly"]);
+const KINDS_A_READING_SHOWS: ReadonlySet<string | undefined> = new Set([undefined, "usage", "session", "weekly"]);
 
-function quotaReading(row: PlanProviderRow | undefined, kind: string | undefined) {
-  if (!row?.ok) return undefined;
-  const window = kind === "session" ? row.fiveHour : kind === "weekly" ? row.weekly : undefined;
-  if (!window?.available || window.usedPercent === null) return undefined;
+function quotaReading(row: PlanProviderRow | undefined, rest: Pick<Rest, "kind" | "model">) {
+  const readings = readingsUnder(row, rest);
+  if (!row || !readings.length || readings.some((reading) => reading.usedPercent === null)) return undefined;
   const balance = row.credits?.balance == null ? NaN : Number(row.credits.balance);
+  const paidRoom = restModel(rest) === undefined && creditsSpendable(row.credits);
   return {
-    key: JSON.stringify([window.usedPercent, window.resetsAt, creditsSpendable(row.credits), row.credits?.unlimited, Number.isFinite(balance) ? balance : null]),
-    hasRoom: creditsSpendable(row.credits) || window.usedPercent < USED_UP_PERCENT,
+    key: JSON.stringify([...readings.flatMap((reading) => [reading.usedPercent, reading.resetsAt]), creditsSpendable(row.credits), row.credits?.unlimited, Number.isFinite(balance) ? balance : null]),
+    hasRoom: paidRoom || readings.every((reading) => reading.usedPercent! < USED_UP_PERCENT),
   };
+}
+
+function leftUnder(row: PlanProviderRow | undefined, rest: Rest, now: number): number | undefined {
+  if (restModel(rest) === undefined) return percentLeft(row, now);
+  const readings = readingsUnder(row, rest);
+  if (!readings.length || readings.some((reading) => reading.usedPercent === null)) return undefined;
+  return Math.min(...readings.map((reading) => resetOf(reading) <= now ? 100 : 100 - reading.usedPercent!));
 }
 
 export function readingsDisprove(
@@ -239,18 +328,19 @@ export function readingsDisprove(
   usageAt: ((instanceId: string) => number | undefined) | undefined,
   now: number,
 ): string[] {
-  return Object.entries(resting).filter(([instanceId, rest]) => {
-    if (!KINDS_A_READING_SHOWS.has(rest.kind)) return false;
+  return Object.entries(resting).filter(([key, rest]) => {
+    if (restModel(rest) === undefined && !KINDS_A_READING_SHOWS.has(rest.kind)) return false;
+    const instanceId = restOwner(key);
     const readAt = usageAt?.(instanceId);
     if (readAt === undefined || !(readAt > Date.parse(rest.since))) return false;
     const row = usage?.(instanceId);
     if (rest.estimated) {
-      const left = percentLeft(row, now);
+      const left = leftUnder(row, rest, now);
       return left !== undefined && left > NEARLY_EMPTY_PERCENT;
     }
-    const reading = quotaReading(row, rest.kind);
+    const reading = quotaReading(row, rest);
     return reading?.hasRoom === true && reading.key !== rest.reading;
-  }).map(([instanceId]) => instanceId);
+  }).map(([key]) => key);
 }
 
 export function rankOrder(order: Record<string, string[]>, input: Omit<PickInput, "config" | "selection">): Record<string, string[]> {
@@ -423,13 +513,13 @@ export function limitRowToReplace<M extends { id: string; role: string; kind: st
 }
 
 const LIMIT_NAMES: ReadonlyMap<string, string> = new Map([
-  ["session", "5-hour"], ["daily", "daily"], ["weekly", "weekly"], ["monthly", "monthly"], ["opus", "Opus"], ["sonnet", "Sonnet"],
+  ["session", "5-hour"], ["daily", "daily"], ["weekly", "weekly"], ["monthly", "monthly"],
 ]);
 
 export function switchNotice(input: { to: string; from: string; rest?: Rest; now: number; timeZone?: string }): string {
   const { to, from, rest, now, timeZone } = input;
   if (rest?.kind === SETUP_STOP) return `Switched to ${to} — ${from} needs signing in again.`;
-  const limit = rest?.kind ? LIMIT_NAMES.get(rest.kind) : undefined;
+  const limit = (rest && restModel(rest)) ?? (rest?.kind ? LIMIT_NAMES.get(rest.kind) : undefined);
   const known = rest && !rest.estimated && Date.parse(rest.until) > now ? rest.until : undefined;
   if (limit) return `Switched to ${to} — ${from} hit its ${limit} limit${known ? `, resets ${resetPhrase(known, now, timeZone)}` : ""}.`;
   return `Switched to ${to} — ${from} is out of usage${known ? ` until ${resetLabel(known, now, timeZone)}` : " for now"}.`;
@@ -468,9 +558,6 @@ export interface AccountBatteryOptions {
   refreshUsage?: () => Promise<void>;
   onChange?: () => void;
 }
-
-const restingKey = (resting: Readonly<Record<string, Rest>>) =>
-  JSON.stringify(Object.entries(resting).map(([id, rest]) => [id, rest.until]).sort());
 
 export class AccountBattery {
   private state: BatteryState;
@@ -535,47 +622,54 @@ export class AccountBattery {
     return away.to;
   }
 
-  markExhausted(instanceId: string, quota: Quota = {}): Rest {
+  markExhausted(instanceId: string, quota: Quota = {}, model?: string): Rest {
     const now = this.now();
     const reported = resetInstant(quota.resetsAt, now);
     const reset = reported && Date.parse(reported) > now ? reported : undefined;
     const kind = quota.kind && /^[a-z][a-z0-9_-]{0,39}$/i.test(quota.kind) ? quota.kind.toLowerCase() : undefined;
-    const reading = quotaReading(this.options.usage?.(instanceId), kind);
+    const limited = modelLimitName(kind, model);
+    const reading = quotaReading(this.options.usage?.(instanceId), { kind, model: limited });
     const rest: Rest = {
       until: reset ?? new Date(now + DEFAULT_REST_MS).toISOString(),
       ...(kind ? { kind } : {}),
+      ...(limited ? { model: limited } : {}),
       ...(reset ? {} : { estimated: true }),
       since: new Date(now).toISOString(),
       ...(reading ? { reading: reading.key } : {}),
     };
-    this.state.resting[instanceId] = rest;
+    const key = limited ? modelRestKey(instanceId, limited) : instanceId;
+    this.state.resting[key] = rest;
     this.save();
-    if (!reset && this.enabled && this.options.planReset) void this.refine(instanceId, rest);
+    if (!reset && this.enabled && this.options.planReset) void this.refine(key, rest);
     return rest;
   }
 
-  private async refine(instanceId: string, rest: Rest): Promise<void> {
+  private async refine(key: string, rest: Rest): Promise<void> {
     try {
-      const found = resetInstant(await this.options.planReset!(instanceId, rest.kind), this.now());
-      if (!found || this.state.resting[instanceId] !== rest) return;
+      const found = resetInstant(await this.options.planReset!(restOwner(key), rest.model ?? rest.kind), this.now());
+      if (!found || this.state.resting[key] !== rest) return;
       const { estimated: _estimated, ...known } = rest;
-      this.state.resting[instanceId] = { ...known, until: found };
+      this.state.resting[key] = { ...known, until: found };
       this.save();
     } catch {}
   }
 
-  recovered(instanceId: string, startedAt?: number): boolean {
-    const rest = this.state.resting[instanceId];
-    if (!rest) return false;
-    if (startedAt === undefined ? !rest.estimated : startedAt < Date.parse(rest.since)) return false;
-    delete this.state.resting[instanceId];
+  recovered(instanceId: string, startedAt?: number, model?: string): boolean {
+    const keys = model === undefined ? [instanceId] : [instanceId, modelRestKey(instanceId, model)];
+    const ended = keys.filter((key) => {
+      const rest = this.state.resting[key];
+      return rest !== undefined && (startedAt === undefined ? rest.estimated === true : startedAt >= Date.parse(rest.since));
+    });
+    if (!ended.length) return false;
+    for (const key of ended) delete this.state.resting[key];
     this.save();
     return true;
   }
 
   forget(instanceId: string): void {
-    let changed = Boolean(this.state.resting[instanceId]);
-    delete this.state.resting[instanceId];
+    const rests = Object.keys(this.state.resting).filter((key) => restOwner(key) === instanceId);
+    let changed = rests.length > 0;
+    for (const key of rests) delete this.state.resting[key];
     for (const [threadId, placed] of Object.entries(this.state.placed)) {
       if (placed.on !== instanceId) continue;
       delete this.state.placed[threadId];
@@ -605,6 +699,20 @@ export class AccountBattery {
 
   restOf(account: BatteryAccount, accounts: readonly BatteryAccount[], model?: string): (Rest & { sharedWith?: string }) | undefined {
     return activeRest(account, model, accounts, this.resting(accounts), this.now());
+  }
+
+  limitsOf(account: BatteryAccount, accounts: readonly BatteryAccount[]): Array<Rest & { sharedWith?: string }> {
+    return accountRests(account, accounts, this.resting(accounts), this.now());
+  }
+
+  restingUntil(instanceId: string, accounts: readonly BatteryAccount[], model?: string): string | undefined {
+    const account = accounts.find((candidate) => candidate.instanceId === instanceId);
+    return account ? this.restOf(account, accounts, model)?.until : undefined;
+  }
+
+  private limitsKey(accounts: readonly BatteryAccount[]): string {
+    return JSON.stringify(accounts.filter((account) => account.eligible)
+      .flatMap((account) => this.limitsOf(account, accounts).map((rest) => [account.instanceId, rest.model ?? "", rest.until])).sort());
   }
 
   private resting(accounts: readonly BatteryAccount[]): Record<string, Rest> {
@@ -640,7 +748,7 @@ export class AccountBattery {
     const order = effectiveOrder({ config, accounts, resting: this.resting(accounts), now: this.now(), usage: this.options.usage });
     const sequence = batterySequence({ config, accounts, resting: this.resting(accounts), now: this.now(), usage: this.options.usage });
     this.shownOrder = JSON.stringify({ order, sequence });
-    this.shownResting = restingKey(resting);
+    this.shownResting = this.limitsKey(accounts);
     return { enabled: batteryEnabled(config, accounts), auto: config?.auto === true, order,
       sequence, resting, routed, fromNextMessage };
   }
@@ -648,8 +756,7 @@ export class AccountBattery {
   noteReadings(accounts: readonly BatteryAccount[]): void {
     this.dropDisprovedRests();
     const config = this.options.config();
-    const resting = restingKey(Object.fromEntries(accounts.filter((account) => account.eligible)
-      .flatMap((account) => { const rest = this.restOf(account, accounts); return rest ? [[account.instanceId, rest]] : []; })));
+    const resting = this.limitsKey(accounts);
     if (resting !== this.shownResting) {
       this.shownResting = resting;
       this.options.onChange?.();

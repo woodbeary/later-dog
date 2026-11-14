@@ -254,7 +254,7 @@ import { finishMacVault, prepareMacVault, type VaultItems } from "./laterdog/vau
 import { CommandSecrets } from "./laterdog/vault-refs.ts";
 import { createDogQueueRoute, type QueuedMessageRow } from "./routes/dog-queue.ts";
 import { SAFE_STOP_GRACE_MS, safeStopWords, stoppedByLine } from "./laterdog/safe-stop.ts";
-import { withRestingUntil, type AccountUsageInput } from "./laterdog/account-usage.ts";
+import { withAccountLimits, type AccountUsageInput } from "./laterdog/account-usage.ts";
 import { guidanceEngine, guidanceParts, homeKit, ROOM_TEAM_PROMPT, teammateTaskPrompt } from "./laterdog/dog-guidance.ts";
 import { codexHome } from "./drivers/codex-identity.ts";
 import { resolveClaudeConfigDir } from "./drivers/claude.ts";
@@ -5790,8 +5790,9 @@ bus.subscribe(makeCapContinuationSubscriber({ store, startTurn }));
 
 bus.subscribe((event: RuntimeEvent) => {
   if (!event.providerInstanceId) return;
-  if (event.type === "runtime.error" && event.quota) accountBattery.markExhausted(event.providerInstanceId, event.quota);
-  else if (event.type === "turn.completed" && event.ok) accountBattery.recovered(event.providerInstanceId, turnStartedAt.get(event.threadId));
+  const model = executionEvidence.ran(event.threadId)?.model;
+  if (event.type === "runtime.error" && event.quota) accountBattery.markExhausted(event.providerInstanceId, event.quota, model);
+  else if (event.type === "turn.completed" && event.ok) accountBattery.recovered(event.providerInstanceId, turnStartedAt.get(event.threadId), model);
 });
 
 const memoryRowsByThread = new Map<string, MemoryJournalEntry[]>();
@@ -6629,7 +6630,7 @@ function chatAccountFacts(bot: BotRecord, threadId: string): ChatAccountFacts {
 
 function runnableNow(bot: BotRecord, threadId: string): boolean {
   const facts = chatAccountFacts(bot, threadId);
-  return accountRunsNow({ ...facts, resting: (account) => Boolean(accountBattery.restOf(account, facts.accounts)) });
+  return accountRunsNow({ ...facts, resting: (account, model) => Boolean(accountBattery.restOf(account, facts.accounts, model)) });
 }
 
 function reviveRunnableDogs(): number {
@@ -13416,7 +13417,7 @@ function accountUsageInputs(): AccountUsageInput[] {
       const value = account.driverKind === "claudeAgent" ? resolveClaudeConfigDir(plan?.configDir, environment) : codexHome(environment);
       if (value) env = { name: account.driverKind === "claudeAgent" ? "CLAUDE_CONFIG_DIR" : "CODEX_HOME", value };
     } catch {}
-    return { account, row: latestPlanRow(account.instanceId), rest: accountBattery.restOf(account, accounts), ...(env ? { env } : {}) };
+    return { account, row: latestPlanRow(account.instanceId), rest: accountBattery.restOf(account, accounts), limits: accountBattery.limitsOf(account, accounts), ...(env ? { env } : {}) };
   });
 }
 
@@ -13537,12 +13538,12 @@ INTERNAL_ROUTES.push(createExecutionAdviceRoute({
   rows: () => readUsage(DATA_DIR, { from: new Date(Date.now() - 30 * 86_400_000), to: new Date() }),
   candidates: async () => {
     const configs = providerConfigs();
-    const resting = accountBattery.status(batteryAccounts()).resting;
+    const accounts = batteryAccounts();
     return (await registry.describe()).flatMap((instance) => instance.models.options.map((model) => ({
       instanceId: instance.instanceId, model: model.id, enabled: configs[instance.instanceId]?.enabled !== false,
       authenticated: "authenticated" in instance.snapshot && instance.snapshot.authenticated === true,
       available: instance.snapshot.state === "available" && !policyModelRefusal(instance),
-      effortLevels: model.effortLevels, restingUntil: resting[instance.instanceId]?.until,
+      effortLevels: model.effortLevels, restingUntil: accountBattery.restingUntil(instance.instanceId, accounts, model.id),
     })));
   },
 }));
@@ -19602,9 +19603,9 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       });
       const accounts = batteryAccounts();
       accountBattery.noteReadings(accounts);
-      return json(res, 200, withRestingUntil(report, (instanceId) => {
+      return json(res, 200, withAccountLimits(report, (instanceId) => {
         const account = accounts.find((candidate) => candidate.instanceId === instanceId);
-        return account ? accountBattery.restOf(account, accounts) : undefined;
+        return account ? accountBattery.limitsOf(account, accounts) : undefined;
       }));
     }
 
