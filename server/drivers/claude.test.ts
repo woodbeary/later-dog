@@ -708,6 +708,13 @@ describe("ClaudeDriver turns (fake CLI)", () => {
     expect(recorder.events.at(-1)).toMatchObject({ ok: false, stopReason: "stop_sequence" });
   });
 
+  it("shows one failure when the engine's API error line is followed by an error result naming it", async () => {
+    await create("api-error", { FAKE_CLAUDE_API_ERROR_BARE: "1" });
+    await instance.adapter.sendTurn({ threadId: "t-overloaded-bare", text: "hi" });
+    await recorder.until((event) => event.type === "turn.completed");
+    expect(recorder.events.filter((event) => event.type === "runtime.error")).toEqual([expect.objectContaining({ message: expect.stringContaining("529 Overloaded") })]);
+  });
+
   it("retires an outdated child before retry while preserving a healthy pooled session", async () => {
     await create(undefined, {
       FAKE_CLAUDE_API_ERROR: "Claude Code 2.1.268 does not support this model; version 2.1.280 or newer is required.",

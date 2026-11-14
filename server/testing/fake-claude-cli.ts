@@ -541,7 +541,9 @@ const playTurn = async (prompt: JsonValue, late = false) => {
   if (mode === "api-error" || resumedError) {
     const text = process.env.FAKE_CLAUDE_API_ERROR ?? "API Error: 529 Overloaded. This is a server-side issue, usually temporary.";
     out({ type: "assistant", message: { model: "<synthetic>", content: [{ type: "text", text }] }, error: "unknown", is_api_error_message: true });
-    out({ type: "result", is_error: true, stop_reason: "stop_sequence", terminal_reason: "api_error", result: text });
+    out(process.env.FAKE_CLAUDE_API_ERROR_BARE === "1"
+      ? { type: "result", is_error: true, stop_reason: "stop_sequence", terminal_reason: "api_error", errors: [text] }
+      : { type: "result", is_error: true, stop_reason: "stop_sequence", terminal_reason: "api_error", result: text });
     turnRunning = false;
     finishIfDone();
     return;
