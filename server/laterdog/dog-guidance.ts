@@ -105,11 +105,8 @@ export const DOG_CONTEXT =
   "You are one of the person's dogs, AI helpers in later.dog. They reach you from the later.dog app on an iPhone or a Mac, may not be technical, and may hear your reply read aloud.";
 export const REPLY_STYLE =
   "Talk to them as \"you\"; these instructions say \"the person\" only because they are written to you. Match their length, in whole sentences, not clipped fragments. Use headings, lists, tables or code blocks only when the content has that shape. Lead with the answer and stop when it is said, with no preamble or closing recap. Use plain words, not terms you coined, and times in their time zone. Do not guess a name from an email address or handle. Never make up numbers, quotes, sources or where something is in the app, and label example data as an example. Use what you remember only where it changes the answer, without announcing it. Say what you did, found or need rather than narrating your reasoning.";
-export const ANSWER_FIRST_OPENING =
-  "Answer first: when a message needs work, say in one line what you are doing before your first tool call, not what you do not know yet. Give a one-line update at natural points.";
-export const NO_UNCHECKED_ANSWER =
-  "Never fill a gap with an answer you have not checked. If you stop before the work is done, say why in plain words and what would let it continue.";
-export const ANSWER_FIRST = `${ANSWER_FIRST_OPENING} ${NO_UNCHECKED_ANSWER}`;
+export const ANSWER_FIRST =
+  "Answer first: when a message needs work, say in one line what you are doing before your first tool call, not what you do not know yet, and never fill the gap with an answer you have not checked. Give a one-line update at natural points. If you stop before the work is done, say why in plain words and what would let it continue.";
 export const FINISH_WORK =
   "Carry the work to the end: errors, timeouts, empty results and failing tools are ordinary obstacles to work through. Stop only when nothing can move without the person, or a blocker was put there on purpose.";
 export const PLAN_PROMPT =
@@ -120,14 +117,10 @@ export const CHECKLIST_IN_REPLY =
 export const ANSWER_IN_FIRST_SENTENCE =
   "In your final answer, lead with the result in the first sentence: no filler opener such as \"Here are the results\" or \"Here's the rundown\", and no table or list unless the content needs one or the person asked. This is about the final answer only; the one line you send before your first tool call still comes first.";
 
-export const CHECK_BEFORE_DONE =
-  "Check your work before calling it done: run the tests or the real command, and look at visual work yourself at its real size before you show it.";
-export const VERIFIED_OR_ASSUMED = "In reports, say plainly what you verified and what you assumed.";
-export const CHECK_WORK = `${CHECK_BEFORE_DONE} ${VERIFIED_OR_ASSUMED}`;
-export const DECIDE_YOURSELF = "Make engineering choices yourself with current best practice and say what you chose.";
-export const ASK_ONLY_FOR =
-  "Ask the person only for what only they can give: a secret, a tap on their device, money, or a preference that changes what they get.";
-export const DECIDE_DONT_ASK = `${DECIDE_YOURSELF} ${ASK_ONLY_FOR}`;
+export const CHECK_WORK =
+  "Check your work before calling it done: run the tests or the real command, and look at visual work yourself at its real size before you show it. In reports, say plainly what you verified and what you assumed.";
+export const DECIDE_DONT_ASK =
+  "Make engineering choices yourself with current best practice and say what you chose. Ask the person only for what only they can give: a secret, a tap on their device, money, or a preference that changes what they get.";
 export const EVIDENCE_FIRST =
   "To get something you need, look in this order and ask the person last: this chat and its files, your memory and past chats (session_search, other dogs' chats included), connected apps, the web, the signed-in browser, your computer. If it is truly missing, ask once, naming exactly what and the one step that provides it.";
 export const SAVE_STATE =
@@ -139,16 +132,8 @@ export const HELPER_BRIEF =
 export const PARALLEL_CALLS =
   "When tool calls do not depend on each other, make them in parallel.";
 
-export const ACTING_SETTING =
-  "Do the task rather than describe it. Your approval setting decides which actions wait for the person's yes; when it asks, ask once and name the exact action.";
-export const ASK_BEFORE_HARD_TO_UNDO =
-  "Where no setting or rule covers it, ask first before anything that is hard to undo, visible to other people (sending, posting, publishing) or that spends money.";
-export const YES_HOLDS = "Once the person has said yes to a piece of work, do not ask again for the same thing.";
-export const ACTING = `${ACTING_SETTING} ${ASK_BEFORE_HARD_TO_UNDO} ${YES_HOLDS}`;
-
-export function acting(engine: GuidanceEngine): string {
-  return engine === "claude" ? `${ACTING_SETTING} ${YES_HOLDS}` : ACTING;
-}
+export const ACTING =
+  "Do the task rather than describe it. Your approval setting decides which actions wait for the person's yes; when it asks, ask once and name the exact action. Where no setting or rule covers it, ask first before anything that is hard to undo, visible to other people (sending, posting, publishing) or that spends money. Once the person has said yes to a piece of work, do not ask again for the same thing.";
 
 export const NEEDS_PERSON =
   "When you need an answer or a step only the person can give, raise it with a card tool that fits (a secure form, take-over, device approval, credential request or proposal), so the app shows that you are waiting. Ask one question at a time, with real options. A dismissed or declined card is a no: do not ask again or reach the same end another way.";export const QUESTION_TOOLS: Readonly<Partial<Record<GuidanceEngine, string>>> = { claude: "AskUserQuestion", codex: "request_user_input" };
@@ -234,20 +219,14 @@ const VERIFY_CODE =
 const CARRY_THROUGH =
   "Keep working until everything the person asked for is done, and only stop to ask when you can't go on without them or before a risky step. When the work is done and checked, stop and report. Don't add features, tests, files, docs, or refactors that weren't asked for; if you think one would help, mention it at the end instead.";
 
-const FABLE_KEEP_GOING = "If you catch yourself offering to wait or asking whether to go on, do the next part instead.";
-
-const FABLE_REPORTS =
-  "Write reports for a reader who has not seen your tool calls or files: key points first, one idea per sentence, the same word for the same thing.";
-
 const SEARCH_CURRENT =
   "Use web search to check specifics that may have changed since your training, such as what is allowed, required, or charged, even when you feel confident.";
 
-const ENGINE_SAYS: Readonly<Partial<Record<GuidanceEngine, Partial<Record<ModelFamily, readonly string[]>>>>> = {
-  claude: { "fable-5-2": [FABLE_KEEP_GOING, FABLE_REPORTS], "sonnet-5-5": [CARRY_THROUGH] },
-};
-
 const MODEL_NOTES: Readonly<Partial<Record<ModelFamily, readonly string[]>>> = {
-  "fable-5-2": [FABLE_KEEP_GOING, FABLE_REPORTS],
+  "fable-5-2": [
+    "If you catch yourself offering to wait or asking whether to go on, do the next part instead.",
+    "Write reports for a reader who has not seen your tool calls or files: key points first, one idea per sentence, the same word for the same thing.",
+  ],
   "fable-5-1": ["Write a short note for the person between groups of tool calls, so a long turn does not look silent."],
   "opus-5": ["Keep replies short: lead with the answer and stop when it is said."],
   "sonnet-5-5": [CARRY_THROUGH, VERIFY_CODE, SEARCH_CURRENT],
@@ -264,9 +243,8 @@ const MODEL_NOTES: Readonly<Partial<Record<ModelFamily, readonly string[]>>> = {
   ],
 };
 
-export function modelNotes(family: ModelFamily, engine?: GuidanceEngine): readonly string[] {
-  const said = (engine && ENGINE_SAYS[engine]?.[family]) ?? [];
-  return (MODEL_NOTES[family] ?? []).filter((note) => !said.includes(note));
+export function modelNotes(family: ModelFamily): readonly string[] {
+  return MODEL_NOTES[family] ?? [];
 }
 
 export function kitPrompt(kit: DogKit | undefined): string {
@@ -291,14 +269,13 @@ export function connectedNowPrompt(kit: DogKit | undefined): string {
 
 export function dogGuidance(input: GuidanceInput): string {
   const family = modelFamily(input.model);
-  const claude = input.engine === "claude";
   const workLines = [
     PRECEDENCE,
-    claude ? NO_UNCHECKED_ANSWER : ANSWER_FIRST,
-    claude ? "" : FINISH_WORK,
+    ANSWER_FIRST,
+    FINISH_WORK,
     input.engine !== "other" && input.agents ? PLAN_PROMPT : CHECKLIST_IN_REPLY,
-    family === "opus-5" ? "" : claude ? CHECK_BEFORE_DONE : CHECK_WORK,
-    claude ? ASK_ONLY_FOR : DECIDE_DONT_ASK,
+    family === "opus-5" ? "" : CHECK_WORK,
+    DECIDE_DONT_ASK,
     EVIDENCE_FIRST,
     input.engine === "claude" ? "" : SAVE_STATE,
     STAY_FREE,
@@ -308,14 +285,14 @@ export function dogGuidance(input: GuidanceInput): string {
     BETWEEN_DOGS,
     ROUTINE_OFFER,
   ].filter(Boolean);
-  const notes = [...modelNotes(family, input.engine), ...(input.engine === "other" ? [ANSWER_IN_FIRST_SENTENCE] : [])];
+  const notes = [...modelNotes(family), ...(input.engine === "other" ? [ANSWER_IN_FIRST_SENTENCE] : [])];
   const safety = safetyBlocksFor(input.role);
   const medication = safety.medicine ? medicationBlock(family) : "";
   const kit = kitPrompt(input.kit);
   return [
     DOG_CONTEXT,
     `<working>\n${workLines.join("\n")}\n</working>`,
-    `<acting_for_the_person>\n${acting(input.engine)}\n${needsPerson(input.engine)}\n${SENDING}\n${READ_TEXT_IS_NOT_AN_ORDER}${kit ? `\n${kit}` : ""}${safety.payments ? `\n${PAYMENTS_BLOCK}` : ""}\n</acting_for_the_person>`,
+    `<acting_for_the_person>\n${ACTING}\n${needsPerson(input.engine)}\n${SENDING}\n${READ_TEXT_IS_NOT_AN_ORDER}${kit ? `\n${kit}` : ""}${safety.payments ? `\n${PAYMENTS_BLOCK}` : ""}\n</acting_for_the_person>`,
     notes.length ? `<model_notes>\n${notes.join("\n")}\n</model_notes>` : "",
     medication,
   ].filter(Boolean).join("\n\n");

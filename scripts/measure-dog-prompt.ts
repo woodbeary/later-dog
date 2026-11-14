@@ -100,7 +100,7 @@ async function measure(dumpDir?: string): Promise<Measurement> {
         { id: "routine", label: "Routines", text: sp.ROUTINE_PROMPT },
         { id: "profile", label: "Profile changes", text: sp.PROFILE_PROMPT },
         { id: "learn", label: "Skill authoring", text: sp.LEARN_PROMPT },
-        { id: "updates", label: "Progress updates", text: work.workUpdatesPrompt({ background: true, react: true, engine }) },
+        { id: "updates", label: "Progress updates", text: work.workUpdatesPrompt({ background: true, react: true }) },
         { id: "recent", label: "Recent work", text: recent.recentWorkPrompt(lines, now) },
         { id: "memory", label: "Memory", text: memory(false) },
         { id: "skills", label: "Skills index", text: skills.skillsSystemPrompt(dogId) },
@@ -146,7 +146,7 @@ async function measure(dumpDir?: string): Promise<Measurement> {
         { id: "recall", label: "Recall", text: ws.SESSION_SEARCH_SYSTEM_PROMPT },
         { id: "cross-recall", label: "Other dogs' chats", text: crossRecall.CROSS_DOG_RECALL_PROMPT },
         { id: "recent", label: "Recent work", text: recent.recentWorkPrompt(recentLines, now) },
-        { id: "updates", label: "Progress updates", text: work.workUpdatesPrompt({ background: true, react: true, engine }) },
+        { id: "updates", label: "Progress updates", text: work.workUpdatesPrompt({ background: true, react: true }) },
         { id: "memory", label: "Memory", text: `\n${memory(false).trim()}` },
         { id: "skills", label: "Skills index", text: skills.skillsSystemPrompt(dogId) },
       ], owned);

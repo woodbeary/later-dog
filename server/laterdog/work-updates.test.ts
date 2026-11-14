@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { BACKGROUND_WORK_PROMPT, KEEP_GOING_PROMPT, KEEP_GOING_WITH_BACKGROUND_PROMPT, MILESTONE_PROMPT, NO_NARRATION_PROMPT, ON_IT_NOTE, QUIET_WORK_PROMPT, SCREENSHOTS_AND_STEERS_PROMPT, quietWorkEnvironment, SHORT_ON_IT_NOTE, STEER_NOTE, withOnItNote, withSteerNote, workUpdatesPrompt } from "./work-updates.ts";
+import { BACKGROUND_WORK_PROMPT, KEEP_GOING_PROMPT, KEEP_GOING_WITH_BACKGROUND_PROMPT, MILESTONE_PROMPT, ON_IT_NOTE, QUIET_WORK_PROMPT, quietWorkEnvironment, SHORT_ON_IT_NOTE, STEER_NOTE, withOnItNote, withSteerNote, workUpdatesPrompt } from "./work-updates.ts";
 
 describe("how a dog keeps the person posted", () => {
   it("asks for updates instead of silence, without step-by-step narration", () => {
@@ -9,17 +9,6 @@ describe("how a dog keeps the person posted", () => {
     expect(QUIET_WORK_PROMPT).toMatch(/Screenshots you take are for you/);
     expect(workUpdatesPrompt()).not.toMatch(/Work quietly|do not post progress notes|without commentary between tool calls/);
     expect(workUpdatesPrompt()).not.toMatch(/step-by-step updates/);
-  });
-
-  it("leaves the no-narration and keep-going lines to a Claude dog's engine, which already says them", () => {
-    for (const background of [false, true]) {
-      const claude = workUpdatesPrompt({ background, engine: "claude" });
-      expect(claude).not.toContain(NO_NARRATION_PROMPT);
-      expect(claude).not.toMatch(/Nothing happens after your turn ends|nothing happens after your turn ends/);
-      expect(claude.startsWith(SCREENSHOTS_AND_STEERS_PROMPT + MILESTONE_PROMPT)).toBe(true);
-      expect(claude.includes(BACKGROUND_WORK_PROMPT)).toBe(background);
-      for (const engine of ["codex", "other", undefined] as const) expect(workUpdatesPrompt({ background, engine })).toContain(NO_NARRATION_PROMPT);
-    }
   });
 
   it("never has a dog guess how long something will take", () => {
