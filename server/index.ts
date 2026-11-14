@@ -5780,6 +5780,7 @@ bus.subscribe((event: RuntimeEvent) => {
     engineSummaryWindows.compacting(event.threadId);
     compactionLive.started(event.threadId, { turnId: event.turnId, stream: true });
   } else if (event.type === "session.compacted") {
+    engineSummaryWindows.compacted(event.threadId);
     const { ok, skipped, error, trigger, preTokens, postTokens, turnId } = event;
     compactionLive.finished(event.threadId, { ok, skipped, error, trigger, preTokens, postTokens, turnId, stream: true });
   } else if (event.type === "turn.completed" || event.type === "session.exited") compactionLive.settle(event.threadId);
