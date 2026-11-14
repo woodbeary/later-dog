@@ -22,6 +22,7 @@ later.dog 0.3.3 and newer update themselves from the newest GitHub release of `w
 - A tag that doesn't match `package.json`'s version. Installed apps would be offered the same build forever.
 - Replacing a release that already exists.
 - A Mac without a Developer ID Application identity in its keychain. macOS installs an update only when it is signed like the running app.
+- An app without its dictation helper. Packaging carries on when the helper cannot be compiled, so that a Mac without a working Swift compiler can still build; a release must not, or dictation does nothing in it. 0.3.47 went out that way.
 - A release whose notarization Apple didn't accept, for the app or for the disk image. The script prints Apple's log and publishes nothing.
 
 ## Signing and notarization

@@ -1,5 +1,6 @@
 import { execFile } from "node:child_process";
-import { copyFileSync, mkdirSync, rmSync } from "node:fs";
+import { copyFileSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
@@ -9,6 +10,20 @@ const resourcesDir = path.join(electronDir, "resources");
 
 export const speechHelperBundle = path.join(resourcesDir, "later.dog Speech.app");
 export const speechHelperBinary = path.join(speechHelperBundle, "Contents", "MacOS", "speech-helper");
+
+const STALE_BRIDGING_MODULE_MAP = "/Library/Developer/CommandLineTools/usr/include/swift/module.modulemap";
+
+export function hitStaleBridgingModuleMap(message) {
+  return /redefinition of module 'SwiftBridging'/.test(message);
+}
+
+export function hideStaleBridgingModuleMap(folder) {
+  const empty = path.join(folder, "empty.modulemap");
+  const overlay = path.join(folder, "overlay.yaml");
+  writeFileSync(empty, "");
+  writeFileSync(overlay, JSON.stringify({ version: 0, roots: [{ name: STALE_BRIDGING_MODULE_MAP, type: "file", "external-contents": empty }] }));
+  return ["-Xcc", "-ivfsoverlay", "-Xcc", overlay, "-vfsoverlay", overlay];
+}
 
 function run(command, args, timeout) {
   return new Promise((resolve, reject) => {
@@ -30,19 +45,30 @@ export async function buildSpeechHelper() {
   const localPackage = process.env.LATERDOG_LOCAL_PACKAGE === "1";
   const archList = localPackage ? [process.arch === "arm64" ? "arm64" : "x86_64"] : ["arm64", "x86_64"];
   const slices = [];
+  const scratch = mkdtempSync(path.join(tmpdir(), "laterdog-speech-"));
+  let workaround = [];
+  const compile = (arch, slice) => run(
+    "swiftc",
+    [...workaround, localPackage ? "-Onone" : "-O", "-target", `${arch}-apple-macos12`, path.join(resourcesDir, "speech-helper.swift"), "-o", slice],
+    120_000,
+  );
   try {
     for (const arch of archList) {
       const slice = `${speechHelperBinary}-${arch}`;
       slices.push(slice);
-      await run(
-        "swiftc",
-        [localPackage ? "-Onone" : "-O", "-target", `${arch}-apple-macos12`, path.join(resourcesDir, "speech-helper.swift"), "-o", slice],
-        120_000,
-      );
+      try {
+        await compile(arch, slice);
+      } catch (error) {
+        if (workaround.length || !hitStaleBridgingModuleMap(error.message)) throw error;
+        console.warn("swiftc met a stale module map in the Command Line Tools; compiling the dictation helper with it hidden");
+        workaround = hideStaleBridgingModuleMap(scratch);
+        await compile(arch, slice);
+      }
     }
     await run("lipo", ["-create", ...slices, "-output", speechHelperBinary], 60_000);
   } finally {
     for (const slice of slices) rmSync(slice, { force: true });
+    rmSync(scratch, { recursive: true, force: true });
   }
   const archs = await run("lipo", ["-archs", speechHelperBinary], 60_000);
   if (archList.some(arch => !archs.trim().split(/\s+/).includes(arch))) {

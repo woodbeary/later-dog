@@ -20,6 +20,13 @@ describe("later.dog builds, tests and releases run from Jacob's Mac", () => {
     expect(text).toContain("scripts/laterdog-release-files.mjs");
   });
 
+  it("refuses to release an app without its dictation helper, before anything is notarized", () => {
+    const text = readFileSync(new URL("scripts/laterdog-release-mac.sh", root), "utf8");
+    const refused = text.indexOf("Refusing to release without dictation");
+    expect(refused).toBeGreaterThan(text.indexOf("later.dog Speech.app/Contents/MacOS/speech-helper"));
+    expect(text.indexOf("== Notarize and staple the app")).toBeGreaterThan(refused);
+  });
+
   it("points the release doc at the Mac script, not a workflow", () => {
     const doc = readFileSync(new URL("docs/laterdog/releasing.md", root), "utf8");
     expect(doc).toContain("scripts/laterdog-release-mac.sh");
