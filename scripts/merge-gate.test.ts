@@ -35,8 +35,9 @@ describe("merge gate verdict", () => {
   });
 
   it("passes only when every step passed and at least one ran", () => {
-    expect(verdict([])).toEqual({ pass: false, failing: [], skippedNoBrowser: [] });
-    expect(verdict([judgeStep(shard, 0, passing)])).toEqual({ pass: true, failing: [], skippedNoBrowser: [] });
+    expect(verdict([])).toEqual({ pass: false, label: "FAIL", failing: [], skippedNoBrowser: [] });
+    expect(verdict([judgeStep(shard, 0, passing)], { partial: true })).toMatchObject({ pass: false, label: "PARTIAL" });
+    expect(verdict([judgeStep(shard, 0, passing)])).toEqual({ pass: true, label: "PASS", failing: [], skippedNoBrowser: [] });
     const report = formatVerdict([judgeStep(shard, 0, passing), judgeStep({ ...shard, name: "suite 2/8" }, 1, failing)]);
     expect(report).toContain("VERDICT: FAIL");
     expect(report.split("Failing:\n")[1]).toBe("  server/b.test.ts\n  src/c.test.ts");
@@ -66,57 +67,75 @@ describe("merge gate exit code", () => {
   const dirs: string[] = [];
   afterEach(() => { for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true }); });
 
-  const gate = (args: string[], fakeFailsOn = "", base = "HEAD", extra: Record<string, string> = {}) => {
+  const gate = (args: string[], { failOn = "", env = {}, edgeDeps = true }: { failOn?: string; env?: Record<string, string>; edgeDeps?: boolean } = {}) => {
     const dir = mkdtempSync(join(tmpdir(), "laterdog-gate-test-"));
     dirs.push(dir);
     const repo = join(dir, "repo");
     mkdirSync(repo);
     const git = (...gitArgs: string[]) => spawnSync("git", ["-c", "user.name=t", "-c", "user.email=t@example.com", ...gitArgs], { cwd: repo });
     git("init", "-q");
-    git("commit", "-q", "--allow-empty", "-m", "start");
+    writeFileSync(join(repo, ".gitignore"), "node_modules\n");
+    git("add", ".gitignore");
+    git("commit", "-q", "-m", "start");
+    if (edgeDeps) mkdirSync(join(repo, "deploy/laterdog/home/node_modules"), { recursive: true });
     const fake = join(dir, "fake.mjs");
     writeFileSync(fake, `const words = process.argv.slice(2).join(" ");
-if (${JSON.stringify(fakeFailsOn)} && words.includes(${JSON.stringify(fakeFailsOn)})) { console.log(${JSON.stringify(failing)}); process.exit(1); }
+if (${JSON.stringify(failOn)} && words.includes(${JSON.stringify(failOn)})) { console.log(${JSON.stringify(failing)}); process.exit(1); }
 if (words.includes("--shard=2/8") && process.env.FAKE_NO_BROWSER) console.log("stdout | scripts/testing/thinking-timer-ui.e2e.test.ts\\nskipping thinking-timer ui e2e: no agent-browser binary resolves");
 console.log(words.includes("vitest") ? ${JSON.stringify(passing)} : "checked");
 `);
     return spawnSync(process.execPath, [script, ...args], {
       cwd: repo, encoding: "utf8",
-      env: { ...process.env, LATERDOG_GATE_WRAP: `${process.execPath} ${fake}`, LATERDOG_GATE_BASE: base, LATERDOG_GATE_LOGS: join(dir, "logs"), ...extra },
+      env: { ...process.env, LATERDOG_GATE_NO_BROWSER: "", LATERDOG_GATE_WRAP: `${process.execPath} ${fake}`, LATERDOG_GATE_BASE: "HEAD", LATERDOG_GATE_LOGS: join(dir, "logs"), ...env },
     });
   };
 
-  it("exits 0 with a PASS verdict when every step passes", () => {
-    const run = gate(["--only", "typecheck,lint,suite"]);
+  it("exits 0 with a PASS verdict only when the whole gate ran and passed", () => {
+    const run = gate([]);
     expect(run.stdout).toContain("VERDICT: PASS");
     expect(run.status).toBe(0);
   });
 
+  it("calls any --only run PARTIAL and exits 3, naming what ran", () => {
+    const run = gate(["--only", "typecheck,lint"]);
+    expect(run.stdout).toContain("VERDICT: PARTIAL (ran only: typecheck, lint; a merge needs the whole gate)");
+    expect(run.stdout).not.toContain("VERDICT: PASS");
+    expect(run.status).toBe(3);
+  });
+
+  it("refuses an unknown or missing step name before running anything", () => {
+    for (const args of [["--only", "nosuchstep"], ["--only"], ["--only", "--x"], ["--only", "lint,nosuchstep"], ["--only", ","]]) {
+      const run = gate(args);
+      expect(run.stdout, args.join(" ")).not.toContain("VERDICT");
+      expect(run.stderr, args.join(" ")).toContain("merge gate:");
+      expect(run.status, args.join(" ")).toBe(2);
+    }
+  });
+
   it("exits 1 and lists the failing files when one suite part fails", () => {
-    const run = gate(["--only", "typecheck,suite"], "--shard=3/8");
+    const run = gate([], { failOn: "--shard=3/8" });
     expect(run.stdout).toContain("VERDICT: FAIL");
     expect(run.stdout).toContain("Failing:\n  server/b.test.ts\n  src/c.test.ts");
     expect(run.status).toBe(1);
   });
 
   it("exits 1 when an interface test skipped for want of a browser, and 0 when the machine has none on purpose", () => {
-    const skipped = gate(["--only", "electron,suite"], "", "HEAD", { FAKE_NO_BROWSER: "1" });
-    expect(skipped.stdout).toContain("ok   electron exit 0");
+    const skipped = gate([], { env: { FAKE_NO_BROWSER: "1" } });
     expect(skipped.stdout).toMatch(/Skipped without a browser: 1 .*\n {2}scripts\/testing\/thinking-timer-ui\.e2e\.test\.ts\n/);
     expect(skipped.status).toBe(1);
-    const allowed = gate(["--only", "suite"], "", "HEAD", { FAKE_NO_BROWSER: "1", LATERDOG_GATE_NO_BROWSER: "1" });
+    const allowed = gate([], { env: { FAKE_NO_BROWSER: "1", LATERDOG_GATE_NO_BROWSER: "1" } });
     expect(allowed.stdout).toContain("VERDICT: PASS");
     expect(allowed.status).toBe(0);
   });
 
   it("fails the edge step when its dependencies are not installed", () => {
-    const run = gate(["--only", "edge"]);
+    const run = gate([], { edgeDeps: false });
     expect(run.stdout).toContain("FAIL edge exit 1");
     expect(run.status).toBe(1);
   });
 
   it("fails when the base branch is not merged in", () => {
-    const run = gate(["--only", "lint"], "", "no-such-branch");
+    const run = gate([], { env: { LATERDOG_GATE_BASE: "no-such-branch" } });
     expect(run.stdout).toContain("FAIL no-such-branch merged exit 1");
     expect(run.status).toBe(1);
   });

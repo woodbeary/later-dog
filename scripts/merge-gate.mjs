@@ -19,6 +19,18 @@ export function gateSteps(shards = SHARDS) {
   ];
 }
 
+export function selectSteps(steps, argv) {
+  const at = argv.indexOf("--only");
+  if (at === -1) return { steps, partial: false };
+  const value = argv[at + 1];
+  if (!value || value.startsWith("--")) return { error: "--only needs step names separated by commas" };
+  const names = value.split(",").map((name) => name.trim()).filter(Boolean);
+  const matches = (name, step) => step.name === name || (name === "suite" && step.name.startsWith("suite "));
+  const unknown = names.filter((name) => !steps.some((step) => matches(name, step)));
+  if (!names.length || unknown.length) return { error: `unknown step${unknown.length === 1 ? "" : "s"}: ${unknown.join(", ") || value}; steps are ${steps.map((step) => step.name).join(", ")}, or suite for all its parts` };
+  return { steps: steps.filter((step) => names.some((name) => matches(name, step))), partial: true };
+}
+
 export function wrapperFrom(value) {
   return (value ?? "").trim().split(/\s+/).filter(Boolean);
 }
@@ -61,20 +73,25 @@ export function judgeStep(step, code, log) {
   return { ...step, code, failed, failing, skippedNoBrowser: browserSkips(log), note: counts ? `Test Files ${counts.files}; Tests ${counts.tests}` : "" };
 }
 
-export function verdict(results, { noBrowser = false } = {}) {
+export function verdict(results, { noBrowser = false, partial = false } = {}) {
   const failing = [...new Set(results.flatMap((result) => result.failing))];
   const skippedNoBrowser = [...new Set(results.flatMap((result) => result.skippedNoBrowser ?? []))];
-  const pass = results.length > 0 && failing.length === 0 && (noBrowser || skippedNoBrowser.length === 0);
-  return { pass, failing, skippedNoBrowser };
+  const clean = results.length > 0 && failing.length === 0 && (noBrowser || skippedNoBrowser.length === 0);
+  const label = !clean ? "FAIL" : partial ? "PARTIAL" : "PASS";
+  return { pass: label === "PASS", label, failing, skippedNoBrowser };
+}
+
+export function exitCode(label) {
+  return label === "PASS" ? 0 : label === "PARTIAL" ? 3 : 1;
 }
 
 export function formatVerdict(results, options = {}) {
-  const { pass, failing, skippedNoBrowser } = verdict(results, options);
+  const { label, failing, skippedNoBrowser } = verdict(results, options);
   const lines = results.map((result) => `${result.failed ? "FAIL" : "ok  "} ${result.name} exit ${result.code}${result.note ? `  ${result.note}` : ""}`);
   if (skippedNoBrowser.length) {
     lines.push(`Skipped without a browser: ${skippedNoBrowser.length}${options.noBrowser ? " (allowed by LATERDOG_GATE_NO_BROWSER)" : " (set LATERDOG_GATE_NO_BROWSER=1 only on a machine meant to have none)"}`, ...skippedNoBrowser.map((name) => `  ${name}`));
   }
-  lines.push(`VERDICT: ${pass ? "PASS" : "FAIL"}`);
+  lines.push(`VERDICT: ${label}${label === "PARTIAL" ? ` (ran only: ${results.filter((result) => result.kind !== "base").map((result) => result.name).join(", ")}; a merge needs the whole gate)` : ""}`);
   if (failing.length) lines.push("Failing:", ...failing.map((name) => `  ${name}`));
   return lines.join("\n");
 }
@@ -120,8 +137,12 @@ async function main() {
   }
   const wrapper = wrapperFrom(process.env.LATERDOG_GATE_WRAP);
   const base = process.env.LATERDOG_GATE_BASE || "origin/main";
-  const options = { noBrowser: process.env.LATERDOG_GATE_NO_BROWSER === "1" };
-  const only = process.argv.includes("--only") ? process.argv[process.argv.indexOf("--only") + 1]?.split(",") ?? [] : null;
+  const chosen = selectSteps(gateSteps(), process.argv.slice(2));
+  if (chosen.error) {
+    console.error(`merge gate: ${chosen.error}`);
+    process.exit(2);
+  }
+  const options = { noBrowser: process.env.LATERDOG_GATE_NO_BROWSER === "1", partial: chosen.partial };
   const logs = resolve(process.env.LATERDOG_GATE_LOGS || join(tmpdir(), `laterdog-gate-${Date.now()}`));
   mkdirSync(logs, { recursive: true });
   const results = [];
@@ -130,8 +151,7 @@ async function main() {
   results.push(judgeStep({ name: `${base} merged`, kind: "base" }, merged.code, merged.log));
   console.log(`merge gate in ${root}; logs in ${logs}${wrapper.length ? `; each step through ${wrapper.join(" ")}` : ""}`);
   console.log(`${merged.log}`);
-  const steps = gateSteps().filter((step) => !only || only.some((name) => step.name.startsWith(name)));
-  for (const [index, step] of steps.entries()) {
+  for (const [index, step] of chosen.steps.entries()) {
     const logFile = join(logs, `${String(index + 1).padStart(2, "0")}-${step.name.replace(/[^a-z0-9]+/gi, "-")}.log`);
     const stepStarted = Date.now();
     const code = await runStep(root, step, wrapper, logFile);
@@ -142,7 +162,7 @@ async function main() {
   const report = formatVerdict(results, options);
   writeFileSync(join(logs, "verdict.txt"), `${report}\n`);
   console.log(`\n${report}\nwhole gate ${Math.round((Date.now() - started) / 60_000)} min; logs in ${logs}`);
-  process.exit(verdict(results, options).pass ? 0 : 1);
+  process.exit(exitCode(verdict(results, options).label));
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) await main();
