@@ -72,6 +72,8 @@ import { claudeHelperEnvironment } from "../laterdog/helper-model.ts";
 import { agentsServerLaunch, deferRareToolsEnabled } from "../laterdog/tool-loading.ts";
 import { CLAUDE_PICKS_CACHE_LIFETIME, claudeCacheLifetime } from "../laterdog/cache-lifetime.ts";
 import { claudeCompactionSwitchedOff } from "../laterdog/native-compaction.ts";
+import { helpersStoppedLine } from "../laterdog/helpers-stopped.ts";
+import { claudeApiErrorFrame } from "../laterdog/claude-api-error.ts";
 
 export function claudeAuthStatus(
   cli: string,
@@ -1045,6 +1047,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
         usageModel?: string;
         awaitingInit?: boolean;
         authFailed?: boolean;
+        failureShown?: boolean;
         refreshLock?: RefreshLockState;
         updateRequired?: boolean;
         usageLimited?: boolean;
@@ -1798,6 +1801,11 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
               session.turn.usageLimited = false;
               delete session.turn.rateLimit;
             }
+            if (!o.parent_tool_use_id && text.trim() && claudeApiErrorFrame(o)) {
+              if (session.turn) session.turn.failureShown = true;
+              emit({ ...base(threadId, currentTurnId()), type: "runtime.error", message: text.trim() });
+              break;
+            }
             if (text.trim()) {
               if (!o.parent_tool_use_id) session.repliedSinceResult = true;
               const synthetic = o.is_api_error_message === true || typeof o.error === "string" ? { synthetic: true } : {};
@@ -1917,7 +1925,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
             };
             const t = session.turn;
             const unhandled = claudeUnansweredError(o);
-            if (unhandled && t && !t.settled && !t.authFailed && !t.usageLimited && !t.updateRequired) {
+            if (unhandled && t && !t.settled && !t.authFailed && !t.usageLimited && !t.updateRequired && !t.failureShown) {
               emit({ ...base(threadId, currentTurnId()), type: "runtime.error", message: unhandled });
             }
             const contextWindow = claudeReportedContextWindow(o.modelUsage, t?.usageModel ?? injected.model ?? undefined);
@@ -1996,7 +2004,8 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
         if (!confirmed) emit({ ...base(threadId, currentTurnId()), type: "runtime.notice", message: leftoverProgramsNotice("Claude Code") });
         if (session.helperTimer) clearTimeout(session.helperTimer);
         session.helperTimer = null;
-        if (session.helpers.stop()) emit({ ...base(threadId, currentTurnId()), type: "runtime.error", message: "The helpers stopped with this turn." });
+        const stoppedLine = helpersStoppedLine(session.helpers.stopAll());
+        if (stoppedLine) emit({ ...base(threadId, currentTurnId()), type: "runtime.error", message: stoppedLine });
         if (session.turn?.stopRequested && !session.turn.settled) {
           settle(false, "interrupted");
         } else if (session.turn?.deferred && !session.turn.settled) {

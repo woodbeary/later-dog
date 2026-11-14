@@ -203,7 +203,67 @@ describe("ProviderRegistry", () => {
     await registry.load({ a: { driver: "fake" } });
 
     const [described] = await registry.describe();
-    expect(described.snapshot).toMatchObject({ state: "unavailable", reason: "provider probe exploded" });
+    expect(described.snapshot).toMatchObject({ state: "unavailable", reason: "Fake fake is still being checked", checkFailed: true });
+  });
+
+  it("keeps an account's last reading through failed checks and takes the next real answer", async () => {
+    const fake = makeFakeDriver();
+    const registry = new ProviderRegistry([fake.driver]);
+    await registry.load({ a: { driver: "fake" } });
+    const live = registry.get("a")!;
+    try {
+      live.snapshot = async () => ({ state: "available", authenticated: true });
+      expect((await registry.describe())[0]!.snapshot).toMatchObject({ state: "available", authenticated: true });
+      live.snapshot = async () => { throw new Error("probe exploded"); };
+      for (let failure = 0; failure < 2; failure += 1) {
+        expect((await registry.describe())[0]!.snapshot).toMatchObject({ state: "available", authenticated: true });
+        expect(registry.lastSnapshot("a")).toMatchObject({ state: "available", authenticated: true });
+      }
+      live.snapshot = async () => ({ state: "unavailable", reason: "`fake` is still starting", starting: true });
+      expect(registry.lastSnapshot("a")).toMatchObject({ state: "available" });
+      expect((await registry.describe())[0]!.snapshot).toMatchObject({ state: "available", authenticated: true });
+      live.snapshot = async () => ({ state: "available", authenticated: true, version: "2" });
+      expect((await registry.describe())[0]!.snapshot).toMatchObject({ state: "available", authenticated: true, version: "2" });
+      live.snapshot = async () => ({ state: "available", authenticated: false });
+      expect((await registry.describe())[0]!.snapshot).toMatchObject({ state: "available", authenticated: false });
+    } finally {
+      await registry.disposeAll();
+    }
+  });
+
+  it("shows a failed check with no earlier reading as being checked, without the raw error, and not as a missing program", async () => {
+    const fake = makeFakeDriver({ failSnapshot: "provider probe exploded" });
+    const registry = new ProviderRegistry([fake.driver]);
+    await registry.load({ a: { driver: "fake" } });
+    const [described] = await registry.describe();
+    expect(described!.snapshot).toEqual({ state: "unavailable", reason: "Fake fake is still being checked", checkFailed: true });
+    expect(JSON.stringify(described)).not.toContain("provider probe exploded");
+  });
+
+  it("says an account could not be checked once its checks have failed for ten minutes, and forgets that on a real answer", async () => {
+    let now = Date.now();
+    const clock = vi.spyOn(Date, "now").mockImplementation(() => now);
+    const fake = makeFakeDriver({ failSnapshot: "provider probe exploded" });
+    const registry = new ProviderRegistry([fake.driver]);
+    await registry.load({ a: { driver: "fake" } });
+    try {
+      expect((await registry.describe())[0]!.snapshot.reason).toBe("Fake fake is still being checked");
+      now += 9 * 60_000;
+      expect((await registry.describe())[0]!.snapshot.reason).toBe("Fake fake is still being checked");
+      now += 60_000;
+      const late = (await registry.describe())[0]!.snapshot;
+      expect(late).toMatchObject({ state: "unavailable", checkFailed: true, reason: "Fake fake could not be checked. Choose Check again, or sign in to it again." });
+      const live = registry.get("a")!;
+      live.snapshot = async () => ({ state: "available", authenticated: true });
+      expect((await registry.describe())[0]!.snapshot).toMatchObject({ state: "available" });
+      live.snapshot = async () => { throw new Error("provider probe exploded"); };
+      now += 31_000;
+      registry.forgetSnapshot("a");
+      expect((await registry.describe())[0]!.snapshot.reason).toBe("Fake fake is still being checked");
+    } finally {
+      clock.mockRestore();
+      await registry.disposeAll();
+    }
   });
 
   it("forwards a live instance's declared effort levels in describe()", async () => {

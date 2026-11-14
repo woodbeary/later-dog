@@ -1,4 +1,6 @@
 import type { PlaceRow } from "./place-view.ts";
+import { plainFailure, type PlainFailure } from "./plain-failure.ts";
+import { isProviderSafetyBlock } from "./provider-safety.ts";
 
 const MARKER = "error:";
 
@@ -7,6 +9,7 @@ export const FAILED_TURN_MAX_CHARS = 600;
 export interface FailedTurnTool {
   name: string;
   ok: false;
+  detail?: string;
   setup?: boolean;
   terminal?: boolean;
   claudeUpdate?: boolean;
@@ -20,35 +23,37 @@ export interface FailedTurnQuota {
   instanceId?: string;
 }
 
-export function failedTurnTool(
-  cause: string,
-  flags: { setup?: boolean; terminal?: boolean; claudeUpdate?: boolean; place?: PlaceRow; quota?: FailedTurnQuota } = {},
-): FailedTurnTool {
-  const readable = plainCause(cause);
+export interface FailedTurnFlags {
+  setup?: boolean;
+  terminal?: boolean;
+  claudeUpdate?: boolean;
+  place?: PlaceRow;
+  quota?: FailedTurnQuota;
+  who?: string;
+  written?: boolean;
+}
+
+const KEEPS_ITS_WORDS = /^CUA Driver is not ready\b|subscription_sharing_usage_limit_exceeded/;
+
+function keepsItsWords(cause: string, flags: FailedTurnFlags): boolean {
+  return Boolean(flags.written || flags.setup || flags.claudeUpdate || flags.place || flags.quota)
+    || isProviderSafetyBlock(cause) || KEEPS_ITS_WORDS.test(cause);
+}
+
+export function failedTurnTool(cause: string, flags: FailedTurnFlags = {}): FailedTurnTool {
+  const plain: PlainFailure = keepsItsWords(cause, flags) ? { line: cause } : plainFailure(cause, flags.who);
+  const readable = plain.line;
   const words = readable.length > FAILED_TURN_MAX_CHARS ? `${readable.slice(0, FAILED_TURN_MAX_CHARS - 1)}…` : readable;
   return {
     name: `${MARKER} ${words}`,
     ok: false,
-    ...(flags.setup ? { setup: true } : {}),
+    ...(plain.detail ? { detail: plain.detail } : {}),
+    ...(flags.setup || plain.setup ? { setup: true } : {}),
     ...(flags.terminal ? { terminal: true } : {}),
     ...(flags.claudeUpdate ? { claudeUpdate: true } : {}),
     ...(flags.place ? { place: flags.place } : {}),
     ...(flags.quota ? { quota: quotaOf(flags.quota) } : {}),
   };
-}
-
-function plainCause(cause: string): string {
-  const start = cause.indexOf("{");
-  if (start < 0) return cause;
-  let body: unknown;
-  try { body = JSON.parse(cause.slice(start)); } catch { return cause; }
-  const said = (value: unknown): string | null => (typeof value === "string" && value.trim() ? value.trim() : null);
-  const record = body && typeof body === "object" ? body as Record<string, unknown> : null;
-  const inner = record?.error && typeof record.error === "object" ? record.error as Record<string, unknown> : null;
-  const sentence = said(inner?.message) ?? said(record?.error) ?? said(record?.message) ?? said(record?.detail);
-  if (!sentence) return cause;
-  const lead = cause.slice(0, start).trimEnd();
-  return lead ? `${lead} ${sentence}` : sentence;
 }
 
 const quotaOf = (quota: FailedTurnQuota): FailedTurnQuota => ({

@@ -79,6 +79,6 @@ describe("picking up a conversation that waited on a usage limit across a restar
     const { write, input } = setup({ start: async () => { throw new Error("provider settings are being updated"); } });
     expect(carryOnAfterRestart(input)).toBe("started");
     await vi.waitFor(() => expect(write).toHaveBeenCalledTimes(2));
-    expect(write.mock.calls[1]![0]).toMatchObject({ ok: false, name: expect.stringContaining("Could not carry on with Claude one: provider settings are being updated") });
+    expect(write.mock.calls[1]![0]).toMatchObject({ ok: false, name: "error: Could not carry on with Claude one. Try again.", detail: "Could not carry on with Claude one: provider settings are being updated" });
   });
 });

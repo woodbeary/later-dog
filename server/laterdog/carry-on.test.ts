@@ -100,7 +100,7 @@ describe("carrying on once a limit resets", () => {
     carryOn();
     await vi.waitFor(() => expect(writes).toHaveLength(2));
     expect(writes[1]).toMatchObject({ ok: false });
-    expect(failedTurnCause(writes[1]!.name)).toBe("Could not carry on with Personal: spawn failed");
+    expect(failedTurnCause(writes[1]!.name)).toBe("Could not carry on with Personal. Try again.");
   });
 
   it("leaves the conversation alone when carry-on is off, the turn can't run again, or the request was removed", () => {

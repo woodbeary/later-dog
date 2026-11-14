@@ -242,6 +242,12 @@ describe("threadModelFallback", () => {
     expect(threadModelFallback(spare, sonnet, engines({}), { allows: (selection) => selection.instanceId !== "spare" })).toBe("unavailable");
   });
 
+  it("keeps the pick when the account's check failed or timed out without an answer", () => {
+    expect(threadModelFallback(spare, sonnet, engines({ spare: engine("spare", { snapshot: { state: "unavailable", reason: "boom", checkFailed: true } }) }))).toBeNull();
+    expect(threadModelFallback(spare, sonnet, engines({ spare: engine("spare", { snapshot: { state: "unavailable", reason: "starting", starting: true } }) }))).toBeNull();
+    expect(threadModelFallback(spare, sonnet, engines({ spare: engine("spare", { enabled: false, snapshot: { state: "unavailable", checkFailed: true } }) }))).toBe("unavailable");
+  });
+
   it("runs a model its engine's catalog does not list as picked: IDs are free-form", () => {
     expect(threadModelFallback({ ...spare, model: "claude-sonnet-4-6[1m]" }, sonnet, engines({}))).toBeNull();
     expect(threadModelFallback({ ...spare, variant: "low" }, sonnet, engines({}))).toBeNull();

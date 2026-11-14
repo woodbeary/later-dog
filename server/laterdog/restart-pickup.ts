@@ -296,7 +296,7 @@ export async function pickUpAfterRestart(host: RestartPickupHost, turns: readonl
       }
       const reason = host.blocked(error) ? `${dog.name} stayed busy with other work` : reasonOf(error);
       const line = couldNotLine(dog.name, reason);
-      host.patch(threadId, noticeId, { tool: { ...failedTurnTool(line), pickup: "restart" } });
+      host.patch(threadId, noticeId, { tool: { ...failedTurnTool(line, { written: true }), pickup: "restart" } });
       log(`restart pickup: ${threadId} could not start: ${reason}`);
       return { kind: "failed", line };
     }
@@ -331,7 +331,7 @@ export async function pickUpAfterRestart(host: RestartPickupHost, turns: readonl
         continue;
       }
       if (plan.kind === "explain") {
-        host.append(turn.threadId, { role: "bot", kind: "activity", tool: { ...failedTurnTool(plan.line), pickup: "restart" } });
+        host.append(turn.threadId, { role: "bot", kind: "activity", tool: { ...failedTurnTool(plan.line, { written: true }), pickup: "restart" } });
         outcomes.push({ threadId: turn.threadId, kind: "explained", line: plan.line });
         continue;
       }

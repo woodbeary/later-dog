@@ -67,6 +67,7 @@ Use only mapped, tested commands:
 - [Codex bot instructions](codex-instructions.md)
 - [Harness tuning and what dogs are told](harness-and-instructions.md)
 - [A dog's plan, kept per chat](dog-plan.md)
+- [A chat never shows idle while something runs for it](work-state-truth.md)
 - [Codex browser routing and native search](codex-browser-routing.md)
 - [Codex helper event isolation](codex-helpers.md)
 - [Team backups](team-backups.md)
@@ -93,6 +94,7 @@ Use only mapped, tested commands:
 - [Generated transfer exclusions and remote package PATH](generated-transfer-path-2026-11-09.md)
 - [run_on_computer waits out a cloud computer's boot](heavy-command-start-2026-11-09.md)
 - [Idle generated build output: .open-next and .wrangler/tmp (2026-11-09)](home-cache-cleanup-2026-11-09.md)
+- [What uses a home's disk (2026-11-13)](disk-breakdown.md)
 - [Job write scopes: trailing `/**` as a directory prefix](job-scope-prefixes-2026-11-09.md)
 - [Remote Claude account handoff](remote-account-handoff-2026-11-09.md)
 - [Saved repository environments, 2026-11-09](saved-environments-2026-11-09.md)
@@ -113,6 +115,7 @@ Use only mapped, tested commands:
 - [Messages held while the home wakes, November 11](queue-held-sends.md)
 - [Which devices the edge trusts for a sleeping home, November 11](edge-trust.md)
 - [Stall watch: no dog goes quiet without a reason, November 12](stall-watch.md)
+- [A failed turn in plain words, November 13](plain-failures.md)
 - [Workspace release, November 13: what went live, how it was checked, how to undo it](workspace-release-2026-11-13.md)
 
 `control-laterdog ui` ([Chat UI, driven headlessly](chat-ui.md)) drives the real

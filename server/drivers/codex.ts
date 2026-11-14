@@ -61,6 +61,7 @@ import { SteerReads } from "./steer-reads.ts";
 import { prepareCodexShellGuard } from "../laterdog/codex-shell-guard.ts";
 import { codexToolTouch } from "../laterdog/tool-touches.ts";
 import { codexCompactionEvent } from "../laterdog/native-compaction.ts";
+import { helpersStoppedLine } from "../laterdog/helpers-stopped.ts";
 
 export { decodeCodexSelection, readCodexModelCatalog, STATIC_CODEX_MODELS } from "./codex-catalog.ts";
 
@@ -975,7 +976,8 @@ export const CodexDriver: ProviderDriver<CodexConfig> = {
           if (active.get(threadId)?.stop !== stop) return;
           active.delete(threadId);
           nativeActivity.finish(ok);
-          if (helpers.stop()) emit({ ...base(threadId, turnId), type: "runtime.error", message: "The remaining helpers stopped with this turn." });
+          const stoppedLine = helpersStoppedLine({ helpers: helpers.stop(), commands: 0 });
+          if (stoppedLine) emit({ ...base(threadId, turnId), type: "runtime.error", message: stoppedLine });
           emit({ ...base(threadId, turnId), type: "turn.completed", ok, stopReason, cost: null, ...(state.usage ? { usage: state.usage } : {}) });
         };
         completeStoppedTurn = complete;
