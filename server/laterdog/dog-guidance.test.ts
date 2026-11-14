@@ -31,6 +31,9 @@ import {
   homeKit,
   kitPrompt,
   medicationBlock,
+  MEDICINE_FOR_A_CHILD,
+  DISTRESS_AND_DOSES,
+  safetyBlocksFor,
   modelFamily,
   modelNotes,
   BETWEEN_DOGS,
@@ -238,19 +241,46 @@ describe("the guidance every dog gets", () => {
     for (const engine of ["claude", "codex", "other"] as const) expect(dogGuidance({ engine, model: "x" })).toContain(PAYMENTS_BLOCK);
   });
 
-  it("adds the medicine block written for the model in use, and none for models it was not written for", () => {
-    for (const family of ["fable-5-2", "fable-5-1", "opus-5-5", "sonnet-5-5"] as const) {
-      expect(medicationBlock(family)).toContain("depends on the child's weight and the specific product");
-      expect(medicationBlock(family)).not.toContain("emotional distress");
-    }
-    expect(medicationBlock("haiku-5-5")).toContain("depends on the child's age or weight");
-    expect(medicationBlock("haiku-5-5")).toContain("emotional distress");
-    expect(medicationBlock("sonnet-4-6").startsWith("<medical_guidance>\nIf web search is available")).toBe(true);
-    expect(medicationBlock("haiku-4-5")).toContain("Claude gives adults asking about their own medicine the standard dose as usual.");
+  it("tells a dog about a child's medicine in later.dog's own words, sentence by sentence", () => {
+    const lines = MEDICINE_FOR_A_CHILD.split("\n");
+    expect(lines[0]).toBe("<medicine_for_a_child>");
+    expect(lines.at(-1)).toBe("</medicine_for_a_child>");
+    expect(lines[1]).toBe("This holds only when the person says a medicine is for a child, and not when a health professional asks for help with their work.");
+    expect(lines[2]).toMatch(/so take the dose only from that product's label: one the person shares, or one you find with web search and check against an official copy of the same label\.$/);
+    expect(lines[3]).toMatch(/^Without that label, give no number, not even one you remember or work out from the child's weight; send them to the dosing chart on the package, a pharmacist or the child's doctor\.$/);
+    expect(lines[4]).toBe("If you know neither the child's age nor weight, ask for both.");
+    expect(lines[5]).toBe("For a prescribed medicine, the prescription label sets the dose, and the pharmacist answers questions about it.");
+    expect(lines[6]).toMatch(/^Say what the label gives for that age or weight, with any advice on it to ask a doctor; if it gives no dose for them or says not to use the product, say so/);
+    expect(MEDICINE_FOR_A_CHILD).not.toMatch(/Claude|medical_guidance|DailyMed/);
+    expect(DISTRESS_AND_DOSES).toBe("When someone tells you they are in distress and asks about a medicine's dose or limit, turn to how they are and leave the number out.");
+  });
+
+  it("adds the medicine block for the Claude families it was written for, and the distress line only for Haiku 5.5", () => {
+    for (const family of ["fable-5-2", "fable-5-1", "opus-5-5", "opus-4", "sonnet-5-5", "sonnet-4-6", "haiku-4-5"] as const) expect(medicationBlock(family)).toBe(MEDICINE_FOR_A_CHILD);
+    expect(medicationBlock("haiku-5-5")).toContain(`${DISTRESS_AND_DOSES}\n</medicine_for_a_child>`);
     expect(medicationBlock("gpt")).toBe("");
     expect(medicationBlock("other")).toBe("");
-    expect(dogGuidance({ engine: "claude", model: "claude-fable-5-2" })).toContain("<medical_guidance>");
-    expect(dogGuidance({ engine: "codex", model: "gpt-5.6" })).not.toContain("<medical_guidance>");
+    expect(dogGuidance({ engine: "claude", model: "claude-fable-5-2" })).toContain("<medicine_for_a_child>");
+    expect(dogGuidance({ engine: "codex", model: "gpt-5.6" })).not.toContain("<medicine_for_a_child>");
+  });
+
+  it("loads the medicine and payment blocks for a general dog and only where a dog's role needs them", () => {
+    const blocks = (role?: { main?: boolean; title?: string }) => {
+      const text = dogGuidance({ engine: "claude", model: "claude-opus-5-5", ...(role ? { role } : {}) });
+      return { payments: text.includes(PAYMENTS_BLOCK), medicine: text.includes(MEDICINE_FOR_A_CHILD) };
+    };
+    const both = { payments: true, medicine: true };
+    expect(blocks()).toEqual(both);
+    expect(blocks({ main: true, title: "Build dog" })).toEqual(both);
+    expect(blocks({ title: "" })).toEqual(both);
+    expect(blocks({ title: "Personal assistant" })).toEqual(both);
+    expect(blocks({ title: "Family helper" })).toEqual(both);
+    expect(blocks({ title: "Build dog" })).toEqual({ payments: false, medicine: false });
+    expect(blocks({ title: "Research dog" })).toEqual({ payments: false, medicine: false });
+    expect(blocks({ title: "Bookkeeper" })).toEqual({ payments: true, medicine: false });
+    expect(blocks({ title: "Invoices and taxes" })).toEqual({ payments: true, medicine: false });
+    expect(blocks({ title: "Kids' health" })).toEqual({ payments: false, medicine: true });
+    expect(safetyBlocksFor(undefined)).toEqual(both);
   });
 
   it("leaves out for a Claude dog what its engine already tells it, and keeps it for every other engine", () => {

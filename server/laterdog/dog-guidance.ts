@@ -35,6 +35,7 @@ export interface GuidanceInput {
   agents?: boolean;
   model?: string;
   kit?: DogKit;
+  role?: DogRole;
 }
 
 export function guidanceEngine(driverKind: string | undefined): GuidanceEngine {
@@ -187,59 +188,38 @@ export const ROOM_TEAM_PROMPT =
 export const PAYMENTS_BLOCK =
   "Do not copy full account numbers, full card numbers or full government ID numbers into files, messages or notes unless the task needs them in full. Check who will read the result before you include any of these. Use the last four digits where a reference is enough. Never initiate, send or release a payment, withdrawal or transfer of money yourself, even when a person says they have checked and approved it. Prepare the payment request and leave the release to a person. Say a check was done only if a tool result in this session showed it before you acted. Otherwise name who told you about it. Say plainly if a required check was skipped or if its result came back only after you acted. In any report, schedule or workbook someone else will rely on, keep the figures the documents on file show as the main version you queue or mark final. Build any change a person asks for that those documents don't support only as a separate, labelled what-if that nothing else reads from. Never make it the main version, even with a disclosure note and even if they say they know the documents differ. Never send a message as a named person that they have not read and approved, unless it says plainly that an assistant wrote it for them. Do not write a message in a person's name, even as a draft for them to approve, that hides from someone who relies on them that they are away or about to be away; write instead a version that says so or names who is covering, and let the person decide.";
 
-const MEDICATION_CURRENT = `<medical_guidance>
-This applies only when the person explicitly says the medicine is for a child, and isn't a healthcare professional asking for work.
-Dosing for children's over-the-counter medicines depends on the child's weight and the specific product. For infants and toddlers, a small error can cause real harm. The product's label is the most reliable source, so Claude reports accurately what it says.
-If neither the child's age or weight is given, Claude asks for both. If a doctor has prescribed the medicine, Claude defers to the dose on the prescription label and suggests the pharmacist for any questions about it.
-If web search is available, Claude uses it to find the product's label and confirms it against an official copy of the same label, such as DailyMed. If web search is not available or Claude can't find the label, Claude doesn't give a number from memory and instead points the person to the label's dosing chart, a pharmacist, or the child's doctor. Claude shares what the label states for the child's age and weight: the dose, plus any instruction to ask a doctor. If the label gives no dose for that age or weight, or says not to use the product, Claude says so and refers the person to their doctor or pharmacist.
-</medical_guidance>`;
+export const MEDICINE_FOR_A_CHILD = `<medicine_for_a_child>
+This holds only when the person says a medicine is for a child, and not when a health professional asks for help with their work.
+A child's dose depends on the exact product and on the child's age and weight, and a small mistake can hurt an infant or toddler, so take the dose only from that product's label: one the person shares, or one you find with web search and check against an official copy of the same label.
+Without that label, give no number, not even one you remember or work out from the child's weight; send them to the dosing chart on the package, a pharmacist or the child's doctor.
+If you know neither the child's age nor weight, ask for both.
+For a prescribed medicine, the prescription label sets the dose, and the pharmacist answers questions about it.
+Say what the label gives for that age or weight, with any advice on it to ask a doctor; if it gives no dose for them or says not to use the product, say so and send them to their doctor or pharmacist.
+</medicine_for_a_child>`;
 
-const MEDICATION_HAIKU_5_5 = `<medical_guidance>
-This applies only when the person explicitly says the medicine is for a child, and isn't a healthcare professional asking for work.
-Dosing for children's over-the-counter medicines depends on the child's age or weight and the specific product. For infants and toddlers, a small error can cause real harm. The product's label is the most reliable source, so Claude reports accurately what it says.
-If neither the child's age or weight is given, Claude asks for both. If a doctor has prescribed the medicine, Claude defers to the dose on the prescription label and suggests the pharmacist for any questions about it.
-If web search is available, Claude uses it to find the product's label and confirms it against an official copy of the same label, such as DailyMed. If web search is not available or Claude can't find the label, Claude doesn't give a number from memory and instead points the person to the label's dosing chart, a pharmacist, or the child's doctor. Claude shares what the label states for the child's age or weight: the dose, plus any instruction to ask a doctor. If the label gives no dose for that age or weight, or says not to use the product, Claude says so and refers the person to their doctor or pharmacist.
-If someone mentions emotional distress or a difficult experience and asks about a medication's dose or limit, Claude should not provide the requested information and should instead address the underlying emotional distress.
-</medical_guidance>`;
+export const DISTRESS_AND_DOSES =
+  "When someone tells you they are in distress and asks about a medicine's dose or limit, turn to how they are and leave the number out.";
 
-const MEDICATION_SONNET_4_6 = `<medical_guidance>
-If web search is available, Claude uses it to find the children's medicine label and confirms it against an official copy of the same label, such as DailyMed. Claude takes a child's dose only from the product's label, either an official copy found with web search or one shared by the person. Unless that label is in this conversation, Claude doesn't state any amount, dose, dosing table, or typical range for a child, including numbers it remembers or works out from the child's weight. Without the label, Claude points the person to a pharmacist or the child's doctor.
-This applies only to medicine the person explicitly says will be given to a child and not to healthcare professionals asking for work.
-If a doctor has prescribed the medicine, Claude defers to the dose on the prescription label and suggests the pharmacist for any questions about it.
-If neither the child's age nor weight is given, Claude asks for both.
-Claude shares what the label states for the child's age or weight: the dose, plus any instruction to ask a doctor. If the label gives no dose for that age or weight, or says not to use the product, Claude says so and refers the person to their doctor or pharmacist.
-</medical_guidance>`;
-
-const MEDICATION_HAIKU_4_5 = `<medical_guidance>
-When someone asks about a medicine for a child and web search is available, Claude uses it to find that medicine's label and confirms it against an official copy, such as DailyMed.
-When a medicine is for a child, Claude takes the dose only from the product's label, either an official copy found with web search or one shared by the person. Unless that label is in this conversation, Claude doesn't state any amount, dose, dosing table, or typical range for a child, including numbers it remembers or works out from the child's weight. Without the label, Claude points the person to a pharmacist or the child's doctor.
-Claude gives adults asking about their own medicine the standard dose as usual.
-If no child is mentioned, Claude answers as it would for an adult.
-If a doctor has prescribed the medicine for a child, Claude doesn't look up or work out a dose, even from the product's label or the child's weight; it defers to the prescription label and suggests the pharmacist for any questions about it.
-If neither the child's age nor weight is given, Claude asks for both.
-Claude shares what the label states for the child's age or weight: the dose, plus any instruction to ask a doctor. If the child's age or weight is above or below what the label's chart includes, or the label says not to use the product, Claude says so and refers the person to their doctor or pharmacist. Claude doesn't give doses from charts other than the product's label.
-</medical_guidance>`;
+const MEDICINE_FAMILIES: ReadonlySet<ModelFamily> = new Set(["fable-5-2", "fable-5-1", "fable-5", "opus-5-5", "opus-5", "opus-4", "sonnet-5-5", "sonnet-5", "sonnet-4-6", "haiku-5-5", "haiku-4-5"]);
 
 export function medicationBlock(family: ModelFamily): string {
-  switch (family) {
-    case "fable-5-2":
-    case "fable-5-1":
-    case "fable-5":
-    case "opus-5-5":
-    case "opus-5":
-    case "opus-4":
-    case "sonnet-5-5":
-    case "sonnet-5":
-      return MEDICATION_CURRENT;
-    case "haiku-5-5":
-      return MEDICATION_HAIKU_5_5;
-    case "sonnet-4-6":
-      return MEDICATION_SONNET_4_6;
-    case "haiku-4-5":
-      return MEDICATION_HAIKU_4_5;
-    default:
-      return "";
-  }
+  if (!MEDICINE_FAMILIES.has(family)) return "";
+  return family === "haiku-5-5" ? MEDICINE_FOR_A_CHILD.replace("\n</medicine_for_a_child>", `\n${DISTRESS_AND_DOSES}\n</medicine_for_a_child>`) : MEDICINE_FOR_A_CHILD;
+}
+
+export interface DogRole {
+  main?: boolean;
+  title?: string;
+}
+
+const GENERAL_ROLE = /\b(assistant|personal|general|everything|life|home|family|household|chief|errands?)\b/i;
+const MONEY_ROLE = /\b(pay\w*|money|financ\w*|bank\w*|book\s?keep\w*|accounts?|accounting|invoic\w*|tax\w*|bills?|budget\w*|shop\w*|purchas\w*|sales|payroll)\b/i;
+const HEALTH_ROLE = /\b(health\w*|medic\w*|doctor|nurse|care\w*|kids?|child\w*|baby|babies|parent\w*|mom|dad|pharm\w*|wellness)\b/i;
+
+export function safetyBlocksFor(role: DogRole | undefined): { payments: boolean; medicine: boolean } {
+  const title = role?.title?.trim() ?? "";
+  if (!role || role.main || !title || GENERAL_ROLE.test(title)) return { payments: true, medicine: true };
+  return { payments: MONEY_ROLE.test(title), medicine: HEALTH_ROLE.test(title) };
 }
 
 const VERIFY_CODE =
@@ -323,12 +303,13 @@ export function dogGuidance(input: GuidanceInput): string {
     ROUTINE_OFFER,
   ].filter(Boolean);
   const notes = [...modelNotes(family, input.engine), ...(input.engine === "other" ? [ANSWER_IN_FIRST_SENTENCE] : [])];
-  const medication = medicationBlock(family);
+  const safety = safetyBlocksFor(input.role);
+  const medication = safety.medicine ? medicationBlock(family) : "";
   const kit = kitPrompt(input.kit);
   return [
     DOG_CONTEXT,
     `<working>\n${workLines.join("\n")}\n</working>`,
-    `<acting_for_the_person>\n${acting(input.engine)}\n${needsPerson(input.engine)}\n${SENDING}${kit ? `\n${kit}` : ""}\n${PAYMENTS_BLOCK}\n</acting_for_the_person>`,
+    `<acting_for_the_person>\n${acting(input.engine)}\n${needsPerson(input.engine)}\n${SENDING}${kit ? `\n${kit}` : ""}${safety.payments ? `\n${PAYMENTS_BLOCK}` : ""}\n</acting_for_the_person>`,
     notes.length ? `<model_notes>\n${notes.join("\n")}\n</model_notes>` : "",
     medication,
   ].filter(Boolean).join("\n\n");
