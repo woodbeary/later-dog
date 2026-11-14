@@ -27,9 +27,9 @@ const TELLING = /error|refus|cannot|can't|could not|couldn't|in use|timed out|no
 const PLACE = /^file:\/\/(\S+?):(\d+)$/;
 const DAY_MS = 86_400_000;
 
-export function command(file, args, { env } = {}) {
+export function command(file, args, { env, cwd } = {}) {
   return new Promise((resolve, reject) => {
-    execFile(file, args, { env: env ? { ...process.env, ...env } : process.env, maxBuffer: 16 * 1024 * 1024 }, (error, stdout, stderr) => {
+    execFile(file, args, { cwd, env: env ? { ...process.env, ...env } : process.env, maxBuffer: 16 * 1024 * 1024 }, (error, stdout, stderr) => {
       if (error) reject(Object.assign(error, { stderr: String(stderr ?? "") }));
       else resolve(String(stdout));
     });
@@ -80,6 +80,26 @@ export function electronVersion(checkout) {
   } catch {
     return null;
   }
+}
+
+export function missingDependencies(checkout, { platform = process.platform, exists = existsSync } = {}) {
+  const modules = join(checkout, "node_modules");
+  const electron = join(modules, "electron");
+  const present = exists(modules) && exists(join(modules, "vite", "bin", "vite.js")) && exists(join(electron, "install.js"));
+  if (!present) return { kind: "dependencies", sentence: `${APP_NAME}'s dependencies are missing in ${checkout}.` };
+  const binary = platform === "darwin" ? "Electron.app" : platform === "win32" ? "electron.exe" : "electron";
+  if (!exists(join(electron, "dist", binary))) return { kind: "electron", sentence: `Electron's files are missing in ${checkout}.` };
+  return null;
+}
+
+export async function installDependencies(checkout, { run = command, check = (folder) => missingDependencies(folder), node = process.execPath, exists = existsSync } = {}) {
+  const env = { PATH: `${dirname(node)}:${process.env.PATH ?? ""}` };
+  if (check(checkout)?.kind === "dependencies") {
+    const sibling = join(dirname(node), "pnpm");
+    await run(exists(sibling) ? sibling : "pnpm", ["install", "--frozen-lockfile"], { cwd: checkout, env });
+  }
+  if (check(checkout)?.kind === "electron") await run(node, [join(checkout, "node_modules", "electron", "install.js")], { cwd: checkout, env });
+  return check(checkout);
 }
 
 export async function installApp({ repo, apps, state, logs, dataHome = null, homeSession = null, others = [], source = fileURLToPath(import.meta.url), run = command }) {
@@ -456,6 +476,31 @@ export async function nextStep(result, { version, logs, list, ask, choose }) {
   return { kind: "quit" };
 }
 
+export async function notifyUser(text, run = command) {
+  await run("osascript", ["-e", `display notification ${quote(text)} with title ${quote(APP_NAME)}`]).catch(() => {});
+}
+
+export async function dependencyStep(missing, { version, list, ask, choose, install, notify, log }) {
+  const saved = await list().catch(() => []);
+  const start = "Install and Start";
+  const buttons = ["Quit", "Try Again", ...(saved.length ? [EARLIER_BUTTON] : []), start];
+  const answer = await ask({ message: `${missing.sentence}\n\n${start} installs them from the lockfile, which takes a minute or two, then opens ${APP_NAME}.`, buttons, defaultButton: start, cancelButton: "Quit" });
+  if (answer === EARLIER_BUTTON) return pickEarlier({ list: async () => saved, choose, ask, fallback: version });
+  if (answer === "Try Again") return { kind: "start", version };
+  if (answer !== start) return { kind: "quit" };
+  await notify(`Installing ${APP_NAME}'s dependencies. It opens when they are ready.`);
+  log("installing dependencies");
+  try {
+    const still = await install();
+    if (still) throw new Error(still.sentence);
+    log("dependencies installed");
+  } catch (error) {
+    log(`install failed: ${error.message}`);
+    await ask({ message: `The install didn't finish.\n\n${String(error.message).split("\n")[0]}`, buttons: ["OK"], defaultButton: "OK" });
+  }
+  return { kind: "start", version };
+}
+
 function keeperLog(logs) {
   return (line) => {
     try {
@@ -476,6 +521,9 @@ export async function keep(settings, deps = {}) {
     electron = (checkout) => refreshElectron(settings, checkout),
     log = keeperLog(settings.logs),
     usable = homeSessionUsable,
+    dependencies = (checkout) => missingDependencies(checkout),
+    install = () => installDependencies(settings.repo),
+    notify = (text) => notifyUser(text),
   } = deps;
   const release = takeLock(settings.state);
   if (!release) return "already running";
@@ -483,6 +531,15 @@ export async function keep(settings, deps = {}) {
   try {
     for (;;) {
       writeState(settings.state, { phase: "starting", version: version?.ref ?? null });
+      const missing = dependencies(settings.repo);
+      if (missing) {
+        log(missing.sentence);
+        writeState(settings.state, { phase: "failed", version: version?.ref ?? null });
+        const step = await dependencyStep(missing, { version, list, ask, choose, install, notify, log });
+        if (step.kind === "quit") break;
+        version = step.version;
+        continue;
+      }
       let checkout = settings.repo;
       if (version) {
         try {

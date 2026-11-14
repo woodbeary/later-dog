@@ -2,7 +2,7 @@ import { execFileSync } from "node:child_process";
 import { EventEmitter } from "node:events";
 import { closeSync, existsSync, lstatSync, mkdirSync, mkdtempSync, openSync, readFileSync, readdirSync, readlinkSync, rmSync, statSync, writeFileSync, writeSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { EARLIER_CODE as MENU_EARLIER, RESTART_CODE as MENU_RESTART } from "../electron/dev-session-menu.mjs";
 import {
@@ -19,6 +19,8 @@ import {
   failureDetail,
   failureMessage,
   installApp,
+  installDependencies,
+  missingDependencies,
   keep,
   launcherScript,
   listSnapshots,
@@ -321,6 +323,7 @@ describe("the keeper", () => {
       earlier: async (version) => `/fixture/earlier/${version.commit}`,
       electron: async () => "/Applications/later.dog Dev.app/Contents/MacOS/Electron",
       log: () => {},
+      dependencies: () => null,
     });
     expect(result).toBe("stopped");
     expect(sessions.map(({ checkout }) => checkout)).toEqual([repo, repo, "/fixture/earlier/c7"]);
@@ -391,6 +394,7 @@ describe("the keeper", () => {
       earlier: async () => "/unused",
       electron: async () => null,
       log: () => {},
+      dependencies: () => null,
       usable: () => connected,
     });
     expect(seen).toEqual([null, "/tools/my-home.session.json"]);
@@ -505,5 +509,108 @@ describe("dialogs", () => {
     expect(dialogScript({ message: "Broke\nhere", buttons: ["Quit", "Try Again"], defaultButton: "Try Again", cancelButton: "Quit" })).toBe(
       `display dialog "Broke" & linefeed & "here" with title "${APP_NAME}" buttons {"Quit", "Try Again"} default button "Try Again" cancel button "Quit" with icon caution`,
     );
+  });
+});
+
+const stock = (checkout, ...skip) => {
+  for (const file of ["node_modules/vite/bin/vite.js", "node_modules/electron/install.js", "node_modules/electron/dist/Electron.app/Contents/MacOS/Electron"]) {
+    if (skip.includes(file)) continue;
+    mkdirSync(dirname(join(checkout, file)), { recursive: true });
+    writeFileSync(join(checkout, file), "");
+  }
+};
+
+describe("a checkout with its dependencies missing", () => {
+  it("says which piece is missing, each in its own sentence, and names the checkout", () => {
+    const checkout = scratch();
+    expect(missingDependencies(checkout, { platform: "darwin" })).toEqual({ kind: "dependencies", sentence: `later.dog Dev's dependencies are missing in ${checkout}.` });
+    stock(checkout, "node_modules/vite/bin/vite.js");
+    expect(missingDependencies(checkout, { platform: "darwin" })?.kind).toBe("dependencies");
+    stock(checkout);
+    rmSync(join(checkout, "node_modules/electron/dist"), { recursive: true });
+    expect(missingDependencies(checkout, { platform: "darwin" })).toEqual({ kind: "electron", sentence: `Electron's files are missing in ${checkout}.` });
+    stock(checkout);
+    expect(missingDependencies(checkout, { platform: "darwin" })).toBeNull();
+  });
+
+  it("installs from the lockfile, then runs Electron's own install only while its files are absent", async () => {
+    const checkout = scratch();
+    const ran = [];
+    const run = async (file, args, options) => {
+      ran.push([file.split("/").at(-1), ...args]);
+      expect(options.cwd).toBe(checkout);
+      if (args[0] === "install") stock(checkout, "node_modules/electron/dist/Electron.app/Contents/MacOS/Electron");
+      else stock(checkout);
+    };
+    const check = (folder) => missingDependencies(folder, { platform: "darwin" });
+    expect(await installDependencies(checkout, { run, check, node: "/n/bin/node", exists: () => false })).toBeNull();
+    expect(ran).toEqual([["pnpm", "install", "--frozen-lockfile"], ["node", join(checkout, "node_modules/electron/install.js")]]);
+    ran.length = 0;
+    expect(await installDependencies(checkout, { run, check, node: "/n/bin/node" })).toBeNull();
+    expect(ran).toEqual([]);
+  });
+
+  it("offers the install beside Try Again and Open an Earlier Version, shows it is working, and starts afterwards", async () => {
+    const state = join(scratch(), "state");
+    const events = [];
+    const asked = [];
+    let installed = false;
+    const ends = [0];
+    const result = await keep({ repo: "/fixture/repo", state, logs: join(state, "logs") }, {
+      dependencies: () => (installed ? null : { kind: "dependencies", sentence: "later.dog Dev's dependencies are missing in /fixture/repo." }),
+      list: async () => [{ ref: `${SNAPSHOT_REFS}/7`, at: 7, commit: "c7" }],
+      ask: async (question) => {
+        asked.push(question);
+        return "Install and Start";
+      },
+      install: async () => {
+        events.push("install");
+        installed = true;
+        return null;
+      },
+      notify: async (text) => events.push(`notify ${text}`),
+      session: async ({ onReady }) => {
+        events.push("session");
+        await onReady();
+        return { code: ends.shift(), ready: true, tail: [] };
+      },
+      snapshot: async () => ({ ref: "saved" }),
+      electron: async () => null,
+      choose: async () => null,
+      log: () => {},
+    });
+    expect(result).toBe("stopped");
+    expect(asked).toHaveLength(1);
+    expect(asked[0].message).toMatch(/^later\.dog Dev's dependencies are missing in \/fixture\/repo\./);
+    expect(asked[0].buttons).toEqual(["Quit", "Try Again", EARLIER_BUTTON, "Install and Start"]);
+    expect(events.map((line) => line.split(" ")[0])).toEqual(["notify", "install", "session"]);
+  });
+
+  it("does not start the session when the person quits, and says when the install fails", async () => {
+    const state = join(scratch(), "state");
+    let sessions = 0;
+    const missing = { kind: "electron", sentence: "Electron's files are missing in /fixture/repo." };
+    const base = { dependencies: () => missing, list: async () => [], choose: async () => null, notify: async () => {}, log: () => {}, electron: async () => null, snapshot: async () => ({}), session: async () => { sessions++; return { code: 0, ready: true, tail: [] }; } };
+    expect(await keep({ repo: "/fixture/repo", state, logs: join(state, "logs") }, { ...base, ask: async () => "Quit" })).toBe("stopped");
+    expect(sessions).toBe(0);
+    const messages = [];
+    const answers = ["Install and Start", "OK", "Quit"];
+    await keep({ repo: "/fixture/repo", state, logs: join(state, "logs") }, { ...base, ask: async (q) => { messages.push(q.message); return answers.shift(); }, install: async () => { throw new Error("pnpm: command not found\nmore"); } });
+    expect(messages[1]).toBe("The install didn't finish.\n\npnpm: command not found");
+    expect(sessions).toBe(0);
+  });
+
+  it("starts a complete checkout without asking anything", async () => {
+    const repo = scratch();
+    stock(repo);
+    const state = join(scratch(), "state");
+    let asked = 0;
+    await keep({ repo, state, logs: join(state, "logs") }, {
+      dependencies: (checkout) => missingDependencies(checkout, { platform: "darwin" }),
+      ask: async () => { asked++; return null; },
+      session: async ({ checkout }) => { expect(checkout).toBe(repo); return { code: 0, ready: true, tail: [] }; },
+      list: async () => [], choose: async () => null, snapshot: async () => ({}), electron: async () => null, log: () => {},
+    });
+    expect(asked).toBe(0);
   });
 });
