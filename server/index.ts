@@ -137,7 +137,7 @@ import { makeSpace } from "./laterdog/space-maker.ts";
 import { createDiskBreakdown } from "./laterdog/disk-breakdown.ts";
 import { ComputerRuns, MAX_RUN_MS } from "./laterdog/computer-runs.ts";
 import { ComputerJobs, JOB_CHECK_MS } from "./laterdog/computer-jobs.ts";
-import { directHandoffFacts, handoffWorkDone, olderWorkFields } from "./laterdog/chat-work.ts";
+import { handoffRunningIn, handoffWait, handoffWorkDone, olderWorkFields } from "./laterdog/chat-work.ts";
 import { couldNotStopLine, partlyStoppedLine, stopComputerJobs } from "./laterdog/stop-computer-jobs.ts";
 import { createJobWake } from "./laterdog/job-wake.ts";
 import { HeavyCommandGuard, preToolUseDecision } from "./laterdog/heavy-commands.ts";
@@ -3585,6 +3585,7 @@ try {
 }
 if (browserCleanupReferencesReconciled) browserCleanup.startPending();
 
+let activeCoordinationForThread = (_threadId: string): boolean => false;
 let doingHandoff = (_threadId: string): boolean => false;
 let teammatesAwaited = (_threadId: string): WireWaitingOn[] => [];
 let liveStatusLine = (_threadId: string): string | undefined => undefined;
@@ -3639,9 +3640,9 @@ const wireTask = (task: TaskRecord, botModel: ModelSelection): WireTask => {
   const statusLine = liveStatusLine(task.threadId);
   const busy = Boolean(task.busy);
   const activity = delegatedNeedsYou(task.threadId) ? "waiting-on-you" as const : base.activity;
-  const waitingOn = busy ? undefined : teammatesAwaited(task.threadId);
-  const work = chatWork(task.threadId, busy, activity, waitingOn, base.modelSelection ?? botModel);
-  const coordinated = { ...base, ...olderWorkFields(work, busy, activity, waitingOn, aliveBehind(task.threadId, busy)), ...(statusLine ? { statusLine } : {}), ...planOf(task.threadId), work };
+  const handoff = handoffWait(busy, activeCoordinationForThread(task.threadId), () => teammatesAwaited(task.threadId));
+  const work = chatWork(task.threadId, busy, activity, handoff.waitingOn, base.modelSelection ?? botModel);
+  const coordinated = { ...base, ...olderWorkFields(work, busy, activity, handoff, aliveBehind(task.threadId, busy)), ...(statusLine ? { statusLine } : {}), ...planOf(task.threadId), work };
   const asleep = snoozedUntil === 0 || (snoozedUntil !== undefined && snoozedUntil > Date.now());
   return asleep ? { ...coordinated, snoozedUntil } : coordinated;
 };
@@ -3653,9 +3654,9 @@ const wireBot = (bot: BotRecord): WireBot => {
     : rest;
   const busy = threadBusy(bot.id, bot.threadId);
   const activity = delegatedNeedsYou(bot.threadId) ? "waiting-on-you" as const : visible.activity;
-  const waitingOn = busy ? undefined : teammatesAwaited(bot.threadId);
-  const work = chatWork(bot.threadId, busy, activity, waitingOn, bot.modelSelection);
-  return { ...visible, ...olderWorkFields(work, busy, activity, waitingOn, aliveBehind(bot.threadId, busy)),
+  const handoff = handoffWait(busy, activeCoordinationForThread(bot.threadId), () => teammatesAwaited(bot.threadId));
+  const work = chatWork(bot.threadId, busy, activity, handoff.waitingOn, bot.modelSelection);
+  return { ...visible, ...olderWorkFields(work, busy, activity, handoff, aliveBehind(bot.threadId, busy)),
     work, ...planOf(bot.threadId),
     avatarUrl: visible.avatarUrl ?? null, ...(tasks ? { tasks: tasks.map((task) => wireTask(task, bot.modelSelection)) } : {}) };
 };
@@ -4755,7 +4756,8 @@ function syncDelegatedNeedsYou(node: RoomHandoff): boolean {
     },
   });
 }
-doingHandoff = threadId => directHandoffFacts(threadId, roomHandoffs.nodes.values()).working;
+activeCoordinationForThread = threadId => roomHandoffs.activeDirect(threadId);
+doingHandoff = threadId => handoffRunningIn(threadId, roomHandoffs.nodes.values());
 teammatesAwaited = threadId => waitingOn(roomHandoffs.outstandingDirect(threadId), (botId) => store.bot(botId)?.name, (node) => {
   const task = node.threadId ? store.taskByThread(node.botId, node.threadId) : undefined;
   if (task?.activity === "waiting-on-you") return `${store.bot(node.botId)?.name ?? "A teammate"} has a question for you`;
