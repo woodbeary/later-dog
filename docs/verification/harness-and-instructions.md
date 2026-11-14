@@ -135,13 +135,34 @@ fixture (40 person turns, sessions started at turns 1 and 21):
   the cache.
 - A tool loaded on demand was still found and used.
 
+## Seen with a real engine, 2026-11-13
+
+An isolated local server ran one test dog on Claude Code 2.1.316 with a small
+Claude model, and with the engine's compaction set to 100,000 tokens so that it
+happened within a few turns.
+
+- **On the code before the second pass** (`7076fb394`): after the chat's saved
+  session was moved away, the next message failed in 1.6 seconds with no reply
+  and no row in the chat. The engine answers a resume of a session it no longer
+  has with an error result, which the driver did not recognise.
+- **The engine's own compaction** (branch at `4be2f729d`): while the dog read
+  three 68 KB files the engine compacted twice mid-turn and carried on, the
+  home received the engine's summary both times, and the dog then quoted the
+  first line of the first file correctly.
+- **A lost session after the fix** (branch at `d0006e924`): after two engine
+  compactions the server was stopped and the session file moved away. The next
+  message was answered 5.2 seconds after sending, with a fact given only in the
+  chat and the first line of the first file both right.
+
+The commits after `d0006e924` (the plain pick-up line, and showing the dog as
+working while it rebuilds) were checked on fixtures only.
+
 ## Not proven
 
-- Any of the second pass on a real model: when Claude Code and Codex really
-  compact, how good their summaries are, whether a dog still finds old facts
-  through search without per-turn recall, and the cache lifetime Claude Code
-  picks on a real account.
-
+- Compaction at the engine's own default window, on a large model or on a real
+  home; how good the summaries are over a long chat; whether a dog still finds
+  old facts through search without per-turn recall; and the cache lifetime
+  Claude Code picks on a real account.
 - Codex compaction on a real engine: the reset is covered only by a unit test
   (`server/drivers/codex-instructions.test.ts`), with no live compaction.
 - Tools on demand on the smallest Claude model or with a custom endpoint.
