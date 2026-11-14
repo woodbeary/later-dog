@@ -150,6 +150,17 @@ describe("the latest breakdown kept for each chat", () => {
     expect(await store.read("t1", undefined)).toBeNull();
   });
 
+  it("forgets deleted chats, on disk too", async () => {
+    const store = make();
+    dispatchClaude(store, "t1");
+    dispatchClaude(store, "t2");
+    replies.push({ kind: "answer", answer: ANSWER });
+    await store.afterTurn("t1");
+    store.forget(["t1", "never-seen"]);
+    expect(Object.keys(JSON.parse(readFileSync(file, "utf8")))).toEqual(["t2"]);
+    expect(await make({}).read("t1", undefined)).toBeNull();
+  });
+
   it("saves sizes only, never what the engine said about files or tools", async () => {
     const store = make();
     dispatchClaude(store);

@@ -119,6 +119,15 @@ describe.skipIf(process.platform === "win32")("what fills a chat's context windo
     expect(await replies()).toBe(before + 2);
   }, 60_000);
 
+  it("forgets a deleted dog's chats in the file it keeps", async () => {
+    const dog = await dogOn("claudeCounts");
+    await turn(dog.id, "remember me");
+    const saved = () => JSON.parse(readFileSync(join(home, ".laterdog", "context-breakdowns.json"), "utf8"));
+    await waitFor(async () => Boolean(saved()[dog.threadId]?.counted), "the kept count");
+    expect((await api("DELETE", `/api/bots/${dog.id}`)).status).toBe(200);
+    expect(saved()[dog.threadId]).toBeUndefined();
+  }, 60_000);
+
   it("knows when a conversation is not a dog's", async () => {
     expect(await api("GET", "/api/threads/ghost-thread/context")).toMatchObject({ status: 404, body: { error: "no such conversation" } });
   });

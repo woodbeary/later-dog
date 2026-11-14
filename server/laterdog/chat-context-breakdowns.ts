@@ -111,8 +111,10 @@ export class ChatContextBreakdowns {
     return record.sizes ? estimatedBreakdown(record.sizes, measured ?? {}, this.now()) : null;
   }
 
-  forget(threadId: string): void {
-    if (this.chats.delete(threadId)) this.save();
+  forget(threadIds: readonly string[]): void {
+    let changed = false;
+    for (const threadId of threadIds) changed = this.chats.delete(threadId) || changed;
+    if (changed) this.save();
   }
 
   private async ask(threadId: string): Promise<ContextBreakdown | null> {

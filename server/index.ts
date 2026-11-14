@@ -9924,6 +9924,7 @@ async function deleteBotWithLifecycle(botId: string, revalidate: () => void = ()
           revalidate();
           if (bot.id === store.mainBotId()) throw Object.assign(new Error(MAIN_DOG_DELETE_REFUSAL), { status: 409 });
           store.deleteBot(bot.id);
+          contextBreakdowns.forget([bot.threadId, ...(bot.tasks ?? []).map((task) => task.threadId)]);
           await boat.releaseDeletedDogsComputers(cfg).catch((error: unknown) => console.warn(`free trial computer: could not release a deleted dog's computer: ${error instanceof Error ? error.message : String(error)}`));
           routines!.disableForBot(bot.id);
           webhooks.disableForBot(bot.id);
@@ -16832,6 +16833,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       if (!updated) return json(res, 400, { error: "a channel keeps at least one task" });
       clearTurnDigestState(m[2]);
       engineSummaries.forget([m[2]]);
+      contextBreakdowns.forget([m[2]]);
       revokeInternalCapabilitiesForThread(m[2]);
       rejectDeletedThreadSkillStages(stagedSkillCleanups);
       return json(res, 200, { group: groupWithThread(updated) });
@@ -19124,6 +19126,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       if (!updated) return json(res, 404, { error: "no such task" });
       clearTurnDigestState(m[2]);
       engineSummaries.forget([m[2]]);
+      contextBreakdowns.forget([m[2]]);
       revokeInternalCapabilitiesForThread(m[2]);
       handoffs.forget(m[2]);
       settleDirectFollowup(directTurnGenerationByThread.get(m[2]));
