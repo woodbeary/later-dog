@@ -80,9 +80,10 @@ export function appBundleOf(file) {
   return at < 0 ? null : file.slice(0, at + 4);
 }
 
-export function stablySign({ electronFile, helper, identity, run = execFileSync, inspect = spawnSync }) {
+export function stablySign({ electronFile, helper, identity, run = execFileSync, inspect = spawnSync, exists = existsSync }) {
   if (!identity) return false;
   const bundle = appBundleOf(electronFile);
+  if (bundle && !exists(bundle)) return false;
   const signed = [];
   for (const [path, identifier, deep] of [[helper, DEV_DISCLAIM_IDENTIFIER, false], [bundle, DEV_APP_IDENTIFIER, true]]) {
     if (!path || signedIdentifier(path, inspect) === identifier) continue;
