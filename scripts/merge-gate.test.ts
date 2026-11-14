@@ -180,7 +180,8 @@ console.log(words.includes("vitest") ? ${JSON.stringify(passing)} : words.includ
 
   it("fails a test set whose dependencies are missing, unless it is named as unavailable here, and then lists it on the verdict line", () => {
     const missing = gate([], { deps: ["deploy/laterdog/home", "cloudflare/control-plane"] });
-    expect(missing.stdout).toContain("FAIL computers exit 1");
+    expect(missing.stdout).toContain("FAIL computers  deploy/laterdog/computers/node_modules is missing");
+    expect(missing.stdout).toContain("Failing:\n  computers (deploy/laterdog/computers/node_modules is missing)");
     expect(missing.status).toBe(1);
     const named = gate([], { deps: ["deploy/laterdog/home", "cloudflare/control-plane"], env: { LATERDOG_GATE_UNAVAILABLE: "computers" } });
     expect(named.stdout).toContain("skip computers  not run here");

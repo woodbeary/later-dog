@@ -48,6 +48,10 @@ export function notRunHere(step) {
   return { ...step, code: null, failed: false, failing: [], skippedNoBrowser: [], notRun: true, note: `not run here: ${step.needs} is missing and LATERDOG_GATE_UNAVAILABLE names it` };
 }
 
+export function missingDependencies(step) {
+  return { ...step, code: null, failed: true, failing: [`${step.name} (${step.needs} is missing)`], skippedNoBrowser: [], note: `${step.needs} is missing: install the dependencies in ${step.cwd}, or name ${step.name} in LATERDOG_GATE_UNAVAILABLE on a machine meant to go without it` };
+}
+
 export function wrapperFrom(value) {
   return (value ?? "").trim().split(/\s+/).filter(Boolean);
 }
@@ -145,7 +149,7 @@ export function exitCode(label) {
 
 export function formatVerdict(results, options = {}) {
   const { label, failing, skippedNoBrowser, notRun } = verdict(results, options);
-  const lines = results.map((result) => result.notRun ? `skip ${result.name}  ${result.note}` : `${result.failed ? "FAIL" : "ok  "} ${result.name} exit ${result.code}${result.note ? `  ${result.note}` : ""}`);
+  const lines = results.map((result) => result.code === null ? `${result.notRun ? "skip" : "FAIL"} ${result.name}  ${result.note}` : `${result.failed ? "FAIL" : "ok  "} ${result.name} exit ${result.code}${result.note ? `  ${result.note}` : ""}`);
   if (skippedNoBrowser.length) {
     lines.push(`Skipped without a browser: ${skippedNoBrowser.length}${options.noBrowser ? " (allowed by LATERDOG_GATE_NO_BROWSER)" : " (set LATERDOG_GATE_NO_BROWSER=1 only on a machine meant to have none)"}`, ...skippedNoBrowser.map((name) => `  ${name}`));
   }
@@ -186,10 +190,6 @@ function runStep(root, step, wrapper, logFile, reportPath) {
   return new Promise((done) => {
     const cwd = step.cwd ? join(root, step.cwd) : root;
     const out = createWriteStream(logFile);
-    if (step.needs && !existsSync(join(root, step.needs))) {
-      out.end(`${step.needs} is missing: install the dependencies in ${step.cwd}, or name ${step.name} in LATERDOG_GATE_UNAVAILABLE on a machine meant to go without it\n`, () => done(1));
-      return;
-    }
     const [command, ...args] = [...wrapper, ...step.command, ...(step.kind === "vitest" ? ["--reporter=default", "--reporter=json", `--outputFile.json=${reportPath}`] : [])];
     const child = spawn(command, args, { cwd, env: { ...process.env, NO_COLOR: "1", FORCE_COLOR: "0", CI: "1" }, stdio: ["ignore", "pipe", "pipe"] });
     child.stdout.pipe(out, { end: false });
@@ -229,10 +229,10 @@ async function main() {
   console.log(`${merged.log}`);
   for (const [index, step] of chosen.steps.entries()) {
     const logFile = join(logs, `${String(index + 1).padStart(2, "0")}-${step.name.replace(/[^a-z0-9]+/gi, "-")}.log`);
-    if (step.needs && unavailable.names.has(step.name) && !existsSync(join(root, step.needs))) {
-      const skipped = notRunHere(step);
-      results.push(skipped);
-      console.log(`skip ${step.name}  ${skipped.note}`);
+    if (step.needs && !existsSync(join(root, step.needs))) {
+      const result = unavailable.names.has(step.name) ? notRunHere(step) : missingDependencies(step);
+      results.push(result);
+      console.log(`${result.notRun ? "skip" : "FAIL"} ${step.name}  ${result.note}`);
       continue;
     }
     const stepStarted = Date.now();
