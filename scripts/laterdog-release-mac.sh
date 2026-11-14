@@ -79,6 +79,10 @@ APP='release/mac-arm64/later.dog.app'
 test -f "$APP/Contents/Resources/server/laterdog/main.js"
 test -f "$APP/Contents/Resources/server/laterdog/mcp.js"
 test -f "$APP/Contents/Resources/licenses/later.dog-NOTICE.txt"
+if [ ! -x "$APP/Contents/Resources/later.dog Speech.app/Contents/MacOS/speech-helper" ]; then
+  echo "The app has no dictation helper: it could not be compiled on this Mac. Refusing to release without dictation." >&2
+  exit 1
+fi
 codesign --verify --deep --strict "$APP"
 codesign -dr - "$APP" 2>&1 | grep -q 'anchor apple generic'
 codesign -dr - "$APP" 2>&1 | grep -Eq "certificate leaf\[subject\.OU\] = \"?$TEAM\"?"
