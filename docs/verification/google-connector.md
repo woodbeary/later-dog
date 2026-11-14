@@ -71,9 +71,14 @@ real Google account or a real home: `cloudflare/control-plane` 152 of 152 tests
 (13 new), `deploy/laterdog/home` 332 of 332 (12 new), and in `server/` the
 Google route, protocol, shared-connection and Cloud home tests plus a real home
 server started as a Cloud home whose dog connects, gets called back, and reads
-Gmail through a fake `google.internal` (26 Google tests, 1 end-to-end). Each new
-test was also run against a deliberately broken copy of the code it protects and
-failed there.
+Gmail through a fake `google.internal` (26 Google tests, 1 end-to-end). Then 19
+deliberate breakages, one at a time, of what these tests protect (the callback
+going to any other host, the secret left out or the Worker on without it,
+`invalid_grant`, the cap, a fifth token field, the token request in the log, the
+caller choosing the account, a throw, no size limit, the route or an older home's
+key not kept once, the shared client beating the owner's own, `state` without the
+machine ID, a secret on the shared path, the record without `clientId`, a refresh
+through the wrong client, the switched-off message): each one made a test fail.
 
 Not proven: no real Google client exists yet, so no real consent, code exchange
 or refresh has run; no real accounts Worker, Worker in front of homes or home
