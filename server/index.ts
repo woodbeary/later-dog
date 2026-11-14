@@ -5992,6 +5992,7 @@ function ingestEngineHook(capability: InternalCapability, body: unknown): { ok: 
       const bytes = Buffer.byteLength(payload.compact_summary);
       const refused = engineSummaryWindows.accept(threadId, payload.session_id);
       if (refused) {
+        if (refused === "already-received") engineSummaries.forget([threadId]);
         console.log(`[compaction] engine summary refused chat=${threadId} bytes=${bytes} reason=${refused}`);
         return { ok: false, ignored: refused };
       }

@@ -1,10 +1,11 @@
-export type SummaryRefusal = "not-compacting" | "other-session";
+export type SummaryRefusal = "not-compacting" | "other-session" | "already-received";
 
 export const SUMMARY_GRACE_AFTER_COMPACTED_MS = 10_000;
 
 interface Window {
   sessionId: string | undefined;
   closesAt: number | undefined;
+  received: boolean;
 }
 
 export interface EngineSummaryWindows {
@@ -20,7 +21,7 @@ export function createEngineSummaryWindows(now: () => number = Date.now): Engine
   const open = new Map<string, Window>();
   return {
     sessionStarted: (threadId, sessionId) => { sessions.set(threadId, sessionId); },
-    compacting: (threadId) => { open.set(threadId, { sessionId: sessions.get(threadId), closesAt: undefined }); },
+    compacting: (threadId) => { open.set(threadId, { sessionId: sessions.get(threadId), closesAt: undefined, received: false }); },
     compacted: (threadId) => {
       const window = open.get(threadId);
       if (window && window.closesAt === undefined) window.closesAt = now() + SUMMARY_GRACE_AFTER_COMPACTED_MS;
@@ -34,6 +35,8 @@ export function createEngineSummaryWindows(now: () => number = Date.now): Engine
         return "not-compacting";
       }
       if (!window.sessionId || sessionId !== window.sessionId) return "other-session";
+      if (window.received) return "already-received";
+      window.received = true;
       return null;
     },
   };

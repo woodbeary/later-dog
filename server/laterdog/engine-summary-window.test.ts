@@ -16,12 +16,40 @@ describe("when the home takes an engine's compaction summary", () => {
     expect(windows.accept("never-started", "s1")).toBe("not-compacting");
   });
 
-  it("takes every post while the window is open, so the last one is the one kept", () => {
+  it("takes the first post in a window and refuses the second and every later one", () => {
     const windows = createEngineSummaryWindows();
     windows.sessionStarted("chat", "s1");
     windows.compacting("chat");
     expect(windows.accept("chat", "s1")).toBeNull();
+    expect(windows.accept("chat", "s1")).toBe("already-received");
+    expect(windows.accept("chat", "s1")).toBe("already-received");
+  });
+
+  it("refuses a second post inside the grace after the engine reports it compacted", () => {
+    let now = 1_000;
+    const windows = createEngineSummaryWindows(() => now);
+    windows.sessionStarted("chat", "s1");
+    windows.compacting("chat");
+    windows.compacted("chat");
     expect(windows.accept("chat", "s1")).toBeNull();
+    now += 99;
+    expect(windows.accept("chat", "s1")).toBe("already-received");
+  });
+
+  it("does not count a post that names another session as a post of the window", () => {
+    const windows = createEngineSummaryWindows();
+    windows.sessionStarted("chat", "s1");
+    windows.compacting("chat");
+    expect(windows.accept("chat", "s2")).toBe("other-session");
+    expect(windows.accept("chat", "s1")).toBeNull();
+  });
+
+  it("opens a fresh window for the next compaction after a refused second post", () => {
+    const windows = createEngineSummaryWindows();
+    windows.sessionStarted("chat", "s1");
+    windows.compacting("chat");
+    expect(windows.accept("chat", "s1")).toBeNull();
+    expect(windows.accept("chat", "s1")).toBe("already-received");
     windows.compacting("chat");
     expect(windows.accept("chat", "s1")).toBeNull();
   });
