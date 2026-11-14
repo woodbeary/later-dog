@@ -1,68 +1,68 @@
 {
  "main/claude": {
-  "stableBytes": 20051,
-  "volatileBytes": 7255,
-  "firstNoteBytes": 7615,
-  "stableTokens": 5013,
-  "volatileTokens": 1904,
-  "totalTokens": 6917,
-  "resentNoteBytes": 27983
+  "stableBytes": 21337,
+  "volatileBytes": 7646,
+  "firstNoteBytes": 8002,
+  "stableTokens": 5335,
+  "volatileTokens": 2001,
+  "totalTokens": 7335,
+  "resentNoteBytes": 16736
  },
  "helpers/claude": {
-  "stableBytes": 19899,
-  "volatileBytes": 7068,
-  "firstNoteBytes": 7402,
-  "stableTokens": 4975,
-  "volatileTokens": 1851,
-  "totalTokens": 6826
+  "stableBytes": 18680,
+  "volatileBytes": 7595,
+  "firstNoteBytes": 7951,
+  "stableTokens": 4670,
+  "volatileTokens": 1988,
+  "totalTokens": 6658
  },
  "group/claude": {
-  "stableBytes": 18595,
-  "volatileBytes": 7068,
-  "firstNoteBytes": 7402,
-  "stableTokens": 4649,
-  "volatileTokens": 1851,
-  "totalTokens": 6500
+  "stableBytes": 17768,
+  "volatileBytes": 7595,
+  "firstNoteBytes": 7951,
+  "stableTokens": 4442,
+  "volatileTokens": 1988,
+  "totalTokens": 6430
  },
  "started/claude": {
-  "stableBytes": 19153,
-  "volatileBytes": 7068,
-  "firstNoteBytes": 7402,
-  "stableTokens": 4789,
-  "volatileTokens": 1851,
-  "totalTokens": 6639
+  "stableBytes": 18804,
+  "volatileBytes": 7595,
+  "firstNoteBytes": 7951,
+  "stableTokens": 4701,
+  "volatileTokens": 1988,
+  "totalTokens": 6689
  },
  "main/codex": {
-  "stableBytes": 20051,
-  "volatileBytes": 7255,
-  "firstNoteBytes": 7578,
-  "stableTokens": 5013,
-  "volatileTokens": 1895,
-  "totalTokens": 6908,
-  "resentNoteBytes": 26503
+  "stableBytes": 22177,
+  "volatileBytes": 7646,
+  "firstNoteBytes": 7965,
+  "stableTokens": 5545,
+  "volatileTokens": 1992,
+  "totalTokens": 7536,
+  "resentNoteBytes": 16366
  },
  "helpers/codex": {
-  "stableBytes": 19899,
-  "volatileBytes": 7068,
-  "firstNoteBytes": 7365,
-  "stableTokens": 4975,
-  "volatileTokens": 1842,
-  "totalTokens": 6816
+  "stableBytes": 20542,
+  "volatileBytes": 7595,
+  "firstNoteBytes": 7914,
+  "stableTokens": 5136,
+  "volatileTokens": 1979,
+  "totalTokens": 7114
  },
  "group/codex": {
-  "stableBytes": 18595,
-  "volatileBytes": 7068,
-  "firstNoteBytes": 7365,
-  "stableTokens": 4649,
-  "volatileTokens": 1842,
-  "totalTokens": 6490
+  "stableBytes": 19630,
+  "volatileBytes": 7595,
+  "firstNoteBytes": 7914,
+  "stableTokens": 4908,
+  "volatileTokens": 1979,
+  "totalTokens": 6886
  },
  "started/codex": {
-  "stableBytes": 19153,
-  "volatileBytes": 7068,
-  "firstNoteBytes": 7365,
-  "stableTokens": 4789,
-  "volatileTokens": 1842,
-  "totalTokens": 6630
+  "stableBytes": 20666,
+  "volatileBytes": 7595,
+  "firstNoteBytes": 7914,
+  "stableTokens": 5167,
+  "volatileTokens": 1979,
+  "totalTokens": 7145
  }
 }
