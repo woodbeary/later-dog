@@ -866,6 +866,7 @@ export function ModelPicker({
       title={[contextReading ? chatContextFigure(contextReading) : null, ...activeUsage].filter(Boolean).join("\n")}
       reading={contextReading}
       threadId={threadId ?? bot.threadId}
+      chat={{ updatedAt: chatTask?.updatedAt, turnStartedAt: chatTask?.turnStartedAt }}
       accountName={inUse && accountRows.length > 1 ? inUse.displayName : null}
       provider={activeProvider}
       resting={activeRestNow}

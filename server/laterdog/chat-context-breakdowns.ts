@@ -55,7 +55,7 @@ export function markedStale(counted: ContextBreakdown, turnEndedAt: number | und
   const fresh: ContextBreakdown = { ...counted };
   delete fresh.stale;
   const older = turnEndedAt !== undefined && counted.at < turnEndedAt;
-  return older || breakdownIsStale(fresh, currentTokens) ? { ...fresh, stale: true } : fresh;
+  return older || breakdownIsStale(fresh, { tokens: currentTokens }) ? { ...fresh, stale: true } : fresh;
 }
 
 export class ChatContextBreakdowns {

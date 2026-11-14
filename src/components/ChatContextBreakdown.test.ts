@@ -66,9 +66,9 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-async function openPanel(reading: ReturnType<typeof chatContextReading>, threadId: string | undefined = "thread-1") {
+async function openPanel(reading: ReturnType<typeof chatContextReading>, threadId: string | undefined = "thread-1", chat?: { updatedAt?: number; turnStartedAt?: number }) {
   act(() => root.render(createElement(ChatUsageButton, {
-    mark: "M", title: "Usage", reading, threadId, accountName: null, provider: undefined, resting: undefined, now: NOW, onOpen: () => {}, onSeeAll: () => {},
+    mark: "M", title: "Usage", reading, threadId, chat, accountName: null, provider: undefined, resting: undefined, now: NOW, onOpen: () => {}, onSeeAll: () => {},
   })));
   await act(async () => { host.querySelector<HTMLButtonElement>("[data-chat-usage]")!.click(); });
   await act(async () => { for (let tick = 0; tick < 6; tick += 1) await Promise.resolve(); });
@@ -191,6 +191,23 @@ describe("the context window row in a chat's usage", () => {
       ["Free", "170k", "85.0%"],
       ["Tools not loaded yet", "4k", "—"],
     ]);
+  });
+
+  it("calls a count older when the chat has a message newer than it, as the phone does", async () => {
+    vi.mocked(api).mockResolvedValue({ ...COUNTED, at: NOW - 5 * 60_000 });
+    await openPanel(chatContextReading({ tokens: 198_100, window: 1_000_000 }), "thread-1", { updatedAt: NOW - 60_000 });
+    expect(host.querySelector("[data-chat-context-stale]")).not.toBeNull();
+    expect(host.querySelector("[data-chat-context-as-of]")!.textContent).toBe("as of 5 min ago");
+  });
+
+  it("calls a count older while a turn that started after it is running, and fresh when it is newer than the chat", async () => {
+    vi.mocked(api).mockResolvedValue({ ...COUNTED, at: NOW - 5 * 60_000 });
+    await openPanel(chatContextReading({ tokens: 198_100, window: 1_000_000 }), "thread-1", { updatedAt: NOW - 10 * 60_000, turnStartedAt: NOW - 30_000 });
+    expect(host.querySelector("[data-chat-context-stale]")).not.toBeNull();
+    act(() => root.unmount());
+    root = createRoot(host);
+    await openPanel(chatContextReading({ tokens: 198_100, window: 1_000_000 }), "thread-1", { updatedAt: NOW - 10 * 60_000 });
+    expect(host.querySelector("[data-chat-context-stale]")).toBeNull();
   });
 
   it("says the row comes after the first reply when the chat has nothing yet", async () => {

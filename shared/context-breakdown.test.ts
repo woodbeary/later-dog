@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { contextBreakdownOf, contextRows, type ContextBreakdown } from "./context-breakdown.ts";
+import { breakdownIsStale, contextBreakdownOf, contextRows, type ContextBreakdown } from "./context-breakdown.ts";
 
 const breakdown: ContextBreakdown = {
   at: 10,
@@ -76,5 +76,19 @@ describe("the rows a person sees", () => {
     expect(rows.used[0]!.percent).toBeCloseTo(19.81, 5);
     expect(rows.room).toEqual([]);
     expect(rows.notLoaded).toBe(0);
+  });
+});
+
+describe("when a breakdown is older than the chat", () => {
+  it("is fresh when taken after the chat's last message and within 2% of its number", () => {
+    expect(breakdownIsStale(breakdown, { tokens: 200_000, updatedAt: 5 })).toBe(false);
+    expect(breakdownIsStale(breakdown, {})).toBe(false);
+  });
+
+  it("is stale when the chat moved on after it, by message or by a running turn, or by more than 2%", () => {
+    expect(breakdownIsStale(breakdown, { updatedAt: 11 })).toBe(true);
+    expect(breakdownIsStale(breakdown, { updatedAt: 5, turnStartedAt: 11 })).toBe(true);
+    expect(breakdownIsStale(breakdown, { tokens: 210_000 })).toBe(true);
+    expect(breakdownIsStale({ ...breakdown, stale: true }, { tokens: 198_100 })).toBe(true);
   });
 });

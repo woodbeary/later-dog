@@ -28,9 +28,17 @@ export function differsFrom(tokens: number, current: number): boolean {
   return Math.abs(tokens - current) / current > SAME_TOTAL_SHARE;
 }
 
-export function breakdownIsStale(breakdown: ContextBreakdown, currentTokens: number | undefined): boolean {
+export interface ChatNow {
+  tokens?: number;
+  updatedAt?: number;
+  turnStartedAt?: number;
+}
+
+export function breakdownIsStale(breakdown: ContextBreakdown, chat: ChatNow): boolean {
   if (breakdown.stale) return true;
-  return currentTokens !== undefined && currentTokens > 0 && differsFrom(breakdown.total, currentTokens);
+  const since = Math.max(chat.updatedAt ?? 0, chat.turnStartedAt ?? 0);
+  if (since > 0 && breakdown.at < since) return true;
+  return chat.tokens !== undefined && chat.tokens > 0 && differsFrom(breakdown.total, chat.tokens);
 }
 
 export const ROOM_PARTS: ReadonlySet<ContextPartId> = new Set(["reserve", "free"]);

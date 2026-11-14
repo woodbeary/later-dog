@@ -6,7 +6,7 @@ import { cn } from "@/lib/cn";
 import { t } from "@/lib/i18n";
 import { relativeTime } from "@/lib/memory";
 import { formatTokens } from "@/lib/usage";
-import { breakdownIsStale, contextRows, differsFrom, type ContextBreakdown, type ContextRow } from "../../shared/context-breakdown";
+import { breakdownIsStale, contextRows, differsFrom, type ChatNow, type ContextBreakdown, type ContextRow } from "../../shared/context-breakdown";
 import { ChatContextStrip } from "./ChatContextStrip";
 
 const FIGURE: Record<ChatContextLevel, string> = { ok: "text-ink-secondary", near: "text-warning", over: "text-danger" };
@@ -17,6 +17,7 @@ export interface ChatContextBreakdownProps {
   reading: ChatContextReading | null;
   view: ContextBreakdownView | null;
   now: number;
+  chat?: ChatNow;
 }
 
 export function shownBreakdown(view: ContextBreakdownView | null): ContextBreakdown | null {
@@ -28,9 +29,9 @@ export function contextRowShown(reading: ChatContextReading | null, view: Contex
   return Boolean(shownBreakdown(view) || reading || view?.state === "nothing");
 }
 
-export function ChatContextBreakdown({ reading, view, now }: ChatContextBreakdownProps) {
+export function ChatContextBreakdown({ reading, view, now, chat }: ChatContextBreakdownProps) {
   const breakdown = shownBreakdown(view);
-  if (breakdown) return <BreakdownRow breakdown={breakdown} current={reading} now={now} />;
+  if (breakdown) return <BreakdownRow breakdown={breakdown} current={reading} chat={chat} now={now} />;
   if (reading) return <ChatContextStrip reading={reading} />;
   if (view?.state === "nothing") {
     return (
@@ -48,11 +49,11 @@ function figureOf(breakdown: ContextBreakdown, reading: ChatContextReading): str
   return t("model.context.figureAbout", { used: formatTokens(reading.tokens), window: formatTokens(reading.window), percent: contextPercentWords(reading.percent) });
 }
 
-function BreakdownRow({ breakdown, current, now }: { breakdown: ContextBreakdown; current: ChatContextReading | null; now: number }) {
+function BreakdownRow({ breakdown, current, chat, now }: { breakdown: ContextBreakdown; current: ChatContextReading | null; chat: ChatNow | undefined; now: number }) {
   const [open, setOpen] = useState(false);
   const listId = useId();
   const reading = current ?? chatContextReading({ tokens: breakdown.total, window: breakdown.window })!;
-  const outdated = breakdownIsStale(breakdown, current?.tokens);
+  const outdated = breakdownIsStale(breakdown, { ...chat, tokens: current?.tokens });
   const figure = figureOf(breakdown, reading);
   const estimate = breakdown.source === "estimate";
   const rows = contextRows(breakdown);

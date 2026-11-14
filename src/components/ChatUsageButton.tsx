@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import { ChevronRight } from "lucide-react";
 import type { ChatContextReading } from "@/lib/chat-context";
 import { useContextBreakdown } from "@/lib/context-breakdown";
+import type { ChatNow } from "../../shared/context-breakdown";
 import { cn } from "@/lib/cn";
 import { t } from "@/lib/i18n";
 import type { AccountRest } from "./AccountCharge";
@@ -16,6 +17,7 @@ export interface ChatUsageButtonProps {
   title: string;
   reading: ChatContextReading | null;
   threadId?: string;
+  chat?: ChatNow;
   accountName: string | null;
   provider: PlanProvider | undefined;
   resting: AccountRest | undefined;
@@ -24,7 +26,7 @@ export interface ChatUsageButtonProps {
   onSeeAll(): void;
 }
 
-export function ChatUsageButton({ mark, title, reading, threadId, accountName, provider, resting, now, onOpen, onSeeAll }: ChatUsageButtonProps) {
+export function ChatUsageButton({ mark, title, reading, threadId, chat, accountName, provider, resting, now, onOpen, onSeeAll }: ChatUsageButtonProps) {
   const [open, setOpen] = useState(false);
   const breakdown = useContextBreakdown(threadId, open);
   const contextShown = contextRowShown(reading, breakdown);
@@ -73,7 +75,7 @@ export function ChatUsageButton({ mark, title, reading, threadId, accountName, p
           style={{ width: CHAT_USAGE_WIDTH }}
           className={cn("absolute bottom-full left-0 z-30 mb-2 flex max-w-[calc(100vw-2rem)] origin-bottom-left flex-col overflow-hidden rounded-menu border border-hairline/50 bg-card shadow-popover", motion.className)}
         >
-          {contextShown && <ChatContextBreakdown reading={reading} view={breakdown} now={now} />}
+          {contextShown && <ChatContextBreakdown reading={reading} view={breakdown} now={now} chat={chat} />}
           {(provider || resting) && (
             <section data-chat-usage-account className={cn("flex flex-col gap-2.5 px-3.5 pb-3 pt-3", contextShown && "border-t border-hairline/40")}>
               {accountName && <p className="truncate text-[13px] font-medium text-ink">{accountName}</p>}
