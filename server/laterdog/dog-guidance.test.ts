@@ -123,6 +123,7 @@ describe("the guidance every dog gets", () => {
     expect(STAY_FREE).toMatch(/if waiting on something would keep you from answering the person/);
     expect(STAY_FREE).toMatch(/say in one line that it started, and stay available; you are woken when it finishes/);
     expect(STAY_FREE).toMatch(/Send follow-ups on the same work to the same helper, and do quick things yourself/);
+    expect(STAY_FREE).toMatch(/Do not watch or wait for helpers, teammates or runs inside your own turn: end it; their results and finished runs wake you by themselves\.$/);
     expect(HELPER_BRIEF).not.toMatch(/one or two sentences/);
     expect(STOP_MEANS_STOP).toMatch(/stop your helpers and background commands first, and say it has stopped only when nothing is still running/);
     expect(PRECEDENCE).toBe("A tool's description says how to use it; these instructions say when.");
