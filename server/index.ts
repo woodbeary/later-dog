@@ -716,6 +716,7 @@ import { groupChatsOf } from "./laterdog/group-chats.ts";
 import { groupRoutineReply, SILENT_GROUP_ROUTINE } from "./laterdog/group-routine-reply.ts";
 import { botNames, dogActivityWords, teammateDoneLabel, teammateResultLabel } from "./laterdog/activity-words.ts";
 import { dropContinuation } from "./laterdog/dropped-continuation.ts";
+import { ENDED_REQUEST, endedRequestIds } from "./laterdog/request-fences.ts";
 import { INCLUDED_AI_INSTANCE, INCLUDED_AI_INSTANCES } from "./laterdog/included-ai.ts";
 import { createPhonePush } from "./laterdog/phone-push.ts";
 import { cloudEmailDelivery } from "./laterdog/email-me.ts";
@@ -5186,6 +5187,9 @@ function guardedRequestSnapshot(botId: string, threadId: string, sendId: string)
 function settleTrackedRequest(threadId: string): void {
   const owner = directRequestOwners.get(threadId);
   const bot = store.botByThread(threadId);
+  if (bot && !threadBusy(bot.id, threadId) && !roomHandoffs.activeDirect(threadId) && !batteryContinuationPending(threadId) && !limitHold.holds(threadId)) {
+    for (const id of endedRequestIds(store.messagesFor(threadId), owner?.stopped ? undefined : owner?.messageId)) store.patchMessage(threadId, id, ENDED_REQUEST);
+  }
   if (!owner?.messageId || owner.stopped || !bot || threadBusy(bot.id, threadId) || roomHandoffs.activeDirect(threadId)) return;
   if ([...roomHandoffs.nodes.values()].some(node => !node.parentId && node.threadId === threadId &&
       owner.generations.has(node.id) && node.status !== "completed")) return;
