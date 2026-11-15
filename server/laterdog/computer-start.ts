@@ -25,13 +25,20 @@ export function createStartWatch(budgetMs: () => number, now: () => number = () 
 
 export const DID_NOT_START_CODE = "did_not_start" as const;
 
-const plainReason = (reason: string | undefined) => {
-  const text = reason?.replace(/\s+/g, " ").trim().replace(/\.$/, "");
-  return text ? ` (${text.charAt(0).toLowerCase()}${text.slice(1)})` : "";
-};
+const BOOT_FAILURES: ReadonlyArray<readonly [RegExp, string]> = [
+  [/did not become ready/i, "It did not finish starting within 5 minutes."],
+  [/stopped while restoring its snapshot/i, "It stopped while bringing back its saved files."],
+  [/stopped while starting/i, "It stopped while starting."],
+  [/^the computer could not start/i, "The cloud could not start it."],
+];
+export const UNKNOWN_START_FAILURE = "The computer could not start.";
+
+export function bootFailure(reason: string | undefined): string | null {
+  return BOOT_FAILURES.find(([words]) => words.test(reason?.trim() ?? ""))?.[1] ?? null;
+}
 
 export function didNotStartText(reason?: string): string {
-  return `Your cloud computer did not start${plainReason(reason)}, so nothing was run, and waiting longer will not help. `
+  return `Your cloud computer did not start. ${bootFailure(reason) ?? UNKNOWN_START_FAILURE} Nothing was run, and waiting longer will not help. `
     + "Choose one instead: do light work in your folder here; call run_on_computer again with fresh: true to replace it with a new cloud computer "
     + "(your folders here stay, and are sent again; only what lived on the old computer alone, such as installed packages, is gone); "
     + "or tell the person what you could not do.";

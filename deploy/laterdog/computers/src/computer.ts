@@ -928,7 +928,7 @@ export class DogComputer extends DurableObject<Env> {
     if (!record || this.deleting || record.state !== "running" || this.ctx.container?.running) return false;
     this.update((r) => {
       r.state = "error";
-      r.error = "The computer stopped unexpectedly, so changes since it last went to sleep are gone. Wake it to start again from its last snapshot.";
+      r.error = "The computer stopped unexpectedly, so changes since it last went to sleep are gone.";
     });
     this.closeViewers(4003, "The computer stopped.");
     console.error(`laterdog computers: ${record.id} stopped unexpectedly`);

@@ -49,14 +49,19 @@ describe("a start another path gave up on", () => {
 });
 
 describe("the answer when a computer did not start", () => {
-  it("says it once, plainly, with the computer's own reason and what the dog can do instead", () => {
+  it("says it once, plainly, with a plain sentence for each known reason and no internal words", () => {
     expect(didNotStartText("The desktop did not become ready within 5 minutes.")).toBe(
-      "Your cloud computer did not start (the desktop did not become ready within 5 minutes), so nothing was run, and waiting longer will not help. "
+      "Your cloud computer did not start. It did not finish starting within 5 minutes. Nothing was run, and waiting longer will not help. "
       + "Choose one instead: do light work in your folder here; call run_on_computer again with fresh: true to replace it with a new cloud computer "
       + "(your folders here stay, and are sent again; only what lived on the old computer alone, such as installed packages, is gone); "
       + "or tell the person what you could not do.",
     );
-    expect(didNotStartText()).toMatch(/^Your cloud computer did not start, so nothing was run/);
-    expect(didNotStart("  ")).toMatchObject({ code: "did_not_start", message: expect.stringMatching(/^Your cloud computer did not start, so/) });
+    expect(didNotStartText("The computer stopped while restoring its snapshot.")).toMatch(/^Your cloud computer did not start\. It stopped while bringing back its saved files\. /);
+    expect(didNotStartText("The computer stopped while starting.")).toMatch(/^Your cloud computer did not start\. It stopped while starting\. /);
+    expect(didNotStartText("The computer could not start: RPC to container-host-12 failed")).toMatch(/^Your cloud computer did not start\. The cloud could not start it\. /);
+    expect(didNotStartText("The computer could not start: RPC to container-host-12 failed")).not.toMatch(/RPC|host-12/);
+    expect(didNotStartText("something nobody planned for")).toMatch(/^Your cloud computer did not start\. The computer could not start\. Nothing was run/);
+    expect(didNotStartText()).toMatch(/^Your cloud computer did not start\. The computer could not start\. Nothing was run/);
+    expect(didNotStart("  ")).toMatchObject({ code: "did_not_start", message: expect.stringMatching(/^Your cloud computer did not start\. The computer could not start\./) });
   });
 });

@@ -92,4 +92,15 @@ describe("every start leaves a record and a line", () => {
     expect(computer.lastStart.reason).toBe(computer.error);
     expect(lines(w.errors).some((line) => line.includes(raw))).toBe(true);
   });
+
+  it("says a computer that stopped while running stopped, without pointing at a wake", async () => {
+    const w = await world();
+    const id = await created(w);
+    await w.advance(MINUTE);
+    expect((await read(w, id)).state).toBe("running");
+    w.containers.get(id)!.running = false;
+    const computer = await read(w, id);
+    expect(computer).toMatchObject({ state: "error", error: "The computer stopped unexpectedly, so changes since it last went to sleep are gone." });
+    expect(computer.error).not.toMatch(/wake/i);
+  });
 });

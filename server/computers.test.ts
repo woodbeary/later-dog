@@ -528,7 +528,7 @@ describe("the cloud computer facade", () => {
     it("gives up at the service's boot budget when the computer never starts", async () => {
       sleeping("dog-heavy-stuck");
       const started = Date.now();
-      await expect(computers.heavyRunBox("dog-heavy-stuck")).rejects.toMatchObject({ code: "did_not_start", message: expect.stringMatching(/^Your cloud computer did not start, so nothing was run/) });
+      await expect(computers.heavyRunBox("dog-heavy-stuck")).rejects.toMatchObject({ code: "did_not_start", message: expect.stringMatching(/^Your cloud computer did not start\. The computer could not start\. Nothing was run/) });
       expect(Date.now() - started).toBeGreaterThanOrEqual(330_000);
       expect(wakes()).toBe(1);
     });
@@ -567,7 +567,7 @@ describe("the cloud computer facade", () => {
       const started = Date.now();
       const second = await call();
       expect(second.status).toBe(502);
-      expect(second.error).toMatch(/^Your cloud computer did not start, so nothing was run/);
+      expect(second.error).toMatch(/^Your cloud computer did not start\. The computer could not start\. Nothing was run/);
       expect(Date.now() - started).toBeLessThan(60_000);
       expect(fleet.get(computer.id)?.state).toBe("error");
       expect(wakes()).toBe(1);
@@ -578,7 +578,7 @@ describe("the cloud computer facade", () => {
     it("fails without a wake when the computer is in an error or unknown state before the call", async () => {
       add("dog-heavy-was-error", "error");
       add("dog-heavy-odd", "migrating" as State);
-      await expect(computers.heavyRunBox("dog-heavy-was-error")).rejects.toThrow(/^Your cloud computer did not start, so nothing was run/);
+      await expect(computers.heavyRunBox("dog-heavy-was-error")).rejects.toThrow(/^Your cloud computer did not start\. The computer could not start\. Nothing was run/);
       await expect(computers.heavyRunBox("dog-heavy-odd")).rejects.toThrow(/does not know/);
       expect(wakes()).toBe(0);
       expect(creates()).toHaveLength(0);
@@ -594,7 +594,7 @@ describe("the cloud computer facade", () => {
       const started = Date.now();
       expect(await call()).toEqual({ status: 200, text: STILL_STARTING_TEXT });
       const second = await call();
-      expect(second).toMatchObject({ status: 502, error: expect.stringMatching(/^Your cloud computer did not start, so nothing was run, and waiting longer will not help\. Choose one instead: do light work in your folder here; call run_on_computer again with fresh: true/) });
+      expect(second).toMatchObject({ status: 502, error: expect.stringMatching(/^Your cloud computer did not start\. The computer could not start\. Nothing was run, and waiting longer will not help\. Choose one instead: do light work in your folder here; call run_on_computer again with fresh: true/) });
       expect(Date.now() - started).toBeGreaterThanOrEqual(330_000);
       expect(Date.now() - started).toBeLessThan(350_000);
       const settled = Date.now();
@@ -609,8 +609,13 @@ describe("the cloud computer facade", () => {
       const computer = add("dog-heavy-reason", "error");
       computer.error = "The computer stopped while restoring its snapshot.";
       await expect(computers.heavyRunBox("dog-heavy-reason")).rejects.toMatchObject({
-        code: "did_not_start", message: expect.stringMatching(/^Your cloud computer did not start \(the computer stopped while restoring its snapshot\), so nothing was run/),
+        code: "did_not_start", message: expect.stringMatching(/^Your cloud computer did not start\. It stopped while bringing back its saved files\. Nothing was run/),
       });
+      const raw = add("dog-heavy-raw-reason", "error");
+      raw.error = "The computer could not start: Container placement failed in colo SJC (id 7f3a9c, DurableObject reset)";
+      const told = await computers.heavyRunBox("dog-heavy-raw-reason").catch((error: Error) => error.message);
+      expect(told).toMatch(/^Your cloud computer did not start\. The cloud could not start it\. Nothing was run/);
+      expect(told).not.toMatch(/placement|colo|7f3a9c|DurableObject/);
       expect(wakes()).toBe(0);
     });
 
