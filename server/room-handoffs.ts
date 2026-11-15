@@ -621,8 +621,9 @@ export class RoomHandoffs {
 
   private endLeftRunning(n: RoomHandoff, reason: string, by: HandoffEnd): void {
     this.runs.delete(n.id);
-    this.cancelTree(n, reason, "cancelled", by);
+    this.controllers.delete(n.id);
     this.hooks.released?.(n);
+    this.cancelTree(n, reason, "cancelled", by);
   }
 
   private settleTurnless(): void {

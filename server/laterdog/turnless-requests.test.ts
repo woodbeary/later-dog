@@ -193,3 +193,15 @@ it("lets cancel and Stop end a request whose dog waits on an account, lets the w
   expect([pip!.status, quill!.status, rook!.status]).toEqual(["cancelled", "cancelled", "cancelled"]);
   expect(released).toEqual(["pip", "quill", "rook"]);
 }));
+
+it("ends a request left running without interrupting its dog's chat, since no turn is running there", () => home(async h => {
+  const signals = new Map<string, AbortSignal>();
+  const run = h.hooks.run;
+  h.hooks.run = vi.fn(async (node: RoomHandoff, resumed: boolean, signal: AbortSignal) => { signals.set(node.botId, signal); return run(node, resumed, signal); });
+  const [pip] = send(h.engine, "pip", "quill");
+  await h.settle();
+  h.working.delete("pip"); h.working.delete("quill");
+  h.engine.cancelQueued(pip!.id, "Cancelled.");
+  h.engine.endTurnless("quill", "quill-chat", "Stopped.", "person");
+  expect([signals.get("pip")?.aborted, signals.get("quill")?.aborted]).toEqual([false, false]);
+}));
