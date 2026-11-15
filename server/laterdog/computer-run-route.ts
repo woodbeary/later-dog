@@ -42,6 +42,12 @@ export function repositoryOf(folder: string): string | null {
 export const WINDOW_ENDED_TEXT = "This call's time ran out while sending the folder, before the command started, so nothing was run. Call run_on_computer again with the same folder and command; the files already sent stay on the computer.";
 export const STILL_STARTING_TEXT = "Your cloud computer is still starting, so nothing was run yet. Call run_on_computer again with the same folder and command to keep waiting.";
 export const PERSON_WROTE_TEXT = "The person wrote while you waited, so this call stopped waiting early; the job keeps running. Answer them, then call run_on_computer again with the run_id to keep waiting.";
+export const WROTE_BEFORE_START_TEXT = "The person wrote while the folder was being sent, so the command was not started. Answer them, then call run_on_computer again with the same folder and command; the files already sent stay on the computer.";
+export function stoppedWaitText(outcome: RunOutcome): string {
+  const still = outcome.state === "running" && outcome.exitCode === null;
+  const job = still ? `The job is still running on your cloud computer (run_id ${outcome.id}).` : outcome.exitCode !== null ? `The job had finished with exit code ${outcome.exitCode} (run_id ${outcome.id}); its files were not brought back.` : `The job stopped on your cloud computer (run_id ${outcome.id}).`;
+  return `The wait ended because this turn was stopped. ${job} Call run_on_computer with that run_id to check on it later.`;
+}
 const ENDED_TEXT = "This turn ended before the command started on the cloud computer, so nothing was run.";
 const inside = (path: string, root: string) => { const rel = relative(root, path); return rel === "" || (!rel.startsWith("..") && !isAbsolute(rel)); };
 
@@ -83,19 +89,19 @@ export async function handleComputerRun(request: ComputerRunRequest, deps: Compu
   if (subdir && !inside(join(folder, subdir), folder)) return { status: 400, error: "subdir must be inside folder." };
   const windowMs = waitWindowMs(request.body.wait_minutes, request.maxWaitMs);
   if (windowMs === null) return { status: 400, error: BAD_WAIT_TEXT };
+  const stopped = () => Boolean(request.active && !request.active());
+  const wrote = () => Boolean(request.interrupted?.());
   try {
     const repository = record ? null : (deps.repositoryOf ?? repositoryOf)(folder);
     const now = deps.now ?? Date.now;
     const started = now();
     const computer = await deps.computer(request.botId, { ...(repository ? { repository } : {}), ...(request.active ? { wanted: request.active } : {}), budgetMs: windowMs });
     if (request.active && !request.active()) return { status: 409, error: ENDED_TEXT };
-    const stopped = () => Boolean(request.active && !request.active());
-    const wrote = () => Boolean(request.interrupted?.());
     const left = () => stopped() || wrote() ? 0 : started + windowMs - now();
     const outcome = record
       ? await deps.runs.finish(computer.box, record, undefined, left)
       : await deps.runs.run(computer.box, { botId: request.botId, folder, subdir, command, left, ...(request.active ? { active: request.active } : {}) });
-    if (stopped()) return { status: 409, error: ENDED_TEXT };
+    if (stopped()) return { status: 409, error: stoppedWaitText(outcome) };
     const text = outcome.state === "running" && wrote() ? `${PERSON_WROTE_TEXT}\n${outcomeText(outcome)}` : outcomeText(outcome);
     return { status: 200, text, failed: outcome.state === "failed" };
   } catch (error) {

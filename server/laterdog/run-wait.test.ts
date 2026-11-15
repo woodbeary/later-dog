@@ -81,6 +81,8 @@ describe("waiting for a computer job with one call", () => {
     const start = j.clock.at;
     const answer = await j.once({ wait_minutes: 60 }, { active: () => j.clock.at - start < 5 * MINUTE });
     expect(answer.status).toBe(409);
+    expect(answer.error).toMatch(/^The wait ended because this turn was stopped\. The job is still running on your cloud computer \(run_id [0-9a-f]{8}\)\./);
+    expect(answer.error).not.toMatch(/nothing was run/);
     expect(j.clock.at - start).toBeLessThanOrEqual(5 * MINUTE + 10_000);
     expect(j.execs.some((command) => command.includes("python3 -c"))).toBe(false);
   });
