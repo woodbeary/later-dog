@@ -584,6 +584,29 @@ it("gives a session that cannot be resumed on the last results turn the earlier 
   expect(count(last, "LATE_QA_RESULT")).toBe(1);
 }), 120_000);
 
+it("gives a chat moved to another account between results an earlier result in full once more, and not again", () => fixture(async (f) => {
+  await warmUp(f);
+  f.plan[f.lead.id] = { reply: "MOVED_EARLY_RESULT" };
+  f.plan[f.qa.id] = { reply: "MOVED_MIDDLE_RESULT", gateFile: f.gate("qa") };
+  f.plan[f.ops.id] = { reply: "MOVED_LAST_RESULT", gateFile: f.gate("ops") };
+  f.plan[f.chief.id] = { turns: [{}, f.delegate("split", [f.lead, f.qa, f.ops], "Check the release"),
+    { reply: "Acted on the lead" }, { reply: "Acted on QA" }, { reply: "Final on the new account" }] };
+  const replied = (text: string) => expect.poll(async () => (await f.messages()).some((m: any) => m.text === text && m.turnTerminal), { timeout: 40_000 }).toBe(true);
+  await f.send("Have Engineering, QA and Ops check the release.");
+  await replied("Acted on the lead");
+  f.open(f.gate("qa"));
+  await expect.poll(() => f.nodes().some((n: any) => n.botId === f.qa.id && n.reported), { timeout: 10_000 }).toBe(true);
+  await f.useModel("codex");
+  await replied("Acted on QA");
+  f.open(f.gate("ops"));
+  await replied("Final on the new account");
+  const given = (turn: any) => f.prompt(turn).split("downstream room requests have settled").slice(1).join("");
+  const moved = f.turns().find((turn: any) => given(turn).includes("MOVED_MIDDLE_RESULT"));
+  expect(count(given(moved), "MOVED_EARLY_RESULT")).toBe(1);
+  expect(count(f.prompt(moved), "MOVED_EARLY_RESULT")).toBe(1);
+  expect(f.turns().reduce((sum: number, turn: any) => sum + count(given(turn), "MOVED_EARLY_RESULT"), 0)).toBe(2);
+}, { codex: {} }), 150_000);
+
 it("does not send a message again that a recovery replay carried, including one the unseen limit had deferred", () => fixture(async (f) => {
   await warmUp(f);
   await f.setMode("exit-early");

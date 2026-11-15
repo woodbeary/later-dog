@@ -4529,7 +4529,8 @@ function coordinationTurnText(node: RoomHandoff, resumed: boolean): { text: stri
 
 function coordinatorHolds(node: RoomHandoff): (child: RoomHandoff) => boolean {
   const task = node.groupId ? undefined : store.taskByThread(node.botId, node.threadId);
-  if (!task || task.rewound) return () => false;
+  const bot = store.bot(node.botId);
+  if (!task || !bot || task.rewound || !sessionResumesExactly(bot, node.threadId, task)) return () => false;
   const instanceId = task.lastInstanceId;
   const handed = instanceId ? task.handedMessages?.[instanceId] : undefined;
   const session = instanceId ? task.resumeCursors[instanceId] : undefined;
@@ -7780,14 +7781,18 @@ function isExternalContextMarker(value: string | undefined): boolean {
   return Boolean(value?.startsWith(EXTERNAL_CONTEXT_MARKER_PREFIX));
 }
 
+function sessionResumesExactly(bot: BotRecord, threadId: string, task: NonNullable<ReturnType<typeof store.taskByThread>>): boolean {
+  const owner = task.lastInstanceId;
+  const record = owner ? task.handedMessages?.[owner] : undefined;
+  return Boolean(owner && record?.session !== undefined && record.session === task.resumeCursors[owner] &&
+    (botForThread(bot.id, threadId) ?? bot).modelSelection.instanceId === owner &&
+    registry.get(owner)?.adapter.capabilities.strictResume);
+}
+
 function markTaskContextExternallyUpdated(bot: BotRecord, threadId: string): void {
   const task = store.taskByThread(bot.id, threadId);
   if (!task) return;
-  const owner = task.lastInstanceId;
-  const record = owner ? task.handedMessages?.[owner] : undefined;
-  if (owner && record?.session !== undefined && record.session === task.resumeCursors[owner] &&
-    (botForThread(bot.id, threadId) ?? bot).modelSelection.instanceId === owner &&
-    registry.get(owner)?.adapter.capabilities.strictResume) {
+  if (sessionResumesExactly(bot, threadId, task)) {
     store.patchTask(bot.id, threadId, { unread: true });
     return;
   }
