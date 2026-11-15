@@ -90,6 +90,7 @@ export function sentText(queued: QueuedSend): { text: string; sendId: string } |
     const body = JSON.parse(queued.body) as Record<string, unknown> | null;
     if (!body || typeof body !== "object" || Object.keys(body).some((field) => !ANSWERABLE_FIELDS.has(field))) return null;
     if (!isText(body.text) || !body.text.trim() || body.text.length > DESK_TEXT_MAX_CHARS || !isText(body.sendId)) return null;
+    if (body.text.trimStart().startsWith("/")) return null;
     return { text: body.text, sendId: body.sendId };
   } catch {
     return null;
