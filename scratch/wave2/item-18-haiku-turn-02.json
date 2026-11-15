@@ -1,0 +1,192 @@
+{
+ "turn": "2",
+ "sent": "How much usage do I have left on this account? Just check.",
+ "sentAt": "2026-11-13T08:59:26.531Z",
+ "end": "idle",
+ "durationSec": 3.782,
+ "toolCallCount": 1,
+ "toolCalls": [
+  "mcp__agents__account_usage"
+ ],
+ "firstVisibleSec": 1.651,
+ "longestGapSec": 2.1239999999999997,
+ "messages": [
+  {
+   "id": "47900c7c-ced0-4a1f-95e7-1cc2551c5c8e",
+   "at": 1794560367394,
+   "parentId": "f451e844-f5b2-4286-8bc8-f929e028ae8e",
+   "role": "user",
+   "kind": "text",
+   "text": "How much usage do I have left on this account? Just check.",
+   "requestPending": false
+  },
+  {
+   "id": "8d6ea055-2e4d-493d-93a5-540c8da677aa",
+   "at": 1794560368155,
+   "parentId": "47900c7c-ced0-4a1f-95e7-1cc2551c5c8e",
+   "role": "bot",
+   "kind": "text",
+   "text": "Checking your account usage now.",
+   "turnId": "b6b65d9a-a788-45cc-9d5b-0ce83b9a562a",
+   "requestMessageId": "47900c7c-ced0-4a1f-95e7-1cc2551c5c8e"
+  },
+  {
+   "id": "06a0914f-ae89-4574-aa9a-eba5d6ab2f46",
+   "at": 1794560368160,
+   "parentId": "8d6ea055-2e4d-493d-93a5-540c8da677aa",
+   "role": "bot",
+   "kind": "activity",
+   "tool": {
+    "name": "mcp__agents__account_usage",
+    "spoken": "checking usage",
+    "itemId": "toolu_01TLWXTrNVcoC4oJrWsmvEsz",
+    "fullResult": true,
+    "ok": true,
+    "output": "[\n  {\n    \"type\": \"text\",\n    \"text\": \"Plan accounts, by how much is left:\\n- jacob (jacob@txtclaw.com) [id: claude, Claude, this chat, most room]: 43% left. 5-hour 22% used, resets 4:20 AM; 7-day 57% used, resets Sat 2:00 PM.\\n- ChatGPT plan [id: chatgpt, Codex]: signed out. 5-hour 0% used, resets 5:59 AM; 7-day 100% used, resets Sun 1:59 PM.\\n\\nTo run your own Claude command-line work on the account with the most room, start it with CLAUDE_CONFIG_DIR=/Users/jacoblopez/.claude and without ANTHROPIC_API_KEY or ANTHROPIC_AUTH_TOKEN set (env -u ANTHROPIC_API_KEY -u ANTHROPIC_AUTH_TOKEN …).\\n\\nYour own turns move to an account with room by themselves when this one runs low. To move this chat onto one by name, use switch_account.\"\n  }\n]"
+   },
+   "turnId": "b6b65d9a-a788-45cc-9d5b-0ce83b9a562a",
+   "requestMessageId": "47900c7c-ced0-4a1f-95e7-1cc2551c5c8e"
+  },
+  {
+   "id": "a8f89cb2-ffd4-41a1-9469-491342e2d556",
+   "at": 1794560369653,
+   "parentId": "06a0914f-ae89-4574-aa9a-eba5d6ab2f46",
+   "role": "bot",
+   "kind": "text",
+   "text": "Your main Claude account (jacob@txtclaw.com) has 43% left. That's 22% used in the current 5-hour window, which resets at 4:20 AM, and 57% used across 7 days, which resets Saturday at 2:00 PM.\n\nYour ChatGPT plan is signed out, so it isn't reporting usage right now. Its 7-day window is fully used, and it resets Sunday at 1:59 PM.",
+   "turnId": "b6b65d9a-a788-45cc-9d5b-0ce83b9a562a",
+   "requestMessageId": "47900c7c-ced0-4a1f-95e7-1cc2551c5c8e",
+   "turnTerminal": true,
+   "turnSucceeded": true,
+   "ran": {
+    "instanceId": "claude",
+    "model": "claude-haiku-5-5",
+    "account": "Live check"
+   }
+  },
+  {
+   "id": "fa2ff55e-473b-48cd-aecd-92f7bd37ffe4",
+   "at": 1794560369869,
+   "parentId": "a8f89cb2-ffd4-41a1-9469-491342e2d556",
+   "role": "bot",
+   "kind": "digest",
+   "text": "[digest] · tools: mcp__agents__account_usage ×1 · reply: Your main Claude account (jacob@txtclaw.com) has 43% left.",
+   "digest": {
+    "turnId": "b6b65d9a-a788-45cc-9d5b-0ce83b9a562a",
+    "botId": "63ffed07-d776-4847-bace-a31fad86543b",
+    "threadId": "2df1f060-5589-433e-85b6-a90eab445d64",
+    "at": 1794560369869,
+    "durationMs": 2420,
+    "tools": [
+     {
+      "name": "mcp__agents__account_usage",
+      "count": 1,
+      "failed": 0
+     }
+    ],
+    "toolCalls": 1,
+    "memory": [],
+    "reply": "Your main Claude account (jacob@txtclaw.com) has 43% left.",
+    "usage": {
+     "input": 64661,
+     "output": 185,
+     "cachedInput": 64087,
+     "costUsd": 0.00084777
+    },
+    "hookCoverage": "full"
+   },
+   "turnId": "b6b65d9a-a788-45cc-9d5b-0ce83b9a562a",
+   "requestMessageId": "47900c7c-ced0-4a1f-95e7-1cc2551c5c8e",
+   "turnSucceeded": true
+  }
+ ],
+ "visibleTimeline": [
+  {
+   "t": 0.947,
+   "at": 1794560367394,
+   "role": "user",
+   "kind": "text",
+   "text": "How much usage do I have left on this account? Just check."
+  },
+  {
+   "t": 1.651,
+   "at": 1794560368155,
+   "role": "bot",
+   "kind": "text",
+   "text": "Checking your account usage now."
+  },
+  {
+   "t": 1.651,
+   "at": 1794560368160,
+   "role": "bot",
+   "kind": "activity",
+   "tool": {
+    "name": "mcp__agents__account_usage",
+    "spoken": "checking usage",
+    "itemId": "toolu_01TLWXTrNVcoC4oJrWsmvEsz"
+   }
+  },
+  {
+   "t": 3.775,
+   "at": 1794560369653,
+   "role": "bot",
+   "kind": "text",
+   "text": "Your main Claude account (jacob@txtclaw.com) has 43% left. That's 22% used in the current 5-hour window, which resets at 4:20 AM, and 57% used across 7 days, which resets Saturday at 2:00 PM.\n\nYour ChatGPT plan is signed out, so it isn't reporting usage right now. Its 7-day window is fully used, and it resets Sunday at 1:59 PM."
+  },
+  {
+   "t": 3.775,
+   "at": 1794560369869,
+   "role": "bot",
+   "kind": "digest",
+   "text": "[digest] · tools: mcp__agents__account_usage ×1 · reply: Your main Claude account (jacob@txtclaw.com) has 43% left.",
+   "raw": {
+    "id": "fa2ff55e-473b-48cd-aecd-92f7bd37ffe4",
+    "at": 1794560369869,
+    "parentId": "a8f89cb2-ffd4-41a1-9469-491342e2d556",
+    "role": "bot",
+    "kind": "digest",
+    "text": "[digest] · tools: mcp__agents__account_usage ×1 · reply: Your main Claude account (jacob@txtclaw.com) has 43% left.",
+    "digest": {
+     "turnId": "b6b65d9a-a788-45cc-9d5b-0ce83b9a562a",
+     "botId": "63ffed07-d776-4847-bace-a31fad86543b",
+     "threadId": "2df1f060-5589-433e-85b6-a90eab445d64",
+     "at": 1794560369869,
+     "durationMs": 2420,
+     "tools": [
+      {
+       "name": "mcp__agents__account_usage",
+       "count": 1,
+       "failed": 0
+      }
+     ],
+     "toolCalls": 1,
+     "memory": [],
+     "reply": "Your main Claude account (jacob@txtclaw.com) has 43% left.",
+     "usage": {
+      "input": 64661,
+      "output": 185,
+      "cachedInput": 64087,
+      "costUsd": 0.00084777
+     },
+     "hookCoverage": "full"
+    },
+    "turnId": "b6b65d9a-a788-45cc-9d5b-0ce83b9a562a",
+    "requestMessageId": "47900c7c-ced0-4a1f-95e7-1cc2551c5c8e",
+    "turnSucceeded": true
+   }
+  }
+ ],
+ "finalWork": {
+  "kind": "idle"
+ },
+ "tasks": [
+  {
+   "threadId": "2df1f060-5589-433e-85b6-a90eab445d64",
+   "activity": "idle",
+   "model": {
+    "instanceId": "claude",
+    "model": "claude-haiku-5-5"
+   }
+  }
+ ]
+}
