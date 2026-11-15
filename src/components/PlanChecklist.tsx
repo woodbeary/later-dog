@@ -1,8 +1,9 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Check, ChevronDown, ChevronRight, Circle, Loader2 } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { t } from "@/lib/i18n";
 import { formatTime } from "@/state/store";
+import { PLAN_STALE_MS, planOutOfDate } from "@/lib/plan-age";
 import { planDoneCount, type PlanItem, type WirePlan } from "../../shared/dog-plan";
 
 export function PlanChecklist({ items, working, label }: { items: readonly PlanItem[]; working: boolean; label: string }) {
@@ -23,8 +24,22 @@ export function PlanChecklist({ items, working, label }: { items: readonly PlanI
   );
 }
 
-export function DogPlan({ plan, working, stale = false }: { plan?: WirePlan | null; working: boolean; stale?: boolean }) {
+function usePlanClock(running: boolean, updatedAt: number | undefined): number {
+  const [now, setNow] = useState(Date.now);
+  useEffect(() => {
+    if (!running || updatedAt === undefined) return;
+    setNow(Date.now());
+    const due = updatedAt + PLAN_STALE_MS - Date.now();
+    const timer = due > 0 ? window.setTimeout(() => setNow(Date.now()), due + 50) : undefined;
+    return () => { if (timer !== undefined) window.clearTimeout(timer); };
+  }, [running, updatedAt]);
+  return now;
+}
+
+export function DogPlan({ plan, working, since = null }: { plan?: WirePlan | null; working: boolean; since?: number | null }) {
   const [open, setOpen] = useState(false);
+  const now = usePlanClock(since !== null, plan?.updatedAt);
+  const stale = planOutOfDate(plan, since, now);
   if (!plan?.items.length) return null;
   const progress = t("chat.plan.progress", { done: planDoneCount(plan), total: plan.items.length });
   if (working) {

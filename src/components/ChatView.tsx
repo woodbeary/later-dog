@@ -50,7 +50,6 @@ import { BotAvatar } from "./Avatar";
 import { ExchangeLine, ExchangeThreadContext, PlainNoteLine } from "./QuietLines";
 import { FailedSendLine, TeamBlock } from "./TeamBlock";
 import { foldTeams } from "@/lib/team-block";
-import { latestWorkAt, planOutOfDate } from "@/lib/plan-age";
 import { standingNotice } from "@/lib/standing-notice";
 import { ExchangeViewHost } from "./ExchangeViewHost";
 import { foldExchanges, foldedRuns, expandedExchange, quietTranscriptItemShown, shownToPerson } from "@/lib/quiet-lines";
@@ -1289,7 +1288,7 @@ export function ChatView({ bot: profile }: { bot: Bot }) {
             steps={steps}
             updates={updates}
           />
-          <DogPlan plan={bot.plan} working={waiting} stale={planOutOfDate(bot.plan, bot.busy ? bot.turnStartedAt : null, latestWorkAt(messages))} />
+          <DogPlan plan={bot.plan} working={waiting} since={bot.busy ? bot.turnStartedAt ?? null : null} />
         </div>
       </div>
 
