@@ -45,6 +45,7 @@ import {
 import { appendNative } from "./native.ts";
 import { claudeModelAnswered, claudeUsageLimit, rejectedRateLimit, type UsageLimit } from "../laterdog/usage-limit.ts";
 import { claudeLiveReading, noteLiveReading } from "../laterdog/plan-readings.ts";
+import { chatEngineEnvironment } from "../laterdog/chat-environment.ts";
 import { claudeRefreshGate, claudeRefreshLockFrame, claudeRefreshLockResult, claudeSignInAgainMessage, retryClaudeRefreshLock, type RefreshLockState } from "../laterdog/claude-refresh-lock.ts";
 import { permissionCommand, permissionLaunchCwd } from "./permission-command.ts";
 import { SPAWNED_PROXIES } from "../proxy-paths.ts";
@@ -1354,7 +1355,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
       const cacheLifetime = claudeCacheLifetime(env, Boolean(cliVersion && versionAtLeast(cliVersion, CLAUDE_PICKS_CACHE_LIFETIME)),
         injected.injected ? {} : readClaudeAuthSettings(env, input.environment));
       if (cacheLifetime) env.CLAUDE_CODE_PROMPT_CACHE_TTL = cacheLifetime;
-      Object.assign(env, quietWorkEnvironment(turn.quietWork));
+      Object.assign(env, quietWorkEnvironment(turn.quietWork), chatEngineEnvironment(threadId));
       Object.assign(env, claudeHelperEnvironment(turnModel, turn.helperModel, { custom: Boolean(config.managed) || injected.injected }));
       const cwd = turn.cwd ?? homedir();
       workFolders.set(threadId, cwd);

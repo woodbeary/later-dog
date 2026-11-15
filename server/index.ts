@@ -554,6 +554,8 @@ import { bindThreadLogCapProvider } from "./thread-log-rotation.ts";
 import { CLOUD_THREAD_LOG_MAX_BYTES, CLOUD_THREAD_LOG_RETENTION_DAYS, DISK_CHECK_MS, diskUse, isLowDisk, JANITOR_EVERY_MS, runJanitor, type JanitorRun, type WorkspaceTask } from "./laterdog/janitor.ts";
 import { closeTabsScript, forgetUsers, loadTabLedger, parseTargets, recordTabs, saveTabLedger, TAB_SWEEP_MS, tabsToClose, type TabLedger, type Target } from "./laterdog/cloud-tabs.ts";
 import { MEMORY_CHECK_MS, orphanIdleHours, readMemoryPressure, reapStrays, underMemoryPressure, type ThreadState as ReaperThreadState } from "./laterdog/process-reaper.ts";
+import { startHomeUpkeep } from "./laterdog/home-upkeep.ts";
+import { liveSignalScene, signalDecision } from "./laterdog/home-signals.ts";
 import { listenWebhookIngress, webhookCredential, type WebhookIngress } from "./webhook-ingress.ts";
 import { assertModelVariantSupported, memberTurnSelection } from "./member-turn.ts";
 import { WebhookManager } from "./webhooks.ts";
@@ -2482,7 +2484,7 @@ function hooksIntegration(botId: string, threadId: string, generation: string): 
     createdBots: 0,
     openedThreads: 0,
   });
-  return { url: `http://127.0.0.1:${PORT}`, token, ...(CLOUD_HOME && computersSelected() ? { guardShell: true } : {}) };
+  return { url: `http://127.0.0.1:${PORT}`, token, ...(CLOUD_HOME ? { guardShell: true } : {}) };
 }
 
 type DirectTurnDispatchClaim = {
@@ -3700,7 +3702,7 @@ function previewSystemPrompt(bot: BotRecord) {
       computer: previewPlan.computer && previewPlan.computer !== "off" && computerPromptKind ? previewPlan.computer : null,
       browser: previewPlan.computer === undefined ? false : previewPlan.browser,
     }, { note: previewPlan.note, cloudHome: Boolean(CLOUD_HOME) }) },
-    { id: "cloud-home", label: "My Cloud", text: CLOUD_HOME ? cloudHomePrompt(agentsMounted && lendingEnabled()) : "" },
+    { id: "cloud-home", label: "My Cloud", text: CLOUD_HOME ? cloudHomePrompt(agentsMounted && lendingEnabled(), guidanceEngine(instance?.driverKind)) : "" },
     { id: "today", label: "Today", text: CLOUD_HOME ? todayPrompt() : "" },
     { id: "composio", label: "Connected apps", text: caps?.composioMcp && bot.composio !== false && composio.configured(cfg) ? composioSystemPrompt(bot.connectorTools) : "" },
     { id: "mcp", label: "MCP servers", text: caps?.customMcp ? customMcpPrompt(Object.keys(engineMcpServers(bot, connectedRepositories.known()))) : "" },
@@ -5995,7 +5997,8 @@ function ingestEngineHook(capability: InternalCapability, body: unknown): { ok: 
   }
   if (name === "Stop") return { ok: true };
   if (name === "PreToolUse") {
-    const decision = preToolUseDecision(heavyCommandGuard, { active: Boolean(CLOUD_HOME) && computersSelected(), threadId, payload });
+    const decision = (CLOUD_HOME ? signalDecision(payload, () => liveSignalScene(threadId, PORT)) : null)
+      ?? preToolUseDecision(heavyCommandGuard, { active: Boolean(CLOUD_HOME) && computersSelected(), threadId, payload });
     return decision ? { ok: true, hookSpecificOutput: decision } : { ok: true };
   }
   if (name !== "PostToolUse") return { ok: true, ignored: name || "unknown" };
@@ -9181,7 +9184,7 @@ async function startTurn(
         { id: "files", label: "File locations", text: worksInWorkspace ? workspaceLocationsPrompt(bot.id, cwd, liveBot?.cwd ?? bot.cwd) : "" },
         { id: "computer", label: "Computer", text: computerPrompt(computerPromptKind) },
         { id: "plan", label: "Surface", text: surfacePrompt({ computer: mountedComputer, browser: Boolean(integrations.browser) }, { note: plan.note, canSelect: computerSelectionTurns.has(threadId), cloudHome: Boolean(CLOUD_HOME) }) },
-        { id: "cloud-home", label: "My Cloud", text: CLOUD_HOME ? cloudHomePrompt(Boolean(integrations.agents) && lendingEnabled()) : "" },
+        { id: "cloud-home", label: "My Cloud", text: CLOUD_HOME ? cloudHomePrompt(Boolean(integrations.agents) && lendingEnabled(), guidanceEngine(instance.driverKind)) : "" },
         { id: "today", label: "Today", text: CLOUD_HOME ? todayPrompt() : "" },
         { id: "composio", label: "Connected apps", text: integrations.composio ? composioSystemPrompt(liveBot?.connectorTools ?? bot.connectorTools) : "" },
         { id: "mcp", label: "MCP servers", text: customMcpPrompt(Object.keys(integrations.custom ?? {})) },
@@ -10952,7 +10955,7 @@ async function runGroupMemberTurn(
     { id: "mcp", label: "MCP servers", text: customMcpPrompt(Object.keys(integrations.custom ?? {})) },
     { id: "computer", label: "Computer", text: computerPrompt(roomComputerPromptKind) },
     { id: "plan", label: "Surface", text: surfacePrompt({ computer: roomVmTarget ? "vm" : surfaceOfComputerKind(roomComputerKind), browser: Boolean(integrations.browser) }, { note: roomPlan.note, cloudHome: Boolean(CLOUD_HOME) }) },
-    { id: "cloud-home", label: "My Cloud", text: CLOUD_HOME ? cloudHomePrompt(Boolean(integrations.agents) && lendingEnabled()) : "" },
+    { id: "cloud-home", label: "My Cloud", text: CLOUD_HOME ? cloudHomePrompt(Boolean(integrations.agents) && lendingEnabled(), guidanceEngine(instance.driverKind)) : "" },
     { id: "today", label: "Today", text: CLOUD_HOME ? todayPrompt() : "" },
     { id: "browser", label: "Browser", text: integrations.browser ? (integrations.agents ? BROWSER_PAGE_PROMPT : BUILT_IN_BROWSER_SYSTEM_PROMPT) : "" },
     { id: "recall", label: "Recall", text: integrations.agents && bot.memoryEnabled !== false ? SESSION_SEARCH_SYSTEM_PROMPT : "" },
@@ -21232,6 +21235,17 @@ if (CLOUD_HOME) {
     const stopped = reapStrays({ roots: [TASK_WORKSPACES_DIR], thread: janitorThread, orphanIdleHours: orphanIdleHours(pressure) });
     if (stopped.length) console.log(`[janitor] memory pressure: stopped ${stopped.length} stray process(es)`);
   }, MEMORY_CHECK_MS).unref();
+  startHomeUpkeep({
+    subscribe: (listener) => bus.subscribe((event: RuntimeEvent) => { if (!shouldIgnoreProviderEvent(event)) listener(event); }),
+    atWork: (threadId) => {
+      const bot = store.botByThread(threadId);
+      return runningTurnEngines.has(threadId) || Boolean(bot && threadBusy(bot.id, threadId)) || Boolean(store.groupByThread(threadId)?.busyBotId)
+        || helperBoard.running(threadId) || nativeRuns.running(threadId);
+    },
+    chats: () => janitorWorkspaces(),
+    dataDir: DATA_DIR,
+    home: homedir(),
+  });
 }
 
 const CLOUD_TABS_FILE = join(DATA_DIR, "cloud-tabs.json");

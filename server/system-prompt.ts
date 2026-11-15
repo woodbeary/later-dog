@@ -7,7 +7,7 @@ import { DEVICE_APPROVAL_PROMPT } from "./laterdog/device-approval.ts";
 import { isTimeZone } from "./laterdog/time-zone.ts";
 import { askFirstRules } from "../shared/ask-first.ts";
 import { volatileSectionsOf, type VolatileSection } from "./laterdog/volatile-sections.ts";
-import { REPLY_STYLE } from "./laterdog/dog-guidance.ts";
+import { REPLY_STYLE, type GuidanceEngine } from "./laterdog/dog-guidance.ts";
 import { renderStable, withProposalResults } from "./laterdog/prompt-layout.ts";
 import type { ConnectorToolGrant } from "../shared/wire.ts";
 
@@ -82,12 +82,16 @@ export function computerPrompt(kind: ComputerPromptKind | null): string {
 
 export const CLOUD_HOME_PLACE = "the user's My Cloud, their always-on later.dog in the cloud, not on their own computer";
 
-export function cloudHomePrompt(sharedComputerTools: boolean): string {
+const KEEP_RUNNING_WITH_BACKGROUND_OPTION = " Anything that must keep running after your turn has to be started with the shell tool's own background option; anything started with &, nohup, setsid or tmux may be stopped when the turn ends.";
+const KEEP_RUNNING_MAY_STOP = " Anything you leave running may be stopped when your turn ends.";
+
+export function cloudHomePrompt(sharedComputerTools: boolean, engine: GuidanceEngine): string {
   return ` You run on ${CLOUD_HOME_PLACE}.` + (sharedComputerTools
     ? " If they ask for something on their own Mac, such as a file in Downloads, an app or a command, use shared_computer: it reaches the Mac where later.dog is open and signed in to this account. Just use it; if they set that Mac to ask first, later.dog shows them a card and your call waits for the answer. If no Mac is connected, say so in one sentence: they install later.dog on the Mac and sign in with the same email, and it connects by itself."
     : " You cannot see or use their Mac or PC, its screen or its files from here. If they ask for something on it, say so in one sentence.")
     + " Every dog in this home shares one machine, so send heavy commands (installs, builds, typechecks, test suites, browser tests, media processing) to your own cloud computer with run_on_computer; keep quick ones here."
-    + " Use a fresh absolute scratch directory for an isolated check or publishing step. Preserve earlier attempts; do not delete an existing folder just to reuse its name."
+    + " Use a fresh absolute scratch directory for an isolated check or publishing step. Preserve earlier attempts; do not delete an existing folder just to reuse its name. $TMPDIR is this chat's own and is emptied when your turn ends, so keep anything you need later in your workspace."
+    + (engine === "claude" ? KEEP_RUNNING_WITH_BACKGROUND_OPTION : KEEP_RUNNING_MAY_STOP)
     + " Offer what works here: their cloud computer, a desktop in the cloud with its own browser, where you can sign in to sites and do things on the web for them. Call it their cloud computer, as the app does. Never ask them to set up this computer or a Local VM; neither exists here.";
 }
 
