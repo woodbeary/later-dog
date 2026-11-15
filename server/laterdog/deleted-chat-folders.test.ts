@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { diskLadder } from "./disk-ladder.ts";
-import { DELETED_FOLDER_KEEP_MS, removeDeletedChatFolders, setAsideChatFolders, startDeletedChatFolders } from "./deleted-chat-folders.ts";
+import { DELETED_FOLDER_KEEP_MS, STORED_AWAY_MARKER, removeDeletedChatFolders, setAsideChatFolders, startDeletedChatFolders } from "./deleted-chat-folders.ts";
 
 function home() {
   const root = mkdtempSync(join(tmpdir(), "deleted-chats-"));
@@ -28,6 +28,14 @@ describe("a deleted chat's work folder", () => {
     expect(existsSync(join(workspaces, "dog-a", "chat-1"))).toBe(false);
     expect(existsSync(join(workspaces, "dog-a", "chat-2", "app", "index.ts"))).toBe(true);
     expect(existsSync(join(workspaces, "dog-b"))).toBe(false);
+  });
+
+  it("leaves a chat's folder that is stored away to the code that stored it", () => {
+    const { workspaces, aside, work } = home();
+    work("dog-a", "chat-1");
+    writeFileSync(join(workspaces, "dog-a", "chat-1", STORED_AWAY_MARKER), "{}");
+    expect(setAsideChatFolders("chat-1", workspaces, aside, 1000)).toEqual([]);
+    expect(existsSync(join(workspaces, "dog-a", "chat-1", STORED_AWAY_MARKER))).toBe(true);
   });
 
   it("is removed seven days later and not before", () => {

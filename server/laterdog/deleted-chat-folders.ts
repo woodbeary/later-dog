@@ -1,10 +1,11 @@
-import { mkdirSync, readdirSync, renameSync, rmdirSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, renameSync, rmdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { sizeOf } from "./janitor.ts";
 
 export const DELETED_CHAT_FOLDERS = "deleted-chat-folders";
 export const DELETED_FOLDER_KEEP_MS = 7 * 24 * 60 * 60_000;
 export const DELETED_SWEEP_EVERY_MS = 60 * 60_000;
+export const STORED_AWAY_MARKER = ".laterdog-away.json";
 const SAFE_ID = /^[A-Za-z0-9_-]{1,128}$/;
 const ASIDE_NAME = /^([A-Za-z0-9_-]{1,128})-(\d{1,16})$/;
 
@@ -19,6 +20,7 @@ export function setAsideChatFolders(threadId: string, workspaces: string, aside:
     if (!SAFE_ID.test(dog)) continue;
     const from = join(workspaces, dog, threadId);
     const to = join(aside, dog, `${threadId}-${now}`);
+    if (existsSync(join(from, STORED_AWAY_MARKER))) continue;
     try {
       mkdirSync(join(aside, dog), { recursive: true, mode: 0o700 });
       renameSync(from, to);
