@@ -9195,7 +9195,7 @@ async function startTurn(
       }
       const computerPromptKind = resolveComputerPromptKind(computerKind);
       const coordinationNode = opts?.coordination ? roomHandoffs.nodes.get(opts.coordination.id) : undefined;
-      if (coordinationNode) helperTurns.begin(threadId); else helperTurns.end(threadId);
+      if (coordinationNode?.parentId) helperTurns.begin(threadId); else helperTurns.end(threadId);
       if (opts?.coordination && (!coordinationNode || coordinationNode.status !== "running" || roomHandoffProblem(coordinationNode,
         coordinationNode.parentId ? roomHandoffs.nodes.get(coordinationNode.parentId) : undefined))) {
         throw new DirectTurnSetupCancelled("Coordination access changed before dispatch");

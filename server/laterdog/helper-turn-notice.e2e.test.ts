@@ -6,8 +6,9 @@ import { launchVerificationServer, runControlLaterDog } from "../../scripts/cont
 import { request } from "../../scripts/mcp-server.ts";
 
 const STEPS = 95;
+const calls = (prefix: string, count: number) => Array.from({ length: count }, (_, i) => ({ tool: "list_bots", arguments: {}, toolUseId: `${prefix}-${i + 1}` }));
 
-async function fixture(test: (f: any) => Promise<void>) {
+async function fixture(test: (f: any) => Promise<void>, plan?: (chief: string, lead: string) => Record<string, any>) {
   const out = mkdtempSync(join(tmpdir(), "helper-notice-"));
   const hookOutput = join(out, "hook-output.ndjson");
   const session = await launchVerificationServer({ ...process.env, FAKE_CLAUDE_HOOKS: "1", FAKE_CLAUDE_HOOK_OUTPUT: hookOutput }, undefined, undefined, undefined, undefined, { scripted: true });
@@ -19,14 +20,15 @@ async function fixture(test: (f: any) => Promise<void>) {
     await api(`/api/bots/${chief.id}`, { chiefOfStaff: true, managedSections: ["Engineering"], acknowledgePeerScope: true }, "PATCH");
     const planPath = join(session.info.dataDir, "room-plan.json");
     const toolCalls = Array.from({ length: STEPS }, (_, i) => ({ tool: "list_bots", arguments: {}, toolUseId: `tu-${i + 1}` }));
-    const plan: Record<string, any> = {
+    const steps: Record<string, any> = {
       [chief.id]: { steps: [{ arguments: { bot_ids: [lead.id], message: "Work through the whole list" } }], reply: "Assigned", resumeReply: "All done" },
       [lead.id]: { steps: toolCalls, reply: "Finished the list" },
     };
-    writeFileSync(planPath, JSON.stringify(plan));
+    writeFileSync(planPath, JSON.stringify(plan ? plan(chief.id, lead.id) : steps));
+    const lines = (): Array<{ id: string; hook: string }> => (existsSync(hookOutput) ? readFileSync(hookOutput, "utf8").trim().split("\n").filter(Boolean) : []).map((line) => JSON.parse(line));
     const hooks = (): string[] => (existsSync(hookOutput) ? readFileSync(hookOutput, "utf8").trim().split("\n").filter(Boolean) : []).map((line) => JSON.parse(line).hook as string);
     const notices = (): string[] => hooks().filter((text) => /partly done/.test(text));
-    await test({ cli, api, chief, lead, notices, hooks });
+    await test({ cli, api, chief, lead, notices, hooks, lines });
   } finally { await session.close(); }
 }
 
@@ -44,3 +46,14 @@ it("a dog talking to its person is never told", () => fixture(async (f) => {
   expect(f.hooks()).toHaveLength(STEPS);
   expect(f.notices()).toEqual([]);
 }), 150_000);
+
+it("the dog that sent the request, resumed with its helper's result, is never told", () => fixture(async (f) => {
+  await f.cli("send", "--bot", f.chief.id, "--task", f.chief.activeTaskId, "--text", "Please have Engineering do the small part, then check it.");
+  expect((await f.cli("wait", "--bot", f.chief.id, "--task", f.chief.activeTaskId, "--timeout", "120")).status).toBe("settled");
+  const chief = (f.lines() as Array<{ id: string; hook: string }>).filter((line) => line.id.startsWith("chief-"));
+  expect(chief).toHaveLength(STEPS);
+  expect(chief.filter((line) => /partly done/.test(line.hook)).map((line) => line.id)).toEqual([]);
+}, (chief, lead) => ({
+  [chief]: { steps: [{ arguments: { bot_ids: [lead], message: "Do the small part" } }], reply: "Assigned", resumeSteps: calls("chief", STEPS), resumeReply: "All done" },
+  [lead]: { steps: calls("helper", 3), reply: "Finished the small part" },
+})), 200_000);
