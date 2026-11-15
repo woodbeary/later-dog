@@ -315,6 +315,8 @@ export function recordSummary(record: WireExchange): ExchangeSummary {
 export function exchangeSummary(item: Pick<ExchangeItem, "messages" | "rows">, thread: readonly Message[] | null, working: boolean): ExchangeSummary | null {
   const record = exchangeRecord(item);
   if (record) return recordSummary(record);
+  const lead = item.rows[0];
+  if (item.rows.length === 1 && lead?.direction === "from" && !lead.message.roomRequest) return null;
   return thread ? exchangeGist(item, thread, working) : null;
 }
 

@@ -192,6 +192,8 @@ describe("a turn's hand-outs as one team block", () => {
     const last = quietRows().at(-1)!;
     expect(last.matches("[data-quiet-line]")).toBe(true);
     expect(last.closest("[data-mid]")?.getAttribute("data-mid")).toBe("later");
+    expect(last.querySelector("[data-exchange-state]")).toBeNull();
+    expect(last.textContent).not.toContain("Queued");
   });
 
   it("puts helpers that need the person or failed first, so none is ever behind Show all", async () => {
