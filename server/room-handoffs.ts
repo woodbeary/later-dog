@@ -174,6 +174,13 @@ export class RoomHandoffs {
   private takeBackFailed(n: RoomHandoff, resumed: boolean, ok: boolean, startedAt: number): void {
     if (resumed && !ok) takeBackResults(this.awaited(n.id), startedAt);
   }
+  private retryLastWake(n: RoomHandoff, resumed: boolean, startedAt: number): boolean {
+    if (!resumed || n.retried) return false;
+    n.retried = true;
+    n.status = "resume";
+    takeBackResults(this.awaited(n.id), startedAt);
+    return true;
+  }
   private owesOnlySynthesis(n: RoomHandoff): boolean {
     const children = this.awaited(n.id);
     return children.length > 0 && children.every(c => terminal(c)) &&
@@ -547,8 +554,9 @@ export class RoomHandoffs {
           if (resumed) takeBackResults(this.awaited(n.id), startedAt);
         }
         else if (this.stillAwaiting(n)) { this.takeBackFailed(n, resumed, result.ok, startedAt); n.status = "waiting"; }
-        else if (!result.ok && result.timedOut) this.cancelTree(n, timedOutAgain(n.result), "failed", "timeout");
-        else if (!result.ok) this.cancelTree(n, n.result || "Room agent failed", "failed", "problem");
+        else if (!result.ok && this.retryLastWake(n, resumed, startedAt)) this.stampProgress(root);
+        else if (!result.ok && result.timedOut) { this.takeBackFailed(n, resumed, false, startedAt); this.cancelTree(n, timedOutAgain(n.result), "failed", "timeout"); }
+        else if (!result.ok) { this.takeBackFailed(n, resumed, false, startedAt); this.cancelTree(n, n.result || "Room agent failed", "failed", "problem"); }
         else { n.status = "completed"; this.stampProgress(root); }
         this.publish(n);
       }).catch(e => {
@@ -558,7 +566,8 @@ export class RoomHandoffs {
           this.takeBackFailed(n, resumed, false, startedAt);
           n.status = "waiting";
           this.publish(n);
-        } else this.cancelTree(n, n.result, "failed", "problem");
+        } else if (this.retryLastWake(n, resumed, startedAt)) { this.stampProgress(root); this.publish(n); }
+        else { this.takeBackFailed(n, resumed, false, startedAt); this.cancelTree(n, n.result, "failed", "problem"); }
       })
         .finally(() => this.controllers.delete(n.id));
     }

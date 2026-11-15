@@ -369,3 +369,41 @@ describe("the row and alert for a whole wait are written once", () => {
     expect(t.engine.nodes.get("turn")?.status).toBe("completed");
   }));
 });
+
+describe("a last results turn that fails", () => {
+  for (const failure of ["returns a failure", "throws"] as const) {
+    it(`is tried once more with the same results when it ${failure}`, () => team(async t => {
+      const run = t.hooks.run;
+      let failures = 0;
+      t.hooks.run = vi.fn(async (node: RoomHandoff, resumed: boolean, signal: AbortSignal) => {
+        if (node.botId === lead.botId && resumed && failures++ === 0) {
+          if (failure === "throws") throw new Error("engine error");
+          return { ok: false, text: "engine error" };
+        }
+        return run(node, resumed, signal);
+      });
+      sendThree(t.engine);
+      await t.settle();
+      t.finish("pip"); t.finish("quill"); t.finish("rook"); await t.settle();
+      expect(failures).toBe(2);
+      expect(t.wakes()).toEqual([{ fresh: ["pip", "quill", "rook"], earlier: [], out: [] }]);
+      expect(t.engine.nodes.get("turn")?.status).toBe("completed");
+    }));
+  }
+
+  it("stops after the second failure and leaves its results marked as not delivered", () => team(async t => {
+    let runs = 0;
+    const run = t.hooks.run;
+    t.hooks.run = vi.fn(async (node: RoomHandoff, resumed: boolean, signal: AbortSignal) => {
+      if (node.botId === lead.botId && resumed) { runs++; return { ok: false, text: "engine error" }; }
+      return run(node, resumed, signal);
+    });
+    sendThree(t.engine);
+    await t.settle();
+    t.finish("pip"); t.finish("quill"); t.finish("rook"); await t.settle();
+    t.clock.at += 10 * RESULT_MAX_WAIT_MS; await t.settle();
+    expect(runs).toBe(2);
+    expect(t.engine.nodes.get("turn")?.status).toBe("failed");
+    expect(t.engine.awaited("turn").map(n => n.givenAt)).toEqual([undefined, undefined, undefined]);
+  }));
+});
