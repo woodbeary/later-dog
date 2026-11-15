@@ -4,7 +4,7 @@
   "main": "src/index.ts",
   "compatibility_date": "2026-10-01",
   "assets": { "directory": "../../../third_party/novnc/public" },
-  "observability": { "enabled": true, "head_sampling_rate": 0.1 },
+  "observability": { "enabled": true, "head_sampling_rate": 1, "logs": { "enabled": true, "head_sampling_rate": 1, "invocation_logs": false } },
   "workers_dev": false,
   "preview_urls": false,
   "routes": [{ "pattern": "cloud.later.dog", "custom_domain": true }],

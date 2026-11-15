@@ -191,11 +191,12 @@ it("keeps the bot's own engine on the cloud computer, and a failed place never b
     const { bot: fenced } = await control(["new-bot", "--name", "Fenced fixture"]);
     await apiOk("PATCH", `/api/bots/${fenced.id}`, { computer: "cloud" });
     await control(["send", "--bot", fenced.id, "--task", fenced.activeTaskId, "--text", "Use the hosted desktop."]);
-    expect((await control(["wait", "--bot", fenced.id, "--task", fenced.activeTaskId, "--timeout", "30"])).status).toBe("failed");
-    expect((await lastRows(fenced.activeTaskId)).at(-1)).toBe("error: Fenced fixture's cloud computer didn't start. Try again.");
-    const failedRow = (await apiOk("GET", `/api/threads/${fenced.activeTaskId}/messages?limit=30`)).messages
-      .filter((message: any) => message.kind !== "digest").at(-1);
-    expect(failedRow.tool.place).toEqual({ state: "cc-no-start", params: { bot: "Fenced fixture" }, source: "works-on" });
+    const noStart = "Fenced fixture's cloud computer didn't start; Fenced fixture is carrying on without it.";
+    await expect.poll(async () => (await lastRows(fenced.activeTaskId)).includes(noStart), { timeout: 30_000 }).toBe(true);
+    await finish(fenced.id, fenced.activeTaskId);
+    const fencedRows = await lastRows(fenced.activeTaskId);
+    expect(fencedRows.filter((row: string) => row === noStart)).toHaveLength(1);
+    expect(fencedRows.filter((row: string) => row.startsWith("error:"))).toEqual([]);
     await control(["send", "--bot", fenced.id, "--task", fenced.activeTaskId, "--text", "Try the hosted desktop again."]);
     expect((await control(["wait", "--bot", fenced.id, "--task", fenced.activeTaskId, "--timeout", "30"])).status).toBe("failed");
     expect((await lastRows(fenced.activeTaskId)).at(-1)).toBe("error: Fenced fixture's previous cloud computer is still being removed. Try again.");
