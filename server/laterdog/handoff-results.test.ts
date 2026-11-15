@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import { RoomHandoffs, type RoomHandoff, type RoomHandoffHooks } from "../room-handoffs.ts";
 import type { HandoffRunResult } from "./long-work.ts";
-import { RESULT_MAX_WAIT_MS, RESULT_QUIET_MS, allResultsIn, resultsTurn, sessionHolds, splitResults } from "./handoff-results.ts";
+import { RESULT_MAX_WAIT_MS, RESULT_QUIET_MS, allResultsIn, resultsTurn, sessionHolds, settledNames, splitResults } from "./handoff-results.ts";
 import { removeTempDir } from "../testing/cleanup.ts";
 
 const lead = { botId: "lead", threadId: "lead-chat" };
@@ -65,6 +65,13 @@ describe("the one row and alert for a whole wait", () => {
     expect(allResultsIn([done, { status: "running", reported: false }])).toBeUndefined();
     expect(allResultsIn([done, { ...done, status: "failed" }])).toHaveLength(2);
     expect(allResultsIn([])).toEqual([]);
+  });
+  it("names at most two helpers, each cut at forty characters, then how many more", () => {
+    expect(settledNames(["Pip"])).toBe("Pip");
+    expect(settledNames(["Pip", "Quill"])).toBe("Pip, Quill");
+    expect(settledNames(["Pip", "Quill", "Rook", "Wren"])).toBe("Pip, Quill and 2 more");
+    const long = settledNames(["N".repeat(120), "Quill", "Rook"]);
+    expect(long).toBe(`${"N".repeat(39)}…, Quill and 1 more`);
   });
 });
 

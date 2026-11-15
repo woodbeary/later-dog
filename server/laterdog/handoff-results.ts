@@ -7,6 +7,8 @@ export const ALL_RESULTS_LINE = "Your downstream room requests have settled.";
 
 const ENDED = new Set(["completed", "failed", "cancelled"]);
 const ASKED_MAX = 140;
+const ROW_NAME_MAX = 40;
+const ROW_NAMES = 2;
 
 export interface HandedResult {
   status: string;
@@ -63,6 +65,12 @@ export function givenBeforeUpdate<T extends HandedResult & { parentId?: string; 
     if (parent?.startedAt === undefined || child.reportedAt !== undefined || !backNotGiven(child)) continue;
     if (child.createdAt < parent.startedAt) child.givenAt = child.createdAt;
   }
+}
+
+export function settledNames(names: readonly string[]): string {
+  const cut = names.slice(0, ROW_NAMES).map(name => name.length > ROW_NAME_MAX ? `${name.slice(0, ROW_NAME_MAX - 1)}…` : name);
+  const more = names.length - cut.length;
+  return more > 0 ? `${cut.join(", ")} and ${more} more` : cut.join(", ");
 }
 
 export function allResultsIn<T extends HandedResult>(awaited: readonly T[]): readonly T[] | undefined {

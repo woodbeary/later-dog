@@ -24,7 +24,7 @@ import { createOwnerRunNowScope, legacyCancelledStatusIsNeutral } from "./laterd
 import { cloudHomeLendingRefusal, createCloudRoutineAuthors, ownerOnlyConversation, reportFromOthers, routineReportMark, type CloudLendingRefusal, type CloudLendingTurn } from "./cloud-lending.ts";
 import { SharedComputerControl } from "./shared-computer-control.ts";
 import { RoomHandoffs, awaitsReply, type RoomHandoff } from "./room-handoffs.ts";
-import { resultsTurn, sessionHolds } from "./laterdog/handoff-results.ts";
+import { resultsTurn, sessionHolds, settledNames } from "./laterdog/handoff-results.ts";
 import { isHandoffEnd, type HandoffEnd } from "./laterdog/handoff-budget.ts";
 import { continueNoticeTool, continuingNoticeTool, handoffActivity } from "./laterdog/handoff-continue.ts";
 import {
@@ -4682,7 +4682,7 @@ const roomHandoffs = new RoomHandoffs(join(DATA_DIR, "room-handoffs.json"), {
     const settledFrom = resumed && !group ? roomHandoffs.claimSettledRow(node) : undefined;
     if (settledFrom) {
       const names = [...new Set(settledFrom.map(child => store.bot(child.botId)?.name ?? "Teammate"))];
-      const who = names.length ? names.join(", ") : "delegated work";
+      const who = names.length ? settledNames(names) : "delegated work";
       store.appendMessage(node.threadId, {
         role: "bot", kind: "activity",
         tool: { name: `Resumed with ${who} results, reviewing`, ok: true },
