@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { DISK_RUNGS, diskLadder, diskRung, fileLadderStore, STORE_PRUNE_EVERY_MS, TIDY_IDLE_MS, tidyIdleChats, tidyOrder, trackedByGit } from "./disk-ladder.ts";
+import { DISK_RUNGS, diskLadder, diskRung, EMERGENCY_PRUNE_EVERY_MS, fileLadderStore, STORE_PRUNE_EVERY_MS, TIDY_IDLE_MS, tidyIdleChats, tidyOrder, trackedByGit } from "./disk-ladder.ts";
 
 const fresh = () => ({ cleared: {}, prunedAt: null });
 import type { WorkspaceTask } from "./janitor.ts";
@@ -30,13 +30,15 @@ function chat(root: string, name: string, over: Partial<WorkspaceTask> = {}): Wo
 
 describe("the disk ladder's rungs", () => {
   it("are set in one place, mildest first, and act long before the old low-disk mark", () => {
-    expect(DISK_RUNGS.map((step) => step.name)).toEqual(["tidy", "sweep", "move", "refuse", "floor"]);
-    expect(DISK_RUNGS.every((step, at) => at === 0 || step.freeBelow < DISK_RUNGS[at - 1]!.freeBelow)).toBe(true);
+    expect(DISK_RUNGS.map((step) => step.name)).toEqual(["tidy", "sweep", "move", "refuse", "floor", "emergency"]);
+    expect(DISK_RUNGS.every((step, at) => at === 0 || step.freeBelow <= DISK_RUNGS[at - 1]!.freeBelow)).toBe(true);
     expect(diskRung(disk(0.5))).toBe(0);
     expect(diskRung(disk(0.34))).toBe(1);
     expect(diskRung(disk(0.2))).toBe(2);
     expect(diskRung({ totalBytes: 19.2 * GB, freeBytes: 3.1 * GB })).toBe(2);
-    expect(diskRung(disk(0.01))).toBe(5);
+    expect(diskRung(disk(0.01))).toBe(6);
+    expect(diskRung({ totalBytes: 19.2 * GB, freeBytes: 0.99 * GB })).toBe(6);
+    expect(diskRung({ totalBytes: 19.2 * GB, freeBytes: 1.5 * GB })).toBe(4);
     expect(diskRung(null)).toBe(0);
   });
 });
@@ -255,5 +257,75 @@ describe("a day on a nearly full disk", () => {
     expect(reinstalls).toBe(1);
     expect(prunes).toBeLessThanOrEqual(1);
     expect(lines).toEqual([]);
+  });
+});
+
+describe("the emergency step when the disk is nearly full", () => {
+  const MB = 1024 ** 2;
+  const HOUR = 60 * 60_000;
+
+  function nearlyFull(freeBytes: (chats: WorkspaceTask[]) => number, live: (chats: WorkspaceTask[]) => { pid: number; ppid: number; argv: string; cwd: string }[] = () => []) {
+    const root = mkdtempSync(join(tmpdir(), "ladder-emergency-"));
+    const names = ["busy", "running", "a", "b", "c", "d"];
+    const chats = names.map((name, at) => chat(root, name, { lastActiveAt: NOW - HOUR + at * 60_000, busy: name === "busy" }));
+    const lines: string[] = [];
+    let prunes = 0;
+    let now = NOW;
+    const store = fileLadderStore(join(root, "disk-ladder.json"));
+    const ladder = diskLadder({
+      disk: () => ({ totalBytes: 20 * GB, freeBytes: freeBytes(chats) }),
+      chats: () => chats,
+      live: () => live(chats),
+      tracked: untracked,
+      sweepTemp: () => ({ removed: [], freed: 0 }),
+      pruneCaches: () => { prunes += 1; return 5 * MB; },
+      log: (line) => lines.push(line),
+      now: () => now,
+      store,
+    });
+    const at = (name: string) => chats[names.indexOf(name)]!;
+    return { ladder, lines, at, store, prunes: () => prunes, setNow: (next: number) => { now = next; } };
+  }
+  const cleared = (chat: WorkspaceTask) => !existsSync(join(chat.dir, "app/node_modules"));
+  const others = (chats: WorkspaceTask[]) => [{ pid: 40, ppid: 30, argv: "node server.js", cwd: chats[1]!.dir }, { pid: 30, ppid: 21, argv: "claude --output-format stream-json", cwd: chats[2]!.dir }];
+
+  it("clears chats used in the last hour, least recently used first, and stops once a gigabyte above the mark", () => {
+    const run = nearlyFull((chats) => 300 * MB + chats.filter(cleared).length * 900 * MB, others);
+    run.ladder.climb();
+    expect(["a", "b"].map((name) => cleared(run.at(name)))).toEqual([true, true]);
+    expect(["c", "d", "busy", "running"].map((name) => cleared(run.at(name)))).toEqual([false, false, false, false]);
+    expect(existsSync(join(run.at("a").dir, "app/page.tsx"))).toBe(true);
+    expect(existsSync(join(run.at("a").dir, "app/.git/.cache"))).toBe(true);
+    expect(run.store.load().emergencyPrunedAt).toBeNull();
+    const emergencyLines = run.lines.filter((line) => line.includes("emergency step"));
+    expect(emergencyLines).toHaveLength(1);
+    expect(emergencyLines[0]).toMatch(/emergency step: cleared rebuildable output in 2 chat\(s\), freed \d+ MB$/);
+  });
+
+  it("prunes the store only when clearing chats was not enough, at most once an hour, and clears nothing twice", () => {
+    const run = nearlyFull(() => 300 * MB, others);
+    run.ladder.climb();
+    expect(["a", "b", "c", "d"].every((name) => cleared(run.at(name)))).toBe(true);
+    expect(["busy", "running"].some((name) => cleared(run.at(name)))).toBe(false);
+    expect(run.prunes()).toBe(2);
+    expect(run.store.load().emergencyPrunedAt).toBe(NOW);
+    fill(join(run.at("a").dir, "app/node_modules/again"));
+    const linesBefore = run.lines.length;
+    run.setNow(NOW + 10 * 60_000);
+    run.ladder.climb();
+    expect(cleared(run.at("a"))).toBe(false);
+    expect(run.prunes()).toBe(2);
+    expect(run.lines).toHaveLength(linesBefore);
+    run.setNow(NOW + 10 * 60_000 + EMERGENCY_PRUNE_EVERY_MS);
+    run.ladder.climb();
+    expect(run.prunes()).toBe(3);
+  });
+
+  it("does nothing between one and two gigabytes free", () => {
+    const run = nearlyFull(() => 1.5 * GB);
+    run.ladder.climb();
+    expect(["busy", "running", "a", "b", "c", "d"].some((name) => cleared(run.at(name)))).toBe(false);
+    expect(run.prunes()).toBe(1);
+    expect(run.store.load().emergencyPrunedAt).toBeNull();
   });
 });
