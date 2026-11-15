@@ -22,8 +22,9 @@ names out; the attribution the licence requires stays in NOTICE.
 Work in progress, its gates, and how to resume any lane: [`docs/laterdog/finish-line.md`](docs/laterdog/finish-line.md). Read it before starting.
 
 Nothing merges to `main` until a complete `pnpm gate` run (`scripts/merge-gate.mjs`) on a
-clean checkout of the branch, with `origin/main` fetched and merged in, ends with
-`VERDICT: PASS`. The gate runs typecheck, lint, the desktop node tests, the broker tests, the
+clean checkout of the branch, with `origin/main` fetched and merged in, ends with the line
+`VERDICT: PASS` and nothing after `PASS` but the commits, and exits 0. The gate runs typecheck,
+lint, the desktop node tests, the broker tests, the
 packaged-server check, the vitest suite in eight parts, and the tests in `deploy/laterdog/home`,
 `cloudflare/control-plane` and `deploy/laterdog/computers`. A run with `LATERDOG_GATE_OFFLINE=1`,
 `LATERDOG_GATE_NO_BROWSER=1` or a non-empty `LATERDOG_GATE_UNAVAILABLE` ends with
