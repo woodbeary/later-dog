@@ -335,7 +335,7 @@ describe("composioSystemPrompt", () => {
 describe("cloudHomePrompt", () => {
   it("says the bot runs in the cloud, offers what works there, and never asks for a place that cannot exist", () => {
     for (const tools of [true, false]) {
-      const text = cloudHomePrompt(tools);
+      const text = cloudHomePrompt(tools, "claude");
       expect(text).toMatch(/^ You run on the user's My Cloud, their always-on later\.dog in the cloud, not on their own computer\./);
       expect(text.startsWith(` You run on ${CLOUD_HOME_PLACE}.`)).toBe(true);
       expect(text).toContain("Offer what works here: their cloud computer, a desktop in the cloud with its own browser, where you can sign in to sites and do things on the web for them. Call it their cloud computer, as the app does.");
@@ -344,6 +344,14 @@ describe("cloudHomePrompt", () => {
       expect(text).toContain("Never ask them to set up this computer or a Local VM; neither exists here.");
       expect(text).toContain("$TMPDIR is this chat's own and is emptied when your turn ends, so keep anything you need later in your workspace. Anything that must keep running after your turn has to be started with the shell tool's own background option; anything started with &, nohup, setsid or tmux may be stopped when the turn ends.");
       expect(text).not.toMatch(/Computer panel|container runtime|configure/i);
+    }
+  });
+
+  it("promises the shell tool's background option only to dogs on the engine where it was checked", () => {
+    for (const engine of ["codex", "other"] as const) {
+      const text = cloudHomePrompt(true, engine);
+      expect(text).toContain("$TMPDIR is this chat's own and is emptied when your turn ends, so keep anything you need later in your workspace. Anything you leave running may be stopped when your turn ends. Offer");
+      expect(text).not.toMatch(/background option|nohup|setsid|tmux/);
     }
   });
 
@@ -358,22 +366,22 @@ describe("cloudHomePrompt", () => {
   });
 
   it("keeps the date out of the cached instructions and sends it with the context that changes", () => {
-    expect(cloudHomePrompt(false)).not.toMatch(/today/i);
+    expect(cloudHomePrompt(false, "claude")).not.toMatch(/today/i);
     const built = buildSystemPrompt("You are Testy.", "", [
-      { id: "cloud-home", label: "My Cloud", text: cloudHomePrompt(false) },
+      { id: "cloud-home", label: "My Cloud", text: cloudHomePrompt(false, "claude") },
       { id: "today", label: "Today", text: todayPrompt("America/Los_Angeles", new Date("2026-10-30T05:30:00Z")) },
     ]);
     expect(built.stable).not.toContain("today is");
     expect(built.volatile).toContain("today is Thursday, October 29, 2026");
-    expect(built.text.endsWith(`${cloudHomePrompt(false).trim()}\n</tools_and_places>${built.volatile}`)).toBe(true);
+    expect(built.text.endsWith(`${cloudHomePrompt(false, "claude").trim()}\n</tools_and_places>${built.volatile}`)).toBe(true);
   });
 
   it("points to the person's Mac only when the turn has the shared-computer tools", () => {
-    expect(cloudHomePrompt(true)).toContain("use shared_computer: it reaches the Mac where later.dog is open and signed in to this account. Just use it; if they set that Mac to ask first, later.dog shows them a card and your call waits for the answer.");
-    expect(cloudHomePrompt(true)).not.toMatch(/approve it on a card/);
-    expect(cloudHomePrompt(true)).toContain("they install later.dog on the Mac and sign in with the same email, and it connects by itself");
-    expect(cloudHomePrompt(true)).not.toMatch(/Let My Cloud use this Mac|lend/);
-    expect(cloudHomePrompt(false)).not.toMatch(/shared_computer|list_shared_computers/);
-    expect(cloudHomePrompt(false)).toContain("You cannot see or use their Mac or PC, its screen or its files from here.");
+    expect(cloudHomePrompt(true, "claude")).toContain("use shared_computer: it reaches the Mac where later.dog is open and signed in to this account. Just use it; if they set that Mac to ask first, later.dog shows them a card and your call waits for the answer.");
+    expect(cloudHomePrompt(true, "claude")).not.toMatch(/approve it on a card/);
+    expect(cloudHomePrompt(true, "claude")).toContain("they install later.dog on the Mac and sign in with the same email, and it connects by itself");
+    expect(cloudHomePrompt(true, "claude")).not.toMatch(/Let My Cloud use this Mac|lend/);
+    expect(cloudHomePrompt(false, "claude")).not.toMatch(/shared_computer|list_shared_computers/);
+    expect(cloudHomePrompt(false, "claude")).toContain("You cannot see or use their Mac or PC, its screen or its files from here.");
   });
 });
