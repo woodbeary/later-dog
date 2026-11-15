@@ -253,6 +253,20 @@ export function heldAnswers(outbox: readonly QueuedSend[], ownerSent: (queued: Q
   });
 }
 
+function cardIdOf(body: string): string | null {
+  try {
+    const cardId = (JSON.parse(body) as { cardId?: unknown } | null)?.cardId;
+    return typeof cardId === "string" && CARD_ID.test(cardId) ? cardId : null;
+  } catch {
+    return null;
+  }
+}
+
+export function heldForSameCard(outbox: readonly QueuedSend[], next: QueuedSend): QueuedSend | undefined {
+  const cardId = cardIdOf(next.body);
+  return cardId ? outbox.find((queued) => queued.id !== next.id && queued.path === next.path && cardIdOf(queued.body) === cardId) : undefined;
+}
+
 export function heldAnswersAnswer(outbox: readonly QueuedSend[], ownerSent: (queued: QueuedSend) => boolean): Response {
   return Response.json({ answers: heldAnswers(outbox, ownerSent) }, { headers: { "cache-control": "no-store" } });
 }

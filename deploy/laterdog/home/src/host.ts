@@ -12,7 +12,7 @@ import { devCodeOn, handleDevCode } from "./dev-code.ts";
 import { alwaysOn, KEEP_UP_EVERY_S, personSleepAfter, RESTART_AFTER_STOP_S } from "./always-on.ts";
 import { afterCheck, ANSWER_CHECK_TIMEOUT_MS, NOT_ANSWERED_YET, stuckLine, within, type AnswerRecord } from "./hang-watch.ts";
 import {
-  answerHeldQueueAsk, DESK_KEPT_MS, DESK_SAVE_EVERY_MS, deliveryOutcome, deskAnswerWithQueue, deskKey, deskKind, deskLimit, deskPrefix, deskSend, droppedStillKept, forgetScope, heldAnswersAnswer, heldAnswersAsk, heldQueueAsk, heldSendsAnswer, heldSendsAsk, queuedReceipt, queuedSend, sendIdOf, withoutDropped,
+  answerHeldQueueAsk, DESK_KEPT_MS, DESK_SAVE_EVERY_MS, deliveryOutcome, deskAnswerWithQueue, deskKey, deskKind, deskLimit, deskPrefix, deskSend, droppedStillKept, forgetScope, heldAnswersAnswer, heldAnswersAsk, heldForSameCard, heldQueueAsk, heldSendsAnswer, heldSendsAsk, queuedReceipt, queuedSend, sendIdOf, withoutDropped,
   refusedSend, saveAnswer, savable, savedAnswer, withDropped, withQueued, type DeskBucket, type DeskKind, type DroppedSend, type QueuedSend,
 } from "./desk.ts";
 import { isBackground, startFailure, wakeResponse, type HomeWake } from "./waking.ts";
@@ -564,6 +564,8 @@ export class CloudHomeHost extends Container<Env> {
       if (sent === "refused") return refusedSend();
       const queued = sent ? { ...sent, from: key } : null;
       if (queued && this.outbox.some((earlier) => earlier.id === queued.id)) return queuedReceipt(queued);
+      const sameCard = queued ? heldForSameCard(this.outbox, queued) : undefined;
+      if (sameCard) return queuedReceipt(sameCard);
       const next = queued ? withQueued(this.outbox, queued) : null;
       if (!queued || !next) return null;
       const dog = record.includedKey && remembered(this.wakers, key, Date.now()) ? answerable(queued, this.brain, Date.now()) : null;

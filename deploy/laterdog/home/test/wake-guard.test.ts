@@ -725,6 +725,34 @@ describe("card answers the edge holds for the person", () => {
       expect(await (await list(visit)).json()).toMatchObject({ answers: [{ sendId: CARD_SEND, text: "Yes" }] });
     });
 
+    it("holds one answer per card: a second phone's answer to the same card gets the first one's receipt", async () => {
+      const SECOND_PHONE = `laterdog_sess_${"t".repeat(43)}`;
+      const asSecond = { accept: "application/json", authorization: `Bearer ${SECOND_PHONE}`, "content-type": "application/json" };
+      world.sessions.add(SECOND_PHONE);
+      const started = await awakeHome();
+      world.answers.set("GET /api/bots", () => Response.json({ bots: [] }));
+      await started.visit("/api/bots", asOwner());
+      await started.visit("/api/bots", { headers: asSecond });
+      await started.sleep();
+      started.machine.serving = false;
+      const { visit, machine, home } = started;
+      expect((await visit("/api/bots/rex/messages", post({ text: "Yes", sendId: CARD_SEND, threadId: "t-owner", cardId: "card-1" }))).status).toBe(202);
+      const second = await visit("/api/bots/rex/messages", { method: "POST", headers: asSecond, body: JSON.stringify({ text: "No", sendId: "send-card-0000000002", threadId: "t-owner", cardId: "card-1" }) });
+      expect(second.status).toBe(202);
+      expect(await second.json()).toMatchObject({ queued: true, queueId: CARD_SEND });
+      expect(await (await list(visit)).json()).toMatchObject({ answers: [{ sendId: CARD_SEND, text: "Yes" }] });
+      expect((await list(visit, { headers: asSecond })).status).toBe(200);
+      const delivered: string[] = [];
+      world.answers.set("POST /api/bots/rex/messages", async (request) => {
+        delivered.push(((await request.json()) as { sendId: string }).sendId);
+        return Response.json({ ok: true });
+      });
+      machine.serving = true;
+      await visit("/api/bots", asOwner());
+      expect(delivered).toEqual([CARD_SEND]);
+      expect((home as unknown as { outbox: unknown[] }).outbox).toEqual([]);
+    });
+
     it("never lists the owner's card answers to a guest", async () => {
       const { visit } = await bothKnownThenAsleep();
       expect((await visit("/api/bots/rex/messages", post({ text: "Yes, the private one", sendId: CARD_SEND, threadId: "t-owner", cardId: "card-1" }))).status).toBe(202);
