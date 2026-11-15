@@ -389,7 +389,7 @@ const TOOL_DEFINITIONS = [
   {
     name: "run_on_computer",
     description:
-      "Run a heavy command (install, build, typecheck, test suite, browser test, media processing) on your own cloud computer so it can't freeze the home all dogs share. Copies the folder there (changes only, no node_modules or build output), runs it, brings back the files it made or changed, and shows the end of the output. Packages stay installed there between runs. Still running after ~4 minutes: call again with only run_id.",
+      "Run a heavy command (install, build, typecheck, test suite, browser test, media processing) on your own cloud computer so it can't freeze the home all dogs share. Copies the folder there (changes only, no node_modules or build output), runs it, brings back the files it made or changed, and shows the end of the output. Packages stay installed there between runs. One call waits up to about 4 minutes. A run still going then keeps going and gives you its run_id, but nothing wakes you when it ends: do your other work first, then call again with only run_id when you need the result. That call itself waits up to 4 more minutes, so never sleep or loop before it.",
     inputSchema: { type: "object", additionalProperties: false, properties: {
       command: { type: "string", maxLength: 4000, description: "Shell command run with bash in the folder." },
       folder: { type: "string", description: "Absolute project folder here, e.g. /data/site. Default: your working folder." },

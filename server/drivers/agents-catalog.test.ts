@@ -11,3 +11,13 @@ describe("fixing a stuck dog instead of duplicating it", () => {
     expect(JSON.stringify(tools.find((tool) => tool.name === "propose_model")?.inputSchema)).toContain("bot_id");
   });
 });
+
+describe("waiting on a run on the cloud computer", () => {
+  it("tells a dog the run carries on without it and one check already waits, so it does other work instead of polling", async () => {
+    const { availableTools } = await import("./agents-catalog.ts");
+    const run = availableTools({ cloudHome: true } as never).find((tool) => tool.name === "run_on_computer")?.description ?? "";
+    expect(run).toContain("nothing wakes you when it ends");
+    expect(run).toContain("do your other work first");
+    expect(run).toContain("never sleep or loop before it");
+  });
+});

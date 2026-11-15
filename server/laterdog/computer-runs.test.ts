@@ -167,6 +167,8 @@ describe("a heavy command on the dog's own computer", () => {
     const first = await runs.finish(box, started);
     expect(first.state).toBe("running");
     expect(first.note).toContain(started.id);
+    expect(first.note).toContain("do other work");
+    expect(first.note).toContain("that call waits up to 4 more minutes");
     const record = runs.record("dog", started.id)!;
     await new Promise((done) => setTimeout(done, 2500));
     const second = await runs.finish(box, record);
