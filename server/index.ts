@@ -13539,12 +13539,12 @@ function assignDogAccount(dog: BotRecord, account: BatteryAccount, by: { sender:
   return { ok: true };
 }
 
-async function stopForOwner(input: { dog: BotRecord; threadId: string; by: BotRecord; force: boolean; why?: string }): Promise<"safe" | "stopped" | "idle"> {
+async function stopForOwner(input: { dog: BotRecord; threadId: string; by: BotRecord; force: boolean; why?: string }): Promise<"safe" | "stopped" | "idle" | "ended"> {
   const { dog, threadId, by } = input;
   const current = store.projectBotForTask(dog.id, threadId);
   if (!current || !threadBusy(dog.id, threadId)) {
-    roomHandoffs.endTurnless(dog.id, threadId, `${by.name} stopped this for the owner after its dog had stopped working on it.`, "person");
-    return "idle";
+    const ended = roomHandoffs.endTurnless(dog.id, threadId, `${by.name} stopped this for the owner after its dog had stopped working on it.`, "person");
+    return ended.length ? "ended" : "idle";
   }
   store.appendMessage(threadId, { role: "bot", kind: "activity", from: { botId: by.id, name: by.name, color: by.color },
     tool: { name: stoppedByLine(by.name, cfg.profile?.name?.trim() || undefined, input.why), ok: true } });

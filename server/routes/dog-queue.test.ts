@@ -22,7 +22,7 @@ afterEach(async () => {
   await Promise.all(servers.splice(0).map((server) => new Promise((done) => { server.closeAllConnections(); server.close(done); })));
 });
 
-async function serve(sender: BotRecord, options: { owner?: boolean; busy?: string[] } = {}) {
+async function serve(sender: BotRecord, options: { owner?: boolean; busy?: string[]; stopped?: "ended" } = {}) {
   const nodes = [request("r-run", "clover", "running", "Fix the fallback"), request("r-q1", "clover", "queued", "Ship the phone update"),
     request("r-q2", "task", "queued", "Check the storage")];
   const calls: string[] = [];
@@ -52,7 +52,7 @@ async function serve(sender: BotRecord, options: { owner?: boolean; busy?: strin
     },
     stop: async ({ dog: target, threadId, by, force }) => {
       calls.push(`stop ${target.id} ${threadId} by ${by.id}${force ? " now" : ""}`);
-      return force ? "stopped" : "safe";
+      return options.stopped ?? (force ? "stopped" : "safe");
     },
   });
   const server = createServer(async (req, res) => {
@@ -89,10 +89,11 @@ describe("stopping a dog for the owner", () => {
     expect(calls).toEqual(["stop patch patch-chat by clover", "stop patch patch-chat by clover now"]);
   });
 
-  it("still reaches a request left running when its dog has no turn, so stopping can end it", async () => {
-    const { call, calls } = await serve(CLOVER, { busy: [] });
-    await call({ dog: "Patch", action: "stop" });
+  it("still reaches a request left running when its dog has no turn, so stopping can end it, and says it ended it", async () => {
+    const { call, calls } = await serve(CLOVER, { busy: [], stopped: "ended" });
+    const answer = await call({ dog: "Patch", action: "stop" });
     expect(calls).toEqual(["stop patch patch-chat by clover"]);
+    expect(answer.body.text).toContain("Patch had already stopped working on it, so later.dog ended the request.");
   });
 
   it("cancels a request left running without saying it had not started", async () => {

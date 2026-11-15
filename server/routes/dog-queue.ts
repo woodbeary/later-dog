@@ -24,7 +24,7 @@ export interface DogQueueRouteDeps {
   busyThreads(bot: BotRecord): string[];
   cancel(id: string, reason: string): RoomHandoff | string;
   replace(id: string, text: string): RoomHandoff | string;
-  stop(input: { dog: BotRecord; threadId: string; by: BotRecord; force: boolean; why?: string }): Promise<"safe" | "stopped" | "idle">;
+  stop(input: { dog: BotRecord; threadId: string; by: BotRecord; force: boolean; why?: string }): Promise<"safe" | "stopped" | "idle" | "ended">;
 }
 
 const snippet = (text: string) => {
@@ -113,6 +113,7 @@ export function createDogQueueRoute(deps: DogQueueRouteDeps): InternalRouteHandl
     if (target === threadId) return json(res, 409, { error: "That is this conversation; end your own turn instead." });
     const outcome = await deps.stop({ dog, threadId: target, by: sender, force: body?.force === true, ...(message ? { why: message } : {}) });
     const words = outcome === "idle" ? `${dog.name} had already finished.`
+      : outcome === "ended" ? `${dog.name} had already stopped working on it, so later.dog ended the request.`
       : outcome === "safe" ? `Asked ${dog.name} to stop at a safe point: it finishes or rolls back the step it is in, then stops. If it is still going in two minutes, later.dog stops it.`
         : `Stopped ${dog.name}'s turn.`;
     return json(res, 200, { outcome, text: `${words} Its chat says you stopped it, and the dog that sent that work is told.\n\n${view()}` });
