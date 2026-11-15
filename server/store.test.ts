@@ -826,6 +826,19 @@ describe("Store", () => {
     expect(kept?.lastTurn).not.toHaveProperty("cachedInput");
   });
 
+  it("shows a chat's context size during a turn, keeping its totals and window, and the turn's end still counts once", () => {
+    const store = new Store(selection);
+    const bot = store.createBot();
+    expect(store.showTaskContext(bot.id, bot.threadId, { tokens: 90_000 })).toBe(true);
+    expect(store.taskByThread(bot.id, bot.threadId)?.usage).toEqual({ input: 0, output: 0, costUsd: null, turns: 0, context: { tokens: 90_000 } });
+    store.addTaskUsage(bot.id, bot.threadId, { input: 100, output: 10, costUsd: null, context: { tokens: 120_000, window: 1_000_000, windowSource: "provider" } });
+    expect(store.showTaskContext(bot.id, bot.threadId, { tokens: 240_000 })).toBe(true);
+    expect(store.taskByThread(bot.id, bot.threadId)?.usage).toMatchObject({ input: 100, output: 10, turns: 1, context: { tokens: 240_000, window: 1_000_000, windowSource: "provider" } });
+    expect(new Store(selection).taskByThread(bot.id, bot.threadId)?.usage?.context).toEqual({ tokens: 240_000, window: 1_000_000, windowSource: "provider" });
+    expect(store.showTaskContext(bot.id, "no-such-thread", { tokens: 5 })).toBe(false);
+    expect(store.showTaskContext(bot.id, bot.threadId, { tokens: Number.NaN })).toBe(false);
+  });
+
   it("corrects a legacy Fable context fallback while preserving a provider-reported smaller window", () => {
     const store = new Store(selection);
     const bot = store.createBot();

@@ -747,6 +747,7 @@ import { personWaitStays, settlePickup, shownWaiting, usageHeld, type PickupOutc
 import { guestBattery } from "./laterdog/battery-view.ts";
 import { continueOnAccount } from "./laterdog/continue-on-account.ts";
 import { LimitHold, withWaitingRuns } from "./laterdog/limit-hold.ts";
+import { LiveContext } from "./laterdog/live-context.ts";
 import { createUsageWatch } from "./laterdog/usage-watch.ts";
 import { openAsk, workState } from "./laterdog/work-state.ts";
 import { exchangeIdOf, exchangeThreads, withExchange, type ExchangeLookup } from "./laterdog/room-exchange.ts";
@@ -5519,6 +5520,7 @@ const routedRoomReplies = new Map<string, { botId: string; routedBy: RoutedBy }>
 
 const turnUsage = new Map<string, { input: number; output: number; cachedInput?: number }>();
 const turnContext = new Map<string, { tokens?: number; window?: number }>();
+const liveContext = new LiveContext();
 
 const repeats = new RepeatDetector({ thresholds: [5, 10, 20], maxKeysPerThread: 256 });
 
@@ -7477,6 +7479,10 @@ bus.subscribe(guardTurnEnd((event: RuntimeEvent) => {
       if (event.contextTokens !== undefined || event.contextWindow !== undefined) {
         turnContext.set(event.threadId, { tokens: event.contextTokens, window: event.contextWindow });
       }
+      if (liveContext.due(event.threadId, event.contextTokens)) {
+        const owner = store.botByThread(event.threadId);
+        if (owner) store.showTaskContext(owner.id, event.threadId, { tokens: event.contextTokens, window: event.contextWindow });
+      }
       break;
     case "turn.completed": {
       const execution = executionEvidence.complete(event);
@@ -7567,6 +7573,7 @@ bus.subscribe(guardTurnEnd((event: RuntimeEvent) => {
       turnUsage.delete(event.threadId);
       const lastContext = turnContext.get(event.threadId);
       turnContext.delete(event.threadId);
+      liveContext.forget(event.threadId);
       if (bot) {
         const resourceOwner = turnResourceOwners.get(event.threadId);
         const generation = directTurnGenerationByThread.get(event.threadId);

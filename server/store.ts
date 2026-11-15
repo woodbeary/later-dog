@@ -1991,6 +1991,20 @@ export class Store {
     return task.usage;
   }
 
+  showTaskContext(botId: string, threadId: string, context: { tokens: number; window?: number }): boolean {
+    const task = this.taskByThread(botId, threadId);
+    const tokens = Math.trunc(context.tokens);
+    if (!task || !Number.isFinite(tokens) || tokens <= 0) return false;
+    const usage: TaskUsage = task.usage ?? { input: 0, output: 0, costUsd: null, turns: 0 };
+    const window = typeof context.window === "number" && context.window > 0
+      ? { window: Math.trunc(context.window), windowSource: "provider" as const }
+      : usage.context?.window ? { window: usage.context.window, ...(usage.context.windowSource ? { windowSource: usage.context.windowSource } : {}) } : {};
+    task.usage = { ...usage, context: { tokens, ...window } };
+    this.saveBots();
+    this.emit({ type: "bot", botId });
+    return true;
+  }
+
   unpinTaskCwd(threadId: string): boolean {
     const bot = this.botByThread(threadId);
     const task = bot ? this.taskByThread(bot.id, threadId) : undefined;
