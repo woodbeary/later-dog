@@ -7,6 +7,9 @@ import { resolveUses, VAULT_OWNER_ONLY, type VaultItems } from "./laterdog/vault
 import { capturedValue, maskValues, secretNameProblem, vaultFingerprint, VAULT_CAPTURE_SCHEMA, VAULT_USES_SCHEMA, wrapVaultCommand } from "./laterdog/vault-refs.ts";
 import { splitTabListing, TAB_TRACKED_TOOLS, withTabListing, type Target } from "./laterdog/cloud-tabs.ts";
 import { fillSecureField, parseSecureFormInput, SECURE_FORM_TOOLS, secureFormFilledText, secureFormRequestedText, type SecureFormDesk } from "./laterdog/secure-form.ts";
+import { PAGE_TOOL_NAMES, PAGE_TOOLS, pageToolsEnabled, runPageTool, type RemoteExec } from "./laterdog/page-tools.ts";
+
+export type { RemoteExec };
 
 const coordinate = { type: "integer", minimum: 0, maximum: 32767 };
 const tool = (name: string, description: string, properties: Record<string, unknown> = {}, required: string[] = []) =>
@@ -28,6 +31,9 @@ export const CLOUD_COMPUTER_TOOLS = [
   }, ["command"]),
   ...SECURE_FORM_TOOLS,
 ];
+export function computerToolsFor(cfg: AppConfig): typeof CLOUD_COMPUTER_TOOLS {
+  return pageToolsEnabled(cfg) ? [...CLOUD_COMPUTER_TOOLS, ...PAGE_TOOLS] : CLOUD_COMPUTER_TOOLS;
+}
 export const CLOUD_COMPUTER_NOT_READY = "The cloud computer is not ready. This call was not performed. Take a fresh screenshot in a moment.";
 const SECURE_FORMS_UNAVAILABLE = "Secure Forms are not available in this conversation. Ask the person with request_takeover instead.";
 const quote = (value: string) => "'" + value.replace(/'/g, "'\\''") + "'";
@@ -37,7 +43,7 @@ const scrollButtons: Record<string, number> = { up: 4, down: 5, left: 6, right: 
 let validators: Map<string, ValidateFunction> | undefined;
 
 export function cloudComputerCallProblem(name: unknown, args: unknown): string | null {
-  validators ??= new Map(CLOUD_COMPUTER_TOOLS.map(entry => [entry.name, compileToolSchema(entry.inputSchema)]));
+  validators ??= new Map([...CLOUD_COMPUTER_TOOLS, ...PAGE_TOOLS].map(entry => [entry.name, compileToolSchema(entry.inputSchema)]));
   const validate = typeof name === "string" ? validators.get(name) : undefined;
   if (!validate) return "Unknown cloud computer tool. Use one of the advertised computer tools.";
   if (!args || typeof args !== "object" || Array.isArray(args) || !validate(args)) {
@@ -59,10 +65,17 @@ export async function runCloudComputerTool(
   signal: AbortSignal,
   onTabs?: (targets: Target[]) => void,
   vault?: VaultItems,
+  exec: RemoteExec = (command, abort) => runCommand(cfg, boxId, isolatedRemoteCommand(command), { signal: abort }),
 ): Promise<CloudComputerResult> {
   const problem = cloudComputerCallProblem(name, args);
   if (problem) return { isError: true, content: [{ type: "text", text: problem }] };
   signal.throwIfAborted();
+  if (PAGE_TOOL_NAMES.has(name)) {
+    if (!pageToolsEnabled(cfg)) return { isError: true, content: [{ type: "text", text: "Unknown cloud computer tool. Use one of the advertised computer tools." }] };
+    const page = await runPageTool(exec, name, args, signal);
+    signal.throwIfAborted();
+    return page;
+  }
   if (name === "screenshot") {
     const shot = await screenshotBoat(cfg, "", boxId, { signal, nativeSize: true });
     signal.throwIfAborted();
@@ -87,7 +100,7 @@ export async function runCloudComputerTool(
     default: return { isError: true, content: [{ type: "text", text: "Unknown cloud computer tool." }] };
   }
   const tracked = Boolean(onTabs) && TAB_TRACKED_TOOLS.has(name);
-  const raw = await runCommand(cfg, boxId, isolatedRemoteCommand(tracked ? withTabListing(command) : command), { signal });
+  const raw = await exec(tracked ? withTabListing(command) : command, signal);
   signal.throwIfAborted();
   let result = raw;
   if (tracked) {
@@ -134,7 +147,7 @@ export async function cloudComputerRpc(
 ): Promise<{ tools: typeof CLOUD_COMPUTER_TOOLS } | CloudComputerResult> {
   if (request?.method === "tools/list") {
     deps.assertActive();
-    return { tools: CLOUD_COMPUTER_TOOLS };
+    return { tools: computerToolsFor(deps.cfg) };
   }
   if (request?.method !== "tools/call") throw Object.assign(new Error("unsupported computer method"), { status: 400 });
   const params = (request.params && typeof request.params === "object" ? request.params : {}) as { name?: unknown; arguments?: unknown };
