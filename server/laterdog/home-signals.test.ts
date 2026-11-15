@@ -102,6 +102,15 @@ describe("a dog can still stop what it started", () => {
     ]) expect(refused(command), command).toBe(true);
   });
 
+  it("reads text handed to a shell as a here-string or through a pipe as commands", () => {
+    for (const command of [
+      `bash <<< 'kill ${SERVER}'`, "sh <<<\"pkill node\"", `echo 'kill ${SERVER}' | bash`, "echo -n pkill node | sh -s",
+      `printf 'kill ${SERVER}\\n' | sh`, "printf '%s\\n' 'pkill node' | sudo /bin/bash", `echo kill 7 | env FOO=1 nice -n 5 zsh`,
+      `cat <<< 'kill ${SERVER}' | bash`,
+    ]) expect(refused(command), command).toBe(true);
+    for (const command of [`grep kill <<< 'kill ${SERVER}'`, `echo 'kill ${SERVER}' | grep kill`, "echo 'pkill node' > notes.txt", "printf 'pkill node' | tee notes.txt"]) expect(refused(command), command).toBe(false);
+  });
+
   it("finds a heredoc only outside quotes, comments and arithmetic", () => {
     for (const command of [
       `echo '<<X'\nkill ${SERVER}`,
