@@ -1,7 +1,7 @@
 import { readFileSync, renameSync } from "node:fs";
 import { z } from "zod";
 import { writeFileAtomic } from "../atomic.ts";
-import type { RunBox, RunLiveness } from "./computer-runs.ts";
+import { MAX_RUN_MS, type RunBox, type RunLiveness } from "./computer-runs.ts";
 
 const endSchema = z.object({ how: z.enum(["finished", "failed", "asleep", "gone", "stopped", "lost"]), exitCode: z.number().int().optional(), at: z.number() });
 const jobSchema = z.object({
@@ -12,6 +12,7 @@ const jobSchema = z.object({
 export type ComputerJob = z.infer<typeof jobSchema>;
 export type ComputerJobEnd = z.infer<typeof endSchema>;
 export type EndedComputerJob = ComputerJob & { end: ComputerJobEnd };
+export interface ComputerJobFacts { computerJobs?: number; computerSince?: number; computerBackground?: number }
 
 export const JOB_CHECK_MS = 30_000;
 export const UNREADABLE_MS = 10 * 60_000;
@@ -125,6 +126,14 @@ export class ComputerJobs implements ComputerJobLedger {
 
   count(threadId: string): number {
     return this.live(threadId).length;
+  }
+
+  facts(threadId: string): ComputerJobFacts {
+    const live = this.live(threadId);
+    if (!live.length) return {};
+    const now = this.#now();
+    const background = live.filter((job) => now - job.startedAt > MAX_RUN_MS).length;
+    return { computerJobs: live.length, computerSince: Math.min(...live.map((job) => job.startedAt)), ...(background ? { computerBackground: background } : {}) };
   }
 
   unannounced(): EndedComputerJob[] {

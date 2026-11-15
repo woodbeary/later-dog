@@ -274,6 +274,15 @@ export class ComputerRuns {
     return { done: code !== "", exitCode: code === "" ? null : Number(code), output: rest.join("<<<\n") };
   }
 
+  async ended(box: RunBox, job: Pick<RunRecord, "botId" | "id">): Promise<{ exitCode: number; at?: number } | null> {
+    const record = /^[0-9a-f]{8}$/.test(job.id) ? this.record(job.botId, job.id) : null;
+    if (!record) return null;
+    const state = await this.poll(box, record);
+    if (!state.done || state.exitCode === null || !Number.isInteger(state.exitCode)) return null;
+    const stamp = Number((await box.exec(`date -r runs/.logs/${record.id}.exit +%s`, 10_000).catch(() => ({ stdout: "" }))).stdout.trim());
+    return { exitCode: state.exitCode, ...(Number.isFinite(stamp) && stamp > 0 ? { at: stamp * 1000 } : {}) };
+  }
+
   async stop(box: RunBox, record: Pick<RunRecord, "id">): Promise<RunStop> {
     if (!/^[0-9a-f]{8}$/.test(record.id)) return "alive";
     const script = `${groupOf(record.id)} S() { ${survivorsOf(record.id)}; }; `

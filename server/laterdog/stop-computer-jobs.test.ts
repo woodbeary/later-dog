@@ -1,5 +1,5 @@
 import { spawn, spawnSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { randomBytes } from "node:crypto";
@@ -7,7 +7,7 @@ import { afterAll, afterEach, describe, expect, it } from "vitest";
 import { removeTempDir } from "../testing/cleanup.ts";
 import { ComputerJobs, type ComputerJob, type JobComputer } from "./computer-jobs.ts";
 import { ComputerRuns, type RunBox } from "./computer-runs.ts";
-import { couldNotStopTool, partlyStoppedTool, stopComputerJobs } from "./stop-computer-jobs.ts";
+import { couldNotStopTool, createJobStop, partlyStoppedTool, stopComputerJobs } from "./stop-computer-jobs.ts";
 
 const dir = mkdtempSync(join(tmpdir(), "stop-jobs-"));
 afterAll(() => removeTempDir(dir));
@@ -67,6 +67,16 @@ describe("stopping a command on the dog's computer", () => {
     expect(alive(`${RUN_MARK}-after`)).toBe(false);
   }, 40_000);
 
+  it("reads a finished job's exit code and when its exit record was written, and nothing for a job still running or unknown", async () => {
+    const { home, box, runs, record } = await launch(sleeper("exit"));
+    expect(await runs.ended(box, record)).toBeNull();
+    const exitFile = join(home, "runs/.logs", `${record.id}.exit`);
+    writeFileSync(exitFile, "3\n");
+    utimesSync(exitFile, 1_800_000_000, 1_800_000_000);
+    expect(await runs.ended(box, record)).toEqual({ exitCode: 3, at: 1_800_000_000_000 });
+    expect(await runs.ended(box, { ...record, id: "aaaa9999" })).toBeNull();
+  }, 30_000);
+
   it("finds a job whose processes died without an exit record dead, and Stop clears it even with its group id gone", async () => {
     const { home, box, runs, record } = await launch(sleeper("dead"));
     expect(await until(() => alive(`${RUN_MARK}-dead`))).toBe(true);
@@ -123,5 +133,28 @@ describe("stopping a command on the dog's computer", () => {
   it("writes the two Stop lines as failures in their own words, which both apps show", () => {
     expect(couldNotStopTool("Scout")).toEqual({ name: "error: Scout's command on its computer could not be stopped, so it is still running. Press Stop again to try once more.", ok: false, pickup: "computer" });
     expect(partlyStoppedTool("Scout")).toEqual({ name: "error: Scout's command on its computer was stopped, but part of it may still be running.", ok: false, pickup: "computer" });
+  });
+
+  it("writes the Stop lines in the chat and logs what it stopped and what it left", async () => {
+    const jobs = new ComputerJobs(null);
+    jobs.started({ id: "aaaa0001", botId: "stops", threadId: "t1", command: "pnpm dev", startedAt: 1 });
+    jobs.started({ id: "aaaa0002", botId: "stuck", threadId: "t1", command: "pnpm dev", startedAt: 1 });
+    jobs.started({ id: "aaaa0003", botId: "partly", threadId: "t1", command: "pnpm dev", startedAt: 1 });
+    const rows: Array<[string, string]> = [];
+    const logged: string[] = [];
+    const stop = createJobStop(jobs, {
+      computer: async () => ({ state: "running", box: {} as RunBox }),
+      stop: async (_box, j) => (j.botId === "stops" ? "gone" : j.botId === "partly" ? "partial" : "alive"),
+      name: () => "Scout",
+      append: (threadId, tool) => { rows.push([threadId, tool.name]); },
+      log: (line) => logged.push(line),
+    });
+    await stop("t1");
+    expect(rows).toEqual([
+      ["t1", "error: Scout's command on its computer could not be stopped, so it is still running. Press Stop again to try once more."],
+      ["t1", "error: Scout's command on its computer was stopped, but part of it may still be running."],
+    ]);
+    expect(logged).toEqual(["stop t1: stopped aaaa0001, partly aaaa0003, left aaaa0002"]);
+    expect(jobs.live("t1").map((j) => j.id)).toEqual(["aaaa0002"]);
   });
 });
