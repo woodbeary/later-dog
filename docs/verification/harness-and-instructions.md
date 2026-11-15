@@ -214,7 +214,19 @@ node --experimental-strip-types scripts/prove-rare-tools.ts \
   --out "$HOME/rare-proof-$(date +%Y%m%d-%H%M%S)"
 ```
 
-Optional: `--cli <path to claude>`, `--repeat <n>` to run each case n times.
+Optional: `--cli <path to claude>`, `--repeat <n>` to run each case n times,
+`--with-servers <file>` to mount more tool servers next to the stand-in (a
+JSON file with `mcpServers`, without `agents`).
+
+The stand-in mounts only later.dog's own tools. A real home also mounts the
+computer and browser servers, whose tools are hidden too, so a dog searches
+among more names there. A model may join the table only on a run with a
+home's full tool list: on the isolated machine, with a test home running
+and a dog's turn in progress, copy that turn's `mcp.json` (in a
+`laterdog-mcp-*` folder under the home's temporary folder; it is removed when
+the session ends), delete its `agents` and `dog` entries, and pass it with
+`--with-servers` while the home keeps running. A run with the stand-in alone shows the mechanism and the
+token drop; it does not by itself prove the find.
 For a custom endpoint, run it again with that endpoint's `ANTHROPIC_BASE_URL`
 and key in the environment and its model names in `--models`; the summary
 says "Custom endpoint in this environment: yes".
@@ -236,10 +248,13 @@ It prints a table and writes `summary.md`, `results.json` and each raw turn
 found only when the stand-in server received a call to it with every required
 field filled.
 
-A model may join `DEFER_PROVEN_FAMILIES` in `server/laterdog/defer-by-model.ts`
-when, with `--repeat 3`, every `on` row of `text` and `routine` says
-`found` and its `off` row did too (so the task itself is fair), and every
-`on` `first-request` row is lower than the `off` row. A `NOT FOUND` on `on`
+The script ends with one verdict line per model, `<model>: may join the
+table` or `<model>: may not join the table: <why>`. A model may join
+`DEFER_PROVEN_FAMILIES` in `server/laterdog/defer-by-model.ts` when, with
+`--repeat 3` and `--with-servers` as above, every run exited 0, every `on`
+row of `text` and `routine` says `found` and its `off` row did too (so the
+task itself is fair), and every `on` `first-request` row is lower than every
+`off` row. A row counts as found only when its run exited 0. A `NOT FOUND` on `on`
 with `found` on `off` is the failure this check exists for: the model did not
 search for a tool it could not see. Paste `summary.md` into the pull request
 that changes the table.

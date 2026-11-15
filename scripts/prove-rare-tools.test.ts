@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import { answer, PROOF_REPLY } from "../server/testing/proof-agents-server.ts";
 import { ALWAYS_LOAD_META, AGENTS_DEFER_RARE_ENV, RARE_AGENT_TOOLS } from "../server/laterdog/tool-loading.ts";
-import { calledWithEverythingRequired, launchArgs, prove, readStream } from "./prove-rare-tools.ts";
+import { calledWithEverythingRequired, launchArgs, modelVerdicts, prove, readStream, type ProofRun } from "./prove-rare-tools.ts";
 
 const STUB_ENGINE = `#!/usr/bin/env node
 import { spawn } from "node:child_process";
@@ -14,7 +14,8 @@ import { createInterface } from "node:readline";
 const argv = process.argv.slice(2);
 const at = (flag) => argv[argv.indexOf(flag) + 1];
 const prompt = at("-p");
-const agents = JSON.parse(readFileSync(at("--mcp-config"), "utf8")).mcpServers.agents;
+const servers = JSON.parse(readFileSync(at("--mcp-config"), "utf8")).mcpServers;
+const agents = servers.agents;
 const server = spawn(agents.command, agents.args, { env: { ...process.env, ...agents.env }, stdio: ["pipe", "pipe", "inherit"] });
 const pending = new Map();
 let next = 1;
@@ -31,7 +32,7 @@ const assistant = (content) => out({ type: "assistant", message: { id: "msg-" + 
 const want = prompt.includes("555-0100") ? ["send_text", { to: "555-0100", text: "Running ten minutes late." }]
   : prompt.includes("water") ? ["propose_routine", { name: "Plants", instructions: "Remind me to water the plants.", schedule: { kind: "cron", expr: "0 9 * * 1", timeZone: "America/Los_Angeles" } }]
   : null;
-out({ type: "system", subtype: "init", model: at("--model") });
+out({ type: "system", subtype: "init", model: at("--model"), servers: Object.keys(servers).sort() });
 if (want) {
   if (deferred.has(want[0])) {
     assistant([{ type: "tool_use", id: "search", name: "ToolSearch", input: { query: "select:mcp__agents__" + want[0] } }]);
@@ -87,6 +88,30 @@ describe("the rare-tools proof recipe", () => {
     expect(calledWithEverythingRequired([], "send_text")).toBe(false);
   });
 
+  it("gives one verdict per model and lets a model join only when every rule holds, exit codes included", () => {
+    const run = (model: string, setting: "off" | "on", task: string, over: Partial<ProofRun> = {}): ProofRun => ({
+      model, setting, task, needs: task === "first-request" ? null : task === "text" ? "send_text" : "propose_routine",
+      found: task === "first-request" ? null : true, calls: [], exit: 0, log: "", firstRequestTokens: setting === "on" ? 4_000 : 15_000,
+      requests: 1, toolSearches: 0, toolUses: [], failedCalls: 0, reply: "", ...over,
+    });
+    const rows = (model: string, change: (each: ProofRun) => ProofRun = (each) => each) =>
+      (["off", "on"] as const).flatMap((setting) => ["first-request", "text", "routine"].map((task) => change(run(model, setting, task))));
+    const verdicts = modelVerdicts([
+      ...rows("good"),
+      ...rows("missed", (each) => each.setting === "on" && each.task === "text" ? { ...each, found: false } : each),
+      ...rows("unfair", (each) => each.setting === "off" && each.task === "routine" ? { ...each, found: false } : each),
+      ...rows("heavy", (each) => each.setting === "on" ? { ...each, firstRequestTokens: 16_000 } : each),
+      ...rows("killed", (each) => each.setting === "on" && each.task === "routine" ? { ...each, exit: null } : each),
+    ]);
+    expect(verdicts).toEqual([
+      "good: may join the table",
+      "missed: may not join the table: on, text: send_text not found in 1 of 1",
+      "unfair: may not join the table: off, routine: propose_routine not found in 1 of 1, so the task is not fair",
+      "heavy: may not join the table: first request on (16000) is not lower than off (15000)",
+      "killed: may not join the table: 1 run did not exit 0; on, routine: propose_routine not found in 1 of 1",
+    ]);
+  });
+
   it("launches the engine with the prompt first and the same isolation flags later.dog uses", () => {
     const args = launchArgs({ prompt: "hi", model: "claude-haiku-5-5", mcpConfig: "/m.json", systemFile: "/s.txt" });
     expect(args.slice(0, 2)).toEqual(["-p", "hi"]);
@@ -103,7 +128,7 @@ describe("the rare-tools proof recipe", () => {
     writeFileSync(engine, STUB_ENGINE);
     chmodSync(engine, 0o755);
     const out = join(scratch, "out");
-    const runs = await prove({ cli: engine, models: ["claude-haiku-5-5"], out });
+    const runs = await prove({ cli: engine, models: ["claude-haiku-5-5"], out, withServers: { computer: { command: "true", args: [] } } });
     expect(runs.map((run) => `${run.setting}:${run.task}:${run.found}:${run.toolSearches}:${run.exit}`)).toEqual([
       "off:first-request:null:0:0", "off:text:true:0:0", "off:routine:true:0:0",
       "on:first-request:null:0:0", "on:text:true:1:0", "on:routine:true:1:0",
@@ -115,5 +140,7 @@ describe("the rare-tools proof recipe", () => {
     expect(summary).toContain("| claude-haiku-5-5 | off | on | text |");
     expect(summary).toContain("found send_text");
     expect(JSON.parse(readFileSync(join(out, "results.json"), "utf8")).runs).toHaveLength(6);
+    expect(summary).toContain("claude-haiku-5-5: may join the table");
+    expect(readFileSync(runs[0]!.log, "utf8")).toContain('"servers":["agents","computer"]');
   }, 60_000);
 });
