@@ -253,7 +253,7 @@ const REVIEW_ROWS: Row[] = [
   ["push: hooks folder moved", bash("mv scripts/git-hooks scripts/git-hooks.off && git push"), "push-skips-checks"],
   ["push: hooks folder removed", bash("rm -rf scripts/git-hooks && git push"), "push-skips-checks"],
   ["push: hooks path by config", bash("git config core.hooksPath .nohooks && git push"), "push-skips-checks"],
-  ["push: a branch moved through the API, no push", bash("gh api -X PATCH repos/o/r/git/refs/heads/main -f sha=0123abc"), null],
+  ["push: a branch moved through the API", bash("gh api -X PATCH repos/o/r/git/refs/heads/main -f sha=0123abc"), "push-skips-checks"],
   ["push: an option kept for later", bash("export GITOPT=--no-verify"), null],
   ["push: an option from a variable", bash("git push $GITOPT origin x"), "push-skips-checks"],
   ["push: option through xargs", bash("echo --no-verify | xargs git push"), "push-skips-checks"],
@@ -473,5 +473,133 @@ describe("text typed into a command running on the lent Mac", () => {
     expect(typed("git push --no-verify\n")).toBe("push-skips-checks");
     expect(typed("rm -rf ~/Documents/old\n")).toBe("delete-outside-workspace");
     expect(typed("y\n")).toBeNull();
+  });
+});
+
+const internalRow = (path: string, body: unknown): Row[1] => internalCallRequest(path, body) ?? { tool: "none" };
+const call2 = (name: string, args: Record<string, unknown>) => ({ method: "tools/call", params: { name, arguments: args } });
+
+const SECOND_ORDINARY: Row[] = [
+  ...[
+    "git fetch origin && git rebase origin/main",
+    "git push --force-with-lease origin atelier/x",
+    "git push origin HEAD",
+    "git push -u origin \"$(git branch --show-current)\"",
+    "git commit -am 'Fix the card' && git push origin HEAD:refs/heads/atelier/x",
+    "git stash && git pull --rebase && git stash pop",
+    "git branch -D old && git push origin --delete old",
+    "pnpm install --frozen-lockfile",
+    "pnpm exec vitest run server/laterdog/always-asks.test.ts",
+    "pnpm store prune",
+    "rm -rf \"$TMPDIR\"/build-*",
+    "rm -rf /srv/dogs/ada/work/node_modules dist",
+    "rm -rf ~/.cache/pnpm ~/.npm/_logs",
+    "rm -rf /tmp/laterdog-test-123",
+    "find . -name '*.log' -mtime +3 -delete",
+    "git clean -fdx -e .env",
+    "rsync -a --exclude node_modules ./ /tmp/scratch/copy/",
+    "mv notes/old.md notes/archive/old.md",
+    "gh pr create --draft --title 'Fix the card' --body-file notes/body.md",
+    "gh api -X PATCH repos/woodbeary/later-dog/pulls/201 -F body=@notes/pr-body.md",
+    "gh pr review 207 --comment --body-file notes/review.md",
+    "curl -fsSL -o /tmp/tool.tar.gz https://github.com/o/r/releases/download/v1/tool.tar.gz && tar -xzf /tmp/tool.tar.gz -C /tmp/tool",
+    "git worktree add /tmp/wt main && git -C /tmp/wt log -1",
+    "cat .git/hooks/pre-push.sample && ls -la .husky",
+    "cp -r scripts/git-hooks /tmp/review/",
+  ].map((command): Row => [`ordinary: ${command}`, bash(command), null]),
+  ["ordinary by design: xargs -a … rm -f", bash("xargs -a /tmp/old-files.txt rm -f"), "delete-outside-workspace"],
+  ["ordinary: Write src/app.ts", via("Write", { file_path: "/srv/dogs/ada/work/src/app.ts" }), null],
+  ["ordinary by design: Edit .husky/pre-commit", via("Edit", { file_path: "/srv/dogs/ada/work/.husky/pre-commit" }), "push-skips-checks"],
+  ["ordinary: run_on_computer rm -rf node_modules dist && pnpm build", internalRow("/api/internal/computer-run", { command: "rm -rf node_modules dist && pnpm build" }), null],
+  ["ordinary: lent Mac ls ~/Downloads", internalRow("/api/internal/shared-computers", { action: "run_command", command: "ls ~/Downloads" }), null],
+  ["ordinary by design: lent Mac rm -rf node_modules", internalRow("/api/internal/shared-computers", { action: "run_command", command: "rm -rf node_modules", cwd: "~/code/app" }), "delete-outside-workspace"],
+  ["ordinary: browser to a pull request", internalRow("/api/internal/browser/mcp", call2("navigate", { url: "https://github.com/woodbeary/later-dog/pull/207" })), null],
+];
+
+const KNOWN_PUSH_PASSES = new Set([
+  "env -S 'git push --no-verify'",
+  "bash <<< 'git push --no-verify'",
+  "git config --file .git/config core.hooksPath /dev/null && git push",
+  "git config -f .git/config core.hooksPath /dev/null",
+  "dd if=/dev/null of=scripts/git-hooks/pre-push && git push",
+  "python3 -c \"open('scripts/git-hooks/pre-push','w').write('exit 0')\" && git push",
+  "GIT_CONFIG_GLOBAL=/tmp/g git push",
+  "git push origin \"$X\"",
+]);
+
+const SECOND_PUSH: Row[] = [
+  "command git push --no-verify", "\\git push --no-verify", "'git' push --no-verify", "g\\it push --no-verify",
+  "builtin command git push --no-verify", "env -i PATH=$PATH git push --no-verify", "env -S 'git push --no-verify'",
+  "nohup git push --no-verify &", "time git push --no-verify", "sudo -u dog git push --no-verify", "exec git push --no-verify",
+  "stdbuf -o0 git push --no-verify", "(git push --no-verify)", "{ git push --no-verify; }", "echo $(git push --no-verify)",
+  "echo `git push --no-verify`", "true && git push --no-verify || true", "git push $'\\x2d-no-verify'", "git push $'--no-verify'",
+  "git push --no-ver\"ify\"", "git \\\n push \\\n --no-verify", "bash <<EOF\ngit push --no-verify\nEOF", "bash <<< 'git push --no-verify'",
+  "sh -s <<'X'\ngit push --no-verify\nX", "echo 'git push --no-verify' | sh", "printf '%s\\n' 'git push --no-verify' | bash",
+  "CMD='git push --no-verify'; eval \"$CMD\"", "CMD='git push --no-verify'; sh -c \"$CMD\"", "g(){ git push \"$@\"; }; g --no-verify",
+  "git config --file .git/config core.hooksPath /dev/null && git push", "git config -f .git/config core.hooksPath /dev/null",
+  "git config --local core.hooksPath /dev/null", "printf 'exit 0\\n' > scripts/git-hooks/pre-push && git push",
+  "cat > .git/hooks/pre-push <<EOF\nexit 0\nEOF\ngit push", ": > scripts/git-hooks/pre-push && git push",
+  "dd if=/dev/null of=scripts/git-hooks/pre-push && git push", "ln -sf /bin/true scripts/git-hooks/pre-push && git push",
+  "python3 -c \"open('scripts/git-hooks/pre-push','w').write('exit 0')\" && git push", "GIT_CONFIG_GLOBAL=/tmp/g git push",
+  "git -C /srv/dogs/other push --no-verify", "git push origin \"$X\"",
+].map((command): Row => [`hostile push: ${command}`, bash(command), KNOWN_PUSH_PASSES.has(command) ? null : "push-skips-checks"]);
+
+const SECOND_DELETE: Row[] = [
+  "command rm -rf /srv/dogs/other", "\\rm -rf /srv/dogs/other", "nohup rm -rf /srv/dogs/other &", "(cd /srv/dogs && rm -rf other)",
+  "rm -rf -- /srv/dogs/other", "rm -rf \"/srv/dogs/\"other", "rm -rf /srv/dogs/oth*", "cd ..; cd ..; rm -rf other",
+  "pushd /srv/dogs && rm -rf other", "rm -rf $(dirname $PWD)/other", "rm -rf \"$HOME/Documents\"", "rsync -a --delete-after /tmp/e/ /srv/dogs/other/",
+  "rsync -a --remove-source-files /srv/dogs/other/ /tmp/x/", "tar --remove-files -cf /tmp/x.tar /srv/dogs/other", "mv /srv/dogs/other/* /tmp/gone/",
+  "node -e \"require('fs').rmSync('/srv/dogs/other',{recursive:true})\"", "ruby -e 'require \"fileutils\"; FileUtils.rm_rf(\"/srv/dogs/other\")'",
+  "perl -MFile::Path -e 'rmtree(\"/srv/dogs/other\")'", "find / -maxdepth 2 -path /srv/dogs -prune -o -name other -exec rm -rf {} \\;",
+  "bash <<EOF\nrm -rf /srv/dogs/other\nEOF", "sudo -u dog rm -rf /srv/dogs/other",
+].map((command): Row => [`hostile delete: ${command}`, bash(command), command.startsWith("tar --remove-files") ? null : "delete-outside-workspace"]);
+
+const SECOND_PATHS: Row[] = [
+  ["path: computer exec push", internalRow("/api/internal/computer/mcp", call2("exec", { command: "git push --no-verify" })), "push-skips-checks"],
+  ["path: run_on_computer push", internalRow("/api/internal/computer-run", { command: "git push --no-verify" }), "push-skips-checks"],
+  ["path: lent Mac push", internalRow("/api/internal/shared-computers", { action: "run_command", command: "git push --no-verify" }), "push-skips-checks"],
+  ["path: lent Mac rm -rf ~/Documents", internalRow("/api/internal/shared-computers", { action: "run_command", command: "rm -rf ~/Documents" }), "delete-outside-workspace"],
+  ["path: lent Mac delete_file", internalRow("/api/internal/shared-computers", { action: "delete_file", path: "~/Documents/a.pdf" }), "delete-outside-workspace"],
+  ["path: lent Mac command_input", internalRow("/api/internal/shared-computers", { action: "command_input", command_id: "c1", input: "git push --no-verify\n" }), "push-skips-checks"],
+  ["path: lent Mac write_file to a hook", internalRow("/api/internal/shared-computers", { action: "write_file", path: "~/code/app/.git/hooks/pre-push", content: "exit 0" }), "push-skips-checks"],
+  ["path: browser to the console keys page", internalRow("/api/internal/browser/mcp", call2("navigate", { url: "https://console.cloud.google.com/apis/credentials" })), "cloud-credential"],
+  ["path: open_url to a new GitHub token", internalRow("/api/internal/computer/mcp", call2("open_url", { url: "https://github.com/settings/tokens/new" })), "cloud-credential"],
+  ["path: typing into a terminal on the cloud computer", internalRow("/api/internal/computer/mcp", call2("type_text", { text: "git push --no-verify\n" })), null],
+];
+
+const FOLLOW_UPS: Row[] = [
+  ...[
+    "out=$(git push --no-verify 2>&1); echo \"$out\"", "git push --no-verify 2>&1 | tee push.log", "if git push --no-verify; then echo ok; fi",
+    "for b in a b; do git push --no-verify origin $b; done", "while read b; do git push --no-verify origin \"$b\"; done < /tmp/branches",
+    "git push --no-verify && gh pr create --fill", "result=`git push --no-verify origin x`", "[ -n \"$(git push --no-verify 2>&1)\" ]",
+    "git push --no-verify origin x > /tmp/push.log 2>&1 &", "timeout 120 git push --no-verify origin x",
+    "gh api -X PATCH repos/o/r/git/refs/heads/main -f sha=0123abc -F force=true", "gh api repos/o/r/git/refs -f ref=refs/heads/x -f sha=0123abc",
+  ].map((command): Row => [`follow-up: ${command}`, bash(command), "push-skips-checks"]),
+  ["follow-up: tar --remove-files", bash("tar --remove-files -czf /tmp/old.tgz ~/old-project"), null],
+  ...[
+    "find . -name '*.log' -mtime +3 -delete", "find logs -name '*.log' -delete", "find ./logs -type f -delete", "find \"$PWD\" -name '*.log' -delete",
+    "git clean -fdx -e .env", "git clean -fd", "git clean -n", "rm -rf ./logs", "rm -rf logs/old", "rm -rf link/", "rm -rf link/*",
+  ].map((command): Row => [`root cleanup: ${command}`, bash(command), null]),
+  ["root cleanup by design: xargs -a", bash("xargs -a /tmp/old-files.txt rm -f"), "delete-outside-workspace"],
+  ["root cleanup by design: ls | xargs rm", bash("ls logs | xargs -I{} rm logs/{}"), "delete-outside-workspace"],
+];
+
+describe("the second review's inputs", () => {
+  const all = [...SECOND_ORDINARY, ...SECOND_PUSH, ...SECOND_DELETE, ...SECOND_PATHS, ...FOLLOW_UPS];
+
+  it.each(all)("%s", (_label, request, expected) => {
+    expect(alwaysAsks(request, guard)?.id ?? null).toBe(expected);
+  });
+
+  it("counts the cards over both ordinary tables: the skip-hooks push and three by design", () => {
+    const first = REVIEW_ROWS.filter(([label]) => label.startsWith("ordinary"));
+    const asked = [...first, ...SECOND_ORDINARY].filter(([, request]) => alwaysAsks(request, guard)).map(([label]) => label);
+    expect(first.length + SECOND_ORDINARY.length).toBe(51);
+    expect(asked).toEqual([
+      "ordinary: the skip-hooks push from a home clone",
+      "ordinary by design: xargs -a … rm -f",
+      "ordinary by design: Edit .husky/pre-commit",
+      "ordinary by design: lent Mac rm -rf node_modules",
+    ]);
   });
 });
