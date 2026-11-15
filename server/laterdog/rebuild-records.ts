@@ -12,6 +12,21 @@ export interface OpenHandoff {
 
 export type OpenHandoffsOf = (botId: string, threadId: string) => readonly OpenHandoff[];
 
+export interface AssignedTask {
+  task: string;
+  by: string;
+}
+
+export interface TaskNode {
+  id: string;
+  botId: string;
+  threadId: string;
+  groupId?: string;
+  parentId?: string;
+  text: string;
+  status: string;
+}
+
 export interface HandoffNode {
   botId: string;
   text: string;
@@ -35,9 +50,17 @@ export function openHandoffsFromRoom(nodes: readonly HandoffNode[], nameOf: (bot
   return nodes.map((node) => ({ to: nameOf(node.botId) ?? "another dog", task: node.text, state: STATE_WORDS[node.status] ?? node.status }));
 }
 
+const ENDED = new Set(["completed", "failed", "cancelled"]);
+
+export function assignedTask(nodes: ReadonlyMap<string, TaskNode>, threadId: string, nameOf: (botId: string) => string | undefined): AssignedTask | undefined {
+  const own = [...nodes.values()].findLast((node) => node.parentId && !node.groupId && node.threadId === threadId && !ENDED.has(node.status));
+  const parent = own?.parentId ? nodes.get(own.parentId) : undefined;
+  return own && parent ? { task: own.text, by: nameOf(parent.botId) ?? "another dog" } : undefined;
+}
+
 type ChatRow = Pick<WireMessage, "role" | "kind" | "text" | "card" | "needsYou">;
 
-export function personOwes(messages: readonly ChatRow[], ownerName?: string): string[] {
+export function personOwes(messages: readonly ChatRow[]): string[] {
   const waiting: string[] = [];
   for (const message of messages) {
     const card = message.card;
@@ -46,17 +69,20 @@ export function personOwes(messages: readonly ChatRow[], ownerName?: string): st
     }
     if (message.needsYou?.status === "waiting") waiting.push(oneLine(`${message.needsYou.botName} needs the person: ${message.needsYou.label}`));
   }
+  return waiting;
+}
+
+export function ownLastAsk(messages: readonly ChatRow[], ownerName?: string): string | null {
   const lastPerson = messages.findLastIndex((message) => message.role === "user" && message.kind === "text");
   const lastReply = messages.findLastIndex((message) => message.role === "bot" && message.kind === "text" && Boolean(message.text?.trim()));
-  const ask = lastReply > lastPerson ? personAsk(messages[lastReply]!.text, ownerName) : null;
-  if (ask) waiting.push(`Asked in the last reply: ${ask}`);
-  return waiting;
+  return lastReply > lastPerson ? personAsk(messages[lastReply]!.text, ownerName) : null;
 }
 
 const STATUS_WORDS: Record<PlanItem["status"], string> = { pending: "not started", in_progress: "in progress", done: "done" };
 
-export function recordsText(records: { plan?: readonly PlanItem[]; handoffs: readonly OpenHandoff[]; waiting: readonly string[] }): string | null {
+export function recordsText(records: { assigned?: AssignedTask; plan?: readonly PlanItem[]; handoffs: readonly OpenHandoff[]; waiting: readonly string[] }): string | null {
   const parts: string[] = [];
+  if (records.assigned) parts.push(`Your task, as ${records.assigned.by} asked it of you: ${oneLine(records.assigned.task, 600)}`);
   if (records.plan?.length) {
     parts.push(["Your plan, as set_plan holds it:", ...records.plan.map((item) => `- ${item.text} (${STATUS_WORDS[item.status]})`)].join("\n"));
   }
@@ -75,6 +101,12 @@ export function recordsText(records: { plan?: readonly PlanItem[]; handoffs: rea
   return parts.length ? boundedContextText(parts.join("\n\n"), RECORDS_BYTES) : null;
 }
 
-export function withRecords(transcript: readonly ReplayEntry[], text: string | null): ReplayEntry[] {
-  return text ? [...transcript, { id: "", role: "assistant", text: `${RECORDS_LABEL}\n${text}` }] : [...transcript];
+export const OWN_ASK_LABEL = "[Your own last message to the person, quoted, not a record: it asked something the person has not answered yet]";
+
+export function withRecords(transcript: readonly ReplayEntry[], text: string | null, ownAsk?: string | null): ReplayEntry[] {
+  return [
+    ...transcript,
+    ...(ownAsk ? [{ id: "", role: "assistant" as const, text: `${OWN_ASK_LABEL}\n${ownAsk}` }] : []),
+    ...(text ? [{ id: "", role: "assistant" as const, text: `${RECORDS_LABEL}\n${text}` }] : []),
+  ];
 }

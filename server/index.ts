@@ -777,7 +777,7 @@ import { foldReason, keptContext, personLine, writeHistorySummary } from "./late
 import { dogWriter } from "./laterdog/dog-writer.ts";
 import { reportingUsage, summaryUsageRow } from "./laterdog/summary-usage.ts";
 import { rowForApps } from "./laterdog/compaction-row.ts";
-import { openHandoffsFromRoom, personOwes, recordsText, withRecords } from "./laterdog/rebuild-records.ts";
+import { assignedTask, openHandoffsFromRoom, ownLastAsk, personOwes, recordsText, withRecords } from "./laterdog/rebuild-records.ts";
 import { fileEngineSummaries } from "./laterdog/engine-summaries.ts";
 import { createEngineSummaryWindows } from "./laterdog/engine-summary-window.ts";
 import { recallsThisTurn } from "./laterdog/session-start-recall.ts";
@@ -8670,10 +8670,11 @@ async function startTurn(
       const replayable = context.filter(m => !skipTranscript.has(m.id));
       const record = latestCompaction(activeMessages);
       const selection = selectReplay(context, { budgetBytes: cfg.context?.rebuildBytes ?? DEFAULT_REBUILD_BYTES, excludedIds: skipTranscript, compaction: record });
-      const records = recordsText({ plan: dogPlans.get(threadId)?.items, waiting: personOwes(activeMessages, cfg.profile?.name),
+      const records = recordsText({ assigned: assignedTask(roomHandoffs.nodes, threadId, (id) => store.bot(id)?.name),
+        plan: dogPlans.get(threadId)?.items, waiting: personOwes(activeMessages),
         handoffs: openHandoffsFromRoom(roomHandoffs.outstandingDirect(threadId), (id) => store.bot(id)?.name) });
       const transcript = withRecords(withDroppedSummary({ context, transcript: selection.transcript, representedIds: selection.representedIds,
-        excludedIds: skipTranscript, recordId: record?.id, engine: engineSummaries.read(threadId) }), records).map(({ role, text }) => ({ role, text }));
+        excludedIds: skipTranscript, recordId: record?.id, engine: engineSummaries.read(threadId) }), records, ownLastAsk(activeMessages, cfg.profile?.name)).map(({ role, text }) => ({ role, text }));
       const contextReset = selection.compacted > 0 && record?.id !== task.appliedCompactionId;
       if (contextReset) store.patchTask(bot.id, threadId, { resumeCursors: {} });
 

@@ -1,6 +1,8 @@
 import { expect, it } from "vitest";
 
-import { openHandoffsFromRoom, RECORDS_LABEL, recordsText, personOwes, withRecords, type OpenHandoffsOf } from "./rebuild-records.ts";
+import { readFileSync } from "node:fs";
+
+import { assignedTask, openHandoffsFromRoom, ownLastAsk, OWN_ASK_LABEL, RECORDS_LABEL, recordsText, personOwes, withRecords, type OpenHandoffsOf, type TaskNode } from "./rebuild-records.ts";
 
 const names: Record<string, string> = { crumb: "Crumb", rye: "Rye" };
 
@@ -20,7 +22,7 @@ it("tells a rebuilt dog its plan, its open handoffs with any unread result, and 
       { role: "bot", kind: "options", card: { title: "Publish the site?", subtitle: "", options: ["Yes", "No"], requestType: "question" } },
       { role: "bot", kind: "options", card: { title: "Already answered", subtitle: "", options: ["Yes"], answered: "Yes" } },
       { role: "bot", kind: "text", text: "Done with the port. Should I delete the old menu?" },
-    ], "Sam"),
+    ]),
   })!;
   expect(text).toContain("- Move the bakery site to port 9001 (in progress)");
   expect(text).toContain("- Review Crumb's menu rewrite (not started)");
@@ -29,7 +31,42 @@ it("tells a rebuilt dog its plan, its open handoffs with any unread result, and 
   expect(text).toContain("Its result arrived and is not yet read: Sourdough at 7.50, rye at 6.25.");
   expect(text).toContain("- Question: Publish the site?");
   expect(text).not.toContain("Already answered");
-  expect(text).toContain("Asked in the last reply: Should I delete the old menu?");
+  expect(text).not.toContain("Should I delete the old menu?");
+  expect(text).not.toContain("Asked in the last reply");
+});
+
+const node = (extra: Partial<TaskNode> & Pick<TaskNode, "id" | "botId" | "threadId">): TaskNode => ({ text: "", status: "running", ...extra });
+
+it("gives a helper dog its own task back: what it was asked and by whom, from the handoff record", () => {
+  const nodes = new Map<string, TaskNode>(([
+    node({ id: "src", botId: "coord", threadId: "coord-chat", status: "source", text: "Move the bakery site" }),
+    node({ id: "job", botId: "crumb", threadId: "crumb-chat", parentId: "src", text: "Rewrite the menu page and keep menu-old.html" }),
+    node({ id: "old", botId: "crumb", threadId: "crumb-chat", parentId: "src", status: "completed", text: "An earlier, finished job" }),
+  ]).map((entry) => [entry.id, entry]));
+  const assigned = assignedTask(nodes, "crumb-chat", (id) => ({ coord: "Coordinator" })[id]);
+  expect(assigned).toEqual({ task: "Rewrite the menu page and keep menu-old.html", by: "Coordinator" });
+  expect(recordsText({ assigned, handoffs: [], waiting: [] })).toBe("Your task, as Coordinator asked it of you: Rewrite the menu page and keep menu-old.html");
+  expect(assignedTask(nodes, "coord-chat", () => undefined)).toBeUndefined();
+  expect(assignedTask(nodes, "nobody-chat", () => undefined)).toBeUndefined();
+  expect(assignedTask(nodes, "crumb-chat", () => undefined)?.by).toBe("another dog");
+});
+
+it("labels the line quoted from the dog's own last reply as its own message, outside the home's records", () => {
+  const messages = [
+    { role: "user" as const, kind: "text" as const, text: "Go ahead." },
+    { role: "bot" as const, kind: "text" as const, text: "Done with the port. Should I delete the old menu?" },
+  ];
+  expect(ownLastAsk(messages, "Sam")).toBe("Should I delete the old menu?");
+  expect(ownLastAsk([...messages, { role: "user", kind: "text", text: "Yes." }], "Sam")).toBeNull();
+  const built = withRecords([{ id: "a", role: "user", text: "hello" }], "Your plan", "Should I delete the old menu?");
+  expect(built.map(({ text }) => text)).toEqual(["hello", `${OWN_ASK_LABEL}\nShould I delete the old menu?`, `${RECORDS_LABEL}\nYour plan`]);
+  expect(built.at(-1)!.text).not.toContain("Should I delete");
+});
+
+it("is wired to the home's handoff record and the dog's own last reply when a turn is rebuilt", () => {
+  const source = readFileSync(new URL("../index.ts", import.meta.url), "utf8");
+  expect(source).toContain("assigned: assignedTask(roomHandoffs.nodes, threadId");
+  expect(source).toContain("ownLastAsk(activeMessages, cfg.profile?.name)");
 });
 
 it("says nothing when the records hold nothing, and stays bounded when they hold a lot", () => {
