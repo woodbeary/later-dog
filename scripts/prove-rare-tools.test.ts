@@ -45,6 +45,7 @@ if (want) {
 assistant([{ type: "text", text: "Done." }]);
 out({ type: "result", subtype: "success", is_error: false, result: "Done." });
 server.kill();
+if (process.env.STUB_ENGINE_EXIT) process.exit(Number(process.env.STUB_ENGINE_EXIT));
 `;
 
 let scratch = "";
@@ -111,6 +112,23 @@ describe("the rare-tools proof recipe", () => {
       "killed: may not join the table: 1 run did not exit 0; on, routine: propose_routine not found in 1 of 1",
     ]);
   });
+
+  it("never counts a rare tool as found from a run that did not exit 0, even when the call arrived", async () => {
+    scratch = mkdtempSync(join(tmpdir(), "laterdog-proof-exit-"));
+    const engine = join(scratch, "engine.mjs");
+    writeFileSync(engine, STUB_ENGINE);
+    chmodSync(engine, 0o755);
+    process.env.STUB_ENGINE_EXIT = "3";
+    try {
+      const runs = await prove({ cli: engine, models: ["claude-haiku-5-5"], out: join(scratch, "out") });
+      const text = runs.find((run) => run.setting === "on" && run.task === "text")!;
+      expect(text.calls.map((call) => call.name)).toEqual(["send_text"]);
+      expect([text.exit, text.found]).toEqual([3, false]);
+      expect(runs.filter((run) => run.needs).map((run) => run.found)).toEqual([false, false, false, false]);
+    } finally {
+      delete process.env.STUB_ENGINE_EXIT;
+    }
+  }, 60_000);
 
   it("launches the engine with the prompt first and the same isolation flags later.dog uses", () => {
     const args = launchArgs({ prompt: "hi", model: "claude-haiku-5-5", mcpConfig: "/m.json", systemFile: "/s.txt" });
