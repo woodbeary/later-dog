@@ -68,6 +68,8 @@ export interface RoomHandoffHooks {
   longWork?(node: RoomHandoff): boolean;
   continued?(old: RoomHandoff, root: RoomHandoff, end: HandoffEnd): void;
   turnRunning?(node: RoomHandoff): boolean;
+  onAccountWait?(node: RoomHandoff): boolean;
+  released?(node: RoomHandoff): void;
   lastWords?(node: RoomHandoff): string | undefined;
 }
 
@@ -329,7 +331,7 @@ export class RoomHandoffs {
   cancelQueued(id: string, reason: string): RoomHandoff | string {
     const node = this.nodes.get(id);
     if (!node || !node.parentId) return "No request with that id.";
-    if (this.turnless(node)) { this.runs.delete(node.id); this.cancelTree(node, reason, "cancelled", "person"); return node; }
+    if (this.turnless(node)) { this.endLeftRunning(node, reason, "person"); return node; }
     if (node.status !== "queued") return node.status === "running" || node.status === "resume"
       ? "That request is already running; stop the dog's turn instead."
       : `That request already ended (${node.status}).`;
@@ -428,7 +430,7 @@ export class RoomHandoffs {
       for (const child of this.children(node.id)) {
         if (terminal(child)) continue;
         if (child.status === "queued") this.cancelTree(child, endWords(by, this.limits, true), "cancelled", by);
-        else if (this.turnless(child)) { this.runs.delete(child.id); this.cancelTree(child, endWords(by, this.limits), "cancelled", by); }
+        else if (this.turnless(child)) this.endLeftRunning(child, endWords(by, this.limits), by);
         else left.push(child);
       }
       node.status = "cancelled"; node.result = endWords(by, this.limits); node.endedBy = by;
@@ -617,9 +619,15 @@ export class RoomHandoffs {
     return n.status === "running" && !n.groupId && this.hooks.turnRunning !== undefined && !this.hooks.turnRunning(n);
   }
 
+  private endLeftRunning(n: RoomHandoff, reason: string, by: HandoffEnd): void {
+    this.runs.delete(n.id);
+    this.cancelTree(n, reason, "cancelled", by);
+    this.hooks.released?.(n);
+  }
+
   private settleTurnless(): void {
     for (const n of Array.from(this.nodes.values())) {
-      if (!this.turnless(n)) { this.turnlessSince.delete(n.id); continue; }
+      if (!this.turnless(n) || this.hooks.onAccountWait?.(n)) { this.turnlessSince.delete(n.id); continue; }
       const since = this.turnlessSince.get(n.id) ?? this.now();
       this.turnlessSince.set(n.id, since);
       const run = this.runs.get(n.id);
@@ -633,7 +641,7 @@ export class RoomHandoffs {
 
   endTurnless(botId: string, threadId: string, reason: string, by: HandoffEnd): RoomHandoff[] {
     const ended = [...this.nodes.values()].filter(n => n.parentId && n.botId === botId && n.threadId === threadId && this.turnless(n));
-    for (const n of ended) { this.runs.delete(n.id); this.cancelTree(n, reason, "cancelled", by); }
+    for (const n of ended) this.endLeftRunning(n, reason, by);
     return ended;
   }
 }

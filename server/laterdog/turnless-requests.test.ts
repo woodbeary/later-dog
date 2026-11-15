@@ -174,3 +174,22 @@ it("ends a request the home settles as failed when handling the settlement throw
   await h.settle();
   expect(pip).toMatchObject({ status: "failed", endedBy: "problem" });
 }));
+
+it("lets cancel and Stop end a request whose dog waits on an account, lets the wait go, and never settles it on the clock", () => home(async h => {
+  const waiting = new Set<string>();
+  const released: string[] = [];
+  h.hooks.onAccountWait = (node: RoomHandoff) => waiting.has(node.botId);
+  h.hooks.released = (node: RoomHandoff) => { released.push(node.botId); };
+  const [pip, quill, rook] = send(h.engine, "pip", "quill", "rook");
+  await h.settle();
+  for (const name of ["pip", "quill", "rook"]) { h.working.delete(name); waiting.add(name); }
+  await h.settle();
+  h.clock.at += 10 * TURNLESS_MS; await h.settle();
+  expect([pip!.status, quill!.status, rook!.status]).toEqual(["running", "running", "running"]);
+  expect(h.engine.cancelQueued(pip!.id, "Cancelled.")).toBe(pip);
+  expect(h.engine.endTurnless("quill", "quill-chat", "Stopped.", "person").map(n => n.id)).toEqual([quill!.id]);
+  h.engine.nodes.get("turn")!.status = "waiting";
+  expect(h.engine.stopAwaitingDirect("lead-chat", "person")).toEqual([]);
+  expect([pip!.status, quill!.status, rook!.status]).toEqual(["cancelled", "cancelled", "cancelled"]);
+  expect(released).toEqual(["pip", "quill", "rook"]);
+}));

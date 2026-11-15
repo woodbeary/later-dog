@@ -4619,8 +4619,12 @@ const roomHandoffs = new RoomHandoffs(join(DATA_DIR, "room-handoffs.json"), {
     if (directThreadIds.size > 0) drainQueuedSends();
   },
   activity: node => node.groupId ? undefined : handoffActivity(watchdog.snapshot(node.threadId)),
-  turnRunning: node => threadBusy(node.botId, node.threadId) || directTurnDispatchClaims.has(node.threadId) || pendingComputerResumes.has(node.threadId) ||
-    batteryContinuationPending(node.threadId) || limitHold.holds(node.threadId),
+  turnRunning: node => threadBusy(node.botId, node.threadId) || directTurnDispatchClaims.has(node.threadId) || pendingComputerResumes.has(node.threadId),
+  onAccountWait: node => batteryContinuationPending(node.threadId) || limitHold.holds(node.threadId),
+  released: node => {
+    if (!batteryContinuationPending(node.threadId) && !limitHold.holds(node.threadId)) return;
+    cancelBatteryContinuation(node.threadId, "The request this chat was going to carry on was ended.");
+  },
   lastWords: node => lastWords(store.messagesFor(node.threadId)),
   closed: (root, end) => {
     const present = root.groupId
@@ -13539,7 +13543,10 @@ async function stopForOwner(input: { dog: BotRecord; threadId: string; by: BotRe
   const current = store.projectBotForTask(dog.id, threadId);
   if (!current || !threadBusy(dog.id, threadId)) {
     const ended = roomHandoffs.endTurnless(dog.id, threadId, `${by.name} stopped this for the owner after its dog had stopped working on it.`, "person");
-    return ended.length ? "ended" : "idle";
+    if (!ended.length) return "idle";
+    store.appendMessage(threadId, { role: "bot", kind: "activity", from: { botId: by.id, name: by.name, color: by.color },
+      tool: { name: stoppedByLine(by.name, cfg.profile?.name?.trim() || undefined, input.why), ok: true } });
+    return "ended";
   }
   store.appendMessage(threadId, { role: "bot", kind: "activity", from: { botId: by.id, name: by.name, color: by.color },
     tool: { name: stoppedByLine(by.name, cfg.profile?.name?.trim() || undefined, input.why), ok: true } });
