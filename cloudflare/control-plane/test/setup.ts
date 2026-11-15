@@ -27,6 +27,7 @@ afterEach(async () => {
     env.DB.prepare("DELETE FROM cloud_homes"),
     env.DB.prepare("DELETE FROM cloud_owner_emails"),
     env.DB.prepare("DELETE FROM cloud_google_tokens"),
+    env.DB.prepare("DELETE FROM cloud_google_refresh_tokens"),
     env.DB.prepare("DELETE FROM email_health"),
     env.DB.prepare("DELETE FROM cloud_waitlist"),
     env.DB.prepare("DELETE FROM otp_recipient_rate_limits"),

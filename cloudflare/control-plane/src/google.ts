@@ -11,6 +11,7 @@ export const GOOGLE_NO_ACCOUNT = "This home has no account anymore.";
 export const GOOGLE_CAPPED = "Your dogs have asked Google for access too many times today. It works again tomorrow.";
 export const GOOGLE_EXPIRED = "Google no longer accepts this connection. Connect again.";
 export const GOOGLE_FAILED = "Google didn't answer as expected. Try again in a minute.";
+export const GOOGLE_NOT_ISSUED = "later.dog can't confirm this Google connection belongs to this home. Connect again.";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const CALLBACK_STATE = /^(h[0-9a-f]{24})\.[A-Za-z0-9_-]{16,128}$/;
@@ -133,6 +134,17 @@ function tokenSet(answer: Record<string, unknown> | null): GoogleTokenSet | null
   };
 }
 
+async function tokenHash(token: string): Promise<string> {
+  const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(token)));
+  return [...digest].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
+async function issuedTo(env: Env, accountId: string, token: string): Promise<boolean> {
+  const found = await env.DB.prepare("SELECT 1 AS found FROM cloud_google_refresh_tokens WHERE account_id = ? AND token_hash = ?")
+    .bind(accountId, await tokenHash(token)).first<{ found: number }>();
+  return found !== null;
+}
+
 function failed(errorCode: string, status = 502, error = GOOGLE_FAILED): GoogleTokenResult {
   console.error(JSON.stringify({ message: "google token request failed", errorCode }));
   return { ok: false, status, error };
@@ -151,6 +163,7 @@ export async function googleToken(
   if (typeof accountId !== "string" || !ACCOUNT_ID.test(accountId) || !grant) return { ok: false, status: 400, error: GOOGLE_UNREADABLE };
   const user = await env.DB.prepare('SELECT id FROM "user" WHERE id = ?').bind(accountId).first<{ id: string }>();
   if (!user) return { ok: false, status: 404, error: GOOGLE_NO_ACCOUNT };
+  if (grant.grant === "refresh" && !(await issuedTo(env, accountId, grant.refreshToken))) return { ok: false, status: 409, error: GOOGLE_NOT_ISSUED };
   const counted = await env.DB.prepare(
     `INSERT INTO cloud_google_tokens (account_id, day, calls) VALUES (?, ?, 1)
      ON CONFLICT(account_id, day) DO UPDATE SET calls = calls + 1 WHERE calls < ?`,
@@ -180,9 +193,19 @@ export async function googleToken(
   }
   const answer = (await response.json().catch(() => null)) as Record<string, unknown> | null;
   if (!response.ok) {
-    if (answer?.error === "invalid_grant") return failed("google_invalid_grant", 400, GOOGLE_EXPIRED);
+    if (answer?.error === "invalid_grant") {
+      if (grant.grant === "refresh") {
+        await env.DB.prepare("DELETE FROM cloud_google_refresh_tokens WHERE account_id = ? AND token_hash = ?").bind(accountId, await tokenHash(grant.refreshToken)).run();
+      }
+      return failed("google_invalid_grant", 400, GOOGLE_EXPIRED);
+    }
     return failed(response.status >= 300 && response.status < 400 ? "google_redirected" : "google_refused");
   }
   const token = tokenSet(answer);
-  return token ? { ok: true, token } : failed("google_unreadable");
+  if (!token) return failed("google_unreadable");
+  if (token.refresh_token) {
+    await env.DB.prepare("INSERT OR IGNORE INTO cloud_google_refresh_tokens (account_id, token_hash, created_at) VALUES (?, ?, ?)")
+      .bind(accountId, await tokenHash(token.refresh_token), now).run();
+  }
+  return { ok: true, token };
 }

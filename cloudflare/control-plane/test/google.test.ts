@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   GOOGLE_EXPIRED,
+  GOOGLE_NOT_ISSUED,
   GOOGLE_TIMEOUT_MS,
   GOOGLE_TOKEN_URL,
   GOOGLE_TOKENS_PER_DAY,
@@ -48,6 +49,20 @@ function fakeGoogle(answer: () => Response) {
     return answer();
   };
   return { seen, fetcher };
+}
+
+async function hashOf(value: string): Promise<string> {
+  return [...new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value)))].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
+async function issue(accountId: string, refreshToken = REFRESH, at = NOW) {
+  const google = fakeGoogle(() => Response.json({ access_token: ACCESS, expires_in: 3599, scope: "openid", refresh_token: refreshToken }));
+  expect(await googleToken(sharedOn(), accountId, { grant: "code", code: CODE, verifier: VERIFIER }, google.fetcher, at)).toMatchObject({ ok: true });
+}
+
+async function recorded(accountId: string): Promise<string[]> {
+  const rows = await env.DB.prepare("SELECT token_hash FROM cloud_google_refresh_tokens WHERE account_id = ?").bind(accountId).all<{ token_hash: string }>();
+  return rows.results.map((row) => row.token_hash);
 }
 
 const granted = () => Response.json({
@@ -186,6 +201,7 @@ describe("later.dog's one Google client", () => {
 
   it("refreshes with the client ID and the secret, and leaves out a refresh token Google did not send", async () => {
     const accountId = await person();
+    await issue(accountId);
     const google = fakeGoogle(() => Response.json({ access_token: ACCESS, expires_in: 3599, scope: "openid", token_type: "Bearer" }));
     const result = await googleToken(sharedOn(), accountId, { grant: "refresh", refreshToken: REFRESH }, google.fetcher, NOW);
     expect(result).toEqual({ ok: true, token: { access_token: ACCESS, expires_in: 3599, scope: "openid" } });
@@ -194,10 +210,12 @@ describe("later.dog's one Google client", () => {
 
   it("turns Google's invalid_grant into connect again, and anything else into a plain 502", async () => {
     const accountId = await person();
+    await issue(accountId);
     vi.spyOn(console, "error").mockImplementation(() => undefined);
     const expired = fakeGoogle(() => Response.json({ error: "invalid_grant", error_description: "Token has been expired or revoked." }, { status: 400 }));
     expect(await googleToken(sharedOn(), accountId, { grant: "refresh", refreshToken: REFRESH }, expired.fetcher, NOW))
       .toEqual({ ok: false, status: 400, error: GOOGLE_EXPIRED });
+    await issue(accountId);
     for (const answer of [
       () => Response.json({ error: "invalid_client" }, { status: 401 }),
       () => new Response("down", { status: 503 }),
@@ -238,6 +256,8 @@ describe("later.dog's one Google client", () => {
   it(`stops at ${GOOGLE_TOKENS_PER_DAY} calls an account a day, and counts each account on its own`, async () => {
     const accountId = await person();
     const other = await person("someone-else@example.com");
+    await issue(accountId, REFRESH, NOW - DAY);
+    await issue(other, REFRESH, NOW - DAY);
     const google = fakeGoogle(granted);
     const day = Math.floor(NOW / DAY);
     await env.DB.prepare("INSERT INTO cloud_google_tokens (account_id, day, calls) VALUES (?, ?, ?)").bind(accountId, day, GOOGLE_TOKENS_PER_DAY - 2).run();
@@ -278,5 +298,53 @@ describe("later.dog's one Google client", () => {
       const rows = JSON.stringify((await env.DB.prepare(`SELECT * FROM "${name}"`).all()).results);
       for (const value of [CODE, VERIFIER, REFRESH, ACCESS, CLIENT_SECRET]) expect(rows, name).not.toContain(value);
     }
+  });
+});
+
+describe("a refresh token works only for the account it was given to", () => {
+  it("refuses another account's token without asking Google, and keeps the owner's own working", async () => {
+    const owner = await person("owner-a@example.com");
+    const other = await person("other-b@example.com");
+    await issue(owner);
+    const google = fakeGoogle(granted);
+    expect(await googleToken(sharedOn(), other, { grant: "refresh", refreshToken: REFRESH }, google.fetcher, NOW))
+      .toEqual({ ok: false, status: 409, error: GOOGLE_NOT_ISSUED });
+    expect(google.seen).toEqual([]);
+    expect(await googleToken(sharedOn(), owner, { grant: "refresh", refreshToken: REFRESH }, google.fetcher, NOW)).toMatchObject({ ok: true });
+    expect(google.seen).toHaveLength(1);
+  });
+
+  it("refuses a token from before later.dog kept a record of whose it is, with words that say to connect again", async () => {
+    const accountId = await person();
+    const google = fakeGoogle(granted);
+    const answer = await googleToken(sharedOn(), accountId, { grant: "refresh", refreshToken: "1//token-from-before-the-record" }, google.fetcher, NOW);
+    expect(answer).toEqual({ ok: false, status: 409, error: GOOGLE_NOT_ISSUED });
+    expect(GOOGLE_NOT_ISSUED).toMatch(/Connect again\.$/);
+    expect(google.seen).toEqual([]);
+  });
+
+  it("keeps only a hash of each token, and forgets it when Google says it is gone or the account is deleted", async () => {
+    const accountId = await person();
+    await issue(accountId);
+    expect(await recorded(accountId)).toEqual([await hashOf(REFRESH)]);
+    const stored = JSON.stringify((await env.DB.prepare("SELECT * FROM cloud_google_refresh_tokens").all()).results);
+    expect(stored).not.toContain(REFRESH);
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const revoked = fakeGoogle(() => Response.json({ error: "invalid_grant" }, { status: 400 }));
+    expect(await googleToken(sharedOn(), accountId, { grant: "refresh", refreshToken: REFRESH }, revoked.fetcher, NOW)).toMatchObject({ ok: false, status: 400 });
+    expect(await recorded(accountId)).toEqual([]);
+    const after = fakeGoogle(granted);
+    expect(await googleToken(sharedOn(), accountId, { grant: "refresh", refreshToken: REFRESH }, after.fetcher, NOW)).toMatchObject({ ok: false, status: 409 });
+    expect(after.seen).toEqual([]);
+    await issue(accountId, "1//second-token");
+    await env.DB.prepare('DELETE FROM "user" WHERE id = ?').bind(accountId).run();
+    expect(await recorded(accountId)).toEqual([]);
+  });
+
+  it("keeps no record when Google sends no refresh token", async () => {
+    const accountId = await person();
+    const google = fakeGoogle(() => Response.json({ access_token: ACCESS, expires_in: 3599, scope: "openid" }));
+    expect(await googleToken(sharedOn(), accountId, { grant: "code", code: CODE, verifier: VERIFIER }, google.fetcher, NOW)).toMatchObject({ ok: true });
+    expect(await recorded(accountId)).toEqual([]);
   });
 });

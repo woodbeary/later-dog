@@ -320,9 +320,14 @@ verifier) or refreshes a token at Google's token endpoint, adding the client
 ID, the secret and, for a code, the fixed redirect address. It counts at most
 500 calls per account per day in `cloud_google_tokens` (`0013`), times out
 after ten seconds, follows no redirects and returns only `access_token`,
-`expires_in`, `scope` and `refresh_token`. Codes, tokens and email addresses are
-never logged or stored; a failure logs a fixed message and an error code. The
-refresh token itself stays in the home's own vault. The one-time setup and the
+`expires_in`, `scope` and `refresh_token`. A refresh is refused with `409`, before
+Google is asked, unless that refresh token was given to the same account: each
+code exchange keeps a SHA-256 hash of the refresh token with the account in
+`cloud_google_refresh_tokens` (`0014`), never the token itself. The hash goes
+when Google says the token is no longer valid or when the account is deleted.
+Codes, tokens and email addresses are never logged or stored; a failure logs a
+fixed message and an error code. The refresh token itself stays in the home's
+own vault. The one-time setup and the
 release order are in `docs/laterdog/google-setup.md`.
 
 ## Local checks

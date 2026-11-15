@@ -34,9 +34,10 @@ later.dog's connection. No dog does any of it.
 
 Each piece is safe alone. Release them one at a time, in this order:
 
-1. **The migration.** `0013_cloud_google_tokens.sql` adds the per-account daily
-   counter (500 token calls a day). Apply it to the production D1 before the
-   Worker that writes to it.
+1. **The migrations.** `0013_cloud_google_tokens.sql` adds the per-account daily
+   counter (500 token calls a day). `0014_cloud_google_refresh_tokens.sql` adds
+   the record of which account each refresh token was given to, as a hash.
+   Apply both to the production D1 before the Worker that writes to them.
 2. **The accounts Worker** (`cloudflare/control-plane`). With `GOOGLE_CLIENT_ID`
    empty or the secret missing, `googleClient()` answers `null` and
    `googleToken()` answers 503; the callback page works either way.
