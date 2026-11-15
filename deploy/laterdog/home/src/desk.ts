@@ -262,8 +262,16 @@ function cardIdOf(body: string): string | null {
   }
 }
 
+function asksOneAnswer(body: string): boolean {
+  try {
+    return (JSON.parse(body) as { oneAnswer?: unknown } | null)?.oneAnswer === true;
+  } catch {
+    return false;
+  }
+}
+
 export function heldForSameCard(outbox: readonly QueuedSend[], next: QueuedSend): QueuedSend | undefined {
-  const cardId = cardIdOf(next.body);
+  const cardId = asksOneAnswer(next.body) ? cardIdOf(next.body) : null;
   return cardId ? outbox.find((queued) => queued.id !== next.id && queued.path === next.path && cardIdOf(queued.body) === cardId) : undefined;
 }
 

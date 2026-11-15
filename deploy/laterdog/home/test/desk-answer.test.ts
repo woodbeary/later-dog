@@ -25,6 +25,7 @@ describe("which sends the desk answers", () => {
     expect(answerable(send({ text: "hi", sendId: "send-0000000000001", threadId: "t-rex" }), BRAIN, T0)).toEqual(REX);
     expect(answerable(send({ text: "hi", sendId: "send-0000000000001" }), BRAIN, T0)).toEqual(REX);
     expect(answerable(send({ text: "Yes", sendId: "send-0000000000001", threadId: "t-rex", cardId: "card-1" }), BRAIN, T0)).toEqual(REX);
+    expect(answerable(send({ text: "Yes", sendId: "send-0000000000001", threadId: "t-rex", cardId: "card-1", oneAnswer: true }), BRAIN, T0)).toEqual(REX);
   });
 
   it("leaves everything else to the home", () => {
