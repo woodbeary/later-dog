@@ -157,4 +157,13 @@ describe("waiting for a computer job with one call", () => {
     expect(stillRunningTail([...fine, ...filler].join("\n"))).not.toMatch(/First line that looks like an error/);
     expect(stillRunningTail([...fine, "Tests 3 failed | 0 errors", ...filler].join("\n"))).toContain("First line that looks like an error: Tests 3 failed | 0 errors");
   });
+
+  it("still picks a real error that starts with a zero, and skips every line that only reports none", () => {
+    const filler = Array.from({ length: 200 }, (_, i) => `line ${i} is fine and long enough to fill the log`);
+    const first = (line: string) => /First line that looks like an error: (.*)/.exec(stillRunningTail([line, ...filler].join("\n")))?.[1] ?? null;
+    const none = ["Found 0 warnings and 0 errors.", "Tests  168 passed, 0 failed", "errors: 0", "No failures found.", "0 errors, 0 warnings", "Errors: 0, Failures: 0", "failures=0", "zero errors", "no errors"];
+    for (const line of none) expect(first(line), line).toBeNull();
+    const real = ["Error: 0 is not a valid port", "error: 0 tests found", "failed: 0 files could be read", "0 passed, 3 failed", "error: exit code 0 expected", "Tests 3 failed | 0 errors", "FAILED (errors=0, failures=3)", "2 errors, 0 warnings", "Build failed with 0 warnings"];
+    for (const line of real) expect(first(line), line).toBe(line);
+  });
 });

@@ -7,7 +7,7 @@ export const BAD_WAIT_TEXT = `wait_minutes must be a whole number of minutes fro
 
 const MINUTE_MS = 60_000;
 const ERROR_LINE = /\b(?:error|errors|failed|failure|fail|fatal|exception|traceback|panic)\b/i;
-const ZERO_COUNT = /\b(?:0|no|zero)\s+(?:errors?|failures?|failed|fails?|exceptions?)\b|\b(?:errors?|failures?|failed|fails?)\s*[:=]\s*0\b/gi;
+const ZERO_COUNT = /\b(?:0|no|zero)\s+(?:errors?|failures?|failed|fails?|exceptions?)\b|\b(?:errors?|failures?|failed|fails?)\s*[:=]\s*0(?!\s+\w)\b/gi;
 
 export function waitCapMs(driverKind: string | undefined, mcpCallTimeoutMinutes: number): number {
   if (driverKind === "claudeAgent") return LONGEST_WAIT_MINUTES * MINUTE_MS;
