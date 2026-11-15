@@ -739,7 +739,7 @@ describe("card answers the edge holds for the person", () => {
       expect((await visit("/api/bots/rex/messages", post({ text: "Yes", sendId: CARD_SEND, threadId: "t-owner", cardId: "card-1" }))).status).toBe(202);
       const second = await visit("/api/bots/rex/messages", { method: "POST", headers: asSecond, body: JSON.stringify({ text: "No", sendId: "send-card-0000000002", threadId: "t-owner", cardId: "card-1" }) });
       expect(second.status).toBe(202);
-      expect(await second.json()).toMatchObject({ queued: true, queueId: CARD_SEND });
+      expect(await second.json()).toMatchObject({ queued: true, queueId: CARD_SEND, cardId: "card-1", text: "Yes" });
       expect(await (await list(visit)).json()).toMatchObject({ answers: [{ sendId: CARD_SEND, text: "Yes" }] });
       expect((await list(visit, { headers: asSecond })).status).toBe(200);
       const delivered: string[] = [];
@@ -760,6 +760,15 @@ describe("card answers the edge holds for the person", () => {
       expect(guest.status).not.toBe(200);
       expect(await guest.text()).not.toContain("the private one");
       expect(await (await list(visit)).json()).toMatchObject({ answers: [{ sendId: CARD_SEND, text: "Yes, the private one" }] });
+    });
+
+    it("never tells a guest the owner's words for a card the owner already answered", async () => {
+      const { visit } = await bothKnownThenAsleep();
+      expect((await visit("/api/bots/rex/messages", post({ text: "Yes, the private one", sendId: CARD_SEND, threadId: "t-owner", cardId: "card-1" }))).status).toBe(202);
+      const guestPost = { method: "POST", headers: { ...asGuest().headers, "content-type": "application/json" }, body: JSON.stringify({ text: "No", sendId: GUEST_SEND, threadId: "t-owner", cardId: "card-1" }) };
+      const answer = await visit("/api/bots/rex/messages", guestPost);
+      expect(answer.status).toBe(202);
+      expect(await answer.text()).not.toContain("the private one");
     });
 
     it("never lists a guest's card answer to the owner's phone", async () => {

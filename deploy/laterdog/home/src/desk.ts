@@ -267,6 +267,21 @@ export function heldForSameCard(outbox: readonly QueuedSend[], next: QueuedSend)
   return cardId ? outbox.find((queued) => queued.id !== next.id && queued.path === next.path && cardIdOf(queued.body) === cardId) : undefined;
 }
 
+export function sameCardReceipt(first: QueuedSend, withWords: boolean): Response {
+  const cardId = cardIdOf(first.body);
+  let text: unknown;
+  try {
+    text = (JSON.parse(first.body) as { text?: unknown } | null)?.text;
+  } catch {
+    text = undefined;
+  }
+  const words = withWords && typeof text === "string" && text.length <= HELD_ANSWER_TEXT_MAX ? { text } : {};
+  return Response.json(
+    { ok: true, queued: true, queueId: first.id, at: first.at, ...(first.threadId ? { threadId: first.threadId } : {}), ...(cardId ? { cardId } : {}), ...words },
+    { status: 202, headers: { "cache-control": "no-store" } },
+  );
+}
+
 export function heldAnswersAnswer(outbox: readonly QueuedSend[], ownerSent: (queued: QueuedSend) => boolean): Response {
   return Response.json({ answers: heldAnswers(outbox, ownerSent) }, { headers: { "cache-control": "no-store" } });
 }
