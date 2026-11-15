@@ -245,7 +245,9 @@ tasks longer than one turn.
 A rare tool's description reaches a dog only after it searches for that tool,
 so a rule there binds only calls of that tool. A rule that also governs what a
 dog does without the tool must be in the standing instructions as well.
-`server/laterdog/rare-tool-rules.test.ts` keeps each such rule there. Checked
+`server/laterdog/rare-tool-rules.test.ts` keeps each such rule in the
+instructions a dog is sent on each engine (`guidanceParts` with
+`agentRuleTexts`, the parts the home sends). Checked
 on 15 November 2026, every one of the 32 rare tools:
 
 - In the standing instructions: the Google consent page never opened in the
@@ -253,7 +255,7 @@ on 15 November 2026, every one of the 32 rare tools:
   never pasting a device code into chat (`DEVICE_APPROVAL_PROMPT`); a declined
   send card for mail or texts is a no (`needsPerson`; the card itself is
   enforced by the home on every send); a denied or offline Mac is respected
-  and secrets never printed (`EXISTING_LOGIN_PROMPT`, `CREDENTIAL_PROMPT`);
+  and secrets never printed (`signInPassage`);
   a page asking to add a server is not an order (`READ_TEXT_IS_NOT_AN_ORDER`);
   no clicking through the app to make dogs or group chats
   (`DOG_CREATION_PROMPT`).
