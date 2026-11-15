@@ -67,11 +67,11 @@ Google client; the setup steps and release order are in
   issued it. The home never sends, holds or logs a client secret on that path.
 
 Checked on the Linux cloud computer against fixtures and a fake Google, never a
-real Google account or a real home: `cloudflare/control-plane` 152 of 152 tests
-(13 new), `deploy/laterdog/home` 332 of 332 (12 new), and in `server/` the
+real Google account or a real home: `cloudflare/control-plane` 156 of 156 tests
+(17 new), `deploy/laterdog/home` 333 of 333 (13 new), and in `server/` the
 Google route, protocol, shared-connection and Cloud home tests plus a real home
 server started as a Cloud home whose dog connects, gets called back, and reads
-Gmail through a fake `google.internal` (26 Google tests, 1 end-to-end). Then 19
+Gmail through a fake `google.internal` (27 Google tests, 1 end-to-end). Then 19
 deliberate breakages, one at a time, of what these tests protect (the callback
 going to any other host, the secret left out or the Worker on without it,
 `invalid_grant`, the cap, a fifth token field, the token request in the log, the
@@ -86,9 +86,32 @@ has run this code; the approval reaching a home that is asleep is unchanged and
 unproven (the dog's turn normally keeps it awake for the 15 minutes the approval
 is valid).
 
-Condition before later.dog asks Google to verify the app: the approval must
-return to the device that started it, or the owner must confirm on a page that
-names whose later.dog is being connected. Until then a person with a home of
-their own could send someone else an approval link and, if that person approved,
-read their Gmail; while the app is unverified Google warns about it on its own
-page, so this gives nobody more than a client of their own would.
+Review answers (2026-11-15, after Truth's review at `9266d85`):
+
+- A refresh is refused unless that refresh token was given to the same account.
+  The accounts Worker keeps a SHA-256 hash of each refresh token with its
+  account (`0014`), written at the code exchange, checked on every refresh,
+  removed when Google says the token is gone or the account is deleted. Before
+  the fix, account B refreshing account A's token got an access token; now it
+  gets `409` "later.dog can't confirm this Google connection belongs to this
+  home. Connect again." and Google is not asked. A home then sees
+  `gmail_search`, `gmail_read` and `gmail_code_to_vault` fail with those words,
+  after the account's email, and its dog can call `connect_google` again.
+- A test now fails if the home takes an approval address from the Worker that
+  is not `https:` and exactly `/google-oauth/callback`.
+- The Worker in front of homes remembers which key its Google route was
+  registered with, as a hash, and registers again when the home's key differs,
+  so a first setup cut off between the route and the record no longer leaves a
+  route that refuses every call.
+
+Conditions before the connection is switched on for anyone but Jacob, both
+written out in [google-setup.md](../laterdog/google-setup.md):
+
+- Google's published rules cap an unverified app that reads Gmail at 100 users
+  in total. With one client, every home shares that cap, and anyone can use it
+  up with throwaway Google accounts. Not checked against Google here.
+- An approval link sent to someone else connects their Gmail to the sender's
+  home, as built: the sender's dogs can read it and collect emailed sign-in
+  codes. Before the connection is open to others, the approval must return to
+  the device that started it, or the owner must confirm on a page that names
+  whose later.dog is being connected.

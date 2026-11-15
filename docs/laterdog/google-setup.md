@@ -54,13 +54,48 @@ Each piece is safe alone. Release them one at a time, in this order:
 Then do the one-time setup above and deploy the accounts Worker again with the
 client ID. Nothing in a home needs to change for it to switch on.
 
-## Before asking Google to verify the app
+## Before it is switched on for anyone but Jacob
 
-With one shared client, a person with a home of their own could send someone
-else a Google approval link, and if that person approves, the sender's home
-gets read access to their Gmail. While the app is unverified, Google shows its
-"Google hasn't verified this app" page for later.dog's client too, so this gives
-nobody more than a client of their own would. It matters the day Google
-verifies later.dog. Before later.dog asks Google for verification, the approval
-must return to the device that started it, or the owner must confirm on a page
-that names whose later.dog is being connected.
+Putting the client ID in `GOOGLE_CLIENT_ID` switches the connection on for every
+Cloud home at once. Two things below hold for every home together. Until both
+are settled, the connection is for Jacob alone. One way to keep it so, not
+checked here: leave the app's audience in Google's testing state with only
+Jacob's Google account as a test user, so Google refuses anyone else's approval.
+
+### 1. Google's cap on people for an unverified app
+
+Google's published rules limit an unverified app that asks for a restricted
+scope, and Gmail read-only is one, to 100 users in total. Publishing the app
+("In production") does not lift that limit; only Google's verification does.
+With one client for every later.dog, every home's people count against the same
+100. Once it is reached, nobody on any home can connect. Anyone with a later.dog
+account can also use it up on purpose by approving with throwaway Google
+accounts. The setup above is not finished while the app is unverified.
+
+### 2. An approval link sent to someone else
+
+As built, this works:
+
+1. Someone with any later.dog Cloud home asks a dog to `connect_google` and
+   copies the link on the card. It carries later.dog's client ID, the fixed
+   `accounts.later.dog` address, and a `state` that names their own home.
+2. They send the link to another person. If that person approves within 15
+   minutes, Google sends the code to `accounts.later.dog`, which passes it on to
+   the sender's home. That home holds the verifier, so the exchange works, and
+   the other person's refresh token lands in the sender's vault.
+3. The sender's dogs can then read that mailbox with `gmail_search` and
+   `gmail_read`, and `gmail_code_to_vault` can collect the person's emailed
+   sign-in codes, which turns read-only Gmail into a way into their other
+   accounts.
+
+What limits it today: Google's "hasn't verified this app" page; the state is
+single-use and lasts 15 minutes; it lives only in the sending home's memory, so
+the link dies if that home restarts; the person can remove later.dog from their
+Google account. With a client of their own, a sender gets the same flow under
+any app name; what the shared client adds is later.dog's name and the
+`accounts.later.dog` address, which make the link look more trustworthy.
+
+The fix, before the connection is open to others and before later.dog asks
+Google for verification: the approval must return to the device that started
+it, or the owner must confirm on a page that names whose later.dog is being
+connected.
