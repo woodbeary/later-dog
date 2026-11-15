@@ -1,6 +1,8 @@
 import { ALWAYS_ASK_IDS, type AlwaysAskId } from "../../shared/always-asks.ts";
 import { actionTokens, isOutboundTool } from "../../shared/outbound.ts";
-import { deletesOutsideWorkspace, isShellTool, type OwnerGuardContext } from "./owner-guard.ts";
+import { COMPUTER_RUN_PATH } from "../routes/computer-run.ts";
+import { isShell } from "./home-signals.ts";
+import { codeLiterals, deletesOutsideWorkspace, isShellTool, shellSteps, type OwnerGuardContext, type ShellStep, type ShellWord } from "./owner-guard.ts";
 
 export { ALWAYS_ASK_IDS, type AlwaysAskId };
 
@@ -8,6 +10,7 @@ export interface AlwaysAskRequest {
   tool: string;
   command?: string;
   summary?: string;
+  input?: Record<string, unknown>;
 }
 
 export interface AlwaysAsk {
@@ -24,6 +27,8 @@ const WHAT: Record<AlwaysAskId, string> = {
   "pays": "pays or moves money from a connected app",
 };
 
+const UNREADABLE = "This runs text later.dog cannot read, so it cannot tell whether it pushes code without running its checks.";
+
 function found(id: AlwaysAskId, detail?: string): AlwaysAsk {
   return {
     id,
@@ -32,86 +37,227 @@ function found(id: AlwaysAskId, detail?: string): AlwaysAsk {
   };
 }
 
-const ASSIGNED = /(?<![\w$])([A-Za-z_]\w*)=([^\s;&|)`]*)/g;
-const PRINTED = /\$\((?:echo|printf)(?:\s+-[a-zA-Z-]*)*\s+([^()`]*?)\s*\)|`(?:echo|printf)(?:\s+-[a-zA-Z-]*)*\s+([^`]*?)\s*`/g;
+type Place = "home" | "own-computer" | "mac";
 
-function expanded(text: string): string {
-  let out = text;
-  for (let pass = 0; pass < 4; pass += 1) {
-    const values = new Map<string, string>();
-    for (const [, name, value] of out.matchAll(ASSIGNED)) values.set(name!, value!);
-    const next = out
-      .replace(PRINTED, (_match, inner?: string, ticked?: string) => (inner ?? ticked ?? "").replace(/%s/g, ""))
-      .replace(/\$\{([A-Za-z_]\w*)\}|\$([A-Za-z_]\w*)/g, (match, braced?: string, bare?: string) => values.get((braced ?? bare)!) ?? match);
-    if (next === out) break;
-    out = next;
+interface Seen {
+  tool: string;
+  shell?: string;
+  place: Place;
+  cwd?: string;
+  page?: string;
+  writes: string[];
+  deletes: string[];
+}
+
+const MAC_HOME = "/~";
+const OPENS_PAGE = /open_url|navigate|open_page|goto|new_tab|open_tab/i;
+const FILE_TOOLS = new Set(["Write", "Edit", "MultiEdit", "NotebookEdit"]);
+
+const text = (value: unknown): string | undefined => (typeof value === "string" ? value : undefined);
+const bareName = (tool: string) => tool.replace(/^mcp__[^_]+__/, "");
+const serverOf = (tool: string) => (tool.startsWith("mcp__") ? tool.split("__")[1] ?? "" : "");
+
+function seenOf(request: AlwaysAskRequest): Seen {
+  const input = request.input ?? {};
+  const name = bareName(request.tool);
+  const server = serverOf(request.tool);
+  const base: Seen = { tool: request.tool, place: "home", writes: [], deletes: [] };
+  if (isShellTool(request.tool)) return { ...base, shell: request.command ?? text(input.command) ?? request.summary };
+  if ((server === "computer" && name === "exec") || name === "run_on_computer") {
+    return { ...base, place: "own-computer", shell: text(input.command) ?? request.command ?? request.summary };
   }
-  return out;
-}
-
-export function plainShell(command: string): string {
-  const unquoted = command
-    .replace(/\\\r?\n/g, "")
-    .replace(/\$(?=['"])/g, "")
-    .replace(/["'\\]/g, "");
-  return expanded(unquoted).replace(/[{}]/g, "");
-}
-
-const PUSHES = /(?<![\w.-])(?:push|send-pack)(?![\w-])/;
-const NO_VERIFY = /no-veri/i;
-const SKIP_VARIABLE = /LATERDOG_SKIP_HOOKS/g;
-const HOOKS_PATH = /core\.hookspath/i;
-const HOOKS_PATH_READ = /(?:--get(?:-all|-regexp)?|--unset(?:-all)?|--list|(?<![\w-])-l)(?![\w-])|^\s*(?:\S*\/)?git\s+config\s+(?:--(?:global|local|system|worktree)\s+)?core\.hookspath\s*$/i;
-const HOOK_FILE_CHANGE = /(?:(?<![\w-])(?:rm|mv|chmod|truncate|cp|ln|unlink|sed|tee)(?![\w-])[^;&|\n]*hooks\/pre-(?:push|commit))|(?:>\s*\S*hooks\/pre-(?:push|commit))/;
-const CI_SKIP = /ci\.skip|skip-checks:\s*true/i;
-const DECODES = /(?<![\w-])(?:base64|xxd|rev|openssl\s+enc)(?![\w-])|\\x[0-9a-f]{2}|\\[0-7]{3}/i;
-const SEND_PACK = /(?<![\w-])send-pack(?![\w-])/;
-
-function setsSkipVariable(text: string): boolean {
-  for (const match of text.matchAll(SKIP_VARIABLE)) {
-    const before = text.slice(0, match.index);
-    if (before.endsWith("$")) continue;
-    if (/(?:(?<![\w-])unset|(?<![\w-])-u|--unset)\s+$/.test(before)) continue;
-    return true;
+  if (name === "shared_computer") {
+    const path = text(input.path);
+    const mac: Seen = { ...base, place: "mac", cwd: text(input.cwd) };
+    if (input.action === "run_command") return { ...mac, shell: text(input.command) };
+    if (input.action === "delete_file") return { ...mac, deletes: path ? [path] : ["a file"] };
+    if (input.action === "write_file" || input.action === "edit_file") return { ...mac, writes: path ? [path] : [] };
+    return mac;
   }
-  return false;
+  if (FILE_TOOLS.has(name)) {
+    const path = text(input.file_path) ?? text(input.notebook_path) ?? text(input.path) ?? request.summary?.split(/[\s:]/)[0];
+    return { ...base, writes: path ? [path] : [] };
+  }
+  const url = text(input.url) ?? (OPENS_PAGE.test(name) ? request.summary : undefined);
+  if (url && (OPENS_PAGE.test(name) || server === "browser" || server === "computer")) return { ...base, page: url };
+  return base;
 }
 
-function changesHooksPath(text: string): boolean {
-  return text.split(/[;&|\n]/).some((segment) => HOOKS_PATH.test(segment) && !HOOKS_PATH_READ.test(segment));
+const NO_VERIFY = /^--no-veri(?:fy?)?$/;
+const HOOK_PATH = /(?:^|\/)(?:\.git\/hooks|\.husky|\.githooks|githooks|git-hooks)(?:\/|$)/i;
+const READABLE_SUBSTITUTION = /^\$\(git (?:rev-parse|branch|symbolic-ref)\b[^()`$;&|]*\)$/;
+const SKIP_VARIABLE = /LATERDOG_SKIP_HOOKS=[^\s;&|)]|(?:export|declare|typeset|readonly|local)\s+(?:-\w+\s+)*LATERDOG_SKIP_HOOKS\b|LATERDOG_SKIP\w*\$|GIT_CONFIG_(?:KEY_\d+|PARAMETERS)=.*core\.hookspath/i;
+const GIT_VALUE_OPTIONS = new Set(["-C", "--git-dir", "--work-tree", "--namespace", "--super-prefix", "--exec-path"]);
+const DEPTH_LIMIT = 4;
+
+type Skip = "plain" | "unreadable" | null;
+
+const unreadable = (word: ShellWord | undefined) => word !== undefined && ((word.vars && !READABLE_SUBSTITUTION.test(word.text)) || word.glob);
+
+function pushSkips(args: readonly ShellWord[], fromInput: boolean): Skip {
+  if (fromInput) return "unreadable";
+  for (let i = 0; i < args.length; i++) {
+    const word = args[i]!;
+    if (unreadable(word)) return "unreadable";
+    if (NO_VERIFY.test(word.text)) return "plain";
+    const option = word.text === "-o" || word.text === "--push-option" ? args[i + 1]?.text ?? "" : /^(?:-o|--push-option=)(.*)$/.exec(word.text)?.[1] ?? "";
+    if (/ci\.skip|skip-checks/i.test(option)) return "plain";
+  }
+  return null;
 }
 
-function skipsChecks(command: string): boolean {
-  const text = plainShell(command);
-  if (setsSkipVariable(text) || changesHooksPath(text) || HOOK_FILE_CHANGE.test(text) || SEND_PACK.test(text)) return true;
-  if (!PUSHES.test(text)) return false;
-  return NO_VERIFY.test(text) || CI_SKIP.test(text) || DECODES.test(command);
+function operandTexts(args: readonly ShellWord[]): string[] {
+  return args.filter((arg) => !arg.text.startsWith("-") || arg.text === "-").map((arg) => arg.text);
+}
+
+function touchesHooks(step: ShellStep): boolean {
+  const operands = operandTexts(step.args);
+  const named = ["rm", "rmdir", "unlink", "shred", "trash", "chmod", "chown", "truncate", "mv"].includes(step.name) ? operands
+    : ["cp", "install", "ln"].includes(step.name) ? operands.slice(-1)
+      : step.name === "tee" ? operands
+        : (step.name === "sed" || step.name === "perl") && step.args.some((arg) => /^-[a-zA-Z]*i|^--in-place/.test(arg.text)) ? operands
+          : [];
+  return [...named, ...step.writes].some((path) => HOOK_PATH.test(path));
+}
+
+function aliasSkips(value: string, depth: number): Skip {
+  return value.startsWith("!") ? shellSkips(value.slice(1), depth + 1) : shellSkips(`git ${value}`, depth + 1);
+}
+
+function configSkips(args: readonly ShellWord[], depth: number): Skip {
+  if (args.some((arg) => /^--(?:get|unset|list|show|name-only)|^-l$/.test(arg.text))) return null;
+  const operands = operandTexts(args);
+  if (operands[0] === "set") operands.shift();
+  const [key = "", value] = operands;
+  if (/^core\.hookspath=/i.test(key) || (/^core\.hookspath$/i.test(key) && value !== undefined)) return "plain";
+  const alias = /^alias\.[^=]+(?:=(.*))?$/is.exec(key);
+  if (alias) return aliasSkips(alias[1] ?? value ?? "", depth);
+  return null;
+}
+
+function gitSkips(step: ShellStep, depth: number): Skip {
+  const { args } = step;
+  for (let i = 0; i < args.length; i++) {
+    const word = args[i]!;
+    if (word.text === "-c" || word.text === "--config-env" || word.text.startsWith("--config-env=")) {
+      const value = word.text.startsWith("--config-env=") ? word.text.slice("--config-env=".length) : args[i + 1]?.text ?? "";
+      if (!word.text.includes("=")) i++;
+      if (unreadable(word.text.includes("=") ? word : args[i])) return "unreadable";
+      if (/^core\.hookspath\b/i.test(value)) return "plain";
+      const alias = /^alias\.[^=]+=(.*)$/is.exec(value);
+      const nested = alias ? aliasSkips(alias[1]!, depth) : null;
+      if (nested) return nested;
+      continue;
+    }
+    if (GIT_VALUE_OPTIONS.has(word.text)) {
+      i++;
+      continue;
+    }
+    if (word.text.startsWith("-")) continue;
+    if (unreadable(word)) return "unreadable";
+    if (word.text === "send-pack") return "plain";
+    if (word.text === "push") return pushSkips(args.slice(i + 1), step.input !== undefined);
+    if (word.text === "config") return configSkips(args.slice(i + 1), depth);
+    return null;
+  }
+  return null;
+}
+
+function stepSkips(step: ShellStep, depth: number): Skip {
+  if (step.name !== "unset" && step.words.some((word) => SKIP_VARIABLE.test(word.text) || /^LATERDOG_SKIP_HOOKS$/.test(word.text) && step.name !== "echo")) return "plain";
+  if (touchesHooks(step)) return "plain";
+  if (step.name === "git") return gitSkips(step, depth);
+  if (step.name === "git-send-pack") return "plain";
+  if (step.name === "git-push") return pushSkips(step.args, step.input !== undefined);
+  if (step.name === "alias") {
+    for (const arg of step.args) {
+      const value = /^[^=]+=(.*)$/s.exec(arg.text)?.[1];
+      const nested = value ? shellSkips(value, depth + 1) : null;
+      if (nested) return nested;
+    }
+  }
+  if (step.args.some((arg) => arg.text === "push") && step.args.some((arg) => NO_VERIFY.test(arg.text))) return "plain";
+  if (isShell(step.name) || step.name === "source" || step.name === ".") {
+    const flag = step.args.findIndex((arg) => /^-[a-z]*c[a-z]*$/.test(arg.text));
+    if (flag !== -1 && unreadable(step.args[flag + 1])) return "unreadable";
+    if (step.args.some((arg) => arg.text.startsWith("<"))) return "unreadable";
+    const fed = step.piped && !["echo", "printf"].includes(step.piped.name);
+    if (flag === -1 && !operandTexts(step.args).length && !step.here.length && fed) return "unreadable";
+  }
+  if (step.name === "eval" && step.args.some((arg) => arg.vars)) return "unreadable";
+  return null;
+}
+
+function written(steps: readonly ShellStep[]): Map<string, string> {
+  const files = new Map<string, string>();
+  for (const step of steps) {
+    const content = step.name === "echo" || step.name === "printf" ? step.args.filter((arg) => !/^-[neE]+$/.test(arg.text)).map((arg) => arg.text).join(" ")
+      : step.name === "cat" || step.name === "tee" ? step.here.join("\n")
+        : undefined;
+    if (content === undefined) continue;
+    for (const file of [...step.writes, ...(step.name === "tee" ? operandTexts(step.args) : [])]) files.set(file, content.replace(/\\n/g, "\n"));
+  }
+  return files;
+}
+
+function runsWritten(step: ShellStep, files: Map<string, string>): string | undefined {
+  const file = isShell(step.name) || step.name === "source" || step.name === "." ? operandTexts(step.args)[0] : step.name === "." ? undefined : step.words[0]?.text;
+  if (!file) return undefined;
+  return files.get(file) ?? files.get(file.replace(/^\.\//, "")) ?? files.get(`./${file}`);
+}
+
+function nestedSources(step: ShellStep, files: Map<string, string>): string[] {
+  const fromFile = runsWritten(step, files);
+  const fromCode = step.code === undefined ? [] : codeLiterals(step.code).filter((literal) => /\s/.test(literal));
+  return [...(fromFile ? [fromFile] : []), ...fromCode];
+}
+
+function shellSkips(command: string, depth = 0): Skip {
+  if (depth > DEPTH_LIMIT) return "unreadable";
+  const steps = shellSteps(command, undefined, MAC_HOME, depth);
+  const files = written(steps);
+  let result: Skip = null;
+  for (const step of steps) {
+    const skip = stepSkips(step, depth) ?? nestedSources(step, files).map((source) => shellSkips(source, depth + 1)).find(Boolean) ?? null;
+    if (skip === "plain") return "plain";
+    result ??= skip;
+  }
+  return result;
 }
 
 const CREDENTIAL_COMMANDS: readonly RegExp[] = [
-  /(?<![\w-])gcloud(?![\w-])[^;&|\n]*(?<![\w-])(?:keys|api-keys|oauth-clients|oauth-brands|hmac|credentials|workload-identity-pools)(?![\w-])[^;&|\n]*(?<![\w-])create(?![\w-])/,
-  /(?<![\w-])aws(?![\w-])[^;&|\n]*(?<![\w-])(?:create-access-key|create-login-profile|update-login-profile|create-service-specific-credential|create-user-pool-client|create-api-key|create-key-pair)(?![\w-])/,
-  /(?<![\w-])az\s+ad\s+(?:app|sp)(?![\w-])[^;&|\n]*(?<![\w-])(?:credential|federated-credential|create-for-rbac|create)(?![\w-])/,
-  /(?<![\w-])gh\s+(?:ssh-key|gpg-key)\s+add(?![\w-])/,
-  /(?<![\w-])gh\s+api(?![\w-])[^;&|\n]*(?<![\w-])\/?user\/(?:keys|gpg_keys|ssh_signing_keys)(?![\w-])[^;&|\n]*(?:-f|-F|--field|--raw-field|--input|post)(?![\w-])/,
-  /(?<![\w-])gh\s+api(?![\w-])[^;&|\n]*(?:-f|-F|--field|--raw-field|--input|post)(?![\w-])[^;&|\n]*(?<![\w-])\/?user\/(?:keys|gpg_keys|ssh_signing_keys)(?![\w-])/,
+  /(?<![\w-])gcloud\b.*\b(?:keys|api-keys|oauth-clients|oauth-brands|hmac|credentials|workload-identity-pools)\b.*\bcreate\b/,
+  /(?<![\w-])aws\b.*\b(?:create-access-key|create-login-profile|update-login-profile|create-service-specific-credential|create-user-pool-client|create-api-key|create-key-pair)\b/,
+  /(?<![\w-])az\s+ad\s+(?:app|sp)\b.*\b(?:credential|federated-credential|create-for-rbac|create)\b/,
+  /(?<![\w-])gh\s+(?:ssh-key|gpg-key)\s+add\b/,
+  /(?<![\w-])gh\s+api\b(?=.*\/?\buser\/(?:keys|gpg_keys|ssh_signing_keys)\b)(?=.*(?:\s-f\b|\s-F\b|--field|--raw-field|--input|\bpost\b))/,
+  /(?<![\w-])(?:flyctl|fly)\b.*\btokens?\s+create\b/,
+  /(?<![\w-])doctl\b.*\btokens?\s+create\b/,
+];
+
+const CREDENTIAL_APIS: readonly RegExp[] = [
+  /api\.github\.com\/(?:user\/(?:keys|gpg_keys|ssh_signing_keys)|authorizations|app\/installations\/[^/\s]+\/access_tokens|repos\/[^/\s]+\/[^/\s]+\/keys)/,
+  /api\.cloudflare\.com\/client\/v4\/(?:user|accounts\/[^/\s]+)\/tokens/,
+  /api\.fly\.io\/\S*tokens|api\.machines\.dev\/\S*tokens/,
+  /iam\.googleapis\.com\/\S*\/keys|apikeys\.googleapis\.com/,
+  /iam\.amazonaws\.com\/?\S*createaccesskey/,
 ];
 
 const CREDENTIAL_PAGES: readonly RegExp[] = [
   /console\.(?:cloud|developers)\.google\.com\/\S*(?:credentials|serviceaccounts|auth\/clients|auth\/branding|apikeys)/,
+  /(?:myaccount|security)\.google\.com\/\S*apppasswords/,
   /console\.aws\.amazon\.com\/(?:iam|iamv2|cognito)/,
   /(?:portal\.azure\.com|entra\.microsoft\.com|aad\.portal\.azure\.com)\/\S*(?:registeredapps|applicationslistblade|applicationmenublade|credentials|certificates)/,
   /github\.com\/settings\/(?:tokens|personal-access-tokens|apps|developers|keys|ssh|gpg|applications\/new)/,
   /dash\.cloudflare\.com\/\S*api-tokens/,
+  /fly\.io\/\S*tokens/,
   /developer\.apple\.com\/account\/resources\/authkeys/,
   /platform\.openai\.com\/\S*api-keys/,
   /console\.anthropic\.com\/settings\/keys/,
 ];
 
-const OPENS_PAGE = /open_url|navigate|open_page|goto|new_tab|open_tab/i;
-
-function pageText(text: string): string {
-  let out = text.toLowerCase();
+function pageText(raw: string): string {
+  let out = raw.toLowerCase();
   for (let pass = 0; pass < 3; pass += 1) {
     let next = out;
     try {
@@ -125,28 +271,54 @@ function pageText(text: string): string {
   return out.replace(/\/{2,}/g, "/").replace(/:\/(?=\S)/g, "://");
 }
 
-function opensCredentialPage(text: string): boolean {
-  const page = pageText(plainShell(text));
+function opensCredentialPage(raw: string): boolean {
+  const page = pageText(raw);
   return CREDENTIAL_PAGES.some((pattern) => pattern.test(page));
 }
 
-function makesCredential(command: string): boolean {
-  const text = plainShell(command).toLowerCase();
-  return CREDENTIAL_COMMANDS.some((pattern) => pattern.test(text)) || opensCredentialPage(command);
+const HTTP_CLIENTS = new Set(["curl", "wget", "http", "https", "xh", "xhs"]);
+
+function mutates(step: ShellStep): boolean {
+  return step.args.some((arg, index) => {
+    const value = arg.text;
+    if (/^(?:-X|--request|--method)$/.test(value)) return /^(?:post|put|patch)$/i.test(step.args[index + 1]?.text ?? "");
+    if (/^(?:-X|--request=|--method=)(?:post|put|patch)$/i.test(value)) return true;
+    if (/^(?:-d|--data\S*|-F|--form\S*|--json|-T|--upload-file|--post-data\S*|--post-file\S*)$/.test(value) || /^-d./.test(value)) return true;
+    return (step.name === "http" || step.name === "https" || step.name.startsWith("xh")) && (/^(?:post|put|patch)$/i.test(value) || /^[\w.-]+:?=/.test(value));
+  });
+}
+
+function stepMakesCredential(step: ShellStep): boolean {
+  const line = [step.name, ...step.args.map((arg) => arg.text)].join(" ").toLowerCase();
+  if (CREDENTIAL_COMMANDS.some((pattern) => pattern.test(line))) return true;
+  if (step.words.some((word) => opensCredentialPage(word.text))) return true;
+  return HTTP_CLIENTS.has(step.name) && mutates(step) && step.args.some((arg) => CREDENTIAL_APIS.some((pattern) => pattern.test(pageText(arg.text))));
+}
+
+function makesCredential(command: string, depth = 0): boolean {
+  if (depth > DEPTH_LIMIT) return false;
+  const steps = shellSteps(command, undefined, MAC_HOME, depth);
+  const files = written(steps);
+  return steps.some((step) => stepMakesCredential(step) || nestedSources(step, files).some((source) => makesCredential(source, depth + 1)));
 }
 
 const PAY_TOKENS = new Set(["PAY", "PAYS", "PAYOUT", "PAYMENT", "CHARGE", "REFUND", "TRANSFER", "INVOICE", "WITHDRAW", "WITHDRAWAL"]);
-
 const REPOSITORY_APPS = new Set(["github", "gitlab", "bitbucket"]);
+const POSTING_VERBS = new Set(["CREATE", "ADD", "NEW", "APPEND", "INSERT", "SCHEDULE"]);
+const POSTED_NOUNS = new Set(["EVENT", "INVITATION", "MEETING", "PAGE", "ISSUE", "TASK", "TICKET", "CARD", "DOCUMENT", "DOC", "BLOCK", "BLOCKS", "CHILDREN"]);
+const READ_VERBS = new Set(["GET", "LIST", "FETCH", "SEARCH", "READ", "FIND", "RETRIEVE", "LOOKUP", "DOWNLOAD", "VIEW", "CHECK", "COUNT"]);
 
 function appOf(tool: string): string {
-  if (tool.startsWith("mcp__")) return (tool.split("__")[1] ?? "").toLowerCase();
+  if (tool.startsWith("mcp__")) return serverOf(tool).toLowerCase();
   return /^[A-Z][A-Z0-9]*_/.test(tool) ? tool.slice(0, tool.indexOf("_")).toLowerCase() : "";
 }
 
 function actsAsYou(tool: string): AlwaysAskId | null {
-  if (!isOutboundTool(tool)) return null;
-  if (actionTokens(tool).some((token) => PAY_TOKENS.has(token))) return "pays";
+  const tokens = actionTokens(tool);
+  if (!tokens.length || READ_VERBS.has(tokens[0]!)) return null;
+  const posts = tokens.some((token) => POSTING_VERBS.has(token)) && tokens.some((token) => POSTED_NOUNS.has(token));
+  if (!isOutboundTool(tool) && !posts) return null;
+  if (tokens.some((token) => PAY_TOKENS.has(token))) return "pays";
   return REPOSITORY_APPS.has(appOf(tool)) ? null : "sends-for-you";
 }
 
@@ -156,42 +328,67 @@ export function connectorAlwaysAsks(slugs: readonly string[]): AlwaysAsk | null 
   return ids.includes("sends-for-you") ? found("sends-for-you") : null;
 }
 
-interface Seen {
-  tool: string;
-  shell: string | undefined;
-  page: string | undefined;
+function macGuard(cwd: string | undefined): OwnerGuardContext {
+  return {
+    cwd: cwd === undefined ? undefined : cwd.startsWith("/") ? cwd : `${MAC_HOME}/${cwd.replace(/^~\/?/, "")}`,
+    workspaceRoots: [],
+    tempRoots: ["/tmp", "/private/tmp", "/private/var/folders", "/var/folders"],
+    home: MAC_HOME,
+  };
 }
 
 type Rule = (seen: Seen, guard: () => OwnerGuardContext) => string | boolean;
 
 const RULES: Record<AlwaysAskId, Rule> = {
-  "push-skips-checks": ({ shell }) => shell !== undefined && skipsChecks(shell),
+  "push-skips-checks": ({ shell, writes }) => {
+    if (writes.some((path) => HOOK_PATH.test(path))) return true;
+    const skip = shell === undefined ? null : shellSkips(shell);
+    return skip === "unreadable" ? UNREADABLE : skip === "plain";
+  },
   "cloud-credential": ({ shell, page }) => (shell !== undefined && makesCredential(shell)) || (page !== undefined && opensCredentialPage(page)),
-  "delete-outside-workspace": ({ shell }, guard) => (shell !== undefined && deletesOutsideWorkspace(shell, guard())?.ask) || false,
+  "delete-outside-workspace": ({ shell, place, deletes }, guard) => {
+    if (place === "own-computer") return false;
+    if (deletes.length) return `This deletes ${deletes.join(", ")} on your Mac.`;
+    return (shell !== undefined && deletesOutsideWorkspace(shell, guard())?.ask) || false;
+  },
   "sends-for-you": ({ tool }) => actsAsYou(tool) === "sends-for-you",
   "pays": ({ tool }) => actsAsYou(tool) === "pays",
 };
 
 export function alwaysAsks(request: AlwaysAskRequest, guard: () => OwnerGuardContext): AlwaysAsk | null {
-  const shellTool = isShellTool(request.tool);
-  const seen: Seen = {
-    tool: request.tool,
-    shell: shellTool ? request.command ?? request.summary : undefined,
-    page: !shellTool && OPENS_PAGE.test(request.tool.replace(/^mcp__[^_]+__/, "")) ? request.summary : undefined,
-  };
+  const seen = seenOf(request);
+  const guardFor = () => (seen.place === "mac" ? macGuard(seen.cwd) : guard());
   for (const id of ALWAYS_ASK_IDS) {
-    const hit = RULES[id](seen, guard);
+    const hit = RULES[id](seen, guardFor);
     if (hit) return found(id, typeof hit === "string" ? hit : undefined);
   }
   return null;
 }
 
 export function alwaysAskHook(payload: Record<string, unknown>, guard: () => OwnerGuardContext): Record<string, unknown> | null {
-  const tool = typeof payload.tool_name === "string" ? payload.tool_name : "";
-  const input = payload.tool_input && typeof payload.tool_input === "object" ? (payload.tool_input as Record<string, unknown>) : {};
-  const command = typeof input.command === "string" ? input.command : undefined;
-  const url = typeof input.url === "string" ? input.url : undefined;
-  if (!tool || (command === undefined && url === undefined)) return null;
-  const hit = alwaysAsks({ tool, command, summary: url }, guard);
+  const tool = text(payload.tool_name);
+  const input = payload.tool_input && typeof payload.tool_input === "object" ? (payload.tool_input as Record<string, unknown>) : undefined;
+  if (!tool || !input) return null;
+  const hit = alwaysAsks({ tool, input }, guard);
   return hit ? { hookEventName: "PreToolUse", permissionDecision: "ask", permissionDecisionReason: hit.ask } : null;
+}
+
+const objectOf = (value: unknown): Record<string, unknown> => (value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : {});
+
+export const ALWAYS_ASK_PATHS = new Set(["/api/internal/computer/mcp", "/api/internal/browser/mcp", "/api/internal/shared-computers", COMPUTER_RUN_PATH]);
+
+export function internalCallRequest(path: string, body: unknown): AlwaysAskRequest | null {
+  const call = objectOf(body);
+  if (path === COMPUTER_RUN_PATH) return { tool: "mcp__agents__run_on_computer", input: call };
+  if (path === "/api/internal/shared-computers") return { tool: "mcp__agents__shared_computer", input: call };
+  if (call.method !== "tools/call") return null;
+  const params = objectOf(call.params);
+  const name = text(params.name);
+  if (!name) return null;
+  const server = path === "/api/internal/computer/mcp" ? "computer" : path === "/api/internal/browser/mcp" ? "browser" : null;
+  return server ? { tool: `mcp__${server}__${name}`, input: objectOf(params.arguments) } : null;
+}
+
+export function asksAsConnector(slug: string): boolean {
+  return isOutboundTool(slug) || actsAsYou(slug) !== null;
 }

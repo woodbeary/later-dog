@@ -15,3 +15,5 @@ export const ALWAYS_ASK_WORDS = {
   "sends-for-you": "askFirst.always.sends",
   "pays": "askFirst.always.pays",
 } as const satisfies Record<AlwaysAskId, string>;
+
+export const GUARDED_TOOLS: readonly string[] = ["Bash", "Write", "Edit", "MultiEdit", "NotebookEdit"];

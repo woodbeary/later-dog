@@ -1,5 +1,8 @@
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { ALWAYS_ASK_IDS, alwaysAskHook, alwaysAsks, connectorAlwaysAsks, type AlwaysAskId } from "./always-asks.ts";
+import { ALWAYS_ASK_IDS, alwaysAskHook, alwaysAsks, connectorAlwaysAsks, internalCallRequest, type AlwaysAskId } from "./always-asks.ts";
 import type { OwnerGuardContext } from "./owner-guard.ts";
 
 const WORKSPACE = "/srv/dogs/ada/work";
@@ -223,5 +226,166 @@ describe("the list", () => {
     expect(alwaysAskHook({ tool_name: "mcp__computer__open_url", tool_input: { url: "https://console.cloud.google.com/apis/credentials" } }, guard)).toMatchObject({ permissionDecision: "ask" });
     expect(alwaysAskHook({ tool_name: "Bash", tool_input: { command: "git push" } }, guard)).toBeNull();
     expect(alwaysAskHook({ tool_name: "Read", tool_input: { file_path: "/x" } }, guard)).toBeNull();
+  });
+});
+
+type Row = [label: string, request: { tool: string; command?: string; summary?: string; input?: Record<string, unknown> }, expected: AlwaysAskId | null];
+
+const bash = (command: string): Row[1] => ({ tool: "Bash", command });
+const via = (tool: string, input: Record<string, unknown>): Row[1] => ({ tool, input });
+
+const REVIEW_ROWS: Row[] = [
+  ["push: hooks path by -c", bash("git -c core.hooksPath=/dev/null push"), "push-skips-checks"],
+  ["push: a variable this repository's hook never reads", bash("HUSKY=0 git push"), null],
+  ["push: short form", bash("git push --no-verif"), "push-skips-checks"],
+  ["push: skipping only the commit hook", bash("git commit -n -m wip && git push"), null],
+  ["push: empty command substitution inside the word", bash("git push --no-ver$(true)ify origin x"), "push-skips-checks"],
+  ["push: unset variable inside the word", bash("git push --no-ver${UNSET}ify origin x"), "push-skips-checks"],
+  ["push: empty $@ inside the word", bash("git push --no-ver$@ify origin x"), "push-skips-checks"],
+  ["push: git-push from the exec path", bash("\"$(git --exec-path)\"/git-push --no-verify origin x"), "push-skips-checks"],
+  ["push: git-push by full path", bash("/usr/lib/git-core/git-push --no-verify origin x"), "push-skips-checks"],
+  ["push: alias", bash("alias gp='git push --no-verify'; gp"), "push-skips-checks"],
+  ["push: function", bash("g(){ git \"$@\"; }; g push --no-verify"), "push-skips-checks"],
+  ["push: eval", bash("eval \"git push --no-$(echo verify)\""), "push-skips-checks"],
+  ["push: decoded text into a shell", bash("echo Z2l0IHB1c2ggLS1uby12ZXJpZnk= | base64 -d | sh"), "push-skips-checks"],
+  ["push: script written and run", bash("printf 'git push --no-verify' > /tmp/p.sh && sh /tmp/p.sh"), "push-skips-checks"],
+  ["push: a script file written in an earlier call", bash("sh /tmp/p.sh"), null],
+  ["push: hooks folder moved", bash("mv scripts/git-hooks scripts/git-hooks.off && git push"), "push-skips-checks"],
+  ["push: hooks folder removed", bash("rm -rf scripts/git-hooks && git push"), "push-skips-checks"],
+  ["push: hooks path by config", bash("git config core.hooksPath .nohooks && git push"), "push-skips-checks"],
+  ["push: a branch moved through the API, no push", bash("gh api -X PATCH repos/o/r/git/refs/heads/main -f sha=0123abc"), null],
+  ["push: an option kept for later", bash("export GITOPT=--no-verify"), null],
+  ["push: an option from a variable", bash("git push $GITOPT origin x"), "push-skips-checks"],
+  ["push: option through xargs", bash("echo --no-verify | xargs git push"), "push-skips-checks"],
+  ["push: the shell tool", { tool: "shell", command: "git push --no-verify" }, "push-skips-checks"],
+  ["push: run_on_computer", via("mcp__agents__run_on_computer", { command: "git push --no-verify" }), "push-skips-checks"],
+  ["push: cloud computer exec", via("mcp__computer__exec", { command: "git push --no-verify" }), "push-skips-checks"],
+  ["push: the lent Mac", via("mcp__agents__shared_computer", { action: "run_command", command: "git push --no-verify" }), "push-skips-checks"],
+  ["push: Write on the hook file", via("Write", { file_path: "scripts/git-hooks/pre-push", content: "exit 0" }), "push-skips-checks"],
+  ["push: Edit on the hook file", via("Edit", { file_path: "/srv/dogs/ada/work/scripts/git-hooks/pre-push" }), "push-skips-checks"],
+  ["push: the lent Mac writing a hook", via("mcp__agents__shared_computer", { action: "write_file", path: "code/app/.husky/pre-push" }), "push-skips-checks"],
+  ["credential: gcloud key", bash("gcloud iam service-accounts keys create k.json --iam-account x@p.iam.gserviceaccount.com"), "cloud-credential"],
+  ["credential: aws key", bash("aws --profile x iam create-access-key --user-name bot"), "cloud-credential"],
+  ["credential: gh api key", bash("gh api user/keys --method POST -f title=x -f key=\"$(cat k.pub)\""), "cloud-credential"],
+  ["credential: curl GitHub key", bash("curl -X POST -H \"Authorization: token $T\" https://api.github.com/user/keys -d @k.json"), "cloud-credential"],
+  ["credential: curl Cloudflare token", bash("curl -X POST https://api.cloudflare.com/client/v4/user/tokens -H \"Authorization: Bearer $CF\" -d @t.json"), "cloud-credential"],
+  ["credential: flyctl token", bash("flyctl tokens create deploy"), "cloud-credential"],
+  ["credential: run_on_computer", via("mcp__agents__run_on_computer", { command: "gcloud iam service-accounts keys create k.json" }), "cloud-credential"],
+  ["credential: open_url console", { tool: "mcp__computer__open_url", summary: "https://console.cloud.google.com/apis/credentials" }, "cloud-credential"],
+  ["credential: browser navigate console", { tool: "mcp__browser__navigate", summary: "https://console.cloud.google.com/apis/credentials" }, "cloud-credential"],
+  ["credential: app passwords", { tool: "mcp__computer__open_url", summary: "https://myaccount.google.com/apppasswords" }, "cloud-credential"],
+  ["credential: GitHub new token", { tool: "mcp__computer__open_url", summary: "https://github.com/settings/tokens/new" }, "cloud-credential"],
+  ["delete: rm -rf outside", bash("rm -rf /srv/dogs/other"), "delete-outside-workspace"],
+  ["delete: rsync --delete", bash("rsync -a --delete /tmp/empty/ /srv/dogs/other/"), "delete-outside-workspace"],
+  ["delete: git -C clean", bash("git -C /srv/dogs/other clean -fdx"), "delete-outside-workspace"],
+  ["delete: cd then git clean", bash("cd /srv/dogs/other && git clean -fdx"), "delete-outside-workspace"],
+  ["delete: a symlink made in the same command", bash("ln -s /srv/dogs/other link && rm -rf link/*"), "delete-outside-workspace"],
+  ["delete: a symlink that does not exist here", bash("rm -rf link/"), null],
+  ["delete: parent folder", bash("rm -rf ../other"), "delete-outside-workspace"],
+  ["delete: through ..", bash("rm -rf /srv/dogs/ada/work/../../other"), "delete-outside-workspace"],
+  ["delete: echo into xargs rm", bash("echo /srv/dogs/other | xargs rm -rf"), "delete-outside-workspace"],
+  ["delete: find into xargs rm", bash("find /srv/dogs/other -type f | xargs rm"), "delete-outside-workspace"],
+  ["delete: find -exec rm", bash("find /srv/dogs/other -exec rm -rf {} +"), "delete-outside-workspace"],
+  ["delete: inline python", bash("python3 -c \"import shutil; shutil.rmtree('/srv/dogs/other')\""), "delete-outside-workspace"],
+  ["delete: inline perl", bash("perl -e 'unlink glob \"/srv/dogs/other/*\"'"), "delete-outside-workspace"],
+  ["delete: one file in the home folder", bash("rm ~/Documents/report.pdf"), "delete-outside-workspace"],
+  ["delete: one file outside", bash("rm /srv/dogs/other/notes.txt"), "delete-outside-workspace"],
+  ["delete: unlink", bash("unlink /srv/dogs/other/notes.txt"), "delete-outside-workspace"],
+  ["delete: shred -u", bash("shred -u /srv/dogs/other/notes.txt"), "delete-outside-workspace"],
+  ["delete: moved to /tmp then removed", bash("mv /srv/dogs/other /tmp/gone && rm -rf /tmp/gone"), "delete-outside-workspace"],
+  ["delete: on the dog's own cloud computer", via("mcp__computer__exec", { command: "rm -rf /srv/dogs/other" }), null],
+  ["delete: on the lent Mac", via("mcp__agents__shared_computer", { action: "run_command", command: "rm -rf ~/Documents" }), "delete-outside-workspace"],
+  ["delete: a file on the lent Mac", via("mcp__agents__shared_computer", { action: "delete_file", path: "Documents/report.pdf" }), "delete-outside-workspace"],
+  ["ordinary: git push", bash("git push"), null],
+  ["ordinary: git push -u", bash("git push -u origin atelier/what-asks"), null],
+  ["ordinary: rm build dist", bash("rm -rf build dist"), null],
+  ["ordinary: rm quoted TMPDIR", bash("rm -rf \"$TMPDIR/scratch\""), null],
+  ["ordinary: rm TMPDIR", bash("rm -rf $TMPDIR/review203"), null],
+  ["ordinary: rm /tmp", bash("rm -rf /tmp/scratch"), null],
+  ["ordinary: a comment that names the option", bash("gh pr comment 207 --body \"this push ran the hook, no --no-verify\""), null],
+  ["ordinary: gh pr create", bash("gh pr create --draft --title x --body y"), null],
+  ["ordinary: commit without its hook", bash("git commit --no-verify -m wip"), null],
+  ["ordinary: commit without its hook, then push", bash("git commit --no-verify -m wip && git push"), null],
+  ["ordinary: the skip-hooks push from a home clone", bash("LATERDOG_SKIP_HOOKS=1 git push --force-with-lease origin atelier/x"), "push-skips-checks"],
+  ["ordinary: reading a hook", bash("sed -n 1,20p scripts/git-hooks/pre-push"), null],
+  ["ordinary: copying a hook out", bash("cp scripts/git-hooks/pre-push /tmp/review/"), null],
+  ["ordinary: reading the hooks path", bash("git config --list | grep -i hookspath"), null],
+  ["ordinary: clearing a package cache", bash("rm -rf ~/.npm/_cacache"), null],
+  ["connector: GitHub comment", { tool: "GITHUB_CREATE_ISSUE_COMMENT" }, null],
+  ["connector: GitHub pull request", { tool: "GITHUB_CREATE_A_PULL_REQUEST" }, null],
+  ["connector: GitHub pull request tool", { tool: "mcp__github__create_pull_request" }, null],
+  ["connector: mail draft", { tool: "GMAIL_CREATE_EMAIL_DRAFT" }, null],
+  ["connector: mail send", { tool: "GMAIL_SEND_EMAIL" }, "sends-for-you"],
+  ["connector: chat message", { tool: "SLACK_SEND_MESSAGE" }, "sends-for-you"],
+  ["connector: shared page", { tool: "NOTION_CREATE_PAGE" }, "sends-for-you"],
+  ["connector: calendar invitation", { tool: "GOOGLECALENDAR_CREATE_EVENT" }, "sends-for-you"],
+  ["connector: reading payments", { tool: "STRIPE_LIST_PAYMENTS" }, null],
+  ["connector: shared issue", { tool: "LINEAR_CREATE_ISSUE" }, "sends-for-you"],
+];
+
+describe("the independent review's inputs", () => {
+  it.each(REVIEW_ROWS)("%s", (_label, request, expected) => {
+    expect(alwaysAsks(request, guard)?.id ?? null).toBe(expected);
+  });
+
+  it("counts one ordinary command that asks, the skip-hooks push", () => {
+    const ordinary = REVIEW_ROWS.filter(([label]) => label.startsWith("ordinary:"));
+    expect(ordinary).toHaveLength(15);
+    expect(ordinary.filter(([, request]) => alwaysAsks(request, guard)).map(([label]) => label)).toEqual(["ordinary: the skip-hooks push from a home clone"]);
+  });
+
+  it("answers the engine's hook with ask for each guarded tool", () => {
+    const payload = { command: "git push --no-verify", url: "https://console.cloud.google.com/apis/credentials" };
+    for (const tool of ["Bash", "mcp__computer__exec", "mcp__agents__run_on_computer", "mcp__browser__navigate", "mcp__computer__open_url"]) {
+      expect(alwaysAskHook({ tool_name: tool, tool_input: payload }, guard)?.permissionDecision, tool).toBe("ask");
+    }
+    expect(alwaysAskHook({ tool_name: "Write", tool_input: { file_path: ".git/hooks/pre-push", content: "exit 0" } }, guard)?.permissionDecision).toBe("ask");
+    expect(alwaysAskHook({ tool_name: "Write", tool_input: { file_path: "src/app.ts", content: "x" } }, guard)).toBeNull();
+  });
+
+  it("says plainly when it asks because it cannot read the command", () => {
+    expect(alwaysAsks(bash("git push $GITOPT origin x"), guard)?.ask).toMatch(/^This runs text later\.dog cannot read/);
+    expect(alwaysAsks(bash("git push --no-verify"), guard)?.ask).toMatch(/^This pushes code without running its checks\./);
+  });
+});
+
+describe("what later.dog's own endpoints hand to the list", () => {
+  it("reads the cloud computer, the browser, run_on_computer and the lent Mac", () => {
+    const call = (name: string, args: Record<string, unknown>) => ({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name, arguments: args } });
+    const cases: Array<[string, unknown, AlwaysAskId | null]> = [
+      ["/api/internal/computer/mcp", call("exec", { command: "git push --no-verify" }), "push-skips-checks"],
+      ["/api/internal/computer/mcp", call("open_url", { url: "https://console.cloud.google.com/apis/credentials" }), "cloud-credential"],
+      ["/api/internal/computer/mcp", call("screenshot", {}), null],
+      ["/api/internal/browser/mcp", call("agent_browser_navigate", { url: "https://github.com/settings/tokens/new" }), "cloud-credential"],
+      ["/api/internal/browser/mcp", { method: "tools/list" }, null],
+      ["/api/internal/computer-run", { command: "aws iam create-access-key" }, "cloud-credential"],
+      ["/api/internal/shared-computers", { action: "run_command", command: "rm -rf ~/Documents/old" }, "delete-outside-workspace"],
+      ["/api/internal/shared-computers", { action: "read_file", path: "notes.md" }, null],
+    ];
+    for (const [path, body, expected] of cases) {
+      const request = internalCallRequest(path, body);
+      expect(request ? alwaysAsks(request, guard)?.id ?? null : null, `${path} ${JSON.stringify(body)}`).toBe(expected);
+    }
+  });
+});
+
+describe("a delete through a real symlink", () => {
+  it("follows the link to where the files really are", () => {
+    const root = mkdtempSync(join(tmpdir(), "always-asks-"));
+    try {
+      const work = join(root, "work");
+      const other = join(root, "other");
+      mkdirSync(work);
+      mkdirSync(other);
+      symlinkSync(other, join(work, "link"));
+      const real = (): OwnerGuardContext => ({ cwd: work, workspaceRoots: [work], tempRoots: [join(root, "tmp")], home: join(root, "home") });
+      const id = (command: string) => alwaysAsks({ tool: "Bash", command }, real)?.id ?? null;
+      expect(id("rm -rf link/")).toBe("delete-outside-workspace");
+      expect(id("rm -rf link/*")).toBe("delete-outside-workspace");
+      expect(id("rm link")).toBeNull();
+      expect(id("rm -rf ./build")).toBeNull();
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 });
