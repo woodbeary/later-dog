@@ -111,6 +111,25 @@ export function expandCommand(text: string, commands: readonly SlashCommand[]): 
   return { name, text: words ? `${body}\n\n${words}` : body };
 }
 
+export interface CommandSender {
+  scopes: readonly string[];
+  fromLocalTools: boolean;
+}
+
+export function sendsCommands(sender: CommandSender): boolean {
+  return !sender.fromLocalTools && sender.scopes.includes("admin");
+}
+
+export function commandSend(typed: string, sender: CommandSender, commands: () => readonly SlashCommand[]): { text: string; expanded: boolean } {
+  if (!sendsCommands(sender) || !typed.startsWith("/")) return { text: typed, expanded: false };
+  const expanded = expandCommand(typed, commands());
+  return expanded ? { text: expanded.text, expanded: true } : { text: typed, expanded: false };
+}
+
+export function tricksInIndex<T extends DogTrick>(tricks: readonly T[], index: string): T[] {
+  return tricks.filter((trick) => index.includes(`\n- ${trick.name}: `));
+}
+
 const storedSchema = z.object({
   commands: z.array(z.object({
     name: z.string().regex(COMMAND_NAME),

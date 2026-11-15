@@ -4,12 +4,14 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import {
   CommandRefused,
+  commandSend,
   COMMANDS_FILE,
   dogCommands,
   expandCommand,
   MAX_SAVED_COMMANDS,
   SavedCommands,
   STANDARD_COMMANDS,
+  tricksInIndex,
 } from "./slash-commands.ts";
 
 const dirs: string[] = [];
@@ -108,5 +110,29 @@ describe("what a dog can be told with one word", () => {
     expect(expandCommand("/reviewer please", list)).toBeNull();
     expect(expandCommand("please /review", list)).toBeNull();
     expect(expandCommand("/nothing-here", list)).toBeNull();
+  });
+});
+
+describe("who a /name is expanded for", () => {
+  const list = () => dogCommands([{ name: "plan", text: "Plan first.", updatedAt: 1 }], []);
+
+  it("expands the owner's own sends and says so", () => {
+    expect(commandSend("/plan the page", { scopes: ["admin", "client"], fromLocalTools: false }, list)).toEqual({ text: "Plan first.\n\nthe page", expanded: true });
+    expect(commandSend("plan the page", { scopes: ["admin"], fromLocalTools: false }, list)).toEqual({ text: "plan the page", expanded: false });
+  });
+
+  it("leaves a guest's, a shared client's and a dog's sends as typed, without reading the saved commands", () => {
+    const never = () => { throw new Error("read the saved commands"); };
+    expect(commandSend("/plan", { scopes: ["client"], fromLocalTools: false }, never)).toEqual({ text: "/plan", expanded: false });
+    expect(commandSend("/plan", { scopes: ["admin", "client"], fromLocalTools: true }, never)).toEqual({ text: "/plan", expanded: false });
+  });
+});
+
+describe("which tricks a dog can be told by name", () => {
+  it("keeps only the tricks its instructions carry", () => {
+    const index = "\n\nImported skills:\n- deploy-site: Ship it. Read \"/w/deploy-site/SKILL.md\".\n- notes: Keep notes. Read \"/w/notes/SKILL.md\".\n2 enabled skills omitted";
+    const tricks = [{ name: "deploy-site", description: "Ship it." }, { name: "notes", description: "Keep notes." }, { name: "dropped", description: "Past the cap." }];
+    expect(tricksInIndex(tricks, index).map((trick) => trick.name)).toEqual(["deploy-site", "notes"]);
+    expect(tricksInIndex(tricks, "")).toEqual([]);
   });
 });
