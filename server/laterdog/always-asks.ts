@@ -85,7 +85,10 @@ function seenOf(request: AlwaysAskRequest): Seen {
 
 const NO_VERIFY = /^--no-veri(?:fy?)?$/;
 const HOOK_PATH = /(?:^|\/)(?:\.git\/hooks|\.husky|\.githooks|githooks|git-hooks)(?:\/|$)/i;
-const READABLE_SUBSTITUTION = /^\$\(git (?:rev-parse|branch|symbolic-ref)\b[^()`$;&|]*\)$/;
+const READABLE_SUBSTITUTION = /^\$\(git (?:branch --show-current|rev-parse --abbrev-ref HEAD)\)$/;
+const WHOLE_VARIABLE = /^\$(?:[A-Za-z_]\w*|\{[A-Za-z_]\w*\})$/;
+const REMOTE_NAME = /^(?:origin|upstream|fork|github|gitlab)$/;
+const DECODERS = new Set(["base64", "base32", "basenc", "xxd", "uudecode", "openssl", "gpg", "rev"]);
 const SKIP_VARIABLE = /LATERDOG_SKIP_HOOKS=[^\s;&|)]|(?:export|declare|typeset|readonly|local)\s+(?:-\w+\s+)*LATERDOG_SKIP_HOOKS\b|LATERDOG_SKIP\w*\$|GIT_CONFIG_(?:KEY_\d+|PARAMETERS)=.*core\.hookspath/i;
 const GIT_VALUE_OPTIONS = new Set(["-C", "--git-dir", "--work-tree", "--namespace", "--super-prefix", "--exec-path"]);
 const DEPTH_LIMIT = 4;
@@ -96,8 +99,15 @@ const unreadable = (word: ShellWord | undefined) => word !== undefined && ((word
 
 function pushSkips(args: readonly ShellWord[], fromInput: boolean): Skip {
   if (fromInput) return "unreadable";
+  const literals = args.filter((arg) => !arg.vars && !arg.text.startsWith("-"));
   for (let i = 0; i < args.length; i++) {
     const word = args[i]!;
+    if (WHOLE_VARIABLE.test(word.text)) {
+      const after = literals.filter((arg) => args.indexOf(arg) > i);
+      const beforeRemote = !literals.some((arg) => args.indexOf(arg) < i) && (after.length !== 1 || REMOTE_NAME.test(after[0]!.text));
+      if (beforeRemote) return "unreadable";
+      continue;
+    }
     if (unreadable(word)) return "unreadable";
     if (NO_VERIFY.test(word.text)) return "plain";
     const option = word.text === "-o" || word.text === "--push-option" ? args[i + 1]?.text ?? "" : /^(?:-o|--push-option=)(.*)$/.exec(word.text)?.[1] ?? "";
@@ -163,7 +173,7 @@ function gitSkips(step: ShellStep, depth: number): Skip {
   return null;
 }
 
-function stepSkips(step: ShellStep, depth: number): Skip {
+function stepSkips(step: ShellStep, depth: number, decodes: boolean): Skip {
   if (step.name !== "unset" && step.words.some((word) => SKIP_VARIABLE.test(word.text) || /^LATERDOG_SKIP_HOOKS$/.test(word.text) && step.name !== "echo")) return "plain";
   if (touchesHooks(step)) return "plain";
   if (step.name === "git") return gitSkips(step, depth);
@@ -179,12 +189,12 @@ function stepSkips(step: ShellStep, depth: number): Skip {
   if (step.args.some((arg) => arg.text === "push") && step.args.some((arg) => NO_VERIFY.test(arg.text))) return "plain";
   if (isShell(step.name) || step.name === "source" || step.name === ".") {
     const flag = step.args.findIndex((arg) => /^-[a-z]*c[a-z]*$/.test(arg.text));
-    if (flag !== -1 && unreadable(step.args[flag + 1])) return "unreadable";
-    if (step.args.some((arg) => arg.text.startsWith("<"))) return "unreadable";
+    if (decodes && flag !== -1 && unreadable(step.args[flag + 1])) return "unreadable";
+    if (decodes && step.words.some((word) => word.text.startsWith("<"))) return "unreadable";
     const fed = step.piped && !["echo", "printf"].includes(step.piped.name);
-    if (flag === -1 && !operandTexts(step.args).length && !step.here.length && fed) return "unreadable";
+    if (decodes && flag === -1 && !operandTexts(step.args).length && !step.here.length && fed) return "unreadable";
   }
-  if (step.name === "eval" && step.args.some((arg) => arg.vars)) return "unreadable";
+  if (decodes && step.name === "eval" && step.args.some((arg) => arg.vars)) return "unreadable";
   return null;
 }
 
@@ -216,9 +226,10 @@ function shellSkips(command: string, depth = 0): Skip {
   if (depth > DEPTH_LIMIT) return "unreadable";
   const steps = shellSteps(command, undefined, MAC_HOME, depth);
   const files = written(steps);
+  const decodes = steps.some((step) => DECODERS.has(step.name) || (step.name === "xxd" && step.args.some((arg) => arg.text === "-r")));
   let result: Skip = null;
   for (const step of steps) {
-    const skip = stepSkips(step, depth) ?? nestedSources(step, files).map((source) => shellSkips(source, depth + 1)).find(Boolean) ?? null;
+    const skip = stepSkips(step, depth, decodes) ?? nestedSources(step, files).map((source) => shellSkips(source, depth + 1)).find(Boolean) ?? null;
     if (skip === "plain") return "plain";
     result ??= skip;
   }

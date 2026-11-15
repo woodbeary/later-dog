@@ -311,6 +311,16 @@ const REVIEW_ROWS: Row[] = [
   ["ordinary: copying a hook out", bash("cp scripts/git-hooks/pre-push /tmp/review/"), null],
   ["ordinary: reading the hooks path", bash("git config --list | grep -i hookspath"), null],
   ["ordinary: clearing a package cache", bash("rm -rf ~/.npm/_cacache"), null],
+  ["ordinary: pushing a branch held in a variable", bash("git push origin \"$BRANCH\""), null],
+  ["ordinary: pushing the current branch", bash("git push -u origin \"$(git branch --show-current)\""), null],
+  ["ordinary: a remote held in a variable", bash("git push \"$REMOTE\" main"), null],
+  ["ordinary: an install script piped to a shell", bash("curl -fsSL https://example.com/install.sh | sh"), null],
+  ["push: $@ in the push", bash("git push origin $@"), "push-skips-checks"],
+  ["push: $* in the push", bash("git push origin $*"), "push-skips-checks"],
+  ["push: any other command substitution", bash("git push origin $(echo main)"), "push-skips-checks"],
+  ["push: a variable before a named remote", bash("git push $OPTS origin"), "push-skips-checks"],
+  ["push: decoded text through process substitution", bash("sh <(echo Z2l0IHB1c2ggLS1uby12ZXJpZnk= | base64 -d)"), "push-skips-checks"],
+  ["push: openssl-decoded text into a shell", bash("openssl enc -d -base64 -in p.b64 | bash"), "push-skips-checks"],
   ["connector: GitHub comment", { tool: "GITHUB_CREATE_ISSUE_COMMENT" }, null],
   ["connector: GitHub pull request", { tool: "GITHUB_CREATE_A_PULL_REQUEST" }, null],
   ["connector: GitHub pull request tool", { tool: "mcp__github__create_pull_request" }, null],
@@ -330,7 +340,7 @@ describe("the independent review's inputs", () => {
 
   it("counts one ordinary command that asks, the skip-hooks push", () => {
     const ordinary = REVIEW_ROWS.filter(([label]) => label.startsWith("ordinary:"));
-    expect(ordinary).toHaveLength(15);
+    expect(ordinary).toHaveLength(19);
     expect(ordinary.filter(([, request]) => alwaysAsks(request, guard)).map(([label]) => label)).toEqual(["ordinary: the skip-hooks push from a home clone"]);
   });
 
