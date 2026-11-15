@@ -24,14 +24,13 @@ export async function stopComputerJobs(jobs: ComputerJobs, threadId: string, dep
     const release = jobs.hold(job.id);
     let result: RunStop = "alive";
     try {
-      const computer = await deps.computer(job.botId);
-      if (computer.state === "asleep") {
+      const computer = await deps.computer(job.botId).catch(() => null);
+      if (computer?.state === "asleep") {
         left.push(job.id);
         continue;
       }
-      if (computer.state === "running") result = await deps.stop(computer.box, job);
-    } catch {
-      result = "alive";
+      if (computer?.state !== "running") result = "gone";
+      else result = await deps.stop(computer.box, job).catch((): RunStop => "alive");
     } finally {
       release();
     }

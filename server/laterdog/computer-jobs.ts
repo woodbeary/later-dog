@@ -14,6 +14,7 @@ export type ComputerJobEnd = z.infer<typeof endSchema>;
 export type EndedComputerJob = ComputerJob & { end: ComputerJobEnd };
 
 export const JOB_CHECK_MS = 30_000;
+export const UNREADABLE_MS = 10 * 60_000;
 export type JobComputer = { state: "running"; box: RunBox } | { state: "asleep" | "gone" | "unsure" };
 
 export interface ComputerJobProbe {
@@ -49,6 +50,7 @@ export class ComputerJobs implements ComputerJobLedger {
   readonly #held = new Map<string, number>();
   #checking = false;
   readonly #seen = new Map<string, Sighting>();
+  readonly #unreadableSince = new Map<string, number>();
 
   constructor(file: string | null, options: ComputerJobsOptions = {}) {
     this.#file = file;
@@ -155,19 +157,29 @@ export class ComputerJobs implements ComputerJobLedger {
       const before = this.#seen.get(job.id);
       this.#seen.delete(job.id);
       let sighting: Sighting | undefined;
+      let readable = false;
       try {
         const computer = await probe.computer(job.botId);
         if (computer.state === "asleep" || computer.state === "gone") sighting = computer.state;
         if (computer.state === "running") {
           const exit = await probe.exit(computer.box, job);
           if (exit && Number.isInteger(exit.exitCode)) {
+            this.#unreadableSince.delete(job.id);
             ends.set(job.id, jobEnd(exit.exitCode, exit.at !== undefined && Number.isFinite(exit.at) ? Math.min(exit.at, this.#now()) : this.#now()));
             continue;
           }
           if (await probe.liveness(computer.box, job) === "dead") sighting = "dead";
         }
+        readable = computer.state !== "unsure";
       } catch {
         sighting = undefined;
+      }
+      if (readable) this.#unreadableSince.delete(job.id);
+      else {
+        const since = this.#unreadableSince.get(job.id) ?? this.#now();
+        this.#unreadableSince.set(job.id, since);
+        if (this.#now() - since >= UNREADABLE_MS) ends.set(job.id, { how: "lost", at: this.#now() });
+        continue;
       }
       if (!sighting) continue;
       if (before !== sighting) { this.#seen.set(job.id, sighting); continue; }
@@ -175,6 +187,10 @@ export class ComputerJobs implements ComputerJobLedger {
     }
     for (const [id, end] of ends) if (!this.#held.has(id)) this.finished(id, end);
     for (const id of this.#seen.keys()) if (!this.#jobs.has(id)) this.#seen.delete(id);
+    for (const id of this.#unreadableSince.keys()) {
+      const job = this.#jobs.get(id);
+      if (!job || job.end) this.#unreadableSince.delete(id);
+    }
     return [...ends.keys()];
   }
 
