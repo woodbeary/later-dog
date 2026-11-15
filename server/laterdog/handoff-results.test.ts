@@ -268,7 +268,7 @@ describe("a coordinator is given its helpers' results as they come back", () => 
     expect(t.wakes()).toEqual([]);
   }));
 
-  it("keeps a group chat's coordinator waiting for every result, as before", () => team(async t => {
+  it("wakes a group chat's coordinator once some results are back, like any other coordinator", () => team(async t => {
     const room = (botId: string) => ({ groupId: `${botId}-room`, threadId: `${botId}-room-chat`, botId });
     t.engine.enqueue(room("lead"), "turn", undefined, room("pip"), "pip", "Lane for pip");
     t.engine.enqueue(room("lead"), "turn", undefined, room("rook"), "rook", "Lane for rook");
@@ -276,7 +276,7 @@ describe("a coordinator is given its helpers' results as they come back", () => 
     await t.settle();
     t.finish("pip"); await t.settle();
     t.clock.at += 10 * RESULT_MAX_WAIT_MS; await t.settle();
-    expect(vi.mocked(t.hooks.run).mock.calls.filter(([node, resumed]) => node.botId === "lead" && resumed)).toHaveLength(0);
+    expect(vi.mocked(t.hooks.run).mock.calls.filter(([node, resumed]) => node.botId === "lead" && resumed)).toHaveLength(1);
   }));
 });
 

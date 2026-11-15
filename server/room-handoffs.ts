@@ -541,7 +541,7 @@ export class RoomHandoffs {
         const children = this.awaited(n.id);
         if (!children.length && this.children(n.id).length) { n.status = "completed"; this.publish(n); }
         else if (children.every(c => terminal(c) && c.reported)) { n.status = "resume"; this.publish(n); }
-        else if (!n.groupId && partResultsDue(children, this.now(), this.limits, n.startedAt)) { n.status = "resume"; this.publish(n); }
+        else if (partResultsDue(children, this.now(), this.limits, n.startedAt)) { n.status = "resume"; this.publish(n); }
       }
       if (n.status !== "queued" && n.status !== "resume") continue;
       if (parent && (parent.status === "source" || parent.status === "running") &&
