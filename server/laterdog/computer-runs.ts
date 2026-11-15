@@ -30,7 +30,7 @@ function survivorsOf(id: string): string {
   const lock = `"$HOME/runs/.logs/${id}.lock"`;
   return `{ if [ -d /proc/self/fd ]; then marked=" $(grep -l -a -e '${RUN_MARKER}=${id}' /proc/[0-9]*/environ 2>/dev/null | tr '\\n' ' ') "; `
     + `for p in /proc/[0-9]*; do q=\${p#/proc/}; [ "$q" = "$$" ] && continue; `
-    + `case "$marked" in *" $p/environ "*) if tr '\\0' '\\n' < "$p/environ" 2>/dev/null | grep -qx '${RUN_MARKER}=${id}'; then echo "$q"; continue; fi;; esac; `
+    + `case "$marked" in (*" $p/environ "*) if tr '\\0' '\\n' < "$p/environ" 2>/dev/null | grep -qx '${RUN_MARKER}=${id}'; then echo "$q"; continue; fi;; esac; `
     + `for f in "$p"/fd/*; do [ "$f" -ef ${lock} ] && { echo "$q"; break; }; done; done; `
     + `elif command -v lsof > /dev/null; then lsof -t ${lock} 2>/dev/null; else echo unsure; fi; } | sort -u | tr '\\n' ' ' | sed 's/ *$//'`;
 }
