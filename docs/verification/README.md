@@ -1,6 +1,6 @@
 # Verifying later.dog
 
-Before any merge to `main`, run `pnpm gate` on the branch with `main` merged in and paste its verdict; see `scripts/merge-gate.mjs` for the steps and `LATERDOG_GATE_WRAP` to queue them.
+Before any merge to `main`, run `pnpm gate` on the branch with `main` merged in and paste its verdict; see `scripts/merge-gate.mjs` for the steps and `LATERDOG_GATE_WRAP` to queue them. `deploy/laterdog/home` and `deploy/laterdog/computers` are outside the pnpm workspace, so set each up once with `pnpm install --ignore-workspace --frozen-lockfile` inside it; a plain `pnpm install` there does nothing.
 
 later.dog has one development control surface: `pnpm control:laterdog`. It is a
 thin command-line adapter over `scripts/mcp-server.ts`, so verification uses
