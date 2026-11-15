@@ -5819,7 +5819,8 @@ const memoryUpkeep = createMemoryUpkeep({
     const bot = store.bot(botId);
     const instance = bot ? registry.get(bot.modelSelection.instanceId) : undefined;
     if (!bot || !instance || policyModelRefusal(instance)) return null;
-    const generate = dogWriter(instance, memoryWriterModel(instance.driverKind, bot.modelSelection.model));
+    const generate = dogWriter(instance, memoryWriterModel(instance.driverKind, bot.modelSelection.model,
+      { custom: Boolean((providerConfigs()[instance.instanceId]?.config as { managed?: boolean } | undefined)?.managed) || decodeInjectId(bot.modelSelection.model) !== null }));
     return generate ? {
       generateText: async (prompt, options) => {
         assertWithinBudget(cfg, DATA_DIR);

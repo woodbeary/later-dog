@@ -20,6 +20,7 @@ export function upkeepModelFor(engine: string, model: string | null | undefined)
   return index > CLAUDE_TIERS.indexOf(UPKEEP_FLOOR) ? CLAUDE_TIERS[index - 1]! : null;
 }
 
-export function memoryWriterModel(driverKind: string, model: string | null | undefined): string | null | undefined {
+export function memoryWriterModel(driverKind: string, model: string | null | undefined, options: { custom: boolean }): string | null | undefined {
+  if (options.custom) return model;
   return upkeepModelFor(driverKind === "claudeAgent" ? "claude" : driverKind, model) ?? model;
 }

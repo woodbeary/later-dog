@@ -32,6 +32,6 @@ it("leaves no caller that writes a dog's memory or history to the driver's small
     .filter(({ line }) => /\bgenerateText\b/.test(line));
   const unnamed = reads.filter(({ line }) => !/dogWriter\(|[Tt]itle|provider\.generateText|provider: \{ generateText|generateText: async \(prompt, options\)/.test(line));
   expect(unnamed, "every one-shot model call in server/index.ts that is not a chat title must go through dogWriter").toEqual([]);
-  expect(source).toMatch(/memoryUpkeep = createMemoryUpkeep\([\s\S]{0,600}dogWriter\(instance, memoryWriterModel\(instance\.driverKind, bot\.modelSelection\.model\)\)/);
+  expect(source).toMatch(/memoryUpkeep = createMemoryUpkeep\([\s\S]{0,600}dogWriter\(instance, memoryWriterModel\(instance\.driverKind, bot\.modelSelection\.model,/);
   expect(source).toMatch(/writeHistorySummary\([^)]*write: reportingUsage\(dogWriter\(instance, model\)/);
 });

@@ -17,15 +17,20 @@ it("leaves the dog's own model for an unknown model, a custom endpoint and anoth
     expect(upkeepModelFor("claude", model)).toBeNull();
   }
   expect(upkeepModelFor("codex", "gpt-5.6-sol")).toBeNull();
-  expect(memoryWriterModel("claudeAgent", "claude-opus-5-5")).toBe("sonnet");
-  expect(memoryWriterModel("claudeAgent", "claude-sonnet-5-5")).toBe("claude-sonnet-5-5");
-  expect(memoryWriterModel("claudeAgent", "kimi-k2.6")).toBe("kimi-k2.6");
-  expect(memoryWriterModel("codex", "gpt-5.6-sol")).toBe("gpt-5.6-sol");
-  expect(memoryWriterModel("claudeAgent", undefined)).toBeUndefined();
+  expect(memoryWriterModel("claudeAgent", "claude-opus-5-5", { custom: false })).toBe("sonnet");
+  expect(memoryWriterModel("claudeAgent", "claude-sonnet-5-5", { custom: false })).toBe("claude-sonnet-5-5");
+  expect(memoryWriterModel("claudeAgent", "kimi-k2.6", { custom: false })).toBe("kimi-k2.6");
+  expect(memoryWriterModel("codex", "gpt-5.6-sol", { custom: false })).toBe("gpt-5.6-sol");
+  expect(memoryWriterModel("claudeAgent", undefined, { custom: false })).toBeUndefined();
+});
+
+it("keeps the dog's own model on a company-managed account or a custom endpoint", () => {
+  expect(memoryWriterModel("claudeAgent", "claude-opus-5-5", { custom: true })).toBe("claude-opus-5-5");
+  expect(memoryWriterModel("claudeAgent", "claude-fable-5-2", { custom: true })).toBe("claude-fable-5-2");
 });
 
 it("is the model memory upkeep writes with, and the summary on a move keeps the chat's own", () => {
   const source = readFileSync(new URL("../index.ts", import.meta.url), "utf8");
-  expect(source).toMatch(/memoryUpkeep = createMemoryUpkeep\([\s\S]{0,600}dogWriter\(instance, memoryWriterModel\(instance\.driverKind, bot\.modelSelection\.model\)\)/);
+  expect(source).toMatch(/memoryUpkeep = createMemoryUpkeep\([\s\S]{0,600}dogWriter\(instance, memoryWriterModel\(instance\.driverKind, bot\.modelSelection\.model,[\s\S]{0,300}managed[\s\S]{0,100}decodeInjectId/);
   expect(source).toMatch(/write: reportingUsage\(dogWriter\(instance, model\)/);
 });
