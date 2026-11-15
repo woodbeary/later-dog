@@ -8,7 +8,7 @@ import { visibleMessages, currentTaskBot, type Bot, type Group, type Message } f
 import { useDrawnDogs, useStoreDispatch, useStoreSelector } from "@/state/store-selectors";
 import { chatPane } from "@/state/pane-errors";
 import { waitingOnPerson } from "@/lib/waiting-on-person";
-import { answerByTyping, releaseTypedAnswer, useTypedAnswer } from "@/lib/typed-answer";
+import { answerByTyping, forgetClosedAnswer, releaseTypedAnswer, useClosedAnswer, useTypedAnswer } from "@/lib/typed-answer";
 import { cn } from "@/lib/cn";
 import { useMenuMotion } from "./MenuMotion";
 import { activeLocale, t } from "@/lib/i18n";
@@ -141,6 +141,7 @@ export function Composer({
   const canSteer = steerCapabilities?.queueing === true;
   const threadId = group?.threadId ?? bot?.threadId ?? "";
   const typedAnswer = useTypedAnswer(threadId);
+  const answerClosed = useClosedAnswer(threadId);
   const errorPane = threadId ? chatPane(threadId) : undefined;
   const approvals = pendingApprovals(group ? group.messages : bot ? visibleMessages(bot) : []);
   const approval = approvals[0];
@@ -612,6 +613,7 @@ export function Composer({
     }
     const body = composeMessage(text, attachments);
     if (!body) return;
+    forgetClosedAnswer(threadId);
     const account = !group && bot ? instances.find((instance) => instance.instanceId === bot.modelSelection.instanceId) : undefined;
     if (!signedInNow && account?.snapshot && signInFamily(account) && (needsSignIn(account) || needsCli(account))) {
       sendAfterSignIn.current = () => send(true, deliver);
@@ -988,6 +990,9 @@ export function Composer({
           uploadImage={uploadImage}
           admitFiles={admitFiles}
         />
+        {answerClosed && Boolean(text.trim()) && (
+          <p data-typed-answer-closed role="status" className="px-1 pb-1 text-[12px] text-ink-secondary">{t("composer.answerClosed")}</p>
+        )}
         {(recording || (sharpening > 0 && !retryingNote)) && (
           <DictationStrip
             phase={recording ? "recording" : "transcribing"}

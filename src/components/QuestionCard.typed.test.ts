@@ -24,6 +24,7 @@ const { OptionCard } = await import("./OptionCard");
 const { appendComposerDraft } = await import("@/lib/drafts");
 const { setLocale } = await import("@/lib/i18n");
 const { formatQuestionAnswers } = await import("../../shared/ask-question");
+const { releaseTypedAnswer, typedAnswerFor } = await import("@/lib/typed-answer");
 
 const QUESTIONS = [
   { question: "Which colour?", header: "Colour", options: [{ label: "Red" }, { label: "Blue" }] },
@@ -169,5 +170,40 @@ describe("answering a card in your own words", () => {
     await enter();
     expect(actions()).toEqual([expect.objectContaining({ type: "decideRequest", requestId: "req-c", message: "gamma" })]);
     expect(host.querySelectorAll("[data-question-typing]")).toHaveLength(0);
+  });
+
+  it("when the card closes while the person types, keeps the words, lets go of Other and says the question was answered", async () => {
+    const threadId = `thread-${++n}`;
+    appendComposerDraft(`bot:biscuit:${threadId}`, "gamma");
+    const card = (answered?: string) => createElement(OptionCard, {
+      key: "c", botId: "biscuit", threadId,
+      message: { id: "c", role: "bot", kind: "options", at: 1, card: { title: "Which name?", subtitle: "", options: ["alpha", "beta"], requestId: "req-c", requestType: "question", ...(answered ? { answered } : {}) } } as Message,
+    });
+    const draw = (answered?: string) => act(async () => root.render(createElement(Fragment, null, card(answered), createElement("div", { key: "box", "data-tour": "composer" }, createElement(Composer, { bot: dog(threadId) })))));
+    await draw();
+    await click("Other");
+    await draw("beta");
+    const box = host.querySelector("textarea")!;
+    expect(box.value).toBe("gamma");
+    expect(box.placeholder).not.toBe("Type your answer");
+    expect(host.querySelector("[data-typed-answer-closed]")?.textContent).toBe("This question was answered. Your words are still here.");
+    expect(host.querySelector("[data-option-other]")).toBeNull();
+    await enter();
+    expect(actions()).toEqual([expect.objectContaining({ type: "send", text: "gamma" })]);
+    expect(host.querySelector("[data-typed-answer-closed]")).toBeNull();
+  });
+
+  it("when a file goes with the words, sends an ordinary message and leaves the card open with Other let go", async () => {
+    const threadId = `thread-${++n}`;
+    appendComposerDraft(`bot:biscuit:${threadId}`, "see the picture");
+    await act(async () => root.render(createElement(Fragment, null, question(threadId), createElement("div", { "data-tour": "composer" }, createElement(Composer, { bot: dog(threadId) })))));
+    await click("Red");
+    await click("Other");
+    expect(typedAnswerFor(threadId)).not.toBeNull();
+    releaseTypedAnswer();
+    await act(async () => {});
+    expect([...host.querySelectorAll<HTMLElement>("[role=radio]")].find((radio) => radio.textContent?.endsWith("Other"))!.getAttribute("aria-checked")).toBe("false");
+    expect(host.querySelector('[role="group"]')).not.toBeNull();
+    expect(host.querySelector("textarea")!.placeholder).not.toBe("Type your answer");
   });
 });

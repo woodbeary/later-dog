@@ -56,7 +56,7 @@ export function OptionCard({
   const answerThread = threadId ?? bot?.threadId;
   const typing = useTypedAnswer(answerThread)?.messageId === message.id;
   const settledNow = Boolean(card?.answered) || Boolean(card?.pendingAnswer) || picked !== undefined || Boolean(card?.dismissed);
-  useEffect(() => { if (settledNow) releaseTypedAnswer(message.id); }, [settledNow, message.id]);
+  useEffect(() => { if (settledNow) releaseTypedAnswer(message.id, true); }, [settledNow, message.id]);
   useEffect(() => () => releaseTypedAnswer(message.id), [message.id]);
   const transcript = bot ? visibleMessages(bot) : [];
   if (!card || shouldHideOnboardingCard(message, transcript) || (card.requestId && card.dismissed && card.answered)) return null;

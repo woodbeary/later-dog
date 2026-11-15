@@ -53,7 +53,7 @@ export function QuestionCard({
   draftsRef.current = drafts;
   const targetRef = useRef(0);
   const settledNow = Boolean(card?.answered) || sent !== null || Boolean(card?.dismissed);
-  useEffect(() => { if (settledNow) releaseTypedAnswer(message.id); }, [settledNow, message.id]);
+  useEffect(() => { if (settledNow) releaseTypedAnswer(message.id, true); }, [settledNow, message.id]);
   useEffect(() => () => releaseTypedAnswer(message.id), [message.id]);
   const typing = useTypedAnswer(threadId)?.messageId === message.id;
   useEffect(() => {

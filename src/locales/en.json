@@ -215,6 +215,7 @@
   "question.otherBelow": "Type your answer in the message box below.",
   "question.otherMissing": "Pick an answer for {name} first, then send yours.",
   "composer.placeholder.answer": "Type your answer",
+  "composer.answerClosed": "This question was answered. Your words are still here.",
   "question.submit": "Submit answer",
   "question.submitAll": "Submit answers",
   "question.status.answered": "Answered",
