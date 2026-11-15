@@ -81,14 +81,14 @@ const profile = (id: string, name: string, extra: Partial<Bot> = {}): Bot => ({
 let root: Root;
 let dispatched = vi.fn();
 const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
-async function draw(messages: Message[], missing: string[] = [], extra: Helper[] = []) {
+async function draw(messages: Message[], missing: string[] = [], extra: Helper[] = [], config: AppState["config"] = null) {
   const chained = messages.map((message, index) => ({ ...message, parentId: messages[index - 1]?.id ?? null }));
   const helpers = [...HELPERS, LATE, { id: "h7", name: "Gorse", status: "running" as const }, ...extra].filter((helper) => !missing.includes(helper.id)).map((helper) => profile(helper.id, helper.name));
   const state: AppState = {
     ...initialState, connected: true, selectedId: "lead",
     bots: [profile("lead", "Lead", { messages: chained, activeLeafId: chained.at(-1)!.id }), ...helpers],
     instances: [{ instanceId: "test", driverKind: "codex", displayName: "Test", snapshot: { state: "available" } } as InstanceInfo],
-    config: null,
+    config,
   };
   dispatched = vi.fn();
   const value = { state, dispatch: dispatched, flushBotPatches: async () => null, refreshInstances: async () => {}, refreshModels: async () => {} };
@@ -247,6 +247,16 @@ describe("standing facts about where a chat runs", () => {
     expect(document.body.textContent).not.toContain("Running on Work");
     expect(document.querySelector('[data-mid="moved"]')).toBeNull();
     expect(document.querySelector('[data-mid="resume"]')).not.toBeNull();
+  });
+
+  it("keep the reason in view by the message box while the chat still runs on the other account, and drop it once it no longer does", async () => {
+    const moved: Message = { id: "moved", role: "bot", kind: "activity", at: START + 1_000, tool: { name: "notice: Running on Work — Home is recharging, back at 9:00 AM.", ok: true, carry: { from: "home", to: "work" } } };
+    const routed = (on: string) => ({ accountBattery: { enabled: true, order: {}, resting: {}, routed: { "lead-thread": { from: "home", on, model: "m" } } } }) as unknown as AppState["config"];
+    await draw([you("open", START, "Keep going."), moved, said("done", START + 40_000, "Done.")], [], [], routed("work"));
+    expect(document.querySelector("[data-running-on]")?.textContent).toContain("Home is recharging, back at 9:00 AM.");
+    expect(document.querySelector('[data-mid="moved"]')).toBeNull();
+    await draw([you("open", START, "Keep going."), moved, said("done", START + 40_000, "Done.")], [], [], routed("home"));
+    expect(document.querySelector("[data-running-on]")).toBeNull();
   });
 });
 

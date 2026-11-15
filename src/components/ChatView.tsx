@@ -51,6 +51,7 @@ import { ExchangeLine, ExchangeThreadContext, PlainNoteLine } from "./QuietLines
 import { FailedSendLine, TeamBlock } from "./TeamBlock";
 import { foldTeams } from "@/lib/team-block";
 import { standingNotice } from "@/lib/standing-notice";
+import { RunningOnLine } from "./RunningOnLine";
 import { ExchangeViewHost } from "./ExchangeViewHost";
 import { foldExchanges, foldedRuns, expandedExchange, quietTranscriptItemShown, shownToPerson } from "@/lib/quiet-lines";
 import { RecoveredLine } from "./RecoveredLine";
@@ -1329,6 +1330,7 @@ export function ChatView({ bot: profile }: { bot: Bot }) {
       <LiveCallBar bot={bot} />
       {!takeoverOpen && <NeedsYouRow botId={bot.id} name={bot.name} />}
       <PaneErrorLine panes={[chatPane(bot.threadId)]} look="tray" />
+      <RunningOnLine messages={thread} threadId={bot.threadId} />
       {canWrite === false ? (
         <p className="pointer-events-auto mx-5 mb-4 rounded-2xl border border-hairline/60 bg-raised px-4 py-3 text-[13px] text-ink-secondary" data-testid="cloud-guest-composer">{t("chat.cloudGuest.notYours")}</p>
       ) : (
