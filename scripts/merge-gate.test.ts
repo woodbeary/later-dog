@@ -1,10 +1,10 @@
 import { execFileSync, spawnSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
-import { NEEDS_BROWSER, browserSkips, failingFiles, formatVerdict, gateSteps, judgeStep, verdict, vitestCounts, wrapperFrom } from "./merge-gate.mjs";
+import { NEEDS_BROWSER, NOT_THIS_RUN, browserSkips, readReport, failingFiles, formatVerdict, gateSteps, judgeStep, verdict, vitestCounts, wrapperFrom } from "./merge-gate.mjs";
 
 const script = fileURLToPath(new URL("./merge-gate.mjs", import.meta.url));
 const repoRoot = fileURLToPath(new URL("..", import.meta.url));
@@ -45,7 +45,22 @@ describe("merge gate verdict", () => {
     expect(judgeStep(shard, 0, passing, { ...clean, numTotalTests: 0, testResults: [] })).toMatchObject({ failed: true, failing: ["suite 1/8 (no tests ran)"] });
     expect(judgeStep(shard, 0, " Test Files  1 failed (1)\n      Tests  1 failed (1)\n", clean, "/repo")).toMatchObject({ failed: true, failing: ["suite 1/8 (its summary counts failed files)"] });
     expect(judgeStep(shard, 1, failing, clean, "/repo")).toMatchObject({ failed: true, failing: ["server/b.test.ts", "src/c.test.ts"] });
-    expect(judgeStep(shard, 137, "killed", clean, "/repo")).toMatchObject({ failed: true, failing: ["suite 1/8 (exit 137)"] });
+    expect(judgeStep(shard, 137, "killed", clean, "/repo")).toMatchObject({ failed: true, failing: ["suite 1/8 (no test summary; exit 137)"] });
+  });
+
+  it("fails a suite part with no test summary, or whose report is older than the step", () => {
+    const clean = recorded("stray.json", "/repo");
+    expect(judgeStep(shard, 0, "", clean, "/repo")).toMatchObject({ failed: true, failing: ["suite 1/8 (no test summary)"] });
+    const dir = mkdtempSync(join(tmpdir(), "laterdog-gate-report-"));
+    const file = join(dir, "old.json");
+    writeFileSync(file, JSON.stringify(clean));
+    utimesSync(file, new Date(Date.now() - 60_000), new Date(Date.now() - 60_000));
+    expect(readReport(file, Date.now() - 1000)).toBe(NOT_THIS_RUN);
+    expect(judgeStep(shard, 0, passing, readReport(file, Date.now() - 1000))).toMatchObject({ failed: true, failing: ["suite 1/8 (its JSON report was not written by this run)"] });
+    expect(readReport(file, 0)).toMatchObject({ numTotalTests: 2 });
+    writeFileSync(file, "{ not json");
+    expect(readReport(file, 0)).toBeNull();
+    rmSync(dir, { recursive: true, force: true });
   });
 
   it("fails typecheck, lint and the node tests on what they print, not only on their exit code", () => {
@@ -121,6 +136,7 @@ describe("merge gate exit code", () => {
     writeFileSync(fake, `const require = (await import("node:module")).createRequire(import.meta.url);
 const words = process.argv.slice(2).join(" ");
 if (${JSON.stringify(failOn)} && words.includes(${JSON.stringify(failOn)})) { console.log(${JSON.stringify(failing)}); process.exit(1); }
+if (words.includes("vitest") && process.env.FAKE_VITEST_SILENT) process.exit(0);
 const out = process.argv.find((word) => word.startsWith("--outputFile.json="))?.slice("--outputFile.json=".length);
 const skip = words.includes("--shard=2/8") && process.env.FAKE_NO_BROWSER;
 if (out) require("node:fs").writeFileSync(out, (skip ? ${JSON.stringify(JSON.stringify(recorded("skip.json", "<cwd>")))} : ${JSON.stringify(JSON.stringify(recorded("stray.json", "<cwd>")))}).replaceAll("<cwd>", process.cwd()));
@@ -227,6 +243,17 @@ console.log(words.includes("vitest") ? ${JSON.stringify(passing)} : words.includ
     const untracked = gate([], { before: (repo) => writeFileSync(join(repo, "extra.test.ts"), "") });
     expect(untracked.stdout).toContain("untracked: extra.test.ts");
     expect(untracked.status).toBe(1);
+  });
+
+  it("never reads a report an earlier run left in a shared logs folder", () => {
+    const logs = join(mkdtempSync(join(tmpdir(), "laterdog-gate-logs-")), "shared");
+    dirs.push(join(logs, ".."));
+    const first = gate([], { env: { LATERDOG_GATE_LOGS: logs } });
+    expect(first.status).toBe(0);
+    const second = gate([], { env: { LATERDOG_GATE_LOGS: logs, FAKE_VITEST_SILENT: "1" } });
+    expect(second.stdout).toContain("suite 1/8 (no JSON report; no test summary)");
+    expect(second.stdout).toContain("VERDICT: FAIL");
+    expect(second.status).toBe(1);
   });
 
   it("prints the head and origin/main commits on the verdict line", () => {

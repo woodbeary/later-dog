@@ -1,5 +1,5 @@
 import { spawn, spawnSync } from "node:child_process";
-import { createWriteStream, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { createWriteStream, existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { isAbsolute, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -79,8 +79,13 @@ export function browserSkips(report, root = "") {
     .map((file) => reportFile(file.name, root));
 }
 
-export function readReport(file) {
-  try { return JSON.parse(readFileSync(file, "utf8")); } catch { return null; }
+export const NOT_THIS_RUN = Object.freeze({ notThisRun: true });
+
+export function readReport(file, since = 0) {
+  try {
+    if (statSync(file).mtimeMs < since) return NOT_THIS_RUN;
+    return JSON.parse(readFileSync(file, "utf8"));
+  } catch { return null; }
 }
 
 export function vitestCounts(log) {
@@ -97,6 +102,7 @@ export function checkProblems(step, log) {
 }
 
 export function reportProblems(report, root = "") {
+  if (report === NOT_THIS_RUN) return { files: [], problems: ["its JSON report was not written by this run"] };
   if (!report || typeof report !== "object") return { files: [], problems: ["no JSON report"] };
   const files = (report.testResults ?? []).filter((file) => file.status === "failed").map((file) => reportFile(file.name, root));
   const problems = [];
@@ -125,6 +131,7 @@ export function judgeStep(step, code, log, report = null, root = "") {
   const errors = unhandledErrors(log);
   const problems = [
     ...fromReport.problems,
+    ...(counts ? [] : ["no test summary"]),
     ...(errors ? [`${errors} unhandled error${errors === 1 ? "" : "s"}`] : []),
     ...(counts && /\bfailed\b/.test(counts.files) && !files.length ? ["its summary counts failed files"] : []),
     ...(code !== 0 && !files.length && !fromReport.problems.length && !errors ? [`exit ${code}`] : []),
@@ -235,10 +242,11 @@ async function main() {
       console.log(`${result.notRun ? "skip" : "FAIL"} ${step.name}  ${result.note}`);
       continue;
     }
-    const stepStarted = Date.now();
     const reportPath = logFile.replace(/\.log$/, ".json");
+    rmSync(reportPath, { force: true });
+    const stepStarted = Date.now();
     const code = await runStep(root, step, wrapper, logFile, reportPath);
-    const result = judgeStep(step, code, readFileSync(logFile, "utf8"), step.kind === "vitest" ? readReport(reportPath) : null, root);
+    const result = judgeStep(step, code, readFileSync(logFile, "utf8"), step.kind === "vitest" ? readReport(reportPath, stepStarted - 1000) : null, root);
     results.push(result);
     console.log(`${result.failed ? "FAIL" : "ok  "} ${step.name} exit ${code} in ${Math.round((Date.now() - stepStarted) / 1000)}s${result.note ? `  ${result.note}` : ""}`);
   }
