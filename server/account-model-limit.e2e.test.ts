@@ -7,14 +7,17 @@ import { launchVerificationServer, runControlLaterDog, verificationServerEnviron
 import { waitForExit } from "./testing/cleanup.ts";
 
 const FABLE = "claude-fable-5-1";
+const OPUS = "claude-opus-5-5";
 const SONNET = "claude-sonnet-5";
 const jsonLines = (path: string): unknown[] => existsSync(path)
   ? readFileSync(path, "utf8").split("\n").filter(Boolean).map((line) => JSON.parse(line)) : [];
 
-it("rests only Fable on daniel when Fable's own weekly limit is reached, and says so in the plan usage report", async () => {
+interface OneModelLimit { model: string; name: string; label: string; engine: Record<string, string> }
+
+const restsOnlyItsModel = (limit: OneModelLimit) => async () => {
   const fixture = await launchVerificationServer({});
   const { dataDir, url, logPath } = fixture.info;
-  const gate = join(dataDir, "fable-limit-reached");
+  const gate = join(dataDir, "model-limit-reached");
   const danielPrompts = join(dataDir, "daniel-prompts.jsonl");
   const anthonyPrompts = join(dataDir, "anthony-prompts.jsonl");
   const evidence: unknown[] = [{ url }];
@@ -42,8 +45,7 @@ it("rests only Fable on daniel when Fable's own weekly limit is reached, and say
       ...config.instances.claude, displayName: "daniel",
       config: { ...config.instances.claude.config, configDir: join(dataDir, "providers", "daniel") },
       environment: {
-        FAKE_CLAUDE_MODE: "usage-limit", FAKE_CLAUDE_USAGE_LIMIT_GATE: gate, FAKE_CLAUDE_USAGE_LIMIT_MODEL: "fable",
-        FAKE_CLAUDE_USAGE_LIMIT_TYPE: "seven_day_overage_included", FAKE_CLAUDE_USAGE_LIMIT: "You've reached your Fable limit.",
+        FAKE_CLAUDE_MODE: "usage-limit", FAKE_CLAUDE_USAGE_LIMIT_GATE: gate, ...limit.engine,
         FAKE_CLAUDE_USAGE_RESETS_IN: String(40 * 3600), FAKE_CLAUDE_PROMPTS: danielPrompts, FAKE_CLAUDE_TOOL_CALLS: "[]",
         FAKE_CLAUDE_REPLIES: JSON.stringify(["hello from daniel"]),
       },
@@ -81,13 +83,13 @@ it("rests only Fable on daniel when Fable's own weekly limit is reached, and say
       return { reply };
     };
 
-    writeFileSync(gate, "Fable's own weekly allowance is used up");
-    const fable = await dog("Fable dog", FABLE);
-    const fableRows = await fable.reply("FABLE_TURN_1", anthonyPrompts);
-    evidence.push({ fableRows });
-    expect(fableRows.findLast((row) => row.role === "bot" && row.kind === "text")?.text).toBe("hello from anthony");
-    expect.soft(fableRows.filter((row) => row.tool?.name?.startsWith("recovery: Switched to")).map((row) => row.tool.name)).toEqual([
-      expect.stringMatching(/^recovery: Switched to anthony — daniel hit its Fable limit, resets /),
+    writeFileSync(gate, `${limit.name} is used up on daniel`);
+    const limited = await dog(`${limit.name} dog`, limit.model);
+    const limitedRows = await limited.reply("LIMITED_TURN_1", anthonyPrompts);
+    evidence.push({ limitedRows });
+    expect(limitedRows.findLast((row) => row.role === "bot" && row.kind === "text")?.text).toBe("hello from anthony");
+    expect.soft(limitedRows.filter((row) => row.tool?.name?.startsWith("recovery: Switched to")).map((row) => row.tool.name)).toEqual([
+      expect.stringMatching(new RegExp(`^recovery: Switched to anthony — daniel hit its ${limit.name} limit, resets `)),
     ]);
     expect(jsonLines(danielPrompts)).toHaveLength(1);
 
@@ -99,7 +101,7 @@ it("rests only Fable on daniel when Fable's own weekly limit is reached, and say
     evidence.push({ usage });
     const daniel = usage.providers.find((row: any) => row.id === "claude");
     expect.soft(daniel).not.toHaveProperty("restingUntil");
-    expect.soft(daniel.limitsHit).toEqual([{ limit: "model", model: "Fable", label: "Fable weekly limit", until: expect.any(String) }]);
+    expect.soft(daniel.limitsHit).toEqual([{ limit: "model", model: limit.name, label: limit.label, until: expect.any(String) }]);
     expect.soft(Date.parse(daniel.limitsHit?.[0]?.until)).toBeGreaterThan(Date.now() + 39 * 3600_000);
     expect.soft(usage.providers.find((row: any) => row.id === "claude-anthony").limitsHit).toEqual([]);
     expect.soft(usage.providers.map((row: any) => row.id)).not.toContain("claudeApi");
@@ -110,7 +112,7 @@ it("rests only Fable on daniel when Fable's own weekly limit is reached, and say
     expect(sonnetRows.some((row) => row.tool?.name?.startsWith("recovery:"))).toBe(false);
     expect(jsonLines(danielPrompts)).toHaveLength(2);
 
-    await fable.reply("FABLE_TURN_2", anthonyPrompts);
+    await limited.reply("LIMITED_TURN_2", anthonyPrompts);
     expect(jsonLines(danielPrompts)).toHaveLength(2);
     expect(jsonLines(anthonyPrompts)).toHaveLength(2);
   } finally {
@@ -120,4 +122,17 @@ it("rests only Fable on daniel when Fable's own weekly limit is reached, and say
     await fixture.close();
     console.info(JSON.stringify({ logPath, evidencePath, fixtureRemoved: !existsSync(dataDir) }));
   }
-}, 120_000);
+};
+
+it("rests only Fable on daniel when Fable's own weekly limit is reached, and says so in the plan usage report", restsOnlyItsModel({
+  model: FABLE, name: "Fable", label: "Fable weekly limit",
+  engine: { FAKE_CLAUDE_USAGE_LIMIT_MODEL: "fable", FAKE_CLAUDE_USAGE_LIMIT_TYPE: "seven_day_overage_included", FAKE_CLAUDE_USAGE_LIMIT: "You've reached your Fable limit." },
+}), 120_000);
+
+it("rests only Opus on daniel when the engine refuses Opus for usage credits without naming a limit", restsOnlyItsModel({
+  model: OPUS, name: "Opus", label: "Opus limit",
+  engine: {
+    FAKE_CLAUDE_USAGE_LIMIT_MODEL: "opus", FAKE_CLAUDE_USAGE_LIMIT_API_ERROR: "model_requires_usage_credits",
+    FAKE_CLAUDE_USAGE_LIMIT: "Opus requires usage credits. Switch to another model to continue.",
+  },
+}), 120_000);
