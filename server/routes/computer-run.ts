@@ -8,6 +8,7 @@ export interface ComputerRunRouteDeps extends ComputerRunDeps {
   owns(botId: string, threadId: string): boolean;
   folders(botId: string, threadId: string): string[];
   active?(capability: unknown): boolean;
+  maxWaitMs?(threadId: string): number;
 }
 
 export function createComputerRunRoute(deps: ComputerRunRouteDeps): InternalRouteHandler {
@@ -17,7 +18,7 @@ export function createComputerRunRoute(deps: ComputerRunRouteDeps): InternalRout
     const body = await readBody();
     const roots = deps.folders(sender.id, threadId);
     const active = deps.active ? () => deps.active!(capability) : undefined;
-    const answer = await handleComputerRun({ botId: sender.id, body: body && typeof body === "object" ? body : {}, workingFolder: roots[0] ?? null, allowedRoots: roots, ...(active ? { active } : {}) }, deps);
+    const answer = await handleComputerRun({ botId: sender.id, body: body && typeof body === "object" ? body : {}, workingFolder: roots[0] ?? null, allowedRoots: roots, ...(deps.maxWaitMs ? { maxWaitMs: deps.maxWaitMs(threadId) } : {}), ...(active ? { active } : {}) }, deps);
     return json(res, answer.status, answer.error ? { error: answer.error } : { text: answer.text, failed: answer.failed });
   };
 }

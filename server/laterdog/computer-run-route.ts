@@ -2,7 +2,8 @@ import { execFileSync } from "node:child_process";
 import { lstatSync } from "node:fs";
 import { homedir } from "node:os";
 import { isAbsolute, join, normalize, relative, resolve } from "node:path";
-import { ComputerRuns, WAIT_IN_ONE_CALL_MS, type RunBox, type RunOutcome } from "./computer-runs.ts";
+import { ComputerRuns, type RunBox, type RunOutcome } from "./computer-runs.ts";
+import { stillRunningTail, waitWindowMs } from "./run-wait.ts";
 
 export interface ComputerRunRequest {
   botId: string;
@@ -11,6 +12,7 @@ export interface ComputerRunRequest {
   allowedRoots: readonly string[];
   home?: string;
   active?: () => boolean;
+  maxWaitMs?: number;
 }
 
 export interface ComputerRunDeps {
@@ -61,7 +63,8 @@ export function outcomeText(outcome: RunOutcome): string {
   if (outcome.broughtBack.length) lines.push(`Brought back ${outcome.broughtBack.length} file(s): ${outcome.broughtBack.slice(0, 20).join(", ")}${outcome.broughtBack.length > 20 ? ", …" : ""}.`);
   else if (outcome.state === "finished") lines.push("It changed no files here.");
   if (outcome.note) lines.push(outcome.note);
-  lines.push("", "Output (end):", outcome.output.trim() || "(none)");
+  const stillGoing = outcome.state === "running" && outcome.exitCode === null;
+  lines.push("", "Output (end):", (stillGoing ? stillRunningTail(outcome.output.trim()) : outcome.output.trim()) || "(none)");
   return lines.join("\n");
 }
 
@@ -80,9 +83,10 @@ export async function handleComputerRun(request: ComputerRunRequest, deps: Compu
     const repository = record ? null : (deps.repositoryOf ?? repositoryOf)(folder);
     const now = deps.now ?? Date.now;
     const started = now();
-    const computer = await deps.computer(request.botId, { ...(repository ? { repository } : {}), ...(request.active ? { wanted: request.active } : {}), budgetMs: WAIT_IN_ONE_CALL_MS });
+    const windowMs = waitWindowMs(request.body.wait_minutes, request.maxWaitMs);
+    const computer = await deps.computer(request.botId, { ...(repository ? { repository } : {}), ...(request.active ? { wanted: request.active } : {}), budgetMs: windowMs });
     if (request.active && !request.active()) return { status: 409, error: ENDED_TEXT };
-    const left = () => started + WAIT_IN_ONE_CALL_MS - now();
+    const left = () => started + windowMs - now();
     const outcome = record
       ? await deps.runs.finish(computer.box, record, undefined, left)
       : await deps.runs.run(computer.box, { botId: request.botId, folder, subdir, command, left, ...(request.active ? { active: request.active } : {}) });

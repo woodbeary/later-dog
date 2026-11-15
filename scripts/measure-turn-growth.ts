@@ -110,7 +110,7 @@ function row(name: string, steps: Steps | Steps[]): string {
 
 export async function measure(serverFile: string): Promise<string> {
   const polled = await waitForJob({});
-  const waited = await waitForJob({ wait_minutes: 60 });
+  const waited = await waitForJob({ wait_minutes: 60 }, 60 * 60_000);
   const reads = fileReads(serverFile);
   const lane = await helperLane();
   return [
