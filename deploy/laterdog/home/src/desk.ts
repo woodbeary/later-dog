@@ -272,7 +272,7 @@ function asksOneAnswer(body: string): boolean {
 
 export function heldForSameCard(outbox: readonly QueuedSend[], next: QueuedSend): QueuedSend | undefined {
   const cardId = asksOneAnswer(next.body) ? cardIdOf(next.body) : null;
-  return cardId ? outbox.find((queued) => queued.id !== next.id && queued.path === next.path && cardIdOf(queued.body) === cardId) : undefined;
+  return cardId ? outbox.find((queued) => queued.id !== next.id && queued.path === next.path && queued.threadId === next.threadId && cardIdOf(queued.body) === cardId) : undefined;
 }
 
 export function sameCardReceipt(first: QueuedSend, withWords: boolean): Response {

@@ -742,6 +742,8 @@ describe("card answers the edge holds for the person", () => {
       expect(await second.json()).toMatchObject({ queued: true, queueId: CARD_SEND, cardId: "card-1", text: "Yes" });
       expect(await (await list(visit)).json()).toMatchObject({ answers: [{ sendId: CARD_SEND, text: "Yes" }] });
       expect((await list(visit, { headers: asSecond })).status).toBe(200);
+      const otherChat = await visit("/api/bots/rex/messages", { method: "POST", headers: asSecond, body: JSON.stringify({ text: "Maybe", sendId: "send-card-0000000004", threadId: "t-other", cardId: "card-1", oneAnswer: true }) });
+      expect(await otherChat.json()).toMatchObject({ queued: true, queueId: "send-card-0000000004" });
       const delivered: string[] = [];
       world.answers.set("POST /api/bots/rex/messages", async (request) => {
         delivered.push(((await request.json()) as { sendId: string }).sendId);
@@ -749,7 +751,7 @@ describe("card answers the edge holds for the person", () => {
       });
       machine.serving = true;
       await visit("/api/bots", asOwner());
-      expect(delivered).toEqual([CARD_SEND]);
+      expect(delivered).toEqual([CARD_SEND, "send-card-0000000004"]);
       expect((home as unknown as { outbox: unknown[] }).outbox).toEqual([]);
     });
 
