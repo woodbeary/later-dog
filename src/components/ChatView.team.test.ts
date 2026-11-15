@@ -157,6 +157,23 @@ describe("a turn's hand-outs as one team block", () => {
     expect(quietRows()).toHaveLength(1);
   });
 
+  it("keeps a send to the team that failed as its own line naming who it couldn't reach, before or after a good one", async () => {
+    const [a, b] = [HELPERS[0]!, HELPERS[2]!];
+    const failed = (at: number): Message => ({ ...step(`fail-${at}`, "mcp__agents__coordinate_bots", at, false), tool: { name: "mcp__agents__coordinate_bots", ok: false, spoken: `checking with ${b.name}` } });
+    for (const order of ["after", "before"] as const) {
+      const good = [asked(a, START + 20_000), sent(a, START + 20_200, "running")];
+      await draw([
+        you("open", START, "Ask two dogs."),
+        ...(order === "before" ? [failed(START + 10_000), ...good] : [...good, failed(START + 26_000)]),
+        said("asked", START + 30_000, "One has it."),
+      ]);
+      expect(blocks()).toEqual([{ heading: "Asked 1 dog", rows: ["Acorn: Working"] }]);
+      const line = document.querySelector("[data-failed-send]");
+      expect(line?.textContent).toBe("Couldn't reach Cedar");
+      expect(document.querySelector("[data-team-block]")!.textContent).not.toContain("Cedar");
+    }
+  });
+
   it("has plain words for every way the home can end a request", () => {
     const ends: ExchangeEnd[] = ["person", "api", "interrupted", "deleted", "idle", "capped", "origin", "limit", "restart", "problem", "timeout", "ceiling"];
     expect(Object.keys(END_STATES).sort()).toEqual([...ends].sort());

@@ -6,7 +6,8 @@ import { t } from "@/lib/i18n";
 import { cn } from "@/lib/cn";
 import { currentDogName } from "@/lib/dog-refs";
 import { openExchange } from "@/lib/exchange-view";
-import { teamHeading, teamRows, type TeamItem, type TeamRow, type TeamState } from "@/lib/team-block";
+import { TriangleAlert } from "lucide-react";
+import { teamHeading, teamRows, unreachedNames, type FailedSendItem, type TeamItem, type TeamRow, type TeamState } from "@/lib/team-block";
 import type { WireWaitingOn } from "../../shared/wire";
 import { BotAvatar } from "./Avatar";
 import { ExchangeThreadContext, QUIET_FACE_SIZE } from "./QuietLines";
@@ -104,3 +105,16 @@ export const TeamBlock = memo(function TeamBlock({ item, waitingOn }: { item: Te
     </div>
   );
 });
+
+export function FailedSendLine({ item }: { item: FailedSendItem }) {
+  const names = unreachedNames(item.message);
+  const words = names ? t("chat.team.unreachedNamed", { names }) : t("chat.team.unreached");
+  return (
+    <div data-failed-send="" data-mid={item.message.id} className="flex w-full justify-center">
+      <span role="status" className="flex h-6 min-w-0 max-w-full items-center gap-1.5 rounded-full bg-control/70 px-2 text-[12px] leading-4 text-danger">
+        <TriangleAlert size={13} aria-hidden="true" className="shrink-0" />
+        <span className="min-w-0 truncate font-medium">{words}</span>
+      </span>
+    </div>
+  );
+}

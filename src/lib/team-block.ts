@@ -54,6 +54,20 @@ export interface TeamItem {
   messages: Message[];
 }
 
+export interface FailedSendItem {
+  kind: "failed-send";
+  id: string;
+  message: Message;
+  messages: Message[];
+}
+
+const SPOKEN_NAMES = /^checking with (.+)$/i;
+
+export function unreachedNames(message: Message): string | null {
+  const names = SPOKEN_NAMES.exec(message.tool?.spoken?.trim() ?? "")?.[1]?.trim();
+  return names || null;
+}
+
 export interface TeamRow {
   ask: TeamAsk;
   gist: string;
@@ -114,8 +128,8 @@ function joinsTeamQuietly(item: QuietTranscriptItem): Message | null {
 export function foldTeams(
   items: readonly QuietTranscriptItem[],
   renders: (item: TranscriptItem) => boolean = () => true,
-): Array<QuietTranscriptItem | TeamItem> {
-  const out: Array<QuietTranscriptItem | TeamItem> = [];
+): Array<QuietTranscriptItem | TeamItem | FailedSendItem> {
+  const out: Array<QuietTranscriptItem | TeamItem | FailedSendItem> = [];
   const teams: TeamItem[] = [];
   let open: TeamItem | null = null;
   let held: Array<{ item: QuietTranscriptItem; message: Message }> = [];
@@ -124,6 +138,11 @@ export function foldTeams(
     held = [];
   };
   for (const item of items) {
+    if (item.kind === "message" && isTeamStep(item.message) && item.message.tool?.ok === false) {
+      release();
+      out.push({ kind: "failed-send", id: `failed-send:${item.message.id}`, message: item.message, messages: [item.message] });
+      continue;
+    }
     const step = joinsTeamQuietly(item);
     if (step) {
       const first = open?.asks[0]!.row.message;

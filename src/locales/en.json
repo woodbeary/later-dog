@@ -965,6 +965,8 @@
   "chat.team.done": "{count} done",
   "chat.team.showAll": "Show all {count}",
   "chat.team.showFewer": "Show fewer",
+  "chat.team.unreached": "Couldn't reach the team",
+  "chat.team.unreachedNamed": "Couldn't reach {names}",
   "chat.team.open": "Open {name}'s chat for this",
   "chat.team.state.sent": "Sent",
   "chat.team.state.queued": "Waiting its turn",

@@ -48,7 +48,7 @@ import { FailedTurnRow } from "./FailedTurnRow";
 import { isOpenTakeover } from "../../shared/takeover";
 import { BotAvatar } from "./Avatar";
 import { ExchangeLine, ExchangeThreadContext, PlainNoteLine } from "./QuietLines";
-import { TeamBlock } from "./TeamBlock";
+import { FailedSendLine, TeamBlock } from "./TeamBlock";
 import { foldTeams } from "@/lib/team-block";
 import { ExchangeViewHost } from "./ExchangeViewHost";
 import { foldExchanges, foldedRuns, expandedExchange, quietTranscriptItemShown, shownToPerson } from "@/lib/quiet-lines";
@@ -776,6 +776,15 @@ const MessagesList = memo(function MessagesList({
                   </Fragment>
                 ))}
               </TurnNarrationRun>
+            </div>
+          );
+        }
+        if (item.kind === "failed-send") {
+          return (
+            <div key={item.id} className="contents" data-arriving={arriving(item.message.id) ? "" : undefined}>
+              {newDay && <DaySeparator at={first.at} today={today} />}
+              {unreadDivider(item.messages)}
+              <FailedSendLine item={item} />
             </div>
           );
         }
