@@ -112,9 +112,8 @@ describe("ClaudeDriver.decodeConfig", () => {
     const plain = claudeHookSettings("/tmp/helper.ts");
     expect(plain).not.toHaveProperty("PreToolUse");
     const guarded = claudeHookSettings("/tmp/helper.ts", { guardShell: true }) as Record<string, Array<{ matcher: string; hooks: Array<{ command: string }> }>>;
-    expect(guarded.PreToolUse).toHaveLength(1);
-    expect(guarded.PreToolUse![0]!.matcher).toBe("Bash");
-    expect(guarded.PreToolUse![0]!.hooks[0]!.command).toBe(guarded.PostToolUse![0]!.hooks[0]!.command);
+    expect(guarded.PreToolUse!.map((entry) => entry.matcher)).toEqual(["Bash", "mcp__computer__open_url"]);
+    for (const entry of guarded.PreToolUse!) expect(entry.hooks[0]!.command).toBe(guarded.PostToolUse![0]!.hooks[0]!.command);
   });
 
   it("keeps the per-turn hook token where workspace backups never look", () => {
@@ -876,7 +875,7 @@ describe("ClaudeDriver turns (fake CLI)", () => {
       const seen = JSON.parse(readFileSync(dump, "utf8"));
       expect(seen.argv[seen.argv.indexOf("--model") + 1]).toBe(model);
       expect(seen.argv[seen.argv.indexOf("--permission-mode") + 1]).toBe(nativeMode);
-      expect(seen.argv.includes("--permission-prompt-tool")).toBe(approvalMode !== "full");
+      expect(seen.argv[seen.argv.indexOf("--permission-prompt-tool") + 1]).toBe("mcp__dog__approve");
       expect(seen.argv).toContain("--resume");
     }
   });

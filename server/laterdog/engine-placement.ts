@@ -173,7 +173,7 @@ export function planClaudeRemote(input: ClaudePlacement): { plan: ClaudeRemotePl
     const settings = JSON.parse(readFileSync(args[settingsIndex], "utf8")) as Record<string, unknown>;
     const events = settings.hooks as Record<string, Array<{ matcher?: string; hooks?: Array<Record<string, unknown>> }>> | undefined;
     if (events?.PreToolUse) {
-      events.PreToolUse = events.PreToolUse.filter((entry) => entry.matcher !== "Bash");
+      events.PreToolUse = events.PreToolUse.filter((entry) => entry.matcher !== "Bash" && entry.matcher !== "mcp__computer__open_url");
       if (!events.PreToolUse.length) delete events.PreToolUse;
     }
     for (const entries of Object.values(events ?? {})) for (const entry of entries ?? []) for (const hook of entry.hooks ?? []) {

@@ -494,7 +494,9 @@ export function isShellTool(tool: string): boolean {
   return SHELL_TOOLS.has(tool.replace(/^mcp__[^_]+__/, "").toLowerCase());
 }
 
-async function commandRefusal(source: string, cwd: string | undefined, paths: Paths, git: GitLookup, depth: number): Promise<OwnerGuardRefusal | null> {
+type Finding = { refusal: OwnerGuardRefusal } | { push: PushPlan };
+
+function commandFindings(source: string, cwd: string | undefined, paths: Paths, depth: number, out: Finding[] = []): Finding[] {
   let dir = cwd;
   for (const { words } of segments(source)) {
     const command = commandWords(words);
@@ -512,15 +514,11 @@ async function commandRefusal(source: string, cwd: string | undefined, paths: Pa
     if (SHELLS.has(name) && depth < DEPTH_LIMIT) {
       const flag = args.findIndex((arg) => /^-[a-z]*c[a-z]*$/.test(arg.text));
       const script = flag === -1 ? undefined : args[flag + 1];
-      if (script) {
-        const nested = await commandRefusal(script.text, dir, paths, git, depth + 1);
-        if (nested) return nested;
-      }
+      if (script) commandFindings(script.text, dir, paths, depth + 1, out);
       continue;
     }
     if (name === "eval" && depth < DEPTH_LIMIT) {
-      const nested = await commandRefusal(args.map((arg) => arg.text).join(" "), dir, paths, git, depth + 1);
-      if (nested) return nested;
+      commandFindings(args.map((arg) => arg.text).join(" "), dir, paths, depth + 1, out);
       continue;
     }
     const refusal = name === "rm" ? rmRefusal(args, dir, paths)
@@ -530,12 +528,20 @@ async function commandRefusal(source: string, cwd: string | undefined, paths: Pa
             : name === "hub" && args[0]?.text === "delete" ? deleteRepository()
               : name === "curl" ? curlRefusal(args)
                 : null;
-    if (refusal) return refusal;
+    if (refusal) out.push({ refusal });
     if (name === "git") {
       const plan = gitPush(args, dir);
-      const pushed = plan ? await pushRefusal(plan, git) : null;
-      if (pushed) return pushed;
+      if (plan) out.push({ push: plan });
     }
+  }
+  return out;
+}
+
+async function commandRefusal(findings: readonly Finding[], git: GitLookup): Promise<OwnerGuardRefusal | null> {
+  for (const finding of findings) {
+    if ("refusal" in finding) return finding.refusal;
+    const pushed = await pushRefusal(finding.push, git);
+    if (pushed) return pushed;
   }
   return null;
 }
@@ -581,13 +587,22 @@ export function ownerGuardRequest(tool: string, command: string | undefined, sum
   return { tool, command: command ?? (isShellTool(tool) ? summary : undefined) };
 }
 
-export async function ownerGuard(request: OwnerGuardRequest, context: OwnerGuardContext): Promise<OwnerGuardRefusal | null> {
-  if (deletesRepositoryTool(request.tool)) return deleteRepository();
-  if (!request.command || !isShellTool(request.tool)) return null;
-  const paths: Paths = {
+function guardPaths(context: OwnerGuardContext): Paths {
+  return {
     home: context.home ?? homedir(),
     temp: [...(context.tempRoots ?? defaultTempRoots())],
     roots: context.workspaceRoots.filter((root) => isAbsolute(root)),
   };
-  return commandRefusal(request.command, context.cwd, paths, context.git ?? systemGit, 0);
+}
+
+export function deletesOutsideWorkspace(command: string, context: OwnerGuardContext): OwnerGuardRefusal | null {
+  return commandFindings(command, context.cwd, guardPaths(context), 0)
+    .map((finding) => ("refusal" in finding ? finding.refusal : null))
+    .find((refusal) => refusal?.rule === "delete-outside-workspace") ?? null;
+}
+
+export async function ownerGuard(request: OwnerGuardRequest, context: OwnerGuardContext): Promise<OwnerGuardRefusal | null> {
+  if (deletesRepositoryTool(request.tool)) return deleteRepository();
+  if (!request.command || !isShellTool(request.tool)) return null;
+  return commandRefusal(commandFindings(request.command, context.cwd, guardPaths(context), 0), context.git ?? systemGit);
 }

@@ -549,7 +549,7 @@ export function claudeHookSettings(helperPath: string, options: { guardShell?: b
   const entry = [{ matcher: "", hooks: [{ type: "command", command, timeout: 5 }] }];
   const settings: Record<string, unknown> = { PostToolUse: entry, PreCompact: entry, SessionStart: entry, Stop: entry };
   if (options.postCompact) settings.PostCompact = entry;
-  if (options.guardShell) settings.PreToolUse = [{ matcher: "Bash", hooks: [{ type: "command", command, timeout: 5 }] }];
+  if (options.guardShell) settings.PreToolUse = ["Bash", "mcp__computer__open_url"].map((matcher) => ({ matcher, hooks: [{ type: "command", command, timeout: 5 }] }));
   return settings;
 }
 
@@ -1316,9 +1316,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
       allowed.push(...laterdogPreallowedTools(turn.integrations?.custom ?? {}, mcpServers));
       let broker: Awaited<ReturnType<typeof createPermissionBroker>> | undefined;
       const socketPath = permissionSocketPath(threadId, botId);
-      if (permissionMode !== "bypassPermissions") {
-        args.push("--permission-prompt-tool", "mcp__dog__approve");
-      }
+      args.push("--permission-prompt-tool", "mcp__dog__approve");
       const permissionEnv = { ...NODE_ENV_FLAG, ...(turn.toolScope !== undefined ? { LATERDOG_PERMISSION_TOOL_SCOPE: JSON.stringify(turn.toolScope) } : {}) };
       mcpServers.dog = { command: process.execPath, args: [PERM_PROXY_PATH, socketPath], env: permissionEnv, alwaysLoad: true };
       allowed.push("mcp__dog");

@@ -23,6 +23,16 @@ describe("askedConnector", () => {
 describe("connectorSendDecision", () => {
   const gmail = [{ slug: "GMAIL_SEND_EMAIL" }];
 
+  it("asks for a send or a payment that always asks, even for the owner's own dog, and still keeps the person's own Allow for that app", () => {
+    for (const calls of [gmail, [{ slug: "STRIPE_CREATE_REFUND" }]]) {
+      expect(connectorSendDecision({ calls, connected: [], alwaysAllow: [], ownerSends: true, alwaysAsks: true, skipped: never, allowedThisTurn: never }).kind).toBe("ask");
+    }
+    expect(connectorSendDecision({ calls: gmail, connected: [], alwaysAllow: [connectorAllowKey("gmail")], ownerSends: true, alwaysAsks: true, skipped: never, allowedThisTurn: never }))
+      .toEqual({ kind: "send", rule: "always-allow" });
+    expect(connectorSendDecision({ calls: gmail, connected: [], alwaysAllow: [], ownerSends: true, alwaysAsks: true, skipped: never, allowedThisTurn: () => true }))
+      .toEqual({ kind: "send", rule: "this-turn" });
+  });
+
   it("asks with the connector to remember, and sends once Always allow is kept for it", () => {
     expect(connectorSendDecision({ calls: gmail, connected: [], alwaysAllow: [], ownerSends: false, skipped: never, allowedThisTurn: never }))
       .toEqual({ kind: "ask", toolkit: "gmail" });

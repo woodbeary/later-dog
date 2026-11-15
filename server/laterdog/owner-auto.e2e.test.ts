@@ -246,6 +246,36 @@ it("a delete outside the workspace asks once with Always allow, then runs with n
   await turn.stop();
 }, 90_000);
 
+it("a push that skips its checks always asks an owner dog's person, on a card that offers no lasting yes, and the engine's hook asks too", async () => {
+  await autoReview(false);
+  const dog = await newDog("Hasty", "auto");
+  const turn = await startTurn(dog, "Push the fix.");
+  const skipped = turn.ask("Bash", { command: "git push --no-verify origin fix/login" });
+  await expect.poll(() => turn.card(skipped), { timeout: 10_000 }).toMatchObject({ requestType: "permission" });
+  const card = await turn.card(skipped);
+  expect(card.subtitle).toMatch(/^This pushes code without running its checks\. A dog always asks you before this, whatever its approval setting\./);
+  expect(card.allowKey).toBeUndefined();
+  expect(card.allowSession).toBeUndefined();
+  expect(card.commandAllowlist).toBeUndefined();
+  await new Promise((resolve) => setTimeout(resolve, 500));
+  expect(turn.answers.has(skipped)).toBe(false);
+
+  const plain = turn.ask("Bash", { command: "git push origin fix/login" });
+  await expect.poll(() => turn.answers.get(plain)?.behavior, { timeout: 10_000 }).toBe("allow");
+
+  const entries = turn.launch.settings.hooks.PreToolUse as Array<{ matcher: string; hooks: Array<{ command: string }> }>;
+  expect(entries.map((entry) => entry.matcher)).toEqual(["Bash", "mcp__computer__open_url"]);
+  const tokenFile = entries[0]!.hooks[0]!.command.match(/'([^']+)'$/)![1]!;
+  const hook = (payload: Record<string, unknown>) => fetch(`${base}/api/internal/hook`, {
+    method: "POST", headers: { "content-type": "application/json", authorization: `Bearer ${readFileSync(tokenFile, "utf8").trim()}` },
+    body: JSON.stringify({ event: "PreToolUse", payload }),
+  }).then((response) => response.json() as Promise<{ hookSpecificOutput?: { permissionDecision?: string } }>);
+  expect((await hook({ tool_name: "Bash", tool_input: { command: "LATERDOG_SKIP_HOOKS=1 git push" } })).hookSpecificOutput?.permissionDecision).toBe("ask");
+  expect((await hook({ tool_name: "mcp__computer__open_url", tool_input: { url: "https://console.cloud.google.com/apis/credentials" } })).hookSpecificOutput?.permissionDecision).toBe("ask");
+  expect((await hook({ tool_name: "Bash", tool_input: { command: "git push origin fix/login" } })).hookSpecificOutput).toBeUndefined();
+  await turn.stop();
+}, 90_000);
+
 it("a new Off-leash dog's first-meeting question waits for the person", async () => {
   const dog = await newDog("Newcomer", "auto");
   rmSync(dump(), { force: true });
@@ -278,15 +308,16 @@ function relay(token: string, name: string, args: unknown) {
 const sendCards = async (threadId: string) => ((await api("GET", `/api/threads/${threadId}/messages?limit=100`)).body.messages as any[])
   .filter((message) => message.card?.outboundRequest);
 
-it("with Auto-review off an owner dog sends through a connected app with no card, and with it on the send asks", async () => {
+it("an owner dog's send through a connected app always asks, with Auto-review off or on", async () => {
   await autoReview(false);
   const mailer = await newDog("Mailer", "auto");
   const before = relayed.length;
-  const sent = await relay(await mintConnectors(mailer.id, mailer.threadId), "GMAIL_SEND_EMAIL", { to: "friend@example.test", body: "On my way." });
-  expect(sent.status, JSON.stringify(sent.body)).toBe(200);
-  expect(sent.body.result?.isError, JSON.stringify(sent.body)).not.toBe(true);
-  expect(relayed).toHaveLength(before + 1);
-  expect(await sendCards(mailer.threadId)).toHaveLength(0);
+  const asked = relay(await mintConnectors(mailer.id, mailer.threadId), "GMAIL_SEND_EMAIL", { to: "friend@example.test", body: "On my way." });
+  await expect.poll(async () => (await sendCards(mailer.threadId)).length, { timeout: 10_000 }).toBe(1);
+  const [first] = await sendCards(mailer.threadId);
+  await api("POST", `/api/threads/${mailer.threadId}/respond`, { requestId: first.card.requestId, behavior: "deny" });
+  expect((await asked).body.result.isError).toBe(true);
+  expect(relayed).toHaveLength(before);
 
   await autoReview(true);
   const careful = await newDog("Careful mailer", "auto");
@@ -295,7 +326,7 @@ it("with Auto-review off an owner dog sends through a connected app with no card
   const [card] = await sendCards(careful.threadId);
   await api("POST", `/api/threads/${careful.threadId}/respond`, { requestId: card.card.requestId, behavior: "deny" });
   expect((await held).body.result.isError).toBe(true);
-  expect(relayed).toHaveLength(before + 1);
+  expect(relayed).toHaveLength(before);
 }, 60_000);
 
 it("with Auto-review on, every owner dog runs under the engine's reviewer, which sees the standing grant, and what it leaves for the person becomes one card", async () => {

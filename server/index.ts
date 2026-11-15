@@ -557,6 +557,7 @@ import { closeTabsScript, forgetUsers, loadTabLedger, parseTargets, recordTabs, 
 import { MEMORY_CHECK_MS, orphanIdleHours, readMemoryPressure, reapStrays, underMemoryPressure, type ThreadState as ReaperThreadState } from "./laterdog/process-reaper.ts";
 import { startHomeUpkeep } from "./laterdog/home-upkeep.ts";
 import { liveSignalScene, signalDecision } from "./laterdog/home-signals.ts";
+import { alwaysAskHook, alwaysAsks, connectorAlwaysAsks } from "./laterdog/always-asks.ts";
 import { listenWebhookIngress, webhookCredential, type WebhookIngress } from "./webhook-ingress.ts";
 import { assertModelVariantSupported, memberTurnSelection } from "./member-turn.ts";
 import { WebhookManager } from "./webhooks.ts";
@@ -3832,6 +3833,11 @@ function ownerAnswersFor(botId: string, mode: ApprovalMode, threadId: string): b
   return !isUnattended(botId, threadId) && ownerAutoAnswers(mode, ownerAutoScope(threadId));
 }
 
+function hookGuardContext(botId: string, threadId: string, cwd: string | undefined): OwnerGuardContext {
+  const bot = store.bot(botId);
+  return bot ? ownerGuardContext(bot, threadId, cwd) : { cwd, workspaceRoots: ownerWorkspaceRoots([cwd]) };
+}
+
 function ownerGuardContext(bot: BotRecord, threadId: string, commandCwd: string | undefined): OwnerGuardContext {
   const task = store.taskByThread(bot.id, threadId);
   return {
@@ -6016,7 +6022,8 @@ function ingestEngineHook(capability: InternalCapability, body: unknown): { ok: 
   if (name === "Stop") return { ok: true };
   if (name === "PreToolUse") {
     const decision = (CLOUD_HOME ? signalDecision(payload, () => liveSignalScene(threadId, PORT)) : null)
-      ?? preToolUseDecision(heavyCommandGuard, { active: Boolean(CLOUD_HOME) && computersSelected(), threadId, payload });
+      ?? preToolUseDecision(heavyCommandGuard, { active: Boolean(CLOUD_HOME) && computersSelected(), threadId, payload })
+      ?? alwaysAskHook(payload, () => hookGuardContext(capability.botId, threadId, typeof payload.cwd === "string" ? payload.cwd : undefined));
     return decision ? { ok: true, hookSpecificOutput: decision } : { ok: true };
   }
   if (name !== "PostToolUse") return { ok: true, ignored: name || "unknown" };
@@ -7241,6 +7248,9 @@ bus.subscribe(guardTurnEnd((event: RuntimeEvent) => {
       const command = permission && asker && event.requestId && !event.requiresExplicitApproval && event.command && !guestDriven
         ? commandAllowlistCandidate({ ...event.command, providerInstanceId: event.providerInstanceId ?? asker.modelSelection.instanceId })
         : null;
+      const always = permission && asker && event.requestId && !ownerAuto
+        ? alwaysAsks({ tool: event.tool, command: event.command?.command, summary: event.summary }, () => ownerGuardContext(asker, event.threadId, event.command?.cwd))
+        : null;
       const verdict = permission && asker && event.requestId
         ? autoVerdict(effectiveApprovalMode, event.tool, {
           requiresExplicitApproval: event.requiresExplicitApproval,
@@ -7266,7 +7276,7 @@ bus.subscribe(guardTurnEnd((event: RuntimeEvent) => {
           },
         });
       }
-      const showCard = (ownerHold?: string, ownerAllowKey?: string) => {
+      const showCard = (ownerHold?: string, ownerAllowKey?: string, alwaysRule?: string) => {
         const cardCommand = ownerHold === undefined ? command : null;
         const heldContext = { source: ownerHold === undefined ? verdict?.source : undefined, permission };
         const questions = event.questions?.length ? event.questions : undefined;
@@ -7307,7 +7317,8 @@ bus.subscribe(guardTurnEnd((event: RuntimeEvent) => {
           tool: event.tool,
           summary: event.summary,
           decision: "card-shown",
-          source: !permission ? "question" : ownerHold !== undefined ? "owner-guard" : verdict ? verdict.source : "no-grant",
+          source: !permission ? "question" : alwaysRule ? "always-asks" : ownerHold !== undefined ? "owner-guard" : verdict ? verdict.source : "no-grant",
+          ...(alwaysRule ? { rule: alwaysRule } : {}),
           origin: !permission && event.origin === "output" ? "output" : undefined,
           unattended: unattended || undefined,
         });
@@ -7340,7 +7351,7 @@ bus.subscribe(guardTurnEnd((event: RuntimeEvent) => {
           threadId: event.threadId, requestId, botId: asker.id, botName: asker.name, tool: event.tool, summary: event.summary,
           decision, source, ...(rule ? { rule } : {}), unattended: unattended || undefined,
         });
-        void settleOwnerAutoPermission(ownerGuardRequest(event.tool, event.command?.command, event.summary), {
+        void settleOwnerAutoPermission({ ...ownerGuardRequest(event.tool, event.command?.command, event.summary), summary: event.summary }, {
           guard: ownerGuardContext(asker, event.threadId, event.command?.cwd),
           allow: () => deliverFullAccessApproval(instance?.adapter, event.threadId, requestId, event.turnId, isCurrent),
           deny: async (message) => {
@@ -7351,6 +7362,14 @@ bus.subscribe(guardTurnEnd((event: RuntimeEvent) => {
             }
           },
           hold: unattended ? undefined : (question, refusal) => showCard(question, ownerGuardAllowKey(refusal)),
+          holdAlways: unattended ? undefined : (hit) => showCard(hit.ask, undefined, hit.id),
+          refusedAlways: (hit) => {
+            pushMessage({ role: "bot", kind: "activity", tool: { name: hit.refusal, ok: false } });
+            appendDecision(DATA_DIR, {
+              threadId: event.threadId, requestId, botId: asker.id, botName: asker.name, tool: event.tool, summary: event.summary,
+              decision: "auto-denied", source: "always-asks", rule: hit.id, unattended: unattended || undefined,
+            });
+          },
           ownerAllows: (refusal) => ownerGuardAllowed(asker.id, event.threadId, refusal),
           isCurrent,
           approved: () => decide("auto-approved", "owner-auto"),
@@ -7372,7 +7391,7 @@ bus.subscribe(guardTurnEnd((event: RuntimeEvent) => {
         });
         break;
       }
-      if (verdict?.approve && asker && event.requestId) {
+      if (verdict?.approve && !always && asker && event.requestId) {
         const settled = verdict.approve;
         const instance = event.providerInstanceId
           ? registry.get(event.providerInstanceId)
@@ -7418,7 +7437,7 @@ bus.subscribe(guardTurnEnd((event: RuntimeEvent) => {
         });
         break;
       }
-      showCard();
+      showCard(always?.ask, undefined, always?.id);
       break;
     }
     case "request.resolved": {
@@ -15528,6 +15547,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
           connected: serviceSlugs,
           alwaysAllow: botForThread(sender.id, internalCapability.threadId)?.alwaysAllow,
           ownerSends: ownerSendsWithoutAsking(sourceApprovalMode(sender.id, internalCapability.threadId), ownerAutoScope(internalCapability.threadId)),
+          alwaysAsks: connectorAlwaysAsks(outboundCalls.map((call) => call.slug)) !== null,
           skipped: (toolkit) => connectorSkips.has(internalCapability.threadId, internalCapability.generation, toolkit),
           allowedThisTurn: (toolkit) => connectorAllows.has(internalCapability.threadId, internalCapability.generation, toolkit),
         });
