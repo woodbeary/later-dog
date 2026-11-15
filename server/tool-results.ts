@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { redactSecretsInText } from "../shared/redact.ts";
+import { markedRead, readText, type ReadTextSource } from "./laterdog/read-text.ts";
 
 export const TOOL_RESULT_PREVIEW_CHARS = 16_000;
 export const TOOL_RESULT_MAX_CHARS = 128 * 1024;
@@ -16,7 +17,7 @@ export function toolResultPrefix(text: string, chars: number): string {
 }
 
 type Owner = { botId: string; threadId: string };
-type SavedResult = Owner & { text: string; bytes: number; expiresAt: number; truncated: boolean };
+type SavedResult = Owner & { text: string; bytes: number; expiresAt: number; truncated: boolean; source?: ReadTextSource };
 
 export class ToolResults {
   private readonly results = new Map<string, SavedResult>();
@@ -33,10 +34,14 @@ export class ToolResults {
 
   save(owner: Owner, text: string, truncated = false) {
     this.expire();
-    const redacted = redactSecretsInText(text);
+    const cleaned = redactSecretsInText(text);
+    const read = markedRead(cleaned);
+    const marked = read && !read.after ? read : null;
+    const redacted = marked ? marked.body : cleaned;
     const bounded = toolResultPrefix(redacted, TOOL_RESULT_MAX_CHARS);
     const result = { botId: owner.botId, threadId: owner.threadId, text: bounded, bytes: Buffer.byteLength(bounded),
-      expiresAt: this.now() + TOOL_RESULT_TTL_MS, truncated: truncated || bounded.length < redacted.length };
+      expiresAt: this.now() + TOOL_RESULT_TTL_MS, truncated: truncated || bounded.length < redacted.length,
+      ...(marked ? { source: marked.source } : {}) };
     const id = `r-${randomUUID()}`;
     this.results.set(id, result);
     for (const ownOnly of [true, false]) {
@@ -61,8 +66,9 @@ export class ToolResults {
     if (!Number.isSafeInteger(offset) || offset < 0 || offset > result.text.length) return null;
     const char = result.text.charCodeAt(offset);
     const start = char >= 0xdc00 && char <= 0xdfff ? Math.max(0, offset - 1) : offset;
-    const text = toolResultPrefix(result.text.slice(start), TOOL_RESULT_PREVIEW_CHARS);
-    return { id, text, offset: start, nextOffset: start + text.length, length: result.text.length,
+    const slice = toolResultPrefix(result.text.slice(start), TOOL_RESULT_PREVIEW_CHARS);
+    const text = result.source ? readText(result.source, slice) : slice;
+    return { id, text, offset: start, nextOffset: start + slice.length, length: result.text.length,
       truncated: result.truncated, expiresAt: result.expiresAt };
   }
 }

@@ -479,7 +479,7 @@ import type { SkillRequestCardData } from "../shared/skill-request.ts";
 import { checkSoulDrift, readSoulDrift, soulFile, writeSoulMirror } from "./bot-folder.ts";
 import {
   buildSystemPrompt,
-  userProfileSystemPrompt,
+  profileParts,
   cloudHomePrompt,
   todayPrompt,
   computerPrompt,
@@ -767,6 +767,7 @@ import { cloudVaultKey, testVaultKey, VaultStore } from "./laterdog/vault.ts";
 import { transcribeRoute } from "./laterdog/transcribe.ts";
 import { pickTranscriber, xaiVoice } from "./laterdog/transcribe-xai.ts";
 import { withOnItNote, withSteerNote, workUpdatesPrompt } from "./laterdog/work-updates.ts";
+import { CompactionCarry } from "./laterdog/after-compaction.ts";
 import { onlyTapbackText, replyTapback, replyTapbackStreamChunk, tapbackTarget, tapbackStreamChunk, tapbackTurnKey, withTapback } from "./laterdog/tapback.ts";
 import { createMacWaits } from "./laterdog/mac-waits.ts";
 import { createMacPromptGate, macPromptOf, macPromptWords } from "./laterdog/mac-prompt.ts";
@@ -3694,10 +3695,10 @@ function previewSystemPrompt(bot: BotRecord) {
   });
   const privateWorkspace = instance && supportsWorkspaceFiles(instance.driverKind);
   const built = buildSystemPrompt(persona, bot.soul ?? "", [
-    ...guidanceParts({ engine: guidanceEngine(instance?.driverKind), agents: agentsMounted, model: bot.modelSelection.model, kit: homeKit({
+    ...guidanceParts({ engine: guidanceEngine(instance?.driverKind), agents: agentsMounted, model: bot.modelSelection.model, role: { main: bot.id === store.mainBotId(), title: bot.title }, kit: homeKit({
       cloudHome: Boolean(CLOUD_HOME), agents: agentsMounted, vault: vaultStore.available, macsOnline: sharedComputers.list(CLOUD_HOME_LENDER).length,
     }) }),
-    { id: "user-profile", label: "About the user", text: userProfileSystemPrompt(cfg.profile) },
+    ...profileParts(cfg.profile),
     { id: "computer", label: "Computer", text: computerPrompt(computerPromptKind) },
     { id: "plan", label: "Surface", text: previewPlan.computer === undefined ? "" : surfacePrompt({
       computer: previewPlan.computer && previewPlan.computer !== "off" && computerPromptKind ? previewPlan.computer : null,
@@ -5957,6 +5958,7 @@ function observedTurnResults(threadId: string) {
 }
 const turnCheckpoints = new Map<string, { botId: string; cwd: string; hash: string; pin: string }>();
 const liveTurnByThread = new Map<string, string>();
+const compactionCarry = new CompactionCarry();
 
 function forgetTurnCheckpoint(threadId: string): void {
   const checkpoint = turnCheckpoints.get(threadId);
@@ -5970,6 +5972,7 @@ function clearTurnDigestState(threadId: string): void {
   forgetTurnCheckpoint(threadId);
   liveTurnByThread.delete(threadId);
   memoryRowsByThread.delete(threadId);
+  compactionCarry.forget(threadId);
 }
 
 const TOOL_RESULTS_DIR = join(DATA_DIR, "tool-results");
@@ -6005,8 +6008,9 @@ function ingestEngineHook(capability: InternalCapability, body: unknown): { ok: 
     const bot = store.bot(capability.botId);
     const digests = store.activePath(threadId).filter((m) => m.kind === "digest" && m.digest).slice(-DIGESTS_AFTER_COMPACTION);
     compactionLive.finished(threadId, { ok: true, digests: digests.length, turnId: liveTurnByThread.get(threadId) });
-    if (!digests.length) return { ok: true };
-    const context = digests.map((m) => digestPromptLine(m.digest!, m.from?.name ?? store.bot(m.digest!.botId)?.name ?? bot?.name ?? "the bot")).join("\n");
+    const carried = compactionCarry.context(capability.botId, threadId);
+    if (!digests.length && !carried) return { ok: true };
+    const context = [digests.map((m) => digestPromptLine(m.digest!, m.from?.name ?? store.bot(m.digest!.botId)?.name ?? bot?.name ?? "the bot")).join("\n"), carried].filter(Boolean).join("\n\n");
     return { ok: true, context };
   }
   if (name === "Stop") return { ok: true };
@@ -7859,6 +7863,7 @@ function directContext(bot: BotRecord, threadId: string, messages: Message[]): C
             : m.role !== "user" && m.from ? peerMessageText(m.from.name, transcriptText(m, messagesById, cfg.profile?.name?.trim() || "User"))
               : transcriptText(m, messagesById, cfg.profile?.name?.trim() || "User"),
     keep: m.roomRequest?.phase === "result" || Boolean(m.peerAsk) || (m.role !== "user" && Boolean(m.from)) || (m.role === "user" && m.via === "api"),
+    ...(m.roomRequest?.phase === "result" || Boolean(m.peerAsk) || (m.role !== "user" && Boolean(m.from)) ? { peer: true } : {}),
     ...(m.steered ? { steered: true } : {}),
   }));
 }
@@ -9193,11 +9198,11 @@ async function startTurn(
       const ownerGrant = ownerGrantFor(approvalModeForTurn(bot, commsDepth > 0, threadId), threadId);
       const ownerAnswers = ownerAnswersFor(bot.id, approvalModeForTurn(bot, commsDepth > 0, threadId), threadId);
       const prompt = buildSystemPrompt(persona, liveBot?.soul ?? bot.soul ?? "", [
-        ...guidanceParts({ engine: guidanceEngine(instance.driverKind), agents: Boolean(integrations.agents), model, kit: homeKit({
+        ...guidanceParts({ engine: guidanceEngine(instance.driverKind), agents: Boolean(integrations.agents), model, role: { main: bot.id === store.mainBotId(), title: bot.title }, kit: homeKit({
           cloudHome: Boolean(CLOUD_HOME), agents: Boolean(integrations.agents), vault: vaultStore.available, macsOnline: sharedComputers.list(CLOUD_HOME_LENDER).length,
           google: credentialPrompt.includes("gmail_search"),
         }) }),
-        { id: "user-profile", label: "About the user", text: userProfileSystemPrompt(cfg.profile) },
+        ...profileParts(cfg.profile),
         { id: "owner-grant", label: "Owner's standing grant", text: ownerGrant ? ownerGrantPrompt(cfg.profile?.name) : "" },
         { id: "files", label: "File locations", text: worksInWorkspace ? workspaceLocationsPrompt(bot.id, cwd, liveBot?.cwd ?? bot.cwd) : "" },
         { id: "computer", label: "Computer", text: computerPrompt(computerPromptKind) },
@@ -9226,6 +9231,7 @@ async function startTurn(
       ], cfg.profile?.name);
       turnPromptBytes.set(threadId, { stable: Buffer.byteLength(prompt.stable), volatile: Buffer.byteLength(prompt.volatile) });
       contextBreakdowns.dispatched(threadId, { driverKind: instance.driverKind, instanceId, sections: prompt.sections, tools: homeToolSizes(integrations.agents?.env) });
+      compactionCarry.remember(bot.id, threadId, prompt.volatileSections);
       if (deskPrompts && threadId === bot.threadId && INCLUDED_AI_INSTANCES.includes(instanceId)) deskPrompts.remember(threadId, { instanceId, model, system: prompt.stable || prompt.text });
       const fromPerson = commsDepth === 0 && !coordinationNode && !opts?.automationSource && !opts?.unattended;
       executionEvidence.dispatch(threadId, (store.projectBotForTask(bot.id, threadId) ?? bot).modelSelection, { instanceId, model, effort });
@@ -10959,10 +10965,10 @@ async function runGroupMemberTurn(
   const roomOwnerGrant = ownerGrantFor(roomTurnApprovalMode(readyBot, threadId, orchestration), threadId);
   const roomOwnerAnswers = ownerAnswersFor(readyBot.id, roomTurnApprovalMode(readyBot, threadId, orchestration), threadId);
   const roomSystem = buildSystemPrompt(system, store.bot(bot.id)?.soul ?? bot.soul ?? "", [
-    ...guidanceParts({ engine: guidanceEngine(instance.driverKind), agents: Boolean(integrations.agents), model: instance.instanceId === readyBot.modelSelection.instanceId ? readyBot.modelSelection.model : instance.models.default, kit: homeKit({
+    ...guidanceParts({ engine: guidanceEngine(instance.driverKind), agents: Boolean(integrations.agents), model: instance.instanceId === readyBot.modelSelection.instanceId ? readyBot.modelSelection.model : instance.models.default, role: { main: readyBot.id === store.mainBotId(), title: readyBot.title }, kit: homeKit({
       cloudHome: Boolean(CLOUD_HOME), agents: Boolean(integrations.agents), vault: vaultStore.available, macsOnline: sharedComputers.list(CLOUD_HOME_LENDER).length,
     }) }),
-    { id: "user-profile", label: "About the user", text: userProfileSystemPrompt(cfg.profile) },
+    ...profileParts(cfg.profile),
     { id: "owner-grant", label: "Owner's standing grant", text: roomOwnerGrant ? ownerGrantPrompt(cfg.profile?.name) : "" },
     { id: "coordination", label: "Team", text: roomCoordination },
     { id: "credential", label: "Credentials", text: integrations.agents ? `\n${signInPassage({ secureForm: roomComputerKind === "box" }).trim()}` : "" },
@@ -11078,6 +11084,7 @@ async function runGroupMemberTurn(
     onProviderHandshakeStarted?.();
     providerDispatched = true;
     turnPromptBytes.set(threadId, { stable: Buffer.byteLength(roomSystem.stable), volatile: Buffer.byteLength(roomSystem.volatile) });
+    compactionCarry.remember(readyBot.id, threadId, roomSystem.volatileSections);
     executionEvidence.dispatch(threadId, selectedBot.modelSelection, { instanceId: instance.instanceId, ...(instance.instanceId === readyBot.modelSelection.instanceId ? memberTurnSelection(readyBot.modelSelection) : { model: instance.models.default }) });
     runningTurnEngines.set(threadId, instance);
     const roomRecalled = cardContinuation ? "" : autoRecallPrompt(bot, threadId, resolvedLatestImages.text, { conversations: false, userName });
@@ -17702,7 +17709,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       if (body.helperModel !== undefined) {
         const helperModel = parseHelperModelChoice(body.helperModel);
         if (!helperModel.ok) return json(res, 400, { error: helperModel.error });
-        patch.helperModel = helperModel.value === "same" ? undefined : helperModel.value;
+        patch.helperModel = helperModel.value;
       }
       if (body.connectorTools !== undefined) {
         if (body.connectorTools === null) {

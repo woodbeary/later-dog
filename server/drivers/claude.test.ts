@@ -35,6 +35,9 @@ import { removeTempDir } from "../testing/cleanup.ts";
 import { ephemeralWorkspaceTokenPath } from "../workspace-backup-policy.ts";
 import * as procs from "../procs.ts";
 import { leftoverProgramsNotice } from "../laterdog/unconfirmed-stop.ts";
+import { HELPER_CONTRACT } from "../laterdog/helper-contract.ts";
+import { guidanceParts } from "../laterdog/dog-guidance.ts";
+import { buildSystemPrompt, userProfileSystemPrompt } from "../system-prompt.ts";
 import * as localInject from "./local-inject.ts";
 
 const FAKE_CLI = join(dirname(fileURLToPath(import.meta.url)), "..", "testing", "fake-claude-cli.ts");
@@ -1346,7 +1349,7 @@ describe("ClaudeDriver turns (fake CLI)", () => {
     expect(sent[2].endsWith("three")).toBe(true);
   });
 
-  it("launches helpers on the dog's own model by default and on the chosen one when set", async () => {
+  it("launches helpers one tier below the dog by default, on the dog's own model for same, and on the chosen one when set", async () => {
     await create();
     const dump = join(scratch, "helper-model.json");
     process.env.FAKE_CLAUDE_DUMP = dump;
@@ -1362,12 +1365,13 @@ describe("ClaudeDriver turns (fake CLI)", () => {
       return JSON.parse(readFileSync(dump, "utf8"));
     };
     const plain = await send();
-    expect(plain.env.CLAUDE_CODE_SUBAGENT_MODEL).toBeUndefined();
+    expect(plain.env.CLAUDE_CODE_SUBAGENT_MODEL).toBe("sonnet");
     const same = await send("same");
-    expect(same.pid).toBe(plain.pid);
+    expect(same.env.CLAUDE_CODE_SUBAGENT_MODEL).toBeUndefined();
+    expect(same.pid).not.toBe(plain.pid);
     const lighter = await send("lighter");
     expect(lighter.env.CLAUDE_CODE_SUBAGENT_MODEL).toBe("sonnet");
-    expect(lighter.pid).not.toBe(plain.pid);
+    expect(lighter.pid).not.toBe(same.pid);
     const explicit = await send("claude-haiku-5-5");
     expect(explicit.env.CLAUDE_CODE_SUBAGENT_MODEL).toBe("claude-haiku-5-5");
   });
@@ -1401,6 +1405,24 @@ describe("ClaudeDriver turns (fake CLI)", () => {
     expect(sent[1].message.content).toContain("Tagged: @Testy");
     expect(sent[1].message.content.endsWith("two")).toBe(true);
     expect(seen.systemPrompt).not.toContain("Tagged: @Testy");
+  });
+
+  it("keeps the same engine when a fact about the person is learned or Google connects", async () => {
+    await create();
+    const dump = join(scratch, "profile-edit.json");
+    process.env.FAKE_CLAUDE_DUMP = dump;
+    const send = async (text: string, aboutMe: string, google: boolean) => {
+      const built = buildSystemPrompt("You are Testy.", "", [
+        ...guidanceParts({ engine: "claude", agents: true, model: "claude-opus-5-5", kit: { cloudHome: true, ownComputer: true, google } }),
+        { id: "user-profile", label: "About the user", text: userProfileSystemPrompt({ aboutMe }) },
+      ]);
+      recorder.events.length = 0;
+      await instance.adapter.sendTurn({ threadId: "t-profile-edit", text, system: built.text, systemStable: built.stable, systemVolatile: built.volatile, systemVolatileSections: built.volatileSections });
+      await recorder.until((e) => e.type === "turn.completed");
+      return JSON.parse(readFileSync(dump, "utf8")).pid;
+    };
+    const first = await send("one", "Sam runs a shop.", false);
+    expect(await send("two", "Sam runs a shop and has a dog called Biscuit.", true)).toBe(first);
   });
 
   it("still relaunches when the stable half of the prompt changes", async () => {
@@ -1487,6 +1509,36 @@ describe("ClaudeDriver turns (fake CLI)", () => {
     expect(sent[0]).toContain("likes tea");
     expect(sent[1]).toBe("two");
     expect(sent[2]).toContain("likes tea");
+    expect(sent[2].endsWith("three")).toBe(true);
+  });
+
+  it("does not repeat the profile in the first note after a compaction, because the home's hook gives it back", async () => {
+    const prompts = join(scratch, "compact-profile-prompts.jsonl");
+    await create(undefined, { FAKE_CLAUDE_COMPACT: "1", FAKE_CLAUDE_PROMPTS: prompts });
+    const sections = [
+      { id: "user-profile", label: "About the user", text: "\n\nAbout the person: PROFILE_TEXT likes tea." },
+      { id: "memory", label: "Memory", text: "\n\nYour memory: MEMORY_TEXT" },
+    ];
+    const send = async (text: string) => {
+      await instance.adapter.sendTurn({
+        threadId: "t-volatile-compact-profile",
+        text,
+        system: "You are Testy.",
+        systemStable: "You are Testy.",
+        systemVolatile: sections.map((section) => section.text).join(""),
+        systemVolatileSections: sections,
+      });
+      await recorder.until((e) => e.type === "turn.completed");
+      recorder.events.length = 0;
+    };
+    await send("one");
+    await send("two");
+    await send("three");
+    const sent = readFileSync(prompts, "utf8").trim().split("\n").map((line) => JSON.parse(line).message.content);
+    expect(sent[0]).toContain("PROFILE_TEXT");
+    expect(sent[1]).toBe("two");
+    expect(sent[2]).toContain("MEMORY_TEXT");
+    expect(sent[2]).not.toContain("PROFILE_TEXT");
     expect(sent[2].endsWith("three")).toBe(true);
   });
 
@@ -2193,6 +2245,60 @@ describe("ClaudeDriver turns (fake CLI)", () => {
     expect(env.CLAUDE_CODE_PROMPT_CACHE_TTL).toBeUndefined();
   });
 
+  it.each(["unknown", "2.1.315", "2.1.316"])("gives every helper its reporting rules only on a Claude version read as 2.1.316 or later (%s)", async (version) => {
+    const dump = join(scratch, "helper-contract.json");
+    await create(undefined, version === "unknown" ? { FAKE_CLAUDE_DUMP: dump, FAKE_CLAUDE_FAIL_VERSION: "1" } : { FAKE_CLAUDE_DUMP: dump, FAKE_CLAUDE_VERSION: version });
+    await instance.adapter.sendTurn({ threadId: "t-helper-contract", text: "hi", system: "You are Testy." });
+    await recorder.until(e => e.type === "turn.completed");
+    const seen = JSON.parse(readFileSync(dump, "utf8"));
+    expect(seen.argv.includes("--append-subagent-system-prompt-file")).toBe(version === "2.1.316");
+    expect(seen.helperPrompt).toBe(version === "2.1.316" ? HELPER_CONTRACT : null);
+    expect(seen.systemPrompt).toBe("You are Testy.");
+  });
+
+  it("starts an engine that does not know the helper flag again once without it, and leaves it off after", async () => {
+    const dump = join(scratch, "helper-flag-refused.json");
+    const refusals = join(scratch, "helper-flag-refusals.txt");
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      await create(undefined, { FAKE_CLAUDE_DUMP: dump, FAKE_CLAUDE_VERSION: "2.1.401", FAKE_CLAUDE_UNKNOWN_FLAGS: "--append-subagent-system-prompt-file", FAKE_CLAUDE_REFUSALS: refusals });
+      await instance.adapter.sendTurn({ threadId: "t-helper-flag-1", text: "hi", system: "You are Testy." });
+      const first = await recorder.until((e) => e.type === "turn.completed");
+      expect(first).toMatchObject({ ok: true });
+      expect(readFileSync(refusals, "utf8").trim().split("\n")).toEqual(["--append-subagent-system-prompt-file"]);
+      expect(JSON.parse(readFileSync(dump, "utf8")).argv).not.toContain("--append-subagent-system-prompt-file");
+      recorder.events.length = 0;
+      await instance.adapter.sendTurn({ threadId: "t-helper-flag-2", text: "again", system: "You are Testy." });
+      expect(await recorder.until((e) => e.type === "turn.completed")).toMatchObject({ ok: true });
+      expect(readFileSync(refusals, "utf8").trim().split("\n")).toHaveLength(1);
+      expect(JSON.parse(readFileSync(dump, "utf8")).argv).not.toContain("--append-subagent-system-prompt-file");
+      expect(warn.mock.calls.filter(([line]) => String(line).includes("--append-subagent-system-prompt-file"))).toHaveLength(1);
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it("starts every dog again without the helper flag when several start together and the engine refuses it", async () => {
+    const dump = join(scratch, "helper-flag-parallel.json");
+    const refusals = join(scratch, "helper-flag-parallel-refusals.txt");
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      await create(undefined, { FAKE_CLAUDE_DUMP: dump, FAKE_CLAUDE_VERSION: "2.1.402", FAKE_CLAUDE_UNKNOWN_FLAGS: "--append-subagent-system-prompt-file", FAKE_CLAUDE_UNKNOWN_DELAY_MS: "400", FAKE_CLAUDE_REFUSALS: refusals });
+      const threads = ["t-parallel-1", "t-parallel-2", "t-parallel-3"];
+      await Promise.all(threads.map((threadId) => instance.adapter.sendTurn({ threadId, text: "hi", system: "You are Testy." })));
+      await expect.poll(() => recorder.events.filter((e) => e.type === "turn.completed").length, { timeout: 20_000 }).toBe(3);
+      expect(recorder.events.filter((e) => e.type === "turn.completed").every((e) => (e as { ok?: boolean }).ok === true)).toBe(true);
+      expect(readFileSync(refusals, "utf8").trim().split("\n")).toHaveLength(3);
+      recorder.events.length = 0;
+      await instance.adapter.sendTurn({ threadId: "t-parallel-4", text: "later", system: "You are Testy." });
+      expect(await recorder.until((e) => e.type === "turn.completed")).toMatchObject({ ok: true });
+      expect(readFileSync(refusals, "utf8").trim().split("\n")).toHaveLength(3);
+      expect(JSON.parse(readFileSync(dump, "utf8")).argv).not.toContain("--append-subagent-system-prompt-file");
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
   it.each(["2.1.210", "2.1.211"])("gates native child text forwarding for Claude %s", async (version) => {
     const dump = join(scratch, "forwarding.json");
     await create(undefined, { FAKE_CLAUDE_DUMP: dump, FAKE_CLAUDE_VERSION: version });
@@ -2385,6 +2491,37 @@ describe("ClaudeDriver turns (fake CLI)", () => {
     const seen = JSON.parse(readFileSync(dump, "utf8"));
     expect(seen.argv[seen.argv.indexOf("--tools") + 1]).toBe("Read,WebFetch");
     expect(seen.argv[seen.argv.indexOf("--disallowedTools") + 1]).toBe("Bash(git *),Edit");
+  });
+
+  it("keeps one plan: a dog with set_plan cannot also write the engine's own task list", async () => {
+    await create(undefined, {}, { disallowedTools: ["Edit"] });
+    const dump = join(scratch, "one-plan.json");
+    process.env.FAKE_CLAUDE_DUMP = dump;
+    await instance.adapter.sendTurn({ threadId: "t-one-plan", text: "plan", integrations: { agents: { command: process.execPath, args: ["/fake/agents-proxy.js"], env: { LATERDOG_BOT_ID: "b1" } } } });
+    await recorder.until((event) => event.type === "turn.completed");
+    const withPlan = JSON.parse(readFileSync(dump, "utf8"));
+    expect(withPlan.argv[withPlan.argv.indexOf("--disallowedTools") + 1]).toBe("Edit,TodoWrite,TaskCreate,TaskGet,TaskList,TaskUpdate");
+    recorder.events.length = 0;
+    await instance.adapter.sendTurn({ threadId: "t-no-set-plan", text: "plan" });
+    await recorder.until((event) => event.type === "turn.completed");
+    const without = JSON.parse(readFileSync(dump, "utf8"));
+    expect(without.argv[without.argv.indexOf("--disallowedTools") + 1]).toBe("Edit");
+  });
+
+  it("leaves the engine's own plan tools to a dog whose tool scope has no set_plan", async () => {
+    await create(undefined, {}, { disallowedTools: ["Edit"] });
+    const dump = join(scratch, "no-plan-in-scope.json");
+    process.env.FAKE_CLAUDE_DUMP = dump;
+    const agents = { agents: { command: process.execPath, args: ["/fake/agents-proxy.js"], env: { LATERDOG_BOT_ID: "b1" } } };
+    await instance.adapter.sendTurn({ threadId: "t-scope-without-plan", text: "plan", integrations: agents, toolScope: { allow: ["native:*", "mcp:agents:list_bots"] } });
+    await recorder.until((event) => event.type === "turn.completed");
+    const scoped = JSON.parse(readFileSync(dump, "utf8"));
+    expect(scoped.argv[scoped.argv.indexOf("--disallowedTools") + 1]).toBe("Edit");
+    recorder.events.length = 0;
+    await instance.adapter.sendTurn({ threadId: "t-scope-with-plan", text: "plan", integrations: agents, toolScope: { allow: ["native:*", "mcp:agents:set_plan"] } });
+    await recorder.until((event) => event.type === "turn.completed");
+    const withPlan = JSON.parse(readFileSync(dump, "utf8"));
+    expect(withPlan.argv[withPlan.argv.indexOf("--disallowedTools") + 1]).toBe("Edit,TodoWrite,TaskCreate,TaskGet,TaskList,TaskUpdate");
   });
 
   it("passes an explicit empty available set to disable every Claude built-in", async () => {

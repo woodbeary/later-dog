@@ -69,8 +69,11 @@ import {
 import { readEngineModels } from "../laterdog/wait-at-most.ts";
 import { readCliVersion as readCliVersionOf, unreadCli } from "../laterdog/cli-version.ts";
 import { claudeToolTouch } from "../laterdog/tool-touches.ts";
-import { claudeContextNote, claudeSeenVolatile } from "../laterdog/volatile-sections.ts";
+import { claudeContextNote, claudeSeenVolatile, seenKeeping } from "../laterdog/volatile-sections.ts";
+import { carriedSections } from "../laterdog/after-compaction.ts";
 import { claudeHelperEnvironment } from "../laterdog/helper-model.ts";
+import { helperContractArgs, helperContractWanted, helperFlagRefused, SUBAGENT_PROMPT_FLAG } from "../laterdog/helper-contract.ts";
+import { disallowedWithOnePlan, hasSetPlan } from "../laterdog/one-plan.ts";
 import { agentsServerLaunch, deferRareToolsEnabled } from "../laterdog/tool-loading.ts";
 import { CLAUDE_PICKS_CACHE_LIFETIME, claudeCacheLifetime } from "../laterdog/cache-lifetime.ts";
 import { claudeCompactionSwitchedOff } from "../laterdog/native-compaction.ts";
@@ -280,6 +283,7 @@ export const CLAUDE_FLAG_FLOORS = {
   "--system-prompt-snapshot": [2, 1, 267],
   "--restricted": [2, 1, 257],
   "--forward-subagent-text": [2, 1, 211],
+  [SUBAGENT_PROMPT_FLAG]: [2, 1, 316],
 } as const satisfies Record<string, ClaudeCliVersion>;
 
 const FLAGS_LEARNED_AFTER_LAUNCH = ["--autocompact", "--system-prompt-snapshot"] as const;
@@ -1038,6 +1042,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
       volatile: string | null;
       sessionId: string | null;
       sawInit: boolean;
+      passedHelperFlag: boolean;
       resumeRefused?: string;
       nativePermissionMode: string | null;
       replaysUserMessages: boolean;
@@ -1236,9 +1241,6 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
       }
       if (turn.guestConfined) args.push("--restricted", "--tools", GUEST_CLAUDE_TOOLS.join(","));
       else if (config.tools !== undefined) args.push("--tools", config.tools.join(","));
-      if (config.disallowedTools?.length) {
-        args.push("--disallowedTools", config.disallowedTools.join(","));
-      }
       const turnEnvironment = environment();
       await learnCliFlags(turnEnvironment);
       if (turn.guestConfined && !claudeCliSupports(cliVersion, "--restricted")) {
@@ -1322,6 +1324,8 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
       mcpServers.dog = { command: process.execPath, args: [PERM_PROXY_PATH, socketPath], env: permissionEnv, alwaysLoad: true };
       allowed.push("mcp__dog");
       if (turn.guestConfined) allowed.splice(0, allowed.length, ...allowed.filter((name) => name === "mcp__dog" || name === "mcp__agents"));
+      const disallowed = disallowedWithOnePlan(config.disallowedTools, !turn.guestConfined && hasSetPlan(mcpServers, turn.toolScope));
+      if (disallowed.length) args.push("--disallowedTools", disallowed.join(","));
       let mcpConfigPath: string | null = null;
       if (Object.keys(mcpServers).length) {
         mcpConfigPath = join(mkdtempSync(join(tmpdir(), "laterdog-mcp-")), "mcp.json");
@@ -1446,11 +1450,13 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
       try {
         checkStart();
         const launchSystem = turn.systemStable ?? turn.system;
-        if (launchSystem) {
-          systemPromptPath = join(mkdtempSync(join(tmpdir(), "laterdog-system-")), "prompt.txt");
+        const helperContract = helperContractWanted(config.cli, cliVersion && claudeCliSupports(cliVersion, SUBAGENT_PROMPT_FLAG) ? cliVersion.join(".") : null);
+        if (launchSystem || helperContract) systemPromptPath = join(mkdtempSync(join(tmpdir(), "laterdog-system-")), "prompt.txt");
+        if (launchSystem && systemPromptPath) {
           writeFileSync(systemPromptPath, launchSystem, { mode: 0o600 });
           args.push("--append-system-prompt-file", systemPromptPath);
         }
+        if (helperContract && systemPromptPath) args.push(...helperContractArgs(dirname(systemPromptPath)));
         if (socketPath) {
           const askTools = new Map<string, string | undefined>();
           broker = await createPermissionBroker({
@@ -1562,6 +1568,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
         volatile: claudeSeenVolatile(turn),
         sessionId: sessionId ?? newSessionId,
         sawInit: false,
+        passedHelperFlag: args.includes(SUBAGENT_PROMPT_FLAG),
         nativePermissionMode: null,
         replaysUserMessages,
         turn: { turnId, input: turn, retryAbort, settled: false, sawStreamDelta: false, pendingSteers: new Map(), deferred: null, continuationGrace: null, continuationSilence: null },
@@ -1757,7 +1764,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
             } else {
               const compaction = claudeCompactionEvent(o);
               if (compaction?.type === "session.compacted" && compaction.ok && !compaction.skipped) {
-                session.volatile = null;
+                session.volatile = seenKeeping(session.volatile, new Set(carriedSections(session.turn?.input.systemVolatileSections ?? []).map((section) => section.id)));
                 rememberVolatile(threadId, session);
               }
               if (compaction) emit({ ...base(threadId, currentTurnId()), ...compaction });
@@ -2038,10 +2045,11 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
           const verdict = classifyError({ exitCode: code, stderr: message });
           const endedBeforeTurn = session.turn.awaitingInit === true;
           const refusedResume = Boolean(session.resumeRefused);
+          const refusedHelperFlag = !session.sawInit && helperFlagRefused(config.cli, cliVersion?.join(".") ?? null, session.stderr, session.passedHelperFlag);
           if (
             !refusedResume &&
             !retry.cancelled &&
-            (endedBeforeTurn || (
+            (endedBeforeTurn || refusedHelperFlag || (
               code !== 0 &&
               verdict.transient &&
               !session.turn.sawStreamDelta &&
@@ -2065,7 +2073,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
             sessions.delete(threadId);
             session.turn = null;
             let delayMs = 0;
-            if (!endedBeforeTurn) {
+            if (!endedBeforeTurn && !refusedHelperFlag) {
               retry.attempt++;
               delayMs = computeBackoff(retry.attempt - 1);
               emit({
@@ -2095,7 +2103,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
               active.set(threadId, { stop: () => { retry.cancelled = true; retryAbort.abort(); }, turnId });
               try {
                 const cursor = session.sessionId ?? sessionId ?? undefined;
-                await sendTurn({ ...turn, sessionReset: false, resumeCursor: cursor }, turnId);
+                await sendTurn(refusedHelperFlag ? turn : { ...turn, sessionReset: false, resumeCursor: cursor }, turnId);
               } catch (e) {
                 if (active.get(threadId)?.turnId === turnId) active.delete(threadId);
                 retryState.delete(threadId);

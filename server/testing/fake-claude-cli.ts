@@ -169,6 +169,15 @@ if (argv[0] === "--help") {
   process.exit(0);
 }
 
+const unknownFlag = (process.env.FAKE_CLAUDE_UNKNOWN_FLAGS ?? "").split(",").find((flag) => flag && argv.includes(flag));
+if (unknownFlag) {
+  if (process.env.FAKE_CLAUDE_REFUSALS) appendFileSync(process.env.FAKE_CLAUDE_REFUSALS, `${unknownFlag}\n`);
+  const delay = Number(process.env.FAKE_CLAUDE_UNKNOWN_DELAY_MS ?? 0);
+  if (delay > 0) await new Promise((resolve) => setTimeout(resolve, delay));
+  process.stderr.write(`error: unknown option '${unknownFlag}'\n`);
+  process.exit(1);
+}
+
 if (argv[0] === "update") {
   if (process.env.FAKE_CLAUDE_UPDATE === "fail") {
     process.stderr.write("fake-claude: simulated update failure\n");
@@ -395,7 +404,14 @@ const readLaunchFiles = (): Record<string, unknown> => {
       systemPrompt = readFileSync(systemPromptPath, "utf8");
     } catch {}
   }
-  return { systemPrompt, mcpConfig, settings, settingsMode };
+  const helpersPath = argAfter("--append-subagent-system-prompt-file");
+  let helperPrompt: string | null = null;
+  if (helpersPath) {
+    try {
+      helperPrompt = readFileSync(helpersPath, "utf8");
+    } catch {}
+  }
+  return { systemPrompt, helperPrompt, mcpConfig, settings, settingsMode };
 };
 
 const ASKS_FOR_SCREEN = /\b(computer|desktop|screen|screenshot|chrome|browser)\b/i;
@@ -602,7 +618,7 @@ const playTurn = async (prompt: JsonValue, late = false) => {
 
   if (process.env.FAKE_CLAUDE_ROOM_PLAN) {
     roomTurnsPlayed += 1;
-    if (process.env.FAKE_CLAUDE_COMPACT === "1" && (roomTurnsPlayed >= 2 || argv.includes("--resume"))) playNativeCompaction();
+    const compactContext = process.env.FAKE_CLAUDE_COMPACT === "1" && (roomTurnsPlayed >= 2 || argv.includes("--resume")) ? playNativeCompaction().trim() : "";
     const progress = (text: string) => out({ type: "assistant", message: { content: [{ type: "text", text }] } });
     const announce = (call: { id: string; name: string; input: unknown; parentToolUseId?: string; agentId?: string }) =>
       out({ type: "assistant", parent_tool_use_id: call.parentToolUseId ?? null, ...(call.agentId ? { agent_id: call.agentId } : {}), message: { content: [{ type: "tool_use", id: call.id, name: call.name, input: call.input }] } });
@@ -610,7 +626,7 @@ const playTurn = async (prompt: JsonValue, late = false) => {
       const contextTokens = Number(process.env.FAKE_CLAUDE_CONTEXT_TOKENS);
       const contextWindow = Number(process.env.FAKE_CLAUDE_CONTEXT_WINDOW);
       const usage = Number.isSafeInteger(contextTokens) && contextTokens > 0 ? { input_tokens: contextTokens, output_tokens: 5 } : undefined;
-      out({ type: "assistant", message: { content: [{ type: "text", text }], ...(usage ? { usage } : {}) } });
+      out({ type: "assistant", message: { content: [{ type: "text", text: compactContext ? `${compactContext}\n\n${text}` : text }], ...(usage ? { usage } : {}) } });
       out({ type: "result", is_error: false, stop_reason: "end_turn", usage: { input_tokens: 10, output_tokens: 5 }, ...(Number.isSafeInteger(contextWindow) && contextWindow > 0 ? { modelUsage: { [model]: { contextWindow } } } : {}) });
     }).catch(error => {
       out({ type: "result", is_error: true, result: String(error), stop_reason: "error" });
