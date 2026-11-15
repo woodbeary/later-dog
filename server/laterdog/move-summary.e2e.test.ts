@@ -1,5 +1,5 @@
 import { spawn, type ChildProcess } from "node:child_process";
-import { closeSync, existsSync, openSync, readFileSync, writeFileSync } from "node:fs";
+import { closeSync, existsSync, openSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { expect, it } from "vitest";
@@ -72,7 +72,9 @@ async function launch() {
       ? readFileSync(`${plan}.evidence.jsonl`, "utf8").trim().split("\n").filter(Boolean).map(line => JSON.parse(line)) : [];
     const lastPrompt = () => String(turns().at(-1).prompt.message.content);
     const summariserArgv = () => existsSync(oneShot) ? JSON.parse(readFileSync(oneShot, "utf8")).argv as string[] : [];
-    return { api, send, use, messages, lastPrompt, summariserArgv, close };
+    const bookedUsage = () => readdirSync(join(dataDir, "usage")).flatMap(file =>
+      readFileSync(join(dataDir, "usage", file), "utf8").trim().split("\n").filter(Boolean).map(line => JSON.parse(line))) as any[];
+    return { api, send, use, messages, lastPrompt, summariserArgv, bookedUsage, bot, thread, close };
   } catch (error) { await close(); throw error; }
 }
 
@@ -102,6 +104,10 @@ it("keeps a real summary, written by the chat's own model, when a chat moves acc
     expect(folds).toHaveLength(1);
     expect(folds[0].compaction.summary).toBe("This chat moved to another account, so its earlier messages were summarized.");
     expect(folds[0].compaction.context).toContain("SUMMARY_MARKER_7731");
+    const booked = f.bookedUsage().filter(row => row.purpose === "history-summary");
+    expect(booked).toHaveLength(1);
+    expect(booked[0]).toMatchObject({ botId: f.bot.id, threadId: f.thread, instanceId: "claudeWork", model: CHAT_MODEL, input: 15, output: 5 });
+    expect(f.bookedUsage().filter(row => row.threadId === f.thread && row.purpose === undefined).length).toBeGreaterThan(0);
     const prompt = f.lastPrompt();
     expect(prompt).toContain("SUMMARY_MARKER_7731");
     expect(prompt).not.toMatch(REFUSAL);

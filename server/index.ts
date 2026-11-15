@@ -775,6 +775,7 @@ import { decodeInjectId } from "./drivers/local-inject.ts";
 import { withDroppedSummary } from "./laterdog/rebuild-summary.ts";
 import { foldReason, keptContext, personLine, writeHistorySummary } from "./laterdog/history-summary.ts";
 import { dogWriter } from "./laterdog/dog-writer.ts";
+import { reportingUsage, summaryUsageRow } from "./laterdog/summary-usage.ts";
 import { rowForApps } from "./laterdog/compaction-row.ts";
 import { openHandoffsFromRoom, personOwes, recordsText, withRecords } from "./laterdog/rebuild-records.ts";
 import { fileEngineSummaries } from "./laterdog/engine-summaries.ts";
@@ -7882,7 +7883,8 @@ async function compactConversation(input: {
   const controller = new AbortController();
   compactionControllers.set(threadId, { generation, controller });
   try {
-    const written = await writeHistorySummary(fold.folded, { signal: controller.signal, write: dogWriter(instance, model) });
+    const written = await writeHistorySummary(fold.folded, { signal: controller.signal, write: reportingUsage(dogWriter(instance, model),
+      (usage) => bookTurnUsage(summaryUsageRow({ bot, threadId, instance }, usage), usage.input !== undefined && usage.output !== undefined, threadId)) });
     if (written.rejected.length) console.warn(`[compaction] summary for ${threadId} not kept (${written.rejected.join("; ")}); ${written.by === "model" ? "the retry was" : "excerpts are"} used`);
     const moved = Boolean(task.lastInstanceId && !isExternalContextMarker(task.lastInstanceId) && task.lastInstanceId !== instance.instanceId);
     const reason = foldReason({ manual, startsFresh: harness && startsFresh, moved, driver: instance.driverKind,

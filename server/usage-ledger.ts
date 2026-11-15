@@ -27,6 +27,7 @@ export interface UsageRow {
   costUsd: number | null;
   costSource?: CostSource;
   trigger: UsageTrigger;
+  purpose?: string;
 }
 
 export type UsageGroupBy = "bot" | "model" | "user" | "day" | "engine" | "routine";
