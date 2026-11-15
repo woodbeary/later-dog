@@ -179,6 +179,7 @@ it("the person's Mac connects by itself through the real connector, asks before 
   let maintainerChecks = 0;
   connector = createComputerSharing({
     file: join(home, "desktop-profile", "computer-sharing.json"), environments: () => [env], cuaConnection: async () => null,
+    hostControl: async () => ({ renew: async () => {}, release: async () => {} }),
     enabled: async () => { maintainerChecks++; return false; },
     cloud: () => ({ status: "connected", accountId: "acct_fixture", origin: base }),
     home: macHome, computerName: () => "Jo's MacBook Air", retryMs: 500,

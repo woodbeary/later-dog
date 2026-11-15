@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import { appendFile, mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import type { CostSource } from "./model-prices.ts";
+import { countsAsTurn } from "./laterdog/usage-turn.ts";
 import { billableFor, type PriceList } from "./prices.ts";
 
 export type UsageTrigger =
@@ -27,6 +28,7 @@ export interface UsageRow {
   costUsd: number | null;
   costSource?: CostSource;
   trigger: UsageTrigger;
+  purpose?: string;
 }
 
 export type UsageGroupBy = "bot" | "model" | "user" | "day" | "engine" | "routine";
@@ -239,7 +241,7 @@ export function costSourceOf(row: Pick<UsageRow, "costUsd" | "costSource">): Cos
 }
 
 function add(group: UsageGroup, row: UsageRow, prices: PriceList | null): void {
-  group.turns += 1;
+  if (countsAsTurn(row)) group.turns += 1;
   group.input += clean(row.input);
   group.output += clean(row.output);
   group.cachedInput += clean(row.cachedInput);

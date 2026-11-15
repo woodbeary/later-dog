@@ -26,13 +26,21 @@ export function DigestChip({ message }: { message: Message }) {
   );
 }
 
+const PLAIN_LINE_CHARS = 200;
+
+export function compactionLine(summary: string): string | null {
+  const line = summary.trim();
+  return line && line.length <= PLAIN_LINE_CHARS && !/[\n[\]{}]/.test(line) ? line : null;
+}
+
 export function CompactionChip({ message }: { message: Message }) {
   if (!message.compaction) return null;
+  const line = compactionLine(message.compaction.summary);
   return (
     <details className="max-w-[600px] rounded-xl border border-hairline/40 bg-panel px-3 py-2 text-[12px] text-ink-secondary" data-testid="compaction-chip">
       <summary className="cursor-pointer font-medium">{t("chat.compactionTitle")}</summary>
+      {line && <p className="mt-2 break-words">{line}</p>}
       <p className="mt-2">{t("chat.compactionHint")}</p>
-      <p className="mt-2 whitespace-pre-wrap break-words">{message.compaction.summary}</p>
     </details>
   );
 }

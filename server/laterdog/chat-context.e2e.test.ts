@@ -57,7 +57,7 @@ describe.skipIf(process.platform === "win32")("what fills a chat's context windo
       join(home, ".laterdog", "config.json"),
       JSON.stringify({
         instances: {
-          claudeCounts: { driver: "claudeAgent", environment: {}, config: { cli: FAKE_CLAUDE, permissionMode: "bypassPermissions" } },
+          claudeCounts: { driver: "claudeAgent", environment: { FAKE_CLAUDE_CONTEXT_FOLLOWS_TURNS: "1" }, config: { cli: FAKE_CLAUDE, permissionMode: "bypassPermissions" } },
           claudeOlder: {
             driver: "claudeAgent",
             environment: { FAKE_CLAUDE_CONTEXT: "unknown", FAKE_CLAUDE_CONTEXT_SEEN: seen },
@@ -90,21 +90,24 @@ describe.skipIf(process.platform === "win32")("what fills a chat's context windo
     rmSync(home, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   });
 
-  it("has nothing before the first reply, then reads the engine's own count back after a turn, marked older than the fake turn's own 15 tokens", async () => {
+  it("has nothing before the first reply, then reads the engine's full count back after a turn, fresh and within 2% of the chat's own count", async () => {
     const dog = await dogOn("claudeCounts");
     expect(await api("GET", `/api/threads/${dog.threadId}/context`)).toMatchObject({ status: 404, body: { error: "nothing yet" } });
     await turn(dog.id, "hello");
     await waitFor(async () => (await api("GET", `/api/threads/${dog.threadId}/context`)).status === 200, "the breakdown");
     const { body, text } = await api("GET", `/api/threads/${dog.threadId}/context`);
-    expect(body).toMatchObject({ source: "engine", window: 200_000, compactsAt: 167_000, at: expect.any(Number), stale: true });
-    expect(body.total).toBeGreaterThan(30_000);
+    expect(body).toMatchObject({ source: "engine", window: 200_000, compactsAt: 167_000, at: expect.any(Number) });
+    expect(body.stale).toBeUndefined();
+    const own = (await getBot(dog.id)).tasks.find((task: any) => task.threadId === dog.threadId).usage.context.tokens as number;
+    expect(own).toBeGreaterThan(30_000);
+    expect(Math.abs(body.total - own) / own).toBeLessThanOrEqual(0.02);
     const used = body.parts.filter((part: any) => !part.deferred && part.id !== "reserve" && part.id !== "free");
     expect(used.reduce((sum: number, part: any) => sum + part.tokens, 0)).toBe(body.total);
     expect(body.parts.filter((part: any) => !part.deferred).reduce((sum: number, part: any) => sum + part.tokens, 0)).toBe(body.window);
     expect(body.parts).toContainEqual({ id: "tools", tokens: 41_000, deferred: true });
     expect(body.parts.map((part: any) => part.id)).toEqual(["conversation", "tools", "instructions", "skills", "memory", "reserve", "free", "tools"]);
     for (const leak of ["CLAUDE.md", "fixture-person", "fixture_private_tool", "FixturePrivateCommand", "System prompt", "claude-fake"]) expect(text).not.toContain(leak);
-    expect(Object.keys(body).sort()).toEqual(["at", "compactsAt", "parts", "source", "stale", "total", "window"]);
+    expect(Object.keys(body).sort()).toEqual(["at", "compactsAt", "parts", "source", "total", "window"]);
   }, 60_000);
 
   it("keeps working on an engine that does not know the request, and asks it only once", async () => {
@@ -115,7 +118,7 @@ describe.skipIf(process.platform === "win32")("what fills a chat's context windo
     await waitFor(async () => asked().length > 0, "the one question");
     await turn(dog.id, "second");
     expect(await api("GET", `/api/threads/${dog.threadId}/context`)).toMatchObject({ status: 404, body: { error: "nothing yet" } });
-    expect(asked()).toEqual([{ subtype: "get_context_usage", detail: "summary", turns: 1 }]);
+    expect(asked()).toEqual([{ subtype: "get_context_usage", detail: "full", turns: 1 }]);
     expect(await replies()).toBe(before + 2);
   }, 60_000);
 

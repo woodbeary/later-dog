@@ -84,7 +84,7 @@ test("a read-only folder never reaches a shell, a write or the screen, whatever 
   for (const refused of results.slice(0, 5)) assert.equal(refused.isError, true, text(refused));
   assert.match(text(results[0]), /Terminal access/);
   assert.match(text(results[1]), /read-only/);
-  assert.match(text(results[3]), /Computer control/);
+  assert.match(text(results[3]), /Screen control is not available/);
   assert.equal(JSON.parse(text(results[5])).content, "original");
   assert.equal(await readFile(path.join(shared, "plan.md"), "utf8"), "original");
   await assert.rejects(stat(path.join(shared, "new.md")), { code: "ENOENT" });

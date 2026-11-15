@@ -14,10 +14,10 @@ function engine(timeoutMs = 1_000) {
 }
 
 describe("asking the engine what fills the context window", () => {
-  it("writes one control request line in the engine's envelope, asking for the cheap summary", async () => {
+  it("writes one control request line in the engine's envelope, asking for the full count", async () => {
     const { ask, written, reply } = engine();
     const asked = ask.ask();
-    expect(written).toEqual([{ type: "control_request", request_id: expect.stringMatching(new RegExp(`^${ENGINE_CONTEXT_REQUEST_PREFIX}`)), request: { subtype: "get_context_usage", detail: "summary" } }]);
+    expect(written).toEqual([{ type: "control_request", request_id: expect.stringMatching(new RegExp(`^${ENGINE_CONTEXT_REQUEST_PREFIX}`)), request: { subtype: "get_context_usage", detail: "full" } }]);
     expect(reply({ subtype: "success", response: { totalTokens: 5, maxTokens: 10, categories: [] } })).toBe(true);
     expect(await asked).toEqual({ kind: "answer", answer: { totalTokens: 5, maxTokens: 10, categories: [] } });
   });

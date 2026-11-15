@@ -104,6 +104,23 @@ xcrun stapler staple "$APP"
 xcrun stapler validate "$APP"
 spctl -a -vvv -t exec "$APP"
 
+echo "== Compare the app's files with the previous release"
+(cd "$(dirname "$APP")" && find later.dog.app \( -type f -o -type l \)) | LC_ALL=C sort > "$WORK/files.txt"
+if [ -n "${LATERDOG_PREVIOUS_FILES:-}" ]; then
+  cp "$LATERDOG_PREVIOUS_FILES" "$WORK/previous-files.txt"
+else
+  PREVIOUS_TAG="$(gh release view -R "$REPO" --json tagName -q .tagName)"
+  mkdir -p "$WORK/previous"
+  if gh release download "$PREVIOUS_TAG" -R "$REPO" -p later.dog-macOS-arm64-files.txt -D "$WORK/previous"; then
+    cp "$WORK/previous/later.dog-macOS-arm64-files.txt" "$WORK/previous-files.txt"
+  else
+    gh release download "$PREVIOUS_TAG" -R "$REPO" -p later.dog-macOS-arm64.zip -D "$WORK/previous"
+    zipinfo -1 "$WORK/previous/later.dog-macOS-arm64.zip" > "$WORK/previous-files.txt"
+  fi
+  echo "Previous release: $PREVIOUS_TAG"
+fi
+node scripts/release-file-list.mjs "$WORK/previous-files.txt" "$WORK/files.txt"
+
 echo "== Build, sign, notarize and staple the disk image"
 DMG='release/later.dog-macOS-arm64.dmg'
 rm -f "$DMG"
@@ -120,8 +137,9 @@ echo "== Release files"
 mkdir -p out
 ditto -c -k --sequesterRsrc --keepParent "$APP" out/later.dog-macOS-arm64.zip
 cp "$DMG" out/later.dog-macOS-arm64.dmg
+cp "$WORK/files.txt" out/later.dog-macOS-arm64-files.txt
 node scripts/laterdog-release-files.mjs --tag "$RELEASE_TAG" --zip out/later.dog-macOS-arm64.zip --dmg out/later.dog-macOS-arm64.dmg --out out --repository "$REPO"
-assets=(out/later.dog-macOS-arm64.dmg out/later.dog-macOS-arm64.zip out/SHA256SUMS.txt)
+assets=(out/later.dog-macOS-arm64.dmg out/later.dog-macOS-arm64.zip out/SHA256SUMS.txt out/later.dog-macOS-arm64-files.txt)
 [[ -f out/latest-mac.yml ]] && assets+=(out/latest-mac.yml)
 prerelease=()
 [[ "$RELEASE_TAG" == *-preview.* ]] && prerelease=(--prerelease)

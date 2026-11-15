@@ -1,11 +1,13 @@
 
 import type { RuntimeEvent } from "./contracts.ts";
+import { readText } from "./laterdog/read-text.ts";
 
 export interface ContextMessage {
   id: string;
   role: "user" | "assistant";
   text: string;
   keep?: boolean;
+  peer?: boolean;
   steered?: boolean;
 }
 
@@ -69,7 +71,7 @@ export function renderUnseen(unseen: readonly UnseenMessage[]): { block: string;
       "",
       ...(deferred > 0 ? [`(${deferred} older unseen message${deferred === 1 ? " is" : "s are"} not shown in this turn.)`, ""] : []),
       ...(earlier > 0 ? [`(The first ${earlier === 1 ? "message is" : `${earlier} messages are`} older than messages you have already seen.)`, ""] : []),
-      ...shown.map((m) => `${m.role === "user" ? "User" : "Assistant"}${m.steered ? " (sent while an earlier turn was running; you may already have it)" : ""}: ${m.text}`),
+      ...shown.map((m) => `${m.role === "user" ? "User" : "Assistant"}${m.steered ? " (sent while an earlier turn was running; you may already have it)" : ""}: ${m.peer ? readText("another dog", m.text) : m.text}`),
     ].join("\n");
   };
   let taken = 0;

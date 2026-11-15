@@ -41,3 +41,4 @@ deploy/laterdog/profiles/
 deploy/laterdog/github/
 
 .claude/launch.json
+/out/

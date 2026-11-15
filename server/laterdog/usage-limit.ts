@@ -163,6 +163,10 @@ function codexWindowKind(minutes: number | null | undefined): string | undefined
   return minutes <= 6 * 60 ? "session" : minutes >= 6 * 24 * 60 ? "weekly" : undefined;
 }
 
+export function saysUsageLimit(text: string): boolean {
+  return LIMIT_WORDS.test(text) || CODEX_LIMIT_WORDS.test(text);
+}
+
 export function codexUsageLimit(error: { message?: unknown; codexErrorInfo?: unknown }, windows?: CodexRateLimits, now: number = Date.now()): UsageLimit | null {
   const text = typeof error.message === "string" ? error.message : "";
   if (error.codexErrorInfo !== "usageLimitExceeded" && !CODEX_LIMIT_WORDS.test(text)) return null;

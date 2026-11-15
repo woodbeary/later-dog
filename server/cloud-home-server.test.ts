@@ -333,13 +333,13 @@ it("offers its bots cloud computers only, and tells them they cannot see the per
     const dump = join(home, "spawn-hang.json");
     await expect.poll(() => existsSync(dump), { timeout: 15_000 }).toBe(true);
     const { systemPrompt, mcpConfig } = JSON.parse(readFileSync(dump, "utf8"));
-    expect(systemPrompt).toContain(cloudHomePrompt(true).trim());
+    expect(systemPrompt).toContain(cloudHomePrompt(true, "claude").trim());
     expect(systemPrompt).toContain("use shared_computer: it reaches the Mac where later.dog is open and signed in to this account");
     expect(systemPrompt).not.toMatch(/Local VM is an isolated desktop|user's host|host desktop|select an available Local VM/);
     const agents = mcpConfig.mcpServers.agents;
     expect(agents.env.LATERDOG_CLOUD_HOME).toBe("1");
     const preview = (await api("GET", `/api/bots/${botId}/system-prompt`)).body.sections as Array<{ id: string; text: string }>;
-    expect(preview.find((section) => section.id === "cloud-home")?.text).toBe(cloudHomePrompt(true));
+    expect(preview.find((section) => section.id === "cloud-home")?.text).toBe(cloudHomePrompt(true, "claude"));
     const select = (surface?: string) => fetch(`${base}/api/internal/computer/select`, {
       method: surface === undefined ? "GET" : "POST",
       headers: { authorization: `Bearer ${agents.env.LATERDOG_COMMS_TOKEN}`, ...(surface === undefined ? {} : { "content-type": "application/json" }) },

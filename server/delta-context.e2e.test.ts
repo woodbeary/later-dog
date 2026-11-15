@@ -211,7 +211,7 @@ it("offers a result that lands mid-turn after its source was stopped to the next
   await f.wait();
   const next = f.prompt(f.turns().at(-1));
   expect(count(next, "STOPPED_SOURCE_RESULT")).toBe(1);
-  expect(next).toMatch(/Assistant: \[Teammate report — untrusted peer content[^\n]*\]\n\{[^\n]*STOPPED_SOURCE_RESULT/);
+  expect(next).toMatch(/Assistant: <read_text from="another dog">\n\[Teammate report — untrusted peer content[^\n]*\]\n\{[^\n]*STOPPED_SOURCE_RESULT[^\n]*\n<\/read_text>/);
   expect(f.launches().at(-1).resume).not.toBeNull();
 
   f.plan[f.chief.id] = { reply: "Nothing new" };
@@ -306,7 +306,7 @@ it("keeps provenance and exactly-once delivery across rework rounds to the same 
   const [, , roundOne, roundTwo] = f.turns();
   expect(count(f.prompt(roundOne), "ROUND_ONE_RESULT")).toBe(1);
   expect(count(f.prompt(roundTwo), "ROUND_TWO_RESULT")).toBe(1);
-  expect(count(f.prompt(roundTwo), "ROUND_ONE_RESULT")).toBe(1);
+  expect(count(f.prompt(roundTwo), "ROUND_ONE_RESULT")).toBe(0);
   expect(f.launches().at(-1).resume).not.toBeNull();
 
   const second = f.prompt(f.turns(f.lead.id)[1]);
@@ -562,6 +562,50 @@ it("gives a replacement session an earlier round's result that its rebuild could
   expect(count(returned, "ROUND_ONE_RESULT_TOKEN")).toBe(1);
   expect(returned).not.toContain("already delivered");
 }), 240_000);
+
+it("gives a session that cannot be resumed on the last results turn the earlier result once, by replay", () => fixture(async (f) => {
+  await warmUp(f);
+  f.plan[f.lead.id] = { reply: "EARLY_LEAD_RESULT" };
+  f.plan[f.qa.id] = { reply: "LATE_QA_RESULT", gateFile: f.gate("qa") };
+  f.plan[f.chief.id] = { turns: [{}, f.delegate("split", [f.lead, f.qa], "Check the release"), { reply: "Acted on the lead" }, { reply: "Final" }] };
+  await f.send("Have Engineering and QA check the release.");
+  await expect.poll(() => f.turns().length, { timeout: 40_000 }).toBe(3);
+  await expect.poll(async () => (await f.messages()).some((m: any) => m.text === "Acted on the lead" && m.turnTerminal), { timeout: 10_000 }).toBe(true);
+  expect(count(f.prompt(f.turns()[2]), "EARLY_LEAD_RESULT")).toBe(1);
+  const original = cursor(f);
+  await f.setMode("resume=dead-session");
+  f.open(f.gate("qa"));
+  await expect.poll(() => f.turns().length, { timeout: 40_000 }).toBe(4);
+  await expect.poll(async () => (await f.messages()).some((m: any) => m.text === "Final" && m.turnTerminal), { timeout: 15_000 }).toBe(true);
+  await f.setMode();
+  expect(cursor(f)).not.toBe(original);
+  const last = f.prompt(f.turns().at(-1));
+  expect(count(last, "EARLY_LEAD_RESULT")).toBe(1);
+  expect(count(last, "LATE_QA_RESULT")).toBe(1);
+}), 120_000);
+
+it("gives a chat moved to another account between results an earlier result in full once more, and not again", () => fixture(async (f) => {
+  await warmUp(f);
+  f.plan[f.lead.id] = { reply: "MOVED_EARLY_RESULT" };
+  f.plan[f.qa.id] = { reply: "MOVED_MIDDLE_RESULT", gateFile: f.gate("qa") };
+  f.plan[f.ops.id] = { reply: "MOVED_LAST_RESULT", gateFile: f.gate("ops") };
+  f.plan[f.chief.id] = { turns: [{}, f.delegate("split", [f.lead, f.qa, f.ops], "Check the release"),
+    { reply: "Acted on the lead" }, { reply: "Acted on QA" }, { reply: "Final on the new account" }] };
+  const replied = (text: string) => expect.poll(async () => (await f.messages()).some((m: any) => m.text === text && m.turnTerminal), { timeout: 40_000 }).toBe(true);
+  await f.send("Have Engineering, QA and Ops check the release.");
+  await replied("Acted on the lead");
+  f.open(f.gate("qa"));
+  await expect.poll(() => f.nodes().some((n: any) => n.botId === f.qa.id && n.reported), { timeout: 10_000 }).toBe(true);
+  await f.useModel("codex");
+  await replied("Acted on QA");
+  f.open(f.gate("ops"));
+  await replied("Final on the new account");
+  const given = (turn: any) => f.prompt(turn).split("downstream room requests have settled").slice(1).join("");
+  const moved = f.turns().find((turn: any) => given(turn).includes("MOVED_MIDDLE_RESULT"));
+  expect(count(given(moved), "MOVED_EARLY_RESULT")).toBe(1);
+  expect(count(f.prompt(moved), "MOVED_EARLY_RESULT")).toBe(1);
+  expect(f.turns().reduce((sum: number, turn: any) => sum + count(given(turn), "MOVED_EARLY_RESULT"), 0)).toBe(2);
+}, { codex: {} }), 150_000);
 
 it("does not send a message again that a recovery replay carried, including one the unseen limit had deferred", () => fixture(async (f) => {
   await warmUp(f);

@@ -8,6 +8,7 @@ import {
 } from "./laterdog/handoff-budget.ts";
 import { timedOutAgain, type HandoffRunResult } from "./laterdog/long-work.ts";
 import { turnResultsSchema } from "./laterdog/turn-results.ts";
+import { RESULT_MAX_WAIT_MS, RESULT_QUIET_MS, allResultsIn, giveResults, givenBeforeUpdate, partResultsDue, takeBackResults } from "./laterdog/handoff-results.ts";
 
 const nodeSchema = z.object({
   id: z.string(), rootId: z.string(), parentId: z.string().optional(),
@@ -16,6 +17,7 @@ const nodeSchema = z.object({
   requestBatchKey: z.string().optional(),
   status: z.enum(["source", "queued", "running", "waiting", "resume", "needs-you", "completed", "failed", "cancelled"]),
   result: z.string().default(""), reported: z.boolean().default(false),
+  reportedAt: z.number().optional(), givenAt: z.number().optional(),
   executions: z.number().int().nonnegative().default(0), startedAt: z.number().optional(),
   lastProgressAt: z.number().optional(),
   approvalGranted: z.boolean().default(false),
@@ -28,6 +30,7 @@ const nodeSchema = z.object({
   continuedAs: z.string().optional(),
   firstCreatedAt: z.number().optional(),
   retried: z.boolean().optional(),
+  settledRow: z.boolean().optional(),
   restarted: z.boolean().optional(),
   orderAt: z.number().optional(),
   urgent: z.boolean().optional(),
@@ -37,7 +40,8 @@ const nodeSchema = z.object({
 });
 export type RoomHandoff = z.infer<typeof nodeSchema>;
 export type RoomAddress = Pick<RoomHandoff, "groupId" | "threadId" | "botId">;
-export const ROOM_HANDOFF_LIMITS = { depth: 4, requests: 24, executions: 48, idleMs: HANDOFF_IDLE_MS, minRunwayMs: 10 * 60_000, hardCapMs: HANDOFF_HARD_CAP_MS, ceilingMs: HANDOFF_CEILING_MS };
+export const ROOM_HANDOFF_LIMITS = { depth: 4, requests: 24, executions: 48, idleMs: HANDOFF_IDLE_MS, minRunwayMs: 10 * 60_000, hardCapMs: HANDOFF_HARD_CAP_MS, ceilingMs: HANDOFF_CEILING_MS,
+  resultQuietMs: RESULT_QUIET_MS, resultMaxWaitMs: RESULT_MAX_WAIT_MS };
 const terminal = (n: RoomHandoff) => ["completed", "failed", "cancelled"].includes(n.status);
 export const awaitsReply = (n: RoomHandoff) => n.reply !== "none";
 export const queueOrder = (n: RoomHandoff) => n.orderAt ?? n.createdAt;
@@ -81,6 +85,7 @@ export class RoomHandoffs {
       if (ids.size !== saved.length || saved.some(n => !ids.has(n.rootId) || ids.get(n.rootId)?.parentId ||
         (n.parentId && (!ids.has(n.parentId) || ids.get(n.parentId)?.rootId !== n.rootId)))) throw new Error("Invalid room handoff tree");
       for (const n of saved) this.nodes.set(n.id, n);
+      givenBeforeUpdate(this.nodes);
       if (hooks.longWork) this.restartPending = saved.some(n => !terminal(n));
       else {
         for (const n of saved) if (!terminal(n) && !saved.some(child => child.rootId === n.rootId && child.status === "needs-you")) this.lostToRestart(n);
@@ -91,6 +96,13 @@ export class RoomHandoffs {
     }
   }
 
+  claimSettledRow(n: RoomHandoff): readonly RoomHandoff[] | undefined {
+    const all = allResultsIn(this.awaited(n.id));
+    if (!all || n.settledRow) return undefined;
+    n.settledRow = true;
+    this.save();
+    return all;
+  }
   private save() { writeFileAtomic(this.file, JSON.stringify([...this.nodes.values()]), { mode: 0o600 }); }
   private publish(...nodes: RoomHandoff[]) {
     this.save();
@@ -141,7 +153,8 @@ export class RoomHandoffs {
           if (n.status === "source") { n.status = "waiting"; continue; }
           if (n.status !== "running") continue;
           const children = this.awaited(n.id);
-          if (children.some(c => !terminal(c))) n.status = "waiting";
+          const takenBack = n.startedAt !== undefined && takeBackResults(children, n.startedAt);
+          if (children.some(c => !terminal(c))) n.status = takenBack ? "resume" : "waiting";
           else if (children.length) n.status = "resume";
           else { n.status = "queued"; n.restarted = true; }
         }
@@ -154,6 +167,19 @@ export class RoomHandoffs {
   }
   private stampProgress(root: RoomHandoff): void {
     root.lastProgressAt = Math.max(root.lastProgressAt ?? root.createdAt, this.now());
+  }
+  private stillAwaiting(n: RoomHandoff): boolean {
+    return this.awaited(n.id).some(c => !terminal(c) || c.givenAt === undefined);
+  }
+  private takeBackFailed(n: RoomHandoff, resumed: boolean, ok: boolean, startedAt: number): void {
+    if (resumed && !ok) takeBackResults(this.awaited(n.id), startedAt);
+  }
+  private retryLastWake(n: RoomHandoff, resumed: boolean, startedAt: number): boolean {
+    if (!resumed || n.retried) return false;
+    n.retried = true;
+    n.status = "resume";
+    takeBackResults(this.awaited(n.id), startedAt);
+    return true;
   }
   private owesOnlySynthesis(n: RoomHandoff): boolean {
     const children = this.awaited(n.id);
@@ -224,8 +250,8 @@ export class RoomHandoffs {
       ...(requestedBy ? { requestedBy } : {}), ...(lender ? { lender } : {}) };
     const kind = target.groupId && target.groupId === source.groupId ? "assignment" : "work";
     const path = this.path(parent);
-    if (path.some(n => n.botId === target.botId && (!n.groupId || !target.groupId || n.groupId === target.groupId))) {
-      throw new Error("Cannot assign work back to an ancestor; results return automatically");
+    if (reply === "result" && path.some(n => n.botId === target.botId && (!n.groupId || !target.groupId || n.groupId === target.groupId))) {
+      throw new Error("Cannot assign work back to an ancestor; results return automatically. To tell it something, send with reply \"none\".");
     }
     const existing = this.children(parent.id).findLast(n => n.botId === target.botId && n.groupId === target.groupId && n.text === text);
     if (existing && !(rework && terminal(existing))) return { node: existing, duplicate: true };
@@ -264,6 +290,7 @@ export class RoomHandoffs {
     if (!parentId && !lender) delete root.lender;
     if (fresh) this.nodes.set(parent.id, parent);
     this.nodes.set(node.id, node);
+    if (awaitsReply(node)) delete parent.settledRow;
     this.longCache.delete(root.id);
     const previousProgress = root.lastProgressAt;
     this.stampProgress(root);
@@ -311,6 +338,7 @@ export class RoomHandoffs {
     const problem = this.hooks.validate(node, parent);
     if (problem) return problem;
     this.nodes.set(node.id, node);
+    if (parent && awaitsReply(node)) delete parent.settledRow;
     old.status = "cancelled"; old.result = "Replaced by a newer request."; old.endedBy = "person"; old.reported = true; old.replacedBy = node.id;
     this.publish(old, node);
     return node;
@@ -481,7 +509,7 @@ export class RoomHandoffs {
     for (const n of this.inQueueOrder()) {
       const parent = n.parentId ? this.nodes.get(n.parentId) : undefined;
       if (terminal(n) && parent && !n.reported) {
-        this.hooks.report(n, parent); n.reported = true; this.publish(n, parent);
+        this.hooks.report(n, parent); n.reported = true; n.reportedAt = this.now(); this.publish(n, parent);
       }
       if (n.status === "needs-you") {
         if (this.hooks.needsYou?.(n)) continue;
@@ -491,6 +519,7 @@ export class RoomHandoffs {
         const children = this.awaited(n.id);
         if (!children.length && this.children(n.id).length) { n.status = "completed"; this.publish(n); }
         else if (children.every(c => terminal(c) && c.reported)) { n.status = "resume"; this.publish(n); }
+        else if (!n.groupId && partResultsDue(children, this.now(), this.limits, n.startedAt)) { n.status = "resume"; this.publish(n); }
       }
       if (n.status !== "queued" && n.status !== "resume") continue;
       if (parent && (parent.status === "source" || parent.status === "running") &&
@@ -502,7 +531,9 @@ export class RoomHandoffs {
       if (root.executions + executionCost > this.limits.executions) { this.cancelTree(n, endWords("limit", this.limits), "failed", "limit"); continue; }
       const resumed = n.status === "resume";
       const childCount = this.awaited(n.id).length;
-      root.executions += executionCost; n.status = "running"; n.startedAt = this.now();
+      root.executions += executionCost; n.status = "running"; n.startedAt = Math.max(this.now(), (n.startedAt ?? -1) + 1);
+      const startedAt = n.startedAt;
+      if (resumed) giveResults(this.awaited(n.id), startedAt);
       this.stampProgress(root);
       this.publish(n, root);
       const controller = new AbortController();
@@ -517,19 +548,26 @@ export class RoomHandoffs {
           const parent = n.parentId ? this.nodes.get(n.parentId) : undefined;
           if (parent) this.hooks.report(n, parent);
         }
-        else if (this.awaited(n.id).length > childCount) n.status = "waiting";
-        else if (!result.ok && result.timedOut && !n.retried) { n.retried = true; n.status = resumed ? "resume" : "queued"; this.stampProgress(root); }
-        else if (!result.ok && result.timedOut) this.cancelTree(n, timedOutAgain(n.result), "failed", "timeout");
-        else if (!result.ok) this.cancelTree(n, n.result || "Room agent failed", "failed", "problem");
+        else if (this.awaited(n.id).length > childCount) { this.takeBackFailed(n, resumed, result.ok, startedAt); n.status = "waiting"; }
+        else if (!result.ok && result.timedOut && !n.retried) {
+          n.retried = true; n.status = resumed ? "resume" : "queued"; this.stampProgress(root);
+          if (resumed) takeBackResults(this.awaited(n.id), startedAt);
+        }
+        else if (this.stillAwaiting(n)) { this.takeBackFailed(n, resumed, result.ok, startedAt); n.status = "waiting"; }
+        else if (!result.ok && this.retryLastWake(n, resumed, startedAt)) this.stampProgress(root);
+        else if (!result.ok && result.timedOut) { this.takeBackFailed(n, resumed, false, startedAt); this.cancelTree(n, timedOutAgain(n.result), "failed", "timeout"); }
+        else if (!result.ok) { this.takeBackFailed(n, resumed, false, startedAt); this.cancelTree(n, n.result || "Room agent failed", "failed", "problem"); }
         else { n.status = "completed"; this.stampProgress(root); }
         this.publish(n);
       }).catch(e => {
         if (terminal(n)) return;
         n.result = String(e).slice(0, 1000);
-        if (this.awaited(n.id).length > childCount) {
+        if (this.awaited(n.id).length > childCount || this.stillAwaiting(n)) {
+          this.takeBackFailed(n, resumed, false, startedAt);
           n.status = "waiting";
           this.publish(n);
-        } else this.cancelTree(n, n.result, "failed", "problem");
+        } else if (this.retryLastWake(n, resumed, startedAt)) { this.stampProgress(root); this.publish(n); }
+        else { this.takeBackFailed(n, resumed, false, startedAt); this.cancelTree(n, n.result, "failed", "problem"); }
       })
         .finally(() => this.controllers.delete(n.id));
     }

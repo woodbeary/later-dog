@@ -18,11 +18,12 @@ proven about them.
    `server/drivers/codex-instructions.ts`).
 2. **A setting for the model helpers use.** A dog's `helperModel` lets its
    helpers run on a lighter Claude model than the dog itself.
-3. **Rare tools on demand, off by default.** With
-   `LATERDOG_DEFER_RARE_TOOLS=1`, later.dog's rarely used tools
+3. **Rare tools on demand, on by default.** later.dog's rarely used tools
    (`RARE_AGENT_TOOLS` in `server/laterdog/tool-loading.ts`) are loaded only
-   when a Claude dog searches for them. Without the setting every tool is
-   loaded, as before. Rules a dog must always follow stay in its standing
+   when a Claude dog searches for them, unless `LATERDOG_DEFER_RARE_TOOLS` is
+   `0`, which loads every tool up front (`deferRareToolsEnabled`). The setting
+   began as opt-in (`d76644902`) and `cc5114d57` made on-demand the default,
+   both on 12 November 2026. Rules a dog must always follow stay in its standing
    instructions rather than only in a deferred tool's description: the rule
    against opening Google's consent page is in `GOOGLE_PROMPT`.
 
@@ -157,6 +158,27 @@ happened within a few turns.
 The commits after `d0006e924` (the plain pick-up line, and showing the dog as
 working while it rebuilds) were checked on fixtures only.
 
+## Seen on a real home, 2026-11-14
+
+From the home's own usage ledger and the traces of seven dogs that day.
+
+- 26 turns from 16:00 PT on 13 November to 13:00 PT on 14 November used 107.5
+  million input tokens, 98% of them read from the cache, and 443,000 output
+  tokens. By model: the strongest general model 78.1 million (98% cached), the
+  middle one 25.3 million (98%), the coordinating model 3.8 million (95%).
+- A newly created dog's first request was about 35,500 tokens, of which
+  later.dog's own standing instructions were about 5,500 (22 KB). The 12
+  November figure above was 30,768 with rare tools on demand. Why the two
+  differ by about 4,700 tokens has not been worked out; both are kept.
+- What it did not show: each of six helper dogs did its whole job in one turn
+  and grew from about 35,000 to between 220,000 and 440,000 tokens without
+  compacting, re-reading that context at every step. One waited on a test run
+  by asking about 14 times at 440,000 tokens.
+- A fault seen that day: when a chat moved to another account, the summary of
+  the earlier conversation was written by the smallest model, which answered the
+  conversation instead of summarising it, and the dog lost what it had been
+  doing. The fix is in progress.
+
 ## Not proven
 
 - Compaction at the engine's own default window, on a large model or on a real
@@ -165,6 +187,6 @@ working while it rebuilds) were checked on fixtures only.
   Claude Code picks on a real account.
 - Codex compaction on a real engine: the reset is covered only by a unit test
   (`server/drivers/codex-instructions.test.ts`), with no live compaction.
-- Tools on demand on the smallest Claude model or with a custom endpoint.
+- Tools on demand, now the default, on the smallest Claude model or with a custom endpoint.
 - Every claim in the dogs' instructions checked against a real home, such as
   what the kit line says a dog already has.

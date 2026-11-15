@@ -15,7 +15,7 @@ const REFUSAL = /^Unsupported control request subtype/i;
 const NOT_YET = /no turn received yet/i;
 
 export function engineContextRequest(requestId: string): string {
-  return `${JSON.stringify({ type: "control_request", request_id: requestId, request: { subtype: "get_context_usage", detail: "summary" } })}\n`;
+  return `${JSON.stringify({ type: "control_request", request_id: requestId, request: { subtype: "get_context_usage", detail: "full" } })}\n`;
 }
 
 type Waiting = { settle: (reply: EngineContextReply) => void; timer: ReturnType<typeof setTimeout> };
