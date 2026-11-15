@@ -775,6 +775,7 @@ import { decodeInjectId } from "./drivers/local-inject.ts";
 import { withDroppedSummary } from "./laterdog/rebuild-summary.ts";
 import { foldReason, keptContext, personLine, writeHistorySummary } from "./laterdog/history-summary.ts";
 import { dogWriter } from "./laterdog/dog-writer.ts";
+import { memoryWriterModel } from "./laterdog/upkeep-model.ts";
 import { reportingUsage, summaryUsageRow } from "./laterdog/summary-usage.ts";
 import { rowForApps } from "./laterdog/compaction-row.ts";
 import { assignedTask, openHandoffsFromRoom, ownLastAsk, personOwes, recordsText, withRecords } from "./laterdog/rebuild-records.ts";
@@ -5817,7 +5818,7 @@ const memoryUpkeep = createMemoryUpkeep({
     const bot = store.bot(botId);
     const instance = bot ? registry.get(bot.modelSelection.instanceId) : undefined;
     if (!bot || !instance || policyModelRefusal(instance)) return null;
-    const generate = dogWriter(instance, bot.modelSelection.model);
+    const generate = dogWriter(instance, memoryWriterModel(instance.driverKind, bot.modelSelection.model));
     return generate ? {
       generateText: async (prompt, options) => {
         assertWithinBudget(cfg, DATA_DIR);
