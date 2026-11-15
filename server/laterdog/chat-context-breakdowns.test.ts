@@ -107,13 +107,16 @@ describe("the latest breakdown kept for each chat", () => {
     expect(await make({}).read("t1", undefined)).toMatchObject({ at: 1_000, stale: true });
   });
 
-  it("marks a count stale when its total is more than 2% off the chat's number", async () => {
+  it("marks a count stale when its total is more than 2% below the chat's number, not when it is above", async () => {
     const store = make();
     dispatchClaude(store);
     replies.push({ kind: "answer", answer: ANSWER });
     await store.afterTurn("t1");
     expect(await store.read("t1", { tokens: 150_000, window: 200_000 })).toMatchObject({ total: 10_000, stale: true });
     expect((await store.read("t1", { tokens: 10_200, window: 200_000 }))?.stale).toBeUndefined();
+    expect(await store.read("t1", { tokens: 10_300, window: 200_000 })).toMatchObject({ stale: true });
+    expect((await store.read("t1", { tokens: 9_700, window: 200_000 }))?.stale).toBeUndefined();
+    expect((await store.read("t1", { tokens: 6_000, window: 200_000 }))?.stale).toBeUndefined();
   });
 
   it("never estimates for an engine that counts for itself", async () => {

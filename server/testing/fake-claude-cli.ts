@@ -8,7 +8,7 @@ import { createPuppies } from "./fake-claude-puppies.ts";
 import { createNativeActivity } from "./fake-claude-native-activity.ts";
 import { runRoomHandoffAgent } from "./room-handoff-agent.ts";
 import { ASKS_COMMAND, ASKS_QUESTION, callDogTool, dogServer } from "./fake-claude-asks.ts";
-import { answerControlRequest, fakeContextMode } from "./fake-claude-context.ts";
+import { answerControlRequest, fakeContextMode, fakeRequestUsage } from "./fake-claude-context.ts";
 
 const mode = process.env.FAKE_CLAUDE_MODE ?? "happy";
 
@@ -680,7 +680,7 @@ const playTurn = async (prompt: JsonValue, late = false) => {
     const context = playNativeCompaction();
     if (context.trim()) replyParts = [`${context.trim()}\n\n${replyParts[0] ?? ""}`, ...replyParts.slice(1)];
   }
-  const usage = { input_tokens: 10, cache_read_input_tokens: 2, output_tokens: 5 };
+  const usage = process.env.FAKE_CLAUDE_CONTEXT_FOLLOWS_TURNS === "1" ? fakeRequestUsage(turnsPlayed) : { input_tokens: 10, cache_read_input_tokens: 2, output_tokens: 5 };
   const stream = streamPlan();
   if (scriptedToolCalls) {
     for (const call of scriptedToolCalls) {
