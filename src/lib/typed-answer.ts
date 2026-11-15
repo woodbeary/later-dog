@@ -7,6 +7,7 @@ export interface TypedAnswer {
   messageId: string;
   requestId: string;
   compose: (text: string) => Composed;
+  limit?: number;
   sent?: (answer: string) => void;
   failed?: () => void;
 }
@@ -53,6 +54,10 @@ function subscribe(listener: () => void): () => void {
   return () => { listeners.delete(listener); };
 }
 
+export function answerTooLong(target: TypedAnswer | null, text: string): boolean {
+  return target?.limit !== undefined && text.trim().length > target.limit;
+}
+
 export function useTypedAnswer(threadId: string | undefined): TypedAnswer | null {
   return useSyncExternalStore(subscribe, () => typedAnswerFor(threadId), () => null);
 }
@@ -61,11 +66,12 @@ export function useClosedAnswer(threadId: string | undefined): boolean {
   return useSyncExternalStore(subscribe, () => Boolean(threadId && closed.has(threadId)), () => false);
 }
 
-export type TypedAnswerResult = "sent" | "kept" | "waiting" | null;
+export type TypedAnswerResult = "sent" | "kept" | "waiting" | "too-long" | null;
 
 export function answerByTyping(threadId: string | undefined, text: string, send: TypedAnswerSend, restore: () => void): TypedAnswerResult {
   const target = typedAnswerFor(threadId);
   if (!target || !text.trim()) return null;
+  if (answerTooLong(target, text)) return "too-long";
   const composed = target.compose(text.trim());
   if (!composed) return "waiting";
   if ("kept" in composed) return "kept";

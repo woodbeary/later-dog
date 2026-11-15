@@ -8,7 +8,7 @@ import { visibleMessages, currentTaskBot, type Bot, type Group, type Message } f
 import { useDrawnDogs, useStoreDispatch, useStoreSelector } from "@/state/store-selectors";
 import { chatPane } from "@/state/pane-errors";
 import { waitingOnPerson } from "@/lib/waiting-on-person";
-import { answerByTyping, forgetClosedAnswer, useClosedAnswer, useTypedAnswer } from "@/lib/typed-answer";
+import { answerByTyping, answerTooLong, forgetClosedAnswer, useClosedAnswer, useTypedAnswer } from "@/lib/typed-answer";
 import { cn } from "@/lib/cn";
 import { useMenuMotion } from "./MenuMotion";
 import { activeLocale, t } from "@/lib/i18n";
@@ -990,6 +990,9 @@ export function Composer({
           uploadImage={uploadImage}
           admitFiles={admitFiles}
         />
+        {answerTooLong(typedAnswer, text) && (
+          <p data-typed-answer-long role="status" className="px-1 pb-1 text-[12px] text-ink-secondary">{t("composer.answerTooLong", { limit: typedAnswer!.limit!.toLocaleString(), count: text.trim().length.toLocaleString() })}</p>
+        )}
         {answerWithFiles && (
           <p data-typed-answer-files role="status" className="px-1 pb-1 text-[12px] text-ink-secondary">{t("composer.answerNoFiles")}</p>
         )}

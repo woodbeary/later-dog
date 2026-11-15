@@ -128,6 +128,28 @@ describe("answering a card in your own words", () => {
     })]);
   });
 
+  it("holds a typed answer over the answer limit in the message box, says how long it may be, and sends it once it fits", async () => {
+    const long = "word ".repeat(401).trim();
+    const threadId = await mount(question, long);
+    await click("Red");
+    await click("Other");
+    await enter();
+    expect(actions()).toEqual([]);
+    const box = host.querySelector("textarea")!;
+    expect(box.value).toBe(long);
+    expect(host.querySelector("[data-typed-answer-long]")?.textContent).toBe(`An answer can be up to ${(2000).toLocaleString()} characters. This one has ${(2004).toLocaleString()}.`);
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!.call(box, long.slice(0, 2000));
+      box.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    expect(host.querySelector("[data-typed-answer-long]")).toBeNull();
+    await enter();
+    expect(actions()).toEqual([expect.objectContaining({
+      type: "decideRequest", threadId, requestId: "req-q",
+      message: formatQuestionAnswers(QUESTIONS, [["Red"], [long.slice(0, 2000).trim()]]),
+    })]);
+  });
+
   it("gives a dog's choice card an Other that answers its request with the typed words", async () => {
     const threadId = await mount(choice, "gamma");
     expect([...host.querySelectorAll("button")].map((button) => button.textContent?.trim()).filter(Boolean)).toEqual(expect.arrayContaining(["Aalpha", "Bbeta", "COther"]));

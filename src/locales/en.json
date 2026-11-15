@@ -217,6 +217,7 @@
   "composer.placeholder.answer": "Type your answer",
   "composer.answerClosed": "This question was answered. Your words are still here.",
   "composer.answerNoFiles": "An answer can't carry attachments. Remove them to send your answer.",
+  "composer.answerTooLong": "An answer can be up to {limit} characters. This one has {count}.",
   "question.submit": "Submit answer",
   "question.submitAll": "Submit answers",
   "question.status.answered": "Answered",

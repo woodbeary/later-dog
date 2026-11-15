@@ -6,6 +6,7 @@ import { cn } from "@/lib/cn";
 import { t } from "@/lib/i18n";
 import {
   formatQuestionAnswers,
+  MAX_CUSTOM_ANSWER,
   QUESTION_DISMISS_MESSAGE,
   type AskQuestion,
 } from "../../shared/ask-question";
@@ -143,6 +144,7 @@ export function QuestionCard({
       messageId: message.id,
       requestId: card.requestId,
       compose,
+      limit: MAX_CUSTOM_ANSWER,
       sent: (answer) => setSent(answer),
       failed: () => setSent(null),
     });
