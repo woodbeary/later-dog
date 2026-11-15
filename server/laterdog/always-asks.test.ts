@@ -463,3 +463,15 @@ describe("text assigned earlier in the same command", () => {
     expect(alwaysAsks({ tool: "Bash", command: "OUT=dist; rm -rf \"$OUT\"" }, guard)).toBeNull();
   });
 });
+
+describe("text typed into a command running on the lent Mac", () => {
+  it("is read like a command", () => {
+    const typed = (input: string) => {
+      const request = internalCallRequest("/api/internal/shared-computers", { action: "command_input", command_id: "c1", input });
+      return request ? alwaysAsks(request, guard)?.id ?? null : null;
+    };
+    expect(typed("git push --no-verify\n")).toBe("push-skips-checks");
+    expect(typed("rm -rf ~/Documents/old\n")).toBe("delete-outside-workspace");
+    expect(typed("y\n")).toBeNull();
+  });
+});

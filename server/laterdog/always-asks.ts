@@ -70,6 +70,7 @@ function seenOf(request: AlwaysAskRequest): Seen {
     const path = text(input.path);
     const mac: Seen = { ...base, place: "mac", cwd: text(input.cwd) };
     if (input.action === "run_command") return { ...mac, shell: text(input.command) };
+    if (input.action === "command_input") return { ...mac, shell: text(input.input) };
     if (input.action === "delete_file") return { ...mac, deletes: path ? [path] : ["a file"] };
     if (input.action === "write_file" || input.action === "edit_file") return { ...mac, writes: path ? [path] : [] };
     return mac;
