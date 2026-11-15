@@ -72,6 +72,10 @@ export function replacedRow(dog: string, keptDays: number): string {
   return `${dog}'s cloud computer did not start, so it was replaced with a new one; the old one is set aside for ${keptDays} days.`;
 }
 
+export function carryingOnRow(dog: string): string {
+  return `${dog}'s cloud computer didn't start; ${dog} is carrying on without it.`;
+}
+
 export const SCREEN_DID_NOT_START_TEXT = "Your cloud computer did not start, so this call was not performed, and its screen tools will not work in this turn; waiting longer will not help. "
   + "Carry on without the screen: do light work in your folder here; for a heavy command, try run_on_computer, which says whether a new cloud computer is possible; "
   + "or tell the person what you could not do.";

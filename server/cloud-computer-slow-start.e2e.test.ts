@@ -55,6 +55,7 @@ describe("a slow cloud computer start", () => {
   const creates = () => requests.filter(request => request === "POST /boxes").length;
   const resumes = () => requests.filter(request => /^POST \/boxes\/[^/]+\/resume$/.test(request)).length;
   const task = async (botId: string) => (await api("GET", "/api/bots?messages=40")).bots.find((bot: any) => bot.id === botId);
+  const carryingOnRows = async (botId: string) => (await task(botId))?.messages.filter((message: any) => (message.tool?.name ?? "").endsWith("is carrying on without it.")) ?? [];
   const failedRows = async (botId: string) => (await task(botId))?.messages.filter((message: any) => message.tool?.name?.startsWith("error:")) ?? [];
   const startTurn = async (botId: string, text: string, threadId?: string) => {
     rmSync(dumpFile, { force: true });
@@ -240,17 +241,17 @@ describe("a slow cloud computer start", () => {
       const sent = await startTurn(bot.id, "Open the cloud desktop");
       const started = Date.now();
       expect(await screenshot(sent)).toEqual({ isError: true, content: [{ type: "text", text: STILL_STARTING }] });
-      const [row] = await until(() => failedRows(bot.id), found => found.length > 0, START_BUDGET_MS + 15_000);
+      const [row] = await until(() => carryingOnRows(bot.id), found => found.length > 0, START_BUDGET_MS + 15_000);
       expect(Date.now() - started).toBeGreaterThanOrEqual(START_BUDGET_MS - CALL_WAIT_MS - 1_000);
-      expect(row.tool.name).toBe("error: Stuck starter's cloud computer didn't start. Try again.");
-      expect(row.tool.place).toEqual({ state: "cc-no-start", params: { bot: "Stuck starter" }, source: "works-on" });
+      expect(row.tool).toEqual({ name: "Stuck starter's cloud computer didn't start; Stuck starter is carrying on without it.", ok: false });
       const asked = Date.now();
       expect(await screenshot(sent)).toEqual({ isError: true, content: [{ type: "text", text: DID_NOT_START }] });
       expect(Date.now() - asked).toBeLessThan(CALL_WAIT_MS);
       expect((await task(bot.id))?.busy).toBe(true);
       writeFileSync(finishFile, "finish");
       await until(() => task(bot.id), current => current?.busy === false, 20_000);
-      expect(await failedRows(bot.id)).toHaveLength(1);
+      expect(await carryingOnRows(bot.id)).toHaveLength(1);
+      expect(await failedRows(bot.id)).toEqual([]);
       await api("DELETE", `/api/bots/${bot.id}`);
     } finally {
       hold.desktop = false;
@@ -378,9 +379,9 @@ describe("a slow cloud computer start", () => {
       await until(() => resumes(), count => count === before.resumes + 1, 10_000);
       const started = Date.now();
       expect(await screenshot(sent)).toEqual({ isError: true, content: [{ type: "text", text: STILL_STARTING }] });
-      const [row] = await until(() => failedRows(bot.id), found => found.length > 0, 15_000);
+      const [row] = await until(() => carryingOnRows(bot.id), found => found.length > 0, 15_000);
       expect(Date.now() - started).toBeLessThan(START_BUDGET_MS - 5_000);
-      expect(row.tool.place).toMatchObject({ state: "cc-no-start" });
+      expect(row.tool.name).toBe("Failing waker's cloud computer didn't start; Failing waker is carrying on without it.");
       expect((await fromSettings).body).toMatchObject({ ready: false });
       expect(resumes()).toBe(before.resumes + 1);
       expect(creates()).toBe(before.creates);

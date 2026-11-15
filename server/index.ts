@@ -593,7 +593,7 @@ import { chatContext } from "./laterdog/chat-context-window.ts";
 import { cloudPlaceRefusal, computerToolsRefusal, parseSurface, PlaceUnavailableError, placeUnavailable, resolveSurface, surfaceLabel, surfaceOfComputerKind, surfacePrompt, type PlaceSource, type Surface } from "./surface.ts";
 import { cloudRefusal, type PlaceRow } from "../shared/place-view.ts";
 import { cloudComputerStartBudgetMs, passingCloudFailure, remainingStartMs, startRetryingPassingFailures, stillStarting } from "./laterdog/cloud-start.ts";
-import { SCREEN_DID_NOT_START_TEXT, START_RAN_OUT, cloudDidNotStart, replacedRow, startRanOutOfTime } from "./laterdog/computer-start.ts";
+import { SCREEN_DID_NOT_START_TEXT, START_RAN_OUT, carryingOnRow, cloudDidNotStart, replacedRow, startRanOutOfTime } from "./laterdog/computer-start.ts";
 import { createIdleReload } from "./laterdog/idle-reload.ts";
 import {
   PendingTurnCancellations,
@@ -8871,13 +8871,16 @@ async function startTurn(
         }
         const placeFailure = error instanceof PlaceUnavailableError ? error : undefined;
         if (placeFailure) clearFailedAutoPin(bot.id, threadId, placeFailure.place);
+        if (cloudDidNotStart(placeFailure)) {
+          store.appendMessage(threadId, { role: "bot", kind: "activity", tool: { name: carryingOnRow(bot.name), ok: false } });
+          return;
+        }
         const message = placeFailure?.message ?? `computer unavailable — ${label} could not be claimed for this turn (${failure})`;
         store.appendMessage(threadId, {
           role: "bot",
           kind: "activity",
           tool: failedTurnTool(message, placeFailure ? { place: placeFailure.row } : {}),
         });
-        if (cloudDidNotStart(placeFailure)) return;
         if (opts?.automationSource === undefined && !opts?.commsDepth && !opts?.cardContinuation) {
           notify(buildNotification("turn-failed", bot, threadId, redactSecretsInText(message), { avatarUrl: bot.avatarUrl }));
           resourceOwner.lazyClaimFailureReported = true;

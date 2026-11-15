@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { START_RAN_OUT, cloudDidNotStart, createStartWatch, didNotStart, didNotStartText, replacedRow, replacedText, startRanOutOfTime } from "./computer-start.ts";
+import { START_RAN_OUT, carryingOnRow, cloudDidNotStart, createStartWatch, didNotStart, didNotStartText, replacedRow, replacedText, startRanOutOfTime } from "./computer-start.ts";
 
 describe("the start watch", () => {
   it("counts one start from the first time it is seen starting, across calls, until the budget is spent", () => {
@@ -98,5 +98,12 @@ describe("what a dog and the person are told after a replace", () => {
   it("says the old computer was set aside, for how long, and that what lived only on it did not come along", () => {
     expect(replacedText(7)).toBe("Your old cloud computer did not start, so it was replaced with a new one. The old one is set aside for 7 days; nothing that lived only on it came along.");
     expect(replacedRow("Scout", 7)).toBe("Scout's cloud computer did not start, so it was replaced with a new one; the old one is set aside for 7 days.");
+  });
+});
+
+describe("the row the person sees while the dog carries on", () => {
+  it("says the computer didn't start and that the dog carries on, never to try again", () => {
+    expect(carryingOnRow("Scout")).toBe("Scout's cloud computer didn't start; Scout is carrying on without it.");
+    expect(carryingOnRow("Scout")).not.toMatch(/try again/i);
   });
 });
