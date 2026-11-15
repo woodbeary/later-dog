@@ -7,7 +7,7 @@ import { cn } from "@/lib/cn";
 import { currentDogName } from "@/lib/dog-refs";
 import { openExchange } from "@/lib/exchange-view";
 import { TriangleAlert } from "lucide-react";
-import { teamHeading, teamRows, unreachedNames, type FailedSendItem, type TeamItem, type TeamRow, type TeamState } from "@/lib/team-block";
+import { needsFirst, teamHeading, teamRows, unreachedNames, type FailedSendItem, type TeamItem, type TeamRow, type TeamState } from "@/lib/team-block";
 import type { WireWaitingOn } from "../../shared/wire";
 import { BotAvatar } from "./Avatar";
 import { ExchangeThreadContext, QUIET_FACE_SIZE } from "./QuietLines";
@@ -84,7 +84,8 @@ export const TeamBlock = memo(function TeamBlock({ item, waitingOn }: { item: Te
     const present = new Set(bots.map((bot) => bot.id));
     return teamRows(item, exchangeThread?.thread ?? [], waitingOn, (botId) => present.has(botId));
   }, [item, exchangeThread?.thread, waitingOn, bots]);
-  const shown = all || rows.length <= TEAM_SHOWN ? rows : rows.slice(0, TEAM_SHOWN);
+  const ordered = needsFirst(rows);
+  const shown = all || ordered.length <= TEAM_SHOWN ? ordered : ordered.slice(0, TEAM_SHOWN);
   return (
     <div data-team-block={item.asks.length} className="flex w-full min-w-0 flex-col items-center gap-1">
       <div data-team-heading className="px-1.5 text-[13px] leading-[18px] text-ink-secondary">{teamHeadingWords(rows)}</div>

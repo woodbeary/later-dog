@@ -80,9 +80,9 @@ const profile = (id: string, name: string, extra: Partial<Bot> = {}): Bot => ({
 
 let root: Root;
 const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
-async function draw(messages: Message[], missing: string[] = []) {
+async function draw(messages: Message[], missing: string[] = [], extra: Helper[] = []) {
   const chained = messages.map((message, index) => ({ ...message, parentId: messages[index - 1]?.id ?? null }));
-  const helpers = [...HELPERS, LATE, { id: "h7", name: "Gorse", status: "running" as const }].filter((helper) => !missing.includes(helper.id)).map((helper) => profile(helper.id, helper.name));
+  const helpers = [...HELPERS, LATE, { id: "h7", name: "Gorse", status: "running" as const }, ...extra].filter((helper) => !missing.includes(helper.id)).map((helper) => profile(helper.id, helper.name));
   const state: AppState = {
     ...initialState, connected: true, selectedId: "lead",
     bots: [profile("lead", "Lead", { messages: chained, activeLeafId: chained.at(-1)!.id }), ...helpers],
@@ -137,7 +137,7 @@ describe("a turn's hand-outs as one team block", () => {
       said("next", START + 9 * MINUTE + 20_000, "The notes.", "turn-2"),
       replied(b, START + 14 * MINUTE, false, "problem"),
     ]);
-    expect(blocks()).toEqual([{ heading: "Asked 2 dogs · 1 done", rows: ["Birch: Done", "Dune: Couldn't finish"] }]);
+    expect(blocks()).toEqual([{ heading: "Asked 2 dogs · 1 done", rows: ["Dune: Couldn't finish", "Birch: Done"] }]);
     const last = quietRows().at(-1)!;
     expect(last.matches("[data-failed-results]")).toBe(true);
     expect(last.textContent).toContain("Dune couldn't finish");
@@ -153,7 +153,7 @@ describe("a turn's hand-outs as one team block", () => {
       said("asked", START + 30_000, "Asked both."),
       { id: "heard", role: "bot", kind: "activity", at: START + 5 * MINUTE, from: { botId: a.id, name: a.name, color: "blue" }, comm: comm(a, "from"), tool: { name: `Message from @${a.name}`, ok: true } },
     ], ["h7"]);
-    expect(blocks()).toEqual([{ heading: "Asked 2 dogs · 1 done", rows: ["Birch: Sent", "Birch: Done", "Gorse: Removed"] }]);
+    expect(blocks()).toEqual([{ heading: "Asked 2 dogs · 1 done", rows: ["Gorse: Removed", "Birch: Sent", "Birch: Done"] }]);
     expect(quietRows()).toHaveLength(1);
   });
 
@@ -190,6 +190,17 @@ describe("a turn's hand-outs as one team block", () => {
     const last = quietRows().at(-1)!;
     expect(last.matches("[data-quiet-line]")).toBe(true);
     expect(last.closest("[data-mid]")?.getAttribute("data-mid")).toBe("later");
+  });
+
+  it("puts helpers that need the person or failed first, so none is ever behind Show all", async () => {
+    const many: Helper[] = Array.from({ length: 9 }, (_, index) => ({ id: `m${index}`, name: `Many${index}`, status: index === 7 ? "needs-you" : index === 8 ? "failed" : "running" }));
+    await draw([
+      you("open", START, "Ask nine dogs."),
+      ...many.flatMap((helper, index) => [asked(helper, START + index * 1_000), sent(helper, START + index * 1_000 + 200, helper.status)]),
+      said("asked", START + MINUTE, "Asked."),
+    ], [], many);
+    expect(blocks()[0]!.rows.slice(0, 2)).toEqual(["Many7: Needs you", "Many8: Couldn't finish"]);
+    expect(blocks()[0]!.rows).toHaveLength(6);
   });
 
   it("has plain words for every way the home can end a request", () => {

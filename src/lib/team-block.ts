@@ -277,3 +277,15 @@ export function teamHeading(rows: readonly TeamRow[]): { dogs: number; done: num
   const latest = new Map(rows.map((row) => [row.ask.row.withBotId, row.state]));
   return { dogs: latest.size, done: [...latest.values()].filter((state) => state === "Done").length };
 }
+
+function urgency(state: TeamState): number {
+  if (state === "Needs you") return 0;
+  if (SETTLED.has(state) && state !== "Done") return 1;
+  return 2;
+}
+
+export function needsFirst(rows: readonly TeamRow[]): TeamRow[] {
+  return rows.map((row, index) => ({ row, index }))
+    .sort((a, b) => urgency(a.row.state) - urgency(b.row.state) || a.index - b.index)
+    .map((entry) => entry.row);
+}
