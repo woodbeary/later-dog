@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { PERSON_WROTE_TEXT, handleComputerRun } from "./computer-run-route.ts";
 import { ComputerRuns, WAIT_IN_ONE_CALL_MS, type RunBox } from "./computer-runs.ts";
-import { STILL_RUNNING_TAIL_CHARS, waitCapMs, waitWindowMs } from "./run-wait.ts";
+import { BAD_WAIT_TEXT, STILL_RUNNING_TAIL_CHARS, waitCapMs, waitWindowMs } from "./run-wait.ts";
 
 const MINUTE = 60_000;
 
@@ -68,11 +68,10 @@ describe("waiting for a computer job with one call", () => {
     expect(waitCapMs(undefined, 120)).toBe(60 * MINUTE);
     expect(waitWindowMs(undefined, 60 * MINUTE)).toBe(WAIT_IN_ONE_CALL_MS);
     expect(waitWindowMs(30, 60 * MINUTE)).toBe(30 * MINUTE);
-    expect(waitWindowMs(500, 60 * MINUTE)).toBe(60 * MINUTE);
     expect(waitWindowMs(60, 9 * MINUTE)).toBe(9 * MINUTE);
     expect(waitWindowMs(60)).toBe(WAIT_IN_ONE_CALL_MS);
-    expect(waitWindowMs("60", 60 * MINUTE)).toBe(WAIT_IN_ONE_CALL_MS);
-    expect(waitWindowMs(0.5, 60 * MINUTE)).toBe(WAIT_IN_ONE_CALL_MS);
+    expect(waitWindowMs(null, 60 * MINUTE)).toBe(WAIT_IN_ONE_CALL_MS);
+    for (const bad of [0, -5, 0.5, 1.5, 61, "10", Number.NaN, true]) expect(waitWindowMs(bad, 60 * MINUTE)).toBeNull();
   });
 
   it("ends a long wait within one poll of the person pressing Stop, and brings nothing back after it", async () => {
@@ -95,5 +94,14 @@ describe("waiting for a computer job with one call", () => {
     const runId = /run_id ([0-9a-f]{8})/.exec(first.text!)![1];
     const second = await handleComputerRun({ botId: "dog", body: { run_id: runId, wait_minutes: 60 }, workingFolder: null, allowedRoots: [], maxWaitMs: 60 * MINUTE, active: () => true, interrupted: () => false }, { runs: j.runs, computer: j.computer, now: () => j.clock.at });
     expect(second.text).toMatch(/^Finished on your cloud computer with exit code 0/);
+  });
+
+  it("refuses a wait that is not a whole number of minutes from 1 to 60, in a plain sentence, before anything runs", async () => {
+    const j = job(MINUTE);
+    for (const bad of [0, -5, 0.5, "10"]) {
+      const answer = await j.once({ wait_minutes: bad });
+      expect(answer).toEqual({ status: 400, error: BAD_WAIT_TEXT });
+    }
+    expect(j.execs).toEqual([]);
   });
 });

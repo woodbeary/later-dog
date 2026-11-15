@@ -3,7 +3,7 @@ import { lstatSync } from "node:fs";
 import { homedir } from "node:os";
 import { isAbsolute, join, normalize, relative, resolve } from "node:path";
 import { ComputerRuns, type RunBox, type RunOutcome } from "./computer-runs.ts";
-import { stillRunningTail, waitWindowMs } from "./run-wait.ts";
+import { BAD_WAIT_TEXT, stillRunningTail, waitWindowMs } from "./run-wait.ts";
 
 export interface ComputerRunRequest {
   botId: string;
@@ -81,11 +81,12 @@ export async function handleComputerRun(request: ComputerRunRequest, deps: Compu
   if (!folder) return { status: 400, error: "Pass folder: an existing project folder in the home, such as your working folder." };
   const subdir = typeof request.body.subdir === "string" ? request.body.subdir : undefined;
   if (subdir && !inside(join(folder, subdir), folder)) return { status: 400, error: "subdir must be inside folder." };
+  const windowMs = waitWindowMs(request.body.wait_minutes, request.maxWaitMs);
+  if (windowMs === null) return { status: 400, error: BAD_WAIT_TEXT };
   try {
     const repository = record ? null : (deps.repositoryOf ?? repositoryOf)(folder);
     const now = deps.now ?? Date.now;
     const started = now();
-    const windowMs = waitWindowMs(request.body.wait_minutes, request.maxWaitMs);
     const computer = await deps.computer(request.botId, { ...(repository ? { repository } : {}), ...(request.active ? { wanted: request.active } : {}), budgetMs: windowMs });
     if (request.active && !request.active()) return { status: 409, error: ENDED_TEXT };
     const stopped = () => Boolean(request.active && !request.active());
