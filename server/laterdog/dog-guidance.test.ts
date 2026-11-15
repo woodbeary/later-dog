@@ -132,9 +132,10 @@ describe("the guidance every dog gets", () => {
   it("tells every dog in three sentences to wait with one call, read parts of a file and start a long step small", () => {
     expect(LONG_WORK.split(/(?<=\.) /)).toHaveLength(3);
     for (const engine of ["claude", "codex", "other"] as const) expect(dogGuidance({ engine, agents: true, model: "claude-opus-5-5" })).toContain(LONG_WORK);
-    expect(LONG_WORK).toMatch(/one call that returns when it ends/);
+    expect(LONG_WORK).toMatch(/^If nobody is waiting on you, wait for a job with one call that returns when it ends; otherwise run it in the background\./);
     expect(LONG_WORK).toMatch(/not the whole file again/);
-    expect(LONG_WORK).toMatch(/start the next step in a fresh turn or helper/);
+    expect(LONG_WORK).toMatch(/hand the next step to a fresh helper\.$/);
+    expect(LONG_WORK).not.toMatch(/fresh turn/);
   });
 
   it("makes every dog with tools coordinate large work by itself: keep the judgment, hand off complete briefs, pick models by difficulty, check results", () => {

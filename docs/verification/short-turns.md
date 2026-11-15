@@ -11,11 +11,12 @@ turn re-sends its whole context on every tool call. Three changes keep that smal
   is still running the answer carries only the last 2,000 characters of output;
   the finished answer keeps the whole tail.
 - The standing instructions say, in three sentences (`LONG_WORK` in
-  `server/laterdog/dog-guidance.ts`): wait for a job with one call; read the part
-  of a file you need, not the whole file again; when a step of long work is done
-  and the chat is long, write down where things stand and start the next step in
-  a fresh turn or helper. A dog cannot compact its own chat mid-turn; later.dog
-  compacts between turns, so ending the turn at a step's end is the boundary.
+  `server/laterdog/dog-guidance.ts`): if nobody is waiting on you, wait for a job
+  with one call, otherwise run it in the background (so it agrees with "stay free
+  to answer"); read the part of a file you need, not the whole file again; when a
+  step of long work is done and the chat is long, note where things stand and
+  hand the next step to a fresh helper. A dog cannot compact or restart its own
+  chat mid-turn; a fresh helper starts small.
 - A helper dog doing a teammate request is told, through the engine's
   `PostToolUse` hook, to finish its step and end its turn with a report that
   begins with partly done, once its turn reaches 80 tool calls or 160,000 tokens
@@ -40,9 +41,9 @@ whole context; tokens are bytes / 4.
 | read `server/index.ts` whole 14 times, or 14 parts of 120 lines | 385,840 and 2,770,460 sent, against 58,397 and 639,723 | advice only, numbers unchanged |
 | a helper lane of 200 steps | 1 turn, peak 447,000, 47,994,000 sent | 4 turns, peak 160,660, 18,076,340 sent |
 
-The standing instructions grew by 286 bytes (about 72 tokens), 1.2% to 1.5% for
-every kind of dog on both engines (`scripts/measure-dog-prompt.ts` against the
-same file before the change).
+The standing instructions grew by 303 bytes (about 76 tokens), 1.3% to 1.6% for
+every kind of dog on both engines (`scripts/measure-dog-prompt.ts` against
+`server/laterdog/dog-guidance.ts` on main `0651657`).
 
 ## Tests
 
