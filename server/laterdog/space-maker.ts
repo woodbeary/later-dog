@@ -61,8 +61,8 @@ function clearRebuiltCaches(home: string, live: readonly ProcessInfo[]): { freed
   return result();
 }
 
-export function pruneCaches(deps: Pick<SpaceMakerDeps, "home" | "processes"> & { pruneStore?: () => void }, live = liveWork(deps)): { freed: number; cleared: string[] } {
-  if (installing(live)) return { freed: 0, cleared: [] };
+export function pruneCaches(deps: Pick<SpaceMakerDeps, "home" | "processes"> & { pruneStore?: () => void }, live = liveWork(deps)): { freed: number; cleared: string[] } | null {
+  if (installing(live)) return null;
   const caches = clearRebuiltCaches(deps.home, live);
   const storeDir = join(deps.home, ".local/share/pnpm");
   const before = sizeOf(storeDir);

@@ -120,7 +120,7 @@ export interface LadderDeps {
   live(): ProcessInfo[];
   tracked?: (path: string) => boolean;
   sweepTemp(): { removed: string[]; freed: number };
-  pruneCaches(): number;
+  pruneCaches(): number | null;
   log(line: string): void;
   now?: () => number;
   store?: LadderStore;
@@ -159,9 +159,12 @@ export function diskLadder(deps: LadderDeps) {
       if (rung >= 2) {
         temp = deps.sweepTemp();
         if (memory.prunedAt === null || now - memory.prunedAt > STORE_PRUNE_EVERY_MS) {
-          caches = deps.pruneCaches();
-          memory.prunedAt = now;
-          pruned = true;
+          const freedByPrune = deps.pruneCaches();
+          if (freedByPrune !== null) {
+            caches = freedByPrune;
+            memory.prunedAt = now;
+            pruned = true;
+          }
         }
       }
       if (tidied.visited.length || pruned || Object.keys(memory.cleared).length !== Object.keys(before.cleared).length) store.save(memory);

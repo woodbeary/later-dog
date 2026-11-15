@@ -50,7 +50,7 @@ export function startHomeUpkeep(deps: HomeUpkeepDeps): void {
     chats: () => deps.chats().map((chat) => ({ ...chat, busy: chat.busy || deps.atWork(basename(chat.dir)) })),
     live: () => readProcesses(),
     sweepTemp: () => sweepChatTemps(root, liveTempSweep(deps.atWork)),
-    pruneCaches: () => pruneCaches({ home: deps.home }).freed,
+    pruneCaches: () => pruneCaches({ home: deps.home })?.freed ?? null,
     log,
     store: fileLadderStore(join(deps.dataDir, "disk-ladder.json")),
   });

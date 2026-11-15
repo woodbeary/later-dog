@@ -201,6 +201,26 @@ describe("climbing the ladder", () => {
     ladder.climb();
     expect(calls.filter((c) => c === "caches")).toHaveLength(2);
   });
+
+  it("tries the store prune again on the next pass when an install kept it from running", () => {
+    const store = fileLadderStore(join(mkdtempSync(join(tmpdir(), "ladder-mem-")), "disk-ladder.json"));
+    let installing = true;
+    let tries = 0;
+    let now = NOW;
+    const ladder = diskLadder({
+      disk: () => disk(0.2), chats: () => [], live: () => [], tracked: untracked,
+      sweepTemp: () => ({ removed: [], freed: 0 }),
+      pruneCaches: () => { tries += 1; return installing ? null : 0; },
+      log: () => {}, now: () => now, store,
+    });
+    ladder.climb();
+    expect(store.load().prunedAt).toBeNull();
+    installing = false;
+    now = NOW + 10 * 60_000;
+    ladder.climb();
+    expect(tries).toBe(2);
+    expect(store.load().prunedAt).toBe(now);
+  });
 });
 
 describe("a day on a nearly full disk", () => {

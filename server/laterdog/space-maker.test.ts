@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { buildOutputProject } from "./janitor.ts";
-import { inUse, makeSpace } from "./space-maker.ts";
+import { inUse, makeSpace, pruneCaches } from "./space-maker.ts";
 
 function fill(path: string, bytes = 64 * 1024) {
   mkdirSync(path, { recursive: true });
@@ -56,6 +56,15 @@ describe("making space on a full Cloud home", () => {
     const run = makeSpace({ home, workspacesDir: workspaces, busyDirs: [], processes: () => [proc(join(workspaces, "dog/chat"), "claude --output-format stream-json")] });
     expect(run.cleared).toEqual([]);
     for (const kept of ["work/dog/chat/app/node_modules", "work/dog/chat/app/.next", ".local/share/pnpm/store"]) expect(existsSync(join(home, kept))).toBe(true);
+  });
+
+  it("says the store prune did not run while an install was running", () => {
+    const { home } = homeWithWork();
+    let pruned = false;
+    expect(pruneCaches({ home, processes: () => [proc(join(home, "elsewhere"), "pnpm install")], pruneStore: () => { pruned = true; } })).toBeNull();
+    expect(pruned).toBe(false);
+    expect(pruneCaches({ home, processes: () => [], pruneStore: () => { pruned = true; } })).not.toBeNull();
+    expect(pruned).toBe(true);
   });
 
   it("leaves package caches alone while an install is running", () => {
