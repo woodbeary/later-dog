@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { lstatSync, realpathSync } from "node:fs";
+import { existsSync, lstatSync, realpathSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { WRAPPER_VALUE_OPTIONS } from "./home-signals.ts";
@@ -256,11 +256,21 @@ function within(path: string, root: string, allowEqual: boolean): boolean {
   return !rel.startsWith("..") && !isAbsolute(rel) && rel.split(sep)[0] !== "..";
 }
 
+function repositoryRoot(cwd: string): string {
+  for (let dir = cwd; ; dir = dirname(dir)) {
+    if (existsSync(join(dir, ".git"))) return dir;
+    if (dirname(dir) === dir) return cwd;
+  }
+}
+
 function expandWord(word: Word, cwd: string | undefined, paths: Paths): string | null {
   let text = word.text;
   if (text === "~" || text.startsWith("~/")) text = paths.home + text.slice(1);
   if (word.vars) {
-    text = text.replace(/\$\{?(HOME|TMPDIR|PWD)\}?/g, (_match, name: string) =>
+    text = text
+      .replace(/\$\(pwd\)|`pwd`/g, () => cwd ?? "\0")
+      .replace(/\$\(git rev-parse --show-toplevel\)|`git rev-parse --show-toplevel`/g, () => (cwd ? repositoryRoot(cwd) : "\0"))
+      .replace(/\$\{?(HOME|TMPDIR|PWD)\}?/g, (_match, name: string) =>
       name === "HOME" ? paths.home : name === "TMPDIR" ? tmpdir() : (cwd ?? "\0"));
     if (text.includes("$") || text.includes("`") || text.includes("\0")) return null;
   }
@@ -782,6 +792,9 @@ const ASSIGNMENT = /^([A-Za-z_][A-Za-z0-9_]*)=(.*)$/s;
 const WHOLE_VARIABLE = /^\$(?:([A-Za-z_][A-Za-z0-9_]*)|\{([A-Za-z_][A-Za-z0-9_]*)\})$/;
 const DECLARERS = new Set(["export", "declare", "typeset", "readonly", "local"]);
 
+const MAKES_TEMP = /^(?:\$\(|`)mktemp(?:\s+(?:-d|-u|-q|-t|--directory|--quiet|--dry-run|-dt|-td))*(?:\s+[A-Za-z0-9._X-]+)?(?:\)|`)$/;
+const TEMP_PATH = "$TMPDIR/later-dog-mktemp";
+
 function remember(words: Word[], assigned: Map<string, string>): void {
   const plain = withoutRedirects(words).filter((word) => !word.here);
   const declares = DECLARERS.has(plain[0]?.text ?? "");
@@ -790,7 +803,8 @@ function remember(words: Word[], assigned: Map<string, string>): void {
   for (const word of candidates) {
     const match = ASSIGNMENT.exec(word.text);
     if (!match) continue;
-    if (word.vars || word.glob) assigned.delete(match[1]!);
+    if (MAKES_TEMP.test(match[2]!)) assigned.set(match[1]!, TEMP_PATH);
+    else if (word.vars || word.glob) assigned.delete(match[1]!);
     else assigned.set(match[1]!, match[2]!);
   }
 }
@@ -800,6 +814,7 @@ function resolved(words: Word[], assigned: Map<string, string>): Word[] {
   return words.map((word) => {
     const match = WHOLE_VARIABLE.exec(word.text);
     const value = match ? assigned.get(match[1] ?? match[2]!) : undefined;
+    if (value === TEMP_PATH) return { ...word, text: TEMP_PATH, vars: true, glob: false };
     return value === undefined ? word : { ...word, text: value, vars: false, glob: false };
   });
 }

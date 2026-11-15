@@ -603,3 +603,24 @@ describe("the second review's inputs", () => {
     ]);
   });
 });
+
+describe("ordinary substitutions that resolve to the dog's own places", () => {
+  it.each([
+    "tmp=$(mktemp -d) && cp -r dist \"$tmp\" && rm -rf \"$tmp\"",
+    "ver=$(node -p \"require('./package.json').version\"); git tag \"v$ver\" && git push origin \"v$ver\"",
+    "find \"$(pwd)/logs\" -name '*.log' -delete",
+    "rm -f \"$(git rev-parse --show-toplevel)/.eslintcache\"",
+    "git push origin \"atelier/$name\"",
+  ])("%s does not ask", (command) => {
+    expect(alwaysAsks({ tool: "Bash", command }, guard)).toBeNull();
+  });
+
+  it.each([
+    "tmp=$(mktemp -d -p /srv/dogs) && rm -rf \"$tmp\"",
+    "git push \"v$ver\" origin",
+    "git push origin \"--no-ver$x\"",
+    "find \"$(pwd)/..\" -name '*.log' -delete",
+  ])("%s still asks", (command) => {
+    expect(alwaysAsks({ tool: "Bash", command }, guard)).not.toBeNull();
+  });
+});

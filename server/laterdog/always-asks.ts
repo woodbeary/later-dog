@@ -109,7 +109,8 @@ function pushSkips(args: readonly ShellWord[], fromInput: boolean): Skip {
       if (beforeRemote) return "unreadable";
       continue;
     }
-    if (unreadable(word)) return "unreadable";
+    const refWord = word.vars && !word.glob && /^[^-$`]/.test(word.text) && literals.some((arg) => args.indexOf(arg) < i);
+    if (unreadable(word) && !refWord) return "unreadable";
     if (NO_VERIFY.test(word.text)) return "plain";
     const option = word.text === "-o" || word.text === "--push-option" ? args[i + 1]?.text ?? "" : /^(?:-o|--push-option=)(.*)$/.exec(word.text)?.[1] ?? "";
     if (/ci\.skip|skip-checks/i.test(option)) return "plain";
