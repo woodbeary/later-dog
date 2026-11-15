@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
@@ -137,6 +137,27 @@ describe("cleaning inside the workspace root never asks", () => {
       expect((await bash("rm -rf .", real))?.rule).toBe("delete-outside-workspace");
       expect((await bash(`rm -rf ${work}`, real))?.rule).toBe("delete-outside-workspace");
       expect((await bash(`find ${root} -name '*.log' -delete`, real))?.rule).toBe("delete-outside-workspace");
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("find following a link out of the workspace", () => {
+  it("asks with -L, -H or -follow and not without", async () => {
+    const root = mkdtempSync(join(tmpdir(), "owner-guard-find-"));
+    try {
+      const work = join(root, "work");
+      const other = join(root, "other");
+      mkdirSync(work);
+      mkdirSync(other);
+      symlinkSync(other, join(work, "link"));
+      const real = { cwd: work, workspaceRoots: [work], tempRoots: [join(root, "scratch")], home: join(root, "home") };
+      for (const command of ["find -L link -name '*.txt' -delete", "find -H link -delete", "find link -follow -name '*.txt' -delete"]) {
+        expect((await bash(command, real))?.rule, command).toBe("delete-outside-workspace");
+      }
+      expect(await bash("find link -name '*.txt' -delete", real)).toBeNull();
+      expect(await bash("find -L ./logs -name '*.txt' -delete", real)).toBeNull();
     } finally {
       rmSync(root, { recursive: true, force: true });
     }

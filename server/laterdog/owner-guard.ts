@@ -390,8 +390,15 @@ function findDeletes(args: Word[]): boolean {
     (/^-(?:exec|execdir|ok|okdir)$/.test(arg.text) && FIND_DELETERS.has(basename(args[index + 1]?.text ?? ""))));
 }
 
+function findFollows(args: Word[]): boolean {
+  const leading = args.slice(0, args.findIndex((arg) => !/^-[HLP]$|^-O\d$/.test(arg.text)) >>> 0);
+  return leading.some((arg) => arg.text === "-L" || arg.text === "-H") || args.some((arg) => arg.text === "-follow");
+}
+
 function findRefusal(args: Word[], cwd: string | undefined, paths: Paths): OwnerGuardRefusal | null {
-  return findDeletes(args) ? firstRefusal(findRoots(args), cwd, paths, true, true) : null;
+  if (!findDeletes(args)) return null;
+  const roots = findFollows(args) ? findRoots(args).map((root) => (root.text.endsWith("/") ? root : { ...root, text: `${root.text}/` })) : findRoots(args);
+  return firstRefusal(roots, cwd, paths, true, true);
 }
 
 const RSYNC_VALUE_OPTIONS = new Set(["-e", "--rsh", "--exclude", "--include", "--filter", "-f", "--files-from", "--exclude-from", "--include-from",
