@@ -68,6 +68,7 @@ function scope() {
   return installation;
 }
 const OWN_NAME = /^dog-[a-f0-9]{12}-[a-z0-9]{1,8}-[a-f0-9]{6}$/;
+const KEPT_NAME = /^(dog-[a-f0-9]{12}-[a-z0-9]{1,8}-[a-f0-9]{6})-kept-([0-9a-z]{1,12})$/;
 function ownName(botId: string): string {
   return `${scope().prefix}${botId.slice(0, 8).toLowerCase().replace(/[^a-z0-9]/g, "") || "bot"}-${sha256(botId).slice(0, 6)}`;
 }
@@ -230,9 +231,9 @@ async function stopOwn(client: ComputersClient, computer: OwnComputer): Promise<
   }
 }
 
-async function listOwn(owners: ManagedBoatOwner[], client?: ComputersClient): Promise<ManagedBoatInventory> {
-  let computers: Computer[];
-  try { client ??= ownClient(); computers = await client.list(); }
+async function listOwn(owners: ManagedBoatOwner[], given?: ComputersClient): Promise<ManagedBoatInventory> {
+  let computers: Computer[]; let client: ComputersClient;
+  try { client = given ?? ownClient(); computers = await client.list(); }
   catch (error) {
     const rejected = error instanceof ComputersApiError && (error.httpStatus === 401 || error.httpStatus === 403);
     return { configured: true, available: false, problem: error instanceof Error ? error.message : String(error), credentialRejected: rejected, instances: [] };
@@ -241,15 +242,36 @@ async function listOwn(owners: ManagedBoatOwner[], client?: ComputersClient): Pr
   const ownerByName = new Map(owners.map((owner) => [ownName(owner.botId), owner] as const));
   const seen = new Set<string>(); const instances: ManagedBoatInventoryInstance[] = [];
   for (const computer of computers) {
-    if (!OWN_NAME.test(computer.name) || !computer.name.startsWith(prefix)) continue;
+    if (!computer.name.startsWith(prefix)) continue;
+    const kept = KEPT_NAME.exec(computer.name);
+    if (!kept && !OWN_NAME.test(computer.name)) continue;
     if (seen.has(computer.id)) return { configured: true, available: false, problem: "later.dog's computers service listed one cloud computer twice — refresh and try again", instances: [] };
     seen.add(computer.id);
-    const owner = ownerByName.get(computer.name) ?? null;
+    if (kept && await removedWhenExpired(client, computer)) continue;
+    const owner = ownerByName.get(kept ? kept[1] : computer.name) ?? null;
     instances.push({ boxId: computer.id, name: computer.name, state: asBoatState(computer.state), ownerBotId: owner?.botId ?? null,
-      ownerName: owner?.name ?? null, orphaned: owner === null, inUse: owner?.inUse ?? false });
+      ownerName: owner?.name ?? null, orphaned: owner === null, inUse: kept ? false : owner?.inUse ?? false,
+      ...(kept ? { setAsideUntil: new Date(parseInt(kept[2], 36) + KEEP_MS).toISOString() } : {}) });
   }
-  instances.sort((a, b) => a.orphaned !== b.orphaned ? (a.orphaned ? 1 : -1) : (a.ownerName ?? a.name).localeCompare(b.ownerName ?? b.name));
+  instances.sort((a, b) => a.orphaned !== b.orphaned ? (a.orphaned ? 1 : -1)
+    : (a.ownerName ?? a.name).localeCompare(b.ownerName ?? b.name) || Number(a.setAsideUntil !== undefined) - Number(b.setAsideUntil !== undefined));
   return { configured: true, available: true, problem: null, changeable: true, instances };
+}
+
+export const KEEP_DAYS = 7;
+const KEEP_MS = KEEP_DAYS * 24 * 60 * 60_000;
+
+async function removedWhenExpired(client: ComputersClient, computer: Computer): Promise<boolean> {
+  const kept = computer.name.startsWith(scope().prefix) ? KEPT_NAME.exec(computer.name) : null;
+  if (!kept || Date.now() - parseInt(kept[2], 36) < KEEP_MS) return false;
+  try { await client.remove(computer.id); }
+  catch (error) {
+    console.warn(`cloud computer ${computer.id}: the computer set aside ${KEEP_DAYS} days ago could not be removed: ${error instanceof Error ? error.message : String(error)}`);
+    return false;
+  }
+  forget(computer.id);
+  console.info(`cloud computer ${computer.id}: removed ${KEEP_DAYS} days after it was set aside`);
+  return true;
 }
 
 async function releaseOrphanedTrialComputers(client: ComputersClient, owners: ManagedBoatOwner[] = ownerSource?.() ?? []): Promise<number> {
@@ -459,6 +481,33 @@ export async function deleteManagedBoat(cfg: AppConfig, owners: ManagedBoatOwner
   } finally { release?.(); }
 }
 
+export async function restoreManagedBoat(_cfg: AppConfig, owners: ManagedBoatOwner[], boxId: string, claim?: ManagedBoatMutationClaim): Promise<{ ok: boolean }> {
+  if (!issuedHere(boxId) || !computersSelected()) throw Object.assign(new Error("Only a later.dog cloud computer that was set aside can be put back"), { status: 409 });
+  const client = ownClient();
+  const instance = await revalidateOwn(client, owners, boxId);
+  const botId = instance.ownerBotId;
+  if (!instance.setAsideUntil || !botId) throw Object.assign(new Error("this cloud computer was not set aside for a dog, so there is nothing to put back"), { status: 409 });
+  if (owners.find((owner) => owner.botId === botId)?.inUse) throw Object.assign(new Error("this cloud computer's dog is working — stop its work first"), { status: 409 });
+  const release = claim?.(instance);
+  try {
+    const current = await findOwn(client, botId);
+    if (current) {
+      try { await client.rename(current.id, keptName(botId, Date.now())); }
+      catch (error) { throw changeRefusal(error); }
+      forget(current.id); starts.settled(current.id);
+    }
+    try { await client.rename(boxId, ownName(botId)); }
+    catch (error) {
+      if (current) await client.rename(current.id, ownName(botId)).catch(() => undefined);
+      throw changeRefusal(error);
+    }
+    starts.settled(boxId);
+    computerIds.set(cacheKey(client, botId), boxId);
+    console.info(`cloud computer ${boxId}: put back as its dog's computer${current ? `; ${current.id} set aside in its place` : ""}`);
+    return { ok: true };
+  } finally { release?.(); }
+}
+
 export async function inspectBoatIdentity(cfg: AppConfig, boxId: string): Promise<BoatIdentityInspection> {
   if (!issuedHere(boxId)) return boat.inspectBoatIdentity(cfg, boxId);
   let computer: Computer | null;
@@ -467,23 +516,11 @@ export async function inspectBoatIdentity(cfg: AppConfig, boxId: string): Promis
   return { available: true, identity: computer ? { boxId: computer.id, name: computer.name, state: asBoatState(computer.state) } : null, problem: null };
 }
 
-export const KEEP_DAYS = 7;
-const KEEP_MS = KEEP_DAYS * 24 * 60 * 60_000;
 const KEPT = /-kept-([0-9a-z]{1,12})$/;
 const keptName = (botId: string, at: number) => `${ownName(botId)}-kept-${at.toString(36)}`;
 const startFailed = (computer: Computer | null | undefined) =>
   computer?.state === "error" && (computer.lastStart?.outcome === "failed" || bootFailure(computer.error) !== null);
 const notReplaced = (message: string) => Object.assign(new Error(message), { code: "not_replaced", status: 409 });
-
-async function dropExpiredKept(client: ComputersClient, computers: readonly Computer[]): Promise<void> {
-  const prefix = scope().prefix;
-  for (const computer of computers) {
-    const kept = computer.name.startsWith(prefix) ? KEPT.exec(computer.name) : null;
-    if (!kept || Date.now() - parseInt(kept[1], 36) < KEEP_MS) continue;
-    try { await client.remove(computer.id); forget(computer.id); }
-    catch (error) { console.warn(`cloud computer ${computer.id}: the kept computer could not be removed: ${error instanceof Error ? error.message : String(error)}`); }
-  }
-}
 
 export async function freshComputer(botId: string, options: { repository?: string } = {}): Promise<{ replaced: boolean; keptDays?: number }> {
   if (!computersSelected()) throw Object.assign(new Error("Cloud computers are not set up here, so run it in your own folder instead."), { status: 409 });
@@ -509,7 +546,7 @@ export async function freshComputer(botId: string, options: { repository?: strin
     throw error;
   }
   console.info(`cloud computer ${found.id}: set aside for ${KEEP_DAYS} days after it did not start`);
-  await dropExpiredKept(client, await client.list().catch(() => []));
+  for (const computer of await client.list().catch(() => [])) await removedWhenExpired(client, computer);
   return { replaced: true, keptDays: KEEP_DAYS };
 }
 

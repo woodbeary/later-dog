@@ -133,7 +133,7 @@ describe("starting the computer inside one run_on_computer call", () => {
     const request = (body: Record<string, unknown>) => ({ botId: "dog", body, workingFolder: null, allowedRoots: [root], home: root });
     const answer = await handleComputerRun(request({ command: "pnpm test", folder, fresh: true }), { runs: fakeRuns(outcome("finished")).runs, computer, fresh, repositoryOf: () => null });
     expect(answer).toMatchObject({ status: 200, replaced: true });
-    expect(answer.text).toMatch(/^Your old cloud computer did not start, so it was replaced with a new one\. The old one is set aside for 7 days; nothing that lived only on it came along\.\n\nFinished on your cloud computer/);
+    expect(answer.text).toMatch(/^Your old cloud computer did not start, so it was replaced with a new one\. The old one is set aside for 7 days, and the person can put it back or delete it in Settings; nothing that lived only on it came along\.\n\nFinished on your cloud computer/);
     await handleComputerRun(request({ command: "pnpm test", folder, fresh: "yes" }), { runs: fakeRuns(outcome("finished")).runs, computer, fresh, repositoryOf: () => null });
     await handleComputerRun(request({ run_id: "abcd1234", fresh: true }), { runs: fakeRuns(outcome("finished"), { id: "abcd1234", folder } as Partial<RunRecord>).runs, computer, fresh });
     expect(asked).toEqual(["fresh", "computer", "computer", "computer"]);

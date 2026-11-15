@@ -82,7 +82,7 @@ describe("the answer when a computer did not start", () => {
       "Your cloud computer did not start. It did not finish starting within 5 minutes. Nothing was run, and waiting longer will not help. "
       + "Choose one instead: do light work in your folder here; call run_on_computer again with fresh: true to get a new cloud computer. "
       + "Your folders here stay and are sent again, but nothing that lived only on the old computer comes along: installed packages, browser sign-ins, "
-      + "downloads and files never brought back here. The old computer is set aside for 7 days, not deleted; or tell the person what you could not do.",
+      + "downloads and files never brought back here. The old computer is set aside for 7 days, not deleted, and the person can put it back or delete it in Settings; or tell the person what you could not do.",
     );
     expect(didNotStartText("The computer stopped while starting.", { failed: true })).toBe(
       "Your cloud computer did not start. It stopped while starting. Nothing was run, and waiting longer will not help. Choose one instead: "
@@ -101,8 +101,8 @@ describe("the answer when a computer did not start", () => {
 
 describe("what a dog and the person are told after a replace", () => {
   it("says the old computer was set aside, for how long, and that what lived only on it did not come along", () => {
-    expect(replacedText(7)).toBe("Your old cloud computer did not start, so it was replaced with a new one. The old one is set aside for 7 days; nothing that lived only on it came along.");
-    expect(replacedRow("Scout", 7)).toBe("Scout's cloud computer did not start, so it was replaced with a new one; the old one is set aside for 7 days.");
+    expect(replacedText(7)).toBe("Your old cloud computer did not start, so it was replaced with a new one. The old one is set aside for 7 days, and the person can put it back or delete it in Settings; nothing that lived only on it came along.");
+    expect(replacedRow("Scout", 7)).toBe("Scout's cloud computer did not start, so it was replaced with a new one; the old one is set aside for 7 days, and you can put it back or delete it in Settings.");
   });
 });
 

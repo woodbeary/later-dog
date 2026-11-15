@@ -60,7 +60,7 @@ export function bootFailure(reason: string | undefined): string | null {
 
 export const FRESH_COMPUTER_OFFER = "call run_on_computer again with fresh: true to get a new cloud computer. Your folders here stay and are sent again, "
   + "but nothing that lived only on the old computer comes along: installed packages, browser sign-ins, downloads and files never brought back here. "
-  + "The old computer is set aside for 7 days, not deleted";
+  + "The old computer is set aside for 7 days, not deleted, and the person can put it back or delete it in Settings";
 
 export interface DidNotStartOptions { fresh?: boolean; failed?: boolean }
 
@@ -78,12 +78,12 @@ export function didNotStart(reason?: string, options: DidNotStartOptions = {}): 
 }
 
 export function replacedText(keptDays: number): string {
-  return `Your old cloud computer did not start, so it was replaced with a new one. The old one is set aside for ${keptDays} days; `
-    + "nothing that lived only on it came along.";
+  return `Your old cloud computer did not start, so it was replaced with a new one. The old one is set aside for ${keptDays} days, `
+    + "and the person can put it back or delete it in Settings; nothing that lived only on it came along.";
 }
 
 export function replacedRow(dog: string, keptDays: number): string {
-  return `${dog}'s cloud computer did not start, so it was replaced with a new one; the old one is set aside for ${keptDays} days.`;
+  return `${dog}'s cloud computer did not start, so it was replaced with a new one; the old one is set aside for ${keptDays} days, and you can put it back or delete it in Settings.`;
 }
 
 export function carryingOnRow(dog: string): string {

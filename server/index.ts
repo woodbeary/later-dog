@@ -2526,7 +2526,7 @@ async function cloudComputerHolders(botId: string): Promise<string[]> {
   try {
     const listed = await boat.listManagedBoats(cfg, managedBoatOwners(), { adoptLegacy: false });
     return [...new Set(listed.instances
-      .filter((instance) => instance.ownerBotId && instance.ownerBotId !== botId && instance.ownerName)
+      .filter((instance) => instance.ownerBotId && instance.ownerBotId !== botId && instance.ownerName && !instance.setAsideUntil)
       .map((instance) => instance.ownerName!))];
   } catch {
     return [];
@@ -6265,7 +6265,7 @@ async function teamComputersPayload(): Promise<TeamComputersPayload> {
     configured: inventory.configured,
     ...(inventory.problem ? { problem: inventory.problem } : {}),
     computers: entries.map(entry => {
-      const machine = inventory.instances.find(instance => instance.ownerBotId === teamComputerOwner(entry.id));
+      const machine = inventory.instances.find(instance => instance.ownerBotId === teamComputerOwner(entry.id) && !instance.setAsideUntil);
       return {
         id: entry.id, name: entry.name, section: entry.section,
         held: computerControl.snapshot(teamComputerOwner(entry.id)).held,
@@ -19269,7 +19269,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       res.setHeader("cache-control", "private, no-store");
       return json(res, 200, await boat.listManagedBoats(cfg, managedBoatOwners()));
     }
-    m = path.match(/^\/api\/computers\/boxes\/([\w-]+)\/(sleep|delete)$/);
+    m = path.match(/^\/api\/computers\/boxes\/([\w-]+)\/(sleep|delete|restore)$/);
     if (m && method === "POST") {
       if (!String(req.headers["content-type"] ?? "").toLowerCase().startsWith("application/json")) {
         return json(res, 415, { error: "content-type must be application/json" });
@@ -19284,6 +19284,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         if (m[2] === "sleep") {
           return json(res, 200, await boat.sleepManagedBoat(cfg, owners, m[1], claimManagedBoatMutation));
         }
+        if (m[2] === "restore") return json(res, 200, await boat.restoreManagedBoat(cfg, owners, m[1], claimManagedBoatMutation));
         if (typeof body?.confirmName !== "string" || body.confirmName.length > 100) {
           return json(res, 400, { error: "confirmName must be the cloud computer name shown in Settings" });
         }

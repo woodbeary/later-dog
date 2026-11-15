@@ -99,6 +99,7 @@ export interface ManagedBoatInventoryInstance {
   ownerName: string | null;
   orphaned: boolean;
   inUse: boolean;
+  setAsideUntil?: string;
 }
 
 export interface ManagedBoatInventory {

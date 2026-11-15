@@ -499,6 +499,46 @@ describe("the cloud computer facade", () => {
     expect(await computers.findBoat(noBoat, "dog-next-door")).toMatchObject({ state: "running" });
   });
 
+  describe("computers set aside after a failed start", () => {
+    beforeEach(() => { vi.useFakeTimers({ toFake: ["Date"] }); vi.setSystemTime(new Date("2026-11-10T01:00:00Z")); });
+    afterEach(() => { vi.useRealTimers(); });
+    const keptFor = (botId: string, daysAgo: number) => add("", "error", `${nameFor(botId)}-kept-${(Date.now() - daysAgo * 86_400_000).toString(36)}`);
+
+    it("are listed under their dog with the day they are removed, can be deleted, and are removed once past 7 days when the list is read", async () => {
+      const current = add("dog-kept-list", "sleeping");
+      const young = keptFor("dog-kept-list", 2);
+      const old = keptFor("dog-kept-list", 8);
+      const inventory = await computers.listManagedBoats(noBoat, [owner("dog-kept-list", "Kept", true)]);
+      expect(inventory.instances.map((instance) => [instance.boxId, instance.ownerBotId, instance.ownerName, instance.inUse, instance.setAsideUntil ?? null]))
+        .toEqual([[current.id, "dog-kept-list", "Kept", true, null], [young.id, "dog-kept-list", "Kept", false, "2026-11-15T01:00:00.000Z"]]);
+      expect(fleet.has(old.id)).toBe(false);
+      expect(await computers.deleteManagedBoat(noBoat, [owner("dog-kept-list", "Kept", true)], young.id, young.name)).toEqual({ ok: true });
+      expect(fleet.has(young.id)).toBe(false);
+      expect(fleet.has(current.id)).toBe(true);
+    });
+
+    it("are left over once their dog is gone", async () => {
+      const kept = keptFor("dog-kept-gone", 1);
+      const inventory = await computers.listManagedBoats(noBoat, []);
+      expect(inventory.instances).toEqual([expect.objectContaining({ boxId: kept.id, ownerBotId: null, orphaned: true, setAsideUntil: "2026-11-16T01:00:00.000Z" })]);
+    });
+
+    it("can be put back as the dog's computer, with its current one set aside in its place", async () => {
+      const current = add("dog-kept-back", "running");
+      const kept = keptFor("dog-kept-back", 1);
+      expect(await computers.findBoat(noBoat, "dog-kept-back")).toMatchObject({ id: current.id });
+      await expect(computers.restoreManagedBoat(noBoat, [owner("dog-kept-back", "Back", true)], kept.id)).rejects.toMatchObject({ status: 409 });
+      await expect(computers.restoreManagedBoat(noBoat, [owner("dog-kept-back")], current.id)).rejects.toMatchObject({ status: 409 });
+      expect(await computers.restoreManagedBoat(noBoat, [owner("dog-kept-back")], kept.id)).toEqual({ ok: true });
+      expect(fleet.get(kept.id)!.name).toBe(nameFor("dog-kept-back"));
+      expect(fleet.get(current.id)!.name).toBe(`${nameFor("dog-kept-back")}-kept-${Date.now().toString(36)}`);
+      expect(await computers.findBoat(noBoat, "dog-kept-back")).toMatchObject({ id: kept.id });
+      const inventory = await computers.listManagedBoats(noBoat, [owner("dog-kept-back")]);
+      expect(inventory.instances.map((instance) => [instance.boxId, instance.setAsideUntil ?? null])).toEqual([[kept.id, null], [current.id, "2026-11-17T01:00:00.000Z"]]);
+      expect(ours().filter((request) => request.method === "DELETE" || (request.method === "POST" && request.path === "/v1/computers"))).toEqual([]);
+    });
+  });
+
   describe("waking a computer for run_on_computer", () => {
     const wakes = () => ours().filter((request) => request.method === "POST" && request.path.endsWith("/wake")).length;
     const sleeping = (botId: string) => { const computer = add(botId, "sleeping"); wakeTo = "starting"; pollStepMs = 10_000; return computer; };
