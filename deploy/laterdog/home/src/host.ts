@@ -50,6 +50,7 @@ const WAKERS_KEY = "wakers";
 const OUTBOX_KEY = "desk-outbox";
 const DROPPED_KEY = "desk-dropped";
 const DESK_DEVICES_KEY = "desk-devices";
+const OWNER_KEYS_KEY = "owner-keys";
 const DESK_DEVICES_KEPT = 50;
 const DESK_RETRY_S = 5;
 const DESK_GIVE_UP_MS = 60 * 60 * 1000;
@@ -108,6 +109,7 @@ export class CloudHomeHost extends Container<Env> {
   private serverUp = false;
   private removed = false;
   private wakers: Wakers = {};
+  private ownerKeys: Record<string, number> = {};
   private outbox: QueuedSend[] = [];
   private dropped: DroppedSend[] = [];
   private deskDevices: Record<string, number> = {};
@@ -154,6 +156,7 @@ export class CloudHomeHost extends Container<Env> {
       this.storedStanding = (await ctx.storage.get<HomeStanding>(STANDING_KEY)) ?? null;
       this.removed = (await ctx.storage.get<boolean>(REMOVED_KEY)) === true;
       this.wakers = (await ctx.storage.get<Wakers>(WAKERS_KEY)) ?? {};
+      this.ownerKeys = (await ctx.storage.get<Record<string, number>>(OWNER_KEYS_KEY)) ?? {};
       this.outbox = (await ctx.storage.get<QueuedSend[]>(OUTBOX_KEY)) ?? [];
       this.dropped = (await ctx.storage.get<DroppedSend[]>(DROPPED_KEY)) ?? [];
       this.deskDevices = (await ctx.storage.get<Record<string, number>>(DESK_DEVICES_KEY)) ?? {};
@@ -384,6 +387,7 @@ export class CloudHomeHost extends Container<Env> {
     this.brain = null;
     this.storedStanding = null;
     this.wakers = {};
+    this.ownerKeys = {};
     this.pairingOpenUntil = 0;
     await this.bury();
   }
@@ -469,6 +473,10 @@ export class CloudHomeHost extends Container<Env> {
     return seen !== undefined && now - seen < DESK_KEPT_MS && remembered(this.wakers, key, now);
   }
 
+  private ownersDevice(key: string): boolean {
+    return this.knownDevice(key) && key in this.ownerKeys;
+  }
+
   private async noteDevice(key: string): Promise<void> {
     const now = Date.now();
     if (now - (this.deskDevices[key] ?? 0) < 60 * 60 * 1000) return;
@@ -525,7 +533,7 @@ export class CloudHomeHost extends Container<Env> {
   }
 
   private async answerHeld(request: Request, key: string | null): Promise<Response | null> {
-    if (key && this.knownDevice(key) && heldAnswersAsk(request)) {
+    if (key && this.ownersDevice(key) && heldAnswersAsk(request)) {
       await this.delivering;
       return heldAnswersAnswer(this.outbox);
     }
@@ -552,8 +560,9 @@ export class CloudHomeHost extends Container<Env> {
     if (held) return held;
     if (deskSend(request)) {
       if (!key || !this.knownDevice(key)) return null;
-      const queued = await queuedSend(request.clone(), Date.now());
-      if (queued === "refused") return refusedSend();
+      const sent = await queuedSend(request.clone(), Date.now());
+      if (sent === "refused") return refusedSend();
+      const queued = sent ? { ...sent, by: this.ownersDevice(key) ? ("owner" as const) : ("guest" as const) } : null;
       if (queued && this.outbox.some((earlier) => earlier.id === queued.id)) return queuedReceipt(queued);
       const next = queued ? withQueued(this.outbox, queued) : null;
       if (!queued || !next) return null;
@@ -771,6 +780,7 @@ export class CloudHomeHost extends Container<Env> {
   }
 
   async forgetWaker(key: string): Promise<void> {
+    await this.markOwner(key, false);
     if (!(key in this.wakers)) return;
     const { [key]: _, ...rest } = this.wakers;
     this.wakers = rest;
@@ -822,7 +832,8 @@ export class CloudHomeHost extends Container<Env> {
       .then(sessionCheckOutcome)
       .catch((): CheckOutcome => "unknown")
       .then(async (outcome) => {
-        if (outcome === "owner") await this.remember(key);
+        if (outcome === "owner" || outcome === "guest") await this.remember(key);
+        if (outcome === "owner" || outcome === "guest") await this.markOwner(key, outcome === "owner");
         if (outcome === "refused") this.refuse(key);
         if (outcome === "refused" || (outcome === "unknown" && denied)) await this.distrust(record, key);
       })
@@ -847,6 +858,13 @@ export class CloudHomeHost extends Container<Env> {
     await this.forgetWaker(key);
     if (this.mayHaveMoved()) this.ctx.waitUntil(this.otherSizeHost(record).forgetWaker(key).catch(() => undefined));
     await this.forgetDevice(record, key);
+  }
+
+  private async markOwner(key: string, owner: boolean): Promise<void> {
+    if ((key in this.ownerKeys) === owner && !owner) return;
+    const kept = Object.fromEntries(Object.entries(this.ownerKeys).filter(([known]) => known !== key && known in this.wakers));
+    this.ownerKeys = owner ? { ...kept, [key]: Date.now() } : kept;
+    await this.ctx.storage.put(OWNER_KEYS_KEY, this.ownerKeys);
   }
 
   private async remember(key: string): Promise<void> {

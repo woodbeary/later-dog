@@ -41,6 +41,7 @@ export interface QueuedSend {
   at: number;
   threadId?: string;
   reply?: { text: string; model: string };
+  by?: "owner" | "guest";
 }
 
 export type DeskKind = "read" | "shell" | null;
@@ -239,7 +240,7 @@ export function heldAnswersAsk(request: Request): boolean {
 export function heldAnswers(outbox: readonly QueuedSend[]): HeldAnswer[] {
   return outbox.slice(0, DESK_OUTBOX_MAX).flatMap((queued): HeldAnswer[] => {
     const host = HOST_SEND_PATH.exec(queued.path);
-    if (!host || !queued.threadId || !SEND_ID.test(queued.id)) return [];
+    if (queued.by !== "owner" || !host || !queued.threadId || !SEND_ID.test(queued.id)) return [];
     let body: { cardId?: unknown; text?: unknown; sendId?: unknown } | null;
     try {
       body = JSON.parse(queued.body) as typeof body;
