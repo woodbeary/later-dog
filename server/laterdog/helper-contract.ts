@@ -14,10 +14,10 @@ export function helperContractWanted(cli: string, supportedVersion: string | nul
   return supportedVersion !== null && !refusedBy.has(engineKey(cli, supportedVersion));
 }
 
-export function helperFlagRefused(cli: string, version: string | null, stderr: string, log: (line: string) => void = console.warn): boolean {
-  if (version === null || !/unknown option/i.test(stderr) || !stderr.includes(SUBAGENT_PROMPT_FLAG)) return false;
+export function helperFlagRefused(cli: string, version: string | null, stderr: string, passedFlag: boolean, log: (line: string) => void = console.warn): boolean {
+  if (!passedFlag || version === null || !/unknown option/i.test(stderr) || !stderr.includes(SUBAGENT_PROMPT_FLAG)) return false;
   const key = engineKey(cli, version);
-  if (refusedBy.has(key)) return false;
+  if (refusedBy.has(key)) return true;
   refusedBy.add(key);
   log(`[engine] ${cli} ${version} does not know ${SUBAGENT_PROMPT_FLAG}; starting it again without it, and leaving it off for this engine`);
   return true;

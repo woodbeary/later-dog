@@ -171,6 +171,8 @@ if (argv[0] === "--help") {
 const unknownFlag = (process.env.FAKE_CLAUDE_UNKNOWN_FLAGS ?? "").split(",").find((flag) => flag && argv.includes(flag));
 if (unknownFlag) {
   if (process.env.FAKE_CLAUDE_REFUSALS) appendFileSync(process.env.FAKE_CLAUDE_REFUSALS, `${unknownFlag}\n`);
+  const delay = Number(process.env.FAKE_CLAUDE_UNKNOWN_DELAY_MS ?? 0);
+  if (delay > 0) await new Promise((resolve) => setTimeout(resolve, delay));
   process.stderr.write(`error: unknown option '${unknownFlag}'\n`);
   process.exit(1);
 }

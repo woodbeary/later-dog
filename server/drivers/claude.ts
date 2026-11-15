@@ -1038,6 +1038,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
       volatile: string | null;
       sessionId: string | null;
       sawInit: boolean;
+      passedHelperFlag: boolean;
       resumeRefused?: string;
       nativePermissionMode: string | null;
       replaysUserMessages: boolean;
@@ -1561,6 +1562,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
         volatile: claudeSeenVolatile(turn),
         sessionId: sessionId ?? newSessionId,
         sawInit: false,
+        passedHelperFlag: args.includes(SUBAGENT_PROMPT_FLAG),
         nativePermissionMode: null,
         replaysUserMessages,
         turn: { turnId, input: turn, retryAbort, settled: false, sawStreamDelta: false, pendingSteers: new Map(), deferred: null, continuationGrace: null, continuationSilence: null },
@@ -2035,7 +2037,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
           const verdict = classifyError({ exitCode: code, stderr: message });
           const endedBeforeTurn = session.turn.awaitingInit === true;
           const refusedResume = Boolean(session.resumeRefused);
-          const refusedHelperFlag = !session.sawInit && helperFlagRefused(config.cli, cliVersion?.join(".") ?? null, session.stderr);
+          const refusedHelperFlag = !session.sawInit && helperFlagRefused(config.cli, cliVersion?.join(".") ?? null, session.stderr, session.passedHelperFlag);
           if (
             !refusedResume &&
             !retry.cancelled &&

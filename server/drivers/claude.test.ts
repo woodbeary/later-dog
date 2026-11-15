@@ -2248,6 +2248,27 @@ describe("ClaudeDriver turns (fake CLI)", () => {
     }
   });
 
+  it("starts every dog again without the helper flag when several start together and the engine refuses it", async () => {
+    const dump = join(scratch, "helper-flag-parallel.json");
+    const refusals = join(scratch, "helper-flag-parallel-refusals.txt");
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      await create(undefined, { FAKE_CLAUDE_DUMP: dump, FAKE_CLAUDE_VERSION: "2.1.402", FAKE_CLAUDE_UNKNOWN_FLAGS: "--append-subagent-system-prompt-file", FAKE_CLAUDE_UNKNOWN_DELAY_MS: "400", FAKE_CLAUDE_REFUSALS: refusals });
+      const threads = ["t-parallel-1", "t-parallel-2", "t-parallel-3"];
+      await Promise.all(threads.map((threadId) => instance.adapter.sendTurn({ threadId, text: "hi", system: "You are Testy." })));
+      await expect.poll(() => recorder.events.filter((e) => e.type === "turn.completed").length, { timeout: 20_000 }).toBe(3);
+      expect(recorder.events.filter((e) => e.type === "turn.completed").every((e) => (e as { ok?: boolean }).ok === true)).toBe(true);
+      expect(readFileSync(refusals, "utf8").trim().split("\n")).toHaveLength(3);
+      recorder.events.length = 0;
+      await instance.adapter.sendTurn({ threadId: "t-parallel-4", text: "later", system: "You are Testy." });
+      expect(await recorder.until((e) => e.type === "turn.completed")).toMatchObject({ ok: true });
+      expect(readFileSync(refusals, "utf8").trim().split("\n")).toHaveLength(3);
+      expect(JSON.parse(readFileSync(dump, "utf8")).argv).not.toContain("--append-subagent-system-prompt-file");
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
   it.each(["2.1.210", "2.1.211"])("gates native child text forwarding for Claude %s", async (version) => {
     const dump = join(scratch, "forwarding.json");
     await create(undefined, { FAKE_CLAUDE_DUMP: dump, FAKE_CLAUDE_VERSION: version });
