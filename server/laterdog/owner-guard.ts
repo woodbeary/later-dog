@@ -25,6 +25,7 @@ export interface OwnerGuardContext {
   tempRoots?: readonly string[];
   home?: string;
   git?: GitLookup;
+  repositoryRoot?: (cwd: string) => string | null;
 }
 
 export interface OwnerGuardRequest {
@@ -248,6 +249,8 @@ interface Paths {
   temp: string[];
   roots: string[];
   links?: Map<string, string>;
+  repository?: (cwd: string) => string | null;
+  gitElsewhere?: boolean;
 }
 
 function within(path: string, root: string, allowEqual: boolean): boolean {
@@ -256,10 +259,10 @@ function within(path: string, root: string, allowEqual: boolean): boolean {
   return !rel.startsWith("..") && !isAbsolute(rel) && rel.split(sep)[0] !== "..";
 }
 
-function repositoryRoot(cwd: string): string {
+function repositoryRoot(cwd: string): string | null {
   for (let dir = cwd; ; dir = dirname(dir)) {
     if (existsSync(join(dir, ".git"))) return dir;
-    if (dirname(dir) === dir) return cwd;
+    if (dirname(dir) === dir) return null;
   }
 }
 
@@ -269,7 +272,7 @@ function expandWord(word: Word, cwd: string | undefined, paths: Paths): string |
   if (word.vars) {
     text = text
       .replace(/\$\(pwd\)|`pwd`/g, () => cwd ?? "\0")
-      .replace(/\$\(git rev-parse --show-toplevel\)|`git rev-parse --show-toplevel`/g, () => (cwd ? repositoryRoot(cwd) : "\0"))
+      .replace(/\$\(git rev-parse --show-toplevel\)|`git rev-parse --show-toplevel`/g, () => (cwd && !paths.gitElsewhere ? (paths.repository ?? repositoryRoot)(cwd) ?? "\0" : "\0"))
       .replace(/\$\{?(HOME|TMPDIR|PWD)\}?/g, (_match, name: string) =>
       name === "HOME" ? paths.home : name === "TMPDIR" ? tmpdir() : (cwd ?? "\0"));
     if (text.includes("$") || text.includes("`") || text.includes("\0")) return null;
@@ -922,6 +925,7 @@ function stepDeleteRefusal(step: ShellStep, paths: Paths, source: string): Owner
 }
 
 function commandFindings(source: string, cwd: string | undefined, paths: Paths, depth: number, out: Finding[] = []): Finding[] {
+  paths.gitElsewhere ||= /\bGIT_(?:WORK_TREE|DIR)\b/.test(source);
   for (const step of shellSteps(source, cwd, paths.home, depth)) {
     const { name, args } = step;
     const refusal = stepDeleteRefusal(step, paths, source)
@@ -1006,6 +1010,7 @@ function guardPaths(context: OwnerGuardContext): Paths {
     home,
     temp: [...(context.tempRoots ?? defaultTempRoots()), ...CACHE_FOLDERS.map((folder) => join(home, folder))],
     roots: context.workspaceRoots.filter((root) => isAbsolute(root)),
+    ...(context.repositoryRoot ? { repository: context.repositoryRoot } : {}),
   };
 }
 

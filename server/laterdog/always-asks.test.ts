@@ -6,7 +6,7 @@ import { ALWAYS_ASK_IDS, alwaysAskHook, alwaysAsks, connectorAlwaysAsks, interna
 import { ownerGuard, type OwnerGuardContext } from "./owner-guard.ts";
 
 const WORKSPACE = "/srv/dogs/ada/work";
-const guard = (): OwnerGuardContext => ({ cwd: WORKSPACE, workspaceRoots: [WORKSPACE], tempRoots: ["/tmp"], home: "/home/dog" });
+const guard = (): OwnerGuardContext => ({ cwd: WORKSPACE, workspaceRoots: [WORKSPACE], tempRoots: ["/tmp"], home: "/home/dog", repositoryRoot: (cwd) => (cwd.startsWith(WORKSPACE) ? WORKSPACE : null) });
 const shell = (command: string) => alwaysAsks({ tool: "Bash", command }, guard)?.id ?? null;
 const expectAll = (id: AlwaysAskId | null, commands: readonly string[]) => {
   for (const command of commands) expect(shell(command), command).toBe(id);
@@ -740,5 +740,40 @@ describe("the third review's inputs", () => {
       "ordinary by design: Edit .husky/pre-commit",
       "ordinary by design: lent Mac rm -rf node_modules",
     ]);
+  });
+});
+
+describe("the repository folder a delete names", () => {
+  const BOT = "/srv/dogs/ada/bot";
+  const at = (cwd: string) => (): OwnerGuardContext => ({ ...guard(), cwd, workspaceRoots: [WORKSPACE, BOT] });
+  const id = (command: string, cwd = WORKSPACE) => alwaysAsks({ tool: "Bash", command }, at(cwd))?.id ?? null;
+
+  it("is the repository inside a clone", () => {
+    expect(id("rm -f \"$(git rev-parse --show-toplevel)/.eslintcache\"")).toBeNull();
+  });
+
+  it("asks outside any repository, where the shell would give an empty folder", () => {
+    expect(id("rm -rf \"$(git rev-parse --show-toplevel)/zz-probe\"", BOT)).toBe("delete-outside-workspace");
+  });
+
+  it("asks when the command points git at another repository", () => {
+    expect(id("export GIT_WORK_TREE=/srv/dogs/other; rm -rf \"$(git rev-parse --show-toplevel)/precious-dir\"")).toBe("delete-outside-workspace");
+    expect(id("GIT_WORK_TREE=/srv/dogs/other bash -c 'rm -rf \"$(git rev-parse --show-toplevel)/precious-dir\"'")).toBe("delete-outside-workspace");
+    expect(id("GIT_DIR=/srv/dogs/other/.git rm -rf \"$(git rev-parse --show-toplevel)/x\"")).toBe("delete-outside-workspace");
+  });
+
+  it("reads a real .git on disk", () => {
+    const root = mkdtempSync(join(tmpdir(), "always-asks-repo-"));
+    try {
+      const clone = join(root, "clone");
+      const bare = join(root, "bare");
+      mkdirSync(join(clone, ".git"), { recursive: true });
+      mkdirSync(bare);
+      const real = (cwd: string) => (): OwnerGuardContext => ({ cwd, workspaceRoots: [clone, bare], tempRoots: [join(root, "scratch")], home: join(root, "home") });
+      expect(alwaysAsks({ tool: "Bash", command: "rm -f \"$(git rev-parse --show-toplevel)/x\"" }, real(clone))).toBeNull();
+      expect(alwaysAsks({ tool: "Bash", command: "rm -f \"$(git rev-parse --show-toplevel)/x\"" }, real(bare))?.id).toBe("delete-outside-workspace");
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 });
