@@ -17,6 +17,9 @@ const CALL_WAIT_MS = 1_500;
 const START_BUDGET_MS = 20_000;
 const SLOW_WAKE_MS = 65_000;
 const STILL_STARTING = "The cloud computer is still starting. This call was not performed. Take a fresh screenshot in a moment.";
+const DID_NOT_START = "Your cloud computer did not start, so this call was not performed, and its screen tools will not work in this turn; waiting longer will not help. "
+  + "Carry on without the screen: do light work in your folder here; for a heavy command, call run_on_computer with fresh: true to get a new cloud computer "
+  + "(your folders here stay); or tell the person what you could not do.";
 
 describe("a slow cloud computer start", () => {
   let home = "";
@@ -230,7 +233,7 @@ describe("a slow cloud computer start", () => {
     await api("DELETE", `/api/bots/${bot.id}`);
   }, 45_000);
 
-  it("a start that stalls ends at the start budget with one row that says it didn't start, and the turn ends", async () => {
+  it("a start that stalls ends at the start budget with one row that says it didn't start; the dog is told once, plainly, and its turn carries on", async () => {
     hold.desktop = true;
     try {
       const bot = await cloudBot("Stuck starter");
@@ -241,6 +244,11 @@ describe("a slow cloud computer start", () => {
       expect(Date.now() - started).toBeGreaterThanOrEqual(START_BUDGET_MS - CALL_WAIT_MS - 1_000);
       expect(row.tool.name).toBe("error: Stuck starter's cloud computer didn't start. Try again.");
       expect(row.tool.place).toEqual({ state: "cc-no-start", params: { bot: "Stuck starter" }, source: "works-on" });
+      const asked = Date.now();
+      expect(await screenshot(sent)).toEqual({ isError: true, content: [{ type: "text", text: DID_NOT_START }] });
+      expect(Date.now() - asked).toBeLessThan(CALL_WAIT_MS);
+      expect((await task(bot.id))?.busy).toBe(true);
+      writeFileSync(finishFile, "finish");
       await until(() => task(bot.id), current => current?.busy === false, 20_000);
       expect(await failedRows(bot.id)).toHaveLength(1);
       await api("DELETE", `/api/bots/${bot.id}`);
@@ -376,6 +384,7 @@ describe("a slow cloud computer start", () => {
       expect((await fromSettings).body).toMatchObject({ ready: false });
       expect(resumes()).toBe(before.resumes + 1);
       expect(creates()).toBe(before.creates);
+      writeFileSync(finishFile, "finish");
       await until(() => task(bot.id), current => current?.busy === false, 20_000);
       await api("DELETE", `/api/bots/${bot.id}`);
     } finally {

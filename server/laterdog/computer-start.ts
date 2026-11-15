@@ -4,6 +4,7 @@ export interface StartWatch {
   settled(id: string): void;
   leftMs(id: string): number;
   spent(id: string): boolean;
+  exhaust(id: string): void;
 }
 
 export function createStartWatch(budgetMs: () => number, now: () => number = () => Date.now()): StartWatch {
@@ -18,6 +19,7 @@ export function createStartWatch(budgetMs: () => number, now: () => number = () 
     settled: (id) => { since.delete(id); },
     leftMs,
     spent: (id) => since.has(id) && leftMs(id) <= 0,
+    exhaust: (id) => { since.set(id, now() - budgetMs()); },
   };
 }
 
@@ -39,3 +41,12 @@ export function didNotStart(reason?: string): Error & { code: typeof DID_NOT_STA
   return Object.assign(new Error(didNotStartText(reason)), { code: DID_NOT_START_CODE });
 }
 
+
+export const SCREEN_DID_NOT_START_TEXT = "Your cloud computer did not start, so this call was not performed, and its screen tools will not work in this turn; waiting longer will not help. "
+  + "Carry on without the screen: do light work in your folder here; for a heavy command, call run_on_computer with fresh: true to get a new cloud computer "
+  + "(your folders here stay); or tell the person what you could not do.";
+
+export function cloudDidNotStart(failure: unknown): boolean {
+  const row = (failure as { place?: unknown; row?: { state?: unknown } } | null)?.row;
+  return (failure as { place?: unknown } | null)?.place === "cloud" && row?.state === "cc-no-start";
+}

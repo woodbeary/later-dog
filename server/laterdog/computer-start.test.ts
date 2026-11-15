@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { createStartWatch, didNotStart, didNotStartText } from "./computer-start.ts";
+import { cloudDidNotStart, createStartWatch, didNotStart, didNotStartText } from "./computer-start.ts";
 
 describe("the start watch", () => {
   it("counts one start from the first time it is seen starting, across calls, until the budget is spent", () => {
@@ -27,6 +27,24 @@ describe("the start watch", () => {
     watch.settled("cmp_b");
     expect(watch.spent("cmp_b")).toBe(false);
     expect(watch.leftMs("cmp_b")).toBe(1_000);
+  });
+});
+
+describe("a start another path gave up on", () => {
+  it("counts as spent at once, and starts again once settled", () => {
+    const watch = createStartWatch(() => 330_000, () => 50);
+    watch.exhaust("cmp_c");
+    expect(watch.spent("cmp_c")).toBe(true);
+    watch.settled("cmp_c");
+    expect(watch.spent("cmp_c")).toBe(false);
+  });
+
+  it("is told apart from other place failures by the cloud computer's did-not-start row", () => {
+    expect(cloudDidNotStart({ place: "cloud", row: { state: "cc-no-start" } })).toBe(true);
+    expect(cloudDidNotStart({ place: "cloud", row: { state: "cc-clearing" } })).toBe(false);
+    expect(cloudDidNotStart({ place: "vm", row: { state: "cc-no-start" } })).toBe(false);
+    expect(cloudDidNotStart(undefined)).toBe(false);
+    expect(cloudDidNotStart(new Error("the cloud computer didn't start in time"))).toBe(false);
   });
 });
 

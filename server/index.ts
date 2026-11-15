@@ -593,6 +593,7 @@ import { chatContext } from "./laterdog/chat-context-window.ts";
 import { cloudPlaceRefusal, computerToolsRefusal, parseSurface, PlaceUnavailableError, placeUnavailable, resolveSurface, surfaceLabel, surfaceOfComputerKind, surfacePrompt, type PlaceSource, type Surface } from "./surface.ts";
 import { cloudRefusal, type PlaceRow } from "../shared/place-view.ts";
 import { cloudComputerStartBudgetMs, passingCloudFailure, remainingStartMs, startRetryingPassingFailures, stillStarting } from "./laterdog/cloud-start.ts";
+import { SCREEN_DID_NOT_START_TEXT, cloudDidNotStart } from "./laterdog/computer-start.ts";
 import { createIdleReload } from "./laterdog/idle-reload.ts";
 import {
   PendingTurnCancellations,
@@ -6214,7 +6215,7 @@ async function computerCallGate(internalCapability: InternalCapability) {
   if (!snapshot.held && lazyClaim?.failed === true) {
     return {
       held: true, helpOpen: false,
-      blockedReason: `This turn could not claim ${lazyClaim.label ?? "this computer"}${lazyClaim.failure ? ` (${lazyClaim.failure})` : ""}. This call was not performed. Do not retry computer work in this turn; tell the person what you could not do.`,
+      blockedReason: lazyClaim.failedReason ?? `This turn could not claim ${lazyClaim.label ?? "this computer"}${lazyClaim.failure ? ` (${lazyClaim.failure})` : ""}. This call was not performed. Do not retry computer work in this turn; tell the person what you could not do.`,
     };
   }
   if (!snapshot.held && lazyClaim?.lazy && lazyClaim.begin && !lazyClaim.claimed) {
@@ -6374,7 +6375,9 @@ function mountBotBoat(
         });
         if (!attached) throw new Error("the cloud computer could not be created or reached");
       } catch (error) {
-        throw opts.source ? await asPlaceFailure(error, "cloud", opts.source, bot, "box") : error;
+        const failure = opts.source ? await asPlaceFailure(error, "cloud", opts.source, bot, "box") : error;
+        if (cloudDidNotStart(failure)) { slot.failedReason = SCREEN_DID_NOT_START_TEXT; boat.startDidNotFinish(bot.id); }
+        throw failure;
       }
       slot.boxId = attached.boxId;
       opts.onClaimed(attached.capture);
@@ -8873,6 +8876,7 @@ async function startTurn(
           kind: "activity",
           tool: failedTurnTool(message, placeFailure ? { place: placeFailure.row } : {}),
         });
+        if (cloudDidNotStart(placeFailure)) return;
         if (opts?.automationSource === undefined && !opts?.commsDepth && !opts?.cardContinuation) {
           notify(buildNotification("turn-failed", bot, threadId, redactSecretsInText(message), { avatarUrl: bot.avatarUrl }));
           resourceOwner.lazyClaimFailureReported = true;

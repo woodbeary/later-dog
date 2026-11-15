@@ -630,6 +630,20 @@ describe("the cloud computer facade", () => {
       expect(creates()).toHaveLength(1);
     });
 
+    it("answers at once, and replaces it on request, once the screen's start gave up on the same computer", async () => {
+      const stuck = sleeping("dog-heavy-screen-gave-up");
+      runsAt = Date.now() + 3_600_000;
+      await expect(computers.heavyRunBox("dog-heavy-screen-gave-up", { budgetMs: 60_000 })).rejects.toMatchObject({ code: "still_starting" });
+      computers.startDidNotFinish("dog-heavy-screen-gave-up");
+      const asked = Date.now();
+      await expect(computers.heavyRunBox("dog-heavy-screen-gave-up", { budgetMs: 240_000 })).rejects.toMatchObject({ code: "did_not_start" });
+      expect(Date.now() - asked).toBeLessThan(15_000);
+      wakeTo = "running";
+      expect(await computers.heavyRunBox("dog-heavy-screen-gave-up", { fresh: true })).toMatchObject({ box: expect.anything() });
+      expect(fleet.has(stuck.id)).toBe(false);
+      expect(creates()).toHaveLength(1);
+    });
+
     it("wakes once for adjacent calls and leaves the computer running for the service's idle policy, even when one call is abandoned", async () => {
       const computer = sleeping("dog-heavy-adjacent");
       runsAt = Date.now() + 95_000;

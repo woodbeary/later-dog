@@ -462,6 +462,13 @@ async function replaceOwn(client: ComputersClient, computer: OwnComputer): Promi
   console.info(`cloud computer ${computer.id}: replaced after it did not start`);
 }
 
+export function startDidNotFinish(botId: string): void {
+  if (!computersSelected()) return;
+  let id: string | undefined;
+  try { id = computerIds.get(cacheKey(ownClient(), botId)); } catch { return; }
+  if (id) starts.exhaust(id);
+}
+
 export async function heavyRunBox(botId: string, options: { repository?: string; wanted?: () => boolean; budgetMs?: number; fresh?: boolean } = {}): Promise<{ box: RunBox }> {
   if (!computersSelected()) throw Object.assign(new Error("Cloud computers are not set up here, so run it in your own folder instead."), { status: 409 });
   const client = ownClient();
