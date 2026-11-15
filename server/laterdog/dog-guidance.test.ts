@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
-import { buildSystemPrompt, todayPrompt, userProfileSystemPrompt } from "../system-prompt.ts";
+import { buildSystemPrompt, profileParts, todayPrompt } from "../system-prompt.ts";
 import { SHORT_ON_IT_NOTE } from "./work-updates.ts";
 import { EXISTING_ACCESS } from "./sign-in-passage.ts";
 import {
@@ -348,18 +348,21 @@ describe("the guidance every dog gets", () => {
     expect(first.stable).not.toContain("today is");
   });
 
-  it("keeps the cached half byte-identical when the person's profile, ask-first rules or Google change, and moves them to the changing part", () => {
+  it("keeps the cached half byte-identical when the person's profile or Google change, moves them to the changing part, and keeps ask-first rules in the cached half", () => {
     const build = (aboutMe: string, askFirst: string[], google: boolean) => buildSystemPrompt("You are Scout, a dog in later.dog.", "Be brief.", [
       ...guidanceParts({ engine: "claude", agents: true, model: "claude-fable-5-2", kit: { cloudHome: true, ownComputer: true, vault: true, google } }),
-      { id: "user-profile", label: "About the user", text: userProfileSystemPrompt({ aboutMe, askFirst }) },
+      ...profileParts({ aboutMe, askFirst }),
     ], "Sam");
     const before = build("Sam runs a small shop.", ["spending money"], false);
-    const learned = build("Sam runs a small shop and has a dog called Biscuit.", ["spending money", "posting in public"], true);
+    const learned = build("Sam runs a small shop and has a dog called Biscuit.", ["spending money"], true);
     expect(learned.stable).toBe(before.stable);
-    expect(before.stable).not.toMatch(/Sam runs a small shop|spending money|gmail/);
+    expect(before.stable).toContain("spending money");
+    expect(before.stable).not.toMatch(/Sam runs a small shop|gmail/);
+    expect(build("Sam runs a small shop.", ["spending money", "posting in public"], false).stable).toContain("posting in public");
     expect(learned.volatileSections.find((section) => section.id === "user-profile")?.text).toContain("Biscuit");
     expect(learned.volatileSections.find((section) => section.id === "connected")?.text).toContain("Google through connect_google");
   });
+
 
   it("keeps the cached half byte-identical when a Mac connects or GitHub signs in, and changes only the connected section", () => {
     const build = (macsOnline: number, github: boolean) => buildSystemPrompt("You are Scout, a dog in later.dog.", "Be brief.", [
