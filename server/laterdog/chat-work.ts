@@ -1,15 +1,7 @@
 import type { BotActivity, WireWaitingOn } from "../../shared/wire.ts";
-import type { WorkState } from "../../shared/work-state.ts";
 import type { RoomHandoff } from "../room-handoffs.ts";
 
 const ENDED: ReadonlySet<RoomHandoff["status"]> = new Set(["completed", "failed", "cancelled"]);
-
-export function handoffRunningIn(threadId: string, nodes: Iterable<RoomHandoff>): boolean {
-  for (const node of nodes) {
-    if (!node.groupId && node.parentId && node.threadId === threadId && node.status === "running") return true;
-  }
-  return false;
-}
 
 export interface HandoffWait {
   waitingForTeammates: boolean;
@@ -38,15 +30,10 @@ export interface OlderWorkFields {
   helpersWorking?: number;
 }
 
-const LIVE: ReadonlySet<WorkState["kind"]> = new Set(["running", "retrying", "waiting-for-computer"]);
-
-export function olderWorkFields(work: WorkState, busy: boolean, activity: BotActivity | undefined, handoff: HandoffWait, helpers = 0): OlderWorkFields {
+export function olderWorkFields(busy: boolean, activity: BotActivity | undefined, handoff: HandoffWait, helpers = 0): OlderWorkFields {
   const helpersWorking = busy ? 0 : Math.max(0, helpers);
-  const shown = work.kind === "needs-you" ? "waiting-on-you"
-    : activity === "working" && !LIVE.has(work.kind) ? "idle"
-    : activity;
   return {
-    ...(shown ? { activity: shown } : {}),
+    ...(activity ? { activity } : {}),
     waitingForTeammates: handoff.waitingForTeammates,
     ...(handoff.waitingOn ? { waitingOn: handoff.waitingOn } : {}),
     ...(helpersWorking ? { helpersWorking } : {}),
