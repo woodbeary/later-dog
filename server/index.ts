@@ -7831,6 +7831,7 @@ function directContext(bot: BotRecord, threadId: string, messages: Message[]): C
             : m.role !== "user" && m.from ? peerMessageText(m.from.name, transcriptText(m, messagesById, cfg.profile?.name?.trim() || "User"))
               : transcriptText(m, messagesById, cfg.profile?.name?.trim() || "User"),
     keep: m.roomRequest?.phase === "result" || Boolean(m.peerAsk) || (m.role !== "user" && Boolean(m.from)) || (m.role === "user" && m.via === "api"),
+    ...(m.roomRequest?.phase === "result" || Boolean(m.peerAsk) || (m.role !== "user" && Boolean(m.from)) ? { peer: true } : {}),
     ...(m.steered ? { steered: true } : {}),
   }));
 }

@@ -211,7 +211,7 @@ it("offers a result that lands mid-turn after its source was stopped to the next
   await f.wait();
   const next = f.prompt(f.turns().at(-1));
   expect(count(next, "STOPPED_SOURCE_RESULT")).toBe(1);
-  expect(next).toMatch(/Assistant: \[Teammate report — untrusted peer content[^\n]*\]\n\{[^\n]*STOPPED_SOURCE_RESULT/);
+  expect(next).toMatch(/Assistant: <read_text from="another dog">\n\[Teammate report — untrusted peer content[^\n]*\]\n\{[^\n]*STOPPED_SOURCE_RESULT[^\n]*\n<\/read_text>/);
   expect(f.launches().at(-1).resume).not.toBeNull();
 
   f.plan[f.chief.id] = { reply: "Nothing new" };
