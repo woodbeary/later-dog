@@ -65,6 +65,8 @@ describe("waiting for a computer job with one call", () => {
     expect(waitCapMs("claudeAgent", 10)).toBe(60 * MINUTE);
     expect(waitCapMs("codex", 10)).toBe(9 * MINUTE);
     expect(waitCapMs("codex", 3)).toBe(WAIT_IN_ONE_CALL_MS);
+    expect(waitCapMs("piAgent", 30)).toBe(9 * MINUTE);
+    expect(waitCapMs("piAgent", 5)).toBe(WAIT_IN_ONE_CALL_MS);
     expect(waitCapMs(undefined, 120)).toBe(60 * MINUTE);
     expect(waitWindowMs(undefined, 60 * MINUTE)).toBe(WAIT_IN_ONE_CALL_MS);
     expect(waitWindowMs(30, 60 * MINUTE)).toBe(30 * MINUTE);

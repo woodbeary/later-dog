@@ -1,6 +1,7 @@
 import { WAIT_IN_ONE_CALL_MS } from "./computer-runs.ts";
 
 export const LONGEST_WAIT_MINUTES = 60;
+export const PI_TOOL_CALL_MINUTES = 10;
 export const STILL_RUNNING_TAIL_CHARS = 2_000;
 export const BAD_WAIT_TEXT = `wait_minutes must be a whole number of minutes from 1 to ${LONGEST_WAIT_MINUTES}.`;
 
@@ -9,7 +10,8 @@ const ERROR_LINE = /\b(?:error|errors|failed|failure|fail|fatal|exception|traceb
 
 export function waitCapMs(driverKind: string | undefined, mcpCallTimeoutMinutes: number): number {
   if (driverKind === "claudeAgent") return LONGEST_WAIT_MINUTES * MINUTE_MS;
-  return Math.max(WAIT_IN_ONE_CALL_MS, Math.min(LONGEST_WAIT_MINUTES, mcpCallTimeoutMinutes - 1) * MINUTE_MS);
+  const engineMinutes = driverKind === "piAgent" ? Math.min(PI_TOOL_CALL_MINUTES, mcpCallTimeoutMinutes) : mcpCallTimeoutMinutes;
+  return Math.max(WAIT_IN_ONE_CALL_MS, Math.min(LONGEST_WAIT_MINUTES, engineMinutes - 1) * MINUTE_MS);
 }
 
 export function waitWindowMs(asked: unknown, capMs: number = WAIT_IN_ONE_CALL_MS): number | null {
