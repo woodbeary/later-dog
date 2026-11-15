@@ -2,7 +2,7 @@ import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { handleComputerRun } from "./computer-run-route.ts";
+import { PERSON_WROTE_TEXT, handleComputerRun } from "./computer-run-route.ts";
 import { ComputerRuns, WAIT_IN_ONE_CALL_MS, type RunBox } from "./computer-runs.ts";
 import { STILL_RUNNING_TAIL_CHARS, waitCapMs, waitWindowMs } from "./run-wait.ts";
 
@@ -15,8 +15,10 @@ function job(endsAfterMs: number) {
   const clock = { at: 1_000_000 };
   const endsAt = clock.at + endsAfterMs;
   const log = "x".repeat(12_000);
+  const execs: string[] = [];
   const box: RunBox = {
     async exec(command) {
+      execs.push(command);
       if (command.startsWith("cat runs/.logs/")) return { exitCode: 0, stdout: clock.at >= endsAt ? `0\n<<<\n${log}` : `<<<\n${log}`, stderr: "" };
       if (command.includes("nohup")) return { exitCode: 0, stdout: "started\n", stderr: "" };
       return { exitCode: 0, stdout: "", stderr: "" };
@@ -38,7 +40,9 @@ function job(endsAfterMs: number) {
     }
     return texts;
   }
-  return { waitOut };
+  const once = (extra: Record<string, unknown>, request: { active?: () => boolean; interrupted?: () => boolean } = {}) =>
+    handleComputerRun({ botId: "dog", body: { command: "pnpm gate", folder: join(root, "site"), ...extra }, workingFolder: null, allowedRoots: [], home: root, maxWaitMs: 60 * MINUTE, ...request }, { runs, computer, now: () => clock.at });
+  return { waitOut, once, clock, execs, runs, computer, root };
 }
 
 describe("waiting for a computer job with one call", () => {
@@ -69,5 +73,27 @@ describe("waiting for a computer job with one call", () => {
     expect(waitWindowMs(60)).toBe(WAIT_IN_ONE_CALL_MS);
     expect(waitWindowMs("60", 60 * MINUTE)).toBe(WAIT_IN_ONE_CALL_MS);
     expect(waitWindowMs(0.5, 60 * MINUTE)).toBe(WAIT_IN_ONE_CALL_MS);
+  });
+
+  it("ends a long wait within one poll of the person pressing Stop, and brings nothing back after it", async () => {
+    const j = job(50 * MINUTE);
+    const start = j.clock.at;
+    const answer = await j.once({ wait_minutes: 60 }, { active: () => j.clock.at - start < 5 * MINUTE });
+    expect(answer.status).toBe(409);
+    expect(j.clock.at - start).toBeLessThanOrEqual(5 * MINUTE + 10_000);
+    expect(j.execs.some((command) => command.includes("python3 -c"))).toBe(false);
+  });
+
+  it("stops waiting early when the person writes, so the dog can answer and wait again with the run_id", async () => {
+    const j = job(20 * MINUTE);
+    const start = j.clock.at;
+    const first = await j.once({ wait_minutes: 60 }, { active: () => true, interrupted: () => j.clock.at - start >= 3 * MINUTE });
+    expect(first.status).toBe(200);
+    expect(first.text!.startsWith(PERSON_WROTE_TEXT)).toBe(true);
+    expect(first.text).toMatch(/Still running on your cloud computer \(run_id ([0-9a-f]{8})\)/);
+    expect(j.clock.at - start).toBeLessThanOrEqual(3 * MINUTE + 10_000);
+    const runId = /run_id ([0-9a-f]{8})/.exec(first.text!)![1];
+    const second = await handleComputerRun({ botId: "dog", body: { run_id: runId, wait_minutes: 60 }, workingFolder: null, allowedRoots: [], maxWaitMs: 60 * MINUTE, active: () => true, interrupted: () => false }, { runs: j.runs, computer: j.computer, now: () => j.clock.at });
+    expect(second.text).toMatch(/^Finished on your cloud computer with exit code 0/);
   });
 });

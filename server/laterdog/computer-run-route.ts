@@ -13,6 +13,7 @@ export interface ComputerRunRequest {
   home?: string;
   active?: () => boolean;
   maxWaitMs?: number;
+  interrupted?: () => boolean;
 }
 
 export interface ComputerRunDeps {
@@ -40,6 +41,7 @@ export function repositoryOf(folder: string): string | null {
 
 export const WINDOW_ENDED_TEXT = "This call's time ran out while sending the folder, before the command started, so nothing was run. Call run_on_computer again with the same folder and command; the files already sent stay on the computer.";
 export const STILL_STARTING_TEXT = "Your cloud computer is still starting, so nothing was run yet. Call run_on_computer again with the same folder and command to keep waiting.";
+export const PERSON_WROTE_TEXT = "The person wrote while you waited, so this call stopped waiting early; the job keeps running. Answer them, then call run_on_computer again with the run_id to keep waiting.";
 const ENDED_TEXT = "This turn ended before the command started on the cloud computer, so nothing was run.";
 const inside = (path: string, root: string) => { const rel = relative(root, path); return rel === "" || (!rel.startsWith("..") && !isAbsolute(rel)); };
 
@@ -86,11 +88,15 @@ export async function handleComputerRun(request: ComputerRunRequest, deps: Compu
     const windowMs = waitWindowMs(request.body.wait_minutes, request.maxWaitMs);
     const computer = await deps.computer(request.botId, { ...(repository ? { repository } : {}), ...(request.active ? { wanted: request.active } : {}), budgetMs: windowMs });
     if (request.active && !request.active()) return { status: 409, error: ENDED_TEXT };
-    const left = () => started + windowMs - now();
+    const stopped = () => Boolean(request.active && !request.active());
+    const wrote = () => Boolean(request.interrupted?.());
+    const left = () => stopped() || wrote() ? 0 : started + windowMs - now();
     const outcome = record
       ? await deps.runs.finish(computer.box, record, undefined, left)
       : await deps.runs.run(computer.box, { botId: request.botId, folder, subdir, command, left, ...(request.active ? { active: request.active } : {}) });
-    return { status: 200, text: outcomeText(outcome), failed: outcome.state === "failed" };
+    if (stopped()) return { status: 409, error: ENDED_TEXT };
+    const text = outcome.state === "running" && wrote() ? `${PERSON_WROTE_TEXT}\n${outcomeText(outcome)}` : outcomeText(outcome);
+    return { status: 200, text, failed: outcome.state === "failed" };
   } catch (error) {
     if ((error as { code?: unknown })?.code === "still_starting") return { status: 200, text: STILL_STARTING_TEXT };
     if ((error as { code?: unknown })?.code === "window_ended") return { status: 200, text: WINDOW_ENDED_TEXT };

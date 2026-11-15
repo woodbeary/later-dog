@@ -9,6 +9,7 @@ export interface ComputerRunRouteDeps extends ComputerRunDeps {
   folders(botId: string, threadId: string): string[];
   active?(capability: unknown): boolean;
   maxWaitMs?(threadId: string): number;
+  personWrote?(botId: string, threadId: string, since: number): boolean;
 }
 
 export function createComputerRunRoute(deps: ComputerRunRouteDeps): InternalRouteHandler {
@@ -19,8 +20,10 @@ export function createComputerRunRoute(deps: ComputerRunRouteDeps): InternalRout
     const roots = deps.folders(sender.id, threadId);
     let callerGone = false;
     res.once("close", () => { if (!res.writableEnded) callerGone = true; });
+    const since = Date.now();
     const active = () => !callerGone && (!deps.active || deps.active(capability));
-    const answer = await handleComputerRun({ botId: sender.id, body: body && typeof body === "object" ? body : {}, workingFolder: roots[0] ?? null, allowedRoots: roots, ...(deps.maxWaitMs ? { maxWaitMs: deps.maxWaitMs(threadId) } : {}), active }, deps);
+    const interrupted = deps.personWrote ? () => deps.personWrote!(sender.id, threadId, since) : undefined;
+    const answer = await handleComputerRun({ botId: sender.id, body: body && typeof body === "object" ? body : {}, workingFolder: roots[0] ?? null, allowedRoots: roots, ...(deps.maxWaitMs ? { maxWaitMs: deps.maxWaitMs(threadId) } : {}), active, ...(interrupted ? { interrupted } : {}) }, deps);
     if (callerGone) return;
     return json(res, answer.status, answer.error ? { error: answer.error } : { text: answer.text, failed: answer.failed });
   };

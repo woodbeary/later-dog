@@ -13661,6 +13661,7 @@ INTERNAL_ROUTES.push(createComputerRunRoute({
   computer: boat.heavyRunBox,
   active: (capability) => internalCapabilityIsActive(capability as InternalCapability),
   maxWaitMs: (threadId) => waitCapMs(runningTurnEngines.get(threadId)?.driverKind, mcpCallTimeoutMinutes(cfg)),
+  personWrote: (_botId, threadId, since) => store.activePath(threadId).some((message) => message.role === "user" && message.at >= since),
 }));
 INTERNAL_ROUTES.push(createReactRoute({
   activePath: (threadId) => store.activePath(threadId),
