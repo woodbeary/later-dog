@@ -160,9 +160,21 @@ release.
 - The commits after the afternoon's real-engine run (the plain pick-up line, and showing a
   dog as working while it rebuilds) are covered by fixtures only: a repeat on the final head
   was refused by the engine account's weekly limit.
-- That the owner's home runs exactly this bundle rests on the pointer and the changed server
-  process, as with the earlier pushes.
 - That dictation hears and types a word in 0.3.48. The helper asks macOS for speech and
   microphone access when it starts, so it was not run; it is inside the app, built for the
   Mac's processor, signed and notarized with it.
 - The phone's message box has still not been seen with an on-screen keyboard on a device.
+
+## What was learned on 14 November
+
+- The home's own log shows the released server bundle was the one running: the line "running
+  pushed server code" with the bundle's short hash `bac091c0cefe` and label `33f77c93b`, at
+  06:40 UTC on 14 November. That item is no longer in "Not proven".
+- A third phone update went out at 10:13 PT on the `beta` channel from phone `main` `e5d4cf1`:
+  update group `39eadf09-e087-4012-aafb-d86cab484263`. The group before it, for a rollback, is
+  `0d2c9b4a-2edf-4bce-ad5f-cccb78e9990d`. It was reviewed four times and passed 2,482 tests; it
+  has not been seen on a phone.
+- The dictation check on the released desktop build was tried from an isolated copy and was
+  inconclusive: the helper started and waited without output, most likely on the system's
+  speech permission. It stays "not proven"; only pressing the microphone in the installed app
+  proves it.
