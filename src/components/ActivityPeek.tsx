@@ -9,6 +9,7 @@ import { t } from "@/lib/i18n";
 import { WorkingTimer } from "./WorkingIndicator";
 import { helperStateText } from "./Puppies";
 import { formatElapsed } from "@/lib/working-time";
+import { plainToolLabel } from "@/lib/tool-words";
 
 function HelperStateIcon({ state }: { state: HelperState }) {
   const Icon = state === "running" ? Loader2 : state === "done" ? Check : state === "failed" ? TriangleAlert : Minus;
@@ -46,7 +47,7 @@ function HelperDetails({ helper }: { helper: Helper | HelperMember }) {
   return <div className="grid min-w-0 grid-cols-[16px_minmax(0,1fr)] gap-x-2.5">
     <span className="relative z-1 flex h-5 items-center justify-center bg-panel"><HelperStateIcon state={helper.state} /></span>
     <div className="min-w-0 space-y-1">
-      <div className="flex items-start justify-between gap-3"><span className="break-words text-[12px] font-medium leading-5 text-ink">{helper.label}</span><span className="shrink-0 pt-0.5 text-[10.5px] text-ink-tertiary">{helperStateText(helper.state)}</span></div>
+      <div className="flex items-start justify-between gap-3"><span className="break-words text-[12px] font-medium leading-5 text-ink">{plainToolLabel(helper.label, helper.state === "running")}</span><span className="shrink-0 pt-0.5 text-[10.5px] text-ink-tertiary">{helperStateText(helper.state)}</span></div>
       {"phase" in helper && helper.phase && <p className="text-[11px] text-ink-tertiary">{helper.phase}</p>}
       {helper.activity && helper.activity !== helper.label && <p className="break-words text-[12px] leading-relaxed text-ink-secondary">{helper.activity}</p>}
       {helper.recentActivity && helper.recentActivity.length > 1 && (

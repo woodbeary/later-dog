@@ -9,6 +9,7 @@ import { NATIVE_PUPPY_LIMIT, actorAncestry, nativeActorRole, nativeExecutionComp
 import type { DogColor, DogState } from "@/lib/mascot";
 import { cn } from "@/lib/cn";
 import { t } from "@/lib/i18n";
+import { plainToolLabel } from "@/lib/tool-words";
 import { DogAvatar } from "./Avatar";
 import { WorkingTimer } from "./WorkingIndicator";
 
@@ -31,7 +32,7 @@ function StateIcon({ state }: { state: NativeActorState }) {
 
 function WorkActivity({ activity }: { activity: NativeActivity }) {
   return <li className="min-w-0 border-b border-hairline/40 py-3 last:border-b-0">
-    <div className="flex items-start gap-2 text-[12px] text-ink-secondary"><StateIcon state={activity.state} />{activity.kind === "search" && <Search size={13} aria-hidden="true" />}<span className="min-w-0 break-words font-medium text-ink">{activity.label}</span><span className="ml-auto shrink-0 text-[10px]">{stateText[activity.state]}</span></div>
+    <div className="flex items-start gap-2 text-[12px] text-ink-secondary"><StateIcon state={activity.state} />{activity.kind === "search" && <Search size={13} aria-hidden="true" />}<span className="min-w-0 break-words font-medium text-ink">{plainToolLabel(activity.label, activity.state === "running" || activity.state === "waiting")}</span><span className="ml-auto shrink-0 text-[10px]">{stateText[activity.state]}</span></div>
     {activity.text && <p className="mt-2 whitespace-pre-wrap break-words text-[12px] leading-relaxed text-ink-secondary">{activity.text}</p>}
     {(activity.input || activity.output) && <details className="mt-2 text-[11px] text-ink-secondary"><summary className="w-fit cursor-pointer">Details</summary>{activity.input && <pre className="mt-2 max-h-56 overflow-auto whitespace-pre-wrap break-words rounded-lg bg-inset p-2">{activity.input}</pre>}{activity.output && <pre className="mt-2 max-h-80 overflow-auto whitespace-pre-wrap break-words rounded-lg bg-inset p-2">{activity.output}</pre>}</details>}
     {!!activity.links?.length && <ul className="mt-2 space-y-1 text-[12px]">{activity.links.filter(link => /^https?:\/\//i.test(link.url)).map(link => <li key={link.url}><a className="break-words text-accent hover:underline" href={link.url} target="_blank" rel="noreferrer noopener">{link.title || link.url}</a></li>)}</ul>}
@@ -172,7 +173,7 @@ export const NativeWork = memo(function NativeWork({ run, color = "yellow", body
   useEffect(() => setSelected(null), [run.id]);
   const reduced = typeof window !== "undefined" && (document.documentElement.dataset.reducedMotion === "true" || window.matchMedia?.("(prefers-reduced-motion: reduce)").matches);
   const current = run.currentActivity;
-  const currentLabel = current?.kind === "search" ? "Searching" : current?.kind === "request" ? "Waiting for an answer" : current?.kind === "reasoning" ? "Thinking" : current?.kind === "message" ? "Writing" : current?.label;
+  const currentLabel = current?.kind === "search" ? "Searching" : current?.kind === "request" ? "Waiting for an answer" : current?.kind === "reasoning" ? "Thinking" : current?.kind === "message" ? "Writing" : current?.label && plainToolLabel(current.label, true);
   return <div data-native-work={run.id} className="flex flex-wrap items-center gap-1.5 py-1">
     <button type="button" onClick={() => setSelected(current?.actorId ?? "parent")} aria-label={live ? t("chat.activity.peek") : undefined} aria-haspopup="dialog" aria-expanded={selected !== null} className="flex min-h-8 items-center gap-2 rounded-lg text-[12px] text-ink-secondary hover:text-ink focus-visible:outline-2 focus-visible:outline-offset-2">{avatar}{live ? currentLabel || label || "Working" : "View work"}{live && <WorkingTimer since={run.startedAt} className="text-[10px] tabular-nums text-ink-tertiary" />}{!live && <ChevronRight size={12} aria-hidden="true" />}{run.observation === "interrupted" && <span className="text-[10px] text-ink-tertiary">Interrupted</span>}</button>
     {!!puppies.length && <span className="flex items-center gap-0.5" aria-label={`${puppies.length} native puppies`}>{puppies.slice(0, NATIVE_PUPPY_LIMIT).map(actor => <button key={actor.id} type="button" aria-label={`View ${actor.label} · ${stateText[actor.state]}`} title={`${actor.label} · ${stateText[actor.state]}`} onClick={() => setSelected(actor.id)} className="rounded-lg focus-visible:outline-2 focus-visible:outline-offset-2"><DogAvatar color={color} bodyId={bodyId ?? undefined} size={23} state={dogState[actor.state]} label={actor.label} trackPointer={false} animated={!reduced && live} /></button>)}{puppies.length > NATIVE_PUPPY_LIMIT && <button type="button" onClick={() => setSelected(puppies[NATIVE_PUPPY_LIMIT]!.id)} aria-label={`View ${puppies.length - NATIVE_PUPPY_LIMIT} more puppies`} className="rounded-lg px-1.5 text-[11px] tabular-nums text-ink-secondary">+{puppies.length - NATIVE_PUPPY_LIMIT}</button>}</span>}
