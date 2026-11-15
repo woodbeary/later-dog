@@ -18987,6 +18987,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         return json(res, 409, { error: "the dog switched tasks before it could be interrupted" });
       }
       if (!fromLocalTools(auth)) handoffs.stoppedByPerson(expectedThreadId ?? bot.threadId);
+      if (!fromLocalTools(auth)) stopJobsForPerson(expectedThreadId ?? bot.threadId);
       await interruptDirectThread(bot.id, expectedThreadId ?? bot.threadId, { by: fromLocalTools(auth) ? "api" : "person" });
       return json(res, 200, { ok: true });
     }

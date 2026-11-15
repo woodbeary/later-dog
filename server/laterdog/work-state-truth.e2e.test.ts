@@ -316,3 +316,18 @@ it("says in a line both apps show that a job ended without a result, and does no
   expect((await wakeLines(bot.threadId)).length).toBe(1);
   expect(ledger()).toEqual([]);
 }, 120_000);
+
+it("a Stop sent without the chat's id ends the job in the dog's own chat too", async () => {
+  const bot = await newDog("Rex no id");
+  const after = await jobThatOutlivesItsTurn(bot, 0, "eighth", sleeper("noid"));
+  expect(after.work).toMatchObject({ kind: "running", computerJobs: 1 });
+  expect(await until(async () => alive(`${RUN_MARK}-noid`), Boolean, "the command to start", 10_000)).toBe(true);
+  await settle(1_000);
+  const stopped = await api("POST", `/api/bots/${bot.id}/interrupt`, {});
+  expect(stopped.status, JSON.stringify(stopped.body)).toBe(200);
+  await until(() => botNow(bot.id), (state) => state.work?.kind !== "running", "the chat to stop running", 30_000);
+  expect(alive(`${RUN_MARK}-noid`)).toBe(false);
+  await settle(3_000);
+  expect(await wakeLines(bot.threadId)).toEqual([]);
+  expect(ledger()).toEqual([]);
+}, 120_000);
