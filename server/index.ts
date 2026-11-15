@@ -21272,6 +21272,8 @@ if (CLOUD_HOME) {
     chats: () => janitorWorkspaces(),
     dataDir: DATA_DIR,
     home: homedir(),
+    workspacesDir: TASK_WORKSPACES_DIR,
+    storeChanges: (listener) => { store.onChange(listener); },
   });
 }
 

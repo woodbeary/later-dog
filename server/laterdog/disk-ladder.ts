@@ -159,6 +159,7 @@ export interface LadderDeps {
   tracked?: (path: string) => boolean;
   sweepTemp(): { removed: string[]; freed: number };
   pruneCaches(): number | null;
+  dropDeleted?: () => number;
   log(line: string): void;
   now?: () => number;
   store?: LadderStore;
@@ -221,6 +222,7 @@ export function diskLadder(deps: LadderDeps) {
 
 function emergencyStep(deps: LadderDeps, chats: readonly WorkspaceTask[], memory: LadderMemory, now: number): { freed: number; visited: number; pruned: boolean } {
   const disk = deps.disk()!;
+  const dropped = deps.dropDeleted?.() ?? 0;
   const live = deps.live();
   const order = emergencyOrder(chats, memory, live);
   const enough = () => emergencyEnough(deps.disk());
@@ -238,9 +240,9 @@ function emergencyStep(deps: LadderDeps, chats: readonly WorkspaceTask[], memory
       pruned = true;
     }
   }
-  const freed = cleared.freed + prunedBytes;
-  if (cleared.cleared.length || prunedBytes > 0) {
-    deps.log(`${diskLine(disk)}; emergency step: cleared rebuildable output in ${cleared.chats} chat(s)${prunedBytes > 0 ? " and pruned package caches" : ""}, freed ${mb(freed)}`);
+  const freed = dropped + cleared.freed + prunedBytes;
+  if (dropped > 0 || cleared.cleared.length || prunedBytes > 0) {
+    deps.log(`${diskLine(disk)}; emergency step: ${dropped > 0 ? "removed deleted chats' folders, " : ""}cleared rebuildable output in ${cleared.chats} chat(s)${prunedBytes > 0 ? " and pruned package caches" : ""}, freed ${mb(freed)}`);
   }
   return { freed, visited: cleared.visited.length, pruned };
 }

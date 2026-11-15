@@ -1,6 +1,7 @@
 import { readdirSync } from "node:fs";
 import { basename, join } from "node:path";
 import { chatTempDir, chatTempName, chatTempRoot, sweepChatTemps, tidyChatTemp, usedBy, type ChatTempSweep } from "./chat-temp.ts";
+import { DELETED_CHAT_FOLDERS, removeDeletedChatFolders, startDeletedChatFolders } from "./deleted-chat-folders.ts";
 import { floorWatch } from "./disk-floor.ts";
 import { fileLadderStore, startDiskLadder } from "./disk-ladder.ts";
 import { openPaths, readHomeProcesses } from "./home-processes.ts";
@@ -17,6 +18,8 @@ export interface HomeUpkeepDeps {
   chats(): WorkspaceTask[];
   dataDir: string;
   home: string;
+  workspacesDir: string;
+  storeChanges(listener: (change: { type: string; threadId?: string }) => void): void;
   tempRoot?: string;
   log?: (line: string) => void;
 }
@@ -48,6 +51,8 @@ export function startHomeUpkeep(deps: HomeUpkeepDeps): { warning(): string | nul
   const emptyTemp = (threadId: string) => emptyTempAfterTurn(root, threadId, () => liveTempSweep(deps.atWork), log);
   deps.subscribe(turnUpkeep({ atWork: deps.atWork, endLeftovers: (mark) => endLeftovers({ mark, mode: LEFTOVER_MODE }), mode: LEFTOVER_MODE, emptyTemp, log }));
   const floor = floorWatch();
+  const aside = join(deps.dataDir, DELETED_CHAT_FOLDERS);
+  startDeletedChatFolders({ changes: deps.storeChanges, workspaces: deps.workspacesDir, aside, log });
   startDiskLadder({
     disk: () => diskUse(deps.dataDir),
     chats: () => deps.chats().map((chat) => ({ ...chat, busy: chat.busy || deps.atWork(basename(chat.dir)) })),
@@ -58,6 +63,7 @@ export function startHomeUpkeep(deps: HomeUpkeepDeps): { warning(): string | nul
       return { removed: [...temp.removed, ...caches.removed], freed: temp.freed + caches.freed };
     },
     pruneCaches: () => pruneCaches({ home: deps.home })?.freed ?? null,
+    dropDeleted: () => removeDeletedChatFolders(aside, Date.now(), 0).freed,
     log,
     store: fileLadderStore(join(deps.dataDir, "disk-ladder.json")),
   }, undefined, floor.climbed);
