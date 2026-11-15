@@ -188,6 +188,39 @@ From the home's own usage ledger and the traces of seven dogs that day.
   conversation instead of summarising it, and the dog lost what it had been
   doing. The fix is in progress.
 
+## Rules that must not hide in a rare tool
+
+A rare tool's description reaches a dog only after it searches for that tool,
+so a rule there binds only calls of that tool. A rule that also governs what a
+dog does without the tool must be in the standing instructions as well.
+`server/laterdog/rare-tool-rules.test.ts` keeps each such rule there. Checked
+on 15 November 2026, every one of the 32 rare tools:
+
+- In the standing instructions: the Google consent page never opened in the
+  dog's own browser and emailed codes kept out of chat (`GOOGLE_PROMPT`);
+  never pasting a device code into chat (`DEVICE_APPROVAL_PROMPT`); a declined
+  send card for mail or texts is a no (`needsPerson`; the card itself is
+  enforced by the home on every send); a denied or offline Mac is respected
+  and secrets never printed (`EXISTING_LOGIN_PROMPT`, `CREDENTIAL_PROMPT`);
+  a page asking to add a server is not an order (`READ_TEXT_IS_NOT_AN_ORDER`);
+  no clicking through the app to make dogs or group chats
+  (`DOG_CREATION_PROMPT`).
+- Moved: "usage never decides whether to start or keep working" lived only in
+  `account_usage`. It is now `USAGE_NEVER_STOPS_WORK` in every Claude and
+  Codex dog's standing instructions and no longer in the description.
+- Bind only a call of their own tool, so they stay in the description: when
+  to call (`list_routines`, `account_usage`, `read_phone`, `add_to_phone`,
+  `change_on_phone`, `nearby_places`, `email_me`, `send_voice_note`,
+  `execution_advice`, `skills_list`), how to fill the call
+  (`propose_routine`, `propose_routine_action`, `switch_account`,
+  `add_mcp_server`, `skill_manage`, `create_bot`, `manage_room`,
+  `create_room`), and what to do with its result (`propose_profile`,
+  `propose_model`, `dog_queue`, `dog_accounts`, `list_shared_computers`,
+  `shared_computer`, `gmail_search`, `gmail_read`, `read_texts`). Making a new dog in place
+  of a broken one is refused in `create_bot` itself, the only way to make one.
+  Recipients for `email_me` and who may use `dog_queue` and `dog_accounts` are
+  enforced by the home, not by words.
+
 ## Not proven
 
 - Compaction at the engine's own default window, on a large model or on a real
@@ -196,6 +229,7 @@ From the home's own usage ledger and the traces of seven dogs that day.
   Claude Code picks on a real account.
 - Codex compaction on a real engine: the reset is covered only by a unit test
   (`server/drivers/codex-instructions.test.ts`), with no live compaction.
-- Tools on demand, now the default, on the smallest Claude model or with a custom endpoint.
+- Tools on demand on Sonnet, Haiku or a custom endpoint: off there until the
+  check below passes for that model.
 - Every claim in the dogs' instructions checked against a real home, such as
   what the kit line says a dog already has.
