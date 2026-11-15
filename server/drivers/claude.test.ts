@@ -2457,6 +2457,22 @@ describe("ClaudeDriver turns (fake CLI)", () => {
     expect(without.argv[without.argv.indexOf("--disallowedTools") + 1]).toBe("Edit");
   });
 
+  it("leaves the engine's own plan tools to a dog whose tool scope has no set_plan", async () => {
+    await create(undefined, {}, { disallowedTools: ["Edit"] });
+    const dump = join(scratch, "no-plan-in-scope.json");
+    process.env.FAKE_CLAUDE_DUMP = dump;
+    const agents = { agents: { command: process.execPath, args: ["/fake/agents-proxy.js"], env: { LATERDOG_BOT_ID: "b1" } } };
+    await instance.adapter.sendTurn({ threadId: "t-scope-without-plan", text: "plan", integrations: agents, toolScope: { allow: ["native:*", "mcp:agents:list_bots"] } });
+    await recorder.until((event) => event.type === "turn.completed");
+    const scoped = JSON.parse(readFileSync(dump, "utf8"));
+    expect(scoped.argv[scoped.argv.indexOf("--disallowedTools") + 1]).toBe("Edit");
+    recorder.events.length = 0;
+    await instance.adapter.sendTurn({ threadId: "t-scope-with-plan", text: "plan", integrations: agents, toolScope: { allow: ["native:*", "mcp:agents:set_plan"] } });
+    await recorder.until((event) => event.type === "turn.completed");
+    const withPlan = JSON.parse(readFileSync(dump, "utf8"));
+    expect(withPlan.argv[withPlan.argv.indexOf("--disallowedTools") + 1]).toBe("Edit,TodoWrite,TaskCreate,TaskGet,TaskList,TaskUpdate");
+  });
+
   it("passes an explicit empty available set to disable every Claude built-in", async () => {
     await create(undefined, {}, { tools: [], disallowedTools: [] });
     const dump = join(scratch, "no-builtins.json");
