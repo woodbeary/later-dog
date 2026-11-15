@@ -26,6 +26,22 @@ describe("rare tools on demand, by model", () => {
     expect(byModel("us.anthropic.claude-opus-5-5-v1:0")).toBe(true);
   });
 
+  it("matches whole version parts, so a dated or prefixed proven id is on and a longer number is unknown", () => {
+    const on = [
+      "claude-opus-5-20261101", "claude-opus-5-5-20261101", "claude-fable-5-20260601", "claude-fable-5-2-20261020",
+      "claude-opus-5[1m]", "claude-opus-5-5[1M]", "anthropic/claude-opus-5-5", "us.anthropic.claude-fable-5-1-v1:0", "claude-opus-5.5",
+    ];
+    const off = [
+      "claude-opus-50", "claude-opus-55", "claude-opus-5-50", "claude-fable-52", "claude-fable-5-3", "claude-opus-5-1",
+      "opus", "fable", "opus[1m]", "claude-opus", "", "   ",
+    ];
+    for (const model of on) expect([model, byModel(model)]).toEqual([model, true]);
+    for (const model of off) expect([model, byModel(model)]).toEqual([model, false]);
+    expect(modelFamily("claude-fable-5-20260601")).toBe("fable-5");
+    expect(modelFamily("claude-opus-5-20261101")).toBe("opus-5");
+    expect(modelFamily("claude-opus-50")).toBe("other");
+  });
+
   it("is off on a custom endpoint, even for a proven model", () => {
     expect(byModel("claude-opus-5-5", true)).toBe(false);
   });

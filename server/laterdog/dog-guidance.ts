@@ -44,24 +44,26 @@ export function guidanceEngine(driverKind: string | undefined): GuidanceEngine {
   return "other";
 }
 
-const FAMILY_PATTERNS: ReadonlyArray<[RegExp, ModelFamily]> = [
-  [/(?:fable|mythos)-5[-.]2/, "fable-5-2"],
-  [/(?:fable|mythos)-5[-.]1/, "fable-5-1"],
-  [/(?:fable|mythos)-5(?![-.]\d)/, "fable-5"],
-  [/opus-5[-.]5/, "opus-5-5"],
-  [/opus-5(?![-.]\d)/, "opus-5"],
-  [/opus-4/, "opus-4"],
-  [/sonnet-5[-.]5/, "sonnet-5-5"],
-  [/sonnet-5(?![-.]\d)/, "sonnet-5"],
-  [/sonnet-4[-.]6/, "sonnet-4-6"],
-  [/haiku-5[-.]5/, "haiku-5-5"],
-  [/haiku-4[-.]5/, "haiku-4-5"],
-  [/^(?:[a-z0-9_-]+\/)?gpt-|codex/, "gpt"],
-];
+const CLAUDE_VERSION = /(?:^|[^a-z])(fable|mythos|opus|sonnet|haiku)-(\d{1,2})(?:[-.](\d{1,2}))?(?!\d)/;
+const CLAUDE_FAMILIES: ReadonlySet<ModelFamily> = new Set<ModelFamily>([
+  "fable-5-2", "fable-5-1", "fable-5", "opus-5-5", "opus-5", "sonnet-5-5", "sonnet-5", "sonnet-4-6", "haiku-5-5", "haiku-4-5",
+]);
+const GPT_MODEL = /^(?:[a-z0-9_-]+\/)?gpt-|codex/;
+
+function claudeFamily(id: string): ModelFamily | null {
+  const match = CLAUDE_VERSION.exec(id);
+  if (!match) return null;
+  const name = match[1] === "mythos" ? "fable" : match[1];
+  const major = match[2];
+  const minor = match[3];
+  if (name === "opus" && major === "4") return "opus-4";
+  const family = (minor ? `${name}-${major}-${minor}` : `${name}-${major}`) as ModelFamily;
+  return CLAUDE_FAMILIES.has(family) ? family : "other";
+}
 
 export function modelFamily(model: string | undefined): ModelFamily {
   const id = (model ?? "").toLowerCase().replace(/\[[^\]]*\]$/, "");
-  return FAMILY_PATTERNS.find(([pattern]) => pattern.test(id))?.[1] ?? "other";
+  return claudeFamily(id) ?? (GPT_MODEL.test(id) ? "gpt" : "other");
 }
 
 function hostSignedIn(host: unknown): boolean {

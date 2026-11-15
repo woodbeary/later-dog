@@ -23,7 +23,11 @@ proven about them.
    when a Claude dog searches for them, on the models where that has been
    proven: the families in `DEFER_PROVEN_FAMILIES`
    (`server/laterdog/defer-by-model.ts`), today Fable 5, 5.1 and 5.2 and
-   Opus 5 and 5.5. Every other model, a dog with no model named, and any
+   Opus 5 and 5.5. A model is read by whole version parts (`modelFamily`
+   in `server/laterdog/dog-guidance.ts`): a dated id, a `[1m]` suffix or a
+   provider prefix of a proven model is on; `claude-opus-50` or
+   `claude-opus-5-50` is an unknown model and off; the bare aliases `opus`
+   and `fable` and an empty model are off. Every other model, a dog with no model named, and any
    custom endpoint (a hosted or local model, an `ANTHROPIC_BASE_URL` other
    than `api.anthropic.com`, or a cloud-provider switch) gets every tool up
    front. The server setting `LATERDOG_DEFER_RARE_TOOLS` forces it: `1`, `on`
