@@ -140,7 +140,7 @@ export function Composer({
   const steerCapabilities = instances.find((i) => i.instanceId === steerInstanceId)?.capabilities;
   const canSteer = steerCapabilities?.queueing === true;
   const threadId = group?.threadId ?? bot?.threadId ?? "";
-  const typedAnswer = useTypedAnswer(group ? undefined : threadId);
+  const typedAnswer = useTypedAnswer(threadId);
   const errorPane = threadId ? chatPane(threadId) : undefined;
   const approvals = pendingApprovals(group ? group.messages : bot ? visibleMessages(bot) : []);
   const approval = approvals[0];

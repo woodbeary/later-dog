@@ -2,7 +2,7 @@
 import { act, createElement, Fragment } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { Bot, Message } from "@/state/store";
+import type { Bot, Group, Message } from "@/state/store";
 
 vi.mock("./ModelPicker", () => ({ ModelPicker: () => null }));
 const fixture = vi.hoisted(() => ({ dispatch: vi.fn() }));
@@ -63,7 +63,7 @@ const enter = async () => {
   const textarea = host.querySelector("textarea")!;
   await act(async () => { textarea.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true })); });
 };
-const actions = () => fixture.dispatch.mock.calls.map(([action]) => action).filter((action) => action.type === "decideRequest" || action.type === "send");
+const actions = () => fixture.dispatch.mock.calls.map(([action]) => action).filter((action) => action.type === "decideRequest" || action.type === "send" || action.type === "sendGroup");
 
 beforeEach(() => {
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
@@ -114,5 +114,20 @@ describe("answering a card in your own words", () => {
     expect(host.querySelector("textarea")!.placeholder).toBe("Type your answer");
     await enter();
     expect(actions()).toEqual([expect.objectContaining({ type: "decideRequest", threadId, requestId: "req-c", behavior: "answer", message: "gamma" })]);
+  });
+
+  it("answers the card from a group chat's message box the same way", async () => {
+    const threadId = `group-thread-${++n}`;
+    const group = { id: `room-${n}`, threadId, name: "Kitchen", memberIds: ["biscuit"], defaultResponder: { kind: "mentions" }, bulletin: "", unread: false, createdAt: 1, messages: [] } as unknown as Group;
+    appendComposerDraft(`group:${group.id}:${threadId}`, "Medium please");
+    await act(async () => root.render(createElement(Fragment, null, question(threadId), createElement("div", { "data-tour": "composer" }, createElement(Composer, { group, members: [dog(threadId)] })))));
+    await click("Red");
+    await click("Other");
+    expect(host.querySelector("textarea")!.placeholder).toBe("Type your answer");
+    await enter();
+    expect(actions()).toEqual([expect.objectContaining({
+      type: "decideRequest", threadId, requestId: "req-q", behavior: "answer",
+      message: formatQuestionAnswers(QUESTIONS, [["Red"], ["Medium please"]]),
+    })]);
   });
 });
