@@ -7,7 +7,7 @@ import { afterAll, afterEach, describe, expect, it } from "vitest";
 import { removeTempDir } from "../testing/cleanup.ts";
 import { ComputerJobs, type ComputerJob, type JobComputer } from "./computer-jobs.ts";
 import { ComputerRuns, type RunBox } from "./computer-runs.ts";
-import { stopComputerJobs } from "./stop-computer-jobs.ts";
+import { couldNotStopTool, partlyStoppedTool, stopComputerJobs } from "./stop-computer-jobs.ts";
 
 const dir = mkdtempSync(join(tmpdir(), "stop-jobs-"));
 afterAll(() => removeTempDir(dir));
@@ -118,5 +118,10 @@ describe("stopping a command on the dog's computer", () => {
     expect(result).toEqual({ stopped: ["aaaa0001"], partly: ["aaaa0004"], left: ["aaaa0002", "aaaa0003"] });
     expect(told).toEqual(["left aaaa0002", "partly aaaa0004"]);
     expect(jobs.live("t1").map((j) => j.id)).toEqual(["aaaa0002", "aaaa0003"]);
+  });
+
+  it("writes the two Stop lines as failures in their own words, which both apps show", () => {
+    expect(couldNotStopTool("Scout")).toEqual({ name: "error: Scout's command on its computer could not be stopped, so it is still running. Press Stop again to try once more.", ok: false, pickup: "computer" });
+    expect(partlyStoppedTool("Scout")).toEqual({ name: "error: Scout's command on its computer was stopped, but part of it may still be running.", ok: false, pickup: "computer" });
   });
 });

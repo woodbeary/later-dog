@@ -20,6 +20,7 @@ let computers: Server | undefined;
 const runFile = () => join(home, "run-on-computer.json");
 
 const machines = new Map<string, { id: string; name: string; state: string }>();
+let refuseStops = false;
 const body = (req: IncomingMessage) => new Promise<Buffer>((resolve) => { const parts: Buffer[] = []; req.on("data", (part: Buffer) => parts.push(part)); req.on("end", () => resolve(Buffer.concat(parts))); });
 
 function computersService(): Promise<string> {
@@ -41,6 +42,7 @@ function computersService(): Promise<string> {
     if (action === "wake" || action === "sleep") { await body(req); return send(200, { computer: machine }); }
     if (action === "exec") {
       const input = JSON.parse((await body(req)).toString("utf8")) as { command: string };
+      if (refuseStops && input.command.includes("kill -TERM")) return send(200, { exitCode: 1, stdout: "", stderr: "refused by the fixture" });
       const run = spawn("bash", ["-c", input.command], { cwd: remote, env: { PATH: process.env.PATH, HOME: remote }, stdio: ["ignore", "pipe", "pipe"] });
       let stdout = "", stderr = "";
       run.stdout.on("data", (part) => { stdout += part; });
@@ -274,4 +276,41 @@ it("the person's Stop ends a job whose computer reports an error, without saying
   } finally {
     machine.state = "running";
   }
+}, 120_000);
+
+it("says in a line both apps show that Stop could not end a job, and a second Stop ends it", async () => {
+  const bot = await newDog("Rex stubborn");
+  const after = await jobThatOutlivesItsTurn(bot, 0, "sixth", sleeper("stubborn"));
+  expect(after.work).toMatchObject({ kind: "running", computerJobs: 1 });
+  expect(await until(async () => alive(`${RUN_MARK}-stubborn`), Boolean, "the command to start", 10_000)).toBe(true);
+  refuseStops = true;
+  try {
+    expect((await api("POST", `/api/bots/${bot.id}/interrupt`, { threadId: bot.threadId })).status).toBe(200);
+    const rows = await until(() => wakeLines(bot.threadId), (found) => found.length > 0, "the line about Stop", 30_000);
+    expect(rows.map((row) => [row.tool.name, row.tool.ok])).toEqual([
+      ["error: Rex stubborn's command on its computer could not be stopped, so it is still running. Press Stop again to try once more.", false],
+    ]);
+    expect((await botNow(bot.id)).work).toMatchObject({ kind: "running", computerJobs: 1 });
+    expect(alive(`${RUN_MARK}-stubborn`)).toBe(true);
+  } finally {
+    refuseStops = false;
+  }
+  expect((await api("POST", `/api/bots/${bot.id}/interrupt`, { threadId: bot.threadId })).status).toBe(200);
+  await until(() => botNow(bot.id), (state) => state.work?.kind !== "running", "the chat to stop running", 30_000);
+  expect(alive(`${RUN_MARK}-stubborn`)).toBe(false);
+  expect(ledger()).toEqual([]);
+}, 120_000);
+
+it("says in a line both apps show that a job ended without a result, and does not wake the dog", async () => {
+  const bot = await newDog("Rex lost");
+  const after = await jobThatOutlivesItsTurn(bot, 0, "seventh", sleeper("lost"));
+  expect(after.work).toMatchObject({ kind: "running", computerJobs: 1 });
+  expect(await until(async () => alive(`${RUN_MARK}-lost`), Boolean, "the command to start", 10_000)).toBe(true);
+  spawnSync("pkill", ["-KILL", "-f", `${RUN_MARK}-lost`]);
+  const rows = await until(() => wakeLines(bot.threadId), (found) => found.length > 0, "the line about the lost job", 30_000);
+  expect(rows.map((row) => row.tool.name)).toEqual(["notice: Rex lost's command on its computer ended without a result."]);
+  await until(() => botNow(bot.id), (state) => state.work?.kind === "idle" && !state.busy, "the chat to settle", 30_000);
+  await settle(3_000);
+  expect((await wakeLines(bot.threadId)).length).toBe(1);
+  expect(ledger()).toEqual([]);
 }, 120_000);

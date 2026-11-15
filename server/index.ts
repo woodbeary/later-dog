@@ -139,7 +139,7 @@ import { createDiskBreakdown } from "./laterdog/disk-breakdown.ts";
 import { ComputerRuns, MAX_RUN_MS } from "./laterdog/computer-runs.ts";
 import { ComputerJobs, JOB_CHECK_MS } from "./laterdog/computer-jobs.ts";
 import { handoffRunningIn, handoffWait, handoffWorkDone, olderWorkFields } from "./laterdog/chat-work.ts";
-import { couldNotStopLine, partlyStoppedLine, stopComputerJobs } from "./laterdog/stop-computer-jobs.ts";
+import { couldNotStopTool, partlyStoppedTool, stopComputerJobs } from "./laterdog/stop-computer-jobs.ts";
 import { createJobWake } from "./laterdog/job-wake.ts";
 import { HeavyCommandGuard, preToolUseDecision } from "./laterdog/heavy-commands.ts";
 import { computersSelected } from "./laterdog/cloud-computers.ts";
@@ -5801,10 +5801,10 @@ function stopJobsForPerson(threadId: string): void {
     computer: (botId) => boat.jobComputer(botId),
     stop: (box, job) => computerRuns.stop(box, job),
     couldNotStop: (id) => {
-      store.appendMessage(id, { role: "bot", kind: "activity", tool: { name: couldNotStopLine(restartPickupHost.dog(id)?.name ?? "The dog"), ok: false, pickup: "computer" } });
+      store.appendMessage(id, { role: "bot", kind: "activity", tool: couldNotStopTool(restartPickupHost.dog(id)?.name ?? "The dog") });
     },
     partlyStopped: (id) => {
-      store.appendMessage(id, { role: "bot", kind: "activity", tool: { name: partlyStoppedLine(restartPickupHost.dog(id)?.name ?? "The dog"), ok: false, pickup: "computer" } });
+      store.appendMessage(id, { role: "bot", kind: "activity", tool: partlyStoppedTool(restartPickupHost.dog(id)?.name ?? "The dog") });
     },
   }).then((result) => { if (result.stopped.length || result.left.length) console.log(`[computer jobs] stop ${threadId}: stopped ${result.stopped.join(", ") || "none"}, left ${result.left.join(", ") || "none"}`); });
 }
