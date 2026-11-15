@@ -104,3 +104,29 @@ describe("every start leaves a record and a line", () => {
     expect(computer.error).not.toMatch(/wake/i);
   });
 });
+
+describe("a start nothing is watching", () => {
+  it("is watched again on the next request, and the computer then becomes ready", async () => {
+    const w = await world();
+    const id = await created(w);
+    const slot = w.computers.slots.get(id)!;
+    expect(slot.alarm).not.toBeNull();
+    slot.alarm = null;
+    await w.advance(MINUTE);
+    expect((await read(w, id)).state).toBe("starting");
+    expect(slot.alarm).not.toBeNull();
+    await w.advance(MINUTE);
+    expect((await read(w, id)).state).toBe("running");
+  });
+
+  it("is a failed start, in plain words, once it is older than the boot limit plus a minute", async () => {
+    const w = await world();
+    const id = await created(w);
+    w.computers.slots.get(id)!.alarm = null;
+    await w.advance(7 * MINUTE);
+    const computer = await read(w, id);
+    expect(computer).toMatchObject({ state: "error", error: "The computer did not finish starting." });
+    expect(computer.lastStart).toMatchObject({ generation: 1, outcome: "failed", reason: "The computer did not finish starting." });
+    expect(w.containers.get(id)!.running).toBe(false);
+  });
+});

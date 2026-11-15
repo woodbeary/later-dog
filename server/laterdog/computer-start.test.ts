@@ -89,6 +89,7 @@ describe("the answer when a computer did not start", () => {
       + "do light work in your folder here; or tell the person what you could not do, and that your cloud computer did not start, so they can reset it in Settings.",
     );
     expect(didNotStartText("The computer stopped while restoring its snapshot.")).toMatch(/^Your cloud computer did not start\. It stopped while bringing back its saved files\. /);
+    expect(didNotStartText("The computer did not finish starting.")).toMatch(/^Your cloud computer did not start\. It did not finish starting\. Nothing was run/);
     expect(didNotStartText("The computer stopped while starting.")).toMatch(/^Your cloud computer did not start\. It stopped while starting\. /);
     expect(didNotStartText("The computer could not start: RPC to container-host-12 failed")).toMatch(/^Your cloud computer did not start\. The cloud could not start it\. /);
     expect(didNotStartText("The computer could not start: RPC to container-host-12 failed")).not.toMatch(/RPC|host-12/);

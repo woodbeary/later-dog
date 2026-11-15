@@ -129,6 +129,8 @@ const DOG_ENV: Record<string, string> = {
   NO_AT_BRIDGE: "1",
 };
 const BOOT_TIMEOUT_MS = 5 * MINUTE;
+const START_LOST_MS = BOOT_TIMEOUT_MS + MINUTE;
+export const START_LOST = "The computer did not finish starting.";
 const STOPPED_GRACE_MS = 30_000;
 const VIEWER_HOLD_MS = 20_000;
 const VIEWER_ATTEMPT_MS = 3_000;
@@ -221,6 +223,7 @@ export class DogComputer extends DurableObject<Env> {
   private lifecycle: Promise<unknown> = Promise.resolve();
   private lastActivityWrite = 0;
   private lastPublished = 0;
+  private watchingStart = false;
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
@@ -317,6 +320,7 @@ export class DogComputer extends DurableObject<Env> {
 
   async wake(input: { fullAllowance?: boolean; repository?: string } = {}): Promise<Result<ComputerView>> {
     return this.serially(async () => {
+      await this.recoverStart();
       const found = this.load();
       if (!found || found.builder) return notFound();
       const record = this.withAllowance(found, input);
@@ -649,7 +653,7 @@ export class DogComputer extends DurableObject<Env> {
     if (!record) return;
     try {
       if (record.builder && record.state !== "starting") await this.finishBuild({ key: record.builder.key, outcome: "failed", setupMs: 0, error: "The setup stopped before it finished." });
-      else if (record.state === "starting") await this.awaitReady(record.generation);
+      else if (record.state === "starting") await this.watchStart(record.generation);
       else if (record.state === "running" && record.desktopDrawn === false) await this.awaitDesktop(record.generation);
       else if (record.state === "running") await this.watch();
       else if (record.state === "stopping") await this.sleep("idle");
@@ -657,6 +661,27 @@ export class DogComputer extends DurableObject<Env> {
       console.error(`laterdog computers: alarm for ${record.id} failed: ${describeError(error)}`);
       if (this.load()) await this.ctx.storage.setAlarm(Date.now() + MINUTE);
     }
+  }
+
+  private async watchStart(generation: number): Promise<void> {
+    this.watchingStart = true;
+    try {
+      await this.awaitReady(generation);
+    } finally {
+      this.watchingStart = false;
+    }
+  }
+
+  private async recoverStart(): Promise<void> {
+    const record = this.load();
+    if (!record || this.deleting || record.state !== "starting" || this.watchingStart) return;
+    if (Date.now() - (record.awakeSince ?? record.createdAt) > START_LOST_MS) {
+      await this.failBoot(record.generation, START_LOST);
+      return;
+    }
+    if ((await this.ctx.storage.getAlarm()) !== null) return;
+    console.warn(`laterdog computers: ${record.id} was starting with nothing watching its start (generation ${record.generation}); watching it again`);
+    await this.ctx.storage.setAlarm(Date.now() + READY_POLL_MS);
   }
 
   private async awaitReady(generation: number): Promise<void> {
@@ -924,6 +949,7 @@ export class DogComputer extends DurableObject<Env> {
   }
 
   private async reconcile(): Promise<boolean> {
+    await this.recoverStart();
     const record = this.load();
     if (!record || this.deleting || record.state !== "running" || this.ctx.container?.running) return false;
     this.update((r) => {

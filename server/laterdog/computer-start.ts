@@ -47,6 +47,7 @@ export const DID_NOT_START_CODE = "did_not_start" as const;
 
 const BOOT_FAILURES: ReadonlyArray<readonly [RegExp, string]> = [
   [/did not become ready/i, "It did not finish starting within 5 minutes."],
+  [/did not finish starting/i, "It did not finish starting."],
   [/stopped while restoring its snapshot/i, "It stopped while bringing back its saved files."],
   [/stopped while starting/i, "It stopped while starting."],
   [/^the computer could not start/i, "The cloud could not start it."],

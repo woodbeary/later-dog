@@ -599,7 +599,7 @@ describe("the cloud computer facade", () => {
       expect(Date.now() - started).toBeLessThanOrEqual(350_000);
       const settled = Date.now();
       expect(await call()).toEqual(second);
-      expect(Date.now() - settled).toBeLessThan(15_000);
+      expect(Date.now() - settled).toBeLessThan(25_000);
       expect(fleet.get(computer.id)?.state).toBe("starting");
       expect(wakes()).toBe(1);
       expect(creates()).toHaveLength(0);
@@ -658,6 +658,18 @@ describe("the cloud computer facade", () => {
         vi.stubEnv("LATERDOG_HOME", undefined);
         rmSync(trialHome, { recursive: true, force: true });
       }
+    });
+
+    it("reads the computer again once its start clock is spent, so a start the service called failed gets the failed-start answer and the fresh offer", async () => {
+      sleeping("dog-heavy-unwatched");
+      runsAt = Date.now() + 3_600_000;
+      await expect(computers.heavyRunBox("dog-heavy-unwatched", { budgetMs: 240_000 })).rejects.toMatchObject({ code: "still_starting" });
+      await expect(computers.heavyRunBox("dog-heavy-unwatched", { budgetMs: 240_000 })).rejects.toMatchObject({ code: "did_not_start" });
+      failsAt = Date.now() + 15_000;
+      const told = await computers.heavyRunBox("dog-heavy-unwatched", { budgetMs: 240_000 }).catch((error: Error) => error.message);
+      expect(told).toMatch(/^Your cloud computer did not start\. It did not finish starting within 5 minutes\. Nothing was run.* with fresh: true/);
+      expect(wakes()).toBe(1);
+      expect(await computers.freshComputer("dog-heavy-unwatched")).toEqual({ replaced: true, keptDays: 7 });
     });
 
     it("tells the dog the reason the computer gave for not starting", async () => {
@@ -722,7 +734,7 @@ describe("the cloud computer facade", () => {
       computers.startDidNotFinish("dog-heavy-screen-gave-up");
       const asked = Date.now();
       await expect(computers.heavyRunBox("dog-heavy-screen-gave-up", { budgetMs: 240_000 })).rejects.toMatchObject({ code: "did_not_start" });
-      expect(Date.now() - asked).toBeLessThan(15_000);
+      expect(Date.now() - asked).toBeLessThan(25_000);
     });
 
     it("removes computers set aside more than 7 days ago when it sets another aside, and keeps younger ones", async () => {

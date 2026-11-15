@@ -532,7 +532,10 @@ export async function heavyRunBox(botId: string, options: { repository?: string;
   const refusedStart = entry === "running" ? undefined : starts.failure(computer.id);
   if (refusedStart !== undefined) throw didNotStart(refusedStart, failedStart());
   if (entry === "unknown") throw new Error("your cloud computer is in a state later.dog does not know, so it was not woken and nothing was run");
-  if (entry === "starting" && starts.spent(computer.id)) throw didNotStart();
+  if (entry === "starting" && starts.spent(computer.id)) {
+    const current = await client.get(computer.id).catch(() => null);
+    throw startFailed(current) ? didNotStart(current?.error, failedStart()) : didNotStart();
+  }
   if (entry === "archived") starts.waking(computer.id);
   else if (entry === "starting") starts.starting(computer.id, computer.generation);
   const startBudgetMs = cloudComputerStartBudgetMs();
