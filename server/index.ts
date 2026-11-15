@@ -13243,8 +13243,8 @@ ROUTES.push(createSidebarSectionOrderRoutes({ order: (sections) => store.orderSe
 const savedCommands = new SavedCommands(DATA_DIR);
 const dogTricks = (bot: BotRecord) => {
   const instance = registry.get(bot.modelSelection.instanceId);
-  if (!instance || !supportsWorkspaceFiles(instance.driverKind)) return [];
-  return tricksInIndex(listBotSkills(bot).filter((skill) => skill.enabled), skillsSystemPrompt(bot.id, skillsLibraryEnabled(cfg) ? bot.assignedSkills : undefined));
+  return tricksInIndex(listBotSkills(bot).filter((skill) => skill.enabled), Boolean(instance && supportsWorkspaceFiles(instance.driverKind)),
+    () => skillsSystemPrompt(bot.id, skillsLibraryEnabled(cfg) ? bot.assignedSkills : undefined));
 };
 ROUTES.push(createSlashCommandRoutes({ saved: savedCommands, tricks: (botId) => { const bot = store.bot(botId); return bot ? dogTricks(bot) : null; } }));
 const personCommand = (auth: RequestAuth, bot: BotRecord, typed: string) =>

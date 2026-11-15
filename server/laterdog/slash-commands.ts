@@ -90,7 +90,7 @@ export function dogCommands(saved: readonly SavedCommand[], tricks: readonly Dog
   for (const trick of tricks) {
     const name = trick.name.toLowerCase();
     if (!COMMAND_NAME.test(name) || RESERVED_COMMAND_NAMES.has(name)) continue;
-    add({ name, line: commandLine(trick.description) || TRICK_LINE, kind: "trick" });
+    add({ name, line: commandLine(trick.description) || TRICK_LINE, kind: "trick", text: `Use your trick "${trick.name}" for this.` });
   }
   for (const command of STANDARD_COMMANDS) add({ name: command.name, line: command.line, kind: "standard", text: command.text });
   add({ name: COMPACT_COMMAND, line: COMPACT_LINE, kind: "action" });
@@ -106,7 +106,7 @@ export function expandCommand(text: string, commands: readonly SlashCommand[]): 
   const command = commands.find((candidate) => candidate.name === name);
   if (!command || command.kind === "action") return null;
   const words = text.slice(match[0].length).trim();
-  const body = command.kind === "trick" ? `Use your trick "${command.name}" for this.` : (command.text ?? "").trim();
+  const body = (command.text ?? "").trim();
   if (!body) return null;
   return { name, text: words ? `${body}\n\n${words}` : body };
 }
@@ -126,8 +126,10 @@ export function commandSend(typed: string, sender: CommandSender, commands: () =
   return expanded ? { text: expanded.text, expanded: true } : { text: typed, expanded: false };
 }
 
-export function tricksInIndex<T extends DogTrick>(tricks: readonly T[], index: string): T[] {
-  return tricks.filter((trick) => index.includes(`\n- ${trick.name}: `));
+export function tricksInIndex<T extends DogTrick>(tricks: readonly T[], engineReadsFiles: boolean, index: () => string): T[] {
+  if (!engineReadsFiles || !tricks.length) return [];
+  const told = index();
+  return tricks.filter((trick) => told.includes(`\n- ${trick.name}: `));
 }
 
 const storedSchema = z.object({

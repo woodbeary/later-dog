@@ -86,8 +86,8 @@ describe("what a dog can be told with one word", () => {
     const list = dogCommands(saved, tricks);
     expect(list.slice(0, 3)).toEqual([
       { name: "review", line: "My own review steps.", kind: "mine", text: "My own review steps.\nSecond line." },
-      { name: "deploy-site", line: "Ship the site to production.", kind: "trick" },
-      { name: "debug", line: "The dog's own debugging.", kind: "trick" },
+      { name: "deploy-site", line: "Ship the site to production.", kind: "trick", text: "Use your trick \"Deploy-Site\" for this." },
+      { name: "debug", line: "The dog's own debugging.", kind: "trick", text: "Use your trick \"debug\" for this." },
     ]);
     expect(list.filter((command) => command.kind === "standard").map((command) => command.name))
       .toEqual(STANDARD_COMMANDS.map((command) => command.name).filter((name) => name !== "review" && name !== "debug"));
@@ -99,7 +99,7 @@ describe("what a dog can be told with one word", () => {
   it("turns /name and more words into the saved text with the words after it", () => {
     const list = dogCommands(saved, tricks);
     expect(expandCommand("/review   the login change", list)).toEqual({ name: "review", text: "My own review steps.\nSecond line.\n\nthe login change" });
-    expect(expandCommand("/Deploy-Site\nto staging", list)).toEqual({ name: "deploy-site", text: "Use your trick \"deploy-site\" for this.\n\nto staging" });
+    expect(expandCommand("/Deploy-Site\nto staging", list)).toEqual({ name: "deploy-site", text: "Use your trick \"Deploy-Site\" for this.\n\nto staging" });
     expect(expandCommand("/status", list)?.text).toBe(STANDARD_COMMANDS.find((command) => command.name === "status")!.text);
   });
 
@@ -132,7 +132,12 @@ describe("which tricks a dog can be told by name", () => {
   it("keeps only the tricks its instructions carry", () => {
     const index = "\n\nImported skills:\n- deploy-site: Ship it. Read \"/w/deploy-site/SKILL.md\".\n- notes: Keep notes. Read \"/w/notes/SKILL.md\".\n2 enabled skills omitted";
     const tricks = [{ name: "deploy-site", description: "Ship it." }, { name: "notes", description: "Keep notes." }, { name: "dropped", description: "Past the cap." }];
-    expect(tricksInIndex(tricks, index).map((trick) => trick.name)).toEqual(["deploy-site", "notes"]);
-    expect(tricksInIndex(tricks, "")).toEqual([]);
+    expect(tricksInIndex(tricks, true, () => index).map((trick) => trick.name)).toEqual(["deploy-site", "notes"]);
+    expect(tricksInIndex(tricks, true, () => "")).toEqual([]);
+  });
+
+  it("offers none to a dog whose engine cannot read its trick files", () => {
+    const index = "\n- deploy-site: Ship it.";
+    expect(tricksInIndex([{ name: "deploy-site", description: "Ship it." }], false, () => index)).toEqual([]);
   });
 });
