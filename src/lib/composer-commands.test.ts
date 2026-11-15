@@ -42,8 +42,9 @@ describe("the / list for a dog", () => {
   it("narrows as the person types, names that start with the words first, and ends with New command", () => {
     expect(slashChoices(commands, "", true).map((choice) => choice.key)).toEqual(["mine:plan", "trick:deploy-site", "standard:review", "action:compact", "new"]);
     expect(slashChoices(commands, "RE", true).map((choice) => choice.key)).toEqual(["standard:review", "new"]);
-    expect(slashChoices(commands, "s", false).map((choice) => choice.key)).toEqual(["trick:deploy-site", "mine:plan", "standard:review", "action:compact"]);
+    expect(slashChoices(commands, "s", false).map((choice) => choice.key)).toEqual(["trick:deploy-site", "action:compact"]);
     expect(slashChoices(commands, "faults", false).map((choice) => choice.key)).toEqual(["standard:review"]);
+    expect(slashChoices(commands, "ar", false).map((choice) => choice.key)).toEqual([]);
     expect(slashChoices(commands, "zzz", true)).toEqual([]);
     expect(slashChoices([], "", true).map((choice) => choice.key)).toEqual(["new"]);
   });

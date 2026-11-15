@@ -64,7 +64,7 @@ function rank(command: DogCommand, query: string): number {
   if (!query) return 0;
   if (command.name.startsWith(query)) return 0;
   if (command.name.includes(query)) return 1;
-  if (command.line.toLowerCase().includes(query)) return 2;
+  if (command.line.toLowerCase().split(/[^a-z0-9]+/).some((word) => word.startsWith(query))) return 2;
   return -1;
 }
 
