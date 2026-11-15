@@ -7,6 +7,7 @@ export const BAD_WAIT_TEXT = `wait_minutes must be a whole number of minutes fro
 
 const MINUTE_MS = 60_000;
 const ERROR_LINE = /\b(?:error|errors|failed|failure|fail|fatal|exception|traceback|panic)\b/i;
+const ZERO_COUNT = /\b(?:0|no|zero)\s+(?:errors?|failures?|failed|fails?|exceptions?)\b|\b(?:errors?|failures?|failed|fails?)\s*[:=]\s*0\b/gi;
 
 export function waitCapMs(driverKind: string | undefined, mcpCallTimeoutMinutes: number): number {
   if (driverKind === "claudeAgent") return LONGEST_WAIT_MINUTES * MINUTE_MS;
@@ -23,7 +24,7 @@ export function waitWindowMs(asked: unknown, capMs: number = WAIT_IN_ONE_CALL_MS
 export function stillRunningTail(output: string): string {
   if (output.length <= STILL_RUNNING_TAIL_CHARS) return output;
   const cut = output.length - STILL_RUNNING_TAIL_CHARS;
-  const firstError = output.slice(0, cut).split("\n").find((line) => ERROR_LINE.test(line))?.trim();
+  const firstError = output.slice(0, cut).split("\n").find((line) => ERROR_LINE.test(line.replace(ZERO_COUNT, "")))?.trim();
   return [
     `(Output shortened to its last ${STILL_RUNNING_TAIL_CHARS.toLocaleString("en-US")} characters while the job runs; the whole end comes back when it finishes.)`,
     ...(firstError ? [`First line that looks like an error: ${firstError.slice(0, 300)}`] : []),

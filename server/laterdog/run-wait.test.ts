@@ -140,4 +140,11 @@ describe("waiting for a computer job with one call", () => {
     expect(answer.text).not.toMatch(/time ran out/);
     expect(j.execs.some((command) => command.includes("nohup"))).toBe(false);
   });
+
+  it("does not take a line that reports zero errors or failures for an error", () => {
+    const fine = ["Found 0 warnings and 0 errors.", "Tests  168 passed, 0 failed", "errors: 0", "No failures found."];
+    const filler = Array.from({ length: 200 }, (_, i) => `line ${i} is fine and long enough to fill the log`);
+    expect(stillRunningTail([...fine, ...filler].join("\n"))).not.toMatch(/First line that looks like an error/);
+    expect(stillRunningTail([...fine, "Tests 3 failed | 0 errors", ...filler].join("\n"))).toContain("First line that looks like an error: Tests 3 failed | 0 errors");
+  });
 });
