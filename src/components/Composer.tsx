@@ -885,28 +885,10 @@ export function Composer({
             role="listbox"
             aria-label={t("composer.commands.aria")}
             data-command-list
-            className={cn("absolute bottom-full left-2 z-20 mb-2 max-h-[min(22rem,55vh)] w-[min(26rem,calc(100%-1rem))] overflow-y-auto overflow-x-hidden overscroll-contain rounded-menu origin-bottom-left border border-hairline/40 bg-raised py-1 shadow-popover", commandMotion.className)} {...commandMotion.exitProps}
+            className={cn("absolute bottom-full left-2 z-20 mb-2 flex max-h-[min(24rem,55vh)] w-[min(26rem,calc(100%-1rem))] flex-col overflow-hidden rounded-menu origin-bottom-left border border-hairline/40 bg-raised shadow-popover", commandMotion.className)} {...commandMotion.exitProps}
           >
-            {commandCandidates.map((choice, index) => choice.type === "new" ? (
-              <button
-                key={choice.key}
-                type="button"
-                role="option"
-                data-command-index={index}
-                aria-selected={index === highlight}
-                onMouseDown={(event) => event.preventDefault()}
-                onClick={() => pickCommand(choice)}
-                onMouseEnter={() => setHighlight(index)}
-                className={cn(
-                  "flex w-full items-center gap-2 px-3 py-2 text-left text-[13px] text-ink-secondary",
-                  index > 0 && "mt-1 border-t border-hairline/20",
-                  index === highlight && "bg-raised-hover text-ink",
-                )}
-              >
-                <Plus size={14} aria-hidden="true" />
-                {t("composer.command.new")}
-              </button>
-            ) : (
+            <div className="min-h-0 overflow-y-auto overflow-x-hidden overscroll-contain py-1">
+            {commandCandidates.map((choice, index) => choice.type === "new" ? null : (
               <div key={choice.key} className={cn("flex items-center", index === highlight && "bg-raised-hover")} onMouseEnter={() => setHighlight(index)}>
                 <button
                   type="button"
@@ -939,6 +921,27 @@ export function Composer({
                   </button>
                 )}
               </div>
+            ))}
+            </div>
+            {commandCandidates.map((choice, index) => choice.type !== "new" ? null : (
+              <button
+                key={choice.key}
+                type="button"
+                role="option"
+                data-command-index={index}
+                aria-selected={index === highlight}
+                onMouseDown={(event) => event.preventDefault()}
+                onClick={() => pickCommand(choice)}
+                onMouseEnter={() => setHighlight(index)}
+                className={cn(
+                  "flex w-full shrink-0 items-center gap-2 px-3 py-2.5 text-left text-[13px] text-ink-secondary",
+                  index > 0 && "border-t border-hairline/20",
+                  index === highlight && "bg-raised-hover text-ink",
+                )}
+              >
+                <Plus size={14} aria-hidden="true" />
+                {t("composer.command.new")}
+              </button>
             ))}
           </div>
         )}

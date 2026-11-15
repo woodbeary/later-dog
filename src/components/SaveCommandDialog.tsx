@@ -21,6 +21,7 @@ export function SaveCommandDialog({ editing, initialName, initialText = "", onCl
   onSaved?: (command: SavedDogCommand | null) => void;
 }) {
   const dialog = useRef<HTMLDivElement>(null);
+  const nameField = useRef<HTMLInputElement>(null);
   const id = useId();
   const [name, setName] = useState(editing?.name ?? (initialName || suggestedCommandName(initialText)));
   const [text, setText] = useState(editing?.text ?? initialText);
@@ -40,6 +41,7 @@ export function SaveCommandDialog({ editing, initialName, initialText = "", onCl
     } catch (cause) {
       setError(plainClientError(cause));
       setBusy(false);
+      requestAnimationFrame(() => nameField.current?.focus());
     }
   };
   const save = (event: FormEvent) => {
@@ -72,7 +74,7 @@ export function SaveCommandDialog({ editing, initialName, initialText = "", onCl
           <label htmlFor={`${id}-name`} className="text-[12px] font-medium text-ink-secondary">{t("command.name")}</label>
           <div className="mt-1 flex items-center rounded-lg border border-hairline/50 bg-inset px-3 focus-within:border-focus">
             <span aria-hidden="true" className="text-[14px] text-ink-tertiary">/</span>
-            <input id={`${id}-name`} autoFocus value={name} maxLength={33} disabled={busy} spellCheck={false} autoCapitalize="none"
+            <input ref={nameField} id={`${id}-name`} autoFocus value={name} maxLength={33} disabled={busy} spellCheck={false} autoCapitalize="none"
               onChange={(event) => setName(event.target.value)}
               className="min-w-0 flex-1 bg-transparent py-2 pl-0.5 text-[14px] text-ink focus:outline-none" />
           </div>
