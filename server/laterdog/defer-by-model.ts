@@ -44,6 +44,20 @@ export interface DeferTarget {
   customEndpoint: boolean;
 }
 
+export interface ClaudeLaunchTarget {
+  model: string | null | undefined;
+  injected: boolean;
+  managed: boolean;
+  env: Env;
+}
+
+export function claudeRareToolsOnDemand(target: ClaudeLaunchTarget, settings: Env = process.env): boolean {
+  return deferRareToolsFor({
+    model: target.model || target.env.ANTHROPIC_MODEL,
+    customEndpoint: target.managed || target.injected || claudeCustomEndpoint(target.env),
+  }, settings);
+}
+
 export function deferRareToolsFor(target: DeferTarget, env: Env = process.env): boolean {
   const setting = deferSetting(env);
   if (setting !== "by-model") return setting === "on";

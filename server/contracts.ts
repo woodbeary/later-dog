@@ -180,6 +180,7 @@ export interface ProviderAdapter {
   nativeCompactAt?(): Promise<number | undefined>;
   compactionSigns?(threadId?: string): Promise<CompactionSigns>;
   contextUsage?(threadId: ThreadId): Promise<EngineContextReply>;
+  rareToolsOnDemand?(model: string | null | undefined): Promise<boolean>;
   stopAll(): Promise<void>;
   onEvent(listener: RuntimeEventListener): () => void;
 }

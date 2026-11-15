@@ -1214,6 +1214,9 @@ describe("ClaudeDriver turns (fake CLI)", () => {
       expect(await rareToolsLaunch("t-rare-haiku", "claude-haiku-5-5")).toEqual(allUpFront);
       expect(await rareToolsLaunch("t-rare-sonnet", "claude-sonnet-5-5")).toEqual(allUpFront);
       expect(await rareToolsLaunch("t-rare-unknown", "some-new-model")).toEqual(allUpFront);
+      for (const [model, onDemand] of [["claude-opus-5-5", true], ["claude-fable-5-2[1m]", true], ["claude-haiku-5-5", false], ["claude-sonnet-5-5", false], ["some-new-model", false]] as const) {
+        expect([model, await instance.adapter.rareToolsOnDemand?.(model)]).toEqual([model, onDemand]);
+      }
     });
   });
 
@@ -1231,6 +1234,7 @@ describe("ClaudeDriver turns (fake CLI)", () => {
     await create(undefined, { ANTHROPIC_BASE_URL: "https://models.example.test/anthropic", ANTHROPIC_API_KEY: "sk-fixture" });
     await withRareSetting(undefined, async () => {
       expect(await rareToolsLaunch("t-rare-endpoint", "claude-opus-5-5")).toEqual(allUpFront);
+      expect(await instance.adapter.rareToolsOnDemand?.("claude-opus-5-5")).toBe(false);
     });
   });
 

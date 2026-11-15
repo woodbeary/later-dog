@@ -74,7 +74,7 @@ import { claudeHelperEnvironment } from "../laterdog/helper-model.ts";
 import { helperContractArgs, helperContractWanted, helperFlagRefused, SUBAGENT_PROMPT_FLAG } from "../laterdog/helper-contract.ts";
 import { disallowedWithOnePlan, hasSetPlan } from "../laterdog/one-plan.ts";
 import { agentsServerLaunch } from "../laterdog/tool-loading.ts";
-import { claudeCustomEndpoint, deferRareToolsFor } from "../laterdog/defer-by-model.ts";
+import { claudeRareToolsOnDemand } from "../laterdog/defer-by-model.ts";
 import { CLAUDE_PICKS_CACHE_LIFETIME, claudeCacheLifetime } from "../laterdog/cache-lifetime.ts";
 import { claudeCompactionSwitchedOff } from "../laterdog/native-compaction.ts";
 import { helpersStoppedLine } from "../laterdog/helpers-stopped.ts";
@@ -1287,9 +1287,8 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
         if (!controlsHost) allowed.push("mcp__computer");
       }
       if (turn.integrations?.agents) {
-        mcpServers.agents = agentsServerLaunch(turn.integrations.agents, deferRareToolsFor({
-          model: injected.model ?? turnEnvironment.ANTHROPIC_MODEL,
-          customEndpoint: Boolean(config.managed) || injected.injected || claudeCustomEndpoint(turnEnvironment),
+        mcpServers.agents = agentsServerLaunch(turn.integrations.agents, claudeRareToolsOnDemand({
+          model: injected.model, injected: injected.injected, managed: Boolean(config.managed), env: turnEnvironment,
         }));
         allowed.push("mcp__agents");
       }
@@ -2405,6 +2404,12 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
         contextUsage: async (threadId) => {
           const live = sessions.get(threadId);
           return live && !live.closing ? live.contextAsk.ask() : { kind: "none" };
+        },
+        rareToolsOnDemand: async (model) => {
+          const env = environment();
+          const turnModel = config.managed ? model : await resolveClaudeTurnModel(model, env);
+          const injected = config.managed ? { model: turnModel ?? null, injected: false } : applyClaudeInject({ ...env }, turnModel);
+          return claudeRareToolsOnDemand({ model: injected.model, injected: injected.injected, managed: Boolean(config.managed), env });
         },
         compactionSigns: async (threadId) => {
           const env = environment();

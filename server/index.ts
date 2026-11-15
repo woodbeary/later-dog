@@ -9230,7 +9230,7 @@ async function startTurn(
         { id: "mentions", label: "Mentions", text: mentionPrompt(tagged) },
       ], cfg.profile?.name);
       turnPromptBytes.set(threadId, { stable: Buffer.byteLength(prompt.stable), volatile: Buffer.byteLength(prompt.volatile) });
-      contextBreakdowns.dispatched(threadId, { driverKind: instance.driverKind, instanceId, sections: prompt.sections, tools: homeToolSizes(integrations.agents?.env) });
+      contextBreakdowns.dispatched(threadId, { driverKind: instance.driverKind, instanceId, sections: prompt.sections, tools: homeToolSizes(integrations.agents?.env, integrations.agents ? await instance.adapter.rareToolsOnDemand?.(model) === true : false) });
       compactionCarry.remember(bot.id, threadId, prompt.volatileSections);
       if (deskPrompts && threadId === bot.threadId && INCLUDED_AI_INSTANCES.includes(instanceId)) deskPrompts.remember(threadId, { instanceId, model, system: prompt.stable || prompt.text });
       const fromPerson = commsDepth === 0 && !coordinationNode && !opts?.automationSource && !opts?.unattended;
