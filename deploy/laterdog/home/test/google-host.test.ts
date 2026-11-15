@@ -107,6 +107,27 @@ describe("the Google route in front of a home", () => {
     expect((await storedRecord(storage)).googleToken).toBe("g".repeat(43));
   });
 
+  it("registers the route with the new key when a first setup was cut off after the route but before the record", async () => {
+    const world = cloud();
+    const identity = await homeIdentity(SECRET, OWNER, SUFFIX);
+    const storage = new FakeStorage();
+    const first = await construct(world, storage, identity.machineId);
+    await first.adopt(identity);
+    const cutOff = first.outbound[GOOGLE_HOST]!.params!.token;
+    await storage.delete("home");
+
+    const again = await construct(world, storage, identity.machineId);
+    await again.adopt(identity);
+    const token = (await storedRecord(storage)).googleToken;
+    expect(token).not.toBe(cutOff);
+    expect(again.outbound[GOOGLE_HOST]).toEqual({ method: "google", params: { token, accountId: OWNER } });
+    expect(again.envVars.LATERDOG_CLOUD_GOOGLE_TOKEN).toBe(token);
+
+    const later = await construct(world, storage, identity.machineId);
+    expect(later.outbound[GOOGLE_HOST]).toBeUndefined();
+    expect(later.envVars.LATERDOG_CLOUD_GOOGLE_TOKEN).toBe(token);
+  });
+
   it("answers the home's own requests through the registered route, for its own account only", async () => {
     const asked: string[] = [];
     const world = cloud({ googleToken: async (accountId: string) => { asked.push(accountId); return { ok: true, token: { access_token: "a", expires_in: 1, scope: "s" } }; } });

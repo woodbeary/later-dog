@@ -178,9 +178,10 @@ export class CloudHomeHost extends Container<Env> {
   private async routeGoogle(known: HomeRecord): Promise<HomeRecord> {
     const record = known.googleToken ? known : { ...known, googleToken: randomToken(32) };
     if (record !== known) await this.ctx.storage.put(RECORD_KEY, record);
-    if ((await this.ctx.storage.get<boolean>(GOOGLE_ROUTE_KEY)) === true) return record;
+    const routed = hex(await sha256(record.googleToken!));
+    if ((await this.ctx.storage.get<string>(GOOGLE_ROUTE_KEY)) === routed) return record;
     await this.setOutboundByHost(GOOGLE_HOST, "google", { token: record.googleToken, accountId: record.accountId });
-    await this.ctx.storage.put(GOOGLE_ROUTE_KEY, true);
+    await this.ctx.storage.put(GOOGLE_ROUTE_KEY, routed);
     return record;
   }
 
