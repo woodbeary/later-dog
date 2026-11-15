@@ -57,6 +57,14 @@ export function splitResults<T extends HandedResult>(awaited: readonly T[], turn
   };
 }
 
+export function givenBeforeUpdate<T extends HandedResult & { parentId?: string; createdAt: number; startedAt?: number }>(nodes: ReadonlyMap<string, T>): void {
+  for (const child of nodes.values()) {
+    const parent = child.parentId ? nodes.get(child.parentId) : undefined;
+    if (parent?.startedAt === undefined || child.reportedAt !== undefined || !backNotGiven(child)) continue;
+    if (child.createdAt < parent.startedAt) child.givenAt = child.createdAt;
+  }
+}
+
 export function allResultsIn<T extends HandedResult>(awaited: readonly T[]): readonly T[] | undefined {
   return awaited.every(ended) ? awaited : undefined;
 }

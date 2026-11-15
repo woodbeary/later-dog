@@ -1,4 +1,4 @@
-import { mkdtempSync } from "node:fs";
+import { mkdtempSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import { RoomHandoffs, type RoomHandoff, type RoomHandoffHooks } from "../room-handoffs.ts";
@@ -271,4 +271,39 @@ describe("a coordinator is given its helpers' results as they come back", () => 
     t.clock.at += 10 * RESULT_MAX_WAIT_MS; await t.settle();
     expect(vi.mocked(t.hooks.run).mock.calls.filter(([node, resumed]) => node.botId === "lead" && resumed)).toHaveLength(0);
   }));
+});
+
+describe("a coordinator's handoffs saved before results were given as they came back", () => {
+  async function fromOldState(rework: boolean) {
+    const dir = mkdtempSync(join(process.env.TMPDIR ?? "/tmp", "handoff-results-old-"));
+    const t0 = 900_000;
+    const base = { reported: true, executions: 0, approvalGranted: false, kind: "work", result: "" };
+    const nodes: unknown[] = [{ ...base, ...lead, id: "turn", rootId: "turn", key: "root", text: "Split the work", createdAt: t0,
+      status: "waiting", startedAt: rework ? t0 + 50_000 : t0 + 1, executions: rework ? 2 : 1 }];
+    ["h1", "h2", "h3", "h4"].forEach((name, i) => nodes.push({ ...base, ...helper(name), id: name, rootId: "turn", parentId: "turn", key: name,
+      text: `Lane ${name}`, createdAt: t0 + 2 + i, status: "completed", result: `${name.toUpperCase()}_RESULT_TEXT`, startedAt: t0 + 10 }));
+    ["h5", "h6"].forEach((name, i) => nodes.push({ ...base, ...helper(name), id: name, rootId: "turn", parentId: "turn", key: name,
+      text: `Lane ${name}`, createdAt: rework ? t0 + 60_000 + i : t0 + 10 + i, status: "running", reported: false, startedAt: t0 + 70_000 }));
+    const file = join(dir, "old.json");
+    writeFileSync(file, JSON.stringify(nodes));
+    const wakes: string[][] = [];
+    const engine: RoomHandoffs = new RoomHandoffs(file, {
+      validate: () => undefined, busy: () => false, report: () => {}, changed: () => {}, longWork: () => true,
+      run: async (node, resumed) => {
+        if (node.botId === lead.botId && resumed) wakes.push(splitResults(engine.awaited(node.id), node.startedAt).fresh.map(n => n.botId));
+        return new Promise<HandoffRunResult>(() => {});
+      },
+    }, () => 1_000_000);
+    for (let i = 0; i < 6; i++) { engine.tick(); await flush(); }
+    await removeTempDir(dir);
+    return wakes;
+  }
+
+  it("does not wake a coordinator for results it had before it sent rework", async () => {
+    expect(await fromOldState(true)).toEqual([]);
+  });
+
+  it("still gives results that were never delivered on the first tick", async () => {
+    expect(await fromOldState(false)).toEqual([["h1", "h2", "h3", "h4"]]);
+  });
 });

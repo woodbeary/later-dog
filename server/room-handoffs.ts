@@ -8,7 +8,7 @@ import {
 } from "./laterdog/handoff-budget.ts";
 import { timedOutAgain, type HandoffRunResult } from "./laterdog/long-work.ts";
 import { turnResultsSchema } from "./laterdog/turn-results.ts";
-import { RESULT_MAX_WAIT_MS, RESULT_QUIET_MS, giveResults, partResultsDue, takeBackResults } from "./laterdog/handoff-results.ts";
+import { RESULT_MAX_WAIT_MS, RESULT_QUIET_MS, giveResults, givenBeforeUpdate, partResultsDue, takeBackResults } from "./laterdog/handoff-results.ts";
 
 const nodeSchema = z.object({
   id: z.string(), rootId: z.string(), parentId: z.string().optional(),
@@ -84,6 +84,7 @@ export class RoomHandoffs {
       if (ids.size !== saved.length || saved.some(n => !ids.has(n.rootId) || ids.get(n.rootId)?.parentId ||
         (n.parentId && (!ids.has(n.parentId) || ids.get(n.parentId)?.rootId !== n.rootId)))) throw new Error("Invalid room handoff tree");
       for (const n of saved) this.nodes.set(n.id, n);
+      givenBeforeUpdate(this.nodes);
       if (hooks.longWork) this.restartPending = saved.some(n => !terminal(n));
       else {
         for (const n of saved) if (!terminal(n) && !saved.some(child => child.rootId === n.rootId && child.status === "needs-you")) this.lostToRestart(n);
