@@ -633,6 +633,28 @@ describe("sending while the home sleeps", () => {
     });
   });
 
+  it("shows a guest of the home only the waiting messages that guest sent, never the owner's words", async () => {
+    const GUEST_TOKEN = `laterdog_sess_${"g".repeat(43)}`;
+    const asGuest = (extra: RequestInit = {}) => ({ ...extra, headers: { accept: "application/json", authorization: `Bearer ${GUEST_TOKEN}`, ...(extra.headers as Record<string, string> | undefined) } });
+    world.sessions.add(GUEST_TOKEN);
+    world.guests.add(GUEST_TOKEN);
+    const h = await home();
+    world.answers.set("GET /api/bots", () => Response.json({ bots: [{ id: "rex", name: "Rex", threadId: "t-rex", messages: [] }], botQueuedMessages: {} }));
+    await knownOwner(h);
+    await h.visit("/api/bots", asGuest());
+    now += 10_000;
+    await h.visit("/api/bots", asGuest());
+    await h.sleep();
+    h.machine.serving = false;
+    const json = { "content-type": "application/json" };
+    expect((await h.visit("/api/bots/rex/messages", asOwner({ method: "POST", headers: json, body: JSON.stringify({ text: "the owner's private words", sendId: "send-0000000000001", threadId: "t-rex" }) }))).status).toBe(202);
+    expect((await h.visit("/api/bots/rex/messages", asGuest({ method: "POST", headers: json, body: JSON.stringify({ text: "from the guest", sendId: "send-0000000000002", threadId: "t-rex" }) }))).status).toBe(202);
+    const guest = await (await h.visit("/api/bots", asGuest())).json() as { botQueuedMessages: Record<string, unknown[]> };
+    expect(guest.botQueuedMessages).toEqual({ "t-rex": [{ queueId: "send-0000000000002", text: "from the guest", sendId: "send-0000000000002" }] });
+    const owner = await (await h.visit("/api/bots", asOwner())).json() as { botQueuedMessages: Record<string, unknown[]> };
+    expect(owner.botQueuedMessages["t-rex"]).toHaveLength(2);
+  });
+
   it("does not queue a stranger's message", async () => {
     const h = await home();
     await knownOwner(h);

@@ -562,7 +562,7 @@ export class CloudHomeHost extends Container<Env> {
       if (!key || !this.knownDevice(key)) return null;
       const sent = await queuedSend(request.clone(), Date.now());
       if (sent === "refused") return refusedSend();
-      const queued = sent ? { ...sent, by: this.ownersDevice(key) ? ("owner" as const) : ("guest" as const) } : null;
+      const queued = sent ? { ...sent, by: this.ownersDevice(key) ? ("owner" as const) : ("guest" as const), from: key } : null;
       if (queued && this.outbox.some((earlier) => earlier.id === queued.id)) return queuedReceipt(queued);
       const next = queued ? withQueued(this.outbox, queued) : null;
       if (!queued || !next) return null;
@@ -580,7 +580,8 @@ export class CloudHomeHost extends Container<Env> {
     if (!kind || !scope) return null;
     const saved = await savedAnswer(this.desk(), await deskKey(this.stateHome(record.machineId), scope, request.url), Date.now());
     if (!saved || !this.outbox.length || new URL(request.url).pathname !== "/api/bots") return saved;
-    return deskAnswerWithQueue(saved, this.outbox, this.answering);
+    const visible = key && this.ownersDevice(key) ? this.outbox : this.outbox.filter((queued) => queued.from === key);
+    return visible.length ? deskAnswerWithQueue(saved, visible, this.answering) : saved;
   }
 
   private async learnBrain(record: HomeRecord): Promise<void> {

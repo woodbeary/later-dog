@@ -42,6 +42,7 @@ export interface QueuedSend {
   threadId?: string;
   reply?: { text: string; model: string };
   by?: "owner" | "guest";
+  from?: string;
 }
 
 export type DeskKind = "read" | "shell" | null;
