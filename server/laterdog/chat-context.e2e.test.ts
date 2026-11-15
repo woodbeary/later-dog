@@ -58,6 +58,11 @@ describe.skipIf(process.platform === "win32")("what fills a chat's context windo
       JSON.stringify({
         instances: {
           claudeCounts: { driver: "claudeAgent", environment: { FAKE_CLAUDE_CONTEXT_FOLLOWS_TURNS: "1" }, config: { cli: FAKE_CLAUDE, permissionMode: "bypassPermissions" } },
+          claudeLarge: {
+            driver: "claudeAgent",
+            environment: { FAKE_CLAUDE_CONTEXT_FOLLOWS_TURNS: "1", FAKE_CLAUDE_VERSION: "2.1.316", FAKE_CLAUDE_MODEL_WINDOW: "1000000" },
+            config: { cli: FAKE_CLAUDE, permissionMode: "bypassPermissions" },
+          },
           claudeOlder: {
             driver: "claudeAgent",
             environment: { FAKE_CLAUDE_CONTEXT: "unknown", FAKE_CLAUDE_CONTEXT_SEEN: seen },
@@ -108,6 +113,13 @@ describe.skipIf(process.platform === "win32")("what fills a chat's context windo
     expect(body.parts.map((part: any) => part.id)).toEqual(["conversation", "tools", "instructions", "skills", "memory", "reserve", "free", "tools"]);
     for (const leak of ["CLAUDE.md", "fixture-person", "fixture_private_tool", "FixturePrivateCommand", "System prompt", "claude-fake"]) expect(text).not.toContain(leak);
     expect(Object.keys(body).sort()).toEqual(["at", "compactsAt", "parts", "source", "total", "window"]);
+  }, 60_000);
+
+  it("compacts a chat on a model with the large window at about 250K, not near the end of the window", async () => {
+    const dog = await dogOn("claudeLarge");
+    await turn(dog.id, "hello");
+    await waitFor(async () => (await api("GET", `/api/threads/${dog.threadId}/context`)).status === 200, "the breakdown");
+    expect((await api("GET", `/api/threads/${dog.threadId}/context`)).body).toMatchObject({ source: "engine", window: 1_000_000, compactsAt: 247_000 });
   }, 60_000);
 
   it("keeps working on an engine that does not know the request, and asks it only once", async () => {

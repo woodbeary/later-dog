@@ -188,7 +188,7 @@ it("Stop cancels a stalled summary without writing a late record or starting an 
 
 it.each([
   { native: undefined, version: "2.1.270", tokens: 190_000, compactions: 1, window: "200000" },
-  { native: undefined, version: "2.1.316", tokens: 190_000, compactions: 0, window: "auto" },
+  { native: undefined, version: "2.1.316", tokens: 190_000, compactions: 0, window: "280000" },
   { native: "100000", version: "2.1.270", tokens: 95_000, compactions: 1, window: "100000" },
   { native: "off", version: "2.1.270", tokens: 190_000, compactions: 0, window: undefined },
   { native: "auto", version: "2.1.270", tokens: 190_000, compactions: 0, window: "auto" },
