@@ -2,7 +2,7 @@ import { useState } from "react";
 import { Check, ChevronDown, ChevronRight, Circle, Loader2 } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { t } from "@/lib/i18n";
-import { planDoneCount, type PlanItem, type WirePlan } from "../../shared/dog-plan";
+import { planDoneCount, planLeftCount, type PlanItem, type WirePlan } from "../../shared/dog-plan";
 
 export function PlanChecklist({ items, working, label }: { items: readonly PlanItem[]; working: boolean; label: string }) {
   return (
@@ -24,7 +24,7 @@ export function PlanChecklist({ items, working, label }: { items: readonly PlanI
 
 export function DogPlan({ plan, working }: { plan?: WirePlan | null; working: boolean }) {
   const [open, setOpen] = useState(false);
-  if (!plan?.items.length) return null;
+  if (!plan || !planLeftCount(plan)) return null;
   const progress = t("chat.plan.progress", { done: planDoneCount(plan), total: plan.items.length });
   if (working) return <div className="ml-11 max-w-[520px]" data-dog-plan="open"><PlanChecklist items={plan.items} working label={t("chat.plan")} /></div>;
   return (
