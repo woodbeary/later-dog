@@ -237,7 +237,23 @@ async function filled(handle, buffer, from) {
   return length;
 }
 
-export async function chunksOf(path, store, { opened = open } = {}) {
+export function storedPieces(store, alreadyStored = []) {
+  const stored = new Set(alreadyStored);
+  const storing = new Map();
+  return async (hash, bytes) => {
+    if (stored.has(hash)) return;
+    if (!storing.has(hash)) {
+      const work = (async () => {
+        if (!(await store.has(hash))) await store.put(hash, bytes);
+        stored.add(hash);
+      })().finally(() => storing.delete(hash));
+      storing.set(hash, work);
+    }
+    await storing.get(hash);
+  };
+}
+
+export async function chunksOf(path, store, { opened = open, keep = storedPieces(store) } = {}) {
   const handle = await opened(path, "r");
   const chunks = [];
   try {
@@ -254,7 +270,7 @@ export async function chunksOf(path, store, { opened = open } = {}) {
       if (length === 0) break;
       const bytes = buffer.subarray(0, length);
       const hash = createHash("sha256").update(bytes).digest("hex");
-      if (!(await store.has(hash))) await store.put(hash, Buffer.from(bytes));
+      await keep(hash, Buffer.from(bytes));
       chunks.push(hash);
       if (length < CHUNK_BYTES) break;
     }
@@ -319,6 +335,12 @@ export function resumeOrder(waiting, resumeAfter) {
 export async function snapshot(root, store, previous, { scratch, now = Date.now, app, budgetMs = Infinity, freeBytes = diskFree, resumeAfter, parallel = SAVE_PARALLEL } = {}) {
   const known = new Map((previous?.entries ?? []).filter((entry) => entry.type === "file").map((entry) => [entry.path, entry]));
   const unsaved = [];
+  let unsavedReason;
+  const keep = storedPieces(store, referencedBlobs(previous));
+  const cannotSave = (path, reason) => {
+    if (unsaved.length === 0) unsavedReason = reason;
+    unsaved.push(path);
+  };
   let uploaded = 0;
   let deferred = 0;
   const deadline = now() + budgetMs;
@@ -348,17 +370,17 @@ export async function snapshot(root, store, previous, { scratch, now = Date.now,
       if (database && scratch) {
         if (!(await roomForCopy(path, entry, scratch, freeBytes))) {
           if (before) slots[index] = before;
-          unsaved.push(entry.path);
+          cannotSave(entry.path, "no room for a copy");
           return;
         }
         copy = await databaseCopy(path, scratch);
       }
-      const chunks = await chunksOf(copy ?? path, store);
+      const chunks = await chunksOf(copy ?? path, store, { keep });
       slots[index] = { ...entry, ...(stamp ? { stamp } : {}), chunks };
       uploaded += 1;
     } catch (error) {
       if (before) slots[index] = before;
-      if (error?.code !== "ENOENT") unsaved.push(entry.path);
+      if (error?.code !== "ENOENT") cannotSave(entry.path, String(error?.code ?? error?.message ?? error).slice(0, 120));
     } finally {
       if (copy) await rm(copy, { force: true }).catch(() => {});
     }
@@ -393,9 +415,9 @@ export async function snapshot(root, store, previous, { scratch, now = Date.now,
   const manifest = { version: MANIFEST_VERSION, createdAt: now(), ...(app ? { app } : {}), entries };
   if (uploaded > 0 || !previous || (app && previous.app !== app) || previous.entries.length !== entries.length || changedShape(previous.entries, entries)) {
     await store.putManifest(manifest);
-    return { manifest, written: true, uploaded, unsaved, deferred, resumeAfter: carryOn };
+    return { manifest, written: true, uploaded, unsaved, unsavedReason, deferred, resumeAfter: carryOn };
   }
-  return { manifest: previous, written: false, uploaded, unsaved, deferred, resumeAfter: carryOn };
+  return { manifest: previous, written: false, uploaded, unsaved, unsavedReason, deferred, resumeAfter: carryOn };
 }
 
 export function settleWithin(work, ms) {

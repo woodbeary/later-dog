@@ -112,7 +112,7 @@ async function main() {
         manifest = result.manifest;
         resumeAfter = result.resumeAfter;
         if (result.written) log(`saved (${result.uploaded} changed files)`);
-        if (result.unsaved.length) log(`could not save ${result.unsaved.length} file(s) this time, first ${result.unsaved[0]}; the next save tries again`);
+        if (result.unsaved.length) log(`could not save ${result.unsaved.length} file(s) this time, first ${result.unsaved[0]} (${result.unsavedReason}); the next save tries again`);
         if (result.deferred) log(`${result.deferred} changed file(s) wait for the next save, which carries on where this one stopped`);
         saves += 1;
         if (final || (!cleanupLeft && saves % GC_EVERY_SAVES !== 0)) return;
