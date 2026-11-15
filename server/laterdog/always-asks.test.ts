@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { ALWAYS_ASK_IDS, alwaysAskHook, alwaysAsks, connectorAlwaysAsks, internalCallRequest, type AlwaysAskId } from "./always-asks.ts";
-import type { OwnerGuardContext } from "./owner-guard.ts";
+import { ownerGuard, type OwnerGuardContext } from "./owner-guard.ts";
 
 const WORKSPACE = "/srv/dogs/ada/work";
 const guard = (): OwnerGuardContext => ({ cwd: WORKSPACE, workspaceRoots: [WORKSPACE], tempRoots: ["/tmp"], home: "/home/dog" });
@@ -644,5 +644,101 @@ describe("branch moves through GraphQL", () => {
 
   it("says a branch made through the REST API is a branch, not a push", () => {
     expect(alwaysAsks({ tool: "Bash", command: "gh api repos/o/r/git/refs -f ref=refs/heads/x -f sha=0123abc" }, guard)?.ask).toMatch(/^This creates or moves a branch through the API/);
+  });
+});
+
+const THIRD_OUTSIDE: Row[] = ([
+  ["cd .. && find . -name '*.log' -delete", "delete-outside-workspace"],
+  ["find .. -name '*.log' -delete", "delete-outside-workspace"],
+  ["find ~ -name '*.tmp' -delete", "delete-outside-workspace"],
+  ["find / -name '*.tmp' -delete", "delete-outside-workspace"],
+  ["find /srv/dogs -name '*.tmp' -delete", "delete-outside-workspace"],
+  ["find /tmp -delete", null],
+  ["find . ../other -delete", "delete-outside-workspace"],
+  ["find ./ /srv/dogs/other -name x -delete", "delete-outside-workspace"],
+  ["find -L link -delete", null],
+  ["cd .. && git clean -fdx", "delete-outside-workspace"],
+  ["git -C .. clean -fdx", "delete-outside-workspace"],
+  ["git -C /srv/dogs/other clean -fdx", "delete-outside-workspace"],
+  ["git --work-tree=/srv/dogs/other --git-dir=/srv/dogs/other/.git clean -fdx", "delete-outside-workspace"],
+  ["git --work-tree /srv/dogs/other clean -fdx", "delete-outside-workspace"],
+  ["GIT_WORK_TREE=/srv/dogs/other GIT_DIR=/srv/dogs/other/.git git clean -fdx", "delete-outside-workspace"],
+  ["git clean -fdx ..", "delete-outside-workspace"],
+  ["git clean -fdx -- ../other", "delete-outside-workspace"],
+  ["rsync -a --delete /tmp/empty/ ./", null],
+  ["rsync -a --delete /tmp/empty/ ../", "delete-outside-workspace"],
+  ["rsync -a --delete /tmp/empty/ .", null],
+  ["rm -rf .", "delete-outside-workspace"],
+  ["rm -rf ./", "delete-outside-workspace"],
+  ["rm -rf *", null],
+  ["rm -rf ../*", "delete-outside-workspace"],
+] as const).map(([command, expected]): Row => [`third outside root: ${command}`, bash(command), expected]);
+
+const THIRD_ORDINARY: Row[] = [
+  "git push -u origin \"$(git branch --show-current)\"",
+  "cd \"$(git rev-parse --show-toplevel)\" && pnpm test",
+  "export PATH=\"$(pnpm bin):$PATH\"",
+  "echo \"Built at $(date -u +%FT%TZ)\" >> notes/log.md",
+  "for f in $(git diff --name-only origin/main); do echo \"$f\"; done",
+  "tmp=$(mktemp -d) && cp -r dist \"$tmp\" && rm -rf \"$tmp\"",
+  "sha=$(git rev-parse HEAD); gh api repos/o/r/commits/$sha/status",
+  "git log --oneline $(git merge-base HEAD origin/main)..HEAD",
+  "pnpm exec vitest run $(git diff --name-only | grep test.ts)",
+  "wc -l $(git ls-files 'server/*.ts') | tail -1",
+  "echo $(( 1 + 2 ))",
+  "ls -la \"$(dirname \"$(which node)\")\"",
+  "curl -fsSL \"https://api.github.com/repos/o/r/commits/$(git rev-parse HEAD)/status\"",
+  "git commit -m \"Release $(date +%F)\" && git push origin HEAD",
+  "ver=$(node -p \"require('./package.json').version\"); git tag \"v$ver\" && git push origin \"v$ver\"",
+  "find \"$(pwd)/logs\" -name '*.log' -delete",
+  "rm -f \"$(git rev-parse --show-toplevel)/.eslintcache\"",
+  "du -sh \"$(pnpm store path)\"",
+  "kill $(cat /tmp/dev-server.pid) 2>/dev/null || true",
+  "out=$(git push origin HEAD 2>&1); echo \"$out\"",
+].map((command): Row => [`ordinary: ${command}`, bash(command), null]);
+
+const graph = (query: string) => `gh api graphql -f query='${query}'`;
+const THIRD_API: Row[] = ([
+  ["gh api repos/o/r/git/refs/heads/main", null],
+  ["gh api repos/o/r/git/matching-refs/heads/atelier", null],
+  ["gh api repos/o/r/pulls -f title=x -f head=atelier/x -f base=main", null],
+  ["gh api repos/o/r/issues/207/comments -f body='Looks good'", null],
+  ["gh api -X PATCH repos/o/r/pulls/201 -F body=@notes/pr-body.md", null],
+  ["gh api repos/o/r/pulls/207/reviews -f event=COMMENT -f body=x", null],
+  [graph("query { viewer { login } }"), null],
+  ["gh api repos/o/r/git/refs -f ref=refs/heads/atelier/x -f sha=0123abc", "push-skips-checks"],
+  ["gh api -X PATCH repos/o/r/git/refs/heads/atelier/x -f sha=0123abc", "push-skips-checks"],
+  ["gh api -X DELETE repos/o/r/git/refs/heads/atelier/old", null],
+  [graph("mutation { updateRef(input:{refId:\"R\", oid:\"0123abc\", force:true}) { clientMutationId } }"), "push-skips-checks"],
+  [graph("mutation { createCommitOnBranch(input:{branch:{repositoryNameWithOwner:\"o/r\", branchName:\"main\"}, message:{headline:\"x\"}, expectedHeadOid:\"0123abc\", fileChanges:{additions:[{path:\"a\", contents:\"eA==\"}]}}) { commit { oid } } }"), "push-skips-checks"],
+  ["gh api -X PUT repos/o/r/contents/src/a.ts -f message=x -f content=eA== -f branch=main", "push-skips-checks"],
+  ["gh api repos/o/r/merges -f base=main -f head=atelier/x", null],
+  ["gh api -X PUT repos/o/r/pulls/1/merge", null],
+  ["gh api repos/o/r/git/commits -f message=x -f tree=abc -f 'parents[]=def'", null],
+] as const).map(([command, expected]): Row => [`third api: ${command}`, bash(command), expected]);
+
+describe("the third review's inputs", () => {
+  it.each([...THIRD_OUTSIDE, ...THIRD_ORDINARY, ...THIRD_API])("%s", (_label, request, expected) => {
+    expect(alwaysAsks(request, guard)?.id ?? null).toBe(expected);
+  });
+
+  it("refuses the forced moves of the default branch the owner guard can place", async () => {
+    const lookup = { currentBranch: async () => null, defaultBranch: async () => "main" };
+    const refused = async (command: string) => (await ownerGuard({ tool: "Bash", command }, { ...guard(), git: lookup }))?.rule ?? null;
+    expect(await refused("gh api -X PATCH repos/o/r/git/refs/heads/main -f sha=0123abc -F force=true")).toBe("force-push-default-branch");
+    expect(await refused("gh api -X PATCH repos/o/r/git/refs/heads/master -F force=1 -f sha=0123abc")).toBe("force-push-default-branch");
+    expect(await refused("gh api -X PATCH repos/o/r/git/refs/heads/trunk -F force=true -f sha=0123abc")).toBeNull();
+    expect(await refused(graph("mutation { updateRef(input:{refId:\"R\", oid:\"0123abc\", force:true}) { clientMutationId } }"))).toBe("force-push-default-branch");
+  });
+
+  it("counts four cards over all 71 ordinary commands", () => {
+    const ordinary = [...REVIEW_ROWS.filter(([label]) => label.startsWith("ordinary")), ...SECOND_ORDINARY, ...THIRD_ORDINARY];
+    expect(ordinary).toHaveLength(71);
+    expect(ordinary.filter(([, request]) => alwaysAsks(request, guard)).map(([label]) => label)).toEqual([
+      "ordinary: the skip-hooks push from a home clone",
+      "ordinary by design: xargs -a … rm -f",
+      "ordinary by design: Edit .husky/pre-commit",
+      "ordinary by design: lent Mac rm -rf node_modules",
+    ]);
   });
 });
