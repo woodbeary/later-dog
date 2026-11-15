@@ -8,7 +8,7 @@ import {
 } from "./laterdog/handoff-budget.ts";
 import { timedOutAgain, type HandoffRunResult } from "./laterdog/long-work.ts";
 import { turnResultsSchema } from "./laterdog/turn-results.ts";
-import { RESULT_MAX_WAIT_MS, RESULT_QUIET_MS, giveResults, givenBeforeUpdate, partResultsDue, takeBackResults } from "./laterdog/handoff-results.ts";
+import { RESULT_MAX_WAIT_MS, RESULT_QUIET_MS, allResultsIn, giveResults, givenBeforeUpdate, partResultsDue, takeBackResults } from "./laterdog/handoff-results.ts";
 
 const nodeSchema = z.object({
   id: z.string(), rootId: z.string(), parentId: z.string().optional(),
@@ -30,6 +30,7 @@ const nodeSchema = z.object({
   continuedAs: z.string().optional(),
   firstCreatedAt: z.number().optional(),
   retried: z.boolean().optional(),
+  settledRow: z.boolean().optional(),
   restarted: z.boolean().optional(),
   orderAt: z.number().optional(),
   urgent: z.boolean().optional(),
@@ -95,6 +96,13 @@ export class RoomHandoffs {
     }
   }
 
+  claimSettledRow(n: RoomHandoff): readonly RoomHandoff[] | undefined {
+    const all = allResultsIn(this.awaited(n.id));
+    if (!all || n.settledRow) return undefined;
+    n.settledRow = true;
+    this.save();
+    return all;
+  }
   private save() { writeFileAtomic(this.file, JSON.stringify([...this.nodes.values()]), { mode: 0o600 }); }
   private publish(...nodes: RoomHandoff[]) {
     this.save();
@@ -275,6 +283,7 @@ export class RoomHandoffs {
     if (!parentId && !lender) delete root.lender;
     if (fresh) this.nodes.set(parent.id, parent);
     this.nodes.set(node.id, node);
+    if (awaitsReply(node)) delete parent.settledRow;
     this.longCache.delete(root.id);
     const previousProgress = root.lastProgressAt;
     this.stampProgress(root);
@@ -322,6 +331,7 @@ export class RoomHandoffs {
     const problem = this.hooks.validate(node, parent);
     if (problem) return problem;
     this.nodes.set(node.id, node);
+    if (parent && awaitsReply(node)) delete parent.settledRow;
     old.status = "cancelled"; old.result = "Replaced by a newer request."; old.endedBy = "person"; old.reported = true; old.replacedBy = node.id;
     this.publish(old, node);
     return node;

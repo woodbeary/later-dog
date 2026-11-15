@@ -307,3 +307,65 @@ describe("a coordinator's handoffs saved before results were given as they came 
     expect(await fromOldState(false)).toEqual([["h1", "h2", "h3", "h4"]]);
   });
 });
+
+describe("the row and alert for a whole wait are written once", () => {
+  const claiming = (t: Team, claims: string[][], then: (node: RoomHandoff, resumed: boolean, signal: AbortSignal, run: RoomHandoffHooks["run"]) => Promise<HandoffRunResult>) => {
+    const run = t.hooks.run;
+    t.hooks.run = vi.fn(async (node: RoomHandoff, resumed: boolean, signal: AbortSignal) => {
+      if (node.botId !== lead.botId || !resumed) return run(node, resumed, signal);
+      const row = t.engine.claimSettledRow(node);
+      if (row) claims.push(row.map(n => n.botId));
+      return then(node, resumed, signal, run);
+    });
+  };
+
+  it("once when the last results turn times out and is tried again", () => team(async t => {
+    const claims: string[][] = [];
+    let timeouts = 0;
+    claiming(t, claims, async (node, resumed, signal, run) => {
+      if (timeouts++ === 0) { t.clock.at += 1; return { ok: false, timedOut: true, text: "timed out" }; }
+      return run(node, resumed, signal);
+    });
+    sendThree(t.engine);
+    await t.settle();
+    t.finish("pip"); t.finish("quill"); t.finish("rook"); await t.settle();
+    expect(timeouts).toBe(2);
+    expect(claims).toEqual([["pip", "quill", "rook"]]);
+    expect(t.engine.nodes.get("turn")?.status).toBe("completed");
+  }));
+
+  it("once when a restart cuts the last results turn short", () => team(async t => {
+    const claims: string[][] = [];
+    claiming(t, claims, () => new Promise<HandoffRunResult>(() => {}));
+    sendThree(t.engine);
+    await t.settle();
+    t.finish("pip"); t.finish("quill"); t.finish("rook"); await t.settle();
+    let rerun = 0;
+    const reloaded: RoomHandoffs = new RoomHandoffs(t.file, { ...t.hooks, longWork: () => true,
+      run: vi.fn(async (node: RoomHandoff) => {
+        rerun++;
+        const row = reloaded.claimSettledRow(node);
+        if (row) claims.push(row.map(n => n.botId));
+        return { ok: true, text: "acted" };
+      }) }, () => t.clock.at + 1_000);
+    for (let i = 0; i < 6; i++) { reloaded.tick(); await flush(); }
+    expect(rerun).toBe(1);
+    expect(claims).toEqual([["pip", "quill", "rook"]]);
+  }));
+
+  it("again when rework sent from the last results turn comes back", () => team(async t => {
+    const claims: string[][] = [];
+    claiming(t, claims, async (node, resumed, signal, run) => {
+      const done = run(node, resumed, signal);
+      if (claims.length === 1 && t.engine.awaited(node.id).length === 3) t.engine.enqueue(lead, "unused", node.id, helper("pip"), "pip", "Fix the boundary case", false, true);
+      return done;
+    });
+    sendThree(t.engine);
+    await t.settle();
+    t.finish("pip"); t.finish("quill"); t.finish("rook"); await t.settle();
+    expect(claims).toHaveLength(1);
+    t.finish("pip", "boundary fixed"); await t.settle();
+    expect(claims).toEqual([["pip", "quill", "rook"], ["pip", "quill", "rook", "pip"]]);
+    expect(t.engine.nodes.get("turn")?.status).toBe("completed");
+  }));
+});
