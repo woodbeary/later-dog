@@ -443,3 +443,23 @@ describe("moving a branch through the API", () => {
     expect(alwaysAsks({ tool: "Bash", command }, guard)).toBeNull();
   });
 });
+
+describe("text assigned earlier in the same command", () => {
+  it.each([
+    "B=--no-verify; git push origin \"$B\"",
+    "B=--no-verify && git push origin ${B}",
+    "export OPT=--no-verify; git push origin $OPT",
+    "CMD='git push --no-verify'; eval \"$CMD\"",
+    "CMD='git push --no-verify'; sh -c \"$CMD\"",
+    "K='gcloud iam service-accounts keys create k.json'; eval \"$K\"",
+    "D=/srv/dogs/other; rm -rf \"$D\"",
+  ])("%s asks", (command) => {
+    expect(alwaysAsks({ tool: "Bash", command }, guard)).not.toBeNull();
+  });
+
+  it("still reads a value from an earlier call as a branch name, as decided", () => {
+    expect(alwaysAsks({ tool: "Bash", command: "git push origin \"$B\"" }, guard)).toBeNull();
+    expect(alwaysAsks({ tool: "Bash", command: "B=feature/login; git push origin \"$B\"" }, guard)).toBeNull();
+    expect(alwaysAsks({ tool: "Bash", command: "OUT=dist; rm -rf \"$OUT\"" }, guard)).toBeNull();
+  });
+});

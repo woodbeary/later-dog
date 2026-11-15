@@ -744,13 +744,41 @@ function substitutions(word: Word): string[] {
   return found;
 }
 
-export function shellSteps(source: string, cwd: string | undefined, home: string, depth = 0, out: ShellStep[] = []): ShellStep[] {
+const ASSIGNMENT = /^([A-Za-z_][A-Za-z0-9_]*)=(.*)$/s;
+const WHOLE_VARIABLE = /^\$(?:([A-Za-z_][A-Za-z0-9_]*)|\{([A-Za-z_][A-Za-z0-9_]*)\})$/;
+const DECLARERS = new Set(["export", "declare", "typeset", "readonly", "local"]);
+
+function remember(words: Word[], assigned: Map<string, string>): void {
+  const plain = withoutRedirects(words).filter((word) => !word.here);
+  const declares = DECLARERS.has(plain[0]?.text ?? "");
+  const candidates = declares ? plain.slice(1).filter((word) => !word.text.startsWith("-")) : plain;
+  if (!declares && !plain.every((word) => ASSIGNMENT.test(word.text))) return;
+  for (const word of candidates) {
+    const match = ASSIGNMENT.exec(word.text);
+    if (!match) continue;
+    if (word.vars || word.glob) assigned.delete(match[1]!);
+    else assigned.set(match[1]!, match[2]!);
+  }
+}
+
+function resolved(words: Word[], assigned: Map<string, string>): Word[] {
+  if (!assigned.size) return words;
+  return words.map((word) => {
+    const match = WHOLE_VARIABLE.exec(word.text);
+    const value = match ? assigned.get(match[1] ?? match[2]!) : undefined;
+    return value === undefined ? word : { ...word, text: value, vars: false, glob: false };
+  });
+}
+
+export function shellSteps(source: string, cwd: string | undefined, home: string, depth = 0, out: ShellStep[] = [], assigned = new Map<string, string>()): ShellStep[] {
   let dir = cwd;
   let previous: ShellStep | undefined;
   let pipeOpen = false;
   const paths: Paths = { home, temp: [], roots: [] };
-  for (const { words, after } of segments(source)) {
-    if (depth < DEPTH_LIMIT) for (const word of words) for (const inner of substitutions(word)) shellSteps(inner, dir, home, depth + 1, out);
+  for (const { words: written, after } of segments(source)) {
+    const words = resolved(written, assigned);
+    remember(words, assigned);
+    if (depth < DEPTH_LIMIT) for (const word of words) for (const inner of substitutions(word)) shellSteps(inner, dir, home, depth + 1, out, assigned);
     const command = commandWords(words);
     const head = command[0];
     if (!head) {
@@ -776,12 +804,12 @@ export function shellSteps(source: string, cwd: string | undefined, home: string
       if (SHELLS.has(name)) {
         const flag = args.findIndex((arg) => /^-[a-z]*c[a-z]*$/.test(arg.text));
         const script = flag === -1 ? undefined : args[flag + 1];
-        if (script) shellSteps(script.text, dir, home, depth + 1, out);
-        for (const body of here) shellSteps(body, dir, home, depth + 1, out);
+        if (script) shellSteps(script.text, dir, home, depth + 1, out, assigned);
+        for (const body of here) shellSteps(body, dir, home, depth + 1, out, assigned);
         const printed = step.piped && (step.piped.name === "echo" || step.piped.name === "printf") ? step.piped.args.filter((arg) => !/^-[neE]+$/.test(arg.text)) : [];
-        if (flag === -1 && printed.length && !printed.some((arg) => arg.vars)) shellSteps(printed.map((arg) => arg.text).join(" ").replace(/\\n/g, "\n"), dir, home, depth + 1, out);
+        if (flag === -1 && printed.length && !printed.some((arg) => arg.vars)) shellSteps(printed.map((arg) => arg.text).join(" ").replace(/\\n/g, "\n"), dir, home, depth + 1, out, assigned);
       }
-      if (name === "eval") shellSteps(args.map((arg) => arg.text).join(" "), dir, home, depth + 1, out);
+      if (name === "eval") shellSteps(args.map((arg) => arg.text).join(" "), dir, home, depth + 1, out, assigned);
       if (name === "xargs") {
         const run = xargsCommand(args);
         if (run.length) out.push({ ...step, name: basename(run[0]!.text), args: run.slice(1), words: run, code: undefined, depth: depth + 1, input: "xargs" });
