@@ -816,3 +816,84 @@ describe("a ref word the shell would split", () => {
     expect(alwaysAsks({ tool: "Bash", command }, guard)).toBeNull();
   });
 });
+
+const BOTDIR = "/srv/dogs/ada/bot";
+const LANE_TMP = "/tmp/zz-r4-chats/task1";
+const OTHER = "/srv/dogs/other";
+const lane = (cwd: string) => (): OwnerGuardContext => ({ ...guard(), cwd, workspaceRoots: [WORKSPACE, BOTDIR] });
+const laneId = (command: string, cwd = WORKSPACE) => alwaysAsks({ tool: "Bash", command }, lane(cwd))?.id ?? null;
+
+const RELAY_ORDINARY = [
+  "git status --porcelain",
+  "git fetch -q origin",
+  "git clean -fdx",
+  "git clean -fd -e .env -e notes/",
+  "git reset --hard origin/main",
+  "git checkout -- .",
+  "git stash drop",
+  "git branch -D atelier/old",
+  "git push --force-with-lease origin atelier/x",
+  "pnpm install --frozen-lockfile",
+  "pnpm build && pnpm exec vitest run server/a.test.ts",
+  "rm -rf node_modules dist .turbo",
+  "rm -rf ./build/*",
+  "find . -name '*.log' -mtime +3 -delete",
+  "find . -type d -name __pycache__ -exec rm -rf {} +",
+  "tmp=$(mktemp -d) && cp -r dist \"$tmp\" && rm -rf \"$tmp\"",
+  "out=$(mktemp) && pnpm lint > \"$out\" 2>&1; tail -5 \"$out\"; rm -f \"$out\"",
+  "rsync -a src/ \"$TMPDIR/copy/\"",
+  "rm -rf \"$TMPDIR/copy\"",
+  "rm -f \"$(git rev-parse --show-toplevel)/.eslintcache\"",
+  "find \"$(pwd)/logs\" -name '*.tmp' -delete",
+  "gh pr view 207 --json headRefOid",
+  "gh pr comment 207 --body-file notes/review.md",
+  "git push -u origin \"$(git branch --show-current)\"",
+  "ver=$(node -p \"require('./package.json').version\"); git tag \"v$ver\" && git push origin \"v$ver\"",
+];
+
+const RELAY_OUTSIDE: Array<[string, AlwaysAskId | null]> = [
+  [`cd ${OTHER} && rm -rf "$(pwd)/precious-dir"`, "delete-outside-workspace"],
+  [`pushd ${OTHER} >/dev/null && rm -rf "$(pwd)/precious-dir"`, "delete-outside-workspace"],
+  [`(cd ${OTHER}; rm -rf "$(pwd)/precious-dir")`, "delete-outside-workspace"],
+  [`cd ${OTHER} && rm -f "$(git rev-parse --show-toplevel)/precious.txt"`, "delete-outside-workspace"],
+  [`export GIT_WORK_TREE=${OTHER}; rm -rf "$(git rev-parse --show-toplevel)/precious-dir"`, "delete-outside-workspace"],
+  [`GIT_WORK_TREE=${OTHER} bash -c 'rm -rf "$(git rev-parse --show-toplevel)/precious-dir"'`, "delete-outside-workspace"],
+  [`tmp=$(mktemp -d); tmp=${OTHER}/precious-dir; rm -rf "$tmp"`, "delete-outside-workspace"],
+  [`tmp=$(mktemp -d); tmp+=/../..${OTHER}/precious-dir; rm -rf "$tmp"`, "delete-outside-workspace"],
+  [`tmp=$(mktemp -d); read -r tmp <<< "${OTHER}/precious-dir"; rm -rf "$tmp"`, "delete-outside-workspace"],
+  [`tmp=$(mktemp -d); for tmp in ${OTHER}/precious-dir; do :; done; rm -rf "$tmp"`, "delete-outside-workspace"],
+  [`tmp=$(mktemp -d); printf -v tmp '%s' ${OTHER}/precious-dir; rm -rf "$tmp"`, "delete-outside-workspace"],
+  [`tmp=$(mktemp -d); declare tmp=${OTHER}/precious-dir; rm -rf "$tmp"`, "delete-outside-workspace"],
+  [`tmp=$(mktemp -d); cd ${OTHER}; rm -rf "$tmp"`, null],
+];
+
+const RELAY_PUSHES: Array<[string, AlwaysAskId | null]> = [
+  ["B=' --no-verify'; git push origin x$B", "push-skips-checks"],
+  ["git push origin x$OPTS", "push-skips-checks"],
+  ["B='--no-verify'; git push origin \"$B\"", "push-skips-checks"],
+  ["git push origin x", null],
+];
+
+describe("the fourth review's inputs", () => {
+  it.each(RELAY_OUTSIDE)("%s", (command, expected) => {
+    expect(laneId(command)).toBe(expected);
+  });
+
+  it("asks for a repository folder named from a folder with no repository", () => {
+    expect(laneId("rm -rf \"$(git rev-parse --show-toplevel)/zz-r4-probe\"", BOTDIR)).toBe("delete-outside-workspace");
+  });
+
+  it.each(RELAY_PUSHES)("%s", (command, expected) => {
+    expect(laneId(command)).toBe(expected);
+  });
+
+  it("shows no card on the lane's ordinary commands from a clone, and only the repository-folder delete from folders with no repository", () => {
+    const places = [["clone", WORKSPACE], ["temporary folder", LANE_TMP], ["bot folder", BOTDIR]] as const;
+    const cards = places.flatMap(([place, cwd]) => RELAY_ORDINARY.filter((command) => laneId(command, cwd)).map((command) => `${place}: ${command}`));
+    expect(RELAY_ORDINARY.length * places.length).toBe(75);
+    expect(cards).toEqual([
+      "temporary folder: rm -f \"$(git rev-parse --show-toplevel)/.eslintcache\"",
+      "bot folder: rm -f \"$(git rev-parse --show-toplevel)/.eslintcache\"",
+    ]);
+  });
+});
