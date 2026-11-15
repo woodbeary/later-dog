@@ -637,6 +637,23 @@ describe("the cloud computer facade", () => {
       } finally { warn.mockRestore(); }
     });
 
+    it.each([
+      ["is read as running", async (id: string, computer: FakeComputer) => { computer.state = "running"; await computers.findBoat(noBoat, id); computer.state = "sleeping"; }],
+      ["is woken from Settings", async (id: string) => { expect(await computers.readyBoat(noBoat, id, 30_000)).toMatchObject({ state: "running" }); fleet.forEach((computer) => { computer.state = "sleeping"; }); }],
+      ["is reset by the person", async (id: string) => { await computers.resetBoat(noBoat, id); runsAt = Date.now() + 60_000; }],
+    ] as const)("forgets a refused start once the computer %s, so the dog is never told a healthy computer did not start", async (_how, after) => {
+      const id = `dog-heavy-forget-${Math.random().toString(36).slice(2, 8)}`;
+      const computer = add(id, "sleeping");
+      pollStepMs = 10_000;
+      failures.set(`POST /v1/computers/${computer.id}/wake`, { status: 502, error: { code: "start_failed", message: "The computer could not start: busy" }, times: 3 });
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+      try {
+        await expect(computers.heavyRunBox(id, { budgetMs: 240_000 })).rejects.toMatchObject({ code: "did_not_start" });
+        await after(id, computer);
+        expect(await computers.heavyRunBox(id, { budgetMs: 240_000 })).toMatchObject({ box: expect.anything() });
+      } finally { warn.mockRestore(); }
+    });
+
     it("reads the computer again once its start clock is spent, so a start the service called failed gets the failed-start answer", async () => {
       sleeping("dog-heavy-unwatched");
       runsAt = Date.now() + 3_600_000;

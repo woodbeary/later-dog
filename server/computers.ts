@@ -19,8 +19,11 @@ const BOAT_STATE: Record<string, string> = { running: "running", sleeping: "arch
 const asBoatState = (state: string) => BOAT_STATE[state] ?? "unknown";
 const STATE_WORDS: Record<string, string> = { archived: "asleep", archiving: "going to sleep", starting: "starting", error: "in an error state" };
 interface OwnComputer { id: string; name: string; state: string; generation?: number }
-const own = (computer: Computer): OwnComputer => ({ id: computer.id, name: computer.name, state: asBoatState(computer.state),
-  ...(computer.lastStart?.generation !== undefined ? { generation: computer.lastStart.generation } : {}) });
+const own = (computer: Computer): OwnComputer => {
+  const state = asBoatState(computer.state);
+  if (state === "running") starts.settled(computer.id);
+  return { id: computer.id, name: computer.name, state, ...(computer.lastStart?.generation !== undefined ? { generation: computer.lastStart.generation } : {}) };
+};
 export const wantedSize = (cfg: AppConfig): string | undefined => cfg.box?.size ?? undefined;
 export function needsResize(computer: { size?: string }, wanted: string | undefined): boolean {
   return Boolean(wanted && computer.size && computer.size !== wanted);
@@ -372,8 +375,11 @@ export async function resetBoat(_cfg: AppConfig, botId: string): Promise<{ state
   const client = await ownComputerToChange();
   const computer = await findOwn(client, botId);
   if (!computer) throw Object.assign(new Error("this dog has no cloud computer yet"), { status: 409 });
-  try { return { state: asBoatState((await client.reset(computer.id)).state) }; }
+  let reset: Computer;
+  try { reset = await client.reset(computer.id); }
   catch (error) { throw changeRefusal(error); }
+  starts.settled(computer.id);
+  return { state: asBoatState(reset.state) };
 }
 
 export async function updateBoat(_cfg: AppConfig, botId: string): Promise<{ state: string }> {

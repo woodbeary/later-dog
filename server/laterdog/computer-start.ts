@@ -22,7 +22,7 @@ export function createStartWatch(budgetMs: () => number, now: () => number = () 
     return attempt === undefined ? budgetMs() : budgetMs() - (now() - attempt.since);
   };
   return {
-    waking: (id) => { begin(id); },
+    waking: (id) => { begin(id); failures.delete(id); },
     starting: (id, generation) => {
       const attempt = attempts.get(id);
       if (!attempt || (generation !== undefined && attempt.generation !== undefined && attempt.generation !== generation)) {
