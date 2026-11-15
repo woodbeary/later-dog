@@ -18,14 +18,23 @@ proven about them.
    `server/drivers/codex-instructions.ts`).
 2. **A setting for the model helpers use.** A dog's `helperModel` lets its
    helpers run on a lighter Claude model than the dog itself.
-3. **Rare tools on demand, on by default.** later.dog's rarely used tools
+3. **Rare tools on demand, by model.** later.dog's rarely used tools
    (`RARE_AGENT_TOOLS` in `server/laterdog/tool-loading.ts`) are loaded only
-   when a Claude dog searches for them, unless `LATERDOG_DEFER_RARE_TOOLS` is
-   `0`, which loads every tool up front (`deferRareToolsEnabled`). The setting
-   began as opt-in (`d76644902`) and `cc5114d57` made on-demand the default,
-   both on 12 November 2026. Rules a dog must always follow stay in its standing
-   instructions rather than only in a deferred tool's description: the rule
-   against opening Google's consent page is in `GOOGLE_PROMPT`.
+   when a Claude dog searches for them, on the models where that has been
+   proven: the families in `DEFER_PROVEN_FAMILIES`
+   (`server/laterdog/defer-by-model.ts`), today Fable 5, 5.1 and 5.2 and
+   Opus 5 and 5.5. Every other model, a dog with no model named, and any
+   custom endpoint (a hosted or local model, an `ANTHROPIC_BASE_URL` other
+   than `api.anthropic.com`, or a cloud-provider switch) gets every tool up
+   front. The server setting `LATERDOG_DEFER_RARE_TOOLS` forces it: `1`, `on`
+   or `true` loads rare tools on demand for every model, `0`, `off` or `false`
+   loads everything up front; unset, or any other value, means by model. The
+   setting began as opt-in (`d76644902`), `cc5114d57` made on-demand the
+   default for every model, both on 12 November 2026, and item 18 narrowed it
+   to the proven models. Rules a dog must always follow stay in its standing
+   instructions rather than only in a deferred tool's description (see
+   "Rules that must not hide in a rare tool" below). To add a model to the
+   table, run the check in "Proving rare tools on demand for a model" below.
 
 4. **The engine compacts its own chat.** For Claude Code and Codex dogs
    later.dog no longer folds a chat at 80% of the model window and starts the

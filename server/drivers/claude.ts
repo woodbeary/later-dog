@@ -73,7 +73,8 @@ import { claudeContextNote, claudeSeenVolatile } from "../laterdog/volatile-sect
 import { claudeHelperEnvironment } from "../laterdog/helper-model.ts";
 import { helperContractArgs, helperContractWanted, helperFlagRefused, SUBAGENT_PROMPT_FLAG } from "../laterdog/helper-contract.ts";
 import { disallowedWithOnePlan, hasSetPlan } from "../laterdog/one-plan.ts";
-import { agentsServerLaunch, deferRareToolsEnabled } from "../laterdog/tool-loading.ts";
+import { agentsServerLaunch } from "../laterdog/tool-loading.ts";
+import { claudeCustomEndpoint, deferRareToolsFor } from "../laterdog/defer-by-model.ts";
 import { CLAUDE_PICKS_CACHE_LIFETIME, claudeCacheLifetime } from "../laterdog/cache-lifetime.ts";
 import { claudeCompactionSwitchedOff } from "../laterdog/native-compaction.ts";
 import { helpersStoppedLine } from "../laterdog/helpers-stopped.ts";
@@ -1286,7 +1287,10 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
         if (!controlsHost) allowed.push("mcp__computer");
       }
       if (turn.integrations?.agents) {
-        mcpServers.agents = agentsServerLaunch(turn.integrations.agents, deferRareToolsEnabled());
+        mcpServers.agents = agentsServerLaunch(turn.integrations.agents, deferRareToolsFor({
+          model: injected.model ?? turnEnvironment.ANTHROPIC_MODEL,
+          customEndpoint: Boolean(config.managed) || injected.injected || claudeCustomEndpoint(turnEnvironment),
+        }));
         allowed.push("mcp__agents");
       }
       if (turn.integrations?.browser) {

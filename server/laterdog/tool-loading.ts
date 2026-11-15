@@ -59,10 +59,6 @@ export const RARE_AGENT_TOOLS: readonly string[] = [
 
 const RARE = new Set(RARE_AGENT_TOOLS);
 
-export function deferRareToolsEnabled(env: NodeJS.ProcessEnv | Record<string, string | undefined> = process.env): boolean {
-  return env[DEFER_RARE_TOOLS_SETTING] !== "0";
-}
-
 export function agentsServerLaunch<T extends { env?: Record<string, string> }>(server: T, deferRare: boolean): T & { alwaysLoad: true } {
   if (!deferRare) return { ...server, alwaysLoad: true };
   return { ...server, env: { ...server.env, [AGENTS_DEFER_RARE_ENV]: "1" }, alwaysLoad: true };
