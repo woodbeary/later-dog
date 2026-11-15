@@ -231,6 +231,16 @@ describe("one copy of a repository's history", () => {
     expect(now - started).toBeLessThan(50_000);
   });
 
+  it("never takes a lock from an owner that is still alive, however old the lock", () => {
+    const lock = join(root, "old.lock");
+    mkdirSync(lock);
+    writeFileSync(join(lock, "owner"), String(process.pid));
+    const old = (Date.now() - 2 * 60 * 60_000) / 1000;
+    utimesSync(lock, old, old);
+    expect(takeLock(lock, 0)).toBeNull();
+    expect(readFileSync(join(lock, "owner"), "utf8")).toBe(String(process.pid));
+  });
+
   it("takes over a lock whose owner is gone and waits for a live one", () => {
     const lock = join(root, "x.lock");
     mkdirSync(lock);

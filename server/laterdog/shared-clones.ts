@@ -6,9 +6,8 @@ import { join, resolve } from "node:path";
 import { sizeOf } from "./janitor.ts";
 
 export const REPO_CACHE_ROOT = () => join(homedir(), ".cache", "laterdog-repos");
-export const LOCK_WAIT_MS = 60_000;
+export const LOCK_WAIT_MS = 3 * 60_000;
 export const OWNERLESS_STALE_MS = 5_000;
-export const LOCK_STALE_MS = 60 * 60_000;
 export const UNSHARED_CACHE_DAYS = 7;
 const USED_STAMP = "laterdog-used";
 
@@ -117,7 +116,7 @@ export function takeLock(path: string, waitMs: number, now: () => number = Date.
     try { owner = Number(readFileSync(join(path, "owner"), "utf8")); } catch {}
     try { since = statSync(path).mtimeMs; } catch {}
     const ownerless = !(Number.isInteger(owner) && owner > 0);
-    if ((!ownerless && !alive(owner)) || (ownerless && now() - since > OWNERLESS_STALE_MS) || now() - since > LOCK_STALE_MS) {
+    if (ownerless ? now() - since > OWNERLESS_STALE_MS : !alive(owner)) {
       rmSync(path, { recursive: true, force: true });
       continue;
     }
@@ -157,7 +156,12 @@ function build(runner: CloneRunner, cacheRoot: string, key: string, url: string)
     && refresh(runner, temp, url);
   if (!made) { rmSync(temp, { recursive: true, force: true }); return null; }
   const cache = join(cacheRoot, `${key}.git`);
-  renameSync(temp, cache);
+  try {
+    renameSync(temp, cache);
+  } catch {
+    rmSync(temp, { recursive: true, force: true });
+    return null;
+  }
   return cache;
 }
 
