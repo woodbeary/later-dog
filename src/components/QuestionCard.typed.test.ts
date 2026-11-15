@@ -150,4 +150,24 @@ describe("answering a card in your own words", () => {
       message: formatQuestionAnswers(QUESTIONS, [["Red"], ["Medium please"]]),
     })]);
   });
+
+  it("with two cards open, only the card Other was chosen on last asks for the typed answer, and the other goes back to normal", async () => {
+    const threadId = `thread-${++n}`;
+    appendComposerDraft(`bot:biscuit:${threadId}`, "gamma");
+    await act(async () => root.render(createElement(Fragment, null,
+      createElement("section", { key: "q", id: "qc" }, question(threadId)),
+      createElement("section", { key: "c", id: "cc" }, choice(threadId)),
+      createElement("div", { key: "box", "data-tour": "composer" }, createElement(Composer, { bot: dog(threadId) })))));
+    const inCard = async (id: string, name: string) => {
+      const button = [...host.querySelectorAll<HTMLButtonElement>(`#${id} button`)].find((candidate) => candidate.textContent?.trim().endsWith(name))!;
+      await act(async () => button.click());
+    };
+    await inCard("qc", "Other");
+    await inCard("cc", "Other");
+    expect([...host.querySelectorAll("[data-question-typing]")].map((note) => note.closest("section")!.id)).toEqual(["cc"]);
+    expect([...host.querySelectorAll<HTMLElement>("#qc [role=radio]")].find((radio) => radio.textContent?.endsWith("Other"))!.getAttribute("aria-checked")).toBe("false");
+    await enter();
+    expect(actions()).toEqual([expect.objectContaining({ type: "decideRequest", requestId: "req-c", message: "gamma" })]);
+    expect(host.querySelectorAll("[data-question-typing]")).toHaveLength(0);
+  });
 });

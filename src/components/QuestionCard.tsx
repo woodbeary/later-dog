@@ -12,7 +12,7 @@ import {
 import { ExpandableText } from "./ExpandableText";
 import { FoldedCard } from "./FoldedCard";
 import { answerSummary, settledAnswer } from "@/lib/settled-answer";
-import { chooseTypedAnswer, releaseTypedAnswer, type Composed } from "@/lib/typed-answer";
+import { chooseTypedAnswer, releaseTypedAnswer, useTypedAnswer, type Composed } from "@/lib/typed-answer";
 
 interface Draft {
   picked: string[];
@@ -55,6 +55,16 @@ export function QuestionCard({
   const settledNow = Boolean(card?.answered) || sent !== null || Boolean(card?.dismissed);
   useEffect(() => { if (settledNow) releaseTypedAnswer(message.id); }, [settledNow, message.id]);
   useEffect(() => () => releaseTypedAnswer(message.id), [message.id]);
+  const typing = useTypedAnswer(threadId)?.messageId === message.id;
+  useEffect(() => {
+    if (typing) return;
+    setMissing(null);
+    setDrafts((previous) => {
+      const waiting = Object.entries(previous).filter(([, entry]) => entry.other && !entry.typed.trim());
+      if (!waiting.length) return previous;
+      return { ...previous, ...Object.fromEntries(waiting.map(([index, entry]) => [index, { ...entry, other: false }])) };
+    });
+  }, [typing]);
 
   const answered = useMemo(
     () => questions.map((_, index) => answersOf(drafts[index] ?? EMPTY).length > 0),
@@ -283,7 +293,7 @@ export function QuestionCard({
             <span className="shrink-0 text-[14px] text-ink">{t("question.other")}</span>
             {draft.other && draft.typed && <span data-question-held className="min-w-0 flex-1 truncate text-[13px] text-ink-secondary">{draft.typed}</span>}
           </button>
-          {((draft.other && !draft.typed) || missing) && (
+          {((typing && draft.other && !draft.typed) || missing) && (
             <p data-question-typing className="border-t border-hairline/40 px-3 py-2 text-[12.5px] text-ink-secondary">
               {missing ? t("question.otherMissing", { name: missing }) : t("question.otherBelow")}
             </p>
