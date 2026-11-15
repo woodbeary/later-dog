@@ -122,6 +122,13 @@ describe("the one sentence the person sees about disk", () => {
     expect(watch.warning({ totalBytes: TOTAL, freeBytes: 0.3 * TOTAL })).toBeNull();
   });
 
+  it("waits for the next full pass when the disk falls back to the floor after a pass that freed enough", () => {
+    const { ladder } = ladderAt(0.03, 0.2);
+    const watch = floorWatch();
+    watch.climbed(ladder.climb());
+    expect(watch.warning({ totalBytes: TOTAL, freeBytes: 0.03 * TOTAL })).toBeNull();
+  });
+
   it("is the sentence the person was promised, word for word", () => {
     expect(FLOOR_SENTENCE).toBe("Your Cloud is nearly full. later.dog has cleared everything it safely can; the rest is your dogs' work. Open Storage to choose what to remove.");
   });
