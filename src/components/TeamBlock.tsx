@@ -16,6 +16,7 @@ export const TEAM_SHOWN = 6;
 
 const STATE_WORDS: Record<TeamState, LocaleKey> = {
   Sent: "chat.team.state.sent",
+  "Asked again": "chat.team.state.askedAgain",
   "Waiting its turn": "chat.team.state.queued",
   Working: "chat.team.state.working",
   "Needs you": "chat.team.state.needsYou",

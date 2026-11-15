@@ -6,7 +6,7 @@ import { exchangeRow, sentExchange, type ExchangeItem, type ExchangeRow, type Qu
 import { bareToolName } from "./tool-words";
 
 export type TeamState =
-  | "Sent" | "Waiting its turn" | "Working" | "Needs you" | "Done"
+  | "Sent" | "Asked again" | "Waiting its turn" | "Working" | "Needs you" | "Done"
   | "Stopped by you" | "Stopped" | "Stopped by a local tool" | "Was interrupted" | "Removed"
   | "The chat that asked was deleted" | "Nothing moved for too long" | "Ran out of time" | "Timed out twice"
   | "Reached the longest a task runs alone" | "Never got started" | "Too many requests to the team"
@@ -78,7 +78,7 @@ export interface TeamRow {
 }
 
 export const SETTLED: ReadonlySet<TeamState> = new Set<TeamState>([
-  "Done", "Stopped by you", "Stopped", "Stopped by a local tool", "Was interrupted", "Removed",
+  "Done", "Asked again", "Stopped by you", "Stopped", "Stopped by a local tool", "Was interrupted", "Removed",
   "The chat that asked was deleted", "Nothing moved for too long", "Ran out of time", "Timed out twice",
   "Reached the longest a task runs alone", "Never got started", "Too many requests to the team",
   "Stopped when later.dog restarted", "Couldn't go on", "Couldn't finish",
@@ -275,7 +275,10 @@ export function teamRows(
   waitingOn: readonly WireWaitingOn[] = [],
   present?: (botId: string) => boolean,
 ): TeamRow[] {
-  return team.asks.map((ask) => ({ ask, gist: gistOf(ownRecord(ask)?.request), state: teamState(ask, team, thread, waitingOn, present) }));
+  const rows = team.asks.map((ask) => ({ ask, gist: gistOf(ownRecord(ask)?.request), state: teamState(ask, team, thread, waitingOn, present) }));
+  return rows.map((row, index) => row.state === "Sent" && rows.slice(index + 1).some((later) => later.ask.row.withBotId === row.ask.row.withBotId && later.state !== "Sent")
+    ? { ...row, state: "Asked again" as const }
+    : row);
 }
 
 export function teamHeading(rows: readonly TeamRow[]): { dogs: number; done: number } {
@@ -285,7 +288,7 @@ export function teamHeading(rows: readonly TeamRow[]): { dogs: number; done: num
 
 function urgency(state: TeamState): number {
   if (state === "Needs you") return 0;
-  if (SETTLED.has(state) && state !== "Done") return 1;
+  if (SETTLED.has(state) && state !== "Done" && state !== "Asked again") return 1;
   return 2;
 }
 

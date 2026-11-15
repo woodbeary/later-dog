@@ -973,6 +973,7 @@
   "chat.team.unreachedNamed": "Couldn't reach {names}",
   "chat.team.open": "Open {name}'s chat for this",
   "chat.team.state.sent": "Sent",
+  "chat.team.state.askedAgain": "Asked again",
   "chat.team.state.queued": "Waiting its turn",
   "chat.team.state.working": "Working",
   "chat.team.state.needsYou": "Needs you",

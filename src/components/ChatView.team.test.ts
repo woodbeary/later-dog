@@ -153,7 +153,7 @@ describe("a turn's hand-outs as one team block", () => {
       said("asked", START + 30_000, "Asked both."),
       { id: "heard", role: "bot", kind: "activity", at: START + 5 * MINUTE, from: { botId: a.id, name: a.name, color: "blue" }, comm: comm(a, "from"), tool: { name: `Message from @${a.name}`, ok: true } },
     ], ["h7"]);
-    expect(blocks()).toEqual([{ heading: "Asked 2 dogs · 1 done", rows: ["Gorse: Removed", "Birch: Sent", "Birch: Done"] }]);
+    expect(blocks()).toEqual([{ heading: "Asked 2 dogs · 1 done", rows: ["Gorse: Removed", "Birch: Asked again", "Birch: Done"] }]);
     expect(quietRows()).toHaveLength(1);
   });
 
