@@ -283,9 +283,9 @@ export function sameCardReceipt(first: QueuedSend, withWords: boolean): Response
   } catch {
     text = undefined;
   }
-  const words = withWords && typeof text === "string" && text.length <= HELD_ANSWER_TEXT_MAX ? { text } : {};
+  const told = withWords && typeof text === "string" && text.length <= HELD_ANSWER_TEXT_MAX;
   return Response.json(
-    { ok: true, queued: true, queueId: first.id, at: first.at, ...(first.threadId ? { threadId: first.threadId } : {}), ...(cardId ? { cardId } : {}), ...words },
+    told ? { ok: true, queued: true, queueId: first.id, at: first.at, ...(first.threadId ? { threadId: first.threadId } : {}), ...(cardId ? { cardId } : {}), text } : { ok: true, queued: true, ...(cardId ? { cardId } : {}) },
     { status: 202, headers: { "cache-control": "no-store" } },
   );
 }

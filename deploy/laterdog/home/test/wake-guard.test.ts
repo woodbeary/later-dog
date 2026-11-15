@@ -791,7 +791,7 @@ describe("card answers the edge holds for the person", () => {
       const guestPost = { method: "POST", headers: { ...asGuest().headers, "content-type": "application/json" }, body: JSON.stringify({ text: "No", sendId: GUEST_SEND, threadId: "t-owner", cardId: "card-1", oneAnswer: true }) };
       const answer = await visit("/api/bots/rex/messages", guestPost);
       expect(answer.status).toBe(202);
-      expect(await answer.text()).not.toContain("the private one");
+      expect(await answer.json()).toEqual({ ok: true, queued: true, cardId: "card-1" });
     });
 
     it("never lists a guest's card answer to the owner's phone", async () => {
