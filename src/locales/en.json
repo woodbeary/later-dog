@@ -1098,6 +1098,7 @@
   "chat.activity.peek": "See progress",
   "chat.plan": "Plan",
   "chat.plan.progress": "{done} of {total} done",
+  "chat.plan.dated": "Plan from {time} · may be out of date",
   "chat.plan.show": "Show the plan",
   "chat.plan.hide": "Hide the plan",
   "chat.activity.summary": "Progress summary",

@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Check, ChevronDown, ChevronRight, Circle, Loader2 } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { t } from "@/lib/i18n";
+import { formatTime } from "@/state/store";
 import { planDoneCount, type PlanItem, type WirePlan } from "../../shared/dog-plan";
 
 export function PlanChecklist({ items, working, label }: { items: readonly PlanItem[]; working: boolean; label: string }) {
@@ -22,11 +23,18 @@ export function PlanChecklist({ items, working, label }: { items: readonly PlanI
   );
 }
 
-export function DogPlan({ plan, working }: { plan?: WirePlan | null; working: boolean }) {
+export function DogPlan({ plan, working, stale = false }: { plan?: WirePlan | null; working: boolean; stale?: boolean }) {
   const [open, setOpen] = useState(false);
   if (!plan?.items.length) return null;
   const progress = t("chat.plan.progress", { done: planDoneCount(plan), total: plan.items.length });
-  if (working) return <div className="ml-11 max-w-[520px]" data-dog-plan="open"><PlanChecklist items={plan.items} working label={t("chat.plan")} /></div>;
+  if (working) {
+    return (
+      <div className="ml-11 max-w-[520px]" data-dog-plan="open">
+        {stale && <p data-plan-dated className="mb-1 text-[12px] text-ink-tertiary">{t("chat.plan.dated", { time: formatTime(plan.updatedAt) })}</p>}
+        <PlanChecklist items={plan.items} working={!stale} label={t("chat.plan")} />
+      </div>
+    );
+  }
   return (
     <div className="-mt-3 max-w-[520px]" data-dog-plan={open ? "open" : "folded"}>
       <button
