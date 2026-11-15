@@ -61,14 +61,18 @@ export const FRESH_COMPUTER_OFFER = "call run_on_computer again with fresh: true
   + "but nothing that lived only on the old computer comes along: installed packages, browser sign-ins, downloads and files never brought back here. "
   + "The old computer is set aside for 7 days, not deleted";
 
-export function didNotStartText(reason?: string, options: { fresh?: boolean } = {}): string {
+export interface DidNotStartOptions { fresh?: boolean; failed?: boolean }
+
+export function didNotStartText(reason?: string, options: DidNotStartOptions = {}): string {
   const choices = options.fresh
     ? `do light work in your folder here; ${FRESH_COMPUTER_OFFER}; or tell the person what you could not do.`
-    : "do light work in your folder here; call run_on_computer again in a few minutes; or tell the person what you could not do.";
+    : options.failed
+      ? "do light work in your folder here; or tell the person what you could not do, and that your cloud computer did not start, so they can reset it in Settings."
+      : "do light work in your folder here; call run_on_computer again in a few minutes; or tell the person what you could not do.";
   return `Your cloud computer did not start. ${bootFailure(reason) ?? UNKNOWN_START_FAILURE} Nothing was run, and waiting longer will not help. Choose one instead: ${choices}`;
 }
 
-export function didNotStart(reason?: string, options: { fresh?: boolean } = {}): Error & { code: typeof DID_NOT_START_CODE } {
+export function didNotStart(reason?: string, options: DidNotStartOptions = {}): Error & { code: typeof DID_NOT_START_CODE } {
   return Object.assign(new Error(didNotStartText(reason, options)), { code: DID_NOT_START_CODE });
 }
 

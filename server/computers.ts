@@ -89,6 +89,8 @@ function unavailable(error: unknown): unknown {
 }
 
 const starts = createStartWatch(() => cloudComputerStartBudgetMs());
+const replaceAllowed = () => !(trialInUse() && !ownComputersChosen());
+const failedStart = () => ({ fresh: replaceAllowed(), failed: true });
 const computerIds = new Map<string, string>();
 const cacheKey = (client: ComputersClient, botId: string) => `${client.api}\0${botId}`;
 const forget = (id: string) => { for (const [key, cached] of computerIds) if (cached === id) computerIds.delete(key); };
@@ -146,7 +148,7 @@ async function waitRunning(client: ComputersClient, id: string, budgetMs: number
               console.warn(`cloud computer ${id}: the service could not start it (${refused} of ${REFUSED_START_TRIES}): ${error.message}`);
               if (refused >= REFUSED_START_TRIES) {
                 starts.failed(id, error.message);
-                throw didNotStart(error.message, { fresh: true });
+                throw didNotStart(error.message, failedStart());
               }
               wakeAfter = Date.now() + REFUSED_START_SPACING_MS;
               failure = didNotStart(error.message);
@@ -494,7 +496,7 @@ export async function freshComputer(botId: string, options: { repository?: strin
       ? "Your cloud computer stopped while it was running; it did not fail to start, so it was kept, not replaced. Call run_on_computer again without fresh to wake it and try again."
       : "Your cloud computer did not fail to start, so it was kept, not replaced. Call run_on_computer again without fresh.");
   }
-  if (trialInUse() && !ownComputersChosen()) {
+  if (!replaceAllowed()) {
     throw notReplaced("The free trial has one cloud computer, so it cannot be replaced while the old one is kept. Tell the person your cloud computer did not start.");
   }
   try { await client.rename(found.id, keptName(botId, Date.now())); }
@@ -525,10 +527,10 @@ export async function heavyRunBox(botId: string, options: { repository?: string;
   const entry = computer.state;
   if (entry === "error") {
     const current = await client.get(computer.id).catch(() => null);
-    if (startFailed(current)) throw didNotStart(current?.error, { fresh: true });
+    if (startFailed(current)) throw didNotStart(current?.error, failedStart());
   }
   const refusedStart = entry === "running" ? undefined : starts.failure(computer.id);
-  if (refusedStart !== undefined) throw didNotStart(refusedStart, { fresh: true });
+  if (refusedStart !== undefined) throw didNotStart(refusedStart, failedStart());
   if (entry === "unknown") throw new Error("your cloud computer is in a state later.dog does not know, so it was not woken and nothing was run");
   if (entry === "starting" && starts.spent(computer.id)) throw didNotStart();
   if (entry === "archived") starts.waking(computer.id);
@@ -542,7 +544,7 @@ export async function heavyRunBox(botId: string, options: { repository?: string;
     const state = current ? asBoatState(current.state) : "unknown";
     if (current && state === "starting") starts.starting(computer.id, current.lastStart?.generation);
     if (state === "starting" && !starts.spent(computer.id)) throw Object.assign(new Error("your cloud computer is still starting, so nothing was run yet"), { code: "still_starting" });
-    if (state === "starting" || state === "error") throw didNotStart(current?.error, { fresh: startFailed(current) });
+    if (state === "starting" || state === "error") throw didNotStart(current?.error, startFailed(current) ? failedStart() : {});
     throw new Error(`your cloud computer did not start within ${Math.round(budgetMs / 1000)} seconds; try again in a minute`);
   }
   starts.settled(computer.id);

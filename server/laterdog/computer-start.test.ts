@@ -84,6 +84,10 @@ describe("the answer when a computer did not start", () => {
       + "Your folders here stay and are sent again, but nothing that lived only on the old computer comes along: installed packages, browser sign-ins, "
       + "downloads and files never brought back here. The old computer is set aside for 7 days, not deleted; or tell the person what you could not do.",
     );
+    expect(didNotStartText("The computer stopped while starting.", { failed: true })).toBe(
+      "Your cloud computer did not start. It stopped while starting. Nothing was run, and waiting longer will not help. Choose one instead: "
+      + "do light work in your folder here; or tell the person what you could not do, and that your cloud computer did not start, so they can reset it in Settings.",
+    );
     expect(didNotStartText("The computer stopped while restoring its snapshot.")).toMatch(/^Your cloud computer did not start\. It stopped while bringing back its saved files\. /);
     expect(didNotStartText("The computer stopped while starting.")).toMatch(/^Your cloud computer did not start\. It stopped while starting\. /);
     expect(didNotStartText("The computer could not start: RPC to container-host-12 failed")).toMatch(/^Your cloud computer did not start\. The cloud could not start it\. /);

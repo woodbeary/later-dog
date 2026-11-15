@@ -637,6 +637,29 @@ describe("the cloud computer facade", () => {
       } finally { warn.mockRestore(); }
     });
 
+    it("offers a fresh computer only where a replace is allowed, so never to a free trial dog", async () => {
+      const trialHome = mkdtempSync(join(tmpdir(), "laterdog-trial-fresh-"));
+      try {
+        vi.stubEnv("LATERDOG_HOME", trialHome);
+        vi.stubEnv("LATERDOG_COMPUTERS_API", "");
+        writeFileSync(join(trialHome, "computers-trial-key"), `${TRIAL_KEY}\n`, { mode: 0o600 });
+        writeFileSync(join(trialHome, "computers-trial.json"), JSON.stringify({ api: `http://127.0.0.1:${port}/v1`, confirmed: true }));
+        const broken = add("dog-trial-broken", "error");
+        broken.error = "The desktop did not become ready within 5 minutes.";
+        broken.lastStart = { generation: 2, outcome: "failed" };
+        const told = await computers.heavyRunBox("dog-trial-broken").catch((error: Error) => error.message);
+        expect(told).toMatch(/^Your cloud computer did not start\. It did not finish starting within 5 minutes\. Nothing was run/);
+        expect(told).not.toMatch(/fresh|again in a few minutes/);
+        expect(told).toMatch(/reset it in Settings\.$/);
+        await expect(computers.freshComputer("dog-trial-broken")).rejects.toMatchObject({ code: "not_replaced" });
+        expect(creates()).toHaveLength(0);
+        expect(wakes()).toBe(0);
+      } finally {
+        vi.stubEnv("LATERDOG_HOME", undefined);
+        rmSync(trialHome, { recursive: true, force: true });
+      }
+    });
+
     it("tells the dog the reason the computer gave for not starting", async () => {
       const computer = add("dog-heavy-reason", "error");
       computer.error = "The computer stopped while restoring its snapshot.";
