@@ -715,6 +715,7 @@ import { roomIdentityPrompt } from "./laterdog/room-prompt.ts";
 import { groupChatsOf } from "./laterdog/group-chats.ts";
 import { groupRoutineReply, SILENT_GROUP_ROUTINE } from "./laterdog/group-routine-reply.ts";
 import { botNames, dogActivityWords, teammateDoneLabel, teammateResultLabel } from "./laterdog/activity-words.ts";
+import { dropContinuation } from "./laterdog/dropped-continuation.ts";
 import { INCLUDED_AI_INSTANCE, INCLUDED_AI_INSTANCES } from "./laterdog/included-ai.ts";
 import { createPhonePush } from "./laterdog/phone-push.ts";
 import { cloudEmailDelivery } from "./laterdog/email-me.ts";
@@ -2574,6 +2575,7 @@ function settleDirectCoordination(generation: string | undefined, outcome: Direc
   directCoordinationSettlers.delete(generation);
   settle?.(outcome);
 }
+const droppedContinuations = { settle: (generation: string, outcome: DirectTurnOutcome) => settleDirectFollowup(generation, outcome), log: (line: string) => console.info(line) };
 function settleDirectFollowup(generation: string | undefined, outcome: DirectTurnOutcome = { ok: false, text: "The coordinated turn was interrupted" }): void {
   if (!generation) return;
   settleDirectCoordination(generation, outcome);
@@ -6767,11 +6769,12 @@ function continueOnNextAccount(threadId: string, turnId: string | undefined, gen
     const owner = store.botByThread(threadId);
     const turn = accountBattery.keptTurn(threadId, generation);
     if (!owner || !turn?.rerun || directTurnGenerationByThread.get(threadId) !== generation) {
-      console.info(`token battery: ${threadId} continuation superseded`);
+      if (!owner || directTurnGenerationByThread.get(threadId) !== generation) dropContinuation(droppedContinuations, threadId, generation, "superseded");
+      else console.info(`token battery: ${threadId} continuation already taken`);
       return;
     }
     if (directRequestOwners.get(threadId)?.stopped || !accountBattery.enabled) {
-      console.info(`token battery: ${threadId} continuation cancelled`);
+      dropContinuation(droppedContinuations, threadId, generation, "cancelled");
       limitHold.release(threadId);
       return;
     }
@@ -6809,7 +6812,7 @@ function continueOnNextAccount(threadId: string, turnId: string | undefined, gen
       store.appendMessage(threadId, { role: "bot", kind: "activity",
         tool: failedTurnTool(`Could not continue on ${name(next.to)}: ${error instanceof Error ? error.message : String(error)}`) });
     });
-  }).catch((error) => console.warn(`token battery: ${threadId} continuation failed: ${error instanceof Error ? error.message : String(error)}`));
+  }).catch((error) => dropContinuation(droppedContinuations, threadId, generation, "failed", error instanceof Error ? error.message : String(error)));
 }
 
 function carryOnInput(threadId: string): (CarryOnInput & { botId: string }) | undefined {
@@ -7570,7 +7573,10 @@ bus.subscribe(guardTurnEnd((event: RuntimeEvent) => {
             releaseLocalVmThread(event.threadId);
           }
           releaseTurnResources(resourceOwner);
-          if (!isCurrent()) return;
+          if (!isCurrent()) {
+            if (nextAccount) dropContinuation(droppedContinuations, event.threadId, generation, "superseded");
+            return;
+          }
           if (store.taskByThread(bot.id, event.threadId)?.activity !== "dead") {
             store.setTaskActivity(bot.id, event.threadId, resourceOwner?.computerParkedOn !== undefined ? "parked.computer" : "idle");
           }
