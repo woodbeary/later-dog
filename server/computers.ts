@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 
 import * as boat from "./boat.ts";
 import { cloudComputerStartBudgetMs } from "./laterdog/cloud-start.ts";
-import { bootFailure, createStartWatch, didNotStart } from "./laterdog/computer-start.ts";
+import { REFUSED_START_SPACING_MS, REFUSED_START_TRIES, START_REFUSED_CODE, bootFailure, createStartWatch, didNotStart } from "./laterdog/computer-start.ts";
 import type { BoatIdentityInspection, ManagedBoatInventory, ManagedBoatInventoryInstance, ManagedBoatMutationClaim, ManagedBoatOwner } from "./boat.ts";
 import { DATA_DIR, type AppConfig } from "./config.ts";
 import { loadEnvironmentId } from "./environment.ts";
@@ -114,7 +114,7 @@ async function waitRunning(client: ComputersClient, id: string, budgetMs: number
   const { wanted, wake = true } = watch;
   const deadline = Date.now() + budgetMs;
   const untilDeadline = () => AbortSignal.timeout(Math.max(1, deadline - Date.now()));
-  let woke = false; let failure: unknown = null; let seenStarting = false;
+  let woke = false; let failure: unknown = null; let seenStarting = false; let refused = 0; let wakeAfter = 0;
   try {
     while (Date.now() < deadline) {
       if (wanted && !wanted()) return null;
@@ -131,7 +131,7 @@ async function waitRunning(client: ComputersClient, id: string, budgetMs: number
         if (state === "running") return own(current);
         if (state === "starting") { seenStarting = true; starts.starting(id, current.lastStart?.generation); }
         if (state === "error" && (woke || (wanted && seenStarting))) return null;
-        if (state === "archived" || state === "error") {
+        if ((state === "archived" || state === "error") && Date.now() >= wakeAfter) {
           if (!wake || (wanted && !wanted())) return null;
           try {
             const woken = await client.wake(id, { signal: untilDeadline(), ...(repository ? { repository } : {}) });
@@ -141,7 +141,16 @@ async function waitRunning(client: ComputersClient, id: string, budgetMs: number
           } catch (error) {
             if (!(error instanceof ComputersApiError)) throw error;
             if (TRIAL_STOPS.has(error.code ?? "")) throw refusal(error);
-            if (error.httpStatus !== 409) {
+            if (error.code === START_REFUSED_CODE) {
+              refused += 1;
+              console.warn(`cloud computer ${id}: the service could not start it (${refused} of ${REFUSED_START_TRIES}): ${error.message}`);
+              if (refused >= REFUSED_START_TRIES) {
+                starts.failed(id, error.message);
+                throw didNotStart(error.message, { fresh: true });
+              }
+              wakeAfter = Date.now() + REFUSED_START_SPACING_MS;
+              failure = didNotStart(error.message);
+            } else if (error.httpStatus !== 409) {
               if (error.httpStatus > 0 && error.httpStatus < 500) throw refusal(error);
               failure = refusal(error);
             }
@@ -480,7 +489,7 @@ export async function freshComputer(botId: string, options: { repository?: strin
   const found = await findOwn(client, botId);
   if (!found) return { replaced: false };
   const current = await client.get(found.id).catch((error: unknown) => { throw refusal(error); });
-  if (!startFailed(current)) {
+  if (!startFailed(current) && starts.failure(found.id) === undefined) {
     throw notReplaced(current?.state === "error"
       ? "Your cloud computer stopped while it was running; it did not fail to start, so it was kept, not replaced. Call run_on_computer again without fresh to wake it and try again."
       : "Your cloud computer did not fail to start, so it was kept, not replaced. Call run_on_computer again without fresh.");
@@ -518,6 +527,8 @@ export async function heavyRunBox(botId: string, options: { repository?: string;
     const current = await client.get(computer.id).catch(() => null);
     if (startFailed(current)) throw didNotStart(current?.error, { fresh: true });
   }
+  const refusedStart = entry === "running" ? undefined : starts.failure(computer.id);
+  if (refusedStart !== undefined) throw didNotStart(refusedStart, { fresh: true });
   if (entry === "unknown") throw new Error("your cloud computer is in a state later.dog does not know, so it was not woken and nothing was run");
   if (entry === "starting" && starts.spent(computer.id)) throw didNotStart();
   if (entry === "archived") starts.waking(computer.id);

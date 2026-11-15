@@ -605,6 +605,38 @@ describe("the cloud computer facade", () => {
       expect(creates()).toHaveLength(0);
     });
 
+    it("tries a wake the service could not start three times over about 30 seconds, then tells the dog in plain words and offers a fresh computer", async () => {
+      const computer = add("dog-heavy-refused", "sleeping");
+      pollStepMs = 10_000;
+      failures.set(`POST /v1/computers/${computer.id}/wake`, { status: 502, error: { code: "start_failed", message: "The computer could not start: placement failed on host-7 in colo SJC" }, times: 10_000 });
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+      try {
+        const started = Date.now();
+        const told = await computers.heavyRunBox("dog-heavy-refused", { budgetMs: 240_000 }).catch((error: Error & { code?: string }) => error);
+        expect(told).toMatchObject({ code: "did_not_start", message: expect.stringMatching(/^Your cloud computer did not start\. The cloud could not start it\. Nothing was run.* with fresh: true/) });
+        expect((told as Error).message).not.toMatch(/placement|host-7|colo/);
+        expect(wakes()).toBe(3);
+        expect(Date.now() - started).toBeGreaterThanOrEqual(30_000);
+        expect(Date.now() - started).toBeLessThan(90_000);
+        expect(warn.mock.calls.map((call) => String(call[0])).filter((line) => line.includes("placement failed on host-7"))).toHaveLength(3);
+        await expect(computers.heavyRunBox("dog-heavy-refused")).rejects.toMatchObject({ code: "did_not_start", message: expect.stringMatching(/with fresh: true/) });
+        expect(wakes()).toBe(3);
+        expect(await computers.freshComputer("dog-heavy-refused")).toEqual({ replaced: true, keptDays: 7 });
+        expect(creates()).toHaveLength(1);
+      } finally { warn.mockRestore(); }
+    });
+
+    it("runs once a wake the service could not start succeeds on a later try", async () => {
+      const computer = add("dog-heavy-refused-once", "sleeping");
+      pollStepMs = 10_000;
+      failures.set(`POST /v1/computers/${computer.id}/wake`, { status: 502, error: { code: "start_failed", message: "The computer could not start: busy" }, times: 2 });
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+      try {
+        expect(await computers.heavyRunBox("dog-heavy-refused-once", { budgetMs: 240_000 })).toMatchObject({ box: expect.anything() });
+        expect(wakes()).toBe(3);
+      } finally { warn.mockRestore(); }
+    });
+
     it("tells the dog the reason the computer gave for not starting", async () => {
       const computer = add("dog-heavy-reason", "error");
       computer.error = "The computer stopped while restoring its snapshot.";

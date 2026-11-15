@@ -5,10 +5,13 @@ export interface StartWatch {
   leftMs(id: string): number;
   spent(id: string): boolean;
   exhaust(id: string): void;
+  failed(id: string, reason: string): void;
+  failure(id: string): string | undefined;
 }
 
 export function createStartWatch(budgetMs: () => number, now: () => number = () => Date.now()): StartWatch {
   const attempts = new Map<string, { since: number; generation?: number }>();
+  const failures = new Map<string, string>();
   const leftMs = (id: string) => {
     const attempt = attempts.get(id);
     return attempt === undefined ? budgetMs() : budgetMs() - (now() - attempt.since);
@@ -21,10 +24,12 @@ export function createStartWatch(budgetMs: () => number, now: () => number = () 
         attempts.set(id, { since: now(), ...(generation !== undefined ? { generation } : {}) });
       } else if (generation !== undefined && attempt.generation === undefined) attempt.generation = generation;
     },
-    settled: (id) => { attempts.delete(id); },
+    settled: (id) => { attempts.delete(id); failures.delete(id); },
     leftMs,
     spent: (id) => attempts.has(id) && leftMs(id) <= 0,
     exhaust: (id) => { attempts.set(id, { ...attempts.get(id), since: now() - budgetMs() }); },
+    failed: (id, reason) => { failures.set(id, reason); },
+    failure: (id) => failures.get(id),
   };
 }
 
@@ -33,6 +38,10 @@ export const START_RAN_OUT = "the cloud computer didn't start in time";
 export function startRanOutOfTime(error: unknown): boolean {
   return error instanceof Error && error.message === START_RAN_OUT;
 }
+
+export const START_REFUSED_CODE = "start_failed";
+export const REFUSED_START_TRIES = 3;
+export const REFUSED_START_SPACING_MS = 15_000;
 
 export const DID_NOT_START_CODE = "did_not_start" as const;
 
