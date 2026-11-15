@@ -207,7 +207,7 @@ export interface DogRole {
 }
 
 const GENERAL_ROLE = /\b(assistant|personal|general|everything|life|home|family|household|chief|errands?)\b/i;
-const MONEY_ROLE = /\b(pay\w*|money|financ\w*|bank\w*|book\s?keep\w*|accounts?|accounting|invoic\w*|tax\w*|bills?|budget\w*|shop\w*|purchas\w*|sales|payroll)\b/i;
+const MONEY_ROLE = /\b(pay\w*|money|financ\w*|bank\w*|book\s?keep\w*|accounting|receivab\w*|invoic\w*|tax\w*|bills?|budget\w*|shop\w*|purchas\w*|sales|payroll)\b/i;
 const HEALTH_ROLE = /\b(health\w*|medic\w*|doctor|nurse|care\w*|kids?|child\w*|baby|babies|parent\w*|mom|dad|pharm\w*|wellness)\b/i;
 
 export function safetyBlocksFor(role: DogRole | undefined): { payments: boolean; medicine: boolean } {
