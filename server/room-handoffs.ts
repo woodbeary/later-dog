@@ -541,6 +541,7 @@ export class RoomHandoffs {
       void this.hooks.run(n, resumed, controller.signal).then(result => {
         if (terminal(n)) return;
         n.restarted = undefined;
+        if (result.ok) delete n.retried;
         n.result = result.text.slice(0, 12_000);
         n.results = result.results;
         if (this.hooks.needsYou?.(n)) {

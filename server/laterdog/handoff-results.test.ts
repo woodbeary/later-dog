@@ -398,6 +398,27 @@ describe("a last results turn that fails", () => {
     }));
   }
 
+  it("is still tried once more after an earlier results turn used its retry and then succeeded", () => team(async t => {
+    const run = t.hooks.run;
+    let leadRuns = 0;
+    t.hooks.run = vi.fn(async (node: RoomHandoff, resumed: boolean, signal: AbortSignal) => {
+      if (node.botId === lead.botId && resumed) {
+        leadRuns++;
+        if (leadRuns === 1) { t.clock.at += 1; return { ok: false, timedOut: true, text: "timed out" }; }
+        if (leadRuns === 3) return { ok: false, text: "engine error" };
+      }
+      return run(node, resumed, signal);
+    });
+    sendThree(t.engine);
+    await t.settle();
+    t.finish("pip"); t.finish("quill"); await t.settle();
+    t.clock.at += RESULT_QUIET_MS; await t.settle();
+    t.finish("rook"); await t.settle();
+    expect(leadRuns).toBe(4);
+    expect(t.engine.nodes.get("turn")?.status).toBe("completed");
+    expect(t.wakes().at(-1)).toEqual({ fresh: ["rook"], earlier: ["pip", "quill"], out: [] });
+  }));
+
   it("stops after the second failure and leaves its results marked as not delivered", () => team(async t => {
     let runs = 0;
     const run = t.hooks.run;

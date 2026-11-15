@@ -884,7 +884,8 @@ describe("long work for the owner's auto dogs", () => {
     const { node } = engine.enqueue(chief, "turn", undefined, builder, "build", "Build it");
     engine.sourceSettled("turn", true);
     await settle(engine, 8);
-    expect(node).toMatchObject({ status: "completed", result: "built", retried: true });
+    expect(node).toMatchObject({ status: "completed", result: "built" });
+    expect(calls).toBe(2);
     expect(engine.nodes.get("turn")?.status).toBe("completed");
   }));
 
