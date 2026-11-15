@@ -196,6 +196,24 @@ describe("a turn's hand-outs as one team block", () => {
     expect(last.textContent).not.toContain("Queued");
   });
 
+  it("lets only an older home's first reply settle the ask, so a later question from the helper shows at the bottom even when the person never wrote", async () => {
+    const a = HELPERS[1]!;
+    const plain = (id: string, at: number, text: string): Message => ({ id, role: "bot", kind: "activity", at, from: { botId: a.id, name: a.name, color: "blue" }, comm: comm(a, "from"), tool: { name: `Message from @${a.name}: ${text}`, ok: true } });
+    await draw([
+      you("open", START, "Ask Birch."),
+      asked(a, START + 10_000), sent(a, START + 10_200, null),
+      said("asked", START + MINUTE, "Asked."),
+      plain("first", START + 2 * MINUTE, "Done with the lane."),
+      said("done", START + 3 * MINUTE, "Birch is done.", "turn-2"),
+      plain("later", START + 40 * MINUTE, "I found a bug in the export, should I fix it?"),
+      said("yes", START + 41 * MINUTE, "Yes, go ahead and fix it.", "turn-3"),
+    ]);
+    expect(blocks()).toEqual([{ heading: "Asked 1 dog · 1 done", rows: ["Birch: Done"] }]);
+    const order = [...document.querySelectorAll("[data-mid]")].map((node) => node.getAttribute("data-mid")).filter((id) => id === "later" || id === "yes");
+    expect(order).toEqual(["later", "yes"]);
+    expect(quietRows().some((row) => row.closest("[data-mid]")?.getAttribute("data-mid") === "later")).toBe(true);
+  });
+
   it("puts helpers that need the person or failed first, so none is ever behind Show all", async () => {
     const many: Helper[] = Array.from({ length: 9 }, (_, index) => ({ id: `m${index}`, name: `Many${index}`, status: index === 7 ? "needs-you" : index === 8 ? "failed" : "running" }));
     await draw([
