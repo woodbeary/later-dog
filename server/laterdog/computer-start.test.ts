@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { START_RAN_OUT, cloudDidNotStart, createStartWatch, didNotStart, didNotStartText, startRanOutOfTime } from "./computer-start.ts";
+import { START_RAN_OUT, cloudDidNotStart, createStartWatch, didNotStart, didNotStartText, replacedRow, replacedText, startRanOutOfTime } from "./computer-start.ts";
 
 describe("the start watch", () => {
   it("counts one start from the first time it is seen starting, across calls, until the budget is spent", () => {
@@ -76,9 +76,13 @@ describe("the answer when a computer did not start", () => {
   it("says it once, plainly, with a plain sentence for each known reason and no internal words", () => {
     expect(didNotStartText("The desktop did not become ready within 5 minutes.")).toBe(
       "Your cloud computer did not start. It did not finish starting within 5 minutes. Nothing was run, and waiting longer will not help. "
-      + "Choose one instead: do light work in your folder here; call run_on_computer again with fresh: true to replace it with a new cloud computer "
-      + "(your folders here stay, and are sent again; only what lived on the old computer alone, such as installed packages, is gone); "
-      + "or tell the person what you could not do.",
+      + "Choose one instead: do light work in your folder here; call run_on_computer again in a few minutes; or tell the person what you could not do.",
+    );
+    expect(didNotStartText("The desktop did not become ready within 5 minutes.", { fresh: true })).toBe(
+      "Your cloud computer did not start. It did not finish starting within 5 minutes. Nothing was run, and waiting longer will not help. "
+      + "Choose one instead: do light work in your folder here; call run_on_computer again with fresh: true to get a new cloud computer. "
+      + "Your folders here stay and are sent again, but nothing that lived only on the old computer comes along: installed packages, browser sign-ins, "
+      + "downloads and files never brought back here. The old computer is set aside for 7 days, not deleted; or tell the person what you could not do.",
     );
     expect(didNotStartText("The computer stopped while restoring its snapshot.")).toMatch(/^Your cloud computer did not start\. It stopped while bringing back its saved files\. /);
     expect(didNotStartText("The computer stopped while starting.")).toMatch(/^Your cloud computer did not start\. It stopped while starting\. /);
@@ -87,5 +91,12 @@ describe("the answer when a computer did not start", () => {
     expect(didNotStartText("something nobody planned for")).toMatch(/^Your cloud computer did not start\. The computer could not start\. Nothing was run/);
     expect(didNotStartText()).toMatch(/^Your cloud computer did not start\. The computer could not start\. Nothing was run/);
     expect(didNotStart("  ")).toMatchObject({ code: "did_not_start", message: expect.stringMatching(/^Your cloud computer did not start\. The computer could not start\./) });
+  });
+});
+
+describe("what a dog and the person are told after a replace", () => {
+  it("says the old computer was set aside, for how long, and that what lived only on it did not come along", () => {
+    expect(replacedText(7)).toBe("Your old cloud computer did not start, so it was replaced with a new one. The old one is set aside for 7 days; nothing that lived only on it came along.");
+    expect(replacedRow("Scout", 7)).toBe("Scout's cloud computer did not start, so it was replaced with a new one; the old one is set aside for 7 days.");
   });
 });

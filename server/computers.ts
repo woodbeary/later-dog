@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 
 import * as boat from "./boat.ts";
 import { cloudComputerStartBudgetMs } from "./laterdog/cloud-start.ts";
-import { createStartWatch, didNotStart } from "./laterdog/computer-start.ts";
+import { bootFailure, createStartWatch, didNotStart } from "./laterdog/computer-start.ts";
 import type { BoatIdentityInspection, ManagedBoatInventory, ManagedBoatInventoryInstance, ManagedBoatMutationClaim, ManagedBoatOwner } from "./boat.ts";
 import { DATA_DIR, type AppConfig } from "./config.ts";
 import { loadEnvironmentId } from "./environment.ts";
@@ -157,8 +157,8 @@ async function waitRunning(client: ComputersClient, id: string, budgetMs: number
   return null;
 }
 
-async function createOwn(client: ComputersClient, botId: string, name: string, size?: string, repository?: string): Promise<OwnComputer> {
-  let replacing = "";
+async function createOwn(client: ComputersClient, botId: string, name: string, size?: string, repository?: string, replaced = ""): Promise<OwnComputer> {
+  let replacing = replaced;
   let releasedForTrial = false;
   for (let hop = 0; hop < MAX_CREATE_HOPS; hop += 1) {
     let created: Computer;
@@ -178,6 +178,7 @@ async function createOwn(client: ComputersClient, botId: string, name: string, s
     let live: Computer | null;
     try {
       live = await client.get(created.id);
+      if (live && KEPT.test(live.name)) { replacing = created.id; continue; }
       if (live && live.name !== name) live = await client.rename(live.id, name);
     } catch (error) { throw refusal(error); }
     if (live) {
@@ -455,12 +456,50 @@ export async function inspectBoatIdentity(cfg: AppConfig, boxId: string): Promis
   return { available: true, identity: computer ? { boxId: computer.id, name: computer.name, state: asBoatState(computer.state) } : null, problem: null };
 }
 
-async function replaceOwn(client: ComputersClient, computer: OwnComputer): Promise<void> {
-  try { await client.remove(computer.id); }
-  catch (error) { throw refusal(error, "the cloud computer that did not start could not be replaced: "); }
-  forget(computer.id);
-  starts.settled(computer.id);
-  console.info(`cloud computer ${computer.id}: replaced after it did not start`);
+export const KEEP_DAYS = 7;
+const KEEP_MS = KEEP_DAYS * 24 * 60 * 60_000;
+const KEPT = /-kept-([0-9a-z]{1,12})$/;
+const keptName = (botId: string, at: number) => `${ownName(botId)}-kept-${at.toString(36)}`;
+const startFailed = (computer: Computer | null | undefined) =>
+  computer?.state === "error" && (computer.lastStart?.outcome === "failed" || bootFailure(computer.error) !== null);
+const notReplaced = (message: string) => Object.assign(new Error(message), { code: "not_replaced", status: 409 });
+
+async function dropExpiredKept(client: ComputersClient, computers: readonly Computer[]): Promise<void> {
+  const prefix = scope().prefix;
+  for (const computer of computers) {
+    const kept = computer.name.startsWith(prefix) ? KEPT.exec(computer.name) : null;
+    if (!kept || Date.now() - parseInt(kept[1], 36) < KEEP_MS) continue;
+    try { await client.remove(computer.id); forget(computer.id); }
+    catch (error) { console.warn(`cloud computer ${computer.id}: the kept computer could not be removed: ${error instanceof Error ? error.message : String(error)}`); }
+  }
+}
+
+export async function freshComputer(botId: string, options: { repository?: string } = {}): Promise<{ replaced: boolean; keptDays?: number }> {
+  if (!computersSelected()) throw Object.assign(new Error("Cloud computers are not set up here, so run it in your own folder instead."), { status: 409 });
+  const client = ownClient();
+  const found = await findOwn(client, botId);
+  if (!found) return { replaced: false };
+  const current = await client.get(found.id).catch((error: unknown) => { throw refusal(error); });
+  if (!startFailed(current)) {
+    throw notReplaced(current?.state === "error"
+      ? "Your cloud computer stopped while it was running; it did not fail to start, so it was kept, not replaced. Call run_on_computer again without fresh to wake it and try again."
+      : "Your cloud computer did not fail to start, so it was kept, not replaced. Call run_on_computer again without fresh.");
+  }
+  if (trialInUse() && !ownComputersChosen()) {
+    throw notReplaced("The free trial has one cloud computer, so it cannot be replaced while the old one is kept. Tell the person your cloud computer did not start.");
+  }
+  try { await client.rename(found.id, keptName(botId, Date.now())); }
+  catch (error) { throw refusal(error, "the cloud computer that did not start could not be set aside, so it was not replaced: "); }
+  forget(found.id);
+  starts.settled(found.id);
+  try { await createOwn(client, botId, ownName(botId), undefined, options.repository, found.id); }
+  catch (error) {
+    await client.rename(found.id, ownName(botId)).catch(() => undefined);
+    throw error;
+  }
+  console.info(`cloud computer ${found.id}: set aside for ${KEEP_DAYS} days after it did not start`);
+  await dropExpiredKept(client, await client.list().catch(() => []));
+  return { replaced: true, keptDays: KEEP_DAYS };
 }
 
 export function startDidNotFinish(botId: string): void {
@@ -470,15 +509,15 @@ export function startDidNotFinish(botId: string): void {
   if (id) starts.exhaust(id);
 }
 
-export async function heavyRunBox(botId: string, options: { repository?: string; wanted?: () => boolean; budgetMs?: number; fresh?: boolean } = {}): Promise<{ box: RunBox }> {
+export async function heavyRunBox(botId: string, options: { repository?: string; wanted?: () => boolean; budgetMs?: number } = {}): Promise<{ box: RunBox }> {
   if (!computersSelected()) throw Object.assign(new Error("Cloud computers are not set up here, so run it in your own folder instead."), { status: 409 });
   const client = ownClient();
-  const found = await findOwn(client, botId);
-  const failed = found !== null && (found.state === "error" || (found.state === "starting" && starts.spent(found.id)));
-  if (found && failed && options.fresh) await replaceOwn(client, found);
-  const computer = (failed && options.fresh ? null : found) ?? await createOwn(client, botId, ownName(botId), undefined, options.repository);
+  const computer = await findOwn(client, botId) ?? await createOwn(client, botId, ownName(botId), undefined, options.repository);
   const entry = computer.state;
-  if (entry === "error") throw didNotStart((await client.get(computer.id).catch(() => null))?.error);
+  if (entry === "error") {
+    const current = await client.get(computer.id).catch(() => null);
+    if (startFailed(current)) throw didNotStart(current?.error, { fresh: true });
+  }
   if (entry === "unknown") throw new Error("your cloud computer is in a state later.dog does not know, so it was not woken and nothing was run");
   if (entry === "starting" && starts.spent(computer.id)) throw didNotStart();
   if (entry === "archived") starts.waking(computer.id);
@@ -492,7 +531,7 @@ export async function heavyRunBox(botId: string, options: { repository?: string;
     const state = current ? asBoatState(current.state) : "unknown";
     if (current && state === "starting") starts.starting(computer.id, current.lastStart?.generation);
     if (state === "starting" && !starts.spent(computer.id)) throw Object.assign(new Error("your cloud computer is still starting, so nothing was run yet"), { code: "still_starting" });
-    if (state === "starting" || state === "error") throw didNotStart(current?.error);
+    if (state === "starting" || state === "error") throw didNotStart(current?.error, { fresh: startFailed(current) });
     throw new Error(`your cloud computer did not start within ${Math.round(budgetMs / 1000)} seconds; try again in a minute`);
   }
   starts.settled(computer.id);

@@ -124,16 +124,30 @@ describe("starting the computer inside one run_on_computer call", () => {
     expect(runs.calls).toEqual([]);
   });
 
-  it("asks for a fresh computer only when the dog passes fresh: true for a new command, never when it continues a run", async () => {
+  it("replaces the computer first only when the dog passes fresh: true for a new command, and tells it what happened", async () => {
     const root = home();
-    const asked: Array<{ fresh?: boolean }> = [];
-    const computer = async (_botId: string, options?: { fresh?: boolean }) => { asked.push(options?.fresh ? { fresh: options.fresh } : {}); return { box: {} as never }; };
+    const asked: string[] = [];
+    const fresh = async () => { asked.push("fresh"); return { replaced: true, keptDays: 7 }; };
+    const computer = async () => { asked.push("computer"); return { box: {} as never }; };
     const folder = join(root, "site");
     const request = (body: Record<string, unknown>) => ({ botId: "dog", body, workingFolder: null, allowedRoots: [root], home: root });
-    await handleComputerRun(request({ command: "pnpm test", folder, fresh: true }), { runs: fakeRuns(outcome("finished")).runs, computer, repositoryOf: () => null });
-    await handleComputerRun(request({ command: "pnpm test", folder, fresh: "yes" }), { runs: fakeRuns(outcome("finished")).runs, computer, repositoryOf: () => null });
-    await handleComputerRun(request({ run_id: "abcd1234", fresh: true }), { runs: fakeRuns(outcome("finished"), { id: "abcd1234", folder } as Partial<RunRecord>).runs, computer });
-    expect(asked).toEqual([{ fresh: true }, {}, {}]);
+    const answer = await handleComputerRun(request({ command: "pnpm test", folder, fresh: true }), { runs: fakeRuns(outcome("finished")).runs, computer, fresh, repositoryOf: () => null });
+    expect(answer).toMatchObject({ status: 200, replaced: true });
+    expect(answer.text).toMatch(/^Your old cloud computer did not start, so it was replaced with a new one\. The old one is set aside for 7 days; nothing that lived only on it came along\.\n\nFinished on your cloud computer/);
+    await handleComputerRun(request({ command: "pnpm test", folder, fresh: "yes" }), { runs: fakeRuns(outcome("finished")).runs, computer, fresh, repositoryOf: () => null });
+    await handleComputerRun(request({ run_id: "abcd1234", fresh: true }), { runs: fakeRuns(outcome("finished"), { id: "abcd1234", folder } as Partial<RunRecord>).runs, computer, fresh });
+    expect(asked).toEqual(["fresh", "computer", "computer", "computer"]);
+  });
+
+  it("runs nothing when the computer may not be replaced, and passes the reason on", async () => {
+    const root = home();
+    let ran = false;
+    const fresh = async () => { throw Object.assign(new Error("Your cloud computer stopped while it was running; it did not fail to start, so it was kept, not replaced."), { status: 409 }); };
+    const computer = async () => { ran = true; return { box: {} as never }; };
+    const answer = await handleComputerRun({ botId: "dog", body: { command: "pnpm test", folder: join(root, "site"), fresh: true }, workingFolder: null, allowedRoots: [root], home: root },
+      { runs: fakeRuns(outcome("finished")).runs, computer, fresh, repositoryOf: () => null });
+    expect(answer).toEqual({ status: 409, error: "Your cloud computer stopped while it was running; it did not fail to start, so it was kept, not replaced." });
+    expect(ran).toBe(false);
   });
 
   it.each([[0, WAIT_IN_ONE_CALL_MS], [200_000, WAIT_IN_ONE_CALL_MS - 200_000], [239_000, 1_000]])("after %i ms of startup, leaves %i ms of the call's window for sending and the command", async (startupMs, waitMs) => {

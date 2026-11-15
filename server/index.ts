@@ -593,7 +593,7 @@ import { chatContext } from "./laterdog/chat-context-window.ts";
 import { cloudPlaceRefusal, computerToolsRefusal, parseSurface, PlaceUnavailableError, placeUnavailable, resolveSurface, surfaceLabel, surfaceOfComputerKind, surfacePrompt, type PlaceSource, type Surface } from "./surface.ts";
 import { cloudRefusal, type PlaceRow } from "../shared/place-view.ts";
 import { cloudComputerStartBudgetMs, passingCloudFailure, remainingStartMs, startRetryingPassingFailures, stillStarting } from "./laterdog/cloud-start.ts";
-import { SCREEN_DID_NOT_START_TEXT, START_RAN_OUT, cloudDidNotStart, startRanOutOfTime } from "./laterdog/computer-start.ts";
+import { SCREEN_DID_NOT_START_TEXT, START_RAN_OUT, cloudDidNotStart, replacedRow, startRanOutOfTime } from "./laterdog/computer-start.ts";
 import { createIdleReload } from "./laterdog/idle-reload.ts";
 import {
   PendingTurnCancellations,
@@ -13603,6 +13603,11 @@ INTERNAL_ROUTES.push(createComputerRunRoute({
   folders: (botId, threadId) => messageFileRootsForThread(botId, threadId).filter((root) => root !== ATTACHMENTS_DIR),
   runs: computerRuns,
   computer: boat.heavyRunBox,
+  fresh: boat.freshComputer,
+  noteReplaced: (botId, threadId) => {
+    const name = store.bot(botId)?.name ?? "This dog";
+    store.appendMessage(threadId, { role: "bot", kind: "activity", tool: { name: replacedRow(name, boat.KEEP_DAYS), ok: true } });
+  },
   active: (capability) => internalCapabilityIsActive(capability as InternalCapability),
 }));
 INTERNAL_ROUTES.push(createReactRoute({

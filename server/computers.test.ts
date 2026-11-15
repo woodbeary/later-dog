@@ -94,7 +94,7 @@ describe("the cloud computer facade", () => {
         if (!action && method === "GET") {
           if (startsOnPoll && computer.state === "starting") computer.state = "running";
           if (pollStepMs) vi.setSystemTime(Date.now() + pollStepMs);
-          if (failsAt && computer.state === "starting" && Date.now() >= failsAt) computer.state = "error";
+          if (failsAt && computer.state === "starting" && Date.now() >= failsAt) Object.assign(computer, { state: "error", error: "The desktop did not become ready within 5 minutes." });
           if (runsAt && computer.state === "starting" && Date.now() >= runsAt) computer.state = "running";
           return send(200, { computer });
         }
@@ -567,7 +567,7 @@ describe("the cloud computer facade", () => {
       const started = Date.now();
       const second = await call();
       expect(second.status).toBe(502);
-      expect(second.error).toMatch(/^Your cloud computer did not start\. The computer could not start\. Nothing was run/);
+      expect(second.error).toMatch(/^Your cloud computer did not start\. It did not finish starting within 5 minutes\. Nothing was run.* with fresh: true/);
       expect(Date.now() - started).toBeLessThan(60_000);
       expect(fleet.get(computer.id)?.state).toBe("error");
       expect(wakes()).toBe(1);
@@ -575,10 +575,10 @@ describe("the cloud computer facade", () => {
       expect(ran).toEqual([]);
     });
 
-    it("fails without a wake when the computer is in an error or unknown state before the call", async () => {
-      add("dog-heavy-was-error", "error");
+    it("fails without a wake when the computer's last start failed or its state is unknown before the call", async () => {
+      add("dog-heavy-was-error", "error").lastStart = { generation: 3, outcome: "failed" };
       add("dog-heavy-odd", "migrating" as State);
-      await expect(computers.heavyRunBox("dog-heavy-was-error")).rejects.toThrow(/^Your cloud computer did not start\. The computer could not start\. Nothing was run/);
+      await expect(computers.heavyRunBox("dog-heavy-was-error")).rejects.toThrow(/^Your cloud computer did not start\. The computer could not start\. Nothing was run.* with fresh: true/);
       await expect(computers.heavyRunBox("dog-heavy-odd")).rejects.toThrow(/does not know/);
       expect(wakes()).toBe(0);
       expect(creates()).toHaveLength(0);
@@ -594,7 +594,7 @@ describe("the cloud computer facade", () => {
       const started = Date.now();
       expect(await call()).toEqual({ status: 200, text: STILL_STARTING_TEXT });
       const second = await call();
-      expect(second).toMatchObject({ status: 502, error: expect.stringMatching(/^Your cloud computer did not start\. The computer could not start\. Nothing was run, and waiting longer will not help\. Choose one instead: do light work in your folder here; call run_on_computer again with fresh: true/) });
+      expect(second).toMatchObject({ status: 502, error: expect.stringMatching(/^Your cloud computer did not start\. The computer could not start\. Nothing was run, and waiting longer will not help\. Choose one instead: do light work in your folder here; call run_on_computer again in a few minutes; or tell the person/) });
       expect(Date.now() - started).toBeGreaterThanOrEqual(330_000);
       expect(Date.now() - started).toBeLessThanOrEqual(350_000);
       const settled = Date.now();
@@ -619,44 +619,64 @@ describe("the cloud computer facade", () => {
       expect(wakes()).toBe(0);
     });
 
-    it("replaces a computer that did not start with a new one when the dog asks for a fresh one, and keeps one that works", async () => {
+    it("replaces a computer whose start failed with a new one, sets the old one aside without deleting it, and keeps one that works", async () => {
       const broken = add("dog-heavy-fresh", "error");
-      const run = await computers.heavyRunBox("dog-heavy-fresh", { fresh: true });
-      expect(run.box).toBeDefined();
-      expect(fleet.has(broken.id)).toBe(false);
-      expect(ours().filter((request) => request.method === "DELETE").map((request) => request.path)).toEqual([`/v1/computers/${broken.id}`]);
+      broken.error = "The computer stopped while restoring its snapshot.";
+      expect(await computers.freshComputer("dog-heavy-fresh")).toEqual({ replaced: true, keptDays: 7 });
+      expect(ours().filter((request) => request.method === "DELETE")).toEqual([]);
+      expect(fleet.get(broken.id)?.name).toMatch(new RegExp(`^${nameFor("dog-heavy-fresh")}-kept-[0-9a-z]+$`));
       expect(creates()).toHaveLength(1);
-      const [fresh] = [...fleet.values()];
-      expect(fresh).toMatchObject({ name: nameFor("dog-heavy-fresh"), state: "running" });
-      expect(await computers.heavyRunBox("dog-heavy-fresh", { fresh: true })).toMatchObject({ box: expect.anything() });
+      const fresh = [...fleet.values()].find((computer) => computer.name === nameFor("dog-heavy-fresh"))!;
+      expect(fresh.id).not.toBe(broken.id);
+      expect(await computers.findBoat(noBoat, "dog-heavy-fresh")).toMatchObject({ id: fresh.id });
+      expect(await computers.heavyRunBox("dog-heavy-fresh")).toMatchObject({ box: expect.anything() });
+      await expect(computers.freshComputer("dog-heavy-fresh")).rejects.toMatchObject({ code: "not_replaced", message: expect.stringMatching(/did not fail to start, so it was kept/) });
       expect(fleet.has(fresh.id)).toBe(true);
       expect(creates()).toHaveLength(1);
     });
 
-    it("replaces a computer whose start ran out across calls when the dog asks for a fresh one", async () => {
-      const stuck = sleeping("dog-heavy-fresh-stuck");
-      runsAt = Date.now() + 3_600_000;
-      await expect(computers.heavyRunBox("dog-heavy-fresh-stuck", { budgetMs: 240_000 })).rejects.toMatchObject({ code: "still_starting" });
-      await expect(computers.heavyRunBox("dog-heavy-fresh-stuck", { budgetMs: 240_000 })).rejects.toMatchObject({ code: "did_not_start" });
-      wakeTo = "running";
-      const run = await computers.heavyRunBox("dog-heavy-fresh-stuck", { budgetMs: 240_000, fresh: true });
-      expect(run.box).toBeDefined();
-      expect(fleet.has(stuck.id)).toBe(false);
-      expect(creates()).toHaveLength(1);
+    it("never replaces a computer that stopped while it was running, and wakes it instead", async () => {
+      const stopped = add("dog-heavy-stopped", "error");
+      stopped.error = "The computer stopped unexpectedly, so changes since it last went to sleep are gone.";
+      stopped.lastStart = { generation: 4, outcome: "ready" };
+      await expect(computers.freshComputer("dog-heavy-stopped")).rejects.toMatchObject({
+        code: "not_replaced", message: expect.stringMatching(/^Your cloud computer stopped while it was running; it did not fail to start, so it was kept, not replaced\. Call run_on_computer again without fresh/),
+      });
+      expect(ours().filter((request) => request.method === "DELETE" || request.method === "PATCH")).toEqual([]);
+      expect(creates()).toHaveLength(0);
+      expect(await computers.heavyRunBox("dog-heavy-stopped")).toMatchObject({ box: expect.anything() });
+      expect(wakes()).toBe(1);
+      expect(fleet.get(stopped.id)?.name).toBe(nameFor("dog-heavy-stopped"));
     });
 
-    it("answers at once, and replaces it on request, once the screen's start gave up on the same computer", async () => {
-      const stuck = sleeping("dog-heavy-screen-gave-up");
+    it("does not offer or allow a fresh computer for a start that only ran out of time", async () => {
+      sleeping("dog-heavy-fresh-stuck");
+      runsAt = Date.now() + 3_600_000;
+      await expect(computers.heavyRunBox("dog-heavy-fresh-stuck", { budgetMs: 240_000 })).rejects.toMatchObject({ code: "still_starting" });
+      const told = await computers.heavyRunBox("dog-heavy-fresh-stuck", { budgetMs: 240_000 }).catch((error: Error & { code?: string }) => error);
+      expect(told).toMatchObject({ code: "did_not_start" });
+      expect((told as Error).message).not.toMatch(/fresh/);
+      await expect(computers.freshComputer("dog-heavy-fresh-stuck")).rejects.toMatchObject({ code: "not_replaced" });
+      expect(creates()).toHaveLength(0);
+    });
+
+    it("answers at once once the screen's start gave up on the same computer", async () => {
+      sleeping("dog-heavy-screen-gave-up");
       runsAt = Date.now() + 3_600_000;
       await expect(computers.heavyRunBox("dog-heavy-screen-gave-up", { budgetMs: 60_000 })).rejects.toMatchObject({ code: "still_starting" });
       computers.startDidNotFinish("dog-heavy-screen-gave-up");
       const asked = Date.now();
       await expect(computers.heavyRunBox("dog-heavy-screen-gave-up", { budgetMs: 240_000 })).rejects.toMatchObject({ code: "did_not_start" });
       expect(Date.now() - asked).toBeLessThan(15_000);
-      wakeTo = "running";
-      expect(await computers.heavyRunBox("dog-heavy-screen-gave-up", { fresh: true })).toMatchObject({ box: expect.anything() });
-      expect(fleet.has(stuck.id)).toBe(false);
-      expect(creates()).toHaveLength(1);
+    });
+
+    it("removes computers set aside more than 7 days ago when it sets another aside, and keeps younger ones", async () => {
+      const old = add("", "error", `${nameFor("dog-heavy-older")}-kept-${(Date.now() - 8 * 86_400_000).toString(36)}`);
+      const young = add("", "error", `${nameFor("dog-heavy-older")}-kept-${(Date.now() - 2 * 86_400_000).toString(36)}`);
+      add("dog-heavy-older", "error").lastStart = { generation: 9, outcome: "failed" };
+      expect(await computers.freshComputer("dog-heavy-older")).toEqual({ replaced: true, keptDays: 7 });
+      expect(fleet.has(old.id)).toBe(false);
+      expect(fleet.has(young.id)).toBe(true);
     });
 
     it("counts a new start attempt afresh when the computer's start generation changes", async () => {
