@@ -5,7 +5,6 @@ import { RoomHandoffs, type RoomHandoff, type RoomHandoffHooks } from "../room-h
 import type { HandoffRunResult } from "./long-work.ts";
 import { RESULT_QUIET_MS, splitResults } from "./handoff-results.ts";
 import { removeTempDir } from "../testing/cleanup.ts";
-import { roomCarries } from "./room-results.ts";
 
 const lead = { groupId: "room", threadId: "room-chat", botId: "lead" };
 const helper = (name: string) => ({ botId: name, threadId: `${name}-chat` });
@@ -48,11 +47,3 @@ it("wakes a coordinator in a group as soon as some results are back, gives each 
   } finally { await removeTempDir(dir); }
 });
 
-it("counts a result as carried only while its row is inside the room messages a turn is given", () => {
-  const result = (id: string) => ({ kind: "activity" as const, roomRequest: { id, phase: "result" as const } });
-  const said = (text: string) => ({ kind: "text" as const, text });
-  const carries = roomCarries([result("old"), said("one"), said("two"), result("new"), { kind: "activity" as const }, said("")], 3);
-  expect(carries("new")).toBe(true);
-  expect(carries("old")).toBe(false);
-  expect(carries("missing")).toBe(false);
-});

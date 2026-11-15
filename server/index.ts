@@ -784,7 +784,6 @@ import { memoryWriterModel } from "./laterdog/upkeep-model.ts";
 import { reportingUsage, summaryUsageRow } from "./laterdog/summary-usage.ts";
 import { rowForApps } from "./laterdog/compaction-row.ts";
 import { lastWords, takenOver, takenOverText } from "./laterdog/turnless-requests.ts";
-import { inRoomContext, roomCarries } from "./laterdog/room-results.ts";
 import { assignedTask, openHandoffsFromRoom, ownLastAsk, personOwes, recordsText, withRecords } from "./laterdog/rebuild-records.ts";
 import { fileEngineSummaries } from "./laterdog/engine-summaries.ts";
 import { createEngineSummaryWindows } from "./laterdog/engine-summary-window.ts";
@@ -4543,10 +4542,6 @@ function coordinationTurnText(node: RoomHandoff, resumed: boolean): { text: stri
 }
 
 function coordinatorHolds(node: RoomHandoff): (child: RoomHandoff) => boolean {
-  if (node.groupId) {
-    const carries = roomCarries(store.messagesFor(node.threadId), GROUP_CONTEXT_MESSAGES);
-    return child => carries(child.id);
-  }
   const task = node.groupId ? undefined : store.taskByThread(node.botId, node.threadId);
   const bot = store.bot(node.botId);
   if (!task || !bot || task.rewound || !sessionResumesExactly(bot, node.threadId, task)) return () => false;
@@ -10437,7 +10432,7 @@ function serializeRoomContext(
   const overrides = new Map(textOverrides?.map((override) => [override.messageId, override.text]));
   const roomOwner = ownerAuthorityFor(threadId);
   return messages
-    .filter(inRoomContext)
+    .filter((m) => (m.kind === "text" && m.text) || (m.kind === "digest" && m.digest) || m.roomRequest?.phase === "result")
     .slice(-GROUP_CONTEXT_MESSAGES)
     .map((m) => {
       if (m.kind === "digest" && m.digest) {
