@@ -562,7 +562,7 @@ export class RoomHandoffs {
       this.controllers.set(n.id, controller);
       const run: RunTurn = { resumed, childCount, startedAt };
       this.runs.set(n.id, run);
-      void this.hooks.run(n, resumed, controller.signal).then(result => this.ended(n, run, result), e => this.threw(n, run, e))
+      void this.hooks.run(n, resumed, controller.signal).then(result => this.ended(n, run, result)).catch(e => this.threw(n, run, e))
         .finally(() => { if (this.controllers.get(n.id) === controller) this.controllers.delete(n.id); });
     }
   }
@@ -600,7 +600,9 @@ export class RoomHandoffs {
   }
 
   private threw(n: RoomHandoff, run: RunTurn, e: unknown): void {
-    if (!this.current(n, run)) return;
+    const mine = this.runs.get(n.id);
+    if (terminal(n) || (mine && mine !== run) || (!mine && n.status !== "running")) return;
+    this.runs.delete(n.id);
     const { resumed, childCount, startedAt } = run;
     n.result = String(e).slice(0, 1000);
     if (this.awaited(n.id).length > childCount || this.stillAwaiting(n)) {
@@ -624,7 +626,7 @@ export class RoomHandoffs {
       if (this.now() - since < this.limits.turnlessMs || !run) continue;
       this.turnlessSince.delete(n.id);
       this.controllers.delete(n.id);
-      this.ended(n, run, { ok: true, text: settledByHome(this.hooks.lastWords?.(n)) });
+      try { this.ended(n, run, { ok: true, text: settledByHome(this.hooks.lastWords?.(n)) }); } catch (e) { this.threw(n, run, e); continue; }
       if (n.status === "completed") { n.endedBy = "home"; this.publish(n); }
     }
   }

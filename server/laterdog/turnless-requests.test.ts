@@ -146,3 +146,31 @@ it("hands back every older request turn in a chat that a new turn takes over, an
   expect(takenOver(turns, settlers, "rye-chat", undefined)).toEqual([]);
   expect(takenOverText(lastWords([{ role: "bot", kind: "text", text: "Half way" }, { role: "user", kind: "text", text: "go on" }]))).toBe(`${TAKEN_OVER}\nHalf way`);
 });
+
+it("ends a request as failed, without an unhandled error, when handling its finished turn throws", () => home(async h => {
+  const unhandled: unknown[] = [];
+  const onUnhandled = (reason: unknown) => { unhandled.push(reason); };
+  process.on("unhandledRejection", onUnhandled);
+  try {
+    h.hooks.needsYou = () => { throw new Error("card lookup broke"); };
+    const [pip] = send(h.engine, "pip");
+    await h.settle();
+    h.finish("pip"); await h.settle();
+    await new Promise(resolve => setTimeout(resolve, 20));
+    expect(unhandled).toEqual([]);
+    expect(pip).toMatchObject({ status: "failed", endedBy: "problem" });
+    expect(pip!.result).toContain("card lookup broke");
+  } finally { process.off("unhandledRejection", onUnhandled); }
+}));
+
+it("ends a request the home settles as failed when handling the settlement throws", () => home(async h => {
+  const [pip] = send(h.engine, "pip");
+  await h.settle();
+  h.working.delete("pip");
+  await h.settle();
+  h.hooks.needsYou = () => { throw new Error("card lookup broke"); };
+  h.clock.at += TURNLESS_MS;
+  expect(() => h.engine.tick()).not.toThrow();
+  await h.settle();
+  expect(pip).toMatchObject({ status: "failed", endedBy: "problem" });
+}));
