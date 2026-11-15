@@ -1358,7 +1358,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
       const cacheLifetime = claudeCacheLifetime(env, Boolean(cliVersion && versionAtLeast(cliVersion, CLAUDE_PICKS_CACHE_LIFETIME)),
         injected.injected ? {} : readClaudeAuthSettings(env, input.environment));
       if (cacheLifetime) env.CLAUDE_CODE_PROMPT_CACHE_TTL = cacheLifetime;
-      Object.assign(env, quietWorkEnvironment(turn.quietWork), chatEngineEnvironment(threadId));
+      Object.assign(env, quietWorkEnvironment(turn.quietWork), chatEngineEnvironment(threadId, env));
       Object.assign(env, claudeHelperEnvironment(turnModel, turn.helperModel, { custom: Boolean(config.managed) || injected.injected }));
       const cwd = turn.cwd ?? homedir();
       workFolders.set(threadId, cwd);

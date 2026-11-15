@@ -5,6 +5,7 @@ import { fileLadderStore, startDiskLadder } from "./disk-ladder.ts";
 import { openPaths, readHomeProcesses } from "./home-processes.ts";
 import { diskUse, type WorkspaceTask } from "./janitor.ts";
 import { readProcesses } from "./process-reaper.ts";
+import { REPO_CACHE_ROOT, sweepUnsharedCaches } from "./shared-clones.ts";
 import { pruneCaches } from "./space-maker.ts";
 import { endLeftovers, LEFTOVER_MODE } from "./turn-leftovers.ts";
 import { turnUpkeep } from "./turn-upkeep.ts";
@@ -49,7 +50,11 @@ export function startHomeUpkeep(deps: HomeUpkeepDeps): void {
     disk: () => diskUse(deps.dataDir),
     chats: () => deps.chats().map((chat) => ({ ...chat, busy: chat.busy || deps.atWork(basename(chat.dir)) })),
     live: () => readProcesses(),
-    sweepTemp: () => sweepChatTemps(root, liveTempSweep(deps.atWork)),
+    sweepTemp: () => {
+      const temp = sweepChatTemps(root, liveTempSweep(deps.atWork));
+      const caches = sweepUnsharedCaches(REPO_CACHE_ROOT());
+      return { removed: [...temp.removed, ...caches.removed], freed: temp.freed + caches.freed };
+    },
     pruneCaches: () => pruneCaches({ home: deps.home })?.freed ?? null,
     log,
     store: fileLadderStore(join(deps.dataDir, "disk-ladder.json")),
