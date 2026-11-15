@@ -20,7 +20,7 @@ export const DISK_RUNGS: readonly DiskRungStep[] = [
   { rung: 2, name: "sweep", freeBelow: 0.25 },
   { rung: 3, name: "move", freeBelow: 0.15 },
   { rung: 4, name: "refuse", freeBelow: 0.10 },
-  { rung: 5, name: "floor", freeBelow: 0.05 },
+  { rung: 5, name: "floor", freeBelow: 0.05, orBytesBelow: GB },
   { rung: 6, name: "emergency", freeBelow: 0.05, orBytesBelow: GB },
 ];
 

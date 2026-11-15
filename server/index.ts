@@ -557,6 +557,7 @@ import { closeTabsScript, forgetUsers, loadTabLedger, parseTargets, recordTabs, 
 import { MEMORY_CHECK_MS, orphanIdleHours, readMemoryPressure, reapStrays, underMemoryPressure, type ThreadState as ReaperThreadState } from "./laterdog/process-reaper.ts";
 import { startHomeUpkeep } from "./laterdog/home-upkeep.ts";
 import { liveSignalScene, signalDecision } from "./laterdog/home-signals.ts";
+import { homeFloorDecision } from "./laterdog/disk-floor.ts";
 import { listenWebhookIngress, webhookCredential, type WebhookIngress } from "./webhook-ingress.ts";
 import { assertModelVariantSupported, memberTurnSelection } from "./member-turn.ts";
 import { WebhookManager } from "./webhooks.ts";
@@ -6015,7 +6016,7 @@ function ingestEngineHook(capability: InternalCapability, body: unknown): { ok: 
   }
   if (name === "Stop") return { ok: true };
   if (name === "PreToolUse") {
-    const decision = (CLOUD_HOME ? signalDecision(payload, () => liveSignalScene(threadId, PORT)) : null)
+    const decision = (CLOUD_HOME ? signalDecision(payload, () => liveSignalScene(threadId, PORT)) ?? homeFloorDecision(payload, diskUse(DATA_DIR), { computers: computersSelected() }) : null)
       ?? preToolUseDecision(heavyCommandGuard, { active: Boolean(CLOUD_HOME) && computersSelected(), threadId, payload });
     return decision ? { ok: true, hookSpecificOutput: decision } : { ok: true };
   }
