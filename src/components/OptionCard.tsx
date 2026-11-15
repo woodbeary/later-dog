@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Check, Loader2, X } from "lucide-react";
 import { visibleMessages, type Message } from "@/state/store";
 import { dogIn, useStoreDispatch, useStoreSelector } from "@/state/store-selectors";
@@ -8,6 +8,7 @@ import { isPersistentQuestionCard, parseChoices } from "../../shared/ask-questio
 import { ExpandableText } from "./ExpandableText";
 import { FoldedCard } from "./FoldedCard";
 import { optionCardTitle } from "@/lib/option-card-title";
+import { chooseTypedAnswer, releaseTypedAnswer, useTypedAnswer } from "@/lib/typed-answer";
 
 const LETTERS = ["A", "B", "C", "D", "E", "F"];
 const DECISIONS = new Set(["answer", "allow", "deny"]);
@@ -52,6 +53,11 @@ export function OptionCard({
   const [picked, setPicked] = useState<string>();
   const [answeredAtMount] = useState(() => Boolean(message.card?.answered));
   const card = message.card;
+  const answerThread = threadId ?? bot?.threadId;
+  const typing = useTypedAnswer(answerThread)?.messageId === message.id;
+  const settledNow = Boolean(card?.answered) || Boolean(card?.pendingAnswer) || picked !== undefined || Boolean(card?.dismissed);
+  useEffect(() => { if (settledNow) releaseTypedAnswer(message.id); }, [settledNow, message.id]);
+  useEffect(() => () => releaseTypedAnswer(message.id), [message.id]);
   const transcript = bot ? visibleMessages(bot) : [];
   if (!card || shouldHideOnboardingCard(message, transcript) || (card.requestId && card.dismissed && card.answered)) return null;
 
@@ -77,6 +83,24 @@ export function OptionCard({
       return;
     }
     dispatch({ type: "answerCard", botId, threadId, messageId: message.id, answer: text.trim(), groupId });
+  };
+
+  const typesAnswer = Boolean(card.requestId && !card.tool && answerThread);
+  const chooseOther = () => {
+    if (answered || !card.requestId || !answerThread) return;
+    if (typing) {
+      releaseTypedAnswer(message.id);
+      return;
+    }
+    chooseTypedAnswer({
+      threadId: answerThread,
+      messageId: message.id,
+      requestId: card.requestId,
+      compose: (text) => text,
+      sent: (text) => setPicked(text),
+      failed: () => setPicked(undefined),
+    });
+    requestAnimationFrame(() => document.querySelector<HTMLTextAreaElement>('[data-tour="composer"] textarea')?.focus());
   };
 
   const body = (
@@ -127,6 +151,28 @@ export function OptionCard({
             {opt}
           </button>
         ))}
+        {typesAnswer && !answered && (
+          <button
+            type="button"
+            role="radio"
+            aria-checked={typing}
+            onClick={chooseOther}
+            data-option-other
+            className={cn(
+              "flex w-full items-center gap-2.5 px-3 py-2 text-left text-[14px] text-ink",
+              options.length > 0 && "border-t border-hairline/40",
+              typing ? "bg-raised-hover" : "hover:bg-raised-hover/60",
+            )}
+          >
+            <span className={cn("flex size-5 shrink-0 items-center justify-center rounded-full text-[11px] font-medium", typing ? "bg-accent text-white" : "bg-control text-ink-secondary")}>
+              {LETTERS[options.length] ?? "+"}
+            </span>
+            {t("question.other")}
+          </button>
+        )}
+        {typing && (
+          <p data-question-typing className="border-t border-hairline/40 px-3 py-2 text-[12.5px] text-ink-secondary">{t("question.otherBelow")}</p>
+        )}
       </div>
 
       {answered && chosen && !options.includes(chosen) && (
@@ -136,7 +182,7 @@ export function OptionCard({
         </div>
       )}
 
-      {!answered && !card.tool && (
+      {!answered && !card.tool && !typesAnswer && (
         <input
           value={custom}
           onChange={(e) => setCustom(e.target.value)}

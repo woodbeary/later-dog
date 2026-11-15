@@ -8,6 +8,7 @@ import { visibleMessages, currentTaskBot, type Bot, type Group, type Message } f
 import { useDrawnDogs, useStoreDispatch, useStoreSelector } from "@/state/store-selectors";
 import { chatPane } from "@/state/pane-errors";
 import { waitingOnPerson } from "@/lib/waiting-on-person";
+import { answerByTyping, releaseTypedAnswer, useTypedAnswer } from "@/lib/typed-answer";
 import { cn } from "@/lib/cn";
 import { useMenuMotion } from "./MenuMotion";
 import { activeLocale, t } from "@/lib/i18n";
@@ -139,6 +140,7 @@ export function Composer({
   const steerCapabilities = instances.find((i) => i.instanceId === steerInstanceId)?.capabilities;
   const canSteer = steerCapabilities?.queueing === true;
   const threadId = group?.threadId ?? bot?.threadId ?? "";
+  const typedAnswer = useTypedAnswer(group ? undefined : threadId);
   const errorPane = threadId ? chatPane(threadId) : undefined;
   const approvals = pendingApprovals(group ? group.messages : bot ? visibleMessages(bot) : []);
   const approval = approvals[0];
@@ -600,6 +602,13 @@ export function Composer({
     ) {
       dispatch({ type: "reportError", error: null, pane: errorPane, line: t("composer.error.noImages") });
       return;
+    }
+    if (typedAnswer && attachments.length) releaseTypedAnswer();
+    else if (typedAnswer) {
+      const typed = text;
+      const result = answerByTyping(threadId, typed, (answer) => dispatch({ type: "decideRequest", behavior: "answer", ...answer }), () => setText(typed));
+      if (result === "sent") setText("");
+      if (result) return;
     }
     const body = composeMessage(text, attachments);
     if (!body) return;
@@ -1094,7 +1103,9 @@ export function Composer({
           disabled={Boolean(approval) || locked}
           aria-busy={bot?.awaitingThreadSnapshot || undefined}
           placeholder={
-            approval
+            typedAnswer
+              ? t("composer.placeholder.answer")
+              : approval
               ? t("composer.placeholder.approval")
               : attachmentPending
               ? t("composer.placeholder.attaching")

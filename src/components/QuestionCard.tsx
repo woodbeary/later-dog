@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Check, ChevronLeft, MessageCircleQuestion, Minus, X } from "lucide-react";
 import type { Bot, Message } from "@/state/store";
 import { useStoreDispatch } from "@/state/store-selectors";
@@ -6,25 +6,23 @@ import { cn } from "@/lib/cn";
 import { t } from "@/lib/i18n";
 import {
   formatQuestionAnswers,
-  MAX_CUSTOM_ANSWER,
   QUESTION_DISMISS_MESSAGE,
   type AskQuestion,
 } from "../../shared/ask-question";
 import { ExpandableText } from "./ExpandableText";
 import { FoldedCard } from "./FoldedCard";
 import { answerSummary, settledAnswer } from "@/lib/settled-answer";
+import { chooseTypedAnswer, releaseTypedAnswer } from "@/lib/typed-answer";
 
 interface Draft {
   picked: string[];
-  custom: string;
   other: boolean;
 }
 
-const EMPTY: Draft = { picked: [], custom: "", other: false };
+const EMPTY: Draft = { picked: [], other: false };
 
 function answersOf(draft: Draft): string[] {
-  const custom = draft.other ? draft.custom.trim() : "";
-  return custom ? [...draft.picked, custom] : draft.picked;
+  return draft.picked;
 }
 
 function tabLabel(question: AskQuestion, index: number): string {
@@ -48,6 +46,12 @@ export function QuestionCard({
   const [sent, setSent] = useState<string | null>(null);
   const [closing, setClosing] = useState(false);
   const [answeredAtMount] = useState(() => Boolean(card?.answered));
+  const [missing, setMissing] = useState<string | null>(null);
+  const draftsRef = useRef(drafts);
+  draftsRef.current = drafts;
+  const settledNow = Boolean(card?.answered) || sent !== null || Boolean(card?.dismissed);
+  useEffect(() => { if (settledNow) releaseTypedAnswer(message.id); }, [settledNow, message.id]);
+  useEffect(() => () => releaseTypedAnswer(message.id), [message.id]);
 
   const answered = useMemo(
     () => questions.map((_, index) => answersOf(drafts[index] ?? EMPTY).length > 0),
@@ -63,7 +67,7 @@ export function QuestionCard({
   const answeredCount = answered.filter(Boolean).length;
   const complete = answeredCount === questions.length;
   const lastStep = currentIndex === questions.length - 1;
-  const stepAnswered = answered[currentIndex] === true;
+  const stepAnswered = answered[currentIndex] === true || Boolean(draft.other);
   const answerText = card.answeredText ?? (external ? "Resolved externally" : sent);
   const shownAnswer = external ? answerText ?? "" : settled && answerText ? settledAnswer(answerText, questions) : "";
   const listsQuestions = questions.length > 1 && shownAnswer.startsWith("Q: ");
@@ -81,6 +85,8 @@ export function QuestionCard({
       return;
     }
     update(currentIndex, { picked: [label], other: false });
+    setMissing(null);
+    if (!questions.some((_, index) => index !== currentIndex && drafts[index]?.other)) releaseTypedAnswer(message.id);
     if (questions.length === 1) {
       send([[label]]);
       return;
@@ -90,13 +96,39 @@ export function QuestionCard({
 
   const step = (offset: number) => setActive(Math.max(0, Math.min(questions.length - 1, currentIndex + offset)));
 
+  const compose = (text: string): string | null => {
+    const current = draftsRef.current;
+    const answers = questions.map((_, index) => {
+      const entry = current[index] ?? EMPTY;
+      return entry.other ? [...entry.picked, text] : entry.picked;
+    });
+    const gap = answers.findIndex((picked) => !picked.length);
+    if (gap >= 0) {
+      setMissing(tabLabel(questions[gap]!, gap));
+      setActive(gap);
+      return null;
+    }
+    setMissing(null);
+    return formatQuestionAnswers(questions, answers) || null;
+  };
+
   const toggleOther = () => {
-    if (settled) return;
+    if (settled || !card.requestId) return;
     if (draft.other) {
       update(currentIndex, { other: false });
+      if (!questions.some((_, index) => index !== currentIndex && drafts[index]?.other)) releaseTypedAnswer(message.id);
       return;
     }
     update(currentIndex, { other: true, ...(current.multiSelect ? {} : { picked: [] }) });
+    chooseTypedAnswer({
+      threadId,
+      messageId: message.id,
+      requestId: card.requestId,
+      compose,
+      sent: (answer) => setSent(answer),
+      failed: () => setSent(null),
+    });
+    requestAnimationFrame(() => document.querySelector<HTMLTextAreaElement>('[data-tour="composer"] textarea')?.focus());
   };
 
   const submit = () => {
@@ -242,22 +274,10 @@ export function QuestionCard({
             <Marker checked={draft.other} multi={Boolean(current.multiSelect)} index={current.options.length} />
             <span className="text-[14px] text-ink">{t("question.other")}</span>
           </button>
-          {draft.other && (
-            <div className="border-t border-hairline/40 px-3 py-2.5">
-              <input
-                autoFocus
-                value={draft.custom}
-                maxLength={MAX_CUSTOM_ANSWER}
-                onChange={(event) => update(currentIndex, { custom: event.target.value })}
-                onKeyDown={(event) => {
-                  if (event.key !== "Enter") return;
-                  if (lastStep && complete) submit();
-                  else if (!lastStep && stepAnswered) step(1);
-                }}
-                placeholder={t("question.otherPlaceholder")}
-                className="w-full rounded-lg border border-hairline/40 bg-inset px-3 py-2 text-[14.5px] text-ink placeholder:text-ink-secondary focus:outline-none"
-              />
-            </div>
+          {(draft.other || missing) && (
+            <p data-question-typing className="border-t border-hairline/40 px-3 py-2 text-[12.5px] text-ink-secondary">
+              {missing ? t("question.otherMissing", { name: missing }) : t("question.otherBelow")}
+            </p>
           )}
         </div>
       )}
