@@ -214,6 +214,19 @@ describe("a turn's hand-outs as one team block", () => {
     expect(quietRows().some((row) => row.closest("[data-mid]")?.getAttribute("data-mid") === "later")).toBe(true);
   });
 
+  it("lets an older home's first reply settle its ask even when the person wrote before it came", async () => {
+    const a = HELPERS[1]!;
+    await draw([
+      you("open", START, "Ask Birch."),
+      asked(a, START + 10_000), sent(a, START + 10_200, null),
+      said("asked", START + MINUTE, "Asked."),
+      you("steer", START + 90_000, "Also check the tests."),
+      { id: "first", role: "bot", kind: "activity", at: START + 2 * MINUTE, from: { botId: a.id, name: a.name, color: "blue" }, comm: comm(a, "from"), tool: { name: `Message from @${a.name}: Done with the lane.`, ok: true } },
+    ]);
+    expect(blocks()).toEqual([{ heading: "Asked 1 dog · 1 done", rows: ["Birch: Done"] }]);
+    expect(quietRows()).toHaveLength(1);
+  });
+
   it("puts helpers that need the person or failed first, so none is ever behind Show all", async () => {
     const many: Helper[] = Array.from({ length: 9 }, (_, index) => ({ id: `m${index}`, name: `Many${index}`, status: index === 7 ? "needs-you" : index === 8 ? "failed" : "running" }));
     await draw([

@@ -128,14 +128,13 @@ function matchesById(ask: TeamAsk, id: string | null | undefined): boolean {
   return Boolean(ask.requestId && id);
 }
 
-function answersTeam(teams: readonly TeamItem[], item: ExchangeItem, spokeSince: ReadonlySet<TeamItem>, heardFrom: ReadonlySet<TeamAsk>): TeamItem | undefined {
+function answersTeam(teams: readonly TeamItem[], item: ExchangeItem, heardFrom: ReadonlySet<TeamAsk>): TeamItem | undefined {
   if (item.rows.length !== 1 || item.folded.length) return undefined;
   const row = item.rows[0]!;
   const id = settlesAsk(row);
   if (id === undefined) return undefined;
-  return teams.findLast((team) => (id || !spokeSince.has(team))
-    && team.asks.some((ask) => ask.row.withBotId === row.withBotId
-      && (matchesById(ask, id) ? ask.requestId === id : !heardFrom.has(ask))));
+  return teams.findLast((team) => team.asks.some((ask) => ask.row.withBotId === row.withBotId
+    && (matchesById(ask, id) ? ask.requestId === id : !heardFrom.has(ask))));
 }
 
 function noteReplies(teams: readonly TeamItem[], item: ExchangeItem, heardFrom: Set<TeamAsk>): void {
@@ -166,7 +165,6 @@ export function foldTeams(
 ): Array<QuietTranscriptItem | TeamItem | FailedSendItem> {
   const out: Array<QuietTranscriptItem | TeamItem | FailedSendItem> = [];
   const teams: TeamItem[] = [];
-  const spokeSince = new Set<TeamItem>();
   const heardFrom = new Set<TeamAsk>();
   let open: TeamItem | null = null;
   let held: Array<{ item: QuietTranscriptItem; message: Message }> = [];
@@ -206,7 +204,7 @@ export function foldTeams(
         out.push(open);
         continue;
       }
-      const answered = answersTeam(teams, exchange, spokeSince, heardFrom);
+      const answered = answersTeam(teams, exchange, heardFrom);
       noteReplies(teams, exchange, heardFrom);
       if (answered) {
         answered.messages.push(...exchange.messages);
@@ -214,7 +212,6 @@ export function foldTeams(
       }
     }
     release();
-    if (item.kind === "message" && item.message.role === "user") for (const team of teams) spokeSince.add(team);
     if ((item.kind === "message" || item.kind === "run") && !renders(item)) {
       out.push(item);
       continue;
@@ -237,12 +234,10 @@ function heard(ask: TeamAsk, team: TeamItem, thread: readonly Message[]): Messag
   const after = start < 0 ? team.messages : [...team.messages, ...thread.slice(start + 1)];
   let found: Message | undefined;
   let askedAgain = false;
-  let personSpoke = false;
   const seen = new Set<string>();
   for (const message of after) {
     if (seen.has(message.id) || message.id === ask.row.message.id) continue;
     seen.add(message.id);
-    if (message.role === "user") personSpoke = true;
     const row = exchangeRow(message);
     if (!row || row.withBotId !== ask.row.withBotId) continue;
     if (row.direction === "to") {
@@ -253,7 +248,7 @@ function heard(ask: TeamAsk, team: TeamItem, thread: readonly Message[]): Messag
     if (!countsAsReply(message)) continue;
     if (matchesById(ask, id)) {
       if (id === ask.requestId) found = message;
-    } else if (!askedAgain && !personSpoke && !found) found = message;
+    } else if (!askedAgain && !found) found = message;
   }
   return found;
 }
