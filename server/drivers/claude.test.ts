@@ -1512,6 +1512,36 @@ describe("ClaudeDriver turns (fake CLI)", () => {
     expect(sent[2].endsWith("three")).toBe(true);
   });
 
+  it("does not repeat the profile in the first note after a compaction, because the home's hook gives it back", async () => {
+    const prompts = join(scratch, "compact-profile-prompts.jsonl");
+    await create(undefined, { FAKE_CLAUDE_COMPACT: "1", FAKE_CLAUDE_PROMPTS: prompts });
+    const sections = [
+      { id: "user-profile", label: "About the user", text: "\n\nAbout the person: PROFILE_TEXT likes tea." },
+      { id: "memory", label: "Memory", text: "\n\nYour memory: MEMORY_TEXT" },
+    ];
+    const send = async (text: string) => {
+      await instance.adapter.sendTurn({
+        threadId: "t-volatile-compact-profile",
+        text,
+        system: "You are Testy.",
+        systemStable: "You are Testy.",
+        systemVolatile: sections.map((section) => section.text).join(""),
+        systemVolatileSections: sections,
+      });
+      await recorder.until((e) => e.type === "turn.completed");
+      recorder.events.length = 0;
+    };
+    await send("one");
+    await send("two");
+    await send("three");
+    const sent = readFileSync(prompts, "utf8").trim().split("\n").map((line) => JSON.parse(line).message.content);
+    expect(sent[0]).toContain("PROFILE_TEXT");
+    expect(sent[1]).toBe("two");
+    expect(sent[2]).toContain("MEMORY_TEXT");
+    expect(sent[2]).not.toContain("PROFILE_TEXT");
+    expect(sent[2].endsWith("three")).toBe(true);
+  });
+
   it("refreshes a resumed session's recorded prompt on every turn when the CLI supports it", async () => {
     await create(undefined, { FAKE_CLAUDE_DUMP: join(scratch, "coordination-snapshot.json"), FAKE_CLAUDE_VERSION: "2.1.267" });
     await instance.snapshot();
