@@ -57,6 +57,10 @@ export function splitResults<T extends HandedResult>(awaited: readonly T[], turn
   };
 }
 
+export function allResultsIn<T extends HandedResult>(awaited: readonly T[]): readonly T[] | undefined {
+  return awaited.every(ended) ? awaited : undefined;
+}
+
 export function sessionHolds(handed: HandedState | undefined, session: unknown, order: readonly string[], rowId: string | undefined): boolean {
   if (session === undefined || rowId === undefined) return false;
   if (!handed) return true;

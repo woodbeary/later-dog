@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import { RoomHandoffs, type RoomHandoff, type RoomHandoffHooks } from "../room-handoffs.ts";
 import type { HandoffRunResult } from "./long-work.ts";
-import { RESULT_MAX_WAIT_MS, RESULT_QUIET_MS, resultsTurn, sessionHolds, splitResults } from "./handoff-results.ts";
+import { RESULT_MAX_WAIT_MS, RESULT_QUIET_MS, allResultsIn, resultsTurn, sessionHolds, splitResults } from "./handoff-results.ts";
 import { removeTempDir } from "../testing/cleanup.ts";
 
 const lead = { botId: "lead", threadId: "lead-chat" };
@@ -58,6 +58,15 @@ function sendThree(engine: RoomHandoffs) {
   for (const name of ["pip", "quill", "rook"]) engine.enqueue(lead, "turn", undefined, helper(name), name, `Lane for ${name}`);
   engine.sourceSettled("turn", true);
 }
+
+describe("the one row and alert for a whole wait", () => {
+  const done = { status: "completed", reported: true, givenAt: 1 };
+  it("is due only when every helper is back", () => {
+    expect(allResultsIn([done, { status: "running", reported: false }])).toBeUndefined();
+    expect(allResultsIn([done, { ...done, status: "failed" }])).toHaveLength(2);
+    expect(allResultsIn([])).toEqual([]);
+  });
+});
 
 describe("whether the coordinator's current session still holds a result it was given", () => {
   const order = ["a", "row", "b", "c"];

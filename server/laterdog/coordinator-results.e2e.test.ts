@@ -82,7 +82,7 @@ it("gives a coordinator its first helpers' results while a slow one works, then 
     expect(nodes().every((node) => ["completed", "failed", "cancelled"].includes(node.status))).toBe(true);
     const lines = (await api("GET", `/api/threads/${marlow.activeTaskId}/messages?limit=200`)).messages
       .map((message: any) => message.tool?.name).filter((name: string | undefined) => name?.startsWith("Resumed with"));
-    expect(lines).toEqual(["Resumed with Pip, Quill results, reviewing", "Resumed with Rook results, reviewing"]);
+    expect(lines).toEqual(["Resumed with Pip, Quill, Rook results, reviewing"]);
   } finally {
     await fixture.close();
   }

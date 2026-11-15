@@ -24,7 +24,7 @@ import { createOwnerRunNowScope, legacyCancelledStatusIsNeutral } from "./laterd
 import { cloudHomeLendingRefusal, createCloudRoutineAuthors, ownerOnlyConversation, reportFromOthers, routineReportMark, type CloudLendingRefusal, type CloudLendingTurn } from "./cloud-lending.ts";
 import { SharedComputerControl } from "./shared-computer-control.ts";
 import { RoomHandoffs, awaitsReply, type RoomHandoff } from "./room-handoffs.ts";
-import { resultsTurn, sessionHolds, splitResults } from "./laterdog/handoff-results.ts";
+import { allResultsIn, resultsTurn, sessionHolds } from "./laterdog/handoff-results.ts";
 import { isHandoffEnd, type HandoffEnd } from "./laterdog/handoff-budget.ts";
 import { continueNoticeTool, continuingNoticeTool, handoffActivity } from "./laterdog/handoff-continue.ts";
 import {
@@ -4678,10 +4678,10 @@ const roomHandoffs = new RoomHandoffs(join(DATA_DIR, "room-handoffs.json"), {
       });
     }
     markInternalTurn(node.threadId);
-    if (resumed && !group) {
-      const settledFrom = [...new Set(splitResults(roomHandoffs.awaited(node.id), node.startedAt).fresh
-        .map(child => store.bot(child.botId)?.name ?? "Teammate"))];
-      const who = settledFrom.length ? settledFrom.join(", ") : "delegated work";
+    const settledFrom = resumed && !group ? allResultsIn(roomHandoffs.awaited(node.id)) : undefined;
+    if (settledFrom) {
+      const names = [...new Set(settledFrom.map(child => store.bot(child.botId)?.name ?? "Teammate"))];
+      const who = names.length ? names.join(", ") : "delegated work";
       store.appendMessage(node.threadId, {
         role: "bot", kind: "activity",
         tool: { name: `Resumed with ${who} results, reviewing`, ok: true },
