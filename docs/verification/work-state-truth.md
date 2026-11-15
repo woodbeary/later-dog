@@ -151,7 +151,7 @@ still running. Press Stop again to try once more.". The two Stop lines are writt
 (`error:`), the not-woken and no-result lines as `notice:`, so both apps show all four: the desktop shows
 `error:`, `notice:` and `recovery:` rows with step details off (`src/lib/quiet-lines.ts`), and the phone
 at `e5d4cf1` shows `notice:` and `recovery:` as status rows and `error:` as an error row
-(`src/lib/chat-row.ts`) and hides any other activity row.
+(its `chat-row.ts`, in the later-dog-phone repository) and hides any other activity row.
 
 Finding a job's leftovers reads every process once with one `grep` over their environments for the
 marker, and compares each open file with the lock file using the shell's own same-file test, so a scan
