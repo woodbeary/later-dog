@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { PERSON_WROTE_TEXT, handleComputerRun } from "./computer-run-route.ts";
 import { ComputerRuns, WAIT_IN_ONE_CALL_MS, type RunBox } from "./computer-runs.ts";
-import { BAD_WAIT_TEXT, STILL_RUNNING_TAIL_CHARS, waitCapMs, waitWindowMs } from "./run-wait.ts";
+import { BAD_WAIT_TEXT, STILL_RUNNING_TAIL_CHARS, stillRunningTail, waitCapMs, waitWindowMs } from "./run-wait.ts";
 
 const MINUTE = 60_000;
 
@@ -103,5 +103,14 @@ describe("waiting for a computer job with one call", () => {
       expect(answer).toEqual({ status: 400, error: BAD_WAIT_TEXT });
     }
     expect(j.execs).toEqual([]);
+  });
+
+  it("keeps the first line that looks like an error when it shortens a running job's output, and says it was shortened", () => {
+    const log = ["ERROR: step one failed", ...Array.from({ length: 200 }, (_, i) => `line ${i} is fine and long enough to fill the log`)].join("\n");
+    const shown = stillRunningTail(log);
+    expect(shown).toMatch(/^\(Output shortened to its last 2,000 characters while the job runs/);
+    expect(shown).toContain("First line that looks like an error: ERROR: step one failed");
+    expect(shown.endsWith(log.slice(-STILL_RUNNING_TAIL_CHARS))).toBe(true);
+    expect(stillRunningTail("short and fine")).toBe("short and fine");
   });
 });
