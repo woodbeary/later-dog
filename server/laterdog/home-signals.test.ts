@@ -20,6 +20,15 @@ describe("a dog can never signal the home's server", () => {
     ]) expect(refused(command), command).toBe(true);
   });
 
+  it("looks through the common wrappers and their own options", () => {
+    for (const command of [
+      "busybox kill 1", `nice -n 5 kill ${SERVER}`, `sudo -u root kill ${SERVER}`, "doas -u root kill 7", `ionice -c 3 kill ${SERVER}`,
+      "nohup kill 7", `time -p kill ${SERVER}`, "timeout -s KILL 5 kill 7", `stdbuf -oL kill ${SERVER}`, "setsid kill 7",
+      `exec -a x kill ${SERVER}`, "command kill 7", "builtin kill 7", `env -u HOME FOO=1 kill ${SERVER}`, "/usr/bin/env kill 7",
+      `sudo nice -n 5 /bin/kill -9 ${SERVER}`, "busybox pkill node", "sudo -u root killall node",
+    ]) expect(refused(command), command).toBe(true);
+  });
+
   it("refuses signalling a group or every process", () => {
     for (const command of ["kill -9 -1", "kill -- -1", "kill 0", "kill -TERM -- -40", "kill -KILL -21"]) expect(refused(command), command).toBe(true);
   });
@@ -65,7 +74,11 @@ describe("a dog can still stop what it started", () => {
   });
 
   it("allows asking whether a process is alive, which signals nothing", () => {
-    for (const command of [`kill -0 ${SERVER}`, "kill -0 50", "kill -s 0 50", "kill -n 0 1"]) expect(refused(command), command).toBe(false);
+    for (const command of [`kill -0 ${SERVER}`, "kill -0 50", "kill -s 0 50", "kill -n 0 1", "kill -s SIG0 50", `kill -SIG0 ${SERVER}`, `sudo kill -0 ${SERVER}`]) expect(refused(command), command).toBe(false);
+  });
+
+  it("allows a kill whose target cannot be read ahead of time, and a wrapper around harmless work", () => {
+    for (const command of ["kill -9 $(cat pidfile)", "timeout 5 pnpm test", "nice -n 5 pnpm build", "sudo -u root ls", "env FOO=1 node app.js"]) expect(refused(command), command).toBe(false);
   });
 
   it("reads past a heredoc's body, which is text and runs nothing", () => {

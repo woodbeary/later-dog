@@ -12,32 +12,61 @@ const KILLERS = new Set(["kill", "/bin/kill", "/usr/bin/kill"]);
 const BY_NAME = new Set(["pkill", "killall", "/usr/bin/pkill", "/usr/bin/killall"]);
 const FINDERS = new Set(["pgrep", "pidof", "/usr/bin/pgrep", "/bin/pidof"]);
 const ENV_PREFIX = /^(?:[A-Za-z_][A-Za-z0-9_]*=(?:'[^']*'|"[^"]*"|\S*)\s+)+/;
-const WRAPPERS = /^(?:sudo|time|nice|nohup|env|exec|command|builtin|timeout\s+\S+)\s+/;
+const ASSIGNMENT = /^[A-Za-z_][A-Za-z0-9_]*=/;
+const WRAPPER_VALUE_OPTIONS = new Map<string, ReadonlySet<string>>([
+  ["busybox", new Set<string>()],
+  ["nice", new Set(["-n", "--adjustment"])],
+  ["ionice", new Set(["-c", "-n", "-p", "-P", "-u", "--class", "--classdata"])],
+  ["sudo", new Set(["-u", "-g", "-C", "-D", "-h", "-p", "-r", "-t", "-U", "-T", "-R", "--user", "--group", "--chdir", "--host", "--prompt", "--role", "--type", "--other-user", "--command-timeout", "--chroot", "--close-from"])],
+  ["doas", new Set(["-u", "-C"])],
+  ["nohup", new Set<string>()],
+  ["time", new Set(["-f", "-o", "--format", "--output"])],
+  ["timeout", new Set(["-s", "-k", "--signal", "--kill-after"])],
+  ["stdbuf", new Set(["-i", "-o", "-e", "--input", "--output", "--error"])],
+  ["setsid", new Set<string>()],
+  ["exec", new Set(["-a"])],
+  ["command", new Set<string>()],
+  ["builtin", new Set<string>()],
+  ["env", new Set(["-u", "-C", "-S", "--unset", "--chdir", "--split-string"])],
+]);
+
+const baseName = (word: string) => word.slice(word.lastIndexOf("/") + 1);
+
+function unwrapped(tokens: readonly string[]): string[] {
+  let at = 0;
+  while (at < tokens.length) {
+    while (at < tokens.length && ASSIGNMENT.test(tokens[at]!)) at += 1;
+    const name = baseName(tokens[at] ?? "");
+    const takesValue = WRAPPER_VALUE_OPTIONS.get(name);
+    if (!takesValue) break;
+    at += 1;
+    while (at < tokens.length && tokens[at]!.startsWith("-") && tokens[at] !== "-") {
+      const option = tokens[at]!;
+      at += 1;
+      if (option === "--") break;
+      if (takesValue.has(option)) at += 1;
+    }
+    if (name === "timeout") at += 1;
+  }
+  const rest = tokens.slice(at);
+  return rest.length ? [baseName(rest[0]!), ...rest.slice(1)] : [];
+}
 
 function words(segment: string): string[] {
-  let plain = segment.trim();
-  for (let pass = 0; pass < 4; pass += 1) {
-    const next = plain.replace(ENV_PREFIX, "").replace(WRAPPERS, "");
-    if (next === plain) break;
-    plain = next;
-  }
-  return (plain.match(/'[^']*'|"[^"]*"|\S+/g) ?? []).map((word) => word.replace(/^['"]|['"]$/g, ""));
+  const plain = segment.trim().replace(ENV_PREFIX, "");
+  return unwrapped((plain.match(/'[^']*'|"[^"]*"|\S+/g) ?? []).map((word) => word.replace(/^['"]|['"]$/g, "")));
 }
 
 const SHELL_NAMES = new Set(["bash", "sh", "zsh", "dash", "ksh"]);
 
 export function isShell(word: string | undefined): boolean {
-  return word !== undefined && SHELL_NAMES.has(word.slice(word.lastIndexOf("/") + 1));
+  return word !== undefined && SHELL_NAMES.has(baseName(word));
 }
 
 const HEREDOC_OPERATOR = /<<-?\s*(?:'[^']*'|"[^"]*"|[^\s;&|()<>]+)/g;
 
-const isEnv = (word: string) => word.slice(word.lastIndexOf("/") + 1) === "env";
-
 function readsAsShell(command: string): boolean {
-  const [head, ...rest] = words(command.replace(HEREDOC_OPERATOR, " "));
-  if (head === undefined || !isEnv(head)) return isShell(head);
-  return isShell(rest.find((word) => !word.startsWith("-") && !word.includes("=")));
+  return isShell(words(command.replace(HEREDOC_OPERATOR, " "))[0]);
 }
 
 interface Heredoc { word: string; tabs: boolean; runs: boolean }
@@ -143,13 +172,14 @@ export function withoutHeredocBodies(command: string): string {
   return out;
 }
 
-const ZERO = new Set(["-0", "0", "-SIG0"]);
+const LIVENESS_FLAGS = new Set(["-0", "-SIG0"]);
+const LIVENESS_SIGNALS = new Set(["0", "SIG0"]);
 
 function killTargets(args: readonly string[]): string[] {
   const rest = [...args];
   if (rest[0] === "-l" || rest[0] === "-L") return [];
-  if (ZERO.has(rest[0] ?? "") && rest[0] !== "0") return [];
-  if ((rest[0] === "-s" || rest[0] === "-n") && ZERO.has(rest[1] ?? "")) return [];
+  if (LIVENESS_FLAGS.has(rest[0] ?? "")) return [];
+  if ((rest[0] === "-s" || rest[0] === "-n") && LIVENESS_SIGNALS.has(rest[1] ?? "")) return [];
   if (rest[0] === "-s" || rest[0] === "-n") rest.splice(0, 2);
   else if (rest[0]?.startsWith("-") && rest[0] !== "--") rest.splice(0, 1);
   if (rest[0] === "--") rest.splice(0, 1);
