@@ -6,7 +6,8 @@ import { join, resolve } from "node:path";
 import { sizeOf } from "./janitor.ts";
 
 export const REPO_CACHE_ROOT = () => join(homedir(), ".cache", "laterdog-repos");
-export const LOCK_WAIT_MS = 10 * 60_000;
+export const LOCK_WAIT_MS = 60_000;
+export const OWNERLESS_STALE_MS = 5_000;
 export const LOCK_STALE_MS = 60 * 60_000;
 export const UNSHARED_CACHE_DAYS = 7;
 const USED_STAMP = "laterdog-used";
@@ -111,7 +112,8 @@ export function takeLock(path: string, waitMs: number, now: () => number = Date.
     let since = now();
     try { owner = Number(readFileSync(join(path, "owner"), "utf8")); } catch {}
     try { since = statSync(path).mtimeMs; } catch {}
-    if ((Number.isInteger(owner) && owner > 0 && !alive(owner)) || now() - since > LOCK_STALE_MS) {
+    const ownerless = !(Number.isInteger(owner) && owner > 0);
+    if ((!ownerless && !alive(owner)) || (ownerless && now() - since > OWNERLESS_STALE_MS) || now() - since > LOCK_STALE_MS) {
       rmSync(path, { recursive: true, force: true });
       continue;
     }
@@ -128,7 +130,7 @@ function defaultBranch(runner: CloneRunner, url: string): string | null {
 }
 
 function refresh(runner: CloneRunner, cache: string, url: string): boolean {
-  const fetched = run(runner, ["-C", cache, "fetch", "--quiet", "--no-write-fetch-head", "--", url, "+refs/heads/*:refs/heads/*", "+refs/tags/*:refs/tags/*"]);
+  const fetched = run(runner, ["-C", cache, "fetch", "--quiet", "--no-write-fetch-head", "--prune", "--prune-tags", "--", url, "+refs/heads/*:refs/heads/*", "+refs/tags/*:refs/tags/*"]);
   if (!ok(fetched)) return false;
   const head = defaultBranch(runner, url);
   if (head && ok(run(runner, ["-C", cache, "rev-parse", "--verify", "--quiet", head]))) run(runner, ["-C", cache, "symbolic-ref", "HEAD", head]);
@@ -174,18 +176,22 @@ export function sharedClone(args: readonly string[], runner: CloneRunner): { out
   if (!plan) return plain();
   const target = resolve(runner.cwd, plan.dir ?? cloneDirName(plan.url));
   if (!emptyOrMissing(target)) return plain();
-  const existed = existsSync(target);
   try { mkdirSync(runner.cacheRoot, { recursive: true, mode: 0o700 }); } catch { return plain(); }
   const key = cacheKey(plan.url);
   const release = takeLock(join(runner.cacheRoot, `${key}.lock`), runner.lockWaitMs ?? LOCK_WAIT_MS, runner.now);
   if (!release) return plain();
   let shared = false;
+  let cloned = false;
+  let existed = false;
   try {
+    const free = emptyOrMissing(target);
+    existed = existsSync(target);
     const existing = join(runner.cacheRoot, `${key}.git`);
-    const cache = existsSync(existing) ? (refresh(runner, existing, plan.url) ? existing : null) : build(runner, runner.cacheRoot, key, plan.url);
+    const cache = !free ? null : existsSync(existing) ? (refresh(runner, existing, plan.url) ? existing : null) : build(runner, runner.cacheRoot, key, plan.url);
     if (cache) {
       try { writeFileSync(join(cache, USED_STAMP), ""); } catch {}
-      shared = ok(run(runner, ["clone", ...plan.options, "--", cache, target], { stdio: ["ignore", "inherit", "inherit"] }))
+      cloned = ok(run(runner, ["clone", ...plan.options, "--", cache, target], { stdio: ["ignore", "inherit", "inherit"] }));
+      shared = cloned
         && ok(run(runner, ["-C", target, "fsck", "--connectivity-only", "--no-dangling", "--no-progress"], { stdio: "ignore" }))
         && ok(run(runner, ["-C", target, "remote", "set-url", plan.origin, plan.url]));
       if (shared) keepSharedPacks(target);
@@ -194,8 +200,10 @@ export function sharedClone(args: readonly string[], runner: CloneRunner): { out
     release();
   }
   if (shared) return { outcome: "shared", status: 0 };
-  if (existed) for (const name of readdirSync(target)) rmSync(join(target, name), { recursive: true, force: true });
-  else rmSync(target, { recursive: true, force: true });
+  if (cloned) {
+    if (existed) for (const name of readdirSync(target)) rmSync(join(target, name), { recursive: true, force: true });
+    else rmSync(target, { recursive: true, force: true });
+  }
   return plain();
 }
 

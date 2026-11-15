@@ -183,6 +183,40 @@ describe("one copy of a repository's history", () => {
     expect(readFileSync(join(work, "taken", "mine.txt"), "utf8")).toBe("mine\n");
   });
 
+  it("does not bring back branches and tags the remote deleted", () => {
+    clone(url, "one");
+    git(remote, "branch", "-D", "side");
+    git(remote, "tag", "-d", "v1");
+    expect(clone(url, "two").outcome).toBe("shared");
+    expect(git(join(work, "two"), "branch", "-r")).not.toMatch(/side/);
+    expect(git(join(work, "two"), "tag")).toBe("");
+  });
+
+  it("leaves to git a folder that gained files while the clone waited, and keeps them", () => {
+    mkdirSync(cacheRoot, { recursive: true });
+    const lock = join(cacheRoot, `${cacheKey(url)}.lock`);
+    mkdirSync(lock);
+    writeFileSync(join(lock, "owner"), String(process.pid));
+    let ticks = 0;
+    const result = sharedClone(["clone", url, "race"], { git: GIT, cacheRoot, cwd: work, env, lockWaitMs: 1_000, now: () => {
+      ticks += 1;
+      if (ticks === 2) { mkdirSync(join(work, "race")); writeFileSync(join(work, "race", "notes.txt"), "mine\n"); }
+      if (ticks === 4) rmSync(lock, { recursive: true, force: true });
+      return Date.now();
+    } });
+    expect(result.outcome).toBe("plain");
+    expect(readFileSync(join(work, "race", "notes.txt"), "utf8")).toBe("mine\n");
+  });
+
+  it("treats a lock nobody wrote an owner into as stale after a few seconds", () => {
+    const lock = join(root, "y.lock");
+    mkdirSync(lock);
+    let now = Date.now();
+    expect(takeLock(lock, 0, () => now)).toBeNull();
+    now += 6_000;
+    expect(takeLock(lock, 0, () => now)).not.toBeNull();
+  });
+
   it("takes over a lock whose owner is gone and waits for a live one", () => {
     const lock = join(root, "x.lock");
     mkdirSync(lock);
