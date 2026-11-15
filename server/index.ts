@@ -775,6 +775,7 @@ import { decodeInjectId } from "./drivers/local-inject.ts";
 import { withDroppedSummary } from "./laterdog/rebuild-summary.ts";
 import { foldReason, keptContext, personLine, writeHistorySummary } from "./laterdog/history-summary.ts";
 import { dogWriter } from "./laterdog/dog-writer.ts";
+import { countsAsTurn } from "./laterdog/usage-turn.ts";
 import { memoryWriterModel } from "./laterdog/upkeep-model.ts";
 import { reportingUsage, summaryUsageRow } from "./laterdog/summary-usage.ts";
 import { rowForApps } from "./laterdog/compaction-row.ts";
@@ -13393,7 +13394,7 @@ ROUTES.push(createDogActivityRoutes({
     if (!bot) return null;
     return [...new Set([bot.threadId, ...store.tasks(botId).map((task) => task.threadId)])].map((threadId) => store.messagesFor(threadId));
   },
-  turnTimes: (botId, since) => readUsage(DATA_DIR, { from: new Date(since), to: new Date() }).filter((row) => row.botId === botId).map((row) => Date.parse(row.at)),
+  turnTimes: (botId, since) => readUsage(DATA_DIR, { from: new Date(since), to: new Date() }).filter((row) => row.botId === botId && countsAsTurn(row)).map((row) => Date.parse(row.at)),
 }));
 ROUTES.push(createScreenGoalRoutes({ dogThread: (threadId) => (store.botByThread(threadId) ? store.messagesFor(threadId) : null) }));
 ROUTES.push(createDeviceRoutes({ sessions }));
