@@ -98,13 +98,33 @@ describe("answering a card in your own words", () => {
     expect(textarea.value).toBe("");
   });
 
-  it("keeps the words in the box until every question has an answer, and says which one is open", async () => {
+  it("holds each question's own typed answer, and says which question still needs a pick", async () => {
     await mount(question, "Teal");
     await click("Other");
     await enter();
     expect(actions()).toEqual([]);
-    expect(host.querySelector("textarea")!.value).toBe("Teal");
+    expect(host.querySelector("textarea")!.value).toBe("");
     expect(host.querySelector("[data-question-typing]")!.textContent).toBe("Pick an answer for Size first, then send yours.");
+  });
+
+  it("sends a different typed answer for each question that chose Other", async () => {
+    const threadId = await mount(question, "Teal");
+    await click("Other");
+    await click("Next");
+    await click("Other");
+    await enter();
+    expect(actions()).toEqual([]);
+    expect(host.querySelector("textarea")!.value).toBe("");
+    const box = host.querySelector("textarea")!;
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!.call(box, "Huge");
+      box.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await enter();
+    expect(actions()).toEqual([expect.objectContaining({
+      type: "decideRequest", threadId, requestId: "req-q",
+      message: formatQuestionAnswers(QUESTIONS, [["Huge"], ["Teal"]]),
+    })]);
   });
 
   it("gives a dog's choice card an Other that answers its request with the typed words", async () => {

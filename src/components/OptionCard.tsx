@@ -96,7 +96,7 @@ export function OptionCard({
       threadId: answerThread,
       messageId: message.id,
       requestId: card.requestId,
-      compose: (text) => text,
+      compose: (text) => ({ message: text }),
       sent: (text) => setPicked(text),
       failed: () => setPicked(undefined),
     });

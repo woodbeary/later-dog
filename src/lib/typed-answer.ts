@@ -1,10 +1,12 @@
 import { useSyncExternalStore } from "react";
 
+export type Composed = { message: string } | { kept: true } | null;
+
 export interface TypedAnswer {
   threadId: string;
   messageId: string;
   requestId: string;
-  compose: (text: string) => string | null;
+  compose: (text: string) => Composed;
   sent?: (answer: string) => void;
   failed?: () => void;
 }
@@ -12,21 +14,34 @@ export interface TypedAnswer {
 export type TypedAnswerSend = (target: { threadId: string; requestId: string; message: string; onError: () => void }) => void;
 
 let current: TypedAnswer | null = null;
+const closed = new Set<string>();
 const listeners = new Set<() => void>();
+
+function changed(): void {
+  for (const listener of listeners) listener();
+}
 
 function publish(next: TypedAnswer | null): void {
   if (next === current) return;
   current = next;
-  for (const listener of listeners) listener();
+  if (next) closed.delete(next.threadId);
+  changed();
 }
 
 export function chooseTypedAnswer(answer: TypedAnswer): void {
   publish(answer);
 }
 
-export function releaseTypedAnswer(messageId?: string): void {
+export function releaseTypedAnswer(messageId?: string, answered = false): void {
   if (!current || (messageId !== undefined && current.messageId !== messageId)) return;
-  publish(null);
+  const threadId = current.threadId;
+  current = null;
+  if (answered) closed.add(threadId);
+  changed();
+}
+
+export function forgetClosedAnswer(threadId: string): void {
+  if (closed.delete(threadId)) changed();
 }
 
 export function typedAnswerFor(threadId: string | undefined): TypedAnswer | null {
@@ -42,19 +57,24 @@ export function useTypedAnswer(threadId: string | undefined): TypedAnswer | null
   return useSyncExternalStore(subscribe, () => typedAnswerFor(threadId), () => null);
 }
 
-export type TypedAnswerResult = "sent" | "waiting" | null;
+export function useClosedAnswer(threadId: string | undefined): boolean {
+  return useSyncExternalStore(subscribe, () => Boolean(threadId && closed.has(threadId)), () => false);
+}
+
+export type TypedAnswerResult = "sent" | "kept" | "waiting" | null;
 
 export function answerByTyping(threadId: string | undefined, text: string, send: TypedAnswerSend, restore: () => void): TypedAnswerResult {
   const target = typedAnswerFor(threadId);
   if (!target || !text.trim()) return null;
-  const message = target.compose(text.trim());
-  if (!message) return "waiting";
+  const composed = target.compose(text.trim());
+  if (!composed) return "waiting";
+  if ("kept" in composed) return "kept";
   publish(null);
-  target.sent?.(message);
+  target.sent?.(composed.message);
   send({
     threadId: target.threadId,
     requestId: target.requestId,
-    message,
+    message: composed.message,
     onError: () => {
       target.failed?.();
       publish(target);

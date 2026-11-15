@@ -12,17 +12,19 @@ import {
 import { ExpandableText } from "./ExpandableText";
 import { FoldedCard } from "./FoldedCard";
 import { answerSummary, settledAnswer } from "@/lib/settled-answer";
-import { chooseTypedAnswer, releaseTypedAnswer } from "@/lib/typed-answer";
+import { chooseTypedAnswer, releaseTypedAnswer, type Composed } from "@/lib/typed-answer";
 
 interface Draft {
   picked: string[];
   other: boolean;
+  typed: string;
 }
 
-const EMPTY: Draft = { picked: [], other: false };
+const EMPTY: Draft = { picked: [], other: false, typed: "" };
 
 function answersOf(draft: Draft): string[] {
-  return draft.picked;
+  const typed = draft.other ? draft.typed.trim() : "";
+  return typed ? [...draft.picked, typed] : draft.picked;
 }
 
 function tabLabel(question: AskQuestion, index: number): string {
@@ -49,6 +51,7 @@ export function QuestionCard({
   const [missing, setMissing] = useState<string | null>(null);
   const draftsRef = useRef(drafts);
   draftsRef.current = drafts;
+  const targetRef = useRef(0);
   const settledNow = Boolean(card?.answered) || sent !== null || Boolean(card?.dismissed);
   useEffect(() => { if (settledNow) releaseTypedAnswer(message.id); }, [settledNow, message.id]);
   useEffect(() => () => releaseTypedAnswer(message.id), [message.id]);
@@ -96,20 +99,24 @@ export function QuestionCard({
 
   const step = (offset: number) => setActive(Math.max(0, Math.min(questions.length - 1, currentIndex + offset)));
 
-  const compose = (text: string): string | null => {
-    const current = draftsRef.current;
-    const answers = questions.map((_, index) => {
-      const entry = current[index] ?? EMPTY;
-      return entry.other ? [...entry.picked, text] : entry.picked;
-    });
+  const compose = (text: string): Composed => {
+    const target = targetRef.current;
+    const held = { ...draftsRef.current, [target]: { ...(draftsRef.current[target] ?? EMPTY), other: true, typed: text } };
+    draftsRef.current = held;
+    setDrafts(held);
+    const answers = questions.map((_, index) => answersOf(held[index] ?? EMPTY));
     const gap = answers.findIndex((picked) => !picked.length);
-    if (gap >= 0) {
-      setMissing(tabLabel(questions[gap]!, gap));
-      setActive(gap);
-      return null;
+    if (gap < 0) {
+      setMissing(null);
+      const message = formatQuestionAnswers(questions, answers);
+      return message ? { message } : null;
     }
-    setMissing(null);
-    return formatQuestionAnswers(questions, answers) || null;
+    setActive(gap);
+    if (held[gap]?.other) {
+      targetRef.current = gap;
+      setMissing(null);
+    } else setMissing(tabLabel(questions[gap]!, gap));
+    return { kept: true };
   };
 
   const toggleOther = () => {
@@ -119,7 +126,8 @@ export function QuestionCard({
       if (!questions.some((_, index) => index !== currentIndex && drafts[index]?.other)) releaseTypedAnswer(message.id);
       return;
     }
-    update(currentIndex, { other: true, ...(current.multiSelect ? {} : { picked: [] }) });
+    update(currentIndex, { other: true, typed: "", ...(current.multiSelect ? {} : { picked: [] }) });
+    targetRef.current = currentIndex;
     chooseTypedAnswer({
       threadId,
       messageId: message.id,
@@ -272,9 +280,10 @@ export function QuestionCard({
             )}
           >
             <Marker checked={draft.other} multi={Boolean(current.multiSelect)} index={current.options.length} />
-            <span className="text-[14px] text-ink">{t("question.other")}</span>
+            <span className="shrink-0 text-[14px] text-ink">{t("question.other")}</span>
+            {draft.other && draft.typed && <span data-question-held className="min-w-0 flex-1 truncate text-[13px] text-ink-secondary">{draft.typed}</span>}
           </button>
-          {(draft.other || missing) && (
+          {((draft.other && !draft.typed) || missing) && (
             <p data-question-typing className="border-t border-hairline/40 px-3 py-2 text-[12.5px] text-ink-secondary">
               {missing ? t("question.otherMissing", { name: missing }) : t("question.otherBelow")}
             </p>

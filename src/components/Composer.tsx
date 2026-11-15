@@ -607,7 +607,7 @@ export function Composer({
     else if (typedAnswer) {
       const typed = text;
       const result = answerByTyping(threadId, typed, (answer) => dispatch({ type: "decideRequest", behavior: "answer", ...answer }), () => setText(typed));
-      if (result === "sent") setText("");
+      if (result === "sent" || result === "kept") setText("");
       if (result) return;
     }
     const body = composeMessage(text, attachments);
