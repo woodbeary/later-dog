@@ -51,6 +51,7 @@ import { ExchangeLine, ExchangeThreadContext, PlainNoteLine } from "./QuietLines
 import { FailedSendLine, TeamBlock } from "./TeamBlock";
 import { foldTeams } from "@/lib/team-block";
 import { latestWorkAt, planOutOfDate } from "@/lib/plan-age";
+import { standingNotice } from "@/lib/standing-notice";
 import { ExchangeViewHost } from "./ExchangeViewHost";
 import { foldExchanges, foldedRuns, expandedExchange, quietTranscriptItemShown, shownToPerson } from "@/lib/quiet-lines";
 import { RecoveredLine } from "./RecoveredLine";
@@ -957,7 +958,7 @@ export function ChatView({ bot: profile }: { bot: Bot }) {
 
   const { messages: allMessages, activeLeafId } = bot;
   const thread = useMemo(() => visibleMessages({ messages: allMessages, activeLeafId }), [allMessages, activeLeafId]);
-  const messages = useMemo(() => thread.filter(shownToPerson), [thread]);
+  const messages = useMemo(() => thread.filter((message) => shownToPerson(message) && !standingNotice(message)), [thread]);
   const exchangeThread = useMemo(() => ({ thread, working: Boolean(bot.busy) }), [thread, bot.busy]);
   const lookups = useMemo(() => transcriptLookups(allMessages, messages), [allMessages, messages]);
   const takeoverOpen = useMemo(

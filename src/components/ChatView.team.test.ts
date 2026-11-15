@@ -185,3 +185,15 @@ describe("a turn's hand-outs as one team block", () => {
     expect(endState("something-new")).toBe("Couldn't finish");
   });
 });
+
+describe("standing facts about where a chat runs", () => {
+  it("leave no row in the chat, since the model line says which account runs it, while a notice that needs the person stays", async () => {
+    const moved: Message = { id: "moved", role: "bot", kind: "activity", at: START + 1_000, tool: { name: "notice: Running on Work — Home is recharging, back at 9:00 AM.", ok: true, carry: { from: "home", to: "work" } } };
+    const resume: Message = { id: "resume", role: "bot", kind: "activity", at: START + 2_000, tool: { name: "notice: Work stopped partway. Carry on?", ok: true, resume: { handoffId: "h1" } } };
+    await draw([you("open", START, "Keep going."), moved, resume, said("done", START + 40_000, "Done.")]);
+    expect(document.body.textContent).not.toContain("Running on Work");
+    expect(document.querySelector('[data-mid="moved"]')).toBeNull();
+    expect(document.querySelector('[data-mid="resume"]')).not.toBeNull();
+  });
+});
+
