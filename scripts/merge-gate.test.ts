@@ -63,17 +63,32 @@ describe("merge gate verdict", () => {
     rmSync(dir, { recursive: true, force: true });
   });
 
-  it("fails typecheck, lint and the node tests on what they print, not only on their exit code", () => {
+  it("runs typecheck and lint as package.json does, but so that each prints how much it checked", () => {
+    const pkg = JSON.parse(readFileSync(join(repoRoot, "package.json"), "utf8"));
+    expect(pkg.scripts.typecheck).toBe("tsc -b && tsc -p tsconfig.server.json");
+    expect(pkg.scripts.lint).toBe("oxlint --deny-warnings .");
+    expect(gateSteps()[0].command).toEqual(["sh", "-c", "pnpm exec tsc -b --verbose --force && pnpm exec tsc -p tsconfig.server.json --diagnostics"]);
+    expect(gateSteps()[1].command).toEqual(["pnpm", "lint", "--format=json"]);
+  });
+
+  it("fails typecheck, lint and the node tests on what they print, and when they print nothing", () => {
     const step = (name: string) => gateSteps().find((candidate) => candidate.name === name)!;
-    expect(judgeStep(step("typecheck"), 0, "")).toMatchObject({ failed: false });
-    expect(judgeStep(step("typecheck"), 0, "src/a.ts(1,1): error TS2322: no")).toMatchObject({ failed: true, failing: ["typecheck (printed error TS2322)"] });
-    expect(judgeStep(step("lint"), 0, "Found 0 warnings and 0 errors.")).toMatchObject({ failed: false });
-    expect(judgeStep(step("lint"), 0, "Found 0 warnings and 2 errors.")).toMatchObject({ failed: true });
-    expect(judgeStep(step("lint"), 0, "Found 3 warnings and 0 errors.")).toMatchObject({ failed: true });
+    const typed = "2:21:26 AM - Building project '/repo/tsconfig.json'...\n\nFiles:              2573\nCheck time:       15.20s\n";
+    const linted = (diagnostics: string) => `{ "diagnostics": [${diagnostics}],\n  "number_of_files": 3262,\n  "number_of_rules": 97 }`;
+    expect(judgeStep(step("typecheck"), 0, typed)).toMatchObject({ failed: false });
+    expect(judgeStep(step("typecheck"), 0, "")).toMatchObject({ failed: true });
+    expect(judgeStep(step("typecheck"), 0, typed.replace(/Files:.*\n/, ""))).toMatchObject({ failed: true });
+    expect(judgeStep(step("typecheck"), 0, `${typed}src/a.ts(1,1): error TS2322: no`)).toMatchObject({ failed: true, failing: ["typecheck (printed error TS2322)"] });
+    expect(judgeStep(step("lint"), 0, linted("")) ).toMatchObject({ failed: false });
+    expect(judgeStep(step("lint"), 0, "")).toMatchObject({ failed: true });
+    expect(judgeStep(step("lint"), 0, linted(`{ "message": "no" }`))).toMatchObject({ failed: true });
+    expect(judgeStep(step("lint"), 0, linted("").replace("3262", "0"))).toMatchObject({ failed: true });
     expect(judgeStep(step("electron"), 0, "ℹ tests 945\nℹ pass 942\nℹ fail 0\n")).toMatchObject({ failed: false });
     expect(judgeStep(step("electron"), 0, "ℹ tests 945\nℹ fail 1\n")).toMatchObject({ failed: true });
     expect(judgeStep(step("electron"), 0, "ℹ tests 0\nℹ fail 0\n")).toMatchObject({ failed: true });
-    expect(judgeStep(step("lint"), 1, "")).toMatchObject({ failed: true, failing: ["lint"] });
+    expect(judgeStep(step("electron"), 0, "")).toMatchObject({ failed: true });
+    expect(judgeStep(step("packaged-server"), 0, "")).toMatchObject({ failed: true });
+    expect(judgeStep(step("lint"), 1, linted(""))).toMatchObject({ failed: true, failing: ["lint"] });
   });
 
   it("passes only when every step passed and at least one ran", () => {
@@ -140,8 +155,8 @@ if (words.includes("vitest") && process.env.FAKE_VITEST_SILENT) process.exit(0);
 const out = process.argv.find((word) => word.startsWith("--outputFile.json="))?.slice("--outputFile.json=".length);
 const skip = words.includes("--shard=2/8") && process.env.FAKE_NO_BROWSER;
 if (out) require("node:fs").writeFileSync(out, (skip ? ${JSON.stringify(JSON.stringify(recorded("skip.json", "<cwd>")))} : ${JSON.stringify(JSON.stringify(recorded("stray.json", "<cwd>")))}).replaceAll("<cwd>", process.cwd()));
-if (words.includes("typecheck") && process.env.FAKE_TYPE_ERROR) console.log("src/a.ts(1,1): error TS2322: no");
-console.log(words.includes("vitest") ? ${JSON.stringify(passing)} : words.includes("test:electron") ? "ℹ tests 3\\nℹ fail 0" : words.includes("test:packaged-server") ? "packaged backup worker exported an encrypted archive ✓" : "checked");
+if (words.includes("tsc -b") && process.env.FAKE_TYPE_ERROR) console.log("src/a.ts(1,1): error TS2322: no");
+console.log(words.includes("vitest") ? ${JSON.stringify(passing)} : words.includes("tsc -b") ? "Building project '/repo/tsconfig.json'...\\nFiles: 10" : words.includes("lint") ? '{ "diagnostics": [], "number_of_files": 10 }' : words.includes("test:electron") ? "ℹ tests 3\\nℹ fail 0" : words.includes("test:packaged-server") ? "packaged backup worker exported an encrypted archive ✓" : "checked");
 `);
     return spawnSync(process.execPath, [script, ...args], {
       cwd: repo, encoding: "utf8",
