@@ -4820,7 +4820,6 @@ function roomWork(group: GroupRecord): WorkState {
     tail: threadId => store.messagesTail(threadId, 60).messages,
     heldUntil: threadId => limitHold.heldUntil(threadId),
     helpers: threadId => helpersWorkingIn(threadId),
-    computerJobs: threadId => computerJobs.live(threadId),
     holdAccount: id => {
       const room = store.group(id);
       const botId = room?.busyBotId ?? (room?.defaultResponder.kind === "member" ? room.defaultResponder.botId : undefined);
