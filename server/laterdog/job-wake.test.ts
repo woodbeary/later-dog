@@ -7,7 +7,8 @@ import { createJobWake, jobWakeLine, jobWakePrompt, WAKE_FRESH_MS, type JobWakeH
 const NOW = 10_000_000_000;
 const job = (id: string, threadId = "t1", startedAt = NOW - 60_000): ComputerJob => ({ id, botId: "scout", threadId, command: "pnpm test", startedAt });
 const flush = async () => { for (let i = 0; i < 4; i += 1) await new Promise<void>((resolve) => setImmediate(resolve)); };
-const end = (how: "finished" | "failed" | "stopped" = "finished", at = NOW - 1_000) => ({ how, ...(how === "stopped" ? {} : { exitCode: how === "finished" ? 0 : 1 }), at });
+type How = "finished" | "failed" | "stopped" | "asleep" | "gone";
+const end = (how: How = "finished", at = NOW - 1_000) => ({ how, ...(how === "finished" || how === "failed" ? { exitCode: how === "finished" ? 0 : 1 } : {}), at });
 
 function setup(over: Partial<JobWakeHost> = {}) {
   const jobs = new ComputerJobs(null);
@@ -31,7 +32,7 @@ function setup(over: Partial<JobWakeHost> = {}) {
   return { jobs, path, lines, turns, wake: createJobWake(jobs, host), busy: (value: boolean) => { free = !value; }, handoff: (value: boolean) => { handoffDone = value; } };
 }
 
-const ended = (jobs: ComputerJobs, id: string, how: "finished" | "failed" | "stopped" = "finished", threadId = "t1", at = NOW - 1_000, startedAt?: number) => {
+const ended = (jobs: ComputerJobs, id: string, how: How = "finished", threadId = "t1", at = NOW - 1_000, startedAt?: number) => {
   jobs.started(job(id, threadId, startedAt));
   jobs.finished(id, end(how, at));
 };
@@ -128,14 +129,31 @@ describe("waking a dog when a job on its computer ends", () => {
 
   it("waits while the chat is not free, and never drops a fresh ending", async () => {
     const { jobs, turns, wake, busy } = setup();
-    ended(jobs, "aaaa0001", "stopped");
+    ended(jobs, "aaaa0001", "asleep");
     busy(true);
     expect(wake.deliver()).toEqual([]);
     expect(jobs.unannounced()).toHaveLength(1);
     busy(false);
     expect(wake.deliver()).toEqual(["t1"]);
     await flush();
-    expect(turns[0]!.prompt).toContain("was stopped before it could finish");
+    expect(turns[0]!.prompt).toContain("your cloud computer went to sleep before later.dog could read the result");
+  });
+
+  it.each<[How, string, string]>([
+    ["asleep", "Scout's computer went to sleep before later.dog could read the result of its command", "could not be read: your cloud computer went to sleep before later.dog could read the result"],
+    ["gone", "Scout's computer was removed before later.dog could read the result of its command", "could not be read: your cloud computer was removed before later.dog could read the result"],
+    ["stopped", "Scout's computer went to sleep or was removed before later.dog could read the result of its command", "could not be read: your cloud computer went to sleep or was removed before later.dog could read the result"],
+  ])("tells the dog and the chat the truth for an ending recorded as %s, never that the command was stopped", async (how, line, note) => {
+    const { jobs, lines, turns, wake } = setup();
+    ended(jobs, "aaaa0001", how);
+    wake.deliver(); await flush();
+    expect(lines()).toEqual([`recovery: ${line}, so it is carrying on.`]);
+    expect(turns[0]!.prompt).toContain(note);
+    expect(turns[0]!.prompt).not.toContain("was stopped");
+    const late = setup();
+    ended(late.jobs, "aaaa0002", how, "t1", NOW - WAKE_FRESH_MS - 1);
+    late.wake.deliver(); await flush();
+    expect(late.lines()).toEqual([`notice: ${line}. Scout was not woken for it.`]);
   });
 
   it("keeps the ending when the account cannot take the turn yet, with no line until it starts", async () => {

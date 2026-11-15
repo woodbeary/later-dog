@@ -3,7 +3,7 @@ import { z } from "zod";
 import { writeFileAtomic } from "../atomic.ts";
 import type { RunBox, RunLiveness } from "./computer-runs.ts";
 
-const endSchema = z.object({ how: z.enum(["finished", "failed", "stopped", "lost"]), exitCode: z.number().int().optional(), at: z.number() });
+const endSchema = z.object({ how: z.enum(["finished", "failed", "asleep", "gone", "stopped", "lost"]), exitCode: z.number().int().optional(), at: z.number() });
 const jobSchema = z.object({
   id: z.string(), botId: z.string(), threadId: z.string(), command: z.string(), startedAt: z.number(),
   end: endSchema.optional(),
@@ -183,7 +183,7 @@ export class ComputerJobs implements ComputerJobLedger {
       }
       if (!sighting) continue;
       if (before !== sighting) { this.#seen.set(job.id, sighting); continue; }
-      ends.set(job.id, sighting === "dead" ? { how: "lost", at: this.#now() } : jobEnd(null, this.#now()));
+      ends.set(job.id, { how: sighting === "dead" ? "lost" : sighting, at: this.#now() });
     }
     for (const [id, end] of ends) if (!this.#held.has(id)) this.finished(id, end);
     for (const id of this.#seen.keys()) if (!this.#jobs.has(id)) this.#seen.delete(id);

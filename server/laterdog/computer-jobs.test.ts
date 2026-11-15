@@ -59,7 +59,7 @@ describe("jobs a dog left running on its computer", () => {
     expect((await jobs.check(look)).sort()).toEqual(["aaaa0002", "aaaa0005"]);
     expect(jobs.live("t1").map((j) => j.id)).toEqual(["aaaa0003"]);
     expect(jobs.unannounced().map((j) => [j.id, j.end.how, j.end.exitCode, j.end.at])).toEqual([
-      ["aaaa0001", "finished", 0, 5_000], ["aaaa0002", "stopped", undefined, 9_000], ["aaaa0004", "failed", 2, 9_000], ["aaaa0005", "stopped", undefined, 9_000],
+      ["aaaa0001", "finished", 0, 5_000], ["aaaa0002", "asleep", undefined, 9_000], ["aaaa0004", "failed", 2, 9_000], ["aaaa0005", "gone", undefined, 9_000],
     ]);
   });
 
@@ -156,6 +156,12 @@ describe("jobs a dog left running on its computer", () => {
     await jobs.check(probe({ exit: async () => ({ exitCode: 143 }) }));
     expect(jobs.count("t1")).toBe(0);
     expect(jobs.unannounced()).toEqual([]);
+  });
+
+  it("still reads a ledger written when a sleeping or missing computer was recorded as stopped", () => {
+    const file = join(dir, "older.json");
+    writeFileSync(file, JSON.stringify([{ ...job(), end: { how: "stopped", at: 5 } }]));
+    expect(new ComputerJobs(file).unannounced().map((j) => j.end.how)).toEqual(["stopped"]);
   });
 
   it("remembers an ending it has not told the dog about across a restart, and forgets it once told", () => {
