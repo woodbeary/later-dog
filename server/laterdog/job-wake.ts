@@ -8,10 +8,14 @@ type NewMessage = Omit<WireMessage, "id" | "at">;
 export const WAKES_PER_MESSAGE = 2;
 export const WAKE_FRESH_MS = 30 * 60_000;
 
-const ENDED_WORDS: Record<EndedComputerJob["end"]["how"], string> = { finished: "finished", failed: "failed", stopped: "was stopped", lost: "ended without a result" };
+const UNREAD: Partial<Record<EndedComputerJob["end"]["how"], string>> = { asleep: "went to sleep", gone: "was removed", stopped: "went to sleep or was removed" };
+const ENDED_WORDS: Partial<Record<EndedComputerJob["end"]["how"], string>> = { finished: "finished", failed: "failed", lost: "ended without a result" };
 
 function endedPhrase(name: string, jobs: readonly EndedComputerJob[]): string {
-  return jobs.length === 1 ? `${name}'s command ${ENDED_WORDS[jobs[0]!.end.how]}` : `${name}'s ${jobs.length} commands ended`;
+  if (jobs.length > 1) return `${name}'s ${jobs.length} commands ended`;
+  const how = jobs[0]!.end.how;
+  const unread = UNREAD[how];
+  return unread ? `${name}'s computer ${unread} before later.dog could read the result of its command` : `${name}'s command ${ENDED_WORDS[how]}`;
 }
 
 export function jobWakeLine(name: string, jobs: readonly EndedComputerJob[]): string {
@@ -36,7 +40,8 @@ export function notWokenTool(name: string, ended: readonly EndedComputerJob[], w
 
 function endedHow(job: EndedComputerJob): string {
   const { how, exitCode } = job.end;
-  if (how === "stopped") return "was stopped before it could finish (its computer went to sleep or was removed)";
+  const unread = UNREAD[how];
+  if (unread) return `could not be read: your cloud computer ${unread} before later.dog could read the result`;
   return `${how === "finished" ? "finished" : "failed"} with exit code ${exitCode}`;
 }
 
