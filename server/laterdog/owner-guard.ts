@@ -799,6 +799,26 @@ const DECLARERS = new Set(["export", "declare", "typeset", "readonly", "local"])
 const MAKES_TEMP = /^(?:\$\(|`)mktemp(?:\s+(?:-d|-u|-q|-t|--directory|--quiet|--dry-run|-dt|-td))*(?:\s+[A-Za-z0-9._X-]+)?(?:\)|`)$/;
 const TEMP_PATH = "$TMPDIR/later-dog-mktemp";
 
+const READERS = new Set(["read", "mapfile", "readarray", "getopts", "let"]);
+const IDENTIFIER = /^[A-Za-z_][A-Za-z0-9_]*$/;
+
+function forgetRewritten(words: Word[], assigned: Map<string, string>): void {
+  const plain = withoutRedirects(words).filter((word) => !word.here);
+  for (const word of plain) {
+    const appended = /^([A-Za-z_][A-Za-z0-9_]*)\+=/.exec(word.text);
+    if (appended) assigned.delete(appended[1]!);
+  }
+  if (plain[0]?.text === "for" && plain[1]) assigned.delete(plain[1].text);
+  const command = commandWords(words);
+  const name = command[0]?.text ?? "";
+  const args = command.slice(1);
+  if (READERS.has(name)) for (const arg of args) assigned.delete(arg.text.split("=")[0]!);
+  if (name === "printf") {
+    const at = args.findIndex((arg) => arg.text === "-v");
+    if (at !== -1 && args[at + 1] && IDENTIFIER.test(args[at + 1]!.text)) assigned.delete(args[at + 1]!.text);
+  }
+}
+
 function remember(words: Word[], assigned: Map<string, string>): void {
   const plain = withoutRedirects(words).filter((word) => !word.here);
   const declares = DECLARERS.has(plain[0]?.text ?? "");
@@ -830,6 +850,7 @@ export function shellSteps(source: string, cwd: string | undefined, home: string
   const paths: Paths = { home, temp: [], roots: [] };
   for (const { words: written, after } of segments(source)) {
     const words = resolved(written, assigned);
+    forgetRewritten(words, assigned);
     remember(words, assigned);
     if (depth < DEPTH_LIMIT) for (const word of words) for (const inner of substitutions(word)) shellSteps(inner, dir, home, depth + 1, out, assigned);
     const command = commandWords(words);

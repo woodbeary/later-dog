@@ -777,3 +777,22 @@ describe("the repository folder a delete names", () => {
     }
   });
 });
+
+describe("a temporary folder the command changes again", () => {
+  it.each([
+    "tmp=$(mktemp -d); tmp+=/../../srv/dogs/other/precious-dir; rm -rf \"$tmp\"",
+    "tmp=$(mktemp -d); read -r tmp <<< \"/srv/dogs/other/precious-dir\"; rm -rf \"$tmp\"",
+    "tmp=$(mktemp -d); for tmp in /srv/dogs/other/precious-dir; do :; done; rm -rf \"$tmp\"",
+    "tmp=$(mktemp -d); printf -v tmp '%s' /srv/dogs/other/precious-dir; rm -rf \"$tmp\"",
+    "tmp=$(mktemp -d); mapfile -t tmp < /tmp/list; rm -rf \"$tmp\"",
+    "tmp=$(mktemp -d); tmp=/srv/dogs/other/precious-dir; rm -rf \"$tmp\"",
+    "tmp=$(mktemp -d); declare tmp=/srv/dogs/other/precious-dir; rm -rf \"$tmp\"",
+  ])("%s asks", (command) => {
+    expect(alwaysAsks({ tool: "Bash", command }, guard)?.id).toBe("delete-outside-workspace");
+  });
+
+  it("stays temporary when nothing writes it again", () => {
+    expect(alwaysAsks({ tool: "Bash", command: "tmp=$(mktemp -d); cd /srv/dogs/other; rm -rf \"$tmp\"" }, guard)).toBeNull();
+    expect(alwaysAsks({ tool: "Bash", command: "out=$(mktemp) && pnpm lint > \"$out\" 2>&1; tail -5 \"$out\"; rm -f \"$out\"" }, guard)).toBeNull();
+  });
+});
