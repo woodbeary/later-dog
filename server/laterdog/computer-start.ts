@@ -1,6 +1,6 @@
 export interface StartWatch {
   waking(id: string): void;
-  starting(id: string): void;
+  starting(id: string, generation?: number): void;
   settled(id: string): void;
   leftMs(id: string): number;
   spent(id: string): boolean;
@@ -8,19 +8,30 @@ export interface StartWatch {
 }
 
 export function createStartWatch(budgetMs: () => number, now: () => number = () => Date.now()): StartWatch {
-  const since = new Map<string, number>();
+  const attempts = new Map<string, { since: number; generation?: number }>();
   const leftMs = (id: string) => {
-    const begun = since.get(id);
-    return begun === undefined ? budgetMs() : budgetMs() - (now() - begun);
+    const attempt = attempts.get(id);
+    return attempt === undefined ? budgetMs() : budgetMs() - (now() - attempt.since);
   };
   return {
-    waking: (id) => { since.set(id, now()); },
-    starting: (id) => { if (!since.has(id)) since.set(id, now()); },
-    settled: (id) => { since.delete(id); },
+    waking: (id) => { attempts.set(id, { since: now() }); },
+    starting: (id, generation) => {
+      const attempt = attempts.get(id);
+      if (!attempt || (generation !== undefined && attempt.generation !== undefined && attempt.generation !== generation)) {
+        attempts.set(id, { since: now(), ...(generation !== undefined ? { generation } : {}) });
+      } else if (generation !== undefined && attempt.generation === undefined) attempt.generation = generation;
+    },
+    settled: (id) => { attempts.delete(id); },
     leftMs,
-    spent: (id) => since.has(id) && leftMs(id) <= 0,
-    exhaust: (id) => { since.set(id, now() - budgetMs()); },
+    spent: (id) => attempts.has(id) && leftMs(id) <= 0,
+    exhaust: (id) => { attempts.set(id, { ...attempts.get(id), since: now() - budgetMs() }); },
   };
+}
+
+export const START_RAN_OUT = "the cloud computer didn't start in time";
+
+export function startRanOutOfTime(error: unknown): boolean {
+  return error instanceof Error && error.message === START_RAN_OUT;
 }
 
 export const DID_NOT_START_CODE = "did_not_start" as const;

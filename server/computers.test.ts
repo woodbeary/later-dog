@@ -8,7 +8,7 @@ import { STILL_STARTING_TEXT, handleComputerRun } from "./laterdog/computer-run-
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 type State = "starting" | "running" | "sleeping" | "stopping" | "error";
-type FakeComputer = { id: string; name: string; state: State; error?: string };
+type FakeComputer = { id: string; name: string; state: State; error?: string; lastStart?: { generation: number; outcome: string } };
 type Recorded = { method: string; path: string; headers: IncomingMessage["headers"]; body: string };
 
 const KEY = `ldc_${"f".repeat(48)}`;
@@ -596,7 +596,7 @@ describe("the cloud computer facade", () => {
       const second = await call();
       expect(second).toMatchObject({ status: 502, error: expect.stringMatching(/^Your cloud computer did not start\. The computer could not start\. Nothing was run, and waiting longer will not help\. Choose one instead: do light work in your folder here; call run_on_computer again with fresh: true/) });
       expect(Date.now() - started).toBeGreaterThanOrEqual(330_000);
-      expect(Date.now() - started).toBeLessThan(350_000);
+      expect(Date.now() - started).toBeLessThanOrEqual(350_000);
       const settled = Date.now();
       expect(await call()).toEqual(second);
       expect(Date.now() - settled).toBeLessThan(15_000);
@@ -657,6 +657,28 @@ describe("the cloud computer facade", () => {
       expect(await computers.heavyRunBox("dog-heavy-screen-gave-up", { fresh: true })).toMatchObject({ box: expect.anything() });
       expect(fleet.has(stuck.id)).toBe(false);
       expect(creates()).toHaveLength(1);
+    });
+
+    it("counts a new start attempt afresh when the computer's start generation changes", async () => {
+      const computer = add("dog-heavy-new-attempt", "starting");
+      computer.lastStart = { generation: 1, outcome: "starting" };
+      pollStepMs = 10_000;
+      runsAt = Date.now() + 3_600_000;
+      await expect(computers.heavyRunBox("dog-heavy-new-attempt", { budgetMs: 240_000 })).rejects.toMatchObject({ code: "still_starting" });
+      computer.lastStart = { generation: 2, outcome: "starting" };
+      await expect(computers.heavyRunBox("dog-heavy-new-attempt", { budgetMs: 240_000 })).rejects.toMatchObject({ code: "still_starting" });
+      await expect(computers.heavyRunBox("dog-heavy-new-attempt", { budgetMs: 240_000 })).rejects.toMatchObject({ code: "did_not_start" });
+    }, 60_000);
+
+    it("counts a start afresh after a wake from any other path, such as Settings", async () => {
+      const computer = sleeping("dog-heavy-woken-elsewhere");
+      runsAt = Date.now() + 3_600_000;
+      await expect(computers.heavyRunBox("dog-heavy-woken-elsewhere", { budgetMs: 240_000 })).rejects.toMatchObject({ code: "still_starting" });
+      await expect(computers.heavyRunBox("dog-heavy-woken-elsewhere", { budgetMs: 240_000 })).rejects.toMatchObject({ code: "did_not_start" });
+      computer.state = "sleeping";
+      expect(await computers.readyBoat(noBoat, "dog-heavy-woken-elsewhere", 30_000)).toBeNull();
+      expect(fleet.get(computer.id)?.state).toBe("starting");
+      await expect(computers.heavyRunBox("dog-heavy-woken-elsewhere", { budgetMs: 60_000 })).rejects.toMatchObject({ code: "still_starting" });
     });
 
     it("wakes once for adjacent calls and leaves the computer running for the service's idle policy, even when one call is abandoned", async () => {

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { cloudDidNotStart, createStartWatch, didNotStart, didNotStartText } from "./computer-start.ts";
+import { START_RAN_OUT, cloudDidNotStart, createStartWatch, didNotStart, didNotStartText, startRanOutOfTime } from "./computer-start.ts";
 
 describe("the start watch", () => {
   it("counts one start from the first time it is seen starting, across calls, until the budget is spent", () => {
@@ -27,6 +27,30 @@ describe("the start watch", () => {
     watch.settled("cmp_b");
     expect(watch.spent("cmp_b")).toBe(false);
     expect(watch.leftMs("cmp_b")).toBe(1_000);
+  });
+});
+
+describe("one start attempt", () => {
+  it("is cleared when the computer's start generation changes, and kept while it stays the same", () => {
+    let now = 0;
+    const watch = createStartWatch(() => 1_000, () => now);
+    watch.starting("cmp_g", 3);
+    now = 800;
+    watch.starting("cmp_g", 3);
+    expect(watch.leftMs("cmp_g")).toBe(200);
+    watch.starting("cmp_g", 4);
+    expect(watch.leftMs("cmp_g")).toBe(1_000);
+    watch.exhaust("cmp_g");
+    expect(watch.spent("cmp_g")).toBe(true);
+    watch.starting("cmp_g", 5);
+    expect(watch.spent("cmp_g")).toBe(false);
+  });
+
+  it("is used up only by a start that ran out of time, not by other start errors", () => {
+    expect(startRanOutOfTime(new Error(START_RAN_OUT))).toBe(true);
+    expect(startRanOutOfTime(new Error("the cloud computer's desktop link could not be created: 502"))).toBe(false);
+    expect(startRanOutOfTime(new Error("the cloud computer could not be created or reached"))).toBe(false);
+    expect(startRanOutOfTime(START_RAN_OUT)).toBe(false);
   });
 });
 

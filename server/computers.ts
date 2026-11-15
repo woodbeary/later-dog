@@ -18,8 +18,9 @@ export type { BoatIdentityInspection, BoatTurnLifecycleAction, ManagedBoatInvent
 const BOAT_STATE: Record<string, string> = { running: "running", sleeping: "archived", starting: "starting", stopping: "archiving", error: "error" };
 const asBoatState = (state: string) => BOAT_STATE[state] ?? "unknown";
 const STATE_WORDS: Record<string, string> = { archived: "asleep", archiving: "going to sleep", starting: "starting", error: "in an error state" };
-interface OwnComputer { id: string; name: string; state: string }
-const own = (computer: Computer): OwnComputer => ({ id: computer.id, name: computer.name, state: asBoatState(computer.state) });
+interface OwnComputer { id: string; name: string; state: string; generation?: number }
+const own = (computer: Computer): OwnComputer => ({ id: computer.id, name: computer.name, state: asBoatState(computer.state),
+  ...(computer.lastStart?.generation !== undefined ? { generation: computer.lastStart.generation } : {}) });
 export const wantedSize = (cfg: AppConfig): string | undefined => cfg.box?.size ?? undefined;
 export function needsResize(computer: { size?: string }, wanted: string | undefined): boolean {
   return Boolean(wanted && computer.size && computer.size !== wanted);
@@ -87,6 +88,7 @@ function unavailable(error: unknown): unknown {
   return Object.assign(new Error(error.message, { cause: error }), { status: error.httpStatus === 401 || error.httpStatus === 403 ? 409 : 503 });
 }
 
+const starts = createStartWatch(() => cloudComputerStartBudgetMs());
 const computerIds = new Map<string, string>();
 const cacheKey = (client: ComputersClient, botId: string) => `${client.api}\0${botId}`;
 const forget = (id: string) => { for (const [key, cached] of computerIds) if (cached === id) computerIds.delete(key); };
@@ -127,13 +129,14 @@ async function waitRunning(client: ComputersClient, id: string, budgetMs: number
       if (current) {
         const state = asBoatState(current.state);
         if (state === "running") return own(current);
-        if (state === "starting") seenStarting = true;
+        if (state === "starting") { seenStarting = true; starts.starting(id, current.lastStart?.generation); }
         if (state === "error" && (woke || (wanted && seenStarting))) return null;
         if (state === "archived" || state === "error") {
           if (!wake || (wanted && !wanted())) return null;
           try {
             const woken = await client.wake(id, { signal: untilDeadline(), ...(repository ? { repository } : {}) });
             woke = true; failure = null;
+            starts.waking(id);
             if (asBoatState(woken.state) === "running") return own(woken);
           } catch (error) {
             if (!(error instanceof ComputersApiError)) throw error;
@@ -452,8 +455,6 @@ export async function inspectBoatIdentity(cfg: AppConfig, boxId: string): Promis
   return { available: true, identity: computer ? { boxId: computer.id, name: computer.name, state: asBoatState(computer.state) } : null, problem: null };
 }
 
-const starts = createStartWatch(() => cloudComputerStartBudgetMs());
-
 async function replaceOwn(client: ComputersClient, computer: OwnComputer): Promise<void> {
   try { await client.remove(computer.id); }
   catch (error) { throw refusal(error, "the cloud computer that did not start could not be replaced: "); }
@@ -481,7 +482,7 @@ export async function heavyRunBox(botId: string, options: { repository?: string;
   if (entry === "unknown") throw new Error("your cloud computer is in a state later.dog does not know, so it was not woken and nothing was run");
   if (entry === "starting" && starts.spent(computer.id)) throw didNotStart();
   if (entry === "archived") starts.waking(computer.id);
-  else if (entry === "starting") starts.starting(computer.id);
+  else if (entry === "starting") starts.starting(computer.id, computer.generation);
   const startBudgetMs = cloudComputerStartBudgetMs();
   const budgetMs = Math.max(1, Math.min(options.budgetMs ?? startBudgetMs, startBudgetMs, starts.leftMs(computer.id)));
   const wanted = options.wanted ?? (() => true);
@@ -489,6 +490,7 @@ export async function heavyRunBox(botId: string, options: { repository?: string;
   if (!ready) {
     const current = wanted() ? await client.get(computer.id).catch(() => null) : null;
     const state = current ? asBoatState(current.state) : "unknown";
+    if (current && state === "starting") starts.starting(computer.id, current.lastStart?.generation);
     if (state === "starting" && !starts.spent(computer.id)) throw Object.assign(new Error("your cloud computer is still starting, so nothing was run yet"), { code: "still_starting" });
     if (state === "starting" || state === "error") throw didNotStart(current?.error);
     throw new Error(`your cloud computer did not start within ${Math.round(budgetMs / 1000)} seconds; try again in a minute`);
