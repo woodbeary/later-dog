@@ -97,6 +97,10 @@ describe("a room's work from its chats", () => {
     expect(state).toEqual({ kind: "waiting-for-usage", account: "Codex", until: 50 });
   });
 
+  it("is running while a member's helpers are still going after the turns end", () => {
+    expect(roomWorkFor(group, deps({ helpers: (id) => (id === "side" ? 2 : 0) }))).toEqual({ kind: "running", helpers: 2 });
+  });
+
   it("names who is working", () => {
     expect(roomWorkFor(group, deps({ turnBotIds: () => new Set(["scout", "biscuit"]) }))).toEqual({ kind: "running", dogs: [{ id: "scout", name: "Scout" }, { id: "biscuit", name: "Biscuit" }] });
   });

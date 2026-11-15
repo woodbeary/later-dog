@@ -5,7 +5,7 @@ import { afterAll, describe, expect, it } from "vitest";
 import { RoomHandoffs, type RoomHandoff, type RoomHandoffHooks } from "../room-handoffs.ts";
 import type { HandoffRunResult } from "./long-work.ts";
 import { removeTempDir } from "../testing/cleanup.ts";
-import { handoffWait, handoffWorkDone, olderWorkFields } from "./chat-work.ts";
+import { handoffRunningIn, handoffWait, handoffWorkDone, olderWorkFields } from "./chat-work.ts";
 import { waitingOn } from "./waiting-on.ts";
 import { workState } from "./work-state.ts";
 
@@ -23,8 +23,8 @@ function handoffs(name: string, busy: (botId: string) => boolean, run: RoomHando
 
 function chatAsTheWireSees(record: RoomHandoffs, threadId: string, busy: boolean) {
   const handoff = handoffWait(busy, record.activeDirect(threadId), () => waitingOn(record.outstandingDirect(threadId), (botId) => NAMES[botId]));
-  const work = workState({ busy, ...(handoff.waitingOn ? { waitingOn: handoff.waitingOn } : {}) });
-  return { work, older: olderWorkFields(busy, busy ? "working" : "idle", handoff) };
+  const work = workState({ busy, handoffRunning: handoffRunningIn(threadId, record.nodes.values()), ...(handoff.waitingOn ? { waitingOn: handoff.waitingOn } : {}) });
+  return { work, older: olderWorkFields(work, busy, busy ? "working" : "idle", handoff) };
 }
 
 function scoutFinishes() {
@@ -41,15 +41,18 @@ describe("a chat's handoffs, from the handoff record", () => {
     record.tick(); await flush();
     expect(record.activeDirect(scout.threadId)).toBe(true);
     for (const threadId of [chief.threadId, scout.threadId]) {
+      expect(handoffRunningIn(threadId, record.nodes.values())).toBe(false);
       expect(chatAsTheWireSees(record, threadId, false).work).toEqual({ kind: "idle" });
     }
   });
 
-  it("the dog that asked for a reply waits on its teammate by name", async () => {
+  it("the dog doing the handoff is running, and the one that asked for a reply waits on it by name", async () => {
     const record = handoffs("running", () => false);
     record.enqueue(chief, "turn", undefined, scout, "check", "Check the totals");
     record.sourceSettled("turn", true);
     record.tick(); await flush();
+    expect(handoffRunningIn(scout.threadId, record.nodes.values())).toBe(true);
+    expect(handoffRunningIn(chief.threadId, record.nodes.values())).toBe(false);
     const asked = chatAsTheWireSees(record, chief.threadId, false);
     expect(asked.work).toEqual({ kind: "waiting-on-dog", dogs: [{ id: "scout", name: "Scout" }] });
     expect(asked.older).toMatchObject({ waitingForTeammates: true, waitingOn: [expect.objectContaining({ botId: "scout", name: "Scout" })] });
@@ -94,6 +97,7 @@ describe("the handoff keeps its own meaning of waiting for teammates", () => {
     expect(stopped.older.waitingForTeammates).toBe(false);
     expect(stopped.older).not.toHaveProperty("waitingOn");
     expect(stopped.work).toEqual({ kind: "idle" });
+    expect(chatAsTheWireSees(record, scout.threadId, false).work.kind).toBe("running");
   });
 
   it("never says it waits for teammates while its own turn runs", () => {
@@ -107,16 +111,20 @@ describe("the older fields", () => {
   const waitingOnScout = { waitingForTeammates: true, waitingOn: scoutWaiting };
   const noHandoff = { waitingForTeammates: false };
 
-  it("a chat waiting on a dog says it waits for teammates and names them, and keeps the activity it was given", () => {
-    expect(olderWorkFields(false, "idle", waitingOnScout)).toEqual({ activity: "idle", waitingForTeammates: true, waitingOn: scoutWaiting });
-    expect(olderWorkFields(false, "waiting-on-you", waitingOnScout)).toEqual({ activity: "waiting-on-you", waitingForTeammates: true, waitingOn: scoutWaiting });
+  it("a chat waiting on a dog says it waits for teammates and names them, also when a question outranks it", () => {
+    const waiting = workState({ busy: false, waitingOn: scoutWaiting });
+    expect(olderWorkFields(waiting, false, "idle", waitingOnScout)).toEqual({ activity: "idle", waitingForTeammates: true, waitingOn: scoutWaiting });
+    const asking = workState({ busy: false, waitingOn: scoutWaiting, needsYou: {} });
+    expect(olderWorkFields(asking, false, "idle", waitingOnScout)).toEqual({ activity: "waiting-on-you", waitingForTeammates: true, waitingOn: scoutWaiting });
   });
 
-  it("counts only helpers as helpers working once the turn has ended, never a job on the dog's computer", () => {
-    expect(olderWorkFields(false, "idle", noHandoff, 1)).toEqual({ activity: "idle", waitingForTeammates: false, helpersWorking: 1 });
-    expect(olderWorkFields(false, "idle", noHandoff, 0)).toEqual({ activity: "idle", waitingForTeammates: false });
-    expect(olderWorkFields(false, "idle", waitingOnScout, 1).helpersWorking).toBe(1);
-    expect(olderWorkFields(true, "working", noHandoff, 1).helpersWorking).toBeUndefined();
+  it("counts only helpers as helpers working once the turn has ended, whatever outranks them, and never a job on the dog's computer", () => {
+    expect(olderWorkFields(workState({ busy: false, helpers: 1, computerJobs: 2 }), false, "idle", noHandoff, 1)).toEqual({ activity: "idle", waitingForTeammates: false, helpersWorking: 1 });
+    expect(olderWorkFields(workState({ busy: false, computerJobs: 2 }), false, "idle", noHandoff, 0)).toEqual({ activity: "idle", waitingForTeammates: false });
+    for (const facts of [{ needsYou: {} }, { usageHold: {} }, { waitingOn: scoutWaiting }]) {
+      expect(olderWorkFields(workState({ busy: false, helpers: 1, computerJobs: 2, ...facts }), false, "idle", noHandoff, 1).helpersWorking).toBe(1);
+    }
+    expect(olderWorkFields(workState({ busy: true }), true, "working", noHandoff, 1).helpersWorking).toBeUndefined();
   });
 
   it("says a handoff's work is done only when the chat's latest received handoff ended after the person last wrote", () => {
@@ -127,4 +135,8 @@ describe("the older fields", () => {
     expect(handoffWorkDone("scout-chat", [], 50)).toBe(false);
   });
 
+  it("never says working when nothing runs", () => {
+    expect(olderWorkFields(workState({ busy: false }), false, "working", noHandoff).activity).toBe("idle");
+    expect(olderWorkFields(workState({ busy: true }), true, "working", noHandoff).activity).toBe("working");
+  });
 });

@@ -137,7 +137,7 @@ import { makeSpace } from "./laterdog/space-maker.ts";
 import { createDiskBreakdown } from "./laterdog/disk-breakdown.ts";
 import { ComputerRuns } from "./laterdog/computer-runs.ts";
 import { ComputerJobs, JOB_CHECK_MS } from "./laterdog/computer-jobs.ts";
-import { handoffWait, handoffWorkDone, olderWorkFields } from "./laterdog/chat-work.ts";
+import { handoffRunningIn, handoffWait, handoffWorkDone, olderWorkFields } from "./laterdog/chat-work.ts";
 import { createJobStop } from "./laterdog/stop-computer-jobs.ts";
 import { createJobWake } from "./laterdog/job-wake.ts";
 import { HeavyCommandGuard, preToolUseDecision } from "./laterdog/heavy-commands.ts";
@@ -3590,6 +3590,7 @@ try {
 if (browserCleanupReferencesReconciled) browserCleanup.startPending();
 
 let activeCoordinationForThread = (_threadId: string): boolean => false;
+let doingHandoff = (_threadId: string): boolean => false;
 let teammatesAwaited = (_threadId: string): WireWaitingOn[] => [];
 let liveStatusLine = (_threadId: string): string | undefined => undefined;
 let helpersWorkingIn = (_threadId: string): number => 0;
@@ -3611,7 +3612,7 @@ function chatWork(threadId: string, busy: boolean, activity: BotActivity | undef
   const kept = !busy && (threadId in limitHold.waiting() || limitHold.waitsOnPerson(threadId) || batteryContinuationPending(threadId));
   const account = kept ? accountNeedsYou({ carriesOn: carriesOnByItself(threadId), choice: accountBattery.decide(chatSelection(threadId) ?? selection, batteryAccounts(), threadId), name: (id) => registry.get(id)?.displayName }) : undefined;
   return workState({
-    busy, helpers: busy ? 0 : helpersWorkingIn(threadId), ...(busy ? {} : computerJobs.facts(threadId)), waitingOn, ...workSignals.facts(threadId), ...(stall.stopped ? { stopped: stall.stopped } : {}),
+    busy, helpers: busy ? 0 : helpersWorkingIn(threadId), ...(busy ? {} : computerJobs.facts(threadId)), handoffRunning: doingHandoff(threadId), waitingOn, ...workSignals.facts(threadId), ...(stall.stopped ? { stopped: stall.stopped } : {}),
     ...(asking ? { needsYou: { what: openAsk(store.messagesTail(threadId, 60).messages) } } : stall.needsYou ? { needsYou: stall.needsYou } : account ? { needsYou: account } : {}),
     ...(usageWait ? { usageHold: { account: registry.get(selection.instanceId)?.displayName, ...(until !== undefined ? { until } : {}) } } : {}),
   });
@@ -3636,7 +3637,7 @@ const wireTask = (task: TaskRecord, botModel: ModelSelection): WireTask => {
   const activity = delegatedNeedsYou(task.threadId) ? "waiting-on-you" as const : base.activity;
   const handoff = handoffWait(busy, activeCoordinationForThread(task.threadId), () => teammatesAwaited(task.threadId));
   const work = chatWork(task.threadId, busy, activity, handoff.waitingOn, base.modelSelection ?? botModel);
-  const coordinated = { ...base, ...olderWorkFields(busy, activity, handoff, helpersWorkingIn(task.threadId)), ...(statusLine ? { statusLine } : {}), ...planOf(task.threadId), work };
+  const coordinated = { ...base, ...olderWorkFields(work, busy, activity, handoff, helpersWorkingIn(task.threadId)), ...(statusLine ? { statusLine } : {}), ...planOf(task.threadId), work };
   const asleep = snoozedUntil === 0 || (snoozedUntil !== undefined && snoozedUntil > Date.now());
   return asleep ? { ...coordinated, snoozedUntil } : coordinated;
 };
@@ -3650,7 +3651,7 @@ const wireBot = (bot: BotRecord): WireBot => {
   const activity = delegatedNeedsYou(bot.threadId) ? "waiting-on-you" as const : visible.activity;
   const handoff = handoffWait(busy, activeCoordinationForThread(bot.threadId), () => teammatesAwaited(bot.threadId));
   const work = chatWork(bot.threadId, busy, activity, handoff.waitingOn, bot.modelSelection);
-  return { ...visible, ...olderWorkFields(busy, activity, handoff, helpersWorkingIn(bot.threadId)),
+  return { ...visible, ...olderWorkFields(work, busy, activity, handoff, helpersWorkingIn(bot.threadId)),
     work, ...planOf(bot.threadId),
     avatarUrl: visible.avatarUrl ?? null, ...(tasks ? { tasks: tasks.map((task) => wireTask(task, bot.modelSelection)) } : {}) };
 };
@@ -4751,6 +4752,7 @@ function syncDelegatedNeedsYou(node: RoomHandoff): boolean {
   });
 }
 activeCoordinationForThread = threadId => roomHandoffs.activeDirect(threadId);
+doingHandoff = threadId => handoffRunningIn(threadId, roomHandoffs.nodes.values());
 teammatesAwaited = threadId => waitingOn(roomHandoffs.outstandingDirect(threadId), (botId) => store.bot(botId)?.name, (node) => {
   const task = node.threadId ? store.taskByThread(node.botId, node.threadId) : undefined;
   if (task?.activity === "waiting-on-you") return `${store.bot(node.botId)?.name ?? "A teammate"} has a question for you`;
@@ -4788,6 +4790,7 @@ function roomWork(group: GroupRecord): WorkState {
     threadIds: id => [...new Set([store.group(id)?.threadId ?? "", ...store.groupTasks(id).map(task => task.threadId)].filter(Boolean))],
     tail: threadId => store.messagesTail(threadId, 60).messages,
     heldUntil: threadId => limitHold.heldUntil(threadId),
+    helpers: threadId => helpersWorkingIn(threadId),
     holdAccount: id => {
       const room = store.group(id);
       const botId = room?.busyBotId ?? (room?.defaultResponder.kind === "member" ? room.defaultResponder.botId : undefined);

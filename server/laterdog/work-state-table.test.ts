@@ -5,13 +5,13 @@ import { afterAll, describe, expect, it } from "vitest";
 import type { WorkKind } from "../../shared/work-state.ts";
 import { RoomHandoffs, type RoomHandoffHooks } from "../room-handoffs.ts";
 import { removeTempDir } from "../testing/cleanup.ts";
-import { handoffWait, olderWorkFields } from "./chat-work.ts";
+import { handoffRunningIn, handoffWait, olderWorkFields } from "./chat-work.ts";
 import { ComputerJobs } from "./computer-jobs.ts";
 import { HelperBoard } from "./helper-board.ts";
 import { waitingOn } from "./waiting-on.ts";
 import { workState } from "./work-state.ts";
 
-const DIMENSIONS = ["turn", "helpers", "job", "awaits", "sentNoReply", "needsYou", "usage", "restart"] as const;
+const DIMENSIONS = ["turn", "helpers", "job", "awaits", "sentNoReply", "doingHandoff", "needsYou", "usage", "restart"] as const;
 type Dimension = typeof DIMENSIONS[number];
 type Row = Partial<Record<Dimension | "handedBack" | "askerStopped", boolean>>;
 
@@ -40,6 +40,7 @@ async function handoffRecord(row: Row): Promise<RoomHandoffs> {
   if (row.awaits || row.handedBack || row.askerStopped) handoffs.enqueue(chief, "turn", undefined, { botId: "scout", threadId: "scout-chat" }, "check", "Check the totals");
   if (row.sentNoReply) handoffs.enqueue(chief, "turn", undefined, { botId: "patch", threadId: "patch-chat" }, "fyi", "Ship it", false, false, "", undefined, undefined, undefined, undefined, false, "none");
   if (row.awaits || row.sentNoReply || row.handedBack || row.askerStopped) handoffs.sourceSettled("turn", true);
+  if (row.doingHandoff) handoffs.enqueue({ botId: "boss", threadId: "boss-chat" }, "boss-turn", undefined, chief, "audit", "Audit the books");
   handoffs.tick(); await flush();
   if (row.handedBack) for (let round = 0; round < 2; round += 1) { handoffs.tick(); await flush(); }
   if (row.askerStopped) handoffs.stopAwaitingDirect(CHAT, "person");
@@ -54,7 +55,7 @@ function jobLedger(row: Row): ComputerJobs {
 }
 
 async function project(row: Row) {
-  const handoffKey = `${row.awaits}|${row.sentNoReply}|${row.handedBack}|${row.askerStopped}`;
+  const handoffKey = `${row.awaits}|${row.sentNoReply}|${row.doingHandoff}|${row.handedBack}|${row.askerStopped}`;
   if (!handoffsFor.has(handoffKey)) handoffsFor.set(handoffKey, handoffRecord(row));
   const handoffs = await handoffsFor.get(handoffKey)!;
   const jobKey = `${row.job}|${row.restart}`;
@@ -70,12 +71,13 @@ async function project(row: Row) {
     busy,
     helpers: busy ? 0 : board.runningCount(CHAT),
     computerJobs: busy ? 0 : jobs.count(CHAT),
+    handoffRunning: handoffRunningIn(CHAT, handoffs.nodes.values()),
     ...(handoff.waitingOn ? { waitingOn: handoff.waitingOn } : {}),
     ...(row.needsYou ? { needsYou: { what: "Allow sending?" } } : {}),
     ...(row.usage ? { usageHold: { account: "Work" } } : {}),
   });
   const activity = row.needsYou ? "waiting-on-you" as const : busy ? "working" as const : "idle" as const;
-  return { work, older: olderWorkFields(busy, activity, handoff, busy ? 0 : board.runningCount(CHAT)) };
+  return { work, older: olderWorkFields(work, busy, activity, handoff, busy ? 0 : board.runningCount(CHAT)) };
 }
 
 const TABLE: Array<[string, Row, WorkKind]> = [
@@ -92,6 +94,8 @@ const TABLE: Array<[string, Row, WorkKind]> = [
   ["sent work with no reply wanted", { sentNoReply: true }, "idle"],
   ["sent work with no reply wanted, turn still running", { sentNoReply: true, turn: true }, "running"],
   ["sent work with no reply wanted, a job still running", { sentNoReply: true, job: true }, "running"],
+  ["doing a handoff for another dog", { doingHandoff: true }, "running"],
+  ["doing a handoff and waiting on its own teammate", { doingHandoff: true, awaits: true }, "waiting-on-dog"],
   ["a question for the person outranks everything", { needsYou: true, turn: true, job: true, awaits: true, usage: true }, "needs-you"],
   ["a question with a job still running", { needsYou: true, job: true }, "needs-you"],
   ["a usage hold outranks a reply awaited", { usage: true, awaits: true }, "waiting-for-usage"],
@@ -129,13 +133,13 @@ describe("one work state per chat, from every fact the home knows", () => {
   it("holds across all combinations: nothing alive is idle only when nothing runs, and older fields say the same", async () => {
     for (const row of every) {
       const { work, older } = await project(row);
-      const alive = row.turn || row.job || (row.helpers && !row.restart);
+      const alive = row.turn || row.job || row.doingHandoff || (row.helpers && !row.restart);
       const label = JSON.stringify(row);
       if (alive) expect(work.kind, label).not.toBe("idle");
       if (work.kind === "running") expect(alive, label).toBe(true);
       if (work.kind === "waiting-on-dog") expect(row.awaits && !row.turn, label).toBe(true);
       if (row.sentNoReply && !row.awaits) expect(work.kind, label).not.toBe("waiting-on-dog");
-      expect(older.waitingForTeammates, label).toBe(Boolean(!row.turn && row.awaits));
+      expect(older.waitingForTeammates, label).toBe(Boolean(!row.turn && (row.awaits || row.doingHandoff)));
       if (work.kind === "waiting-on-dog") expect(older.waitingForTeammates && older.waitingOn!.length > 0, label).toBe(true);
       expect(Boolean(older.waitingOn?.length), label).toBe(Boolean(row.awaits && !row.turn));
       expect(older.activity === "waiting-on-you", label).toBe(work.kind === "needs-you");

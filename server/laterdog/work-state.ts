@@ -7,6 +7,7 @@ export interface WorkFacts {
   computerJobs?: number;
   computerSince?: number;
   computerBackground?: number;
+  handoffRunning?: boolean;
   needsYou?: { what?: string; hold?: AccountHold };
   usageHold?: { account?: string; until?: number };
   waitingOn?: readonly WireWaitingOn[];
@@ -52,7 +53,7 @@ export function workState(facts: WorkFacts): WorkState {
   }
   const helpers = Math.max(0, facts.helpers ?? 0);
   const computerJobs = Math.max(0, facts.computerJobs ?? 0);
-  if (facts.busy || helpers > 0 || computerJobs > 0) {
+  if (facts.busy || facts.handoffRunning || helpers > 0 || computerJobs > 0) {
     return { kind: "running", ...(helpers ? { helpers } : {}), ...(computerJobs ? { computerJobs, ...(facts.computerSince !== undefined && Number.isFinite(facts.computerSince) ? { computerSince: facts.computerSince } : {}), ...(facts.computerBackground ? { computerBackground: facts.computerBackground } : {}) } : {}) };
   }
   if (facts.stopped) return { kind: "stopped", cause: facts.stopped.cause, ...(facts.stopped.detail ? { detail: facts.stopped.detail } : {}) };
