@@ -34,7 +34,6 @@ const STATE_WORDS: Record<TeamState, LocaleKey> = {
   "Never got started": "chat.team.state.neverStarted",
   "Too many requests to the team": "chat.team.state.limit",
   "Stopped when later.dog restarted": "chat.team.state.restart",
-  "Couldn't go on": "chat.team.state.problem",
   "Couldn't finish": "chat.team.state.couldNotFinish",
 };
 

@@ -10,7 +10,7 @@ export type TeamState =
   | "Stopped by you" | "Stopped" | "Stopped by a local tool" | "Was interrupted" | "Removed"
   | "The chat that asked was deleted" | "Nothing moved for too long" | "Ran out of time" | "Timed out twice"
   | "Reached the longest a task runs alone" | "Never got started" | "Too many requests to the team"
-  | "Stopped when later.dog restarted" | "Couldn't go on" | "Couldn't finish";
+  | "Stopped when later.dog restarted" | "Couldn't finish";
 
 export const END_STATES: Readonly<Record<ExchangeEnd, TeamState>> = {
   person: "Stopped by you",
@@ -24,7 +24,7 @@ export const END_STATES: Readonly<Record<ExchangeEnd, TeamState>> = {
   origin: "Never got started",
   limit: "Too many requests to the team",
   restart: "Stopped when later.dog restarted",
-  problem: "Couldn't go on",
+  problem: "Couldn't finish",
 };
 
 export function endState(endedBy: string | undefined): TeamState {
@@ -87,7 +87,7 @@ export const SETTLED: ReadonlySet<TeamState> = new Set<TeamState>([
   "Done", "Asked again", "Stopped by you", "Stopped", "Stopped by a local tool", "Was interrupted", "Removed",
   "The chat that asked was deleted", "Nothing moved for too long", "Ran out of time", "Timed out twice",
   "Reached the longest a task runs alone", "Never got started", "Too many requests to the team",
-  "Stopped when later.dog restarted", "Couldn't go on", "Couldn't finish",
+  "Stopped when later.dog restarted", "Couldn't finish",
 ]);
 
 function requestIdOf(message: Message): string | undefined {

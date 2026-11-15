@@ -992,7 +992,6 @@
   "chat.team.state.idle": "Nothing moved for too long",
   "chat.team.state.timedOut": "Timed out twice",
   "chat.team.state.ceiling": "Reached the longest a task runs alone",
-  "chat.team.state.problem": "Couldn't go on",
   "chat.team.state.couldNotFinish": "Couldn't finish",
   "chat.routine.created": "Created routine",
   "chat.routine.open": "Open routine {name}",
