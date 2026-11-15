@@ -6,6 +6,7 @@ import { failedTurnCause } from "./failed-turn";
 import { isProviderSafetyBlock } from "../../shared/provider-safety";
 import { peerLine } from "./peer-message";
 import { localDay } from "./transcript-derivations";
+import { standingNotice } from "./standing-notice";
 
 export type ExchangeDirection = "to" | "from";
 
@@ -340,4 +341,8 @@ export function exchangeGist(item: Pick<ExchangeItem, "messages" | "rows">, thre
 
 export function shownToPerson(message: Message): boolean {
   return !(message.role === "bot" && message.kind === "text" && message.roomRequest);
+}
+
+export function shownInChat(message: Message): boolean {
+  return shownToPerson(message) && !standingNotice(message);
 }

@@ -50,10 +50,9 @@ import { BotAvatar } from "./Avatar";
 import { ExchangeLine, ExchangeThreadContext, PlainNoteLine } from "./QuietLines";
 import { FailedSendLine, TeamBlock } from "./TeamBlock";
 import { foldTeams } from "@/lib/team-block";
-import { standingNotice } from "@/lib/standing-notice";
 import { RunningOnLine } from "./RunningOnLine";
 import { ExchangeViewHost } from "./ExchangeViewHost";
-import { foldExchanges, foldedRuns, expandedExchange, quietTranscriptItemShown, shownToPerson } from "@/lib/quiet-lines";
+import { foldExchanges, foldedRuns, expandedExchange, quietTranscriptItemShown, shownInChat } from "@/lib/quiet-lines";
 import { RecoveredLine } from "./RecoveredLine";
 import { freshenDogName } from "@/lib/dog-refs";
 import { TurnPresence } from "./TurnPresence";
@@ -958,7 +957,7 @@ export function ChatView({ bot: profile }: { bot: Bot }) {
 
   const { messages: allMessages, activeLeafId } = bot;
   const thread = useMemo(() => visibleMessages({ messages: allMessages, activeLeafId }), [allMessages, activeLeafId]);
-  const messages = useMemo(() => thread.filter((message) => shownToPerson(message) && !standingNotice(message)), [thread]);
+  const messages = useMemo(() => thread.filter(shownInChat), [thread]);
   const exchangeThread = useMemo(() => ({ thread, working: Boolean(bot.busy) }), [thread, bot.busy]);
   const lookups = useMemo(() => transcriptLookups(allMessages, messages), [allMessages, messages]);
   const takeoverOpen = useMemo(
