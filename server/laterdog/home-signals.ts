@@ -24,21 +24,123 @@ function words(segment: string): string[] {
   return (plain.match(/'[^']*'|"[^"]*"|\S+/g) ?? []).map((word) => word.replace(/^['"]|['"]$/g, ""));
 }
 
-const HEREDOC = /(?<!<)<<(-?)\s*(['"]?)([A-Za-z_][\w.-]*)\2/g;
+const SHELL_NAMES = new Set(["bash", "sh", "zsh", "dash", "ksh"]);
 
-export function withoutHeredocBodies(command: string): string {
-  const kept: string[] = [];
-  const ends: { word: string; tabs: boolean }[] = [];
-  for (const line of command.split("\n")) {
-    const open = ends[0];
-    if (open) {
-      if ((open.tabs ? line.replace(/^\t+/, "") : line) === open.word) ends.shift();
+export function isShell(word: string | undefined): boolean {
+  return word !== undefined && SHELL_NAMES.has(word.slice(word.lastIndexOf("/") + 1));
+}
+
+const HEREDOC_OPERATOR = /<<-?\s*(?:'[^']*'|"[^"]*"|[^\s;&|()<>]+)/g;
+
+const isEnv = (word: string) => word.slice(word.lastIndexOf("/") + 1) === "env";
+
+function readsAsShell(command: string): boolean {
+  const [head, ...rest] = words(command.replace(HEREDOC_OPERATOR, " "));
+  if (head === undefined || !isEnv(head)) return isShell(head);
+  return isShell(rest.find((word) => !word.startsWith("-") && !word.includes("=")));
+}
+
+interface Heredoc { word: string; tabs: boolean; runs: boolean }
+
+function heredocWord(command: string, from: number): { word: string; tabs: boolean; end: number } {
+  let index = from;
+  const tabs = command[index] === "-";
+  if (tabs) index += 1;
+  while (command[index] === " " || command[index] === "\t") index += 1;
+  let word = "";
+  while (index < command.length && !/[\s;&|()<>]/.test(command[index]!)) {
+    const ch = command[index]!;
+    if (ch === "'" || ch === "\"") {
+      const close = command.indexOf(ch, index + 1);
+      const stop = close === -1 ? command.length : close;
+      word += command.slice(index + 1, stop);
+      index = stop + 1;
       continue;
     }
-    kept.push(line);
-    for (const found of line.matchAll(HEREDOC)) ends.push({ word: found[3]!, tabs: found[1] === "-" });
+    if (ch === "\\") { word += command[index + 1] ?? ""; index += 2; continue; }
+    word += ch;
+    index += 1;
   }
-  return kept.join("\n");
+  return { word, tabs, end: index };
+}
+
+function bodyEnd(command: string, from: number, doc: Heredoc): { body: string; end: number } {
+  let body = "";
+  let at = from;
+  while (at < command.length) {
+    const next = command.indexOf("\n", at);
+    const stop = next === -1 ? command.length : next;
+    const line = command.slice(at, stop);
+    at = stop + 1;
+    if ((doc.tabs ? line.replace(/^\t+/, "") : line) === doc.word) break;
+    body += `${line}\n`;
+  }
+  return { body, end: at };
+}
+
+export function withoutHeredocBodies(command: string): string {
+  let out = "";
+  let index = 0;
+  let simple = 0;
+  const contexts: ("plain" | "single" | "double")[] = ["plain"];
+  let current: Heredoc[] = [];
+  let piped: Heredoc[] = [];
+  const pending: Heredoc[] = [];
+  const finish = (separator: string) => {
+    if (readsAsShell(command.slice(simple, index))) for (const doc of [...current, ...piped]) doc.runs = true;
+    piped = separator === "|" ? [...piped, ...current] : [];
+    current = [];
+    simple = index + 1;
+  };
+  const copyTo = (stop: number) => {
+    out += command.slice(index, stop);
+    index = stop - 1;
+  };
+  for (; index < command.length; index += 1) {
+    const ch = command[index]!;
+    const top = contexts[contexts.length - 1];
+    if (top === "single") {
+      if (ch === "'") contexts.pop();
+      out += ch;
+      continue;
+    }
+    if (ch === "\\") { copyTo(Math.min(index + 2, command.length)); continue; }
+    if (top === "double" && ch === "\"") { contexts.pop(); out += ch; continue; }
+    if (ch === "$" && command.startsWith("$((", index)) { const close = command.indexOf("))", index); copyTo(close === -1 ? command.length : close + 2); continue; }
+    if (ch === "$" && command[index + 1] === "(") { contexts.push("plain"); out += "$("; index += 1; simple = index + 1; continue; }
+    if (top === "double") { out += ch; continue; }
+    if (ch === "'") { contexts.push("single"); out += ch; continue; }
+    if (ch === "\"") { contexts.push("double"); out += ch; continue; }
+    if (ch === "#" && (index === 0 || /[\s;&|()]/.test(command[index - 1]!))) { const next = command.indexOf("\n", index); copyTo(next === -1 ? command.length : next); continue; }
+    if (ch === "(" && command[index + 1] === "(") { const close = command.indexOf("))", index); copyTo(close === -1 ? command.length : close + 2); continue; }
+    if (ch === "(") { finish(ch); contexts.push("plain"); out += ch; continue; }
+    if (ch === ")") { finish(ch); if (contexts.length > 1) contexts.pop(); out += ch; continue; }
+    if (ch === "<" && command.startsWith("<<<", index)) { copyTo(index + 3); continue; }
+    if (ch === "<" && command[index + 1] === "<") {
+      const found = heredocWord(command, index + 2);
+      const doc = { word: found.word, tabs: found.tabs, runs: false };
+      current.push(doc);
+      pending.push(doc);
+      copyTo(found.end);
+      continue;
+    }
+    if (ch === "\n") {
+      finish(ch);
+      out += ch;
+      let at = index + 1;
+      for (const doc of pending.splice(0)) {
+        const read = bodyEnd(command, at, doc);
+        if (doc.runs) out += read.body;
+        at = read.end;
+      }
+      index = at - 1;
+      simple = at;
+      continue;
+    }
+    if (ch === ";" || ch === "|" || ch === "&" || ch === "`") finish(ch);
+    out += ch;
+  }
+  return out;
 }
 
 const ZERO = new Set(["-0", "0", "-SIG0"]);
@@ -64,13 +166,11 @@ function refusal(why: string): string {
   return `later.dog refused this: ${why}. To stop your own process, find its pid with ps, or with lsof -ti :<port> for a port, then run kill <pid>.`;
 }
 
-const SHELLS = new Set(["bash", "sh", "zsh", "dash", "/bin/bash", "/bin/sh", "/bin/zsh", "/usr/bin/bash"]);
-
 export function signalRefusal(command: string, scene: SignalScene, depth = 0): string | null {
   const parts = segments(withoutHeredocBodies(command)).map(words).filter((part) => part.length > 0);
   for (const [head, ...args] of parts) {
     const flag = args.findIndex((arg) => /^-[a-z]*c[a-z]*$/.test(arg));
-    if (!SHELLS.has(head!) || flag === -1 || depth >= 3) continue;
+    if (!isShell(head) || flag === -1 || depth >= 3) continue;
     const nested = signalRefusal(args[flag + 1] ?? "", scene, depth + 1);
     if (nested) return nested;
   }

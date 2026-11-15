@@ -77,6 +77,32 @@ describe("a dog can still stop what it started", () => {
     expect(refused("cat <<EOF > x\nhi\nEOF\nkill 21")).toBe(true);
   });
 
+  it("reads a heredoc's body as commands when a shell runs it", () => {
+    for (const command of [
+      `bash <<'EOF'\nkill ${SERVER}\nEOF`,
+      "sh -s <<EOF\npkill node\nEOF",
+      "/bin/zsh <<-X\n\tkill 7\n\tX",
+      "env FOO=1 dash -s <<EOF\npkill node\nEOF",
+      "/usr/bin/env ksh <<EOF\nkill 7\nEOF",
+      "cat <<EOF | bash\nkill 7\nEOF",
+      "bash -c 'read x' <<EOF\nkill 7\nEOF",
+    ]) expect(refused(command), command).toBe(true);
+  });
+
+  it("finds a heredoc only outside quotes, comments and arithmetic", () => {
+    for (const command of [
+      `echo '<<X'\nkill ${SERVER}`,
+      `echo "a <<X"\nkill ${SERVER}`,
+      `# cat <<X\nkill ${SERVER}`,
+      `echo $((1<<2))\nkill ${SERVER}`,
+      `cat <<<X\nkill ${SERVER}`,
+    ]) expect(refused(command), command).toBe(true);
+    for (const command of [
+      "tee notes.md <<'EOF'\nuse pkill -f only by hand\nEOF",
+      "git commit -m \"$(cat <<'EOF'\npkill -f old is gone\nEOF\n)\"",
+    ]) expect(refused(command), command).toBe(false);
+  });
+
   it("keeps a background redirect from splitting the command", () => {
     expect(refused("pnpm dev > dev.log 2>&1 & echo started")).toBe(false);
     expect(refused("pnpm dev &> dev.log & kill 21")).toBe(true);
