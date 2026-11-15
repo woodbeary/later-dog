@@ -396,7 +396,7 @@ import { makeCapContinuationSubscriber } from "./turn-continuation.ts";
 import { buildRecoveryText, buildTurnContext, engineIsFresh, NATIVELY_REPLAYING_DRIVER_KINDS, peerMessageText } from "./turn-context.ts";
 import { Handoffs, handedStateUsable, recordHanded, renderUnseen, sessionStart, unseenMessages, withUnseenMessages, type ContextMessage } from "./delta-context.ts";
 import { extractTurnImages } from "./turn-images.ts";
-import { threadTitlePrompt, titleConversationExcerpt, titleFromAnswer, type ThreadTitleSource } from "./thread-title.ts";
+import { openingWordsTitle, threadTitlePrompt, titleConversationExcerpt, titleFromAnswer, type ThreadTitleSource } from "./thread-title.ts";
 import { HelperBoard } from "./laterdog/helper-board.ts";
 import { NativeRunProjector } from "./laterdog/native-run-projector.ts";
 import { NativeRunPublisher } from "./laterdog/native-run-publisher.ts";
@@ -19160,7 +19160,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       const startedFrom = store.taskByThread(m[1], m[2])!.title;
       titleRegenerations.add(m[2]);
       try {
-        const title = await generateThreadTitle(instance, excerpt, "conversation");
+        const title = await generateThreadTitle(instance, excerpt, "conversation") ?? openingWordsTitle(store.activePath(m[2]));
         if (!title) return json(res, 502, { error: "couldn't generate a title — try again, or rename the thread" });
         const task = store.retitleTask(m[1], m[2], startedFrom, title) ?? store.taskByThread(m[1], m[2]);
         if (!task) return json(res, 404, { error: "no such task" });

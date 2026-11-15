@@ -127,15 +127,16 @@ describe("Regenerate title", { timeout: 60_000 }, () => {
     expect(seen.prompt).not.toContain("echo hi");
   });
 
-  it("keeps the current title and says so when the one-shot fails or answers something unusable", async () => {
+  it("names the thread from its opening words when the one-shot fails or answers something unusable", async () => {
     writeFileSync(titleFile, "__FAIL__");
     const failed = await api("POST", `/api/bots/${botId}/tasks/${threadId}/title`);
-    expect(failed.status).toBe(502);
-    expect(failed.body.error).toMatch(/couldn't generate a title/);
-    writeFileSync(titleFile, "This answer rambles on far too long to ever be a thread title");
+    expect(failed.status).toBe(200);
+    expect(failed.body.task.title).toBe("every login hangs after the session expires");
+    expect(await api("PATCH", `/api/bots/${botId}/tasks/${threadId}`, { title: "My name for it" })).toMatchObject({ status: 200 });
+    writeFileSync(titleFile, "Sorry, I can't help with that");
     const unusable = await api("POST", `/api/bots/${botId}/tasks/${threadId}/title`);
-    expect(unusable.status).toBe(502);
-    expect(await taskTitle(botId, threadId)).toBe("Session expiry login hang");
+    expect(unusable.status).toBe(200);
+    expect(await taskTitle(botId, threadId)).toBe("every login hangs after the session expires");
   });
 
   it("refuses a thread with nothing to name it from, and an unknown one", async () => {
@@ -152,6 +153,6 @@ describe("Regenerate title", { timeout: 60_000 }, () => {
     writeFileSync(titleFile, "Anything at all");
     const off = await api("POST", `/api/bots/${botId}/tasks/${threadId}/title`);
     expect(off.status).toBe(409);
-    expect(await taskTitle(botId, threadId)).toBe("Session expiry login hang");
+    expect(await taskTitle(botId, threadId)).toBe("every login hangs after the session expires");
   });
 });

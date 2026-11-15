@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import type { Message } from "./store.ts";
 import { readFileSync } from "node:fs";
 
-import { threadTitlePrompt, titleConversationExcerpt, titleFromAnswer, TITLE_INPUT_MAX_CHARS } from "./thread-title.ts";
+import { threadTitlePrompt, titleConversationExcerpt, openingWordsTitle, titleFromAnswer, TITLE_INPUT_MAX_CHARS } from "./thread-title.ts";
 
 let next = 0;
 const message = (role: Message["role"], text: string, extra: Partial<Message> = {}): Message => ({
@@ -102,5 +102,18 @@ describe("titleFromAnswer", () => {
     const generate = source.slice(source.indexOf("async function generateThreadTitle("), source.indexOf("const titleRegenerations"));
     expect(generate).toContain("return titleFromAnswer(reply)");
     expect(generate).not.toContain("titleFromLlm");
+  });
+});
+
+describe("openingWordsTitle", () => {
+  it("names a conversation from its first person message, without a model", () => {
+    expect(openingWordsTitle([message("bot", "Welcome"), message("user", "every login hangs after the session expires\nmore detail"), message("user", "later")]))
+      .toBe("every login hangs after the session expires");
+    expect(openingWordsTitle([message("user", `<attached-image id="x" />  ${"w".repeat(80)}`)])).toBe(`${"w".repeat(47)}…`);
+  });
+
+  it("gives nothing when no person message has words", () => {
+    expect(openingWordsTitle([message("bot", "hello"), message("user", "  ")])).toBeNull();
+    expect(openingWordsTitle([])).toBeNull();
   });
 });

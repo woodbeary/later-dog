@@ -1,7 +1,7 @@
 import { randomBytes } from "node:crypto";
 
 import { redactSecretsInText } from "./redact.ts";
-import { titleFromLlm, type Message } from "./store.ts";
+import { titleFromLlm, titleFromMessage, UNTITLED_TASK, type Message } from "./store.ts";
 
 export const TITLE_INPUT_MAX_CHARS = 1_500;
 const EXCERPT_MAX_MESSAGES = 12;
@@ -34,6 +34,17 @@ export function titleFromAnswer(raw: string): string | null {
   if (REFUSES.test(text) || TO_PERSON.test(text) || AS_ITSELF.test(text) || ASKS_OR_EXCLAIMS.test(text)) return null;
   const title = titleFromLlm(text);
   return title && title.split(" ").length <= TITLE_WORDS_MAX ? title : null;
+}
+
+export function openingWordsTitle(messages: readonly Message[]): string | null {
+  for (const message of messages) {
+    if (message.role !== "user" || message.kind !== "text" || !message.text) continue;
+    const text = redactSecretsInText(message.text.replace(ATTACHMENT_TAG, " ")).trim();
+    if (!text) continue;
+    const title = titleFromMessage(text);
+    return title === UNTITLED_TASK ? null : title;
+  }
+  return null;
 }
 
 export function titleConversationExcerpt(messages: readonly Message[]): string {
