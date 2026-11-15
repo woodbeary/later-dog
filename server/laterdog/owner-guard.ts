@@ -1,7 +1,8 @@
 import { execFile } from "node:child_process";
-import { realpathSync } from "node:fs";
+import { lstatSync, realpathSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
-import { basename, isAbsolute, relative, resolve, sep } from "node:path";
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
+import { WRAPPER_VALUE_OPTIONS } from "./home-signals.ts";
 
 export type OwnerGuardRule = "force-push-default-branch" | "delete-remote-repository" | "delete-outside-workspace";
 
@@ -31,16 +32,18 @@ export interface OwnerGuardRequest {
   command?: string;
 }
 
-interface Word {
+export interface ShellWord {
   text: string;
   glob: boolean;
   vars: boolean;
+  here?: boolean;
 }
+
+type Word = ShellWord;
 
 type Piece = { word: Word } | { op: string };
 
 const SHELLS = new Set(["bash", "sh", "zsh", "dash", "ksh"]);
-const WRAPPERS = new Set(["sudo", "command", "builtin", "exec", "nohup", "time", "nice", "doas"]);
 const GIT_VALUE_OPTIONS = new Set(["-C", "-c", "--git-dir", "--work-tree", "--namespace", "--super-prefix", "--config-env", "--exec-path"]);
 const PUSH_VALUE_OPTIONS = new Set(["--repo", "-o", "--push-option", "--receive-pack", "--exec"]);
 const GH_API_VALUE_OPTIONS = new Set([
@@ -77,16 +80,20 @@ function tokenize(source: string): Piece[] {
     }
     if (ch === "\n" && heredocs.length) {
       flush();
-      pieces.push({ op: ";" });
       let at = i + 1;
       for (const { delimiter, tabs } of heredocs.splice(0)) {
+        const body: string[] = [];
         for (;;) {
           const end = source.indexOf("\n", at);
           const line = source.slice(at, end === -1 ? source.length : end);
           at = end === -1 ? source.length : end + 1;
-          if ((tabs ? line.replace(/^\t+/, "") : line) === delimiter || end === -1) break;
+          if ((tabs ? line.replace(/^\t+/, "") : line) === delimiter) break;
+          body.push(line);
+          if (end === -1) break;
         }
+        pieces.push({ word: { text: body.join("\n"), glob: false, vars: false, here: true } });
       }
+      pieces.push({ op: ";" });
       i = at;
       continue;
     }
@@ -162,7 +169,7 @@ function tokenize(source: string): Piece[] {
       continue;
     }
     if (ch === "$") vars = true;
-    if (ch === "*" || ch === "?" || ch === "[") glob = true;
+    if (ch === "*" || ch === "?" || ch === "[" || ch === "{") glob = true;
     text += ch;
     started = true;
     i++;
@@ -199,7 +206,7 @@ function withoutRedirects(words: Word[]): Word[] {
 }
 
 function commandWords(words: Word[]): Word[] {
-  let rest = withoutRedirects(words);
+  let rest = withoutRedirects(words).filter((word) => !word.here);
   for (;;) {
     const head = rest[0];
     if (!head) return rest;
@@ -208,30 +215,39 @@ function commandWords(words: Word[]): Word[] {
       continue;
     }
     const name = basename(head.text);
-    if (WRAPPERS.has(name)) {
+    const takesValue = WRAPPER_VALUE_OPTIONS.get(name);
+    if (!takesValue) return rest;
+    rest = rest.slice(1);
+    while (rest[0] && rest[0].text.startsWith("-") && rest[0].text !== "-") {
+      const option = rest[0].text;
       rest = rest.slice(1);
-      while (rest[0]?.text.startsWith("-")) rest = rest.slice(rest[0].text === "-u" ? 2 : 1);
-      continue;
+      if (option === "--") break;
+      if (takesValue.has(option)) rest = rest.slice(1);
     }
-    if (name === "env") {
-      rest = rest.slice(1);
-      while (rest[0] && (rest[0].text.startsWith("-") || /^[A-Za-z_][A-Za-z0-9_]*=/.test(rest[0].text))) rest = rest.slice(1);
-      continue;
-    }
-    if (name === "timeout") {
-      rest = rest.slice(1);
-      while (rest[0]?.text.startsWith("-")) rest = rest.slice(1);
-      rest = rest.slice(1);
-      continue;
-    }
-    return rest;
+    if (name === "timeout") rest = rest.slice(1);
   }
+}
+
+function redirectTargets(words: Word[]): string[] {
+  const targets: string[] = [];
+  for (let i = 0; i < words.length; i++) {
+    const text = words[i]!.text;
+    if (/^\d*(?:>>?|&>>?|>\|)$/.test(text)) {
+      if (words[i + 1]) targets.push(words[i + 1]!.text);
+      i++;
+      continue;
+    }
+    const glued = /^\d*(?:>>?|&>>?)([^&].*)$/.exec(text);
+    if (glued) targets.push(glued[1]!);
+  }
+  return targets;
 }
 
 interface Paths {
   home: string;
   temp: string[];
   roots: string[];
+  links?: Map<string, string>;
 }
 
 function within(path: string, root: string, allowEqual: boolean): boolean {
@@ -255,62 +271,109 @@ function expandWord(word: Word, cwd: string | undefined, paths: Paths): string |
   return resolve(text);
 }
 
-function deleteTargetRefusal(target: Word, cwd: string | undefined, paths: Paths): OwnerGuardRefusal | null {
-  const expanded = expandWord(target.glob ? { ...target, text: staticPrefix(target.text) } : target, cwd, paths);
-  if (expanded === null) {
-    return {
-      rule: "delete-outside-workspace",
-      message: `later.dog refused this: it deletes ${target.text} recursively, and later.dog cannot tell where that is. Write the literal path inside this dog's workspace or /tmp.`,
-      ask: `This deletes ${target.text} and everything in it, and later.dog cannot tell where that is. Allow only if you want it gone.`,
-    };
+function linked(path: string, links: Map<string, string> | undefined): string {
+  for (const [link, target] of links ?? []) {
+    if (path === link) return target;
+    if (path.startsWith(`${link}/`)) return join(target, path.slice(link.length + 1));
   }
-  const allowed = target.glob
-    ? [...paths.roots, ...paths.temp].some((root) => within(expanded, root, true))
-    : [...paths.roots, ...paths.temp].some((root) => within(expanded, root, false));
-  if (allowed) return null;
+  return path;
+}
+
+function realPath(path: string): string {
+  let head = path;
+  const tail: string[] = [];
+  for (;;) {
+    try {
+      return join(realpathSync(head), ...tail);
+    } catch {
+      const parent = dirname(head);
+      if (parent === head) return path;
+      tail.unshift(basename(head));
+      head = parent;
+    }
+  }
+}
+
+function isSymlink(path: string): boolean {
+  try {
+    return lstatSync(path).isSymbolicLink();
+  } catch {
+    return false;
+  }
+}
+
+function deletedPath(expanded: string, text: string, paths: Paths, glob: boolean): string {
+  const mapped = linked(expanded, paths.links);
+  const followsLast = glob || text.endsWith("/") || mapped !== expanded;
+  if (followsLast || !isSymlink(mapped)) return realPath(mapped);
+  return join(realPath(dirname(mapped)), basename(mapped));
+}
+
+const unreadableDelete = (text: string, recursive = false): OwnerGuardRefusal => ({
+  rule: "delete-outside-workspace",
+  message: `later.dog refused this: it deletes ${text}${recursive ? " recursively" : ""}, and later.dog cannot tell where that is. Write the literal path inside this dog's workspace or /tmp.`,
+  ask: `This deletes ${text}${recursive ? " and everything in it" : ""}, and later.dog cannot tell where that is. Allow only if you want it gone.`,
+});
+
+function deleteTargetRefusal(target: Word, cwd: string | undefined, paths: Paths, recursive = true): OwnerGuardRefusal | null {
+  const glob = target.glob || /[*?[{]/.test(target.text);
+  const expanded = expandWord(glob ? { ...target, text: staticPrefix(target.text) } : target, cwd, paths);
+  if (expanded === null || /^[^/]*:/.test(target.text)) return unreadableDelete(target.text, recursive);
+  const real = deletedPath(expanded, target.text, paths, glob);
+  const inside = (path: string) => [...paths.roots, ...paths.temp].some((root) => within(path, root, glob));
+  if (inside(real) && inside(expanded)) return null;
+  const shown = glob ? target.text : real;
   return {
     rule: "delete-outside-workspace",
-    message: `later.dog refused this: it deletes ${target.glob ? target.text : expanded} recursively, outside this dog's workspace and /tmp.`,
-    ask: `This deletes ${target.glob ? target.text : expanded} and everything in it, outside this dog's workspace and /tmp. Allow only if you want it gone.`,
+    message: `later.dog refused this: it deletes ${shown}${recursive ? " recursively" : ""}, outside this dog's workspace and /tmp.`,
+    ask: `This deletes ${shown}${recursive ? " and everything in it" : ""}, outside this dog's workspace and /tmp. Allow only if you want it gone.`,
   };
 }
 
 function staticPrefix(text: string): string {
   const parts = text.split("/");
-  const firstGlob = parts.findIndex((part) => /[*?[]/.test(part));
+  const firstGlob = parts.findIndex((part) => /[*?[{]/.test(part));
   const kept = parts.slice(0, firstGlob === -1 ? parts.length : firstGlob).join("/");
   return kept === "" ? (text.startsWith("/") ? "/" : ".") : kept;
 }
 
-function rmRefusal(args: Word[], cwd: string | undefined, paths: Paths): OwnerGuardRefusal | null {
-  let recursive = false;
-  const targets: Word[] = [];
-  let options = true;
-  for (const arg of args) {
-    if (options && arg.text === "--") {
-      options = false;
-      continue;
-    }
-    if (options && arg.text.startsWith("--")) {
-      if (arg.text === "--recursive") recursive = true;
-      continue;
-    }
-    if (options && arg.text.startsWith("-") && arg.text.length > 1) {
-      if (/[rR]/.test(arg.text.slice(1))) recursive = true;
-      continue;
-    }
-    targets.push(arg);
-  }
-  if (!recursive) return null;
+function firstRefusal(targets: readonly Word[], cwd: string | undefined, paths: Paths, recursive: boolean): OwnerGuardRefusal | null {
   for (const target of targets) {
-    const refusal = deleteTargetRefusal(target, cwd, paths);
+    const refusal = deleteTargetRefusal(target, cwd, paths, recursive);
     if (refusal) return refusal;
   }
   return null;
 }
 
-function findRefusal(args: Word[], cwd: string | undefined, paths: Paths): OwnerGuardRefusal | null {
-  if (!args.some((arg) => arg.text === "-delete")) return null;
+function operands(args: Word[], valueOptions: ReadonlySet<string> = new Set()): { flags: string[]; targets: Word[] } {
+  const flags: string[] = [];
+  const targets: Word[] = [];
+  let options = true;
+  for (let i = 0; i < args.length; i++) {
+    const text = args[i]!.text;
+    if (options && text === "--") {
+      options = false;
+      continue;
+    }
+    if (options && text.startsWith("-") && text.length > 1) {
+      flags.push(text);
+      if (valueOptions.has(text)) i++;
+      continue;
+    }
+    targets.push(args[i]!);
+  }
+  return { flags, targets };
+}
+
+function rmRefusal(args: Word[], cwd: string | undefined, paths: Paths): OwnerGuardRefusal | null {
+  const { flags, targets } = operands(args);
+  const recursive = flags.some((flag) => flag === "--recursive" || (!flag.startsWith("--") && /[rR]/.test(flag.slice(1))));
+  return firstRefusal(targets, cwd, paths, recursive);
+}
+
+const FIND_DELETERS = new Set(["rm", "unlink", "shred", "rmdir", "trash"]);
+
+function findRoots(args: Word[]): Word[] {
   let rest = args;
   while (rest[0] && /^-[HLP]$|^-O\d$/.test(rest[0].text)) rest = rest.slice(1);
   while (rest[0]?.text === "-D") rest = rest.slice(2);
@@ -319,11 +382,106 @@ function findRefusal(args: Word[], cwd: string | undefined, paths: Paths): Owner
     if (arg.text.startsWith("-") || arg.text === "(" || arg.text === "!") break;
     roots.push(arg);
   }
-  for (const root of roots.length ? roots : [{ text: ".", glob: false, vars: false }]) {
-    const refusal = deleteTargetRefusal(root, cwd, paths);
-    if (refusal) return refusal;
+  return roots.length ? roots : [{ text: ".", glob: false, vars: false }];
+}
+
+function findDeletes(args: Word[]): boolean {
+  return args.some((arg, index) => arg.text === "-delete" ||
+    (/^-(?:exec|execdir|ok|okdir)$/.test(arg.text) && FIND_DELETERS.has(basename(args[index + 1]?.text ?? ""))));
+}
+
+function findRefusal(args: Word[], cwd: string | undefined, paths: Paths): OwnerGuardRefusal | null {
+  return findDeletes(args) ? firstRefusal(findRoots(args), cwd, paths, true) : null;
+}
+
+const RSYNC_VALUE_OPTIONS = new Set(["-e", "--rsh", "--exclude", "--include", "--filter", "-f", "--files-from", "--exclude-from", "--include-from",
+  "--link-dest", "--compare-dest", "--copy-dest", "--backup-dir", "--partial-dir", "--temp-dir", "-T", "--log-file", "--password-file",
+  "--chmod", "--chown", "--timeout", "--port", "--bwlimit", "--max-size", "--min-size", "-B", "--block-size", "--suffix", "--out-format", "-M", "--remote-option"]);
+
+function rsyncRefusal(args: Word[], cwd: string | undefined, paths: Paths): OwnerGuardRefusal | null {
+  const { flags, targets } = operands(args, RSYNC_VALUE_OPTIONS);
+  const deletes = flags.some((flag) => flag.startsWith("--delete") || flag === "--del");
+  const removesSources = flags.includes("--remove-source-files");
+  if (!targets.length || (!deletes && !removesSources)) return null;
+  const hit = [...(deletes ? targets.slice(-1) : []), ...(removesSources ? targets.slice(0, -1) : [])];
+  return firstRefusal(hit, cwd, paths, true);
+}
+
+function gitCleanRefusal(args: Word[], cwd: string | undefined, paths: Paths): OwnerGuardRefusal | null {
+  let dir = cwd;
+  let i = 0;
+  for (; i < args.length; i++) {
+    const text = args[i]!.text;
+    if (text === "-C") {
+      const target = args[i + 1];
+      const moved = target ? expandWord(target, dir, paths) : null;
+      if (moved === null) return unreadableDelete(`files in ${target?.text ?? "an unnamed folder"}`);
+      dir = moved;
+      i++;
+      continue;
+    }
+    if (GIT_VALUE_OPTIONS.has(text)) {
+      i++;
+      continue;
+    }
+    if (text.startsWith("-")) continue;
+    break;
+  }
+  if (args[i]?.text !== "clean") return null;
+  const { flags, targets } = operands(args.slice(i + 1), new Set(["-e", "--exclude"]));
+  const forced = flags.some((flag) => flag === "--force" || (!flag.startsWith("--") && flag.slice(1).includes("f")));
+  if (!forced) return null;
+  if (dir === undefined) return unreadableDelete("untracked files in this folder");
+  return firstRefusal(targets.length ? targets : [{ text: dir, glob: false, vars: false }], dir, paths, true);
+}
+
+function shredRefusal(args: Word[], cwd: string | undefined, paths: Paths): OwnerGuardRefusal | null {
+  const { flags, targets } = operands(args, new Set(["-n", "--iterations", "-s", "--size", "--random-source"]));
+  const removes = flags.some((flag) => flag === "--remove" || flag.startsWith("--remove=") || (!flag.startsWith("--") && flag.slice(1).includes("u")));
+  return removes ? firstRefusal(targets, cwd, paths, false) : null;
+}
+
+function mvRefusal(args: Word[], cwd: string | undefined, paths: Paths): OwnerGuardRefusal | null {
+  const { targets } = operands(args, new Set(["-t", "--target-directory", "-S", "--suffix"]));
+  if (targets.length < 2) return null;
+  const destination = expandWord(targets.at(-1)!, cwd, paths);
+  if (destination === null || !paths.temp.some((root) => within(realPath(destination), root, true))) return null;
+  return firstRefusal(targets.slice(0, -1), cwd, paths, true);
+}
+
+const XARGS_VALUE_OPTIONS = new Set(["-n", "-I", "-i", "-L", "-l", "-P", "-d", "-E", "-e", "-s", "-a", "--max-args", "--replace", "--max-lines", "--max-procs", "--delimiter", "--eof", "--max-chars", "--arg-file"]);
+
+export function xargsCommand(args: Word[]): Word[] {
+  let i = 0;
+  while (i < args.length && args[i]!.text.startsWith("-") && args[i]!.text !== "--") {
+    if (XARGS_VALUE_OPTIONS.has(args[i]!.text)) i++;
+    i++;
+  }
+  if (args[i]?.text === "--") i++;
+  return commandWords(args.slice(i));
+}
+
+function pipedWords(step: ShellStep | undefined): Word[] | null {
+  if (!step) return null;
+  if (step.name === "find") return findRoots(step.args);
+  if (step.name === "echo" || step.name === "printf") {
+    const words = step.args.filter((arg) => !/^-[neE]+$/.test(arg.text)).flatMap((arg) => arg.text.split(/\s+/).filter(Boolean).map((text) => ({ ...arg, text })));
+    return step.args.some((arg) => arg.vars) ? null : words;
   }
   return null;
+}
+
+const DELETES_IN_CODE = /(?:\bos\.(?:remove|unlink|rmdir|removedirs)|\bshutil\.rmtree|\brmtree|\.unlink|\.rmdir|\bunlinkSync|\brmdirSync|\brmSync|\bfs\.(?:rm|unlink|rmdir)|\bpromises\.(?:rm|unlink|rmdir)|\brimraf|\bremove_dir_all|\bremove_file|\bFileUtils\.rm\w*|\bFile\.delete|\bDir\.rmdir|\bunlink)\s*[(\s]/;
+
+export function codeLiterals(code: string): string[] {
+  return [...code.matchAll(/"((?:[^"\\\n]|\\.)*)"|'((?:[^'\\\n]|\\.)*)'|`([^`]*)`/g)].map((match) => match[1] ?? match[2] ?? match[3] ?? "");
+}
+
+function codeRefusal(code: string, cwd: string | undefined, paths: Paths): OwnerGuardRefusal | null {
+  if (!DELETES_IN_CODE.test(code)) return null;
+  const targets = codeLiterals(code).filter((text) => /^(?:\/|~|\.{1,2}\/)|\//.test(text));
+  if (!targets.length || /\$\{|\bjoin\(|\+\s*["'`]|["'`]\s*\+|\bf["']|%s|\.format\(/.test(code)) return unreadableDelete("files named inside a program");
+  return firstRefusal(targets.map((text) => ({ text, glob: /[*?[]/.test(text), vars: false })), cwd, paths, true);
 }
 
 const deleteRepository = (): OwnerGuardRefusal => ({
@@ -494,43 +652,133 @@ export function isShellTool(tool: string): boolean {
   return SHELL_TOOLS.has(tool.replace(/^mcp__[^_]+__/, "").toLowerCase());
 }
 
-type Finding = { refusal: OwnerGuardRefusal } | { push: PushPlan };
+export interface ShellStep {
+  name: string;
+  args: Word[];
+  words: Word[];
+  here: string[];
+  writes: string[];
+  dir: string | undefined;
+  piped: ShellStep | undefined;
+  code: string | undefined;
+  depth: number;
+  input?: "xargs" | "find";
+}
 
-function commandFindings(source: string, cwd: string | undefined, paths: Paths, depth: number, out: Finding[] = []): Finding[] {
+const INTERPRETERS = new Set(["python", "node", "nodejs", "perl", "ruby", "php", "bun", "osascript"]);
+const CODE_FLAGS = new Set(["-c", "-e", "-E", "--eval", "-r", "-p", "--print"]);
+
+function inlineCode(name: string, args: Word[], here: string[]): string | undefined {
+  if (!INTERPRETERS.has(name.replace(/[\d.]+$/, ""))) return undefined;
+  const flag = args.findIndex((arg) => CODE_FLAGS.has(arg.text) || /^-[a-zA-Z]*[ce]$/.test(arg.text));
+  const parts = [...(flag === -1 ? [] : [args[flag + 1]?.text ?? ""]), ...here];
+  return parts.length ? parts.join("\n") : undefined;
+}
+
+export function shellSteps(source: string, cwd: string | undefined, home: string, depth = 0, out: ShellStep[] = []): ShellStep[] {
   let dir = cwd;
-  for (const { words } of segments(source)) {
+  let previous: ShellStep | undefined;
+  let pipeOpen = false;
+  const paths: Paths = { home, temp: [], roots: [] };
+  for (const { words, after } of segments(source)) {
     const command = commandWords(words);
     const head = command[0];
-    if (!head) continue;
+    if (!head) {
+      previous = undefined;
+      pipeOpen = false;
+      continue;
+    }
     const name = basename(head.text);
     const args = command.slice(1);
+    const here = words.filter((word) => word.here).map((word) => word.text);
+    const step: ShellStep = {
+      name, args, words: words.filter((word) => !word.here), here, writes: redirectTargets(words), dir,
+      piped: pipeOpen ? previous : undefined, code: inlineCode(name, args, here), depth,
+    };
+    out.push(step);
     if (name === "cd" || name === "pushd") {
       const target = args.find((arg) => !arg.text.startsWith("-") || arg.text === "-");
-      if (!target) dir = paths.home;
+      if (!target) dir = home;
       else if (target.text === "-") dir = undefined;
       else dir = expandWord(target, dir, paths) ?? undefined;
-      continue;
     }
-    if (SHELLS.has(name) && depth < DEPTH_LIMIT) {
-      const flag = args.findIndex((arg) => /^-[a-z]*c[a-z]*$/.test(arg.text));
-      const script = flag === -1 ? undefined : args[flag + 1];
-      if (script) commandFindings(script.text, dir, paths, depth + 1, out);
-      continue;
+    if (depth < DEPTH_LIMIT) {
+      if (SHELLS.has(name)) {
+        const flag = args.findIndex((arg) => /^-[a-z]*c[a-z]*$/.test(arg.text));
+        const script = flag === -1 ? undefined : args[flag + 1];
+        if (script) shellSteps(script.text, dir, home, depth + 1, out);
+        for (const body of here) shellSteps(body, dir, home, depth + 1, out);
+        const printed = step.piped && (step.piped.name === "echo" || step.piped.name === "printf") ? step.piped.args.filter((arg) => !/^-[neE]+$/.test(arg.text)) : [];
+        if (flag === -1 && printed.length && !printed.some((arg) => arg.vars)) shellSteps(printed.map((arg) => arg.text).join(" ").replace(/\\n/g, "\n"), dir, home, depth + 1, out);
+      }
+      if (name === "eval") shellSteps(args.map((arg) => arg.text).join(" "), dir, home, depth + 1, out);
+      if (name === "xargs") {
+        const run = xargsCommand(args);
+        if (run.length) out.push({ ...step, name: basename(run[0]!.text), args: run.slice(1), words: run, code: undefined, depth: depth + 1, input: "xargs" });
+      }
+      if (name === "find") {
+        for (let i = 0; i < args.length; i++) {
+          if (!/^-(?:exec|execdir|ok|okdir)$/.test(args[i]!.text)) continue;
+          const stop = args.findIndex((arg, index) => index > i && (arg.text === ";" || arg.text === "+"));
+          const run = args.slice(i + 1, stop === -1 ? undefined : stop);
+          if (run.length) out.push({ ...step, name: basename(run[0]!.text), args: run.slice(1), words: run, piped: step, code: undefined, depth: depth + 1, input: "find" });
+        }
+      }
     }
-    if (name === "eval" && depth < DEPTH_LIMIT) {
-      commandFindings(args.map((arg) => arg.text).join(" "), dir, paths, depth + 1, out);
-      continue;
-    }
-    const refusal = name === "rm" ? rmRefusal(args, dir, paths)
-      : name === "find" ? findRefusal(args, dir, paths)
-        : name === "gh" ? ghRefusal(args)
-          : name === "glab" && args[0]?.text === "repo" && args[1]?.text === "delete" ? deleteRepository()
-            : name === "hub" && args[0]?.text === "delete" ? deleteRepository()
-              : name === "curl" ? curlRefusal(args)
-                : null;
+    previous = step;
+    pipeOpen = after === "|" || after === "|&";
+  }
+  return out;
+}
+
+type Finding = { refusal: OwnerGuardRefusal } | { push: PushPlan };
+
+const DELETERS: Record<string, (args: Word[], cwd: string | undefined, paths: Paths) => OwnerGuardRefusal | null> = {
+  rm: rmRefusal,
+  find: findRefusal,
+  rsync: rsyncRefusal,
+  git: gitCleanRefusal,
+  shred: shredRefusal,
+  mv: mvRefusal,
+  unlink: (args, cwd, paths) => firstRefusal(operands(args).targets, cwd, paths, false),
+  rmdir: (args, cwd, paths) => firstRefusal(operands(args).targets, cwd, paths, false),
+  trash: (args, cwd, paths) => firstRefusal(operands(args).targets, cwd, paths, true),
+};
+
+function stepDeleteRefusal(step: ShellStep, paths: Paths): OwnerGuardRefusal | null {
+  if (step.name === "ln" && step.args.some((arg) => /^-[a-zA-Z]*s/.test(arg.text) || arg.text === "--symbolic")) {
+    const { targets } = operands(step.args, new Set(["-t", "--target-directory", "-S", "--suffix"]));
+    const [target, link] = targets.length >= 2 ? [targets[0]!, targets.at(-1)!] : [undefined, undefined];
+    const from = link && expandWord(link, step.dir, paths);
+    const to = target && expandWord(target, step.dir, paths);
+    if (from && to) (paths.links ??= new Map()).set(from, realPath(to));
+    return null;
+  }
+  if (step.input === "find") return null;
+  if (step.input === "xargs" && FIND_DELETERS.has(step.name)) {
+    const input = pipedWords(step.piped);
+    if (input === null) return unreadableDelete("files read from another command");
+    return DELETERS[step.name]?.([...step.args, ...input], step.dir, paths) ?? null;
+  }
+  if (step.code !== undefined) {
+    const refusal = codeRefusal(step.code, step.dir, paths);
+    if (refusal) return refusal;
+  }
+  return DELETERS[step.name]?.(step.args, step.dir, paths) ?? null;
+}
+
+function commandFindings(source: string, cwd: string | undefined, paths: Paths, depth: number, out: Finding[] = []): Finding[] {
+  for (const step of shellSteps(source, cwd, paths.home, depth)) {
+    const { name, args } = step;
+    const refusal = stepDeleteRefusal(step, paths)
+      ?? (name === "gh" ? ghRefusal(args)
+        : name === "glab" && args[0]?.text === "repo" && args[1]?.text === "delete" ? deleteRepository()
+          : name === "hub" && args[0]?.text === "delete" ? deleteRepository()
+            : name === "curl" ? curlRefusal(args)
+              : null);
     if (refusal) out.push({ refusal });
     if (name === "git") {
-      const plan = gitPush(args, dir);
+      const plan = gitPush(args, step.dir);
       if (plan) out.push({ push: plan });
     }
   }
@@ -587,10 +835,13 @@ export function ownerGuardRequest(tool: string, command: string | undefined, sum
   return { tool, command: command ?? (isShellTool(tool) ? summary : undefined) };
 }
 
+const CACHE_FOLDERS = [".cache", ".npm", ".pnpm-store", ".local/share/pnpm/store", "Library/Caches", ".bun/install/cache", ".yarn/cache"];
+
 function guardPaths(context: OwnerGuardContext): Paths {
+  const home = context.home ?? homedir();
   return {
-    home: context.home ?? homedir(),
-    temp: [...(context.tempRoots ?? defaultTempRoots())],
+    home,
+    temp: [...(context.tempRoots ?? defaultTempRoots()), ...CACHE_FOLDERS.map((folder) => join(home, folder))],
     roots: context.workspaceRoots.filter((root) => isAbsolute(root)),
   };
 }

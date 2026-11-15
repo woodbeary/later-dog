@@ -38,7 +38,7 @@ describe("the owner guard lets ordinary repository work through", () => {
     "rm -rf $TMPDIR/scratch",
     "rm -r build 2>/dev/null || true",
     "find . -name '*.log' -delete",
-    "rm notes.txt ~/old.txt",
+    "rm notes.txt",
     "pnpm build && pnpm test && pnpm release:beta",
     "cat > clean.sh <<'EOF'\nrm -rf \"$OUT\"\nrm -rf ~/\nEOF\nchmod +x clean.sh",
     "echo 'git push --force origin main'",
@@ -113,6 +113,10 @@ describe("the owner guard refuses recursive deletes outside the workspace and /t
     const refusal = await bash(command);
     expect(refusal?.rule).toBe("delete-outside-workspace");
     expect(refusal?.message).toBe(`later.dog refused this: it deletes ${path} recursively, outside this dog's workspace and /tmp.`);
+  });
+
+  it("asks before deleting a single file outside the workspace too", async () => {
+    expect((await bash("rm notes.txt ~/old.txt"))?.message).toBe("later.dog refused this: it deletes /home/owner/old.txt, outside this dog's workspace and /tmp.");
   });
 
   it("names a glob as written", async () => {
