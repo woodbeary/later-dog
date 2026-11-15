@@ -16,9 +16,11 @@ import {
   Pencil,
   MoreHorizontal,
   Search,
+  SquareSlash,
   Webhook,
   X,
 } from "lucide-react";
+import { SaveCommandDialog } from "@/components/SaveCommandDialog";
 import { DraftContext, type DraftScope } from "./draft-context";
 import { LinkPreviews } from "./LinkPreviewCard";
 import { startNewConversation } from "@/lib/new-conversation";
@@ -311,6 +313,7 @@ const Bubble = memo(function Bubble({
   const user = message.role === "user" && !peer;
   const [expanded, setExpanded] = useState(false);
   const [picking, setPicking] = useState(false);
+  const [savingCommand, setSavingCommand] = useState(false);
   const reactable = canReactTo(message) && canWrite !== false;
   const react = (emoji: string) => void reactToMessage(dispatch, threadId, message, emoji);
   const reactionName = (by: string) => (by === botId ? botName : bots.find((candidate) => candidate.id === by)?.name ?? by);
@@ -379,6 +382,9 @@ const Bubble = memo(function Bubble({
     if (v && !busy && !v.id.startsWith(OPTIMISTIC_PREFIX)) dispatch({ type: "switchBranch", botId, threadId, messageId: v.id });
   };
   const draftForTask = text && !viewRaw ? taskDraft(t("chat.action.taskLead"), text) : "";
+  const userMore: SidebarMenuItem[] = user && message.kind === "text" && canWrite !== false && !webhookView && visibleText.trim()
+    ? [{ key: "command", label: t("chat.action.saveCommand"), icon: <SquareSlash size={16} />, onSelect: () => setSavingCommand(true) }]
+    : [];
   const botMore: SidebarMenuItem[] = [
     ...(text && !viewRaw
       ? [
@@ -394,13 +400,14 @@ const Bubble = memo(function Bubble({
 
   return (
     <div data-from={user ? "user" : "agent"} className={cn("group flex w-full flex-col", user ? "items-end" : "items-start", hasTapback(message.reactions) && "pt-3")}>
+      {savingCommand && <SaveCommandDialog initialText={visibleText} onClose={() => setSavingCommand(false)} />}
       {peer && <PeerLabel peer={peer} />}
       {sentAbove && (
         <AttachmentGallery sent images={sentImages} files={sentFiles} message={{ threadId, messageId: message.id }} eager={eagerAttachments} className="mb-1.5 max-w-[min(42rem,78%)]" />
       )}
       <div className={cn("flex w-full items-center gap-1.5", user ? "justify-end" : "justify-start")}>
         {user && (
-          <MessageActions side="user" forceOpen={picking}>
+          <MessageActions side="user" forceOpen={picking} more={userMore}>
             {message.kind === "text" && canWrite !== false && !webhookView && !cited?.citations.length && !busy && !message.id.startsWith(OPTIMISTIC_PREFIX) && (
               <button
                 type="button"

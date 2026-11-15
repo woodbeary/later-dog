@@ -3,7 +3,7 @@ import { shortcutLabel } from "./ShortcutHint";
 import type { SendDelivery } from "../../shared/send-delivery";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type SetStateAction } from "react";
 import { ModelPicker } from "./ModelPicker";
-import { ArrowUp, BookOpen, Check, Clock, Loader2, Mic, Square, Users, X } from "lucide-react";
+import { ArrowUp, Check, Clock, Loader2, Mic, Pencil, Plus, Square, Users, X } from "lucide-react";
 import { visibleMessages, currentTaskBot, type Bot, type Group, type Message } from "@/state/store";
 import { useDrawnDogs, useStoreDispatch, useStoreSelector } from "@/state/store-selectors";
 import { chatPane } from "@/state/pane-errors";
@@ -84,10 +84,16 @@ import { useComposerSuggestion } from "@/lib/use-composer-suggestion";
 import { TypingGhost, TypingGhostAnnouncement } from "./TypingGhost";
 import { mentionChoicesForQuery } from "@/lib/mentions";
 import {
+  COMPACT_ACTION,
   composerSlashTrigger,
   replaceComposerSlashTrigger,
-  type ComposerSlashCommand,
+  slashChoices,
+  typedAction,
+  type ComposerSlashChoice,
+  type DogCommand,
 } from "@/lib/composer-commands";
+import { api } from "@/lib/api";
+import { SaveCommandDialog } from "./SaveCommandDialog";
 
 function mentionQueryAt(text: string, caret: number): { start: number; query: string } | null {
   const upto = text.slice(0, caret);
@@ -223,6 +229,9 @@ export function Composer({
   const [highlight, setHighlight] = useState(0);
   const [dismissedAt, setDismissedAt] = useState<number | null>(null);
   const [dismissedSlashAt, setDismissedSlashAt] = useState<number | null>(null);
+  const [listedCommands, setListedCommands] = useState<{ botId: string; commands: DogCommand[] } | null>(null);
+  const [commandDialog, setCommandDialog] = useState<{ name?: string; editing?: { name: string; text: string } } | null>(null);
+  const commandListRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const textWrapped = useTextWrapped(inputRef, text);
   const draftIdRef = useRef(draftId);
@@ -336,7 +345,18 @@ export function Composer({
 
   const slash = composerSlashTrigger(text, caret);
   const locale = activeLocale();
-  const commandCandidates = useMemo(() => {
+  const slashOpen = Boolean(slash) && slash?.start !== dismissedSlashAt;
+  const commandsBotId = !group && bot ? bot.id : null;
+  const loadCommands = useCallback((botId: string) => {
+    void api<{ commands: DogCommand[] }>(`/api/bots/${encodeURIComponent(botId)}/commands`)
+      .then((result) => setListedCommands({ botId, commands: result.commands }))
+      .catch(() => undefined);
+  }, []);
+  useEffect(() => {
+    if (slashOpen && commandsBotId) loadCommands(commandsBotId);
+  }, [slashOpen, commandsBotId, loadCommands]);
+  const dogCommands = commandsBotId && listedCommands?.botId === commandsBotId ? listedCommands.commands : [];
+  const commandCandidates = useMemo((): ComposerSlashChoice[] => {
     if (!slash || slash.start === dismissedSlashAt) return [];
     const supportsAgents = (candidate?: Bot) =>
       Boolean(
@@ -345,25 +365,12 @@ export function Composer({
             (instance) => instance.instanceId === candidate.modelSelection.instanceId,
           )?.capabilities?.agentsMcp,
       );
-    const available: ComposerSlashCommand[] = [];
-    if (
-      skillAuthoringEnabled(config) &&
-      (group ? (members ?? []).some(supportsAgents) : supportsAgents(bot))
-    ) {
-      available.push({
-        id: "learn",
-        label: "/learn",
-        description: t("composer.command.learnDesc"),
-      });
-    }
-    const query = slash.query.toLowerCase();
-    return available.filter(
-      (command) =>
-        !query ||
-        command.id.startsWith(query) ||
-        command.description.toLowerCase().includes(query),
-    );
-  }, [slash, dismissedSlashAt, group, members, bot, config, instances, locale]);
+    const learn: DogCommand[] =
+      skillAuthoringEnabled(config) && (group ? (members ?? []).some(supportsAgents) : supportsAgents(bot)) && !dogCommands.some((command) => command.name === "learn")
+        ? [{ name: "learn", line: t("composer.command.learnDesc"), kind: "standard" }]
+        : [];
+    return slashChoices([...dogCommands, ...learn], slash.query, Boolean(commandsBotId));
+  }, [slash, dismissedSlashAt, group, members, bot, config, instances, locale, dogCommands, commandsBotId]);
   const commandPickerOpen = commandCandidates.length > 0;
 
   const mention = mentionQueryAt(text, caret);
@@ -409,6 +416,13 @@ export function Composer({
   );
 
   useEffect(() => {
+    if (!commandPickerOpen) return;
+    commandListRef.current
+      ?.querySelector<HTMLElement>(`[data-command-index="${highlight}"]`)
+      ?.scrollIntoView({ block: "nearest" });
+  }, [highlight, commandPickerOpen]);
+
+  useEffect(() => {
     if (!mentionPickerOpen) return;
     mentionListRef.current
       ?.querySelector<HTMLElement>(`[data-mention-index="${highlight}"]`)
@@ -429,9 +443,30 @@ export function Composer({
     });
   };
 
-  const pickCommand = (command: ComposerSlashCommand) => {
+  const runAction = (action: DogCommand) => {
+    if (!bot || group || action.name !== COMPACT_ACTION.name) return;
+    editText("");
+    setCaret(0);
+    void api(`/api/bots/${encodeURIComponent(bot.id)}/compact`, { method: "POST", body: JSON.stringify({ threadId }) })
+      .catch(() => dispatch({ type: "reportError", error: null, pane: errorPane, line: t("composer.command.compactFailed") }));
+  };
+
+  const pickCommand = (choice: ComposerSlashChoice) => {
     if (!slash) return;
-    const next = replaceComposerSlashTrigger(text, slash, `${command.label} `);
+    if (choice.type === "new") {
+      const cleared = replaceComposerSlashTrigger(text, slash, "");
+      editText(cleared.text);
+      setCaret(cleared.caret);
+      setDismissedSlashAt(slash.start);
+      setCommandDialog({ name: slash.query });
+      return;
+    }
+    if (choice.command.kind === "action") {
+      setDismissedSlashAt(slash.start);
+      runAction(choice.command);
+      return;
+    }
+    const next = replaceComposerSlashTrigger(text, slash, `/${choice.command.name} `);
     editText(next.text);
     setCaret(next.caret);
     setDismissedSlashAt(slash.start);
@@ -599,6 +634,11 @@ export function Composer({
       !imageTargetsSupport(text)
     ) {
       dispatch({ type: "reportError", error: null, pane: errorPane, line: t("composer.error.noImages") });
+      return;
+    }
+    const action = attachments.length === 0 ? typedAction(text, [...dogCommands, COMPACT_ACTION]) : null;
+    if (action && bot && !group) {
+      runAction(action);
       return;
     }
     const body = composeMessage(text, attachments);
@@ -841,39 +881,77 @@ export function Composer({
         ))}
         {commandMotion.shown && (
           <div
+            ref={commandListRef}
             role="listbox"
             aria-label={t("composer.commands.aria")}
-            className={cn("absolute bottom-full left-2 z-20 mb-2 w-80 overflow-hidden rounded-menu origin-bottom-left border border-hairline/40 bg-raised shadow-popover", commandMotion.className)} {...commandMotion.exitProps}
+            data-command-list
+            className={cn("absolute bottom-full left-2 z-20 mb-2 max-h-[min(22rem,55vh)] w-[min(26rem,calc(100%-1rem))] overflow-y-auto overflow-x-hidden overscroll-contain rounded-menu origin-bottom-left border border-hairline/40 bg-raised py-1 shadow-popover", commandMotion.className)} {...commandMotion.exitProps}
           >
-            <div className="border-b border-hairline/20 px-3 py-2 text-[10px] font-semibold uppercase tracking-[0.08em] text-ink-secondary">
-              {t("composer.commands.title")}
-            </div>
-            {commandCandidates.map((command, index) => (
+            {commandCandidates.map((choice, index) => choice.type === "new" ? (
               <button
-                key={command.id}
+                key={choice.key}
                 type="button"
                 role="option"
+                data-command-index={index}
                 aria-selected={index === highlight}
                 onMouseDown={(event) => event.preventDefault()}
-                onClick={() => pickCommand(command)}
+                onClick={() => pickCommand(choice)}
                 onMouseEnter={() => setHighlight(index)}
                 className={cn(
-                  "flex w-full items-center gap-3 px-3 py-2.5 text-left",
-                  index === highlight ? "bg-raised-hover" : "",
+                  "flex w-full items-center gap-2 px-3 py-2 text-left text-[13px] text-ink-secondary",
+                  index > 0 && "mt-1 border-t border-hairline/20",
+                  index === highlight && "bg-raised-hover text-ink",
                 )}
               >
-                <span className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-accent/10 text-accent">
-                  <BookOpen size={15} aria-hidden="true" />
-                </span>
-                <span className="min-w-0 flex-1">
-                  <span className="block text-[14px] font-medium text-accent">{command.label}</span>
-                  <span className="block truncate text-xs text-ink-secondary">
-                    {command.description}
-                  </span>
-                </span>
+                <Plus size={14} aria-hidden="true" />
+                {t("composer.command.new")}
               </button>
+            ) : (
+              <div key={choice.key} className={cn("flex items-center", index === highlight && "bg-raised-hover")} onMouseEnter={() => setHighlight(index)}>
+                <button
+                  type="button"
+                  role="option"
+                  data-command-index={index}
+                  aria-selected={index === highlight}
+                  onMouseDown={(event) => event.preventDefault()}
+                  onClick={() => pickCommand(choice)}
+                  className="flex min-w-0 flex-1 items-baseline gap-2.5 px-3 py-2 text-left"
+                >
+                  <span className="shrink-0 text-[14px] font-medium text-ink">/{choice.command.name}</span>
+                  <span className="min-w-0 flex-1 truncate text-[13px] text-ink-secondary">{choice.command.line}</span>
+                  {choice.command.kind !== "standard" && (
+                    <span className="shrink-0 text-[11px] text-ink-tertiary">{t(`composer.command.kind.${choice.command.kind}`)}</span>
+                  )}
+                </button>
+                {choice.command.kind === "mine" && (
+                  <button
+                    type="button"
+                    aria-label={t("composer.command.edit", { name: choice.command.name })}
+                    title={t("composer.command.edit", { name: choice.command.name })}
+                    onMouseDown={(event) => event.preventDefault()}
+                    onClick={() => {
+                      setDismissedSlashAt(slash?.start ?? null);
+                      setCommandDialog({ editing: { name: choice.command.name, text: choice.command.text ?? "" } });
+                    }}
+                    className="mr-1.5 shrink-0 rounded-md p-1 text-ink-tertiary hover:bg-control hover:text-ink"
+                  >
+                    <Pencil size={13} aria-hidden="true" />
+                  </button>
+                )}
+              </div>
             ))}
           </div>
+        )}
+        {commandDialog && (
+          <SaveCommandDialog
+            initialName={commandDialog.name}
+            editing={commandDialog.editing}
+            onClose={() => {
+              setCommandDialog(null);
+              requestAnimationFrame(() => inputRef.current?.focus());
+            }}
+            onSaved={() => { if (commandsBotId) loadCommands(commandsBotId); }}
+          />
         )}
         {mentionMotion.shown && (
           <div
