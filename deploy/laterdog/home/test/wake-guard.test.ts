@@ -141,6 +141,8 @@ describe("which requests carry a credential the home Worker can check", () => {
   it("tells an owner's session from a refused one and from a home that could not answer", async () => {
     expect(await guard.sessionCheckOutcome(Response.json({ kind: "session" }))).toBe("owner");
     expect(await guard.sessionCheckOutcome(Response.json({ kind: "session", cloudGuest: true }))).toBe("guest");
+    expect(await guard.sessionCheckOutcome(Response.json({ kind: "session", cloudGuest: false }))).toBe("owner");
+    for (const odd of ["true", 1, null]) expect(await guard.sessionCheckOutcome(Response.json({ kind: "session", cloudGuest: odd }))).toBe("guest");
     expect(await guard.sessionCheckOutcome(Response.json({ error: "unauthorized" }, { status: 401 }))).toBe("refused");
     expect(await guard.sessionCheckOutcome(Response.json({ error: "waking" }, { status: 503 }))).toBe("unknown");
   });

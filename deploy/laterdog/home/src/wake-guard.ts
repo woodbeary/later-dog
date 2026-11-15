@@ -77,7 +77,7 @@ export async function sessionCheckOutcome(response: Response): Promise<CheckOutc
   if (!response.ok) return "unknown";
   const body = (await response.json().catch(() => null)) as { kind?: unknown; cloudGuest?: unknown } | null;
   if (body?.kind !== "session") return "refused";
-  return body.cloudGuest === true ? "guest" : "owner";
+  return body.cloudGuest === undefined || body.cloudGuest === false ? "owner" : "guest";
 }
 
 export function hookAccepted(response: Response): boolean {
