@@ -11,6 +11,7 @@ export interface WireExchange {
   from?: string;
   to: string;
   parentId?: string;
+  threadId?: string;
   request: string;
   reply?: string;
   endedBy?: ExchangeEnd;

@@ -42,6 +42,7 @@ export function roomExchange(node: RoomHandoff, lookup: ExchangeLookup): WireExc
     owner: { dog: owner, person: Boolean(root.requestedBy) },
     ...(from ? { from } : {}),
     ...(node.parentId ? { parentId: node.parentId } : {}),
+    ...(node.groupId ? {} : { threadId: node.threadId }),
     ...(reply ? { reply } : {}),
     ...(node.endedBy ? { endedBy: node.endedBy } : {}),
     ...(waitingOn.length ? { waitingOn } : {}),
