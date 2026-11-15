@@ -479,7 +479,7 @@ import type { SkillRequestCardData } from "../shared/skill-request.ts";
 import { checkSoulDrift, readSoulDrift, soulFile, writeSoulMirror } from "./bot-folder.ts";
 import {
   buildSystemPrompt,
-  userProfileSystemPrompt,
+  profileParts,
   cloudHomePrompt,
   todayPrompt,
   computerPrompt,
@@ -3686,7 +3686,7 @@ function previewSystemPrompt(bot: BotRecord) {
     ...guidanceParts({ engine: guidanceEngine(instance?.driverKind), agents: agentsMounted, model: bot.modelSelection.model, role: { main: bot.id === store.mainBotId(), title: bot.title }, kit: homeKit({
       cloudHome: Boolean(CLOUD_HOME), agents: agentsMounted, vault: vaultStore.available, macsOnline: sharedComputers.list(CLOUD_HOME_LENDER).length,
     }) }),
-    { id: "user-profile", label: "About the user", text: userProfileSystemPrompt(cfg.profile) },
+    ...profileParts(cfg.profile),
     { id: "computer", label: "Computer", text: computerPrompt(computerPromptKind) },
     { id: "plan", label: "Surface", text: previewPlan.computer === undefined ? "" : surfacePrompt({
       computer: previewPlan.computer && previewPlan.computer !== "off" && computerPromptKind ? previewPlan.computer : null,
@@ -9160,7 +9160,7 @@ async function startTurn(
           cloudHome: Boolean(CLOUD_HOME), agents: Boolean(integrations.agents), vault: vaultStore.available, macsOnline: sharedComputers.list(CLOUD_HOME_LENDER).length,
           google: credentialPrompt.includes("gmail_search"),
         }) }),
-        { id: "user-profile", label: "About the user", text: userProfileSystemPrompt(cfg.profile) },
+        ...profileParts(cfg.profile),
         { id: "owner-grant", label: "Owner's standing grant", text: ownerGrant ? ownerGrantPrompt(cfg.profile?.name) : "" },
         { id: "files", label: "File locations", text: worksInWorkspace ? workspaceLocationsPrompt(bot.id, cwd, liveBot?.cwd ?? bot.cwd) : "" },
         { id: "computer", label: "Computer", text: computerPrompt(computerPromptKind) },
@@ -10924,7 +10924,7 @@ async function runGroupMemberTurn(
     ...guidanceParts({ engine: guidanceEngine(instance.driverKind), agents: Boolean(integrations.agents), model: instance.instanceId === readyBot.modelSelection.instanceId ? readyBot.modelSelection.model : instance.models.default, role: { main: readyBot.id === store.mainBotId(), title: readyBot.title }, kit: homeKit({
       cloudHome: Boolean(CLOUD_HOME), agents: Boolean(integrations.agents), vault: vaultStore.available, macsOnline: sharedComputers.list(CLOUD_HOME_LENDER).length,
     }) }),
-    { id: "user-profile", label: "About the user", text: userProfileSystemPrompt(cfg.profile) },
+    ...profileParts(cfg.profile),
     { id: "owner-grant", label: "Owner's standing grant", text: roomOwnerGrant ? ownerGrantPrompt(cfg.profile?.name) : "" },
     { id: "coordination", label: "Team", text: roomCoordination },
     { id: "credential", label: "Credentials", text: integrations.agents ? `\n${signInPassage({ secureForm: roomComputerKind === "box" }).trim()}` : "" },
