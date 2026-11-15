@@ -1,0 +1,178 @@
+{
+ "turn": "1",
+ "sent": "Do I have any routines set up? Just list them, change nothing.",
+ "sentAt": "2026-11-13T08:59:09.812Z",
+ "end": "idle",
+ "durationSec": 5.327,
+ "toolCallCount": 1,
+ "toolCalls": [
+  "mcp__agents__list_routines"
+ ],
+ "firstVisibleSec": 5.323,
+ "longestGapSec": 4.617,
+ "messages": [
+  {
+   "id": "54b31620-320a-41da-b0dc-ee8cb2a13e7d",
+   "at": 1794560350693,
+   "parentId": "93f1b65f-3040-4677-b6d7-991adfbe9b63",
+   "role": "user",
+   "kind": "text",
+   "text": "Do I have any routines set up? Just list them, change nothing.",
+   "requestPending": false
+  },
+  {
+   "id": "941d635b-3981-4a54-aa0f-cc07b3ed666a",
+   "at": 1794560353771,
+   "parentId": "54b31620-320a-41da-b0dc-ee8cb2a13e7d",
+   "role": "bot",
+   "kind": "activity",
+   "tool": {
+    "name": "mcp__agents__list_routines",
+    "spoken": "checking routines",
+    "itemId": "toolu_01LJyWPLHXjohv4YHqi2DtP8",
+    "fullResult": true,
+    "ok": true,
+    "output": "[\n  {\n    \"type\": \"text\",\n    \"text\": \"This bot has no routines. Current time: 2026-11-13T08:59:13.784Z. Timezone: America/Los_Angeles.\"\n  }\n]"
+   },
+   "turnId": "8529f04e-64ee-4071-a415-8f037ea923d8",
+   "requestMessageId": "54b31620-320a-41da-b0dc-ee8cb2a13e7d"
+  },
+  {
+   "id": "feec688d-d099-461b-b87b-7bbb97acb3dc",
+   "at": 1794560354551,
+   "parentId": "941d635b-3981-4a54-aa0f-cc07b3ed666a",
+   "role": "bot",
+   "kind": "text",
+   "text": "No, you don't have any routines set up. I changed nothing.",
+   "turnId": "8529f04e-64ee-4071-a415-8f037ea923d8",
+   "requestMessageId": "54b31620-320a-41da-b0dc-ee8cb2a13e7d",
+   "turnTerminal": true,
+   "turnSucceeded": true,
+   "ran": {
+    "instanceId": "claude",
+    "model": "claude-haiku-5-5",
+    "account": "Live check"
+   }
+  },
+  {
+   "id": "f451e844-f5b2-4286-8bc8-f929e028ae8e",
+   "at": 1794560354904,
+   "parentId": "feec688d-d099-461b-b87b-7bbb97acb3dc",
+   "role": "bot",
+   "kind": "digest",
+   "text": "[digest] · tools: mcp__agents__list_routines ×1 · reply: No, you don't have any routines set up.",
+   "digest": {
+    "turnId": "8529f04e-64ee-4071-a415-8f037ea923d8",
+    "botId": "63ffed07-d776-4847-bace-a31fad86543b",
+    "threadId": "2df1f060-5589-433e-85b6-a90eab445d64",
+    "at": 1794560354903,
+    "durationMs": 4056,
+    "tools": [
+     {
+      "name": "mcp__agents__list_routines",
+      "count": 1,
+      "failed": 0
+     }
+    ],
+    "toolCalls": 1,
+    "memory": [],
+    "reply": "No, you don't have any routines set up.",
+    "usage": {
+     "input": 63824,
+     "output": 55,
+     "cachedInput": 31856,
+     "costUsd": 0.00673926
+    },
+    "hookCoverage": "full"
+   },
+   "turnId": "8529f04e-64ee-4071-a415-8f037ea923d8",
+   "requestMessageId": "54b31620-320a-41da-b0dc-ee8cb2a13e7d",
+   "turnSucceeded": true
+  }
+ ],
+ "visibleTimeline": [
+  {
+   "t": 1.084,
+   "at": 1794560350693,
+   "role": "user",
+   "kind": "text",
+   "text": "Do I have any routines set up? Just list them, change nothing."
+  },
+  {
+   "t": 4.617,
+   "at": 1794560353771,
+   "role": "bot",
+   "kind": "activity",
+   "tool": {
+    "name": "mcp__agents__list_routines",
+    "spoken": "checking routines",
+    "itemId": "toolu_01LJyWPLHXjohv4YHqi2DtP8",
+    "fullResult": true,
+    "ok": true,
+    "output": "[\n  {\n    \"type\": \"text\",\n    \"text\": \"This bot has no routines. Current time: 2026-11-13T08:59:13.784Z. Timezone: America/Los_Angeles.\"\n  }\n]"
+   }
+  },
+  {
+   "t": 5.323,
+   "at": 1794560354551,
+   "role": "bot",
+   "kind": "text",
+   "text": "No, you don't have any routines set up. I changed nothing."
+  },
+  {
+   "t": 5.323,
+   "at": 1794560354904,
+   "role": "bot",
+   "kind": "digest",
+   "text": "[digest] · tools: mcp__agents__list_routines ×1 · reply: No, you don't have any routines set up.",
+   "raw": {
+    "id": "f451e844-f5b2-4286-8bc8-f929e028ae8e",
+    "at": 1794560354904,
+    "parentId": "feec688d-d099-461b-b87b-7bbb97acb3dc",
+    "role": "bot",
+    "kind": "digest",
+    "text": "[digest] · tools: mcp__agents__list_routines ×1 · reply: No, you don't have any routines set up.",
+    "digest": {
+     "turnId": "8529f04e-64ee-4071-a415-8f037ea923d8",
+     "botId": "63ffed07-d776-4847-bace-a31fad86543b",
+     "threadId": "2df1f060-5589-433e-85b6-a90eab445d64",
+     "at": 1794560354903,
+     "durationMs": 4056,
+     "tools": [
+      {
+       "name": "mcp__agents__list_routines",
+       "count": 1,
+       "failed": 0
+      }
+     ],
+     "toolCalls": 1,
+     "memory": [],
+     "reply": "No, you don't have any routines set up.",
+     "usage": {
+      "input": 63824,
+      "output": 55,
+      "cachedInput": 31856,
+      "costUsd": 0.00673926
+     },
+     "hookCoverage": "full"
+    },
+    "turnId": "8529f04e-64ee-4071-a415-8f037ea923d8",
+    "requestMessageId": "54b31620-320a-41da-b0dc-ee8cb2a13e7d",
+    "turnSucceeded": true
+   }
+  }
+ ],
+ "finalWork": {
+  "kind": "idle"
+ },
+ "tasks": [
+  {
+   "threadId": "2df1f060-5589-433e-85b6-a90eab445d64",
+   "activity": "idle",
+   "model": {
+    "instanceId": "claude",
+    "model": "claude-haiku-5-5"
+   }
+  }
+ ]
+}
