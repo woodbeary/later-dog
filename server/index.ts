@@ -549,7 +549,7 @@ import { LogArchiveCoordinator, claudeSessionIds, logArchiveBridge, outsideSessi
 import { readThreadEvents } from "./thread-events.ts";
 import { describeTool, readBotActivity } from "./activity.ts";
 import { OutboundRequestService } from "./outbound-requests.ts";
-import { connectorCallsIn, outboundCallsIn } from "../shared/outbound.ts";
+import { connectorCallsIn } from "../shared/outbound.ts";
 import { TurnToolkits, connectorAllowKey, connectorSendDecision, toolkitOf } from "./laterdog/connector-ask.ts";
 import { bindThreadLogCapProvider } from "./thread-log-rotation.ts";
 import { CLOUD_THREAD_LOG_MAX_BYTES, CLOUD_THREAD_LOG_RETENTION_DAYS, DISK_CHECK_MS, diskUse, isLowDisk, JANITOR_EVERY_MS, runJanitor, type JanitorRun, type WorkspaceTask } from "./laterdog/janitor.ts";
@@ -557,7 +557,7 @@ import { closeTabsScript, forgetUsers, loadTabLedger, parseTargets, recordTabs, 
 import { MEMORY_CHECK_MS, orphanIdleHours, readMemoryPressure, reapStrays, underMemoryPressure, type ThreadState as ReaperThreadState } from "./laterdog/process-reaper.ts";
 import { startHomeUpkeep } from "./laterdog/home-upkeep.ts";
 import { liveSignalScene, signalDecision } from "./laterdog/home-signals.ts";
-import { alwaysAskHook, alwaysAsks, connectorAlwaysAsks } from "./laterdog/always-asks.ts";
+import { ALWAYS_ASK_PATHS, alwaysAskHook, alwaysAsks, asksAsConnector, connectorAlwaysAsks, internalCallRequest, type AlwaysAsk, type AlwaysAskRequest } from "./laterdog/always-asks.ts";
 import { listenWebhookIngress, webhookCredential, type WebhookIngress } from "./webhook-ingress.ts";
 import { assertModelVariantSupported, memberTurnSelection } from "./member-turn.ts";
 import { WebhookManager } from "./webhooks.ts";
@@ -2487,7 +2487,7 @@ function hooksIntegration(botId: string, threadId: string, generation: string): 
     createdBots: 0,
     openedThreads: 0,
   });
-  return { url: `http://127.0.0.1:${PORT}`, token, ...(CLOUD_HOME ? { guardShell: true } : {}) };
+  return { url: `http://127.0.0.1:${PORT}`, token, guardShell: true };
 }
 
 type DirectTurnDispatchClaim = {
@@ -7249,7 +7249,7 @@ bus.subscribe(guardTurnEnd((event: RuntimeEvent) => {
         ? commandAllowlistCandidate({ ...event.command, providerInstanceId: event.providerInstanceId ?? asker.modelSelection.instanceId })
         : null;
       const always = permission && asker && event.requestId && !ownerAuto
-        ? alwaysAsks({ tool: event.tool, command: event.command?.command, summary: event.summary }, () => ownerGuardContext(asker, event.threadId, event.command?.cwd))
+        ? alwaysAsks({ tool: event.tool, command: event.command?.command, summary: event.summary, input: event.input }, () => ownerGuardContext(asker, event.threadId, event.command?.cwd))
         : null;
       const verdict = permission && asker && event.requestId
         ? autoVerdict(effectiveApprovalMode, event.tool, {
@@ -7351,7 +7351,7 @@ bus.subscribe(guardTurnEnd((event: RuntimeEvent) => {
           threadId: event.threadId, requestId, botId: asker.id, botName: asker.name, tool: event.tool, summary: event.summary,
           decision, source, ...(rule ? { rule } : {}), unattended: unattended || undefined,
         });
-        void settleOwnerAutoPermission({ ...ownerGuardRequest(event.tool, event.command?.command, event.summary), summary: event.summary }, {
+        void settleOwnerAutoPermission({ ...ownerGuardRequest(event.tool, event.command?.command, event.summary), summary: event.summary, input: event.input }, {
           guard: ownerGuardContext(asker, event.threadId, event.command?.cwd),
           allow: () => deliverFullAccessApproval(instance?.adapter, event.threadId, requestId, event.turnId, isCurrent),
           deny: async (message) => {
@@ -10035,7 +10035,40 @@ const connectorSkips = new TurnToolkits();
 const connectorAllows = new TurnToolkits();
 const OUTBOUND_HOLD_MS = 9 * 60_000;
 
+const alwaysAskHolds = new OutboundRequestService();
+
+async function askPersonFirst(bot: BotRecord, threadId: string, request: AlwaysAskRequest, hit: AlwaysAsk): Promise<string | null> {
+  const input = request.input ?? {};
+  const detail = [input.command, input.url, input.path].find((value): value is string => typeof value === "string") ?? request.tool;
+  const held = alwaysAskHolds.open({ botId: bot.id, threadId, tool: request.tool, timeoutMs: OUTBOUND_HOLD_MS });
+  const card = store.appendMessage(threadId, {
+    role: "bot", kind: "options",
+    ...(store.groupByThread(threadId) ? { from: { botId: bot.id, name: bot.name, color: bot.color } } : {}),
+    card: { title: "Approval needed", subtitle: `${hit.ask}\n\n${detail.slice(0, 600)}`, options: ["Allow", "Deny"], requestId: held.requestId, requestType: "permission", tool: request.tool },
+  });
+  appendDecision(DATA_DIR, { threadId, requestId: held.requestId, botId: bot.id, botName: bot.name, tool: request.tool, summary: detail, decision: "card-shown", source: "always-asks", rule: hit.id });
+  if (store.taskByThread(bot.id, threadId)?.busy) store.setTaskActivity(bot.id, threadId, "waiting-on-you");
+  notify(buildNotification("approval", bot, threadId, detail, { avatarUrl: bot.avatarUrl }));
+  const answer = await held.answer;
+  alwaysAskHolds.forget(held.requestId);
+  if (store.taskByThread(bot.id, threadId)?.activity === "waiting-on-you") store.setTaskActivity(bot.id, threadId, "working");
+  if (answer === "allow") return null;
+  const stale = store.messagesFor(threadId).find((message) => message.id === card.id);
+  if (answer === "timeout" && stale?.card && !stale.card.answered) store.patchMessage(threadId, stale.id, { card: { ...stale.card, answered: "unavailable", dismissed: true } });
+  return answer === "timeout" ? "later.dog did not run this: nobody answered in time, and it always needs the person's yes. Ask them in the chat first." : hit.refusal.replace("Ask them in the chat first.", "The person said no; carry on without it.");
+}
+
 function resolveAndSendTrust(res: ServerResponse, threadId: string, requestId: string, behavior: "allow" | "deny" | "answer"): boolean {
+  const alwaysAsked = alwaysAskHolds.resolve({ threadId, requestId, behavior });
+  if (alwaysAsked.claimed) {
+    const message = store.messagesFor(threadId).find((candidate) => candidate.card?.requestId === requestId);
+    if (message?.card && !message.card.answered && alwaysAsked.state !== "already_settled") {
+      store.patchMessage(threadId, message.id, { card: { ...message.card, answered: alwaysAsked.state === "allowed" ? "allow" : "deny" } });
+      appendDecision(DATA_DIR, { threadId, requestId, tool: message.card.tool, summary: message.card.subtitle, decision: alwaysAsked.state === "allowed" ? "user-approved" : "user-denied", source: "user" });
+    }
+    json(res, 200, { ok: true, outcome: alwaysAsked.state === "allowed" || (alwaysAsked.state === "already_settled" && alwaysAsked.behavior === "allow") ? "allowed-once" : "rejected" });
+    return true;
+  }
   const outboundCard = store.messagesFor(threadId).find(
     (message) => message.card?.requestId === requestId && message.card.outboundRequest,
   );
@@ -14320,7 +14353,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       const parsed = z.object({
         botId: z.string().regex(/^[\w-]{1,128}$/),
         threadId: z.string().regex(/^[\w-]{1,128}$/),
-        kind: z.enum(["agents", "connectors", "computer"]).default("agents"),
+        kind: z.enum(["agents", "connectors", "computer", "browser"]).default("agents"),
         depth: z.number().int().min(0).max(MAX_COMMS_DEPTH).default(0),
         skillAuthoring: z.boolean().default(false),
       }).strict().safeParse(await readBody(req));
@@ -14368,7 +14401,8 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       if (claimedThread !== null && claimedThread !== internalCapability.threadId) {
         return json(res, 403, { error: "the internal capability belongs to a different conversation" });
       }
-      const readInternalBody = async () => {
+      let internalBody: Promise<any> | undefined;
+      const readInternalBody = () => internalBody ??= (async () => {
         const body = await readBody(req);
         if (!internalCapabilityIsActive(internalCapability)) {
           throw Object.assign(new Error("the internal turn capability has expired"), { status: 401 });
@@ -14386,7 +14420,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
           }
         }
         return body;
-      };
+      })();
       const requireActiveInternalCapability = () => {
         if (!internalCapabilityIsActive(internalCapability)) {
           throw Object.assign(new Error("the internal turn capability has expired"), { status: 401 });
@@ -14397,6 +14431,12 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         task: store.taskByThread(internalSender.id, internalCapability.threadId),
         threadId: internalCapability.threadId,
       });
+      if (method === "POST" && ALWAYS_ASK_PATHS.has(path)) {
+        const asked = internalCallRequest(path, await readInternalBody());
+        const hit = asked && alwaysAsks(asked, () => hookGuardContext(internalSender.id, internalCapability.threadId, undefined));
+        const refused = asked && hit ? await askPersonFirst(internalSender, internalCapability.threadId, asked, hit) : null;
+        if (refused) return path.endsWith("/mcp") ? json(res, 200, { result: { content: [{ type: "text", text: refused }], isError: true } }) : json(res, 403, { error: refused });
+      }
       if (await dispatchInternalRoutes(INTERNAL_ROUTES, {
         req, res, url, path, method, json, sender: internalSender, threadId: internalCapability.threadId, capability: internalCapability, readBody: readInternalBody,
       })) return;
@@ -15524,7 +15564,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
           ? (rpc.params as { name?: unknown; arguments?: unknown })
           : null;
         const outboundCalls = rpc?.method === "tools/call" && typeof rpcParams?.name === "string"
-          ? outboundCallsIn(rpcParams.name, rpcParams.arguments)
+          ? connectorCallsIn(rpcParams.name, rpcParams.arguments).filter((call) => asksAsConnector(call.slug))
           : [];
         const outboundTool = outboundCalls.length ? outboundCalls[0].slug : null;
         const refuseOutbound = (text: string) => {

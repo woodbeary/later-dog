@@ -6,6 +6,7 @@ export interface OwnerAutoPermission {
   tool: string;
   command?: string;
   summary?: string;
+  input?: Record<string, unknown>;
 }
 
 export type OwnerAutoSettlement = "approved" | "refused" | "held" | "failed" | "stale";

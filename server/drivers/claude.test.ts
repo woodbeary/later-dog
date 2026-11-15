@@ -112,7 +112,7 @@ describe("ClaudeDriver.decodeConfig", () => {
     const plain = claudeHookSettings("/tmp/helper.ts");
     expect(plain).not.toHaveProperty("PreToolUse");
     const guarded = claudeHookSettings("/tmp/helper.ts", { guardShell: true }) as Record<string, Array<{ matcher: string; hooks: Array<{ command: string }> }>>;
-    expect(guarded.PreToolUse!.map((entry) => entry.matcher)).toEqual(["Bash", "mcp__computer__open_url"]);
+    expect(guarded.PreToolUse!.map((entry) => entry.matcher)).toEqual(["Bash", "Write", "Edit", "MultiEdit", "NotebookEdit"]);
     for (const entry of guarded.PreToolUse!) expect(entry.hooks[0]!.command).toBe(guarded.PostToolUse![0]!.hooks[0]!.command);
   });
 

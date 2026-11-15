@@ -23,7 +23,7 @@ function setup(overrides: Partial<ClaudePlacement> = {}, credential: Record<stri
     dog: { command: "/usr/local/bin/node", args: ["/app/permission-proxy.js", "/data/perm.sock"] },
   } }));
   writeFileSync(join(launch, "settings.json"), JSON.stringify({ hooks: {
-    PreToolUse: ["Bash", "mcp__computer__open_url"].map((matcher) => ({ matcher, hooks: [{ type: "command", command: "node /app/hooks/laterdog-hook.js", timeout: 5 }] })),
+    PreToolUse: ["Bash", "Write", "Edit", "MultiEdit", "NotebookEdit"].map((matcher) => ({ matcher, hooks: [{ type: "command", command: "node /app/hooks/laterdog-hook.js", timeout: 5 }] })),
     Stop: [{ matcher: "", hooks: [{ type: "command", command: "node /app/hooks/laterdog-hook.js", timeout: 5 }] }],
   }, fastMode: true }));
   writeFileSync(join(launch, "system.txt"), "system prompt");

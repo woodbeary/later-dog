@@ -264,15 +264,78 @@ it("a push that skips its checks always asks an owner dog's person, on a card th
   await expect.poll(() => turn.answers.get(plain)?.behavior, { timeout: 10_000 }).toBe("allow");
 
   const entries = turn.launch.settings.hooks.PreToolUse as Array<{ matcher: string; hooks: Array<{ command: string }> }>;
-  expect(entries.map((entry) => entry.matcher)).toEqual(["Bash", "mcp__computer__open_url"]);
+  expect(entries.map((entry) => entry.matcher)).toEqual(["Bash", "Write", "Edit", "MultiEdit", "NotebookEdit"]);
   const tokenFile = entries[0]!.hooks[0]!.command.match(/'([^']+)'$/)![1]!;
   const hook = (payload: Record<string, unknown>) => fetch(`${base}/api/internal/hook`, {
     method: "POST", headers: { "content-type": "application/json", authorization: `Bearer ${readFileSync(tokenFile, "utf8").trim()}` },
     body: JSON.stringify({ event: "PreToolUse", payload }),
   }).then((response) => response.json() as Promise<{ hookSpecificOutput?: { permissionDecision?: string } }>);
   expect((await hook({ tool_name: "Bash", tool_input: { command: "LATERDOG_SKIP_HOOKS=1 git push" } })).hookSpecificOutput?.permissionDecision).toBe("ask");
-  expect((await hook({ tool_name: "mcp__computer__open_url", tool_input: { url: "https://console.cloud.google.com/apis/credentials" } })).hookSpecificOutput?.permissionDecision).toBe("ask");
+  expect((await hook({ tool_name: "Write", tool_input: { file_path: "scripts/git-hooks/pre-push", content: "exit 0" } })).hookSpecificOutput?.permissionDecision).toBe("ask");
   expect((await hook({ tool_name: "Bash", tool_input: { command: "git push origin fix/login" } })).hookSpecificOutput).toBeUndefined();
+  await turn.stop();
+}, 90_000);
+
+async function mint(botId: string, threadId: string, kind: "agents" | "computer" | "browser"): Promise<string> {
+  const minted = await fetch(`${base}/api/testing/internal-capability`, {
+    method: "POST", headers: { "content-type": "application/json", "x-laterdog-test-capability": CAPABILITY_KEY },
+    body: JSON.stringify({ botId, threadId, kind }),
+  });
+  expect(minted.status).toBe(201);
+  return (await minted.json() as { token: string }).token;
+}
+
+it("the cloud computer, the browser, run_on_computer and the lent Mac stop at what always asks, with Auto-review off or on", async () => {
+  const call = (name: string, args: Record<string, unknown>) => ({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name, arguments: args } });
+  const paths: Array<[kind: "agents" | "computer" | "browser", path: string, body: unknown, shown: string]> = [
+    ["computer", "/api/internal/computer/mcp", call("exec", { command: "git push --no-verify origin fix" }), "git push --no-verify origin fix"],
+    ["browser", "/api/internal/browser/mcp", call("agent_browser_navigate", { url: "https://console.cloud.google.com/apis/credentials" }), "console.cloud.google.com"],
+    ["agents", "/api/internal/computer-run", { command: "aws iam create-access-key --user-name bot" }, "aws iam create-access-key"],
+    ["agents", "/api/internal/shared-computers", { action: "run_command", command: "rm -rf ~/Documents/old" }, "rm -rf ~/Documents/old"],
+  ];
+  for (const review of [false, true]) {
+    await autoReview(review);
+    const dog = await newDog(`Hands ${review}`, "auto");
+    for (const [kind, path, body, shown] of paths) {
+      const token = await mint(dog.id, dog.threadId, kind);
+      const pending = fetch(`${base}${path}`, { method: "POST", headers: { "content-type": "application/json", authorization: `Bearer ${token}` }, body: JSON.stringify(body) })
+        .then(async (response) => ({ status: response.status, text: await response.text() }));
+      const card = async () => ((await api("GET", `/api/threads/${dog.threadId}/messages?limit=100`)).body.messages as any[])
+        .find((message) => message.card?.title === "Approval needed" && message.card.subtitle.includes(shown) && !message.card.answered)?.card;
+      await expect.poll(card, { timeout: 10_000 }).toMatchObject({ requestType: "permission", options: ["Allow", "Deny"] });
+      const shownCard = await card();
+      expect(shownCard.subtitle, path).toMatch(/A dog always asks you before this, whatever its approval setting\./);
+      expect(shownCard.allowKey, path).toBeUndefined();
+      await api("POST", `/api/threads/${dog.threadId}/respond`, { requestId: shownCard.requestId, behavior: "deny" });
+      const answered = await pending;
+      expect(answered.text, path).toContain("The person said no");
+    }
+    const token = await mint(dog.id, dog.threadId, "computer");
+    const allowed = fetch(`${base}/api/internal/computer/mcp`, { method: "POST", headers: { "content-type": "application/json", authorization: `Bearer ${token}` }, body: JSON.stringify(call("exec", { command: "git push --no-verify origin again" })) })
+      .then(async (response) => ({ status: response.status, text: await response.text() }));
+    const again = async () => ((await api("GET", `/api/threads/${dog.threadId}/messages?limit=100`)).body.messages as any[])
+      .find((message) => message.card?.subtitle?.includes("origin again") && !message.card.answered)?.card;
+    await expect.poll(again, { timeout: 10_000 }).toBeTruthy();
+    await api("POST", `/api/threads/${dog.threadId}/respond`, { requestId: (await again()).requestId, behavior: "allow" });
+    expect((await allowed).text).toContain("this turn has no cloud computer");
+  }
+}, 90_000);
+
+it("a saved command never covers what always asks, off the owner's automatic path", async () => {
+  await autoReview(true);
+  const dog = await newDog("Saver", "auto");
+  const turn = await startTurn(dog, "Push it.");
+  for (const command of ["pnpm test", "git push --no-verify origin fix"]) {
+    const saved = await api("POST", `/api/bots/${dog.id}/command-allowlist?threadId=${turn.threadId}`, { command, cwd: turn.launch.cwd, providerInstanceId: "held" });
+    expect(saved.status, JSON.stringify(saved.body)).toBe(200);
+  }
+  const ordinary = turn.ask("Bash", { command: "pnpm test" });
+  await expect.poll(() => turn.answers.get(ordinary)?.behavior, { timeout: 10_000 }).toBe("allow");
+  const skipped = turn.ask("Bash", { command: "git push --no-verify origin fix" });
+  await expect.poll(() => turn.card(skipped), { timeout: 10_000 }).toMatchObject({ requestType: "permission" });
+  expect((await turn.card(skipped)).subtitle).toMatch(/^This pushes code without running its checks\./);
+  expect((await turn.card(skipped)).commandAllowlist).toBeUndefined();
+  expect(turn.answers.has(skipped)).toBe(false);
   await turn.stop();
 }, 90_000);
 
