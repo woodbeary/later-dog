@@ -4,7 +4,7 @@ import { cloudHomeChildEnvironments } from "../cloud-home-start.ts";
 import { CLOUD_HOME_SECRET_KEYS } from "../cloud-secrets.ts";
 import { answerGoogleCallback, createGoogleRoute, GOOGLE_NEEDS_CLIENT, type GoogleRouteDeps } from "../routes/google.ts";
 import { GMAIL_READONLY_SCOPE, GOOGLE_TOKEN_URL, GoogleAccessTokens, PendingGoogleAuths, type FetchLike, type GoogleAccountRecord, type PendingGoogleAuth } from "./google.ts";
-import { cloudGoogleConnection, GOOGLE_SHARED_OFF, googleReconnect } from "./google-shared.ts";
+import { cloudGoogleConnection, GOOGLE_SHARED_OFF, googleReconnect, sharedClientInfo } from "./google-shared.ts";
 
 const NOW = Date.UTC(2026, 10, 14, 18);
 const MACHINE = "h0123456789abcdef01234567";
@@ -20,7 +20,7 @@ const b64 = (text: string) => Buffer.from(text, "utf8").toString("base64url");
 type Mode = "on" | "off" | "older" | "rotated";
 interface Seen { url: string; method: string; headers: Record<string, string>; body: string }
 
-function world(opts: { own?: boolean; cloud?: boolean; route?: boolean; machineId?: string; accounts?: GoogleAccountRecord[] } = {}) {
+function world(opts: { own?: boolean; cloud?: boolean; route?: boolean; machineId?: string; accounts?: GoogleAccountRecord[]; client?: unknown } = {}) {
   let mode: Mode = "on";
   const requests: Seen[] = [];
   const grants: Array<Record<string, unknown>> = [];
@@ -37,7 +37,7 @@ function world(opts: { own?: boolean; cloud?: boolean; route?: boolean; machineI
       if (mode === "older") return reply({ error: "later.dog's Google connection can't be reached right now. Try again in a minute." }, 503);
       if (url === `${GOOGLE_URL}/client`) {
         if (mode === "off") return reply({ error: "later.dog's Google connection isn't switched on yet." }, 404);
-        return reply(mode === "rotated" ? { ...SHARED, clientId: "777-rotated.apps.googleusercontent.com" } : SHARED);
+        return reply(mode === "rotated" ? { ...SHARED, clientId: "777-rotated.apps.googleusercontent.com" } : opts.client ?? SHARED);
       }
       if (url === `${GOOGLE_URL}/token`) {
         const grant = JSON.parse(body) as Record<string, unknown>;
@@ -189,6 +189,28 @@ describe("a Cloud home with nothing set up connecting Gmail through later.dog's 
 });
 
 describe("when later.dog's connection can't be used", () => {
+  it("refuses an address from the Worker that is not https or not exactly the callback page, and posts no card", async () => {
+    const wrong = [
+      "http://accounts.later.dog/google-oauth/callback",
+      "https://accounts.later.dog/elsewhere",
+      "https://accounts.later.dog/google-oauth/callback/",
+      "https://accounts.later.dog/google-oauth",
+      "https://accounts.later.dog/google-oauth/callback?next=https://evil.example",
+      "https://accounts.later.dog/google-oauth/callback#x",
+      "https://someone:secret@accounts.later.dog/google-oauth/callback",
+      "javascript:alert(1)",
+      "",
+    ];
+    for (const redirectUri of wrong) {
+      expect(sharedClientInfo({ clientId: SHARED.clientId, redirectUri }), redirectUri).toBeNull();
+      const h = world({ client: { clientId: SHARED.clientId, redirectUri } });
+      expect(await h.call({ action: "connect", account: EMAIL }), redirectUri).toEqual({ status: 409, out: { error: GOOGLE_SHARED_OFF } });
+      expect(h.cards, redirectUri).toEqual([]);
+    }
+    expect(sharedClientInfo(SHARED)).toEqual(SHARED);
+    expect(sharedClientInfo({ ...SHARED, clientId: "not-a-client" })).toBeNull();
+  });
+
   it("tells the dog it isn't switched on, for every earlier piece that is missing", async () => {
     const off = world();
     off.setMode("off");
