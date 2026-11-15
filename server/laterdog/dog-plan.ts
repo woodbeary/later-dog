@@ -1,6 +1,6 @@
 import { existsSync, readFileSync, renameSync } from "node:fs";
 
-import { PLAN_MAX_ITEMS, PLAN_MAX_TEXT, PLAN_STATUSES, type PlanItem, type PlanStatus, type WirePlan } from "../../shared/dog-plan.ts";
+import { PLAN_MAX_ITEMS, PLAN_MAX_TEXT, PLAN_STATUSES, planLeftCount, type PlanItem, type PlanStatus, type WirePlan } from "../../shared/dog-plan.ts";
 import { writeFileAtomic } from "../atomic.ts";
 
 export const PLAN_CHATS_KEPT = 500;
@@ -65,11 +65,14 @@ export const todoWriteSteps = (input: unknown): PlanItem[] | null => engineSteps
 
 export const codexPlanSteps = (plan: unknown): PlanItem[] | null => engineSteps(plan, ["step"]);
 
+const PLAN_SEEN = " The person sees it in the app.";
+const PLAN_OUT_OF_VIEW = " The chat shows a plan only while something on it is open, so the person no longer sees this one.";
+
 export function planRecorded(items: readonly PlanItem[], shown = true): string {
-  const seen = shown ? " The person sees it in the app." : "";
-  if (!items.length) return `Plan cleared.${seen}`;
+  if (!items.length) return `Plan cleared.${shown ? PLAN_SEEN : ""}`;
   const count = (status: PlanStatus) => items.filter((item) => item.status === status).length;
   const current = items.find((item) => item.status === "in_progress");
+  const seen = !shown ? "" : planLeftCount({ items }) ? PLAN_SEEN : PLAN_OUT_OF_VIEW;
   return `Plan recorded: ${count("done")} of ${items.length} done${current ? `, now “${current.text}”` : ""}${count("pending") ? `, ${count("pending")} not started` : ""}.${seen}`;
 }
 

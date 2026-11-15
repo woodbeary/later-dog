@@ -36,6 +36,7 @@ it("keeps a dog's plan per chat, on the wire, across a restart, and out of a hel
     const other = (await cli("new-bot", "--name", "Other dog")).bot;
     const first = [item("Fix the login", "in_progress"), item("Write the release note", "pending")];
     const second = [item("Fix the login", "done"), item("Write the release note", "in_progress")];
+    const finished = [item("Fix the login", "done"), item("Write the release note", "done")];
     writeFileSync(planPath, JSON.stringify({
       [dog.id]: { turns: [
         { steps: [{ tool: "set_plan", toolUseId: "toolu_dog_1", arguments: { items: first } }], reply: "On it." },
@@ -44,6 +45,7 @@ it("keeps a dog's plan per chat, on the wire, across a restart, and out of a hel
           { tool: "set_plan", toolUseId: "toolu_helper_2", agentId: "agent-7", announceAfterMs: 400, arguments: { items: [item("Another helper step", "in_progress")] } },
           { tool: "set_plan", toolUseId: "toolu_dog_2", arguments: { items: second } },
         ], reply: "Login fixed." },
+        { steps: [{ tool: "set_plan", toolUseId: "toolu_dog_3", arguments: { items: finished } }], reply: "The release note is written." },
       ] },
       [other.id]: { steps: [{ tool: "set_plan", arguments: { items: [item("Other dog's work", "pending")] } }], reply: "Noted." },
     }));
@@ -86,6 +88,10 @@ it("keeps a dog's plan per chat, on the wire, across a restart, and out of a hel
     await request(`/api/bots/${other.id}/tasks/${other.activeTaskId}`, { method: "DELETE" }, session.info.url);
     await expect.poll(plansFile, { timeout: 5_000 }).toEqual([dog.activeTaskId]);
     expect((await wirePlan(dog)).items).toEqual(second);
+
+    await turn(dog, "and the release note?");
+    expect(stepResults(dog.id).at(-1)).toBe("Plan recorded: 2 of 2 done. The chat shows a plan only while something on it is open, so the person no longer sees this one.");
+    expect((await wirePlan(dog)).items).toEqual(finished);
     writeFileSync(`${session.info.logPath}.plan.json`, JSON.stringify({ stored, turns: evidence() }, null, 2), { mode: 0o600 });
     console.info(`Plan evidence: ${session.info.logPath}.plan.json`);
   } finally {
