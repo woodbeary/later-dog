@@ -489,6 +489,16 @@ describe("the cloud computer facade", () => {
     await expect(computers.provisionBoat(withBoat, "some-bot", "Some")).rejects.toMatchObject({ status: 409, message: expect.stringMatching(/does not exist/) });
     expect(requests).toHaveLength(0);
   });
+  it("keeps every dog's computers readable when one computer carries a very long reason, and cuts that reason short", async () => {
+    const long = add("dog-long-reason", "error");
+    long.error = `The computer could not start: ${"x".repeat(2_500)}`;
+    add("dog-next-door", "running");
+    const inventory = await computers.listManagedBoats(noBoat, [owner("dog-long-reason"), owner("dog-next-door")]);
+    expect(inventory).toMatchObject({ available: true, problem: null });
+    expect(inventory.instances.map((instance) => instance.ownerBotId).sort()).toEqual(["dog-long-reason", "dog-next-door"]);
+    expect(await computers.findBoat(noBoat, "dog-next-door")).toMatchObject({ state: "running" });
+  });
+
   describe("waking a computer for run_on_computer", () => {
     const wakes = () => ours().filter((request) => request.method === "POST" && request.path.endsWith("/wake")).length;
     const sleeping = (botId: string) => { const computer = add(botId, "sleeping"); wakeTo = "starting"; pollStepMs = 10_000; return computer; };

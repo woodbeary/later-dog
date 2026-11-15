@@ -77,4 +77,19 @@ describe("every start leaves a record and a line", () => {
     expect(computer.lastStart).toMatchObject({ generation: 2, from: "snapshot", outcome: "failed", reason: "The computer could not start: no capacity for this instance type" });
     expect(lines(w.errors).filter((line) => line.includes(`${id} failed to boot: The computer could not start: no capacity`))).toHaveLength(1);
   });
+
+  it("stores a long reason cut to 300 characters and keeps the whole of it in the log line", async () => {
+    const w = await world();
+    const id = await created(w);
+    await w.advance(MINUTE);
+    await w.fetch(apiRequest("POST", `/v1/computers/${id}/sleep`, OWNER_KEY));
+    const raw = `no capacity ${"y".repeat(2_000)}`;
+    w.containers.get(id)!.start = () => { throw new Error(raw); };
+    await w.fetch(apiRequest("POST", `/v1/computers/${id}/wake`, OWNER_KEY));
+    const computer = await read(w, id);
+    expect(computer.error).toHaveLength(300);
+    expect(computer.error.endsWith("…")).toBe(true);
+    expect(computer.lastStart.reason).toBe(computer.error);
+    expect(lines(w.errors).some((line) => line.includes(raw))).toBe(true);
+  });
 });

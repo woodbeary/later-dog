@@ -174,6 +174,9 @@ function environmentOf(record: ComputerRecord): NonNullable<ComputerView["enviro
   };
 }
 
+export const REASON_MAX_CHARS = 300;
+const stored = (reason: string) => (reason.length <= REASON_MAX_CHARS ? reason : `${reason.slice(0, REASON_MAX_CHARS - 1)}…`);
+
 function startLine(start: StartRecord | undefined): string {
   if (!start) return "";
   const restored = start.restoreBytes === undefined ? "" : ` of ${start.restoreBytes} bytes`;
@@ -759,9 +762,9 @@ export class DogComputer extends DurableObject<Env> {
     const failed = this.update((r) => {
       if (r.generation === generation && r.state === "starting") {
         r.state = "error";
-        r.error = why;
+        r.error = stored(why);
         if (r.environment?.restoredIn === generation) r.environment.restoreFailed = true;
-        if (r.lastStart?.generation === generation) Object.assign(r.lastStart, { outcome: "failed", ms: Date.now() - r.lastStart.at, reason: why });
+        if (r.lastStart?.generation === generation) Object.assign(r.lastStart, { outcome: "failed", ms: Date.now() - r.lastStart.at, reason: stored(why) });
       }
     });
     if (failed?.carry && failed.generation === generation) this.abandonCarry();
@@ -1003,7 +1006,7 @@ export class DogComputer extends DurableObject<Env> {
       await this.charge(true);
       const stopped = this.update((r) => {
         r.state = "error";
-        r.error = why;
+        r.error = stored(why);
         delete r.awakeSince;
       });
       if (!stopped) return;
@@ -1086,8 +1089,8 @@ export class DogComputer extends DurableObject<Env> {
       const why = `The computer could not start: ${describeError(error)}`;
       const failed = this.update((r) => {
         r.state = "error";
-        r.error = why;
-        if (r.lastStart?.generation === r.generation) Object.assign(r.lastStart, { outcome: "failed", ms: Date.now() - r.lastStart.at, reason: why });
+        r.error = stored(why);
+        if (r.lastStart?.generation === r.generation) Object.assign(r.lastStart, { outcome: "failed", ms: Date.now() - r.lastStart.at, reason: stored(why) });
       });
       console.error(`laterdog computers: ${record.id} failed to boot: ${why}${startLine(failed?.lastStart)}`);
       await this.charge(true);
