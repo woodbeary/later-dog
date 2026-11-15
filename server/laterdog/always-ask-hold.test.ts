@@ -29,10 +29,10 @@ describe("holding a call for the person's answer", () => {
     expect(seen).toEqual(["card r1", "forget r1", "too late r1"]);
   });
 
-  it("runs nothing when Allow comes but the call has gone by then", async () => {
+  it("runs nothing when Allow wins but the call has gone before it would run", async () => {
     const caller = new AbortController();
-    const answer = Promise.resolve<HeldAnswer>("allow").then((value) => { caller.abort(); return value; });
-    const { seen, result } = harness(answer, caller);
+    const { seen, result } = harness(Promise.resolve<HeldAnswer>("allow"), caller);
+    queueMicrotask(() => caller.abort());
     expect(await result).toBe("gone");
     expect(seen).toContain("too late r1");
   });
