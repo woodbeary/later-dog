@@ -217,6 +217,20 @@ describe("one copy of a repository's history", () => {
     expect(takeLock(lock, 0, () => now)).not.toBeNull();
   });
 
+  it("keeps waiting while the lock's owner is still bringing the cache in, and stops when it stalls", () => {
+    const lock = join(root, "z.lock");
+    mkdirSync(lock);
+    writeFileSync(join(lock, "owner"), String(process.pid));
+    let now = 0;
+    let bytes = 0;
+    const clock = () => { now += 1_000; return now; };
+    const growing = () => (now < 20_000 ? (bytes += 1) : bytes);
+    const started = now;
+    expect(takeLock(lock, 12_000, clock, growing)).toBeNull();
+    expect(now - started).toBeGreaterThan(20_000);
+    expect(now - started).toBeLessThan(50_000);
+  });
+
   it("takes over a lock whose owner is gone and waits for a live one", () => {
     const lock = join(root, "x.lock");
     mkdirSync(lock);

@@ -98,8 +98,12 @@ function alive(pid: number): boolean {
   try { process.kill(pid, 0); return true; } catch (error) { return (error as NodeJS.ErrnoException).code === "EPERM"; }
 }
 
-export function takeLock(path: string, waitMs: number, now: () => number = Date.now): (() => void) | null {
-  const until = now() + waitMs;
+export const PROGRESS_EVERY_MS = 5_000;
+
+export function takeLock(path: string, waitMs: number, now: () => number = Date.now, progress?: () => number): (() => void) | null {
+  let until = now() + waitMs;
+  let seen = progress?.();
+  let checked = now();
   for (;;) {
     try {
       mkdirSync(path);
@@ -116,6 +120,12 @@ export function takeLock(path: string, waitMs: number, now: () => number = Date.
     if ((!ownerless && !alive(owner)) || (ownerless && now() - since > OWNERLESS_STALE_MS) || now() - since > LOCK_STALE_MS) {
       rmSync(path, { recursive: true, force: true });
       continue;
+    }
+    if (progress && now() - checked >= PROGRESS_EVERY_MS) {
+      const next = progress();
+      if (next !== seen) until = now() + waitMs;
+      seen = next;
+      checked = now();
     }
     if (now() >= until) return null;
     pause(250);
@@ -161,6 +171,12 @@ function keepSharedPacks(target: string): void {
   }
 }
 
+export function cacheBytes(cacheRoot: string, key: string): number {
+  let names: string[] = [];
+  try { names = readdirSync(cacheRoot); } catch { return 0; }
+  return names.filter((name) => name.startsWith(`${key}.tmp-`) || name === `${key}.git`).reduce((sum, name) => sum + sizeOf(join(cacheRoot, name)), 0);
+}
+
 function emptyOrMissing(path: string): boolean {
   try { return readdirSync(path).length === 0; } catch { return !existsSync(path); }
 }
@@ -178,7 +194,7 @@ export function sharedClone(args: readonly string[], runner: CloneRunner): { out
   if (!emptyOrMissing(target)) return plain();
   try { mkdirSync(runner.cacheRoot, { recursive: true, mode: 0o700 }); } catch { return plain(); }
   const key = cacheKey(plan.url);
-  const release = takeLock(join(runner.cacheRoot, `${key}.lock`), runner.lockWaitMs ?? LOCK_WAIT_MS, runner.now);
+  const release = takeLock(join(runner.cacheRoot, `${key}.lock`), runner.lockWaitMs ?? LOCK_WAIT_MS, runner.now, () => cacheBytes(runner.cacheRoot, key));
   if (!release) return plain();
   let shared = false;
   let cloned = false;
