@@ -143,6 +143,7 @@ import { createComputerRunRoute } from "./routes/computer-run.ts";
 import { createStorageRoutes } from "./routes/storage.ts";
 import * as boat from "./computers.ts";
 import { cloudComputerRpc } from "./cloud-computer-tools.ts";
+import { pageToolsEnabled } from "./laterdog/page-tools.ts";
 import { TeamComputers, teamComputerAssignment, teamComputerCreate, teamComputerOwner, type TeamComputerRecord } from "./team-computers.ts";
 import { isEffortLevel, type BotVisibility, type CardAnswerer, type ResolvedSender, type SteerQueueReason, type WireBot, type WireGroup, type WireTask, type WireWaitingOn } from "../shared/wire.ts";
 import { waitingOn } from "./laterdog/waiting-on.ts";
@@ -3699,7 +3700,7 @@ function previewSystemPrompt(bot: BotRecord) {
       cloudHome: Boolean(CLOUD_HOME), agents: agentsMounted, vault: vaultStore.available, macsOnline: sharedComputers.list(CLOUD_HOME_LENDER).length,
     }) }),
     ...profileParts(cfg.profile),
-    { id: "computer", label: "Computer", text: computerPrompt(computerPromptKind) },
+    { id: "computer", label: "Computer", text: computerPrompt(computerPromptKind, { pageTools: pageToolsEnabled(cfg) }) },
     { id: "plan", label: "Surface", text: previewPlan.computer === undefined ? "" : surfacePrompt({
       computer: previewPlan.computer && previewPlan.computer !== "off" && computerPromptKind ? previewPlan.computer : null,
       browser: previewPlan.computer === undefined ? false : previewPlan.browser,
@@ -9205,7 +9206,7 @@ async function startTurn(
         ...profileParts(cfg.profile),
         { id: "owner-grant", label: "Owner's standing grant", text: ownerGrant ? ownerGrantPrompt(cfg.profile?.name) : "" },
         { id: "files", label: "File locations", text: worksInWorkspace ? workspaceLocationsPrompt(bot.id, cwd, liveBot?.cwd ?? bot.cwd) : "" },
-        { id: "computer", label: "Computer", text: computerPrompt(computerPromptKind) },
+        { id: "computer", label: "Computer", text: computerPrompt(computerPromptKind, { pageTools: pageToolsEnabled(cfg) }) },
         { id: "plan", label: "Surface", text: surfacePrompt({ computer: mountedComputer, browser: Boolean(integrations.browser) }, { note: plan.note, canSelect: computerSelectionTurns.has(threadId), cloudHome: Boolean(CLOUD_HOME) }) },
         { id: "cloud-home", label: "My Cloud", text: CLOUD_HOME ? cloudHomePrompt(Boolean(integrations.agents) && lendingEnabled(), guidanceEngine(instance.driverKind)) : "" },
         { id: "today", label: "Today", text: CLOUD_HOME ? todayPrompt() : "" },
@@ -10977,7 +10978,7 @@ async function runGroupMemberTurn(
     { id: "learn", label: "Learning", text: skillAuthoring ? `\n${LEARN_PROMPT.trim()}` : "" },
     { id: "files", label: "File locations", text: workspace ? workspaceLocationsPrompt(bot.id, cwd, readyBot.cwd, cloudGuestOpened(threadId) ? null : store.taskByThread(bot.id, readyBot.threadId)?.cwd) : "" },
     { id: "mcp", label: "MCP servers", text: customMcpPrompt(Object.keys(integrations.custom ?? {})) },
-    { id: "computer", label: "Computer", text: computerPrompt(roomComputerPromptKind) },
+    { id: "computer", label: "Computer", text: computerPrompt(roomComputerPromptKind, { pageTools: pageToolsEnabled(cfg) }) },
     { id: "plan", label: "Surface", text: surfacePrompt({ computer: roomVmTarget ? "vm" : surfaceOfComputerKind(roomComputerKind), browser: Boolean(integrations.browser) }, { note: roomPlan.note, cloudHome: Boolean(CLOUD_HOME) }) },
     { id: "cloud-home", label: "My Cloud", text: CLOUD_HOME ? cloudHomePrompt(Boolean(integrations.agents) && lendingEnabled(), guidanceEngine(instance.driverKind)) : "" },
     { id: "today", label: "Today", text: CLOUD_HOME ? todayPrompt() : "" },

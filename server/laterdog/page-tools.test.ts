@@ -1,7 +1,10 @@
+import { createHash } from "node:crypto";
+
 import { describe, expect, it } from "vitest";
 
 import { CLOUD_COMPUTER_TOOLS, computerToolsFor, runCloudComputerTool } from "../cloud-computer-tools.ts";
 import type { AppConfig } from "../config.ts";
+import { computerPrompt } from "../system-prompt.ts";
 import { PAGE_TOOLS, pageAgentCommand, pageAgentInput, runPageTool, type RemoteExec } from "./page-tools.ts";
 
 const off = {} as AppConfig;
@@ -45,5 +48,16 @@ describe("page tools on the cloud computer's own browser", () => {
       const result = await runCloudComputerTool(on, "box", name, args, signal, undefined, undefined, answering("{}"));
       expect([name, result.isError]).toEqual([name, true]);
     }
+  });
+
+  it("tell a dog to read the page first only while the switch is on, and leave the instructions byte for byte otherwise", () => {
+    const sha = (text: string) => createHash("sha256").update(text).digest("hex");
+    expect(sha(computerPrompt("box"))).toBe("149823aaf3c25f8094a6aebad802b3448ac1683f2cc2528e030c4c31a8be136c");
+    expect(computerPrompt("box", { pageTools: false })).toBe(computerPrompt("box"));
+    expect(computerPrompt("local", { pageTools: true })).toBe(computerPrompt("local"));
+    const steered = computerPrompt("box", { pageTools: true });
+    expect(steered).toContain("read its structure with page_open and page_read");
+    expect(steered).toContain("take a screenshot only when the structure does not show what you need");
+    expect(steered.startsWith(computerPrompt("box").slice(0, 120))).toBe(true);
   });
 });

@@ -20,6 +20,9 @@ export const PAGE_TOOLS = [
   tool("page_text", "Read the full text of the element with this ref, or of the part a selector names.", { ref, selector: { type: "string", maxLength: 300 } }),
 ];
 
+export const PAGE_FIRST_PROMPT =
+  " For a web page, read its structure with page_open and page_read and act with the page tools; take a screenshot only when the structure does not show what you need, such as a picture, a canvas, a CAPTCHA or a window outside the page.";
+
 export const PAGE_TOOL_NAMES: ReadonlySet<string> = new Set(PAGE_TOOLS.map((entry) => entry.name));
 
 export function pageToolsEnabled(cfg: AppConfig): boolean {
