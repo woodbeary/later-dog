@@ -2,7 +2,7 @@ import { ALWAYS_ASK_IDS, type AlwaysAskId } from "../../shared/always-asks.ts";
 import { actionTokens, isOutboundTool } from "../../shared/outbound.ts";
 import { COMPUTER_RUN_PATH } from "../routes/computer-run.ts";
 import { isShell } from "./home-signals.ts";
-import { codeLiterals, deletesOutsideWorkspace, isShellTool, shellSteps, type OwnerGuardContext, type ShellStep, type ShellWord } from "./owner-guard.ts";
+import { apiCall, apiRefMove, codeLiterals, deletesOutsideWorkspace, isShellTool, shellSteps, type OwnerGuardContext, type ShellStep, type ShellWord } from "./owner-guard.ts";
 
 export { ALWAYS_ASK_IDS, type AlwaysAskId };
 
@@ -173,9 +173,27 @@ function gitSkips(step: ShellStep, depth: number): Skip {
   return null;
 }
 
+const CODE_APIS: readonly RegExp[] = [
+  /api\.github\.com\/repos\/[^/\s]+\/[^/\s]+\/(?:git\/refs|contents\/)/,
+  /\/api\/v4\/projects\/[^/\s]+\/repository\/(?:branches|commits|files\/|tags)/,
+  /api\.bitbucket\.org\/2\.0\/repositories\/[^/\s]+\/[^/\s]+\/(?:refs\/(?:branches|tags)|src)/,
+];
+const GITLAB_WRITES = /^\/?projects\/[^/\s]+\/repository\/(?:branches|commits|files\/|tags)/;
+const CONTENTS_PATH = /^\/?(?:api\/v3\/)?repos\/[^/\s]+\/[^/\s]+\/contents\//;
+
+function movesCodeByApi(step: ShellStep): boolean {
+  if (step.name === "gh" || step.name === "glab") {
+    const call = apiCall(step.args);
+    if (!call || call.method === "GET") return false;
+    if (step.name === "glab") return call.endpoints.some((endpoint) => GITLAB_WRITES.test(endpoint));
+    return apiRefMove(call) !== null || (["PUT", "DELETE"].includes(call.method) && call.endpoints.some((endpoint) => CONTENTS_PATH.test(endpoint)));
+  }
+  return HTTP_CLIENTS.has(step.name) && mutates(step) && step.args.some((arg) => CODE_APIS.some((pattern) => pattern.test(pageText(arg.text))));
+}
+
 function stepSkips(step: ShellStep, depth: number, decodes: boolean): Skip {
   if (step.name !== "unset" && step.words.some((word) => SKIP_VARIABLE.test(word.text) || /^LATERDOG_SKIP_HOOKS$/.test(word.text) && step.name !== "echo")) return "plain";
-  if (touchesHooks(step)) return "plain";
+  if (touchesHooks(step) || movesCodeByApi(step)) return "plain";
   if (step.name === "git") return gitSkips(step, depth);
   if (step.name === "git-send-pack") return "plain";
   if (step.name === "git-push") return pushSkips(step.args, step.input !== undefined);

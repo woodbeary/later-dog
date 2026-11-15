@@ -79,6 +79,19 @@ describe("the owner guard refuses a force-push to the default branch", () => {
   });
 });
 
+describe("the owner guard refuses a forced move of the default branch through the API", () => {
+  it.each([
+    "gh api -X PATCH repos/o/r/git/refs/heads/main -f sha=0123abc -F force=true",
+    "gh api --method PATCH repos/o/r/git/refs/heads/master -F force=true -f sha=0",
+  ])("%s", async (command) => {
+    expect((await bash(command))?.rule).toBe("force-push-default-branch");
+  });
+
+  it("lets a forced move of another branch reach the person instead", async () => {
+    expect(await bash("gh api -X PATCH repos/o/r/git/refs/heads/feature -f sha=0 -F force=true")).toBeNull();
+  });
+});
+
 describe("the owner guard refuses deleting a remote repository", () => {
   it.each([
     "gh repo delete woodbeary/later-dog --yes",

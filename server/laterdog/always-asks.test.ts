@@ -418,3 +418,28 @@ describe("a push whose output is kept", () => {
     expect(alwaysAsks({ tool: "Bash", command: "echo $((1 + 2))" }, guard)).toBeNull();
   });
 });
+
+describe("moving a branch through the API", () => {
+  it.each([
+    "gh api -X PATCH repos/o/r/git/refs/heads/main -f sha=0123abc -F force=true",
+    "gh api -X PATCH repos/o/r/git/refs/heads/feature -f sha=0123abc",
+    "gh api repos/o/r/git/refs -f ref=refs/heads/x -f sha=0123abc",
+    "gh api --method PUT repos/o/r/contents/src/app.ts -f message=fix -f content=eA==",
+    "curl -X POST https://api.github.com/repos/o/r/git/refs -d @ref.json",
+    "curl -X PATCH -H \"Authorization: token $T\" https://api.github.com/repos/o/r/git/refs/heads/main -d '{\"sha\":\"0\"}'",
+    "glab api -X POST projects/42/repository/branches -f branch=x -f ref=main",
+    "curl -X POST https://gitlab.com/api/v4/projects/42/repository/commits -d @c.json",
+    "curl -X POST https://api.bitbucket.org/2.0/repositories/o/r/refs/branches -d @b.json",
+  ])("%s asks", (command) => {
+    expect(alwaysAsks({ tool: "Bash", command }, guard)?.id).toBe("push-skips-checks");
+  });
+
+  it.each([
+    "gh api repos/o/r/git/refs/heads/main",
+    "gh api -X DELETE repos/o/r/git/refs/heads/old-branch",
+    "gh api -X PATCH repos/woodbeary/later-dog/pulls/201 -F body=@notes/pr-body.md",
+    "curl https://api.github.com/repos/o/r/git/refs/heads/main",
+  ])("%s does not", (command) => {
+    expect(alwaysAsks({ tool: "Bash", command }, guard)).toBeNull();
+  });
+});

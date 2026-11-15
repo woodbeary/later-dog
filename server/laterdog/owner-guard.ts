@@ -489,12 +489,20 @@ const deleteRepository = (): OwnerGuardRefusal => ({
   message: "later.dog refused this: deleting a remote repository is never allowed for a dog.",
 });
 
-function ghRefusal(args: Word[]): OwnerGuardRefusal | null {
-  const [sub, action] = args.map((arg) => arg.text);
-  if (sub === "repo" && action === "delete") return deleteRepository();
-  if (sub !== "api") return null;
+export interface ApiCall {
+  method: string;
+  endpoints: string[];
+  fields: Record<string, string>;
+}
+
+const FIELD_OPTIONS = new Set(["-f", "--field", "-F", "--raw-field"]);
+
+export function apiCall(args: Word[]): ApiCall | null {
+  if (args[0]?.text !== "api") return null;
   let method = "";
-  const positional: string[] = [];
+  const endpoints: string[] = [];
+  const fields: Record<string, string> = {};
+  let writes = false;
   const rest = args.slice(1);
   for (let i = 0; i < rest.length; i++) {
     const text = rest[i]!.text;
@@ -511,14 +519,50 @@ function ghRefusal(args: Word[]): OwnerGuardRefusal | null {
       method = text.slice(2);
       continue;
     }
+    const field = FIELD_OPTIONS.has(text) ? rest[i + 1]?.text : /^(?:--field=|--raw-field=|-[fF])(.+)$/.exec(text)?.[1];
+    if (field !== undefined) {
+      writes = true;
+      const at = field.indexOf("=");
+      if (at > 0) fields[field.slice(0, at)] = field.slice(at + 1);
+      if (FIELD_OPTIONS.has(text)) i++;
+      continue;
+    }
+    if (text === "--input") writes = true;
     if (GH_API_VALUE_OPTIONS.has(text)) {
       i++;
       continue;
     }
     if (text.startsWith("-")) continue;
-    positional.push(text);
+    endpoints.push(text);
   }
-  return method.toUpperCase() === "DELETE" && positional.some((endpoint) => REPO_PATH.test(endpoint)) ? deleteRepository() : null;
+  return { method: (method || (writes ? "POST" : "GET")).toUpperCase(), endpoints, fields };
+}
+
+const REFS_PATH = /^\/?(?:api\/v3\/)?repos\/[^/\s?#]+\/[^/\s?#]+\/git\/refs(?:\/([^?#\s]*))?/;
+
+export function apiRefMove(call: ApiCall): { ref: string; force: boolean } | null {
+  if (!["POST", "PATCH", "PUT"].includes(call.method)) return null;
+  for (const endpoint of call.endpoints) {
+    const match = REFS_PATH.exec(endpoint);
+    if (!match) continue;
+    const ref = (match[1] || call.fields.ref || "").replace(/^refs\//, "").replace(/^heads\//, "");
+    return { ref, force: /^(?:true|1)$/i.test(call.fields.force ?? "") };
+  }
+  return null;
+}
+
+function ghRefusal(args: Word[]): OwnerGuardRefusal | null {
+  if (args[0]?.text === "repo" && args[1]?.text === "delete") return deleteRepository();
+  const call = apiCall(args);
+  if (!call) return null;
+  const moved = apiRefMove(call);
+  if (moved?.force && (moved.ref === "main" || moved.ref === "master")) {
+    return {
+      rule: "force-push-default-branch",
+      message: `later.dog refused this: it force-moves ${moved.ref}, the repository's default branch, through the API, which is never allowed. Push a new branch and open a pull request instead.`,
+    };
+  }
+  return call.method === "DELETE" && call.endpoints.some((endpoint) => REPO_PATH.test(endpoint)) ? deleteRepository() : null;
 }
 
 function curlRefusal(args: Word[]): OwnerGuardRefusal | null {
