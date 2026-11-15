@@ -796,3 +796,23 @@ describe("a temporary folder the command changes again", () => {
     expect(alwaysAsks({ tool: "Bash", command: "out=$(mktemp) && pnpm lint > \"$out\" 2>&1; tail -5 \"$out\"; rm -f \"$out\"" }, guard)).toBeNull();
   });
 });
+
+describe("a ref word the shell would split", () => {
+  it.each([
+    "B=' --no-verify'; git push origin x$B",
+    "git push origin x$OPTS",
+    "git push origin v$ver",
+    "B=' --no-verify'; git push origin \"x\"$B",
+  ])("%s asks", (command) => {
+    expect(alwaysAsks({ tool: "Bash", command }, guard)?.id).toBe("push-skips-checks");
+  });
+
+  it.each([
+    "git push origin \"v$ver\"",
+    "git push origin \"atelier/$name\"",
+    "N=login; git push origin atelier/$N",
+    "ver=$(node -p \"require('./package.json').version\"); git tag \"v$ver\" && git push origin \"v$ver\"",
+  ])("%s does not", (command) => {
+    expect(alwaysAsks({ tool: "Bash", command }, guard)).toBeNull();
+  });
+});

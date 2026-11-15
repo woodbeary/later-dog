@@ -38,6 +38,7 @@ export interface ShellWord {
   glob: boolean;
   vars: boolean;
   here?: boolean;
+  bare?: boolean;
 }
 
 type Word = ShellWord;
@@ -59,12 +60,14 @@ function tokenize(source: string): Piece[] {
   let text = "";
   let glob = false;
   let vars = false;
+  let bare = false;
   let started = false;
   const flush = () => {
-    if (started) pieces.push({ word: { text, glob, vars } });
+    if (started) pieces.push({ word: { text, glob, vars, ...(bare ? { bare } : {}) } });
     text = "";
     glob = false;
     vars = false;
+    bare = false;
     started = false;
   };
   const heredocs: { delimiter: string; tabs: boolean }[] = [];
@@ -137,6 +140,7 @@ function tokenize(source: string): Piece[] {
       }
       text += source.slice(i, j + 1);
       vars = true;
+      bare = true;
       started = true;
       i = j + 1;
       continue;
@@ -146,6 +150,7 @@ function tokenize(source: string): Piece[] {
       const stop = end === -1 ? source.length : end;
       text += source.slice(i, stop + 1);
       vars = true;
+      bare = true;
       started = true;
       i = stop + 1;
       continue;
@@ -169,7 +174,10 @@ function tokenize(source: string): Piece[] {
       i += op.length;
       continue;
     }
-    if (ch === "$") vars = true;
+    if (ch === "$") {
+      vars = true;
+      bare = true;
+    }
     if (ch === "*" || ch === "?" || ch === "[" || ch === "{") glob = true;
     text += ch;
     started = true;
@@ -833,13 +841,24 @@ function remember(words: Word[], assigned: Map<string, string>): void {
   }
 }
 
+const NAMED = /\$(?:([A-Za-z_][A-Za-z0-9_]*)|\{([A-Za-z_][A-Za-z0-9_]*)\})/g;
+
 function resolved(words: Word[], assigned: Map<string, string>): Word[] {
   if (!assigned.size) return words;
-  return words.map((word) => {
+  return words.flatMap((word): Word[] => {
     const match = WHOLE_VARIABLE.exec(word.text);
     const value = match ? assigned.get(match[1] ?? match[2]!) : undefined;
-    if (value === TEMP_PATH) return { ...word, text: TEMP_PATH, vars: true, glob: false };
-    return value === undefined ? word : { ...word, text: value, vars: false, glob: false };
+    if (value === TEMP_PATH) return [{ ...word, text: TEMP_PATH, vars: true, glob: false }];
+    if (value !== undefined) return [{ ...word, text: value, vars: false, glob: false }];
+    if (!word.vars || match) return [word];
+    const text = word.text.replace(NAMED, (whole, name?: string, braced?: string) => {
+      const known = assigned.get((name ?? braced)!);
+      return known === undefined || known === TEMP_PATH ? whole : known;
+    });
+    if (text === word.text) return [word];
+    const plain = !/[$`]/.test(text);
+    const parts = word.bare ? text.split(/\s+/).filter(Boolean) : [text];
+    return parts.map((part) => ({ ...word, text: part, vars: !plain, ...(plain ? { bare: false } : {}) }));
   });
 }
 
