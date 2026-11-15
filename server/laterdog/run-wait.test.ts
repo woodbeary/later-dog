@@ -2,7 +2,7 @@ import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { PERSON_WROTE_TEXT, WROTE_BEFORE_START_TEXT, handleComputerRun } from "./computer-run-route.ts";
+import { PERSON_WROTE_TEXT, WROTE_BEFORE_START_TEXT, handleComputerRun, stoppedWaitText } from "./computer-run-route.ts";
 import { ComputerRuns, WAIT_IN_ONE_CALL_MS, type RunBox } from "./computer-runs.ts";
 import { BAD_WAIT_TEXT, STILL_RUNNING_TAIL_CHARS, stillRunningTail, waitCapMs, waitWindowMs } from "./run-wait.ts";
 
@@ -85,6 +85,16 @@ describe("waiting for a computer job with one call", () => {
     expect(answer.error).not.toMatch(/nothing was run/);
     expect(j.clock.at - start).toBeLessThanOrEqual(5 * MINUTE + 10_000);
     expect(j.execs.some((command) => command.includes("python3 -c"))).toBe(false);
+  });
+
+  it("says the files are in the folder when Stop lands while they are being brought back", async () => {
+    const j = job(MINUTE);
+    const answer = await j.once({ wait_minutes: 30 }, { active: () => !j.execs.some((command) => command.includes("python3 -c")) });
+    expect(answer.status).toBe(409);
+    expect(answer.error).toMatch(/^The wait ended because this turn was stopped\. The job finished with exit code 0 \(run_id [0-9a-f]{8}\) and its files were brought back to your folder/);
+    expect(answer.error).not.toMatch(/not brought back/);
+    const done = { id: "abcd1234", state: "finished", exitCode: 0, output: "", broughtBack: ["out.txt"], skipped: [], sentFiles: 0, sentBytes: 0 } as const;
+    expect(stoppedWaitText(done)).toContain("its files were brought back to your folder (1 changed file)");
   });
 
   it("stops waiting early when the person writes, so the dog can answer and wait again with the run_id", async () => {

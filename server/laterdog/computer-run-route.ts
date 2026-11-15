@@ -45,7 +45,9 @@ export const PERSON_WROTE_TEXT = "The person wrote while you waited, so this cal
 export const WROTE_BEFORE_START_TEXT = "The person wrote while the folder was being sent, so the command was not started. Answer them, then call run_on_computer again with the same folder and command; the files already sent stay on the computer.";
 export function stoppedWaitText(outcome: RunOutcome): string {
   const still = outcome.state === "running" && outcome.exitCode === null;
-  const job = still ? `The job is still running on your cloud computer (run_id ${outcome.id}).` : outcome.exitCode !== null ? `The job had finished with exit code ${outcome.exitCode} (run_id ${outcome.id}); its files were not brought back.` : `The job stopped on your cloud computer (run_id ${outcome.id}).`;
+  const count = outcome.broughtBack.length;
+  const brought = `its files were brought back to your folder (${count ? `${count} changed file${count === 1 ? "" : "s"}` : "no changed files"})`;
+  const job = still ? `The job is still running on your cloud computer (run_id ${outcome.id}).` : outcome.state === "finished" ? `The job finished with exit code ${outcome.exitCode} (run_id ${outcome.id}) and ${brought}.` : outcome.exitCode !== null ? `The job had finished with exit code ${outcome.exitCode} (run_id ${outcome.id}); its files were not brought back.` : `The job stopped on your cloud computer (run_id ${outcome.id}).`;
   return `The wait ended because this turn was stopped. ${job} Call run_on_computer with that run_id to check on it later.`;
 }
 const ENDED_TEXT = "This turn ended before the command started on the cloud computer, so nothing was run.";
