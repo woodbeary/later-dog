@@ -755,7 +755,7 @@ export const CodexDriver: ProviderDriver<CodexConfig> = {
       const launchAttempt = async (attempt: number): Promise<void> => {
         const env = childEnv();
         prepareCodexShellGuard(env, threadId, turn.integrations?.hooks);
-        Object.assign(env, chatEngineEnvironment(threadId));
+        Object.assign(env, chatEngineEnvironment(threadId, env));
         if (planToken) env.LATERDOG_CHATGPT_TOKEN = planToken;
         const appServerArgs = ["app-server", ...(plan ? chatgptPlanCodexArgs() : config.managed ? managedCodexArgs(config.managed) : codexLocalProviderArgs(env, turn.model)), ...codexToolSurfaceArgs(),
           ...(turn.toolScope === undefined ? [] : ["-c", "features.shell_snapshot=false"]),
