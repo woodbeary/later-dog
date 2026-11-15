@@ -77,8 +77,7 @@ async function project(row: Row) {
     ...(row.usage ? { usageHold: { account: "Work" } } : {}),
   });
   const activity = row.needsYou ? "waiting-on-you" as const : busy ? "working" as const : "idle" as const;
-  const alive = { helpers: busy ? 0 : board.runningCount(CHAT), computerJobs: busy ? 0 : jobs.count(CHAT) };
-  return { work, older: olderWorkFields(work, busy, activity, handoff, alive) };
+  return { work, older: olderWorkFields(work, busy, activity, handoff, busy ? 0 : board.runningCount(CHAT)) };
 }
 
 const TABLE: Array<[string, Row, WorkKind]> = [
@@ -144,7 +143,7 @@ describe("one work state per chat, from every fact the home knows", () => {
       if (work.kind === "waiting-on-dog") expect(older.waitingForTeammates && older.waitingOn!.length > 0, label).toBe(true);
       expect(Boolean(older.waitingOn?.length), label).toBe(Boolean(row.awaits && !row.turn));
       expect(older.activity === "waiting-on-you", label).toBe(work.kind === "needs-you");
-      expect(Boolean(older.helpersWorking), label).toBe(Boolean(!row.turn && (row.job || (row.helpers && !row.restart))));
+      expect(Boolean(older.helpersWorking), label).toBe(Boolean(!row.turn && row.helpers && !row.restart));
     }
   }, 60_000);
 });

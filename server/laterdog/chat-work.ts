@@ -40,13 +40,8 @@ export interface OlderWorkFields {
 
 const LIVE: ReadonlySet<WorkState["kind"]> = new Set(["running", "retrying", "waiting-for-computer"]);
 
-export interface AliveBehind {
-  helpers: number;
-  computerJobs: number;
-}
-
-export function olderWorkFields(work: WorkState, busy: boolean, activity: BotActivity | undefined, handoff: HandoffWait, alive: AliveBehind = { helpers: 0, computerJobs: 0 }): OlderWorkFields {
-  const helpersWorking = busy ? 0 : Math.max(0, alive.helpers) + Math.max(0, alive.computerJobs);
+export function olderWorkFields(work: WorkState, busy: boolean, activity: BotActivity | undefined, handoff: HandoffWait, helpers = 0): OlderWorkFields {
+  const helpersWorking = busy ? 0 : Math.max(0, helpers);
   const shown = work.kind === "needs-you" ? "waiting-on-you"
     : activity === "working" && !LIVE.has(work.kind) ? "idle"
     : activity;
