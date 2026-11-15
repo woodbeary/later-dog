@@ -1,195 +1,208 @@
-# Always on an approval: design (item 16, stage one, revision 2)
+# Always on an approval: design (item 16, stage one, revision 3)
 
-Status: design only, for a second attack review before any product code. Base: `main` 0651657. It meets item 45 (pull request 207, head 395406d), which is not merged yet. Revision 2 answers review 1 (Relay, `handoff/round4/item-16-REVIEW-1.md`); the answer to each finding is at the end.
+Status: design only, for a third attack review before any product code. Base: `main` 0651657, with item 45 (pull request 207, head 395406d) not merged yet. Revision 3 answers review 2 (Relay, `handoff/round4/item-16-REVIEW-2.md`); the answer to each finding is at the end, after the answer to review 1.
 
 Jacob's rule: "Allow once" always comes with "Always", and a dog never asks again for an approval he already gave. Item 45 adds a second rule: five kinds of action always ask, whatever the approval mode.
 
-## What changed in revision 2, in one paragraph
+## At the top, for Jacob: almost nothing you see would get an Always
 
-Review 1 ran a marker program through every wider grant revision 1 offered, and through the exact shell grant itself: the folder in the key was not the folder the command ran in, the git check was a name list, a lasting file grant plus a lasting script run ran anything, and a link or remote changed under an unchanged command. Each hole was in the same place: a shell command runs whatever its folder, its git folder, its shell start files, its links and its remotes say at that moment, and the home cannot record all of that. Revision 2 removes instead of matching: **shell commands get no lasting Always**, the file and wide-command closed-list items are gone, and what remains lasts only for things whose whole effect is in the request the person read.
+Revision 3 turns the rule round. **Nothing gets an Always unless the home can show, from fields it holds, that the whole effect is in the request.** Two reviews broke every "everything except these names" rule; a rule that starts from "no" gives a new tool or engine no Always by default.
+
+What passes those tests is small: a search with the same words, and the same input to a tool of a server that runs off your machines (a remote server you set up by its address). On My Cloud in Ask, Auto and Full you see neither as a card today, because your own dogs run in owner-auto there (table below).
+
+**J0 (new, first). What item 16 delivers, against your rule.**
+- What it delivers for you: 207's promise holds for every old grant (the order fix, finding 7); the engine no longer widens a chat by itself ("Allow for this chat" goes, `server/permission-proxy.ts:169`); one list, Always allowed, where you see and remove every grant a dog holds, old and new; and the old grants that leak (J2) stop answering.
+- What it does not deliver: an Always button on the cards you actually see. Your rule "Allow once always comes with Always" holds only on the few cards the tests allow.
+- Recommended: build the fixes and the list, and offer Always only where the tests pass. Every other card shows Allow once, Don't allow, and one quiet line saying why.
+- The other choice: keep the Always button off everywhere and build only the fixes and the list. Smaller to build; your rule then holds nowhere.
+
+## The allow rule, as tests on the request
+
+The home answers with an Always offer only when **every** test passes. Each test reads a field the home holds; none reads a tool's name except T6, which is a list of allowed engine tools, so a tool missing from it gets no Always.
+
+| Test | Passes when | Field it reads | Fails for (examples) |
+|---|---|---|---|
+| T1. Not one of the five | 207's `alwaysAsks` returns nothing | the request as 207 reads it | a push past the checks, a cloud key, an outside delete, a send, a payment |
+| T2. Owner at the root | The root of the turn is the owner or an admin (R7: the person whose message started the chain, or a routine's writer) | the turn's root, recorded when the chain starts | a guest, a shared-workspace member, a turn a routine's incoming email started for someone else |
+| T3. Whole input carried | The driver set `input` to the tool's whole input, and did not set `argsDigest` or `argsUnknown` | `input`, `argsDigest`, `argsUnknown` on `request.opened` | every Codex request today (no `input`, `server/drivers/codex.ts:1146-1160`) |
+| T4. Server is a field | The driver set the server's name as a field (for Claude, the `mcp__<server>__` prefix, parsed by the driver) | a new `server` field | a Codex MCP call (server only in the summary text), an unknown tool name |
+| T5. Runs off every machine | The server's spec, as the person configured it, is a remote address (`url`), not a command started on the home, a computer or a Mac | the person's configured spec, before later.dog wraps it | a file, database or command server started as a process; later.dog's `computer`, `browser` and `agents` servers; `shared_computer`; every `local-computer` card |
+| T6. Or an allowed engine tool | Instead of T4 and T5: the tool is on a fixed allow list of engine tools whose effect is their input. Today the list holds one: `WebSearch` | the tool name | shell, file edits, `WebFetch` (R12), anything new |
+| T7. No secret in the input | `redactSecretsInText` leaves the canonical input unchanged | the canonical input | an input holding a password or key the check can see |
+| T8. Not a teammate's turn | The request does not start another dog's turn (R4) | the request kind | `ask_bot`, `delegate_bot` |
+
+Two consequences, stated plainly:
+- **Codex dogs get no Always on anything** until the Codex driver sends each request's whole input and its server as fields (R3).
+- **A file change gets no Always.** It acts on the file as it is when it runs; pinning the file before (revision 2) made the key correct but meant the same change on the same file almost never comes again, so the button would promise nothing.
+
+### The key, for what passes
+
+| Request | Key |
+|---|---|
+| A tool of a remote server | Dog id + server name + sha256 of the person's configured spec before wrapping (`url`, headers, nothing per chat; R6) + tool name + sha256 of the input as canonical JSON |
+| WebSearch | Dog id + tool + sha256 of the canonical input |
+
+- Nothing is normalised. The dog's id is in the key; a dog-made dog inherits nothing.
+- Stored as a hash and a preview that shows the tool and the server's host only, never input values (R11).
+- The server's own code and data are not pinned: a remote server answers what it answers. The same input to the same address is the thing the person approved.
+
+## Cards that offer Always, against the cards Jacob sees today
+
+| Card | Offers Always under revision 3 | Seen by Jacob on My Cloud in Ask or Auto | in Full |
+|---|---|---|---|
+| Item 45's five kinds (push past checks, cloud key, outside delete, send, pay) | No | Yes | Yes |
+| A shell command | No | No (owner-auto answers it; `server/laterdog/auto-review.ts:11`, `owner-auto.ts:28`) | No (no request) |
+| A file write or edit | No | No (owner-auto) | No |
+| A screen, browser or Mac action (`local-computer`, `computer`, `browser`, `shared_computer`) | No | Mac cards: yes, through the Mac's own access setting | Mac cards: yes |
+| A tool of a server started on the machine | No | No (owner-auto) | No |
+| A tool of a remote server | **Yes** | No (owner-auto) | No |
+| WebSearch | **Yes** | No (auto answers it; `autoVerdict` web-search) | No |
+| WebFetch | No | No (owner-auto) | No |
+| Starting a teammate's turn | No | No (`peerReviewRequired` is false for the owner's own work, `server/index.ts:3886`) | No |
+| A question from a dog | Not an approval | Yes | Yes |
+
+Where an Always card does appear: with Auto-review on (the reviewer holds a remote tool or a search), in Custom mode, and on a shared workspace or a guest's turn (R9, R10).
 
 ## For Jacob to decide (each with a recommendation)
 
-**J4 (new, first). Shell commands offer no Always.** This breaks "Allow once always comes with Always" for one kind of card: a shell command.
-- Where you would notice it: your own dogs in Ask or Auto run in owner-auto (`ownerTurnMode`, `server/laterdog/auto-review.ts:11`), which answers shell commands without a card already; they see no shell cards except item 45's five kinds, which never offer Always anyway. You would notice it with Auto-review on (the reviewer's held commands), in Custom mode, and on a shared workspace or a guest's turn.
-- Recommended: accept it. Every pin the home can record has an input outside it: a package's folder of installed code, a global git or package config, the shell's start file, the environment, a remote server. Four rounds of the abandoned attempt and review 1 found the leaks exactly there.
-- The other choice, for later and only with its own attack review: a **pinned Always** (below, "Ruled out for now: the pinned command"). It asks again after any change to what it pins, and it still cannot see installed packages or global configs.
+**J0.** Above.
 
-**J1. Item 45's five kinds never offer Always.** Unchanged, and now true in code only once the build checks `alwaysAsks` before both old keys (finding 7).
-- Recommended: never offer Always on the five. The cost: each lane's push from its home clone with the checks switched off shows a card every time. Remove the cause: lanes push from their cloud computer, where the checks run.
-- The other choice: an exact Always for the skip-checks push only. With J4, that would be the only shell command with an Always, which this design advises against.
+**J4. Anything that acts where the home cannot see the state gets no Always.** This is revision 2's "no shell Always", widened as review 2 asked: shell, file edits, screen, browser, Mac, servers that run on a machine, web fetches. Recommended: accept. The other choice (a pinned Always for shell commands) stays written down below, ruled out for now.
 
-**J2. Grants you already gave (changed by review 1).** Main stores three:
-- "delete outside its folders, in every chat" (`DELETE_OUTSIDE_WORKSPACE_ALLOW_KEY`);
-- "use this app without asking" (`connector:<app>`);
-- saved exact shell commands (`command-allowlist.json`, owner or admin, desktop only). Review 1's findings 1 and 4 apply to them as they work today: the folder stored is the engine's start folder, and nothing pins what the arguments point at.
+**J1. Item 45's five kinds never offer Always.** Recommended: accept. True in code only once `alwaysAsks` runs before the old keys. The cost: each lane's push from its home clone with the checks off shows a card every time; lanes can push from their cloud computer, where the checks run.
 
-Recommended (Relay's view, which I share): stop answering from the outside-delete key and from saved shell commands, and answer from `connector:<app>` only for calls `alwaysAsks` does not match. Since every send, post or payment is matched, the app key then covers only an app's other calls. All three stay in the Always allowed list, marked "No longer used", with Remove. The other choice: keep honouring them, knowing two of them answer item 45's kinds today and a dog's shell can write the file that holds them (finding 6).
+**J2. Grants you already gave.** Main stores five kinds of lasting grant that answer without a card:
+- delete outside its folders, everywhere (`DELETE_OUTSIDE_WORKSPACE_ALLOW_KEY`);
+- use this app without asking (`connector:<app>`);
+- saved exact shell commands (`command-allowlist.json`);
+- the Mac's Always, which sets that Mac to "always" for every dog and then allows `run_command`, `write_file`, `delete_file` and screen actions with no card (`server/mac-approval.ts:203-210`, `:228`; R5);
+- the teammate keys (`ask_bot`, `delegate_bot` on a chat's `alwaysAllow`).
 
-**J3. One Always covers that dog's other chats (changed by review 1).** With J4, no remaining grant depends on a folder, so "literal folder or any chat" no longer arises for commands.
-- Recommended: an Always for a tool call, a teammate message or an exact file change holds in every chat of that dog. Each of those keys already names everything that differs (the tool and its input, the teammate, the real file and its content before).
-- The other choice: per chat. It costs a card per new chat for the same thing.
+Recommended: stop answering from the outside-delete key, saved shell commands and the teammate keys; answer from `connector:<app>` only for calls `alwaysAsks` does not match; and make the Mac's Always no longer cover commands, writes, deletes or screen actions (it keeps covering reads). All of them stay in the Always allowed list, marked "No longer used" where they stopped, with Remove. The other choice: keep honouring them, knowing they answer things the tests above refuse.
 
-## What happens today (read from main 0651657)
-
-| Card | Its lasting choice | Where it is stored | Lost when |
-|---|---|---|---|
-| Engine tool (shell, edit, web, MCP) | "Allow for this chat" | Inside the engine's session: later.dog passes the engine's suggested rules as `updatedPermissions` (`server/permission-proxy.ts:169`), often a whole program prefix | The home restarts, the session is rebuilt, or another chat |
-| Shell command, owner or admin, desktop only | "Always allow" with exact text, folder and engine | `command-allowlist.json` | The dog is deleted |
-| Another dog's request (`ask_bot`, `delegate_bot`) | "Always allow" with a key for the action and the teammate | The chat's `alwaysAllow` (`server/index.ts:11718`) | The approval mode changes (`:4191`) |
-| Owner-guard delete outside | "Always allow", everywhere | The dog's `alwaysAllow` | Removed by hand |
-| Connected app | "Always allow" for the app | The chat's `alwaysAllow` | The mode changes |
-| Mac control | Always / Never for every dog | The Mac access setting | — |
+**J3. An Always holds in every chat of that dog.** The remaining keys name everything that differs (the server's configured spec, the tool, the input). Recommended: yes. The other choice: per chat.
 
 ## Designs: who owns the key
 
-**A. The engine owns it (ruled out).** Its rules widen by shape (`Bash(npm run:*)`), they live in the session or in settings files inside the dog's folder, each engine differs, a restart loses them, and the phone cannot list them.
+- **A. The engine (ruled out):** its rules widen by shape, live where the dog can edit them, and differ by engine.
+- **B. A key from the request's shape (ruled out):** the abandoned `fable/always-allow`; four rounds found a family member that ran or revealed something unseen.
+- **C. The person's device (ruled out):** dogs work while devices sleep, devices disagree, a guest's device would hold the owner's grants.
+- **D. The home, keyed by exactly the thing approved, offered only when the tests pass (chosen).**
+- **E. The home with pins on everything a shell command depends on (ruled out for now):** see below.
 
-**B. The card owns it, a key from the request's shape (ruled out).** The abandoned `fable/always-allow` at 3deb51af6 (`run:git commit`, `files:edit`). Four attack rounds each found a family member that ran or revealed something unseen: hooks through a worktree, secrets pushed through wide git keys, a planted git folder with `core.fsmonitor` or `diff.external`, secret file names a matcher missed.
+## Where the check runs, and its order
 
-**C. The person's device owns it (ruled out).** Dogs work while devices sleep, two devices disagree, and a guest's device would hold the owner's grants.
-
-**D. The home owns it, keyed by exactly the thing approved, and only for things whose whole effect is in the request (chosen).**
-- The home computes the key from its own copy of the pending request, never from anything a client sends.
-- Tapping Always stores the key; a later request with the same key is answered by the home, after `alwaysAsks` and the hard refusals and before any card.
-- What qualifies is decided by where the effect comes from, not by a list of names: if anything outside the request (a folder's files, a git folder, a link, a remote, a start file, code the dog can write) decides what happens, there is no Always.
-
-**E. The home owns it, with pins on everything the thing depends on (ruled out for now; J4's other choice).** See "Ruled out for now: the pinned command".
-
-## The chosen design in detail
-
-### What can get an Always, and its key
-
-| Request | Gets Always when | Key |
-|---|---|---|
-| A tool from an MCP server the person set up in later.dog (connected apps, bot-owned servers in settings, later.dog's own tools that ask) | Always, except the cases under "No Always" | Dog id + server name + sha256 of the server's launch line as the home starts it + tool name + sha256 of the input as canonical JSON |
-| WebFetch, WebSearch | Always, except the cases under "No Always" | Dog id + tool + sha256 of the canonical input (URL or query) |
-| A file write or edit (Write, Edit, MultiEdit, NotebookEdit, Codex file changes) | The real path is inside one of the dog's own folders and is not a link | Dog id + tool + real path + sha256 of the file before (or "absent") + sha256 of the canonical input |
-| A message that starts a teammate's turn (ask or hand work, one key) | The teammate, for a teammate-started turn, asks at least as often as the asker does now | Dog id + `start-turn` + teammate id |
-
-Rules for every key:
-- Nothing is normalised: another quote, space, Unicode form or key order is another thing, and it asks.
-- The dog's id is in the key. A dog-made dog inherits nothing.
-- The home stores the key as a hash and a redacted preview, never the input text (finding 10).
-
-### No Always, and why (each with its card line)
-
-- **Item 45's five kinds** (`alwaysAsks` matches). Line: "This one always asks."
-- **Any shell command**: Bash, Codex `exec`, the cloud computer's `exec`, `run_on_computer`, the lent Mac's `run_command`. Line: "This one asks each time: a command runs whatever its folder says when it runs."
-- **A tool from a server defined in the dog's own folder** (`.mcp.json` and project servers, `projectMcpServers`, `server/drivers/claude.ts:245`): the server's code is a file the dog can change. Line: "This one asks each time: its tool comes from a file the dog can change."
-- **An input that holds a password or key** (`redactSecretsInText` changes it). Line: "This one asks each time: it holds a password or key."
-- **A file change whose real path is a link, leaves the dog's folders, or cannot be read.** Line: "This one asks each time: later.dog cannot tell which file this changes."
-- **A turn whose root was not started by the owner or an admin**, on every home (finding 9). Line: "Only the owner can choose Always."
-
-### Where the check runs, and its order
-
-When a request opens (`request.opened`), and for a teammate turn at `coordinate-bots`, the first that applies decides:
-1. 207's `alwaysAsks` shows its card. It runs before every stored grant, the old ones included (finding 7: in `connectorSendDecision` before the always-allow and this-turn lines, in `settleOwnerAutoPermission` before `ownerAllows`).
+When a request opens (`request.opened`), the first that applies decides:
+1. 207's `alwaysAsks` shows its card. It runs before every stored grant, the old ones included: in `connectorSendDecision` before the always-allow and this-turn lines, in `settleOwnerAutoPermission` before `ownerAllows`, and in the Mac approval before its "always" mode.
 2. The owner guard's hard refusals refuse.
-3. **New: the lasting-allow lookup.** The home recomputes the key from the request (for a file, it reads the file's real path and current content first) and answers allow on a match, logging source `lasting-allow` and the rule id.
+3. **New: the lasting-allow lookup**, only for requests that pass T1 to T8. On a match the home answers allow and logs source `lasting-allow` with the rule id.
 4. Everything as today.
 
-- The engine never remembers anything: every answer to an engine is allow-once, `updatedPermissions` is no longer passed on, and "Allow for this chat" is removed.
+- Every answer to an engine is allow-once: `updatedPermissions` is no longer passed on, "Allow for this chat" is removed, and an older app's `always: true` becomes allow once (R8, with a test).
 - After the emergency downgrade, lasting allows are paused, not deleted. An ordinary mode change leaves them.
-- The cloud computer's `exec` and `run_on_computer` are not part of this design (finding 13): they never ask outside item 45's kinds, and if they ever do, they are shell commands, so no Always.
 
-### What is stored and where
+## What is stored and where
 
-- A new store, `server/laterdog/lasting-allows.ts`, writes `lasting-allows.json` in the home's data folder (mode 600, atomic writes, the same checks as `command-allowlist.json`).
-- Each rule: `{ version: 2, id, botId, kind: "tool"|"web"|"file"|"teammate", keySha256, preview, where?, grantedAt, grantedBy, fromThreadId }`. `preview` is the redacted line the list shows, at most 80 characters; `where` is the short file path or the teammate's name.
-- At most 500 rules per dog. An unreadable file matches nothing, so everything asks.
-- A grant is written only by `POST /api/bots/:id/always-allow` with the pending request's id; the home takes the key from its own copy. Only the owner or an admin of the turn's root may call it. A card with no Always refuses with 409.
+- `server/laterdog/lasting-allows.ts` writes `lasting-allows.json` in the home's data folder (mode 600, atomic writes, the same checks as `command-allowlist.json`).
+- Each rule: `{ version: 3, id, botId, kind: "remote-tool"|"search", keySha256, preview, grantedAt, grantedBy, fromThreadId }`. `preview` is the tool and the server's host, or "Search".
+- At most 500 rules per dog. An unreadable file matches nothing.
+- The grant route, `POST /api/bots/:id/always-allow`, takes the pending request's id and finds the card by bot, thread and request id, unanswered and not dismissed. It checks owner or admin of the turn's root itself, not `cardAnswerRefusal` (which lets a thread's starter answer; R8). It recomputes T1 to T8 from the home's copy and refuses with 409 if any fails.
 
-### How a person lists and removes them
+## How a person lists and removes them
 
-- Dog settings, section **Always allowed**: every rule, newest first, plus the old keys and saved commands (J2), each with what, where, when and **Remove**.
-- Removing takes effect at once. Deleting the dog removes its rules. The phone shows the same list.
+Dog settings, section **Always allowed**: every rule and every old grant (J2), newest first, each with what, where, when and **Remove**; old grants that stopped show "No longer used". Removing takes effect at once; deleting the dog removes its rules. The phone shows the same list.
 
 ## Words on the cards
 
-Same strings on the desktop and the phone. No new colours: the existing primary, quiet and text-button styles.
+Same strings on the desktop and the phone; no new colours.
 
-- Desktop (`PendingApproval.tsx`), one row: **Allow once** (primary) · **Don't allow** (quiet) · **Always allow** (text button), then the existing "What this covers ›".
-- Phone (`Cards.tsx`): **Allow once** | **Don't allow**; under it, centred, **Always allow** with ⓘ for the same line. Send cards keep "Send" and "Don't send", with no Always.
-- Where Always is not offered, its place holds one quiet line (table above).
+- Desktop (`PendingApproval.tsx`): **Allow once** (primary) · **Don't allow** (quiet) · **Always allow** (text button), then "What this covers ›".
+- Phone (`Cards.tsx`): **Allow once** | **Don't allow**; under it, centred, **Always allow** with ⓘ. Send cards keep "Send" and "Don't send".
+- Where Always is not offered, its place holds one quiet line. If several tests fail, the first line in this order wins:
+
+| Order | Failed test | Line |
+|---|---|---|
+| 1 | T1 | This one always asks. |
+| 2 | T2 | Only the owner can choose Always. |
+| 3 | T7 | This one asks each time: it holds a password or key. |
+| 4 | T8 | This one asks each time: a teammate can reach things this dog cannot. |
+| 5 | T3 or T4 | This one asks each time: later.dog cannot see all of what it does. |
+| 6 | T5 or T6, screen, browser, computer or Mac | This one asks each time: it acts on what is on the screen then. |
+| 7 | T5 or T6, anything else | This one asks each time: it acts on things as they are then. |
 
 "What this covers" lines:
 
 | Kind | Line |
 |---|---|
-| Tool | Always allow lets {name} do exactly this again without asking, in any of its chats. |
-| Web | Always allow lets {name} fetch or search exactly this again without asking. |
-| File | Always allow lets {name} make exactly this change to {file} again, only while the file is as it is now. |
-| Teammate | Always allow lets {name} start work with {other} without asking you, while {other} asks you at least as often as {name} does. |
+| Remote tool | Always allow lets {name} do exactly this again with {host} without asking, in any of its chats. |
+| Search | Always allow lets {name} search for exactly this again without asking. |
 
-- Answered card: "Always allowed". Settings: title "Always allowed"; row button "Remove"; old grants "No longer used"; empty "Nothing yet. Tap Always allow on a card and it shows here."; paused "Paused" and "Resume".
-- Wire: the card gains `lasting?: { offered: true; reach: string } | { offered: false; why: "always-asks" | "command" | "folder-server" | "secret" | "file" | "owner-only" }`. The answer is `decideRequest` with `scope: "always"`; older apps that send only allow or deny keep working.
+Answered card: "Always allowed". Settings: "Always allowed", "Remove", "No longer used", "Paused", "Resume", empty "Nothing yet. Tap Always allow on a card and it shows here."
+
+Wire: `lasting?: { offered: true; reach: string } | { offered: false; why: "always-asks" | "owner-only" | "secret" | "teammate" | "incomplete" | "screen" | "state" }`.
 
 ## Ruled out for now: the pinned command (J4's other choice)
 
-If Jacob wants Always on shell commands, this is the least bad form, and it needs its own attack review:
-- **The real folder, per engine.** Claude: every shell request carries the launch folder (`server/drivers/claude.ts:1375`, `:1493`) and the shell keeps a `cd`; the home must set `CLAUDE_BASH_MAINTAIN_PROJECT_WORKING_DIR=1` and a test must prove a `cd` does not carry to the next command. Codex: each approval carries its own `cwd` (`server/drivers/codex.ts:1154`). Any other engine: no Always. A command whose text changes its folder or repository (`cd`, `pushd`, `-C`, `--git-dir`, `--work-tree`, `GIT_DIR=`, `GIT_WORK_TREE=`) gets none.
-- **Pins recorded at grant and compared before answering:** the program file as the home's fixed `PATH` finds it; sha256 of the engine's shell start files (finding 5); each argument that names a path, by real path, link-ness and content hash (finding 4); inside a git work tree, the git dir, HEAD, a clean status, the hooks folder holding only samples, the local config holding only a short allow list of keys, and the remote URLs (finding 2's allow list).
-- **What it still cannot see:** installed code in ignored folders (`node_modules`), global configs, the environment, and the network. A changed pin asks again, so `pnpm test` while the dog edits asks after every edit.
+Kept from revision 2. The real folder per engine (Claude needs `CLAUDE_BASH_MAINTAIN_PROJECT_WORKING_DIR=1` and a test that a `cd` does not carry; Codex sends its own `cwd`; others none), plus pins on the program file, the shell start files, each path argument, and inside git the git dir, HEAD, a clean status, sample-only hooks, an allow-listed local config and the remote URLs. It still cannot see installed packages, global configs, the environment or the network, and asks again after any change.
 
-## Attacked once by me, with review 1's probes
+## Attacked once by me, with review 2's hands probe
 
-| What is stored | Hostile input (review 1's case) | Revision 2 |
-|---|---|---|
-| Shell command | `cd evil && git status` with `core.fsmonitor` (1) | No Always on shell commands |
-| Shell command | `credential.helper`, `uploadpack`, `filter.*.clean`, `gpg.program`, `pre-commit`, `alias.*`, changed remote (2) | No Always on shell commands |
-| File grant + script | Always on `clean.sh`, Always on `bash ./clean.sh`, then `rm -rf` outside in the file (3) | C1 is gone; the file key pins the content before, so a second change asks; and `bash ./clean.sh` has no Always |
-| Shell command | `cat notes.txt` after a link swap; `git push` after a remote change (4) | No Always on shell commands |
-| File | Same path, swapped for a link to `~/.zshrc` | Asks: the real path at request time is a link |
-| File | Same edit, file changed since | Asks: the content hash before differs |
-| File | Hard link to a file outside | Asks: the real path leaves the dog's folders, or the link count is over one |
-| Start files | `git()` function in the shell start file (5) | Nothing lasting runs a shell command |
-| Store | The dog's shell writes `lasting-allows.json` (6) | It can (proven on a cloud home): a limit, stated below, not opened by this design |
-| Old keys | Outside-delete key, `connector:<app>` (7) | `alwaysAsks` runs first; J2 retires the delete key |
-| Teammate | Ask-key used to hand work to a Full teammate (8) | One key, compared with the teammate-started mode |
-| Guest | Shared desktop workspace member's turn (9) | Owner or admin at the root of the turn, on every home |
-| Store | `curl -u admin:…`, `PGPASSWORD=…` (10) | Shell commands get no Always; tool inputs are stored as hashes |
-| Tool | MCP server replaced, same name | Asks: the launch line's hash is in the key |
-| Tool | A server defined in the dog's folder | No Always |
-| Tool | Same input to a person-set server | Allowed: the person read this input; the server is theirs |
-| Web | Same URL fetched again | Allowed: nothing new leaves |
-| Teammate | A dog-made dog | Inherits nothing |
-| Store | A client posts its own key | Refused: the key comes from the home's copy |
+| Case (review 2) | Test that refuses it |
+|---|---|
+| `key_press {"keys":"cmd+enter"}`, `click {"x":640,"y":412}`, `type_text {"text":"y\n"}` on the local computer (R1) | T5: the `computer` server is started on the machine; also its card is `local-computer` |
+| The Mac's `computer_call`, `run_command`, `write_file`, `delete_file` | T5 (`shared_computer` runs on a Mac); J2 removes the Mac Always's cover |
+| `open_url`, `screenshot` | T5 |
+| `read_file {"path":".../notes.txt"}` after a link swap (R2) | T5: a file server started as a process |
+| `query {"sql":"select …"}` on a local database server | T5 |
+| `execute_command {"command":"pnpm test"}` on a command server | T5 |
+| A Codex MCP call `search_issues` with input A, then B (R3) | T3: Codex sends no input |
+| A Codex file change | T3, and file changes have no Always |
+| A teammate turn, B has Gmail and A does not (R4) | T8 |
+| `WebFetch` to a name that later resolves to 127.0.0.1 (R12) | T6: WebFetch is not on the list |
+| A remote server's address changed in settings | Asks: the configured spec's hash is in the key |
+| The same remote tool and input, a new chat (R6) | Allowed: the key holds no per-chat value |
+| A remote tool whose input holds a missed secret (R11) | The same secret to the same address; the list shows only the tool and host |
+| An older app answers with `always: true` (R8) | Allow once |
+| A thread's starter who is not the owner posts a grant (R8) | Refused: owner or admin of the root |
+| A new engine tool or a new engine | No Always: it fails T3, T4 or T6 by default |
 
 ## Limits, stated plainly
 
-- **A dog's shell can write the home's data** on a cloud home (finding 6: `/data/.laterdog`, `bots.json`, the new store, owned by the dog's user). So a dog that runs code can grant itself anything, today as before. Closing that needs dogs to run as a separate user from the home, which is not this item.
-- **Check, then use** (finding 12): between the home's answer and the engine's action, a process already running can change a file. Nothing in this design starts such a process.
-- **A file change granted lastingly can still change what a later command does.** That later command has no Always and shows its own card.
+- **A dog's shell can write the home's data** on a cloud home, so a dog that runs code can grant itself anything, today as before. Closing it needs dogs to run as a separate user from the home.
+- **Check, then use:** between the home's answer and the engine's action, a process already running can change things. Nothing in this design starts one.
+- **Files the engine loads with no request** (R13): Claude reads `.claude/settings.json` with its hooks and loads `.mcp.json` servers from the dog's folder (`server/drivers/claude.ts:1269`, `:1314-1318`). A file write is never lasting under revision 3, so no Always replays one; each write asks, and the card shows the file.
+- **A remote server answers what it answers:** the key pins the address and the input, not the server's data.
 
 ## What the build will touch
 
-- New: `server/laterdog/lasting-allows.ts` and tests, `shared/lasting-allows.ts`.
-- Edits: `request.opened` and the always-allow route in `server/index.ts`; `server/permission-proxy.ts` (stop passing suggestions); `server/laterdog/connector-ask.ts` and `owner-auto-request.ts` (`alwaysAsks` before the old keys, with 207's owner); `src/components/PendingApproval.tsx`; `en.json`; the dog settings list. Phone: `Cards.tsx` and the list.
-- None of the files ROUND4 reserves. `server/drivers/claude.ts` only if `allowSession` is removed there (one line, outside the compaction window).
+- New: `server/laterdog/lasting-allows.ts` (the tests T1 to T8 as one function, and the store) with tests, `shared/lasting-allows.ts`.
+- Edits: the `request.opened` path and the always-allow route in `server/index.ts`; `server/permission-proxy.ts`; `connector-ask.ts`, `owner-auto-request.ts` and `mac-approval.ts` (`alwaysAsks` before the old grants); the Claude driver adds `server` to `request.opened` (one field); `PendingApproval.tsx`; `en.json`; the dog settings list. Phone: `Cards.tsx` and the list.
+- None of the files ROUND4 reserves; the Claude driver change sits outside the compaction window.
 
 ## What only a real home or phone can prove
 
-- An Always on a tool call given in one chat holds in another chat of the same dog after a real restart.
+- A remote tool's Always holds in another chat of the same dog after a real restart.
 - The phone shows the card, stores the grant and lists it.
-- A real engine's Edit input matches what the home hashes as the change.
+- Which cards Jacob really sees in a week of use (the table above is read from code).
 
-## Answer to review 1
+## Answer to review 2
 
 | # | Finding | Answer | Where it changed |
 |---|---|---|---|
-| 1 | The key's folder is the engine's start folder | Accepted. Closed by removal: shell commands get no Always. The per-engine way the home could know the real folder is written down for J4's other choice. | J4; "No Always"; "Ruled out for now" |
-| 2 | The git check is a name list with a name trigger | Accepted. No git check is needed: no shell command lasts. Relay's allow list is kept as a prerequisite of the pinned option. | "Ruled out for now" |
-| 3 | C1 plus a script runs anything | Accepted. C1 is dropped; a file key pins the content before, and scripts have no Always. | Closed list removed; file key |
-| 4 | The key does not pin what arguments point at | Accepted. No shell Always; argument pins are part of the pinned option. | J4; "Ruled out for now" |
-| 5 | Start files can be changed by the dog | Accepted as a reason for J4; the start-file hash is in the pinned option. | Attack table; "Ruled out for now" |
-| 6 | A dog can write the home's data | Accepted as a stated limit. | "Limits" |
-| 7 | Old keys pass two of the five | Accepted: `alwaysAsks` before both old keys; J2 retires the delete key. | Order of checks; J1; J2 |
-| 8 | Asking and handing work are one path | Accepted: one `start-turn` key, compared with the teammate-started mode. | Key table; card line |
-| 9 | Guest-driven is only known on a cloud home | Accepted: owner or admin at the root of the turn, on every home. | "No Always" |
-| 10 | The secret check misses forms, and text is stored | Accepted: hashes and a redacted preview only; shell text is never stored because shell has no Always. | Store |
-| 11 | Edit's new content is not in the request | Accepted: real path + content before + input hash. | Key table |
-| 12 | Check, then use | Accepted as a stated limit. | "Limits" |
-| 13 | `exec` and `run_on_computer` never ask | Accepted: removed from the design; no Always if they ever ask. | Order of checks; "No Always" |
+| R1 | Screen tools get an Always | Accepted: T5 refuses every server started on a machine, which covers `computer`, `browser`, `shared_computer` and every `local-computer` card, without naming them | Allow rule; attack table |
+| R2 | Local-process servers read or run what is there | Accepted: T5, only remote servers by address | Allow rule |
+| R3 | Codex requests carry no input | Accepted: T3 and T4; Codex dogs get no Always until the driver sends whole inputs and the server | Allow rule; consequences |
+| R4 | The teammate key compares modes, not reach | Accepted, simplest fix: no lasting Always for starting a teammate's turn (T8). Jacob loses nothing he sees on his own dogs (`peerReviewRequired` is off for the owner's own work); old teammate keys move to J2 | T8; J2 |
+| R5 | The Mac's Always is an old wide grant | Accepted: in J2, recommended to stop covering commands, writes, deletes and screen actions; `alwaysAsks` before it | J2; order |
+| R6 | The launch line holds per-chat values | Accepted: the key hashes the person's configured spec before wrapping; remote servers are keyed by it | Key table |
+| R7 | The root of a turn is undefined off a cloud home | Accepted: the person whose message started the chain, or a routine's writer; nothing else counts as the owner | T2 |
+| R8 | The grant route | Accepted: its own owner-or-admin check on the root, match by bot, thread and request id, and `always: true` becomes allow once, with a test | Store; order |
+| R9 | The J4 claim | Confirmed, and used for the size table | Size table |
+| R10 | Where Jacob gets more cards | Accepted and listed under the size table | Size table |
+| R11 | A missed secret can show in the list | Accepted: the preview shows the tool and host only | Key; store |
+| R12 | A fetch's destination is decided when it runs | Accepted: the engine does the fetch, so the home cannot check it at each use; WebFetch gets no Always | T6 |
+| R13 | One link; the limit about loaded files | Accepted: file changes get no Always at all, which closes both; the limit is reworded | Allow rule; limits |
 
-Review 1's "Design rows that the code contradicts": revision 1's rows 192, 197, 210, 217 and 129 are gone with the shell grants; 210 is now the stated limit, and 217 holds once finding 7's order is built.
+## Answer to review 1
+
+Revision 2's answers stand: findings 1 to 5 are closed by giving shell commands no Always (J4); 6 and 12 are stated limits; 7 is the order fix, now also before the Mac's Always; 8 is replaced by T8; 9 is T2 with R7's root; 10 and 11 are closed (hashes; no file Always); 13 is closed (no Always for `exec` or `run_on_computer`, both fail T5).
