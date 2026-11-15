@@ -4,7 +4,7 @@ import { expect, it, vi } from "vitest";
 import { RoomHandoffs, type RoomHandoff, type RoomHandoffHooks } from "../room-handoffs.ts";
 import type { HandoffRunResult } from "./long-work.ts";
 import { removeTempDir } from "../testing/cleanup.ts";
-import { NO_LAST_WORDS, SETTLED_BY_HOME, TURNLESS_MS } from "./turnless-requests.ts";
+import { NO_LAST_WORDS, SETTLED_BY_HOME, TAKEN_OVER, TURNLESS_MS, lastWords, takenOver, takenOverText } from "./turnless-requests.ts";
 
 const lead = { botId: "lead", threadId: "lead-chat" };
 const helper = (name: string) => ({ botId: name, threadId: `${name}-chat` });
@@ -135,3 +135,14 @@ it("leaves group requests to their own room turn", () => home(async h => {
   expect(node.status).toBe("running");
 }));
 
+it("hands back every older request turn in a chat that a new turn takes over, and keeps the one it carries on", () => {
+  const first = () => {};
+  const carried = () => {};
+  const elsewhere = () => {};
+  const turns = new Map([["g1", { threadId: "pip-chat" }], ["g2", { threadId: "pip-chat" }], ["g3", { threadId: "quill-chat" }]]);
+  const settlers = new Map([["g1", first], ["g2", carried], ["g3", elsewhere]]);
+  expect(takenOver(turns, settlers, "pip-chat", carried)).toEqual(["g1"]);
+  expect(takenOver(turns, settlers, "pip-chat", undefined)).toEqual(["g1", "g2"]);
+  expect(takenOver(turns, settlers, "rye-chat", undefined)).toEqual([]);
+  expect(takenOverText(lastWords([{ role: "bot", kind: "text", text: "Half way" }, { role: "user", kind: "text", text: "go on" }]))).toBe(`${TAKEN_OVER}\nHalf way`);
+});

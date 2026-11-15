@@ -783,7 +783,7 @@ import { countsAsTurn } from "./laterdog/usage-turn.ts";
 import { memoryWriterModel } from "./laterdog/upkeep-model.ts";
 import { reportingUsage, summaryUsageRow } from "./laterdog/summary-usage.ts";
 import { rowForApps } from "./laterdog/compaction-row.ts";
-import { lastWords } from "./laterdog/turnless-requests.ts";
+import { lastWords, takenOver, takenOverText } from "./laterdog/turnless-requests.ts";
 import { assignedTask, openHandoffsFromRoom, ownLastAsk, personOwes, recordsText, withRecords } from "./laterdog/rebuild-records.ts";
 import { fileEngineSummaries } from "./laterdog/engine-summaries.ts";
 import { createEngineSummaryWindows } from "./laterdog/engine-summary-window.ts";
@@ -4601,7 +4601,8 @@ const roomHandoffs = new RoomHandoffs(join(DATA_DIR, "room-handoffs.json"), {
   },
   busy: n => {
     if (n.groupId) return Boolean(store.bot(n.botId)?.busy || (store.group(n.groupId) && groupIsWorking(store.group(n.groupId)!)));
-    const slot = threadBusy(n.botId, n.threadId) || botAtThreadCapacity(n.botId) || Boolean(activeGroupTurnForBot(n.botId));
+    const slot = threadBusy(n.botId, n.threadId) || botAtThreadCapacity(n.botId) || Boolean(activeGroupTurnForBot(n.botId)) ||
+      batteryContinuationPending(n.threadId) || limitHold.holds(n.threadId);
     return n.status === "resume" ? slot : slot || recipientAwaitingPerson(n.botId, n.threadId);
   },
   changed: (groupIds, directThreadIds) => {
@@ -8613,6 +8614,9 @@ async function startTurn(
   const foreignTurn = Boolean(CLOUD_HOME) && cloudHomeLendingRefusal(cloudLendingTurn({ botId, threadId, generation: dispatchClaimId })) !== null;
   const pendingSource = requestMessageId ?? store.activePath(threadId).findLast(message => message.role === "user")?.id;
   if (pendingSource) store.patchMessage(threadId, pendingSource, { requestPending: true });
+  for (const old of takenOver(directFollowupSettlers, directCoordinationSettlers, threadId, opts?.coordination?.settle)) {
+    settleDirectCoordination(old, { ok: false, text: takenOverText(lastWords(store.messagesFor(threadId))) });
+  }
   if (opts?.coordination) directCoordinationSettlers.set(dispatchClaimId, opts.coordination.settle);
   directFollowupSettlers.set(dispatchClaimId, { threadId, sourceGenerations: opts?.continuationSourceGenerations, settle: opts?.onTurnSettled });
   directTurnDispatchClaims.set(threadId, { id: dispatchClaimId, botId, threadId, phase: "setup" });
