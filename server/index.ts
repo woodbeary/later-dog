@@ -8706,7 +8706,7 @@ async function startTurn(
       const selection = selectReplay(context, { budgetBytes: cfg.context?.rebuildBytes ?? DEFAULT_REBUILD_BYTES, excludedIds: skipTranscript, compaction: record });
       const records = recordsText({ assigned: assignedTask(roomHandoffs.nodes, threadId, (id) => store.bot(id)?.name),
         plan: dogPlans.get(threadId)?.items, waiting: personOwes(activeMessages),
-        handoffs: openHandoffsFromRoom(roomHandoffs.outstandingDirect(threadId), (id) => store.bot(id)?.name) });
+        handoffs: openHandoffsFromRoom(roomHandoffs.handedOut(threadId), (id) => store.bot(id)?.name) });
       const transcript = withRecords(withDroppedSummary({ context, transcript: selection.transcript, representedIds: selection.representedIds,
         excludedIds: skipTranscript, recordId: record?.id, engine: engineSummaries.read(threadId) }), records, ownLastAsk(activeMessages, cfg.profile?.name)).map(({ role, text }) => ({ role, text }));
       const contextReset = selection.compacted > 0 && record?.id !== task.appliedCompactionId;

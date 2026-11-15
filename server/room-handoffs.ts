@@ -401,6 +401,14 @@ export class RoomHandoffs {
       return Boolean(parent && !parent.groupId && parent.threadId === threadId);
     });
   }
+  handedOut(threadId: string): RoomHandoff[] {
+    return [...this.nodes.values()].filter(node => {
+      if (!node.parentId || !awaitsReply(node)) return false;
+      const parent = this.nodes.get(node.parentId);
+      if (!parent || parent.groupId || parent.threadId !== threadId) return false;
+      return !terminal(node) || (!terminal(parent) && node.givenAt === undefined);
+    });
+  }
   stopAwaitingDirect(threadId: string, by: HandoffEnd = "person", only: (node: RoomHandoff) => boolean = () => true): RoomHandoff[] {
     const left: RoomHandoff[] = [];
     for (const node of this.nodes.values()) {
