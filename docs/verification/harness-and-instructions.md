@@ -188,6 +188,58 @@ From the home's own usage ledger and the traces of seven dogs that day.
   conversation instead of summarising it, and the dog lost what it had been
   doing. The fix is in progress.
 
+## Proving rare tools on demand for a model
+
+Run this on an isolated machine with a signed-in Claude Code and a test
+account, never on a person's home. It needs only this repository (with its
+packages installed) and the `claude` command. It does not start a later.dog
+home: it launches Claude Code the way the home does (the later.dog tool list
+from `availableTools`, marked by `agentsServerLaunch` and `withToolLoading`,
+`--strict-mcp-config`, `--setting-sources project`, the dog's standing
+instructions from `dogGuidance` through `--append-system-prompt-file`), with a
+stand-in tool server, `server/testing/proof-agents-server.ts`, that records
+each call and does nothing: no text, routine or change is ever made.
+
+```sh
+node --experimental-strip-types scripts/prove-rare-tools.ts \
+  --models claude-opus-5-5,claude-sonnet-5-5,claude-haiku-5-5 \
+  --out "$HOME/rare-proof-$(date +%Y%m%d-%H%M%S)"
+```
+
+Optional: `--cli <path to claude>`, `--repeat <n>` to run each case n times.
+For a custom endpoint, run it again with that endpoint's `ANTHROPIC_BASE_URL`
+and key in the environment and its model names in `--models`; the summary
+says "Custom endpoint in this environment: yes".
+
+For each model it runs three one-turn tasks in a fresh empty folder, first with
+every tool up front (`off`), then with rare tools on demand (`on`):
+
+- `first-request`: "hi". The first request's input tokens (input plus cache
+  write plus cache read, from the engine's first assistant message) measure
+  what a fresh dog carries; on 12 November a whole home measured 41,165 off
+  and 30,768 on.
+- `text`: "Text Sam at 555-0100 that I'm running ten minutes late." needs
+  `send_text`, a rare tool with required fields.
+- `routine`: "Every Monday at 9am, remind me to water the plants." needs
+  `propose_routine`, another rare tool with required fields.
+
+It prints a table and writes `summary.md`, `results.json` and each raw turn
+(`<model>-<setting>-<task>.jsonl`) to the `--out` folder. A rare tool counts as
+found only when the stand-in server received a call to it with every required
+field filled.
+
+A model may join `DEFER_PROVEN_FAMILIES` in `server/laterdog/defer-by-model.ts`
+when, with `--repeat 3`, every `on` row of `text` and `routine` says
+`found` and its `off` row did too (so the task itself is fair), and every
+`on` `first-request` row is lower than the `off` row. A `NOT FOUND` on `on`
+with `found` on `off` is the failure this check exists for: the model did not
+search for a tool it could not see. Paste `summary.md` into the pull request
+that changes the table.
+
+What this does not measure: the whole prompt of a real home (memory, recent
+work, connected apps), so its token numbers are lower than a home's; and
+tasks longer than one turn.
+
 ## Rules that must not hide in a rare tool
 
 A rare tool's description reaches a dog only after it searches for that tool,
