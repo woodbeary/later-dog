@@ -87,6 +87,10 @@ describe("the owner guard refuses a forced move of the default branch through th
     expect((await bash(command))?.rule).toBe("force-push-default-branch");
   });
 
+  it("refuses a forced GraphQL move it cannot place", async () => {
+    expect((await bash("gh api graphql -f query='mutation { updateRef(input:{refId:\"R\", oid:\"0\", force:true}) { clientMutationId } }'"))?.rule).toBe("force-push-default-branch");
+  });
+
   it("lets a forced move of another branch reach the person instead", async () => {
     expect(await bash("gh api -X PATCH repos/o/r/git/refs/heads/feature -f sha=0 -F force=true")).toBeNull();
   });

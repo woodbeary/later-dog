@@ -28,6 +28,7 @@ const WHAT: Record<AlwaysAskId, string> = {
 };
 
 const UNREADABLE = "This runs text later.dog cannot read, so it cannot tell whether it pushes code without running its checks.";
+const THROUGH_API = "This creates or moves a branch through the API, so the code on it runs none of its checks.";
 
 function found(id: AlwaysAskId, detail?: string): AlwaysAsk {
   return {
@@ -94,7 +95,7 @@ const SKIP_VARIABLE = /LATERDOG_SKIP_HOOKS=[^\s;&|)]|(?:export|declare|typeset|r
 const GIT_VALUE_OPTIONS = new Set(["-C", "--git-dir", "--work-tree", "--namespace", "--super-prefix", "--exec-path"]);
 const DEPTH_LIMIT = 4;
 
-type Skip = "plain" | "unreadable" | null;
+type Skip = "plain" | "api" | "unreadable" | null;
 
 const unreadable = (word: ShellWord | undefined) => word !== undefined && ((word.vars && !READABLE_SUBSTITUTION.test(word.text)) || word.glob);
 
@@ -183,11 +184,14 @@ const CODE_APIS: readonly RegExp[] = [
 const GITLAB_WRITES = /^\/?projects\/[^/\s]+\/repository\/(?:branches|commits|files\/|tags)/;
 const CONTENTS_PATH = /^\/?(?:api\/v3\/)?repos\/[^/\s]+\/[^/\s]+\/contents\//;
 
+const GRAPHQL_MOVES = /\bmutation\b[\s\S]*\b(?:createRef|updateRef|updateRefs|createCommitOnBranch|mergeBranch)\b/;
+
 function movesCodeByApi(step: ShellStep): boolean {
   if (step.name === "gh" || step.name === "glab") {
     const call = apiCall(step.args);
     if (!call || call.method === "GET") return false;
     if (step.name === "glab") return call.endpoints.some((endpoint) => GITLAB_WRITES.test(endpoint));
+    if (call.endpoints.includes("graphql")) return GRAPHQL_MOVES.test(call.fields.query ?? "");
     return apiRefMove(call) !== null || (["PUT", "DELETE"].includes(call.method) && call.endpoints.some((endpoint) => CONTENTS_PATH.test(endpoint)));
   }
   return HTTP_CLIENTS.has(step.name) && mutates(step) && step.args.some((arg) => CODE_APIS.some((pattern) => pattern.test(pageText(arg.text))));
@@ -195,7 +199,8 @@ function movesCodeByApi(step: ShellStep): boolean {
 
 function stepSkips(step: ShellStep, depth: number, decodes: boolean): Skip {
   if (step.name !== "unset" && step.words.some((word) => SKIP_VARIABLE.test(word.text) || /^LATERDOG_SKIP_HOOKS$/.test(word.text) && step.name !== "echo")) return "plain";
-  if (touchesHooks(step) || movesCodeByApi(step)) return "plain";
+  if (touchesHooks(step)) return "plain";
+  if (movesCodeByApi(step)) return "api";
   if (step.name === "git") return gitSkips(step, depth);
   if (step.name === "git-send-pack") return "plain";
   if (step.name === "git-push") return pushSkips(step.args, step.input !== undefined);
@@ -374,7 +379,7 @@ const RULES: Record<AlwaysAskId, Rule> = {
   "push-skips-checks": ({ shell, writes }) => {
     if (writes.some((path) => HOOK_PATH.test(path))) return true;
     const skip = shell === undefined ? null : shellSkips(shell);
-    return skip === "unreadable" ? UNREADABLE : skip === "plain";
+    return skip === "unreadable" ? UNREADABLE : skip === "api" ? THROUGH_API : skip === "plain";
   },
   "cloud-credential": ({ shell, page }) => (shell !== undefined && makesCredential(shell)) || (page !== undefined && opensCredentialPage(page)),
   "delete-outside-workspace": ({ shell, place, deletes }, guard) => {

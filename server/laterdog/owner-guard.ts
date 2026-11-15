@@ -599,6 +599,12 @@ function ghRefusal(args: Word[]): OwnerGuardRefusal | null {
   if (args[0]?.text === "repo" && args[1]?.text === "delete") return deleteRepository();
   const call = apiCall(args);
   if (!call) return null;
+  if (call.endpoints.includes("graphql") && /\bupdateRefs?\b[\s\S]*\bforce\s*:\s*true\b/.test(call.fields.query ?? "")) {
+    return {
+      rule: "force-push-default-branch",
+      message: "later.dog refused this: it force-moves a branch through the API, and later.dog could not tell which branch that is. Push a new branch and open a pull request instead.",
+    };
+  }
   const moved = apiRefMove(call);
   if (moved?.force && (moved.ref === "main" || moved.ref === "master")) {
     return {

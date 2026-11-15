@@ -624,3 +624,25 @@ describe("ordinary substitutions that resolve to the dog's own places", () => {
     expect(alwaysAsks({ tool: "Bash", command }, guard)).not.toBeNull();
   });
 });
+
+describe("branch moves through GraphQL", () => {
+  const graphql = (query: string) => `gh api graphql -f query='${query}'`;
+  it.each([
+    graphql("mutation { updateRef(input:{refId:\"R\", oid:\"0123abc\", force:true}) { clientMutationId } }"),
+    graphql("mutation { createCommitOnBranch(input:{branch:{repositoryNameWithOwner:\"o/r\", branchName:\"main\"}, message:{headline:\"x\"}, expectedHeadOid:\"0123abc\", fileChanges:{additions:[{path:\"a\", contents:\"eA==\"}]}}) { commit { oid } } }"),
+    graphql("mutation { createRef(input:{repositoryId:\"R\", name:\"refs/heads/x\", oid:\"0\"}) { ref { name } } }"),
+    graphql("mutation { mergeBranch(input:{repositoryId:\"R\", base:\"main\", head:\"x\"}) { mergeCommit { oid } } }"),
+  ])("%s asks", (command) => {
+    const hit = alwaysAsks({ tool: "Bash", command }, guard);
+    expect(hit?.id).toBe("push-skips-checks");
+    expect(hit?.ask).toMatch(/^This creates or moves a branch through the API, so the code on it runs none of its checks\./);
+  });
+
+  it("lets a query through", () => {
+    expect(alwaysAsks({ tool: "Bash", command: graphql("query { viewer { login } }") }, guard)).toBeNull();
+  });
+
+  it("says a branch made through the REST API is a branch, not a push", () => {
+    expect(alwaysAsks({ tool: "Bash", command: "gh api repos/o/r/git/refs -f ref=refs/heads/x -f sha=0123abc" }, guard)?.ask).toMatch(/^This creates or moves a branch through the API/);
+  });
+});
