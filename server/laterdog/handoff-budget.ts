@@ -2,7 +2,7 @@ export const HANDOFF_IDLE_MS = 20 * 60_000;
 export const HANDOFF_HARD_CAP_MS = 4 * 60 * 60_000;
 export const HANDOFF_CEILING_MS = 12 * 60 * 60_000;
 
-export const HANDOFF_ENDS = ["person", "api", "interrupted", "deleted", "idle", "capped", "origin", "limit", "restart", "problem", "timeout", "ceiling"] as const;
+export const HANDOFF_ENDS = ["person", "api", "interrupted", "deleted", "idle", "capped", "origin", "limit", "restart", "problem", "timeout", "ceiling", "home"] as const;
 export type HandoffEnd = (typeof HANDOFF_ENDS)[number];
 
 export const TIME_ENDS: readonly HandoffEnd[] = ["idle", "capped"];
@@ -60,6 +60,7 @@ export function endWords(end: HandoffEnd, limits: EndLimits, unstarted = false):
     case "restart": return "later.dog restarted while this was running, so it was not picked up again.";
     case "problem": return "Something changed, so this could not go on.";
     case "timeout": return "Its turn timed out twice, so later.dog stopped it.";
+    case "home": return "Its dog had stopped working on it, so later.dog settled it with what the dog last said.";
     case "ceiling": return `Stopped after ${plainDuration(limits.ceilingMs ?? HANDOFF_CEILING_MS)}, the longest one team task runs on its own. Ask again to carry on.`;
   }
 }

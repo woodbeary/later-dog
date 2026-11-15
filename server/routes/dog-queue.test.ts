@@ -22,7 +22,7 @@ afterEach(async () => {
   await Promise.all(servers.splice(0).map((server) => new Promise((done) => { server.closeAllConnections(); server.close(done); })));
 });
 
-async function serve(sender: BotRecord, options: { owner?: boolean } = {}) {
+async function serve(sender: BotRecord, options: { owner?: boolean; busy?: string[] } = {}) {
   const nodes = [request("r-run", "clover", "running", "Fix the fallback"), request("r-q1", "clover", "queued", "Ship the phone update"),
     request("r-q2", "task", "queued", "Check the storage")];
   const calls: string[] = [];
@@ -35,7 +35,7 @@ async function serve(sender: BotRecord, options: { owner?: boolean } = {}) {
     senderOf: (n) => (n as RoomHandoff & { from: string }).from,
     node: (id) => nodes.find((n) => n.id === id),
     personQueue: () => [],
-    busyThreads: () => ["patch-chat"],
+    busyThreads: () => options.busy ?? ["patch-chat"],
     cancel: (id, reason) => {
       calls.push(`cancel ${id}: ${reason}`);
       const n = nodes.find((each) => each.id === id)!;
@@ -87,6 +87,18 @@ describe("stopping a dog for the owner", () => {
     expect((await call({ dog: "Patch", action: "stop" })).body.outcome).toBe("safe");
     expect((await call({ dog: "Patch", action: "stop", force: true })).body.outcome).toBe("stopped");
     expect(calls).toEqual(["stop patch patch-chat by clover", "stop patch patch-chat by clover now"]);
+  });
+
+  it("still reaches a request left running when its dog has no turn, so stopping can end it", async () => {
+    const { call, calls } = await serve(CLOVER, { busy: [] });
+    await call({ dog: "Patch", action: "stop" });
+    expect(calls).toEqual(["stop patch patch-chat by clover"]);
+  });
+
+  it("cancels a request left running without saying it had not started", async () => {
+    const { call, calls } = await serve(CLOVER, { busy: [] });
+    await call({ action: "cancel", requestId: "r-run" });
+    expect(calls).toEqual(["cancel r-run: Clover cancelled this request for the owner after its dog had stopped working on it."]);
   });
 
   it("lets another of the owner's dogs stop only work it sent", async () => {

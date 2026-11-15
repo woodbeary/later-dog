@@ -783,6 +783,7 @@ import { countsAsTurn } from "./laterdog/usage-turn.ts";
 import { memoryWriterModel } from "./laterdog/upkeep-model.ts";
 import { reportingUsage, summaryUsageRow } from "./laterdog/summary-usage.ts";
 import { rowForApps } from "./laterdog/compaction-row.ts";
+import { lastWords } from "./laterdog/turnless-requests.ts";
 import { assignedTask, openHandoffsFromRoom, ownLastAsk, personOwes, recordsText, withRecords } from "./laterdog/rebuild-records.ts";
 import { fileEngineSummaries } from "./laterdog/engine-summaries.ts";
 import { createEngineSummaryWindows } from "./laterdog/engine-summary-window.ts";
@@ -4617,6 +4618,9 @@ const roomHandoffs = new RoomHandoffs(join(DATA_DIR, "room-handoffs.json"), {
     if (directThreadIds.size > 0) drainQueuedSends();
   },
   activity: node => node.groupId ? undefined : handoffActivity(watchdog.snapshot(node.threadId)),
+  turnRunning: node => threadBusy(node.botId, node.threadId) || directTurnDispatchClaims.has(node.threadId) || pendingComputerResumes.has(node.threadId) ||
+    batteryContinuationPending(node.threadId) || limitHold.holds(node.threadId),
+  lastWords: node => lastWords(store.messagesFor(node.threadId)),
   closed: (root, end) => {
     const present = root.groupId
       ? Boolean(store.group(root.groupId) && store.groupTaskByThread(root.groupId, root.threadId))
@@ -13528,7 +13532,10 @@ function assignDogAccount(dog: BotRecord, account: BatteryAccount, by: { sender:
 async function stopForOwner(input: { dog: BotRecord; threadId: string; by: BotRecord; force: boolean; why?: string }): Promise<"safe" | "stopped" | "idle"> {
   const { dog, threadId, by } = input;
   const current = store.projectBotForTask(dog.id, threadId);
-  if (!current || !threadBusy(dog.id, threadId)) return "idle";
+  if (!current || !threadBusy(dog.id, threadId)) {
+    roomHandoffs.endTurnless(dog.id, threadId, `${by.name} stopped this for the owner after its dog had stopped working on it.`, "person");
+    return "idle";
+  }
   store.appendMessage(threadId, { role: "bot", kind: "activity", from: { botId: by.id, name: by.name, color: by.color },
     tool: { name: stoppedByLine(by.name, cfg.profile?.name?.trim() || undefined, input.why), ok: true } });
   const generation = directTurnGenerationByThread.get(threadId);
