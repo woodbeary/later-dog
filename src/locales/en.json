@@ -216,6 +216,7 @@
   "question.otherMissing": "Pick an answer for {name} first, then send yours.",
   "composer.placeholder.answer": "Type your answer",
   "composer.answerClosed": "This question was answered. Your words are still here.",
+  "composer.answerNoFiles": "An answer can't carry attachments. Remove them to send your answer.",
   "question.submit": "Submit answer",
   "question.submitAll": "Submit answers",
   "question.status.answered": "Answered",

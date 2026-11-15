@@ -21,10 +21,10 @@ vi.mock("@/lib/analytics", () => ({ track: vi.fn() }));
 const { Composer } = await import("./Composer");
 const { QuestionCard } = await import("./QuestionCard");
 const { OptionCard } = await import("./OptionCard");
-const { appendComposerDraft } = await import("@/lib/drafts");
+const { appendComposerDraft, restoreComposerDraft } = await import("@/lib/drafts");
 const { setLocale } = await import("@/lib/i18n");
 const { formatQuestionAnswers } = await import("../../shared/ask-question");
-const { releaseTypedAnswer, typedAnswerFor } = await import("@/lib/typed-answer");
+const { typedAnswerFor } = await import("@/lib/typed-answer");
 
 const QUESTIONS = [
   { question: "Which colour?", header: "Colour", options: [{ label: "Red" }, { label: "Blue" }] },
@@ -193,17 +193,18 @@ describe("answering a card in your own words", () => {
     expect(host.querySelector("[data-typed-answer-closed]")).toBeNull();
   });
 
-  it("when a file goes with the words, sends an ordinary message and leaves the card open with Other let go", async () => {
+  it("when a file goes with the typed answer, sends nothing, keeps the words, the file and Other, and says an answer can't carry it", async () => {
     const threadId = `thread-${++n}`;
-    appendComposerDraft(`bot:biscuit:${threadId}`, "see the picture");
+    restoreComposerDraft(`bot:biscuit:${threadId}`, { text: "see the picture", attachments: [{ kind: "file", id: "f1", path: "/work/notes.txt", name: "notes.txt", size: 4 }] });
     await act(async () => root.render(createElement(Fragment, null, question(threadId), createElement("div", { "data-tour": "composer" }, createElement(Composer, { bot: dog(threadId) })))));
     await click("Red");
     await click("Other");
+    await enter();
+    expect(actions()).toEqual([]);
+    expect(host.querySelector("textarea")!.value).toBe("see the picture");
+    expect(host.textContent).toContain("notes.txt");
+    expect(host.querySelector("[data-typed-answer-files]")?.textContent).toBe("An answer can't carry attachments. Remove them to send your answer.");
+    expect([...host.querySelectorAll<HTMLElement>("[role=radio]")].find((radio) => radio.textContent?.endsWith("Other"))!.getAttribute("aria-checked")).toBe("true");
     expect(typedAnswerFor(threadId)).not.toBeNull();
-    releaseTypedAnswer();
-    await act(async () => {});
-    expect([...host.querySelectorAll<HTMLElement>("[role=radio]")].find((radio) => radio.textContent?.endsWith("Other"))!.getAttribute("aria-checked")).toBe("false");
-    expect(host.querySelector('[role="group"]')).not.toBeNull();
-    expect(host.querySelector("textarea")!.placeholder).not.toBe("Type your answer");
   });
 });

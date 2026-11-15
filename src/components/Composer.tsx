@@ -8,7 +8,7 @@ import { visibleMessages, currentTaskBot, type Bot, type Group, type Message } f
 import { useDrawnDogs, useStoreDispatch, useStoreSelector } from "@/state/store-selectors";
 import { chatPane } from "@/state/pane-errors";
 import { waitingOnPerson } from "@/lib/waiting-on-person";
-import { answerByTyping, forgetClosedAnswer, releaseTypedAnswer, useClosedAnswer, useTypedAnswer } from "@/lib/typed-answer";
+import { answerByTyping, forgetClosedAnswer, useClosedAnswer, useTypedAnswer } from "@/lib/typed-answer";
 import { cn } from "@/lib/cn";
 import { useMenuMotion } from "./MenuMotion";
 import { activeLocale, t } from "@/lib/i18n";
@@ -565,6 +565,7 @@ export function Composer({
     refocusInput();
   };
   const hasContent = Boolean(text.trim()) || attachments.length > 0;
+  const answerWithFiles = Boolean(typedAnswer) && attachments.length > 0;
   const stopShown = working && !hasContent && !recording && sharpening === 0;
   const expanded = textWrapped || attachments.length > 0 || Boolean(attachmentNotice) || Boolean(replyTo);
   const retryFailedSend = (failed: FailedComposerSend) => {
@@ -596,7 +597,7 @@ export function Composer({
     }
   };
   const send = (signedInNow = false, deliver?: SendDelivery) => {
-    if (locked || attachmentPending) return;
+    if (locked || attachmentPending || answerWithFiles) return;
     if (
       attachments.some((attachment) => attachment.kind === "image") &&
       !imageTargetsSupport(text)
@@ -604,8 +605,7 @@ export function Composer({
       dispatch({ type: "reportError", error: null, pane: errorPane, line: t("composer.error.noImages") });
       return;
     }
-    if (typedAnswer && attachments.length) releaseTypedAnswer();
-    else if (typedAnswer) {
+    if (typedAnswer) {
       const typed = text;
       const result = answerByTyping(threadId, typed, (answer) => dispatch({ type: "decideRequest", behavior: "answer", ...answer }), () => setText(typed));
       if (result === "sent" || result === "kept") setText("");
@@ -990,6 +990,9 @@ export function Composer({
           uploadImage={uploadImage}
           admitFiles={admitFiles}
         />
+        {answerWithFiles && (
+          <p data-typed-answer-files role="status" className="px-1 pb-1 text-[12px] text-ink-secondary">{t("composer.answerNoFiles")}</p>
+        )}
         {answerClosed && Boolean(text.trim()) && (
           <p data-typed-answer-closed role="status" className="px-1 pb-1 text-[12px] text-ink-secondary">{t("composer.answerClosed")}</p>
         )}
