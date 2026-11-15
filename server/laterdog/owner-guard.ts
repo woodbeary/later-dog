@@ -675,12 +675,38 @@ function inlineCode(name: string, args: Word[], here: string[]): string | undefi
   return parts.length ? parts.join("\n") : undefined;
 }
 
+function substitutions(word: Word): string[] {
+  if (!word.vars) return [];
+  const found: string[] = [];
+  const text = word.text;
+  for (let i = 0; i < text.length; i++) {
+    if (text[i] === "`") {
+      const end = text.indexOf("`", i + 1);
+      if (end === -1) break;
+      found.push(text.slice(i + 1, end));
+      i = end;
+      continue;
+    }
+    if (text[i] !== "$" || text[i + 1] !== "(" || text[i + 2] === "(") continue;
+    let level = 0;
+    let j = i + 1;
+    for (; j < text.length; j++) {
+      if (text[j] === "(") level++;
+      else if (text[j] === ")" && --level === 0) break;
+    }
+    found.push(text.slice(i + 2, j));
+    i = j;
+  }
+  return found;
+}
+
 export function shellSteps(source: string, cwd: string | undefined, home: string, depth = 0, out: ShellStep[] = []): ShellStep[] {
   let dir = cwd;
   let previous: ShellStep | undefined;
   let pipeOpen = false;
   const paths: Paths = { home, temp: [], roots: [] };
   for (const { words, after } of segments(source)) {
+    if (depth < DEPTH_LIMIT) for (const word of words) for (const inner of substitutions(word)) shellSteps(inner, dir, home, depth + 1, out);
     const command = commandWords(words);
     const head = command[0];
     if (!head) {

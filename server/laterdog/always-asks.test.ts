@@ -399,3 +399,22 @@ describe("a delete through a real symlink", () => {
     }
   });
 });
+
+describe("a push whose output is kept", () => {
+  it.each([
+    "out=$(git push --no-verify 2>&1); echo \"$out\"",
+    "result=`git push --no-verify origin x`",
+    "[ -n \"$(git push --no-verify 2>&1)\" ]",
+    "echo $(git push --no-verify)",
+    "echo \"pushed: $(cd repo && git push --no-verify origin x)\"",
+    "x=$(echo $(git push --no-verify))",
+    "key=$(gcloud iam service-accounts keys create k.json --iam-account=a)",
+  ])("%s asks", (command) => {
+    expect(alwaysAsks({ tool: "Bash", command }, guard)).not.toBeNull();
+  });
+
+  it("still lets an ordinary captured push through", () => {
+    expect(alwaysAsks({ tool: "Bash", command: "out=$(git push origin x 2>&1); echo \"$out\"" }, guard)).toBeNull();
+    expect(alwaysAsks({ tool: "Bash", command: "echo $((1 + 2))" }, guard)).toBeNull();
+  });
+});
