@@ -41,7 +41,6 @@ export interface QueuedSend {
   at: number;
   threadId?: string;
   reply?: { text: string; model: string };
-  by?: "owner" | "guest";
   from?: string;
 }
 
@@ -238,10 +237,10 @@ export function heldAnswersAsk(request: Request): boolean {
   return request.method === "GET" && new URL(request.url).pathname === HELD_ANSWERS_PATH;
 }
 
-export function heldAnswers(outbox: readonly QueuedSend[]): HeldAnswer[] {
+export function heldAnswers(outbox: readonly QueuedSend[], ownerSent: (queued: QueuedSend) => boolean): HeldAnswer[] {
   return outbox.slice(0, DESK_OUTBOX_MAX).flatMap((queued): HeldAnswer[] => {
     const host = HOST_SEND_PATH.exec(queued.path);
-    if (queued.by !== "owner" || !host || !queued.threadId || !SEND_ID.test(queued.id)) return [];
+    if (!ownerSent(queued) || !host || !queued.threadId || !SEND_ID.test(queued.id)) return [];
     let body: { cardId?: unknown; text?: unknown; sendId?: unknown } | null;
     try {
       body = JSON.parse(queued.body) as typeof body;
@@ -254,8 +253,8 @@ export function heldAnswers(outbox: readonly QueuedSend[]): HeldAnswer[] {
   });
 }
 
-export function heldAnswersAnswer(outbox: readonly QueuedSend[]): Response {
-  return Response.json({ answers: heldAnswers(outbox) }, { headers: { "cache-control": "no-store" } });
+export function heldAnswersAnswer(outbox: readonly QueuedSend[], ownerSent: (queued: QueuedSend) => boolean): Response {
+  return Response.json({ answers: heldAnswers(outbox, ownerSent) }, { headers: { "cache-control": "no-store" } });
 }
 
 export function droppedStillKept(dropped: readonly DroppedSend[], now: number): DroppedSend[] {

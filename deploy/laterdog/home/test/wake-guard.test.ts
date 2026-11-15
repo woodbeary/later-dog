@@ -706,6 +706,23 @@ describe("card answers the edge holds for the person", () => {
       return started;
     }
 
+    it("lists an answer the owner's phone sent before the edge had told owner from guest, once it has", async () => {
+      const started = await bothKnownThenAsleep();
+      const { visit, machine, sleep, home, HOMES, machineId } = started;
+      (home as unknown as { ownerKeys: Record<string, number> }).ownerKeys = {};
+      HOMES.contexts.get(HOMES.idFromName(machineId).toString())!.storage.values.delete("owner-keys");
+      now += 25 * 60 * 60_000;
+      expect((await visit("/api/bots/rex/messages", post({ text: "Yes", sendId: CARD_SEND, threadId: "t-owner", cardId: "card-1" }))).status).toBe(202);
+      expect((await list(visit)).status).not.toBe(200);
+      world.answers.set("POST /api/bots/rex/messages", () => new Response("busy", { status: 503 }));
+      machine.serving = true;
+      now += 10 * 60_000;
+      await visit("/api/bots", asOwner());
+      await sleep();
+      machine.serving = false;
+      expect(await (await list(visit)).json()).toMatchObject({ answers: [{ sendId: CARD_SEND, text: "Yes" }] });
+    });
+
     it("never lists the owner's card answers to a guest", async () => {
       const { visit } = await bothKnownThenAsleep();
       expect((await visit("/api/bots/rex/messages", post({ text: "Yes, the private one", sendId: CARD_SEND, threadId: "t-owner", cardId: "card-1" }))).status).toBe(202);

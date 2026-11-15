@@ -535,7 +535,7 @@ export class CloudHomeHost extends Container<Env> {
   private async answerHeld(request: Request, key: string | null): Promise<Response | null> {
     if (key && this.ownersDevice(key) && heldAnswersAsk(request)) {
       await this.delivering;
-      return heldAnswersAnswer(this.outbox);
+      return heldAnswersAnswer(this.outbox, (queued) => queued.from !== undefined && queued.from in this.ownerKeys);
     }
     const ids = key && this.knownDevice(key) ? heldSendsAsk(request) : null;
     if (ids) {
@@ -562,7 +562,7 @@ export class CloudHomeHost extends Container<Env> {
       if (!key || !this.knownDevice(key)) return null;
       const sent = await queuedSend(request.clone(), Date.now());
       if (sent === "refused") return refusedSend();
-      const queued = sent ? { ...sent, by: this.ownersDevice(key) ? ("owner" as const) : ("guest" as const), from: key } : null;
+      const queued = sent ? { ...sent, from: key } : null;
       if (queued && this.outbox.some((earlier) => earlier.id === queued.id)) return queuedReceipt(queued);
       const next = queued ? withQueued(this.outbox, queued) : null;
       if (!queued || !next) return null;
