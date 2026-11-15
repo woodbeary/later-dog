@@ -143,6 +143,27 @@ describe("cleaning inside the workspace root never asks", () => {
   });
 });
 
+describe("git clean pointed at another repository", () => {
+  it.each([
+    "git --work-tree=/srv/dogs/other --git-dir=/srv/dogs/other/.git clean -fdx",
+    "git --work-tree /srv/dogs/other --git-dir /srv/dogs/other/.git clean -fdx",
+    "git --work-tree /srv/dogs/other clean -fdx",
+    "GIT_WORK_TREE=/srv/dogs/other GIT_DIR=/srv/dogs/other/.git git clean -fdx",
+    "GIT_WORK_TREE=/srv/dogs/other git clean -fdx",
+    "git --git-dir=/srv/dogs/other/.git clean -fdx",
+    "GIT_DIR=/srv/dogs/other/.git git clean -fdx",
+    "export GIT_WORK_TREE=/srv/dogs/other; git clean -fdx",
+    "git --work-tree=$OTHER clean -fdx",
+  ])("%s asks", async (command) => {
+    expect((await bash(command, { cwd: workspace }))?.rule).toBe("delete-outside-workspace");
+  });
+
+  it("lets a work tree inside the workspace through", async () => {
+    expect(await bash(`git --work-tree=${repo} clean -fdx`, { cwd: workspace })).toBeNull();
+    expect(await bash("git --work-tree=. clean -fd", { cwd: workspace })).toBeNull();
+  });
+});
+
 describe("the owner guard refuses recursive deletes outside the workspace and /tmp", () => {
   it.each([
     ["rm -rf ~/code/old-clone", "/home/owner/code/old-clone"],

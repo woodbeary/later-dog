@@ -407,8 +407,26 @@ function rsyncRefusal(args: Word[], cwd: string | undefined, paths: Paths): Owne
     ?? (removesSources ? firstRefusal(targets.slice(0, -1), cwd, paths, true) : null);
 }
 
-function gitCleanRefusal(args: Word[], cwd: string | undefined, paths: Paths): OwnerGuardRefusal | null {
+interface GitPlace {
+  workTree?: Word;
+  gitDir: boolean;
+  elsewhere: boolean;
+}
+
+function gitPlace(step: ShellStep, source: string): GitPlace {
+  const assigned = (name: string) => step.words.find((word) => word.text.startsWith(`${name}=`));
+  const workTree = assigned("GIT_WORK_TREE");
+  return {
+    ...(workTree ? { workTree: { ...workTree, text: workTree.text.slice("GIT_WORK_TREE=".length) } } : {}),
+    gitDir: assigned("GIT_DIR") !== undefined,
+    elsewhere: !workTree && !assigned("GIT_DIR") && /\bGIT_(?:WORK_TREE|DIR)\b/.test(source),
+  };
+}
+
+function gitCleanRefusal(args: Word[], cwd: string | undefined, paths: Paths, place: GitPlace = { gitDir: false, elsewhere: false }): OwnerGuardRefusal | null {
   let dir = cwd;
+  let workTree = place.workTree;
+  let gitDir = place.gitDir;
   let i = 0;
   for (; i < args.length; i++) {
     const text = args[i]!.text;
@@ -420,6 +438,9 @@ function gitCleanRefusal(args: Word[], cwd: string | undefined, paths: Paths): O
       i++;
       continue;
     }
+    const tree = text === "--work-tree" ? args[i + 1] : text.startsWith("--work-tree=") ? { ...args[i]!, text: text.slice("--work-tree=".length) } : undefined;
+    if (tree !== undefined || text === "--work-tree") workTree = tree ?? { text: "", glob: false, vars: true };
+    if (text === "--git-dir" || text.startsWith("--git-dir=")) gitDir = true;
     if (GIT_VALUE_OPTIONS.has(text)) {
       i++;
       continue;
@@ -431,6 +452,12 @@ function gitCleanRefusal(args: Word[], cwd: string | undefined, paths: Paths): O
   const { flags, targets } = operands(args.slice(i + 1), new Set(["-e", "--exclude"]));
   const forced = flags.some((flag) => flag === "--force" || (!flag.startsWith("--") && flag.slice(1).includes("f")));
   if (!forced) return null;
+  if (place.elsewhere) return unreadableDelete("untracked files in a repository named elsewhere in this command", true);
+  if (workTree) {
+    const moved = expandWord(workTree, dir, paths);
+    if (moved === null) return unreadableDelete(`untracked files in ${workTree.text || "a work tree it does not name"}`, true);
+    dir = moved;
+  } else if (gitDir) return unreadableDelete("untracked files in the repository --git-dir names", true);
   if (dir === undefined) return unreadableDelete("untracked files in this folder");
   return targets.length ? firstRefusal(targets, dir, paths, true) : firstRefusal([{ text: dir, glob: false, vars: false }], dir, paths, true, true);
 }
@@ -843,7 +870,7 @@ const DELETERS: Record<string, (args: Word[], cwd: string | undefined, paths: Pa
   trash: (args, cwd, paths) => firstRefusal(operands(args).targets, cwd, paths, true),
 };
 
-function stepDeleteRefusal(step: ShellStep, paths: Paths): OwnerGuardRefusal | null {
+function stepDeleteRefusal(step: ShellStep, paths: Paths, source: string): OwnerGuardRefusal | null {
   if (step.name === "ln" && step.args.some((arg) => /^-[a-zA-Z]*s/.test(arg.text) || arg.text === "--symbolic")) {
     const { targets } = operands(step.args, new Set(["-t", "--target-directory", "-S", "--suffix"]));
     const [target, link] = targets.length >= 2 ? [targets[0]!, targets.at(-1)!] : [undefined, undefined];
@@ -862,13 +889,14 @@ function stepDeleteRefusal(step: ShellStep, paths: Paths): OwnerGuardRefusal | n
     const refusal = codeRefusal(step.code, step.dir, paths);
     if (refusal) return refusal;
   }
+  if (step.name === "git") return gitCleanRefusal(step.args, step.dir, paths, gitPlace(step, source));
   return DELETERS[step.name]?.(step.args, step.dir, paths) ?? null;
 }
 
 function commandFindings(source: string, cwd: string | undefined, paths: Paths, depth: number, out: Finding[] = []): Finding[] {
   for (const step of shellSteps(source, cwd, paths.home, depth)) {
     const { name, args } = step;
-    const refusal = stepDeleteRefusal(step, paths)
+    const refusal = stepDeleteRefusal(step, paths, source)
       ?? (name === "gh" ? ghRefusal(args)
         : name === "glab" && args[0]?.text === "repo" && args[1]?.text === "delete" ? deleteRepository()
           : name === "hub" && args[0]?.text === "delete" ? deleteRepository()
