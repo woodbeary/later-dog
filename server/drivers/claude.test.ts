@@ -1512,7 +1512,7 @@ describe("ClaudeDriver turns (fake CLI)", () => {
     expect(sent[2].endsWith("three")).toBe(true);
   });
 
-  it("does not repeat the profile in the first note after a compaction, because the home's hook gives it back", async () => {
+  it("gives the profile again in the first note after a compaction, whether or not a hook gave it back", async () => {
     const prompts = join(scratch, "compact-profile-prompts.jsonl");
     await create(undefined, { FAKE_CLAUDE_COMPACT: "1", FAKE_CLAUDE_PROMPTS: prompts });
     const sections = [
@@ -1538,7 +1538,7 @@ describe("ClaudeDriver turns (fake CLI)", () => {
     expect(sent[0]).toContain("PROFILE_TEXT");
     expect(sent[1]).toBe("two");
     expect(sent[2]).toContain("MEMORY_TEXT");
-    expect(sent[2]).not.toContain("PROFILE_TEXT");
+    expect(sent[2]).toContain("PROFILE_TEXT");
     expect(sent[2].endsWith("three")).toBe(true);
   });
 

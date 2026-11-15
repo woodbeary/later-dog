@@ -69,8 +69,7 @@ import {
 import { readEngineModels } from "../laterdog/wait-at-most.ts";
 import { readCliVersion as readCliVersionOf, unreadCli } from "../laterdog/cli-version.ts";
 import { claudeToolTouch } from "../laterdog/tool-touches.ts";
-import { claudeContextNote, claudeSeenVolatile, seenKeeping } from "../laterdog/volatile-sections.ts";
-import { carriedSections } from "../laterdog/after-compaction.ts";
+import { claudeContextNote, claudeSeenVolatile } from "../laterdog/volatile-sections.ts";
 import { claudeHelperEnvironment } from "../laterdog/helper-model.ts";
 import { helperContractArgs, helperContractWanted, helperFlagRefused, SUBAGENT_PROMPT_FLAG } from "../laterdog/helper-contract.ts";
 import { disallowedWithOnePlan, hasSetPlan } from "../laterdog/one-plan.ts";
@@ -1764,7 +1763,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
             } else {
               const compaction = claudeCompactionEvent(o);
               if (compaction?.type === "session.compacted" && compaction.ok && !compaction.skipped) {
-                session.volatile = seenKeeping(session.volatile, new Set(carriedSections(session.turn?.input.systemVolatileSections ?? []).map((section) => section.id)));
+                session.volatile = null;
                 rememberVolatile(threadId, session);
               }
               if (compaction) emit({ ...base(threadId, currentTurnId()), ...compaction });

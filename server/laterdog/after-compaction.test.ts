@@ -10,15 +10,20 @@ describe("what a dog is given back after the engine compacts", () => {
     expect(carried.map((item) => item.id)).toEqual(["connected", "user-profile"]);
   });
 
-  it("cuts at a section boundary: a section that would pass the cap is left out whole, the others stay", () => {
-    const big = "x".repeat(CARRY_MAX_BYTES);
+  it("cuts a section that would pass the cap instead of leaving it out, and keeps the smaller ones whole", () => {
+    const big = "é".repeat(CARRY_MAX_BYTES);
     const carried = carriedSections([section("user-profile", big), section("connected", "mail is connected")]);
-    expect(carried.map((item) => item.id)).toEqual(["connected"]);
+    expect(carried.map((item) => item.id)).toEqual(["user-profile", "connected"]);
+    expect(carried[1]!.text).toBe("mail is connected");
+    expect(carried[0]!.text.length).toBeGreaterThan(1000);
+    expect(carried[0]!.text).toMatch(/^é+$/);
     const carry = new CompactionCarry();
     carry.remember("b1", "t1", [section("user-profile", big), section("connected", "mail is connected")]);
     const text = carry.context("b1", "t1");
     expect(text).toContain("mail is connected");
-    expect(text).not.toContain("xxxx");
-    expect(Buffer.byteLength(text, "utf8")).toBeLessThan(CARRY_MAX_BYTES);
+    expect(text).toContain("éééé");
+    expect(text).not.toContain("\uFFFD");
+    const body = carried.map((item) => `[${item.label}]\n${item.text.trim()}`).join("");
+    expect(Buffer.byteLength(body, "utf8")).toBeLessThanOrEqual(CARRY_MAX_BYTES);
   });
 });

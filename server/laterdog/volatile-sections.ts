@@ -118,12 +118,6 @@ function seenSections(seen: string | null): DeliveredSections | null {
   }
 }
 
-export function seenKeeping(seen: string | null, ids: ReadonlySet<string>): string | null {
-  const previous = seenSections(seen);
-  if (!previous) return null;
-  return SEEN_PREFIX + JSON.stringify(Object.fromEntries(Object.entries(previous).filter(([id]) => ids.has(id))));
-}
-
 export function claudeSeenVolatile(turn: VolatileTurn): string {
   const volatile = turn.systemVolatile ?? "";
   const sections = matchingSections(volatile, turn.systemVolatileSections);
