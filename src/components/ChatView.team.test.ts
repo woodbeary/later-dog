@@ -174,6 +174,24 @@ describe("a turn's hand-outs as one team block", () => {
     }
   });
 
+  it("folds an older home's reply into its block only within the same turn; a later message from the helper is its own row at the bottom", async () => {
+    const a = HELPERS[1]!;
+    const plain = (id: string, at: number, text: string): Message => ({ id, role: "bot", kind: "activity", at, from: { botId: a.id, name: a.name, color: "blue" }, comm: comm(a, "from"), tool: { name: `Message from @${a.name}: ${text}`, ok: true } });
+    await draw([
+      you("open", START, "Ask Birch."),
+      asked(a, START + 10_000), sent(a, START + 10_200, null),
+      said("asked", START + 60_000, "Asked."),
+      plain("first", START + 2 * MINUTE, "Done with the lane."),
+      you("again", START + 30 * MINUTE, "Anything else?"),
+      said("no", START + 31 * MINUTE, "No.", "turn-2"),
+      plain("later", START + 40 * MINUTE, "I found a bug in the export, should I fix it?"),
+    ]);
+    expect(blocks()).toEqual([{ heading: "Asked 1 dog · 1 done", rows: ["Birch: Done"] }]);
+    const last = quietRows().at(-1)!;
+    expect(last.matches("[data-quiet-line]")).toBe(true);
+    expect(last.closest("[data-mid]")?.getAttribute("data-mid")).toBe("later");
+  });
+
   it("has plain words for every way the home can end a request", () => {
     const ends: ExchangeEnd[] = ["person", "api", "interrupted", "deleted", "idle", "capped", "origin", "limit", "restart", "problem", "timeout", "ceiling"];
     expect(Object.keys(END_STATES).sort()).toEqual([...ends].sort());
