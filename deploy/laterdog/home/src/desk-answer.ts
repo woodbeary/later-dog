@@ -8,7 +8,7 @@ export const DESK_ANSWER_TIMEOUT_MS = 45_000;
 export const DESK_TEXT_MAX_CHARS = 8_000;
 export const DESK_BRAIN_MAX_CHARS = 1_500_000;
 export const WAKE_TOOL = "wake_up";
-const ANSWERABLE_FIELDS = new Set(["text", "sendId", "threadId"]);
+const ANSWERABLE_FIELDS = new Set(["text", "sendId", "threadId", "cardId"]);
 const DESK_NOTE = `Your computer is starting up, so you have no tools for this one reply. If the message is conversation you can answer from what you already know, answer it as you normally would. If answering needs your computer, files, apps, the web, anything you have not been shown here, or any other tool, call ${WAKE_TOOL} and write nothing else.`;
 
 export interface DeskDog {

@@ -609,3 +609,82 @@ describe("a message the edge holds while the home cannot take it", () => {
     expect(await whatBecame()).toEqual({ held: [], dropped: [] });
   });
 });
+
+describe("card answers the edge holds for the person", () => {
+  beforeEach(() => {
+    world.sessions.add(OWNER_TOKEN);
+  });
+  const CARD_SEND = "send-card-0000000001";
+  const PLAIN_SEND = "send-plain-000000001";
+  const GROUP_SEND = "send-group-000000001";
+  const post = (body: Record<string, unknown>, extra: Record<string, string> = {}) => ({
+    method: "POST",
+    headers: { ...asOwner(extra).headers, "content-type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  const list = (visit: (path: string, init?: RequestInit) => Promise<Response>, init: RequestInit = asOwner()) => visit("/api/held-answers", init);
+
+  async function asleepWithAnswers() {
+    const started = await awakeHome();
+    const { visit, sleep, machine } = started;
+    world.answers.set("GET /api/bots", () => Response.json({ bots: [] }));
+    await visit("/api/bots", asOwner());
+    await sleep();
+    machine.serving = false;
+    expect((await visit("/api/bots/rex/messages", post({ text: "Yes", sendId: CARD_SEND, threadId: "t-rex", cardId: "card-1" }))).status).toBe(202);
+    expect((await visit("/api/bots/rex/messages", post({ text: "Feed the dog", sendId: PLAIN_SEND, threadId: "t-rex" }))).status).toBe(202);
+    expect((await visit("/api/groups/pack/messages", post({ text: "No", sendId: GROUP_SEND, threadId: "t-pack", cardId: "card-2" }))).status).toBe(202);
+    return started;
+  }
+
+  it("lists each held card answer with its card, chat and words, and no other held message", async () => {
+    const { visit } = await asleepWithAnswers();
+    const answer = await list(visit);
+    expect(answer.status).toBe(200);
+    expect(answer.headers.get("cache-control")).toBe("no-store");
+    expect(await answer.json()).toEqual({
+      answers: [
+        { sendId: CARD_SEND, cardId: "card-1", threadId: "t-rex", at: T0, text: "Yes", botId: "rex" },
+        { sendId: GROUP_SEND, cardId: "card-2", threadId: "t-pack", at: T0, text: "No", groupId: "pack" },
+      ],
+    });
+  });
+
+  it("answers only a device the home knows, and never wakes the home for it", async () => {
+    const { visit, machine } = await asleepWithAnswers();
+    const starts = machine.starts;
+    const stranger = await list(visit, asStranger);
+    expect(stranger.status).not.toBe(200);
+    expect(await stranger.text()).not.toContain(CARD_SEND);
+    const nobody = await list(visit, { headers: { accept: "application/json" } });
+    expect(await nobody.text()).not.toContain(CARD_SEND);
+    expect((await list(visit)).status).toBe(200);
+    expect(machine.starts).toBe(starts);
+  });
+
+  it("stops listing an answer once the home has taken it, and changes nothing by being asked", async () => {
+    const { visit, machine, HOMES, machineId } = await asleepWithAnswers();
+    const stored = () => HOMES.contexts.get(HOMES.idFromName(machineId).toString())!.storage.get("desk-outbox") as Promise<unknown[]>;
+    await list(visit);
+    await list(visit);
+    expect(await stored()).toHaveLength(3);
+    world.answers.set("POST /api/bots/rex/messages", () => Response.json({ ok: true }));
+    world.answers.set("POST /api/groups/pack/messages", () => Response.json({ ok: true }));
+    machine.serving = true;
+    expect(await (await list(visit)).json()).toEqual({ answers: [] });
+    expect(await stored()).toEqual([]);
+  });
+
+  it("leaves out a card id it cannot trust and words longer than a card answer can be", async () => {
+    const { HELD_ANSWER_TEXT_MAX } = await import("../src/desk.ts");
+    const { visit, sleep, machine } = await awakeHome();
+    world.answers.set("GET /api/bots", () => Response.json({ bots: [] }));
+    await visit("/api/bots", asOwner());
+    await sleep();
+    machine.serving = false;
+    const long = "y".repeat(HELD_ANSWER_TEXT_MAX + 1);
+    expect((await visit("/api/bots/rex/messages", post({ text: long, sendId: CARD_SEND, threadId: "t-rex", cardId: "card-1" }))).status).toBe(202);
+    expect((await visit("/api/bots/rex/messages", post({ text: "Yes", sendId: PLAIN_SEND, threadId: "t-rex", cardId: "<script>" }))).status).toBe(202);
+    expect(await (await list(visit)).json()).toEqual({ answers: [{ sendId: CARD_SEND, cardId: "card-1", threadId: "t-rex", at: T0, botId: "rex" }] });
+  });
+});

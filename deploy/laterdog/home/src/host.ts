@@ -12,7 +12,7 @@ import { devCodeOn, handleDevCode } from "./dev-code.ts";
 import { alwaysOn, KEEP_UP_EVERY_S, personSleepAfter, RESTART_AFTER_STOP_S } from "./always-on.ts";
 import { afterCheck, ANSWER_CHECK_TIMEOUT_MS, NOT_ANSWERED_YET, stuckLine, within, type AnswerRecord } from "./hang-watch.ts";
 import {
-  answerHeldQueueAsk, DESK_KEPT_MS, DESK_SAVE_EVERY_MS, deliveryOutcome, deskAnswerWithQueue, deskKey, deskKind, deskLimit, deskPrefix, deskSend, droppedStillKept, forgetScope, heldQueueAsk, heldSendsAnswer, heldSendsAsk, queuedReceipt, queuedSend, sendIdOf, withoutDropped,
+  answerHeldQueueAsk, DESK_KEPT_MS, DESK_SAVE_EVERY_MS, deliveryOutcome, deskAnswerWithQueue, deskKey, deskKind, deskLimit, deskPrefix, deskSend, droppedStillKept, forgetScope, heldAnswersAnswer, heldAnswersAsk, heldQueueAsk, heldSendsAnswer, heldSendsAsk, queuedReceipt, queuedSend, sendIdOf, withoutDropped,
   refusedSend, saveAnswer, savable, savedAnswer, withDropped, withQueued, type DeskBucket, type DeskKind, type DroppedSend, type QueuedSend,
 } from "./desk.ts";
 import { isBackground, startFailure, wakeResponse, type HomeWake } from "./waking.ts";
@@ -525,6 +525,10 @@ export class CloudHomeHost extends Container<Env> {
   }
 
   private async answerHeld(request: Request, key: string | null): Promise<Response | null> {
+    if (key && this.knownDevice(key) && heldAnswersAsk(request)) {
+      await this.delivering;
+      return heldAnswersAnswer(this.outbox);
+    }
     const ids = key && this.knownDevice(key) ? heldSendsAsk(request) : null;
     if (ids) {
       await this.delivering;
