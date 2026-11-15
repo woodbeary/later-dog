@@ -7,22 +7,24 @@ import { bareToolName } from "./tool-words";
 
 export type TeamState =
   | "Sent" | "Waiting its turn" | "Working" | "Needs you" | "Done"
-  | "Stopped by you" | "Stopped" | "Was interrupted" | "Removed" | "Ran out of time"
-  | "Never got started" | "Stopped at a usage limit" | "Stopped when the home restarted" | "Couldn't finish";
+  | "Stopped by you" | "Stopped" | "Stopped by a local tool" | "Was interrupted" | "Removed"
+  | "The chat that asked was deleted" | "Nothing moved for too long" | "Ran out of time" | "Timed out twice"
+  | "Reached the longest a task runs alone" | "Never got started" | "Too many requests to the team"
+  | "Stopped when later.dog restarted" | "Couldn't go on" | "Couldn't finish";
 
 export const END_STATES: Readonly<Record<ExchangeEnd, TeamState>> = {
   person: "Stopped by you",
-  api: "Stopped",
+  api: "Stopped by a local tool",
   interrupted: "Was interrupted",
-  deleted: "Removed",
-  idle: "Ran out of time",
+  deleted: "The chat that asked was deleted",
+  idle: "Nothing moved for too long",
   capped: "Ran out of time",
-  timeout: "Ran out of time",
-  ceiling: "Ran out of time",
+  timeout: "Timed out twice",
+  ceiling: "Reached the longest a task runs alone",
   origin: "Never got started",
-  limit: "Stopped at a usage limit",
-  restart: "Stopped when the home restarted",
-  problem: "Couldn't finish",
+  limit: "Too many requests to the team",
+  restart: "Stopped when later.dog restarted",
+  problem: "Couldn't go on",
 };
 
 export function endState(endedBy: string | undefined): TeamState {
@@ -30,7 +32,8 @@ export function endState(endedBy: string | undefined): TeamState {
 }
 
 const SAID: ReadonlyArray<[RegExp, TeamState]> = [
-  [/\bwas stopped by a local tool$/, "Stopped"],
+  [/\bwas stopped by a local tool$/, "Stopped by a local tool"],
+  [/\bcouldn't start: too many teammate requests$/, "Too many requests to the team"],
   [/\bstopped$/, "Stopped"],
   [/\bran out of time$/, "Ran out of time"],
   [/\bwas interrupted$/, "Was interrupted"],
@@ -75,8 +78,10 @@ export interface TeamRow {
 }
 
 export const SETTLED: ReadonlySet<TeamState> = new Set<TeamState>([
-  "Done", "Stopped by you", "Stopped", "Was interrupted", "Removed", "Ran out of time",
-  "Never got started", "Stopped at a usage limit", "Stopped when the home restarted", "Couldn't finish",
+  "Done", "Stopped by you", "Stopped", "Stopped by a local tool", "Was interrupted", "Removed",
+  "The chat that asked was deleted", "Nothing moved for too long", "Ran out of time", "Timed out twice",
+  "Reached the longest a task runs alone", "Never got started", "Too many requests to the team",
+  "Stopped when later.dog restarted", "Couldn't go on", "Couldn't finish",
 ]);
 
 function requestIdOf(message: Message): string | undefined {

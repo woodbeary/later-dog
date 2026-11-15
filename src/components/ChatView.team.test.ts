@@ -137,7 +137,7 @@ describe("a turn's hand-outs as one team block", () => {
       said("next", START + 9 * MINUTE + 20_000, "The notes.", "turn-2"),
       replied(b, START + 14 * MINUTE, false, "problem"),
     ]);
-    expect(blocks()).toEqual([{ heading: "Asked 2 dogs · 1 done", rows: ["Dune: Couldn't finish", "Birch: Done"] }]);
+    expect(blocks()).toEqual([{ heading: "Asked 2 dogs · 1 done", rows: ["Dune: Couldn't go on", "Birch: Done"] }]);
     const last = quietRows().at(-1)!;
     expect(last.matches("[data-failed-results]")).toBe(true);
     expect(last.textContent).toContain("Dune couldn't finish");
@@ -207,9 +207,9 @@ describe("a turn's hand-outs as one team block", () => {
     const ends: ExchangeEnd[] = ["person", "api", "interrupted", "deleted", "idle", "capped", "origin", "limit", "restart", "problem", "timeout", "ceiling"];
     expect(Object.keys(END_STATES).sort()).toEqual([...ends].sort());
     expect(Object.fromEntries(ends.map((end) => [end, endState(end)]))).toEqual({
-      person: "Stopped by you", api: "Stopped", interrupted: "Was interrupted", deleted: "Removed",
-      idle: "Ran out of time", capped: "Ran out of time", timeout: "Ran out of time", ceiling: "Ran out of time",
-      origin: "Never got started", limit: "Stopped at a usage limit", restart: "Stopped when the home restarted", problem: "Couldn't finish",
+      person: "Stopped by you", api: "Stopped by a local tool", interrupted: "Was interrupted", deleted: "The chat that asked was deleted",
+      idle: "Nothing moved for too long", capped: "Ran out of time", timeout: "Timed out twice", ceiling: "Reached the longest a task runs alone",
+      origin: "Never got started", limit: "Too many requests to the team", restart: "Stopped when later.dog restarted", problem: "Couldn't go on",
     });
     expect(endState("something-new")).toBe("Couldn't finish");
   });
