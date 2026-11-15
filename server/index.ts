@@ -798,6 +798,8 @@ import { createHostedSlackRoutes } from "./routes/hosted-slack.ts";
 import { createBotPresetRoutes } from "./routes/bot-presets.ts";
 import { createRoomCardRoutes, roomOwnsThread } from "./routes/room-card.ts";
 import { createSidebarSectionOrderRoutes } from "./routes/sidebar-section-order.ts";
+import { createSlashCommandRoutes } from "./routes/slash-commands.ts";
+import { dogCommands, expandCommand, SavedCommands } from "./laterdog/slash-commands.ts";
 import { createBotMemoryRoutes } from "./routes/bot-memory.ts";
 import { createDeciderRoutes } from "./routes/decider.ts";
 import { createTypingWiring } from "./laterdog/typing-wiring.ts";
@@ -13238,6 +13240,12 @@ ROUTES.push(createHostedSlackRoutes({ bot: (id) => store.bot(id), hostedReady: (
 const orgInstallStatuses = () => orgLibrary?.installStatuses() ?? new Map();
 ROUTES.push(createBotPresetRoutes({ presets: presetStore, orgStatuses: orgInstallStatuses }));
 ROUTES.push(createSidebarSectionOrderRoutes({ order: (sections) => store.orderSections(sections) }));
+const savedCommands = new SavedCommands(DATA_DIR);
+const dogTricks = (bot: BotRecord) => listBotSkills(bot).filter((skill) => skill.enabled);
+ROUTES.push(createSlashCommandRoutes({ saved: savedCommands, tricks: (botId) => { const bot = store.bot(botId); return bot ? dogTricks(bot) : null; } }));
+const commandSend = (auth: RequestAuth, bot: BotRecord, typed: string): string =>
+  fromLocalTools(auth) || (CLOUD_HOME && auth.kind === "session" && !cloudOwnerSession(auth))
+    ? typed : expandCommand(typed, dogCommands(savedCommands.list(), dogTricks(bot)))?.text ?? typed;
 ROUTES.push(createRoomCardRoutes({
   room: (id) => store.group(id),
   threadBelongsToRoom: roomOwnsThread(store),
@@ -18432,10 +18440,11 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
           ? "onBehalfOf must name the person with an email address, a name, or both"
           : "guarded sends require threadId, sendId, text and expectedActiveLeafId" });
       }
-      const text = String(body.text ?? "").trim();
-      if (!text) return json(res, 400, { error: "text required" });
+      const typed = String(body.text ?? "").trim();
+      if (!typed) return json(res, 400, { error: "text required" });
       const bot = store.bot(m[1]);
       if (!bot) return json(res, 404, { error: "no such bot" });
+      const text = commandSend(auth, bot, typed);
       requirePinnedClientThread(bot.id, body.threadId);
       if (body.threadId !== undefined && (typeof body.threadId !== "string" || !/^[\w-]+$/.test(body.threadId))) {
         return json(res, 400, { error: "threadId must be a task id" });
@@ -18607,7 +18616,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       const bot = requestedTaskBot(m[1], body.threadId);
       const notYours = cloudThreadRefusal(auth, bot.threadId);
       if (notYours) return json(res, 403, { error: notYours });
-      const text = String(body.text ?? "").trim();
+      const text = commandSend(auth, bot, String(body.text ?? "").trim());
       if (!text) return json(res, 400, { error: "text required" });
       const threadMessages = store.messagesFor(bot.threadId);
       const source = threadMessages.find((msg) => msg.id === messageId);

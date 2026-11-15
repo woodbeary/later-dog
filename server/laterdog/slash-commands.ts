@@ -120,8 +120,11 @@ const storedSchema = z.object({
 });
 
 export class CommandRefused extends Error {
-  constructor(readonly status: number, message: string) {
+  readonly status: number;
+
+  constructor(status: number, message: string) {
     super(message);
+    this.status = status;
   }
 }
 
@@ -141,9 +144,11 @@ export function commandText(raw: unknown): string {
 
 export class SavedCommands {
   private readonly file: string;
+  private readonly now: () => number;
 
-  constructor(dataDir: string, private readonly now: () => number = Date.now) {
+  constructor(dataDir: string, now: () => number = Date.now) {
     this.file = join(dataDir, COMMANDS_FILE);
+    this.now = now;
   }
 
   list(): SavedCommand[] {
