@@ -285,7 +285,7 @@ export function exchangeWording(item: Pick<ExchangeItem, "rows">): ExchangeWordi
   return { key: item.rows[0]!.direction === "to" ? "chat.exchange.messaged" : "chat.exchange.messageFrom", count };
 }
 
-export type ExchangeState = "Queued" | "Working" | "Done" | "Needs you" | "Failed" | "Stopped";
+export type ExchangeState = "Queued" | "Working" | "Wrote while working" | "Done" | "Needs you" | "Failed" | "Stopped";
 
 export interface ExchangeSummary {
   gist: string | null;
@@ -327,6 +327,7 @@ export function exchangeGist(item: Pick<ExchangeItem, "messages" | "rows">, thre
   const line = (request?.text ?? "").replace(/^(?:@\S+\s+)+/, "").replace(/\s+/g, " ").trim();
   const gist = line ? (line.length > 90 ? `${line.slice(0, 89)}…` : line) : null;
   const lead = item.rows[0];
+  if (lead?.direction === "from" && lead.message.roomRequest?.phase === "reply") return { gist, state: "Wrote while working" };
   const answered = after.some((message) => (id && message.roomRequest?.id === id && message.roomRequest.phase !== "request")
     || message.roomRequest?.phase === "result"
     || (lead?.direction === "to" && message.comm?.direction === "from" && message.comm.withBotId === lead.withBotId));

@@ -216,6 +216,17 @@ describe("a turn's hand-outs as one team block", () => {
     expect(dispatched.mock.calls.map(([action]) => action)).toEqual([{ type: "select", id: "h3" }, { type: "openTask", botId: "h3", threadId: "cedar-task" }]);
   });
 
+  it("says a helper that writes back mid-work wrote while working, never Queued", async () => {
+    const a = HELPERS[1]!;
+    await draw([
+      you("open", START, "Ask Birch."), asked(a, START + 10_000), sent(a, START + 10_200, "running"), said("asked", START + MINUTE, "Asked."),
+      { id: "mid", role: "bot", kind: "activity", at: START + 2 * MINUTE, from: { botId: a.id, name: a.name, color: "blue" }, comm: comm(a, "from"), roomRequest: { id: `req-${a.id}`, phase: "reply" }, tool: { name: `Message from @${a.name}: Which branch should I use?`, ok: true } },
+    ]);
+    const line = document.querySelector('[data-mid="mid"] [data-exchange-state]')!;
+    expect(line.textContent).toBe("· Wrote while working");
+    expect(document.body.textContent).not.toContain("Queued");
+  });
+
   it("has plain words for every way the home can end a request", () => {
     const ends: ExchangeEnd[] = ["person", "api", "interrupted", "deleted", "idle", "capped", "origin", "limit", "restart", "problem", "timeout", "ceiling"];
     expect(Object.keys(END_STATES).sort()).toEqual([...ends].sort());

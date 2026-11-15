@@ -931,6 +931,7 @@
   "chat.exchange.messagesWith": "{count} messages with",
   "chat.exchange.state.queued": "Queued",
   "chat.exchange.state.working": "Working",
+  "chat.exchange.state.wroteMidway": "Wrote while working",
   "chat.exchange.state.done": "Done",
   "chat.exchange.state.needsYou": "Needs you",
   "chat.receipt.ranOn": "Ran on {account} · {ran}",
