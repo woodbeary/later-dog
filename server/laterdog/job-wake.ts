@@ -30,6 +30,10 @@ export function jobWakeFailedLine(name: string): string {
   return `${name} could not carry on after its command ended. Send a message to carry on.`;
 }
 
+export function notWokenTool(name: string, ended: readonly EndedComputerJob[], why: NotWoken): { name: string; ok: true; pickup: "computer" } {
+  return { name: `notice: ${why === "lost" ? jobLostLine(name, ended) : jobNotWokenLine(name, ended)}`, ok: true, pickup: "computer" };
+}
+
 function endedHow(job: EndedComputerJob): string {
   const { how, exitCode } = job.end;
   if (how === "stopped") return "was stopped before it could finish (its computer went to sleep or was removed)";
@@ -85,7 +89,7 @@ export function createJobWake(jobs: ComputerJobs, host: JobWakeHost) {
 
   const notWoken = (threadId: string, name: string, ended: readonly EndedComputerJob[], why: NotWoken) => {
     jobs.announced(ended.map((job) => job.id));
-    host.append(threadId, { role: "bot", kind: "activity", tool: { name: why === "lost" ? jobLostLine(name, ended) : jobNotWokenLine(name, ended), ok: true, pickup: "computer" } });
+    host.append(threadId, { role: "bot", kind: "activity", tool: notWokenTool(name, ended, why) });
     log(`job wake: ${threadId} not woken (${why}) for ${ended.map((job) => job.id).join(", ")}`);
   };
 

@@ -1,3 +1,4 @@
+import { failedTurnTool, type FailedTurnTool } from "../../shared/failed-turn.ts";
 import type { ComputerJob, ComputerJobs, JobComputer } from "./computer-jobs.ts";
 import type { RunBox, RunStop } from "./computer-runs.ts";
 
@@ -14,6 +15,16 @@ export function partlyStoppedLine(name: string): string {
 
 export function couldNotStopLine(name: string): string {
   return `${name}'s command on its computer could not be stopped, so it is still running. Press Stop again to try once more.`;
+}
+
+export type StopLineTool = FailedTurnTool & { pickup: "computer" };
+
+export function couldNotStopTool(name: string): StopLineTool {
+  return { ...failedTurnTool(couldNotStopLine(name), { written: true }), pickup: "computer" };
+}
+
+export function partlyStoppedTool(name: string): StopLineTool {
+  return { ...failedTurnTool(partlyStoppedLine(name), { written: true }), pickup: "computer" };
 }
 
 export async function stopComputerJobs(jobs: ComputerJobs, threadId: string, deps: StopComputerJobsDeps): Promise<{ stopped: string[]; partly: string[]; left: string[] }> {

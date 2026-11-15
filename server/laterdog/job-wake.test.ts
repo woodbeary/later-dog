@@ -81,7 +81,7 @@ describe("waking a dog when a job on its computer ends", () => {
     }
     expect(turns).toHaveLength(2);
     expect(lines().filter((line) => line.startsWith("recovery:"))).toHaveLength(2);
-    expect(lines().filter((line) => line === "Scout's command finished. Scout was not woken for it.")).toHaveLength(3);
+    expect(lines().filter((line) => line === "notice: Scout's command finished. Scout was not woken for it.")).toHaveLength(3);
     path.push({ id: "user-2", role: "user", kind: "text", text: "Again", at: "" } as unknown as WireMessage);
     ended(jobs, "c0000006");
     wake.deliver(); await flush();
@@ -94,7 +94,7 @@ describe("waking a dog when a job on its computer ends", () => {
     busy(true);
     wake.deliver(); await flush();
     expect(turns).toEqual([]);
-    expect(lines()).toEqual(["Scout's command finished. Scout was not woken for it."]);
+    expect(lines()).toEqual(["notice: Scout's command finished. Scout was not woken for it."]);
     expect(jobs.unannounced()).toEqual([]);
   });
 
@@ -103,7 +103,7 @@ describe("waking a dog when a job on its computer ends", () => {
     ended(jobs, "aaaa0001", "finished", "t1", NOW - 1_000, NOW - 1_000 - MAX_RUN_MS - 1);
     wake.deliver(); await flush();
     expect(turns).toEqual([]);
-    expect(lines()).toEqual(["Scout's command finished. Scout was not woken for it."]);
+    expect(lines()).toEqual(["notice: Scout's command finished. Scout was not woken for it."]);
   });
 
   it("does not wake a chat whose work for another dog is already done", async () => {
@@ -112,7 +112,7 @@ describe("waking a dog when a job on its computer ends", () => {
     ended(jobs, "aaaa0001");
     wake.deliver(); await flush();
     expect(turns).toEqual([]);
-    expect(lines()).toEqual(["Scout's command finished. Scout was not woken for it."]);
+    expect(lines()).toEqual(["notice: Scout's command finished. Scout was not woken for it."]);
   });
 
   it("makes one turn for several jobs ending close together", async () => {
@@ -189,7 +189,7 @@ describe("waking a dog when a job on its computer ends", () => {
     jobs.finished("aaaa0001", { how: "lost", at: NOW - 1_000 });
     wake.deliver(); await flush();
     expect(turns).toEqual([]);
-    expect(lines()).toEqual(["Scout's command on its computer ended without a result."]);
+    expect(lines()).toEqual(["notice: Scout's command on its computer ended without a result."]);
     expect(jobs.unannounced()).toEqual([]);
   });
 
