@@ -91,6 +91,14 @@ export class ChatContextBreakdowns {
     this.save();
   }
 
+  toolsSent(threadId: string, tools: { loadedBytes: number; notLoadedBytes: number } | null): void {
+    const record = this.chats.get(threadId);
+    if (!record?.sizes || !tools) return;
+    const counted = estimateSizesOf([], tools);
+    record.sizes = { ...record.sizes, tools: counted.tools, toolsNotLoaded: counted.toolsNotLoaded };
+    this.save();
+  }
+
   async afterTurn(threadId: string): Promise<ContextBreakdown | null> {
     const record = this.chats.get(threadId);
     if (record) {

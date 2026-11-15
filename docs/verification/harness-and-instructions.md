@@ -39,10 +39,11 @@ proven about them.
    instructions rather than only in a deferred tool's description (see
    "Rules that must not hide in a rare tool" below). To add a model to the
    table, run the check in "Proving rare tools on demand for a model" below.
-   The context view asks the engine the same question
-   (`rareToolsOnDemand` on the Claude adapter, the same
-   `claudeRareToolsOnDemand` its launch uses), so on a proven model it counts
-   the rare tools as not loaded rather than as sent.
+   The Claude adapter keeps what each chat's launch decided
+   (`rareToolsOnDemand(threadId)`); once a turn is sent the context view
+   takes that answer (`toolsSent`), so on a proven model it counts the rare
+   tools as not loaded rather than as sent, without resolving the model a
+   second time.
 
 4. **The engine compacts its own chat.** For Claude Code and Codex dogs
    later.dog no longer folds a chat at 80% of the model window and starts the

@@ -1172,6 +1172,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
     });
     const retryState = new Map<string, { attempt: number; cancelled: boolean; rebuilt?: boolean }>();
 
+    const rareLaunches = new Map<string, boolean>();
     const sendTurn = async (turn: SendTurnInput, logicalTurnId?: string) => {
       const controller = new AbortController();
       starting.get(turn.threadId)?.abort();
@@ -1287,9 +1288,11 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
         if (!controlsHost) allowed.push("mcp__computer");
       }
       if (turn.integrations?.agents) {
-        mcpServers.agents = agentsServerLaunch(turn.integrations.agents, claudeRareToolsOnDemand({
+        const rareOnDemand = claudeRareToolsOnDemand({
           model: injected.model, injected: injected.injected, managed: Boolean(config.managed), env: turnEnvironment,
-        }));
+        });
+        rareLaunches.set(threadId, rareOnDemand);
+        mcpServers.agents = agentsServerLaunch(turn.integrations.agents, rareOnDemand);
         allowed.push("mcp__agents");
       }
       if (turn.integrations?.browser) {
@@ -2405,12 +2408,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
           const live = sessions.get(threadId);
           return live && !live.closing ? live.contextAsk.ask() : { kind: "none" };
         },
-        rareToolsOnDemand: async (model) => {
-          const env = environment();
-          const turnModel = config.managed ? model : await resolveClaudeTurnModel(model, env);
-          const injected = config.managed ? { model: turnModel ?? null, injected: false } : applyClaudeInject({ ...env }, turnModel);
-          return claudeRareToolsOnDemand({ model: injected.model, injected: injected.injected, managed: Boolean(config.managed), env });
-        },
+        rareToolsOnDemand: (threadId) => rareLaunches.get(threadId),
         compactionSigns: async (threadId) => {
           const env = environment();
           const read = (path: string): unknown => { try { return JSON.parse(readFileSync(path, "utf8")); } catch { return undefined; } };

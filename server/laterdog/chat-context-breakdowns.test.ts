@@ -52,6 +52,16 @@ describe("the latest breakdown kept for each chat", () => {
     expect(asked).toEqual([]);
   });
 
+  it("replaces the tool sizes with what the engine was sent, keeps the rest, and ignores a chat it does not know", () => {
+    const store = make();
+    store.dispatched("t1", { driverKind: "claudeAgent", instanceId: "claude", sections: [{ id: "persona", bytes: 400 }], tools: { loadedBytes: 40_000, notLoadedBytes: 0 } });
+    store.toolsSent("t1", { loadedBytes: 8_000, notLoadedBytes: 32_000 });
+    store.toolsSent("ghost", { loadedBytes: 8_000, notLoadedBytes: 32_000 });
+    const saved = JSON.parse(readFileSync(file, "utf8"));
+    expect(saved.t1.sizes).toEqual({ instructions: 100, memory: 0, skills: 0, tools: 2_000, toolsNotLoaded: 8_000 });
+    expect(saved.ghost).toBeUndefined();
+  });
+
   it("asks the engine after a turn, keeps the answer with its time, and serves it once the engine is gone", async () => {
     const store = make();
     dispatchClaude(store);
