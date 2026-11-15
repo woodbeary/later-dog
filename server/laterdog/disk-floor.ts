@@ -10,8 +10,8 @@ export const FLOOR_RUNG = rungOf("floor");
 const ONLY_READ_OR_FREE = new Set([
   "ls", "cat", "head", "tail", "less", "more", "grep", "egrep", "fgrep", "rg", "find", "du", "df", "wc", "stat", "file",
   "pwd", "echo", "printf", "which", "type", "ps", "pgrep", "kill", "rm", "rmdir", "cd", "true", "false", "test", "[",
-  "sort", "uniq", "cut", "tr", "jq", "awk", "date", "whoami", "id", "uname", "env", "lsof", "free", "uptime", "basename",
-  "dirname", "realpath", "readlink", "sleep", "tree", "diff", "cmp", "md5sum", "sha256sum", "sha1sum", "xargs", "sed",
+  "uniq", "cut", "tr", "jq", "date", "whoami", "id", "uname", "env", "lsof", "free", "uptime", "basename",
+  "dirname", "realpath", "readlink", "sleep", "tree", "diff", "cmp", "md5sum", "sha256sum", "sha1sum",
 ]);
 
 const GIT_READS = new Set([
@@ -26,7 +26,7 @@ function gitOnlyReads(args: readonly string[]): boolean {
   const [sub, ...rest] = args.slice(at);
   if (sub === undefined || GIT_READS.has(sub)) return true;
   const flagsOnly = rest.every((arg) => arg.startsWith("-"));
-  if (sub === "branch" || sub === "tag") return flagsOnly;
+  if (sub === "branch" || sub === "tag") return flagsOnly || rest.some((arg) => ["-d", "-D", "--delete"].includes(arg));
   if (sub === "remote") return flagsOnly || rest[0] === "show" || rest[0] === "get-url";
   if (sub === "config") return rest.some((arg) => ["--get", "--get-all", "--get-regexp", "--list", "-l"].includes(arg));
   if (sub === "stash" || sub === "worktree" || sub === "reflog") return rest.length === 0 || ["list", "show", "prune"].includes(rest[0]!);
@@ -39,11 +39,37 @@ function packagesOnlyFree([sub, ...rest]: readonly string[]): boolean {
     || sub === "ls" || sub === "list" || sub === "why";
 }
 
+const XARGS_WITH_VALUE = new Set(["-I", "-L", "-n", "-P", "-s", "-d", "-E", "-a"]);
+const FIND_RUNS = new Set(["-exec", "-execdir", "-ok", "-okdir"]);
+const FIND_WRITES = new Set(["-fprint", "-fprint0", "-fprintf", "-fls"]);
+const SED_WRITES = /(?:^|[;{}\s/0-9$])[wW]\s*\S/;
+
+function xargsCommand(args: readonly string[]): string[] {
+  let at = 0;
+  while (at < args.length && args[at]!.startsWith("-")) at += XARGS_WITH_VALUE.has(args[at]!) ? 2 : 1;
+  return [...args.slice(at)];
+}
+
+function findOnlyReadsOrFrees(args: readonly string[]): boolean {
+  for (let at = 0; at < args.length; at += 1) {
+    if (FIND_WRITES.has(args[at]!)) return false;
+    if (!FIND_RUNS.has(args[at]!)) continue;
+    const end = args.findIndex((arg, index) => index > at && (arg === ";" || arg === "\\;" || arg === "+"));
+    const run = args.slice(at + 1, end === -1 ? args.length : end);
+    if (!partOnlyReadsOrFrees(run)) return false;
+    at = end === -1 ? args.length : end;
+  }
+  return true;
+}
+
 function partOnlyReadsOrFrees([head, ...args]: readonly string[]): boolean {
   if (!head) return true;
   if (head === "git") return gitOnlyReads(args);
   if (head === "pnpm" || head === "npm" || head === "yarn") return packagesOnlyFree(args);
-  if (head === "sed") return !args.some((arg) => arg.startsWith("-i") || arg.startsWith("--in-place"));
+  if (head === "sed") return !args.some((arg) => arg.startsWith("-i") || arg.startsWith("--in-place") || (!arg.startsWith("-") && SED_WRITES.test(arg)));
+  if (head === "sort") return !args.some((arg) => arg.startsWith("-o") || arg.startsWith("--output"));
+  if (head === "xargs") return partOnlyReadsOrFrees(xargsCommand(args));
+  if (head === "find") return findOnlyReadsOrFrees(args);
   return ONLY_READ_OR_FREE.has(head);
 }
 
@@ -51,7 +77,7 @@ function unquoted(command: string): string {
   return command.replace(/'[^']*'|"(?:\\.|[^"\\])*"/g, "\"\"");
 }
 
-const REDIRECT = />>?\|?\s*([^\s;|()<>]*)/g;
+const REDIRECT = /(?<![-=])>>?\|?\s*([^\s;|()<>]*)/g;
 const NOWHERE = new Set(["/dev/null", "/dev/stdout", "/dev/stderr"]);
 
 export function writesOnHome(command: string): boolean {
