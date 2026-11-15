@@ -118,13 +118,13 @@ describe("the older fields", () => {
     expect(olderWorkFields(asking, false, "idle", waitingOnScout)).toEqual({ activity: "waiting-on-you", waitingForTeammates: true, waitingOn: scoutWaiting });
   });
 
-  it("counts helpers and computer jobs as helpers working once the turn has ended, whatever outranks them", () => {
-    const alive = { helpers: 1, computerJobs: 2 };
-    expect(olderWorkFields(workState({ busy: false, ...alive }), false, "idle", noHandoff, alive)).toEqual({ activity: "idle", waitingForTeammates: false, helpersWorking: 3 });
+  it("counts only helpers as helpers working once the turn has ended, whatever outranks them, and never a job on the dog's computer", () => {
+    expect(olderWorkFields(workState({ busy: false, helpers: 1, computerJobs: 2 }), false, "idle", noHandoff, 1)).toEqual({ activity: "idle", waitingForTeammates: false, helpersWorking: 1 });
+    expect(olderWorkFields(workState({ busy: false, computerJobs: 2 }), false, "idle", noHandoff, 0)).toEqual({ activity: "idle", waitingForTeammates: false });
     for (const facts of [{ needsYou: {} }, { usageHold: {} }, { waitingOn: scoutWaiting }]) {
-      expect(olderWorkFields(workState({ busy: false, ...alive, ...facts }), false, "idle", noHandoff, alive).helpersWorking).toBe(3);
+      expect(olderWorkFields(workState({ busy: false, helpers: 1, computerJobs: 2, ...facts }), false, "idle", noHandoff, 1).helpersWorking).toBe(1);
     }
-    expect(olderWorkFields(workState({ busy: true }), true, "working", noHandoff, alive).helpersWorking).toBeUndefined();
+    expect(olderWorkFields(workState({ busy: true }), true, "working", noHandoff, 1).helpersWorking).toBeUndefined();
   });
 
   it("says a handoff's work is done only when the chat's latest received handoff ended after the person last wrote", () => {

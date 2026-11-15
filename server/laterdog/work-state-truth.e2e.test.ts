@@ -188,7 +188,9 @@ it("a job that outlives its turn keeps the chat running, then wakes the dog once
   const after = await jobThatOutlivesItsTurn(bot, 8, "first");
   expect(after.work, log.slice(-3000)).toMatchObject({ kind: "running", computerJobs: 1 });
   expect(after.work.computerSince).toEqual(expect.any(Number));
-  expect(after.helpersWorking).toBe(1);
+  expect(after.helpersWorking).toBeUndefined();
+  expect(after.tasks[0].work).toMatchObject({ kind: "running", computerJobs: 1 });
+  expect(after.tasks[0].helpersWorking).toBeUndefined();
   expect(after.waitingForTeammates).toBe(false);
   expect(ledger()).toHaveLength(1);
   await wokenOnceAndRead(bot, "first", "Scout");

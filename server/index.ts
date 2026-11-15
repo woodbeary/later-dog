@@ -3595,9 +3595,6 @@ let teammatesAwaited = (_threadId: string): WireWaitingOn[] => [];
 let liveStatusLine = (_threadId: string): string | undefined => undefined;
 let helpersWorkingIn = (_threadId: string): number => 0;
 const computerJobs = new ComputerJobs(join(DATA_DIR, "computer-jobs.json"), { changed: (threadId) => announceHelpersChanged(threadId) });
-function aliveBehind(threadId: string, busy: boolean): { helpers: number; computerJobs: number } {
-  return busy ? { helpers: 0, computerJobs: 0 } : { helpers: helpersWorkingIn(threadId), computerJobs: computerJobs.count(threadId) };
-}
 function computerJobFacts(threadId: string, busy: boolean): { computerJobs: number; computerSince?: number; computerBackground?: number } {
   const live = busy ? [] : computerJobs.live(threadId);
   if (!live.length) return { computerJobs: 0 };
@@ -3646,7 +3643,7 @@ const wireTask = (task: TaskRecord, botModel: ModelSelection): WireTask => {
   const activity = delegatedNeedsYou(task.threadId) ? "waiting-on-you" as const : base.activity;
   const handoff = handoffWait(busy, activeCoordinationForThread(task.threadId), () => teammatesAwaited(task.threadId));
   const work = chatWork(task.threadId, busy, activity, handoff.waitingOn, base.modelSelection ?? botModel);
-  const coordinated = { ...base, ...olderWorkFields(work, busy, activity, handoff, aliveBehind(task.threadId, busy)), ...(statusLine ? { statusLine } : {}), ...planOf(task.threadId), work };
+  const coordinated = { ...base, ...olderWorkFields(work, busy, activity, handoff, helpersWorkingIn(task.threadId)), ...(statusLine ? { statusLine } : {}), ...planOf(task.threadId), work };
   const asleep = snoozedUntil === 0 || (snoozedUntil !== undefined && snoozedUntil > Date.now());
   return asleep ? { ...coordinated, snoozedUntil } : coordinated;
 };
@@ -3660,7 +3657,7 @@ const wireBot = (bot: BotRecord): WireBot => {
   const activity = delegatedNeedsYou(bot.threadId) ? "waiting-on-you" as const : visible.activity;
   const handoff = handoffWait(busy, activeCoordinationForThread(bot.threadId), () => teammatesAwaited(bot.threadId));
   const work = chatWork(bot.threadId, busy, activity, handoff.waitingOn, bot.modelSelection);
-  return { ...visible, ...olderWorkFields(work, busy, activity, handoff, aliveBehind(bot.threadId, busy)),
+  return { ...visible, ...olderWorkFields(work, busy, activity, handoff, helpersWorkingIn(bot.threadId)),
     work, ...planOf(bot.threadId),
     avatarUrl: visible.avatarUrl ?? null, ...(tasks ? { tasks: tasks.map((task) => wireTask(task, bot.modelSelection)) } : {}) };
 };
