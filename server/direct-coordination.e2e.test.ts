@@ -229,7 +229,7 @@ it.each(["resume", "stop", "failed resume"] as const)("keeps a guarded Chief req
       expect(initial).toMatchObject({ text: "Assigned to Engineering", requestMessageId: accepted.message.id, turnSucceeded: true });
       expect(failed.messages.findLast((message: any) => message.turnSucceeded !== undefined).turnSucceeded).toBe(false);
       expect(failed.messages.some((message: any) => message.text === "The requested CSV export is implemented and verified")).toBe(false);
-      expect(f.evidence().map((turn: any) => turn.botId)).toEqual([f.chief.id, f.lead.id, f.chief.id]);
+      expect(f.evidence().map((turn: any) => turn.botId)).toEqual([f.chief.id, f.lead.id, f.chief.id, f.chief.id]);
       await api("POST", `${route}/interrupt`, target, 409);
     } else {
       const settled = await snapshot();
