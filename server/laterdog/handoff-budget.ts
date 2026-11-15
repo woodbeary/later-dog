@@ -56,7 +56,7 @@ export function endWords(end: HandoffEnd, limits: EndLimits, unstarted = false):
     case "idle": return `Nothing moved for ${plainDuration(limits.idleMs)}, so later.dog stopped waiting.`;
     case "capped": return `Ran out of time after ${plainDuration(limits.hardCapMs)}.`;
     case "origin": return "The request that started this ended before it could begin.";
-    case "limit": return "Too many teammate requests in one go.";
+    case "limit": return "Not started: the team reached its limit for one task.";
     case "restart": return "later.dog restarted while this was running, so it was not picked up again.";
     case "problem": return "Something changed, so this could not go on.";
     case "timeout": return "Its turn timed out twice, so later.dog stopped it.";
@@ -78,6 +78,7 @@ export function teammateEndLabel(name: string, status: string, end: HandoffEnd |
   if (end === "api") return `${name} was stopped by a local tool`;
   if (endedForTime(end) || end === "timeout" || end === "ceiling") return `${name} ran out of time`;
   if (end === "origin") return `${name} never got started`;
+  if (end === "limit") return `${name} not started: the team reached its limit`;
   if (end === "interrupted") return `${name} was interrupted`;
   return `${name} couldn't finish`;
 }

@@ -181,7 +181,7 @@ it("recovers a dog asked by the main dog in its one conversation and returns its
     const child = nodes.find((node) => node.botId === specialist.id);
     expect(child.result).toBe(specialistReply);
     expect(child.threadId).toBe(specialist.activeTaskId);
-    expect(nodes.find((node) => node.botId === main.id).executions).toBe(2);
+    expect(nodes.find((node) => node.botId === main.id).executions).toBe(1);
     const turns = jsonLines(`${planPath}.evidence.jsonl`);
     expect(turns.filter((turn) => turn.botId === main.id)).toHaveLength(2);
     expect(turns.filter((turn) => turn.botId === specialist.id)).toHaveLength(1);

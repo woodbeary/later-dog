@@ -165,6 +165,15 @@ export class RoomHandoffs {
     }
     this.save();
   }
+  private runsLimit(): string {
+    return `${this.limits.executions} teammate ${this.limits.executions === 1 ? "run" : "runs"}`;
+  }
+  private limitWords(): string {
+    return `Not started: the team reached its limit of ${this.runsLimit()} for one task. Finish with the results you have and tell the person plainly that the team reached its limit.`;
+  }
+  private limitRefusal(why: string): string {
+    return `This team task ${why}, so no new teammate work can start. Finish with the results you have and tell the person plainly that the team reached its limit.`;
+  }
   private stampProgress(root: RoomHandoff): void {
     root.lastProgressAt = Math.max(root.lastProgressAt ?? root.createdAt, this.now());
   }
@@ -263,7 +272,8 @@ export class RoomHandoffs {
     if (kind === "work" && path.filter(n => n.kind === "work").length > this.limits.depth) throw new Error("Room handoff depth limit reached");
     const root = fresh ? parent : this.root(parent);
     const count = [...this.nodes.values()].filter(n => n.rootId === parent!.rootId && n.parentId).length;
-    if (count >= this.limits.requests) throw new Error("Room handoff budget exhausted");
+    if (count >= this.limits.requests) throw new Error(this.limitRefusal(`already sent ${this.limits.requests} requests, the most one task may`));
+    if (root.executions >= this.limits.executions) throw new Error(this.limitRefusal(`reached its limit of ${this.runsLimit()}`));
     if (!(!fresh && this.longTree(root.id)) && !this.budget.hasRunway(root)) throw new Error(this.budget.refusal(root));
     if (this.nodes.size >= 1000) {
       const open = new Set([...this.nodes.values()].filter(n => !terminal(n)).map(n => n.rootId));
@@ -527,11 +537,12 @@ export class RoomHandoffs {
       if (parent && terminal(parent) && n.status === "queued" && awaitsReply(n)) { this.cancelTree(n, endWords("origin", this.limits), "cancelled", "origin"); continue; }
       if (this.hooks.busy(n)) continue;
       const root = this.root(n);
-      const executionCost = 1;
-      if (root.executions + executionCost > this.limits.executions) { this.cancelTree(n, endWords("limit", this.limits), "failed", "limit"); continue; }
       const resumed = n.status === "resume";
+      const charged = !resumed && !n.restarted;
+      if (charged && root.executions >= this.limits.executions) { this.cancelTree(n, this.limitWords(), "failed", "limit"); continue; }
       const childCount = this.awaited(n.id).length;
-      root.executions += executionCost; n.status = "running"; n.startedAt = Math.max(this.now(), (n.startedAt ?? -1) + 1);
+      if (charged) root.executions += 1;
+      n.status = "running"; n.startedAt = Math.max(this.now(), (n.startedAt ?? -1) + 1);
       const startedAt = n.startedAt;
       if (resumed) giveResults(this.awaited(n.id), startedAt);
       this.stampProgress(root);
