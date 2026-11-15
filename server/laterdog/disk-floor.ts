@@ -47,7 +47,7 @@ const SED_WRITES = /(?:^|[;{}\s/0-9$])[wW]\s*\S/;
 function xargsCommand(args: readonly string[]): string[] {
   let at = 0;
   while (at < args.length && args[at]!.startsWith("-")) at += XARGS_WITH_VALUE.has(args[at]!) ? 2 : 1;
-  return [...args.slice(at)];
+  return args.slice(at);
 }
 
 function findOnlyReadsOrFrees(args: readonly string[]): boolean {
