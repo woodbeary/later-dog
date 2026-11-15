@@ -3836,14 +3836,14 @@ function ownerAnswersFor(botId: string, mode: ApprovalMode, threadId: string): b
 
 function hookGuardContext(botId: string, threadId: string, cwd: string | undefined): OwnerGuardContext {
   const bot = store.bot(botId);
-  return bot ? ownerGuardContext(bot, threadId, cwd) : { cwd, workspaceRoots: ownerWorkspaceRoots([cwd]) };
+  return bot ? ownerGuardContext(bot, threadId, cwd) : { cwd, workspaceRoots: [] };
 }
 
 function ownerGuardContext(bot: BotRecord, threadId: string, commandCwd: string | undefined): OwnerGuardContext {
   const task = store.taskByThread(bot.id, threadId);
   return {
     cwd: commandCwd ?? task?.cwd ?? bot.cwd,
-    workspaceRoots: ownerWorkspaceRoots([commandCwd, task?.cwd, bot.cwd, workspaceDir(bot.id), join(TASK_WORKSPACES_DIR, bot.id)]),
+    workspaceRoots: ownerWorkspaceRoots([task?.cwd, bot.cwd, workspaceDir(bot.id), join(TASK_WORKSPACES_DIR, bot.id)]),
   };
 }
 

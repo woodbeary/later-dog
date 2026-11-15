@@ -273,6 +273,9 @@ it("a push that skips its checks always asks an owner dog's person, on a card th
   expect((await hook({ tool_name: "Bash", tool_input: { command: "LATERDOG_SKIP_HOOKS=1 git push" } })).hookSpecificOutput?.permissionDecision).toBe("ask");
   expect((await hook({ tool_name: "Write", tool_input: { file_path: "scripts/git-hooks/pre-push", content: "exit 0" } })).hookSpecificOutput?.permissionDecision).toBe("ask");
   expect((await hook({ tool_name: "Bash", tool_input: { command: "git push origin fix/login" } })).hookSpecificOutput).toBeUndefined();
+  const elsewhere = { tool_name: "Bash", tool_input: { command: "find . -name '*.pdf' -delete" }, cwd: "/srv/person/Documents" };
+  expect((await hook(elsewhere)).hookSpecificOutput?.permissionDecision).toBe("ask");
+  expect((await hook({ ...elsewhere, cwd: turn.launch.cwd })).hookSpecificOutput).toBeUndefined();
   await turn.stop();
 }, 90_000);
 
