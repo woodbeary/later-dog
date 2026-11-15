@@ -8,7 +8,10 @@ export interface StartWatch {
   exhaust(id: string, since?: number): void;
   failed(id: string, reason: string): void;
   failure(id: string): string | undefined;
+  holdFailedBoot(id: string, reason: string, failedAt?: number): boolean;
 }
+
+export const RETRY_FAILED_START_AFTER_MS = 10 * 60_000;
 
 export function createStartWatch(budgetMs: () => number, now: () => number = () => Date.now()): StartWatch {
   const attempts = new Map<string, { since: number; generation?: number; serial: number; previous: number }>();
@@ -16,7 +19,8 @@ export function createStartWatch(budgetMs: () => number, now: () => number = () 
   const begin = (id: string, generation?: number) => {
     attempts.set(id, { since: now(), ...(generation !== undefined ? { generation } : {}), serial: ++serials, previous: attempts.get(id)?.serial ?? 0 });
   };
-  const failures = new Map<string, string>();
+  const failures = new Map<string, { reason: string; at: number }>();
+  const bootsSeen = new Map<string, number>();
   const leftMs = (id: string) => {
     const attempt = attempts.get(id);
     return attempt === undefined ? budgetMs() : budgetMs() - (now() - attempt.since);
@@ -29,7 +33,7 @@ export function createStartWatch(budgetMs: () => number, now: () => number = () 
         begin(id, generation);
       } else if (generation !== undefined && attempt.generation === undefined) attempt.generation = generation;
     },
-    settled: (id) => { attempts.delete(id); failures.delete(id); },
+    settled: (id) => { attempts.delete(id); failures.delete(id); bootsSeen.delete(id); },
     leftMs,
     spent: (id) => attempts.has(id) && leftMs(id) <= 0,
     mark: () => serials,
@@ -38,8 +42,23 @@ export function createStartWatch(budgetMs: () => number, now: () => number = () 
       if (since !== undefined && attempt && attempt.previous > since) return;
       attempts.set(id, { serial: ++serials, previous: 0, ...attempt, since: now() - budgetMs() });
     },
-    failed: (id, reason) => { failures.set(id, reason); },
-    failure: (id) => failures.get(id),
+    failed: (id, reason) => { failures.set(id, { reason, at: now() }); },
+    failure: (id) => {
+      const failure = failures.get(id);
+      if (failure && now() - failure.at >= RETRY_FAILED_START_AFTER_MS) failures.delete(id);
+      return failures.get(id)?.reason;
+    },
+    holdFailedBoot: (id, reason, failedAt) => {
+      const at = failedAt ?? bootsSeen.get(id) ?? now();
+      if (failedAt === undefined) bootsSeen.set(id, at);
+      if (now() - at < RETRY_FAILED_START_AFTER_MS) {
+        failures.set(id, { reason, at });
+        return true;
+      }
+      bootsSeen.set(id, now());
+      failures.set(id, { reason, at: now() });
+      return false;
+    },
   };
 }
 

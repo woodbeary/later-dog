@@ -110,12 +110,15 @@ export function computersKey(connection: ComputersConnection): string {
 
 export const REASON_MAX_CHARS = 300;
 const shortReason = (reason: string | undefined) => reason === undefined || reason.length <= REASON_MAX_CHARS ? reason : `${reason.slice(0, REASON_MAX_CHARS - 1)}…`;
-export interface LastStart { generation?: number; outcome?: "starting" | "ready" | "failed" }
+export interface LastStart { generation?: number; outcome?: "starting" | "ready" | "failed"; at?: number; ms?: number }
 const START_OUTCOMES: ReadonlySet<string> = new Set(["starting", "ready", "failed"]);
 function readLastStart(raw: unknown): LastStart | undefined {
   if (!raw || typeof raw !== "object") return undefined;
-  const { generation, outcome } = raw as { generation?: unknown; outcome?: unknown };
+  const { generation, outcome, at, ms } = raw as { generation?: unknown; outcome?: unknown; at?: unknown; ms?: unknown };
+  const startedAt = typeof at === "string" ? Date.parse(at) : NaN;
   const start: LastStart = {
+    ...(Number.isFinite(startedAt) ? { at: startedAt } : {}),
+    ...(typeof ms === "number" && Number.isFinite(ms) && ms >= 0 ? { ms } : {}),
     ...(Number.isSafeInteger(generation) ? { generation: generation as number } : {}),
     ...(typeof outcome === "string" && START_OUTCOMES.has(outcome) ? { outcome: outcome as LastStart["outcome"] } : {}),
   };

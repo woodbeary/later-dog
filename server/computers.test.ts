@@ -5,10 +5,11 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ComputerRuns } from "./laterdog/computer-runs.ts";
 import { STILL_STARTING_TEXT, handleComputerRun } from "./laterdog/computer-run-route.ts";
+import { RETRY_FAILED_START_AFTER_MS } from "./laterdog/computer-start.ts";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 type State = "starting" | "running" | "sleeping" | "stopping" | "error";
-type FakeComputer = { id: string; name: string; state: State; error?: string; lastStart?: { generation: number; outcome: string } };
+type FakeComputer = { id: string; name: string; state: State; error?: string; lastStart?: { generation: number; outcome: string; at?: string; ms?: number } };
 type Recorded = { method: string; path: string; headers: IncomingMessage["headers"]; body: string };
 
 const KEY = `ldc_${"f".repeat(48)}`;
@@ -651,6 +652,69 @@ describe("the cloud computer facade", () => {
         await expect(computers.heavyRunBox(id, { budgetMs: 240_000 })).rejects.toMatchObject({ code: "did_not_start" });
         await after(id, computer);
         expect(await computers.heavyRunBox(id, { budgetMs: 240_000 })).toMatchObject({ box: expect.anything() });
+      } finally { warn.mockRestore(); }
+    });
+
+    const refuseWakes = (computer: FakeComputer) => failures.set(`POST /v1/computers/${computer.id}/wake`, { status: 502, error: { code: "start_failed", message: "The computer could not start: busy" }, times: 3 });
+    const later = (ms: number) => vi.setSystemTime(Date.now() + ms);
+    const runs = async (botId: string) => (await (await computers.heavyRunBox(botId, { budgetMs: 240_000 })).box.exec("echo ok", 10_000)).exitCode;
+    const notStarted = async (botId: string) => expect(computers.heavyRunBox(botId, { budgetMs: 240_000 })).rejects.toMatchObject({ code: "did_not_start" });
+
+    it("tries a computer the service refused again 10 minutes after the refusals, as a first call would, and never wakes it within them", async () => {
+      const computer = add("dog-heavy-retry", "sleeping");
+      pollStepMs = 10_000;
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+      try {
+        refuseWakes(computer);
+        await notStarted("dog-heavy-retry");
+        expect(wakes()).toBe(3);
+        later(RETRY_FAILED_START_AFTER_MS - 120_000);
+        await notStarted("dog-heavy-retry");
+        expect(wakes()).toBe(3);
+        later(150_000);
+        refuseWakes(computer);
+        await notStarted("dog-heavy-retry");
+        expect(wakes()).toBe(6);
+        later(RETRY_FAILED_START_AFTER_MS - 120_000);
+        await notStarted("dog-heavy-retry");
+        expect(wakes()).toBe(6);
+        later(150_000);
+        expect(await runs("dog-heavy-retry")).toBe(0);
+        expect(wakes()).toBe(7);
+        computer.state = "sleeping";
+        expect(await runs("dog-heavy-retry")).toBe(0);
+        expect(wakes()).toBe(8);
+      } finally { warn.mockRestore(); }
+    });
+
+    it.each([
+      ["with the time the service gave", (computer: FakeComputer) => { computer.lastStart = { generation: 2, outcome: "failed", at: new Date(Date.now() - 60_000).toISOString(), ms: 30_000 }; }],
+      ["with no time from an older service", (computer: FakeComputer) => { computer.lastStart = { generation: 2, outcome: "failed" }; }],
+    ] as const)("wakes a computer whose boot failed, %s, once 10 minutes have passed since the failure, and never within them", async (_how, failedBoot) => {
+      const id = `dog-heavy-boot-${_how.length}`;
+      const computer = add(id, "error");
+      computer.error = "The desktop did not become ready within 5 minutes.";
+      failedBoot(computer);
+      pollStepMs = 10_000;
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+      try {
+        await notStarted(id);
+        later(RETRY_FAILED_START_AFTER_MS - 150_000);
+        await notStarted(id);
+        expect(wakes()).toBe(0);
+        later(150_000);
+        refuseWakes(computer);
+        await notStarted(id);
+        expect(wakes()).toBe(3);
+        later(RETRY_FAILED_START_AFTER_MS - 120_000);
+        await notStarted(id);
+        expect(wakes()).toBe(3);
+        later(150_000);
+        expect(await runs(id)).toBe(0);
+        expect(wakes()).toBe(4);
+        computer.state = "sleeping";
+        expect(await runs(id)).toBe(0);
+        expect(wakes()).toBe(5);
       } finally { warn.mockRestore(); }
     });
 

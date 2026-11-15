@@ -472,6 +472,8 @@ export async function inspectBoatIdentity(cfg: AppConfig, boxId: string): Promis
 
 const startFailed = (computer: Computer | null | undefined) =>
   computer?.state === "error" && (computer.lastStart?.outcome === "failed" || bootFailure(computer.error) !== null);
+const failedAt = (computer: Computer | null | undefined) =>
+  computer?.lastStart?.outcome === "failed" && computer.lastStart.at !== undefined ? computer.lastStart.at + (computer.lastStart.ms ?? 0) : undefined;
 
 export const startMark = (): number => starts.mark();
 
@@ -487,12 +489,12 @@ export async function heavyRunBox(botId: string, options: { repository?: string;
   const client = ownClient();
   const computer = await findOwn(client, botId) ?? await createOwn(client, botId, ownName(botId), undefined, options.repository);
   const entry = computer.state;
-  if (entry === "error") {
-    const current = await client.get(computer.id).catch(() => null);
-    if (startFailed(current)) throw didNotStart(current?.error);
-  }
   const refusedStart = entry === "running" ? undefined : starts.failure(computer.id);
   if (refusedStart !== undefined) throw didNotStart(refusedStart);
+  if (entry === "error") {
+    const current = await client.get(computer.id).catch(() => null);
+    if (startFailed(current) && starts.holdFailedBoot(computer.id, current?.error ?? "", failedAt(current))) throw didNotStart(current?.error);
+  }
   if (entry === "unknown") throw new Error("your cloud computer is in a state later.dog does not know, so it was not woken and nothing was run");
   if (entry === "starting" && starts.spent(computer.id)) {
     const current = await client.get(computer.id).catch(() => null);
