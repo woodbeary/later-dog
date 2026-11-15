@@ -9,7 +9,7 @@ describe("what still asks, in the approval settings", () => {
     setLocale("en");
     const sentence = alwaysAsksSentence();
     expect(sentence).toBe(
-      "Whatever the approval setting, every dog asks you before it pushes code without running its checks, makes a sign-in key or client in a cloud account, deletes files outside its own folders, sends or posts as you from a connected app, or pays or moves money, unless you chose Always on that card.",
+      "Whatever its approval setting, every dog asks you before it pushes code without running its checks, makes a sign-in key or client in a cloud account, deletes files outside its own folders, here or on your Mac, sends, posts or invites as you from a connected app, or pays or moves money from a connected app, unless you chose Always on that card; it goes by how a command is written, so it catches slips, not a dog set on getting around it.",
     );
     const words = ALWAYS_ASK_IDS.map((id) => en[ALWAYS_ASK_WORDS[id]]);
     const at = words.map((phrase) => sentence.indexOf(phrase));
