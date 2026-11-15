@@ -49,7 +49,7 @@ describe("the upper rungs of the disk ladder", () => {
       "git -C repo log --oneline -5", "git diff HEAD~1", "git gc --prune=now", "git clean -fdx", "pnpm store prune",
       "grep -rn TODO src 2>/dev/null", "find . -name '*.log' -delete", "ps aux | grep vite", "kill 4242",
       "cd repo && git branch -a", "echo done", "wc -l src/*.ts > /dev/null 2>&1", "git config --get remote.origin.url",
-      "find . -name '*.tmp' -exec rm {} \\;", "ls dist | xargs rm -rf", "git branch -D old-work", "echo a->b", "sort -u names.txt",
+      "find . -name '*.tmp' -exec rm {} \\;", "ls dist | xargs rm -rf", "git branch -D old-work", "sort -u names.txt",
       "sed -n 1,20p log.txt",
     ]) expect(diskFloorRefusal(command, at(0.03), { computers: true }), command).toBeNull();
   });
@@ -61,6 +61,7 @@ describe("the upper rungs of the disk ladder", () => {
       "pnpm install", "sed -i s/a/b/ file", "ls | tee listing.txt", "git checkout -b next", "mkdir out",
       "ls && npm run dev", "git config user.name Dog", "ls | xargs cp -t /x", "find . -exec cp {} /x \\;",
       "ls | xargs sed -i s/a/b/", "awk '{print > \"f\"}' a", "sed -n 'w out' a", "sort -o out a", "find . -fprint out",
+      "echo a->b", "cat big.iso ->copy.iso", "echo x=>c", "ls | xargs env cp a b", "sort -uo out a",
     ]) expect(diskFloorRefusal(command, at(0.03), { computers: true }), command).toMatch(/nearly full/);
   });
 

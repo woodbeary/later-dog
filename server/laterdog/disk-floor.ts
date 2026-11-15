@@ -67,8 +67,8 @@ function partOnlyReadsOrFrees([head, ...args]: readonly string[]): boolean {
   if (head === "git") return gitOnlyReads(args);
   if (head === "pnpm" || head === "npm" || head === "yarn") return packagesOnlyFree(args);
   if (head === "sed") return !args.some((arg) => arg.startsWith("-i") || arg.startsWith("--in-place") || (!arg.startsWith("-") && SED_WRITES.test(arg)));
-  if (head === "sort") return !args.some((arg) => arg.startsWith("-o") || arg.startsWith("--output"));
-  if (head === "xargs") return partOnlyReadsOrFrees(xargsCommand(args));
+  if (head === "sort") return !args.some((arg) => /^-[a-zA-Z]*o/.test(arg) || arg.startsWith("--output"));
+  if (head === "xargs") return partOnlyReadsOrFrees(commandWords(xargsCommand(args).join(" ")));
   if (head === "find") return findOnlyReadsOrFrees(args);
   return ONLY_READ_OR_FREE.has(head);
 }
@@ -77,7 +77,7 @@ function unquoted(command: string): string {
   return command.replace(/'[^']*'|"(?:\\.|[^"\\])*"/g, "\"\"");
 }
 
-const REDIRECT = /(?<![-=])>>?\|?\s*([^\s;|()<>]*)/g;
+const REDIRECT = />>?\|?\s*([^\s;|()<>]*)/g;
 const NOWHERE = new Set(["/dev/null", "/dev/stdout", "/dev/stderr"]);
 
 export function writesOnHome(command: string): boolean {
