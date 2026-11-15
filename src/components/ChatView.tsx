@@ -48,6 +48,8 @@ import { FailedTurnRow } from "./FailedTurnRow";
 import { isOpenTakeover } from "../../shared/takeover";
 import { BotAvatar } from "./Avatar";
 import { ExchangeLine, ExchangeThreadContext, PlainNoteLine } from "./QuietLines";
+import { TeamBlock } from "./TeamBlock";
+import { foldTeams } from "@/lib/team-block";
 import { ExchangeViewHost } from "./ExchangeViewHost";
 import { foldExchanges, foldedRuns, expandedExchange, quietTranscriptItemShown, shownToPerson } from "@/lib/quiet-lines";
 import { RecoveredLine } from "./RecoveredLine";
@@ -717,10 +719,10 @@ const MessagesList = memo(function MessagesList({
   const emerged = useRef(new Set<string>());
   if (emergingId) emerged.current.add(emergingId);
   const items = useMemo(
-    () => foldExchanges(groupTranscript(messages, plan), {
+    () => foldTeams(foldExchanges(groupTranscript(messages, plan), {
       renders: (item) => quietTranscriptItemShown(item, showToolCalls),
       hasGroup: (groupId) => groupIds.split("|").includes(groupId),
-    }),
+    }), (item) => quietTranscriptItemShown(item, showToolCalls)),
     [messages, plan, locale, showToolCalls, groupIds],
   );
   const foldedWork = useMemo(() => {
@@ -774,6 +776,15 @@ const MessagesList = memo(function MessagesList({
                   </Fragment>
                 ))}
               </TurnNarrationRun>
+            </div>
+          );
+        }
+        if (item.kind === "team") {
+          return (
+            <div key={item.id} className="contents" data-arriving={arriving(item.messages.at(-1)!.id) ? "" : undefined}>
+              {newDay && <DaySeparator at={first.at} today={today} />}
+              {unreadDivider(item.messages)}
+              <TeamBlock item={item} waitingOn={owner?.waitingOn} />
             </div>
           );
         }
