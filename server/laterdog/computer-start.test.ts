@@ -63,6 +63,21 @@ describe("a start another path gave up on", () => {
     expect(watch.spent("cmp_c")).toBe(false);
   });
 
+  it("is used up only for the start that path was waiting on, never for a newer one begun while it waited", () => {
+    const watch = createStartWatch(() => 330_000, () => 50);
+    watch.waking("cmp_old");
+    const first = watch.mark();
+    watch.starting("cmp_old", 2);
+    watch.exhaust("cmp_old", first);
+    expect(watch.spent("cmp_old")).toBe(true);
+    const second = watch.mark();
+    watch.waking("cmp_new");
+    watch.starting("cmp_new", 1);
+    watch.waking("cmp_new");
+    watch.exhaust("cmp_new", second);
+    expect(watch.spent("cmp_new")).toBe(false);
+  });
+
   it("is told apart from other place failures by the cloud computer's did-not-start row", () => {
     expect(cloudDidNotStart({ place: "cloud", row: { state: "cc-no-start" } })).toBe(true);
     expect(cloudDidNotStart({ place: "cloud", row: { state: "cc-clearing" } })).toBe(false);
@@ -102,7 +117,7 @@ describe("the answer when a computer did not start", () => {
 describe("what a dog and the person are told after a replace", () => {
   it("says the old computer was set aside, for how long, and that what lived only on it did not come along", () => {
     expect(replacedText(7)).toBe("Your old cloud computer did not start, so it was replaced with a new one. The old one is set aside for 7 days, and the person can put it back or delete it in Settings; nothing that lived only on it came along.");
-    expect(replacedRow("Scout", 7)).toBe("Scout's cloud computer did not start, so it was replaced with a new one; the old one is set aside for 7 days, and you can put it back or delete it in Settings.");
+    expect(replacedRow("Scout", 7)).toBe("notice: Scout's cloud computer did not start, so it was replaced with a new one; the old one is set aside for 7 days, and you can put it back or delete it in Settings.");
   });
 });
 

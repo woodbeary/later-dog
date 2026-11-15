@@ -4,30 +4,40 @@ export interface StartWatch {
   settled(id: string): void;
   leftMs(id: string): number;
   spent(id: string): boolean;
-  exhaust(id: string): void;
+  mark(): number;
+  exhaust(id: string, since?: number): void;
   failed(id: string, reason: string): void;
   failure(id: string): string | undefined;
 }
 
 export function createStartWatch(budgetMs: () => number, now: () => number = () => Date.now()): StartWatch {
-  const attempts = new Map<string, { since: number; generation?: number }>();
+  const attempts = new Map<string, { since: number; generation?: number; serial: number; previous: number }>();
+  let serials = 0;
+  const begin = (id: string, generation?: number) => {
+    attempts.set(id, { since: now(), ...(generation !== undefined ? { generation } : {}), serial: ++serials, previous: attempts.get(id)?.serial ?? 0 });
+  };
   const failures = new Map<string, string>();
   const leftMs = (id: string) => {
     const attempt = attempts.get(id);
     return attempt === undefined ? budgetMs() : budgetMs() - (now() - attempt.since);
   };
   return {
-    waking: (id) => { attempts.set(id, { since: now() }); },
+    waking: (id) => { begin(id); },
     starting: (id, generation) => {
       const attempt = attempts.get(id);
       if (!attempt || (generation !== undefined && attempt.generation !== undefined && attempt.generation !== generation)) {
-        attempts.set(id, { since: now(), ...(generation !== undefined ? { generation } : {}) });
+        begin(id, generation);
       } else if (generation !== undefined && attempt.generation === undefined) attempt.generation = generation;
     },
     settled: (id) => { attempts.delete(id); failures.delete(id); },
     leftMs,
     spent: (id) => attempts.has(id) && leftMs(id) <= 0,
-    exhaust: (id) => { attempts.set(id, { ...attempts.get(id), since: now() - budgetMs() }); },
+    mark: () => serials,
+    exhaust: (id, since) => {
+      const attempt = attempts.get(id);
+      if (since !== undefined && attempt && attempt.previous > since) return;
+      attempts.set(id, { serial: ++serials, previous: 0, ...attempt, since: now() - budgetMs() });
+    },
     failed: (id, reason) => { failures.set(id, reason); },
     failure: (id) => failures.get(id),
   };
@@ -83,7 +93,7 @@ export function replacedText(keptDays: number): string {
 }
 
 export function replacedRow(dog: string, keptDays: number): string {
-  return `${dog}'s cloud computer did not start, so it was replaced with a new one; the old one is set aside for ${keptDays} days, and you can put it back or delete it in Settings.`;
+  return `notice: ${dog}'s cloud computer did not start, so it was replaced with a new one; the old one is set aside for ${keptDays} days, and you can put it back or delete it in Settings.`;
 }
 
 export function carryingOnRow(dog: string): string {

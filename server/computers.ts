@@ -550,11 +550,13 @@ export async function freshComputer(botId: string, options: { repository?: strin
   return { replaced: true, keptDays: KEEP_DAYS };
 }
 
-export function startDidNotFinish(botId: string): void {
+export const startMark = (): number => starts.mark();
+
+export function startDidNotFinish(botId: string, since?: number): void {
   if (!computersSelected()) return;
   let id: string | undefined;
   try { id = computerIds.get(cacheKey(ownClient(), botId)); } catch { return; }
-  if (id) starts.exhaust(id);
+  if (id) starts.exhaust(id, since);
 }
 
 export async function heavyRunBox(botId: string, options: { repository?: string; wanted?: () => boolean; budgetMs?: number } = {}): Promise<{ box: RunBox }> {

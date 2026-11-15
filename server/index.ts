@@ -6368,6 +6368,7 @@ function mountBotBoat(
     onRejected: opts.onRejected,
     claim: async () => {
       let attached: Awaited<ReturnType<typeof attachBotBoat>>;
+      const startedFrom = boat.startMark();
       try {
         attached = await attachBotBoat(bot, owner, {
           budgetMs: CLOUD_COMPUTER_START_BUDGET_MS,
@@ -6377,7 +6378,7 @@ function mountBotBoat(
       } catch (error) {
         const failure = opts.source ? await asPlaceFailure(error, "cloud", opts.source, bot, "box") : error;
         if (cloudDidNotStart(failure)) slot.failedReason = SCREEN_DID_NOT_START_TEXT;
-        if (startRanOutOfTime(error)) boat.startDidNotFinish(bot.id);
+        if (startRanOutOfTime(error)) boat.startDidNotFinish(bot.id, startedFrom);
         throw failure;
       }
       slot.boxId = attached.boxId;
