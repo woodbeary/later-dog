@@ -2136,7 +2136,8 @@ describe("harness HTTP API", () => {
       const outputAt = seen.argv.indexOf("--output-format");
       expect(outputAt).toBeGreaterThan(-1);
       expect(seen.argv[outputAt + 1]).toBe("text");
-      expect(seen.prompt).toContain("Name the conversation");
+      expect(seen.prompt).toContain("name the conversation that begins with this message");
+      expect(seen.prompt).toContain(JSON.stringify(firstMessage));
       await new Promise((resolve) => setTimeout(resolve, 150));
       const state = (await api("GET", "/api/bots?messages=0")).body.bots.find(
         (candidate: { id: string }) => candidate.id === bot.id,

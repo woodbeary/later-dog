@@ -42,6 +42,10 @@ export const LIST_PRICES: Readonly<Record<string, ListPrice>> = {
   "claude-sonnet-5": price(ANTHROPIC, 2, 0.2, 10),
   "claude-haiku-4-5": price(ANTHROPIC, 1, 0.1, 5),
   "claude-haiku-4-5-20251001": price(ANTHROPIC, 1, 0.1, 5),
+  "fable": price(ANTHROPIC, 10, 0.25, 50),
+  "opus": price(ANTHROPIC, 5, 0.5, 25),
+  "sonnet": price(ANTHROPIC, 2, 0.2, 10),
+  "haiku": price(ANTHROPIC, 1, 0.1, 5),
 
   "grok-4.7": price(XAI, 2, 0.5, 6),
   "grok-4.6": price(XAI, 2, 0.5, 6),
