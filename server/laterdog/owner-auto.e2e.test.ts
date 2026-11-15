@@ -321,6 +321,29 @@ it("the cloud computer, the browser, run_on_computer and the lent Mac stop at wh
   }
 }, 90_000);
 
+it("an Allow that comes after the dog's call gave up runs nothing, and the card says it was too late", async () => {
+  await autoReview(false);
+  const dog = await newDog("Impatient", "auto");
+  const token = await mint(dog.id, dog.threadId, "agents");
+  const caller = new AbortController();
+  const pending = fetch(`${base}/api/internal/computer-run`, {
+    method: "POST", signal: caller.signal, headers: { "content-type": "application/json", authorization: `Bearer ${token}` },
+    body: JSON.stringify({ command: "aws iam create-access-key --user-name late" }),
+  }).catch(() => "gave up");
+  const card = async () => ((await api("GET", `/api/threads/${dog.threadId}/messages?limit=100`)).body.messages as any[])
+    .find((message) => message.card?.subtitle?.includes("--user-name late"))?.card;
+  await expect.poll(card, { timeout: 10_000 }).toMatchObject({ requestType: "permission" });
+  caller.abort();
+  expect(await pending).toBe("gave up");
+  await expect.poll(async () => (await card())?.answered, { timeout: 10_000 }).toBe("unavailable");
+  expect((await card()).subtitle).toContain("Too late: the dog stopped waiting for this answer, so nothing ran. It will ask again if it still needs to.");
+  const requestId = (await card()).requestId as string;
+  const late = await api("POST", `/api/threads/${dog.threadId}/respond`, { requestId, behavior: "allow" });
+  expect(late.body.outcome).toBe("unavailable");
+  const rows = (await api("GET", "/api/decisions?limit=500")).body.decisions as Array<{ requestId?: string; decision: string }>;
+  expect(rows.filter((row) => row.requestId === requestId).map((row) => row.decision)).toEqual(["card-shown"]);
+}, 60_000);
+
 it("a saved command never covers what always asks, off the owner's automatic path", async () => {
   await autoReview(true);
   const dog = await newDog("Saver", "auto");

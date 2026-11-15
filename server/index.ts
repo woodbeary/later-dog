@@ -10037,7 +10037,10 @@ const OUTBOUND_HOLD_MS = 9 * 60_000;
 
 const alwaysAskHolds = new OutboundRequestService();
 
-async function askPersonFirst(bot: BotRecord, threadId: string, request: AlwaysAskRequest, hit: AlwaysAsk): Promise<string | null> {
+const lateAsks = new Set<string>();
+const TOO_LATE = "Too late: the dog stopped waiting for this answer, so nothing ran. It will ask again if it still needs to.";
+
+async function askPersonFirst(bot: BotRecord, threadId: string, request: AlwaysAskRequest, hit: AlwaysAsk, caller: AbortSignal): Promise<string | null> {
   const input = request.input ?? {};
   const detail = [input.command, input.url, input.path].find((value): value is string => typeof value === "string") ?? request.tool;
   const held = alwaysAskHolds.open({ botId: bot.id, threadId, tool: request.tool, timeoutMs: OUTBOUND_HOLD_MS });
@@ -10049,16 +10052,30 @@ async function askPersonFirst(bot: BotRecord, threadId: string, request: AlwaysA
   appendDecision(DATA_DIR, { threadId, requestId: held.requestId, botId: bot.id, botName: bot.name, tool: request.tool, summary: detail, decision: "card-shown", source: "always-asks", rule: hit.id });
   if (store.taskByThread(bot.id, threadId)?.busy) store.setTaskActivity(bot.id, threadId, "waiting-on-you");
   notify(buildNotification("approval", bot, threadId, detail, { avatarUrl: bot.avatarUrl }));
-  const answer = await held.answer;
+  const gone = new Promise<"gone">((resolve) => {
+    if (caller.aborted) resolve("gone");
+    else caller.addEventListener("abort", () => resolve("gone"), { once: true });
+  });
+  const answer = await Promise.race([held.answer, gone]);
   alwaysAskHolds.forget(held.requestId);
+  if (answer === "gone") {
+    lateAsks.add(held.requestId);
+    const waiting = store.messagesFor(threadId).find((message) => message.id === card.id);
+    if (waiting?.card && !waiting.card.answered) store.patchMessage(threadId, waiting.id, { card: { ...waiting.card, subtitle: `${waiting.card.subtitle}\n\n${TOO_LATE}`, answered: "unavailable" } });
+  }
   if (store.taskByThread(bot.id, threadId)?.activity === "waiting-on-you") store.setTaskActivity(bot.id, threadId, "working");
   if (answer === "allow") return null;
+  if (answer === "gone") return TOO_LATE;
   const stale = store.messagesFor(threadId).find((message) => message.id === card.id);
   if (answer === "timeout" && stale?.card && !stale.card.answered) store.patchMessage(threadId, stale.id, { card: { ...stale.card, answered: "unavailable", dismissed: true } });
   return answer === "timeout" ? "later.dog did not run this: nobody answered in time, and it always needs the person's yes. Ask them in the chat first." : hit.refusal.replace("Ask them in the chat first.", "The person said no; carry on without it.");
 }
 
 function resolveAndSendTrust(res: ServerResponse, threadId: string, requestId: string, behavior: "allow" | "deny" | "answer"): boolean {
+  if (lateAsks.has(requestId)) {
+    json(res, 200, { ok: true, outcome: "unavailable" });
+    return true;
+  }
   const alwaysAsked = alwaysAskHolds.resolve({ threadId, requestId, behavior });
   if (alwaysAsked.claimed) {
     const message = store.messagesFor(threadId).find((candidate) => candidate.card?.requestId === requestId);
@@ -14434,7 +14451,10 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       if (method === "POST" && ALWAYS_ASK_PATHS.has(path)) {
         const asked = internalCallRequest(path, await readInternalBody());
         const hit = asked && alwaysAsks(asked, () => hookGuardContext(internalSender.id, internalCapability.threadId, undefined));
-        const refused = asked && hit ? await askPersonFirst(internalSender, internalCapability.threadId, asked, hit) : null;
+        const caller = new AbortController();
+        res.once("close", () => { if (!res.writableEnded) caller.abort(); });
+        const refused = asked && hit ? await askPersonFirst(internalSender, internalCapability.threadId, asked, hit, caller.signal) : null;
+        if (caller.signal.aborted) return;
         if (refused) return path.endsWith("/mcp") ? json(res, 200, { result: { content: [{ type: "text", text: refused }], isError: true } }) : json(res, 403, { error: refused });
       }
       if (await dispatchInternalRoutes(INTERNAL_ROUTES, {
