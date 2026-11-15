@@ -606,12 +606,7 @@ function ghRefusal(args: Word[]): OwnerGuardRefusal | null {
     };
   }
   const moved = apiRefMove(call);
-  if (moved?.force && (moved.ref === "main" || moved.ref === "master")) {
-    return {
-      rule: "force-push-default-branch",
-      message: `later.dog refused this: it force-moves ${moved.ref}, the repository's default branch, through the API, which is never allowed. Push a new branch and open a pull request instead.`,
-    };
-  }
+  if (moved?.force && (moved.ref === "main" || moved.ref === "master")) return apiForceRefusal(moved.ref);
   return call.method === "DELETE" && call.endpoints.some((endpoint) => REPO_PATH.test(endpoint)) ? deleteRepository() : null;
 }
 
@@ -884,7 +879,12 @@ export function shellSteps(source: string, cwd: string | undefined, home: string
   return out;
 }
 
-type Finding = { refusal: OwnerGuardRefusal } | { push: PushPlan };
+type Finding = { refusal: OwnerGuardRefusal } | { push: PushPlan } | { apiForce: { ref: string; dir: string | undefined } };
+
+const apiForceRefusal = (ref: string): OwnerGuardRefusal => ({
+  rule: "force-push-default-branch",
+  message: `later.dog refused this: it force-moves ${ref}, the repository's default branch, through the API, which is never allowed. Push a new branch and open a pull request instead.`,
+});
 
 const DELETERS: Record<string, (args: Word[], cwd: string | undefined, paths: Paths) => OwnerGuardRefusal | null> = {
   rm: rmRefusal,
@@ -931,6 +931,9 @@ function commandFindings(source: string, cwd: string | undefined, paths: Paths, 
             : name === "curl" ? curlRefusal(args)
               : null);
     if (refusal) out.push({ refusal });
+    const call = name === "gh" ? apiCall(args) : null;
+    const forced = call ? apiRefMove(call) : null;
+    if (forced?.force && forced.ref) out.push({ apiForce: { ref: forced.ref, dir: step.dir } });
     if (name === "git") {
       const plan = gitPush(args, step.dir);
       if (plan) out.push({ push: plan });
@@ -942,6 +945,12 @@ function commandFindings(source: string, cwd: string | undefined, paths: Paths, 
 async function commandRefusal(findings: readonly Finding[], git: GitLookup): Promise<OwnerGuardRefusal | null> {
   for (const finding of findings) {
     if ("refusal" in finding) return finding.refusal;
+    if ("apiForce" in finding) {
+      const { ref, dir } = finding.apiForce;
+      const named = dir ? await git.defaultBranch(dir, "origin").catch(() => null) : null;
+      if (named === ref) return apiForceRefusal(ref);
+      continue;
+    }
     const pushed = await pushRefusal(finding.push, git);
     if (pushed) return pushed;
   }

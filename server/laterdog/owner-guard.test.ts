@@ -91,6 +91,13 @@ describe("the owner guard refuses a forced move of the default branch through th
     expect((await bash("gh api graphql -f query='mutation { updateRef(input:{refId:\"R\", oid:\"0\", force:true}) { clientMutationId } }'"))?.rule).toBe("force-push-default-branch");
   });
 
+  it("refuses a forced move of the default branch by its real name when the clone knows it", async () => {
+    const trunk = { git: git("feature/login", { origin: "trunk" }) };
+    expect((await bash("gh api -X PATCH repos/o/r/git/refs/heads/trunk -F force=true -f sha=0", trunk))?.rule).toBe("force-push-default-branch");
+    expect(await bash("gh api -X PATCH repos/o/r/git/refs/heads/feature -F force=true -f sha=0", trunk)).toBeNull();
+    expect(await bash("gh api -X PATCH repos/o/r/git/refs/heads/trunk -F force=true -f sha=0", { git: git(null) })).toBeNull();
+  });
+
   it("lets a forced move of another branch reach the person instead", async () => {
     expect(await bash("gh api -X PATCH repos/o/r/git/refs/heads/feature -f sha=0 -F force=true")).toBeNull();
   });
