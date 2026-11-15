@@ -78,6 +78,28 @@ describe("stopping a command on the dog's computer", () => {
     expect(await runs.stop(box, record)).toBe("gone");
   }, 30_000);
 
+  it.each<[string, () => Promise<JobComputer>]>([
+    ["in an error state, still starting or switched off", async () => ({ state: "unsure" })],
+    ["missing", async () => ({ state: "gone" })],
+    ["unreachable", async () => { throw new Error("computers service unreachable"); }],
+  ])("ends a job here as stopped when its computer is %s, without saying it still runs", async (_label, computer) => {
+    const jobs = new ComputerJobs(null);
+    jobs.started({ id: "abcd1234", botId: "b1", threadId: "t1", command: "pnpm test", startedAt: 1 });
+    const said: string[] = [];
+    let asked = 0;
+    const result = await stopComputerJobs(jobs, "t1", {
+      computer,
+      stop: async () => { asked += 1; return "alive"; },
+      couldNotStop: () => said.push("could not stop"),
+      partlyStopped: () => said.push("partly"),
+    });
+    expect(result).toEqual({ stopped: ["abcd1234"], partly: [], left: [] });
+    expect(said).toEqual([]);
+    expect(asked).toBe(0);
+    expect(jobs.count("t1")).toBe(0);
+    expect(jobs.unannounced()).toEqual([]);
+  });
+
   it("removes a job only once its end is confirmed, says when part of it may still run, keeps it with a line when it could not be stopped, and leaves a sleeping computer's job to the watch", async () => {
     const jobs = new ComputerJobs(null);
     const job = (id: string, botId: string): ComputerJob => ({ id, botId, threadId: "t1", command: "pnpm dev", startedAt: 1 });

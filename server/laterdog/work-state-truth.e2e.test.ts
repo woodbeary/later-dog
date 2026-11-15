@@ -257,3 +257,21 @@ for (const [shape, tag, command, pattern] of [
     expect(ledger()).toEqual([]);
   }, 120_000);
 }
+
+it("the person's Stop ends a job whose computer reports an error, without saying it is still running", async () => {
+  const bot = await newDog("Rex unreadable");
+  const after = await jobThatOutlivesItsTurn(bot, 0, "fifth", sleeper("unreadable"));
+  expect(after.work).toMatchObject({ kind: "running", computerJobs: 1 });
+  const machine = [...machines.values()].at(-1)!;
+  machine.state = "error";
+  try {
+    const stopped = await api("POST", `/api/bots/${bot.id}/interrupt`, { threadId: bot.threadId });
+    expect(stopped.status, JSON.stringify(stopped.body)).toBe(200);
+    await until(() => botNow(bot.id), (state) => state.work?.kind !== "running", "the chat to stop running", 30_000);
+    await settle(3_000);
+    expect(await wakeLines(bot.threadId)).toEqual([]);
+    expect(ledger()).toEqual([]);
+  } finally {
+    machine.state = "running";
+  }
+}, 120_000);

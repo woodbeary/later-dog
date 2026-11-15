@@ -3,7 +3,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
 import { removeTempDir } from "../testing/cleanup.ts";
-import { ComputerJobs, type ComputerJob, type ComputerJobProbe, type JobComputer } from "./computer-jobs.ts";
+import { cloudComputerStartBudgetMs } from "./cloud-start.ts";
+import { ComputerJobs, JOB_CHECK_MS, UNREADABLE_MS, type ComputerJob, type ComputerJobProbe, type JobComputer } from "./computer-jobs.ts";
 import { MAX_RUN_MS, type RunBox } from "./computer-runs.ts";
 
 const dir = mkdtempSync(join(tmpdir(), "computer-jobs-"));
@@ -62,7 +63,7 @@ describe("jobs a dog left running on its computer", () => {
     ]);
   });
 
-  it("changes nothing when the computer is in any other state or cannot be asked, and a failed reading starts the count again", async () => {
+  it("changes nothing at once when the computer is in any other state or cannot be asked, and a failed reading starts the count again", async () => {
     const jobs = new ComputerJobs(null);
     jobs.started(job());
     const gone = probe({ computer: async () => ({ state: "gone" }) });
@@ -75,6 +76,48 @@ describe("jobs a dog left running on its computer", () => {
     expect(await jobs.check(gone)).toEqual([]);
     expect(await jobs.check(probe({ computer: async () => ({ state: "asleep" }) }))).toEqual([]);
     expect(jobs.count("t1")).toBe(1);
+  });
+
+  const unreadable: Array<[string, ComputerJobProbe["computer"]]> = [
+    ["in an error state, still starting or switched off", async () => ({ state: "unsure" })],
+    ["unreachable", async () => { throw new Error("computers service unreachable"); }],
+  ];
+  for (const [label, computer] of unreadable) {
+    it(`ends a job as lost, to be told once, after its computer has been ${label} for the set time`, async () => {
+      let now = 1_000;
+      const jobs = new ComputerJobs(null, { now: () => now });
+      jobs.started(job());
+      const look = probe({ computer });
+      for (let waited = 0; waited < UNREADABLE_MS; waited += JOB_CHECK_MS) {
+        expect(await jobs.check(look)).toEqual([]);
+        now += JOB_CHECK_MS;
+      }
+      expect(jobs.count("t1")).toBe(1);
+      expect(await jobs.check(look)).toEqual(["abcd1234"]);
+      expect(jobs.count("t1")).toBe(0);
+      expect(jobs.unannounced().map((j) => [j.id, j.end.how, j.end.at])).toEqual([["abcd1234", "lost", now]]);
+    });
+  }
+
+  it("starts the unreadable time again once the computer can be read", async () => {
+    let now = 1_000;
+    const jobs = new ComputerJobs(null, { now: () => now });
+    jobs.started(job());
+    const lost = probe({ computer: async () => ({ state: "unsure" }) });
+    expect(await jobs.check(lost)).toEqual([]);
+    now += UNREADABLE_MS - 1;
+    expect(await jobs.check(probe())).toEqual([]);
+    now += 1;
+    expect(await jobs.check(lost)).toEqual([]);
+    now += UNREADABLE_MS - 1;
+    expect(await jobs.check(lost)).toEqual([]);
+    expect(jobs.count("t1")).toBe(1);
+    now += 1;
+    expect(await jobs.check(lost)).toEqual(["abcd1234"]);
+  });
+
+  it("waits longer than a cloud computer may take to start before calling it unreadable", () => {
+    expect(UNREADABLE_MS).toBeGreaterThan(cloudComputerStartBudgetMs({}));
   });
 
   it("ends a job whose processes are gone without an exit record quietly, on two readings in a row", async () => {
