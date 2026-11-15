@@ -132,26 +132,6 @@ describe("Settings → Computer → Cloud computers", () => {
     expect(colours(updateButton("box-1")!)).toEqual(["text-ink"]);
   });
 
-  it("shows a computer set aside after it did not start under its dog, with the day it is removed, and puts it back or deletes it", async () => {
-    fixture.lists = [list([
-      computer(),
-      computer({ boxId: "box-kept", name: "laterdog-scout-kept-1", state: "error", setAsideUntil: "2026-11-21T15:00:00.000Z" }),
-    ])];
-    await mount();
-    expect(row("box-kept").textContent).toContain("ScoutSet aside after it did not start · removed on Nov 21");
-    expect(updateButton("box-kept")).toBeNull();
-    expect(resetButton("box-kept")).toBeNull();
-    expect(deleteButton("box-kept")!.disabled).toBe(false);
-    const restore = document.querySelector<HTMLButtonElement>('[data-cloud-computer-restore="box-kept"]')!;
-    expect(restore.textContent).toBe("Put back");
-    restore.click();
-    await flush();
-    expect(fixture.posts).toEqual([{ url: "/api/computers/boxes/box-kept/restore", body: {} }]);
-    deleteButton("box-kept")!.click();
-    await flush();
-    expect(fixture.posts[1]).toEqual({ url: "/api/computers/boxes/box-kept/delete", body: { confirmName: "laterdog-scout-kept-1" } });
-  });
-
   it("offers no Update or Reset for a dog's computer that later.dog's computers service does not run", async () => {
     fixture.lists = [list([computer(), computer({ boxId: "box-2", ownerBotId: null, ownerName: null, orphaned: true })], { changeable: false })];
     await mount();

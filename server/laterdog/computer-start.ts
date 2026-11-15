@@ -68,32 +68,15 @@ export function bootFailure(reason: string | undefined): string | null {
   return BOOT_FAILURES.find(([words]) => words.test(reason?.trim() ?? ""))?.[1] ?? null;
 }
 
-export const FRESH_COMPUTER_OFFER = "call run_on_computer again with fresh: true to get a new cloud computer. Your folders here stay and are sent again, "
-  + "but nothing that lived only on the old computer comes along: installed packages, browser sign-ins, downloads and files never brought back here. "
-  + "The old computer is set aside for 7 days, not deleted, and the person can put it back or delete it in Settings";
+export const RESET_WHERE = "Settings → Computer → Cloud computers";
 
-export interface DidNotStartOptions { fresh?: boolean; failed?: boolean }
-
-export function didNotStartText(reason?: string, options: DidNotStartOptions = {}): string {
-  const choices = options.fresh
-    ? `do light work in your folder here; ${FRESH_COMPUTER_OFFER}; or tell the person what you could not do.`
-    : options.failed
-      ? "do light work in your folder here; or tell the person what you could not do, and that your cloud computer did not start, so they can reset it in Settings."
-      : "do light work in your folder here; call run_on_computer again in a few minutes; or tell the person what you could not do.";
-  return `Your cloud computer did not start. ${bootFailure(reason) ?? UNKNOWN_START_FAILURE} Nothing was run, and waiting longer will not help. Choose one instead: ${choices}`;
+export function didNotStartText(reason?: string): string {
+  return `Your cloud computer did not start. ${bootFailure(reason) ?? UNKNOWN_START_FAILURE} Nothing was run, and waiting longer will not help. `
+    + `Carry on without it: do light work in your folder here, and tell the person what you could not do. If the work needs the computer, ask them to reset it in ${RESET_WHERE}.`;
 }
 
-export function didNotStart(reason?: string, options: DidNotStartOptions = {}): Error & { code: typeof DID_NOT_START_CODE } {
-  return Object.assign(new Error(didNotStartText(reason, options)), { code: DID_NOT_START_CODE });
-}
-
-export function replacedText(keptDays: number): string {
-  return `Your old cloud computer did not start, so it was replaced with a new one. The old one is set aside for ${keptDays} days, `
-    + "and the person can put it back or delete it in Settings; nothing that lived only on it came along.";
-}
-
-export function replacedRow(dog: string, keptDays: number): string {
-  return `notice: ${dog}'s cloud computer did not start, so it was replaced with a new one; the old one is set aside for ${keptDays} days, and you can put it back or delete it in Settings.`;
+export function didNotStart(reason?: string): Error & { code: typeof DID_NOT_START_CODE } {
+  return Object.assign(new Error(didNotStartText(reason)), { code: DID_NOT_START_CODE });
 }
 
 export function carryingOnRow(dog: string): string {
@@ -101,8 +84,8 @@ export function carryingOnRow(dog: string): string {
 }
 
 export const SCREEN_DID_NOT_START_TEXT = "Your cloud computer did not start, so this call was not performed, and its screen tools will not work in this turn; waiting longer will not help. "
-  + "Carry on without the screen: do light work in your folder here; for a heavy command, try run_on_computer, which says whether a new cloud computer is possible; "
-  + "or tell the person what you could not do.";
+  + "Carry on without it: do light work in your folder here, and tell the person what you could not do. "
+  + `If the work needs the computer, ask them to reset it in ${RESET_WHERE}.`;
 
 export function cloudDidNotStart(failure: unknown): boolean {
   const row = (failure as { place?: unknown; row?: { state?: unknown } } | null)?.row;

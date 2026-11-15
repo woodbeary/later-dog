@@ -15,7 +15,6 @@ export interface CloudComputer {
   ownerName: string | null;
   orphaned: boolean;
   inUse: boolean;
-  setAsideUntil?: string;
 }
 
 export interface CloudComputerList {
@@ -46,9 +45,7 @@ export function mergeCloudComputers(list: CloudComputerList, previous: CloudComp
     .map((computer) => deleting.has(computer.boxId) ? { ...computer, state: "removing" } : computer);
 }
 
-type Action = "delete" | "reset" | "update" | "restore";
-
-const removalDay = (iso: string) => new Date(iso).toLocaleDateString(undefined, { month: "short", day: "numeric" });
+type Action = "delete" | "reset" | "update";
 
 const wait = (ms: number) => new Promise((resolve) => window.setTimeout(resolve, ms));
 
@@ -144,26 +141,6 @@ export function CloudComputerRows() {
     }
   };
 
-  const restore = async (computer: CloudComputer) => {
-    if (!window.confirm(t("vm.confirm.restoreCloud", { name: computer.ownerName ?? computer.name }))) return;
-    setPending({ boxId: computer.boxId, action: "restore" });
-    setError(null);
-    try {
-      const response = await fetch(`/api/computers/boxes/${encodeURIComponent(computer.boxId)}/restore`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: "{}",
-      });
-      const body = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(body.error ?? t("vm.cloud.restoreError"));
-      await refresh().catch(() => {});
-    } catch (cause) {
-      setError(plainClientError(cause));
-    } finally {
-      setPending(null);
-    }
-  };
-
   const spinning = (computer: CloudComputer, action: Action) =>
     pending?.boxId === computer.boxId && pending.action === action && <Loader2 size={12} className="animate-spin" />;
 
@@ -192,38 +169,11 @@ export function CloudComputerRows() {
             <div className="min-w-0 flex-1">
               <div className="truncate text-[14px] font-medium text-ink">{title}</div>
               <div className="mt-0.5 text-[12px] leading-relaxed text-ink-secondary">
-                {computer.setAsideUntil
-                  ? t("vm.cloud.setAside", { date: removalDay(computer.setAsideUntil) })
-                  : computer.inUse ? `${cloudComputerState(computer)} · ${t("vm.cloud.stopFirst")}` : cloudComputerState(computer)}
+                {computer.inUse ? `${cloudComputerState(computer)} · ${t("vm.cloud.stopFirst")}` : cloudComputerState(computer)}
               </div>
             </div>
             <div className="flex shrink-0 items-center gap-1.5">
-              {computer.setAsideUntil && !computer.orphaned && computer.ownerBotId ? (
-                <>
-                  <button
-                    type="button"
-                    data-cloud-computer-restore={computer.boxId}
-                    onClick={() => void restore(computer)}
-                    disabled={held}
-                    title={t("vm.cloud.restoreTitle")}
-                    className={`${pillButton} flex items-center gap-1.5`}
-                  >
-                    {spinning(computer, "restore")}
-                    {t("vm.cloud.restore")}
-                  </button>
-                  <button
-                    type="button"
-                    data-cloud-computer-delete={computer.boxId}
-                    onClick={() => void remove(computer)}
-                    disabled={held}
-                    title={t("vm.cloud.deleteTitle")}
-                    className={`${dangerPillButton} flex items-center gap-1.5`}
-                  >
-                    {spinning(computer, "delete")}
-                    {t("common.delete")}
-                  </button>
-                </>
-              ) : computer.orphaned || !computer.ownerBotId ? (
+              {computer.orphaned || !computer.ownerBotId ? (
                 <button
                   type="button"
                   data-cloud-computer-delete={computer.boxId}

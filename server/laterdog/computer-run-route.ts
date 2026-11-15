@@ -3,7 +3,6 @@ import { lstatSync } from "node:fs";
 import { homedir } from "node:os";
 import { isAbsolute, join, normalize, relative, resolve } from "node:path";
 import { ComputerRuns, WAIT_IN_ONE_CALL_MS, type RunBox, type RunOutcome } from "./computer-runs.ts";
-import { replacedText } from "./computer-start.ts";
 
 export interface ComputerRunRequest {
   botId: string;
@@ -17,7 +16,6 @@ export interface ComputerRunRequest {
 export interface ComputerRunDeps {
   runs: ComputerRuns;
   computer(botId: string, options?: { repository?: string; wanted?: () => boolean; budgetMs?: number }): Promise<{ box: RunBox }>;
-  fresh?(botId: string, options?: { repository?: string }): Promise<{ replaced: boolean; keptDays?: number }>;
   repositoryOf?(folder: string): string | null;
   now?(): number;
 }
@@ -67,7 +65,7 @@ export function outcomeText(outcome: RunOutcome): string {
   return lines.join("\n");
 }
 
-export async function handleComputerRun(request: ComputerRunRequest, deps: ComputerRunDeps): Promise<{ status: number; text?: string; failed?: boolean; error?: string; replaced?: true }> {
+export async function handleComputerRun(request: ComputerRunRequest, deps: ComputerRunDeps): Promise<{ status: number; text?: string; failed?: boolean; error?: string }> {
   const runId = typeof request.body.run_id === "string" ? request.body.run_id.trim() : "";
   const command = typeof request.body.command === "string" ? request.body.command.trim() : "";
   const record = runId ? deps.runs.record(request.botId, runId) : null;
@@ -78,34 +76,21 @@ export async function handleComputerRun(request: ComputerRunRequest, deps: Compu
   if (!folder) return { status: 400, error: "Pass folder: an existing project folder in the home, such as your working folder." };
   const subdir = typeof request.body.subdir === "string" ? request.body.subdir : undefined;
   if (subdir && !inside(join(folder, subdir), folder)) return { status: 400, error: "subdir must be inside folder." };
-  const repository = record ? null : (deps.repositoryOf ?? repositoryOf)(folder);
-  let replaced = "";
-  if (!record && request.body.fresh === true && deps.fresh) {
-    try {
-      const answer = await deps.fresh(request.botId, repository ? { repository } : {});
-      if (answer.replaced) replaced = replacedText(answer.keptDays ?? 0);
-    } catch (error) {
-      return { status: (error as { status?: unknown })?.status === 409 ? 409 : 502, error: error instanceof Error ? error.message : String(error) };
-    }
-  }
-  const told = <T extends { status: number; text?: string; error?: string }>(answer: T): T & { replaced?: true } => {
-    if (!replaced) return answer;
-    return { ...answer, replaced: true, ...(answer.text !== undefined ? { text: `${replaced}\n\n${answer.text}` } : {}), ...(answer.error !== undefined ? { error: `${replaced}\n\n${answer.error}` } : {}) };
-  };
   try {
+    const repository = record ? null : (deps.repositoryOf ?? repositoryOf)(folder);
     const now = deps.now ?? Date.now;
     const started = now();
     const computer = await deps.computer(request.botId, { ...(repository ? { repository } : {}), ...(request.active ? { wanted: request.active } : {}), budgetMs: WAIT_IN_ONE_CALL_MS });
-    if (request.active && !request.active()) return told({ status: 409, error: ENDED_TEXT });
+    if (request.active && !request.active()) return { status: 409, error: ENDED_TEXT };
     const left = () => started + WAIT_IN_ONE_CALL_MS - now();
     const outcome = record
       ? await deps.runs.finish(computer.box, record, undefined, left)
       : await deps.runs.run(computer.box, { botId: request.botId, folder, subdir, command, left, ...(request.active ? { active: request.active } : {}) });
-    return told({ status: 200, text: outcomeText(outcome), failed: outcome.state === "failed" });
+    return { status: 200, text: outcomeText(outcome), failed: outcome.state === "failed" };
   } catch (error) {
-    if ((error as { code?: unknown })?.code === "still_starting") return told({ status: 200, text: STILL_STARTING_TEXT });
-    if ((error as { code?: unknown })?.code === "window_ended") return told({ status: 200, text: WINDOW_ENDED_TEXT });
-    if ((error as { code?: unknown })?.code === "cancelled" || (request.active && !request.active())) return told({ status: 409, error: ENDED_TEXT });
-    return told({ status: 502, error: error instanceof Error ? error.message : String(error) });
+    if ((error as { code?: unknown })?.code === "still_starting") return { status: 200, text: STILL_STARTING_TEXT };
+    if ((error as { code?: unknown })?.code === "window_ended") return { status: 200, text: WINDOW_ENDED_TEXT };
+    if ((error as { code?: unknown })?.code === "cancelled" || (request.active && !request.active())) return { status: 409, error: ENDED_TEXT };
+    return { status: 502, error: error instanceof Error ? error.message : String(error) };
   }
 }

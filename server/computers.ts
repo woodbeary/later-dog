@@ -68,7 +68,6 @@ function scope() {
   return installation;
 }
 const OWN_NAME = /^dog-[a-f0-9]{12}-[a-z0-9]{1,8}-[a-f0-9]{6}$/;
-const KEPT_NAME = /^(dog-[a-f0-9]{12}-[a-z0-9]{1,8}-[a-f0-9]{6})-kept-([0-9a-z]{1,12})$/;
 function ownName(botId: string): string {
   return `${scope().prefix}${botId.slice(0, 8).toLowerCase().replace(/[^a-z0-9]/g, "") || "bot"}-${sha256(botId).slice(0, 6)}`;
 }
@@ -90,8 +89,6 @@ function unavailable(error: unknown): unknown {
 }
 
 const starts = createStartWatch(() => cloudComputerStartBudgetMs());
-const replaceAllowed = () => !(trialInUse() && !ownComputersChosen());
-const failedStart = () => ({ fresh: replaceAllowed(), failed: true });
 const computerIds = new Map<string, string>();
 const cacheKey = (client: ComputersClient, botId: string) => `${client.api}\0${botId}`;
 const forget = (id: string) => { for (const [key, cached] of computerIds) if (cached === id) computerIds.delete(key); };
@@ -149,7 +146,7 @@ async function waitRunning(client: ComputersClient, id: string, budgetMs: number
               console.warn(`cloud computer ${id}: the service could not start it (${refused} of ${REFUSED_START_TRIES}): ${error.message}`);
               if (refused >= REFUSED_START_TRIES) {
                 starts.failed(id, error.message);
-                throw didNotStart(error.message, failedStart());
+                throw didNotStart(error.message);
               }
               wakeAfter = Date.now() + REFUSED_START_SPACING_MS;
               failure = didNotStart(error.message);
@@ -169,8 +166,8 @@ async function waitRunning(client: ComputersClient, id: string, budgetMs: number
   return null;
 }
 
-async function createOwn(client: ComputersClient, botId: string, name: string, size?: string, repository?: string, replaced = ""): Promise<OwnComputer> {
-  let replacing = replaced;
+async function createOwn(client: ComputersClient, botId: string, name: string, size?: string, repository?: string): Promise<OwnComputer> {
+  let replacing = "";
   let releasedForTrial = false;
   for (let hop = 0; hop < MAX_CREATE_HOPS; hop += 1) {
     let created: Computer;
@@ -190,7 +187,6 @@ async function createOwn(client: ComputersClient, botId: string, name: string, s
     let live: Computer | null;
     try {
       live = await client.get(created.id);
-      if (live && KEPT.test(live.name)) { replacing = created.id; continue; }
       if (live && live.name !== name) live = await client.rename(live.id, name);
     } catch (error) { throw refusal(error); }
     if (live) {
@@ -231,9 +227,9 @@ async function stopOwn(client: ComputersClient, computer: OwnComputer): Promise<
   }
 }
 
-async function listOwn(owners: ManagedBoatOwner[], given?: ComputersClient): Promise<ManagedBoatInventory> {
-  let computers: Computer[]; let client: ComputersClient;
-  try { client = given ?? ownClient(); computers = await client.list(); }
+async function listOwn(owners: ManagedBoatOwner[], client?: ComputersClient): Promise<ManagedBoatInventory> {
+  let computers: Computer[];
+  try { client ??= ownClient(); computers = await client.list(); }
   catch (error) {
     const rejected = error instanceof ComputersApiError && (error.httpStatus === 401 || error.httpStatus === 403);
     return { configured: true, available: false, problem: error instanceof Error ? error.message : String(error), credentialRejected: rejected, instances: [] };
@@ -242,36 +238,15 @@ async function listOwn(owners: ManagedBoatOwner[], given?: ComputersClient): Pro
   const ownerByName = new Map(owners.map((owner) => [ownName(owner.botId), owner] as const));
   const seen = new Set<string>(); const instances: ManagedBoatInventoryInstance[] = [];
   for (const computer of computers) {
-    if (!computer.name.startsWith(prefix)) continue;
-    const kept = KEPT_NAME.exec(computer.name);
-    if (!kept && !OWN_NAME.test(computer.name)) continue;
+    if (!OWN_NAME.test(computer.name) || !computer.name.startsWith(prefix)) continue;
     if (seen.has(computer.id)) return { configured: true, available: false, problem: "later.dog's computers service listed one cloud computer twice — refresh and try again", instances: [] };
     seen.add(computer.id);
-    if (kept && await removedWhenExpired(client, computer)) continue;
-    const owner = ownerByName.get(kept ? kept[1] : computer.name) ?? null;
+    const owner = ownerByName.get(computer.name) ?? null;
     instances.push({ boxId: computer.id, name: computer.name, state: asBoatState(computer.state), ownerBotId: owner?.botId ?? null,
-      ownerName: owner?.name ?? null, orphaned: owner === null, inUse: kept ? false : owner?.inUse ?? false,
-      ...(kept ? { setAsideUntil: new Date(parseInt(kept[2], 36) + KEEP_MS).toISOString() } : {}) });
+      ownerName: owner?.name ?? null, orphaned: owner === null, inUse: owner?.inUse ?? false });
   }
-  instances.sort((a, b) => a.orphaned !== b.orphaned ? (a.orphaned ? 1 : -1)
-    : (a.ownerName ?? a.name).localeCompare(b.ownerName ?? b.name) || Number(a.setAsideUntil !== undefined) - Number(b.setAsideUntil !== undefined));
+  instances.sort((a, b) => a.orphaned !== b.orphaned ? (a.orphaned ? 1 : -1) : (a.ownerName ?? a.name).localeCompare(b.ownerName ?? b.name));
   return { configured: true, available: true, problem: null, changeable: true, instances };
-}
-
-export const KEEP_DAYS = 7;
-const KEEP_MS = KEEP_DAYS * 24 * 60 * 60_000;
-
-async function removedWhenExpired(client: ComputersClient, computer: Computer): Promise<boolean> {
-  const kept = computer.name.startsWith(scope().prefix) ? KEPT_NAME.exec(computer.name) : null;
-  if (!kept || Date.now() - parseInt(kept[2], 36) < KEEP_MS) return false;
-  try { await client.remove(computer.id); }
-  catch (error) {
-    console.warn(`cloud computer ${computer.id}: the computer set aside ${KEEP_DAYS} days ago could not be removed: ${error instanceof Error ? error.message : String(error)}`);
-    return false;
-  }
-  forget(computer.id);
-  console.info(`cloud computer ${computer.id}: removed ${KEEP_DAYS} days after it was set aside`);
-  return true;
 }
 
 async function releaseOrphanedTrialComputers(client: ComputersClient, owners: ManagedBoatOwner[] = ownerSource?.() ?? []): Promise<number> {
@@ -481,33 +456,6 @@ export async function deleteManagedBoat(cfg: AppConfig, owners: ManagedBoatOwner
   } finally { release?.(); }
 }
 
-export async function restoreManagedBoat(_cfg: AppConfig, owners: ManagedBoatOwner[], boxId: string, claim?: ManagedBoatMutationClaim): Promise<{ ok: boolean }> {
-  if (!issuedHere(boxId) || !computersSelected()) throw Object.assign(new Error("Only a later.dog cloud computer that was set aside can be put back"), { status: 409 });
-  const client = ownClient();
-  const instance = await revalidateOwn(client, owners, boxId);
-  const botId = instance.ownerBotId;
-  if (!instance.setAsideUntil || !botId) throw Object.assign(new Error("this cloud computer was not set aside for a dog, so there is nothing to put back"), { status: 409 });
-  if (owners.find((owner) => owner.botId === botId)?.inUse) throw Object.assign(new Error("this cloud computer's dog is working — stop its work first"), { status: 409 });
-  const release = claim?.(instance);
-  try {
-    const current = await findOwn(client, botId);
-    if (current) {
-      try { await client.rename(current.id, keptName(botId, Date.now())); }
-      catch (error) { throw changeRefusal(error); }
-      forget(current.id); starts.settled(current.id);
-    }
-    try { await client.rename(boxId, ownName(botId)); }
-    catch (error) {
-      if (current) await client.rename(current.id, ownName(botId)).catch(() => undefined);
-      throw changeRefusal(error);
-    }
-    starts.settled(boxId);
-    computerIds.set(cacheKey(client, botId), boxId);
-    console.info(`cloud computer ${boxId}: put back as its dog's computer${current ? `; ${current.id} set aside in its place` : ""}`);
-    return { ok: true };
-  } finally { release?.(); }
-}
-
 export async function inspectBoatIdentity(cfg: AppConfig, boxId: string): Promise<BoatIdentityInspection> {
   if (!issuedHere(boxId)) return boat.inspectBoatIdentity(cfg, boxId);
   let computer: Computer | null;
@@ -516,39 +464,8 @@ export async function inspectBoatIdentity(cfg: AppConfig, boxId: string): Promis
   return { available: true, identity: computer ? { boxId: computer.id, name: computer.name, state: asBoatState(computer.state) } : null, problem: null };
 }
 
-const KEPT = /-kept-([0-9a-z]{1,12})$/;
-const keptName = (botId: string, at: number) => `${ownName(botId)}-kept-${at.toString(36)}`;
 const startFailed = (computer: Computer | null | undefined) =>
   computer?.state === "error" && (computer.lastStart?.outcome === "failed" || bootFailure(computer.error) !== null);
-const notReplaced = (message: string) => Object.assign(new Error(message), { code: "not_replaced", status: 409 });
-
-export async function freshComputer(botId: string, options: { repository?: string } = {}): Promise<{ replaced: boolean; keptDays?: number }> {
-  if (!computersSelected()) throw Object.assign(new Error("Cloud computers are not set up here, so run it in your own folder instead."), { status: 409 });
-  const client = ownClient();
-  const found = await findOwn(client, botId);
-  if (!found) return { replaced: false };
-  const current = await client.get(found.id).catch((error: unknown) => { throw refusal(error); });
-  if (!startFailed(current) && starts.failure(found.id) === undefined) {
-    throw notReplaced(current?.state === "error"
-      ? "Your cloud computer stopped while it was running; it did not fail to start, so it was kept, not replaced. Call run_on_computer again without fresh to wake it and try again."
-      : "Your cloud computer did not fail to start, so it was kept, not replaced. Call run_on_computer again without fresh.");
-  }
-  if (!replaceAllowed()) {
-    throw notReplaced("The free trial has one cloud computer, so it cannot be replaced while the old one is kept. Tell the person your cloud computer did not start.");
-  }
-  try { await client.rename(found.id, keptName(botId, Date.now())); }
-  catch (error) { throw refusal(error, "the cloud computer that did not start could not be set aside, so it was not replaced: "); }
-  forget(found.id);
-  starts.settled(found.id);
-  try { await createOwn(client, botId, ownName(botId), undefined, options.repository, found.id); }
-  catch (error) {
-    await client.rename(found.id, ownName(botId)).catch(() => undefined);
-    throw error;
-  }
-  console.info(`cloud computer ${found.id}: set aside for ${KEEP_DAYS} days after it did not start`);
-  for (const computer of await client.list().catch(() => [])) await removedWhenExpired(client, computer);
-  return { replaced: true, keptDays: KEEP_DAYS };
-}
 
 export const startMark = (): number => starts.mark();
 
@@ -566,14 +483,14 @@ export async function heavyRunBox(botId: string, options: { repository?: string;
   const entry = computer.state;
   if (entry === "error") {
     const current = await client.get(computer.id).catch(() => null);
-    if (startFailed(current)) throw didNotStart(current?.error, failedStart());
+    if (startFailed(current)) throw didNotStart(current?.error);
   }
   const refusedStart = entry === "running" ? undefined : starts.failure(computer.id);
-  if (refusedStart !== undefined) throw didNotStart(refusedStart, failedStart());
+  if (refusedStart !== undefined) throw didNotStart(refusedStart);
   if (entry === "unknown") throw new Error("your cloud computer is in a state later.dog does not know, so it was not woken and nothing was run");
   if (entry === "starting" && starts.spent(computer.id)) {
     const current = await client.get(computer.id).catch(() => null);
-    throw startFailed(current) ? didNotStart(current?.error, failedStart()) : didNotStart();
+    throw startFailed(current) ? didNotStart(current?.error) : didNotStart();
   }
   if (entry === "archived") starts.waking(computer.id);
   else if (entry === "starting") starts.starting(computer.id, computer.generation);
@@ -586,7 +503,7 @@ export async function heavyRunBox(botId: string, options: { repository?: string;
     const state = current ? asBoatState(current.state) : "unknown";
     if (current && state === "starting") starts.starting(computer.id, current.lastStart?.generation);
     if (state === "starting" && !starts.spent(computer.id)) throw Object.assign(new Error("your cloud computer is still starting, so nothing was run yet"), { code: "still_starting" });
-    if (state === "starting" || state === "error") throw didNotStart(current?.error, startFailed(current) ? failedStart() : {});
+    if (state === "starting" || state === "error") throw didNotStart(current?.error);
     throw new Error(`your cloud computer did not start within ${Math.round(budgetMs / 1000)} seconds; try again in a minute`);
   }
   starts.settled(computer.id);

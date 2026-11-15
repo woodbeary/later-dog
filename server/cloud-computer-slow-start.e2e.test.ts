@@ -18,8 +18,8 @@ const START_BUDGET_MS = 20_000;
 const SLOW_WAKE_MS = 65_000;
 const STILL_STARTING = "The cloud computer is still starting. This call was not performed. Take a fresh screenshot in a moment.";
 const DID_NOT_START = "Your cloud computer did not start, so this call was not performed, and its screen tools will not work in this turn; waiting longer will not help. "
-  + "Carry on without the screen: do light work in your folder here; for a heavy command, try run_on_computer, which says whether a new cloud computer is possible; "
-  + "or tell the person what you could not do.";
+  + "Carry on without it: do light work in your folder here, and tell the person what you could not do. "
+  + "If the work needs the computer, ask them to reset it in Settings → Computer → Cloud computers.";
 
 describe("a slow cloud computer start", () => {
   let home = "";
