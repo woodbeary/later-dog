@@ -1,6 +1,7 @@
 import { readdirSync } from "node:fs";
 import { basename, join } from "node:path";
 import { chatTempDir, chatTempName, chatTempRoot, sweepChatTemps, tidyChatTemp, usedBy, type ChatTempSweep } from "./chat-temp.ts";
+import { floorWatch } from "./disk-floor.ts";
 import { fileLadderStore, startDiskLadder } from "./disk-ladder.ts";
 import { openPaths, readHomeProcesses } from "./home-processes.ts";
 import { diskUse, type WorkspaceTask } from "./janitor.ts";
@@ -41,11 +42,12 @@ export function emptyTempAfterTurn(root: string, threadId: string, sweep: () => 
   if (cleared.removed.length) log(`laterdog home: chat ${threadId.slice(0, 8)} finished its turn; removed ${cleared.removed.length} temp item(s) nothing was using, freed ${mb(cleared.freed)}`);
 }
 
-export function startHomeUpkeep(deps: HomeUpkeepDeps): void {
+export function startHomeUpkeep(deps: HomeUpkeepDeps): { warning(): string | null } {
   const log = deps.log ?? ((line: string) => console.log(line));
   const root = deps.tempRoot ?? chatTempRoot();
   const emptyTemp = (threadId: string) => emptyTempAfterTurn(root, threadId, () => liveTempSweep(deps.atWork), log);
   deps.subscribe(turnUpkeep({ atWork: deps.atWork, endLeftovers: (mark) => endLeftovers({ mark, mode: LEFTOVER_MODE }), mode: LEFTOVER_MODE, emptyTemp, log }));
+  const floor = floorWatch();
   startDiskLadder({
     disk: () => diskUse(deps.dataDir),
     chats: () => deps.chats().map((chat) => ({ ...chat, busy: chat.busy || deps.atWork(basename(chat.dir)) })),
@@ -58,5 +60,6 @@ export function startHomeUpkeep(deps: HomeUpkeepDeps): void {
     pruneCaches: () => pruneCaches({ home: deps.home })?.freed ?? null,
     log,
     store: fileLadderStore(join(deps.dataDir, "disk-ladder.json")),
-  });
+  }, undefined, floor.climbed);
+  return { warning: () => floor.warning(diskUse(deps.dataDir)) };
 }

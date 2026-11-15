@@ -1,4 +1,4 @@
-import { DISK_RUNGS, diskRung } from "./disk-ladder.ts";
+import { DISK_RUNGS, diskRung, type LadderRun } from "./disk-ladder.ts";
 import type { DiskUse } from "./janitor.ts";
 import { heavyCommandKind, segments } from "./heavy-commands.ts";
 import { commandText, commandWords } from "./home-signals.ts";
@@ -103,4 +103,14 @@ export function diskFloorDecision(payload: Record<string, unknown>, rung: number
 
 export function homeFloorDecision(payload: Record<string, unknown>, disk: DiskUse | null, scene: FloorScene): Record<string, unknown> | null {
   return diskFloorDecision(payload, diskRung(disk), scene);
+}
+
+export const FLOOR_SENTENCE = "Your Cloud is nearly full. later.dog has cleared everything it safely can; the rest is your dogs' work. Open Storage to choose what to remove.";
+
+export function floorWatch() {
+  let held = false;
+  return {
+    climbed(run: LadderRun): void { held = run.held; },
+    warning(disk: DiskUse | null): string | null { return held && diskRung(disk) >= FLOOR_RUNG ? FLOOR_SENTENCE : null; },
+  };
 }

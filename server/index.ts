@@ -21220,6 +21220,7 @@ function janitorWorkspaces(): WorkspaceTask[] {
 }
 
 let lastJanitorRun: JanitorRun | null = null;
+let homeUpkeep: ReturnType<typeof startHomeUpkeep> | null = null;
 const diskBreakdown = createDiskBreakdown({ dataDir: DATA_DIR, home: CLOUD_HOME ? homedir() : null, scratch: CLOUD_HOME ? [tmpdir()] : [], dogName: (id) => store.bot(id)?.name ?? null });
 let janitorRunning = false;
 
@@ -21261,7 +21262,7 @@ if (CLOUD_HOME) {
     const stopped = reapStrays({ roots: [TASK_WORKSPACES_DIR], thread: janitorThread, orphanIdleHours: orphanIdleHours(pressure) });
     if (stopped.length) console.log(`[janitor] memory pressure: stopped ${stopped.length} stray process(es)`);
   }, MEMORY_CHECK_MS).unref();
-  startHomeUpkeep({
+  homeUpkeep = startHomeUpkeep({
     subscribe: (listener) => bus.subscribe((event: RuntimeEvent) => { if (!shouldIgnoreProviderEvent(event)) listener(event); }),
     atWork: (threadId) => {
       const bot = store.botByThread(threadId);
@@ -21317,7 +21318,7 @@ function cloudStorage() {
     disk: disk ? { totalBytes: disk.totalBytes, freeBytes: disk.freeBytes } : null,
     memory: { totalBytes: totalmem(), availableBytes: process.availableMemory() },
     low: isLowDisk(disk),
-    warning: null,
+    warning: homeUpkeep?.warning() ?? null,
     archive: logArchive?.status() ?? { enabled: false },
     janitor: lastJanitorRun ? { at: lastJanitorRun.at, freedBytes: lastJanitorRun.freedBytes, stopped: lastJanitorRun.reaped } : null,
     breakdown: diskBreakdown.last(),

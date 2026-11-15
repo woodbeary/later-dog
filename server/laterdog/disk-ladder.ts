@@ -174,7 +174,10 @@ export function diskLine(disk: DiskUse): string {
 export interface LadderRun {
   rung: number;
   freed: number;
+  held: boolean;
 }
+
+const FLOOR = DISK_RUNGS.find((step) => step.name === "floor")!.rung;
 
 export function diskLadder(deps: LadderDeps) {
   const store = deps.store ?? memoryStore();
@@ -182,7 +185,7 @@ export function diskLadder(deps: LadderDeps) {
     climb(): LadderRun {
       const disk = deps.disk();
       const rung = diskRung(disk);
-      if (!disk || rung < 1) return { rung, freed: 0 };
+      if (!disk || rung < 1) return { rung, freed: 0, held: false };
       const now = deps.now?.() ?? Date.now();
       const chats = deps.chats();
       const before = store.load();
@@ -211,7 +214,7 @@ export function diskLadder(deps: LadderDeps) {
       if (tidied.cleared.length || temp.removed.length || caches > 0) {
         deps.log(`${diskLine(disk)}; cleared rebuildable output in ${tidied.chats} chat(s), removed ${temp.removed.length} temp item(s)${caches > 0 ? " and pruned package caches" : ""}, freed ${mb(freed)}`);
       }
-      return { rung, freed: freed + emergency.freed };
+      return { rung, freed: freed + emergency.freed, held: rung >= FLOOR && diskRung(deps.disk()) >= FLOOR };
     },
   };
 }
@@ -242,13 +245,13 @@ function emergencyStep(deps: LadderDeps, chats: readonly WorkspaceTask[], memory
   return { freed, visited: cleared.visited.length, pruned };
 }
 
-export function startDiskLadder(deps: LadderDeps, everyMs = DISK_CHECK_MS): () => void {
+export function startDiskLadder(deps: LadderDeps, everyMs = DISK_CHECK_MS, onRun: (run: LadderRun) => void = () => {}): () => void {
   const ladder = diskLadder(deps);
   let climbing = false;
   const timer = setInterval(() => {
     if (climbing) return;
     climbing = true;
-    try { ladder.climb(); } catch (error) {
+    try { onRun(ladder.climb()); } catch (error) {
       console.warn(`laterdog home: disk upkeep failed: ${error instanceof Error ? error.message : String(error)}`);
     } finally {
       climbing = false;

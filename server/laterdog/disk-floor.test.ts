@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { DISK_RUNGS, diskRung } from "./disk-ladder.ts";
-import { diskFloorDecision, diskFloorRefusal, writesOnHome } from "./disk-floor.ts";
+import { DISK_RUNGS, diskLadder, diskRung } from "./disk-ladder.ts";
+import { diskFloorDecision, diskFloorRefusal, FLOOR_SENTENCE, floorWatch, writesOnHome } from "./disk-floor.ts";
 
 const GB = 1024 ** 3;
 const TOTAL = 19.2 * GB;
@@ -81,5 +81,48 @@ describe("the upper rungs of the disk ladder", () => {
     expect(writesOnHome("ls &> /dev/null")).toBe(false);
     expect(writesOnHome("echo 'a > b'")).toBe(false);
     expect(writesOnHome("echo hi >&2")).toBe(false);
+  });
+});
+
+describe("the one sentence the person sees about disk", () => {
+  function ladderAt(start: number, afterPrune = start) {
+    let free = start;
+    const ran: string[] = [];
+    const disk = () => ({ totalBytes: TOTAL, freeBytes: free * TOTAL });
+    const ladder = diskLadder({
+      disk,
+      chats: () => [],
+      live: () => [],
+      sweepTemp: () => { ran.push("sweep"); return { removed: [], freed: 0 }; },
+      pruneCaches: () => { ran.push("prune"); free = afterPrune; return 0; },
+      log: () => {},
+    });
+    return { ladder, disk, ran };
+  }
+
+  it("is shown only when the floor holds after a pass that ran every rung", () => {
+    const { ladder, disk, ran } = ladderAt(0.03);
+    const watch = floorWatch();
+    expect(watch.warning(disk())).toBeNull();
+    watch.climbed(ladder.climb());
+    expect(ran).toEqual(expect.arrayContaining(["sweep", "prune"]));
+    expect(watch.warning(disk())).toBe(FLOOR_SENTENCE);
+  });
+
+  it("is not shown when the rungs freed enough, above the floor, or once space comes back", () => {
+    const freed = ladderAt(0.03, 0.2);
+    const watch = floorWatch();
+    watch.climbed(freed.ladder.climb());
+    expect(watch.warning(freed.disk())).toBeNull();
+    const refuse = ladderAt(0.08);
+    watch.climbed(refuse.ladder.climb());
+    expect(watch.warning(refuse.disk())).toBeNull();
+    const stuck = ladderAt(0.03);
+    watch.climbed(stuck.ladder.climb());
+    expect(watch.warning({ totalBytes: TOTAL, freeBytes: 0.3 * TOTAL })).toBeNull();
+  });
+
+  it("is the sentence the person was promised, word for word", () => {
+    expect(FLOOR_SENTENCE).toBe("Your Cloud is nearly full. later.dog has cleared everything it safely can; the rest is your dogs' work. Open Storage to choose what to remove.");
   });
 });
