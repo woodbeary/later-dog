@@ -30,6 +30,23 @@ describe("which processes belong to a task", () => {
       expect(isEngineProcess(argv)).toBe(false);
     }
   });
+
+  it("knows an engine by the program it runs, not by a path among its arguments", () => {
+    for (const [argv, serverRoot] of [
+      ["/usr/local/bin/node /usr/local/lib/node_modules/@openai/codex/bin/codex.js app-server", "/app/server"],
+      ["/home/dog/.local/bin/claude --print --resume abc", "/app/server"],
+      ["/usr/local/lib/node_modules/@anthropic-ai/claude-code/bin/claude.exe --print", "/app/server"],
+      ["node --experimental-strip-types /app/server/laterdog/engine-proxy.ts mcp /run/sock", "/app/server"],
+      ["/usr/local/bin/node /app/dist-server/laterdog/mcp.js", "/app/dist-server"],
+    ]) expect(isEngineProcess(argv!, serverRoot)).toBe(true);
+    for (const argv of [
+      "node --test server/laterdog/turn-leftovers.test.ts",
+      "/usr/local/bin/node /data/.laterdog/task-workspaces/dog/t1/later-dog/server/laterdog/mcp.ts",
+      "/usr/local/bin/node node_modules/.bin/vitest run server/laterdog/process-reaper.test.ts",
+      "bash -c pnpm exec tsx server/laterdog/memory-guard.ts --claude",
+      "python3 -m http.server --directory /srv/laterdog/ 8000",
+    ]) expect(isEngineProcess(argv, "/app/server")).toBe(false);
+  });
 });
 
 describe("when a stray is stopped", () => {
