@@ -122,8 +122,8 @@ describe("Regenerate title", { timeout: 60_000 }, () => {
     expect(await taskTitle(botId, threadId)).toBe("Session expiry login hang");
 
     const seen = JSON.parse(readFileSync(titleDump, "utf8"));
-    expect(seen.prompt).toContain("Conversation:\n");
-    expect(seen.prompt).toContain("User: every login hangs after the session expires\nBot: hello from fake claude");
+    expect(seen.prompt).toContain("an excerpt of a conversation");
+    expect(seen.prompt).toContain('"User: every login hangs after the session expires"\n"Bot: hello from fake claude"');
     expect(seen.prompt).not.toContain("echo hi");
   });
 

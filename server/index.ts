@@ -378,7 +378,6 @@ import {
   roomResponders,
   sectionKey,
   Store,
-  titleFromLlm,
   type BotRecord,
   type GroupDefaultResponder,
   type GroupRecord,
@@ -397,7 +396,7 @@ import { makeCapContinuationSubscriber } from "./turn-continuation.ts";
 import { buildRecoveryText, buildTurnContext, engineIsFresh, NATIVELY_REPLAYING_DRIVER_KINDS, peerMessageText } from "./turn-context.ts";
 import { Handoffs, handedStateUsable, recordHanded, renderUnseen, sessionStart, unseenMessages, withUnseenMessages, type ContextMessage } from "./delta-context.ts";
 import { extractTurnImages } from "./turn-images.ts";
-import { threadTitlePrompt, titleConversationExcerpt, type ThreadTitleSource } from "./thread-title.ts";
+import { threadTitlePrompt, titleConversationExcerpt, titleFromAnswer, type ThreadTitleSource } from "./thread-title.ts";
 import { HelperBoard } from "./laterdog/helper-board.ts";
 import { NativeRunProjector } from "./laterdog/native-run-projector.ts";
 import { NativeRunPublisher } from "./laterdog/native-run-publisher.ts";
@@ -8356,7 +8355,7 @@ async function generateThreadTitle(
         }, 10_000);
       }),
     ]);
-    return titleFromLlm(reply);
+    return titleFromAnswer(reply);
   } catch {
     return null;
   } finally {
