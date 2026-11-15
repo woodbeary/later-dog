@@ -11,7 +11,7 @@ const calls = (prefix: string, count: number) => Array.from({ length: count }, (
 async function fixture(test: (f: any) => Promise<void>, plan?: (chief: string, lead: string) => Record<string, any>) {
   const out = mkdtempSync(join(tmpdir(), "helper-notice-"));
   const hookOutput = join(out, "hook-output.ndjson");
-  const session = await launchVerificationServer({ ...process.env, FAKE_CLAUDE_HOOKS: "1", FAKE_CLAUDE_HOOK_OUTPUT: hookOutput }, undefined, undefined, undefined, undefined, { scripted: true });
+  const session = await launchVerificationServer({ ...process.env, FAKE_CLAUDE_HOOKS: "1", FAKE_CLAUDE_HOOK_OUTPUT: hookOutput, FAKE_CLAUDE_ROOM_MS: "120000" }, undefined, undefined, undefined, undefined, { scripted: true });
   const cli = (...args: string[]) => runControlLaterDog(args, { env: { LATERDOG_URL: session.info.url } }) as Promise<any>;
   const api = (path: string, body?: unknown, method = "POST") => request(path, body === undefined ? {} : { method, body: JSON.stringify(body) }, session.info.url) as Promise<any>;
   try {
