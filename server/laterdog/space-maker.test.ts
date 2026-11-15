@@ -29,33 +29,38 @@ function homeWithWork() {
 const proc = (cwd: string, argv: string) => ({ pid: 9, ppid: 1, cwd, argv });
 
 describe("making space on a full Cloud home", () => {
-  it("clears rebuildable folders and package caches nobody is using, and keeps everything a dog made", () => {
+  it("clears the person's rebuildable folders and package caches nobody is using, and keeps everything a dog made", () => {
     const { home, workspaces } = homeWithWork();
-    let pruned = false;
     const run = makeSpace({
       home,
       workspacesDir: workspaces,
       busyDirs: [join(workspaces, "dog/busy")],
       processes: () => [proc(join(home, "reflow/app"), "node vite"), proc(join(workspaces, "dog/idle"), "/usr/local/bin/claude --resume x")],
-      pruneStore: () => { pruned = true; },
     });
     expect(run.cleared.map((path) => path.slice(home.length + 1)).sort()).toEqual([
       ".cache/pip",
-      ".laterdog/task-workspaces/dog/idle/repo/node_modules",
       ".npm/_cacache",
       "site/.next",
       "site/node_modules",
     ]);
     expect(run.freed).toBeGreaterThan(0);
-    expect(pruned).toBe(true);
     for (const kept of ["reflow/app/node_modules", ".laterdog/task-workspaces/dog/busy/repo/node_modules", ".cache/ms-playwright", ".claude/projects/chat", "site/page.tsx"]) expect(existsSync(join(home, kept))).toBe(true);
+  });
+
+  it("leaves every chat's work folder and the package store to the disk ladder, even in a chat with no turn running", () => {
+    const home = mkdtempSync(join(tmpdir(), "space-maker-"));
+    const workspaces = join(home, "work");
+    fill(join(workspaces, "dog/chat/app/node_modules/x"));
+    fill(join(workspaces, "dog/chat/app/.next/cache"));
+    fill(join(home, ".local/share/pnpm/store"));
+    const run = makeSpace({ home, workspacesDir: workspaces, busyDirs: [], processes: () => [proc(join(workspaces, "dog/chat"), "claude --output-format stream-json")] });
+    expect(run.cleared).toEqual([]);
+    for (const kept of ["work/dog/chat/app/node_modules", "work/dog/chat/app/.next", ".local/share/pnpm/store"]) expect(existsSync(join(home, kept))).toBe(true);
   });
 
   it("leaves package caches alone while an install is running", () => {
     const { home, workspaces } = homeWithWork();
-    let pruned = false;
-    const run = makeSpace({ home, workspacesDir: workspaces, busyDirs: [], processes: () => [proc(join(home, "elsewhere"), "pnpm install")], pruneStore: () => { pruned = true; } });
-    expect(pruned).toBe(false);
+    const run = makeSpace({ home, workspacesDir: workspaces, busyDirs: [], processes: () => [proc(join(home, "elsewhere"), "pnpm install")] });
     expect(existsSync(join(home, ".npm/_cacache"))).toBe(true);
     expect(run.cleared.some((path) => path.endsWith("site/node_modules"))).toBe(true);
   });
@@ -74,7 +79,6 @@ describe("making space on a full Cloud home", () => {
       workspacesDir: workspaces,
       busyDirs: [join(home, "busy")],
       processes: () => [proc(join(home, "running"), "node server.js"), proc(home, `node ${join(home, "named")}/x.js`)],
-      pruneStore: () => {},
     });
     expect(run.cleared.map((path) => path.slice(home.length + 1)).sort()).toEqual(["idle/.open-next", "idle/.wrangler/tmp"]);
     for (const kept of ["idle/.wrangler/state/v3", "idle/.wrangler/cache", "running/.wrangler/tmp", "running/.open-next", "named/.wrangler/tmp", "busy/.wrangler/tmp", "busy/.open-next"]) expect(existsSync(join(home, kept))).toBe(true);

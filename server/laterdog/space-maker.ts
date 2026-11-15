@@ -12,7 +12,6 @@ export interface SpaceMakerDeps {
   workspacesDir: string;
   busyDirs: readonly string[];
   processes?: () => ProcessInfo[];
-  pruneStore?: () => void;
 }
 
 const within = (path: string, dir: string) => path === dir || path.startsWith(`${dir}/`);
@@ -27,7 +26,7 @@ export function rebuildableOutput(home: string, workspacesDir: string): string[]
   let names: string[] = [];
   try { names = readdirSync(home); } catch {}
   const roots = names.filter((name) => !name.startsWith(".")).map((name) => join(home, name));
-  return [...roots, workspacesDir].flatMap((root) => findBuildOutput(root, 7));
+  return roots.flatMap((root) => findBuildOutput(root, 7)).filter((path) => !within(path, workspacesDir));
 }
 
 function pnpmStorePrune(home: string): void {
@@ -53,15 +52,22 @@ function liveWork(deps: Pick<SpaceMakerDeps, "processes">): ProcessInfo[] {
   return (deps.processes ?? readProcesses)().filter((proc) => !isEngineProcess(proc.argv));
 }
 
-export function pruneCaches(deps: Pick<SpaceMakerDeps, "home" | "processes" | "pruneStore">, live = liveWork(deps)): { freed: number; cleared: string[] } {
+const installing = (live: readonly ProcessInfo[]) => live.some((proc) => INSTALLER.test(proc.argv));
+
+function clearRebuiltCaches(home: string, live: readonly ProcessInfo[]): { freed: number; cleared: string[] } {
   const { clear, result } = clearer();
-  if (live.some((proc) => INSTALLER.test(proc.argv))) return result();
-  for (const cache of REBUILT_CACHES) clear(join(deps.home, cache));
+  if (installing(live)) return result();
+  for (const cache of REBUILT_CACHES) clear(join(home, cache));
+  return result();
+}
+
+export function pruneCaches(deps: Pick<SpaceMakerDeps, "home" | "processes"> & { pruneStore?: () => void }, live = liveWork(deps)): { freed: number; cleared: string[] } {
+  if (installing(live)) return { freed: 0, cleared: [] };
+  const caches = clearRebuiltCaches(deps.home, live);
   const storeDir = join(deps.home, ".local/share/pnpm");
   const before = sizeOf(storeDir);
   try { (deps.pruneStore ?? (() => pnpmStorePrune(deps.home)))(); } catch {}
-  const done = result();
-  return { freed: done.freed + Math.max(0, before - sizeOf(storeDir)), cleared: done.cleared };
+  return { freed: caches.freed + Math.max(0, before - sizeOf(storeDir)), cleared: caches.cleared };
 }
 
 export function makeSpace(deps: SpaceMakerDeps): { freed: number; cleared: string[] } {
@@ -69,6 +75,6 @@ export function makeSpace(deps: SpaceMakerDeps): { freed: number; cleared: strin
   const { clear, result } = clearer();
   for (const path of rebuildableOutput(deps.home, deps.workspacesDir)) if (!inUse(path, deps.busyDirs, live)) clear(path);
   const output = result();
-  const caches = pruneCaches(deps, live);
+  const caches = clearRebuiltCaches(deps.home, live);
   return { freed: output.freed + caches.freed, cleared: [...output.cleared, ...caches.cleared] };
 }
