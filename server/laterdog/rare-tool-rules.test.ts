@@ -53,10 +53,18 @@ describe("rules a dog must always follow never live only in a rare tool's descri
     expect(sentInstructions(engine, model, secureForm)).toContain(rule);
   });
 
-  it("tells every Claude and Codex dog, on any model, that usage never stops its work", () => {
-    for (const model of ["claude-opus-5-5", "claude-sonnet-5-5", "claude-haiku-5-5", "some-new-model"]) {
-      expect(guidance("claude", model)).toContain("a turn that reaches a limit carries on on another account by itself");
+  it.each(ENGINES)("tells a %s dog once, on any model, that usage never decides whether it works", (engine, model) => {
+    for (const each of [model, "claude-opus-5-5", "some-new-model"]) {
+      for (const secureForm of [true, false]) {
+        const sent = sentInstructions(engine, each, secureForm);
+        expect([engine, each, sent.split("never decides whether to start or keep working").length - 1]).toEqual([engine, each, 1]);
+      }
     }
-    expect(dogGuidance({ engine: "other", agents: true, model: "kimi-k2.6" })).not.toContain("never decides whether to start or keep working");
+  });
+
+  it("says a turn moves to another account only where later.dog moves it", () => {
+    expect(guidance("claude", "claude-haiku-5-5")).toContain("A turn that reaches a limit carries on on another account by itself");
+    expect(guidance("codex", "gpt-5.5")).toContain("A turn that reaches a limit carries on on another account by itself");
+    expect(guidance("other", "kimi-k2.6")).not.toContain("carries on on another account");
   });
 });

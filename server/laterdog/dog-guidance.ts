@@ -110,7 +110,9 @@ export const ANSWER_FIRST =
 export const FINISH_WORK =
   "Carry the work to the end: errors, timeouts, empty results and failing tools are ordinary obstacles to work through. Stop only when nothing can move without the person, or a blocker was put there on purpose.";
 export const USAGE_NEVER_STOPS_WORK =
-  "How much usage is left never decides whether to start or keep working: a turn that reaches a limit carries on on another account by itself.";
+  "How much usage is left never decides whether to start or keep working.";
+export const LIMIT_MOVES_ACCOUNT =
+  " A turn that reaches a limit carries on on another account by itself.";
 export const PLAN_PROMPT =
   "Keep your plan with set_plan; the person sees it in the app. Add each thing they ask for before you start it, including what they want later (as pending). Mark an item in progress when work begins, and done only after it was checked and they were told. Update it the moment what you are doing changes, before your next tool call: on every new message, when you turn to something it does not show, and when a helper or a background command finishes. Only the item you are on is in progress, and steps you dropped come off the list. Make checking the last item. When they ask where things stand (a status, a checkpoint, \"where are we\"), answer from it: done, in progress, not started. Say \"not live yet\" for what is built but not shipped or on their device. Write each item in plain words; a single quick question needs no plan.";
 
@@ -278,7 +280,7 @@ export function dogGuidance(input: GuidanceInput): string {
     PRECEDENCE,
     ANSWER_FIRST,
     FINISH_WORK,
-    input.engine !== "other" && input.agents ? USAGE_NEVER_STOPS_WORK : "",
+    input.agents ? USAGE_NEVER_STOPS_WORK + (input.engine === "other" ? "" : LIMIT_MOVES_ACCOUNT) : "",
     input.engine !== "other" && input.agents ? PLAN_PROMPT : CHECKLIST_IN_REPLY,
     family === "opus-5" ? "" : CHECK_WORK,
     DECIDE_DONT_ASK,

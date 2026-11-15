@@ -260,8 +260,10 @@ on 15 November 2026, every one of the 32 rare tools:
   no clicking through the app to make dogs or group chats
   (`DOG_CREATION_PROMPT`).
 - Moved: "usage never decides whether to start or keep working" lived only in
-  `account_usage`. It is now `USAGE_NEVER_STOPS_WORK` in every Claude and
-  Codex dog's standing instructions and no longer in the description.
+  `account_usage`. It is now `USAGE_NEVER_STOPS_WORK` in the standing
+  instructions of every dog with later.dog's tools, on every engine, and no
+  longer in the description; Claude and Codex dogs also read that a turn at a
+  limit carries on on another account (`LIMIT_MOVES_ACCOUNT`).
 - Bind only a call of their own tool, so they stay in the description: when
   to call (`list_routines`, `account_usage`, `read_phone`, `add_to_phone`,
   `change_on_phone`, `nearby_places`, `email_me`, `send_voice_note`,
