@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
@@ -96,6 +96,36 @@ describe("the owner guard refuses deleting a remote repository", () => {
     }
     for (const tool of ["mcp__github__delete_repository_secret", "mcp__github__delete_file", "GITHUB_DELETE_A_REPOSITORY_WEBHOOK"]) {
       expect(await ownerGuard({ tool }, context()), tool).toBeNull();
+    }
+  });
+});
+
+describe("cleaning inside the workspace root never asks", () => {
+  const cleanups = [
+    "find . -name '*.log' -mtime +3 -delete",
+    "find \"$PWD\" -name '*.log' -delete",
+    "find . -type f -name '*.tmp' -exec rm {} +",
+    "git clean -fdx -e .env",
+    "git clean -fd",
+    "rsync -a --delete dist/ ./",
+  ];
+
+  it.each(cleanups)("%s at the root", async (command) => {
+    expect(await bash(command, { cwd: workspace })).toBeNull();
+  });
+
+  it("holds on real folders that are not temporary", async () => {
+    const root = mkdtempSync(join(tmpdir(), "owner-guard-root-"));
+    try {
+      const work = join(root, "work");
+      mkdirSync(join(work, "logs"), { recursive: true });
+      const real = { cwd: work, workspaceRoots: [work], tempRoots: [join(root, "scratch")], home: join(root, "home") };
+      for (const command of cleanups) expect(await bash(command, real), command).toBeNull();
+      expect((await bash("rm -rf .", real))?.rule).toBe("delete-outside-workspace");
+      expect((await bash(`rm -rf ${work}`, real))?.rule).toBe("delete-outside-workspace");
+      expect((await bash(`find ${root} -name '*.log' -delete`, real))?.rule).toBe("delete-outside-workspace");
+    } finally {
+      rmSync(root, { recursive: true, force: true });
     }
   });
 });

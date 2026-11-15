@@ -315,12 +315,12 @@ const unreadableDelete = (text: string, recursive = false): OwnerGuardRefusal =>
   ask: `This deletes ${text}${recursive ? " and everything in it" : ""}, and later.dog cannot tell where that is. Allow only if you want it gone.`,
 });
 
-function deleteTargetRefusal(target: Word, cwd: string | undefined, paths: Paths, recursive = true): OwnerGuardRefusal | null {
+function deleteTargetRefusal(target: Word, cwd: string | undefined, paths: Paths, recursive = true, contents = false): OwnerGuardRefusal | null {
   const glob = target.glob || /[*?[{]/.test(target.text);
   const expanded = expandWord(glob ? { ...target, text: staticPrefix(target.text) } : target, cwd, paths);
   if (expanded === null || /^[^/]*:/.test(target.text)) return unreadableDelete(target.text, recursive);
   const real = deletedPath(expanded, target.text, paths, glob);
-  const inside = (path: string) => [...paths.roots, ...paths.temp].some((root) => within(path, root, glob));
+  const inside = (path: string) => [...paths.roots, ...paths.temp].some((root) => within(path, root, glob || contents));
   if (inside(real) && inside(expanded)) return null;
   const shown = glob ? target.text : real;
   return {
@@ -337,9 +337,9 @@ function staticPrefix(text: string): string {
   return kept === "" ? (text.startsWith("/") ? "/" : ".") : kept;
 }
 
-function firstRefusal(targets: readonly Word[], cwd: string | undefined, paths: Paths, recursive: boolean): OwnerGuardRefusal | null {
+function firstRefusal(targets: readonly Word[], cwd: string | undefined, paths: Paths, recursive: boolean, contents = false): OwnerGuardRefusal | null {
   for (const target of targets) {
-    const refusal = deleteTargetRefusal(target, cwd, paths, recursive);
+    const refusal = deleteTargetRefusal(target, cwd, paths, recursive, contents);
     if (refusal) return refusal;
   }
   return null;
@@ -391,7 +391,7 @@ function findDeletes(args: Word[]): boolean {
 }
 
 function findRefusal(args: Word[], cwd: string | undefined, paths: Paths): OwnerGuardRefusal | null {
-  return findDeletes(args) ? firstRefusal(findRoots(args), cwd, paths, true) : null;
+  return findDeletes(args) ? firstRefusal(findRoots(args), cwd, paths, true, true) : null;
 }
 
 const RSYNC_VALUE_OPTIONS = new Set(["-e", "--rsh", "--exclude", "--include", "--filter", "-f", "--files-from", "--exclude-from", "--include-from",
@@ -403,8 +403,8 @@ function rsyncRefusal(args: Word[], cwd: string | undefined, paths: Paths): Owne
   const deletes = flags.some((flag) => flag.startsWith("--delete") || flag === "--del");
   const removesSources = flags.includes("--remove-source-files");
   if (!targets.length || (!deletes && !removesSources)) return null;
-  const hit = [...(deletes ? targets.slice(-1) : []), ...(removesSources ? targets.slice(0, -1) : [])];
-  return firstRefusal(hit, cwd, paths, true);
+  return (deletes ? firstRefusal(targets.slice(-1), cwd, paths, true, true) : null)
+    ?? (removesSources ? firstRefusal(targets.slice(0, -1), cwd, paths, true) : null);
 }
 
 function gitCleanRefusal(args: Word[], cwd: string | undefined, paths: Paths): OwnerGuardRefusal | null {
@@ -432,7 +432,7 @@ function gitCleanRefusal(args: Word[], cwd: string | undefined, paths: Paths): O
   const forced = flags.some((flag) => flag === "--force" || (!flag.startsWith("--") && flag.slice(1).includes("f")));
   if (!forced) return null;
   if (dir === undefined) return unreadableDelete("untracked files in this folder");
-  return firstRefusal(targets.length ? targets : [{ text: dir, glob: false, vars: false }], dir, paths, true);
+  return targets.length ? firstRefusal(targets, dir, paths, true) : firstRefusal([{ text: dir, glob: false, vars: false }], dir, paths, true, true);
 }
 
 function shredRefusal(args: Word[], cwd: string | undefined, paths: Paths): OwnerGuardRefusal | null {
