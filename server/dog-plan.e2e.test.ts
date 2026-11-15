@@ -90,9 +90,16 @@ it("keeps a dog's plan per chat, on the wire, across a restart, and out of a hel
     expect((await wirePlan(dog)).items).toEqual(second);
 
     await turn(dog, "and the release note?");
-    expect(stepResults(dog.id).at(-1)).toBe("Plan recorded: 2 of 2 done. The chat shows a plan only while something on it is open, so the person no longer sees this one.");
+    expect(stepResults(dog.id).slice(1)).toEqual([
+      "Not recorded: the plan belongs to the dog that talks to the person. Report your progress in your last message instead.",
+      "Not recorded: the plan belongs to the dog that talks to the person. Report your progress in your last message instead.",
+      "Plan recorded: 1 of 2 done, now “Write the release note”. The person sees it in the app.",
+      "Plan recorded: 2 of 2 done. A finished plan leaves the chat, which is expected. Add items only for new work.",
+    ]);
     expect((await wirePlan(dog)).items).toEqual(finished);
-    writeFileSync(`${session.info.logPath}.plan.json`, JSON.stringify({ stored, turns: evidence() }, null, 2), { mode: 0o600 });
+    const storedFinished = JSON.parse(readFileSync(join(session.info.dataDir, "dog-plans.json"), "utf8"));
+    expect(storedFinished.map((row: any) => row.threadId)).toEqual([dog.activeTaskId]);
+    writeFileSync(`${session.info.logPath}.plan.json`, JSON.stringify({ stored, storedFinished, turns: evidence() }, null, 2), { mode: 0o600 });
     console.info(`Plan evidence: ${session.info.logPath}.plan.json`);
   } finally {
     stream.close();

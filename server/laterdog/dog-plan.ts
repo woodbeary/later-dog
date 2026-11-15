@@ -66,7 +66,7 @@ export const todoWriteSteps = (input: unknown): PlanItem[] | null => engineSteps
 export const codexPlanSteps = (plan: unknown): PlanItem[] | null => engineSteps(plan, ["step"]);
 
 const PLAN_SEEN = " The person sees it in the app.";
-const PLAN_OUT_OF_VIEW = " The chat shows a plan only while something on it is open, so the person no longer sees this one.";
+const PLAN_OUT_OF_VIEW = " A finished plan leaves the chat, which is expected. Add items only for new work.";
 
 export function planRecorded(items: readonly PlanItem[], shown = true): string {
   if (!items.length) return `Plan cleared.${shown ? PLAN_SEEN : ""}`;

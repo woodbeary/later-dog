@@ -48,9 +48,12 @@ run without a terminal offer no task-list tool of their own.
   when it is idle: the list is there for what is still open, and a finished one
   would otherwise come back under every later reply. The home keeps it, the
   wire still carries it, and it shows again as soon as the dog adds an item or
-  goes back to one. `set_plan` answers a finished list by saying the person no
-  longer sees it. The phone app reads the same `plan` and follows the same
-  rule in its own repository.
+  goes back to one. `set_plan` answers a finished list by saying that it
+  leaves the chat, that this is expected, and that items are added only for
+  new work, so the dog is not led to reopen an item to bring the list back.
+  The phone app reads the same `plan` and follows the same rule from its own
+  change in its own repository; a phone or Mac app older than that change
+  still shows a finished list, so the two changes ship together.
 
 ## How it was proven
 
@@ -69,7 +72,7 @@ On isolated fixtures only, with the scripted fake engine:
   validation, the cap, restart loading, engine mapping and the caller check;
   `server/drivers/agents-call.test.ts` covers the tool call and its call id.
 - A finished plan: the same fixture run ends with a turn that marks both items
-  done; the tool answers that the person no longer sees the plan and the wire
+  done; the tool answers that a finished plan leaves the chat and the wire
   still carries both items. `src/components/PlanChecklist.test.ts` renders the
   desktop's plan with every item done, working and idle, and gets nothing; with
   one item added or reopened it gets the plan back.
