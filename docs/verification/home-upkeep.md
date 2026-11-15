@@ -57,3 +57,11 @@ On a test home, the checks that only a real home can make:
 - a dog's `which git` names the engine bin folder, and the clone helper writes nothing a dog sees beyond git's own
   lines;
 - a chat is deleted: its folder appears under `deleted-chat-folders/<dog>/` at once and is gone seven days later.
+
+## Known limit: a restore brings every copy back whole
+
+The repository cache lives in `~/.cache`, which the home's save skips, and a restore (`restore()` in
+`deploy/laterdog/home/runtime/sync.mjs`) writes every file on its own. After a home wakes from a save, each work copy
+holds its full history again: three clones that took one history before the save take three after it, and a restore
+of a home that was near full can need more room than the disk has. Until the restore links files whose saved pieces
+are the same, check free space on a test home before and after a restore with several clones of one repository.
