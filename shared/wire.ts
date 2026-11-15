@@ -262,6 +262,7 @@ export interface WireMessage {
   digest?: TurnDigest;
   compaction?: {
     summary: string;
+    context?: string;
     firstKeptId: string;
     foldedThroughId: string;
     tokensBefore: number;

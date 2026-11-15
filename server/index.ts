@@ -16,7 +16,7 @@ import { extname, join } from "node:path";
 
 import { z } from "zod";
 import { selectReplay, DEFAULT_REBUILD_BYTES, MAX_SUMMARY_BYTES } from "./context-rebuild.ts";
-import { draftSummary, foldPoint } from "./compaction-summary.ts";
+import { foldPoint } from "./compaction-summary.ts";
 import { compactBudget, contextWindowFor, shouldCompact } from "./context-budget.ts";
 import { completeSharedOperation, provenRequestPerson, SharedComputers, sharedActionsHeader, sharedComputerOperation, sharedComputerOperationProblem, sharedComputerRegistration, sharedComputerScopeRefusal, type SharedComputerOperation, type SharedComputerRegistration } from "./shared-computers.ts";
 import { MAC_ALLOW_KEY, MacApprovals, type MacLasting } from "./mac-approval.ts";
@@ -378,7 +378,6 @@ import {
   roomResponders,
   sectionKey,
   Store,
-  titleFromLlm,
   type BotRecord,
   type GroupDefaultResponder,
   type GroupRecord,
@@ -397,7 +396,7 @@ import { makeCapContinuationSubscriber } from "./turn-continuation.ts";
 import { buildRecoveryText, buildTurnContext, engineIsFresh, NATIVELY_REPLAYING_DRIVER_KINDS, peerMessageText } from "./turn-context.ts";
 import { Handoffs, handedStateUsable, recordHanded, renderUnseen, sessionStart, unseenMessages, withUnseenMessages, type ContextMessage } from "./delta-context.ts";
 import { extractTurnImages } from "./turn-images.ts";
-import { threadTitlePrompt, titleConversationExcerpt, type ThreadTitleSource } from "./thread-title.ts";
+import { openingWordsTitle, threadTitlePrompt, titleConversationExcerpt, titleFromAnswer, type ThreadTitleSource } from "./thread-title.ts";
 import { HelperBoard } from "./laterdog/helper-board.ts";
 import { NativeRunProjector } from "./laterdog/native-run-projector.ts";
 import { NativeRunPublisher } from "./laterdog/native-run-publisher.ts";
@@ -774,6 +773,13 @@ import { engineWillCompact, rebuildNeedsSummary } from "./laterdog/native-compac
 import { pickedConversationBackUp, RESUME_REJECTED } from "../shared/resume-pickup.ts";
 import { decodeInjectId } from "./drivers/local-inject.ts";
 import { withDroppedSummary } from "./laterdog/rebuild-summary.ts";
+import { foldReason, keptContext, personLine, writeHistorySummary } from "./laterdog/history-summary.ts";
+import { dogWriter } from "./laterdog/dog-writer.ts";
+import { countsAsTurn } from "./laterdog/usage-turn.ts";
+import { memoryWriterModel } from "./laterdog/upkeep-model.ts";
+import { reportingUsage, summaryUsageRow } from "./laterdog/summary-usage.ts";
+import { rowForApps } from "./laterdog/compaction-row.ts";
+import { assignedTask, openHandoffsFromRoom, ownLastAsk, personOwes, recordsText, withRecords } from "./laterdog/rebuild-records.ts";
 import { fileEngineSummaries } from "./laterdog/engine-summaries.ts";
 import { createEngineSummaryWindows } from "./laterdog/engine-summary-window.ts";
 import { recallsThisTurn } from "./laterdog/session-start-recall.ts";
@@ -5102,7 +5108,7 @@ function pageSize(raw: string | null): number | null | undefined {
 }
 
 function slimMessage(stored: Message): Message | Record<string, unknown> {
-  const message = exchangeLookup && exchangeIdOf(stored) ? withExchange(stored, exchangeLookup) : stored;
+  const message = rowForApps(exchangeLookup && exchangeIdOf(stored) ? withExchange(stored, exchangeLookup) : stored);
   if (message.kind !== "screen" || !message.png) return message;
   const { png: _png, ...rest } = message;
   return { ...rest, hasImage: true };
@@ -5110,7 +5116,7 @@ function slimMessage(stored: Message): Message | Record<string, unknown> {
 
 function messagePage(threadId: string, limit: number | undefined, before?: string | null, view: PageView = {}) {
   if (limit === undefined) {
-    return { messages: store.messagesFor(threadId), activeLeafId: store.activeLeaf(threadId) };
+    return { messages: store.messagesFor(threadId).map(rowForApps), activeLeafId: store.activeLeaf(threadId) };
   }
   const slim = (message: Message) => slimMessage(view.brief ? briefStep(message) : message);
   if (!before) {
@@ -5817,7 +5823,8 @@ const memoryUpkeep = createMemoryUpkeep({
     const bot = store.bot(botId);
     const instance = bot ? registry.get(bot.modelSelection.instanceId) : undefined;
     if (!bot || !instance || policyModelRefusal(instance)) return null;
-    const generate = instance.generateText?.bind(instance);
+    const generate = dogWriter(instance, memoryWriterModel(instance.driverKind, bot.modelSelection.model,
+      { custom: Boolean((providerConfigs()[instance.instanceId]?.config as { managed?: boolean } | undefined)?.managed) || decodeInjectId(bot.modelSelection.model) !== null }));
     return generate ? {
       generateText: async (prompt, options) => {
         assertWithinBudget(cfg, DATA_DIR);
@@ -7796,7 +7803,7 @@ function isContextMessage(m: Message): boolean {
 
 function latestCompaction(messages: readonly Message[]) {
   const record = messages.findLast(message => message.kind === "compaction" && message.compaction);
-  return record?.compaction ? { ...record.compaction, id: record.id } : undefined;
+  return record?.compaction ? { ...record.compaction, summary: keptContext(record.compaction.context ?? record.compaction.summary), id: record.id } : undefined;
 }
 
 function directPrompt(text: string, replyTo: Message | undefined): string {
@@ -7858,9 +7865,10 @@ async function compactConversation(input: {
   const window = contextWindowFor(model, instance.models, reported?.window);
   const harness = !manual && engineWillCompact({ driverKind: instance.driverKind, setting: cfg.context, signs: await instance.adapter.compactionSigns?.(threadId),
     modelKnown: instance.models.options.some(option => option.id === model), injectedModel: decodeInjectId(model) !== null, window });
+  const startsFresh = Boolean(task.rewound) || isExternalContextMarker(task.lastInstanceId) || engineIsFresh({ instanceId: instance.instanceId,
+    lastInstanceId: task.lastInstanceId, resumeCursors: task.resumeCursors, transcript: context.filter(entry => !excludedIds.has(entry.id)) });
   if (harness && !rebuildNeedsSummary({
-    startsFresh: Boolean(task.rewound) || isExternalContextMarker(task.lastInstanceId) || engineIsFresh({ instanceId: instance.instanceId,
-      lastInstanceId: task.lastInstanceId, resumeCursors: task.resumeCursors, transcript: context.filter(entry => !excludedIds.has(entry.id)) }),
+    startsFresh,
     droppedFromReplay: selectReplay(context, { budgetBytes: cfg.context?.rebuildBytes ?? DEFAULT_REBUILD_BYTES, excludedIds, compaction: record }).dropped,
   })) return;
   const measurement = reported;
@@ -7883,7 +7891,12 @@ async function compactConversation(input: {
   const controller = new AbortController();
   compactionControllers.set(threadId, { generation, controller });
   try {
-    const summary = await draftSummary(fold.folded, { signal: controller.signal, generateText: instance.generateText?.bind(instance) });
+    const written = await writeHistorySummary(fold.folded, { signal: controller.signal, write: reportingUsage(dogWriter(instance, model),
+      (usage) => bookTurnUsage(summaryUsageRow({ bot, threadId, instance }, usage), usage.input !== undefined && usage.output !== undefined, threadId)) });
+    if (written.rejected.length) console.warn(`[compaction] summary for ${threadId} not kept (${written.rejected.join("; ")}); ${written.by === "model" ? "the retry was" : "excerpts are"} used`);
+    const moved = Boolean(task.lastInstanceId && !isExternalContextMarker(task.lastInstanceId) && task.lastInstanceId !== instance.instanceId);
+    const reason = foldReason({ manual, startsFresh: harness && startsFresh, moved, driver: instance.driverKind,
+      lastDriver: task.lastInstanceId ? registry.get(task.lastInstanceId)?.driverKind : undefined });
     if (!directTurnClaimIsCurrent(bot.id, generation, threadId)) throw new DirectTurnSetupCancelled("context summarization stopped");
     controller.signal.throwIfAborted();
     if (prefix !== JSON.stringify(store.activePath(threadId).slice(0, messages.length))) {
@@ -7892,7 +7905,7 @@ async function compactConversation(input: {
     }
     store.appendMessage(threadId, {
       role: "bot", kind: "compaction",
-      compaction: { summary, firstKeptId: fold.firstKeptId, foldedThroughId,
+      compaction: { summary: personLine(reason), context: written.context, firstKeptId: fold.firstKeptId, foldedThroughId,
         tokensBefore: measurement?.tokens ?? Math.ceil(bytes / 4), by: manual ? "person" : "harness" },
     }, { kind: "compaction.append", key: `${threadId}:${messages.at(-1)?.id}:${fold.firstKeptId}` });
   } finally {
@@ -8352,7 +8365,7 @@ async function generateThreadTitle(
         }, 10_000);
       }),
     ]);
-    return titleFromLlm(reply);
+    return titleFromAnswer(reply);
   } catch {
     return null;
   } finally {
@@ -8665,8 +8678,11 @@ async function startTurn(
       const replayable = context.filter(m => !skipTranscript.has(m.id));
       const record = latestCompaction(activeMessages);
       const selection = selectReplay(context, { budgetBytes: cfg.context?.rebuildBytes ?? DEFAULT_REBUILD_BYTES, excludedIds: skipTranscript, compaction: record });
-      const transcript = withDroppedSummary({ context, transcript: selection.transcript, representedIds: selection.representedIds,
-        excludedIds: skipTranscript, recordId: record?.id, engine: engineSummaries.read(threadId) }).map(({ role, text }) => ({ role, text }));
+      const records = recordsText({ assigned: assignedTask(roomHandoffs.nodes, threadId, (id) => store.bot(id)?.name),
+        plan: dogPlans.get(threadId)?.items, waiting: personOwes(activeMessages),
+        handoffs: openHandoffsFromRoom(roomHandoffs.outstandingDirect(threadId), (id) => store.bot(id)?.name) });
+      const transcript = withRecords(withDroppedSummary({ context, transcript: selection.transcript, representedIds: selection.representedIds,
+        excludedIds: skipTranscript, recordId: record?.id, engine: engineSummaries.read(threadId) }), records, ownLastAsk(activeMessages, cfg.profile?.name)).map(({ role, text }) => ({ role, text }));
       const contextReset = selection.compacted > 0 && record?.id !== task.appliedCompactionId;
       if (contextReset) store.patchTask(bot.id, threadId, { resumeCursors: {} });
 
@@ -13386,7 +13402,7 @@ ROUTES.push(createDogActivityRoutes({
     if (!bot) return null;
     return [...new Set([bot.threadId, ...store.tasks(botId).map((task) => task.threadId)])].map((threadId) => store.messagesFor(threadId));
   },
-  turnTimes: (botId, since) => readUsage(DATA_DIR, { from: new Date(since), to: new Date() }).filter((row) => row.botId === botId).map((row) => Date.parse(row.at)),
+  turnTimes: (botId, since) => readUsage(DATA_DIR, { from: new Date(since), to: new Date() }).filter((row) => row.botId === botId && countsAsTurn(row)).map((row) => Date.parse(row.at)),
 }));
 ROUTES.push(createScreenGoalRoutes({ dogThread: (threadId) => (store.botByThread(threadId) ? store.messagesFor(threadId) : null) }));
 ROUTES.push(createChatContextRoutes({ breakdown: (threadId) => {
@@ -15801,7 +15817,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         return json(res, 400, { error: "single-bot events open that bot's chat directly" });
       }
       const group = ensureCalendarCallRoom(call);
-      return json(res, 200, { group: { ...publicGroupState(group), messages: store.messagesFor(group.threadId) } });
+      return json(res, 200, { group: { ...publicGroupState(group), messages: store.messagesFor(group.threadId).map(rowForApps) } });
     }
     const calendarCallMatch = path.match(/^\/api\/calendar-calls\/([\w-]+)$/);
     if (calendarCallMatch && method === "PATCH") {
@@ -19157,7 +19173,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       const startedFrom = store.taskByThread(m[1], m[2])!.title;
       titleRegenerations.add(m[2]);
       try {
-        const title = await generateThreadTitle(instance, excerpt, "conversation");
+        const title = await generateThreadTitle(instance, excerpt, "conversation") ?? openingWordsTitle(store.activePath(m[2]));
         if (!title) return json(res, 502, { error: "couldn't generate a title — try again, or rename the thread" });
         const task = store.retitleTask(m[1], m[2], startedFrom, title) ?? store.taskByThread(m[1], m[2]);
         if (!task) return json(res, 404, { error: "no such task" });

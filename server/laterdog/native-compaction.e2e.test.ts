@@ -136,7 +136,8 @@ it("summarises the older part once when an account switch has to rebuild a chat 
   await f.send("SWITCHED which port?");
   const folds = await f.folds();
   expect(folds).toHaveLength(1);
-  expect(folds[0].compaction.summary).toContain("OLDEST_DECISION");
+  expect(folds[0].compaction.summary).toBe("This chat moved to another account, so its earlier messages were summarized.");
+  expect(folds[0].compaction.context).toContain("OLDEST_DECISION");
   const turn = f.turns().at(-1);
   expect(String(turn.prompt.message.content)).toContain("Earlier conversation summary");
   expect(String(turn.prompt.message.content)).toContain("SWITCHED which port?");

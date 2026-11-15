@@ -289,6 +289,7 @@ export interface TextGenerationUsage {
 }
 
 export interface TextGenerationOptions {
+  model?: string;
   signal?: AbortSignal;
   onUsage?: (usage: TextGenerationUsage) => void;
 }

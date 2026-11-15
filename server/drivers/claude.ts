@@ -75,6 +75,7 @@ import { CLAUDE_PICKS_CACHE_LIFETIME, claudeCacheLifetime } from "../laterdog/ca
 import { claudeCompactionSwitchedOff } from "../laterdog/native-compaction.ts";
 import { helpersStoppedLine } from "../laterdog/helpers-stopped.ts";
 import { claudeApiErrorFrame } from "../laterdog/claude-api-error.ts";
+import { APPROVAL_REVIEW_MODEL } from "../laterdog/dog-writer.ts";
 import { RESUME_REJECTED } from "../../shared/resume-pickup.ts";
 
 export function claudeAuthStatus(
@@ -2248,13 +2249,13 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
       return answer;
     };
 
-    const generateReview = (prompt: string, signal?: AbortSignal, onUsage?: TextGenerationOptions["onUsage"]): Promise<string> =>
+    const quickModel = config.managedModels?.[0] ?? APPROVAL_REVIEW_MODEL;
+    const generateReview = (prompt: string, model: string, signal?: AbortSignal, onUsage?: TextGenerationOptions["onUsage"]): Promise<string> =>
       new Promise((resolve, reject) => {
         if (config.requireApiKey && !input.environment.ANTHROPIC_API_KEY) {
           reject(new Error(NO_ANTHROPIC_KEY));
           return;
         }
-        const model = config.managedModels?.[0] ?? "claude-haiku-4-5";
         const oneShotEnvironment = environment(model);
         const compactWindow = cliHasAutocompact === true ? autoCompactWindow(oneShotEnvironment, claudeKeepsTunedWindow(cliVersion, config.managed)) : null;
         const child = spawnCli(
@@ -2423,12 +2424,12 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
       generateText: async (prompt, options) => {
         await claudeRefreshGate.enter(environment());
         await learnCliFlags(environment());
-        return generateReview(prompt, options?.signal, options?.onUsage);
+        return generateReview(prompt, options?.model ?? quickModel, options?.signal, options?.onUsage);
       },
       reviewPermission: async (prompt, signal) => {
         await claudeRefreshGate.enter(environment());
         await learnCliFlags(environment());
-        return generateReview(prompt, signal);
+        return generateReview(prompt, quickModel, signal);
       },
       dispose: async () => {
         for (const controller of starting.values()) controller.abort();
