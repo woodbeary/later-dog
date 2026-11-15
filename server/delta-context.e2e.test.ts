@@ -306,7 +306,7 @@ it("keeps provenance and exactly-once delivery across rework rounds to the same 
   const [, , roundOne, roundTwo] = f.turns();
   expect(count(f.prompt(roundOne), "ROUND_ONE_RESULT")).toBe(1);
   expect(count(f.prompt(roundTwo), "ROUND_TWO_RESULT")).toBe(1);
-  expect(count(f.prompt(roundTwo), "ROUND_ONE_RESULT")).toBe(1);
+  expect(count(f.prompt(roundTwo), "ROUND_ONE_RESULT")).toBe(0);
   expect(f.launches().at(-1).resume).not.toBeNull();
 
   const second = f.prompt(f.turns(f.lead.id)[1]);
@@ -562,6 +562,27 @@ it("gives a replacement session an earlier round's result that its rebuild could
   expect(count(returned, "ROUND_ONE_RESULT_TOKEN")).toBe(1);
   expect(returned).not.toContain("already delivered");
 }), 240_000);
+
+it("gives a session that cannot be resumed on the last results turn the earlier result once, by replay", () => fixture(async (f) => {
+  await warmUp(f);
+  f.plan[f.lead.id] = { reply: "EARLY_LEAD_RESULT" };
+  f.plan[f.qa.id] = { reply: "LATE_QA_RESULT", gateFile: f.gate("qa") };
+  f.plan[f.chief.id] = { turns: [{}, f.delegate("split", [f.lead, f.qa], "Check the release"), { reply: "Acted on the lead" }, { reply: "Final" }] };
+  await f.send("Have Engineering and QA check the release.");
+  await expect.poll(() => f.turns().length, { timeout: 40_000 }).toBe(3);
+  await expect.poll(async () => (await f.messages()).some((m: any) => m.text === "Acted on the lead" && m.turnTerminal), { timeout: 10_000 }).toBe(true);
+  expect(count(f.prompt(f.turns()[2]), "EARLY_LEAD_RESULT")).toBe(1);
+  const original = cursor(f);
+  await f.setMode("resume=dead-session");
+  f.open(f.gate("qa"));
+  await expect.poll(() => f.turns().length, { timeout: 40_000 }).toBe(4);
+  await expect.poll(async () => (await f.messages()).some((m: any) => m.text === "Final" && m.turnTerminal), { timeout: 15_000 }).toBe(true);
+  await f.setMode();
+  expect(cursor(f)).not.toBe(original);
+  const last = f.prompt(f.turns().at(-1));
+  expect(count(last, "EARLY_LEAD_RESULT")).toBe(1);
+  expect(count(last, "LATE_QA_RESULT")).toBe(1);
+}), 120_000);
 
 it("does not send a message again that a recovery replay carried, including one the unseen limit had deferred", () => fixture(async (f) => {
   await warmUp(f);

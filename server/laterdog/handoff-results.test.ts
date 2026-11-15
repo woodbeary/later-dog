@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import { RoomHandoffs, type RoomHandoff, type RoomHandoffHooks } from "../room-handoffs.ts";
 import type { HandoffRunResult } from "./long-work.ts";
-import { RESULT_MAX_WAIT_MS, RESULT_QUIET_MS, splitResults } from "./handoff-results.ts";
+import { RESULT_MAX_WAIT_MS, RESULT_QUIET_MS, resultsTurn, sessionHolds, splitResults } from "./handoff-results.ts";
 import { removeTempDir } from "../testing/cleanup.ts";
 
 const lead = { botId: "lead", threadId: "lead-chat" };
@@ -17,14 +17,18 @@ interface Team {
   clock: { at: number };
   finish(name: string, text?: string): void;
   wakes(): { fresh: string[]; earlier: string[]; out: string[] }[];
+  told(): string[];
   settle(): Promise<void>;
 }
+
+const count = (text: string, needle: string) => text.split(needle).length - 1;
 
 async function team(test: (t: Team) => Promise<void>) {
   const dir = mkdtempSync(join(process.env.TMPDIR ?? "/tmp", "handoff-results-"));
   const clock = { at: 1_000_000 };
   const pending = new Map<string, (result: HandoffRunResult) => void>();
   const wakes: { fresh: string[]; earlier: string[]; out: string[] }[] = [];
+  const told: string[] = [];
   let engine!: RoomHandoffs;
   const hooks: RoomHandoffHooks = {
     validate: () => undefined, busy: () => false, report: vi.fn(), changed: () => {},
@@ -32,6 +36,8 @@ async function team(test: (t: Team) => Promise<void>) {
       if (node.botId === lead.botId && resumed) {
         const split = splitResults(engine.awaited(node.id), node.startedAt);
         wakes.push({ fresh: split.fresh.map(n => n.botId), earlier: split.earlier.map(n => n.botId), out: split.out.map(n => n.botId) });
+        told.push(resultsTurn(node.text, engine.awaited(node.id), node.startedAt,
+          { asked: n => ({ bot: n.botId }), result: n => n.result, held: () => true }).text);
         return { ok: true, text: "acted on what came back" };
       }
       return new Promise<HandoffRunResult>(resolve => pending.set(node.botId, resolve));
@@ -42,7 +48,7 @@ async function team(test: (t: Team) => Promise<void>) {
   const settle = async () => { for (let i = 0; i < 6; i++) { engine.tick(); await flush(); } };
   try {
     await test({
-      engine, hooks, file, clock, settle, wakes: () => wakes,
+      engine, hooks, file, clock, settle, wakes: () => wakes, told: () => told,
       finish: (name, text = `${name} result`) => { pending.get(name)?.({ ok: true, text }); pending.delete(name); },
     });
   } finally { await removeTempDir(dir); }
@@ -52,6 +58,26 @@ function sendThree(engine: RoomHandoffs) {
   for (const name of ["pip", "quill", "rook"]) engine.enqueue(lead, "turn", undefined, helper(name), name, `Lane for ${name}`);
   engine.sourceSettled("turn", true);
 }
+
+describe("whether the coordinator's current session still holds a result it was given", () => {
+  const order = ["a", "row", "b", "c"];
+  it("holds nothing when a new session starts or the result has no row", () => {
+    expect(sessionHolds({ session: "s", ids: ["row"] }, undefined, order, "row")).toBe(false);
+    expect(sessionHolds({ session: "s", ids: ["row"] }, "s", order, undefined)).toBe(false);
+  });
+  it("trusts a resumed session that keeps no record", () => {
+    expect(sessionHolds(undefined, "s", order, "row")).toBe(true);
+  });
+  it("holds what its record says it received", () => {
+    expect(sessionHolds({ session: "s", ids: ["row"] }, "s", order, "row")).toBe(true);
+    expect(sessionHolds({ session: "s", through: "b", ids: [] }, "s", order, "row")).toBe(true);
+    expect(sessionHolds({ session: "s", through: "a", ids: ["c"] }, "s", order, "row")).toBe(false);
+  });
+  it("does not hold a result a replacement session's rebuild left out, nor one from another session's record", () => {
+    expect(sessionHolds({ session: "s", omitted: "row", through: "c", ids: [] }, "s", order, "row")).toBe(false);
+    expect(sessionHolds({ session: "old", ids: ["row"] }, "s", order, "row")).toBe(false);
+  });
+});
 
 describe("a coordinator is given its helpers' results as they come back", () => {
   it("wakes for the first results while a slow helper still works, then again for the slow one", () => team(async t => {
@@ -140,6 +166,47 @@ describe("a coordinator is given its helpers' results as they come back", () => 
     expect(t.engine.nodes.get("turn")?.status).toBe("waiting");
     expect(t.engine.awaited("turn").find(n => n.botId === "rook")?.status).toBe("running");
   }));
+
+  it("puts each of six results into the coordinator's turns once when they finish twenty seconds apart", () => team(async t => {
+    const names = ["h1", "h2", "h3", "h4", "h5", "h6"];
+    for (const name of names) t.engine.enqueue(lead, "turn", undefined, helper(name), name, `Lane for ${name}\nwith detail`);
+    t.engine.sourceSettled("turn", true);
+    await t.settle();
+    for (const name of names) { t.finish(name, `${name.toUpperCase()}_RESULT_TEXT`); await t.settle(); t.clock.at += 20_000; await t.settle(); }
+    expect(t.wakes()).toHaveLength(6);
+    const told = t.told().join("\n");
+    expect(names.map(name => count(told, `${name.toUpperCase()}_RESULT_TEXT`))).toEqual([1, 1, 1, 1, 1, 1]);
+    expect(count(t.told()[5], "Lane for h1")).toBe(1);
+    expect(count(t.told()[5], "with detail")).toBe(1);
+    expect(t.engine.nodes.get("turn")?.status).toBe("completed");
+  }));
+
+  for (const failure of ["returns a failure", "throws"] as const) {
+    it(`gives the results of a results turn that ${failure} again with the next ones, once, without waking for them alone`, () => team(async t => {
+      sendThree(t.engine);
+      const run = t.hooks.run;
+      let failures = 0;
+      t.hooks.run = vi.fn(async (node: RoomHandoff, resumed: boolean, signal: AbortSignal) => {
+        if (node.botId === lead.botId && resumed && failures++ === 0) {
+          if (failure === "throws") throw new Error("engine error");
+          return { ok: false, text: "engine error" };
+        }
+        return run(node, resumed, signal);
+      });
+      await t.settle();
+      t.finish("pip", "PIP_RESULT_TEXT"); t.finish("quill", "QUILL_RESULT_TEXT"); await t.settle();
+      t.clock.at += RESULT_QUIET_MS; await t.settle();
+      expect(failures).toBe(1);
+      t.clock.at += 10 * RESULT_MAX_WAIT_MS; await t.settle();
+      expect(failures).toBe(1);
+      expect(t.engine.nodes.get("turn")?.status).toBe("waiting");
+      t.finish("rook", "ROOK_RESULT_TEXT"); await t.settle();
+      expect(t.wakes()).toEqual([{ fresh: ["pip", "quill", "rook"], earlier: [], out: [] }]);
+      const told = t.told().join("\n");
+      expect(["PIP", "QUILL", "ROOK"].map(name => count(told, `${name}_RESULT_TEXT`))).toEqual([1, 1, 1]);
+      expect(t.engine.nodes.get("turn")?.status).toBe("completed");
+    }));
+  }
 
   it("gives the same results again when a results turn times out and is tried once more", () => team(async t => {
     sendThree(t.engine);

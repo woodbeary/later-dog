@@ -73,6 +73,7 @@ it("gives a coordinator its first helpers' results while a slow one works, then 
     await expect.poll(() => nodes().find((node) => !node.parentId && node.botId === marlow.id)?.status, { timeout: 20_000 }).toBe("completed");
     const last = marlowTurns().find((turn) => told(turn).includes(ALL_BACK))!;
     expect(told(last)).toContain("ROOK_LANE_RESULT");
+    for (const result of ["PIP_LANE_RESULT", "QUILL_LANE_RESULT", "ROOK_LANE_RESULT"]) expect(told(last).split(result).length - 1, result).toBe(1);
 
     const settled = turns().length;
     await new Promise((resolve) => setTimeout(resolve, 3_000));

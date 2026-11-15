@@ -144,8 +144,8 @@ export class RoomHandoffs {
           if (n.status === "source") { n.status = "waiting"; continue; }
           if (n.status !== "running") continue;
           const children = this.awaited(n.id);
-          if (n.startedAt !== undefined) takeBackResults(children, n.startedAt);
-          if (children.some(c => !terminal(c))) n.status = "waiting";
+          const takenBack = n.startedAt !== undefined && takeBackResults(children, n.startedAt);
+          if (children.some(c => !terminal(c))) n.status = takenBack ? "resume" : "waiting";
           else if (children.length) n.status = "resume";
           else { n.status = "queued"; n.restarted = true; }
         }
@@ -161,6 +161,9 @@ export class RoomHandoffs {
   }
   private stillAwaiting(n: RoomHandoff): boolean {
     return this.awaited(n.id).some(c => !terminal(c) || c.givenAt === undefined);
+  }
+  private takeBackFailed(n: RoomHandoff, resumed: boolean, ok: boolean, startedAt: number): void {
+    if (resumed && !ok) takeBackResults(this.awaited(n.id), startedAt);
   }
   private owesOnlySynthesis(n: RoomHandoff): boolean {
     const children = this.awaited(n.id);
@@ -498,7 +501,7 @@ export class RoomHandoffs {
         const children = this.awaited(n.id);
         if (!children.length && this.children(n.id).length) { n.status = "completed"; this.publish(n); }
         else if (children.every(c => terminal(c) && c.reported)) { n.status = "resume"; this.publish(n); }
-        else if (!n.groupId && partResultsDue(children, this.now(), this.limits)) { n.status = "resume"; this.publish(n); }
+        else if (!n.groupId && partResultsDue(children, this.now(), this.limits, n.startedAt)) { n.status = "resume"; this.publish(n); }
       }
       if (n.status !== "queued" && n.status !== "resume") continue;
       if (parent && (parent.status === "source" || parent.status === "running") &&
@@ -510,7 +513,7 @@ export class RoomHandoffs {
       if (root.executions + executionCost > this.limits.executions) { this.cancelTree(n, endWords("limit", this.limits), "failed", "limit"); continue; }
       const resumed = n.status === "resume";
       const childCount = this.awaited(n.id).length;
-      root.executions += executionCost; n.status = "running"; n.startedAt = this.now();
+      root.executions += executionCost; n.status = "running"; n.startedAt = Math.max(this.now(), (n.startedAt ?? -1) + 1);
       const startedAt = n.startedAt;
       if (resumed) giveResults(this.awaited(n.id), startedAt);
       this.stampProgress(root);
@@ -527,12 +530,12 @@ export class RoomHandoffs {
           const parent = n.parentId ? this.nodes.get(n.parentId) : undefined;
           if (parent) this.hooks.report(n, parent);
         }
-        else if (this.awaited(n.id).length > childCount) n.status = "waiting";
+        else if (this.awaited(n.id).length > childCount) { this.takeBackFailed(n, resumed, result.ok, startedAt); n.status = "waiting"; }
         else if (!result.ok && result.timedOut && !n.retried) {
           n.retried = true; n.status = resumed ? "resume" : "queued"; this.stampProgress(root);
           if (resumed) takeBackResults(this.awaited(n.id), startedAt);
         }
-        else if (this.stillAwaiting(n)) n.status = "waiting";
+        else if (this.stillAwaiting(n)) { this.takeBackFailed(n, resumed, result.ok, startedAt); n.status = "waiting"; }
         else if (!result.ok && result.timedOut) this.cancelTree(n, timedOutAgain(n.result), "failed", "timeout");
         else if (!result.ok) this.cancelTree(n, n.result || "Room agent failed", "failed", "problem");
         else { n.status = "completed"; this.stampProgress(root); }
@@ -541,6 +544,7 @@ export class RoomHandoffs {
         if (terminal(n)) return;
         n.result = String(e).slice(0, 1000);
         if (this.awaited(n.id).length > childCount || this.stillAwaiting(n)) {
+          this.takeBackFailed(n, resumed, false, startedAt);
           n.status = "waiting";
           this.publish(n);
         } else this.cancelTree(n, n.result, "failed", "problem");
