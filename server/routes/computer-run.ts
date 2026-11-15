@@ -17,8 +17,11 @@ export function createComputerRunRoute(deps: ComputerRunRouteDeps): InternalRout
     if (!deps.owns(sender.id, threadId)) return json(res, 403, { error: "source conversation does not belong to sender" });
     const body = await readBody();
     const roots = deps.folders(sender.id, threadId);
-    const active = deps.active ? () => deps.active!(capability) : undefined;
-    const answer = await handleComputerRun({ botId: sender.id, body: body && typeof body === "object" ? body : {}, workingFolder: roots[0] ?? null, allowedRoots: roots, ...(deps.maxWaitMs ? { maxWaitMs: deps.maxWaitMs(threadId) } : {}), ...(active ? { active } : {}) }, deps);
+    let callerGone = false;
+    res.once("close", () => { if (!res.writableEnded) callerGone = true; });
+    const active = () => !callerGone && (!deps.active || deps.active(capability));
+    const answer = await handleComputerRun({ botId: sender.id, body: body && typeof body === "object" ? body : {}, workingFolder: roots[0] ?? null, allowedRoots: roots, ...(deps.maxWaitMs ? { maxWaitMs: deps.maxWaitMs(threadId) } : {}), active }, deps);
+    if (callerGone) return;
     return json(res, answer.status, answer.error ? { error: answer.error } : { text: answer.text, failed: answer.failed });
   };
 }

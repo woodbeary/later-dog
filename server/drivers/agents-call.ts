@@ -10,6 +10,8 @@ import type { HarnessClient, Json } from "./agents-client.ts";
 import { boundedAgentResult } from "./agents-result.ts";
 import { parseTakeoverInput, takeoverRequestedText } from "../laterdog/takeover.ts";
 import { groupChatMadeText, groupChatsText } from "../laterdog/group-chats.ts";
+import { LONGEST_WAIT_MINUTES } from "../laterdog/run-wait.ts";
+import { WAIT_IN_ONE_CALL_MS } from "../laterdog/computer-runs.ts";
 
 export interface ToolCallContext {
   botId: string;
@@ -18,6 +20,7 @@ export interface ToolCallContext {
   sharedComputers: boolean;
   client: HarnessClient;
   toolUseId?: string;
+  signal?: AbortSignal;
 }
 
 export interface ToolCallResult {
@@ -334,14 +337,19 @@ function crossDogSearchText(r: Json, q: string, since: string, until: string): T
   };
 }
 
+export function callWaitMs(minutes: unknown): number {
+  const asked = typeof minutes === "number" && Number.isInteger(minutes) && minutes >= 1 && minutes <= LONGEST_WAIT_MINUTES ? minutes * 60_000 : WAIT_IN_ONE_CALL_MS;
+  return asked + 2 * 60_000;
+}
+
 export async function callTool(name: string, args: Json, context: ToolCallContext): Promise<ToolCallResult> {
   const { botId: BOT_ID, threadId: THREAD_ID } = context;
   const { api, apiResponse } = context.client;
   if (name === "run_on_computer") {
-    const { ok, body } = await apiResponse("/api/internal/computer-run", {
-      method: "POST",
-      body: JSON.stringify(args),
-    });
+    const waitMs = callWaitMs(args.wait_minutes);
+    const { ok, body } = context.client.apiWait
+      ? await context.client.apiWait("/api/internal/computer-run", JSON.stringify(args), waitMs, context.signal)
+      : await apiResponse("/api/internal/computer-run", { method: "POST", body: JSON.stringify(args) });
     if (!ok) return { text: String(body.error ?? "The command could not run on your computer."), isError: true };
     return { text: String(body.text ?? ""), isError: body.failed === true };
   }
