@@ -40,7 +40,7 @@ const SNAKE = /^[a-z][a-z0-9]*(?:_[a-z0-9]+)+$/;
 const JOINED = /^[A-Z][a-z0-9]+(?:[A-Z][a-z0-9]+){2,}$/;
 
 export function bareToolName(name: string): string {
-  return name.trim().toLowerCase().replace(/^(?:mcp__.+?|[a-z][a-z0-9_-]{0,31})__/, "").split(":", 1)[0]!.trim();
+  return name.trim().toLowerCase().replace(/^functions\./, "").replace(/^(?:mcp__.+?|[a-z][a-z0-9_-]{0,31})__/, "").split(":", 1)[0]!.trim();
 }
 
 export function toolPhrase(name: string): ToolPhrase {
@@ -54,19 +54,27 @@ function knownTool(head: string): boolean {
 
 function looksLikeToolName(text: string): boolean {
   const word = text.trim();
-  return word.includes("__") || NAMED.test(word) || SNAKE.test(word) || JOINED.test(word);
+  if (!/^\S+$/.test(word)) return false;
+  return word.includes("__") || /^functions\.\w+$/.test(word) || NAMED.test(word) || SNAKE.test(word) || JOINED.test(word);
 }
 
 export function plainToolLabel(label: string, running: boolean): string {
   const text = label.trim();
   const split = /^([^\s:]+):\s*(.*)$/s.exec(text);
   const head = split?.[1] ?? text;
-  if (!knownTool(head) && !looksLikeToolName(head)) {
-    if (!text.includes("__")) return text;
-    return running ? USED_A_TOOL.running : USED_A_TOOL.done;
-  }
+  if (!knownTool(head) && !looksLikeToolName(head)) return withoutInternalNames(text, running);
   const phrase = toolPhrase(head);
   const said = running ? phrase.running : phrase.done;
   const detail = split?.[2]?.trim();
-  return detail && !detail.includes("__") ? `${said}: ${detail}` : said;
+  return detail && !INTERNAL.test(detail) ? `${said}: ${detail}` : said;
+}
+
+const INTERNAL = /\S*__\S*|\bfunctions\.\w+/;
+const INTERNAL_ALL = /\S*__\S*|\bfunctions\.\w+/g;
+
+function withoutInternalNames(text: string, running: boolean): string {
+  if (!INTERNAL.test(text)) return text;
+  const plain = text.replace(INTERNAL_ALL, "a tool").replace(/\s+/g, " ").trim();
+  if (!plain || /^a tool[.:]?$/i.test(plain)) return running ? USED_A_TOOL.running : USED_A_TOOL.done;
+  return `${plain[0]!.toUpperCase()}${plain.slice(1)}`;
 }

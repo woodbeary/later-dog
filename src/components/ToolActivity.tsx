@@ -32,7 +32,7 @@ export function ToolActivity({ tool, place = null }: { tool: NonNullable<Message
         <div className={cn("text-[11px] font-medium", failed && "text-danger")}>{status}</div>
         <div>
           <div className="mb-1 text-[11px] font-medium">{t("toolDetail.input")}</div>
-          <pre dir="ltr" className="max-h-52 overflow-auto rounded-lg bg-inset p-2.5 font-mono text-xs whitespace-pre-wrap break-words text-ink">{tool.input ?? tool.summary ?? tool.name}</pre>
+          <pre dir="ltr" className="max-h-52 overflow-auto rounded-lg bg-inset p-2.5 font-mono text-xs whitespace-pre-wrap break-words text-ink">{tool.input ?? tool.summary ?? said}</pre>
         </div>
         <div>
           <div className="mb-1 text-[11px] font-medium">{t("toolDetail.output")}</div>

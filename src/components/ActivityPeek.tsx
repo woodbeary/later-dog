@@ -49,11 +49,11 @@ function HelperDetails({ helper }: { helper: Helper | HelperMember }) {
     <div className="min-w-0 space-y-1">
       <div className="flex items-start justify-between gap-3"><span className="break-words text-[12px] font-medium leading-5 text-ink">{plainToolLabel(helper.label, helper.state === "running")}</span><span className="shrink-0 pt-0.5 text-[10.5px] text-ink-tertiary">{helperStateText(helper.state)}</span></div>
       {"phase" in helper && helper.phase && <p className="text-[11px] text-ink-tertiary">{helper.phase}</p>}
-      {helper.activity && helper.activity !== helper.label && <p className="break-words text-[12px] leading-relaxed text-ink-secondary">{helper.activity}</p>}
+      {helper.activity && helper.activity !== helper.label && <p className="break-words text-[12px] leading-relaxed text-ink-secondary">{plainToolLabel(helper.activity, helper.state === "running")}</p>}
       {helper.recentActivity && helper.recentActivity.length > 1 && (
         <ul className="space-y-0.5">
           {helper.recentActivity.slice(0, -1).reverse().map((line, index) => (
-            <li key={index} className="break-words text-[11px] leading-relaxed text-ink-tertiary">{line}</li>
+            <li key={index} className="break-words text-[11px] leading-relaxed text-ink-tertiary">{plainToolLabel(line, false)}</li>
           ))}
         </ul>
       )}

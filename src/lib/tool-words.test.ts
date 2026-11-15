@@ -82,4 +82,23 @@ describe("tools named in plain words", () => {
     expect(row).toContain("Running a command on its computer");
     expect(row.replace(/<pre[\s\S]*?<\/pre>/g, "")).not.toContain("mcp__");
   });
+
+  it("leaves no internal name anywhere: a step opened with no input, a dotted engine name, an error that quotes one, and a helper's latest tool", async () => {
+    expect(plainToolLabel("functions.exec_command", false)).toBe("Ran a command");
+    expect(plainToolLabel("Error: mcp__agents__run_on_computer timed out", false)).toBe("Error: a tool timed out");
+    expect(plainToolLabel("Running mcp__claude_ai_Gmail__search_threads", true)).toBe("Running a tool");
+    const opened = renderToStaticMarkup(createElement(ToolActivity, { tool: { name: "mcp__agents__run_on_computer", ok: false } }));
+    expect(opened).not.toMatch(internal);
+    expect(renderToStaticMarkup(createElement(ToolActivity, { tool: { name: "functions.exec_command", ok: true } }))).not.toMatch(internal);
+    const { ActivityPeek } = await import("@/components/ActivityPeek");
+    const { NO_REASONING } = await import("./turn-reasoning");
+    const { createRef } = await import("react");
+    await act(async () => root.render(createElement(ActivityPeek, {
+      label: "Checking", since: null, anchor: createRef<HTMLButtonElement>(), onClose: vi.fn(), reasoning: NO_REASONING, updates: [],
+      helpers: [{ id: "h", label: "Look through the mail", state: "running", startedAt: 1, activity: "mcp__claude_ai_Gmail__search_threads", recentActivity: ["mcp__agents__run_on_computer", "now"] }],
+    } as never)));
+    expect(document.body.textContent).toContain("Look through the mail");
+    expect(document.body.textContent).not.toMatch(internal);
+  });
 });
+
