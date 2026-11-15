@@ -107,6 +107,9 @@ describe("a dog can still stop what it started", () => {
       `echo '<<X'\nkill ${SERVER}`,
       `echo "a <<X"\nkill ${SERVER}`,
       `# cat <<X\nkill ${SERVER}`,
+      `# don't stop the server\nkill ${SERVER}`,
+      "# it's fine\nkill -9 1",
+      `echo hi # it's done\nkill ${SERVER}`,
       `echo $((1<<2))\nkill ${SERVER}`,
       `cat <<<X\nkill ${SERVER}`,
     ]) expect(refused(command), command).toBe(true);

@@ -140,7 +140,7 @@ export function withoutHeredocBodies(command: string): string {
     if (top === "double") { out += ch; continue; }
     if (ch === "'") { contexts.push("single"); out += ch; continue; }
     if (ch === "\"") { contexts.push("double"); out += ch; continue; }
-    if (ch === "#" && (index === 0 || /[\s;&|()]/.test(command[index - 1]!))) { const next = command.indexOf("\n", index); copyTo(next === -1 ? command.length : next); continue; }
+    if (ch === "#" && (index === 0 || /[\s;&|()]/.test(command[index - 1]!))) { const next = command.indexOf("\n", index); index = (next === -1 ? command.length : next) - 1; continue; }
     if (ch === "(" && command[index + 1] === "(") { const close = command.indexOf("))", index); copyTo(close === -1 ? command.length : close + 2); continue; }
     if (ch === "(") { finish(ch); contexts.push("plain"); out += ch; continue; }
     if (ch === ")") { finish(ch); if (contexts.length > 1) contexts.pop(); out += ch; continue; }
