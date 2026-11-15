@@ -26,6 +26,20 @@ describe("jobs a dog left running on its computer", () => {
     expect(changed).toEqual(["t1", "t1"]);
   });
 
+  it("describes a chat's live jobs: how many, since when, and how many are past the longest a run may take", () => {
+    let now = 50_000;
+    const jobs = new ComputerJobs(null, { now: () => now });
+    expect(jobs.facts("t1")).toEqual({});
+    jobs.started(job({ id: "aaaa0001", startedAt: 20_000 }));
+    jobs.started(job({ id: "aaaa0002", startedAt: 10_000 }));
+    jobs.started(job({ id: "aaaa0003", startedAt: 5_000 }));
+    jobs.finished("aaaa0003", { how: "finished", exitCode: 0, at: 6_000 });
+    expect(jobs.facts("t1")).toEqual({ computerJobs: 2, computerSince: 10_000 });
+    now = 15_000 + MAX_RUN_MS;
+    expect(jobs.facts("t1")).toEqual({ computerJobs: 2, computerSince: 10_000, computerBackground: 1 });
+    expect(jobs.facts("t2")).toEqual({});
+  });
+
   it("survives a restart of the home, from its ledger", () => {
     const file = join(dir, "restart.json");
     new ComputerJobs(file).started(job());

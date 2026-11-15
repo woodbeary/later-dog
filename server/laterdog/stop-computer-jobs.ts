@@ -59,3 +59,24 @@ export async function stopComputerJobs(jobs: ComputerJobs, threadId: string, dep
   }
   return { stopped, partly, left };
 }
+
+export interface JobStopHost {
+  computer(botId: string): Promise<JobComputer>;
+  stop(box: RunBox, job: ComputerJob): Promise<RunStop>;
+  name(threadId: string): string;
+  append(threadId: string, tool: StopLineTool): void;
+  log(line: string): void;
+}
+
+export function createJobStop(jobs: ComputerJobs, host: JobStopHost): (threadId: string) => Promise<void> {
+  return async (threadId) => {
+    const result = await stopComputerJobs(jobs, threadId, {
+      computer: host.computer,
+      stop: host.stop,
+      couldNotStop: (id) => host.append(id, couldNotStopTool(host.name(id))),
+      partlyStopped: (id) => host.append(id, partlyStoppedTool(host.name(id))),
+    });
+    if (!result.stopped.length && !result.partly.length && !result.left.length) return;
+    host.log(`stop ${threadId}: stopped ${result.stopped.join(", ") || "none"}, partly ${result.partly.join(", ") || "none"}, left ${result.left.join(", ") || "none"}`);
+  };
+}
