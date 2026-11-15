@@ -2,13 +2,13 @@ import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { PERSON_WROTE_TEXT, handleComputerRun } from "./computer-run-route.ts";
+import { PERSON_WROTE_TEXT, WROTE_BEFORE_START_TEXT, handleComputerRun } from "./computer-run-route.ts";
 import { ComputerRuns, WAIT_IN_ONE_CALL_MS, type RunBox } from "./computer-runs.ts";
 import { BAD_WAIT_TEXT, STILL_RUNNING_TAIL_CHARS, stillRunningTail, waitCapMs, waitWindowMs } from "./run-wait.ts";
 
 const MINUTE = 60_000;
 
-function job(endsAfterMs: number) {
+function job(endsAfterMs: number, onWrite: () => void = () => {}) {
   const root = mkdtempSync(join(tmpdir(), "run-wait-"));
   mkdirSync(join(root, "site"), { recursive: true });
   writeFileSync(join(root, "site/check.ts"), "export const check = 1;\n");
@@ -23,7 +23,7 @@ function job(endsAfterMs: number) {
       if (command.includes("nohup")) return { exitCode: 0, stdout: "started\n", stderr: "" };
       return { exitCode: 0, stdout: "", stderr: "" };
     },
-    async write() {},
+    async write() { onWrite(); },
     async read() { return Buffer.alloc(0); },
   };
   const runs = new ComputerRuns(join(root, "state"), { now: () => clock.at, sleep: async (ms) => { clock.at += ms; } });
@@ -130,5 +130,14 @@ describe("waiting for a computer job with one call", () => {
     expect(answer.status).toBe(200);
     expect(windows).toEqual([30 * MINUTE]);
     expect(budgets).toEqual([30 * MINUTE]);
+  });
+
+  it("says the person wrote and the command was not started when a message comes while the folder is sent", async () => {
+    let wrote = false;
+    const j = job(MINUTE, () => { wrote = true; });
+    const answer = await j.once({ wait_minutes: 30 }, { active: () => true, interrupted: () => wrote });
+    expect(answer).toEqual({ status: 200, text: WROTE_BEFORE_START_TEXT });
+    expect(answer.text).not.toMatch(/time ran out/);
+    expect(j.execs.some((command) => command.includes("nohup"))).toBe(false);
   });
 });

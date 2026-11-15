@@ -106,7 +106,7 @@ export async function handleComputerRun(request: ComputerRunRequest, deps: Compu
     return { status: 200, text, failed: outcome.state === "failed" };
   } catch (error) {
     if ((error as { code?: unknown })?.code === "still_starting") return { status: 200, text: STILL_STARTING_TEXT };
-    if ((error as { code?: unknown })?.code === "window_ended") return { status: 200, text: WINDOW_ENDED_TEXT };
+    if ((error as { code?: unknown })?.code === "window_ended") return { status: 200, text: wrote() ? WROTE_BEFORE_START_TEXT : WINDOW_ENDED_TEXT };
     if ((error as { code?: unknown })?.code === "cancelled" || (request.active && !request.active())) return { status: 409, error: ENDED_TEXT };
     return { status: 502, error: error instanceof Error ? error.message : String(error) };
   }
