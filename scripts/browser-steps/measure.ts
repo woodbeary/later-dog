@@ -379,7 +379,7 @@ async function screenshotVariants(display: string): Promise<Array<{ label: strin
   const variants = [
     { label: "today: 1280x800 JPEG q75", command: SCREENSHOT_SCRIPT },
     { label: "1024x640 JPEG q60", command: `d=$(mktemp -d) && scrot --pointer --quality 60 --thumb 80 "$d/s.jpg" >/dev/null && cat -- "$d/s-thumb.jpg"; rm -rf "$d"` },
-    { label: "800x500 JPEG q50", command: `d=$(mktemp -d) && scrot --pointer --quality 50 --thumb 62 "$d/s.jpg" >/dev/null && cat -- "$d/s-thumb.jpg"; rm -rf "$d"` },
+    { label: "794x496 JPEG q50", command: `d=$(mktemp -d) && scrot --pointer --quality 50 --thumb 62 "$d/s.jpg" >/dev/null && cat -- "$d/s-thumb.jpg"; rm -rf "$d"` },
   ];
   const out = [];
   for (const variant of variants) {

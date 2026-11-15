@@ -6,7 +6,7 @@ Run on a Linux cloud computer with 4 cores, `main` `0651657`, the pinned browser
 node --experimental-strip-types scripts/browser-steps/measure.ts --engine <path to the pinned browser engine> --display :0 --chromium /usr/bin/chromium --out <new folder>
 ```
 
-Text tokens are bytes / 4; image tokens are width x height / 750 for the size the engine is sent (1280x800 today, about 1,366). A scripted caller makes the calls; turn numbers are the model turns a careful model needs at least.
+Text tokens are bytes / 4; image tokens use Claude's formula, width x height / 750 for the size the engine is sent (1280x800 today, about 1,366); another engine may count differently. A scripted caller makes the calls; turn numbers are the model turns a careful model needs at least.
 
 ## find, structured
 

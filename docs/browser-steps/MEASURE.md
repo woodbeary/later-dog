@@ -6,7 +6,7 @@
 
 **Screen tools** (`server/cloud-computer-tools.ts`, served by the computers service, `deploy/laterdog/computers/src/mcp-screen.ts` and `computer.ts`): `screenshot`, `get_screen_size`, `click`, `move`, `drag`, `type_text`, `key_press`, `scroll`, `open_url`, plus `exec`. Their definitions are 6,852 bytes (about 1,700 tokens) on every request.
 
-- One `screenshot` is the whole 1280x800 desktop (`start-desktop.sh`, `DESKTOP_GEOMETRY`), taken by `scrot --quality 75` and sent to the engine unchanged as a base64 JPEG. On the fixture pages that was 78 to 143 KB of base64, about 1,366 image tokens each, estimated as width x height / 750.
+- One `screenshot` is the whole 1280x800 desktop (`start-desktop.sh`, `DESKTOP_GEOMETRY`), taken by `scrot --quality 75` and sent to the engine unchanged as a base64 JPEG. On the fixture pages that was 78 to 143 KB of base64, about 1,366 image tokens each. That estimate is Claude's formula, width x height / 750 after its own downscale to fit 1,568 pixels on the long edge and about 1.15 million pixels; another engine may count differently and may resize the image itself.
 - The screen frame gate (`server/screen-frame-gate.ts`) does not shrink or drop anything the model gets. It only decides whether a settled frame is new enough to show the person (a hash of the frame against the last one shown).
 - Every other screen call returns a short text result (`{"ok":true,"exitCode":0,...}`, about 87 bytes).
 - `open_url` starts the browser and says the page load is not confirmed, so a dog has to take a screenshot to see anything.
@@ -51,9 +51,9 @@ Measured on my cloud computer, a Linux machine with 4 cores. The fixture site is
 | --- | ---: | ---: | ---: | ---: |
 | today: 1280x800, quality 75 | 45,572 | 60,764 | 1,366 | 0.028 |
 | 1024x640, quality 60 | 21,012 | 28,016 | 874 | 0.041 |
-| 800x500, quality 50 | 13,887 | 18,516 | 525 | 0.036 |
+| 794x496 (`scrot --thumb 62`), quality 50 | 13,887 | 18,516 | 525 | 0.036 |
 
-**What these numbers do not contradict:** on every task the structured path needs fewer turns and 3 to 6 times fewer re-read tokens, and no image. Even counting its larger tool list, it costs 1.3 to 2.6 times less. Structured snapshots never cost more than a capped screenshot here: the biggest structured result (1,932 bytes, about 490 tokens) is smaller than an 800x500 screenshot.
+**What these numbers do not contradict:** on every task the structured path needs fewer turns and 3 to 6 times fewer re-read tokens, and no image. Even counting its larger tool list, it costs 1.3 to 2.6 times less. Structured snapshots never cost more than a capped screenshot here: the biggest structured result (1,932 bytes, about 490 tokens) is smaller than a 794x496 screenshot.
 
 Per-step tables: `docs/browser-steps/fixture-run-2026-11-15.md`.
 
@@ -67,9 +67,11 @@ Per-step tables: `docs/browser-steps/fixture-run-2026-11-15.md`.
 | `mcp__computer__screenshot` calls | 392 |
 | `mcp__computer__click` calls | 354 |
 | `agent_browser_*` or `mcp__browser__*` calls | 0 |
-| Screenshots per turn, median | 11.5 |
+| Screenshots per turn, median | 10.5 |
 | Screenshots per turn, short steps (a sign-in, a check) | 1 to 4 |
 | Screenshots per turn, a whole web task (the testers' rounds) | 45, 50, 54, 57, 80 |
+
+The 22 counts, smallest first: 1, 1, 1, 1, 2, 2, 2, 3, 3, 4, 10, 11, 12, 12, 13, 13, 15, 45, 50, 54, 57, 80 (392 in all).
 
 - At about 1,366 tokens each, a turn with 80 screenshots carried about 109,000 image tokens. Each later request in that turn re-read the ones before.
 - The same turns also called `mcp__computer__exec` hundreds of times. What those commands did I did not read.
@@ -105,7 +107,7 @@ It also writes `summary.md`, `results.json` and each raw turn to `--out`.
 ## 5. What to build, in what order
 
 1. **Step 4 first: smaller screenshots, and old ones dropped from the chat.** It is the only change that saves tokens for dogs as they work today, since every web task now goes through screenshots.
-   - 1024x640 at quality 60 saves 36% per screenshot (874 tokens against 1,366); 800x500 at quality 50 saves 62% (525). On the long tester turns that is 39,000 to 68,000 tokens per turn before any dropping.
+   - 1024x640 at quality 60 saves 36% per screenshot (874 tokens against 1,366); 794x496 at quality 50 saves 62% (525). On the long tester turns that is 39,000 to 68,000 tokens per turn before any dropping.
    - Dropping screenshots already acted on saves most of the re-reading on top of that.
    - It changes `computer.ts` in the computers service, so it needs a full deploy by the maintainer.
    - A zoom tool covers detail the smaller size loses. Whether a model still clicks accurately on a smaller image is for the real-engine run to show.
