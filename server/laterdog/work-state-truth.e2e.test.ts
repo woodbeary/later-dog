@@ -5,7 +5,7 @@ import { createServer, type IncomingMessage, type Server } from "node:http";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { afterAll, beforeAll, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, expect, it } from "vitest";
 import { cloudPairingSignature } from "../cloud-home.ts";
 import { removeTempDir, waitForExit } from "../testing/cleanup.ts";
 import { freePortBlock } from "../testing/ports.ts";
@@ -217,18 +217,33 @@ it("a job that ends while the home is down wakes the dog once after the restart"
   await wokenOnceAndRead(bot, "third", "Biscuit");
 }, 180_000);
 
+const RUN_MARK = `wst${randomBytes(5).toString("hex")}`;
+const LONGEST_SLEEPER_S = 90;
+const sleeper = (tag: string) => `node -e "setTimeout(() => {}, ${LONGEST_SLEEPER_S * 1000})" ${RUN_MARK}-${tag}`;
 const alive = (pattern: string) => spawnSync("pgrep", ["-f", pattern]).status === 0;
 
-for (const [shape, seconds, command, pattern] of [
-  ["a plain command", 3271, "sleep 3271", "sleep 3271"],
-  ["a command followed by more", 3272, "sleep 3272; echo fourth > fourth.txt", "sleep 3272"],
-  ["a command inside another shell", 3273, "bash -c 'sleep 3273; true'", "sleep 3273"],
-  ["a command that starts its own session", 3274, "python3 daemon.py; sleep 3278", "daemon.py"],
+afterEach(() => {
+  spawnSync("pkill", ["-KILL", "-f", RUN_MARK]);
+});
+
+it("ends every process this run started once a test is over", async () => {
+  const started = spawn("bash", ["-c", `${sleeper("check")} & wait`], { stdio: "ignore", detached: true });
+  started.unref();
+  expect(await until(async () => alive(`${RUN_MARK}-check`), Boolean, "the sleeper to start", 10_000)).toBe(true);
+  spawnSync("pkill", ["-KILL", "-f", RUN_MARK]);
+  expect(await until(async () => !alive(RUN_MARK), Boolean, "the sleeper to end", 10_000)).toBe(true);
+});
+
+for (const [shape, tag, command, pattern] of [
+  ["a plain command", "plain", sleeper("plain"), `${RUN_MARK}-plain`],
+  ["a command followed by more", "more", `${sleeper("more")}; echo fourth > fourth.txt`, `${RUN_MARK}-more`],
+  ["a command inside another shell", "shell", `bash -c '${sleeper("shell")}; true'`, `${RUN_MARK}-shell`],
+  ["a command that starts its own session", "session", `python3 daemon.py ${RUN_MARK}-session; ${sleeper("after")}`, `${RUN_MARK}-session`],
 ] as const) {
   it(`the person's Stop ends ${shape} itself, and nobody is woken`, async () => {
-    const bot = await newDog(`Rex${seconds}`);
-    writeFileSync(join(home, "site", "daemon.py"), "import os, time\nif os.fork() == 0:\n    os.setsid()\n    if os.fork() == 0:\n        time.sleep(3274)\n    os._exit(0)\n");
-    const after = await jobThatOutlivesItsTurn(bot, seconds, "fourth", command);
+    const bot = await newDog(`Rex ${tag}`);
+    writeFileSync(join(home, "site", "daemon.py"), `import os, time\nif os.fork() == 0:\n    os.setsid()\n    if os.fork() == 0:\n        time.sleep(${LONGEST_SLEEPER_S})\n    os._exit(0)\n`);
+    const after = await jobThatOutlivesItsTurn(bot, 0, "fourth", command);
     expect(after.work).toMatchObject({ kind: "running", computerJobs: 1 });
     expect(await until(async () => alive(pattern), Boolean, "the command to start", 10_000)).toBe(true);
     await settle(1_000);
@@ -236,7 +251,7 @@ for (const [shape, seconds, command, pattern] of [
     expect(stopped.status, JSON.stringify(stopped.body)).toBe(200);
     await until(() => botNow(bot.id), (state) => state.work?.kind !== "running", "the chat to stop running", 30_000);
     expect(alive(pattern)).toBe(false);
-    expect(alive("sleep 3278")).toBe(false);
+    expect(alive(`${RUN_MARK}-after`)).toBe(false);
     await settle(3_000);
     expect(await wakeLines(bot.threadId)).toEqual([]);
     expect(ledger()).toEqual([]);

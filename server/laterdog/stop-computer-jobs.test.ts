@@ -2,7 +2,8 @@ import { spawn, spawnSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { afterAll, describe, expect, it } from "vitest";
+import { randomBytes } from "node:crypto";
+import { afterAll, afterEach, describe, expect, it } from "vitest";
 import { removeTempDir } from "../testing/cleanup.ts";
 import { ComputerJobs, type ComputerJob, type JobComputer } from "./computer-jobs.ts";
 import { ComputerRuns, type RunBox } from "./computer-runs.ts";
@@ -26,7 +27,13 @@ function localBox(home: string): RunBox {
   };
 }
 
+const RUN_MARK = `stj${randomBytes(5).toString("hex")}`;
+const LONGEST_SLEEPER_S = 90;
+const sleeper = (tag: string) => `node -e "setTimeout(() => {}, ${LONGEST_SLEEPER_S * 1000})" ${RUN_MARK}-${tag}`;
 const alive = (pattern: string) => spawnSync("pgrep", ["-f", pattern]).status === 0;
+afterEach(() => {
+  spawnSync("pkill", ["-KILL", "-f", RUN_MARK]);
+});
 const until = async (check: () => boolean, ms = 10_000) => {
   const deadline = Date.now() + ms;
   while (!check() && Date.now() < deadline) await new Promise((resolve) => setTimeout(resolve, 100));
@@ -38,7 +45,7 @@ describe("stopping a command on the dog's computer", () => {
     const home = mkdtempSync(join(dir, "home-"));
     const folder = mkdtempSync(join(dir, "folder-"));
     writeFileSync(join(folder, "a.txt"), "a\n");
-    writeFileSync(join(folder, "daemon.py"), "import os, time\nif os.fork() == 0:\n    os.setsid()\n    if os.fork() == 0:\n        time.sleep(3174)\n    os._exit(0)\n");
+    writeFileSync(join(folder, "daemon.py"), `import os, time\nif os.fork() == 0:\n    os.setsid()\n    if os.fork() == 0:\n        time.sleep(${LONGEST_SLEEPER_S})\n    os._exit(0)\n`);
     const box = localBox(home);
     const runs = new ComputerRuns(join(dir, "state"));
     const record = await runs.start(box, { botId: "dog", folder, command });
@@ -46,10 +53,10 @@ describe("stopping a command on the dog's computer", () => {
   };
 
   it.each([
-    ["a plain command", "sleep 3171", "sleep 3171"],
-    ["a command followed by more", "sleep 3172; echo done", "sleep 3172"],
-    ["a command inside another shell", "bash -c 'sleep 3173; true'", "sleep 3173"],
-    ["a command that starts its own session", "python3 daemon.py; sleep 3175", "daemon.py"],
+    ["a plain command", sleeper("plain"), `${RUN_MARK}-plain`],
+    ["a command followed by more", `${sleeper("more")}; echo done`, `${RUN_MARK}-more`],
+    ["a command inside another shell", `bash -c '${sleeper("shell")}; true'`, `${RUN_MARK}-shell`],
+    ["a command that starts its own session", `python3 daemon.py ${RUN_MARK}-session; ${sleeper("after")}`, `${RUN_MARK}-session`],
   ])("stops %s itself, not only its wrapper", async (_name, command, pattern) => {
     const { box, runs, record } = await launch(command);
     expect(await until(() => alive(pattern))).toBe(true);
@@ -57,16 +64,16 @@ describe("stopping a command on the dog's computer", () => {
     expect(await runs.liveness(box, record)).toBe("alive");
     expect(await runs.stop(box, record)).toBe("gone");
     expect(await until(() => !alive(pattern))).toBe(true);
-    expect(alive("sleep 3175")).toBe(false);
+    expect(alive(`${RUN_MARK}-after`)).toBe(false);
   }, 40_000);
 
   it("finds a job whose processes died without an exit record dead, and Stop clears it even with its group id gone", async () => {
-    const { home, box, runs, record } = await launch("sleep 3176");
-    expect(await until(() => alive("sleep 3176"))).toBe(true);
+    const { home, box, runs, record } = await launch(sleeper("dead"));
+    expect(await until(() => alive(`${RUN_MARK}-dead`))).toBe(true);
     const pg = readFileSync(join(home, "runs/.logs", `${record.id}.pgid`), "utf8").trim();
     spawnSync("kill", ["-KILL", `-${pg}`]);
     rmSync(join(home, "runs/.logs", `${record.id}.pgid`));
-    expect(await until(() => !alive("sleep 3176"))).toBe(true);
+    expect(await until(() => !alive(`${RUN_MARK}-dead`))).toBe(true);
     expect(await runs.liveness(box, record)).toBe("dead");
     expect(await runs.stop(box, record)).toBe("gone");
   }, 30_000);
