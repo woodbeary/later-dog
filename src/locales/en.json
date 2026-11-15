@@ -1118,7 +1118,7 @@
   "composer.command.compactFailed": "Couldn't summarize this chat. Try again in a moment.",
   "command.newTitle": "New command",
   "command.editTitle": "Change command",
-  "command.explain": "Type /name in any chat with a dog to send this text. Words you add after the name go after it.",
+  "command.explain": "Type /name in a chat with one dog to send this text. Words you add after the name go after it.",
   "command.name": "Name",
   "command.nameRule": "Use up to 32 lowercase letters, digits or dashes.",
   "command.text": "What it sends",
