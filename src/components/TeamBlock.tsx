@@ -56,25 +56,30 @@ function TeamRowLine({ row, bots }: { row: TeamRow; bots: readonly Bot[] }) {
   const name = currentDogName(bots, ask.withBotId, ask.withName);
   const target = ask.target;
   const state = teamStateWords(row.state);
+  const group = target.kind === "group" ? groups.find((candidate) => candidate.id === target.groupId) : undefined;
+  const lead = ask.message.from?.name ?? group?.memberIds.map((id) => currentDogName(bots, id, "")).find((member) => member && member !== name) ?? "";
+  const opens = row.helperThread || target.kind === "dog" ? t("chat.team.open", { name })
+    : !group || group.dm ? t("chat.exchange.open", { first: lead, second: name })
+      : t("chat.openConversationWith", { name: group.name });
   const open = () => {
-    if (target.kind === "dog") openNotificationTarget(dispatch, target, { bots: [...bots], groups });
-    else {
-      const group = groups.find((candidate) => candidate.id === target.groupId);
-      if (!group || group.dm) openExchange(target.groupId);
-      else dispatch({ type: "select", id: target.groupId });
-    }
+    if (row.helperThread) {
+      dispatch({ type: "select", id: ask.withBotId });
+      dispatch({ type: "openTask", botId: ask.withBotId, threadId: row.helperThread });
+    } else if (target.kind === "dog") openNotificationTarget(dispatch, target, { bots: [...bots], groups });
+    else if (!group || group.dm) openExchange(target.groupId);
+    else dispatch({ type: "select", id: target.groupId });
   };
   return (
     <li data-mid={ask.message.id} data-team-row={row.state}>
       <button
         type="button"
         onClick={open}
-        title={t("chat.team.open", { name })}
+        title={opens}
         aria-label={`${name}: ${row.gist ? `${row.gist} · ` : ""}${state}`}
         className="flex w-full min-w-0 items-center gap-2 rounded-lg px-2 py-1 text-left text-[12.5px] leading-[18px] transition-colors hover:bg-raised-hover/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus motion-reduce:transition-none"
       >
         <BotAvatar bot={bot ?? { name, color: ask.withColor }} state="happy" size={QUIET_FACE_SIZE} motion="none" motionKey={0} animated={false} />
-        <span data-team-name className="shrink-0 text-ink">{name}</span>
+        <span data-team-name className="min-w-0 max-w-[45%] shrink-0 truncate text-ink">{name}</span>
         <span data-team-gist className="min-w-0 flex-1 truncate text-ink-tertiary">{row.gist}</span>
         <span data-team-state={row.state} className={cn("shrink-0", row.state === "Needs you" ? "font-medium text-ink" : "text-ink-secondary")}>{state}</span>
       </button>

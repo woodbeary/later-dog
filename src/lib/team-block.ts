@@ -75,6 +75,12 @@ export interface TeamRow {
   ask: TeamAsk;
   gist: string;
   state: TeamState;
+  helperThread?: string;
+}
+
+function helperThreadOf(record: WireExchange | undefined): string | undefined {
+  const threadId = (record as (WireExchange & { threadId?: unknown }) | undefined)?.threadId;
+  return typeof threadId === "string" && threadId ? threadId : undefined;
 }
 
 export const SETTLED: ReadonlySet<TeamState> = new Set<TeamState>([
@@ -275,7 +281,11 @@ export function teamRows(
   waitingOn: readonly WireWaitingOn[] = [],
   present?: (botId: string) => boolean,
 ): TeamRow[] {
-  const rows = team.asks.map((ask) => ({ ask, gist: gistOf(ownRecord(ask)?.request), state: teamState(ask, team, thread, waitingOn, present) }));
+  const rows: TeamRow[] = team.asks.map((ask) => {
+    const record = ownRecord(ask);
+    const helperThread = helperThreadOf(record);
+    return { ask, gist: gistOf(record?.request), state: teamState(ask, team, thread, waitingOn, present), ...(helperThread ? { helperThread } : {}) };
+  });
   return rows.map((row, index) => row.state === "Sent" && rows.slice(index + 1).some((later) => later.ask.row.withBotId === row.ask.row.withBotId && later.state !== "Sent")
     ? { ...row, state: "Asked again" as const }
     : row);

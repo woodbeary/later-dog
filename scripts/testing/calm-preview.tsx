@@ -124,12 +124,13 @@ function failedSend(): Message[] {
 }
 
 function teamEdge(): Message[] {
-  const [a, gone] = [HELPERS[1]!, { id: "bramble", name: "Bramble", color: "teal" as Bot["color"], ask: "Check the old export path", status: "running" as const }];
+  const [a, gone, long] = [HELPERS[1]!, { id: "bramble", name: "Bramble", color: "teal" as Bot["color"], ask: "Check the old export path", status: "running" as const }, { id: "longname", name: "Bartholomew the Exceedingly Thorough Release Reviewer", color: "purple" as Bot["color"], ask: "Read every release note twice", status: "running" as const }];
   return [
     you("open", START, "Ask Thistle twice, then Bramble."),
     asked(a, START + 20 * SECOND), sent(a, START + 20 * SECOND + 200, "running", false),
     asked(a, START + 22 * SECOND), sent(a, START + 22 * SECOND + 200, "running", false),
     asked(gone, START + 24 * SECOND), sent(gone, START + 24 * SECOND + 200, "running", false),
+    asked(long, START + 26 * SECOND), sent(long, START + 26 * SECOND + 200, "running"),
     said("asked", START + 30 * SECOND, "Asked both.", { turnTerminal: true }),
     { id: "heard", role: "bot", kind: "activity", at: START + 5 * MINUTE, from: { botId: a.id, name: a.name, color: a.color }, comm: comm(a, "from"), tool: { name: `Message from @${a.name}`, ok: true } },
   ];
@@ -228,7 +229,7 @@ const SCENES: Record<string, () => Scene> = {
 const params = new URLSearchParams(location.search);
 const scene = (SCENES[params.get("scene") ?? "handoffs"] ?? SCENES.handoffs!)();
 const chained = (messages: Message[]): Message[] => messages.map((message, index) => ({ ...message, parentId: messages[index - 1]?.id ?? null }));
-const helpers = [...HELPERS, LATE, { id: "bramble", name: "Bramble", color: "teal" as Bot["color"] }]
+const helpers = [...HELPERS, LATE, { id: "bramble", name: "Bramble", color: "teal" as Bot["color"] }, { id: "longname", name: "Bartholomew the Exceedingly Thorough Release Reviewer", color: "purple" as Bot["color"] }]
   .filter((helper) => !scene.deleted?.includes(helper.id))
   .map((helper) => dog(helper.id, helper.name, helper.color));
 

@@ -79,6 +79,7 @@ const profile = (id: string, name: string, extra: Partial<Bot> = {}): Bot => ({
 });
 
 let root: Root;
+let dispatched = vi.fn();
 const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
 async function draw(messages: Message[], missing: string[] = [], extra: Helper[] = []) {
   const chained = messages.map((message, index) => ({ ...message, parentId: messages[index - 1]?.id ?? null }));
@@ -89,7 +90,8 @@ async function draw(messages: Message[], missing: string[] = [], extra: Helper[]
     instances: [{ instanceId: "test", driverKind: "codex", displayName: "Test", snapshot: { state: "available" } } as InstanceInfo],
     config: null,
   };
-  const value = { state, dispatch: vi.fn(), flushBotPatches: async () => null, refreshInstances: async () => {}, refreshModels: async () => {} };
+  dispatched = vi.fn();
+  const value = { state, dispatch: dispatched, flushBotPatches: async () => null, refreshInstances: async () => {}, refreshModels: async () => {} };
   flushSync(() => root.render(createElement(BotEditorStore, { value, children: createElement(ChatView, { bot: state.bots[0]! }) })));
   await settle();
 }
@@ -201,6 +203,17 @@ describe("a turn's hand-outs as one team block", () => {
     ], [], many);
     expect(blocks()[0]!.rows.slice(0, 2)).toEqual(["Many7: Needs you", "Many8: Couldn't finish"]);
     expect(blocks()[0]!.rows).toHaveLength(6);
+  });
+
+  it("says on each row what a tap opens: the helper's own chat when the home names it, otherwise what the two dogs said", async () => {
+    const [a, b] = [HELPERS[1]!, HELPERS[2]!];
+    const named = sent(b, START + 22_200, "running");
+    named.exchange = { ...named.exchange!, threadId: "cedar-task" } as WireExchange;
+    await draw([you("open", START, "Ask two."), asked(a, START + 20_000), sent(a, START + 20_200, "running"), asked(b, START + 22_000), named, said("asked", START + 30_000, "Asked.")]);
+    const rows = [...document.querySelectorAll<HTMLButtonElement>("[data-team-row] button")];
+    expect(rows.map((row) => row.title)).toEqual(["Read what Lead and Birch said to each other", "Open Cedar's chat for this"]);
+    flushSync(() => rows[1]!.click());
+    expect(dispatched.mock.calls.map(([action]) => action)).toEqual([{ type: "select", id: "h3" }, { type: "openTask", botId: "h3", threadId: "cedar-task" }]);
   });
 
   it("has plain words for every way the home can end a request", () => {
