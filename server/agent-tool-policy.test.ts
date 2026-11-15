@@ -27,10 +27,12 @@ describe("built-in agent tool read policy", () => {
     }
   });
 
-  it("reads public places without asking, and says the answer comes from outside later.dog", () => {
-    expect([...OPEN_WORLD_READ_TOOL_NAMES]).toEqual(["nearby_places"]);
-    expect(isReadOnlyAgentTool("nearby_places")).toBe(true);
-    expect(agentToolAnnotations("nearby_places")).toEqual({ readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true });
+  it("reads public places and the person's own connected mail without asking, and marks both as coming from outside later.dog", () => {
+    expect([...OPEN_WORLD_READ_TOOL_NAMES]).toEqual(["nearby_places", "gmail_search", "gmail_read"]);
+    for (const name of ["nearby_places", "gmail_search", "gmail_read"]) {
+      expect(isReadOnlyAgentTool(name)).toBe(true);
+      expect(agentToolAnnotations(name)).toEqual({ readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true });
+    }
   });
 
   it.each([
@@ -38,6 +40,7 @@ describe("built-in agent tool read policy", () => {
     "create_bot", "request_credential", "memory_update", "propose_routine",
     "propose_routine_action", "propose_profile", "skill_manage",
     "propose_team_setup", "propose_bot_deletion",
+    "gmail_send_email", "gmail_code_to_vault",
     "list_secrets", "read_credentials", "list_bots_and_delete", "unknown", "",
     "mcp__agents__list_bots", "agents.list_bots", "LIST_BOTS", " list_bots",
   ])("does not infer read access for %s", (name) => {

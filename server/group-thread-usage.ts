@@ -1,8 +1,9 @@
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import type { GroupThreadUsage } from "../shared/wire.ts";
+import { countsAsTurn } from "./laterdog/usage-turn.ts";
 
-type Row = { at: string; threadId: string; botId: string; botName?: string; input: number; output: number; cachedInput?: number; costUsd?: number | null };
+type Row = { purpose?: unknown; at: string; threadId: string; botId: string; botName?: string; input: number; output: number; cachedInput?: number; costUsd?: number | null };
 const finite = (value: unknown): value is number => typeof value === "number" && Number.isFinite(value) && value >= 0;
 const valid = (row: Partial<Row> | null): row is Row => Boolean(row && typeof row.threadId === "string" && typeof row.botId === "string" && typeof row.at === "string" && Number.isFinite(Date.parse(row.at)) && finite(row.input) && finite(row.output));
 
@@ -12,12 +13,14 @@ function addRow(totals: Map<string, Summary>, row: Row) {
   const total = summary.usage;
   const input = Math.trunc(row.input), output = Math.trunc(row.output);
   const cached = finite(row.cachedInput) ? Math.min(input, Math.trunc(row.cachedInput)) : undefined;
-  total.input += input; total.output += output; total.turns++;
+  total.input += input; total.output += output;
+  const turn = countsAsTurn(row);
+  if (turn) total.turns++;
   if (cached === undefined) delete total.cachedInput;
   else if (total.cachedInput !== undefined) total.cachedInput += cached;
   if (finite(row.costUsd)) total.costUsd = (total.costUsd ?? 0) + row.costUsd;
   const at = Date.parse(row.at);
-  if (at >= summary.lastAt) {
+  if (turn && at >= summary.lastAt) {
     summary.lastAt = at;
     total.lastTurn = { input, output, ...(cached === undefined ? {} : { cachedInput: cached }), costUsd: finite(row.costUsd) ? row.costUsd : null };
     total.lastSpeaker = { botId: row.botId, name: typeof row.botName === "string" && row.botName ? row.botName : row.botId };

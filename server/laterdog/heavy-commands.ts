@@ -31,6 +31,7 @@ export function segments(command: string): string[] {
     if (ch === "'" || ch === "\"") { quote = ch; current += ch; continue; }
     if (ch === "$" && command[index + 1] === "(") { parts.push(current); current = ""; index += 1; continue; }
     if (ch === "&" && command[index + 1] === "&") { parts.push(current); current = ""; index += 1; continue; }
+    if (ch === "&" && command[index + 1] !== ">" && command[index - 1] !== ">" && command[index - 1] !== "<") { parts.push(current); current = ""; continue; }
     if (ch === "|" || ch === ";" || ch === "\n" || ch === "(" || ch === ")" || ch === "`") { parts.push(current); current = ""; if (ch === "|" && command[index + 1] === "|") index += 1; continue; }
     current += ch;
   }

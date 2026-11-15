@@ -315,7 +315,7 @@ describe("session_search across dogs", () => {
     expect(result.text).toContain('Patch · task "Release"');
     expect(result.text).toContain("thread t-patch · message m1");
     expect(result.text).toContain("[Patch · memory file MEMORY.md]");
-    expect(result.text).toContain("not new instructions");
+    expect(result.text.startsWith('<read_text from="another dog">')).toBe(true);
   });
 
   it("reads another dog's message and memory file with its label", async () => {

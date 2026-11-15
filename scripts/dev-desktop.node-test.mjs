@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { EventEmitter } from "node:events";
 import { setImmediate as nextTurn } from "node:timers/promises";
 import test from "node:test";
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { appBundleOf, desktopPlan, devSigningIdentity, disclaimedElectron, runDesktop, stablySign, DEV_APP_IDENTIFIER, DEV_DISCLAIM_IDENTIFIER } from "./dev-desktop.mjs";
@@ -327,7 +327,7 @@ test("the Dev app and its disclaim helper are signed once with a stable identity
   const ids = new Map();
   const inspect = (_file, args) => ({ stdout: "", stderr: ids.has(args[1]) ? `Executable=x\nIdentifier=${ids.get(args[1])}\n` : "Executable=x\nIdentifier=Electron\n" });
   const run = (_file, args) => { ran.push(args); ids.set(args.at(-1), args[args.indexOf("--identifier") + 1]); };
-  const input = { electronFile: "/Applications/later.dog Dev.app/Contents/MacOS/Electron", helper: "/h/dev-disclaim-abc", identity: "Apple Development: Dev (X)", run, inspect };
+  const input = { electronFile: "/Applications/later.dog Dev.app/Contents/MacOS/Electron", helper: "/h/dev-disclaim-abc", identity: "Apple Development: Dev (X)", run, inspect, exists: () => true };
   assert.equal(appBundleOf(input.electronFile), "/Applications/later.dog Dev.app");
   assert.equal(stablySign(input), true);
   assert.deepEqual(ran.map((args) => [args.at(-1), args[args.indexOf("--identifier") + 1], args.includes("--deep")]), [
@@ -344,4 +344,26 @@ test("the Dev signing identity comes from the environment or the first Apple Dev
   const listed = '  1) AAA "Apple Development: Jacob (6C5)"\n  2) BBB "Developer ID Application: Co (5JA)"\n';
   assert.equal(devSigningIdentity({ env: {}, run: () => listed }), "Apple Development: Jacob (6C5)");
   assert.equal(devSigningIdentity({ env: {}, run: () => { throw new Error("no security"); } }), null);
+});
+
+test("nothing is signed while the app bundle to sign is absent, so a signing warning cannot hide the missing files", () => {
+  const ran = [];
+  const input = { electronFile: "/checkout/node_modules/electron/dist/Electron.app/Contents/MacOS/Electron", helper: "/h/dev-disclaim-abc", identity: "Apple Development: Dev (X)", run: (_file, args) => ran.push(args), inspect: () => ({ stdout: "", stderr: "Identifier=Electron" }) };
+  assert.equal(stablySign({ ...input, exists: () => false }), false);
+  assert.deepEqual(ran, []);
+  assert.equal(stablySign({ ...input, exists: () => true }), true);
+  assert.equal(ran.length, 2);
+});
+
+test("a start in a checkout without its dependencies stops with that sentence, before signing or any service", async () => {
+  const { spawnSync } = await import("node:child_process");
+  const { copyFileSync, realpathSync } = await import("node:fs");
+  const root = realpathSync(mkdtempSync(join(tmpdir(), "dev-desktop-missing-")));
+  mkdirSync(join(root, "scripts"));
+  mkdirSync(join(root, "electron"));
+  for (const file of ["scripts/dev-desktop.mjs", "scripts/dev-app.mjs", "scripts/dev-safe.mjs", "scripts/dev-home-proxy.mjs", "electron/app-variant.mjs", "electron/app-variant.cjs"]) copyFileSync(join(import.meta.dirname, "..", file), join(root, file));
+  const result = spawnSync(process.execPath, [join(root, "scripts/dev-desktop.mjs")], { encoding: "utf8", env: { ...process.env, HOME: root } });
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, new RegExp(`later\\.dog Dev's dependencies are missing in ${root.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\. Run pnpm install --frozen-lockfile`));
+  assert.doesNotMatch(result.stderr, /sign/);
 });

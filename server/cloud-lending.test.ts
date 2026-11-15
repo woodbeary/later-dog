@@ -219,11 +219,18 @@ describe("reports of routine runs", () => {
     expect(reloaded.runAttestation("run-1")).toBe(false);
     expect(reloaded.runAttestation("run-2")).toBe(true);
     expect(reloaded.runAttestation("run-3")).toBeUndefined();
-    for (let index = 0; index < 5100; index++) reloaded.attestRun(`bulk-${index}`, true);
-    expect(reloaded.runAttestation("run-1")).toBeUndefined();
-    expect(reloaded.runAttestation("bulk-5099")).toBe(true);
+    const full = Object.fromEntries([["run-1", false], ...Array.from({ length: 4999 }, (_, index) => [`bulk-${index}`, true])]);
+    writeFileSync(file, JSON.stringify({ version: 1, routines: {}, runs: full }));
+    const atCap = createCloudRoutineAuthors(file);
+    expect(atCap.runAttestation("run-1")).toBe(false);
+    atCap.attestRun("bulk-new", true);
+    expect(atCap.runAttestation("run-1")).toBeUndefined();
+    expect(atCap.runAttestation("bulk-0")).toBe(true);
+    expect(atCap.runAttestation("bulk-new")).toBe(true);
+    expect(createCloudRoutineAuthors(file).runAttestation("run-1")).toBeUndefined();
+    expect(createCloudRoutineAuthors(file).runAttestation("bulk-4998")).toBe(true);
     rmSync(dir, { recursive: true, force: true });
-  }, 120_000);
+  });
   it("a report with no stamp is judged by the routine as it is now, so a deleted or unproven one stays denied", () => {
     expect(reportFromOthers(card(), gone)).toBe(true);
     expect(reportFromOthers(card(), live)).toBe(false);

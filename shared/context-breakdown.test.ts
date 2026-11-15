@@ -91,4 +91,13 @@ describe("when a breakdown is older than the chat", () => {
     expect(breakdownIsStale(breakdown, { tokens: 210_000 })).toBe(true);
     expect(breakdownIsStale({ ...breakdown, stale: true }, { tokens: 198_100 })).toBe(true);
   });
+
+  it("is stale only when its total is more than 2% below the chat's number", () => {
+    const total = (tokens: number) => breakdownIsStale({ ...breakdown, total: tokens }, { tokens: 100_000, updatedAt: 5 });
+    expect(total(99_000)).toBe(false);
+    expect(total(97_000)).toBe(true);
+    expect(total(103_000)).toBe(false);
+    expect(total(100_000)).toBe(false);
+    expect(breakdownIsStale({ ...breakdown, total: 140_000 }, { tokens: 100_000, updatedAt: 11 })).toBe(true);
+  });
 });

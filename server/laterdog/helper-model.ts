@@ -29,14 +29,19 @@ export function claudeTier(model: string | null | undefined): ClaudeTier | null 
   return match ? (match[1] as ClaudeTier) : null;
 }
 
+const DEFAULT_HELPER_FLOOR: ClaudeTier = "sonnet";
+
+function stepDown(tier: ClaudeTier, floor: ClaudeTier): HelperModel {
+  const index = CLAUDE_TIERS.indexOf(tier);
+  return index > Math.max(0, CLAUDE_TIERS.indexOf(floor)) ? { kind: "model", model: CLAUDE_TIERS[index - 1]! } : INHERIT;
+}
+
 export function helperModelFor(engine: string, model: string | null | undefined, choice: HelperModelChoice | undefined): HelperModel {
-  if (!choice || choice === "same" || engine !== "claude") return INHERIT;
+  if (choice === "same" || engine !== "claude") return INHERIT;
   const tier = claudeTier(model);
   if (!tier) return INHERIT;
-  if (choice === "lighter") {
-    const index = CLAUDE_TIERS.indexOf(tier);
-    return index > 0 ? { kind: "model", model: CLAUDE_TIERS[index - 1]! } : INHERIT;
-  }
+  if (!choice) return stepDown(tier, DEFAULT_HELPER_FLOOR);
+  if (choice === "lighter") return stepDown(tier, "haiku");
   return claudeTier(choice) ? { kind: "model", model: choice } : INHERIT;
 }
 

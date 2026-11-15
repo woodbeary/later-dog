@@ -118,8 +118,9 @@ it("compacts durably, keeps corrections and starts a fresh native session withou
   expect(after.slice(0, before.length)).toEqual(before.map(message =>
     message.id === previousRequest.id ? { ...message, requestPending: true } : message));
   expect(record.kind).toBe("compaction");
-  expect(record.compaction.summary).toContain("CORRECTION");
-  expect(Buffer.byteLength(record.compaction.summary)).toBeLessThanOrEqual(6_000);
+  expect(record.compaction.summary).toBe("Earlier messages were summarized, as you asked.");
+  expect(record.compaction.context).toContain("CORRECTION");
+  expect(Buffer.byteLength(record.compaction.context)).toBeLessThanOrEqual(6_000);
   expect(record.compaction.by).toBe("person");
   expect(f.turns()).toHaveLength(turnsBefore);
   await f.compact();
@@ -154,7 +155,8 @@ it("automatically folds old exchanges while keeping the two latest and the incom
   const records = (await f.messages()).filter(m => m.kind === "compaction");
   expect(records).toHaveLength(1);
   expect(records[0].compaction.by).toBe("harness");
-  expect(records[0].compaction.summary).not.toContain("INCOMING");
+  expect(records[0].compaction.summary).toBe("This chat grew long, so its earlier messages were summarized.");
+  expect(records[0].compaction.context).not.toContain("INCOMING");
   const prompt = String(f.turns().at(-1).prompt.message.content);
   expect(prompt).toContain("SECOND_EXCHANGE keep verbatim");
   expect(prompt).toContain("THIRD_EXCHANGE correction -5 != 5");
@@ -171,7 +173,7 @@ it("Stop cancels a stalled summary without writing a late record or starting an 
   await f.compact();
   await expect.poll(() => {
     const dump = JSON.parse(readFileSync(f.session.fixtureDumpPath, "utf8"));
-    return typeof dump.prompt === "string" && dump.prompt.startsWith("Summarize this conversation");
+    return typeof dump.prompt === "string" && dump.prompt.includes("The material is over. Your task: write a summary");
   }).toBe(true);
   await expect(f.compact()).rejects.toThrow(/already working/);
   await f.cli("interrupt", "--bot", f.bot.id, "--task", f.thread);

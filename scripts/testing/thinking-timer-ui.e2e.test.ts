@@ -76,13 +76,16 @@ function launch(args: string[]): Promise<Launched> {
 const ui = (verb: string, handle: string, ...args: string[]) =>
   runControlLaterDog(["ui", verb, "--ui", handle, ...args]) as Promise<Record<string, any>>;
 
+const LIVE_RUN_DIALOG_TITLE = "Work details";
 const progressDialog = `Array.from(document.querySelectorAll('[role="dialog"][aria-modal="true"]')).find(dialog =>
-  document.getElementById(dialog.getAttribute('aria-labelledby') ?? '')?.textContent === 'See progress')`;
+  document.getElementById(dialog.getAttribute('aria-labelledby') ?? '')?.textContent === ${JSON.stringify(LIVE_RUN_DIALOG_TITLE)})`;
+const progressButtons = `document.querySelectorAll('button[aria-label="See progress"][aria-haspopup="dialog"]')`;
 const progressTimer = async (handle: string): Promise<string | null> =>
   (await ui("eval", handle, "--js", `${progressDialog}?.querySelector('span.tabular-nums')?.textContent ?? null`)).result;
 
 async function openProgress(handle: string): Promise<string> {
-  await waitUntil(async () => (await ui("eval", handle, "--js", `Boolean(document.querySelector('button[aria-label="See progress"][aria-haspopup="dialog"]'))`)).result, 15_000, "the progress button to appear");
+  await waitUntil(async () => (await ui("eval", handle, "--js", `${progressButtons}.length > 0`)).result, 15_000, "the progress button to appear");
+  expect((await ui("eval", handle, "--js", `${progressButtons}.length`)).result).toBe(1);
   await ui("click", handle, "--name", "See progress");
   await waitUntil(async () => (await ui("eval", handle, "--js", `Boolean(${progressDialog}) && Boolean(document.querySelector('button[aria-label="See progress"][aria-expanded="true"]'))`)).result, 10_000, "the named progress dialog to open");
   return await waitUntil(() => progressTimer(handle), 15_000, "the progress timer to appear") as string;

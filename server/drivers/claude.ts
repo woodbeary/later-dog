@@ -45,6 +45,7 @@ import {
 import { appendNative } from "./native.ts";
 import { claudeModelAnswered, claudeUsageLimit, rejectedRateLimit, type UsageLimit } from "../laterdog/usage-limit.ts";
 import { claudeLiveReading, noteLiveReading } from "../laterdog/plan-readings.ts";
+import { chatEngineEnvironment } from "../laterdog/chat-environment.ts";
 import { claudeRefreshGate, claudeRefreshLockFrame, claudeRefreshLockResult, claudeSignInAgainMessage, retryClaudeRefreshLock, type RefreshLockState } from "../laterdog/claude-refresh-lock.ts";
 import { permissionCommand, permissionLaunchCwd } from "./permission-command.ts";
 import { SPAWNED_PROXIES } from "../proxy-paths.ts";
@@ -70,11 +71,14 @@ import { readCliVersion as readCliVersionOf, unreadCli } from "../laterdog/cli-v
 import { claudeToolTouch } from "../laterdog/tool-touches.ts";
 import { claudeContextNote, claudeSeenVolatile } from "../laterdog/volatile-sections.ts";
 import { claudeHelperEnvironment } from "../laterdog/helper-model.ts";
+import { helperContractArgs, helperContractWanted, helperFlagRefused, SUBAGENT_PROMPT_FLAG } from "../laterdog/helper-contract.ts";
+import { disallowedWithOnePlan, hasSetPlan } from "../laterdog/one-plan.ts";
 import { agentsServerLaunch, deferRareToolsEnabled } from "../laterdog/tool-loading.ts";
 import { CLAUDE_PICKS_CACHE_LIFETIME, claudeCacheLifetime } from "../laterdog/cache-lifetime.ts";
 import { claudeCompactionSwitchedOff } from "../laterdog/native-compaction.ts";
 import { helpersStoppedLine } from "../laterdog/helpers-stopped.ts";
 import { claudeApiErrorFrame } from "../laterdog/claude-api-error.ts";
+import { APPROVAL_REVIEW_MODEL } from "../laterdog/dog-writer.ts";
 import { RESUME_REJECTED } from "../../shared/resume-pickup.ts";
 
 export function claudeAuthStatus(
@@ -278,6 +282,7 @@ export const CLAUDE_FLAG_FLOORS = {
   "--system-prompt-snapshot": [2, 1, 267],
   "--restricted": [2, 1, 257],
   "--forward-subagent-text": [2, 1, 211],
+  [SUBAGENT_PROMPT_FLAG]: [2, 1, 316],
 } as const satisfies Record<string, ClaudeCliVersion>;
 
 const FLAGS_LEARNED_AFTER_LAUNCH = ["--autocompact", "--system-prompt-snapshot"] as const;
@@ -1036,6 +1041,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
       volatile: string | null;
       sessionId: string | null;
       sawInit: boolean;
+      passedHelperFlag: boolean;
       resumeRefused?: string;
       nativePermissionMode: string | null;
       replaysUserMessages: boolean;
@@ -1234,9 +1240,6 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
       }
       if (turn.guestConfined) args.push("--restricted", "--tools", GUEST_CLAUDE_TOOLS.join(","));
       else if (config.tools !== undefined) args.push("--tools", config.tools.join(","));
-      if (config.disallowedTools?.length) {
-        args.push("--disallowedTools", config.disallowedTools.join(","));
-      }
       const turnEnvironment = environment();
       await learnCliFlags(turnEnvironment);
       if (turn.guestConfined && !claudeCliSupports(cliVersion, "--restricted")) {
@@ -1320,6 +1323,8 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
       mcpServers.dog = { command: process.execPath, args: [PERM_PROXY_PATH, socketPath], env: permissionEnv, alwaysLoad: true };
       allowed.push("mcp__dog");
       if (turn.guestConfined) allowed.splice(0, allowed.length, ...allowed.filter((name) => name === "mcp__dog" || name === "mcp__agents"));
+      const disallowed = disallowedWithOnePlan(config.disallowedTools, !turn.guestConfined && hasSetPlan(mcpServers, turn.toolScope));
+      if (disallowed.length) args.push("--disallowedTools", disallowed.join(","));
       let mcpConfigPath: string | null = null;
       if (Object.keys(mcpServers).length) {
         mcpConfigPath = join(mkdtempSync(join(tmpdir(), "laterdog-mcp-")), "mcp.json");
@@ -1353,7 +1358,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
       const cacheLifetime = claudeCacheLifetime(env, Boolean(cliVersion && versionAtLeast(cliVersion, CLAUDE_PICKS_CACHE_LIFETIME)),
         injected.injected ? {} : readClaudeAuthSettings(env, input.environment));
       if (cacheLifetime) env.CLAUDE_CODE_PROMPT_CACHE_TTL = cacheLifetime;
-      Object.assign(env, quietWorkEnvironment(turn.quietWork));
+      Object.assign(env, quietWorkEnvironment(turn.quietWork), chatEngineEnvironment(threadId));
       Object.assign(env, claudeHelperEnvironment(turnModel, turn.helperModel, { custom: Boolean(config.managed) || injected.injected }));
       const cwd = turn.cwd ?? homedir();
       workFolders.set(threadId, cwd);
@@ -1444,11 +1449,13 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
       try {
         checkStart();
         const launchSystem = turn.systemStable ?? turn.system;
-        if (launchSystem) {
-          systemPromptPath = join(mkdtempSync(join(tmpdir(), "laterdog-system-")), "prompt.txt");
+        const helperContract = helperContractWanted(config.cli, cliVersion && claudeCliSupports(cliVersion, SUBAGENT_PROMPT_FLAG) ? cliVersion.join(".") : null);
+        if (launchSystem || helperContract) systemPromptPath = join(mkdtempSync(join(tmpdir(), "laterdog-system-")), "prompt.txt");
+        if (launchSystem && systemPromptPath) {
           writeFileSync(systemPromptPath, launchSystem, { mode: 0o600 });
           args.push("--append-system-prompt-file", systemPromptPath);
         }
+        if (helperContract && systemPromptPath) args.push(...helperContractArgs(dirname(systemPromptPath)));
         if (socketPath) {
           const askTools = new Map<string, string | undefined>();
           broker = await createPermissionBroker({
@@ -1560,6 +1567,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
         volatile: claudeSeenVolatile(turn),
         sessionId: sessionId ?? newSessionId,
         sawInit: false,
+        passedHelperFlag: args.includes(SUBAGENT_PROMPT_FLAG),
         nativePermissionMode: null,
         replaysUserMessages,
         turn: { turnId, input: turn, retryAbort, settled: false, sawStreamDelta: false, pendingSteers: new Map(), deferred: null, continuationGrace: null, continuationSilence: null },
@@ -2036,10 +2044,11 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
           const verdict = classifyError({ exitCode: code, stderr: message });
           const endedBeforeTurn = session.turn.awaitingInit === true;
           const refusedResume = Boolean(session.resumeRefused);
+          const refusedHelperFlag = !session.sawInit && helperFlagRefused(config.cli, cliVersion?.join(".") ?? null, session.stderr, session.passedHelperFlag);
           if (
             !refusedResume &&
             !retry.cancelled &&
-            (endedBeforeTurn || (
+            (endedBeforeTurn || refusedHelperFlag || (
               code !== 0 &&
               verdict.transient &&
               !session.turn.sawStreamDelta &&
@@ -2063,7 +2072,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
             sessions.delete(threadId);
             session.turn = null;
             let delayMs = 0;
-            if (!endedBeforeTurn) {
+            if (!endedBeforeTurn && !refusedHelperFlag) {
               retry.attempt++;
               delayMs = computeBackoff(retry.attempt - 1);
               emit({
@@ -2093,7 +2102,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
               active.set(threadId, { stop: () => { retry.cancelled = true; retryAbort.abort(); }, turnId });
               try {
                 const cursor = session.sessionId ?? sessionId ?? undefined;
-                await sendTurn({ ...turn, sessionReset: false, resumeCursor: cursor }, turnId);
+                await sendTurn(refusedHelperFlag ? turn : { ...turn, sessionReset: false, resumeCursor: cursor }, turnId);
               } catch (e) {
                 if (active.get(threadId)?.turnId === turnId) active.delete(threadId);
                 retryState.delete(threadId);
@@ -2248,13 +2257,13 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
       return answer;
     };
 
-    const generateReview = (prompt: string, signal?: AbortSignal, onUsage?: TextGenerationOptions["onUsage"]): Promise<string> =>
+    const quickModel = config.managedModels?.[0] ?? APPROVAL_REVIEW_MODEL;
+    const generateReview = (prompt: string, model: string, signal?: AbortSignal, onUsage?: TextGenerationOptions["onUsage"]): Promise<string> =>
       new Promise((resolve, reject) => {
         if (config.requireApiKey && !input.environment.ANTHROPIC_API_KEY) {
           reject(new Error(NO_ANTHROPIC_KEY));
           return;
         }
-        const model = config.managedModels?.[0] ?? "claude-haiku-4-5";
         const oneShotEnvironment = environment(model);
         const compactWindow = cliHasAutocompact === true ? autoCompactWindow(oneShotEnvironment, claudeKeepsTunedWindow(cliVersion, config.managed)) : null;
         const child = spawnCli(
@@ -2423,12 +2432,12 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
       generateText: async (prompt, options) => {
         await claudeRefreshGate.enter(environment());
         await learnCliFlags(environment());
-        return generateReview(prompt, options?.signal, options?.onUsage);
+        return generateReview(prompt, options?.model ?? quickModel, options?.signal, options?.onUsage);
       },
       reviewPermission: async (prompt, signal) => {
         await claudeRefreshGate.enter(environment());
         await learnCliFlags(environment());
-        return generateReview(prompt, signal);
+        return generateReview(prompt, quickModel, signal);
       },
       dispose: async () => {
         for (const controller of starting.values()) controller.abort();

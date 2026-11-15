@@ -7,6 +7,7 @@ const GROUP_OF: Readonly<Record<string, string>> = {
   voice: "replies",
   replies: "replies",
   "user-profile": "the_person",
+  "ask-first": "the_person",
   "owner-grant": "the_person",
   coordination: "team",
   assignment: "team",

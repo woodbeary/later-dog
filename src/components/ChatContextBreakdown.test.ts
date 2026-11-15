@@ -153,6 +153,13 @@ describe("the context window row in a chat's usage", () => {
     expect(host.querySelectorAll("[data-chat-context-segment]")).toHaveLength(0);
   });
 
+  it("keeps a count fresh when its total is above the chat's current number", async () => {
+    vi.mocked(api).mockResolvedValue({ ...COUNTED, at: NOW - 1_000, total: 206_000 });
+    await openPanel(chatContextReading({ tokens: 200_000, window: 1_000_000 }));
+    expect(host.querySelector("[data-chat-context-stale]")).toBeNull();
+    expect(host.querySelector("[data-chat-context-as-of]")).toBeNull();
+  });
+
   it("calls the conversation just that on an engine count", async () => {
     vi.mocked(api).mockResolvedValue(COUNTED);
     await openPanel(chatContextReading({ tokens: 198_100, window: 1_000_000 }));

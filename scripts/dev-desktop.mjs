@@ -6,6 +6,7 @@ import { homedir } from "node:os";
 import { delimiter, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describeVariant, LIVE_DATA_ENV, LIVE_DATA_FLAG, ownedPorts } from "../electron/app-variant.mjs";
+import { missingDependencies } from "./dev-app.mjs";
 import { READY_PATH } from "./dev-home-proxy.mjs";
 import { safeTarget, scriptEnvironment } from "./dev-safe.mjs";
 
@@ -80,9 +81,10 @@ export function appBundleOf(file) {
   return at < 0 ? null : file.slice(0, at + 4);
 }
 
-export function stablySign({ electronFile, helper, identity, run = execFileSync, inspect = spawnSync }) {
+export function stablySign({ electronFile, helper, identity, run = execFileSync, inspect = spawnSync, exists = existsSync }) {
   if (!identity) return false;
   const bundle = appBundleOf(electronFile);
+  if (bundle && !exists(bundle)) return false;
   const signed = [];
   for (const [path, identifier, deep] of [[helper, DEV_DISCLAIM_IDENTIFIER, false], [bundle, DEV_APP_IDENTIFIER, true]]) {
     if (!path || signedIdentifier(path, inspect) === identifier) continue;
@@ -209,6 +211,8 @@ export async function runDesktop(plan, { spawnProcess = spawn, assertPorts: chec
 if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
   try {
     if (process.argv.includes(LIVE_DATA_FLAG) || process.argv.length > 2) throw new Error("Run pnpm dev:desktop without live-data flags or extra arguments.");
+    const absent = missingDependencies(projectRoot);
+    if (absent) throw new Error(`${absent.sentence} Run pnpm install --frozen-lockfile${absent.kind === "electron" ? ` and then node node_modules/electron/install.js` : ""} there.`);
     const plan = desktopPlan({ node: runtimeBinary() });
     process.exitCode = await runDesktop({ ...plan, electron: disclaimedElectron(plan.electron) });
   } catch (error) { console.error(error.message); process.exitCode = 1; }

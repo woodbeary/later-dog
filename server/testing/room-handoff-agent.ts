@@ -35,7 +35,7 @@ export async function runRoomHandoffAgent(argv: string[], planPath: string, prom
   const botId = integration.env.LATERDOG_BOT_ID;
   const system = launch?.system ?? readAtLaunch(arg("--append-system-prompt-file"));
   const turnContext = `${system}\n${JSON.stringify(prompt)}`;
-  const resumed = turnContext.includes("Your downstream room requests have settled.");
+  const resumed = /your downstream room requests have settled\./i.test(turnContext);
   const basePlan = JSON.parse(readFileSync(planPath, "utf8"))[botId] ?? {};
   const previous = existsSync(`${planPath}.evidence.jsonl`) ? readFileSync(`${planPath}.evidence.jsonl`, "utf8").trim().split("\n").filter(Boolean).map(line => JSON.parse(line)) : [];
   const turnIndex = previous.filter(p => p.botId === botId).length;
