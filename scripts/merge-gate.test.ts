@@ -78,9 +78,9 @@ describe("merge gate verdict", () => {
 
   it("passes only when every step passed and at least one ran", () => {
     const clean = recorded("stray.json", "/repo");
-    expect(verdict([])).toEqual({ pass: false, label: "FAIL", failing: [], skippedNoBrowser: [], notRun: [] });
+    expect(verdict([])).toEqual({ pass: false, label: "FAIL", failing: [], skippedNoBrowser: [], notRun: [], gaps: [] });
     expect(verdict([judgeStep(shard, 0, passing, clean)], { partial: true })).toMatchObject({ pass: false, label: "PARTIAL" });
-    expect(verdict([judgeStep(shard, 0, passing, clean)])).toEqual({ pass: true, label: "PASS", failing: [], skippedNoBrowser: [], notRun: [] });
+    expect(verdict([judgeStep(shard, 0, passing, clean)])).toEqual({ pass: true, label: "PASS", failing: [], skippedNoBrowser: [], notRun: [], gaps: [] });
     const report = formatVerdict([judgeStep(shard, 0, passing, clean), judgeStep({ ...shard, name: "suite 2/8" }, 1, failing, clean)]);
     expect(report).toContain("VERDICT: FAIL");
     expect(report.split("Failing:\n")[1]).toBe("  server/b.test.ts\n  src/c.test.ts");
@@ -96,7 +96,7 @@ describe("merge gate verdict", () => {
     expect(verdict(results)).toMatchObject({ pass: false, label: "FAIL", skippedNoBrowser: ["scripts/testing/screen-ui.e2e.test.mjs"] });
     expect(formatVerdict(results)).toContain("Skipped without a browser: 1");
     expect(formatVerdict(results)).toContain("\n  scripts/testing/screen-ui.e2e.test.mjs\n");
-    expect(verdict(results, { noBrowser: true }).pass).toBe(true);
+    expect(verdict(results, { noBrowser: true })).toMatchObject({ pass: false, label: "PASS WITH GAPS", gaps: ["interface tests skipped: no browser (1 file)"] });
   });
 
   it("treats every interface test as needing the browser by its name, and every test that waits for the browser is named so", () => {
@@ -151,7 +151,7 @@ console.log(words.includes("vitest") ? ${JSON.stringify(passing)} : words.includ
 
   it("exits 0 with a PASS verdict only when the whole gate ran and passed", () => {
     const run = gate([]);
-    expect(run.stdout).toContain("VERDICT: PASS");
+    expect(run.stdout).toMatch(/VERDICT: PASS {2}head \w+, origin\/main \w+\n/);
     expect(run.status).toBe(0);
   });
 
@@ -162,8 +162,8 @@ console.log(words.includes("vitest") ? ${JSON.stringify(passing)} : words.includ
     expect(run.status).toBe(3);
   });
 
-  it("refuses an unknown or missing step name before running anything", () => {
-    for (const args of [["--only", "nosuchstep"], ["--only"], ["--only", "--x"], ["--only", "lint,nosuchstep"], ["--only", ","]]) {
+  it("refuses an unknown or missing step name, or any other argument, before running anything", () => {
+    for (const args of [["--only", "nosuchstep"], ["--only"], ["--only", "--x"], ["--only", "lint,nosuchstep"], ["--only", ","], ["--only=typecheck"], ["--fast"], ["--only", "lint", "--x"]]) {
       const run = gate(args);
       expect(run.stdout, args.join(" ")).not.toContain("VERDICT");
       expect(run.stderr, args.join(" ")).toContain("merge gate:");
@@ -178,13 +178,13 @@ console.log(words.includes("vitest") ? ${JSON.stringify(passing)} : words.includ
     expect(run.status).toBe(1);
   });
 
-  it("exits 1 when an interface test skipped for want of a browser, and 0 when the machine has none on purpose", () => {
+  it("exits 1 when an interface test skipped for want of a browser, and 4 with its gap named when the machine has none on purpose", () => {
     const skipped = gate([], { env: { FAKE_NO_BROWSER: "1" } });
     expect(skipped.stdout).toMatch(/Skipped without a browser: 1 .*\n {2}scripts\/testing\/screen-ui\.e2e\.test\.mjs\n/);
     expect(skipped.status).toBe(1);
     const allowed = gate([], { env: { FAKE_NO_BROWSER: "1", LATERDOG_GATE_NO_BROWSER: "1" } });
-    expect(allowed.stdout).toContain("VERDICT: PASS");
-    expect(allowed.status).toBe(0);
+    expect(allowed.stdout).toMatch(/VERDICT: PASS WITH GAPS {2}head \w+, origin\/main \w+; gaps: interface tests skipped: no browser \(1 file\)\n/);
+    expect(allowed.status).toBe(4);
   });
 
   it("fails a typecheck that printed errors even when the wrapper reports success", () => {
@@ -197,15 +197,17 @@ console.log(words.includes("vitest") ? ${JSON.stringify(passing)} : words.includ
   it("fails a test set whose dependencies are missing, unless it is named as unavailable here, and then lists it on the verdict line", () => {
     const missing = gate([], { deps: ["deploy/laterdog/home", "cloudflare/control-plane"] });
     expect(missing.stdout).toContain("FAIL computers  deploy/laterdog/computers/node_modules is missing");
+    expect(missing.stdout).toContain("run pnpm install --ignore-workspace --frozen-lockfile in deploy/laterdog/computers");
     expect(missing.stdout).toContain("Failing:\n  computers (deploy/laterdog/computers/node_modules is missing)");
     expect(missing.status).toBe(1);
     const named = gate([], { deps: ["deploy/laterdog/home", "cloudflare/control-plane"], env: { LATERDOG_GATE_UNAVAILABLE: "computers" } });
     expect(named.stdout).toContain("skip computers  not run here");
-    expect(named.stdout).toMatch(/VERDICT: PASS {2}head \w+, origin\/main \w+ \(not run here on purpose: computers\)\n/);
-    expect(named.status).toBe(0);
+    expect(named.stdout).toMatch(/VERDICT: PASS WITH GAPS {2}head \w+, origin\/main \w+; gaps: test sets not run: computers\n/);
+    expect(named.status).toBe(4);
     const present = gate([], { env: { LATERDOG_GATE_UNAVAILABLE: "computers" } });
     expect(present.stdout).toContain("ok   computers exit 0");
-    expect(present.stdout).not.toContain("not run here on purpose");
+    expect(present.stdout).toContain("VERDICT: PASS WITH GAPS");
+    expect(present.status).toBe(4);
     for (const name of ["suite 1/8", "nosuchstep"]) {
       const refused = gate([], { env: { LATERDOG_GATE_UNAVAILABLE: name } });
       expect(refused.stderr).toContain("LATERDOG_GATE_UNAVAILABLE names");
@@ -232,8 +234,8 @@ console.log(words.includes("vitest") ? ${JSON.stringify(passing)} : words.includ
     expect(failed.stdout).toContain("could not fetch origin main");
     expect(failed.status).toBe(1);
     const offline = gate([], { before: breakOrigin, env: { LATERDOG_GATE_OFFLINE: "1" } });
-    expect(offline.stdout).toMatch(/VERDICT: PASS {2}head [0-9a-f]+, origin\/main [0-9a-f]+ \(offline: origin\/main not fetched\)/);
-    expect(offline.status).toBe(0);
+    expect(offline.stdout).toMatch(/VERDICT: PASS WITH GAPS {2}head [0-9a-f]+, origin\/main [0-9a-f]+; gaps: not fetched\n/);
+    expect(offline.status).toBe(4);
   });
 
   it("fails when a tracked file differs from the commit or an untracked file is present, and ignores ignored ones", () => {
@@ -254,6 +256,12 @@ console.log(words.includes("vitest") ? ${JSON.stringify(passing)} : words.includ
     expect(second.stdout).toContain("suite 1/8 (no JSON report; no test summary)");
     expect(second.stdout).toContain("VERDICT: FAIL");
     expect(second.status).toBe(1);
+  });
+
+  it("names every gap on the verdict line when several are allowed at once", () => {
+    const run = gate([], { deps: ["deploy/laterdog/home", "cloudflare/control-plane"], env: { FAKE_NO_BROWSER: "1", LATERDOG_GATE_NO_BROWSER: "1", LATERDOG_GATE_OFFLINE: "1", LATERDOG_GATE_UNAVAILABLE: "computers" } });
+    expect(run.stdout).toMatch(/VERDICT: PASS WITH GAPS {2}head \w+, origin\/main \w+; gaps: not fetched; interface tests skipped: no browser \(1 file\); test sets not run: computers\n/);
+    expect(run.status).toBe(4);
   });
 
   it("prints the head and origin/main commits on the verdict line", () => {

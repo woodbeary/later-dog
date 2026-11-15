@@ -8,6 +8,7 @@ export const SHARDS = 8;
 export const EDGE_DIR = "deploy/laterdog/home";
 export const CONTROL_PLANE_DIR = "cloudflare/control-plane";
 export const COMPUTERS_DIR = "deploy/laterdog/computers";
+export const OUTSIDE_WORKSPACE_INSTALL = "pnpm install --ignore-workspace --frozen-lockfile";
 
 export function gateSteps(shards = SHARDS) {
   return [
@@ -19,14 +20,17 @@ export function gateSteps(shards = SHARDS) {
     ...Array.from({ length: shards }, (_, index) => ({
       name: `suite ${index + 1}/${shards}`, kind: "vitest", command: ["pnpm", "exec", "vitest", "run", `--shard=${index + 1}/${shards}`],
     })),
-    { name: "edge", kind: "vitest", cwd: EDGE_DIR, needs: join(EDGE_DIR, "node_modules"), command: ["pnpm", "exec", "vitest", "run"] },
+    { name: "edge", kind: "vitest", cwd: EDGE_DIR, install: OUTSIDE_WORKSPACE_INSTALL, needs: join(EDGE_DIR, "node_modules"), command: ["pnpm", "exec", "vitest", "run"] },
     { name: "control-plane", kind: "vitest", cwd: CONTROL_PLANE_DIR, needs: join(CONTROL_PLANE_DIR, "node_modules"), command: ["pnpm", "exec", "vitest", "run"] },
-    { name: "computers", kind: "vitest", cwd: COMPUTERS_DIR, needs: join(COMPUTERS_DIR, "node_modules"), command: ["pnpm", "exec", "vitest", "run"] },
+    { name: "computers", kind: "vitest", cwd: COMPUTERS_DIR, install: OUTSIDE_WORKSPACE_INSTALL, needs: join(COMPUTERS_DIR, "node_modules"), command: ["pnpm", "exec", "vitest", "run"] },
   ];
 }
 
 export function selectSteps(steps, argv) {
   const at = argv.indexOf("--only");
+  const extra = argv.filter((word, index) => index !== at && index !== at + 1);
+  if (at === -1 && argv.length) return { error: `unknown argument${argv.length === 1 ? "" : "s"}: ${argv.join(" ")}; the only option is --only <steps>` };
+  if (at !== -1 && extra.length) return { error: `unknown argument${extra.length === 1 ? "" : "s"}: ${extra.join(" ")}; the only option is --only <steps>` };
   if (at === -1) return { steps, partial: false };
   const value = argv[at + 1];
   if (!value || value.startsWith("--")) return { error: "--only needs step names separated by commas" };
@@ -49,7 +53,7 @@ export function notRunHere(step) {
 }
 
 export function missingDependencies(step) {
-  return { ...step, code: null, failed: true, failing: [`${step.name} (${step.needs} is missing)`], skippedNoBrowser: [], note: `${step.needs} is missing: install the dependencies in ${step.cwd}, or name ${step.name} in LATERDOG_GATE_UNAVAILABLE on a machine meant to go without it` };
+  return { ...step, code: null, failed: true, failing: [`${step.name} (${step.needs} is missing)`], skippedNoBrowser: [], note: `${step.needs} is missing: run ${step.install ?? "pnpm install"} in ${step.cwd}, or name ${step.name} in LATERDOG_GATE_UNAVAILABLE on a machine meant to go without it` };
 }
 
 export function wrapperFrom(value) {
@@ -141,28 +145,33 @@ export function judgeStep(step, code, log, report = null, root = "") {
   return { ...plain, failed, failing, skippedNoBrowser: browserSkips(report, root), note: counts ? `Test Files ${counts.files}; Tests ${counts.tests}` : "" };
 }
 
-export function verdict(results, { noBrowser = false, partial = false } = {}) {
+export function verdict(results, { noBrowser = false, partial = false, offline = false, unavailable = [] } = {}) {
   const failing = [...new Set(results.flatMap((result) => result.failing))];
   const skippedNoBrowser = [...new Set(results.flatMap((result) => result.skippedNoBrowser ?? []))];
   const notRun = results.filter((result) => result.notRun).map((result) => result.name);
+  const gaps = [
+    ...(offline ? ["not fetched"] : []),
+    ...(noBrowser ? [`interface tests skipped: no browser${skippedNoBrowser.length ? ` (${skippedNoBrowser.length} file${skippedNoBrowser.length === 1 ? "" : "s"})` : " (none skipped this run)"}`] : []),
+    ...(unavailable.length ? [`test sets not run: ${notRun.length ? notRun.join(", ") : `none (LATERDOG_GATE_UNAVAILABLE names ${[...unavailable].join(", ")})`}`] : []),
+  ];
   const clean = results.some((result) => result.kind !== "base" && !result.notRun) && failing.length === 0 && (noBrowser || skippedNoBrowser.length === 0);
-  const label = !clean ? "FAIL" : partial ? "PARTIAL" : "PASS";
-  return { pass: label === "PASS", label, failing, skippedNoBrowser, notRun };
+  const label = !clean ? "FAIL" : partial ? "PARTIAL" : gaps.length ? "PASS WITH GAPS" : "PASS";
+  return { pass: label === "PASS", label, failing, skippedNoBrowser, notRun, gaps };
 }
 
 export function exitCode(label) {
-  return label === "PASS" ? 0 : label === "PARTIAL" ? 3 : 1;
+  return { PASS: 0, PARTIAL: 3, "PASS WITH GAPS": 4 }[label] ?? 1;
 }
 
 export function formatVerdict(results, options = {}) {
-  const { label, failing, skippedNoBrowser, notRun } = verdict(results, options);
+  const { label, failing, skippedNoBrowser, gaps } = verdict(results, options);
   const lines = results.map((result) => result.code === null ? `${result.notRun ? "skip" : "FAIL"} ${result.name}  ${result.note}` : `${result.failed ? "FAIL" : "ok  "} ${result.name} exit ${result.code}${result.note ? `  ${result.note}` : ""}`);
   if (skippedNoBrowser.length) {
     lines.push(`Skipped without a browser: ${skippedNoBrowser.length}${options.noBrowser ? " (allowed by LATERDOG_GATE_NO_BROWSER)" : " (set LATERDOG_GATE_NO_BROWSER=1 only on a machine meant to have none)"}`, ...skippedNoBrowser.map((name) => `  ${name}`));
   }
-  const commits = options.commits ? `  head ${options.commits.head}, ${BASE} ${options.commits.base}${options.commits.offline ? " (offline: origin/main not fetched)" : ""}` : "";
-  const skipped = notRun.length ? ` (not run here on purpose: ${notRun.join(", ")})` : "";
-  lines.push(`VERDICT: ${label}${commits}${skipped}${label === "PARTIAL" ? ` (ran only: ${results.filter((result) => result.kind !== "base").map((result) => result.name).join(", ")}; a merge needs the whole gate)` : ""}`);
+  const commits = options.commits ? `  head ${options.commits.head}, ${BASE} ${options.commits.base}` : "";
+  const gapWords = gaps.length ? `; gaps: ${gaps.join("; ")}` : "";
+  lines.push(`VERDICT: ${label}${commits}${gapWords}${label === "PARTIAL" ? ` (ran only: ${results.filter((result) => result.kind !== "base").map((result) => result.name).join(", ")}; a merge needs the whole gate)` : ""}`);
   if (failing.length) lines.push("Failing:", ...failing.map((name) => `  ${name}`));
   return lines.join("\n");
 }
@@ -224,12 +233,13 @@ async function main() {
     console.error(`merge gate: ${unavailable.error}`);
     process.exit(2);
   }
-  const options = { noBrowser: process.env.LATERDOG_GATE_NO_BROWSER === "1", partial: chosen.partial };
+  const offline = process.env.LATERDOG_GATE_OFFLINE === "1";
+  const options = { noBrowser: process.env.LATERDOG_GATE_NO_BROWSER === "1", partial: chosen.partial, offline, unavailable: [...unavailable.names] };
   const logs = resolve(process.env.LATERDOG_GATE_LOGS || join(tmpdir(), `laterdog-gate-${Date.now()}`));
   mkdirSync(logs, { recursive: true });
   const results = [];
   const started = Date.now();
-  const merged = baseCheck(root, { offline: process.env.LATERDOG_GATE_OFFLINE === "1" });
+  const merged = baseCheck(root, { offline });
   options.commits = merged.commits;
   results.push(judgeStep({ name: `${BASE} merged`, kind: "base" }, merged.code, merged.log));
   console.log(`merge gate in ${root}; logs in ${logs}${wrapper.length ? `; each step through ${wrapper.join(" ")}` : ""}`);
