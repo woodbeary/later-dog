@@ -113,4 +113,18 @@ describe("waiting for a computer job with one call", () => {
     expect(shown.endsWith(log.slice(-STILL_RUNNING_TAIL_CHARS))).toBe(true);
     expect(stillRunningTail("short and fine")).toBe("short and fine");
   });
+
+  it("gives a 30-minute wait the whole 30 minutes through the route, never the old 4", async () => {
+    const root = mkdtempSync(join(tmpdir(), "run-wait-window-"));
+    mkdirSync(join(root, "site"), { recursive: true });
+    const windows: number[] = [];
+    const runs = { record: () => null, run: async (_box: unknown, input: { left: () => number }) => { windows.push(input.left()); return { id: "abcd1234", state: "finished", exitCode: 0, output: "ok", broughtBack: [], skipped: [], sentFiles: 0, sentBytes: 0 }; } } as unknown as ComputerRuns;
+    const computer = async () => ({ box: {} as RunBox });
+    const budgets: number[] = [];
+    const answer = await handleComputerRun({ botId: "dog", body: { command: "pnpm gate", folder: join(root, "site"), wait_minutes: 30 }, workingFolder: null, allowedRoots: [], home: root, maxWaitMs: waitCapMs("claudeAgent", 10) },
+      { runs, computer: async (_bot, options) => { budgets.push(options?.budgetMs ?? 0); return computer(); }, now: () => 5_000_000 });
+    expect(answer.status).toBe(200);
+    expect(windows).toEqual([30 * MINUTE]);
+    expect(budgets).toEqual([30 * MINUTE]);
+  });
 });
