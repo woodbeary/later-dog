@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, rmSync, symlinkSync } from "node:fs";
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
@@ -178,6 +178,29 @@ describe("folders the dog is given through a link, as /tmp, /var and /home are o
       }
       expect((await bash(`mv ${join(linked, "other")}/* ${join(linked, "tmp", "gone")}/`, given))?.rule).toBe("delete-outside-workspace");
       expect((await bash(`rm -rf ${join(linked, "other")}`, given))?.rule).toBe("delete-outside-workspace");
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("shows the path as the dog wrote it, and where it really goes only when a link leads out", async () => {
+    const root = mkdtempSync(join(tmpdir(), "owner-guard-shown-"));
+    try {
+      const real = join(root, "real");
+      const linked = join(root, "linked");
+      mkdirSync(join(real, "work"), { recursive: true });
+      mkdirSync(join(real, "other"), { recursive: true });
+      symlinkSync(real, linked);
+      const work = join(linked, "work");
+      symlinkSync(join(real, "other"), join(work, "out"));
+      const given = { cwd: work, workspaceRoots: [work], tempRoots: [join(linked, "tmp")], home: join(linked, "home") };
+      expect((await bash(`rm -rf ${join(linked, "other")}`, given))?.message)
+        .toBe(`later.dog refused this: it deletes ${join(linked, "other")} recursively, outside this dog's workspace and /tmp.`);
+      expect((await bash("rm -rf ~/notes", given))?.message)
+        .toBe(`later.dog refused this: it deletes ${join(linked, "home", "notes")} recursively, outside this dog's workspace and /tmp.`);
+      const out = await bash("rm -rf out/", given);
+      expect(out?.message).toBe(`later.dog refused this: it deletes ${join(work, "out")} (which leads to ${join(realpathSync(real), "other")}) recursively, outside this dog's workspace and /tmp.`);
+      expect(out?.ask).toBe(`This deletes ${join(work, "out")} (which leads to ${join(realpathSync(real), "other")}) and everything in it, outside this dog's workspace and /tmp. Allow only if you want it gone.`);
     } finally {
       rmSync(root, { recursive: true, force: true });
     }

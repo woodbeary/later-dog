@@ -343,7 +343,7 @@ function deleteTargetRefusal(target: Word, cwd: string | undefined, paths: Paths
   const real = deletedPath(expanded, target.text, paths, glob);
   const inside = (path: string) => [...paths.roots, ...paths.temp].some((root) => within(path, root, glob || contents));
   if (inside(real) && inside(expanded)) return null;
-  const shown = glob ? target.text : real;
+  const shown = glob ? target.text : inside(expanded) ? `${expanded} (which leads to ${real})` : expanded;
   return {
     rule: "delete-outside-workspace",
     message: `later.dog refused this: it deletes ${shown}${recursive ? " recursively" : ""}, outside this dog's workspace and /tmp.`,
