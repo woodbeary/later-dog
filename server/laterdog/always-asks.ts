@@ -60,8 +60,9 @@ const bareName = (tool: string) => tool.replace(/^mcp__[^_]+__/, "");
 const serverOf = (tool: string) => (tool.startsWith("mcp__") ? tool.split("__")[1] ?? "" : "");
 
 function insideLentFolder(folderId: unknown, path: string): boolean {
-  if (typeof folderId !== "string" || !folderId || /^[/~]|[\\:]/.test(path)) return false;
-  const placed = posix.normalize(path);
+  const written = path.trim().replace(/\/+$/, "");
+  if (typeof folderId !== "string" || !folderId || /^[/~]|[\\:]/.test(written)) return false;
+  const placed = posix.normalize(written);
   return placed !== "." && placed !== ".." && !placed.startsWith("../");
 }
 
