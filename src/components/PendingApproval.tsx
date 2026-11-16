@@ -10,6 +10,7 @@ import { outboundSummary } from "@/lib/approval-summary";
 import { reviewedSkillSha256 } from "../../shared/skill-request";
 import { DELETE_OUTSIDE_WORKSPACE_ALLOW_KEY, MAC_ALLOW_KEY } from "../../shared/cloud-home";
 import { useOwnerOrAdmin } from "@/lib/use-owner-or-admin";
+import { LASTING_WHY_WORDS, type LastingOffer } from "../../shared/lasting-allows";
 
 export interface Pending {
   message: Message;
@@ -17,6 +18,7 @@ export interface Pending {
   tool: string;
   allowKey?: string;
   allowSession?: boolean;
+  lasting?: LastingOffer;
   commandAllowlist?: { command: string; cwd: string; providerInstanceId: string };
   detail: string;
   held?: string;
@@ -44,6 +46,7 @@ export function pendingApprovals(messages: Message[]): Pending[] {
       tool: m.card!.tool!,
       allowKey: m.card!.allowKey,
       allowSession: m.card!.allowSession,
+      lasting: m.card!.lasting,
       commandAllowlist: m.card!.commandAllowlist,
       detail: m.card!.subtitle,
       held: m.card!.held,
@@ -209,6 +212,7 @@ export function PendingApprovalActions({
   const decide = (behavior: "allow" | "deny", always = false, rememberCommand = false, never = false) => {
     const grant = always && bot && pending.allowKey ? { botId: bot.id, key: pending.allowKey } : undefined;
     const forChat = always && !pending.allowKey && pending.allowSession ? true : undefined;
+    const lastingGrant = always && bot && !pending.allowKey && pending.lasting?.offered ? { botId: bot.id } : undefined;
     dispatch({
       type: "decideRequest",
       threadId,
@@ -217,9 +221,10 @@ export function PendingApprovalActions({
       message: behavior === "deny" ? "Declined." : undefined,
       reviewedSha256: behavior === "allow" ? reviewedSha256 : undefined,
       alwaysAllow: grant,
+      lastingGrant,
       always: forChat,
       rememberCommand: rememberCommand || undefined,
-      scope: never ? "never" : behavior !== "allow" ? undefined : grant || rememberCommand ? "always" : forChat ? "chat" : "once",
+      scope: never ? "never" : behavior !== "allow" ? undefined : grant || rememberCommand || lastingGrant ? "always" : forChat ? "chat" : "once",
     });
   };
 
@@ -227,7 +232,10 @@ export function PendingApprovalActions({
   const quiet = "min-w-[120px] bg-control text-ink hover:bg-control-hover";
   const primary = "min-w-[120px] bg-accent text-white hover:brightness-110";
   const durable = "rounded-full px-2.5 py-1.5 text-[13px] font-medium text-ink-secondary transition-colors hover:bg-control hover:text-ink";
-  const reach = !durableRequest && bot && pending.allowKey
+  const lasting = !durableRequest && !pending.allowKey && !canRememberCommand ? pending.lasting : undefined;
+  const reach = lasting?.offered && bot
+    ? t("lasting.reach.search", { name: bot.name })
+    : !durableRequest && bot && pending.allowKey
     ? outbound
       ? t("approval.reach.connector", { name: bot.name, app: outbound.app ?? t("approval.reach.connectorApp") })
       : pending.allowKey === MAC_ALLOW_KEY
@@ -283,7 +291,19 @@ export function PendingApprovalActions({
             {t("approval.action.never")}
           </button>
         )}
-        {!durableRequest && !pending.allowKey && !canRememberCommand && pending.allowSession && (
+        {lasting?.offered && bot && (
+          <button
+            onClick={() => decide("allow", true)}
+            data-lasting-always=""
+            className={durable}
+          >
+            {t("approval.action.alwaysAllow")}
+          </button>
+        )}
+        {lasting && !lasting.offered && (
+          <span data-lasting-why={lasting.why} className="px-1 text-[12.5px] text-ink-tertiary">{t(LASTING_WHY_WORDS[lasting.why])}</span>
+        )}
+        {!durableRequest && !pending.allowKey && !canRememberCommand && !lasting && pending.allowSession && (
           <button
             onClick={() => decide("allow", true)}
             className={durable}

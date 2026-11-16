@@ -102,7 +102,7 @@ function trimRoutineRuns(runs: readonly RoutineRun[]): RoutineRun[] {
 export type { DogColor } from "@/lib/mascot";
 export type { RoutineRunCardData } from "../../shared/routine-run";
 
-export interface OptionCardData extends Pick<import("../../shared/wire").OptionCardData, "nativeActorId" | "nativeActorLabel" | "nativeRunId"> {
+export interface OptionCardData extends Pick<import("../../shared/wire").OptionCardData, "nativeActorId" | "nativeActorLabel" | "nativeRunId" | "lasting"> {
   title: string;
   subtitle: string;
   options: string[];
@@ -951,6 +951,7 @@ export type Action =
       message?: string;
       reviewedSha256?: string;
       alwaysAllow?: { botId: string; key: string };
+      lastingGrant?: { botId: string };
       always?: boolean;
       rememberCommand?: boolean;
       scope?: "once" | "always" | "chat" | "never";
@@ -2837,6 +2838,17 @@ export function StoreProvider({ children }: { children: ReactNode }) {
                   await api(owner ? `/api/bots/${action.alwaysAllow.botId}/always-allow` : `/api/bots/${action.alwaysAllow.botId}`, {
                     method: owner ? "POST" : "PATCH",
                     body: JSON.stringify(owner ? { threadId: action.threadId, allowKey: action.alwaysAllow.key } : { alwaysAllow: next }),
+                  });
+                } catch (error) {
+                  grantSaved = false;
+                  reportError(error, chatPane(action.threadId));
+                }
+              }
+              if (action.lastingGrant) {
+                try {
+                  await api(`/api/bots/${action.lastingGrant.botId}/always-allow`, {
+                    method: "POST",
+                    body: JSON.stringify({ threadId: action.threadId, requestId: action.requestId }),
                   });
                 } catch (error) {
                   grantSaved = false;
