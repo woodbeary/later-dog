@@ -59,16 +59,16 @@ describe("remembering exact command approvals", () => {
     expect(view({ commandAllowlist: undefined }).html).not.toContain("Always allow");
   });
 
-  it("answers and remembers in one action without a separate preference update", () => {
+  it("offers nothing to remember on a card stored before saved commands stopped, and never asks the home to save one", () => {
     const result = view();
-    expect(result.html).toContain("Always allow");
-    expect(result.html).toContain("/work/project");
-    expect(result.html).not.toContain("Allow for this chat");
-    result.buttons.find((button) => button.props.children === "Always allow")!.props.onClick!();
-    expect(fixture.dispatch).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({
-      type: "decideRequest", threadId: "thread-1", requestId: "request-1", behavior: "allow", rememberCommand: true,
-      alwaysAllow: undefined,
-    }));
+    expect(result.buttons.map((button) => button.props.children)).toEqual(["Allow once", "Don't allow"]);
+    expect(result.html).not.toContain("Always allow");
+    expect(result.html).not.toContain("/work/project");
+    for (const label of ["Allow once", "Don't allow"]) {
+      fixture.dispatch.mockClear();
+      result.buttons.find((button) => button.props.children === label)!.props.onClick!();
+      expect(fixture.dispatch.mock.calls[0]![0]).not.toHaveProperty("rememberCommand");
+    }
   });
 
   it("keeps Allow once and Deny from saving a grant", () => {
@@ -76,13 +76,13 @@ describe("remembering exact command approvals", () => {
       fixture.dispatch.mockClear();
       view().buttons.find((button) => button.props.children === label)!.props.onClick!();
       expect(fixture.dispatch).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({
-        behavior, rememberCommand: undefined, alwaysAllow: undefined,
+        behavior, alwaysAllow: undefined,
       }));
     }
   });
 
   it("puts Allow once first and primary, and a durable grant last as a quiet text button", () => {
-    for (const extra of [{}, { allowKey: "peer:teammate" }] as const) {
+    for (const extra of [{ allowKey: "peer:teammate" }] as const) {
       const { buttons } = view(extra);
       const labels = buttons.map((button) => String(button.props.children));
       expect(labels[0]).toBe("Allow once");
@@ -122,7 +122,7 @@ describe("remembering exact command approvals", () => {
     expect(result.buttons.filter((button) => button.props.children === "Always allow")).toHaveLength(1);
     result.buttons.find((button) => button.props.children === "Always allow")!.props.onClick!();
     expect(fixture.dispatch).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({
-      alwaysAllow: { botId: bot.id, key: "peer:teammate" }, rememberCommand: undefined,
+      alwaysAllow: { botId: bot.id, key: "peer:teammate" },
     }));
   });
 
@@ -146,7 +146,7 @@ describe("remembering exact command approvals", () => {
   it("says in one line, one tap away, how far each lasting choice reaches", () => {
     const line = (html: string) => html.match(/<p class="[^"]*text-ink-tertiary[^"]*">([^<]*)<\/p>/)?.[1];
     const command = view();
-    expect(line(command.html)).toBe("Always allow lets Scout run this exact command in /work/project without asking, in any chat using that folder with this engine.");
+    expect(line(command.html)).toBeUndefined();
     expect(line(view({ commandAllowlist: undefined }).html)).toBeUndefined();
     expect(view({ commandAllowlist: undefined }).html).not.toContain("Allow for this chat");
     const ownChat = { ...bot, tasks: [{ threadId: "thread-1" }] } as Bot;
