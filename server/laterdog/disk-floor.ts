@@ -131,7 +131,7 @@ export function homeFloorDecision(payload: Record<string, unknown>, disk: DiskUs
   return diskFloorDecision(payload, diskRung(disk), scene);
 }
 
-export const FLOOR_SENTENCE = "Your Cloud is nearly full. later.dog has cleared everything it safely can; the rest is your dogs' work. Open Storage to choose what to remove.";
+export const FLOOR_SENTENCE = "My Cloud is nearly full. later.dog has cleared everything it safely can; the rest is your dogs' work. Open Storage to choose what to remove.";
 
 export function floorWatch() {
   let held = false;

@@ -134,6 +134,6 @@ describe("the one sentence the person sees about disk", () => {
   });
 
   it("is the sentence the person was promised, word for word", () => {
-    expect(FLOOR_SENTENCE).toBe("Your Cloud is nearly full. later.dog has cleared everything it safely can; the rest is your dogs' work. Open Storage to choose what to remove.");
+    expect(FLOOR_SENTENCE).toBe("My Cloud is nearly full. later.dog has cleared everything it safely can; the rest is your dogs' work. Open Storage to choose what to remove.");
   });
 });
