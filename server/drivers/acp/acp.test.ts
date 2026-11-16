@@ -1198,7 +1198,7 @@ describe("ACP turns (fake CLI)", () => {
     expect(readFileSync(answer, "utf8")).toBe("cancelled");
   });
 
-  it("cancels a deny, never picking reject_always, when the agent offers no reject_once", async () => {
+  it("cancels a deny, never picking reject_always, when the agent offers no reject_once, and says only Not allowed.", async () => {
     process.env.FAKE_ACP_PERMISSION_OPTIONS = JSON.stringify([{ optionId: "once", kind: "allow_once" }, { optionId: "never", kind: "reject_always" }]);
     const answer = join(scratch, "reject-always-only-answer.txt");
     process.env.FAKE_ACP_PERMISSION_ANSWER = answer;
@@ -1207,10 +1207,11 @@ describe("ACP turns (fake CLI)", () => {
     await instance.adapter.sendTurn({ threadId, text: "go", approvalMode: "ask" });
     const opened = await recorder.until((event) => event.type === "request.opened");
     expect(await instance.adapter.respondToRequest(threadId, opened.requestId!, { behavior: "deny" })).toBe("rejected");
-    const error = await recorder.until((event) => event.type === "runtime.error");
-    expect((error as { message: string }).message).toMatch(/offered no "reject" permission option/);
+    const notice = await recorder.until((event) => event.type === "runtime.notice");
+    expect((notice as { message: string }).message).toBe("Not allowed.");
     await recorder.until((event) => event.type === "turn.completed");
     expect(readFileSync(answer, "utf8")).toBe("cancelled");
+    expect(recorder.events.filter((event) => event.type === "runtime.error")).toEqual([]);
   });
 
   it("cancels in full auto too when the agent offers only allow_always", async () => {

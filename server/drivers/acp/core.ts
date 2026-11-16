@@ -930,7 +930,10 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
               : isQuestion
                 ? named.length === 1 && typeof named[0].optionId === "string" ? named[0].optionId : null
                 : optionFor(want);
-            if (behavior !== "cancel" && !optionId) missing(isQuestion ? "matching answer" : want);
+            if (behavior !== "cancel" && !optionId) {
+              if (!isQuestion && want === "reject") emit({ ...base(threadId, current.turnId), type: "runtime.notice", message: "Not allowed." });
+              else missing(isQuestion ? "matching answer" : want);
+            }
             send({
               jsonrpc: "2.0",
               id: msg.id,
