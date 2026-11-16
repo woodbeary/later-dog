@@ -1017,13 +1017,22 @@ export const systemGit: GitLookup = {
   },
 };
 
+const SYSTEM_LINKS: Readonly<Record<string, string>> = { "/tmp": "/private/tmp", "/var": "/private/var", "/etc": "/private/etc", "/home": "/System/Volumes/Data/home" };
+
 function withRealpaths(paths: readonly string[]): string[] {
   const out = new Set<string>();
   for (const path of paths) {
-    out.add(resolve(path));
-    out.add(realPath(resolve(path)));
+    const given = resolve(path);
+    out.add(given);
+    out.add(join(realPath(dirname(given)), basename(given)));
+    const system = SYSTEM_LINKS[given];
+    if (system && isSymlink(given) && realPath(given) === system) out.add(system);
   }
   return [...out];
+}
+
+function holds(folder: string, path: string): boolean {
+  return folder === "/" || within(path, folder, true);
 }
 
 export function defaultTempRoots(): string[] {
@@ -1044,10 +1053,16 @@ const CACHE_FOLDERS = [".cache", ".npm", ".pnpm-store", ".local/share/pnpm/store
 
 function guardPaths(context: OwnerGuardContext): Paths {
   const home = context.home ?? homedir();
+  const homes = [...new Set([resolve(home), realPath(resolve(home))])];
+  const roots = withRealpaths(context.workspaceRoots.filter((root) => isAbsolute(root)))
+    .filter((root) => !homes.some((place) => holds(root, place)));
+  const caches = CACHE_FOLDERS.flatMap((folder) => homes.map((place) => join(place, folder)));
+  const temp = [...withRealpaths(context.tempRoots ?? defaultTempRoots()), ...caches]
+    .filter((folder) => ![...homes, ...roots].some((place) => holds(folder, place)));
   return {
     home,
-    temp: withRealpaths([...(context.tempRoots ?? defaultTempRoots()), ...CACHE_FOLDERS.map((folder) => join(home, folder))]),
-    roots: withRealpaths(context.workspaceRoots.filter((root) => isAbsolute(root))),
+    temp,
+    roots,
     ...(context.repositoryRoot ? { repository: context.repositoryRoot } : {}),
   };
 }
