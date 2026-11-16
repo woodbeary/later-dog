@@ -155,7 +155,7 @@ describe("jobs a dog left running on its computer", () => {
     expect(await jobs.check(look)).toEqual(["abcd1234"]);
     expect(stopped).toEqual(["abcd1234"]);
     expect(jobs.count("t1")).toBe(0);
-    expect(jobs.unannounced().map((j) => [j.id, j.end.how, j.end.at])).toEqual([["abcd1234", "overdue", now]]);
+    expect(jobs.unannounced().map((j) => [j.id, j.end.how, j.end.stop, j.end.at])).toEqual([["abcd1234", "overdue", "gone", now]]);
   });
 
   it("leaves a job running, without stopping it, just under the longest a run may take", async () => {
@@ -181,20 +181,21 @@ describe("jobs a dog left running on its computer", () => {
     expect(jobs.unannounced().map((j) => [j.end.how, j.end.exitCode])).toEqual([["finished", 0]]);
   });
 
-  it("ends a job past that time even when stopping it fails, and asks its computer nothing more about it", async () => {
+  it("ends a job past that time even when stopping it fails, keeps what the stop answered, and asks its computer nothing more about it", async () => {
     let now = 1_000;
     const jobs = new ComputerJobs(null, { now: () => now });
     jobs.started(job({ id: "aaaa0001" }));
     jobs.started(job({ id: "aaaa0002" }));
+    jobs.started(job({ id: "aaaa0003" }));
     const asked: string[] = [];
     const look = probe({
       exit: async (_box, j) => { asked.push(`exit ${j.id}`); return null; },
       liveness: async (_box, j) => { asked.push(`liveness ${j.id}`); return "alive"; },
-      stop: async (_box, j) => { asked.push(`stop ${j.id}`); if (j.id === "aaaa0001") throw new Error("exec timed out"); return "alive"; },
+      stop: async (_box, j) => { asked.push(`stop ${j.id}`); if (j.id === "aaaa0001") throw new Error("exec timed out"); return j.id === "aaaa0003" ? "partial" : "alive"; },
     });
     now = 1_000 + MAX_RUN_MS;
-    expect((await jobs.check(look)).sort()).toEqual(["aaaa0001", "aaaa0002"]);
-    expect(jobs.unannounced().map((j) => j.end.how)).toEqual(["overdue", "overdue"]);
+    expect((await jobs.check(look)).sort()).toEqual(["aaaa0001", "aaaa0002", "aaaa0003"]);
+    expect(jobs.unannounced().map((j) => [j.id, j.end.how, j.end.stop])).toEqual([["aaaa0001", "overdue", "alive"], ["aaaa0002", "overdue", "alive"], ["aaaa0003", "overdue", "partial"]]);
     asked.length = 0;
     now += JOB_CHECK_MS;
     expect(await jobs.check(look)).toEqual([]);

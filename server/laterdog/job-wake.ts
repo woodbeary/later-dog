@@ -9,11 +9,17 @@ export const WAKES_PER_MESSAGE = 2;
 export const WAKE_FRESH_MS = 30 * 60_000;
 
 const UNREAD: Partial<Record<EndedComputerJob["end"]["how"], string>> = { asleep: "went to sleep", gone: "was removed", stopped: "went to sleep or was removed" };
-const ENDED_WORDS: Partial<Record<EndedComputerJob["end"]["how"], string>> = { finished: "finished", failed: "failed", lost: "ended without a result", overdue: "was stopped after 2 hours" };
+const ENDED_WORDS: Partial<Record<EndedComputerJob["end"]["how"], string>> = { finished: "finished", failed: "failed", lost: "ended without a result" };
+
+function overduePhrase(name: string, stop: EndedComputerJob["end"]["stop"]): string {
+  if (stop === "alive") return `${name}'s command ran past 2 hours and later.dog could not stop it. later.dog is no longer watching it; it ends when ${name}'s computer next goes to sleep`;
+  return `${name}'s command was stopped after 2 hours${stop === "partial" ? ", but part of it may still be running" : ""}`;
+}
 
 function endedPhrase(name: string, jobs: readonly EndedComputerJob[]): string {
   if (jobs.length > 1) return `${name}'s ${jobs.length} commands ended`;
   const how = jobs[0]!.end.how;
+  if (how === "overdue") return overduePhrase(name, jobs[0]!.end.stop);
   const unread = UNREAD[how];
   return unread ? `${name}'s computer ${unread} before later.dog could read the result of its command` : `${name}'s command ${ENDED_WORDS[how]}`;
 }

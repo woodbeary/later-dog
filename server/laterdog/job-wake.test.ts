@@ -116,6 +116,19 @@ describe("waking a dog when a job on its computer ends", () => {
     expect(jobs.unannounced()).toEqual([]);
   });
 
+  it.each([
+    ["gone", "notice: Scout's command was stopped after 2 hours. Scout was not woken for it."],
+    ["partial", "notice: Scout's command was stopped after 2 hours, but part of it may still be running. Scout was not woken for it."],
+    ["alive", "notice: Scout's command ran past 2 hours and later.dog could not stop it. later.dog is no longer watching it; it ends when Scout's computer next goes to sleep. Scout was not woken for it."],
+  ] as const)("says what happened when later.dog tried to stop a job at 2 hours and the stop answered %s", async (stop, line) => {
+    const { jobs, lines, turns, wake } = setup();
+    jobs.started(job("aaaa0001", "t1", NOW - 1_000 - MAX_RUN_MS));
+    jobs.finished("aaaa0001", { how: "overdue", stop, at: NOW - 1_000 });
+    wake.deliver(); await flush();
+    expect(turns).toEqual([]);
+    expect(lines()).toEqual([line]);
+  });
+
   it("does not wake a chat whose work for another dog is already done", async () => {
     const { jobs, lines, turns, wake, handoff } = setup();
     handoff(true);

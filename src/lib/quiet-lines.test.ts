@@ -290,6 +290,8 @@ describe("lines about a job on a dog's computer", () => {
     ["partly stopped", partlyStoppedTool("Scout")],
     ["ended without a result", notWokenTool("Scout", ended, "lost")],
     ["finished but not woken", notWokenTool("Scout", ended, "stale")],
+    ["stopped after 2 hours, in part", notWokenTool("Scout", [{ ...ended[0]!, end: { how: "overdue" as const, stop: "partial" as const, at: 2 } }], "long")],
+    ["not stopped after 2 hours", notWokenTool("Scout", [{ ...ended[0]!, end: { how: "overdue" as const, stop: "alive" as const, at: 2 } }], "long")],
   ])("shows %s with step details off", (_label, tool) => {
     expect(quietTranscriptItemShown({ kind: "message", message: row(tool) }, false)).toBe(true);
   });

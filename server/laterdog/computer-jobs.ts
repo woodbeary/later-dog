@@ -3,7 +3,7 @@ import { z } from "zod";
 import { writeFileAtomic } from "../atomic.ts";
 import { MAX_RUN_MS, type RunBox, type RunLiveness, type RunStop } from "./computer-runs.ts";
 
-const endSchema = z.object({ how: z.enum(["finished", "failed", "asleep", "gone", "stopped", "lost", "overdue"]), exitCode: z.number().int().optional(), at: z.number() });
+const endSchema = z.object({ how: z.enum(["finished", "failed", "asleep", "gone", "stopped", "lost", "overdue"]), exitCode: z.number().int().optional(), stop: z.enum(["gone", "partial", "alive"]).optional(), at: z.number() });
 const jobSchema = z.object({
   id: z.string(), botId: z.string(), threadId: z.string(), command: z.string(), startedAt: z.number(),
   end: endSchema.optional(),
@@ -180,8 +180,8 @@ export class ComputerJobs implements ComputerJobLedger {
           }
           if (this.#now() - job.startedAt >= MAX_RUN_MS) {
             this.#unreadableSince.delete(job.id);
-            await probe.stop(computer.box, job).catch(() => "alive");
-            ends.set(job.id, { how: "overdue", at: this.#now() });
+            const stop = await probe.stop(computer.box, job).catch((): RunStop => "alive");
+            ends.set(job.id, { how: "overdue", stop, at: this.#now() });
             continue;
           }
           if (await probe.liveness(computer.box, job) === "dead") sighting = "dead";
