@@ -14728,7 +14728,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
           const result = withoutSecret(await useMac(parsed.data, internalCapability, personSaidYes), secret);
           const secrets = secret ? [...prepared.secrets, secret] : prepared.secrets;
           return json(res, 200, { result: await finishMacVault(parsed.data, result, { secrets, ...(prepared.capture ? { capture: prepared.capture } : {}) }, items, macCommandSecrets,
-            (operation) => useMac(sharedComputerOperation.parse({ ...operation, ...(parsed.data.computer_id ? { computer_id: parsed.data.computer_id } : {}) }), internalCapability)) });
+            (operation) => useMac(sharedComputerOperation.parse({ ...operation, ...(parsed.data.computer_id ? { computer_id: parsed.data.computer_id } : {}) }), internalCapability, true)) });
         } catch (error) {
           if (isMacOffline(error)) return json(res, 200, { result: macOfflineResult() });
           throw error;
