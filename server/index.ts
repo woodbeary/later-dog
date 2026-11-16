@@ -5188,7 +5188,7 @@ function guardedRequestSnapshot(botId: string, threadId: string, sendId: string)
 function settleTrackedRequest(threadId: string): void {
   const owner = directRequestOwners.get(threadId);
   const bot = store.botByThread(threadId);
-  if (bot && !threadBusy(bot.id, threadId) && !roomHandoffs.activeDirect(threadId) && !batteryContinuationPending(threadId) && !limitHold.holds(threadId)) {
+  if (owner && bot && !threadBusy(bot.id, threadId) && !roomHandoffs.activeDirect(threadId) && !batteryContinuationPending(threadId) && !limitHold.holds(threadId)) {
     for (const id of endedRequestIds(store.messagesFor(threadId), owner?.stopped ? undefined : owner?.messageId)) store.patchMessage(threadId, id, ENDED_REQUEST);
   }
   if (!owner?.messageId || owner.stopped || !bot || threadBusy(bot.id, threadId) || roomHandoffs.activeDirect(threadId)) return;
