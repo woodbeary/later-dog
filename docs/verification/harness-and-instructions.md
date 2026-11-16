@@ -29,9 +29,11 @@ proven about them.
 
 4. **The engine compacts its own chat.** For Claude Code and Codex dogs
    later.dog no longer folds a chat at 80% of the model window and starts the
-   engine cold; the engine compacts at its own default and keeps its session
+   engine cold; the engine compacts the chat itself and keeps its session
    (`harnessCompacts` in `server/laterdog/native-compaction.ts`). Claude Code
-   2.1.311 and later already launch with `--autocompact auto`; later.dog sets
+   2.1.311 and later launch with `--autocompact 280000`: the engine takes the
+   smaller of that and the model's window and compacts about 33K tokens below
+   it, about 247K on a model with a 1M window. later.dog sets
    neither `model_auto_compact_token_limit` nor `model_context_window` for
    Codex, so Codex uses the limit from its own model catalog. later.dog still
    summarises the older part once when it has to start a new session that
