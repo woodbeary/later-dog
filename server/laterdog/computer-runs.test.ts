@@ -190,6 +190,21 @@ describe("a heavy command on the dog's own computer", () => {
     for (const command of searches) expect(searchesItself(command, "pgrep"), command).toBe(false);
   });
 
+  it("stops a run that passed 2 hours without its kill finding the shell that sends it", async () => {
+    const { folder, computer, state } = project();
+    mkdirSync(computer);
+    const { box, commands } = localBox(computer);
+    const clock = { at: 1_000_000 };
+    const runs = new ComputerRuns(state, { now: () => clock.at, sleep: async () => undefined });
+    const started = await runs.start(box, { botId: "dog", folder, command: "sleep 30" });
+    clock.at += 3 * 60 * 60_000;
+    const outcome = await runs.finish(box, runs.record("dog", started.id)!, undefined, () => 1);
+    expect(outcome.note).toBe("Stopped after 2 hours.");
+    const kills = commands.filter((command) => /pkill -f /.test(command));
+    expect(kills).toHaveLength(1);
+    expect(searchesItself(kills[0]!, "pkill"), kills[0]).toBe(false);
+  });
+
   it("says a run is over when its command is gone without finishing, instead of waiting up to 2 hours", async () => {
     const { folder, computer, state } = project();
     mkdirSync(computer);

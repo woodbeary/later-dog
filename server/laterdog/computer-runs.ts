@@ -301,7 +301,7 @@ export class ComputerRuns {
       note: "It stopped before finishing, most likely because your computer went to sleep after 5 minutes without a call. Start it again, and check back with its run_id within 4 minutes." };
     if (!state.done) {
       const overdue = this.#now() - record.startedAt >= MAX_RUN_MS;
-      if (overdue) await box.exec(`pkill -f ${quote(`runs/.logs/${record.id}.log`)}`, 30_000).catch(() => null);
+      if (overdue) await box.exec(`pkill -f ${quote(`runs/[.]logs/${record.id}[.]log`)}`, 30_000).catch(() => null);
       return { id: record.id, state: overdue ? "failed" : "running", exitCode: null, output: state.output, broughtBack: [], skipped: [], ...sent,
         note: overdue ? "Stopped after 2 hours." : `Still running. Call run_on_computer with run_id "${record.id}" within 4 minutes, doing only short work in between: your computer goes to sleep after 5 minutes without a call, which ends the run. That call waits up to 4 more minutes.` };
     }
