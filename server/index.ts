@@ -595,6 +595,7 @@ import { chatContext } from "./laterdog/chat-context-window.ts";
 import { cloudPlaceRefusal, computerToolsRefusal, parseSurface, PlaceUnavailableError, placeUnavailable, resolveSurface, surfaceLabel, surfaceOfComputerKind, surfacePrompt, type PlaceSource, type Surface } from "./surface.ts";
 import { cloudRefusal, type PlaceRow } from "../shared/place-view.ts";
 import { cloudComputerStartBudgetMs, passingCloudFailure, remainingStartMs, startRetryingPassingFailures, stillStarting } from "./laterdog/cloud-start.ts";
+import { SCREEN_DID_NOT_START_TEXT, START_RAN_OUT, carryingOnRow, cloudDidNotStart, startRanOutOfTime } from "./laterdog/computer-start.ts";
 import { createIdleReload } from "./laterdog/idle-reload.ts";
 import {
   PendingTurnCancellations,
@@ -6246,7 +6247,7 @@ async function computerCallGate(internalCapability: InternalCapability) {
   if (!snapshot.held && lazyClaim?.failed === true) {
     return {
       held: true, helpOpen: false,
-      blockedReason: `This turn could not claim ${lazyClaim.label ?? "this computer"}${lazyClaim.failure ? ` (${lazyClaim.failure})` : ""}. This call was not performed. Do not retry computer work in this turn; tell the person what you could not do.`,
+      blockedReason: lazyClaim.failedReason ?? `This turn could not claim ${lazyClaim.label ?? "this computer"}${lazyClaim.failure ? ` (${lazyClaim.failure})` : ""}. This call was not performed. Do not retry computer work in this turn; tell the person what you could not do.`,
     };
   }
   if (!snapshot.held && lazyClaim?.lazy && lazyClaim.begin && !lazyClaim.claimed) {
@@ -6376,7 +6377,7 @@ async function mountBotVps(
 const CLOUD_COMPUTER_START_WAIT_MS = Math.max(1_000, Number(process.env.LATERDOG_CLOUD_COMPUTER_START_WAIT_MS) || 45_000);
 const CLOUD_COMPUTER_START_BUDGET_MS = cloudComputerStartBudgetMs(process.env);
 const CLOUD_COMPUTER_STARTING = "The cloud computer is still starting. This call was not performed. Take a fresh screenshot in a moment.";
-const CLOUD_COMPUTER_DID_NOT_START = "the cloud computer didn't start in time";
+const CLOUD_COMPUTER_DID_NOT_START = START_RAN_OUT;
 const PROVIDER_RELOAD_FORCE_MS = Math.max(1_000, Number(process.env.LATERDOG_PROVIDER_RELOAD_FORCE_MS) || 6 * 60 * 60_000);
 const PROVIDER_RELOAD_POLL_MS = Math.max(100, Number(process.env.LATERDOG_PROVIDER_RELOAD_POLL_MS) || 30_000);
 const CLOUD_COMPUTER_RETRY_PAUSE_MS = Math.max(100, Number(process.env.LATERDOG_CLOUD_COMPUTER_RETRY_PAUSE_MS) || 5_000);
@@ -6399,6 +6400,7 @@ function mountBotBoat(
     onRejected: opts.onRejected,
     claim: async () => {
       let attached: Awaited<ReturnType<typeof attachBotBoat>>;
+      const startedFrom = boat.startMark();
       try {
         attached = await attachBotBoat(bot, owner, {
           budgetMs: CLOUD_COMPUTER_START_BUDGET_MS,
@@ -6406,7 +6408,10 @@ function mountBotBoat(
         });
         if (!attached) throw new Error("the cloud computer could not be created or reached");
       } catch (error) {
-        throw opts.source ? await asPlaceFailure(error, "cloud", opts.source, bot, "box") : error;
+        const failure = opts.source ? await asPlaceFailure(error, "cloud", opts.source, bot, "box") : error;
+        if (cloudDidNotStart(failure)) slot.failedReason = SCREEN_DID_NOT_START_TEXT;
+        if (startRanOutOfTime(error)) boat.startDidNotFinish(bot.id, startedFrom);
+        throw failure;
       }
       slot.boxId = attached.boxId;
       opts.onClaimed(attached.capture);
@@ -8914,6 +8919,10 @@ async function startTurn(
         }
         const placeFailure = error instanceof PlaceUnavailableError ? error : undefined;
         if (placeFailure) clearFailedAutoPin(bot.id, threadId, placeFailure.place);
+        if (cloudDidNotStart(placeFailure)) {
+          store.appendMessage(threadId, { role: "bot", kind: "activity", tool: { name: carryingOnRow(bot.name), ok: false } });
+          return;
+        }
         const message = placeFailure?.message ?? `computer unavailable — ${label} could not be claimed for this turn (${failure})`;
         store.appendMessage(threadId, {
           role: "bot",

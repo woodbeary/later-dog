@@ -19,6 +19,19 @@ export function goneFiles(previous, current, accepted = []) {
   return [...appFiles(previous)].filter((path) => !now.has(path) && !mayChangeFreely(path) && !allowed.has(path)).sort();
 }
 
+export function serverScripts(listing) {
+  return [...appFiles(listing)].filter((path) => path.includes(SERVER_PART) && path.endsWith(".js")).length;
+}
+
+export function serverScriptsShrank(previous, current) {
+  const before = serverScripts(previous);
+  const now = serverScripts(current);
+  if (before === 0) return null;
+  if (now === 0) return `the new app has no .js scripts under server/ (the previous release had ${before})`;
+  if (now * 2 < before) return `the new app has ${now} .js scripts under server/, fewer than half of the previous release's ${before}`;
+  return null;
+}
+
 export function acceptedFrom(value) {
   return (value ?? "").split("\n").map((line) => line.trim()).filter(Boolean);
 }
@@ -36,6 +49,11 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
       console.error(`The ${name}'s file list is empty, so nothing can be compared. Refusing to release.`);
       process.exit(1);
     }
+  }
+  const shrank = serverScriptsShrank(previous, current);
+  if (shrank) {
+    console.error(`${shrank[0].toUpperCase()}${shrank.slice(1)}. Refusing to release.`);
+    process.exit(1);
   }
   const gone = goneFiles(previous, current, acceptedFrom(process.env.LATERDOG_RELEASE_ACCEPT_GONE));
   console.log(`Files: ${appFiles(previous).size} in the previous release, ${appFiles(current).size} now`);

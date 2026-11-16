@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
-import { acceptedFrom, appFiles, goneFiles } from "./release-file-list.mjs";
+import { acceptedFrom, appFiles, goneFiles, serverScriptsShrank } from "./release-file-list.mjs";
 
 const script = fileURLToPath(new URL("./release-file-list.mjs", import.meta.url));
 const app = "later.dog.app/Contents";
@@ -46,6 +46,23 @@ describe("release file list", () => {
       `${app}/Resources/server/native/screen.node`,
     ]);
     expect(goneFiles(previous, previous)).toEqual([]);
+  });
+
+  it("stops when every server/ script is gone, or fewer than half of them are left, whatever was accepted", () => {
+    const scripts = (count: number) => Array.from({ length: count }, (_, index) => `${app}/Resources/server/laterdog/part-${index}.js`).join("\n");
+    const base = `${app}/Info.plist\n`;
+    expect(serverScriptsShrank(base + scripts(10), base + scripts(10))).toBeNull();
+    expect(serverScriptsShrank(base + scripts(10), base + scripts(5))).toBeNull();
+    expect(serverScriptsShrank(base + scripts(10), base + scripts(4))).toBe(`the new app has 4 .js scripts under server/, fewer than half of the previous release's 10`);
+    expect(serverScriptsShrank(base + scripts(10), base)).toBe("the new app has no .js scripts under server/ (the previous release had 10)");
+    expect(serverScriptsShrank(base, base + scripts(3))).toBeNull();
+    const dir = mkdtempSync(join(tmpdir(), "laterdog-release-list-"));
+    dirs.push(dir);
+    writeFileSync(join(dir, "previous.txt"), base + scripts(10));
+    writeFileSync(join(dir, "current.txt"), base);
+    const stopped = spawnSync(process.execPath, [script, join(dir, "previous.txt"), join(dir, "current.txt")], { encoding: "utf8", env: { ...process.env, LATERDOG_RELEASE_ACCEPT_GONE: "" } });
+    expect(stopped.status).toBe(1);
+    expect(stopped.stderr).toContain("The new app has no .js scripts under server/");
   });
 
   it("lets the person accept a file that is meant to be gone", () => {

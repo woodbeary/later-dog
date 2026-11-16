@@ -342,7 +342,7 @@ const PASSING_WORDS = [
 ];
 const NO_START_WORDS = [
   /did not become ready/i, /desktop link could not be created/i, /could not be created or reached/i, /did not wake/i,
-  /no computer yet/i, /didn't start in time/i,
+  /no computer yet/i, /didn't start in time/i, /^your cloud computer did not start\b/i,
 ];
 const CLEARING_WORDS = [/is being deleted/i, /previous cloud computer deletion/i, /deletion was not confirmed/i, /deletion is still being reconciled/i];
 
