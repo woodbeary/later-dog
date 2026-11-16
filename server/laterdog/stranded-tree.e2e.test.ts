@@ -19,7 +19,7 @@ it("keeps a team's results waiting while their chat waits for an account, then c
   const api = async (method: string, path: string, body?: unknown) => {
     const response = await fetch(url + path, { method, headers: { "content-type": "application/json", origin: url },
       ...(body === undefined ? {} : { body: JSON.stringify(body) }), signal: AbortSignal.timeout(30_000) });
-    const result = await response.json();
+    const result = await response.json() as any;
     expect(response.ok, `${method} ${path}: ${JSON.stringify(result)}`).toBe(true);
     return result;
   };
@@ -108,8 +108,7 @@ it("keeps a team's results waiting while their chat waits for an account, then c
     expect((await rows()).find(row => row.role === "user" && row.text.startsWith("SECOND_ASK"))?.requestPending).toBe(false);
   } catch (error) {
     const lines = readFileSync(logPath, "utf8").split("\n").filter(line => /token battery|room handoff|limit|pickup|carry/i.test(line)).slice(-60);
-    const chat = await fetch(`${url}/api/bots?messages=0`).then(r => r.json()).catch(() => null);
-    console.info(JSON.stringify({ lines, nodes: nodes().map(n => ({ id: n.id.slice(0, 8), parent: n.parentId?.slice(0, 8), status: n.status, result: n.result?.slice(0, 60) })), chat: chat?.bots?.map((b: any) => [b.name, b.busy]), rows: await transcript().catch(() => []) }, null, 1));
+    console.info(JSON.stringify({ lines, nodes: nodes().map(n => ({ id: n.id.slice(0, 8), parent: n.parentId?.slice(0, 8), status: n.status, result: n.result?.slice(0, 60) })), rows: await transcript().catch(() => []) }, null, 1));
     throw error;
   } finally {
     await waitForExit(server, { signal: "SIGTERM" });
