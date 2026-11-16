@@ -541,6 +541,36 @@ it("a delete inside a batch whatever its capitals, a batch inside a batch, and t
   }
 }, 60_000);
 
+it("a padded or oddly shaped delete, in a batch or on a direct call, shows a card with no Always for an owner dog, and a plain read in a batch runs", async () => {
+  await autoReview(false);
+  const dog = await newDog("Padder", "auto");
+  const token = await mintConnectors(dog.id, dog.threadId);
+  const rows: Array<[string, unknown]> = [
+    ...[" GMAIL_DELETE_MESSAGE", "GMAIL_DELETE_MESSAGE ", "GMAIL_DELETE_MESSAGE\n", "gmail-delete-message", "GmailDeleteMessage", "gmail.delete_message", "mcp__gmail__GMAIL_DELETE_MESSAGE"]
+      .map((slug): [string, unknown] => ["COMPOSIO_MULTI_EXECUTE_TOOL", { tools: [{ tool_slug: slug, arguments: { message_id: "m-1" } }] }]),
+    ["COMPOSIO_MULTI_EXECUTE_TOOL", { tools: [{ tool_slug: " COMPOSIO_MULTI_EXECUTE_TOOL", arguments: { tools: [{ tool_slug: "GMAIL_DELETE_MESSAGE", arguments: { message_id: "m-1" } }] } }] }],
+    [" GMAIL_DELETE_MESSAGE", { message_id: "m-1" }],
+  ];
+  for (const [name, args] of rows) {
+    const label = JSON.stringify([name, args]).slice(0, 120);
+    const before = relayed.length;
+    const shown = (await sendCards(dog.threadId)).length;
+    const asked = relay(token, name, args);
+    await expect.poll(async () => (await sendCards(dog.threadId)).length, { timeout: 10_000, message: `${label} showed no card` }).toBe(shown + 1);
+    const card = (await sendCards(dog.threadId)).at(-1).card;
+    expect(card.allowKey, label).toBeUndefined();
+    expect(card.lasting, label).toEqual({ offered: false, why: "always-asks" });
+    expect(relayed, label).toHaveLength(before);
+    await api("POST", `/api/threads/${dog.threadId}/respond`, { requestId: card.requestId, behavior: "allow" });
+    expect((await asked).body.result.isError, label).toBeFalsy();
+  }
+  const shown = (await sendCards(dog.threadId)).length;
+  const read = relayed.length;
+  expect((await relay(token, "COMPOSIO_MULTI_EXECUTE_TOOL", { tools: [{ tool_slug: "GMAIL_FETCH_EMAILS", arguments: {} }] })).body.result.isError).toBeFalsy();
+  expect(relayed).toHaveLength(read + 1);
+  expect(await sendCards(dog.threadId)).toHaveLength(shown);
+}, 90_000);
+
 it("a Gmail change that adds the TRASH label shows a card with no Always, and one that adds another label runs, for an owner dog", async () => {
   await autoReview(false);
   const dog = await newDog("Labeller", "auto");

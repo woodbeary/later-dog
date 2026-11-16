@@ -58,7 +58,10 @@ export interface ConnectorCall {
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   Boolean(value) && typeof value === "object" && !Array.isArray(value);
 
-export function connectorCallsIn(name: string, args: unknown): ConnectorCall[] {
+const READABLE_SLUG = /^[A-Za-z][A-Za-z0-9]*(?:_[A-Za-z0-9]+)+$/;
+
+export function connectorCallsIn(written: string, args: unknown): ConnectorCall[] {
+  const name = written.trim();
   if (name === "COMPOSIO_MULTI_EXECUTE_TOOL") {
     const tools = isRecord(args) && Array.isArray(args.tools) ? args.tools
       : isRecord(args) && typeof args.tool_slug === "string" ? [args] : [];
@@ -66,9 +69,10 @@ export function connectorCallsIn(name: string, args: unknown): ConnectorCall[] {
     const calls: ConnectorCall[] = [];
     for (const item of tools) {
       if (!isRecord(item)) return [{ slug: "COMPOSIO_PROXY_EXECUTE", arguments: args }];
-      const slug = [item.tool_slug, item.slug, item.name, item.tool].find((value) => typeof value === "string" && value);
-      if (typeof slug !== "string") return [{ slug: "COMPOSIO_PROXY_EXECUTE", arguments: args }];
-      if (/^composio_/i.test(slug)) {
+      const found = [item.tool_slug, item.slug, item.name, item.tool].find((value) => typeof value === "string" && value);
+      if (typeof found !== "string") return [{ slug: "COMPOSIO_PROXY_EXECUTE", arguments: args }];
+      const slug = found.trim();
+      if (/^composio_/i.test(slug) || !READABLE_SLUG.test(slug)) {
         calls.push({ slug: "COMPOSIO_PROXY_EXECUTE", arguments: item });
         continue;
       }

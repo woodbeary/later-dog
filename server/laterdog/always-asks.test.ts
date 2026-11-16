@@ -296,6 +296,24 @@ describe("deleting something or changing who can reach it from a connected app a
     }
   });
 
+  it("asks for a padded or oddly shaped name, inside a batch or on a direct call, and treats one it cannot read as code it cannot read", () => {
+    const gate = (name: string, args: unknown) => {
+      const calls = connectorCallsIn(name, args).filter((call) => asksAsConnector(call.slug, call.arguments));
+      return calls.length ? connectorAlwaysAsks(calls)?.id ?? null : null;
+    };
+    for (const slug of [" GMAIL_DELETE_MESSAGE", "GMAIL_DELETE_MESSAGE ", "GMAIL_DELETE_MESSAGE\n", "gmail-delete-message", "GmailDeleteMessage", "gmail.delete_message", "mcp__gmail__GMAIL_DELETE_MESSAGE"]) {
+      expect(gate("COMPOSIO_MULTI_EXECUTE_TOOL", { tools: [{ tool_slug: slug, arguments: { message_id: "m-1" } }] }), JSON.stringify(slug)).not.toBeNull();
+    }
+    expect(gate("COMPOSIO_MULTI_EXECUTE_TOOL", { tools: [{ tool_slug: " COMPOSIO_MULTI_EXECUTE_TOOL", arguments: { tools: [{ tool_slug: "GMAIL_DELETE_MESSAGE" }] } }] })).not.toBeNull();
+    expect(gate(" GMAIL_DELETE_MESSAGE", { message_id: "m-1" })).toBe("deletes-or-shares");
+    expect(gate("GMAIL_DELETE_MESSAGE \n", { message_id: "m-1" })).toBe("deletes-or-shares");
+    expect(alwaysAsks({ tool: " mcp__composio__GMAIL_DELETE_MESSAGE" }, guard)?.id).toBe("deletes-or-shares");
+    expect(gate("COMPOSIO_MULTI_EXECUTE_TOOL", { tools: [{ tool_slug: "GMAIL_FETCH_EMAILS", arguments: {} }] })).toBeNull();
+    expect(gate("COMPOSIO_MULTI_EXECUTE_TOOL", { tools: [{ tool_slug: " gmail_fetch_emails ", arguments: {} }] })).toBeNull();
+    expect(gate("COMPOSIO_MULTI_EXECUTE_TOOL", { tools: [{ tool_slug: "GMAIL_SEND_EMAIL ", arguments: { to: "a@example.test" } }] })).toBe("sends-for-you");
+    expect(gate(" GMAIL_SEND_EMAIL", { to: "a@example.test" })).toBe("sends-for-you");
+  });
+
   it("asks when a Gmail change adds the TRASH label, by the value and not the name", () => {
     const gate = (name: string, args: unknown) => {
       const calls = connectorCallsIn(name, args).filter((call) => asksAsConnector(call.slug, call.arguments));

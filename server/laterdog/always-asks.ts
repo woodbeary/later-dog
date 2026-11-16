@@ -373,7 +373,8 @@ function readsByName(tokens: readonly string[]): boolean {
 const CONNECTOR_SLUG = /^[A-Z][A-Z0-9]*_[A-Z0-9_]+$/;
 const COMPOSIO_SERVER = "mcp__composio__";
 
-function connectorSlug(tool: string): string | null {
+function connectorSlug(written: string): string | null {
+  const tool = written.trim();
   if (tool.startsWith("mcp__") && !tool.startsWith(COMPOSIO_SERVER)) return null;
   const slug = (tool.startsWith(COMPOSIO_SERVER) ? tool.slice(COMPOSIO_SERVER.length) : tool).toUpperCase();
   return CONNECTOR_SLUG.test(slug) && !slug.startsWith("COMPOSIO_") ? slug : null;
