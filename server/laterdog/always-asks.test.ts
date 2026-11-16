@@ -259,6 +259,24 @@ describe("deleting something or changing who can reach it from a connected app a
     expect(alwaysAsks({ tool: "Bash", command: "rm -rf build" }, guard)).toBeNull();
   });
 
+  it("asks for a share named by a noun, and a list that is a thing rather than a read", () => {
+    const gate = (name: string) => {
+      const calls = connectorCallsIn(name, {}).filter((call) => asksAsConnector(call.slug));
+      return calls.length ? connectorAlwaysAsks(calls.map((call) => call.slug))?.id ?? null : null;
+    };
+    for (const slug of ["GOOGLECALENDAR_ACL_INSERT", "GOOGLECALENDAR_ACL_PATCH", "GOOGLECALENDAR_ACL_UPDATE", "BOX_CREATE_COLLABORATION", "BOX_UPDATE_COLLABORATION",
+      "ASANA_CREATE_MEMBERSHIP", "ASANA_UPDATE_MEMBERSHIP", "BOX_UPDATE_GROUP_MEMBERSHIP", "GITHUB_ADD_OR_UPDATE_TEAM_MEMBERSHIP_FOR_USER",
+      "TRELLO_UPDATE_BOARD_MEMBERSHIP", "TRELLO_UPDATE_ORGANIZATIONS_MEMBERSHIPS_BY_ID_ORG_BY_ID_MEMB", "GITHUB_UPDATE_A_REPOSITORY_INVITATION",
+      "TRELLO_UPDATE_BOARDS_PREFS_INVITATIONS_BY_ID_BOARD", "SLACK_SET_ADMIN_USER", "BOX_ADD_ALLOWED_COLLABORATION_DOMAIN",
+      "SLACK_SET_SLACK_LIST_ACCESS", "TRELLO_ARCHIVE_ALL_LIST_CARDS"]) {
+      expect(gate(slug), slug).toBe("deletes-or-shares");
+    }
+    for (const slug of ["GOOGLECALENDAR_ACL_LIST", "GOOGLECALENDAR_ACL_GET", "BOX_LIST_FILE_COLLABORATIONS", "BOX_GET_COLLABORATION", "ASANA_GET_MEMBERSHIPS",
+      "TRELLO_MEMBER_GET_BOARDS_BY_ID_MEMBER", "GITHUB_LIST_REPOSITORY_INVITATIONS", "SLACK_LIST_ADMIN_USERS"]) {
+      expect(gate(slug), slug).toBeNull();
+    }
+  });
+
   it("is not answered in Full by the owner's standing yes, the app's old Always or this turn's Allow", () => {
     const never = () => false;
     for (const slug of SEVEN) {

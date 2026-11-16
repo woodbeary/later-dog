@@ -494,6 +494,29 @@ it("a delete inside a batch of connected-app calls, and code later.dog cannot re
   }
 }, 60_000);
 
+it("a share named by a noun, and an archive the word list hid, each show a card with no Always for an owner dog", async () => {
+  await autoReview(false);
+  const dog = await newDog("Sharer", "auto");
+  const token = await mintConnectors(dog.id, dog.threadId);
+  for (const [slug, args] of [
+    ["GOOGLECALENDAR_ACL_INSERT", { calendar_id: "primary", role: "writer", scope_type: "user", scope_value: "stranger@example.com" }],
+    ["BOX_CREATE_COLLABORATION", { item_id: "f-1", item_type: "file", accessible_by_login: "stranger@example.com", role: "editor" }],
+    ["SLACK_SET_SLACK_LIST_ACCESS", { list_id: "L1", access_level: "write", user_ids: ["U9"] }],
+    ["TRELLO_ARCHIVE_ALL_LIST_CARDS", { idList: "l-1" }],
+  ] as const) {
+    const before = relayed.length;
+    const shown = (await sendCards(dog.threadId)).length;
+    const asked = relay(token, slug, args);
+    await expect.poll(async () => (await sendCards(dog.threadId)).length, { timeout: 10_000, message: `${slug} showed no card` }).toBe(shown + 1);
+    const card = (await sendCards(dog.threadId)).at(-1).card;
+    expect(card.tool).toBe(slug);
+    expect(card.lasting).toEqual({ offered: false, why: "always-asks" });
+    await api("POST", `/api/threads/${dog.threadId}/respond`, { requestId: card.requestId, behavior: "deny" });
+    expect((await asked).body.result.isError).toBe(true);
+    expect(relayed).toHaveLength(before);
+  }
+}, 60_000);
+
 it("a read, and an ordinary create, through a connected app still run with no card for an owner dog", async () => {
   await autoReview(false);
   const dog = await newDog("Reader", "auto");

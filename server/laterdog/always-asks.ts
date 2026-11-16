@@ -355,8 +355,19 @@ const READ_VERBS = new Set(["GET", "LIST", "FETCH", "SEARCH", "READ", "FIND", "R
 const STRONG_DESTROY_TOKENS = new Set(["DELETE", "DELETES", "TRASH", "REMOVE", "PURGE", "EMPTY", "DESTROY", "ERASE", "WIPE", "CLEAR"]);
 const DESTROY_TOKENS = new Set([...STRONG_DESTROY_TOKENS, "ARCHIVE"]);
 const REACH_TOKENS = new Set(["SHARE", "SHARING", "SHARED", "PERMISSION", "PERMISSIONS", "COLLABORATOR", "COLLABORATORS", "MEMBER", "MEMBERS", "INVITE",
-  "ACCESS", "VISIBILITY", "PUBLIC", "PRIVATE", "OWNER", "OWNERSHIP", "ROLE", "ROLES", "REVOKE", "UNSHARE"]);
+  "ACCESS", "VISIBILITY", "PUBLIC", "PRIVATE", "OWNER", "OWNERSHIP", "ROLE", "ROLES", "REVOKE", "UNSHARE",
+  "COLLABORATION", "COLLABORATIONS", "MEMBERSHIP", "MEMBERSHIPS", "ACL", "INVITATION", "INVITATIONS", "ADMIN"]);
 const READ_WORDS = new Set([...READ_VERBS, "VERIFY"]);
+const WRITE_VERBS = new Set([...DESTROY_TOKENS, "ADD", "CREATE", "UPDATE", "SET", "PATCH", "INSERT", "MODIFY", "CHANGE", "MOVE", "TRANSFER", "GRANT",
+  "ASSIGN", "MAKE", "CONVERT", "SHARE", "UNSHARE", "INVITE", "REVOKE", "ENABLE", "DISABLE", "APPROVE", "REJECT", "EDIT", "PUT", "POST", "UPSERT", "MERGE"]);
+
+function readsByName(tokens: readonly string[]): boolean {
+  if (tokens.some((token) => STRONG_DESTROY_TOKENS.has(token))) return false;
+  const read = tokens.findIndex((token) => READ_WORDS.has(token));
+  if (read === -1) return false;
+  const write = tokens.findIndex((token) => WRITE_VERBS.has(token));
+  return read === tokens.length - 1 || write === -1 || read < write;
+}
 const CONNECTOR_SLUG = /^[A-Z][A-Z0-9]*_[A-Z0-9_]+$/;
 const COMPOSIO_SERVER = "mcp__composio__";
 
@@ -365,7 +376,7 @@ function deletesOrShares(tool: string): boolean {
   if (!CONNECTOR_SLUG.test(slug) || slug.startsWith("COMPOSIO_")) return false;
   const tokens = actionTokens(slug);
   if (!tokens.length || READ_VERBS.has(tokens[0]!)) return false;
-  if (tokens.some((token) => READ_WORDS.has(token)) && !tokens.some((token) => STRONG_DESTROY_TOKENS.has(token))) return false;
+  if (readsByName(tokens)) return false;
   return tokens.some((token) => DESTROY_TOKENS.has(token) || REACH_TOKENS.has(token));
 }
 
