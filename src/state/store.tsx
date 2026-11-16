@@ -953,7 +953,6 @@ export type Action =
       reviewedSha256?: string;
       alwaysAllow?: { botId: string; key: string };
       lastingGrant?: { botId: string };
-      always?: boolean;
       rememberCommand?: boolean;
       scope?: "once" | "always" | "chat" | "never";
       onError?: (message: string) => void;
@@ -2823,7 +2822,6 @@ export function StoreProvider({ children }: { children: ReactNode }) {
                 behavior: action.behavior,
                 message: action.message,
                 reviewedSha256: action.reviewedSha256,
-                always: action.always,
                 rememberCommand: action.rememberCommand,
                 scope,
               }),
