@@ -1,6 +1,7 @@
 import { useState, type FormEvent } from "react";
 import { Loader2, X } from "lucide-react";
 
+import { alwaysAsksSentence } from "@/lib/always-asks-sentence";
 import { t } from "@/lib/i18n";
 import { api, useStore, type ConfigStatus } from "@/state/store";
 import { ASK_FIRST_MAX_RULES, ASK_FIRST_RULE_CHARS, askFirstRules } from "../../shared/ask-first";
@@ -39,6 +40,7 @@ export function AskFirstGroup() {
   return (
     <SettingsGroup label={t("askFirst.title")} testId="ask-first">
       <p className="px-4 pb-1 text-[12.5px] leading-relaxed text-ink-secondary">{t("askFirst.hint")}</p>
+      <p data-always-asks="" className="px-4 pb-1 text-[12.5px] leading-relaxed text-ink-secondary">{alwaysAsksSentence()}</p>
       <SettingsRows data-ask-first="">
         {rules.map((rule) => (
           <div key={rule} data-ask-first-rule="" className="flex items-center gap-3 border-t border-hairline/40 py-2.5 first:border-t-0">

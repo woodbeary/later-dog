@@ -24,7 +24,7 @@ const SENT_NOUNS = new Set(["MESSAGE", "COMMENT", "POST", "EMAIL", "MAIL", "INVO
 
 const READ_VERBS = new Set(["GET", "LIST", "FETCH", "SEARCH", "READ", "FIND", "RETRIEVE", "LOOKUP", "DOWNLOAD", "VIEW", "CHECK", "COUNT"]);
 
-function actionTokens(name: string): string[] {
+export function actionTokens(name: string): string[] {
   let action = name;
   if (name.startsWith("mcp__")) {
     const [, server = "", ...rest] = name.split("__");

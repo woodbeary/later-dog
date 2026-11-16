@@ -27,6 +27,7 @@ import type {
   TextGenerationOptions,
 } from "../contracts.ts";
 import { gateServer, resultBudget } from "../mcp-gate-config.ts";
+import { GUARDED_TOOLS } from "../../shared/always-asks.ts";
 import { canUseMcpServer } from "../../shared/tool-scope.ts";
 import { assertToolScopeSupported } from "../../shared/tool-scope-support.ts";
 import { newEventId, newId } from "../contracts.ts";
@@ -465,6 +466,17 @@ function askQuestions(ask: Ask): AskQuestion[] | null {
   return ask.tool === ASK_USER_QUESTION_TOOL ? parseAskQuestions(ask.input) : null;
 }
 
+const ASKED_FIELDS = ["command", "url", "file_path", "notebook_path", "path", "action", "cwd"] as const;
+
+function askedFields(input: unknown): Record<string, unknown> | undefined {
+  if (!input || typeof input !== "object") return undefined;
+  const fields = Object.fromEntries(ASKED_FIELDS.flatMap((key) => {
+    const value = (input as Record<string, unknown>)[key];
+    return typeof value === "string" ? [[key, value]] : [];
+  }));
+  return Object.keys(fields).length ? fields : undefined;
+}
+
 function askSummary(ask: Ask): string {
   const questions = askQuestions(ask);
   if (questions) return askQuestionSummary(questions);
@@ -549,7 +561,7 @@ export function claudeHookSettings(helperPath: string, options: { guardShell?: b
   const entry = [{ matcher: "", hooks: [{ type: "command", command, timeout: 5 }] }];
   const settings: Record<string, unknown> = { PostToolUse: entry, PreCompact: entry, SessionStart: entry, Stop: entry };
   if (options.postCompact) settings.PostCompact = entry;
-  if (options.guardShell) settings.PreToolUse = [{ matcher: "Bash", hooks: [{ type: "command", command, timeout: 5 }] }];
+  if (options.guardShell) settings.PreToolUse = GUARDED_TOOLS.map((matcher) => ({ matcher, hooks: [{ type: "command", command, timeout: 5 }] }));
   return settings;
 }
 
@@ -1316,9 +1328,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
       allowed.push(...laterdogPreallowedTools(turn.integrations?.custom ?? {}, mcpServers));
       let broker: Awaited<ReturnType<typeof createPermissionBroker>> | undefined;
       const socketPath = permissionSocketPath(threadId, botId);
-      if (permissionMode !== "bypassPermissions") {
-        args.push("--permission-prompt-tool", "mcp__dog__approve");
-      }
+      args.push("--permission-prompt-tool", "mcp__dog__approve");
       const permissionEnv = { ...NODE_ENV_FLAG, ...(turn.toolScope !== undefined ? { LATERDOG_PERMISSION_TOOL_SCOPE: JSON.stringify(turn.toolScope) } : {}) };
       mcpServers.dog = { command: process.execPath, args: [PERM_PROXY_PATH, socketPath], env: permissionEnv, alwaysLoad: true };
       allowed.push("mcp__dog");
@@ -1478,6 +1488,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
                 requestType: ask.kind,
                 tool: ask.tool,
                 summary: askSummary(ask),
+                input: askedFields(ask.input),
                 command: ask.kind === "permission" && ask.tool === "Bash"
                   ? permissionCommand(ask.input.command, commandCwd) : undefined,
                 requiresExplicitApproval: ask.kind === "permission" && ask.tool === "Bash" && ask.input.dangerouslyDisableSandbox === true || undefined,
