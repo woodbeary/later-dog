@@ -17,6 +17,7 @@ export interface NativeActor {
   model?: string;
   startedAt: number;
   endedAt?: number;
+  lastActivityAt?: number;
   background?: boolean;
   ambient?: boolean;
   canStop?: boolean;

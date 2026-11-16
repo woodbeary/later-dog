@@ -237,7 +237,7 @@ export class CodexNativeActivity {
     if (type === "subAgentActivity") {
       const childId = string(item.agentThreadId);
       if (childId && childId !== this.rootThread) {
-        const child = this.child(childId, actor, { label: text(item.agentPath)?.split("/").filter(Boolean).at(-1), model: text(item.model) });
+        const child = this.child(childId, actor, { label: text(item.agentPath)?.split("/").filter(Boolean).at(-1), model: text(item.model), lastActivityAt: this.now() });
         if (item.kind === "completed" || item.kind === "interrupted") this.put(childId, { ...child, state: stateOf(item.kind), endedAt: this.now(), canStop: false });
       }
       return;

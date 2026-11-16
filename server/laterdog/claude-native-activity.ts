@@ -170,6 +170,7 @@ export class ClaudeNativeActivity {
       ...old, id: actorId, parentId, kind, nativeId: taskId, nativeThreadId: this.sessionId, generation,
       label: old?.label || text(event.description, 160) || text(event.subagent_type, 160) || (kind === "subagent" ? "Native subagent" : "Native task"),
       task: text(event.prompt, 2_000) || old?.task || text(event.description, 2_000), state, startedAt: old?.startedAt ?? this.now(),
+      ...(event.subtype === "task_progress" || event.subtype === "task_updated" ? { lastActivityAt: this.now() } : {}),
       ...(terminal(state) ? { endedAt: count(patch.end_time) ?? old?.endedAt ?? this.now() } : {}),
       background: typeof patch.is_backgrounded === "boolean" ? patch.is_backgrounded : typeof event.is_backgrounded === "boolean" ? event.is_backgrounded : old?.background,
       ambient: typeof event.ambient === "boolean" ? event.ambient : old?.ambient,

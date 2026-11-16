@@ -1,6 +1,28 @@
-import { describe, expect, it } from "vitest";
+import { DatabaseSync } from "node:sqlite";
+import { afterEach, describe, expect, it } from "vitest";
 import type { NativeObservation } from "../../shared/native-runs.ts";
+import type { RuntimeEvent } from "../../shared/runtime-events.ts";
 import { ClaudeNativeActivity, claudeSearchLinks } from "./claude-native-activity.ts";
+import { NativeRunProjector } from "./native-run-projector.ts";
+import { ensureNativeRuns, NativeRunStore } from "./native-run-store.ts";
+
+const databases: DatabaseSync[] = [];
+afterEach(() => { for (const database of databases.splice(0)) database.close(); });
+
+function recorded() {
+  const database = new DatabaseSync(":memory:");
+  databases.push(database);
+  ensureNativeRuns(database);
+  const store = new NativeRunStore({ read: <T>(fn: (database: DatabaseSync) => T): T => fn(database), write: <T>(fn: (database: DatabaseSync) => T): T => fn(database) });
+  const projector = new NativeRunProjector(store, () => undefined);
+  let clock = 1_000;
+  let sequence = 0;
+  const native = new ClaudeNativeActivity(observation => {
+    projector.observe({ eventId: `native-${++sequence}`, threadId: "chat", provider: "claude", providerInstanceId: "account-a", turnId: "turn-1", createdAt: new Date(clock).toISOString(), type: "native.observed", observation } as RuntimeEvent);
+  }, { version: "2.1.293", sessionId: "session", now: () => clock });
+  const helper = (nativeId: string) => store.list("chat").runs[0]!.actors.find(actor => actor.nativeId === nativeId)!;
+  return { native, helper, at: (ms: number) => { clock = ms; } };
+}
 
 function fixture(now: () => number = () => 100) {
   const observations: NativeObservation[] = [];
@@ -203,5 +225,43 @@ describe("Claude native activity", () => {
     const f = fixture();
     f.native.receive(assistant("large", [{ type: "text", text: "x".repeat(30_000) }]));
     expect(f.activities()[0]).toMatchObject({ truncated: true, text: "x".repeat(24_000) });
+  });
+});
+
+describe("when a Claude helper last moved", () => {
+  it("moves on the helper's task progress and updates, and not on a background list that only names it", () => {
+    let clock = 1_000;
+    const f = fixture(() => clock);
+    f.native.receive(start());
+    expect(f.latestActor("agent-a").lastActivityAt).toBeUndefined();
+    clock = 5_000;
+    f.native.receive({ type: "system", subtype: "task_progress", task_id: "agent-a", run_id: "run-01", description: "Reading the specification" });
+    expect(f.latestActor("agent-a").lastActivityAt).toBe(5_000);
+    clock = 9_000;
+    f.native.receive({ type: "system", subtype: "task_updated", task_id: "agent-a", run_id: "run-01", patch: { is_backgrounded: true } });
+    expect(f.latestActor("agent-a").lastActivityAt).toBe(9_000);
+    clock = 12_000;
+    f.native.receive({ type: "system", subtype: "background_tasks_changed", tasks: [{ task_id: "agent-a", run_id: "run-01", status: "running" }] });
+    expect(f.latestActor("agent-a").lastActivityAt).toBe(9_000);
+  });
+
+  it("moves when the helper's own step starts or ends, and a later report about the helper cannot move it back", () => {
+    const f = recorded();
+    f.native.receive(start());
+    expect(f.helper("agent-a").lastActivityAt).toBeUndefined();
+    f.at(5_000);
+    f.native.receive({ type: "system", subtype: "task_progress", task_id: "agent-a", run_id: "run-01", description: "Reading" });
+    expect(f.helper("agent-a").lastActivityAt).toBe(5_000);
+    const scope = { agent_id: "agent-a", parent_tool_use_id: "spawn-agent-a-run-01" };
+    f.at(8_000);
+    f.native.receive(assistant("child-read", [{ type: "tool_use", id: "read", name: "Read", input: { file_path: "/srv/menu/spring-menu.md" } }], scope));
+    expect(f.helper("agent-a").lastActivityAt).toBe(8_000);
+    f.at(11_000);
+    f.native.receive({ type: "user", uuid: "read-result", ...scope, message: { content: [{ type: "tool_result", tool_use_id: "read", content: "Spring menu" }] } });
+    expect(f.helper("agent-a").lastActivityAt).toBe(11_000);
+    f.at(14_000);
+    f.native.receive(assistant("parent-text", [{ type: "text", text: "Waiting for the helper" }]));
+    f.native.receive({ type: "system", subtype: "background_tasks_changed", tasks: [{ task_id: "agent-a", run_id: "run-01", status: "running" }] });
+    expect(f.helper("agent-a").lastActivityAt).toBe(11_000);
   });
 });

@@ -113,12 +113,18 @@ export class NativeRunStore {
         }
         if (retained.count < nativeRunLimits.legacyEvents) database.prepare("INSERT INTO native_run_events(run_id, event_id, at, json) VALUES (?, ?, ?, 'null')").run(id, eventId, at);
       }
-      const result = project(readRun(database, id), itemId => {
+      const previous = readRun(database, id);
+      const moved = new Map((previous?.actors ?? []).flatMap(actor => actor.lastActivityAt === undefined ? [] : [[actor.id, actor.lastActivityAt] as const]));
+      const result = project(previous, itemId => {
         const row = database.prepare("SELECT json FROM native_run_items WHERE run_id = ? AND id = ?").get(id, itemId) as { json: string } | undefined;
         return row ? JSON.parse(row.json) as NativeActivity : undefined;
       });
       const { run, activity } = result;
       if (activity) run.lastActivityAt = Math.max(run.lastActivityAt ?? at, at);
+      for (const actor of run.actors) {
+        const latest = Math.max(actor.lastActivityAt ?? 0, moved.get(actor.id) ?? 0, activity?.actorId === actor.id ? at : 0);
+        if (latest) actor.lastActivityAt = latest;
+      }
       if (activity) database.prepare("INSERT INTO native_run_items(run_id, id, sequence, json) VALUES (?, ?, ?, ?) ON CONFLICT(run_id, id) DO UPDATE SET json = excluded.json")
         .run(id, activity.id, run.revision, JSON.stringify(activity));
       const items = database.prepare("SELECT id, length(CAST(json AS BLOB)) AS bytes FROM native_run_items WHERE run_id = ? ORDER BY CASE WHEN json_extract(json, '$.state') IN ('running', 'waiting') THEN 0 ELSE 1 END, sequence DESC").all(id) as Array<{ id: string; bytes: number }>;
