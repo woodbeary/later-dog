@@ -7642,6 +7642,40 @@ describe("harness HTTP API", () => {
     }
   });
 
+  it("never offers Always on a card in a group chat, and the grant route refuses it with 409", async () => {
+    const bot = (await api("POST", "/api/bots", { name: "Rook" })).body.bot;
+    const conns: Socket[] = [];
+    let roomId: string | undefined;
+    try {
+      expect((await api("PUT", "/api/config", { signIn: { members: ["member@example.com"] } })).status).toBe(200);
+      expect((await api("PATCH", `/api/bots/${bot.id}`, { modelSelection: { instanceId: "claude", model: "claude-haiku-4-5" }, approvalMode: "ask" })).status).toBe(200);
+      const room = (await api("POST", "/api/groups", { name: "Weather room", memberIds: [bot.id], setup: { bulletin: "", defaultResponder: { kind: "mentions" } } })).body.group;
+      roomId = room.id;
+      rmSync(fakeClaudeDump, { force: true });
+      expect((await api("POST", `/api/groups/${room.id}/messages`, { text: "@Rook look up the weather", threadId: room.threadId })).status).toBe(202);
+      const socketPath = z.object({
+        mcpConfig: z.object({ mcpServers: z.object({ dog: z.object({ args: z.array(z.string()) }) }) }),
+      }).parse(await readJsonFileWhenReady(fakeClaudeDump)).mcpConfig.mcpServers.dog.args[1];
+      const conn = connect(socketPath);
+      conns.push(conn);
+      await new Promise<void>((resolve, reject) => { conn.on("connect", resolve); conn.on("error", reject); });
+      conn.write(JSON.stringify({ t: "ask", id: "room-search", tool: "WebSearch", input: { query: "weather in oslo" } }) + "\n");
+      const roomCard = async () => ((await api("GET", "/api/bots?messages=60")).body.groups.find((group: { id: string }) => group.id === room.id)?.messages ?? [])
+        .find((message: { card?: { requestId?: string } }) => message.card?.requestId === "room-search")?.card;
+      await expect.poll(roomCard, { timeout: 15_000 }).toBeTruthy();
+      expect((await roomCard()).lasting).toEqual({ offered: false, why: "owner-only" });
+      const granted = await api("POST", `/api/bots/${bot.id}/always-allow`, { threadId: room.threadId, requestId: "room-search" });
+      expect(granted.status).toBe(409);
+      expect(granted.body.why).toBe("owner-only");
+    } finally {
+      for (const conn of conns) conn.destroy();
+      if (roomId) await api("POST", `/api/groups/${roomId}/interrupt`, {}).catch(() => undefined);
+      if (roomId) await api("DELETE", `/api/groups/${roomId}`).catch(() => undefined);
+      await api("DELETE", `/api/bots/${bot.id}`);
+      await api("PUT", "/api/config", { signIn: { members: [] } });
+    }
+  });
+
   it("lists an old key from every chat it was copied into, and Remove takes it out of all of them", async () => {
     const bot = (await api("POST", "/api/bots", { name: "Kestrel" })).body.bot;
     try {

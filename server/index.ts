@@ -1620,8 +1620,9 @@ function ownerOrAdminPerson(person: string | undefined): boolean {
   return sessions.list().some((session) => session.scopes.includes("admin") && personKey(session) === person);
 }
 
-function turnReachedOnlyByOwner(threadId: string): boolean {
-  return !cloudGuestDriven(threadId) && onlyOwnerReached(store.messagesFor(threadId), turnStartedAt.get(threadId), ownerOrAdminPerson);
+function turnReachedOnlyByOwner(threadId: string, asker: string): boolean {
+  if (store.groupByThread(threadId)) return false;
+  return !cloudGuestDriven(threadId) && onlyOwnerReached(store.messagesFor(threadId), turnStartedAt.get(threadId), ownerOrAdminPerson, asker);
 }
 
 function lastingReach(botName: string): string {
@@ -7390,7 +7391,7 @@ bus.subscribe(guardTurnEnd((event: RuntimeEvent) => {
               : undefined,
             commandAllowlist: cardCommand ?? undefined,
             ...(permission && asker && lastingBase && !cardCommand
-              ? { lasting: lastingOffer(lastingVerdict({ ...lastingBase, alwaysAsks: Boolean(always) || alwaysRule !== undefined, ownerOnly: turnReachedOnlyByOwner(event.threadId) }), lastingReach(asker.name)) }
+              ? { lasting: lastingOffer(lastingVerdict({ ...lastingBase, alwaysAsks: Boolean(always) || alwaysRule !== undefined, ownerOnly: turnReachedOnlyByOwner(event.threadId, asker.id) }), lastingReach(asker.name)) }
               : {}),
             held: approvalHeldReason(heldContext),
             heldCode: approvalHeldNote(heldContext),
@@ -7484,7 +7485,7 @@ bus.subscribe(guardTurnEnd((event: RuntimeEvent) => {
       }
       const lastingRule = !ownerAuto && !always && asker && event.requestId && lastingBase
         ? (() => {
-          const lasting = lastingVerdict({ ...lastingBase, alwaysAsks: false, ownerOnly: turnReachedOnlyByOwner(event.threadId) });
+          const lasting = lastingVerdict({ ...lastingBase, alwaysAsks: false, ownerOnly: turnReachedOnlyByOwner(event.threadId, asker.id) });
           return lasting.offered ? lastingAllows.answers(asker.id, lasting.keySha256) : undefined;
         })()
         : undefined;
@@ -17800,6 +17801,9 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       const body = await readBody(req);
       requirePinnedClientThread(m[1], body?.threadId);
       const allowKey = typeof body.allowKey === "string" ? body.allowKey : "";
+      if (!allowKey && typeof body.threadId === "string" && store.groupByThread(body.threadId)) {
+        return json(res, 409, { error: "Always is not offered in a group chat", why: "owner-only" });
+      }
       const bot = requestedTaskBot(m[1], body.threadId);
       if (!allowKey && typeof body.requestId === "string" && body.requestId) {
         if (!canManageCommandAllowlist(auth)) return json(res, 403, { error: "Only the owner or an admin can choose Always." });
@@ -17812,7 +17816,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         );
         const remembered = lastingRequests.get(`${bot.threadId}:${requestId}`);
         if (!pending || !remembered || remembered.botId !== bot.id) return json(res, 409, { error: "that request is not waiting on an approval for this dog" });
-        const lasting = lastingVerdict({ ...remembered.request, alwaysAsks: remembered.alwaysAsks, ownerOnly: turnReachedOnlyByOwner(bot.threadId) });
+        const lasting = lastingVerdict({ ...remembered.request, alwaysAsks: remembered.alwaysAsks, ownerOnly: turnReachedOnlyByOwner(bot.threadId, bot.id) });
         if (!lasting.offered) return json(res, 409, { error: "Always is not offered for this request", why: lasting.why });
         lastingAllows.grant({ botId: bot.id, keySha256: lasting.keySha256, grantedBy: auth.kind === "session" ? personKey(auth.session) : "local", fromThreadId: bot.threadId });
         return json(res, 200, { granted: true });

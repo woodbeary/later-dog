@@ -81,17 +81,21 @@ export type TurnLine = {
   role: string;
   at: number;
   peerAsk?: unknown;
-  from?: unknown;
+  from?: { botId?: string };
   relayed?: boolean;
   webhookPost?: boolean;
+  via?: string;
   sender?: { id?: string };
 };
 
-export function onlyOwnerReached(lines: readonly TurnLine[], startedAt: number | undefined, ownerPerson: (person: string | undefined) => boolean): boolean {
+export function onlyOwnerReached(lines: readonly TurnLine[], startedAt: number | undefined, ownerPerson: (person: string | undefined) => boolean, asker: string): boolean {
   const start = startedAt ?? Number.POSITIVE_INFINITY;
-  const lastReply = lines.findLastIndex((line) => line.role === "bot" && line.at < start);
-  return lines.slice(lastReply + 1).every((line) => line.role !== "user" ||
-    (!line.peerAsk && !line.from && !line.relayed && !line.webhookPost && ownerPerson(line.sender?.id)));
+  const lastReply = lines.findLastIndex((line) => line.role === "bot" && (line.from === undefined || line.from.botId === asker) && line.at < start);
+  return lines.slice(lastReply + 1).every((line) => {
+    if (line.from !== undefined && line.from.botId !== asker) return false;
+    if (line.role !== "user") return true;
+    return !line.peerAsk && !line.relayed && !line.webhookPost && ownerPerson(line.sender?.id);
+  });
 }
 
 export function lastingOffer(verdict: LastingVerdict, reach: string): LastingOffer {

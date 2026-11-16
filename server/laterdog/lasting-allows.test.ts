@@ -64,25 +64,30 @@ describe("the allow rule", () => {
 
 describe("only the owner reached the turn", () => {
   const isOwner = (person: string | undefined) => person === undefined || person === "p_owner";
-  const reply = (at: number): TurnLine => ({ role: "bot", at });
+  const reply = (at: number, extra: Partial<TurnLine> = {}): TurnLine => ({ role: "bot", at, ...extra });
   const said = (at: number, extra: Partial<TurnLine> = {}): TurnLine => ({ role: "user", at, sender: { id: "p_owner" }, ...extra });
+  const reached = (lines: TurnLine[], start = 3) => onlyOwnerReached(lines, start, isOwner, "me");
 
   it("passes for the owner's own prompt", () => {
-    expect(onlyOwnerReached([reply(1), said(2)], 3, isOwner)).toBe(true);
+    expect(reached([reply(1), said(2)])).toBe(true);
+    expect(reached([reply(1, { from: { botId: "me" } }), said(2)])).toBe(true);
   });
 
   it("fails for a guest's message queued before the turn and delivered during it", () => {
-    expect(onlyOwnerReached([reply(1), said(2), said(4, { sender: { id: "p_guest" } })], 3, isOwner)).toBe(false);
-    expect(onlyOwnerReached([reply(1), said(2, { sender: { id: "p_guest" } }), said(2.5)], 3, isOwner)).toBe(false);
+    expect(reached([reply(1), said(2), said(4, { sender: { id: "p_guest" } })])).toBe(false);
+    expect(reached([reply(1), said(2, { sender: { id: "p_guest" } }), said(2.5)])).toBe(false);
   });
 
-  it("fails when another dog's message reached the turn", () => {
-    expect(onlyOwnerReached([reply(1), said(2), said(4, { peerAsk: { botId: "b", name: "Ada" } })], 3, isOwner)).toBe(false);
-    expect(onlyOwnerReached([reply(1), said(2, { from: { botId: "b", name: "Ada", color: "x" } })], 3, isOwner)).toBe(false);
+  it("fails when another dog's message reached the turn, whatever its role", () => {
+    expect(reached([reply(1), said(2), said(4, { peerAsk: { botId: "b", name: "Ada" } })])).toBe(false);
+    expect(reached([reply(1), said(2, { from: { botId: "b" } })])).toBe(false);
+    expect(reached([said(0), reply(1, { from: { botId: "me" } }), reply(4, { from: { botId: "b" } })])).toBe(false);
+    expect(reached([reply(1, { from: { botId: "b" } })])).toBe(false);
+    expect(reached([said(0, { sender: { id: "p_member" } }), reply(1, { from: { botId: "b" } })])).toBe(false);
   });
 
-  it("does not look at messages answered by an earlier turn", () => {
-    expect(onlyOwnerReached([said(0, { sender: { id: "p_guest" } }), reply(1), said(2)], 3, isOwner)).toBe(true);
+  it("does not look at messages answered by an earlier turn of this dog", () => {
+    expect(reached([said(0, { sender: { id: "p_guest" } }), reply(1), said(2)])).toBe(true);
   });
 });
 
