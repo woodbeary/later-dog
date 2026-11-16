@@ -84,4 +84,16 @@ describe("one call for a run of actions", () => {
     expect(result).toEqual({ isError: true, content: [{ type: "text", text: "Step 1 (page_click) needs the page tools, which are not offered here. Nothing ran." }] });
     expect(box.commands).toEqual([]);
   });
+
+  it("ends a wait at once when the turn is stopped, and runs nothing after it", async () => {
+    const box = computer();
+    const stop = new AbortController();
+    setTimeout(() => stop.abort(), 50);
+    const started = Date.now();
+    const outcome = await runCloudComputerTool(off, "box", "run_actions", { steps: [{ action: "wait", ms: 5000 }, { action: "key", key: "Return" }] }, stop.signal, undefined, undefined, box.exec)
+      .then(() => "finished", (error: Error) => error.name);
+    expect(outcome).toBe("AbortError");
+    expect(Date.now() - started).toBeLessThan(1_000);
+    expect(box.commands).toEqual([]);
+  });
 });

@@ -2,6 +2,15 @@ type Content = Array<{ type: "text"; text: string } | { type: "image"; mimeType:
 export type StepResult = { content: Content; isError?: boolean };
 export type RunStep = (name: string, args: Record<string, unknown>) => Promise<StepResult>;
 
+export function abortableWait(signal: AbortSignal): (ms: number) => Promise<void> {
+  return (ms) => new Promise<void>((settle) => {
+    if (signal.aborted) return settle();
+    const timer = setTimeout(() => { signal.removeEventListener("abort", stop); settle(); }, ms);
+    const stop = () => { clearTimeout(timer); settle(); };
+    signal.addEventListener("abort", stop, { once: true });
+  }).then(() => signal.throwIfAborted());
+}
+
 export const RUN_MAX_STEPS = 25;
 export const RUN_WAIT_MAX_MS = 5_000;
 

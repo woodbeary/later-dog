@@ -9,7 +9,7 @@ import { splitTabListing, TAB_TRACKED_TOOLS, withTabListing, type Target } from 
 import { fillSecureField, parseSecureFormInput, SECURE_FORM_TOOLS, secureFormFilledText, secureFormRequestedText, type SecureFormDesk } from "./laterdog/secure-form.ts";
 import { imageFromOutput, pointerTo, scaled, SCREEN_SIZE_COMMAND, SCREENSHOT_COMMAND, zoomCommand } from "./laterdog/screen-scale.ts";
 import { PAGE_TOOL_NAMES, PAGE_TOOLS, pageToolsEnabled, runPageTool, type RemoteExec } from "./laterdog/page-tools.ts";
-import { RUN_ACTIONS_TOOL, runActions } from "./laterdog/action-run.ts";
+import { abortableWait, RUN_ACTIONS_TOOL, runActions } from "./laterdog/action-run.ts";
 
 export type { RemoteExec };
 
@@ -83,6 +83,7 @@ export async function runCloudComputerTool(
       problem: cloudComputerCallProblem,
       run: (step, stepArgs) => runCloudComputerTool(cfg, boxId, step, stepArgs, signal, onTabs, vault, exec),
       checkpoint,
+      wait: abortableWait(signal),
     });
   }
   if (PAGE_TOOL_NAMES.has(name)) {
