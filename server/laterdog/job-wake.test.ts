@@ -138,6 +138,34 @@ describe("waking a dog when a job on its computer ends", () => {
     expect(lines()).toEqual(["notice: Scout's command finished. Scout was not woken for it."]);
   });
 
+  const notStopped = "notice: Scout's command ran past 2 hours and later.dog could not stop it. later.dog is no longer watching it; it ends when Scout's computer next goes to sleep. Scout was not woken for it.";
+  const overdue = (jobs: ComputerJobs, id: string, stop: "gone" | "partial" | "alive") => {
+    jobs.started(job(id, "t1", NOW - 1_000 - MAX_RUN_MS));
+    jobs.finished(id, { how: "overdue", stop, at: NOW - 1_000 });
+  };
+
+  it.each([
+    ["one stopped and one not stopped", (jobs: ComputerJobs) => { overdue(jobs, "aaaa0001", "gone"); overdue(jobs, "aaaa0002", "alive"); },
+      ["notice: Scout's command was stopped after 2 hours. Scout was not woken for it.", notStopped]],
+    ["one stopped in part and one not stopped", (jobs: ComputerJobs) => { overdue(jobs, "aaaa0001", "partial"); overdue(jobs, "aaaa0002", "alive"); },
+      ["notice: Scout's command was stopped after 2 hours, but part of it may still be running. Scout was not woken for it.", notStopped]],
+    ["one not stopped and one that finished after more than 2 hours", (jobs: ComputerJobs) => { overdue(jobs, "aaaa0001", "alive"); ended(jobs, "aaaa0002", "finished", "t1", NOW - 1_000, NOW - 1_000 - MAX_RUN_MS - 1); },
+      [notStopped, "notice: Scout's command finished. Scout was not woken for it."]],
+    ["two not stopped", (jobs: ComputerJobs) => { overdue(jobs, "aaaa0001", "alive"); overdue(jobs, "aaaa0002", "alive"); },
+      ["notice: Scout's 2 commands ran past 2 hours and later.dog could not stop them. later.dog is no longer watching them; they end when Scout's computer next goes to sleep. Scout was not woken for them."]],
+    ["two stopped and one stopped in part", (jobs: ComputerJobs) => { overdue(jobs, "aaaa0001", "gone"); overdue(jobs, "aaaa0002", "partial"); overdue(jobs, "aaaa0003", "gone"); },
+      ["notice: Scout's 2 commands were stopped after 2 hours. Scout was not woken for them.", "notice: Scout's command was stopped after 2 hours, but part of it may still be running. Scout was not woken for it."]],
+    ["two plain endings", (jobs: ComputerJobs) => { ended(jobs, "aaaa0001", "finished", "t1", NOW - 1_000, NOW - 1_000 - MAX_RUN_MS - 1); ended(jobs, "aaaa0002", "failed", "t1", NOW - 1_000, NOW - 1_000 - MAX_RUN_MS - 1); },
+      ["notice: Scout's 2 commands ended. Scout was not woken for it."]],
+  ] as const)("never calls a command ended when later.dog could not stop it, for %s ending in the same check", async (_label, arrange, want) => {
+    const { jobs, lines, turns, wake } = setup();
+    arrange(jobs);
+    wake.deliver(); await flush();
+    expect(turns).toEqual([]);
+    expect(lines()).toEqual(want);
+    expect(jobs.unannounced()).toEqual([]);
+  });
+
   it("makes one turn for several jobs ending close together", async () => {
     const { jobs, turns, lines, wake } = setup();
     ended(jobs, "aaaa0001");

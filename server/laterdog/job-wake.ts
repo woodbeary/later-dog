@@ -1,7 +1,7 @@
 import { failedTurnTool } from "../../shared/failed-turn.ts";
 import type { WireMessage } from "../../shared/wire.ts";
 import type { ComputerJobs, EndedComputerJob } from "./computer-jobs.ts";
-import { MAX_RUN_MS } from "./computer-runs.ts";
+import { MAX_RUN_MS, type RunStop } from "./computer-runs.ts";
 
 type NewMessage = Omit<WireMessage, "id" | "at">;
 
@@ -11,15 +11,37 @@ export const WAKE_FRESH_MS = 30 * 60_000;
 const UNREAD: Partial<Record<EndedComputerJob["end"]["how"], string>> = { asleep: "went to sleep", gone: "was removed", stopped: "went to sleep or was removed" };
 const ENDED_WORDS: Partial<Record<EndedComputerJob["end"]["how"], string>> = { finished: "finished", failed: "failed", lost: "ended without a result" };
 
-function overduePhrase(name: string, stop: EndedComputerJob["end"]["stop"]): string {
+type Said = "ended" | RunStop;
+
+function said(job: EndedComputerJob): Said {
+  return job.end.how === "overdue" ? job.end.stop ?? "gone" : "ended";
+}
+
+function sameWords(jobs: readonly EndedComputerJob[]): EndedComputerJob[][] {
+  const groups = new Map<Said, EndedComputerJob[]>();
+  for (const job of jobs) groups.set(said(job), [...(groups.get(said(job)) ?? []), job]);
+  return [...groups.values()];
+}
+
+function overduePhrase(name: string, stop: RunStop, count: number): string {
+  if (count > 1) {
+    if (stop === "alive") return `${name}'s ${count} commands ran past 2 hours and later.dog could not stop them. later.dog is no longer watching them; they end when ${name}'s computer next goes to sleep`;
+    return `${name}'s ${count} commands were stopped after 2 hours${stop === "partial" ? ", but part of them may still be running" : ""}`;
+  }
   if (stop === "alive") return `${name}'s command ran past 2 hours and later.dog could not stop it. later.dog is no longer watching it; it ends when ${name}'s computer next goes to sleep`;
   return `${name}'s command was stopped after 2 hours${stop === "partial" ? ", but part of it may still be running" : ""}`;
 }
 
+function overdueGroup(jobs: readonly EndedComputerJob[]): RunStop | null {
+  const first = said(jobs[0]!);
+  return first !== "ended" && jobs.every((job) => said(job) === first) ? first : null;
+}
+
 function endedPhrase(name: string, jobs: readonly EndedComputerJob[]): string {
+  const stop = overdueGroup(jobs);
+  if (stop) return overduePhrase(name, stop, jobs.length);
   if (jobs.length > 1) return `${name}'s ${jobs.length} commands ended`;
   const how = jobs[0]!.end.how;
-  if (how === "overdue") return overduePhrase(name, jobs[0]!.end.stop);
   const unread = UNREAD[how];
   return unread ? `${name}'s computer ${unread} before later.dog could read the result of its command` : `${name}'s command ${ENDED_WORDS[how]}`;
 }
@@ -29,7 +51,7 @@ export function jobWakeLine(name: string, jobs: readonly EndedComputerJob[]): st
 }
 
 export function jobNotWokenLine(name: string, jobs: readonly EndedComputerJob[]): string {
-  return `${endedPhrase(name, jobs)}. ${name} was not woken for it.`;
+  return `${endedPhrase(name, jobs)}. ${name} was not woken for ${jobs.length > 1 && overdueGroup(jobs) ? "them" : "it"}.`;
 }
 
 export function jobLostLine(name: string, jobs: readonly EndedComputerJob[]): string {
@@ -100,7 +122,7 @@ export function createJobWake(jobs: ComputerJobs, host: JobWakeHost) {
 
   const notWoken = (threadId: string, name: string, ended: readonly EndedComputerJob[], why: NotWoken) => {
     jobs.announced(ended.map((job) => job.id));
-    host.append(threadId, { role: "bot", kind: "activity", tool: notWokenTool(name, ended, why) });
+    for (const group of sameWords(ended)) host.append(threadId, { role: "bot", kind: "activity", tool: notWokenTool(name, group, why) });
     log(`job wake: ${threadId} not woken (${why}) for ${ended.map((job) => job.id).join(", ")}`);
   };
 
