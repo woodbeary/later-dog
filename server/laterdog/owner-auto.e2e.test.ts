@@ -420,6 +420,26 @@ it("an owner dog's send through a connected app always asks, with Auto-review of
   expect(relayed).toHaveLength(before);
 }, 60_000);
 
+it("lists an app's Always granted on a second chat only, and Remove takes it out of that chat", async () => {
+  await autoReview(true);
+  const dog = await newDog("Second chat", "ask");
+  const second = (await api("POST", `/api/bots/${dog.id}/tasks`, { title: "Second" })).body.task.threadId as string;
+  const asked = relay(await mintConnectors(dog.id, second), "GITHUB_CREATE_AN_ISSUE_COMMENT", { owner: "o", repo: "r", issue_number: 1, body: "Thanks." });
+  await expect.poll(async () => (await sendCards(second)).length, { timeout: 10_000 }).toBe(1);
+  const [card] = await sendCards(second);
+  expect(card.card.allowKey).toBe("connector:github");
+  expect((await api("POST", `/api/bots/${dog.id}/always-allow`, { threadId: second, allowKey: "connector:github" })).status).toBe(200);
+  await api("POST", `/api/threads/${second}/respond`, { requestId: card.card.requestId, behavior: "allow" });
+  await asked;
+  const record = async () => ((await api("GET", "/api/bots")).body.bots as any[]).find((bot) => bot.id === dog.id);
+  expect((await record()).alwaysAllow ?? []).not.toContain("connector:github");
+  expect((await record()).tasks.find((task: any) => task.threadId === second).alwaysAllow).toContain("connector:github");
+  const listed = (await api("GET", `/api/bots/${dog.id}/always-allowed`)).body.items.find((item: any) => item.kind === "app");
+  expect(listed).toMatchObject({ kind: "app", subject: "github", state: "active" });
+  expect((await api("DELETE", `/api/bots/${dog.id}/always-allowed/${encodeURIComponent(listed.id)}`)).status).toBe(200);
+  expect((await record()).tasks.find((task: any) => task.threadId === second).alwaysAllow ?? []).not.toContain("connector:github");
+}, 60_000);
+
 const DELETES_OR_SHARES = [
   ["GMAIL_DELETE_MESSAGE", { message_id: "m-1" }],
   ["GMAIL_MOVE_TO_TRASH", { message_id: "m-2" }],
