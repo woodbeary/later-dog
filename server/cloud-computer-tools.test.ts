@@ -139,7 +139,8 @@ describe("cloud computer tools", () => {
     expect(calls[0].body.command).not.toContain("102400");
     calls.length = 0;
     await rpc({ method: "tools/call", params: { name: "get_screen_size", arguments: {} } }).done;
-    expect(calls[0].body.command).not.toContain("102400");    calls.length = 0;
+    expect(calls[0].body.command).not.toContain("102400");
+    calls.length = 0;
     const desk = { open: () => ({ error: "unused" }), field: () => ({ ok: true, host: "login.example.test", label: "Password", value: "S3cret-pass!" }), typed: () => ({ last: true }) } as unknown as SecureFormDesk;
     await rpc({ method: "tools/call", params: { name: "fill_secure_field", arguments: { form_id: "f1", field_id: "password", x: 1023, y: 639 } } }, { held: false }, new AbortController().signal, desk).done;
     expect(calls[0].body.command).toContain("SX=$(( 1023 * 100 / P ))");
