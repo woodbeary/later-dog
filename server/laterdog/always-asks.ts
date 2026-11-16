@@ -1,3 +1,4 @@
+import { posix } from "node:path";
 import { ALWAYS_ASK_IDS, type AlwaysAskId } from "../../shared/always-asks.ts";
 import { actionTokens, isOutboundTool } from "../../shared/outbound.ts";
 import { COMPUTER_RUN_PATH } from "../routes/computer-run.ts";
@@ -58,6 +59,12 @@ const text = (value: unknown): string | undefined => (typeof value === "string" 
 const bareName = (tool: string) => tool.replace(/^mcp__[^_]+__/, "");
 const serverOf = (tool: string) => (tool.startsWith("mcp__") ? tool.split("__")[1] ?? "" : "");
 
+function insideLentFolder(folderId: unknown, path: string): boolean {
+  if (typeof folderId !== "string" || !folderId || /^[/~]|[\\:]/.test(path)) return false;
+  const placed = posix.normalize(path);
+  return placed !== "." && placed !== ".." && !placed.startsWith("../");
+}
+
 function seenOf(request: AlwaysAskRequest): Seen {
   const input = request.input ?? {};
   const name = bareName(request.tool);
@@ -72,7 +79,7 @@ function seenOf(request: AlwaysAskRequest): Seen {
     const mac: Seen = { ...base, place: "mac", cwd: text(input.cwd) };
     if (input.action === "run_command") return { ...mac, shell: text(input.command) };
     if (input.action === "command_input") return { ...mac, shell: text(input.input) };
-    if (input.action === "delete_file") return { ...mac, deletes: path ? [path] : ["a file"] };
+    if (input.action === "delete_file") return { ...mac, deletes: path && insideLentFolder(input.folder_id, path) ? [] : [path || "a file"] };
     if (input.action === "write_file" || input.action === "edit_file") return { ...mac, writes: path ? [path] : [] };
     return mac;
   }
