@@ -7825,6 +7825,38 @@ describe("harness HTTP API", () => {
     }
   });
 
+  it("in a channel between two dogs, says only the owner can choose Always, never group chats, on the card and from the grant route", async () => {
+    const conns: Socket[] = [];
+    const before = ((await api("GET", "/api/bots")).body.bots as Array<{ id: string; approvalMode?: string }>).find((bot) => bot.id === "test-bot-a")?.approvalMode;
+    try {
+      expect((await api("PUT", "/api/config", { signIn: { members: ["member@example.com"] } })).status).toBe(200);
+      expect((await api("PATCH", "/api/bots/test-bot-a", { modelSelection: { instanceId: "claude", model: "claude-haiku-4-5" }, approvalMode: "ask" })).status).toBe(200);
+      rmSync(fakeClaudeDump, { force: true });
+      const sent = await api("POST", "/api/groups/test-dm/messages", { text: "@Test bot A look up the weather", threadId: "test-dm-thread" });
+      expect(sent.status, JSON.stringify(sent.body)).toBe(202);
+      const socketPath = z.object({
+        mcpConfig: z.object({ mcpServers: z.object({ dog: z.object({ args: z.array(z.string()) }) }) }),
+      }).parse(await readJsonFileWhenReady(fakeClaudeDump)).mcpConfig.mcpServers.dog.args[1];
+      const conn = connect(socketPath);
+      conns.push(conn);
+      await new Promise<void>((resolve, reject) => { conn.on("connect", resolve); conn.on("error", reject); });
+      conn.write(JSON.stringify({ t: "ask", id: "channel-search", tool: "WebSearch", input: { query: "weather in oslo" } }) + "\n");
+      const channelCard = async () => ((await api("GET", "/api/threads/test-dm-thread/messages?limit=100")).body.messages ?? [])
+        .find((message: { card?: { requestId?: string } }) => message.card?.requestId === "channel-search")?.card;
+      await expect.poll(channelCard, { timeout: 15_000 }).toBeTruthy();
+      expect((await channelCard()).lasting).toEqual({ offered: false, why: "owner-only" });
+      const granted = await api("POST", "/api/bots/test-bot-a/always-allow", { threadId: "test-dm-thread", requestId: "channel-search" });
+      expect(granted.status).toBe(409);
+      expect(granted.body.why).toBe("owner-only");
+      expect(JSON.stringify(granted.body)).not.toContain("group chat");
+    } finally {
+      for (const conn of conns) conn.destroy();
+      await api("POST", "/api/groups/test-dm/interrupt", {}).catch(() => undefined);
+      await api("PATCH", "/api/bots/test-bot-a", { modelSelection: { instanceId: "claude", model: "claude-sonnet-5" }, ...(before ? { approvalMode: before } : {}) });
+      await api("PUT", "/api/config", { signIn: { members: [] } });
+    }
+  });
+
   it("says the list could not be read when the Always store is damaged, instead of showing an empty list", async () => {
     const isolatedHome = mkdtempSync(join(tmpdir(), "laterdog-always-unreadable-"));
     const isolatedData = join(isolatedHome, ".laterdog");
