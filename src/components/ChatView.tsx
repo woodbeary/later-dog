@@ -50,8 +50,11 @@ import { FailedTurnRow } from "./FailedTurnRow";
 import { isOpenTakeover } from "../../shared/takeover";
 import { BotAvatar } from "./Avatar";
 import { ExchangeLine, ExchangeThreadContext, PlainNoteLine } from "./QuietLines";
+import { FailedSendLine, TeamBlock } from "./TeamBlock";
+import { foldTeams } from "@/lib/team-block";
+import { RunningOnLine } from "./RunningOnLine";
 import { ExchangeViewHost } from "./ExchangeViewHost";
-import { foldExchanges, foldedRuns, expandedExchange, quietTranscriptItemShown, shownToPerson } from "@/lib/quiet-lines";
+import { foldExchanges, foldedRuns, expandedExchange, quietTranscriptItemShown, shownInChat } from "@/lib/quiet-lines";
 import { RecoveredLine } from "./RecoveredLine";
 import { freshenDogName } from "@/lib/dog-refs";
 import { TurnPresence } from "./TurnPresence";
@@ -724,10 +727,10 @@ const MessagesList = memo(function MessagesList({
   const emerged = useRef(new Set<string>());
   if (emergingId) emerged.current.add(emergingId);
   const items = useMemo(
-    () => foldExchanges(groupTranscript(messages, plan), {
+    () => foldTeams(foldExchanges(groupTranscript(messages, plan), {
       renders: (item) => quietTranscriptItemShown(item, showToolCalls),
       hasGroup: (groupId) => groupIds.split("|").includes(groupId),
-    }),
+    }), (item) => quietTranscriptItemShown(item, showToolCalls)),
     [messages, plan, locale, showToolCalls, groupIds],
   );
   const foldedWork = useMemo(() => {
@@ -781,6 +784,24 @@ const MessagesList = memo(function MessagesList({
                   </Fragment>
                 ))}
               </TurnNarrationRun>
+            </div>
+          );
+        }
+        if (item.kind === "failed-send") {
+          return (
+            <div key={item.id} className="contents" data-arriving={arriving(item.message.id) ? "" : undefined}>
+              {newDay && <DaySeparator at={first.at} today={today} />}
+              {unreadDivider(item.messages)}
+              <FailedSendLine item={item} />
+            </div>
+          );
+        }
+        if (item.kind === "team") {
+          return (
+            <div key={item.id} className="contents" data-arriving={arriving(item.messages.at(-1)!.id) ? "" : undefined}>
+              {newDay && <DaySeparator at={first.at} today={today} />}
+              {unreadDivider(item.messages)}
+              <TeamBlock item={item} waitingOn={owner?.waitingOn} />
             </div>
           );
         }
@@ -943,7 +964,7 @@ export function ChatView({ bot: profile }: { bot: Bot }) {
 
   const { messages: allMessages, activeLeafId } = bot;
   const thread = useMemo(() => visibleMessages({ messages: allMessages, activeLeafId }), [allMessages, activeLeafId]);
-  const messages = useMemo(() => thread.filter(shownToPerson), [thread]);
+  const messages = useMemo(() => thread.filter(shownInChat), [thread]);
   const exchangeThread = useMemo(() => ({ thread, working: Boolean(bot.busy) }), [thread, bot.busy]);
   const lookups = useMemo(() => transcriptLookups(allMessages, messages), [allMessages, messages]);
   const takeoverOpen = useMemo(
@@ -1274,7 +1295,7 @@ export function ChatView({ bot: profile }: { bot: Bot }) {
             steps={steps}
             updates={updates}
           />
-          <DogPlan plan={bot.plan} working={waiting} />
+          <DogPlan plan={bot.plan} working={waiting} since={bot.busy ? bot.turnStartedAt ?? null : null} />
         </div>
       </div>
 
@@ -1315,6 +1336,7 @@ export function ChatView({ bot: profile }: { bot: Bot }) {
       <LiveCallBar bot={bot} />
       {!takeoverOpen && <NeedsYouRow botId={bot.id} name={bot.name} />}
       <PaneErrorLine panes={[chatPane(bot.threadId)]} look="tray" />
+      <RunningOnLine messages={thread} threadId={bot.threadId} />
       {canWrite === false ? (
         <p className="pointer-events-auto mx-5 mb-4 rounded-2xl border border-hairline/60 bg-raised px-4 py-3 text-[13px] text-ink-secondary" data-testid="cloud-guest-composer">{t("chat.cloudGuest.notYours")}</p>
       ) : (

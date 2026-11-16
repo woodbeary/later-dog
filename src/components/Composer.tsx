@@ -8,6 +8,7 @@ import { visibleMessages, currentTaskBot, type Bot, type Group, type Message } f
 import { useDrawnDogs, useStoreDispatch, useStoreSelector } from "@/state/store-selectors";
 import { chatPane } from "@/state/pane-errors";
 import { waitingOnPerson } from "@/lib/waiting-on-person";
+import { answerByTyping, answerTooLong, forgetClosedAnswer, useClosedAnswer, useTypedAnswer } from "@/lib/typed-answer";
 import { cn } from "@/lib/cn";
 import { useMenuMotion } from "./MenuMotion";
 import { activeLocale, t } from "@/lib/i18n";
@@ -145,6 +146,8 @@ export function Composer({
   const steerCapabilities = instances.find((i) => i.instanceId === steerInstanceId)?.capabilities;
   const canSteer = steerCapabilities?.queueing === true;
   const threadId = group?.threadId ?? bot?.threadId ?? "";
+  const typedAnswer = useTypedAnswer(threadId);
+  const answerClosed = useClosedAnswer(threadId);
   const errorPane = threadId ? chatPane(threadId) : undefined;
   const approvals = pendingApprovals(group ? group.messages : bot ? visibleMessages(bot) : []);
   const approval = approvals[0];
@@ -597,6 +600,7 @@ export function Composer({
     refocusInput();
   };
   const hasContent = Boolean(text.trim()) || attachments.length > 0;
+  const answerWithFiles = Boolean(typedAnswer) && attachments.length > 0;
   const stopShown = working && !hasContent && !recording && sharpening === 0;
   const expanded = textWrapped || attachments.length > 0 || Boolean(attachmentNotice) || Boolean(replyTo);
   const retryFailedSend = (failed: FailedComposerSend) => {
@@ -628,13 +632,19 @@ export function Composer({
     }
   };
   const send = (signedInNow = false, deliver?: SendDelivery) => {
-    if (locked || attachmentPending) return;
+    if (locked || attachmentPending || answerWithFiles) return;
     if (
       attachments.some((attachment) => attachment.kind === "image") &&
       !imageTargetsSupport(text)
     ) {
       dispatch({ type: "reportError", error: null, pane: errorPane, line: t("composer.error.noImages") });
       return;
+    }
+    if (typedAnswer) {
+      const typed = text;
+      const result = answerByTyping(threadId, typed, (answer) => dispatch({ type: "decideRequest", behavior: "answer", ...answer }), () => setText(typed));
+      if (result === "sent" || result === "kept") setText("");
+      if (result) return;
     }
     const action = attachments.length === 0 ? typedAction(text, [...dogCommands, COMPACT_ACTION]) : null;
     if (action && bot && !group) {
@@ -643,6 +653,7 @@ export function Composer({
     }
     const body = composeMessage(text, attachments);
     if (!body) return;
+    forgetClosedAnswer(threadId);
     const account = !group && bot ? instances.find((instance) => instance.instanceId === bot.modelSelection.instanceId) : undefined;
     if (!signedInNow && account?.snapshot && signInFamily(account) && (needsSignIn(account) || needsCli(account))) {
       sendAfterSignIn.current = () => send(true, deliver);
@@ -1060,6 +1071,15 @@ export function Composer({
           uploadImage={uploadImage}
           admitFiles={admitFiles}
         />
+        {answerTooLong(typedAnswer, text) && (
+          <p data-typed-answer-long role="status" className="px-1 pb-1 text-[12px] text-ink-secondary">{t("composer.answerTooLong", { limit: typedAnswer!.limit!.toLocaleString(), count: text.trim().length.toLocaleString() })}</p>
+        )}
+        {answerWithFiles && (
+          <p data-typed-answer-files role="status" className="px-1 pb-1 text-[12px] text-ink-secondary">{t("composer.answerNoFiles")}</p>
+        )}
+        {answerClosed && Boolean(text.trim()) && (
+          <p data-typed-answer-closed role="status" className="px-1 pb-1 text-[12px] text-ink-secondary">{t("composer.answerClosed")}</p>
+        )}
         {(recording || (sharpening > 0 && !retryingNote)) && (
           <DictationStrip
             phase={recording ? "recording" : "transcribing"}
@@ -1175,7 +1195,9 @@ export function Composer({
           disabled={Boolean(approval) || locked}
           aria-busy={bot?.awaitingThreadSnapshot || undefined}
           placeholder={
-            approval
+            typedAnswer
+              ? t("composer.placeholder.answer")
+              : approval
               ? t("composer.placeholder.approval")
               : attachmentPending
               ? t("composer.placeholder.attaching")

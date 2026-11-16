@@ -80,15 +80,18 @@ describe("a quiet chat", () => {
   });
 });
 
-it("merges sends separated by a single hidden coordinate call in the actual chat", () => {
+it("puts two sends to one dog, with a hidden coordinate call between them, in one team block in the actual chat", () => {
   const receipt = (id: string): Message => ({ id, role: "bot", kind: "activity", at: 1000,
     tool: { name: "Sent to main app", ok: true }, threadRef: { botId: "main-app", threadId: id, title: "Work" },
   });
   const markup = render(bot(chain([receipt("one"),
     { id: "tool", role: "bot", kind: "activity", at: 1000, tool: { name: "coordinate_bots", ok: true } }, receipt("two")]), false));
-  expect(markup.match(/data-sent-messages/g)).toHaveLength(1);
-  expect(markup.match(/>Messaged</g)).toHaveLength(1);
-  expect(markup).toContain("· 2");
+  expect(markup.match(/data-team-block=/g)).toHaveLength(1);
+  expect(markup).toContain('data-team-block="2"');
+  expect(markup).toContain("Asked 1 dog");
+  expect(markup.match(/data-team-name/g)).toHaveLength(2);
+  expect(markup).not.toContain("data-sent-messages");
+  expect(markup).not.toContain(">Messaged<");
 });
 
 it("renders five failed handoffs as one counted row in the actual chat", () => {
