@@ -130,10 +130,24 @@ In steps 1 to 5 the `lasting` field is the rule for new grants only. A card that
 
 ### The grant and list endpoints (the phone's contract)
 
-- **Grant:** `POST /api/bots/:id/always-allow` with `{ threadId, requestId }` and no `allowKey`. The home finds the pending engine card by bot, thread and request id (unanswered, not dismissed), checks owner or admin of the turn, recomputes A1 to A5 from its own copy of the request, and stores the grant. Answers: `200 { granted: true }`; `403` when the person may not; `409` when the card is not pending or the rule refuses. The client then answers the card with the existing `POST /api/threads/:threadId/respond` `{ requestId, behavior: "allow", scope: "always" }`; the engine still gets allow once. The old `{ threadId, allowKey }` form keeps working for the cards that still carry a key.
-- **List:** `GET /api/bots/:id/always-allowed` returns `{ paused: boolean, items: Array<{ id: string; kind: "search" | "app" | "outside-delete" | "saved-login" | "teammate" | "command"; subject?: string; grantedAt?: string; state: "active" | "no-longer-used" }> }`. `subject` is the app, the site, the teammate's name or the command's redacted preview; a search has none (its preview is "Search"). Old keys come from the dog's record and its main chat, and saved commands from `command-allowlist.json`. In steps 1 to 5 the outside-delete key lists as `no-longer-used`; an app key stays `active` (it still answers calls that are not sends).
-- **Remove:** `DELETE /api/bots/:id/always-allowed/:itemId` removes one item (a search grant, an old key or a saved command) and returns the list.
-- **Resume after the emergency stop:** `POST /api/bots/:id/always-allowed/resume` clears `paused` and returns the list. Owner or admin only, for all four.
+- **Grant:** `POST /api/bots/:id/always-allow` with `{ threadId, requestId }` and no `allowKey`. The home finds the pending engine card by bot, thread and request id (unanswered, not dismissed), checks owner or admin, recomputes A1 to A5 from its own copy of the request, and stores the grant. The client then answers the card with the existing `POST /api/threads/:threadId/respond` `{ requestId, behavior: "allow", scope: "always" }`; the engine still gets allow once. The old `{ threadId, allowKey }` form keeps working for the cards that still carry a key. Answers:
+  - `200 { granted: true }`;
+  - `400 { error }` when neither `requestId` nor `allowKey` is given;
+  - `403 { error }` when the person is not the owner or an admin;
+  - `404 { error }` for an unknown dog, or a `threadId` that is not one of its chats;
+  - `409 { error, why }` when the rule refuses (`why` is one of the seven `lasting.why` values; a group chat's card gives `owner-only`);
+  - `409 { error }` when the card is not pending for this dog, and when `threadId` is left out and the dog has more than one chat;
+  - `503 { error }` when the store cannot be read.
+- **List:** `GET /api/bots/:id/always-allowed` returns `{ paused: boolean, unreadable?: true, items: Array<{ id: string; kind: "search" | "app" | "outside-delete" | "saved-login" | "teammate" | "command"; subject?: string; grantedAt?: string; state: "active" | "no-longer-used" }> }`.
+  - `subject` is the app, the site, the teammate's name or the command's redacted preview; a search has none.
+  - `grantedAt` is on every item with a time on record; today that is the search grants only (old keys and saved commands were never stored with a time).
+  - Rows carry no place: the "where" earlier revisions named is dropped, because every remaining grant holds in every chat of the dog.
+  - Old keys come from the dog's record and every one of its chats, and saved commands from `command-allowlist.json`. In steps 1 to 5 the outside-delete key lists as `no-longer-used`; an app key stays `active` (it still answers calls that are not sends).
+  - `unreadable: true` when the store cannot be read: nothing is answered from it, and the list shows one quiet line instead of the searches.
+  - `404 { error }` for an unknown dog; `403` for anyone but the owner or an admin.
+- **Remove:** `DELETE /api/bots/:id/always-allowed/:itemId` removes one item (a search grant, an old key from the record and every chat, or a saved command) and returns the list. `404` when the item is already gone: a client treats that as done. `503` when the store cannot be read.
+- **Resume after the emergency stop:** `POST /api/bots/:id/always-allowed/resume` clears `paused` and returns the list; `503` when the store cannot be read.
+- Owner or admin only, for all four. When a card carries both `lasting` and an old `allowKey`, a client follows `lasting` and ignores the key (no card does today).
 
 ## Ruled out for now (J0's choice c)
 
