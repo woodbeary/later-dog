@@ -106,9 +106,32 @@ function textOf(ref, selector, max) {
   if (!el) return { error: ref ? "No element " + ref + " on this page; read the page again." : "Nothing on this page matches " + selector + "." };
   const field = el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.isContentEditable;
   if (field) return { text: (el.isContentEditable ? (el.textContent || "").trim() : el.value) ? "(filled; field values are not shown)" : "(empty)" };
-  const copy = el.cloneNode(true);
-  for (const hidden of copy.querySelectorAll("script,style,noscript,template,textarea,[contenteditable]")) hidden.textContent = hidden.matches("textarea,[contenteditable]") && (hidden.textContent || "").trim() ? " (filled) " : "";
-  let text = (copy.textContent || "").replace(/[ \t]+/g, " ").replace(/\s*\n\s*/g, "\n").trim();
+  const hidden = (node) => {
+    const style = getComputedStyle(node);
+    if (style.display === "none" || style.visibility === "hidden") return true;
+    const box = node.getBoundingClientRect();
+    return box.width === 0 && box.height === 0 && node.tagName !== "OPTION";
+  };
+  const shown = (input) => ["submit", "button", "reset"].includes(input.type) ? " " + input.value + " " : ["checkbox", "radio", "hidden", "image", "file"].includes(input.type) ? "" : input.value ? " (filled) " : "";
+  let raw = "";
+  const visit = (node) => {
+    for (const child of node.childNodes) {
+      if (child.nodeType === 3) { raw += child.textContent; continue; }
+      if (child.nodeType !== 1) continue;
+      const tag = child.tagName.toUpperCase();
+      if (["SCRIPT", "STYLE", "TEMPLATE", "NOSCRIPT"].includes(tag) || hidden(child)) continue;
+      if (tag === "INPUT") { raw += shown(child); continue; }
+      if (tag === "TEXTAREA") { raw += child.value ? " (filled) " : ""; continue; }
+      if (child.isContentEditable) { raw += (child.textContent || "").trim() ? " (filled) " : ""; continue; }
+      if (tag === "SELECT") { raw += child.selectedIndex >= 0 ? " " + child.options[child.selectedIndex].text + " " : ""; continue; }
+      const block = !getComputedStyle(child).display.startsWith("inline");
+      if (block) raw += "\n";
+      visit(child);
+      if (block) raw += "\n";
+    }
+  };
+  visit(el);
+  let text = raw.replace(/[ \t]+/g, " ").replace(/\s*\n\s*/g, "\n").trim();
   if (text.length > max) text = text.slice(0, max) + "\n[cut at " + max + " characters]";
   return { text };
 }

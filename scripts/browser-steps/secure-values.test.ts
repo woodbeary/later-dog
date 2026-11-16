@@ -40,9 +40,9 @@ describe.skipIf(!headlessBrowser.available())("what the page tools show after a 
       return result.content.map((part) => (part.type === "text" ? part.text : "")).join("\n");
     };
     const opened = await call("page_open", { url: `${site.origin}/secure` });
-    await typeInto(chrome.port, SECRETS);
+    await typeInto(chrome.port, { ...SECRETS, ...MIRRORED });
     const leaks = (index: number, text: string) => {
-      for (const [name, value] of Object.entries(SECRETS)) expect([index, name, text.includes(value)]).toEqual([index, name, false]);
+      for (const [name, value] of Object.entries({ ...SECRETS, ...MIRRORED })) expect([index, name, text.includes(value)]).toEqual([index, name, false]);
     };
     const read = await call("page_read");
     leaks(0, read);
@@ -54,6 +54,7 @@ describe.skipIf(!headlessBrowser.available())("what the page tools show after a 
       () => call("page_text", { selector: "#code" }),
       () => call("page_text", { selector: "form" }),
       () => call("page_text", { selector: "body" }),
+      () => call("page_text", { selector: "label[for=bio]" }),
       () => call("run_actions", { steps: [{ action: "wait", ms: 0 }], reading: "page" }),
       () => call("page_text", { ref: refIn(read, "textbox", "Notes") }),
       () => call("page_text", { ref: refIn(read, "textbox", "Diary") }),
