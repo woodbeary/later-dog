@@ -178,13 +178,14 @@ export class ComputerJobs implements ComputerJobLedger {
             ends.set(job.id, jobEnd(exit.exitCode, exit.at !== undefined && Number.isFinite(exit.at) ? Math.min(exit.at, this.#now()) : this.#now()));
             continue;
           }
-          if (this.#now() - job.startedAt >= MAX_RUN_MS) {
+          const liveness = probe.liveness(computer.box, job);
+          if (this.#now() - job.startedAt >= MAX_RUN_MS && await liveness.catch((): RunLiveness => "unsure") !== "dead") {
             this.#unreadableSince.delete(job.id);
             const stop = await probe.stop(computer.box, job).catch((): RunStop => "alive");
             ends.set(job.id, { how: "overdue", stop, at: this.#now() });
             continue;
           }
-          if (await probe.liveness(computer.box, job) === "dead") sighting = "dead";
+          if (await liveness === "dead") sighting = "dead";
         }
         readable = computer.state !== "unsure";
       } catch {

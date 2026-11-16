@@ -181,6 +181,29 @@ describe("jobs a dog left running on its computer", () => {
     expect(jobs.unannounced().map((j) => [j.end.how, j.end.exitCode])).toEqual([["finished", 0]]);
   });
 
+  it("ends a job whose command died without a result as ended without a result, not stopped, even once it is past the longest a run may take", async () => {
+    let now = 1_000;
+    const jobs = new ComputerJobs(null, { now: () => now });
+    jobs.started(job());
+    const stopped: string[] = [];
+    const dead = probe({ liveness: async () => "dead", stop: async (_box, j) => { stopped.push(j.id); return "gone"; } });
+    now = 1_000 + MAX_RUN_MS;
+    expect(await jobs.check(dead)).toEqual([]);
+    now += JOB_CHECK_MS;
+    expect(await jobs.check(dead)).toEqual(["abcd1234"]);
+    expect(stopped).toEqual([]);
+    expect(jobs.unannounced().map((j) => [j.end.how, j.end.stop])).toEqual([["lost", undefined]]);
+  });
+
+  it("still stops a job past that time when its computer cannot say whether the command is alive", async () => {
+    let now = 1_000;
+    const jobs = new ComputerJobs(null, { now: () => now });
+    jobs.started(job());
+    now = 1_000 + MAX_RUN_MS;
+    expect(await jobs.check(probe({ liveness: async () => { throw new Error("exec timed out"); } }))).toEqual(["abcd1234"]);
+    expect(jobs.unannounced().map((j) => [j.end.how, j.end.stop])).toEqual([["overdue", "gone"]]);
+  });
+
   it("ends a job past that time even when stopping it fails, keeps what the stop answered, and asks its computer nothing more about it", async () => {
     let now = 1_000;
     const jobs = new ComputerJobs(null, { now: () => now });
