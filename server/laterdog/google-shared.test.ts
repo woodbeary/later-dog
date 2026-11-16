@@ -4,7 +4,7 @@ import { cloudHomeChildEnvironments } from "../cloud-home-start.ts";
 import { CLOUD_HOME_SECRET_KEYS } from "../cloud-secrets.ts";
 import { answerGoogleCallback, createGoogleRoute, GOOGLE_NEEDS_CLIENT, type GoogleRouteDeps } from "../routes/google.ts";
 import { GMAIL_READONLY_SCOPE, GOOGLE_TOKEN_URL, GoogleAccessTokens, PendingGoogleAuths, type FetchLike, type GoogleAccountRecord, type PendingGoogleAuth } from "./google.ts";
-import { cloudGoogleConnection, GOOGLE_SHARED_OFF, googleReconnect, sharedClientInfo } from "./google-shared.ts";
+import { cloudGoogleConnection, GOOGLE_SHARED_OFF, GOOGLE_SHARED_UNREACHABLE, googleReconnect, sharedClientInfo } from "./google-shared.ts";
 
 const NOW = Date.UTC(2026, 10, 14, 18);
 const MACHINE = "h0123456789abcdef01234567";
@@ -18,7 +18,7 @@ const EMAIL = "lopez731@gmail.com";
 const TODAYS_ANSWER = `${GOOGLE_NEEDS_CLIENT} Redirect address: https://${MACHINE}-home.later.dog/google-oauth/callback`;
 const b64 = (text: string) => Buffer.from(text, "utf8").toString("base64url");
 
-type Mode = "on" | "off" | "older" | "rotated";
+type Mode = "on" | "off" | "older" | "rotated" | "throws";
 interface Seen { url: string; method: string; headers: Record<string, string>; body: string }
 
 function world(opts: { own?: boolean; cloud?: boolean; route?: boolean; machineId?: string; accounts?: GoogleAccountRecord[]; client?: unknown } = {}) {
@@ -35,6 +35,7 @@ function world(opts: { own?: boolean; cloud?: boolean; route?: boolean; machineI
     requests.push({ url, method: init?.method ?? "GET", headers, body });
     if (url.startsWith(`${GOOGLE_URL}/`)) {
       if (headers.authorization !== `Bearer ${HOME_TOKEN}`) return reply({ error: "Unauthorized" }, 401);
+      if (mode === "throws") throw new TypeError("fetch failed");
       if (mode === "older") return reply({ error: "later.dog's Google connection can't be reached right now. Try again in a minute." }, 503);
       if (url === `${GOOGLE_URL}/client`) {
         if (mode === "off") return reply({ error: "later.dog's Google connection isn't switched on yet." }, 404);
@@ -220,6 +221,30 @@ describe("when later.dog's connection can't be used", () => {
       expect(h.cards).toEqual([]);
       noSecretIn(h.requests);
     }
+  });
+
+  it("says later.dog's Google connection can't be reached, never that it isn't switched on, when google.internal answers 503 or the call throws", async () => {
+    for (const mode of ["older", "throws"] as const) {
+      const h = world();
+      h.setMode(mode);
+      const answer = await h.call({ action: "connect", account: EMAIL });
+      expect(answer, mode).toEqual({ status: 503, out: { error: GOOGLE_SHARED_UNREACHABLE } });
+      expect(String(answer.out.error), mode).not.toContain("switched on");
+      expect(String(answer.out.error), mode).toBe("later.dog's Google connection can't be reached right now. Try again in a minute.");
+      expect(h.cards, mode).toEqual([]);
+    }
+  });
+
+  it("tells switched off apart from can't be reached", async () => {
+    const answering = (status: number, body: string): FetchLike => async () => new Response(body, { status });
+    const client = (fetcher: FetchLike) => cloudGoogleConnection(GOOGLE_URL, HOME_TOKEN, fetcher)!.client();
+    expect(await client(answering(200, JSON.stringify(SHARED)))).toEqual(SHARED);
+    expect(await client(answering(404, JSON.stringify({ error: "off" })))).toBe("off");
+    expect(await client(answering(200, ""))).toBe("off");
+    expect(await client(answering(200, "null"))).toBe("off");
+    for (const status of [500, 502, 503, 401]) expect(await client(answering(status, JSON.stringify({ error: "x" }))), String(status)).toBe("unreachable");
+    expect(await client(async () => { throw new TypeError("fetch failed"); })).toBe("unreachable");
+    expect(await client(async () => { throw new DOMException("The operation was aborted due to timeout", "TimeoutError"); })).toBe("unreachable");
   });
 
   it("says the connection isn't switched on only when the owner can do nothing: no client of its own, later.dog's off, and no address to register one", async () => {

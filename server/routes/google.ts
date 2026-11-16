@@ -16,7 +16,7 @@ import {
   type PendingGoogleAuth,
   type PendingGoogleAuths,
 } from "../laterdog/google.ts";
-import { GOOGLE_SHARED_OFF, issuerForAccount, sharedConnectClient, sharedGoogleIssuer, type CloudGoogle } from "../laterdog/google-shared.ts";
+import { GOOGLE_SHARED_OFF, GOOGLE_SHARED_UNREACHABLE, issuerForAccount, sharedConnectClient, sharedGoogleIssuer, type CloudGoogle } from "../laterdog/google-shared.ts";
 import { secretNameProblem, vaultFingerprint } from "../laterdog/vault-refs.ts";
 import type { BotRecord } from "../store.ts";
 import type { InternalRouteHandler } from "./internal.ts";
@@ -67,7 +67,9 @@ export function createGoogleRoute(deps: GoogleRouteDeps): InternalRouteHandler {
     const accounts = deps.accounts();
     if (action === "connect") {
       const own = deps.client();
-      const shared = own ? null : await sharedConnectClient(deps.cloud);
+      const answer = own ? null : await sharedConnectClient(deps.cloud);
+      if (answer === "unreachable") return json(res, 503, { error: GOOGLE_SHARED_UNREACHABLE });
+      const shared = typeof answer === "string" ? null : answer;
       const redirectUri = shared?.redirectUri ?? deps.redirectUri();
       if (!redirectUri) return json(res, 409, { error: !own && !shared && deps.cloud ? GOOGLE_SHARED_OFF : "This later.dog has no public address, so Google has nowhere to send the approval back to." });
       const client = own ?? shared;
