@@ -135,7 +135,7 @@ describe("jobs a dog left running on its computer", () => {
   });
 
   it("ends a job whose processes are gone without an exit record quietly, on two readings in a row", async () => {
-    const jobs = new ComputerJobs(null);
+    const jobs = new ComputerJobs(null, { now: () => 2_000 });
     jobs.started(job());
     const dead = probe({ liveness: async () => "dead" });
     expect(await jobs.check(dead)).toEqual([]);

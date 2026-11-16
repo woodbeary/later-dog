@@ -262,7 +262,7 @@ for (const [shape, tag, command, pattern] of [
   }, 120_000);
 }
 
-it("the person's Stop ends a job whose computer reports an error, without saying it is still running", async () => {
+it("the person's Stop keeps a job whose computer reports an error and says it could not be stopped, and a Stop once it answers ends it", async () => {
   const bot = await newDog("Rex unreadable");
   const after = await jobThatOutlivesItsTurn(bot, 0, "fifth", sleeper("unreadable"));
   expect(after.work).toMatchObject({ kind: "running", computerJobs: 1 });
@@ -271,13 +271,17 @@ it("the person's Stop ends a job whose computer reports an error, without saying
   try {
     const stopped = await api("POST", `/api/bots/${bot.id}/interrupt`, { threadId: bot.threadId });
     expect(stopped.status, JSON.stringify(stopped.body)).toBe(200);
-    await until(() => botNow(bot.id), (state) => state.work?.kind !== "running", "the chat to stop running", 30_000);
-    await settle(3_000);
-    expect(await wakeLines(bot.threadId)).toEqual([]);
-    expect(ledger()).toEqual([]);
+    const rows = await until(() => wakeLines(bot.threadId), (found) => found.length > 0, "the line about Stop", 30_000);
+    expect(rows.map((row) => [row.tool.name, row.tool.ok])).toEqual([
+      ["error: Rex unreadable's command on its computer could not be stopped, so it is still running. Press Stop again to try once more.", false],
+    ]);
+    expect((await botNow(bot.id)).work).toMatchObject({ kind: "running", computerJobs: 1 });
   } finally {
     machine.state = "running";
   }
+  expect((await api("POST", `/api/bots/${bot.id}/interrupt`, { threadId: bot.threadId })).status).toBe(200);
+  await until(() => botNow(bot.id), (state) => state.work?.kind !== "running", "the chat to stop running", 30_000);
+  expect(ledger()).toEqual([]);
 }, 120_000);
 
 it("says in a line both apps show that Stop could not end a job, and a second Stop ends it", async () => {
