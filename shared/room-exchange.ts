@@ -2,7 +2,7 @@ import type { TurnResults } from "./turn-results.ts";
 
 export type ExchangeStatus = "queued" | "running" | "waiting" | "needs-you" | "completed" | "failed" | "cancelled";
 
-export type ExchangeEnd = "person" | "api" | "interrupted" | "deleted" | "idle" | "capped" | "origin" | "limit" | "restart" | "problem" | "timeout" | "ceiling";
+export type ExchangeEnd = "person" | "api" | "interrupted" | "deleted" | "idle" | "capped" | "origin" | "limit" | "team-limit" | "restart" | "problem" | "timeout" | "ceiling";
 
 export interface WireExchange {
   id: string;

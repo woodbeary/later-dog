@@ -63,3 +63,10 @@ it("shows the replying dog's results in a completed exchange, and nothing withou
   await act(async () => root.render(createElement(ExchangeDetails, { id: "d", record: exchange({}) })));
   expect(host.querySelector("[data-turn-results]")).toBeNull();
 });
+
+it("says a room goal's time limit as running out of time and never calls the team's own limit a usage limit", async () => {
+  await act(async () => root.render(createElement(ExchangeDetails, { id: "d", record: exchange({ status: "cancelled", endedBy: "limit" }) })));
+  expect(host.querySelector("[data-exchange-ended]")?.textContent).toBe("Ran out of time");
+  await act(async () => root.render(createElement(ExchangeDetails, { id: "d", record: exchange({ status: "failed", endedBy: "team-limit" }) })));
+  expect(host.textContent).not.toMatch(/usage limit/i);
+});

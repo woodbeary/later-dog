@@ -44,14 +44,14 @@ describe("a team task's limits", () => {
     engine.sourceSettled("turn", true);
     engine.tick(); await flush(); engine.tick(); await flush();
     expect(scout.status).toBe("running");
-    expect(tally).toMatchObject({ status: "failed", endedBy: "limit" });
+    expect(tally).toMatchObject({ status: "failed", endedBy: "team-limit" });
     expect(tally.result).toMatch(/team reached its limit of 1 teammate run/);
     expect(() => engine.enqueue(chief, "turn", undefined, helper("relay"), "c", "Look into C")).toThrow(/reached its limit of 1 teammate run.*no new teammate work can start/);
     finish("scout"); await flush(); engine.tick(); await flush(); engine.tick(); await flush();
     expect(scout.status).toBe("completed");
     expect(hooks.run).toHaveBeenLastCalledWith(engine.nodes.get("turn"), true, expect.anything());
     expect(engine.nodes.get("turn")?.status).toBe("completed");
-    expect(teammateEndLabel("Tally", "failed", "limit")).toBe("Tally not started: the team reached its limit");
+    expect(teammateEndLabel("Tally", "failed", "team-limit")).toBe("Tally not started: the team reached its limit");
   }));
 
   it("does not charge a re-run after a restart", () => team({ executions: 1 }, async (engine, hooks, _finish, file) => {
