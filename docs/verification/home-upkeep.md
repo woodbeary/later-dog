@@ -19,7 +19,7 @@ processes get SIGTERM, then SIGKILL five seconds later if the same process is st
 **Reading the lines.** The home's log goes to the Workers Logs of its container app (services and the query are in
 `docs/laterdog/dev-loop.md`, "Home and Worker logs"). Filter `$metadata.message` `includes` `would stop`, on the home's service,
 over the whole period. For each line keep the time, the chat (first eight characters of its id) and the programs.
-The chat's events (`GET /api/threads/<chat id>/events`) show what the dog ran in that turn and the next.
+The chat's events (`GET /api/threads/<chat-id>/events`) show what the dog ran in that turn and the next.
 
 **What must be seen, all of it, before `"act"`:**
 1. At least seven days of lines from a home in daily use with at least ten different chats that ran shell

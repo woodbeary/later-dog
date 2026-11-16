@@ -97,6 +97,7 @@ Use only mapped, tested commands:
 - [run_on_computer waits out a cloud computer's boot](heavy-command-start-2026-11-09.md)
 - [Idle generated build output: .open-next and .wrangler/tmp (2026-11-09)](home-cache-cleanup-2026-11-09.md)
 - [What uses a home's disk (2026-11-13)](disk-breakdown.md)
+- [Home upkeep: what a home cleans up by itself, and what a real home must show first](home-upkeep.md)
 - [Job write scopes: trailing `/**` as a directory prefix](job-scope-prefixes-2026-11-09.md)
 - [Remote Claude account handoff](remote-account-handoff-2026-11-09.md)
 - [Saved repository environments, 2026-11-09](saved-environments-2026-11-09.md)
