@@ -647,7 +647,7 @@ it("no command the owner saved answers for a conversation a guest left behind: i
   expect((await cardOf(guests, first.id)).commandAllowlist).toBeUndefined();
   const folder = realpathSync(((await api("GET", "/api/bots", { token: owner })).body.bots as any[]).find((candidate) => candidate.id === bot.id).tasks.find((task: any) => task.threadId === guests).cwd);
   const saved = await api("POST", `/api/bots/${bot.id}/command-allowlist`, { token: owner, body: { command: "printf 'guest fixture'", cwd: folder, providerInstanceId: "held" } });
-  expect(saved.status, JSON.stringify(saved.body)).toBe(200);
+  expect(saved.status, JSON.stringify(saved.body)).toBe(409);
   expect((await api("POST", `/api/threads/${guests}/respond`, { token: owner, body: { requestId: first.id, behavior: "deny" } })).status).toBe(200);
   const again = await ask("printf 'guest fixture'");
   await expect.poll(async () => Boolean(await cardOf(guests, again.id))).toBe(true);

@@ -342,16 +342,18 @@ it("an Allow that comes after the dog's call gave up runs nothing, and the card 
   expect(rows.filter((row) => row.requestId === requestId).map((row) => row.decision)).toEqual(["card-shown"]);
 }, 60_000);
 
-it("a saved command never covers what always asks, off the owner's automatic path", async () => {
+it("a command cannot be saved, and what always asks still asks, off the owner's automatic path", async () => {
   await autoReview(true);
   const dog = await newDog("Saver", "auto");
   const turn = await startTurn(dog, "Push it.");
   for (const command of ["pnpm test", "git push --no-verify origin fix"]) {
     const saved = await api("POST", `/api/bots/${dog.id}/command-allowlist?threadId=${turn.threadId}`, { command, cwd: turn.launch.cwd, providerInstanceId: "held" });
-    expect(saved.status, JSON.stringify(saved.body)).toBe(200);
+    expect(saved.status, JSON.stringify(saved.body)).toBe(409);
   }
   const ordinary = turn.ask("Bash", { command: "pnpm test" });
-  await expect.poll(() => turn.answers.get(ordinary)?.behavior, { timeout: 10_000 }).toBe("allow");
+  await expect.poll(() => turn.card(ordinary), { timeout: 10_000 }).toMatchObject({ requestType: "permission" });
+  expect((await turn.card(ordinary)).commandAllowlist).toBeUndefined();
+  expect(turn.answers.has(ordinary)).toBe(false);
   const skipped = turn.ask("Bash", { command: "git push --no-verify origin fix" });
   await expect.poll(() => turn.card(skipped), { timeout: 10_000 }).toMatchObject({ requestType: "permission" });
   expect((await turn.card(skipped)).subtitle).toMatch(/^This pushes code without running its checks\./);

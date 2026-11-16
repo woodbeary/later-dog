@@ -58,11 +58,11 @@ import {
 } from "../shared/credential-request.ts";
 
 import { HELD_NOTE, approvalHeldNote, approvalHeldReason, approvalModeForOrigin, autoVerdict, deliverFullAccessApproval } from "./auto-approve.ts";
-import { CommandAllowlistStore, commandAllowlistCandidate } from "./command-allowlist.ts";
+import { CommandAllowlistStore } from "./command-allowlist.ts";
 import { LastingAllowStore, lastingOffer, lastingVerdict, onlyOwnerReached, type LastingRequest } from "./laterdog/lasting-allows.ts";
 import type { AlwaysAllowedItem, AlwaysAllowedList } from "../shared/lasting-allows.ts";
 import { VAULT_ALLOW_PREFIX } from "../shared/vault.ts";
-import type { CommandAllowlistCandidate, CommandAllowlistResponse } from "../shared/command-allowlist.ts";
+import type { CommandAllowlistResponse } from "../shared/command-allowlist.ts";
 import { updateClaudeCli } from "./claude-update.ts";
 import { configuredAccountDirectory, assertSeparateClaudeAccount, claudeAccountInfo, createClaudeAccountSchema, instanceSettingsSchema, newClaudeAccount } from "./claude-accounts.ts";
 import { providerIconPatchSchema, withInstanceIcon } from "./provider-icon.ts";
@@ -303,7 +303,7 @@ import { probeMcpServer } from "./mcp-probe.ts";
 
 import { BUILT_IN_DRIVERS } from "./drivers/builtIn.ts";
 import { openCodeProviderKeysAllowed, setOpenCodeProviderKeyPolicy } from "./drivers/acp/opencode-go.ts";
-import { confirmRememberedCommand, recordAnswerScope, type GrantLookup } from "./laterdog/answer-scope.ts";
+import { recordAnswerScope, type GrantLookup } from "./laterdog/answer-scope.ts";
 import { getOrCreateChannel } from "./comms-visibility.ts";
 import { readMessageText, recallMessages, recentMessages, searchMessagesAsync, closeMessageSearch, closeMessageDb, chatFollowups, cancelledChatFollowup, settleChatFollowups, threadsReferencing, openPermissionCards, latestMessageAts, reclaimFreePages } from "./message-db.ts";
 import { briefCrossingLabel, claimRecallCrossings, recallCrossingLabel } from "./recall-disclosure.ts";
@@ -700,7 +700,6 @@ import { claudeReviewerGrant, ownerAuthority, ownerAutoAnswers, ownerCoordinatio
 import { autoReviewOn, ownerTurnMode } from "./laterdog/auto-review.ts";
 import { settleOwnerAutoPermission } from "./laterdog/owner-auto-request.ts";
 import { DELETE_OUTSIDE_WORKSPACE_ALLOW_KEY, ownerGuardRequest, ownerWorkspaceRoots, type OwnerGuardContext, type OwnerGuardRefusal } from "./laterdog/owner-guard.ts";
-import { sameEngineAcrossAccounts } from "./laterdog/saved-command-engine.ts";
 import { ROUTES, dispatchRoutes } from "./routes/table.ts";
 import { createLinkPreviewRoutes } from "./routes/link-preview.ts";
 import { createLaterDogRoutes } from "./routes/laterdog.ts";
@@ -1654,7 +1653,7 @@ function alwaysAllowedList(botId: string): AlwaysAllowedList {
     .map((rule) => ({ id: `search:${rule.id}`, kind: "search", grantedAt: rule.grantedAt, state: "active" }));
   const old = oldGrantKeys(botId).flatMap((key) => oldGrantItem(key) ?? []);
   const commands: AlwaysAllowedItem[] = commandAllowlist.list(botId).map((rule) => ({
-    id: `command:${rule.id}`, kind: "command", subject: redactSecretsInText(rule.command).slice(0, 200), state: "active",
+    id: `command:${rule.id}`, kind: "command", subject: redactSecretsInText(rule.command).slice(0, 200), state: "no-longer-used",
   }));
   return { paused: lastingAllows.isPaused(botId), ...(lastingAllows.isUnreadable() ? { unreadable: true as const } : {}), items: [...searches, ...old, ...commands] };
 }
@@ -3926,7 +3925,6 @@ function ownerGuardContext(bot: BotRecord, threadId: string, commandCwd: string 
   };
 }
 
-const savedCommandEngine = sameEngineAcrossAccounts((instanceId) => registry.cliTarget(instanceId)?.driverKind);
 
 function sourceApprovalMode(botId: string, threadId: string): ApprovalMode {
   const owner = connectorThread(botId, threadId);
@@ -5416,16 +5414,6 @@ onSteeredQueueChange(() => broadcast({ kind: "bot.queued", queues: publicBotQueu
 
 const toolMessageByItem = new Map<string, string>();
 const askMessageByRequest = new Map<string, string>();
-const pendingCommandRules = new Map<string, { botId: string; candidate: CommandAllowlistCandidate }>();
-
-function commandRememberRefusal(auth: RequestAuth, threadId: string, requestId: string, behavior: string): string | null {
-  if (!canManageCommandAllowlist(auth)) return "Only the owner or an admin can save dog-wide command permissions.";
-  if (behavior !== "allow" || !pendingCommandRules.has(`${threadId}:${requestId}`)) {
-    return "This live request does not contain a command that can be saved. Allow it once instead.";
-  }
-  return null;
-}
-
 async function answerRequest(
   threadId: string,
   instanceId: string,
@@ -5433,7 +5421,6 @@ async function answerRequest(
   behavior: "allow" | "deny" | "answer",
   message?: string,
   decidedFor?: { id: string; name: string },
-  rememberCommand?: boolean,
 ): Promise<RequestOutcome> {
   const thread = store.messagesFor(threadId);
   const cardMessageId = askMessageByRequest.get(`${threadId}:${requestId}`);
@@ -5441,7 +5428,6 @@ async function answerRequest(
     ? thread.find((m) => m.id === cardMessageId)
     : thread.find((m) => m.card?.requestId === requestId);
   const card = cardMessage?.card;
-  const remembered = rememberCommand ? pendingCommandRules.get(`${threadId}:${requestId}`) : undefined;
   const instance = runningTurnEngines.get(threadId) ?? registry.get(instanceId);
   let outcome: RequestOutcome = "unavailable";
   if (instance) {
@@ -5450,18 +5436,6 @@ async function answerRequest(
     } catch {
       outcome = "unavailable";
     }
-  }
-  if (remembered && outcome === "allowed-once" && behavior === "allow" && store.bot(remembered.botId)) {
-    let saved = false;
-    try {
-      commandAllowlist.add(remembered.botId, remembered.candidate);
-      saved = true;
-    } catch {
-      store.appendMessage(threadId, { role: "bot", kind: "activity", tool: {
-        name: "Command allowed once, but its allowlist rule could not be saved. Try again from the permissions menu.", ok: false,
-      } });
-    }
-    if (saved) confirmRememberedCommand(store, threadId, requestId);
   }
   if (outcome === "answered" && behavior === "answer" && message && cardMessage) {
     const settled = store.messagesFor(threadId).find((m) => m.id === cardMessage.id)?.card;
@@ -5553,7 +5527,6 @@ async function respondToCard(input: {
 }
 
 function closeOpenApprovals(threadId: string): void {
-  for (const key of pendingCommandRules.keys()) if (key.startsWith(`${threadId}:`)) pendingCommandRules.delete(key);
   cancelPeerApprovalsForThread(threadId);
   macApprovals.cancelThread(threadId);
   for (const message of store.messagesFor(threadId)) {
@@ -7326,9 +7299,6 @@ bus.subscribe(guardTurnEnd((event: RuntimeEvent) => {
       const guestDriven = cloudGuestDriven(event.threadId);
       const effectiveApprovalMode = asker && !guestDriven ? approvalModeForTurn(asker, isInternalTurn(event.threadId), event.threadId) : "ask";
       const ownerAuto = Boolean(asker && event.requestId) && ownerAutoAnswers(effectiveApprovalMode, ownerAutoScope(event.threadId, guestDriven));
-      const command = permission && asker && event.requestId && !event.requiresExplicitApproval && event.command && !guestDriven
-        ? commandAllowlistCandidate({ ...event.command, providerInstanceId: event.providerInstanceId ?? asker.modelSelection.instanceId })
-        : null;
       const always = permission && asker && event.requestId && !ownerAuto
         ? alwaysAsks({ tool: event.tool, command: event.command?.command, summary: event.summary, input: event.input }, () => ownerGuardContext(asker, event.threadId, event.command?.cwd))
         : null;
@@ -7342,7 +7312,6 @@ bus.subscribe(guardTurnEnd((event: RuntimeEvent) => {
       const verdict = permission && asker && event.requestId
         ? autoVerdict(effectiveApprovalMode, event.tool, {
           requiresExplicitApproval: event.requiresExplicitApproval,
-          commandAllowed: Boolean(command && commandAllowlist.matches(asker.id, command, savedCommandEngine)),
         })
         : null;
       if (
@@ -7365,7 +7334,6 @@ bus.subscribe(guardTurnEnd((event: RuntimeEvent) => {
         });
       }
       const showCard = (ownerHold?: string, ownerAllowKey?: string, alwaysRule?: string) => {
-        const cardCommand = ownerHold === undefined ? command : null;
         const heldContext = { source: ownerHold === undefined ? verdict?.source : undefined, permission };
         const questions = event.questions?.length ? event.questions : undefined;
         const message = pushMessage({
@@ -7387,8 +7355,7 @@ bus.subscribe(guardTurnEnd((event: RuntimeEvent) => {
             questionRequest: questions
               ? { version: 1, questions, ...(event.origin === "output" ? { origin: "output" as const } : {}) }
               : undefined,
-            commandAllowlist: cardCommand ?? undefined,
-            ...(permission && asker && lastingBase && !cardCommand
+            ...(permission && asker && lastingBase
               ? { lasting: lastingOffer(lastingVerdict({ ...lastingBase, alwaysAsks: Boolean(always) || alwaysRule !== undefined, ownerOnly: turnReachedOnlyByOwner(event.threadId, asker.id) }), lastingReach(asker.name)) }
               : {}),
             held: approvalHeldReason(heldContext),
@@ -7398,7 +7365,6 @@ bus.subscribe(guardTurnEnd((event: RuntimeEvent) => {
           },
         });
         if (event.requestId) askMessageByRequest.set(`${event.threadId}:${event.requestId}`, message.id);
-        if (cardCommand && asker && event.requestId) pendingCommandRules.set(`${event.threadId}:${event.requestId}`, { botId: asker.id, candidate: cardCommand });
         appendDecision(DATA_DIR, {
           threadId: event.threadId,
           requestId: event.requestId,
@@ -7568,7 +7534,6 @@ bus.subscribe(guardTurnEnd((event: RuntimeEvent) => {
       break;
     }
     case "request.resolved": {
-      if (event.requestId) pendingCommandRules.delete(`${event.threadId}:${event.requestId}`);
       if (event.requestId) lastingRequests.delete(`${event.threadId}:${event.requestId}`);
       if (event.requestId) settleWaitingOnPersonChips(event.threadId, event.requestId);
       const waiting = bot ?? (speaker ? store.bot(speaker.botId) : undefined);
@@ -17765,14 +17730,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       const bot = requestedTaskBot(m[1], url.searchParams.get("threadId") ?? undefined);
       if (method === "GET" && !m[2]) return json(res, 200, commandAllowlistResponse(bot));
       if (method === "POST" && !m[2]) {
-        const candidate = commandAllowlistCandidate(await readBody(req));
-        if (!candidate) return json(res, 400, { error: "Enter an exact command without secret values, an absolute working folder, and a provider." });
-        const instance = registry.get(candidate.providerInstanceId);
-        if (!instance || !COMMAND_ALLOWLIST_DRIVERS.has(instance.driverKind)) {
-          return json(res, 400, { error: "This provider does not supply structured command approvals." });
-        }
-        commandAllowlist.add(bot.id, candidate);
-        return json(res, 200, commandAllowlistResponse(bot));
+        return json(res, 409, { error: "Saved commands are no longer kept. Each command asks.", why: "stopped" });
       }
       if (method === "DELETE" && m[2]) {
         commandAllowlist.remove(bot.id, m[2]);
@@ -18919,10 +18877,6 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       if (!behavior) return json(res, 400, { error: "behavior must be allow, deny, or answer" });
       const refusal = cardAnswerRefusal(auth, bot.threadId, String(body.requestId), behavior);
       if (refusal) return json(res, 403, { error: refusal });
-      if (body.rememberCommand === true) {
-        const refusal = commandRememberRefusal(auth, bot.threadId, String(body.requestId), behavior);
-        if (refusal) return json(res, 403, { error: refusal });
-      }
       return await answeringCardAs(auth, bot.threadId, String(body.requestId), async () => {
         recordAnswerScope(store, bot.threadId, String(body.requestId), behavior, body, answerGrants);
         if (resolveAndSendTrust(res, bot.threadId, String(body.requestId), behavior)) return;
@@ -18973,7 +18927,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
           });
           return json(res, closed.status, closed.body);
         }
-        const outcome = await answerRequest(bot.threadId, bot.modelSelection.instanceId, requestId, behavior, body.message, { id: bot.id, name: bot.name }, body.rememberCommand === true);
+        const outcome = await answerRequest(bot.threadId, bot.modelSelection.instanceId, requestId, behavior, body.message, { id: bot.id, name: bot.name });
         if (outcome === "unavailable" && isPersistentQuestionCard(pending?.card) && behavior === "answer") {
           if (!pending) return json(res, 404, { error: "this question is no longer available" });
           const answer = typeof body.message === "string" ? body.message.trim() : "";
@@ -18998,10 +18952,6 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       const requestId = String(body.requestId);
       const refusal = cardAnswerRefusal(auth, threadId, requestId, behavior);
       if (refusal) return json(res, 403, { error: refusal });
-      if (body.rememberCommand === true) {
-        const refusal = commandRememberRefusal(auth, threadId, requestId, behavior);
-        if (refusal) return json(res, 403, { error: refusal });
-      }
       return await answeringCardAs(auth, threadId, requestId, async () => {
         recordAnswerScope(store, threadId, requestId, behavior, body, answerGrants);
         if (resolveAndSendTrust(res, threadId, requestId, behavior)) return;
@@ -19097,7 +19047,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         }
         if (!owner && !pending) return json(res, 404, { error: "nothing is waiting on an answer in this conversation" });
         const requestOwner = owner ? botForThread(owner.id, threadId) : null;
-        const outcome = await answerRequest(threadId, requestOwner?.modelSelection.instanceId ?? "", requestId, behavior, body.message, owner ? { id: owner.id, name: owner.name } : undefined, body.rememberCommand === true);
+        const outcome = await answerRequest(threadId, requestOwner?.modelSelection.instanceId ?? "", requestId, behavior, body.message, owner ? { id: owner.id, name: owner.name } : undefined);
         if (outcome === "unavailable" && isPersistentQuestionCard(pending?.card) && behavior === "answer") {
           if (!pending?.card) return json(res, 404, { error: "this question is no longer available" });
           const answer = typeof body.message === "string" ? body.message.trim() : "";
