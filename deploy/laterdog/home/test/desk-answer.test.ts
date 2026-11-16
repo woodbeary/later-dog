@@ -31,6 +31,7 @@ describe("which sends the desk answers", () => {
     expect(answerable(send({ text: "hi", sendId: "send-0000000000001", attachments: [{ id: "a" }] }), BRAIN, T0)).toBeNull();
     expect(answerable(send({ text: "hi", sendId: "send-0000000000001", replyToId: "m1" }), BRAIN, T0)).toBeNull();
     expect(answerable(send({ text: "hi" }), BRAIN, T0)).toBeNull();
+    expect(answerable(send({ text: "/plan the login page", sendId: "send-0000000000001" }), BRAIN, T0)).toBeNull();
     expect(answerable(send({ text: "hi", sendId: "send-0000000000001" }, "/api/bots/fido/messages"), BRAIN, T0)).toBeNull();
     expect(answerable(send({ text: "hi", sendId: "send-0000000000001" }, "/api/groups/pack/messages"), BRAIN, T0)).toBeNull();
     expect(answerable(send({ text: "hi", sendId: "send-0000000000001" }), BRAIN, T0 + DESK_BRAIN_KEPT_MS + 1)).toBeNull();
