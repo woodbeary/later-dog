@@ -26,9 +26,17 @@ function outline(scope, max) {
     return box.width === 0 && box.height === 0 && el.tagName !== "OPTION";
   };
   const labelText = (label) => {
-    const copy = label.cloneNode(true);
-    for (const field of copy.querySelectorAll("[contenteditable],textarea,input,select")) field.remove();
-    return clean(copy.textContent);
+    let text = "";
+    const visit = (node) => {
+      for (const child of node.childNodes) {
+        if (child.nodeType === 3) { text += child.textContent; continue; }
+        if (child.nodeType !== 1) continue;
+        if (["SCRIPT", "STYLE", "TEMPLATE", "NOSCRIPT", "INPUT", "SELECT", "TEXTAREA"].includes(child.tagName.toUpperCase()) || child.isContentEditable || hidden(child)) continue;
+        visit(child);
+      }
+    };
+    visit(label);
+    return clean(text);
   };
   const labelOf = (el) => {
     const aria = el.getAttribute("aria-label");
