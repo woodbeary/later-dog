@@ -104,6 +104,7 @@ describe("waiting for a computer job with one call", () => {
     const first = await j.once({ wait_minutes: 60 }, { active: () => true, interrupted: () => j.clock.at - start >= 3 * MINUTE });
     expect(first.status).toBe(200);
     expect(first.text!.startsWith(PERSON_WROTE_TEXT)).toBe(true);
+    expect(PERSON_WROTE_TEXT).toMatch(/^A new message arrived while you waited, so this call stopped waiting early/);
     expect(first.text).toMatch(/Still running on your cloud computer \(run_id ([0-9a-f]{8})\)/);
     expect(j.clock.at - start).toBeLessThanOrEqual(3 * MINUTE + 10_000);
     const runId = /run_id ([0-9a-f]{8})/.exec(first.text!)![1];
@@ -149,6 +150,7 @@ describe("waiting for a computer job with one call", () => {
     const answer = await j.once({ wait_minutes: 30 }, { active: () => true, interrupted: () => wrote });
     expect(answer).toEqual({ status: 200, text: WROTE_BEFORE_START_TEXT });
     expect(answer.text).not.toMatch(/time ran out/);
+    expect(answer.text).toMatch(/^A new message arrived while the folder was being sent, so the command was not started/);
     expect(j.execs.some((command) => command.includes("nohup"))).toBe(false);
   });
 

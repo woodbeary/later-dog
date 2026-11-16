@@ -41,8 +41,8 @@ export function repositoryOf(folder: string): string | null {
 
 export const WINDOW_ENDED_TEXT = "This call's time ran out while sending the folder, before the command started, so nothing was run. Call run_on_computer again with the same folder and command; the files already sent stay on the computer.";
 export const STILL_STARTING_TEXT = "Your cloud computer is still starting, so nothing was run yet. Call run_on_computer again with the same folder and command to keep waiting.";
-export const PERSON_WROTE_TEXT = "The person wrote while you waited, so this call stopped waiting early; the job keeps running. Answer them, then call run_on_computer again with the run_id to keep waiting.";
-export const WROTE_BEFORE_START_TEXT = "The person wrote while the folder was being sent, so the command was not started. Answer them, then call run_on_computer again with the same folder and command; the files already sent stay on the computer.";
+export const PERSON_WROTE_TEXT = "A new message arrived while you waited, so this call stopped waiting early; the job keeps running. Answer it, then call run_on_computer again with the run_id to keep waiting.";
+export const WROTE_BEFORE_START_TEXT = "A new message arrived while the folder was being sent, so the command was not started. Answer it, then call run_on_computer again with the same folder and command; the files already sent stay on the computer.";
 export function stoppedWaitText(outcome: RunOutcome): string {
   const still = outcome.state === "running" && outcome.exitCode === null;
   const count = outcome.broughtBack.length;

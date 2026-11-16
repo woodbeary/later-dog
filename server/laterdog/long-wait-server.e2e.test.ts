@@ -66,7 +66,7 @@ it("a message from the person ends a 5-minute wait within seconds, with the run_
   await f.cli("send", "--bot", f.bot.id, "--task", f.bot.activeTaskId, "--text", "are you there? answer me please");
   const answer = await pending;
   const took = Math.round((Date.now() - wroteAt) / 1000);
-  expect(String(answer.body.text)).toMatch(/^The person wrote while you waited/);
+  expect(String(answer.body.text)).toMatch(/^A new message arrived while you waited/);
   expect(String(answer.body.text)).toMatch(/run_id [0-9a-f]{8}/);
   expect(took).toBeLessThan(30);
   f.release();

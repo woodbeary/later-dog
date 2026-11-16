@@ -12,8 +12,9 @@ turn re-sends its whole context on every tool call. Three changes keep that smal
   call is a plain HTTP request with no five-minute header limit, given the wait
   plus two minutes (`server/drivers/agents-client.ts`); when the engine cancels the
   call it hangs up, and the home stops waiting. Stop ends the wait within one
-  10-second poll and brings nothing back; a message from the person ends it early
-  with "still running" and the run_id, so the dog can answer and wait again.
+  10-second poll and brings nothing back; a new message in the chat (from the
+  person, a teammate or the API) ends it early with "A new message arrived while
+  you waited", "still running" and the run_id, so the dog can answer and wait again.
   While a job is still running the answer carries the last 2,000 characters of
   output, the first line that looks like an error, and a note that it was
   shortened; the finished answer keeps the whole tail.
