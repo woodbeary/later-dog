@@ -81,6 +81,7 @@ it("stopping the turn mid-wait ends the call and the home stops polling the comp
   const answer = await pending;
   const took = Math.round((Date.now() - stoppedAt) / 1000);
   const atEnd = f.fake.polls();
+  expect(atEnd).toBeGreaterThan(0);
   await sleep(35_000);
   expect(answer.status).toBe(409);
   expect(String(answer.body.error)).toMatch(/^The wait ended because this turn was stopped\. The job is still running/);
@@ -97,6 +98,7 @@ it("when the caller hangs up, the home stops polling the computer", () => fixtur
   await pending;
   await sleep(3_000);
   const atHangUp = f.fake.polls();
+  expect(atHangUp).toBeGreaterThan(0);
   await sleep(40_000);
   expect(f.fake.polls() - atHangUp).toBeLessThanOrEqual(1);
   f.release();

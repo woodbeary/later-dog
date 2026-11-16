@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest";
 import { PERSON_WROTE_TEXT, WROTE_BEFORE_START_TEXT, handleComputerRun, stoppedWaitText } from "./computer-run-route.ts";
 import { ComputerRuns, WAIT_IN_ONE_CALL_MS, type RunBox, type RunOutcome } from "./computer-runs.ts";
 import { BAD_WAIT_TEXT, STILL_RUNNING_TAIL_CHARS, stillRunningTail, waitCapMs, waitWindowMs } from "./run-wait.ts";
+import { isPoll, pollAnswer } from "../testing/poll-answer.ts";
 
 const MINUTE = 60_000;
 
@@ -19,7 +20,7 @@ function job(endsAfterMs: number, onWrite: () => void = () => {}) {
   const box: RunBox = {
     async exec(command) {
       execs.push(command);
-      if (command.startsWith("cat runs/.logs/")) return { exitCode: 0, stdout: clock.at >= endsAt ? `0\n<<<\n${log}` : `<<<\n${log}`, stderr: "" };
+      if (isPoll(command)) return { exitCode: 0, stdout: pollAnswer(command, clock.at >= endsAt ? 0 : null, log), stderr: "" };
       if (command.includes("nohup")) return { exitCode: 0, stdout: "started\n", stderr: "" };
       return { exitCode: 0, stdout: "", stderr: "" };
     },

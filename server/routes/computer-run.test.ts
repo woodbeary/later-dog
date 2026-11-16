@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { ComputerRuns, type RunBox } from "../laterdog/computer-runs.ts";
+import { isPoll, pollAnswer } from "../testing/poll-answer.ts";
 import { COMPUTER_RUN_PATH, createComputerRunRoute } from "./computer-run.ts";
 import type { InternalRouteContext } from "./internal.ts";
 
@@ -17,10 +18,10 @@ describe("the computer-run route", () => {
     let polls = 0;
     const box: RunBox = {
       async exec(command) {
-        if (command.startsWith("cat runs/.logs/")) {
+        if (isPoll(command)) {
           polls += 1;
           if (polls === 3) res.emit("close");
-          return { exitCode: 0, stdout: "<<<\nworking", stderr: "" };
+          return { exitCode: 0, stdout: pollAnswer(command, null, "working"), stderr: "" };
         }
         if (command.includes("nohup")) return { exitCode: 0, stdout: "started\n", stderr: "" };
         return { exitCode: 0, stdout: "", stderr: "" };

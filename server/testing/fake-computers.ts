@@ -2,6 +2,7 @@ import { spawn } from "node:child_process";
 import { chmodSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import http from "node:http";
 import { dirname, join } from "node:path";
+import { isPoll } from "./poll-answer.ts";
 
 export interface FakeComputers { url: string; execs: Array<{ at: number; command: string }>; polls(): number; started(): boolean; remote: string; close(): Promise<void> }
 
@@ -52,7 +53,7 @@ export async function startFakeComputers(root: string): Promise<FakeComputers> {
   const url = `http://127.0.0.1:${(server.address() as { port: number }).port}`;
   return {
     url, execs, remote,
-    polls: () => execs.filter((e) => e.command.startsWith("cat runs/.logs/")).length,
+    polls: () => execs.filter((e) => isPoll(e.command)).length,
     started: () => execs.some((e) => e.command.includes("nohup")),
     close: () => new Promise<void>((resolve) => { server.closeAllConnections(); server.close(() => resolve()); }),
   };

@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { handleComputerRun } from "../server/laterdog/computer-run-route.ts";
 import { ComputerRuns, OUTPUT_TAIL_CHARS, type RunBox } from "../server/laterdog/computer-runs.ts";
+import { isPoll, pollAnswer } from "../server/testing/poll-answer.ts";
 
 const tokens = (bytes: number) => Math.ceil(bytes / 4);
 const STARTING_CONTEXT_TOKENS = 35_000;
@@ -42,7 +43,7 @@ async function waitForJob(body: Record<string, unknown>, maxWaitMs?: number): Pr
     const log = Array.from({ length: 400 }, (_, i) => ` ✓ fixture test ${i} passes in ${i % 97} ms`).join("\n").slice(-OUTPUT_TAIL_CHARS);
     const box: RunBox = {
       async exec(command) {
-        if (command.startsWith("cat runs/.logs/")) return { exitCode: 0, stdout: clock.at >= endsAt ? `0\n<<<\n${log}` : `<<<\n${log}`, stderr: "" };
+        if (isPoll(command)) return { exitCode: 0, stdout: pollAnswer(command, clock.at >= endsAt ? 0 : null, log), stderr: "" };
         if (command.includes("nohup")) return { exitCode: 0, stdout: "started\n", stderr: "" };
         return { exitCode: 0, stdout: "", stderr: "" };
       },
