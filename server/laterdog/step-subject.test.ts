@@ -55,11 +55,14 @@ describe("what a step is about", () => {
     expect(stepSubject("Bash", "pnpm test")).toBeUndefined();
   });
 
-  it("hides a secret-looking token and keeps at most 120 characters", () => {
-    const secret = stepSubject("Bash", { command: "deploy", description: "Deploy with key sk-test-notarealkey0000000000 to staging" });
-    expect(secret).toBeDefined();
-    expect(secret).not.toContain("sk-test-notarealkey0000000000");
-    expect(secret).toMatch(/^Deploy with key .+ to staging$/);
+  it("gives no subject when the secret filter would change anything, wherever the token sits", () => {
+    expect(stepSubject("Read", { file_path: "/Users/jacob/keys/ghp_abcdefghijklmnopqrstuvwxyz0123456789AB.txt" })).toBeUndefined();
+    expect(stepSubject("Bash", { command: "deploy", description: "Deploy with key sk-test-notarealkey0000000000 to staging" })).toBeUndefined();
+    expect(stepSubject("WebSearch", { query: "how to rotate sk-test-notarealkey0000000000" })).toBeUndefined();
+    expect(stepSubject("WebFetch", { url: "https://docs.example.com/start?token=notarealtoken0000" })).toBeUndefined();
+  });
+
+  it("keeps at most 120 characters", () => {
     const description = "Run the order form tests again ".repeat(10).slice(0, 300);
     expect(description).toHaveLength(300);
     expect(stepSubject("Bash", { description })).toBe(description.slice(0, 120));

@@ -262,7 +262,7 @@ describe("what a Claude step is about", () => {
     expect(f.activities().at(-1)).toMatchObject({ label: "Bash", state: "done", subject: "Run the order form tests" });
   });
 
-  it("hides a secret-looking token in a description and cuts a long one to 120 characters", () => {
+  it("gives no subject to a description holding a secret-looking token and cuts a long one to 120 characters", () => {
     const f = fixture();
     const description = "Run the order form tests again ".repeat(10).slice(0, 300);
     f.native.receive(assistant("described", [
@@ -270,8 +270,7 @@ describe("what a Claude step is about", () => {
       { type: "tool_use", id: "long", name: "Bash", input: { command: "pnpm test", description } },
     ]));
     const [deploy, long] = f.activities();
-    expect(deploy!.subject).toMatch(/^Deploy with key .+ to staging$/);
-    expect(deploy!.subject).not.toContain("sk-test-notarealkey0000000000");
+    expect(deploy).not.toHaveProperty("subject");
     expect(long!.subject).toBe(description.slice(0, 120));
   });
 });

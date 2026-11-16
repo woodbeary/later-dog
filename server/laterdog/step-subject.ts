@@ -5,6 +5,7 @@ type Fields = Record<string, unknown>;
 const LIMIT = 120;
 const fields = (value: unknown): Fields => value && typeof value === "object" && !Array.isArray(value) ? value as Fields : {};
 const words = (value: unknown): string | undefined => typeof value === "string" && value.trim() ? value.trim() : undefined;
+const unredacted = (text: string | undefined): string | undefined => text !== undefined && redactSecrets(text) === text ? text : undefined;
 
 function fileWords(path: string | undefined): string | undefined {
   const name = path?.split(/[\\/]/).at(-1);
@@ -26,8 +27,7 @@ function host(value: unknown): string | undefined {
 }
 
 function clean(value: string | undefined): string | undefined {
-  if (!value) return undefined;
-  const text = String(redactSecrets(value)).trim();
+  const text = unredacted(value?.trim());
   return text ? Array.from(text).slice(0, LIMIT).join("") : undefined;
 }
 
@@ -37,11 +37,11 @@ export function stepSubject(toolName: string, input: unknown): string | undefine
     case "command": case "check": case "cloud": case "help":
       return clean(words(given.description));
     case "read": case "wrote": case "edit": case "delete":
-      return clean(fileWords(words(given.file_path) ?? words(given.notebook_path) ?? words(given.path)));
+      return clean(fileWords(unredacted(words(given.file_path) ?? words(given.notebook_path) ?? words(given.path))));
     case "search": case "chats": case "web":
       return clean(words(given.query) ?? words(given.pattern));
     case "page": case "open":
-      return clean(host(given.url));
+      return clean(host(unredacted(words(given.url))));
     default:
       return undefined;
   }
