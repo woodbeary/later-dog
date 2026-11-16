@@ -303,12 +303,12 @@ export class ComputerRuns {
   async finish(box: RunBox, record: RunRecord, sent = { sentFiles: 0, sentBytes: 0 }, left: () => number = this.window()): Promise<RunOutcome> {
     const state = await this.wait(box, record, left);
     if (state.lost) return { id: record.id, state: "failed", exitCode: null, output: state.output, broughtBack: [], skipped: [], ...sent,
-      note: "It stopped before finishing, most likely because your computer went to sleep after 5 minutes without a call. Start it again, and check back with its run_id within 4 minutes." };
+      note: "It stopped before finishing and left no exit code. Your computer can go to sleep after 5 minutes without a call, which ends a run; start it again, and check back with its run_id within 4 minutes." };
     if (!state.done) {
       const overdue = this.#now() - record.startedAt >= MAX_RUN_MS;
       if (overdue) await box.exec(`pkill -f ${quote(`runs/[.]logs/${record.id}[.]log`)}`, 30_000).catch(() => null);
       return { id: record.id, state: overdue ? "failed" : "running", exitCode: null, output: state.output, broughtBack: [], skipped: [], ...sent,
-        note: overdue ? "Stopped after 2 hours." : `Still running. Call run_on_computer with run_id "${record.id}" within 4 minutes, doing only short work in between: your computer goes to sleep after 5 minutes without a call, which ends the run. That call waits up to 4 more minutes.` };
+        note: overdue ? "Stopped after 2 hours." : `Still running. Call run_on_computer with run_id "${record.id}" within 4 minutes, doing only short work in between: your computer can go to sleep after 5 minutes without a call, which ends the run. That call waits up to 4 more minutes.` };
     }
     if (left() <= 0) return { id: record.id, state: "running", exitCode: state.exitCode, output: state.output, broughtBack: [], skipped: [], ...sent,
       note: `It finished, but this call ran out of time before bringing its files back. Call run_on_computer again with run_id "${record.id}" to bring them back.` };

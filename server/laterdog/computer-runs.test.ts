@@ -168,7 +168,7 @@ describe("a heavy command on the dog's own computer", () => {
     expect(first.state).toBe("running");
     expect(first.note).toContain(started.id);
     expect(first.note).toContain("within 4 minutes");
-    expect(first.note).toContain("goes to sleep after 5 minutes without a call, which ends the run");
+    expect(first.note).toContain("can go to sleep after 5 minutes without a call, which ends the run");
     expect(first.note).not.toContain("do other work");
     expect(first.note).toContain("That call waits up to 4 more minutes");
     const record = runs.record("dog", started.id)!;
@@ -231,6 +231,7 @@ describe("a heavy command on the dog's own computer", () => {
     const outcome = await runs.finish(box, runs.record("dog", started.id)!, undefined, runs.window(60_000));
     expect(outcome.state).toBe("failed");
     expect(outcome.note).toContain("stopped before finishing");
+    expect(outcome.note).toContain("can go to sleep after 5 minutes without a call");
     expect(outcome.note).toContain("within 4 minutes");
   });
 });

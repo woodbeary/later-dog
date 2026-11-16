@@ -17,7 +17,7 @@ describe("waiting on a run on the cloud computer", () => {
     const { availableTools } = await import("./agents-catalog.ts");
     const run = availableTools({ cloudHome: true } as never).find((tool) => tool.name === "run_on_computer")?.description ?? "";
     expect(run).toContain("nothing wakes you when it ends");
-    expect(run).toContain("goes to sleep after 5 minutes without a call, which ends the run");
+    expect(run).toContain("can go to sleep after 5 minutes without a call, which ends the run");
     expect(run).toContain("call again with only run_id within 4 minutes");
     expect(run).not.toContain("do your other work first");
     expect(run).toContain("never sleep or loop before it");
