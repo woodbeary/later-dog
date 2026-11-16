@@ -45,7 +45,7 @@ describe("a card that offers a lasting Always", () => {
     view({ offered: true, reach: "x" }).buttons.find((button) => button.props.children === "Always allow")!.props.onClick!();
     expect(fixture.dispatch).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({
       type: "decideRequest", threadId: "thread-1", requestId: "request-1", behavior: "allow",
-      lastingGrant: { botId: "bot-1" }, alwaysAllow: undefined, always: undefined, scope: "always",
+      lastingGrant: { botId: "bot-1" }, alwaysAllow: undefined, scope: "always",
     }));
   });
 
@@ -69,6 +69,29 @@ describe("a card that offers no Always", () => {
     expect(labels(result.buttons)).toEqual(["Allow once", "Don't allow"]);
     expect(result.html).toContain(line);
     expect(result.html).toContain(`data-lasting-why="${why}"`);
+  });
+
+  it("shows a member the owner-only line instead of Always, even when the dog could be offered it", () => {
+    fixture.admin = false;
+    const result = view({ offered: true, reach: "x" });
+    expect(labels(result.buttons)).toEqual(["Allow once", "Don't allow"]);
+    expect(result.html).toContain("Only the owner can choose Always.");
+    expect(result.html).toContain('data-lasting-why="owner-only"');
+    expect(result.html).not.toContain("without asking, in any of its chats");
+  });
+
+  it("follows the lasting answer over an old key the card still carries", () => {
+    const refused = view({ offered: false, why: "state" }, { allowKey: "WebSearch:old" });
+    expect(labels(refused.buttons)).toEqual(["Allow once", "Don't allow"]);
+    expect(refused.html).toContain('data-lasting-why="state"');
+    view({ offered: true, reach: "x" }, { allowKey: "WebSearch:old" }).buttons.find((button) => button.props.children === "Always allow")!.props.onClick!();
+    expect(fixture.dispatch).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ lastingGrant: { botId: "bot-1" }, alwaysAllow: undefined, scope: "always" }));
+  });
+
+  it("never offers Allow for this chat", () => {
+    const result = view(undefined, { allowSession: true } as Partial<NonNullable<Message["card"]>>);
+    expect(labels(result.buttons)).toEqual(["Allow once", "Don't allow"]);
+    expect(result.html).not.toContain("Allow for this chat");
   });
 
   it("leaves a card that still carries an old key as it was", () => {
