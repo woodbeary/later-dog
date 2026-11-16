@@ -136,6 +136,8 @@ function playNativeCompaction(): string {
   const context = runHooks("SessionStart", { source: "compact" });
   out({ type: "system", subtype: "status", status: null, compact_result: "success" });
   out({ type: "system", subtype: "compact_boundary", compact_metadata: { trigger: "auto", pre_tokens: 182_345, post_tokens: 24_100 } });
+  const summaryGate = process.env.FAKE_CLAUDE_SUMMARY_GATE;
+  while (summaryGate && !existsSync(summaryGate)) Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 25);
   runHooks("PostCompact", { trigger: "auto", compact_summary: process.env.FAKE_CLAUDE_COMPACT_SUMMARY ?? "Fixture compaction summary." });
   return context;
 }
@@ -640,6 +642,7 @@ const playTurn = async (prompt: JsonValue, late = false) => {
   }
 
   if (mode === "hang") {
+    if (process.env.FAKE_CLAUDE_COMPACT === "1") playNativeCompaction();
     const release = process.env.FAKE_CLAUDE_RELEASE;
     const finishGate = process.env.FAKE_CLAUDE_FINISH_GATE;
     const held = setInterval(() => {

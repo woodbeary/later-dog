@@ -5817,9 +5817,10 @@ bus.subscribe((event: RuntimeEvent) => {
   if (event.type === "session.started" && event.sessionId) engineSummaryWindows.sessionStarted(event.threadId, event.sessionId);
   if (event.type === "turn.completed" || event.type === "session.exited") engineSummaryWindows.turnEnded(event.threadId);
   if (event.type === "session.compacting") {
-    engineSummaryWindows.compacting(event.threadId);
+    if (event.summaryHook) engineSummaryWindows.compacting(event.threadId);
     compactionLive.started(event.threadId, { turnId: event.turnId, stream: true });
   } else if (event.type === "session.compacted") {
+    engineSummaryWindows.compacted(event.threadId);
     const { ok, skipped, error, trigger, preTokens, postTokens, turnId } = event;
     compactionLive.finished(event.threadId, { ok, skipped, error, trigger, preTokens, postTokens, turnId, stream: true });
   } else if (event.type === "turn.completed" || event.type === "session.exited") compactionLive.settle(event.threadId);
@@ -6005,6 +6006,7 @@ function ingestEngineHook(capability: InternalCapability, body: unknown): { ok: 
       const bytes = Buffer.byteLength(payload.compact_summary);
       const refused = engineSummaryWindows.accept(threadId, payload.session_id);
       if (refused) {
+        if (refused === "already-received") engineSummaries.forget([threadId]);
         console.log(`[compaction] engine summary refused chat=${threadId} bytes=${bytes} reason=${refused}`);
         return { ok: false, ignored: refused };
       }
@@ -7907,7 +7909,7 @@ async function compactConversation(input: {
   if (!history.length) return;
   const reported = task.lastContextModel === `${instance.instanceId}:${model}` && !task.rewound ? chatContext(task, model) : undefined;
   const window = contextWindowFor(model, instance.models, reported?.window);
-  const harness = !manual && engineWillCompact({ driverKind: instance.driverKind, setting: cfg.context, signs: await instance.adapter.compactionSigns?.(threadId),
+  const harness = !manual && engineWillCompact({ driverKind: instance.driverKind, setting: cfg.context, signs: await instance.adapter.compactionSigns?.(threadId, task.cwd),
     modelKnown: instance.models.options.some(option => option.id === model), injectedModel: decodeInjectId(model) !== null, window });
   const startsFresh = Boolean(task.rewound) || isExternalContextMarker(task.lastInstanceId) || engineIsFresh({ instanceId: instance.instanceId,
     lastInstanceId: task.lastInstanceId, resumeCursors: task.resumeCursors, transcript: context.filter(entry => !excludedIds.has(entry.id)) });
