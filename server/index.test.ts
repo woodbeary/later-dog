@@ -7530,7 +7530,7 @@ describe("harness HTTP API", () => {
     await api("PUT", "/api/config", { rooms: { turnTimeoutMinutes: 5 } });
   });
 
-  it("cards every ask when Claude's reviewer never started, says so once, and can hand the allow to Claude for the session", async () => {
+  it("cards every ask when Claude's reviewer never started, says so once, and an Always answer reaches Claude as allow once", async () => {
     const bot = (await api("POST", "/api/bots", { name: "Quill" })).body.bot;
     const conns: Socket[] = [];
     try {
@@ -7572,7 +7572,7 @@ describe("harness HTTP API", () => {
       expect(card.title).toBe("Approval needed");
       expect(card.heldCode).toBe("approval.held.native");
       expect(card.allowKey).toBeUndefined();
-      expect(card.allowSession).toBe(true);
+      expect(card.allowSession).toBeUndefined();
       expect((await messages()).some((m) => m.tool?.name.startsWith("auto-approved"))).toBe(false);
       await expect.poll(async () => (await messages()).filter((m) => m.tool?.name.startsWith("Auto-review: Claude's automatic reviewer is not available")).length).toBe(1);
       const notices = (await messages()).filter((m) => m.tool?.name.startsWith("Auto-review: Claude's automatic reviewer is not available"));
@@ -7581,7 +7581,9 @@ describe("harness HTTP API", () => {
       expect(notices[0].tool!.name).toContain("checks with you before each action");
 
       expect((await api("POST", `/api/bots/${bot.id}/respond`, { requestId: card.requestId, behavior: "allow", always: true })).status).toBe(200);
-      await expect(first).resolves.toMatchObject({ behavior: "allow", always: true });
+      const firstAnswer = await first;
+      expect(firstAnswer).toMatchObject({ behavior: "allow" });
+      expect(firstAnswer.always).not.toBe(true);
 
       const second = raise("ask-ls", "ls memory");
       await expect.poll(async () => (await messages()).find((m) => m.card?.subtitle === "ls memory")?.card?.title).toBe("Approval needed");

@@ -306,7 +306,7 @@ describe("permission proxy", () => {
     expect(resultJson(res).updatedInput.answers).toEqual({ "Which framework?": "React" });
   });
 
-  it("still brokers an ordinary permission, with the CLI's own rules on allow", async () => {
+  it("brokers an ordinary permission and answers allow once, never handing the CLI its own wider rules", async () => {
     answerWith = () => ({ behavior: "allow", always: true });
     rpc({
       jsonrpc: "2.0",
@@ -327,7 +327,6 @@ describe("permission proxy", () => {
     expect(resultJson(res)).toEqual({
       behavior: "allow",
       updatedInput: { command: "git status" },
-      updatedPermissions: [{ type: "addRules", rules: [{ toolName: "Bash" }] }],
     });
   });
 

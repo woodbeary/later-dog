@@ -5355,7 +5355,6 @@ async function answerRequest(
   behavior: "allow" | "deny" | "answer",
   message?: string,
   decidedFor?: { id: string; name: string },
-  always?: boolean,
   rememberCommand?: boolean,
 ): Promise<RequestOutcome> {
   const thread = store.messagesFor(threadId);
@@ -5369,7 +5368,7 @@ async function answerRequest(
   let outcome: RequestOutcome = "unavailable";
   if (instance) {
     try {
-      outcome = await instance.adapter.respondToRequest(threadId, requestId, { behavior, message: engineAnswer(behavior, message), always: always && behavior === "allow" });
+      outcome = await instance.adapter.respondToRequest(threadId, requestId, { behavior, message: engineAnswer(behavior, message), always: false });
     } catch {
       outcome = "unavailable";
     }
@@ -7304,7 +7303,6 @@ bus.subscribe(guardTurnEnd((event: RuntimeEvent) => {
               ? { version: 1, questions, ...(event.origin === "output" ? { origin: "output" as const } : {}) }
               : undefined,
             commandAllowlist: cardCommand ?? undefined,
-            allowSession: permission && event.allowSession && !event.requiresExplicitApproval && ownerHold === undefined && !guestDriven ? true : undefined,
             held: approvalHeldReason(heldContext),
             heldCode: approvalHeldNote(heldContext),
             approvalScope: event.approvalScope,
@@ -18810,7 +18808,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
           });
           return json(res, closed.status, closed.body);
         }
-        const outcome = await answerRequest(bot.threadId, bot.modelSelection.instanceId, requestId, behavior, body.message, { id: bot.id, name: bot.name }, body.always === true, body.rememberCommand === true);
+        const outcome = await answerRequest(bot.threadId, bot.modelSelection.instanceId, requestId, behavior, body.message, { id: bot.id, name: bot.name }, body.rememberCommand === true);
         if (outcome === "unavailable" && isPersistentQuestionCard(pending?.card) && behavior === "answer") {
           if (!pending) return json(res, 404, { error: "this question is no longer available" });
           const answer = typeof body.message === "string" ? body.message.trim() : "";
@@ -18934,7 +18932,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         }
         if (!owner && !pending) return json(res, 404, { error: "nothing is waiting on an answer in this conversation" });
         const requestOwner = owner ? botForThread(owner.id, threadId) : null;
-        const outcome = await answerRequest(threadId, requestOwner?.modelSelection.instanceId ?? "", requestId, behavior, body.message, owner ? { id: owner.id, name: owner.name } : undefined, body.always === true, body.rememberCommand === true);
+        const outcome = await answerRequest(threadId, requestOwner?.modelSelection.instanceId ?? "", requestId, behavior, body.message, owner ? { id: owner.id, name: owner.name } : undefined, body.rememberCommand === true);
         if (outcome === "unavailable" && isPersistentQuestionCard(pending?.card) && behavior === "answer") {
           if (!pending?.card) return json(res, 404, { error: "this question is no longer available" });
           const answer = typeof body.message === "string" ? body.message.trim() : "";

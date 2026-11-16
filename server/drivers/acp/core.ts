@@ -95,7 +95,6 @@ type AcpAskFinish = (
   behavior: string,
   source?: "user" | "timeout" | "system",
   message?: string,
-  always?: boolean,
 ) => RequestOutcome;
 
 interface AcpTurn {
@@ -365,26 +364,6 @@ function decodeAcpConfig(defaultCli: string) {
   };
 }
 
-function sessionOperationKey(toolCall: any): string | null {
-  const rawInput = toolCall?.rawInput;
-  const command = typeof rawInput?.command === "string" ? rawInput.command : undefined;
-  const hasInput = rawInput && typeof rawInput === "object" && Object.keys(rawInput).length > 0;
-  if (!command && !hasInput) return null;
-  const stable = (value: unknown): unknown =>
-    Array.isArray(value)
-      ? value.map(stable)
-      : value && typeof value === "object"
-        ? Object.fromEntries(Object.keys(value as Record<string, unknown>).sort().map((key) => [key, stable((value as Record<string, unknown>)[key])]))
-        : value;
-  return JSON.stringify(stable({
-    kind: toolCall?.kind,
-    title: toolCall?.title,
-    command,
-    input: rawInput,
-    locations: toolCall?.locations,
-  }));
-}
-
 export function versionFromProbe(stdout: string | undefined, stderr: string | undefined): string | null {
   const out = (stdout ?? "").trim();
   if (out) return out;
@@ -512,7 +491,6 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
           close: (why) => { if (sessions.get(threadId) === session) closeSession(threadId, why); },
         });
       };
-      const sessionAllows = new Map<string, Set<string>>();
 
       const emit = (event: RuntimeEvent) => {
         for (const listener of listeners) listener(event);
@@ -902,9 +880,8 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
           const options: Array<{ optionId?: string; kind?: string; name?: string }> = Array.isArray(params.options) ? params.options : [];
           const optionFor = (want: "allow" | "reject") =>
             options.find((o) => o.kind === `${want}_once` && typeof o.optionId === "string")?.optionId
-              ?? options.find((o) => String(o.kind ?? "").startsWith(want) && typeof o.optionId === "string")?.optionId
+              ?? (want === "reject" ? options.find((o) => String(o.kind ?? "").startsWith(want) && typeof o.optionId === "string")?.optionId : undefined)
               ?? null;
-          const optionAlways = options.find((o) => o.kind === "allow_always" && typeof o.optionId === "string")?.optionId ?? null;
           const cancelled = { outcome: { outcome: "cancelled" } };
           const missing = (want: string) =>
             emit({
@@ -925,13 +902,6 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
             });
           }
           const kind = String(toolCall.kind ?? "");
-          const operationKey = isQuestion || current.controlsHost ? null : sessionOperationKey(toolCall);
-          if (operationKey && sessionAllows.get(threadId)?.has(operationKey)) {
-            const allow = optionFor("allow");
-            if (allow) {
-              return send({ jsonrpc: "2.0", id: msg.id, result: { outcome: { outcome: "selected", optionId: allow } } });
-            }
-          }
           const tool = kind === "execute" ? "shell" : kind === "edit" ? "edit" : kind || "tool";
           const isShellCommand = !isQuestion && kind === "execute" && !/^mcp(?:__|[.:])/i.test(String(toolCall.title ?? ""));
           const rawSummary = String(toolCall.rawInput?.command ?? toolCall.title ?? tool);
@@ -947,12 +917,10 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
             behavior: string,
             source: "user" | "timeout" | "system" = "user",
             message?: string,
-            always?: boolean,
           ): RequestOutcome => {
             if (!current.asks.delete(requestId)) return "unavailable";
             clearTimeout(timer);
             const want = behavior === "allow" ? "allow" : "reject";
-            const forSession = want === "allow" && always === true && !isQuestion && !current.controlsHost;
             const picked = askQuestions
               ? questionAnswersByQuestion(message ?? "", askQuestions)[askQuestions[0]!.question] ?? message
               : message;
@@ -963,14 +931,7 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
               ? null
               : isQuestion
                 ? named.length === 1 && typeof named[0].optionId === "string" ? named[0].optionId : null
-                : forSession
-                  ? optionAlways ?? optionFor("allow")
-                  : optionFor(want);
-            if (forSession && !optionAlways && optionId && operationKey) {
-              const remembered = sessionAllows.get(threadId) ?? new Set<string>();
-              remembered.add(operationKey);
-              sessionAllows.set(threadId, remembered);
-            }
+                : optionFor(want);
             if (behavior !== "cancel" && !optionId) missing(isQuestion ? "matching answer" : want);
             send({
               jsonrpc: "2.0",
@@ -1007,7 +968,6 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
             choices: askQuestions?.[0]?.options.map(option => option.label) ?? (isQuestion ? questionChoices : undefined),
             ...(askQuestions ? { questions: askQuestions } : {}),
             approvalScope: current.controlsHost ? "local-computer" : undefined,
-            allowSession: !isQuestion && !current.controlsHost ? true : undefined,
           });
         };
 
@@ -1272,7 +1232,6 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
 
         if (turn.sessionReset) {
           closeSession(threadId, "reset");
-          sessionAllows.delete(threadId);
         }
         const pooled = sessions.get(threadId);
         let session: AcpSession;
@@ -1490,7 +1449,6 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
                 init = session.initResult;
                 continue;
               }
-              sessionAllows.delete(threadId);
               if (cursor) {
                 const recovery = recoveryPromptFor({
                   recoveryText: turn.recoveryText,
@@ -1808,7 +1766,7 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
             const turn = active.get(threadId);
             const finish = turn?.asks.get(requestId);
             if (!finish) return "unavailable";
-            return finish(decision.behavior, "user", decision.message, decision.always === true);
+            return finish(decision.behavior, "user", decision.message);
           },
           hasSession: (threadId) => active.has(threadId),
           stopAll: async () => {
