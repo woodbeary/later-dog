@@ -8,15 +8,9 @@ export type AllowedItem =
   | { kind: "other"; key: string }
   | { kind: "command"; id: string; command: string; cwd: string };
 
-const APP_NAMES: Readonly<Record<string, string>> = {
-  gmail: "Gmail", googlecalendar: "Google Calendar", googledrive: "Google Drive", googledocs: "Google Docs",
-  googlesheets: "Google Sheets", github: "GitHub", linkedin: "LinkedIn", youtube: "YouTube", hubspot: "HubSpot",
-  twitter: "X", x: "X",
-};
+import { appName } from "./app-name";
 
-export function appName(slug: string): string {
-  return APP_NAMES[slug] ?? slug.split(/[_-]+/).filter(Boolean).map((word) => word[0]!.toUpperCase() + word.slice(1)).join(" ");
-}
+export { appName };
 
 export function grantItem(key: string): AllowedItem {
   if (key.startsWith("connector:")) return { kind: "connector", key, app: appName(key.slice("connector:".length)) };

@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
 
+import { appName } from "@/lib/app-name";
 import { cn } from "@/lib/cn";
-import { t } from "@/lib/i18n";
+import { activeLocale, t } from "@/lib/i18n";
 import { api, type Bot } from "@/state/store";
 import type { AlwaysAllowedItem, AlwaysAllowedList } from "../../../shared/lasting-allows";
 
@@ -13,12 +14,20 @@ const quietButtonCls = "shrink-0 rounded-md px-2 py-1 text-[12.5px] text-ink-sec
 function itemLabel(item: AlwaysAllowedItem): string {
   switch (item.kind) {
     case "search": return t("allowed.search");
-    case "app": return t("allowed.connector", { app: item.subject ?? "" });
+    case "app": return t("allowed.connector", { app: appName(item.subject ?? "") });
     case "outside-delete": return t("allowed.outsideDelete");
     case "saved-login": return t("allowed.vault", { site: item.subject ?? "" });
     case "teammate": return t("allowed.teammate", { name: item.subject ?? t("allowed.otherDog") });
     case "command": return t("allowed.command", { command: item.subject ?? "" });
   }
+}
+
+function itemNote(item: AlwaysAllowedItem): string | null {
+  if (item.state === "no-longer-used") return t("allowed.noLongerUsed");
+  if (!item.grantedAt) return null;
+  const at = new Date(item.grantedAt);
+  if (Number.isNaN(at.getTime())) return null;
+  return t("allowed.grantedAt", { date: at.toLocaleDateString(activeLocale(), { month: "short", day: "numeric", year: "numeric" }) });
 }
 
 export function AllowedWithoutAsking({ bot }: { bot: Bot }) {
@@ -35,6 +44,8 @@ export function AllowedWithoutAsking({ bot }: { bot: Bot }) {
   }, [bot.id, bot.alwaysAllow]);
 
   if (!list) return null;
+  const explained = !list.paused && !list.unreadable && list.items.some((item) => item.state === "active");
+  const footer = failed ? t("allowed.removeFailed") : explained ? t("allowed.hint", { name: bot.name }) : null;
 
   const change = async (id: string, path: string, method: "DELETE" | "POST") => {
     setBusy(id);
@@ -60,13 +71,16 @@ export function AllowedWithoutAsking({ bot }: { bot: Bot }) {
           </button>
         </div>
       )}
+      {list.unreadable && (
+        <p data-always-allowed-unreadable className="mb-2 rounded-xl bg-card px-4 py-3 text-[13.5px] text-ink-secondary">{t("allowed.unreadable")}</p>
+      )}
       {list.items.length ? (
         <div className="rounded-xl bg-card">
           {list.items.map((item, index) => (
             <div key={item.id} data-allowed={item.id} data-allowed-state={item.state} className={cn(index === 0 ? rowCls : dividedRowCls, "flex items-center gap-3")}>
               <span className="min-w-0 flex-1">
                 <span className={cn("block text-[13.5px]", item.state === "active" ? "text-ink" : "text-ink-tertiary", item.kind === "command" ? "truncate font-mono text-[12.5px]" : "break-words")}>{itemLabel(item)}</span>
-                {item.state === "no-longer-used" && <span className="block text-[12px] text-ink-tertiary">{t("allowed.noLongerUsed")}</span>}
+                {itemNote(item) && <span data-allowed-note className="block text-[12px] text-ink-tertiary">{itemNote(item)}</span>}
               </span>
               <button type="button" disabled={busy !== null} className={quietButtonCls}
                 onClick={() => void change(item.id, `/api/bots/${bot.id}/always-allowed/${encodeURIComponent(item.id)}`, "DELETE")}>
@@ -75,10 +89,10 @@ export function AllowedWithoutAsking({ bot }: { bot: Bot }) {
             </div>
           ))}
         </div>
-      ) : (
+      ) : list.unreadable ? null : (
         <p data-always-allowed-empty className="rounded-xl bg-card px-4 py-3 text-[13.5px] text-ink-secondary">{t("allowed.empty")}</p>
       )}
-      <p className="mt-1.5 px-1 text-[12px] text-ink-tertiary">{failed ? t("allowed.removeFailed") : t("allowed.hint", { name: bot.name })}</p>
+      {footer && <p className="mt-1.5 px-1 text-[12px] text-ink-tertiary">{footer}</p>}
     </div>
   );
 }
