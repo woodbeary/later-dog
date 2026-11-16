@@ -23,9 +23,16 @@ describe("a dog-to-dog exchange on the wire", () => {
   it("names the owner, both dogs, the request and the state", () => {
     const child = node({});
     expect(roomExchange(child, lookupOf([root, child]))).toEqual({
-      id: "child", status: "running", to: "Scout", from: "Clover", parentId: "root",
+      id: "child", status: "running", to: "Scout", from: "Clover", parentId: "root", threadId: "scout-thread",
       owner: { dog: "Clover", person: true }, request: "Check the invoice totals",
     });
+  });
+
+  it("names the helper's own chat only for work outside a group", () => {
+    const inRoom = node({ groupId: "room" });
+    expect(roomExchange(inRoom, lookupOf([root, inRoom]))?.threadId).toBeUndefined();
+    const ended = node({ status: "completed", result: "Totals match" });
+    expect(roomExchange(ended, lookupOf([root, ended]))?.threadId).toBe("scout-thread");
   });
 
   it("carries the actual reply only when the work completed", () => {
