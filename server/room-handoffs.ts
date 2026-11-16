@@ -156,7 +156,7 @@ export class RoomHandoffs {
           const takenBack = n.startedAt !== undefined && takeBackResults(children, n.startedAt);
           if (children.some(c => !terminal(c))) n.status = takenBack ? "resume" : "waiting";
           else if (children.length) n.status = "resume";
-          else { n.status = "queued"; n.restarted = true; }
+          else { n.status = "queued"; n.restarted = n.restarted === undefined; }
         }
         this.stampProgress(root);
         continue;

@@ -65,6 +65,21 @@ describe("a team task's limits", () => {
     expect(restarted.nodes.get("turn")?.executions).toBe(1);
   }));
 
+  it("charges every re-run after the first when a helper's run never finishes across restarts", () => team({ executions: 5 }, async (engine, hooks, _finish, file) => {
+    const crasher = engine.enqueue(chief, "turn", undefined, helper("crasher"), "a", "Do the heavy thing").node;
+    engine.sourceSettled("turn", true);
+    engine.tick(); await flush();
+    let home = engine;
+    for (let restart = 0; restart < 20; restart++) {
+      home = new RoomHandoffs(file, { ...hooks, longWork: () => true }, Date.now, { executions: 5 });
+      home.tick(); await flush();
+    }
+    const runs = vi.mocked(hooks.run).mock.calls.filter(([node]) => node.id === crasher.id).length;
+    expect(runs).toBe(6);
+    expect(home.nodes.get(crasher.id)).toMatchObject({ status: "failed", endedBy: "team-limit" });
+    expect(home.nodes.get("turn")?.executions).toBe(5);
+  }));
+
   it("still stops a coordinator that keeps handing out work", () => team({ requests: 3 }, async (engine, _hooks, finish) => {
     for (const name of ["one", "two", "three"]) {
       engine.enqueue(chief, "turn", undefined, helper(name), name, `Again ${name}`);
