@@ -134,7 +134,8 @@ In steps 1 to 5 the `lasting` field is the rule for new grants only. A card that
 
 - **Grant:** `POST /api/bots/:id/always-allow` with `{ threadId, requestId }` and no `allowKey`. The home finds the pending engine card by bot, thread and request id (unanswered, not dismissed), checks owner or admin, recomputes A1 to A5 from its own copy of the request, and stores the grant. The client then answers the card with the existing `POST /api/threads/:threadId/respond` `{ requestId, behavior: "allow", scope: "always" }`; the engine still gets allow once. The old `{ threadId, allowKey }` form keeps working for the cards that still carry a key. Answers:
   - `200 { granted: true }`;
-  - `400 { error }` when neither `requestId` nor `allowKey` is given;
+  - `400 { error }` when neither `requestId` nor `allowKey` is given, except on a group chat's thread, which answers `409 { error, why: "group" }` first;
+  - `400 { error: "threadId must be a task id" }` when `threadId` is not a well-formed chat id;
   - `403 { error }` when the person is not the owner or an admin;
   - `404 { error }` for an unknown dog, or a `threadId` that is not one of its chats;
   - `409 { error, why }` when the rule refuses (`why` is one of the seven `lasting.why` values; a group chat's card gives `owner-only`);
