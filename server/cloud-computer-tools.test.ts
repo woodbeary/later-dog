@@ -139,8 +139,7 @@ describe("cloud computer tools", () => {
     expect(calls[0].body.command).not.toContain("102400");
     calls.length = 0;
     await rpc({ method: "tools/call", params: { name: "get_screen_size", arguments: {} } }).done;
-    expect(calls[0].body.command).not.toContain("102400");
-  });
+    expect(calls[0].body.command).not.toContain("102400");  });
 
   it("stops a run as soon as the person takes control, before the next step and before the reading", async () => {
     let gates = 0;
@@ -157,6 +156,23 @@ describe("cloud computer tools", () => {
     expect(result.content[0]!.text).toContain("A person has taken control of the cloud computer");
     expect(result.content[0]!.text).toContain("before step 2 of 4");
     expect(result.content[0]!.text).toContain("Done before it: type 5 characters.");
+  });
+
+  it("takes no reading when the person took control while a step was failing, and still says which step failed", async () => {
+    let gates = 0;
+    commandReply = { exitCode: 1, stdout: "", stderr: "xdotool: no window" };
+    const result = await tools.cloudComputerRpc({ method: "tools/call", params: { name: "run_actions", arguments: { steps: [
+      { action: "type", text: "first" }, { action: "type", text: "second" },
+    ] } } }, {
+      cfg, boxId: () => "bx_23456789", signal: new AbortController().signal,
+      gate: async () => (++gates <= 2 ? { held: false } : { held: true, blockedReason: "Jacob is using the cloud computer." }),
+      assertActive: () => {},
+    }) as { isError?: boolean; content: Array<{ type: string; text?: string }> };
+    expect(calls.map((entry) => entry.path.split("/").at(-1)?.split("?")[0])).toEqual(["commands"]);
+    expect(result.isError).toBe(true);
+    expect(result.content).toHaveLength(1);
+    expect(result.content[0]!.text).toContain("Step 1 of 2 (type 5 characters) failed");
+    expect(result.content[0]!.text).toContain("A person has taken control of the cloud computer");
   });
 
   it.each([

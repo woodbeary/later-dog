@@ -121,7 +121,10 @@ export async function runActions(input: {
     }
     done.push(describe(step));
   }
-  if (!failure) {
+  if (failure) {
+    const reason = input.checkpoint ? await input.checkpoint() : null;
+    if (reason) return { isError: true, content: [{ type: "text", text: `${failure} A person has taken control of the cloud computer, so there is no reading at the end. ${reason}` }] };
+  } else {
     const stopped = await taken("before the reading at the end");
     if (stopped) return stopped;
   }
