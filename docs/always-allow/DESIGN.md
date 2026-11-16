@@ -143,7 +143,7 @@ In steps 1 to 5 the `lasting` field is the rule for new grants only. A card that
 - **List:** `GET /api/bots/:id/always-allowed` returns `{ paused: boolean, unreadable?: true, items: Array<{ id: string; kind: "search" | "app" | "outside-delete" | "saved-login" | "teammate" | "command"; subject?: string; grantedAt?: string; state: "active" | "no-longer-used" }> }`.
   - `subject` is the app, the site, the teammate's name or the command's redacted preview; a search has none.
   - `grantedAt` is on every item with a time on record; today that is the search grants only (old keys and saved commands were never stored with a time).
-  - Rows carry no place: the "where" earlier revisions named is dropped, because every remaining grant holds in every chat of the dog.
+  - Rows carry no place. A search grant holds in every chat of the dog; an app's Always may hold only in the chat where it was given, because a card writes it to that chat. Remove clears it from every chat either way.
   - Old keys come from the dog's record and every one of its chats, and saved commands from `command-allowlist.json`. In steps 1 to 5 the outside-delete key lists as `no-longer-used`; an app key stays `active` (it still answers calls that are not sends).
   - `unreadable: true` when the store cannot be read: nothing is answered from it, and the list shows one quiet line instead of the searches.
   - `404 { error }` for an unknown dog; `403` for anyone but the owner or an admin.
