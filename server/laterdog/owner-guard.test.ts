@@ -207,6 +207,59 @@ describe("folders the dog is given through a link, as /tmp, /var and /home are o
   });
 });
 
+describe("a link the dog makes at one of its own folders", () => {
+  const made = () => {
+    const root = realpathSync(mkdtempSync(join(tmpdir(), "owner-guard-made-link-")));
+    const home = join(root, "home");
+    const work = join(root, "work");
+    mkdirSync(join(home, ".ssh"), { recursive: true });
+    mkdirSync(join(home, ".laterdog", "workspaces"), { recursive: true });
+    mkdirSync(join(home, ".cache", "pnpm"), { recursive: true });
+    mkdirSync(join(root, "scratch-real", "old"), { recursive: true });
+    mkdirSync(work, { recursive: true });
+    return { root, home, work, given: { cwd: work, workspaceRoots: [work], tempRoots: [join(root, "scratch-real")], home } };
+  };
+
+  it("never widens what deletes without a card, whatever the link points at", async () => {
+    const { root, home, work, given } = made();
+    try {
+      mkdirSync(join(home, ".yarn"), { recursive: true });
+      symlinkSync(join(home, ".laterdog"), join(home, ".yarn", "cache"));
+      mkdirSync(join(home, ".bun", "install"), { recursive: true });
+      symlinkSync(home, join(home, ".bun", "install", "cache"));
+      symlinkSync("/etc", join(home, ".npm"));
+      symlinkSync(home, join(root, "scratch-link"));
+      symlinkSync(home, join(root, "work-link"));
+      const asks = async (command: string, extra: Partial<OwnerGuardContext> = {}) =>
+        expect((await bash(command, { ...given, ...extra }))?.rule, command).toBe("delete-outside-workspace");
+      await asks("rm -rf ~/.yarn/cache/*");
+      await asks("rm -rf ~/.yarn/cache/workspaces");
+      await asks("rm -rf ~/.bun/install/cache/.ssh");
+      await asks("rm -rf ~/.npm/nginx");
+      await asks(`rm -rf ${join(root, "scratch-link", ".ssh")}`, { tempRoots: [join(root, "scratch-link")] });
+      await asks(`rm -rf ${join(root, "work-link", ".ssh")}`, { cwd: join(root, "work-link"), workspaceRoots: [join(root, "work-link")] });
+      expect(await bash("rm -rf ~/.cache/pnpm", given)).toBeNull();
+      expect(await bash(`rm -rf ${join(root, "scratch-real", "old")}`, given)).toBeNull();
+      expect(await bash("rm -rf build", { ...given, cwd: work })).toBeNull();
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("drops a given folder that is the root, the home, or holds the home or a workspace", async () => {
+    const { root, home, work, given } = made();
+    try {
+      for (const tempRoots of [["/"], [home], [root], [join(root, "..")]]) {
+        expect((await bash("rm -rf ~/.ssh", { ...given, tempRoots }))?.rule, tempRoots[0]).toBe("delete-outside-workspace");
+      }
+      expect((await bash("rm -rf ~/.ssh", { ...given, workspaceRoots: [work, home] }))?.rule).toBe("delete-outside-workspace");
+      expect((await bash(`rm -rf ${join(work, "x")}`, { ...given, tempRoots: [root] }))).toBeNull();
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+});
+
 describe("find following a link out of the workspace", () => {
   it("asks with -L, -H or -follow and not without", async () => {
     const root = mkdtempSync(join(tmpdir(), "owner-guard-find-"));
