@@ -445,6 +445,17 @@ beforeAll(async () => {
         dm: true,
       },
       {
+        id: "test-always-channel",
+        threadId: "test-always-channel-thread",
+        name: "Always channel",
+        memberIds: ["test-bot-a", "test-bot-reply"],
+        defaultResponder: { kind: "mentions" },
+        bulletin: "",
+        unread: false,
+        createdAt: 1,
+        dm: true,
+      },
+      {
         id: "test-stranded-room",
         threadId: "test-stranded-room-thread",
         name: "Stranded room",
@@ -7832,7 +7843,7 @@ describe("harness HTTP API", () => {
       expect((await api("PUT", "/api/config", { signIn: { members: ["member@example.com"] } })).status).toBe(200);
       expect((await api("PATCH", "/api/bots/test-bot-a", { modelSelection: { instanceId: "claude", model: "claude-haiku-4-5" }, approvalMode: "ask" })).status).toBe(200);
       rmSync(fakeClaudeDump, { force: true });
-      const sent = await api("POST", "/api/groups/test-dm/messages", { text: "@Test bot A look up the weather", threadId: "test-dm-thread" });
+      const sent = await api("POST", "/api/groups/test-always-channel/messages", { text: "@Test bot A look up the weather", threadId: "test-always-channel-thread" });
       expect(sent.status, JSON.stringify(sent.body)).toBe(202);
       const socketPath = z.object({
         mcpConfig: z.object({ mcpServers: z.object({ dog: z.object({ args: z.array(z.string()) }) }) }),
@@ -7841,17 +7852,17 @@ describe("harness HTTP API", () => {
       conns.push(conn);
       await new Promise<void>((resolve, reject) => { conn.on("connect", resolve); conn.on("error", reject); });
       conn.write(JSON.stringify({ t: "ask", id: "channel-search", tool: "WebSearch", input: { query: "weather in oslo" } }) + "\n");
-      const channelCard = async () => ((await api("GET", "/api/threads/test-dm-thread/messages?limit=100")).body.messages ?? [])
+      const channelCard = async () => ((await api("GET", "/api/threads/test-always-channel-thread/messages?limit=100")).body.messages ?? [])
         .find((message: { card?: { requestId?: string } }) => message.card?.requestId === "channel-search")?.card;
       await expect.poll(channelCard, { timeout: 15_000 }).toBeTruthy();
       expect((await channelCard()).lasting).toEqual({ offered: false, why: "owner-only" });
-      const granted = await api("POST", "/api/bots/test-bot-a/always-allow", { threadId: "test-dm-thread", requestId: "channel-search" });
+      const granted = await api("POST", "/api/bots/test-bot-a/always-allow", { threadId: "test-always-channel-thread", requestId: "channel-search" });
       expect(granted.status).toBe(409);
       expect(granted.body.why).toBe("owner-only");
       expect(JSON.stringify(granted.body)).not.toContain("group chat");
     } finally {
       for (const conn of conns) conn.destroy();
-      await api("POST", "/api/groups/test-dm/interrupt", {}).catch(() => undefined);
+      await api("POST", "/api/groups/test-always-channel/interrupt", {}).catch(() => undefined);
       await api("PATCH", "/api/bots/test-bot-a", { modelSelection: { instanceId: "claude", model: "claude-sonnet-5" }, ...(before ? { approvalMode: before } : {}) });
       await api("PUT", "/api/config", { signIn: { members: [] } });
     }
