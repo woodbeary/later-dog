@@ -13,6 +13,15 @@ export function onScreen(value: unknown): string {
   return `$(( ${Math.max(0, Math.trunc(Number(value)) || 0)} * 100 / P ))`;
 }
 
+export function pointerTo(x: unknown, y: unknown): string {
+  return [
+    `TX=${onScreen(x)}`,
+    `TY=${onScreen(y)}`,
+    'eval "$(xdotool getmouselocation --shell 2>/dev/null | grep -E \'^[XY]=[0-9]+$\')"',
+    'if [ "${X:-}" != "$TX" ] || [ "${Y:-}" != "$TY" ]; then xdotool mousemove --sync "$TX" "$TY"; fi',
+  ].join("; ");
+}
+
 export function scaled(command: string): string {
   return `${SCALE}; ${command}`;
 }

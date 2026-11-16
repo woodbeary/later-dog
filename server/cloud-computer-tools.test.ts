@@ -85,8 +85,8 @@ describe("cloud computer tools", () => {
 
   it.each([
     ["click", { x: 3, y: 4, button: "right", count: 2 }, "click --repeat 2 --delay 100 3"],
-    ["move", { x: 7, y: 8 }, "mousemove --sync $(( 7 * 100 / P )) $(( 8 * 100 / P ))"],
-    ["drag", { x: 1, y: 2, to_x: 3, to_y: 4 }, "mousedown 1 mousemove --sync $(( 3 * 100 / P )) $(( 4 * 100 / P )) mouseup 1"],
+    ["move", { x: 7, y: 8 }, "TX=$(( 7 * 100 / P )); TY=$(( 8 * 100 / P ))"],
+    ["drag", { x: 1, y: 2, to_x: 3, to_y: 4 }, "xdotool mousedown 1 && TX=$(( 3 * 100 / P )); TY=$(( 4 * 100 / P ))"],
     ["scroll", { x: 4, y: 3, direction: "down", amount: 2 }, "click --repeat 2 --delay 80 5"],
     ["key_press", { key: "ctrl+l" }, "key --clearmodifiers"],
     ["type_text", { text: "Unicode: 日本語 ' $(echo unsafe)" }, "base64 -d | xclip"],

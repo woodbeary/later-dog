@@ -7,7 +7,7 @@ import { resolveUses, VAULT_OWNER_ONLY, type VaultItems } from "./laterdog/vault
 import { capturedValue, maskValues, secretNameProblem, vaultFingerprint, VAULT_CAPTURE_SCHEMA, VAULT_USES_SCHEMA, wrapVaultCommand } from "./laterdog/vault-refs.ts";
 import { splitTabListing, TAB_TRACKED_TOOLS, withTabListing, type Target } from "./laterdog/cloud-tabs.ts";
 import { fillSecureField, parseSecureFormInput, SECURE_FORM_TOOLS, secureFormFilledText, secureFormRequestedText, type SecureFormDesk } from "./laterdog/secure-form.ts";
-import { imageFromOutput, onScreen, scaled, SCREEN_SIZE_COMMAND, SCREENSHOT_COMMAND, zoomCommand } from "./laterdog/screen-scale.ts";
+import { imageFromOutput, onScreen, pointerTo, scaled, SCREEN_SIZE_COMMAND, SCREENSHOT_COMMAND, zoomCommand } from "./laterdog/screen-scale.ts";
 import { PAGE_TOOL_NAMES, PAGE_TOOLS, pageToolsEnabled, runPageTool, type RemoteExec } from "./laterdog/page-tools.ts";
 
 export type { RemoteExec };
@@ -86,16 +86,16 @@ export async function runCloudComputerTool(
     return { content: [{ type: "image", mimeType: "image/jpeg", data }] };
   }
   const a = args;
-  const mouse = `xdotool mousemove --sync ${onScreen(a.x)} ${onScreen(a.y)}`;
+  const mouse = pointerTo(a.x, a.y);
   let command: string;
   switch (name) {
     case "get_screen_size": command = SCREEN_SIZE_COMMAND; break;
-    case "click": command = scaled(`${mouse} click --repeat ${a.count ?? 1} --delay 100 ${buttons[String(a.button ?? "left")]}`); break;
+    case "click": command = scaled(`${mouse} && xdotool click --repeat ${a.count ?? 1} --delay 100 ${buttons[String(a.button ?? "left")]}`); break;
     case "move": command = scaled(mouse); break;
-    case "drag": command = scaled(`${mouse} mousedown 1 mousemove --sync ${onScreen(a.to_x)} ${onScreen(a.to_y)} mouseup 1`); break;
+    case "drag": command = scaled(`${mouse} && xdotool mousedown 1 && ${pointerTo(a.to_x, a.to_y)} && xdotool mouseup 1`); break;
     case "type_text": command = `printf %s ${quote(Buffer.from(String(a.text)).toString("base64"))} | base64 -d | xclip -selection clipboard && xdotool key --clearmodifiers ctrl+v`; break;
     case "key_press": command = `xdotool key --clearmodifiers ${quote(String(a.key))}`; break;
-    case "scroll": command = scaled(`${mouse} click --repeat ${a.amount ?? 3} --delay 80 ${scrollButtons[String(a.direction)]}`); break;
+    case "scroll": command = scaled(`${mouse} && xdotool click --repeat ${a.amount ?? 3} --delay 80 ${scrollButtons[String(a.direction)]}`); break;
     case "open_url": command = `nohup xdg-open ${quote(String(a.url))} >/dev/null 2>&1 </dev/null &`; break;
     case "exec": {
       if (a.vault === undefined && a.vault_capture === undefined) { command = String(a.command); break; }

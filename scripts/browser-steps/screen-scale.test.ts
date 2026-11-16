@@ -51,6 +51,14 @@ describe.skipIf(!tools)("screenshots a dog sees on a 1280x800 cloud desktop", ()
 });
 
 describe("where a dog's click lands on a 1280x800 cloud desktop", () => {
+  it("does not wait for the pointer when it is already where the click goes", async () => {
+    const fake = fakeXdotool({ x: 640, y: 400 });
+    const clicked = await runCloudComputerTool(cfg, "fixture", "click", { x: 512, y: 320 }, signal, undefined, undefined, fake.exec);
+    expect(clicked.isError).not.toBe(true);
+    expect(fake.log().filter((line) => line.startsWith("mousemove"))).toEqual([]);
+    expect(fake.log()).toContain("click --repeat 1 --delay 100 1");
+  });
+
   it("is the matching point of the real screen at each corner and the centre of the screenshot", async () => {
     for (const [x, y, realX, realY] of [[0, 0, 0, 0], [1023, 0, 1278, 0], [0, 639, 0, 798], [1023, 639, 1278, 798], [512, 320, 640, 400]]) {
       const fake = fakeXdotool();

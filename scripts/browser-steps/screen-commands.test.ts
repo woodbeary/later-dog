@@ -14,11 +14,11 @@ describe("the measured screen commands are the ones a dog's computer runs", () =
 
   it("keeps today's native commands for the before numbers, while the dog's tools now scale the same commands", () => {
     const tools = source("server/cloud-computer-tools.ts");
-    expect(tools).toContain("const mouse = `xdotool mousemove --sync ${onScreen(a.x)} ${onScreen(a.y)}`;");
-    expect(tools).toContain('case "click": command = scaled(`${mouse} click --repeat ${a.count ?? 1} --delay 100 ${buttons[String(a.button ?? "left")]}`)');
+    expect(tools).toContain("const mouse = pointerTo(a.x, a.y);");
+    expect(tools).toContain('case "click": command = scaled(`${mouse} && xdotool click --repeat ${a.count ?? 1} --delay 100 ${buttons[String(a.button ?? "left")]}`)');
     expect(tools).toContain("case \"type_text\": command = `printf %s ${quote(Buffer.from(String(a.text)).toString(\"base64\"))} | base64 -d | xclip -selection clipboard && xdotool key --clearmodifiers ctrl+v`");
     expect(tools).toContain("case \"key_press\": command = `xdotool key --clearmodifiers ${quote(String(a.key))}`");
-    expect(tools).toContain("case \"scroll\": command = scaled(`${mouse} click --repeat ${a.amount ?? 3} --delay 80 ${scrollButtons[String(a.direction)]}`)");
+    expect(tools).toContain("case \"scroll\": command = scaled(`${mouse} && xdotool click --repeat ${a.amount ?? 3} --delay 80 ${scrollButtons[String(a.direction)]}`)");
     expect(screenCommand({ tool: "click", x: 10, y: 20 })).toBe("xdotool mousemove --sync 10 20 click --repeat 1 --delay 100 1");
     expect(screenCommand({ tool: "scroll", x: 1, y: 2, direction: "down", amount: 10 })).toBe("xdotool mousemove --sync 1 2 click --repeat 10 --delay 80 5");
     expect(screenCommand({ tool: "key_press", key: "Tab" })).toBe("xdotool key --clearmodifiers 'Tab'");
