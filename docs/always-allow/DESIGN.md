@@ -84,7 +84,7 @@ When a request opens (`request.opened`), the first that applies decides:
 3. **New: the lasting-allow lookup.** It runs A1 to A5 on every request, not only at the grant (G7); only a request that passes all five is looked up. On a match the home answers allow and logs source `lasting-allow` with the rule id.
 4. Everything as today.
 
-- Every answer to every engine is allow-once: the home sends `always: false` in its one answer path (`server/index.ts:5369`), the Claude proxy passes no `updatedPermissions`, ACP accepts only an `allow_once` option and no longer remembers an operation for the chat (`server/drivers/acp/core.ts:903-913`, `:918`, `:967-972`), and no card carries `allowSession` (`server/index.ts:7305`, `server/drivers/claude.ts:1496`, `acp/core.ts:1010`) (G1c). An ACP engine that offers only an "always" option has its request cancelled with the existing message that it offered no allow option (H3); the person sees that line in the chat, and the dog carries on without that step.
+- Every answer to every engine is allow-once: the home sends `always: false` in its one answer path (`server/index.ts:5369`), the Claude proxy passes no `updatedPermissions`, ACP accepts only an `allow_once` option and no longer remembers an operation for the chat (`server/drivers/acp/core.ts:903-913`, `:918`, `:967-972`), and no card carries `allowSession` (`server/index.ts:7305`, `server/drivers/claude.ts:1496`, `acp/core.ts:1010`) (G1c). An ACP engine that offers only an "always" option has its request cancelled with the existing message that it offered no allow option (H3); the person sees that line in the chat, and the dog carries on without that step. A deny likewise accepts only `reject_once`: an engine that offers only `reject_always` has the request cancelled, so no engine remembers a "never" either.
 - Cards stop carrying old keys: the send card and the outside-delete card carry no `allowKey`; with J2-a no card carries `commandAllowlist`; with J2-b the teammate card carries no `allowKey`; with J2-c the Mac card offers Always only on reads. The route refuses every key it no longer honours with 409 (S6, G1).
 - After the emergency stop, lasting allows are paused, not deleted; today the stop clears only a Full or Custom chat's keys (`server/index.ts:9613-9620`), so the pause is added in step 4 (G5).
 
@@ -96,7 +96,9 @@ When a request opens (`request.opened`), the first that applies decides:
 
 ## How a person lists and removes them
 
-Dog settings, section **Always allowed**: every rule and every old grant (J2), newest first, each with what, where, when and **Remove**; old grants that stopped show "No longer used". Removing takes effect at once; deleting the dog removes its rules. The phone shows the same list.
+Dog settings, section **Always allowed**: every rule and every old grant (J2), newest first, each with what, where, when and **Remove**; old grants that stopped show "No longer used". Removing takes effect at once; deleting the dog removes its rules. The list refreshes as soon as a grant is saved. The phone shows the same list.
+
+Row words, the same on the desktop and the phone: search "Search for the same words"; app "Use {app}" with the app's proper name; outside-delete "Delete files outside its own folders"; saved-login "Sign in to {site} with your saved login"; teammate "Start work with {name}"; command "Run {command}". The second line says "Allowed {date}", in the person's own time zone, when the grant is active and has a time on record, and "No longer used" when it stopped. The footer "{name} does these without asking you first. Remove one and {name} asks again next time." shows only when at least one row is active and the list is not paused. An unreadable store shows "later.dog could not read this list. Everything asks until it can." instead of an empty list.
 
 ## Words on the cards
 
@@ -147,7 +149,7 @@ In steps 1 to 5 the `lasting` field is the rule for new grants only. A card that
   - `404 { error }` for an unknown dog; `403` for anyone but the owner or an admin.
 - **Remove:** `DELETE /api/bots/:id/always-allowed/:itemId` removes one item (a search grant, an old key from the record and every chat, or a saved command) and returns the list. `404` when the item is already gone: a client treats that as done. `503` when the store cannot be read.
 - **Resume after the emergency stop:** `POST /api/bots/:id/always-allowed/resume` clears `paused` and returns the list; `503` when the store cannot be read.
-- Owner or admin only, for all four. When a card carries both `lasting` and an old `allowKey`, a client follows `lasting` and ignores the key (no card does today).
+- Owner or admin only, for all four. When a card carries both `lasting` and an old `allowKey`, a client follows `lasting` and ignores the key (no card does today); the desktop and the phone both do. A viewer who is not the owner or an admin sees no Always button on an offered card, only the line "Only the owner can choose Always."
 
 ## Ruled out for now (J0's choice c)
 
@@ -214,7 +216,7 @@ Each step is one commit with its tests. Main is safe after any step alone: no st
 |---|---|---|---|---|---|
 | 1 | The order fix: `alwaysAsks` before the old grants | `server/laterdog/connector-ask.ts`, `owner-auto-request.ts` | 17 | No (completes J1; can land with 207) | Safe: the outside-delete key and app keys stop answering 207's kinds |
 | 2 | Send and outside-delete cards drop their keys; the route refuses them | `server/index.ts` (`:7308`, `:15654`, route `:17652-17674`) | 15 | No | Safe |
-| 3 | No engine widens a chat: `always: false` to every engine, ACP accepts only `allow_once` (else cancels), no `allowSession` on any card, no `updatedPermissions` | `server/index.ts` (`:5369`, `:7305`), `server/permission-proxy.ts`, `server/drivers/acp/core.ts` (`:903-913`, `:918`, `:967-972`, `:1010`), `server/drivers/claude.ts` (`:1496`, outside the compaction window) | 16, 20 | No | Safe: answers become allow-once |
+| 3 | No engine widens a chat: `always: false` to every engine, ACP accepts only `allow_once` and `reject_once` (else cancels), no `allowSession` on any card, no `updatedPermissions` | `server/index.ts` (`:5369`, `:7305`), `server/permission-proxy.ts`, `server/drivers/acp/core.ts` (`:903-913`, `:918`, `:967-972`, `:1010`), `server/drivers/claude.ts` (`:1496`, outside the compaction window) | 16, 20 | No | Safe: answers become allow-once |
 | 4 | The allow rule and the store: A1 to A5, `wholeInput` for (Claude, `WebSearch`) only and stripped from every event, the store, the grant route, the list endpoint, the lookup, the emergency pause | new `server/laterdog/lasting-allows.ts`, `shared/lasting-allows.ts`; `server/drivers/claude.ts` (`:1491`); `shared/runtime-events.ts`; `server/index.ts` (`request.opened`, `:7120`, the route, `:9613-9620`) | 1 to 14, 18, 19, 21, 22, 26 to 28 | No | Safe: a search grant is stored and answered in the same commit |
 | 5 | The desktop card and the settings list | `src/components/PendingApproval.tsx`, `en.json`, the dog settings | card rendering of the why lines and "Always allowed" | No | Safe |
 | 6 | Saved commands stop | `server/index.ts` (`:5374-5377`, `:7258`, `:7303`, the command-allowlist route), `PendingApproval.tsx` (`:203`, `:294`) | 24 | **J2-a** | Safe |
