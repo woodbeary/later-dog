@@ -291,6 +291,9 @@ describe("the guidance every dog gets", () => {
     expect(blocks({ title: "Which AI account each dog uses" })).toEqual({ payments: false, medicine: false });
     expect(blocks({ title: "Bank accounts" })).toEqual({ payments: true, medicine: false });
     expect(blocks({ title: "Accounts receivable" })).toEqual({ payments: true, medicine: false });
+    for (const title of ["Investment accounts", "Savings account", "Checking account", "Credit card accounts", "Brokerage account", "Retirement accounts", "Loan accounts", "Expense accounts", "Cash accounts", "Crypto accounts", "Accounts payable", "Account balances"]) {
+      expect(blocks({ title }), title).toEqual({ payments: true, medicine: false });
+    }
     expect(safetyBlocksFor(undefined)).toEqual(both);
   });
 
