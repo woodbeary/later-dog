@@ -177,6 +177,21 @@ describe("a heavy command on the dog's own computer", () => {
     expect(second.state).toBe("finished");
     expect(readFileSync(join(folder, "out.txt"), "utf8")).toBe("done\n");
   });
+
+  it("says a run is over when its command is gone without finishing, instead of waiting up to 2 hours", async () => {
+    const { folder, computer, state } = project();
+    mkdirSync(computer);
+    const { box } = localBox(computer);
+    const runs = new ComputerRuns(state, fast);
+    const started = await runs.start(box, { botId: "dog", folder, command: "sleep 5" });
+    const pattern = `runs/[.]logs/${started.id}[.]log`;
+    spawnSync("pkill", ["-f", pattern]);
+    for (let tries = 0; tries < 50 && spawnSync("pgrep", ["-f", pattern]).status === 0; tries += 1) spawnSync("sleep", ["0.1"]);
+    const outcome = await runs.finish(box, runs.record("dog", started.id)!, undefined, runs.window(60_000));
+    expect(outcome.state).toBe("failed");
+    expect(outcome.note).toContain("stopped before finishing");
+    expect(outcome.note).toContain("within 4 minutes");
+  });
 });
 
 function computerShell(home: string, repoDir: string, runKey: string) {
