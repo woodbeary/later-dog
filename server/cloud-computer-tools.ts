@@ -1,5 +1,5 @@
 import type { ValidateFunction } from "ajv";
-import { isolatedRemoteCommand, runCommand } from "./computers.ts";
+import { isolatedRemoteCommand, runCommand, screenshotBoat, servedByComputers } from "./computers.ts";
 import type { AppConfig } from "./config.ts";
 import { CONTROL_REFUSAL_PLAIN } from "./control-client.ts";
 import { compileToolSchema } from "./mcp-schema-validator.ts";
@@ -7,7 +7,7 @@ import { resolveUses, VAULT_OWNER_ONLY, type VaultItems } from "./laterdog/vault
 import { capturedValue, maskValues, secretNameProblem, vaultFingerprint, VAULT_CAPTURE_SCHEMA, VAULT_USES_SCHEMA, wrapVaultCommand } from "./laterdog/vault-refs.ts";
 import { splitTabListing, TAB_TRACKED_TOOLS, withTabListing, type Target } from "./laterdog/cloud-tabs.ts";
 import { fillSecureField, parseSecureFormInput, SECURE_FORM_TOOLS, secureFormFilledText, secureFormRequestedText, type SecureFormDesk } from "./laterdog/secure-form.ts";
-import { imageFromOutput, pointerTo, scaled, SCREEN_SIZE_COMMAND, SCREENSHOT_COMMAND, zoomCommand } from "./laterdog/screen-scale.ts";
+import { imageFromOutput, pointerTo, scaled, screenSizeCommand, SCREENSHOT_COMMAND, zoomCommand } from "./laterdog/screen-scale.ts";
 import { PAGE_TOOL_NAMES, PAGE_TOOLS, pageToolsEnabled, runPageTool, type RemoteExec } from "./laterdog/page-tools.ts";
 import { abortableWait, RUN_ACTIONS_TOOL, runActions } from "./laterdog/action-run.ts";
 
@@ -17,7 +17,7 @@ const coordinate = { type: "integer", minimum: 0, maximum: 32767 };
 const tool = (name: string, description: string, properties: Record<string, unknown> = {}, required: string[] = []) =>
   ({ name, description, inputSchema: { type: "object", properties, required, additionalProperties: false } });
 export const CLOUD_COMPUTER_TOOLS = [
-  tool("screenshot", "See the assigned cloud desktop, scaled to at most 1024 pixels wide. The other computer tools use this image's coordinates."),
+  tool("screenshot", "See the assigned cloud desktop, scaled to at most 1024 pixels wide on later.dog's own cloud computers. The other computer tools use this image's coordinates."),
   tool("get_screen_size", "Get the width and height of the screenshot image, the coordinates the other computer tools use."),
   tool("zoom", "See one region of the cloud desktop at full detail, to read what the screenshot shows too small. x, y, width and height are in screenshot coordinates; the picture is at most 1024 pixels wide and its own coordinates are not the ones the other tools use.", { x: coordinate, y: coordinate, width: { type: "integer", minimum: 8, maximum: 32767 }, height: { type: "integer", minimum: 8, maximum: 32767 } }, ["x", "y", "width", "height"]),
   tool("click", "Click a point on the cloud desktop.", { x: coordinate, y: coordinate, button: { type: "string", enum: ["left", "middle", "right"] }, count: { type: "integer", minimum: 1, maximum: 3 } }, ["x", "y"]),
@@ -69,9 +69,11 @@ export async function runCloudComputerTool(
   signal: AbortSignal,
   onTabs?: (targets: Target[]) => void,
   vault?: VaultItems,
-  exec: RemoteExec = (command, abort) => runCommand(cfg, boxId, isolatedRemoteCommand(command), { signal: abort }),
+  ownExec?: RemoteExec,
   checkpoint?: () => Promise<string | null>,
 ): Promise<CloudComputerResult> {
+  const exec: RemoteExec = ownExec ?? ((command, abort) => runCommand(cfg, boxId, isolatedRemoteCommand(command), { signal: abort }));
+  const fullSize = !ownExec && !servedByComputers(boxId);
   const problem = cloudComputerCallProblem(name, args);
   if (problem) return { isError: true, content: [{ type: "text", text: problem }] };
   signal.throwIfAborted();
@@ -81,7 +83,7 @@ export async function runCloudComputerTool(
       reading: args.reading as "page" | "screenshot" | undefined,
       pageTools: pageToolsEnabled(cfg),
       problem: cloudComputerCallProblem,
-      run: (step, stepArgs) => runCloudComputerTool(cfg, boxId, step, stepArgs, signal, onTabs, vault, exec),
+      run: (step, stepArgs) => runCloudComputerTool(cfg, boxId, step, stepArgs, signal, onTabs, vault, ownExec),
       checkpoint,
       wait: abortableWait(signal),
     });
@@ -92,8 +94,13 @@ export async function runCloudComputerTool(
     signal.throwIfAborted();
     return page;
   }
+  if (name === "screenshot" && fullSize) {
+    const shot = await screenshotBoat(cfg, "", boxId, { signal, nativeSize: true });
+    signal.throwIfAborted();
+    return { content: [{ type: "image", mimeType: "image/jpeg", data: shot.png }] };
+  }
   if (name === "screenshot" || name === "zoom") {
-    const shot = await exec(name === "zoom" ? zoomCommand(args as { x: number; y: number; width: number; height: number }) : SCREENSHOT_COMMAND, signal);
+    const shot = await exec(name === "zoom" ? zoomCommand(args as { x: number; y: number; width: number; height: number }, fullSize) : SCREENSHOT_COMMAND, signal);
     signal.throwIfAborted();
     const data = shot.ok ? imageFromOutput(shot.stdout) : null;
     if (!data) return { isError: true, content: [{ type: "text", text: `The screenshot failed: ${(shot.stderr || shot.stdout).trim().slice(-300) || `exit ${shot.exitCode}`}` }] };
@@ -103,13 +110,13 @@ export async function runCloudComputerTool(
   const mouse = pointerTo(a.x, a.y);
   let command: string;
   switch (name) {
-    case "get_screen_size": command = SCREEN_SIZE_COMMAND; break;
-    case "click": command = scaled(`${mouse} && xdotool click --repeat ${a.count ?? 1} --delay 100 ${buttons[String(a.button ?? "left")]}`); break;
-    case "move": command = scaled(mouse); break;
-    case "drag": command = scaled(`${mouse} && xdotool mousedown 1 && ${pointerTo(a.to_x, a.to_y)} && xdotool mouseup 1`); break;
+    case "get_screen_size": command = screenSizeCommand(fullSize); break;
+    case "click": command = scaled(`${mouse} && xdotool click --repeat ${a.count ?? 1} --delay 100 ${buttons[String(a.button ?? "left")]}`, fullSize); break;
+    case "move": command = scaled(mouse, fullSize); break;
+    case "drag": command = scaled(`${mouse} && xdotool mousedown 1 && ${pointerTo(a.to_x, a.to_y)} && xdotool mouseup 1`, fullSize); break;
     case "type_text": command = `printf %s ${quote(Buffer.from(String(a.text)).toString("base64"))} | base64 -d | xclip -selection clipboard && xdotool key --clearmodifiers ctrl+v`; break;
     case "key_press": command = `xdotool key --clearmodifiers ${quote(String(a.key))}`; break;
-    case "scroll": command = scaled(`${mouse} && xdotool click --repeat ${a.amount ?? 3} --delay 80 ${scrollButtons[String(a.direction)]}`); break;
+    case "scroll": command = scaled(`${mouse} && xdotool click --repeat ${a.amount ?? 3} --delay 80 ${scrollButtons[String(a.direction)]}`, fullSize); break;
     case "open_url": command = `nohup xdg-open ${quote(String(a.url))} >/dev/null 2>&1 </dev/null &`; break;
     case "exec": {
       if (a.vault === undefined && a.vault_capture === undefined) { command = String(a.command); break; }
@@ -190,7 +197,7 @@ export async function cloudComputerRpc(
   if (params.name === "fill_secure_field") {
     if (!deps.secureForms) return { isError: true, content: [{ type: "text", text: SECURE_FORMS_UNAVAILABLE }] };
     const filled = await fillSecureField(args as Record<string, unknown>, deps.secureForms, (command) =>
-      runCommand(deps.cfg, boxId, isolatedRemoteCommand(command), { signal: deps.signal }));
+      runCommand(deps.cfg, boxId, isolatedRemoteCommand(command), { signal: deps.signal }), !servedByComputers(boxId));
     deps.signal.throwIfAborted();
     deps.assertActive();
     return { ...(filled.ok ? {} : { isError: true }), content: [{ type: "text", text: filled.text }] };

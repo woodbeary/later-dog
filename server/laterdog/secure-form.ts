@@ -192,7 +192,7 @@ export class SecureFormVault {
 
 const quote = (value: string) => "'" + value.replace(/'/g, "'\\''") + "'";
 
-export function secureFillCommand(input: { host: string; x: number; y: number; value: string; submit: boolean }): string {
+export function secureFillCommand(input: { host: string; x: number; y: number; value: string; submit: boolean; fullSize?: boolean }): string {
   const { host, x, y } = input;
   if (!Number.isInteger(x) || !Number.isInteger(y) || !/^[a-z0-9.-]+$/.test(host)) throw new RangeError("invalid secure fill target");
   const encoded = Buffer.from(input.value, "utf8").toString("base64");
@@ -229,7 +229,7 @@ export function secureFillCommand(input: { host: string; x: number; y: number; v
     "[ \"$s\" = 0 ] || exit 11",
     ...(input.submit ? ["sleep 0.2", "xdotool key --clearmodifiers Return"] : []),
     "exit 0",
-  ].join("\n"));
+  ].join("\n"), input.fullSize);
 }
 
 const NOT_CONFIRMED = "Typing did not finish, so the field may be empty or partly filled. Take a screenshot to check the page.";
@@ -271,7 +271,7 @@ export interface SecureFormDesk {
 
 export type SecureFillRun = (command: string) => Promise<{ ok: boolean; exitCode: number | null; stdout: string }>;
 
-export async function fillSecureField(args: Record<string, unknown>, desk: SecureFormDesk, run: SecureFillRun): Promise<{ ok: boolean; text: string }> {
+export async function fillSecureField(args: Record<string, unknown>, desk: SecureFormDesk, run: SecureFillRun, fullSize = false): Promise<{ ok: boolean; text: string }> {
   const formId = String(args.form_id ?? "");
   const field = String(args.field_id ?? "");
   const x = Number(args.x);
@@ -282,7 +282,7 @@ export async function fillSecureField(args: Record<string, unknown>, desk: Secur
   if (!slot.ok) return { ok: false, text: slot.text };
   let result: Awaited<ReturnType<SecureFillRun>>;
   try {
-    result = await run(secureFillCommand({ host: slot.host, x, y, value: slot.value, submit }));
+    result = await run(secureFillCommand({ host: slot.host, x, y, value: slot.value, submit, fullSize }));
   } catch {
     return { ok: false, text: NOT_CONFIRMED };
   }

@@ -9,6 +9,13 @@ const SCALE = [
   `if [ "$W" -gt ${SCREENSHOT_MAX_WIDTH} ] 2>/dev/null; then P=$(( ${SCREENSHOT_MAX_WIDTH * 100} / W )); fi`,
 ].join("; ");
 
+const FULL_SIZE = [
+  "set -- $(xdotool getdisplaygeometry 2>/dev/null)",
+  'W="${1:-0}"',
+  'H="${2:-0}"',
+  "P=100",
+].join("; ");
+
 export function onScreen(value: unknown): string {
   return `$(( ${Math.max(0, Math.trunc(Number(value)) || 0)} * 100 / P ))`;
 }
@@ -22,11 +29,15 @@ export function pointerTo(x: unknown, y: unknown): string {
   ].join("; ");
 }
 
-export function scaled(command: string): string {
-  return `${SCALE}; ${command}`;
+export function scaled(command: string, fullSize = false): string {
+  return `${fullSize ? FULL_SIZE : SCALE}; ${command}`;
 }
 
-export const SCREEN_SIZE_COMMAND = scaled('echo "$(( W * P / 100 )) $(( H * P / 100 ))"');
+export function screenSizeCommand(fullSize = false): string {
+  return scaled('echo "$(( W * P / 100 )) $(( H * P / 100 ))"', fullSize);
+}
+
+export const SCREEN_SIZE_COMMAND = screenSizeCommand();
 
 export const SCREENSHOT_COMMAND = scaled([
   'd=$(mktemp -d) || exit 1',
@@ -43,7 +54,7 @@ export function imageFromOutput(stdout: string): string | null {
 
 const whole = (value: unknown) => Math.max(0, Math.trunc(Number(value)) || 0);
 
-export function zoomCommand(region: { x: unknown; y: unknown; width: unknown; height: unknown }): string {
+export function zoomCommand(region: { x: unknown; y: unknown; width: unknown; height: unknown }, fullSize = false): string {
   return scaled([
     `X=$(( ${whole(region.x)} * 100 / P ))`,
     `Y=$(( ${whole(region.y)} * 100 / P ))`,
@@ -60,5 +71,5 @@ export function zoomCommand(region: { x: unknown; y: unknown; width: unknown; he
     "d=$(mktemp -d) || exit 1",
     `trap 'rm -rf "$d"' EXIT`,
     `if [ "$Q" -lt 100 ]; then scrot --overwrite --pointer --quality ${SCREENSHOT_QUALITY} --autoselect "$X,$Y,$RW,$RH" --thumb "$Q" "$d/z.jpg" >/dev/null && base64 -w0 "$d/z-thumb.jpg"; else scrot --overwrite --pointer --quality ${SCREENSHOT_QUALITY} --autoselect "$X,$Y,$RW,$RH" "$d/z.jpg" >/dev/null && base64 -w0 "$d/z.jpg"; fi`,
-  ].join("; "));
+  ].join("; "), fullSize);
 }

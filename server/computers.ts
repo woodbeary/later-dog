@@ -39,6 +39,7 @@ async function fitSize(client: ComputersClient, cfg: AppConfig, computerId: stri
   }
 }
 const issuedHere = (id: string | undefined): id is string => typeof id === "string" && COMPUTER_ID.test(id);
+export const servedByComputers = (id: string): boolean => issuedHere(id);
 const sha256 = (value: string) => createHash("sha256").update(value).digest("hex");
 const pause = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 const PROVISION_BUDGET_MS = 90_000;

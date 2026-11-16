@@ -108,20 +108,38 @@ describe("cloud computer tools", () => {
     if (name === "type_text") expect(calls[0].body.command).not.toContain("$(echo unsafe)");
   });
 
+  const ownComputer = (stdout: string, seen: string[] = []) => async (command: string) => {
+    seen.push(command);
+    return { ok: true, exitCode: 0, stdout, stderr: "" };
+  };
+
   it("returns screenshots capped at 1024 pixels wide and compressed, taken in one command, as MCP images", async () => {
-    commandReply = { exitCode: 0, stdout: `${jpeg}\n`, stderr: "" };
-    const result = await rpc({ method: "tools/call", params: { name: "screenshot", arguments: {} } }).done;
+    const seen: string[] = [];
+    const result = await tools.runCloudComputerTool(cfg, "fixture", "screenshot", {}, new AbortController().signal, undefined, undefined, ownComputer(`${jpeg}\n`, seen));
     expect(result).toEqual({ content: [{ type: "image", mimeType: "image/jpeg", data: jpeg }] });
-    expect(calls).toHaveLength(1);
-    expect(calls[0].body.command).toContain("--quality 60 --thumb");
-    expect(calls[0].body.command).toContain("102400");
+    expect(seen).toHaveLength(1);
+    expect(seen[0]).toContain("--quality 60 --thumb");
+    expect(seen[0]).toContain("102400");
   });
 
   it("says the screenshot failed rather than sending something that is not a picture", async () => {
-    commandReply = { exitCode: 0, stdout: "captured", stderr: "" };
-    const result = await rpc({ method: "tools/call", params: { name: "screenshot", arguments: {} } }).done as { isError?: boolean; content: Array<{ text: string }> };
+    const result = await tools.runCloudComputerTool(cfg, "fixture", "screenshot", {}, new AbortController().signal, undefined, undefined, ownComputer("captured"));
     expect(result.isError).toBe(true);
-    expect(result.content[0].text).toContain("The screenshot failed");
+    expect(result.content[0]).toMatchObject({ type: "text", text: expect.stringContaining("The screenshot failed") });
+  });
+
+  it("keeps today's full-size screenshot and real coordinates on a computer from the older provider", async () => {
+    const shot = await rpc({ method: "tools/call", params: { name: "screenshot", arguments: {} } }).done;
+    expect(shot).toEqual({ content: [{ type: "image", mimeType: "image/jpeg", data: Buffer.from(jpeg, "base64").toString("base64") }] });
+    expect(calls[0].body.command).toContain("laterdog-panel.jpg.model.jpg");
+    expect(calls[1].path).toContain("laterdog-panel.jpg.model.jpg");
+    calls.length = 0;
+    await rpc({ method: "tools/call", params: { name: "click", arguments: { x: 1023, y: 639 } } }).done;
+    expect(calls[0].body.command).toContain("1023 * 100 / P");
+    expect(calls[0].body.command).not.toContain("102400");
+    calls.length = 0;
+    await rpc({ method: "tools/call", params: { name: "get_screen_size", arguments: {} } }).done;
+    expect(calls[0].body.command).not.toContain("102400");
   });
 
   it("stops a run as soon as the person takes control, before the next step and before the reading", async () => {
