@@ -25,6 +25,7 @@ const WHAT: Record<AlwaysAskId, string> = {
   "delete-outside-workspace": "deletes files outside the dog's own folders",
   "sends-for-you": "sends or posts as you from a connected app",
   "pays": "pays or moves money from a connected app",
+  "deletes-or-shares": "deletes something or changes who can reach it in a connected app",
 };
 
 const UNREADABLE = "This runs text later.dog cannot read, so it cannot tell whether it pushes code without running its checks.";
@@ -344,6 +345,23 @@ const POSTING_VERBS = new Set(["CREATE", "ADD", "NEW", "APPEND", "INSERT", "SCHE
 const POSTED_NOUNS = new Set(["EVENT", "INVITATION", "MEETING", "PAGE", "ISSUE", "TASK", "TICKET", "CARD", "DOCUMENT", "DOC", "BLOCK", "BLOCKS", "CHILDREN"]);
 const READ_VERBS = new Set(["GET", "LIST", "FETCH", "SEARCH", "READ", "FIND", "RETRIEVE", "LOOKUP", "DOWNLOAD", "VIEW", "CHECK", "COUNT"]);
 
+const STRONG_DESTROY_TOKENS = new Set(["DELETE", "DELETES", "TRASH", "REMOVE", "PURGE", "EMPTY", "DESTROY", "ERASE", "WIPE", "CLEAR"]);
+const DESTROY_TOKENS = new Set([...STRONG_DESTROY_TOKENS, "ARCHIVE"]);
+const REACH_TOKENS = new Set(["SHARE", "SHARING", "SHARED", "PERMISSION", "PERMISSIONS", "COLLABORATOR", "COLLABORATORS", "MEMBER", "MEMBERS", "INVITE",
+  "ACCESS", "VISIBILITY", "PUBLIC", "PRIVATE", "OWNER", "OWNERSHIP", "ROLE", "ROLES", "REVOKE", "UNSHARE"]);
+const READ_WORDS = new Set([...READ_VERBS, "VERIFY"]);
+const CONNECTOR_SLUG = /^[A-Z][A-Z0-9]*_[A-Z0-9_]+$/;
+const COMPOSIO_SERVER = "mcp__composio__";
+
+function deletesOrShares(tool: string): boolean {
+  const slug = tool.startsWith(COMPOSIO_SERVER) ? tool.slice(COMPOSIO_SERVER.length) : tool;
+  if (!CONNECTOR_SLUG.test(slug) || slug.startsWith("COMPOSIO_")) return false;
+  const tokens = actionTokens(slug);
+  if (!tokens.length || READ_VERBS.has(tokens[0]!)) return false;
+  if (tokens.some((token) => READ_WORDS.has(token)) && !tokens.some((token) => STRONG_DESTROY_TOKENS.has(token))) return false;
+  return tokens.some((token) => DESTROY_TOKENS.has(token) || REACH_TOKENS.has(token));
+}
+
 function appOf(tool: string): string {
   if (tool.startsWith("mcp__")) return serverOf(tool).toLowerCase();
   return /^[A-Z][A-Z0-9]*_/.test(tool) ? tool.slice(0, tool.indexOf("_")).toLowerCase() : "";
@@ -361,7 +379,8 @@ function actsAsYou(tool: string): AlwaysAskId | null {
 export function connectorAlwaysAsks(slugs: readonly string[]): AlwaysAsk | null {
   const ids = slugs.map(actsAsYou);
   if (ids.includes("pays")) return found("pays");
-  return ids.includes("sends-for-you") ? found("sends-for-you") : null;
+  if (ids.includes("sends-for-you")) return found("sends-for-you");
+  return slugs.some(deletesOrShares) ? found("deletes-or-shares") : null;
 }
 
 function macGuard(cwd: string | undefined): OwnerGuardContext {
@@ -389,6 +408,7 @@ const RULES: Record<AlwaysAskId, Rule> = {
   },
   "sends-for-you": ({ tool }) => actsAsYou(tool) === "sends-for-you",
   "pays": ({ tool }) => actsAsYou(tool) === "pays",
+  "deletes-or-shares": ({ tool }) => deletesOrShares(tool),
 };
 
 export function alwaysAsks(request: AlwaysAskRequest, guard: () => OwnerGuardContext): AlwaysAsk | null {
@@ -426,5 +446,5 @@ export function internalCallRequest(path: string, body: unknown): AlwaysAskReque
 }
 
 export function asksAsConnector(slug: string): boolean {
-  return isOutboundTool(slug) || actsAsYou(slug) !== null;
+  return isOutboundTool(slug) || actsAsYou(slug) !== null || deletesOrShares(slug);
 }

@@ -238,7 +238,23 @@ Nothing steps 1 to 5 add opens a path. These stay exactly as on main today:
 - **The saved-login Always** fills your password on any page of the same site, where the dog chooses the box (H1).
 - **Dogs a dog makes** copy all of those keys from their maker.
 - **An app's Always** still answers that app's calls that are not sends.
-- **Connected-app deletes and shares** never ask (item 45's list, outside this item).
+- **Connected-app deletes and shares** no longer belong here: stage three adds them to 207's list as a sixth kind, "deletes-or-shares" (see "Connected-app deletes and shares" below).
+
+## Connected-app deletes and shares (stage three)
+
+A call through a connected app that destroys something or changes who can reach it is a sixth kind on 207's list, `deletes-or-shares`, so it goes through `alwaysAsks` and step 1's order: it shows a card in every approval mode, owner-auto included, offers no Always, and is not answered by the app's old Always or this turn's Allow. The card names the app, the action and its arguments, and carries `lasting: { offered: false, why: "always-asks" }`, so it reads "This one always asks."
+
+The rule goes by the words in the call's name, not by a list of names. After the app's prefix is cut, a call asks when any word is one of:
+- destroys: `DELETE`, `DELETES`, `TRASH`, `REMOVE`, `PURGE`, `EMPTY`, `DESTROY`, `ERASE`, `WIPE`, `CLEAR`, `ARCHIVE`;
+- changes who can reach it: `SHARE`, `SHARING`, `SHARED`, `PERMISSION`, `PERMISSIONS`, `COLLABORATOR`, `COLLABORATORS`, `MEMBER`, `MEMBERS`, `INVITE`, `ACCESS`, `VISIBILITY`, `PUBLIC`, `PRIVATE`, `OWNER`, `OWNERSHIP`, `ROLE`, `ROLES`, `REVOKE`, `UNSHARE`.
+
+A read never asks: a call whose first word is a read word (`GET`, `LIST`, `FETCH`, `SEARCH`, `READ`, `FIND`, `RETRIEVE`, `LOOKUP`, `DOWNLOAD`, `VIEW`, `CHECK`, `COUNT`), or that has a read word or `VERIFY` anywhere and none of the destroy words but `ARCHIVE`.
+
+It applies to connected-app calls only (`APP_ACTION` names and `mcp__composio__` tools), never to later.dog's own tools or an engine's. Inside `COMPOSIO_MULTI_EXECUTE_TOOL` each call is checked; `COMPOSIO_PROXY_EXECUTE` already always asks.
+
+Measured on the tool names in the public tool pages of 18 apps (Gmail, Google Drive, Calendar, Docs, Sheets, GitHub, Notion, Slack, Outlook, Dropbox, HubSpot, Asana, Trello, Jira, X, Figma, Box, LinkedIn; 3,766 names, `docs.composio.dev/toolkits/<app>.md` on 16 November): 169 already asked as sends or payments, and 592 more ask now. The seven names this stage was found with are covered; `NOTION_ARCHIVE_PAGE` is not on Notion's current page but is covered by its words.
+
+What it misses, by name: a call whose name holds none of these words but whose arguments make it a delete or a share (for example a repository update that sets `visibility`, or a generic `UPDATE` with a role); Trello's archive by update (`TRELLO_UPDATE_BOARDS_CLOSED_BY_ID_BOARD` and the same for cards and lists); blocking a person (`GITHUB_BLOCK_USER`); turning off a protection rule (`GITHUB_DISABLE_A_CUSTOM_PROTECTION_RULE_FOR_AN_ENVIRONMENT`); and engine tools from other MCP servers. Cancelling, closing, locking and leaving are left out on purpose: they neither destroy nor change who can reach something. What it also catches: removing a reaction or a label, clearing a sheet's values, making or changing a role, and the event names of triggers (never called as tools).
 
 ## Other lasting answers checked, which need no change (H4)
 

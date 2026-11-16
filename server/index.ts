@@ -15780,7 +15780,9 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
                 options: ["Allow", "Deny"],
                 requestId: held.requestId,
                 tool: outboundTool,
-                ...(decision.toolkit && connectorAlwaysAsks(outboundCalls.map((call) => call.slug)) === null ? { allowKey: connectorAllowKey(decision.toolkit) } : {}),
+                ...(connectorAlwaysAsks(outboundCalls.map((call) => call.slug)) !== null
+                  ? { lasting: { offered: false as const, why: "always-asks" as const } }
+                  : decision.toolkit ? { allowKey: connectorAllowKey(decision.toolkit) } : {}),
                 held: HELD_NOTE["approval.held.outbound"],
                 heldCode: "approval.held.outbound",
                 outboundRequest: { tool: outboundTool, app, calls },

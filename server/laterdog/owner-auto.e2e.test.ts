@@ -418,6 +418,78 @@ it("an owner dog's send through a connected app always asks, with Auto-review of
   expect(relayed).toHaveLength(before);
 }, 60_000);
 
+const DELETES_OR_SHARES = [
+  ["GMAIL_DELETE_MESSAGE", { message_id: "m-1" }],
+  ["GMAIL_MOVE_TO_TRASH", { message_id: "m-2" }],
+  ["GOOGLEDRIVE_DELETE_FILE", { file_id: "f-1" }],
+  ["GOOGLEDRIVE_ADD_FILE_SHARING_PREFERENCE", { file_id: "f-2", role: "writer", type: "anyone" }],
+  ["GITHUB_ADD_A_REPOSITORY_COLLABORATOR", { owner: "o", repo: "r", username: "stranger" }],
+  ["GITHUB_DELETE_A_REPOSITORY", { owner: "o", repo: "r" }],
+  ["NOTION_ARCHIVE_PAGE", { page_id: "p-1" }],
+] as const;
+
+it.each(["ask", "auto"] as const)("a connected-app call that deletes something or changes who can reach it shows a card with no Always in %s, whatever the app's old Always or this turn's Allow", async (mode) => {
+  await autoReview(false);
+  const dog = await newDog(`Tidier ${mode}`, mode);
+  const kept = await api("PATCH", `/api/bots/${dog.id}`, { alwaysAllow: ["connector:gmail", "connector:googledrive", "connector:github", "connector:notion"] });
+  expect(kept.status, JSON.stringify(kept.body)).toBe(200);
+  const token = await mintConnectors(dog.id, dog.threadId);
+  for (const [slug, args] of DELETES_OR_SHARES) {
+    const before = relayed.length;
+    const shown = (await sendCards(dog.threadId)).length;
+    const asked = relay(token, slug, args);
+    await expect.poll(async () => (await sendCards(dog.threadId)).length, { timeout: 10_000, message: `${mode} ${slug} showed no card` }).toBe(shown + 1);
+    const card = (await sendCards(dog.threadId)).at(-1).card;
+    expect(card.tool).toBe(slug);
+    expect(card.allowKey).toBeUndefined();
+    expect(card.lasting).toEqual({ offered: false, why: "always-asks" });
+    expect(relayed).toHaveLength(before);
+    expect((await api("POST", `/api/bots/${dog.id}/always-allow`, { threadId: dog.threadId, allowKey: `connector:${slug.slice(0, slug.indexOf("_")).toLowerCase()}` })).status).toBe(409);
+    await api("POST", `/api/threads/${dog.threadId}/respond`, { requestId: card.requestId, behavior: "allow" });
+    expect((await asked).body.result.isError).toBeFalsy();
+    expect(relayed).toHaveLength(before + 1);
+  }
+}, 120_000);
+
+it("a delete inside a batch of connected-app calls, and code later.dog cannot read, each show a card with no Always for an owner dog", async () => {
+  await autoReview(false);
+  const dog = await newDog("Batcher", "auto");
+  const token = await mintConnectors(dog.id, dog.threadId);
+  for (const [name, args] of [
+    ["COMPOSIO_MULTI_EXECUTE_TOOL", { tools: [{ tool_slug: "GMAIL_FETCH_EMAILS", arguments: {} }, { tool_slug: "GITHUB_DELETE_A_REPOSITORY", arguments: { owner: "o", repo: "r" } }] }],
+    ["COMPOSIO_PROXY_EXECUTE", { endpoint: "/repos/o/r", method: "DELETE" }],
+  ] as const) {
+    const before = relayed.length;
+    const shown = (await sendCards(dog.threadId)).length;
+    const asked = relay(token, name, args);
+    await expect.poll(async () => (await sendCards(dog.threadId)).length, { timeout: 10_000, message: `${name} showed no card` }).toBe(shown + 1);
+    const card = (await sendCards(dog.threadId)).at(-1).card;
+    expect(card.allowKey).toBeUndefined();
+    expect(card.lasting).toEqual({ offered: false, why: "always-asks" });
+    await api("POST", `/api/threads/${dog.threadId}/respond`, { requestId: card.requestId, behavior: "deny" });
+    expect((await asked).body.result.isError).toBe(true);
+    expect(relayed).toHaveLength(before);
+  }
+}, 60_000);
+
+it("a read, and an ordinary create, through a connected app still run with no card for an owner dog", async () => {
+  await autoReview(false);
+  const dog = await newDog("Reader", "auto");
+  const token = await mintConnectors(dog.id, dog.threadId);
+  for (const [slug, args] of [
+    ["GMAIL_FETCH_EMAILS", { query: "from:me" }],
+    ["GITHUB_LIST_REPOSITORY_COLLABORATORS", { owner: "o", repo: "r" }],
+    ["GOOGLEDRIVE_GET_PERMISSION", { file_id: "f-1", permission_id: "p" }],
+    ["GOOGLEDRIVE_CREATE_FOLDER", { name: "Notes" }],
+  ] as const) {
+    const before = relayed.length;
+    const answer = await relay(token, slug, args);
+    expect(answer.body.result.isError, slug).toBeFalsy();
+    expect(relayed, slug).toHaveLength(before + 1);
+  }
+  expect(await sendCards(dog.threadId)).toHaveLength(0);
+}, 60_000);
+
 it("with Auto-review on, every owner dog runs under the engine's reviewer, which sees the standing grant, and what it leaves for the person becomes one card", async () => {
   await autoReview(true);
   const once = await newDog("Careful", "ask");

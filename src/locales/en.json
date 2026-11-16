@@ -444,6 +444,7 @@
   "askFirst.always.deleteOutside": "deletes files outside its own folders, here or on your Mac",
   "askFirst.always.sends": "sends, posts or invites as you from a connected app",
   "askFirst.always.pays": "pays or moves money from a connected app",
+  "askFirst.always.deletesOrShares": "deletes something or changes who can see it in a connected app",
   "settings.callButton.title": "Call button",
   "settings.callButton.on": "The phone shows in the message box so you can talk with your dog live.",
   "settings.callButton.off": "The phone is hidden from the message box. Dictation stays on.",
