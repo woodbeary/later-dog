@@ -204,16 +204,13 @@ describe("the Secure Form card", () => {
     expect(sent).toEqual([{ url: "/api/bots/pepper/secure-forms/form-1/submit", body: { threadId: "pepper-thread", login: "login-1" } }]);
   });
 
-  it("lets the dog use the saved login without asking only when the person ticks it", async () => {
-    const sent = later({ available: true, logins: [KIT], lookalike: null });
+  it("offers no way to let the dog use the saved login without asking", async () => {
+    later({ available: true, logins: [KIT], lookalike: null });
     mount(form());
     press(openButton()!);
     await vi.waitFor(() => expect(document.querySelector("[data-vault-offers]")).not.toBeNull());
-    const always = [...document.querySelectorAll("label")].find((label) => label.textContent === "Let Pepper use it on example.com without asking")!;
-    press(always.querySelector("input")!);
-    press(document.querySelector<HTMLButtonElement>("[data-vault-offers] button")!);
-    await vi.waitFor(() => expect(dialog()).toBeNull());
-    expect(sent).toEqual([{ url: "/api/bots/pepper/secure-forms/form-1/submit", body: { threadId: "pepper-thread", login: "login-1", always: true } }]);
+    expect(document.querySelector("[data-vault-offers] input[type=checkbox]")).toBeNull();
+    expect(document.querySelector("[data-vault-offers]")?.textContent).not.toContain("without asking");
   });
 
   it("warns about a site that only looks like one with a saved login, and offers nothing to save there", async () => {

@@ -7866,7 +7866,7 @@ describe("harness HTTP API", () => {
       expect(listed.body).toEqual({ paused: false, unreadable: true, items: [] });
       expect((await local("PATCH", `/api/bots/${bot.id}`, { alwaysAllow: ["vault:example.com"] })).status).toBe(200);
       const withOld = await local("GET", `/api/bots/${bot.id}/always-allowed`);
-      expect(withOld.body).toMatchObject({ paused: false, unreadable: true, items: [{ kind: "saved-login", subject: "example.com", state: "active" }] });
+      expect(withOld.body).toMatchObject({ paused: false, unreadable: true, items: [{ kind: "saved-login", subject: "example.com", state: "no-longer-used" }] });
       const login = withOld.body.items[0];
       expect((await local("DELETE", `/api/bots/${bot.id}/always-allowed/${encodeURIComponent(login.id)}`)).status).toBe(200);
       expect((await local("GET", `/api/bots/${bot.id}/always-allowed`)).body).toEqual({ paused: false, unreadable: true, items: [] });
@@ -7922,7 +7922,7 @@ describe("harness HTTP API", () => {
       expect((await record()).tasks.find((task: { threadId: string }) => task.threadId === second.threadId).alwaysAllow).toContain("vault:example.com");
       const listed = await api("GET", `/api/bots/${bot.id}/always-allowed`);
       const login = listed.body.items.find((item: { kind: string }) => item.kind === "saved-login");
-      expect(login).toMatchObject({ subject: "example.com", state: "active" });
+      expect(login).toMatchObject({ subject: "example.com", state: "no-longer-used" });
       expect(await holders()).toBeGreaterThan(0);
       const removed = await api("DELETE", `/api/bots/${bot.id}/always-allowed/${encodeURIComponent(login.id)}`);
       expect(removed.status).toBe(200);

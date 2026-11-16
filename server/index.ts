@@ -1636,7 +1636,7 @@ function oldGrantItem(key: string): AlwaysAllowedItem | null {
   const id = `key:${Buffer.from(key).toString("base64url")}`;
   if (key === DELETE_OUTSIDE_WORKSPACE_ALLOW_KEY) return { id, kind: "outside-delete", state: "no-longer-used" };
   if (key.startsWith("connector:")) return { id, kind: "app", subject: key.slice("connector:".length), state: "active" };
-  if (key.startsWith(VAULT_ALLOW_PREFIX)) return { id, kind: "saved-login", subject: key.slice(VAULT_ALLOW_PREFIX.length), state: "active" };
+  if (key.startsWith(VAULT_ALLOW_PREFIX)) return { id, kind: "saved-login", subject: key.slice(VAULT_ALLOW_PREFIX.length), state: "no-longer-used" };
   const peer = /^(?:ask_bot|delegate_bot):(.+)$/.exec(key);
   if (peer) return { id, kind: "teammate", subject: store.bot(peer[1]!)?.name ?? peer[1], state: "no-longer-used" };
   return null;
@@ -12822,13 +12822,6 @@ const secureForms = new SecureForms({
     credentials: (id) => vaultStore.credentials(id),
     save: (input) => { vaultStore.save(input); },
     addDetails: (details) => { vaultStore.addDetails(details); },
-  },
-  allows: (botId, threadId, key) => [store.bot(botId), store.projectBotForTask(botId, threadId)].some((bot) => bot?.alwaysAllow?.includes(key) === true),
-  grant: (botId, _threadId, key) => {
-    const bot = store.bot(botId);
-    if (!bot || bot.alwaysAllow?.includes(key)) return;
-    const updated = store.patchBot(botId, { alwaysAllow: [...(bot.alwaysAllow ?? []), key] });
-    if (updated) broadcast({ kind: "bot", bot: wireBot(updated) });
   },
 });
 

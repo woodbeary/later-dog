@@ -6,7 +6,7 @@ import { compileToolSchema } from "./mcp-schema-validator.ts";
 import { resolveUses, VAULT_OWNER_ONLY, type VaultItems } from "./laterdog/vault-commands.ts";
 import { capturedValue, maskValues, secretNameProblem, vaultFingerprint, VAULT_CAPTURE_SCHEMA, VAULT_USES_SCHEMA, wrapVaultCommand } from "./laterdog/vault-refs.ts";
 import { splitTabListing, TAB_TRACKED_TOOLS, withTabListing, type Target } from "./laterdog/cloud-tabs.ts";
-import { fillSecureField, parseSecureFormInput, SECURE_FORM_TOOLS, secureFormFilledText, secureFormRequestedText, type SecureFormDesk } from "./laterdog/secure-form.ts";
+import { fillSecureField, parseSecureFormInput, SECURE_FORM_TOOLS, secureFormRequestedText, type SecureFormDesk } from "./laterdog/secure-form.ts";
 
 const coordinate = { type: "integer", minimum: 0, maximum: 32767 };
 const tool = (name: string, description: string, properties: Record<string, unknown> = {}, required: string[] = []) =>
@@ -148,7 +148,7 @@ export async function cloudComputerRpc(
     const input = parseSecureFormInput(args as Record<string, unknown>);
     const opened = "error" in input ? input : desk.open(input);
     if ("error" in opened) return { isError: true, content: [{ type: "text", text: opened.error }] };
-    const text = opened.filled ? secureFormFilledText(opened.filled, opened.formId) : secureFormRequestedText(opened.formId);
+    const text = secureFormRequestedText(opened.formId);
     return { content: [{ type: "text", text }] };
   }
   const control = await deps.gate();
