@@ -26,4 +26,4 @@ export type AlwaysAllowedItem = {
   state: "active" | "no-longer-used";
 };
 
-export type AlwaysAllowedList = { paused: boolean; items: AlwaysAllowedItem[] };
+export type AlwaysAllowedList = { paused: boolean; unreadable?: true; items: AlwaysAllowedItem[] };

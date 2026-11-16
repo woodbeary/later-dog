@@ -146,6 +146,10 @@ export class LastingAllowStore {
     return this.rules.filter((rule) => rule.botId === botId);
   }
 
+  isUnreadable(): boolean {
+    return this.unreadable;
+  }
+
   isPaused(botId: string): boolean {
     return this.paused.has(botId);
   }

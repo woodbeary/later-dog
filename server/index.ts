@@ -1656,7 +1656,7 @@ function alwaysAllowedList(botId: string): AlwaysAllowedList {
   const commands: AlwaysAllowedItem[] = commandAllowlist.list(botId).map((rule) => ({
     id: `command:${rule.id}`, kind: "command", subject: redactSecretsInText(rule.command).slice(0, 200), state: "active",
   }));
-  return { paused: lastingAllows.isPaused(botId), items: [...searches, ...old, ...commands] };
+  return { paused: lastingAllows.isPaused(botId), ...(lastingAllows.isUnreadable() ? { unreadable: true as const } : {}), items: [...searches, ...old, ...commands] };
 }
 
 function removeAlwaysAllowed(botId: string, itemId: string): boolean {

@@ -7825,6 +7825,63 @@ describe("harness HTTP API", () => {
     }
   });
 
+  it("says the list could not be read when the Always store is damaged, instead of showing an empty list", async () => {
+    const isolatedHome = mkdtempSync(join(tmpdir(), "laterdog-always-unreadable-"));
+    const isolatedData = join(isolatedHome, ".laterdog");
+    const isolatedStatic = join(isolatedHome, "static");
+    const isolatedPort = await freePortBlock([0, 1]);
+    mkdirSync(join(isolatedStatic, "assets"), { recursive: true });
+    mkdirSync(isolatedData, { recursive: true });
+    writeFileSync(join(isolatedStatic, "index.html"), "<!doctype html><title>Always unreadable test</title>");
+    writeFileSync(join(isolatedStatic, "assets", "smoke.css"), "body{}");
+    writeFileSync(join(isolatedData, "lasting-allows.json"), "{not json");
+    let stderr = "";
+    const child = spawn(process.execPath, [join(SERVER_DIR, "index.ts")], {
+      cwd: ROOT,
+      env: {
+        ...(process.env.PATH ? { PATH: process.env.PATH } : {}),
+        ...(process.env.SystemRoot ? { SystemRoot: process.env.SystemRoot } : {}),
+        HOME: isolatedHome,
+        USERPROFILE: isolatedHome,
+        LATERDOG_SERVER_PORT: String(isolatedPort),
+        LATERDOG_WEBHOOK_PORT: String(isolatedPort + 1),
+        LATERDOG_STATIC_DIR: isolatedStatic,
+      },
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    child.stderr!.on("data", (chunk) => (stderr += chunk));
+    const local = async (method: string, path: string, body?: unknown): Promise<{ status: number; body: any }> => {
+      const response = await fetch(`http://127.0.0.1:${isolatedPort}${path}`, {
+        method,
+        headers: body ? { "content-type": "application/json" } : undefined,
+        body: body ? JSON.stringify(body) : undefined,
+      });
+      return { status: response.status, body: await response.json() };
+    };
+    try {
+      await waitForIsolatedServer(child, isolatedPort, () => stderr);
+      const bot = (await local("POST", "/api/bots", { name: "Wren" })).body.bot;
+      const listed = await local("GET", `/api/bots/${bot.id}/always-allowed`);
+      expect(listed.status).toBe(200);
+      expect(listed.body).toEqual({ paused: false, unreadable: true, items: [] });
+      expect(readFileSync(join(isolatedData, "lasting-allows.json"), "utf8")).toBe("{not json");
+    } finally {
+      await waitForExit(child, { signal: "SIGTERM" });
+      await removeTempDir(isolatedHome);
+    }
+  }, 60_000);
+
+  it("leaves unreadable off the list when the Always store reads cleanly", async () => {
+    const bot = (await api("POST", "/api/bots", { name: "Plover" })).body.bot;
+    try {
+      const listed = await api("GET", `/api/bots/${bot.id}/always-allowed`);
+      expect(listed.status).toBe(200);
+      expect(listed.body).not.toHaveProperty("unreadable");
+    } finally {
+      await api("DELETE", `/api/bots/${bot.id}`);
+    }
+  });
+
   it("lists an old key from every chat it was copied into, and Remove takes it out of all of them", async () => {
     const bot = (await api("POST", "/api/bots", { name: "Kestrel" })).body.bot;
     try {

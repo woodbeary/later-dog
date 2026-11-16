@@ -133,6 +133,7 @@ describe("the store", () => {
   it("answers nothing and refuses new grants when the file cannot be read", () => {
     const file = fresh();
     writeFileSync(file, "{not json");
+    expect(new LastingAllowStore(file).isUnreadable()).toBe(true);
     const store = new LastingAllowStore(file);
     expect(store.answers("dog-1", key)).toBeUndefined();
     expect(() => store.grant({ botId: "dog-1", keySha256: key, grantedBy: "p_owner", fromThreadId: "t1" })).toThrow(/could not be read/);
