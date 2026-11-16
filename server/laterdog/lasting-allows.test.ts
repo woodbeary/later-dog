@@ -86,6 +86,10 @@ describe("only the owner reached the turn", () => {
     expect(reached([said(0, { sender: { id: "p_member" } }), reply(1, { from: { botId: "b" } })])).toBe(false);
   });
 
+  it("fails for a message posted through the local API, which has no person behind it", () => {
+    expect(reached([reply(1), said(2, { sender: undefined, via: "api" })])).toBe(false);
+  });
+
   it("does not look at messages answered by an earlier turn of this dog", () => {
     expect(reached([said(0, { sender: { id: "p_guest" } }), reply(1), said(2)])).toBe(true);
   });

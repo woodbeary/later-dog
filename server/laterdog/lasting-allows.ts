@@ -94,7 +94,7 @@ export function onlyOwnerReached(lines: readonly TurnLine[], startedAt: number |
   return lines.slice(lastReply + 1).every((line) => {
     if (line.from !== undefined && line.from.botId !== asker) return false;
     if (line.role !== "user") return true;
-    return !line.peerAsk && !line.relayed && !line.webhookPost && ownerPerson(line.sender?.id);
+    return !line.peerAsk && !line.relayed && !line.webhookPost && line.via !== "api" && ownerPerson(line.sender?.id);
   });
 }
 
