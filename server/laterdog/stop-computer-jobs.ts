@@ -40,8 +40,8 @@ export async function stopComputerJobs(jobs: ComputerJobs, threadId: string, dep
         left.push(job.id);
         continue;
       }
-      if (computer?.state !== "running") result = "gone";
-      else result = await deps.stop(computer.box, job).catch((): RunStop => "alive");
+      if (computer?.state === "gone") result = "gone";
+      else if (computer?.state === "running") result = await deps.stop(computer.box, job).catch((): RunStop => "alive");
     } finally {
       release();
     }

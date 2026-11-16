@@ -88,11 +88,7 @@ describe("stopping a command on the dog's computer", () => {
     expect(await runs.stop(box, record)).toBe("gone");
   }, 30_000);
 
-  it.each<[string, () => Promise<JobComputer>]>([
-    ["in an error state, still starting or switched off", async () => ({ state: "unsure" })],
-    ["missing", async () => ({ state: "gone" })],
-    ["unreachable", async () => { throw new Error("computers service unreachable"); }],
-  ])("ends a job here as stopped when its computer is %s, without saying it still runs", async (_label, computer) => {
+  const stopOn = async (computer: () => Promise<JobComputer>) => {
     const jobs = new ComputerJobs(null);
     jobs.started({ id: "abcd1234", botId: "b1", threadId: "t1", command: "pnpm test", startedAt: 1 });
     const said: string[] = [];
@@ -103,10 +99,27 @@ describe("stopping a command on the dog's computer", () => {
       couldNotStop: () => said.push("could not stop"),
       partlyStopped: () => said.push("partly"),
     });
+    return { jobs, said, asked, result };
+  };
+
+  it("ends a job here as stopped when its computer was removed, without saying it still runs", async () => {
+    const { jobs, said, asked, result } = await stopOn(async () => ({ state: "gone" }));
     expect(result).toEqual({ stopped: ["abcd1234"], partly: [], left: [] });
     expect(said).toEqual([]);
     expect(asked).toBe(0);
     expect(jobs.count("t1")).toBe(0);
+    expect(jobs.unannounced()).toEqual([]);
+  });
+
+  it.each<[string, () => Promise<JobComputer>]>([
+    ["in an error state, still starting or switched off", async () => ({ state: "unsure" })],
+    ["unreachable", async () => { throw new Error("computers service unreachable"); }],
+  ])("keeps a job shown and says it could not be stopped when its computer is %s", async (_label, computer) => {
+    const { jobs, said, asked, result } = await stopOn(computer);
+    expect(result).toEqual({ stopped: [], partly: [], left: ["abcd1234"] });
+    expect(said).toEqual(["could not stop"]);
+    expect(asked).toBe(0);
+    expect(jobs.count("t1")).toBe(1);
     expect(jobs.unannounced()).toEqual([]);
   });
 
