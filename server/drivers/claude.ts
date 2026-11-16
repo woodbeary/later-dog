@@ -267,6 +267,13 @@ export function autoCompactWindow(env: NodeJS.ProcessEnv, tuned = false): string
   return String(Math.min(1_000_000, Math.max(100_000, Math.floor(parsed))));
 }
 
+export function nativeCompactWindow(env: NodeJS.ProcessEnv, tuned = false): number | undefined {
+  const own = (env.CLAUDE_CODE_AUTO_COMPACT_WINDOW ?? "").trim();
+  if (own) return /^\d+$/.test(own) && Number(own) > 0 ? Number(own) : undefined;
+  const window = autoCompactWindow(env, tuned);
+  return window && /^\d+$/.test(window) ? Number(window) : undefined;
+}
+
 export const CLAUDE_TUNED_WINDOW_FLOOR: ClaudeCliVersion = [2, 1, 311];
 
 export function claudeKeepsTunedWindow(version: ClaudeCliVersion | null, managed = false): boolean {
@@ -2417,8 +2424,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
         nativeCompactAt: async () => {
           const env = environment();
           await learnCliFlags(env);
-          const window = autoCompactWindow(env, claudeKeepsTunedWindow(cliVersion, config.managed));
-          return window && /^\d+$/.test(window) ? Number(window) : undefined;
+          return nativeCompactWindow(env, claudeKeepsTunedWindow(cliVersion, config.managed));
         },
         stopAll: async () => {
           for (const controller of starting.values()) controller.abort();

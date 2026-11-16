@@ -1677,6 +1677,8 @@ describe("ClaudeDriver turns (fake CLI)", () => {
     ["compaction turned off", { LATERDOG_CLAUDE_AUTOCOMPACT: "off" }, {}, undefined],
     ["the engine's own window", { LATERDOG_CLAUDE_AUTOCOMPACT: "auto" }, {}, undefined],
     ["a hosted company account", {}, { managed: true }, 200_000],
+    ["the engine's own window variable, which outranks the flag", { CLAUDE_CODE_AUTO_COMPACT_WINDOW: "150000" }, {}, 150_000],
+    ["an engine window variable later.dog cannot read", { CLAUDE_CODE_AUTO_COMPACT_WINDOW: "150k" }, {}, undefined],
   ] as const)("reports the native compaction bound for %s on a current Claude", async (_label, environment, config, bound) => {
     await create(undefined, { FAKE_CLAUDE_VERSION: "2.1.316", ...environment }, config);
     await expect(instance.adapter.nativeCompactAt!()).resolves.toBe(bound);
