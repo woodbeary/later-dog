@@ -41,6 +41,7 @@ import {
 } from "../../shared/skill-request";
 import type { Routine, RoutineInput, RoutineRun, RoutineRunStatusFilter } from "@/lib/routines";
 import { botShowsUnread } from "@/lib/bot-unread";
+import { announceAlwaysAllowedChange } from "@/lib/always-allowed-changes";
 import { personIsLooking, readWhenBack } from "@/lib/viewing";
 import { jevRoomRoutingOn } from "@/lib/group-routing";
 import { descendsFrom, newestTip } from "@/lib/leaf-follow";
@@ -2839,6 +2840,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
                     method: owner ? "POST" : "PATCH",
                     body: JSON.stringify(owner ? { threadId: action.threadId, allowKey: action.alwaysAllow.key } : { alwaysAllow: next }),
                   });
+                  announceAlwaysAllowedChange(action.alwaysAllow.botId);
                 } catch (error) {
                   grantSaved = false;
                   reportError(error, chatPane(action.threadId));
@@ -2850,6 +2852,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
                     method: "POST",
                     body: JSON.stringify({ threadId: action.threadId, requestId: action.requestId }),
                   });
+                  announceAlwaysAllowedChange(action.lastingGrant.botId);
                 } catch (error) {
                   grantSaved = false;
                   reportError(error, chatPane(action.threadId));

@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 
+import { onAlwaysAllowedChange } from "@/lib/always-allowed-changes";
 import { appName } from "@/lib/app-name";
 import { cn } from "@/lib/cn";
 import { activeLocale, t } from "@/lib/i18n";
@@ -34,6 +35,9 @@ export function AllowedWithoutAsking({ bot }: { bot: Bot }) {
   const [list, setList] = useState<AlwaysAllowedList | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [failed, setFailed] = useState(false);
+  const [changed, setChanged] = useState(0);
+
+  useEffect(() => onAlwaysAllowedChange(bot.id, () => setChanged((count) => count + 1)), [bot.id]);
 
   useEffect(() => {
     let cancelled = false;
@@ -41,7 +45,7 @@ export function AllowedWithoutAsking({ bot }: { bot: Bot }) {
       .then((answer) => { if (!cancelled) setList(answer); })
       .catch(() => { if (!cancelled) setList(null); });
     return () => { cancelled = true; };
-  }, [bot.id, bot.alwaysAllow]);
+  }, [bot.id, bot.alwaysAllow, changed]);
 
   if (!list) return null;
   const explained = !list.paused && !list.unreadable && list.items.some((item) => item.state === "active");
