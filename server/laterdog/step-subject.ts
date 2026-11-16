@@ -6,6 +6,8 @@ const LIMIT = 120;
 const fields = (value: unknown): Fields => value && typeof value === "object" && !Array.isArray(value) ? value as Fields : {};
 const words = (value: unknown): string | undefined => typeof value === "string" && value.trim() ? value.trim() : undefined;
 const unredacted = (text: string | undefined): string | undefined => text !== undefined && redactSecrets(text) === text ? text : undefined;
+const NOT_PLAIN = /[*\\/[\]{}^|;<>`$]|&&|__|(?:^|\s)(?:~|\.{1,2}\w|-{1,2}[A-Za-z])/;
+const plain = (text: string | undefined): string | undefined => text !== undefined && !NOT_PLAIN.test(text) ? text : undefined;
 
 function fileWords(path: string | undefined): string | undefined {
   const name = path?.split(/[\\/]/).at(-1);
@@ -35,11 +37,11 @@ export function stepSubject(toolName: string, input: unknown): string | undefine
   const given = fields(input);
   switch (outcomeKindOfTool(toolName)) {
     case "command": case "check": case "cloud": case "help":
-      return clean(words(given.description));
+      return clean(plain(words(given.description)));
     case "read": case "wrote": case "edit": case "delete":
       return clean(fileWords(unredacted(words(given.file_path) ?? words(given.notebook_path) ?? words(given.path))));
     case "search": case "chats": case "web":
-      return clean(words(given.query) ?? words(given.pattern));
+      return toolName.trim().toLowerCase().split("__").at(-1) === "glob" ? undefined : clean(plain(words(given.query) ?? words(given.pattern)));
     case "page": case "open":
       return clean(host(unredacted(words(given.url))));
     default:

@@ -45,6 +45,50 @@ describe("what a step is about", () => {
     expect(stepSubject(tool, input)).toBe(subject);
   });
 
+  it.each([
+    ["Bash", { command: "cat /Users/jacob/.ssh/id_rsa", description: "cat /Users/jacob/.ssh/id_rsa" }],
+    ["Bash", { command: "rm -rf ~/code/app && git push --force", description: "rm -rf ~/code/app && git push --force" }],
+    ["Bash", { command: "pnpm gate", description: "Run mcp__agents__run_on_computer with pnpm gate" }],
+    ["Task", { description: "Explore /Users/jacob/code/app/src for the bug", prompt: "Find the bug" }],
+    ["Glob", { pattern: "src/**/secret/*.ts" }],
+    ["Grep", { pattern: "password\\s*=\\s*\"hunter2\"" }],
+  ])("gives %s no subject when its words hold a path, command text, a tool name or a pattern: %j", (tool, input) => {
+    expect(stepSubject(tool, input)).toBeUndefined();
+  });
+
+  it.each([
+    "Look in C:\\menus for the price list",
+    "List the files in ~ before the build",
+    "Read .env for the port",
+    "Count the orders | sort them",
+    "Build the app; then test it",
+    "Save the log > out.txt",
+    "Run the tests with --watch",
+    "Print $HOME",
+    "Run `pnpm test` for the order form",
+    "Find orders matching [A-Z]+ in the menu",
+  ])("gives no subject to a description with path or command syntax: %s", (description) => {
+    expect(stepSubject("Bash", { command: "true", description })).toBeUndefined();
+  });
+
+  it("gives Glob no subject even for a plain word", () => {
+    expect(stepSubject("Glob", { pattern: "menu" })).toBeUndefined();
+    expect(stepSubject("mcp__files__glob", { pattern: "menu" })).toBeUndefined();
+  });
+
+  it.each([
+    ["Bash", { description: "Run the order form tests" }, "Run the order form tests"],
+    ["Bash", { description: "Install the packages for the shop" }, "Install the packages for the shop"],
+    ["Bash", { description: "Check the menu's prices, then the order form" }, "Check the menu's prices, then the order form"],
+    ["Bash", { description: "Fix the 2-step sign-in (draft)" }, "Fix the 2-step sign-in (draft)"],
+    ["Task", { description: "Find where pickup times are set" }, "Find where pickup times are set"],
+    ["Agent", { description: "Q&A notes for the spring menu" }, "Q&A notes for the spring menu"],
+    ["WebSearch", { query: "how do I rotate keys?" }, "how do I rotate keys?"],
+    ["Grep", { pattern: "pickup time" }, "pickup time"],
+  ])("still uses plain words for %s: %j", (tool, input, subject) => {
+    expect(stepSubject(tool, input)).toBe(subject);
+  });
+
   it("has no subject for anything else or for input it cannot read", () => {
     expect(stepSubject("TodoWrite", { todos: [] })).toBeUndefined();
     expect(stepSubject("coordinate_bots", { message: "Check the menu", description: "Ask Otis" })).toBeUndefined();
