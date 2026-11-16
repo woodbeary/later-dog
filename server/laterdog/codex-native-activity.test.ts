@@ -153,6 +153,26 @@ describe("Codex native activity details", () => {
   });
 });
 
+describe("what a Codex step is about", () => {
+  it("names a changed file, the search words and a tool's file, and never command text", () => {
+    const f = fixture();
+    f.send("item/started", { item: { id: "patch", type: "fileChange", status: "inProgress", changes: [{ path: "/srv/shop/src/OrderForm.tsx", kind: { type: "update" }, diff: "" }] } });
+    f.send("item/started", { item: { id: "many", type: "fileChange", status: "inProgress", changes: [{ path: "a.ts" }, { path: "b.ts" }] } });
+    f.send("item/completed", { item: { id: "web", type: "webSearch", query: "pickup times", status: "completed" } });
+    f.send("item/started", { item: { id: "mcp", type: "mcpToolCall", server: "files", tool: "read_file", arguments: { path: "docs/spring-menu.md" }, status: "inProgress" } });
+    f.send("item/started", { item: { id: "cmd", type: "commandExecution", command: "pnpm test", status: "inProgress" } });
+    expect(f.latestActivity("patch")?.subject).toBe("order form");
+    expect(f.latestActivity("many")?.subject).toBeUndefined();
+    expect(f.latestActivity("web")).toMatchObject({ kind: "search", label: "pickup times", subject: "pickup times" });
+    expect(f.latestActivity("mcp")).toMatchObject({ label: "read_file", subject: "spring menu" });
+    expect(f.latestActivity("cmd")).toMatchObject({ label: "pnpm test" });
+    expect(f.latestActivity("cmd")).not.toHaveProperty("subject");
+    f.send("item/fileChange/outputDelta", { itemId: "patch", delta: "updated" });
+    f.send("item/completed", { item: { id: "patch", type: "fileChange", status: "completed", changes: [{ path: "/srv/shop/src/OrderForm.tsx", diff: "+x" }] } });
+    expect(f.latestActivity("patch")).toMatchObject({ state: "done", subject: "order form" });
+  });
+});
+
 describe("when a Codex helper last moved", () => {
   it("moves when the parent hears what a helper is doing", () => {
     let clock = 100;

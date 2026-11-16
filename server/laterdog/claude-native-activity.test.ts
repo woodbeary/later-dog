@@ -228,6 +228,54 @@ describe("Claude native activity", () => {
   });
 });
 
+describe("what a Claude step is about", () => {
+  it("names each step in plain words when the call starts and keeps the raw tool name as its label", () => {
+    const f = fixture();
+    f.native.receive(assistant("tools", [
+      { type: "tool_use", id: "bash", name: "Bash", input: { command: "pnpm test order-form", description: "Run the order form tests" } },
+      { type: "tool_use", id: "bare", name: "Bash", input: { command: "rm -rf build" } },
+      { type: "tool_use", id: "task", name: "Task", input: { description: "Check the spring menu", prompt: "Read every menu file" } },
+      { type: "tool_use", id: "read", name: "Read", input: { file_path: "/srv/shop/src/OrderForm.tsx" } },
+      { type: "tool_use", id: "write", name: "Write", input: { file_path: "/srv/shop/server/order-store.ts", content: "x" } },
+      { type: "tool_use", id: "edit", name: "Edit", input: { file_path: "docs/spring-menu.md", old_string: "a", new_string: "b" } },
+      { type: "tool_use", id: "readme", name: "Read", input: { file_path: "README.md" } },
+      { type: "tool_use", id: "grep", name: "Grep", input: { pattern: "pickup" } },
+      { type: "tool_use", id: "search", name: "WebSearch", input: { query: "pickup times" } },
+      { type: "tool_use", id: "fetch", name: "WebFetch", input: { url: "https://www.stripe.com/docs", prompt: "Read it" } },
+      { type: "tool_use", id: "plan", name: "TodoWrite", input: { todos: [] } },
+    ]));
+    expect(f.activities().map(activity => [activity.label, activity.subject])).toEqual([
+      ["Bash", "Run the order form tests"],
+      ["Bash", undefined],
+      ["Task", "Check the spring menu"],
+      ["Read", "order form"],
+      ["Write", "order store"],
+      ["Edit", "spring menu"],
+      ["Read", "readme"],
+      ["Grep", "pickup"],
+      ["WebSearch: pickup times", "pickup times"],
+      ["WebFetch: https://www.stripe.com/docs", "stripe.com"],
+      ["TodoWrite", undefined],
+    ]);
+    expect(f.activities()[1]).not.toHaveProperty("subject");
+    f.native.receive({ type: "user", uuid: "bash-result", message: { content: [{ type: "tool_result", tool_use_id: "bash", content: "ok" }] } });
+    expect(f.activities().at(-1)).toMatchObject({ label: "Bash", state: "done", subject: "Run the order form tests" });
+  });
+
+  it("hides a secret-looking token in a description and cuts a long one to 120 characters", () => {
+    const f = fixture();
+    const description = "Run the order form tests again ".repeat(10).slice(0, 300);
+    f.native.receive(assistant("described", [
+      { type: "tool_use", id: "deploy", name: "Bash", input: { command: "deploy", description: "Deploy with key sk-test-notarealkey0000000000 to staging" } },
+      { type: "tool_use", id: "long", name: "Bash", input: { command: "pnpm test", description } },
+    ]));
+    const [deploy, long] = f.activities();
+    expect(deploy!.subject).toMatch(/^Deploy with key .+ to staging$/);
+    expect(deploy!.subject).not.toContain("sk-test-notarealkey0000000000");
+    expect(long!.subject).toBe(description.slice(0, 120));
+  });
+});
+
 describe("when a Claude helper last moved", () => {
   it("moves on the helper's task progress and updates, and not on a background list that only names it", () => {
     let clock = 1_000;

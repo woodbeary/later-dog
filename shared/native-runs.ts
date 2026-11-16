@@ -29,6 +29,7 @@ export interface NativeActivity {
   actorId: string;
   kind: NativeActivityKind;
   label: string;
+  subject?: string;
   state: NativeActorState;
   startedAt: number;
   endedAt?: number;
