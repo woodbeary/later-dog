@@ -72,6 +72,7 @@ function secureSignIn(): string {
 <label for="code">One-time code</label><input id="code" name="code" inputmode="numeric" autocomplete="one-time-code">
 <label for="card">Card number</label><input id="card" name="card" type="tel" autocomplete="cc-number">
 <div id="notes" role="textbox" aria-label="Notes" contenteditable="true"></div>
+<label>Diary <div id="diary" contenteditable="true"></div></label>
 <p><button type="submit">Continue</button></p></form>`);
 }
 

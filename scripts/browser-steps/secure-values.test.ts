@@ -5,7 +5,7 @@ import type { AppConfig } from "../../server/config.ts";
 import { startFixtureSite } from "./fixture-site.ts";
 import { headlessBrowser, refIn, type HeadlessBrowser } from "./no-vision.ts";
 
-const SECRETS = { email: "ada.secret@example.test", password: "S3cret-pass!", code: "482913", card: "4111111111111111", notes: "private note 7731" };
+const SECRETS = { email: "ada.secret@example.test", password: "S3cret-pass!", code: "482913", card: "4111111111111111", notes: "private note 7731", diary: "dear diary 5521" };
 const cfg = { features: { pageTools: true } } as AppConfig;
 const signal = new AbortController().signal;
 
@@ -55,6 +55,7 @@ describe.skipIf(!headlessBrowser.available())("what the page tools show after a 
       () => call("page_text", { selector: "body" }),
       () => call("run_actions", { steps: [{ action: "wait", ms: 0 }], reading: "page" }),
       () => call("page_text", { ref: refIn(read, "textbox", "Notes") }),
+      () => call("page_text", { ref: refIn(read, "textbox", "Diary") }),
     ];
     for (const [index, step] of steps.entries()) leaks(index + 1, await step());
     expect(read).toMatch(/textbox "Email" \(filled\)/);

@@ -25,15 +25,20 @@ function outline(scope, max) {
     const box = el.getBoundingClientRect();
     return box.width === 0 && box.height === 0 && el.tagName !== "OPTION";
   };
+  const labelText = (label) => {
+    const copy = label.cloneNode(true);
+    for (const field of copy.querySelectorAll("[contenteditable],textarea,input,select")) field.remove();
+    return clean(copy.textContent);
+  };
   const labelOf = (el) => {
     const aria = el.getAttribute("aria-label");
     if (aria) return clean(aria);
     if (el.id) {
       const label = document.querySelector('label[for="' + CSS.escape(el.id) + '"]');
-      if (label) return clean(label.innerText);
+      if (label) return labelText(label);
     }
     const wrap = el.closest("label");
-    if (wrap) return clean(wrap.innerText);
+    if (wrap) return labelText(wrap);
     return clean(el.getAttribute("placeholder") || el.getAttribute("name") || el.getAttribute("title") || "");
   };
   const labelsControl = (el) => (el.htmlFor && document.getElementById(el.htmlFor)) || el.querySelector("input,select,textarea");
