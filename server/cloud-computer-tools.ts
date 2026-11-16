@@ -9,6 +9,7 @@ import { splitTabListing, TAB_TRACKED_TOOLS, withTabListing, type Target } from 
 import { fillSecureField, parseSecureFormInput, SECURE_FORM_TOOLS, secureFormFilledText, secureFormRequestedText, type SecureFormDesk } from "./laterdog/secure-form.ts";
 import { imageFromOutput, onScreen, pointerTo, scaled, SCREEN_SIZE_COMMAND, SCREENSHOT_COMMAND, zoomCommand } from "./laterdog/screen-scale.ts";
 import { PAGE_TOOL_NAMES, PAGE_TOOLS, pageToolsEnabled, runPageTool, type RemoteExec } from "./laterdog/page-tools.ts";
+import { RUN_ACTIONS_TOOL, runActions } from "./laterdog/action-run.ts";
 
 export type { RemoteExec };
 
@@ -25,6 +26,7 @@ export const CLOUD_COMPUTER_TOOLS = [
   tool("type_text", "Type Unicode text into the focused cloud application.", { text: { type: "string", maxLength: 4000 } }, ["text"]),
   tool("key_press", "Press an X11 key or shortcut.", { key: { type: "string", pattern: "^[A-Za-z0-9_+]+$", minLength: 1, maxLength: 100 } }, ["key"]),
   tool("scroll", "Scroll at a point on the cloud desktop.", { x: coordinate, y: coordinate, direction: { type: "string", enum: ["up", "down", "left", "right"] }, amount: { type: "integer", minimum: 1, maximum: 30 } }, ["x", "y", "direction"]),
+  RUN_ACTIONS_TOOL,
   tool("open_url", "Request opening an HTTP or HTTPS URL in the cloud desktop browser; inspect the screen to confirm it loaded.", { url: { type: "string", pattern: "^https?://", maxLength: 2000 } }, ["url"]),
   tool("exec", "Run a shell command on the assigned cloud computer. For a token, password or key, pass vault items by name with vault and keep a printed one with vault_capture; never echo, cat or generate a secret in the command itself.", {
     command: { type: "string", minLength: 1, maxLength: 4000 },
@@ -72,6 +74,15 @@ export async function runCloudComputerTool(
   const problem = cloudComputerCallProblem(name, args);
   if (problem) return { isError: true, content: [{ type: "text", text: problem }] };
   signal.throwIfAborted();
+  if (name === "run_actions") {
+    return runActions({
+      steps: args.steps as Array<Record<string, unknown> & { action: string }>,
+      reading: args.reading as "page" | "screenshot" | undefined,
+      pageTools: pageToolsEnabled(cfg),
+      problem: cloudComputerCallProblem,
+      run: (step, stepArgs) => runCloudComputerTool(cfg, boxId, step, stepArgs, signal, onTabs, vault, exec),
+    });
+  }
   if (PAGE_TOOL_NAMES.has(name)) {
     if (!pageToolsEnabled(cfg)) return { isError: true, content: [{ type: "text", text: "Unknown cloud computer tool. Use one of the advertised computer tools." }] };
     const page = await runPageTool(exec, name, args, signal);

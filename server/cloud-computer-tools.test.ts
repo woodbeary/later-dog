@@ -49,10 +49,10 @@ const rpc = (request: unknown, gate: { held: boolean; blockedReason?: string } =
 };
 
 describe("cloud computer tools", () => {
-  it("lists the same thirteen tools for every engine", async () => {
+  it("lists the same fourteen tools for every engine", async () => {
     const listed = await rpc({ method: "tools/list", params: {} }).done as { tools: Array<{ name: string }> };
     expect(listed.tools.map(tool => tool.name)).toEqual([
-      "screenshot", "get_screen_size", "zoom", "click", "move", "drag", "type_text", "key_press", "scroll", "open_url", "exec",
+      "screenshot", "get_screen_size", "zoom", "click", "move", "drag", "type_text", "key_press", "scroll", "run_actions", "open_url", "exec",
       "request_secure_form", "fill_secure_field",
     ]);
     expect(calls).toEqual([]);
