@@ -439,7 +439,7 @@
   "askFirst.remove": "Remove “{rule}”",
   "askFirst.full": "You have the most rules a home can keep",
   "askFirst.saveFailed": "Couldn't save. Try again.",
-  "askFirst.always": "Whatever its approval setting, every dog asks you before it {list}, unless you chose Always on that card; it goes by how a command is written, so it catches slips, not a dog set on getting around it.",
+  "askFirst.always": "Whatever its approval setting, every dog asks you before it {list}, every time; it goes by how a command is written, so it catches slips, not a dog set on getting around it.",
   "askFirst.always.pushSkipsChecks": "pushes code without running its checks",
   "askFirst.always.cloudCredential": "makes a sign-in key or client in a cloud account",
   "askFirst.always.deleteOutside": "deletes files outside its own folders, here or on your Mac",
