@@ -7,9 +7,9 @@ Token figures are estimates. Text is bytes divided by 4. Images use Claude's for
 ## What a dog and the person see differently
 
 - **A. Page tools, behind the switch (off by default).** With `features.pageTools` on, a dog on its cloud computer also gets eight page tools: `page_open`, `page_read`, `page_click`, `page_fill`, `page_select`, `page_press`, `page_back` and `page_text`. They read and act on the same Chromium the screen shows. Its standing instructions add one sentence: read the page's structure first, and take a screenshot only when the structure does not show what is needed. With the switch off, the tool list has no page tools, a page tool call is refused, and the instructions are byte for byte today's (a test pins their hash).
-- **B. Smaller screenshots, a zoom tool, and no 15-second click.** These apply to every dog on a cloud computer.
+- **B. Smaller screenshots, a zoom tool, and no 15-second click.** These apply to every dog on a cloud computer the computers service runs. A computer from the older provider keeps today's full-size screenshot and real coordinates.
   - A screenshot is now at most 1024 pixels wide (1024x640 on today's desktop), JPEG quality 60. Before, it was 1280x800 at quality 75.
-  - Clicks, moves, drags and scrolls are given in the screenshot's coordinates and scaled back to the real screen. The corners and the centre are tested.
+  - Clicks, moves, drags, scrolls and `fill_secure_field` are given in the screenshot's coordinates and scaled back to the real screen. The corners and the centre are tested for click and for `fill_secure_field`. No other route takes a dog's coordinates.
   - `zoom` shows one region at the real screen's detail, also capped at 1024 pixels wide.
   - A click to where the pointer already was took about 15 seconds before (`xdotool mousemove --sync` waits for a move that never comes); now the pointer is moved only when it is elsewhere.
   - The person's live view and the frame kept in the chat still come from the full-size frame.
@@ -17,6 +17,15 @@ Token figures are estimates. Text is bytes divided by 4. Images use Claude's for
   - Every step is checked before any runs. The run stops at the first step that fails, and says which step and what was done before it.
   - It ends with one reading: the page structure when the page tools are offered, otherwise one screenshot.
   - A secure field, a secure form, a vault item or a command cannot be part of a run.
+  - Before every step and before the reading, it checks that the person has not taken control of the computer; if they have, it stops and says what ran. A wait ends at once on Stop.
+
+## What the page tools never show
+
+A text field, password, one-time code, card number or editable area shows only as `(filled)` or empty in `page_read`; `page_text` of a field answers `(filled; field values are not shown)` or `(empty)`; text read from a part of the page leaves editable areas out; the reading at the end of `run_actions` uses the same path. This holds for every field, not only the ones a Secure Form typed: the home cannot know for sure which fields a paste reached, or what the page did to a value (a card number grouped in fours, for instance), so masking only the exact values could miss one. A dog still knows what it typed itself with `page_fill`.
+
+## The page tools and tabs
+
+`page_open` opens a new tab, brings it to the front and reads it; `page_open`, `page_click`, `page_press` and `page_back` report the browser's tabs through the same tab tracking `open_url` uses. The other page tools act on the tab in front, which is the one last opened or brought forward. A known limit: if the person or another task of the same dog brings a different tab forward, the next `page_read` or `page_click` acts on that tab, and a ref from the earlier page answers "No element … on this page; read the page again."
 
 ## Where the page engine runs, and why
 
@@ -82,7 +91,7 @@ Before is today's screen path, rerun now: the same numbers as stage one.
 
 ### What the tool list costs
 
-The computer tools' definitions take 6,852 bytes today. With the switch off they take 9,145 bytes, about 570 more tokens on every request of every dog with a cloud computer: zoom, run_actions (1,560 bytes) and longer screenshot wording. With the switch on they take 11,259 bytes; the eight page tools are 2,115 bytes.
+The computer tools' definitions take 6,852 bytes on main. With the switch off they take 9,180 bytes, about 580 more tokens on every request of every dog with a cloud computer: zoom, run_actions (1,560 bytes) and longer screenshot wording. With the switch on they take 11,294 bytes; the eight page tools are 2,114 bytes. (The measured runs were made at the stage-two head, when the switch-off list was 9,145 bytes.)
 
 ## Old screenshots: what later.dog can drop, and what it cannot
 
@@ -115,3 +124,4 @@ xvfb-run -s "-screen 0 1280x800x24" node --experimental-strip-types scripts/brow
 - Whether text is readable at 1024 pixels on real pages.
 - That the page tools cope with real sites: frames, shadow DOM, very long pages, sign-in walls run by other parties.
 - That the page tools work with a live cloud computer's Chromium on port 9339. The fixture used a Chromium started the same way, not the computer image.
+- A page's own script can give one of its other elements the same ref, so a `page_click` lands where that page chooses. This stays inside that site's page, much like a misleading layout on the screen.

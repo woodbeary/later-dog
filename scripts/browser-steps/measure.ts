@@ -449,7 +449,7 @@ async function main(): Promise<void> {
     "## Per task", "", summaryTable(ordered), "",
     "## Screenshot sizes", "", "| Variant | JPEG bytes | Base64 in the tool result | Image tokens | Seconds |", "| --- | ---: | ---: | ---: | ---: |",
     ...variants.map((variant) => `| ${variant.label} | ${variant.bytes} | ${variant.base64} | ${variant.tokens} | ${fixed(variant.seconds, 3)} |`), "",
-    `Screen tool definitions: ${toolLists.screenToolsBytes} bytes.`, "",
+    `Screen tool definitions at the commit this ran on: ${toolLists.screenToolsBytes} bytes.`, "",
     "## Per step", "", ...ordered.flatMap((run) => [stepTable(run), ""]),
   ].join("\n");
   writeFileSync(join(out, "summary.md"), summary);

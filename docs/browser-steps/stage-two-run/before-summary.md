@@ -14,7 +14,7 @@
 | 1024x640 JPEG q60 | 21017 | 28024 | 874 | 0.040 |
 | 794x496 JPEG q50 | 13903 | 18540 | 525 | 0.035 |
 
-Screen tool definitions: 9145 bytes.
+Screen tool definitions: 9145 bytes, the size at the stage-two head where this run was made; on main `0651657` they were 6,852 bytes (stage one, MEASURE.md).
 
 ## Per step
 

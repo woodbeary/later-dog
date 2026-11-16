@@ -360,6 +360,8 @@
     }
   ],
   "toolLists": {
-    "screenToolsBytes": 9145
+    "screenToolsBytesAtStageTwoHead": 9145,
+    "screenToolsBytesAtMain0651657": 6852,
+    "note": "This run measured the before paths with the code of the stage-two head, so its tool list was already the new one (9,145 bytes); the 6,852 bytes on main 0651657 are stage one's figure in MEASURE.md."
   }
 }
