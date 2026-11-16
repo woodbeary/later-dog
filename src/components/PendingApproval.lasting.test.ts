@@ -59,6 +59,7 @@ describe("a card that offers no Always", () => {
   it.each([
     ["always-asks", "This one always asks."],
     ["owner-only", "Only the owner can choose Always."],
+    ["group", "Always isn't offered in group chats."],
     ["secret", "This one asks each time: it holds a password or key."],
     ["incomplete", "This one asks each time: later.dog cannot see all of what it does."],
     ["screen", "This one asks each time: it acts on what is on the screen then."],
@@ -67,7 +68,7 @@ describe("a card that offers no Always", () => {
   ] as const)("shows one quiet line for %s where the button would sit", (why, line) => {
     const result = view({ offered: false, why });
     expect(labels(result.buttons)).toEqual(["Allow once", "Don't allow"]);
-    expect(result.html).toContain(line);
+    expect(result.html.replaceAll("&#x27;", "'")).toContain(line);
     expect(result.html).toContain(`data-lasting-why="${why}"`);
   });
 

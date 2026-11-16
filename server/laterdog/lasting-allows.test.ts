@@ -49,6 +49,8 @@ describe("the allow rule", () => {
   it("puts item 45's kinds and turns others reached first", () => {
     expect(lastingVerdict({ ...search({ query: "x" }), alwaysAsks: true })).toEqual({ offered: false, why: "always-asks" });
     expect(lastingVerdict({ ...search({ query: "x" }), ownerOnly: false })).toEqual({ offered: false, why: "owner-only" });
+    expect(lastingVerdict({ ...search({ query: "x" }), ownerOnly: false, group: true })).toEqual({ offered: false, why: "group" });
+    expect(lastingVerdict({ ...search({ query: "x" }), ownerOnly: false, group: true, alwaysAsks: true })).toEqual({ offered: false, why: "always-asks" });
   });
 
   it("keys the whole input with keys sorted, and nothing else", () => {

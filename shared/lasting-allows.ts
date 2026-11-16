@@ -1,4 +1,4 @@
-export const LASTING_WHYS = ["always-asks", "owner-only", "secret", "incomplete", "screen", "teammate", "state"] as const;
+export const LASTING_WHYS = ["always-asks", "group", "owner-only", "secret", "incomplete", "screen", "teammate", "state"] as const;
 
 export type LastingWhy = (typeof LASTING_WHYS)[number];
 
@@ -6,6 +6,7 @@ export type LastingOffer = { offered: true; reach: string } | { offered: false; 
 
 export const LASTING_WHY_WORDS = {
   "always-asks": "lasting.why.alwaysAsks",
+  "group": "lasting.why.group",
   "owner-only": "lasting.why.ownerOnly",
   "secret": "lasting.why.secret",
   "incomplete": "lasting.why.incomplete",

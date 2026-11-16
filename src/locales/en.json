@@ -264,6 +264,7 @@
   "approval.action.alwaysAllow": "Always allow",
   "lasting.reach.search": "Always allow lets {name} search for exactly this again without asking, in any of its chats.",
   "lasting.why.alwaysAsks": "This one always asks.",
+  "lasting.why.group": "Always isn't offered in group chats.",
   "lasting.why.ownerOnly": "Only the owner can choose Always.",
   "lasting.why.secret": "This one asks each time: it holds a password or key.",
   "lasting.why.incomplete": "This one asks each time: later.dog cannot see all of what it does.",

@@ -7812,10 +7812,10 @@ describe("harness HTTP API", () => {
       const roomCard = async () => ((await api("GET", "/api/bots?messages=60")).body.groups.find((group: { id: string }) => group.id === room.id)?.messages ?? [])
         .find((message: { card?: { requestId?: string } }) => message.card?.requestId === "room-search")?.card;
       await expect.poll(roomCard, { timeout: 15_000 }).toBeTruthy();
-      expect((await roomCard()).lasting).toEqual({ offered: false, why: "owner-only" });
+      expect((await roomCard()).lasting).toEqual({ offered: false, why: "group" });
       const granted = await api("POST", `/api/bots/${bot.id}/always-allow`, { threadId: room.threadId, requestId: "room-search" });
       expect(granted.status).toBe(409);
-      expect(granted.body.why).toBe("owner-only");
+      expect(granted.body.why).toBe("group");
     } finally {
       for (const conn of conns) conn.destroy();
       if (roomId) await api("POST", `/api/groups/${roomId}/interrupt`, {}).catch(() => undefined);
