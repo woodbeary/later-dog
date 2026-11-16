@@ -296,6 +296,13 @@ describe("deleting something or changing who can reach it from a connected app a
     }
   });
 
+  it("asks when a call shares a folder or adds or changes a guest, and not when it reads one", () => {
+    for (const slug of ["SALESFORCE_CREATE_FOLDER_SHARES", "CLICKUP_ADD_GUEST_TO_FOLDER", "CLICKUP_UPDATE_GUEST_ON_WORKSPACE"]) {
+      expect(connectorAlwaysAsks([slug])?.id, slug).toBe("deletes-or-shares");
+    }
+    for (const slug of ["CLICKUP_GET_GUEST", "SALESFORCE_LIST_FOLDER_SHARES"]) expect(connectorAlwaysAsks([slug]), slug).toBeNull();
+  });
+
   it("asks for a padded or oddly shaped name, inside a batch or on a direct call, and treats one it cannot read as code it cannot read", () => {
     const gate = (name: string, args: unknown) => {
       const calls = connectorCallsIn(name, args).filter((call) => asksAsConnector(call.slug, call.arguments));
