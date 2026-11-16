@@ -73,6 +73,8 @@ function secureSignIn(): string {
 <label for="card">Card number</label><input id="card" name="card" type="tel" autocomplete="cc-number">
 <div id="notes" role="textbox" aria-label="Notes" contenteditable="true"></div>
 <label>Diary <div id="diary" contenteditable="true"></div></label>
+<label for="address">Address</label><textarea id="address" name="address"></textarea>
+<script>document.getElementById("address").addEventListener("input", (event) => { event.target.defaultValue = event.target.value; });</script>
 <p><button type="submit">Continue</button></p></form>`);
 }
 

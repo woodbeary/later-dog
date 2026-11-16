@@ -99,7 +99,7 @@ function textOf(ref, selector, max) {
   const field = el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.isContentEditable;
   if (field) return { text: (el.isContentEditable ? (el.textContent || "").trim() : el.value) ? "(filled; field values are not shown)" : "(empty)" };
   const copy = el.cloneNode(true);
-  for (const hidden of copy.querySelectorAll("script,style,noscript,template,[contenteditable]")) hidden.textContent = hidden.matches("[contenteditable]") && (hidden.textContent || "").trim() ? " (filled) " : "";
+  for (const hidden of copy.querySelectorAll("script,style,noscript,template,textarea,[contenteditable]")) hidden.textContent = hidden.matches("textarea,[contenteditable]") && (hidden.textContent || "").trim() ? " (filled) " : "";
   let text = (copy.textContent || "").replace(/[ \t]+/g, " ").replace(/\s*\n\s*/g, "\n").trim();
   if (text.length > max) text = text.slice(0, max) + "\n[cut at " + max + " characters]";
   return { text };

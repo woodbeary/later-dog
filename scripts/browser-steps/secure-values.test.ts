@@ -5,7 +5,7 @@ import type { AppConfig } from "../../server/config.ts";
 import { startFixtureSite } from "./fixture-site.ts";
 import { headlessBrowser, refIn, type HeadlessBrowser } from "./no-vision.ts";
 
-const SECRETS = { email: "ada.secret@example.test", password: "S3cret-pass!", code: "482913", card: "4111111111111111", notes: "private note 7731", diary: "dear diary 5521" };
+const SECRETS = { email: "ada.secret@example.test", password: "S3cret-pass!", code: "482913", card: "4111111111111111", notes: "private note 7731", diary: "dear diary 5521", address: "12 Hidden Lane" };
 const cfg = { features: { pageTools: true } } as AppConfig;
 const signal = new AbortController().signal;
 
