@@ -7336,7 +7336,8 @@ bus.subscribe(guardTurnEnd((event: RuntimeEvent) => {
         ? { driver: event.provider, tool: event.tool, wholeInput: event.wholeInput, approvalScope: event.approvalScope }
         : undefined;
       if (lastingBase && asker && event.requestId) {
-        rememberLastingRequest(`${event.threadId}:${event.requestId}`, { botId: asker.id, threadId: event.threadId, request: lastingBase, alwaysAsks: Boolean(always) });
+        const listed = always || alwaysAsks({ tool: event.tool, command: event.command?.command, summary: event.summary, input: event.input }, () => ownerGuardContext(asker, event.threadId, event.command?.cwd));
+        rememberLastingRequest(`${event.threadId}:${event.requestId}`, { botId: asker.id, threadId: event.threadId, request: lastingBase, alwaysAsks: Boolean(listed) });
       }
       const verdict = permission && asker && event.requestId
         ? autoVerdict(effectiveApprovalMode, event.tool, {
