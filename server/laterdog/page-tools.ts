@@ -26,7 +26,7 @@ export const PAGE_FIRST_PROMPT =
 export const PAGE_TOOL_NAMES: ReadonlySet<string> = new Set(PAGE_TOOLS.map((entry) => entry.name));
 
 export function pageToolsEnabled(cfg: AppConfig): boolean {
-  return cfg.features?.browser === true;
+  return cfg.features?.pageTools === true;
 }
 
 const PAGE_AGENT_B64 = Buffer.from(PAGE_AGENT_SOURCE).toString("base64");

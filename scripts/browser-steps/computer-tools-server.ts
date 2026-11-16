@@ -10,7 +10,7 @@ export function servedTools(cfg: AppConfig) {
 }
 
 if (import.meta.main) {
-  const cfg = (process.env.LATERDOG_BROWSER_STEPS_PAGE_TOOLS === "1" ? { features: { browser: true } } : {}) as AppConfig;
+  const cfg = (process.env.LATERDOG_BROWSER_STEPS_PAGE_TOOLS === "1" ? { features: { pageTools: true } } : {}) as AppConfig;
   const exec = localExec({});
   serveStdio("computer", {
     list: () => servedTools(cfg),

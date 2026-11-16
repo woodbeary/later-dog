@@ -67,7 +67,7 @@ describe("the real-engine browser-steps runner", () => {
   it("serves today's screen tools for the before path and later.dog's own computer tools for the new ones", () => {
     expect(todaysScreenTools().find((tool) => tool.name === "screenshot")?.description).toBe("See the assigned cloud desktop at native pixel resolution.");
     const off = servedTools({} as never).map((tool) => tool.name);
-    const on = servedTools({ features: { browser: true } } as never).map((tool) => tool.name);
+    const on = servedTools({ features: { pageTools: true } } as never).map((tool) => tool.name);
     expect(off).toContain("run_actions");
     expect(off).toContain("zoom");
     expect(off).not.toContain("page_open");

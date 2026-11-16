@@ -6,7 +6,7 @@ Token figures are estimates. Text is bytes divided by 4. Images use Claude's for
 
 ## What a dog and the person see differently
 
-- **A. Page tools, behind the switch (off by default).** With `features.browser` on, a dog on its cloud computer also gets eight page tools: `page_open`, `page_read`, `page_click`, `page_fill`, `page_select`, `page_press`, `page_back` and `page_text`. They read and act on the same Chromium the screen shows. Its standing instructions add one sentence: read the page's structure first, and take a screenshot only when the structure does not show what is needed. With the switch off, the tool list has no page tools, a page tool call is refused, and the instructions are byte for byte today's (a test pins their hash).
+- **A. Page tools, behind the switch (off by default).** With `features.pageTools` on, a dog on its cloud computer also gets eight page tools: `page_open`, `page_read`, `page_click`, `page_fill`, `page_select`, `page_press`, `page_back` and `page_text`. They read and act on the same Chromium the screen shows. Its standing instructions add one sentence: read the page's structure first, and take a screenshot only when the structure does not show what is needed. With the switch off, the tool list has no page tools, a page tool call is refused, and the instructions are byte for byte today's (a test pins their hash).
 - **B. Smaller screenshots, a zoom tool, and no 15-second click.** These apply to every dog on a cloud computer.
   - A screenshot is now at most 1024 pixels wide (1024x640 on today's desktop), JPEG quality 60. Before, it was 1280x800 at quality 75.
   - Clicks, moves, drags and scrolls are given in the screenshot's coordinates and scaled back to the real screen. The corners and the centre are tested.

@@ -5,7 +5,7 @@ import type { AppConfig } from "../config.ts";
 import { screenTouchingTool } from "../screen-frame-gate.ts";
 
 const off = {} as AppConfig;
-const on = { features: { browser: true } } as AppConfig;
+const on = { features: { pageTools: true } } as AppConfig;
 const signal = new AbortController().signal;
 const JPEG = Buffer.concat([Buffer.from([0xff, 0xd8, 0xff, 0xe0]), Buffer.alloc(200, 7)]).toString("base64");
 

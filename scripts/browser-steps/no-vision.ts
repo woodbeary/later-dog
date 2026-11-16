@@ -87,7 +87,7 @@ export const headlessBrowser = {
 export interface NoVisionStep { tool: string; bytes: number; seconds: number; refusedImage: boolean }
 export interface NoVisionRun { task: "find" | "form" | "table"; steps: NoVisionStep[]; answer: string; correct: boolean }
 
-const PAGE_TOOLS_ON = { features: { browser: true } } as AppConfig;
+const PAGE_TOOLS_ON = { features: { pageTools: true } } as AppConfig;
 
 export function refIn(page: string, kind: string, label: string): string {
   const escaped = label.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");

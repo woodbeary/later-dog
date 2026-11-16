@@ -5,10 +5,10 @@ import { describe, expect, it } from "vitest";
 import { CLOUD_COMPUTER_TOOLS, computerToolsFor, runCloudComputerTool } from "../cloud-computer-tools.ts";
 import type { AppConfig } from "../config.ts";
 import { computerPrompt } from "../system-prompt.ts";
-import { PAGE_TOOLS, pageAgentCommand, pageAgentInput, runPageTool, type RemoteExec } from "./page-tools.ts";
+import { PAGE_TOOLS, pageAgentCommand, pageAgentInput, pageToolsEnabled, runPageTool, type RemoteExec } from "./page-tools.ts";
 
 const off = {} as AppConfig;
-const on = { features: { browser: true } } as AppConfig;
+const on = { features: { pageTools: true } } as AppConfig;
 const signal = new AbortController().signal;
 const answering = (stdout: string, seen: string[] = []): RemoteExec => async (command) => {
   seen.push(command);
@@ -22,6 +22,17 @@ describe("page tools on the cloud computer's own browser", () => {
     const result = await runCloudComputerTool(off, "box", "page_read", {}, signal, undefined, undefined, answering("{}", seen));
     expect(result.isError).toBe(true);
     expect(seen).toEqual([]);
+  });
+
+  it("stay off for a home that saved the old in-app browser switch, which earlier versions wrote", async () => {
+    const old = { features: { browser: true } } as AppConfig;
+    expect(computerToolsFor(old)).toBe(CLOUD_COMPUTER_TOOLS);
+    const seen: string[] = [];
+    const result = await runCloudComputerTool(old, "box", "page_read", {}, signal, undefined, undefined, answering("{}", seen));
+    expect(result.isError).toBe(true);
+    expect(seen).toEqual([]);
+    expect(computerPrompt("box", { pageTools: pageToolsEnabled(old) })).toBe(computerPrompt("box"));
+    expect(pageToolsEnabled(on)).toBe(true);
   });
 
   it("are offered next to the screen tools when the switch is on, and stay small", () => {

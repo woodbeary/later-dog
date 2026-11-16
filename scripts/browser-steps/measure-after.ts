@@ -12,7 +12,7 @@ import { byText, Cdp, finish, FORM, stepTable, summaryTable, type Mode, type Ste
 import { localExec, refIn } from "./no-vision.ts";
 import { imageTokens, jpegSize, textTokens } from "./screen-commands.ts";
 
-const ON = { features: { browser: true } } as AppConfig;
+const ON = { features: { pageTools: true } } as AppConfig;
 const OFF = {} as AppConfig;
 const progress = (line: string) => process.stderr.write(`${line}\n`);
 
