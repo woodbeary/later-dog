@@ -1,0 +1,365 @@
+{
+  "runs": [
+    {
+      "task": "find",
+      "mode": "screen",
+      "steps": [
+        {
+          "turn": 1,
+          "tool": "open_url",
+          "argBytes": 37,
+          "textBytes": 121,
+          "imageBytes": 0,
+          "imageTokens": 0,
+          "tokens": 40,
+          "seconds": 0.011721558999999616
+        },
+        {
+          "turn": 2,
+          "tool": "screenshot",
+          "argBytes": 2,
+          "textBytes": 0,
+          "imageBytes": 136980,
+          "imageTokens": 1366,
+          "tokens": 1367,
+          "seconds": 0.026282279000000016
+        },
+        {
+          "turn": 3,
+          "tool": "scroll",
+          "argBytes": 48,
+          "textBytes": 87,
+          "imageBytes": 0,
+          "imageTokens": 0,
+          "tokens": 34,
+          "seconds": 0.8099109720000002
+        },
+        {
+          "turn": 4,
+          "tool": "screenshot",
+          "argBytes": 2,
+          "textBytes": 0,
+          "imageBytes": 136124,
+          "imageTokens": 1366,
+          "tokens": 1367,
+          "seconds": 0.027140887999999905
+        },
+        {
+          "turn": 5,
+          "tool": "click",
+          "argBytes": 17,
+          "textBytes": 87,
+          "imageBytes": 0,
+          "imageTokens": 0,
+          "tokens": 26,
+          "seconds": 0.10783243399999992
+        },
+        {
+          "turn": 6,
+          "tool": "screenshot",
+          "argBytes": 2,
+          "textBytes": 0,
+          "imageBytes": 88816,
+          "imageTokens": 1366,
+          "tokens": 1367,
+          "seconds": 0.025979077999999847
+        }
+      ],
+      "answer": "free on orders over $60",
+      "correct": true,
+      "toolCalls": 6,
+      "modelTurns": 7,
+      "tokens": 4201,
+      "imageTokens": 4098,
+      "imageShare": 0.9754820280885503,
+      "rereadTokens": 12731,
+      "toolSeconds": 1.0088672099999993
+    },
+    {
+      "task": "form",
+      "mode": "screen",
+      "steps": [
+        {
+          "turn": 1,
+          "tool": "open_url",
+          "argBytes": 40,
+          "textBytes": 121,
+          "imageBytes": 0,
+          "imageTokens": 0,
+          "tokens": 41,
+          "seconds": 0.01117319899999984
+        },
+        {
+          "turn": 2,
+          "tool": "screenshot",
+          "argBytes": 2,
+          "textBytes": 0,
+          "imageBytes": 84940,
+          "imageTokens": 1366,
+          "tokens": 1367,
+          "seconds": 0.029070157999999992
+        },
+        {
+          "turn": 3,
+          "tool": "click",
+          "argBytes": 16,
+          "textBytes": 87,
+          "imageBytes": 0,
+          "imageTokens": 0,
+          "tokens": 26,
+          "seconds": 0.10760778400000026
+        },
+        {
+          "turn": 4,
+          "tool": "type_text",
+          "argBytes": 22,
+          "textBytes": 87,
+          "imageBytes": 0,
+          "imageTokens": 0,
+          "tokens": 28,
+          "seconds": 0.14159365100000013
+        },
+        {
+          "turn": 5,
+          "tool": "key_press",
+          "argBytes": 13,
+          "textBytes": 87,
+          "imageBytes": 0,
+          "imageTokens": 0,
+          "tokens": 25,
+          "seconds": 0.022008679000000485
+        },
+        {
+          "turn": 6,
+          "tool": "type_text",
+          "argBytes": 27,
+          "textBytes": 87,
+          "imageBytes": 0,
+          "imageTokens": 0,
+          "tokens": 29,
+          "seconds": 0.13979970100000083
+        },
+        {
+          "turn": 7,
+          "tool": "key_press",
+          "argBytes": 13,
+          "textBytes": 87,
+          "imageBytes": 0,
+          "imageTokens": 0,
+          "tokens": 25,
+          "seconds": 0.02144129899999916
+        },
+        {
+          "turn": 8,
+          "tool": "type_text",
+          "argBytes": 19,
+          "textBytes": 87,
+          "imageBytes": 0,
+          "imageTokens": 0,
+          "tokens": 27,
+          "seconds": 0.13758785200000057
+        },
+        {
+          "turn": 9,
+          "tool": "key_press",
+          "argBytes": 13,
+          "textBytes": 87,
+          "imageBytes": 0,
+          "imageTokens": 0,
+          "tokens": 25,
+          "seconds": 0.020455629000000045
+        },
+        {
+          "turn": 10,
+          "tool": "key_press",
+          "argBytes": 11,
+          "textBytes": 87,
+          "imageBytes": 0,
+          "imageTokens": 0,
+          "tokens": 25,
+          "seconds": 0.02135272900000018
+        },
+        {
+          "turn": 11,
+          "tool": "key_press",
+          "argBytes": 13,
+          "textBytes": 87,
+          "imageBytes": 0,
+          "imageTokens": 0,
+          "tokens": 25,
+          "seconds": 0.021964208000000325
+        },
+        {
+          "turn": 12,
+          "tool": "type_text",
+          "argBytes": 43,
+          "textBytes": 87,
+          "imageBytes": 0,
+          "imageTokens": 0,
+          "tokens": 33,
+          "seconds": 0.1406403019999998
+        },
+        {
+          "turn": 13,
+          "tool": "key_press",
+          "argBytes": 13,
+          "textBytes": 87,
+          "imageBytes": 0,
+          "imageTokens": 0,
+          "tokens": 25,
+          "seconds": 0.02107299899999998
+        },
+        {
+          "turn": 14,
+          "tool": "key_press",
+          "argBytes": 16,
+          "textBytes": 87,
+          "imageBytes": 0,
+          "imageTokens": 0,
+          "tokens": 26,
+          "seconds": 0.020246048999999402
+        },
+        {
+          "turn": 15,
+          "tool": "screenshot",
+          "argBytes": 2,
+          "textBytes": 0,
+          "imageBytes": 78252,
+          "imageTokens": 1366,
+          "tokens": 1367,
+          "seconds": 0.028098748000000343
+        }
+      ],
+      "answer": "CF-4821",
+      "correct": true,
+      "toolCalls": 15,
+      "modelTurns": 16,
+      "tokens": 3094,
+      "imageTokens": 2732,
+      "imageShare": 0.8829993535875889,
+      "rereadTokens": 23509,
+      "toolSeconds": 0.8841129870000013
+    },
+    {
+      "task": "table",
+      "mode": "screen",
+      "steps": [
+        {
+          "turn": 1,
+          "tool": "open_url",
+          "argBytes": 39,
+          "textBytes": 121,
+          "imageBytes": 0,
+          "imageTokens": 0,
+          "tokens": 40,
+          "seconds": 0.010932698999999957
+        },
+        {
+          "turn": 2,
+          "tool": "screenshot",
+          "argBytes": 2,
+          "textBytes": 0,
+          "imageBytes": 80208,
+          "imageTokens": 1366,
+          "tokens": 1367,
+          "seconds": 0.027482737999999698
+        },
+        {
+          "turn": 3,
+          "tool": "click",
+          "argBytes": 16,
+          "textBytes": 87,
+          "imageBytes": 0,
+          "imageTokens": 0,
+          "tokens": 26,
+          "seconds": 15.252768631000002
+        },
+        {
+          "turn": 4,
+          "tool": "type_text",
+          "argBytes": 21,
+          "textBytes": 87,
+          "imageBytes": 0,
+          "imageTokens": 0,
+          "tokens": 27,
+          "seconds": 0.1386300409999967
+        },
+        {
+          "turn": 5,
+          "tool": "key_press",
+          "argBytes": 13,
+          "textBytes": 87,
+          "imageBytes": 0,
+          "imageTokens": 0,
+          "tokens": 25,
+          "seconds": 0.02119024899999931
+        },
+        {
+          "turn": 6,
+          "tool": "type_text",
+          "argBytes": 28,
+          "textBytes": 87,
+          "imageBytes": 0,
+          "imageTokens": 0,
+          "tokens": 29,
+          "seconds": 0.13758664200000204
+        },
+        {
+          "turn": 7,
+          "tool": "key_press",
+          "argBytes": 16,
+          "textBytes": 87,
+          "imageBytes": 0,
+          "imageTokens": 0,
+          "tokens": 26,
+          "seconds": 0.019895198999998684
+        },
+        {
+          "turn": 8,
+          "tool": "screenshot",
+          "argBytes": 2,
+          "textBytes": 0,
+          "imageBytes": 143544,
+          "imageTokens": 1366,
+          "tokens": 1367,
+          "seconds": 0.02676506800000061
+        }
+      ],
+      "answer": "#1042 2026-10-15 3 items $218.40 Shipped",
+      "correct": true,
+      "toolCalls": 8,
+      "modelTurns": 9,
+      "tokens": 2907,
+      "imageTokens": 2732,
+      "imageShare": 0.9398004815961473,
+      "rereadTokens": 11786,
+      "toolSeconds": 15.635251267000001
+    }
+  ],
+  "variants": [
+    {
+      "label": "today: 1280x800 JPEG q75",
+      "bytes": 45597,
+      "base64": 60796,
+      "tokens": 1366,
+      "seconds": 0.03057355800000005
+    },
+    {
+      "label": "1024x640 JPEG q60",
+      "bytes": 21017,
+      "base64": 28024,
+      "tokens": 874,
+      "seconds": 0.04012512699999934
+    },
+    {
+      "label": "794x496 JPEG q50",
+      "bytes": 13903,
+      "base64": 18540,
+      "tokens": 525,
+      "seconds": 0.034881878000000144
+    }
+  ],
+  "toolLists": {
+    "screenToolsBytes": 9145
+  }
+}
