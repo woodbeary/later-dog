@@ -1,4 +1,4 @@
-import { mkdtempSync } from "node:fs";
+import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
@@ -52,6 +52,32 @@ describe("a team task's limits", () => {
     expect(hooks.run).toHaveBeenLastCalledWith(engine.nodes.get("turn"), true, expect.anything());
     expect(engine.nodes.get("turn")?.status).toBe("completed");
     expect(teammateEndLabel("Tally", "failed", "team-limit")).toBe("Tally not started: the team reached its limit");
+  }));
+
+  it("stores the team cap with an end value main already reads, and reads it back as the team cap", () => team({ executions: 1 }, async (engine, hooks, finish, file) => {
+    engine.enqueue(chief, "turn", undefined, helper("scout"), "a", "Look into A");
+    const tally = engine.enqueue(chief, "turn", undefined, helper("tally"), "b", "Look into B").node;
+    engine.sourceSettled("turn", true);
+    engine.tick(); await flush(); engine.tick(); await flush();
+    expect(tally).toMatchObject({ status: "failed", endedBy: "team-limit" });
+    const stored = JSON.parse(readFileSync(file, "utf8")) as Array<Record<string, unknown>>;
+    expect(readFileSync(file, "utf8")).not.toContain("team-limit");
+    expect(stored.find(n => n.id === tally.id)).toMatchObject({ endedBy: "limit", teamLimit: true });
+    const reread = new RoomHandoffs(file, hooks, Date.now, { executions: 1 });
+    expect((reread as unknown as { loadError?: string }).loadError).toBeUndefined();
+    expect(reread.nodes.get(tally.id)).toMatchObject({ status: "failed", endedBy: "team-limit" });
+    expect(reread.nodes.get(tally.id)).not.toHaveProperty("teamLimit");
+    finish("scout"); await flush();
+  }));
+
+  it("reads a file this branch wrote before, with team-limit stored", () => team({ executions: 1 }, async (_engine, hooks, _finish, file) => {
+    writeFileSync(file, JSON.stringify([
+      { id: "turn", rootId: "turn", threadId: "chief-chat", botId: "chief", key: "root", text: "x", createdAt: 1, status: "completed", result: "", reported: true, executions: 1 },
+      { id: "n1", rootId: "turn", parentId: "turn", threadId: "tally-chat", botId: "tally", key: "b", text: "Look into B", createdAt: 2, status: "failed", result: "", reported: true, endedBy: "team-limit" },
+    ]));
+    const reread = new RoomHandoffs(file, hooks, Date.now, { executions: 1 });
+    expect((reread as unknown as { loadError?: string }).loadError).toBeUndefined();
+    expect(reread.nodes.get("n1")?.endedBy).toBe("team-limit");
   }));
 
   it("does not charge a re-run after a restart", () => team({ executions: 1 }, async (engine, hooks, _finish, file) => {

@@ -26,6 +26,7 @@ const nodeSchema = z.object({
   routineRunId: z.string().optional(),
   kind: z.enum(["work", "assignment"]).default("work"),
   endedBy: z.enum(HANDOFF_ENDS).optional(),
+  teamLimit: z.boolean().optional(),
   continueOffered: z.boolean().optional(),
   continuedAs: z.string().optional(),
   firstCreatedAt: z.number().optional(),
@@ -62,6 +63,16 @@ export interface RoomHandoffHooks {
   continued?(old: RoomHandoff, root: RoomHandoff, end: HandoffEnd): void;
 }
 
+function storedEnd(n: RoomHandoff): RoomHandoff {
+  return n.endedBy === "team-limit" ? { ...n, endedBy: "limit", teamLimit: true } : n;
+}
+
+function readEnd(n: RoomHandoff): RoomHandoff {
+  if (n.teamLimit && n.endedBy === "limit") n.endedBy = "team-limit";
+  delete n.teamLimit;
+  return n;
+}
+
 export class RoomHandoffs {
   readonly nodes = new Map<string, RoomHandoff>();
   private readonly controllers = new Map<string, AbortController>();
@@ -84,7 +95,7 @@ export class RoomHandoffs {
       const ids = new Map(saved.map(n => [n.id, n]));
       if (ids.size !== saved.length || saved.some(n => !ids.has(n.rootId) || ids.get(n.rootId)?.parentId ||
         (n.parentId && (!ids.has(n.parentId) || ids.get(n.parentId)?.rootId !== n.rootId)))) throw new Error("Invalid room handoff tree");
-      for (const n of saved) this.nodes.set(n.id, n);
+      for (const n of saved) this.nodes.set(n.id, readEnd(n));
       givenBeforeUpdate(this.nodes);
       if (hooks.longWork) this.restartPending = saved.some(n => !terminal(n));
       else {
@@ -103,7 +114,7 @@ export class RoomHandoffs {
     this.save();
     return all;
   }
-  private save() { writeFileAtomic(this.file, JSON.stringify([...this.nodes.values()]), { mode: 0o600 }); }
+  private save() { writeFileAtomic(this.file, JSON.stringify([...this.nodes.values()].map(storedEnd)), { mode: 0o600 }); }
   private publish(...nodes: RoomHandoff[]) {
     this.save();
     this.hooks.changed(new Set(nodes.flatMap(node => node.groupId ? [node.groupId] : [])),
