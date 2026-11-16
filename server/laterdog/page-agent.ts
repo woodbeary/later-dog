@@ -209,18 +209,26 @@ async function main() {
   let list = await pages();
   if (input.action === "open") {
     const deadline = Date.now() + 20000;
-    while ((!list || !list.length) && Date.now() < deadline) { await sleep(250); list = await pages(); }
+    while (list === null && Date.now() < deadline) { await sleep(250); list = await pages(); }
+    if (list === null) return finish({ ok: false, error: "The browser on the cloud computer did not open." });
+    let created;
+    try { created = await (await fetch(base + "/json/new?about:blank", { method: "PUT", signal: AbortSignal.timeout(5000) })).json(); } catch {}
+    if (!created || !created.webSocketDebuggerUrl) return finish({ ok: false, error: "The browser did not open a new tab." });
+    await fetch(base + "/json/activate/" + created.id, { signal: AbortSignal.timeout(2000) }).catch(() => null);
+    const tab = await connect(created.webSocketDebuggerUrl);
+    try {
+      const moved = await navigating(tab, () => tab.send("Page.navigate", { url: input.url }));
+      if (moved.result && moved.result.errorText) return finish({ ok: false, error: "The page did not open: " + moved.result.errorText });
+      await settled(tab);
+      return finish(await reading(tab, ""));
+    } finally {
+      tab.close();
+    }
   }
   if (list === null) return finish({ ok: false, error: "The browser on the cloud computer is not open. Open a page with page_open first." });
   if (!list.length) return finish({ ok: false, error: "The browser has no page open. Open one with page_open." });
   const cdp = await connect(list[0].webSocketDebuggerUrl);
   try {
-    if (input.action === "open") {
-      const moved = await navigating(cdp, () => cdp.send("Page.navigate", { url: input.url }));
-      if (moved.result && moved.result.errorText) return finish({ ok: false, error: "The page did not open: " + moved.result.errorText });
-      await settled(cdp);
-      return finish(await reading(cdp, ""));
-    }
     if (input.action === "read") { await settled(cdp); return finish(await reading(cdp, "")); }
     if (input.action === "text") {
       const found = await evaluate(cdp, "(" + textOf.toString() + ")(" + JSON.stringify(input.ref || "") + "," + JSON.stringify(input.selector || "body") + "," + input.textMax + ")");

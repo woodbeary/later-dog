@@ -13,6 +13,8 @@ import { abortableWait, RUN_ACTIONS_TOOL, runActions } from "./laterdog/action-r
 
 export type { RemoteExec };
 
+const PAGE_TRACKED_TOOLS: ReadonlySet<string> = new Set(["page_open", "page_click", "page_press", "page_back"]);
+
 const coordinate = { type: "integer", minimum: 0, maximum: 32767 };
 const tool = (name: string, description: string, properties: Record<string, unknown> = {}, required: string[] = []) =>
   ({ name, description, inputSchema: { type: "object", properties, required, additionalProperties: false } });
@@ -90,7 +92,14 @@ export async function runCloudComputerTool(
   }
   if (PAGE_TOOL_NAMES.has(name)) {
     if (!pageToolsEnabled(cfg)) return { isError: true, content: [{ type: "text", text: "Unknown cloud computer tool. Use one of the advertised computer tools." }] };
-    const page = await runPageTool(exec, name, args, signal);
+    const tracked = Boolean(onTabs) && PAGE_TRACKED_TOOLS.has(name);
+    const pageExec: RemoteExec = tracked ? async (command, abort) => {
+      const raw = await exec(withTabListing(command), abort);
+      const split = splitTabListing(raw.stdout);
+      if (split.targets) try { onTabs!(split.targets); } catch {}
+      return { ...raw, stdout: split.stdout };
+    } : exec;
+    const page = await runPageTool(pageExec, name, args, signal);
     signal.throwIfAborted();
     return page;
   }
