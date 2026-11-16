@@ -277,6 +277,25 @@ describe("deleting something or changing who can reach it from a connected app a
     }
   });
 
+  it("asks for a delete inside a batch whatever its capitals, and treats a batch, the workbench or any other COMPOSIO_ tool inside a batch as code it cannot read", () => {
+    const asking = (args: unknown) => connectorCallsIn("COMPOSIO_MULTI_EXECUTE_TOOL", args).filter((call) => asksAsConnector(call.slug));
+    for (const slug of ["gmail_delete_message", "GoogleDrive_Delete_File", "github_Add_A_Repository_Collaborator"]) {
+      const calls = asking({ tools: [{ tool_slug: "GMAIL_FETCH_EMAILS" }, { tool_slug: slug }] });
+      expect(calls.map((call) => call.slug), slug).toEqual([slug]);
+      expect(connectorAlwaysAsks(calls.map((call) => call.slug))?.id, slug).toBe("deletes-or-shares");
+    }
+    for (const inner of [
+      { tool_slug: "COMPOSIO_MULTI_EXECUTE_TOOL", arguments: { tools: [{ tool_slug: "GMAIL_DELETE_MESSAGE" }] } },
+      { tool_slug: "composio_multi_execute_tool", arguments: { tools: [{ tool_slug: "GMAIL_FETCH_EMAILS" }] } },
+      { tool_slug: "COMPOSIO_REMOTE_WORKBENCH", arguments: { code: "delete_everything()" } },
+      { tool_slug: "COMPOSIO_SEARCH_TOOLS", arguments: {} },
+    ]) {
+      const calls = asking({ tools: [inner] });
+      expect(calls.map((call) => call.slug), inner.tool_slug).toEqual(["COMPOSIO_PROXY_EXECUTE"]);
+      expect(connectorAlwaysAsks(calls.map((call) => call.slug)), inner.tool_slug).not.toBeNull();
+    }
+  });
+
   it("is not answered in Full by the owner's standing yes, the app's old Always or this turn's Allow", () => {
     const never = () => false;
     for (const slug of SEVEN) {

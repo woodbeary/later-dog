@@ -372,7 +372,8 @@ const CONNECTOR_SLUG = /^[A-Z][A-Z0-9]*_[A-Z0-9_]+$/;
 const COMPOSIO_SERVER = "mcp__composio__";
 
 function deletesOrShares(tool: string): boolean {
-  const slug = tool.startsWith(COMPOSIO_SERVER) ? tool.slice(COMPOSIO_SERVER.length) : tool;
+  if (tool.startsWith("mcp__") && !tool.startsWith(COMPOSIO_SERVER)) return false;
+  const slug = (tool.startsWith(COMPOSIO_SERVER) ? tool.slice(COMPOSIO_SERVER.length) : tool).toUpperCase();
   if (!CONNECTOR_SLUG.test(slug) || slug.startsWith("COMPOSIO_")) return false;
   const tokens = actionTokens(slug);
   if (!tokens.length || READ_VERBS.has(tokens[0]!)) return false;

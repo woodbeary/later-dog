@@ -517,6 +517,30 @@ it("a share named by a noun, and an archive the word list hid, each show a card 
   }
 }, 60_000);
 
+it("a delete inside a batch whatever its capitals, a batch inside a batch, and the workbench inside a batch each show a card with no Always for an owner dog", async () => {
+  await autoReview(false);
+  const dog = await newDog("Nester", "auto");
+  const token = await mintConnectors(dog.id, dog.threadId);
+  for (const args of [
+    { tools: [{ tool_slug: "gmail_delete_message", arguments: { message_id: "m-1" } }] },
+    { tools: [{ tool_slug: "GoogleDrive_Delete_File", arguments: { file_id: "f-1" } }] },
+    { tools: [{ tool_slug: "COMPOSIO_MULTI_EXECUTE_TOOL", arguments: { tools: [{ tool_slug: "GITHUB_DELETE_A_REPOSITORY", arguments: { owner: "o", repo: "r" } }] } }] },
+    { tools: [{ tool_slug: "COMPOSIO_REMOTE_WORKBENCH", arguments: { code: "run()" } }] },
+  ]) {
+    const label = JSON.stringify(args).slice(0, 80);
+    const before = relayed.length;
+    const shown = (await sendCards(dog.threadId)).length;
+    const asked = relay(token, "COMPOSIO_MULTI_EXECUTE_TOOL", args);
+    await expect.poll(async () => (await sendCards(dog.threadId)).length, { timeout: 10_000, message: `${label} showed no card` }).toBe(shown + 1);
+    const card = (await sendCards(dog.threadId)).at(-1).card;
+    expect(card.allowKey, label).toBeUndefined();
+    expect(card.lasting, label).toEqual({ offered: false, why: "always-asks" });
+    await api("POST", `/api/threads/${dog.threadId}/respond`, { requestId: card.requestId, behavior: "allow" });
+    expect((await asked).body.result.isError, label).toBeFalsy();
+    expect(relayed, label).toHaveLength(before + 1);
+  }
+}, 60_000);
+
 it("a read, and an ordinary create, through a connected app still run with no card for an owner dog", async () => {
   await autoReview(false);
   const dog = await newDog("Reader", "auto");
