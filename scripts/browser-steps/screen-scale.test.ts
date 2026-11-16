@@ -4,6 +4,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import { runCloudComputerTool } from "../../server/cloud-computer-tools.ts";
 import type { AppConfig } from "../../server/config.ts";
+import { fillSecureField, type SecureFormDesk } from "../../server/laterdog/secure-form.ts";
 import { fakeXdotool } from "./fake-xdotool.ts";
 import { localExec } from "./no-vision.ts";
 import { jpegSize } from "./screen-commands.ts";
@@ -69,5 +70,24 @@ describe("where a dog's click lands on a 1280x800 cloud desktop", () => {
     const drag = fakeXdotool();
     await runCloudComputerTool(cfg, "fixture", "drag", { x: 0, y: 0, to_x: 1023, to_y: 639 }, signal, undefined, undefined, drag.exec);
     expect(drag.log().join(" ")).toContain("mousemove --sync 1278 798");
+  });
+});
+
+describe("where a Secure Form's value is typed on a 1280x800 cloud desktop", () => {
+  const desk: SecureFormDesk = {
+    open: () => ({ error: "unused" }),
+    field: () => ({ ok: true, host: "login.example.test", label: "Password", value: "S3cret-pass!" }),
+    typed: () => ({ last: true }),
+  };
+  const landing = (log: string[]) => log.find((line) => line.startsWith("mousemove"));
+
+  it("is where a click at the same screenshot point lands, at each corner of the page area and the centre", async () => {
+    for (const [x, y] of [[0, 100], [1023, 100], [0, 639], [1023, 639], [512, 320]]) {
+      const clicked = fakeXdotool();
+      await runCloudComputerTool(cfg, "fixture", "click", { x, y }, signal, undefined, undefined, clicked.exec);
+      const filled = fakeXdotool();
+      const result = await fillSecureField({ form_id: "f1", field_id: "password", x, y }, desk, (command) => filled.exec(command, signal));
+      expect([x, y, result.ok, landing(filled.log())]).toEqual([x, y, true, landing(clicked.log())]);
+    }
   });
 });

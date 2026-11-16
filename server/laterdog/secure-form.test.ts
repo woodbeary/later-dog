@@ -217,7 +217,8 @@ describe("the fill script", () => {
   });
 
   it("only clicks below the browser's toolbar", () => {
-    expect(command()).toContain("[ 400 -ge $((Y + 100)) ]");
+    expect(command()).toContain("SY=$(( 400 * 100 / P ))");
+    expect(command()).toContain('[ "$SY" -ge $((Y + 100)) ]');
   });
 
   it("presses Enter only when asked to", () => {
@@ -326,7 +327,8 @@ describe.skipIf(process.platform === "win32")("the fill script on a stand-in des
       "key --clearmodifiers ctrl+l",
       "key --clearmodifiers ctrl+c",
       "key --clearmodifiers Escape",
-      "mousemove --sync 640 400 click 1",
+      "mousemove --sync 640 400",
+      "click 1",
       "key --clearmodifiers ctrl+a",
       "key --clearmodifiers ctrl+v",
     ]);
