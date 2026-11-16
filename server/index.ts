@@ -512,6 +512,7 @@ import { RoutineManager, type Routine, type RoutineGoalStatus, type RoutineRun, 
 import { CalendarCallManager, type CalendarCall } from "./calendar-calls.ts";
 import { BROWSER_PAGE_PROMPT, BUILT_IN_BROWSER_SYSTEM_PROMPT } from "./browser-engine.ts";
 import { signInPassage } from "./laterdog/sign-in-passage.ts";
+import { agentRuleTexts } from "./laterdog/agent-rules.ts";
 import { BrowserRuntime, browserRuntimeEnv } from "./browser-runtime.ts";
 import { BrowserLive } from "./browser-live.ts";
 import {
@@ -836,7 +837,6 @@ import { answerGoogleCallback, createGoogleRoute, type GoogleRouteDeps } from ".
 import {
   GOOGLE_CALLBACK_PATH,
   GOOGLE_CLIENT_SITE,
-  GOOGLE_PROMPT,
   GoogleAccessTokens,
   googleAccountItem,
   isGoogleAccountItem,
@@ -9162,9 +9162,9 @@ async function startTurn(
         bot.id === store.mainBotId(),
         integrations.agents && sectionPeers.length > 0 ? PEERS_PROMPT : "",
       );
-      const credentialPrompt = integrations.agents ? signInPassage({ secureForm: computerKind === "box" }) + (CLOUD_HOME && vaultStore.available && ownerWorkThread(threadId) ? GOOGLE_PROMPT : "") : "";
-      const routinePrompt = integrations.agents ? ROUTINE_PROMPT : "";
-      const profilePrompt = integrations.agents ? PROFILE_PROMPT : "";
+      const { credential: credentialPrompt, routine: routinePrompt, profile: profilePrompt } = agentRuleTexts({
+        agents: Boolean(integrations.agents), secureForm: computerKind === "box", google: Boolean(CLOUD_HOME && vaultStore.available && ownerWorkThread(threadId)),
+      });
       const recallPrompt = integrations.agents && bot.memoryEnabled !== false ? SESSION_SEARCH_SYSTEM_PROMPT : "";
       const crossRecallPrompt = integrations.agents && crossDogRecallAllowed(bot, threadId) ? CROSS_DOG_RECALL_PROMPT : "";
       const learnPrompt = skillAuthoring ? LEARN_PROMPT : "";
@@ -9309,6 +9309,7 @@ async function startTurn(
         retireProviderTurn(dispatch.value.turnId);
         throw new DirectTurnSetupCancelled("turn stopped during provider setup");
       }
+      if (integrations.agents && instance.adapter.rareToolsOnDemand?.(threadId)) contextBreakdowns.toolsSent(threadId, homeToolSizes(integrations.agents.env, true));
       const requestOwner = directRequestOwners.get(threadId);
       if (requestOwner?.generation === dispatchClaimId && dispatch.value.turnId) {
         if (requestOwner.turnId && requestOwner.turnId !== dispatch.value.turnId) requestOwner.messageId = undefined;

@@ -73,7 +73,8 @@ import { claudeContextNote, claudeSeenVolatile } from "../laterdog/volatile-sect
 import { claudeHelperEnvironment } from "../laterdog/helper-model.ts";
 import { helperContractArgs, helperContractWanted, helperFlagRefused, SUBAGENT_PROMPT_FLAG } from "../laterdog/helper-contract.ts";
 import { disallowedWithOnePlan, hasSetPlan } from "../laterdog/one-plan.ts";
-import { agentsServerLaunch, deferRareToolsEnabled } from "../laterdog/tool-loading.ts";
+import { agentsServerLaunch } from "../laterdog/tool-loading.ts";
+import { claudeRareToolsOnDemand } from "../laterdog/defer-by-model.ts";
 import { CLAUDE_PICKS_CACHE_LIFETIME, claudeCacheLifetime } from "../laterdog/cache-lifetime.ts";
 import { claudeCompactionSwitchedOff } from "../laterdog/native-compaction.ts";
 import { helpersStoppedLine } from "../laterdog/helpers-stopped.ts";
@@ -1171,6 +1172,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
     });
     const retryState = new Map<string, { attempt: number; cancelled: boolean; rebuilt?: boolean }>();
 
+    const rareLaunches = new Map<string, boolean>();
     const sendTurn = async (turn: SendTurnInput, logicalTurnId?: string) => {
       const controller = new AbortController();
       starting.get(turn.threadId)?.abort();
@@ -1286,7 +1288,11 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
         if (!controlsHost) allowed.push("mcp__computer");
       }
       if (turn.integrations?.agents) {
-        mcpServers.agents = agentsServerLaunch(turn.integrations.agents, deferRareToolsEnabled());
+        const rareOnDemand = claudeRareToolsOnDemand({
+          model: injected.model, injected: injected.injected, managed: Boolean(config.managed), env: turnEnvironment,
+        });
+        rareLaunches.set(threadId, rareOnDemand);
+        mcpServers.agents = agentsServerLaunch(turn.integrations.agents, rareOnDemand);
         allowed.push("mcp__agents");
       }
       if (turn.integrations?.browser) {
@@ -2403,6 +2409,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
           const live = sessions.get(threadId);
           return live && !live.closing ? live.contextAsk.ask() : { kind: "none" };
         },
+        rareToolsOnDemand: (threadId) => rareLaunches.get(threadId),
         compactionSigns: async (threadId, taskFolder) => {
           const env = environment();
           const read = (path: string): unknown => { try { return JSON.parse(readFileSync(path, "utf8")); } catch { return undefined; } };

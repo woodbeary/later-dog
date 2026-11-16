@@ -19,6 +19,12 @@ describe("the size of the tools later.dog hands a dog", () => {
     expect(sizes.loadedBytes + sizes.notLoadedBytes).toBeGreaterThan(everyByte);
   });
 
+  it("counts rare tools as not loaded when the engine was told to load them on demand", () => {
+    expect(homeToolSizes(ENV, true)).toEqual(homeToolSizes({ ...ENV, [AGENTS_DEFER_RARE_ENV]: "1" }));
+    expect(homeToolSizes(ENV, true)!.notLoadedBytes).toBeGreaterThan(0);
+    expect(homeToolSizes(ENV, false)).toEqual({ loadedBytes: everyByte, notLoadedBytes: 0 });
+  });
+
   it("knows nothing when the dog has none of later.dog's tools", () => {
     expect(homeToolSizes(undefined)).toBeNull();
   });
