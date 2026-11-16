@@ -143,7 +143,7 @@ describe("one run_on_computer call with the real run store", () => {
         execs.push({ command, timeoutMs });
         if (command.startsWith("test -d")) return { exitCode: 0, stdout: "no\n", stderr: "" };
         if (command.includes("cat runs/.logs/")) options.onPoll?.();
-        if (command.includes("cat runs/.logs/")) return { exitCode: 0, stdout: options.exitCode === undefined ? "alive\n<<<\n<<<\n" : `alive\n<<<\n${options.exitCode}\n<<<\nok`, stderr: "" };
+        if (command.includes("cat runs/.logs/")) return { exitCode: 0, stdout: options.exitCode === undefined ? "<<<\n" : `${options.exitCode}\n<<<\nok`, stderr: "" };
         if (command.includes("nohup")) return { exitCode: 0, stdout: "started\n", stderr: "" };
         return { exitCode: 0, stdout: "", stderr: "" };
       },

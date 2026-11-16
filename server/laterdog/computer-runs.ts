@@ -248,13 +248,16 @@ export class ComputerRuns {
     return /^[0-9a-f]{8}$/.test(id) ? this.#readJson<RunRecord>(this.#runPath(botId, id)) : null;
   }
 
-  async poll(box: RunBox, record: RunRecord, timeoutMs = POLL_EXEC_MS): Promise<{ done: boolean; lost: boolean; exitCode: number | null; output: string }> {
-    const running = quote(`runs/[.]logs/${record.id}[.]log`);
-    const alive = `if ! command -v pgrep > /dev/null || pgrep -f ${running} > /dev/null; then echo alive; fi; echo '<<<'; `;
-    const result = await box.exec(`${alive}cat runs/.logs/${record.id}.exit 2>/dev/null; echo '<<<'; cd runs/.logs 2>/dev/null && tail -c ${OUTPUT_TAIL_CHARS} ${record.id}.log 2>/dev/null`, timeoutMs);
-    const [liveness, head, ...rest] = result.stdout.split("<<<\n");
-    const code = head?.trim() ?? "";
-    return { done: code !== "", lost: head !== undefined && code === "" && liveness.trim() !== "alive", exitCode: code === "" ? null : Number(code), output: rest.join("<<<\n") };
+  async poll(box: RunBox, record: RunRecord, timeoutMs = POLL_EXEC_MS): Promise<{ done: boolean; exitCode: number | null; output: string }> {
+    const result = await box.exec(`cat runs/.logs/${record.id}.exit 2>/dev/null; echo '<<<'; cd runs/.logs 2>/dev/null && tail -c ${OUTPUT_TAIL_CHARS} ${record.id}.log 2>/dev/null`, timeoutMs);
+    const [head, ...rest] = result.stdout.split("<<<\n");
+    const code = head.trim();
+    return { done: code !== "", exitCode: code === "" ? null : Number(code), output: rest.join("<<<\n") };
+  }
+
+  async gone(box: RunBox, record: Pick<RunRecord, "id">): Promise<boolean> {
+    const said = await box.exec(`! command -v pgrep > /dev/null || pgrep -f ${quote(`runs/[.]logs/${record.id}[.]log`)} > /dev/null || [ -f runs/.logs/${record.id}.exit ] || echo gone`, POLL_EXEC_MS).catch(() => null);
+    return said?.stdout.trim() === "gone";
   }
 
   window(budgetMs = WAIT_IN_ONE_CALL_MS): () => number {
@@ -265,7 +268,9 @@ export class ComputerRuns {
   async wait(box: RunBox, record: RunRecord, left: () => number = this.window()) {
     for (;;) {
       const state = await this.poll(box, record, Math.min(POLL_EXEC_MS, Math.max(LEAST_POLL_EXEC_MS, left())));
-      if (state.done || state.lost || left() <= 0 || this.#now() - record.startedAt >= MAX_RUN_MS) return state;
+      if (state.done) return { ...state, lost: false };
+      if (await this.gone(box, record)) return { ...state, lost: true };
+      if (left() <= 0 || this.#now() - record.startedAt >= MAX_RUN_MS) return { ...state, lost: false };
       await this.#sleep(Math.min(POLL_MS, left()));
     }
   }

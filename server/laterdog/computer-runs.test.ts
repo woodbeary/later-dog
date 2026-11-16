@@ -183,11 +183,25 @@ describe("a heavy command on the dog's own computer", () => {
     mkdirSync(computer);
     const { box, commands } = localBox(computer);
     const runs = new ComputerRuns(state, fast);
-    const started = await runs.start(box, { botId: "dog", folder, command: "sleep 0.2" });
-    await runs.finish(box, runs.record("dog", started.id)!, undefined, runs.window(60_000));
+    const started = await runs.start(box, { botId: "dog", folder, command: "sleep 5" });
+    const outcome = await runs.finish(box, runs.record("dog", started.id)!, undefined, runs.window(1));
+    spawnSync("pkill", ["-f", `runs/[.]logs/${started.id}[.]log`]);
+    expect(outcome.state).toBe("running");
     const searches = commands.filter((command) => /pgrep -f /.test(command));
     expect(searches.length).toBeGreaterThan(0);
     for (const command of searches) expect(searchesItself(command, "pgrep"), command).toBe(false);
+  });
+
+  it("asks whether a run is still going only while it has no exit code", async () => {
+    const { folder, computer, state } = project();
+    mkdirSync(computer);
+    const { box, commands } = localBox(computer);
+    const runs = new ComputerRuns(state, fast);
+    const started = await runs.start(box, { botId: "dog", folder, command: "true" });
+    for (let tries = 0; tries < 50 && !existsSync(join(computer, `runs/.logs/${started.id}.exit`)); tries += 1) spawnSync("sleep", ["0.1"]);
+    const outcome = await runs.finish(box, runs.record("dog", started.id)!, undefined, runs.window(60_000));
+    expect(outcome.state).toBe("finished");
+    expect(commands.filter((command) => /pgrep/.test(command))).toEqual([]);
   });
 
   it("stops a run that passed 2 hours without its kill finding the shell that sends it", async () => {
