@@ -55,23 +55,43 @@ describe("Mac approval gate", () => {
 
   const asking = () => gate.update({ computers: { [MAC_ID]: "ask" } });
 
-  it("lets every dog use the owner's Mac at once, with no card, by default", async () => {
+  it("on a Mac set to Always, the default, lets every dog look at files and read with no card", async () => {
     const other = store.patchBot(store.createBot().id, { name: "Scout" })!;
     store.appendMessage(other.threadId, { role: "user", kind: "text", text: "tidy my Desktop" });
     expect(gate.settings()).toEqual({ mode: "always", computers: {} });
     expect(gate.modeFor(MAC_ID)).toBe("always");
     await expect(Promise.all([
-      ask({ action: "run_command", command: "ls ~/Downloads" }),
       ask({ action: "list_files", path: "Downloads" }),
       ask({ action: "read_file", path: "Downloads/a.pdf" }),
-      ask({ action: "write_file", path: "Desktop/summary.md" }),
-      ask({ action: "computer_call", tool_name: "launch_app", arguments: { name: "Mail" } }),
-      gate.check({ bot: other, threadId: other.threadId, computer: MAC, computerId: MAC_ID, operation: { action: "run_command", command: "ls" }, active: () => true }),
-    ])).resolves.toEqual(Array(6).fill({ ok: true }));
+      ask({ action: "read_texts" }),
+      gate.check({ bot: other, threadId: other.threadId, computer: MAC, computerId: MAC_ID, operation: { action: "list_files", path: "Desktop" }, active: () => true }),
+    ])).resolves.toEqual(Array(4).fill({ ok: true }));
     expect(openCards()).toHaveLength(0);
     expect(openCards(other.threadId)).toHaveLength(0);
     expect(notes).toHaveLength(0);
-    expect(gate.pending(dog.threadId)).toBe(false);
+  });
+
+  it("on a Mac set to Always, asks before a command, a write, a delete and a screen action, with no Always on the card", async () => {
+    const asked = [
+      ask({ action: "run_command", command: "ls ~/Downloads" }),
+      ask({ action: "write_file", path: "Desktop/summary.md" }),
+      ask({ action: "computer_call", tool_name: "launch_app", arguments: { name: "Mail" } }),
+    ];
+    expect(openCards()).toHaveLength(3);
+    for (const message of openCards()) {
+      expect(message.card!.options).toEqual(["Allow", "Deny"]);
+      expect(message.card!.allowKey).toBeUndefined();
+    }
+    for (const message of openCards()) gate.resolve(message.card!.requestId!, "allow");
+    await expect(Promise.all(asked)).resolves.toEqual(Array(3).fill({ ok: true }));
+    const deleting = ask({ action: "delete_file", path: "Desktop/old.md" });
+    expect(openCards()).toHaveLength(0);
+    await expect(deleting).resolves.toEqual({ ok: true });
+    say("now the other folder");
+    const deleted = ask({ action: "delete_file", path: "Desktop/older.md" });
+    expect(openCards()).toHaveLength(1);
+    gate.resolve(openCards()[0]!.card!.requestId!, "deny");
+    expect(await deleted).toEqual({ ok: false, status: 403, error: MAC_DENIED });
   });
 
   it("keeps each Mac's own choice: Never refuses without a card, Ask shows one, and other Macs keep the default", async () => {
@@ -79,7 +99,7 @@ describe("Mac approval gate", () => {
     expect(await ask({ action: "run_command", command: "ls" })).toEqual({ ok: false, status: 403, error: MAC_NEVER });
     expect(openCards()).toHaveLength(0);
     expect(notes).toHaveLength(0);
-    expect(await ask({ action: "run_command", command: "ls" }, { computerId: OTHER_MAC_ID })).toEqual({ ok: true });
+    expect(await ask({ action: "list_files", path: "Downloads" }, { computerId: OTHER_MAC_ID })).toEqual({ ok: true });
 
     gate.update({ computers: { [MAC_ID]: "ask" } });
     const verdict = ask({ action: "run_command", command: "ls" });
@@ -102,17 +122,20 @@ describe("Mac approval gate", () => {
     expect(openCards()).toHaveLength(0);
   });
 
-  it("Always allow on a card lets every dog use that Mac without another card, until it is set to Never", async () => {
+  it("Always allow on a reading card lets every dog look at that Mac without another card, until it is set to Never", async () => {
     gate.update({ computers: { [MAC_ID]: "ask" } });
-    const waiting = ask({ action: "computer_call", tool_name: "launch_app", arguments: { name: "Mail" } });
+    const waiting = ask({ action: "read_file", path: "Downloads/a.pdf" });
     const requestId = openCards()[0]!.card!.requestId!;
-    expect(openCards()[0]!.card?.subtitle).toBe("Mail");
+    expect(openCards()[0]!.card?.allowKey).toBe(MAC_ALLOW_KEY);
     expect(gate.choose(requestId, "always")).toBe(true);
     expect(await waiting).toEqual({ ok: true });
     expect(gate.resolve(requestId, "allow")).toBe(true);
     expect(gate.resolve(requestId, "allow")).toBe(false);
     say("and again tomorrow");
-    await expect(ask({ action: "run_command", command: "open -a Mail" })).resolves.toEqual({ ok: true });
+    const command = ask({ action: "run_command", command: "open -a Mail" });
+    expect(openCards()).toHaveLength(1);
+    gate.resolve(openCards()[0]!.card!.requestId!, "allow");
+    await expect(command).resolves.toEqual({ ok: true });
     const other = store.patchBot(store.createBot().id, { name: "Scout" })!;
     store.appendMessage(other.threadId, { role: "user", kind: "text", text: "check my Desktop" });
     await expect(gate.check({ bot: other, threadId: other.threadId, computer: MAC, computerId: MAC_ID, operation: { action: "list_files", path: "Desktop" }, active: () => true })).resolves.toEqual({ ok: true });
@@ -225,10 +248,10 @@ describe("Mac approval gate", () => {
     expect(store.messagesFor(dog.threadId).find((message) => message.id === card.id)?.card).toMatchObject({ answered: "unavailable", expired: true });
   });
 
-  it("never asks when set to Always, and refuses without a card when set to Never", async () => {
+  it("never asks to look when set to Always, and refuses without a card when set to Never", async () => {
     asking();
     gate.update({ mode: "always", computers: { [MAC_ID]: "always" } });
-    expect(await ask({ action: "write_file", path: "notes.md" })).toEqual({ ok: true });
+    expect(await ask({ action: "list_files", path: "notes" })).toEqual({ ok: true });
     gate.update({ mode: "never", computers: { [MAC_ID]: "never" } });
     expect(await ask({ action: "list_files", path: "Downloads" })).toEqual({ ok: false, status: 403, error: MAC_NEVER });
     expect(await ask({ action: "list_files", path: "Downloads" }, { computerId: OTHER_MAC_ID })).toEqual({ ok: false, status: 403, error: MAC_NEVER });
@@ -236,10 +259,14 @@ describe("Mac approval gate", () => {
     expect(notes).toHaveLength(0);
   });
 
-  it("adds no second card after the home has already asked for what always asks: a Mac set to Always runs it", async () => {
+  it("adds no second card when the person has just said yes to this call on the home's own card", async () => {
     gate.update({ computers: { [MAC_ID]: "always" } });
-    await expect(ask({ action: "run_command", command: "rm -rf ~/Documents/old" })).resolves.toMatchObject({ ok: true });
+    await expect(ask({ action: "run_command", command: "rm -rf ~/Documents/old" }, { personSaidYes: true })).resolves.toMatchObject({ ok: true });
     expect(openCards()).toHaveLength(0);
+    const plain = ask({ action: "run_command", command: "rm -rf ~/Documents/older" });
+    expect(openCards()).toHaveLength(1);
+    gate.resolve(openCards()[0]!.card!.requestId!, "deny");
+    expect(await plain).toEqual({ ok: false, status: 403, error: MAC_DENIED });
   });
 
   it("settles waiting cards when the setting changes", async () => {

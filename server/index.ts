@@ -1279,7 +1279,7 @@ function vaultItemsFor(capability: InternalCapability): VaultItems {
   };
 }
 
-async function useMac(requested: SharedComputerOperation, capability: InternalCapability): Promise<unknown> {
+async function useMac(requested: SharedComputerOperation, capability: InternalCapability, personSaidYes = false): Promise<unknown> {
   const principal = sharedComputerPrincipal(capability);
   const unavailable = macLendingNotice(capability, principal);
   if (unavailable) throw Object.assign(new Error(unavailable), { status: 403 });
@@ -1290,7 +1290,7 @@ async function useMac(requested: SharedComputerOperation, capability: InternalCa
   const operation = completeSharedOperation(target, requested);
   const refusal = sharedComputerScopeRefusal(target, operation);
   if (refusal) throw Object.assign(new Error(refusal), { status: 403 });
-  await approveMac(capability, target, operation, active);
+  await approveMac(capability, target, operation, active, personSaidYes);
   return flagMacPrompt(capability, await macWaits.run(capability.threadId, operation, send));
 }
 
@@ -1316,13 +1316,14 @@ async function pickMac(principal: string | null, computerId: string | undefined)
   return online;
 }
 
-async function approveMac(capability: InternalCapability, target: SharedComputerRegistration, operation: SharedComputerOperation | MacAsk, active: () => boolean): Promise<void> {
+async function approveMac(capability: InternalCapability, target: SharedComputerRegistration, operation: SharedComputerOperation | MacAsk, active: () => boolean, personSaidYes = false): Promise<void> {
   const bot = store.bot(capability.botId);
   if (!bot) throw Object.assign(new Error("This dog is gone."), { status: 404 });
   const requestMessageId = macRequestMessageId(capability);
   const verdict = await macApprovals.check({
     bot, threadId: capability.threadId, computer: target.name, computerId: target.id, operation, active,
     ...(requestMessageId ? { requestMessageId } : {}),
+    ...(personSaidYes ? { personSaidYes } : {}),
   });
   if (!verdict.ok) throw Object.assign(new Error(verdict.error), { status: verdict.status });
 }
@@ -14544,6 +14545,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         task: store.taskByThread(internalSender.id, internalCapability.threadId),
         threadId: internalCapability.threadId,
       });
+      let personSaidYes = false;
       if (method === "POST" && ALWAYS_ASK_PATHS.has(path)) {
         const caller = new AbortController();
         res.once("close", () => { if (!res.writableEnded) caller.abort(); });
@@ -14553,6 +14555,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         const refused = asked && hit ? await askPersonFirst(internalSender, internalCapability.threadId, asked, hit, caller.signal) : null;
         if (caller.signal.aborted || callerGone(res)) return;
         if (refused) return path.endsWith("/mcp") ? json(res, 200, { result: { content: [{ type: "text", text: refused }], isError: true } }) : json(res, 403, { error: refused });
+        personSaidYes = Boolean(hit);
       }
       if (await dispatchInternalRoutes(INTERNAL_ROUTES, {
         req, res, url, path, method, json, sender: internalSender, threadId: internalCapability.threadId, capability: internalCapability, readBody: readInternalBody,
@@ -14729,7 +14732,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
           return json(res, 403, { error: "This bot has no computer. Change its Computer setting to use a shared computer's apps and screen." });
         }
         try {
-          const result = withoutSecret(await useMac(parsed.data, internalCapability), secret);
+          const result = withoutSecret(await useMac(parsed.data, internalCapability, personSaidYes), secret);
           const secrets = secret ? [...prepared.secrets, secret] : prepared.secrets;
           return json(res, 200, { result: await finishMacVault(parsed.data, result, { secrets, ...(prepared.capture ? { capture: prepared.capture } : {}) }, items, macCommandSecrets,
             (operation) => useMac(sharedComputerOperation.parse({ ...operation, ...(parsed.data.computer_id ? { computer_id: parsed.data.computer_id } : {}) }), internalCapability)) });

@@ -152,7 +152,7 @@ describe("remembering exact command approvals", () => {
     const ownChat = { ...bot, tasks: [{ threadId: "thread-1" }] } as Bot;
     expect(line(view({ allowKey: "ask_bot:kiwi" }, ownChat).html)).toBe("Always allow lets Scout do this again without asking in this chat.");
     expect(line(view({ allowKey: "ask_bot:kiwi" }).html)).toBe("Always allow lets Scout do this again without asking in group chats and in new chats.");
-    expect(line(view({ allowKey: "mac" }).html)).toBe("Always allow lets every dog use this Mac without asking. Never stops them using it.");
+    expect(line(view({ allowKey: "mac" }).html)).toBe("Always allow lets every dog look at files and read on this Mac without asking. Commands, changes and the screen still ask. Never stops them using it.");
     for (const button of command.buttons) expect((button.props as { title?: string }).title).toBeUndefined();
     expect(line(view({ commandAllowlist: undefined, allowSession: false }).html)).toBeUndefined();
   });
