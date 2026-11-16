@@ -38,6 +38,8 @@ describe("which processes belong to a task", () => {
       ["/usr/local/lib/node_modules/@anthropic-ai/claude-code/bin/claude.exe --print", "/app/server"],
       ["node --experimental-strip-types /app/server/laterdog/engine-proxy.ts mcp /run/sock", "/app/server"],
       ["/usr/local/bin/node /app/dist-server/laterdog/mcp.js", "/app/dist-server"],
+      ["/usr/local/bin/node /app/dist-server/mcp-gate.js", "/tmp/laterdog-dev-server/235c"],
+      ["/usr/local/bin/node /app/dist-server/permission-proxy.js /run/sock", "/tmp/laterdog-dev-server/235c"],
     ]) expect(isEngineProcess(argv!, serverRoot)).toBe(true);
     for (const argv of [
       "node --test server/laterdog/turn-leftovers.test.ts",

@@ -59,6 +59,7 @@ const ENGINE_PROGRAMS: ReadonlySet<string> = new Set(["claude", "codex", "openco
 const SCRIPT_RUNNERS: ReadonlySet<string> = new Set(["node", "nodejs", "bun", "tsx"]);
 const RUNNER_FLAGS_WITH_VALUE: ReadonlySet<string> = new Set(["-r", "--require", "--import", "--loader", "--experimental-loader", "--conditions", "-C", "--title", "--input-type"]);
 const PUSHED_SERVER = /(?:^|\/)laterdog-dev-server\//;
+const IMAGE_SERVER = "/app/dist-server/";
 
 export function programOf(argv: string): string {
   const words = argv.trim().split(/\s+/);
@@ -77,7 +78,7 @@ export function isEngineProcess(argv: string, serverRoot = SERVER_ROOT): boolean
   if (ENGINE_PROGRAMS.has(basename(program).replace(/\.(?:exe|[cm]?js|ts)$/, ""))) return true;
   if (!isAbsolute(program)) return false;
   const inside = relative(serverRoot, program);
-  return PUSHED_SERVER.test(program) || program.includes("/cloudchamber/") || (inside !== "" && !inside.startsWith("..") && !isAbsolute(inside));
+  return PUSHED_SERVER.test(program) || program.startsWith(IMAGE_SERVER) || program.includes("/cloudchamber/") || (inside !== "" && !inside.startsWith("..") && !isAbsolute(inside));
 }
 
 export function workspaceThread(cwd: string, roots: readonly string[]): { botId: string; threadId: string } | null {
