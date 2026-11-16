@@ -7888,6 +7888,26 @@ describe("harness HTTP API", () => {
     }
   });
 
+  it("refuses a teammate key with 409 and lists a stored one as no longer used, which Remove clears", async () => {
+    const bot = (await api("POST", "/api/bots", { name: "Wagtail" })).body.bot;
+    const mate = (await api("POST", "/api/bots", { name: "Heron" })).body.bot;
+    try {
+      for (const key of [`ask_bot:${mate.id}`, `delegate_bot:${mate.id}`]) {
+        const refused = await api("POST", `/api/bots/${bot.id}/always-allow`, { threadId: bot.threadId, allowKey: key });
+        expect(refused.status, key).toBe(409);
+      }
+      expect((await api("PATCH", `/api/bots/${bot.id}`, { alwaysAllow: [`delegate_bot:${mate.id}`] })).status).toBe(200);
+      const listed = await api("GET", `/api/bots/${bot.id}/always-allowed`);
+      const row = listed.body.items.find((item: { kind: string }) => item.kind === "teammate");
+      expect(row).toMatchObject({ kind: "teammate", subject: "Heron", state: "no-longer-used" });
+      expect((await api("DELETE", `/api/bots/${bot.id}/always-allowed/${encodeURIComponent(row.id)}`)).status).toBe(200);
+      expect((await api("GET", `/api/bots/${bot.id}/always-allowed`)).body.items.some((item: { kind: string }) => item.kind === "teammate")).toBe(false);
+    } finally {
+      await api("DELETE", `/api/bots/${bot.id}`);
+      await api("DELETE", `/api/bots/${mate.id}`);
+    }
+  });
+
   it("lists an old key from every chat it was copied into, and Remove takes it out of all of them", async () => {
     const bot = (await api("POST", "/api/bots", { name: "Kestrel" })).body.bot;
     try {

@@ -1,7 +1,7 @@
 
 import { newId } from "./contracts.ts";
 import { buildNotification, type Notification } from "./notify.ts";
-import { peerAllowKey, type PeerAction } from "./peer-approval-key.ts";
+import type { PeerAction } from "./peer-approval-key.ts";
 import type { BotRecord, Message, Store } from "./store.ts";
 
 export { peerAllowKey } from "./peer-approval-key.ts";
@@ -63,10 +63,6 @@ const pendingComms = new Map<string, Pending>();
 
 const APPROVAL_TIMEOUT_MS = 15 * 60_000;
 
-function allowKeyAllowed(from: BotRecord, allowKey: string): boolean {
-  return from.alwaysAllow?.includes(allowKey) ?? false;
-}
-
 export interface PeerApprovalTarget {
   id: string;
   name: string;
@@ -93,10 +89,9 @@ function pushApprovalCard(
     card: {
       title: `@${from.name} wants to ${ACTION_VERB[action]} @${target.name}`,
       subtitle,
-      options: ["Allow", "Deny", "Always allow"],
+      options: ["Allow", "Deny"],
       requestId,
       tool: action,
-      allowKey: peerAllowKey(action, target.id),
     },
   });
   return note;
@@ -124,8 +119,7 @@ export function requestPeerApproval(
   action: PeerAction,
   sourceThreadId = from.threadId,
 ): Promise<PeerApprovalOutcome> {
-  const grants = bus.store.projectBotForTask(from.id, sourceThreadId) ?? from;
-  if (bus.autoApply?.(from.id, sourceThreadId) || allowKeyAllowed(grants, peerAllowKey(action, target.id))) {
+  if (bus.autoApply?.(from.id, sourceThreadId)) {
     return Promise.resolve("allow");
   }
   return new Promise((resolve) => {

@@ -1637,7 +1637,7 @@ function oldGrantItem(key: string): AlwaysAllowedItem | null {
   if (key.startsWith("connector:")) return { id, kind: "app", subject: key.slice("connector:".length), state: "active" };
   if (key.startsWith(VAULT_ALLOW_PREFIX)) return { id, kind: "saved-login", subject: key.slice(VAULT_ALLOW_PREFIX.length), state: "active" };
   const peer = /^(?:ask_bot|delegate_bot):(.+)$/.exec(key);
-  if (peer) return { id, kind: "teammate", subject: store.bot(peer[1]!)?.name ?? peer[1], state: "active" };
+  if (peer) return { id, kind: "teammate", subject: store.bot(peer[1]!)?.name ?? peer[1], state: "no-longer-used" };
   return null;
 }
 
@@ -17780,7 +17780,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         return json(res, 200, { granted: true });
       }
       if (!allowKey) return json(res, 400, { error: "allowKey required" });
-      if (allowKey === DELETE_OUTSIDE_WORKSPACE_ALLOW_KEY) return json(res, 409, { error: "that grant is no longer offered" });
+      if (allowKey === DELETE_OUTSIDE_WORKSPACE_ALLOW_KEY || /^(?:ask_bot|delegate_bot):/.test(allowKey)) return json(res, 409, { error: "that grant is no longer offered" });
       const pending = store.messagesFor(bot.threadId).find((message) =>
         message.card?.requestId &&
         !message.card.answered &&
