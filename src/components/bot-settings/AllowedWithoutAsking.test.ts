@@ -87,9 +87,19 @@ describe("Always allowed in a dog's settings", () => {
 
   it("says the list could not be read instead of saying nothing yet", () => {
     const html = render({ paused: false, unreadable: true, items: [] });
-    expect(html).toContain("later.dog could not read this list. Everything asks until it can.");
+    expect(html).toContain("later.dog could not read part of this list. A search you allowed asks again until it can.");
     expect(html).not.toContain("Nothing yet.");
     expect(html).not.toContain("does these without asking you first");
+  });
+
+  it("keeps the old grants it can still read under the unreadable line, each with Remove", () => {
+    const html = render({ paused: false, unreadable: true, items: [{ id: "key:c", kind: "saved-login", subject: "example.com", state: "active" }] });
+    const line = html.indexOf("later.dog could not read part of this list. A search you allowed asks again until it can.");
+    const row = html.indexOf("Sign in to example.com with your saved login");
+    expect(line).toBeGreaterThan(-1);
+    expect(row).toBeGreaterThan(line);
+    expect(html).toContain('data-allowed="key:c"');
+    expect(html.match(/>Remove</g)).toHaveLength(1);
   });
 
   it("shows nothing to someone who may not see the list", () => {

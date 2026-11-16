@@ -7864,6 +7864,12 @@ describe("harness HTTP API", () => {
       const listed = await local("GET", `/api/bots/${bot.id}/always-allowed`);
       expect(listed.status).toBe(200);
       expect(listed.body).toEqual({ paused: false, unreadable: true, items: [] });
+      expect((await local("PATCH", `/api/bots/${bot.id}`, { alwaysAllow: ["vault:example.com"] })).status).toBe(200);
+      const withOld = await local("GET", `/api/bots/${bot.id}/always-allowed`);
+      expect(withOld.body).toMatchObject({ paused: false, unreadable: true, items: [{ kind: "saved-login", subject: "example.com", state: "active" }] });
+      const login = withOld.body.items[0];
+      expect((await local("DELETE", `/api/bots/${bot.id}/always-allowed/${encodeURIComponent(login.id)}`)).status).toBe(200);
+      expect((await local("GET", `/api/bots/${bot.id}/always-allowed`)).body).toEqual({ paused: false, unreadable: true, items: [] });
       expect(readFileSync(join(isolatedData, "lasting-allows.json"), "utf8")).toBe("{not json");
     } finally {
       await waitForExit(child, { signal: "SIGTERM" });
