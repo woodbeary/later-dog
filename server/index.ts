@@ -4604,7 +4604,7 @@ const roomHandoffs = new RoomHandoffs(join(DATA_DIR, "room-handoffs.json"), {
   },
   busy: n => {
     if (n.groupId) return Boolean(store.bot(n.botId)?.busy || (store.group(n.groupId) && groupIsWorking(store.group(n.groupId)!)));
-    const slot = threadBusy(n.botId, n.threadId) || botAtThreadCapacity(n.botId) || Boolean(activeGroupTurnForBot(n.botId));
+    const slot = threadBusy(n.botId, n.threadId) || botAtThreadCapacity(n.botId) || Boolean(activeGroupTurnForBot(n.botId)) || chatWaitsForAccount(n.threadId);
     return n.status === "resume" ? slot : slot || recipientAwaitingPerson(n.botId, n.threadId);
   },
   changed: (groupIds, directThreadIds) => {
@@ -6753,6 +6753,10 @@ function automaticallyCarriesOn(event: RuntimeEvent): boolean {
   return Boolean(input && carriesOn(input));
 }
 
+function chatWaitsForAccount(threadId: string): boolean {
+  return limitHold.holds(threadId) || batteryContinuationPending(threadId);
+}
+
 function batteryContinuationPending(threadId: string): boolean {
   return accountBattery.enabled && !directRequestOwners.get(threadId)?.stopped &&
     accountBattery.pending(threadId, directTurnGenerationByThread.get(threadId));
@@ -7999,7 +8003,7 @@ function drainQueuedSends() {
       }).catch(reject);
     }),
     (botId, threadId) => threadBusy(botId, threadId) || botAtThreadCapacity(botId) || Boolean(activeGroupTurnForBot(botId))
-      || parksBehindCoordination(botId, threadId) || limitHold.holds(threadId) || batteryContinuationPending(threadId) || heldForSwitchedOff(threadId),
+      || parksBehindCoordination(botId, threadId) || chatWaitsForAccount(threadId) || heldForSwitchedOff(threadId),
   );
 }
 
