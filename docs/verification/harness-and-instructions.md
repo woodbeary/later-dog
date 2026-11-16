@@ -105,10 +105,10 @@ TMPDIR=<scratch> node --experimental-strip-types scripts/measure-dog-prompt.ts
   first request is 6.1% to 12.8% larger.
 
 Three sentences on long work (`LONG_WORK`: wait for a job with one call when the
-next step needs it and no person is waiting; read the part of a file you need;
-hand a long step's next part to a fresh helper) added 310 bytes, about 78 tokens,
-1.3% to 1.6% for every kind of dog on both engines; the main Claude dog went from
-23,151 to 23,461 bytes. Fixture numbers for the waiting and helper-turn
+next step needs it, in short calls when a person is waiting; read the part of a file you need;
+hand a long step's next part to a fresh helper) added 317 bytes, about 79 tokens,
+1.4% to 1.6% for every kind of dog on both engines; the main Claude dog went from
+23,151 to 23,468 bytes. Fixture numbers for the waiting and helper-turn
 changes are in [short-turns.md](short-turns.md).
 
 `scripts/measure-turn-extras.ts` measures the second pass on the same kind of

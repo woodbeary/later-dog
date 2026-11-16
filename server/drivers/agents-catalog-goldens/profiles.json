@@ -308,8 +308,8 @@
     ]
   },
   "direct+skills+shared+voice+cloud-home": {
-    "bytes": 57715,
-    "sha256": "02d73f9658bf07ec82de6d1a3c2145f86411b77e95c53b7ba99f76d2054f5f74",
+    "bytes": 57806,
+    "sha256": "79163f9bb01a0ad46e7772da148470284b1307f6d2e806da6c28baf785c41bdc",
     "tools": [
       "execution_advice",
       "tool_result_read",
@@ -357,8 +357,8 @@
     ]
   },
   "direct+skills+shared+voice+cloud-home+phone": {
-    "bytes": 61745,
-    "sha256": "a385034595dff44d6b0088065dc5d11c0c88ca43d4ecd5f52e330081ec90ad20",
+    "bytes": 61836,
+    "sha256": "406940fec07fafdf927ecd8df9fcd2af53740d5fa76357e4ecd27390113a466f",
     "tools": [
       "execution_advice",
       "tool_result_read",

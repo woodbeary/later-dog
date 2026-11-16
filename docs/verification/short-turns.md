@@ -17,10 +17,16 @@ turn re-sends its whole context on every tool call. Three changes keep that smal
   While a job is still running the answer carries the last 2,000 characters of
   output, the first line that looks like an error, and a note that it was
   shortened; the finished answer keeps the whole tail.
+  The tool's description says the same: one call waits until the command ends, up
+  to `wait_minutes`; a waiting call keeps the computer awake (it checks every 10
+  seconds); only a call that comes back still running needs another, with the
+  run_id, within 4 minutes, since the computer sleeps after 5 minutes without a
+  call.
 - The standing instructions say, in three sentences (`LONG_WORK` in
   `server/laterdog/dog-guidance.ts`): when your next step needs a job, wait with
-  one call that returns when it ends, but if a person is waiting on you, run it in
-  the background (so a helper waits and a dog with a person stays free to answer);
+  one call until it ends, but if a person is waiting on you, wait in short calls
+  and answer between them (so a helper waits and a dog with a person stays free to
+  answer);
   read the part of a file you need, not the whole file again; when a long step is
   done and the chat is long, note where things stand and hand the next step to a
   fresh helper. A dog cannot compact or restart its own chat mid-turn; a fresh
@@ -50,7 +56,7 @@ whole context; tokens are bytes / 4.
 | read `server/index.ts` whole 14 times, or 14 parts of 120 lines | 385,840 and 2,770,460 sent, against 58,397 and 639,723 | advice only, numbers unchanged |
 | a helper lane of 200 steps | 1 turn, peak 447,000, 47,994,000 sent | 4 turns, peak 160,660, 18,076,340 sent |
 
-The standing instructions grew by 310 bytes (about 78 tokens), 1.3% to 1.6% for
+The standing instructions grew by 317 bytes (about 79 tokens), 1.4% to 1.6% for
 every kind of dog on both engines (`scripts/measure-dog-prompt.ts` against
 `server/laterdog/dog-guidance.ts` on main `0651657`).
 
