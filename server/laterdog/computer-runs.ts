@@ -251,7 +251,7 @@ export class ComputerRuns {
   async poll(box: RunBox, record: RunRecord, timeoutMs = POLL_EXEC_MS): Promise<{ done: boolean; lost: boolean; exitCode: number | null; output: string }> {
     const running = quote(`runs/[.]logs/${record.id}[.]log`);
     const alive = `if ! command -v pgrep > /dev/null || pgrep -f ${running} > /dev/null; then echo alive; fi; echo '<<<'; `;
-    const result = await box.exec(`${alive}cat runs/.logs/${record.id}.exit 2>/dev/null; echo '<<<'; tail -c ${OUTPUT_TAIL_CHARS} runs/.logs/${record.id}.log 2>/dev/null`, timeoutMs);
+    const result = await box.exec(`${alive}cat runs/.logs/${record.id}.exit 2>/dev/null; echo '<<<'; cd runs/.logs 2>/dev/null && tail -c ${OUTPUT_TAIL_CHARS} ${record.id}.log 2>/dev/null`, timeoutMs);
     const [liveness, head, ...rest] = result.stdout.split("<<<\n");
     const code = head?.trim() ?? "";
     return { done: code !== "", lost: head !== undefined && code === "" && liveness.trim() !== "alive", exitCode: code === "" ? null : Number(code), output: rest.join("<<<\n") };

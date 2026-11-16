@@ -178,6 +178,18 @@ describe("a heavy command on the dog's own computer", () => {
     expect(readFileSync(join(folder, "out.txt"), "utf8")).toBe("done\n");
   });
 
+  it("never finds its own shell when it asks the computer whether a run is still going", async () => {
+    const { folder, computer, state } = project();
+    mkdirSync(computer);
+    const { box, commands } = localBox(computer);
+    const runs = new ComputerRuns(state, fast);
+    const started = await runs.start(box, { botId: "dog", folder, command: "sleep 0.2" });
+    await runs.finish(box, runs.record("dog", started.id)!, undefined, runs.window(60_000));
+    const searches = commands.filter((command) => /pgrep -f /.test(command));
+    expect(searches.length).toBeGreaterThan(0);
+    for (const command of searches) expect(searchesItself(command, "pgrep"), command).toBe(false);
+  });
+
   it("says a run is over when its command is gone without finishing, instead of waiting up to 2 hours", async () => {
     const { folder, computer, state } = project();
     mkdirSync(computer);
@@ -193,6 +205,10 @@ describe("a heavy command on the dog's own computer", () => {
     expect(outcome.note).toContain("within 4 minutes");
   });
 });
+
+function searchesItself(command: string, tool: "pgrep" | "pkill"): boolean {
+  return [...command.matchAll(new RegExp(`${tool} -f '([^']+)'`, "g"))].some((match) => new RegExp(match[1]!).test(command));
+}
 
 function computerShell(home: string, repoDir: string, runKey: string) {
   return (script: string) => {
