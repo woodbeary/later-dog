@@ -52,7 +52,7 @@ function unwrapped(tokens: readonly string[]): string[] {
   return rest.length ? [baseName(rest[0]!), ...rest.slice(1)] : [];
 }
 
-function words(segment: string): string[] {
+export function commandWords(segment: string): string[] {
   const plain = segment.trim().replace(ENV_PREFIX, "");
   return unwrapped((plain.match(/'[^']*'|"[^"]*"|\S+/g) ?? []).map((word) => word.replace(/^['"]|['"]$/g, "")));
 }
@@ -68,7 +68,7 @@ const HEREDOC_OPERATOR = /<<-?\s*(?:'[^']*'|"[^"]*"|[^\s;&|()<>]+)/g;
 const HERE_STRING_OPERATOR = /<<<\s*(?:'[^']*'|"[^"]*"|\S+)/g;
 
 function simpleWords(command: string): string[] {
-  return words(command.replace(HERE_STRING_OPERATOR, " ").replace(HEREDOC_OPERATOR, " "));
+  return commandWords(command.replace(HERE_STRING_OPERATOR, " ").replace(HEREDOC_OPERATOR, " "));
 }
 
 const PRINTERS = new Set(["echo", "printf"]);
@@ -226,7 +226,7 @@ function refusal(why: string): string {
 }
 
 export function signalRefusal(command: string, scene: SignalScene, depth = 0): string | null {
-  const parts = segments(commandText(command)).map(words).filter((part) => part.length > 0);
+  const parts = segments(commandText(command)).map(commandWords).filter((part) => part.length > 0);
   for (const [head, ...args] of parts) {
     const flag = args.findIndex((arg) => /^-[a-z]*c[a-z]*$/.test(arg));
     if (!isShell(head) || flag === -1 || depth >= 3) continue;

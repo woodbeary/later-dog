@@ -557,6 +557,7 @@ import { closeTabsScript, forgetUsers, loadTabLedger, parseTargets, recordTabs, 
 import { MEMORY_CHECK_MS, orphanIdleHours, readMemoryPressure, reapStrays, underMemoryPressure, type ThreadState as ReaperThreadState } from "./laterdog/process-reaper.ts";
 import { startHomeUpkeep } from "./laterdog/home-upkeep.ts";
 import { liveSignalScene, signalDecision } from "./laterdog/home-signals.ts";
+import { homeFloorDecision } from "./laterdog/disk-floor.ts";
 import { listenWebhookIngress, webhookCredential, type WebhookIngress } from "./webhook-ingress.ts";
 import { assertModelVariantSupported, memberTurnSelection } from "./member-turn.ts";
 import { WebhookManager } from "./webhooks.ts";
@@ -6025,7 +6026,7 @@ function ingestEngineHook(capability: InternalCapability, body: unknown): { ok: 
   }
   if (name === "Stop") return { ok: true };
   if (name === "PreToolUse") {
-    const decision = (CLOUD_HOME ? signalDecision(payload, () => liveSignalScene(threadId, PORT)) : null)
+    const decision = (CLOUD_HOME ? signalDecision(payload, () => liveSignalScene(threadId, PORT)) ?? homeFloorDecision(payload, diskUse(DATA_DIR), { computers: computersSelected() }) : null)
       ?? preToolUseDecision(heavyCommandGuard, { active: Boolean(CLOUD_HOME) && computersSelected(), threadId, payload });
     return decision ? { ok: true, hookSpecificOutput: decision } : { ok: true };
   }
@@ -21247,6 +21248,7 @@ function janitorWorkspaces(): WorkspaceTask[] {
 }
 
 let lastJanitorRun: JanitorRun | null = null;
+let homeUpkeep: ReturnType<typeof startHomeUpkeep> | null = null;
 const diskBreakdown = createDiskBreakdown({ dataDir: DATA_DIR, home: CLOUD_HOME ? homedir() : null, scratch: CLOUD_HOME ? [tmpdir()] : [], dogName: (id) => store.bot(id)?.name ?? null });
 let janitorRunning = false;
 
@@ -21288,7 +21290,7 @@ if (CLOUD_HOME) {
     const stopped = reapStrays({ roots: [TASK_WORKSPACES_DIR], thread: janitorThread, orphanIdleHours: orphanIdleHours(pressure) });
     if (stopped.length) console.log(`[janitor] memory pressure: stopped ${stopped.length} stray process(es)`);
   }, MEMORY_CHECK_MS).unref();
-  startHomeUpkeep({
+  homeUpkeep = startHomeUpkeep({
     subscribe: (listener) => bus.subscribe((event: RuntimeEvent) => { if (!shouldIgnoreProviderEvent(event)) listener(event); }),
     atWork: (threadId) => {
       const bot = store.botByThread(threadId);
@@ -21298,6 +21300,8 @@ if (CLOUD_HOME) {
     chats: () => janitorWorkspaces(),
     dataDir: DATA_DIR,
     home: homedir(),
+    workspacesDir: TASK_WORKSPACES_DIR,
+    storeChanges: (listener) => { store.onChange(listener); },
   });
 }
 
@@ -21344,7 +21348,7 @@ function cloudStorage() {
     disk: disk ? { totalBytes: disk.totalBytes, freeBytes: disk.freeBytes } : null,
     memory: { totalBytes: totalmem(), availableBytes: process.availableMemory() },
     low: isLowDisk(disk),
-    warning: null,
+    warning: homeUpkeep?.warning() ?? null,
     archive: logArchive?.status() ?? { enabled: false },
     janitor: lastJanitorRun ? { at: lastJanitorRun.at, freedBytes: lastJanitorRun.freedBytes, stopped: lastJanitorRun.reaped } : null,
     breakdown: diskBreakdown.last(),
