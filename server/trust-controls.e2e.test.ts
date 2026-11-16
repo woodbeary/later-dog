@@ -219,6 +219,7 @@ it("asks once per connector for a call that is not one of the five, remembers Al
   const slack = relay(token, "SLACK_SEND_MESSAGE", { channel: "#fixture" });
   const slackCard = await pending(b.threadId);
   expect(slackCard.card).toMatchObject({ title: "Allow Slack?" });
+  expect(slackCard.card.allowKey).toBeUndefined();
   await api("POST", `/api/threads/${b.threadId}/respond`, { requestId: slackCard.card.requestId, behavior: "deny" });
   expect((await slack).body.result.content[0].text).toContain("skipped");
   const again = await relay(token, "SLACK_SEND_MESSAGE", { channel: "#fixture" });
@@ -251,6 +252,7 @@ it("lets one Allow cover that app until the next message, then asks again", asyn
   expect((await cards(b.threadId)).filter((row: any) => row.card?.outboundRequest)).toHaveLength(cardsBefore);
   const send = relay(token, "GMAIL_SEND_EMAIL", { to: "friend@fixture.test" });
   const sendCard = await pending(b.threadId);
+  expect(sendCard.card.allowKey).toBeUndefined();
   await api("POST", `/api/threads/${b.threadId}/respond`, { requestId: sendCard.card.requestId, behavior: "deny" });
   expect((await send).body.result.isError).toBe(true);
   token = await mint(b.id, b.threadId);

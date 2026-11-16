@@ -222,6 +222,9 @@ it("a delete outside the workspace asks every time, even after the old Always al
   const first = turn.ask("Bash", { command: "rm -rf /srv/old-video-work" });
   await expect.poll(() => turn.card(first), { timeout: 10_000 }).toMatchObject({ requestType: "permission" });
   expect((await turn.card(first)).subtitle).toMatch(/^This deletes \/srv\/old-video-work and everything in it/);
+  expect((await turn.card(first)).allowKey).toBeUndefined();
+  const offered = await api("POST", `/api/bots/${dog.id}/always-allow`, { threadId: turn.threadId, allowKey: "Delete folders outside its workspace" });
+  expect(offered.status).toBe(409);
   expect(turn.answers.has(first)).toBe(false);
 
   const stored = await api("PATCH", `/api/bots/${dog.id}`, { alwaysAllow: ["Delete folders outside its workspace"] });
@@ -398,6 +401,9 @@ it("an owner dog's send through a connected app always asks, with Auto-review of
   const asked = relay(await mintConnectors(mailer.id, mailer.threadId), "GMAIL_SEND_EMAIL", { to: "friend@example.test", body: "On my way." });
   await expect.poll(async () => (await sendCards(mailer.threadId)).length, { timeout: 10_000 }).toBe(1);
   const [first] = await sendCards(mailer.threadId);
+  expect(first.card.allowKey).toBeUndefined();
+  const offered = await api("POST", `/api/bots/${mailer.id}/always-allow`, { threadId: mailer.threadId, allowKey: "connector:gmail" });
+  expect(offered.status).toBe(409);
   await api("POST", `/api/threads/${mailer.threadId}/respond`, { requestId: first.card.requestId, behavior: "deny" });
   expect((await asked).body.result.isError).toBe(true);
   expect(relayed).toHaveLength(before);

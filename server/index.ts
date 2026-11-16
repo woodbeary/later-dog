@@ -7365,7 +7365,7 @@ bus.subscribe(guardTurnEnd((event: RuntimeEvent) => {
               return "failed";
             }
           },
-          hold: unattended ? undefined : (question, refusal) => showCard(question, ownerGuardAllowKey(refusal)),
+          hold: unattended ? undefined : (question) => showCard(question),
           holdAlways: unattended ? undefined : (hit) => showCard(hit.ask, undefined, hit.id),
           refusedAlways: (hit) => {
             pushMessage({ role: "bot", kind: "activity", tool: { name: hit.refusal, ok: false } });
@@ -15654,7 +15654,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
                 options: ["Allow", "Deny"],
                 requestId: held.requestId,
                 tool: outboundTool,
-                ...(decision.toolkit ? { allowKey: connectorAllowKey(decision.toolkit) } : {}),
+                ...(decision.toolkit && connectorAlwaysAsks(outboundCalls.map((call) => call.slug)) === null ? { allowKey: connectorAllowKey(decision.toolkit) } : {}),
                 held: HELD_NOTE["approval.held.outbound"],
                 heldCode: "approval.held.outbound",
                 outboundRequest: { tool: outboundTool, app, calls },
@@ -17659,6 +17659,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       const allowKey = typeof body.allowKey === "string" ? body.allowKey : "";
       const bot = requestedTaskBot(m[1], body.threadId);
       if (!allowKey) return json(res, 400, { error: "allowKey required" });
+      if (allowKey === DELETE_OUTSIDE_WORKSPACE_ALLOW_KEY) return json(res, 409, { error: "that grant is no longer offered" });
       const pending = store.messagesFor(bot.threadId).find((message) =>
         message.card?.requestId &&
         !message.card.answered &&
