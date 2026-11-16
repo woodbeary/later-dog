@@ -7,7 +7,7 @@ import { resolveUses, VAULT_OWNER_ONLY, type VaultItems } from "./laterdog/vault
 import { capturedValue, maskValues, secretNameProblem, vaultFingerprint, VAULT_CAPTURE_SCHEMA, VAULT_USES_SCHEMA, wrapVaultCommand } from "./laterdog/vault-refs.ts";
 import { splitTabListing, TAB_TRACKED_TOOLS, withTabListing, type Target } from "./laterdog/cloud-tabs.ts";
 import { fillSecureField, parseSecureFormInput, SECURE_FORM_TOOLS, secureFormFilledText, secureFormRequestedText, type SecureFormDesk } from "./laterdog/secure-form.ts";
-import { imageFromOutput, onScreen, scaled, SCREEN_SIZE_COMMAND, SCREENSHOT_COMMAND } from "./laterdog/screen-scale.ts";
+import { imageFromOutput, onScreen, scaled, SCREEN_SIZE_COMMAND, SCREENSHOT_COMMAND, zoomCommand } from "./laterdog/screen-scale.ts";
 import { PAGE_TOOL_NAMES, PAGE_TOOLS, pageToolsEnabled, runPageTool, type RemoteExec } from "./laterdog/page-tools.ts";
 
 export type { RemoteExec };
@@ -18,6 +18,7 @@ const tool = (name: string, description: string, properties: Record<string, unkn
 export const CLOUD_COMPUTER_TOOLS = [
   tool("screenshot", "See the assigned cloud desktop, scaled to at most 1024 pixels wide. The other computer tools use this image's coordinates."),
   tool("get_screen_size", "Get the width and height of the screenshot image, the coordinates the other computer tools use."),
+  tool("zoom", "See one region of the cloud desktop at full detail, to read what the screenshot shows too small. x, y, width and height are in screenshot coordinates; the picture is at most 1024 pixels wide and its own coordinates are not the ones the other tools use.", { x: coordinate, y: coordinate, width: { type: "integer", minimum: 8, maximum: 32767 }, height: { type: "integer", minimum: 8, maximum: 32767 } }, ["x", "y", "width", "height"]),
   tool("click", "Click a point on the cloud desktop.", { x: coordinate, y: coordinate, button: { type: "string", enum: ["left", "middle", "right"] }, count: { type: "integer", minimum: 1, maximum: 3 } }, ["x", "y"]),
   tool("move", "Move the cloud mouse pointer.", { x: coordinate, y: coordinate }, ["x", "y"]),
   tool("drag", "Drag on the cloud desktop.", { x: coordinate, y: coordinate, to_x: coordinate, to_y: coordinate }, ["x", "y", "to_x", "to_y"]),
@@ -77,8 +78,8 @@ export async function runCloudComputerTool(
     signal.throwIfAborted();
     return page;
   }
-  if (name === "screenshot") {
-    const shot = await exec(SCREENSHOT_COMMAND, signal);
+  if (name === "screenshot" || name === "zoom") {
+    const shot = await exec(name === "zoom" ? zoomCommand(args as { x: number; y: number; width: number; height: number }) : SCREENSHOT_COMMAND, signal);
     signal.throwIfAborted();
     const data = shot.ok ? imageFromOutput(shot.stdout) : null;
     if (!data) return { isError: true, content: [{ type: "text", text: `The screenshot failed: ${(shot.stderr || shot.stdout).trim().slice(-300) || `exit ${shot.exitCode}`}` }] };

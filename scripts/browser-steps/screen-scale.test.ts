@@ -38,6 +38,16 @@ describe.skipIf(!tools)("screenshots a dog sees on a 1280x800 cloud desktop", ()
     const size = await call("get_screen_size");
     expect(JSON.parse((size.content[0] as { text: string }).text).stdout.trim()).toBe("1024 640");
   });
+
+  it("zoom shows a region at the real screen's detail, and stays capped at 1024 pixels wide", async () => {
+    const sizeOf = (result: Awaited<ReturnType<typeof call>>) => {
+      const image = result.content.find((part) => part.type === "image") as { data: string } | undefined;
+      return image ? jpegSize(Buffer.from(image.data, "base64")) : result.content;
+    };
+    expect(sizeOf(await call("zoom", { x: 0, y: 0, width: 256, height: 160 }))).toEqual({ width: 320, height: 200 });
+    expect(sizeOf(await call("zoom", { x: 900, y: 600, width: 400, height: 100 }))).toEqual({ width: 155, height: 50 });
+    expect(sizeOf(await call("zoom", { x: 0, y: 0, width: 1024, height: 640 }))).toEqual({ width: 1024, height: 640 });
+  });
 });
 
 describe("where a dog's click lands on a 1280x800 cloud desktop", () => {
