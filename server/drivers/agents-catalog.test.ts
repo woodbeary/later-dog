@@ -13,11 +13,13 @@ describe("fixing a stuck dog instead of duplicating it", () => {
 });
 
 describe("waiting on a run on the cloud computer", () => {
-  it("tells a dog the run carries on without it and one check already waits, so it does other work instead of polling", async () => {
+  it("tells a dog to check back within 4 minutes, before its computer sleeps and ends the run, and that one check already waits", async () => {
     const { availableTools } = await import("./agents-catalog.ts");
     const run = availableTools({ cloudHome: true } as never).find((tool) => tool.name === "run_on_computer")?.description ?? "";
     expect(run).toContain("nothing wakes you when it ends");
-    expect(run).toContain("do your other work first");
+    expect(run).toContain("goes to sleep after 5 minutes without a call, which ends the run");
+    expect(run).toContain("call again with only run_id within 4 minutes");
+    expect(run).not.toContain("do your other work first");
     expect(run).toContain("never sleep or loop before it");
   });
 });
