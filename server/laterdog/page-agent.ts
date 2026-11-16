@@ -48,7 +48,8 @@ function outline(scope, max) {
     if (tag === "INPUT" && (el.type === "checkbox" || el.type === "radio")) return el.type + ' "' + labelOf(el) + '"' + (el.checked ? " checked" : "") + " [" + ref(el) + "]";
     if (tag === "INPUT" && el.type === "hidden") return "";
     if (tag === "INPUT" && el.type === "password") return 'password "' + labelOf(el) + '"' + (el.value ? " (filled)" : "") + " [" + ref(el) + "]";
-    if (tag === "INPUT" || tag === "TEXTAREA") return 'textbox "' + labelOf(el) + '"' + (el.value ? ' = "' + clean(el.value).slice(0, 80) + '"' : "") + " [" + ref(el) + "]";
+    if (tag === "INPUT" || tag === "TEXTAREA") return 'textbox "' + labelOf(el) + '"' + (el.value ? " (filled)" : "") + " [" + ref(el) + "]";
+    if (el.isContentEditable && !(el.parentElement && el.parentElement.isContentEditable)) return 'textbox "' + labelOf(el) + '"' + (clean(el.textContent) ? " (filled)" : "") + " [" + ref(el) + "]";
     if (tag === "SELECT") {
       const chosen = el.selectedIndex >= 0 ? clean(el.options[el.selectedIndex].text) : "";
       return 'select "' + labelOf(el) + '" [' + ref(el) + "]: " + Array.from(el.options).map((option) => clean(option.text)).join(" | ") + (chosen ? " (chosen: " + chosen + ")" : "");
@@ -90,7 +91,11 @@ function outline(scope, max) {
 function textOf(ref, selector, max) {
   const el = ref ? document.querySelector('[data-ld-ref="' + ref + '"]') : document.querySelector(selector);
   if (!el) return { error: ref ? "No element " + ref + " on this page; read the page again." : "Nothing on this page matches " + selector + "." };
-  let text = (el.innerText || el.value || "").trim();
+  const field = el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.isContentEditable;
+  if (field) return { text: (el.isContentEditable ? (el.textContent || "").trim() : el.value) ? "(filled; field values are not shown)" : "(empty)" };
+  const copy = el.cloneNode(true);
+  for (const hidden of copy.querySelectorAll("script,style,noscript,template,[contenteditable]")) hidden.textContent = hidden.matches("[contenteditable]") && (hidden.textContent || "").trim() ? " (filled) " : "";
+  let text = (copy.textContent || "").replace(/[ \t]+/g, " ").replace(/\s*\n\s*/g, "\n").trim();
   if (text.length > max) text = text.slice(0, max) + "\n[cut at " + max + " characters]";
   return { text };
 }

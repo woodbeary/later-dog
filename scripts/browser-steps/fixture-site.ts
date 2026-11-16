@@ -65,6 +65,16 @@ function login(failed: boolean): string {
 <p><button type="submit">Sign in</button></p></form>`);
 }
 
+function secureSignIn(): string {
+  return page("Verify and pay", `<form method="post" action="/secure">
+<label for="email">Email</label><input id="email" name="email" type="email" autocomplete="email">
+<label for="password">Password</label><input id="password" name="password" type="password" autocomplete="current-password">
+<label for="code">One-time code</label><input id="code" name="code" inputmode="numeric" autocomplete="one-time-code">
+<label for="card">Card number</label><input id="card" name="card" type="tel" autocomplete="cc-number">
+<div id="notes" role="textbox" aria-label="Notes" contenteditable="true"></div>
+<p><button type="submit">Continue</button></p></form>`);
+}
+
 function orders(): string {
   const rows = Array.from({ length: 12 }, (_, index) => {
     const number = 1035 + index;
@@ -107,6 +117,7 @@ export async function handleFixture(request: IncomingMessage, response: ServerRe
     case "/shipping": return send(response, 200, shipping());
     case "/contact": return send(response, 200, contact());
     case "/login": return send(response, 200, login(false));
+    case "/secure": return send(response, 200, secureSignIn());
     case "/orders": return signedIn ? send(response, 200, orders()) : send(response, 303, "", { location: "/login" });
     default: return send(response, 200, page("Coming soon", "<p>This page is not part of the fixture.</p>"));
   }
