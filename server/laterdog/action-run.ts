@@ -5,7 +5,6 @@ export type RunStep = (name: string, args: Record<string, unknown>) => Promise<S
 export const RUN_MAX_STEPS = 25;
 export const RUN_WAIT_MAX_MS = 5_000;
 
-const SCREEN_STEPS: Record<string, string> = { click: "click", type: "type_text", key: "key_press", scroll: "scroll" };
 const PAGE_STEPS: Record<string, string> = { page_click: "page_click", page_fill: "page_fill", page_select: "page_select", page_press: "page_press" };
 export const RUN_STEP_ACTIONS = ["click", "type", "key", "scroll", "wait", ...Object.keys(PAGE_STEPS)] as const;
 

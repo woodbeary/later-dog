@@ -7,7 +7,7 @@ import { resolveUses, VAULT_OWNER_ONLY, type VaultItems } from "./laterdog/vault
 import { capturedValue, maskValues, secretNameProblem, vaultFingerprint, VAULT_CAPTURE_SCHEMA, VAULT_USES_SCHEMA, wrapVaultCommand } from "./laterdog/vault-refs.ts";
 import { splitTabListing, TAB_TRACKED_TOOLS, withTabListing, type Target } from "./laterdog/cloud-tabs.ts";
 import { fillSecureField, parseSecureFormInput, SECURE_FORM_TOOLS, secureFormFilledText, secureFormRequestedText, type SecureFormDesk } from "./laterdog/secure-form.ts";
-import { imageFromOutput, onScreen, pointerTo, scaled, SCREEN_SIZE_COMMAND, SCREENSHOT_COMMAND, zoomCommand } from "./laterdog/screen-scale.ts";
+import { imageFromOutput, pointerTo, scaled, SCREEN_SIZE_COMMAND, SCREENSHOT_COMMAND, zoomCommand } from "./laterdog/screen-scale.ts";
 import { PAGE_TOOL_NAMES, PAGE_TOOLS, pageToolsEnabled, runPageTool, type RemoteExec } from "./laterdog/page-tools.ts";
 import { RUN_ACTIONS_TOOL, runActions } from "./laterdog/action-run.ts";
 
