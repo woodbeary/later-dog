@@ -209,6 +209,7 @@ export function PendingApprovalActions({
   const macRequest = pending.tool.startsWith("mac_") && !macSend;
   const lasting = !durableRequest && !canRememberCommand ? pending.lasting : undefined;
   const lastingAlways = Boolean(lasting?.offered && ownerOrAdmin === true);
+  const outboundChoice = outbound && !(pending.lasting && !pending.lasting.offered && pending.lasting.why === "always-asks");
   const lastingWhy = lasting && !lasting.offered ? LASTING_WHY_WORDS[lasting.why] : lasting?.offered && !lastingAlways ? LASTING_WHY_WORDS["owner-only"] : null;
   const decide = (behavior: "allow" | "deny", always = false, rememberCommand = false, never = false) => {
     const lastingGrant = always && bot && lastingAlways ? { botId: bot.id } : undefined;
@@ -262,7 +263,7 @@ export function PendingApprovalActions({
               ? t("approval.action.confirm")
               : macSend
                 ? t("approval.action.send")
-                : outbound
+                : outboundChoice
                   ? t("approval.action.allow")
                   : t("approval.action.allowOnce")}
         </button>
@@ -271,7 +272,7 @@ export function PendingApprovalActions({
             onClick={() => decide("deny")}
             className={cn(base, quiet)}
           >
-            {isRoutineRequest || isProfileRequest ? t("approval.action.cancel") : outbound ? t("approval.action.skip") : macSend ? t("approval.action.dontSend") : t("approval.action.deny")}
+            {isRoutineRequest || isProfileRequest ? t("approval.action.cancel") : outboundChoice ? t("approval.action.skip") : macSend ? t("approval.action.dontSend") : t("approval.action.deny")}
           </button>
         )}
         {!durableRequest && bot && pending.allowKey && !lasting && (

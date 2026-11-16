@@ -89,6 +89,16 @@ describe("a card that offers no Always", () => {
     expect(fixture.dispatch).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ lastingGrant: { botId: "bot-1" }, alwaysAllow: undefined, scope: "always" }));
   });
 
+  it("labels a connected-app card that always asks Allow once and Don't allow, with its line", () => {
+    const outboundRequest = { tool: "GMAIL_DELETE_MESSAGE", app: "Gmail", calls: [{ app: "Gmail", label: "Delete message" }] };
+    const asks = view({ offered: false, why: "always-asks" }, { title: "Allow Gmail?", subtitle: "Gmail · Delete message", tool: "GMAIL_DELETE_MESSAGE", outboundRequest });
+    expect(labels(asks.buttons)).toEqual(["Allow once", "Don't allow"]);
+    expect(asks.html).toContain("This one always asks.");
+    const ordinary = view(undefined, { title: "Allow GitHub?", subtitle: "GitHub · Create an issue comment", tool: "GITHUB_CREATE_AN_ISSUE_COMMENT", allowKey: "connector:github",
+      outboundRequest: { tool: "GITHUB_CREATE_AN_ISSUE_COMMENT", app: "GitHub", calls: [{ app: "GitHub", label: "Create an issue comment" }] } });
+    expect(labels(ordinary.buttons).slice(0, 2)).toEqual(["Allow", "Skip"]);
+  });
+
   it("never offers Allow for this chat", () => {
     const result = view(undefined, { allowSession: true } as Partial<NonNullable<Message["card"]>>);
     expect(labels(result.buttons)).toEqual(["Allow once", "Don't allow"]);
