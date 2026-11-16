@@ -69,8 +69,7 @@ export function createGoogleRoute(deps: GoogleRouteDeps): InternalRouteHandler {
       const own = deps.client();
       const shared = own ? null : await sharedConnectClient(deps.cloud);
       const redirectUri = shared?.redirectUri ?? deps.redirectUri();
-      if (!own && !shared && deps.cloud) return json(res, 409, { error: GOOGLE_SHARED_OFF });
-      if (!redirectUri) return json(res, 409, { error: "This later.dog has no public address, so Google has nowhere to send the approval back to." });
+      if (!redirectUri) return json(res, 409, { error: !own && !shared && deps.cloud ? GOOGLE_SHARED_OFF : "This later.dog has no public address, so Google has nowhere to send the approval back to." });
       const client = own ?? shared;
       if (!client) return json(res, 409, { error: `${GOOGLE_NEEDS_CLIENT} Redirect address: ${redirectUri}` });
       const hint = isGoogleEmail(body.account) ? body.account.trim().toLowerCase() : undefined;

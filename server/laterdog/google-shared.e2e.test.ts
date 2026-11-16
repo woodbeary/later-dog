@@ -10,7 +10,7 @@ import { afterAll, beforeAll, expect, it } from "vitest";
 import { cloudPairingSignature } from "../cloud-home.ts";
 import { removeTempDir, waitForExit } from "../testing/cleanup.ts";
 import { freePortBlock } from "../testing/ports.ts";
-import { GOOGLE_SHARED_OFF } from "./google-shared.ts";
+import { GOOGLE_NEEDS_CLIENT } from "../routes/google.ts";
 
 const SERVER_DIR = join(dirname(fileURLToPath(import.meta.url)), "..");
 const MACHINE = "h0123456789abcdef01234567";
@@ -208,5 +208,5 @@ it("a dog on a Cloud home with nothing set up connects Gmail through later.dog's
   mode = "off";
   const off = await tools.call("connect_google", { account: EMAIL });
   expect(off.isError).toBe(true);
-  expect(off.content[0].text).toBe(GOOGLE_SHARED_OFF);
+  expect(off.content[0].text).toBe(`${GOOGLE_NEEDS_CLIENT} Redirect address: https://${HOST}/google-oauth/callback`);
 }, 90_000);

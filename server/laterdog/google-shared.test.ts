@@ -15,6 +15,7 @@ const OWN = { clientId: "999-own.apps.googleusercontent.com", clientSecret: "own
 const HOME_TOKEN = "home-google-route-token-fixture";
 const GOOGLE_URL = "http://google.internal";
 const EMAIL = "lopez731@gmail.com";
+const TODAYS_ANSWER = `${GOOGLE_NEEDS_CLIENT} Redirect address: https://${MACHINE}-home.later.dog/google-oauth/callback`;
 const b64 = (text: string) => Buffer.from(text, "utf8").toString("base64url");
 
 type Mode = "on" | "off" | "older" | "rotated";
@@ -204,23 +205,45 @@ describe("when later.dog's connection can't be used", () => {
     for (const redirectUri of wrong) {
       expect(sharedClientInfo({ clientId: SHARED.clientId, redirectUri }), redirectUri).toBeNull();
       const h = world({ client: { clientId: SHARED.clientId, redirectUri } });
-      expect(await h.call({ action: "connect", account: EMAIL }), redirectUri).toEqual({ status: 409, out: { error: GOOGLE_SHARED_OFF } });
+      expect(await h.call({ action: "connect", account: EMAIL }), redirectUri).toEqual({ status: 409, out: { error: TODAYS_ANSWER } });
       expect(h.cards, redirectUri).toEqual([]);
     }
     expect(sharedClientInfo(SHARED)).toEqual(SHARED);
     expect(sharedClientInfo({ ...SHARED, clientId: "not-a-client" })).toBeNull();
   });
 
-  it("tells the dog it isn't switched on, for every earlier piece that is missing", async () => {
+  it("while later.dog's client is off, gives a Cloud home with no client of its own today's answer: how to add one, with its own redirect address", async () => {
     const off = world();
     off.setMode("off");
-    const older = world();
-    older.setMode("older");
-    for (const h of [off, older, world({ route: false }), world({ machineId: "7d1e0c55-2b8a-4f3e-9c61-0a4b2d7e9f13" })]) {
-      expect(await h.call({ action: "connect", account: EMAIL })).toEqual({ status: 409, out: { error: GOOGLE_SHARED_OFF } });
+    for (const h of [off, world({ route: false }), world({ machineId: "7d1e0c55-2b8a-4f3e-9c61-0a4b2d7e9f13" })]) {
+      expect(await h.call({ action: "connect", account: EMAIL })).toEqual({ status: 409, out: { error: TODAYS_ANSWER } });
       expect(h.cards).toEqual([]);
       noSecretIn(h.requests);
     }
+  });
+
+  it("says the connection isn't switched on only when the owner can do nothing: no client of its own, later.dog's off, and no address to register one", async () => {
+    const h = world();
+    h.setMode("off");
+    h.deps.redirectUri = () => null;
+    expect(await h.call({ action: "connect", account: EMAIL })).toEqual({ status: 409, out: { error: GOOGLE_SHARED_OFF } });
+    expect(h.cards).toEqual([]);
+  });
+
+  it("while later.dog's client is off, a client of the owner's own still connects exactly as before", async () => {
+    const h = world({ own: true });
+    h.setMode("off");
+    const { url, state } = await h.connect();
+    expect(url.searchParams.get("client_id")).toBe(OWN.clientId);
+    expect(url.searchParams.get("redirect_uri")).toBe(`https://${MACHINE}-home.later.dog/google-oauth/callback`);
+    expect(state).not.toContain(".");
+    expect(h.requests.some((r) => r.url.startsWith(GOOGLE_URL))).toBe(false);
+  });
+
+  it("while later.dog's client is on, a home with no client of its own still uses it", async () => {
+    const { url } = await world().connect();
+    expect(url.searchParams.get("client_id")).toBe(SHARED.clientId);
+    expect(url.searchParams.get("redirect_uri")).toBe(SHARED.redirectUri);
   });
 
   it("keeps asking a home that is not a Cloud home for a client of its own", async () => {
