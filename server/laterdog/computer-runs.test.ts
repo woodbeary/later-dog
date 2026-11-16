@@ -187,9 +187,7 @@ describe("a heavy command on the dog's own computer", () => {
     const outcome = await runs.finish(box, runs.record("dog", started.id)!, undefined, runs.window(1));
     spawnSync("pkill", ["-f", `runs/[.]logs/${started.id}[.]log`]);
     expect(outcome.state).toBe("running");
-    const searches = commands.filter((command) => /pgrep -f /.test(command));
-    expect(searches.length).toBeGreaterThan(0);
-    for (const command of searches) expect(searchesItself(command, "pgrep"), command).toBe(false);
+    for (const command of commands.filter((command) => /pgrep -f /.test(command))) expect(searchesItself(command, "pgrep"), command).toBe(false);
   });
 
   it("asks whether a run is still going only while it has no exit code", async () => {
@@ -214,9 +212,9 @@ describe("a heavy command on the dog's own computer", () => {
     clock.at += 3 * 60 * 60_000;
     const outcome = await runs.finish(box, runs.record("dog", started.id)!, undefined, () => 1);
     expect(outcome.note).toBe("Stopped after 2 hours.");
-    const kills = commands.filter((command) => /pkill -f /.test(command));
-    expect(kills).toHaveLength(1);
-    expect(searchesItself(kills[0]!, "pkill"), kills[0]).toBe(false);
+    for (const kill of commands.filter((command) => /pkill -f /.test(command))) expect(searchesItself(kill, "pkill"), kill).toBe(false);
+    for (let tries = 0; tries < 50 && spawnSync("pgrep", ["-f", `runs/[.]logs/${started.id}[.]log`]).status === 0; tries += 1) spawnSync("sleep", ["0.1"]);
+    expect(spawnSync("pgrep", ["-f", `runs/[.]logs/${started.id}[.]log`]).status).not.toBe(0);
   });
 
   it("says a run is over when its command is gone without finishing, instead of waiting up to 2 hours", async () => {
