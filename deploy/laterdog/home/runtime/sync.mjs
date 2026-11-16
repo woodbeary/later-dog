@@ -54,6 +54,13 @@ export function transient(entry) {
   );
 }
 
+const NAMED_FAILURES = new Set(["TimeoutError", "AbortError"]);
+
+export function failureReason(error) {
+  const code = error?.cause?.code ?? (typeof error?.code === "string" ? error.code : undefined);
+  return String(code ?? (NAMED_FAILURES.has(error?.name) ? error.name : undefined) ?? error?.message ?? error).slice(0, 120);
+}
+
 export function createHttpStore(baseUrl, token, fetcher = globalThis.fetch, { blobTimeoutMs = BLOB_TIMEOUT_MS, requestTimeoutMs = REQUEST_TIMEOUT_MS, uploadTimeoutMs = UPLOAD_TIMEOUT_MS } = {}) {
   const base = baseUrl.replace(/\/+$/, "");
   const headers = { authorization: `Bearer ${token}` };
@@ -380,7 +387,7 @@ export async function snapshot(root, store, previous, { scratch, now = Date.now,
       uploaded += 1;
     } catch (error) {
       if (before) slots[index] = before;
-      if (error?.code !== "ENOENT") cannotSave(entry.path, String(error?.code ?? error?.message ?? error).slice(0, 120));
+      if (error?.code !== "ENOENT") cannotSave(entry.path, failureReason(error));
     } finally {
       if (copy) await rm(copy, { force: true }).catch(() => {});
     }

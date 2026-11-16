@@ -351,12 +351,28 @@ describe("home data sync", () => {
     const first = await snapshot(source, store, null, { scratch: folder() });
     expect(first.written).toBe(true);
     expect(first.unsaved).toEqual(["stuck.bin"]);
-    expect(first.unsavedReason).toBe("The operation was aborted due to timeout");
+    expect(first.unsavedReason).toBe("TimeoutError");
     expect(first.manifest.entries.map((entry: { path: string }) => entry.path)).toEqual(["chats.json"]);
     refuse = false;
     const second = await snapshot(source, store, first.manifest, { scratch: folder() });
     expect(second.unsaved).toEqual([]);
     expect(second.manifest.entries.map((entry: { path: string }) => entry.path).sort()).toEqual(["chats.json", "stuck.bin"]);
+  });
+
+  it("logs why an upload failed as a word a person can look up, for a timeout, a dropped connection and a refusal", async () => {
+    const reasonFor = async (failing: (init: RequestInit) => Promise<Response>) => {
+      const source = folder();
+      writeFileSync(join(source, "notes.txt"), "words that will not upload");
+      const store = createHttpStore("https://state.invalid/home", "test-token", async (url: string, init: RequestInit = {}) => {
+        if (init.method === "HEAD") return new Response(null, { status: 404 });
+        if (init.method === "PUT" && url.includes("blobs/")) return failing(init);
+        return new Response(null, { status: 201 });
+      }, { uploadTimeoutMs: 20, requestTimeoutMs: 1000 });
+      return (await snapshot(source, store, null, { scratch: folder() })).unsavedReason;
+    };
+    await expect(reasonFor((init) => new Promise((_, reject) => init.signal!.addEventListener("abort", () => reject(init.signal!.reason))))).resolves.toBe("TimeoutError");
+    await expect(reasonFor(async () => { throw Object.assign(new TypeError("fetch failed"), { cause: Object.assign(new Error("read ECONNRESET"), { code: "ECONNRESET" }) }); })).resolves.toBe("ECONNRESET");
+    await expect(reasonFor(async () => new Response(null, { status: 503 }))).resolves.toBe("blob write failed: 503");
   });
 
   it("never saves pnpm's package store, which one install fills with tens of thousands of files", async () => {
