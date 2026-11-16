@@ -69,7 +69,7 @@ it("keeps the bot's own engine on the cloud computer, and a failed place never b
       return res.end(JSON.stringify({ box: row }));
     }
     if (path === "/boxes") return res.end(JSON.stringify({ boxes: rows }));
-    if (path.endsWith("/commands")) { commands.push(String(body.command)); return res.end(JSON.stringify({ exitCode: 0, stdout: "captured", stderr: "" })); }
+    if (path.endsWith("/commands")) { commands.push(String(body.command)); return res.end(JSON.stringify({ exitCode: 0, stdout: String(body.command).includes("base64 -w0") ? JPEG.toString("base64") : "captured", stderr: "" })); }
     if (path.endsWith("/artifacts")) { res.setHeader("content-type", "image/jpeg"); return res.end(JPEG); }
     if (path.endsWith("/desktop")) return res.end(JSON.stringify(failNewBoat ? {} : { desktopUrl: "https://desktop.fixture.invalid" }));
     const row = rows.find(entry => path === "/boxes/" + entry.id);
@@ -144,7 +144,7 @@ it("keeps the bot's own engine on the cloud computer, and a failed place never b
       expect(shot.result.content[0]).toMatchObject({ type: "image", mimeType: "image/jpeg" });
       const exec = await client.request("tools/call", { name: "exec", arguments: { command: "printf hosted-desktop" } });
       expect(exec.result.isError).not.toBe(true);
-      expect(commands.slice(before).some(command => command.includes(".model.jpg"))).toBe(true);
+      expect(commands.slice(before).some(command => command.includes("--quality 60 --thumb"))).toBe(true);
       expect(commands.slice(before).some(command => command.includes("printf hosted-desktop"))).toBe(true);
       const bad = await client.request("tools/call", { name: "click", arguments: { x: "1; touch /tmp/owned", y: 2 } });
       expect(bad.result.isError).toBe(true);

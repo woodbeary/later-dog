@@ -85,8 +85,8 @@ describe("cloud computer tools", () => {
 
   it.each([
     ["click", { x: 3, y: 4, button: "right", count: 2 }, "click --repeat 2 --delay 100 3"],
-    ["move", { x: 7, y: 8 }, "mousemove --sync 7 8"],
-    ["drag", { x: 1, y: 2, to_x: 3, to_y: 4 }, "mousedown 1 mousemove --sync 3 4 mouseup 1"],
+    ["move", { x: 7, y: 8 }, "mousemove --sync $(( 7 * 100 / P )) $(( 8 * 100 / P ))"],
+    ["drag", { x: 1, y: 2, to_x: 3, to_y: 4 }, "mousedown 1 mousemove --sync $(( 3 * 100 / P )) $(( 4 * 100 / P )) mouseup 1"],
     ["scroll", { x: 4, y: 3, direction: "down", amount: 2 }, "click --repeat 2 --delay 80 5"],
     ["key_press", { key: "ctrl+l" }, "key --clearmodifiers"],
     ["type_text", { text: "Unicode: 日本語 ' $(echo unsafe)" }, "base64 -d | xclip"],
@@ -108,12 +108,20 @@ describe("cloud computer tools", () => {
     if (name === "type_text") expect(calls[0].body.command).not.toContain("$(echo unsafe)");
   });
 
-  it("returns native-size screenshots as MCP images", async () => {
+  it("returns screenshots capped at 1024 pixels wide and compressed, taken in one command, as MCP images", async () => {
+    commandReply = { exitCode: 0, stdout: `${jpeg}\n`, stderr: "" };
     const result = await rpc({ method: "tools/call", params: { name: "screenshot", arguments: {} } }).done;
-    expect(result).toEqual({ content: [{ type: "image", mimeType: "image/jpeg", data: Buffer.from(jpeg, "base64").toString("base64") }] });
-    expect(calls[0].body.command).toContain("laterdog-panel.jpg.model.jpg");
-    expect(calls[0].body.command).not.toContain("-resize");
-    expect(calls[1].path).toContain("laterdog-panel.jpg.model.jpg");
+    expect(result).toEqual({ content: [{ type: "image", mimeType: "image/jpeg", data: jpeg }] });
+    expect(calls).toHaveLength(1);
+    expect(calls[0].body.command).toContain("--quality 60 --thumb");
+    expect(calls[0].body.command).toContain("102400");
+  });
+
+  it("says the screenshot failed rather than sending something that is not a picture", async () => {
+    commandReply = { exitCode: 0, stdout: "captured", stderr: "" };
+    const result = await rpc({ method: "tools/call", params: { name: "screenshot", arguments: {} } }).done as { isError?: boolean; content: Array<{ text: string }> };
+    expect(result.isError).toBe(true);
+    expect(result.content[0].text).toContain("The screenshot failed");
   });
 
   it.each([

@@ -1,5 +1,5 @@
 import type { ValidateFunction } from "ajv";
-import { isolatedRemoteCommand, runCommand, screenshotBoat } from "./computers.ts";
+import { isolatedRemoteCommand, runCommand } from "./computers.ts";
 import type { AppConfig } from "./config.ts";
 import { CONTROL_REFUSAL_PLAIN } from "./control-client.ts";
 import { compileToolSchema } from "./mcp-schema-validator.ts";
@@ -7,6 +7,7 @@ import { resolveUses, VAULT_OWNER_ONLY, type VaultItems } from "./laterdog/vault
 import { capturedValue, maskValues, secretNameProblem, vaultFingerprint, VAULT_CAPTURE_SCHEMA, VAULT_USES_SCHEMA, wrapVaultCommand } from "./laterdog/vault-refs.ts";
 import { splitTabListing, TAB_TRACKED_TOOLS, withTabListing, type Target } from "./laterdog/cloud-tabs.ts";
 import { fillSecureField, parseSecureFormInput, SECURE_FORM_TOOLS, secureFormFilledText, secureFormRequestedText, type SecureFormDesk } from "./laterdog/secure-form.ts";
+import { imageFromOutput, onScreen, scaled, SCREEN_SIZE_COMMAND, SCREENSHOT_COMMAND } from "./laterdog/screen-scale.ts";
 import { PAGE_TOOL_NAMES, PAGE_TOOLS, pageToolsEnabled, runPageTool, type RemoteExec } from "./laterdog/page-tools.ts";
 
 export type { RemoteExec };
@@ -15,8 +16,8 @@ const coordinate = { type: "integer", minimum: 0, maximum: 32767 };
 const tool = (name: string, description: string, properties: Record<string, unknown> = {}, required: string[] = []) =>
   ({ name, description, inputSchema: { type: "object", properties, required, additionalProperties: false } });
 export const CLOUD_COMPUTER_TOOLS = [
-  tool("screenshot", "See the assigned cloud desktop at native pixel resolution."),
-  tool("get_screen_size", "Get the cloud desktop width and height."),
+  tool("screenshot", "See the assigned cloud desktop, scaled to at most 1024 pixels wide. The other computer tools use this image's coordinates."),
+  tool("get_screen_size", "Get the width and height of the screenshot image, the coordinates the other computer tools use."),
   tool("click", "Click a point on the cloud desktop.", { x: coordinate, y: coordinate, button: { type: "string", enum: ["left", "middle", "right"] }, count: { type: "integer", minimum: 1, maximum: 3 } }, ["x", "y"]),
   tool("move", "Move the cloud mouse pointer.", { x: coordinate, y: coordinate }, ["x", "y"]),
   tool("drag", "Drag on the cloud desktop.", { x: coordinate, y: coordinate, to_x: coordinate, to_y: coordinate }, ["x", "y", "to_x", "to_y"]),
@@ -77,21 +78,23 @@ export async function runCloudComputerTool(
     return page;
   }
   if (name === "screenshot") {
-    const shot = await screenshotBoat(cfg, "", boxId, { signal, nativeSize: true });
+    const shot = await exec(SCREENSHOT_COMMAND, signal);
     signal.throwIfAborted();
-    return { content: [{ type: "image", mimeType: "image/jpeg", data: shot.png }] };
+    const data = shot.ok ? imageFromOutput(shot.stdout) : null;
+    if (!data) return { isError: true, content: [{ type: "text", text: `The screenshot failed: ${(shot.stderr || shot.stdout).trim().slice(-300) || `exit ${shot.exitCode}`}` }] };
+    return { content: [{ type: "image", mimeType: "image/jpeg", data }] };
   }
   const a = args;
-  const mouse = `xdotool mousemove --sync ${a.x} ${a.y}`;
+  const mouse = `xdotool mousemove --sync ${onScreen(a.x)} ${onScreen(a.y)}`;
   let command: string;
   switch (name) {
-    case "get_screen_size": command = "xdotool getdisplaygeometry"; break;
-    case "click": command = `${mouse} click --repeat ${a.count ?? 1} --delay 100 ${buttons[String(a.button ?? "left")]}`; break;
-    case "move": command = mouse; break;
-    case "drag": command = `${mouse} mousedown 1 mousemove --sync ${a.to_x} ${a.to_y} mouseup 1`; break;
+    case "get_screen_size": command = SCREEN_SIZE_COMMAND; break;
+    case "click": command = scaled(`${mouse} click --repeat ${a.count ?? 1} --delay 100 ${buttons[String(a.button ?? "left")]}`); break;
+    case "move": command = scaled(mouse); break;
+    case "drag": command = scaled(`${mouse} mousedown 1 mousemove --sync ${onScreen(a.to_x)} ${onScreen(a.to_y)} mouseup 1`); break;
     case "type_text": command = `printf %s ${quote(Buffer.from(String(a.text)).toString("base64"))} | base64 -d | xclip -selection clipboard && xdotool key --clearmodifiers ctrl+v`; break;
     case "key_press": command = `xdotool key --clearmodifiers ${quote(String(a.key))}`; break;
-    case "scroll": command = `${mouse} click --repeat ${a.amount ?? 3} --delay 80 ${scrollButtons[String(a.direction)]}`; break;
+    case "scroll": command = scaled(`${mouse} click --repeat ${a.amount ?? 3} --delay 80 ${scrollButtons[String(a.direction)]}`); break;
     case "open_url": command = `nohup xdg-open ${quote(String(a.url))} >/dev/null 2>&1 </dev/null &`; break;
     case "exec": {
       if (a.vault === undefined && a.vault_capture === undefined) { command = String(a.command); break; }

@@ -153,7 +153,7 @@ describe("a cloud computer starts only when the bot uses it", () => {
           return send(200, { ok: true, box: row });
         }
         if (verb === "desktop" && req.method === "POST") return send(200, { desktopUrl: `https://desktop.invalid/${row.id}` });
-        if (verb === "commands" && req.method === "POST") return send(200, { exitCode: 0, stdout: "captured", stderr: "" });
+        if (verb === "commands" && req.method === "POST") return send(200, { exitCode: 0, stdout: String(body.command ?? "").includes("base64 -w0") ? FRAME.toString("base64") : "captured", stderr: "" });
         if (verb === "artifacts" && req.method === "GET") {
           res.writeHead(200, { "content-type": "image/jpeg", "content-length": String(FRAME.length) });
           return res.end(FRAME);
