@@ -399,8 +399,21 @@ function addsTrashLabel(tool: string, args: unknown): boolean {
     && [value].flat().some((label) => typeof label === "string" && label.trim().toUpperCase() === "TRASH"));
 }
 
+const HARM_FLAGS = new Set(["trashed", "intrash", "archived", "closed"]);
+const REACH_KEYS = new Set(["visibility", "private", "public", "role", "roles", "permission", "permissions", "permissionscheme", "accesslevel"]);
+const turnedOn = (value: unknown) => value === true || (typeof value === "number" && value !== 0)
+  || (typeof value === "string" && !["", "false", "0", "no", "off"].includes(value.trim().toLowerCase()));
+const given = (value: unknown) => value !== undefined && value !== null && value !== "";
+
+function argumentsDeleteOrShare(tool: string, args: unknown): boolean {
+  const tokens = writingTokens(tool);
+  if (!tokens || readsByName(tokens) || !isRecord(args)) return false;
+  if (tokens.some((token) => HARM_FLAGS.has(token.toLowerCase())) && turnedOn(args.value)) return true;
+  return Object.entries(args).some(([key, value]) => (HARM_FLAGS.has(keyWords(key)) && turnedOn(value)) || (REACH_KEYS.has(keyWords(key)) && given(value)));
+}
+
 function callDeletesOrShares(tool: string, args: unknown): boolean {
-  return deletesOrShares(tool) || addsTrashLabel(tool, args);
+  return deletesOrShares(tool) || addsTrashLabel(tool, args) || argumentsDeleteOrShare(tool, args);
 }
 
 function appOf(tool: string): string {

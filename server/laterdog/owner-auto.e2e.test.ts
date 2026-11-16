@@ -559,6 +559,32 @@ it("a Gmail change that adds the TRASH label shows a card with no Always, and on
   expect(relayed).toHaveLength(before);
 }, 60_000);
 
+it("an update that makes something public or archives it shows a card with no Always, and an ordinary update runs, for an owner dog", async () => {
+  await autoReview(false);
+  const dog = await newDog("Updater", "auto");
+  const token = await mintConnectors(dog.id, dog.threadId);
+  const plain = relayed.length;
+  expect((await relay(token, "GITHUB_UPDATE_A_REPOSITORY", { owner: "o", repo: "r", description: "Notes" })).body.result.isError).toBeFalsy();
+  expect((await relay(token, "NOTION_UPDATE_PAGE", { page_id: "p-1", archived: false })).body.result.isError).toBeFalsy();
+  expect(relayed).toHaveLength(plain + 2);
+  expect(await sendCards(dog.threadId)).toHaveLength(0);
+  for (const [slug, args] of [
+    ["GITHUB_UPDATE_A_REPOSITORY", { owner: "o", repo: "r", visibility: "public" }],
+    ["NOTION_UPDATE_PAGE", { page_id: "p-1", archived: true }],
+    ["TRELLO_UPDATE_CARDS_BY_ID_CARD", { idCard: "c-1", closed: true }],
+  ] as const) {
+    const before = relayed.length;
+    const shown = (await sendCards(dog.threadId)).length;
+    const asked = relay(token, slug, args);
+    await expect.poll(async () => (await sendCards(dog.threadId)).length, { timeout: 10_000, message: `${slug} showed no card` }).toBe(shown + 1);
+    const card = (await sendCards(dog.threadId)).at(-1).card;
+    expect(card.lasting).toEqual({ offered: false, why: "always-asks" });
+    await api("POST", `/api/threads/${dog.threadId}/respond`, { requestId: card.requestId, behavior: "deny" });
+    expect((await asked).body.result.isError).toBe(true);
+    expect(relayed).toHaveLength(before);
+  }
+}, 60_000);
+
 it("a read, and an ordinary create, through a connected app still run with no card for an owner dog", async () => {
   await autoReview(false);
   const dog = await newDog("Reader", "auto");

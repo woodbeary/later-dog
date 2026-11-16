@@ -312,6 +312,39 @@ describe("deleting something or changing who can reach it from a connected app a
     expect(gate("GMAIL_FETCH_EMAILS", { label_ids: ["TRASH"] })).toBeNull();
   });
 
+  it("asks when a call that is not a read sets who can reach something or trashes, archives or closes it, and not when it restores or sets none of them", () => {
+    const gate = (name: string, args: unknown) => {
+      const calls = connectorCallsIn(name, args).filter((call) => asksAsConnector(call.slug, call.arguments));
+      return calls.length ? connectorAlwaysAsks(calls)?.id ?? null : null;
+    };
+    for (const [name, args] of [
+      ["GITHUB_UPDATE_A_REPOSITORY", { owner: "o", repo: "r", visibility: "public" }],
+      ["GITHUB_UPDATE_A_REPOSITORY", { owner: "o", repo: "r", private: false }],
+      ["GITHUB_UPDATE_A_REPOSITORY", { owner: "o", repo: "r", archived: true }],
+      ["NOTION_UPDATE_PAGE", { page_id: "p-1", archived: true }],
+      ["NOTION_UPDATE_PAGE", { page_id: "p-1", in_trash: true }],
+      ["TRELLO_UPDATE_CARDS_BY_ID_CARD", { idCard: "c-1", closed: true }],
+      ["TRELLO_UPDATE_BOARDS_CLOSED_BY_ID_BOARD", { idBoard: "b-1", value: "true" }],
+      ["ASANA_UPDATE_PROJECT", { project_gid: "1", public: true }],
+      ["GOOGLEDRIVE_UPDATE_FILE_METADATA", { file_id: "f-1", trashed: true }],
+      ["JIRA_UPDATE_PROJECT", { key: "P", permissionScheme: 10 }],
+    ] as const) {
+      expect(gate(name, args), `${name} ${JSON.stringify(args)}`).toBe("deletes-or-shares");
+    }
+    for (const [name, args] of [
+      ["GITHUB_UPDATE_A_REPOSITORY", { owner: "o", repo: "r", description: "Notes" }],
+      ["NOTION_UPDATE_PAGE", { page_id: "p-1", archived: false }],
+      ["NOTION_UPDATE_PAGE", { page_id: "p-1", properties: { title: "Plan" } }],
+      ["TRELLO_UPDATE_CARDS_BY_ID_CARD", { idCard: "c-1", closed: false, name: "Done" }],
+      ["TRELLO_UPDATE_BOARDS_CLOSED_BY_ID_BOARD", { idBoard: "b-1", value: false }],
+      ["GOOGLEDRIVE_UPDATE_FILE_METADATA", { file_id: "f-1", trashed: false }],
+      ["GITHUB_LIST_REPOSITORIES_FOR_THE_AUTHENTICATED_USER", { visibility: "public" }],
+      ["GOOGLEDRIVE_LIST_FILES", { q: "trashed = true", trashed: true }],
+    ] as const) {
+      expect(gate(name, args), `${name} ${JSON.stringify(args)}`).toBeNull();
+    }
+  });
+
   it("is not answered in Full by the owner's standing yes, the app's old Always or this turn's Allow", () => {
     const never = () => false;
     for (const slug of SEVEN) {
