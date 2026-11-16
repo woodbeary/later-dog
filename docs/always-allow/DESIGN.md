@@ -242,6 +242,24 @@ Nothing steps 1 to 5 add opens a path. These stay exactly as on main today:
 - **An app's Always** still answers that app's calls that are not sends.
 - **Connected-app deletes and shares** no longer belong here: stage three adds them to 207's list as a sixth kind, "deletes-or-shares" (see "Connected-app deletes and shares" below).
 
+## Stage three: the old grants stop (16 November)
+
+Decided on 16 November for Jacob: J0 lands as it is, and J2-a to J2-e are taken as recommended. Steps 6 to 10 are built:
+- **J2-a (step 6).** No card carries `commandAllowlist`; an answer with `rememberCommand` saves nothing and answers once; no saved rule answers a request; `POST /api/bots/:id/command-allowlist` answers `409 { error, why: "stopped" }` (`GET` and `DELETE` still work); saved rules list as `no-longer-used`.
+- **J2-b (step 7).** The teammate card offers Allow and Deny only, with no `allowKey`; a stored `ask_bot:*` or `delegate_bot:*` key answers nothing; the grant route refuses both with 409; they list as `no-longer-used`.
+- **J2-c (step 8).** A Mac set to Always covers looking at files and reading texts only. A command, a write or delete, and a screen action ask, at most one card per kind, per message, per dog, and that card offers no Always. Where the home has just asked about the same call (207's card), the Mac adds no second card.
+- **J2-d (step 9).** Each fill from a saved login shows its card; the secure form no longer offers "use it without asking", and an older app's `always` is ignored; stored `vault:<site>` keys list as `no-longer-used`.
+- **J2-e (step 10).** A dog a dog makes holds no `alwaysAllow` key, on its record or its main chat.
+
+An app's Always (`connector:<app>`) stays `active`: it still answers that app's calls that neither send, pay, delete nor share.
+
+What changes for the phone's contract in stage three:
+- `lasting.why` gains `group` (eight values); a group chat's card and the grant route's group refusal give it.
+- A connected-app card for one of 207's kinds, the new `deletes-or-shares` included, carries `lasting: { offered: false, why: "always-asks" }` and no `allowKey`.
+- `ALWAYS_ASK_IDS` gains `deletes-or-shares`.
+- The teammate card and the Mac card for anything but reading carry no `allowKey`; `command`, `teammate` and `saved-login` rows are always `no-longer-used`.
+- `POST /api/bots/:id/command-allowlist` answers 409.
+
 ## Connected-app deletes and shares (stage three)
 
 A call through a connected app that destroys something or changes who can reach it is a sixth kind on 207's list, `deletes-or-shares`, so it goes through `alwaysAsks` and step 1's order: it shows a card in every approval mode, owner-auto included, offers no Always, and is not answered by the app's old Always or this turn's Allow. The card names the app, the action and its arguments, and carries `lasting: { offered: false, why: "always-asks" }`, so it reads "This one always asks."
