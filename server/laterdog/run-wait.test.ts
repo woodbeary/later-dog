@@ -144,7 +144,7 @@ describe("waiting for a computer job with one call", () => {
     expect(budgets).toEqual([30 * MINUTE]);
   });
 
-  it("says the person wrote and the command was not started when a message comes while the folder is sent", async () => {
+  it("says a new message arrived and the command was not started when it comes while the folder is sent", async () => {
     let wrote = false;
     const j = job(MINUTE, () => { wrote = true; });
     const answer = await j.once({ wait_minutes: 30 }, { active: () => true, interrupted: () => wrote });
