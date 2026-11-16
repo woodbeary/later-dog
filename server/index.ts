@@ -59,6 +59,9 @@ import {
 
 import { HELD_NOTE, approvalHeldNote, approvalHeldReason, approvalModeForOrigin, autoVerdict, deliverFullAccessApproval } from "./auto-approve.ts";
 import { CommandAllowlistStore, commandAllowlistCandidate } from "./command-allowlist.ts";
+import { LastingAllowStore, lastingOffer, lastingVerdict, onlyOwnerReached, type LastingRequest } from "./laterdog/lasting-allows.ts";
+import type { AlwaysAllowedItem, AlwaysAllowedList } from "../shared/lasting-allows.ts";
+import { VAULT_ALLOW_PREFIX } from "../shared/vault.ts";
 import type { CommandAllowlistCandidate, CommandAllowlistResponse } from "../shared/command-allowlist.ts";
 import { updateClaudeCli } from "./claude-update.ts";
 import { configuredAccountDirectory, assertSeparateClaudeAccount, claudeAccountInfo, createClaudeAccountSchema, instanceSettingsSchema, newClaudeAccount } from "./claude-accounts.ts";
@@ -980,6 +983,8 @@ if (CLOUD_HOME && Object.keys(CLOUD_SECRETS).length === 0) {
 }
 const threadStarters = new ThreadStarters(join(DATA_DIR, "thread-starters.json"));
 const commandAllowlist = new CommandAllowlistStore(join(DATA_DIR, "command-allowlist.json"));
+const lastingAllows = new LastingAllowStore(join(DATA_DIR, "lasting-allows.json"));
+const lastingRequests = new Map<string, { botId: string; threadId: string; request: Omit<LastingRequest, "ownerOnly" | "alwaysAsks">; alwaysAsks: boolean }>();
 const SESSION_COOKIE = sessionCookieName(PORT, ENVIRONMENT_ID);
 const HOSTED_WORKSPACE = hostedWorkspaceConfigured();
 let workspaceAccess: WorkspaceAccess | null = null;
@@ -1606,6 +1611,69 @@ function cardAnswerRefusal(auth: RequestAuth, threadId: string, requestId: strin
 
 function canManageCommandAllowlist(auth: RequestAuth): boolean {
   return auth.kind === "loopback" ? auth.trust !== "service" : auth.scopes.includes("admin");
+}
+
+function ownerOrAdminPerson(person: string | undefined): boolean {
+  if (person === undefined) return true;
+  if (CLOUD_HOME) return cloudOwnerPerson(person);
+  if (!sharedMembership()) return true;
+  return sessions.list().some((session) => session.scopes.includes("admin") && personKey(session) === person);
+}
+
+function turnReachedOnlyByOwner(threadId: string): boolean {
+  return !cloudGuestDriven(threadId) && onlyOwnerReached(store.messagesFor(threadId), turnStartedAt.get(threadId), ownerOrAdminPerson);
+}
+
+function lastingReach(botName: string): string {
+  return `Always allow lets ${botName} search for exactly this again without asking, in any of its chats.`;
+}
+
+function rememberLastingRequest(key: string, entry: typeof lastingRequests extends Map<string, infer V> ? V : never): void {
+  lastingRequests.delete(key);
+  lastingRequests.set(key, entry);
+  while (lastingRequests.size > 1000) lastingRequests.delete(lastingRequests.keys().next().value!);
+}
+
+function oldGrantItem(key: string): AlwaysAllowedItem | null {
+  const id = `key:${Buffer.from(key).toString("base64url")}`;
+  if (key === DELETE_OUTSIDE_WORKSPACE_ALLOW_KEY) return { id, kind: "outside-delete", state: "no-longer-used" };
+  if (key.startsWith("connector:")) return { id, kind: "app", subject: key.slice("connector:".length), state: "active" };
+  if (key.startsWith(VAULT_ALLOW_PREFIX)) return { id, kind: "saved-login", subject: key.slice(VAULT_ALLOW_PREFIX.length), state: "active" };
+  const peer = /^(?:ask_bot|delegate_bot):(.+)$/.exec(key);
+  if (peer) return { id, kind: "teammate", subject: store.bot(peer[1]!)?.name ?? peer[1], state: "active" };
+  return null;
+}
+
+function oldGrantKeys(botId: string): string[] {
+  const bot = store.bot(botId);
+  if (!bot) return [];
+  return [...new Set([...(bot.alwaysAllow ?? []), ...(store.taskByThread(botId, bot.threadId)?.alwaysAllow ?? [])])];
+}
+
+function alwaysAllowedList(botId: string): AlwaysAllowedList {
+  const searches: AlwaysAllowedItem[] = lastingAllows.list(botId)
+    .toSorted((left, right) => right.grantedAt.localeCompare(left.grantedAt))
+    .map((rule) => ({ id: `search:${rule.id}`, kind: "search", grantedAt: rule.grantedAt, state: "active" }));
+  const old = oldGrantKeys(botId).flatMap((key) => oldGrantItem(key) ?? []);
+  const commands: AlwaysAllowedItem[] = commandAllowlist.list(botId).map((rule) => ({
+    id: `command:${rule.id}`, kind: "command", subject: redactSecretsInText(rule.command).slice(0, 200), state: "active",
+  }));
+  return { paused: lastingAllows.isPaused(botId), items: [...searches, ...old, ...commands] };
+}
+
+function removeAlwaysAllowed(botId: string, itemId: string): boolean {
+  if (itemId.startsWith("search:")) return lastingAllows.remove(botId, itemId.slice("search:".length));
+  if (itemId.startsWith("command:")) return commandAllowlist.remove(botId, itemId.slice("command:".length));
+  if (!itemId.startsWith("key:")) return false;
+  const key = Buffer.from(itemId.slice("key:".length), "base64url").toString();
+  const bot = store.bot(botId);
+  if (!bot || !oldGrantKeys(botId).includes(key)) return false;
+  if (bot.alwaysAllow?.includes(key)) store.patchBot(botId, { alwaysAllow: bot.alwaysAllow.filter((candidate) => candidate !== key) });
+  const task = store.taskByThread(botId, bot.threadId);
+  if (task?.alwaysAllow?.includes(key)) store.patchTask(botId, bot.threadId, { alwaysAllow: task.alwaysAllow.filter((candidate) => candidate !== key) });
+  const updated = store.bot(botId);
+  if (updated) broadcast({ kind: "bot", bot: wireBot(updated) });
+  return true;
 }
 
 const COMMAND_ALLOWLIST_DRIVERS = new Set(["claudeAgent", "codex", "grokAgent", "cursorAgent"]);
@@ -2716,6 +2784,12 @@ const answerGrants: GrantLookup = {
   hasKey(threadId, key, askerBotId) {
     const owner = store.bot(askerBotId ?? "") ?? store.botByThread(threadId);
     return owner ? (botForThread(owner.id, threadId)?.alwaysAllow ?? []).includes(key) : false;
+  },
+  lastingGranted(threadId, requestId) {
+    const remembered = lastingRequests.get(`${threadId}:${requestId}`);
+    if (!remembered) return false;
+    const lasting = lastingVerdict({ ...remembered.request, alwaysAsks: remembered.alwaysAsks, ownerOnly: true });
+    return lasting.offered && lastingAllows.list(remembered.botId).some((rule) => rule.keySha256 === lasting.keySha256);
   },
 };
 
@@ -5109,6 +5183,8 @@ store.onChange((change) => {
       sentThreads.delete(change.botId);
       try { commandAllowlist.clear(change.botId); }
       catch { console.error("[command-allowlist] Could not remove deleted bot's saved rules."); }
+      try { lastingAllows.clear(change.botId); }
+      catch { console.error("[lasting-allows] Could not remove deleted bot's Always grants."); }
       broadcast({ kind: "bot.deleted", botId: change.botId });
       break;
     case "group": {
@@ -7119,7 +7195,7 @@ bus.subscribe(guardTurnEnd((event: RuntimeEvent) => {
   const completedTurnId = event.turnId;
   const privateImageEvent = event.type === "item.completed" && event.itemType === "assistant_image";
   const tapbackKey = event.turnId ? tapbackTurnKey(event.threadId, event.turnId) : undefined;
-  let publicEvent = event.type === "request.opened" ? { ...event, command: undefined } : event;
+  let publicEvent = event.type === "request.opened" ? { ...event, command: undefined, wholeInput: undefined } : event;
   const replyEmoji = event.type === "item.completed" && event.itemType === "assistant_text" ? replyTapback(event.text) : null;
   let privateTapbackText = Boolean(replyEmoji) || tapbackKey && reactedTurns.has(tapbackKey) && event.type === "item.completed" && event.itemType === "assistant_text" && onlyTapbackText(event.text);
   if (tapbackKey && event.type === "content.delta" && event.streamKind === "assistant_text" && pendingTapbackText.has(tapbackKey)) {
@@ -7254,6 +7330,12 @@ bus.subscribe(guardTurnEnd((event: RuntimeEvent) => {
       const always = permission && asker && event.requestId && !ownerAuto
         ? alwaysAsks({ tool: event.tool, command: event.command?.command, summary: event.summary, input: event.input }, () => ownerGuardContext(asker, event.threadId, event.command?.cwd))
         : null;
+      const lastingBase = permission && asker && event.requestId
+        ? { driver: event.provider, tool: event.tool, wholeInput: event.wholeInput, approvalScope: event.approvalScope }
+        : undefined;
+      if (lastingBase && asker && event.requestId) {
+        rememberLastingRequest(`${event.threadId}:${event.requestId}`, { botId: asker.id, threadId: event.threadId, request: lastingBase, alwaysAsks: Boolean(always) });
+      }
       const verdict = permission && asker && event.requestId
         ? autoVerdict(effectiveApprovalMode, event.tool, {
           requiresExplicitApproval: event.requiresExplicitApproval,
@@ -7303,6 +7385,9 @@ bus.subscribe(guardTurnEnd((event: RuntimeEvent) => {
               ? { version: 1, questions, ...(event.origin === "output" ? { origin: "output" as const } : {}) }
               : undefined,
             commandAllowlist: cardCommand ?? undefined,
+            ...(permission && asker && lastingBase && !cardCommand
+              ? { lasting: lastingOffer(lastingVerdict({ ...lastingBase, alwaysAsks: Boolean(always) || alwaysRule !== undefined, ownerOnly: turnReachedOnlyByOwner(event.threadId) }), lastingReach(asker.name)) }
+              : {}),
             held: approvalHeldReason(heldContext),
             heldCode: approvalHeldNote(heldContext),
             approvalScope: event.approvalScope,
@@ -7393,6 +7478,43 @@ bus.subscribe(guardTurnEnd((event: RuntimeEvent) => {
         });
         break;
       }
+      const lastingRule = !ownerAuto && !always && asker && event.requestId && lastingBase
+        ? (() => {
+          const lasting = lastingVerdict({ ...lastingBase, alwaysAsks: false, ownerOnly: turnReachedOnlyByOwner(event.threadId) });
+          return lasting.offered ? lastingAllows.answers(asker.id, lasting.keySha256) : undefined;
+        })()
+        : undefined;
+      if (lastingRule && asker && event.requestId) {
+        const instance = registry.get(event.providerInstanceId ?? asker.modelSelection.instanceId);
+        const requestId = event.requestId;
+        const sourceGeneration = directTurnGenerationByThread.get(event.threadId);
+        const sourceSpeaker = groupSpeakers.get(event.threadId);
+        const isCurrent = () => !shouldIgnoreProviderEvent(event) && (
+          (sourceGeneration !== undefined && directTurnGenerationByThread.get(event.threadId) === sourceGeneration) ||
+          (sourceSpeaker !== undefined && groupSpeakers.get(event.threadId) === sourceSpeaker)
+        );
+        void (async () => {
+          const outcome = await deliverFullAccessApproval(instance?.adapter, event.threadId, requestId, event.turnId, isCurrent);
+          if (!isCurrent()) return;
+          if (outcome !== "allowed-once") {
+            watchdog.setWaitingOnHuman(event.threadId, false);
+            if (outcome !== "unavailable") pushMessage({
+              role: "bot",
+              kind: "activity",
+              tool: failedTurnTool("could not deliver approval to the provider; retry the task after reconnecting."),
+            });
+            return;
+          }
+          pushMessage({ role: "bot", kind: "activity", tool: { name: `Always allowed: ${event.summary.slice(0, 120)}`, ok: true } });
+          appendDecision(DATA_DIR, {
+            threadId: event.threadId, requestId, botId: asker.id, botName: asker.name, tool: event.tool, summary: event.summary,
+            decision: "auto-approved", source: "lasting-allow", rule: lastingRule.id,
+          });
+        })().catch(() => {
+          console.error("[approval] Could not record an Always answer.");
+        });
+        break;
+      }
       if (verdict?.approve && !always && asker && event.requestId) {
         const settled = verdict.approve;
         const instance = event.providerInstanceId
@@ -7444,6 +7566,7 @@ bus.subscribe(guardTurnEnd((event: RuntimeEvent) => {
     }
     case "request.resolved": {
       if (event.requestId) pendingCommandRules.delete(`${event.threadId}:${event.requestId}`);
+      if (event.requestId) lastingRequests.delete(`${event.threadId}:${event.requestId}`);
       if (event.requestId) settleWaitingOnPersonChips(event.threadId, event.requestId);
       const waiting = bot ?? (speaker ? store.bot(speaker.botId) : undefined);
       if (bot && store.taskByThread(bot.id, event.threadId)?.activity === "waiting-on-you") {
@@ -9614,6 +9737,8 @@ async function interruptRoutineGroupGoal(
 async function stopBotForEmergencyApprovalDowngrade(botId: string): Promise<void> {
   const bot = store.bot(botId);
   if (!bot) return;
+  try { lastingAllows.pause(botId); }
+  catch { console.error("[lasting-allows] Could not pause a dog's Always grants."); }
   for (const task of store.tasks(botId)) {
     if (task.approvalMode === "full" || task.approvalMode === "custom") {
       store.patchTask(botId, task.threadId, { approvalMode: "ask", autoApprove: false, alwaysAllow: [] });
@@ -17650,12 +17775,44 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       }
       return json(res, 405, { error: "Unsupported command allowlist operation" });
     }
+    m = path.match(/^\/api\/bots\/([\w-]+)\/always-allowed(?:\/([^/]+))?$/);
+    if (m) {
+      const bot = store.bot(m[1]!);
+      if (!bot) return json(res, 404, { error: "no such dog" });
+      if (!canManageCommandAllowlist(auth)) return json(res, 403, { error: "Only the owner or an admin can see or change what a dog may always do." });
+      if (method === "GET" && !m[2]) return json(res, 200, alwaysAllowedList(bot.id));
+      if (method === "POST" && m[2] === "resume") {
+        lastingAllows.resume(bot.id);
+        return json(res, 200, alwaysAllowedList(bot.id));
+      }
+      if (method === "DELETE" && m[2]) {
+        if (!removeAlwaysAllowed(bot.id, decodeURIComponent(m[2]))) return json(res, 404, { error: "nothing like that is always allowed" });
+        return json(res, 200, alwaysAllowedList(bot.id));
+      }
+      return json(res, 405, { error: "Unsupported operation" });
+    }
     m = path.match(/^\/api\/bots\/([\w-]+)\/always-allow$/);
     if (m && method === "POST") {
       const body = await readBody(req);
       requirePinnedClientThread(m[1], body?.threadId);
       const allowKey = typeof body.allowKey === "string" ? body.allowKey : "";
       const bot = requestedTaskBot(m[1], body.threadId);
+      if (!allowKey && typeof body.requestId === "string" && body.requestId) {
+        if (!canManageCommandAllowlist(auth)) return json(res, 403, { error: "Only the owner or an admin can choose Always." });
+        const requestId = body.requestId;
+        const pending = store.messagesFor(bot.threadId).find((message) =>
+          message.card?.requestId === requestId &&
+          message.card?.requestType === "permission" &&
+          !message.card?.answered &&
+          message.card?.dismissed !== true
+        );
+        const remembered = lastingRequests.get(`${bot.threadId}:${requestId}`);
+        if (!pending || !remembered || remembered.botId !== bot.id) return json(res, 409, { error: "that request is not waiting on an approval for this dog" });
+        const lasting = lastingVerdict({ ...remembered.request, alwaysAsks: remembered.alwaysAsks, ownerOnly: turnReachedOnlyByOwner(bot.threadId) });
+        if (!lasting.offered) return json(res, 409, { error: "Always is not offered for this request", why: lasting.why });
+        lastingAllows.grant({ botId: bot.id, keySha256: lasting.keySha256, grantedBy: auth.kind === "session" ? personKey(auth.session) : "local", fromThreadId: bot.threadId });
+        return json(res, 200, { granted: true });
+      }
       if (!allowKey) return json(res, 400, { error: "allowKey required" });
       if (allowKey === DELETE_OUTSIDE_WORKSPACE_ALLOW_KEY) return json(res, 409, { error: "that grant is no longer offered" });
       const pending = store.messagesFor(bot.threadId).find((message) =>

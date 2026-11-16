@@ -116,7 +116,9 @@ Same strings on the desktop and the phone; no new colours.
 | 6 | A4, starting a teammate's turn | This one asks each time: a teammate can reach things this dog cannot. |
 | 7 | A4, anything else | This one asks each time: it acts on things as they are then. |
 
-"What this covers", search: "Always allow lets {name} search for exactly this again without asking, in any of its chats."
+Settled in the build (step 4): A3 is read in two parts so lines 5 to 7 can be reached. A request from a driver that never carries a whole input (every driver but Claude today) fails A3 first and shows line 4. A Claude request is checked against A4 next, so a screen action shows line 5, starting a teammate's turn line 6, and anything else line 7; only a listed pair that arrives without its whole input shows line 4. This is what build tests 1, 4 and 8 already expect. A5 is checked only when the whole input is there.
+
+"What this covers", search: "Always allow lets {name} search for exactly this again without asking, in any of its chats." The card's `lasting.reach` carries this sentence in English with the dog's name filled in; the desktop shows its own translated copy of the same sentence.
 
 Answered card: "Always allowed". Settings: "Always allowed", "Remove", "No longer used", "Paused", "Resume", empty "Nothing yet. Tap Always allow on a card and it shows here."
 

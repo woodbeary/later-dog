@@ -1489,6 +1489,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
                 tool: ask.tool,
                 summary: askSummary(ask),
                 input: askedFields(ask.input),
+                wholeInput: ask.kind === "permission" && ask.tool === "WebSearch" && ask.input && typeof ask.input === "object" && !Array.isArray(ask.input) ? ask.input : undefined,
                 command: ask.kind === "permission" && ask.tool === "Bash"
                   ? permissionCommand(ask.input.command, commandCwd) : undefined,
                 requiresExplicitApproval: ask.kind === "permission" && ask.tool === "Bash" && ask.input.dangerouslyDisableSandbox === true || undefined,

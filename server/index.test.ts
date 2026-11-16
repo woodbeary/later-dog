@@ -7530,6 +7530,118 @@ describe("harness HTTP API", () => {
     await api("PUT", "/api/config", { rooms: { turnTimeoutMinutes: 5 } });
   });
 
+  it("on a shared workspace, remembers Always for exactly the same search, in another chat of the dog, and never for anything else", async () => {
+    const bot = (await api("POST", "/api/bots", { name: "Wren" })).body.bot;
+    const conns: Socket[] = [];
+    type Card = { title: string; subtitle: string; requestId?: string; tool?: string; answered?: string; answerScope?: string; lasting?: { offered: boolean; reach?: string; why?: string } };
+    type Msg = { kind: string; tool?: { name: string }; card?: Card };
+    const state = async () => (await api("GET", "/api/bots?messages=60")).body.bots.find((candidate: { id: string }) => candidate.id === bot.id);
+    const messages = async (): Promise<Msg[]> => (await state()).messages;
+    const startTurn = async (text: string) => {
+      rmSync(fakeClaudeDump, { force: true });
+      expect((await api("POST", `/api/bots/${bot.id}/messages`, { text })).status).toBe(202);
+      return z.object({
+        mcpConfig: z.object({ mcpServers: z.object({ dog: z.object({ args: z.array(z.string()) }) }) }),
+      }).parse(await readJsonFileWhenReady(fakeClaudeDump)).mcpConfig.mcpServers.dog.args[1];
+    };
+    const raise = async (socketPath: string, id: string, tool: string, input: Record<string, unknown>) => {
+      const conn = connect(socketPath);
+      conns.push(conn);
+      const answered = new Promise<{ behavior: string; always?: boolean }>((resolve) => {
+        let buf = "";
+        conn.on("data", (chunk) => {
+          buf += chunk;
+          const nl = buf.indexOf("\n");
+          if (nl !== -1) resolve(JSON.parse(buf.slice(0, nl)));
+        });
+      });
+      await new Promise<void>((resolve, reject) => {
+        conn.on("connect", resolve);
+        conn.on("error", reject);
+      });
+      conn.write(JSON.stringify({ t: "ask", id, tool, input }) + "\n");
+      return answered;
+    };
+    const cardFor = async (requestId: string) => {
+      await expect.poll(async () => (await messages()).some((m) => m.card?.requestId === requestId)).toBe(true);
+      return (await messages()).find((m) => m.card?.requestId === requestId)!.card!;
+    };
+    const oslo = { query: "weather in oslo", allowed_domains: ["yr.no"] };
+    try {
+      expect((await api("PUT", "/api/config", { signIn: { members: ["member@example.com"] } })).status).toBe(200);
+      expect((await api("PATCH", `/api/bots/${bot.id}`, {
+        modelSelection: { instanceId: "claude", model: "claude-haiku-4-5" },
+        approvalMode: "ask",
+      })).status).toBe(200);
+      const socketPath = await startTurn("look up the weather");
+      const firstThread = (await state()).threadId;
+
+      const first = raise(socketPath, "ask-search-1", "WebSearch", oslo);
+      const card = await cardFor("ask-search-1");
+      expect(card.lasting).toEqual({ offered: true, reach: "Always allow lets Wren search for exactly this again without asking, in any of its chats." });
+
+      const write = raise(socketPath, "ask-write", "Write", { file_path: "notes.md", content: "x" });
+      expect((await cardFor("ask-write")).lasting).toEqual({ offered: false, why: "state" });
+      expect((await api("POST", `/api/bots/${bot.id}/always-allow`, { threadId: firstThread, requestId: "ask-write" })).status).toBe(409);
+      expect((await api("POST", `/api/bots/${bot.id}/respond`, { requestId: "ask-write", behavior: "deny" })).status).toBe(200);
+      await write;
+
+      expect((await api("POST", `/api/bots/${bot.id}/always-allow`, { threadId: firstThread, requestId: "nobody-asked" })).status).toBe(409);
+      expect((await api("POST", `/api/bots/${bot.id}/always-allow`, { threadId: firstThread, requestId: "ask-search-1" })).body).toEqual({ granted: true });
+      expect((await api("POST", `/api/bots/${bot.id}/respond`, { requestId: "ask-search-1", behavior: "allow", scope: "always" })).status).toBe(200);
+      const firstAnswer = await first;
+      expect(firstAnswer.behavior).toBe("allow");
+      expect(firstAnswer.always).not.toBe(true);
+      await expect.poll(async () => (await cardFor("ask-search-1")).answerScope).toBe("always");
+      expect((await api("POST", `/api/bots/${bot.id}/always-allow`, { threadId: firstThread, requestId: "ask-search-1" })).status).toBe(409);
+
+      const listed = await api("GET", `/api/bots/${bot.id}/always-allowed`);
+      expect(listed.status).toBe(200);
+      expect(listed.body.paused).toBe(false);
+      expect(listed.body.items).toEqual([expect.objectContaining({ kind: "search", state: "active" })]);
+      expect(listed.body.items[0]).not.toHaveProperty("subject");
+      const stored = readFileSync(join(home, ".laterdog", "lasting-allows.json"), "utf8");
+      expect(stored).not.toMatch(/oslo|yr\.no/);
+
+      const again = await raise(socketPath, "ask-search-2", "WebSearch", { allowed_domains: ["yr.no"], query: "weather in oslo" });
+      expect(again.behavior).toBe("allow");
+      expect(again.always).not.toBe(true);
+      expect((await messages()).some((m) => m.card?.requestId === "ask-search-2")).toBe(false);
+
+      const other = raise(socketPath, "ask-search-3", "WebSearch", { query: "weather in oslo", allowed_domains: ["met.no"] });
+      expect((await cardFor("ask-search-3")).lasting?.offered).toBe(true);
+      expect((await api("POST", `/api/bots/${bot.id}/respond`, { requestId: "ask-search-3", behavior: "deny" })).status).toBe(200);
+      await other;
+
+      const log = readFileSync(join(home, ".laterdog", "events", `${firstThread}.ndjson`), "utf8");
+      expect(log).toContain("ask-search-1");
+      expect(log).not.toContain("wholeInput");
+
+      await api("POST", `/api/bots/${bot.id}/interrupt`);
+      await expect.poll(async () => (await state()).busy, { timeout: 5_000 }).toBe(false);
+      const next = await api("POST", `/api/bots/${bot.id}/tasks`, { title: "Another chat" });
+      expect(next.status).toBe(201);
+      expect((await api("POST", `/api/bots/${bot.id}/tasks/${next.body.task.threadId}?messages=0`)).status).toBe(200);
+      const secondSocket = await startTurn("and again in this chat");
+      const elsewhere = await raise(secondSocket, "ask-search-4", "WebSearch", oslo);
+      expect(elsewhere.behavior).toBe("allow");
+      expect((await messages()).some((m) => m.card?.requestId === "ask-search-4")).toBe(false);
+
+      const removed = await api("DELETE", `/api/bots/${bot.id}/always-allowed/${encodeURIComponent(listed.body.items[0].id)}`);
+      expect(removed.status).toBe(200);
+      expect(removed.body.items).toEqual([]);
+      const asked = raise(secondSocket, "ask-search-5", "WebSearch", oslo);
+      expect((await cardFor("ask-search-5")).lasting?.offered).toBe(true);
+      expect((await api("POST", `/api/bots/${bot.id}/respond`, { requestId: "ask-search-5", behavior: "deny" })).status).toBe(200);
+      await asked;
+    } finally {
+      for (const conn of conns) conn.destroy();
+      await api("POST", `/api/bots/${bot.id}/interrupt`);
+      await api("DELETE", `/api/bots/${bot.id}`);
+      await api("PUT", "/api/config", { signIn: { members: [] } });
+    }
+  });
+
   it("cards every ask when Claude's reviewer never started, says so once, and an Always answer reaches Claude as allow once", async () => {
     const bot = (await api("POST", "/api/bots", { name: "Quill" })).body.bot;
     const conns: Socket[] = [];
