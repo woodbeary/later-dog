@@ -7,22 +7,27 @@ import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { StatusActivityRow } from "./StatusActivityRow";
 
-const fixture = vi.hoisted(() => ({
-  rest: { since: "2026-10-13T11:00:00Z", until: "2026-10-13T13:00:00Z", estimated: true },
-  api: vi.fn(async (_path: string, _init?: { method?: string }) => ({ ok: true })),
-}));
+const fixture = vi.hoisted(() => {
+  const rest = { since: "2026-10-13T11:00:00Z", until: "2026-10-13T13:00:00Z", estimated: true };
+  return {
+    rest,
+    resting: { a: rest } as Record<string, unknown>,
+    modelResting: {} as Record<string, unknown>,
+    api: vi.fn(async (_path: string, _init?: { method?: string }) => ({ ok: true })),
+  };
+});
 vi.mock("@/state/store", () => ({
   api: fixture.api,
-  useStore: () => ({ state: { config: { accountBattery: { resting: { a: fixture.rest } } }, instances: [
+  useStore: () => ({ state: { config: { accountBattery: { resting: fixture.resting, modelResting: fixture.modelResting } }, instances: [
     { instanceId: "b", displayName: "Work", driverKind: "codex", snapshot: { state: "available", authenticated: true }, models: { default: "gpt", options: [] } } satisfies InstanceInfo,
   ] } }),
 }));
-const render = (prefix: string, carry = true) => {
+const render = (prefix: string, carry = true, model?: string) => {
   const host = document.createElement("div");
   const message: Message = { id: "notice", at: Date.now(), role: "bot", kind: "activity", tool: {
     name: `${prefix}: Running on Work`, ok: true, ...(carry ? { carry: { from: "a", to: "b" } } : {}),
   } };
-  host.innerHTML = renderToStaticMarkup(createElement(StatusActivityRow, { message }));
+  host.innerHTML = renderToStaticMarkup(createElement(StatusActivityRow, { message, ...(model ? { model } : {}) }));
   return host;
 };
 afterEach(() => vi.useRealTimers());
@@ -38,6 +43,22 @@ describe("account carry notices", () => {
     expect(host.querySelector("[aria-valuenow]")).toBeNull();
     expect(host.textContent).toBe("Running on Work");
   });
+  it("shows the account it left resting for the model the chat runs on, and not for another model", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-10-13T12:00:00Z"));
+    fixture.resting = {};
+    fixture.modelResting = { a: [{ model: "Fable", label: "Fable weekly limit", since: "2026-10-13T11:00:00Z", until: "2026-10-13T13:00:00Z" }] };
+    try {
+      const fable = render("notice", true, "claude-fable-5-1");
+      expect(fable.querySelector("[data-sleeping-dog]")).not.toBeNull();
+      expect(fable.querySelector('[data-recharge="50"]')).not.toBeNull();
+      expect(render("notice", true, "claude-opus-5-5").querySelector("[data-sleeping-dog]")).toBeNull();
+    } finally {
+      fixture.resting = { a: fixture.rest };
+      fixture.modelResting = {};
+    }
+  });
+
   it("keeps other notices as plain status rows", () => {
     const host = render("notice", false);
     expect(host.querySelector("[data-account-carry]")).toBeNull();

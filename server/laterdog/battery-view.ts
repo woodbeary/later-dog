@@ -10,6 +10,7 @@ export const BATTERY_FIELDS = {
   order: "everyone",
   sequence: "everyone",
   resting: "everyone",
+  modelResting: "everyone",
   waiting: "per-chat",
   routed: "per-chat",
   fromNextMessage: "per-chat",

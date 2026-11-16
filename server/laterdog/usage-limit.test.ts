@@ -97,6 +97,17 @@ describe("claudeUsageLimit", () => {
     expect(claudeUsageLimit({ error: "rate_limit", is_api_error_message: true }, legacy, NOW)).toEqual({ resetsAt: iso(IN_TWO_HOURS) });
   });
 
+  it("reads a model that needs usage credits as that one model's limit, whatever its words, when the response named no limit", () => {
+    const credits = (text: string, info: Record<string, unknown> = { status: "rejected", isUsingOverage: false }) => claudeUsageLimit(
+      { is_api_error_message: true, error: "rate_limit", api_error: "model_requires_usage_credits", api_error_params: { rate_limit_info: info } }, text, NOW);
+    expect(credits("Fable requires usage credits. Switch to another model to continue.", { status: "rejected", isUsingOverage: false, resetsAt: IN_TWO_HOURS }))
+      .toEqual({ resetsAt: iso(IN_TWO_HOURS), kind: "model_credits" });
+    expect(credits("You're out of usage credits. Switch to another model to continue.")).toEqual({ kind: "model_credits" });
+    expect(credits("You've hit your monthly spend limit. Switch to another model to continue.")).toEqual({ kind: "model_credits" });
+    expect(credits("You've reached your Fable limit.", { status: "rejected", isUsingOverage: false, rateLimitType: "seven_day_overage_included" }))
+      .toEqual({ kind: "seven_day_overage_included" });
+  });
+
   it("fills a reset the error frame leaves out from the turn's rejected rate_limit_event", () => {
     const frame = limitFrame("You've hit your session limit", { status: "rejected" });
     expect(claudeUsageLimit(frame, "You've hit your session limit", NOW, { resetsAt: iso(IN_TWO_HOURS), kind: "session" }))

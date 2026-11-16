@@ -522,6 +522,7 @@ export interface ConfigStatus {
     sequence?: string[];
     order: Record<string, string[]>;
     resting?: Record<string, { until: string; since?: string; kind?: string; estimated?: boolean; sharedWith?: string }>;
+    modelResting?: Record<string, Array<{ model: string; label: string; until: string; since?: string; kind?: string; estimated?: boolean; sharedWith?: string }>>;
     waiting?: Record<string, string>;
     routed?: Record<string, WireAccountRoute>;
     fromNextMessage?: Record<string, WireAccountRoute>;
