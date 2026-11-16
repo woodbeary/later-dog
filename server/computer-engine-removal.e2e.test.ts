@@ -148,7 +148,7 @@ describe("removing the Computer engine", () => {
         return res.end(JSON.stringify({ box: row }));
       }
       if (path === "/boxes") return res.end(JSON.stringify({ boxes: rows }));
-      if (path.endsWith("/commands")) return res.end(JSON.stringify({ exitCode: 0, stdout: String(body?.command ?? "").includes("base64 -w0") ? JPEG.toString("base64") : "captured", stderr: "" }));
+      if (path.endsWith("/commands")) return res.end(JSON.stringify({ exitCode: 0, stdout: "captured", stderr: "" }));
       if (path.endsWith("/artifacts")) { res.setHeader("content-type", "image/jpeg"); return res.end(JPEG); }
       if (path.endsWith("/desktop")) return res.end(JSON.stringify({ desktopUrl: "https://desktop.fixture.invalid" }));
       const row = rows.find(entry => path === "/boxes/" + entry.id);
