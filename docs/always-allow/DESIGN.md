@@ -69,8 +69,8 @@ Your choice, each with what stays open if you keep it:
 - **J2-a. Saved exact shell commands** (`command-allowlist.json`, desktop only; your cloud home has none). Recommended: stop. If kept, review 1's findings 1 and 4 stay open for them: on Claude the saved folder is the engine's start folder, not where the shell has gone, and nothing pins what the arguments point at. What you would notice if stopped: those commands ask where cards appear (Auto-review, Custom, a shared workspace).
 - **J2-b. Teammate keys** (`ask_bot`, `delegate_bot`). Recommended: stop. If kept, review 2's R4 stays open: a dog holding the key sends any words to a teammate that can read things it cannot, such as mail. What you would notice if stopped: no change for your own work (`peerReviewRequired` is off there).
 - **J2-c. The Mac's Always.** Recommended: it covers reads only. If kept as it is, every dog's command, write, delete and screen action on that Mac runs with no card (`server/mac-approval.ts:228`), which J4 refuses for everything else. What you would notice if changed: each such action asks again, at most one card per kind, per message, per dog; looking at files keeps working.
-- **J2-d. "Always use this saved login"** (`vault:<site>`, `server/laterdog/secure-form.ts:423`, `server/index.ts:12734-12738`). After you tick always once, any later sign-in form for the same site comes back already filled, with no card (`secure-form.ts:484`). "The same site" is the last two parts of the address (`shared/vault.ts:57-65`), so a login ticked on `accounts.google.com` also fills a form on `docs.google.com`, and the dog chooses where on the page to type it (`secure-form.ts:214-215`). Recommended: stop. Each fill then shows its card, and the keys list as "No longer used". What you would notice: one card each time a dog signs in for you. If kept, the build changes it to fill only on the exact address where you ticked it, and only when the field the dog types into is a username or password field; what stays open then is a dog choosing a username or password box on another page of that same address.
-- **J2-e. Dogs a dog makes copy their maker's keys** (`dogMadeDogAccess`, `server/laterdog/dog-creation.ts:74`). Recommended: copy none. What you would notice: a dog that another dog made asks again for an app, a teammate or a login its maker was allowed. If kept, every key its maker holds (saved logins, app keys, teammate keys, the outside-delete key) spreads to every dog it makes, with no card.
+- **J2-d. "Always use this saved login"** (`vault:<site>`, `server/laterdog/secure-form.ts:423`, `server/index.ts:12734-12738`). After you tick always once, any later sign-in form for the same site comes back already filled, with no card (`secure-form.ts:484`). "The same site" is the last two parts of the address (`shared/vault.ts:57-65`), so a login ticked on `accounts.google.com` also fills a form on `docs.google.com`, and the dog chooses where on the page to type it (`secure-form.ts:214-215`). Recommended: stop. Each fill then shows its card, and the keys list as "No longer used". What you would notice: one card each time a dog signs in for you. If kept, it stays exactly as it is on main: any page of the same site, where the dog chooses the box. A possible later step, not in this build: fill only on the exact address where you ticked it. A check that the box is a username or password field may not be buildable: the fill drives the screen and reads only the address bar, not the focused field (`server/laterdog/secure-form.ts:194-215`).
+- **J2-e. Dogs a dog makes copy their maker's keys** (`dogMadeDogAccess`, `server/laterdog/dog-creation.ts:74`). Recommended: copy none. What you would notice: a dog that another dog made asks again for an app, a teammate or a login its maker was allowed. What is copied: a made dog copies its maker's dog record, which holds the outside-delete key and the saved-login keys; app keys and teammate keys live on a chat and are copied only from the maker's main chat (`server/index.ts:14397`, `:11790-11797`). If kept, those keys spread to every dog it makes, with no card.
 
 Not a choice: **the engine's own "Allow for this chat"** goes (step 3), on every engine, because the engine decides how wide it is (design A). You notice it only where cards appear.
 
@@ -122,6 +122,17 @@ Answered card: "Always allowed". Settings: "Always allowed", "Remove", "No longe
 
 Wire: `lasting?: { offered: true; reach: string } | { offered: false; why: "always-asks" | "owner-only" | "secret" | "incomplete" | "screen" | "teammate" | "state" }`.
 
+### Old keys during steps 1 to 5 (settled for the build)
+
+In steps 1 to 5 the `lasting` field is the rule for new grants only. A card that still carries an old key (the teammate card, the Mac card, the secure form, a saved command) gets no `lasting` field and shows exactly what it shows on main, until its own step (6 to 9) lands. `lasting` goes on engine tool cards: the cards that had "Allow for this chat". This keeps the optional steps optional: no step 1 to 5 changes what a kept old grant does or how it is offered.
+
+### The grant and list endpoints (the phone's contract)
+
+- **Grant:** `POST /api/bots/:id/always-allow` with `{ threadId, requestId }` and no `allowKey`. The home finds the pending engine card by bot, thread and request id (unanswered, not dismissed), checks owner or admin of the turn, recomputes A1 to A5 from its own copy of the request, and stores the grant. Answers: `200 { granted: true }`; `403` when the person may not; `409` when the card is not pending or the rule refuses. The client then answers the card with the existing `POST /api/threads/:threadId/respond` `{ requestId, behavior: "allow", scope: "always" }`; the engine still gets allow once. The old `{ threadId, allowKey }` form keeps working for the cards that still carry a key.
+- **List:** `GET /api/bots/:id/always-allowed` returns `{ paused: boolean, items: Array<{ id: string; kind: "search" | "app" | "outside-delete" | "saved-login" | "teammate" | "command"; subject?: string; grantedAt?: string; state: "active" | "no-longer-used" }> }`. `subject` is the app, the site, the teammate's name or the command's redacted preview; a search has none (its preview is "Search"). Old keys come from the dog's record and its main chat, and saved commands from `command-allowlist.json`. In steps 1 to 5 the outside-delete key lists as `no-longer-used`; an app key stays `active` (it still answers calls that are not sends).
+- **Remove:** `DELETE /api/bots/:id/always-allowed/:itemId` removes one item (a search grant, an old key or a saved command) and returns the list.
+- **Resume after the emergency stop:** `POST /api/bots/:id/always-allowed/resume` clears `paused` and returns the list. Owner or admin only, for all four.
+
 ## Ruled out for now (J0's choice c)
 
 **c1. Read-only tools of remote servers.** What it would need, all at once:
@@ -166,7 +177,7 @@ Each takes the attack as its input and runs through the real caller (`request.op
 16. An older app answering `always: true`: through the home's answer path, the Claude proxy and an ACP engine, each gets allow once; on ACP the allow-once option is picked and the same input asks again. An ACP engine that offers only `allow_always`: the request is cancelled with the "offered no allow option" message, in the answer path and in full-auto, and nothing is remembered (G1c, G8, H3).
 17. The order: a stored `connector:<app>` key with a send; the outside-delete key in owner-auto; the Mac in "always" mode with a send. Each shows a card.
 18. The stored preview is "Search", never the words.
-19. Through `requestPeerApproval`: starting a teammate's turn offers no Always, line 6 (with J2-b, see 23).
+19. The allow rule returns "not offered, teammate" for a request that starts a teammate's turn. The teammate card itself does not change in steps 1 to 5; it changes only in step 7 (see 23).
 20. No card carries `allowSession`; an older phone shows no "Allow for this chat" (G1c).
 21. A Claude `WebSearch` event carries `wholeInput`; with it missing there is no Always; two searches with the same `query` and different `allowed_domains` get different keys. No client frame, member frame, replay buffer entry or stored event holds `wholeInput`; a Claude `Write`, `Edit` or MCP request has no `wholeInput` at all (G2, H2).
 22. A Pi request titled "WebSearch" that carries an input gets no Always (G3).
@@ -177,7 +188,7 @@ Each takes the attack as its input and runs through the real caller (`request.op
 27. After the emergency stop, the search grant is paused and the search asks; after Resume it answers (G5).
 28. Deleting a dog removes its search grants; an unreadable store answers nothing and refuses new grants (G7).
 29. With J2-d: a stored `vault:google.com` key and a secure form for `docs.google.com` show the card; the key lists as "No longer used" (H1).
-30. With J2-e: a creator holding `vault:*`, `connector:*` and `delegate_bot:*` keys makes a dog through `create_bot`; the new dog holds no `alwaysAllow` key (H1, G7).
+30. With J2-e: a creator holding dog-record keys (`vault:*`, the outside-delete key) and main-chat keys (`connector:*`, `delegate_bot:*`) makes a dog through `create_bot`; the new dog holds no `alwaysAllow` key on its record or its main chat (H1, G7).
 
 ## The build order
 
@@ -196,7 +207,7 @@ Each step is one commit with its tests. Main is safe after any step alone: no st
 | 9 | Saved-login Always stops | `server/laterdog/secure-form.ts` (`:423`, `:484`), `server/index.ts` (`:12734-12738`) | 29 | **J2-d** | Safe: each fill shows its card |
 | 10 | Dogs a dog makes copy no keys | `server/laterdog/dog-creation.ts` (`:74`) | 30 | **J2-e** | Safe |
 
-Phone half (`later-dog-phone`), after step 4 lands (G5): `src/ui/Cards.tsx` uses "Allow once" as the primary label, shows Always only when the card's `lasting.offered` is true, shows the why line otherwise, and no longer reads `allowKey` or `allowSession` for a lasting choice; the settings list reads the new list endpoint with the same words. An older phone against the finished home shows "Allow", no Always on any card, and no "Allow for this chat".
+Phone half (`later-dog-phone`), after step 4 lands (G5): `src/ui/Cards.tsx` uses "Allow once" as the primary label, shows Always only when the card's `lasting.offered` is true, shows the why line otherwise, and no longer reads `allowKey` or `allowSession` for a lasting choice; the settings list reads the new list endpoint with the same words. An older phone against the finished home shows "Allow" and no "Allow for this chat". It still shows an old-style Always on the cards whose old grant Jacob kept: the teammate card (unless step 7), the Mac card (on every action unless step 8, on reads after it) and the secure form's "always" (unless step 9); the desktop still offers "Always allow this command" unless step 6.
 
 None of the files ROUND4 reserves.
 
