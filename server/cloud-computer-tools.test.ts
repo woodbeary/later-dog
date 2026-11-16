@@ -124,6 +124,23 @@ describe("cloud computer tools", () => {
     expect(result.content[0].text).toContain("The screenshot failed");
   });
 
+  it("stops a run as soon as the person takes control, before the next step and before the reading", async () => {
+    let gates = 0;
+    const result = await tools.cloudComputerRpc({ method: "tools/call", params: { name: "run_actions", arguments: { steps: [
+      { action: "type", text: "first" }, { action: "type", text: "second" }, { action: "key", key: "Return" }, { action: "click", x: 5, y: 5 },
+    ] } } }, {
+      cfg, boxId: () => "bx_23456789", signal: new AbortController().signal,
+      gate: async () => (++gates <= 2 ? { held: false } : { held: true, blockedReason: "Jacob is using the cloud computer." }),
+      assertActive: () => {},
+    }) as { isError?: boolean; content: Array<{ type: string; text?: string }> };
+    expect(calls.filter((entry) => entry.path.endsWith("/commands"))).toHaveLength(1);
+    expect(result.isError).toBe(true);
+    expect(result.content).toHaveLength(1);
+    expect(result.content[0]!.text).toContain("A person has taken control of the cloud computer");
+    expect(result.content[0]!.text).toContain("before step 2 of 4");
+    expect(result.content[0]!.text).toContain("Done before it: type 5 characters.");
+  });
+
   it.each([
     ["a shell fragment in a coordinate", "click", { x: "1; touch marker", y: 4 }],
     ["a file URL", "open_url", { url: "file:///etc/passwd" }],

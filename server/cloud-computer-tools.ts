@@ -70,6 +70,7 @@ export async function runCloudComputerTool(
   onTabs?: (targets: Target[]) => void,
   vault?: VaultItems,
   exec: RemoteExec = (command, abort) => runCommand(cfg, boxId, isolatedRemoteCommand(command), { signal: abort }),
+  checkpoint?: () => Promise<string | null>,
 ): Promise<CloudComputerResult> {
   const problem = cloudComputerCallProblem(name, args);
   if (problem) return { isError: true, content: [{ type: "text", text: problem }] };
@@ -81,6 +82,7 @@ export async function runCloudComputerTool(
       pageTools: pageToolsEnabled(cfg),
       problem: cloudComputerCallProblem,
       run: (step, stepArgs) => runCloudComputerTool(cfg, boxId, step, stepArgs, signal, onTabs, vault, exec),
+      checkpoint,
     });
   }
   if (PAGE_TOOL_NAMES.has(name)) {
@@ -193,8 +195,13 @@ export async function cloudComputerRpc(
     return { ...(filled.ok ? {} : { isError: true }), content: [{ type: "text", text: filled.text }] };
   }
   const onTabs = deps.onTabs;
+  const checkpoint = async () => {
+    const now = await deps.gate();
+    deps.assertActive();
+    return now.held ? now.blockedReason || CONTROL_REFUSAL_PLAIN : null;
+  };
   const result = await runCloudComputerTool(deps.cfg, boxId, params.name as string, args as Record<string, unknown>, deps.signal,
-    onTabs && ((targets) => onTabs(boxId, targets)), deps.vault);
+    onTabs && ((targets) => onTabs(boxId, targets)), deps.vault, undefined, checkpoint);
   deps.assertActive();
   return result;
 }

@@ -79,6 +79,7 @@ export async function runActions(input: {
   problem(name: string, args: Record<string, unknown>): string | null;
   run: RunStep;
   wait?: (ms: number) => Promise<void>;
+  checkpoint?: () => Promise<string | null>;
 }): Promise<StepResult> {
   const reading = input.reading ?? (input.pageTools ? "page" : "screenshot");
   if (reading === "page" && !input.pageTools) return { isError: true, content: [{ type: "text", text: "The page tools are not offered here, so a run can only end with a screenshot." }] };
@@ -95,7 +96,14 @@ export async function runActions(input: {
   const wait = input.wait ?? ((ms: number) => new Promise<void>((settle) => setTimeout(settle, ms)));
   const done: string[] = [];
   let failure: string | null = null;
+  const taken = async (before: string): Promise<StepResult | null> => {
+    const reason = input.checkpoint ? await input.checkpoint() : null;
+    if (!reason) return null;
+    return { isError: true, content: [{ type: "text", text: `A person has taken control of the cloud computer, so the run stopped ${before}. ${done.length ? `Done before it: ${done.join("; ")}.` : "Nothing ran."} ${reason}` }] };
+  };
   for (const [index, { step, call }] of planned.entries()) {
+    const stopped = await taken(`before step ${index + 1} of ${planned.length}`);
+    if (stopped) return stopped;
     if (!call) { await wait(Number(step.ms ?? 0)); done.push(describe(step)); continue; }
     const result = await input.run(call.name, call.args);
     if (result.isError) {
@@ -103,6 +111,10 @@ export async function runActions(input: {
       break;
     }
     done.push(describe(step));
+  }
+  if (!failure) {
+    const stopped = await taken("before the reading at the end");
+    if (stopped) return stopped;
   }
   const read = await input.run(reading === "page" ? "page_read" : "screenshot", {});
   const summary = failure ?? `Done, ${planned.length} steps: ${done.join("; ")}.`;
