@@ -1,0 +1,85 @@
+{
+  "label": "base-80-kept-1",
+  "at": "2026-11-11T20:07:22.199Z",
+  "dogs": 80,
+  "kept": {
+    "aDogThatIsNotOpen": {
+      "open": "Marathon",
+      "notOpen": "Helper 2",
+      "before": {
+        "spoken": "",
+        "workingDots": 0,
+        "unreadDot": 0,
+        "markedUnread": false,
+        "text": "Helper 2Answer 9. The release checklist is done apart from the two items that need you. The signed build finished and pa",
+        "unreadRows": 77
+      },
+      "whileItReplies": {
+        "spoken": "",
+        "workingDots": 3,
+        "unreadDot": 0,
+        "markedUnread": false,
+        "text": "Helper 2Working…",
+        "unreadRows": 77
+      },
+      "afterItReplied": {
+        "spoken": "",
+        "workingDots": 0,
+        "unreadDot": 1,
+        "markedUnread": true,
+        "text": "Helper 2Answer 282. Here is where things stand: Build: finished and signed, with the long dog names fitting their rows. ",
+        "unreadRows": 78
+      },
+      "onceOpened": {
+        "spoken": "",
+        "workingDots": 0,
+        "unreadDot": 0,
+        "markedUnread": false,
+        "text": "Helper 28:08 PMAnswer 282. Here is where things stand: Build: finished and signed, with the long dog names fitting their",
+        "unreadRows": 77
+      },
+      "workingShownWhileItReplies": false,
+      "workingGoneAfterItReplied": true,
+      "unreadShownAfterItReplied": false,
+      "unreadRowsWentUpByOne": true,
+      "previewShowsTheReply": true,
+      "openChatStayedOpen": true,
+      "unreadClearedOnceOpened": true
+    },
+    "drafts": {
+      "afterSwitching": {
+        "long": true,
+        "short": true
+      },
+      "afterReload": {
+        "long": true,
+        "short": true
+      }
+    },
+    "selection": {
+      "openBeforeReload": "long chat",
+      "sameChatAfterReload": true
+    },
+    "screenReader": {
+      "rows": 81,
+      "rowsNotDrawn": 0,
+      "namedButtons": 81,
+      "namedButtonsNotDrawn": 0,
+      "exampleDrawn": "Helper 79 Rename Helper 79 Answer 185. Done. Nothing else needed. Unread",
+      "exampleNotDrawn": null,
+      "transcript": {
+        "label": "Conversation with Marathon",
+        "live": "off",
+        "rows": 120
+      }
+    },
+    "keyboard": {
+      "rowsReachedByTab": 81,
+      "rowsNotDrawnBeforeTabbing": 0,
+      "reachedOfThoseNotDrawn": 0,
+      "inViewWhenFocused": 81,
+      "focusRingShown": 81,
+      "enterOpensTheFocusedRow": true
+    }
+  }
+}

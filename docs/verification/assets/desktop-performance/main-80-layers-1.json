@@ -1,0 +1,38 @@
+{
+  "layers": 23,
+  "drawing": 18,
+  "why": [
+    "11 x Overlap",
+    "3 x BackdropFilter",
+    "3 x BackdropFilterMask",
+    "1 x (none given)",
+    "1 x Viewport+OverflowScrolling",
+    "1 x OverflowScrolling",
+    "1 x RootScroller+OverflowScrolling",
+    "1 x Caret",
+    "1 x Viewport"
+  ],
+  "where": [
+    "4 x Overlap @ thead  .sticky top-0 z-10 bg-raised",
+    "3 x BackdropFilter @ ::before  .",
+    "3 x BackdropFilterMask @ ::before  .",
+    "2 x Overlap @ div data-glass-bar .glass-bar absolute inset-x-0 top-0 z-[25]",
+    "1 x (none given) @ (no element)",
+    "1 x Viewport+OverflowScrolling @   .",
+    "1 x OverflowScrolling @   .",
+    "1 x RootScroller+OverflowScrolling @   .",
+    "1 x Caret @ (no element)",
+    "1 x Overlap @ div data-sidebar-top-row .flex items-center relative pl-4 pr-2 h-12",
+    "1 x Overlap @ div data-glass-bar .glass-bar absolute inset-x-0 z-10 bottom-0",
+    "1 x Overlap @ div  .relative",
+    "1 x Overlap @ div data-sidebar-resize .absolute inset-y-0 -right-1 z-20 hidden w-2 cursor-col-resiz",
+    "1 x Overlap @ div  .pointer-events-none absolute inset-x-0 z-20 flex justify-cen",
+    "1 x Viewport @ (no element)"
+  ],
+  "typing": [
+    "message box as it is: Layerize 164 ms x133, Paint 89 ms x358, PrePaint 47 ms x188, Layout 84 ms x108, UpdateLayoutTree 15 ms x108, EventDispatch 506 ms x432, FunctionCall 158 ms x1287",
+    "a plain box added to the page: Layerize 91 ms x121, Paint 62 ms x106, PrePaint 8 ms x169, Layout 7 ms x50, UpdateLayoutTree 1 ms x9, EventDispatch 66 ms x340, FunctionCall 15 ms x606",
+    "sidebar rows hidden (81): Layerize 54 ms x133, Paint 47 ms x153, PrePaint 43 ms x181, Layout 68 ms x98, UpdateLayoutTree 14 ms x109, EventDispatch 510 ms x436, FunctionCall 155 ms x1300",
+    "transcript hidden (1): Layerize 99 ms x132, Paint 56 ms x474, PrePaint 25 ms x186, Layout 51 ms x106, UpdateLayoutTree 18 ms x110, EventDispatch 406 ms x476, FunctionCall 130 ms x1377"
+  ]
+}

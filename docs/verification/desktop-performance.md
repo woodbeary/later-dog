@@ -1,5 +1,8 @@
 # Desktop performance, measured against a fixture
 
+Every number in this note comes from headless Chromium on Linux against
+fixture data. None of it was measured in the Mac app.
+
 `scripts/desktop-perf.ts` measures the real renderer: the production build from
 `pnpm exec vite build`, served by a fake-engine fixture server, opened in a
 headless Chrome. It seeds one long chat and several short ones through the same
@@ -80,7 +83,278 @@ The fake engine streams a reply in pieces when `FAKE_CLAUDE_STREAM_FILE` names
 a JSON file `{ "everyMs": 30, "chars": 10 }`, and reads scripted replies from
 `FAKE_CLAUDE_REPLIES_FILE` when the list is too long for the environment.
 
-## Results, 2026-11-10
+## Results, 2026-11-11: base 651cf65 against main 89b1439
+
+In progress: the runs are still going and the tables below fill in as each
+round finishes. The run count is in each table's heading. Until every table
+has its five runs, read the verdicts as provisional.
+
+"base" is the renderer built at 651cf65, main on 2026-11-10 before the
+desktop work. "main" is the renderer built at 89b1439, with #158, #164, #171
+and #169 in it. Both are measured by main's `scripts/desktop-perf.ts` on the
+Linux cloud computer (4 cores, 12 GB, Chromium 156 through Playwright 1.56.1,
+Node 24.22.2) against fixture data. Nothing here was measured in the Mac app.
+
+How to read the tables: each cell is the median of the runs, with the lowest
+and highest run in brackets. "Difference of medians" is main minus base. The
+verdict is "lower in every run" or "higher in every run" only when the two
+ranges do not touch; when they overlap it is "no measurable change", whatever
+the medians say.
+
+### Worse on main in every run
+
+Measures where every run of main was higher than every run of base, lower being better, 15 in all. Medians, with the lowest and highest run in brackets.
+
+- 7 dogs, timed run. Long chat: all 120 rows in place, median of 8 (ms): 292 (287 to 301) on base, 363 (349 to 375) on main, +71 (+24%).
+- 7 dogs, timed run. Long tasks across 16 switches (ms): 2,245 (1,952 to 2,261) on base, 2,607 (2,604 to 2,792) on main, +362 (+16%).
+- 7 dogs, timed run. Typing: components redrawn for 119 keys: 3,221 (3,195 to 3,221) on base, 3,223 (3,223 to 3,223) on main, +2 (under 1%).
+- 7 dogs, timed run. Switching: components redrawn across 16 switches: 31,091 (30,987 to 31,265) on base, 32,933 (32,649 to 32,980) on main, +1,842 (+6%).
+- 7 dogs, timed run. JS heap after the run, after a collection (MB): 25.8 (25.7 to 25.8) on base, 26 (26 to 26) on main, +0.2 (+1%).
+- 7 dogs, timed run. Switching: frames slower than 25 ms: 19 (17 to 20) on base, 32 (32 to 34) on main, +13 (+68%).
+- 7 dogs, timed run. Switching: main thread busy across 16 switches (ms): 2,955 (2,742 to 2,965) on base, 3,071 (3,055 to 3,234) on main, +116 (+4%).
+- 80 dogs, timed run. Long chat: all 120 rows in place, median of 8 (ms): 453 (431 to 466) on base, 513 (510 to 537) on main, +60 (+13%).
+- 80 dogs, timed run. Typing: components redrawn for 119 keys: 3,195 (3,195 to 3,195) on base, 3,223 (3,223 to 3,223) on main, +28 (+1%).
+- 80 dogs, timed run. Switching: components redrawn across 16 switches: 29,796 (29,563 to 30,105) on base, 31,289 (31,145 to 31,449) on main, +1,493 (+5%).
+- 80 dogs, timed run. JS heap at idle, after a collection (MB): 15 (15 to 15) on base, 15.2 (15.2 to 15.3) on main, +0.2 (+1%).
+- 80 dogs, timed run. JS heap after the run, after a collection (MB): 28.2 (28 to 28.2) on base, 28.3 (28.3 to 28.4) on main, +0.1 (under 1%).
+- 80 dogs, timed run. DOM nodes after the run: 15,748 (15,748 to 15,748) on base, 15,779 (15,779 to 15,779) on main, +31 (under 1%).
+- 80 dogs, timed run. Switching: frames slower than 25 ms: 23 (22 to 25) on base, 33 (33 to 34) on main, +10 (+43%).
+- 80 dogs, timed run. Long chat opened while its reply streams: all 120 rows in place (ms): 423 (422 to 426) on base, 489 (486 to 499) on main, +66 (+16%).
+
+### Timed run at 7 dogs
+
+The default timed run: base 3 runs, main 3 runs.
+
+| Measure | base 651cf65, median (range), 3 runs | main 89b1439, median (range), 3 runs | Difference of medians | Verdict |
+|---|---|---|---|---|
+| Open the long chat, median of 8 (ms) | 301.9 (297.2 to 310.1) | 248.5 (242.4 to 266.9) | -53.4 (-18%) | lower in every run |
+| Open the long chat, slowest of 8 (ms) | 339.8 (308.8 to 344.1) | 274.7 (273.9 to 280) | -65.1 (-19%) | lower in every run |
+| Long chat: rows drawn when it is first shown | 120 (120 to 120) | 30 (30 to 30) | -90 (-75%) | changed |
+| Long chat: all 120 rows in place, median of 8 (ms) | 292 (287 to 301) | 363 (349 to 375) | +71 (+24%) | higher in every run |
+| Long chat: openings of 8 that never reached 120 rows | 0 (0 to 0) | 0 (0 to 0) | 0 | same |
+| Open a short chat, median of 8 (ms) | 63.7 (63.6 to 71.1) | 69.2 (59.4 to 74.6) | +5.5 (+9%) | no measurable change |
+| Long tasks across 16 switches (ms) | 2,245 (1,952 to 2,261) | 2,607 (2,604 to 2,792) | +362 (+16%) | higher in every run |
+| Key press to frame, median of 119 keys (ms) | 24.2 (23.6 to 24.3) | 23.3 (23.2 to 23.6) | -0.9 (-4%) | no measurable change |
+| Key press to frame, 95th of 119 keys (ms) | 32.3 (32.2 to 32.5) | 32 (31.9 to 32.1) | -0.3 (-1%) | lower in every run |
+| Key press to frame, slowest of 119 keys (ms) | 32.9 (32.9 to 33.1) | 33 (32.9 to 33.1) | +0.1 (under 1%) | no measurable change |
+| Typing: frames slower than 25 ms | 0 (0 to 0) | 0 (0 to 0) | 0 | same |
+| Typing: main thread busy over 5.5 s (ms) | 2,257 (2,131 to 2,257) | 1,947 (1,927 to 2,000) | -310 (-14%) | lower in every run |
+| Typing: layouts for 119 keys | 776 (768 to 783) | 564 (563 to 569) | -212 (-27%) | lower in every run |
+| Typing: components redrawn for 119 keys | 3,221 (3,195 to 3,221) | 3,223 (3,223 to 3,223) | +2 (under 1%) | higher in every run |
+| Cold load: first paint, median of 5 (ms) | 360 (344 to 372) | 384 (364 to 452) | +24 (+7%) | no measurable change |
+| Cold load: message box ready, median of 5 (ms) | 512.8 (483.9 to 547.2) | 533.7 (520.3 to 649.8) | +20.9 (+4%) | no measurable change |
+| Cold load: message box ready, slowest of 5 (ms) | 528.5 (506.6 to 593.1) | 588.9 (547.3 to 668.2) | +60.4 (+11%) | no measurable change |
+| Idle: main thread busy per 3 s (ms) | 116 (108 to 130) | 67 (62 to 77) | -49 (-42%) | lower in every run |
+| Idle: style passes per 3 s | 181 (180 to 181) | 0 (0 to 0) | -181 (-100%) | lower in every run |
+| A streamed reply: frames slower than 25 ms | 4 (3 to 5) | 3 (2 to 4) | -1 (-25%) | no measurable change |
+| A streamed reply: components redrawn | 8,630 (8,628 to 8,630) | 5,491 (5,487 to 5,636) | -3,139 (-36%) | lower in every run |
+| Own bubble after Enter (ms) | 34.3 (33.6 to 36.9) | 28.1 (26.6 to 29.3) | -6.2 (-18%) | lower in every run |
+| Four other dogs working: frames slower than 25 ms | 0 (0 to 0) | 0 (0 to 0) | 0 | same |
+| Four other dogs working: main thread busy (ms) | 911 (880 to 970) | 797 (749 to 811) | -114 (-13%) | lower in every run |
+| Four other dogs working: components redrawn | 1,225 (1,038 to 1,322) | 680 (636 to 768) | -545 (-44%) | lower in every run |
+| Switching: components redrawn across 16 switches | 31,091 (30,987 to 31,265) | 32,933 (32,649 to 32,980) | +1,842 (+6%) | higher in every run |
+| JS heap at idle, after a collection (MB) | 12.8 (12.8 to 12.8) | 12.7 (12.7 to 12.7) | -0.1 (-1%) | lower in every run |
+| JS heap after the run, after a collection (MB) | 25.8 (25.7 to 25.8) | 26 (26 to 26) | +0.2 (+1%) | higher in every run |
+| Page process memory at idle (MB) | 61 (60 to 61) | 60 (59 to 60) | -1 (-2%) | no measurable change |
+| Page process memory, highest of 6 samples (MB) | 370 (345 to 373) | 353 (344 to 382) | -17 (-5%) | no measurable change |
+| Browser process tree at idle, resident (MB) | 1,001 (1,000 to 1,003) | 1,000 (998 to 1,002) | -1 (under 1%) | no measurable change |
+| Browser process tree, highest in the run, resident (MB) | 1,333 (1,314 to 1,337) | 1,322 (1,314 to 1,336) | -11 (-1%) | no measurable change |
+| DOM nodes after the run | 10,933 (10,933 to 10,933) | 10,933 (10,933 to 10,933) | 0 | same |
+| Rows in the long chat 1.5 s after opening | 120 (120 to 120) | 120 (120 to 120) | 0 | same |
+| Switching: frames slower than 25 ms | 19 (17 to 20) | 32 (32 to 34) | +13 (+68%) | higher in every run |
+| Switching: slowest frame (ms) | 299.9 (283.3 to 300.1) | 166.7 (166.6 to 166.7) | -133.2 (-44%) | lower in every run |
+| Switching: main thread busy across 16 switches (ms) | 2,955 (2,742 to 2,965) | 3,071 (3,055 to 3,234) | +116 (+4%) | higher in every run |
+| Long chat opened while its reply streams: on screen (ms) | 288 (274 to 300) | 85 (79 to 89) | -203 (-70%) | lower in every run |
+| Long chat opened while its reply streams: all 120 rows in place (ms) | 289 (275 to 301) | 351 (289 to 354) | +62 (+21%) | no measurable change |
+| Reader scrolled up in a chat that is filling: the row being read moved (px) | 0 (0 to 0) | 0 (0 to 0) | 0 | same |
+| Scrolling: frames slower than 25 ms | 1 (0 to 4) | 0 (0 to 0) | -1 (-100%) | no measurable change |
+| Scrolling: slowest frame (ms) | 33.4 (16.8 to 33.4) | 16.8 (16.8 to 16.8) | -16.6 (-50%) | no measurable change |
+| Scrolling: main thread busy (ms) | 2,179 (1,896 to 2,303) | 1,883 (1,880 to 2,032) | -296 (-14%) | no measurable change |
+| Scrolling: components redrawn | 98 (98 to 98) | 98 (98 to 98) | 0 | same |
+| Typing: slowest frame (ms) | 16.8 (16.8 to 16.8) | 16.8 (16.8 to 16.8) | 0 | same |
+| A streamed reply: slowest frame (ms) | 50 (49.9 to 66.7) | 50 (50 to 50.1) | 0 | no measurable change |
+| A streamed reply: long tasks (ms) | 0 (0 to 0) | 0 (0 to 0) | 0 | same |
+| A streamed reply: main thread busy (ms) | 753 (725 to 865) | 716 (664 to 721) | -37 (-5%) | lower in every run |
+| First words of the reply after Enter (ms) | 1,052 (1,049 to 1,119) | 1,050 (1,043 to 1,051) | -2.5 (under 1%) | no measurable change |
+| Four other dogs working: slowest frame (ms) | 16.8 (16.8 to 16.8) | 16.8 (16.8 to 16.8) | 0 | same |
+| Idle: animations running | 6 (6 to 6) | 6 (6 to 6) | 0 | same |
+| Browser process tree after the run, resident (MB) | 1,307 (1,298 to 1,314) | 1,312 (1,283 to 1,313) | +5 (under 1%) | no measurable change |
+
+### Timed run at 80 dogs
+
+The default timed run with `--other-dogs 79 --other-turns 2`: base 3 runs, main 3 runs.
+
+| Measure | base 651cf65, median (range), 3 runs | main 89b1439, median (range), 3 runs | Difference of medians | Verdict |
+|---|---|---|---|---|
+| Open the long chat, median of 8 (ms) | 532.6 (512.3 to 560.6) | 402.5 (370.7 to 403.9) | -130.1 (-24%) | lower in every run |
+| Open the long chat, slowest of 8 (ms) | 614.2 (596.3 to 651.9) | 428.6 (399.1 to 485.3) | -185.6 (-30%) | lower in every run |
+| Long chat: rows drawn when it is first shown | 120 (120 to 120) | 30 (30 to 30) | -90 (-75%) | changed |
+| Long chat: all 120 rows in place, median of 8 (ms) | 453 (431 to 466) | 513 (510 to 537) | +60 (+13%) | higher in every run |
+| Long chat: openings of 8 that never reached 120 rows | 0 (0 to 0) | 0 (0 to 0) | 0 | same |
+| Open a short chat, median of 8 (ms) | 91.1 (71.9 to 91.8) | 70.8 (63 to 72.7) | -20.3 (-22%) | no measurable change |
+| Long tasks across 16 switches (ms) | 4,139 (4,114 to 4,428) | 4,141 (3,781 to 4,234) | +2 (under 1%) | no measurable change |
+| Key press to frame, median of 119 keys (ms) | 67.2 (64.6 to 74.7) | 24.6 (24.4 to 24.6) | -42.6 (-63%) | lower in every run |
+| Key press to frame, 95th of 119 keys (ms) | 116.7 (109.4 to 122.9) | 32.1 (31.9 to 32.3) | -84.6 (-72%) | lower in every run |
+| Key press to frame, slowest of 119 keys (ms) | 145.8 (145 to 156.2) | 33.1 (32.8 to 33.1) | -112.7 (-77%) | lower in every run |
+| Typing: frames slower than 25 ms | 144 (140 to 159) | 0 (0 to 0) | -144 (-100%) | lower in every run |
+| Typing: main thread busy over 5.5 s (ms) | 9,732 (9,374 to 9,970) | 1,735 (1,659 to 1,753) | -7,997 (-82%) | lower in every run |
+| Typing: layouts for 119 keys | 716 (710 to 732) | 263 (263 to 263) | -453 (-63%) | lower in every run |
+| Typing: components redrawn for 119 keys | 3,195 (3,195 to 3,195) | 3,223 (3,223 to 3,223) | +28 (+1%) | higher in every run |
+| Cold load: first paint, median of 5 (ms) | 364 (356 to 376) | 368 (348 to 380) | +4 (+1%) | no measurable change |
+| Cold load: message box ready, median of 5 (ms) | 778.4 (772.5 to 790.8) | 791.7 (769.7 to 827.8) | +13.3 (+2%) | no measurable change |
+| Cold load: message box ready, slowest of 5 (ms) | 886.3 (817 to 891.4) | 847.3 (841.5 to 875) | -39 (-4%) | no measurable change |
+| Idle: main thread busy per 3 s (ms) | 461 (423 to 527) | 85 (83 to 90) | -376 (-82%) | lower in every run |
+| Idle: style passes per 3 s | 181 (181 to 181) | 0 (0 to 0) | -181 (-100%) | lower in every run |
+| A streamed reply: frames slower than 25 ms | 15 (15 to 20) | 4 (2 to 4) | -11 (-73%) | lower in every run |
+| A streamed reply: components redrawn | 8,657 (8,351 to 9,073) | 5,500 (5,497 to 5,504) | -3,157 (-36%) | lower in every run |
+| Own bubble after Enter (ms) | 46.9 (41.8 to 63.9) | 32.2 (29.2 to 35.5) | -14.7 (-31%) | lower in every run |
+| Four other dogs working: frames slower than 25 ms | 28 (28 to 31) | 0 (0 to 0) | -28 (-100%) | lower in every run |
+| Four other dogs working: main thread busy (ms) | 2,279 (2,221 to 2,358) | 350 (340 to 371) | -1,929 (-85%) | lower in every run |
+| Four other dogs working: components redrawn | 964 (964 to 1,057) | 683 (683 to 775) | -281 (-29%) | lower in every run |
+| Switching: components redrawn across 16 switches | 29,796 (29,563 to 30,105) | 31,289 (31,145 to 31,449) | +1,493 (+5%) | higher in every run |
+| JS heap at idle, after a collection (MB) | 15 (15 to 15) | 15.2 (15.2 to 15.3) | +0.2 (+1%) | higher in every run |
+| JS heap after the run, after a collection (MB) | 28.2 (28 to 28.2) | 28.3 (28.3 to 28.4) | +0.1 (under 1%) | higher in every run |
+| Page process memory at idle (MB) | 92 (92 to 93) | 83 (83 to 86) | -9 (-10%) | lower in every run |
+| Page process memory, highest of 6 samples (MB) | 483 (475 to 503) | 358 (348 to 360) | -125 (-26%) | lower in every run |
+| Browser process tree at idle, resident (MB) | 1,048 (1,048 to 1,048) | 1,039 (1,038 to 1,042) | -9 (-1%) | lower in every run |
+| Browser process tree, highest in the run, resident (MB) | 1,437 (1,435 to 1,455) | 1,396 (1,389 to 1,457) | -41 (-3%) | no measurable change |
+| DOM nodes after the run | 15,748 (15,748 to 15,748) | 15,779 (15,779 to 15,779) | +31 (under 1%) | higher in every run |
+| Rows in the long chat 1.5 s after opening | 120 (120 to 120) | 120 (120 to 120) | 0 | same |
+| Switching: frames slower than 25 ms | 23 (22 to 25) | 33 (33 to 34) | +10 (+43%) | higher in every run |
+| Switching: slowest frame (ms) | 550.1 (533.3 to 566.6) | 266.7 (266.6 to 300) | -283.4 (-52%) | lower in every run |
+| Switching: main thread busy across 16 switches (ms) | 4,919 (4,909 to 5,305) | 4,703 (4,351 to 4,789) | -216 (-4%) | lower in every run |
+| Long chat opened while its reply streams: on screen (ms) | 422 (421 to 426) | 113 (110 to 113) | -309 (-73%) | lower in every run |
+| Long chat opened while its reply streams: all 120 rows in place (ms) | 423 (422 to 426) | 489 (486 to 499) | +66 (+16%) | higher in every run |
+| Reader scrolled up in a chat that is filling: the row being read moved (px) | 0 (0 to 0) | 0 (0 to 0) | 0 | same |
+| Scrolling: frames slower than 25 ms | 100 (100 to 102) | 4 (3 to 5) | -96 (-96%) | lower in every run |
+| Scrolling: slowest frame (ms) | 133.4 (133.3 to 183.3) | 33.4 (33.4 to 33.4) | -100 (-75%) | lower in every run |
+| Scrolling: main thread busy (ms) | 10,392 (10,286 to 11,156) | 1,671 (1,661 to 1,697) | -8,721 (-84%) | lower in every run |
+| Scrolling: components redrawn | 107 (107 to 107) | 98 (98 to 98) | -9 (-8%) | lower in every run |
+| Typing: slowest frame (ms) | 99.9 (83.4 to 100) | 16.8 (16.8 to 16.8) | -83.1 (-83%) | lower in every run |
+| A streamed reply: slowest frame (ms) | 133.3 (133.3 to 150) | 100 (66.7 to 100.1) | -33.3 (-25%) | lower in every run |
+| A streamed reply: long tasks (ms) | 579 (563 to 2,567) | 117 (115 to 127) | -462 (-80%) | lower in every run |
+| A streamed reply: main thread busy (ms) | 2,143 (2,101 to 2,165) | 1,134 (1,093 to 1,139) | -1,009 (-47%) | lower in every run |
+| First words of the reply after Enter (ms) | 1,999 (1,984 to 2,094) | 1,974 (1,967 to 2,057) | -25.2 (-1%) | no measurable change |
+| Four other dogs working: slowest frame (ms) | 83.3 (66.7 to 83.4) | 16.8 (16.8 to 16.8) | -66.5 (-80%) | lower in every run |
+| Idle: animations running | 80 (80 to 80) | 16 (16 to 16) | -64 (-80%) | lower in every run |
+| Browser process tree after the run, resident (MB) | 1,407 (1,406 to 1,419) | 1,388 (1,385 to 1,443) | -19 (-1%) | no measurable change |
+
+### One dog streams, at 7 dogs
+
+`--one-dog-streams`: base 0 runs, main 0 runs.
+
+### One dog streams, at 80 dogs
+
+`--one-dog-streams` with `--other-dogs 79 --other-turns 2`: base 0 runs, main 0 runs.
+
+### Store changes, at 7 dogs
+
+`--store-changes`: base 0 runs, main 0 runs.
+
+### Store changes, at 80 dogs
+
+`--store-changes` with `--other-dogs 79 --other-turns 2`: base 0 runs, main 0 runs.
+
+### Layers at 80 dogs
+
+| Build | Run | Layers | Layers that draw | Typing 48 keys in the message box as it is |
+|---|---|---|---|---|
+| base | base-80-layers-1 | 426 | 339 | Layerize 2938 ms x108, Paint 120 ms x312, PrePaint 52 ms x216, Layout 173 ms x300, UpdateLayoutTree 171 ms x300, EventDispatch 590 ms x387, FunctionCall 189 ms x1126 |
+| main | main-80-layers-1 | 23 | 18 | Layerize 164 ms x133, Paint 89 ms x358, PrePaint 47 ms x188, Layout 84 ms x108, UpdateLayoutTree 15 ms x108, EventDispatch 506 ms x432, FunctionCall 158 ms x1287 |
+
+### The three claims in #169 that had no result file
+
+#169's description gave three results from an earlier helper with no result
+file, run count or commit. Each was run again here at 80 dogs, once on each
+build. Result files are in `assets/desktop-performance/`.
+
+1. Layers (`--layers`). The claim was "from 145 layers to 23". The 23 is
+   confirmed on main, one run, `main-80-layers-1.json`: 23 layers, 18 of them
+   drawing, none of them a dog's face or a status dot. The 145 was not run
+   again: it described the renderer just before #169, which is not one of the
+   two builds here. The older renderer, before #158 as well, has 426 layers,
+   339 of them drawing, one run, `base-80-layers-1.json`: 82 for dogs' faces
+   animating, 79 for status dots animating, and 253 more that exist only
+   because they overlap those. In this fixture 79 of the 81 rows carry an
+   unread dot, not "about half" as the claim said.
+2. Kept state (`--kept`). Confirmed on main, one run, `main-80-kept-1.json`.
+   A draft in the long chat and in a short chat was still there after
+   switching and after a reload, and the reload opened the same chat. The dog
+   that was not open showed three working dots and was named "Helper 2 ·
+   Working" while it replied; afterwards it showed one unread dot, was named
+   "Helper 2 · Unread", previewed the reply, and the unread rows went from 77
+   to 78; once opened it was read again (77) and the open chat had stayed
+   open throughout. 81 of 81 rows have a named button in the accessibility
+   tree, 41 of them not drawn at the time; Tab reached 81 of 81, each in view
+   with a focus ring, and Enter opened the focused row.
+   The same run on the older renderer (`base-80-kept-1.json`) agrees on the
+   drafts, the reload, Tab and Enter. It differs in two places, both
+   expected: the older renderer draws all 81 rows (none skipped), and its
+   rows have no spoken state, so the two checks that read "Working" and
+   "Unread" from the row's name report false there although the three dots
+   and the unread dot were on screen.
+3. Message box height (`--message-box`). Confirmed, one run on each build,
+   `base-80-mbox-1.json` and `main-80-mbox-1.json`. The run makes 27 edits
+   (typing past the edge, deleting, up to eight typed lines, a long word, a
+   narrower window, another chat and back, sending) and records the box's
+   height, the height of its text, whether it is expanded, how far it is
+   scrolled, and whether it has focus after each. All 27 steps are identical
+   in every recorded field between the two builds. #169 compared 024af20 with
+   its own branch; this compares 651cf65 with main, which brackets the same
+   change (the message box measuring itself only when its height can change).
+
+### How the runs were made
+
+- `~/measure/base` is `git archive 651cf65` (tree f7700da, checked with
+  `git write-tree`), `~/measure/main` is main 89b1439 (tree 415d264, checked
+  the same way). Both use the same installed packages; the lockfile did not
+  change between the two commits.
+- Each renderer is built with `pnpm exec vite build --outDir ~/measure/dist-base`
+  (or `dist-main`) from its own tree.
+- The harness only exists on main, so every run is main's
+  `scripts/desktop-perf.ts`, main's fixture server and main's fake engine,
+  serving one of the two builds with `--dist`. Only the renderer differs
+  between the columns.
+- Timed runs hold `flock -x ~/heavy.lock`, so no other lane's build or test
+  suite runs beside them, and go in rounds: one round is each build once at 7
+  dogs and once at 80, base first in odd rounds and main first in even ones.
+  Between rounds other lanes take the lock, so a round often waited for it;
+  the wait and the load average when each run started are in the table below
+  and in each run's `.meta.json`.
+- `--kept` and `--message-box` time nothing and ran with the lock shared
+  (`flock -s`), beside another lane's work.
+- Every run writes one result file and one `.meta.json` (command, lock, wait
+  for the lock, load average at the start and end, exit code), under
+  `~/measure/results/` there and in `assets/desktop-performance/` here.
+  `--store-changes` and `--layers` print their result instead of writing it to
+  `--out`; for those the printed result is the `.json` file here.
+  `python3 assets/desktop-performance/summarize.py --note desktop-performance.md`
+  rewrites the tables in this section from those files.
+
+### Every run, in the order it ran
+
+| Run | Lock | Waited for the lock (s) | Ran (s) | Load at start (1, 5, 15 min) | Exit |
+|---|---|---|---|---|---|
+| main-80-kept-1 | s | 0 | 73 | 2.24 2.86 2.94 | 0 |
+| main-80-mbox-1 | s | 0 | 66 | 3.17 3.12 3.03 | 0 |
+| base-7-default-1 | x | 169 | 88 | 3.08 3.28 3.10 | 0 |
+| base-80-mbox-1 | s | 54 | 159 | 1.53 2.77 2.94 | 0 |
+| main-7-default-1 | x | 159 | 92 | 2.11 2.61 2.86 | 0 |
+| base-80-kept-1 | s | 92 | 82 | 0.96 2.11 2.66 | 0 |
+| base-80-layers-1 | x | 658 | 72 | 2.13 1.42 1.94 | 0 |
+| base-80-default-1 | x | 0 | 177 | 1.91 1.54 1.94 | 0 |
+| main-80-default-1 | x | 0 | 128 | 1.89 1.80 1.98 | 0 |
+| main-7-default-2 | x | 723 | 90 | 1.96 2.78 2.64 | 0 |
+| base-7-default-2 | x | 0 | 89 | 1.13 2.34 2.50 | 0 |
+| main-80-default-2 | x | 0 | 127 | 1.16 2.16 2.43 | 0 |
+| base-80-default-2 | x | 0 | 174 | 1.04 1.87 2.29 | 0 |
+| main-80-layers-1 | x | 1229 | 57 | 1.66 1.80 2.19 | 0 |
+| base-7-default-3 | x | 95 | 87 | 2.32 1.93 2.19 | 0 |
+| main-7-default-3 | x | 0 | 90 | 2.11 1.89 2.15 | 0 |
+| base-80-default-3 | x | 0 | 171 | 1.44 1.76 2.08 | 0 |
+| main-80-default-3 | x | 0 | 127 | 2.40 1.99 2.11 | 0 |
+
+## History: results at 456e978, 2026-11-10
 
 Both tables below were measured at 456e978, before the review fixes; not
 re-measured. Two later commits change what they time: 51157ef (the fill became
