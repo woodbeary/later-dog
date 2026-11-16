@@ -717,6 +717,7 @@ import { groupRoutineReply, SILENT_GROUP_ROUTINE } from "./laterdog/group-routin
 import { botNames, dogActivityWords, teammateDoneLabel, teammateResultLabel } from "./laterdog/activity-words.ts";
 import { dropContinuation } from "./laterdog/dropped-continuation.ts";
 import { ENDED_REQUEST, endedRequestIds } from "./laterdog/request-fences.ts";
+import { createdDogModel } from "./laterdog/created-dog-model.ts";
 import { INCLUDED_AI_INSTANCE, INCLUDED_AI_INSTANCES } from "./laterdog/included-ai.ts";
 import { createPhonePush } from "./laterdog/phone-push.ts";
 import { cloudEmailDelivery } from "./laterdog/email-me.ts";
@@ -15220,7 +15221,11 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         }
         let selection: ModelSelection;
         if (body.modelSelection === undefined) {
-          selection = onCreatorsAccount(await defaultSelection(), creator, fromThreadId);
+          const chat = store.projectBotForTask(creator.id, fromThreadId) ?? creator;
+          const engine = registry.get(chat.modelSelection.instanceId);
+          const helperTier = createdDogModel({ selection: chat.modelSelection, driverKind: engine?.driverKind, helperModel: chat.helperModel ?? creator.helperModel,
+            offered: engine?.models.options ?? [] });
+          selection = helperTier && (!hostedModels || hostedModels.allows(helperTier)) ? helperTier : onCreatorsAccount(await defaultSelection(), creator, fromThreadId);
         } else {
           const checked = checkedModelSelection(body.modelSelection, undefined, true);
           if (!checked.ok) return json(res, checked.status, { error: checked.error });

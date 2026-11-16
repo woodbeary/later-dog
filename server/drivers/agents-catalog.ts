@@ -414,7 +414,7 @@ const TOOL_DEFINITIONS = [
   {
     name: "create_bot",
     description:
-      "Make a new dog when the person asks for another dog, agent or helper. If they did not say what it is for, first ask one short question: what it should do, and a name if they have one in mind; otherwise pick a short name yourself. It gets the same access you have, never more, and says hello in its own chat; then tell them it is in their list. Omit modelSelection for the default model. If they gave it a job, hand the job over right away so they do not have to repeat it. Never make a dog to stand in for an existing one whose engine or account is broken or needs setup: fix that dog with propose_model and bot_id, or dog_accounts.",
+      "Make a new dog when the person asks for another dog, agent or helper. If they did not say what it is for, first ask one short question: what it should do, and a name if they have one in mind; otherwise pick a short name yourself. It gets the same access you have, never more, and says hello in its own chat; then tell them it is in their list. Omit modelSelection to give it the helper model one tier below yours, on your account. If they gave it a job, hand the job over right away so they do not have to repeat it. Never make a dog to stand in for an existing one whose engine or account is broken or needs setup: fix that dog with propose_model and bot_id, or dog_accounts.",
     inputSchema: {
       type: "object",
       properties: {
