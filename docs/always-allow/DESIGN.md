@@ -111,7 +111,8 @@ Same strings on the desktop and the phone; no new colours.
 | Order | Failed test | Line |
 |---|---|---|
 | 1 | A1 | This one always asks. |
-| 2 | A2 | Only the owner can choose Always. |
+| 2 | A2, in a group chat (`why: "group"`) | Always isn't offered in group chats. |
+| 2 | A2, anywhere else | Only the owner can choose Always. |
 | 3 | A5 | This one asks each time: it holds a password or key. |
 | 4 | A3 | This one asks each time: later.dog cannot see all of what it does. |
 | 5 | A4, a screen, browser, computer or Mac action | This one asks each time: it acts on what is on the screen then. |
@@ -138,7 +139,7 @@ In steps 1 to 5 the `lasting` field is the rule for new grants only. A card that
   - `400 { error: "threadId must be a task id" }` when `threadId` is not a well-formed chat id;
   - `403 { error }` when the person is not the owner or an admin;
   - `404 { error }` for an unknown dog, or a `threadId` that is not one of its chats;
-  - `409 { error, why }` when the rule refuses (`why` is one of the seven `lasting.why` values; a group chat's card gives `owner-only`);
+  - `409 { error, why }` when the rule refuses (`why` is one of the eight `lasting.why` values; a group chat's card gives `group`);
   - `409 { error }` when the card is not pending for this dog, and when `threadId` is left out and the dog has more than one chat;
   - `503 { error }` when the store cannot be read.
 - **List:** `GET /api/bots/:id/always-allowed` returns `{ paused: boolean, unreadable?: true, items: Array<{ id: string; kind: "search" | "app" | "outside-delete" | "saved-login" | "teammate" | "command"; subject?: string; grantedAt?: string; state: "active" | "no-longer-used" }> }`.
