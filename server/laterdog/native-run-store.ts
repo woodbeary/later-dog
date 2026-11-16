@@ -118,6 +118,7 @@ export class NativeRunStore {
         return row ? JSON.parse(row.json) as NativeActivity : undefined;
       });
       const { run, activity } = result;
+      if (activity) run.lastActivityAt = Math.max(run.lastActivityAt ?? at, at);
       if (activity) database.prepare("INSERT INTO native_run_items(run_id, id, sequence, json) VALUES (?, ?, ?, ?) ON CONFLICT(run_id, id) DO UPDATE SET json = excluded.json")
         .run(id, activity.id, run.revision, JSON.stringify(activity));
       const items = database.prepare("SELECT id, length(CAST(json AS BLOB)) AS bytes FROM native_run_items WHERE run_id = ? ORDER BY CASE WHEN json_extract(json, '$.state') IN ('running', 'waiting') THEN 0 ELSE 1 END, sequence DESC").all(id) as Array<{ id: string; bytes: number }>;

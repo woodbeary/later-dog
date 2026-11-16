@@ -56,6 +56,7 @@ export interface NativeRun {
   revision: number;
   startedAt: number;
   endedAt?: number;
+  lastActivityAt?: number;
   state: NativeActorState;
   observation: "live" | "complete" | "interrupted" | "partial";
   actors: NativeActor[];
