@@ -1647,7 +1647,7 @@ function oldGrantItem(key: string): AlwaysAllowedItem | null {
 function oldGrantKeys(botId: string): string[] {
   const bot = store.bot(botId);
   if (!bot) return [];
-  return [...new Set([...(bot.alwaysAllow ?? []), ...(store.taskByThread(botId, bot.threadId)?.alwaysAllow ?? [])])];
+  return [...new Set([...(bot.alwaysAllow ?? []), ...store.tasks(botId).flatMap((task) => task.alwaysAllow ?? [])])];
 }
 
 function alwaysAllowedList(botId: string): AlwaysAllowedList {
@@ -1668,9 +1668,13 @@ function removeAlwaysAllowed(botId: string, itemId: string): boolean {
   const key = Buffer.from(itemId.slice("key:".length), "base64url").toString();
   const bot = store.bot(botId);
   if (!bot || !oldGrantKeys(botId).includes(key)) return false;
-  if (bot.alwaysAllow?.includes(key)) store.patchBot(botId, { alwaysAllow: bot.alwaysAllow.filter((candidate) => candidate !== key) });
-  const task = store.taskByThread(botId, bot.threadId);
-  if (task?.alwaysAllow?.includes(key)) store.patchTask(botId, bot.threadId, { alwaysAllow: task.alwaysAllow.filter((candidate) => candidate !== key) });
+  const without = (keys: readonly string[]) => keys.filter((candidate) => candidate !== key);
+  if (bot.alwaysAllow?.includes(key)) store.patchBot(botId, { alwaysAllow: without(bot.alwaysAllow) });
+  for (const task of store.tasks(botId)) {
+    if (task.alwaysAllow?.includes(key)) store.patchTask(botId, task.threadId, { alwaysAllow: without(task.alwaysAllow) });
+    const live = directTurnBots.get(task.threadId);
+    if (live?.id === botId && live.alwaysAllow?.includes(key)) live.alwaysAllow = without(live.alwaysAllow);
+  }
   const updated = store.bot(botId);
   if (updated) broadcast({ kind: "bot", bot: wireBot(updated) });
   return true;

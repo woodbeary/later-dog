@@ -7642,6 +7642,31 @@ describe("harness HTTP API", () => {
     }
   });
 
+  it("lists an old key from every chat it was copied into, and Remove takes it out of all of them", async () => {
+    const bot = (await api("POST", "/api/bots", { name: "Kestrel" })).body.bot;
+    try {
+      expect((await api("PATCH", `/api/bots/${bot.id}`, { alwaysAllow: ["vault:example.com"] })).status).toBe(200);
+      const second = (await api("POST", `/api/bots/${bot.id}/tasks`, { title: "Second chat" })).body.task;
+      const record = async () => (await api("GET", "/api/bots")).body.bots.find((candidate: { id: string }) => candidate.id === bot.id);
+      const holders = async () => {
+        const current = await record();
+        return [current.alwaysAllow ?? [], ...(current.tasks ?? []).map((task: { alwaysAllow?: string[] }) => task.alwaysAllow ?? [])]
+          .filter((keys: string[]) => keys.includes("vault:example.com")).length;
+      };
+      expect((await record()).tasks.find((task: { threadId: string }) => task.threadId === second.threadId).alwaysAllow).toContain("vault:example.com");
+      const listed = await api("GET", `/api/bots/${bot.id}/always-allowed`);
+      const login = listed.body.items.find((item: { kind: string }) => item.kind === "saved-login");
+      expect(login).toMatchObject({ subject: "example.com", state: "active" });
+      expect(await holders()).toBeGreaterThan(0);
+      const removed = await api("DELETE", `/api/bots/${bot.id}/always-allowed/${encodeURIComponent(login.id)}`);
+      expect(removed.status).toBe(200);
+      expect(removed.body.items.some((item: { kind: string }) => item.kind === "saved-login")).toBe(false);
+      expect(await holders()).toBe(0);
+    } finally {
+      await api("DELETE", `/api/bots/${bot.id}`);
+    }
+  });
+
   it("cards every ask when Claude's reviewer never started, says so once, and an Always answer reaches Claude as allow once", async () => {
     const bot = (await api("POST", "/api/bots", { name: "Quill" })).body.bot;
     const conns: Socket[] = [];
