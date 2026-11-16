@@ -343,7 +343,7 @@ function deleteTargetRefusal(target: Word, cwd: string | undefined, paths: Paths
   const real = deletedPath(expanded, target.text, paths, glob);
   const inside = (path: string) => [...paths.roots, ...paths.temp].some((root) => within(path, root, glob || contents));
   if (inside(real) && inside(expanded)) return null;
-  const shown = glob ? target.text : real;
+  const shown = glob ? target.text : inside(expanded) ? `${expanded} (which leads to ${real})` : expanded;
   return {
     rule: "delete-outside-workspace",
     message: `later.dog refused this: it deletes ${shown}${recursive ? " recursively" : ""}, outside this dog's workspace and /tmp.`,
@@ -1021,9 +1021,7 @@ function withRealpaths(paths: readonly string[]): string[] {
   const out = new Set<string>();
   for (const path of paths) {
     out.add(resolve(path));
-    try {
-      out.add(realpathSync(path));
-    } catch {}
+    out.add(realPath(resolve(path)));
   }
   return [...out];
 }
@@ -1048,8 +1046,8 @@ function guardPaths(context: OwnerGuardContext): Paths {
   const home = context.home ?? homedir();
   return {
     home,
-    temp: [...(context.tempRoots ?? defaultTempRoots()), ...CACHE_FOLDERS.map((folder) => join(home, folder))],
-    roots: context.workspaceRoots.filter((root) => isAbsolute(root)),
+    temp: withRealpaths([...(context.tempRoots ?? defaultTempRoots()), ...CACHE_FOLDERS.map((folder) => join(home, folder))]),
+    roots: withRealpaths(context.workspaceRoots.filter((root) => isAbsolute(root))),
     ...(context.repositoryRoot ? { repository: context.repositoryRoot } : {}),
   };
 }

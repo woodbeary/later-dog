@@ -172,15 +172,9 @@ it("long commands run in the background, the dog can type into them, and edits, 
   expect(data(await operation("edit_file", { path: "notes.md", old_text: "beta", new_text: "gamma" })).replacements).toBe(1);
   expect(readFileSync(join(folder.path, "notes.md"), "utf8")).toBe("alpha\ngamma\n");
   expect(data(await operation("search_files", { path: "", pattern: "gamma" })).matches).toEqual(["notes.md:2:gamma"]);
-  const deleting = operation("delete_file", { path: "notes.md" });
   const openCards = async () => ((await api("GET", "/api/bots?messages=80")).body.bots.find((candidate: any) => candidate.id === bot.id).messages as any[])
     .filter((message) => message.card?.requestId && !message.card.answered && !message.card.dismissed);
-  await vi.waitFor(async () => expect(await openCards()).toHaveLength(1), { timeout: 15_000 });
-  const [asked] = await openCards();
-  expect(asked.card.subtitle).toContain("notes.md");
-  expect(asked.card.allowKey).toBeUndefined();
-  expect((await api("POST", `/api/bots/${bot.id}/respond`, { requestId: asked.card.requestId, behavior: "allow" })).status).toBe(200);
-  expect(data(await deleting)).toEqual({ deleted: true, kind: "file" });
+  expect(data(await operation("delete_file", { path: "notes.md" }))).toEqual({ deleted: true, kind: "file" });
   expect(await openCards()).toHaveLength(0);
   expect(existsSync(join(folder.path, "notes.md"))).toBe(false);
   const slow = operation("run_command", { command: "sleep 2; echo slow", wait_seconds: 10 });
@@ -189,7 +183,7 @@ it("long commands run in the background, the dog can type into them, and edits, 
   expect(data(await operation("read_file", { path: "brief.txt" })).content).toBeTruthy();
   expect(Date.now() - began, "a quick read isn't stuck behind a running command").toBeLessThan(1500);
   expect(data(await slow).output).toBe("slow\n");
-  evidence.push("background command with later output and typed input; exact edit, search and delete on real files, the delete after one card with no Always; a read answered while another command ran");
+  evidence.push("background command with later output and typed input; exact edit, search and delete on real files, the delete in a lent folder with no card; a read answered while another command ran");
 }, 60_000);
 
 it("another person's conversation can neither see nor use the lent desktop", async () => {

@@ -5,10 +5,10 @@ import { describe, expect, it } from "vitest";
 import { ALWAYS_ASK_IDS, alwaysAskHook, alwaysAsks, asksAsConnector, connectorAlwaysAsks, internalCallRequest, type AlwaysAskId } from "./always-asks.ts";
 import { connectorAllowKey, connectorSendDecision } from "./connector-ask.ts";
 import { connectorCallsIn } from "../../shared/outbound.ts";
-import { ownerGuard, type OwnerGuardContext } from "./owner-guard.ts";
+import { defaultTempRoots, ownerGuard, type OwnerGuardContext } from "./owner-guard.ts";
 
 const WORKSPACE = "/srv/dogs/ada/work";
-const guard = (): OwnerGuardContext => ({ cwd: WORKSPACE, workspaceRoots: [WORKSPACE], tempRoots: ["/tmp"], home: "/home/dog", repositoryRoot: (cwd) => (cwd.startsWith(WORKSPACE) ? WORKSPACE : null) });
+const guard = (): OwnerGuardContext => ({ cwd: WORKSPACE, workspaceRoots: [WORKSPACE], tempRoots: defaultTempRoots(), home: "/home/dog", repositoryRoot: (cwd) => (cwd.startsWith(WORKSPACE) ? WORKSPACE : null) });
 const shell = (command: string) => alwaysAsks({ tool: "Bash", command }, guard)?.id ?? null;
 const expectAll = (id: AlwaysAskId | null, commands: readonly string[]) => {
   for (const command of commands) expect(shell(command), command).toBe(id);
@@ -951,5 +951,23 @@ describe("the fourth review's inputs", () => {
       "temporary folder: rm -f \"$(git rev-parse --show-toplevel)/.eslintcache\"",
       "bot folder: rm -f \"$(git rev-parse --show-toplevel)/.eslintcache\"",
     ]);
+  });
+});
+
+describe("a file action on the lent Mac in a folder lent with write access", () => {
+  const rows: Row[] = [
+    ["ordinary: a file in a folder lent with write access", via("mcp__agents__shared_computer", { action: "delete_file", folder_id: "f1", path: "notes.md" }), null],
+    ["ordinary: a nested file in a lent folder", via("mcp__agents__shared_computer", { action: "delete_file", folder_id: "f1", path: "build/old/report.txt" }), null],
+    ["ordinary: writing a file in a lent folder", via("mcp__agents__shared_computer", { action: "write_file", folder_id: "f1", path: "notes.md", content: "x" }), null],
+    ["delete: a lent folder's path that climbs out", via("mcp__agents__shared_computer", { action: "delete_file", folder_id: "f1", path: "build/../../notes.md" }), "delete-outside-workspace"],
+    ["delete: the lent folder itself", via("mcp__agents__shared_computer", { action: "delete_file", folder_id: "f1", path: "." }), "delete-outside-workspace"],
+    ["delete: an absolute path with a lent folder", via("mcp__agents__shared_computer", { action: "delete_file", folder_id: "f1", path: "/Users/owner/Documents/report.pdf" }), "delete-outside-workspace"],
+    ["delete: a home path with a lent folder", via("mcp__agents__shared_computer", { action: "delete_file", folder_id: "f1", path: "~/Documents/report.pdf" }), "delete-outside-workspace"],
+    ["delete: a Windows path that climbs out of a lent folder", via("mcp__agents__shared_computer", { action: "delete_file", folder_id: "f1", path: "build\\..\\..\\notes.md" }), "delete-outside-workspace"],
+    ["delete: a drive path with a lent folder", via("mcp__agents__shared_computer", { action: "delete_file", folder_id: "f1", path: "C:notes.md" }), "delete-outside-workspace"],
+    ["delete: a command on the lent Mac with no folder", via("mcp__agents__shared_computer", { action: "run_command", command: "rm -rf node_modules" }), "delete-outside-workspace"],
+  ];
+  it.each(rows)("%s", (_name, request, expected) => {
+    expect(alwaysAsks(request, guard)?.id ?? null).toBe(expected);
   });
 });
