@@ -328,6 +328,12 @@ describe("deleting something or changing who can reach it from a connected app a
     expect(gate("GMAIL_MODIFY_THREAD_LABELS", { thread_id: "t-1", add_label_ids: ["IMPORTANT"] })).toBeNull();
     expect(gate("GMAIL_BATCH_MODIFY_MESSAGES", { messageIds: ["m-1"] })).toBeNull();
     expect(gate("GMAIL_FETCH_EMAILS", { label_ids: ["TRASH"] })).toBeNull();
+    expect(gate("GMAIL_MODIFY_THREAD_LABELS", { thread_id: "t-1", add_label_ids: [["TRASH"]] })).toBe("deletes-or-shares");
+    expect(gate("GMAIL_MODIFY_THREAD_LABELS", { thread_id: "t-1", add_label_ids: "INBOX,TRASH" })).toBe("deletes-or-shares");
+    expect(gate("GMAIL_MODIFY_THREAD_LABELS", { thread_id: "t-1", labelIds: ["TRASH"] })).toBe("deletes-or-shares");
+    expect(gate("GMAIL_MODIFY_THREAD_LABELS", { thread_id: "t-1", add_label_ids: "STARRED, IMPORTANT" })).toBeNull();
+    expect(gate("GMAIL_MODIFY_THREAD_LABELS", { thread_id: "t-1", remove_label_ids: [["TRASH"]], add_label_ids: [["STARRED"]] })).toBeNull();
+    expect(gate("GMAIL_FETCH_EMAILS", { labelIds: ["TRASH"] })).toBeNull();
   });
 
   it("asks when a call that is not a read sets who can reach something or trashes, archives or closes it, and not when it restores or sets none of them", () => {

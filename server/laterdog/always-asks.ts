@@ -395,10 +395,16 @@ function deletesOrShares(tool: string): boolean {
 const keyWords = (key: string) => key.toLowerCase().replace(/[^a-z]/g, "");
 const isRecord = (value: unknown): value is Record<string, unknown> => Boolean(value) && typeof value === "object" && !Array.isArray(value);
 
+function labelsIn(value: unknown): string[] {
+  return [value].flat(Infinity).flatMap((label) => (typeof label === "string" ? label.split(",") : []));
+}
+
 function addsTrashLabel(tool: string, args: unknown): boolean {
-  if (!connectorSlug(tool)?.startsWith("GMAIL_") || !writingTokens(tool) || !isRecord(args)) return false;
-  return Object.entries(args).some(([key, value]) => /add.*label|label.*add/.test(keyWords(key))
-    && [value].flat().some((label) => typeof label === "string" && label.trim().toUpperCase() === "TRASH"));
+  const tokens = connectorSlug(tool)?.startsWith("GMAIL_") ? writingTokens(tool) : null;
+  if (!tokens || !isRecord(args)) return false;
+  const addsLabels = tokens.includes("ADD") || tokens.includes("MODIFY");
+  return Object.entries(args).some(([key, value]) => (/add.*label|label.*add/.test(keyWords(key)) || (addsLabels && keyWords(key) === "labelids"))
+    && labelsIn(value).some((label) => label.trim().toUpperCase() === "TRASH"));
 }
 
 const HARM_FLAGS = new Set(["trashed", "intrash", "archived", "closed"]);

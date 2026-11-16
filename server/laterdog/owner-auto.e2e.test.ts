@@ -571,6 +571,30 @@ it("a padded or oddly shaped delete, in a batch or on a direct call, shows a car
   expect(await sendCards(dog.threadId)).toHaveLength(shown);
 }, 90_000);
 
+it("a Gmail change that adds TRASH in a nested list, in a comma list, or as labelIds shows a card for an owner dog, and STARRED or removing TRASH runs", async () => {
+  await autoReview(false);
+  const dog = await newDog("Deep labeller", "auto");
+  const token = await mintConnectors(dog.id, dog.threadId);
+  for (const args of [{ thread_id: "t-1", add_label_ids: "STARRED,IMPORTANT" }, { thread_id: "t-1", remove_label_ids: [["TRASH"]] }]) {
+    const ran = relayed.length;
+    expect((await relay(token, "GMAIL_MODIFY_THREAD_LABELS", args)).body.result.isError, JSON.stringify(args)).toBeFalsy();
+    expect(relayed, JSON.stringify(args)).toHaveLength(ran + 1);
+  }
+  expect(await sendCards(dog.threadId)).toHaveLength(0);
+  for (const args of [{ thread_id: "t-1", add_label_ids: [["TRASH"]] }, { thread_id: "t-1", add_label_ids: "INBOX,TRASH" }, { thread_id: "t-1", labelIds: ["TRASH"] }]) {
+    const label = JSON.stringify(args);
+    const before = relayed.length;
+    const shown = (await sendCards(dog.threadId)).length;
+    const asked = relay(token, "GMAIL_MODIFY_THREAD_LABELS", args);
+    await expect.poll(async () => (await sendCards(dog.threadId)).length, { timeout: 10_000, message: `${label} showed no card` }).toBe(shown + 1);
+    const card = (await sendCards(dog.threadId)).at(-1).card;
+    expect(card.lasting, label).toEqual({ offered: false, why: "always-asks" });
+    expect(relayed, label).toHaveLength(before);
+    await api("POST", `/api/threads/${dog.threadId}/respond`, { requestId: card.requestId, behavior: "allow" });
+    expect((await asked).body.result.isError, label).toBeFalsy();
+  }
+}, 60_000);
+
 it("a Gmail change that adds the TRASH label shows a card with no Always, and one that adds another label runs, for an owner dog", async () => {
   await autoReview(false);
   const dog = await newDog("Labeller", "auto");
