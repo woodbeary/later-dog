@@ -236,6 +236,19 @@ describe("Mac approval gate", () => {
     expect(notes).toHaveLength(0);
   });
 
+  it("asks for what always asks even when the Mac is set to Always, each time", async () => {
+    gate.update({ computers: { [MAC_ID]: "always" } });
+    const first = ask({ action: "run_command", command: "rm -rf ~/Documents/old" }, { alwaysAsks: true });
+    await vi.waitFor(() => expect(openCards()).toHaveLength(1));
+    gate.resolve(openCards()[0]!.card!.requestId!, "allow");
+    await expect(first).resolves.toMatchObject({ ok: true });
+    const second = ask({ action: "run_command", command: "rm -rf ~/Documents/older" }, { alwaysAsks: true });
+    await vi.waitFor(() => expect(openCards()).toHaveLength(1));
+    gate.resolve(openCards()[0]!.card!.requestId!, "deny");
+    await expect(second).resolves.toMatchObject({ ok: false });
+    await expect(ask({ action: "list_files", path: "Downloads" })).resolves.toMatchObject({ ok: true });
+  });
+
   it("settles waiting cards when the setting changes", async () => {
     asking();
     const waiting = ask({ action: "list_files", path: "Downloads" });

@@ -1316,9 +1316,12 @@ async function approveMac(capability: InternalCapability, target: SharedComputer
   const bot = store.bot(capability.botId);
   if (!bot) throw Object.assign(new Error("This dog is gone."), { status: 404 });
   const requestMessageId = macRequestMessageId(capability);
+  const asked = internalCallRequest("/api/internal/shared-computers", operation);
+  const listed = asked ? alwaysAsks(asked, () => hookGuardContext(bot.id, capability.threadId, undefined)) !== null : false;
   const verdict = await macApprovals.check({
     bot, threadId: capability.threadId, computer: target.name, computerId: target.id, operation, active,
     ...(requestMessageId ? { requestMessageId } : {}),
+    ...(listed ? { alwaysAsks: true } : {}),
   });
   if (!verdict.ok) throw Object.assign(new Error(verdict.error), { status: verdict.status });
 }

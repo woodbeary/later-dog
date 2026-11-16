@@ -215,34 +215,26 @@ it("with Auto-review off, an owner dog's Claude Code starts without its own revi
   await turn.stop();
 }, 90_000);
 
-it("a delete outside the workspace asks once with Always allow, then runs with no card until the rule is removed in Settings", async () => {
+it("a delete outside the workspace asks every time, even after the old Always allow was stored", async () => {
   await autoReview(false);
   const dog = await newDog("Cleaner", "auto");
   const turn = await startTurn(dog, "Free disk space.");
   const first = turn.ask("Bash", { command: "rm -rf /srv/old-video-work" });
-  await expect.poll(() => turn.card(first), { timeout: 10_000 }).toMatchObject({ requestType: "permission", allowKey: "Delete folders outside its workspace" });
+  await expect.poll(() => turn.card(first), { timeout: 10_000 }).toMatchObject({ requestType: "permission" });
   expect((await turn.card(first)).subtitle).toMatch(/^This deletes \/srv\/old-video-work and everything in it/);
   expect(turn.answers.has(first)).toBe(false);
 
-  const granted = await api("POST", `/api/bots/${dog.id}/always-allow`, { threadId: turn.threadId, allowKey: "Delete folders outside its workspace" });
-  expect(granted.status, JSON.stringify(granted.body)).toBe(200);
+  const stored = await api("PATCH", `/api/bots/${dog.id}`, { alwaysAllow: ["Delete folders outside its workspace"] });
+  expect(stored.status, JSON.stringify(stored.body)).toBe(200);
   await api("POST", `/api/threads/${turn.threadId}/respond`, { requestId: (await turn.card(first)).requestId, behavior: "allow" });
   await expect.poll(() => turn.answers.get(first)?.behavior, { timeout: 10_000 }).toBe("allow");
-  const saved = ((await api("GET", "/api/bots")).body.bots as any[]).find((bot) => bot.id === dog.id);
-  expect(saved.alwaysAllow).toContain("Delete folders outside its workspace");
 
   const second = turn.ask("Bash", { command: "rm -rf /srv/other-old-folder" });
-  await expect.poll(() => turn.answers.get(second)?.behavior, { timeout: 10_000 }).toBe("allow");
-  expect(await turn.card(second)).toBeUndefined();
+  await expect.poll(() => turn.card(second), { timeout: 10_000 }).toMatchObject({ requestType: "permission" });
+  expect(turn.answers.has(second)).toBe(false);
 
   const force = turn.ask("Bash", { command: "git push --force origin main" });
   await expect.poll(() => turn.answers.get(force)?.behavior, { timeout: 10_000 }).toBe("deny");
-
-  const removed = await api("PATCH", `/api/bots/${dog.id}`, { alwaysAllow: (saved.alwaysAllow as string[]).filter((key) => key !== "Delete folders outside its workspace") });
-  expect(removed.status, JSON.stringify(removed.body)).toBe(200);
-  const third = turn.ask("Bash", { command: "rm -rf /srv/third-folder" });
-  await expect.poll(() => turn.card(third), { timeout: 10_000 }).toMatchObject({ requestType: "permission" });
-  expect(turn.answers.has(third)).toBe(false);
   await turn.stop();
 }, 90_000);
 
@@ -400,6 +392,8 @@ const sendCards = async (threadId: string) => ((await api("GET", `/api/threads/$
 it("an owner dog's send through a connected app always asks, with Auto-review off or on", async () => {
   await autoReview(false);
   const mailer = await newDog("Mailer", "auto");
+  const kept = await api("PATCH", `/api/bots/${mailer.id}`, { alwaysAllow: ["connector:gmail"] });
+  expect(kept.status, JSON.stringify(kept.body)).toBe(200);
   const before = relayed.length;
   const asked = relay(await mintConnectors(mailer.id, mailer.threadId), "GMAIL_SEND_EMAIL", { to: "friend@example.test", body: "On my way." });
   await expect.poll(async () => (await sendCards(mailer.threadId)).length, { timeout: 10_000 }).toBe(1);

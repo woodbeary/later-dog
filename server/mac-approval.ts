@@ -164,6 +164,7 @@ export interface MacCheck {
   operation: MacOperation;
   requestMessageId?: string;
   active: () => boolean;
+  alwaysAsks?: boolean;
 }
 
 export class MacApprovals {
@@ -225,7 +226,7 @@ export class MacApprovals {
     const mode = this.modeFor(input.computerId);
     if (mode === "never") return { ok: false, status: 403, error: MAC_NEVER };
     const kind = KINDS[tool];
-    const eachTime = kind === "send";
+    const eachTime = kind === "send" || input.alwaysAsks === true;
     if (mode === "always" && !eachTime) return ALLOWED;
     const requestMessageId = input.requestMessageId ?? this.latestPerson(input.threadId);
     const grant = this.grants.get(grantKey(input.threadId, input.bot.id, input.computerId));

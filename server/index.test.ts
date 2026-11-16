@@ -9858,7 +9858,7 @@ describe("harness HTTP API", () => {
     try {
       expect((await api("PATCH", `/api/bots/${bot.id}`, {
         composio: true,
-        connectorTools: { gmail: { tools: ["GMAIL_SEND_EMAIL"] } },
+        connectorTools: { gmail: { tools: ["GMAIL_LIST_LABELS"] } },
         alwaysAllow: ["connector:gmail"],
       })).status).toBe(200);
       const token = await mintTestCapability(BASE, bot.id, bot.threadId, { kind: "connectors" });
@@ -9878,17 +9878,17 @@ describe("harness HTTP API", () => {
         params: { name: "COMPOSIO_MULTI_EXECUTE_TOOL", arguments: { tools, sync_response_to_workbench: false } },
       });
 
-      const allowed = await direct("GMAIL_SEND_EMAIL");
+      const allowed = await direct("GMAIL_LIST_LABELS");
       expect(allowed.status).toBe(200);
       expect(allowed.body.result.content[0].text).toBe("relay-ok");
       expect(relayed().at(-1)).toEqual({
         jsonrpc: "2.0",
         id: 11,
         method: "tools/call",
-        params: { name: "GMAIL_SEND_EMAIL", arguments: {} },
+        params: { name: "GMAIL_LIST_LABELS", arguments: {} },
       });
 
-      const batched = await multi([{ tool_slug: "GMAIL_SEND_EMAIL", arguments: {} }]);
+      const batched = await multi([{ tool_slug: "GMAIL_LIST_LABELS", arguments: {} }]);
       expect(batched.body.result.content[0].text).toBe("relay-ok");
 
       const held = relayed().length;
@@ -9900,23 +9900,23 @@ describe("harness HTTP API", () => {
       expect(refused.body.result.content[0].text).toContain("Ask the person");
       expect(relayed().length).toBe(held);
 
-      const other = await direct("SLACK_POST_MESSAGE");
+      const other = await direct("SLACK_LIST_ALL_CHANNELS");
       expect(other.body.result.isError).toBe(true);
-      expect(other.body.result.content[0].text).toContain("SLACK_POST_MESSAGE");
+      expect(other.body.result.content[0].text).toContain("SLACK_LIST_ALL_CHANNELS");
 
       const mixed = await multi([
-        { tool_slug: "GMAIL_SEND_EMAIL", arguments: {} },
-        { tool_slug: "SLACK_POST_MESSAGE", arguments: {} },
+        { tool_slug: "GMAIL_LIST_LABELS", arguments: {} },
+        { tool_slug: "SLACK_LIST_ALL_CHANNELS", arguments: {} },
       ]);
       expect(mixed.body.result.isError).toBe(true);
-      expect(mixed.body.result.content[0].text).toContain("SLACK_POST_MESSAGE");
+      expect(mixed.body.result.content[0].text).toContain("SLACK_LIST_ALL_CHANNELS");
       expect(relayed().length).toBe(held);
 
       await direct("COMPOSIO_SEARCH_TOOLS");
       await direct("GMAIL_MANAGE_CONNECTIONS");
       expect(relayed().length).toBe(held + 2);
 
-      expect(JSON.stringify(refused.body)).not.toContain("GMAIL_SEND_EMAIL");
+      expect(JSON.stringify(refused.body)).not.toContain("GMAIL_LIST_LABELS");
 
       const legacy = (await api("POST", "/api/bots")).body.bot;
       try {
@@ -9926,7 +9926,7 @@ describe("harness HTTP API", () => {
         })).status).toBe(200);
         const legacyToken = await mintTestCapability(BASE, legacy.id, legacy.threadId, { kind: "connectors" });
         const legacyCall = await call(
-          { jsonrpc: "2.0", id: 21, method: "tools/call", params: { name: "SLACK_POST_MESSAGE", arguments: {} } },
+          { jsonrpc: "2.0", id: 21, method: "tools/call", params: { name: "SLACK_LIST_ALL_CHANNELS", arguments: {} } },
           legacyToken,
         );
         expect(legacyCall.body.result.content[0].text).toBe("relay-ok");
@@ -9955,8 +9955,8 @@ describe("harness HTTP API", () => {
         (row) => row.botId === legacy.id && row.source === "connector-scope" && row.decision === "auto-approved",
       );
       const allowRows = rows.filter((row) => row.source === "connector-scope" && row.decision === "auto-approved");
-      expect(allowRows.some((row) => row.botId === bot.id && row.tool === "GMAIL_SEND_EMAIL" && row.rule === "connectorTools.gmail")).toBe(true);
-      expect(allowRows.some((row) => row.botId === legacy.id && row.tool === "SLACK_POST_MESSAGE" && row.rule === "composio")).toBe(true);
+      expect(allowRows.some((row) => row.botId === bot.id && row.tool === "GMAIL_LIST_LABELS" && row.rule === "connectorTools.gmail")).toBe(true);
+      expect(allowRows.some((row) => row.botId === legacy.id && row.tool === "SLACK_LIST_ALL_CHANNELS" && row.rule === "composio")).toBe(true);
     } finally {
       await api("DELETE", `/api/bots/${bot.id}`);
     }
