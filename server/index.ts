@@ -59,7 +59,7 @@ import {
 
 import { HELD_NOTE, approvalHeldNote, approvalHeldReason, approvalModeForOrigin, autoVerdict, deliverFullAccessApproval } from "./auto-approve.ts";
 import { CommandAllowlistStore } from "./command-allowlist.ts";
-import { LastingAllowStore, lastingOffer, lastingVerdict, onlyOwnerReached, type LastingRequest } from "./laterdog/lasting-allows.ts";
+import { isGroupChat, LastingAllowStore, lastingOffer, lastingVerdict, onlyOwnerReached, type LastingRequest } from "./laterdog/lasting-allows.ts";
 import type { AlwaysAllowedItem, AlwaysAllowedList } from "../shared/lasting-allows.ts";
 import { VAULT_ALLOW_PREFIX } from "../shared/vault.ts";
 import type { CommandAllowlistResponse } from "../shared/command-allowlist.ts";
@@ -7357,7 +7357,7 @@ bus.subscribe(guardTurnEnd((event: RuntimeEvent) => {
               ? { version: 1, questions, ...(event.origin === "output" ? { origin: "output" as const } : {}) }
               : undefined,
             ...(permission && asker && lastingBase
-              ? { lasting: lastingOffer(lastingVerdict({ ...lastingBase, alwaysAsks: Boolean(always) || alwaysRule !== undefined, ownerOnly: turnReachedOnlyByOwner(event.threadId, asker.id), group: Boolean(store.groupByThread(event.threadId)) }), lastingReach(asker.name)) }
+              ? { lasting: lastingOffer(lastingVerdict({ ...lastingBase, alwaysAsks: Boolean(always) || alwaysRule !== undefined, ownerOnly: turnReachedOnlyByOwner(event.threadId, asker.id), group: isGroupChat(store.groupByThread(event.threadId)) }), lastingReach(asker.name)) }
               : {}),
             held: approvalHeldReason(heldContext),
             heldCode: approvalHeldNote(heldContext),
@@ -17755,8 +17755,11 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       const body = await readBody(req);
       requirePinnedClientThread(m[1], body?.threadId);
       const allowKey = typeof body.allowKey === "string" ? body.allowKey : "";
-      if (!allowKey && typeof body.threadId === "string" && store.groupByThread(body.threadId)) {
-        return json(res, 409, { error: "Always is not offered in a group chat", why: "group" });
+      const sharedThread = !allowKey && typeof body.threadId === "string" ? store.groupByThread(body.threadId) : undefined;
+      if (sharedThread) {
+        return json(res, 409, isGroupChat(sharedThread)
+          ? { error: "Always is not offered in a group chat", why: "group" }
+          : { error: "Always is not offered in a channel between dogs", why: "owner-only" });
       }
       const bot = requestedTaskBot(m[1], body.threadId);
       if (!allowKey && typeof body.requestId === "string" && body.requestId) {
@@ -17770,7 +17773,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         );
         const remembered = lastingRequests.get(`${bot.threadId}:${requestId}`);
         if (!pending || !remembered || remembered.botId !== bot.id) return json(res, 409, { error: "that request is not waiting on an approval for this dog" });
-        const lasting = lastingVerdict({ ...remembered.request, alwaysAsks: remembered.alwaysAsks, ownerOnly: turnReachedOnlyByOwner(bot.threadId, bot.id), group: Boolean(store.groupByThread(bot.threadId)) });
+        const lasting = lastingVerdict({ ...remembered.request, alwaysAsks: remembered.alwaysAsks, ownerOnly: turnReachedOnlyByOwner(bot.threadId, bot.id), group: isGroupChat(store.groupByThread(bot.threadId)) });
         if (!lasting.offered) return json(res, 409, { error: "Always is not offered for this request", why: lasting.why });
         lastingAllows.grant({ botId: bot.id, keySha256: lasting.keySha256, grantedBy: auth.kind === "session" ? personKey(auth.session) : "local", fromThreadId: bot.threadId });
         return json(res, 200, { granted: true });

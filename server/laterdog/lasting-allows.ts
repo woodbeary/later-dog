@@ -62,6 +62,10 @@ function plainObject(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
+export function isGroupChat(group: { dm?: boolean } | null | undefined): boolean {
+  return Boolean(group) && group?.dm !== true;
+}
+
 export function lastingVerdict(request: LastingRequest): LastingVerdict {
   if (request.alwaysAsks) return { offered: false, why: "always-asks" };
   if (request.group) return { offered: false, why: "group" };

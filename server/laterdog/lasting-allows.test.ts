@@ -4,7 +4,7 @@ import { join } from "node:path";
 
 import { afterEach, describe, expect, it } from "vitest";
 
-import { LastingAllowStore, lastingVerdict, onlyOwnerReached, type LastingRequest, type TurnLine } from "./lasting-allows.ts";
+import { LastingAllowStore, isGroupChat, lastingVerdict, onlyOwnerReached, type LastingRequest, type TurnLine } from "./lasting-allows.ts";
 
 const owner = { alwaysAsks: false, ownerOnly: true } as const;
 const search = (input: Record<string, unknown>): LastingRequest => ({ ...owner, driver: "claudeAgent", tool: "WebSearch", wholeInput: input });
@@ -51,6 +51,17 @@ describe("the allow rule", () => {
     expect(lastingVerdict({ ...search({ query: "x" }), ownerOnly: false })).toEqual({ offered: false, why: "owner-only" });
     expect(lastingVerdict({ ...search({ query: "x" }), ownerOnly: false, group: true })).toEqual({ offered: false, why: "group" });
     expect(lastingVerdict({ ...search({ query: "x" }), ownerOnly: false, group: true, alwaysAsks: true })).toEqual({ offered: false, why: "always-asks" });
+  });
+
+  it("says group chats only in a room people share, and keeps the earlier reason in a channel between two dogs", () => {
+    const room = { dm: false };
+    const channel = { dm: true };
+    expect(isGroupChat(room)).toBe(true);
+    expect(isGroupChat({})).toBe(true);
+    expect(isGroupChat(channel)).toBe(false);
+    expect(isGroupChat(undefined)).toBe(false);
+    expect(lastingVerdict({ ...search({ query: "x" }), ownerOnly: false, group: isGroupChat(room) })).toEqual({ offered: false, why: "group" });
+    expect(lastingVerdict({ ...search({ query: "x" }), ownerOnly: false, group: isGroupChat(channel) })).toEqual({ offered: false, why: "owner-only" });
   });
 
   it("keys the whole input with keys sorted, and nothing else", () => {
