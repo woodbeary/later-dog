@@ -345,6 +345,13 @@ describe("deleting something or changing who can reach it from a connected app a
     }
   });
 
+  it("asks for a call that replaces or overwrites what is there", () => {
+    for (const slug of ["NOTION_REPLACE_PAGE_CONTENT", "HUBSPOT_REPLACE_ALL_PROPERTIES_OF_PIPELINE", "DROPBOX_OVERWRITE_FILE_PROPERTIES"]) {
+      expect(connectorAlwaysAsks([slug])?.id, slug).toBe("deletes-or-shares");
+      expect(asksAsConnector(slug), slug).toBe(true);
+    }
+  });
+
   it("is not answered in Full by the owner's standing yes, the app's old Always or this turn's Allow", () => {
     const never = () => false;
     for (const slug of SEVEN) {
