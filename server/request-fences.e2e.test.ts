@@ -35,6 +35,10 @@ it("leaves no request in either chat marked as still going once a team task has 
       .every((node) => node.status === "completed"), { timeout: 30_000 }).toBe(true);
     await expect.poll(() => pending(scout.activeTaskId), { timeout: 10_000 }).toEqual([]);
     expect(await pending(chief.activeTaskId)).toEqual([]);
+    const hello = (await api(`/api/threads/${scout.activeTaskId}/messages?limit=100`)).messages
+      .find((message: any) => message.role === "user" && message.text === "FENCE_HELLO are you there");
+    expect(hello).toMatchObject({ requestPending: false });
+    expect(hello.requestCancelled).not.toBe(true);
   } finally {
     await session.close();
   }

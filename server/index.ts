@@ -8622,7 +8622,7 @@ async function startTurn(
       messageId: (opts?.cardContinuation ? undefined : requestMessageId) ?? routineTurnOwners.get(threadId)?.messageId });
   }
   const foreignTurn = Boolean(CLOUD_HOME) && cloudHomeLendingRefusal(cloudLendingTurn({ botId, threadId, generation: dispatchClaimId })) !== null;
-  const pendingSource = requestMessageId ?? store.activePath(threadId).findLast(message => message.role === "user")?.id;
+  const pendingSource = requestMessageId ?? (opts?.coordination ? undefined : store.activePath(threadId).findLast(message => message.role === "user")?.id);
   if (pendingSource) store.patchMessage(threadId, pendingSource, { requestPending: true });
   if (opts?.coordination) directCoordinationSettlers.set(dispatchClaimId, opts.coordination.settle);
   directFollowupSettlers.set(dispatchClaimId, { threadId, sourceGenerations: opts?.continuationSourceGenerations, settle: opts?.onTurnSettled });
