@@ -4,7 +4,7 @@ import { cn } from "@/lib/cn";
 import { t } from "@/lib/i18n";
 import { formatTime } from "@/state/store";
 import { PLAN_STALE_MS, planOutOfDate } from "@/lib/plan-age";
-import { planDoneCount, type PlanItem, type WirePlan } from "../../shared/dog-plan";
+import { planDoneCount, planLeftCount, type PlanItem, type WirePlan } from "../../shared/dog-plan";
 
 export function PlanChecklist({ items, working, label }: { items: readonly PlanItem[]; working: boolean; label: string }) {
   return (
@@ -40,7 +40,7 @@ export function DogPlan({ plan, working, since = null }: { plan?: WirePlan | nul
   const [open, setOpen] = useState(false);
   const now = usePlanClock(since !== null, plan?.updatedAt);
   const stale = planOutOfDate(plan, since, now);
-  if (!plan?.items.length) return null;
+  if (!plan || !planLeftCount(plan)) return null;
   const progress = t("chat.plan.progress", { done: planDoneCount(plan), total: plan.items.length });
   if (working) {
     return (
