@@ -1021,9 +1021,7 @@ function withRealpaths(paths: readonly string[]): string[] {
   const out = new Set<string>();
   for (const path of paths) {
     out.add(resolve(path));
-    try {
-      out.add(realpathSync(path));
-    } catch {}
+    out.add(realPath(resolve(path)));
   }
   return [...out];
 }
@@ -1048,8 +1046,8 @@ function guardPaths(context: OwnerGuardContext): Paths {
   const home = context.home ?? homedir();
   return {
     home,
-    temp: [...(context.tempRoots ?? defaultTempRoots()), ...CACHE_FOLDERS.map((folder) => join(home, folder))],
-    roots: context.workspaceRoots.filter((root) => isAbsolute(root)),
+    temp: withRealpaths([...(context.tempRoots ?? defaultTempRoots()), ...CACHE_FOLDERS.map((folder) => join(home, folder))]),
+    roots: withRealpaths(context.workspaceRoots.filter((root) => isAbsolute(root))),
     ...(context.repositoryRoot ? { repository: context.repositoryRoot } : {}),
   };
 }

@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, rmSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
-import { ownerGuard, ownerGuardRequest, ownerWorkspaceRoots, systemGit, type GitLookup, type OwnerGuardContext } from "./owner-guard.ts";
+import { defaultTempRoots, ownerGuard, ownerGuardRequest, ownerWorkspaceRoots, systemGit, type GitLookup, type OwnerGuardContext } from "./owner-guard.ts";
 
 const workspace = "/srv/laterdog/task-workspaces/dog-1/thread-1";
 const repo = `${workspace}/later-dog`;
@@ -14,7 +14,7 @@ const git = (current: string | null, defaults: Record<string, string> = {}): Git
 const context = (overrides: Partial<OwnerGuardContext> = {}): OwnerGuardContext => ({
   cwd: repo,
   workspaceRoots: [workspace],
-  tempRoots: ["/tmp", tmpdir()],
+  tempRoots: defaultTempRoots(),
   home: "/home/owner",
   git: git("feature/login", { origin: "main" }),
   ...overrides,
@@ -148,6 +148,36 @@ describe("cleaning inside the workspace root never asks", () => {
       expect((await bash("rm -rf .", real))?.rule).toBe("delete-outside-workspace");
       expect((await bash(`rm -rf ${work}`, real))?.rule).toBe("delete-outside-workspace");
       expect((await bash(`find ${root} -name '*.log' -delete`, real))?.rule).toBe("delete-outside-workspace");
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("folders the dog is given through a link, as /tmp, /var and /home are on a Mac", () => {
+  it("compares where a delete really lands with where its folders really are", async () => {
+    const root = mkdtempSync(join(tmpdir(), "owner-guard-linked-"));
+    try {
+      const real = join(root, "real");
+      const linked = join(root, "linked");
+      mkdirSync(join(real, "work", "build"), { recursive: true });
+      mkdirSync(join(real, "tmp", "scratch"), { recursive: true });
+      mkdirSync(join(real, "home", ".npm", "_logs"), { recursive: true });
+      mkdirSync(join(real, "other"), { recursive: true });
+      symlinkSync(real, linked);
+      const work = join(linked, "work");
+      const given = { cwd: work, workspaceRoots: [work], tempRoots: [join(linked, "tmp")], home: join(linked, "home") };
+      for (const command of [
+        "rm -rf build",
+        `rm -rf ${join(linked, "tmp", "scratch")}`,
+        `rm -rf ${join(linked, "tmp", "not-made-yet")}`,
+        "rm -rf ~/.npm/_logs",
+        "rm -rf ~/.cache/pnpm",
+      ]) {
+        expect(await bash(command, given), command).toBeNull();
+      }
+      expect((await bash(`mv ${join(linked, "other")}/* ${join(linked, "tmp", "gone")}/`, given))?.rule).toBe("delete-outside-workspace");
+      expect((await bash(`rm -rf ${join(linked, "other")}`, given))?.rule).toBe("delete-outside-workspace");
     } finally {
       rmSync(root, { recursive: true, force: true });
     }

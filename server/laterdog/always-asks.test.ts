@@ -3,10 +3,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { ALWAYS_ASK_IDS, alwaysAskHook, alwaysAsks, connectorAlwaysAsks, internalCallRequest, type AlwaysAskId } from "./always-asks.ts";
-import { ownerGuard, type OwnerGuardContext } from "./owner-guard.ts";
+import { defaultTempRoots, ownerGuard, type OwnerGuardContext } from "./owner-guard.ts";
 
 const WORKSPACE = "/srv/dogs/ada/work";
-const guard = (): OwnerGuardContext => ({ cwd: WORKSPACE, workspaceRoots: [WORKSPACE], tempRoots: ["/tmp"], home: "/home/dog", repositoryRoot: (cwd) => (cwd.startsWith(WORKSPACE) ? WORKSPACE : null) });
+const guard = (): OwnerGuardContext => ({ cwd: WORKSPACE, workspaceRoots: [WORKSPACE], tempRoots: defaultTempRoots(), home: "/home/dog", repositoryRoot: (cwd) => (cwd.startsWith(WORKSPACE) ? WORKSPACE : null) });
 const shell = (command: string) => alwaysAsks({ tool: "Bash", command }, guard)?.id ?? null;
 const expectAll = (id: AlwaysAskId | null, commands: readonly string[]) => {
   for (const command of commands) expect(shell(command), command).toBe(id);
