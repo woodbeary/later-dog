@@ -44,6 +44,9 @@ posixOnly("choosing how a message reaches a working dog", () => {
     expect((await api("POST", `/api/bots/${created.id}/messages`, { text: "first" })).status).toBe(202);
     await waitFor(async () => (await getBot(created.id)).busy === true, "the turn to start");
     await waitFor(async () => (await getBot(created.id)).messages.some((m: any) => m.kind === "activity"), "the tool chip");
+    const failed = (await getBot(created.id)).messages.filter((m: any) => m.kind === "activity" && m.tool?.ok === false).map((m: any) => m.tool.name);
+    expect(failed).toEqual([]);
+    expect((await getBot(created.id)).busy).toBe(true);
     return created;
   };
 
@@ -52,6 +55,8 @@ posixOnly("choosing how a message reaches a working dog", () => {
     home = mkdtempSync(join(tmpdir(), "laterdog-send-choice-"));
     mkdirSync(join(home, ".laterdog"), { recursive: true });
     gate = join(home, "finish-turn.gate");
+    const temp = join(home, "tmp");
+    mkdirSync(temp, { recursive: true });
     writeFileSync(
       join(home, ".laterdog", "config.json"),
       JSON.stringify({
@@ -66,7 +71,7 @@ posixOnly("choosing how a message reaches a working dog", () => {
     );
     child = spawn(process.execPath, [join(SERVER_DIR, "index.ts")], {
       cwd: join(SERVER_DIR, ".."),
-      env: { ...(process.env.PATH ? { PATH: process.env.PATH } : {}), HOME: home, USERPROFILE: home, LATERDOG_SERVER_PORT: String(PORT) },
+      env: { ...(process.env.PATH ? { PATH: process.env.PATH } : {}), HOME: home, USERPROFILE: home, TMPDIR: temp, LATERDOG_SERVER_PORT: String(PORT) },
       stdio: ["ignore", "pipe", "pipe"],
     });
     child.stderr!.on("data", (c) => (stderr += c));
