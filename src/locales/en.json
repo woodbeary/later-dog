@@ -989,6 +989,7 @@
   "chat.team.state.neverStarted": "Never got started",
   "chat.team.state.limit": "Too many requests to the team",
   "chat.team.state.restart": "Stopped when later.dog restarted",
+  "chat.team.state.settledByHome": "Stopped without finishing",
   "chat.team.state.localTool": "Stopped by a local tool",
   "chat.team.state.askerDeleted": "The chat that asked was deleted",
   "chat.team.state.idle": "Nothing moved for too long",

@@ -261,13 +261,28 @@ describe("a turn's hand-outs as one team block", () => {
     expect(document.body.textContent).not.toContain("Queued");
   });
 
+  it("says a request the home settled after its helper stopped was not finished, first and outside the done count", async () => {
+    const birch = HELPERS[1]!;
+    const dune = HELPERS[3]!;
+    const settled = morning().map((message) =>
+      message.id.startsWith(`replied-${birch.id}-`) ? { ...message, exchange: record(birch, "completed", "home") }
+        : message.id.startsWith(`sent-${dune.id}-`) ? { ...message, exchange: record(dune, "completed", "home") }
+        : message);
+    await draw(settled);
+    expect(blocks()[0]).toEqual({
+      heading: "Asked 5 dogs · 2 done",
+      rows: ["Birch: Stopped without finishing", "Dune: Stopped without finishing", "Acorn: Working", "Cedar: Done", "Elm: Done"],
+    });
+  });
+
   it("has plain words for every way the home can end a request", () => {
-    const ends: ExchangeEnd[] = ["person", "api", "interrupted", "deleted", "idle", "capped", "origin", "limit", "restart", "problem", "timeout", "ceiling"];
+    const ends: ExchangeEnd[] = ["person", "api", "interrupted", "deleted", "idle", "capped", "origin", "limit", "restart", "problem", "timeout", "ceiling", "home"];
     expect(Object.keys(END_STATES).sort()).toEqual([...ends].sort());
     expect(Object.fromEntries(ends.map((end) => [end, endState(end)]))).toEqual({
       person: "Stopped by you", api: "Stopped by a local tool", interrupted: "Was interrupted", deleted: "The chat that asked was deleted",
       idle: "Nothing moved for too long", capped: "Ran out of time", timeout: "Timed out twice", ceiling: "Reached the longest a task runs alone",
       origin: "Never got started", limit: "Too many requests to the team", restart: "Stopped when later.dog restarted", problem: "Couldn't finish",
+      home: "Stopped without finishing",
     });
     expect(endState("something-new")).toBe("Couldn't finish");
   });

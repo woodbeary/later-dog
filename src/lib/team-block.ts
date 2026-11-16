@@ -10,7 +10,7 @@ export type TeamState =
   | "Stopped by you" | "Stopped" | "Stopped by a local tool" | "Was interrupted" | "Removed"
   | "The chat that asked was deleted" | "Nothing moved for too long" | "Ran out of time" | "Timed out twice"
   | "Reached the longest a task runs alone" | "Never got started" | "Too many requests to the team"
-  | "Stopped when later.dog restarted" | "Couldn't finish";
+  | "Stopped when later.dog restarted" | "Stopped without finishing" | "Couldn't finish";
 
 export const END_STATES: Readonly<Record<ExchangeEnd, TeamState>> = {
   person: "Stopped by you",
@@ -25,6 +25,7 @@ export const END_STATES: Readonly<Record<ExchangeEnd, TeamState>> = {
   limit: "Too many requests to the team",
   restart: "Stopped when later.dog restarted",
   problem: "Couldn't finish",
+  home: "Stopped without finishing",
 };
 
 export function endState(endedBy: string | undefined): TeamState {
@@ -79,15 +80,14 @@ export interface TeamRow {
 }
 
 function helperThreadOf(record: WireExchange | undefined): string | undefined {
-  const threadId = (record as (WireExchange & { threadId?: unknown }) | undefined)?.threadId;
-  return typeof threadId === "string" && threadId ? threadId : undefined;
+  return record?.threadId || undefined;
 }
 
 export const SETTLED: ReadonlySet<TeamState> = new Set<TeamState>([
   "Done", "Asked again", "Stopped by you", "Stopped", "Stopped by a local tool", "Was interrupted", "Removed",
   "The chat that asked was deleted", "Nothing moved for too long", "Ran out of time", "Timed out twice",
   "Reached the longest a task runs alone", "Never got started", "Too many requests to the team",
-  "Stopped when later.dog restarted", "Couldn't finish",
+  "Stopped when later.dog restarted", "Stopped without finishing", "Couldn't finish",
 ]);
 
 function requestIdOf(message: Message): string | undefined {
@@ -259,7 +259,7 @@ function recordState(record: WireExchange): TeamState {
     case "running":
     case "waiting": return "Working";
     case "needs-you": return "Needs you";
-    case "completed": return record.reply ? "Done" : "Working";
+    case "completed": return record.endedBy === "home" ? endState(record.endedBy) : record.reply ? "Done" : "Working";
     case "failed":
     case "cancelled": return record.endedBy ? endState(record.endedBy) : record.status === "cancelled" ? "Stopped" : "Couldn't finish";
   }
@@ -277,7 +277,8 @@ export function teamState(
   const reply = heard(ask, team, thread);
   const record = ownRecord(ask);
   const state: TeamState = reply
-    ? reply.tool?.ok === false ? (reply.exchange?.endedBy ? endState(reply.exchange.endedBy) : saidState(reply.tool.name)) : "Done"
+    ? reply.tool?.ok === false ? (reply.exchange?.endedBy ? endState(reply.exchange.endedBy) : saidState(reply.tool.name))
+      : reply.exchange?.endedBy === "home" || record?.endedBy === "home" ? endState("home") : "Done"
     : record ? recordState(record)
       : (() => {
         const waiting = waitingOn.find((entry) => entry.botId === ask.row.withBotId);
