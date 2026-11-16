@@ -235,7 +235,9 @@ export function PendingApprovalActions({
   const reach = lastingAlways && bot
     ? t("lasting.reach.search", { name: bot.name })
     : lasting
-    ? null
+    ? outbound && bot && !lasting.offered && lasting.why === "always-asks"
+      ? t("approval.reach.connectorSkip", { name: bot.name, app: outbound.app ?? t("approval.reach.connectorApp") })
+      : null
     : !durableRequest && bot && pending.allowKey
     ? outbound
       ? t("approval.reach.connector", { name: bot.name, app: outbound.app ?? t("approval.reach.connectorApp") })

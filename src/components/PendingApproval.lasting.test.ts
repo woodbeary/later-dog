@@ -99,6 +99,14 @@ describe("a card that offers no Always", () => {
     expect(labels(ordinary.buttons).slice(0, 2)).toEqual(["Allow", "Skip"]);
   });
 
+  it("tells the person that Don't allow on a connected-app card that always asks also holds that app back until their next message", () => {
+    const outboundRequest = { tool: "GMAIL_DELETE_MESSAGE", app: "Gmail", calls: [{ app: "Gmail", label: "Delete message" }] };
+    const asks = view({ offered: false, why: "always-asks" }, { title: "Allow Gmail?", subtitle: "Gmail · Delete message", tool: "GMAIL_DELETE_MESSAGE", outboundRequest });
+    expect(asks.html).toContain("If you don&#x27;t allow it, Wren won&#x27;t ask about Gmail again until your next message.");
+    const search = view({ offered: false, why: "always-asks" }, { tool: "Bash", subtitle: "git push --no-verify" });
+    expect(search.html).not.toContain("won&#x27;t ask about");
+  });
+
   it("never offers Allow for this chat", () => {
     const result = view(undefined, { allowSession: true } as Partial<NonNullable<Message["card"]>>);
     expect(labels(result.buttons)).toEqual(["Allow once", "Don't allow"]);
