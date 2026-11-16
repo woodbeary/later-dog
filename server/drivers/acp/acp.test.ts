@@ -1198,6 +1198,21 @@ describe("ACP turns (fake CLI)", () => {
     expect(readFileSync(answer, "utf8")).toBe("cancelled");
   });
 
+  it("cancels a deny, never picking reject_always, when the agent offers no reject_once", async () => {
+    process.env.FAKE_ACP_PERMISSION_OPTIONS = JSON.stringify([{ optionId: "once", kind: "allow_once" }, { optionId: "never", kind: "reject_always" }]);
+    const answer = join(scratch, "reject-always-only-answer.txt");
+    process.env.FAKE_ACP_PERMISSION_ANSWER = answer;
+    await create(GrokAgentDriver, "permission");
+    const threadId = "t-reject-always-only";
+    await instance.adapter.sendTurn({ threadId, text: "go", approvalMode: "ask" });
+    const opened = await recorder.until((event) => event.type === "request.opened");
+    expect(await instance.adapter.respondToRequest(threadId, opened.requestId!, { behavior: "deny" })).toBe("rejected");
+    const error = await recorder.until((event) => event.type === "runtime.error");
+    expect((error as { message: string }).message).toMatch(/offered no "reject" permission option/);
+    await recorder.until((event) => event.type === "turn.completed");
+    expect(readFileSync(answer, "utf8")).toBe("cancelled");
+  });
+
   it("cancels in full auto too when the agent offers only allow_always", async () => {
     process.env.FAKE_ACP_MODE = "permission";
     process.env.FAKE_ACP_PERMISSION_OPTIONS = JSON.stringify([{ optionId: "always", kind: "allow_always" }, { optionId: "reject", kind: "reject_once" }]);

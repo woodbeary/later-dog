@@ -879,9 +879,7 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
           current.flushAssistantText();
           const options: Array<{ optionId?: string; kind?: string; name?: string }> = Array.isArray(params.options) ? params.options : [];
           const optionFor = (want: "allow" | "reject") =>
-            options.find((o) => o.kind === `${want}_once` && typeof o.optionId === "string")?.optionId
-              ?? (want === "reject" ? options.find((o) => String(o.kind ?? "").startsWith(want) && typeof o.optionId === "string")?.optionId : undefined)
-              ?? null;
+            options.find((o) => o.kind === `${want}_once` && typeof o.optionId === "string")?.optionId ?? null;
           const cancelled = { outcome: { outcome: "cancelled" } };
           const missing = (want: string) =>
             emit({
