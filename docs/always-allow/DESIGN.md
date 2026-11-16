@@ -195,7 +195,7 @@ Each takes the attack as its input and runs through the real caller (`request.op
 14. A grant posted by a thread's starter who is not owner or admin: 403. A grant on an answered or dismissed card, or another dog's request id: 409.
 15. The route refuses `connector:gmail` and the outside-delete key with 409; send and outside-delete cards carry no `allowKey`.
 16. An older app answering `always: true`: through the home's answer path, the Claude proxy and an ACP engine, each gets allow once; on ACP the allow-once option is picked and the same input asks again. An ACP engine that offers only `allow_always`: the request is cancelled with the "offered no allow option" message, in the answer path and in full-auto, and nothing is remembered (G1c, G8, H3).
-17. The order: a stored `connector:<app>` key with a send, and the outside-delete key in owner-auto, each show a card. On the lent Mac, a delete shows exactly one card, 207's, with no Always, and runs after Allow.
+17. The order: a stored `connector:<app>` key with a send, and the outside-delete key in owner-auto, each show a card. On the lent Mac set to Always (the Mac's "Always allow" mode), a delete shows exactly one card, 207's, with no Always, and runs after Allow.
 18. The stored preview is "Search", never the words.
 19. The allow rule returns "not offered, teammate" for a request that starts a teammate's turn. The teammate card itself does not change in steps 1 to 5; it changes only in step 7 (see 23).
 20. No card carries `allowSession`; an older phone shows no "Allow for this chat" (G1c).
