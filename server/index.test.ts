@@ -7595,6 +7595,32 @@ describe("harness HTTP API", () => {
       await expect.poll(async () => (await cardFor("ask-search-1")).answerScope).toBe("always");
       expect((await api("POST", `/api/bots/${bot.id}/always-allow`, { threadId: firstThread, requestId: "ask-search-1" })).status).toBe(409);
 
+      const opened = await api("POST", "/api/auth/pairing", { scopes: ["client"] });
+      const member = (await api("POST", "/api/auth/pair", { code: opened.body.code })).body.token as string;
+      const asMember = async (method: string, path: string, payload?: unknown) => {
+        const response = await fetch(`${BASE}${path}`, {
+          method,
+          headers: { authorization: `Bearer ${member}`, "x-forwarded-for": "192.0.2.10", "content-type": "application/json" },
+          ...(payload === undefined ? {} : { body: JSON.stringify(payload) }),
+        });
+        return response.status;
+      };
+      const pendingWrite = raise(socketPath, "ask-search-member", "WebSearch", { query: "weather in bergen" });
+      await cardFor("ask-search-member");
+      expect(await asMember("POST", `/api/bots/${bot.id}/always-allow`, { threadId: firstThread, requestId: "ask-search-member" })).toBe(403);
+      expect(await asMember("GET", `/api/bots/${bot.id}/always-allowed`)).toBe(403);
+      expect(await asMember("DELETE", `/api/bots/${bot.id}/always-allowed/search:nothing`)).toBe(403);
+      expect(await asMember("POST", `/api/bots/${bot.id}/always-allowed/resume`)).toBe(403);
+      const otherDog = (await api("POST", "/api/bots", { name: "Other" })).body.bot;
+      try {
+        expect((await api("POST", `/api/bots/${otherDog.id}/always-allow`, { threadId: otherDog.threadId, requestId: "ask-search-member" })).status).toBe(409);
+      } finally {
+        await api("DELETE", `/api/bots/${otherDog.id}`);
+      }
+      expect((await api("POST", `/api/bots/${bot.id}/respond`, { requestId: "ask-search-member", behavior: "deny" })).status).toBe(200);
+      await pendingWrite;
+      expect((await api("POST", `/api/bots/${bot.id}/always-allow`, { threadId: firstThread, requestId: "ask-search-member" })).status).toBe(409);
+
       const listed = await api("GET", `/api/bots/${bot.id}/always-allowed`);
       expect(listed.status).toBe(200);
       expect(listed.body.paused).toBe(false);
@@ -7641,6 +7667,129 @@ describe("harness HTTP API", () => {
       await api("PUT", "/api/config", { signIn: { members: [] } });
     }
   });
+
+  it("pauses a dog's Always grants on the real emergency stop, asks for the search, and answers it again after Resume", async () => {
+    const isolatedHome = mkdtempSync(join(tmpdir(), "laterdog-always-pause-"));
+    const isolatedData = join(isolatedHome, ".laterdog");
+    const isolatedStatic = join(isolatedHome, "static");
+    const gate = join(isolatedHome, "desktop-gate");
+    const isolatedPort = await freePortBlock([0, 1]);
+    const dump = join(isolatedHome, "fake-claude-dump.json");
+    mkdirSync(join(isolatedStatic, "assets"), { recursive: true });
+    mkdirSync(isolatedData, { recursive: true });
+    mkdirSync(gate, { recursive: true });
+    writeFileSync(join(isolatedStatic, "index.html"), "<!doctype html><title>Always pause test</title>");
+    writeFileSync(join(isolatedStatic, "assets", "smoke.css"), "body{}");
+    writeFileSync(join(isolatedData, "config.json"), JSON.stringify({
+      instances: { claude: { driver: "claudeAgent", displayName: "Fixture Claude", config: { cli: FAKE_CLAUDE_CLI } } },
+    }));
+    const prelude = `data:text/javascript,${encodeURIComponent(`
+      const { existsSync, readFileSync, rmSync, writeFileSync } = await import("node:fs");
+      const { join } = await import("node:path");
+      const gate = ${JSON.stringify(gate)};
+      const listeners = [];
+      setInterval(() => {
+        const file = join(gate, "send.json");
+        if (!existsSync(file)) return;
+        const data = JSON.parse(readFileSync(file, "utf8"));
+        rmSync(file);
+        for (const listener of listeners) listener({ data });
+      }, 20).unref();
+      Object.defineProperty(process, "parentPort", {
+        value: {
+          on(event, callback) { if (event === "message") listeners.push(callback); },
+          postMessage(message) {
+            if (message?.type === "approval-trusted-mode-result") writeFileSync(join(gate, "result-" + message.requestId + ".json"), JSON.stringify(message));
+          },
+        },
+      });
+    `)}`;
+    let stderr = "";
+    const child = spawn(process.execPath, ["--import", prelude, join(SERVER_DIR, "index.ts")], {
+      cwd: ROOT,
+      env: {
+        ...(process.env.PATH ? { PATH: process.env.PATH } : {}),
+        ...(process.env.SystemRoot ? { SystemRoot: process.env.SystemRoot } : {}),
+        HOME: isolatedHome,
+        USERPROFILE: isolatedHome,
+        LATERDOG_SERVER_PORT: String(isolatedPort),
+        LATERDOG_WEBHOOK_PORT: String(isolatedPort + 1),
+        LATERDOG_STATIC_DIR: isolatedStatic,
+        FAKE_CLAUDE_MODE: "hang",
+        FAKE_CLAUDE_DUMP: dump,
+      },
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    child.stderr!.on("data", (chunk) => (stderr += chunk));
+    const local = async (method: string, path: string, body?: unknown): Promise<{ status: number; body: any }> => {
+      const response = await fetch(`http://127.0.0.1:${isolatedPort}${path}`, {
+        method,
+        headers: body ? { "content-type": "application/json" } : undefined,
+        body: body ? JSON.stringify(body) : undefined,
+      });
+      return { status: response.status, body: await response.json() };
+    };
+    const conns: Socket[] = [];
+    try {
+      await waitForIsolatedServer(child, isolatedPort, () => stderr);
+      expect((await local("PUT", "/api/config", { signIn: { members: ["member@example.com"] } })).status).toBe(200);
+      const bot = (await local("POST", "/api/bots", { name: "Pip" })).body.bot;
+      expect((await local("PATCH", `/api/bots/${bot.id}`, { modelSelection: { instanceId: "claude", model: "claude-haiku-4-5" }, approvalMode: "ask" })).status).toBe(200);
+      const startTurn = async (text: string) => {
+        rmSync(dump, { force: true });
+        expect((await local("POST", `/api/bots/${bot.id}/messages`, { text })).status).toBe(202);
+        return z.object({
+          mcpConfig: z.object({ mcpServers: z.object({ dog: z.object({ args: z.array(z.string()) }) }) }),
+        }).parse(await readJsonFileWhenReady(dump)).mcpConfig.mcpServers.dog.args[1];
+      };
+      const raise = async (socketPath: string, id: string) => {
+        const conn = connect(socketPath);
+        conns.push(conn);
+        const answered = new Promise<{ behavior: string }>((resolve) => {
+          let buf = "";
+          conn.on("data", (chunk) => {
+            buf += chunk;
+            const nl = buf.indexOf("\n");
+            if (nl !== -1) resolve(JSON.parse(buf.slice(0, nl)));
+          });
+        });
+        await new Promise<void>((resolve, reject) => { conn.on("connect", resolve); conn.on("error", reject); });
+        conn.write(JSON.stringify({ t: "ask", id, tool: "WebSearch", input: { query: "weather in tromso" } }) + "\n");
+        return answered;
+      };
+      const cardFor = async (requestId: string) => {
+        const find = async () => ((await local("GET", "/api/bots?messages=60")).body.bots.find((candidate: { id: string }) => candidate.id === bot.id).messages as Array<{ card?: { requestId?: string } }>)
+          .find((message) => message.card?.requestId === requestId)?.card;
+        await expect.poll(find, { timeout: 15_000 }).toBeTruthy();
+        return find();
+      };
+
+      const firstSocket = await startTurn("look up the weather");
+      const first = raise(firstSocket, "pause-1");
+      await cardFor("pause-1");
+      expect((await local("POST", `/api/bots/${bot.id}/always-allow`, { threadId: (await local("GET", "/api/bots")).body.bots.find((candidate: { id: string }) => candidate.id === bot.id).threadId, requestId: "pause-1" })).body).toEqual({ granted: true });
+      expect((await local("POST", `/api/bots/${bot.id}/respond`, { requestId: "pause-1", behavior: "allow", scope: "always" })).status).toBe(200);
+      expect((await first).behavior).toBe("allow");
+      expect((await raise(firstSocket, "pause-2")).behavior).toBe("allow");
+
+      writeFileSync(join(gate, "send.json"), JSON.stringify({ type: "approval-trusted-mode-set", requestId: "stop-1", botId: bot.id, mode: "ask", allThreads: true }));
+      await expect.poll(() => existsSync(join(gate, "result-stop-1.json")), { timeout: 15_000 }).toBe(true);
+      expect(JSON.parse(readFileSync(join(gate, "result-stop-1.json"), "utf8")).ok).toBe(true);
+      expect((await local("GET", `/api/bots/${bot.id}/always-allowed`)).body.paused).toBe(true);
+
+      const secondSocket = await startTurn("and once more");
+      const paused = raise(secondSocket, "pause-3");
+      expect((await cardFor("pause-3"))).toBeTruthy();
+      expect((await local("POST", `/api/bots/${bot.id}/always-allowed/resume`)).body.paused).toBe(false);
+      expect((await local("POST", `/api/bots/${bot.id}/respond`, { requestId: "pause-3", behavior: "deny" })).status).toBe(200);
+      await paused;
+      expect((await raise(secondSocket, "pause-4")).behavior).toBe("allow");
+    } finally {
+      for (const conn of conns) conn.destroy();
+      await waitForExit(child, { signal: "SIGTERM" });
+      await removeTempDir(isolatedHome);
+    }
+  }, 60_000);
 
   it("never offers Always on a card in a group chat, and the grant route refuses it with 409", async () => {
     const bot = (await api("POST", "/api/bots", { name: "Rook" })).body.bot;
