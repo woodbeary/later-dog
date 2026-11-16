@@ -1,5 +1,5 @@
-import { spawn } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { spawn, spawnSync } from "node:child_process";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -14,7 +14,8 @@ import { CALL_LOG } from "./stdio-mcp.ts";
 const HERE = fileURLToPath(new URL(".", import.meta.url));
 const RUN_TIMEOUT_MS = 600_000;
 
-export type Path = "structured" | "screen";
+export type Path = "structured" | "screen" | "screen-capped" | "page";
+export const PATHS: Path[] = ["structured", "screen", "screen-capped", "page"];
 export type TaskName = "find" | "form" | "table";
 
 export function taskPrompt(task: TaskName, origin: string): string {
@@ -31,7 +32,7 @@ export function answered(task: TaskName, reply: string): boolean {
 }
 
 export function systemText(path: Path, model: string): string {
-  return dogGuidance({ engine: "claude", agents: false, model }) + (path === "structured" ? BROWSER_PAGE_PROMPT : computerPrompt("box"));
+  return dogGuidance({ engine: "claude", agents: false, model }) + (path === "structured" ? BROWSER_PAGE_PROMPT : computerPrompt("box", { pageTools: path === "page" }));
 }
 
 export interface StreamTotals {
@@ -118,15 +119,25 @@ function runEngine(cli: string, args: string[], cwd: string, log: string): Promi
   });
 }
 
-export function serverSpec(path: Path, env: { engine: string; scratch: string; chromium: string; callLog: string }): { name: string; spec: Record<string, unknown> } {
+export function serverSpec(path: Path, env: { engine: string; scratch: string; chromium: string; callLog: string; port: number }): { name: string; spec: Record<string, unknown> } {
   const shared = { [CALL_LOG]: env.callLog, PATH: process.env.PATH ?? "" };
   if (path === "structured") {
     return { name: "browser", spec: { command: process.execPath, args: ["--experimental-strip-types", join(HERE, "structured-server.ts")], env: {
       ...shared, LATERDOG_BROWSER_STEPS_ENGINE: env.engine, LATERDOG_BROWSER_STEPS_HOME: join(env.scratch, "home"), AGENT_BROWSER_EXECUTABLE_PATH: env.chromium,
     } } };
   }
-  return { name: "computer", spec: { command: process.execPath, args: ["--experimental-strip-types", join(HERE, "screen-server.ts")], env: {
-    ...shared, DISPLAY: process.env.DISPLAY ?? ":0", LATERDOG_BROWSER_STEPS_CHROMIUM: env.chromium, LATERDOG_BROWSER_STEPS_PROFILE: join(env.scratch, "profile"),
+  if (path === "screen") {
+    return { name: "computer", spec: { command: process.execPath, args: ["--experimental-strip-types", join(HERE, "screen-server.ts")], env: {
+      ...shared, DISPLAY: process.env.DISPLAY ?? ":0", LATERDOG_BROWSER_STEPS_CHROMIUM: env.chromium, LATERDOG_BROWSER_STEPS_PROFILE: join(env.scratch, "profile"),
+    } } };
+  }
+  const bin = join(env.scratch, "bin");
+  mkdirSync(bin, { recursive: true });
+  writeFileSync(join(bin, "xdg-open"), `#!/bin/sh\nexec ${JSON.stringify(env.chromium)} --user-data-dir=${JSON.stringify(join(env.scratch, "profile"))} --remote-debugging-port=${env.port} --no-first-run --no-default-browser-check --password-store=basic --window-position=0,0 --window-size=1280,800 "$@"\n`);
+  chmodSync(join(bin, "xdg-open"), 0o755);
+  return { name: "computer", spec: { command: process.execPath, args: ["--experimental-strip-types", join(HERE, "computer-tools-server.ts")], env: {
+    ...shared, PATH: `${bin}:${process.env.PATH ?? ""}`, DISPLAY: process.env.DISPLAY ?? ":0", LATERDOG_PAGE_CDP_PORT: String(env.port),
+    ...(path === "page" ? { LATERDOG_BROWSER_STEPS_PAGE_TOOLS: "1" } : {}),
   } } };
 }
 
@@ -139,7 +150,7 @@ export async function runOne(input: { cli: string; model: string; path: Path; ta
     writeFileSync(callLog, "");
     const systemFile = join(scratch, "system.txt");
     writeFileSync(systemFile, systemText(input.path, input.model));
-    const server = serverSpec(input.path, { engine: input.engine, scratch, chromium: input.chromium, callLog });
+    const server = serverSpec(input.path, { engine: input.engine, scratch, chromium: input.chromium, callLog, port: 9400 + Math.floor(Math.random() * 500) });
     const mcpConfig = join(scratch, "mcp.json");
     writeFileSync(mcpConfig, JSON.stringify({ mcpServers: { [server.name]: server.spec } }, null, 2));
     const log = join(input.out, `${input.model.replace(/[^a-z0-9.-]+/gi, "_")}-${input.path}-${input.task}.jsonl`);
@@ -156,6 +167,7 @@ export async function runOne(input: { cli: string; model: string; path: Path; ta
       correct: ran.exit === 0 && answered(input.task, totals.reply),
     };
   } finally {
+    spawnSync("pkill", ["-f", join(scratch, "profile")]);
     rmSync(scratch, { recursive: true, force: true });
   }
 }
@@ -176,7 +188,7 @@ export async function measure(input: { cli: string; models: string[]; out: strin
   const runs: EngineRun[] = [];
   try {
     for (const model of input.models) {
-      for (const path of input.paths ?? ["structured", "screen"]) {
+      for (const path of input.paths ?? PATHS) {
         for (const task of input.tasks ?? ["find", "form", "table"]) {
           runs.push(await runOne({ cli: input.cli, model, path, task, origin: site.origin, out: input.out, engine: input.engine, chromium: input.chromium }));
         }
@@ -197,12 +209,14 @@ if (import.meta.main) {
     cli: { type: "string", default: "claude" },
     engine: { type: "string" },
     chromium: { type: "string", default: "/usr/bin/chromium" },
+    paths: { type: "string", default: PATHS.join(",") },
   } });
-  if (!values.engine) throw new Error("--engine <path to the pinned agent-browser binary> is required");
+  const paths = values.paths.split(",").map((path) => path.trim()).filter((path): path is Path => (PATHS as string[]).includes(path));
+  if (paths.includes("structured") && !values.engine) throw new Error("--engine <path to the pinned agent-browser binary> is required for the structured path; or pass --paths screen,screen-capped,page");
   if (!process.env.DISPLAY) throw new Error("DISPLAY is required for the screen path: run this under xvfb-run");
   const out = resolve(values.out ?? join(tmpdir(), `browser-steps-real-${Date.now()}`));
   if (existsSync(join(out, "results.json"))) throw new Error(`${out} already holds a result; pass a new --out folder`);
-  const runs = await measure({ cli: values.cli, models: values.models.split(",").map((model) => model.trim()).filter(Boolean), out, engine: resolve(values.engine), chromium: values.chromium });
+  const runs = await measure({ cli: values.cli, models: values.models.split(",").map((model) => model.trim()).filter(Boolean), out, engine: values.engine ? resolve(values.engine) : "", chromium: values.chromium, paths });
   console.log(summaryTable(runs));
   console.log(`\nRaw turns, results.json and summary.md: ${out}`);
 }

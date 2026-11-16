@@ -6,6 +6,17 @@ import { serveStdio } from "./stdio-mcp.ts";
 
 export const SCREEN_TOOL_NAMES = ["screenshot", "get_screen_size", "click", "move", "drag", "type_text", "key_press", "scroll", "open_url"] as const;
 
+export const TODAYS_DESCRIPTIONS: Record<string, string> = {
+  screenshot: "See the assigned cloud desktop at native pixel resolution.",
+  get_screen_size: "Get the cloud desktop width and height.",
+};
+
+export function todaysScreenTools() {
+  return CLOUD_COMPUTER_TOOLS
+    .filter((tool) => (SCREEN_TOOL_NAMES as readonly string[]).includes(tool.name))
+    .map((tool) => (TODAYS_DESCRIPTIONS[tool.name] ? { ...tool, description: TODAYS_DESCRIPTIONS[tool.name]! } : tool));
+}
+
 const display = process.env.DISPLAY;
 const chromium = process.env.LATERDOG_BROWSER_STEPS_CHROMIUM ?? "/usr/bin/chromium";
 const profile = process.env.LATERDOG_BROWSER_STEPS_PROFILE;
@@ -35,7 +46,7 @@ const quote = (value: string) => "'" + value.replace(/'/g, "'\\''") + "'";
 if (import.meta.main) {
   if (!display || !profile) throw new Error("DISPLAY and LATERDOG_BROWSER_STEPS_PROFILE are required");
   serveStdio("computer", {
-    list: () => CLOUD_COMPUTER_TOOLS.filter((tool) => (SCREEN_TOOL_NAMES as readonly string[]).includes(tool.name)),
+    list: () => todaysScreenTools(),
     call: async (tool, args) => {
       if (tool === "screenshot") {
         const shot = await run(SCREENSHOT_SCRIPT);

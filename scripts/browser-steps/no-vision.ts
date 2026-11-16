@@ -24,8 +24,17 @@ export function localExec(env: Record<string, string>): RemoteExec {
     let stderr = "";
     child.stdout.on("data", (chunk: Buffer) => { stdout += chunk.toString("utf8"); });
     child.stderr.on("data", (chunk: Buffer) => { stderr += chunk.toString("utf8"); });
-    child.on("error", (error) => settle({ ok: false, exitCode: null, stdout, stderr: stderr || error.message }));
-    child.on("close", (code) => settle({ ok: code === 0, exitCode: code, stdout, stderr }));
+    let done = false;
+    const finish = (result: { ok: boolean; exitCode: number | null; stdout: string; stderr: string }) => {
+      if (done) return;
+      done = true;
+      child.stdout.destroy();
+      child.stderr.destroy();
+      settle(result);
+    };
+    child.on("error", (error) => finish({ ok: false, exitCode: null, stdout, stderr: stderr || error.message }));
+    child.on("close", (code) => finish({ ok: code === 0, exitCode: code, stdout, stderr }));
+    child.on("exit", (code) => { setTimeout(() => finish({ ok: code === 0, exitCode: code, stdout, stderr }), 100); });
   });
 }
 

@@ -10,8 +10,8 @@ import { CLOUD_COMPUTER_TOOLS } from "../../server/cloud-computer-tools.ts";
 import { FIXTURE_ACCOUNT, FIXTURE_ANSWERS, startFixtureSite } from "./fixture-site.ts";
 import { imageTokens, jpegSize, SCREENSHOT_SCRIPT, screenActionResultText, screenCommand, textTokens, type ScreenAction } from "./screen-commands.ts";
 
-type Mode = "structured" | "screen";
-type TaskName = "find" | "form" | "table";
+export type Mode = "structured" | "screen" | "page" | "page + run" | "screen capped" | "screen capped + run";
+export type TaskName = "find" | "form" | "table";
 
 export interface Step {
   turn: number;
@@ -42,9 +42,9 @@ export interface TaskRun {
 const progress = (line: string) => process.stderr.write(`${line}\n`);
 
 const TASKS: TaskName[] = ["find", "form", "table"];
-const FORM = { name: "Ada Fixture", email: "ada@example.test", phone: "555-0100", topic: "Billing", message: "My kettle arrived without a lid." };
+export const FORM = { name: "Ada Fixture", email: "ada@example.test", phone: "555-0100", topic: "Billing", message: "My kettle arrived without a lid." };
 
-function finish(task: TaskName, mode: Mode, steps: Step[], answer: string, correct: boolean): TaskRun {
+export function finish(task: TaskName, mode: Mode, steps: Step[], answer: string, correct: boolean): TaskRun {
   const tokens = steps.reduce((sum, step) => sum + step.tokens, 0);
   const image = steps.reduce((sum, step) => sum + step.imageTokens, 0);
   const turns = Math.max(0, ...steps.map((step) => step.turn)) + 1;
@@ -175,7 +175,7 @@ function run(command: string, display: string): Promise<{ ok: boolean; exitCode:
   });
 }
 
-class Cdp {
+export class Cdp {
   private id = 0;
   private waiting = new Map<number, (value: any) => void>();
   private socket: WebSocket;
@@ -298,7 +298,7 @@ class ScreenCaller {
   }
 }
 
-const byText = (selector: string, text: string) => `[...document.querySelectorAll(${JSON.stringify(selector)})].find((el) => el.textContent.trim() === ${JSON.stringify(text)})`;
+export const byText = (selector: string, text: string) => `[...document.querySelectorAll(${JSON.stringify(selector)})].find((el) => el.textContent.trim() === ${JSON.stringify(text)})`;
 
 async function screenTasks(origin: string, display: string, chromium: string): Promise<{ runs: TaskRun[]; finalFrames: Record<TaskName, Buffer> }> {
   const profile = mkdtempSync(join(tmpdir(), "laterdog-measure-chromium-"));
@@ -421,7 +421,7 @@ async function main(): Promise<void> {
     display: { type: "string", default: process.env.DISPLAY ?? ":0" },
     only: { type: "string" },
   } });
-  if (!values.engine) throw new Error("--engine <path to the pinned agent-browser binary> is required");
+  if (!values.engine && values.only !== "screen") throw new Error("--engine <path to the pinned agent-browser binary> is required unless --only screen");
   const out = resolve(values.out ?? `browser-steps-${Date.now()}`);
   mkdirSync(out, { recursive: true });
   const home = mkdtempSync(join(tmpdir(), "laterdog-measure-home-"));
@@ -429,7 +429,7 @@ async function main(): Promise<void> {
   const runs: TaskRun[] = [];
   let variants: Awaited<ReturnType<typeof screenshotVariants>> = [];
   try {
-    if (values.only !== "screen") runs.push(...await structuredTasks(site.origin, resolve(values.engine), home));
+    if (values.only !== "screen") runs.push(...await structuredTasks(site.origin, resolve(values.engine!), home));
     if (values.only !== "structured") {
       const screen = await screenTasks(site.origin, values.display, values.chromium);
       runs.push(...screen.runs);

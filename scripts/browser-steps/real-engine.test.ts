@@ -4,7 +4,10 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { FIXTURE_ANSWERS } from "./fixture-site.ts";
-import { answered, launchArgs, measure, readStream, systemText, taskPrompt } from "./real-engine.ts";
+import { PAGE_FIRST_PROMPT } from "../../server/laterdog/page-tools.ts";
+import { servedTools } from "./computer-tools-server.ts";
+import { answered, launchArgs, measure, readStream, serverSpec, systemText, taskPrompt } from "./real-engine.ts";
+import { todaysScreenTools } from "./screen-server.ts";
 
 const STAND_IN_ENGINE = `#!/usr/bin/env node
 import { readFileSync } from "node:fs";
@@ -51,11 +54,32 @@ describe("the real-engine browser-steps runner", () => {
   it("gives each path the instructions a dog on it gets, and only that path's tools", () => {
     expect(systemText("structured", "claude-opus-5-5")).toContain("agent_browser tools");
     expect(systemText("screen", "claude-opus-5-5")).toContain("Inspect it with screenshots");
+    expect(systemText("screen", "claude-opus-5-5")).not.toContain(PAGE_FIRST_PROMPT);
+    expect(systemText("screen-capped", "claude-opus-5-5")).toBe(systemText("screen", "claude-opus-5-5"));
+    expect(systemText("page", "claude-opus-5-5")).toContain(PAGE_FIRST_PROMPT);
     const args = launchArgs({ prompt: "p", model: "m", mcpConfig: "/m.json", systemFile: "/s.txt", server: "computer" });
     expect(args.slice(0, 2)).toEqual(["-p", "p"]);
     expect(args).toContain("--strict-mcp-config");
     expect(args.at(-1)).toBe("mcp__computer");
     expect(taskPrompt("table", "http://127.0.0.1:1")).toContain("test.buyer");
+  });
+
+  it("serves today's screen tools for the before path and later.dog's own computer tools for the new ones", () => {
+    expect(todaysScreenTools().find((tool) => tool.name === "screenshot")?.description).toBe("See the assigned cloud desktop at native pixel resolution.");
+    const off = servedTools({} as never).map((tool) => tool.name);
+    const on = servedTools({ features: { browser: true } } as never).map((tool) => tool.name);
+    expect(off).toContain("run_actions");
+    expect(off).toContain("zoom");
+    expect(off).not.toContain("page_open");
+    expect(on).toContain("page_open");
+    for (const left of ["exec", "request_secure_form", "fill_secure_field"]) expect(on).not.toContain(left);
+    scratch = mkdtempSync(join(tmpdir(), "laterdog-browser-steps-spec-"));
+    const page = serverSpec("page", { engine: "", scratch, chromium: "/usr/bin/chromium", callLog: join(scratch, "calls"), port: 9555 }).spec as { args: string[]; env: Record<string, string> };
+    expect(page.args.at(-1)).toMatch(/computer-tools-server\.ts$/);
+    expect(page.env).toMatchObject({ LATERDOG_BROWSER_STEPS_PAGE_TOOLS: "1", LATERDOG_PAGE_CDP_PORT: "9555" });
+    expect(readFileSync(join(scratch, "bin", "xdg-open"), "utf8")).toContain("--remote-debugging-port=9555");
+    const capped = serverSpec("screen-capped", { engine: "", scratch, chromium: "/usr/bin/chromium", callLog: join(scratch, "calls"), port: 9556 }).spec as { env: Record<string, string> };
+    expect(capped.env.LATERDOG_BROWSER_STEPS_PAGE_TOOLS).toBeUndefined();
   });
 
   it("runs every model, path and task once against the fixture site and writes the table", async () => {
@@ -68,6 +92,8 @@ describe("the real-engine browser-steps runner", () => {
     expect(runs.map((run) => `${run.path}:${run.task}:${run.requests}:${run.correct}`)).toEqual([
       "structured:find:2:true", "structured:form:2:true", "structured:table:2:true",
       "screen:find:2:true", "screen:form:2:true", "screen:table:2:true",
+      "screen-capped:find:2:true", "screen-capped:form:2:true", "screen-capped:table:2:true",
+      "page:find:2:true", "page:form:2:true", "page:table:2:true",
     ]);
     expect(readFileSync(runs[0]!.log, "utf8")).toContain('"servers":["browser"]');
     expect(readFileSync(runs[3]!.log, "utf8")).toContain('"servers":["computer"]');
