@@ -7,7 +7,7 @@ import { createJobWake, jobWakeLine, jobWakePrompt, WAKE_FRESH_MS, type JobWakeH
 const NOW = 10_000_000_000;
 const job = (id: string, threadId = "t1", startedAt = NOW - 60_000): ComputerJob => ({ id, botId: "scout", threadId, command: "pnpm test", startedAt });
 const flush = async () => { for (let i = 0; i < 4; i += 1) await new Promise<void>((resolve) => setImmediate(resolve)); };
-type How = "finished" | "failed" | "stopped" | "asleep" | "gone";
+type How = "finished" | "failed" | "stopped" | "asleep" | "gone" | "overdue";
 const end = (how: How = "finished", at = NOW - 1_000) => ({ how, ...(how === "finished" || how === "failed" ? { exitCode: how === "finished" ? 0 : 1 } : {}), at });
 
 function setup(over: Partial<JobWakeHost> = {}) {
@@ -105,6 +105,15 @@ describe("waking a dog when a job on its computer ends", () => {
     wake.deliver(); await flush();
     expect(turns).toEqual([]);
     expect(lines()).toEqual(["notice: Scout's command finished. Scout was not woken for it."]);
+  });
+
+  it("does not wake for a job later.dog stopped at the longest a run may take, and says it was stopped after that time", async () => {
+    const { jobs, lines, turns, wake } = setup();
+    ended(jobs, "aaaa0001", "overdue", "t1", NOW - 1_000, NOW - 1_000 - MAX_RUN_MS);
+    wake.deliver(); await flush();
+    expect(turns).toEqual([]);
+    expect(lines()).toEqual(["notice: Scout's command was stopped after 2 hours. Scout was not woken for it."]);
+    expect(jobs.unannounced()).toEqual([]);
   });
 
   it("does not wake a chat whose work for another dog is already done", async () => {

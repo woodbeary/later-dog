@@ -9,7 +9,7 @@ export const WAKES_PER_MESSAGE = 2;
 export const WAKE_FRESH_MS = 30 * 60_000;
 
 const UNREAD: Partial<Record<EndedComputerJob["end"]["how"], string>> = { asleep: "went to sleep", gone: "was removed", stopped: "went to sleep or was removed" };
-const ENDED_WORDS: Partial<Record<EndedComputerJob["end"]["how"], string>> = { finished: "finished", failed: "failed", lost: "ended without a result" };
+const ENDED_WORDS: Partial<Record<EndedComputerJob["end"]["how"], string>> = { finished: "finished", failed: "failed", lost: "ended without a result", overdue: "was stopped after 2 hours" };
 
 function endedPhrase(name: string, jobs: readonly EndedComputerJob[]): string {
   if (jobs.length > 1) return `${name}'s ${jobs.length} commands ended`;
@@ -70,7 +70,7 @@ export type NotWoken = "lost" | "stale" | "long" | "handoff" | "bound";
 export function whyNotWoken(job: EndedComputerJob, now: number): NotWoken | null {
   if (job.end.how === "lost") return "lost";
   if (now - job.end.at > WAKE_FRESH_MS) return "stale";
-  if (job.end.at - job.startedAt > MAX_RUN_MS) return "long";
+  if (job.end.how === "overdue" || job.end.at - job.startedAt > MAX_RUN_MS) return "long";
   return null;
 }
 

@@ -1,9 +1,9 @@
 import { readFileSync, renameSync } from "node:fs";
 import { z } from "zod";
 import { writeFileAtomic } from "../atomic.ts";
-import { MAX_RUN_MS, type RunBox, type RunLiveness } from "./computer-runs.ts";
+import { MAX_RUN_MS, type RunBox, type RunLiveness, type RunStop } from "./computer-runs.ts";
 
-const endSchema = z.object({ how: z.enum(["finished", "failed", "asleep", "gone", "stopped", "lost"]), exitCode: z.number().int().optional(), at: z.number() });
+const endSchema = z.object({ how: z.enum(["finished", "failed", "asleep", "gone", "stopped", "lost", "overdue"]), exitCode: z.number().int().optional(), at: z.number() });
 const jobSchema = z.object({
   id: z.string(), botId: z.string(), threadId: z.string(), command: z.string(), startedAt: z.number(),
   end: endSchema.optional(),
@@ -22,6 +22,7 @@ export interface ComputerJobProbe {
   computer(botId: string): Promise<JobComputer>;
   exit(box: RunBox, job: ComputerJob): Promise<{ exitCode: number; at?: number } | null>;
   liveness(box: RunBox, job: ComputerJob): Promise<RunLiveness>;
+  stop(box: RunBox, job: ComputerJob): Promise<RunStop>;
 }
 
 type Sighting = "asleep" | "gone" | "dead";
@@ -175,6 +176,12 @@ export class ComputerJobs implements ComputerJobLedger {
           if (exit && Number.isInteger(exit.exitCode)) {
             this.#unreadableSince.delete(job.id);
             ends.set(job.id, jobEnd(exit.exitCode, exit.at !== undefined && Number.isFinite(exit.at) ? Math.min(exit.at, this.#now()) : this.#now()));
+            continue;
+          }
+          if (this.#now() - job.startedAt >= MAX_RUN_MS) {
+            this.#unreadableSince.delete(job.id);
+            await probe.stop(computer.box, job).catch(() => "alive");
+            ends.set(job.id, { how: "overdue", at: this.#now() });
             continue;
           }
           if (await probe.liveness(computer.box, job) === "dead") sighting = "dead";

@@ -12,7 +12,7 @@ afterAll(() => removeTempDir(dir));
 const box = {} as RunBox;
 const running: JobComputer = { state: "running", box };
 const job = (over: Partial<ComputerJob> = {}): ComputerJob => ({ id: "abcd1234", botId: "dog", threadId: "t1", command: "pnpm test", startedAt: 1_000, ...over });
-const probe = (over: Partial<ComputerJobProbe> = {}): ComputerJobProbe => ({ computer: async () => running, exit: async () => null, liveness: async () => "alive", ...over });
+const probe = (over: Partial<ComputerJobProbe> = {}): ComputerJobProbe => ({ computer: async () => running, exit: async () => null, liveness: async () => "alive", stop: async () => "gone", ...over });
 
 describe("jobs a dog left running on its computer", () => {
   it("counts a job for its chat until it ends, and tells the chat each time", () => {
@@ -145,14 +145,60 @@ describe("jobs a dog left running on its computer", () => {
     expect(jobs.unannounced().map((j) => j.end.how)).toEqual(["lost"]);
   });
 
-  it("never declares a long job ended: past the longest a run may take it is still running", async () => {
+  it("stops a job once it has run for the longest a run may take, and ends it as stopped after that time", async () => {
     let now = 1_000;
     const jobs = new ComputerJobs(null, { now: () => now });
     jobs.started(job());
-    now = 1_000 + MAX_RUN_MS + 60 * 60_000;
-    expect(await jobs.check(probe())).toEqual([]);
+    const stopped: string[] = [];
+    const look = probe({ stop: async (_box, j) => { stopped.push(j.id); return "gone"; } });
+    now = 1_000 + MAX_RUN_MS;
+    expect(await jobs.check(look)).toEqual(["abcd1234"]);
+    expect(stopped).toEqual(["abcd1234"]);
+    expect(jobs.count("t1")).toBe(0);
+    expect(jobs.unannounced().map((j) => [j.id, j.end.how, j.end.at])).toEqual([["abcd1234", "overdue", now]]);
+  });
+
+  it("leaves a job running, without stopping it, just under the longest a run may take", async () => {
+    let now = 1_000;
+    const jobs = new ComputerJobs(null, { now: () => now });
+    jobs.started(job());
+    const stopped: string[] = [];
+    now = 1_000 + MAX_RUN_MS - 1;
+    expect(await jobs.check(probe({ stop: async (_box, j) => { stopped.push(j.id); return "gone"; } }))).toEqual([]);
+    expect(stopped).toEqual([]);
     expect(jobs.count("t1")).toBe(1);
     expect(jobs.unannounced()).toEqual([]);
+  });
+
+  it("ends a job that finished by then on its exit code, without stopping anything", async () => {
+    let now = 1_000;
+    const jobs = new ComputerJobs(null, { now: () => now });
+    jobs.started(job());
+    const stopped: string[] = [];
+    now = 1_000 + MAX_RUN_MS + 60_000;
+    expect(await jobs.check(probe({ exit: async () => ({ exitCode: 0 }), stop: async (_box, j) => { stopped.push(j.id); return "gone"; } }))).toEqual(["abcd1234"]);
+    expect(stopped).toEqual([]);
+    expect(jobs.unannounced().map((j) => [j.end.how, j.end.exitCode])).toEqual([["finished", 0]]);
+  });
+
+  it("ends a job past that time even when stopping it fails, and asks its computer nothing more about it", async () => {
+    let now = 1_000;
+    const jobs = new ComputerJobs(null, { now: () => now });
+    jobs.started(job({ id: "aaaa0001" }));
+    jobs.started(job({ id: "aaaa0002" }));
+    const asked: string[] = [];
+    const look = probe({
+      exit: async (_box, j) => { asked.push(`exit ${j.id}`); return null; },
+      liveness: async (_box, j) => { asked.push(`liveness ${j.id}`); return "alive"; },
+      stop: async (_box, j) => { asked.push(`stop ${j.id}`); if (j.id === "aaaa0001") throw new Error("exec timed out"); return "alive"; },
+    });
+    now = 1_000 + MAX_RUN_MS;
+    expect((await jobs.check(look)).sort()).toEqual(["aaaa0001", "aaaa0002"]);
+    expect(jobs.unannounced().map((j) => j.end.how)).toEqual(["overdue", "overdue"]);
+    asked.length = 0;
+    now += JOB_CHECK_MS;
+    expect(await jobs.check(look)).toEqual([]);
+    expect(asked).toEqual([]);
   });
 
   it("forgets a job the dog read itself; the person's Stop keeps a job shown until its end is confirmed and never announces it", async () => {

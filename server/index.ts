@@ -13691,6 +13691,7 @@ const checkComputerJobs = () => void computerJobs.check({
   computer: (botId) => boat.jobComputer(botId),
   exit: (box, job) => computerRuns.ended(box, job),
   liveness: (box, job) => computerRuns.liveness(box, job),
+  stop: (box, job) => computerRuns.stop(box, job),
 }).then(() => { void restartPickupDone.then(() => jobWake.deliver()); });
 setTimeout(checkComputerJobs, 0).unref();
 setInterval(checkComputerJobs, Math.max(1_000, Number(process.env.LATERDOG_COMPUTER_JOB_CHECK_MS) || JOB_CHECK_MS)).unref();
