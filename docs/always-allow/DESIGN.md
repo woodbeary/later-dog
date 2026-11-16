@@ -1,6 +1,6 @@
-# Always on an approval: design (item 16, stage one, revision 5)
+# Always on an approval: design (item 16, stage one, revision 6)
 
-Status: design only, ready for code once this revision is checked. Base: `main` 0651657, with item 45 (pull request 207, head 395406d) not merged yet. Revision 5 answers review 4 (Relay, `handoff/round4/item-16-REVIEW-4.md`): the allow rule is unchanged; the build order gains the steps that turn off three lasting answers main already has, and the home gets the whole input of a search. The answers to reviews 1 to 4 are at the end.
+Status: design only, ready for code once this revision is checked. Base: `main` 0651657, with item 45 (pull request 207, head 395406d) not merged yet. Revision 6 answers review 5 (Relay, `handoff/round4/item-16-REVIEW-5.md`): the allow rule is unchanged; J2 gains the saved-login Always and the keys a dog-made dog copies, the search input stays on the home, and an ACP engine can no longer fall back to its own "always". The answers to reviews 1 to 5 are at the end.
 
 Jacob's rule: "Allow once" always comes with "Always", and a dog never asks again for an approval he already gave. Item 45 adds a second rule: five kinds of action always ask, whatever the approval mode.
 
@@ -31,7 +31,9 @@ A new tool or engine fails A4 by default. A kind joins the list only with its ow
 
 ### The key
 
-Dog id + `claude` + `WebSearch` + sha256 of `wholeInput` with keys sorted (S7, G2). For Claude, `wholeInput` is `ask.input`, the object the permission proxy returns as `updatedInput` (`server/permission-proxy.ts:168`); today the driver sends only `askedFields(ask.input)` (`server/drivers/claude.ts:469-478`, `:1491`), which drops `query`, `allowed_domains` and `blocked_domains`, so step 6 adds the field. Nothing is normalised: one character different is another search, and it asks. The preview stored and shown is "Search", never the words.
+Dog id + `claude` + `WebSearch` + sha256 of `wholeInput` with keys sorted (S7, G2). For Claude, `wholeInput` is `ask.input`, the object the permission proxy returns as `updatedInput` (`server/permission-proxy.ts:168`); today the driver sends only `askedFields(ask.input)` (`server/drivers/claude.ts:469-478`, `:1491`), which drops `query`, `allowed_domains` and `blocked_domains`, so step 4 adds the field, only for (Claude, `WebSearch`), and the home strips it from every event it sends or stores (H2). Nothing is normalised: one character different is another search, and it asks. The preview stored and shown is "Search", never the words.
+
+The new store is keyed by the dog's id, so a dog-made dog (a new, random id) inherits no grant from it. The old keys are different: today a dog-made dog copies its creator's whole `alwaysAllow` (`server/laterdog/dog-creation.ts:74`), which J2-e turns off.
 
 ## Cards and Always, against the cards Jacob sees today
 
@@ -57,7 +59,7 @@ A search card appears with Auto-review on, in Custom mode, or on a shared worksp
 
 **J1. Item 45's five kinds never offer Always.** Recommended: accept. With A4 it holds by construction, whatever 207 knows by name; in code it also needs the order fix before the old grants. The cost: each lane's push from its home clone with the checks off shows a card every time.
 
-**J2. Grants you already gave (restated after review 4).** Main has five lasting answers besides the engine's own. Two are settled by J1 itself; three are your choice, each its own commit, landed only if you choose it.
+**J2. Grants you already gave (restated after review 4).** Main has six lasting answers besides the engine's own, plus the way a dog-made dog copies them. Two are settled by J1 itself; the rest are your choice, each its own commit, landed only if you choose it.
 
 Settled by the order fix (step 1), which any build lands first:
 - **The outside-delete key.** Every delete outside a dog's folders is one of 207's five kinds, so once `alwaysAsks` runs before the key, the key answers nothing. "Keep" is not possible under J1. What you would notice: a dog holding it shows a card for each outside delete, also in owner-auto (`server/laterdog/owner-auto-request.ts:33`, `:46`).
@@ -67,6 +69,8 @@ Your choice, each with what stays open if you keep it:
 - **J2-a. Saved exact shell commands** (`command-allowlist.json`, desktop only; your cloud home has none). Recommended: stop. If kept, review 1's findings 1 and 4 stay open for them: on Claude the saved folder is the engine's start folder, not where the shell has gone, and nothing pins what the arguments point at. What you would notice if stopped: those commands ask where cards appear (Auto-review, Custom, a shared workspace).
 - **J2-b. Teammate keys** (`ask_bot`, `delegate_bot`). Recommended: stop. If kept, review 2's R4 stays open: a dog holding the key sends any words to a teammate that can read things it cannot, such as mail. What you would notice if stopped: no change for your own work (`peerReviewRequired` is off there).
 - **J2-c. The Mac's Always.** Recommended: it covers reads only. If kept as it is, every dog's command, write, delete and screen action on that Mac runs with no card (`server/mac-approval.ts:228`), which J4 refuses for everything else. What you would notice if changed: each such action asks again, at most one card per kind, per message, per dog; looking at files keeps working.
+- **J2-d. "Always use this saved login"** (`vault:<site>`, `server/laterdog/secure-form.ts:423`, `server/index.ts:12734-12738`). After you tick always once, any later sign-in form for the same site comes back already filled, with no card (`secure-form.ts:484`). "The same site" is the last two parts of the address (`shared/vault.ts:57-65`), so a login ticked on `accounts.google.com` also fills a form on `docs.google.com`, and the dog chooses where on the page to type it (`secure-form.ts:214-215`). Recommended: stop. Each fill then shows its card, and the keys list as "No longer used". What you would notice: one card each time a dog signs in for you. If kept, the build changes it to fill only on the exact address where you ticked it, and only when the field the dog types into is a username or password field; what stays open then is a dog choosing a username or password box on another page of that same address.
+- **J2-e. Dogs a dog makes copy their maker's keys** (`dogMadeDogAccess`, `server/laterdog/dog-creation.ts:74`). Recommended: copy none. What you would notice: a dog that another dog made asks again for an app, a teammate or a login its maker was allowed. If kept, every key its maker holds (saved logins, app keys, teammate keys, the outside-delete key) spreads to every dog it makes, with no card.
 
 Not a choice: **the engine's own "Allow for this chat"** goes (step 3), on every engine, because the engine decides how wide it is (design A). You notice it only where cards appear.
 
@@ -80,9 +84,9 @@ When a request opens (`request.opened`), the first that applies decides:
 3. **New: the lasting-allow lookup.** It runs A1 to A5 on every request, not only at the grant (G7); only a request that passes all five is looked up. On a match the home answers allow and logs source `lasting-allow` with the rule id.
 4. Everything as today.
 
-- Every answer to every engine is allow-once: the home sends `always: false` in its one answer path (`server/index.ts:5369`), the Claude proxy passes no `updatedPermissions`, ACP picks the allow-once option and no longer remembers an operation for the chat (`server/drivers/acp/core.ts:907`, `:967-972`), and no card carries `allowSession` (`server/index.ts:7305`, `server/drivers/claude.ts:1496`, `acp/core.ts:1010`) (G1c).
+- Every answer to every engine is allow-once: the home sends `always: false` in its one answer path (`server/index.ts:5369`), the Claude proxy passes no `updatedPermissions`, ACP accepts only an `allow_once` option and no longer remembers an operation for the chat (`server/drivers/acp/core.ts:903-913`, `:918`, `:967-972`), and no card carries `allowSession` (`server/index.ts:7305`, `server/drivers/claude.ts:1496`, `acp/core.ts:1010`) (G1c). An ACP engine that offers only an "always" option has its request cancelled with the existing message that it offered no allow option (H3); the person sees that line in the chat, and the dog carries on without that step.
 - Cards stop carrying old keys: the send card and the outside-delete card carry no `allowKey`; with J2-a no card carries `commandAllowlist`; with J2-b the teammate card carries no `allowKey`; with J2-c the Mac card offers Always only on reads. The route refuses every key it no longer honours with 409 (S6, G1).
-- After the emergency stop, lasting allows are paused, not deleted; today the stop clears only a Full or Custom chat's keys (`server/index.ts:9613-9620`), so the pause is added in step 6 (G5).
+- After the emergency stop, lasting allows are paused, not deleted; today the stop clears only a Full or Custom chat's keys (`server/index.ts:9613-9620`), so the pause is added in step 4 (G5).
 
 ## What is stored and where
 
@@ -159,12 +163,12 @@ Each takes the attack as its input and runs through the real caller (`request.op
 13. A real room thread, a guest message queued before the owner's turn and delivered during it, then a search: no Always and no answer from a grant (G4).
 14. A grant posted by a thread's starter who is not owner or admin: 403. A grant on an answered or dismissed card, or another dog's request id: 409.
 15. The route refuses `connector:gmail` and the outside-delete key with 409; send and outside-delete cards carry no `allowKey`.
-16. An older app answering `always: true`: through the home's answer path, the Claude proxy and an ACP engine, each gets allow once; on ACP the allow-once option is picked and the same input asks again (G1c, G8).
+16. An older app answering `always: true`: through the home's answer path, the Claude proxy and an ACP engine, each gets allow once; on ACP the allow-once option is picked and the same input asks again. An ACP engine that offers only `allow_always`: the request is cancelled with the "offered no allow option" message, in the answer path and in full-auto, and nothing is remembered (G1c, G8, H3).
 17. The order: a stored `connector:<app>` key with a send; the outside-delete key in owner-auto; the Mac in "always" mode with a send. Each shows a card.
 18. The stored preview is "Search", never the words.
 19. Through `requestPeerApproval`: starting a teammate's turn offers no Always, line 6 (with J2-b, see 23).
 20. No card carries `allowSession`; an older phone shows no "Allow for this chat" (G1c).
-21. A Claude `WebSearch` event carries `wholeInput`; with it missing there is no Always; two searches with the same `query` and different `allowed_domains` get different keys (G2).
+21. A Claude `WebSearch` event carries `wholeInput`; with it missing there is no Always; two searches with the same `query` and different `allowed_domains` get different keys. No client frame, member frame, replay buffer entry or stored event holds `wholeInput`; a Claude `Write`, `Edit` or MCP request has no `wholeInput` at all (G2, H2).
 22. A Pi request titled "WebSearch" that carries an input gets no Always (G3).
 23. With J2-b: through `requestPeerApproval` with a stored `delegate_bot` key, a card shows; the teammate card has no `allowKey`; the route refuses `ask_bot:*` and `delegate_bot:*` with 409.
 24. With J2-a: a saved rule for exact text and folder exists; the same request shows a card; no card carries `commandAllowlist`; `POST /api/bots/:id/command-allowlist` returns 409; the rules list as "No longer used".
@@ -172,25 +176,47 @@ Each takes the attack as its input and runs through the real caller (`request.op
 26. Another dog's message reaches an owner's turn, then a search: no answer from a grant (G4).
 27. After the emergency stop, the search grant is paused and the search asks; after Resume it answers (G5).
 28. Deleting a dog removes its search grants; an unreadable store answers nothing and refuses new grants (G7).
+29. With J2-d: a stored `vault:google.com` key and a secure form for `docs.google.com` show the card; the key lists as "No longer used" (H1).
+30. With J2-e: a creator holding `vault:*`, `connector:*` and `delegate_bot:*` keys makes a dog through `create_bot`; the new dog holds no `alwaysAllow` key (H1, G7).
 
 ## The build order
 
-Each step is one commit with its tests. Main is safe after any step alone: no step adds a lasting answer before the step that checks it, and between step 3 and step 7 cards simply have no lasting choice (a step back only where cards appear today: Auto-review, Custom, a shared workspace). **The smallest set the Mac session can land with none of Jacob's choices made: steps 1, 2 and 3.**
+Each step is one commit with its tests. Main is safe after any step alone: no step adds a lasting answer before the step that checks it, and between step 3 and step 5 cards have no lasting choice (a step back only where cards appear today: Auto-review, Custom, a shared workspace). **The smallest set the Mac session can land with none of Jacob's choices made: steps 1 to 5.** Steps 6 to 10 each land only if Jacob chooses them.
 
-| # | Commit | Files | Tests | Depends on a J choice | Main after it alone |
+| # | Commit | Files | Tests | Needs a J choice | Main after it alone |
 |---|---|---|---|---|---|
 | 1 | The order fix: `alwaysAsks` before the old grants | `server/laterdog/connector-ask.ts`, `owner-auto-request.ts`, `server/mac-approval.ts` | 17 | No (completes J1; can land with 207) | Safe: the outside-delete key and app keys stop answering 207's kinds |
-| 2 | Send and outside-delete cards drop their keys; the route refuses them | `server/index.ts` (`:7308`, `:15654`, route `:17652-17674`) | 15 | No | Safe: no new Always offered on those cards |
-| 3 | No engine widens a chat: `always: false` to every engine, ACP allow-once, no `allowSession` on any card, no `updatedPermissions` | `server/index.ts` (`:5369`, `:7305`), `server/permission-proxy.ts`, `server/drivers/acp/core.ts`, `server/drivers/claude.ts` (`:1496`, one field, outside the compaction window) | 16, 20 | No | Safe: answers become allow-once; "Allow for this chat" disappears |
-| 4 | J2-a: saved commands stop | `server/index.ts` (`:5374-5377`, `:7258`, `:7303`, the command-allowlist route), `src/components/PendingApproval.tsx` (`:203`, `:294`) | 24 | **Yes, J2-a** | Safe: those commands ask |
-| 5 | J2-b: teammate keys stop | `server/peer-approval.ts` (`:93-99`, `:128`), the always-allow route | 23 | **Yes, J2-b** | Safe: teammate turns ask where they asked before the key |
-| 6 | The allow rule and the store: A1 to A5 as one function (A2 read from the thread's messages), the driver's `wholeInput` field, the store, the grant route, the list endpoint, the lookup in `request.opened`, and the emergency pause | new `server/laterdog/lasting-allows.ts`, `shared/lasting-allows.ts`; `server/drivers/claude.ts` (`:1491`, one field); `shared/runtime-events.ts`; `server/index.ts` (`request.opened`, the route, `:9613-9620`) | 1 to 14, 18, 19, 21, 22, 26, 27, 28 | No | Safe: a search grant is stored and answered in the same commit, so nothing says "Always allowed" without answering |
-| 7 | The desktop card and the settings list | `src/components/PendingApproval.tsx`, `en.json`, the dog settings | card rendering of the why lines and "Always allowed" | No | Safe |
-| 8 | J2-c: the Mac's Always covers reads only | `server/mac-approval.ts` (`:203-210`, `:228`), the Mac card | 25 | **Yes, J2-c** | Safe: Mac actions other than reads ask |
+| 2 | Send and outside-delete cards drop their keys; the route refuses them | `server/index.ts` (`:7308`, `:15654`, route `:17652-17674`) | 15 | No | Safe |
+| 3 | No engine widens a chat: `always: false` to every engine, ACP accepts only `allow_once` (else cancels), no `allowSession` on any card, no `updatedPermissions` | `server/index.ts` (`:5369`, `:7305`), `server/permission-proxy.ts`, `server/drivers/acp/core.ts` (`:903-913`, `:918`, `:967-972`, `:1010`), `server/drivers/claude.ts` (`:1496`, outside the compaction window) | 16, 20 | No | Safe: answers become allow-once |
+| 4 | The allow rule and the store: A1 to A5, `wholeInput` for (Claude, `WebSearch`) only and stripped from every event, the store, the grant route, the list endpoint, the lookup, the emergency pause | new `server/laterdog/lasting-allows.ts`, `shared/lasting-allows.ts`; `server/drivers/claude.ts` (`:1491`); `shared/runtime-events.ts`; `server/index.ts` (`request.opened`, `:7120`, the route, `:9613-9620`) | 1 to 14, 18, 19, 21, 22, 26 to 28 | No | Safe: a search grant is stored and answered in the same commit |
+| 5 | The desktop card and the settings list | `src/components/PendingApproval.tsx`, `en.json`, the dog settings | card rendering of the why lines and "Always allowed" | No | Safe |
+| 6 | Saved commands stop | `server/index.ts` (`:5374-5377`, `:7258`, `:7303`, the command-allowlist route), `PendingApproval.tsx` (`:203`, `:294`) | 24 | **J2-a** | Safe |
+| 7 | Teammate keys stop | `server/peer-approval.ts` (`:93-99`, `:128`), the always-allow route | 23 | **J2-b** | Safe |
+| 8 | The Mac's Always covers reads only | `server/mac-approval.ts` (`:203-210`, `:228`), the Mac card | 25 | **J2-c** | Safe |
+| 9 | Saved-login Always stops | `server/laterdog/secure-form.ts` (`:423`, `:484`), `server/index.ts` (`:12734-12738`) | 29 | **J2-d** | Safe: each fill shows its card |
+| 10 | Dogs a dog makes copy no keys | `server/laterdog/dog-creation.ts` (`:74`) | 30 | **J2-e** | Safe |
 
-Phone half (`later-dog-phone`), after step 6 lands (G5): `src/ui/Cards.tsx` uses "Allow once" as the primary label, shows Always only when the card's `lasting.offered` is true, shows the why line otherwise, and no longer reads `allowKey` or `allowSession` for a lasting choice; the settings list reads the new list endpoint with the same words. An older phone against the finished home shows "Allow", no Always on any card, and no "Allow for this chat".
+Phone half (`later-dog-phone`), after step 4 lands (G5): `src/ui/Cards.tsx` uses "Allow once" as the primary label, shows Always only when the card's `lasting.offered` is true, shows the why line otherwise, and no longer reads `allowKey` or `allowSession` for a lasting choice; the settings list reads the new list endpoint with the same words. An older phone against the finished home shows "Allow", no Always on any card, and no "Allow for this chat".
 
 None of the files ROUND4 reserves.
+
+## If Jacob takes none of the optional steps (6 to 10)
+
+Nothing steps 1 to 5 add opens a path. These stay exactly as on main today:
+- **Saved shell commands** answer from the folder the engine started in, not where the dog is working, and nothing checks what their file names point at now (review 1, findings 1 and 4).
+- **Teammate keys** let a dog send any words to a teammate that can read things it cannot, such as mail (review 2, R4).
+- **The Mac's Always** lets every dog run commands, write, delete and use the screen on that Mac with no card.
+- **The saved-login Always** fills your password on any page of the same site, where the dog chooses the box (H1).
+- **Dogs a dog makes** copy all of those keys from their maker.
+- **An app's Always** still answers that app's calls that are not sends.
+- **Connected-app deletes and shares** never ask (item 45's list, outside this item).
+
+## Other lasting answers checked, which need no change (H4)
+
+- The connected-app "this turn" answer (`server/laterdog/connector-ask.ts:54`): lasts one turn; after step 1 it no longer answers sends.
+- The Mac's per-message grant (`server/mac-approval.ts:230-231`, `:255`): one message, one kind.
+- The routine and model "apply directly" paths (`server/index.ts:9832`, `:10124`, `:10129`): they confirm settings, not tool requests.
+- Writing `alwaysAllow` on a dog (`server/index.ts:17983-18002`) and new-dog defaults (`server/new-bot-defaults.ts:39`): the owner's or an admin's own writes; once a key's reader ignores it (steps 1, 6, 7, 9), writing it changes nothing. A write from the machine itself falls under the limit that a dog can write the home's data.
 
 ## Limits, stated plainly
 
@@ -205,17 +231,27 @@ None of the files ROUND4 reserves.
 - Which cards Jacob really sees in a week (the size table is read from code).
 - A guest's message reaching a running owner turn (A2) as a real room does it.
 
+## Answer to review 5
+
+| # | Finding | Answer | Where it changed |
+|---|---|---|---|
+| H1 | "Always use this saved login" is a lasting answer J2 did not list | Accepted: J2-d (recommended stop, step 9, test 29; the exact-host and field-type fill written down as the other choice with what stays open) and J2-e (dogs a dog makes copy no keys, step 10, test 30). Listed as Jacob's choice, not "no choice", because he would notice a made dog asking again | J2; build order; tests 29, 30 |
+| H2 | `wholeInput` must stay on the home | Accepted: only for (Claude, `WebSearch`), stripped from the public event at `server/index.ts:7120`, never stored; test 21 extended | The key; step 4; test 21 |
+| H3 | ACP falls back to the engine's own "always" | Accepted: `optionFor("allow")` accepts only `allow_once`, with none the request is cancelled with the existing message; the person sees that line | Order of checks; step 3; test 16 |
+| H4 | Other lasting answers | Recorded; none needs a change | "Other lasting answers checked" |
+| G7 | A dog-made dog inherits the old keys | Accepted: the sentence now says the new store is safe by id and the old keys are copied today; step 10 | The key; G7 row |
+
 ## Answer to review 4
 
 | # | Finding | Answer | Where it changed |
 |---|---|---|---|
-| G1 | Three lasting answers on main survive the build | Accepted: step 3 sends `always: false` to every engine and removes `allowSession` from every card (G1c); steps 4 and 5 stop saved commands and teammate keys if Jacob chooses (G1a, G1b), and J2 says which earlier finding stays open if he keeps either | Order of checks; J2; build steps 3 to 5; tests 16, 20, 23, 24 |
-| G2 | The home does not hold a search's whole input | Accepted: the Claude driver adds `wholeInput` (`ask.input`) to `request.opened` in step 6; A3 and the key read only it | A3; the key; test 21 |
+| G1 | Three lasting answers on main survive the build | Accepted: step 3 sends `always: false` to every engine and removes `allowSession` from every card (G1c); steps 6 and 7 (revision 6 numbers) stop saved commands and teammate keys if Jacob chooses (G1a, G1b), and J2 says which earlier finding stays open if he keeps either | Order of checks; J2; build steps 3, 6 and 7 (revision 6 numbers); tests 16, 20, 23, 24 |
+| G2 | The home does not hold a search's whole input | Accepted: the Claude driver adds `wholeInput` (`ask.input`) to `request.opened` in step 4 (step 6 in revision 5), for (Claude, `WebSearch`) only; A3 and the key read only it | A3; the key; test 21 |
 | G3 | A4 reads a name some drivers take from free text | Accepted: the list holds the pair (Claude, `WebSearch`) | A4; test 22 |
 | G4 | A2's record would have a gap | Accepted: A2 is read from the thread's own messages when the request opens, as 207 does; any non-owner person or other dog fails it; a routine counts as its writer's | A2; tests 13, 26 |
-| G5 | The order, the phone and the pause | Accepted: the phone lands after step 6; the emergency pause is in step 6; J2 says the order fix settles two of five | Build order; J2; test 27 |
+| G5 | The order, the phone and the pause | Accepted: the phone lands after the rule and store (step 4 in revision 6); the emergency pause is in that step; J2 says the order fix settles two | Build order; J2; test 27 |
 | G6 | The Mac's reads-only is in no step | Accepted: step 8, after J2-c | Build order; test 25 |
-| G7 | The lookup in other states | Accepted: A1 to A5 run on every request; a dog-made or recreated dog has a new id and inherits nothing | Order of checks; test 28 |
+| G7 | The lookup in other states | Accepted: A1 to A5 run on every request; a dog-made or recreated dog has a new id and inherits nothing from the new store. The old keys are copied today (review 5); J2-e and step 10 turn that off | Order of checks; the key; test 28, 30 |
 | G8 | Tests that pass while the attack works | Accepted: every build test runs through the real caller | Build tests 11, 13, 16, 19, 23 to 25 |
 
 ## Answer to review 3
