@@ -264,17 +264,33 @@ What changes for the phone's contract in stage three:
 
 A call through a connected app that destroys something or changes who can reach it is a sixth kind on 207's list, `deletes-or-shares`, so it goes through `alwaysAsks` and step 1's order: it shows a card in every approval mode, owner-auto included, offers no Always, and is not answered by the app's old Always or this turn's Allow. The card names the app, the action and its arguments, and carries `lasting: { offered: false, why: "always-asks" }`, so it reads "This one always asks."
 
-The rule goes by the words in the call's name, not by a list of names. After the app's prefix is cut, a call asks when any word is one of:
-- destroys: `DELETE`, `DELETES`, `TRASH`, `REMOVE`, `PURGE`, `EMPTY`, `DESTROY`, `ERASE`, `WIPE`, `CLEAR`, `ARCHIVE`;
-- changes who can reach it: `SHARE`, `SHARING`, `SHARED`, `PERMISSION`, `PERMISSIONS`, `COLLABORATOR`, `COLLABORATORS`, `MEMBER`, `MEMBERS`, `INVITE`, `ACCESS`, `VISIBILITY`, `PUBLIC`, `PRIVATE`, `OWNER`, `OWNERSHIP`, `ROLE`, `ROLES`, `REVOKE`, `UNSHARE`.
+The rule goes by the words in the call's name, not by a list of names, and by what a call actually sets. After the app's prefix is cut, and with the name in capitals whatever it was written in, a call asks when any word is one of:
+- destroys: `DELETE`, `DELETES`, `TRASH`, `REMOVE`, `PURGE`, `EMPTY`, `DESTROY`, `ERASE`, `WIPE`, `CLEAR`, `ARCHIVE`, `REPLACE`, `OVERWRITE`;
+- changes who can reach it: `SHARE`, `SHARING`, `SHARED`, `PERMISSION`, `PERMISSIONS`, `COLLABORATOR`, `COLLABORATORS`, `COLLABORATION`, `COLLABORATIONS`, `MEMBER`, `MEMBERS`, `MEMBERSHIP`, `MEMBERSHIPS`, `INVITE`, `INVITATION`, `INVITATIONS`, `ACCESS`, `ACL`, `ADMIN`, `VISIBILITY`, `PUBLIC`, `PRIVATE`, `OWNER`, `OWNERSHIP`, `ROLE`, `ROLES`, `REVOKE`, `UNSHARE`.
 
-A read never asks: a call whose first word is a read word (`GET`, `LIST`, `FETCH`, `SEARCH`, `READ`, `FIND`, `RETRIEVE`, `LOOKUP`, `DOWNLOAD`, `VIEW`, `CHECK`, `COUNT`), or that has a read word or `VERIFY` anywhere and none of the destroy words but `ARCHIVE`.
+A call that is not a read also asks when its arguments do the harm: a Gmail change that adds the `TRASH` label; a key `trashed`, `in_trash`, `archived` or `closed` set to anything but false or empty (a name that holds one of these words with a `value` that is not false counts too); or a key `visibility`, `private`, `public`, `role`, `roles`, `permission`, `permissions`, `permissionScheme` or `access_level` set at all. Only the call's own top-level keys are read. `archived: false` and `trashed: false` restore, and do not ask.
 
-It applies to connected-app calls only (`APP_ACTION` names and `mcp__composio__` tools), never to later.dog's own tools or an engine's. Inside `COMPOSIO_MULTI_EXECUTE_TOOL` each call is checked; `COMPOSIO_PROXY_EXECUTE` already always asks.
+A read never asks: a call whose first word is a read word (`GET`, `LIST`, `FETCH`, `SEARCH`, `READ`, `FIND`, `RETRIEVE`, `LOOKUP`, `DOWNLOAD`, `VIEW`, `CHECK`, `COUNT`), or one with a read word or `VERIFY` at its end, or before any write verb (`ADD`, `CREATE`, `UPDATE`, `SET`, `INSERT`, `MODIFY` and the like, and the destroy words), unless it also holds a destroy word other than `ARCHIVE`, `REPLACE` or `OVERWRITE`. So `GOOGLECALENDAR_ACL_LIST` and `TRELLO_MEMBER_GET_BOARDS_BY_ID_MEMBER` are reads, and `SLACK_SET_SLACK_LIST_ACCESS` and `TRELLO_ARCHIVE_ALL_LIST_CARDS` ask. The brief's narrower rule, a read word only first or last, would have made the Trello read ask.
 
-Measured on the tool names in the public tool pages of 18 apps (Gmail, Google Drive, Calendar, Docs, Sheets, GitHub, Notion, Slack, Outlook, Dropbox, HubSpot, Asana, Trello, Jira, X, Figma, Box, LinkedIn; 3,766 names, `docs.composio.dev/toolkits/<app>.md` on 16 November): 169 already asked as sends or payments, and 592 more ask now. The seven names this stage was found with are covered; `NOTION_ARCHIVE_PAGE` is not on Notion's current page but is covered by its words.
+It applies to connected-app calls only (`APP_ACTION` names and `mcp__composio__` tools), never to later.dog's own tools or an engine's. Inside `COMPOSIO_MULTI_EXECUTE_TOOL` each call is checked, whatever its capitals; a `COMPOSIO_` tool inside a batch (another batch, the workbench, the proxy) is treated as the proxy, which always asks.
 
-What it misses, by name: a call whose name holds none of these words but whose arguments make it a delete or a share (for example a repository update that sets `visibility`, or a generic `UPDATE` with a role); Trello's archive by update (`TRELLO_UPDATE_BOARDS_CLOSED_BY_ID_BOARD` and the same for cards and lists); blocking a person (`GITHUB_BLOCK_USER`); turning off a protection rule (`GITHUB_DISABLE_A_CUSTOM_PROTECTION_RULE_FOR_AN_ENVIRONMENT`); and engine tools from other MCP servers. Cancelling, closing, locking and leaving are left out on purpose: they neither destroy nor change who can reach something. What it also catches: removing a reaction or a label, clearing a sheet's values, making or changing a role, and the event names of triggers (never called as tools).
+Measured on the tool names in the public tool pages of 18 apps (Gmail, Google Drive, Calendar, Docs, Sheets, GitHub, Notion, Slack, Outlook, Dropbox, HubSpot, Asana, Trello, Jira, X, Figma, Box, LinkedIn; 3,766 names, `docs.composio.dev/toolkits/<app>.md` on 16 November), by name alone: 181 ask as sends or payments, and 625 as deletes or shares (592 at the first count, 26 more for the noun forms and the narrower read rule, 7 more for `REPLACE` and `OVERWRITE`). The argument checks add more that a count of names cannot show. The seven names this stage was found with are covered; `NOTION_ARCHIVE_PAGE` is not on Notion's current page but is covered by its words.
+
+Asks wrongly, accepted: `GOOGLECALENDAR_ACL_WATCH` (watches a calendar's sharing list), and three trigger names, which are never called as tools.
+
+What it still misses, named for a later round:
+- merging records (`HUBSPOT_MERGE_*`, 11 calls; one record is gone);
+- moving a file or sheet into a shared folder (`GOOGLEDRIVE_MOVE_FILE`, `GOOGLESHEETS_MOVE_SPREADSHEET_TO_FOLDER`) and moving a calendar event to another organizer (`GOOGLECALENDAR_EVENTS_MOVE`);
+- blocking a person (`GITHUB_BLOCK_USER`, `GITHUB_BLOCK_USER_FROM_ORGANIZATION`) and turning off a protection rule (`GITHUB_DISABLE_A_CUSTOM_PROTECTION_RULE_FOR_AN_ENVIRONMENT`);
+- resetting a token or sessions (`GITHUB_RESET_A_TOKEN`, `SLACK_RESET_USER_SESSIONS`);
+- an argument nested below the top level, and an argument key not on the list above;
+- tools from a server the person added themselves (`mcp__notion__…` and the like).
+
+`GITHUB_TRANSFER_A_REPOSITORY` asks, but as "pays or moves money", because `TRANSFER` is a payment word; and `GMAIL_ADD_LABEL_TO_EMAIL` asks as a send. Only the line on those cards is wrong. Cancelling, closing (by name), locking, leaving, unfollowing, unstarring and unpinning are left out on purpose: they neither destroy nor change who can reach something.
+
+What also asks now, and may annoy: rewriting a Google Doc (`GOOGLEDOCS_DELETE_CONTENT_RANGE`, `GOOGLEDOCS_REPLACE_ALL_TEXT`), removing a reaction or a star, clearing a sheet's filter, deleting a draft or an unsent scheduled message, and bookkeeping calls (`NOTION_DELETE_VIEW_QUERY`, `SLACK_REMOVE_CALL_PARTICIPANTS`, `BOX_REFRESH_ACCESS_TOKEN`, `BOX_REQUEST_ACCESS_TOKEN`). None is exempted; that is Jacob's to decide.
+
+On the lent Mac, the home reads and deletes its own capture file after `run_command` with `vault_capture` with its own trust: no card, for that file only.
 
 ## Other lasting answers checked, which need no change (H4)
 
