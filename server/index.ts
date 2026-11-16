@@ -15677,7 +15677,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
           ? (rpc.params as { name?: unknown; arguments?: unknown })
           : null;
         const outboundCalls = rpc?.method === "tools/call" && typeof rpcParams?.name === "string"
-          ? connectorCallsIn(rpcParams.name, rpcParams.arguments).filter((call) => asksAsConnector(call.slug))
+          ? connectorCallsIn(rpcParams.name, rpcParams.arguments).filter((call) => asksAsConnector(call.slug, call.arguments))
           : [];
         const outboundTool = outboundCalls.length ? outboundCalls[0].slug : null;
         const refuseOutbound = (text: string) => {
@@ -15700,7 +15700,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
           connected: serviceSlugs,
           alwaysAllow: botForThread(sender.id, internalCapability.threadId)?.alwaysAllow,
           ownerSends: ownerSendsWithoutAsking(sourceApprovalMode(sender.id, internalCapability.threadId), ownerAutoScope(internalCapability.threadId)),
-          alwaysAsks: connectorAlwaysAsks(outboundCalls.map((call) => call.slug)) !== null,
+          alwaysAsks: connectorAlwaysAsks(outboundCalls) !== null,
           skipped: (toolkit) => connectorSkips.has(internalCapability.threadId, internalCapability.generation, toolkit),
           allowedThisTurn: (toolkit) => connectorAllows.has(internalCapability.threadId, internalCapability.generation, toolkit),
         });
@@ -15741,7 +15741,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
                 options: ["Allow", "Deny"],
                 requestId: held.requestId,
                 tool: outboundTool,
-                ...(connectorAlwaysAsks(outboundCalls.map((call) => call.slug)) !== null
+                ...(connectorAlwaysAsks(outboundCalls) !== null
                   ? { lasting: { offered: false as const, why: "always-asks" as const } }
                   : decision.toolkit ? { allowKey: connectorAllowKey(decision.toolkit) } : {}),
                 held: HELD_NOTE["approval.held.outbound"],

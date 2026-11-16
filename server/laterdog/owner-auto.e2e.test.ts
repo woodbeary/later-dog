@@ -541,6 +541,24 @@ it("a delete inside a batch whatever its capitals, a batch inside a batch, and t
   }
 }, 60_000);
 
+it("a Gmail change that adds the TRASH label shows a card with no Always, and one that adds another label runs, for an owner dog", async () => {
+  await autoReview(false);
+  const dog = await newDog("Labeller", "auto");
+  const token = await mintConnectors(dog.id, dog.threadId);
+  const starred = relayed.length;
+  expect((await relay(token, "GMAIL_BATCH_MODIFY_MESSAGES", { messageIds: ["m-1"], addLabelIds: ["STARRED"] })).body.result.isError).toBeFalsy();
+  expect(relayed).toHaveLength(starred + 1);
+  expect(await sendCards(dog.threadId)).toHaveLength(0);
+  const before = relayed.length;
+  const asked = relay(token, "GMAIL_BATCH_MODIFY_MESSAGES", { messageIds: ["m-1"], addLabelIds: ["TRASH"] });
+  await expect.poll(async () => (await sendCards(dog.threadId)).length, { timeout: 10_000, message: "the TRASH label showed no card" }).toBe(1);
+  const [card] = await sendCards(dog.threadId);
+  expect(card.card.lasting).toEqual({ offered: false, why: "always-asks" });
+  await api("POST", `/api/threads/${dog.threadId}/respond`, { requestId: card.card.requestId, behavior: "deny" });
+  expect((await asked).body.result.isError).toBe(true);
+  expect(relayed).toHaveLength(before);
+}, 60_000);
+
 it("a read, and an ordinary create, through a connected app still run with no card for an owner dog", async () => {
   await autoReview(false);
   const dog = await newDog("Reader", "auto");

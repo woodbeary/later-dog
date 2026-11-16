@@ -296,6 +296,22 @@ describe("deleting something or changing who can reach it from a connected app a
     }
   });
 
+  it("asks when a Gmail change adds the TRASH label, by the value and not the name", () => {
+    const gate = (name: string, args: unknown) => {
+      const calls = connectorCallsIn(name, args).filter((call) => asksAsConnector(call.slug, call.arguments));
+      return calls.length ? connectorAlwaysAsks(calls)?.id ?? null : null;
+    };
+    expect(gate("GMAIL_BATCH_MODIFY_MESSAGES", { messageIds: ["m-1"], addLabelIds: ["TRASH"] })).toBe("deletes-or-shares");
+    expect(gate("GMAIL_MODIFY_THREAD_LABELS", { thread_id: "t-1", add_label_ids: ["STARRED", "trash"] })).toBe("deletes-or-shares");
+    expect(gate("GMAIL_ADD_LABEL_TO_EMAIL", { message_id: "m-1", add_label_ids: ["TRASH"] })).not.toBeNull();
+    expect(gate("COMPOSIO_MULTI_EXECUTE_TOOL", { tools: [{ tool_slug: "GMAIL_BATCH_MODIFY_MESSAGES", arguments: { messageIds: ["m-1"], addLabelIds: ["TRASH"] } }] })).toBe("deletes-or-shares");
+    expect(alwaysAsks({ tool: "mcp__composio__GMAIL_BATCH_MODIFY_MESSAGES", input: { messageIds: ["m-1"], addLabelIds: ["TRASH"] } }, guard)?.id).toBe("deletes-or-shares");
+    expect(gate("GMAIL_BATCH_MODIFY_MESSAGES", { messageIds: ["m-1"], addLabelIds: ["STARRED"], removeLabelIds: ["TRASH"] })).toBeNull();
+    expect(gate("GMAIL_MODIFY_THREAD_LABELS", { thread_id: "t-1", add_label_ids: ["IMPORTANT"] })).toBeNull();
+    expect(gate("GMAIL_BATCH_MODIFY_MESSAGES", { messageIds: ["m-1"] })).toBeNull();
+    expect(gate("GMAIL_FETCH_EMAILS", { label_ids: ["TRASH"] })).toBeNull();
+  });
+
   it("is not answered in Full by the owner's standing yes, the app's old Always or this turn's Allow", () => {
     const never = () => false;
     for (const slug of SEVEN) {

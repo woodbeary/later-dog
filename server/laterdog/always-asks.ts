@@ -1,6 +1,6 @@
 import { posix } from "node:path";
 import { ALWAYS_ASK_IDS, type AlwaysAskId } from "../../shared/always-asks.ts";
-import { actionTokens, isOutboundTool } from "../../shared/outbound.ts";
+import { actionTokens, isOutboundTool, type ConnectorCall } from "../../shared/outbound.ts";
 import { COMPUTER_RUN_PATH } from "../routes/computer-run.ts";
 import { isShell } from "./home-signals.ts";
 import { apiCall, apiRefMove, codeLiterals, deletesOutsideWorkspace, isShellTool, shellSteps, type OwnerGuardContext, type ShellStep, type ShellWord } from "./owner-guard.ts";
@@ -50,6 +50,7 @@ interface Seen {
   page?: string;
   writes: string[];
   deletes: string[];
+  input?: Record<string, unknown>;
 }
 
 const MAC_HOME = "/~";
@@ -70,7 +71,7 @@ function seenOf(request: AlwaysAskRequest): Seen {
   const input = request.input ?? {};
   const name = bareName(request.tool);
   const server = serverOf(request.tool);
-  const base: Seen = { tool: request.tool, place: "home", writes: [], deletes: [] };
+  const base: Seen = { tool: request.tool, place: "home", writes: [], deletes: [], ...(request.input ? { input: request.input } : {}) };
   if (isShellTool(request.tool)) return { ...base, shell: request.command ?? text(input.command) ?? request.summary };
   if ((server === "computer" && name === "exec") || name === "run_on_computer") {
     return { ...base, place: "own-computer", shell: text(input.command) ?? request.command ?? request.summary };
@@ -371,14 +372,35 @@ function readsByName(tokens: readonly string[]): boolean {
 const CONNECTOR_SLUG = /^[A-Z][A-Z0-9]*_[A-Z0-9_]+$/;
 const COMPOSIO_SERVER = "mcp__composio__";
 
-function deletesOrShares(tool: string): boolean {
-  if (tool.startsWith("mcp__") && !tool.startsWith(COMPOSIO_SERVER)) return false;
+function connectorSlug(tool: string): string | null {
+  if (tool.startsWith("mcp__") && !tool.startsWith(COMPOSIO_SERVER)) return null;
   const slug = (tool.startsWith(COMPOSIO_SERVER) ? tool.slice(COMPOSIO_SERVER.length) : tool).toUpperCase();
-  if (!CONNECTOR_SLUG.test(slug) || slug.startsWith("COMPOSIO_")) return false;
-  const tokens = actionTokens(slug);
-  if (!tokens.length || READ_VERBS.has(tokens[0]!)) return false;
-  if (readsByName(tokens)) return false;
+  return CONNECTOR_SLUG.test(slug) && !slug.startsWith("COMPOSIO_") ? slug : null;
+}
+
+function writingTokens(tool: string): string[] | null {
+  const slug = connectorSlug(tool);
+  const tokens = slug ? actionTokens(slug) : [];
+  return tokens.length && !READ_VERBS.has(tokens[0]!) ? tokens : null;
+}
+
+function deletesOrShares(tool: string): boolean {
+  const tokens = writingTokens(tool);
+  if (!tokens || readsByName(tokens)) return false;
   return tokens.some((token) => DESTROY_TOKENS.has(token) || REACH_TOKENS.has(token));
+}
+
+const keyWords = (key: string) => key.toLowerCase().replace(/[^a-z]/g, "");
+const isRecord = (value: unknown): value is Record<string, unknown> => Boolean(value) && typeof value === "object" && !Array.isArray(value);
+
+function addsTrashLabel(tool: string, args: unknown): boolean {
+  if (!connectorSlug(tool)?.startsWith("GMAIL_") || !writingTokens(tool) || !isRecord(args)) return false;
+  return Object.entries(args).some(([key, value]) => /add.*label|label.*add/.test(keyWords(key))
+    && [value].flat().some((label) => typeof label === "string" && label.trim().toUpperCase() === "TRASH"));
+}
+
+function callDeletesOrShares(tool: string, args: unknown): boolean {
+  return deletesOrShares(tool) || addsTrashLabel(tool, args);
 }
 
 function appOf(tool: string): string {
@@ -395,11 +417,12 @@ function actsAsYou(tool: string): AlwaysAskId | null {
   return REPOSITORY_APPS.has(appOf(tool)) ? null : "sends-for-you";
 }
 
-export function connectorAlwaysAsks(slugs: readonly string[]): AlwaysAsk | null {
-  const ids = slugs.map(actsAsYou);
+export function connectorAlwaysAsks(calls: readonly (string | ConnectorCall)[]): AlwaysAsk | null {
+  const each = calls.map((call) => (typeof call === "string" ? { slug: call } : call));
+  const ids = each.map((call) => actsAsYou(call.slug));
   if (ids.includes("pays")) return found("pays");
   if (ids.includes("sends-for-you")) return found("sends-for-you");
-  return slugs.some(deletesOrShares) ? found("deletes-or-shares") : null;
+  return each.some((call) => callDeletesOrShares(call.slug, call.arguments)) ? found("deletes-or-shares") : null;
 }
 
 function macGuard(cwd: string | undefined): OwnerGuardContext {
@@ -427,7 +450,7 @@ const RULES: Record<AlwaysAskId, Rule> = {
   },
   "sends-for-you": ({ tool }) => actsAsYou(tool) === "sends-for-you",
   "pays": ({ tool }) => actsAsYou(tool) === "pays",
-  "deletes-or-shares": ({ tool }) => deletesOrShares(tool),
+  "deletes-or-shares": ({ tool, input }) => callDeletesOrShares(tool, input),
 };
 
 export function alwaysAsks(request: AlwaysAskRequest, guard: () => OwnerGuardContext): AlwaysAsk | null {
@@ -464,6 +487,6 @@ export function internalCallRequest(path: string, body: unknown): AlwaysAskReque
   return server ? { tool: `mcp__${server}__${name}`, input: objectOf(params.arguments) } : null;
 }
 
-export function asksAsConnector(slug: string): boolean {
-  return isOutboundTool(slug) || actsAsYou(slug) !== null || deletesOrShares(slug);
+export function asksAsConnector(slug: string, args?: unknown): boolean {
+  return isOutboundTool(slug) || actsAsYou(slug) !== null || callDeletesOrShares(slug, args);
 }
