@@ -1283,6 +1283,7 @@
   "model.context.notLoaded": "Tools not loaded yet",
   "model.context.about": "about {tokens}",
   "model.context.asOf": "as of {ago}",
+  "model.context.compactsAt": "Summarizes earlier messages at {at}",
   "model.choose": "Choose model",
   "model.providerSwitch.title": "Switch model and reset to Heel?",
   "model.providerSwitch.threadBody": "Switch this chat to {model}? It goes back to Heel, and its saved approvals are cleared.",
