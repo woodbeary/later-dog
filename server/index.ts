@@ -135,6 +135,7 @@ import { HOME_HEALTH_FILE, startHomeHealthLog } from "./laterdog/home-health-log
 import { startMemoryGuard } from "./laterdog/memory-guard.ts";
 import { parseHelperModelChoice } from "./laterdog/helper-model.ts";
 import { makeSpace } from "./laterdog/space-maker.ts";
+import { liveStepsFrom } from "./laterdog/live-step.ts";
 import { createDiskBreakdown } from "./laterdog/disk-breakdown.ts";
 import { ComputerRuns } from "./laterdog/computer-runs.ts";
 import { HeavyCommandGuard, preToolUseDecision } from "./laterdog/heavy-commands.ts";
@@ -3639,12 +3640,13 @@ enginePlans.listen((threadId, items) => {
   dogPlans.set(threadId, items, store.botByThread(threadId)?.id);
   planChanged(threadId);
 });
+const liveSteps = liveStepsFrom(nativeRunDatabase);
 const wireTask = (task: TaskRecord, botModel: ModelSelection): WireTask => {
   const { snoozedUntil, ...base } = toWireTask(task, botModel, store.bots);
   const statusLine = liveStatusLine(task.threadId);
   const waiting = activeCoordinationForThread(task.threadId) && !task.busy;
   const helpers = task.busy ? 0 : helpersWorkingIn(task.threadId);
-  const coordinated = { ...base, ...(delegatedNeedsYou(task.threadId) ? { activity: "waiting-on-you" as const } : {}), waitingForTeammates: waiting, ...(waiting ? { waitingOn: teammatesAwaited(task.threadId) } : {}), ...(helpers ? { helpersWorking: helpers } : {}), ...(statusLine ? { statusLine } : {}), ...planOf(task.threadId) };
+  const coordinated = { ...base, ...(delegatedNeedsYou(task.threadId) ? { activity: "waiting-on-you" as const } : {}), waitingForTeammates: waiting, ...(waiting ? { waitingOn: teammatesAwaited(task.threadId) } : {}), ...(helpers ? { helpersWorking: helpers } : {}), ...(statusLine ? { statusLine } : {}), ...planOf(task.threadId), step: liveSteps.step(task.threadId) };
   coordinated.work = chatWork(task.threadId, Boolean(task.busy), coordinated.activity, coordinated.waitingOn, base.modelSelection ?? botModel);
   const asleep = snoozedUntil === 0 || (snoozedUntil !== undefined && snoozedUntil > Date.now());
   return asleep ? { ...coordinated, snoozedUntil } : coordinated;
@@ -3661,7 +3663,7 @@ const wireBot = (bot: BotRecord): WireBot => {
   const activity = delegatedNeedsYou(bot.threadId) ? "waiting-on-you" as const : visible.activity;
   const waitingOn = waiting ? teammatesAwaited(bot.threadId) : undefined;
   return { ...visible, ...(activity ? { activity } : {}), waitingForTeammates: waiting, ...(waitingOn ? { waitingOn } : {}), ...(helpers ? { helpersWorking: helpers } : {}),
-    work: chatWork(bot.threadId, busy, activity, waitingOn, bot.modelSelection), ...planOf(bot.threadId),
+    work: chatWork(bot.threadId, busy, activity, waitingOn, bot.modelSelection), step: liveSteps.step(bot.threadId), ...planOf(bot.threadId),
     avatarUrl: visible.avatarUrl ?? null, ...(tasks ? { tasks: tasks.map((task) => wireTask(task, bot.modelSelection)) } : {}) };
 };
 
