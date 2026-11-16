@@ -152,11 +152,12 @@ export class RoomHandoffs {
           if (n.status === "needs-you") continue;
           if (n.status === "source") { n.status = "waiting"; continue; }
           if (n.status !== "running") continue;
+          n.restarted = n.restarted === undefined;
           const children = this.awaited(n.id);
           const takenBack = n.startedAt !== undefined && takeBackResults(children, n.startedAt);
           if (children.some(c => !terminal(c))) n.status = takenBack ? "resume" : "waiting";
           else if (children.length) n.status = "resume";
-          else { n.status = "queued"; n.restarted = n.restarted === undefined; }
+          else n.status = "queued";
         }
         this.stampProgress(root);
         continue;
@@ -538,7 +539,7 @@ export class RoomHandoffs {
       if (this.hooks.busy(n)) continue;
       const root = this.root(n);
       const resumed = n.status === "resume";
-      const charged = !resumed && !n.restarted;
+      const charged = n.restarted === false || (!resumed && !n.restarted);
       if (charged && root.executions >= this.limits.executions) { this.cancelTree(n, this.limitWords(), "failed", "team-limit"); continue; }
       const childCount = this.awaited(n.id).length;
       if (charged) root.executions += 1;
