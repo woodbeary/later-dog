@@ -102,7 +102,7 @@ describe("a team task's limits", () => {
     }
     const runs = vi.mocked(hooks.run).mock.calls.filter(([node]) => node.id === crasher.id).length;
     expect(runs).toBe(6);
-    expect(home.nodes.get(crasher.id)).toMatchObject({ status: "failed", endedBy: "team-limit" });
+    expect(home.nodes.get(crasher.id)).toMatchObject({ status: "failed", endedBy: "restart", result: "later.dog restarted while this was running, so it was not picked up again." });
     expect(home.nodes.get("turn")?.executions).toBe(5);
   }));
 

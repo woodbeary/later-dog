@@ -2,7 +2,8 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, it } from "vitest";
-import { RoomHandoffs, type RoomHandoff, type RoomHandoffHooks } from "../room-handoffs.ts";
+import { RoomHandoffs, ROOM_HANDOFF_LIMITS, type RoomHandoff, type RoomHandoffHooks } from "../room-handoffs.ts";
+import { endWords } from "./handoff-budget.ts";
 import type { HandoffRunResult } from "./long-work.ts";
 import { removeTempDir } from "../testing/cleanup.ts";
 
@@ -30,7 +31,10 @@ it("a coordinator wake that takes the home down every time is not re-run without
       engine.tick(); await flush();
     }
     expect(runs.wake).toBeLessThan(60);
-    expect(engine.nodes.get("turn")?.status).not.toBe("running");
+    const root = engine.nodes.get("turn")!;
+    expect(root).toMatchObject({ status: "failed", endedBy: "restart" });
+    expect(root.result).toBe(endWords("restart", ROOM_HANDOFF_LIMITS));
+    expect(root.result).not.toMatch(/team reached its limit|Not started/);
   } finally { await removeTempDir(dir); }
 });
 
@@ -65,3 +69,4 @@ it("one honest restart in the middle of a tree re-runs its running helper free, 
     expect(runs.filter(run => run === "slow")).toHaveLength(2);
   } finally { await removeTempDir(dir); }
 });
+

@@ -551,7 +551,11 @@ export class RoomHandoffs {
       const root = this.root(n);
       const resumed = n.status === "resume";
       const charged = n.restarted === false || (!resumed && !n.restarted);
-      if (charged && root.executions >= this.limits.executions) { this.cancelTree(n, this.limitWords(), "failed", "team-limit"); continue; }
+      if (charged && root.executions >= this.limits.executions) {
+        if (n.restarted === false) this.cancelTree(n, endWords("restart", this.limits), "failed", "restart");
+        else this.cancelTree(n, this.limitWords(), "failed", "team-limit");
+        continue;
+      }
       const childCount = this.awaited(n.id).length;
       if (charged) root.executions += 1;
       n.status = "running"; n.startedAt = Math.max(this.now(), (n.startedAt ?? -1) + 1);
