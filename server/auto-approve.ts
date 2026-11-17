@@ -53,7 +53,6 @@ export function autoVerdict(
   tool: string,
   context?: {
     requiresExplicitApproval?: boolean;
-    commandAllowed?: boolean;
   },
 ): AutoVerdict {
   if (ASKS_A_PERSON.has(bareToolName(tool))) {
@@ -62,7 +61,6 @@ export function autoVerdict(
   if (mode === "full") return { approve: `approved ${tool} (full access)`, source: "full-access" };
   if (context?.requiresExplicitApproval) return { approve: null, source: "explicit-approval-block" };
   if (isOutboundTool(tool)) return { approve: null, source: "outbound-guard" };
-  if (context?.commandAllowed) return { approve: `approved ${tool} (saved command)`, source: "command-allowlist" };
   if (mode === "auto" && WEB_SEARCH.has(bareToolName(tool))) {
     return { approve: `approved ${tool} (web search)`, source: "web-search" };
   }
