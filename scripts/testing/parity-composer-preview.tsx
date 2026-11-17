@@ -51,7 +51,7 @@ const SCENES: Scene[] = [
   { name: "usage-weekly-75", usage: { weekly: 76, fiveHour: 20 } },
   { name: "usage-weekly-90", usage: { weekly: 92, fiveHour: 20 } },
   { name: "usage-five-hour", usage: { weekly: 40, fiveHour: 81 } },
-  { name: "question", busy: true, above: "question" },
+  { name: "question", busy: true, above: "question", messages: [question] },
   { name: "permission", busy: true, messages: [permission()] },
   { name: "settled", above: "settled" },
 ];
@@ -76,7 +76,7 @@ window.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
 };
 localStorage.clear();
 
-const name = scene.above === "question" || scene.messages || scene.above === "settled" ? "Otis" : "Juniper";
+const name = scene.messages || scene.above === "settled" ? "Otis" : "Juniper";
 const dog: Bot = {
   id: "dog", threadId: "thread-dog", name, title: "", description: "", notifications: true, color: "green", unread: false,
   modelSelection: { instanceId: "claude", model: "claude-sonnet-5" }, avatarUrl: null, createdAt: NOW - 3 * HOUR,
