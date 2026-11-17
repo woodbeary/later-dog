@@ -50,7 +50,7 @@ describe("bubbles in the transcript", () => {
     expect(person).toContain("text-[16px] leading-6");
     expect(person).toContain("px-[14px] py-2");
     expect(person).toContain("rounded-[20px]");
-    expect(dog).toContain("bg-[var(--color-bubble,var(--color-card))]");
+    expect(dog).toContain("bg-[var(--color-bubble)]");
     expect(markup).not.toContain("data-dog-tint");
   });
 
