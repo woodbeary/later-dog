@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { NativeActor, NativeRun } from "../../shared/native-runs";
 import { liveStep, stepPhrase } from "../../shared/step-words";
 import { sideJobCount, workLine } from "./work-line";
+import { en } from "@/locales";
 
 const parent: NativeActor = { id: "parent", kind: "parent", label: "Juniper", state: "running", startedAt: 0 };
 
@@ -49,6 +50,11 @@ describe("the working line under the last message", () => {
 
   it("says what holds the turn when the dog itself is waiting", () => {
     const waiting = run({ actors: [{ ...parent, state: "waiting" }], currentActivity: undefined });
+    const words = en as Record<string, string>;
+    expect(words["workLine.usage"]).toBe("Waiting for usage");
+    expect(words["workLine.computer"]).toBe("Waiting for its computer");
+    expect(words["workLine.retrying"]).toBe("Trying again");
+    expect(words["workLine.sideJobs"]).toBe("Waiting on {sideJobs}");
     expect(workLine({ working: true, run: waiting, sideJobs: 2, now: 0 })).toEqual({ kind: "waiting", text: "Waiting on 2 side jobs" });
     expect(workLine({ working: true, work: { kind: "waiting-for-usage" }, sideJobs: 0, now: 0 })).toEqual({ kind: "waiting", text: "Waiting for usage" });
     expect(workLine({ working: true, work: { kind: "waiting-for-computer" }, sideJobs: 0, now: 0 })).toEqual({ kind: "waiting", text: "Waiting for its computer" });

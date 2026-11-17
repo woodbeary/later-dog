@@ -1,6 +1,8 @@
 import type { NativeRun } from "../../shared/native-runs";
 import type { WorkState } from "../../shared/work-state";
 import { ageWords, helpersLine, liveStep, sideJobsWords, stepPhrase, type LiveStep } from "../../shared/step-words";
+import { t } from "./i18n";
+import type { LocaleKey } from "@/locales";
 
 export type WorkLine =
   | { kind: "step"; stepId: string; phrase: string; age: string | null; sideJobs: string | null }
@@ -16,10 +18,10 @@ export interface WorkLineInput {
   now: number;
 }
 
-const WAITING: Partial<Record<WorkState["kind"], string>> = {
-  "waiting-for-usage": "Waiting for usage",
-  "waiting-for-computer": "Waiting for its computer",
-  retrying: "Trying again",
+const WAITING: Partial<Record<WorkState["kind"], LocaleKey>> = {
+  "waiting-for-usage": "workLine.usage",
+  "waiting-for-computer": "workLine.computer",
+  retrying: "workLine.retrying",
 };
 
 export function sideJobCount(run: NativeRun | undefined, work: WorkState | undefined): number {
@@ -40,9 +42,9 @@ export function workLine({ working, run, step, work, sideJobs, now }: WorkLineIn
     return helpers.needsYou && asking ? { kind: "helpers", text: helpers.text, needsYou: true, open: asking.id } : { kind: "helpers", text: helpers.text, needsYou: false };
   }
   const waiting = work ? WAITING[work.kind] : undefined;
-  if (waiting) return { kind: "waiting", text: waiting };
+  if (waiting) return { kind: "waiting", text: t(waiting) };
   if (!working || (work && work.kind !== "running")) return null;
-  if (heldBySideJobs(run, sideJobs)) return { kind: "waiting", text: `Waiting on ${sideJobsWords(sideJobs)}` };
+  if (heldBySideJobs(run, sideJobs)) return { kind: "waiting", text: t("workLine.sideJobs", { sideJobs: sideJobsWords(sideJobs) }) };
   const current = liveStep(run) ?? step ?? null;
   if (!current) return null;
   return {
