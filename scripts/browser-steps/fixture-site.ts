@@ -72,6 +72,12 @@ function secureSignIn(): string {
 <label for="code">One-time code</label><input id="code" name="code" inputmode="numeric" autocomplete="one-time-code">
 <label for="card">Card number</label><input id="card" name="card" type="tel" autocomplete="cc-number">
 <div id="notes" role="textbox" aria-label="Notes" contenteditable="true"></div>
+<label>Diary <div id="diary" contenteditable="true"></div></label>
+<label for="address">Address</label><textarea id="address" name="address"></textarea>
+<script>document.getElementById("address").addEventListener("input", (event) => { event.target.defaultValue = event.target.value; });</script>
+<label>Tags <input id="tags" name="tags"><div id="tags-mirror" style="position:absolute;visibility:hidden;height:0;white-space:pre"></div></label>
+<label for="bio">Bio <span id="bio-mirror" style="display:none"></span></label><textarea id="bio" name="bio"></textarea>
+<script>for (const id of ["tags", "bio"]) document.getElementById(id).addEventListener("input", (event) => { document.getElementById(id + "-mirror").textContent = event.target.value; });</script>
 <p><button type="submit">Continue</button></p></form>`);
 }
 
