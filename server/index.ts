@@ -15913,7 +15913,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
               );
             }
             outboundApproved = true;
-            if (decision.toolkit) connectorAllows.add(threadId, internalCapability.generation, [decision.toolkit]);
+            if (decision.toolkit && connectorAlwaysAsks(outboundCalls) === null) connectorAllows.add(threadId, internalCapability.generation, [decision.toolkit]);
             requireActiveInternalCapability();
           }
         }

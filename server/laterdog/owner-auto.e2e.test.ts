@@ -440,6 +440,28 @@ it("lists an app's Always granted on a second chat only, and Remove takes it out
   expect((await record()).tasks.find((task: any) => task.threadId === second).alwaysAllow ?? []).not.toContain("connector:github");
 }, 60_000);
 
+it("Allow once on a connected-app card that always asks covers that call only, so the app's next asking call shows its own card", async () => {
+  await autoReview(true);
+  const dog = await newDog("Once only", "ask");
+  const token = await mintConnectors(dog.id, dog.threadId);
+  const before = relayed.length;
+  const deleted = relay(token, "GITHUB_DELETE_A_REPOSITORY", { owner: "o", repo: "r" });
+  await expect.poll(async () => (await sendCards(dog.threadId)).length, { timeout: 10_000 }).toBe(1);
+  const [first] = await sendCards(dog.threadId);
+  expect(first.card.lasting).toEqual({ offered: false, why: "always-asks" });
+  await api("POST", `/api/threads/${dog.threadId}/respond`, { requestId: first.card.requestId, behavior: "allow" });
+  expect((await deleted).body.result.isError).toBeFalsy();
+  expect(relayed).toHaveLength(before + 1);
+  const commented = relay(token, "GITHUB_CREATE_AN_ISSUE_COMMENT", { owner: "o", repo: "r", issue_number: 1, body: "Thanks." });
+  await expect.poll(async () => (await sendCards(dog.threadId)).length, { timeout: 10_000, message: "the comment ran on the delete's Allow once" }).toBe(2);
+  const second = (await sendCards(dog.threadId)).at(-1);
+  expect(second.card.tool).toBe("GITHUB_CREATE_AN_ISSUE_COMMENT");
+  expect(relayed).toHaveLength(before + 1);
+  await api("POST", `/api/threads/${dog.threadId}/respond`, { requestId: second.card.requestId, behavior: "deny" });
+  expect((await commented).body.result.isError).toBe(true);
+  expect(relayed).toHaveLength(before + 1);
+}, 60_000);
+
 const DELETES_OR_SHARES = [
   ["GMAIL_DELETE_MESSAGE", { message_id: "m-1" }],
   ["GMAIL_MOVE_TO_TRASH", { message_id: "m-2" }],
