@@ -121,3 +121,12 @@ describe("one step and the titles", () => {
     expect(panelTitle({ kind: "side-jobs", threadId: "t1" }, "Juniper")).toBe("Side jobs");
   });
 });
+
+describe("finished side jobs", () => {
+  it("never says a finished job is still going", () => {
+    const done = { id: "j2", title: "Built the preview", state: "succeeded", startedAt: new Date(NOW - 46 * 60_000).toISOString(), updatedAt: new Date(NOW - 40 * 60_000).toISOString(), finishedAt: new Date(NOW - 40 * 60_000).toISOString(), stoppable: false } as unknown as CloudTaskSummary;
+    const card = sideJobCards(run(), [done], NOW).finished[0]!;
+    expect(card.meta).not.toMatch(/Going/);
+    expect(card.meta).toBe("Last moved 40 min ago");
+  });
+});

@@ -110,14 +110,14 @@ export function sideJobCards(run: NativeRun | undefined, jobs: readonly CloudTas
     const startedAt = timeOf(job.startedAt) ?? timeOf(job.createdAt) ?? now;
     const lastActivityAt = timeOf(job.updatedAt) ?? startedAt;
     const finished = Boolean(job.finishedAt);
-    cards.push({ id: `job:${job.id}`, title: job.title, meta: sideJobMeta(startedAt, lastActivityAt, now), glyph: "cloud", canStop: !finished && job.stoppable, startedAt, lastActivityAt, finished, ...(job.stage ? { doing: job.stage } : {}) });
+    cards.push({ id: `job:${job.id}`, title: job.title, meta: finished ? lastMovedLine(now - lastActivityAt) : sideJobMeta(startedAt, lastActivityAt, now), glyph: "cloud", canStop: !finished && job.stoppable, startedAt, lastActivityAt, finished, ...(job.stage ? { doing: job.stage } : {}) });
   }
   for (const actor of run?.actors ?? []) {
     if (!sideActor(actor)) continue;
     const lastActivityAt = actor.lastActivityAt ?? actor.startedAt;
     const finished = FINISHED.has(actor.state);
     const doing = actor.activity ?? actor.summary ?? actor.task;
-    cards.push({ id: `actor:${actor.id}`, title: actor.label, meta: sideJobMeta(actor.startedAt, lastActivityAt, now), glyph: actor.kind === "subagent" ? "paw" : "play", canStop: false, startedAt: actor.startedAt, lastActivityAt, finished, ...(doing ? { doing } : {}) });
+    cards.push({ id: `actor:${actor.id}`, title: actor.label, meta: finished ? lastMovedLine(now - lastActivityAt) : sideJobMeta(actor.startedAt, lastActivityAt, now), glyph: actor.kind === "subagent" ? "paw" : "play", canStop: false, startedAt: actor.startedAt, lastActivityAt, finished, ...(doing ? { doing } : {}) });
   }
   const today = startOfToday(now);
   return {
