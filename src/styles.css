@@ -113,6 +113,7 @@
   --color-chart-4: #c98500;
 
   --color-lift: #1c1c1e;
+  --color-menu-row: #262626;
   --color-bubble: #f7eaea0e;
   --color-disc: #5c5c5c;
   --color-wash: #7676803d;
@@ -174,6 +175,7 @@
   --color-chart-4: #c98500;
 
   --color-lift: #1c1c1e;
+  --color-menu-row: #262626;
   --color-bubble: #f7eaea0e;
   --color-disc: #5c5c5c;
   --color-wash: #7676803d;
@@ -230,6 +232,7 @@
   --color-chart-4: #eda100;
 
   --color-lift: var(--color-composer);
+  --color-menu-row: color-mix(in srgb, var(--color-ink) 7%, var(--color-lift));
   --color-bubble: color-mix(in srgb, var(--color-ink) 5%, var(--color-app));
   --color-disc: color-mix(in srgb, var(--color-ink) 7%, var(--color-app));
   --color-wash: color-mix(in srgb, var(--color-ink) 12%, transparent);
@@ -287,6 +290,7 @@
   --color-chart-4: #c98500;
 
   --color-lift: color-mix(in srgb, var(--color-ink) 9%, var(--color-app));
+  --color-menu-row: color-mix(in srgb, var(--color-ink) 7%, var(--color-lift));
   --color-bubble: color-mix(in srgb, var(--color-ink) 5%, var(--color-app));
   --color-disc: color-mix(in srgb, var(--color-ink) 34%, var(--color-app));
   --color-wash: color-mix(in srgb, var(--color-ink) 22%, transparent);
@@ -344,6 +348,7 @@
   --color-chart-4: #eda100;
 
   --color-lift: var(--color-composer);
+  --color-menu-row: color-mix(in srgb, var(--color-ink) 7%, var(--color-lift));
   --color-bubble: color-mix(in srgb, var(--color-ink) 5%, var(--color-app));
   --color-disc: color-mix(in srgb, var(--color-ink) 7%, var(--color-app));
   --color-wash: color-mix(in srgb, var(--color-ink) 12%, transparent);
@@ -401,6 +406,7 @@
   --color-chart-4: #c98500;
 
   --color-lift: color-mix(in srgb, var(--color-ink) 9%, var(--color-app));
+  --color-menu-row: color-mix(in srgb, var(--color-ink) 7%, var(--color-lift));
   --color-bubble: color-mix(in srgb, var(--color-ink) 5%, var(--color-app));
   --color-disc: color-mix(in srgb, var(--color-ink) 34%, var(--color-app));
   --color-wash: color-mix(in srgb, var(--color-ink) 22%, transparent);
@@ -458,6 +464,7 @@
   --color-chart-4: #eda100;
 
   --color-lift: var(--color-composer);
+  --color-menu-row: color-mix(in srgb, var(--color-ink) 7%, var(--color-lift));
   --color-bubble: color-mix(in srgb, var(--color-ink) 5%, var(--color-app));
   --color-disc: color-mix(in srgb, var(--color-ink) 7%, var(--color-app));
   --color-wash: color-mix(in srgb, var(--color-ink) 12%, transparent);
@@ -515,6 +522,7 @@
   --color-chart-4: #c98500;
 
   --color-lift: color-mix(in srgb, var(--color-ink) 9%, var(--color-app));
+  --color-menu-row: color-mix(in srgb, var(--color-ink) 7%, var(--color-lift));
   --color-bubble: color-mix(in srgb, var(--color-ink) 5%, var(--color-app));
   --color-disc: color-mix(in srgb, var(--color-ink) 34%, var(--color-app));
   --color-wash: color-mix(in srgb, var(--color-ink) 22%, transparent);
@@ -572,6 +580,7 @@
   --color-chart-4: #eda100;
 
   --color-lift: #ffffff;
+  --color-menu-row: #eeeeee;
   --color-bubble: #1010000b;
   --color-disc: #eeeeee;
   --color-wash: #7676801f;
@@ -628,6 +637,7 @@
   --color-chart-4: #eda100;
 
   --color-lift: var(--color-composer);
+  --color-menu-row: color-mix(in srgb, var(--color-ink) 7%, var(--color-lift));
   --color-bubble: color-mix(in srgb, var(--color-ink) 5%, var(--color-app));
   --color-disc: color-mix(in srgb, var(--color-ink) 7%, var(--color-app));
   --color-wash: color-mix(in srgb, var(--color-ink) 12%, transparent);

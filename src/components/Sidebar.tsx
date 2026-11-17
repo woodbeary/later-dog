@@ -379,7 +379,7 @@ function RoomContextMenu({
           onClose();
           onMoveToSection(group.id);
         }}
-        className="popover-menu-row text-ink hover:bg-card"
+        className="popover-menu-row text-ink hover:bg-menu-row"
       >
         <FolderPlus size={16} className="text-ink-secondary" />
         {t("sidebar.section.moveToContext")}
@@ -389,7 +389,7 @@ function RoomContextMenu({
           dispatch({ type: "patchGroup", groupId: group.id, patch: { unread: !group.unread } });
           onClose();
         }}
-        className="popover-menu-row text-ink hover:bg-card"
+        className="popover-menu-row text-ink hover:bg-menu-row"
       >
         {group.unread ? <Bell size={16} className="text-ink-secondary" /> : <BellDot size={16} className="text-ink-secondary" />}
         {group.unread ? t("sidebar.bot.markRead") : t("sidebar.bot.markUnread")}
@@ -440,7 +440,7 @@ function RoomContextMenu({
             setDraft(group.name);
             setRenaming(true);
           }}
-          className="popover-menu-row text-ink hover:bg-card"
+          className="popover-menu-row text-ink hover:bg-menu-row"
         >
           <Pencil size={16} className="text-ink-secondary" />
           {t("sidebar.room.renameChannel")}
@@ -451,7 +451,7 @@ function RoomContextMenu({
           void copyConversationId(group.threadId);
           onClose();
         }}
-        className="popover-menu-row text-ink hover:bg-card"
+        className="popover-menu-row text-ink hover:bg-menu-row"
       >
         <ClipboardCopy size={16} className="text-ink-secondary" />
         {t("sidebar.copyConversationId")}
@@ -461,7 +461,7 @@ function RoomContextMenu({
           onClose();
           onDelete(group.id);
         }}
-        className="popover-menu-row text-danger hover:bg-card"
+        className="popover-menu-row text-danger hover:bg-menu-row"
       >
         <Trash2 size={16} />
         {t("sidebar.room.deleteChannel")}
@@ -551,7 +551,7 @@ export function SectionPicker({
               onClick={() => assign(section)}
               className={cn(
                 "popover-menu-row justify-between",
-                section === sectionCurrent ? "bg-card text-ink" : "text-ink hover:bg-card",
+                section === sectionCurrent ? "bg-menu-row text-ink" : "text-ink hover:bg-menu-row",
               )}
             >
               <span className="truncate">{section}</span>
@@ -593,7 +593,7 @@ export function SectionPicker({
           <div className="mx-2 my-1 border-t border-hairline/40" />
           <button
             onClick={() => assign("")}
-            className="popover-menu-row text-danger hover:bg-card"
+            className="popover-menu-row text-danger hover:bg-menu-row"
           >
             <FolderMinus size={15} />
             {t("sidebar.section.removeFromContext")}
@@ -680,7 +680,7 @@ export function BotContextMenu({
         onClose();
       }}
       className={cn(
-        "popover-menu-row hover:bg-card",
+        "popover-menu-row hover:bg-menu-row",
         opts?.danger ? "text-danger" : "text-ink",
       )}
     >
@@ -760,7 +760,7 @@ export function BotDeleteMenuItem({ deleting, onClick }: { deleting: boolean; on
       title={deleting ? t("sidebar.bot.deleteCheckingTitle") : undefined}
       className={cn(
         "popover-menu-row text-danger",
-        deleting ? "cursor-default opacity-40" : "hover:bg-card",
+        deleting ? "cursor-default opacity-40" : "hover:bg-menu-row",
       )}
     >
       {deleting ? <Loader2 size={16} className="animate-spin" /> : <Trash2 size={16} />}
@@ -1069,7 +1069,7 @@ export function SectionMenuItems({ onRename, onDelete }: {
   onRename: () => void;
   onDelete: () => void;
 }) {
-  const item = "popover-menu-row hover:bg-card";
+  const item = "popover-menu-row hover:bg-menu-row";
   return (
     <>
       <button type="button" role="menuitem" autoFocus className={item} onClick={onRename}><Pencil size={14} />{t("section.rename")}</button>

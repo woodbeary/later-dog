@@ -220,7 +220,7 @@ export function SidebarPopoverMenu({
             className={cn(
               "popover-menu-row disabled:opacity-60",
               item.action && "pr-12",
-              item.active ? "bg-card text-ink" : "text-ink hover:bg-card",
+              item.active ? "bg-menu-row text-ink" : "text-ink hover:bg-menu-row",
             )}
           >
             {item.icon && (

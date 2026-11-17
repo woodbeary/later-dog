@@ -5,6 +5,7 @@ import { createElement } from "react";
 import { flushSync } from "react-dom";
 import { createRoot } from "react-dom/client";
 import { describe, expect, it, vi } from "vitest";
+import { SKIN_IDS } from "../lib/skins";
 
 vi.mock("./MenuMotion", () => ({ useMenuMotion: () => ({ shown: true, exitProps: {}, className: "animate-pop-in" }) }));
 vi.mock("@/hooks/use-popover-dismiss", () => ({ usePopoverDismiss: () => {} }));
@@ -21,6 +22,34 @@ function rule(selector: string): Record<string, string> {
 function skinTokens(id: string): Record<string, string> {
   const body = styles.match(new RegExp(`\\[data-skin="${id}"\\]\\s*\\{([^}]*)\\}`))?.[1] ?? "";
   return Object.fromEntries([...body.matchAll(/(--[\w-]+)\s*:\s*([^;]+);/g)].map(([, name, value]) => [name!, value!.trim().toLowerCase()]));
+}
+
+function themeTokens(): Record<string, string> {
+  const body = styles.match(/@theme\s*\{([^}]*)\}/)?.[1] ?? "";
+  return Object.fromEntries([...body.matchAll(/(--[\w-]+)\s*:\s*([^;]+);/g)].map(([, name, value]) => [name!, value!.trim().toLowerCase()]));
+}
+
+type Rgb = [number, number, number];
+function resolveColour(value: string, tokens: Record<string, string>): Rgb {
+  const hex = /^#([0-9a-f]{6})$/.exec(value)?.[1];
+  if (hex) return [0, 2, 4].map((at) => parseInt(hex.slice(at, at + 2), 16)) as Rgb;
+  const reference = /^var\((--[\w-]+)\)$/.exec(value)?.[1];
+  if (reference) return resolveColour(tokens[reference]!, tokens);
+  const mix = /^color-mix\(in srgb,\s*(.+?)\s+([\d.]+)%,\s*(.+)\)$/.exec(value);
+  if (mix) {
+    const [first, second, share] = [resolveColour(mix[1]!, tokens), resolveColour(mix[3]!, tokens), Number(mix[2]) / 100];
+    return first.map((channel, index) => channel * share + second[index]! * (1 - share)) as Rgb;
+  }
+  throw new Error(`cannot resolve colour ${value}`);
+}
+
+function contrast(first: Rgb, second: Rgb): number {
+  const luminance = (rgb: Rgb) => {
+    const [r, g, b] = rgb.map((channel) => (channel / 255 <= 0.04045 ? channel / 255 / 12.92 : ((channel / 255 + 0.055) / 1.055) ** 2.4));
+    return 0.2126 * r! + 0.7152 * g! + 0.0722 * b!;
+  };
+  const [high, low] = [luminance(first), luminance(second)].sort((x, y) => y - x);
+  return (high! + 0.05) / (low! + 0.05);
 }
 
 function drawMenu() {
@@ -58,19 +87,29 @@ describe("one popover menu look", () => {
     expect(heading.className).not.toMatch(/uppercase|tracking/);
   });
 
-  it("draws the highlighted row in a colour the menu itself is not, in Daylight and Midnight", () => {
+  it("draws the highlighted row at least 1.10:1 from the menu in every skin, keeping Daylight and Midnight at the brief's fill", () => {
     const host = drawMenu();
     const active = host.querySelector<HTMLElement>('[role="menuitem"]')!;
     const rowToken = active.className.match(/(?:^|\s)hover:bg-([\w-]+)/)?.[1];
     expect(rowToken).toBeDefined();
     const menuToken = rule(".popover-menu")["background-color"]?.match(/var\(--color-([\w-]+)\)/)?.[1];
     expect(menuToken).toBeDefined();
-    for (const skin of ["daylight", "midnight"]) {
-      const tokens = skinTokens(skin);
-      expect(tokens[`--color-${rowToken}`], `${skin} row`).toMatch(/^#/);
-      expect(tokens[`--color-${menuToken}`], `${skin} menu`).toMatch(/^#/);
-      expect(tokens[`--color-${rowToken}`], skin).not.toBe(tokens[`--color-${menuToken}`]);
+    for (const skin of SKIN_IDS) {
+      const tokens = { ...themeTokens(), ...skinTokens(skin) };
+      const row = resolveColour(tokens[`--color-${rowToken}`]!, tokens);
+      const menu = resolveColour(tokens[`--color-${menuToken}`]!, tokens);
+      expect(contrast(row, menu), `${skin} row on menu`).toBeGreaterThanOrEqual(1.1);
     }
+    expect(skinTokens("daylight")[`--color-${rowToken}`]).toBe("#eeeeee");
+    expect(skinTokens("daylight")[`--color-${menuToken}`]).toBe("#ffffff");
+    expect(skinTokens("midnight")[`--color-${rowToken}`]).toBe("#262626");
+    expect(skinTokens("midnight")[`--color-${menuToken}`]).toBe("#1c1c1e");
+  });
+
+  it("highlights every row in the sidebar's own menus with the menu row colour, never the card fill", () => {
+    const menuRows = sidebar.split("\n").filter((line) => line.includes("popover-menu-row") || /section === sectionCurrent|deleting \?/.test(line));
+    expect(menuRows.length).toBeGreaterThanOrEqual(10);
+    for (const line of menuRows) expect(line, line.trim()).not.toMatch(/bg-card/);
   });
 
   it("pops in over 200 ms and out over 300 ms", () => {
