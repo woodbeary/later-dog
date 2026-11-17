@@ -255,7 +255,7 @@ import { finishMacVault, prepareMacVault, type VaultItems } from "./laterdog/vau
 import { CommandSecrets } from "./laterdog/vault-refs.ts";
 import { createDogQueueRoute, type QueuedMessageRow } from "./routes/dog-queue.ts";
 import { SAFE_STOP_GRACE_MS, safeStopWords, stoppedByLine } from "./laterdog/safe-stop.ts";
-import { withRestingUntil, type AccountUsageInput } from "./laterdog/account-usage.ts";
+import { withAccountLimits, type AccountUsageInput } from "./laterdog/account-usage.ts";
 import { guidanceEngine, guidanceParts, homeKit, ROOM_TEAM_PROMPT, teammateTaskPrompt } from "./laterdog/dog-guidance.ts";
 import { codexHome } from "./drivers/codex-identity.ts";
 import { resolveClaudeConfigDir } from "./drivers/claude.ts";
@@ -512,6 +512,7 @@ import { RoutineManager, type Routine, type RoutineGoalStatus, type RoutineRun, 
 import { CalendarCallManager, type CalendarCall } from "./calendar-calls.ts";
 import { BROWSER_PAGE_PROMPT, BUILT_IN_BROWSER_SYSTEM_PROMPT } from "./browser-engine.ts";
 import { signInPassage } from "./laterdog/sign-in-passage.ts";
+import { agentRuleTexts } from "./laterdog/agent-rules.ts";
 import { BrowserRuntime, browserRuntimeEnv } from "./browser-runtime.ts";
 import { BrowserLive } from "./browser-live.ts";
 import {
@@ -596,6 +597,7 @@ import { chatContext } from "./laterdog/chat-context-window.ts";
 import { cloudPlaceRefusal, computerToolsRefusal, parseSurface, PlaceUnavailableError, placeUnavailable, resolveSurface, surfaceLabel, surfaceOfComputerKind, surfacePrompt, type PlaceSource, type Surface } from "./surface.ts";
 import { cloudRefusal, type PlaceRow } from "../shared/place-view.ts";
 import { cloudComputerStartBudgetMs, passingCloudFailure, remainingStartMs, startRetryingPassingFailures, stillStarting } from "./laterdog/cloud-start.ts";
+import { SCREEN_DID_NOT_START_TEXT, START_RAN_OUT, carryingOnRow, cloudDidNotStart, startRanOutOfTime } from "./laterdog/computer-start.ts";
 import { createIdleReload } from "./laterdog/idle-reload.ts";
 import {
   PendingTurnCancellations,
@@ -801,6 +803,8 @@ import { createHostedSlackRoutes } from "./routes/hosted-slack.ts";
 import { createBotPresetRoutes } from "./routes/bot-presets.ts";
 import { createRoomCardRoutes, roomOwnsThread } from "./routes/room-card.ts";
 import { createSidebarSectionOrderRoutes } from "./routes/sidebar-section-order.ts";
+import { createSlashCommandRoutes } from "./routes/slash-commands.ts";
+import { commandSend, dogCommands, SavedCommands, tricksInIndex } from "./laterdog/slash-commands.ts";
 import { createBotMemoryRoutes } from "./routes/bot-memory.ts";
 import { createDeciderRoutes } from "./routes/decider.ts";
 import { createTypingWiring } from "./laterdog/typing-wiring.ts";
@@ -834,7 +838,6 @@ import { answerGoogleCallback, createGoogleRoute, type GoogleRouteDeps } from ".
 import {
   GOOGLE_CALLBACK_PATH,
   GOOGLE_CLIENT_SITE,
-  GOOGLE_PROMPT,
   GoogleAccessTokens,
   googleAccountItem,
   isGoogleAccountItem,
@@ -5816,9 +5819,10 @@ bus.subscribe((event: RuntimeEvent) => {
   if (event.type === "session.started" && event.sessionId) engineSummaryWindows.sessionStarted(event.threadId, event.sessionId);
   if (event.type === "turn.completed" || event.type === "session.exited") engineSummaryWindows.turnEnded(event.threadId);
   if (event.type === "session.compacting") {
-    engineSummaryWindows.compacting(event.threadId);
+    if (event.summaryHook) engineSummaryWindows.compacting(event.threadId);
     compactionLive.started(event.threadId, { turnId: event.turnId, stream: true });
   } else if (event.type === "session.compacted") {
+    engineSummaryWindows.compacted(event.threadId);
     const { ok, skipped, error, trigger, preTokens, postTokens, turnId } = event;
     compactionLive.finished(event.threadId, { ok, skipped, error, trigger, preTokens, postTokens, turnId, stream: true });
   } else if (event.type === "turn.completed" || event.type === "session.exited") compactionLive.settle(event.threadId);
@@ -5829,8 +5833,9 @@ bus.subscribe(makeCapContinuationSubscriber({ store, startTurn }));
 
 bus.subscribe((event: RuntimeEvent) => {
   if (!event.providerInstanceId) return;
-  if (event.type === "runtime.error" && event.quota) accountBattery.markExhausted(event.providerInstanceId, event.quota);
-  else if (event.type === "turn.completed" && event.ok) accountBattery.recovered(event.providerInstanceId, turnStartedAt.get(event.threadId));
+  const model = executionEvidence.ran(event.threadId)?.model;
+  if (event.type === "runtime.error" && event.quota) accountBattery.markExhausted(event.providerInstanceId, event.quota, model);
+  else if (event.type === "turn.completed" && event.ok) accountBattery.recovered(event.providerInstanceId, turnStartedAt.get(event.threadId), model);
 });
 
 const memoryRowsByThread = new Map<string, MemoryJournalEntry[]>();
@@ -6003,6 +6008,7 @@ function ingestEngineHook(capability: InternalCapability, body: unknown): { ok: 
       const bytes = Buffer.byteLength(payload.compact_summary);
       const refused = engineSummaryWindows.accept(threadId, payload.session_id);
       if (refused) {
+        if (refused === "already-received") engineSummaries.forget([threadId]);
         console.log(`[compaction] engine summary refused chat=${threadId} bytes=${bytes} reason=${refused}`);
         return { ok: false, ignored: refused };
       }
@@ -6258,7 +6264,7 @@ async function computerCallGate(internalCapability: InternalCapability) {
   if (!snapshot.held && lazyClaim?.failed === true) {
     return {
       held: true, helpOpen: false,
-      blockedReason: `This turn could not claim ${lazyClaim.label ?? "this computer"}${lazyClaim.failure ? ` (${lazyClaim.failure})` : ""}. This call was not performed. Do not retry computer work in this turn; tell the person what you could not do.`,
+      blockedReason: lazyClaim.failedReason ?? `This turn could not claim ${lazyClaim.label ?? "this computer"}${lazyClaim.failure ? ` (${lazyClaim.failure})` : ""}. This call was not performed. Do not retry computer work in this turn; tell the person what you could not do.`,
     };
   }
   if (!snapshot.held && lazyClaim?.lazy && lazyClaim.begin && !lazyClaim.claimed) {
@@ -6388,7 +6394,7 @@ async function mountBotVps(
 const CLOUD_COMPUTER_START_WAIT_MS = Math.max(1_000, Number(process.env.LATERDOG_CLOUD_COMPUTER_START_WAIT_MS) || 45_000);
 const CLOUD_COMPUTER_START_BUDGET_MS = cloudComputerStartBudgetMs(process.env);
 const CLOUD_COMPUTER_STARTING = "The cloud computer is still starting. This call was not performed. Take a fresh screenshot in a moment.";
-const CLOUD_COMPUTER_DID_NOT_START = "the cloud computer didn't start in time";
+const CLOUD_COMPUTER_DID_NOT_START = START_RAN_OUT;
 const PROVIDER_RELOAD_FORCE_MS = Math.max(1_000, Number(process.env.LATERDOG_PROVIDER_RELOAD_FORCE_MS) || 6 * 60 * 60_000);
 const PROVIDER_RELOAD_POLL_MS = Math.max(100, Number(process.env.LATERDOG_PROVIDER_RELOAD_POLL_MS) || 30_000);
 const CLOUD_COMPUTER_RETRY_PAUSE_MS = Math.max(100, Number(process.env.LATERDOG_CLOUD_COMPUTER_RETRY_PAUSE_MS) || 5_000);
@@ -6411,6 +6417,7 @@ function mountBotBoat(
     onRejected: opts.onRejected,
     claim: async () => {
       let attached: Awaited<ReturnType<typeof attachBotBoat>>;
+      const startedFrom = boat.startMark();
       try {
         attached = await attachBotBoat(bot, owner, {
           budgetMs: CLOUD_COMPUTER_START_BUDGET_MS,
@@ -6418,7 +6425,10 @@ function mountBotBoat(
         });
         if (!attached) throw new Error("the cloud computer could not be created or reached");
       } catch (error) {
-        throw opts.source ? await asPlaceFailure(error, "cloud", opts.source, bot, "box") : error;
+        const failure = opts.source ? await asPlaceFailure(error, "cloud", opts.source, bot, "box") : error;
+        if (cloudDidNotStart(failure)) slot.failedReason = SCREEN_DID_NOT_START_TEXT;
+        if (startRanOutOfTime(error)) boat.startDidNotFinish(bot.id, startedFrom);
+        throw failure;
       }
       slot.boxId = attached.boxId;
       opts.onClaimed(attached.capture);
@@ -6673,7 +6683,7 @@ function chatAccountFacts(bot: BotRecord, threadId: string): ChatAccountFacts {
 
 function runnableNow(bot: BotRecord, threadId: string): boolean {
   const facts = chatAccountFacts(bot, threadId);
-  return accountRunsNow({ ...facts, resting: (account) => Boolean(accountBattery.restOf(account, facts.accounts)) });
+  return accountRunsNow({ ...facts, resting: (account, model) => Boolean(accountBattery.restOf(account, facts.accounts, model)) });
 }
 
 function reviveRunnableDogs(): number {
@@ -7906,7 +7916,7 @@ async function compactConversation(input: {
   if (!history.length) return;
   const reported = task.lastContextModel === `${instance.instanceId}:${model}` && !task.rewound ? chatContext(task, model) : undefined;
   const window = contextWindowFor(model, instance.models, reported?.window);
-  const harness = !manual && engineWillCompact({ driverKind: instance.driverKind, setting: cfg.context, signs: await instance.adapter.compactionSigns?.(threadId),
+  const harness = !manual && engineWillCompact({ driverKind: instance.driverKind, setting: cfg.context, signs: await instance.adapter.compactionSigns?.(threadId, task.cwd),
     modelKnown: instance.models.options.some(option => option.id === model), injectedModel: decodeInjectId(model) !== null, window });
   const startsFresh = Boolean(task.rewound) || isExternalContextMarker(task.lastInstanceId) || engineIsFresh({ instanceId: instance.instanceId,
     lastInstanceId: task.lastInstanceId, resumeCursors: task.resumeCursors, transcript: context.filter(entry => !excludedIds.has(entry.id)) });
@@ -8934,6 +8944,10 @@ async function startTurn(
         }
         const placeFailure = error instanceof PlaceUnavailableError ? error : undefined;
         if (placeFailure) clearFailedAutoPin(bot.id, threadId, placeFailure.place);
+        if (cloudDidNotStart(placeFailure)) {
+          store.appendMessage(threadId, { role: "bot", kind: "activity", tool: { name: carryingOnRow(bot.name), ok: false } });
+          return;
+        }
         const message = placeFailure?.message ?? `computer unavailable — ${label} could not be claimed for this turn (${failure})`;
         store.appendMessage(threadId, {
           role: "bot",
@@ -9155,9 +9169,9 @@ async function startTurn(
         bot.id === store.mainBotId(),
         integrations.agents && sectionPeers.length > 0 ? PEERS_PROMPT : "",
       );
-      const credentialPrompt = integrations.agents ? signInPassage({ secureForm: computerKind === "box" }) + (CLOUD_HOME && vaultStore.available && ownerWorkThread(threadId) ? GOOGLE_PROMPT : "") : "";
-      const routinePrompt = integrations.agents ? ROUTINE_PROMPT : "";
-      const profilePrompt = integrations.agents ? PROFILE_PROMPT : "";
+      const { credential: credentialPrompt, routine: routinePrompt, profile: profilePrompt } = agentRuleTexts({
+        agents: Boolean(integrations.agents), secureForm: computerKind === "box", google: Boolean(CLOUD_HOME && vaultStore.available && ownerWorkThread(threadId)),
+      });
       const recallPrompt = integrations.agents && bot.memoryEnabled !== false ? SESSION_SEARCH_SYSTEM_PROMPT : "";
       const crossRecallPrompt = integrations.agents && crossDogRecallAllowed(bot, threadId) ? CROSS_DOG_RECALL_PROMPT : "";
       const learnPrompt = skillAuthoring ? LEARN_PROMPT : "";
@@ -9302,6 +9316,7 @@ async function startTurn(
         retireProviderTurn(dispatch.value.turnId);
         throw new DirectTurnSetupCancelled("turn stopped during provider setup");
       }
+      if (integrations.agents && instance.adapter.rareToolsOnDemand?.(threadId)) contextBreakdowns.toolsSent(threadId, homeToolSizes(integrations.agents.env, true));
       const requestOwner = directRequestOwners.get(threadId);
       if (requestOwner?.generation === dispatchClaimId && dispatch.value.turnId) {
         if (requestOwner.turnId && requestOwner.turnId !== dispatch.value.turnId) requestOwner.messageId = undefined;
@@ -13259,6 +13274,15 @@ ROUTES.push(createHostedSlackRoutes({ bot: (id) => store.bot(id), hostedReady: (
 const orgInstallStatuses = () => orgLibrary?.installStatuses() ?? new Map();
 ROUTES.push(createBotPresetRoutes({ presets: presetStore, orgStatuses: orgInstallStatuses }));
 ROUTES.push(createSidebarSectionOrderRoutes({ order: (sections) => store.orderSections(sections) }));
+const savedCommands = new SavedCommands(DATA_DIR);
+const dogTricks = (bot: BotRecord) => {
+  const instance = registry.get(bot.modelSelection.instanceId);
+  return tricksInIndex(listBotSkills(bot).filter((skill) => skill.enabled), Boolean(instance && supportsWorkspaceFiles(instance.driverKind)),
+    () => skillsSystemPrompt(bot.id, skillsLibraryEnabled(cfg) ? bot.assignedSkills : undefined));
+};
+ROUTES.push(createSlashCommandRoutes({ saved: savedCommands, tricks: (botId) => { const bot = store.bot(botId); return bot ? dogTricks(bot) : null; } }));
+const personCommand = (auth: RequestAuth, bot: BotRecord, typed: string) =>
+  commandSend(typed, { scopes: auth.scopes, fromLocalTools: fromLocalTools(auth) }, () => dogCommands(savedCommands.list(), dogTricks(bot)));
 ROUTES.push(createRoomCardRoutes({
   room: (id) => store.group(id),
   threadBelongsToRoom: roomOwnsThread(store),
@@ -13492,7 +13516,7 @@ function accountUsageInputs(): AccountUsageInput[] {
       const value = account.driverKind === "claudeAgent" ? resolveClaudeConfigDir(plan?.configDir, environment) : codexHome(environment);
       if (value) env = { name: account.driverKind === "claudeAgent" ? "CLAUDE_CONFIG_DIR" : "CODEX_HOME", value };
     } catch {}
-    return { account, row: latestPlanRow(account.instanceId), rest: accountBattery.restOf(account, accounts), ...(env ? { env } : {}) };
+    return { account, row: latestPlanRow(account.instanceId), rest: accountBattery.restOf(account, accounts), limits: accountBattery.limitsOf(account, accounts), ...(env ? { env } : {}) };
   });
 }
 
@@ -13619,12 +13643,12 @@ INTERNAL_ROUTES.push(createExecutionAdviceRoute({
   rows: () => readUsage(DATA_DIR, { from: new Date(Date.now() - 30 * 86_400_000), to: new Date() }),
   candidates: async () => {
     const configs = providerConfigs();
-    const resting = accountBattery.status(batteryAccounts()).resting;
+    const accounts = batteryAccounts();
     return (await registry.describe()).flatMap((instance) => instance.models.options.map((model) => ({
       instanceId: instance.instanceId, model: model.id, enabled: configs[instance.instanceId]?.enabled !== false,
       authenticated: "authenticated" in instance.snapshot && instance.snapshot.authenticated === true,
       available: instance.snapshot.state === "available" && !policyModelRefusal(instance),
-      effortLevels: model.effortLevels, restingUntil: resting[instance.instanceId]?.until,
+      effortLevels: model.effortLevels, restingUntil: accountBattery.restingUntil(instance.instanceId, accounts, model.id),
     })));
   },
 }));
@@ -18459,10 +18483,11 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
           ? "onBehalfOf must name the person with an email address, a name, or both"
           : "guarded sends require threadId, sendId, text and expectedActiveLeafId" });
       }
-      const text = String(body.text ?? "").trim();
-      if (!text) return json(res, 400, { error: "text required" });
+      const typed = String(body.text ?? "").trim();
+      if (!typed) return json(res, 400, { error: "text required" });
       const bot = store.bot(m[1]);
       if (!bot) return json(res, 404, { error: "no such bot" });
+      const { text, expanded } = personCommand(auth, bot, typed);
       requirePinnedClientThread(bot.id, body.threadId);
       if (body.threadId !== undefined && (typeof body.threadId !== "string" || !/^[\w-]+$/.test(body.threadId))) {
         return json(res, 400, { error: "threadId must be a task id" });
@@ -18480,7 +18505,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       const replyToId = requestedReplyId(body.replyToId);
       const replyTo = resolveReplyTarget(threadId, replyToId);
       const sender = messageSender(auth);
-      const deskReply = deskVerify && !guarded ? deskReplyFrom({ verify: deskVerify, headers: req.headers, path, sendId, reply: body.deskReply }) : null;
+      const deskReply = deskVerify && !guarded && !expanded ? deskReplyFrom({ verify: deskVerify, headers: req.headers, path, sendId, reply: body.deskReply }) : null;
       if (deskReply && sendId) return json(res, 202, recordDeskExchange(store, { threadId, text, sendId, replyToId: replyTo?.id, sender, reply: deskReply }));
       const deliver = z.enum(SEND_DELIVERIES).optional().safeParse(body.deliver);
       if (!deliver.success) return json(res, 400, { error: "deliver must be steer, queue or stop" });
@@ -18634,7 +18659,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       const bot = requestedTaskBot(m[1], body.threadId);
       const notYours = cloudThreadRefusal(auth, bot.threadId);
       if (notYours) return json(res, 403, { error: notYours });
-      const text = String(body.text ?? "").trim();
+      const { text } = personCommand(auth, bot, String(body.text ?? "").trim());
       if (!text) return json(res, 400, { error: "text required" });
       const threadMessages = store.messagesFor(bot.threadId);
       const source = threadMessages.find((msg) => msg.id === messageId);
@@ -19686,9 +19711,9 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       });
       const accounts = batteryAccounts();
       accountBattery.noteReadings(accounts);
-      return json(res, 200, withRestingUntil(report, (instanceId) => {
+      return json(res, 200, withAccountLimits(report, (instanceId) => {
         const account = accounts.find((candidate) => candidate.instanceId === instanceId);
-        return account ? accountBattery.restOf(account, accounts) : undefined;
+        return account ? accountBattery.limitsOf(account, accounts) : undefined;
       }));
     }
 

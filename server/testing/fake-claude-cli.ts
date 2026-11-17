@@ -136,6 +136,8 @@ function playNativeCompaction(): string {
   const context = runHooks("SessionStart", { source: "compact" });
   out({ type: "system", subtype: "status", status: null, compact_result: "success" });
   out({ type: "system", subtype: "compact_boundary", compact_metadata: { trigger: "auto", pre_tokens: 182_345, post_tokens: 24_100 } });
+  const summaryGate = process.env.FAKE_CLAUDE_SUMMARY_GATE;
+  while (summaryGate && !existsSync(summaryGate)) Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 25);
   runHooks("PostCompact", { trigger: "auto", compact_summary: process.env.FAKE_CLAUDE_COMPACT_SUMMARY ?? "Fixture compaction summary." });
   return context;
 }
@@ -561,7 +563,8 @@ const playTurn = async (prompt: JsonValue, late = false) => {
   }
 
   const usageGate = process.env.FAKE_CLAUDE_USAGE_LIMIT_GATE;
-  if (mode === "usage-limit" && (!usageGate || existsSync(usageGate))) {
+  const limitedModel = process.env.FAKE_CLAUDE_USAGE_LIMIT_MODEL;
+  if (mode === "usage-limit" && (!usageGate || existsSync(usageGate)) && (!limitedModel || model.includes(limitedModel))) {
     const release = process.env.FAKE_CLAUDE_USAGE_LIMIT_RELEASE;
     while (release && !existsSync(release)) await new Promise((resolve) => setTimeout(resolve, 20));
     replaySteered();
@@ -579,13 +582,17 @@ const playTurn = async (prompt: JsonValue, late = false) => {
     const hour = new Date(resetsAt * 1000).getUTCHours();
     const text = process.env.FAKE_CLAUDE_USAGE_LIMIT ??
       `You've hit your session limit · resets ${hour % 12 || 12}${hour < 12 ? "am" : "pm"} (UTC)`;
-    const info = { status: "rejected", rateLimitType: "five_hour", resetsAt };
-    out({ type: "rate_limit_event", rate_limit_info: info, uuid: `fake-rate-limit-${process.pid}`, session_id: sessionId });
+    const apiError = process.env.FAKE_CLAUDE_USAGE_LIMIT_API_ERROR ?? "usage_limit_reached";
+    const namesLimit = apiError === "usage_limit_reached";
+    const info = namesLimit
+      ? { status: "rejected", rateLimitType: process.env.FAKE_CLAUDE_USAGE_LIMIT_TYPE ?? "five_hour", resetsAt }
+      : { status: "rejected", isUsingOverage: false, resetsAt };
+    if (namesLimit) out({ type: "rate_limit_event", rate_limit_info: info, uuid: `fake-rate-limit-${process.pid}`, session_id: sessionId });
     out({
       type: "assistant",
       message: { model: "<synthetic>", content: [{ type: "text", text }] },
       error: "rate_limit", is_api_error_message: true,
-      api_error: "usage_limit_reached", api_error_params: { rate_limit_info: info },
+      api_error: apiError, api_error_params: { rate_limit_info: info },
     });
     if (process.env.FAKE_CLAUDE_USAGE_LIMIT_NO_RESULT === "1") {
       process.stdout.write("", () => process.exit(1));
@@ -635,6 +642,7 @@ const playTurn = async (prompt: JsonValue, late = false) => {
   }
 
   if (mode === "hang") {
+    if (process.env.FAKE_CLAUDE_COMPACT === "1") playNativeCompaction();
     const release = process.env.FAKE_CLAUDE_RELEASE;
     const finishGate = process.env.FAKE_CLAUDE_FINISH_GATE;
     const held = setInterval(() => {

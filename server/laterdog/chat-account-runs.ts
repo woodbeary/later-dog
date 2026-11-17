@@ -9,17 +9,17 @@ export interface ChatAccountFacts {
   accounts: readonly BatteryAccount[];
 }
 
-function accountThatRuns(facts: ChatAccountFacts): BatteryAccount | undefined {
-  const on = facts.route(facts.turn ? turnSelectionFor(facts.turn) : facts.dog).instanceId;
-  return facts.accounts.find((account) => account.instanceId === on);
+function selectionThatRuns(facts: ChatAccountFacts): { account: BatteryAccount | undefined; model: string } {
+  const run = facts.route(facts.turn ? turnSelectionFor(facts.turn) : facts.dog);
+  return { account: facts.accounts.find((account) => account.instanceId === run.instanceId), model: run.model };
 }
 
 export function teammateAccountRuns(facts: ChatAccountFacts): boolean {
-  const account = accountThatRuns(facts);
+  const { account } = selectionThatRuns(facts);
   return !account || (account.enabled && account.signedIn !== false);
 }
 
-export function accountRunsNow(facts: ChatAccountFacts & { resting: (account: BatteryAccount) => boolean }): boolean {
-  const account = accountThatRuns(facts);
-  return Boolean(account?.eligible && account.enabled && account.signedIn !== false && !facts.resting(account));
+export function accountRunsNow(facts: ChatAccountFacts & { resting: (account: BatteryAccount, model: string) => boolean }): boolean {
+  const { account, model } = selectionThatRuns(facts);
+  return Boolean(account?.eligible && account.enabled && account.signedIn !== false && !facts.resting(account, model));
 }

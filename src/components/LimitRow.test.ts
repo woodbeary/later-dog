@@ -339,3 +339,41 @@ describe("the limit message", () => {
     expect(buttons()).toEqual(["Retry"]);
   });
 });
+
+describe("one model's limit on an account that still has room", () => {
+  const FABLE = "claude-fable-5-1";
+  const MONDAY = inHours(46);
+  const fableRest = (until = MONDAY) => ({ model: "Fable", label: "Fable weekly limit", until, since: inHours(-1), kind: "seven_day_overage_included" });
+  const fableLimit = failedTurnTool("You've reached your Fable limit.", { quota: { instanceId: "daniel", kind: "seven_day_overage_included", resetsAt: MONDAY } });
+  const show = async (modelResting: Battery["modelResting"]) => {
+    publish({
+      bots: [{ ...dog, modelSelection: { instanceId: "daniel", model: FABLE } } as Bot],
+      instances: [claude("daniel", "daniel", {}, [FABLE]), claude("anthony", "anthony", {}, [FABLE])],
+      config: { accountBattery: { enabled: true, order: { claudeAgent: ["daniel", "anthony"] }, resting: {}, modelResting } },
+    });
+    await render(fableLimit);
+  };
+
+  it("names the limit, says when it resets and offers the free account, never Retry onto the account that waits", async () => {
+    await show({ daniel: [fableRest()] });
+    expect(headline()).toBe("daniel hit its Fable weekly limit.");
+    expect(words()).toContain("Resets ");
+    expect(words()).toContain("Recharging");
+    expect(words()).not.toContain("It should be ready again now.");
+    expect(buttons()).not.toContain("Retry");
+    expect(button("Continue on anthony")).toBeTruthy();
+  });
+
+  it("offers no account whose own limit for that model is hit too", async () => {
+    await show({ daniel: [fableRest()], anthony: [fableRest()] });
+    expect(buttons()).not.toContain("Retry");
+    expect(button("Continue on anthony")).toBeUndefined();
+    expect(words()).toContain("Your other accounts can't take over right now.");
+  });
+
+  it("offers Retry once that model's limit has reset", async () => {
+    await show({ daniel: [fableRest(inHours(-1))] });
+    expect(words()).toContain("It should be ready again now.");
+    expect(buttons()).toEqual(["Retry"]);
+  });
+});

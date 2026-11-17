@@ -8,7 +8,7 @@ describe("ToolActivity", () => {
     const html = renderToStaticMarkup(createElement(ToolActivity, { tool: { name: "Bash", ok: true, input: "echo hi", output: "<script>unsafe()</script>" } }));
     expect(html).toContain("<details");
     expect(html).not.toContain(" open=");
-    expect(html).toContain("Bash · Completed · Tool details");
+    expect(html).toContain("Ran a command · Completed · Tool details");
     expect(html).toContain('role="button"');
     expect(html).toContain('aria-expanded="false"');
     expect(html).toContain("echo hi");

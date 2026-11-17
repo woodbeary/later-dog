@@ -28,6 +28,7 @@ import { COMPACT_SQUARE } from "@/lib/compact-chip";
 import { subscriptionAccounts, useCarryOn } from "./AccountsPanel";
 import { SleepingDog } from "./AccountCharge";
 import { AccountSwitcher, accountUsageLines, activeRest, shownAccounts, UsageRing, usageRingFor } from "./AccountSwitcher";
+import { restingFor } from "@/lib/account-rests";
 import { usePlanUsage, useRefreshAfterTurn, warmPlanUsage } from "./PlanUsage";
 import { chatContextFigure, chatContextReading, type ChatContextLevel } from "@/lib/chat-context";
 import { ChatUsageButton } from "./ChatUsageButton";
@@ -499,6 +500,7 @@ export function ModelPicker({
     .filter((account) => pickerInstances.some((instance) => instance.instanceId === account.instanceId));
   const usageWanted = simpleUpdatesBotDefault && switcherAccounts.length > 0;
   const usage = usePlanUsage({ enabled: usageWanted });
+  const restsForModel = restingFor(battery, routed?.model ?? selection.model, usage.now);
   const carryOn = useCarryOn();
   useRefreshAfterTurn(bot.busy);
   const selectedVariantLabel = selection.variant === undefined ? undefined : variantLabel(
@@ -720,7 +722,7 @@ export function ModelPicker({
       selected: member.instanceId === selection.instanceId,
       inUse: Boolean(routed && member.instanceId === routed.on),
       provider: usage.report?.providers.find((entry) => entry.id === member.instanceId),
-      rest: activeRest(battery?.resting, member.instanceId, usage.now),
+      rest: activeRest(restsForModel, member.instanceId, usage.now),
       movable: carryOn.canReorder && !carryOn.saving && ordered.includes(member)
         && switcherAccounts.length > 1,
       signIn: signsInFromPicker(member),
@@ -787,7 +789,7 @@ export function ModelPicker({
     : shownModel;
   const chosenDepth = selectedVariantLabel ?? shownEffortName;
   const activeProvider = usage.report?.providers.find((provider) => provider.id === inUse?.instanceId);
-  const activeRestNow = inUse ? activeRest(battery?.resting, inUse.instanceId, usage.now) : undefined;
+  const activeRestNow = inUse ? activeRest(restsForModel, inUse.instanceId, usage.now) : undefined;
   const ring = inUse && switcherAccounts.some((account) => account.instanceId === inUse.instanceId)
     ? usageRingFor(activeProvider, activeRestNow, usage.now) : null;
   const activeUsage = ring ? accountUsageLines(activeProvider, activeRestNow, usage.now) : [];
@@ -995,7 +997,7 @@ export function ModelPicker({
           ) : showSwitcher && page === "accounts" ? (
             <div data-model-accounts className="flex min-h-0 flex-col overflow-y-auto">
               <AccountSwitcher accounts={switcherAccounts} currentId={selection.instanceId} report={usage.report}
-                now={usage.now} resting={battery?.resting} onPick={switchAccount} />
+                now={usage.now} resting={restsForModel} onPick={switchAccount} />
               <button type="button" data-model-line autoFocus={cameBack} onClick={() => setPage("models")}
                 className="flex shrink-0 items-center gap-2 border-t border-hairline/40 px-3 py-2.5 text-left hover:bg-raised-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-focus">
                 <span className="shrink-0 text-[12px] font-medium text-ink-secondary">{t("model.simple.model")}</span>

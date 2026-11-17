@@ -1,3 +1,4 @@
+import { MODEL_CREDITS } from "./account-limits.ts";
 
 export interface UsageLimit {
   resetsAt?: string;
@@ -130,13 +131,14 @@ export function claudeUsageLimit(
   const message = record(frame.message);
   const apiError = frame.api_error ?? message?.api_error;
   const info = rateLimitInfo(frame);
-  const structured = apiError === "usage_limit_reached" || (frame.error === "rate_limit" && record(info)?.status === "rejected");
+  const credits = apiError === "model_requires_usage_credits";
+  const structured = apiError === "usage_limit_reached" || credits || (frame.error === "rate_limit" && record(info)?.status === "rejected");
   if (!structured && !LIMIT_WORDS.test(text)) return null;
   const reported = rejectedRateLimit(info ? { ...info, status: "rejected" } : undefined, now);
   const legacy = /usage limit reached\|(\d{9,13})/i.exec(text)?.[1];
   const resetsAt = reported?.resetsAt ?? (legacy ? resetInstant(Number(legacy), now) : undefined) ??
     parseResetWords(text, now) ?? event?.resetsAt;
-  const kind = reported?.kind ?? limitKindFromWords(text) ?? event?.kind;
+  const kind = reported?.kind ?? (credits ? MODEL_CREDITS : undefined) ?? limitKindFromWords(text) ?? event?.kind;
   return { ...(resetsAt ? { resetsAt } : {}), ...(kind ? { kind } : {}) };
 }
 

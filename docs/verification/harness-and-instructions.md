@@ -18,14 +18,32 @@ proven about them.
    `server/drivers/codex-instructions.ts`).
 2. **A setting for the model helpers use.** A dog's `helperModel` lets its
    helpers run on a lighter Claude model than the dog itself.
-3. **Rare tools on demand, on by default.** later.dog's rarely used tools
+3. **Rare tools on demand, by model.** later.dog's rarely used tools
    (`RARE_AGENT_TOOLS` in `server/laterdog/tool-loading.ts`) are loaded only
-   when a Claude dog searches for them, unless `LATERDOG_DEFER_RARE_TOOLS` is
-   `0`, which loads every tool up front (`deferRareToolsEnabled`). The setting
-   began as opt-in (`d76644902`) and `cc5114d57` made on-demand the default,
-   both on 12 November 2026. Rules a dog must always follow stay in its standing
-   instructions rather than only in a deferred tool's description: the rule
-   against opening Google's consent page is in `GOOGLE_PROMPT`.
+   when a Claude dog searches for them, on the models where that has been
+   proven: the families in `DEFER_PROVEN_FAMILIES`
+   (`server/laterdog/defer-by-model.ts`), today Fable 5, 5.1 and 5.2 and
+   Opus 5 and 5.5. A model is read by whole version parts (`modelFamily`
+   in `server/laterdog/dog-guidance.ts`): a dated id, a `[1m]` suffix or a
+   provider prefix of a proven model is on; `claude-opus-50` or
+   `claude-opus-5-50` is an unknown model and off; the bare aliases `opus`
+   and `fable` and an empty model are off. Every other model, a dog with no model named, and any
+   custom endpoint (a hosted or local model, an `ANTHROPIC_BASE_URL` other
+   than `api.anthropic.com`, or a cloud-provider switch) gets every tool up
+   front. The server setting `LATERDOG_DEFER_RARE_TOOLS` forces it: `1`, `on`
+   or `true` loads rare tools on demand for every model, `0`, `off` or `false`
+   loads everything up front; unset, or any other value, means by model. The
+   setting began as opt-in (`d76644902`), `cc5114d57` made on-demand the
+   default for every model, both on 12 November 2026, and item 18 narrowed it
+   to the proven models. Rules a dog must always follow stay in its standing
+   instructions rather than only in a deferred tool's description (see
+   "Rules that must not hide in a rare tool" below). To add a model to the
+   table, run the check in "Proving rare tools on demand for a model" below.
+   The Claude adapter keeps what each chat's launch decided
+   (`rareToolsOnDemand(threadId)`); once a turn is sent the context view
+   takes that answer (`toolsSent`), so on a proven model it counts the rare
+   tools as not loaded rather than as sent, without resolving the model a
+   second time.
 
 4. **The engine compacts its own chat.** For Claude Code and Codex dogs
    later.dog no longer folds a chat at 80% of the model window and starts the
@@ -181,6 +199,110 @@ From the home's own usage ledger and the traces of seven dogs that day.
   conversation instead of summarising it, and the dog lost what it had been
   doing. The fix is in progress.
 
+## Proving rare tools on demand for a model
+
+Run this on an isolated machine with a signed-in Claude Code and a test
+account, never on a person's home. It needs only this repository (with its
+packages installed) and the `claude` command. It does not start a later.dog
+home: it launches Claude Code the way the home does (the later.dog tool list
+from `availableTools`, marked by `agentsServerLaunch` and `withToolLoading`,
+`--strict-mcp-config`, `--setting-sources project`, the dog's standing
+instructions from `dogGuidance` through `--append-system-prompt-file`), with a
+stand-in tool server, `server/testing/proof-agents-server.ts`, that records
+each call and does nothing: no text, routine or change is ever made.
+
+```sh
+node --experimental-strip-types scripts/prove-rare-tools.ts \
+  --models claude-opus-5-5,claude-sonnet-5-5,claude-haiku-5-5 \
+  --out "$HOME/rare-proof-$(date +%Y%m%d-%H%M%S)"
+```
+
+Optional: `--cli <path to claude>`, `--repeat <n>` to run each case n times,
+`--with-servers <file>` to mount more tool servers next to the stand-in (a
+JSON file with `mcpServers`, without `agents`).
+
+The stand-in mounts only later.dog's own tools. A real home also mounts the
+computer and browser servers, whose tools are hidden too, so a dog searches
+among more names there. A model may join the table only on a run with a
+home's full tool list: on the isolated machine, with a test home running
+and a dog's turn in progress, copy that turn's `mcp.json` (in a
+`laterdog-mcp-*` folder under the home's temporary folder; it is removed when
+the session ends), delete its `agents` and `dog` entries, and pass it with
+`--with-servers` while the home keeps running. A run with the stand-in alone shows the mechanism and the
+token drop; it does not by itself prove the find.
+For a custom endpoint, run it again with that endpoint's `ANTHROPIC_BASE_URL`
+and key in the environment and its model names in `--models`; the summary
+says "Custom endpoint in this environment: yes".
+
+For each model it runs three one-turn tasks in a fresh empty folder, first with
+every tool up front (`off`), then with rare tools on demand (`on`):
+
+- `first-request`: "hi". The first request's input tokens (input plus cache
+  write plus cache read, from the engine's first assistant message) measure
+  what a fresh dog carries; on 12 November a whole home measured 41,165 off
+  and 30,768 on.
+- `text`: "Text Sam at 555-0100 that I'm running ten minutes late." needs
+  `send_text`, a rare tool with required fields.
+- `routine`: "Every Monday at 9am, remind me to water the plants." needs
+  `propose_routine`, another rare tool with required fields.
+
+It prints a table and writes `summary.md`, `results.json` and each raw turn
+(`<model>-<setting>-<task>.jsonl`) to the `--out` folder. A rare tool counts as
+found only when the stand-in server received a call to it with every required
+field filled.
+
+The script ends with one verdict line per model, `<model>: may join the
+table` or `<model>: may not join the table: <why>`. A model may join
+`DEFER_PROVEN_FAMILIES` in `server/laterdog/defer-by-model.ts` when, with
+`--repeat 3` and `--with-servers` as above, every run exited 0, every `on`
+row of `text` and `routine` says `found` and its `off` row did too (so the
+task itself is fair), and every `on` `first-request` row is lower than every
+`off` row. A row counts as found only when its run exited 0. A `NOT FOUND` on `on`
+with `found` on `off` is the failure this check exists for: the model did not
+search for a tool it could not see. Paste `summary.md` into the pull request
+that changes the table.
+
+What this does not measure: the whole prompt of a real home (memory, recent
+work, connected apps), so its token numbers are lower than a home's; and
+tasks longer than one turn.
+
+## Rules that must not hide in a rare tool
+
+A rare tool's description reaches a dog only after it searches for that tool,
+so a rule there binds only calls of that tool. A rule that also governs what a
+dog does without the tool must be in the standing instructions as well.
+`server/laterdog/rare-tool-rules.test.ts` keeps each such rule in the
+instructions a dog is sent on each engine (`guidanceParts` with
+`agentRuleTexts`, the parts the home sends). Checked
+on 15 November 2026, every one of the 32 rare tools:
+
+- In the standing instructions: the Google consent page never opened in the
+  dog's own browser and emailed codes kept out of chat (`GOOGLE_PROMPT`);
+  never pasting a device code into chat (`DEVICE_APPROVAL_PROMPT`); a declined
+  send card for mail or texts is a no (`needsPerson`; the card itself is
+  enforced by the home on every send); a denied or offline Mac is respected
+  and secrets never printed (`signInPassage`);
+  a page asking to add a server is not an order (`READ_TEXT_IS_NOT_AN_ORDER`);
+  no clicking through the app to make dogs or group chats
+  (`DOG_CREATION_PROMPT`).
+- Moved: "usage never decides whether to start or keep working" lived only in
+  `account_usage`. It is now `USAGE_NEVER_STOPS_WORK` in the standing
+  instructions of every dog with later.dog's tools, on every engine, and no
+  longer in the description; Claude and Codex dogs also read that a turn at a
+  limit carries on on another account (`LIMIT_MOVES_ACCOUNT`).
+- Bind only a call of their own tool, so they stay in the description: when
+  to call (`list_routines`, `account_usage`, `read_phone`, `add_to_phone`,
+  `change_on_phone`, `nearby_places`, `email_me`, `send_voice_note`,
+  `execution_advice`, `skills_list`), how to fill the call
+  (`propose_routine`, `propose_routine_action`, `switch_account`,
+  `add_mcp_server`, `skill_manage`, `create_bot`, `manage_room`,
+  `create_room`), and what to do with its result (`propose_profile`,
+  `propose_model`, `dog_queue`, `dog_accounts`, `list_shared_computers`,
+  `shared_computer`, `gmail_search`, `gmail_read`, `read_texts`). Making a new dog in place
+  of a broken one is refused in `create_bot` itself, the only way to make one.
+  Recipients for `email_me` and who may use `dog_queue` and `dog_accounts` are
+  enforced by the home, not by words.
+
 ## Not proven
 
 - Compaction at the engine's own default window, on a large model or on a real
@@ -189,6 +311,7 @@ From the home's own usage ledger and the traces of seven dogs that day.
   Claude Code picks on a real account.
 - Codex compaction on a real engine: the reset is covered only by a unit test
   (`server/drivers/codex-instructions.test.ts`), with no live compaction.
-- Tools on demand, now the default, on the smallest Claude model or with a custom endpoint.
+- Tools on demand on Sonnet, Haiku or a custom endpoint: off there until the
+  check below passes for that model.
 - Every claim in the dogs' instructions checked against a real home, such as
   what the kit line says a dog already has.

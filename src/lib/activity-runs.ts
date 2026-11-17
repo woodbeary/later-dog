@@ -4,6 +4,7 @@ import { t } from "@/lib/i18n";
 import { failedTurnCause } from "../../shared/failed-turn";
 import { localDay } from "@/lib/transcript-derivations";
 import { screenTouchingTool, toolSurfaceKind } from "../../shared/tool-surface";
+import { plainToolLabel } from "./tool-words";
 
 export type ActivityTranscriptItem =
   | { kind: "message"; message: Message }
@@ -205,7 +206,7 @@ const MAX_NAMES = 3;
 export function describeRun(messages: Message[]): string {
   const counts = new Map<string, number>();
   for (const message of messages) {
-    const name = message.tool?.name ?? "";
+    const name = plainToolLabel(message.tool?.name ?? "", false);
     counts.set(name, (counts.get(name) ?? 0) + 1);
   }
   const names = [...counts].map(([name, count]) => (count > 1 ? `${name} ×${count}` : name));

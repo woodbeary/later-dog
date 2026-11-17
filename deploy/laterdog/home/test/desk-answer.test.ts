@@ -24,6 +24,8 @@ describe("which sends the desk answers", () => {
   it("answers plain words to a free-model dog it has notes for", () => {
     expect(answerable(send({ text: "hi", sendId: "send-0000000000001", threadId: "t-rex" }), BRAIN, T0)).toEqual(REX);
     expect(answerable(send({ text: "hi", sendId: "send-0000000000001" }), BRAIN, T0)).toEqual(REX);
+    expect(answerable(send({ text: "Yes", sendId: "send-0000000000001", threadId: "t-rex", cardId: "card-1" }), BRAIN, T0)).toEqual(REX);
+    expect(answerable(send({ text: "Yes", sendId: "send-0000000000001", threadId: "t-rex", cardId: "card-1", oneAnswer: true }), BRAIN, T0)).toEqual(REX);
   });
 
   it("leaves everything else to the home", () => {
@@ -31,6 +33,7 @@ describe("which sends the desk answers", () => {
     expect(answerable(send({ text: "hi", sendId: "send-0000000000001", attachments: [{ id: "a" }] }), BRAIN, T0)).toBeNull();
     expect(answerable(send({ text: "hi", sendId: "send-0000000000001", replyToId: "m1" }), BRAIN, T0)).toBeNull();
     expect(answerable(send({ text: "hi" }), BRAIN, T0)).toBeNull();
+    expect(answerable(send({ text: "/plan the login page", sendId: "send-0000000000001" }), BRAIN, T0)).toBeNull();
     expect(answerable(send({ text: "hi", sendId: "send-0000000000001" }, "/api/bots/fido/messages"), BRAIN, T0)).toBeNull();
     expect(answerable(send({ text: "hi", sendId: "send-0000000000001" }, "/api/groups/pack/messages"), BRAIN, T0)).toBeNull();
     expect(answerable(send({ text: "hi", sendId: "send-0000000000001" }), BRAIN, T0 + DESK_BRAIN_KEPT_MS + 1)).toBeNull();

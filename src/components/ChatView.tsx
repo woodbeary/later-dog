@@ -16,9 +16,11 @@ import {
   Pencil,
   MoreHorizontal,
   Search,
+  SquareSlash,
   Webhook,
   X,
 } from "lucide-react";
+import { SaveCommandDialog } from "@/components/SaveCommandDialog";
 import { DraftContext, type DraftScope } from "./draft-context";
 import { LinkPreviews } from "./LinkPreviewCard";
 import { startNewConversation } from "@/lib/new-conversation";
@@ -48,8 +50,11 @@ import { FailedTurnRow } from "./FailedTurnRow";
 import { isOpenTakeover } from "../../shared/takeover";
 import { BotAvatar } from "./Avatar";
 import { ExchangeLine, ExchangeThreadContext, PlainNoteLine } from "./QuietLines";
+import { FailedSendLine, TeamBlock } from "./TeamBlock";
+import { foldTeams } from "@/lib/team-block";
+import { RunningOnLine } from "./RunningOnLine";
 import { ExchangeViewHost } from "./ExchangeViewHost";
-import { foldExchanges, foldedRuns, expandedExchange, quietTranscriptItemShown, shownToPerson } from "@/lib/quiet-lines";
+import { foldExchanges, foldedRuns, expandedExchange, quietTranscriptItemShown, shownInChat } from "@/lib/quiet-lines";
 import { RecoveredLine } from "./RecoveredLine";
 import { freshenDogName } from "@/lib/dog-refs";
 import { TurnPresence } from "./TurnPresence";
@@ -311,6 +316,7 @@ const Bubble = memo(function Bubble({
   const user = message.role === "user" && !peer;
   const [expanded, setExpanded] = useState(false);
   const [picking, setPicking] = useState(false);
+  const [savingCommand, setSavingCommand] = useState(false);
   const reactable = canReactTo(message) && canWrite !== false;
   const react = (emoji: string) => void reactToMessage(dispatch, threadId, message, emoji);
   const reactionName = (by: string) => (by === botId ? botName : bots.find((candidate) => candidate.id === by)?.name ?? by);
@@ -379,6 +385,9 @@ const Bubble = memo(function Bubble({
     if (v && !busy && !v.id.startsWith(OPTIMISTIC_PREFIX)) dispatch({ type: "switchBranch", botId, threadId, messageId: v.id });
   };
   const draftForTask = text && !viewRaw ? taskDraft(t("chat.action.taskLead"), text) : "";
+  const userMore: SidebarMenuItem[] = user && message.kind === "text" && canWrite !== false && !webhookView && visibleText.trim()
+    ? [{ key: "command", label: t("chat.action.saveCommand"), icon: <SquareSlash size={16} />, onSelect: () => setSavingCommand(true) }]
+    : [];
   const botMore: SidebarMenuItem[] = [
     ...(text && !viewRaw
       ? [
@@ -394,13 +403,14 @@ const Bubble = memo(function Bubble({
 
   return (
     <div data-from={user ? "user" : "agent"} className={cn("group flex w-full flex-col", user ? "items-end" : "items-start", hasTapback(message.reactions) && "pt-3")}>
+      {savingCommand && <SaveCommandDialog initialText={visibleText} onClose={() => setSavingCommand(false)} />}
       {peer && <PeerLabel peer={peer} />}
       {sentAbove && (
         <AttachmentGallery sent images={sentImages} files={sentFiles} message={{ threadId, messageId: message.id }} eager={eagerAttachments} className="mb-1.5 max-w-[min(42rem,78%)]" />
       )}
       <div className={cn("flex w-full items-center gap-1.5", user ? "justify-end" : "justify-start")}>
         {user && (
-          <MessageActions side="user" forceOpen={picking}>
+          <MessageActions side="user" forceOpen={picking} more={userMore}>
             {message.kind === "text" && canWrite !== false && !webhookView && !cited?.citations.length && !busy && !message.id.startsWith(OPTIMISTIC_PREFIX) && (
               <button
                 type="button"
@@ -717,10 +727,10 @@ const MessagesList = memo(function MessagesList({
   const emerged = useRef(new Set<string>());
   if (emergingId) emerged.current.add(emergingId);
   const items = useMemo(
-    () => foldExchanges(groupTranscript(messages, plan), {
+    () => foldTeams(foldExchanges(groupTranscript(messages, plan), {
       renders: (item) => quietTranscriptItemShown(item, showToolCalls),
       hasGroup: (groupId) => groupIds.split("|").includes(groupId),
-    }),
+    }), (item) => quietTranscriptItemShown(item, showToolCalls)),
     [messages, plan, locale, showToolCalls, groupIds],
   );
   const foldedWork = useMemo(() => {
@@ -774,6 +784,24 @@ const MessagesList = memo(function MessagesList({
                   </Fragment>
                 ))}
               </TurnNarrationRun>
+            </div>
+          );
+        }
+        if (item.kind === "failed-send") {
+          return (
+            <div key={item.id} className="contents" data-arriving={arriving(item.message.id) ? "" : undefined}>
+              {newDay && <DaySeparator at={first.at} today={today} />}
+              {unreadDivider(item.messages)}
+              <FailedSendLine item={item} />
+            </div>
+          );
+        }
+        if (item.kind === "team") {
+          return (
+            <div key={item.id} className="contents" data-arriving={arriving(item.messages.at(-1)!.id) ? "" : undefined}>
+              {newDay && <DaySeparator at={first.at} today={today} />}
+              {unreadDivider(item.messages)}
+              <TeamBlock item={item} waitingOn={owner?.waitingOn} />
             </div>
           );
         }
@@ -842,7 +870,7 @@ const MessagesList = memo(function MessagesList({
             case "routine.run":
               return <RoutineRunRow message={m} botId={botId} />;
             case "activity": {
-              if (isStatusActivity(m)) return <StatusActivityRow message={m} />;
+              if (isStatusActivity(m)) return <StatusActivityRow message={m} model={selection.model} />;
               if (m.tool && failedTurnCause(m.tool.name) !== null) {
                 return (
                   <FailedTurnRow
@@ -936,7 +964,7 @@ export function ChatView({ bot: profile }: { bot: Bot }) {
 
   const { messages: allMessages, activeLeafId } = bot;
   const thread = useMemo(() => visibleMessages({ messages: allMessages, activeLeafId }), [allMessages, activeLeafId]);
-  const messages = useMemo(() => thread.filter(shownToPerson), [thread]);
+  const messages = useMemo(() => thread.filter(shownInChat), [thread]);
   const exchangeThread = useMemo(() => ({ thread, working: Boolean(bot.busy) }), [thread, bot.busy]);
   const lookups = useMemo(() => transcriptLookups(allMessages, messages), [allMessages, messages]);
   const takeoverOpen = useMemo(
@@ -1267,7 +1295,7 @@ export function ChatView({ bot: profile }: { bot: Bot }) {
             steps={steps}
             updates={updates}
           />
-          <DogPlan plan={bot.plan} working={waiting} />
+          <DogPlan plan={bot.plan} working={waiting} since={bot.busy ? bot.turnStartedAt ?? null : null} />
         </div>
       </div>
 
@@ -1308,6 +1336,7 @@ export function ChatView({ bot: profile }: { bot: Bot }) {
       <LiveCallBar bot={bot} />
       {!takeoverOpen && <NeedsYouRow botId={bot.id} name={bot.name} />}
       <PaneErrorLine panes={[chatPane(bot.threadId)]} look="tray" />
+      <RunningOnLine messages={thread} threadId={bot.threadId} />
       {canWrite === false ? (
         <p className="pointer-events-auto mx-5 mb-4 rounded-2xl border border-hairline/60 bg-raised px-4 py-3 text-[13px] text-ink-secondary" data-testid="cloud-guest-composer">{t("chat.cloudGuest.notYours")}</p>
       ) : (

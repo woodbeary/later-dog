@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import type { Message } from "@/state/store";
 import { groupTranscript } from "./activity-runs";
-import { exchangeGist, foldExchanges, quietTranscriptItemShown, shownToPerson, singleExchange, type ExchangeItem } from "./quiet-lines";
+import { exchangeGist, foldExchanges, quietTranscriptItemShown, shownInChat, shownToPerson, singleExchange, type ExchangeItem } from "./quiet-lines";
 
 const comm = { groupId: "g", threadId: "x", withBotId: "clover", withName: "Clover", withColor: "yellow" as const, direction: "from" as const };
 const at = (n: number) => 1_000 + n;
@@ -13,11 +13,17 @@ const jacob: Message = { id: "u1", role: "user", kind: "text", at: at(4), text: 
 const answer: Message = { id: "b1", role: "bot", kind: "text", at: at(5), turnId: "t2", text: "You're welcome." };
 const sent: Message = { id: "s1", role: "bot", kind: "activity", at: at(6), turnId: "t3", tool: { name: "Sent to Patch", ok: true }, comm: { groupId: "g2", threadId: "y", withBotId: "patch", withName: "Patch", withColor: "blue", direction: "to" } };
 const report: Message = { id: "s2", role: "bot", kind: "activity", at: at(7), turnId: "t4", roomRequest: { id: "q2", phase: "result" }, tool: { name: "Patch finished", ok: true, output: "Released 0.9.1 with every detail" }, comm: { ...sent.comm!, direction: "from" } };
+const moved: Message = { id: "m1", role: "bot", kind: "activity", at: at(8), tool: { name: "notice: Running on Work — Home is recharging, back at 9:00 AM.", ok: true, carry: { from: "home", to: "work" } } };
+const resume: Message = { id: "m2", role: "bot", kind: "activity", at: at(9), tool: { name: "notice: Work stopped partway. Carry on?", ok: true, resume: { handoffId: "h1" } } };
 const asks: Message = { id: "k1", role: "bot", kind: "options", at: at(3), turnId: "t1", card: { title: "Ship it?", subtitle: "", options: ["Yes"] } };
 
 describe("dog-to-dog traffic in a dog's chat", () => {
   it("keeps the request and the dog's reply to the other dog out of the chat, and keeps Jacob's messages and replies to him", () => {
     expect([fromClover, request, reply, jacob, answer].filter(shownToPerson).map((message) => message.id)).toEqual(["c1", "u1", "b1"]);
+  });
+
+  it("leaves the exchange text and a standing fact about where the chat runs out of the dog's chat, and keeps a notice that needs the person", () => {
+    expect([fromClover, request, reply, jacob, answer, moved, resume].filter(shownInChat).map((message) => message.id)).toEqual(["c1", "u1", "b1", "m2"]);
   });
 
   it("shows each exchange as one row, never the full text", () => {
@@ -48,7 +54,7 @@ describe("dog-to-dog traffic in a dog's chat", () => {
 
   it("hides the exchange text in the dog's chat and gives the rows the whole thread for the gist", () => {
     const chat = readFileSync(new URL("../components/ChatView.tsx", import.meta.url), "utf8");
-    expect(chat).toContain("thread.filter(shownToPerson)");
+    expect(chat).toContain("thread.filter(shownInChat)");
     expect(chat).toContain("<ExchangeThreadContext.Provider value={exchangeThread}>");
     const line = readFileSync(new URL("../components/QuietLines.tsx", import.meta.url), "utf8");
     expect(line).toContain("exchangeSummary(item, exchangeThread?.thread ?? null, exchangeThread?.working ?? false)");
