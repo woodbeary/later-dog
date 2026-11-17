@@ -153,6 +153,18 @@ export function WorkPanel(props: { botId: string; botName: string }) {
   const dogs = useStoreSelector(state => state.bots);
   const { data, refreshJobs } = usePanelData(page, props.botId);
   const shownFor = useRef(props.botId);
+  const returnTo = useRef<HTMLElement | null>(null);
+  const open = page !== null;
+  useEffect(() => {
+    if (open) {
+      const active = document.activeElement;
+      returnTo.current = active instanceof HTMLElement && active !== document.body ? active : null;
+      return;
+    }
+    const back = returnTo.current;
+    returnTo.current = null;
+    if (back?.isConnected && (document.activeElement === document.body || document.activeElement === null)) back.focus();
+  }, [open]);
   useEffect(() => {
     if (shownFor.current !== props.botId) closeWorkPanel();
     shownFor.current = props.botId;

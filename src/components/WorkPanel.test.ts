@@ -164,3 +164,14 @@ it("opens the live step's page when its row is clicked", async () => {
   expect(panel()!.getAttribute("data-page")).toBe("step");
   expect(host.textContent).toContain("pnpm test");
 });
+
+it("gives focus back to the composer when it closes after a click inside it", async () => {
+  const composer = document.createElement("textarea"); document.body.append(composer); composer.focus();
+  await mount({ kind: "work", threadId: "t1" });
+  (host.querySelector(".work-panel-close") as HTMLButtonElement).focus();
+  expect(document.activeElement).not.toBe(composer);
+  await act(async () => { document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })); });
+  expect(panel()).toBeNull();
+  expect(document.activeElement).toBe(composer);
+  composer.remove();
+});
