@@ -368,14 +368,14 @@ function RoomContextMenu({
       data-room-menu
       data-sidebar
       style={{ top, left }}
-      className={cn("fixed z-40 w-[228px] overflow-hidden rounded-xl border border-hairline/50 bg-menu py-1.5 shadow-2xl shadow-black/60", motion.className)} {...motion.exitProps}
+      className={cn("fixed z-40 w-[228px] overflow-hidden popover-menu", motion.className)} {...motion.exitProps}
     >
       <button
         onClick={() => {
           onClose();
           onMoveToSection(group.id);
         }}
-        className="flex w-full items-center gap-3 px-3.5 py-2 text-left text-[14px] text-ink hover:bg-raised/70"
+        className="popover-menu-row text-ink hover:bg-card"
       >
         <FolderPlus size={16} className="text-ink-secondary" />
         {t("sidebar.section.moveToContext")}
@@ -385,7 +385,7 @@ function RoomContextMenu({
           dispatch({ type: "patchGroup", groupId: group.id, patch: { unread: !group.unread } });
           onClose();
         }}
-        className="flex w-full items-center gap-3 px-3.5 py-2 text-left text-[14px] text-ink hover:bg-raised/70"
+        className="popover-menu-row text-ink hover:bg-card"
       >
         {group.unread ? <Bell size={16} className="text-ink-secondary" /> : <BellDot size={16} className="text-ink-secondary" />}
         {group.unread ? t("sidebar.bot.markRead") : t("sidebar.bot.markUnread")}
@@ -436,7 +436,7 @@ function RoomContextMenu({
             setDraft(group.name);
             setRenaming(true);
           }}
-          className="flex w-full items-center gap-3 px-3.5 py-2 text-left text-[14px] text-ink hover:bg-raised/70"
+          className="popover-menu-row text-ink hover:bg-card"
         >
           <Pencil size={16} className="text-ink-secondary" />
           {t("sidebar.room.renameChannel")}
@@ -447,7 +447,7 @@ function RoomContextMenu({
           void copyConversationId(group.threadId);
           onClose();
         }}
-        className="flex w-full items-center gap-3 px-3.5 py-2 text-left text-[14px] text-ink hover:bg-raised/70"
+        className="popover-menu-row text-ink hover:bg-card"
       >
         <ClipboardCopy size={16} className="text-ink-secondary" />
         {t("sidebar.copyConversationId")}
@@ -457,7 +457,7 @@ function RoomContextMenu({
           onClose();
           onDelete(group.id);
         }}
-        className="flex w-full items-center gap-3 px-3.5 py-2 text-left text-[14px] text-danger hover:bg-raised/70"
+        className="popover-menu-row text-danger hover:bg-card"
       >
         <Trash2 size={16} />
         {t("sidebar.room.deleteChannel")}
@@ -534,20 +534,20 @@ export function SectionPicker({
     <div
       data-section-picker
       style={{ top, left }}
-      className={cn("fixed z-40 w-[236px] overflow-hidden rounded-xl border border-hairline/50 bg-menu py-2 shadow-2xl shadow-black/60", motion.className)} {...motion.exitProps}
+      className={cn("fixed z-40 w-[236px] overflow-hidden popover-menu", motion.className)} {...motion.exitProps}
     >
-      <div className="px-3.5 pb-1 text-[10px] font-medium uppercase tracking-[0.08em] text-ink-secondary">
+      <div className="popover-menu-heading">
         {t("sidebar.section.moveToContext")}
       </div>
       {sections.length > 0 && (
-        <div className="flex flex-col gap-0.5 px-1.5 py-1">
+        <div className="flex flex-col gap-0.5">
           {sections.map((section) => (
             <button
               key={section}
               onClick={() => assign(section)}
               className={cn(
-                "flex w-full items-center justify-between gap-2 rounded-lg px-2.5 py-1.5 text-left text-[13px]",
-                section === sectionCurrent ? "bg-raised text-ink" : "text-ink hover:bg-raised/70",
+                "popover-menu-row justify-between",
+                section === sectionCurrent ? "bg-card text-ink" : "text-ink hover:bg-card",
               )}
             >
               <span className="truncate">{section}</span>
@@ -589,7 +589,7 @@ export function SectionPicker({
           <div className="mx-2 my-1 border-t border-hairline/40" />
           <button
             onClick={() => assign("")}
-            className="flex w-full items-center gap-3 px-3.5 py-2 text-left text-[13px] text-danger hover:bg-raised/70"
+            className="popover-menu-row text-danger hover:bg-card"
           >
             <FolderMinus size={15} />
             {t("sidebar.section.removeFromContext")}
@@ -676,7 +676,7 @@ export function BotContextMenu({
         onClose();
       }}
       className={cn(
-        "flex w-full items-center gap-3 px-3.5 py-2 text-left text-[14px] hover:bg-raised/70",
+        "popover-menu-row hover:bg-card",
         opts?.danger ? "text-danger" : "text-ink",
       )}
     >
@@ -728,7 +728,7 @@ export function BotContextMenu({
       aria-label={t("sidebar.bot.actions", { name: bot.name })}
       onKeyDown={navigateMenu}
       style={{ top: shown.y, left: shown.x }}
-      className={cn("fixed z-40 max-h-[calc(100dvh-16px)] w-[248px] max-w-[calc(100vw-16px)] overflow-y-auto overscroll-contain rounded-xl border border-hairline/50 bg-menu py-1.5 shadow-2xl shadow-black/60", motion.className)} {...motion.exitProps}
+      className={cn("fixed z-40 max-h-[calc(100dvh-16px)] w-[248px] max-w-[calc(100vw-16px)] overflow-y-auto overscroll-contain popover-menu", motion.className)} {...motion.exitProps}
     >
       {items}
     </div>,
@@ -755,8 +755,8 @@ export function BotDeleteMenuItem({ deleting, onClick }: { deleting: boolean; on
       onClick={onClick}
       title={deleting ? t("sidebar.bot.deleteCheckingTitle") : undefined}
       className={cn(
-        "flex w-full items-center gap-3 px-3.5 py-2 text-left text-[14px] text-danger",
-        deleting ? "cursor-default opacity-40" : "hover:bg-raised/70",
+        "popover-menu-row text-danger",
+        deleting ? "cursor-default opacity-40" : "hover:bg-card",
       )}
     >
       {deleting ? <Loader2 size={16} className="animate-spin" /> : <Trash2 size={16} />}
@@ -1065,7 +1065,7 @@ export function SectionMenuItems({ onRename, onDelete }: {
   onRename: () => void;
   onDelete: () => void;
 }) {
-  const item = "flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-[13px] hover:bg-raised";
+  const item = "popover-menu-row hover:bg-card";
   return (
     <>
       <button type="button" role="menuitem" autoFocus className={item} onClick={onRename}><Pencil size={14} />{t("section.rename")}</button>
@@ -1653,7 +1653,7 @@ export function Sidebar({ open, onClose, collapseToIcons = false }: {
       {renamingSection !== null && <SectionRenameDialog section={renamingSection} onRenamed={renamedSection} onClose={() => setRenamingSection(null)} />}
       {sectionMotion.shown && sectionMotion.value && createPortal(<div className={cn("fixed inset-0 z-40", sectionMotion.closing && "pointer-events-none")} onMouseDown={closeSectionMenu}>
         <div role="menu" aria-label={sectionMotion.value.name} style={{ left: sectionMotion.value.x, top: sectionMotion.value.y }}
-          className={cn("absolute w-[220px] rounded-xl border border-hairline/50 bg-menu p-1.5 text-ink shadow-xl", sectionMotion.className)} {...sectionMotion.exitProps}
+          className={cn("absolute w-[220px] popover-menu text-ink", sectionMotion.className)} {...sectionMotion.exitProps}
           onMouseDown={event => event.stopPropagation()} onKeyDown={event => {
             if (event.key === "Escape" || event.key === "Tab") { event.preventDefault(); event.stopPropagation(); closeSectionMenu(); return; }
             navigateMenu(event);

@@ -1919,3 +1919,29 @@ button:disabled.bg-danger {
 [data-sidebar-row="plain"] > [data-sidebar-bot-row] { contain-intrinsic-size: auto 37px; }
 [data-sidebar-row="titled"] > [data-sidebar-bot-row] { contain-intrinsic-size: auto 53px; }
 [data-sidebar-row="icon"] > [data-sidebar-bot-row] { contain-intrinsic-size: auto 44px; }
+@layer components {
+  .popover-menu {
+    border-radius: var(--radius-menu);
+    padding: 6px;
+    background-color: var(--color-menu);
+    box-shadow: var(--shadow-popover);
+  }
+  .popover-menu-row {
+    display: flex;
+    width: 100%;
+    align-items: center;
+    gap: 12px;
+    padding: 8px 14px;
+    border-radius: var(--radius-row);
+    font-size: 14px;
+    line-height: 20px;
+    text-align: left;
+  }
+  .popover-menu-heading {
+    padding: 6px 14px 2px;
+    font-size: 12px;
+    line-height: 16px;
+    font-weight: 500;
+    color: var(--color-ink-secondary);
+  }
+}
