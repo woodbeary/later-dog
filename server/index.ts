@@ -142,6 +142,8 @@ import { ComputerJobs, JOB_CHECK_MS } from "./laterdog/computer-jobs.ts";
 import { handoffWait, handoffWorkDone, olderWorkFields } from "./laterdog/chat-work.ts";
 import { createJobStop } from "./laterdog/stop-computer-jobs.ts";
 import { createJobWake } from "./laterdog/job-wake.ts";
+import { waitCapMs } from "./laterdog/run-wait.ts";
+import { HelperTurnBudget } from "./laterdog/turn-budget.ts";
 import { HeavyCommandGuard, preToolUseDecision } from "./laterdog/heavy-commands.ts";
 import { computersSelected } from "./laterdog/cloud-computers.ts";
 import { createComputerRunRoute } from "./routes/computer-run.ts";
@@ -5538,6 +5540,7 @@ const routedRoomReplies = new Map<string, { botId: string; routedBy: RoutedBy }>
 
 const turnUsage = new Map<string, { input: number; output: number; cachedInput?: number }>();
 const turnContext = new Map<string, { tokens?: number; window?: number }>();
+const helperTurns = new HelperTurnBudget();
 
 const repeats = new RepeatDetector({ thresholds: [5, 10, 20], maxKeysPerThread: 256 });
 
@@ -7631,6 +7634,7 @@ bus.subscribe(guardTurnEnd((event: RuntimeEvent) => {
       turnUsage.delete(event.threadId);
       const lastContext = turnContext.get(event.threadId);
       turnContext.delete(event.threadId);
+      helperTurns.end(event.threadId);
       if (bot) {
         const resourceOwner = turnResourceOwners.get(event.threadId);
         const generation = directTurnGenerationByThread.get(event.threadId);
@@ -9275,6 +9279,7 @@ async function startTurn(
       }
       const computerPromptKind = resolveComputerPromptKind(computerKind);
       const coordinationNode = opts?.coordination ? roomHandoffs.nodes.get(opts.coordination.id) : undefined;
+      if (coordinationNode?.parentId) helperTurns.begin(threadId); else helperTurns.end(threadId);
       if (opts?.coordination && (!coordinationNode || coordinationNode.status !== "running" || roomHandoffProblem(coordinationNode,
         coordinationNode.parentId ? roomHandoffs.nodes.get(coordinationNode.parentId) : undefined))) {
         throw new DirectTurnSetupCancelled("Coordination access changed before dispatch");
@@ -9426,6 +9431,7 @@ async function startTurn(
         watchdog.settle(threadId);
         turnUsage.delete(threadId);
         turnContext.delete(threadId);
+        helperTurns.end(threadId);
       }
       if (e instanceof DirectTurnSetupCancelled) {
         settleDirectFollowup(dispatchClaimId, { ok: false, text: e.message });
@@ -13765,6 +13771,8 @@ INTERNAL_ROUTES.push(createComputerRunRoute({
   ...(Number(process.env.LATERDOG_COMPUTER_RUN_WAIT_MS) > 0 ? { windowMs: Number(process.env.LATERDOG_COMPUTER_RUN_WAIT_MS) } : {}),
   computer: boat.heavyRunBox,
   active: (capability) => internalCapabilityIsActive(capability as InternalCapability),
+  maxWaitMs: (threadId) => waitCapMs(runningTurnEngines.get(threadId)?.driverKind, mcpCallTimeoutMinutes(cfg)),
+  personWrote: (_botId, threadId, since) => store.activePath(threadId).some((message) => message.role === "user" && message.at >= since),
 }));
 INTERNAL_ROUTES.push(createReactRoute({
   activePath: (threadId) => store.activePath(threadId),
@@ -14535,7 +14543,9 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       }
       if (method === "POST" && path === "/api/internal/hook") {
         const body = await readInternalBody();
-        return json(res, 200, ingestEngineHook(internalCapability, body));
+        const answer = ingestEngineHook(internalCapability, body);
+        const notice = answer.hookSpecificOutput ? null : helperTurns.fromHook(internalCapability.threadId, body, turnContext.get(internalCapability.threadId)?.tokens);
+        return json(res, 200, notice ? { ...answer, hookSpecificOutput: notice } : answer);
       }
       if (method === "POST" && path === "/api/internal/tool-result") {
         const body = await readInternalBody();

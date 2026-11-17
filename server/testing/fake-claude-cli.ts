@@ -641,8 +641,13 @@ const playTurn = async (prompt: JsonValue, late = false) => {
     roomTurnsPlayed += 1;
     const compactContext = process.env.FAKE_CLAUDE_COMPACT === "1" && (roomTurnsPlayed >= 2 || argv.includes("--resume")) ? playNativeCompaction().trim() : "";
     const progress = (text: string) => out({ type: "assistant", message: { content: [{ type: "text", text }] } });
-    const announce = (call: { id: string; name: string; input: unknown; parentToolUseId?: string; agentId?: string }) =>
+    const announce = (call: { id: string; name: string; input: unknown; parentToolUseId?: string; agentId?: string }) => {
       out({ type: "assistant", parent_tool_use_id: call.parentToolUseId ?? null, ...(call.agentId ? { agent_id: call.agentId } : {}), message: { content: [{ type: "tool_use", id: call.id, name: call.name, input: call.input }] } });
+      if (process.env.FAKE_CLAUDE_HOOK_OUTPUT) {
+        const hook = runHooks("PostToolUse", { tool_name: call.name, tool_input: call.input, tool_response: "ok", tool_use_id: call.id });
+        appendFileSync(process.env.FAKE_CLAUDE_HOOK_OUTPUT, `${JSON.stringify({ id: call.id, hook: hook.trim() })}\n`);
+      }
+    };
     void runRoomHandoffAgent(argv, process.env.FAKE_CLAUDE_ROOM_PLAN, prompt, undefined, progress, announce).then(text => {
       const contextTokens = Number(process.env.FAKE_CLAUDE_CONTEXT_TOKENS);
       const contextWindow = Number(process.env.FAKE_CLAUDE_CONTEXT_WINDOW);

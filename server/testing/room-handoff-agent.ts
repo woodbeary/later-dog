@@ -78,7 +78,7 @@ export async function runRoomHandoffAgent(argv: string[], planPath: string, prom
     const id = ++serial; pending.set(id, { resolve, reject });
     child.stdin.write(JSON.stringify({ jsonrpc: "2.0", id, method, params }) + "\n");
   });
-  const timer = setTimeout(() => fail(new Error("Fixture MCP run timed out")), 20_000);
+  const timer = setTimeout(() => fail(new Error("Fixture MCP run timed out")), Number(process.env.FAKE_CLAUDE_ROOM_MS) || 20_000);
   let delayTimer: ReturnType<typeof setTimeout> | undefined;
   let gateTimer: ReturnType<typeof setInterval> | undefined;
   const evidence: unknown[] = [];
