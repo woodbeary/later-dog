@@ -49,10 +49,10 @@ const rpc = (request: unknown, gate: { held: boolean; blockedReason?: string } =
 };
 
 describe("cloud computer tools", () => {
-  it("lists the same twelve tools for every engine", async () => {
+  it("lists the same fourteen tools for every engine", async () => {
     const listed = await rpc({ method: "tools/list", params: {} }).done as { tools: Array<{ name: string }> };
     expect(listed.tools.map(tool => tool.name)).toEqual([
-      "screenshot", "get_screen_size", "click", "move", "drag", "type_text", "key_press", "scroll", "open_url", "exec",
+      "screenshot", "get_screen_size", "zoom", "click", "move", "drag", "type_text", "key_press", "scroll", "run_actions", "open_url", "exec",
       "request_secure_form", "fill_secure_field",
     ]);
     expect(calls).toEqual([]);
@@ -85,8 +85,8 @@ describe("cloud computer tools", () => {
 
   it.each([
     ["click", { x: 3, y: 4, button: "right", count: 2 }, "click --repeat 2 --delay 100 3"],
-    ["move", { x: 7, y: 8 }, "mousemove --sync 7 8"],
-    ["drag", { x: 1, y: 2, to_x: 3, to_y: 4 }, "mousedown 1 mousemove --sync 3 4 mouseup 1"],
+    ["move", { x: 7, y: 8 }, "TX=$(( 7 * 100 / P )); TY=$(( 8 * 100 / P ))"],
+    ["drag", { x: 1, y: 2, to_x: 3, to_y: 4 }, "xdotool mousedown 1 && TX=$(( 3 * 100 / P )); TY=$(( 4 * 100 / P ))"],
     ["scroll", { x: 4, y: 3, direction: "down", amount: 2 }, "click --repeat 2 --delay 80 5"],
     ["key_press", { key: "ctrl+l" }, "key --clearmodifiers"],
     ["type_text", { text: "Unicode: 日本語 ' $(echo unsafe)" }, "base64 -d | xclip"],
@@ -108,12 +108,77 @@ describe("cloud computer tools", () => {
     if (name === "type_text") expect(calls[0].body.command).not.toContain("$(echo unsafe)");
   });
 
-  it("returns native-size screenshots as MCP images", async () => {
-    const result = await rpc({ method: "tools/call", params: { name: "screenshot", arguments: {} } }).done;
-    expect(result).toEqual({ content: [{ type: "image", mimeType: "image/jpeg", data: Buffer.from(jpeg, "base64").toString("base64") }] });
+  const ownComputer = (stdout: string, seen: string[] = []) => async (command: string) => {
+    seen.push(command);
+    return { ok: true, exitCode: 0, stdout, stderr: "" };
+  };
+
+  it("returns screenshots capped at 1024 pixels wide and compressed, taken in one command, as MCP images", async () => {
+    const seen: string[] = [];
+    const result = await tools.runCloudComputerTool(cfg, "fixture", "screenshot", {}, new AbortController().signal, undefined, undefined, ownComputer(`${jpeg}\n`, seen));
+    expect(result).toEqual({ content: [{ type: "image", mimeType: "image/jpeg", data: jpeg }] });
+    expect(seen).toHaveLength(1);
+    expect(seen[0]).toContain("--quality 60 --thumb");
+    expect(seen[0]).toContain("102400");
+  });
+
+  it("says the screenshot failed rather than sending something that is not a picture", async () => {
+    const result = await tools.runCloudComputerTool(cfg, "fixture", "screenshot", {}, new AbortController().signal, undefined, undefined, ownComputer("captured"));
+    expect(result.isError).toBe(true);
+    expect(result.content[0]).toMatchObject({ type: "text", text: expect.stringContaining("The screenshot failed") });
+  });
+
+  it("keeps today's full-size screenshot and real coordinates on a computer from the older provider", async () => {
+    const shot = await rpc({ method: "tools/call", params: { name: "screenshot", arguments: {} } }).done;
+    expect(shot).toEqual({ content: [{ type: "image", mimeType: "image/jpeg", data: Buffer.from(jpeg, "base64").toString("base64") }] });
     expect(calls[0].body.command).toContain("laterdog-panel.jpg.model.jpg");
-    expect(calls[0].body.command).not.toContain("-resize");
     expect(calls[1].path).toContain("laterdog-panel.jpg.model.jpg");
+    calls.length = 0;
+    await rpc({ method: "tools/call", params: { name: "click", arguments: { x: 1023, y: 639 } } }).done;
+    expect(calls[0].body.command).toContain("1023 * 100 / P");
+    expect(calls[0].body.command).not.toContain("102400");
+    calls.length = 0;
+    await rpc({ method: "tools/call", params: { name: "get_screen_size", arguments: {} } }).done;
+    expect(calls[0].body.command).not.toContain("102400");
+    calls.length = 0;
+    const desk = { open: () => ({ error: "unused" }), field: () => ({ ok: true, host: "login.example.test", label: "Password", value: "S3cret-pass!" }), typed: () => ({ last: true }) } as unknown as SecureFormDesk;
+    await rpc({ method: "tools/call", params: { name: "fill_secure_field", arguments: { form_id: "f1", field_id: "password", x: 1023, y: 639 } } }, { held: false }, new AbortController().signal, desk).done;
+    expect(calls[0].body.command).toContain("SX=$(( 1023 * 100 / P ))");
+    expect(calls[0].body.command).not.toContain("102400");
+  });
+
+  it("stops a run as soon as the person takes control, before the next step and before the reading", async () => {
+    let gates = 0;
+    const result = await tools.cloudComputerRpc({ method: "tools/call", params: { name: "run_actions", arguments: { steps: [
+      { action: "type", text: "first" }, { action: "type", text: "second" }, { action: "key", key: "Return" }, { action: "click", x: 5, y: 5 },
+    ] } } }, {
+      cfg, boxId: () => "bx_23456789", signal: new AbortController().signal,
+      gate: async () => (++gates <= 2 ? { held: false } : { held: true, blockedReason: "Jacob is using the cloud computer." }),
+      assertActive: () => {},
+    }) as { isError?: boolean; content: Array<{ type: string; text?: string }> };
+    expect(calls.filter((entry) => entry.path.endsWith("/commands"))).toHaveLength(1);
+    expect(result.isError).toBe(true);
+    expect(result.content).toHaveLength(1);
+    expect(result.content[0]!.text).toContain("A person has taken control of the cloud computer");
+    expect(result.content[0]!.text).toContain("before step 2 of 4");
+    expect(result.content[0]!.text).toContain("Done before it: type 5 characters.");
+  });
+
+  it("takes no reading when the person took control while a step was failing, and still says which step failed", async () => {
+    let gates = 0;
+    commandReply = { exitCode: 1, stdout: "", stderr: "xdotool: no window" };
+    const result = await tools.cloudComputerRpc({ method: "tools/call", params: { name: "run_actions", arguments: { steps: [
+      { action: "type", text: "first" }, { action: "type", text: "second" },
+    ] } } }, {
+      cfg, boxId: () => "bx_23456789", signal: new AbortController().signal,
+      gate: async () => (++gates <= 2 ? { held: false } : { held: true, blockedReason: "Jacob is using the cloud computer." }),
+      assertActive: () => {},
+    }) as { isError?: boolean; content: Array<{ type: string; text?: string }> };
+    expect(calls.map((entry) => entry.path.split("/").at(-1)?.split("?")[0])).toEqual(["commands"]);
+    expect(result.isError).toBe(true);
+    expect(result.content).toHaveLength(1);
+    expect(result.content[0]!.text).toContain("Step 1 of 2 (type 5 characters) failed");
+    expect(result.content[0]!.text).toContain("A person has taken control of the cloud computer");
   });
 
   it.each([

@@ -11,6 +11,7 @@ import {
   type SecureFormCardData,
   type SecureFormField,
 } from "../../shared/secure-form.ts";
+import { onScreen, pointerTo, scaled } from "./screen-scale.ts";
 import { fitsOnOneLine } from "../../shared/bot-profile.ts";
 import { detailsFromForm, savesAsLogin, vaultAllowKey, vaultFieldPlan, vaultSite, type VaultDetails, type VaultFieldPlan, type VaultLogin } from "../../shared/vault.ts";
 
@@ -191,16 +192,18 @@ export class SecureFormVault {
 
 const quote = (value: string) => "'" + value.replace(/'/g, "'\\''") + "'";
 
-export function secureFillCommand(input: { host: string; x: number; y: number; value: string; submit: boolean }): string {
+export function secureFillCommand(input: { host: string; x: number; y: number; value: string; submit: boolean; fullSize?: boolean }): string {
   const { host, x, y } = input;
   if (!Number.isInteger(x) || !Number.isInteger(y) || !/^[a-z0-9.-]+$/.test(host)) throw new RangeError("invalid secure fill target");
   const encoded = Buffer.from(input.value, "utf8").toString("base64");
-  return [
+  return scaled([
+    `SX=${onScreen(x)}`,
+    `SY=${onScreen(y)}`,
     "w=$(xdotool getactivewindow 2>/dev/null) || exit 3",
     "c=$(xprop -id \"$w\" WM_CLASS 2>/dev/null | head -n 1)",
     "printf '%s\\n' \"$c\" | grep -qiE '\"(chromium|chromium-browser|google-chrome|chrome|firefox|firefox-esr|navigator)\"' || exit 4",
     "eval \"$(xdotool getwindowgeometry --shell \"$w\" 2>/dev/null | grep -E '^(X|Y|WIDTH|HEIGHT)=-?[0-9]+$')\"",
-    `[ -n "$WIDTH" ] && [ ${x} -ge "$X" ] && [ ${x} -lt $((X + WIDTH)) ] && [ ${y} -ge $((Y + ${SECURE_TOOLBAR_PX})) ] && [ ${y} -lt $((Y + HEIGHT)) ] || exit 8`,
+    `[ -n "$WIDTH" ] && [ "$SX" -ge "$X" ] && [ "$SX" -lt $((X + WIDTH)) ] && [ "$SY" -ge $((Y + ${SECURE_TOOLBAR_PX})) ] && [ "$SY" -lt $((Y + HEIGHT)) ] || exit 8`,
     "printf '' | xclip -selection clipboard",
     "xdotool key --clearmodifiers ctrl+l",
     "sleep 0.3",
@@ -212,7 +215,7 @@ export function secureFillCommand(input: { host: string; x: number; y: number; v
     "case \"$u\" in https://*) ;; http://*) exit 6;; *) exit 5;; esac",
     "h=${u#https://}; h=${h%%[/?#]*}; h=${h##*@}; h=${h%%:*}; h=$(printf %s \"$h\" | tr 'A-Z' 'a-z'); h=${h%.}",
     `case "$h" in ${quote(host)}|*.${quote(host)}) ;; *) printf 'HOST=%s\\n' "$h"; exit 7;; esac`,
-    `xdotool mousemove --sync ${x} ${y} click 1 || exit 9`,
+    `{ ${pointerTo(x, y)}; } && xdotool click 1 || exit 9`,
     "sleep 0.2",
     "[ \"$(xdotool getactivewindow 2>/dev/null)\" = \"$w\" ] || exit 10",
     "xdotool key --clearmodifiers ctrl+a",
@@ -226,7 +229,7 @@ export function secureFillCommand(input: { host: string; x: number; y: number; v
     "[ \"$s\" = 0 ] || exit 11",
     ...(input.submit ? ["sleep 0.2", "xdotool key --clearmodifiers Return"] : []),
     "exit 0",
-  ].join("\n");
+  ].join("\n"), input.fullSize);
 }
 
 const NOT_CONFIRMED = "Typing did not finish, so the field may be empty or partly filled. Take a screenshot to check the page.";
@@ -268,7 +271,7 @@ export interface SecureFormDesk {
 
 export type SecureFillRun = (command: string) => Promise<{ ok: boolean; exitCode: number | null; stdout: string }>;
 
-export async function fillSecureField(args: Record<string, unknown>, desk: SecureFormDesk, run: SecureFillRun): Promise<{ ok: boolean; text: string }> {
+export async function fillSecureField(args: Record<string, unknown>, desk: SecureFormDesk, run: SecureFillRun, fullSize = false): Promise<{ ok: boolean; text: string }> {
   const formId = String(args.form_id ?? "");
   const field = String(args.field_id ?? "");
   const x = Number(args.x);
@@ -279,7 +282,7 @@ export async function fillSecureField(args: Record<string, unknown>, desk: Secur
   if (!slot.ok) return { ok: false, text: slot.text };
   let result: Awaited<ReturnType<SecureFillRun>>;
   try {
-    result = await run(secureFillCommand({ host: slot.host, x, y, value: slot.value, submit }));
+    result = await run(secureFillCommand({ host: slot.host, x, y, value: slot.value, submit, fullSize }));
   } catch {
     return { ok: false, text: NOT_CONFIRMED };
   }
