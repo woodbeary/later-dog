@@ -802,7 +802,7 @@ const MessagesList = memo(function MessagesList({
               const card = m.card?.takeoverRequest ? (
                 <TakeoverCard botId={botId} botName={botName} threadId={threadId} message={m} />
               ) : m.card?.requestId && m.card.questionRequest ? (
-                <QuestionCard threadId={threadId} bot={{ name: botName }} message={m} />
+                openQuestion([m]) ? null : <QuestionCard threadId={threadId} message={m} />
               ) : m.card?.requestId && m.card.tool ? (
                 <ApprovalCard bot={{ name: botName }} message={m} threadId={threadId} />
               ) : shouldHideOnboardingCard(m, transcript) ? null : (
@@ -925,6 +925,7 @@ export function ChatView({ bot: profile }: { bot: Bot }) {
 
   const { messages: allMessages, activeLeafId } = bot;
   const thread = useMemo(() => visibleMessages({ messages: allMessages, activeLeafId }), [allMessages, activeLeafId]);
+  const dockedQuestion = useMemo(() => openQuestion(thread)?.message, [thread]);
   const messages = useMemo(() => thread.filter(shownInChat), [thread]);
   const exchangeThread = useMemo(() => ({ thread, working: Boolean(bot.busy) }), [thread, bot.busy]);
   const lookups = useMemo(() => transcriptLookups(allMessages, messages), [allMessages, messages]);
@@ -1251,11 +1252,16 @@ export function ChatView({ bot: profile }: { bot: Bot }) {
       ))}
 
       <div ref={composerDockRef} className="pointer-events-none absolute inset-x-0 bottom-0 z-[2]">
-      <LiveCallBar bot={bot} />
       <div data-composer-column className="mx-auto w-full max-w-[672px]">
+      <LiveCallBar bot={bot} />
       {!takeoverOpen && <NeedsYouRow botId={bot.id} name={bot.name} />}
       <PaneErrorLine panes={[chatPane(bot.threadId)]} look="tray" />
       <RunningOnLine messages={thread} threadId={bot.threadId} />
+      {dockedQuestion && canWrite !== false && (
+        <div data-docked-question={dockedQuestion.id} className="pointer-events-auto px-5 pb-2">
+          <QuestionCard threadId={bot.threadId} message={dockedQuestion} />
+        </div>
+      )}
       {canWrite === false ? (
         <p className="pointer-events-auto mx-5 mb-4 rounded-2xl border border-hairline/60 bg-raised px-4 py-3 text-[13px] text-ink-secondary" data-testid="cloud-guest-composer">{t("chat.cloudGuest.notYours")}</p>
       ) : (
@@ -1279,13 +1285,13 @@ export function ChatView({ bot: profile }: { bot: Bot }) {
       />
       )}
       </div>
+      </div>
       </GlassScrollFrame>
 
     </main>
     <WorkPanel botId={bot.id} botName={bot.name} />
     </>
   );
-      </div>
 }
 
 function NeedsYouRow({ botId, name }: { botId: string; name: string }) {

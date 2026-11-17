@@ -350,6 +350,19 @@ describe("thread control placement", () => {
     expect(controls[1]).not.toContain("wrap");
   });
 
+  it("docks an open question above the composer at its width, and keeps it out of the transcript", () => {
+    const ask = { id: "q", role: "bot", kind: "options", at: 2, parentId: "hi", card: { title: "Question", subtitle: "", options: [], requestId: "req-q", requestType: "question", questionRequest: { version: 1, questions: [{ question: "Which colour should the logo be?", options: [{ label: "Green" }, { label: "Blue" }] }] } } } as unknown as Message;
+    const hi = { id: "hi", role: "user", kind: "text", text: "Make me a logo", at: 1 } as Message;
+    const markup = renderToStaticMarkup(createElement(ChatView, { bot: { ...bot, busy: false, messages: [hi, ask], activeLeafId: "q" } }));
+    const column = markup.indexOf("data-composer-column");
+    const question = markup.indexOf("Which colour should the logo be?");
+    expect(column).toBeGreaterThan(-1);
+    expect(question).toBeGreaterThan(column);
+    const log = /role="log"[\s\S]*?data-composer-column/.exec(markup)![0];
+    expect(log).not.toContain("Which colour should the logo be?");
+    expect(/data-docked-question="[^"]*" class="([^"]*)"/.exec(markup)![1].split(" ")).toContain("px-5");
+  });
+
   it("centres one 632 column for the transcript and the composer: 672 with their 20 padding each side", () => {
     const markup = renderToStaticMarkup(createElement(ChatView, { bot: { ...bot, busy: false } }));
     const log = /class="([^"]*)"[^>]*role="log"/.exec(markup)!;
