@@ -1,0 +1,246 @@
+# A chat never shows idle while something runs for it
+
+Run the fixtures in isolated homes; nothing here touches a person's app, home or computer:
+
+```sh
+pnpm exec vitest run server/laterdog/work-state-table.test.ts server/laterdog/work-state.test.ts server/laterdog/chat-work.test.ts
+pnpm exec vitest run server/laterdog/computer-jobs.test.ts server/laterdog/computer-run-route.test.ts server/laterdog/room-work.test.ts server/laterdog/job-wake.test.ts
+pnpm exec vitest run src/lib/work-state.test.ts server/laterdog/stop-computer-jobs.test.ts
+pnpm exec vitest run server/laterdog/work-state-truth.e2e.test.ts server/laterdog/handoff-wait.e2e.test.ts server/laterdog/work-state-model-rest.e2e.test.ts
+pnpm exec vitest run src/lib/quiet-lines.test.ts
+pnpm exec vitest run server/chief-level-delegation.e2e.test.ts server/thread-aware-bots.e2e.test.ts server/direct-coordination.e2e.test.ts server/delta-context.e2e.test.ts
+```
+
+## What each state means
+
+The home sends one `work` per chat (`shared/work-state.ts`), built by `workState` in
+`server/laterdog/work-state.ts`. The first true line wins, in `WORK_PRIORITY` order:
+
+| State | True when |
+| --- | --- |
+| needs-you | an open question, card or sign-in waits on the person |
+| waiting-for-usage | the chat is held until an account's usage resets |
+| waiting-on-dog | the chat sent work that wants a reply, its own handoff is still open, and that work is still open (named dogs) |
+| waiting-for-computer | the turn waits for a computer another chat holds |
+| retrying | the turn is reconnecting to its engine |
+| running | a turn runs, helpers still work, or a job the dog started on its computer is alive; `helpers` and `computerJobs` say how many after the turn, `computerSince` when the oldest live job started |
+| stopped | the last turn ended without finishing and nothing runs now |
+| idle | nothing runs and nothing waits |
+
+## The table
+
+`server/laterdog/work-state-table.test.ts` is the specification. It builds every row from the real
+records: a `RoomHandoffs` record for handoffs, a `ComputerJobs` ledger for jobs, a `HelperBoard` for
+helpers. A restart reloads the job ledger from disk and starts with an empty helper board.
+
+| Turn | Helpers | Job | Awaits reply | Sent, no reply | Needs you | Usage | Restart | State |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| | | | | | | | | idle |
+| yes | | | | | | | | running |
+| | yes | | | | | | | running |
+| | | yes | | | | | | running |
+| | | yes | | | | | yes | running |
+| | yes | | | | | | yes | idle |
+| | yes | yes | | | | | yes | running |
+| | | | yes | | | | | waiting-on-dog |
+| yes | | | yes | | | | | running |
+| | | yes | yes | | | | | waiting-on-dog |
+| | | | | yes | | | | idle |
+| yes | | | | yes | | | | running |
+| | | yes | | yes | | | | running |
+| yes | | yes | yes | | yes | yes | | needs-you |
+| | | yes | | | yes | | | needs-you |
+| | | | yes | | | yes | | waiting-for-usage |
+| | | yes | | | | yes | | waiting-for-usage |
+| | | | | | | yes | yes | waiting-for-usage |
+| | | | yes | | | | yes | waiting-on-dog |
+
+Two more rows come from the handoff record itself: a teammate's reply that is back but not yet handed
+to the dog (the dog waits for a free slot to take it) is `idle` in `work`, and a dog the person stopped
+while its teammate still works is `idle` too.
+
+The same file checks all 256 combinations: never idle while a turn, a job or a
+surviving helper is alive; never running with nothing alive; never waiting-on-dog from work sent with
+no reply wanted; and the older fields below agree with the handoff record in every row.
+
+## Where each fact comes from
+
+- Computer jobs: `server/laterdog/computer-jobs.ts`. A `run_on_computer` call
+  (`server/laterdog/computer-run-route.ts`) records the job with its chat when the command starts, ends it
+  when the call sees it finish, and keeps it when the call returns while it still runs. A watch in
+  `server/index.ts` checks kept jobs every 30 seconds (`LATERDOG_COMPUTER_JOB_CHECK_MS`) on the dog's
+  computer without waking it. A job ends only on evidence: its exit record (with the time it was written),
+  or the same one of these on two checks in a row: its computer asleep, its computer missing, or none of
+  its processes alive with no exit record. A computer that cannot be read (switched off, in an error state,
+  starting, going to sleep, or a check that fails) starts that count again, and once it has been unreadable
+  for ten minutes (`UNREADABLE_MS`) the job ends as having no result. Ten minutes is longer than a cloud
+  computer may take to start (5.5 minutes), so a computer still starting within its budget never ends a job,
+  while one that did not start (in `error`, or still starting past that budget) counts as unreadable; it is
+  long enough to ride out a short outage of the computers service. Sleep snapshots
+  the disk and destroys the computer's container (`deploy/laterdog/computers/src/computer.ts`), but a
+  failed destroy still records the computer as sleeping, so one reading is not taken as proof. A job whose
+  processes died without an exit record ends quietly with the line "Scout's command on its computer ended
+  without a result." and no wake-up. A job that runs past two hours is not ended: it stays running, marked
+  `computerBackground`. A job a call is waiting on is never checked twice. Each job runs in its own
+  process group, whose id is kept on the computer next to its log and exit record, and carries a marker
+  its children inherit: `LATERDOG_RUN_ID` in their environment and an open lock file beside its log. When a later
+  turn picks the result up by `run_id`, the call holds the job, so the chat stays running through the
+  hand-over and goes idle only when the call has brought the result back.
+- Handoffs: read from the handoff record (`server/room-handoffs.ts`) by `handoffWait` in
+  `server/laterdog/chat-work.ts`. While no turn runs and the chat's own handoff is open (`activeDirect`),
+  its open work wanting a reply makes the sender wait on that dog; work sent with `reply: "none"` never
+  does. A handoff waiting in line for a busy dog is not shown as waiting in `work` in either chat.
+- Group chats: room work is as before this change. A job a dog starts from a group chat is not shown in
+  the room, cannot be stopped from the room's Stop, and does not wake the dog when it ends.
+- After a restart: the job ledger (`computer-jobs.json` in the data folder) survives and the watch
+  confirms each job on its computer. Engine helpers end with their engine, so they are not counted after
+  a restart; their activity is marked interrupted, and a turn that was running is picked up again by the
+  restart pickup, which writes its own line.
+
+## Waking the dog when its job ends
+
+When the watch sees a kept job end, the ledger keeps how it ended (finished, failed with its exit code,
+its computer asleep or removed before the result could be read, or no result) until the dog is told. An
+ending saved as `stopped` by an earlier build still loads and reads "went to sleep or was removed". `server/laterdog/job-wake.ts`
+starts one continuation turn through `startContinuation`, the path the stall watch and restart pickup use,
+with a note that is not from the person: the command, how it ended, and the `run_id` to read it with.
+Only once the turn has started is the ending marked told and the line written ("recovery: Scout's command
+finished, so it is carrying on.", tagged `pickup: "computer"`). When the computer went to sleep first, the
+line is "Scout's computer went to sleep before later.dog could read the result of its command, so it is
+carrying on." and the note to the dog says the same; neither says the command was stopped. A home that dies between the two wakes the dog
+again after the restart, inside the same bounds; it never shows a "carrying on" line without a turn.
+
+Bounds, each in `server/laterdog/job-wake.ts` unless named:
+
+- Once per job: the ending is removed from the saved ledger when its turn has started
+  (`ComputerJobs.announced`).
+- At most two wake-ups per message from the person: lines tagged `pickup: "computer"` that start with
+  `recovery:` since the person's own last message are counted (`wakesSincePerson`); a teammate's line, a
+  handoff, a routine or a webhook post does not start the count again (`fromPerson`). The stall watch keeps
+  its own count.
+- Only fresh endings: an ending older than 30 minutes is not announced by a turn (`WAKE_FRESH_MS`), so one
+  kept through a usage hold or an account switched off does not fire days later.
+- Never for a job that ran longer than two hours (`whyNotWoken`).
+- Never for a chat whose latest work was a handoff for another dog that is already complete
+  (`handoffWorkDone` in `server/laterdog/chat-work.ts`); the result went back with that work.
+- Never if the dog read the result itself (`ComputerJobs.ended`, from `run_on_computer`).
+- Never after the person's own Stop on that chat (`ComputerJobs.quiet`).
+- Only when the chat may carry on by itself, the same check the stall watch uses
+  (`mayCarryOnByItself` in `server/index.ts`: the owner's own dog chat, not a guest's, no routine run owning
+  it), is not waiting on teammates, and is otherwise idle: no turn or dispatch, nothing queued, no open
+  question, not held for usage or waiting on the person for an account, an account that can run. Otherwise
+  the ending waits and is tried after every turn ends and at every check.
+- Several jobs of one chat make one turn and one line. Group chats are not woken.
+
+Whenever a bound stops a wake-up, the chat gets one line ("notice: Scout's command finished. Scout was not
+woken for it.", or "notice: Scout's command on its computer ended without a result.") so nothing is
+silent. `notice:` lines are not counted as wake-ups.
+
+## Stopping a job
+
+Only the person's own Stop on that chat (`POST /api/bots/<id>/interrupt` from the app, with or without
+the chat's `threadId`) stops its jobs; Stop and send, a dog stopping a teammate, and local tools do not. `server/laterdog/stop-computer-jobs.ts` stops
+each job's whole process group on its computer (`ComputerRuns.stop`), then any process still carrying the
+job's marker (one that started its own session), and removes the job only once none is left. Where the
+computer cannot list processes by the marker, a dead group still removes the job and the chat says "part
+of it may still be running". A job on a sleeping computer is left to the watch, which ends it quietly. A job
+whose computer is neither running nor asleep (missing, in an error state, starting, or not answering) ends
+here as stopped, since nothing can be done to it there. If a running computer's stop cannot be confirmed,
+the chat keeps showing the job and says "Scout's command on its computer could not be stopped, so it is
+still running. Press Stop again to try once more.". The two Stop lines are written as failures
+(`error:`), the not-woken and no-result lines as `notice:`, so both apps show all four: the desktop shows
+`error:`, `notice:` and `recovery:` rows with step details off (`src/lib/quiet-lines.ts`), and the phone
+at `e5d4cf1` shows `notice:` and `recovery:` as status rows and `error:` as an error row
+(its `chat-row.ts`, in the later-dog-phone repository) and hides any other activity row.
+
+Finding a job's leftovers reads every process once with one `grep` over their environments for the
+marker, and compares each open file with the lock file using the shell's own same-file test, so a scan
+costs tens of milliseconds even while a suite runs (it was seconds when each open file cost a process).
+
+The desktop
+shows Stop whenever something of the chat runs: a turn, helpers, a job, or teammates it awaits, even when a
+usage hold or a question outranks them in `work`.
+
+## Words on the desktop
+
+"Running a command on its computer" (or "Running {count} commands on its computer") with a running
+timer from `computerSince`, while a chat runs only because of computer jobs. A job past two hours reads
+"A command is running in the background on its computer" with the same timer, which counts in minutes
+and seconds (for example "134m 05s"). Keys `work.computerJob`, `work.computerJobs`,
+`work.computerBackground` and `work.computerBackgroundMany` are English only; other languages fall back
+until their packs are drafted with `node scripts/generate-locale.mjs <locale>`.
+
+## Older fields, for the phone
+
+`olderWorkFields` in `server/laterdog/chat-work.ts` builds these for every bot and task:
+
+- `waitingForTeammates` belongs to the handoff, not to `work`: it is true while no turn runs and the
+  chat's own handoff record is still open (`roomHandoffs.activeDirect`), as before this work. That covers
+  the moment after a teammate's reply is back but before the turn that hands it to the dog has run, and
+  it ends when the person stops the dog, even if a teammate it asked keeps working. `wait_for_conversation`
+  (`scripts/mcp-server.ts`), and so every dog and handoff fixture, calls a chat settled only when it is
+  false and no turn runs. It is never derived from `work`: an earlier version did that, a dog was called
+  settled before its teammate's result had come back to it and never settled after a Stop, and the four
+  handoff fixtures failed (`server/laterdog/handoff-wait.e2e.test.ts` pins both).
+- `waitingOn` is present exactly while `waitingForTeammates` is true, listing the teammates still open, so
+  a usage hold or a question that outranks waiting-on-dog does not hide them. `work` reads the same list.
+- `activity` is as before this change.
+- `helpersWorking` counts helpers only, as before this change; a job on the dog's computer is never a
+  helper, so a phone that reads it does not show "1 puppy working" with no Stop. `work.computerJobs`
+  carries the job count.
+- For words, the phone reads `work.kind === "running"` with `work.computerJobs` (a count, present only
+  when no turn runs) and `work.computerSince` (milliseconds since the epoch), and `work.computerBackground` (how many of them
+  have run past two hours, to show quietly), and says "Running a command
+  on its computer" or "Running {count} commands on its computer" with a timer from `computerSince`. Lines
+  with `tool.pickup === "computer"` are pickup lines like `"restart"` and `"watch"`.
+
+With these agreeing, the phone can read `work` alone and drop its rebuild from the older fields.
+
+## What was proven
+
+- Every table row and invariant above, as unit tests against the real records.
+- `server/laterdog/computer-run-route.test.ts`: a run that outlives its call stays counted for its chat,
+  survives a check while it runs, and ends when a later call picks it up by `run_id` or when a check sees
+  it finished.
+- `server/laterdog/work-state-truth.e2e.test.ts`, a real server with the fake engine and a local stand-in
+  for the computers service: the engine calls `run_on_computer`, the call returns while the job runs, the
+  turn ends and the chat shows `running` with one computer job; it goes `idle` only after the job's own
+  output file exists, the dog is woken once with the note, reads the result by its `run_id` (the file comes
+  back to the home) and the chat settles idle with exactly one wake line. A home restart with a job alive:
+  after the restart the chat shows `running` from the ledger, and the dog is woken once when it ends. A
+  job that ends while the home is down wakes the dog once after the restart. The person's Stop ends the
+  command itself for three shapes (a plain command, one followed by more, one inside another shell): the
+  process is gone, nobody is woken and the ledger is empty; so does a Stop sent without the chat's id. A
+  Stop on a computer that reports an error ends the job with no "still running" line. When the stand-in
+  refuses the stop, the chat gets "error: … could not be stopped …" and keeps running, and a second Stop
+  ends it. A job whose processes are killed with no exit record ends with "notice: … ended without a
+  result." and no wake-up. The commands are short sleepers tagged with a marker unique to the run, and
+  every test ends that marker's processes afterwards.
+- `server/laterdog/work-state-model-rest.e2e.test.ts`: on one account with only Fable resting, the Fable
+  dog's chat is held and the Sonnet dog's chat is idle and its turn runs on that account.
+- `server/laterdog/stop-computer-jobs.test.ts`: the same three shapes stopped by their process group on
+  this machine, a job kept with a line when its stop cannot be confirmed, and a job whose computer is
+  missing, unreadable or unreachable ended with no line.
+- `server/laterdog/computer-jobs.test.ts`: a job whose computer is unreadable or unreachable ends with no
+  result after ten minutes of readings, the count starts again when the computer can be read.
+- `src/lib/quiet-lines.test.ts`: the four lines built by the server are shown with step details off.
+- `server/laterdog/handoff-wait.e2e.test.ts`, a real server with two scripted dogs: a dog whose teammate's
+  result is back but waits for a free slot is not settled and still waits for teammates, and is settled
+  with the result in its next turn once the slot frees; a dog the person stopped while its teammate still
+  works is settled, does not wait on it, and the teammate keeps running.
+- `server/laterdog/job-wake.test.ts`: once per job, one turn for several jobs, waiting while the chat is
+  busy, an ending kept when the turn is refused for a free slot with one line, nothing after the dog read
+  the result or after Stop, no wake for group chats.
+
+## Not proven on a real home
+
+- The watch against the real computers service (it uses the same exec and state calls a `run_on_computer`
+  call already uses), and that a real engine reads the result when woken.
+- The usage-hold and signed-out waits are proven only in `server/laterdog/job-wake.test.ts` through the
+  `free` check, not with a real held account.
+- That a real engine's helpers end with the home on a container restart; this rests on the engines being
+  disposed at shutdown and stray processes being reaped, read from the code.
+- The phone still rebuilds its state from the older fields; it was not changed here.
+- Group chats: a job started from a group chat is not shown there, cannot be stopped from the room, and
+  does not wake the dog.
+- The unreadable time is kept in memory, so a home restart starts it again.

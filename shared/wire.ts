@@ -300,7 +300,7 @@ export interface WireMessage {
     itemId?: string;
     fullResult?: boolean;
     statusLine?: "live" | "folded";
-    pickup?: "restart" | "watch";
+    pickup?: "restart" | "watch" | "computer";
     compaction?: true;
   };
   webhookPost?: boolean;
