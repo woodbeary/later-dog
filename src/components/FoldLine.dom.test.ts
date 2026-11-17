@@ -35,3 +35,8 @@ it("says how many side jobs are still going and opens them", () => {
   act(() => line.click());
   expect(opened).toEqual({ kind: "side-jobs", threadId: "jt" });
 });
+
+it("sits 4 above the answer it folds, taking back the transcript's 12 gap", () => {
+  act(() => root.render(createElement(FoldLine, { threadId: "jt", runId: "run-9", sentence: "Made a change" })));
+  expect(host.querySelector("button[data-fold-line]")!.className.split(" ")).toContain("-mb-2");
+});

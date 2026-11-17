@@ -4,7 +4,7 @@ import { sideJobsStillGoing } from "../../shared/step-words";
 
 export function FoldLine({ threadId, runId, sentence }: { threadId: string; runId: string; sentence: string }) {
   return (
-    <button type="button" data-fold-line className="fold-line self-start" onClick={() => openWorkPanel({ kind: "work", threadId, runId })}>
+    <button type="button" data-fold-line className="fold-line -mb-2 self-start" onClick={() => openWorkPanel({ kind: "work", threadId, runId })}>
       <span>{sentence}</span>
       <ChevronRight size={12} aria-hidden="true" className="fold-line-chevron" />
     </button>
