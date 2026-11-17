@@ -3,6 +3,7 @@ import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readlinkSy
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { describe, expect, it } from "vitest";
+import { type ComputerJob, ComputerJobs, JOB_CHECK_MS } from "./computer-jobs.ts";
 import { bringBackList, changesSince, ComputerRuns, parts, type RunBox, type RunRecord, runKey, setupKey, stampFolder } from "./computer-runs.ts";
 
 const ENVIRONMENTS_MODULE = "../../deploy/laterdog/computers/src/environments.ts";
@@ -211,7 +212,7 @@ describe("a heavy command on the dog's own computer", () => {
     const runs = new ComputerRuns(state, fast);
     const record: RunRecord = { id, botId: "dog", key: runKey(folder), folder, subdir: "", command: "sleep 31.7", startedAt: Date.now(), sent: {} };
     try {
-      expect(await runs.liveness(box, record)).toBe("dead");
+      expect(await runs.liveness(box, record)).toBe("unsure");
       expect(await runs.gone(box, record)).toBe(false);
       const outcome = await runs.finish(box, record, undefined, runs.window(1));
       expect(outcome.state).toBe("running");
@@ -219,6 +220,51 @@ describe("a heavy command on the dog's own computer", () => {
     } finally {
       spawnSync("pkill", ["-f", "sleep 31[.]7"]);
     }
+  });
+
+  it("never ends a run started before this home updated in the 30-second job check, so the chat gets no notice", async () => {
+    const { computer, state } = project();
+    mkdirSync(join(computer, "runs/.logs"), { recursive: true });
+    const id = "00d0c0df";
+    spawnSync("bash", ["-c", `setsid nohup bash -lc 'sleep 31.8' > runs/.logs/${id}.log 2>&1 < /dev/null &`], { cwd: computer });
+    const { box } = localBox(computer);
+    const runs = new ComputerRuns(state, fast);
+    let clock = 1_000_000;
+    const changed: string[] = [];
+    const jobs = new ComputerJobs(null, { now: () => clock, changed: (threadId) => changed.push(threadId) });
+    jobs.started({ id, botId: "dog", threadId: "t1", command: "sleep 31.8", startedAt: clock });
+    const probe = { computer: async () => ({ state: "running" as const, box }), exit: (b: RunBox, job: ComputerJob) => runs.ended(b, job), liveness: (b: RunBox, job: ComputerJob) => runs.liveness(b, job), stop: (b: RunBox, job: ComputerJob) => runs.stop(b, job) };
+    try {
+      changed.length = 0;
+      expect(await jobs.check(probe)).toEqual([]);
+      clock += JOB_CHECK_MS;
+      expect(await jobs.check(probe)).toEqual([]);
+      expect(changed).toEqual([]);
+    } finally {
+      spawnSync("pkill", ["-f", "sleep 31[.]8"]);
+    }
+  });
+
+  it("reads a run this home started as lost when its wrapper died before it wrote its group id", async () => {
+    const { folder, computer, state } = project();
+    mkdirSync(computer);
+    const { box } = localBox(computer);
+    const runs = new ComputerRuns(state, fast);
+    const record = await runs.start(box, { botId: "dog", folder, command: "sleep 31.9" });
+    for (let tries = 0; tries < 50 && !(existsSync(join(computer, `runs/.logs/${record.id}.pgid`)) && readFileSync(join(computer, `runs/.logs/${record.id}.pgid`), "utf8").trim()); tries += 1) spawnSync("sleep", ["0.1"]);
+    const pg = readFileSync(join(computer, "runs/.logs", `${record.id}.pgid`), "utf8").trim();
+    spawnSync("kill", ["-KILL", `-${pg}`]);
+    spawnSync("rm", ["-f", join(computer, "runs/.logs", `${record.id}.pgid`)]);
+    spawnSync("pkill", ["-f", "sleep 31[.]9"]);
+    let clock = 1_000_000;
+    const jobs = new ComputerJobs(null, { now: () => clock });
+    jobs.started({ id: record.id, botId: "dog", threadId: "t1", command: record.command, startedAt: clock });
+    const probe = { computer: async () => ({ state: "running" as const, box }), exit: (b: RunBox, job: ComputerJob) => runs.ended(b, job), liveness: (b: RunBox, job: ComputerJob) => runs.liveness(b, job), stop: (b: RunBox, job: ComputerJob) => runs.stop(b, job) };
+    expect(await runs.liveness(box, record)).toBe("dead");
+    expect(await runs.gone(box, record)).toBe(true);
+    expect(await jobs.check(probe)).toEqual([]);
+    clock += JOB_CHECK_MS;
+    expect(await jobs.check(probe)).toEqual([record.id]);
   });
 
   it("never reads a run as gone when its liveness is unsure, alive or cannot be read", async () => {

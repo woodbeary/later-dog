@@ -64,6 +64,7 @@ export interface RunRecord {
   startedAt: number;
   sent: FolderStamps;
   reusedSetup?: boolean;
+  marked?: boolean;
 }
 
 export interface RunOutcome {
@@ -257,7 +258,7 @@ export class ComputerRuns {
     if (input.left && input.left() <= 0) throw Object.assign(new Error("the call's time ran out before the command started, so nothing was run"), { code: "window_ended" });
     const detached = `nohup bash -lc ${quote(script)} > /dev/null 2>&1 < /dev/null &`;
     must(await box.exec(`if command -v setsid > /dev/null; then setsid ${detached} else set -m; ${detached} fi; echo started`, 30_000), "starting the command");
-    const record: RunRecord = { id, botId: input.botId, key, folder: input.folder, subdir, command: input.command, startedAt: this.#now(), sent: now, ...(reusedSetup ? { reusedSetup: true } : {}) };
+    const record: RunRecord = { id, botId: input.botId, key, folder: input.folder, subdir, command: input.command, startedAt: this.#now(), sent: now, marked: true, ...(reusedSetup ? { reusedSetup: true } : {}) };
     this.#writeJson(this.#runPath(input.botId, id), record);
     input.started?.(record);
     return { ...record, sentFiles: changed.length, sentBytes };
@@ -276,8 +277,7 @@ export class ComputerRuns {
 
   async gone(box: RunBox, record: RunRecord): Promise<boolean> {
     if ((await this.liveness(box, record).catch(() => "unsure")) !== "dead") return false;
-    const marked = await box.exec(`[ -f runs/.logs/${record.id}.pgid ] && echo marked`, POLL_EXEC_MS).catch(() => null);
-    return marked?.stdout.trim() === "marked" && !(await this.poll(box, record)).done;
+    return !(await this.poll(box, record)).done;
   }
 
   async ended(box: RunBox, job: Pick<RunRecord, "botId" | "id">): Promise<{ exitCode: number; at?: number } | null> {
@@ -300,8 +300,9 @@ export class ComputerRuns {
     return said === "gone" || said === "partial" ? said : "alive";
   }
 
-  async liveness(box: RunBox, record: Pick<RunRecord, "id">): Promise<RunLiveness> {
+  async liveness(box: RunBox, record: Pick<RunRecord, "id" | "botId" | "marked">): Promise<RunLiveness> {
     if (!/^[0-9a-f]{8}$/.test(record.id)) return "unsure";
+    if (!(record.marked ?? this.record(record.botId, record.id)?.marked)) return "unsure";
     const logs = `runs/.logs/${record.id}`;
     const script = `if [ -f ${logs}.exit ]; then echo exited; exit 0; fi; ${groupOf(record.id)} `
       + `if [ -n "$pg" ] && kill -0 -- -$pg 2>/dev/null; then echo alive; exit 0; fi; left=$(${survivorsOf(record.id)}); `
