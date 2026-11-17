@@ -817,6 +817,7 @@ import { SEND_DELIVERIES, waitsForTurn, type SendDelivery } from "../shared/send
 import { createHostedSlackRoutes } from "./routes/hosted-slack.ts";
 import { createBotPresetRoutes } from "./routes/bot-presets.ts";
 import { createRoomCardRoutes, roomOwnsThread } from "./routes/room-card.ts";
+import { createAlwaysAllowedRoutes } from "./routes/always-allowed.ts";
 import { createSidebarSectionOrderRoutes } from "./routes/sidebar-section-order.ts";
 import { createSlashCommandRoutes } from "./routes/slash-commands.ts";
 import { commandSend, dogCommands, SavedCommands, tricksInIndex } from "./laterdog/slash-commands.ts";
@@ -13489,6 +13490,7 @@ ROUTES.push(createHostedSlackRoutes({ bot: (id) => store.bot(id), hostedReady: (
 const orgInstallStatuses = () => orgLibrary?.installStatuses() ?? new Map();
 ROUTES.push(createBotPresetRoutes({ presets: presetStore, orgStatuses: orgInstallStatuses }));
 ROUTES.push(createSidebarSectionOrderRoutes({ order: (sections) => store.orderSections(sections) }));
+ROUTES.push(createAlwaysAllowedRoutes({ dog: (id) => store.bot(id), mayManage: canManageCommandAllowlist, list: alwaysAllowedList, resume: (id) => lastingAllows.resume(id), remove: removeAlwaysAllowed }));
 const savedCommands = new SavedCommands(DATA_DIR);
 const dogTricks = (bot: BotRecord) => {
   const instance = registry.get(bot.modelSelection.instanceId);
@@ -17859,22 +17861,6 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         return json(res, 200, commandAllowlistResponse(bot));
       }
       return json(res, 405, { error: "Unsupported command allowlist operation" });
-    }
-    m = path.match(/^\/api\/bots\/([\w-]+)\/always-allowed(?:\/([^/]+))?$/);
-    if (m) {
-      const bot = store.bot(m[1]!);
-      if (!bot) return json(res, 404, { error: "no such dog" });
-      if (!canManageCommandAllowlist(auth)) return json(res, 403, { error: "Only the owner or an admin can see or change what a dog may always do." });
-      if (method === "GET" && !m[2]) return json(res, 200, alwaysAllowedList(bot.id));
-      if (method === "POST" && m[2] === "resume") {
-        lastingAllows.resume(bot.id);
-        return json(res, 200, alwaysAllowedList(bot.id));
-      }
-      if (method === "DELETE" && m[2]) {
-        if (!removeAlwaysAllowed(bot.id, decodeURIComponent(m[2]))) return json(res, 404, { error: "nothing like that is always allowed" });
-        return json(res, 200, alwaysAllowedList(bot.id));
-      }
-      return json(res, 405, { error: "Unsupported operation" });
     }
     m = path.match(/^\/api\/bots\/([\w-]+)\/always-allow$/);
     if (m && method === "POST") {
