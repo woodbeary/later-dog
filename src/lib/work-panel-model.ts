@@ -44,7 +44,7 @@ export interface SideJobCard { id: string; title: string; meta: string; glyph: S
 export interface HelpingDog { botId: string; name: string; threadId?: string; state?: "queued" | "running" | "needsYou"; step?: LiveStep | null }
 
 const GLYPHS: Partial<Record<OutcomeKind, StepGlyphKind>> = {
-  command: "play", check: "play", cloud: "cloud", tool: "play", edit: "pencil", note: "pencil",
+  command: "play", check: "play", cloud: "play", tool: "play", edit: "pencil", note: "pencil",
   read: "page", wrote: "page", delete: "page", search: "magnifier", chats: "magnifier", web: "magnifier", page: "magnifier", open: "magnifier",
   screen: "screen", computer: "screen", phone: "screen", help: "paw", team: "paw", dog: "paw",
 };
@@ -76,7 +76,7 @@ export function stepRows(run: NativeRun | undefined, activities: readonly Native
   for (const activity of finished) {
     const outcome = outcomeOf(activity);
     const failed = activity.state === "failed";
-    rows.push({ id: activity.id, runId: run.id, label: stepLabel({ outcome, state: failed ? "failed" : "done", subject: activity.subject }), time: stepTime(activity.startedAt, now), glyph: glyphOf(outcome), live: false, failed });
+    rows.push({ id: activity.id, runId: run.id, label: stepLabel({ outcome, state: failed ? "failed" : "done", subject: activity.subject }), time: stepTime(activity.startedAt, now), glyph: activity.label.endsWith("cloud_job") ? "cloud" : glyphOf(outcome), live: false, failed });
   }
   return { rows, trimmed: Boolean(run.truncated) };
 }

@@ -130,3 +130,10 @@ describe("finished side jobs", () => {
     expect(card.meta).toBe("Last moved 40 min ago");
   });
 });
+
+describe("step glyphs", () => {
+  it("gives a command on the dog's computer the play glyph and a coding job the cloud", () => {
+    const rows = stepRows(run({ observation: "complete", state: "done" }), [act("c1", "mcp__agents__run_on_computer", 9, 30), act("c2", "mcp__laterdog__delegate_cloud_job", 9, 31)], NOW).rows;
+    expect(Object.fromEntries(rows.map(row => [row.id, row.glyph]))).toEqual({ c1: "play", c2: "cloud" });
+  });
+});
