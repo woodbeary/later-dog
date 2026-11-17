@@ -177,13 +177,26 @@ it("long commands run in the background, the dog can type into them, and edits, 
   expect(data(await operation("delete_file", { path: "notes.md" }))).toEqual({ deleted: true, kind: "file" });
   expect(await openCards()).toHaveLength(0);
   expect(existsSync(join(folder.path, "notes.md"))).toBe(false);
+  const outside = join(folder.path, "..", "outside.txt");
+  writeFileSync(outside, "Not lent.");
+  const leaving = operation("delete_file", { path: "../outside.txt" });
+  await vi.waitFor(async () => expect(await openCards()).toHaveLength(1), { timeout: 15_000 });
+  const [asked] = await openCards();
+  expect(asked.card.subtitle).toContain("outside.txt");
+  expect(asked.card.allowKey).toBeUndefined();
+  expect((await api("POST", `/api/bots/${bot.id}/respond`, { requestId: asked.card.requestId, behavior: "allow" })).status).toBe(200);
+  const left = await leaving;
+  expect(left.isError).toBe(true);
+  expect(left.content[0].text).toContain("Use a relative path inside the shared folder");
+  expect(await openCards()).toHaveLength(0);
+  expect(readFileSync(outside, "utf8")).toBe("Not lent.");
   const slow = operation("run_command", { command: "sleep 2; echo slow", wait_seconds: 10 });
   await new Promise(resolve => setTimeout(resolve, 300));
   const began = Date.now();
   expect(data(await operation("read_file", { path: "brief.txt" })).content).toBeTruthy();
   expect(Date.now() - began, "a quick read isn't stuck behind a running command").toBeLessThan(1500);
   expect(data(await slow).output).toBe("slow\n");
-  evidence.push("background command with later output and typed input; exact edit, search and delete on real files, the delete in a lent folder with no card; a read answered while another command ran");
+  evidence.push("background command with later output and typed input; exact edit, search and delete on real files, the delete in a lent folder with no card, a delete leaving it after exactly one card with no Always and refused by the Mac; a read answered while another command ran");
 }, 60_000);
 
 it("another person's conversation can neither see nor use the lent desktop", async () => {
