@@ -58,11 +58,11 @@ const bot: Bot = {
 };
 
 describe("the header", () => {
-  it("has a More menu with a new conversation and the export, no usage, and no computer button", () => {
+  it("has one \u2026 menu with a new conversation, Find and the export, no usage, and no computer button", () => {
     fixture.menus = [];
     const markup = renderToStaticMarkup(createElement(ChatView, { bot }));
     const more = fixture.menus.find((menu) => menu.ariaLabel === "More")!;
-    expect(more.items.map((item) => item.key)).toEqual(["new", "copy", "download"]);
+    expect(more.items.map((item) => item.key)).toEqual(["new", "find", "copy", "download"]);
     expect(more.items.find((item) => item.key === "copy")?.heading).toBe("Share");
     expect(markup).not.toContain('data-tour="computer"');
     expect(markup).not.toContain('data-testid="usage-chip"');
@@ -94,11 +94,12 @@ describe("a working dog in the header and the chat", () => {
   const pill = (markup: string) => markup.match(/<button[^>]*data-chathead-pill="true"[^>]*>[\s\S]*?<\/button>/)?.[0] ?? "";
   const moods = (markup: string) => [...markup.matchAll(/data-mood="([a-z]+)"/g)].map((match) => match[1]);
 
-  it("holds a still face in the header with no work dot, and leaves Stop to the composer", () => {
+  it("holds a still face in the header with a green dot while it works, and leaves Stop to the composer", () => {
     const markup = renderToStaticMarkup(createElement(ChatView, { bot: working() }));
     expect(pill(markup)).not.toContain("data-status=");
     expect(pill(markup)).toContain("data-paused");
     expect(pill(markup)).not.toContain("animate-status-pulse");
+    expect(pill(markup)).toContain("data-working-dot");
     expect(markup.match(/Stop this turn/g)).toHaveLength(1);
     expect(pill(renderToStaticMarkup(createElement(ChatView, { bot })))).not.toContain("working-dot");
   });
@@ -115,9 +116,10 @@ describe("a working dog in the header and the chat", () => {
     expect(pill(markup)).toContain("bg-waiting");
   });
 
-  it("stops a wait on other dogs from the composer as well", () => {
+  it("says no status sentence in the header, and stops a wait on other dogs from the composer", () => {
     const markup = renderToStaticMarkup(createElement(ChatView, { bot: inThread({ waitingForTeammates: true }) }));
-    expect(markup).toContain("Other dogs working");
+    expect(markup).not.toContain("Other dogs working");
+    expect(markup.slice(markup.indexOf("data-chathead"), markup.indexOf('class="glass-scroller '))).not.toContain('role="status"');
     expect(pill(markup)).not.toContain("working-dot");
     expect(markup.match(/Stop this turn/g)).toHaveLength(1);
   });
@@ -151,7 +153,7 @@ describe("thread control placement", () => {
   it("leaves All threads to the sidebar", () => {
     const markup = renderToStaticMarkup(createElement(ChatView, { bot }));
     expect(markup).not.toContain('aria-label="All threads"');
-    expect(markup).toContain('data-testid="chat-find"');
+    expect(markup).not.toContain('data-testid="chat-find"');
     expect(markup).toContain('data-testid="chat-more"');
   });
 

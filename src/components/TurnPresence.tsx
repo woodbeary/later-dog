@@ -13,7 +13,7 @@ import { NativeWork } from "./NativeWork";
 import type { NativeExecutionSelection } from "../../shared/native-run-selectors";
 import { useNativeRuns } from "@/lib/native-runs-state";
 import { ActivityPeek } from "./ActivityPeek";
-import type { DogColor } from "@/lib/mascot";
+import type { DogColor, DogState } from "@/lib/mascot";
 import type { MascotBodyId } from "../../shared/mascot-bodies";
 import type { Bot } from "@/state/store";
 import { BotAvatar } from "./Avatar";
@@ -147,16 +147,16 @@ function useMinuteClock(since: number | null): number {
   return now;
 }
 
-export function ChatWorkLine({ bot, working, onOpenDog }: { bot: Bot; working: boolean; onOpenDog: (botId: string) => void }) {
+export function ChatWorkLine({ bot, working, onOpenDog, fallback = null, face: mood = "working" }: { bot: Bot; working: boolean; onOpenDog: (botId: string) => void; fallback?: LiveStep | null; face?: DogState }) {
   const runs = useNativeRuns(bot.threadId);
   const run = runs.find(candidate => candidate.botId === bot.id && candidate.observation === "live" && !candidate.endedAt);
-  const homeStep = (bot as Bot & { step?: LiveStep | null }).step ?? null;
+  const homeStep = (bot as Bot & { step?: LiveStep | null }).step ?? fallback;
   const step = liveStep(run) ?? homeStep;
   const now = useMinuteClock(working && step ? step.startedAt : null);
   const line = workLine({ working, run, step: homeStep, work: bot.work, sideJobs: sideJobCount(run, bot.work), now });
   if (!line) return null;
   const threadId = bot.threadId;
-  const face = <span aria-hidden="true" className="flex size-5 shrink-0"><BotAvatar bot={bot} state="working" size={20} motion="none" motionKey={0} animated={false} label="" /></span>;
+  const face = <span aria-hidden="true" className="flex size-5 shrink-0"><BotAvatar bot={bot} state={mood} size={20} motion="none" motionKey={0} animated={false} label="" /></span>;
   if (line.kind === "helpers" && line.needsYou && line.open) {
     const open = line.open;
     return (
