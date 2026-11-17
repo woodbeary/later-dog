@@ -16,6 +16,7 @@ export const ExchangeThreadContext = createContext<{ thread: readonly Message[];
 const stateWords = {
   Queued: "chat.exchange.state.queued",
   Working: "chat.exchange.state.working",
+  "Wrote while working": "chat.exchange.state.wroteMidway",
   Done: "chat.exchange.state.done",
   "Needs you": "chat.exchange.state.needsYou",
   Failed: "chat.exchange.state.failed",

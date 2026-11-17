@@ -70,13 +70,14 @@ export function sessionCheck(origin: string, credential: SessionCredential): Req
   return new Request(`${origin}${SESSION_CHECK_PATH}`, { headers });
 }
 
-export type CheckOutcome = "owner" | "refused" | "unknown";
+export type CheckOutcome = "owner" | "guest" | "refused" | "unknown";
 
 export async function sessionCheckOutcome(response: Response): Promise<CheckOutcome> {
   if (response.status === 401 || response.status === 403) return "refused";
   if (!response.ok) return "unknown";
-  const body = (await response.json().catch(() => null)) as { kind?: unknown } | null;
-  return body?.kind === "session" ? "owner" : "refused";
+  const body = (await response.json().catch(() => null)) as { kind?: unknown; cloudGuest?: unknown } | null;
+  if (body?.kind !== "session") return "refused";
+  return body.cloudGuest === undefined || body.cloudGuest === false ? "owner" : "guest";
 }
 
 export function hookAccepted(response: Response): boolean {

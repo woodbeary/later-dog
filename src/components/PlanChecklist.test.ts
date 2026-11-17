@@ -45,6 +45,20 @@ describe("a dog's plan under its working line", () => {
     expect(host.querySelectorAll("li")).toHaveLength(0);
   });
 
+  it("shows nothing once every item is done, while the dog works and when it is idle", () => {
+    const finished = { updatedAt: 2, items: plan.items.map((item) => ({ ...item, status: "done" as const })) };
+    expect(renderToStaticMarkup(createElement(DogPlan, { plan: finished, working: true }))).toBe("");
+    expect(renderToStaticMarkup(createElement(DogPlan, { plan: finished, working: false }))).toBe("");
+  });
+
+  it("shows the plan again when the dog adds an item or goes back to one", () => {
+    const finished = plan.items.map((item) => ({ ...item, status: "done" as const }));
+    const added = mount(createElement(DogPlan, { plan: { updatedAt: 3, items: [...finished, { text: "Post the note", status: "pending" as const }] }, working: false }));
+    expect(added.querySelector("button")?.textContent).toBe("3 of 4 done");
+    const reopened = mount(createElement(DogPlan, { plan: { updatedAt: 4, items: [finished[0]!, { ...finished[1]!, status: "in_progress" as const }, finished[2]!] }, working: true }));
+    expect([...reopened.querySelectorAll("li")].map((row) => row.getAttribute("data-plan-status"))).toEqual(["done", "in_progress", "done"]);
+  });
+
   it("shows nothing without a plan", () => {
     expect(renderToStaticMarkup(createElement(DogPlan, { plan: undefined, working: true }))).toBe("");
     expect(renderToStaticMarkup(createElement(DogPlan, { plan: null, working: true }))).toBe("");

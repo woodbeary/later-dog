@@ -12,7 +12,7 @@ import { UI_TOOLS_DIR } from "./control-laterdog-ui.ts";
 const ROOT = fileURLToPath(new URL("../..", import.meta.url));
 const enabled = process.env.LATERDOG_UI_E2E === "1" || Boolean(resolveAgentBrowserBinary({ dataDir: UI_TOOLS_DIR, env: process.env }));
 
-(enabled ? it : it.skip)("coordinates from the real composer and opens the read-only exchange from the inline receipt", async () => {
+(enabled ? it : it.skip)("coordinates from the real composer, opens the helper's chat from its team row, and reads the exchange from there", async () => {
   const temporary = mkdtempSync(join(tmpdir(), "laterdog-direct-ui-plan-"));
   const planPath = join(temporary, "plan.json");
   writeFileSync(planPath, "{}");
@@ -64,8 +64,12 @@ const enabled = process.env.LATERDOG_UI_E2E === "1" || Boolean(resolveAgentBrows
     writeFileSync(gateFile, "complete fixture work");
     await ui("wait-settle", "--timeout", "60");
     await expect.poll(snapshot, { timeout: 15_000 }).toContain("Engineer checked the fixture CSV export");
-    const exchangeLabel = "Read what Pepper and Engineer said to each other";
-    expect(await snapshot()).toContain(exchangeLabel);
+    const chatLabel = "Open Engineer's chat for this";
+    const teamRow = "Engineer: Check the fixture CSV export · Done";
+    const settled = await snapshot();
+    expect(settled).toContain('StaticText "Asked 1 dog · 1 done"');
+    expect(settled).toContain(`button "${teamRow}"`);
+    expect((await ui("eval", "--js", "[...document.querySelectorAll('[data-team-row] button')].map(row => row.title)")).result).toEqual([chatLabel]);
     const state = await api("/api/bots");
     const parent = state.bots.find((bot: any) => bot.id === info.botId);
     const receipt = parent.messages.find((message: any) => message.tool?.name === "Sent to Engineer");
@@ -75,6 +79,10 @@ const enabled = process.env.LATERDOG_UI_E2E === "1" || Boolean(resolveAgentBrows
     expect(receipt.comm).toMatchObject({ threadId: exchange.threadId, withBotId: lead.id, direction: "to" });
     const screenshot = info.logPath + ".direct-coordination.png";
     await ui("screenshot", "--out", screenshot);
+    await click(teamRow);
+    await expect.poll(snapshot, { timeout: 15_000 }).toContain('log "Conversation with Engineer"');
+    const exchangeLabel = "Read what Pepper and Engineer said to each other";
+    expect(await snapshot()).toContain(`button "${exchangeLabel}"`);
     await click(exchangeLabel);
     await expect.poll(snapshot, { timeout: 15_000 }).toContain("The dogs wrote these to each other. You can read along but not reply here.");
     const opened = await snapshot();

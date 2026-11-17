@@ -1,6 +1,6 @@
 # Verifying later.dog
 
-Before any merge to `main`, run `pnpm gate` on the branch with `main` merged in and paste its verdict; see `scripts/merge-gate.mjs` for the steps and `LATERDOG_GATE_WRAP` to queue them.
+Before any merge to `main`, run `pnpm gate` on the branch with `main` merged in and paste its verdict; see `scripts/merge-gate.mjs` for the steps and `LATERDOG_GATE_WRAP` to queue them. `deploy/laterdog/home` and `deploy/laterdog/computers` are outside the pnpm workspace, so set each up once with `pnpm install --ignore-workspace --frozen-lockfile` inside it; a plain `pnpm install` there does nothing.
 
 later.dog has one development control surface: `pnpm control:laterdog`. It is a
 thin command-line adapter over `scripts/mcp-server.ts`, so verification uses
@@ -97,6 +97,7 @@ Use only mapped, tested commands:
 - [run_on_computer waits out a cloud computer's boot](heavy-command-start-2026-11-09.md)
 - [Idle generated build output: .open-next and .wrangler/tmp (2026-11-09)](home-cache-cleanup-2026-11-09.md)
 - [What uses a home's disk (2026-11-13)](disk-breakdown.md)
+- [Home upkeep: what a home cleans up by itself, and what a real home must show first](home-upkeep.md)
 - [Job write scopes: trailing `/**` as a directory prefix](job-scope-prefixes-2026-11-09.md)
 - [Remote Claude account handoff](remote-account-handoff-2026-11-09.md)
 - [Saved repository environments, 2026-11-09](saved-environments-2026-11-09.md)
@@ -112,6 +113,7 @@ Use only mapped, tested commands:
 - [Shared dictation language, November 10](dictation-language-2026-11-10.md)
 - [Google connector](google-connector.md)
 - [Pinned account routing, November 10](pinned-account-routing-2026-11-10.md)
+- [One model's limit and the real account limit, November 14](account-limits-2026-11-14.md)
 - [Rust, measured seam by seam, November 10](rust-seams.md)
 - [Decision and extraction model evaluation, November 10](decision-eval.md)
 - [Messages held while the home wakes, November 11](queue-held-sends.md)

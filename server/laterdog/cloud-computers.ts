@@ -108,7 +108,24 @@ export function computersKey(connection: ComputersConnection): string {
   return key;
 }
 
-const computerSchema = z.object({ id: z.string().regex(COMPUTER_ID), name: z.string().min(1).max(200).regex(/^[^\r\n]*$/), state: z.string().min(1).max(40), size: z.string().max(20).optional() });
+export const REASON_MAX_CHARS = 300;
+const shortReason = (reason: string | undefined) => reason === undefined || reason.length <= REASON_MAX_CHARS ? reason : `${reason.slice(0, REASON_MAX_CHARS - 1)}…`;
+export interface LastStart { generation?: number; outcome?: "starting" | "ready" | "failed"; at?: number; ms?: number }
+const START_OUTCOMES: ReadonlySet<string> = new Set(["starting", "ready", "failed"]);
+function readLastStart(raw: unknown): LastStart | undefined {
+  if (!raw || typeof raw !== "object") return undefined;
+  const { generation, outcome, at, ms } = raw as { generation?: unknown; outcome?: unknown; at?: unknown; ms?: unknown };
+  const startedAt = typeof at === "string" ? Date.parse(at) : NaN;
+  const start: LastStart = {
+    ...(Number.isFinite(startedAt) ? { at: startedAt } : {}),
+    ...(typeof ms === "number" && Number.isFinite(ms) && ms >= 0 ? { ms } : {}),
+    ...(Number.isSafeInteger(generation) ? { generation: generation as number } : {}),
+    ...(typeof outcome === "string" && START_OUTCOMES.has(outcome) ? { outcome: outcome as LastStart["outcome"] } : {}),
+  };
+  return Object.keys(start).length ? start : undefined;
+}
+const computerSchema = z.object({ id: z.string().regex(COMPUTER_ID), name: z.string().min(1).max(200).regex(/^[^\r\n]*$/), state: z.string().min(1).max(40), size: z.string().max(20).optional(), error: z.string().optional().transform(shortReason),
+  lastStart: z.unknown().optional().transform(readLastStart) });
 export type Computer = z.infer<typeof computerSchema>;
 const computerBody = z.object({ computer: computerSchema });
 const listBody = z.object({ computers: z.array(computerSchema).max(10_000) });

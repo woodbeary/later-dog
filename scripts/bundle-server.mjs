@@ -45,6 +45,7 @@ const ENTRY_POINTS = [
   "local-computer.ts",
   "local-computer-proxy.ts",
   "hooks/laterdog-hook.ts",
+  "laterdog/shared-clone-cli.ts",
   "container-mcp.ts",
   "vps-container-mcp.ts",
   "permission-proxy.ts",

@@ -152,5 +152,6 @@ describe("cloudRefusal reads the Admin's refusals", () => {
     expect(cloudRefusal({ message: "Start the $20/month Boat plan to create sandboxes.", status: 402 }, false))
       .toEqual({ state: "cc-provider", params: { words: "Start the $20/month Boat plan to create sandboxes." } });
     expect(included("something new").state).toBe("cc-no-start");
+    expect(cloudRefusal({ message: "Your cloud computer did not start. The cloud could not start it. Nothing was run, and waiting longer will not help." }, false).state).toBe("cc-no-start");
   });
 });

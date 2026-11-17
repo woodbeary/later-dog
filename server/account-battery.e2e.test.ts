@@ -30,7 +30,7 @@ interface BatteryFixture {
 }
 
 async function withBatteryFixture(
-  options: { enabled?: boolean; secondOutOfUsage?: boolean; afterTool?: boolean; resetsIn?: number; gated?: boolean; scripted?: boolean; delegateBeforeLimit?: boolean; crossProvider?: boolean; defaultEnabled?: boolean; synthetic?: "grokAgent"; slowFirst?: boolean },
+  options: { enabled?: boolean; secondOutOfUsage?: boolean; afterTool?: boolean; resetsIn?: number; gated?: boolean; scripted?: boolean; delegateBeforeLimit?: boolean; crossProvider?: boolean; defaultEnabled?: boolean; synthetic?: "grokAgent"; slowFirst?: boolean; chiefHappy?: boolean },
   check: (fixture: BatteryFixture) => Promise<void>,
 ) {
   const fixture = await launchVerificationServer({});
@@ -89,6 +89,7 @@ async function withBatteryFixture(
     if (options.scripted) config.instances["chief-account"] = {
       ...config.instances["claude-two"], displayName: "Chief account",
       config: { cli, configDir: join(dataDir, "providers", "chief-account") },
+      ...(options.chiefHappy ? { access: "custom", environment: { ...roomPlan, FAKE_CLAUDE_MODE: "happy", FAKE_CLAUDE_TOOL_CALLS: "[]" } } : {}),
     };
     if (options.crossProvider) config.instances["codex-last"] = {
       driver: "codex", displayName: "Codex final account",
@@ -619,6 +620,41 @@ it("returns a coordinated result exactly once after the specialist changes accou
   });
 }, 90_000);
 
+
+it("finishes every request to a dog whose first request waits for a usage limit, one after the other", async () => {
+  await withBatteryFixture({ scripted: true, secondOutOfUsage: true, resetsIn: 20, chiefHappy: true }, async (fixture) => {
+    const { api, control, dataDir } = fixture;
+    const { bot: chief } = await control("new-bot", "--name", "Waiting chief", "--section", "Leadership");
+    const { bot: specialist } = await control("new-bot", "--name", "Resting specialist", "--section", "Engineering");
+    await api("PATCH", `/api/bots/${chief.id}`, { chiefOfStaff: true, managedSections: ["Engineering"], acknowledgePeerScope: true });
+    await api("PATCH", `/api/bots/${chief.id}/tasks/${chief.activeTaskId}`, { modelSelection: { ...FIRST, instanceId: "chief-account" }, updateBotDefault: true });
+    await api("PATCH", `/api/bots/${specialist.id}/tasks/${specialist.activeTaskId}`, { modelSelection: FIRST, updateBotDefault: true });
+    const ask = (key: string, message: string) => ({ arguments: { bot_ids: [specialist.id], request_key: key, message } });
+    writeFileSync(join(dataDir, "room-plan.json"), JSON.stringify({
+      [chief.id]: { when: [
+        { includes: "Some of your downstream room requests have settled", reply: "Noted the first." },
+        { includes: "Your downstream room requests have settled", reply: "CHIEF_BOTH_DONE" },
+        { includes: "Ask Engineering twice", steps: [ask("first", "REST_FIRST_REQUEST"), ask("second", "REST_SECOND_REQUEST")], reply: "Assigned both" },
+      ] },
+      [specialist.id]: { when: [
+        { includes: "REST_FIRST_REQUEST", reply: "FIRST_DONE" },
+        { includes: "REST_SECOND_REQUEST", reply: "SECOND_DONE" },
+      ] },
+    }));
+    writeFileSync(fixture.gate, "limited");
+    await control("send", "--bot", chief.id, "--task", chief.activeTaskId, "--text", "Ask Engineering twice and report back.");
+    await expect.poll(async () => Boolean((await api("GET", "/api/config")).accountBattery.waiting[specialist.activeTaskId]), { timeout: 30_000 }).toBe(true);
+    await new Promise((resolve) => setTimeout(resolve, 3_000));
+    rmSync(fixture.gate);
+    const nodes = () => JSON.parse(readFileSync(join(dataDir, "room-handoffs.json"), "utf8")) as any[];
+    const asked = () => nodes().filter((node) => node.botId === specialist.id);
+    await expect.poll(() => asked().map((node) => [node.text, node.status, node.result]), { timeout: 60_000, interval: 500 })
+      .toEqual([["REST_FIRST_REQUEST", "completed", "FIRST_DONE"], ["REST_SECOND_REQUEST", "completed", "SECOND_DONE"]]);
+    const rows = async () => (await api("GET", `/api/threads/${chief.activeTaskId}/messages?limit=200`)).messages;
+    await expect.poll(async () => (await rows()).filter((row: any) => row.text === "CHIEF_BOTH_DONE").length, { timeout: 30_000 }).toBe(1);
+    expect(nodes().every((node) => ["completed", "failed", "cancelled"].includes(node.status))).toBe(true);
+  });
+}, 150_000);
 
 it.each([false, true])("continues a room member automatically, including an all-resting wait: %s", async (resting) => {
   await withBatteryFixture({ secondOutOfUsage: resting, resetsIn: resting ? 5 : 3_600 }, async (fixture) => {

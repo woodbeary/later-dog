@@ -21,13 +21,16 @@ names out; the attribution the licence requires stays in NOTICE.
 
 Work in progress, its gates, and how to resume any lane: [`docs/laterdog/finish-line.md`](docs/laterdog/finish-line.md). Read it before starting.
 
-Nothing merges to `main` until a complete `pnpm gate` run (`scripts/merge-gate.mjs`) ends with
-`VERDICT: PASS` on a clean checkout of the branch with the freshly fetched `origin/main` merged
-in. The gate runs typecheck, lint, the desktop node tests, the broker tests, the packaged-server
-check, the vitest suite in eight parts, and the tests in `deploy/laterdog/home`,
-`cloudflare/control-plane` and `deploy/laterdog/computers`. A `--only` run is PARTIAL and never
-qualifies; a test set named in `LATERDOG_GATE_UNAVAILABLE` stays listed on the verdict line.
-Focused tests alone never qualify a merge.
+Nothing merges to `main` until a complete `pnpm gate` run (`scripts/merge-gate.mjs`) on a
+clean checkout of the branch, with `origin/main` fetched and merged in, ends with the line
+`VERDICT: PASS` and nothing after `PASS` but the commits, and exits 0. The gate runs typecheck,
+lint, the desktop node tests, the broker tests, the
+packaged-server check, the vitest suite in eight parts, and the tests in `deploy/laterdog/home`,
+`cloudflare/control-plane` and `deploy/laterdog/computers`. A run with `LATERDOG_GATE_OFFLINE=1`,
+`LATERDOG_GATE_NO_BROWSER=1` or a non-empty `LATERDOG_GATE_UNAVAILABLE` ends with
+`VERDICT: PASS WITH GAPS` and names each gap; it qualifies only together with a second run, on a
+machine without those gaps, that covers each named gap, and the pull request names both runs. A
+`--only` run is `PARTIAL` and never qualifies. Focused tests alone never qualify a merge.
 
 Before claiming a server or conversation change works, follow
 [`docs/verification/README.md`](docs/verification/README.md). Always launch an

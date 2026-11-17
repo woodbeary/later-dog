@@ -1,6 +1,9 @@
 import { expect, it } from "vitest";
 
-import { readFileSync } from "node:fs";
+import { mkdtempSync, readFileSync } from "node:fs";
+import { join } from "node:path";
+import { RoomHandoffs } from "../room-handoffs.ts";
+import { removeTempDir } from "../testing/cleanup.ts";
 
 import { assignedTask, openHandoffsFromRoom, ownLastAsk, OWN_ASK_LABEL, RECORDS_LABEL, recordsText, personOwes, withRecords, type OpenHandoffsOf, type TaskNode } from "./rebuild-records.ts";
 
@@ -83,4 +86,28 @@ it("puts the records last in a rebuilt transcript, labelled as records, and leav
   const built = withRecords(transcript, "Your plan");
   expect(built.at(-1)).toEqual({ id: "", role: "assistant", text: `${RECORDS_LABEL}\nYour plan` });
   expect(transcript).toHaveLength(1);
+});
+
+it("tells a rebuilt dog which results are back but not yet given to it, the moment a helper finishes", async () => {
+  const dir = mkdtempSync(join(process.env.TMPDIR ?? "/tmp", "rebuild-handed-"));
+  const finishers = new Map<string, (result: { ok: boolean; text: string }) => void>();
+  try {
+    const engine = new RoomHandoffs(join(dir, "handoffs.json"), {
+      validate: () => undefined, busy: () => false, report: () => {}, changed: () => {},
+      run: (node) => new Promise((resolve) => finishers.set(node.botId, resolve)),
+    });
+    const lead = { botId: "lead", threadId: "lead-chat" };
+    engine.enqueue(lead, "turn", undefined, { botId: "crumb", threadId: "crumb-chat" }, "menu", "Rewrite the menu page");
+    engine.enqueue(lead, "turn", undefined, { botId: "rye", threadId: "rye-chat" }, "price", "Price the new loaves");
+    engine.sourceSettled("turn", true);
+    engine.tick();
+    await new Promise((resolve) => setImmediate(resolve));
+    finishers.get("rye")?.({ ok: true, text: "Sourdough at 7.50." });
+    await new Promise((resolve) => setImmediate(resolve));
+    const text = recordsText({ handoffs: openHandoffsFromRoom(engine.handedOut("lead-chat"), (id) => names[id]), waiting: [] })!;
+    expect(text).toContain("- Crumb (working): Rewrite the menu page");
+    expect(text).toContain("- Rye (finished): Price the new loaves");
+    expect(text).toContain("Its result arrived and is not yet read: Sourdough at 7.50.");
+    expect(engine.handedOut("crumb-chat")).toEqual([]);
+  } finally { await removeTempDir(dir); }
 });

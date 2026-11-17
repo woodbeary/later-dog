@@ -34,7 +34,7 @@ export interface RuntimeEventBase {
 }
 
 export type CompactionEvent =
-  | { type: "session.compacting" }
+  | { type: "session.compacting"; summaryHook?: boolean }
   | {
       type: "session.compacted";
       ok: boolean;

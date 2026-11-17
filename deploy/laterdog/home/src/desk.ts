@@ -41,6 +41,7 @@ export interface QueuedSend {
   at: number;
   threadId?: string;
   reply?: { text: string; model: string };
+  from?: string;
 }
 
 export type DeskKind = "read" | "shell" | null;
@@ -215,6 +216,82 @@ export function heldSendsAnswer(outbox: readonly QueuedSend[], dropped: readonly
     },
     { headers: { "cache-control": "no-store" } },
   );
+}
+
+const HELD_ANSWERS_PATH = "/api/held-answers";
+const CARD_ID = /^[\w.:-]{1,200}$/;
+const HOST_SEND_PATH = /^\/api\/(bots|groups)\/([^/]+)\/messages$/;
+export const HELD_ANSWER_TEXT_MAX = 8_000;
+
+export interface HeldAnswer {
+  sendId: string;
+  cardId: string;
+  threadId: string;
+  at: number;
+  text?: string;
+  botId?: string;
+  groupId?: string;
+}
+
+export function heldAnswersAsk(request: Request): boolean {
+  return request.method === "GET" && new URL(request.url).pathname === HELD_ANSWERS_PATH;
+}
+
+export function heldAnswers(outbox: readonly QueuedSend[], ownerSent: (queued: QueuedSend) => boolean): HeldAnswer[] {
+  return outbox.slice(0, DESK_OUTBOX_MAX).flatMap((queued): HeldAnswer[] => {
+    const host = HOST_SEND_PATH.exec(queued.path);
+    if (!ownerSent(queued) || !host || !queued.threadId || !SEND_ID.test(queued.id)) return [];
+    let body: { cardId?: unknown; text?: unknown; sendId?: unknown } | null;
+    try {
+      body = JSON.parse(queued.body) as typeof body;
+    } catch {
+      return [];
+    }
+    if (!body || typeof body.cardId !== "string" || !CARD_ID.test(body.cardId) || body.sendId !== queued.id) return [];
+    const text = typeof body.text === "string" && body.text.length <= HELD_ANSWER_TEXT_MAX ? { text: body.text } : {};
+    return [{ sendId: queued.id, cardId: body.cardId, threadId: queued.threadId, at: queued.at, ...text, ...(host[1] === "bots" ? { botId: host[2]! } : { groupId: host[2]! }) }];
+  });
+}
+
+function cardIdOf(body: string): string | null {
+  try {
+    const cardId = (JSON.parse(body) as { cardId?: unknown } | null)?.cardId;
+    return typeof cardId === "string" && CARD_ID.test(cardId) ? cardId : null;
+  } catch {
+    return null;
+  }
+}
+
+function asksOneAnswer(body: string): boolean {
+  try {
+    return (JSON.parse(body) as { oneAnswer?: unknown } | null)?.oneAnswer === true;
+  } catch {
+    return false;
+  }
+}
+
+export function heldForSameCard(outbox: readonly QueuedSend[], next: QueuedSend): QueuedSend | undefined {
+  const cardId = asksOneAnswer(next.body) ? cardIdOf(next.body) : null;
+  return cardId ? outbox.find((queued) => queued.id !== next.id && queued.path === next.path && queued.threadId === next.threadId && cardIdOf(queued.body) === cardId) : undefined;
+}
+
+export function sameCardReceipt(first: QueuedSend, withWords: boolean): Response {
+  const cardId = cardIdOf(first.body);
+  let text: unknown;
+  try {
+    text = (JSON.parse(first.body) as { text?: unknown } | null)?.text;
+  } catch {
+    text = undefined;
+  }
+  const told = withWords && typeof text === "string" && text.length <= HELD_ANSWER_TEXT_MAX;
+  return Response.json(
+    told ? { ok: true, queued: true, queueId: first.id, at: first.at, ...(first.threadId ? { threadId: first.threadId } : {}), ...(cardId ? { cardId } : {}), text } : { ok: true, queued: true, ...(cardId ? { cardId } : {}) },
+    { status: 202, headers: { "cache-control": "no-store" } },
+  );
+}
+
+export function heldAnswersAnswer(outbox: readonly QueuedSend[], ownerSent: (queued: QueuedSend) => boolean): Response {
+  return Response.json({ answers: heldAnswers(outbox, ownerSent) }, { headers: { "cache-control": "no-store" } });
 }
 
 export function droppedStillKept(dropped: readonly DroppedSend[], now: number): DroppedSend[] {

@@ -168,3 +168,10 @@ it("confirms in one short line", () => {
   expect(planRecorded([{ text: "Read", status: "pending" }], false)).toBe("Plan recorded: 0 of 1 done, 1 not started.");
   expect(planRecorded([], false)).toBe("Plan cleared.");
 });
+
+it("tells the dog that a plan with nothing left open is out of the person's view", () => {
+  const finished = [{ text: "Read", status: "done" as const }, { text: "Fix", status: "done" as const }];
+  expect(planRecorded(finished)).toBe("Plan recorded: 2 of 2 done. A finished plan leaves the chat, which is expected. Add items only for new work.");
+  expect(planRecorded(finished, false)).toBe("Plan recorded: 2 of 2 done.");
+  expect(planRecorded([...finished, { text: "Ship", status: "pending" as const }])).toBe("Plan recorded: 2 of 3 done, 1 not started. The person sees it in the app.");
+});

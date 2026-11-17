@@ -44,7 +44,18 @@ export interface ComputerView {
   lastActiveAt: string;
   snapshotAt?: string;
   error?: string;
+  lastStart?: Omit<StartRecord, "at"> & { at: string };
   environment?: { repository: string; restoredFrom?: string; maintenance?: Maintenance & { at: string; ms: number } };
+}
+
+export interface StartRecord {
+  at: number;
+  generation: number;
+  from: "snapshot" | "environment" | "image";
+  restoreBytes?: number;
+  outcome: "starting" | "ready" | "failed";
+  ms?: number;
+  reason?: string;
 }
 
 export interface ExecResult {
@@ -72,6 +83,7 @@ interface ComputerRecord {
   image?: string;
   carry?: Carry;
   error?: string;
+  lastStart?: StartRecord;
   registry?: string;
   trial?: string;
   fullAllowance?: boolean;
@@ -117,6 +129,8 @@ const DOG_ENV: Record<string, string> = {
   NO_AT_BRIDGE: "1",
 };
 const BOOT_TIMEOUT_MS = 5 * MINUTE;
+const START_LOST_MS = BOOT_TIMEOUT_MS + MINUTE;
+export const START_LOST = "The computer did not finish starting.";
 const STOPPED_GRACE_MS = 30_000;
 const VIEWER_HOLD_MS = 20_000;
 const VIEWER_ATTEMPT_MS = 3_000;
@@ -147,6 +161,7 @@ function view(record: ComputerRecord): ComputerView {
     lastActiveAt: iso(record.lastActiveAt),
     ...(record.snapshotAt === undefined ? {} : { snapshotAt: iso(record.snapshotAt) }),
     ...(record.state === "error" && record.error ? { error: record.error } : {}),
+    ...(record.lastStart ? { lastStart: { ...record.lastStart, at: iso(record.lastStart.at) } } : {}),
     ...(record.environment ? { environment: environmentOf(record) } : {}),
   };
 }
@@ -159,6 +174,15 @@ function environmentOf(record: ComputerRecord): NonNullable<ComputerView["enviro
     ...(environment.restoredFrom ? { restoredFrom: environment.restoredFrom } : {}),
     ...(maintenance ? { maintenance: { fetched: maintenance.fetched, installed: maintenance.installed, at: iso(maintenance.at), ms: maintenance.ms } } : {}),
   };
+}
+
+export const REASON_MAX_CHARS = 300;
+const stored = (reason: string) => (reason.length <= REASON_MAX_CHARS ? reason : `${reason.slice(0, REASON_MAX_CHARS - 1)}…`);
+
+function startLine(start: StartRecord | undefined): string {
+  if (!start) return "";
+  const restored = start.restoreBytes === undefined ? "" : ` of ${start.restoreBytes} bytes`;
+  return ` (generation ${start.generation}, from ${start.from}${restored}, ${start.ms ?? 0} ms after start)`;
 }
 
 function startedFrom(record: ComputerRecord): string {
@@ -199,6 +223,7 @@ export class DogComputer extends DurableObject<Env> {
   private lifecycle: Promise<unknown> = Promise.resolve();
   private lastActivityWrite = 0;
   private lastPublished = 0;
+  private watchingStart = false;
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
@@ -295,6 +320,7 @@ export class DogComputer extends DurableObject<Env> {
 
   async wake(input: { fullAllowance?: boolean; repository?: string } = {}): Promise<Result<ComputerView>> {
     return this.serially(async () => {
+      await this.recoverStart();
       const found = this.load();
       if (!found || found.builder) return notFound();
       const record = this.withAllowance(found, input);
@@ -627,7 +653,7 @@ export class DogComputer extends DurableObject<Env> {
     if (!record) return;
     try {
       if (record.builder && record.state !== "starting") await this.finishBuild({ key: record.builder.key, outcome: "failed", setupMs: 0, error: "The setup stopped before it finished." });
-      else if (record.state === "starting") await this.awaitReady(record.generation);
+      else if (record.state === "starting") await this.watchStart(record.generation);
       else if (record.state === "running" && record.desktopDrawn === false) await this.awaitDesktop(record.generation);
       else if (record.state === "running") await this.watch();
       else if (record.state === "stopping") await this.sleep("idle");
@@ -635,6 +661,27 @@ export class DogComputer extends DurableObject<Env> {
       console.error(`laterdog computers: alarm for ${record.id} failed: ${describeError(error)}`);
       if (this.load()) await this.ctx.storage.setAlarm(Date.now() + MINUTE);
     }
+  }
+
+  private async watchStart(generation: number): Promise<void> {
+    this.watchingStart = true;
+    try {
+      await this.awaitReady(generation);
+    } finally {
+      this.watchingStart = false;
+    }
+  }
+
+  private async recoverStart(): Promise<void> {
+    const record = this.load();
+    if (!record || this.deleting || record.state !== "starting" || this.watchingStart) return;
+    if (Date.now() - (record.awakeSince ?? record.createdAt) > START_LOST_MS) {
+      await this.failBoot(record.generation, START_LOST);
+      return;
+    }
+    if ((await this.ctx.storage.getAlarm()) !== null) return;
+    console.warn(`laterdog computers: ${record.id} was starting with nothing watching its start (generation ${record.generation}); watching it again`);
+    await this.ctx.storage.setAlarm(Date.now() + READY_POLL_MS);
   }
 
   private async awaitReady(generation: number): Promise<void> {
@@ -656,10 +703,11 @@ export class DogComputer extends DurableObject<Env> {
             r.state = "running";
             r.readyAt = now;
             r.lastActiveAt = now;
+            if (r.lastStart?.generation === generation) Object.assign(r.lastStart, { outcome: "ready", ms: now - begun });
           }
         });
         if (ready?.state === "running" && ready.generation === generation) {
-          console.log(`laterdog computers: ${ready.id} screen answering ${now - begun} ms after start (generation ${generation}, ${startedFrom(ready)})`);
+          console.log(`laterdog computers: ${ready.id} screen answering ${now - begun} ms after start (generation ${generation}, ${startedFrom(ready)}${ready.lastStart?.restoreBytes === undefined ? "" : `, ${ready.lastStart.restoreBytes} bytes restored`})`);
           if (ready.builder) return this.runBuild(generation);
           await this.ctx.storage.setAlarm(Date.now() + READY_POLL_MS);
           await this.publish();
@@ -739,12 +787,13 @@ export class DogComputer extends DurableObject<Env> {
     const failed = this.update((r) => {
       if (r.generation === generation && r.state === "starting") {
         r.state = "error";
-        r.error = why;
+        r.error = stored(why);
         if (r.environment?.restoredIn === generation) r.environment.restoreFailed = true;
+        if (r.lastStart?.generation === generation) Object.assign(r.lastStart, { outcome: "failed", ms: Date.now() - r.lastStart.at, reason: stored(why) });
       }
     });
     if (failed?.carry && failed.generation === generation) this.abandonCarry();
-    console.error(`laterdog computers: ${failed?.id} failed to boot: ${why}`);
+    console.error(`laterdog computers: ${failed?.id} failed to boot: ${why}${startLine(failed?.lastStart)}`);
     if (this.ctx.container?.running) await this.ctx.container.destroy().catch(() => undefined);
     if (failed?.builder) return this.finishBuild({ key: failed.builder.key, outcome: "failed", setupMs: 0, error: why });
     await this.charge(true);
@@ -900,11 +949,12 @@ export class DogComputer extends DurableObject<Env> {
   }
 
   private async reconcile(): Promise<boolean> {
+    await this.recoverStart();
     const record = this.load();
     if (!record || this.deleting || record.state !== "running" || this.ctx.container?.running) return false;
     this.update((r) => {
       r.state = "error";
-      r.error = "The computer stopped unexpectedly, so changes since it last went to sleep are gone. Wake it to start again from its last snapshot.";
+      r.error = "The computer stopped unexpectedly, so changes since it last went to sleep are gone.";
     });
     this.closeViewers(4003, "The computer stopped.");
     console.error(`laterdog computers: ${record.id} stopped unexpectedly`);
@@ -982,7 +1032,7 @@ export class DogComputer extends DurableObject<Env> {
       await this.charge(true);
       const stopped = this.update((r) => {
         r.state = "error";
-        r.error = why;
+        r.error = stored(why);
         delete r.awakeSince;
       });
       if (!stopped) return;
@@ -1023,6 +1073,13 @@ export class DogComputer extends DurableObject<Env> {
         r.budgetEndsAt = now + budget.value;
         r.chargedUntil = now;
       }
+      r.lastStart = {
+        at: now,
+        generation: r.generation,
+        from: r.snapshot ? "snapshot" : r.environment?.pending ? "environment" : "image",
+        ...(r.snapshot ? { restoreBytes: r.snapshot.size } : {}),
+        outcome: "starting",
+      };
     })!;
     const common = {
       enableInternet: true,
@@ -1056,10 +1113,12 @@ export class DogComputer extends DurableObject<Env> {
       }
     } catch (error) {
       const why = `The computer could not start: ${describeError(error)}`;
-      this.update((r) => {
+      const failed = this.update((r) => {
         r.state = "error";
-        r.error = why;
+        r.error = stored(why);
+        if (r.lastStart?.generation === r.generation) Object.assign(r.lastStart, { outcome: "failed", ms: Date.now() - r.lastStart.at, reason: stored(why) });
       });
+      console.error(`laterdog computers: ${record.id} failed to boot: ${why}${startLine(failed?.lastStart)}`);
       await this.charge(true);
       await this.publish();
       return fail(502, "start_failed", why);
@@ -1070,7 +1129,7 @@ export class DogComputer extends DurableObject<Env> {
       console.error(`laterdog computers: ${record.id} could not set the inactivity timeout: ${describeError(error)}`);
     }
     console.log(
-      `laterdog computers: ${record.id} starting (generation ${record.generation}, ${SIZES[record.size]}, ${record.snapshot ? `snapshot ${record.snapshot.id}` : pending ? `environment ${record.environment!.key}` : "fresh image"}); running=${container.running}`,
+      `laterdog computers: ${record.id} starting (generation ${record.generation}, ${SIZES[record.size]}, ${record.snapshot ? `snapshot ${record.snapshot.id} of ${record.snapshot.size} bytes` : pending ? `environment ${record.environment!.key}` : "fresh image"}); running=${container.running}`,
     );
     await this.ctx.storage.setAlarm(Date.now() + READY_POLL_MS);
     await this.publish();

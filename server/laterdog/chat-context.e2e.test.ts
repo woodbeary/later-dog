@@ -33,9 +33,9 @@ describe.skipIf(process.platform === "win32")("what fills a chat's context windo
       await new Promise((r) => setTimeout(r, 100));
     }
   };
-  const dogOn = async (instanceId: string) => {
+  const dogOn = async (instanceId: string, model = "claude-fake") => {
     const created = (await api("POST", "/api/bots")).body.bot;
-    await api("PATCH", `/api/bots/${created.id}`, { modelSelection: { instanceId, model: "claude-fake" } });
+    await api("PATCH", `/api/bots/${created.id}`, { modelSelection: { instanceId, model } });
     return { id: created.id as string, threadId: created.threadId as string };
   };
   const turn = async (botId: string, text: string) => {
@@ -120,6 +120,21 @@ describe.skipIf(process.platform === "win32")("what fills a chat's context windo
     expect(await api("GET", `/api/threads/${dog.threadId}/context`)).toMatchObject({ status: 404, body: { error: "nothing yet" } });
     expect(asked()).toEqual([{ subtype: "get_context_usage", detail: "full", turns: 1 }]);
     expect(await replies()).toBe(before + 2);
+  }, 60_000);
+
+  it("counts rare tools as not loaded for a dog whose engine was told to load them on demand, and as sent for the rest", async () => {
+    const saved = () => JSON.parse(readFileSync(join(home, ".laterdog", "context-breakdowns.json"), "utf8"));
+    const sizes = async (model: string) => {
+      const dog = await dogOn("claudeCounts", model);
+      await turn(dog.id, "hello");
+      await waitFor(async () => Boolean(saved()[dog.threadId]?.sizes), `the sizes for ${model}`);
+      return saved()[dog.threadId].sizes as { tools: number; toolsNotLoaded: number };
+    };
+    const proven = await sizes("claude-opus-5-5");
+    const unproven = await sizes("claude-haiku-5-5");
+    expect(proven.toolsNotLoaded).toBeGreaterThan(5_000);
+    expect(unproven.toolsNotLoaded).toBe(0);
+    expect(proven.tools + 5_000).toBeLessThan(unproven.tools);
   }, 60_000);
 
   it("forgets a deleted dog's chats in the file it keeps", async () => {
