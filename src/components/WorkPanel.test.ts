@@ -144,3 +144,14 @@ it("closes when the person switches to another dog, so one dog's steps never sho
   await settle();
   expect(panel()).toBeNull();
 });
+
+it("stays on Stopping after a stop that went through, until the job is finished", async () => {
+  state.jobs = [job("j1", true)];
+  await mount({ kind: "side-job", threadId: "t1", jobId: "job:j1" });
+  await act(async () => (host.querySelector("[data-stop-job]") as HTMLButtonElement).click());
+  await act(async () => (host.querySelector("[data-stop-confirm] button[data-danger]") as HTMLButtonElement).click());
+  await settle();
+  expect(state.stopped).toEqual(["j1"]);
+  expect(host.querySelector("[data-stopping]")).not.toBeNull();
+  expect(host.querySelector("[data-stop-job]")).toBeNull();
+});
