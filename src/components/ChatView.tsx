@@ -436,7 +436,7 @@ const Bubble = memo(function Bubble({
                 ? "text-ink"
                 : user
                   ? "bg-bubble-user px-[14px] py-2 whitespace-pre-wrap text-white"
-                  : "bg-[var(--color-bubble,var(--color-card))] px-[14px] py-2 text-ink",
+                  : "bg-[var(--color-bubble)] px-[14px] py-2 text-ink",
           )}
           title={new Date(message.at).toLocaleString()}
         >
@@ -893,7 +893,7 @@ function HeaderStatusDot({ bot }: { bot: Bot }) {
   return <span data-working-dot aria-hidden="true" className="absolute -right-0.5 -bottom-0.5 size-2.5 rounded-full border-2 border-composer bg-success" />;
 }
 
-const CHATHEAD_PILL = "flex h-8 min-w-0 items-center gap-2 rounded-full border-[0.5px] border-[var(--color-hairline,var(--hairline-default))] bg-composer pl-1 pr-3.5 text-ink";
+const CHATHEAD_PILL = "flex h-8 min-w-0 items-center gap-2 rounded-full border-[0.5px] border-[var(--color-hairline)] bg-composer pl-1 pr-3.5 text-ink";
 
 export function ChatView({ bot: profile }: { bot: Bot }) {
   const bot = useMemo(() => currentTaskBot(profile), [profile]);

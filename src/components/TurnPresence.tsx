@@ -163,7 +163,7 @@ export function ChatWorkLine({ bot, working, onOpenDog, fallback = null, face: m
       <div data-work-line className="work-line">
         <button type="button" onClick={() => onOpenDog(open)} className="work-line-button">
           {face}
-          <span data-work-line-phrase className="text-[var(--color-waiting-text,var(--color-warning))]">{line.text}</span>
+          <span data-work-line-phrase className="text-[var(--color-waiting-text)]">{line.text}</span>
         </button>
       </div>
     );

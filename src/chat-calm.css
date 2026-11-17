@@ -116,7 +116,7 @@
   display: inline-block;
   margin-left: 4px;
   vertical-align: -1px;
-  color: var(--color-faint, var(--color-ink-tertiary));
+  color: var(--color-faint);
 }
 
 .chat-bubble h1 {

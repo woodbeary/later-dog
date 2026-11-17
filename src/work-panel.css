@@ -89,7 +89,7 @@
   width: 14px;
   height: 14px;
   border-radius: 999px;
-  border: 1.5px solid var(--color-faint, var(--color-ink-tertiary));
+  border: 1.5px solid var(--color-faint);
 }
 
 .work-panel-ring[data-current] {
@@ -181,7 +181,7 @@
   width: 12px;
   height: 20px;
   flex-shrink: 0;
-  color: var(--color-faint, var(--color-ink-tertiary));
+  color: var(--color-faint);
   visibility: hidden;
 }
 
