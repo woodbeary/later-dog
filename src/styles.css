@@ -1916,6 +1916,6 @@ button:disabled.bg-danger {
   content-visibility: auto;
   overflow-clip-margin: 6px;
 }
-[data-sidebar-row="plain"] > [data-sidebar-bot-row] { contain-intrinsic-size: auto 37.5px; }
-[data-sidebar-row="titled"] > [data-sidebar-bot-row] { contain-intrinsic-size: auto 53.5px; }
+[data-sidebar-row="plain"] > [data-sidebar-bot-row] { contain-intrinsic-size: auto 37px; }
+[data-sidebar-row="titled"] > [data-sidebar-bot-row] { contain-intrinsic-size: auto 53px; }
 [data-sidebar-row="icon"] > [data-sidebar-bot-row] { contain-intrinsic-size: auto 44px; }

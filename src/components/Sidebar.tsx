@@ -46,7 +46,6 @@ import { activityPreview, botEngine } from "@/lib/failed-turn";
 import { activeLocale, t } from "@/lib/i18n";
 import { waitingOnPreview } from "@/lib/waiting-on";
 import { ConfirmDialog } from "./ConfirmDialog";
-import { WorkingDots } from "./WorkingIndicator";
 import { currentDogName } from "@/lib/dog-refs";
 import { nextRename } from "@/lib/rename";
 import { useDesktopCapabilities } from "./DesktopCapabilities";
@@ -94,7 +93,7 @@ import { ConnectAppsPill, SidebarFooterNav } from "./SidebarFooterNav";
 import { GlassBar, GlassScrollFrame, GlassScroller } from "./GlassScrollFrame";
 import { SidebarProfileMenu } from "./SidebarProfileMenu";
 import { SidebarSectionHeader } from "./SidebarSectionHeader";
-import { dogRowFacts } from "@/lib/dog-row";
+import { dogRowFacts, type DogRowFacts, type RowDot as RowDotKind } from "@/lib/dog-row";
 import { roomRowLine } from "@/lib/work-state";
 import { botShowsUnread } from "@/lib/bot-unread";
 import { useLiveMedia } from "@/lib/live-call-media";
@@ -104,7 +103,6 @@ import { markdownPreview } from "../../shared/markdown-preview";
 import { StatusDot } from "./StatusDot";
 import { Collapsible } from "./Collapsible";
 import { copyConversationId } from "@/lib/copy-conversation-id";
-import { attentionKind } from "@/lib/dog-status";
 import { plainClientError } from "@/lib/plain-client-error";
 
 export const MAC_TRAFFIC_LIGHT_CENTER_Y = 23;
@@ -138,6 +136,41 @@ function preview(bot: Bot, visible: Message[], instances: InstanceInfo[], showTo
   if (peer) return `${peer.name}: ${markdownPreview(peer.body)}`;
   const text = citationPreviewText(last.text ?? "");
   return last.role === "user" ? text : markdownPreview(text);
+}
+
+const ROW_DOT_TONE: Record<RowDotKind, string> = { working: "bg-working", waiting: "bg-waiting", unread: "bg-unread" };
+
+function RowDot({ kind, ring, className }: { kind: RowDotKind | null; ring: string; className?: string }) {
+  if (!kind) return null;
+  const words = kind === "waiting" ? t("sidebar.preview.waiting") : kind === "unread" ? t("task.unread") : null;
+  return (
+    <span
+      data-row-dot={kind}
+      data-status={kind === "working" ? undefined : kind}
+      data-testid={kind === "working" ? undefined : `${kind}-dot`}
+      role={kind === "waiting" ? "status" : words ? "img" : undefined}
+      aria-label={words ?? undefined}
+      aria-hidden={words ? undefined : true}
+      title={words ?? undefined}
+      className={cn("status-dot size-3 shrink-0 rounded-full border-2", ring, ROW_DOT_TONE[kind], className)}
+    />
+  );
+}
+
+type RowLine = { text: string; tone: "plain" | "ask" | "helper"; status: boolean };
+
+function rowLine(bot: Bot, facts: DogRowFacts, visible: Message[], instances: InstanceInfo[], showToolCalls: boolean): RowLine {
+  if (facts.waiting) return { text: waitingLine(visible), tone: "ask", status: true };
+  if (facts.helperAsk) return { text: facts.helperAsk, tone: "helper", status: true };
+  if (facts.working) {
+    const kind = currentTaskBot(bot).work?.kind;
+    const step = activeLocale().startsWith("en") ? facts.step : null;
+    return { text: (kind && kind !== "running" ? facts.work : null) ?? step ?? t("sidebar.preview.working"), tone: "plain", status: true };
+  }
+  if (facts.work) return { text: facts.work, tone: "plain", status: true };
+  if (facts.teammates) return { text: t("sidebar.preview.waitingOnTeammate"), tone: "plain", status: true };
+  if (facts.queued) return { text: t("task.queued"), tone: "plain", status: true };
+  return { text: preview(bot, visible, instances, showToolCalls), tone: "plain", status: false };
 }
 
 interface MenuState {
@@ -781,7 +814,9 @@ function useVisibleMessages(bot: Bot): Message[] {
 
 export const PinnedBotCircle = memo(function PinnedBotCircle({ bot, selected, mascotMotion, pendingQueued, dispatch, onMenu, onPinDrop }: BotRowProps & { onPinDrop?: (draggedId: string, targetId: string) => void }) {
   const visible = useVisibleMessages(bot);
-  const { waiting, working, unread, work } = dogRowFacts(bot, pendingQueued);
+  const facts = dogRowFacts(bot, pendingQueued);
+  const { working, unread } = facts;
+  const line = rowLine(bot, facts, visible, [], false);
   const radius = avatarCropRadius(botAvatarProfile(bot).avatarCrop);
   return (
     <button
@@ -789,7 +824,7 @@ export const PinnedBotCircle = memo(function PinnedBotCircle({ bot, selected, ma
       data-sidebar-bot-row={bot.id}
       data-sidebar-unread={unread ? "" : undefined}
       aria-current={selected ? "page" : undefined}
-      aria-label={`${bot.name}${bot.chiefOfStaff ? ` · ${t("mainDog.badge")}` : ""}${waiting ? ` · ${waitingLine(visible)}` : work ? ` · ${work}` : working ? ` · ${t("chat.activity.working")}` : ""}${unread ? ` · ${t("task.unread")}` : ""}`}
+      aria-label={`${bot.name}${bot.chiefOfStaff ? ` · ${t("mainDog.badge")}` : ""}${line.status ? ` · ${line.text}` : ""}${unread ? ` · ${t("task.unread")}` : ""}`}
       title={bot.name}
       draggable={Boolean(onPinDrop)}
       onDragStart={(event) => {
@@ -812,7 +847,7 @@ export const PinnedBotCircle = memo(function PinnedBotCircle({ bot, selected, ma
       onContextMenu={(event) => openBotContextMenu(onMenu, bot.id, event)}
       className={cn(
         "flex min-w-0 flex-col items-center gap-1 rounded-lg px-1 py-1 text-center outline-none focus-visible:ring-1 focus-visible:ring-accent/60 transition-colors",
-        selected ? "bg-raised/70" : "hover:bg-raised/40",
+        selected ? "bg-card" : "hover:bg-card",
       )}
     >
       <span className="relative">
@@ -826,7 +861,7 @@ export const PinnedBotCircle = memo(function PinnedBotCircle({ bot, selected, ma
             animated={working || unread || (mascotMotion?.kind ?? "none") !== "none"}
           />
         </span>
-        <StatusDot kind={attentionKind({ waiting, unread })} ring={selected ? "border-raised" : "border-panel"} size="size-3" className="absolute top-0 right-0" />
+        <RowDot kind={facts.dot} ring={selected ? "border-card" : "border-panel"} className="absolute right-0 bottom-0" />
       </span>
       <span className="w-full truncate text-center text-[11px] leading-4 text-ink">{bot.name}</span>
     </button>
@@ -895,20 +930,22 @@ export const BotListItem = memo(function BotListItem(props: BotRowProps) {
   }, [iconOnly]);
   const avatarSize = iconOnly ? 44 : 32;
   const visible = useVisibleMessages(bot);
-  const last = visible.at(-1);
   const title = bot.title.trim();
   const rowClass = cn(
-    "flex w-full items-center rounded-md text-left outline-none focus-visible:ring-1 focus-visible:ring-accent/60",
+    "flex w-full items-center rounded-row text-left outline-none focus-visible:ring-1 focus-visible:ring-accent/60",
     iconOnly
       ? "justify-center px-1 py-1.5"
-      : "gap-3 py-2 pl-2 pr-9",
-    selected ? "bg-raised/70" : "hover:bg-raised/40",
+      : "min-h-[52px] gap-3 px-2.5 py-2",
+    selected ? "bg-card" : "hover:bg-card",
   );
-  const { waiting, working, teammates: teammateWait, queued, unread, work } = dogRowFacts(bot, pendingQueued);
+  const facts = dogRowFacts(bot, pendingQueued);
+  const { working, unread } = facts;
+  const line = rowLine(bot, facts, visible, instances, showToolCalls);
+  const ring = selected ? "border-card" : "border-panel";
   const onLiveCall = liveBadgeFor(bot.id, liveMedia, liveCall);
   const body = (
     <>
-      <span className="relative flex shrink-0">
+      <span className="relative flex shrink-0" data-row-face="" style={{ width: avatarSize, height: avatarSize }}>
         <BotAvatar
           bot={bot}
           state={stateForBot({ ...bot, messages: visible })}
@@ -917,7 +954,7 @@ export const BotListItem = memo(function BotListItem(props: BotRowProps) {
           motionKey={mascotMotion?.nonce ?? 0}
           animated={working || unread || (mascotMotion?.kind ?? "none") !== "none"}
         />
-        {iconOnly && !renaming && <StatusDot kind={attentionKind({ waiting, unread })} ring="border-panel" size="size-3" className="absolute -right-0.5 -bottom-0.5" />}
+        {!renaming && (iconOnly || facts.dot !== "unread") && <RowDot kind={facts.dot} ring={ring} className="absolute -right-0.5 -bottom-0.5" />}
         {onLiveCall && iconOnly && (
           <span className="absolute -right-1 -top-1 flex rounded-full bg-panel p-0.5">
             <Phone className="size-3 shrink-0 text-success" role="img" aria-label={t("call.live.badge")} data-testid="live-call-badge">
@@ -931,7 +968,7 @@ export const BotListItem = memo(function BotListItem(props: BotRowProps) {
           <div className="truncate text-[11px] font-medium leading-4 text-ink-secondary">{title}</div>
         )}
         <div className="flex items-baseline justify-between gap-2">
-          <span className="flex min-w-0 grow items-center gap-1.5 truncate text-[14px] font-semibold text-ink">
+          <span data-row-name="" className="flex min-w-0 grow items-center gap-1.5 truncate text-[14px] leading-5 font-medium text-ink">
             {bot.pinned && <Pin size={12} className="shrink-0 text-ink-secondary" />}
             <RenameTitle
               key={iconOnly ? "icons" : "expanded"}
@@ -943,7 +980,7 @@ export const BotListItem = memo(function BotListItem(props: BotRowProps) {
               }}
               editRequest={iconOnly ? 0 : renameRequest}
               className="truncate"
-              inputClassName="w-full rounded bg-inset px-1 py-0.5 text-[14px] font-semibold"
+              inputClassName="w-full rounded bg-inset px-1 py-0.5 text-[14px] font-medium"
             />
             {onLiveCall && !iconOnly && !renaming && (
               <Phone className="size-3 shrink-0 text-success" role="img" aria-label={t("call.live.badge")} data-testid="live-call-badge">
@@ -951,11 +988,6 @@ export const BotListItem = memo(function BotListItem(props: BotRowProps) {
               </Phone>
             )}
           </span>
-          {selected && last && !renaming && (
-            <span className="shrink-0 text-xs text-ink-secondary transition-opacity group-hover:opacity-0 group-focus-within:opacity-0 touch:opacity-0">
-              {formatTime(last.at)}
-            </span>
-          )}
         </div>
         <div className="flex items-center justify-between gap-2">
           {deleting ? (
@@ -964,18 +996,11 @@ export const BotListItem = memo(function BotListItem(props: BotRowProps) {
               {t("sidebar.bot.deletingRow")}
             </span>
           ) : (
-            <span className="flex min-w-0 items-center gap-1.5 truncate text-[11px] text-ink-secondary">
-              {working && !work ? (
-                <span className="flex h-[1.5em] items-center" role="status">
-                  <WorkingDots size={3.5} />
-                  <span className="sr-only">{t("sidebar.preview.working")}</span>
-                </span>
-              ) : (
-                <span className={cn("truncate", waiting && "text-waiting-text")}>{waiting ? waitingLine(visible) : work ? work : teammateWait ? t("sidebar.preview.waitingOnTeammate") : queued ? t("task.queued") : preview(bot, visible, instances, showToolCalls)}</span>
-              )}
+            <span className="flex min-w-0 items-center text-[13px] leading-[17px] text-ink-secondary">
+              <span data-row-preview="" className={cn(line.tone === "ask" ? "line-clamp-2 break-words" : "truncate", line.tone !== "plain" && "text-waiting-text")}>{line.text}</span>
             </span>
           )}
-          <StatusDot kind={attentionKind({ waiting, unread })} />
+          {facts.dot === "unread" && !renaming && <RowDot kind="unread" ring={ring} className="transition-opacity group-hover:opacity-0 group-focus-within:opacity-0" />}
         </div>
       </div>
     </>
@@ -1000,7 +1025,7 @@ export const BotListItem = memo(function BotListItem(props: BotRowProps) {
           !renaming
             ? deleting
               ? t("sidebar.bot.deletingAria", { name: bot.name })
-              : `${bot.name}${bot.chiefOfStaff ? ` · ${t("mainDog.badge")}` : ""}${onLiveCall ? ` · ${t("call.live.badge")}` : ""}${waiting ? ` · ${waitingLine(visible)}` : work ? ` · ${work}` : working ? ` · ${t("chat.activity.working")}` : teammateWait ? ` · ${t("sidebar.preview.waitingOnTeammate")}` : queued ? ` · ${t("task.queued")}` : ""}${unread ? ` · ${t("task.unread")}` : ""}`
+              : `${bot.name}${bot.chiefOfStaff ? ` · ${t("mainDog.badge")}` : ""}${onLiveCall ? ` · ${t("call.live.badge")}` : ""}${line.status ? ` · ${line.text}` : ""}${unread ? ` · ${t("task.unread")}` : ""}`
             : undefined
         }
         aria-busy={deleting || undefined}
@@ -1026,7 +1051,7 @@ export const BotListItem = memo(function BotListItem(props: BotRowProps) {
         {body}
       </div>
       {!renaming && !deleting && !iconOnly && <button type="button" aria-label={t("sidebar.bot.actions", { name: bot.name })} title={t("sidebar.bot.actions", { name: bot.name })} aria-haspopup="menu" onClick={(event) => { const rect = event.currentTarget.getBoundingClientRect(); onMenu({ botId: bot.id, x: rect.left, y: rect.bottom }); }}
-        className="pointer-events-none absolute right-1 top-1/2 flex size-7 -translate-y-1/2 items-center justify-center rounded text-ink-secondary opacity-0 hover:bg-raised hover:text-ink group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100 max-md:pointer-events-auto max-md:opacity-70 touch:pointer-events-auto touch:opacity-70"><MoreHorizontal size={15} /></button>}
+        className="pointer-events-none absolute right-1.5 top-1/2 flex size-7 -translate-y-1/2 items-center justify-center rounded-row bg-card text-ink-secondary opacity-0 hover:bg-raised hover:text-ink group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100 max-md:pointer-events-auto max-md:opacity-70 touch:pointer-events-auto touch:opacity-70"><MoreHorizontal size={15} /></button>}
       {deleting && iconOnly && (
         <span className="pointer-events-none absolute bottom-1 right-1 rounded-full bg-card p-1 text-ink-secondary">
           <Loader2 size={12} className="animate-spin" />

@@ -81,14 +81,14 @@ afterAll(() => {
 
 describe("the sidebar rows after the language changes with no store change", () => {
   it("starts in English", () => {
-    expect(dogRow("scout").getAttribute("aria-label")).toBe("Scout · Working");
-    expect(dogRow("scout").textContent).toContain("Working…");
+    expect(dogRow("scout").getAttribute("aria-label")).toBe("Scout · Working on it");
+    expect(dogRow("scout").textContent).toContain("Working on it");
     expect(roomRow("team").textContent).toContain("The dogs are working…");
   });
 
   it("puts a dog row into Spanish when the shell redraws", async () => {
     await changeLanguage("es");
-    expect(dogRow("scout").getAttribute("aria-label")).toBe("Scout · Trabajando");
+    expect(dogRow("scout").getAttribute("aria-label")).toBe("Scout · Trabajando…");
     expect(dogRow("scout").textContent).toContain("Trabajando…");
   });
 
@@ -98,7 +98,7 @@ describe("the sidebar rows after the language changes with no store change", () 
 
   it("puts both rows back into English", async () => {
     await changeLanguage("en");
-    expect(dogRow("scout").getAttribute("aria-label")).toBe("Scout · Working");
+    expect(dogRow("scout").getAttribute("aria-label")).toBe("Scout · Working on it");
     expect(roomRow("team").textContent).toContain("The dogs are working…");
   });
 });
