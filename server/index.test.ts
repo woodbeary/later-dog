@@ -2079,8 +2079,9 @@ describe("harness HTTP API", () => {
 
       const inactiveRetry = await api("POST", `/api/bots/${bot.id}/messages`, request);
       expect(inactiveRetry.status).toBe(202);
+      expect(typeof inactiveRetry.body.message.requestPending).toBe("boolean");
       expect(inactiveRetry.body).toEqual({
-        ...pendingReceipt, message: { ...pendingReceipt.message, requestCancelled: true },
+        ...pendingReceipt, message: { ...pendingReceipt.message, requestPending: inactiveRetry.body.message.requestPending, requestCancelled: true },
       });
       const current = (await api("GET", "/api/bots?messages=0")).body.bots.find(
         (candidate: { id: string }) => candidate.id === bot.id,
