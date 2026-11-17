@@ -69,6 +69,14 @@ describe("a dog's row in the sidebar", () => {
     expect(dots(row).map((dot) => dot.dataset.rowDot)).toEqual(["waiting"]);
   });
 
+  it("says the dog's open question itself as its ask", () => {
+    const question = "Should I move Friday's dinner to Saturday at seven, or keep Friday and ask for a later table?";
+    const asked = { id: "q2", role: "bot" as const, kind: "options" as const, at: 2, card: { title: "A question", subtitle: "", options: [], requestType: "question" as const, questionRequest: { version: 1 as const, questions: [{ question, options: [] }] } } };
+    expect(preview(draw(dog({ activity: "waiting-on-you", busy: true, messages: [asked] as Bot["messages"] }))).textContent).toBe(question);
+    const plain = { id: "q3", role: "bot" as const, kind: "options" as const, at: 3, card: { title: "Which photo should lead the menu?", subtitle: "", options: ["The terrace", "The kitchen"] } };
+    expect(preview(draw(dog({ activity: "waiting-on-you", busy: true, messages: [plain] as Bot["messages"] }))).textContent).toBe("Which photo should lead the menu?");
+  });
+
   it("names the helper a coordinator waits on for your answer, in amber on one line", () => {
     const row = draw(dog({ waitingForTeammates: true, waitingOn: [{ botId: "otis", name: "Otis", state: "needsYou" }] }));
     expect(preview(row).textContent).toBe(helpersLine([{ name: "Otis", state: "needsYou" }])!.text);

@@ -32,6 +32,7 @@ import {
 import { api, formatTime, visibleMessages, openNotificationTarget, currentTaskBot, type Action, type AppState, type Bot, type Group, type InstanceInfo, type Message } from "@/state/store";
 import { dogIn, sameFields, sameItems, useDogsApartFromMessages, useRoomsApartFromMessages, useStoreDispatch, useStoreReader, useStoreSelector } from "@/state/store-selectors";
 import { avatarCropRadius, botAvatarProfile } from "../../shared/bot-avatar";
+import { isPersistentQuestionCard } from "../../shared/ask-question";
 import { peerLine } from "@/lib/peer-message";
 
 import { BotAvatar } from "./Avatar";
@@ -115,7 +116,10 @@ export function waitingLine(visible: Message[]): string {
   const proxy = visible.findLast((message) => message.needsYou?.status === "waiting")?.needsYou;
   if (proxy) return t("chat.needsYou.proxy", { name: proxy.botName, label: proxy.label });
   const open = pendingApprovals(visible).at(-1)?.message.card;
-  return open ? t("sidebar.preview.waitingFor", { action: approvalAction(open) }) : t("sidebar.preview.waiting");
+  if (open) return t("sidebar.preview.waitingFor", { action: approvalAction(open) });
+  const asked = visible.findLast((message) => message.kind === "options" && message.card && !message.card.answered && !message.card.dismissed && !message.card.expired && isPersistentQuestionCard(message.card))?.card;
+  const question = asked?.questionRequest?.questions[0]?.question.trim() || asked?.title.trim();
+  return question || t("sidebar.preview.waiting");
 }
 
 function preview(bot: Bot, visible: Message[], instances: InstanceInfo[], showToolCalls: boolean): string {
