@@ -8,7 +8,7 @@ export function SideJobPage({ card, botName, now, onStop }: { card: SideJobCard 
   if (!card) return <p className="work-panel-note">{PANEL_WORDS.nothingRunning}</p>;
   const confirm = async () => {
     setStop("stopping");
-    try { await onStop(card); setStop("idle"); } catch { setStop("failed"); }
+    try { await onStop(card); } catch { setStop("failed"); }
   };
   return (
     <div data-side-job-page>

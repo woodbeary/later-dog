@@ -5,10 +5,10 @@ import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import type { NativeActivity, NativeRun } from "../../shared/native-runs";
 import type { CloudTaskSummary } from "../../shared/cloud-task";
 
-const state = vi.hoisted(() => ({ runs: [] as unknown[], bots: [] as unknown[], jobs: [] as unknown[], activities: [] as unknown[], stopped: [] as string[], stopFails: false }));
+const state = vi.hoisted(() => ({ requests: [] as string[], pages: null as null | ((path: string) => unknown), runs: [] as unknown[], bots: [] as unknown[], jobs: [] as unknown[], activities: [] as unknown[], stopped: [] as string[], stopFails: false }));
 vi.mock("@/lib/native-runs-state", () => ({ useNativeRuns: () => state.runs }));
 vi.mock("@/state/store-selectors", () => ({ useStoreSelector: (select: (value: { bots: unknown[] }) => unknown) => select({ bots: state.bots }), useStoreDispatch: () => () => {} }));
-vi.mock("@/lib/api", () => ({ api: async () => ({ run: state.runs[0], activities: state.activities }) }));
+vi.mock("@/lib/api", () => ({ api: async (path: string) => { state.requests.push(path); return state.pages ? state.pages(path) : { run: state.runs[0], activities: state.activities }; } }));
 vi.mock("@/lib/cloud-tasks", () => ({
   dogCloudTasks: async () => state.jobs,
   refreshCloudTask: async () => {},
@@ -31,7 +31,7 @@ beforeEach(() => {
   document.documentElement.dataset.reducedMotion = "true";
   state.runs = [run]; state.bots = [{ id: "b1", name: "Juniper", color: "green", busy: true, plan: { updatedAt: 1, items: [{ text: "Add a pickup time field", status: "done" }, { text: "Check the form on a small phone", status: "in_progress" }] } }];
   state.activities = [activity("a1", "Read", 16, { subject: "order form" }), activity("a2", "Bash", 10, { subject: "Run the order form tests", state: "failed", input: "pnpm test", output: "1 failed" })];
-  state.jobs = []; state.stopped = []; state.stopFails = false;
+  state.jobs = []; state.stopped = []; state.stopFails = false; state.requests = []; state.pages = null;
   host = document.createElement("div"); document.body.append(host); root = createRoot(host);
 });
 afterEach(() => { act(() => { closeWorkPanel(); root.unmount(); }); host.remove(); vi.useRealTimers(); });
@@ -107,4 +107,71 @@ it("offers Stop only on a coding job, asks first, and says when it could not sto
   await settle();
   expect(state.stopped).toEqual(["j1"]);
   expect(host.querySelector("[data-stop-failed]")!.textContent).toBe("Couldn't stop. Try again.");
+});
+
+it("follows the step list past its first page, so the newest of 250 steps shows", async () => {
+  const all = Array.from({ length: 250 }, (_, index) => activity(`e${index}`, "Edit", 250 - index, { subject: `file ${index}` }));
+  state.runs = [{ ...run, activityCount: 250 }];
+  state.pages = (path: string) => {
+    const from = Number(new URL(path, "http://x").searchParams.get("cursor") ?? 0);
+    const page = all.slice(from, from + 200);
+    return { run: state.runs[0], activities: page, ...(from + 200 < all.length ? { nextCursor: String(from + 200) } : {}) };
+  };
+  await mount({ kind: "work", threadId: "t1" });
+  await settle(); await settle();
+  expect(host.textContent).toContain("file 249");
+  expect(state.requests.length).toBe(2);
+});
+
+it("asks for the steps again only when the run's steps change, not on every revision", async () => {
+  await mount({ kind: "work", threadId: "t1" });
+  const asked = state.requests.length;
+  expect(asked).toBe(1);
+  state.runs = [{ ...run, revision: 7 }];
+  await act(async () => root.render(createElement(WorkPanel, { botId: "b1", botName: "Juniper" })));
+  await settle();
+  expect(state.requests.length).toBe(asked);
+  state.runs = [{ ...run, revision: 8, activityCount: 3 }];
+  await act(async () => root.render(createElement(WorkPanel, { botId: "b1", botName: "Juniper" })));
+  await settle();
+  expect(state.requests.length).toBe(asked + 1);
+});
+
+it("closes when the person switches to another dog, so one dog's steps never show under another's name", async () => {
+  await mount({ kind: "work", threadId: "t1" });
+  expect(panel()).not.toBeNull();
+  await act(async () => root.render(createElement(WorkPanel, { botId: "b2", botName: "Pepper" })));
+  await settle();
+  expect(panel()).toBeNull();
+});
+
+it("stays on Stopping after a stop that went through, until the job is finished", async () => {
+  state.jobs = [job("j1", true)];
+  await mount({ kind: "side-job", threadId: "t1", jobId: "job:j1" });
+  await act(async () => (host.querySelector("[data-stop-job]") as HTMLButtonElement).click());
+  await act(async () => (host.querySelector("[data-stop-confirm] button[data-danger]") as HTMLButtonElement).click());
+  await settle();
+  expect(state.stopped).toEqual(["j1"]);
+  expect(host.querySelector("[data-stopping]")).not.toBeNull();
+  expect(host.querySelector("[data-stop-job]")).toBeNull();
+});
+
+it("opens the live step's page when its row is clicked", async () => {
+  state.runs = [{ ...run, activityCount: 3, currentActivity: { id: "a3", actorId: "parent", kind: "tool", label: "Bash", state: "running", startedAt: NOW - 60_000 } }];
+  state.activities = [...state.activities, activity("a3", "Bash", 1, { state: "running", subject: "Run the tests", input: "pnpm test" })];
+  await mount({ kind: "work", threadId: "t1" });
+  await act(async () => (host.querySelector("[data-live]") as HTMLButtonElement).click());
+  expect(panel()!.getAttribute("data-page")).toBe("step");
+  expect(host.textContent).toContain("pnpm test");
+});
+
+it("gives focus back to the composer when it closes after a click inside it", async () => {
+  const composer = document.createElement("textarea"); document.body.append(composer); composer.focus();
+  await mount({ kind: "work", threadId: "t1" });
+  (host.querySelector(".work-panel-close") as HTMLButtonElement).focus();
+  expect(document.activeElement).not.toBe(composer);
+  await act(async () => { document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })); });
+  expect(panel()).toBeNull();
+  expect(document.activeElement).toBe(composer);
+  composer.remove();
 });

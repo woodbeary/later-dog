@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { ChevronLeft, X } from "lucide-react";
 import "../work-panel.css";
 import type { NativeActivity, NativeRun, NativeRunDetail } from "../../shared/native-runs";
@@ -55,12 +55,22 @@ function useClock(active: boolean): number {
 
 function useRunActivities(run: NativeRun | undefined): NativeActivity[] {
   const [activities, setActivities] = useState<NativeActivity[]>([]);
-  const key = run ? `${run.threadId}\u0000${run.id}\u0000${run.revision}` : "";
+  const key = run ? [run.threadId, run.id, run.activityCount, run.currentActivity?.id ?? "", run.failureCount, run.observation].join("\u0000") : "";
   useEffect(() => {
     if (!run) { setActivities([]); return; }
     let live = true;
-    void api<NativeRunDetail>(`/api/threads/${encodeURIComponent(run.threadId)}/runs/${encodeURIComponent(run.id)}?limit=200`)
-      .then(detail => { if (live) setActivities(detail.activities); }, () => undefined);
+    const base = `/api/threads/${encodeURIComponent(run.threadId)}/runs/${encodeURIComponent(run.id)}?limit=200`;
+    void (async () => {
+      const all: NativeActivity[] = [];
+      let cursor: string | undefined;
+      for (let page = 0; page < 5; page += 1) {
+        const detail = await api<NativeRunDetail>(cursor ? `${base}&cursor=${encodeURIComponent(cursor)}` : base);
+        all.push(...detail.activities);
+        cursor = detail.nextCursor;
+        if (!cursor) break;
+      }
+      if (live) setActivities(all);
+    })().catch(() => undefined);
     return () => { live = false; };
   }, [key]);
   return activities;
@@ -107,7 +117,7 @@ export function WorkPanelView({ page, botName, data, actions, hoveredStep }: { p
   const activity = page.kind === "step" ? data.activities.find(item => item.id === page.activityId) : undefined;
   const job = page.kind === "side-job" ? [...sideJobs.running, ...sideJobs.finished].find(card => card.id === page.jobId) : undefined;
   const pushedTitle = page.kind === "step" ? (activity ? stepDetail(activity).title : "") : page.kind === "side-job" ? job?.title : undefined;
-  const title = panelTitle(page, botName, pushedTitle);
+  const title = panelTitle(page, botName, pushedTitle, data.working);
   const back = workPanelCanGoBack();
   const sections = page.kind === "work" ? [todo.length > 0, helpers.length > 0, true].filter(Boolean).length : 0;
   return (
@@ -125,7 +135,7 @@ export function WorkPanelView({ page, botName, data, actions, hoveredStep }: { p
             {helpers.length > 0 && <><div className="work-panel-section">{helpingWords(botName)}</div><WorkHelpers rows={helpers} face={actions.face} onOpen={actions.openDog} /></>}
             {sections > 1 && <div className="work-panel-section">{PANEL_WORDS.steps}</div>}
             {steps.rows.length || steps.trimmed
-              ? <WorkSteps rows={steps.rows} trimmed={steps.trimmed} hovered={hoveredStep} onOpen={row => { if (!row.live) openWorkPanel({ kind: "step", threadId: page.threadId, runId: row.runId, activityId: row.id }); }} />
+              ? <WorkSteps rows={steps.rows} trimmed={steps.trimmed} hovered={hoveredStep} onOpen={row => { const activityId = row.live ? data.run?.currentActivity?.id : row.id; if (activityId) openWorkPanel({ kind: "step", threadId: page.threadId, runId: row.runId, activityId }); }} />
               : <p className="work-panel-note">{PANEL_WORDS.noSteps}</p>}
           </>
         )}
@@ -142,6 +152,23 @@ export function WorkPanel(props: { botId: string; botName: string }) {
   const dispatch = useStoreDispatch();
   const dogs = useStoreSelector(state => state.bots);
   const { data, refreshJobs } = usePanelData(page, props.botId);
+  const shownFor = useRef(props.botId);
+  const returnTo = useRef<HTMLElement | null>(null);
+  const open = page !== null;
+  useEffect(() => {
+    if (open) {
+      const active = document.activeElement;
+      returnTo.current = active instanceof HTMLElement && active !== document.body ? active : null;
+      return;
+    }
+    const back = returnTo.current;
+    returnTo.current = null;
+    if (back?.isConnected && (document.activeElement === document.body || document.activeElement === null)) back.focus();
+  }, [open]);
+  useEffect(() => {
+    if (shownFor.current !== props.botId) closeWorkPanel();
+    shownFor.current = props.botId;
+  }, [props.botId]);
   useEffect(() => {
     if (!page) return;
     const onKey = (event: KeyboardEvent) => { if (event.key === "Escape" && !event.defaultPrevented) closeWorkPanel(); };

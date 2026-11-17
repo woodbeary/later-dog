@@ -46,7 +46,7 @@ export interface SideJobCard { id: string; title: string; meta: string; glyph: S
 export interface HelpingDog { botId: string; name: string; threadId?: string; state?: "queued" | "running" | "needsYou"; step?: LiveStep | null }
 
 const GLYPHS: Partial<Record<OutcomeKind, StepGlyphKind>> = {
-  command: "play", check: "play", cloud: "cloud", tool: "play", edit: "pencil", note: "pencil",
+  command: "play", check: "play", cloud: "play", tool: "play", edit: "pencil", note: "pencil",
   read: "page", wrote: "page", delete: "page", search: "magnifier", chats: "magnifier", web: "magnifier", page: "magnifier", open: "magnifier",
   screen: "screen", computer: "screen", phone: "screen", help: "paw", team: "paw", dog: "paw",
 };
@@ -78,7 +78,7 @@ export function stepRows(run: NativeRun | undefined, activities: readonly Native
   for (const activity of finished) {
     const outcome = outcomeOf(activity);
     const failed = activity.state === "failed";
-    rows.push({ id: activity.id, runId: run.id, label: stepLabel({ outcome, state: failed ? "failed" : "done", subject: activity.subject }), time: stepTime(activity.startedAt, now), glyph: glyphOf(outcome), live: false, failed });
+    rows.push({ id: activity.id, runId: run.id, label: stepLabel({ outcome, state: failed ? "failed" : "done", subject: activity.subject }), time: stepTime(activity.startedAt, now), glyph: activity.label.endsWith("cloud_job") ? "cloud" : glyphOf(outcome), live: false, failed });
   }
   return { rows, trimmed: Boolean(run.truncated) };
 }
@@ -112,14 +112,14 @@ export function sideJobCards(run: NativeRun | undefined, jobs: readonly CloudTas
     const startedAt = timeOf(job.startedAt) ?? timeOf(job.createdAt) ?? now;
     const lastActivityAt = timeOf(job.updatedAt) ?? startedAt;
     const finished = Boolean(job.finishedAt);
-    cards.push({ id: `job:${job.id}`, title: job.title, meta: sideJobMeta(startedAt, lastActivityAt, now), glyph: "cloud", canStop: !finished && job.stoppable, startedAt, lastActivityAt, finished, ...(job.stage ? { doing: job.stage } : {}) });
+    cards.push({ id: `job:${job.id}`, title: job.title, meta: finished ? lastMovedLine(now - lastActivityAt) : sideJobMeta(startedAt, lastActivityAt, now), glyph: "cloud", canStop: !finished && job.stoppable, startedAt, lastActivityAt, finished, ...(job.stage ? { doing: job.stage } : {}) });
   }
   for (const actor of run?.actors ?? []) {
     if (!sideActor(actor)) continue;
     const lastActivityAt = actor.lastActivityAt ?? actor.startedAt;
     const finished = FINISHED.has(actor.state);
     const doing = actor.activity ?? actor.summary ?? actor.task;
-    cards.push({ id: `actor:${actor.id}`, title: actor.label, meta: sideJobMeta(actor.startedAt, lastActivityAt, now), glyph: actor.kind === "subagent" ? "paw" : "play", canStop: false, startedAt: actor.startedAt, lastActivityAt, finished, ...(doing ? { doing } : {}) });
+    cards.push({ id: `actor:${actor.id}`, title: actor.label, meta: finished ? lastMovedLine(now - lastActivityAt) : sideJobMeta(actor.startedAt, lastActivityAt, now), glyph: actor.kind === "subagent" ? "paw" : "play", canStop: false, startedAt: actor.startedAt, lastActivityAt, finished, ...(doing ? { doing } : {}) });
   }
   const today = startOfToday(now);
   return {
@@ -149,8 +149,8 @@ export function stepDetail(activity: NativeActivity): { title: string; inputLabe
   };
 }
 
-export function panelTitle(page: WorkPanelPage, botName: string, pushedTitle?: string): string {
-  if (page.kind === "work") return t(page.runId ? "workPanel.titleDid" : "workPanel.titleDoing", { name: botName });
+export function panelTitle(page: WorkPanelPage, botName: string, pushedTitle?: string, working = true): string {
+  if (page.kind === "work") return t(page.runId || !working ? "workPanel.titleDid" : "workPanel.titleDoing", { name: botName });
   if (page.kind === "side-jobs") return PANEL_WORDS.sideJobs;
   return pushedTitle ?? "";
 }

@@ -321,11 +321,3 @@
 .work-panel-confirm-actions button[data-danger] {
   color: var(--color-danger);
 }
-
-.work-panel-spin {
-  animation: spin 1s linear infinite;
-}
-
-:root[data-reduced-motion="true"] .work-panel-spin {
-  animation: none;
-}

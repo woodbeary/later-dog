@@ -121,3 +121,25 @@ describe("one step and the titles", () => {
     expect(panelTitle({ kind: "side-jobs", threadId: "t1" }, "Juniper")).toBe("Side jobs");
   });
 });
+
+describe("finished side jobs", () => {
+  it("never says a finished job is still going", () => {
+    const done = { id: "j2", title: "Built the preview", state: "succeeded", startedAt: new Date(NOW - 46 * 60_000).toISOString(), updatedAt: new Date(NOW - 40 * 60_000).toISOString(), finishedAt: new Date(NOW - 40 * 60_000).toISOString(), stoppable: false } as unknown as CloudTaskSummary;
+    const card = sideJobCards(run(), [done], NOW).finished[0]!;
+    expect(card.meta).not.toMatch(/Going/);
+    expect(card.meta).toBe("Last moved 40 min ago");
+  });
+});
+
+describe("step glyphs", () => {
+  it("gives a command on the dog's computer the play glyph and a coding job the cloud", () => {
+    const rows = stepRows(run({ observation: "complete", state: "done" }), [act("c1", "mcp__agents__run_on_computer", 9, 30), act("c2", "mcp__laterdog__delegate_cloud_job", 9, 31)], NOW).rows;
+    expect(Object.fromEntries(rows.map(row => [row.id, row.glyph]))).toEqual({ c1: "play", c2: "cloud" });
+  });
+});
+
+describe("the title once the dog has finished", () => {
+  it("says what the dog did when it is no longer working", () => {
+    expect(panelTitle({ kind: "work", threadId: "t1" }, "Juniper", undefined, false)).toBe("What Juniper did");
+  });
+});
