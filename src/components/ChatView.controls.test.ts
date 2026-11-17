@@ -350,6 +350,16 @@ describe("thread control placement", () => {
     expect(controls[1]).not.toContain("wrap");
   });
 
+  it("centres one 632 column for the transcript and the composer: 672 with their 20 padding each side", () => {
+    const markup = renderToStaticMarkup(createElement(ChatView, { bot: { ...bot, busy: false } }));
+    const log = /class="([^"]*)"[^>]*role="log"/.exec(markup)!;
+    expect(log[1].split(" ")).toEqual(expect.arrayContaining(["mx-auto", "w-full", "max-w-[672px]", "px-5"]));
+    const scroller = /class="(glass-scroller [^"]*)"/.exec(markup)!;
+    expect(scroller[1].split(" ")).not.toContain("px-5");
+    const dock = /data-composer-column="[^"]*" class="([^"]*)"/.exec(markup)!;
+    expect(dock[1].split(" ")).toEqual(expect.arrayContaining(["mx-auto", "w-full", "max-w-[672px]"]));
+  });
+
   it("shows no crown or main dog label in the chat header", () => {
     const markup = renderToStaticMarkup(createElement(ChatView, { bot: { ...bot, busy: false, chiefOfStaff: true } }));
     expect(markup).not.toContain("lucide-crown");

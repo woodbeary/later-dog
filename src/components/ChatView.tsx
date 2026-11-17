@@ -1144,13 +1144,13 @@ export function ChatView({ bot: profile }: { bot: Bot }) {
 
       <div
         ref={scrollRef}
-        className="glass-scroller h-full overflow-x-hidden overflow-y-auto overscroll-y-contain px-5 [overflow-anchor:none]"
+        className="glass-scroller h-full overflow-x-hidden overflow-y-auto overscroll-y-contain [overflow-anchor:none]"
         style={{ scrollPaddingBottom: composerDock.height }}
         {...scrollHandlers}
       >
         <div
           ref={transcriptRef}
-          className="glass-scroller-content flex w-full flex-col gap-3"
+          className="glass-scroller-content mx-auto flex w-full max-w-[672px] flex-col gap-3 px-5"
           style={{ paddingBottom: composerDock.pad }}
           role="log"
           aria-live="off"
@@ -1252,6 +1252,7 @@ export function ChatView({ bot: profile }: { bot: Bot }) {
 
       <div ref={composerDockRef} className="pointer-events-none absolute inset-x-0 bottom-0 z-[2]">
       <LiveCallBar bot={bot} />
+      <div data-composer-column className="mx-auto w-full max-w-[672px]">
       {!takeoverOpen && <NeedsYouRow botId={bot.id} name={bot.name} />}
       <PaneErrorLine panes={[chatPane(bot.threadId)]} look="tray" />
       <RunningOnLine messages={thread} threadId={bot.threadId} />
@@ -1284,6 +1285,7 @@ export function ChatView({ bot: profile }: { bot: Bot }) {
     <WorkPanel botId={bot.id} botName={bot.name} />
     </>
   );
+      </div>
 }
 
 function NeedsYouRow({ botId, name }: { botId: string; name: string }) {
