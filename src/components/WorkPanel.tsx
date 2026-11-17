@@ -135,7 +135,7 @@ export function WorkPanelView({ page, botName, data, actions, hoveredStep }: { p
             {helpers.length > 0 && <><div className="work-panel-section">{helpingWords(botName)}</div><WorkHelpers rows={helpers} face={actions.face} onOpen={actions.openDog} /></>}
             {sections > 1 && <div className="work-panel-section">{PANEL_WORDS.steps}</div>}
             {steps.rows.length || steps.trimmed
-              ? <WorkSteps rows={steps.rows} trimmed={steps.trimmed} hovered={hoveredStep} onOpen={row => { if (!row.live) openWorkPanel({ kind: "step", threadId: page.threadId, runId: row.runId, activityId: row.id }); }} />
+              ? <WorkSteps rows={steps.rows} trimmed={steps.trimmed} hovered={hoveredStep} onOpen={row => { const activityId = row.live ? data.run?.currentActivity?.id : row.id; if (activityId) openWorkPanel({ kind: "step", threadId: page.threadId, runId: row.runId, activityId }); }} />
               : <p className="work-panel-note">{PANEL_WORDS.noSteps}</p>}
           </>
         )}

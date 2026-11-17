@@ -155,3 +155,12 @@ it("stays on Stopping after a stop that went through, until the job is finished"
   expect(host.querySelector("[data-stopping]")).not.toBeNull();
   expect(host.querySelector("[data-stop-job]")).toBeNull();
 });
+
+it("opens the live step's page when its row is clicked", async () => {
+  state.runs = [{ ...run, activityCount: 3, currentActivity: { id: "a3", actorId: "parent", kind: "tool", label: "Bash", state: "running", startedAt: NOW - 60_000 } }];
+  state.activities = [...state.activities, activity("a3", "Bash", 1, { state: "running", subject: "Run the tests", input: "pnpm test" })];
+  await mount({ kind: "work", threadId: "t1" });
+  await act(async () => (host.querySelector("[data-live]") as HTMLButtonElement).click());
+  expect(panel()!.getAttribute("data-page")).toBe("step");
+  expect(host.textContent).toContain("pnpm test");
+});
