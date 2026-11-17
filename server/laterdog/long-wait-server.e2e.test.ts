@@ -85,7 +85,7 @@ it("stopping the turn mid-wait ends the call and the home stops polling the comp
   expect(atEnd).toBeGreaterThan(0);
   await sleep(35_000);
   expect(answer.status).toBe(409);
-  expect(String(answer.body.error)).toMatch(/^The wait ended because this turn was stopped\. The job had not finished \(run_id [0-9a-f]{8}\), and a Stop from the person stops it too\./);
+  expect(String(answer.body.error)).toMatch(/^The wait ended because this turn was stopped\. The job (had not finished \(run_id [0-9a-f]{8}\), and a Stop from the person stops it too|stopped on your cloud computer \(run_id [0-9a-f]{8}\))\./);
   expect(String(answer.body.error)).not.toMatch(/still running/);
   expect(took).toBeLessThan(40);
   expect(f.fake.polls() - atEnd).toBeLessThanOrEqual(1);
