@@ -3,11 +3,12 @@ import { shortcutLabel } from "./ShortcutHint";
 import type { SendDelivery } from "../../shared/send-delivery";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type SetStateAction } from "react";
 import { ModelPicker } from "./ModelPicker";
-import { ArrowUp, Check, Clock, Loader2, Mic, Pencil, Plus, Square, Users, X } from "lucide-react";
+import { ArrowUp, Check, Loader2, Mic, Pencil, Plus, Users, X } from "lucide-react";
 import { visibleMessages, currentTaskBot, type Bot, type Group, type Message } from "@/state/store";
 import { useDrawnDogs, useStoreDispatch, useStoreSelector } from "@/state/store-selectors";
 import { chatPane } from "@/state/pane-errors";
 import { waitingOnPerson } from "@/lib/waiting-on-person";
+import { QUESTION_DISMISS_MESSAGE } from "../../shared/ask-question";
 import { answerByTyping, answerTooLong, forgetClosedAnswer, useClosedAnswer, useTypedAnswer } from "@/lib/typed-answer";
 import { cn } from "@/lib/cn";
 import { useMenuMotion } from "./MenuMotion";
@@ -96,6 +97,8 @@ import {
 } from "@/lib/composer-commands";
 import { api } from "@/lib/api";
 import { SaveCommandDialog } from "./SaveCommandDialog";
+import { ComposerUsageNotice } from "./UsageNotice";
+import "../composer-parity.css";
 
 function mentionQueryAt(text: string, caret: number): { start: number; query: string } | null {
   const upto = text.slice(0, caret);
@@ -493,6 +496,18 @@ export function Composer({
     if (group) dispatch({ type: "interruptGroup", groupId: group.id, threadId });
     else if (bot) dispatch({ type: "interrupt", botId: bot.id, threadId });
   };
+  const openQuestion = asking && bot
+    ? visibleMessages(bot).find((message) => message.kind === "options" && message.card?.requestId && !message.card.answered && !message.card.dismissed && !message.card.expired
+      && (message.card.requestType === "question" || Boolean(message.card.questionRequest)))
+    : undefined;
+  const stopOrEndWait = () => {
+    const requestId = openQuestion?.card?.requestId;
+    if (requestId) {
+      dispatch({ type: "decideRequest", threadId, requestId, behavior: "answer", message: QUESTION_DISMISS_MESSAGE });
+      return;
+    }
+    interruptTurn();
+  };
   const queueHeadId = queuedMessages[0]?.queueId;
   const steerLive =
     canSteer &&
@@ -602,7 +617,7 @@ export function Composer({
   };
   const hasContent = Boolean(text.trim()) || attachments.length > 0;
   const answerWithFiles = Boolean(typedAnswer) && attachments.length > 0;
-  const stopShown = working && !hasContent && !recording && sharpening === 0;
+  const stopShown = (working || asking) && !hasContent && !recording && sharpening === 0;
   const expanded = textWrapped || attachments.length > 0 || Boolean(attachmentNotice) || Boolean(replyTo);
   const retryFailedSend = (failed: FailedComposerSend) => {
     if (failed.requestText.includes("<attached-image ") && !imageTargetsSupport(failed.requestText)) {
@@ -1008,19 +1023,21 @@ export function Composer({
           </div>
         )}
         {approval && (
-          <div className="mb-2 overflow-hidden rounded-card bg-card shadow-composer ring-[0.5px] ring-ink/15">
+          <div data-approval-card className="approval-parity">
             <PendingApprovalPanel
               pending={approval}
               count={approvals.length}
               index={0}
               locale={activeLocale()}
               botName={approvalBot?.name}
+              coversId={`approval-covers-${approval.requestId}`}
               onCancelTurn={approval.message.card?.routineRequest || approval.message.card?.skillRequest || approval.message.card?.profileRequest ? undefined : interruptTurn}
             />
             <PendingApprovalActions
               pending={approval}
               threadId={threadId}
               bot={approvalBot}
+              coversId={`approval-covers-${approval.requestId}`}
             />
           </div>
         )}
@@ -1044,12 +1061,16 @@ export function Composer({
           />
         <div
           data-tour="composer"
+          data-composer-surface
           data-expanded={expanded || undefined}
-          className={cn(
-            "@container/composer relative z-[1] bg-composer px-2 py-1.5 ring-[0.5px] ring-ink/30 shadow-composer transition-[border-radius] duration-(--duration-slow) ease-(--ease-enter)",
-            expanded ? "rounded-composer-expanded" : "rounded-composer",
-          )}
+          className="@container/composer relative z-[1]"
         >
+        {!locked && bot && !group && (
+          <ComposerUsageNotice
+            instanceId={bot.modelSelection?.instanceId}
+            onOpen={() => dispatch({ type: "toggleAppSettings", open: true, section: "usage" })}
+          />
+        )}
         {replyTo && (
           <div className="px-1 pb-1.5 pt-0.5">
             <ReplyQuote
@@ -1204,14 +1225,12 @@ export function Composer({
               ? t("composer.placeholder.attaching")
               : recording
               ? t("composer.placeholder.listening")
-              : busy && canSteer && !asking
-                ? pendingCount > 0
-                  ? t("composer.placeholder.steerQueued", { name: busyName })
-                  : t("composer.placeholder.steer", { name: busyName })
+              : busy && canSteer && !asking && pendingCount > 0
+                ? t("composer.placeholder.steerQueued", { name: busyName })
               : busy && !asking
-                ? group
+                ? group && !canSteer
                   ? t("composer.placeholder.queueGroup", { name: busyName })
-                  : t("composer.placeholder.queue", { name: busyName })
+                  : t("composer.placeholder.steer", { name: busyName })
               : group
                 ? t("composer.placeholder.group", {
                     name: group.name,
@@ -1220,12 +1239,12 @@ export function Composer({
                 : t("composer.placeholder.bot", { name: bot?.name ?? "" })
           }
           aria-label={t("composer.placeholder.bot", { name: group ? group.name : (bot?.name ?? "") })}
-            className="block max-h-[9rem] min-h-5 w-full resize-none overflow-y-auto bg-transparent px-1 py-1 text-[14px] leading-5 placeholder:text-ink-secondary focus:outline-none"
+            className="block max-h-[9rem] min-h-6 w-full resize-none overflow-y-auto bg-transparent px-1 py-[3px] text-[16px] leading-6 placeholder:text-ink-secondary focus:outline-none"
           />
           <TypingGhostAnnouncement text={suggestion.ghost} />
           <div data-composer-actions className="ml-auto flex items-center gap-1">
           {!locked && bot && !group && <ModelPicker key={bot.threadId} bot={bot} threadId={bot.threadId} above part="chat" />}
-        {!locked && micRecordingSupported() && (recording || !retryingNote) && (
+        {!locked && micRecordingSupported() && (recording || !retryingNote) && (!hasContent || recording || sharpening > 0) && (
           <button
             type="button"
             data-composer-mic
@@ -1233,15 +1252,10 @@ export function Composer({
             aria-busy={(sharpening > 0 && !recording) || undefined}
             onClick={toggleMic}
             aria-label={recording ? t("composer.dictation.stop") : t("composer.dictation.start")}
-            className={cn(
-              "flex size-8 shrink-0 items-center justify-center rounded-full",
-              recording
-                ? "bg-raised text-ink hover:bg-raised-hover"
-                : "text-ink-secondary hover:bg-raised hover:text-ink",
-            )}
+            className={cn("composer-mic", recording && "composer-mic-on")}
             title={recording ? t("composer.dictation.stopHint") : sharpening > 0 ? t("composer.dictation.transcribing") : t("composer.dictation.hint")}
           >
-            {recording ? <Check size={17} strokeWidth={2.5} /> : sharpening > 0 ? <Loader2 size={18} className="animate-spin motion-reduce:animate-none" /> : <Mic size={18} />}
+            {recording ? <Check size={17} strokeWidth={2.5} /> : sharpening > 0 ? <Loader2 size={19} className="animate-spin motion-reduce:animate-none" /> : <Mic size={19} />}
           </button>
         )}
         {bot && !group && callButtonShown(config) && <CallButton bot={bot} />}
@@ -1249,15 +1263,15 @@ export function Composer({
           <button
             type="button"
             data-composer-stop
-            onClick={interruptTurn}
+            onClick={stopOrEndWait}
             aria-label={t("chat.stopTurn")}
-            className="flex size-8 shrink-0 items-center justify-center rounded-full bg-ink text-app hover:brightness-110"
+            className="composer-disc composer-stop"
             title={t("chat.stop")}
           >
-            <Square size={12} className="fill-current" />
+            <span aria-hidden="true" className="composer-stop-square" />
           </button>
         )}
-        {!locked && !stopShown && (
+        {!locked && !stopShown && hasContent && (
           <button
             type="button"
             data-composer-send
@@ -1277,16 +1291,9 @@ export function Composer({
                   ? t("composer.send.queueHint")
                   : t("chat.send")
             }
-            className={cn(
-              "flex size-8 shrink-0 items-center justify-center rounded-full text-white transition-colors",
-              !hasContent
-                ? "cursor-default bg-raised text-ink-tertiary"
-                : busy && !canSteer
-                  ? "bg-raised text-ink-secondary hover:bg-raised-hover"
-                  : "bg-accent hover:brightness-110",
-            )}
+            className="composer-disc composer-send"
           >
-            {busy && !canSteer ? <Clock size={15} /> : <ArrowUp size={17} />}
+            <ArrowUp size={17} strokeWidth={2.25} />
           </button>
           )}
           </div>

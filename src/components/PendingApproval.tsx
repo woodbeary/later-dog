@@ -1,4 +1,4 @@
-import { ChevronRight, Hand, X } from "lucide-react";
+import { ChevronRight } from "lucide-react";
 import { memo } from "react";
 import type { Bot, Message } from "@/state/store";
 import { useStoreDispatch } from "@/state/store-selectors";
@@ -11,6 +11,7 @@ import { reviewedSkillSha256 } from "../../shared/skill-request";
 import { DELETE_OUTSIDE_WORKSPACE_ALLOW_KEY, MAC_ALLOW_KEY } from "../../shared/cloud-home";
 import { useOwnerOrAdmin } from "@/lib/use-owner-or-admin";
 import { LASTING_WHY_WORDS, type LastingOffer } from "../../shared/lasting-allows";
+import "../composer-parity.css";
 
 export interface Pending {
   message: Message;
@@ -104,7 +105,7 @@ export const PendingApprovalPanel = memo(function PendingApprovalPanel({
   count,
   index,
   botName,
-  onCancelTurn,
+  coversId,
 }: {
   pending: Pending;
   count: number;
@@ -112,14 +113,26 @@ export const PendingApprovalPanel = memo(function PendingApprovalPanel({
   botName?: string;
   onCancelTurn?: () => void;
   locale?: string;
+  coversId?: string;
 }) {
   const heldNote = tFromServer(pending.heldCode, pending.held);
   const outbound = pending.message.card ? outboundSummary(pending.message.card) : undefined;
   const reviewed = isSkillApproval(pending) || isRoutineApproval(pending) || isProfileApproval(pending) || Boolean(pending.message.card?.modelRequest);
   const command = pending.commandAllowlist?.command ?? pending.detail;
+  const showCovers = () => {
+    const covers = coversId ? document.getElementById(coversId) : null;
+    if (covers instanceof HTMLDetailsElement) covers.open = !covers.open;
+  };
   const details = (
     <pre
       tabIndex={0}
+      data-approval-command
+      onClick={showCovers}
+      onKeyDown={(event) => {
+        if (event.key !== "Enter" && event.key !== " ") return;
+        event.preventDefault();
+        showCovers();
+      }}
       aria-label={
         isSkillApproval(pending)
           ? t("approval.aria.reviewSkill")
@@ -129,7 +142,7 @@ export const PendingApprovalPanel = memo(function PendingApprovalPanel({
               ? t("approval.aria.reviewProfile")
               : t("approval.aria.reviewDetails")
       }
-      className="mt-2 max-h-40 overflow-auto whitespace-pre-wrap break-words rounded-lg bg-inset px-3 py-2 font-mono text-[12px] leading-relaxed text-ink"
+      className="approval-parity-command"
     >
       {command}
     </pre>
@@ -146,28 +159,16 @@ export const PendingApprovalPanel = memo(function PendingApprovalPanel({
               ? t("approval.aria.pendingProfile")
               : t("approval.aria.pending")
       }
-      className="rounded-t-[18px] bg-card px-4 pb-1 pt-3"
+      data-approval-panel
     >
-      <div className="flex flex-wrap items-center gap-2" aria-live="polite">
+      <div className="flex flex-wrap items-baseline gap-x-2" aria-live="polite">
         <span className="sr-only">{t("approval.pending")}</span>
-        <Hand size={15} className="shrink-0 text-ink-secondary" aria-hidden="true" />
+        <span data-approval-title className="approval-parity-title">{outbound ? outbound.headline : label(pending, botName)}</span>
+        {outbound && outbound.summary && <span className="text-[13px] leading-[17px] text-ink-secondary">{outbound.summary}</span>}
         {count > 1 && (
-          <span className="rounded-full bg-control px-1.5 py-0.5 text-[11px] tabular-nums text-ink-secondary">
+          <span className="ml-auto text-[13px] leading-[17px] tabular-nums text-ink-secondary">
             {t("approval.position", { index: index + 1, count })}
           </span>
-        )}
-        <span className="text-[14px] font-medium text-ink">{outbound ? outbound.headline : label(pending, botName)}</span>
-        {outbound && outbound.summary && <span className="text-[13px] text-ink-secondary">{outbound.summary}</span>}
-        {onCancelTurn && (
-          <button
-            type="button"
-            onClick={onCancelTurn}
-            aria-label={t("approval.action.cancelTurn")}
-            title={t("approval.action.cancelTurn")}
-            className="-mr-1.5 ml-auto flex size-7 shrink-0 items-center justify-center rounded-full text-ink-tertiary transition-colors hover:bg-control hover:text-ink"
-          >
-            <X size={15} aria-hidden="true" />
-          </button>
         )}
       </div>
       {reviewed ? (
@@ -189,10 +190,12 @@ export function PendingApprovalActions({
   pending,
   threadId,
   bot,
+  coversId,
 }: {
   pending: Pending;
   threadId: string;
   bot?: Bot;
+  coversId?: string;
 }) {
   const outbound = pending.message.card ? outboundSummary(pending.message.card) : undefined;
   const dispatch = useStoreDispatch();
@@ -226,10 +229,10 @@ export function PendingApprovalActions({
     });
   };
 
-  const base = "rounded-full px-4 py-2 text-[13.5px] font-medium transition-colors";
-  const quiet = "min-w-[120px] bg-control text-ink hover:bg-control-hover";
-  const primary = "min-w-[120px] bg-accent text-white hover:brightness-110";
-  const durable = "rounded-full px-2.5 py-1.5 text-[13px] font-medium text-ink-secondary transition-colors hover:bg-control hover:text-ink";
+  const base = "approval-parity-button";
+  const quiet = "approval-parity-deny";
+  const primary = "approval-parity-allow";
+  const durable = "approval-parity-button approval-parity-quiet";
   const reach = lastingAlways && bot
     ? t("lasting.reach.search", { name: bot.name })
     : lasting
@@ -245,9 +248,49 @@ export function PendingApprovalActions({
       ? t("approval.reach.everywhere", { name: bot.name })
       : t(bot.tasks?.some((task) => task.threadId === threadId) ? "approval.reach.chat" : "approval.reach.dog", { name: bot.name })
     : null;
+  const commandShown = Boolean(pending.commandAllowlist?.command ?? pending.detail) && !(isSkillRequest || isRoutineRequest || isProfileRequest || pending.message.card?.modelRequest);
   return (
-    <div className="rounded-b-[18px] bg-card px-3 pb-3 pt-1">
+    <div data-approval-actions className="approval-parity-actions">
       <div className="flex flex-wrap items-center gap-2">
+        <div className="mr-auto flex min-w-0 flex-wrap items-center gap-1">
+          {!durableRequest && bot && pending.allowKey && !lasting && (
+            <button
+              onClick={() => decide("allow", true)}
+              className={durable}
+            >
+              {t("approval.action.alwaysAllow")}
+            </button>
+          )}
+          {macRequest && (
+            <button
+              onClick={() => decide("deny", false, true)}
+              data-mac-never=""
+              className={durable}
+            >
+              {t("approval.action.never")}
+            </button>
+          )}
+          {lastingAlways && bot && (
+            <button
+              onClick={() => decide("allow", true)}
+              data-lasting-always=""
+              className={durable}
+            >
+              {t("approval.action.alwaysAllow")}
+            </button>
+          )}
+          {lasting && lastingWhy && (
+            <span data-lasting-why={lasting.offered ? "owner-only" : lasting.why} className="px-1 text-[12.5px] text-ink-tertiary">{t(lastingWhy)}</span>
+          )}
+        </div>
+        {!macRequest && (
+          <button
+            onClick={() => decide("deny")}
+            className={cn(base, quiet)}
+          >
+            {isRoutineRequest || isProfileRequest ? t("approval.action.cancel") : outboundChoice ? t("approval.action.skip") : macSend ? t("approval.action.dontSend") : t("approval.action.deny")}
+          </button>
+        )}
         <button
           onClick={() => decide("allow")}
           disabled={isSkillRequest && !reviewedSha256}
@@ -265,47 +308,10 @@ export function PendingApprovalActions({
                   ? t("approval.action.allow")
                   : t("approval.action.allowOnce")}
         </button>
-        {!macRequest && (
-          <button
-            onClick={() => decide("deny")}
-            className={cn(base, quiet)}
-          >
-            {isRoutineRequest || isProfileRequest ? t("approval.action.cancel") : outboundChoice ? t("approval.action.skip") : macSend ? t("approval.action.dontSend") : t("approval.action.deny")}
-          </button>
-        )}
-        {!durableRequest && bot && pending.allowKey && !lasting && (
-          <button
-            onClick={() => decide("allow", true)}
-            className={durable}
-          >
-            {t("approval.action.alwaysAllow")}
-          </button>
-        )}
-        {macRequest && (
-          <button
-            onClick={() => decide("deny", false, true)}
-            data-mac-never=""
-            className={durable}
-          >
-            {t("approval.action.never")}
-          </button>
-        )}
-        {lastingAlways && bot && (
-          <button
-            onClick={() => decide("allow", true)}
-            data-lasting-always=""
-            className={durable}
-          >
-            {t("approval.action.alwaysAllow")}
-          </button>
-        )}
-        {lasting && lastingWhy && (
-          <span data-lasting-why={lasting.offered ? "owner-only" : lasting.why} className="px-1 text-[12.5px] text-ink-tertiary">{t(lastingWhy)}</span>
-        )}
       </div>
       {reach && (
-        <details className="group mt-1 text-[12px] text-ink-tertiary">
-          <summary className="flex w-fit cursor-pointer list-none items-center gap-1 px-1 hover:text-ink-secondary">
+        <details id={coversId} data-approval-covers className="group mt-1 text-[12px] text-ink-tertiary">
+          <summary className={cn("flex w-fit cursor-pointer list-none items-center gap-1 px-1 hover:text-ink-secondary", coversId && commandShown && "sr-only")}>
             {t("approval.reach.what")}
             <ChevronRight size={12} className="transition-transform group-open:rotate-90" aria-hidden="true" />
           </summary>
