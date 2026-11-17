@@ -36,6 +36,19 @@ it("says how many side jobs are still going and opens them", () => {
   expect(opened).toEqual({ kind: "side-jobs", threadId: "jt" });
 });
 
+it("opens what the dog is doing, with no run, when the turn has no native run", () => {
+  act(() => root.render(createElement("div", null, createElement(FoldLine, { threadId: "jt", sentence: "Made a change" }), createElement(PanelProbe))));
+  act(() => host.querySelector<HTMLButtonElement>("button[data-fold-line]")!.click());
+  expect(opened).toStrictEqual({ kind: "work", threadId: "jt" });
+});
+
+it("keeps the chevron right after the last word when the sentence wraps", () => {
+  act(() => root.render(createElement(FoldLine, { threadId: "jt", runId: "run-9", sentence: "Made a change, tried 2 things and more" })));
+  const line = host.querySelector("button[data-fold-line]")!;
+  expect(line.querySelector("[data-fold-sentence] svg.fold-line-chevron")).not.toBeNull();
+  expect(line.className.split(" ")).toContain("text-left");
+});
+
 it("sits 4 above the answer it folds, taking back the transcript's 12 gap", () => {
   act(() => root.render(createElement(FoldLine, { threadId: "jt", runId: "run-9", sentence: "Made a change" })));
   expect(host.querySelector("button[data-fold-line]")!.className.split(" ")).toContain("-mb-2");
