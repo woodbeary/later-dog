@@ -11,6 +11,7 @@ import { runControlLaterDog } from "../control-laterdog.ts";
 import { UI_TOOLS_DIR } from "./control-laterdog-ui.ts";
 import { fixtureApi } from "./preview-fixture.ts";
 import { sideJobsWords } from "../../shared/step-words.ts";
+import { stepRows } from "../../src/lib/work-panel-model.ts";
 
 const ROOT = fileURLToPath(new URL("../..", import.meta.url));
 const binary = resolveAgentBrowserBinary({ dataDir: UI_TOOLS_DIR, env: process.env });
@@ -149,6 +150,11 @@ describe("native activity in the isolated real renderer", () => {
     await expect.poll(() => evaluate(`document.querySelectorAll('[data-work-panel] [data-step-id]').length`), { timeout: 10_000 }).toBeGreaterThan(0);
     expect(await panelText()).not.toContain("CHILD_ONLY_");
     const saved = await api("GET", `/api/threads/${threadId}/runs/${active.id}`) as NativeRunDetail;
+    const shownSteps = JSON.parse(await evaluate(`JSON.stringify(Array.from(document.querySelectorAll('[data-work-panel] [data-step-id]')).map(row => ({ label: row.querySelector('.work-panel-step-text > span')?.textContent, failed: row.hasAttribute('data-failed') })))`)) as Array<{ label: string; failed: boolean }>;
+    const modelSteps = stepRows(saved.run, saved.activities, Date.now()).rows.map(row => ({ label: row.label, failed: row.failed }));
+    expect(shownSteps).toEqual(modelSteps);
+    expect(shownSteps).toEqual(["reviewer", "analyst", "writer", "checker", "builder", "researcher"].map(name => ({ label: `Asked a puppy to ${name}`, failed: name === "checker" })));
+    expect(shownSteps.map(step => step.label).join(" ")).not.toContain("inspector");
     expect(saved.run.actors.filter(actor => actor.kind === "subagent" && actor.state === "done")).toHaveLength(6);
     expect(saved.activities.some(activity => activity.actorId === researcher.id && activity.links?.some(link => link.url === "https://code.claude.com/docs/en/sub-agents"))).toBe(true);
     writeFileSync(join(evidenceDir, "native-activity-run.json"), JSON.stringify(saved, null, 2));
