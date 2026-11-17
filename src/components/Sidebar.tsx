@@ -1004,7 +1004,7 @@ export const BotListItem = memo(function BotListItem(props: BotRowProps) {
               <span data-row-preview="" className={cn(line.tone === "ask" ? "line-clamp-2 break-words" : "truncate", line.tone !== "plain" && "text-waiting-text")}>{line.text}</span>
             </span>
           )}
-          {facts.dot === "unread" && !renaming && <RowDot kind="unread" ring={ring} className="transition-opacity group-hover:opacity-0 group-focus-within:opacity-0" />}
+          {facts.dot === "unread" && !renaming && <RowDot kind="unread" ring={ring} className="transition-opacity group-hover:opacity-0 group-focus-within:opacity-0 touch:opacity-0" />}
         </div>
       </div>
     </>
