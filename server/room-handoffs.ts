@@ -588,6 +588,7 @@ export class RoomHandoffs {
         this.publish(n);
       }).catch(e => {
         if (terminal(n)) return;
+        n.restarted = undefined;
         n.result = String(e).slice(0, 1000);
         if (this.awaited(n.id).length > childCount || this.stillAwaiting(n)) {
           this.takeBackFailed(n, resumed, false, startedAt);

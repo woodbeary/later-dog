@@ -70,3 +70,33 @@ it("one honest restart in the middle of a tree re-runs its running helper free, 
   } finally { await removeTempDir(dir); }
 });
 
+it("a run that throws and runs again pays nothing for the next honest restart", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "throw-restart-"));
+  const file = join(dir, "requests.json");
+  let wakes = 0;
+  const hooks: RoomHandoffHooks = {
+    validate: () => undefined, busy: () => false, report: () => {}, changed: () => {}, longWork: () => true,
+    run: (node: RoomHandoff) => {
+      if (node.parentId) return Promise.resolve({ ok: true, text: "helper done" });
+      wakes++;
+      if (wakes === 2) return Promise.reject(new Error("the engine threw"));
+      if (wakes === 4) return Promise.resolve({ ok: true, text: "chief wrapped up" });
+      return new Promise<HandoffRunResult>(() => {});
+    },
+  };
+  try {
+    let engine = new RoomHandoffs(file, hooks, Date.now, { executions: 1 });
+    engine.enqueue(chief, "turn", undefined, { botId: "scout", threadId: "scout-chat" }, "k", "Count");
+    engine.sourceSettled("turn", true);
+    for (let i = 0; i < 4; i++) { engine.tick(); await flush(); }
+    expect(wakes).toBe(1);
+    engine = new RoomHandoffs(file, hooks, Date.now, { executions: 1 });
+    for (let i = 0; i < 6; i++) { engine.tick(); await flush(); }
+    expect(wakes).toBe(3);
+    expect(engine.nodes.get("turn")?.status).toBe("running");
+    engine = new RoomHandoffs(file, hooks, Date.now, { executions: 1 });
+    for (let i = 0; i < 6; i++) { engine.tick(); await flush(); }
+    expect(wakes).toBe(4);
+    expect(engine.nodes.get("turn")).toMatchObject({ status: "completed", executions: 1 });
+  } finally { await removeTempDir(dir); }
+});
