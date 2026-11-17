@@ -31,6 +31,7 @@ const { Composer } = await import("./Composer");
 const { appendComposerDraft } = await import("@/lib/drafts");
 const { setLocale } = await import("@/lib/i18n");
 const { reloadPlanUsage } = await import("./PlanUsage");
+const { QUESTION_DISMISS_MESSAGE } = await import("../../shared/ask-question");
 
 const juniper = (busy: boolean, threadId: string): Bot => ({
   id: "juniper", threadId, name: "Juniper", title: "", description: "", color: "green",
@@ -42,9 +43,9 @@ let host: HTMLDivElement;
 let root: Root;
 let count = 0;
 
-const mount = async (busy: boolean, draft = "") => {
+const mount = async (busy: boolean, draft = "", messages: Bot["messages"] = []) => {
   count += 1;
-  const bot = juniper(busy, `end-slot-${count}`);
+  const bot = { ...juniper(busy, `end-slot-${count}`), messages };
   if (draft) appendComposerDraft(`bot:${bot.id}:${bot.threadId}`, draft);
   await act(async () => root.render(createElement(Composer, { bot })));
   return bot;
@@ -158,5 +159,32 @@ describe("the usage row in the composer", () => {
     await withUsage(74);
     await mount(false);
     expect(host.querySelector("[data-usage-notice]")).toBeNull();
+  });
+});
+
+describe("stopping while the dog waits on a card", () => {
+  const permission = { id: "p1", role: "bot", kind: "options", at: 1, card: { title: "Approval needed", subtitle: "pnpm test", options: ["Allow", "Deny"], tool: "Bash", requestId: "req-permission" } } as Bot["messages"][number];
+  const question = { id: "q1", role: "bot", kind: "options", at: 1, card: { title: "Question", subtitle: "", options: [], requestId: "req-question", requestType: "question",
+    questionRequest: { version: 1, questions: [{ question: "Which photo should lead the menu?", options: [{ label: "The lemon tart" }, { label: "The garden salad" }] }] } } } as Bot["messages"][number];
+
+  it("keeps the stop disc while a permission card waits, and stops the turn as its × did", async () => {
+    await mount(true, "", [permission]);
+    expect(endSlot()).toEqual(["mic", "stop"]);
+    await act(async () => { host.querySelector<HTMLButtonElement>("[data-composer-stop]")!.click(); });
+    expect(actions()).toEqual(["interrupt"]);
+  });
+
+  it("keeps the stop disc while a question waits, and ends the wait as its × did", async () => {
+    await mount(true, "", [question]);
+    expect(endSlot()).toEqual(["mic", "stop"]);
+    await act(async () => { host.querySelector<HTMLButtonElement>("[data-composer-stop]")!.click(); });
+    const decided = fixture.dispatch.mock.calls.map(([action]) => action).filter((action) => action.type === "decideRequest");
+    expect(decided).toEqual([expect.objectContaining({ requestId: "req-question", behavior: "answer", message: QUESTION_DISMISS_MESSAGE })]);
+    expect(actions()).not.toContain("interrupt");
+  });
+
+  it("holds send, not stop, once there is a draft while a card waits", async () => {
+    await mount(true, "Around noon", [question]);
+    expect(endSlot()).toEqual(["send"]);
   });
 });

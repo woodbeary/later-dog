@@ -8,6 +8,7 @@ import { visibleMessages, currentTaskBot, type Bot, type Group, type Message } f
 import { useDrawnDogs, useStoreDispatch, useStoreSelector } from "@/state/store-selectors";
 import { chatPane } from "@/state/pane-errors";
 import { waitingOnPerson } from "@/lib/waiting-on-person";
+import { QUESTION_DISMISS_MESSAGE } from "../../shared/ask-question";
 import { answerByTyping, answerTooLong, forgetClosedAnswer, useClosedAnswer, useTypedAnswer } from "@/lib/typed-answer";
 import { cn } from "@/lib/cn";
 import { useMenuMotion } from "./MenuMotion";
@@ -495,6 +496,18 @@ export function Composer({
     if (group) dispatch({ type: "interruptGroup", groupId: group.id, threadId });
     else if (bot) dispatch({ type: "interrupt", botId: bot.id, threadId });
   };
+  const openQuestion = asking && bot
+    ? visibleMessages(bot).find((message) => message.kind === "options" && message.card?.requestId && !message.card.answered && !message.card.dismissed && !message.card.expired
+      && (message.card.requestType === "question" || Boolean(message.card.questionRequest)))
+    : undefined;
+  const stopOrEndWait = () => {
+    const requestId = openQuestion?.card?.requestId;
+    if (requestId) {
+      dispatch({ type: "decideRequest", threadId, requestId, behavior: "answer", message: QUESTION_DISMISS_MESSAGE });
+      return;
+    }
+    interruptTurn();
+  };
   const queueHeadId = queuedMessages[0]?.queueId;
   const steerLive =
     canSteer &&
@@ -604,7 +617,7 @@ export function Composer({
   };
   const hasContent = Boolean(text.trim()) || attachments.length > 0;
   const answerWithFiles = Boolean(typedAnswer) && attachments.length > 0;
-  const stopShown = working && !hasContent && !recording && sharpening === 0;
+  const stopShown = (working || asking) && !hasContent && !recording && sharpening === 0;
   const expanded = textWrapped || attachments.length > 0 || Boolean(attachmentNotice) || Boolean(replyTo);
   const retryFailedSend = (failed: FailedComposerSend) => {
     if (failed.requestText.includes("<attached-image ") && !imageTargetsSupport(failed.requestText)) {
@@ -1250,7 +1263,7 @@ export function Composer({
           <button
             type="button"
             data-composer-stop
-            onClick={interruptTurn}
+            onClick={stopOrEndWait}
             aria-label={t("chat.stopTurn")}
             className="composer-disc composer-stop"
             title={t("chat.stop")}
