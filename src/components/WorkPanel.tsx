@@ -55,12 +55,22 @@ function useClock(active: boolean): number {
 
 function useRunActivities(run: NativeRun | undefined): NativeActivity[] {
   const [activities, setActivities] = useState<NativeActivity[]>([]);
-  const key = run ? `${run.threadId}\u0000${run.id}\u0000${run.revision}` : "";
+  const key = run ? [run.threadId, run.id, run.activityCount, run.currentActivity?.id ?? "", run.failureCount, run.observation].join("\u0000") : "";
   useEffect(() => {
     if (!run) { setActivities([]); return; }
     let live = true;
-    void api<NativeRunDetail>(`/api/threads/${encodeURIComponent(run.threadId)}/runs/${encodeURIComponent(run.id)}?limit=200`)
-      .then(detail => { if (live) setActivities(detail.activities); }, () => undefined);
+    const base = `/api/threads/${encodeURIComponent(run.threadId)}/runs/${encodeURIComponent(run.id)}?limit=200`;
+    void (async () => {
+      const all: NativeActivity[] = [];
+      let cursor: string | undefined;
+      for (let page = 0; page < 5; page += 1) {
+        const detail = await api<NativeRunDetail>(cursor ? `${base}&cursor=${encodeURIComponent(cursor)}` : base);
+        all.push(...detail.activities);
+        cursor = detail.nextCursor;
+        if (!cursor) break;
+      }
+      if (live) setActivities(all);
+    })().catch(() => undefined);
     return () => { live = false; };
   }, [key]);
   return activities;
