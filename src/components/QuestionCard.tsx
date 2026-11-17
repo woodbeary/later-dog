@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useRef, useState } from "react";
-import { Check, ChevronLeft, MessageCircleQuestion, Minus, X } from "lucide-react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { Check, ChevronLeft, Minus } from "lucide-react";
 import type { Bot, Message } from "@/state/store";
 import { useStoreDispatch } from "@/state/store-selectors";
 import { cn } from "@/lib/cn";
@@ -7,13 +7,13 @@ import { t } from "@/lib/i18n";
 import {
   formatQuestionAnswers,
   MAX_CUSTOM_ANSWER,
-  QUESTION_DISMISS_MESSAGE,
   type AskQuestion,
 } from "../../shared/ask-question";
 import { ExpandableText } from "./ExpandableText";
+import "../composer-parity.css";
 import { FoldedCard } from "./FoldedCard";
 import { answerSummary, settledAnswer } from "@/lib/settled-answer";
-import { chooseTypedAnswer, releaseTypedAnswer, useTypedAnswer, type Composed } from "@/lib/typed-answer";
+import { chooseTypedAnswer, releaseTypedAnswer, typedAnswerFor, useTypedAnswer, type Composed } from "@/lib/typed-answer";
 
 interface Draft {
   picked: string[];
@@ -22,6 +22,13 @@ interface Draft {
 }
 
 const EMPTY: Draft = { picked: [], other: false, typed: "" };
+
+export const QUESTION_PICK_HOLD_MS = 600;
+
+function editable(target: EventTarget | null): boolean {
+  const element = target as HTMLElement | null;
+  return Boolean(element && (element.isContentEditable || ["INPUT", "TEXTAREA", "SELECT"].includes(element.tagName)));
+}
 
 function answersOf(draft: Draft): string[] {
   const typed = draft.other ? draft.typed.trim() : "";
@@ -47,12 +54,14 @@ export function QuestionCard({
   const [drafts, setDrafts] = useState<Record<number, Draft>>({});
   const [active, setActive] = useState(0);
   const [sent, setSent] = useState<string | null>(null);
-  const [closing, setClosing] = useState(false);
+  const [holding, setHolding] = useState<string | null>(null);
   const [answeredAtMount] = useState(() => Boolean(card?.answered));
   const [missing, setMissing] = useState<string | null>(null);
   const draftsRef = useRef(drafts);
   draftsRef.current = drafts;
   const targetRef = useRef(0);
+  const holdRef = useRef<number | undefined>(undefined);
+  useEffect(() => () => window.clearTimeout(holdRef.current), []);
   const settledNow = Boolean(card?.answered) || sent !== null || Boolean(card?.dismissed);
   useEffect(() => { if (settledNow) releaseTypedAnswer(message.id, true); }, [settledNow, message.id]);
   useEffect(() => () => releaseTypedAnswer(message.id), [message.id]);
@@ -72,7 +81,7 @@ export function QuestionCard({
     [questions, drafts],
   );
 
-  if (!card || !questions.length || card.dismissed || closing) return null;
+  if (!card || !questions.length || card.dismissed) return null;
   const settled = Boolean(card.answered) || sent !== null;
   const external = card.answered === "resolved";
   const current = questions[Math.min(active, questions.length - 1)]!;
@@ -90,7 +99,7 @@ export function QuestionCard({
     setDrafts((previous) => ({ ...previous, [index]: { ...(previous[index] ?? EMPTY), ...next } }));
 
   const choose = (label: string) => {
-    if (settled) return;
+    if (settled || holding !== null) return;
     if (current.multiSelect) {
       const picked = draft.picked.includes(label)
         ? draft.picked.filter((entry) => entry !== label)
@@ -100,9 +109,13 @@ export function QuestionCard({
     }
     update(currentIndex, { picked: [label], other: false });
     setMissing(null);
-    if (!questions.some((_, index) => index !== currentIndex && drafts[index]?.other)) releaseTypedAnswer(message.id);
     if (questions.length === 1) {
-      send([[label]]);
+      setHolding(label);
+      window.clearTimeout(holdRef.current);
+      holdRef.current = window.setTimeout(() => {
+        setHolding(null);
+        send([[label]]);
+      }, QUESTION_PICK_HOLD_MS);
       return;
     }
     if (!lastStep) setActive(currentIndex + 1);
@@ -130,15 +143,11 @@ export function QuestionCard({
     return { kept: true };
   };
 
-  const toggleOther = () => {
+  const holdsComposer = () => typedAnswerFor(threadId)?.messageId === message.id;
+
+  const listen = (index: number) => {
     if (settled || !card.requestId) return;
-    if (draft.other) {
-      update(currentIndex, { other: false });
-      if (!questions.some((_, index) => index !== currentIndex && drafts[index]?.other)) releaseTypedAnswer(message.id);
-      return;
-    }
-    update(currentIndex, { other: true, typed: "", ...(current.multiSelect ? {} : { picked: [] }) });
-    targetRef.current = currentIndex;
+    targetRef.current = index;
     chooseTypedAnswer({
       threadId,
       messageId: message.id,
@@ -148,7 +157,6 @@ export function QuestionCard({
       sent: (answer) => setSent(answer),
       failed: () => setSent(null),
     });
-    requestAnimationFrame(() => document.querySelector<HTMLTextAreaElement>('[data-tour="composer"] textarea')?.focus());
   };
 
   const submit = () => {
@@ -171,134 +179,60 @@ export function QuestionCard({
     });
   };
 
-  const close = () => {
-    if (settled || !card.requestId) return;
-    setClosing(true);
-    dispatch({
-      type: "decideRequest",
-      threadId,
-      requestId: card.requestId,
-      behavior: "answer",
-      message: QUESTION_DISMISS_MESSAGE,
-      onError: () => setClosing(false),
-    });
-    requestAnimationFrame(() => document.querySelector<HTMLTextAreaElement>('[data-tour="composer"] textarea')?.focus());
-  };
-
   const body = (
+    <QuestionKeys
+      active={!settled && holding === null}
+      holds={holdsComposer}
+      count={Math.min(9, current.options.length)}
+      pick={(index) => choose(current.options[index]!.label)}
+      listen={() => listen(currentIndex)}
+      listenKey={`${currentIndex}:${settled}`}
+    >
     <div
       role="group"
       aria-label={t("question.aria.card")}
-      className={cn(
-        "w-full max-w-[420px] rounded-question bg-card px-4 py-3.5",
-        settled ? "opacity-70" : "shadow-elevated",
-      )}
+      data-question-card
+      className={cn("question-parity w-full", settled && "opacity-70")}
     >
-      <div className="flex items-center justify-between gap-3">
-        <div className="text-[14px] font-medium text-ink">
-          {bot ? t("question.card.named", { name: bot.name }) : t("question.card.title")}
-          {card.nativeActorLabel && <p className="mt-1 text-[11px] font-normal text-ink-secondary">Requested by {card.nativeActorLabel}</p>}
-        </div>
-        {!settled && (
-          <div className="-my-1 -mr-1 flex shrink-0 items-center gap-2">
-            {questions.length > 1 && (
-              <span data-question-step className="text-[12px] tabular-nums text-ink-secondary">
-                {t("question.step", { current: currentIndex + 1, count: questions.length })}
-              </span>
-            )}
-            {card.requestId && (
-              <button
-                type="button"
-                onClick={close}
-                aria-label={t("question.close")}
-                title={t("question.close")}
-                data-question-close
-                className="rounded-md p-1 text-ink-secondary hover:bg-control hover:text-ink"
-              >
-                <X size={16} />
-              </button>
-            )}
-          </div>
-        )}
-      </div>
-
+      {!listsQuestions && <ExpandableText text={current.question} className="question-parity-title" />}
+      {card.nativeActorLabel && <p className="mt-1 text-[12px] text-ink-secondary">Requested by {card.nativeActorLabel}</p>}
       {card.questionRequest?.origin === "output" && (
         <div className="mt-1 text-[12px] text-ink-secondary">{t("question.origin.badge")}</div>
       )}
-
-      {questions.length > 1 && !listsQuestions && !settled && (
-        <div role="tablist" aria-label={t("question.aria.tabs")} className="mt-2.5 flex gap-1.5">
-          {questions.map((question, index) => (
-            <button
-              key={`${index}-${question.question}`}
-              role="tab"
-              type="button"
-              aria-selected={index === currentIndex}
-              aria-label={tabLabel(question, index)}
-              title={tabLabel(question, index)}
-              onClick={() => setActive(index)}
-              className="group -my-1.5 flex h-5 w-6 items-center justify-center"
-            >
-              <span
-                className={cn(
-                  "h-1 w-full rounded-full transition-colors",
-                  index === currentIndex ? "bg-ink" : answered[index] ? "bg-success" : "bg-hairline group-hover:bg-ink-tertiary",
-                )}
-              />
-            </button>
-          ))}
-        </div>
-      )}
-
-      {!listsQuestions && <ExpandableText text={current.question} className="mt-1.5 text-[14px] leading-[21px] text-ink" />}
       {current.multiSelect && !settled && (
-        <div className="mt-1 text-[12.5px] text-ink-secondary">{t("question.multiHint")}</div>
+        <div className="mt-1 text-[13px] leading-[17px] text-ink-secondary">{t("question.multiHint")}</div>
       )}
 
       {!settled && (
         <div
           role={current.multiSelect ? "group" : "radiogroup"}
           aria-label={current.question}
-          className="mt-2.5 overflow-hidden rounded-xl border border-hairline/40"
+          className="mt-2 flex flex-col"
         >
           {current.options.map((option, index) => {
             const picked = draft.picked.includes(option.label);
             return (
               <button
                 key={option.label}
+                type="button"
                 role={current.multiSelect ? "checkbox" : "radio"}
                 aria-checked={picked}
+                data-question-option={index + 1}
                 onClick={() => choose(option.label)}
-                title={option.description}
-                className={cn(
-                  "flex w-full items-center gap-3 px-3 py-2 text-left",
-                  index > 0 && "border-t border-hairline/40",
-                  picked ? "bg-raised-hover" : "hover:bg-raised-hover/60",
-                )}
+                className="question-parity-row"
               >
-                <Marker checked={picked} multi={Boolean(current.multiSelect)} index={index} />
-                <span className="min-w-0 flex-1 truncate text-[14px] text-ink">{option.label}</span>
+                <span aria-hidden="true" className="question-parity-number">{index + 1}</span>
+                <span className="flex min-w-0 flex-1 flex-col">
+                  <span className="question-parity-label">{option.label}</span>
+                  {option.description && <span className="question-parity-description">{option.description}</span>}
+                </span>
+                {picked && <Check data-question-check size={16} strokeWidth={2.25} aria-hidden="true" className="question-parity-check" />}
               </button>
             );
           })}
-          <button
-            role={current.multiSelect ? "checkbox" : "radio"}
-            aria-checked={draft.other}
-            onClick={toggleOther}
-            className={cn(
-              "flex w-full items-center gap-3 px-3 py-2 text-left",
-              current.options.length > 0 && "border-t border-hairline/40",
-              draft.other ? "bg-raised-hover" : "hover:bg-raised-hover/60",
-            )}
-          >
-            <Marker checked={draft.other} multi={Boolean(current.multiSelect)} index={current.options.length} />
-            <span className="shrink-0 text-[14px] text-ink">{t("question.other")}</span>
-            {draft.other && draft.typed && <span data-question-held className="min-w-0 flex-1 truncate text-[13px] text-ink-secondary">{draft.typed}</span>}
-          </button>
-          {((typing && draft.other && !draft.typed) || missing) && (
-            <p data-question-typing className="border-t border-hairline/40 px-3 py-2 text-[12.5px] text-ink-secondary">
-              {missing ? t("question.otherMissing", { name: missing }) : t("question.otherBelow")}
-            </p>
+          {draft.other && draft.typed && <p data-question-held className="question-parity-held">{draft.typed}</p>}
+          {missing && (
+            <p data-question-typing className="question-parity-held">{t("question.otherMissing", { name: missing })}</p>
           )}
         </div>
       )}
@@ -309,7 +243,7 @@ export function QuestionCard({
           <span className="whitespace-pre-wrap break-words">{shownAnswer || t("question.status.answered")}</span>
         </div>
       ) : questions.length > 1 ? (
-        <div className="mt-3 flex items-center justify-between gap-3">
+        <div className="mt-2 flex items-center justify-between gap-3">
           <button
             type="button"
             onClick={() => step(-1)}
@@ -321,44 +255,28 @@ export function QuestionCard({
             <ChevronLeft size={14} />
             {t("question.back")}
           </button>
+          <span data-question-step className="text-[13px] tabular-nums text-ink-secondary">
+            {t("question.step", { current: currentIndex + 1, count: questions.length })}
+          </span>
           {lastStep ? (
-            <button
-              type="button"
-              onClick={submit}
-              disabled={!complete}
-              data-question-submit
-              className="rounded-full bg-accent px-3.5 py-1 text-[13px] font-medium text-white transition-colors hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-40"
-            >
-              {t("question.submitAll")}
+            <button type="button" onClick={submit} disabled={!complete} data-question-submit className="question-parity-send">
+              {t("question.send")}
             </button>
           ) : (
-            <button
-              type="button"
-              onClick={() => step(1)}
-              disabled={!stepAnswered}
-              data-question-next
-              className="rounded-full bg-accent px-3.5 py-1 text-[13px] font-medium text-white transition-colors hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-40"
-            >
+            <button type="button" onClick={() => step(1)} disabled={!stepAnswered} data-question-next className="question-parity-send">
               {t("question.next")}
             </button>
           )}
         </div>
       ) : (current.multiSelect || draft.other) && (
-        <div className="mt-3 flex items-center justify-end gap-3">
-          <span className="flex items-center gap-1.5 text-[13px] text-ink-secondary">
-            <MessageCircleQuestion size={14} className="text-accent" />
-            {t("question.status.waiting")}
-          </span>
-          <button
-            onClick={submit}
-            disabled={!complete}
-            className="rounded-full bg-accent px-3 py-1 text-[13px] font-medium text-white transition-colors hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-40"
-          >
-            {t("question.submit")}
+        <div className="mt-2 flex items-center justify-end">
+          <button type="button" onClick={submit} disabled={!complete} data-question-submit className="question-parity-send">
+            {t("question.send")}
           </button>
         </div>
       )}
     </div>
+    </QuestionKeys>
   );
   if (!settled) return body;
   const line = external ? answerText! : answerText ? answerSummary(answerText, questions) : t("question.status.answered");
@@ -376,18 +294,29 @@ export function QuestionCard({
   );
 }
 
-const LETTERS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
-
-function Marker({ checked, multi, index }: { checked: boolean; multi: boolean; index: number }) {
-  return (
-    <span
-      aria-hidden
-      className={cn(
-        "flex size-5 shrink-0 items-center justify-center rounded-md border text-[11px] font-medium leading-none transition-colors",
-        checked ? "border-accent bg-accent text-white" : "border-hairline text-ink-secondary",
-      )}
-    >
-      {checked && multi ? <Check size={12} strokeWidth={3} /> : LETTERS[index % LETTERS.length]}
-    </span>
-  );
+function QuestionKeys({ active, holds, count, pick, listen, listenKey, children }: {
+  active: boolean;
+  holds(): boolean;
+  count: number;
+  pick(index: number): void;
+  listen(): void;
+  listenKey: string;
+  children: ReactNode;
+}) {
+  const latest = useRef({ active, holds, count, pick, listen });
+  latest.current = { active, holds, count, pick, listen };
+  useEffect(() => { latest.current.listen(); }, [listenKey]);
+  useEffect(() => {
+    const key = (event: KeyboardEvent) => {
+      const { active: on, holds: held, count: options, pick: choose } = latest.current;
+      if (!on || event.defaultPrevented || event.metaKey || event.ctrlKey || event.altKey || editable(event.target) || !held()) return;
+      const index = Number(event.key) - 1;
+      if (!Number.isInteger(index) || index < 0 || index >= options) return;
+      event.preventDefault();
+      choose(index);
+    };
+    document.addEventListener("keydown", key);
+    return () => document.removeEventListener("keydown", key);
+  }, []);
+  return <>{children}</>;
 }

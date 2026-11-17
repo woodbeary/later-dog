@@ -76,7 +76,7 @@ describe("QuestionCard", () => {
 
   it("shows the model's own question and options instead of an approval", () => {
     const markup = render(message());
-    expect(markup).toContain("Hazelnut has a question");
+    expect(markup).not.toContain("Hazelnut has a question");
     expect(markup).toContain("Which model should Hazelnut run on by default?");
     expect(markup).toContain("Claude Opus 5");
     expect(markup).toContain("What the bot had before.");
@@ -90,12 +90,12 @@ describe("QuestionCard", () => {
     expect(render(message())).not.toContain("Written by the dog");
   });
 
-  it("gives every question a tab and offers free text as well", () => {
+  it("shows one question at a time with its place, and no tabs or Other row", () => {
     const markup = render(message());
-    expect(markup).toContain("Model");
-    expect(markup).toContain("Style");
     expect(markup).toContain("1 of 2");
-    expect(markup).toContain("Other");
+    expect(markup).not.toContain('role="tablist"');
+    expect(markup).not.toContain(">Other<");
+    expect(markup).not.toContain("Which style should it write in?");
   });
 
   it("cannot be submitted before every question is answered", () => {
