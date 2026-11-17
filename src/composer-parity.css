@@ -1,0 +1,81 @@
+[data-composer-surface] {
+  border-radius: 22px;
+  background: var(--color-lift, var(--color-composer));
+  border: 1px solid var(--color-hairline);
+  box-shadow: var(--shadow-composer);
+  padding: 10px 10px 10px 12px;
+}
+
+[data-composer-surface] [data-composer-row] {
+  align-items: center;
+  gap: 6px;
+}
+
+[data-composer-surface] [data-composer-tools] svg {
+  width: 19px;
+  height: 19px;
+  color: var(--color-ink-secondary);
+}
+
+[data-composer-surface] [data-composer-actions] {
+  gap: 8px;
+}
+
+.composer-mic {
+  display: flex;
+  width: 28px;
+  height: 28px;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  border-radius: 9999px;
+  color: var(--color-ink-secondary);
+}
+
+.composer-mic:hover,
+.composer-mic-on {
+  color: var(--color-ink);
+  background: var(--color-disc, color-mix(in srgb, var(--color-ink) 7%, var(--color-app)));
+}
+
+.composer-disc {
+  display: flex;
+  width: 28px;
+  height: 28px;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  border-radius: 9999px;
+  transition: filter var(--duration-fast, 150ms) ease;
+}
+
+.composer-disc:hover {
+  filter: brightness(1.08);
+}
+
+.composer-send {
+  background: var(--color-accent);
+  color: var(--color-accent-ink, var(--color-app));
+}
+
+.composer-send:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
+
+.composer-stop {
+  background: var(--color-disc, color-mix(in srgb, var(--color-ink) 7%, var(--color-app)));
+  color: var(--color-ink);
+}
+
+[data-skin="midnight"] .composer-stop {
+  background: var(--color-disc, #5c5c5c);
+}
+
+.composer-stop-square {
+  display: block;
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+  background: var(--color-ink);
+}
