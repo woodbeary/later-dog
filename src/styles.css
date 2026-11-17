@@ -1923,7 +1923,7 @@ button:disabled.bg-danger {
   .popover-menu {
     border-radius: var(--radius-menu);
     padding: 6px;
-    background-color: var(--color-menu);
+    background-color: var(--color-lift);
     box-shadow: var(--shadow-popover);
   }
   .popover-menu-row {

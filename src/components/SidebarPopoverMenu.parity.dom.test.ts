@@ -18,6 +18,11 @@ function rule(selector: string): Record<string, string> {
   return Object.fromEntries([...body.matchAll(/([\w-]+)\s*:\s*([^;]+);/g)].map(([, name, value]) => [name!, value!.trim()]));
 }
 
+function skinTokens(id: string): Record<string, string> {
+  const body = styles.match(new RegExp(`\\[data-skin="${id}"\\]\\s*\\{([^}]*)\\}`))?.[1] ?? "";
+  return Object.fromEntries([...body.matchAll(/(--[\w-]+)\s*:\s*([^;]+);/g)].map(([, name, value]) => [name!, value!.trim().toLowerCase()]));
+}
+
 function drawMenu() {
   const host = document.createElement("div");
   document.body.append(host);
@@ -51,6 +56,21 @@ describe("one popover menu look", () => {
     const heading = menu.querySelector<HTMLElement>(".popover-menu-heading")!;
     expect(heading.textContent).toBe("Your dogs");
     expect(heading.className).not.toMatch(/uppercase|tracking/);
+  });
+
+  it("draws the highlighted row in a colour the menu itself is not, in Daylight and Midnight", () => {
+    const host = drawMenu();
+    const active = host.querySelector<HTMLElement>('[role="menuitem"]')!;
+    const rowToken = active.className.match(/(?:^|\s)hover:bg-([\w-]+)/)?.[1];
+    expect(rowToken).toBeDefined();
+    const menuToken = rule(".popover-menu")["background-color"]?.match(/var\(--color-([\w-]+)\)/)?.[1];
+    expect(menuToken).toBeDefined();
+    for (const skin of ["daylight", "midnight"]) {
+      const tokens = skinTokens(skin);
+      expect(tokens[`--color-${rowToken}`], `${skin} row`).toMatch(/^#/);
+      expect(tokens[`--color-${menuToken}`], `${skin} menu`).toMatch(/^#/);
+      expect(tokens[`--color-${rowToken}`], skin).not.toBe(tokens[`--color-${menuToken}`]);
+    }
   });
 
   it("pops in over 200 ms and out over 300 ms", () => {
