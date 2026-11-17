@@ -30,7 +30,9 @@
     "NEW_EMAIL_CODES_PER_DAY": "200",
     "UNVERIFIED_NEW_EMAIL_CODES_PER_DAY": "100",
     "TURNSTILE_SITE_KEY": "",
-    "MANAGED_ENDPOINTS": "off"
+    "MANAGED_ENDPOINTS": "off",
+    "GOOGLE_CLIENT_ID": "",
+    "CLOUD_HOME_HOST_SUFFIX": "-home.later.dog"
   },
   "secrets": {
     "required": ["BETTER_AUTH_SECRET", "CLOUDFLARE_API_TOKEN"]

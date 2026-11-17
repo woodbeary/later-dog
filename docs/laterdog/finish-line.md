@@ -305,3 +305,10 @@ tokens, explicit multiple-account Gmail read/search and code-to-vault extraction
 Composio broker source reviewed; live D1 inspection needs Cloudflare reauthentication.
 OAuth client provisioning, activation and Jacob's lopez731@gmail.com consent remain
 live gates. See [verification](../verification/google-connector.md).
+
+On 2026-11-14 (item 33) a Cloud home with nothing set up connects through
+later.dog's own Google client instead: the secret stays in the accounts Worker,
+approvals return to `accounts.later.dog` and are passed on to the right home,
+and refresh tokens stay in each home's vault. It is off until the one-time
+setup in [google-setup.md](google-setup.md) is done; the same file gives the
+release order.
