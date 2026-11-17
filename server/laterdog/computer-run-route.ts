@@ -111,10 +111,9 @@ export async function handleComputerRun(request: ComputerRunRequest, deps: Compu
     const computer = await deps.computer(request.botId, { ...(repository ? { repository } : {}), ...(request.active ? { wanted: request.active } : {}), budgetMs: windowMs });
     if (request.active && !request.active()) return { status: 409, error: ENDED_TEXT };
     const left = () => stopped() || wrote() ? 0 : started + windowMs - now();
-    const within = () => Math.min(left(), started + windowMs - now());
     const outcome = record
-      ? await deps.runs.finish(computer.box, record, undefined, within)
-      : await deps.runs.run(computer.box, { botId: request.botId, folder, subdir, command, left: within, started: recordJob, ...(request.active ? { active: request.active } : {}) });
+      ? await deps.runs.finish(computer.box, record, undefined, left)
+      : await deps.runs.run(computer.box, { botId: request.botId, folder, subdir, command, left, started: recordJob, ...(request.active ? { active: request.active } : {}) });
     if (jobs) {
       const stillGoing = outcome.state === "running" && outcome.exitCode === null;
       if (!stillGoing) jobs.ended(outcome.id);
