@@ -38,6 +38,7 @@ import { loadSidebarDensity, setSidebarDensity } from "@/lib/sidebar-preferences
 import { isLiveCallRunning, liveCallShortcut, liveMedia } from "@/lib/live-call-media";
 import { effectiveLanguage, useLanguageChoice } from "@/lib/language-preference";
 import { acknowledgeOrganizationSettings } from "@/lib/organization-settings-ack";
+import { foldSidebarToRail } from "@/lib/sidebar-fold";
 import { useTimeZoneSync } from "@/lib/time-zone-sync";
 
 function OpenRoom({ groupId }: { groupId: string }) {
@@ -99,8 +100,8 @@ function Shell({ viewer }: { viewer: WelcomeViewer | null }) {
   const menuButtonRef = useRef<HTMLButtonElement>(null);
   const { groupId, botId } = state;
   const cloudTaskOpen = state.computerOpen && state.cloudTaskId !== null;
-  const sidePanelOpen = (Boolean(botId) && state.settingsOpen) || cloudTaskOpen;
-  const collapseSidebar = sidePanelOpen && !sidebarAndPanelFit;
+  const sidePanels = { botOpen: Boolean(botId), settingsOpen: state.settingsOpen, cloudTaskOpen, workPanelOpen: false };
+  const collapseSidebar = foldSidebarToRail(sidePanels, sidebarAndPanelFit);
   const calendarFocus = state.routinesOpen;
 
   const { noEngines, cloudSignIn } = state;
