@@ -1,9 +1,12 @@
 import type { RequestOutcome } from "../contracts.ts";
+import { alwaysAsks, type AlwaysAsk } from "./always-asks.ts";
 import { ownerGuard, type OwnerGuardContext, type OwnerGuardRefusal } from "./owner-guard.ts";
 
 export interface OwnerAutoPermission {
   tool: string;
   command?: string;
+  summary?: string;
+  input?: Record<string, unknown>;
 }
 
 export type OwnerAutoSettlement = "approved" | "refused" | "held" | "failed" | "stale";
@@ -13,6 +16,8 @@ export interface OwnerAutoPermissionDeps {
   allow(): Promise<RequestOutcome | "failed">;
   deny(message: string): Promise<RequestOutcome | "failed">;
   hold?: (question: string, refusal: OwnerGuardRefusal) => void;
+  holdAlways?: (hit: AlwaysAsk) => void;
+  refusedAlways?: (hit: AlwaysAsk) => void;
   ownerAllows?: (refusal: OwnerGuardRefusal) => boolean;
   isCurrent(): boolean;
   approved(): void;
@@ -35,6 +40,18 @@ export async function settleOwnerAutoPermission(
     await deps.deny(refusal.message);
     if (!deps.isCurrent()) return "stale";
     deps.refused(refusal);
+    return "refused";
+  }
+  const always = alwaysAsks(request, () => deps.guard);
+  if (always && always.id !== "delete-outside-workspace") {
+    if (deps.holdAlways) {
+      if (!deps.isCurrent()) return "stale";
+      deps.holdAlways(always);
+      return "held";
+    }
+    await deps.deny(always.refusal);
+    if (!deps.isCurrent()) return "stale";
+    deps.refusedAlways?.(always);
     return "refused";
   }
   const outcome = await deps.allow();

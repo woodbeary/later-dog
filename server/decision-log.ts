@@ -19,6 +19,7 @@ export type DecisionKind =
 
 export type DecisionSource =
   | AutoVerdictSource
+  | "always-asks"
   | "self"
   | "question"
   | "auto-fallback"

@@ -38,6 +38,7 @@ export function connectorSendDecision(input: {
   connected: readonly string[];
   alwaysAllow: readonly string[] | undefined;
   ownerSends: boolean;
+  alwaysAsks?: boolean;
   skipped: (toolkit: string) => boolean;
   allowedThisTurn: (toolkit: string) => boolean;
 }): ConnectorSendDecision {
@@ -48,7 +49,7 @@ export function connectorSendDecision(input: {
       .map((call) => toolkitOf(call.slug, input.connected))
       .find((candidate): candidate is string => candidate !== null && input.skipped(candidate));
     if (skippedToolkit) return { kind: "skipped", toolkit: skippedToolkit };
-    if (input.ownerSends) return { kind: "send", rule: "owner-auto" };
+    if (input.ownerSends && !input.alwaysAsks) return { kind: "send", rule: "owner-auto" };
     if (connectorAlwaysAllowed(input.alwaysAllow, toolkit)) return { kind: "send", rule: "always-allow" };
     if (toolkit !== null && input.allowedThisTurn(toolkit)) return { kind: "send", rule: "this-turn" };
   }
