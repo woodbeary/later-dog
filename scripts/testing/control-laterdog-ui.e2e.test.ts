@@ -108,7 +108,10 @@ describe("control-laterdog ui drives the real renderer", () => {
     await ui("type", info.ui, "--name", "Message Pepper", "--text", "Find the striped zebra");
     await ui("press", info.ui, "--keys", "Enter");
     await ui("wait-settle", info.ui, "--timeout", "60");
-    await ui("click", info.ui, "--name", "Find in conversation");
+    expect(refsNamed(await ui("snapshot", info.ui, "--interactive"), "Find in conversation")).toEqual([]);
+    await ui("click", info.ui, "--name", "More");
+    await expect.poll(async () => (await ui("eval", info.ui, "--js", "[...document.querySelectorAll('[role=menuitem]')].find(item => item.textContent === 'Find in conversation⌘F') ? true : false")).result, { timeout: 10_000 }).toBe(true);
+    await ui("eval", info.ui, "--js", "[...document.querySelectorAll('[role=menuitem]')].find(item => item.textContent === 'Find in conversation⌘F').click(); true");
     await ui("type", info.ui, "--name", "Find in this conversation", "--text", "zebra");
     const highlighted = async () => (await ui("eval", info.ui, "--js", "[...CSS.highlights.get('search-result-text') ?? []][0]?.toString() ?? null")).result;
     await expect.poll(async () => (await ui("snapshot", info.ui)).snapshot, { timeout: 10_000 }).toContain("1 of 1");
@@ -125,7 +128,7 @@ describe("control-laterdog ui drives the real renderer", () => {
     await ui("press", info.ui, "--keys", "Backspace");
     await ui("type", info.ui, "--name", "Find in this conversation", "--text", "saffron");
     await expect.poll(highlighted, { timeout: 10_000 }).toBe("saffron");
-    expect((await ui("eval", info.ui, "--js", "[...document.querySelectorAll('.chat-text')].find(el => el.textContent.includes('saffron'))?.classList.contains('max-h-40')")).result).toBe(false);
+    expect((await ui("eval", info.ui, "--js", "[...document.querySelectorAll('.chat-text')].find(el => el.textContent.includes('saffron'))?.classList.contains('max-h-[288px]')")).result).toBe(false);
     await expect.poll(async () => (await ui("eval", info.ui, "--js", "(() => { const range = [...CSS.highlights.get('search-result-text')][0]; const bounds = range.startContainer.parentElement.closest('.overflow-y-auto').getBoundingClientRect(); const match = range.getBoundingClientRect(); return match.top >= bounds.top && match.bottom <= bounds.bottom; })()")).result).toBe(true);
     await ui("click", info.ui, "--name", "Find in this conversation");
     await ui("eval", info.ui, "--js", "document.querySelector('input[aria-label=\"Find in this conversation\"]').select(); true");
@@ -300,10 +303,11 @@ describe("control-laterdog ui drives the real renderer", () => {
     expect(transcript).toContain('StaticText "hello"');
     expect(transcript).toContain(`StaticText "${REPLY}"`);
     const scripted = JSON.parse(TOOL_CALLS) as Array<{ input: { command: string }; ok: boolean }>;
-    const chips = [...transcript.matchAll(/button "Ran a command · (Completed|Failed) · Tool details"/g)].map((match) => match[1]);
-    expect(chips).toEqual(scripted.map((call) => (call.ok ? "Completed" : "Failed")));
-    for (const call of scripted) expect(transcript).toContain(`StaticText "${call.input.command}"`);
-    expect(transcript).toContain(`StaticText "Did ${scripted.length} tool calls"`);
+    expect(transcript).not.toContain("Tool details");
+    for (const call of scripted) expect(transcript).not.toContain(call.input.command);
+    expect(transcript).toContain(`button "Tried ${scripted.length} things"`);
+    expect(transcript.indexOf(`button "Tried ${scripted.length} things"`)).toBeLessThan(transcript.indexOf(`StaticText "${REPLY}"`));
+    expect(transcript).not.toContain("tool calls");
     expect(transcript).not.toMatch(/\bBash\b/);
     expect(tree).not.toContain("Not logged in");
     expect(tree).not.toContain("Execution timeline");
