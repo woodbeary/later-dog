@@ -23,6 +23,18 @@ describe("askedConnector", () => {
 describe("connectorSendDecision", () => {
   const gmail = [{ slug: "GMAIL_SEND_EMAIL" }];
 
+  it("asks for a send or a payment that always asks, before the owner's dog, the app's Always or this turn's Allow can answer it", () => {
+    for (const calls of [gmail, [{ slug: "STRIPE_CREATE_REFUND" }]]) {
+      expect(connectorSendDecision({ calls, connected: [], alwaysAllow: [], ownerSends: true, alwaysAsks: true, skipped: never, allowedThisTurn: never }).kind).toBe("ask");
+    }
+    expect(connectorSendDecision({ calls: gmail, connected: [], alwaysAllow: [connectorAllowKey("gmail")], ownerSends: true, alwaysAsks: true, skipped: never, allowedThisTurn: never }))
+      .toEqual({ kind: "ask", toolkit: "gmail" });
+    expect(connectorSendDecision({ calls: gmail, connected: [], alwaysAllow: [], ownerSends: true, alwaysAsks: true, skipped: never, allowedThisTurn: () => true }))
+      .toEqual({ kind: "ask", toolkit: "gmail" });
+    expect(connectorSendDecision({ calls: [{ slug: "GMAIL_ADD_LABEL_TO_EMAIL" }], connected: [], alwaysAllow: [connectorAllowKey("gmail")], ownerSends: false, skipped: never, allowedThisTurn: never }))
+      .toEqual({ kind: "send", rule: "always-allow" });
+  });
+
   it("asks with the connector to remember, and sends once Always allow is kept for it", () => {
     expect(connectorSendDecision({ calls: gmail, connected: [], alwaysAllow: [], ownerSends: false, skipped: never, allowedThisTurn: never }))
       .toEqual({ kind: "ask", toolkit: "gmail" });

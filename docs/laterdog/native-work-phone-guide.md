@@ -27,6 +27,26 @@ An older server has no endpoints; a 404 must not be an error state.
 - Approvals: the card carries `nativeActorLabel` and `nativeRunId` when the server could attribute the request. Resolution stays in the existing card. `answered: "resolved"` means the provider resolved it; show it neutrally, not as allowed or denied.
 - Selection: pass the dog's `modelSelection` to `nativeExecutionComparison(run, {instanceId, model})` for a live run. `next-message` means the running execution differs from the current selection and the new choice applies to the next message. `unknown` means a fact is missing; say only what is known. Effort and variant are not reported by the engines, so they are not compared.
 
+## Live step, times and words
+
+Every field below is additive and optional, so an app must fall back when it is missing (an older home, or a run saved before the field existed). All times are milliseconds since the epoch.
+
+| Field | Type | Moves when |
+|---|---|---|
+| `NativeRun.currentActivity.startedAt` | number | the current step changes; it holds while the same step stays current |
+| `NativeRun.lastActivityAt` | number | any step starts or ends, or more text or output arrives, thinking included; never moves back; kept when the run ends; absent before the first step |
+| `NativeActor.lastActivityAt` | number | Claude's `task_progress` or `task_updated` for that task, Codex's report of that helper's activity, and any step whose `actorId` is that actor; never moves back |
+| `NativeActivity.subject` | string, at most 120 characters | set when the call starts, in plain words only: a command's or helper's own description; the file name as lowercase words (`OrderForm.tsx` → `order form`); the search words; the site's host without `www.`. Absent when the description or search holds a path, a tool name, glob or pattern characters or shell syntax, when the tool is Glob, when the secret filter would change the raw text, and for every other tool. `label` keeps the raw tool name |
+| `WireBot.step`, `WireTask.step` | `LiveStep \| null` | the live step of that chat: `{ id, kind, startedAt, lastActivityAt }`, exactly `liveStep(run)` for the chat's live run, `null` when nothing runs there. A new `id` is sent at once; a newer `lastActivityAt` for the same step at most once every 5 seconds per chat |
+
+`shared/step-words.ts` holds the words every app uses, so a step reads the same on every screen. It is pure, uses no Node features and imports only types from `./native-runs`; copy it byte for byte beside the phone's copy of `native-runs.ts`. It exports `activityKindOfTool`, `outcomeKindOfTool`, `stepPhrase`, `ageWords`, `lastMovedWords`, `goingWords`, `foldSentence`, `stepLabel`, `sideJobsWords`, `sideJobsStillGoing`, `helpersLine`, `stepTime` and `liveStep`, and the types `ActivityKind`, `OutcomeKind` and `LiveStep`.
+
+- A live step shows `stepPhrase(step.kind, step.id)`. The phrase is picked once per step id and does not change while the step lasts.
+- `liveStep(run)` is the only place the live step is decided. When `step` is missing from a dog or task, compute `liveStep(run)` from the latest `native.run.updated` frame for that chat; the server's `step` is the same value.
+- Between steps the id is `${run.id}:thinking:${run.activityCount}`, so the phrase stays put until the next step arrives.
+- A finished step reads `stepLabel({ outcome: outcomeKindOfTool(activity.label), state, subject: activity.subject })`; it never shows a tool name, a folder path, command text or a duration.
+- Times use plain units only (`for 6 min`, `1 hr ago`), never seconds.
+
 ## Limits that must stay visible
 
 Native backends differ in individual stop, background work after the parent ends, and resumption. Show `run.limitations` and `observation` (`partial`, `interrupted`). Work live at a server restart is `interrupted`; no helper is claimed to have survived.

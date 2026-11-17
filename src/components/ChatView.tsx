@@ -8,14 +8,11 @@ import {
   Code,
   Copy,
   Cpu,
-  Download,
   Hand,
   ListPlus,
-  MessageSquarePlus,
+  Loader2,
   MessageSquareReply,
   Pencil,
-  MoreHorizontal,
-  Search,
   SquareSlash,
   Webhook,
   X,
@@ -23,7 +20,6 @@ import {
 import { SaveCommandDialog } from "@/components/SaveCommandDialog";
 import { DraftContext, type DraftScope } from "./draft-context";
 import { LinkPreviews } from "./LinkPreviewCard";
-import { startNewConversation } from "@/lib/new-conversation";
 import { MessageActions, messageActionClass } from "@/components/MessageActions";
 import { ReactionPicker } from "@/components/ReactionPicker";
 import { hasTapback, ReactionPills } from "@/components/ReactionPills";
@@ -54,16 +50,20 @@ import { FailedSendLine, TeamBlock } from "./TeamBlock";
 import { foldTeams } from "@/lib/team-block";
 import { RunningOnLine } from "./RunningOnLine";
 import { ExchangeViewHost } from "./ExchangeViewHost";
-import { foldExchanges, foldedRuns, expandedExchange, quietTranscriptItemShown, shownInChat } from "@/lib/quiet-lines";
+import { foldExchanges, expandedExchange, quietTranscriptItemShown, shownInChat } from "@/lib/quiet-lines";
 import { RecoveredLine } from "./RecoveredLine";
 import { freshenDogName } from "@/lib/dog-refs";
-import { TurnPresence } from "./TurnPresence";
-import { DogPlan } from "./PlanChecklist";
-import { NativeWork, NativeWorkFallbacks, NativeHistoryNotice } from "./NativeWork";
-import { nativeReceiptAnchors, useNativeRuns } from "@/lib/native-runs-state";
-import { showToolCallsEnabled } from "@/lib/feature-flags";
+import { ChatWorkLine } from "./TurnPresence";
+import { FoldLine, SideJobsStillGoing } from "./FoldLine";
+import { useNativeRuns } from "@/lib/native-runs-state";
+import { turnFolds } from "@/lib/fold-line";
+import { sideJobCount } from "@/lib/work-line";
+import { WorkPanel } from "./WorkPanel";
+import { closeWorkPanel, useWorkPanel } from "@/lib/work-panel";
 import { transcriptRowShown } from "@/lib/room-activity";
-import { dogTint, normalizeState, restingStateForBot, turnState } from "@/lib/mascot";
+import { restingStateForBot, turnState } from "@/lib/mascot";
+import { liveActivity } from "@/lib/live-activity";
+import type { LiveStep } from "../../shared/step-words";
 import { peerLine, type PeerLine } from "@/lib/peer-message";
 import { useWorkingDots } from "@/lib/working-dots";
 import { StatusDot } from "./StatusDot";
@@ -71,12 +71,10 @@ import { OPTIMISTIC_PREFIX } from "@/lib/dog-status";
 import { ReadReceipt, SendingTrack } from "./SendingTrack";
 import { MOTION } from "@/lib/motion";
 import { useArrivals } from "@/lib/arrivals";
-import { liveActivity } from "@/lib/live-activity";
 import { ChatMarkdown } from "./ChatMarkdown";
 import { VoiceNoteBubble, type VoiceNoteAttachment } from "./VoiceNoteBubble";
 import { CloudTaskCard, CloudTaskUpdateRow } from "./CloudTaskCard";
 import { cloudWakeupOf } from "@/lib/cloud-tasks";
-import { ToolActivity } from "./ToolActivity";
 import { MentionText } from "./MentionText";
 import { plainThreadLinks } from "@/lib/thread-refs";
 import { OptionCard, shouldHideOnboardingCard } from "./OptionCard";
@@ -92,37 +90,26 @@ import { TakeoverCard } from "./TakeoverCard";
 import { RoutineRunCard } from "./RoutineRunCard";
 import { ownerShowingElsewhere } from "@/lib/open-elsewhere";
 import { AttachmentGallery, collectMessageFiles, splitMessageAttachments } from "./AttachmentGallery";
-import { ScreenFrame } from "./ScreenFrame";
-import { CompactionChip, DigestChip } from "./DigestChip";
+import { CompactionChip } from "./DigestChip";
 import { CitationSelectionToolbar, SentCitations } from "./CitationUI";
 
 import { StopSpeakingButton } from "./SpeakButton";
 import { RawMarkdownView, RawToggleAction } from "./RawMarkdownToggle";
-import { SidebarPopoverMenu, type SidebarMenuItem } from "./SidebarPopoverMenu";
-import {
-  copyTranscriptToClipboard,
-  downloadMarkdownTranscript,
-  formatTranscriptMarkdown,
-  slugifyTranscriptFilename,
-} from "@/lib/export-transcript";
+import type { SidebarMenuItem } from "./SidebarPopoverMenu";
 import { CallOverlay } from "./CallView";
 import { LiveCallBar } from "./LiveCallBar";
 import { LiveCallChip } from "./LiveCallPill";
-import { ChatHeaderTasks } from "./ChatHeaderTasks";
-import { effectivePlace, toolPlace, type EffectivePlace } from "@/lib/place";
+import { ChatHeaderMenu } from "./ChatHeaderTasks";
 import { cn } from "@/lib/cn";
 import { chatPane } from "@/state/pane-errors";
 import { PaneErrorLine } from "./PaneErrorLine";
 import { activeLocale, t } from "@/lib/i18n";
-import { WorkStatusLine } from "./WorkStatusLine";
 import { TurnReceiptLine } from "./TurnReceiptLine";
 import { TurnResultsBlock, hasTurnResults } from "./TurnResultsBlock";
 import { groupTranscript, isStatusActivity, planTranscript, type TranscriptPlan } from "@/lib/activity-runs";
 import { isUnread, useUnreadBoundary } from "@/lib/unread-boundary";
 import { UnreadDivider } from "./UnreadDivider";
 import { StatusActivityRow } from "@/components/StatusActivityRow";
-import { ActivityRun } from "./ActivityRun";
-import { TurnNarrationRun } from "./TurnNarrationRun";
 import { webhookMessageView } from "@/lib/webhook-message";
 import { composeMessage, splitTranscriptAttachments } from "@/lib/composer-attachments";
 import { editableGallery, editableMessage } from "@/lib/composer-message-edit";
@@ -130,7 +117,6 @@ import { useComposerDockPad } from "@/lib/composer-dock";
 import { GlassBar, GlassScrollFrame } from "./GlassScrollFrame";
 import { useTranscriptViewport } from "@/hooks/use-transcript-viewport";
 import { useNewBelow } from "@/lib/new-below";
-import { turnSteps, turnUpdates } from "@/lib/turn-details";
 import { dismissKey, useUnreadPosition, useVisitUnreadCount } from "@/lib/unread-pill";
 import { NewMessagesPill } from "./NewMessagesPill";
 import { useScrollAnchor } from "@/lib/scroll-anchor";
@@ -146,9 +132,9 @@ import { pendingApprovals } from "./PendingApproval";
 import { TranscriptAnnouncer } from "./TranscriptAnnouncer";
 import { tabForSection } from "./bot-settings/sections";
 
-const USER_COLLAPSE_CHARS = 600;
-const HEADER_INSET = 60;
-const USER_COLLAPSE_LINES = 8;
+const USER_COLLAPSE_CHARS = 5_000;
+const HEADER_INSET = 52;
+const USER_COLLAPSE_LINES = 60;
 
 interface ChatRows {
   botId: string;
@@ -159,7 +145,6 @@ interface ChatRows {
   readStore: () => AppState;
   mentionPeers: readonly MentionPeer[];
   focus: AppState["focusMessage"];
-  showToolCalls: boolean;
   locale: string;
   dispatch: Dispatch<Action>;
   onBranch: (messageId: string) => boolean;
@@ -298,6 +283,8 @@ const Bubble = memo(function Bubble({
   replyTarget,
   onReply,
   receipt = false,
+  joinAbove = false,
+  joinBelow = false,
 }: {
   message: Message;
   emerging?: boolean;
@@ -310,6 +297,8 @@ const Bubble = memo(function Bubble({
   replyTarget?: Message;
   onReply: (message: Message) => void;
   receipt?: boolean;
+  joinAbove?: boolean;
+  joinBelow?: boolean;
 }) {
   const { botId, threadId, botName, busy, mentionPeers, focus, dispatch, onBranch, bots, readStore, canWrite } = useChatRows();
   const peer = peerLine(message);
@@ -404,7 +393,6 @@ const Bubble = memo(function Bubble({
   return (
     <div data-from={user ? "user" : "agent"} className={cn("group flex w-full flex-col", user ? "items-end" : "items-start", hasTapback(message.reactions) && "pt-3")}>
       {savingCommand && <SaveCommandDialog initialText={visibleText} onClose={() => setSavingCommand(false)} />}
-      {peer && <PeerLabel peer={peer} />}
       {sentAbove && (
         <AttachmentGallery sent images={sentImages} files={sentFiles} message={{ threadId, messageId: message.id }} eager={eagerAttachments} className="mb-1.5 max-w-[min(42rem,78%)]" />
       )}
@@ -438,19 +426,21 @@ const Bubble = memo(function Bubble({
         <div
           data-chat-bubble
           className={cn(
-            "relative w-fit max-w-[min(42rem,78%)] rounded-bubble text-[14px] leading-[21px]",
+            "chat-bubble relative w-fit max-w-[min(42rem,78%)] rounded-[20px] text-[16px] leading-6",
+            user ? joinAbove && "rounded-tr-[8px]" : joinAbove && "rounded-tl-[8px]",
+            user ? joinBelow && "rounded-br-[8px]" : joinBelow && "rounded-bl-[8px]",
             emerging && "turn-answer",
             user && webhookView
               ? "overflow-hidden border border-accent/25 bg-card text-ink shadow-[0_10px_30px_rgba(0,0,0,0.18)]"
               : attachmentsOnly
                 ? "text-ink"
                 : user
-                  ? "bg-bubble-user px-3 py-[7px] whitespace-pre-wrap text-ink"
-                  : "bg-card px-3 py-[7px] text-ink",
+                  ? "bg-bubble-user px-[14px] py-2 whitespace-pre-wrap text-white"
+                  : "bg-[var(--color-bubble)] px-[14px] py-2 text-ink",
           )}
           title={new Date(message.at).toLocaleString()}
-          data-dog-tint={user && !webhookView && !attachmentsOnly ? dogTint(bots.find((candidate) => candidate.id === botId)?.color) : undefined}
         >
+          {peer && <PeerLabel peer={peer} />}
           <ReactionPills reactions={message.reactions} side={user ? "user" : "bot"} nameOf={reactionName} onToggle={reactable ? react : undefined} />
           {replyTarget && (
             <div className="mb-2">
@@ -485,7 +475,7 @@ const Bubble = memo(function Bubble({
               )}
               {visibleText && (
                 <div
-                  className={cn("chat-text", collapsible && "max-h-40 overflow-hidden [mask-image:linear-gradient(to_bottom,black_60%,transparent)]")}
+                  className={cn("chat-text", collapsible && "max-h-[288px] overflow-hidden [mask-image:linear-gradient(to_bottom,black_60%,transparent)]")}
                   data-citation-source={message.id}
                   data-citation-owner-type="bot"
                   data-citation-owner={botId}
@@ -608,27 +598,15 @@ const Bubble = memo(function Bubble({
 
 function PeerLabel({ peer }: { peer: PeerLine }) {
   const { bots } = useChatRows();
-  const author =
-    bots.find((b) => b.id === peer.botId) ?? bots.find((b) => b.name === peer.name);
-  const how =
-    peer.delivery === "delegate_bot" ? t("chat.peer.delegated") : t("chat.peer.asked");
+  const author = bots.find((b) => b.id === peer.botId) ?? bots.find((b) => b.name === peer.name);
   return (
-    <div className="mb-1 flex items-center gap-1.5 pl-0.5" data-testid="peer-label">
-      <BotAvatar
-        bot={author ?? { name: peer.name, color: "blue" }}
-        state={normalizeState(author?.mascotExpression) ?? "happy"}
-        size={16}
-        motion="none"
-        motionKey={0}
-        animated={false}
-      />
-      <span className="text-[11px] font-medium text-ink-secondary">{author?.name ?? peer.name}</span>
-      <span className="text-[11px] text-ink-tertiary">· {how}</span>
+    <div className="text-[13px] leading-[17px] font-medium text-ink-secondary" data-testid="peer-label">
+      {`From ${author?.name ?? peer.name}`}
     </div>
   );
 }
 
-const ActivityChip = memo(function ActivityChip({ message, place = "auto" }: { message: Message; place?: EffectivePlace }) {
+const ActivityChip = memo(function ActivityChip({ message }: { message: Message }) {
   const { bots, dispatch } = useChatRows();
   const tool = message.tool;
   if (!tool) return null;
@@ -651,7 +629,7 @@ const ActivityChip = memo(function ActivityChip({ message, place = "auto" }: { m
       </div>
     );
   }
-  return <ToolActivity tool={tool} place={toolPlace(tool.name, place)} />;
+  return null;
 });
 
 function RoutineRunRow({ message, botId }: { message: Message; botId: string }) {
@@ -666,14 +644,38 @@ function RoutineRunRow({ message, botId }: { message: Message; botId: string }) 
   );
 }
 
+function bubblesKept(plan: TranscriptPlan): TranscriptPlan {
+  const spoken = new Set([...plan.byAnchorId.values()].flatMap((turn) => turn.messages.map((message) => message.id)));
+  return { byAnchorId: new Map(), hiddenIds: new Set([...plan.hiddenIds].filter((id) => !spoken.has(id))) };
+}
+
 function EmptyChat({ bot }: { bot: Bot }) {
   return (
-    <div className="flex flex-1 flex-col items-center justify-center gap-3 py-24 text-center">
-      <BotAvatar bot={bot} state="idle" size={64} motion="none" motionKey={0} />
-      <div className="text-[17px] font-semibold text-ink">{bot.name}</div>
-      <div className="max-w-[360px] text-[14px] text-ink-secondary">
+    <div data-empty-chat className="flex flex-1 flex-col items-center justify-center gap-2 py-24 text-center">
+      <BotAvatar bot={bot} state="idle" size={40} motion="none" motionKey={0} animated={false} />
+      <div className="mt-1 text-[20px] leading-[26px] font-semibold text-ink">{bot.name}</div>
+      <div className="max-w-[360px] text-[14px] leading-5 text-ink-secondary">
         {bot.description || t("chat.emptyPrompt")}
       </div>
+    </div>
+  );
+}
+
+const LOADING_SPINNER_MS = 500;
+const LOADING_WORDS_MS = 3_000;
+
+function ChatLoading() {
+  const [shown, setShown] = useState<"nothing" | "spinner" | "words">("nothing");
+  useEffect(() => {
+    const spinner = setTimeout(() => setShown("spinner"), LOADING_SPINNER_MS);
+    const words = setTimeout(() => setShown("words"), LOADING_WORDS_MS);
+    return () => { clearTimeout(spinner); clearTimeout(words); };
+  }, []);
+  if (shown === "nothing") return <div data-chat-loading="" className="flex-1" />;
+  return (
+    <div data-chat-loading={shown} role="status" className="flex flex-1 flex-col items-center justify-center gap-2 py-24 text-[14px] leading-5 text-ink-secondary">
+      <Loader2 size={20} aria-hidden="true" className="animate-spin motion-reduce:animate-none" />
+      {shown === "words" ? <span>{t("chat.loadingEarlier")}</span> : <span className="sr-only">{t("chat.loadingEarlier")}</span>}
     </div>
   );
 }
@@ -684,7 +686,6 @@ const MessagesList = memo(function MessagesList({
   transcript,
   plan,
   lookups,
-  place,
   today,
   emergingId,
   canRetryLast,
@@ -704,7 +705,6 @@ const MessagesList = memo(function MessagesList({
   transcript: Message[];
   plan: TranscriptPlan;
   lookups: TranscriptLookups;
-  place: EffectivePlace;
   today: number;
   emergingId?: string | null;
   canRetryLast: boolean;
@@ -719,26 +719,20 @@ const MessagesList = memo(function MessagesList({
   onReply: (message: Message) => void;
   unreadSince: number | null;
 }) {
-  const { botId, threadId, botName, bots, focus, showToolCalls, locale } = useChatRows();
-  const owner = bots.find(bot => bot.id === botId);
+  const { botId, threadId, botName, bots, focus, locale } = useChatRows();
   const nativeRuns = useNativeRuns(threadId, filledWindow[0]?.at);
-  const receipts = useMemo(() => nativeReceiptAnchors(nativeRuns, messages), [nativeRuns, messages]);
+  const folds = useMemo(() => turnFolds(transcript, nativeRuns), [transcript, nativeRuns]);
   const arriving = useArrivals(`${botId}/${threadId}`, messages);
   const emerged = useRef(new Set<string>());
   if (emergingId) emerged.current.add(emergingId);
   const items = useMemo(
     () => foldTeams(foldExchanges(groupTranscript(messages, plan), {
-      renders: (item) => quietTranscriptItemShown(item, showToolCalls),
+      renders: (item) => quietTranscriptItemShown(item, false),
       hasGroup: (groupId) => groupIds.split("|").includes(groupId),
-    }), (item) => quietTranscriptItemShown(item, showToolCalls)),
-    [messages, plan, locale, showToolCalls, groupIds],
+    }), (item) => quietTranscriptItemShown(item, false)),
+    [messages, plan, locale, groupIds],
   );
-  const foldedWork = useMemo(() => {
-    const anchored = new Set([...receipts.values()].flat().map((run) => run.id));
-    const loose = nativeRuns.filter((run) => !anchored.has(run.id) && (run.endedAt || run.observation !== "live"));
-    return new Map(items.filter((item) => item.kind === "recovered").map((item) => [item.id, foldedRuns(item, loose)]));
-  }, [items, receipts, nativeRuns]);
-  const foldedRunIds = useMemo(() => new Set([...foldedWork.values()].flat().map((run) => run.id)), [foldedWork]);
+  const owner = bots.find(bot => bot.id === botId);
   let unreadPlaced = false;
   const unreadDivider = (rows: readonly Message[]) => {
     if (unreadPlaced || !rows.some((row) => isUnread(row, unreadSince))) return null;
@@ -758,35 +752,6 @@ const MessagesList = memo(function MessagesList({
         const prev = previous && (previous.kind === "message" ? previous.message : previous.messages.at(-1));
         const first = item.kind === "message" ? item.message : item.messages[0];
         const newDay = !prev || localDay(prev.at) !== localDay(first.at);
-        if (item.kind === "turn") {
-          return (
-            <div key={item.id} className="contents">
-              {newDay && <DaySeparator at={first.at} today={today} />}
-              {unreadDivider(item.messages)}
-              <TurnNarrationRun
-                label={item.label}
-                forceOpen={item.messages.some((message) => message.id === focusedId)}
-              >
-                {item.messages.map((message) => (
-                  <Fragment key={message.id}>
-                    <div className="contents" data-mid={message.id} data-arriving={arriving(message.id) ? "" : undefined}>
-                      <Bubble
-                        message={message}
-                        editing={false}
-                        onStartEdit={onStartEdit}
-                        onCancelEdit={onCancelEdit}
-                        onSubmitEdit={onSubmitEdit}
-                        replyTarget={lookups.replyTarget(message)}
-                        onReply={onReply}
-                      />
-                    </div>
-                    {receipts.get(message.id)?.map(run => <NativeWork key={run.id} run={run} color={owner?.color} bodyId={owner?.mascotBody} selection={selection} />)}
-                  </Fragment>
-                ))}
-              </TurnNarrationRun>
-            </div>
-          );
-        }
         if (item.kind === "failed-send") {
           return (
             <div key={item.id} className="contents" data-arriving={arriving(item.message.id) ? "" : undefined}>
@@ -819,28 +784,11 @@ const MessagesList = memo(function MessagesList({
             <div key={item.id} className="contents" data-mid={item.recovery.id} data-arriving={arriving(item.recovery.id) ? "" : undefined}>
               {newDay && <DaySeparator at={first.at} today={today} />}
               {unreadDivider(item.messages)}
-              <RecoveredLine item={item} engine={engine} botId={botId} threadId={threadId} forceOpen={item.folded.some((message) => message.id === focusedId)}>
-                {foldedWork.get(item.id)?.map((run) => <NativeWork key={run.id} run={run} color={owner?.color} bodyId={owner?.mascotBody} selection={selection} />)}
-              </RecoveredLine>
+              <RecoveredLine item={item} engine={engine} botId={botId} threadId={threadId} forceOpen={item.folded.some((message) => message.id === focusedId)} />
             </div>
           );
         }
-        if (item.kind === "run") {
-          if (!showToolCalls) return null;
-          return (
-            <div key={item.id} className="contents">
-              {newDay && <DaySeparator at={first.at} today={today} />}
-              {unreadDivider(item.messages)}
-              <ActivityRun messages={item.messages} forceOpen={item.messages.some((step) => step.id === focusedId)}>
-                {item.messages.map((step) => (
-                  <div key={step.id} className="contents" data-mid={step.id} data-arriving={arriving(step.id) ? "" : undefined}>
-                    <ActivityChip message={step} place={place} />
-                  </div>
-                ))}
-              </ActivityRun>
-            </div>
-          );
-        }
+        if (item.kind !== "message") return null;
         const m = item.message;
         const row = (() => {
           switch (m.kind) {
@@ -854,7 +802,7 @@ const MessagesList = memo(function MessagesList({
               const card = m.card?.takeoverRequest ? (
                 <TakeoverCard botId={botId} botName={botName} threadId={threadId} message={m} />
               ) : m.card?.requestId && m.card.questionRequest ? (
-                <QuestionCard threadId={threadId} bot={{ name: botName }} message={m} />
+                openQuestion([m]) ? null : <QuestionCard threadId={threadId} message={m} />
               ) : m.card?.requestId && m.card.tool ? (
                 <ApprovalCard bot={{ name: botName }} message={m} threadId={threadId} />
               ) : shouldHideOnboardingCard(m, transcript) ? null : (
@@ -882,15 +830,15 @@ const MessagesList = memo(function MessagesList({
                   />
                 );
               }
-              if (!showToolCalls && !m.comm && !m.threadRef && !m.cloudTask) return null;
-              return <ActivityChip message={m} place={place} />;
+              if (!m.comm && !m.threadRef && !m.cloudTask) return null;
+              return <ActivityChip message={m} />;
             }
             case "digest":
-              return showToolCalls ? <DigestChip message={m} /> : null;
+              return null;
             case "compaction":
               return <CompactionChip message={m} />;
             case "screen":
-              return showToolCalls ? <ScreenFrame threadId={threadId} message={m} /> : null;
+              return null;
             default:
               if (cloudWakeupOf(m)) return <CloudTaskUpdateRow message={m} />;
               return (
@@ -906,34 +854,46 @@ const MessagesList = memo(function MessagesList({
                   replyTarget={lookups.replyTarget(m)}
                   onReply={onReply}
                   receipt={m.id === newestUserMessageId}
+                  joinAbove={bubbleSide(items[i - 1]) === bubbleSide(item)}
+                  joinBelow={bubbleSide(items[i + 1]) === bubbleSide(item)}
                 />
               );
           }
         })();
         if (!row) return null;
         const arrives = arriving(m.id) && !emerged.current.has(m.id);
+        const fold = folds.get(m.id);
         return (
           <Fragment key={m.id}>
             <div className="contents" data-mid={m.id} data-arriving={arrives ? "" : undefined}>
               {newDay && <DaySeparator at={m.at} today={today} />}
               {unreadDivider([m])}
+              {fold && <FoldLine threadId={threadId} runId={fold.runId} sentence={fold.sentence} />}
               {row}
             </div>
-            {receipts.get(m.id)?.map(run => <NativeWork key={run.id} run={run} color={owner?.color} bodyId={owner?.mascotBody} selection={selection} />)}
           </Fragment>
         );
       })}
-      <NativeWorkFallbacks runs={nativeRuns} messages={filledWindow} ownerForRun={() => owner} hidden={foldedRunIds} />
-      <NativeHistoryNotice threadId={threadId} />
+      {!owner?.busy && <SideJobsStillGoing threadId={threadId} count={sideJobCount(nativeRuns.findLast(run => run.botId === botId), undefined)} />}
     </>
   );
 });
 
-function HeaderStatusDot({ bot }: { bot: Bot }) {
-  return <StatusDot kind={bot.activity === "waiting-on-you" ? "waiting" : null} ring="border-composer" size="size-2.5" className="absolute -right-0.5 -bottom-0.5" />;
+function bubbleSide(item: ReturnType<typeof foldTeams>[number] | undefined): string | undefined {
+  if (item?.kind !== "message") return undefined;
+  const message = item.message;
+  if (message.kind !== "text" || cloudWakeupOf(message)) return undefined;
+  if (peerLine(message)) return `peer:${message.from?.botId ?? ""}`;
+  return message.role;
 }
 
-const CHATHEAD_PILL ="flex min-w-0 items-center gap-2 rounded-full border-[0.5px] border-ink/10 bg-composer py-1.5 pl-1.5 text-ink shadow-[0_4px_12px_-1px_rgba(0,0,0,0.08),0_1px_3px_rgba(0,0,0,0.06)]";
+function HeaderStatusDot({ bot }: { bot: Bot }) {
+  if (bot.activity === "waiting-on-you") return <StatusDot kind="waiting" ring="border-composer" size="size-2.5" className="absolute -right-0.5 -bottom-0.5" />;
+  if (!bot.busy) return null;
+  return <span data-working-dot aria-hidden="true" className="absolute -right-0.5 -bottom-0.5 size-2.5 rounded-full border-2 border-composer bg-success" />;
+}
+
+const CHATHEAD_PILL = "flex h-8 min-w-0 items-center gap-2 rounded-full border-[0.5px] border-[var(--color-hairline)] bg-composer pl-1 pr-3.5 text-ink";
 
 export function ChatView({ bot: profile }: { bot: Bot }) {
   const bot = useMemo(() => currentTaskBot(profile), [profile]);
@@ -951,6 +911,7 @@ export function ChatView({ bot: profile }: { bot: Bot }) {
     bot.messages,
   );
   useEffect(() => setFindOpen(false), [bot.threadId]);
+  const openFind = useCallback(() => setFindOpen(true), []);
   useEffect(() => {
     const onFind = (event: KeyboardEvent) => {
       if ((event.metaKey || event.ctrlKey) && !event.shiftKey && !event.altKey && event.key.toLowerCase() === "f") {
@@ -964,6 +925,7 @@ export function ChatView({ bot: profile }: { bot: Bot }) {
 
   const { messages: allMessages, activeLeafId } = bot;
   const thread = useMemo(() => visibleMessages({ messages: allMessages, activeLeafId }), [allMessages, activeLeafId]);
+  const dockedQuestion = useMemo(() => openQuestion(thread)?.message, [thread]);
   const messages = useMemo(() => thread.filter(shownInChat), [thread]);
   const exchangeThread = useMemo(() => ({ thread, working: Boolean(bot.busy) }), [thread, bot.busy]);
   const lookups = useMemo(() => transcriptLookups(allMessages, messages), [allMessages, messages]);
@@ -971,20 +933,15 @@ export function ChatView({ bot: profile }: { bot: Bot }) {
     () => messages.some((m) => m.kind === "options" && m.card?.takeoverRequest && isOpenTakeover(m.card.takeoverRequest.status)),
     [messages],
   );
-  const showToolCalls = useStoreSelector((state) => showToolCallsEnabled(state.config));
-  const runningSince = bot.busy ? bot.turnStartedAt ?? null : null;
   const groupIds = useStoreSelector((state) => roomIds(state.groups));
-  const plan = useMemo(
-    () => planTranscript(messages, { runningSince, quiet: !showToolCalls, foldAll: !showToolCalls }),
-    [messages, runningSince, showToolCalls],
-  );
+  const plan = useMemo(() => bubblesKept(planTranscript(messages, { quiet: true })), [messages]);
   const shownMessages = useMemo(
     () => plan.hiddenIds.size ? messages.filter((message) => !plan.hiddenIds.has(message.id)) : messages,
     [messages, plan],
   );
   const countsInWindow = useCallback(
-    (message: Message) => !plan.hiddenIds.has(message.id) && transcriptRowShown(message, showToolCalls),
-    [plan, showToolCalls],
+    (message: Message) => !plan.hiddenIds.has(message.id) && transcriptRowShown(message, false),
+    [plan],
   );
   const threadKey = `${bot.id}/${bot.threadId}`;
   const unreadSince = useUnreadBoundary(threadKey, messages);
@@ -1038,8 +995,8 @@ export function ChatView({ bot: profile }: { bot: Bot }) {
   const onBranch = useCallback((messageId: string) => branch.current.some((m) => m.id === messageId), []);
   const busy = Boolean(bot.busy);
   const rows = useMemo<ChatRows>(
-    () => ({ botId: bot.id, threadId: bot.threadId, botName: bot.name, busy, bots, readStore, mentionPeers, focus, showToolCalls, locale, dispatch, onBranch, canWrite }),
-    [bot.id, bot.threadId, bot.name, busy, bots, readStore, mentionPeers, focus, showToolCalls, locale, dispatch, onBranch, canWrite],
+    () => ({ botId: bot.id, threadId: bot.threadId, botName: bot.name, busy, bots, readStore, mentionPeers, focus, locale, dispatch, onBranch, canWrite }),
+    [bot.id, bot.threadId, bot.name, busy, bots, readStore, mentionPeers, focus, locale, dispatch, onBranch, canWrite],
   );
   const drafts = useMemo<DraftScope>(() => ({
     botName: bot.name,
@@ -1049,7 +1006,6 @@ export function ChatView({ bot: profile }: { bot: Bot }) {
       return (index < 0 ? messages : messages.slice(0, index)).filter((message) => message.role !== "user" && typeof message.text === "string").map((message) => message.text!);
     },
   }), [bot.id, bot.threadId, bot.name, dispatch, messages]);
-  const place = effectivePlace(bot, bot.tasks?.find((task) => task.threadId === bot.threadId));
 
   const [editingId, setEditingId] = useState<string | null>(null);
   useEffect(() => setEditingId(null), [bot.id, bot.threadId]);
@@ -1072,7 +1028,6 @@ export function ChatView({ bot: profile }: { bot: Bot }) {
   );
 
   const lastMessage = shownMessages.at(-1);
-  const live = useMemo(() => liveActivity(lastMessage), [lastMessage]);
   const working = useWorkingDots(bot.busy, lastMessage, bot.turnStartedAt);
   const waiting = Boolean(bot.busy && bot.activity !== "waiting-on-you" && working);
   const wasWaiting = useRef(false);
@@ -1101,7 +1056,19 @@ export function ChatView({ bot: profile }: { bot: Bot }) {
       setPopping((current) => current === messageId ? null : current);
     }, MOTION.enter + MOTION.base);
   }, [lastMessage?.id, lastMessage?.role, lastMessage?.kind]);
-  const presenceVisible = waiting || popping !== null;
+  const workPanel = useWorkPanel();
+  const settingsOpen = useStoreSelector((state) => state.settingsOpen);
+  useEffect(() => closeWorkPanel(), [bot.id, bot.threadId]);
+  useEffect(() => { if (settingsOpen) closeWorkPanel(); }, [settingsOpen]);
+  useEffect(() => { if (workPanel) dispatch({ type: "toggleSettings", open: false }); }, [workPanel, dispatch]);
+  const openDog = useCallback((id: string) => dispatch({ type: "select", id }), [dispatch]);
+  const fallbackStep = useMemo((): LiveStep | null => {
+    if (!bot.busy) return null;
+    const kind = liveActivity(lastMessage).kind;
+    const anchor = lastMessage && lastMessage.role !== "user" ? lastMessage : undefined;
+    const startedAt = anchor?.at ?? bot.turnStartedAt ?? lastMessage?.at ?? 0;
+    return { id: `${bot.threadId}:${anchor?.id ?? startedAt}:${kind}`, kind, startedAt, lastActivityAt: startedAt };
+  }, [bot.busy, bot.threadId, bot.turnStartedAt, lastMessage]);
   const announcement = useMemo((): TranscriptSnapshot => {
     const approval = pendingApprovals(messages)[0];
     const question = openQuestion(messages);
@@ -1112,15 +1079,6 @@ export function ChatView({ bot: profile }: { bot: Bot }) {
       question: question ? { id: question.id, name: bot.name } : undefined,
     };
   }, [messages, shownMessages, bot.busy, bot.name]);
-  const [busySince, setBusySince] = useState<number | null>(null);
-  useEffect(() => {
-    setBusySince(bot.busy ? bot.workingStartedAt ?? bot.turnStartedAt ?? Date.now() : null);
-  }, [bot.busy, bot.id, bot.threadId, bot.turnStartedAt, bot.workingStartedAt]);
-
-  const turnSince = busySince ?? lastUserMessage?.at ?? null;
-  const steps = useMemo(() => (presenceVisible ? turnSteps(messages, turnSince) : []), [presenceVisible, messages, turnSince]);
-  const updates = useMemo(() => (presenceVisible ? turnUpdates(messages, plan.hiddenIds, turnSince) : []), [presenceVisible, messages, plan, turnSince]);
-
   const regenerate = useCallback(() => {
     if (lastUserMessage?.text && !bot.busy && !lastUserMessage.id.startsWith("optimistic-")) {
       dispatch({ type: "editMessage", botId: bot.id, threadId: bot.threadId, messageId: lastUserMessage.id, text: lastUserMessage.text });
@@ -1134,6 +1092,7 @@ export function ChatView({ bot: profile }: { bot: Bot }) {
   const engine = useStoreSelector((state) => state.instances.find((i) => i.instanceId === bot.modelSelection.instanceId));
 
   return (
+    <>
     <main className="relative flex h-full min-w-0 flex-1 flex-col bg-app">
       <CallOverlay bot={bot} />
       <ExchangeViewHost botId={bot.id} />
@@ -1141,51 +1100,36 @@ export function ChatView({ bot: profile }: { bot: Bot }) {
       <GlassBar edge="top" className="z-[25]">
       <div
         style={headerDragStyle}
+        data-chathead
         className={cn(
-          "@container/chathead px-5 py-3",
+          "@container/chathead flex min-h-[52px] flex-col justify-center px-5 py-2.5",
           "pl-11 md:pl-5",
         )}
       >
-        <div data-chathead-row className="flex items-center justify-between @max-[30rem]/chathead:flex-wrap @max-[30rem]/chathead:gap-y-1 @min-[30rem]/chathead:grid @min-[30rem]/chathead:grid-cols-[minmax(0,1fr)_minmax(0,auto)_minmax(max-content,1fr)]">
-        <div data-chathead-identity className="flex min-w-0 items-center gap-2 @max-[30rem]/chathead:basis-full @min-[30rem]/chathead:col-start-2 @min-[30rem]/chathead:justify-self-center" style={headerNoDragStyle}>
+        <div data-chathead-row className="grid grid-cols-[minmax(0,1fr)_minmax(0,auto)_minmax(max-content,1fr)] items-center">
+        <div data-chathead-identity className="col-start-2 flex min-w-0 items-center gap-2 justify-self-center" style={headerNoDragStyle}>
           <button
             type="button"
             data-chathead-pill
             onClick={() => dispatch({ type: "toggleSettings", open: true })}
             title={t("chat.openProfile")}
             aria-label={t("chat.openProfileAria", { name: bot.name })}
-            className={cn(CHATHEAD_PILL, "pr-3.5 hover:bg-raised-hover")}
+            className={cn(CHATHEAD_PILL, "hover:bg-raised-hover")}
           >
             <span className="relative flex shrink-0">
               <BotAvatar bot={bot} state={restingStateForBot(bot)} size={24} animated={false} />
               <HeaderStatusDot bot={bot} />
             </span>
-            <span className="min-w-0 truncate text-[14px] font-semibold text-ink">{bot.name}</span>
+            <span className="min-w-0 truncate text-[14px] leading-5 font-medium text-ink">{bot.name}</span>
           </button>
-          <WorkStatusLine bot={bot} />
         </div>
         <div
           data-chathead-controls
-          className="flex shrink-0 items-center gap-2 @max-[30rem]/chathead:ml-auto @max-[30rem]/chathead:flex-wrap @max-[30rem]/chathead:justify-end @min-[30rem]/chathead:col-start-3 @min-[30rem]/chathead:justify-self-end"
+          className="col-start-3 flex shrink-0 items-center gap-2 justify-self-end"
           style={controlsShiftStyle}
         >
           <LiveCallChip currentBotId={bot.id} onOpen={(botId, threadId) => openNotificationTarget(dispatch, { botId, threadId }, readStore())} />
-          <ChatHeaderTasks bot={bot} />
-          <button
-            type="button"
-            data-testid="chat-find"
-            onClick={() => setFindOpen((open) => !open)}
-            aria-label={t("chat.find")}
-            aria-pressed={findOpen}
-            className={cn(
-              "rounded-md p-1.5 hover:bg-raised",
-              findOpen ? "text-accent" : "text-ink-secondary hover:text-ink",
-            )}
-            title={t("chat.findShortcut")}
-          >
-            <Search size={18} />
-          </button>
-          <ChatHeaderMenu key={`menu:${bot.threadId}`} bot={bot} messages={messages} />
+          <ChatHeaderMenu key={`menu:${bot.threadId}`} bot={bot} messages={messages} onFind={openFind} />
         </div>
         </div>
       </div>
@@ -1201,13 +1145,13 @@ export function ChatView({ bot: profile }: { bot: Bot }) {
 
       <div
         ref={scrollRef}
-        className="glass-scroller h-full overflow-x-hidden overflow-y-auto overscroll-y-contain px-5 [overflow-anchor:none]"
+        className="glass-scroller h-full overflow-x-hidden overflow-y-auto overscroll-y-contain [overflow-anchor:none]"
         style={{ scrollPaddingBottom: composerDock.height }}
         {...scrollHandlers}
       >
         <div
           ref={transcriptRef}
-          className="glass-scroller-content flex w-full flex-col gap-3"
+          className="glass-scroller-content mx-auto flex w-full max-w-[672px] flex-col gap-3 px-5"
           style={{ paddingBottom: composerDock.pad }}
           role="log"
           aria-live="off"
@@ -1233,7 +1177,7 @@ export function ChatView({ bot: profile }: { bot: Bot }) {
               </button>
             </div>
           ) : null}
-          {windowedMessages.length === 0 && !bot.busy && <EmptyChat bot={bot} />}
+          {windowedMessages.length === 0 && !bot.busy && (bot.awaitingThreadSnapshot ? <ChatLoading /> : <EmptyChat bot={bot} />)}
           <ExchangeThreadContext.Provider value={exchangeThread}>
             <ChatRowsContext.Provider value={rows}>
               <DraftContext.Provider value={drafts}>
@@ -1243,7 +1187,6 @@ export function ChatView({ bot: profile }: { bot: Bot }) {
                   transcript={messages}
                   plan={plan}
                   lookups={lookups}
-                  place={place}
                   today={localDay(Date.now())}
                   emergingId={popping}
                   canRetryLast={!bot.busy && Boolean(lastUserMessage)}
@@ -1271,31 +1214,7 @@ export function ChatView({ bot: profile }: { bot: Bot }) {
               </button>
             </div>
           )}
-          <TurnPresence
-            threadId={bot.threadId}
-            botId={bot.id}
-            color={bot.color}
-            bodyId={bot.mascotBody}
-            selection={bot.modelSelection}
-            avatar={
-              <BotAvatar
-                bot={bot}
-                state={turnState(messages)}
-                size={36}
-                forward={false}
-                lookAround={1}
-                trackPointer={false}
-              />
-            }
-            visible={presenceVisible}
-            label={live.spoken ?? undefined}
-            kind={live.kind}
-            answering={popping !== null}
-            since={busySince}
-            steps={steps}
-            updates={updates}
-          />
-          <DogPlan plan={bot.plan} working={waiting} since={bot.busy ? bot.turnStartedAt ?? null : null} />
+          <ChatWorkLine bot={bot} working={waiting && popping === null} onOpenDog={openDog} fallback={fallbackStep} face={turnState(messages)} />
         </div>
       </div>
 
@@ -1333,10 +1252,16 @@ export function ChatView({ bot: profile }: { bot: Bot }) {
       ))}
 
       <div ref={composerDockRef} className="pointer-events-none absolute inset-x-0 bottom-0 z-[2]">
+      <div data-composer-column className="mx-auto w-full max-w-[672px]">
       <LiveCallBar bot={bot} />
       {!takeoverOpen && <NeedsYouRow botId={bot.id} name={bot.name} />}
       <PaneErrorLine panes={[chatPane(bot.threadId)]} look="tray" />
       <RunningOnLine messages={thread} threadId={bot.threadId} />
+      {dockedQuestion && canWrite !== false && (
+        <div data-docked-question={dockedQuestion.id} className="pointer-events-auto px-5 pb-2">
+          <QuestionCard threadId={bot.threadId} message={dockedQuestion} />
+        </div>
+      )}
       {canWrite === false ? (
         <p className="pointer-events-auto mx-5 mb-4 rounded-2xl border border-hairline/60 bg-raised px-4 py-3 text-[13px] text-ink-secondary" data-testid="cloud-guest-composer">{t("chat.cloudGuest.notYours")}</p>
       ) : (
@@ -1360,66 +1285,12 @@ export function ChatView({ bot: profile }: { bot: Bot }) {
       />
       )}
       </div>
+      </div>
       </GlassScrollFrame>
 
     </main>
-  );
-}
-
-function ChatHeaderMenu({ bot, messages }: { bot: Bot; messages: readonly Message[] }) {
-  const dispatch = useStoreDispatch();
-  const [copyStatus, setCopyStatus] = useState<"copied" | "failed" | null>(null);
-  const hasMessages = messages.length > 0;
-  const transcript = () => formatTranscriptMarkdown({ title: bot.name, messages, botName: bot.name, isGroup: false });
-  const items: SidebarMenuItem[] = [
-    {
-      key: "new",
-      label: t("chat.newConversation"),
-      icon: <MessageSquarePlus size={16} />,
-      disabled: !hasMessages,
-      onSelect: () => {
-        void startNewConversation(bot.id)
-          .then((threadId) => dispatch({ type: "openTask", botId: bot.id, threadId }))
-          .catch(() => window.alert(t("chat.newConversationFailed")));
-      },
-    },
-    {
-      key: "copy",
-      heading: t("chat.export.heading"),
-      label: t("chat.export.copy"),
-      icon: <Copy size={16} />,
-      disabled: !hasMessages,
-      keepOpen: true,
-      trailing: copyStatus && <span role="status" className="text-[11px] text-ink-secondary">{t(copyStatus === "copied" ? "chat.export.copied" : "chat.export.copyFailed")}</span>,
-      onSelect: () => { void copyTranscriptToClipboard(transcript()).then((ok) => setCopyStatus(ok ? "copied" : "failed")); },
-    },
-    {
-      key: "download",
-      label: t("chat.export.download"),
-      icon: <Download size={16} />,
-      disabled: !hasMessages,
-      onSelect: () => downloadMarkdownTranscript(slugifyTranscriptFilename(bot.name), transcript()),
-    },
-  ];
-  return (
-    <SidebarPopoverMenu
-      items={items}
-      ariaLabel={t("chat.more")}
-      openOnHover
-      placement="below"
-      renderTrigger={({ open }) => (
-        <span
-          data-testid="chat-more"
-          className={cn(
-            "flex rounded-md p-1.5 hover:bg-raised",
-            open ? "text-accent" : "text-ink-secondary hover:text-ink",
-          )}
-          title={t("chat.more")}
-        >
-          <MoreHorizontal size={18} />
-        </span>
-      )}
-    />
+    <WorkPanel botId={bot.id} botName={bot.name} />
+    </>
   );
 }
 

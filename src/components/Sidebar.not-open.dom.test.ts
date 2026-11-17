@@ -85,16 +85,17 @@ describe("the sidebar row of a dog that is not open", () => {
     expect(row("scout").querySelector('[data-status="unread"]')).toBeNull();
   });
 
-  it("shows the working dots and says Working when that dog starts a turn, and draws no other row for it", async () => {
+  it("shows the green dot and says Working on it when that dog starts a turn, and draws no other row for it", async () => {
     expect(await move((state) => withDog(state, "scout", { busy: true, activity: "working" }))).toEqual(["Scout"]);
-    expect(row("scout").getAttribute("aria-label")).toBe("Scout · Working");
-    expect(row("scout").querySelectorAll('[role="status"] .animate-status-pulse')).toHaveLength(3);
+    expect(row("scout").getAttribute("aria-label")).toBe("Scout · Working on it");
+    expect(row("scout").querySelectorAll('[data-row-dot="working"]')).toHaveLength(1);
+    expect(row("scout").querySelector(".animate-status-pulse")).toBeNull();
   });
 
   it("stays working while its reply streams", async () => {
     await move((state) => withDog(state, "scout", { messages: [said("s1", "Looking")] }));
     await move((state) => withDog(state, "scout", { messages: [said("s1", "Looking at the notes now.")] }));
-    expect(row("scout").getAttribute("aria-label")).toBe("Scout · Working");
+    expect(row("scout").getAttribute("aria-label")).toBe("Scout · Working on it");
     expect(row("atlas").getAttribute("aria-current")).toBe("page");
   });
 

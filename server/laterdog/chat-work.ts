@@ -1,0 +1,41 @@
+import type { BotActivity, WireWaitingOn } from "../../shared/wire.ts";
+import type { RoomHandoff } from "../room-handoffs.ts";
+
+const ENDED: ReadonlySet<RoomHandoff["status"]> = new Set(["completed", "failed", "cancelled"]);
+
+export interface HandoffWait {
+  waitingForTeammates: boolean;
+  waitingOn?: WireWaitingOn[];
+}
+
+export function handoffWait(busy: boolean, handoffOpen: boolean, awaited: () => WireWaitingOn[]): HandoffWait {
+  if (busy || !handoffOpen) return { waitingForTeammates: false };
+  return { waitingForTeammates: true, waitingOn: awaited() };
+}
+
+export function handoffWorkDone(threadId: string, nodes: Iterable<RoomHandoff>, personAt: number | undefined): boolean {
+  let latest: RoomHandoff | undefined;
+  for (const node of nodes) {
+    if (node.groupId || node.threadId !== threadId || !node.parentId) continue;
+    if (!latest || node.createdAt > latest.createdAt) latest = node;
+  }
+  if (!latest || (personAt !== undefined && personAt > latest.createdAt)) return false;
+  return ENDED.has(latest.status);
+}
+
+export interface OlderWorkFields {
+  activity?: BotActivity;
+  waitingForTeammates: boolean;
+  waitingOn?: WireWaitingOn[];
+  helpersWorking?: number;
+}
+
+export function olderWorkFields(busy: boolean, activity: BotActivity | undefined, handoff: HandoffWait, helpers = 0): OlderWorkFields {
+  const helpersWorking = busy ? 0 : Math.max(0, helpers);
+  return {
+    ...(activity ? { activity } : {}),
+    waitingForTeammates: handoff.waitingForTeammates,
+    ...(handoff.waitingOn ? { waitingOn: handoff.waitingOn } : {}),
+    ...(helpersWorking ? { helpersWorking } : {}),
+  };
+}

@@ -11,8 +11,9 @@ import {
   type SecureFormCardData,
   type SecureFormField,
 } from "../../shared/secure-form.ts";
+import { onScreen, pointerTo, scaled } from "./screen-scale.ts";
 import { fitsOnOneLine } from "../../shared/bot-profile.ts";
-import { detailsFromForm, savesAsLogin, vaultAllowKey, vaultFieldPlan, vaultSite, type VaultDetails, type VaultFieldPlan, type VaultLogin } from "../../shared/vault.ts";
+import { detailsFromForm, savesAsLogin, vaultFieldPlan, vaultSite, type VaultDetails, type VaultFieldPlan, type VaultLogin } from "../../shared/vault.ts";
 
 export const SECURE_FORM_TTL_MS = 10 * 60_000;
 export const SECURE_FORM_AFTER_FILLED_MS = 2 * 60_000;
@@ -27,7 +28,7 @@ export const SECURE_FORM_TOOLS = [
   {
     name: "request_secure_form",
     description:
-      "Ask the person for details only they know (an email or username, a password, a one-time code) with a sealed Secure Form card, to sign in on this cloud computer. Open the sign-in page in the browser first; site is the host shown in its address bar, for example accounts.google.com. Ask for everything the sign-in needs in one form: the email or username and the password together, even when the site asks for the password on a later page. The values stay ready for ten minutes, so type the email, continue, then type the password from the same form. Ask again only for what can't be known up front, such as a one-time code that arrives later. Name the step plainly, for example \"Sign in to iCloud\"; when asking again after a failed try, keep the same title and say in one short line what the site said. You never see the values. End your turn right after; later.dog wakes you when they press Continue, then type each value with fill_secure_field. When they keep a login for the site in their vault and let you use it without asking, the form comes back already filled: then type each value straight away. Ask the same way for their contact details on a checkout, booking or sign-up page: one field per box on the page, each with its autocomplete name (name, given-name, family-name, email, tel, organization, street-address, address-line1, address-line2, address-level2 for the city, address-level1 for the state or region, postal-code, country-name) so they can fill it from the details saved in their vault, and optional: true on boxes the page doesn't require.",
+      "Ask the person for details only they know (an email or username, a password, a one-time code) with a sealed Secure Form card, to sign in on this cloud computer. Open the sign-in page in the browser first; site is the host shown in its address bar, for example accounts.google.com. Ask for everything the sign-in needs in one form: the email or username and the password together, even when the site asks for the password on a later page. The values stay ready for ten minutes, so type the email, continue, then type the password from the same form. Ask again only for what can't be known up front, such as a one-time code that arrives later. Name the step plainly, for example \"Sign in to iCloud\"; when asking again after a failed try, keep the same title and say in one short line what the site said. You never see the values. End your turn right after; later.dog wakes you when they press Continue, then type each value with fill_secure_field. Ask the same way for their contact details on a checkout, booking or sign-up page: one field per box on the page, each with its autocomplete name (name, given-name, family-name, email, tel, organization, street-address, address-line1, address-line2, address-level2 for the city, address-level1 for the state or region, postal-code, country-name) so they can fill it from the details saved in their vault, and optional: true on boxes the page doesn't require.",
     inputSchema: {
       type: "object",
       properties: {
@@ -191,16 +192,18 @@ export class SecureFormVault {
 
 const quote = (value: string) => "'" + value.replace(/'/g, "'\\''") + "'";
 
-export function secureFillCommand(input: { host: string; x: number; y: number; value: string; submit: boolean }): string {
+export function secureFillCommand(input: { host: string; x: number; y: number; value: string; submit: boolean; fullSize?: boolean }): string {
   const { host, x, y } = input;
   if (!Number.isInteger(x) || !Number.isInteger(y) || !/^[a-z0-9.-]+$/.test(host)) throw new RangeError("invalid secure fill target");
   const encoded = Buffer.from(input.value, "utf8").toString("base64");
-  return [
+  return scaled([
+    `SX=${onScreen(x)}`,
+    `SY=${onScreen(y)}`,
     "w=$(xdotool getactivewindow 2>/dev/null) || exit 3",
     "c=$(xprop -id \"$w\" WM_CLASS 2>/dev/null | head -n 1)",
     "printf '%s\\n' \"$c\" | grep -qiE '\"(chromium|chromium-browser|google-chrome|chrome|firefox|firefox-esr|navigator)\"' || exit 4",
     "eval \"$(xdotool getwindowgeometry --shell \"$w\" 2>/dev/null | grep -E '^(X|Y|WIDTH|HEIGHT)=-?[0-9]+$')\"",
-    `[ -n "$WIDTH" ] && [ ${x} -ge "$X" ] && [ ${x} -lt $((X + WIDTH)) ] && [ ${y} -ge $((Y + ${SECURE_TOOLBAR_PX})) ] && [ ${y} -lt $((Y + HEIGHT)) ] || exit 8`,
+    `[ -n "$WIDTH" ] && [ "$SX" -ge "$X" ] && [ "$SX" -lt $((X + WIDTH)) ] && [ "$SY" -ge $((Y + ${SECURE_TOOLBAR_PX})) ] && [ "$SY" -lt $((Y + HEIGHT)) ] || exit 8`,
     "printf '' | xclip -selection clipboard",
     "xdotool key --clearmodifiers ctrl+l",
     "sleep 0.3",
@@ -212,7 +215,7 @@ export function secureFillCommand(input: { host: string; x: number; y: number; v
     "case \"$u\" in https://*) ;; http://*) exit 6;; *) exit 5;; esac",
     "h=${u#https://}; h=${h%%[/?#]*}; h=${h##*@}; h=${h%%:*}; h=$(printf %s \"$h\" | tr 'A-Z' 'a-z'); h=${h%.}",
     `case "$h" in ${quote(host)}|*.${quote(host)}) ;; *) printf 'HOST=%s\\n' "$h"; exit 7;; esac`,
-    `xdotool mousemove --sync ${x} ${y} click 1 || exit 9`,
+    `{ ${pointerTo(x, y)}; } && xdotool click 1 || exit 9`,
     "sleep 0.2",
     "[ \"$(xdotool getactivewindow 2>/dev/null)\" = \"$w\" ] || exit 10",
     "xdotool key --clearmodifiers ctrl+a",
@@ -226,7 +229,7 @@ export function secureFillCommand(input: { host: string; x: number; y: number; v
     "[ \"$s\" = 0 ] || exit 11",
     ...(input.submit ? ["sleep 0.2", "xdotool key --clearmodifiers Return"] : []),
     "exit 0",
-  ].join("\n");
+  ].join("\n"), input.fullSize);
 }
 
 const NOT_CONFIRMED = "Typing did not finish, so the field may be empty or partly filled. Take a screenshot to check the page.";
@@ -261,14 +264,14 @@ export function secureFillProblem(exitCode: number | null, stdout: string, formH
 }
 
 export interface SecureFormDesk {
-  open(input: SecureFormInput): { formId: string; filled?: SecureFormCardData } | { error: string };
+  open(input: SecureFormInput): { formId: string } | { error: string };
   field(formId: string, fieldId: string): { ok: true; host: string; label: string; value: string } | { ok: false; text: string };
   typed(formId: string, fieldId: string): { last: boolean };
 }
 
 export type SecureFillRun = (command: string) => Promise<{ ok: boolean; exitCode: number | null; stdout: string }>;
 
-export async function fillSecureField(args: Record<string, unknown>, desk: SecureFormDesk, run: SecureFillRun): Promise<{ ok: boolean; text: string }> {
+export async function fillSecureField(args: Record<string, unknown>, desk: SecureFormDesk, run: SecureFillRun, fullSize = false): Promise<{ ok: boolean; text: string }> {
   const formId = String(args.form_id ?? "");
   const field = String(args.field_id ?? "");
   const x = Number(args.x);
@@ -279,7 +282,7 @@ export async function fillSecureField(args: Record<string, unknown>, desk: Secur
   if (!slot.ok) return { ok: false, text: slot.text };
   let result: Awaited<ReturnType<SecureFillRun>>;
   try {
-    result = await run(secureFillCommand({ host: slot.host, x, y, value: slot.value, submit }));
+    result = await run(secureFillCommand({ host: slot.host, x, y, value: slot.value, submit, fullSize }));
   } catch {
     return { ok: false, text: NOT_CONFIRMED };
   }
@@ -301,15 +304,6 @@ export function secureFormRequestedText(formId: string): string {
     "End this turn now with one short, friendly line, for example: \"Tap Open, fill in your details, then tap Continue.\"",
     "Never ask for passwords or codes in chat.",
     "later.dog wakes you when they press Continue; then type each value with fill_secure_field.",
-  ].join(" ");
-}
-
-export function secureFormFilledText(card: SecureFormCardData, formId: string): string {
-  const fields = card.fields.map((field) => `${field.id} (${field.label})`).join(", ");
-  return [
-    `The person keeps a login for ${card.host} in their vault and lets you use it without asking, so this Secure Form is already filled (form_id ${JSON.stringify(formId)}).`,
-    `Take a screenshot, then call fill_secure_field for each field: ${fields}. You never see the values.`,
-    "Set submit to true on the last field, then take a screenshot to check the result.",
   ].join(" ");
 }
 
@@ -351,8 +345,6 @@ export interface SecureFormHost {
   patch(threadId: string, messageId: string, card: SecureFormCardData): void;
   resume(entry: { botId: string; threadId: string; messageId: string; prompt: string }): void;
   savedLogins?: SecureFormSavedLogins;
-  allows?(botId: string, threadId: string, key: string): boolean;
-  grant?(botId: string, threadId: string, key: string): void;
 }
 
 export type SecureFormSubmit =
@@ -420,7 +412,6 @@ export class SecureForms {
     if (!login || vaultSite(card.host) !== login.site) return { ok: false, status: 404, error: "That login is no longer in your vault." };
     const values = loginValues(plan, login);
     if (!values) return { ok: false, status: 400, error: "That saved login has no username to type here." };
-    if (choice.always) this.host.grant?.(botId, threadId, vaultAllowKey(login.site));
     return { ok: true, card: this.send(botId, threadId, messageId, card, values, { username: login.username }) };
   }
 
@@ -476,17 +467,6 @@ export class SecureForms {
     }
   }
 
-  private allowedLogin(botId: string, threadId: string, card: SecureFormCardData): { values: Map<string, string>; username: string } | null {
-    const vault = this.host.savedLogins;
-    const plan = vaultFieldPlan(card.fields);
-    if (!vault || !plan) return null;
-    const logins = vault.matching(card.host);
-    if (logins.length !== 1 || this.host.allows?.(botId, threadId, vaultAllowKey(logins[0]!.site)) !== true) return null;
-    const login = vault.credentials(logins[0]!.id);
-    const values = login ? loginValues(plan, login) : null;
-    return login && values ? { values, username: login.username } : null;
-  }
-
   private find(botId: string, threadId: string, messageId: string): SecureFormCardData | null {
     const owner = this.host.inThread(botId, threadId);
     if (!owner) return null;
@@ -502,7 +482,7 @@ export class SecureForms {
     this.typings.delete(key);
   }
 
-  private open(botId: string, threadId: string, input: SecureFormInput): { formId: string; filled?: SecureFormCardData } | { error: string } {
+  private open(botId: string, threadId: string, input: SecureFormInput): { formId: string } | { error: string } {
     const owner = this.host.inThread(botId, threadId);
     if (!owner) return { error: "This conversation is not available for a Secure Form." };
     for (const message of this.host.messages(threadId)) {
@@ -512,12 +492,7 @@ export class SecureForms {
       this.host.patch(threadId, message.id, { ...card, status: "superseded" });
     }
     const card: SecureFormCardData = { title: input.title, host: input.host, fields: input.fields.map(bareField), status: "open" };
-    const allowed = this.allowedLogin(botId, threadId, card);
-    if (!allowed) return { formId: this.host.append(botId, threadId, card) };
-    const filled = this.sending(card, { username: allowed.username });
-    const formId = this.host.append(botId, threadId, filled, { quiet: true });
-    this.hold(botId, threadId, formId, allowed.values);
-    return { formId, filled };
+    return { formId: this.host.append(botId, threadId, card) };
   }
 
   private field(botId: string, threadId: string, formId: string, field: string): ReturnType<SecureFormDesk["field"]> {

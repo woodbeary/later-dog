@@ -1,9 +1,9 @@
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
-import { ownerGuard, ownerGuardRequest, ownerWorkspaceRoots, systemGit, type GitLookup, type OwnerGuardContext } from "./owner-guard.ts";
+import { defaultTempRoots, ownerGuard, ownerGuardRequest, ownerWorkspaceRoots, systemGit, type GitLookup, type OwnerGuardContext } from "./owner-guard.ts";
 
 const workspace = "/srv/laterdog/task-workspaces/dog-1/thread-1";
 const repo = `${workspace}/later-dog`;
@@ -14,7 +14,7 @@ const git = (current: string | null, defaults: Record<string, string> = {}): Git
 const context = (overrides: Partial<OwnerGuardContext> = {}): OwnerGuardContext => ({
   cwd: repo,
   workspaceRoots: [workspace],
-  tempRoots: ["/tmp", tmpdir()],
+  tempRoots: defaultTempRoots(),
   home: "/home/owner",
   git: git("feature/login", { origin: "main" }),
   ...overrides,
@@ -38,7 +38,7 @@ describe("the owner guard lets ordinary repository work through", () => {
     "rm -rf $TMPDIR/scratch",
     "rm -r build 2>/dev/null || true",
     "find . -name '*.log' -delete",
-    "rm notes.txt ~/old.txt",
+    "rm notes.txt",
     "pnpm build && pnpm test && pnpm release:beta",
     "cat > clean.sh <<'EOF'\nrm -rf \"$OUT\"\nrm -rf ~/\nEOF\nchmod +x clean.sh",
     "echo 'git push --force origin main'",
@@ -79,6 +79,30 @@ describe("the owner guard refuses a force-push to the default branch", () => {
   });
 });
 
+describe("the owner guard refuses a forced move of the default branch through the API", () => {
+  it.each([
+    "gh api -X PATCH repos/o/r/git/refs/heads/main -f sha=0123abc -F force=true",
+    "gh api --method PATCH repos/o/r/git/refs/heads/master -F force=true -f sha=0",
+  ])("%s", async (command) => {
+    expect((await bash(command))?.rule).toBe("force-push-default-branch");
+  });
+
+  it("refuses a forced GraphQL move it cannot place", async () => {
+    expect((await bash("gh api graphql -f query='mutation { updateRef(input:{refId:\"R\", oid:\"0\", force:true}) { clientMutationId } }'"))?.rule).toBe("force-push-default-branch");
+  });
+
+  it("refuses a forced move of the default branch by its real name when the clone knows it", async () => {
+    const trunk = { git: git("feature/login", { origin: "trunk" }) };
+    expect((await bash("gh api -X PATCH repos/o/r/git/refs/heads/trunk -F force=true -f sha=0", trunk))?.rule).toBe("force-push-default-branch");
+    expect(await bash("gh api -X PATCH repos/o/r/git/refs/heads/feature -F force=true -f sha=0", trunk)).toBeNull();
+    expect(await bash("gh api -X PATCH repos/o/r/git/refs/heads/trunk -F force=true -f sha=0", { git: git(null) })).toBeNull();
+  });
+
+  it("lets a forced move of another branch reach the person instead", async () => {
+    expect(await bash("gh api -X PATCH repos/o/r/git/refs/heads/feature -f sha=0 -F force=true")).toBeNull();
+  });
+});
+
 describe("the owner guard refuses deleting a remote repository", () => {
   it.each([
     "gh repo delete woodbeary/later-dog --yes",
@@ -100,6 +124,184 @@ describe("the owner guard refuses deleting a remote repository", () => {
   });
 });
 
+describe("cleaning inside the workspace root never asks", () => {
+  const cleanups = [
+    "find . -name '*.log' -mtime +3 -delete",
+    "find \"$PWD\" -name '*.log' -delete",
+    "find . -type f -name '*.tmp' -exec rm {} +",
+    "git clean -fdx -e .env",
+    "git clean -fd",
+    "rsync -a --delete dist/ ./",
+  ];
+
+  it.each(cleanups)("%s at the root", async (command) => {
+    expect(await bash(command, { cwd: workspace })).toBeNull();
+  });
+
+  it("holds on real folders that are not temporary", async () => {
+    const root = mkdtempSync(join(tmpdir(), "owner-guard-root-"));
+    try {
+      const work = join(root, "work");
+      mkdirSync(join(work, "logs"), { recursive: true });
+      const real = { cwd: work, workspaceRoots: [work], tempRoots: [join(root, "scratch")], home: join(root, "home") };
+      for (const command of cleanups) expect(await bash(command, real), command).toBeNull();
+      expect((await bash("rm -rf .", real))?.rule).toBe("delete-outside-workspace");
+      expect((await bash(`rm -rf ${work}`, real))?.rule).toBe("delete-outside-workspace");
+      expect((await bash(`find ${root} -name '*.log' -delete`, real))?.rule).toBe("delete-outside-workspace");
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("folders the dog is given through a link, as /tmp, /var and /home are on a Mac", () => {
+  it("compares where a delete really lands with where its folders really are", async () => {
+    const root = mkdtempSync(join(tmpdir(), "owner-guard-linked-"));
+    try {
+      const real = join(root, "real");
+      const linked = join(root, "linked");
+      mkdirSync(join(real, "work", "build"), { recursive: true });
+      mkdirSync(join(real, "tmp", "scratch"), { recursive: true });
+      mkdirSync(join(real, "home", ".npm", "_logs"), { recursive: true });
+      mkdirSync(join(real, "other"), { recursive: true });
+      symlinkSync(real, linked);
+      const work = join(linked, "work");
+      const given = { cwd: work, workspaceRoots: [work], tempRoots: [join(linked, "tmp")], home: join(linked, "home") };
+      for (const command of [
+        "rm -rf build",
+        `rm -rf ${join(linked, "tmp", "scratch")}`,
+        `rm -rf ${join(linked, "tmp", "not-made-yet")}`,
+        "rm -rf ~/.npm/_logs",
+        "rm -rf ~/.cache/pnpm",
+      ]) {
+        expect(await bash(command, given), command).toBeNull();
+      }
+      expect((await bash(`mv ${join(linked, "other")}/* ${join(linked, "tmp", "gone")}/`, given))?.rule).toBe("delete-outside-workspace");
+      expect((await bash(`rm -rf ${join(linked, "other")}`, given))?.rule).toBe("delete-outside-workspace");
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("shows the path as the dog wrote it, and where it really goes only when a link leads out", async () => {
+    const root = mkdtempSync(join(tmpdir(), "owner-guard-shown-"));
+    try {
+      const real = join(root, "real");
+      const linked = join(root, "linked");
+      mkdirSync(join(real, "work"), { recursive: true });
+      mkdirSync(join(real, "other"), { recursive: true });
+      symlinkSync(real, linked);
+      const work = join(linked, "work");
+      symlinkSync(join(real, "other"), join(work, "out"));
+      const given = { cwd: work, workspaceRoots: [work], tempRoots: [join(linked, "tmp")], home: join(linked, "home") };
+      expect((await bash(`rm -rf ${join(linked, "other")}`, given))?.message)
+        .toBe(`later.dog refused this: it deletes ${join(linked, "other")} recursively, outside this dog's workspace and /tmp.`);
+      expect((await bash("rm -rf ~/notes", given))?.message)
+        .toBe(`later.dog refused this: it deletes ${join(linked, "home", "notes")} recursively, outside this dog's workspace and /tmp.`);
+      const out = await bash("rm -rf out/", given);
+      expect(out?.message).toBe(`later.dog refused this: it deletes ${join(work, "out")} (which leads to ${join(realpathSync(real), "other")}) recursively, outside this dog's workspace and /tmp.`);
+      expect(out?.ask).toBe(`This deletes ${join(work, "out")} (which leads to ${join(realpathSync(real), "other")}) and everything in it, outside this dog's workspace and /tmp. Allow only if you want it gone.`);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("a link the dog makes at one of its own folders", () => {
+  const made = () => {
+    const root = realpathSync(mkdtempSync(join(tmpdir(), "owner-guard-made-link-")));
+    const home = join(root, "home");
+    const work = join(root, "work");
+    mkdirSync(join(home, ".ssh"), { recursive: true });
+    mkdirSync(join(home, ".laterdog", "workspaces"), { recursive: true });
+    mkdirSync(join(home, ".cache", "pnpm"), { recursive: true });
+    mkdirSync(join(root, "scratch-real", "old"), { recursive: true });
+    mkdirSync(work, { recursive: true });
+    return { root, home, work, given: { cwd: work, workspaceRoots: [work], tempRoots: [join(root, "scratch-real")], home } };
+  };
+
+  it("never widens what deletes without a card, whatever the link points at", async () => {
+    const { root, home, work, given } = made();
+    try {
+      mkdirSync(join(home, ".yarn"), { recursive: true });
+      symlinkSync(join(home, ".laterdog"), join(home, ".yarn", "cache"));
+      mkdirSync(join(home, ".bun", "install"), { recursive: true });
+      symlinkSync(home, join(home, ".bun", "install", "cache"));
+      symlinkSync("/etc", join(home, ".npm"));
+      symlinkSync(home, join(root, "scratch-link"));
+      symlinkSync(home, join(root, "work-link"));
+      const asks = async (command: string, extra: Partial<OwnerGuardContext> = {}) =>
+        expect((await bash(command, { ...given, ...extra }))?.rule, command).toBe("delete-outside-workspace");
+      await asks("rm -rf ~/.yarn/cache/*");
+      await asks("rm -rf ~/.yarn/cache/workspaces");
+      await asks("rm -rf ~/.bun/install/cache/.ssh");
+      await asks("rm -rf ~/.npm/nginx");
+      await asks(`rm -rf ${join(root, "scratch-link", ".ssh")}`, { tempRoots: [join(root, "scratch-link")] });
+      await asks(`rm -rf ${join(root, "work-link", ".ssh")}`, { cwd: join(root, "work-link"), workspaceRoots: [join(root, "work-link")] });
+      expect(await bash("rm -rf ~/.cache/pnpm", given)).toBeNull();
+      expect(await bash(`rm -rf ${join(root, "scratch-real", "old")}`, given)).toBeNull();
+      expect(await bash("rm -rf build", { ...given, cwd: work })).toBeNull();
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("drops a given folder that is the root, the home, or holds the home or a workspace", async () => {
+    const { root, home, work, given } = made();
+    try {
+      for (const tempRoots of [["/"], [home], [root], [join(root, "..")]]) {
+        expect((await bash("rm -rf ~/.ssh", { ...given, tempRoots }))?.rule, tempRoots[0]).toBe("delete-outside-workspace");
+      }
+      expect((await bash("rm -rf ~/.ssh", { ...given, workspaceRoots: [work, home] }))?.rule).toBe("delete-outside-workspace");
+      expect((await bash(`rm -rf ${join(work, "x")}`, { ...given, tempRoots: [root] }))).toBeNull();
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("find following a link out of the workspace", () => {
+  it("asks with -L, -H or -follow and not without", async () => {
+    const root = mkdtempSync(join(tmpdir(), "owner-guard-find-"));
+    try {
+      const work = join(root, "work");
+      const other = join(root, "other");
+      mkdirSync(work);
+      mkdirSync(other);
+      symlinkSync(other, join(work, "link"));
+      const real = { cwd: work, workspaceRoots: [work], tempRoots: [join(root, "scratch")], home: join(root, "home") };
+      for (const command of ["find -L link -name '*.txt' -delete", "find -H link -delete", "find link -follow -name '*.txt' -delete"]) {
+        expect((await bash(command, real))?.rule, command).toBe("delete-outside-workspace");
+      }
+      expect(await bash("find link -name '*.txt' -delete", real)).toBeNull();
+      expect(await bash("find -L ./logs -name '*.txt' -delete", real)).toBeNull();
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("git clean pointed at another repository", () => {
+  it.each([
+    "git --work-tree=/srv/dogs/other --git-dir=/srv/dogs/other/.git clean -fdx",
+    "git --work-tree /srv/dogs/other --git-dir /srv/dogs/other/.git clean -fdx",
+    "git --work-tree /srv/dogs/other clean -fdx",
+    "GIT_WORK_TREE=/srv/dogs/other GIT_DIR=/srv/dogs/other/.git git clean -fdx",
+    "GIT_WORK_TREE=/srv/dogs/other git clean -fdx",
+    "git --git-dir=/srv/dogs/other/.git clean -fdx",
+    "GIT_DIR=/srv/dogs/other/.git git clean -fdx",
+    "export GIT_WORK_TREE=/srv/dogs/other; git clean -fdx",
+    "git --work-tree=$OTHER clean -fdx",
+  ])("%s asks", async (command) => {
+    expect((await bash(command, { cwd: workspace }))?.rule).toBe("delete-outside-workspace");
+  });
+
+  it("lets a work tree inside the workspace through", async () => {
+    expect(await bash(`git --work-tree=${repo} clean -fdx`, { cwd: workspace })).toBeNull();
+    expect(await bash("git --work-tree=. clean -fd", { cwd: workspace })).toBeNull();
+  });
+});
+
 describe("the owner guard refuses recursive deletes outside the workspace and /tmp", () => {
   it.each([
     ["rm -rf ~/code/old-clone", "/home/owner/code/old-clone"],
@@ -113,6 +315,10 @@ describe("the owner guard refuses recursive deletes outside the workspace and /t
     const refusal = await bash(command);
     expect(refusal?.rule).toBe("delete-outside-workspace");
     expect(refusal?.message).toBe(`later.dog refused this: it deletes ${path} recursively, outside this dog's workspace and /tmp.`);
+  });
+
+  it("asks before deleting a single file outside the workspace too", async () => {
+    expect((await bash("rm notes.txt ~/old.txt"))?.message).toBe("later.dog refused this: it deletes /home/owner/old.txt, outside this dog's workspace and /tmp.");
   });
 
   it("names a glob as written", async () => {

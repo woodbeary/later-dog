@@ -5,6 +5,7 @@ import { hex, randomToken, sha256 } from "./encoding.ts";
 import { bootstrapSecret, type HomeIdentity } from "./identity.ts";
 import { parsePairingGrant, signedPairingRequest, type PairingGrant } from "./pairing.ts";
 import { handleOwnerEmail, type OwnerMail } from "./email.ts";
+import { GOOGLE_HOST, handleGoogle, type GoogleAccounts } from "./google.ts";
 import { Handover, type HandoverPeer, type HomeStanding } from "./handover.ts";
 import { homeNamespace, otherSize, type HomeSize } from "./size.ts";
 import { authorizedState, EMAIL_HOST, forgetHomeState, handleState, STATE_HOST, stateOwner } from "./state.ts";
@@ -58,6 +59,7 @@ const BRAIN_KEY = "desk-brain";
 const BRAIN_REFRESH_MS = 5 * 60 * 1000;
 const PAIRING_OPEN_KEY = "pairing-open-until";
 const STATE_ROUTE_DEV_CODE_KEY = "state-route-dev-code";
+const GOOGLE_ROUTE_KEY = "google-route";
 const ANSWER_KEY = "answering";
 const KEEP_UP_DUE_KEY = "keep-up-due";
 const REFUSED_KEPT = 256;
@@ -79,6 +81,7 @@ export interface HomeRecord extends HomeIdentity {
   createdAt: number;
   stateToken: string;
   emailToken?: string;
+  googleToken?: string;
   includedKey?: string;
   includedAt?: number;
   includedHome?: true;
@@ -162,6 +165,7 @@ export class CloudHomeHost extends Container<Env> {
       this.deskDevices = (await ctx.storage.get<Record<string, number>>(DESK_DEVICES_KEY)) ?? {};
       this.brain = (await ctx.storage.get<DeskBrain>(BRAIN_KEY)) ?? null;
       this.pairingOpenUntil = (await ctx.storage.get<number>(PAIRING_OPEN_KEY)) ?? 0;
+      if (this.record) this.record = await this.routeGoogle(this.record);
       if (this.record) this.envVars = await this.environment(this.record);
       if (this.record) await this.routeState(this.record);
     });
@@ -172,6 +176,16 @@ export class CloudHomeHost extends Container<Env> {
     if (!always && (await this.ctx.storage.get<boolean>(STATE_ROUTE_DEV_CODE_KEY)) === devCode) return;
     await this.setOutboundByHost(STATE_HOST, "state", { token: record.stateToken, home: this.stateHome(record.machineId), ...(devCode ? { devCode: true } : {}) });
     await this.ctx.storage.put(STATE_ROUTE_DEV_CODE_KEY, devCode);
+  }
+
+  private async routeGoogle(known: HomeRecord): Promise<HomeRecord> {
+    const record = known.googleToken ? known : { ...known, googleToken: randomToken(32) };
+    if (record !== known) await this.ctx.storage.put(RECORD_KEY, record);
+    const routed = hex(await sha256(record.googleToken!));
+    if ((await this.ctx.storage.get<string>(GOOGLE_ROUTE_KEY)) === routed) return record;
+    await this.setOutboundByHost(GOOGLE_HOST, "google", { token: record.googleToken, accountId: record.accountId });
+    await this.ctx.storage.put(GOOGLE_ROUTE_KEY, routed);
+    return record;
   }
 
   private stateHome(machineId: string): string {
@@ -216,6 +230,7 @@ export class CloudHomeHost extends Container<Env> {
       LATERDOG_STATE_URL: `http://${STATE_HOST}`,
       LATERDOG_STATE_TOKEN: record.stateToken,
       ...(record.emailToken ? { LATERDOG_CLOUD_EMAIL_URL: `http://${EMAIL_HOST}/send`, LATERDOG_CLOUD_EMAIL_TOKEN: record.emailToken } : {}),
+      ...(record.googleToken ? { LATERDOG_CLOUD_GOOGLE_URL: `http://${GOOGLE_HOST}`, LATERDOG_CLOUD_GOOGLE_TOKEN: record.googleToken } : {}),
       ...(record.includedKey ? { LATERDOG_INCLUDED_KEY: record.includedKey, LATERDOG_INCLUDED_API: this.env.INCLUDED_API } : {}),
       ...(devCodeOn(this.env.DEV_CODE, record.accountId) ? { LATERDOG_DEV_CODE: "1" } : {}),
     };
@@ -237,9 +252,10 @@ export class CloudHomeHost extends Container<Env> {
       if (this.record.machineId !== identity.machineId || this.record.accountId !== identity.accountId) throw new Error("This home belongs to another account.");
       return;
     }
-    const record: HomeRecord = { ...identity, createdAt: Date.now(), stateToken: randomToken(32), emailToken: randomToken(32) };
+    const record: HomeRecord = { ...identity, createdAt: Date.now(), stateToken: randomToken(32), emailToken: randomToken(32), googleToken: randomToken(32) };
     await this.routeState(record, { always: true });
     await this.setOutboundByHost(EMAIL_HOST, "email", { token: record.emailToken, accountId: record.accountId });
+    await this.routeGoogle(record);
     await this.ctx.storage.put(RECORD_KEY, record);
     this.record = record;
     this.envVars = await this.environment(record);
@@ -981,6 +997,8 @@ CloudHomeHost.outboundHandlers = {
   },
   email: async (request: Request, env: Env, context: OutboundHandlerContext<{ token: string; accountId: string }>) =>
     handleOwnerEmail(request, context.params, env.ACCOUNTS as unknown as OwnerMail),
+  google: async (request: Request, env: Env, context: OutboundHandlerContext<{ token: string; accountId: string }>) =>
+    handleGoogle(request, context.params, env.ACCOUNTS as unknown as GoogleAccounts),
 };
 
 export class CloudHomeHostLarge extends CloudHomeHost {

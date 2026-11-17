@@ -158,7 +158,7 @@ posixOnly("authorization decisions are logged", () => {
       expect(row!.threadId).toBeTruthy();
       expect(row!.requestId).toBeTruthy();
       expect(card.card.held).toBe("This always asks you first.");
-      expect(card.card.allowSession).toBe(true);
+      expect(card.card.allowSession).toBeUndefined();
     },
     60_000,
   );

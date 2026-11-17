@@ -269,7 +269,7 @@ describe("addressed room request tree", () => {
   }));
   it("bounds fan-out and depth across the entire root", () => fixture(engine => {
     for (let i = 0; i < ROOM_HANDOFF_LIMITS.requests; i++) engine.enqueue(addr("A"), "turn", undefined, addr(`B${i}`), `work${i}`, "build");
-    expect(() => engine.enqueue(addr("A"), "turn", undefined, addr("X"), "overflow", "build")).toThrow("budget");
+    expect(() => engine.enqueue(addr("A"), "turn", undefined, addr("X"), "overflow", "build")).toThrow(`already sent ${ROOM_HANDOFF_LIMITS.requests} requests`);
     let source = addr("root2"); let parentId: string | undefined;
     for (let i = 0; i < ROOM_HANDOFF_LIMITS.depth; i++) {
       const { node } = engine.enqueue(source, "second-root", parentId, addr(`depth${i}`), "work", "build");

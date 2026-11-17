@@ -32,20 +32,20 @@ describe("Full access delivery", () => {
 });
 
 describe("autoVerdict", () => {
-  it("never uses a saved command grant to silently send on the person's behalf", () => {
+  it("never silently sends on the person's behalf below Full", () => {
     for (const mode of ["ask", "edits", "auto", "custom"] as const) {
-      expect(autoVerdict(mode, "mcp__composio__GMAIL_SEND_DRAFT", { commandAllowed: true })).toEqual({ approve: null, source: "outbound-guard" });
+      expect(autoVerdict(mode, "mcp__composio__GMAIL_SEND_DRAFT")).toEqual({ approve: null, source: "outbound-guard" });
     }
     expect(autoVerdict("full", "GMAIL_SEND_EMAIL").source).toBe("full-access");
   });
-  it("applies an explicit exact command grant without changing Full or answering questions/elevations", () => {
+  it("lets no saved command answer a request any more", () => {
+    const saved = { commandAllowed: true, requiresExplicitApproval: false };
     for (const mode of ["ask", "edits", "auto", "custom"] as const) {
-      expect(autoVerdict(mode, "Bash", { commandAllowed: true }).source).toBe("command-allowlist");
-      expect(autoVerdict(mode, "Bash", { commandAllowed: true }).approve).toBeTruthy();
-      expect(autoVerdict(mode, "Bash", { commandAllowed: true, requiresExplicitApproval: true }).approve).toBeNull();
-      expect(autoVerdict(mode, "AskUserQuestion", { commandAllowed: true }).approve).toBeNull();
+      for (const tool of ["Bash", "WebSearch"]) {
+        expect(autoVerdict(mode, tool, saved).source, `${mode} ${tool}`).not.toBe("command-allowlist");
+      }
+      expect(autoVerdict(mode, "Bash", saved).approve, mode).toBeNull();
     }
-    expect(autoVerdict("full", "Bash", { commandAllowed: true, requiresExplicitApproval: true }).source).toBe("full-access");
   });
   it("answers only for Full access, and then answers everything", () => {
     expect(autoVerdict("full", "Bash")).toEqual({ approve: "approved Bash (full access)", source: "full-access" });
@@ -95,7 +95,7 @@ describe("autoVerdict", () => {
     expect(autoVerdict("custom", "WebSearch")).toEqual({ approve: null, source: "native-approval" });
   });
 
-  it("lets Full access, a sandbox block, and a saved command beat the web-search grant", () => {
+  it("lets Full access and a sandbox block beat the web-search grant", () => {
     expect(autoVerdict("full", "WebSearch")).toEqual({
       approve: "approved WebSearch (full access)",
       source: "full-access",
@@ -103,10 +103,6 @@ describe("autoVerdict", () => {
     expect(autoVerdict("auto", "WebSearch", { requiresExplicitApproval: true })).toEqual({
       approve: null,
       source: "explicit-approval-block",
-    });
-    expect(autoVerdict("auto", "WebSearch", { commandAllowed: true })).toEqual({
-      approve: "approved WebSearch (saved command)",
-      source: "command-allowlist",
     });
   });
 });

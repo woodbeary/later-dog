@@ -25,6 +25,11 @@ vi.mock("./DesktopCapabilities", async (importOriginal) => ({
 }));
 vi.mock("@/lib/analytics", () => ({ track: vi.fn() }));
 vi.mock("./ModelPicker", () => ({ ModelPicker: () => null }));
+const folded = vi.hoisted(() => ({ props: [] as Array<Record<string, unknown>> }));
+vi.mock("./FoldLine", async (importOriginal) => {
+  const original = await importOriginal<typeof import("./FoldLine")>();
+  return { ...original, FoldLine: (props: Parameters<typeof original.FoldLine>[0]) => { folded.props.push({ ...props }); return original.FoldLine(props); } };
+});
 
 const { ChatView } = await import("./ChatView");
 afterAll(() => vi.unstubAllGlobals());
@@ -50,30 +55,43 @@ const bot = (messages: Message[], busy: boolean): Bot => ({
 const render = (b: Bot) => renderToStaticMarkup(createElement(ChatView, { bot: b }));
 
 describe("a quiet chat", () => {
-  it("shows what the dog said first, one line for the work and the answer, with no screenshots", () => {
+  it("keeps everything the dog said as bubbles, with one grey sentence above the answer and no screenshots", () => {
     const markup = render(bot(transcript(true), false));
     expect(markup).toContain("Opening the sign-in page on the cloud computer.");
+    expect(markup).toContain("The page loaded, clicking Sign In now.");
     expect(markup).toContain("Tap Open on the form to sign in.");
-    expect(markup).toContain("Worked for 8s");
-    expect(markup).not.toContain("The page loaded, clicking Sign In now.");
+    expect(/data-fold-line="[^"]*"[^>]*>([\s\S]*?)<\/button>/.exec(markup)![1].replace(/<[^>]+>/g, "")).toBe("Looked at the screen 2 times, did something");
+    expect(markup).not.toContain("Worked for");
     expect(markup).not.toContain("/attachments/shot.png");
-    expect(markup.indexOf("Worked for 8s")).toBeLessThan(markup.indexOf("Tap Open on the form to sign in."));
+    expect(markup.indexOf("Looked at the screen 2 times")).toBeLessThan(markup.indexOf("Tap Open on the form to sign in."));
+    expect(markup.indexOf("The page loaded")).toBeLessThan(markup.indexOf("Looked at the screen 2 times"));
   });
 
-  it("keeps progress talk out of the chat while the dog is still working", () => {
+  it("keeps what the dog says while it works, and no fold until the turn ends", () => {
     const live = transcript(false).slice(0, -1);
     const markup = render(bot(live, true));
     expect(markup).toContain("Opening the sign-in page on the cloud computer.");
-    expect(markup).not.toContain("The page loaded, clicking Sign In now.");
+    expect(markup).toContain("The page loaded, clicking Sign In now.");
+    expect(markup).not.toContain("data-fold-line");
     expect(markup).not.toContain("/attachments/shot.png");
   });
 
-  it("shows every step when step updates are on", () => {
+  it("hands the fold a run id only when the turn has a native run, never the turn's own id", () => {
+    folded.props.length = 0;
+    render(bot(transcript(true), false));
+    expect(folded.props).toHaveLength(1);
+    expect(folded.props[0]).toMatchObject({ threadId: "t1" });
+    expect(folded.props[0].runId).toBeUndefined();
+  });
+
+  it("shows the fold with no setting, and the old step setting changes nothing", () => {
     view.showToolCalls = true;
     try {
-      const markup = render(bot(transcript(false).slice(0, -1), true));
-      expect(markup).toContain("The page loaded, clicking Sign In now.");
-      expect(markup).toContain("/attachments/shot.png");
+      const markup = render(bot(transcript(true), false));
+      expect(markup).toContain("data-fold-line");
+      expect(markup).not.toContain("/attachments/shot.png");
+      expect(markup).not.toContain("mcp__computer__click");
+      expect(markup).not.toContain('data-testid="tool-activity"');
     } finally {
       view.showToolCalls = false;
     }

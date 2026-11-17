@@ -8,6 +8,7 @@ import { withToolLoading } from "../laterdog/tool-loading.ts";
 const AVAILABLE_TOOLS = withToolLoading(availableTools(catalogProfileFromEnv(process.env)), process.env);
 const CONTEXT = toolCallContextFromEnv(process.env);
 
+const running = new Map<unknown, AbortController>();
 const send = (msg: Json) => process.stdout.write(JSON.stringify(msg) + "\n");
 const ok = (id: unknown, result: unknown) => send({ jsonrpc: "2.0", id, result });
 const rpcErr = (id: unknown, code: number, message: string) => send({ jsonrpc: "2.0", id, error: { code, message } });
@@ -27,8 +28,10 @@ async function handle(msg: Json) {
         serverInfo: { name: "laterdog-agents", version: "0.1.0" },
       });
       return;
-    case "notifications/initialized":
     case "notifications/cancelled":
+      running.get(params.requestId)?.abort();
+      return;
+    case "notifications/initialized":
       return;
     case "ping":
       ok(id, {});
@@ -39,12 +42,16 @@ async function handle(msg: Json) {
     case "tools/call": {
       const name = params.name as string;
       if (!AVAILABLE_TOOLS.some((t) => t.name === name)) return rpcErr(id, -32602, `Unknown tool: ${name}`);
+      const controller = new AbortController();
+      running.set(id, controller);
       try {
-        const { text, isError, passthrough } = await callTool(name, (params.arguments ?? {}) as Json, withToolUseId(CONTEXT, params._meta));
+        const { text, isError, passthrough } = await callTool(name, (params.arguments ?? {}) as Json, { ...withToolUseId(CONTEXT, params._meta), signal: controller.signal });
         if (passthrough) ok(id, passthrough);
         else textResult(id, name === "tool_result_read" ? text : await capResult(text, CONTEXT), isError);
       } catch (e) {
         textResult(id, await capResult((e as Error).message, CONTEXT), true);
+      } finally {
+        running.delete(id);
       }
       return;
     }

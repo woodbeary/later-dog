@@ -58,11 +58,11 @@ const bot: Bot = {
 };
 
 describe("the header", () => {
-  it("has a More menu with a new conversation and the export, no usage, and no computer button", () => {
+  it("has one \u2026 menu with a new conversation, Find and the export, no usage, and no computer button", () => {
     fixture.menus = [];
     const markup = renderToStaticMarkup(createElement(ChatView, { bot }));
     const more = fixture.menus.find((menu) => menu.ariaLabel === "More")!;
-    expect(more.items.map((item) => item.key)).toEqual(["new", "copy", "download"]);
+    expect(more.items.map((item) => item.key)).toEqual(["new", "find", "copy", "download"]);
     expect(more.items.find((item) => item.key === "copy")?.heading).toBe("Share");
     expect(markup).not.toContain('data-tour="computer"');
     expect(markup).not.toContain('data-testid="usage-chip"');
@@ -82,9 +82,9 @@ describe("header name", () => {
   it("centres the bot in the header's middle column, with the controls in the last", () => {
     const markup = renderToStaticMarkup(createElement(ChatView, { bot }));
     const row = markup.match(/data-chathead-row="true" class="([^"]*)"/)?.[1] ?? "";
-    expect(row).toContain("@min-[30rem]/chathead:grid-cols-[minmax(0,1fr)_minmax(0,auto)_minmax(max-content,1fr)]");
-    expect(markup).toMatch(/data-chathead-identity="true" class="[^"]*@min-\[30rem\]\/chathead:col-start-2[^"]*justify-self-center/);
-    expect(markup).toMatch(/data-chathead-controls="true" class="[^"]*@min-\[30rem\]\/chathead:col-start-3/);
+    expect(row.split(" ")).toContain("grid-cols-[minmax(0,1fr)_minmax(0,auto)_minmax(max-content,1fr)]");
+    expect(markup).toMatch(/data-chathead-identity="true" class="[^"]*\bcol-start-2\b[^"]*justify-self-center/);
+    expect(markup).toMatch(/data-chathead-controls="true" class="[^"]*\bcol-start-3\b/);
   });
 });
 
@@ -94,11 +94,12 @@ describe("a working dog in the header and the chat", () => {
   const pill = (markup: string) => markup.match(/<button[^>]*data-chathead-pill="true"[^>]*>[\s\S]*?<\/button>/)?.[0] ?? "";
   const moods = (markup: string) => [...markup.matchAll(/data-mood="([a-z]+)"/g)].map((match) => match[1]);
 
-  it("holds a still face in the header with no work dot, and leaves Stop to the composer", () => {
+  it("holds a still face in the header with a green dot while it works, and leaves Stop to the composer", () => {
     const markup = renderToStaticMarkup(createElement(ChatView, { bot: working() }));
     expect(pill(markup)).not.toContain("data-status=");
     expect(pill(markup)).toContain("data-paused");
     expect(pill(markup)).not.toContain("animate-status-pulse");
+    expect(pill(markup)).toContain("data-working-dot");
     expect(markup.match(/Stop this turn/g)).toHaveLength(1);
     expect(pill(renderToStaticMarkup(createElement(ChatView, { bot })))).not.toContain("working-dot");
   });
@@ -115,9 +116,10 @@ describe("a working dog in the header and the chat", () => {
     expect(pill(markup)).toContain("bg-waiting");
   });
 
-  it("stops a wait on other dogs from the composer as well", () => {
+  it("says no status sentence in the header, and stops a wait on other dogs from the composer", () => {
     const markup = renderToStaticMarkup(createElement(ChatView, { bot: inThread({ waitingForTeammates: true }) }));
-    expect(markup).toContain("Other dogs working");
+    expect(markup).not.toContain("Other dogs working");
+    expect(markup.slice(markup.indexOf("data-chathead"), markup.indexOf('class="glass-scroller '))).not.toContain('role="status"');
     expect(pill(markup)).not.toContain("working-dot");
     expect(markup.match(/Stop this turn/g)).toHaveLength(1);
   });
@@ -151,7 +153,7 @@ describe("thread control placement", () => {
   it("leaves All threads to the sidebar", () => {
     const markup = renderToStaticMarkup(createElement(ChatView, { bot }));
     expect(markup).not.toContain('aria-label="All threads"');
-    expect(markup).toContain('data-testid="chat-find"');
+    expect(markup).not.toContain('data-testid="chat-find"');
     expect(markup).toContain('data-testid="chat-more"');
   });
 
@@ -335,15 +337,40 @@ describe("thread control placement", () => {
     expect(markup).not.toMatch(/class="[^"]*chat-text[^"\n]*bg-bubble-user/);
   });
 
-  it("wraps the header into a name line and a chip line when the column is narrow", () => {
+  it("keeps the pill centred and the … on the same row however narrow the chat is, as with the work panel open", () => {
     const markup = renderToStaticMarkup(createElement(ChatView, { bot: { ...bot, busy: false } }));
-    expect(markup).toContain("@container/chathead");
     const row = /data-chathead-row="[^"]*" class="([^"]*)"/.exec(markup)!;
-    expect(row[1].split(" ")).toContain("@max-[30rem]/chathead:flex-wrap");
+    expect(row[1].split(" ")).toEqual(expect.arrayContaining(["grid", "grid-cols-[minmax(0,1fr)_minmax(0,auto)_minmax(max-content,1fr)]", "items-center"]));
+    expect(row[1]).not.toContain("wrap");
     const identity = /data-chathead-identity="[^"]*" class="([^"]*)"/.exec(markup)!;
-    expect(identity[1].split(" ")).toEqual(expect.arrayContaining(["min-w-0", "@max-[30rem]/chathead:basis-full"]));
+    expect(identity[1].split(" ")).toEqual(expect.arrayContaining(["min-w-0", "col-start-2", "justify-self-center"]));
+    expect(identity[1]).not.toContain("basis-full");
     const controls = /data-chathead-controls="[^"]*" class="([^"]*)"/.exec(markup)!;
-    expect(controls[1].split(" ")).toEqual(expect.arrayContaining(["shrink-0", "@max-[30rem]/chathead:ml-auto", "@max-[30rem]/chathead:flex-wrap"]));
+    expect(controls[1].split(" ")).toEqual(expect.arrayContaining(["shrink-0", "col-start-3", "justify-self-end"]));
+    expect(controls[1]).not.toContain("wrap");
+  });
+
+  it("docks an open question above the composer at its width, and keeps it out of the transcript", () => {
+    const ask = { id: "q", role: "bot", kind: "options", at: 2, parentId: "hi", card: { title: "Question", subtitle: "", options: [], requestId: "req-q", requestType: "question", questionRequest: { version: 1, questions: [{ question: "Which colour should the logo be?", options: [{ label: "Green" }, { label: "Blue" }] }] } } } as unknown as Message;
+    const hi = { id: "hi", role: "user", kind: "text", text: "Make me a logo", at: 1 } as Message;
+    const markup = renderToStaticMarkup(createElement(ChatView, { bot: { ...bot, busy: false, messages: [hi, ask], activeLeafId: "q" } }));
+    const column = markup.indexOf("data-composer-column");
+    const question = markup.indexOf("Which colour should the logo be?");
+    expect(column).toBeGreaterThan(-1);
+    expect(question).toBeGreaterThan(column);
+    const log = /role="log"[\s\S]*?data-composer-column/.exec(markup)![0];
+    expect(log).not.toContain("Which colour should the logo be?");
+    expect(/data-docked-question="[^"]*" class="([^"]*)"/.exec(markup)![1].split(" ")).toContain("px-5");
+  });
+
+  it("centres one 632 column for the transcript and the composer: 672 with their 20 padding each side", () => {
+    const markup = renderToStaticMarkup(createElement(ChatView, { bot: { ...bot, busy: false } }));
+    const log = /class="([^"]*)"[^>]*role="log"/.exec(markup)!;
+    expect(log[1].split(" ")).toEqual(expect.arrayContaining(["mx-auto", "w-full", "max-w-[672px]", "px-5"]));
+    const scroller = /class="(glass-scroller [^"]*)"/.exec(markup)!;
+    expect(scroller[1].split(" ")).not.toContain("px-5");
+    const dock = /data-composer-column="[^"]*" class="([^"]*)"/.exec(markup)!;
+    expect(dock[1].split(" ")).toEqual(expect.arrayContaining(["mx-auto", "w-full", "max-w-[672px]"]));
   });
 
   it("shows no crown or main dog label in the chat header", () => {

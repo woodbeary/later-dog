@@ -33,3 +33,23 @@ it("draws an item's attention dot on the item itself, in its tone", () => {
   expect(item("Settings")).not.toMatch(/rounded-full bg-(accent|danger)/);
   expect(html.split('role="menu"')[0]).not.toMatch(/rounded-full bg-(accent|danger)/);
 });
+
+it("marks an on item with a trailing check and no fill of its own, and an off item with neither, both lit only on hover", () => {
+  const html = render([
+    { key: "quiet", label: "Quiet for an hour", active: true, onSelect: () => {} },
+    { key: "settings", label: "Settings", onSelect: () => {} },
+  ]);
+  const row = (label: string) => html.match(new RegExp(`<button[^>]*>(?:(?!</button>).)*>${label}</span>(?:(?!</button>).)*</button>`))?.[0] ?? "";
+  const on = row("Quiet for an hour");
+  const off = row("Settings");
+  expect(on).toContain('role="menuitemcheckbox"');
+  expect(on).toContain('aria-checked="true"');
+  expect(on).toContain("data-menu-check");
+  expect(on).toMatch(/class="[^"]*hover:bg-menu-row/);
+  expect(on).not.toMatch(/class="[^"]*(?<!hover:)bg-menu-row/);
+  expect(off).toContain('role="menuitem"');
+  expect(off).not.toContain("aria-checked");
+  expect(off).not.toContain("data-menu-check");
+  expect(off).toMatch(/class="[^"]*hover:bg-menu-row/);
+  expect(off).not.toMatch(/class="[^"]*(?<!hover:)bg-menu-row/);
+});

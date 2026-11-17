@@ -112,9 +112,8 @@ describe("ClaudeDriver.decodeConfig", () => {
     const plain = claudeHookSettings("/tmp/helper.ts");
     expect(plain).not.toHaveProperty("PreToolUse");
     const guarded = claudeHookSettings("/tmp/helper.ts", { guardShell: true }) as Record<string, Array<{ matcher: string; hooks: Array<{ command: string }> }>>;
-    expect(guarded.PreToolUse).toHaveLength(1);
-    expect(guarded.PreToolUse![0]!.matcher).toBe("Bash");
-    expect(guarded.PreToolUse![0]!.hooks[0]!.command).toBe(guarded.PostToolUse![0]!.hooks[0]!.command);
+    expect(guarded.PreToolUse!.map((entry) => entry.matcher)).toEqual(["Bash", "Write", "Edit", "MultiEdit", "NotebookEdit"]);
+    for (const entry of guarded.PreToolUse!) expect(entry.hooks[0]!.command).toBe(guarded.PostToolUse![0]!.hooks[0]!.command);
   });
 
   it("keeps the per-turn hook token where workspace backups never look", () => {
@@ -876,7 +875,7 @@ describe("ClaudeDriver turns (fake CLI)", () => {
       const seen = JSON.parse(readFileSync(dump, "utf8"));
       expect(seen.argv[seen.argv.indexOf("--model") + 1]).toBe(model);
       expect(seen.argv[seen.argv.indexOf("--permission-mode") + 1]).toBe(nativeMode);
-      expect(seen.argv.includes("--permission-prompt-tool")).toBe(approvalMode !== "full");
+      expect(seen.argv[seen.argv.indexOf("--permission-prompt-tool") + 1]).toBe("mcp__dog__approve");
       expect(seen.argv).toContain("--resume");
     }
   });
@@ -3747,7 +3746,7 @@ describe("ClaudeDriver turns (fake CLI)", () => {
     });
     expect(opened).toHaveProperty("approvalScope", undefined);
 
-    expect(opened).toHaveProperty("allowSession", true);
+    expect((opened as { allowSession?: boolean }).allowSession).toBeUndefined();
     await expect(instance.adapter.respondToRequest("t-perm-abc", "ask-1", { behavior: "allow", always: true })).resolves.toBe("allowed-once");
     expect(await answered).toMatchObject({ behavior: "allow", always: true });
     const resolved = await recorder.until((e) => e.type === "request.resolved");
@@ -3767,7 +3766,7 @@ describe("ClaudeDriver turns (fake CLI)", () => {
     );
     const opened2 = await recorder.until((e) => e.requestId === "ask-2" && e.type === "request.opened");
     expect(opened2).toHaveProperty("approvalScope", "local-computer");
-    expect(opened2).toHaveProperty("allowSession", undefined);
+    expect((opened2 as { allowSession?: boolean }).allowSession).toBeUndefined();
     await expect(instance.adapter.respondToRequest("t-perm-abc", "ask-2", { behavior: "allow" })).resolves.toBe("allowed-once");
     const plain = await answered2;
     expect(plain).toMatchObject({ behavior: "allow" });

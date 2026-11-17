@@ -435,6 +435,20 @@ const useCloudComputer = () => {
     is_error: Boolean(reply.error || reply.result?.isError), content: reply.result?.content ?? reply.error?.message ?? "" }] } });
 };
 
+const runOnComputer = async (file: string, said: string) => {
+  const told = /run_id "([0-9a-f]{8})"/.exec(said)?.[1];
+  let args: Record<string, unknown>;
+  if (told) args = { run_id: told };
+  else try { args = JSON.parse(readFileSync(file, "utf8")) as Record<string, unknown>; } catch { return; }
+  launchFiles ??= readLaunchFiles();
+  const agents = (launchFiles.mcpConfig as { mcpServers?: Record<string, { command?: string; args?: string[]; env?: Record<string, string> }> } | null)?.mcpServers?.agents;
+  if (!agents?.command) return;
+  const id = `tu-${process.pid}-${++toolUseCount}`;
+  out({ type: "assistant", message: { content: [{ type: "tool_use", id, name: "mcp__agents__run_on_computer", input: args }] } });
+  const text = await callDogTool(agents, "run_on_computer", args);
+  out({ type: "user", message: { content: [{ type: "tool_result", tool_use_id: id, is_error: false, content: text }] } });
+};
+
 const playPuppies = createPuppies({
   out,
   init: () => out({ type: "system", subtype: "init", session_id: sessionId, model, permissionMode, tools }),
@@ -627,8 +641,13 @@ const playTurn = async (prompt: JsonValue, late = false) => {
     roomTurnsPlayed += 1;
     const compactContext = process.env.FAKE_CLAUDE_COMPACT === "1" && (roomTurnsPlayed >= 2 || argv.includes("--resume")) ? playNativeCompaction().trim() : "";
     const progress = (text: string) => out({ type: "assistant", message: { content: [{ type: "text", text }] } });
-    const announce = (call: { id: string; name: string; input: unknown; parentToolUseId?: string; agentId?: string }) =>
+    const announce = (call: { id: string; name: string; input: unknown; parentToolUseId?: string; agentId?: string }) => {
       out({ type: "assistant", parent_tool_use_id: call.parentToolUseId ?? null, ...(call.agentId ? { agent_id: call.agentId } : {}), message: { content: [{ type: "tool_use", id: call.id, name: call.name, input: call.input }] } });
+      if (process.env.FAKE_CLAUDE_HOOK_OUTPUT) {
+        const hook = runHooks("PostToolUse", { tool_name: call.name, tool_input: call.input, tool_response: "ok", tool_use_id: call.id });
+        appendFileSync(process.env.FAKE_CLAUDE_HOOK_OUTPUT, `${JSON.stringify({ id: call.id, hook: hook.trim() })}\n`);
+      }
+    };
     void runRoomHandoffAgent(argv, process.env.FAKE_CLAUDE_ROOM_PLAN, prompt, undefined, progress, announce).then(text => {
       const contextTokens = Number(process.env.FAKE_CLAUDE_CONTEXT_TOKENS);
       const contextWindow = Number(process.env.FAKE_CLAUDE_CONTEXT_WINDOW);
@@ -698,6 +717,7 @@ const playTurn = async (prompt: JsonValue, late = false) => {
   }
 
   if (process.env.FAKE_CLAUDE_USES_CLOUD_COMPUTER === "1" && ASKS_FOR_SCREEN.test(steerText(prompt))) useCloudComputer();
+  if (process.env.FAKE_CLAUDE_RUN_ON_COMPUTER) await runOnComputer(process.env.FAKE_CLAUDE_RUN_ON_COMPUTER, steerText(prompt));
 
   let replyParts = nextScriptedReply();
   const defaultToolId = `tu-${process.pid}-${++toolUseCount}`;

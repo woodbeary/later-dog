@@ -24,7 +24,7 @@ const SENT_NOUNS = new Set(["MESSAGE", "COMMENT", "POST", "EMAIL", "MAIL", "INVO
 
 const READ_VERBS = new Set(["GET", "LIST", "FETCH", "SEARCH", "READ", "FIND", "RETRIEVE", "LOOKUP", "DOWNLOAD", "VIEW", "CHECK", "COUNT"]);
 
-function actionTokens(name: string): string[] {
+export function actionTokens(name: string): string[] {
   let action = name;
   if (name.startsWith("mcp__")) {
     const [, server = "", ...rest] = name.split("__");
@@ -58,25 +58,34 @@ export interface ConnectorCall {
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   Boolean(value) && typeof value === "object" && !Array.isArray(value);
 
-export function connectorCallsIn(name: string, args: unknown): ConnectorCall[] {
-  if (name === "COMPOSIO_MULTI_EXECUTE_TOOL") {
+const READABLE_SLUG = /^[A-Za-z][A-Za-z0-9]*(?:_[A-Za-z0-9]+)+$/;
+
+export function connectorCallsIn(written: string, args: unknown): ConnectorCall[] {
+  const name = written.trim();
+  const ownName = name.toUpperCase();
+  if (ownName === "COMPOSIO_MULTI_EXECUTE_TOOL") {
     const tools = isRecord(args) && Array.isArray(args.tools) ? args.tools
       : isRecord(args) && typeof args.tool_slug === "string" ? [args] : [];
     if (!tools.length) return [{ slug: "COMPOSIO_PROXY_EXECUTE", arguments: args }];
     const calls: ConnectorCall[] = [];
     for (const item of tools) {
       if (!isRecord(item)) return [{ slug: "COMPOSIO_PROXY_EXECUTE", arguments: args }];
-      const slug = [item.tool_slug, item.slug, item.name, item.tool].find((value) => typeof value === "string" && value);
-      if (typeof slug !== "string") return [{ slug: "COMPOSIO_PROXY_EXECUTE", arguments: args }];
+      const found = [item.tool_slug, item.slug, item.name, item.tool].find((value) => typeof value === "string" && value);
+      if (typeof found !== "string") return [{ slug: "COMPOSIO_PROXY_EXECUTE", arguments: args }];
+      const slug = found.trim();
+      if (/^composio_/i.test(slug) || !READABLE_SLUG.test(slug)) {
+        calls.push({ slug: "COMPOSIO_PROXY_EXECUTE", arguments: item });
+        continue;
+      }
       calls.push({ slug, ...(item.arguments !== undefined ? { arguments: item.arguments } : {}) });
     }
     return calls;
   }
-  if (name === "COMPOSIO_REMOTE_WORKBENCH" || name === "COMPOSIO_REMOTE_BASH_TOOL") {
+  if (ownName === "COMPOSIO_REMOTE_WORKBENCH" || ownName === "COMPOSIO_REMOTE_BASH_TOOL") {
     return [{ slug: "COMPOSIO_PROXY_EXECUTE", arguments: args }];
   }
-  if (["COMPOSIO_SEARCH_TOOLS", "COMPOSIO_GET_TOOL_SCHEMAS", "COMPOSIO_MANAGE_CONNECTIONS", "COMPOSIO_WAIT_FOR_CONNECTIONS"].includes(name)) return [];
-  if (name.startsWith("COMPOSIO_")) return [{ slug: "COMPOSIO_PROXY_EXECUTE", arguments: args }];
+  if (["COMPOSIO_SEARCH_TOOLS", "COMPOSIO_GET_TOOL_SCHEMAS", "COMPOSIO_MANAGE_CONNECTIONS", "COMPOSIO_WAIT_FOR_CONNECTIONS"].includes(ownName)) return [];
+  if (ownName.startsWith("COMPOSIO_")) return [{ slug: "COMPOSIO_PROXY_EXECUTE", arguments: args }];
   return [{ slug: name, ...(args !== undefined ? { arguments: args } : {}) }];
 }
 

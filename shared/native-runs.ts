@@ -17,6 +17,7 @@ export interface NativeActor {
   model?: string;
   startedAt: number;
   endedAt?: number;
+  lastActivityAt?: number;
   background?: boolean;
   ambient?: boolean;
   canStop?: boolean;
@@ -28,6 +29,7 @@ export interface NativeActivity {
   actorId: string;
   kind: NativeActivityKind;
   label: string;
+  subject?: string;
   state: NativeActorState;
   startedAt: number;
   endedAt?: number;
@@ -56,6 +58,7 @@ export interface NativeRun {
   revision: number;
   startedAt: number;
   endedAt?: number;
+  lastActivityAt?: number;
   state: NativeActorState;
   observation: "live" | "complete" | "interrupted" | "partial";
   actors: NativeActor[];
@@ -65,7 +68,7 @@ export interface NativeRun {
   truncated?: boolean;
   nativeActivity?: boolean;
   nativeParentActivity?: boolean;
-  currentActivity?: Pick<NativeActivity, "id" | "actorId" | "kind" | "label" | "state">;
+  currentActivity?: Pick<NativeActivity, "id" | "actorId" | "kind" | "label" | "state"> & Partial<Pick<NativeActivity, "startedAt">>;
 }
 
 export interface NativeRunDetail {

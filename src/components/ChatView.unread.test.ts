@@ -82,11 +82,11 @@ describe("the New line in a chat", () => {
     expect(dividers()[0]!.textContent).toBe("New");
   });
 
-  it("sits above the first visible step when tool calls are shown", () => {
+  it("keeps steps hidden even when the old tool-calls setting is on", () => {
     localStorage.setItem("laterdog-seen-at", JSON.stringify({ "pepper/pepper-thread": at(2) }));
     draw(true);
     expect(dividers()).toHaveLength(1);
-    expect(dividerRow()).toBe("m4");
+    expect(dividerRow()).toBe("m5");
   });
 
   it("is not drawn on a first visit or when everything was already seen", () => {

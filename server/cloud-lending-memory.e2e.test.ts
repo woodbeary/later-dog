@@ -7,7 +7,6 @@ import { connect } from "node:net";
 import { createInterface } from "node:readline";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { afterAll, beforeAll, expect, it } from "vitest";
-import { createComputerSharing } from "../electron/computer-sharing.mjs";
 import { cloudPairingSignature } from "./cloud-home.ts";
 import { removeTempDir, waitForExit } from "./testing/cleanup.ts";
 import { markLeftBehind } from "./testing/cloud-left-behind.ts";
@@ -24,9 +23,11 @@ let child: ChildProcess;
 let log = "";
 let owner = "";
 let boot: () => Promise<void> = async () => {};
-let connector: ReturnType<typeof createComputerSharing> | undefined;
+let connector: ReturnType<typeof import("../electron/computer-sharing.mjs").createComputerSharing> | undefined;
 let lentId = "";
 let folderId = "";
+let macHome = "";
+const runnerHome = process.env.HOME;
 const proxies: ChildProcess[] = [];
 
 async function api(method: string, path: string, options: { body?: unknown; token?: string } = {}) {
@@ -225,8 +226,10 @@ await import(${JSON.stringify(fake)});
   };
   await boot();
   owner = await adminPairing();
-  const macHome = realpathSync(mkdtempSync(join(tmpdir(), "laterdog-cloud-lent-memory-")));
+  macHome = realpathSync(mkdtempSync(join(tmpdir(), "laterdog-cloud-lent-memory-")));
   writeFileSync(join(macHome, "plan.md"), "from the Mac");
+  process.env.HOME = macHome;
+  const { createComputerSharing } = await import("../electron/computer-sharing.mjs");
   const env = { id: "my-cloud", name: "My Cloud", origin: base };
   connector = createComputerSharing({
     file: join(home, "desktop-profile", "computer-sharing.json"), environments: () => [env], cuaConnection: async () => null,
@@ -245,6 +248,7 @@ await import(${JSON.stringify(fake)});
 }, 40_000);
 
 afterAll(async () => {
+  if (runnerHome !== undefined) process.env.HOME = runnerHome;
   connector?.close();
   for (const proxy of proxies) proxy.kill();
   if (child) await waitForExit(child, { signal: "SIGTERM" });
@@ -647,7 +651,7 @@ it("no command the owner saved answers for a conversation a guest left behind: i
   expect((await cardOf(guests, first.id)).commandAllowlist).toBeUndefined();
   const folder = realpathSync(((await api("GET", "/api/bots", { token: owner })).body.bots as any[]).find((candidate) => candidate.id === bot.id).tasks.find((task: any) => task.threadId === guests).cwd);
   const saved = await api("POST", `/api/bots/${bot.id}/command-allowlist`, { token: owner, body: { command: "printf 'guest fixture'", cwd: folder, providerInstanceId: "held" } });
-  expect(saved.status, JSON.stringify(saved.body)).toBe(200);
+  expect(saved.status, JSON.stringify(saved.body)).toBe(409);
   expect((await api("POST", `/api/threads/${guests}/respond`, { token: owner, body: { requestId: first.id, behavior: "deny" } })).status).toBe(200);
   const again = await ask("printf 'guest fixture'");
   await expect.poll(async () => Boolean(await cardOf(guests, again.id))).toBe(true);
@@ -655,4 +659,40 @@ it("no command the owner saved answers for a conversation a guest left behind: i
   first.close();
   again.close();
   await stop(bot, guests);
+}, 60_000);
+
+it("keeping a Mac command's output in the vault cleans up the home's own file with no card, and a dog's delete of another file on that Mac still asks", async () => {
+  const bot = await newBot("Keeper", "held");
+  const call = await toolsFor(() => say(owner, bot, "Keep the fixture's token."));
+  const open = async () => ((await api("GET", `/api/threads/${bot.threadId}/messages`, { token: owner })).body.messages as any[])
+    .filter((message) => message.card?.requestId && !message.card.answered && !message.card.dismissed);
+  const captures = () => readdirSync(macHome).filter((name) => name.startsWith(".laterdog-vault-capture-"));
+  await macOnline();
+  const kept = call("shared_computer", { computer_id: lentId, action: "run_command", command: "printf kept-fixture", vault_capture: "fixture/KEPT", wait_seconds: 10 });
+  await expect.poll(async () => (await open()).length, { timeout: 15_000 }).toBe(1);
+  const [command] = await open();
+  expect((await api("POST", `/api/threads/${bot.threadId}/respond`, { token: owner, body: { requestId: command.card.requestId, behavior: "allow" } })).status).toBe(200);
+  let tick: ReturnType<typeof setInterval> | undefined;
+  const outcome = await Promise.race([
+    kept.then((result) => ({ result })),
+    new Promise<{ card: any }>((resolve) => {
+      tick = setInterval(() => void open().then((cards) => { if (cards.length) resolve({ card: cards[0] }); }), 200);
+    }),
+  ]);
+  clearInterval(tick);
+  expect(outcome, "the home asked the person about its own capture file").toHaveProperty("result");
+  const text = JSON.stringify((outcome as { result: any }).result);
+  expect(text).toContain("vault_saved");
+  expect(text).toContain("fixture/KEPT");
+  expect(text).not.toContain("kept-fixture");
+  expect(captures()).toEqual([]);
+  expect(await open()).toHaveLength(0);
+  writeFileSync(join(macHome, "keep.txt"), "mine");
+  const deleting = call("shared_computer", { computer_id: lentId, folder_id: folderId, action: "delete_file", path: "keep.txt" });
+  await expect.poll(async () => (await open()).length, { timeout: 15_000 }).toBe(1);
+  const [asked] = await open();
+  expect((await api("POST", `/api/threads/${bot.threadId}/respond`, { token: owner, body: { requestId: asked.card.requestId, behavior: "deny" } })).status).toBe(200);
+  expect((await deleting).isError).toBe(true);
+  expect(readFileSync(join(macHome, "keep.txt"), "utf8")).toBe("mine");
+  await stop(bot, bot.threadId);
 }, 60_000);

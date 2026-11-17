@@ -2,7 +2,7 @@ export const HANDOFF_IDLE_MS = 20 * 60_000;
 export const HANDOFF_HARD_CAP_MS = 4 * 60 * 60_000;
 export const HANDOFF_CEILING_MS = 12 * 60 * 60_000;
 
-export const HANDOFF_ENDS = ["person", "api", "interrupted", "deleted", "idle", "capped", "origin", "limit", "restart", "problem", "timeout", "ceiling", "home"] as const;
+export const HANDOFF_ENDS = ["person", "api", "interrupted", "deleted", "idle", "capped", "origin", "limit", "team-limit", "restart", "problem", "timeout", "ceiling", "home"] as const;
 export type HandoffEnd = (typeof HANDOFF_ENDS)[number];
 
 export const TIME_ENDS: readonly HandoffEnd[] = ["idle", "capped"];
@@ -56,7 +56,8 @@ export function endWords(end: HandoffEnd, limits: EndLimits, unstarted = false):
     case "idle": return `Nothing moved for ${plainDuration(limits.idleMs)}, so later.dog stopped waiting.`;
     case "capped": return `Ran out of time after ${plainDuration(limits.hardCapMs)}.`;
     case "origin": return "The request that started this ended before it could begin.";
-    case "limit": return "Too many teammate requests in one go.";
+    case "limit": return "The room goal reached its time limit, so later.dog stopped this.";
+    case "team-limit": return "Not started: the team reached its limit for one task.";
     case "restart": return "later.dog restarted while this was running, so it was not picked up again.";
     case "problem": return "Something changed, so this could not go on.";
     case "timeout": return "Its turn timed out twice, so later.dog stopped it.";
@@ -79,6 +80,8 @@ export function teammateEndLabel(name: string, status: string, end: HandoffEnd |
   if (end === "api") return `${name} was stopped by a local tool`;
   if (endedForTime(end) || end === "timeout" || end === "ceiling") return `${name} ran out of time`;
   if (end === "origin") return `${name} never got started`;
+  if (end === "team-limit") return `${name} not started: the team reached its limit`;
+  if (end === "limit") return `${name} ran out of time`;
   if (end === "interrupted") return `${name} was interrupted`;
   return `${name} couldn't finish`;
 }

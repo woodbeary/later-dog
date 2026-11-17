@@ -1,4 +1,4 @@
-import { ChevronRight, Hand, X } from "lucide-react";
+import { ChevronRight } from "lucide-react";
 import { memo } from "react";
 import type { Bot, Message } from "@/state/store";
 import { useStoreDispatch } from "@/state/store-selectors";
@@ -10,13 +10,15 @@ import { outboundSummary } from "@/lib/approval-summary";
 import { reviewedSkillSha256 } from "../../shared/skill-request";
 import { DELETE_OUTSIDE_WORKSPACE_ALLOW_KEY, MAC_ALLOW_KEY } from "../../shared/cloud-home";
 import { useOwnerOrAdmin } from "@/lib/use-owner-or-admin";
+import { LASTING_WHY_WORDS, type LastingOffer } from "../../shared/lasting-allows";
+import "../composer-parity.css";
 
 export interface Pending {
   message: Message;
   requestId: string;
   tool: string;
   allowKey?: string;
-  allowSession?: boolean;
+  lasting?: LastingOffer;
   commandAllowlist?: { command: string; cwd: string; providerInstanceId: string };
   detail: string;
   held?: string;
@@ -43,7 +45,7 @@ export function pendingApprovals(messages: Message[]): Pending[] {
       requestId: m.card!.requestId!,
       tool: m.card!.tool!,
       allowKey: m.card!.allowKey,
-      allowSession: m.card!.allowSession,
+      lasting: m.card!.lasting,
       commandAllowlist: m.card!.commandAllowlist,
       detail: m.card!.subtitle,
       held: m.card!.held,
@@ -103,7 +105,7 @@ export const PendingApprovalPanel = memo(function PendingApprovalPanel({
   count,
   index,
   botName,
-  onCancelTurn,
+  coversId,
 }: {
   pending: Pending;
   count: number;
@@ -111,14 +113,26 @@ export const PendingApprovalPanel = memo(function PendingApprovalPanel({
   botName?: string;
   onCancelTurn?: () => void;
   locale?: string;
+  coversId?: string;
 }) {
   const heldNote = tFromServer(pending.heldCode, pending.held);
   const outbound = pending.message.card ? outboundSummary(pending.message.card) : undefined;
   const reviewed = isSkillApproval(pending) || isRoutineApproval(pending) || isProfileApproval(pending) || Boolean(pending.message.card?.modelRequest);
   const command = pending.commandAllowlist?.command ?? pending.detail;
+  const showCovers = () => {
+    const covers = coversId ? document.getElementById(coversId) : null;
+    if (covers instanceof HTMLDetailsElement) covers.open = !covers.open;
+  };
   const details = (
     <pre
       tabIndex={0}
+      data-approval-command
+      onClick={showCovers}
+      onKeyDown={(event) => {
+        if (event.key !== "Enter" && event.key !== " ") return;
+        event.preventDefault();
+        showCovers();
+      }}
       aria-label={
         isSkillApproval(pending)
           ? t("approval.aria.reviewSkill")
@@ -128,7 +142,7 @@ export const PendingApprovalPanel = memo(function PendingApprovalPanel({
               ? t("approval.aria.reviewProfile")
               : t("approval.aria.reviewDetails")
       }
-      className="mt-2 max-h-40 overflow-auto whitespace-pre-wrap break-words rounded-lg bg-inset px-3 py-2 font-mono text-[12px] leading-relaxed text-ink"
+      className="approval-parity-command"
     >
       {command}
     </pre>
@@ -145,28 +159,16 @@ export const PendingApprovalPanel = memo(function PendingApprovalPanel({
               ? t("approval.aria.pendingProfile")
               : t("approval.aria.pending")
       }
-      className="rounded-t-[18px] bg-card px-4 pb-1 pt-3"
+      data-approval-panel
     >
-      <div className="flex flex-wrap items-center gap-2" aria-live="polite">
+      <div className="flex flex-wrap items-baseline gap-x-2" aria-live="polite">
         <span className="sr-only">{t("approval.pending")}</span>
-        <Hand size={15} className="shrink-0 text-ink-secondary" aria-hidden="true" />
+        <span data-approval-title className="approval-parity-title">{outbound ? outbound.headline : label(pending, botName)}</span>
+        {outbound && outbound.summary && <span className="text-[13px] leading-[17px] text-ink-secondary">{outbound.summary}</span>}
         {count > 1 && (
-          <span className="rounded-full bg-control px-1.5 py-0.5 text-[11px] tabular-nums text-ink-secondary">
+          <span className="ml-auto text-[13px] leading-[17px] tabular-nums text-ink-secondary">
             {t("approval.position", { index: index + 1, count })}
           </span>
-        )}
-        <span className="text-[14px] font-medium text-ink">{outbound ? outbound.headline : label(pending, botName)}</span>
-        {outbound && outbound.summary && <span className="text-[13px] text-ink-secondary">{outbound.summary}</span>}
-        {onCancelTurn && (
-          <button
-            type="button"
-            onClick={onCancelTurn}
-            aria-label={t("approval.action.cancelTurn")}
-            title={t("approval.action.cancelTurn")}
-            className="-mr-1.5 ml-auto flex size-7 shrink-0 items-center justify-center rounded-full text-ink-tertiary transition-colors hover:bg-control hover:text-ink"
-          >
-            <X size={15} aria-hidden="true" />
-          </button>
         )}
       </div>
       {reviewed ? (
@@ -188,10 +190,12 @@ export function PendingApprovalActions({
   pending,
   threadId,
   bot,
+  coversId,
 }: {
   pending: Pending;
   threadId: string;
   bot?: Bot;
+  coversId?: string;
 }) {
   const outbound = pending.message.card ? outboundSummary(pending.message.card) : undefined;
   const dispatch = useStoreDispatch();
@@ -200,15 +204,18 @@ export function PendingApprovalActions({
   const isSkillRequest = isSkillApproval(pending);
   const isProfileRequest = isProfileApproval(pending);
   const durableRequest = isRoutineRequest || isSkillRequest || isProfileRequest;
-  const canRememberCommand = ownerOrAdmin === true && !durableRequest && !pending.allowKey && Boolean(pending.commandAllowlist);
   const reviewedSha256 = pending.message.card?.skillRequest
     ? reviewedSkillSha256(pending.message.card.skillRequest)
     : undefined;
   const macSend = pending.tool === "mac_send_text" || pending.tool === "mac_send_email";
   const macRequest = pending.tool.startsWith("mac_") && !macSend;
-  const decide = (behavior: "allow" | "deny", always = false, rememberCommand = false, never = false) => {
-    const grant = always && bot && pending.allowKey ? { botId: bot.id, key: pending.allowKey } : undefined;
-    const forChat = always && !pending.allowKey && pending.allowSession ? true : undefined;
+  const lasting = !durableRequest ? pending.lasting : undefined;
+  const lastingAlways = Boolean(lasting?.offered && ownerOrAdmin === true);
+  const outboundChoice = outbound && !(pending.lasting && !pending.lasting.offered && pending.lasting.why === "always-asks");
+  const lastingWhy = lasting && !lasting.offered ? LASTING_WHY_WORDS[lasting.why] : lasting?.offered && !lastingAlways ? LASTING_WHY_WORDS["owner-only"] : null;
+  const decide = (behavior: "allow" | "deny", always = false, never = false) => {
+    const lastingGrant = always && bot && lastingAlways ? { botId: bot.id } : undefined;
+    const grant = always && bot && pending.allowKey && !lasting ? { botId: bot.id, key: pending.allowKey } : undefined;
     dispatch({
       type: "decideRequest",
       threadId,
@@ -217,17 +224,22 @@ export function PendingApprovalActions({
       message: behavior === "deny" ? "Declined." : undefined,
       reviewedSha256: behavior === "allow" ? reviewedSha256 : undefined,
       alwaysAllow: grant,
-      always: forChat,
-      rememberCommand: rememberCommand || undefined,
-      scope: never ? "never" : behavior !== "allow" ? undefined : grant || rememberCommand ? "always" : forChat ? "chat" : "once",
+      lastingGrant,
+      scope: never ? "never" : behavior !== "allow" ? undefined : grant || lastingGrant ? "always" : "once",
     });
   };
 
-  const base = "rounded-full px-4 py-2 text-[13.5px] font-medium transition-colors";
-  const quiet = "min-w-[120px] bg-control text-ink hover:bg-control-hover";
-  const primary = "min-w-[120px] bg-accent text-white hover:brightness-110";
-  const durable = "rounded-full px-2.5 py-1.5 text-[13px] font-medium text-ink-secondary transition-colors hover:bg-control hover:text-ink";
-  const reach = !durableRequest && bot && pending.allowKey
+  const base = "approval-parity-button";
+  const quiet = "approval-parity-deny";
+  const primary = "approval-parity-allow";
+  const durable = "approval-parity-button approval-parity-quiet";
+  const reach = lastingAlways && bot
+    ? t("lasting.reach.search", { name: bot.name })
+    : lasting
+    ? outbound && bot && !lasting.offered && lasting.why === "always-asks"
+      ? t("approval.reach.connectorSkip", { name: bot.name, app: outbound.app ?? t("approval.reach.connectorApp") })
+      : null
+    : !durableRequest && bot && pending.allowKey
     ? outbound
       ? t("approval.reach.connector", { name: bot.name, app: outbound.app ?? t("approval.reach.connectorApp") })
       : pending.allowKey === MAC_ALLOW_KEY
@@ -235,12 +247,50 @@ export function PendingApprovalActions({
       : pending.allowKey === DELETE_OUTSIDE_WORKSPACE_ALLOW_KEY
       ? t("approval.reach.everywhere", { name: bot.name })
       : t(bot.tasks?.some((task) => task.threadId === threadId) ? "approval.reach.chat" : "approval.reach.dog", { name: bot.name })
-    : canRememberCommand && pending.commandAllowlist
-      ? t("approval.reach.command", { name: bot?.name ?? t("approval.someone"), cwd: shortFolder(pending.commandAllowlist.cwd) })
-      : !durableRequest && !pending.allowKey && pending.allowSession ? t("approval.reach.session") : null;
+    : null;
+  const commandShown = Boolean(pending.commandAllowlist?.command ?? pending.detail) && !(isSkillRequest || isRoutineRequest || isProfileRequest || pending.message.card?.modelRequest);
   return (
-    <div className="rounded-b-[18px] bg-card px-3 pb-3 pt-1">
+    <div data-approval-actions className="approval-parity-actions">
       <div className="flex flex-wrap items-center gap-2">
+        <div className="mr-auto flex min-w-0 flex-wrap items-center gap-1">
+          {!durableRequest && bot && pending.allowKey && !lasting && (
+            <button
+              onClick={() => decide("allow", true)}
+              className={durable}
+            >
+              {t("approval.action.alwaysAllow")}
+            </button>
+          )}
+          {macRequest && (
+            <button
+              onClick={() => decide("deny", false, true)}
+              data-mac-never=""
+              className={durable}
+            >
+              {t("approval.action.never")}
+            </button>
+          )}
+          {lastingAlways && bot && (
+            <button
+              onClick={() => decide("allow", true)}
+              data-lasting-always=""
+              className={durable}
+            >
+              {t("approval.action.alwaysAllow")}
+            </button>
+          )}
+          {lasting && lastingWhy && (
+            <span data-lasting-why={lasting.offered ? "owner-only" : lasting.why} className="px-1 text-[12.5px] text-ink-tertiary">{t(lastingWhy)}</span>
+          )}
+        </div>
+        {!macRequest && (
+          <button
+            onClick={() => decide("deny")}
+            className={cn(base, quiet)}
+          >
+            {isRoutineRequest || isProfileRequest ? t("approval.action.cancel") : outboundChoice ? t("approval.action.skip") : macSend ? t("approval.action.dontSend") : t("approval.action.deny")}
+          </button>
+        )}
         <button
           onClick={() => decide("allow")}
           disabled={isSkillRequest && !reviewedSha256}
@@ -254,55 +304,14 @@ export function PendingApprovalActions({
               ? t("approval.action.confirm")
               : macSend
                 ? t("approval.action.send")
-                : outbound
+                : outboundChoice
                   ? t("approval.action.allow")
                   : t("approval.action.allowOnce")}
         </button>
-        {!macRequest && (
-          <button
-            onClick={() => decide("deny")}
-            className={cn(base, quiet)}
-          >
-            {isRoutineRequest || isProfileRequest ? t("approval.action.cancel") : outbound ? t("approval.action.skip") : macSend ? t("approval.action.dontSend") : t("approval.action.deny")}
-          </button>
-        )}
-        {!durableRequest && bot && pending.allowKey && (
-          <button
-            onClick={() => decide("allow", true)}
-            className={durable}
-          >
-            {t("approval.action.alwaysAllow")}
-          </button>
-        )}
-        {macRequest && (
-          <button
-            onClick={() => decide("deny", false, false, true)}
-            data-mac-never=""
-            className={durable}
-          >
-            {t("approval.action.never")}
-          </button>
-        )}
-        {!durableRequest && !pending.allowKey && !canRememberCommand && pending.allowSession && (
-          <button
-            onClick={() => decide("allow", true)}
-            className={durable}
-          >
-            {t("approval.action.alwaysAllowSession")}
-          </button>
-        )}
-        {canRememberCommand && pending.commandAllowlist && (
-          <button
-            onClick={() => decide("allow", false, true)}
-            className={durable}
-          >
-            {t("approval.action.alwaysAllowCommand")}
-          </button>
-        )}
       </div>
       {reach && (
-        <details className="group mt-1 text-[12px] text-ink-tertiary">
-          <summary className="flex w-fit cursor-pointer list-none items-center gap-1 px-1 hover:text-ink-secondary">
+        <details id={coversId} data-approval-covers className="group mt-1 text-[12px] text-ink-tertiary">
+          <summary className={cn("flex w-fit cursor-pointer list-none items-center gap-1 px-1 hover:text-ink-secondary", coversId && commandShown && "sr-only")}>
             {t("approval.reach.what")}
             <ChevronRight size={12} className="transition-transform group-open:rotate-90" aria-hidden="true" />
           </summary>
@@ -311,10 +320,4 @@ export function PendingApprovalActions({
       )}
     </div>
   );
-}
-
-export function shortFolder(path: string): string {
-  if (/\/(task-)?workspaces\/[\w-]+(\/[\w-]+)?\/?$/.test(path)) return t("approval.reach.chatFolder");
-  const parts = path.split("/").filter(Boolean);
-  return parts.length > 2 ? `…/${parts.slice(-2).join("/")}` : path;
 }

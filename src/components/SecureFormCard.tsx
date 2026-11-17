@@ -95,7 +95,6 @@ export function SecureFormCard({
       {open && canOpen && (
         <SecureFormDialog
           botId={botId}
-          botName={botName}
           threadId={threadId}
           messageId={message.id}
           card={card}
@@ -146,7 +145,6 @@ function useVaultOffers(host: string | null): VaultOffers | null {
 
 export function SecureFormDialog({
   botId,
-  botName,
   threadId,
   messageId,
   card,
@@ -155,7 +153,6 @@ export function SecureFormDialog({
   onClose,
 }: {
   botId: string;
-  botName: string;
   threadId: string;
   messageId: string;
   card: SecureFormCardData;
@@ -169,7 +166,6 @@ export function SecureFormDialog({
   const [shown, setShown] = useState<Record<string, boolean>>({});
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [always, setAlways] = useState(false);
   const [save, setSave] = useState(false);
   useModalDialog(dialogRef, onClose);
   const ready = secureFormReady(card.fields, values);
@@ -202,7 +198,7 @@ export function SecureFormDialog({
   };
 
   const fillFromVault = (login: VaultLogin) => {
-    if (!sending) void send({ login: login.id, ...(always ? { always: true } : {}) });
+    if (!sending) void send({ login: login.id });
   };
 
   return createPortal(
@@ -263,10 +259,6 @@ export function SecureFormDialog({
                 </div>
               );
             })}
-            <label className="flex items-center gap-2 px-0.5 text-[12.5px] text-ink-secondary">
-              <input type="checkbox" checked={always} onChange={(event) => setAlways(event.target.checked)} className="size-3.5 accent-[var(--color-accent)]" />
-              {t("secureForm.always", { name: botName, site: saved[0]!.site })}
-            </label>
             <div className="mt-1 text-[12px] text-ink-tertiary">{t("secureForm.orType")}</div>
           </div>
         )}

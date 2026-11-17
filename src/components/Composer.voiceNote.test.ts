@@ -127,7 +127,8 @@ describe("cloud dictation", () => {
     expect(mic.stops).toBe(1);
     expect(transcribe).toHaveBeenCalledWith("/api/voice/transcribe", expect.objectContaining({ method: "POST", body: mic.audio }));
     expect(box().value).toBe(HEARD);
-    expect(micButton()!.getAttribute("aria-busy")).toBeNull();
+    expect(micButton()).toBeNull();
+    expect(sendButton()).not.toBeNull();
   });
 
   it("works without the desktop app's speech bridge", async () => {
@@ -203,12 +204,11 @@ describe("cloud dictation", () => {
     expect(micButton()).toBeNull();
   });
 
-  it("adds the voice note after what was already typed", async () => {
+  it("hands the end to Send once there are words, so dictation starts from an empty box", async () => {
     await render();
     await type("Hi team,");
-    await click(micButton());
-    await click(micButton());
-    expect(box().value).toBe(`Hi team, ${HEARD}`);
+    expect(micButton()).toBeNull();
+    expect(sendButton()).not.toBeNull();
   });
 
   it("shows a spinner while it transcribes, and leaves your own edits alone", async () => {
@@ -223,16 +223,16 @@ describe("cloud dictation", () => {
     release(Response.json({ text: HEARD }));
     await settle();
     expect(box().value).toBe("never mind, I'll write it");
-    expect(micButton()!.getAttribute("aria-busy")).toBeNull();
+    expect(micButton()).toBeNull();
     expect(host.querySelector("[data-dictation-status]")).toBeNull();
   });
 
   it("doesn't refill the box after the message was already sent", async () => {
     answerLater();
     await render();
+    await click(micButton());
+    await click(micButton());
     await type("ship it");
-    await click(micButton());
-    await click(micButton());
     await click(sendButton());
     expect(fixture.dispatch).toHaveBeenCalledWith(expect.objectContaining({ type: "send", text: "ship it" }));
     release(Response.json({ text: HEARD }));
@@ -242,8 +242,8 @@ describe("cloud dictation", () => {
 
   it("drops the recording when you send while still listening", async () => {
     await render();
-    await type("ship it");
     await click(micButton());
+    await type("ship it");
     await click(sendButton());
     expect(mic.cancels).toBe(1);
     expect(transcribe).not.toHaveBeenCalled();
@@ -310,13 +310,12 @@ describe("cancelling", () => {
     expect(box().placeholder).toBe("Listening…");
   });
 
-  it("Esc brings back the earlier text exactly and never sends the audio", async () => {
+  it("Esc brings back the empty box and never sends the audio", async () => {
     await render();
-    await type("Hi team,  ");
     await click(micButton());
     await escape(box());
     await settle();
-    expect(box().value).toBe("Hi team,  ");
+    expect(box().value).toBe("");
     expect(mic.cancels).toBe(1);
     expect(transcribe).not.toHaveBeenCalled();
     expect(micButton()!.getAttribute("aria-label")).toBe("Start dictation");
@@ -325,10 +324,9 @@ describe("cancelling", () => {
 
   it("the strip's cancel button works like Esc", async () => {
     await render();
-    await type("Hi team,");
     await click(micButton());
     await click(strip()!.querySelector<HTMLButtonElement>("[data-dictation-cancel]"));
-    expect(box().value).toBe("Hi team,");
+    expect(box().value).toBe("");
     expect(strip()).toBeNull();
     expect(transcribe).not.toHaveBeenCalled();
   });
@@ -400,7 +398,6 @@ describe("leaving mid-sentence", () => {
 
   it("finishes what you were saying when you open another dog, and keeps it in the first dog's box", async () => {
     await show(talker);
-    await type("Hi team,");
     await click(micButton());
     await show(pepper);
     await settle();
@@ -409,7 +406,7 @@ describe("leaving mid-sentence", () => {
     expect(transcribe).toHaveBeenCalledTimes(1);
     expect(box().value).toBe("");
     await show(talker);
-    expect(box().value).toBe(`Hi team, ${HEARD}`);
+    expect(box().value).toBe(HEARD);
   });
 
   it("puts words that come back after you left into the dog you spoke to, never the one on screen", async () => {

@@ -1,6 +1,6 @@
 import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { ChevronRight } from "lucide-react";
+import { Check, ChevronRight } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { useMenuMotion } from "./MenuMotion";
 import { usePopoverDismiss } from "@/hooks/use-popover-dismiss";
@@ -144,7 +144,7 @@ export function SidebarPopoverMenu({
 
   useLayoutEffect(() => openChange.current?.(open), [open]);
   useEffect(() => {
-    if (portal && open) menuRef.current?.querySelector<HTMLElement>('[role="menuitem"]:not(:disabled)')?.focus();
+    if (portal && open) menuRef.current?.querySelector<HTMLElement>('[role^="menuitem"]:not(:disabled)')?.focus();
   }, [open, portal]);
   useLayoutEffect(() => {
     const root = rootRef.current;
@@ -161,7 +161,7 @@ export function SidebarPopoverMenu({
     if (!changed || !open) return;
     const focused = document.activeElement;
     if (focused && focused !== document.body) return;
-    menuRef.current?.querySelector<HTMLElement>('[role="menuitem"]:not(:disabled)')?.focus();
+    menuRef.current?.querySelector<HTMLElement>('[role^="menuitem"]:not(:disabled)')?.focus();
   }, [itemKeys, open]);
 
   const menu = motion.shown ? (
@@ -176,7 +176,7 @@ export function SidebarPopoverMenu({
       style={portal ? position : undefined}
       className={cn(
         hasSubmenu ? "overflow-visible" : "overflow-hidden",
-        "rounded-xl border border-hairline/50 bg-menu py-1.5 shadow-2xl shadow-black/50",
+        "popover-menu",
         portal ? "fixed z-[100] w-52 max-w-[calc(100vw-1rem)]" : "absolute z-40",
         !portal && (placement === "below"
           ? "top-full right-0 mt-1 w-72 max-w-[calc(100vw-2rem)]"
@@ -193,11 +193,12 @@ export function SidebarPopoverMenu({
           onPointerEnter={() => { if (hasSubmenu) showFlyout(item.submenu ? item.key : null, item.submenu ? OPEN_DELAY_MS : CLOSE_DELAY_MS); }}
           onPointerLeave={() => { if (item.submenu) showFlyout(null, CLOSE_DELAY_MS); }}
         >
-          {item.separatorBefore && <div className="my-1.5 h-px bg-hairline/50" />}
-          {item.heading && <div className="px-3 pb-0.5 pt-1.5 text-[10px] font-semibold uppercase tracking-[0.08em] text-ink-secondary">{item.heading}</div>}
+          {item.separatorBefore && <div className="mx-2 my-1.5 h-px bg-hairline" />}
+          {item.heading && <div className="popover-menu-heading">{item.heading}</div>}
           <button
             type="button"
-            role="menuitem"
+            role={item.active === undefined ? "menuitem" : "menuitemcheckbox"}
+            aria-checked={item.active}
             data-tour={item.tourId}
             disabled={item.disabled}
             aria-haspopup={item.submenu ? "menu" : undefined}
@@ -213,14 +214,14 @@ export function SidebarPopoverMenu({
                 event.preventDefault();
                 showFlyout(item.key, 0);
                 const wrapper = event.currentTarget.parentElement;
-                setTimeout(() => wrapper?.querySelector<HTMLElement>("[data-menu-flyout] [role=\"menuitem\"]")?.focus(), 0);
+                setTimeout(() => wrapper?.querySelector<HTMLElement>("[data-menu-flyout] [role^=\"menuitem\"]")?.focus(), 0);
               }
               if (event.key === "ArrowLeft") showFlyout(null, 0);
             }}
             className={cn(
-              "flex w-full items-center gap-3 px-3.5 py-2 text-left text-[14px] disabled:opacity-60",
+              "popover-menu-row disabled:opacity-60",
               item.action && "pr-12",
-              item.active ? "bg-raised text-ink" : "text-ink hover:bg-raised/70",
+              "text-ink hover:bg-menu-row",
             )}
           >
             {item.icon && (
@@ -242,6 +243,7 @@ export function SidebarPopoverMenu({
             ) : (
               <span className="flex-1 truncate">{item.label}</span>
             )}
+            {item.active && <Check size={16} aria-hidden="true" data-menu-check className="shrink-0 text-ink" />}
             {item.trailing}
             {item.submenu && <ChevronRight size={14} aria-hidden="true" className="shrink-0 text-ink-secondary" />}
             {item.attention && (
@@ -267,7 +269,7 @@ export function SidebarPopoverMenu({
               }}
               className="absolute bottom-0 left-full z-50 pl-1.5"
             >
-              <div className="overflow-hidden rounded-xl border border-hairline/50 bg-menu shadow-2xl shadow-black/50">{typeof item.submenu === "function" ? item.submenu(close) : item.submenu}</div>
+              <div className="popover-menu overflow-hidden">{typeof item.submenu === "function" ? item.submenu(close) : item.submenu}</div>
             </div>
           )}
           {item.action && <button type="button" role="menuitem" aria-label={item.action.label} title={item.action.label}

@@ -41,6 +41,7 @@ import {
 } from "../../shared/skill-request";
 import type { Routine, RoutineInput, RoutineRun, RoutineRunStatusFilter } from "@/lib/routines";
 import { botShowsUnread } from "@/lib/bot-unread";
+import { announceAlwaysAllowedChange } from "@/lib/always-allowed-changes";
 import { personIsLooking, readWhenBack } from "@/lib/viewing";
 import { jevRoomRoutingOn } from "@/lib/group-routing";
 import { descendsFrom, newestTip } from "@/lib/leaf-follow";
@@ -102,7 +103,7 @@ function trimRoutineRuns(runs: readonly RoutineRun[]): RoutineRun[] {
 export type { DogColor } from "@/lib/mascot";
 export type { RoutineRunCardData } from "../../shared/routine-run";
 
-export interface OptionCardData extends Pick<import("../../shared/wire").OptionCardData, "nativeActorId" | "nativeActorLabel" | "nativeRunId"> {
+export interface OptionCardData extends Pick<import("../../shared/wire").OptionCardData, "nativeActorId" | "nativeActorLabel" | "nativeRunId" | "lasting"> {
   title: string;
   subtitle: string;
   options: string[];
@@ -189,7 +190,7 @@ export interface Message {
   secret?: SecretRequestCardData;
   secureForm?: SecureFormCardData;
   routineRun?: RoutineRunCardData;
-  tool?: { name: string; ok?: boolean; spoken?: string; detail?: string; setup?: boolean; claudeUpdate?: boolean; pickup?: "restart" | "watch"; place?: PlaceRow; quota?: FailedTurnQuota; carry?: { from: string; to: string }; resume?: { handoffId: string }; summary?: string; input?: string; output?: string ; itemId?: string; outputPath?: string; fullResult?: boolean; statusLine?: "live" | "folded" };
+  tool?: { name: string; ok?: boolean; spoken?: string; detail?: string; setup?: boolean; claudeUpdate?: boolean; pickup?: "restart" | "watch" | "computer"; place?: PlaceRow; quota?: FailedTurnQuota; carry?: { from: string; to: string }; resume?: { handoffId: string }; summary?: string; input?: string; output?: string ; itemId?: string; outputPath?: string; fullResult?: boolean; statusLine?: "live" | "folded" };
   steered?: boolean;
   readAt?: number;
   via?: "api" | "call";
@@ -952,8 +953,7 @@ export type Action =
       message?: string;
       reviewedSha256?: string;
       alwaysAllow?: { botId: string; key: string };
-      always?: boolean;
-      rememberCommand?: boolean;
+      lastingGrant?: { botId: string };
       scope?: "once" | "always" | "chat" | "never";
       onError?: (message: string) => void;
     }
@@ -2822,8 +2822,6 @@ export function StoreProvider({ children }: { children: ReactNode }) {
                 behavior: action.behavior,
                 message: action.message,
                 reviewedSha256: action.reviewedSha256,
-                always: action.always,
-                rememberCommand: action.rememberCommand,
                 scope,
               }),
             });
@@ -2839,6 +2837,19 @@ export function StoreProvider({ children }: { children: ReactNode }) {
                     method: owner ? "POST" : "PATCH",
                     body: JSON.stringify(owner ? { threadId: action.threadId, allowKey: action.alwaysAllow.key } : { alwaysAllow: next }),
                   });
+                  announceAlwaysAllowedChange(action.alwaysAllow.botId);
+                } catch (error) {
+                  grantSaved = false;
+                  reportError(error, chatPane(action.threadId));
+                }
+              }
+              if (action.lastingGrant) {
+                try {
+                  await api(`/api/bots/${action.lastingGrant.botId}/always-allow`, {
+                    method: "POST",
+                    body: JSON.stringify({ threadId: action.threadId, requestId: action.requestId }),
+                  });
+                  announceAlwaysAllowedChange(action.lastingGrant.botId);
                 } catch (error) {
                   grantSaved = false;
                   reportError(error, chatPane(action.threadId));
