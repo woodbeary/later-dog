@@ -181,6 +181,16 @@ describe("the thinking timer stays anchored across a switch away", () => {
     }, 5_000, "the line to add its age at one minute from the server's stamp");
     expect(beforeSwitch).toBe(`${first} · for 1 min`);
 
+    const panel = () => evaluate(`(() => { const panel = document.querySelector('[data-work-panel]'); if (!panel) return null; const live = panel.querySelector('[data-step-id][data-live]'); return { title: panel.querySelector('h2, h3, [data-panel-title]')?.textContent ?? panel.textContent, live: live ? live.querySelector('span:not(.work-panel-mark) > span')?.textContent ?? live.textContent : null, inside: panel.contains(document.activeElement) }; })()`) as Promise<{ title: string; live: string | null; inside: boolean } | null>;
+    await evaluate(`document.querySelector('[data-work-line] button').click(); true`);
+    const opened = await waitUntil(panel, 10_000, "the panel to open from the working line");
+    expect(opened.title).toContain("What Pepper is doing");
+    expect(opened.live).toBe(first);
+    expect(opened.inside).toBe(false);
+    await ui("press", info.ui, "--keys", "Escape");
+    await waitUntil(async () => (await panel()) === null, 10_000, "Esc to close the panel");
+    expect(await line()).toBe(beforeSwitch);
+
     await selectDog(otherDog);
     await waitUntil(() => isCurrent(otherDog), 10_000, "the other dog to become current");
     await new Promise((done) => setTimeout(done, 3_000));
