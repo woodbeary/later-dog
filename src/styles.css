@@ -532,10 +532,10 @@
   --code-color-scheme: light;
   --color-app: #fcfcfc;
   --color-panel: #f7f7f7;
-  --color-raised: #e1e1e1;
-  --color-raised-hover: #d7d7d7;
+  --color-raised: #f2f2f2;
+  --color-raised-hover: #ededed;
   --color-card: #eeeeee;
-  --color-inset: #e6e6e6;
+  --color-inset: #ededed;
   --color-control: #dedede;
   --color-control-hover: #d0d0d0;
   --color-hairline: #e5e5ea;
