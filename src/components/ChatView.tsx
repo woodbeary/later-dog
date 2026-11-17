@@ -868,7 +868,7 @@ const MessagesList = memo(function MessagesList({
             <div className="contents" data-mid={m.id} data-arriving={arrives ? "" : undefined}>
               {newDay && <DaySeparator at={m.at} today={today} />}
               {unreadDivider([m])}
-              {fold && <FoldLine threadId={threadId} runId={fold.runId ?? fold.turnId} sentence={fold.sentence} />}
+              {fold && <FoldLine threadId={threadId} runId={fold.runId} sentence={fold.sentence} />}
               {row}
             </div>
           </Fragment>

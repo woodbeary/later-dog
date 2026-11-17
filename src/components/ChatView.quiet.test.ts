@@ -25,6 +25,11 @@ vi.mock("./DesktopCapabilities", async (importOriginal) => ({
 }));
 vi.mock("@/lib/analytics", () => ({ track: vi.fn() }));
 vi.mock("./ModelPicker", () => ({ ModelPicker: () => null }));
+const folded = vi.hoisted(() => ({ props: [] as Array<Record<string, unknown>> }));
+vi.mock("./FoldLine", async (importOriginal) => {
+  const original = await importOriginal<typeof import("./FoldLine")>();
+  return { ...original, FoldLine: (props: Parameters<typeof original.FoldLine>[0]) => { folded.props.push({ ...props }); return original.FoldLine(props); } };
+});
 
 const { ChatView } = await import("./ChatView");
 afterAll(() => vi.unstubAllGlobals());
@@ -69,6 +74,14 @@ describe("a quiet chat", () => {
     expect(markup).toContain("The page loaded, clicking Sign In now.");
     expect(markup).not.toContain("data-fold-line");
     expect(markup).not.toContain("/attachments/shot.png");
+  });
+
+  it("hands the fold a run id only when the turn has a native run, never the turn's own id", () => {
+    folded.props.length = 0;
+    render(bot(transcript(true), false));
+    expect(folded.props).toHaveLength(1);
+    expect(folded.props[0]).toMatchObject({ threadId: "t1" });
+    expect(folded.props[0].runId).toBeUndefined();
   });
 
   it("shows the fold with no setting, and the old step setting changes nothing", () => {
