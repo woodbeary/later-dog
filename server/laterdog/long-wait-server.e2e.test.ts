@@ -13,7 +13,7 @@ const MINUTE = 60_000;
 async function fixture(test: (f: any) => Promise<void>) {
   const root = mkdtempSync(join(tmpdir(), "review2-server-"));
   const fake = await startFakeComputers(root);
-  const session = await launchVerificationServer({ ...process.env, FAKE_CLAUDE_ROOM_MS: "1500000" }, undefined, undefined, undefined, undefined, { scripted: true });
+  const session = await launchVerificationServer({ ...process.env, FAKE_CLAUDE_ROOM_MS: "1500000", LATERDOG_COMPUTER_JOB_CHECK_MS: String(60 * MINUTE) }, undefined, undefined, undefined, undefined, { scripted: true });
   const cli = (...args: string[]) => runControlLaterDog(args, { env: { LATERDOG_URL: session.info.url } }) as Promise<any>;
   const api = (path: string, body?: unknown, method = "POST") => request(path, body === undefined ? {} : { method, body: JSON.stringify(body) }, session.info.url) as Promise<any>;
   try {
@@ -44,7 +44,8 @@ async function fixture(test: (f: any) => Promise<void>) {
         if (result.status === "settled" || Date.now() > end) return result;
       }
     };
-    await test({ fake, cli, api, bot, call, release, settle });
+    const jobs = () => (JSON.parse(readFileSync(join(session.info.dataDir, "computer-jobs.json"), "utf8")) as Array<{ command: string }>).map((job) => job.command);
+    await test({ fake, cli, api, bot, call, release, settle, jobs });
   } finally { await session.close(); await fake.close(); }
 }
 
@@ -87,6 +88,7 @@ it("stopping the turn mid-wait ends the call and the home stops polling the comp
   expect(String(answer.body.error)).toMatch(/^The wait ended because this turn was stopped\. The job is still running/);
   expect(took).toBeLessThan(40);
   expect(f.fake.polls() - atEnd).toBeLessThanOrEqual(1);
+  expect(f.jobs()).toEqual([]);
 }), 200_000);
 
 it("when the caller hangs up, the home stops polling the computer", () => fixture(async (f) => {
@@ -101,5 +103,6 @@ it("when the caller hangs up, the home stops polling the computer", () => fixtur
   expect(atHangUp).toBeGreaterThan(0);
   await sleep(40_000);
   expect(f.fake.polls() - atHangUp).toBeLessThanOrEqual(1);
+  expect(f.jobs()).toEqual(["sleep 200"]);
   f.release();
 }), 200_000);

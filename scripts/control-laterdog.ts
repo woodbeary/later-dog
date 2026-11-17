@@ -360,6 +360,7 @@ export function verificationServerEnvironment(parentEnv: NodeJS.ProcessEnv, data
   if (parentEnv.LATERDOG_TEST_STATIC_DIR && existsSync(join(parentEnv.LATERDOG_TEST_STATIC_DIR, "index.html"))) childEnv.LATERDOG_STATIC_DIR = parentEnv.LATERDOG_TEST_STATIC_DIR;
   if (parentEnv.LATERDOG_TEST_ORG_LIBRARY_KEY) childEnv.LATERDOG_TEST_ORG_LIBRARY_KEY = parentEnv.LATERDOG_TEST_ORG_LIBRARY_KEY;
   if (parentEnv.LATERDOG_TEST_VAULT_KEY) childEnv.LATERDOG_TEST_VAULT_KEY = parentEnv.LATERDOG_TEST_VAULT_KEY;
+  if (/^[1-9]\d{0,8}$/.test(parentEnv.LATERDOG_COMPUTER_JOB_CHECK_MS ?? "")) childEnv.LATERDOG_COMPUTER_JOB_CHECK_MS = parentEnv.LATERDOG_COMPUTER_JOB_CHECK_MS;
   const liveUrl = parentEnv.LATERDOG_OPENAI_LIVE_URL?.trim() ?? "";
   if (/^http:\/\/127\.0\.0\.1:\d{1,5}$/.test(liveUrl)) {
     childEnv.LATERDOG_OPENAI_LIVE_URL = liveUrl;
