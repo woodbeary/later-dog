@@ -53,20 +53,6 @@
   transition: none;
 }
 
-.thinking-row {
-  transform-origin: 18px 50%;
-  transition: transform var(--dur-150) var(--ease-calm);
-}
-
-.thinking-row:hover:not(:disabled) {
-  transform: scale(1.04);
-}
-
-.thinking-row:active:not(:disabled) {
-  transform: scale(1.01);
-  transition-duration: var(--dur-100);
-}
-
 .thinking-phrase {
   animation-name: shimmer, phrase-in;
   animation-duration: 2.2s, var(--dur-150);
@@ -80,18 +66,73 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .thinking-row,
-  .thinking-row:hover:not(:disabled) {
-    transform: none;
-    transition: none;
-  }
   .thinking-phrase {
     animation: none;
   }
 }
 
-:root[data-reduced-motion="true"] .thinking-row,
-:root[data-reduced-motion="true"] .thinking-row:hover:not(:disabled) {
-  transform: none;
-  transition: none;
+.work-line {
+  display: flex;
+  align-items: center;
+  min-height: 32px;
+  font-size: 14px;
+  line-height: 20px;
+  color: var(--color-ink-secondary);
+}
+
+.work-line-button {
+  display: inline-flex;
+  align-items: center;
+  min-width: 0;
+  white-space: nowrap;
+  color: inherit;
+  text-align: left;
+  border-radius: 8px;
+}
+
+.work-line-button > [aria-hidden="true"]:first-child {
+  margin-inline-end: 10px;
+}
+
+.work-line-button:focus-visible,
+.fold-line:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+}
+
+.fold-line {
+  display: inline-flex;
+  align-items: center;
+  min-height: 32px;
+  padding-inline: 14px;
+  font-size: 14px;
+  line-height: 20px;
+  color: var(--color-ink-secondary);
+  text-align: left;
+  border-radius: 8px;
+}
+
+.fold-line-chevron {
+  display: inline-block;
+  margin-left: 4px;
+  vertical-align: -1px;
+  color: var(--color-faint, var(--color-ink-tertiary));
+}
+
+.chat-bubble h1 {
+  font-size: 20px;
+  line-height: 26px;
+  font-weight: 600;
+}
+
+.chat-bubble h2 {
+  font-size: 16px;
+  line-height: 24px;
+  font-weight: 600;
+}
+
+.chat-bubble :is(h3, h4, h5, h6) {
+  font-size: 14px;
+  line-height: 20px;
+  font-weight: 600;
 }

@@ -7,7 +7,7 @@ import type { Bot } from "@/state/store";
 
 const fixture = vi.hoisted(() => ({ dispatch: vi.fn() }));
 vi.mock("@/state/store", () => ({ useStore: () => ({ state: {}, dispatch: fixture.dispatch }) }));
-import { ChatHeaderTasks } from "./ChatHeaderTasks";
+import { ChatHeaderMenu } from "./ChatHeaderTasks";
 
 const opener = { botId: "olive", name: "Olive", at: 1 };
 const now = Date.now();
@@ -23,13 +23,16 @@ const olive = {
 
 let host: HTMLDivElement;
 let root: Root;
+const onFind = vi.fn();
+const TASKS = ["Check the visa", "Book flights", "Find a hotel", "Show done tasks", "Hide done tasks"];
 
 async function show(bot: Bot) {
-  await act(async () => root.render(createElement(ChatHeaderTasks, { bot })));
+  await act(async () => root.render(createElement(ChatHeaderMenu, { bot, messages: [], onFind })));
 }
 
 const trigger = () => host.querySelector<HTMLButtonElement>('button[aria-haspopup="menu"]');
-const rows = () => [...host.querySelectorAll<HTMLButtonElement>('[role="menuitem"]:not([aria-label])')];
+const menuRows = () => [...host.querySelectorAll<HTMLButtonElement>('[role="menuitem"]:not([aria-label])')];
+const rows = () => menuRows().filter((element) => TASKS.some((name) => element.textContent?.startsWith(name)));
 const row = (text: string) => rows().find((element) => element.textContent?.startsWith(text));
 const press = async (element: HTMLElement | null | undefined) => {
   expect(element).toBeTruthy();
@@ -53,10 +56,19 @@ afterEach(async () => {
   vi.unstubAllGlobals();
 });
 
-describe("the Tasks button in a dog's chat header", () => {
+describe("Tasks and Find in the chat's \u2026 menu", () => {
+  it("is one \u2026 button that holds Find with its shortcut", async () => {
+    await show(olive);
+    expect(host.querySelectorAll("button")).toHaveLength(1);
+    await press(trigger());
+    const find = menuRows().find((element) => element.textContent?.startsWith("Find in conversation"));
+    expect(find!.textContent).toBe("Find in conversation\u2318F");
+    await press(find);
+    expect(onFind).toHaveBeenCalled();
+  });
+
   it("lists the dog's tasks with the one that needs you first, and opens one", async () => {
     await show(olive);
-    expect(trigger()!.getAttribute("aria-label")).toBe("Tasks, 1 for you");
     expect(host.querySelector("[data-chat-tasks]")!.getAttribute("data-chat-tasks")).toBe("1");
     await press(trigger());
     expect(rows().map((element) => element.textContent)).toEqual(["Check the visaNeeds you", "Book flightsWorking", "Show done tasks"]);
@@ -82,8 +94,10 @@ describe("the Tasks button in a dog's chat header", () => {
     expect(fixture.dispatch).toHaveBeenCalledWith({ type: "markTaskDone", botId: "olive", threadId: "hotel", done: false });
   });
 
-  it("shows nothing for a dog that hasn't started a task", async () => {
+  it("lists no tasks for a dog that hasn't started one", async () => {
     await show({ ...olive, tasks: [{ threadId: "main", title: "Olive", createdAt: 0 }] } as Bot);
-    expect(host.innerHTML).toBe("");
+    await press(trigger());
+    expect(rows()).toEqual([]);
+    expect(host.textContent).not.toContain("Tasks");
   });
 });

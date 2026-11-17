@@ -3,37 +3,39 @@ import type { WirePlan } from "../../shared/dog-plan";
 import type { CloudTaskSummary } from "../../shared/cloud-task";
 import { ageWords, goingWords, lastMovedWords, liveStep, outcomeKindOfTool, stepLabel, stepPhrase, stepTime, type LiveStep, type OutcomeKind } from "../../shared/step-words";
 import type { WorkPanelPage } from "./work-panel";
+import { t } from "./i18n";
+import type { LocaleKey } from "@/locales";
 
 export const PANEL_WORDS = {
-  close: "Close",
-  back: "Back",
-  todo: "To-do list",
-  steps: "Steps",
-  failed: "Didn't work",
-  trimmed: "Earlier steps aren't kept",
-  sideJobs: "Side jobs",
-  nothingRunning: "Nothing running",
-  finishedToday: "Finished today",
-  needsAnswer: "Needs your answer",
-  cameBack: "What came back",
-  shortened: "Shortened",
-  hidden: "Some values hidden",
-  copy: "Copy",
-  copied: "Copied",
-  doing: "What it's doing",
-  stop: "Stop this job",
-  stopping: "Stopping…",
-  stopFailed: "Couldn't stop. Try again.",
-  cancel: "Cancel",
-  stopConfirm: "Stop",
-  loading: "Getting the steps…",
-  noSteps: "No steps yet",
-} as const;
+  get close() { return t("workPanel.close"); },
+  get back() { return t("workPanel.back"); },
+  get todo() { return t("workPanel.todo"); },
+  get steps() { return t("workPanel.steps"); },
+  get failed() { return t("workPanel.failed"); },
+  get trimmed() { return t("workPanel.trimmed"); },
+  get sideJobs() { return t("workPanel.sideJobs"); },
+  get nothingRunning() { return t("workPanel.nothingRunning"); },
+  get finishedToday() { return t("workPanel.finishedToday"); },
+  get needsAnswer() { return t("workPanel.needsAnswer"); },
+  get cameBack() { return t("workPanel.cameBack"); },
+  get shortened() { return t("workPanel.shortened"); },
+  get hidden() { return t("workPanel.hidden"); },
+  get copy() { return t("workPanel.copy"); },
+  get copied() { return t("workPanel.copied"); },
+  get doing() { return t("workPanel.doing"); },
+  get stop() { return t("workPanel.stop"); },
+  get stopping() { return t("workPanel.stopping"); },
+  get stopFailed() { return t("workPanel.stopFailed"); },
+  get cancel() { return t("workPanel.cancel"); },
+  get stopConfirm() { return t("workPanel.stopConfirm"); },
+  get loading() { return t("workPanel.loading"); },
+  get noSteps() { return t("workPanel.noSteps"); },
+};
 
-export const helpingWords = (name: string) => `Helping ${name}`;
-export const stopQuestion = (name: string) => `Stop this job? ${name} keeps working.`;
-export const startedWords = (at: number, now: number) => `Started ${stepTime(at, now)}`;
-export const lastMovedLine = (ms: number) => `Last moved ${lastMovedWords(ms)}`;
+export const helpingWords = (name: string) => t("workPanel.helping", { name });
+export const stopQuestion = (name: string) => t("workPanel.stopQuestion", { name });
+export const startedWords = (at: number, now: number) => t("workPanel.started", { time: stepTime(at, now) });
+export const lastMovedLine = (ms: number) => t("workPanel.lastMoved", { time: lastMovedWords(ms) });
 
 export type StepGlyphKind = "spinner" | "play" | "pencil" | "page" | "magnifier" | "screen" | "paw" | "cloud";
 
@@ -126,11 +128,11 @@ export function sideJobCards(run: NativeRun | undefined, jobs: readonly CloudTas
   };
 }
 
-const INPUT_LABELS: Partial<Record<OutcomeKind, string>> = {
-  command: "What it ran", check: "What it ran", cloud: "What it ran",
-  read: "What it read", edit: "What it changed", delete: "What it changed", wrote: "What it wrote",
-  search: "What it looked for", chats: "What it looked for", web: "What it looked for", page: "What it looked for", open: "What it looked for",
-  help: "What it asked", team: "What it asked",
+const INPUT_LABELS: Partial<Record<OutcomeKind, LocaleKey>> = {
+  command: "workPanel.input.ran", check: "workPanel.input.ran", cloud: "workPanel.input.ran",
+  read: "workPanel.input.read", edit: "workPanel.input.changed", delete: "workPanel.input.changed", wrote: "workPanel.input.wrote",
+  search: "workPanel.input.lookedFor", chats: "workPanel.input.lookedFor", web: "workPanel.input.lookedFor", page: "workPanel.input.lookedFor", open: "workPanel.input.lookedFor",
+  help: "workPanel.input.asked", team: "workPanel.input.asked",
 };
 
 export function stepDetail(activity: NativeActivity): { title: string; inputLabel: string; outputLabel: string; input: string; output: string; shortened: boolean; hidden: boolean } {
@@ -139,7 +141,7 @@ export function stepDetail(activity: NativeActivity): { title: string; inputLabe
   const output = activity.output ?? activity.text ?? "";
   return {
     title: stepLabel({ outcome, state: activity.state === "failed" ? "failed" : "done", subject: activity.subject }),
-    inputLabel: INPUT_LABELS[outcome] ?? "What it sent",
+    inputLabel: t(INPUT_LABELS[outcome] ?? "workPanel.input.sent"),
     outputLabel: PANEL_WORDS.cameBack,
     input, output,
     shortened: Boolean(activity.truncated),
@@ -148,7 +150,7 @@ export function stepDetail(activity: NativeActivity): { title: string; inputLabe
 }
 
 export function panelTitle(page: WorkPanelPage, botName: string, pushedTitle?: string, working = true): string {
-  if (page.kind === "work") return page.runId || !working ? `What ${botName} did` : `What ${botName} is doing`;
+  if (page.kind === "work") return t(page.runId || !working ? "workPanel.titleDid" : "workPanel.titleDoing", { name: botName });
   if (page.kind === "side-jobs") return PANEL_WORDS.sideJobs;
   return pushedTitle ?? "";
 }
