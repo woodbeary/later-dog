@@ -79,3 +79,51 @@
   border-radius: 2px;
   background: var(--color-ink);
 }
+
+[data-composer-surface]:has(> [data-usage-notice]) {
+  padding-top: 5px;
+}
+
+.composer-usage-row {
+  display: flex;
+  height: 40px;
+  align-items: center;
+  margin: 0 -5px 6px -7px;
+  padding: 0 4px 0 14px;
+  border-radius: 18px;
+  background: var(--color-wash, color-mix(in srgb, var(--color-ink) 4%, var(--color-app)));
+}
+
+.composer-usage-open {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  align-items: center;
+  gap: 4px;
+  font-size: 14px;
+  line-height: 20px;
+  font-weight: 500;
+  color: var(--color-ink);
+  text-align: left;
+}
+
+.composer-usage-chevron {
+  flex-shrink: 0;
+  color: var(--color-faint, var(--color-ink-tertiary));
+}
+
+.composer-usage-hide {
+  display: flex;
+  width: 28px;
+  height: 28px;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  border-radius: 9999px;
+  color: var(--color-ink-secondary);
+}
+
+.composer-usage-hide:hover {
+  color: var(--color-ink);
+  background: var(--color-disc, color-mix(in srgb, var(--color-ink) 7%, var(--color-app)));
+}

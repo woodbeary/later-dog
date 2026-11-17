@@ -96,6 +96,7 @@ import {
 } from "@/lib/composer-commands";
 import { api } from "@/lib/api";
 import { SaveCommandDialog } from "./SaveCommandDialog";
+import { ComposerUsageNotice } from "./UsageNotice";
 import "../composer-parity.css";
 
 function mentionQueryAt(text: string, caret: number): { start: number; query: string } | null {
@@ -1049,6 +1050,12 @@ export function Composer({
           data-expanded={expanded || undefined}
           className="@container/composer relative z-[1]"
         >
+        {!locked && bot && !group && (
+          <ComposerUsageNotice
+            instanceId={bot.modelSelection?.instanceId}
+            onOpen={() => dispatch({ type: "toggleAppSettings", open: true, section: "usage" })}
+          />
+        )}
         {replyTo && (
           <div className="px-1 pb-1.5 pt-0.5">
             <ReplyQuote

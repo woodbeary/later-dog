@@ -30,6 +30,7 @@ vi.mock("@/lib/analytics", () => ({ track: vi.fn() }));
 const { Composer } = await import("./Composer");
 const { appendComposerDraft } = await import("@/lib/drafts");
 const { setLocale } = await import("@/lib/i18n");
+const { reloadPlanUsage } = await import("./PlanUsage");
 
 const juniper = (busy: boolean, threadId: string): Bot => ({
   id: "juniper", threadId, name: "Juniper", title: "", description: "", color: "green",
@@ -125,5 +126,37 @@ describe("the composer's end slot", () => {
   it("draws the composer as one surface", async () => {
     await mount(false);
     expect(host.querySelectorAll("[data-composer-surface]")).toHaveLength(1);
+  });
+});
+
+describe("the usage row in the composer", () => {
+  const report = (usedPercent: number) => ({
+    fetchedAt: "2026-11-17T09:00:00Z",
+    providers: [{
+      id: "claude", name: "Claude", driver: "claudeAgent", plan: "max", ok: true, error: null, extra: [],
+      weekly: { available: true, usedPercent, remainingPercent: 100 - usedPercent, resetsAt: "2026-11-20T09:00:00Z" },
+      fiveHour: { available: true, usedPercent: 10, remainingPercent: 90, resetsAt: "2026-11-17T15:00:00Z" },
+    }],
+  });
+  const withUsage = async (usedPercent: number) => {
+    localStorage.clear();
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify(report(usedPercent)), { status: 200, headers: { "content-type": "application/json" } })));
+    await reloadPlanUsage(true);
+  };
+
+  it("grows a top row inside the surface at 75 % that opens the usage view", async () => {
+    await withUsage(75);
+    await mount(false);
+    const surface = host.querySelector("[data-composer-surface]")!;
+    expect(surface.firstElementChild?.hasAttribute("data-usage-notice")).toBe(true);
+    expect(surface.querySelector("[data-usage-notice]")!.textContent).toBe("Most of this week's use is gone");
+    await act(async () => { host.querySelector<HTMLButtonElement>("[data-usage-notice-open]")!.click(); });
+    expect(fixture.dispatch.mock.calls.map(([action]) => action)).toContainEqual({ type: "toggleAppSettings", open: true, section: "usage" });
+  });
+
+  it("shows no row at 74 %", async () => {
+    await withUsage(74);
+    await mount(false);
+    expect(host.querySelector("[data-usage-notice]")).toBeNull();
   });
 });
