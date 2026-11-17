@@ -82,9 +82,9 @@ describe("header name", () => {
   it("centres the bot in the header's middle column, with the controls in the last", () => {
     const markup = renderToStaticMarkup(createElement(ChatView, { bot }));
     const row = markup.match(/data-chathead-row="true" class="([^"]*)"/)?.[1] ?? "";
-    expect(row).toContain("@min-[30rem]/chathead:grid-cols-[minmax(0,1fr)_minmax(0,auto)_minmax(max-content,1fr)]");
-    expect(markup).toMatch(/data-chathead-identity="true" class="[^"]*@min-\[30rem\]\/chathead:col-start-2[^"]*justify-self-center/);
-    expect(markup).toMatch(/data-chathead-controls="true" class="[^"]*@min-\[30rem\]\/chathead:col-start-3/);
+    expect(row.split(" ")).toContain("grid-cols-[minmax(0,1fr)_minmax(0,auto)_minmax(max-content,1fr)]");
+    expect(markup).toMatch(/data-chathead-identity="true" class="[^"]*\bcol-start-2\b[^"]*justify-self-center/);
+    expect(markup).toMatch(/data-chathead-controls="true" class="[^"]*\bcol-start-3\b/);
   });
 });
 
@@ -337,15 +337,17 @@ describe("thread control placement", () => {
     expect(markup).not.toMatch(/class="[^"]*chat-text[^"\n]*bg-bubble-user/);
   });
 
-  it("wraps the header into a name line and a chip line when the column is narrow", () => {
+  it("keeps the pill centred and the … on the same row however narrow the chat is, as with the work panel open", () => {
     const markup = renderToStaticMarkup(createElement(ChatView, { bot: { ...bot, busy: false } }));
-    expect(markup).toContain("@container/chathead");
     const row = /data-chathead-row="[^"]*" class="([^"]*)"/.exec(markup)!;
-    expect(row[1].split(" ")).toContain("@max-[30rem]/chathead:flex-wrap");
+    expect(row[1].split(" ")).toEqual(expect.arrayContaining(["grid", "grid-cols-[minmax(0,1fr)_minmax(0,auto)_minmax(max-content,1fr)]", "items-center"]));
+    expect(row[1]).not.toContain("wrap");
     const identity = /data-chathead-identity="[^"]*" class="([^"]*)"/.exec(markup)!;
-    expect(identity[1].split(" ")).toEqual(expect.arrayContaining(["min-w-0", "@max-[30rem]/chathead:basis-full"]));
+    expect(identity[1].split(" ")).toEqual(expect.arrayContaining(["min-w-0", "col-start-2", "justify-self-center"]));
+    expect(identity[1]).not.toContain("basis-full");
     const controls = /data-chathead-controls="[^"]*" class="([^"]*)"/.exec(markup)!;
-    expect(controls[1].split(" ")).toEqual(expect.arrayContaining(["shrink-0", "@max-[30rem]/chathead:ml-auto", "@max-[30rem]/chathead:flex-wrap"]));
+    expect(controls[1].split(" ")).toEqual(expect.arrayContaining(["shrink-0", "col-start-3", "justify-self-end"]));
+    expect(controls[1]).not.toContain("wrap");
   });
 
   it("shows no crown or main dog label in the chat header", () => {

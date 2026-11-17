@@ -1105,8 +1105,8 @@ export function ChatView({ bot: profile }: { bot: Bot }) {
           "pl-11 md:pl-5",
         )}
       >
-        <div data-chathead-row className="flex items-center justify-between @max-[30rem]/chathead:flex-wrap @max-[30rem]/chathead:gap-y-1 @min-[30rem]/chathead:grid @min-[30rem]/chathead:grid-cols-[minmax(0,1fr)_minmax(0,auto)_minmax(max-content,1fr)]">
-        <div data-chathead-identity className="flex min-w-0 items-center gap-2 @max-[30rem]/chathead:basis-full @min-[30rem]/chathead:col-start-2 @min-[30rem]/chathead:justify-self-center" style={headerNoDragStyle}>
+        <div data-chathead-row className="grid grid-cols-[minmax(0,1fr)_minmax(0,auto)_minmax(max-content,1fr)] items-center">
+        <div data-chathead-identity className="col-start-2 flex min-w-0 items-center gap-2 justify-self-center" style={headerNoDragStyle}>
           <button
             type="button"
             data-chathead-pill
@@ -1124,7 +1124,7 @@ export function ChatView({ bot: profile }: { bot: Bot }) {
         </div>
         <div
           data-chathead-controls
-          className="flex shrink-0 items-center gap-2 @max-[30rem]/chathead:ml-auto @max-[30rem]/chathead:flex-wrap @max-[30rem]/chathead:justify-end @min-[30rem]/chathead:col-start-3 @min-[30rem]/chathead:justify-self-end"
+          className="col-start-3 flex shrink-0 items-center gap-2 justify-self-end"
           style={controlsShiftStyle}
         >
           <LiveCallChip currentBotId={bot.id} onOpen={(botId, threadId) => openNotificationTarget(dispatch, { botId, threadId }, readStore())} />
