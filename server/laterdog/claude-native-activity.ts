@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import type { NativeActivity, NativeActor, NativeActorState, NativeObservation } from "../../shared/native-runs.ts";
 import { redactSecretsInText } from "../redact.ts";
 import { toolDetailPreview } from "../tool-summary.ts";
+import { stepSubject } from "./step-subject.ts";
 
 type Fields = Record<string, unknown>;
 const fields = (value: unknown): Fields => value && typeof value === "object" && !Array.isArray(value) ? value as Fields : {};
@@ -170,6 +171,7 @@ export class ClaudeNativeActivity {
       ...old, id: actorId, parentId, kind, nativeId: taskId, nativeThreadId: this.sessionId, generation,
       label: old?.label || text(event.description, 160) || text(event.subagent_type, 160) || (kind === "subagent" ? "Native subagent" : "Native task"),
       task: text(event.prompt, 2_000) || old?.task || text(event.description, 2_000), state, startedAt: old?.startedAt ?? this.now(),
+      ...(event.subtype === "task_progress" || event.subtype === "task_updated" ? { lastActivityAt: this.now() } : {}),
       ...(terminal(state) ? { endedAt: count(patch.end_time) ?? old?.endedAt ?? this.now() } : {}),
       background: typeof patch.is_backgrounded === "boolean" ? patch.is_backgrounded : typeof event.is_backgrounded === "boolean" ? event.is_backgrounded : old?.background,
       ambient: typeof event.ambient === "boolean" ? event.ambient : old?.ambient,
@@ -268,7 +270,8 @@ export class ClaudeNativeActivity {
         const tool = string(block.name) ?? "Tool";
         const input = fields(block.input);
         const search = tool === "WebSearch" || tool === "WebFetch";
-        const activity: NativeActivity = { id: `claude-tool-${id(this.sessionId, toolId)}`, actorId, kind: search ? "search" : "tool", label: search ? `${tool}: ${text(input.query ?? input.url, 300) ?? ""}`.trim() : tool, state: "running", startedAt: this.now(), input: toolDetailPreview(block.input), ...(search ? { links: claudeSearchLinks(block.input) } : {}) };
+        const subject = stepSubject(tool, block.input);
+        const activity: NativeActivity = { id: `claude-tool-${id(this.sessionId, toolId)}`, actorId, kind: search ? "search" : "tool", label: search ? `${tool}: ${text(input.query ?? input.url, 300) ?? ""}`.trim() : tool, ...(subject ? { subject } : {}), state: "running", startedAt: this.now(), input: toolDetailPreview(block.input), ...(search ? { links: claudeSearchLinks(block.input) } : {}) };
         this.tools.set(toolId, { actorId, activity });
         if (this.tools.size > 2_048) this.tools.delete(this.tools.keys().next().value!);
         this.activity(activity);

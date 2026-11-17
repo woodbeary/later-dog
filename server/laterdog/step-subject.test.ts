@@ -1,0 +1,114 @@
+import { describe, expect, it } from "vitest";
+import { stepSubject } from "./step-subject.ts";
+
+describe("what a step is about", () => {
+  it.each([
+    ["Bash", { command: "pnpm test order-form", description: "Run the order form tests" }, "Run the order form tests"],
+    ["mcp__agents__run_on_computer", { command: "pnpm build", description: "Build the app" }, "Build the app"],
+    ["Task", { description: "Check the spring menu", prompt: "Read every menu file and list prices" }, "Check the spring menu"],
+    ["Agent", { description: "Look over the order form", subagent_type: "general-purpose" }, "Look over the order form"],
+  ])("uses the call's own description for %s", (tool, input, subject) => {
+    expect(stepSubject(tool, input)).toBe(subject);
+  });
+
+  it("never falls back to command text", () => {
+    expect(stepSubject("Bash", { command: "rm -rf build && pnpm build" })).toBeUndefined();
+    expect(stepSubject("Bash", { command: "pnpm build", description: "   " })).toBeUndefined();
+  });
+
+  it.each([
+    ["Read", { file_path: "/Users/sam/shop/src/OrderForm.tsx" }, "order form"],
+    ["Write", { file_path: "/srv/shop/server/order-store.ts" }, "order store"],
+    ["Edit", { file_path: "docs/spring-menu.md", old_string: "a", new_string: "b" }, "spring menu"],
+    ["MultiEdit", { file_path: "README.md", edits: [] }, "readme"],
+    ["NotebookEdit", { notebook_path: "analysis/SalesReport.ipynb" }, "sales report"],
+    ["delete_file", { path: "C:\\menus\\old_menu.txt" }, "old menu"],
+    ["mcp__agents__mac_read_file", { path: "~/shop/HTTPServer.ts" }, "http server"],
+    ["Read", { file_path: "/srv/shop/order.test.ts" }, "order test"],
+  ])("names the file %s works on in plain words", (tool, input, subject) => {
+    expect(stepSubject(tool, input)).toBe(subject);
+  });
+
+  it.each([
+    ["Grep", { pattern: "pickup", path: "/srv/shop" }, "pickup"],
+    ["WebSearch", { query: "pickup times near the shop" }, "pickup times near the shop"],
+    ["mcp__agents__session_search", { query: "spring menu" }, "spring menu"],
+  ])("uses the search words for %s", (tool, input, subject) => {
+    expect(stepSubject(tool, input)).toBe(subject);
+  });
+
+  it.each([
+    ["WebFetch", { url: "https://www.stripe.com/docs", prompt: "Read the docs" }, "stripe.com"],
+    ["mcp__computer__open_url", { url: "http://shop.example.org/menu" }, "shop.example.org"],
+    ["browser_navigate", { url: "https://WWW.Example.com/" }, "example.com"],
+  ])("uses the site's host name for %s", (tool, input, subject) => {
+    expect(stepSubject(tool, input)).toBe(subject);
+  });
+
+  it.each([
+    ["Bash", { command: "cat /Users/jacob/.ssh/id_rsa", description: "cat /Users/jacob/.ssh/id_rsa" }],
+    ["Bash", { command: "rm -rf ~/code/app && git push --force", description: "rm -rf ~/code/app && git push --force" }],
+    ["Bash", { command: "pnpm gate", description: "Run mcp__agents__run_on_computer with pnpm gate" }],
+    ["Task", { description: "Explore /Users/jacob/code/app/src for the bug", prompt: "Find the bug" }],
+    ["Glob", { pattern: "src/**/secret/*.ts" }],
+    ["Grep", { pattern: "password\\s*=\\s*\"hunter2\"" }],
+  ])("gives %s no subject when its words hold a path, command text, a tool name or a pattern: %j", (tool, input) => {
+    expect(stepSubject(tool, input)).toBeUndefined();
+  });
+
+  it.each([
+    "Look in C:\\menus for the price list",
+    "List the files in ~ before the build",
+    "Read .env for the port",
+    "Count the orders | sort them",
+    "Build the app; then test it",
+    "Save the log > out.txt",
+    "Run the tests with --watch",
+    "Print $HOME",
+    "Run `pnpm test` for the order form",
+    "Find orders matching [A-Z]+ in the menu",
+  ])("gives no subject to a description with path or command syntax: %s", (description) => {
+    expect(stepSubject("Bash", { command: "true", description })).toBeUndefined();
+  });
+
+  it("gives Glob no subject even for a plain word", () => {
+    expect(stepSubject("Glob", { pattern: "menu" })).toBeUndefined();
+    expect(stepSubject("mcp__files__glob", { pattern: "menu" })).toBeUndefined();
+  });
+
+  it.each([
+    ["Bash", { description: "Run the order form tests" }, "Run the order form tests"],
+    ["Bash", { description: "Install the packages for the shop" }, "Install the packages for the shop"],
+    ["Bash", { description: "Check the menu's prices, then the order form" }, "Check the menu's prices, then the order form"],
+    ["Bash", { description: "Fix the 2-step sign-in (draft)" }, "Fix the 2-step sign-in (draft)"],
+    ["Task", { description: "Find where pickup times are set" }, "Find where pickup times are set"],
+    ["Agent", { description: "Q&A notes for the spring menu" }, "Q&A notes for the spring menu"],
+    ["WebSearch", { query: "how do I rotate keys?" }, "how do I rotate keys?"],
+    ["Grep", { pattern: "pickup time" }, "pickup time"],
+  ])("still uses plain words for %s: %j", (tool, input, subject) => {
+    expect(stepSubject(tool, input)).toBe(subject);
+  });
+
+  it("has no subject for anything else or for input it cannot read", () => {
+    expect(stepSubject("TodoWrite", { todos: [] })).toBeUndefined();
+    expect(stepSubject("coordinate_bots", { message: "Check the menu", description: "Ask Otis" })).toBeUndefined();
+    expect(stepSubject("mcp__agents__shared_computer", { action: "read_file", path: "notes.md" })).toBeUndefined();
+    expect(stepSubject("WebFetch", { url: "not a link" })).toBeUndefined();
+    expect(stepSubject("Read", { file_path: "/srv/shop/" })).toBeUndefined();
+    expect(stepSubject("Read", undefined)).toBeUndefined();
+    expect(stepSubject("Bash", "pnpm test")).toBeUndefined();
+  });
+
+  it("gives no subject when the secret filter would change anything, wherever the token sits", () => {
+    expect(stepSubject("Read", { file_path: "/Users/jacob/keys/ghp_abcdefghijklmnopqrstuvwxyz0123456789AB.txt" })).toBeUndefined();
+    expect(stepSubject("Bash", { command: "deploy", description: "Deploy with key sk-test-notarealkey0000000000 to staging" })).toBeUndefined();
+    expect(stepSubject("WebSearch", { query: "how to rotate sk-test-notarealkey0000000000" })).toBeUndefined();
+    expect(stepSubject("WebFetch", { url: "https://docs.example.com/start?token=notarealtoken0000" })).toBeUndefined();
+  });
+
+  it("keeps at most 120 characters", () => {
+    const description = "Run the order form tests again ".repeat(10).slice(0, 300);
+    expect(description).toHaveLength(300);
+    expect(stepSubject("Bash", { description })).toBe(description.slice(0, 120));
+  });
+});
