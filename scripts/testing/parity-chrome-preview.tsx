@@ -58,7 +58,7 @@ function OpenMenu() {
       renderTrigger={() => <span className="block rounded-lg px-3 py-2 text-left text-[14px] text-ink">Juniper</span>}
       items={[
         { key: "chat", heading: "Juniper", label: "New chat", icon: <MessageCircle size={16} />, onSelect: noop },
-        { key: "team", label: "Add to a group", icon: <Users size={16} />, onSelect: noop },
+        { key: "team", label: "Add to a group", subtitle: "In 2 groups", note: "Everyone in a group can read its chat", icon: <Users size={16} />, onSelect: noop },
         { key: "quiet", label: "Quiet for an hour", icon: <Moon size={16} />, active: true, onSelect: noop },
         { key: "settings", label: "Settings", icon: <Settings size={16} />, separatorBefore: true, onSelect: noop },
       ]}
