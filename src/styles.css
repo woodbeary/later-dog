@@ -91,35 +91,43 @@
   --color-inset: #191919;
   --color-control: #2f2f2f;
   --color-control-hover: #3d3d3d;
-  --color-hairline: #333333;
+  --color-hairline: #2c2c2e;
   --color-ink: #fcfcfc;
-  --color-ink-secondary: #fcfcfc99;
+  --color-ink-secondary: #9c9ca2;
   --color-ink-tertiary: #fcfcfc90;
-  --color-accent: #ededed;
+  --color-accent: #f5f5f5;
   --color-accent-border: #d4d4d4;
   --color-focus: #ededed;
   --color-accent-text: #ededed;
-  --color-bubble-user: #5a5a5a;
+  --color-bubble-user: #5c5c5c;
   --color-success: #38d591;
   --color-danger: #ff5667;
   --color-warning: #ff9800;
   --color-caution: #f2c94c;
-  --color-unread: #0a84ff;
-  --color-waiting: #ff9f0a;
-  --color-waiting-text: #ff9f0a;
+  --color-unread: #2d6ae3;
+  --color-waiting: #b77400;
+  --color-waiting-text: #db941e;
   --color-chart-1: #3987e5;
   --color-chart-2: #d95926;
   --color-chart-3: #199e70;
   --color-chart-4: #c98500;
+
+  --color-lift: #1c1c1e;
+  --color-bubble: #f7eaea0e;
+  --color-disc: #5c5c5c;
+  --color-wash: #7676803d;
+  --color-faint: #828288;
+  --color-working: #3fa266;
+  --color-link: #6ab0ff;
 
   --font-sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", system-ui, sans-serif;
 }
 
 :root {
   --code-color-scheme: dark;
-  --color-accent-ink: #0d0d0d;
+  --color-accent-ink: #0b0b0b;
   --color-danger-ink: #ffffff;
-  --color-bubble-user-ink: #fcfcfc;
+  --color-bubble-user-ink: #ffffff;
   --color-success-ink: #072114;
   --color-scrollbar: #3d3d3d;
   --color-dog-line: #fcfcfc;
@@ -138,32 +146,40 @@
   --color-inset: #191919;
   --color-control: #2f2f2f;
   --color-control-hover: #3d3d3d;
-  --color-hairline: #333333;
+  --color-hairline: #2c2c2e;
   --color-ink: #fcfcfc;
-  --color-ink-secondary: #fcfcfc99;
+  --color-ink-secondary: #9c9ca2;
   --color-ink-tertiary: #fcfcfc90;
-  --color-accent: #ededed;
+  --color-accent: #f5f5f5;
   --color-accent-border: #d4d4d4;
   --color-accent-text: #ededed;
   --color-focus: #ededed;
-  --color-accent-ink: #0d0d0d;
-  --color-bubble-user: #5a5a5a;
-  --color-bubble-user-ink: #fcfcfc;
+  --color-accent-ink: #0b0b0b;
+  --color-bubble-user: #5c5c5c;
+  --color-bubble-user-ink: #ffffff;
   --color-success: #38d591;
   --color-danger: #ff5667;
   --color-danger-ink: #ffffff;
   --color-success-ink: #072114;
   --color-warning: #ff9800;
   --color-caution: #f2c94c;
-  --color-unread: #0a84ff;
-  --color-waiting: #ff9f0a;
-  --color-waiting-text: #ff9f0a;
+  --color-unread: #2d6ae3;
+  --color-waiting: #b77400;
+  --color-waiting-text: #db941e;
   --color-scrollbar: #3d3d3d;
   --color-dog-line: #fcfcfc;
   --color-chart-1: #3987e5;
   --color-chart-2: #d95926;
   --color-chart-3: #199e70;
   --color-chart-4: #c98500;
+
+  --color-lift: #1c1c1e;
+  --color-bubble: #f7eaea0e;
+  --color-disc: #5c5c5c;
+  --color-wash: #7676803d;
+  --color-faint: #828288;
+  --color-working: #3fa266;
+  --color-link: #6ab0ff;
 
   --font-sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", system-ui, sans-serif;
   --radius-lg: 10px;
@@ -212,6 +228,14 @@
   --color-chart-2: #eb6834;
   --color-chart-3: #1baf7a;
   --color-chart-4: #eda100;
+
+  --color-lift: var(--color-composer);
+  --color-bubble: color-mix(in srgb, var(--color-ink) 5%, var(--color-app));
+  --color-disc: color-mix(in srgb, var(--color-ink) 7%, var(--color-app));
+  --color-wash: color-mix(in srgb, var(--color-ink) 12%, transparent);
+  --color-faint: color-mix(in srgb, var(--color-ink) 32%, var(--color-app));
+  --color-working: #3fa266;
+  --color-link: var(--color-accent-text);
 
   --font-sans: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
     Roboto, sans-serif;
@@ -262,6 +286,14 @@
   --color-chart-3: #199e70;
   --color-chart-4: #c98500;
 
+  --color-lift: color-mix(in srgb, var(--color-ink) 9%, var(--color-app));
+  --color-bubble: color-mix(in srgb, var(--color-ink) 5%, var(--color-app));
+  --color-disc: color-mix(in srgb, var(--color-ink) 34%, var(--color-app));
+  --color-wash: color-mix(in srgb, var(--color-ink) 22%, transparent);
+  --color-faint: color-mix(in srgb, var(--color-ink) 48%, var(--color-app));
+  --color-working: #3fa266;
+  --color-link: var(--color-accent-text);
+
   --font-sans: "Inter", -apple-system, BlinkMacSystemFont, "SF Pro Text",
     "Segoe UI", system-ui, sans-serif;
   --radius-lg: 4px;
@@ -310,6 +342,14 @@
   --color-chart-2: #eb6834;
   --color-chart-3: #1baf7a;
   --color-chart-4: #eda100;
+
+  --color-lift: var(--color-composer);
+  --color-bubble: color-mix(in srgb, var(--color-ink) 5%, var(--color-app));
+  --color-disc: color-mix(in srgb, var(--color-ink) 7%, var(--color-app));
+  --color-wash: color-mix(in srgb, var(--color-ink) 12%, transparent);
+  --color-faint: color-mix(in srgb, var(--color-ink) 32%, var(--color-app));
+  --color-working: #3fa266;
+  --color-link: var(--color-accent-text);
 
   --font-sans: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
     Roboto, sans-serif;
@@ -360,6 +400,14 @@
   --color-chart-3: #199e70;
   --color-chart-4: #c98500;
 
+  --color-lift: color-mix(in srgb, var(--color-ink) 9%, var(--color-app));
+  --color-bubble: color-mix(in srgb, var(--color-ink) 5%, var(--color-app));
+  --color-disc: color-mix(in srgb, var(--color-ink) 34%, var(--color-app));
+  --color-wash: color-mix(in srgb, var(--color-ink) 22%, transparent);
+  --color-faint: color-mix(in srgb, var(--color-ink) 48%, var(--color-app));
+  --color-working: #3fa266;
+  --color-link: var(--color-accent-text);
+
   --font-sans: "Inter", -apple-system, BlinkMacSystemFont, "SF Pro Text",
     "Segoe UI", system-ui, sans-serif;
   --radius-lg: 6px;
@@ -408,6 +456,14 @@
   --color-chart-2: #eb6834;
   --color-chart-3: #1baf7a;
   --color-chart-4: #eda100;
+
+  --color-lift: var(--color-composer);
+  --color-bubble: color-mix(in srgb, var(--color-ink) 5%, var(--color-app));
+  --color-disc: color-mix(in srgb, var(--color-ink) 7%, var(--color-app));
+  --color-wash: color-mix(in srgb, var(--color-ink) 12%, transparent);
+  --color-faint: color-mix(in srgb, var(--color-ink) 32%, var(--color-app));
+  --color-working: #3fa266;
+  --color-link: var(--color-accent-text);
 
   --font-sans: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
     Roboto, sans-serif;
@@ -458,6 +514,14 @@
   --color-chart-3: #199e70;
   --color-chart-4: #c98500;
 
+  --color-lift: color-mix(in srgb, var(--color-ink) 9%, var(--color-app));
+  --color-bubble: color-mix(in srgb, var(--color-ink) 5%, var(--color-app));
+  --color-disc: color-mix(in srgb, var(--color-ink) 34%, var(--color-app));
+  --color-wash: color-mix(in srgb, var(--color-ink) 22%, transparent);
+  --color-faint: color-mix(in srgb, var(--color-ink) 48%, var(--color-app));
+  --color-working: #3fa266;
+  --color-link: var(--color-accent-text);
+
   --font-sans: "Inter", -apple-system, BlinkMacSystemFont, "SF Pro Text",
     "Segoe UI", system-ui, sans-serif;
   --radius-lg: 8px;
@@ -474,13 +538,13 @@
   --color-inset: #e6e6e6;
   --color-control: #dedede;
   --color-control-hover: #d0d0d0;
-  --color-hairline: #d0d0d0;
+  --color-hairline: #e5e5ea;
 
   --color-ink: #0d0d0d;
-  --color-ink-secondary: #575757;
+  --color-ink-secondary: #6b6b70;
   --color-ink-tertiary: #5c5c5c;
 
-  --color-accent: #111111;
+  --color-accent: #0b0b0b;
   --color-accent-border: #3a3a3a;
   --color-accent-text: #111111;
   --color-focus: #111111;
@@ -488,8 +552,8 @@
   --color-composer: #fcfcfc;
   --color-composer-ring: #e4e4e4;
   --color-menu: #fcfcfc;
-  --color-bubble-user: #070707;
-  --color-bubble-user-ink: #fcfcfc;
+  --color-bubble-user: #0b0b0b;
+  --color-bubble-user-ink: #ffffff;
 
   --color-success: #1f7a4d;
   --color-danger: #c02b3a;
@@ -497,15 +561,23 @@
   --color-success-ink: #ffffff;
   --color-warning: #8a5a00;
   --color-caution: #8f7800;
-  --color-unread: #007aff;
-  --color-waiting: #e0530a;
-  --color-waiting-text: #b23c0a;
+  --color-unread: #2d6ae3;
+  --color-waiting: #b77400;
+  --color-waiting-text: #885a07;
   --color-scrollbar: #c4c4c4;
   --color-dog-line: #5f5f5f;
   --color-chart-1: #2a78d6;
   --color-chart-2: #eb6834;
   --color-chart-3: #1baf7a;
   --color-chart-4: #eda100;
+
+  --color-lift: #ffffff;
+  --color-bubble: #1010000b;
+  --color-disc: #eeeeee;
+  --color-wash: #7676801f;
+  --color-faint: #b0b0b4;
+  --color-working: #3fa266;
+  --color-link: #0a60d0;
 
   --font-sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", system-ui, sans-serif;
   --radius-lg: 10px;
@@ -554,6 +626,14 @@
   --color-chart-2: #eb6834;
   --color-chart-3: #1baf7a;
   --color-chart-4: #eda100;
+
+  --color-lift: var(--color-composer);
+  --color-bubble: color-mix(in srgb, var(--color-ink) 5%, var(--color-app));
+  --color-disc: color-mix(in srgb, var(--color-ink) 7%, var(--color-app));
+  --color-wash: color-mix(in srgb, var(--color-ink) 12%, transparent);
+  --color-faint: color-mix(in srgb, var(--color-ink) 32%, var(--color-app));
+  --color-working: #3fa266;
+  --color-link: var(--color-accent-text);
 
   --font-sans: "Inter", -apple-system, blinkmacsystemfont, "SF Pro Text",
     "Segoe UI", system-ui, sans-serif;
