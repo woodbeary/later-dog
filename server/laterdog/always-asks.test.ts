@@ -240,6 +240,14 @@ describe("deleting something or changing who can reach it from a connected app a
     }
   });
 
+  it("asks for a name that starts with a read word but also deletes, like any delete", () => {
+    for (const slug of ["GMAIL_GET_AND_DELETE", "GOOGLEDRIVE_FIND_AND_DELETE_FILE"]) {
+      expect(connectorAlwaysAsks([slug])?.id, slug).toBe("deletes-or-shares");
+      expect(asksAsConnector(slug), slug).toBe(true);
+      expect(alwaysAsks({ tool: `mcp__composio__${slug}` }, guard)?.id, slug).toBe("deletes-or-shares");
+    }
+  });
+
   it("never asks for a read or an ordinary create", () => {
     for (const slug of ["GMAIL_FETCH_EMAILS", "GITHUB_LIST_REPOSITORY_COLLABORATORS", "GOOGLEDRIVE_GET_PERMISSION", "GOOGLEDRIVE_LIST_PERMISSIONS",
       "GITHUB_CHECK_IF_A_USER_IS_A_REPOSITORY_COLLABORATOR", "SLACK_LIST_MEMBERS", "GOOGLEDRIVE_SEARCH_SHARED_DRIVES", "GOOGLEDRIVE_CREATE_FOLDER",

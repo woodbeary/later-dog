@@ -383,7 +383,7 @@ function connectorSlug(written: string): string | null {
 function writingTokens(tool: string): string[] | null {
   const slug = connectorSlug(tool);
   const tokens = slug ? actionTokens(slug) : [];
-  return tokens.length && !READ_VERBS.has(tokens[0]!) ? tokens : null;
+  return tokens.length && (!READ_VERBS.has(tokens[0]!) || tokens.some((token) => STRONG_DESTROY_TOKENS.has(token))) ? tokens : null;
 }
 
 function deletesOrShares(tool: string): boolean {
