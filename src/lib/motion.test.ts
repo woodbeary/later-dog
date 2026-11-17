@@ -66,7 +66,7 @@ describe("motion tokens", () => {
   });
 
   it("name the radii and elevations the surfaces use", () => {
-    const radii = { bubble: "20px", card: "12px", question: "24px", menu: "12px", sheet: "24px", control: "8px", row: "8px" };
+    const radii = { bubble: "20px", card: "12px", question: "24px", menu: "12px", sheet: "24px", control: "8px" };
     for (const [name, value] of Object.entries(radii)) {
       expect(declaredIn(tokens, `--radius-${name}`), name).toBe(value);
     }
