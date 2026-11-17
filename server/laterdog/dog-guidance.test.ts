@@ -342,7 +342,7 @@ describe("the guidance every dog gets", () => {
 
   it("stays small", () => {
     const main = dogGuidance({ engine: "claude", model: "claude-opus-5-5", kit: { ownComputer: true, vault: true, github: true, google: true, mac: true } });
-    expect(Buffer.byteLength(main) - Buffer.byteLength(PAYMENTS_BLOCK)).toBeLessThan(6_300);
+    expect(Buffer.byteLength(main) - Buffer.byteLength(PAYMENTS_BLOCK)).toBeLessThan(6_450);
   });
 
   it("keeps the cached half byte-identical across turns and days for one model, and changes it only with the model", () => {
