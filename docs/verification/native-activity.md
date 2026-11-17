@@ -49,7 +49,7 @@ The run, each helper, each step, each dog and each task carry the fields listed 
 pnpm exec vitest run shared/step-words.test.ts server/laterdog/native-run-store.test.ts server/laterdog/step-subject.test.ts server/laterdog/live-step.test.ts server/laterdog/live-step.e2e.test.ts server/laterdog/claude-native-activity.test.ts server/laterdog/codex-native-activity.test.ts shared/native-run-selectors.test.ts
 ```
 
-`live-step.e2e.test.ts` starts an isolated home with the fake Claude CLI running a Read, an Edit and a Bash with a description, the Bash held open, and reads `GET /api/threads/:threadId/runs/:runId` and `GET /api/bots` while the Bash runs, for a dog's main chat and for a task. To read the same JSON by hand, start the launcher with the fake engine scripted the same way:
+`server/laterdog/live-step.e2e.test.ts` starts an isolated home with the fake Claude CLI running a Read, an Edit and a Bash with a description, the Bash held open, and reads `GET /api/threads/:threadId/runs/:runId` and `GET /api/bots` while the Bash runs, for a dog's main chat and for a task. To read the same JSON by hand, start the launcher with the fake engine scripted the same way:
 
 ```sh
 FAKE_CLAUDE_MODE=slow FAKE_CLAUDE_SLOW_FINISH_GATE=/tmp/finish.gate \
