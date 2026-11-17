@@ -111,9 +111,22 @@ describe("answering a dog's question", () => {
     expect(fixture.dispatch.mock.calls[0]![0].message).toContain("A: Research and writing");
   });
 
-  it("leaves a digit typed in a text field to the field", async () => {
+  it("picks with a digit pressed in the empty message box", async () => {
     mount(question());
     await key("1", composer.querySelector("textarea")!);
+    await wait(650);
+    expect(fixture.dispatch.mock.calls[0]![0].message).toContain("A: Code and GitHub");
+  });
+
+  it("leaves a digit to a message box that has words, and to any other field", async () => {
+    mount(question());
+    const box = composer.querySelector("textarea")!;
+    box.value = "Around ";
+    await key("1", box);
+    const other = document.createElement("input");
+    document.body.append(other);
+    await key("2", other);
+    other.remove();
     await wait(650);
     expect(fixture.dispatch).not.toHaveBeenCalled();
   });

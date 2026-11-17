@@ -27,7 +27,9 @@ export const QUESTION_PICK_HOLD_MS = 600;
 
 function editable(target: EventTarget | null): boolean {
   const element = target as HTMLElement | null;
-  return Boolean(element && (element.isContentEditable || ["INPUT", "TEXTAREA", "SELECT"].includes(element.tagName)));
+  if (!element || !(element.isContentEditable || ["INPUT", "TEXTAREA", "SELECT"].includes(element.tagName))) return false;
+  const emptyComposer = element instanceof HTMLTextAreaElement && element.closest('[data-tour="composer"]') !== null && element.value === "";
+  return !emptyComposer;
 }
 
 function answersOf(draft: Draft): string[] {
