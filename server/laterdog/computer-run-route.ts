@@ -51,7 +51,7 @@ export function stoppedWaitText(outcome: RunOutcome): string {
   const still = outcome.state === "running" && outcome.exitCode === null;
   const count = outcome.broughtBack.length;
   const brought = `its files were brought back to your folder (${count ? `${count} changed file${count === 1 ? "" : "s"}` : "no changed files"})`;
-  const job = still ? `The job is still running on your cloud computer (run_id ${outcome.id}).` : outcome.state === "finished" ? `The job finished with exit code ${outcome.exitCode} (run_id ${outcome.id}) and ${brought}.` : outcome.exitCode !== null ? `The job had finished with exit code ${outcome.exitCode} (run_id ${outcome.id}); its files were not brought back.` : `The job stopped on your cloud computer (run_id ${outcome.id}).`;
+  const job = still ? `The job had not finished (run_id ${outcome.id}), and a Stop from the person stops it too.` : outcome.state === "finished" ? `The job finished with exit code ${outcome.exitCode} (run_id ${outcome.id}) and ${brought}.` : outcome.exitCode !== null ? `The job had finished with exit code ${outcome.exitCode} (run_id ${outcome.id}); its files were not brought back.` : `The job stopped on your cloud computer (run_id ${outcome.id}).`;
   return `The wait ended because this turn was stopped. ${job} Call run_on_computer with that run_id to check on it later.`;
 }
 const ENDED_TEXT = "This turn ended before the command started on the cloud computer, so nothing was run.";
@@ -117,7 +117,7 @@ export async function handleComputerRun(request: ComputerRunRequest, deps: Compu
     if (jobs) {
       const stillGoing = outcome.state === "running" && outcome.exitCode === null;
       if (!stillGoing) jobs.ended(outcome.id);
-      else if (record) jobs.started(job(record));
+      else if (record && !stopped()) jobs.started(job(record));
     }
     if (stopped()) return { status: 409, error: stoppedWaitText(outcome) };
     const text = outcome.state === "running" && wrote() ? `${PERSON_WROTE_TEXT}\n${outcomeText(outcome)}` : outcomeText(outcome);

@@ -83,7 +83,8 @@ describe("waiting for a computer job with one call", () => {
     const start = j.clock.at;
     const answer = await j.once({ wait_minutes: 60 }, { active: () => j.clock.at - start < 5 * MINUTE });
     expect(answer.status).toBe(409);
-    expect(answer.error).toMatch(/^The wait ended because this turn was stopped\. The job is still running on your cloud computer \(run_id [0-9a-f]{8}\)\./);
+    expect(answer.error).toMatch(/^The wait ended because this turn was stopped\. The job had not finished \(run_id [0-9a-f]{8}\), and a Stop from the person stops it too\./);
+    expect(answer.error).not.toMatch(/still running/);
     expect(answer.error).not.toMatch(/nothing was run/);
     expect(j.clock.at - start).toBeLessThanOrEqual(5 * MINUTE + 10_000);
     expect(j.execs.some((command) => command.includes("python3 -c"))).toBe(false);
@@ -204,6 +205,28 @@ describe("a wait that ends early still leaves the job on its chat", () => {
     t.clock.at = begun + 51 * MINUTE;
     expect(await t.jobs.check(t.probe)).toEqual([runId]);
     expect(t.jobs.count("t1")).toBe(0);
+  });
+
+  it("never puts back a job the person's Stop ended while the dog waited on its run_id", async () => {
+    const t = tracked(50 * MINUTE);
+    const runId = runIdOf((await t.start({})).text);
+    const begun = t.clock.at;
+    let pressed = false;
+    const active = () => {
+      if (t.clock.at - begun < 2 * MINUTE) return true;
+      if (!pressed) {
+        pressed = true;
+        expect(t.jobs.quiet("t1").map((running) => running.id)).toEqual([runId]);
+        t.jobs.ended(runId);
+      }
+      return false;
+    };
+    const answer = await t.call({ run_id: runId, wait_minutes: 60 }, { active });
+    expect(pressed).toBe(true);
+    expect(answer.status).toBe(409);
+    expect(answer.error).not.toMatch(/still running/);
+    expect(t.jobs.live("t1")).toEqual([]);
+    expect(t.jobs.has(runId)).toBe(false);
   });
 
   it("ends the job when Stop lands only after it finished and its files came back", async () => {
