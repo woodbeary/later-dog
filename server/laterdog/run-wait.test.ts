@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { PERSON_WROTE_TEXT, WROTE_BEFORE_START_TEXT, handleComputerRun, stoppedWaitText } from "./computer-run-route.ts";
 import { ComputerRuns, WAIT_IN_ONE_CALL_MS, type RunBox, type RunOutcome } from "./computer-runs.ts";
+import { ComputerJobs, type ComputerJobProbe } from "./computer-jobs.ts";
 import { BAD_WAIT_TEXT, STILL_RUNNING_TAIL_CHARS, stillRunningTail, waitCapMs, waitWindowMs } from "./run-wait.ts";
 import { isPoll, pollAnswer } from "../testing/poll-answer.ts";
 
@@ -168,5 +169,85 @@ describe("waiting for a computer job with one call", () => {
     for (const line of none) expect(first(line), line).toBeNull();
     const real = ["Error: 0 is not a valid port", "error: 0 tests found", "failed: 0 files could be read", "0 passed, 3 failed", "error: exit code 0 expected", "Tests 3 failed | 0 errors", "FAILED (errors=0, failures=3)", "2 errors, 0 warnings", "Build failed with 0 warnings"];
     for (const line of real) expect(first(line), line).toBe(line);
+  });
+});
+
+describe("a wait that ends early still leaves the job on its chat", () => {
+  function tracked(endsAfterMs: number, onWrite: () => void = () => {}) {
+    const j = job(endsAfterMs, onWrite);
+    const jobs = new ComputerJobs(null, { now: () => j.clock.at });
+    const call = (body: Record<string, unknown>, request: { active?: () => boolean; interrupted?: () => boolean } = {}) =>
+      handleComputerRun({ botId: "dog", body, workingFolder: null, allowedRoots: [], home: j.root, threadId: "t1", maxWaitMs: 60 * MINUTE, ...request }, { runs: j.runs, jobs, computer: j.computer, now: () => j.clock.at });
+    const start = (extra: Record<string, unknown>, request: { active?: () => boolean; interrupted?: () => boolean } = {}) =>
+      call({ command: "pnpm gate", folder: join(j.root, "site"), ...extra }, request);
+    const probe: ComputerJobProbe = {
+      computer: async () => ({ state: "running", box: (await j.computer()).box }),
+      exit: async (inner, running) => {
+        const state = await j.runs.poll(inner, j.runs.record(running.botId, running.id)!);
+        return state.done && state.exitCode !== null ? { exitCode: state.exitCode } : null;
+      },
+      liveness: async () => "alive",
+      stop: async () => "gone",
+    };
+    return { ...j, jobs, call, start, probe };
+  }
+  const runIdOf = (text: string | undefined) => /run_id ([0-9a-f]{8})/.exec(text ?? "")![1];
+
+  it("keeps a job on its chat when Stop ends the wait, and lets the ledger end it once it finishes", async () => {
+    const t = tracked(50 * MINUTE);
+    const begun = t.clock.at;
+    const answer = await t.start({ wait_minutes: 60 }, { active: () => t.clock.at - begun < 5 * MINUTE });
+    expect(answer.status).toBe(409);
+    const runId = runIdOf(answer.error);
+    expect(t.jobs.live("t1").map((running) => running.id)).toEqual([runId]);
+    expect(await t.jobs.check(t.probe)).toEqual([]);
+    t.clock.at = begun + 51 * MINUTE;
+    expect(await t.jobs.check(t.probe)).toEqual([runId]);
+    expect(t.jobs.count("t1")).toBe(0);
+  });
+
+  it("ends the job when Stop lands only after it finished and its files came back", async () => {
+    const t = tracked(MINUTE);
+    const answer = await t.start({ wait_minutes: 30 }, { active: () => !t.execs.some((command) => command.includes("python3 -c")) });
+    expect(answer.status).toBe(409);
+    expect(answer.error).toMatch(/The job finished with exit code 0/);
+    expect(t.jobs.count("t1")).toBe(0);
+  });
+
+  it("keeps a job on its chat through every wait a new message cuts short, until a call sees it finish", async () => {
+    const t = tracked(20 * MINUTE);
+    const begun = t.clock.at;
+    const first = await t.start({ wait_minutes: 60 }, { active: () => true, interrupted: () => t.clock.at - begun >= 3 * MINUTE });
+    expect(first.text!.startsWith(PERSON_WROTE_TEXT)).toBe(true);
+    const runId = runIdOf(first.text);
+    expect(t.jobs.live("t1").map((running) => running.id)).toEqual([runId]);
+    const again = await t.call({ run_id: runId, wait_minutes: 60 }, { active: () => true, interrupted: () => true });
+    expect(again.text!.startsWith(PERSON_WROTE_TEXT)).toBe(true);
+    expect(t.jobs.live("t1").map((running) => running.id)).toEqual([runId]);
+    const stoppedAgain = await t.call({ run_id: runId, wait_minutes: 60 }, { active: () => false });
+    expect(stoppedAgain.status).toBe(409);
+    expect(t.jobs.live("t1").map((running) => running.id)).toEqual([runId]);
+    const last = await t.call({ run_id: runId, wait_minutes: 60 }, { active: () => true, interrupted: () => false });
+    expect(last.text).toMatch(/^Finished on your cloud computer with exit code 0/);
+    expect(t.jobs.count("t1")).toBe(0);
+  });
+
+  it("records nothing when a new message arrives before the command starts", async () => {
+    let wrote = false;
+    const t = tracked(MINUTE, () => { wrote = true; });
+    const answer = await t.start({ wait_minutes: 30 }, { active: () => true, interrupted: () => wrote });
+    expect(answer).toEqual({ status: 200, text: WROTE_BEFORE_START_TEXT });
+    expect(t.jobs.count("t1")).toBe(0);
+  });
+
+  it("holds nothing back from the ledger when a wait for a running job is refused", async () => {
+    const t = tracked(20 * MINUTE);
+    const begun = t.clock.at;
+    const first = await t.start({});
+    const runId = runIdOf(first.text);
+    expect(t.jobs.count("t1")).toBe(1);
+    expect(await t.call({ run_id: runId, wait_minutes: 0 })).toEqual({ status: 400, error: BAD_WAIT_TEXT });
+    t.clock.at = begun + 21 * MINUTE;
+    expect(await t.jobs.check(t.probe)).toEqual([runId]);
   });
 });
