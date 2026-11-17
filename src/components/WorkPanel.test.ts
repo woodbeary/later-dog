@@ -136,3 +136,11 @@ it("asks for the steps again only when the run's steps change, not on every revi
   await settle();
   expect(state.requests.length).toBe(asked + 1);
 });
+
+it("closes when the person switches to another dog, so one dog's steps never show under another's name", async () => {
+  await mount({ kind: "work", threadId: "t1" });
+  expect(panel()).not.toBeNull();
+  await act(async () => root.render(createElement(WorkPanel, { botId: "b2", botName: "Pepper" })));
+  await settle();
+  expect(panel()).toBeNull();
+});

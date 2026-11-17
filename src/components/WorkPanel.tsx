@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { ChevronLeft, X } from "lucide-react";
 import "../work-panel.css";
 import type { NativeActivity, NativeRun, NativeRunDetail } from "../../shared/native-runs";
@@ -152,6 +152,11 @@ export function WorkPanel(props: { botId: string; botName: string }) {
   const dispatch = useStoreDispatch();
   const dogs = useStoreSelector(state => state.bots);
   const { data, refreshJobs } = usePanelData(page, props.botId);
+  const shownFor = useRef(props.botId);
+  useEffect(() => {
+    if (shownFor.current !== props.botId) closeWorkPanel();
+    shownFor.current = props.botId;
+  }, [props.botId]);
   useEffect(() => {
     if (!page) return;
     const onKey = (event: KeyboardEvent) => { if (event.key === "Escape" && !event.defaultPrevented) closeWorkPanel(); };
