@@ -193,15 +193,16 @@ describe("BotListItem", () => {
     expect(markup).not.toContain("max-w-[45%]");
   });
 
-  it("shows typing dots instead of preview text while the bot works", () => {
+  it("says the step in words while the bot works, with no typing dots", () => {
     const markup = renderRow(bot({ busy: true }));
 
-    expect(markup).toContain("animate-status-pulse");
-    expect(markup).toContain('class="sr-only">Working…');
+    expect(markup).not.toContain("animate-status-pulse");
+    expect(markup).toContain('data-row-preview="" class="truncate">Working on it</span>');
   });
 
-  it("shows work on the dog's face and preview, never with a dot", () => {
+  it("shows work on the dog's face, its preview and one green dot, never the attention dots", () => {
     const markup = renderRow(bot({ busy: true }));
+    expect(markup).toContain('data-row-dot="working"');
     expect(markup).not.toContain("data-status=");
     expect(markup).toContain('data-mood="think"');
     expect(renderRow(bot({ busy: true }), "icons")).not.toContain("data-status=");
@@ -247,7 +248,7 @@ describe("BotListItem", () => {
 
   it("keeps real sibling work visible while another thread waits for a teammate", () => {
     const markup = renderRow(bot({ waitingForTeammates: true, busy: true, activity: "working" }));
-    expect(markup).toContain("animate-status-pulse");
+    expect(markup).toContain(">Working on it</span>");
     expect(markup).not.toContain("Waiting on another dog…");
   });
 
@@ -319,10 +320,10 @@ describe("bot deletion feedback", () => {
         card: { title: "Approval needed", subtitle: "rm -rf build", options: ["Allow", "Deny"], requestId: "r1", tool: "Bash", ...extra },
       }) as Bot["messages"][number];
       const markup = renderRow(bot({ activity: "waiting-on-you", messages: [card()] }));
-      expect(markup).toContain('<span class="truncate text-waiting-text">Waiting for you: run a command</span>');
-      expect(markup).not.toContain('<span class="truncate text-waiting-text">Waiting for you…');
+      expect(markup).toContain('<span data-row-preview="" class="line-clamp-2 break-words text-waiting-text">Waiting for you: run a command</span>');
+      expect(markup).not.toContain('text-waiting-text">Waiting for you…');
       expect(renderRow(bot({ activity: "waiting-on-you", messages: [card({ tool: "mac_run_command" })] }))).toContain("Waiting for you: run a command on your Mac");
-      expect(renderRow(bot({ activity: "waiting-on-you", messages: [card({ answered: "deny" })] }))).toContain('<span class="truncate text-waiting-text">Waiting for you…');
+      expect(renderRow(bot({ activity: "waiting-on-you", messages: [card({ answered: "deny" })] }))).toContain('text-waiting-text">Waiting for you…');
     });
 
     it("keeps the title line for the main dog", () => {
