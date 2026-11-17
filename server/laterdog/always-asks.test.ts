@@ -2,7 +2,9 @@ import { mkdirSync, mkdtempSync, rmSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { ALWAYS_ASK_IDS, alwaysAskHook, alwaysAsks, connectorAlwaysAsks, internalCallRequest, type AlwaysAskId } from "./always-asks.ts";
+import { ALWAYS_ASK_IDS, alwaysAskHook, alwaysAsks, asksAsConnector, connectorAlwaysAsks, internalCallRequest, type AlwaysAskId } from "./always-asks.ts";
+import { connectorAllowKey, connectorSendDecision } from "./connector-ask.ts";
+import { connectorCallsIn } from "../../shared/outbound.ts";
 import { defaultTempRoots, ownerGuard, type OwnerGuardContext } from "./owner-guard.ts";
 
 const WORKSPACE = "/srv/dogs/ada/work";
@@ -214,9 +216,187 @@ describe("sending or paying from a connected app always asks", () => {
   });
 });
 
+const SEVEN = ["GMAIL_DELETE_MESSAGE", "GMAIL_MOVE_TO_TRASH", "GOOGLEDRIVE_DELETE_FILE", "GOOGLEDRIVE_ADD_FILE_SHARING_PREFERENCE",
+  "GITHUB_ADD_A_REPOSITORY_COLLABORATOR", "GITHUB_DELETE_A_REPOSITORY", "NOTION_ARCHIVE_PAGE"];
+
+describe("deleting something or changing who can reach it from a connected app always asks", () => {
+  it("asks for the seven calls that ran with no card", () => {
+    for (const slug of SEVEN) {
+      expect(connectorAlwaysAsks([slug])?.id, slug).toBe("deletes-or-shares");
+      expect(asksAsConnector(slug), slug).toBe(true);
+      expect(alwaysAsks({ tool: `mcp__composio__${slug}` }, guard)?.id, slug).toBe("deletes-or-shares");
+    }
+    expect(connectorAlwaysAsks(["GMAIL_DELETE_MESSAGE"])?.ask).toMatch(/^This deletes something or changes who can reach it in a connected app\. A dog always asks you/);
+  });
+
+  it("goes by the kind of action, not by these seven names", () => {
+    for (const slug of ["GOOGLEDRIVE_EMPTY_TRASH", "SLACK_REMOVE_A_USER_FROM_A_CONVERSATION", "DROPBOX_PERMANENTLY_DELETE", "GITHUB_PURGE_CACHE",
+      "GOOGLEDRIVE_UPDATE_PERMISSION", "SLACK_INVITE_USER_TO_CHANNEL", "NOTION_SHARE_PAGE", "GITHUB_ADD_ORG_MEMBER", "ASANA_ADD_MEMBERS_FOR_PROJECT",
+      "BOX_UPDATE_SHARED_LINK_VISIBILITY", "FIGMA_MAKE_FILE_PUBLIC", "GOOGLEDOCS_GRANT_ACCESS", "GOOGLEDRIVE_TRANSFER_OWNERSHIP", "TRELLO_DESTROY_BOARD", "GITHUB_ERASE_WIKI", "BOX_UNSHARE_FOLDER", "SLACK_REVOKE_TOKEN",
+      "BOX_ADD_SHARED_LINK_TO_FILE", "DROPBOX_CREATE_SHARED_LINK", "GITHUB_ASSIGN_ORGANIZATION_ROLE_TO_USER", "SLACK_SET_WORKSPACE_OWNER",
+      "SLACK_CONVERT_CHANNEL_TO_PRIVATE", "GOOGLESHEETS_CLEAR_VALUES", "GOOGLECALENDAR_CALENDAR_LIST_DELETE", "OUTLOOK_PERMANENT_DELETE_MESSAGE"]) {
+      expect(connectorAlwaysAsks([slug]), slug).not.toBeNull();
+      expect(asksAsConnector(slug), slug).toBe(true);
+    }
+  });
+
+  it("never asks for a read or an ordinary create", () => {
+    for (const slug of ["GMAIL_FETCH_EMAILS", "GITHUB_LIST_REPOSITORY_COLLABORATORS", "GOOGLEDRIVE_GET_PERMISSION", "GOOGLEDRIVE_LIST_PERMISSIONS",
+      "GITHUB_CHECK_IF_A_USER_IS_A_REPOSITORY_COLLABORATOR", "SLACK_LIST_MEMBERS", "GOOGLEDRIVE_SEARCH_SHARED_DRIVES", "GOOGLEDRIVE_CREATE_FOLDER",
+      "GITHUB_CREATE_A_REPOSITORY", "GOOGLESHEETS_UPDATE_VALUES", "TRELLO_MEMBER_GET_BOARDS_BY_ID_MEMBER", "TWITTER_FULL_ARCHIVE_SEARCH",
+      "GITHUB_VERIFY_DEV_CONTAINER_PERMISSIONS_ACCEPTED", "GMAIL_UNTRASH_MESSAGE", "SLACK_UNARCHIVE_CHANNEL", "GITHUB_GET_REPOSITORY_OWNER", "DROPBOX_LIST_SHARED_LINKS"]) {
+      expect(connectorAlwaysAsks([slug]), slug).toBeNull();
+      expect(asksAsConnector(slug), slug).toBe(false);
+    }
+  });
+
+  it("asks for one inside a batch, and stays off later.dog's own tools and engine tools", () => {
+    const batch = connectorCallsIn("COMPOSIO_MULTI_EXECUTE_TOOL", { tools: [{ tool_slug: "GMAIL_FETCH_EMAILS" }, { tool_slug: "GITHUB_DELETE_A_REPOSITORY" }] });
+    expect(batch.filter((call) => asksAsConnector(call.slug)).map((call) => call.slug)).toEqual(["GITHUB_DELETE_A_REPOSITORY"]);
+    expect(connectorAlwaysAsks(batch.map((call) => call.slug))?.id).toBe("deletes-or-shares");
+    expect(alwaysAsks({ tool: "mcp__agents__memory_update", input: { action: "remove" } }, guard)).toBeNull();
+    expect(alwaysAsks({ tool: "mcp__computer__delete_file", input: { path: "/tmp/a" } }, guard)).toBeNull();
+    expect(alwaysAsks({ tool: "Bash", command: "rm -rf build" }, guard)).toBeNull();
+  });
+
+  it("asks for a share named by a noun, and a list that is a thing rather than a read", () => {
+    const gate = (name: string) => {
+      const calls = connectorCallsIn(name, {}).filter((call) => asksAsConnector(call.slug));
+      return calls.length ? connectorAlwaysAsks(calls.map((call) => call.slug))?.id ?? null : null;
+    };
+    for (const slug of ["GOOGLECALENDAR_ACL_INSERT", "GOOGLECALENDAR_ACL_PATCH", "GOOGLECALENDAR_ACL_UPDATE", "BOX_CREATE_COLLABORATION", "BOX_UPDATE_COLLABORATION",
+      "ASANA_CREATE_MEMBERSHIP", "ASANA_UPDATE_MEMBERSHIP", "BOX_UPDATE_GROUP_MEMBERSHIP", "GITHUB_ADD_OR_UPDATE_TEAM_MEMBERSHIP_FOR_USER",
+      "TRELLO_UPDATE_BOARD_MEMBERSHIP", "TRELLO_UPDATE_ORGANIZATIONS_MEMBERSHIPS_BY_ID_ORG_BY_ID_MEMB", "GITHUB_UPDATE_A_REPOSITORY_INVITATION",
+      "TRELLO_UPDATE_BOARDS_PREFS_INVITATIONS_BY_ID_BOARD", "SLACK_SET_ADMIN_USER", "BOX_ADD_ALLOWED_COLLABORATION_DOMAIN",
+      "SLACK_SET_SLACK_LIST_ACCESS", "TRELLO_ARCHIVE_ALL_LIST_CARDS"]) {
+      expect(gate(slug), slug).toBe("deletes-or-shares");
+    }
+    for (const slug of ["GOOGLECALENDAR_ACL_LIST", "GOOGLECALENDAR_ACL_GET", "BOX_LIST_FILE_COLLABORATIONS", "BOX_GET_COLLABORATION", "ASANA_GET_MEMBERSHIPS",
+      "TRELLO_MEMBER_GET_BOARDS_BY_ID_MEMBER", "GITHUB_LIST_REPOSITORY_INVITATIONS", "SLACK_LIST_ADMIN_USERS"]) {
+      expect(gate(slug), slug).toBeNull();
+    }
+  });
+
+  it("asks for a delete inside a batch whatever its capitals, and treats a batch, the workbench or any other COMPOSIO_ tool inside a batch as code it cannot read", () => {
+    const asking = (args: unknown) => connectorCallsIn("COMPOSIO_MULTI_EXECUTE_TOOL", args).filter((call) => asksAsConnector(call.slug));
+    for (const slug of ["gmail_delete_message", "GoogleDrive_Delete_File", "github_Add_A_Repository_Collaborator"]) {
+      const calls = asking({ tools: [{ tool_slug: "GMAIL_FETCH_EMAILS" }, { tool_slug: slug }] });
+      expect(calls.map((call) => call.slug), slug).toEqual([slug]);
+      expect(connectorAlwaysAsks(calls.map((call) => call.slug))?.id, slug).toBe("deletes-or-shares");
+    }
+    for (const inner of [
+      { tool_slug: "COMPOSIO_MULTI_EXECUTE_TOOL", arguments: { tools: [{ tool_slug: "GMAIL_DELETE_MESSAGE" }] } },
+      { tool_slug: "composio_multi_execute_tool", arguments: { tools: [{ tool_slug: "GMAIL_FETCH_EMAILS" }] } },
+      { tool_slug: "COMPOSIO_REMOTE_WORKBENCH", arguments: { code: "delete_everything()" } },
+      { tool_slug: "COMPOSIO_SEARCH_TOOLS", arguments: {} },
+    ]) {
+      const calls = asking({ tools: [inner] });
+      expect(calls.map((call) => call.slug), inner.tool_slug).toEqual(["COMPOSIO_PROXY_EXECUTE"]);
+      expect(connectorAlwaysAsks(calls.map((call) => call.slug)), inner.tool_slug).not.toBeNull();
+    }
+  });
+
+  it("asks when a call shares a folder or adds or changes a guest, and not when it reads one", () => {
+    for (const slug of ["SALESFORCE_CREATE_FOLDER_SHARES", "CLICKUP_ADD_GUEST_TO_FOLDER", "CLICKUP_UPDATE_GUEST_ON_WORKSPACE"]) {
+      expect(connectorAlwaysAsks([slug])?.id, slug).toBe("deletes-or-shares");
+    }
+    for (const slug of ["CLICKUP_GET_GUEST", "SALESFORCE_LIST_FOLDER_SHARES"]) expect(connectorAlwaysAsks([slug]), slug).toBeNull();
+  });
+
+  it("asks for a padded or oddly shaped name, inside a batch or on a direct call, and treats one it cannot read as code it cannot read", () => {
+    const gate = (name: string, args: unknown) => {
+      const calls = connectorCallsIn(name, args).filter((call) => asksAsConnector(call.slug, call.arguments));
+      return calls.length ? connectorAlwaysAsks(calls)?.id ?? null : null;
+    };
+    for (const slug of [" GMAIL_DELETE_MESSAGE", "GMAIL_DELETE_MESSAGE ", "GMAIL_DELETE_MESSAGE\n", "gmail-delete-message", "GmailDeleteMessage", "gmail.delete_message", "mcp__gmail__GMAIL_DELETE_MESSAGE"]) {
+      expect(gate("COMPOSIO_MULTI_EXECUTE_TOOL", { tools: [{ tool_slug: slug, arguments: { message_id: "m-1" } }] }), JSON.stringify(slug)).not.toBeNull();
+    }
+    expect(gate("COMPOSIO_MULTI_EXECUTE_TOOL", { tools: [{ tool_slug: " COMPOSIO_MULTI_EXECUTE_TOOL", arguments: { tools: [{ tool_slug: "GMAIL_DELETE_MESSAGE" }] } }] })).not.toBeNull();
+    expect(gate(" GMAIL_DELETE_MESSAGE", { message_id: "m-1" })).toBe("deletes-or-shares");
+    expect(gate("GMAIL_DELETE_MESSAGE \n", { message_id: "m-1" })).toBe("deletes-or-shares");
+    expect(alwaysAsks({ tool: " mcp__composio__GMAIL_DELETE_MESSAGE" }, guard)?.id).toBe("deletes-or-shares");
+    expect(gate("COMPOSIO_MULTI_EXECUTE_TOOL", { tools: [{ tool_slug: "GMAIL_FETCH_EMAILS", arguments: {} }] })).toBeNull();
+    expect(gate("COMPOSIO_MULTI_EXECUTE_TOOL", { tools: [{ tool_slug: " gmail_fetch_emails ", arguments: {} }] })).toBeNull();
+    expect(gate("COMPOSIO_MULTI_EXECUTE_TOOL", { tools: [{ tool_slug: "GMAIL_SEND_EMAIL ", arguments: { to: "a@example.test" } }] })).toBe("sends-for-you");
+    expect(gate(" GMAIL_SEND_EMAIL", { to: "a@example.test" })).toBe("sends-for-you");
+  });
+
+  it("asks when a Gmail change adds the TRASH label, by the value and not the name", () => {
+    const gate = (name: string, args: unknown) => {
+      const calls = connectorCallsIn(name, args).filter((call) => asksAsConnector(call.slug, call.arguments));
+      return calls.length ? connectorAlwaysAsks(calls)?.id ?? null : null;
+    };
+    expect(gate("GMAIL_BATCH_MODIFY_MESSAGES", { messageIds: ["m-1"], addLabelIds: ["TRASH"] })).toBe("deletes-or-shares");
+    expect(gate("GMAIL_MODIFY_THREAD_LABELS", { thread_id: "t-1", add_label_ids: ["STARRED", "trash"] })).toBe("deletes-or-shares");
+    expect(gate("GMAIL_ADD_LABEL_TO_EMAIL", { message_id: "m-1", add_label_ids: ["TRASH"] })).not.toBeNull();
+    expect(gate("COMPOSIO_MULTI_EXECUTE_TOOL", { tools: [{ tool_slug: "GMAIL_BATCH_MODIFY_MESSAGES", arguments: { messageIds: ["m-1"], addLabelIds: ["TRASH"] } }] })).toBe("deletes-or-shares");
+    expect(alwaysAsks({ tool: "mcp__composio__GMAIL_BATCH_MODIFY_MESSAGES", input: { messageIds: ["m-1"], addLabelIds: ["TRASH"] } }, guard)?.id).toBe("deletes-or-shares");
+    expect(gate("GMAIL_BATCH_MODIFY_MESSAGES", { messageIds: ["m-1"], addLabelIds: ["STARRED"], removeLabelIds: ["TRASH"] })).toBeNull();
+    expect(gate("GMAIL_MODIFY_THREAD_LABELS", { thread_id: "t-1", add_label_ids: ["IMPORTANT"] })).toBeNull();
+    expect(gate("GMAIL_BATCH_MODIFY_MESSAGES", { messageIds: ["m-1"] })).toBeNull();
+    expect(gate("GMAIL_FETCH_EMAILS", { label_ids: ["TRASH"] })).toBeNull();
+    expect(gate("GMAIL_MODIFY_THREAD_LABELS", { thread_id: "t-1", add_label_ids: [["TRASH"]] })).toBe("deletes-or-shares");
+    expect(gate("GMAIL_MODIFY_THREAD_LABELS", { thread_id: "t-1", add_label_ids: "INBOX,TRASH" })).toBe("deletes-or-shares");
+    expect(gate("GMAIL_MODIFY_THREAD_LABELS", { thread_id: "t-1", labelIds: ["TRASH"] })).toBe("deletes-or-shares");
+    expect(gate("GMAIL_MODIFY_THREAD_LABELS", { thread_id: "t-1", add_label_ids: "STARRED, IMPORTANT" })).toBeNull();
+    expect(gate("GMAIL_MODIFY_THREAD_LABELS", { thread_id: "t-1", remove_label_ids: [["TRASH"]], add_label_ids: [["STARRED"]] })).toBeNull();
+    expect(gate("GMAIL_FETCH_EMAILS", { labelIds: ["TRASH"] })).toBeNull();
+  });
+
+  it("asks when a call that is not a read sets who can reach something or trashes, archives or closes it, and not when it restores or sets none of them", () => {
+    const gate = (name: string, args: unknown) => {
+      const calls = connectorCallsIn(name, args).filter((call) => asksAsConnector(call.slug, call.arguments));
+      return calls.length ? connectorAlwaysAsks(calls)?.id ?? null : null;
+    };
+    for (const [name, args] of [
+      ["GITHUB_UPDATE_A_REPOSITORY", { owner: "o", repo: "r", visibility: "public" }],
+      ["GITHUB_UPDATE_A_REPOSITORY", { owner: "o", repo: "r", private: false }],
+      ["GITHUB_UPDATE_A_REPOSITORY", { owner: "o", repo: "r", archived: true }],
+      ["NOTION_UPDATE_PAGE", { page_id: "p-1", archived: true }],
+      ["NOTION_UPDATE_PAGE", { page_id: "p-1", in_trash: true }],
+      ["TRELLO_UPDATE_CARDS_BY_ID_CARD", { idCard: "c-1", closed: true }],
+      ["TRELLO_UPDATE_BOARDS_CLOSED_BY_ID_BOARD", { idBoard: "b-1", value: "true" }],
+      ["ASANA_UPDATE_PROJECT", { project_gid: "1", public: true }],
+      ["GOOGLEDRIVE_UPDATE_FILE_METADATA", { file_id: "f-1", trashed: true }],
+      ["JIRA_UPDATE_PROJECT", { key: "P", permissionScheme: 10 }],
+    ] as const) {
+      expect(gate(name, args), `${name} ${JSON.stringify(args)}`).toBe("deletes-or-shares");
+    }
+    for (const [name, args] of [
+      ["GITHUB_UPDATE_A_REPOSITORY", { owner: "o", repo: "r", description: "Notes" }],
+      ["NOTION_UPDATE_PAGE", { page_id: "p-1", archived: false }],
+      ["NOTION_UPDATE_PAGE", { page_id: "p-1", properties: { title: "Plan" } }],
+      ["TRELLO_UPDATE_CARDS_BY_ID_CARD", { idCard: "c-1", closed: false, name: "Done" }],
+      ["TRELLO_UPDATE_BOARDS_CLOSED_BY_ID_BOARD", { idBoard: "b-1", value: false }],
+      ["GOOGLEDRIVE_UPDATE_FILE_METADATA", { file_id: "f-1", trashed: false }],
+      ["GITHUB_LIST_REPOSITORIES_FOR_THE_AUTHENTICATED_USER", { visibility: "public" }],
+      ["GOOGLEDRIVE_LIST_FILES", { q: "trashed = true", trashed: true }],
+    ] as const) {
+      expect(gate(name, args), `${name} ${JSON.stringify(args)}`).toBeNull();
+    }
+  });
+
+  it("asks for a call that replaces or overwrites what is there", () => {
+    for (const slug of ["NOTION_REPLACE_PAGE_CONTENT", "HUBSPOT_REPLACE_ALL_PROPERTIES_OF_PIPELINE", "DROPBOX_OVERWRITE_FILE_PROPERTIES"]) {
+      expect(connectorAlwaysAsks([slug])?.id, slug).toBe("deletes-or-shares");
+      expect(asksAsConnector(slug), slug).toBe(true);
+    }
+  });
+
+  it("is not answered in Full by the owner's standing yes, the app's old Always or this turn's Allow", () => {
+    const never = () => false;
+    for (const slug of SEVEN) {
+      const calls = [{ slug }];
+      const toolkit = slug.slice(0, slug.indexOf("_")).toLowerCase();
+      expect(connectorSendDecision({ calls, connected: [], alwaysAllow: [connectorAllowKey(toolkit)], ownerSends: true,
+        alwaysAsks: connectorAlwaysAsks([slug]) !== null, skipped: never, allowedThisTurn: () => true }), slug).toEqual({ kind: "ask", toolkit });
+    }
+  });
+});
+
 describe("the list", () => {
   it("is closed and every rule has words for the card", () => {
-    expect(ALWAYS_ASK_IDS).toEqual(["push-skips-checks", "cloud-credential", "delete-outside-workspace", "sends-for-you", "pays"]);
+    expect(ALWAYS_ASK_IDS).toEqual(["push-skips-checks", "cloud-credential", "delete-outside-workspace", "sends-for-you", "pays", "deletes-or-shares"]);
     expect(alwaysAsks({ tool: "Bash", command: "git push --no-verify" }, guard)?.ask).toMatch(/pushes code without running its checks.*always asks you/);
     expect(alwaysAsks({ tool: "Bash", command: "git push --no-verify" }, guard)?.refusal).toMatch(/^later\.dog did not run this/);
   });

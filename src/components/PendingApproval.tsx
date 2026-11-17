@@ -201,16 +201,16 @@ export function PendingApprovalActions({
   const isSkillRequest = isSkillApproval(pending);
   const isProfileRequest = isProfileApproval(pending);
   const durableRequest = isRoutineRequest || isSkillRequest || isProfileRequest;
-  const canRememberCommand = ownerOrAdmin === true && !durableRequest && !pending.allowKey && Boolean(pending.commandAllowlist);
   const reviewedSha256 = pending.message.card?.skillRequest
     ? reviewedSkillSha256(pending.message.card.skillRequest)
     : undefined;
   const macSend = pending.tool === "mac_send_text" || pending.tool === "mac_send_email";
   const macRequest = pending.tool.startsWith("mac_") && !macSend;
-  const lasting = !durableRequest && !canRememberCommand ? pending.lasting : undefined;
+  const lasting = !durableRequest ? pending.lasting : undefined;
   const lastingAlways = Boolean(lasting?.offered && ownerOrAdmin === true);
+  const outboundChoice = outbound && !(pending.lasting && !pending.lasting.offered && pending.lasting.why === "always-asks");
   const lastingWhy = lasting && !lasting.offered ? LASTING_WHY_WORDS[lasting.why] : lasting?.offered && !lastingAlways ? LASTING_WHY_WORDS["owner-only"] : null;
-  const decide = (behavior: "allow" | "deny", always = false, rememberCommand = false, never = false) => {
+  const decide = (behavior: "allow" | "deny", always = false, never = false) => {
     const lastingGrant = always && bot && lastingAlways ? { botId: bot.id } : undefined;
     const grant = always && bot && pending.allowKey && !lasting ? { botId: bot.id, key: pending.allowKey } : undefined;
     dispatch({
@@ -222,8 +222,7 @@ export function PendingApprovalActions({
       reviewedSha256: behavior === "allow" ? reviewedSha256 : undefined,
       alwaysAllow: grant,
       lastingGrant,
-      rememberCommand: rememberCommand || undefined,
-      scope: never ? "never" : behavior !== "allow" ? undefined : grant || rememberCommand || lastingGrant ? "always" : "once",
+      scope: never ? "never" : behavior !== "allow" ? undefined : grant || lastingGrant ? "always" : "once",
     });
   };
 
@@ -234,7 +233,9 @@ export function PendingApprovalActions({
   const reach = lastingAlways && bot
     ? t("lasting.reach.search", { name: bot.name })
     : lasting
-    ? null
+    ? outbound && bot && !lasting.offered && lasting.why === "always-asks"
+      ? t("approval.reach.connectorSkip", { name: bot.name, app: outbound.app ?? t("approval.reach.connectorApp") })
+      : null
     : !durableRequest && bot && pending.allowKey
     ? outbound
       ? t("approval.reach.connector", { name: bot.name, app: outbound.app ?? t("approval.reach.connectorApp") })
@@ -243,9 +244,7 @@ export function PendingApprovalActions({
       : pending.allowKey === DELETE_OUTSIDE_WORKSPACE_ALLOW_KEY
       ? t("approval.reach.everywhere", { name: bot.name })
       : t(bot.tasks?.some((task) => task.threadId === threadId) ? "approval.reach.chat" : "approval.reach.dog", { name: bot.name })
-    : canRememberCommand && pending.commandAllowlist
-      ? t("approval.reach.command", { name: bot?.name ?? t("approval.someone"), cwd: shortFolder(pending.commandAllowlist.cwd) })
-      : null;
+    : null;
   return (
     <div className="rounded-b-[18px] bg-card px-3 pb-3 pt-1">
       <div className="flex flex-wrap items-center gap-2">
@@ -262,7 +261,7 @@ export function PendingApprovalActions({
               ? t("approval.action.confirm")
               : macSend
                 ? t("approval.action.send")
-                : outbound
+                : outboundChoice
                   ? t("approval.action.allow")
                   : t("approval.action.allowOnce")}
         </button>
@@ -271,7 +270,7 @@ export function PendingApprovalActions({
             onClick={() => decide("deny")}
             className={cn(base, quiet)}
           >
-            {isRoutineRequest || isProfileRequest ? t("approval.action.cancel") : outbound ? t("approval.action.skip") : macSend ? t("approval.action.dontSend") : t("approval.action.deny")}
+            {isRoutineRequest || isProfileRequest ? t("approval.action.cancel") : outboundChoice ? t("approval.action.skip") : macSend ? t("approval.action.dontSend") : t("approval.action.deny")}
           </button>
         )}
         {!durableRequest && bot && pending.allowKey && !lasting && (
@@ -284,7 +283,7 @@ export function PendingApprovalActions({
         )}
         {macRequest && (
           <button
-            onClick={() => decide("deny", false, false, true)}
+            onClick={() => decide("deny", false, true)}
             data-mac-never=""
             className={durable}
           >
@@ -303,14 +302,6 @@ export function PendingApprovalActions({
         {lasting && lastingWhy && (
           <span data-lasting-why={lasting.offered ? "owner-only" : lasting.why} className="px-1 text-[12.5px] text-ink-tertiary">{t(lastingWhy)}</span>
         )}
-        {canRememberCommand && pending.commandAllowlist && (
-          <button
-            onClick={() => decide("allow", false, true)}
-            className={durable}
-          >
-            {t("approval.action.alwaysAllowCommand")}
-          </button>
-        )}
       </div>
       {reach && (
         <details className="group mt-1 text-[12px] text-ink-tertiary">
@@ -323,10 +314,4 @@ export function PendingApprovalActions({
       )}
     </div>
   );
-}
-
-export function shortFolder(path: string): string {
-  if (/\/(task-)?workspaces\/[\w-]+(\/[\w-]+)?\/?$/.test(path)) return t("approval.reach.chatFolder");
-  const parts = path.split("/").filter(Boolean);
-  return parts.length > 2 ? `…/${parts.slice(-2).join("/")}` : path;
 }

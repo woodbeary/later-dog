@@ -58,11 +58,11 @@ import {
 } from "../shared/credential-request.ts";
 
 import { HELD_NOTE, approvalHeldNote, approvalHeldReason, approvalModeForOrigin, autoVerdict, deliverFullAccessApproval } from "./auto-approve.ts";
-import { CommandAllowlistStore, commandAllowlistCandidate } from "./command-allowlist.ts";
-import { LastingAllowStore, lastingOffer, lastingVerdict, onlyOwnerReached, type LastingRequest } from "./laterdog/lasting-allows.ts";
+import { CommandAllowlistStore } from "./command-allowlist.ts";
+import { isGroupChat, LastingAllowStore, lastingOffer, lastingVerdict, onlyOwnerReached, type LastingRequest } from "./laterdog/lasting-allows.ts";
 import type { AlwaysAllowedItem, AlwaysAllowedList } from "../shared/lasting-allows.ts";
 import { VAULT_ALLOW_PREFIX } from "../shared/vault.ts";
-import type { CommandAllowlistCandidate, CommandAllowlistResponse } from "../shared/command-allowlist.ts";
+import type { CommandAllowlistResponse } from "../shared/command-allowlist.ts";
 import { updateClaudeCli } from "./claude-update.ts";
 import { configuredAccountDirectory, assertSeparateClaudeAccount, claudeAccountInfo, createClaudeAccountSchema, instanceSettingsSchema, newClaudeAccount } from "./claude-accounts.ts";
 import { providerIconPatchSchema, withInstanceIcon } from "./provider-icon.ts";
@@ -311,7 +311,7 @@ import { probeMcpServer } from "./mcp-probe.ts";
 
 import { BUILT_IN_DRIVERS } from "./drivers/builtIn.ts";
 import { openCodeProviderKeysAllowed, setOpenCodeProviderKeyPolicy } from "./drivers/acp/opencode-go.ts";
-import { confirmRememberedCommand, recordAnswerScope, type GrantLookup } from "./laterdog/answer-scope.ts";
+import { recordAnswerScope, type GrantLookup } from "./laterdog/answer-scope.ts";
 import { getOrCreateChannel } from "./comms-visibility.ts";
 import { readMessageText, recallMessages, recentMessages, searchMessagesAsync, closeMessageSearch, closeMessageDb, chatFollowups, cancelledChatFollowup, settleChatFollowups, threadsReferencing, openPermissionCards, latestMessageAts, reclaimFreePages } from "./message-db.ts";
 import { briefCrossingLabel, claimRecallCrossings, recallCrossingLabel } from "./recall-disclosure.ts";
@@ -711,7 +711,6 @@ import { claudeReviewerGrant, ownerAuthority, ownerAutoAnswers, ownerCoordinatio
 import { autoReviewOn, ownerTurnMode } from "./laterdog/auto-review.ts";
 import { settleOwnerAutoPermission } from "./laterdog/owner-auto-request.ts";
 import { DELETE_OUTSIDE_WORKSPACE_ALLOW_KEY, ownerGuardRequest, ownerWorkspaceRoots, type OwnerGuardContext, type OwnerGuardRefusal } from "./laterdog/owner-guard.ts";
-import { sameEngineAcrossAccounts } from "./laterdog/saved-command-engine.ts";
 import { ROUTES, dispatchRoutes } from "./routes/table.ts";
 import { createLinkPreviewRoutes } from "./routes/link-preview.ts";
 import { createLaterDogRoutes } from "./routes/laterdog.ts";
@@ -1297,7 +1296,7 @@ function vaultItemsFor(capability: InternalCapability): VaultItems {
   };
 }
 
-async function useMac(requested: SharedComputerOperation, capability: InternalCapability): Promise<unknown> {
+async function useMac(requested: SharedComputerOperation, capability: InternalCapability, personSaidYes = false): Promise<unknown> {
   const principal = sharedComputerPrincipal(capability);
   const unavailable = macLendingNotice(capability, principal);
   if (unavailable) throw Object.assign(new Error(unavailable), { status: 403 });
@@ -1308,7 +1307,7 @@ async function useMac(requested: SharedComputerOperation, capability: InternalCa
   const operation = completeSharedOperation(target, requested);
   const refusal = sharedComputerScopeRefusal(target, operation);
   if (refusal) throw Object.assign(new Error(refusal), { status: 403 });
-  await approveMac(capability, target, operation, active);
+  await approveMac(capability, target, operation, active, personSaidYes);
   return flagMacPrompt(capability, await macWaits.run(capability.threadId, operation, send));
 }
 
@@ -1334,13 +1333,14 @@ async function pickMac(principal: string | null, computerId: string | undefined)
   return online;
 }
 
-async function approveMac(capability: InternalCapability, target: SharedComputerRegistration, operation: SharedComputerOperation | MacAsk, active: () => boolean): Promise<void> {
+async function approveMac(capability: InternalCapability, target: SharedComputerRegistration, operation: SharedComputerOperation | MacAsk, active: () => boolean, personSaidYes = false): Promise<void> {
   const bot = store.bot(capability.botId);
   if (!bot) throw Object.assign(new Error("This dog is gone."), { status: 404 });
   const requestMessageId = macRequestMessageId(capability);
   const verdict = await macApprovals.check({
     bot, threadId: capability.threadId, computer: target.name, computerId: target.id, operation, active,
     ...(requestMessageId ? { requestMessageId } : {}),
+    ...(personSaidYes ? { personSaidYes } : {}),
   });
   if (!verdict.ok) throw Object.assign(new Error(verdict.error), { status: verdict.status });
 }
@@ -1653,9 +1653,9 @@ function oldGrantItem(key: string): AlwaysAllowedItem | null {
   const id = `key:${Buffer.from(key).toString("base64url")}`;
   if (key === DELETE_OUTSIDE_WORKSPACE_ALLOW_KEY) return { id, kind: "outside-delete", state: "no-longer-used" };
   if (key.startsWith("connector:")) return { id, kind: "app", subject: key.slice("connector:".length), state: "active" };
-  if (key.startsWith(VAULT_ALLOW_PREFIX)) return { id, kind: "saved-login", subject: key.slice(VAULT_ALLOW_PREFIX.length), state: "active" };
+  if (key.startsWith(VAULT_ALLOW_PREFIX)) return { id, kind: "saved-login", subject: key.slice(VAULT_ALLOW_PREFIX.length), state: "no-longer-used" };
   const peer = /^(?:ask_bot|delegate_bot):(.+)$/.exec(key);
-  if (peer) return { id, kind: "teammate", subject: store.bot(peer[1]!)?.name ?? peer[1], state: "active" };
+  if (peer) return { id, kind: "teammate", subject: store.bot(peer[1]!)?.name ?? peer[1], state: "no-longer-used" };
   return null;
 }
 
@@ -1671,7 +1671,7 @@ function alwaysAllowedList(botId: string): AlwaysAllowedList {
     .map((rule) => ({ id: `search:${rule.id}`, kind: "search", grantedAt: rule.grantedAt, state: "active" }));
   const old = oldGrantKeys(botId).flatMap((key) => oldGrantItem(key) ?? []);
   const commands: AlwaysAllowedItem[] = commandAllowlist.list(botId).map((rule) => ({
-    id: `command:${rule.id}`, kind: "command", subject: redactSecretsInText(rule.command).slice(0, 200), state: "active",
+    id: `command:${rule.id}`, kind: "command", subject: redactSecretsInText(rule.command).slice(0, 200), state: "no-longer-used",
   }));
   return { paused: lastingAllows.isPaused(botId), ...(lastingAllows.isUnreadable() ? { unreadable: true as const } : {}), items: [...searches, ...old, ...commands] };
 }
@@ -3946,7 +3946,6 @@ function ownerGuardContext(bot: BotRecord, threadId: string, commandCwd: string 
   };
 }
 
-const savedCommandEngine = sameEngineAcrossAccounts((instanceId) => registry.cliTarget(instanceId)?.driverKind);
 
 function sourceApprovalMode(botId: string, threadId: string): ApprovalMode {
   const owner = connectorThread(botId, threadId);
@@ -5447,16 +5446,6 @@ onSteeredQueueChange(() => broadcast({ kind: "bot.queued", queues: publicBotQueu
 
 const toolMessageByItem = new Map<string, string>();
 const askMessageByRequest = new Map<string, string>();
-const pendingCommandRules = new Map<string, { botId: string; candidate: CommandAllowlistCandidate }>();
-
-function commandRememberRefusal(auth: RequestAuth, threadId: string, requestId: string, behavior: string): string | null {
-  if (!canManageCommandAllowlist(auth)) return "Only the owner or an admin can save dog-wide command permissions.";
-  if (behavior !== "allow" || !pendingCommandRules.has(`${threadId}:${requestId}`)) {
-    return "This live request does not contain a command that can be saved. Allow it once instead.";
-  }
-  return null;
-}
-
 async function answerRequest(
   threadId: string,
   instanceId: string,
@@ -5464,7 +5453,6 @@ async function answerRequest(
   behavior: "allow" | "deny" | "answer",
   message?: string,
   decidedFor?: { id: string; name: string },
-  rememberCommand?: boolean,
 ): Promise<RequestOutcome> {
   const thread = store.messagesFor(threadId);
   const cardMessageId = askMessageByRequest.get(`${threadId}:${requestId}`);
@@ -5472,7 +5460,6 @@ async function answerRequest(
     ? thread.find((m) => m.id === cardMessageId)
     : thread.find((m) => m.card?.requestId === requestId);
   const card = cardMessage?.card;
-  const remembered = rememberCommand ? pendingCommandRules.get(`${threadId}:${requestId}`) : undefined;
   const instance = runningTurnEngines.get(threadId) ?? registry.get(instanceId);
   let outcome: RequestOutcome = "unavailable";
   if (instance) {
@@ -5481,18 +5468,6 @@ async function answerRequest(
     } catch {
       outcome = "unavailable";
     }
-  }
-  if (remembered && outcome === "allowed-once" && behavior === "allow" && store.bot(remembered.botId)) {
-    let saved = false;
-    try {
-      commandAllowlist.add(remembered.botId, remembered.candidate);
-      saved = true;
-    } catch {
-      store.appendMessage(threadId, { role: "bot", kind: "activity", tool: {
-        name: "Command allowed once, but its allowlist rule could not be saved. Try again from the permissions menu.", ok: false,
-      } });
-    }
-    if (saved) confirmRememberedCommand(store, threadId, requestId);
   }
   if (outcome === "answered" && behavior === "answer" && message && cardMessage) {
     const settled = store.messagesFor(threadId).find((m) => m.id === cardMessage.id)?.card;
@@ -5584,7 +5559,6 @@ async function respondToCard(input: {
 }
 
 function closeOpenApprovals(threadId: string): void {
-  for (const key of pendingCommandRules.keys()) if (key.startsWith(`${threadId}:`)) pendingCommandRules.delete(key);
   cancelPeerApprovalsForThread(threadId);
   macApprovals.cancelThread(threadId);
   for (const message of store.messagesFor(threadId)) {
@@ -7403,9 +7377,6 @@ bus.subscribe(guardTurnEnd((event: RuntimeEvent) => {
       const guestDriven = cloudGuestDriven(event.threadId);
       const effectiveApprovalMode = asker && !guestDriven ? approvalModeForTurn(asker, isInternalTurn(event.threadId), event.threadId) : "ask";
       const ownerAuto = Boolean(asker && event.requestId) && ownerAutoAnswers(effectiveApprovalMode, ownerAutoScope(event.threadId, guestDriven));
-      const command = permission && asker && event.requestId && !event.requiresExplicitApproval && event.command && !guestDriven
-        ? commandAllowlistCandidate({ ...event.command, providerInstanceId: event.providerInstanceId ?? asker.modelSelection.instanceId })
-        : null;
       const always = permission && asker && event.requestId && !ownerAuto
         ? alwaysAsks({ tool: event.tool, command: event.command?.command, summary: event.summary, input: event.input }, () => ownerGuardContext(asker, event.threadId, event.command?.cwd))
         : null;
@@ -7419,7 +7390,6 @@ bus.subscribe(guardTurnEnd((event: RuntimeEvent) => {
       const verdict = permission && asker && event.requestId
         ? autoVerdict(effectiveApprovalMode, event.tool, {
           requiresExplicitApproval: event.requiresExplicitApproval,
-          commandAllowed: Boolean(command && commandAllowlist.matches(asker.id, command, savedCommandEngine)),
         })
         : null;
       if (
@@ -7442,7 +7412,6 @@ bus.subscribe(guardTurnEnd((event: RuntimeEvent) => {
         });
       }
       const showCard = (ownerHold?: string, ownerAllowKey?: string, alwaysRule?: string) => {
-        const cardCommand = ownerHold === undefined ? command : null;
         const heldContext = { source: ownerHold === undefined ? verdict?.source : undefined, permission };
         const questions = event.questions?.length ? event.questions : undefined;
         const message = pushMessage({
@@ -7464,9 +7433,8 @@ bus.subscribe(guardTurnEnd((event: RuntimeEvent) => {
             questionRequest: questions
               ? { version: 1, questions, ...(event.origin === "output" ? { origin: "output" as const } : {}) }
               : undefined,
-            commandAllowlist: cardCommand ?? undefined,
-            ...(permission && asker && lastingBase && !cardCommand
-              ? { lasting: lastingOffer(lastingVerdict({ ...lastingBase, alwaysAsks: Boolean(always) || alwaysRule !== undefined, ownerOnly: turnReachedOnlyByOwner(event.threadId, asker.id) }), lastingReach(asker.name)) }
+            ...(permission && asker && lastingBase
+              ? { lasting: lastingOffer(lastingVerdict({ ...lastingBase, alwaysAsks: Boolean(always) || alwaysRule !== undefined, ownerOnly: turnReachedOnlyByOwner(event.threadId, asker.id), group: isGroupChat(store.groupByThread(event.threadId)) }), lastingReach(asker.name)) }
               : {}),
             held: approvalHeldReason(heldContext),
             heldCode: approvalHeldNote(heldContext),
@@ -7475,7 +7443,6 @@ bus.subscribe(guardTurnEnd((event: RuntimeEvent) => {
           },
         });
         if (event.requestId) askMessageByRequest.set(`${event.threadId}:${event.requestId}`, message.id);
-        if (cardCommand && asker && event.requestId) pendingCommandRules.set(`${event.threadId}:${event.requestId}`, { botId: asker.id, candidate: cardCommand });
         appendDecision(DATA_DIR, {
           threadId: event.threadId,
           requestId: event.requestId,
@@ -7645,7 +7612,6 @@ bus.subscribe(guardTurnEnd((event: RuntimeEvent) => {
       break;
     }
     case "request.resolved": {
-      if (event.requestId) pendingCommandRules.delete(`${event.threadId}:${event.requestId}`);
       if (event.requestId) lastingRequests.delete(`${event.threadId}:${event.requestId}`);
       if (event.requestId) settleWaitingOnPersonChips(event.threadId, event.requestId);
       const waiting = bot ?? (speaker ? store.bot(speaker.botId) : undefined);
@@ -12949,13 +12915,6 @@ const secureForms = new SecureForms({
     save: (input) => { vaultStore.save(input); },
     addDetails: (details) => { vaultStore.addDetails(details); },
   },
-  allows: (botId, threadId, key) => [store.bot(botId), store.projectBotForTask(botId, threadId)].some((bot) => bot?.alwaysAllow?.includes(key) === true),
-  grant: (botId, _threadId, key) => {
-    const bot = store.bot(botId);
-    if (!bot || bot.alwaysAllow?.includes(key)) return;
-    const updated = store.patchBot(botId, { alwaysAllow: [...(bot.alwaysAllow ?? []), key] });
-    if (updated) broadcast({ kind: "bot", bot: wireBot(updated) });
-  },
 });
 
 bus.subscribe((event: RuntimeEvent) => {
@@ -14699,6 +14658,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         task: store.taskByThread(internalSender.id, internalCapability.threadId),
         threadId: internalCapability.threadId,
       });
+      let personSaidYes = false;
       if (method === "POST" && ALWAYS_ASK_PATHS.has(path)) {
         const caller = new AbortController();
         res.once("close", () => { if (!res.writableEnded) caller.abort(); });
@@ -14708,6 +14668,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         const refused = asked && hit ? await askPersonFirst(internalSender, internalCapability.threadId, asked, hit, caller.signal) : null;
         if (caller.signal.aborted || callerGone(res)) return;
         if (refused) return path.endsWith("/mcp") ? json(res, 200, { result: { content: [{ type: "text", text: refused }], isError: true } }) : json(res, 403, { error: refused });
+        personSaidYes = Boolean(hit);
       }
       if (await dispatchInternalRoutes(INTERNAL_ROUTES, {
         req, res, url, path, method, json, sender: internalSender, threadId: internalCapability.threadId, capability: internalCapability, readBody: readInternalBody,
@@ -14886,10 +14847,10 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
           return json(res, 403, { error: "This bot has no computer. Change its Computer setting to use a shared computer's apps and screen." });
         }
         try {
-          const result = withoutSecret(await useMac(parsed.data, internalCapability), secret);
+          const result = withoutSecret(await useMac(parsed.data, internalCapability, personSaidYes), secret);
           const secrets = secret ? [...prepared.secrets, secret] : prepared.secrets;
           return json(res, 200, { result: await finishMacVault(parsed.data, result, { secrets, ...(prepared.capture ? { capture: prepared.capture } : {}) }, items, macCommandSecrets,
-            (operation) => useMac(sharedComputerOperation.parse({ ...operation, ...(parsed.data.computer_id ? { computer_id: parsed.data.computer_id } : {}) }), internalCapability)) });
+            (operation) => useMac(sharedComputerOperation.parse({ ...operation, ...(parsed.data.computer_id ? { computer_id: parsed.data.computer_id } : {}) }), internalCapability, true)) });
         } catch (error) {
           if (isMacOffline(error)) return json(res, 200, { result: macOfflineResult() });
           throw error;
@@ -15842,7 +15803,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
           ? (rpc.params as { name?: unknown; arguments?: unknown })
           : null;
         const outboundCalls = rpc?.method === "tools/call" && typeof rpcParams?.name === "string"
-          ? connectorCallsIn(rpcParams.name, rpcParams.arguments).filter((call) => asksAsConnector(call.slug))
+          ? connectorCallsIn(rpcParams.name, rpcParams.arguments).filter((call) => asksAsConnector(call.slug, call.arguments))
           : [];
         const outboundTool = outboundCalls.length ? outboundCalls[0].slug : null;
         const refuseOutbound = (text: string) => {
@@ -15865,7 +15826,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
           connected: serviceSlugs,
           alwaysAllow: botForThread(sender.id, internalCapability.threadId)?.alwaysAllow,
           ownerSends: ownerSendsWithoutAsking(sourceApprovalMode(sender.id, internalCapability.threadId), ownerAutoScope(internalCapability.threadId)),
-          alwaysAsks: connectorAlwaysAsks(outboundCalls.map((call) => call.slug)) !== null,
+          alwaysAsks: connectorAlwaysAsks(outboundCalls) !== null,
           skipped: (toolkit) => connectorSkips.has(internalCapability.threadId, internalCapability.generation, toolkit),
           allowedThisTurn: (toolkit) => connectorAllows.has(internalCapability.threadId, internalCapability.generation, toolkit),
         });
@@ -15906,7 +15867,9 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
                 options: ["Allow", "Deny"],
                 requestId: held.requestId,
                 tool: outboundTool,
-                ...(decision.toolkit && connectorAlwaysAsks(outboundCalls.map((call) => call.slug)) === null ? { allowKey: connectorAllowKey(decision.toolkit) } : {}),
+                ...(connectorAlwaysAsks(outboundCalls) !== null
+                  ? { lasting: { offered: false as const, why: "always-asks" as const } }
+                  : decision.toolkit ? { allowKey: connectorAllowKey(decision.toolkit) } : {}),
                 held: HELD_NOTE["approval.held.outbound"],
                 heldCode: "approval.held.outbound",
                 outboundRequest: { tool: outboundTool, app, calls },
@@ -17889,14 +17852,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       const bot = requestedTaskBot(m[1], url.searchParams.get("threadId") ?? undefined);
       if (method === "GET" && !m[2]) return json(res, 200, commandAllowlistResponse(bot));
       if (method === "POST" && !m[2]) {
-        const candidate = commandAllowlistCandidate(await readBody(req));
-        if (!candidate) return json(res, 400, { error: "Enter an exact command without secret values, an absolute working folder, and a provider." });
-        const instance = registry.get(candidate.providerInstanceId);
-        if (!instance || !COMMAND_ALLOWLIST_DRIVERS.has(instance.driverKind)) {
-          return json(res, 400, { error: "This provider does not supply structured command approvals." });
-        }
-        commandAllowlist.add(bot.id, candidate);
-        return json(res, 200, commandAllowlistResponse(bot));
+        return json(res, 409, { error: "Saved commands are no longer kept. Each command asks.", why: "stopped" });
       }
       if (method === "DELETE" && m[2]) {
         commandAllowlist.remove(bot.id, m[2]);
@@ -17925,8 +17881,11 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       const body = await readBody(req);
       requirePinnedClientThread(m[1], body?.threadId);
       const allowKey = typeof body.allowKey === "string" ? body.allowKey : "";
-      if (!allowKey && typeof body.threadId === "string" && store.groupByThread(body.threadId)) {
-        return json(res, 409, { error: "Always is not offered in a group chat", why: "owner-only" });
+      const sharedThread = !allowKey && typeof body.threadId === "string" ? store.groupByThread(body.threadId) : undefined;
+      if (sharedThread) {
+        return json(res, 409, isGroupChat(sharedThread)
+          ? { error: "Always is not offered in a group chat", why: "group" }
+          : { error: "Always is not offered in a channel between dogs", why: "owner-only" });
       }
       const bot = requestedTaskBot(m[1], body.threadId);
       if (!allowKey && typeof body.requestId === "string" && body.requestId) {
@@ -17940,13 +17899,13 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         );
         const remembered = lastingRequests.get(`${bot.threadId}:${requestId}`);
         if (!pending || !remembered || remembered.botId !== bot.id) return json(res, 409, { error: "that request is not waiting on an approval for this dog" });
-        const lasting = lastingVerdict({ ...remembered.request, alwaysAsks: remembered.alwaysAsks, ownerOnly: turnReachedOnlyByOwner(bot.threadId, bot.id) });
+        const lasting = lastingVerdict({ ...remembered.request, alwaysAsks: remembered.alwaysAsks, ownerOnly: turnReachedOnlyByOwner(bot.threadId, bot.id), group: isGroupChat(store.groupByThread(bot.threadId)) });
         if (!lasting.offered) return json(res, 409, { error: "Always is not offered for this request", why: lasting.why });
         lastingAllows.grant({ botId: bot.id, keySha256: lasting.keySha256, grantedBy: auth.kind === "session" ? personKey(auth.session) : "local", fromThreadId: bot.threadId });
         return json(res, 200, { granted: true });
       }
       if (!allowKey) return json(res, 400, { error: "allowKey required" });
-      if (allowKey === DELETE_OUTSIDE_WORKSPACE_ALLOW_KEY) return json(res, 409, { error: "that grant is no longer offered" });
+      if (allowKey === DELETE_OUTSIDE_WORKSPACE_ALLOW_KEY || /^(?:ask_bot|delegate_bot):/.test(allowKey)) return json(res, 409, { error: "that grant is no longer offered" });
       const pending = store.messagesFor(bot.threadId).find((message) =>
         message.card?.requestId &&
         !message.card.answered &&
@@ -19044,10 +19003,6 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       if (!behavior) return json(res, 400, { error: "behavior must be allow, deny, or answer" });
       const refusal = cardAnswerRefusal(auth, bot.threadId, String(body.requestId), behavior);
       if (refusal) return json(res, 403, { error: refusal });
-      if (body.rememberCommand === true) {
-        const refusal = commandRememberRefusal(auth, bot.threadId, String(body.requestId), behavior);
-        if (refusal) return json(res, 403, { error: refusal });
-      }
       return await answeringCardAs(auth, bot.threadId, String(body.requestId), async () => {
         recordAnswerScope(store, bot.threadId, String(body.requestId), behavior, body, answerGrants);
         if (resolveAndSendTrust(res, bot.threadId, String(body.requestId), behavior)) return;
@@ -19098,7 +19053,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
           });
           return json(res, closed.status, closed.body);
         }
-        const outcome = await answerRequest(bot.threadId, bot.modelSelection.instanceId, requestId, behavior, body.message, { id: bot.id, name: bot.name }, body.rememberCommand === true);
+        const outcome = await answerRequest(bot.threadId, bot.modelSelection.instanceId, requestId, behavior, body.message, { id: bot.id, name: bot.name });
         if (outcome === "unavailable" && isPersistentQuestionCard(pending?.card) && behavior === "answer") {
           if (!pending) return json(res, 404, { error: "this question is no longer available" });
           const answer = typeof body.message === "string" ? body.message.trim() : "";
@@ -19123,10 +19078,6 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       const requestId = String(body.requestId);
       const refusal = cardAnswerRefusal(auth, threadId, requestId, behavior);
       if (refusal) return json(res, 403, { error: refusal });
-      if (body.rememberCommand === true) {
-        const refusal = commandRememberRefusal(auth, threadId, requestId, behavior);
-        if (refusal) return json(res, 403, { error: refusal });
-      }
       return await answeringCardAs(auth, threadId, requestId, async () => {
         recordAnswerScope(store, threadId, requestId, behavior, body, answerGrants);
         if (resolveAndSendTrust(res, threadId, requestId, behavior)) return;
@@ -19222,7 +19173,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         }
         if (!owner && !pending) return json(res, 404, { error: "nothing is waiting on an answer in this conversation" });
         const requestOwner = owner ? botForThread(owner.id, threadId) : null;
-        const outcome = await answerRequest(threadId, requestOwner?.modelSelection.instanceId ?? "", requestId, behavior, body.message, owner ? { id: owner.id, name: owner.name } : undefined, body.rememberCommand === true);
+        const outcome = await answerRequest(threadId, requestOwner?.modelSelection.instanceId ?? "", requestId, behavior, body.message, owner ? { id: owner.id, name: owner.name } : undefined);
         if (outcome === "unavailable" && isPersistentQuestionCard(pending?.card) && behavior === "answer") {
           if (!pending?.card) return json(res, 404, { error: "this question is no longer available" });
           const answer = typeof body.message === "string" ? body.message.trim() : "";

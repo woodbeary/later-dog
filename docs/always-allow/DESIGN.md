@@ -111,7 +111,8 @@ Same strings on the desktop and the phone; no new colours.
 | Order | Failed test | Line |
 |---|---|---|
 | 1 | A1 | This one always asks. |
-| 2 | A2 | Only the owner can choose Always. |
+| 2 | A2, in a group chat (`why: "group"`) | Always isn't offered in group chats. |
+| 2 | A2, anywhere else | Only the owner can choose Always. |
 | 3 | A5 | This one asks each time: it holds a password or key. |
 | 4 | A3 | This one asks each time: later.dog cannot see all of what it does. |
 | 5 | A4, a screen, browser, computer or Mac action | This one asks each time: it acts on what is on the screen then. |
@@ -134,16 +135,17 @@ In steps 1 to 5 the `lasting` field is the rule for new grants only. A card that
 
 - **Grant:** `POST /api/bots/:id/always-allow` with `{ threadId, requestId }` and no `allowKey`. The home finds the pending engine card by bot, thread and request id (unanswered, not dismissed), checks owner or admin, recomputes A1 to A5 from its own copy of the request, and stores the grant. The client then answers the card with the existing `POST /api/threads/:threadId/respond` `{ requestId, behavior: "allow", scope: "always" }`; the engine still gets allow once. The old `{ threadId, allowKey }` form keeps working for the cards that still carry a key. Answers:
   - `200 { granted: true }`;
-  - `400 { error }` when neither `requestId` nor `allowKey` is given;
+  - `400 { error }` when neither `requestId` nor `allowKey` is given, except on a group chat's thread, which answers `409 { error, why: "group" }` first;
+  - `400 { error: "threadId must be a task id" }` when `threadId` is not a well-formed chat id;
   - `403 { error }` when the person is not the owner or an admin;
   - `404 { error }` for an unknown dog, or a `threadId` that is not one of its chats;
-  - `409 { error, why }` when the rule refuses (`why` is one of the seven `lasting.why` values; a group chat's card gives `owner-only`);
+  - `409 { error, why }` when the rule refuses (`why` is one of the eight `lasting.why` values; a group chat's card gives `group`);
   - `409 { error }` when the card is not pending for this dog, and when `threadId` is left out and the dog has more than one chat;
   - `503 { error }` when the store cannot be read.
 - **List:** `GET /api/bots/:id/always-allowed` returns `{ paused: boolean, unreadable?: true, items: Array<{ id: string; kind: "search" | "app" | "outside-delete" | "saved-login" | "teammate" | "command"; subject?: string; grantedAt?: string; state: "active" | "no-longer-used" }> }`.
   - `subject` is the app, the site, the teammate's name or the command's redacted preview; a search has none.
   - `grantedAt` is on every item with a time on record; today that is the search grants only (old keys and saved commands were never stored with a time).
-  - Rows carry no place: the "where" earlier revisions named is dropped, because every remaining grant holds in every chat of the dog.
+  - Rows carry no place. A search grant holds in every chat of the dog; an app's Always may hold only in the chat where it was given, because a card writes it to that chat. Remove clears it from every chat either way.
   - Old keys come from the dog's record and every one of its chats, and saved commands from `command-allowlist.json`. In steps 1 to 5 the outside-delete key lists as `no-longer-used`; an app key stays `active` (it still answers calls that are not sends).
   - `unreadable: true` when the store cannot be read: nothing is answered from it, and the list shows one quiet line instead of the searches.
   - `404 { error }` for an unknown dog; `403` for anyone but the owner or an admin.
@@ -193,7 +195,7 @@ Each takes the attack as its input and runs through the real caller (`request.op
 14. A grant posted by a thread's starter who is not owner or admin: 403. A grant on an answered or dismissed card, or another dog's request id: 409.
 15. The route refuses `connector:gmail` and the outside-delete key with 409; send and outside-delete cards carry no `allowKey`.
 16. An older app answering `always: true`: through the home's answer path, the Claude proxy and an ACP engine, each gets allow once; on ACP the allow-once option is picked and the same input asks again. An ACP engine that offers only `allow_always`: the request is cancelled with the "offered no allow option" message, in the answer path and in full-auto, and nothing is remembered (G1c, G8, H3).
-17. The order: a stored `connector:<app>` key with a send, and the outside-delete key in owner-auto, each show a card. On the lent Mac, a delete shows exactly one card, 207's, with no Always, and runs after Allow.
+17. The order: a stored `connector:<app>` key with a send, and the outside-delete key in owner-auto, each show a card. On the lent Mac set to Always (the Mac's "Always allow" mode), a delete shows exactly one card, 207's, with no Always, and runs after Allow.
 18. The stored preview is "Search", never the words.
 19. The allow rule returns "not offered, teammate" for a request that starts a teammate's turn. The teammate card itself does not change in steps 1 to 5; it changes only in step 7 (see 23).
 20. No card carries `allowSession`; an older phone shows no "Allow for this chat" (G1c).
@@ -238,7 +240,59 @@ Nothing steps 1 to 5 add opens a path. These stay exactly as on main today:
 - **The saved-login Always** fills your password on any page of the same site, where the dog chooses the box (H1).
 - **Dogs a dog makes** copy all of those keys from their maker.
 - **An app's Always** still answers that app's calls that are not sends.
-- **Connected-app deletes and shares** never ask (item 45's list, outside this item).
+- **Connected-app deletes and shares** no longer belong here: stage three adds them to 207's list as a sixth kind, "deletes-or-shares" (see "Connected-app deletes and shares" below).
+
+## Stage three: the old grants stop (16 November)
+
+Decided on 16 November for Jacob: J0 lands as it is, and J2-a to J2-e are taken as recommended. Steps 6 to 10 are built:
+- **J2-a (step 6).** No card carries `commandAllowlist`; an answer with `rememberCommand` saves nothing and answers once; no saved rule answers a request; `POST /api/bots/:id/command-allowlist` answers `409 { error, why: "stopped" }` (`GET` and `DELETE` still work); saved rules list as `no-longer-used`.
+- **J2-b (step 7).** The teammate card offers Allow and Deny only, with no `allowKey`; a stored `ask_bot:*` or `delegate_bot:*` key answers nothing; the grant route refuses both with 409; they list as `no-longer-used`.
+- **J2-c (step 8).** A Mac set to Always covers looking at files and reading texts only. A command, a write or delete, and a screen action ask, at most one card per kind, per message, per dog, and that card offers no Always. Where the home has just asked about the same call (207's card), the Mac adds no second card.
+- **J2-d (step 9).** Each fill from a saved login shows its card; the secure form no longer offers "use it without asking", and an older app's `always` is ignored; stored `vault:<site>` keys list as `no-longer-used`.
+- **J2-e (step 10).** A dog a dog makes holds no `alwaysAllow` key, on its record or its main chat.
+
+An app's Always (`connector:<app>`) stays `active`: it still answers that app's calls that neither send, pay, delete nor share.
+
+What changes for the phone's contract in stage three:
+- `lasting.why` gains `group` (eight values); a group chat's card and the grant route's group refusal give it.
+- A connected-app card for one of 207's kinds, the new `deletes-or-shares` included, carries `lasting: { offered: false, why: "always-asks" }` and no `allowKey`.
+- `ALWAYS_ASK_IDS` gains `deletes-or-shares`.
+- The teammate card and the Mac card for anything but reading carry no `allowKey`; `command`, `teammate` and `saved-login` rows are always `no-longer-used`.
+- `POST /api/bots/:id/command-allowlist` answers 409.
+
+## Connected-app deletes and shares (stage three)
+
+A call through a connected app that destroys something or changes who can reach it is a sixth kind on 207's list, `deletes-or-shares`, so it goes through `alwaysAsks` and step 1's order: it shows a card in every approval mode, owner-auto included, offers no Always, and is not answered by the app's old Always or this turn's Allow. The card names the app, the action and its arguments, and carries `lasting: { offered: false, why: "always-asks" }`, so it reads "This one always asks."
+
+The rule goes by the words in the call's name, not by a list of names, and by what a call actually sets. After the app's prefix is cut, and with the name in capitals whatever it was written in, a call asks when any word is one of:
+- destroys: `DELETE`, `DELETES`, `TRASH`, `REMOVE`, `PURGE`, `EMPTY`, `DESTROY`, `ERASE`, `WIPE`, `CLEAR`, `ARCHIVE`, `REPLACE`, `OVERWRITE`;
+- changes who can reach it: `SHARE`, `SHARING`, `SHARED`, `PERMISSION`, `PERMISSIONS`, `COLLABORATOR`, `COLLABORATORS`, `COLLABORATION`, `COLLABORATIONS`, `MEMBER`, `MEMBERS`, `MEMBERSHIP`, `MEMBERSHIPS`, `INVITE`, `INVITATION`, `INVITATIONS`, `ACCESS`, `ACL`, `ADMIN`, `VISIBILITY`, `PUBLIC`, `PRIVATE`, `OWNER`, `OWNERSHIP`, `ROLE`, `ROLES`, `REVOKE`, `UNSHARE`, `SHARES`, `GUEST`, `GUESTS`.
+
+A call that is not a read also asks when its arguments do the harm: a Gmail change that adds the `TRASH` label, found in a list at any depth or a comma-separated text, and under `labelIds` too when the call adds or changes labels; a key `trashed`, `in_trash`, `archived` or `closed` set to anything but false or empty (a name that holds one of these words with a `value` that is not false counts too); or a key `visibility`, `private`, `public`, `role`, `roles`, `permission`, `permissions`, `permissionScheme` or `access_level` set at all. Only the call's own top-level keys are read. `archived: false` and `trashed: false` restore, and do not ask.
+
+A read never asks: a call whose first word is a read word (`GET`, `LIST`, `FETCH`, `SEARCH`, `READ`, `FIND`, `RETRIEVE`, `LOOKUP`, `DOWNLOAD`, `VIEW`, `CHECK`, `COUNT`), or one with a read word or `VERIFY` at its end, or before any write verb (`ADD`, `CREATE`, `UPDATE`, `SET`, `INSERT`, `MODIFY` and the like, and the destroy words), unless it also holds a destroy word other than `ARCHIVE`, `REPLACE` or `OVERWRITE`. So `GOOGLECALENDAR_ACL_LIST` and `TRELLO_MEMBER_GET_BOARDS_BY_ID_MEMBER` are reads, and `SLACK_SET_SLACK_LIST_ACCESS` and `TRELLO_ARCHIVE_ALL_LIST_CARDS` ask. The brief's narrower rule, a read word only first or last, would have made the Trello read ask.
+
+It applies to connected-app calls only (`APP_ACTION` names and `mcp__composio__` tools), never to later.dog's own tools or an engine's. Every name is trimmed before it is checked, on a direct call and inside a batch. Inside `COMPOSIO_MULTI_EXECUTE_TOOL` each call is checked, whatever its capitals; a `COMPOSIO_` tool inside a batch (another batch, the workbench, the proxy) is treated as the proxy, which always asks, and so is a name that after trimming is not of the `APP_ACTION` shape (`gmail-delete-message`, `GmailDeleteMessage`, `gmail.delete_message`, `mcp__gmail__…`).
+
+Measured on the tool names in the public tool pages of 18 apps (Gmail, Google Drive, Calendar, Docs, Sheets, GitHub, Notion, Slack, Outlook, Dropbox, HubSpot, Asana, Trello, Jira, X, Figma, Box, LinkedIn; 3,766 names, `docs.composio.dev/toolkits/<app>.md` on 16 November), by name alone: 806 show a card, 181 as sends or payments and 625 as deletes or shares (592 at the first count, 26 more for the noun forms and the narrower read rule, 7 more for `REPLACE` and `OVERWRITE`). Measured again after the second fix round: the same 806 and 625, and no name changed kind; `SHARES`, `GUEST` and `GUESTS` add none of the 18 apps' names, only names outside them such as `SALESFORCE_CREATE_FOLDER_SHARES` and `CLICKUP_ADD_GUEST_TO_FOLDER`. The argument checks add more that a count of names cannot show. The seven names this stage was found with are covered; `NOTION_ARCHIVE_PAGE` is not on Notion's current page but is covered by its words.
+
+Asks wrongly, accepted: `GOOGLECALENDAR_ACL_WATCH` (watches a calendar's sharing list), and three trigger names, which are never called as tools.
+
+What it still misses, named for a later round:
+- merging records (`HUBSPOT_MERGE_*`, 11 calls; one record is gone);
+- moving a file or sheet into a shared folder (`GOOGLEDRIVE_MOVE_FILE`, `GOOGLESHEETS_MOVE_SPREADSHEET_TO_FOLDER`) and moving a calendar event to another organizer (`GOOGLECALENDAR_EVENTS_MOVE`);
+- blocking a person (`GITHUB_BLOCK_USER`, `GITHUB_BLOCK_USER_FROM_ORGANIZATION`) and turning off a protection rule (`GITHUB_DISABLE_A_CUSTOM_PROTECTION_RULE_FOR_AN_ENVIRONMENT`);
+- resetting a token or sessions (`GITHUB_RESET_A_TOKEN`, `SLACK_RESET_USER_SESSIONS`);
+- adding a person to a team, a workspace or a group (`ASANA_ADD_USER_TO_TEAM`, `ASANA_ADD_USER_TO_WORKSPACE`, `BOX_ADD_USER_TO_GROUP`), and a sharing link by another name (`ONE_DRIVE_CREATE_LINK`, which makes a file public with `scope: "anonymous"`);
+- argument keys not on the list above that change who can reach something: Trello's `prefs__permissionLevel`, Box's `shared_link` access (`shared_link: { access: "open" }`, `shared__link__access`), and Drive's `writersCanShare`;
+- harm flags in shapes the check does not read: `archived: [true]`, `archived: { value: true }`, the key `is_archived`, and a flag nested below the top level such as `{ data: { archived: true } }`;
+- tools from a server the person added themselves (`mcp__notion__…` and the like).
+
+`GITHUB_TRANSFER_A_REPOSITORY` asks, but as "pays or moves money", because `TRANSFER` is a payment word; and `GMAIL_ADD_LABEL_TO_EMAIL` asks as a send. Only the line on those cards is wrong. Cancelling, closing (by name), locking, leaving, unfollowing, unstarring and unpinning are left out on purpose: they neither destroy nor change who can reach something.
+
+What also asks now, and may annoy: rewriting a Google Doc (`GOOGLEDOCS_DELETE_CONTENT_RANGE`, `GOOGLEDOCS_REPLACE_ALL_TEXT`), removing a reaction or a star, clearing a sheet's filter, deleting a draft or an unsent scheduled message, and bookkeeping calls (`NOTION_DELETE_VIEW_QUERY`, `SLACK_REMOVE_CALL_PARTICIPANTS`, `BOX_REFRESH_ACCESS_TOKEN`, `BOX_REQUEST_ACCESS_TOKEN`). Also: every Shopify GraphQL admin call, reads included (`SHOPIFY_GRAPH_QL_ADMIN_EXECUTE`, by `ADMIN`); Confluence's upload-or-replace of an attachment; replacing a repository's topics; creating a private repository or a secret gist, because a reach key asks whenever it is set, even when it narrows reach; and a calendar event created, updated or patched with `visibility` set. One inconsistency stays: `GOOGLESHEETS_FIND_REPLACE` does not ask (it starts with a read word) while `GOOGLEDOCS_REPLACE_ALL_TEXT` does. None is exempted; that is Jacob's to decide.
+
+On the lent Mac, the home reads and deletes its own capture file after `run_command` with `vault_capture` with its own trust: no card, for that file only.
 
 ## Other lasting answers checked, which need no change (H4)
 

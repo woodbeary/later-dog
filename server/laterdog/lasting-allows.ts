@@ -23,6 +23,7 @@ export type LastingRequest = {
   approvalScope?: string;
   alwaysAsks: boolean;
   ownerOnly: boolean;
+  group?: boolean;
 };
 
 export type LastingVerdict = { offered: true; keySha256: string } | { offered: false; why: LastingWhy };
@@ -61,8 +62,13 @@ function plainObject(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
+export function isGroupChat(group: { dm?: boolean } | null | undefined): boolean {
+  return Boolean(group) && group?.dm !== true;
+}
+
 export function lastingVerdict(request: LastingRequest): LastingVerdict {
   if (request.alwaysAsks) return { offered: false, why: "always-asks" };
+  if (request.group) return { offered: false, why: "group" };
   if (!request.ownerOnly) return { offered: false, why: "owner-only" };
   const whole = plainObject(request.wholeInput) ? canonicalInput(request.wholeInput) : undefined;
   if (whole !== undefined && redactSecretsInText(whole) !== whole) return { offered: false, why: "secret" };

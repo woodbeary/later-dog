@@ -92,7 +92,7 @@ export async function finishMacVault(
   prepared: { secrets: string[]; capture?: { name: string; path: string } },
   items: VaultItems,
   held: CommandSecrets,
-  run: (operation: Record<string, unknown>) => Promise<unknown>,
+  onCaptureFile: (operation: { action: "read_file" | "delete_file"; path: string }) => Promise<unknown>,
 ): Promise<unknown> {
   const state = macResultState(result);
   const commandId = state.commandId ?? (typeof operation.command_id === "string" ? operation.command_id : undefined);
@@ -106,10 +106,10 @@ export async function finishMacVault(
   if (capture) {
     let value: string | null = null;
     try {
-      const read = macResultState(await run({ action: "read_file", path: capture.path }));
+      const read = macResultState(await onCaptureFile({ action: "read_file", path: capture.path }));
       value = typeof read.body?.content === "string" ? capturedValue(read.body.content) : null;
     } catch {}
-    await run({ action: "delete_file", path: capture.path }).catch(() => undefined);
+    await onCaptureFile({ action: "delete_file", path: capture.path }).catch(() => undefined);
     if (value === null) {
       note = { vault_error: `The command printed nothing to keep, so ${capture.name} was not saved.` };
     } else {

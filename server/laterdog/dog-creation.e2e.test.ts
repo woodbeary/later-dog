@@ -79,6 +79,11 @@ it("lets an ordinary dog create a dog that greets the person, with no per-turn c
     const rex: Bot = (await api("POST", "/api/bots", { name: "Rex", section: "Research" }, 201)).bot;
     expect((await bots()).filter((bot) => bot.chiefOfStaff && [biscuit.id, rex.id].includes(bot.id))).toEqual([]);
     await api("PATCH", `/api/bots/${biscuit.id}`, { approvalMode: "auto" });
+    const makerKeys = ["vault:example.com", "Delete folders outside its workspace", "connector:gmail", `delegate_bot:${rex.id}`];
+    await api("PATCH", `/api/bots/${biscuit.id}`, { alwaysAllow: makerKeys });
+    const maker = (await bots()).find((bot) => bot.id === biscuit.id)!;
+    expect(maker.alwaysAllow).toEqual(makerKeys);
+    expect(maker.tasks.find((task: { threadId: string }) => task.threadId === biscuit.threadId)?.alwaysAllow ?? maker.alwaysAllow).toEqual(makerKeys);
 
     const turn = await startTurn(biscuit, "can u make another agent");
     const tools = await turn.toolNames();
@@ -106,6 +111,8 @@ it("lets an ordinary dog create a dog that greets the person, with no per-turn c
     });
     expect(scout.composio).not.toBe(false);
     expect(scout.connectorTools).toBeUndefined();
+    expect(scout.alwaysAllow ?? []).toEqual([]);
+    for (const task of scout.tasks ?? []) expect(task.alwaysAllow ?? [], task.threadId).toEqual([]);
     expect(scout.chiefOfStaff).toBeFalsy();
     expect(scout.visibility).toBeUndefined();
     expect(said).toContain(`[id: ${scout.id}]`);

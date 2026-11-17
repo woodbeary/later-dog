@@ -445,6 +445,17 @@ beforeAll(async () => {
         dm: true,
       },
       {
+        id: "test-always-channel",
+        threadId: "test-always-channel-thread",
+        name: "Always channel",
+        memberIds: ["test-bot-a", "test-bot-reply"],
+        defaultResponder: { kind: "mentions" },
+        bulletin: "",
+        unread: false,
+        createdAt: 1,
+        dm: true,
+      },
+      {
         id: "test-stranded-room",
         threadId: "test-stranded-room-thread",
         name: "Stranded room",
@@ -7813,15 +7824,47 @@ describe("harness HTTP API", () => {
       const roomCard = async () => ((await api("GET", "/api/bots?messages=60")).body.groups.find((group: { id: string }) => group.id === room.id)?.messages ?? [])
         .find((message: { card?: { requestId?: string } }) => message.card?.requestId === "room-search")?.card;
       await expect.poll(roomCard, { timeout: 15_000 }).toBeTruthy();
-      expect((await roomCard()).lasting).toEqual({ offered: false, why: "owner-only" });
+      expect((await roomCard()).lasting).toEqual({ offered: false, why: "group" });
       const granted = await api("POST", `/api/bots/${bot.id}/always-allow`, { threadId: room.threadId, requestId: "room-search" });
       expect(granted.status).toBe(409);
-      expect(granted.body.why).toBe("owner-only");
+      expect(granted.body.why).toBe("group");
     } finally {
       for (const conn of conns) conn.destroy();
       if (roomId) await api("POST", `/api/groups/${roomId}/interrupt`, {}).catch(() => undefined);
       if (roomId) await api("DELETE", `/api/groups/${roomId}`).catch(() => undefined);
       await api("DELETE", `/api/bots/${bot.id}`);
+      await api("PUT", "/api/config", { signIn: { members: [] } });
+    }
+  });
+
+  it("in a channel between two dogs, says only the owner can choose Always, never group chats, on the card and from the grant route", async () => {
+    const conns: Socket[] = [];
+    const before = ((await api("GET", "/api/bots")).body.bots as Array<{ id: string; approvalMode?: string }>).find((bot) => bot.id === "test-bot-a")?.approvalMode;
+    try {
+      expect((await api("PUT", "/api/config", { signIn: { members: ["member@example.com"] } })).status).toBe(200);
+      expect((await api("PATCH", "/api/bots/test-bot-a", { modelSelection: { instanceId: "claude", model: "claude-haiku-4-5" }, approvalMode: "ask" })).status).toBe(200);
+      rmSync(fakeClaudeDump, { force: true });
+      const sent = await api("POST", "/api/groups/test-always-channel/messages", { text: "@Test bot A look up the weather", threadId: "test-always-channel-thread" });
+      expect(sent.status, JSON.stringify(sent.body)).toBe(202);
+      const socketPath = z.object({
+        mcpConfig: z.object({ mcpServers: z.object({ dog: z.object({ args: z.array(z.string()) }) }) }),
+      }).parse(await readJsonFileWhenReady(fakeClaudeDump)).mcpConfig.mcpServers.dog.args[1];
+      const conn = connect(socketPath);
+      conns.push(conn);
+      await new Promise<void>((resolve, reject) => { conn.on("connect", resolve); conn.on("error", reject); });
+      conn.write(JSON.stringify({ t: "ask", id: "channel-search", tool: "WebSearch", input: { query: "weather in oslo" } }) + "\n");
+      const channelCard = async () => ((await api("GET", "/api/threads/test-always-channel-thread/messages?limit=100")).body.messages ?? [])
+        .find((message: { card?: { requestId?: string } }) => message.card?.requestId === "channel-search")?.card;
+      await expect.poll(channelCard, { timeout: 15_000 }).toBeTruthy();
+      expect((await channelCard()).lasting).toEqual({ offered: false, why: "owner-only" });
+      const granted = await api("POST", "/api/bots/test-bot-a/always-allow", { threadId: "test-always-channel-thread", requestId: "channel-search" });
+      expect(granted.status).toBe(409);
+      expect(granted.body.why).toBe("owner-only");
+      expect(JSON.stringify(granted.body)).not.toContain("group chat");
+    } finally {
+      for (const conn of conns) conn.destroy();
+      await api("POST", "/api/groups/test-always-channel/interrupt", {}).catch(() => undefined);
+      await api("PATCH", "/api/bots/test-bot-a", { modelSelection: { instanceId: "claude", model: "claude-sonnet-5" }, ...(before ? { approvalMode: before } : {}) });
       await api("PUT", "/api/config", { signIn: { members: [] } });
     }
   });
@@ -7867,7 +7910,7 @@ describe("harness HTTP API", () => {
       expect(listed.body).toEqual({ paused: false, unreadable: true, items: [] });
       expect((await local("PATCH", `/api/bots/${bot.id}`, { alwaysAllow: ["vault:example.com"] })).status).toBe(200);
       const withOld = await local("GET", `/api/bots/${bot.id}/always-allowed`);
-      expect(withOld.body).toMatchObject({ paused: false, unreadable: true, items: [{ kind: "saved-login", subject: "example.com", state: "active" }] });
+      expect(withOld.body).toMatchObject({ paused: false, unreadable: true, items: [{ kind: "saved-login", subject: "example.com", state: "no-longer-used" }] });
       const login = withOld.body.items[0];
       expect((await local("DELETE", `/api/bots/${bot.id}/always-allowed/${encodeURIComponent(login.id)}`)).status).toBe(200);
       expect((await local("GET", `/api/bots/${bot.id}/always-allowed`)).body).toEqual({ paused: false, unreadable: true, items: [] });
@@ -7889,6 +7932,26 @@ describe("harness HTTP API", () => {
     }
   });
 
+  it("refuses a teammate key with 409 and lists a stored one as no longer used, which Remove clears", async () => {
+    const bot = (await api("POST", "/api/bots", { name: "Wagtail" })).body.bot;
+    const mate = (await api("POST", "/api/bots", { name: "Heron" })).body.bot;
+    try {
+      for (const key of [`ask_bot:${mate.id}`, `delegate_bot:${mate.id}`]) {
+        const refused = await api("POST", `/api/bots/${bot.id}/always-allow`, { threadId: bot.threadId, allowKey: key });
+        expect(refused.status, key).toBe(409);
+      }
+      expect((await api("PATCH", `/api/bots/${bot.id}`, { alwaysAllow: [`delegate_bot:${mate.id}`] })).status).toBe(200);
+      const listed = await api("GET", `/api/bots/${bot.id}/always-allowed`);
+      const row = listed.body.items.find((item: { kind: string }) => item.kind === "teammate");
+      expect(row).toMatchObject({ kind: "teammate", subject: "Heron", state: "no-longer-used" });
+      expect((await api("DELETE", `/api/bots/${bot.id}/always-allowed/${encodeURIComponent(row.id)}`)).status).toBe(200);
+      expect((await api("GET", `/api/bots/${bot.id}/always-allowed`)).body.items.some((item: { kind: string }) => item.kind === "teammate")).toBe(false);
+    } finally {
+      await api("DELETE", `/api/bots/${bot.id}`);
+      await api("DELETE", `/api/bots/${mate.id}`);
+    }
+  });
+
   it("lists an old key from every chat it was copied into, and Remove takes it out of all of them", async () => {
     const bot = (await api("POST", "/api/bots", { name: "Kestrel" })).body.bot;
     try {
@@ -7903,7 +7966,7 @@ describe("harness HTTP API", () => {
       expect((await record()).tasks.find((task: { threadId: string }) => task.threadId === second.threadId).alwaysAllow).toContain("vault:example.com");
       const listed = await api("GET", `/api/bots/${bot.id}/always-allowed`);
       const login = listed.body.items.find((item: { kind: string }) => item.kind === "saved-login");
-      expect(login).toMatchObject({ subject: "example.com", state: "active" });
+      expect(login).toMatchObject({ subject: "example.com", state: "no-longer-used" });
       expect(await holders()).toBeGreaterThan(0);
       const removed = await api("DELETE", `/api/bots/${bot.id}/always-allowed/${encodeURIComponent(login.id)}`);
       expect(removed.status).toBe(200);

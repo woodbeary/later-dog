@@ -59,6 +59,7 @@ describe("a card that offers no Always", () => {
   it.each([
     ["always-asks", "This one always asks."],
     ["owner-only", "Only the owner can choose Always."],
+    ["group", "Always isn't offered in group chats."],
     ["secret", "This one asks each time: it holds a password or key."],
     ["incomplete", "This one asks each time: later.dog cannot see all of what it does."],
     ["screen", "This one asks each time: it acts on what is on the screen then."],
@@ -67,7 +68,7 @@ describe("a card that offers no Always", () => {
   ] as const)("shows one quiet line for %s where the button would sit", (why, line) => {
     const result = view({ offered: false, why });
     expect(labels(result.buttons)).toEqual(["Allow once", "Don't allow"]);
-    expect(result.html).toContain(line);
+    expect(result.html.replaceAll("&#x27;", "'")).toContain(line);
     expect(result.html).toContain(`data-lasting-why="${why}"`);
   });
 
@@ -86,6 +87,24 @@ describe("a card that offers no Always", () => {
     expect(refused.html).toContain('data-lasting-why="state"');
     view({ offered: true, reach: "x" }, { allowKey: "WebSearch:old" }).buttons.find((button) => button.props.children === "Always allow")!.props.onClick!();
     expect(fixture.dispatch).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ lastingGrant: { botId: "bot-1" }, alwaysAllow: undefined, scope: "always" }));
+  });
+
+  it("labels a connected-app card that always asks Allow once and Don't allow, with its line", () => {
+    const outboundRequest = { tool: "GMAIL_DELETE_MESSAGE", app: "Gmail", calls: [{ app: "Gmail", label: "Delete message" }] };
+    const asks = view({ offered: false, why: "always-asks" }, { title: "Allow Gmail?", subtitle: "Gmail · Delete message", tool: "GMAIL_DELETE_MESSAGE", outboundRequest });
+    expect(labels(asks.buttons)).toEqual(["Allow once", "Don't allow"]);
+    expect(asks.html).toContain("This one always asks.");
+    const ordinary = view(undefined, { title: "Allow GitHub?", subtitle: "GitHub · Create an issue comment", tool: "GITHUB_CREATE_AN_ISSUE_COMMENT", allowKey: "connector:github",
+      outboundRequest: { tool: "GITHUB_CREATE_AN_ISSUE_COMMENT", app: "GitHub", calls: [{ app: "GitHub", label: "Create an issue comment" }] } });
+    expect(labels(ordinary.buttons).slice(0, 2)).toEqual(["Allow", "Skip"]);
+  });
+
+  it("tells the person that Don't allow on a connected-app card that always asks also holds that app back until their next message", () => {
+    const outboundRequest = { tool: "GMAIL_DELETE_MESSAGE", app: "Gmail", calls: [{ app: "Gmail", label: "Delete message" }] };
+    const asks = view({ offered: false, why: "always-asks" }, { title: "Allow Gmail?", subtitle: "Gmail · Delete message", tool: "GMAIL_DELETE_MESSAGE", outboundRequest });
+    expect(asks.html).toContain("If you don&#x27;t allow it, Wren won&#x27;t ask about Gmail again until your next message.");
+    const search = view({ offered: false, why: "always-asks" }, { tool: "Bash", subtitle: "git push --no-verify" });
+    expect(search.html).not.toContain("won&#x27;t ask about");
   });
 
   it("never offers Allow for this chat", () => {
