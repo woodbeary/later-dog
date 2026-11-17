@@ -9,6 +9,8 @@ import type { AccountRest } from "./AccountCharge";
 import { ChatContextBreakdown, contextRowShown } from "./ChatContextBreakdown";
 import { useMenuMotion } from "./MenuMotion";
 import { AccountUsage, type PlanProvider } from "./PlanUsage";
+import { USAGE_NOTICE_FROM } from "@/lib/usage-notice";
+import { CONTEXT_NEAR_PERCENT } from "@/lib/chat-context";
 
 export const CHAT_USAGE_WIDTH = 300;
 
@@ -26,12 +28,21 @@ export interface ChatUsageButtonProps {
   onSeeAll(): void;
 }
 
+const windowUsed = (window: PlanProvider["weekly"]) => (window.available && typeof window.usedPercent === "number" ? window.usedPercent : 0);
+
+export function chatUsageRingShown(provider: PlanProvider | undefined, resting: AccountRest | undefined, reading: ChatContextReading | null): boolean {
+  if (!provider || resting) return true;
+  if ((reading?.percent ?? 0) >= CONTEXT_NEAR_PERCENT) return true;
+  return Math.max(windowUsed(provider.weekly), windowUsed(provider.fiveHour)) >= USAGE_NOTICE_FROM;
+}
+
 export function ChatUsageButton({ mark, title, reading, threadId, chat, accountName, provider, resting, now, onOpen, onSeeAll }: ChatUsageButtonProps) {
   const [open, setOpen] = useState(false);
   const breakdown = useContextBreakdown(threadId, open);
   const contextShown = contextRowShown(reading, breakdown);
   const rootRef = useRef<HTMLDivElement>(null);
   const motion = useMenuMotion(open);
+  const shown = chatUsageRingShown(provider, resting, reading);
 
   useEffect(() => {
     if (!open) return;
@@ -49,6 +60,7 @@ export function ChatUsageButton({ mark, title, reading, threadId, chat, accountN
     };
   }, [open]);
 
+  if (!shown) return null;
   return (
     <div ref={rootRef} className="relative shrink-0">
       <button

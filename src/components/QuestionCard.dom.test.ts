@@ -3,7 +3,6 @@ import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Message } from "@/state/store";
-import { QUESTION_DISMISS_MESSAGE } from "../../shared/ask-question";
 
 const fixture = vi.hoisted(() => ({ dispatch: vi.fn() }));
 vi.mock("@/state/store", () => ({ useStore: () => ({ state: {}, dispatch: fixture.dispatch }) }));
@@ -54,42 +53,22 @@ function mount(message: Message) {
   act(() => root.render(createElement(QuestionCard, { threadId: "thread-1", bot: { name: "Biscuit" }, message })));
 }
 
-const closeButton = () => host.querySelector<HTMLButtonElement>("[data-question-close]");
-const nextFrame = () => new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+const wait = (ms: number) => act(() => new Promise<void>((resolve) => setTimeout(resolve, ms)));
+const key = (name: string, target: EventTarget = document.body) => act(() => { target.dispatchEvent(new KeyboardEvent("keydown", { key: name, bubbles: true })); });
 
-describe("closing a dog's question", () => {
-  it("ends the dog's wait with the close note, hides the card and hands the person the composer", async () => {
+describe("a dog's question card", () => {
+  it("has no ×, no eyebrow and no tabs, and leads with the question", () => {
     mount(question());
-    expect(closeButton()?.getAttribute("aria-label")).toBe("Close question");
-    act(() => closeButton()?.click());
-    expect(host.textContent).toBe("");
-    expect(fixture.dispatch).toHaveBeenCalledTimes(1);
-    expect(fixture.dispatch.mock.calls[0]![0]).toMatchObject({
-      type: "decideRequest",
-      threadId: "thread-1",
-      requestId: "req-1",
-      behavior: "answer",
-      message: QUESTION_DISMISS_MESSAGE,
-    });
-    await act(nextFrame);
-    expect(document.activeElement).toBe(composer.querySelector("textarea"));
+    expect(host.querySelector("[data-question-close]")).toBeNull();
+    expect(host.querySelector("[role=tab]")).toBeNull();
+    expect(host.textContent).not.toContain("has a question");
+    expect(host.querySelector("[data-question-card]")!.firstElementChild!.textContent).toBe("What should I help with first?");
   });
 
-  it("brings the question back when the close does not reach the dog", () => {
+  it("numbers each option and draws no row for Other", () => {
     mount(question());
-    act(() => closeButton()?.click());
-    expect(host.textContent).toBe("");
-    act(() => fixture.dispatch.mock.calls[0]![0].onError("offline"));
-    expect(host.textContent).toContain("What should I help with first?");
-    expect(closeButton()).not.toBeNull();
-  });
-
-  it("offers no × on an answered question, and draws nothing once closed", () => {
-    mount(question({ answered: "answer", answeredText: "Code and GitHub" }));
-    expect(host.textContent).toContain("Code and GitHub");
-    expect(closeButton()).toBeNull();
-    mount(question({ answered: "answer", dismissed: true }));
-    expect(host.textContent).toBe("");
+    expect([...host.querySelectorAll("[data-question-option]")].map((row) => row.textContent)).toEqual(["1Code and GitHub", "2Research and writing"]);
+    expect(host.textContent).not.toContain("Other");
   });
 
   it("settles a provider-resolved native question neutrally without leaving answer actions open", () => {
@@ -99,23 +78,60 @@ describe("closing a dog's question", () => {
     expect(host.textContent).toContain("Requested by Researcher");
     expect(host.querySelector('[data-folded-line]')?.getAttribute("aria-label")).toBe("Resolved by Codex");
     act(() => host.querySelector<HTMLButtonElement>("[data-folded-line]")!.click());
-    expect(host.querySelectorAll('[role="radio"], [data-question-submit], [data-question-close], textarea')).toHaveLength(0);
+    expect(host.querySelectorAll('[role="radio"], [data-question-submit], textarea')).toHaveLength(0);
     expect(host.querySelector(".text-success")).toBeNull();
     expect(host.textContent).not.toContain("Waiting for");
     expect(fixture.dispatch).not.toHaveBeenCalled();
   });
+
+  it("draws nothing once dismissed", () => {
+    mount(question({ answered: "answer", dismissed: true }));
+    expect(host.textContent).toBe("");
+  });
 });
 
 describe("answering a dog's question", () => {
-  it("sends a single choice the moment it is picked", () => {
+  it("shows a check on a single pick, holds it 600 ms, then sends", async () => {
     mount(question());
     const option = [...host.querySelectorAll<HTMLButtonElement>("[role=radio]")].find((button) => button.textContent?.includes("Research and writing"));
     act(() => option?.click());
+    expect(option!.querySelector("[data-question-check]")).not.toBeNull();
+    expect(fixture.dispatch).not.toHaveBeenCalled();
+    await wait(650);
     expect(fixture.dispatch).toHaveBeenCalledTimes(1);
     expect(fixture.dispatch.mock.calls[0]![0]).toMatchObject({ type: "decideRequest", requestId: "req-1", behavior: "answer", message: expect.stringContaining("A: Research and writing") });
   });
 
-  it("waits for Submit when there is more than one question", () => {
+  it("picks an option with keys 1 to 9", async () => {
+    mount(question());
+    await key("3");
+    await key("2");
+    await wait(650);
+    expect(fixture.dispatch).toHaveBeenCalledTimes(1);
+    expect(fixture.dispatch.mock.calls[0]![0].message).toContain("A: Research and writing");
+  });
+
+  it("picks with a digit pressed in the empty message box", async () => {
+    mount(question());
+    await key("1", composer.querySelector("textarea")!);
+    await wait(650);
+    expect(fixture.dispatch.mock.calls[0]![0].message).toContain("A: Code and GitHub");
+  });
+
+  it("leaves a digit to a message box that has words, and to any other field", async () => {
+    mount(question());
+    const box = composer.querySelector("textarea")!;
+    box.value = "Around ";
+    await key("1", box);
+    const other = document.createElement("input");
+    document.body.append(other);
+    await key("2", other);
+    other.remove();
+    await wait(650);
+    expect(fixture.dispatch).not.toHaveBeenCalled();
+  });
+
+  it("waits for Send when there is more than one question", () => {
     mount(question({
       questionRequest: {
         version: 1,
@@ -171,13 +187,6 @@ describe("a card with several questions", () => {
     expect(step()).toBe("2 of 3");
   });
 
-  it("jumps to a question from its tab", () => {
-    mount(several());
-    act(() => host.querySelectorAll<HTMLButtonElement>("[role=tab]")[2]!.click());
-    expect(step()).toBe("3 of 3");
-    expect(host.textContent).toContain("Which days?");
-  });
-
   it("holds multi-select questions until Next and sends everything from the last step", () => {
     mount(several());
     act(() => option("Code").click());
@@ -199,19 +208,23 @@ describe("a card with several questions", () => {
     expect(host.querySelector("[role=radio]")).toBeNull();
   });
 
-  it("keeps Submit off until every question has an answer", () => {
+  it("keeps Send off until every question has an answer", () => {
     mount(several());
-    act(() => host.querySelectorAll<HTMLButtonElement>("[role=tab]")[2]!.click());
-    act(() => option("Mon").click());
+    act(() => option("Code").click());
+    act(() => option("Weekly").click());
     expect(submitButton()?.disabled).toBe(true);
+    expect(submitButton()?.textContent).toBe("Send");
+    act(() => option("Mon").click());
+    expect(submitButton()?.disabled).toBe(false);
   });
 });
 
 
 describe("folded answers", () => {
-  it("folds immediately, expands read-only and folds again", () => {
+  it("folds once sent, expands read-only and folds again", async () => {
     mount(question());
     act(() => host.querySelector<HTMLButtonElement>("[role=radio]")?.click());
+    await wait(650);
     const line = host.querySelector<HTMLButtonElement>("[data-folded-line]")!;
     expect(line.getAttribute("aria-expanded")).toBe("false");
     expect(host.querySelector("[role=radio]")).toBeNull();
@@ -224,9 +237,10 @@ describe("folded answers", () => {
     expect(host.textContent).toBe("Code and GitHub");
   });
 
-  it("opens again when sending fails", () => {
+  it("opens again when sending fails", async () => {
     mount(question());
     act(() => host.querySelector<HTMLButtonElement>("[role=radio]")?.click());
+    await wait(650);
     act(() => fixture.dispatch.mock.calls[0]![0].onError("offline"));
     expect(host.querySelector("[data-folded-line]")).toBeNull();
     expect(host.querySelector("[role=radio]")).not.toBeNull();
