@@ -1,8 +1,11 @@
 import { useEffect, useRef } from "react";
 import { createRoot } from "react-dom/client";
-import { MessageCircle, Moon, Settings, Users } from "lucide-react";
+import { Copy, MessageCircle, Moon, Pencil, Settings, Trash2, Users } from "lucide-react";
 import { BotListItem, botRowProps } from "../../src/components/Sidebar";
 import { SidebarPopoverMenu } from "../../src/components/SidebarPopoverMenu";
+import { ChatHeaderTasks } from "../../src/components/ChatHeaderTasks";
+import { MessageActions } from "../../src/components/MessageActions";
+import { StoreChannelContext, type StoreChannel } from "../../src/state/store-channel";
 import { initialState, type Bot } from "../../src/state/store";
 import { applySkin, SKIN_IDS, type SkinId } from "../../src/lib/skins";
 import { stepPhrase } from "../../shared/step-words";
@@ -66,7 +69,38 @@ function OpenMenu() {
   </div>;
 }
 
+const opener = { botId: "juniper", name: "Juniper", at: now - 600_000 };
+const juniperWithTasks = { ...dogs[0]!, tasks: [
+  { threadId: "flights", title: "Book flights", createdAt: now - 300_000, openedBy: opener, busy: true },
+  { threadId: "visa", title: "Check the visa", createdAt: now - 200_000, openedBy: opener, activity: "waiting-on-you" },
+  { threadId: "hotel", title: "Find a hotel", createdAt: now - 100_000, openedBy: opener, unread: true },
+] } as unknown as Bot;
+const channel: StoreChannel = { read: () => state, listen: () => noop, dispatch: noop, flushBotPatches: async () => null, refreshInstances: async () => {}, refreshModels: async () => {} };
+
+function OpenOtherMenus() {
+  const header = useRef<HTMLDivElement>(null);
+  const message = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    header.current?.querySelector<HTMLButtonElement>('[aria-haspopup="menu"]')?.click();
+    message.current?.querySelector<HTMLButtonElement>('[aria-haspopup="menu"]')?.click();
+  }, []);
+  return <StoreChannelContext.Provider value={channel}>
+    <div className="flex gap-24 p-8">
+      <div ref={header} data-preview="chat-header-menu" className="relative w-[300px]"><div className="flex justify-end"><ChatHeaderTasks bot={juniperWithTasks} /></div></div>
+      <div ref={message} data-preview="message-menu" className="group relative mt-4 flex w-[300px] flex-col items-start">
+        <div className="rounded-bubble bg-card px-4 py-2.5 text-[15px]">Your trip notes are ready to read.</div>
+        <MessageActions side="bot" forceOpen more={[
+          { key: "copy", label: "Copy", icon: <Copy size={16} />, onSelect: noop },
+          { key: "edit", label: "Edit", icon: <Pencil size={16} />, active: true, onSelect: noop },
+          { key: "delete", label: "Delete", icon: <Trash2 size={16} />, separatorBefore: true, onSelect: noop },
+        ]}><span /></MessageActions>
+      </div>
+    </div>
+  </StoreChannelContext.Provider>;
+}
+
 function Preview() {
+  if (params.get("view") === "menus") return <div className="h-screen bg-app text-ink"><OpenOtherMenus /></div>;
   return <div className="flex h-screen bg-app text-ink">
     <aside data-preview="rail" className="flex h-full w-[80px] shrink-0 flex-col border-r border-hairline/40 bg-panel"><Rows density="icons" /></aside>
     <aside data-preview="expanded" className="flex h-full w-[300px] shrink-0 flex-col border-r border-hairline/40 bg-panel"><Rows density="comfortable" /></aside>

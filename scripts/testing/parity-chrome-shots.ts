@@ -9,7 +9,7 @@ import { mountPreview, REPO_ROOT, type MountedPreview } from "./preview-fixture.
 const OUT = join(REPO_ROOT, ".laterdog-evidence", "parity-chrome");
 const SIZES = [[1100, 800], [1440, 900]] as const;
 const PROFILE = mkdtempSync(join(tmpdir(), "parity-chrome-"));
-const SKINS = [["daylight", "light"], ["midnight", "dark"]] as const;
+const SKINS = [["daylight", "light"], ["midnight", "dark"], ["graphite", "graphite"], ["dusk", "dusk"], ["atelier", "atelier"]] as const;
 
 function shoot(chrome: string, url: string, file: string, width: number, height: number): Promise<void> {
   return new Promise((resolve, reject) => {
@@ -40,6 +40,11 @@ try {
       await shoot(chrome, `${ui.previewUrl}?skin=${skin}`, file, width, height);
       console.log(file);
     }
+  }
+  for (const [skin, look] of SKINS.slice(0, 2)) {
+    const file = join(OUT, `menus-1100-${look}.png`);
+    await shoot(chrome, `${ui.previewUrl}?skin=${skin}&view=menus`, file, 1100, 800);
+    console.log(file);
   }
 } finally {
   await ui?.close();
