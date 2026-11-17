@@ -9,6 +9,7 @@ export interface AutoVmClaimSlot {
   begin?: Promise<void>;
   failed?: boolean;
   failure?: string;
+  failedReason?: string;
   claimed?: boolean;
   lazy?: boolean;
   label?: string;

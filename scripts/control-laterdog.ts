@@ -15,6 +15,7 @@ import { freePortBlock } from "../server/testing/ports.ts";
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 export const FIXTURE_STARTER_BOT_NAME = "Fixture Starter";
 const FAKE_CLI = join(ROOT, "server", "testing", "fake-claude-cli.ts");
+const VERIFICATION_READY_MS = 60_000;
 const MUTATING = new Set([
   "new-bot", "new-channel", "send", "send-channel", "interrupt", "set-model", "edit",
   "ui click", "ui type", "ui press", "ui flag", "ui eval",
@@ -456,7 +457,7 @@ export async function launchVerificationServer(
   });
   closeSync(log);
 
-  const deadline = Date.now() + 20_000;
+  const deadline = Date.now() + VERIFICATION_READY_MS;
   try {
     for (;;) {
       if (signal?.aborted) throw new ControlLaterDogError("verification launch cancelled");

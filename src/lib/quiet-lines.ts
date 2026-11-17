@@ -6,6 +6,7 @@ import { failedTurnCause } from "./failed-turn";
 import { isProviderSafetyBlock } from "../../shared/provider-safety";
 import { peerLine } from "./peer-message";
 import { localDay } from "./transcript-derivations";
+import { standingNotice } from "./standing-notice";
 
 export type ExchangeDirection = "to" | "from";
 
@@ -285,7 +286,7 @@ export function exchangeWording(item: Pick<ExchangeItem, "rows">): ExchangeWordi
   return { key: item.rows[0]!.direction === "to" ? "chat.exchange.messaged" : "chat.exchange.messageFrom", count };
 }
 
-export type ExchangeState = "Queued" | "Working" | "Done" | "Needs you" | "Failed" | "Stopped";
+export type ExchangeState = "Queued" | "Working" | "Wrote while working" | "Done" | "Needs you" | "Failed" | "Stopped";
 
 export interface ExchangeSummary {
   gist: string | null;
@@ -315,6 +316,8 @@ export function recordSummary(record: WireExchange): ExchangeSummary {
 export function exchangeSummary(item: Pick<ExchangeItem, "messages" | "rows">, thread: readonly Message[] | null, working: boolean): ExchangeSummary | null {
   const record = exchangeRecord(item);
   if (record) return recordSummary(record);
+  const lead = item.rows[0];
+  if (item.rows.length === 1 && lead?.direction === "from" && !lead.message.roomRequest) return null;
   return thread ? exchangeGist(item, thread, working) : null;
 }
 
@@ -327,6 +330,7 @@ export function exchangeGist(item: Pick<ExchangeItem, "messages" | "rows">, thre
   const line = (request?.text ?? "").replace(/^(?:@\S+\s+)+/, "").replace(/\s+/g, " ").trim();
   const gist = line ? (line.length > 90 ? `${line.slice(0, 89)}…` : line) : null;
   const lead = item.rows[0];
+  if (lead?.direction === "from" && lead.message.roomRequest?.phase === "reply") return { gist, state: "Wrote while working" };
   const answered = after.some((message) => (id && message.roomRequest?.id === id && message.roomRequest.phase !== "request")
     || message.roomRequest?.phase === "result"
     || (lead?.direction === "to" && message.comm?.direction === "from" && message.comm.withBotId === lead.withBotId));
@@ -337,4 +341,8 @@ export function exchangeGist(item: Pick<ExchangeItem, "messages" | "rows">, thre
 
 export function shownToPerson(message: Message): boolean {
   return !(message.role === "bot" && message.kind === "text" && message.roomRequest);
+}
+
+export function shownInChat(message: Message): boolean {
+  return shownToPerson(message) && !standingNotice(message);
 }

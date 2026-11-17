@@ -68,6 +68,7 @@ const DATA_AREAS: Readonly<Record<string, Area>> = {
   "chrome-profile": ["browser", "Web browser data"],
   skills: ["skills", "Skills"],
   "skill-state": ["skills", "Skills"],
+  "deleted-chat-folders": ["deleted-chats", "Deleted chats' files, kept 7 days"],
 };
 
 const HOME_AREAS: Readonly<Record<string, Area>> = {

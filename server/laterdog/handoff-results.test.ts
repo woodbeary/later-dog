@@ -268,7 +268,7 @@ describe("a coordinator is given its helpers' results as they come back", () => 
     expect(t.wakes()).toEqual([]);
   }));
 
-  it("keeps a group chat's coordinator waiting for every result, as before", () => team(async t => {
+  it("wakes a group chat's coordinator once some results are back, like any other coordinator", () => team(async t => {
     const room = (botId: string) => ({ groupId: `${botId}-room`, threadId: `${botId}-room-chat`, botId });
     t.engine.enqueue(room("lead"), "turn", undefined, room("pip"), "pip", "Lane for pip");
     t.engine.enqueue(room("lead"), "turn", undefined, room("rook"), "rook", "Lane for rook");
@@ -276,7 +276,7 @@ describe("a coordinator is given its helpers' results as they come back", () => 
     await t.settle();
     t.finish("pip"); await t.settle();
     t.clock.at += 10 * RESULT_MAX_WAIT_MS; await t.settle();
-    expect(vi.mocked(t.hooks.run).mock.calls.filter(([node, resumed]) => node.botId === "lead" && resumed)).toHaveLength(0);
+    expect(vi.mocked(t.hooks.run).mock.calls.filter(([node, resumed]) => node.botId === "lead" && resumed)).toHaveLength(1);
   }));
 });
 
@@ -397,6 +397,27 @@ describe("a last results turn that fails", () => {
       expect(t.engine.nodes.get("turn")?.status).toBe("completed");
     }));
   }
+
+  it("is still tried once more after an earlier results turn used its retry and then succeeded", () => team(async t => {
+    const run = t.hooks.run;
+    let leadRuns = 0;
+    t.hooks.run = vi.fn(async (node: RoomHandoff, resumed: boolean, signal: AbortSignal) => {
+      if (node.botId === lead.botId && resumed) {
+        leadRuns++;
+        if (leadRuns === 1) { t.clock.at += 1; return { ok: false, timedOut: true, text: "timed out" }; }
+        if (leadRuns === 3) return { ok: false, text: "engine error" };
+      }
+      return run(node, resumed, signal);
+    });
+    sendThree(t.engine);
+    await t.settle();
+    t.finish("pip"); t.finish("quill"); await t.settle();
+    t.clock.at += RESULT_QUIET_MS; await t.settle();
+    t.finish("rook"); await t.settle();
+    expect(leadRuns).toBe(4);
+    expect(t.engine.nodes.get("turn")?.status).toBe("completed");
+    expect(t.wakes().at(-1)).toEqual({ fresh: ["rook"], earlier: ["pip", "quill"], out: [] });
+  }));
 
   it("stops after the second failure and leaves its results marked as not delivered", () => team(async t => {
     let runs = 0;

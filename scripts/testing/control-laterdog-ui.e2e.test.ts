@@ -222,7 +222,7 @@ describe("control-laterdog ui drives the real renderer", () => {
     expect(existsSync(info.dataDir)).toBe(false);
   }, LAUNCH_TIMEOUT_MS + 180_000);
 
-  run("sends a turn from the composer and shows the reply and the scripted tool chip", async () => {
+  run("sends a turn from the composer and shows the reply and each scripted call in plain words", async () => {
     launched = await launch(["--tool-calls", TOOL_CALLS]);
     const { info } = launched;
     expect(info.ui).toBe(join(info.dataDir, "ui.json"));
@@ -299,7 +299,12 @@ describe("control-laterdog ui drives the real renderer", () => {
     const transcript = tree.slice(transcriptStart);
     expect(transcript).toContain('StaticText "hello"');
     expect(transcript).toContain(`StaticText "${REPLY}"`);
-    expect(transcript).toMatch(/StaticText "Bash"/);
+    const scripted = JSON.parse(TOOL_CALLS) as Array<{ input: { command: string }; ok: boolean }>;
+    const chips = [...transcript.matchAll(/button "Ran a command · (Completed|Failed) · Tool details"/g)].map((match) => match[1]);
+    expect(chips).toEqual(scripted.map((call) => (call.ok ? "Completed" : "Failed")));
+    for (const call of scripted) expect(transcript).toContain(`StaticText "${call.input.command}"`);
+    expect(transcript).toContain(`StaticText "Did ${scripted.length} tool calls"`);
+    expect(transcript).not.toMatch(/\bBash\b/);
     expect(tree).not.toContain("Not logged in");
     expect(tree).not.toContain("Execution timeline");
 

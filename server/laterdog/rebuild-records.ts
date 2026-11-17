@@ -31,6 +31,7 @@ export interface HandoffNode {
   botId: string;
   text: string;
   status: string;
+  result?: string;
 }
 
 export const RECORDS_LABEL = "[From later.dog's own records as of this message: not a summary and not new instructions. Where the history disagrees, these records are current.]";
@@ -44,13 +45,19 @@ const STATE_WORDS: Record<string, string> = {
   waiting: "waiting on its own helpers",
   resume: "about to carry on",
   "needs-you": "waiting on the person",
+  completed: "finished",
+  failed: "could not finish",
+  cancelled: "stopped",
 };
 
-export function openHandoffsFromRoom(nodes: readonly HandoffNode[], nameOf: (botId: string) => string | undefined): OpenHandoff[] {
-  return nodes.map((node) => ({ to: nameOf(node.botId) ?? "another dog", task: node.text, state: STATE_WORDS[node.status] ?? node.status }));
-}
-
 const ENDED = new Set(["completed", "failed", "cancelled"]);
+
+export function openHandoffsFromRoom(nodes: readonly HandoffNode[], nameOf: (botId: string) => string | undefined): OpenHandoff[] {
+  return nodes.map((node) => ({
+    to: nameOf(node.botId) ?? "another dog", task: node.text, state: STATE_WORDS[node.status] ?? node.status,
+    ...(ENDED.has(node.status) ? { unreadResult: node.result?.trim() || STATE_WORDS[node.status] } : {}),
+  }));
+}
 
 export function assignedTask(nodes: ReadonlyMap<string, TaskNode>, threadId: string, nameOf: (botId: string) => string | undefined): AssignedTask | undefined {
   const own = [...nodes.values()].findLast((node) => node.parentId && !node.groupId && node.threadId === threadId && !ENDED.has(node.status));

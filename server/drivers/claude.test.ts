@@ -1177,34 +1177,81 @@ describe("ClaudeDriver turns (fake CLI)", () => {
     expect(seen.mcpConfig.mcpServers.dog.alwaysLoad).toBe(true);
   });
 
-  it("asks the agents server to mark rare tools for loading on demand unless the server setting turns it off", async () => {
-    const previous = process.env.LATERDOG_DEFER_RARE_TOOLS;
-    await create();
-    const dump = join(scratch, "rare-tools.json");
+  const rareToolsLaunch = async (threadId: string, model?: string) => {
+    const dump = join(scratch, `${threadId}.json`);
     process.env.FAKE_CLAUDE_DUMP = dump;
-    const launch = async (threadId: string) => {
-      await instance.adapter.sendTurn({
-        threadId,
-        text: "hi",
-        integrations: {
-          agents: { command: process.execPath, args: ["/fake/agents-proxy.js"], env: { LATERDOG_BOT_ID: "b1" } },
-        },
-      });
-      await recorder.until((e) => e.type === "turn.completed");
-      recorder.events.length = 0;
-      return JSON.parse(readFileSync(dump, "utf8")).mcpConfig.mcpServers.agents;
-    };
+    await instance.adapter.sendTurn({
+      threadId,
+      text: "hi",
+      ...(model ? { model } : {}),
+      integrations: {
+        agents: { command: process.execPath, args: ["/fake/agents-proxy.js"], env: { LATERDOG_BOT_ID: "b1" } },
+      },
+    });
+    await recorder.until((e) => e.type === "turn.completed");
+    recorder.events.length = 0;
+    return JSON.parse(readFileSync(dump, "utf8")).mcpConfig.mcpServers.agents;
+  };
+  const allUpFront = { command: process.execPath, args: ["/fake/agents-proxy.js"], env: { LATERDOG_BOT_ID: "b1" }, alwaysLoad: true };
+  const rareOnDemand = { ...allUpFront, env: { LATERDOG_BOT_ID: "b1", LATERDOG_AGENTS_DEFER_RARE: "1" } };
+  const withRareSetting = async (value: string | undefined, run: () => Promise<void>) => {
+    const previous = process.env.LATERDOG_DEFER_RARE_TOOLS;
+    if (value === undefined) delete process.env.LATERDOG_DEFER_RARE_TOOLS;
+    else process.env.LATERDOG_DEFER_RARE_TOOLS = value;
     try {
-      process.env.LATERDOG_DEFER_RARE_TOOLS = "0";
-      const off = await launch("t-rare-off");
-      expect(off).toEqual({ command: process.execPath, args: ["/fake/agents-proxy.js"], env: { LATERDOG_BOT_ID: "b1" }, alwaysLoad: true });
-      delete process.env.LATERDOG_DEFER_RARE_TOOLS;
-      const on = await launch("t-rare-on");
-      expect(on).toEqual({ ...off, env: { LATERDOG_BOT_ID: "b1", LATERDOG_AGENTS_DEFER_RARE: "1" } });
+      await run();
     } finally {
       if (previous === undefined) delete process.env.LATERDOG_DEFER_RARE_TOOLS;
       else process.env.LATERDOG_DEFER_RARE_TOOLS = previous;
     }
+  };
+
+  it("loads rare tools on demand only for a model where that is proven, and loads everything for the rest", async () => {
+    await create();
+    await withRareSetting(undefined, async () => {
+      expect(await rareToolsLaunch("t-rare-opus", "claude-opus-5-5")).toEqual(rareOnDemand);
+      expect(await rareToolsLaunch("t-rare-fable", "claude-fable-5-2[1m]")).toEqual(rareOnDemand);
+      expect(await rareToolsLaunch("t-rare-haiku", "claude-haiku-5-5")).toEqual(allUpFront);
+      expect(await rareToolsLaunch("t-rare-sonnet", "claude-sonnet-5-5")).toEqual(allUpFront);
+      expect(await rareToolsLaunch("t-rare-unknown", "some-new-model")).toEqual(allUpFront);
+      for (const [threadId, onDemand] of [["t-rare-opus", true], ["t-rare-fable", true], ["t-rare-haiku", false], ["t-rare-sonnet", false], ["t-rare-unknown", false]] as const) {
+        expect([threadId, instance.adapter.rareToolsOnDemand?.(threadId)]).toEqual([threadId, onDemand]);
+      }
+      expect(instance.adapter.rareToolsOnDemand?.("t-never-launched")).toBeUndefined();
+    });
+  });
+
+  it("tells the home what the launch decided for a chat without probing the local model hosts again", async () => {
+    const probe = vi.spyOn(localInject, "probeLocalInjects").mockImplementation(async () => []);
+    try {
+      await create();
+      await withRareSetting(undefined, async () => {
+        expect(await rareToolsLaunch("t-rare-dated", "claude-opus-5-20261101")).toEqual(rareOnDemand);
+        expect(probe.mock.calls.length).toBe(1);
+        expect(await instance.adapter.rareToolsOnDemand?.("t-rare-dated")).toBe(true);
+        expect(probe.mock.calls.length).toBe(1);
+      });
+    } finally {
+      probe.mockRestore();
+    }
+  });
+
+  it("lets the server setting force rare tools on demand or up front for any model", async () => {
+    await create();
+    await withRareSetting("1", async () => {
+      expect(await rareToolsLaunch("t-rare-forced-on", "claude-haiku-5-5")).toEqual(rareOnDemand);
+    });
+    await withRareSetting("0", async () => {
+      expect(await rareToolsLaunch("t-rare-forced-off", "claude-opus-5-5")).toEqual(allUpFront);
+    });
+  });
+
+  it("loads every tool up front on a custom endpoint, even for a proven model", async () => {
+    await create(undefined, { ANTHROPIC_BASE_URL: "https://models.example.test/anthropic", ANTHROPIC_API_KEY: "sk-fixture" });
+    await withRareSetting(undefined, async () => {
+      expect(await rareToolsLaunch("t-rare-endpoint", "claude-opus-5-5")).toEqual(allUpFront);
+      expect(instance.adapter.rareToolsOnDemand?.("t-rare-endpoint")).toBe(false);
+    });
   });
 
   it.each(["ask", "auto"] as const)("pre-allows exactly a dog's three later.dog cloud tools in %s approval", async (approvalMode) => {
@@ -2209,6 +2256,16 @@ describe("ClaudeDriver turns (fake CLI)", () => {
     await recorder.until((e) => e.type === "turn.completed");
     await expect(instance.adapter.compactionSigns!("t-project-off")).resolves.toMatchObject({ switchedOff: true });
     await expect(instance.adapter.compactionSigns!("t-elsewhere")).resolves.toMatchObject({ switchedOff: false });
+  });
+
+  it("tells later.dog about a work folder that switches compaction off on the first turn after a restart, before any turn has run", async () => {
+    const folder = join(scratch, "project-off-after-restart");
+    mkdirSync(join(folder, ".claude"), { recursive: true });
+    writeFileSync(join(folder, ".claude", "settings.json"), JSON.stringify({ autoCompactEnabled: false }));
+    await create();
+    await expect(instance.adapter.compactionSigns!("t-first-after-restart", folder)).resolves.toMatchObject({ switchedOff: true });
+    await expect(instance.adapter.compactionSigns!("t-first-after-restart", join(scratch, "no-such-folder"))).resolves.toMatchObject({ switchedOff: false });
+    await expect(instance.adapter.compactionSigns!("t-first-after-restart")).resolves.toMatchObject({ switchedOff: false });
   });
 
   it("tells later.dog when Claude Code talks to a model on this machine", async () => {

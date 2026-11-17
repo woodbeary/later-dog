@@ -9,9 +9,9 @@ import {
   CORE_AGENT_TOOLS,
   RARE_AGENT_TOOLS,
   agentsServerLaunch,
-  deferRareToolsEnabled,
   withToolLoading,
 } from "./tool-loading.ts";
+import { deferRareToolsFor } from "./defer-by-model.ts";
 
 const everything: CatalogProfile = {
   skillAuthoring: true, sharedComputers: true, voiceNotes: true, cloudHome: true, emailMe: true, phone: true,
@@ -27,11 +27,9 @@ describe("tool loading", () => {
     expect([...names].sort()).toEqual([...grouped].sort());
   });
 
-  it("is on unless the setting turns it off, and changes nothing when off", () => {
+  it("changes nothing when off", () => {
     const tools = availableTools(everything);
     expect(withToolLoading(tools, {})).toEqual(tools);
-    expect(deferRareToolsEnabled({})).toBe(true);
-    expect(deferRareToolsEnabled({ LATERDOG_DEFER_RARE_TOOLS: "0" })).toBe(false);
     const server = { command: "node", args: ["proxy.js"], env: { LATERDOG_BOT_ID: "b" } };
     expect(agentsServerLaunch(server, false)).toEqual({ ...server, alwaysLoad: true });
   });
@@ -48,7 +46,6 @@ describe("tool loading", () => {
         else expect(tool).toEqual(tools.find((original) => original.name === tool.name));
       }
     }
-    expect(deferRareToolsEnabled({ LATERDOG_DEFER_RARE_TOOLS: "1" })).toBe(true);
     expect(agentsServerLaunch({ command: "node", args: [], env: { A: "1" } }, true)).toEqual({
       command: "node", args: [], env: { A: "1", [AGENTS_DEFER_RARE_ENV]: "1" }, alwaysLoad: true,
     });
@@ -58,7 +55,7 @@ describe("tool loading", () => {
     const rule = "never open that page in your own browser";
     expect(GOOGLE_PROMPT).toContain(rule);
     for (const setting of ["0", "1"]) {
-      const launch = agentsServerLaunch({ command: "node", args: [], env: {} }, deferRareToolsEnabled({ LATERDOG_DEFER_RARE_TOOLS: setting }));
+      const launch = agentsServerLaunch({ command: "node", args: [], env: {} }, deferRareToolsFor({ model: "claude-opus-5-5", customEndpoint: false }, { LATERDOG_DEFER_RARE_TOOLS: setting }));
       const loaded = withToolLoading(availableTools(everything), launch.env)
         .filter((tool) => (tool as { _meta?: Record<string, unknown> })._meta?.[ALWAYS_LOAD_META] !== false);
       const connect = loaded.find((tool) => tool.name === "connect_google");

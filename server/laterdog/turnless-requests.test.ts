@@ -1,0 +1,207 @@
+import { mkdtempSync } from "node:fs";
+import { join } from "node:path";
+import { expect, it, vi } from "vitest";
+import { RoomHandoffs, type RoomHandoff, type RoomHandoffHooks } from "../room-handoffs.ts";
+import type { HandoffRunResult } from "./long-work.ts";
+import { removeTempDir } from "../testing/cleanup.ts";
+import { NO_LAST_WORDS, SETTLED_BY_HOME, TAKEN_OVER, TURNLESS_MS, lastWords, takenOver, takenOverText } from "./turnless-requests.ts";
+
+const lead = { botId: "lead", threadId: "lead-chat" };
+const helper = (name: string) => ({ botId: name, threadId: `${name}-chat` });
+const flush = () => new Promise<void>(resolve => setImmediate(resolve));
+
+interface Home {
+  engine: RoomHandoffs;
+  hooks: RoomHandoffHooks;
+  clock: { at: number };
+  working: Set<string>;
+  finish(name: string, text?: string): void;
+  settle(): Promise<void>;
+  leadWakes(): number;
+}
+
+async function home(test: (h: Home) => Promise<void>) {
+  const dir = mkdtempSync(join(process.env.TMPDIR ?? "/tmp", "turnless-"));
+  const clock = { at: 1_000_000 };
+  const working = new Set<string>();
+  const pending = new Map<string, (result: HandoffRunResult) => void>();
+  let leadWakes = 0;
+  const hooks: RoomHandoffHooks = {
+    validate: () => undefined, busy: () => false, report: vi.fn(), changed: () => {},
+    turnRunning: (node: RoomHandoff) => working.has(node.botId),
+    lastWords: (node: RoomHandoff) => `${node.botId} says done`,
+    run: vi.fn(async (node: RoomHandoff, resumed: boolean) => {
+      if (node.botId === lead.botId && resumed) { leadWakes++; return { ok: true, text: "reviewed" }; }
+      working.add(node.botId);
+      return new Promise<HandoffRunResult>(resolve => pending.set(node.botId, resolve));
+    }),
+  };
+  const engine = new RoomHandoffs(join(dir, "handoffs.json"), hooks, () => clock.at);
+  try {
+    await test({
+      engine, hooks, clock, working, leadWakes: () => leadWakes,
+      settle: async () => { for (let i = 0; i < 6; i++) { engine.tick(); await flush(); } },
+      finish: (name, text = `${name} result`) => { pending.get(name)?.({ ok: true, text }); pending.delete(name); },
+    });
+  } finally { await removeTempDir(dir); }
+}
+
+function send(engine: RoomHandoffs, ...names: string[]): RoomHandoff[] {
+  const nodes = names.map(name => engine.enqueue(lead, "turn", undefined, helper(name), name, `Lane for ${name}`).node);
+  engine.sourceSettled("turn", true);
+  return nodes;
+}
+
+it("settles a request whose dog has had no turn for ten minutes with what the dog last said, marked as settled by the home", () => home(async h => {
+  const [pip] = send(h.engine, "pip");
+  await h.settle();
+  expect(pip!.status).toBe("running");
+  h.working.delete("pip");
+  await h.settle();
+  h.clock.at += TURNLESS_MS - 1; await h.settle();
+  expect(pip!.status).toBe("running");
+  h.clock.at += 1; await h.settle();
+  expect(pip).toMatchObject({ status: "completed", endedBy: "home", result: `${SETTLED_BY_HOME}\npip says done` });
+  expect(h.hooks.report).toHaveBeenCalledWith(expect.objectContaining({ id: pip!.id }), expect.objectContaining({ id: "turn" }));
+  expect(h.leadWakes()).toBe(1);
+  expect(h.engine.nodes.get("turn")?.status).toBe("completed");
+  h.finish("pip", "a late answer");
+  await h.settle();
+  expect(pip!.result).toBe(`${SETTLED_BY_HOME}\npip says done`);
+  expect(h.leadWakes()).toBe(1);
+}));
+
+it("never settles a request while its dog's turn is running, however long it takes", () => home(async h => {
+  const [pip] = send(h.engine, "pip");
+  await h.settle();
+  h.clock.at += 10 * TURNLESS_MS; await h.settle();
+  expect(pip!.status).toBe("running");
+  h.working.delete("pip");
+  await h.settle();
+  h.working.add("pip");
+  h.clock.at += TURNLESS_MS; await h.settle();
+  expect(pip!.status).toBe("running");
+  h.finish("pip"); await h.settle();
+  expect(pip).toMatchObject({ status: "completed", result: "pip result" });
+  expect(pip!.endedBy).toBeUndefined();
+}));
+
+it("says so when the dog left no words", () => home(async h => {
+  h.hooks.lastWords = () => undefined;
+  const [pip] = send(h.engine, "pip");
+  await h.settle();
+  h.working.delete("pip");
+  await h.settle();
+  h.clock.at += TURNLESS_MS; await h.settle();
+  expect(pip!.result).toBe(`${SETTLED_BY_HOME}\n${NO_LAST_WORDS}`);
+}));
+
+it("lets the dog that sent it cancel a request left running with no turn, and still refuses one that is working", () => home(async h => {
+  const [pip, quill] = send(h.engine, "pip", "quill");
+  await h.settle();
+  h.working.delete("pip");
+  expect(h.engine.cancelQueued(pip!.id, "Cancelled.")).toBe(pip);
+  expect(pip).toMatchObject({ status: "cancelled", endedBy: "person" });
+  expect(h.engine.cancelQueued(quill!.id, "Cancelled.")).toMatch(/already running/);
+  expect(quill!.status).toBe("running");
+}));
+
+it("ends requests with no turn when the person stops the dog that sent them, and leaves working ones to report", () => home(async h => {
+  const [pip, quill] = send(h.engine, "pip", "quill");
+  await h.settle();
+  h.engine.nodes.get("turn")!.status = "waiting";
+  h.working.delete("pip");
+  const left = h.engine.stopAwaitingDirect("lead-chat", "person");
+  expect(left.map(n => n.id)).toEqual([quill!.id]);
+  expect(pip).toMatchObject({ status: "cancelled", endedBy: "person" });
+  expect(quill!.status).toBe("running");
+}));
+
+it("ends a dog's requests with no turn when it is told to stop, and none that are working", () => home(async h => {
+  const [pip] = send(h.engine, "pip");
+  await h.settle();
+  expect(h.engine.endTurnless("pip", "pip-chat", "Stopped.", "person")).toEqual([]);
+  h.working.delete("pip");
+  expect(h.engine.endTurnless("pip", "pip-chat", "Stopped.", "person").map(n => n.id)).toEqual([pip!.id]);
+  expect(pip).toMatchObject({ status: "cancelled", endedBy: "person", result: "Stopped." });
+}));
+
+it("leaves group requests to their own room turn", () => home(async h => {
+  const node = h.engine.enqueue(lead, "turn", undefined, { groupId: "room", threadId: "room-chat", botId: "pip" }, "pip", "Lane").node;
+  h.engine.sourceSettled("turn", true);
+  await h.settle();
+  h.working.delete("pip");
+  h.clock.at += 2 * TURNLESS_MS; await h.settle();
+  expect(node.status).toBe("running");
+}));
+
+it("hands back every older request turn in a chat that a new turn takes over, and keeps the one it carries on", () => {
+  const first = () => {};
+  const carried = () => {};
+  const elsewhere = () => {};
+  const turns = new Map([["g1", { threadId: "pip-chat" }], ["g2", { threadId: "pip-chat" }], ["g3", { threadId: "quill-chat" }]]);
+  const settlers = new Map([["g1", first], ["g2", carried], ["g3", elsewhere]]);
+  expect(takenOver(turns, settlers, "pip-chat", carried)).toEqual(["g1"]);
+  expect(takenOver(turns, settlers, "pip-chat", undefined)).toEqual(["g1", "g2"]);
+  expect(takenOver(turns, settlers, "rye-chat", undefined)).toEqual([]);
+  expect(takenOverText(lastWords([{ role: "bot", kind: "text", text: "Half way" }, { role: "user", kind: "text", text: "go on" }]))).toBe(`${TAKEN_OVER}\nHalf way`);
+});
+
+it("ends a request as failed, without an unhandled error, when handling its finished turn throws", () => home(async h => {
+  const unhandled: unknown[] = [];
+  const onUnhandled = (reason: unknown) => { unhandled.push(reason); };
+  process.on("unhandledRejection", onUnhandled);
+  try {
+    h.hooks.needsYou = () => { throw new Error("card lookup broke"); };
+    const [pip] = send(h.engine, "pip");
+    await h.settle();
+    h.finish("pip"); await h.settle();
+    await new Promise(resolve => setTimeout(resolve, 20));
+    expect(unhandled).toEqual([]);
+    expect(pip).toMatchObject({ status: "failed", endedBy: "problem" });
+    expect(pip!.result).toContain("card lookup broke");
+  } finally { process.off("unhandledRejection", onUnhandled); }
+}));
+
+it("ends a request the home settles as failed when handling the settlement throws", () => home(async h => {
+  const [pip] = send(h.engine, "pip");
+  await h.settle();
+  h.working.delete("pip");
+  await h.settle();
+  h.hooks.needsYou = () => { throw new Error("card lookup broke"); };
+  h.clock.at += TURNLESS_MS;
+  expect(() => h.engine.tick()).not.toThrow();
+  await h.settle();
+  expect(pip).toMatchObject({ status: "failed", endedBy: "problem" });
+}));
+
+it("lets cancel and Stop end a request whose dog waits on an account, lets the wait go, and never settles it on the clock", () => home(async h => {
+  const waiting = new Set<string>();
+  const released: string[] = [];
+  h.hooks.onAccountWait = (node: RoomHandoff) => waiting.has(node.botId);
+  h.hooks.released = (node: RoomHandoff) => { released.push(node.botId); };
+  const [pip, quill, rook] = send(h.engine, "pip", "quill", "rook");
+  await h.settle();
+  for (const name of ["pip", "quill", "rook"]) { h.working.delete(name); waiting.add(name); }
+  await h.settle();
+  h.clock.at += 10 * TURNLESS_MS; await h.settle();
+  expect([pip!.status, quill!.status, rook!.status]).toEqual(["running", "running", "running"]);
+  expect(h.engine.cancelQueued(pip!.id, "Cancelled.")).toBe(pip);
+  expect(h.engine.endTurnless("quill", "quill-chat", "Stopped.", "person").map(n => n.id)).toEqual([quill!.id]);
+  h.engine.nodes.get("turn")!.status = "waiting";
+  expect(h.engine.stopAwaitingDirect("lead-chat", "person")).toEqual([]);
+  expect([pip!.status, quill!.status, rook!.status]).toEqual(["cancelled", "cancelled", "cancelled"]);
+  expect(released).toEqual(["pip", "quill", "rook"]);
+}));
+
+it("ends a request left running without interrupting its dog's chat, since no turn is running there", () => home(async h => {
+  const signals = new Map<string, AbortSignal>();
+  const run = h.hooks.run;
+  h.hooks.run = vi.fn(async (node: RoomHandoff, resumed: boolean, signal: AbortSignal) => { signals.set(node.botId, signal); return run(node, resumed, signal); });
+  const [pip] = send(h.engine, "pip", "quill");
+  await h.settle();
+  h.working.delete("pip"); h.working.delete("quill");
+  h.engine.cancelQueued(pip!.id, "Cancelled.");
+  h.engine.endTurnless("quill", "quill-chat", "Stopped.", "person");
+  expect([signals.get("pip")?.aborted, signals.get("quill")?.aborted]).toEqual([false, false]);
+}));

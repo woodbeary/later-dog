@@ -1,6 +1,7 @@
 import type { PlanProviderRow, PlanUsageReport, PlanWindow } from "../plan-usage.ts";
 import { engineName, percentLeft, type BatteryAccount, type Rest } from "./account-battery.ts";
 import { accountLabel } from "./account-switch.ts";
+import { limitsHit, restModel, type LimitHit } from "./account-limits.ts";
 
 export const ACCOUNT_USAGE_PATH = "/api/internal/account-usage";
 
@@ -8,6 +9,7 @@ export interface AccountUsageInput {
   account: BatteryAccount;
   row: PlanProviderRow | undefined;
   rest: Rest | undefined;
+  limits?: readonly Rest[];
   env?: { name: string; value: string };
 }
 
@@ -26,6 +28,7 @@ export interface AccountUsageRow {
   fiveHour?: AccountUsageWindow;
   weekly?: AccountUsageWindow;
   restingUntil?: string;
+  limitsHit?: LimitHit[];
   env?: { name: string; value: string };
   current: boolean;
 }
@@ -49,6 +52,14 @@ export function withRestingUntil(
   };
 }
 
+export function withAccountLimits(
+  report: PlanUsageReport,
+  limitsOf: (instanceId: string) => readonly Rest[] | undefined,
+): Omit<PlanUsageReport, "providers"> & { providers: Array<PlanProviderRow & { restingUntil?: string; limitsHit: LimitHit[] }> } {
+  const resting = withRestingUntil(report, (instanceId) => limitsOf(instanceId)?.find((rest) => restModel(rest) === undefined));
+  return { ...resting, providers: resting.providers.map((row) => ({ ...row, limitsHit: limitsHit(limitsOf(row.id) ?? []) })) };
+}
+
 function shown(window: PlanWindow | undefined, now: number): AccountUsageWindow | undefined {
   if (!window?.available || window.usedPercent === null) return undefined;
   const reset = window.resetsAt ? Date.parse(window.resetsAt) : Number.NaN;
@@ -56,11 +67,12 @@ function shown(window: PlanWindow | undefined, now: number): AccountUsageWindow 
 }
 
 export function accountUsage(inputs: readonly AccountUsageInput[], current: string | undefined, now: number): AccountUsageReport {
-  const accounts = inputs.map(({ account, row, rest, env }): AccountUsageRow => {
+  const accounts = inputs.map(({ account, row, rest, limits, env }): AccountUsageRow => {
     const status = !account.enabled ? "off" : account.signedIn === false ? "signed out" : rest ? "resting" : "ready";
     const left = percentLeft(row, now);
     const fiveHour = shown(row?.fiveHour, now);
     const weekly = shown(row?.weekly, now);
+    const hits = limitsHit(limits ?? (rest ? [rest] : []));
     return {
       id: account.instanceId,
       name: accountLabel(account),
@@ -71,6 +83,7 @@ export function accountUsage(inputs: readonly AccountUsageInput[], current: stri
       ...(fiveHour ? { fiveHour } : {}),
       ...(weekly ? { weekly } : {}),
       ...(rest ? { restingUntil: rest.until } : {}),
+      ...(hits.length ? { limitsHit: hits } : {}),
       ...(env ? { env } : {}),
       current: account.instanceId === current,
     };
@@ -93,6 +106,12 @@ function when(iso: string | null | undefined, now: number, timeZone?: string): s
   }).format(new Date(at));
 }
 
+function limitWords(row: AccountUsageRow, now: number, timeZone?: string): string[] {
+  return (row.limitsHit ?? []).map((hit) => hit.limit === "model"
+    ? `${hit.label} reached until ${when(hit.until, now, timeZone)}, other models still run`
+    : `${hit.label} reached`);
+}
+
 function windowWords(label: string, window: AccountUsageWindow | undefined, now: number, timeZone?: string): string {
   if (!window) return `${label} unknown`;
   const reset = when(window.resetsAt, now, timeZone);
@@ -107,7 +126,7 @@ export function accountUsageText(report: AccountUsageReport, now: number, timeZo
       ? `resting until ${when(row.restingUntil, now, timeZone)}`
       : row.status === "ready" ? `${row.leftPercent === undefined ? "room unknown" : `${row.leftPercent}% left`}` : row.status;
     const marks = [row.current ? "this chat" : "", row.id === report.roomiest ? "most room" : ""].filter(Boolean).join(", ");
-    return `- ${who} [id: ${row.id}, ${row.engine}${marks ? `, ${marks}` : ""}]: ${state}. ${windowWords("5-hour", row.fiveHour, now, timeZone)}; ${windowWords("7-day", row.weekly, now, timeZone)}.`;
+    return `- ${who} [id: ${row.id}, ${row.engine}${marks ? `, ${marks}` : ""}]: ${state}.${limitWords(row, now, timeZone).map((words) => ` ${words}.`).join("")} ${windowWords("5-hour", row.fiveHour, now, timeZone)}; ${windowWords("7-day", row.weekly, now, timeZone)}.`;
   });
   const best = report.accounts.find((row) => row.id === report.roomiest);
   const run = best?.env
@@ -133,7 +152,7 @@ export function dogAccountsText(dogs: readonly DogAccountInput[], report: Accoun
   const accounts = report.accounts.map((row) => {
     const state = row.status === "resting" ? `resting until ${when(row.restingUntil, now, timeZone)}` : row.status;
     const count = dogs.filter((dog) => (dog.runsOn ?? dog.account) === row.id).length;
-    return `- ${row.name} [id: ${row.id}, ${row.engine}]: ${state}; ${windowWords("5-hour", row.fiveHour, now, timeZone)}; ${windowWords("7-day", row.weekly, now, timeZone)}; ${count} dog${count === 1 ? "" : "s"} on it.`;
+    return `- ${row.name} [id: ${row.id}, ${row.engine}]: ${state}${limitWords(row, now, timeZone).map((words) => `; ${words}`).join("")}; ${windowWords("5-hour", row.fiveHour, now, timeZone)}; ${windowWords("7-day", row.weekly, now, timeZone)}; ${count} dog${count === 1 ? "" : "s"} on it.`;
   });
   const rows = dogs.map((dog) => {
     const runs = dog.runsOn && dog.runsOn !== dog.account ? `, running on ${label(dog.runsOn)} for now` : "";

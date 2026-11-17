@@ -20,17 +20,19 @@ export interface FakeWorld {
   live: Map<string, Set<string>>;
   overlaps: string[];
   sessions: Set<string>;
+  guests: Set<string>;
   hooks: Set<string>;
   sessionChecks: number;
   answers: Map<string, (request: Request) => Response | Promise<Response>>;
 }
 
-export const world: FakeWorld = { live: new Map(), overlaps: [], sessions: new Set(), hooks: new Set(), sessionChecks: 0, answers: new Map() };
+export const world: FakeWorld = { live: new Map(), overlaps: [], sessions: new Set(), guests: new Set(), hooks: new Set(), sessionChecks: 0, answers: new Map() };
 
 export function resetWorld(): void {
   world.live.clear();
   world.overlaps.length = 0;
   world.sessions.clear();
+  world.guests.clear();
   world.hooks.clear();
   world.sessionChecks = 0;
   world.answers.clear();
@@ -51,7 +53,8 @@ function homeAnswer(namespace: string, request: Request, machine: FakeMachine): 
   if (path === "/api/auth/session") {
     world.sessionChecks += 1;
     const token = presentedSession(request);
-    return token && world.sessions.has(token) ? Response.json({ kind: "session", scopes: ["admin", "client"] }) : Response.json({ error: "unauthorized" }, { status: 401 });
+    if (!token || !world.sessions.has(token)) return Response.json({ error: "unauthorized" }, { status: 401 });
+    return Response.json(world.guests.has(token) ? { kind: "session", scopes: ["client"], cloudGuest: true } : { kind: "session", scopes: ["admin", "client"] });
   }
   if (path === "/api/cloud/pairing") return Response.json({ code: "ABCD-EFGH-JKMN", credential: `laterdog_pair_${"p".repeat(43)}`, expiresAt: Date.now() + 120_000 });
   if (path.startsWith("/hooks/")) return world.hooks.has(path) ? Response.json({ accepted: true }, { status: 202 }) : Response.json({ error: "Invalid webhook URL or secret" }, { status: 401 });

@@ -5,6 +5,7 @@ import { dogIn, sameFields, useStoreSelector } from "@/state/store-selectors";
 import { t } from "@/lib/i18n";
 import { dogTint } from "@/lib/mascot";
 import { failedTurnCause } from "@/lib/failed-turn";
+import { restingFor } from "@/lib/account-rests";
 import { requestAddAccount } from "@/lib/add-account-request";
 import { Switch } from "./SettingsPrimitives";
 import { signedIn, subscriptionAccounts, useCarryOn } from "./AccountsPanel";
@@ -57,19 +58,20 @@ export function LimitRow({ tool, onRetry, botId, threadId }: {
   const instance = state.instances.find((candidate) => candidate.instanceId === quota.instanceId);
   const accounts = subscriptionAccounts(state.instances, battery);
   const limited = accounts.find((account) => account.instanceId === quota.instanceId);
-  const rest = quota.instanceId ? battery?.resting?.[quota.instanceId] : undefined;
+  const bot = state.bot;
+  const model = bot?.modelSelection.model;
+  const restsNow = restingFor(battery, model, now);
+  const rest = quota.instanceId ? restsNow[quota.instanceId] : undefined;
   const until = rest ? (rest.estimated ? undefined : rest.until) : quota.resetsAt;
   const over = rest ? !(Date.parse(rest.until) > now) : battery && limited ? true : Boolean(until && !(Date.parse(until) > now));
   const cause = failedTurnCause(tool.name) ?? tool.name;
   const actionable = Boolean(onRetry && botId && threadId);
 
-  const bot = state.bot;
-  const model = bot?.modelSelection.model;
   const recharge = rest && !rest.estimated && !over ? rechargeProgress(rest, now) : null;
   const offers = (account: InstanceInfo) => !model || !limited?.models.options.some((option) => option.id === model)
     || account.models.options.some((option) => option.id === model);
   const resting = (account: InstanceInfo) => {
-    const other = battery?.resting?.[account.instanceId];
+    const other = restsNow[account.instanceId];
     return Boolean(other && Date.parse(other.until) > now);
   };
   const others = limited ? accounts.filter((account) => account !== limited) : [];
@@ -106,7 +108,9 @@ export function LimitRow({ tool, onRetry, botId, threadId }: {
             <span aria-hidden="true" className="shrink-0"><DogAvatar color={dogTint(bot?.color)} bodyId={bot?.mascotBody ?? undefined} state="waking" size={20} trackPointer={false} /></span>
           ) : <SleepingDog size={20} color={dogTint(bot?.color)} bodyId={bot?.mascotBody ?? undefined} />}
           <div className="min-w-0 flex-1">
-            <p className="break-words font-medium">{limitHeadline(quota.kind, instance?.displayName || t("chat.limit.thisAccount"))}</p>
+            <p className="break-words font-medium">{rest?.label
+              ? t("chat.limit.model", { name: instance?.displayName || t("chat.limit.thisAccount"), limit: rest.label })
+              : limitHeadline(quota.kind, instance?.displayName || t("chat.limit.thisAccount"))}</p>
             {actionable && (
               <p className="text-[12.5px] text-ink-secondary">
                 {over ? t("chat.limit.resetDone")

@@ -20,5 +20,6 @@ export const SPAWNED_PROXIES = {
   mcpGate: resolveProxy("mcp-gate"),
   mcpRemote: resolveProxy("mcp-remote-proxy"),
   hook: resolveProxy("hooks/laterdog-hook"),
+  sharedClone: resolveProxy("laterdog/shared-clone-cli"),
   piMcpExtension: resolveProxy("drivers/pi-mcp-extension"),
 } as const;

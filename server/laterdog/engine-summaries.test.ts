@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync, rmSync, statSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -48,12 +48,20 @@ describe("the engine's own compaction summaries", () => {
   it("ignores empty summaries and keeps only the most recent chats", () => {
     dir = mkdtempSync(join(tmpdir(), "laterdog-engine-summaries-"));
     const path = join(dir, "engine-summaries.json");
-    let now = 1;
+    const full = Object.fromEntries(Array.from({ length: KEPT_CHATS }, (_, i) => [`t${i}`, { text: "s", throughId: "m", at: i + 1 }]));
+    writeFileSync(path, `${JSON.stringify(full)}\n`, { mode: 0o600 });
+    let now = KEPT_CHATS + 1;
     const store = fileEngineSummaries(path, () => now++);
     store.remember("empty", { text: "   ", throughId: "m1" });
     expect(store.read("empty")).toBeUndefined();
-    for (let i = 0; i <= KEPT_CHATS; i++) store.remember(`t${i}`, { text: "s", throughId: "m" });
+    expect(store.read("t0")).toBeDefined();
+    store.remember(`t${KEPT_CHATS}`, { text: "s", throughId: "m" });
     expect(store.read("t0")).toBeUndefined();
+    expect(store.read("t1")).toBeDefined();
     expect(store.read(`t${KEPT_CHATS}`)).toBeDefined();
+    const saved = JSON.parse(readFileSync(path, "utf8")) as Record<string, unknown>;
+    expect(Object.keys(saved)).toHaveLength(KEPT_CHATS);
+    expect(saved).not.toHaveProperty("t0");
+    expect(saved).not.toHaveProperty("empty");
   });
 });

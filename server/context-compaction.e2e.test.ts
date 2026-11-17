@@ -1,5 +1,5 @@
 import { spawn, type ChildProcess } from "node:child_process";
-import { closeSync, existsSync, openSync, readFileSync, writeFileSync } from "node:fs";
+import { closeSync, existsSync, mkdirSync, openSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { expect, it } from "vitest";
@@ -217,3 +217,23 @@ it.each([
     expect(f.turns().at(-1).resumed).toBe(false);
   }
 }, false, { FAKE_CLAUDE_CONTEXT_TOKENS: String(tokens), FAKE_CLAUDE_VERSION: version }), 90_000);
+
+it.each([
+  { settings: { autoCompactEnabled: false }, compactions: 1 },
+  { settings: undefined, compactions: 0 },
+])("after a restart, reads the chat's own work folder to see whether the engine compacts (settings $settings)", ({ settings, compactions }) => fixture(async f => {
+  await f.api("/api/config", { context: { compactAt: 1 } }, "PATCH");
+  for (const text of ["FIRST historical request", "SECOND keep recent", "THIRD correction"]) await f.send(text);
+  expect((await f.messages()).filter(m => m.kind === "compaction")).toHaveLength(0);
+  const folder = f.task().cwd;
+  expect(typeof folder).toBe("string");
+  if (settings) {
+    mkdirSync(join(folder, ".claude"), { recursive: true });
+    writeFileSync(join(folder, ".claude", "settings.json"), JSON.stringify(settings));
+  }
+  await f.restart();
+  await f.send("INCOMING do not summarize this request");
+  const records = (await f.messages()).filter(m => m.kind === "compaction");
+  expect(records).toHaveLength(compactions);
+  if (compactions) expect(records[0].compaction.by).toBe("harness");
+}, false, { FAKE_CLAUDE_VERSION: "2.1.316" }), 120_000);

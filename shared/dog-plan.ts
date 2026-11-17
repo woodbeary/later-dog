@@ -18,3 +18,7 @@ export const PLAN_MAX_TEXT = 200;
 export function planDoneCount(plan: Pick<WirePlan, "items">): number {
   return plan.items.filter((item) => item.status === "done").length;
 }
+
+export function planLeftCount(plan: { items: readonly PlanItem[] }): number {
+  return plan.items.filter((item) => item.status !== "done").length;
+}

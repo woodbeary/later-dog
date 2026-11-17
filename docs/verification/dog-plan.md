@@ -44,6 +44,16 @@ run without a terminal offer no task-list tool of their own.
   dog's working line while it works. When the dog is idle it folds to "N of M
   done" just under the "View work" row, on the same left edge, and opens to the
   list below it. Nothing shows without a plan.
+- A plan with every item done is not shown in the chat, while the dog works or
+  when it is idle: the list is there for what is still open, and a finished one
+  would otherwise come back under every later reply. The home keeps it, the
+  wire still carries it, and it shows again as soon as the dog adds an item or
+  goes back to one. `set_plan` answers a finished list by saying that it
+  leaves the chat, that this is expected, and that items are added only for
+  new work, so the dog is not led to reopen an item to bring the list back.
+  The phone app reads the same `plan` and follows the same rule from its own
+  change in its own repository; a phone or Mac app older than that change
+  still shows a finished list, so the two changes ship together.
 
 ## How it was proven
 
@@ -61,6 +71,11 @@ On isolated fixtures only, with the scripted fake engine:
 - `server/laterdog/dog-plan.test.ts` and `server/routes/dog-plan.test.ts` cover
   validation, the cap, restart loading, engine mapping and the caller check;
   `server/drivers/agents-call.test.ts` covers the tool call and its call id.
+- A finished plan: the same fixture run ends with a turn that marks both items
+  done; the tool answers that a finished plan leaves the chat and the wire
+  still carries both items. `src/components/PlanChecklist.test.ts` renders the
+  desktop's plan with every item done, working and idle, and gets nothing; with
+  one item added or reopened it gets the plan back.
 
 ## Seen with a real model
 
@@ -81,4 +96,4 @@ the engine does send its tool call id on a live run.
 - If the engine's line naming a helper's call is more than 1.5 seconds behind
   the call, the call counts as the dog's.
 - Group chats: rooms keep a plan that nobody sees yet.
-- A real home, and the phone app, which does not read the plan yet.
+- A real home.

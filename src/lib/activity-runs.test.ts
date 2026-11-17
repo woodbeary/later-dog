@@ -138,16 +138,16 @@ describe("groupActivityRuns", () => {
 
 describe("describeRun", () => {
   it("counts repeats and names the tools in order of first use", () => {
-    expect(describeRun([tool("Edit"), tool("Bash"), tool("Edit"), tool("Edit")])).toBe("4 steps · Edit ×3, Bash");
+    expect(describeRun([tool("Edit"), tool("Bash"), tool("Edit"), tool("Edit")])).toBe("4 steps · Edited a file ×3, Ran a command");
   });
 
   it("names a single repeat without a multiplier", () => {
-    expect(describeRun([tool("Edit"), tool("Bash")])).toBe("2 steps · Edit, Bash");
+    expect(describeRun([tool("Edit"), tool("Bash")])).toBe("2 steps · Edited a file, Ran a command");
   });
 
   it("trims a long tail of tool names rather than running off the row", () => {
     expect(describeRun([tool("Edit"), tool("Bash"), tool("Write"), tool("Grep"), tool("Read")])).toBe(
-      "5 steps · Edit, Bash, Write +2 more",
+      "5 steps · Edited a file, Ran a command, Wrote a file +2 more",
     );
   });
 });

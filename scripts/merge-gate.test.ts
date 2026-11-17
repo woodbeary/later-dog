@@ -1,10 +1,10 @@
 import { execFileSync, spawnSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
-import { NEEDS_BROWSER, browserSkips, failingFiles, formatVerdict, gateSteps, judgeStep, verdict, vitestCounts, wrapperFrom } from "./merge-gate.mjs";
+import { NEEDS_BROWSER, NOT_THIS_RUN, browserSkips, readReport, failingFiles, formatVerdict, gateSteps, judgeStep, verdict, vitestCounts, wrapperFrom } from "./merge-gate.mjs";
 
 const script = fileURLToPath(new URL("./merge-gate.mjs", import.meta.url));
 const repoRoot = fileURLToPath(new URL("..", import.meta.url));
@@ -45,27 +45,57 @@ describe("merge gate verdict", () => {
     expect(judgeStep(shard, 0, passing, { ...clean, numTotalTests: 0, testResults: [] })).toMatchObject({ failed: true, failing: ["suite 1/8 (no tests ran)"] });
     expect(judgeStep(shard, 0, " Test Files  1 failed (1)\n      Tests  1 failed (1)\n", clean, "/repo")).toMatchObject({ failed: true, failing: ["suite 1/8 (its summary counts failed files)"] });
     expect(judgeStep(shard, 1, failing, clean, "/repo")).toMatchObject({ failed: true, failing: ["server/b.test.ts", "src/c.test.ts"] });
-    expect(judgeStep(shard, 137, "killed", clean, "/repo")).toMatchObject({ failed: true, failing: ["suite 1/8 (exit 137)"] });
+    expect(judgeStep(shard, 137, "killed", clean, "/repo")).toMatchObject({ failed: true, failing: ["suite 1/8 (no test summary; exit 137)"] });
   });
 
-  it("fails typecheck, lint and the node tests on what they print, not only on their exit code", () => {
+  it("fails a suite part with no test summary, or whose report is older than the step", () => {
+    const clean = recorded("stray.json", "/repo");
+    expect(judgeStep(shard, 0, "", clean, "/repo")).toMatchObject({ failed: true, failing: ["suite 1/8 (no test summary)"] });
+    const dir = mkdtempSync(join(tmpdir(), "laterdog-gate-report-"));
+    const file = join(dir, "old.json");
+    writeFileSync(file, JSON.stringify(clean));
+    utimesSync(file, new Date(Date.now() - 60_000), new Date(Date.now() - 60_000));
+    expect(readReport(file, Date.now() - 1000)).toBe(NOT_THIS_RUN);
+    expect(judgeStep(shard, 0, passing, readReport(file, Date.now() - 1000))).toMatchObject({ failed: true, failing: ["suite 1/8 (its JSON report was not written by this run)"] });
+    expect(readReport(file, 0)).toMatchObject({ numTotalTests: 2 });
+    writeFileSync(file, "{ not json");
+    expect(readReport(file, 0)).toBeNull();
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("runs typecheck and lint as package.json does, but so that each prints how much it checked", () => {
+    const pkg = JSON.parse(readFileSync(join(repoRoot, "package.json"), "utf8"));
+    expect(pkg.scripts.typecheck).toBe("tsc -b && tsc -p tsconfig.server.json");
+    expect(pkg.scripts.lint).toBe("oxlint --deny-warnings .");
+    expect(gateSteps()[0].command).toEqual(["sh", "-c", "pnpm exec tsc -b --verbose --force && pnpm exec tsc -p tsconfig.server.json --diagnostics"]);
+    expect(gateSteps()[1].command).toEqual(["pnpm", "lint", "--format=json"]);
+  });
+
+  it("fails typecheck, lint and the node tests on what they print, and when they print nothing", () => {
     const step = (name: string) => gateSteps().find((candidate) => candidate.name === name)!;
-    expect(judgeStep(step("typecheck"), 0, "")).toMatchObject({ failed: false });
-    expect(judgeStep(step("typecheck"), 0, "src/a.ts(1,1): error TS2322: no")).toMatchObject({ failed: true, failing: ["typecheck (printed error TS2322)"] });
-    expect(judgeStep(step("lint"), 0, "Found 0 warnings and 0 errors.")).toMatchObject({ failed: false });
-    expect(judgeStep(step("lint"), 0, "Found 0 warnings and 2 errors.")).toMatchObject({ failed: true });
-    expect(judgeStep(step("lint"), 0, "Found 3 warnings and 0 errors.")).toMatchObject({ failed: true });
+    const typed = "2:21:26 AM - Building project '/repo/tsconfig.json'...\n\nFiles:              2573\nCheck time:       15.20s\n";
+    const linted = (diagnostics: string) => `{ "diagnostics": [${diagnostics}],\n  "number_of_files": 3262,\n  "number_of_rules": 97 }`;
+    expect(judgeStep(step("typecheck"), 0, typed)).toMatchObject({ failed: false });
+    expect(judgeStep(step("typecheck"), 0, "")).toMatchObject({ failed: true });
+    expect(judgeStep(step("typecheck"), 0, typed.replace(/Files:.*\n/, ""))).toMatchObject({ failed: true });
+    expect(judgeStep(step("typecheck"), 0, `${typed}src/a.ts(1,1): error TS2322: no`)).toMatchObject({ failed: true, failing: ["typecheck (printed error TS2322)"] });
+    expect(judgeStep(step("lint"), 0, linted("")) ).toMatchObject({ failed: false });
+    expect(judgeStep(step("lint"), 0, "")).toMatchObject({ failed: true });
+    expect(judgeStep(step("lint"), 0, linted(`{ "message": "no" }`))).toMatchObject({ failed: true });
+    expect(judgeStep(step("lint"), 0, linted("").replace("3262", "0"))).toMatchObject({ failed: true });
     expect(judgeStep(step("electron"), 0, "ℹ tests 945\nℹ pass 942\nℹ fail 0\n")).toMatchObject({ failed: false });
     expect(judgeStep(step("electron"), 0, "ℹ tests 945\nℹ fail 1\n")).toMatchObject({ failed: true });
     expect(judgeStep(step("electron"), 0, "ℹ tests 0\nℹ fail 0\n")).toMatchObject({ failed: true });
-    expect(judgeStep(step("lint"), 1, "")).toMatchObject({ failed: true, failing: ["lint"] });
+    expect(judgeStep(step("electron"), 0, "")).toMatchObject({ failed: true });
+    expect(judgeStep(step("packaged-server"), 0, "")).toMatchObject({ failed: true });
+    expect(judgeStep(step("lint"), 1, linted(""))).toMatchObject({ failed: true, failing: ["lint"] });
   });
 
   it("passes only when every step passed and at least one ran", () => {
     const clean = recorded("stray.json", "/repo");
-    expect(verdict([])).toEqual({ pass: false, label: "FAIL", failing: [], skippedNoBrowser: [], notRun: [] });
+    expect(verdict([])).toEqual({ pass: false, label: "FAIL", failing: [], skippedNoBrowser: [], notRun: [], gaps: [] });
     expect(verdict([judgeStep(shard, 0, passing, clean)], { partial: true })).toMatchObject({ pass: false, label: "PARTIAL" });
-    expect(verdict([judgeStep(shard, 0, passing, clean)])).toEqual({ pass: true, label: "PASS", failing: [], skippedNoBrowser: [], notRun: [] });
+    expect(verdict([judgeStep(shard, 0, passing, clean)])).toEqual({ pass: true, label: "PASS", failing: [], skippedNoBrowser: [], notRun: [], gaps: [] });
     const report = formatVerdict([judgeStep(shard, 0, passing, clean), judgeStep({ ...shard, name: "suite 2/8" }, 1, failing, clean)]);
     expect(report).toContain("VERDICT: FAIL");
     expect(report.split("Failing:\n")[1]).toBe("  server/b.test.ts\n  src/c.test.ts");
@@ -81,7 +111,7 @@ describe("merge gate verdict", () => {
     expect(verdict(results)).toMatchObject({ pass: false, label: "FAIL", skippedNoBrowser: ["scripts/testing/screen-ui.e2e.test.mjs"] });
     expect(formatVerdict(results)).toContain("Skipped without a browser: 1");
     expect(formatVerdict(results)).toContain("\n  scripts/testing/screen-ui.e2e.test.mjs\n");
-    expect(verdict(results, { noBrowser: true }).pass).toBe(true);
+    expect(verdict(results, { noBrowser: true })).toMatchObject({ pass: false, label: "PASS WITH GAPS", gaps: ["interface tests skipped: no browser (1 file)"] });
   });
 
   it("treats every interface test as needing the browser by its name, and every test that waits for the browser is named so", () => {
@@ -121,11 +151,12 @@ describe("merge gate exit code", () => {
     writeFileSync(fake, `const require = (await import("node:module")).createRequire(import.meta.url);
 const words = process.argv.slice(2).join(" ");
 if (${JSON.stringify(failOn)} && words.includes(${JSON.stringify(failOn)})) { console.log(${JSON.stringify(failing)}); process.exit(1); }
+if (words.includes("vitest") && process.env.FAKE_VITEST_SILENT) process.exit(0);
 const out = process.argv.find((word) => word.startsWith("--outputFile.json="))?.slice("--outputFile.json=".length);
 const skip = words.includes("--shard=2/8") && process.env.FAKE_NO_BROWSER;
 if (out) require("node:fs").writeFileSync(out, (skip ? ${JSON.stringify(JSON.stringify(recorded("skip.json", "<cwd>")))} : ${JSON.stringify(JSON.stringify(recorded("stray.json", "<cwd>")))}).replaceAll("<cwd>", process.cwd()));
-if (words.includes("typecheck") && process.env.FAKE_TYPE_ERROR) console.log("src/a.ts(1,1): error TS2322: no");
-console.log(words.includes("vitest") ? ${JSON.stringify(passing)} : words.includes("test:electron") ? "ℹ tests 3\\nℹ fail 0" : words.includes("test:packaged-server") ? "packaged backup worker exported an encrypted archive ✓" : "checked");
+if (words.includes("tsc -b") && process.env.FAKE_TYPE_ERROR) console.log("src/a.ts(1,1): error TS2322: no");
+console.log(words.includes("vitest") ? ${JSON.stringify(passing)} : words.includes("tsc -b") ? "Building project '/repo/tsconfig.json'...\\nFiles: 10" : words.includes("lint") ? '{ "diagnostics": [], "number_of_files": 10 }' : words.includes("test:electron") ? "ℹ tests 3\\nℹ fail 0" : words.includes("test:packaged-server") ? "packaged backup worker exported an encrypted archive ✓" : "checked");
 `);
     return spawnSync(process.execPath, [script, ...args], {
       cwd: repo, encoding: "utf8",
@@ -135,7 +166,7 @@ console.log(words.includes("vitest") ? ${JSON.stringify(passing)} : words.includ
 
   it("exits 0 with a PASS verdict only when the whole gate ran and passed", () => {
     const run = gate([]);
-    expect(run.stdout).toContain("VERDICT: PASS");
+    expect(run.stdout).toMatch(/VERDICT: PASS {2}head \w+, origin\/main \w+\n/);
     expect(run.status).toBe(0);
   });
 
@@ -146,8 +177,8 @@ console.log(words.includes("vitest") ? ${JSON.stringify(passing)} : words.includ
     expect(run.status).toBe(3);
   });
 
-  it("refuses an unknown or missing step name before running anything", () => {
-    for (const args of [["--only", "nosuchstep"], ["--only"], ["--only", "--x"], ["--only", "lint,nosuchstep"], ["--only", ","]]) {
+  it("refuses an unknown or missing step name, or any other argument, before running anything", () => {
+    for (const args of [["--only", "nosuchstep"], ["--only"], ["--only", "--x"], ["--only", "lint,nosuchstep"], ["--only", ","], ["--only=typecheck"], ["--fast"], ["--only", "lint", "--x"]]) {
       const run = gate(args);
       expect(run.stdout, args.join(" ")).not.toContain("VERDICT");
       expect(run.stderr, args.join(" ")).toContain("merge gate:");
@@ -162,13 +193,13 @@ console.log(words.includes("vitest") ? ${JSON.stringify(passing)} : words.includ
     expect(run.status).toBe(1);
   });
 
-  it("exits 1 when an interface test skipped for want of a browser, and 0 when the machine has none on purpose", () => {
+  it("exits 1 when an interface test skipped for want of a browser, and 4 with its gap named when the machine has none on purpose", () => {
     const skipped = gate([], { env: { FAKE_NO_BROWSER: "1" } });
     expect(skipped.stdout).toMatch(/Skipped without a browser: 1 .*\n {2}scripts\/testing\/screen-ui\.e2e\.test\.mjs\n/);
     expect(skipped.status).toBe(1);
     const allowed = gate([], { env: { FAKE_NO_BROWSER: "1", LATERDOG_GATE_NO_BROWSER: "1" } });
-    expect(allowed.stdout).toContain("VERDICT: PASS");
-    expect(allowed.status).toBe(0);
+    expect(allowed.stdout).toMatch(/VERDICT: PASS WITH GAPS {2}head \w+, origin\/main \w+; gaps: interface tests skipped: no browser \(1 file\)\n/);
+    expect(allowed.status).toBe(4);
   });
 
   it("fails a typecheck that printed errors even when the wrapper reports success", () => {
@@ -181,15 +212,17 @@ console.log(words.includes("vitest") ? ${JSON.stringify(passing)} : words.includ
   it("fails a test set whose dependencies are missing, unless it is named as unavailable here, and then lists it on the verdict line", () => {
     const missing = gate([], { deps: ["deploy/laterdog/home", "cloudflare/control-plane"] });
     expect(missing.stdout).toContain("FAIL computers  deploy/laterdog/computers/node_modules is missing");
+    expect(missing.stdout).toContain("run pnpm install --ignore-workspace --frozen-lockfile in deploy/laterdog/computers");
     expect(missing.stdout).toContain("Failing:\n  computers (deploy/laterdog/computers/node_modules is missing)");
     expect(missing.status).toBe(1);
     const named = gate([], { deps: ["deploy/laterdog/home", "cloudflare/control-plane"], env: { LATERDOG_GATE_UNAVAILABLE: "computers" } });
     expect(named.stdout).toContain("skip computers  not run here");
-    expect(named.stdout).toMatch(/VERDICT: PASS {2}head \w+, origin\/main \w+ \(not run here on purpose: computers\)\n/);
-    expect(named.status).toBe(0);
+    expect(named.stdout).toMatch(/VERDICT: PASS WITH GAPS {2}head \w+, origin\/main \w+; gaps: test sets not run: computers\n/);
+    expect(named.status).toBe(4);
     const present = gate([], { env: { LATERDOG_GATE_UNAVAILABLE: "computers" } });
     expect(present.stdout).toContain("ok   computers exit 0");
-    expect(present.stdout).not.toContain("not run here on purpose");
+    expect(present.stdout).toContain("VERDICT: PASS WITH GAPS");
+    expect(present.status).toBe(4);
     for (const name of ["suite 1/8", "nosuchstep"]) {
       const refused = gate([], { env: { LATERDOG_GATE_UNAVAILABLE: name } });
       expect(refused.stderr).toContain("LATERDOG_GATE_UNAVAILABLE names");
@@ -216,8 +249,8 @@ console.log(words.includes("vitest") ? ${JSON.stringify(passing)} : words.includ
     expect(failed.stdout).toContain("could not fetch origin main");
     expect(failed.status).toBe(1);
     const offline = gate([], { before: breakOrigin, env: { LATERDOG_GATE_OFFLINE: "1" } });
-    expect(offline.stdout).toMatch(/VERDICT: PASS {2}head [0-9a-f]+, origin\/main [0-9a-f]+ \(offline: origin\/main not fetched\)/);
-    expect(offline.status).toBe(0);
+    expect(offline.stdout).toMatch(/VERDICT: PASS WITH GAPS {2}head [0-9a-f]+, origin\/main [0-9a-f]+; gaps: not fetched\n/);
+    expect(offline.status).toBe(4);
   });
 
   it("fails when a tracked file differs from the commit or an untracked file is present, and ignores ignored ones", () => {
@@ -227,6 +260,23 @@ console.log(words.includes("vitest") ? ${JSON.stringify(passing)} : words.includ
     const untracked = gate([], { before: (repo) => writeFileSync(join(repo, "extra.test.ts"), "") });
     expect(untracked.stdout).toContain("untracked: extra.test.ts");
     expect(untracked.status).toBe(1);
+  });
+
+  it("never reads a report an earlier run left in a shared logs folder", () => {
+    const logs = join(mkdtempSync(join(tmpdir(), "laterdog-gate-logs-")), "shared");
+    dirs.push(join(logs, ".."));
+    const first = gate([], { env: { LATERDOG_GATE_LOGS: logs } });
+    expect(first.status).toBe(0);
+    const second = gate([], { env: { LATERDOG_GATE_LOGS: logs, FAKE_VITEST_SILENT: "1" } });
+    expect(second.stdout).toContain("suite 1/8 (no JSON report; no test summary)");
+    expect(second.stdout).toContain("VERDICT: FAIL");
+    expect(second.status).toBe(1);
+  });
+
+  it("names every gap on the verdict line when several are allowed at once", () => {
+    const run = gate([], { deps: ["deploy/laterdog/home", "cloudflare/control-plane"], env: { FAKE_NO_BROWSER: "1", LATERDOG_GATE_NO_BROWSER: "1", LATERDOG_GATE_OFFLINE: "1", LATERDOG_GATE_UNAVAILABLE: "computers" } });
+    expect(run.stdout).toMatch(/VERDICT: PASS WITH GAPS {2}head \w+, origin\/main \w+; gaps: not fetched; interface tests skipped: no browser \(1 file\); test sets not run: computers\n/);
+    expect(run.status).toBe(4);
   });
 
   it("prints the head and origin/main commits on the verdict line", () => {

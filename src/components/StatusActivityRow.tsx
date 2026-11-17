@@ -4,15 +4,17 @@ import { useEffect, useState } from "react";
 import { api, type Message } from "@/state/store";
 import { useStoreSelector } from "@/state/store-selectors";
 import { t } from "@/lib/i18n";
+import { restingFor } from "@/lib/account-rests";
 
 import { RechargeLine, SleepingDog, rechargeProgress } from "./AccountCharge";
 import { InstanceProviderMark } from "./ProviderIcons";
 import { plainClientError } from "@/lib/plain-client-error";
 
-function CarriedAccount({ from, to, text }: { from: string; to: string; text: string }) {
-  const rest = useStoreSelector((state) => state.config?.accountBattery?.resting?.[from]);
+function CarriedAccount({ from, to, text, model }: { from: string; to: string; text: string; model?: string }) {
+  const battery = useStoreSelector((state) => state.config?.accountBattery);
   const active = useStoreSelector((state) => state.instances.find((instance) => instance.instanceId === to));
   const [now, setNow] = useState(Date.now);
+  const rest = restingFor(battery, model, now)[from];
   useEffect(() => { const timer = window.setInterval(() => setNow(Date.now()), 30_000); return () => window.clearInterval(timer); }, []);
   return <div role="status" data-account-carry className="flex w-fit max-w-full flex-wrap items-center gap-2 rounded-xl border border-hairline/40 bg-panel px-3 py-2 text-[13px] text-ink-secondary">
     {rest && Date.parse(rest.until) > now && <><SleepingDog size={20} /><RechargeLine progress={rest.estimated ? null : rechargeProgress(rest, now)} /></>}
@@ -46,10 +48,10 @@ function ContinueWork({ handoffId, text }: { handoffId: string; text: string }) 
   );
 }
 
-export function StatusActivityRow({ message }: { message: Message }) {
+export function StatusActivityRow({ message, model }: { message: Message; model?: string }) {
   const status = statusActivity(message);
   if (!status) return null;
-  if (message.tool?.carry) return <CarriedAccount {...message.tool.carry} text={status.text} />;
+  if (message.tool?.carry) return <CarriedAccount {...message.tool.carry} text={status.text} model={model} />;
   if (message.tool?.resume) return <ContinueWork handoffId={message.tool.resume.handoffId} text={status.text} />;
   const Icon = status.kind === "recovery" ? RefreshCw : status.kind === "progress" ? Activity : Info;
   return (
