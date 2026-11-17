@@ -312,6 +312,19 @@ describe("control-laterdog ui drives the real renderer", () => {
     expect(tree).not.toContain("Not logged in");
     expect(tree).not.toContain("Execution timeline");
 
+    const panelText = async () => (await ui("eval", info.ui, "--js", "document.querySelector('[data-work-panel]')?.textContent ?? null")).result as string | null;
+    const stepStates = async () => (await ui("eval", info.ui, "--js", "JSON.stringify(Array.from(document.querySelectorAll('[data-work-panel] [data-step-id]')).map(row => row.hasAttribute('data-failed') ? 'Failed' : 'Completed'))")).result as string;
+    await ui("click", info.ui, "--name", `Tried ${scripted.length} things`);
+    await expect.poll(panelText, { timeout: 10_000 }).toContain("What Pepper did");
+    await expect.poll(stepStates, { timeout: 10_000 }).toBe(JSON.stringify([...scripted].reverse().map((call) => (call.ok ? "Completed" : "Failed"))));
+    expect((await ui("eval", info.ui, "--js", "document.querySelectorAll('[data-work-panel] [data-step-id][data-failed]').length")).result).toBe(scripted.filter((call) => !call.ok).length);
+    expect(await panelText()).toContain("Didn't work");
+    await ui("eval", info.ui, "--js", "document.querySelector('[data-work-panel] [data-step-id][data-failed]').click(); true");
+    await expect.poll(panelText, { timeout: 10_000 }).toContain(scripted.find((call) => !call.ok)!.input.command);
+    expect(await panelText()).toContain("What it ran");
+    for (let tries = 0; tries < 3 && (await panelText()) !== null; tries += 1) await ui("press", info.ui, "--keys", "Escape");
+    expect(await panelText()).toBeNull();
+
     expect(await runControlLaterDog(["doctor", "--url", info.url])).toMatchObject({ ok: true });
     await expect(ui("click", info.ui, "--name", "Deliberately missing QA control")).rejects.toThrow("no element is named");
 
