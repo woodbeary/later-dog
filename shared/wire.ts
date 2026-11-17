@@ -25,6 +25,7 @@ import type { WirePlan } from "./dog-plan.ts";
 import type { WireExchange } from "./room-exchange.ts";
 import type { TurnReceipt } from "./turn-receipt.ts";
 import type { TurnResults } from "./turn-results.ts";
+import type { LastingOffer } from "./lasting-allows.ts";
 import type { WebhookAttempt, WebhookTrigger } from "./webhooks.ts";
 
 export const EFFORT_LEVELS = ["none", "low", "medium", "high", "xhigh", "max", "ultra"] as const;
@@ -357,6 +358,7 @@ export interface OptionCardData {
   heldCode?: string;
   allowKey?: string;
   allowSession?: boolean;
+  lasting?: LastingOffer;
   answerScope?: "once" | "always" | "chat";
   commandAllowlist?: CommandAllowlistCandidate;
   approvalScope?: "local-computer";

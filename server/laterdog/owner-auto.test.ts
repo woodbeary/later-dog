@@ -181,7 +181,7 @@ describe("an escalation from an owner Off-leash dog", () => {
     expect(calls).toEqual(["deny", "refused: force-push-default-branch"]);
   });
 
-  it("runs the delete with no card, even unattended, once the owner chose Always allow, and never lets a rule cover a force-push", async () => {
+  it("never lets the owner's old Always cover a delete outside the workspace or a force-push", async () => {
     const settle = (command: string, ownerAllows: boolean) => {
       const calls: string[] = [];
       return settleOwnerAutoPermission({ tool: "Bash", command }, {
@@ -195,7 +195,7 @@ describe("an escalation from an owner Off-leash dog", () => {
         failed: () => calls.push("failed"),
       }).then((settled) => ({ settled, calls }));
     };
-    expect(await settle("rm -rf /data/v3work", true)).toEqual({ settled: "approved", calls: ["allow", "approved"] });
+    expect(await settle("rm -rf /data/v3work", true)).toEqual({ settled: "refused", calls: ["deny", "refused: delete-outside-workspace"] });
     expect(await settle("rm -rf /data/v3work", false)).toEqual({ settled: "refused", calls: ["deny", "refused: delete-outside-workspace"] });
     expect(await settle("git push --force origin main", true)).toEqual({ settled: "refused", calls: ["deny", "refused: force-push-default-branch"] });
     expect(await settle("gh repo delete owner/repo --yes", true)).toEqual({ settled: "refused", calls: ["deny", "refused: delete-remote-repository"] });
@@ -231,7 +231,9 @@ describe("an escalation from an owner Off-leash dog", () => {
       expect(unattended.calls[0], id).toMatch(/^deny: later\.dog did not run this: .*always needs the person's yes/);
       expect(unattended.calls[1], id).toBe(`refused: ${id}`);
     }
-    expect(await settle({ tool: "Bash", command: "rm -rf /data/v3work && git push --no-verify" }, true)).toEqual({ settled: "held", calls: ["card: push-skips-checks"] });
+    const both = await settle({ tool: "Bash", command: "rm -rf /data/v3work && git push --no-verify" }, true);
+    expect(both.settled).toBe("refused");
+    expect(both.calls.at(-1)).toBe("refused: delete-outside-workspace");
     expect(await settle({ tool: "Bash", command: "git push --force --no-verify origin main" }, true)).toEqual({
       settled: "refused",
       calls: ["deny: later.dog refused this: force-pushing main, the repository's default branch, is never allowed. Push a new branch and open a pull request instead.", "refused: force-push-default-branch"],

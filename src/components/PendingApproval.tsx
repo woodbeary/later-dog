@@ -10,13 +10,14 @@ import { outboundSummary } from "@/lib/approval-summary";
 import { reviewedSkillSha256 } from "../../shared/skill-request";
 import { DELETE_OUTSIDE_WORKSPACE_ALLOW_KEY, MAC_ALLOW_KEY } from "../../shared/cloud-home";
 import { useOwnerOrAdmin } from "@/lib/use-owner-or-admin";
+import { LASTING_WHY_WORDS, type LastingOffer } from "../../shared/lasting-allows";
 
 export interface Pending {
   message: Message;
   requestId: string;
   tool: string;
   allowKey?: string;
-  allowSession?: boolean;
+  lasting?: LastingOffer;
   commandAllowlist?: { command: string; cwd: string; providerInstanceId: string };
   detail: string;
   held?: string;
@@ -43,7 +44,7 @@ export function pendingApprovals(messages: Message[]): Pending[] {
       requestId: m.card!.requestId!,
       tool: m.card!.tool!,
       allowKey: m.card!.allowKey,
-      allowSession: m.card!.allowSession,
+      lasting: m.card!.lasting,
       commandAllowlist: m.card!.commandAllowlist,
       detail: m.card!.subtitle,
       held: m.card!.held,
@@ -206,9 +207,12 @@ export function PendingApprovalActions({
     : undefined;
   const macSend = pending.tool === "mac_send_text" || pending.tool === "mac_send_email";
   const macRequest = pending.tool.startsWith("mac_") && !macSend;
+  const lasting = !durableRequest && !canRememberCommand ? pending.lasting : undefined;
+  const lastingAlways = Boolean(lasting?.offered && ownerOrAdmin === true);
+  const lastingWhy = lasting && !lasting.offered ? LASTING_WHY_WORDS[lasting.why] : lasting?.offered && !lastingAlways ? LASTING_WHY_WORDS["owner-only"] : null;
   const decide = (behavior: "allow" | "deny", always = false, rememberCommand = false, never = false) => {
-    const grant = always && bot && pending.allowKey ? { botId: bot.id, key: pending.allowKey } : undefined;
-    const forChat = always && !pending.allowKey && pending.allowSession ? true : undefined;
+    const lastingGrant = always && bot && lastingAlways ? { botId: bot.id } : undefined;
+    const grant = always && bot && pending.allowKey && !lasting ? { botId: bot.id, key: pending.allowKey } : undefined;
     dispatch({
       type: "decideRequest",
       threadId,
@@ -217,9 +221,9 @@ export function PendingApprovalActions({
       message: behavior === "deny" ? "Declined." : undefined,
       reviewedSha256: behavior === "allow" ? reviewedSha256 : undefined,
       alwaysAllow: grant,
-      always: forChat,
+      lastingGrant,
       rememberCommand: rememberCommand || undefined,
-      scope: never ? "never" : behavior !== "allow" ? undefined : grant || rememberCommand ? "always" : forChat ? "chat" : "once",
+      scope: never ? "never" : behavior !== "allow" ? undefined : grant || rememberCommand || lastingGrant ? "always" : "once",
     });
   };
 
@@ -227,7 +231,11 @@ export function PendingApprovalActions({
   const quiet = "min-w-[120px] bg-control text-ink hover:bg-control-hover";
   const primary = "min-w-[120px] bg-accent text-white hover:brightness-110";
   const durable = "rounded-full px-2.5 py-1.5 text-[13px] font-medium text-ink-secondary transition-colors hover:bg-control hover:text-ink";
-  const reach = !durableRequest && bot && pending.allowKey
+  const reach = lastingAlways && bot
+    ? t("lasting.reach.search", { name: bot.name })
+    : lasting
+    ? null
+    : !durableRequest && bot && pending.allowKey
     ? outbound
       ? t("approval.reach.connector", { name: bot.name, app: outbound.app ?? t("approval.reach.connectorApp") })
       : pending.allowKey === MAC_ALLOW_KEY
@@ -237,7 +245,7 @@ export function PendingApprovalActions({
       : t(bot.tasks?.some((task) => task.threadId === threadId) ? "approval.reach.chat" : "approval.reach.dog", { name: bot.name })
     : canRememberCommand && pending.commandAllowlist
       ? t("approval.reach.command", { name: bot?.name ?? t("approval.someone"), cwd: shortFolder(pending.commandAllowlist.cwd) })
-      : !durableRequest && !pending.allowKey && pending.allowSession ? t("approval.reach.session") : null;
+      : null;
   return (
     <div className="rounded-b-[18px] bg-card px-3 pb-3 pt-1">
       <div className="flex flex-wrap items-center gap-2">
@@ -266,7 +274,7 @@ export function PendingApprovalActions({
             {isRoutineRequest || isProfileRequest ? t("approval.action.cancel") : outbound ? t("approval.action.skip") : macSend ? t("approval.action.dontSend") : t("approval.action.deny")}
           </button>
         )}
-        {!durableRequest && bot && pending.allowKey && (
+        {!durableRequest && bot && pending.allowKey && !lasting && (
           <button
             onClick={() => decide("allow", true)}
             className={durable}
@@ -283,13 +291,17 @@ export function PendingApprovalActions({
             {t("approval.action.never")}
           </button>
         )}
-        {!durableRequest && !pending.allowKey && !canRememberCommand && pending.allowSession && (
+        {lastingAlways && bot && (
           <button
             onClick={() => decide("allow", true)}
+            data-lasting-always=""
             className={durable}
           >
-            {t("approval.action.alwaysAllowSession")}
+            {t("approval.action.alwaysAllow")}
           </button>
+        )}
+        {lasting && lastingWhy && (
+          <span data-lasting-why={lasting.offered ? "owner-only" : lasting.why} className="px-1 text-[12.5px] text-ink-tertiary">{t(lastingWhy)}</span>
         )}
         {canRememberCommand && pending.commandAllowlist && (
           <button

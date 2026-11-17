@@ -236,6 +236,12 @@ describe("Mac approval gate", () => {
     expect(notes).toHaveLength(0);
   });
 
+  it("adds no second card after the home has already asked for what always asks: a Mac set to Always runs it", async () => {
+    gate.update({ computers: { [MAC_ID]: "always" } });
+    await expect(ask({ action: "run_command", command: "rm -rf ~/Documents/old" })).resolves.toMatchObject({ ok: true });
+    expect(openCards()).toHaveLength(0);
+  });
+
   it("settles waiting cards when the setting changes", async () => {
     asking();
     const waiting = ask({ action: "list_files", path: "Downloads" });

@@ -30,7 +30,8 @@ export async function settleOwnerAutoPermission(
   deps: OwnerAutoPermissionDeps,
 ): Promise<OwnerAutoSettlement> {
   const found = await ownerGuard(request, deps.guard);
-  const refusal = found?.ask && deps.ownerAllows?.(found) ? null : found;
+  const listed = alwaysAsks(request, () => deps.guard);
+  const refusal = found?.ask && !listed && deps.ownerAllows?.(found) ? null : found;
   if (refusal?.ask && deps.hold) {
     if (!deps.isCurrent()) return "stale";
     deps.hold(refusal.ask, refusal);
@@ -42,7 +43,7 @@ export async function settleOwnerAutoPermission(
     deps.refused(refusal);
     return "refused";
   }
-  const always = alwaysAsks(request, () => deps.guard);
+  const always = listed;
   if (always && always.id !== "delete-outside-workspace") {
     if (deps.holdAlways) {
       if (!deps.isCurrent()) return "stale";

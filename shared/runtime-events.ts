@@ -109,6 +109,7 @@ export type RuntimeEvent = RuntimeEventBase &
         argsUnknown?: true;
         command?: { command: string; cwd: string };
         input?: Record<string, unknown>;
+        wholeInput?: Record<string, unknown>;
         choices?: string[];
         questions?: AskQuestion[];
         origin?: "tool" | "output";

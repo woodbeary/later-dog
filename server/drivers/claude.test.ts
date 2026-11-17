@@ -3746,7 +3746,7 @@ describe("ClaudeDriver turns (fake CLI)", () => {
     });
     expect(opened).toHaveProperty("approvalScope", undefined);
 
-    expect(opened).toHaveProperty("allowSession", true);
+    expect((opened as { allowSession?: boolean }).allowSession).toBeUndefined();
     await expect(instance.adapter.respondToRequest("t-perm-abc", "ask-1", { behavior: "allow", always: true })).resolves.toBe("allowed-once");
     expect(await answered).toMatchObject({ behavior: "allow", always: true });
     const resolved = await recorder.until((e) => e.type === "request.resolved");
@@ -3766,7 +3766,7 @@ describe("ClaudeDriver turns (fake CLI)", () => {
     );
     const opened2 = await recorder.until((e) => e.requestId === "ask-2" && e.type === "request.opened");
     expect(opened2).toHaveProperty("approvalScope", "local-computer");
-    expect(opened2).toHaveProperty("allowSession", undefined);
+    expect((opened2 as { allowSession?: boolean }).allowSession).toBeUndefined();
     await expect(instance.adapter.respondToRequest("t-perm-abc", "ask-2", { behavior: "allow" })).resolves.toBe("allowed-once");
     const plain = await answered2;
     expect(plain).toMatchObject({ behavior: "allow" });
