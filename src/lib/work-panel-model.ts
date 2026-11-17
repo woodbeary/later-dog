@@ -147,8 +147,8 @@ export function stepDetail(activity: NativeActivity): { title: string; inputLabe
   };
 }
 
-export function panelTitle(page: WorkPanelPage, botName: string, pushedTitle?: string): string {
-  if (page.kind === "work") return page.runId ? `What ${botName} did` : `What ${botName} is doing`;
+export function panelTitle(page: WorkPanelPage, botName: string, pushedTitle?: string, working = true): string {
+  if (page.kind === "work") return page.runId || !working ? `What ${botName} did` : `What ${botName} is doing`;
   if (page.kind === "side-jobs") return PANEL_WORDS.sideJobs;
   return pushedTitle ?? "";
 }

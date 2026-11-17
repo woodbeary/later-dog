@@ -117,7 +117,7 @@ export function WorkPanelView({ page, botName, data, actions, hoveredStep }: { p
   const activity = page.kind === "step" ? data.activities.find(item => item.id === page.activityId) : undefined;
   const job = page.kind === "side-job" ? [...sideJobs.running, ...sideJobs.finished].find(card => card.id === page.jobId) : undefined;
   const pushedTitle = page.kind === "step" ? (activity ? stepDetail(activity).title : "") : page.kind === "side-job" ? job?.title : undefined;
-  const title = panelTitle(page, botName, pushedTitle);
+  const title = panelTitle(page, botName, pushedTitle, data.working);
   const back = workPanelCanGoBack();
   const sections = page.kind === "work" ? [todo.length > 0, helpers.length > 0, true].filter(Boolean).length : 0;
   return (

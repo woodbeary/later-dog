@@ -137,3 +137,9 @@ describe("step glyphs", () => {
     expect(Object.fromEntries(rows.map(row => [row.id, row.glyph]))).toEqual({ c1: "play", c2: "cloud" });
   });
 });
+
+describe("the title once the dog has finished", () => {
+  it("says what the dog did when it is no longer working", () => {
+    expect(panelTitle({ kind: "work", threadId: "t1" }, "Juniper", undefined, false)).toBe("What Juniper did");
+  });
+});
