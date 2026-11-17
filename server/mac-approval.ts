@@ -50,7 +50,6 @@ const KINDS: Record<MacTool, MacKind> = {
   mac_send_text: "send",
   mac_send_email: "send",
 };
-const READS = new Set<MacKind>(["look", "texts"]);
 export const MAC_WORDS: Record<MacTool, string> = {
   mac_list_files: "look in a folder on your Mac",
   mac_read_file: "open a file on your Mac",
@@ -195,7 +194,7 @@ export class MacApprovals {
     this.save();
     for (const card of this.open.values()) {
       const mode = this.modeFor(card.computerId);
-      if (mode === "never" || (mode === "always" && READS.has(card.kind))) {
+      if (mode === "never" || (mode === "always" && card.kind !== "send")) {
         this.settle(card, { answered: "unavailable", dismissed: true }, mode === "always" ? ALLOWED : { ok: false, status: 403, error: MAC_NEVER });
       }
     }
@@ -228,7 +227,7 @@ export class MacApprovals {
     if (mode === "never") return { ok: false, status: 403, error: MAC_NEVER };
     const kind = KINDS[tool];
     const eachTime = kind === "send";
-    if (mode === "always" && READS.has(kind)) return ALLOWED;
+    if (mode === "always" && !eachTime) return ALLOWED;
     if (input.personSaidYes && !eachTime) return ALLOWED;
     const requestMessageId = input.requestMessageId ?? this.latestPerson(input.threadId);
     const grant = this.grants.get(grantKey(input.threadId, input.bot.id, input.computerId));
@@ -291,7 +290,7 @@ export class MacApprovals {
     const room = store.groupByThread(threadId);
     const groupChat = Boolean(room && !room.dm);
     const subtitle = macDetail(input.operation);
-    const askOnce = groupChat || !READS.has(kind);
+    const askOnce = groupChat || kind === "send";
     const message = store.appendMessage(threadId, {
       role: "bot",
       kind: "options",

@@ -661,7 +661,7 @@ it("no command the owner saved answers for a conversation a guest left behind: i
   await stop(bot, guests);
 }, 60_000);
 
-it("keeping a Mac command's output in the vault cleans up the home's own file with no card, and a dog's delete of another file on that Mac still asks", async () => {
+it("keeping a Mac command's output in the vault on a Mac set to Always runs with no card and cleans up the home's own file, and a dog's delete outside the lent folder still asks", async () => {
   const bot = await newBot("Keeper", "held");
   const call = await toolsFor(() => say(owner, bot, "Keep the fixture's token."));
   const open = async () => ((await api("GET", `/api/threads/${bot.threadId}/messages`, { token: owner })).body.messages as any[])
@@ -669,9 +669,6 @@ it("keeping a Mac command's output in the vault cleans up the home's own file wi
   const captures = () => readdirSync(macHome).filter((name) => name.startsWith(".laterdog-vault-capture-"));
   await macOnline();
   const kept = call("shared_computer", { computer_id: lentId, action: "run_command", command: "printf kept-fixture", vault_capture: "fixture/KEPT", wait_seconds: 10 });
-  await expect.poll(async () => (await open()).length, { timeout: 15_000 }).toBe(1);
-  const [command] = await open();
-  expect((await api("POST", `/api/threads/${bot.threadId}/respond`, { token: owner, body: { requestId: command.card.requestId, behavior: "allow" } })).status).toBe(200);
   let tick: ReturnType<typeof setInterval> | undefined;
   const outcome = await Promise.race([
     kept.then((result) => ({ result })),
@@ -687,12 +684,14 @@ it("keeping a Mac command's output in the vault cleans up the home's own file wi
   expect(text).not.toContain("kept-fixture");
   expect(captures()).toEqual([]);
   expect(await open()).toHaveLength(0);
-  writeFileSync(join(macHome, "keep.txt"), "mine");
-  const deleting = call("shared_computer", { computer_id: lentId, folder_id: folderId, action: "delete_file", path: "keep.txt" });
+  const outside = `keep-${randomUUID()}.txt`;
+  writeFileSync(join(macHome, "..", outside), "mine");
+  const deleting = call("shared_computer", { computer_id: lentId, folder_id: folderId, action: "delete_file", path: `../${outside}` });
   await expect.poll(async () => (await open()).length, { timeout: 15_000 }).toBe(1);
   const [asked] = await open();
   expect((await api("POST", `/api/threads/${bot.threadId}/respond`, { token: owner, body: { requestId: asked.card.requestId, behavior: "deny" } })).status).toBe(200);
   expect((await deleting).isError).toBe(true);
-  expect(readFileSync(join(macHome, "keep.txt"), "utf8")).toBe("mine");
+  expect(readFileSync(join(macHome, "..", outside), "utf8")).toBe("mine");
+  rmSync(join(macHome, "..", outside));
   await stop(bot, bot.threadId);
 }, 60_000);
