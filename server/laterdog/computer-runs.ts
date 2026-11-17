@@ -275,7 +275,9 @@ export class ComputerRuns {
   }
 
   async gone(box: RunBox, record: RunRecord): Promise<boolean> {
-    return (await this.liveness(box, record).catch(() => "unsure")) === "dead" && !(await this.poll(box, record)).done;
+    if ((await this.liveness(box, record).catch(() => "unsure")) !== "dead") return false;
+    const marked = await box.exec(`[ -f runs/.logs/${record.id}.pgid ] && echo marked`, POLL_EXEC_MS).catch(() => null);
+    return marked?.stdout.trim() === "marked" && !(await this.poll(box, record)).done;
   }
 
   async ended(box: RunBox, job: Pick<RunRecord, "botId" | "id">): Promise<{ exitCode: number; at?: number } | null> {

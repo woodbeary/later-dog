@@ -195,11 +195,30 @@ describe("a heavy command on the dog's own computer", () => {
     const runs = new ComputerRuns(state, fast);
     const record = { id: "abcd1234" } as RunRecord;
     let exit = "";
-    const box = { exec: async () => ({ exitCode: 0, stdout: `${exit}<<<\nlog`, stderr: "" }), write: async () => undefined, read: async () => Buffer.alloc(0) } as RunBox;
+    const box = { exec: async (command: string) => ({ exitCode: 0, stdout: command.includes(".pgid") ? "marked\n" : `${exit}<<<\nlog`, stderr: "" }), write: async () => undefined, read: async () => Buffer.alloc(0) } as RunBox;
     runs.liveness = async () => "dead";
     expect(await runs.gone(box, record)).toBe(true);
     exit = "0\n";
     expect(await runs.gone(box, record)).toBe(false);
+  });
+
+  it("never reads a run started before this home updated as gone while it still runs", async () => {
+    const { folder, computer, state } = project();
+    mkdirSync(join(computer, "runs/.logs"), { recursive: true });
+    const id = "00d0c0de";
+    spawnSync("bash", ["-c", `setsid nohup bash -lc 'sleep 31.7' > runs/.logs/${id}.log 2>&1 < /dev/null &`], { cwd: computer });
+    const { box } = localBox(computer);
+    const runs = new ComputerRuns(state, fast);
+    const record: RunRecord = { id, botId: "dog", key: runKey(folder), folder, subdir: "", command: "sleep 31.7", startedAt: Date.now(), sent: {} };
+    try {
+      expect(await runs.liveness(box, record)).toBe("dead");
+      expect(await runs.gone(box, record)).toBe(false);
+      const outcome = await runs.finish(box, record, undefined, runs.window(1));
+      expect(outcome.state).toBe("running");
+      expect(outcome.exitCode).toBeNull();
+    } finally {
+      spawnSync("pkill", ["-f", "sleep 31[.]7"]);
+    }
   });
 
   it("never reads a run as gone when its liveness is unsure, alive or cannot be read", async () => {
@@ -249,6 +268,7 @@ describe("a heavy command on the dog's own computer", () => {
     const runs = new ComputerRuns(state, fast);
     const started = await runs.start(box, { botId: "dog", folder, command: "sleep 5" });
     const pattern = `runs/[.]logs/${started.id}[.]log`;
+    for (let tries = 0; tries < 50 && !existsSync(join(computer, `runs/.logs/${started.id}.pgid`)); tries += 1) spawnSync("sleep", ["0.1"]);
     spawnSync("pkill", ["-f", pattern]);
     for (let tries = 0; tries < 50 && spawnSync("pgrep", ["-f", pattern]).status === 0; tries += 1) spawnSync("sleep", ["0.1"]);
     const outcome = await runs.finish(box, runs.record("dog", started.id)!, undefined, runs.window(60_000));
