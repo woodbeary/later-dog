@@ -146,7 +146,6 @@ describe("the thinking timer stays anchored across a switch away", () => {
     const { info } = launched;
     const api = fixtureApi(info.url);
     const evaluate = async (js: string) => (await ui("eval", info.ui, "--js", js)).result;
-    const timerText = () => progressTimer(info.ui);
     const selectDog = (botId: string) => evaluate(`document.querySelector('[data-sidebar-bot-row="${botId}"]')?.click(); true`);
     const isCurrent = (botId: string) => evaluate(`Boolean(document.querySelector('[data-sidebar-bot-row="${botId}"][aria-current="page"]'))`);
     const taskOf = async (threadId: string) =>
@@ -170,23 +169,26 @@ describe("the thinking timer stays anchored across a switch away", () => {
     expect(stamp).toBeGreaterThanOrEqual(sentAt - 2_000);
     expect(stamp).toBeLessThanOrEqual(Date.now() + 2_000);
 
-    const first = await openProgress(info.ui);
-    expect(elapsedSeconds(first)).toBeGreaterThanOrEqual(0);
+    const line = () => evaluate(`document.querySelector('[data-work-line]')?.textContent ?? null`) as Promise<string | null>;
+    const first = await waitUntil(line, 15_000, "the working line to appear");
+    expect(first).not.toContain(" · for ");
     await new Promise((done) => setTimeout(done, Math.max(0, stamp + 10_000 - Date.now())));
-    const beforeSwitch = (await timerText())!;
-    expect(elapsedSeconds(beforeSwitch)).toBeGreaterThanOrEqual(Math.floor((Date.now() - stamp) / 1000) - 2);
+    expect(await line()).toBe(first);
+    await new Promise((done) => setTimeout(done, Math.max(0, stamp + 61_000 - Date.now())));
+    const beforeSwitch = await waitUntil(async () => {
+      const text = await line();
+      return text?.endsWith(" · for 1 min") ? text : null;
+    }, 5_000, "the line to add its age at one minute from the server's stamp");
+    expect(beforeSwitch).toBe(`${first} · for 1 min`);
 
-    await closeProgress(info.ui);
     await selectDog(otherDog);
     await waitUntil(() => isCurrent(otherDog), 10_000, "the other dog to become current");
     await new Promise((done) => setTimeout(done, 3_000));
     await selectDog(info.botId);
     await waitUntil(() => isCurrent(info.botId), 10_000, "Pepper to become current again");
 
-    const resumed = await openProgress(info.ui);
-    const away = (Date.now() - stamp) / 1000;
-    expect(elapsedSeconds(resumed)).toBeGreaterThanOrEqual(Math.floor(away) - 3);
-    expect(elapsedSeconds(resumed)).toBeGreaterThanOrEqual(10);
+    const resumed = await waitUntil(line, 5_000, "the working line to come back");
+    expect(resumed).toBe(beforeSwitch);
 
     expect(await taskOf(busyThread)).toMatchObject({ busy: true, turnStartedAt: stamp });
 
