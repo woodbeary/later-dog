@@ -62,7 +62,8 @@ const READABLE_SLUG = /^[A-Za-z][A-Za-z0-9]*(?:_[A-Za-z0-9]+)+$/;
 
 export function connectorCallsIn(written: string, args: unknown): ConnectorCall[] {
   const name = written.trim();
-  if (name === "COMPOSIO_MULTI_EXECUTE_TOOL") {
+  const ownName = name.toUpperCase();
+  if (ownName === "COMPOSIO_MULTI_EXECUTE_TOOL") {
     const tools = isRecord(args) && Array.isArray(args.tools) ? args.tools
       : isRecord(args) && typeof args.tool_slug === "string" ? [args] : [];
     if (!tools.length) return [{ slug: "COMPOSIO_PROXY_EXECUTE", arguments: args }];
@@ -80,11 +81,11 @@ export function connectorCallsIn(written: string, args: unknown): ConnectorCall[
     }
     return calls;
   }
-  if (name === "COMPOSIO_REMOTE_WORKBENCH" || name === "COMPOSIO_REMOTE_BASH_TOOL") {
+  if (ownName === "COMPOSIO_REMOTE_WORKBENCH" || ownName === "COMPOSIO_REMOTE_BASH_TOOL") {
     return [{ slug: "COMPOSIO_PROXY_EXECUTE", arguments: args }];
   }
-  if (["COMPOSIO_SEARCH_TOOLS", "COMPOSIO_GET_TOOL_SCHEMAS", "COMPOSIO_MANAGE_CONNECTIONS", "COMPOSIO_WAIT_FOR_CONNECTIONS"].includes(name)) return [];
-  if (name.startsWith("COMPOSIO_")) return [{ slug: "COMPOSIO_PROXY_EXECUTE", arguments: args }];
+  if (["COMPOSIO_SEARCH_TOOLS", "COMPOSIO_GET_TOOL_SCHEMAS", "COMPOSIO_MANAGE_CONNECTIONS", "COMPOSIO_WAIT_FOR_CONNECTIONS"].includes(ownName)) return [];
+  if (ownName.startsWith("COMPOSIO_")) return [{ slug: "COMPOSIO_PROXY_EXECUTE", arguments: args }];
   return [{ slug: name, ...(args !== undefined ? { arguments: args } : {}) }];
 }
 

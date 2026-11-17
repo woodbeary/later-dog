@@ -329,6 +329,22 @@ describe("deleting something or changing who can reach it from a connected app a
     expect(gate(" GMAIL_SEND_EMAIL", { to: "a@example.test" })).toBe("sends-for-you");
   });
 
+  it("reads the batch tool and later.dog's other connected-app tools by name whatever their capitals", () => {
+    const gate = (name: string, args: unknown) => {
+      const calls = connectorCallsIn(name, args).filter((call) => asksAsConnector(call.slug, call.arguments));
+      return calls.length ? connectorAlwaysAsks(calls)?.id ?? null : null;
+    };
+    for (const name of ["composio_multi_execute_tool", "Composio_Multi_Execute_Tool", " composio_multi_execute_tool "]) {
+      expect(connectorCallsIn(name, { tools: [{ tool_slug: "GMAIL_DELETE_MESSAGE", arguments: { message_id: "m-1" } }] }).map((call) => call.slug), name).toEqual(["GMAIL_DELETE_MESSAGE"]);
+      expect(gate(name, { tools: [{ tool_slug: "GMAIL_DELETE_MESSAGE", arguments: { message_id: "m-1" } }] }), name).toBe("deletes-or-shares");
+      expect(gate(name, { tools: [{ tool_slug: "GMAIL_FETCH_EMAILS", arguments: {} }] }), name).toBeNull();
+    }
+    for (const name of ["composio_remote_workbench", "composio_remote_bash_tool", "composio_proxy_execute"]) {
+      expect(connectorCallsIn(name, { code: "run()" }).map((call) => call.slug), name).toEqual(["COMPOSIO_PROXY_EXECUTE"]);
+    }
+    expect(connectorCallsIn("composio_search_tools", {})).toEqual([]);
+  });
+
   it("asks when a Gmail change adds the TRASH label, by the value and not the name", () => {
     const gate = (name: string, args: unknown) => {
       const calls = connectorCallsIn(name, args).filter((call) => asksAsConnector(call.slug, call.arguments));
