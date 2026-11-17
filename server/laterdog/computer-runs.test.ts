@@ -3,7 +3,7 @@ import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readlinkSy
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { bringBackList, changesSince, ComputerRuns, parts, type RunBox, runKey, setupKey, stampFolder } from "./computer-runs.ts";
+import { bringBackList, changesSince, ComputerRuns, parts, type RunBox, type RunRecord, runKey, setupKey, stampFolder } from "./computer-runs.ts";
 
 const ENVIRONMENTS_MODULE = "../../deploy/laterdog/computers/src/environments.ts";
 const environments = await import(ENVIRONMENTS_MODULE);
@@ -167,10 +167,7 @@ describe("a heavy command on the dog's own computer", () => {
     const first = await runs.finish(box, started);
     expect(first.state).toBe("running");
     expect(first.note).toContain(started.id);
-    expect(first.note).toContain("within 4 minutes");
-    expect(first.note).toContain("can go to sleep after 5 minutes without a call, which ends the run");
-    expect(first.note).not.toContain("do other work");
-    expect(first.note).toContain("That call waits up to its wait_minutes (default 4).");
+    expect(first.note).toBe(`Still running. Call run_on_computer again with run_id "${started.id}" to keep waiting. That call waits up to its wait_minutes (default 4).`);
     const record = runs.record("dog", started.id)!;
     await new Promise((done) => setTimeout(done, 2500));
     const second = await runs.finish(box, record);
@@ -231,9 +228,7 @@ describe("a heavy command on the dog's own computer", () => {
     for (let tries = 0; tries < 50 && spawnSync("pgrep", ["-f", pattern]).status === 0; tries += 1) spawnSync("sleep", ["0.1"]);
     const outcome = await runs.finish(box, runs.record("dog", started.id)!, undefined, runs.window(60_000));
     expect(outcome.state).toBe("failed");
-    expect(outcome.note).toContain("stopped before finishing");
-    expect(outcome.note).toContain("can go to sleep after 5 minutes without a call");
-    expect(outcome.note).toContain("within 4 minutes");
+    expect(outcome.note).toBe("It stopped before finishing and left no exit code. Run it again if you still need its result.");
   });
 });
 

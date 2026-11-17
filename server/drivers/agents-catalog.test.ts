@@ -13,11 +13,10 @@ describe("fixing a stuck dog instead of duplicating it", () => {
 });
 
 describe("waiting for a cloud computer run", () => {
-  it("says one call waits until the run ends, keeps the computer awake, and is repeated only when it comes back still running", async () => {
+  it("says one call waits until the run ends, that later.dog keeps a recorded run's computer awake, and never that it sleeps under one", async () => {
     const { availableTools } = await import("./agents-catalog.ts");
     const run = availableTools({ cloudHome: true } as never).find((tool) => tool.name === "run_on_computer")?.description ?? "";
-    expect(run).toContain("One call waits until the command ends, up to wait_minutes (default 4, at most 60), and a waiting call keeps your computer awake.");
-    expect(run).toContain("Only a call that comes back still running needs another: call again with only run_id within 4 minutes");
-    expect(run).not.toMatch(/call again and again|nothing wakes you|One call waits up to about 4 minutes/);
+    expect(run).toContain("Packages stay installed there between runs. One call waits until the command ends, up to wait_minutes (default 4, at most 60). A run still going then keeps going and gives you its run_id. later.dog checks it every 30 seconds, which keeps your computer awake while it runs, and may wake you when it ends. Do your other work first, then call again with only run_id when you need the result. That call itself waits up to its wait_minutes (default 4), so never sleep or loop before it.");
+    expect(run).not.toMatch(/go to sleep|goes to sleep|within 4 minutes|4 more minutes|about 4 minutes/);
   });
 });

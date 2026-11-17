@@ -19,10 +19,9 @@ turn re-sends its whole context on every tool call. Three changes keep that smal
   output, the first line that looks like an error, and a note that it was
   shortened; the finished answer keeps the whole tail.
   The tool's description says the same: one call waits until the command ends, up
-  to `wait_minutes`; a waiting call keeps the computer awake (it checks every 10
-  seconds); only a call that comes back still running needs another, with the
-  run_id, within 4 minutes, since the computer sleeps after 5 minutes without a
-  call.
+  to `wait_minutes`. A run still going keeps going and gives its run_id; later.dog
+  checks it every 30 seconds, which keeps the computer awake while it runs, and
+  the next call with the run_id waits up to its own `wait_minutes`.
 - The standing instructions say, in three sentences (`LONG_WORK` in
   `server/laterdog/dog-guidance.ts`): when your next step needs a job, wait with
   one call until it ends, but if a person is waiting on you, wait in short calls
