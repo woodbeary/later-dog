@@ -5,8 +5,8 @@ export type SidePanels = {
   workPanelOpen: boolean;
 };
 
-export function sidePanelOpen({ botOpen, settingsOpen, cloudTaskOpen }: SidePanels): boolean {
-  return (botOpen && settingsOpen) || cloudTaskOpen;
+export function sidePanelOpen({ botOpen, settingsOpen, cloudTaskOpen, workPanelOpen }: SidePanels): boolean {
+  return (botOpen && settingsOpen) || cloudTaskOpen || (botOpen && workPanelOpen);
 }
 
 export function foldSidebarToRail(panels: SidePanels, sidebarAndPanelFit: boolean): boolean {

@@ -15,6 +15,13 @@ describe("sidebar fold", () => {
     expect(foldSidebarToRail({ ...closed, botOpen: false, settingsOpen: true }, false)).toBe(false);
   });
 
+  it("folds to the face rail below 1280 when a dog's work panel is open, unfolds when it closes, and stays full at 1280 or wider", () => {
+    expect(foldSidebarToRail({ ...closed, workPanelOpen: true }, false)).toBe(true);
+    expect(foldSidebarToRail({ ...closed, workPanelOpen: false }, false)).toBe(false);
+    expect(foldSidebarToRail({ ...closed, workPanelOpen: true }, true)).toBe(false);
+    expect(foldSidebarToRail({ ...closed, botOpen: false, workPanelOpen: true }, false)).toBe(false);
+  });
+
   it("folds to the face rail below 1280 when the coding-job panel is open, and not at 1280 or wider", () => {
     expect(foldSidebarToRail({ ...closed, botOpen: false, cloudTaskOpen: true }, false)).toBe(true);
     expect(foldSidebarToRail({ ...closed, botOpen: false, cloudTaskOpen: true }, true)).toBe(false);
