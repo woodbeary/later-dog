@@ -40,6 +40,19 @@ describe("jobs a dog left running on its computer", () => {
     expect(jobs.facts("t2")).toEqual({});
   });
 
+  it("shows a job past the longest a run may take as in the background only while its computer cannot be read, until a check stops it", async () => {
+    let now = 1_000;
+    const jobs = new ComputerJobs(null, { now: () => now });
+    jobs.started(job());
+    now = 1_000 + MAX_RUN_MS + JOB_CHECK_MS;
+    expect(jobs.facts("t1")).toMatchObject({ computerJobs: 1, computerBackground: 1 });
+    expect(await jobs.check(probe({ computer: async () => ({ state: "unsure" }) }))).toEqual([]);
+    expect(jobs.facts("t1")).toMatchObject({ computerJobs: 1, computerBackground: 1 });
+    expect(await jobs.check(probe())).toEqual(["abcd1234"]);
+    expect(jobs.facts("t1")).toEqual({});
+    expect(jobs.unannounced().map((j) => [j.end.how, j.end.stop])).toEqual([["overdue", "gone"]]);
+  });
+
   it("survives a restart of the home, from its ledger", () => {
     const file = join(dir, "restart.json");
     new ComputerJobs(file).started(job());

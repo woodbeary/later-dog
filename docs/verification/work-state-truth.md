@@ -80,8 +80,16 @@ no reply wanted; and the older fields below agree with the handoff record in eve
   the disk and destroys the computer's container (`deploy/laterdog/computers/src/computer.ts`), but a
   failed destroy still records the computer as sleeping, so one reading is not taken as proof. A job whose
   processes died without an exit record ends quietly with the line "Scout's command on its computer ended
-  without a result." and no wake-up. A job that runs past two hours is not ended: it stays running, marked
-  `computerBackground`. A job a call is waiting on is never checked twice. Each job runs in its own
+  without a result." and no wake-up. A job still running at two hours (`MAX_RUN_MS` in
+  `server/laterdog/computer-runs.ts`) is stopped by the first check after that which can read its computer:
+  the watch stops its process group and ends it as `overdue`, keeping whether the stop left nothing running
+  (`gone`), left part of it running (`partial`) or failed (`alive`). The dog is not woken for it, and the chat
+  gets one line, "notice: Scout's command was stopped after 2 hours. Scout was not woken for it."; when the stop
+  failed, the line says later.dog could not stop it, no longer watches it, and it ends when the computer
+  next goes to sleep. Until that check, and for as long as its computer cannot be read (which ends the job
+  with no result after ten minutes), the job is counted in `computerBackground`. A call waiting
+  on a job past two hours stops it the same way and returns "Stopped after 2 hours." A job a call is
+  waiting on is never checked twice. Each job runs in its own
   process group, whose id is kept on the computer next to its log and exit record, and carries a marker
   its children inherit: `LATERDOG_RUN_ID` in their environment and an open lock file beside its log. When a later
   turn picks the result up by `run_id`, the call holds the job, so the chat stays running through the
@@ -120,7 +128,7 @@ Bounds, each in `server/laterdog/job-wake.ts` unless named:
   its own count.
 - Only fresh endings: an ending older than 30 minutes is not announced by a turn (`WAKE_FRESH_MS`), so one
   kept through a usage hold or an account switched off does not fire days later.
-- Never for a job that ran longer than two hours (`whyNotWoken`).
+- Never for a job that ran longer than two hours or was stopped at two hours (`whyNotWoken`).
 - Never for a chat whose latest work was a handoff for another dog that is already complete
   (`handoffWorkDone` in `server/laterdog/chat-work.ts`); the result went back with that work.
 - Never if the dog read the result itself (`ComputerJobs.ended`, from `run_on_computer`).
@@ -164,9 +172,10 @@ usage hold or a question outranks them in `work`.
 ## Words on the desktop
 
 "Running a command on its computer" (or "Running {count} commands on its computer") with a running
-timer from `computerSince`, while a chat runs only because of computer jobs. A job past two hours reads
-"A command is running in the background on its computer" with the same timer, which counts in minutes
-and seconds (for example "134m 05s"). Keys `work.computerJob`, `work.computerJobs`,
+timer from `computerSince`, while a chat runs only because of computer jobs. A job past two hours that
+has not been stopped yet reads "A command is running in the background on its computer" with the same
+timer, which counts in minutes and seconds (for example "120m 25s"). That shows only until the next check
+stops the job, or while its computer cannot be read, which ends the job with no result after ten minutes. Keys `work.computerJob`, `work.computerJobs`,
 `work.computerBackground` and `work.computerBackgroundMany` are English only; other languages fall back
 until their packs are drafted with `node scripts/generate-locale.mjs <locale>`.
 
@@ -190,7 +199,8 @@ until their packs are drafted with `node scripts/generate-locale.mjs <locale>`.
   carries the job count.
 - For words, the phone reads `work.kind === "running"` with `work.computerJobs` (a count, present only
   when no turn runs) and `work.computerSince` (milliseconds since the epoch), and `work.computerBackground` (how many of them
-  have run past two hours, to show quietly), and says "Running a command
+  have passed two hours and are waiting for the next check to stop them, or are on a computer that cannot
+  be read, to show quietly), and says "Running a command
   on its computer" or "Running {count} commands on its computer" with a timer from `computerSince`. Lines
   with `tool.pickup === "computer"` are pickup lines like `"restart"` and `"watch"`.
 
