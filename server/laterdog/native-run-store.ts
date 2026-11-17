@@ -39,6 +39,7 @@ export function deleteNativeRuns(database: DatabaseSync, threadId: string): void
   database.prepare("DELETE FROM native_run_retention WHERE thread_id = ?").run(threadId);
 }
 
+const openState = (state: NativeRun["state"]): boolean => state === "running" || state === "waiting" || state === "paused";
 const readRun = (database: DatabaseSync, id: string): NativeRun | undefined => {
   const row = database.prepare("SELECT json FROM native_runs WHERE id = ?").get(id) as { json: string } | undefined;
   return row ? JSON.parse(row.json) as NativeRun : undefined;
@@ -157,17 +158,20 @@ export class NativeRunStore {
     }
   }
 
-  recoverInterrupted(): void {
+  recoverInterrupted(now = Date.now()): void {
     this.access.write(database => {
-      const rows = database.prepare("SELECT json FROM native_runs WHERE json_extract(json, '$.observation') = 'live'").all() as Array<{ json: string }>;
+      const rows = database.prepare("SELECT json FROM native_runs WHERE json_extract(json, '$.observation') = 'live' OR json_extract(json, '$.state') IN ('running', 'waiting', 'paused')").all() as Array<{ json: string }>;
       const threads = new Set<string>();
       for (const row of rows) {
         const run = JSON.parse(row.json) as NativeRun;
         threads.add(run.threadId);
-        run.observation = "interrupted";
+        if (run.observation === "live") run.observation = "interrupted";
         run.currentActivity = undefined;
         run.revision += 1;
-        run.actors = run.actors.map(actor => ({ ...actor, canStop: false }));
+        if (openState(run.state)) { run.state = "stopped"; run.endedAt ??= now; }
+        run.actors = run.actors.map(actor => openState(actor.state)
+          ? { ...actor, state: "stopped", endedAt: actor.endedAt ?? now, canStop: false }
+          : { ...actor, canStop: false });
         saveRun(database, run);
         database.prepare("UPDATE native_runs SET sealed = 1 WHERE id = ?").run(run.id);
         database.prepare("DELETE FROM native_run_events WHERE run_id = ?").run(run.id);

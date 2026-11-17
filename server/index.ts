@@ -719,6 +719,9 @@ import { roomIdentityPrompt } from "./laterdog/room-prompt.ts";
 import { groupChatsOf } from "./laterdog/group-chats.ts";
 import { groupRoutineReply, SILENT_GROUP_ROUTINE } from "./laterdog/group-routine-reply.ts";
 import { botNames, dogActivityWords, teammateDoneLabel, teammateResultLabel } from "./laterdog/activity-words.ts";
+import { dropContinuation } from "./laterdog/dropped-continuation.ts";
+import { ENDED_REQUEST, endedRequestIds } from "./laterdog/request-fences.ts";
+import { createdDogModel } from "./laterdog/created-dog-model.ts";
 import { INCLUDED_AI_INSTANCE, INCLUDED_AI_INSTANCES } from "./laterdog/included-ai.ts";
 import { createPhonePush } from "./laterdog/phone-push.ts";
 import { cloudEmailDelivery } from "./laterdog/email-me.ts";
@@ -2580,6 +2583,7 @@ function settleDirectCoordination(generation: string | undefined, outcome: Direc
   directCoordinationSettlers.delete(generation);
   settle?.(outcome);
 }
+const droppedContinuations = { settle: (generation: string, outcome: DirectTurnOutcome) => settleDirectFollowup(generation, outcome), log: (line: string) => console.info(line) };
 function settleDirectFollowup(generation: string | undefined, outcome: DirectTurnOutcome = { ok: false, text: "The coordinated turn was interrupted" }): void {
   if (!generation) return;
   settleDirectCoordination(generation, outcome);
@@ -5199,6 +5203,9 @@ function guardedRequestSnapshot(botId: string, threadId: string, sendId: string)
 function settleTrackedRequest(threadId: string): void {
   const owner = directRequestOwners.get(threadId);
   const bot = store.botByThread(threadId);
+  if (owner && bot && !threadBusy(bot.id, threadId) && !roomHandoffs.activeDirect(threadId) && !batteryContinuationPending(threadId) && !limitHold.holds(threadId)) {
+    for (const id of endedRequestIds(store.messagesFor(threadId), owner?.stopped ? undefined : owner?.messageId)) store.patchMessage(threadId, id, ENDED_REQUEST);
+  }
   if (!owner?.messageId || owner.stopped || !bot || threadBusy(bot.id, threadId) || roomHandoffs.activeDirect(threadId)) return;
   if ([...roomHandoffs.nodes.values()].some(node => !node.parentId && node.threadId === threadId &&
       owner.generations.has(node.id) && node.status !== "completed")) return;
@@ -6768,6 +6775,10 @@ function automaticallyCarriesOn(event: RuntimeEvent): boolean {
   return Boolean(input && carriesOn(input));
 }
 
+function chatWaitsForAccount(threadId: string): boolean {
+  return limitHold.holds(threadId) || batteryContinuationPending(threadId);
+}
+
 function batteryContinuationPending(threadId: string): boolean {
   return accountBattery.enabled && !directRequestOwners.get(threadId)?.stopped &&
     accountBattery.pending(threadId, directTurnGenerationByThread.get(threadId));
@@ -6789,11 +6800,12 @@ function continueOnNextAccount(threadId: string, turnId: string | undefined, gen
     const owner = store.botByThread(threadId);
     const turn = accountBattery.keptTurn(threadId, generation);
     if (!owner || !turn?.rerun || directTurnGenerationByThread.get(threadId) !== generation) {
-      console.info(`token battery: ${threadId} continuation superseded`);
+      if (!owner || directTurnGenerationByThread.get(threadId) !== generation) dropContinuation(droppedContinuations, threadId, generation, "superseded");
+      else console.info(`token battery: ${threadId} continuation already taken`);
       return;
     }
     if (directRequestOwners.get(threadId)?.stopped || !accountBattery.enabled) {
-      console.info(`token battery: ${threadId} continuation cancelled`);
+      dropContinuation(droppedContinuations, threadId, generation, "cancelled");
       limitHold.release(threadId);
       return;
     }
@@ -6831,7 +6843,7 @@ function continueOnNextAccount(threadId: string, turnId: string | undefined, gen
       store.appendMessage(threadId, { role: "bot", kind: "activity",
         tool: failedTurnTool(`Could not continue on ${name(next.to)}: ${error instanceof Error ? error.message : String(error)}`) });
     });
-  }).catch((error) => console.warn(`token battery: ${threadId} continuation failed: ${error instanceof Error ? error.message : String(error)}`));
+  }).catch((error) => dropContinuation(droppedContinuations, threadId, generation, "failed", error instanceof Error ? error.message : String(error)));
 }
 
 function carryOnInput(threadId: string): (CarryOnInput & { botId: string }) | undefined {
@@ -7592,7 +7604,10 @@ bus.subscribe(guardTurnEnd((event: RuntimeEvent) => {
             releaseLocalVmThread(event.threadId);
           }
           releaseTurnResources(resourceOwner);
-          if (!isCurrent()) return;
+          if (!isCurrent()) {
+            if (nextAccount) dropContinuation(droppedContinuations, event.threadId, generation, "superseded");
+            return;
+          }
           if (store.taskByThread(bot.id, event.threadId)?.activity !== "dead") {
             store.setTaskActivity(bot.id, event.threadId, resourceOwner?.computerParkedOn !== undefined ? "parked.computer" : "idle");
           }
@@ -8010,7 +8025,7 @@ function drainQueuedSends() {
       }).catch(reject);
     }),
     (botId, threadId) => threadBusy(botId, threadId) || botAtThreadCapacity(botId) || Boolean(activeGroupTurnForBot(botId))
-      || parksBehindCoordination(botId, threadId) || limitHold.holds(threadId) || batteryContinuationPending(threadId) || heldForSwitchedOff(threadId),
+      || parksBehindCoordination(botId, threadId) || chatWaitsForAccount(threadId) || heldForSwitchedOff(threadId),
   );
 }
 
@@ -8629,7 +8644,7 @@ async function startTurn(
       messageId: (opts?.cardContinuation ? undefined : requestMessageId) ?? routineTurnOwners.get(threadId)?.messageId });
   }
   const foreignTurn = Boolean(CLOUD_HOME) && cloudHomeLendingRefusal(cloudLendingTurn({ botId, threadId, generation: dispatchClaimId })) !== null;
-  const pendingSource = requestMessageId ?? store.activePath(threadId).findLast(message => message.role === "user")?.id;
+  const pendingSource = requestMessageId ?? (opts?.coordination ? undefined : store.activePath(threadId).findLast(message => message.role === "user")?.id);
   if (pendingSource) store.patchMessage(threadId, pendingSource, { requestPending: true });
   for (const old of takenOver(directFollowupSettlers, directCoordinationSettlers, threadId, opts?.coordination?.settle)) {
     settleDirectCoordination(old, { ok: false, text: takenOverText(lastWords(store.messagesFor(threadId))) });
@@ -15256,7 +15271,11 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         }
         let selection: ModelSelection;
         if (body.modelSelection === undefined) {
-          selection = onCreatorsAccount(await defaultSelection(), creator, fromThreadId);
+          const chat = store.projectBotForTask(creator.id, fromThreadId) ?? creator;
+          const engine = registry.get(chat.modelSelection.instanceId);
+          const helperTier = createdDogModel({ selection: chat.modelSelection, driverKind: engine?.driverKind, helperModel: chat.helperModel ?? creator.helperModel,
+            offered: engine?.models.options ?? [] });
+          selection = helperTier && (!hostedModels || hostedModels.allows(helperTier)) ? helperTier : onCreatorsAccount(await defaultSelection(), creator, fromThreadId);
         } else {
           const checked = checkedModelSelection(body.modelSelection, undefined, true);
           if (!checked.ok) return json(res, checked.status, { error: checked.error });

@@ -23,6 +23,7 @@ export const END_STATES: Readonly<Record<ExchangeEnd, TeamState>> = {
   ceiling: "Reached the longest a task runs alone",
   origin: "Never got started",
   limit: "Too many requests to the team",
+  "team-limit": "Too many requests to the team",
   restart: "Stopped when later.dog restarted",
   problem: "Couldn't finish",
   home: "Stopped without finishing",

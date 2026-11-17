@@ -130,7 +130,7 @@ describe("durable native execution", () => {
     const run = projector.observe(observed({ kind: "actor", actor: actor("worker") }))!;
     const reopened = new NativeRunStore(access);
     reopened.recoverInterrupted();
-    expect(reopened.detail("chat", run.id)!.run).toMatchObject({ observation: "interrupted", state: "running" });
+    expect(reopened.detail("chat", run.id)!.run).toMatchObject({ observation: "interrupted", state: "stopped" });
     expect(reopened.get(run.id)!.actors.every(row => row.canStop === false)).toBe(true);
   });
 

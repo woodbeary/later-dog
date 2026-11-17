@@ -17,7 +17,7 @@ describe("handoff end words", () => {
     expect(plainDuration(1_000)).toBe("under a minute");
   });
   it("never blames the person for time running out and never says user", () => {
-    for (const end of ["api", "interrupted", "deleted", "idle", "capped", "origin", "limit", "restart", "problem", "timeout", "ceiling"] as const) {
+    for (const end of ["api", "interrupted", "deleted", "idle", "capped", "origin", "limit", "team-limit", "restart", "problem", "timeout", "ceiling"] as const) {
       expect(endWords(end, limits)).not.toMatch(/stopped by|the user|\buser\b/i);
     }
     expect(endWords("capped", limits)).toBe("Ran out of time after 4 hours.");
@@ -47,6 +47,13 @@ describe("handoff end words", () => {
     expect(teammateEndLabel("Scout", "failed", "timeout")).toBe("Scout ran out of time");
     expect(teammateEndLabel("Scout", "failed", "ceiling")).toBe("Scout ran out of time");
     expect(teammateEndLabel("Scout", "failed", undefined)).toBe("Scout couldn't finish");
+  });
+  it("says a room goal's time limit as time running out, and keeps the team's own limit words for the team cap", () => {
+    expect(endWords("limit", limits)).toBe("The room goal reached its time limit, so later.dog stopped this.");
+    expect(endWords("limit", limits)).not.toMatch(/team|not started/i);
+    expect(teammateEndLabel("Scout", "cancelled", "limit")).toBe("Scout ran out of time");
+    expect(endWords("team-limit", limits)).toBe("Not started: the team reached its limit for one task.");
+    expect(teammateEndLabel("Scout", "failed", "team-limit")).toBe("Scout not started: the team reached its limit");
   });
 });
 

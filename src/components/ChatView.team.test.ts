@@ -276,12 +276,12 @@ describe("a turn's hand-outs as one team block", () => {
   });
 
   it("has plain words for every way the home can end a request", () => {
-    const ends: ExchangeEnd[] = ["person", "api", "interrupted", "deleted", "idle", "capped", "origin", "limit", "restart", "problem", "timeout", "ceiling", "home"];
+    const ends: ExchangeEnd[] = ["person", "api", "interrupted", "deleted", "idle", "capped", "origin", "limit", "team-limit", "restart", "problem", "timeout", "ceiling", "home"];
     expect(Object.keys(END_STATES).sort()).toEqual([...ends].sort());
     expect(Object.fromEntries(ends.map((end) => [end, endState(end)]))).toEqual({
       person: "Stopped by you", api: "Stopped by a local tool", interrupted: "Was interrupted", deleted: "The chat that asked was deleted",
       idle: "Nothing moved for too long", capped: "Ran out of time", timeout: "Timed out twice", ceiling: "Reached the longest a task runs alone",
-      origin: "Never got started", limit: "Too many requests to the team", restart: "Stopped when later.dog restarted", problem: "Couldn't finish",
+      origin: "Never got started", limit: "Too many requests to the team", "team-limit": "Too many requests to the team", restart: "Stopped when later.dog restarted", problem: "Couldn't finish",
       home: "Stopped without finishing",
     });
     expect(endState("something-new")).toBe("Couldn't finish");

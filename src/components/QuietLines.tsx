@@ -23,14 +23,14 @@ const stateWords = {
   Stopped: "chat.exchange.state.stopped",
 } as const satisfies Record<ExchangeState, string>;
 
-const endWords: Partial<Record<NonNullable<WireExchange["endedBy"]>, "chat.exchange.ended.person" | "chat.exchange.ended.restart" | "chat.exchange.ended.time" | "chat.exchange.ended.limit">> = {
+const endWords: Partial<Record<NonNullable<WireExchange["endedBy"]>, "chat.exchange.ended.person" | "chat.exchange.ended.restart" | "chat.exchange.ended.time">> = {
   person: "chat.exchange.ended.person",
   restart: "chat.exchange.ended.restart",
   idle: "chat.exchange.ended.time",
   timeout: "chat.exchange.ended.time",
   ceiling: "chat.exchange.ended.time",
   capped: "chat.exchange.ended.time",
-  limit: "chat.exchange.ended.limit",
+  limit: "chat.exchange.ended.time",
 };
 
 export function ExchangeDetails({ record, id }: { record: WireExchange; id: string }) {
