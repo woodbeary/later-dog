@@ -1,6 +1,6 @@
 import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { ChevronRight } from "lucide-react";
+import { Check, ChevronRight } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { useMenuMotion } from "./MenuMotion";
 import { usePopoverDismiss } from "@/hooks/use-popover-dismiss";
@@ -144,7 +144,7 @@ export function SidebarPopoverMenu({
 
   useLayoutEffect(() => openChange.current?.(open), [open]);
   useEffect(() => {
-    if (portal && open) menuRef.current?.querySelector<HTMLElement>('[role="menuitem"]:not(:disabled)')?.focus();
+    if (portal && open) menuRef.current?.querySelector<HTMLElement>('[role^="menuitem"]:not(:disabled)')?.focus();
   }, [open, portal]);
   useLayoutEffect(() => {
     const root = rootRef.current;
@@ -161,7 +161,7 @@ export function SidebarPopoverMenu({
     if (!changed || !open) return;
     const focused = document.activeElement;
     if (focused && focused !== document.body) return;
-    menuRef.current?.querySelector<HTMLElement>('[role="menuitem"]:not(:disabled)')?.focus();
+    menuRef.current?.querySelector<HTMLElement>('[role^="menuitem"]:not(:disabled)')?.focus();
   }, [itemKeys, open]);
 
   const menu = motion.shown ? (
@@ -197,7 +197,8 @@ export function SidebarPopoverMenu({
           {item.heading && <div className="popover-menu-heading">{item.heading}</div>}
           <button
             type="button"
-            role="menuitem"
+            role={item.active === undefined ? "menuitem" : "menuitemcheckbox"}
+            aria-checked={item.active}
             data-tour={item.tourId}
             disabled={item.disabled}
             aria-haspopup={item.submenu ? "menu" : undefined}
@@ -213,14 +214,14 @@ export function SidebarPopoverMenu({
                 event.preventDefault();
                 showFlyout(item.key, 0);
                 const wrapper = event.currentTarget.parentElement;
-                setTimeout(() => wrapper?.querySelector<HTMLElement>("[data-menu-flyout] [role=\"menuitem\"]")?.focus(), 0);
+                setTimeout(() => wrapper?.querySelector<HTMLElement>("[data-menu-flyout] [role^=\"menuitem\"]")?.focus(), 0);
               }
               if (event.key === "ArrowLeft") showFlyout(null, 0);
             }}
             className={cn(
               "popover-menu-row disabled:opacity-60",
               item.action && "pr-12",
-              item.active ? "bg-menu-row text-ink" : "text-ink hover:bg-menu-row",
+              "text-ink hover:bg-menu-row",
             )}
           >
             {item.icon && (
@@ -242,6 +243,7 @@ export function SidebarPopoverMenu({
             ) : (
               <span className="flex-1 truncate">{item.label}</span>
             )}
+            {item.active && <Check size={16} aria-hidden="true" data-menu-check className="shrink-0 text-ink" />}
             {item.trailing}
             {item.submenu && <ChevronRight size={14} aria-hidden="true" className="shrink-0 text-ink-secondary" />}
             {item.attention && (
