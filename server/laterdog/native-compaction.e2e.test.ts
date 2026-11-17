@@ -97,7 +97,7 @@ it("lets Claude Code compact a long chat itself, keeps the session across a rest
   expect(f.task().usage.context).toMatchObject({ tokens: 190_000, window: 200_000 });
   expect(await f.folds()).toHaveLength(0);
   const argv = f.launchArgs();
-  expect(argv[argv.indexOf("--autocompact") + 1]).toBe("auto");
+  expect(argv[argv.indexOf("--autocompact") + 1]).toBe("280000");
   const session = f.task().resumeCursors.claude;
   expect(session).toBeTruthy();
   const prompts = f.turns().map((turn: any) => String(turn.prompt.message.content));

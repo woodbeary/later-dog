@@ -1687,8 +1687,8 @@ describe("ClaudeDriver turns (fake CLI)", () => {
     expect(autoCompactWindow({})).toBe("200000");
     expect(autoCompactWindow({ LATERDOG_CLAUDE_AUTOCOMPACT: "auto" })).toBe("auto");
     expect(autoCompactWindow({ LATERDOG_CLAUDE_AUTOCOMPACT: "off" })).toBe(null);
-    expect(autoCompactWindow({}, true)).toBe("auto");
-    expect(autoCompactWindow({ LATERDOG_CLAUDE_AUTOCOMPACT: "nonsense" }, true)).toBe("auto");
+    expect(autoCompactWindow({}, true)).toBe("280000");
+    expect(autoCompactWindow({ LATERDOG_CLAUDE_AUTOCOMPACT: "nonsense" }, true)).toBe("280000");
     expect(autoCompactWindow({ LATERDOG_CLAUDE_AUTOCOMPACT: "150000" }, true)).toBe("150000");
     expect(autoCompactWindow({ LATERDOG_CLAUDE_AUTOCOMPACT: "off" }, true)).toBe(null);
   });
@@ -1703,8 +1703,8 @@ describe("ClaudeDriver turns (fake CLI)", () => {
 
   it.each([
     ["2.1.310", "200000", 200_000],
-    ["2.1.311", "auto", undefined],
-    ["2.1.316", "auto", undefined],
+    ["2.1.311", "280000", 280_000],
+    ["2.1.316", "280000", 280_000],
   ] as const)("gives Claude %s the compaction window %s on turns and one-shot launches", async (version, window, bound) => {
     const dump = join(scratch, `window-${version}.json`);
     await create(undefined, { FAKE_CLAUDE_DUMP: dump, FAKE_CLAUDE_VERSION: version });
@@ -1721,7 +1721,10 @@ describe("ClaudeDriver turns (fake CLI)", () => {
   it.each([
     ["a configured window", { LATERDOG_CLAUDE_AUTOCOMPACT: "300000" }, {}, 300_000],
     ["compaction turned off", { LATERDOG_CLAUDE_AUTOCOMPACT: "off" }, {}, undefined],
+    ["the engine's own window", { LATERDOG_CLAUDE_AUTOCOMPACT: "auto" }, {}, undefined],
     ["a hosted company account", {}, { managed: true }, 200_000],
+    ["the engine's own window variable, which outranks the flag", { CLAUDE_CODE_AUTO_COMPACT_WINDOW: "150000" }, {}, 150_000],
+    ["an engine window variable later.dog cannot read", { CLAUDE_CODE_AUTO_COMPACT_WINDOW: "150k" }, {}, undefined],
   ] as const)("reports the native compaction bound for %s on a current Claude", async (_label, environment, config, bound) => {
     await create(undefined, { FAKE_CLAUDE_VERSION: "2.1.316", ...environment }, config);
     await expect(instance.adapter.nativeCompactAt!()).resolves.toBe(bound);

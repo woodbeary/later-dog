@@ -153,8 +153,8 @@ describe("one run_on_computer call with the real run store", () => {
       async exec(command, timeoutMs) {
         execs.push({ command, timeoutMs });
         if (command.startsWith("test -d")) return { exitCode: 0, stdout: "no\n", stderr: "" };
-        if (command.startsWith("cat runs/.logs/")) options.onPoll?.();
-        if (command.startsWith("cat runs/.logs/")) return { exitCode: 0, stdout: options.exitCode === undefined ? "<<<\n" : `${options.exitCode}\n<<<\nok`, stderr: "" };
+        if (command.includes("cat runs/.logs/")) options.onPoll?.();
+        if (command.includes("cat runs/.logs/")) return { exitCode: 0, stdout: options.exitCode === undefined ? "<<<\n" : `${options.exitCode}\n<<<\nok`, stderr: "" };
         if (command.includes("nohup")) return { exitCode: 0, stdout: "started\n", stderr: "" };
         return { exitCode: 0, stdout: "", stderr: "" };
       },
@@ -181,7 +181,7 @@ describe("one run_on_computer call with the real run store", () => {
     expect(launched(execs)).toBe(1);
     expect(clock.slept).toBe(110_000);
     expect(clock.at - 1_000_000).toBe(WAIT_IN_ONE_CALL_MS);
-    expect(Math.max(...execs.filter((exec) => exec.command.startsWith("cat runs/.logs/")).map((exec) => exec.timeoutMs))).toBeLessThanOrEqual(30_000);
+    expect(Math.max(...execs.filter((exec) => exec.command.includes("cat runs/.logs/")).map((exec) => exec.timeoutMs))).toBeLessThanOrEqual(30_000);
   });
 
   it("never launches the command when the turn ends while the folder is still uploading", async () => {

@@ -8,6 +8,17 @@ export function fakeContextMode(value: string | undefined): FakeContextMode {
 
 const WINDOW = 200_000;
 const BUFFER = 33_000;
+
+export interface FakeContextFrame {
+  window: number;
+  compactWindow: number;
+}
+
+export function fakeContextFrame(modelWindow: string | undefined, autocompact: string | null): FakeContextFrame {
+  const window = Number(modelWindow) > 0 ? Number(modelWindow) : WINDOW;
+  const asked = Number(autocompact);
+  return { window, compactWindow: Number.isFinite(asked) && asked > 0 ? Math.min(window, asked) : window };
+}
 const FIXED_PARTS = 3_200 + 18_000 + 2_500 + 1_200 + 900;
 const ROUGH_SYSTEM_TOOLS = 29_000;
 const ROUGH_USED = 3_200 + ROUGH_SYSTEM_TOOLS + 2_500 + 1_200 + 900;
@@ -21,8 +32,9 @@ export function fakeRequestUsage(turns: number) {
   return { input_tokens: 10, cache_read_input_tokens: request - 10, output_tokens: 5 };
 }
 
-export function fakeRoughContextUsage() {
+export function fakeRoughContextUsage(frame: FakeContextFrame = { window: WINDOW, compactWindow: WINDOW }) {
   const used = ROUGH_USED;
+  const window = frame.window;
   return {
     categories: [
       { id: "system_prompt", name: "System prompt", tokens: 3_200, color: "promptBorder", kind: "used" },
@@ -31,25 +43,25 @@ export function fakeRoughContextUsage() {
       { id: "memory_files", name: "Memory files", tokens: 1_200, color: "claude", kind: "used" },
       { id: "skills", name: "Skills", tokens: 900, color: "warning", kind: "used" },
       { id: "autocompact_buffer", name: "Autocompact buffer", tokens: BUFFER, color: "inactive", kind: "buffer" },
-      { id: "free_space", name: "Free space", tokens: WINDOW - used - BUFFER, color: "promptBorder", kind: "free" },
+      { id: "free_space", name: "Free space", tokens: window - used - BUFFER, color: "promptBorder", kind: "free" },
     ],
     totalTokens: used,
-    maxTokens: WINDOW,
-    rawMaxTokens: WINDOW,
+    maxTokens: window,
+    rawMaxTokens: window,
     autocompactSource: "model-default",
-    percentage: Math.round((used / WINDOW) * 100),
+    percentage: Math.round((used / window) * 100),
     gridRows: [],
     model: "claude-fake",
-    autoCompactThreshold: WINDOW - BUFFER,
+    autoCompactThreshold: frame.compactWindow - BUFFER,
     isAutoCompactEnabled: true,
     apiUsage: null,
   };
 }
 
-export function fakeContextUsage(turns: number) {
+export function fakeContextUsage(turns: number, frame: FakeContextFrame = { window: WINDOW, compactWindow: WINDOW }) {
   const messages = 4_000 + turns * 1_500;
   const used = FIXED_PARTS + messages;
-  const window = WINDOW;
+  const window = frame.window;
   const buffer = BUFFER;
   return {
     categories: [
@@ -73,7 +85,7 @@ export function fakeContextUsage(turns: number) {
     memoryFiles: [{ path: "/Users/fixture-person/private-project/CLAUDE.md", type: "Project", tokens: 1_200 }],
     mcpTools: [{ name: "mcp__agents__fixture_private_tool", serverName: "agents", tokens: 2_500, isLoaded: true }],
     agents: [],
-    autoCompactThreshold: window - buffer,
+    autoCompactThreshold: frame.compactWindow - buffer,
     isAutoCompactEnabled: true,
     messageBreakdown: {
       toolCallTokens: 0, toolResultTokens: 0, attachmentTokens: 0, assistantMessageTokens: messages / 2, userMessageTokens: messages / 2,
@@ -85,7 +97,7 @@ export function fakeContextUsage(turns: number) {
 
 export function answerControlRequest(
   line: unknown,
-  state: { mode: FakeContextMode; turnsPlayed: number; seenFile?: string },
+  state: { mode: FakeContextMode; turnsPlayed: number; seenFile?: string; frame?: FakeContextFrame },
   out: (message: unknown) => void,
 ): boolean {
   if (!line || typeof line !== "object" || (line as { type?: unknown }).type !== "control_request") return false;
@@ -100,7 +112,7 @@ export function answerControlRequest(
     out({ type: "control_response", response: { subtype: "error", request_id: requestId, error: "getContextUsage: no turn received yet" } });
     return true;
   }
-  const answer = request?.detail === "full" ? fakeContextUsage(state.turnsPlayed) : fakeRoughContextUsage();
+  const answer = request?.detail === "full" ? fakeContextUsage(state.turnsPlayed, state.frame) : fakeRoughContextUsage(state.frame);
   out({ type: "control_response", response: { subtype: "success", request_id: requestId, response: answer } });
   return true;
 }

@@ -64,6 +64,7 @@ export interface RunRecord {
   startedAt: number;
   sent: FolderStamps;
   reusedSetup?: boolean;
+  marked?: boolean;
 }
 
 export interface RunOutcome {
@@ -257,7 +258,7 @@ export class ComputerRuns {
     if (input.left && input.left() <= 0) throw Object.assign(new Error("the call's time ran out before the command started, so nothing was run"), { code: "window_ended" });
     const detached = `nohup bash -lc ${quote(script)} > /dev/null 2>&1 < /dev/null &`;
     must(await box.exec(`if command -v setsid > /dev/null; then setsid ${detached} else set -m; ${detached} fi; echo started`, 30_000), "starting the command");
-    const record: RunRecord = { id, botId: input.botId, key, folder: input.folder, subdir, command: input.command, startedAt: this.#now(), sent: now, ...(reusedSetup ? { reusedSetup: true } : {}) };
+    const record: RunRecord = { id, botId: input.botId, key, folder: input.folder, subdir, command: input.command, startedAt: this.#now(), sent: now, marked: true, ...(reusedSetup ? { reusedSetup: true } : {}) };
     this.#writeJson(this.#runPath(input.botId, id), record);
     input.started?.(record);
     return { ...record, sentFiles: changed.length, sentBytes };
@@ -268,10 +269,15 @@ export class ComputerRuns {
   }
 
   async poll(box: RunBox, record: RunRecord, timeoutMs = POLL_EXEC_MS): Promise<{ done: boolean; exitCode: number | null; output: string }> {
-    const result = await box.exec(`cat runs/.logs/${record.id}.exit 2>/dev/null; echo '<<<'; tail -c ${OUTPUT_TAIL_CHARS} runs/.logs/${record.id}.log 2>/dev/null`, timeoutMs);
+    const result = await box.exec(`cat runs/.logs/${record.id}.exit 2>/dev/null; echo '<<<'; cd runs/.logs 2>/dev/null && tail -c ${OUTPUT_TAIL_CHARS} ${record.id}.log 2>/dev/null`, timeoutMs);
     const [head, ...rest] = result.stdout.split("<<<\n");
     const code = head.trim();
     return { done: code !== "", exitCode: code === "" ? null : Number(code), output: rest.join("<<<\n") };
+  }
+
+  async gone(box: RunBox, record: RunRecord): Promise<boolean> {
+    if ((await this.liveness(box, record).catch(() => "unsure")) !== "dead") return false;
+    return !(await this.poll(box, record)).done;
   }
 
   async ended(box: RunBox, job: Pick<RunRecord, "botId" | "id">): Promise<{ exitCode: number; at?: number } | null> {
@@ -294,8 +300,9 @@ export class ComputerRuns {
     return said === "gone" || said === "partial" ? said : "alive";
   }
 
-  async liveness(box: RunBox, record: Pick<RunRecord, "id">): Promise<RunLiveness> {
+  async liveness(box: RunBox, record: Pick<RunRecord, "id" | "botId" | "marked">): Promise<RunLiveness> {
     if (!/^[0-9a-f]{8}$/.test(record.id)) return "unsure";
+    if (!(record.marked ?? this.record(record.botId, record.id)?.marked)) return "unsure";
     const logs = `runs/.logs/${record.id}`;
     const script = `if [ -f ${logs}.exit ]; then echo exited; exit 0; fi; ${groupOf(record.id)} `
       + `if [ -n "$pg" ] && kill -0 -- -$pg 2>/dev/null; then echo alive; exit 0; fi; left=$(${survivorsOf(record.id)}); `
@@ -312,7 +319,9 @@ export class ComputerRuns {
   async wait(box: RunBox, record: RunRecord, left: () => number = this.window()) {
     for (;;) {
       const state = await this.poll(box, record, Math.min(POLL_EXEC_MS, Math.max(LEAST_POLL_EXEC_MS, left())));
-      if (state.done || left() <= 0 || this.#now() - record.startedAt >= MAX_RUN_MS) return state;
+      if (state.done) return { ...state, lost: false };
+      if (await this.gone(box, record)) return { ...state, lost: true };
+      if (left() <= 0 || this.#now() - record.startedAt >= MAX_RUN_MS) return { ...state, lost: false };
       await this.#sleep(Math.min(POLL_MS, left()));
     }
   }
@@ -344,11 +353,13 @@ export class ComputerRuns {
 
   async finish(box: RunBox, record: RunRecord, sent = { sentFiles: 0, sentBytes: 0 }, left: () => number = this.window()): Promise<RunOutcome> {
     const state = await this.wait(box, record, left);
+    if (state.lost) return { id: record.id, state: "failed", exitCode: null, output: state.output, broughtBack: [], skipped: [], ...sent,
+      note: "It stopped before finishing and left no exit code. Run it again if you still need its result." };
     if (!state.done) {
       const overdue = this.#now() - record.startedAt >= MAX_RUN_MS;
       if (overdue) await this.stop(box, record).catch(() => "alive");
       return { id: record.id, state: overdue ? "failed" : "running", exitCode: null, output: state.output, broughtBack: [], skipped: [], ...sent,
-        note: overdue ? "Stopped after 2 hours." : `Still running. Call run_on_computer again with run_id "${record.id}" to keep waiting.` };
+        note: overdue ? "Stopped after 2 hours." : `Still running. Call run_on_computer again with run_id "${record.id}" to keep waiting. That call waits up to its wait_minutes (default 4).` };
     }
     if (left() <= 0) return { id: record.id, state: "running", exitCode: state.exitCode, output: state.output, broughtBack: [], skipped: [], ...sent,
       note: `It finished, but this call ran out of time before bringing its files back. Call run_on_computer again with run_id "${record.id}" to bring them back.` };

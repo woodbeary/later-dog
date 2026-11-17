@@ -93,6 +93,21 @@ describe("the context window row in a chat's usage", () => {
     expect(row.textContent).not.toContain("about");
   });
 
+  it("warns as the chat nears the point where its engine summarizes it, well before the window is full, and says where that is", async () => {
+    vi.mocked(api).mockResolvedValue({ ...COUNTED, total: 200_000, compactsAt: 247_000 });
+    await openPanel(chatContextReading({ tokens: 200_000, window: 1_000_000 }));
+    expect(toggle().textContent).toBe("This chat200k of 1M · 20%");
+    expect(toggle().querySelector(".text-warning")).not.toBeNull();
+    expect(host.querySelector("[data-chat-context-compacts]")!.textContent).toBe("Summarizes earlier messages at 247k");
+  });
+
+  it("keeps the usual colour and says nothing more when the engine summarizes near the end of the window", async () => {
+    vi.mocked(api).mockResolvedValue(COUNTED);
+    await openPanel(chatContextReading({ tokens: 198_100, window: 1_000_000 }));
+    expect(toggle().querySelector(".text-warning")).toBeNull();
+    expect(host.querySelector("[data-chat-context-compacts]")).toBeNull();
+  });
+
   it("lists the parts largest first when opened, folding the small ones and keeping tools not loaded apart", async () => {
     vi.mocked(api).mockResolvedValue(COUNTED);
     await openPanel(chatContextReading({ tokens: 198_100, window: 1_000_000 }));

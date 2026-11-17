@@ -1,5 +1,6 @@
 import { readdirSync, readFileSync, readlinkSync } from "node:fs";
-import { relative, sep } from "node:path";
+import { basename, isAbsolute, relative, sep } from "node:path";
+import { SERVER_ROOT } from "../proxy-paths.ts";
 
 const HOUR_MS = 60 * 60 * 1000;
 export const IDLE_ORPHAN_HOURS = 6;
@@ -54,10 +55,30 @@ export interface ThreadState {
   lastActiveAt: number | null;
 }
 
-const ENGINE = /(?:^|[\s/])(?:claude|codex|opencode|cursor-agent|grok)(?:\s|$)|harness-mcp-proxy|mcp-gate|permission-proxy|agents-proxy|mcp\.js|laterdog-dev-server|\/laterdog\/|cloudchamber/;
+const ENGINE_PROGRAMS: ReadonlySet<string> = new Set(["claude", "codex", "opencode", "cursor-agent", "grok", "cloudchamber"]);
+const SCRIPT_RUNNERS: ReadonlySet<string> = new Set(["node", "nodejs", "bun", "tsx"]);
+const RUNNER_FLAGS_WITH_VALUE: ReadonlySet<string> = new Set(["-r", "--require", "--import", "--loader", "--experimental-loader", "--conditions", "-C", "--title", "--input-type"]);
+const PUSHED_SERVER = /(?:^|\/)laterdog-dev-server\//;
+const IMAGE_SERVER = "/app/dist-server/";
 
-export function isEngineProcess(argv: string): boolean {
-  return ENGINE.test(argv);
+export function programOf(argv: string): string {
+  const words = argv.trim().split(/\s+/);
+  const executable = words[0] ?? "";
+  if (!SCRIPT_RUNNERS.has(basename(executable))) return executable;
+  for (let index = 1; index < words.length; index += 1) {
+    const word = words[index]!;
+    if (RUNNER_FLAGS_WITH_VALUE.has(word)) index += 1;
+    else if (!word.startsWith("-")) return word;
+  }
+  return executable;
+}
+
+export function isEngineProcess(argv: string, serverRoot = SERVER_ROOT): boolean {
+  const program = programOf(argv);
+  if (ENGINE_PROGRAMS.has(basename(program).replace(/\.(?:exe|[cm]?js|ts)$/, ""))) return true;
+  if (!isAbsolute(program)) return false;
+  const inside = relative(serverRoot, program);
+  return PUSHED_SERVER.test(program) || program.startsWith(IMAGE_SERVER) || program.includes("/cloudchamber/") || (inside !== "" && !inside.startsWith("..") && !isAbsolute(inside));
 }
 
 export function workspaceThread(cwd: string, roots: readonly string[]): { botId: string; threadId: string } | null {

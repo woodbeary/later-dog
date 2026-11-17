@@ -1,5 +1,5 @@
 export function isPoll(command: string): boolean {
-  return command.includes("cat runs/.logs/");
+  return /cat runs\/\.logs\/[0-9a-f]+\.exit/.test(command);
 }
 
 export function pollAnswer(command: string, exitCode: number | null, log: string): string {

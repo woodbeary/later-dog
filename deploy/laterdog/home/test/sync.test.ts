@@ -11,7 +11,7 @@ function memoryStore() {
   const blobs = new Map<string, Uint8Array>();
   const kept = new Map<string, unknown>();
   let manifest: unknown = null;
-  const counts = { puts: 0, manifests: 0 };
+  const counts = { puts: 0, manifests: 0, checks: 0 };
   return {
     blobs,
     kept,
@@ -24,6 +24,7 @@ function memoryStore() {
       manifest = next;
     },
     async has(hash: string) {
+      counts.checks += 1;
       return blobs.has(hash);
     },
     async get(hash: string) {
@@ -319,6 +320,23 @@ describe("home data sync", () => {
     expect(store.counts.puts).toBe(3);
   });
 
+  it("asks the store about a piece only when neither the last save nor this one already stored it", async () => {
+    const source = folder();
+    for (const name of ["a.txt", "b.txt", "c.txt", "d.txt"]) writeFileSync(join(source, name), "the same words in four files");
+    writeFileSync(join(source, "notes.txt"), "notes kept from before");
+    const store = memoryStore();
+    const first = await snapshot(source, store, null, { scratch: folder() });
+    expect(store.counts).toMatchObject({ checks: 2, puts: 2 });
+    writeFileSync(join(source, "copy.txt"), "notes kept from before");
+    writeFileSync(join(source, "a.txt"), "the same words in four files, and one more");
+    store.counts.checks = 0;
+    store.counts.puts = 0;
+    const second = await snapshot(source, store, first.manifest, { scratch: folder() });
+    expect(second.uploaded).toBe(2);
+    expect(store.counts).toMatchObject({ checks: 1, puts: 1 });
+    expect(second.unsaved).toEqual([]);
+  });
+
   it("keeps saving the rest of the home when one new file cannot be uploaded, and tries it again next time", async () => {
     const source = folder();
     writeFileSync(join(source, "chats.json"), "the chats");
@@ -333,11 +351,28 @@ describe("home data sync", () => {
     const first = await snapshot(source, store, null, { scratch: folder() });
     expect(first.written).toBe(true);
     expect(first.unsaved).toEqual(["stuck.bin"]);
+    expect(first.unsavedReason).toBe("TimeoutError");
     expect(first.manifest.entries.map((entry: { path: string }) => entry.path)).toEqual(["chats.json"]);
     refuse = false;
     const second = await snapshot(source, store, first.manifest, { scratch: folder() });
     expect(second.unsaved).toEqual([]);
     expect(second.manifest.entries.map((entry: { path: string }) => entry.path).sort()).toEqual(["chats.json", "stuck.bin"]);
+  });
+
+  it("logs why an upload failed as a word a person can look up, for a timeout, a dropped connection and a refusal", async () => {
+    const reasonFor = async (failing: (init: RequestInit) => Promise<Response>) => {
+      const source = folder();
+      writeFileSync(join(source, "notes.txt"), "words that will not upload");
+      const store = createHttpStore("https://state.invalid/home", "test-token", async (url: string, init: RequestInit = {}) => {
+        if (init.method === "HEAD") return new Response(null, { status: 404 });
+        if (init.method === "PUT" && url.includes("blobs/")) return failing(init);
+        return new Response(null, { status: 201 });
+      }, { uploadTimeoutMs: 20, requestTimeoutMs: 1000 });
+      return (await snapshot(source, store, null, { scratch: folder() })).unsavedReason;
+    };
+    await expect(reasonFor((init) => new Promise((_, reject) => init.signal!.addEventListener("abort", () => reject(init.signal!.reason))))).resolves.toBe("TimeoutError");
+    await expect(reasonFor(async () => { throw Object.assign(new TypeError("fetch failed"), { cause: Object.assign(new Error("read ECONNRESET"), { code: "ECONNRESET" }) }); })).resolves.toBe("ECONNRESET");
+    await expect(reasonFor(async () => new Response(null, { status: 503 }))).resolves.toBe("blob write failed: 503");
   });
 
   it("never saves pnpm's package store, which one install fills with tens of thousands of files", async () => {

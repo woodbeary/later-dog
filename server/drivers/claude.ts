@@ -265,8 +265,15 @@ export function autoCompactWindow(env: NodeJS.ProcessEnv, tuned = false): string
   if (raw === "off") return null;
   if (raw === "auto") return "auto";
   const parsed = raw ? Number(raw) : NaN;
-  if (!Number.isFinite(parsed) || parsed <= 0) return tuned ? "auto" : String(STANDARD_WINDOW_TOKENS);
+  if (!Number.isFinite(parsed) || parsed <= 0) return String(tuned ? DOG_COMPACT_WINDOW_TOKENS : STANDARD_WINDOW_TOKENS);
   return String(Math.min(1_000_000, Math.max(100_000, Math.floor(parsed))));
+}
+
+export function nativeCompactWindow(env: NodeJS.ProcessEnv, tuned = false): number | undefined {
+  const own = (env.CLAUDE_CODE_AUTO_COMPACT_WINDOW ?? "").trim();
+  if (own) return /^\d+$/.test(own) && Number(own) > 0 ? Number(own) : undefined;
+  const window = autoCompactWindow(env, tuned);
+  return window && /^\d+$/.test(window) ? Number(window) : undefined;
 }
 
 export const CLAUDE_TUNED_WINDOW_FLOOR: ClaudeCliVersion = [2, 1, 311];
@@ -276,6 +283,7 @@ export function claudeKeepsTunedWindow(version: ClaudeCliVersion | null, managed
 }
 
 const STANDARD_WINDOW_TOKENS = 200_000;
+export const DOG_COMPACT_WINDOW_TOKENS = 280_000;
 
 export const CLAUDE_FLAG_FLOORS = {
   "--strict-mcp-config": [1, 0, 60],
@@ -2435,8 +2443,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
         nativeCompactAt: async () => {
           const env = environment();
           await learnCliFlags(env);
-          const window = Number(autoCompactWindow(env, claudeKeepsTunedWindow(cliVersion, config.managed)));
-          return window > 0 ? window : undefined;
+          return nativeCompactWindow(env, claudeKeepsTunedWindow(cliVersion, config.managed));
         },
         stopAll: async () => {
           for (const controller of starting.values()) controller.abort();
