@@ -58,4 +58,8 @@ describe("the quiet colours on the desktop", () => {
       }
     }
   });
+
+  it("draws the person's bubble in one neutral colour, never tinted by the dog", () => {
+    expect(css).not.toContain("data-dog-tint");
+  });
 });
