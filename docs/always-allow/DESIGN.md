@@ -10,10 +10,12 @@ Revision 4 removes rather than patches. Review 3 showed that "a remote server by
 
 **What is left: the same web search with the same words.** Nothing else offers Always. On My Cloud in Ask, Auto and Full you see no search card today, because your own dogs run in owner-auto there and auto answers searches.
 
-**J0. What item 16 delivers, against your rule. Three choices; this is yours to decide.**
+**J0. What item 16 delivers, against your rule. Three choices; decided: (a).**
 - **(a) Recommended: build the fixes and the list, with Always only on the same search.** You get: 207's promise holds over every old grant (the order fix); the engine no longer widens a chat by itself ("Allow for this chat" goes); the old grants that leak stop answering (J2, your choice per grant); one list, Always allowed, where you see and remove every grant a dog holds. The allow rule stays in code as the one door: a later kind gets Always only by passing its tests and its own attack review.
 - **(b) No Always button anywhere:** the fixes and the list only. Smallest to build; your rule then holds nowhere.
 - **(c) A wider Always:** read-only tools of remote servers, or a pinned shell command. Both are written down under "Ruled out for now" with what each would need and what each still cannot see.
+
+Decided on 16 November 2026 by the Claude Code session on Jacob's Mac, acting on Jacob's standing instruction to settle engineering and safety questions by best practice and report them: (a). Jacob can reverse it.
 
 ## The allow rule, as tests on the request
 
@@ -51,13 +53,17 @@ The new store is keyed by the dog's id, so a dog-made dog (a new, random id) inh
 
 A search card appears with Auto-review on, in Custom mode, or on a shared workspace or a guest's turn.
 
-## For Jacob to decide (each with a recommendation)
+## Decisions (each with its recommendation)
 
-**J0.** Above.
+Decided on 16 November 2026 by the Claude Code session on Jacob's Mac, acting on Jacob's standing instruction to settle engineering and safety questions by best practice and report them: J0 (a), J1, J2-a to J2-e, J3 and J4, each as recommended. Jacob did not decide them in his own words, and he can reverse any of them.
+
+**J0.** Above: (a).
 
 **J4. Anything whose effect depends on state the home cannot see gets no Always**: shell, file edits, screen, browser, Mac, every server's tools, web fetches. Recommended: accept.
 
 **J1. Item 45's five kinds never offer Always.** Recommended: accept. With A4 it holds by construction, whatever 207 knows by name; in code it also needs the order fix before the old grants. The cost: each lane's push from its home clone with the checks off shows a card every time.
+
+Decided on 16 November 2026 by the Claude Code session on Jacob's Mac, acting on Jacob's standing instruction to settle engineering and safety questions by best practice and report them: accepted. Jacob can reverse it.
 
 **J2. Grants you already gave (restated after review 4).** Main has six lasting answers besides the engine's own, plus the way a dog-made dog copies them. Two are settled by J1 itself; the rest are your choice, each its own commit, landed only if you choose it.
 
@@ -244,7 +250,7 @@ Nothing steps 1 to 5 add opens a path. These stay exactly as on main today:
 
 ## Stage three: the old grants stop (16 November)
 
-Decided on 16 November for Jacob: J0 lands as it is, and J2-a to J2-e are taken as recommended. Steps 6 to 10 are built:
+Decided on 16 November 2026 by the Claude Code session on Jacob's Mac, acting on Jacob's standing instruction to settle engineering and safety questions by best practice and report them: J0 lands as it is, and J2-a to J2-e are taken as recommended. Jacob can reverse any of them. Steps 6 to 10 are built:
 - **J2-a (step 6).** No card carries `commandAllowlist`; an answer with `rememberCommand` saves nothing and answers once; no saved rule answers a request; `POST /api/bots/:id/command-allowlist` answers `409 { error, why: "stopped" }` (`GET` and `DELETE` still work); saved rules list as `no-longer-used`.
 - **J2-b (step 7).** The teammate card offers Allow and Deny only, with no `allowKey`; a stored `ask_bot:*` or `delegate_bot:*` key answers nothing; the grant route refuses both with 409; they list as `no-longer-used`.
 - **J2-c (step 8).** A Mac set to Always covers looking at files and reading texts only. A command, a write or delete, and a screen action ask, at most one card per kind, per message, per dog, and that card offers no Always. Where the home has just asked about the same call (207's card), the Mac adds no second card.
