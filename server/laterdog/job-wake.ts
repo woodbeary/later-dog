@@ -1,0 +1,173 @@
+import { failedTurnTool } from "../../shared/failed-turn.ts";
+import type { WireMessage } from "../../shared/wire.ts";
+import type { ComputerJobs, EndedComputerJob } from "./computer-jobs.ts";
+import { MAX_RUN_MS, type RunStop } from "./computer-runs.ts";
+
+type NewMessage = Omit<WireMessage, "id" | "at">;
+
+export const WAKES_PER_MESSAGE = 2;
+export const WAKE_FRESH_MS = 30 * 60_000;
+
+const UNREAD: Partial<Record<EndedComputerJob["end"]["how"], string>> = { asleep: "went to sleep", gone: "was removed", stopped: "went to sleep or was removed" };
+const ENDED_WORDS: Partial<Record<EndedComputerJob["end"]["how"], string>> = { finished: "finished", failed: "failed", lost: "ended without a result" };
+
+type Said = "ended" | RunStop;
+
+function said(job: EndedComputerJob): Said {
+  return job.end.how === "overdue" ? job.end.stop ?? "gone" : "ended";
+}
+
+function sameWords(jobs: readonly EndedComputerJob[]): EndedComputerJob[][] {
+  const groups = new Map<Said, EndedComputerJob[]>();
+  for (const job of jobs) groups.set(said(job), [...(groups.get(said(job)) ?? []), job]);
+  return [...groups.values()];
+}
+
+function overduePhrase(name: string, stop: RunStop, count: number): string {
+  if (count > 1) {
+    if (stop === "alive") return `${name}'s ${count} commands ran past 2 hours and later.dog could not stop them. later.dog is no longer watching them; they end when ${name}'s computer next goes to sleep`;
+    return `${name}'s ${count} commands were stopped after 2 hours${stop === "partial" ? ", but part of them may still be running" : ""}`;
+  }
+  if (stop === "alive") return `${name}'s command ran past 2 hours and later.dog could not stop it. later.dog is no longer watching it; it ends when ${name}'s computer next goes to sleep`;
+  return `${name}'s command was stopped after 2 hours${stop === "partial" ? ", but part of it may still be running" : ""}`;
+}
+
+function overdueGroup(jobs: readonly EndedComputerJob[]): RunStop | null {
+  const first = said(jobs[0]!);
+  return first !== "ended" && jobs.every((job) => said(job) === first) ? first : null;
+}
+
+function endedPhrase(name: string, jobs: readonly EndedComputerJob[]): string {
+  const stop = overdueGroup(jobs);
+  if (stop) return overduePhrase(name, stop, jobs.length);
+  if (jobs.length > 1) return `${name}'s ${jobs.length} commands ended`;
+  const how = jobs[0]!.end.how;
+  const unread = UNREAD[how];
+  return unread ? `${name}'s computer ${unread} before later.dog could read the result of its command` : `${name}'s command ${ENDED_WORDS[how]}`;
+}
+
+export function jobWakeLine(name: string, jobs: readonly EndedComputerJob[]): string {
+  return `${endedPhrase(name, jobs)}, so it is carrying on.`;
+}
+
+export function jobNotWokenLine(name: string, jobs: readonly EndedComputerJob[]): string {
+  return `${endedPhrase(name, jobs)}. ${name} was not woken for ${jobs.length > 1 && overdueGroup(jobs) ? "them" : "it"}.`;
+}
+
+export function jobLostLine(name: string, jobs: readonly EndedComputerJob[]): string {
+  return jobs.length === 1 ? `${name}'s command on its computer ended without a result.` : `${name}'s ${jobs.length} commands on its computer ended without a result.`;
+}
+
+export function jobWakeFailedLine(name: string): string {
+  return `${name} could not carry on after its command ended. Send a message to carry on.`;
+}
+
+export function notWokenTool(name: string, ended: readonly EndedComputerJob[], why: NotWoken): { name: string; ok: true; pickup: "computer" } {
+  return { name: `notice: ${why === "lost" ? jobLostLine(name, ended) : jobNotWokenLine(name, ended)}`, ok: true, pickup: "computer" };
+}
+
+function endedHow(job: EndedComputerJob): string {
+  const { how, exitCode } = job.end;
+  const unread = UNREAD[how];
+  if (unread) return `could not be read: your cloud computer ${unread} before later.dog could read the result`;
+  return `${how === "finished" ? "finished" : "failed"} with exit code ${exitCode}`;
+}
+
+export function jobWakePrompt(jobs: readonly EndedComputerJob[]): string {
+  const lines = jobs.map((job) => `- \`${job.command.slice(0, 200)}\` ${endedHow(job)}. Read its result with run_on_computer and run_id "${job.id}".`);
+  return `[A command you started on your cloud computer ended after your turn did. This note is from later.dog, not typed by the person.\n${lines.join("\n")}\nRead the result, then carry on with the person's request and finish with one clear answer.]`;
+}
+
+export function fromPerson(message: WireMessage): boolean {
+  return message.role === "user" && message.kind === "text" && !message.from && !message.peerAsk && !message.peerPost && !message.comm
+    && !message.roomRequest && !message.handoffId && !message.webhookPost && !message.ownersRoutine && !message.routineRun;
+}
+
+export function wakesSincePerson(path: readonly WireMessage[]): number {
+  let count = 0;
+  for (let index = path.length - 1; index >= 0; index -= 1) {
+    const message = path[index]!;
+    if (fromPerson(message)) break;
+    if (message.tool?.pickup === "computer" && message.tool.ok === true && message.tool.name.startsWith("recovery:")) count += 1;
+  }
+  return count;
+}
+
+export type NotWoken = "lost" | "stale" | "long" | "handoff" | "bound";
+
+export function whyNotWoken(job: EndedComputerJob, now: number): NotWoken | null {
+  if (job.end.how === "lost") return "lost";
+  if (now - job.end.at > WAKE_FRESH_MS) return "stale";
+  if (job.end.how === "overdue" || job.end.at - job.startedAt > MAX_RUN_MS) return "long";
+  return null;
+}
+
+export interface JobWakeHost {
+  dog(threadId: string): { botId: string; name: string } | null;
+  free(botId: string, threadId: string): boolean;
+  path(threadId: string): readonly WireMessage[];
+  handoffDone(threadId: string): boolean;
+  request(threadId: string): string | undefined;
+  append(threadId: string, message: NewMessage): WireMessage;
+  start(botId: string, threadId: string, prompt: string, requestMessageId: string): Promise<unknown>;
+  blocked(error: unknown): boolean;
+  now?(): number;
+  log?(line: string): void;
+}
+
+export function createJobWake(jobs: ComputerJobs, host: JobWakeHost) {
+  const starting = new Set<string>();
+  const log = host.log ?? (() => {});
+  const now = host.now ?? Date.now;
+
+  const notWoken = (threadId: string, name: string, ended: readonly EndedComputerJob[], why: NotWoken) => {
+    jobs.announced(ended.map((job) => job.id));
+    for (const group of sameWords(ended)) host.append(threadId, { role: "bot", kind: "activity", tool: notWokenTool(name, group, why) });
+    log(`job wake: ${threadId} not woken (${why}) for ${ended.map((job) => job.id).join(", ")}`);
+  };
+
+  return {
+    deliver(): string[] {
+      const byThread = new Map<string, EndedComputerJob[]>();
+      for (const job of jobs.unannounced()) byThread.set(job.threadId, [...(byThread.get(job.threadId) ?? []), job]);
+      const woken: string[] = [];
+      for (const [threadId, all] of byThread) {
+        if (starting.has(threadId)) continue;
+        const dog = host.dog(threadId);
+        if (!dog) {
+          jobs.announced(all.map((job) => job.id));
+          log(`job wake: ${threadId} is not a dog's own chat; not woken`);
+          continue;
+        }
+        const at = now();
+        const kept: EndedComputerJob[] = [];
+        for (const why of ["lost", "stale", "long"] as const) {
+          const out = all.filter((job) => whyNotWoken(job, at) === why);
+          if (out.length) notWoken(threadId, dog.name, out, why);
+        }
+        for (const job of all) if (whyNotWoken(job, at) === null) kept.push(job);
+        if (!kept.length) continue;
+        if (host.handoffDone(threadId)) { notWoken(threadId, dog.name, kept, "handoff"); continue; }
+        if (!host.free(dog.botId, threadId)) continue;
+        if (wakesSincePerson(host.path(threadId)) >= WAKES_PER_MESSAGE) { notWoken(threadId, dog.name, kept, "bound"); continue; }
+        const request = host.request(threadId);
+        starting.add(threadId);
+        woken.push(threadId);
+        log(`job wake: ${threadId} carrying on after ${kept.map((job) => job.id).join(", ")}`);
+        void host.start(dog.botId, threadId, jobWakePrompt(kept), request ?? "").then(() => {
+          jobs.announced(kept.map((job) => job.id));
+          host.append(threadId, { role: "bot", kind: "activity", tool: { name: `recovery: ${jobWakeLine(dog.name, kept)}`, ok: true, pickup: "computer" } });
+        }, (error: unknown) => {
+          if (host.blocked(error)) {
+            log(`job wake: ${threadId} waits for a free slot`);
+            return;
+          }
+          jobs.announced(kept.map((job) => job.id));
+          host.append(threadId, { role: "bot", kind: "activity", tool: { ...failedTurnTool(jobWakeFailedLine(dog.name)), pickup: "computer" } });
+          log(`job wake: ${threadId} could not carry on: ${error instanceof Error ? error.message : String(error)}`);
+        }).finally(() => starting.delete(threadId));
+      }
+      return woken;
+    },
+  };
+}

@@ -84,6 +84,7 @@ import { forgetVoiceNote, saveVoiceNote, savedVoiceNote } from "@/lib/voice-note
 import { useComposerSuggestion } from "@/lib/use-composer-suggestion";
 import { TypingGhost, TypingGhostAnnouncement } from "./TypingGhost";
 import { mentionChoicesForQuery } from "@/lib/mentions";
+import { somethingRunsFor } from "@/lib/work-state";
 import {
   COMPACT_ACTION,
   composerSlashTrigger,
@@ -139,7 +140,7 @@ export function Composer({
   const drawnDogs = useDrawnDogs();
   const busy = group ? Boolean(group.working || group.busyBotId) : Boolean(bot?.busy);
   const asking = !group && waitingOnPerson(bot);
-  const working = (busy || Boolean(bot?.waitingForTeammates)) && !asking;
+  const working = (busy || somethingRunsFor(bot)) && !asking;
   const steerInstanceId = group
     ? members?.find((member) => member.id === group.busyBotId)?.modelSelection.instanceId
     : bot?.modelSelection.instanceId;
