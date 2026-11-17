@@ -188,6 +188,9 @@ describe("a heavy command on the dog's own computer", () => {
     spawnSync("pkill", ["-f", `runs/[.]logs/${started.id}[.]log`]);
     expect(outcome.state).toBe("running");
     for (const command of commands.filter((command) => /pgrep -f /.test(command))) expect(searchesItself(command, "pgrep"), command).toBe(false);
+    const afterStart = commands.slice(commands.findIndex((command) => command.includes("nohup")) + 1);
+    expect(afterStart.length).toBeGreaterThan(0);
+    for (const command of afterStart) expect(command, command).not.toContain(`runs/.logs/${started.id}.log`);
   });
 
   it("asks whether a run is still going only while it has no exit code", async () => {
