@@ -1,5 +1,6 @@
 import { useState } from "react";
 import type { NativeActivity } from "../../shared/native-runs";
+import { copyText } from "@/lib/copy-text";
 import { PANEL_WORDS, stepDetail } from "@/lib/work-panel-model";
 
 function CopyButton({ text }: { text: string }) {
@@ -8,7 +9,7 @@ function CopyButton({ text }: { text: string }) {
     <button
       type="button"
       className="work-panel-copy"
-      onClick={() => { void navigator.clipboard?.writeText(text).then(() => setCopied(true), () => setCopied(false)); }}
+      onClick={() => { void copyText(text).then(result => setCopied(result === "copied")); }}
     >
       {copied ? PANEL_WORDS.copied : PANEL_WORDS.copy}
     </button>
