@@ -30,6 +30,7 @@ import {
   BETWEEN_DOGS,
   CHECKLIST_IN_REPLY,
   HELPER_BRIEF,
+  LONG_WORK,
   NEEDS_PERSON,
   CARD_SHOWS,
   needsPerson,
@@ -126,6 +127,15 @@ describe("the guidance every dog gets", () => {
     expect(HELPER_BRIEF).not.toMatch(/one or two sentences/);
     expect(STOP_MEANS_STOP).toMatch(/stop your helpers and background commands first, and say it has stopped only when nothing is still running/);
     expect(PRECEDENCE).toBe("A tool's description says how to use it; these instructions say when.");
+  });
+
+  it("tells every dog in three sentences to wait with one call, read parts of a file and start a long step small", () => {
+    expect(LONG_WORK.split(/(?<=\.) /)).toHaveLength(3);
+    for (const engine of ["claude", "codex", "other"] as const) expect(dogGuidance({ engine, agents: true, model: "claude-opus-5-5" })).toContain(LONG_WORK);
+    expect(LONG_WORK).toMatch(/^When your next step needs a job, wait with one call until it ends; if a person is waiting on you, wait in short calls and answer between them\./);
+    expect(LONG_WORK).toMatch(/not the whole file again/);
+    expect(LONG_WORK).toMatch(/hand the next step to a fresh helper\.$/);
+    expect(LONG_WORK).not.toMatch(/fresh turn/);
   });
 
   it("makes every dog with tools coordinate large work by itself: keep the judgment, hand off complete briefs, pick models by difficulty, check results", () => {

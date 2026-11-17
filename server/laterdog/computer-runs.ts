@@ -356,7 +356,7 @@ export class ComputerRuns {
       const overdue = this.#now() - record.startedAt >= MAX_RUN_MS;
       if (overdue) await this.stop(box, record).catch(() => "alive");
       return { id: record.id, state: overdue ? "failed" : "running", exitCode: null, output: state.output, broughtBack: [], skipped: [], ...sent,
-        note: overdue ? "Stopped after 2 hours." : `Still running. Call run_on_computer with run_id "${record.id}" within 4 minutes, doing only short work in between: your computer can go to sleep after 5 minutes without a call, which ends the run. That call waits up to 4 more minutes.` };
+        note: overdue ? "Stopped after 2 hours." : `Still running. Call run_on_computer with run_id "${record.id}" within 4 minutes, doing only short work in between: your computer can go to sleep after 5 minutes without a call, which ends the run. That call waits up to its wait_minutes (default 4).` };
     }
     if (left() <= 0) return { id: record.id, state: "running", exitCode: state.exitCode, output: state.output, broughtBack: [], skipped: [], ...sent,
       note: `It finished, but this call ran out of time before bringing its files back. Call run_on_computer again with run_id "${record.id}" to bring them back.` };

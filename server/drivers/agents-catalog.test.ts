@@ -12,14 +12,12 @@ describe("fixing a stuck dog instead of duplicating it", () => {
   });
 });
 
-describe("waiting on a run on the cloud computer", () => {
-  it("tells a dog to check back within 4 minutes, before its computer sleeps and ends the run, and that one check already waits", async () => {
+describe("waiting for a cloud computer run", () => {
+  it("says one call waits until the run ends, keeps the computer awake, and is repeated only when it comes back still running", async () => {
     const { availableTools } = await import("./agents-catalog.ts");
     const run = availableTools({ cloudHome: true } as never).find((tool) => tool.name === "run_on_computer")?.description ?? "";
-    expect(run).toContain("nothing wakes you when it ends");
-    expect(run).toContain("can go to sleep after 5 minutes without a call, which ends the run");
-    expect(run).toContain("call again with only run_id within 4 minutes");
-    expect(run).not.toContain("do your other work first");
-    expect(run).toContain("never sleep or loop before it");
+    expect(run).toContain("One call waits until the command ends, up to wait_minutes (default 4, at most 60), and a waiting call keeps your computer awake.");
+    expect(run).toContain("Only a call that comes back still running needs another: call again with only run_id within 4 minutes");
+    expect(run).not.toMatch(/call again and again|nothing wakes you|One call waits up to about 4 minutes/);
   });
 });

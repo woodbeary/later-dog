@@ -343,7 +343,7 @@ const TOOL_DEFINITIONS = [
   {
     name: "account_usage",
     description:
-      "How much each Claude and Codex plan account here has left (5-hour and 7-day use, resets) and which one this chat is on. Use it only when the person asks about usage or accounts.",
+      "How much each Claude and Codex plan account here has left (5-hour and 7-day use, resets) and which one this chat is on. Use it only when the person asks about usage or accounts. Usage never decides whether to start or continue work: a turn that hits a limit continues on another account by itself.",
     inputSchema: { type: "object", additionalProperties: false, properties: {
       refresh: { type: "boolean", description: "Fetch fresh numbers." },
     } },
@@ -389,12 +389,13 @@ const TOOL_DEFINITIONS = [
   {
     name: "run_on_computer",
     description:
-      "Run a heavy command (install, build, typecheck, test suite, browser test, media processing) on your own cloud computer so it can't freeze the home all dogs share. Copies the folder there (changes only, no node_modules or build output), runs it, brings back the files it made or changed, and shows the end of the output. Packages stay installed there between runs. One call waits up to about 4 minutes. A run still going then gives you its run_id, but nothing wakes you when it ends, and your computer can go to sleep after 5 minutes without a call, which ends the run. So call again with only run_id within 4 minutes, doing only short work in between. That call itself waits up to 4 more minutes, so never sleep or loop before it.",
+      "Run a heavy command (install, build, typecheck, test suite, browser test, media processing) on your own cloud computer so it can't freeze the home all dogs share. Copies the folder there (changes only, no node_modules or build output), runs it, brings back the files it made or changed, and shows the end of the output. Packages stay installed there between runs. One call waits until the command ends, up to wait_minutes (default 4, at most 60), and a waiting call keeps your computer awake. Only a call that comes back still running needs another: call again with only run_id within 4 minutes, since your computer can go to sleep after 5 minutes without a call.",
     inputSchema: { type: "object", additionalProperties: false, properties: {
       command: { type: "string", maxLength: 4000, description: "Shell command run with bash in the folder." },
       folder: { type: "string", description: "Absolute project folder here, e.g. /data/site. Default: your working folder." },
       subdir: { type: "string", description: "Subfolder of folder to run in." },
       run_id: { type: "string", description: "Keep waiting for a run still going." },
+      wait_minutes: { type: "integer", minimum: 1, maximum: 60, description: "How long this call may wait for the command to end. Default 4." },
     } },
   },
   {

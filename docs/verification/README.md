@@ -47,6 +47,7 @@ Use only mapped, tested commands:
 
 - [Chat turns](chat-turns.md)
 - [Conversation context compaction](context-compaction.md)
+- [Short turns: waiting, reading and helper turns](short-turns.md)
 - [What fills a chat's context window](context-breakdown.md)
 - [Work summaries and engine hooks](digests.md)
 - [Native activity and durable work receipts](native-activity.md)

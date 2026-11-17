@@ -3,7 +3,8 @@ import { lstatSync } from "node:fs";
 import { homedir } from "node:os";
 import { isAbsolute, join, normalize, relative, resolve } from "node:path";
 import type { ComputerJob, ComputerJobLedger } from "./computer-jobs.ts";
-import { ComputerRuns, WAIT_IN_ONE_CALL_MS, type RunBox, type RunOutcome, type RunRecord } from "./computer-runs.ts";
+import { ComputerRuns, type RunBox, type RunOutcome, type RunRecord } from "./computer-runs.ts";
+import { BAD_WAIT_TEXT, stillRunningTail, waitWindowMs } from "./run-wait.ts";
 
 export interface ComputerRunRequest {
   botId: string;
@@ -12,6 +13,8 @@ export interface ComputerRunRequest {
   allowedRoots: readonly string[];
   home?: string;
   active?: () => boolean;
+  maxWaitMs?: number;
+  interrupted?: () => boolean;
   threadId?: string;
 }
 
@@ -42,6 +45,15 @@ export function repositoryOf(folder: string): string | null {
 
 export const WINDOW_ENDED_TEXT = "This call's time ran out while sending the folder, before the command started, so nothing was run. Call run_on_computer again with the same folder and command; the files already sent stay on the computer.";
 export const STILL_STARTING_TEXT = "Your cloud computer is still starting, so nothing was run yet. Call run_on_computer again with the same folder and command to keep waiting.";
+export const PERSON_WROTE_TEXT = "A new message arrived while you waited, so this call stopped waiting early; the job keeps running. Answer it, then call run_on_computer again with the run_id to keep waiting.";
+export const WROTE_BEFORE_START_TEXT = "A new message arrived while the folder was being sent, so the command was not started. Answer it, then call run_on_computer again with the same folder and command; the files already sent stay on the computer.";
+export function stoppedWaitText(outcome: RunOutcome): string {
+  const still = outcome.state === "running" && outcome.exitCode === null;
+  const count = outcome.broughtBack.length;
+  const brought = `its files were brought back to your folder (${count ? `${count} changed file${count === 1 ? "" : "s"}` : "no changed files"})`;
+  const job = still ? `The job is still running on your cloud computer (run_id ${outcome.id}).` : outcome.state === "finished" ? `The job finished with exit code ${outcome.exitCode} (run_id ${outcome.id}) and ${brought}.` : outcome.exitCode !== null ? `The job had finished with exit code ${outcome.exitCode} (run_id ${outcome.id}); its files were not brought back.` : `The job stopped on your cloud computer (run_id ${outcome.id}).`;
+  return `The wait ended because this turn was stopped. ${job} Call run_on_computer with that run_id to check on it later.`;
+}
 const ENDED_TEXT = "This turn ended before the command started on the cloud computer, so nothing was run.";
 const inside = (path: string, root: string) => { const rel = relative(root, path); return rel === "" || (!rel.startsWith("..") && !isAbsolute(rel)); };
 
@@ -65,7 +77,8 @@ export function outcomeText(outcome: RunOutcome): string {
   if (outcome.broughtBack.length) lines.push(`Brought back ${outcome.broughtBack.length} file(s): ${outcome.broughtBack.slice(0, 20).join(", ")}${outcome.broughtBack.length > 20 ? ", …" : ""}.`);
   else if (outcome.state === "finished") lines.push("It changed no files here.");
   if (outcome.note) lines.push(outcome.note);
-  lines.push("", "Output (end):", outcome.output.trim() || "(none)");
+  const stillGoing = outcome.state === "running" && outcome.exitCode === null;
+  lines.push("", "Output (end):", (stillGoing ? stillRunningTail(outcome.output.trim()) : outcome.output.trim()) || "(none)");
   return lines.join("\n");
 }
 
@@ -80,7 +93,11 @@ export async function handleComputerRun(request: ComputerRunRequest, deps: Compu
   if (!folder) return { status: 400, error: "Pass folder: an existing project folder in the home, such as your working folder." };
   const subdir = typeof request.body.subdir === "string" ? request.body.subdir : undefined;
   if (subdir && !inside(join(folder, subdir), folder)) return { status: 400, error: "subdir must be inside folder." };
-  const windowMs = deps.windowMs ?? WAIT_IN_ONE_CALL_MS;
+  const asked = waitWindowMs(request.body.wait_minutes, request.maxWaitMs);
+  if (asked === null) return { status: 400, error: BAD_WAIT_TEXT };
+  const windowMs = deps.windowMs ?? asked;
+  const stopped = () => Boolean(request.active && !request.active());
+  const wrote = () => Boolean(request.interrupted?.());
   const threadId = request.threadId;
   const jobs = threadId ? deps.jobs : undefined;
   const job = (run: RunRecord): ComputerJob => ({ id: run.id, botId: run.botId, threadId: threadId!, command: run.command, startedAt: run.startedAt });
@@ -91,9 +108,9 @@ export async function handleComputerRun(request: ComputerRunRequest, deps: Compu
     const repository = record ? null : (deps.repositoryOf ?? repositoryOf)(folder);
     const now = deps.now ?? Date.now;
     const started = now();
-    const computer = await deps.computer(request.botId, { ...(repository ? { repository } : {}), ...(request.active ? { wanted: request.active } : {}), budgetMs: WAIT_IN_ONE_CALL_MS });
+    const computer = await deps.computer(request.botId, { ...(repository ? { repository } : {}), ...(request.active ? { wanted: request.active } : {}), budgetMs: windowMs });
     if (request.active && !request.active()) return { status: 409, error: ENDED_TEXT };
-    const left = () => started + WAIT_IN_ONE_CALL_MS - now();
+    const left = () => stopped() || wrote() ? 0 : started + windowMs - now();
     const within = () => Math.min(left(), started + windowMs - now());
     const outcome = record
       ? await deps.runs.finish(computer.box, record, undefined, within)
@@ -103,10 +120,12 @@ export async function handleComputerRun(request: ComputerRunRequest, deps: Compu
       if (!stillGoing) jobs.ended(outcome.id);
       else if (record) jobs.started(job(record));
     }
-    return { status: 200, text: outcomeText(outcome), failed: outcome.state === "failed" };
+    if (stopped()) return { status: 409, error: stoppedWaitText(outcome) };
+    const text = outcome.state === "running" && wrote() ? `${PERSON_WROTE_TEXT}\n${outcomeText(outcome)}` : outcomeText(outcome);
+    return { status: 200, text, failed: outcome.state === "failed" };
   } catch (error) {
     if ((error as { code?: unknown })?.code === "still_starting") return { status: 200, text: STILL_STARTING_TEXT };
-    if ((error as { code?: unknown })?.code === "window_ended") return { status: 200, text: WINDOW_ENDED_TEXT };
+    if ((error as { code?: unknown })?.code === "window_ended") return { status: 200, text: wrote() ? WROTE_BEFORE_START_TEXT : WINDOW_ENDED_TEXT };
     if ((error as { code?: unknown })?.code === "cancelled" || (request.active && !request.active())) return { status: 409, error: ENDED_TEXT };
     return { status: 502, error: error instanceof Error ? error.message : String(error) };
   } finally {

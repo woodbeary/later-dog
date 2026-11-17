@@ -170,7 +170,7 @@ describe("a heavy command on the dog's own computer", () => {
     expect(first.note).toContain("within 4 minutes");
     expect(first.note).toContain("can go to sleep after 5 minutes without a call, which ends the run");
     expect(first.note).not.toContain("do other work");
-    expect(first.note).toContain("That call waits up to 4 more minutes");
+    expect(first.note).toContain("That call waits up to its wait_minutes (default 4).");
     const record = runs.record("dog", started.id)!;
     await new Promise((done) => setTimeout(done, 2500));
     const second = await runs.finish(box, record);
