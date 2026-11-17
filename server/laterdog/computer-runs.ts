@@ -255,7 +255,7 @@ export class ComputerRuns {
     return { done: code !== "", exitCode: code === "" ? null : Number(code), output: rest.join("<<<\n") };
   }
 
-  async gone(box: RunBox, record: Pick<RunRecord, "id">): Promise<boolean> {
+  async gone(box: RunBox, record: RunRecord): Promise<boolean> {
     const said = await box.exec(`! command -v pgrep > /dev/null || pgrep -f ${quote(`runs/[.]logs/${record.id}[.]log`)} > /dev/null || [ -f runs/.logs/${record.id}.exit ] || echo gone`, POLL_EXEC_MS).catch(() => null);
     return said?.stdout.trim() === "gone";
   }
