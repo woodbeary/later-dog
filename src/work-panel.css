@@ -16,9 +16,9 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  height: 52px;
+  min-height: 52px;
   flex-shrink: 0;
-  padding: 0 52px;
+  padding: 16px 52px;
 }
 
 .work-panel-close {
@@ -41,9 +41,8 @@
 
 .work-panel-title {
   min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  text-align: center;
+  overflow-wrap: anywhere;
   font-size: 15px;
   line-height: 20px;
   font-weight: 600;
