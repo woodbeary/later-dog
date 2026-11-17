@@ -190,6 +190,31 @@ describe("a heavy command on the dog's own computer", () => {
     for (const command of afterStart) expect(command, command).not.toContain(`runs/.logs/${started.id}.log`);
   });
 
+  it("reads a run whose liveness says dead as not gone once its exit record has appeared", async () => {
+    const { state } = project();
+    const runs = new ComputerRuns(state, fast);
+    const record = { id: "abcd1234" } as RunRecord;
+    let exit = "";
+    const box = { exec: async () => ({ exitCode: 0, stdout: `${exit}<<<\nlog`, stderr: "" }), write: async () => undefined, read: async () => Buffer.alloc(0) } as RunBox;
+    runs.liveness = async () => "dead";
+    expect(await runs.gone(box, record)).toBe(true);
+    exit = "0\n";
+    expect(await runs.gone(box, record)).toBe(false);
+  });
+
+  it("never reads a run as gone when its liveness is unsure, alive or cannot be read", async () => {
+    const { state } = project();
+    const runs = new ComputerRuns(state, fast);
+    const record = { id: "abcd1234" } as RunRecord;
+    const box = { exec: async () => ({ exitCode: 0, stdout: "<<<\nlog", stderr: "" }), write: async () => undefined, read: async () => Buffer.alloc(0) } as RunBox;
+    for (const said of ["unsure", "alive", "exited"] as const) {
+      runs.liveness = async () => said;
+      expect(await runs.gone(box, record), said).toBe(false);
+    }
+    runs.liveness = async () => { throw new Error("the computer did not answer"); };
+    expect(await runs.gone(box, record)).toBe(false);
+  });
+
   it("asks whether a run is still going only while it has no exit code", async () => {
     const { folder, computer, state } = project();
     mkdirSync(computer);
