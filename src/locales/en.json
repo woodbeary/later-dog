@@ -244,6 +244,8 @@
   "approval.label.confirmRoutineChange": "Confirm this routine change",
   "approval.ask.named": "Let {name} {action}?",
   "approval.ask.unnamed": "Allow it to {action}?",
+  "approval.settled.allowed": "You allowed {name} to {action}",
+  "approval.settled.denied": "You didn't allow {name} to {action}",
   "approval.aria.pendingSkill": "Pending trick confirmation",
   "approval.aria.pendingRoutine": "Pending routine confirmation",
   "approval.aria.pendingProfile": "Pending profile confirmation",

@@ -220,3 +220,83 @@
   cursor: not-allowed;
   opacity: 0.4;
 }
+
+.approval-parity {
+  margin-bottom: 10px;
+  padding: 16px 14px 12px;
+  border-radius: 24px;
+  border: 1px solid var(--color-hairline);
+  background: var(--color-lift, var(--color-card));
+  box-shadow: 0 2px 8px rgb(0 0 0 / 0.035);
+}
+
+[data-skin="midnight"] .approval-parity {
+  box-shadow: none;
+}
+
+.approval-parity-title {
+  font-size: 14px;
+  line-height: 20px;
+  font-weight: 600;
+  color: var(--color-ink);
+}
+
+.approval-parity-command {
+  margin-top: 8px;
+  max-height: 160px;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  cursor: pointer;
+  padding: 8px 10px;
+  border: 1px solid var(--color-hairline);
+  border-radius: 10px;
+  font-family: Menlo, ui-monospace, monospace;
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--color-ink);
+}
+
+.approval-parity-actions {
+  margin-top: 12px;
+}
+
+.approval-parity-button {
+  height: 28px;
+  padding: 0 12px;
+  border-radius: 9999px;
+  font-size: 13px;
+  line-height: 17px;
+  font-weight: 500;
+  transition: background-color var(--duration-fast, 150ms) ease, filter var(--duration-fast, 150ms) ease;
+}
+
+.approval-parity-quiet {
+  padding: 0 6px;
+  color: var(--color-ink-secondary);
+}
+
+.approval-parity-quiet:hover {
+  color: var(--color-ink);
+}
+
+.approval-parity-deny {
+  color: var(--color-ink);
+}
+
+.approval-parity-deny:hover {
+  background: var(--color-card);
+}
+
+[data-skin="midnight"] .approval-parity-deny:hover {
+  background: var(--color-raised-hover, var(--color-card));
+}
+
+.approval-parity-allow {
+  background: var(--color-accent);
+  color: var(--color-accent-ink, var(--color-app));
+}
+
+.approval-parity-allow:hover {
+  filter: brightness(1.08);
+}

@@ -1010,19 +1010,21 @@ export function Composer({
           </div>
         )}
         {approval && (
-          <div className="mb-2 overflow-hidden rounded-card bg-card shadow-composer ring-[0.5px] ring-ink/15">
+          <div data-approval-card className="approval-parity">
             <PendingApprovalPanel
               pending={approval}
               count={approvals.length}
               index={0}
               locale={activeLocale()}
               botName={approvalBot?.name}
+              coversId={`approval-covers-${approval.requestId}`}
               onCancelTurn={approval.message.card?.routineRequest || approval.message.card?.skillRequest || approval.message.card?.profileRequest ? undefined : interruptTurn}
             />
             <PendingApprovalActions
               pending={approval}
               threadId={threadId}
               bot={approvalBot}
+              coversId={`approval-covers-${approval.requestId}`}
             />
           </div>
         )}

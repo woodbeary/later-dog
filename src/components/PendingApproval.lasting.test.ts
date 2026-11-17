@@ -34,9 +34,9 @@ const labels = (buttons: Node[]) => buttons.map((button) => button.props.childre
 beforeEach(() => { fixture.admin = true; fixture.dispatch.mockReset(); });
 
 describe("a card that offers a lasting Always", () => {
-  it("shows Allow once, Don't allow and Always allow, and says what it covers", () => {
+  it("shows Always allow, Don't allow and Allow once, and says what it covers", () => {
     const result = view({ offered: true, reach: "server words" });
-    expect(labels(result.buttons)).toEqual(["Allow once", "Don't allow", "Always allow"]);
+    expect(labels(result.buttons)).toEqual(["Always allow", "Don't allow", "Allow once"]);
     expect(result.html).toContain("Always allow lets Wren search for exactly this again without asking, in any of its chats.");
     expect(result.html).not.toContain("Allow for this chat");
   });
@@ -67,7 +67,7 @@ describe("a card that offers no Always", () => {
     ["state", "This one asks each time: it acts on things as they are then."],
   ] as const)("shows one quiet line for %s where the button would sit", (why, line) => {
     const result = view({ offered: false, why });
-    expect(labels(result.buttons)).toEqual(["Allow once", "Don't allow"]);
+    expect(labels(result.buttons)).toEqual(["Don't allow", "Allow once"]);
     expect(result.html.replaceAll("&#x27;", "'")).toContain(line);
     expect(result.html).toContain(`data-lasting-why="${why}"`);
   });
@@ -75,7 +75,7 @@ describe("a card that offers no Always", () => {
   it("shows a member the owner-only line instead of Always, even when the dog could be offered it", () => {
     fixture.admin = false;
     const result = view({ offered: true, reach: "x" });
-    expect(labels(result.buttons)).toEqual(["Allow once", "Don't allow"]);
+    expect(labels(result.buttons)).toEqual(["Don't allow", "Allow once"]);
     expect(result.html).toContain("Only the owner can choose Always.");
     expect(result.html).toContain('data-lasting-why="owner-only"');
     expect(result.html).not.toContain("without asking, in any of its chats");
@@ -83,7 +83,7 @@ describe("a card that offers no Always", () => {
 
   it("follows the lasting answer over an old key the card still carries", () => {
     const refused = view({ offered: false, why: "state" }, { allowKey: "WebSearch:old" });
-    expect(labels(refused.buttons)).toEqual(["Allow once", "Don't allow"]);
+    expect(labels(refused.buttons)).toEqual(["Don't allow", "Allow once"]);
     expect(refused.html).toContain('data-lasting-why="state"');
     view({ offered: true, reach: "x" }, { allowKey: "WebSearch:old" }).buttons.find((button) => button.props.children === "Always allow")!.props.onClick!();
     expect(fixture.dispatch).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ lastingGrant: { botId: "bot-1" }, alwaysAllow: undefined, scope: "always" }));
@@ -92,11 +92,11 @@ describe("a card that offers no Always", () => {
   it("labels a connected-app card that always asks Allow once and Don't allow, with its line", () => {
     const outboundRequest = { tool: "GMAIL_DELETE_MESSAGE", app: "Gmail", calls: [{ app: "Gmail", label: "Delete message" }] };
     const asks = view({ offered: false, why: "always-asks" }, { title: "Allow Gmail?", subtitle: "Gmail · Delete message", tool: "GMAIL_DELETE_MESSAGE", outboundRequest });
-    expect(labels(asks.buttons)).toEqual(["Allow once", "Don't allow"]);
+    expect(labels(asks.buttons)).toEqual(["Don't allow", "Allow once"]);
     expect(asks.html).toContain("This one always asks.");
     const ordinary = view(undefined, { title: "Allow GitHub?", subtitle: "GitHub · Create an issue comment", tool: "GITHUB_CREATE_AN_ISSUE_COMMENT", allowKey: "connector:github",
       outboundRequest: { tool: "GITHUB_CREATE_AN_ISSUE_COMMENT", app: "GitHub", calls: [{ app: "GitHub", label: "Create an issue comment" }] } });
-    expect(labels(ordinary.buttons).slice(0, 2)).toEqual(["Allow", "Skip"]);
+    expect(labels(ordinary.buttons).slice(-2)).toEqual(["Skip", "Allow"]);
   });
 
   it("tells the person that Don't allow on a connected-app card that always asks also holds that app back until their next message", () => {
@@ -109,13 +109,13 @@ describe("a card that offers no Always", () => {
 
   it("never offers Allow for this chat", () => {
     const result = view(undefined, { allowSession: true } as Partial<NonNullable<Message["card"]>>);
-    expect(labels(result.buttons)).toEqual(["Allow once", "Don't allow"]);
+    expect(labels(result.buttons)).toEqual(["Don't allow", "Allow once"]);
     expect(result.html).not.toContain("Allow for this chat");
   });
 
   it("leaves a card that still carries an old key as it was", () => {
     const result = view(undefined, { tool: "ask_bot", allowKey: "ask_bot:dog-2" });
-    expect(labels(result.buttons)).toEqual(["Allow once", "Don't allow", "Always allow"]);
+    expect(labels(result.buttons)).toEqual(["Always allow", "Don't allow", "Allow once"]);
     expect(result.html).not.toContain("data-lasting-why");
   });
 });
