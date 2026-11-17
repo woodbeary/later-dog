@@ -43,7 +43,6 @@ function tabLabel(question: AskQuestion, index: number): string {
 
 export function QuestionCard({
   threadId,
-  bot,
   message,
 }: {
   threadId: string;
