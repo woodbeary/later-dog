@@ -3,10 +3,14 @@ import { openWorkPanel } from "@/lib/work-panel";
 import { sideJobsStillGoing } from "../../shared/step-words";
 
 function Sentence({ text }: { text: string }) {
+  const cut = text.lastIndexOf(" ") + 1;
   return (
     <span data-fold-sentence>
-      {text}
-      <ChevronRight size={12} aria-hidden="true" className="fold-line-chevron" />
+      {text.slice(0, cut)}
+      <span className="whitespace-nowrap">
+        {text.slice(cut)}
+        <ChevronRight size={12} aria-hidden="true" className="fold-line-chevron" />
+      </span>
     </span>
   );
 }

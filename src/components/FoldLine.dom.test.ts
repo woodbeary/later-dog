@@ -47,6 +47,10 @@ it("keeps the chevron right after the last word when the sentence wraps", () => 
   const line = host.querySelector("button[data-fold-line]")!;
   expect(line.querySelector("[data-fold-sentence] svg.fold-line-chevron")).not.toBeNull();
   expect(line.className.split(" ")).toContain("text-left");
+  const tail = line.querySelector("[data-fold-sentence] .whitespace-nowrap")!;
+  expect(tail.textContent).toBe("more");
+  expect(tail.querySelector("svg.fold-line-chevron")).not.toBeNull();
+  expect(line.textContent).toBe("Made a change, tried 2 things and more");
 });
 
 it("sits 4 above the answer it folds, taking back the transcript's 12 gap", () => {

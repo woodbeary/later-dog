@@ -60,7 +60,7 @@ describe("a quiet chat", () => {
     expect(markup).toContain("Opening the sign-in page on the cloud computer.");
     expect(markup).toContain("The page loaded, clicking Sign In now.");
     expect(markup).toContain("Tap Open on the form to sign in.");
-    expect(markup).toContain("Looked at the screen 2 times, did something");
+    expect(/data-fold-line="[^"]*"[^>]*>([\s\S]*?)<\/button>/.exec(markup)![1].replace(/<[^>]+>/g, "")).toBe("Looked at the screen 2 times, did something");
     expect(markup).not.toContain("Worked for");
     expect(markup).not.toContain("/attachments/shot.png");
     expect(markup.indexOf("Looked at the screen 2 times")).toBeLessThan(markup.indexOf("Tap Open on the form to sign in."));
