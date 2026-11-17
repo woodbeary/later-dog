@@ -165,7 +165,7 @@ type RowLine = { text: string; tone: "plain" | "ask" | "helper"; status: boolean
 
 function rowLine(bot: Bot, facts: DogRowFacts, visible: Message[], instances: InstanceInfo[], showToolCalls: boolean): RowLine {
   if (facts.waiting) return { text: waitingLine(visible), tone: "ask", status: true };
-  if (facts.helperAsk) return { text: facts.helperAsk, tone: "helper", status: true };
+  if (facts.helperAsk && activeLocale().startsWith("en")) return { text: facts.helperAsk, tone: "helper", status: true };
   if (facts.working) {
     const kind = currentTaskBot(bot).work?.kind;
     const step = activeLocale().startsWith("en") ? facts.step : null;

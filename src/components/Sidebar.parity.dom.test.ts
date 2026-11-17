@@ -9,6 +9,7 @@ import { helpersLine, stepPhrase } from "../../shared/step-words";
 vi.mock("./DesktopCapabilities", () => ({ useDesktopCapabilities: () => ({}) }));
 
 const { BotListItem, botRowProps } = await import("./Sidebar");
+const { setLocale, t } = await import("@/lib/i18n");
 
 const dog = (patch: Partial<Bot> & { step?: unknown } = {}): Bot => ({
   id: "juniper",
@@ -83,6 +84,22 @@ describe("a dog's row in the sidebar", () => {
     expect(preview(row).className).toContain("text-waiting-text");
     expect(preview(row).className).toContain("truncate");
     expect(dots(row).map((dot) => dot.dataset.rowDot)).toEqual(["working"]);
+  });
+
+  it("keeps the translated waiting line for a coordinator in other languages until the helper words are translated", () => {
+    const waitingOn = [{ botId: "otis", name: "Otis", state: "needsYou" as const }];
+    setLocale("es");
+    try {
+      const row = draw(dog({ waitingForTeammates: true, waitingOn }));
+      expect(preview(row).textContent).toBe(t("sidebar.preview.waitingOnTeammate"));
+      expect(preview(row).textContent).toBe("Esperando a otro perro…");
+    } finally {
+      setLocale("en");
+    }
+    root?.unmount();
+    host?.remove();
+    const english = draw(dog({ waitingForTeammates: true, waitingOn }));
+    expect(preview(english).textContent).toBe("Otis needs your answer");
   });
 
   it("shows a blue dot at the end of a still dog's unread row", () => {
