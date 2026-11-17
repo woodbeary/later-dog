@@ -116,7 +116,7 @@ afterEach(async () => {
 });
 
 describe("a long chat opening on its newest rows", () => {
-  it("shows the same earlier-work line at every step of the fill", async () => {
+  it("keeps finished engine runs out of the chat at every step of the fill", async () => {
     const messages = thread(150);
     for (const row of messages) if (row.turnId) receiveNativeRun(finishedRun(Number(row.id.slice(1))));
     await draw(messages);
@@ -129,7 +129,7 @@ describe("a long chat opening on its newest rows", () => {
       buttons.push(showEarlier());
     }
     expect(rowIds()).toHaveLength(120);
-    expect(lines).toEqual(["Earlier work · 15", "Earlier work · 15", "Earlier work · 15", "Earlier work · 15"]);
+    expect(lines).toEqual([null, null, null, null]);
     expect(buttons).toEqual(Array.from({ length: 4 }, () => "Show earlier messages (30 more)"));
   });
 
@@ -179,7 +179,7 @@ describe("a long chat opening on its newest rows", () => {
       lines.push(earlierWork());
     }
     expect(steps).toEqual([30, 60, 90, 120]);
-    expect(lines).toEqual(Array.from({ length: 4 }, () => "Earlier work · 15"));
+    expect(lines).toEqual([null, null, null, null]);
     expect(arrivingIds()).toEqual([]);
     expect(host.querySelector('[data-mid="m149"]')?.textContent).toContain("Row 149 and more and more and more");
   });

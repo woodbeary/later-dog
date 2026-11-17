@@ -13,8 +13,13 @@ import { NativeWork } from "./NativeWork";
 import type { NativeExecutionSelection } from "../../shared/native-run-selectors";
 import { useNativeRuns } from "@/lib/native-runs-state";
 import { ActivityPeek } from "./ActivityPeek";
-import type { DogColor } from "@/lib/mascot";
+import type { DogColor, DogState } from "@/lib/mascot";
 import type { MascotBodyId } from "../../shared/mascot-bodies";
+import type { Bot } from "@/state/store";
+import { BotAvatar } from "./Avatar";
+import { openWorkPanel } from "@/lib/work-panel";
+import { sideJobCount, workLine } from "@/lib/work-line";
+import { liveStep, type LiveStep } from "../../shared/step-words";
 
 export function TurnPresence({
   avatar,
@@ -118,6 +123,61 @@ export function TurnPresence({
         </button>
         {open && <ActivityPeek label={peekLabel} since={visible ? since : null} helpers={shownHelpers} reasoning={reasoning} steps={steps} updates={updates} anchor={trigger} onClose={() => setOpen(false)} />}
       </div>
+    </div>
+  );
+}
+
+const MINUTE = 60_000;
+
+function useMinuteClock(since: number | null): number {
+  const [now, setNow] = useState(Date.now);
+  useEffect(() => {
+    setNow(Date.now());
+    if (since === null) return;
+    const untilNext = (at: number) => MINUTE - Math.max(0, at - since) % MINUTE;
+    let timer: ReturnType<typeof setTimeout>;
+    const tick = () => {
+      const at = Date.now();
+      setNow(at);
+      timer = setTimeout(tick, untilNext(at));
+    };
+    timer = setTimeout(tick, untilNext(Date.now()));
+    return () => clearTimeout(timer);
+  }, [since]);
+  return now;
+}
+
+export function ChatWorkLine({ bot, working, onOpenDog, fallback = null, face: mood = "working" }: { bot: Bot; working: boolean; onOpenDog: (botId: string) => void; fallback?: LiveStep | null; face?: DogState }) {
+  const runs = useNativeRuns(bot.threadId);
+  const run = runs.find(candidate => candidate.botId === bot.id && candidate.observation === "live" && !candidate.endedAt);
+  const homeStep = (bot as Bot & { step?: LiveStep | null }).step ?? fallback;
+  const step = liveStep(run) ?? homeStep;
+  const now = useMinuteClock(working && step ? step.startedAt : null);
+  const line = workLine({ working, run, step: homeStep, work: bot.work, sideJobs: sideJobCount(run, bot.work), now });
+  if (!line) return null;
+  const threadId = bot.threadId;
+  const face = <span aria-hidden="true" className="flex size-5 shrink-0"><BotAvatar bot={bot} state={mood} size={20} motion="none" motionKey={0} animated={false} label="" /></span>;
+  if (line.kind === "helpers" && line.needsYou && line.open) {
+    const open = line.open;
+    return (
+      <div data-work-line className="work-line">
+        <button type="button" onClick={() => onOpenDog(open)} className="work-line-button">
+          {face}
+          <span data-work-line-phrase className="text-[var(--color-waiting-text,var(--color-warning))]">{line.text}</span>
+        </button>
+      </div>
+    );
+  }
+  return (
+    <div data-work-line className="work-line">
+      <button type="button" onClick={() => openWorkPanel({ kind: "work", threadId })} className="work-line-button">
+        {face}
+        <span data-work-line-phrase className={cn(line.kind === "step" && "thinking-shimmer thinking-phrase animate-shimmer motion-reduce:animate-none")}>{line.kind === "step" ? line.phrase : line.text}</span>
+        {line.kind === "step" && line.age && <span data-work-line-age>{` · ${line.age}`}</span>}
+      </button>
+      {line.kind === "step" && line.sideJobs && (
+        <button type="button" data-work-line-side-jobs onClick={() => openWorkPanel({ kind: "side-jobs", threadId })} className="work-line-button">{` · ${line.sideJobs}`}</button>
+      )}
     </div>
   );
 }
