@@ -9,7 +9,7 @@ export const TAB_SWEEP_MS = 5 * 60 * 1000;
 export const TABS_MARKER = "<<laterdog-tabs>>";
 export const TAB_TRACKED_TOOLS: ReadonlySet<string> = new Set(["click", "drag", "key_press", "type_text", "open_url"]);
 const TARGET_ID = /^[A-Za-z0-9]{8,64}$/;
-const DEVTOOLS = `http://127.0.0.1:${CLOUD_TABS_CDP_PORT}/json`;
+const DEVTOOLS = `http://127.0.0.1:\${LATERDOG_PAGE_CDP_PORT:-${CLOUD_TABS_CDP_PORT}}/json`;
 
 export interface Target { id: string; url: string }
 export interface Owner { botId: string; threadId: string }

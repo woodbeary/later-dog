@@ -236,6 +236,26 @@ describe("Mac approval gate", () => {
     expect(notes).toHaveLength(0);
   });
 
+  it("adds no second card after the home has already asked for what always asks: a Mac set to Always runs it", async () => {
+    gate.update({ computers: { [MAC_ID]: "always" } });
+    await expect(ask({ action: "run_command", command: "rm -rf ~/Documents/old" })).resolves.toMatchObject({ ok: true });
+    expect(openCards()).toHaveLength(0);
+  });
+
+  it("adds no second card on a Mac set to Ask when the person has just said yes to this call on the home's own card, but a send still asks", async () => {
+    asking();
+    await expect(ask({ action: "run_command", command: "rm -rf ~/Documents/old" }, { personSaidYes: true })).resolves.toEqual({ ok: true });
+    expect(openCards()).toHaveLength(0);
+    const plain = ask({ action: "run_command", command: "rm -rf ~/Documents/older" });
+    expect(openCards()).toHaveLength(1);
+    gate.resolve(openCards()[0]!.card!.requestId!, "deny");
+    expect(await plain).toEqual({ ok: false, status: 403, error: MAC_DENIED });
+    const sending = ask({ action: "send_text", arguments: { to: "sam@example.com", text: "hi" } }, { personSaidYes: true });
+    expect(openCards()).toHaveLength(1);
+    gate.resolve(openCards()[0]!.card!.requestId!, "deny");
+    expect(await sending).toEqual({ ok: false, status: 403, error: MAC_DENIED });
+  });
+
   it("settles waiting cards when the setting changes", async () => {
     asking();
     const waiting = ask({ action: "list_files", path: "Downloads" });

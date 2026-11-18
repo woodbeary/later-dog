@@ -1,0 +1,770 @@
+{
+  "runs": [
+    {
+      "task": "find",
+      "mode": "page",
+      "steps": [
+        {
+          "turn": 1,
+          "tool": "page_open",
+          "argBytes": 37,
+          "textBytes": 2544,
+          "imageBytes": 0,
+          "imageTokens": 0,
+          "tokens": 646,
+          "seconds": 0.5487952870000004
+        },
+        {
+          "turn": 2,
+          "tool": "page_click",
+          "argBytes": 13,
+          "textBytes": 793,
+          "imageBytes": 0,
+          "imageTokens": 0,
+          "tokens": 202,
+          "seconds": 0.5122522789999998
+        }
+      ],
+      "answer": "$34.50; free over $60",
+      "correct": true,
+      "toolCalls": 2,
+      "modelTurns": 3,
+      "tokens": 848,
+      "imageTokens": 0,
+      "imageShare": 0,
+      "rereadTokens": 1494,
+      "toolSeconds": 1.061047566
+    },
+    {
+      "task": "find",
+      "mode": "page + run",
+      "steps": [
+        {
+          "turn": 1,
+          "tool": "page_open",
+          "argBytes": 37,
+          "textBytes": 2544,
+          "imageBytes": 0,
+          "imageTokens": 0,
+          "tokens": 646,
+          "seconds": 0.5293514890000006
+        },
+        {
+          "turn": 2,
+          "tool": "page_click",
+          "argBytes": 13,
+          "textBytes": 793,
+          "imageBytes": 0,
+          "imageTokens": 0,
+          "tokens": 202,
+          "seconds": 0.5185145090000005
+        }
+      ],
+      "answer": "$34.50; free over $60",
+      "correct": true,
+      "toolCalls": 2,
+      "modelTurns": 3,
+      "tokens": 848,
+      "imageTokens": 0,
+      "imageShare": 0,
+      "rereadTokens": 1494,
+      "toolSeconds": 1.0478659980000011
+    },
+    {
+      "task": "find",
+      "mode": "screen capped",
+      "steps": [
+        {
+          "turn": 1,
+          "tool": "open_url",
+          "argBytes": 37,
+          "textBytes": 121,
+          "imageBytes": 0,
+          "imageTokens": 0,
+          "tokens": 40,
+          "seconds": 0.009461288999998941
+        },
+        {
+          "turn": 2,
+          "tool": "screenshot",
+          "argBytes": 2,
+          "textBytes": 2,
+          "imageBytes": 55776,
+          "imageTokens": 874,
+          "tokens": 875,
+          "seconds": 0.045207698000000164
+        },
+        {
+          "turn": 3,
+          "tool": "scroll",
+          "argBytes": 48,
+          "textBytes": 87,
+          "imageBytes": 0,
+          "imageTokens": 0,
+          "tokens": 34,
+          "seconds": 0.8236331709999994
+        },
+        {
+          "turn": 4,
+          "tool": "screenshot",
+          "argBytes": 2,
+          "textBytes": 2,
+          "imageBytes": 56860,
+          "imageTokens": 874,
+          "tokens": 875,
+          "seconds": 0.044203957000001536
+        },
+        {
+          "turn": 5,
+          "tool": "click",
+          "argBytes": 17,
+          "textBytes": 87,
+          "imageBytes": 0,
+          "imageTokens": 0,
+          "tokens": 26,
+          "seconds": 0.11999604199999885
+        },
+        {
+          "turn": 6,
+          "tool": "screenshot",
+          "argBytes": 2,
+          "textBytes": 2,
+          "imageBytes": 40964,
+          "imageTokens": 874,
+          "tokens": 875,
+          "seconds": 0.04216502799999944
+        }
+      ],
+      "answer": "free on orders over $60",
+      "correct": true,
+      "toolCalls": 6,
+      "modelTurns": 7,
+      "tokens": 2725,
+      "imageTokens": 2622,
+      "imageShare": 0.9622018348623853,
+      "rereadTokens": 8303,
+      "toolSeconds": 1.0846671849999985
+    },
+    {
+      "task": "find",
+      "mode": "screen capped + run",
+      "steps": [
+        {
+          "turn": 1,
+          "tool": "open_url",
+          "argBytes": 37,
+          "textBytes": 121,
+          "imageBytes": 0,
+          "imageTokens": 0,
+          "tokens": 40,
+          "seconds": 0.009898318999999902
+        },
+        {
+          "turn": 2,
+          "tool": "screenshot",
+          "argBytes": 2,
+          "textBytes": 2,
+          "imageBytes": 52556,
+          "imageTokens": 874,
+          "tokens": 875,
+          "seconds": 0.04533637799999997
+        },
+        {
+          "turn": 3,
+          "tool": "run_actions",
+          "argBytes": 78,
+          "textBytes": 57,
+          "imageBytes": 53824,
+          "imageTokens": 874,
+          "tokens": 908,
+          "seconds": 0.867386097999999
+        },
+        {
+          "turn": 4,
+          "tool": "run_actions",
+          "argBytes": 73,
+          "textBytes": 69,
+          "imageBytes": 40964,
+          "imageTokens": 874,
+          "tokens": 910,
+          "seconds": 0.9625721630000007
+        }
+      ],
+      "answer": "free on orders over $60",
+      "correct": true,
+      "toolCalls": 4,
+      "modelTurns": 5,
+      "tokens": 2733,
+      "imageTokens": 2622,
+      "imageShare": 0.9593852908891328,
+      "rereadTokens": 5511,
+      "toolSeconds": 1.8851929579999995
+    },
+    {
+      "task": "form",
+      "mode": "page",
+      "steps": [
+        {
+          "turn": 1,
+          "tool": "page_open",
+          "argBytes": 40,
+          "textBytes": 884,
+          "imageBytes": 0,
+          "imageTokens": 0,
+          "tokens": 231,
+          "seconds": 0.5368116179999998
+        },
+        {
+          "turn": 2,
+          "tool": "page_fill",
+          "argBytes": 34,
+          "textBytes": 38,
+          "imageBytes": 0,
+          "imageTokens": 0,
+          "tokens": 18,
+          "seconds": 0.5143005599999997
+        },
+        {
+          "turn": 2,
+          "tool": "page_fill",
+          "argBytes": 39,
+          "textBytes": 38,
+          "imageBytes": 0,
+          "imageTokens": 0,
+          "tokens": 20,
+          "seconds": 0.5057155789999997
+        },
+        {
+          "turn": 2,
+          "tool": "page_fill",
+          "argBytes": 31,
+          "textBytes": 38,
+          "imageBytes": 0,
+          "imageTokens": 0,
+          "tokens": 18,
+          "seconds": 0.5039696809999996
+        },
+        {
+          "turn": 2,
+          "tool": "page_fill",
+          "argBytes": 55,
+          "textBytes": 38,
+          "imageBytes": 0,
+          "imageTokens": 0,
+          "tokens": 24,
+          "seconds": 0.5014871700000003
+        },
+        {
+          "turn": 2,
+          "tool": "page_select",
+          "argBytes": 32,
+          "textBytes": 48,
+          "imageBytes": 0,
+          "imageTokens": 0,
+          "tokens": 20,
+          "seconds": 0.4923416010000001
+        },
+        {
+          "turn": 3,
+          "tool": "page_click",
+          "argBytes": 13,
+          "textBytes": 668,
+          "imageBytes": 0,
+          "imageTokens": 0,
+          "tokens": 171,
+          "seconds": 0.5354215679999997
+        }
+      ],
+      "answer": "CF-4821",
+      "correct": true,
+      "toolCalls": 7,
+      "modelTurns": 4,
+      "tokens": 502,
+      "imageTokens": 0,
+      "imageShare": 0,
+      "rereadTokens": 1064,
+      "toolSeconds": 3.590047776999999
+    },
+    {
+      "task": "form",
+      "mode": "page + run",
+      "steps": [
+        {
+          "turn": 1,
+          "tool": "page_open",
+          "argBytes": 40,
+          "textBytes": 884,
+          "imageBytes": 0,
+          "imageTokens": 0,
+          "tokens": 231,
+          "seconds": 0.5300585479999991
+        },
+        {
+          "turn": 2,
+          "tool": "run_actions",
+          "argBytes": 350,
+          "textBytes": 808,
+          "imageBytes": 0,
+          "imageTokens": 0,
+          "tokens": 290,
+          "seconds": 3.1193433139999995
+        }
+      ],
+      "answer": "CF-4821",
+      "correct": true,
+      "toolCalls": 2,
+      "modelTurns": 3,
+      "tokens": 521,
+      "imageTokens": 0,
+      "imageShare": 0,
+      "rereadTokens": 752,
+      "toolSeconds": 3.6494018619999986
+    },
+    {
+      "task": "form",
+      "mode": "screen capped",
+      "steps": [
+        {
+          "turn": 1,
+          "tool": "open_url",
+          "argBytes": 40,
+          "textBytes": 121,
+          "imageBytes": 0,
+          "imageTokens": 0,
+          "tokens": 41,
+          "seconds": 0.00803631999999925
+        },
+        {
+          "turn": 2,
+          "tool": "screenshot",
+          "argBytes": 2,
+          "textBytes": 2,
+          "imageBytes": 41852,
+          "imageTokens": 874,
+          "tokens": 875,
+          "seconds": 0.04048785700000008
+        },
+        {
+          "turn": 3,
+          "tool": "click",
+          "argBytes": 16,
+          "textBytes": 87,
+          "imageBytes": 0,
+          "imageTokens": 0,
+          "tokens": 26,
+          "seconds": 0.1203637430000017
+        },
+        {
+          "turn": 4,
+          "tool": "type_text",
+          "argBytes": 22,
+          "textBytes": 87,
+          "imageBytes": 0,
+          "imageTokens": 0,
+          "tokens": 28,
+          "seconds": 0.13848091199999907
+        },
+        {
+          "turn": 5,
+          "tool": "key_press",
+          "argBytes": 13,
+          "textBytes": 87,
+          "imageBytes": 0,
+          "imageTokens": 0,
+          "tokens": 25,
+          "seconds": 0.021502297999999427
+        },
+        {
+          "turn": 6,
+          "tool": "type_text",
+          "argBytes": 27,
+          "textBytes": 87,
+          "imageBytes": 0,
+          "imageTokens": 0,
+          "tokens": 29,
+          "seconds": 0.1386183420000016
+        },
+        {
+          "turn": 7,
+          "tool": "key_press",
+          "argBytes": 13,
+          "textBytes": 87,
+          "imageBytes": 0,
+          "imageTokens": 0,
+          "tokens": 25,
+          "seconds": 0.021639659000000394
+        },
+        {
+          "turn": 8,
+          "tool": "type_text",
+          "argBytes": 19,
+          "textBytes": 87,
+          "imageBytes": 0,
+          "imageTokens": 0,
+          "tokens": 27,
+          "seconds": 0.1381574619999992
+        },
+        {
+          "turn": 9,
+          "tool": "key_press",
+          "argBytes": 13,
+          "textBytes": 87,
+          "imageBytes": 0,
+          "imageTokens": 0,
+          "tokens": 25,
+          "seconds": 0.02095003899999938
+        },
+        {
+          "turn": 10,
+          "tool": "key_press",
+          "argBytes": 11,
+          "textBytes": 87,
+          "imageBytes": 0,
+          "imageTokens": 0,
+          "tokens": 25,
+          "seconds": 0.020120239000003495
+        },
+        {
+          "turn": 11,
+          "tool": "key_press",
+          "argBytes": 13,
+          "textBytes": 87,
+          "imageBytes": 0,
+          "imageTokens": 0,
+          "tokens": 25,
+          "seconds": 0.020098869000001286
+        },
+        {
+          "turn": 12,
+          "tool": "type_text",
+          "argBytes": 43,
+          "textBytes": 87,
+          "imageBytes": 0,
+          "imageTokens": 0,
+          "tokens": 33,
+          "seconds": 0.13695763199999783
+        },
+        {
+          "turn": 13,
+          "tool": "key_press",
+          "argBytes": 13,
+          "textBytes": 87,
+          "imageBytes": 0,
+          "imageTokens": 0,
+          "tokens": 25,
+          "seconds": 0.02048298799999975
+        },
+        {
+          "turn": 14,
+          "tool": "key_press",
+          "argBytes": 16,
+          "textBytes": 87,
+          "imageBytes": 0,
+          "imageTokens": 0,
+          "tokens": 26,
+          "seconds": 0.02033600800000204
+        },
+        {
+          "turn": 15,
+          "tool": "screenshot",
+          "argBytes": 2,
+          "textBytes": 2,
+          "imageBytes": 38060,
+          "imageTokens": 874,
+          "tokens": 875,
+          "seconds": 0.04313714800000162
+        }
+      ],
+      "answer": "CF-4821",
+      "correct": true,
+      "toolCalls": 15,
+      "modelTurns": 16,
+      "tokens": 2110,
+      "imageTokens": 1748,
+      "imageShare": 0.828436018957346,
+      "rereadTokens": 16129,
+      "toolSeconds": 0.909369516000006
+    },
+    {
+      "task": "form",
+      "mode": "screen capped + run",
+      "steps": [
+        {
+          "turn": 1,
+          "tool": "open_url",
+          "argBytes": 40,
+          "textBytes": 121,
+          "imageBytes": 0,
+          "imageTokens": 0,
+          "tokens": 41,
+          "seconds": 0.00738651899999968
+        },
+        {
+          "turn": 2,
+          "tool": "screenshot",
+          "argBytes": 2,
+          "textBytes": 2,
+          "imageBytes": 41852,
+          "imageTokens": 874,
+          "tokens": 875,
+          "seconds": 0.040850787999999735
+        },
+        {
+          "turn": 3,
+          "tool": "run_actions",
+          "argBytes": 455,
+          "textBytes": 212,
+          "imageBytes": 38060,
+          "imageTokens": 874,
+          "tokens": 1041,
+          "seconds": 1.6642673409999988
+        }
+      ],
+      "answer": "CF-4821",
+      "correct": true,
+      "toolCalls": 3,
+      "modelTurns": 4,
+      "tokens": 1957,
+      "imageTokens": 1748,
+      "imageShare": 0.8932038834951457,
+      "rereadTokens": 2914,
+      "toolSeconds": 1.7125046479999984
+    },
+    {
+      "task": "table",
+      "mode": "page",
+      "steps": [
+        {
+          "turn": 1,
+          "tool": "page_open",
+          "argBytes": 39,
+          "textBytes": 684,
+          "imageBytes": 0,
+          "imageTokens": 0,
+          "tokens": 181,
+          "seconds": 0.5175531089999995
+        },
+        {
+          "turn": 2,
+          "tool": "page_fill",
+          "argBytes": 33,
+          "textBytes": 38,
+          "imageBytes": 0,
+          "imageTokens": 0,
+          "tokens": 18,
+          "seconds": 0.50622271
+        },
+        {
+          "turn": 2,
+          "tool": "page_fill",
+          "argBytes": 40,
+          "textBytes": 38,
+          "imageBytes": 0,
+          "imageTokens": 0,
+          "tokens": 20,
+          "seconds": 0.5105977000000003
+        },
+        {
+          "turn": 3,
+          "tool": "page_click",
+          "argBytes": 13,
+          "textBytes": 1324,
+          "imageBytes": 0,
+          "imageTokens": 0,
+          "tokens": 335,
+          "seconds": 0.5232197379999998
+        }
+      ],
+      "answer": "| #1042 | 2026-10-15 | 3 items | $218.40 | Shipped |",
+      "correct": true,
+      "toolCalls": 4,
+      "modelTurns": 4,
+      "tokens": 554,
+      "imageTokens": 0,
+      "imageShare": 0,
+      "rereadTokens": 954,
+      "toolSeconds": 2.0575932569999997
+    },
+    {
+      "task": "table",
+      "mode": "page + run",
+      "steps": [
+        {
+          "turn": 1,
+          "tool": "page_open",
+          "argBytes": 39,
+          "textBytes": 684,
+          "imageBytes": 0,
+          "imageTokens": 0,
+          "tokens": 181,
+          "seconds": 0.5238881490000004
+        },
+        {
+          "turn": 2,
+          "tool": "run_actions",
+          "argBytes": 164,
+          "textBytes": 1398,
+          "imageBytes": 0,
+          "imageTokens": 0,
+          "tokens": 391,
+          "seconds": 1.615655913999999
+        }
+      ],
+      "answer": "| #1042 | 2026-10-15 | 3 items | $218.40 | Shipped |",
+      "correct": true,
+      "toolCalls": 2,
+      "modelTurns": 3,
+      "tokens": 572,
+      "imageTokens": 0,
+      "imageShare": 0,
+      "rereadTokens": 753,
+      "toolSeconds": 2.1395440629999993
+    },
+    {
+      "task": "table",
+      "mode": "screen capped",
+      "steps": [
+        {
+          "turn": 1,
+          "tool": "open_url",
+          "argBytes": 39,
+          "textBytes": 121,
+          "imageBytes": 0,
+          "imageTokens": 0,
+          "tokens": 40,
+          "seconds": 0.01047436000000016
+        },
+        {
+          "turn": 2,
+          "tool": "screenshot",
+          "argBytes": 2,
+          "textBytes": 2,
+          "imageBytes": 39480,
+          "imageTokens": 874,
+          "tokens": 875,
+          "seconds": 0.04572169700000086
+        },
+        {
+          "turn": 3,
+          "tool": "click",
+          "argBytes": 16,
+          "textBytes": 87,
+          "imageBytes": 0,
+          "imageTokens": 0,
+          "tokens": 26,
+          "seconds": 0.11649909299999854
+        },
+        {
+          "turn": 4,
+          "tool": "type_text",
+          "argBytes": 21,
+          "textBytes": 87,
+          "imageBytes": 0,
+          "imageTokens": 0,
+          "tokens": 27,
+          "seconds": 0.1368873220000023
+        },
+        {
+          "turn": 5,
+          "tool": "key_press",
+          "argBytes": 13,
+          "textBytes": 87,
+          "imageBytes": 0,
+          "imageTokens": 0,
+          "tokens": 25,
+          "seconds": 0.02037069899999915
+        },
+        {
+          "turn": 6,
+          "tool": "type_text",
+          "argBytes": 28,
+          "textBytes": 87,
+          "imageBytes": 0,
+          "imageTokens": 0,
+          "tokens": 29,
+          "seconds": 0.14293657200000234
+        },
+        {
+          "turn": 7,
+          "tool": "key_press",
+          "argBytes": 16,
+          "textBytes": 87,
+          "imageBytes": 0,
+          "imageTokens": 0,
+          "tokens": 26,
+          "seconds": 0.02077118899999914
+        },
+        {
+          "turn": 8,
+          "tool": "screenshot",
+          "argBytes": 2,
+          "textBytes": 2,
+          "imageBytes": 57936,
+          "imageTokens": 874,
+          "tokens": 875,
+          "seconds": 0.04236930700000084
+        }
+      ],
+      "answer": "#1042 2026-10-15 3 items $218.40 Shipped",
+      "correct": true,
+      "toolCalls": 8,
+      "modelTurns": 9,
+      "tokens": 1923,
+      "imageTokens": 1748,
+      "imageShare": 0.9089963598543942,
+      "rereadTokens": 7850,
+      "toolSeconds": 0.5360302390000034
+    },
+    {
+      "task": "table",
+      "mode": "screen capped + run",
+      "steps": [
+        {
+          "turn": 1,
+          "tool": "open_url",
+          "argBytes": 39,
+          "textBytes": 121,
+          "imageBytes": 0,
+          "imageTokens": 0,
+          "tokens": 40,
+          "seconds": 0.010844349000002694
+        },
+        {
+          "turn": 2,
+          "tool": "screenshot",
+          "argBytes": 2,
+          "textBytes": 2,
+          "imageBytes": 39480,
+          "imageTokens": 874,
+          "tokens": 875,
+          "seconds": 0.045934306999999536
+        },
+        {
+          "turn": 3,
+          "tool": "run_actions",
+          "argBytes": 216,
+          "textBytes": 129,
+          "imageBytes": 57936,
+          "imageTokens": 874,
+          "tokens": 961,
+          "seconds": 1.283001623
+        }
+      ],
+      "answer": "#1042 2026-10-15 3 items $218.40 Shipped",
+      "correct": true,
+      "toolCalls": 3,
+      "modelTurns": 4,
+      "tokens": 1876,
+      "imageTokens": 1748,
+      "imageShare": 0.9317697228144989,
+      "rereadTokens": 2831,
+      "toolSeconds": 1.3397802790000024
+    }
+  ],
+  "toolLists": {
+    "screenToolsOff": 9145,
+    "screenToolsOn": 11259,
+    "pageToolsOnly": 2115,
+    "runActionsOnly": 1560
+  }
+}

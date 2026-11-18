@@ -217,7 +217,8 @@ describe("the fill script", () => {
   });
 
   it("only clicks below the browser's toolbar", () => {
-    expect(command()).toContain("[ 400 -ge $((Y + 100)) ]");
+    expect(command()).toContain("SY=$(( 400 * 100 / P ))");
+    expect(command()).toContain('[ "$SY" -ge $((Y + 100)) ]');
   });
 
   it("presses Enter only when asked to", () => {
@@ -326,7 +327,8 @@ describe.skipIf(process.platform === "win32")("the fill script on a stand-in des
       "key --clearmodifiers ctrl+l",
       "key --clearmodifiers ctrl+c",
       "key --clearmodifiers Escape",
-      "mousemove --sync 640 400 click 1",
+      "mousemove --sync 640 400",
+      "click 1",
       "key --clearmodifiers ctrl+a",
       "key --clearmodifiers ctrl+v",
     ]);
@@ -711,7 +713,7 @@ describe("a Secure Form and the person's saved logins", () => {
     const saved: Array<{ site: string; username: string; password: string }> = [];
     const savedDetails: VaultDetails[] = [];
     const logins = options.logins ?? [KIT];
-    const host: SecureFormHost = {
+    const host: SecureFormHost & { allows(botId: string, threadId: string, key: string): boolean; grant(botId: string, threadId: string, key: string): void } = {
       inThread: (_botId, threadId) => (threadId === "thread-1" ? { group: false } : null),
       messages: () => messages,
       append: (botId, _threadId, card, appendOptions) => {
@@ -766,22 +768,21 @@ describe("a Secure Form and the person's saved logins", () => {
     expect(JSON.stringify([patched, resumed])).not.toContain("correct horse");
   });
 
-  it("remembers Don't ask again as this dog's permission for the site", () => {
-    const { forms, granted } = chat();
+  it("keeps no permission when an older app asks to fill without asking next time, and still fills this once", () => {
+    const { forms, granted, card } = chat();
     forms.desk("dog-1", "thread-1").open(INPUT);
-    forms.useSaved("dog-1", "thread-1", "form-1", { login: "login-1", always: true });
-    expect(granted).toEqual(["vault:example.com"]);
+    expect(forms.useSaved("dog-1", "thread-1", "form-1", { login: "login-1", always: true })).toMatchObject({ ok: true });
+    expect(card("form-1")).toMatchObject({ status: "sending" });
+    expect(granted).toEqual([]);
   });
 
-  it("fills at once, without a notification, when the dog may use the site's only saved login", () => {
-    const { forms, card, quiet, resumed, patched } = chat({ allowed: ["vault:example.com"] });
+  it("shows the card for each fill even when the dog holds a stored key for the site", () => {
+    const { forms, card, quiet } = chat({ allowed: ["vault:example.com"] });
     const desk = forms.desk("dog-1", "thread-1");
-    expect(desk.open(INPUT)).toEqual({ formId: "form-1", filled: expect.objectContaining({ status: "sending", saved: { username: "kit@example.com" } }) });
-    expect(quiet).toEqual([true]);
-    expect(card("form-1")).toMatchObject({ status: "sending", saved: { username: "kit@example.com" } });
-    expect(patched).toEqual([]);
-    expect(resumed).toEqual([]);
-    expect(desk.field("form-1", "password")).toMatchObject({ ok: true, value: "correct horse battery staple" });
+    expect(desk.open(INPUT)).toEqual({ formId: "form-1" });
+    expect(quiet).toEqual([false]);
+    expect(card("form-1")).toMatchObject({ status: "open" });
+    expect(desk.field("form-1", "password")).toMatchObject({ ok: false });
   });
 
   it("asks the person when the site has two saved logins, even for a dog that may use them", () => {

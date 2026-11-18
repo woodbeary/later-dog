@@ -1,6 +1,6 @@
 import { useId, useState } from "react";
 import { ChevronDown } from "lucide-react";
-import { chatContextFigure, chatContextReading, contextPercentWords, type ChatContextLevel, type ChatContextReading } from "@/lib/chat-context";
+import { beforeCompaction, chatContextFigure, chatContextReading, contextPercentWords, type ChatContextLevel, type ChatContextReading } from "@/lib/chat-context";
 import { partLabel, partShareWords, partTokensWords, STALE_AFTER_MS, type ContextBreakdownView } from "@/lib/context-breakdown";
 import { cn } from "@/lib/cn";
 import { t } from "@/lib/i18n";
@@ -52,7 +52,7 @@ function figureOf(breakdown: ContextBreakdown, reading: ChatContextReading): str
 function BreakdownRow({ breakdown, current, chat, now }: { breakdown: ContextBreakdown; current: ChatContextReading | null; chat: ChatNow | undefined; now: number }) {
   const [open, setOpen] = useState(false);
   const listId = useId();
-  const reading = current ?? chatContextReading({ tokens: breakdown.total, window: breakdown.window })!;
+  const { reading, compactsAt } = beforeCompaction(current ?? chatContextReading({ tokens: breakdown.total, window: breakdown.window })!, breakdown.compactsAt);
   const outdated = breakdownIsStale(breakdown, { ...chat, tokens: current?.tokens });
   const figure = figureOf(breakdown, reading);
   const estimate = breakdown.source === "estimate";
@@ -95,6 +95,7 @@ function BreakdownRow({ breakdown, current, chat, now }: { breakdown: ContextBre
           : <span className="block h-full bg-ink" style={{ width: `${Math.max(2, reading.percent ?? 0)}%` }} />}
         {hasParts && !outdated && reserve && <span data-chat-context-segment="reserve" className={cn("ml-auto block h-full", RESERVE_INK)} style={{ width: `${reserve.percent}%` }} />}
       </span>
+      {compactsAt !== null && <p data-chat-context-compacts className="text-[11px] text-ink-tertiary">{t("model.context.compactsAt", { at: formatTokens(compactsAt) })}</p>}
       {outdated && asOf}
       {open && hasParts && (
         <div id={listId} data-chat-context-parts className="flex flex-col gap-1 pt-1">

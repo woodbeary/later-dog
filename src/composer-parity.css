@@ -1,0 +1,302 @@
+[data-composer-surface] {
+  border-radius: 22px;
+  background: var(--color-lift, var(--color-composer));
+  border: 1px solid var(--color-hairline);
+  box-shadow: var(--shadow-composer);
+  padding: 10px 10px 10px 12px;
+}
+
+[data-composer-surface] [data-composer-row] {
+  align-items: center;
+  gap: 6px;
+}
+
+[data-composer-surface] [data-composer-tools] svg {
+  width: 19px;
+  height: 19px;
+  color: var(--color-ink-secondary);
+}
+
+[data-composer-surface] [data-composer-actions] {
+  gap: 8px;
+}
+
+.composer-mic {
+  display: flex;
+  width: 28px;
+  height: 28px;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  border-radius: 9999px;
+  color: var(--color-ink-secondary);
+}
+
+.composer-mic:hover,
+.composer-mic-on {
+  color: var(--color-ink);
+  background: var(--color-disc, color-mix(in srgb, var(--color-ink) 7%, var(--color-app)));
+}
+
+.composer-disc {
+  display: flex;
+  width: 28px;
+  height: 28px;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  border-radius: 9999px;
+  transition: filter var(--duration-fast, 150ms) ease;
+}
+
+.composer-disc:hover {
+  filter: brightness(1.08);
+}
+
+.composer-send {
+  background: var(--color-accent);
+  color: var(--color-accent-ink, var(--color-app));
+}
+
+.composer-send:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
+
+.composer-stop {
+  background: var(--color-disc, color-mix(in srgb, var(--color-ink) 7%, var(--color-app)));
+  color: var(--color-ink);
+}
+
+[data-skin="midnight"] .composer-stop {
+  background: var(--color-disc, #5c5c5c);
+}
+
+.composer-stop-square {
+  display: block;
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+  background: var(--color-ink);
+}
+
+[data-composer-surface]:has(> [data-usage-notice]) {
+  padding-top: 5px;
+}
+
+.composer-usage-row {
+  display: flex;
+  height: 40px;
+  align-items: center;
+  margin: 0 -5px 6px -7px;
+  padding: 0 4px 0 14px;
+  border-radius: 18px;
+  background: var(--color-wash, color-mix(in srgb, var(--color-ink) 6%, var(--color-composer)));
+}
+
+.composer-usage-open {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  align-items: center;
+  gap: 4px;
+  font-size: 14px;
+  line-height: 20px;
+  font-weight: 500;
+  color: var(--color-ink);
+  text-align: left;
+}
+
+.composer-usage-chevron {
+  flex-shrink: 0;
+  color: var(--color-faint, var(--color-ink-tertiary));
+}
+
+.composer-usage-hide {
+  display: flex;
+  width: 28px;
+  height: 28px;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  border-radius: 9999px;
+  color: var(--color-ink-secondary);
+}
+
+.composer-usage-hide:hover {
+  color: var(--color-ink);
+  background: var(--color-disc, color-mix(in srgb, var(--color-ink) 7%, var(--color-app)));
+}
+
+.question-parity {
+  margin-bottom: 10px;
+  padding: 16px 14px;
+  border-radius: 24px;
+  border: 1px solid var(--color-hairline);
+  background: var(--color-lift, var(--color-composer));
+  box-shadow: 0 2px 8px rgb(0 0 0 / 0.035);
+}
+
+[data-skin="midnight"] .question-parity {
+  box-shadow: none;
+}
+
+.question-parity-title {
+  padding: 0 8px;
+  font-size: 14px;
+  line-height: 20px;
+  font-weight: 600;
+  color: var(--color-ink);
+}
+
+.question-parity-row {
+  display: flex;
+  width: 100%;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 8px;
+  border-radius: 16px;
+  text-align: left;
+}
+
+.question-parity-row:hover {
+  background: var(--color-card);
+}
+
+[data-skin="midnight"] .question-parity-row:hover {
+  background: var(--color-raised-hover, var(--color-card));
+}
+
+.question-parity-number {
+  display: flex;
+  width: 20px;
+  height: 20px;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+  line-height: 17px;
+  color: var(--color-ink-secondary);
+  font-variant-numeric: tabular-nums;
+}
+
+.question-parity-label {
+  font-size: 14px;
+  line-height: 20px;
+  color: var(--color-ink);
+}
+
+.question-parity-description {
+  font-size: 13px;
+  line-height: 17px;
+  color: var(--color-ink-secondary);
+}
+
+.question-parity-check {
+  margin-top: 2px;
+  flex-shrink: 0;
+  color: var(--color-ink);
+}
+
+.question-parity-held {
+  padding: 4px 8px 0 38px;
+  font-size: 13px;
+  line-height: 17px;
+  color: var(--color-ink-secondary);
+}
+
+.question-parity-send {
+  height: 28px;
+  padding: 0 12px;
+  border-radius: 9999px;
+  background: var(--color-accent);
+  color: var(--color-accent-ink, var(--color-app));
+  font-size: 13px;
+  line-height: 17px;
+  font-weight: 500;
+}
+
+.question-parity-send:disabled {
+  cursor: not-allowed;
+  opacity: 0.4;
+}
+
+.approval-parity {
+  margin-bottom: 10px;
+  padding: 16px 14px 12px;
+  border-radius: 24px;
+  border: 1px solid var(--color-hairline);
+  background: var(--color-lift, var(--color-composer));
+  box-shadow: 0 2px 8px rgb(0 0 0 / 0.035);
+}
+
+[data-skin="midnight"] .approval-parity {
+  box-shadow: none;
+}
+
+.approval-parity-title {
+  font-size: 14px;
+  line-height: 20px;
+  font-weight: 600;
+  color: var(--color-ink);
+}
+
+.approval-parity-command {
+  margin-top: 8px;
+  max-height: 160px;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  cursor: pointer;
+  padding: 8px 10px;
+  border: 1px solid var(--color-hairline);
+  border-radius: 10px;
+  font-family: Menlo, ui-monospace, monospace;
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--color-ink);
+}
+
+.approval-parity-actions {
+  margin-top: 12px;
+}
+
+.approval-parity-button {
+  height: 28px;
+  padding: 0 12px;
+  border-radius: 9999px;
+  font-size: 13px;
+  line-height: 17px;
+  font-weight: 500;
+  transition: background-color var(--duration-fast, 150ms) ease, filter var(--duration-fast, 150ms) ease;
+}
+
+.approval-parity-quiet {
+  padding: 0 6px;
+  color: var(--color-ink-secondary);
+}
+
+.approval-parity-quiet:hover {
+  color: var(--color-ink);
+}
+
+.approval-parity-deny {
+  color: var(--color-ink);
+}
+
+.approval-parity-deny:hover {
+  background: var(--color-card);
+}
+
+[data-skin="midnight"] .approval-parity-deny:hover {
+  background: var(--color-raised-hover, var(--color-card));
+}
+
+.approval-parity-allow {
+  background: var(--color-accent);
+  color: var(--color-accent-ink, var(--color-app));
+}
+
+.approval-parity-allow:hover {
+  filter: brightness(1.08);
+}

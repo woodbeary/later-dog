@@ -152,11 +152,6 @@ async function handle(msg: any) {
     }
     const askId = randomUUID();
     const isQuestion = name === "ask_user";
-    const suggestions = Array.isArray(args.permission_suggestions)
-      ? args.permission_suggestions
-      : Array.isArray(args.suggestions)
-        ? args.suggestions
-        : null;
     const answer: any = await askBroker(
       isQuestion
         ? { t: "ask", id: askId, kind: "question", tool: "ask_user", input: { question: args.question, choices: args.choices } }
@@ -166,7 +161,6 @@ async function handle(msg: any) {
     if (!isQuestion) {
       if (answer.behavior === "allow") {
         const result: AllowPermissionResult = { behavior: "allow", updatedInput: args.input ?? {} };
-        if (answer.always && suggestions) result.updatedPermissions = suggestions;
         text = JSON.stringify(result);
       } else {
         text = JSON.stringify({ behavior: "deny", message: answer.message || "Denied from later.dog" });

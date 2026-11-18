@@ -26,6 +26,12 @@ export function chatContextReading(context: TaskUsage["context"], modelWindow?: 
   return { tokens, window, percent, level: percent >= 100 ? "over" : percent >= CONTEXT_NEAR_PERCENT ? "near" : "ok" };
 }
 
+export function beforeCompaction(reading: ChatContextReading, compactsAt?: number): { reading: ChatContextReading; compactsAt: number | null } {
+  const near = (of: number) => (of * CONTEXT_NEAR_PERCENT) / 100;
+  if (!positive(compactsAt) || reading.window === null || compactsAt >= near(reading.window)) return { reading, compactsAt: null };
+  return { reading: reading.level === "ok" && reading.tokens >= near(compactsAt) ? { ...reading, level: "near" } : reading, compactsAt };
+}
+
 export function contextPercentWords(percent: number): string {
   return percent > 0 && percent < 1 ? "<1%" : `${Math.round(percent)}%`;
 }

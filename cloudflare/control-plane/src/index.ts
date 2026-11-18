@@ -7,6 +7,7 @@ import { releaseUnusedHomes } from "./home-slots";
 import { cloudHomeCap, cloudRoute, type HomesService } from "./cloud";
 import { inviteFromWaitlist } from "./waitlist";
 import { cloudPage, phoneAppTarget } from "./cloud-pages";
+import { googleCallback } from "./google";
 export { AccountsApi } from "./owner-mail";
 import { readConfig, type ControlPlaneConfig } from "./config";
 import { turnstileSecret, turnstileSiteKey } from "./turnstile";
@@ -217,6 +218,9 @@ export function createWorker(
           ...(capacity === null ? {} : { capacity }),
         }), request, null, requestId);
       }
+
+      const googleAnswer = googleCallback(request, env);
+      if (googleAnswer) return secureResponse(googleAnswer, request, null, requestId);
 
       const page = cloudPage(request, phoneAppTarget((env as unknown as { PHONE_APP_URL?: unknown }).PHONE_APP_URL), turnstileSecret(env) ? turnstileSiteKey(env) : null);
       if (page) return secureResponse(page, request, null, requestId);

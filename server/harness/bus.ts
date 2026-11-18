@@ -76,7 +76,8 @@ export class EventBus {
 
   private write(event: RuntimeEvent) {
     const pendingWarning = this.pendingLogWarnings.get(event.threadId);
-    const persistedEvents = pendingWarning ? [pendingWarning, redactSecrets(event)] : [redactSecrets(event)];
+    const stored = event.type === "request.opened" && event.wholeInput !== undefined ? { ...event, wholeInput: undefined } : event;
+    const persistedEvents = pendingWarning ? [pendingWarning, redactSecrets(stored)] : [redactSecrets(stored)];
     try {
       this.appendLog(
         join(EVENTS_DIR, `${event.threadId}.ndjson`),

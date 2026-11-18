@@ -1,6 +1,7 @@
 import type { NativeActor, NativeActorState, NativeActivity, NativeActivityKind, NativeObservation } from "../../shared/native-runs.ts";
 import type { PlanItem } from "../../shared/dog-plan.ts";
 import { codexPlanSteps } from "./dog-plan.ts";
+import { changedFileSubject, stepSubject } from "./step-subject.ts";
 
 type RecordValue = Record<string, unknown>;
 const record = (value: unknown): RecordValue => value && typeof value === "object" && !Array.isArray(value) ? value as RecordValue : {};
@@ -237,7 +238,7 @@ export class CodexNativeActivity {
     if (type === "subAgentActivity") {
       const childId = string(item.agentThreadId);
       if (childId && childId !== this.rootThread) {
-        const child = this.child(childId, actor, { label: text(item.agentPath)?.split("/").filter(Boolean).at(-1), model: text(item.model) });
+        const child = this.child(childId, actor, { label: text(item.agentPath)?.split("/").filter(Boolean).at(-1), model: text(item.model), lastActivityAt: this.now() });
         if (item.kind === "completed" || item.kind === "interrupted") this.put(childId, { ...child, state: stateOf(item.kind), endedAt: this.now(), canStop: false });
       }
       return;
@@ -269,7 +270,9 @@ export class CodexNativeActivity {
       return [{ title: text(result.title) ?? url, url: url.slice(0, 4000) }];
     }).slice(0, 50);
     const label = type === "commandExecution" ? text(item.command) ?? "Command" : type === "webSearch" ? text(item.query) ?? "Web search" : text(item.tool) ?? ({ agentMessage: "Message", reasoning: "Reasoning", plan: "Plan", contextCompaction: "Context compaction", fileChange: "File changes", hookPrompt: "Hook context" } as Record<string, string>)[type] ?? `Native ${type}`;
-    const detail: Partial<NativeActivity> = { input: type === "webSearch" ? printable(item.action) : type === "commandExecution" ? text(item.command) : printable(item.arguments ?? item.prompt),
+    const subject = type === "fileChange" ? changedFileSubject(item.changes) : type === "webSearch" ? stepSubject("web_search", { query: item.query })
+      : type === "mcpToolCall" || type === "dynamicToolCall" ? stepSubject(string(item.tool) ?? "", item.arguments) : undefined;
+    const detail: Partial<NativeActivity> = { subject, input: type === "webSearch" ? printable(item.action) : type === "commandExecution" ? text(item.command) : printable(item.arguments ?? item.prompt),
       output: type === "commandExecution" ? text(item.aggregatedOutput) : type === "webSearch" ? printable(item.results ?? item.action) : type === "imageGeneration" ? printable(item.failure ?? item.savedPath ?? item.revisedPrompt) : printable(item.error ?? item.result ?? item.contentItems ?? item.output ?? item.changes),
       text: text(item.text) ?? text(lines(item.summary) || lines(item.content)) ?? (type === "hookPrompt" && Array.isArray(item.fragments) ? text(item.fragments.map(value => text(record(value).text)).filter(Boolean).join("\n")) : undefined), ...(links.length ? { links } : {}) };
     this.activity(actor, id, kind, label, state, detail);

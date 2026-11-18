@@ -46,20 +46,20 @@ describe("a text or email a dog wants to send from the Mac", () => {
     const text = view("mac_send_text");
     expect(text.panel).toContain("Let Scout send a text from your Mac?");
     expect(text.panel).toContain("To Mom (5550101234)\n\nI&#x27;ll bring tiramisu!");
-    expect(text.labels).toEqual(["Send", "Don't send"]);
-    expect(view("mac_send_email").labels).toEqual(["Send", "Don't send"]);
+    expect(text.labels).toEqual(["Don't send", "Send"]);
+    expect(view("mac_send_email").labels).toEqual(["Don't send", "Send"]);
   });
 
   it("refuses only this message on Don't send, leaving the Mac's own setting alone", () => {
     const { buttons } = view("mac_send_text");
-    buttons[1]!.props.onClick!();
-    expect(fixture.dispatch).toHaveBeenCalledWith(expect.objectContaining({ type: "decideRequest", requestId: "request-1", behavior: "deny", scope: undefined }));
     buttons[0]!.props.onClick!();
+    expect(fixture.dispatch).toHaveBeenCalledWith(expect.objectContaining({ type: "decideRequest", requestId: "request-1", behavior: "deny", scope: undefined }));
+    buttons[1]!.props.onClick!();
     expect(fixture.dispatch).toHaveBeenLastCalledWith(expect.objectContaining({ behavior: "allow", scope: "once", alwaysAllow: undefined }));
   });
 
   it("keeps Allow once, Always allow and Never on the Mac's other cards", () => {
-    expect(view("mac_read_texts", { subtitle: "with Mom", allowKey: MAC_ALLOW_KEY }).labels).toEqual(["Allow once", "Always allow", "Never"]);
-    expect(view("mac_run_command", { subtitle: "ls", allowKey: MAC_ALLOW_KEY }).labels).toEqual(["Allow once", "Always allow", "Never"]);
+    expect(view("mac_read_texts", { subtitle: "with Mom", allowKey: MAC_ALLOW_KEY }).labels).toEqual(["Always allow", "Never", "Allow once"]);
+    expect(view("mac_run_command", { subtitle: "ls", allowKey: MAC_ALLOW_KEY }).labels).toEqual(["Always allow", "Never", "Allow once"]);
   });
 });

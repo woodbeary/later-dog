@@ -112,9 +112,8 @@ describe("ClaudeDriver.decodeConfig", () => {
     const plain = claudeHookSettings("/tmp/helper.ts");
     expect(plain).not.toHaveProperty("PreToolUse");
     const guarded = claudeHookSettings("/tmp/helper.ts", { guardShell: true }) as Record<string, Array<{ matcher: string; hooks: Array<{ command: string }> }>>;
-    expect(guarded.PreToolUse).toHaveLength(1);
-    expect(guarded.PreToolUse![0]!.matcher).toBe("Bash");
-    expect(guarded.PreToolUse![0]!.hooks[0]!.command).toBe(guarded.PostToolUse![0]!.hooks[0]!.command);
+    expect(guarded.PreToolUse!.map((entry) => entry.matcher)).toEqual(["Bash", "Write", "Edit", "MultiEdit", "NotebookEdit"]);
+    for (const entry of guarded.PreToolUse!) expect(entry.hooks[0]!.command).toBe(guarded.PostToolUse![0]!.hooks[0]!.command);
   });
 
   it("keeps the per-turn hook token where workspace backups never look", () => {
@@ -876,7 +875,7 @@ describe("ClaudeDriver turns (fake CLI)", () => {
       const seen = JSON.parse(readFileSync(dump, "utf8"));
       expect(seen.argv[seen.argv.indexOf("--model") + 1]).toBe(model);
       expect(seen.argv[seen.argv.indexOf("--permission-mode") + 1]).toBe(nativeMode);
-      expect(seen.argv.includes("--permission-prompt-tool")).toBe(approvalMode !== "full");
+      expect(seen.argv[seen.argv.indexOf("--permission-prompt-tool") + 1]).toBe("mcp__dog__approve");
       expect(seen.argv).toContain("--resume");
     }
   });
@@ -1688,8 +1687,8 @@ describe("ClaudeDriver turns (fake CLI)", () => {
     expect(autoCompactWindow({})).toBe("200000");
     expect(autoCompactWindow({ LATERDOG_CLAUDE_AUTOCOMPACT: "auto" })).toBe("auto");
     expect(autoCompactWindow({ LATERDOG_CLAUDE_AUTOCOMPACT: "off" })).toBe(null);
-    expect(autoCompactWindow({}, true)).toBe("auto");
-    expect(autoCompactWindow({ LATERDOG_CLAUDE_AUTOCOMPACT: "nonsense" }, true)).toBe("auto");
+    expect(autoCompactWindow({}, true)).toBe("280000");
+    expect(autoCompactWindow({ LATERDOG_CLAUDE_AUTOCOMPACT: "nonsense" }, true)).toBe("280000");
     expect(autoCompactWindow({ LATERDOG_CLAUDE_AUTOCOMPACT: "150000" }, true)).toBe("150000");
     expect(autoCompactWindow({ LATERDOG_CLAUDE_AUTOCOMPACT: "off" }, true)).toBe(null);
   });
@@ -1704,8 +1703,8 @@ describe("ClaudeDriver turns (fake CLI)", () => {
 
   it.each([
     ["2.1.310", "200000", 200_000],
-    ["2.1.311", "auto", undefined],
-    ["2.1.316", "auto", undefined],
+    ["2.1.311", "280000", 280_000],
+    ["2.1.316", "280000", 280_000],
   ] as const)("gives Claude %s the compaction window %s on turns and one-shot launches", async (version, window, bound) => {
     const dump = join(scratch, `window-${version}.json`);
     await create(undefined, { FAKE_CLAUDE_DUMP: dump, FAKE_CLAUDE_VERSION: version });
@@ -1722,7 +1721,10 @@ describe("ClaudeDriver turns (fake CLI)", () => {
   it.each([
     ["a configured window", { LATERDOG_CLAUDE_AUTOCOMPACT: "300000" }, {}, 300_000],
     ["compaction turned off", { LATERDOG_CLAUDE_AUTOCOMPACT: "off" }, {}, undefined],
+    ["the engine's own window", { LATERDOG_CLAUDE_AUTOCOMPACT: "auto" }, {}, undefined],
     ["a hosted company account", {}, { managed: true }, 200_000],
+    ["the engine's own window variable, which outranks the flag", { CLAUDE_CODE_AUTO_COMPACT_WINDOW: "150000" }, {}, 150_000],
+    ["an engine window variable later.dog cannot read", { CLAUDE_CODE_AUTO_COMPACT_WINDOW: "150k" }, {}, undefined],
   ] as const)("reports the native compaction bound for %s on a current Claude", async (_label, environment, config, bound) => {
     await create(undefined, { FAKE_CLAUDE_VERSION: "2.1.316", ...environment }, config);
     await expect(instance.adapter.nativeCompactAt!()).resolves.toBe(bound);
@@ -3747,7 +3749,7 @@ describe("ClaudeDriver turns (fake CLI)", () => {
     });
     expect(opened).toHaveProperty("approvalScope", undefined);
 
-    expect(opened).toHaveProperty("allowSession", true);
+    expect((opened as { allowSession?: boolean }).allowSession).toBeUndefined();
     await expect(instance.adapter.respondToRequest("t-perm-abc", "ask-1", { behavior: "allow", always: true })).resolves.toBe("allowed-once");
     expect(await answered).toMatchObject({ behavior: "allow", always: true });
     const resolved = await recorder.until((e) => e.type === "request.resolved");
@@ -3767,7 +3769,7 @@ describe("ClaudeDriver turns (fake CLI)", () => {
     );
     const opened2 = await recorder.until((e) => e.requestId === "ask-2" && e.type === "request.opened");
     expect(opened2).toHaveProperty("approvalScope", "local-computer");
-    expect(opened2).toHaveProperty("allowSession", undefined);
+    expect((opened2 as { allowSession?: boolean }).allowSession).toBeUndefined();
     await expect(instance.adapter.respondToRequest("t-perm-abc", "ask-2", { behavior: "allow" })).resolves.toBe("allowed-once");
     const plain = await answered2;
     expect(plain).toMatchObject({ behavior: "allow" });

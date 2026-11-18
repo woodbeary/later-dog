@@ -13,7 +13,7 @@ const BY_NAME = new Set(["pkill", "killall", "/usr/bin/pkill", "/usr/bin/killall
 const FINDERS = new Set(["pgrep", "pidof", "/usr/bin/pgrep", "/bin/pidof"]);
 const ENV_PREFIX = /^(?:[A-Za-z_][A-Za-z0-9_]*=(?:'[^']*'|"[^"]*"|\S*)\s+)+/;
 const ASSIGNMENT = /^[A-Za-z_][A-Za-z0-9_]*=/;
-const WRAPPER_VALUE_OPTIONS = new Map<string, ReadonlySet<string>>([
+export const WRAPPER_VALUE_OPTIONS = new Map<string, ReadonlySet<string>>([
   ["busybox", new Set<string>()],
   ["nice", new Set(["-n", "--adjustment"])],
   ["ionice", new Set(["-c", "-n", "-p", "-P", "-u", "--class", "--classdata"])],

@@ -1,23 +1,21 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { closeSync, existsSync, openSync, readFileSync, rmSync } from "node:fs";
+import { closeSync, existsSync, openSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { connect, type Socket } from "node:net";
 import { join } from "node:path";
-import { setTimeout as delay } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
 import { expect, it } from "vitest";
 import { launchVerificationServer, verificationServerEnvironment } from "../scripts/control-laterdog.ts";
 import { waitForExit } from "./testing/cleanup.ts";
 
-it("remembers real permission requests, scopes and revokes grants, and preserves them across restart", async () => {
+it("keeps no saved command: a card offers none, an answer saves none, an old rule answers nothing and lists as no longer used", async () => {
   const fixture = await launchVerificationServer({ FAKE_CLAUDE_MODE: "hang" });
   const { url, dataDir, logPath } = fixture.info;
   const sockets: Socket[] = [];
   let restarted: ChildProcess | undefined;
-  const api = async (method: string, path: string, body?: unknown, status = 200, token?: string) => {
-    const response = await fetch(url + path, { method, headers: {
-      origin: url, "content-type": "application/json", ...(token ? { authorization: `Bearer ${token}` } : {}),
-    }, ...(body === undefined ? {} : { body: JSON.stringify(body) }), signal: AbortSignal.timeout(10_000) });
+  const api = async (method: string, path: string, body?: unknown, status = 200) => {
+    const response = await fetch(url + path, { method, headers: { origin: url, "content-type": "application/json" },
+      ...(body === undefined ? {} : { body: JSON.stringify(body) }), signal: AbortSignal.timeout(10_000) });
     const result = await response.json() as any;
     expect(response.status, `${method} ${path}: ${JSON.stringify(result)}`).toBe(status);
     return result;
@@ -31,101 +29,44 @@ it("remembers real permission requests, scopes and revokes grants, and preserves
     await expect.poll(() => existsSync(dump), { timeout: 15_000 }).toBe(true);
     return JSON.parse(readFileSync(dump, "utf8")).mcpConfig.mcpServers.dog.args.at(-1) as string;
   };
-  const ask = async (socketPath: string, command: string, input = {}, tool = "Bash") => {
+  const ask = async (socketPath: string, command: string) => {
     const socket = connect(socketPath);
     sockets.push(socket);
     await new Promise<void>((resolve, reject) => { socket.once("connect", resolve); socket.once("error", reject); });
     const id = randomUUID();
-    let answer: any;
     let buffer = "";
     const reply = new Promise<any>((resolve, reject) => {
       socket.once("error", reject);
       socket.once("close", () => reject(new Error(`Permission socket closed before its reply: ${id}`)));
-      socket.setTimeout(10_000, () => socket.destroy(new Error(`Permission reply timed out: ${id}`)));
       socket.on("data", chunk => {
         buffer += chunk;
-        if (!buffer.includes("\n")) return;
-        answer = JSON.parse(buffer.split("\n")[0]!);
-        socket.setTimeout(0);
-        resolve(answer);
+        if (buffer.includes("\n")) resolve(JSON.parse(buffer.split("\n")[0]!));
       });
     });
     void reply.catch(() => {});
-    socket.write(JSON.stringify({ t: "ask", id, tool, input: { command, ...input } }) + "\n");
-    return { id, answer: () => answer, reply, socket };
+    socket.write(JSON.stringify({ t: "ask", id, tool: "Bash", input: { command } }) + "\n");
+    return { id, reply };
   };
   const stop = (bot: any, thread = bot.threadId) => api("POST", `/api/bots/${bot.id}/interrupt`, { threadId: thread });
   try {
     const bot = (await api("POST", "/api/bots", { name: "Command rules fixture", modelSelection: { instanceId: "claude", model: "claude-sonnet-5" } }, 201)).bot;
     await api("PATCH", `/api/bots/${bot.id}/tasks/${bot.threadId}`, { approvalMode: "ask" });
     const rulesPath = `/api/bots/${bot.id}/command-allowlist`;
-    expect((await api("GET", rulesPath)).rules).toEqual([]);
-    const socket = await start(bot);
+    const cwd = (await api("GET", rulesPath)).context.cwd as string;
     const command = "printf 'allowlist fixture'";
-    const first = await ask(socket, command);
-    await expect.poll(async () => Boolean((await card(bot.threadId, first.id))?.commandAllowlist)).toBe(true);
-    const candidate = (await card(bot.threadId, first.id)).commandAllowlist;
-    expect(candidate.command).toBe(command);
-    expect(candidate.cwd).toBe((await api("GET", rulesPath)).context.cwd);
+    expect((await api("POST", rulesPath, { command, cwd, providerInstanceId: "claude" }, 409)).why).toBe("stopped");
 
-    const pairing = await api("POST", "/api/auth/pairing", { label: "Member fixture", scopes: ["client"] });
-    const paired = await api("POST", "/api/auth/pair", { code: pairing.code });
-    await api("GET", rulesPath, undefined, 403, paired.token);
-    await api("POST", rulesPath, candidate, 403, paired.token);
-    await api("POST", `/api/threads/${bot.threadId}/respond`, { requestId: first.id, behavior: "allow", rememberCommand: true }, 403, paired.token);
-    expect((await api("GET", rulesPath)).rules).toEqual([]);
+    const socket = await start(bot);
+    const first = await ask(socket, command);
+    await expect.poll(async () => Boolean(await card(bot.threadId, first.id))).toBe(true);
+    expect((await card(bot.threadId, first.id)).commandAllowlist).toBeUndefined();
     expect((await api("POST", `/api/threads/${bot.threadId}/respond`, { requestId: first.id, behavior: "allow", rememberCommand: true })).outcome).toBe("allowed-once");
     expect(await first.reply).toMatchObject({ id: first.id, behavior: "allow" });
-    const saved = (await api("GET", rulesPath)).rules[0];
-    expect(saved).toMatchObject(candidate);
-    for (const profile of (await api("GET", "/api/bots")).bots) expect(profile).not.toHaveProperty("commandAllowlist");
-
-    const repeated = await ask(socket, command);
-    expect(await repeated.reply).toMatchObject({ id: repeated.id, behavior: "allow" });
-    expect(await card(bot.threadId, repeated.id)).toBeUndefined();
-    await expect.poll(async () => (await api("GET", "/api/decisions")).decisions.some((row: any) => row.requestId === repeated.id && row.source === "command-allowlist")).toBe(true);
-
-    for (const [text, input, tool] of [
-      [command + " && pwd", {}, "Bash"],
-      [command, { dangerouslyDisableSandbox: true }, "Bash"],
-      [command, {}, "mcp__other__shell"],
-    ] as const) {
-      const different = await ask(socket, text, input, tool);
-      await expect.poll(async () => Boolean(await card(bot.threadId, different.id))).toBe(true);
-      expect(different.answer()).toBeUndefined();
-      await api("POST", `/api/threads/${bot.threadId}/respond`, { requestId: different.id, behavior: "deny" });
-      expect(await different.reply).toMatchObject({ id: different.id, behavior: "deny" });
-    }
-    await api("DELETE", rulesPath + "/" + saved.id);
-    const revoked = await ask(socket, command);
-    await expect.poll(async () => Boolean(await card(bot.threadId, revoked.id))).toBe(true);
-    await api("POST", `/api/bots/${bot.id}/respond`, { threadId: bot.threadId, requestId: revoked.id, behavior: "allow", rememberCommand: true });
-    expect(await revoked.reply).toMatchObject({ id: revoked.id, behavior: "allow" });
-    expect((await api("GET", rulesPath)).rules).toHaveLength(1);
+    expect((await api("GET", rulesPath)).rules).toEqual([]);
     await stop(bot);
-    await api("POST", `/api/threads/${bot.threadId}/respond`, { requestId: revoked.id, behavior: "allow", rememberCommand: true }, 403);
-
-    const sibling = (await api("POST", `/api/bots/${bot.id}/tasks`, { title: "Different folder" }, 201)).task;
-    const otherSocket = await start(bot, sibling.threadId);
-    const other = await ask(otherSocket, command);
-    await expect.poll(async () => Boolean(await card(sibling.threadId, other.id))).toBe(true);
-    expect((await card(sibling.threadId, other.id)).commandAllowlist.cwd).not.toBe(candidate.cwd);
-    await stop(bot, sibling.threadId);
-    expect(await other.reply).toMatchObject({ id: other.id, behavior: "deny" });
-
-    await api("PATCH", `/api/bots/${bot.id}`, { cwd: candidate.cwd });
-    const shared = (await api("POST", `/api/bots/${bot.id}/tasks`, { title: "Same project folder" }, 201)).task;
-    const sharedSocket = await start(bot, shared.threadId);
-    const sharedRequest = await ask(sharedSocket, command);
-    sharedRequest.socket.pause();
-    await delay(1_100);
-    expect(sharedRequest.answer()).toBeUndefined();
-    sharedRequest.socket.resume();
-    expect(await sharedRequest.reply).toMatchObject({ id: sharedRequest.id, behavior: "allow" });
-    expect(await card(shared.threadId, sharedRequest.id)).toBeUndefined();
-    await stop(bot, shared.threadId);
 
     await waitForExit(fixture.child, { signal: "SIGTERM" });
+    writeFileSync(join(dataDir, "command-allowlist.json"), JSON.stringify({ version: 1, rules: [{ id: randomUUID(), botId: bot.id, command, cwd, providerInstanceId: "claude" }] }));
     const log = openSync(logPath, "a", 0o600);
     restarted = spawn(process.execPath, ["--experimental-strip-types", fileURLToPath(new URL("./index.ts", import.meta.url))], {
       cwd: fileURLToPath(new URL("..", import.meta.url)),
@@ -136,13 +77,17 @@ it("remembers real permission requests, scopes and revokes grants, and preserves
     await expect.poll(async () => {
       try { return (await fetch(url + "/api/health", { signal: AbortSignal.timeout(1000) })).ok; } catch { return false; }
     }, { timeout: 20_000 }).toBe(true);
-    expect((await api("GET", rulesPath)).rules).toHaveLength(1);
+    const listed = (await api("GET", `/api/bots/${bot.id}/always-allowed`)).items.filter((item: any) => item.kind === "command");
+    expect(listed).toEqual([expect.objectContaining({ kind: "command", subject: command, state: "no-longer-used" })]);
     const restartedSocket = await start(bot);
-    const restored = await ask(restartedSocket, command);
-    expect(await restored.reply).toMatchObject({ id: restored.id, behavior: "allow" });
-    expect(await card(bot.threadId, restored.id)).toBeUndefined();
+    const again = await ask(restartedSocket, command);
+    await expect.poll(async () => Boolean(await card(bot.threadId, again.id))).toBe(true);
+    expect((await card(bot.threadId, again.id)).commandAllowlist).toBeUndefined();
+    await api("POST", `/api/threads/${bot.threadId}/respond`, { requestId: again.id, behavior: "deny" });
+    expect(await again.reply).toMatchObject({ id: again.id, behavior: "deny" });
     await stop(bot);
-    console.info(`Command allowlist real-server verification passed; isolated log: ${logPath}`);
+    await api("DELETE", `/api/bots/${bot.id}/always-allowed/${encodeURIComponent(listed[0].id)}`);
+    expect((await api("GET", rulesPath)).rules).toEqual([]);
   } finally {
     for (const socket of sockets) socket.destroy();
     await waitForExit(restarted, { signal: "SIGTERM" });

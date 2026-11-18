@@ -6,6 +6,7 @@ type ScopeBody = { always?: unknown; rememberCommand?: unknown; scope?: unknown 
 
 export interface GrantLookup {
   hasKey(threadId: string, key: string, askerBotId?: string): boolean;
+  lastingGranted?(threadId: string, requestId: string): boolean;
 }
 
 type ScopeStore = Pick<Store, "messagesFor" | "patchMessage">;
@@ -27,6 +28,7 @@ function confirmedScope(claimed: AnswerScope, message: Message, body: ScopeBody,
   const card = message.card!;
   if (claimed === "chat") return card.allowSession === true ? "chat" : "once";
   if (claimed !== "always" || body.rememberCommand === true) return "once";
+  if (card.lasting?.offered === true) return card.requestId && grants.lastingGranted?.(threadId, card.requestId) ? "always" : "once";
   return card.allowKey && grants.hasKey(threadId, card.allowKey, message.from?.botId) ? "always" : "once";
 }
 

@@ -389,12 +389,13 @@ const TOOL_DEFINITIONS = [
   {
     name: "run_on_computer",
     description:
-      "Run a heavy command (install, build, typecheck, test suite, browser test, media processing) on your own cloud computer so it can't freeze the home all dogs share. Copies the folder there (changes only, no node_modules or build output), runs it, brings back the files it made or changed, and shows the end of the output. Packages stay installed there between runs. Still running after ~4 minutes: call again with only run_id.",
+      "Run a heavy command (install, build, typecheck, test suite, browser test, media processing) on your own cloud computer so it can't freeze the home all dogs share. Copies the folder there (changes only, no node_modules or build output), runs it, brings back the files it made or changed, and shows the end of the output. Packages stay installed there between runs. One call waits until the command ends, up to wait_minutes (default 4, at most 60). A run still going then keeps going and gives you its run_id. later.dog checks it every 30 seconds, which keeps your computer awake while it runs, up to its 8-hour limit (less on a trial), and may wake you when it ends. Do your other work first, then call again with only run_id when you need the result. That call itself waits up to its wait_minutes (default 4), so never sleep or loop before it.",
     inputSchema: { type: "object", additionalProperties: false, properties: {
       command: { type: "string", maxLength: 4000, description: "Shell command run with bash in the folder." },
       folder: { type: "string", description: "Absolute project folder here, e.g. /data/site. Default: your working folder." },
       subdir: { type: "string", description: "Subfolder of folder to run in." },
       run_id: { type: "string", description: "Keep waiting for a run still going." },
+      wait_minutes: { type: "integer", minimum: 1, maximum: 60, description: "How long this call may wait for the command to end. Default 4." },
     } },
   },
   {
@@ -414,7 +415,7 @@ const TOOL_DEFINITIONS = [
   {
     name: "create_bot",
     description:
-      "Make a new dog when the person asks for another dog, agent or helper. If they did not say what it is for, first ask one short question: what it should do, and a name if they have one in mind; otherwise pick a short name yourself. It gets the same access you have, never more, and says hello in its own chat; then tell them it is in their list. Omit modelSelection for the default model. If they gave it a job, hand the job over right away so they do not have to repeat it. Never make a dog to stand in for an existing one whose engine or account is broken or needs setup: fix that dog with propose_model and bot_id, or dog_accounts.",
+      "Make a new dog when the person asks for another dog, agent or helper. If they did not say what it is for, first ask one short question: what it should do, and a name if they have one in mind; otherwise pick a short name yourself. It gets the same access you have, never more, and says hello in its own chat; then tell them it is in their list. Omit modelSelection to give it the helper model one tier below yours on your account when you run on Claude, or the default model otherwise. If they gave it a job, hand the job over right away so they do not have to repeat it. Never make a dog to stand in for an existing one whose engine or account is broken or needs setup: fix that dog with propose_model and bot_id, or dog_accounts.",
     inputSchema: {
       type: "object",
       properties: {

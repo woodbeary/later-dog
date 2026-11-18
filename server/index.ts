@@ -58,8 +58,11 @@ import {
 } from "../shared/credential-request.ts";
 
 import { HELD_NOTE, approvalHeldNote, approvalHeldReason, approvalModeForOrigin, autoVerdict, deliverFullAccessApproval } from "./auto-approve.ts";
-import { CommandAllowlistStore, commandAllowlistCandidate } from "./command-allowlist.ts";
-import type { CommandAllowlistCandidate, CommandAllowlistResponse } from "../shared/command-allowlist.ts";
+import { CommandAllowlistStore } from "./command-allowlist.ts";
+import { isGroupChat, LastingAllowStore, lastingOffer, lastingVerdict, onlyOwnerReached, type LastingRequest } from "./laterdog/lasting-allows.ts";
+import type { AlwaysAllowedItem, AlwaysAllowedList } from "../shared/lasting-allows.ts";
+import { VAULT_ALLOW_PREFIX } from "../shared/vault.ts";
+import type { CommandAllowlistResponse } from "../shared/command-allowlist.ts";
 import { updateClaudeCli } from "./claude-update.ts";
 import { configuredAccountDirectory, assertSeparateClaudeAccount, claudeAccountInfo, createClaudeAccountSchema, instanceSettingsSchema, newClaudeAccount } from "./claude-accounts.ts";
 import { providerIconPatchSchema, withInstanceIcon } from "./provider-icon.ts";
@@ -135,14 +138,22 @@ import { HOME_HEALTH_FILE, startHomeHealthLog } from "./laterdog/home-health-log
 import { startMemoryGuard } from "./laterdog/memory-guard.ts";
 import { parseHelperModelChoice } from "./laterdog/helper-model.ts";
 import { makeSpace } from "./laterdog/space-maker.ts";
+import { liveStepsFrom } from "./laterdog/live-step.ts";
 import { createDiskBreakdown } from "./laterdog/disk-breakdown.ts";
 import { ComputerRuns } from "./laterdog/computer-runs.ts";
+import { ComputerJobs, JOB_CHECK_MS } from "./laterdog/computer-jobs.ts";
+import { handoffWait, handoffWorkDone, olderWorkFields } from "./laterdog/chat-work.ts";
+import { createJobStop } from "./laterdog/stop-computer-jobs.ts";
+import { createJobWake } from "./laterdog/job-wake.ts";
+import { waitCapMs } from "./laterdog/run-wait.ts";
+import { HelperTurnBudget } from "./laterdog/turn-budget.ts";
 import { HeavyCommandGuard, preToolUseDecision } from "./laterdog/heavy-commands.ts";
 import { computersSelected } from "./laterdog/cloud-computers.ts";
 import { createComputerRunRoute } from "./routes/computer-run.ts";
 import { createStorageRoutes } from "./routes/storage.ts";
 import * as boat from "./computers.ts";
 import { cloudComputerRpc } from "./cloud-computer-tools.ts";
+import { pageToolsEnabled } from "./laterdog/page-tools.ts";
 import { TeamComputers, teamComputerAssignment, teamComputerCreate, teamComputerOwner, type TeamComputerRecord } from "./team-computers.ts";
 import { isEffortLevel, type BotVisibility, type CardAnswerer, type ResolvedSender, type SteerQueueReason, type WireBot, type WireGroup, type WireTask, type WireWaitingOn } from "../shared/wire.ts";
 import { waitingOn } from "./laterdog/waiting-on.ts";
@@ -300,7 +311,7 @@ import { probeMcpServer } from "./mcp-probe.ts";
 
 import { BUILT_IN_DRIVERS } from "./drivers/builtIn.ts";
 import { openCodeProviderKeysAllowed, setOpenCodeProviderKeyPolicy } from "./drivers/acp/opencode-go.ts";
-import { confirmRememberedCommand, recordAnswerScope, type GrantLookup } from "./laterdog/answer-scope.ts";
+import { recordAnswerScope, type GrantLookup } from "./laterdog/answer-scope.ts";
 import { getOrCreateChannel } from "./comms-visibility.ts";
 import { readMessageText, recallMessages, recentMessages, searchMessagesAsync, closeMessageSearch, closeMessageDb, chatFollowups, cancelledChatFollowup, settleChatFollowups, threadsReferencing, openPermissionCards, latestMessageAts, reclaimFreePages } from "./message-db.ts";
 import { briefCrossingLabel, claimRecallCrossings, recallCrossingLabel } from "./recall-disclosure.ts";
@@ -550,7 +561,7 @@ import { LogArchiveCoordinator, claudeSessionIds, logArchiveBridge, outsideSessi
 import { readThreadEvents } from "./thread-events.ts";
 import { describeTool, readBotActivity } from "./activity.ts";
 import { OutboundRequestService } from "./outbound-requests.ts";
-import { connectorCallsIn, outboundCallsIn } from "../shared/outbound.ts";
+import { connectorCallsIn } from "../shared/outbound.ts";
 import { TurnToolkits, connectorAllowKey, connectorSendDecision, toolkitOf } from "./laterdog/connector-ask.ts";
 import { bindThreadLogCapProvider } from "./thread-log-rotation.ts";
 import { CLOUD_THREAD_LOG_MAX_BYTES, CLOUD_THREAD_LOG_RETENTION_DAYS, DISK_CHECK_MS, diskUse, isLowDisk, JANITOR_EVERY_MS, runJanitor, type JanitorRun, type WorkspaceTask } from "./laterdog/janitor.ts";
@@ -559,6 +570,8 @@ import { MEMORY_CHECK_MS, orphanIdleHours, readMemoryPressure, reapStrays, under
 import { startHomeUpkeep } from "./laterdog/home-upkeep.ts";
 import { liveSignalScene, signalDecision } from "./laterdog/home-signals.ts";
 import { homeFloorDecision } from "./laterdog/disk-floor.ts";
+import { callerGone, holdForPerson } from "./laterdog/always-ask-hold.ts";
+import { ALWAYS_ASK_PATHS, alwaysAskHook, alwaysAsks, asksAsConnector, connectorAlwaysAsks, internalCallRequest, type AlwaysAsk, type AlwaysAskRequest } from "./laterdog/always-asks.ts";
 import { listenWebhookIngress, webhookCredential, type WebhookIngress } from "./webhook-ingress.ts";
 import { assertModelVariantSupported, memberTurnSelection } from "./member-turn.ts";
 import { WebhookManager } from "./webhooks.ts";
@@ -698,7 +711,6 @@ import { claudeReviewerGrant, ownerAuthority, ownerAutoAnswers, ownerCoordinatio
 import { autoReviewOn, ownerTurnMode } from "./laterdog/auto-review.ts";
 import { settleOwnerAutoPermission } from "./laterdog/owner-auto-request.ts";
 import { DELETE_OUTSIDE_WORKSPACE_ALLOW_KEY, ownerGuardRequest, ownerWorkspaceRoots, type OwnerGuardContext, type OwnerGuardRefusal } from "./laterdog/owner-guard.ts";
-import { sameEngineAcrossAccounts } from "./laterdog/saved-command-engine.ts";
 import { ROUTES, dispatchRoutes } from "./routes/table.ts";
 import { createLinkPreviewRoutes } from "./routes/link-preview.ts";
 import { createLaterDogRoutes } from "./routes/laterdog.ts";
@@ -718,9 +730,13 @@ import { roomIdentityPrompt } from "./laterdog/room-prompt.ts";
 import { groupChatsOf } from "./laterdog/group-chats.ts";
 import { groupRoutineReply, SILENT_GROUP_ROUTINE } from "./laterdog/group-routine-reply.ts";
 import { botNames, dogActivityWords, teammateDoneLabel, teammateResultLabel } from "./laterdog/activity-words.ts";
+import { dropContinuation } from "./laterdog/dropped-continuation.ts";
+import { ENDED_REQUEST, endedRequestIds } from "./laterdog/request-fences.ts";
+import { createdDogModel } from "./laterdog/created-dog-model.ts";
 import { INCLUDED_AI_INSTANCE, INCLUDED_AI_INSTANCES } from "./laterdog/included-ai.ts";
 import { createPhonePush } from "./laterdog/phone-push.ts";
 import { cloudEmailDelivery } from "./laterdog/email-me.ts";
+import { cloudGoogleConnection } from "./laterdog/google-shared.ts";
 import { CONNECT_MAC, macOffline, withConnectMac } from "./laterdog/connect-mac.ts";
 import { createHomeActivity, HOME_ACTIVITY_HORIZON_MS, homeActivityFrom } from "./laterdog/home-activity.ts";
 import { createHomeActivityRoute } from "./routes/home-activity.ts";
@@ -749,6 +765,7 @@ import { personWaitStays, settlePickup, shownWaiting, usageHeld, type PickupOutc
 import { guestBattery } from "./laterdog/battery-view.ts";
 import { continueOnAccount } from "./laterdog/continue-on-account.ts";
 import { LimitHold, withWaitingRuns } from "./laterdog/limit-hold.ts";
+import { LiveContext } from "./laterdog/live-context.ts";
 import { createUsageWatch } from "./laterdog/usage-watch.ts";
 import { openAsk, workState } from "./laterdog/work-state.ts";
 import { exchangeIdOf, exchangeThreads, withExchange, type ExchangeLookup } from "./laterdog/room-exchange.ts";
@@ -801,6 +818,7 @@ import { SEND_DELIVERIES, waitsForTurn, type SendDelivery } from "../shared/send
 import { createHostedSlackRoutes } from "./routes/hosted-slack.ts";
 import { createBotPresetRoutes } from "./routes/bot-presets.ts";
 import { createRoomCardRoutes, roomOwnsThread } from "./routes/room-card.ts";
+import { createAlwaysAllowedRoutes } from "./routes/always-allowed.ts";
 import { createSidebarSectionOrderRoutes } from "./routes/sidebar-section-order.ts";
 import { createSlashCommandRoutes } from "./routes/slash-commands.ts";
 import { commandSend, dogCommands, SavedCommands, tricksInIndex } from "./laterdog/slash-commands.ts";
@@ -983,6 +1001,8 @@ if (CLOUD_HOME && Object.keys(CLOUD_SECRETS).length === 0) {
 }
 const threadStarters = new ThreadStarters(join(DATA_DIR, "thread-starters.json"));
 const commandAllowlist = new CommandAllowlistStore(join(DATA_DIR, "command-allowlist.json"));
+const lastingAllows = new LastingAllowStore(join(DATA_DIR, "lasting-allows.json"));
+const lastingRequests = new Map<string, { botId: string; threadId: string; request: Omit<LastingRequest, "ownerOnly" | "alwaysAsks">; alwaysAsks: boolean }>();
 const SESSION_COOKIE = sessionCookieName(PORT, ENVIRONMENT_ID);
 const HOSTED_WORKSPACE = hostedWorkspaceConfigured();
 let workspaceAccess: WorkspaceAccess | null = null;
@@ -1278,7 +1298,7 @@ function vaultItemsFor(capability: InternalCapability): VaultItems {
   };
 }
 
-async function useMac(requested: SharedComputerOperation, capability: InternalCapability): Promise<unknown> {
+async function useMac(requested: SharedComputerOperation, capability: InternalCapability, personSaidYes = false): Promise<unknown> {
   const principal = sharedComputerPrincipal(capability);
   const unavailable = macLendingNotice(capability, principal);
   if (unavailable) throw Object.assign(new Error(unavailable), { status: 403 });
@@ -1289,7 +1309,7 @@ async function useMac(requested: SharedComputerOperation, capability: InternalCa
   const operation = completeSharedOperation(target, requested);
   const refusal = sharedComputerScopeRefusal(target, operation);
   if (refusal) throw Object.assign(new Error(refusal), { status: 403 });
-  await approveMac(capability, target, operation, active);
+  await approveMac(capability, target, operation, active, personSaidYes);
   return flagMacPrompt(capability, await macWaits.run(capability.threadId, operation, send));
 }
 
@@ -1315,13 +1335,14 @@ async function pickMac(principal: string | null, computerId: string | undefined)
   return online;
 }
 
-async function approveMac(capability: InternalCapability, target: SharedComputerRegistration, operation: SharedComputerOperation | MacAsk, active: () => boolean): Promise<void> {
+async function approveMac(capability: InternalCapability, target: SharedComputerRegistration, operation: SharedComputerOperation | MacAsk, active: () => boolean, personSaidYes = false): Promise<void> {
   const bot = store.bot(capability.botId);
   if (!bot) throw Object.assign(new Error("This dog is gone."), { status: 404 });
   const requestMessageId = macRequestMessageId(capability);
   const verdict = await macApprovals.check({
     bot, threadId: capability.threadId, computer: target.name, computerId: target.id, operation, active,
     ...(requestMessageId ? { requestMessageId } : {}),
+    ...(personSaidYes ? { personSaidYes } : {}),
   });
   if (!verdict.ok) throw Object.assign(new Error(verdict.error), { status: verdict.status });
 }
@@ -1606,6 +1627,74 @@ function cardAnswerRefusal(auth: RequestAuth, threadId: string, requestId: strin
 
 function canManageCommandAllowlist(auth: RequestAuth): boolean {
   return auth.kind === "loopback" ? auth.trust !== "service" : auth.scopes.includes("admin");
+}
+
+function ownerOrAdminPerson(person: string | undefined): boolean {
+  if (person === undefined) return true;
+  if (CLOUD_HOME) return cloudOwnerPerson(person);
+  if (!sharedMembership()) return true;
+  return sessions.list().some((session) => session.scopes.includes("admin") && personKey(session) === person);
+}
+
+function turnReachedOnlyByOwner(threadId: string, asker: string): boolean {
+  if (store.groupByThread(threadId)) return false;
+  return !cloudGuestDriven(threadId) && onlyOwnerReached(store.messagesFor(threadId), turnStartedAt.get(threadId), ownerOrAdminPerson, asker);
+}
+
+function lastingReach(botName: string): string {
+  return `Always allow lets ${botName} search for exactly this again without asking, in any of its chats.`;
+}
+
+function rememberLastingRequest(key: string, entry: typeof lastingRequests extends Map<string, infer V> ? V : never): void {
+  lastingRequests.delete(key);
+  lastingRequests.set(key, entry);
+  while (lastingRequests.size > 1000) lastingRequests.delete(lastingRequests.keys().next().value!);
+}
+
+function oldGrantItem(key: string): AlwaysAllowedItem | null {
+  const id = `key:${Buffer.from(key).toString("base64url")}`;
+  if (key === DELETE_OUTSIDE_WORKSPACE_ALLOW_KEY) return { id, kind: "outside-delete", state: "no-longer-used" };
+  if (key.startsWith("connector:")) return { id, kind: "app", subject: key.slice("connector:".length), state: "active" };
+  if (key.startsWith(VAULT_ALLOW_PREFIX)) return { id, kind: "saved-login", subject: key.slice(VAULT_ALLOW_PREFIX.length), state: "no-longer-used" };
+  const peer = /^(?:ask_bot|delegate_bot):(.+)$/.exec(key);
+  if (peer) return { id, kind: "teammate", subject: store.bot(peer[1]!)?.name ?? peer[1], state: "no-longer-used" };
+  return null;
+}
+
+function oldGrantKeys(botId: string): string[] {
+  const bot = store.bot(botId);
+  if (!bot) return [];
+  return [...new Set([...(bot.alwaysAllow ?? []), ...store.tasks(botId).flatMap((task) => task.alwaysAllow ?? [])])];
+}
+
+function alwaysAllowedList(botId: string): AlwaysAllowedList {
+  const searches: AlwaysAllowedItem[] = lastingAllows.list(botId)
+    .toSorted((left, right) => right.grantedAt.localeCompare(left.grantedAt))
+    .map((rule) => ({ id: `search:${rule.id}`, kind: "search", grantedAt: rule.grantedAt, state: "active" }));
+  const old = oldGrantKeys(botId).flatMap((key) => oldGrantItem(key) ?? []);
+  const commands: AlwaysAllowedItem[] = commandAllowlist.list(botId).map((rule) => ({
+    id: `command:${rule.id}`, kind: "command", subject: redactSecretsInText(rule.command).slice(0, 200), state: "no-longer-used",
+  }));
+  return { paused: lastingAllows.isPaused(botId), ...(lastingAllows.isUnreadable() ? { unreadable: true as const } : {}), items: [...searches, ...old, ...commands] };
+}
+
+function removeAlwaysAllowed(botId: string, itemId: string): boolean {
+  if (itemId.startsWith("search:")) return lastingAllows.remove(botId, itemId.slice("search:".length));
+  if (itemId.startsWith("command:")) return commandAllowlist.remove(botId, itemId.slice("command:".length));
+  if (!itemId.startsWith("key:")) return false;
+  const key = Buffer.from(itemId.slice("key:".length), "base64url").toString();
+  const bot = store.bot(botId);
+  if (!bot || !oldGrantKeys(botId).includes(key)) return false;
+  const without = (keys: readonly string[]) => keys.filter((candidate) => candidate !== key);
+  if (bot.alwaysAllow?.includes(key)) store.patchBot(botId, { alwaysAllow: without(bot.alwaysAllow) });
+  for (const task of store.tasks(botId)) {
+    if (task.alwaysAllow?.includes(key)) store.patchTask(botId, task.threadId, { alwaysAllow: without(task.alwaysAllow) });
+    const live = directTurnBots.get(task.threadId);
+    if (live?.id === botId && live.alwaysAllow?.includes(key)) live.alwaysAllow = without(live.alwaysAllow);
+  }
+  const updated = store.bot(botId);
+  if (updated) broadcast({ kind: "bot", bot: wireBot(updated) });
+  return true;
 }
 
 const COMMAND_ALLOWLIST_DRIVERS = new Set(["claudeAgent", "codex", "grokAgent", "cursorAgent"]);
@@ -2491,7 +2580,7 @@ function hooksIntegration(botId: string, threadId: string, generation: string): 
     createdBots: 0,
     openedThreads: 0,
   });
-  return { url: `http://127.0.0.1:${PORT}`, token, ...(CLOUD_HOME ? { guardShell: true } : {}) };
+  return { url: `http://127.0.0.1:${PORT}`, token, guardShell: true };
 }
 
 type DirectTurnDispatchClaim = {
@@ -2579,6 +2668,7 @@ function settleDirectCoordination(generation: string | undefined, outcome: Direc
   directCoordinationSettlers.delete(generation);
   settle?.(outcome);
 }
+const droppedContinuations = { settle: (generation: string, outcome: DirectTurnOutcome) => settleDirectFollowup(generation, outcome), log: (line: string) => console.info(line) };
 function settleDirectFollowup(generation: string | undefined, outcome: DirectTurnOutcome = { ok: false, text: "The coordinated turn was interrupted" }): void {
   if (!generation) return;
   settleDirectCoordination(generation, outcome);
@@ -2716,6 +2806,12 @@ const answerGrants: GrantLookup = {
   hasKey(threadId, key, askerBotId) {
     const owner = store.bot(askerBotId ?? "") ?? store.botByThread(threadId);
     return owner ? (botForThread(owner.id, threadId)?.alwaysAllow ?? []).includes(key) : false;
+  },
+  lastingGranted(threadId, requestId) {
+    const remembered = lastingRequests.get(`${threadId}:${requestId}`);
+    if (!remembered) return false;
+    const lasting = lastingVerdict({ ...remembered.request, alwaysAsks: remembered.alwaysAsks, ownerOnly: true });
+    return lasting.offered && lastingAllows.list(remembered.botId).some((rule) => rule.keySha256 === lasting.keySha256);
   },
 };
 
@@ -3604,6 +3700,7 @@ let activeCoordinationForThread = (_threadId: string): boolean => false;
 let teammatesAwaited = (_threadId: string): WireWaitingOn[] => [];
 let liveStatusLine = (_threadId: string): string | undefined => undefined;
 let helpersWorkingIn = (_threadId: string): number => 0;
+const computerJobs = new ComputerJobs(join(DATA_DIR, "computer-jobs.json"), { changed: (threadId) => announceHelpersChanged(threadId) });
 const delegatedWaiting = new Map<string, boolean>();
 function delegatedNeedsYou(threadId: string): boolean {
   if (!delegatedWaiting.has(threadId)) delegatedWaiting.set(threadId, store.messagesFor(threadId).some(message => message.needsYou?.status === "waiting"));
@@ -3621,7 +3718,7 @@ function chatWork(threadId: string, busy: boolean, activity: BotActivity | undef
   const kept = !busy && (threadId in limitHold.waiting() || limitHold.waitsOnPerson(threadId) || batteryContinuationPending(threadId));
   const account = kept ? accountNeedsYou({ carriesOn: carriesOnByItself(threadId), choice: accountBattery.decide(chatSelection(threadId) ?? selection, batteryAccounts(), threadId), name: (id) => registry.get(id)?.displayName }) : undefined;
   return workState({
-    busy, helpers: busy ? 0 : helpersWorkingIn(threadId), waitingOn, ...workSignals.facts(threadId), ...(stall.stopped ? { stopped: stall.stopped } : {}),
+    busy, helpers: busy ? 0 : helpersWorkingIn(threadId), ...(busy ? {} : computerJobs.facts(threadId)), waitingOn, ...workSignals.facts(threadId), ...(stall.stopped ? { stopped: stall.stopped } : {}),
     ...(asking ? { needsYou: { what: openAsk(store.messagesTail(threadId, 60).messages) } } : stall.needsYou ? { needsYou: stall.needsYou } : account ? { needsYou: account } : {}),
     ...(usageWait ? { usageHold: { account: registry.get(selection.instanceId)?.displayName, ...(until !== undefined ? { until } : {}) } } : {}),
   });
@@ -3639,13 +3736,15 @@ enginePlans.listen((threadId, items) => {
   dogPlans.set(threadId, items, store.botByThread(threadId)?.id);
   planChanged(threadId);
 });
+const liveSteps = liveStepsFrom(nativeRunDatabase);
 const wireTask = (task: TaskRecord, botModel: ModelSelection): WireTask => {
   const { snoozedUntil, ...base } = toWireTask(task, botModel, store.bots);
   const statusLine = liveStatusLine(task.threadId);
-  const waiting = activeCoordinationForThread(task.threadId) && !task.busy;
-  const helpers = task.busy ? 0 : helpersWorkingIn(task.threadId);
-  const coordinated = { ...base, ...(delegatedNeedsYou(task.threadId) ? { activity: "waiting-on-you" as const } : {}), waitingForTeammates: waiting, ...(waiting ? { waitingOn: teammatesAwaited(task.threadId) } : {}), ...(helpers ? { helpersWorking: helpers } : {}), ...(statusLine ? { statusLine } : {}), ...planOf(task.threadId) };
-  coordinated.work = chatWork(task.threadId, Boolean(task.busy), coordinated.activity, coordinated.waitingOn, base.modelSelection ?? botModel);
+  const busy = Boolean(task.busy);
+  const activity = delegatedNeedsYou(task.threadId) ? "waiting-on-you" as const : base.activity;
+  const handoff = handoffWait(busy, activeCoordinationForThread(task.threadId), () => teammatesAwaited(task.threadId));
+  const work = chatWork(task.threadId, busy, activity, handoff.waitingOn, base.modelSelection ?? botModel);
+  const coordinated = { ...base, ...olderWorkFields(busy, activity, handoff, helpersWorkingIn(task.threadId)), ...(statusLine ? { statusLine } : {}), ...planOf(task.threadId), work, step: liveSteps.step(task.threadId) };
   const asleep = snoozedUntil === 0 || (snoozedUntil !== undefined && snoozedUntil > Date.now());
   return asleep ? { ...coordinated, snoozedUntil } : coordinated;
 };
@@ -3655,13 +3754,12 @@ const wireBot = (bot: BotRecord): WireBot => {
   const visible = approvalGrant && !approvalGrant.threadOnly
     ? { ...rest, approvalMode: "ask" as const, autoApprove: false }
     : rest;
-  const waiting = activeCoordinationForThread(bot.threadId) && !threadBusy(bot.id, bot.threadId);
   const busy = threadBusy(bot.id, bot.threadId);
-  const helpers = busy ? 0 : helpersWorkingIn(bot.threadId);
   const activity = delegatedNeedsYou(bot.threadId) ? "waiting-on-you" as const : visible.activity;
-  const waitingOn = waiting ? teammatesAwaited(bot.threadId) : undefined;
-  return { ...visible, ...(activity ? { activity } : {}), waitingForTeammates: waiting, ...(waitingOn ? { waitingOn } : {}), ...(helpers ? { helpersWorking: helpers } : {}),
-    work: chatWork(bot.threadId, busy, activity, waitingOn, bot.modelSelection), ...planOf(bot.threadId),
+  const handoff = handoffWait(busy, activeCoordinationForThread(bot.threadId), () => teammatesAwaited(bot.threadId));
+  const work = chatWork(bot.threadId, busy, activity, handoff.waitingOn, bot.modelSelection);
+  return { ...visible, ...olderWorkFields(busy, activity, handoff, helpersWorkingIn(bot.threadId)),
+    work, step: liveSteps.step(bot.threadId), ...planOf(bot.threadId),
     avatarUrl: visible.avatarUrl ?? null, ...(tasks ? { tasks: tasks.map((task) => wireTask(task, bot.modelSelection)) } : {}) };
 };
 
@@ -3704,7 +3802,7 @@ function previewSystemPrompt(bot: BotRecord) {
       cloudHome: Boolean(CLOUD_HOME), agents: agentsMounted, vault: vaultStore.available, macsOnline: sharedComputers.list(CLOUD_HOME_LENDER).length,
     }) }),
     ...profileParts(cfg.profile),
-    { id: "computer", label: "Computer", text: computerPrompt(computerPromptKind) },
+    { id: "computer", label: "Computer", text: computerPrompt(computerPromptKind, { pageTools: pageToolsEnabled(cfg) }) },
     { id: "plan", label: "Surface", text: previewPlan.computer === undefined ? "" : surfacePrompt({
       computer: previewPlan.computer && previewPlan.computer !== "off" && computerPromptKind ? previewPlan.computer : null,
       browser: previewPlan.computer === undefined ? false : previewPlan.browser,
@@ -3837,15 +3935,19 @@ function ownerAnswersFor(botId: string, mode: ApprovalMode, threadId: string): b
   return !isUnattended(botId, threadId) && ownerAutoAnswers(mode, ownerAutoScope(threadId));
 }
 
+function hookGuardContext(botId: string, threadId: string, cwd: string | undefined): OwnerGuardContext {
+  const bot = store.bot(botId);
+  return bot ? ownerGuardContext(bot, threadId, cwd) : { cwd, workspaceRoots: [] };
+}
+
 function ownerGuardContext(bot: BotRecord, threadId: string, commandCwd: string | undefined): OwnerGuardContext {
   const task = store.taskByThread(bot.id, threadId);
   return {
     cwd: commandCwd ?? task?.cwd ?? bot.cwd,
-    workspaceRoots: ownerWorkspaceRoots([commandCwd, task?.cwd, bot.cwd, workspaceDir(bot.id), join(TASK_WORKSPACES_DIR, bot.id)]),
+    workspaceRoots: ownerWorkspaceRoots([task?.cwd, bot.cwd, workspaceDir(bot.id), join(TASK_WORKSPACES_DIR, bot.id)]),
   };
 }
 
-const savedCommandEngine = sameEngineAcrossAccounts((instanceId) => registry.cliTarget(instanceId)?.driverKind);
 
 function sourceApprovalMode(botId: string, threadId: string): ApprovalMode {
   const owner = connectorThread(botId, threadId);
@@ -5112,6 +5214,8 @@ store.onChange((change) => {
       sentThreads.delete(change.botId);
       try { commandAllowlist.clear(change.botId); }
       catch { console.error("[command-allowlist] Could not remove deleted bot's saved rules."); }
+      try { lastingAllows.clear(change.botId); }
+      catch { console.error("[lasting-allows] Could not remove deleted bot's Always grants."); }
       broadcast({ kind: "bot.deleted", botId: change.botId });
       break;
     case "group": {
@@ -5197,6 +5301,9 @@ function guardedRequestSnapshot(botId: string, threadId: string, sendId: string)
 function settleTrackedRequest(threadId: string): void {
   const owner = directRequestOwners.get(threadId);
   const bot = store.botByThread(threadId);
+  if (owner && bot && !threadBusy(bot.id, threadId) && !roomHandoffs.activeDirect(threadId) && !batteryContinuationPending(threadId) && !limitHold.holds(threadId)) {
+    for (const id of endedRequestIds(store.messagesFor(threadId), owner?.stopped ? undefined : owner?.messageId)) store.patchMessage(threadId, id, ENDED_REQUEST);
+  }
   if (!owner?.messageId || owner.stopped || !bot || threadBusy(bot.id, threadId) || roomHandoffs.activeDirect(threadId)) return;
   if ([...roomHandoffs.nodes.values()].some(node => !node.parentId && node.threadId === threadId &&
       owner.generations.has(node.id) && node.status !== "completed")) return;
@@ -5341,16 +5448,6 @@ onSteeredQueueChange(() => broadcast({ kind: "bot.queued", queues: publicBotQueu
 
 const toolMessageByItem = new Map<string, string>();
 const askMessageByRequest = new Map<string, string>();
-const pendingCommandRules = new Map<string, { botId: string; candidate: CommandAllowlistCandidate }>();
-
-function commandRememberRefusal(auth: RequestAuth, threadId: string, requestId: string, behavior: string): string | null {
-  if (!canManageCommandAllowlist(auth)) return "Only the owner or an admin can save dog-wide command permissions.";
-  if (behavior !== "allow" || !pendingCommandRules.has(`${threadId}:${requestId}`)) {
-    return "This live request does not contain a command that can be saved. Allow it once instead.";
-  }
-  return null;
-}
-
 async function answerRequest(
   threadId: string,
   instanceId: string,
@@ -5358,8 +5455,6 @@ async function answerRequest(
   behavior: "allow" | "deny" | "answer",
   message?: string,
   decidedFor?: { id: string; name: string },
-  always?: boolean,
-  rememberCommand?: boolean,
 ): Promise<RequestOutcome> {
   const thread = store.messagesFor(threadId);
   const cardMessageId = askMessageByRequest.get(`${threadId}:${requestId}`);
@@ -5367,27 +5462,14 @@ async function answerRequest(
     ? thread.find((m) => m.id === cardMessageId)
     : thread.find((m) => m.card?.requestId === requestId);
   const card = cardMessage?.card;
-  const remembered = rememberCommand ? pendingCommandRules.get(`${threadId}:${requestId}`) : undefined;
   const instance = runningTurnEngines.get(threadId) ?? registry.get(instanceId);
   let outcome: RequestOutcome = "unavailable";
   if (instance) {
     try {
-      outcome = await instance.adapter.respondToRequest(threadId, requestId, { behavior, message: engineAnswer(behavior, message), always: always && behavior === "allow" });
+      outcome = await instance.adapter.respondToRequest(threadId, requestId, { behavior, message: engineAnswer(behavior, message), always: false });
     } catch {
       outcome = "unavailable";
     }
-  }
-  if (remembered && outcome === "allowed-once" && behavior === "allow" && store.bot(remembered.botId)) {
-    let saved = false;
-    try {
-      commandAllowlist.add(remembered.botId, remembered.candidate);
-      saved = true;
-    } catch {
-      store.appendMessage(threadId, { role: "bot", kind: "activity", tool: {
-        name: "Command allowed once, but its allowlist rule could not be saved. Try again from the permissions menu.", ok: false,
-      } });
-    }
-    if (saved) confirmRememberedCommand(store, threadId, requestId);
   }
   if (outcome === "answered" && behavior === "answer" && message && cardMessage) {
     const settled = store.messagesFor(threadId).find((m) => m.id === cardMessage.id)?.card;
@@ -5479,7 +5561,6 @@ async function respondToCard(input: {
 }
 
 function closeOpenApprovals(threadId: string): void {
-  for (const key of pendingCommandRules.keys()) if (key.startsWith(`${threadId}:`)) pendingCommandRules.delete(key);
   cancelPeerApprovalsForThread(threadId);
   macApprovals.cancelThread(threadId);
   for (const message of store.messagesFor(threadId)) {
@@ -5522,6 +5603,8 @@ const routedRoomReplies = new Map<string, { botId: string; routedBy: RoutedBy }>
 
 const turnUsage = new Map<string, { input: number; output: number; cachedInput?: number }>();
 const turnContext = new Map<string, { tokens?: number; window?: number }>();
+const liveContext = new LiveContext();
+const helperTurns = new HelperTurnBudget();
 
 const repeats = new RepeatDetector({ thresholds: [5, 10, 20], maxKeysPerThread: 256 });
 
@@ -5766,6 +5849,39 @@ bus.subscribe((event: RuntimeEvent) => {
   if (shouldIgnoreProviderEvent(event)) return;
   if (event.type === "turn.completed") pickupStops.settled(event.threadId);
 });
+function mayCarryOnByItself(threadId: string): boolean {
+  return restartPickupHost.dog(threadId) !== null && restartPickupHost.owner(threadId) && !routineRunForTurn(threadId);
+}
+const jobWake = createJobWake(computerJobs, {
+  dog: (threadId) => restartPickupHost.dog(threadId),
+  free: (botId, threadId) => mayCarryOnByItself(threadId) && !roomHandoffs.activeDirect(threadId) && !threadBusy(botId, threadId) && !directTurnDispatchClaims.has(threadId) && !hasQueuedSteeredMessages(botId, threadId) &&
+    !botAtThreadCapacity(botId) && !activeGroupTurnForBot(botId) && !limitHold.holds(threadId) && !limitHold.waitsOnPerson(threadId) &&
+    !usageStranded(threadId) && teammateCanRun(botId, threadId) && !store.hasPendingRequest(threadId) && !delegatedNeedsYou(threadId) &&
+    !waitingOnPerson(threadId) && store.taskByThread(botId, threadId)?.activity !== "waiting-on-you",
+  path: (threadId) => store.activePath(threadId),
+  handoffDone: (threadId) => {
+    const at = store.activePath(threadId).findLast((message) => message.role === "user")?.at;
+    return handoffWorkDone(threadId, roomHandoffs.nodes.values(), at);
+  },
+  request: (threadId) => store.activePath(threadId).findLast((message) => message.role === "user")?.id,
+  append: (threadId, message) => store.appendMessage(threadId, message),
+  start: startContinuation,
+  blocked: isTurnAdmissionBlocked,
+  log: (line) => console.log(`[computer jobs] ${line}`),
+});
+bus.subscribe((event: RuntimeEvent) => {
+  if (event.type === "turn.completed" && computerJobs.unannounced().some((job) => job.threadId === event.threadId)) {
+    setTimeout(() => { void restartPickupDone.then(() => jobWake.deliver()); }, 500).unref();
+  }
+});
+const stopJobs = createJobStop(computerJobs, {
+  computer: (botId) => boat.jobComputer(botId),
+  stop: (box, job) => computerRuns.stop(box, job),
+  name: (threadId) => restartPickupHost.dog(threadId)?.name ?? "The dog",
+  append: (threadId, tool) => { store.appendMessage(threadId, { role: "bot", kind: "activity", tool }); },
+  log: (line) => console.log(`[computer jobs] ${line}`),
+});
+const stopJobsForPerson = (threadId: string) => { void stopJobs(threadId); };
 let finishRestartPickup = () => {};
 const restartPickupDone = new Promise<void>((resolve) => { finishRestartPickup = resolve; });
 function teammateCanRun(botId: string, threadId: string): boolean {
@@ -5786,11 +5902,11 @@ const stallWatch = createStallWatch({
       name: bot.name, path: store.messagesTail(threadId, 160).messages, now,
       busy: threadBusy(botId, threadId) || watchdog.watching(threadId) || directTurnDispatchClaims.has(threadId),
       requestOpen: watchdog.snapshot(threadId)?.waitingOnHuman === true || delegatedNeedsYou(threadId),
-      helpers: helpersWorkingIn(threadId),
+      helpers: helpersWorkingIn(threadId) + computerJobs.count(threadId),
       usageWait: threadId in limitHold.waiting() || limitHold.waitsOnPerson(threadId) || batteryContinuationPending(threadId),
       queued: hasQueuedSteeredMessages(botId, threadId) || pendingComputerResumes.has(threadId),
       stoppedByPerson: pickupStops.stopped(threadId),
-      mayContinue: restartPickupHost.dog(threadId) !== null && restartPickupHost.owner(threadId) && !routineRunForTurn(threadId),
+      mayContinue: mayCarryOnByItself(threadId),
       routine: (at) => Boolean(routines?.runDuring(threadId, at)),
       teammates: roomHandoffs.outstandingDirect(threadId).map((node) => {
         const mate = store.bot(node.botId);
@@ -6032,7 +6148,8 @@ function ingestEngineHook(capability: InternalCapability, body: unknown): { ok: 
   if (name === "Stop") return { ok: true };
   if (name === "PreToolUse") {
     const decision = (CLOUD_HOME ? signalDecision(payload, () => liveSignalScene(threadId, PORT)) ?? homeFloorDecision(payload, diskUse(DATA_DIR), { computers: computersSelected() }) : null)
-      ?? preToolUseDecision(heavyCommandGuard, { active: Boolean(CLOUD_HOME) && computersSelected(), threadId, payload });
+      ?? preToolUseDecision(heavyCommandGuard, { active: Boolean(CLOUD_HOME) && computersSelected(), threadId, payload })
+      ?? alwaysAskHook(payload, () => hookGuardContext(capability.botId, threadId, typeof payload.cwd === "string" ? payload.cwd : undefined));
     return decision ? { ok: true, hookSpecificOutput: decision } : { ok: true };
   }
   if (name !== "PostToolUse") return { ok: true, ignored: name || "unknown" };
@@ -6766,6 +6883,10 @@ function automaticallyCarriesOn(event: RuntimeEvent): boolean {
   return Boolean(input && carriesOn(input));
 }
 
+function chatWaitsForAccount(threadId: string): boolean {
+  return limitHold.holds(threadId) || batteryContinuationPending(threadId);
+}
+
 function batteryContinuationPending(threadId: string): boolean {
   return accountBattery.enabled && !directRequestOwners.get(threadId)?.stopped &&
     accountBattery.pending(threadId, directTurnGenerationByThread.get(threadId));
@@ -6787,11 +6908,12 @@ function continueOnNextAccount(threadId: string, turnId: string | undefined, gen
     const owner = store.botByThread(threadId);
     const turn = accountBattery.keptTurn(threadId, generation);
     if (!owner || !turn?.rerun || directTurnGenerationByThread.get(threadId) !== generation) {
-      console.info(`token battery: ${threadId} continuation superseded`);
+      if (!owner || directTurnGenerationByThread.get(threadId) !== generation) dropContinuation(droppedContinuations, threadId, generation, "superseded");
+      else console.info(`token battery: ${threadId} continuation already taken`);
       return;
     }
     if (directRequestOwners.get(threadId)?.stopped || !accountBattery.enabled) {
-      console.info(`token battery: ${threadId} continuation cancelled`);
+      dropContinuation(droppedContinuations, threadId, generation, "cancelled");
       limitHold.release(threadId);
       return;
     }
@@ -6829,7 +6951,7 @@ function continueOnNextAccount(threadId: string, turnId: string | undefined, gen
       store.appendMessage(threadId, { role: "bot", kind: "activity",
         tool: failedTurnTool(`Could not continue on ${name(next.to)}: ${error instanceof Error ? error.message : String(error)}`) });
     });
-  }).catch((error) => console.warn(`token battery: ${threadId} continuation failed: ${error instanceof Error ? error.message : String(error)}`));
+  }).catch((error) => dropContinuation(droppedContinuations, threadId, generation, "failed", error instanceof Error ? error.message : String(error)));
 }
 
 function carryOnInput(threadId: string): (CarryOnInput & { botId: string }) | undefined {
@@ -7129,7 +7251,7 @@ bus.subscribe(guardTurnEnd((event: RuntimeEvent) => {
   const completedTurnId = event.turnId;
   const privateImageEvent = event.type === "item.completed" && event.itemType === "assistant_image";
   const tapbackKey = event.turnId ? tapbackTurnKey(event.threadId, event.turnId) : undefined;
-  let publicEvent = event.type === "request.opened" ? { ...event, command: undefined } : event;
+  let publicEvent = event.type === "request.opened" ? { ...event, command: undefined, wholeInput: undefined } : event;
   const replyEmoji = event.type === "item.completed" && event.itemType === "assistant_text" ? replyTapback(event.text) : null;
   let privateTapbackText = Boolean(replyEmoji) || tapbackKey && reactedTurns.has(tapbackKey) && event.type === "item.completed" && event.itemType === "assistant_text" && onlyTapbackText(event.text);
   if (tapbackKey && event.type === "content.delta" && event.streamKind === "assistant_text" && pendingTapbackText.has(tapbackKey)) {
@@ -7258,13 +7380,19 @@ bus.subscribe(guardTurnEnd((event: RuntimeEvent) => {
       const guestDriven = cloudGuestDriven(event.threadId);
       const effectiveApprovalMode = asker && !guestDriven ? approvalModeForTurn(asker, isInternalTurn(event.threadId), event.threadId) : "ask";
       const ownerAuto = Boolean(asker && event.requestId) && ownerAutoAnswers(effectiveApprovalMode, ownerAutoScope(event.threadId, guestDriven));
-      const command = permission && asker && event.requestId && !event.requiresExplicitApproval && event.command && !guestDriven
-        ? commandAllowlistCandidate({ ...event.command, providerInstanceId: event.providerInstanceId ?? asker.modelSelection.instanceId })
+      const always = permission && asker && event.requestId && !ownerAuto
+        ? alwaysAsks({ tool: event.tool, command: event.command?.command, summary: event.summary, input: event.input }, () => ownerGuardContext(asker, event.threadId, event.command?.cwd))
         : null;
+      const lastingBase = permission && asker && event.requestId
+        ? { driver: event.provider, tool: event.tool, wholeInput: event.wholeInput, approvalScope: event.approvalScope }
+        : undefined;
+      if (lastingBase && asker && event.requestId) {
+        const listed = always || alwaysAsks({ tool: event.tool, command: event.command?.command, summary: event.summary, input: event.input }, () => ownerGuardContext(asker, event.threadId, event.command?.cwd));
+        rememberLastingRequest(`${event.threadId}:${event.requestId}`, { botId: asker.id, threadId: event.threadId, request: lastingBase, alwaysAsks: Boolean(listed) });
+      }
       const verdict = permission && asker && event.requestId
         ? autoVerdict(effectiveApprovalMode, event.tool, {
           requiresExplicitApproval: event.requiresExplicitApproval,
-          commandAllowed: Boolean(command && commandAllowlist.matches(asker.id, command, savedCommandEngine)),
         })
         : null;
       if (
@@ -7286,8 +7414,7 @@ bus.subscribe(guardTurnEnd((event: RuntimeEvent) => {
           },
         });
       }
-      const showCard = (ownerHold?: string, ownerAllowKey?: string) => {
-        const cardCommand = ownerHold === undefined ? command : null;
+      const showCard = (ownerHold?: string, ownerAllowKey?: string, alwaysRule?: string) => {
         const heldContext = { source: ownerHold === undefined ? verdict?.source : undefined, permission };
         const questions = event.questions?.length ? event.questions : undefined;
         const message = pushMessage({
@@ -7309,8 +7436,9 @@ bus.subscribe(guardTurnEnd((event: RuntimeEvent) => {
             questionRequest: questions
               ? { version: 1, questions, ...(event.origin === "output" ? { origin: "output" as const } : {}) }
               : undefined,
-            commandAllowlist: cardCommand ?? undefined,
-            allowSession: permission && event.allowSession && !event.requiresExplicitApproval && ownerHold === undefined && !guestDriven ? true : undefined,
+            ...(permission && asker && lastingBase
+              ? { lasting: lastingOffer(lastingVerdict({ ...lastingBase, alwaysAsks: Boolean(always) || alwaysRule !== undefined, ownerOnly: turnReachedOnlyByOwner(event.threadId, asker.id), group: isGroupChat(store.groupByThread(event.threadId)) }), lastingReach(asker.name)) }
+              : {}),
             held: approvalHeldReason(heldContext),
             heldCode: approvalHeldNote(heldContext),
             approvalScope: event.approvalScope,
@@ -7318,7 +7446,6 @@ bus.subscribe(guardTurnEnd((event: RuntimeEvent) => {
           },
         });
         if (event.requestId) askMessageByRequest.set(`${event.threadId}:${event.requestId}`, message.id);
-        if (cardCommand && asker && event.requestId) pendingCommandRules.set(`${event.threadId}:${event.requestId}`, { botId: asker.id, candidate: cardCommand });
         appendDecision(DATA_DIR, {
           threadId: event.threadId,
           requestId: event.requestId,
@@ -7327,7 +7454,8 @@ bus.subscribe(guardTurnEnd((event: RuntimeEvent) => {
           tool: event.tool,
           summary: event.summary,
           decision: "card-shown",
-          source: !permission ? "question" : ownerHold !== undefined ? "owner-guard" : verdict ? verdict.source : "no-grant",
+          source: !permission ? "question" : alwaysRule ? "always-asks" : ownerHold !== undefined ? "owner-guard" : verdict ? verdict.source : "no-grant",
+          ...(alwaysRule ? { rule: alwaysRule } : {}),
           origin: !permission && event.origin === "output" ? "output" : undefined,
           unattended: unattended || undefined,
         });
@@ -7360,7 +7488,7 @@ bus.subscribe(guardTurnEnd((event: RuntimeEvent) => {
           threadId: event.threadId, requestId, botId: asker.id, botName: asker.name, tool: event.tool, summary: event.summary,
           decision, source, ...(rule ? { rule } : {}), unattended: unattended || undefined,
         });
-        void settleOwnerAutoPermission(ownerGuardRequest(event.tool, event.command?.command, event.summary), {
+        void settleOwnerAutoPermission({ ...ownerGuardRequest(event.tool, event.command?.command, event.summary), summary: event.summary, input: event.input }, {
           guard: ownerGuardContext(asker, event.threadId, event.command?.cwd),
           allow: () => deliverFullAccessApproval(instance?.adapter, event.threadId, requestId, event.turnId, isCurrent),
           deny: async (message) => {
@@ -7370,7 +7498,15 @@ bus.subscribe(guardTurnEnd((event: RuntimeEvent) => {
               return "failed";
             }
           },
-          hold: unattended ? undefined : (question, refusal) => showCard(question, ownerGuardAllowKey(refusal)),
+          hold: unattended ? undefined : (question) => showCard(question),
+          holdAlways: unattended ? undefined : (hit) => showCard(hit.ask, undefined, hit.id),
+          refusedAlways: (hit) => {
+            pushMessage({ role: "bot", kind: "activity", tool: { name: hit.refusal, ok: false } });
+            appendDecision(DATA_DIR, {
+              threadId: event.threadId, requestId, botId: asker.id, botName: asker.name, tool: event.tool, summary: event.summary,
+              decision: "auto-denied", source: "always-asks", rule: hit.id, unattended: unattended || undefined,
+            });
+          },
           ownerAllows: (refusal) => ownerGuardAllowed(asker.id, event.threadId, refusal),
           isCurrent,
           approved: () => decide("auto-approved", "owner-auto"),
@@ -7392,7 +7528,44 @@ bus.subscribe(guardTurnEnd((event: RuntimeEvent) => {
         });
         break;
       }
-      if (verdict?.approve && asker && event.requestId) {
+      const lastingRule = !ownerAuto && !always && asker && event.requestId && lastingBase
+        ? (() => {
+          const lasting = lastingVerdict({ ...lastingBase, alwaysAsks: false, ownerOnly: turnReachedOnlyByOwner(event.threadId, asker.id) });
+          return lasting.offered ? lastingAllows.answers(asker.id, lasting.keySha256) : undefined;
+        })()
+        : undefined;
+      if (lastingRule && asker && event.requestId) {
+        const instance = registry.get(event.providerInstanceId ?? asker.modelSelection.instanceId);
+        const requestId = event.requestId;
+        const sourceGeneration = directTurnGenerationByThread.get(event.threadId);
+        const sourceSpeaker = groupSpeakers.get(event.threadId);
+        const isCurrent = () => !shouldIgnoreProviderEvent(event) && (
+          (sourceGeneration !== undefined && directTurnGenerationByThread.get(event.threadId) === sourceGeneration) ||
+          (sourceSpeaker !== undefined && groupSpeakers.get(event.threadId) === sourceSpeaker)
+        );
+        void (async () => {
+          const outcome = await deliverFullAccessApproval(instance?.adapter, event.threadId, requestId, event.turnId, isCurrent);
+          if (!isCurrent()) return;
+          if (outcome !== "allowed-once") {
+            watchdog.setWaitingOnHuman(event.threadId, false);
+            if (outcome !== "unavailable") pushMessage({
+              role: "bot",
+              kind: "activity",
+              tool: failedTurnTool("could not deliver approval to the provider; retry the task after reconnecting."),
+            });
+            return;
+          }
+          pushMessage({ role: "bot", kind: "activity", tool: { name: `Always allowed: ${event.summary.slice(0, 120)}`, ok: true } });
+          appendDecision(DATA_DIR, {
+            threadId: event.threadId, requestId, botId: asker.id, botName: asker.name, tool: event.tool, summary: event.summary,
+            decision: "auto-approved", source: "lasting-allow", rule: lastingRule.id,
+          });
+        })().catch(() => {
+          console.error("[approval] Could not record an Always answer.");
+        });
+        break;
+      }
+      if (verdict?.approve && !always && asker && event.requestId) {
         const settled = verdict.approve;
         const instance = event.providerInstanceId
           ? registry.get(event.providerInstanceId)
@@ -7438,11 +7611,11 @@ bus.subscribe(guardTurnEnd((event: RuntimeEvent) => {
         });
         break;
       }
-      showCard();
+      showCard(always?.ask, undefined, always?.id);
       break;
     }
     case "request.resolved": {
-      if (event.requestId) pendingCommandRules.delete(`${event.threadId}:${event.requestId}`);
+      if (event.requestId) lastingRequests.delete(`${event.threadId}:${event.requestId}`);
       if (event.requestId) settleWaitingOnPersonChips(event.threadId, event.requestId);
       const waiting = bot ?? (speaker ? store.bot(speaker.botId) : undefined);
       if (bot && store.taskByThread(bot.id, event.threadId)?.activity === "waiting-on-you") {
@@ -7486,6 +7659,10 @@ bus.subscribe(guardTurnEnd((event: RuntimeEvent) => {
       turnUsage.set(event.threadId, { input: event.input, output: event.output, cachedInput: event.cachedInput });
       if (event.contextTokens !== undefined || event.contextWindow !== undefined) {
         turnContext.set(event.threadId, { tokens: event.contextTokens, window: event.contextWindow });
+      }
+      if (liveContext.due(event.threadId, event.contextTokens)) {
+        const owner = store.botByThread(event.threadId);
+        if (owner) store.showTaskContext(owner.id, event.threadId, { tokens: event.contextTokens, window: event.contextWindow });
       }
       break;
     case "turn.completed": {
@@ -7577,6 +7754,8 @@ bus.subscribe(guardTurnEnd((event: RuntimeEvent) => {
       turnUsage.delete(event.threadId);
       const lastContext = turnContext.get(event.threadId);
       turnContext.delete(event.threadId);
+      liveContext.forget(event.threadId);
+      helperTurns.end(event.threadId);
       if (bot) {
         const resourceOwner = turnResourceOwners.get(event.threadId);
         const generation = directTurnGenerationByThread.get(event.threadId);
@@ -7590,7 +7769,10 @@ bus.subscribe(guardTurnEnd((event: RuntimeEvent) => {
             releaseLocalVmThread(event.threadId);
           }
           releaseTurnResources(resourceOwner);
-          if (!isCurrent()) return;
+          if (!isCurrent()) {
+            if (nextAccount) dropContinuation(droppedContinuations, event.threadId, generation, "superseded");
+            return;
+          }
           if (store.taskByThread(bot.id, event.threadId)?.activity !== "dead") {
             store.setTaskActivity(bot.id, event.threadId, resourceOwner?.computerParkedOn !== undefined ? "parked.computer" : "idle");
           }
@@ -8008,7 +8190,7 @@ function drainQueuedSends() {
       }).catch(reject);
     }),
     (botId, threadId) => threadBusy(botId, threadId) || botAtThreadCapacity(botId) || Boolean(activeGroupTurnForBot(botId))
-      || parksBehindCoordination(botId, threadId) || limitHold.holds(threadId) || batteryContinuationPending(threadId) || heldForSwitchedOff(threadId),
+      || parksBehindCoordination(botId, threadId) || chatWaitsForAccount(threadId) || heldForSwitchedOff(threadId),
   );
 }
 
@@ -8627,7 +8809,7 @@ async function startTurn(
       messageId: (opts?.cardContinuation ? undefined : requestMessageId) ?? routineTurnOwners.get(threadId)?.messageId });
   }
   const foreignTurn = Boolean(CLOUD_HOME) && cloudHomeLendingRefusal(cloudLendingTurn({ botId, threadId, generation: dispatchClaimId })) !== null;
-  const pendingSource = requestMessageId ?? store.activePath(threadId).findLast(message => message.role === "user")?.id;
+  const pendingSource = requestMessageId ?? (opts?.coordination ? undefined : store.activePath(threadId).findLast(message => message.role === "user")?.id);
   if (pendingSource) store.patchMessage(threadId, pendingSource, { requestPending: true });
   for (const old of takenOver(directFollowupSettlers, directCoordinationSettlers, threadId, opts?.coordination?.settle)) {
     settleDirectCoordination(old, { ok: false, text: takenOverText(lastWords(store.messagesFor(threadId))) });
@@ -9218,6 +9400,7 @@ async function startTurn(
       }
       const computerPromptKind = resolveComputerPromptKind(computerKind);
       const coordinationNode = opts?.coordination ? roomHandoffs.nodes.get(opts.coordination.id) : undefined;
+      if (coordinationNode?.parentId) helperTurns.begin(threadId); else helperTurns.end(threadId);
       if (opts?.coordination && (!coordinationNode || coordinationNode.status !== "running" || roomHandoffProblem(coordinationNode,
         coordinationNode.parentId ? roomHandoffs.nodes.get(coordinationNode.parentId) : undefined))) {
         throw new DirectTurnSetupCancelled("Coordination access changed before dispatch");
@@ -9232,7 +9415,7 @@ async function startTurn(
         ...profileParts(cfg.profile),
         { id: "owner-grant", label: "Owner's standing grant", text: ownerGrant ? ownerGrantPrompt(cfg.profile?.name) : "" },
         { id: "files", label: "File locations", text: worksInWorkspace ? workspaceLocationsPrompt(bot.id, cwd, liveBot?.cwd ?? bot.cwd) : "" },
-        { id: "computer", label: "Computer", text: computerPrompt(computerPromptKind) },
+        { id: "computer", label: "Computer", text: computerPrompt(computerPromptKind, { pageTools: pageToolsEnabled(cfg) }) },
         { id: "plan", label: "Surface", text: surfacePrompt({ computer: mountedComputer, browser: Boolean(integrations.browser) }, { note: plan.note, canSelect: computerSelectionTurns.has(threadId), cloudHome: Boolean(CLOUD_HOME) }) },
         { id: "cloud-home", label: "My Cloud", text: CLOUD_HOME ? cloudHomePrompt(Boolean(integrations.agents) && lendingEnabled(), guidanceEngine(instance.driverKind)) : "" },
         { id: "today", label: "Today", text: CLOUD_HOME ? todayPrompt() : "" },
@@ -9369,6 +9552,7 @@ async function startTurn(
         watchdog.settle(threadId);
         turnUsage.delete(threadId);
         turnContext.delete(threadId);
+        helperTurns.end(threadId);
       }
       if (e instanceof DirectTurnSetupCancelled) {
         settleDirectFollowup(dispatchClaimId, { ok: false, text: e.message });
@@ -9621,6 +9805,8 @@ async function interruptRoutineGroupGoal(
 async function stopBotForEmergencyApprovalDowngrade(botId: string): Promise<void> {
   const bot = store.bot(botId);
   if (!bot) return;
+  try { lastingAllows.pause(botId); }
+  catch { console.error("[lasting-allows] Could not pause a dog's Always grants."); }
   for (const task of store.tasks(botId)) {
     if (task.approvalMode === "full" || task.approvalMode === "custom") {
       store.patchTask(botId, task.threadId, { approvalMode: "ask", autoApprove: false, alwaysAllow: [] });
@@ -10044,7 +10230,58 @@ const connectorSkips = new TurnToolkits();
 const connectorAllows = new TurnToolkits();
 const OUTBOUND_HOLD_MS = 9 * 60_000;
 
+const alwaysAskHolds = new OutboundRequestService();
+
+const lateAsks = new Set<string>();
+const TOO_LATE = "Too late: the dog stopped waiting for this answer, so nothing ran. It will ask again if it still needs to.";
+
+async function askPersonFirst(bot: BotRecord, threadId: string, request: AlwaysAskRequest, hit: AlwaysAsk, caller: AbortSignal): Promise<string | null> {
+  const input = request.input ?? {};
+  const detail = [input.command, input.url, input.path].find((value): value is string => typeof value === "string") ?? request.tool;
+  let cardId: string | undefined;
+  const answer = await holdForPerson({
+    caller,
+    open: () => alwaysAskHolds.open({ botId: bot.id, threadId, tool: request.tool, timeoutMs: OUTBOUND_HOLD_MS }),
+    show: (requestId) => {
+      cardId = store.appendMessage(threadId, {
+        role: "bot", kind: "options",
+        ...(store.groupByThread(threadId) ? { from: { botId: bot.id, name: bot.name, color: bot.color } } : {}),
+        card: { title: "Approval needed", subtitle: `${hit.ask}\n\n${detail.slice(0, 600)}`, options: ["Allow", "Deny"], requestId, requestType: "permission", tool: request.tool },
+      }).id;
+      appendDecision(DATA_DIR, { threadId, requestId, botId: bot.id, botName: bot.name, tool: request.tool, summary: detail, decision: "card-shown", source: "always-asks", rule: hit.id });
+      if (store.taskByThread(bot.id, threadId)?.busy) store.setTaskActivity(bot.id, threadId, "waiting-on-you");
+      notify(buildNotification("approval", bot, threadId, detail, { avatarUrl: bot.avatarUrl }));
+    },
+    late: (requestId) => {
+      lateAsks.add(requestId);
+      const waiting = store.messagesFor(threadId).find((message) => message.id === cardId);
+      if (waiting?.card && !waiting.card.answered) store.patchMessage(threadId, waiting.id, { card: { ...waiting.card, subtitle: `${waiting.card.subtitle}\n\n${TOO_LATE}`, answered: "unavailable" } });
+    },
+    forget: (requestId) => alwaysAskHolds.forget(requestId),
+  });
+  if (store.taskByThread(bot.id, threadId)?.activity === "waiting-on-you") store.setTaskActivity(bot.id, threadId, "working");
+  if (answer === "allow") return null;
+  if (answer === "gone") return TOO_LATE;
+  const stale = store.messagesFor(threadId).find((message) => message.id === cardId);
+  if (answer === "timeout" && stale?.card && !stale.card.answered) store.patchMessage(threadId, stale.id, { card: { ...stale.card, answered: "unavailable", dismissed: true } });
+  return answer === "timeout" ? "later.dog did not run this: nobody answered in time, and it always needs the person's yes. Ask them in the chat first." : hit.refusal.replace("Ask them in the chat first.", "The person said no; carry on without it.");
+}
+
 function resolveAndSendTrust(res: ServerResponse, threadId: string, requestId: string, behavior: "allow" | "deny" | "answer"): boolean {
+  if (lateAsks.has(requestId)) {
+    json(res, 200, { ok: true, outcome: "unavailable" });
+    return true;
+  }
+  const alwaysAsked = alwaysAskHolds.resolve({ threadId, requestId, behavior });
+  if (alwaysAsked.claimed) {
+    const message = store.messagesFor(threadId).find((candidate) => candidate.card?.requestId === requestId);
+    if (message?.card && !message.card.answered && alwaysAsked.state !== "already_settled") {
+      store.patchMessage(threadId, message.id, { card: { ...message.card, answered: alwaysAsked.state === "allowed" ? "allow" : "deny" } });
+      appendDecision(DATA_DIR, { threadId, requestId, tool: message.card.tool, summary: message.card.subtitle, decision: alwaysAsked.state === "allowed" ? "user-approved" : "user-denied", source: "user" });
+    }
+    json(res, 200, { ok: true, outcome: alwaysAsked.state === "allowed" || (alwaysAsked.state === "already_settled" && alwaysAsked.behavior === "allow") ? "allowed-once" : "rejected" });
+    return true;
+  }
   const outboundCard = store.messagesFor(threadId).find(
     (message) => message.card?.requestId === requestId && message.card.outboundRequest,
   );
@@ -11006,7 +11243,7 @@ async function runGroupMemberTurn(
     { id: "learn", label: "Learning", text: skillAuthoring ? `\n${LEARN_PROMPT.trim()}` : "" },
     { id: "files", label: "File locations", text: workspace ? workspaceLocationsPrompt(bot.id, cwd, readyBot.cwd, cloudGuestOpened(threadId) ? null : store.taskByThread(bot.id, readyBot.threadId)?.cwd) : "" },
     { id: "mcp", label: "MCP servers", text: customMcpPrompt(Object.keys(integrations.custom ?? {})) },
-    { id: "computer", label: "Computer", text: computerPrompt(roomComputerPromptKind) },
+    { id: "computer", label: "Computer", text: computerPrompt(roomComputerPromptKind, { pageTools: pageToolsEnabled(cfg) }) },
     { id: "plan", label: "Surface", text: surfacePrompt({ computer: roomVmTarget ? "vm" : surfaceOfComputerKind(roomComputerKind), browser: Boolean(integrations.browser) }, { note: roomPlan.note, cloudHome: Boolean(CLOUD_HOME) }) },
     { id: "cloud-home", label: "My Cloud", text: CLOUD_HOME ? cloudHomePrompt(Boolean(integrations.agents) && lendingEnabled(), guidanceEngine(instance.driverKind)) : "" },
     { id: "today", label: "Today", text: CLOUD_HOME ? todayPrompt() : "" },
@@ -12686,13 +12923,6 @@ const secureForms = new SecureForms({
     save: (input) => { vaultStore.save(input); },
     addDetails: (details) => { vaultStore.addDetails(details); },
   },
-  allows: (botId, threadId, key) => [store.bot(botId), store.projectBotForTask(botId, threadId)].some((bot) => bot?.alwaysAllow?.includes(key) === true),
-  grant: (botId, _threadId, key) => {
-    const bot = store.bot(botId);
-    if (!bot || bot.alwaysAllow?.includes(key)) return;
-    const updated = store.patchBot(botId, { alwaysAllow: [...(bot.alwaysAllow ?? []), key] });
-    if (updated) broadcast({ kind: "bot", bot: wireBot(updated) });
-  },
 });
 
 bus.subscribe((event: RuntimeEvent) => {
@@ -13267,6 +13497,7 @@ ROUTES.push(createHostedSlackRoutes({ bot: (id) => store.bot(id), hostedReady: (
 const orgInstallStatuses = () => orgLibrary?.installStatuses() ?? new Map();
 ROUTES.push(createBotPresetRoutes({ presets: presetStore, orgStatuses: orgInstallStatuses }));
 ROUTES.push(createSidebarSectionOrderRoutes({ order: (sections) => store.orderSections(sections) }));
+ROUTES.push(createAlwaysAllowedRoutes({ dog: (id) => store.bot(id), mayManage: canManageCommandAllowlist, list: alwaysAllowedList, resume: (id) => lastingAllows.resume(id), remove: removeAlwaysAllowed }));
 const savedCommands = new SavedCommands(DATA_DIR);
 const dogTricks = (bot: BotRecord) => {
   const instance = registry.get(bot.modelSelection.instanceId);
@@ -13692,12 +13923,24 @@ INTERNAL_ROUTES.push(createSwitchAccountRoute({
   timeZone: () => process.env.TZ,
 }));
 const computerRuns = new ComputerRuns(join(DATA_DIR, "computer-runs"));
+const checkComputerJobs = () => void computerJobs.check({
+  computer: (botId) => boat.jobComputer(botId),
+  exit: (box, job) => computerRuns.ended(box, job),
+  liveness: (box, job) => computerRuns.liveness(box, job),
+  stop: (box, job) => computerRuns.stop(box, job),
+}).then(() => { void restartPickupDone.then(() => jobWake.deliver()); });
+setTimeout(checkComputerJobs, 0).unref();
+setInterval(checkComputerJobs, Math.max(1_000, Number(process.env.LATERDOG_COMPUTER_JOB_CHECK_MS) || JOB_CHECK_MS)).unref();
 INTERNAL_ROUTES.push(createComputerRunRoute({
   owns: (botId, threadId) => connectorThread(botId, threadId) !== null,
   folders: (botId, threadId) => messageFileRootsForThread(botId, threadId).filter((root) => root !== ATTACHMENTS_DIR),
   runs: computerRuns,
+  jobs: computerJobs,
+  ...(Number(process.env.LATERDOG_COMPUTER_RUN_WAIT_MS) > 0 ? { windowMs: Number(process.env.LATERDOG_COMPUTER_RUN_WAIT_MS) } : {}),
   computer: boat.heavyRunBox,
   active: (capability) => internalCapabilityIsActive(capability as InternalCapability),
+  maxWaitMs: (threadId) => waitCapMs(runningTurnEngines.get(threadId)?.driverKind, mcpCallTimeoutMinutes(cfg)),
+  personWrote: (_botId, threadId, since) => store.activePath(threadId).some((message) => message.role === "user" && message.at >= since),
 }));
 INTERNAL_ROUTES.push(createReactRoute({
   activePath: (threadId) => store.activePath(threadId),
@@ -13780,6 +14023,7 @@ const googleRouteDeps: GoogleRouteDeps = {
   ownerActing: (threadId) => ownerWorkThread(threadId),
   client: googleClientFromVault,
   redirectUri: googleRedirectUri,
+  cloud: CLOUD_HOME ? { machineId: CLOUD_HOME.machineId, shared: cloudGoogleConnection(CLOUD_ENV.LATERDOG_CLOUD_GOOGLE_URL, CLOUD_ENV.LATERDOG_CLOUD_GOOGLE_TOKEN) } : null,
   accounts: googleAccounts,
   saveAccount: (account, by) => { vaultStore.saveSecret(googleAccountItem(account.email), JSON.stringify(account), by); },
   saveSecret: (name, value, by) => ({ replaced: vaultStore.saveSecret(name, value, by).replaced }),
@@ -14345,7 +14589,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       const parsed = z.object({
         botId: z.string().regex(/^[\w-]{1,128}$/),
         threadId: z.string().regex(/^[\w-]{1,128}$/),
-        kind: z.enum(["agents", "connectors", "computer"]).default("agents"),
+        kind: z.enum(["agents", "connectors", "computer", "browser"]).default("agents"),
         depth: z.number().int().min(0).max(MAX_COMMS_DEPTH).default(0),
         skillAuthoring: z.boolean().default(false),
       }).strict().safeParse(await readBody(req));
@@ -14393,7 +14637,8 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       if (claimedThread !== null && claimedThread !== internalCapability.threadId) {
         return json(res, 403, { error: "the internal capability belongs to a different conversation" });
       }
-      const readInternalBody = async () => {
+      let internalBody: Promise<any> | undefined;
+      const readInternalBody = () => internalBody ??= (async () => {
         const body = await readBody(req);
         if (!internalCapabilityIsActive(internalCapability)) {
           throw Object.assign(new Error("the internal turn capability has expired"), { status: 401 });
@@ -14411,7 +14656,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
           }
         }
         return body;
-      };
+      })();
       const requireActiveInternalCapability = () => {
         if (!internalCapabilityIsActive(internalCapability)) {
           throw Object.assign(new Error("the internal turn capability has expired"), { status: 401 });
@@ -14422,6 +14667,18 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         task: store.taskByThread(internalSender.id, internalCapability.threadId),
         threadId: internalCapability.threadId,
       });
+      let personSaidYes = false;
+      if (method === "POST" && ALWAYS_ASK_PATHS.has(path)) {
+        const caller = new AbortController();
+        res.once("close", () => { if (!res.writableEnded) caller.abort(); });
+        const asked = internalCallRequest(path, await readInternalBody());
+        const hit = asked && alwaysAsks(asked, () => hookGuardContext(internalSender.id, internalCapability.threadId, undefined));
+        if (callerGone(res)) caller.abort();
+        const refused = asked && hit ? await askPersonFirst(internalSender, internalCapability.threadId, asked, hit, caller.signal) : null;
+        if (caller.signal.aborted || callerGone(res)) return;
+        if (refused) return path.endsWith("/mcp") ? json(res, 200, { result: { content: [{ type: "text", text: refused }], isError: true } }) : json(res, 403, { error: refused });
+        personSaidYes = Boolean(hit);
+      }
       if (await dispatchInternalRoutes(INTERNAL_ROUTES, {
         req, res, url, path, method, json, sender: internalSender, threadId: internalCapability.threadId, capability: internalCapability, readBody: readInternalBody,
       })) return;
@@ -14467,7 +14724,9 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       }
       if (method === "POST" && path === "/api/internal/hook") {
         const body = await readInternalBody();
-        return json(res, 200, ingestEngineHook(internalCapability, body));
+        const answer = ingestEngineHook(internalCapability, body);
+        const notice = answer.hookSpecificOutput ? null : helperTurns.fromHook(internalCapability.threadId, body, turnContext.get(internalCapability.threadId)?.tokens);
+        return json(res, 200, notice ? { ...answer, hookSpecificOutput: notice } : answer);
       }
       if (method === "POST" && path === "/api/internal/tool-result") {
         const body = await readInternalBody();
@@ -14597,10 +14856,10 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
           return json(res, 403, { error: "This bot has no computer. Change its Computer setting to use a shared computer's apps and screen." });
         }
         try {
-          const result = withoutSecret(await useMac(parsed.data, internalCapability), secret);
+          const result = withoutSecret(await useMac(parsed.data, internalCapability, personSaidYes), secret);
           const secrets = secret ? [...prepared.secrets, secret] : prepared.secrets;
           return json(res, 200, { result: await finishMacVault(parsed.data, result, { secrets, ...(prepared.capture ? { capture: prepared.capture } : {}) }, items, macCommandSecrets,
-            (operation) => useMac(sharedComputerOperation.parse({ ...operation, ...(parsed.data.computer_id ? { computer_id: parsed.data.computer_id } : {}) }), internalCapability)) });
+            (operation) => useMac(sharedComputerOperation.parse({ ...operation, ...(parsed.data.computer_id ? { computer_id: parsed.data.computer_id } : {}) }), internalCapability, true)) });
         } catch (error) {
           if (isMacOffline(error)) return json(res, 200, { result: macOfflineResult() });
           throw error;
@@ -15254,7 +15513,11 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         }
         let selection: ModelSelection;
         if (body.modelSelection === undefined) {
-          selection = onCreatorsAccount(await defaultSelection(), creator, fromThreadId);
+          const chat = store.projectBotForTask(creator.id, fromThreadId) ?? creator;
+          const engine = registry.get(chat.modelSelection.instanceId);
+          const helperTier = createdDogModel({ selection: chat.modelSelection, driverKind: engine?.driverKind, helperModel: chat.helperModel ?? creator.helperModel,
+            offered: engine?.models.options ?? [] });
+          selection = helperTier && (!hostedModels || hostedModels.allows(helperTier)) ? helperTier : onCreatorsAccount(await defaultSelection(), creator, fromThreadId);
         } else {
           const checked = checkedModelSelection(body.modelSelection, undefined, true);
           if (!checked.ok) return json(res, checked.status, { error: checked.error });
@@ -15549,7 +15812,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
           ? (rpc.params as { name?: unknown; arguments?: unknown })
           : null;
         const outboundCalls = rpc?.method === "tools/call" && typeof rpcParams?.name === "string"
-          ? outboundCallsIn(rpcParams.name, rpcParams.arguments)
+          ? connectorCallsIn(rpcParams.name, rpcParams.arguments).filter((call) => asksAsConnector(call.slug, call.arguments))
           : [];
         const outboundTool = outboundCalls.length ? outboundCalls[0].slug : null;
         const refuseOutbound = (text: string) => {
@@ -15572,6 +15835,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
           connected: serviceSlugs,
           alwaysAllow: botForThread(sender.id, internalCapability.threadId)?.alwaysAllow,
           ownerSends: ownerSendsWithoutAsking(sourceApprovalMode(sender.id, internalCapability.threadId), ownerAutoScope(internalCapability.threadId)),
+          alwaysAsks: connectorAlwaysAsks(outboundCalls) !== null,
           skipped: (toolkit) => connectorSkips.has(internalCapability.threadId, internalCapability.generation, toolkit),
           allowedThisTurn: (toolkit) => connectorAllows.has(internalCapability.threadId, internalCapability.generation, toolkit),
         });
@@ -15612,7 +15876,9 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
                 options: ["Allow", "Deny"],
                 requestId: held.requestId,
                 tool: outboundTool,
-                ...(decision.toolkit ? { allowKey: connectorAllowKey(decision.toolkit) } : {}),
+                ...(connectorAlwaysAsks(outboundCalls) !== null
+                  ? { lasting: { offered: false as const, why: "always-asks" as const } }
+                  : decision.toolkit ? { allowKey: connectorAllowKey(decision.toolkit) } : {}),
                 held: HELD_NOTE["approval.held.outbound"],
                 heldCode: "approval.held.outbound",
                 outboundRequest: { tool: outboundTool, app, calls },
@@ -15656,7 +15922,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
               );
             }
             outboundApproved = true;
-            if (decision.toolkit) connectorAllows.add(threadId, internalCapability.generation, [decision.toolkit]);
+            if (decision.toolkit && connectorAlwaysAsks(outboundCalls) === null) connectorAllows.add(threadId, internalCapability.generation, [decision.toolkit]);
             requireActiveInternalCapability();
           }
         }
@@ -17595,14 +17861,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       const bot = requestedTaskBot(m[1], url.searchParams.get("threadId") ?? undefined);
       if (method === "GET" && !m[2]) return json(res, 200, commandAllowlistResponse(bot));
       if (method === "POST" && !m[2]) {
-        const candidate = commandAllowlistCandidate(await readBody(req));
-        if (!candidate) return json(res, 400, { error: "Enter an exact command without secret values, an absolute working folder, and a provider." });
-        const instance = registry.get(candidate.providerInstanceId);
-        if (!instance || !COMMAND_ALLOWLIST_DRIVERS.has(instance.driverKind)) {
-          return json(res, 400, { error: "This provider does not supply structured command approvals." });
-        }
-        commandAllowlist.add(bot.id, candidate);
-        return json(res, 200, commandAllowlistResponse(bot));
+        return json(res, 409, { error: "Saved commands are no longer kept. Each command asks.", why: "stopped" });
       }
       if (method === "DELETE" && m[2]) {
         commandAllowlist.remove(bot.id, m[2]);
@@ -17615,8 +17874,31 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       const body = await readBody(req);
       requirePinnedClientThread(m[1], body?.threadId);
       const allowKey = typeof body.allowKey === "string" ? body.allowKey : "";
+      const sharedThread = !allowKey && typeof body.threadId === "string" ? store.groupByThread(body.threadId) : undefined;
+      if (sharedThread) {
+        return json(res, 409, isGroupChat(sharedThread)
+          ? { error: "Always is not offered in a group chat", why: "group" }
+          : { error: "Always is not offered in a channel between dogs", why: "owner-only" });
+      }
       const bot = requestedTaskBot(m[1], body.threadId);
+      if (!allowKey && typeof body.requestId === "string" && body.requestId) {
+        if (!canManageCommandAllowlist(auth)) return json(res, 403, { error: "Only the owner or an admin can choose Always." });
+        const requestId = body.requestId;
+        const pending = store.messagesFor(bot.threadId).find((message) =>
+          message.card?.requestId === requestId &&
+          message.card?.requestType === "permission" &&
+          !message.card?.answered &&
+          message.card?.dismissed !== true
+        );
+        const remembered = lastingRequests.get(`${bot.threadId}:${requestId}`);
+        if (!pending || !remembered || remembered.botId !== bot.id) return json(res, 409, { error: "that request is not waiting on an approval for this dog" });
+        const lasting = lastingVerdict({ ...remembered.request, alwaysAsks: remembered.alwaysAsks, ownerOnly: turnReachedOnlyByOwner(bot.threadId, bot.id), group: isGroupChat(store.groupByThread(bot.threadId)) });
+        if (!lasting.offered) return json(res, 409, { error: "Always is not offered for this request", why: lasting.why });
+        lastingAllows.grant({ botId: bot.id, keySha256: lasting.keySha256, grantedBy: auth.kind === "session" ? personKey(auth.session) : "local", fromThreadId: bot.threadId });
+        return json(res, 200, { granted: true });
+      }
       if (!allowKey) return json(res, 400, { error: "allowKey required" });
+      if (allowKey === DELETE_OUTSIDE_WORKSPACE_ALLOW_KEY || /^(?:ask_bot|delegate_bot):/.test(allowKey)) return json(res, 409, { error: "that grant is no longer offered" });
       const pending = store.messagesFor(bot.threadId).find((message) =>
         message.card?.requestId &&
         !message.card.answered &&
@@ -18714,10 +18996,6 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       if (!behavior) return json(res, 400, { error: "behavior must be allow, deny, or answer" });
       const refusal = cardAnswerRefusal(auth, bot.threadId, String(body.requestId), behavior);
       if (refusal) return json(res, 403, { error: refusal });
-      if (body.rememberCommand === true) {
-        const refusal = commandRememberRefusal(auth, bot.threadId, String(body.requestId), behavior);
-        if (refusal) return json(res, 403, { error: refusal });
-      }
       return await answeringCardAs(auth, bot.threadId, String(body.requestId), async () => {
         recordAnswerScope(store, bot.threadId, String(body.requestId), behavior, body, answerGrants);
         if (resolveAndSendTrust(res, bot.threadId, String(body.requestId), behavior)) return;
@@ -18768,7 +19046,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
           });
           return json(res, closed.status, closed.body);
         }
-        const outcome = await answerRequest(bot.threadId, bot.modelSelection.instanceId, requestId, behavior, body.message, { id: bot.id, name: bot.name }, body.always === true, body.rememberCommand === true);
+        const outcome = await answerRequest(bot.threadId, bot.modelSelection.instanceId, requestId, behavior, body.message, { id: bot.id, name: bot.name });
         if (outcome === "unavailable" && isPersistentQuestionCard(pending?.card) && behavior === "answer") {
           if (!pending) return json(res, 404, { error: "this question is no longer available" });
           const answer = typeof body.message === "string" ? body.message.trim() : "";
@@ -18793,10 +19071,6 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       const requestId = String(body.requestId);
       const refusal = cardAnswerRefusal(auth, threadId, requestId, behavior);
       if (refusal) return json(res, 403, { error: refusal });
-      if (body.rememberCommand === true) {
-        const refusal = commandRememberRefusal(auth, threadId, requestId, behavior);
-        if (refusal) return json(res, 403, { error: refusal });
-      }
       return await answeringCardAs(auth, threadId, requestId, async () => {
         recordAnswerScope(store, threadId, requestId, behavior, body, answerGrants);
         if (resolveAndSendTrust(res, threadId, requestId, behavior)) return;
@@ -18892,7 +19166,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         }
         if (!owner && !pending) return json(res, 404, { error: "nothing is waiting on an answer in this conversation" });
         const requestOwner = owner ? botForThread(owner.id, threadId) : null;
-        const outcome = await answerRequest(threadId, requestOwner?.modelSelection.instanceId ?? "", requestId, behavior, body.message, owner ? { id: owner.id, name: owner.name } : undefined, body.always === true, body.rememberCommand === true);
+        const outcome = await answerRequest(threadId, requestOwner?.modelSelection.instanceId ?? "", requestId, behavior, body.message, owner ? { id: owner.id, name: owner.name } : undefined);
         if (outcome === "unavailable" && isPersistentQuestionCard(pending?.card) && behavior === "answer") {
           if (!pending?.card) return json(res, 404, { error: "this question is no longer available" });
           const answer = typeof body.message === "string" ? body.message.trim() : "";
@@ -18928,6 +19202,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         if (keepsNewerTurn({ seen: body.turnStartedAt, running, resumed: pickupStops.resumed(askedTask.threadId) })) {
           return json(res, 200, { ok: true, kept: "newer" });
         }
+        if (!fromLocalTools(auth)) stopJobsForPerson(askedTask.threadId);
         await stopThreadTurn(bot.id, askedTask.threadId, fromLocalTools(auth) ? "api" : "person");
         return json(res, 200, { ok: true });
       }
@@ -18966,6 +19241,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         return json(res, 409, { error: "the dog switched tasks before it could be interrupted" });
       }
       if (!fromLocalTools(auth)) handoffs.stoppedByPerson(expectedThreadId ?? bot.threadId);
+      if (!fromLocalTools(auth)) stopJobsForPerson(expectedThreadId ?? bot.threadId);
       await interruptDirectThread(bot.id, expectedThreadId ?? bot.threadId, { by: fromLocalTools(auth) ? "api" : "person" });
       return json(res, 200, { ok: true });
     }

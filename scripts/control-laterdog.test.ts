@@ -24,3 +24,10 @@ describe("the fixture's Live call environment", () => {
     expect(childEnv({ LATERDOG_OPENAI_LIVE_KEY: "sk-real" })).not.toHaveProperty("LATERDOG_OPENAI_LIVE_KEY");
   });
 });
+
+describe("the fixture's computer job checks", () => {
+  it("passes a whole number of milliseconds between checks through, and nothing else", () => {
+    expect(childEnv({ LATERDOG_COMPUTER_JOB_CHECK_MS: "3600000" }).LATERDOG_COMPUTER_JOB_CHECK_MS).toBe("3600000");
+    for (const value of ["", "0", "-5", "1e9", "30s", "1000000000", " 1000"]) expect(childEnv({ LATERDOG_COMPUTER_JOB_CHECK_MS: value }), value).not.toHaveProperty("LATERDOG_COMPUTER_JOB_CHECK_MS");
+  });
+});

@@ -1,6 +1,28 @@
-import { describe, expect, it } from "vitest";
+import { DatabaseSync } from "node:sqlite";
+import { afterEach, describe, expect, it } from "vitest";
 import type { NativeObservation } from "../../shared/native-runs.ts";
+import type { RuntimeEvent } from "../../shared/runtime-events.ts";
 import { ClaudeNativeActivity, claudeSearchLinks } from "./claude-native-activity.ts";
+import { NativeRunProjector } from "./native-run-projector.ts";
+import { ensureNativeRuns, NativeRunStore } from "./native-run-store.ts";
+
+const databases: DatabaseSync[] = [];
+afterEach(() => { for (const database of databases.splice(0)) database.close(); });
+
+function recorded() {
+  const database = new DatabaseSync(":memory:");
+  databases.push(database);
+  ensureNativeRuns(database);
+  const store = new NativeRunStore({ read: <T>(fn: (database: DatabaseSync) => T): T => fn(database), write: <T>(fn: (database: DatabaseSync) => T): T => fn(database) });
+  const projector = new NativeRunProjector(store, () => undefined);
+  let clock = 1_000;
+  let sequence = 0;
+  const native = new ClaudeNativeActivity(observation => {
+    projector.observe({ eventId: `native-${++sequence}`, threadId: "chat", provider: "claude", providerInstanceId: "account-a", turnId: "turn-1", createdAt: new Date(clock).toISOString(), type: "native.observed", observation } as RuntimeEvent);
+  }, { version: "2.1.293", sessionId: "session", now: () => clock });
+  const helper = (nativeId: string) => store.list("chat").runs[0]!.actors.find(actor => actor.nativeId === nativeId)!;
+  return { native, helper, at: (ms: number) => { clock = ms; } };
+}
 
 function fixture(now: () => number = () => 100) {
   const observations: NativeObservation[] = [];
@@ -203,5 +225,90 @@ describe("Claude native activity", () => {
     const f = fixture();
     f.native.receive(assistant("large", [{ type: "text", text: "x".repeat(30_000) }]));
     expect(f.activities()[0]).toMatchObject({ truncated: true, text: "x".repeat(24_000) });
+  });
+});
+
+describe("what a Claude step is about", () => {
+  it("names each step in plain words when the call starts and keeps the raw tool name as its label", () => {
+    const f = fixture();
+    f.native.receive(assistant("tools", [
+      { type: "tool_use", id: "bash", name: "Bash", input: { command: "pnpm test order-form", description: "Run the order form tests" } },
+      { type: "tool_use", id: "bare", name: "Bash", input: { command: "rm -rf build" } },
+      { type: "tool_use", id: "task", name: "Task", input: { description: "Check the spring menu", prompt: "Read every menu file" } },
+      { type: "tool_use", id: "read", name: "Read", input: { file_path: "/srv/shop/src/OrderForm.tsx" } },
+      { type: "tool_use", id: "write", name: "Write", input: { file_path: "/srv/shop/server/order-store.ts", content: "x" } },
+      { type: "tool_use", id: "edit", name: "Edit", input: { file_path: "docs/spring-menu.md", old_string: "a", new_string: "b" } },
+      { type: "tool_use", id: "readme", name: "Read", input: { file_path: "README.md" } },
+      { type: "tool_use", id: "grep", name: "Grep", input: { pattern: "pickup" } },
+      { type: "tool_use", id: "search", name: "WebSearch", input: { query: "pickup times" } },
+      { type: "tool_use", id: "fetch", name: "WebFetch", input: { url: "https://www.stripe.com/docs", prompt: "Read it" } },
+      { type: "tool_use", id: "plan", name: "TodoWrite", input: { todos: [] } },
+    ]));
+    expect(f.activities().map(activity => [activity.label, activity.subject])).toEqual([
+      ["Bash", "Run the order form tests"],
+      ["Bash", undefined],
+      ["Task", "Check the spring menu"],
+      ["Read", "order form"],
+      ["Write", "order store"],
+      ["Edit", "spring menu"],
+      ["Read", "readme"],
+      ["Grep", "pickup"],
+      ["WebSearch: pickup times", "pickup times"],
+      ["WebFetch: https://www.stripe.com/docs", "stripe.com"],
+      ["TodoWrite", undefined],
+    ]);
+    expect(f.activities()[1]).not.toHaveProperty("subject");
+    f.native.receive({ type: "user", uuid: "bash-result", message: { content: [{ type: "tool_result", tool_use_id: "bash", content: "ok" }] } });
+    expect(f.activities().at(-1)).toMatchObject({ label: "Bash", state: "done", subject: "Run the order form tests" });
+  });
+
+  it("gives no subject to a description holding a secret-looking token and cuts a long one to 120 characters", () => {
+    const f = fixture();
+    const description = "Run the order form tests again ".repeat(10).slice(0, 300);
+    f.native.receive(assistant("described", [
+      { type: "tool_use", id: "deploy", name: "Bash", input: { command: "deploy", description: "Deploy with key sk-test-notarealkey0000000000 to staging" } },
+      { type: "tool_use", id: "long", name: "Bash", input: { command: "pnpm test", description } },
+    ]));
+    const [deploy, long] = f.activities();
+    expect(deploy).not.toHaveProperty("subject");
+    expect(long!.subject).toBe(description.slice(0, 120));
+  });
+});
+
+describe("when a Claude helper last moved", () => {
+  it("moves on the helper's task progress and updates, and not on a background list that only names it", () => {
+    let clock = 1_000;
+    const f = fixture(() => clock);
+    f.native.receive(start());
+    expect(f.latestActor("agent-a").lastActivityAt).toBeUndefined();
+    clock = 5_000;
+    f.native.receive({ type: "system", subtype: "task_progress", task_id: "agent-a", run_id: "run-01", description: "Reading the specification" });
+    expect(f.latestActor("agent-a").lastActivityAt).toBe(5_000);
+    clock = 9_000;
+    f.native.receive({ type: "system", subtype: "task_updated", task_id: "agent-a", run_id: "run-01", patch: { is_backgrounded: true } });
+    expect(f.latestActor("agent-a").lastActivityAt).toBe(9_000);
+    clock = 12_000;
+    f.native.receive({ type: "system", subtype: "background_tasks_changed", tasks: [{ task_id: "agent-a", run_id: "run-01", status: "running" }] });
+    expect(f.latestActor("agent-a").lastActivityAt).toBe(9_000);
+  });
+
+  it("moves when the helper's own step starts or ends, and a later report about the helper cannot move it back", () => {
+    const f = recorded();
+    f.native.receive(start());
+    expect(f.helper("agent-a").lastActivityAt).toBeUndefined();
+    f.at(5_000);
+    f.native.receive({ type: "system", subtype: "task_progress", task_id: "agent-a", run_id: "run-01", description: "Reading" });
+    expect(f.helper("agent-a").lastActivityAt).toBe(5_000);
+    const scope = { agent_id: "agent-a", parent_tool_use_id: "spawn-agent-a-run-01" };
+    f.at(8_000);
+    f.native.receive(assistant("child-read", [{ type: "tool_use", id: "read", name: "Read", input: { file_path: "/srv/menu/spring-menu.md" } }], scope));
+    expect(f.helper("agent-a").lastActivityAt).toBe(8_000);
+    f.at(11_000);
+    f.native.receive({ type: "user", uuid: "read-result", ...scope, message: { content: [{ type: "tool_result", tool_use_id: "read", content: "Spring menu" }] } });
+    expect(f.helper("agent-a").lastActivityAt).toBe(11_000);
+    f.at(14_000);
+    f.native.receive(assistant("parent-text", [{ type: "text", text: "Waiting for the helper" }]));
+    f.native.receive({ type: "system", subtype: "background_tasks_changed", tasks: [{ task_id: "agent-a", run_id: "run-01", status: "running" }] });
+    expect(f.helper("agent-a").lastActivityAt).toBe(11_000);
   });
 });

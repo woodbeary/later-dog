@@ -181,7 +181,7 @@ describe("an escalation from an owner Off-leash dog", () => {
     expect(calls).toEqual(["deny", "refused: force-push-default-branch"]);
   });
 
-  it("runs the delete with no card, even unattended, once the owner chose Always allow, and never lets a rule cover a force-push", async () => {
+  it("never lets the owner's old Always cover a delete outside the workspace or a force-push", async () => {
     const settle = (command: string, ownerAllows: boolean) => {
       const calls: string[] = [];
       return settleOwnerAutoPermission({ tool: "Bash", command }, {
@@ -195,10 +195,49 @@ describe("an escalation from an owner Off-leash dog", () => {
         failed: () => calls.push("failed"),
       }).then((settled) => ({ settled, calls }));
     };
-    expect(await settle("rm -rf /data/v3work", true)).toEqual({ settled: "approved", calls: ["allow", "approved"] });
+    expect(await settle("rm -rf /data/v3work", true)).toEqual({ settled: "refused", calls: ["deny", "refused: delete-outside-workspace"] });
     expect(await settle("rm -rf /data/v3work", false)).toEqual({ settled: "refused", calls: ["deny", "refused: delete-outside-workspace"] });
     expect(await settle("git push --force origin main", true)).toEqual({ settled: "refused", calls: ["deny", "refused: force-push-default-branch"] });
     expect(await settle("gh repo delete owner/repo --yes", true)).toEqual({ settled: "refused", calls: ["deny", "refused: delete-remote-repository"] });
+  });
+
+  it("asks the owner on a card for what always asks, and refuses it when nobody is there, whatever else allows it", async () => {
+    const settle = (request: { tool: string; command?: string; summary?: string }, attended: boolean, ownerAllows = true) => {
+      const calls: string[] = [];
+      return settleOwnerAutoPermission(request, {
+        guard: { cwd: workspace, workspaceRoots: [workspace], tempRoots: ["/tmp"], home: "/home/owner", git },
+        allow: async () => { calls.push("allow"); return "allowed-once"; },
+        deny: async (message) => { calls.push(`deny: ${message}`); return "rejected"; },
+        ...(attended ? { holdAlways: (hit: { id: string }) => calls.push(`card: ${hit.id}`) } : {}),
+        refusedAlways: (hit) => calls.push(`refused: ${hit.id}`),
+        ownerAllows: () => ownerAllows,
+        isCurrent: () => true,
+        approved: () => calls.push("approved"),
+        refused: (refusal) => calls.push(`refused: ${refusal.rule}`),
+        failed: (failure) => calls.push(`failed: ${failure}`),
+      }).then((settled) => ({ settled, calls }));
+    };
+    for (const [request, id] of [
+      [{ tool: "Bash", command: "git push --no-verify origin feature" }, "push-skips-checks"],
+      [{ tool: "Bash", command: "LATERDOG_SKIP_HOOKS=1 git push" }, "push-skips-checks"],
+      [{ tool: "Bash", command: "gcloud iam service-accounts keys create k.json --iam-account=a" }, "cloud-credential"],
+      [{ tool: "mcp__computer__open_url", summary: "https://console.cloud.google.com/apis/credentials" }, "cloud-credential"],
+      [{ tool: "mcp__mail__send_email" }, "sends-for-you"],
+      [{ tool: "mcp__shop__create_refund" }, "pays"],
+    ] as const) {
+      expect(await settle(request, true), id).toEqual({ settled: "held", calls: [`card: ${id}`] });
+      const unattended = await settle(request, false);
+      expect(unattended.settled, id).toBe("refused");
+      expect(unattended.calls[0], id).toMatch(/^deny: later\.dog did not run this: .*always needs the person's yes/);
+      expect(unattended.calls[1], id).toBe(`refused: ${id}`);
+    }
+    const both = await settle({ tool: "Bash", command: "rm -rf /data/v3work && git push --no-verify" }, true);
+    expect(both.settled).toBe("refused");
+    expect(both.calls.at(-1)).toBe("refused: delete-outside-workspace");
+    expect(await settle({ tool: "Bash", command: "git push --force --no-verify origin main" }, true)).toEqual({
+      settled: "refused",
+      calls: ["deny: later.dog refused this: force-pushing main, the repository's default branch, is never allowed. Push a new branch and open a pull request instead.", "refused: force-push-default-branch"],
+    });
   });
 
   it("reports a provider that would not take the approval", async () => {

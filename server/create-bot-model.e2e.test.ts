@@ -5,7 +5,7 @@ import { expect, it } from "vitest";
 import { launchVerificationServer } from "../scripts/control-laterdog.ts";
 import { removeTempDir } from "./testing/cleanup.ts";
 
-it("a dog creates dogs with the workspace default or a validated explicit model, never more access than its own, and no per-turn cap in the owner's workspace", async () => {
+it("a dog creates dogs one tier below its own model or with a validated explicit model, never more access than its own, and no per-turn cap in the owner's workspace", async () => {
   const temp = mkdtempSync(join(tmpdir(), "laterdog-create-model-"));
   const gate = join(temp, "finish");
   const fixture = await launchVerificationServer({ FAKE_CLAUDE_MODE: "slow", FAKE_CLAUDE_SLOW_FINISH_GATE: gate }, undefined, undefined, undefined, undefined, undefined, ["codex"]);
@@ -36,14 +36,15 @@ it("a dog creates dogs with the workspace default or a validated explicit model,
       role: "Specialist", instructions: "Complete assigned work.",
       ...(modelSelection === undefined ? {} : { modelSelection }),
     }, expected, token);
+    const helperTier = { instanceId: "claude", model: claude.models.options.find((item: any) => item.id.startsWith("claude-sonnet-")).id };
     const first = await create("Default specialist");
-    expect(first.modelSelection).toEqual(defaultModel);
+    expect(first.modelSelection).toEqual(helperTier);
     const explicit = { instanceId: "claude", model: claude.models.options.find((item: any) => item.id !== claude.models.default).id, effort: "low" };
     const second = await create("Chosen specialist", explicit);
     expect(second.modelSelection).toEqual(explicit);
     const bots = (await api("GET", "/api/bots")).bots;
     expect(bots.find((bot: any) => bot.id === maker.id).modelSelection).toEqual(makerModel);
-    for (const [id, modelSelection] of [[first.id, defaultModel], [second.id, explicit]]) {
+    for (const [id, modelSelection] of [[first.id, helperTier], [second.id, explicit]]) {
       expect(bots.find((bot: any) => bot.id === id)).toMatchObject({
         section: "Design", modelSelection, approvalMode: "ask", autoApprove: false, approvePeerComms: false,
       });
@@ -66,8 +67,8 @@ it("a dog creates dogs with the workspace default or a validated explicit model,
     await api("POST", `/api/bots/${maker.id}/messages`, { text: "Prepare the next specialist." }, 202);
     await expect.poll(() => existsSync(fixture.fixtureDumpPath), { timeout: 15_000 }).toBe(true);
     token = JSON.parse(readFileSync(fixture.fixtureDumpPath, "utf8")).mcpConfig.mcpServers.agents.env.LATERDOG_COMMS_TOKEN;
-    expect((await create("Updated default specialist")).modelSelection).toEqual(explicit);
-    expect((await api("GET", "/api/bots")).bots.find((bot: any) => bot.id === first.id).modelSelection).toEqual(defaultModel);
+    expect((await create("Updated default specialist")).modelSelection).toEqual(helperTier);
+    expect((await api("GET", "/api/bots")).bots.find((bot: any) => bot.id === first.id).modelSelection).toEqual(helperTier);
   } finally {
     writeFileSync(gate, "finish");
     await fixture.close();

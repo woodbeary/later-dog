@@ -4,7 +4,6 @@ import { flushSync } from "react-dom";
 import { createRoot, type Root } from "react-dom/client";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import type { AppState, Bot, InstanceInfo, Message } from "@/state/store";
-import type { NativeRun } from "../../shared/native-runs";
 
 const renders = vi.hoisted(() => ({ botText: 0, userText: 0, toolChip: 0 }));
 const guest = vi.hoisted(() => ({ canWrite: true as boolean | null }));
@@ -40,7 +39,7 @@ vi.mock("./ModelPicker", () => ({ ModelPicker: () => null }));
 const { ChatView } = await import("./ChatView");
 const { BotEditorStore, initialState, reducer } = await import("@/state/store");
 const { t } = await import("@/lib/i18n");
-const { forgetNativeRuns, receiveNativeRun } = await import("@/lib/native-runs-state");
+const { forgetNativeRuns } = await import("@/lib/native-runs-state");
 
 const message = (id: string, parentId: string | undefined, fields: Partial<Message>): Message =>
   ({ id, parentId, role: "bot", kind: "text", at: new Date(2026, 9, 3, 9, Number(id.slice(1))).getTime(), ...fields });
@@ -104,11 +103,13 @@ afterAll(() => {
 });
 
 describe("chat transcript rows", () => {
-  it("draws every row once on mount", () => {
-    expect(document.querySelectorAll("[data-mid]")).toHaveLength(messages.length);
+  it("draws every bubble once on mount, and no tool pill or tool card even with the old setting on", () => {
+    expect(document.querySelectorAll("[data-mid]")).toHaveLength(messages.filter((row) => row.kind !== "activity").length);
     expect(document.body.textContent).toContain("Today");
     expect(document.body.textContent).toContain("Answer 1");
-    expect(document.body.textContent).toContain("Read file 2");
+    expect(document.body.textContent).not.toContain("Read file");
+    expect(document.querySelector('[data-testid="tool-activity"], pre.font-mono')).toBeNull();
+    expect(renders.toolChip).toBe(0);
   });
 
   it("opens a delegated Needs you proxy at its exact source card", async () => {
@@ -152,11 +153,11 @@ describe("chat transcript rows", () => {
     })).toEqual({ botText: 0, userText: 0, toolChip: 0 });
   });
 
-  it("renders only the tool chip that changed", async () => {
+  it("renders no row when a step changes", async () => {
     expect(await rowRendersAfter((current) => reducer(current, {
       type: "messagePatched", threadId: "pepper-thread", message: { ...running, tool: { name: "Read file 2, page 2" } },
-    }))).toEqual({ botText: 0, userText: 0, toolChip: 1 });
-    expect(document.body.textContent).toContain("Read file 2, page 2");
+    }))).toEqual({ botText: 0, userText: 0, toolChip: 0 });
+    expect(document.body.textContent).not.toContain("Read file 2, page 2");
   });
 
   it("moves Today on to Yesterday after midnight, at the next store event", async () => {
@@ -251,26 +252,4 @@ describe("chat transcript rows", () => {
     }
   });
 
-  it("compares a run with the model this chat has selected now, straight after the model changes", async () => {
-    const answered = message("m10", "m9", { text: "Answer 2", turnId: "turn-2" });
-    await rowRendersAfter((current) => reducer(current, { type: "messageAdded", threadId: "pepper-thread", message: answered }));
-    const run: NativeRun = {
-      id: "run-2", threadId: "pepper-thread", turnId: "turn-2", provider: "claudeAgent", providerInstanceId: "test", revision: 1,
-      startedAt: answered.at - 1_000, endedAt: answered.at, state: "done", observation: "live",
-      actors: [{ id: "parent", kind: "parent", label: "Main", state: "done", startedAt: answered.at - 1_000, model: "m" }],
-      activityCount: 0, failureCount: 0, limitations: [],
-    };
-    flushSync(() => receiveNativeRun(run));
-    await settle();
-    flushSync(() => document.querySelector<HTMLButtonElement>('[data-native-work="run-2"] button[aria-haspopup="dialog"]')!.click());
-    const line = () => document.querySelector("[data-native-execution]")!;
-    expect(line().getAttribute("data-native-execution")).toBe("same");
-    const next = { instanceId: "test", model: "m2" };
-    await rowRendersAfter((current) => ({
-      ...current,
-      bots: current.bots.map((bot) => (bot.id === "pepper" ? { ...bot, modelSelection: next, tasks: bot.tasks?.map((task) => ({ ...task, modelSelection: next })) } : bot)),
-    }));
-    expect(line().getAttribute("data-native-execution")).toBe("next-message");
-    expect(line().textContent).toContain("m2 · test");
-  });
 });

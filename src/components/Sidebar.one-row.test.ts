@@ -54,7 +54,7 @@ afterEach(() => { vi.unstubAllGlobals(); });
 
 describe("one row per dog", () => {
   it.each([
-    { density: "comfortable", size: 32, spacing: ["gap-3", "py-2", "pl-2"] },
+    { density: "comfortable", size: 32, spacing: ["min-h-[52px]", "gap-3", "px-2.5", "py-2"] },
     { density: "icons", size: 44, spacing: ["justify-center", "px-1", "py-1.5"] },
   ] as const)("sizes the portrait and row spacing in $density density", ({ density, size, spacing }) => {
     for (const avatar of [{}, { avatarUrl: "/api/attachments/portrait.png", avatarCrop: "circle" as const }]) {

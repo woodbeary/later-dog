@@ -147,15 +147,23 @@ describe("peer approval card lifecycle", () => {
     expect(store.taskByThread(from.id, threadA)?.activity).toBe("working");
   });
 
-  it("stays quiet when a standing grant answers without a card", async () => {
-    const frames: Array<Notification | null> = [];
-    bus = { store, broadcast: () => {}, notify: (frame) => frames.push(frame) };
-    store.patchBot(from.id, { alwaysAllow: [peerAllowKey("ask_bot", target.id)] });
-    store.setTaskActivity(from.id, from.threadId, "working");
-
-    await expect(requestPeerApproval(bus, from, target, "ping", "ask_bot")).resolves.toBe("allow");
-    expect(frames).toEqual([]);
-    expect(store.bot(from.id)?.activity).toBe("working");
+  it("shows a card for a teammate whatever key the dog still holds, and the card offers no Always", async () => {
+    const roomChat = store.createGroup("Standup", [from.id, target.id], false).threadId;
+    const ownChat = from.threadId;
+    const newChat = store.createTask(from.id, "New chat", false)!.threadId;
+    for (const action of ["ask_bot", "delegate_bot"] as const) {
+      store.patchBot(from.id, { alwaysAllow: [peerAllowKey(action, target.id)] });
+      store.patchTask(from.id, ownChat, { alwaysAllow: [peerAllowKey(action, target.id)] });
+      for (const chat of [ownChat, roomChat, newChat]) {
+        const verdict = requestPeerApproval(bus, store.bot(from.id)!, target, "ping", action, chat);
+        const card = store.messagesFor(chat).find(message => message.card?.requestId && !message.card.answered)?.card;
+        expect(card, `${action} in ${chat}`).toBeTruthy();
+        expect(card!.allowKey).toBeUndefined();
+        expect(card!.options).toEqual(["Allow", "Deny"]);
+        resolvePeerComms(bus, card!.requestId!, "allow");
+        await expect(verdict).resolves.toBe("allow");
+      }
+    }
   });
 
   it("honors Full only for the exact source conversation without prompting or notifying", async () => {
@@ -179,56 +187,6 @@ describe("peer approval card lifecycle", () => {
 
   it("answers an unknown requestId as not-ours, so provider cards still route", () => {
     expect(resolvePeerComms(bus, "not-a-peer-request", "allow")).toBe(false);
-  });
-
-  it("keys persistent grants by target identity, not mutable or duplicate names", async () => {
-    const originalName = target.name;
-    store.patchBot(from.id, { alwaysAllow: [peerAllowKey("ask_bot", target.id)] });
-    store.patchBot(target.id, { name: "Renamed helper" });
-
-    await expect(requestPeerApproval(bus, from, target, "ping", "ask_bot")).resolves.toBe("allow");
-    expect(pendingCard(store, from)).toBeUndefined();
-
-    const impostor = store.patchBot(store.createBot().id, { name: originalName })!;
-    const verdict = requestPeerApproval(bus, from, impostor, "ping", "ask_bot");
-    const card = pendingCard(store, from);
-    expect(card).toBeTruthy();
-    cancelPeerApprovalsFor(impostor.id);
-    await expect(verdict).resolves.toBe("cancelled");
-  });
-
-  it("honors Always allow saved to the dog's own chat for the next ask there, and still asks in another chat", async () => {
-    const ownChat = from.threadId;
-    const otherChat = store.createTask(from.id, "Other chat", false)!.threadId;
-    const first = requestPeerApproval(bus, from, target, "first", "ask_bot", ownChat);
-    const card = store.messagesFor(ownChat).find(message => message.card?.requestId)!.card!;
-    expect(card.allowKey).toBe(peerAllowKey("ask_bot", target.id));
-    store.patchTask(from.id, ownChat, { alwaysAllow: [card.allowKey!] });
-    resolvePeerComms(bus, card.requestId!, "allow");
-    await expect(first).resolves.toBe("allow");
-    expect(store.bot(from.id)?.alwaysAllow ?? []).not.toContain(card.allowKey);
-
-    await expect(requestPeerApproval(bus, store.bot(from.id)!, target, "second", "ask_bot", ownChat))
-      .resolves.toBe("allow");
-    expect(store.messagesFor(ownChat).filter(message => message.card?.requestId)).toHaveLength(1);
-
-    const elsewhere = requestPeerApproval(bus, store.bot(from.id)!, target, "elsewhere", "ask_bot", otherChat);
-    const otherCard = store.messagesFor(otherChat).find(message => message.card?.requestId && !message.card.answered);
-    expect(otherCard).toBeTruthy();
-    resolvePeerComms(bus, otherCard!.card!.requestId!, "deny");
-    await expect(elsewhere).resolves.toBe("deny");
-  });
-
-  it("honors Always allow saved from a room in that room and in chats opened after it", async () => {
-    const room = store.createGroup("Standup", [from.id, target.id], false);
-    store.patchBot(from.id, { alwaysAllow: [peerAllowKey("ask_bot", target.id)] });
-    await expect(requestPeerApproval(bus, store.bot(from.id)!, target, "again", "ask_bot", room.threadId))
-      .resolves.toBe("allow");
-    expect(store.messagesFor(room.threadId).some(message => message.card?.requestId)).toBe(false);
-    const newChat = store.createTask(from.id, "New chat", false)!.threadId;
-    await expect(requestPeerApproval(bus, store.bot(from.id)!, target, "new", "ask_bot", newChat))
-      .resolves.toBe("allow");
-    expect(store.messagesFor(newChat).some(message => message.card?.requestId)).toBe(false);
   });
 
   it.each(["from", "target"] as const)("cancels and settles when the %s bot is deleted", async (side) => {

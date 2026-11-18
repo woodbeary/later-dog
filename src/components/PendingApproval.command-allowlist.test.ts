@@ -59,16 +59,16 @@ describe("remembering exact command approvals", () => {
     expect(view({ commandAllowlist: undefined }).html).not.toContain("Always allow");
   });
 
-  it("answers and remembers in one action without a separate preference update", () => {
+  it("offers nothing to remember on a card stored before saved commands stopped, and never asks the home to save one", () => {
     const result = view();
-    expect(result.html).toContain("Always allow");
-    expect(result.html).toContain("/work/project");
-    expect(result.html).not.toContain("Allow for this chat");
-    result.buttons.find((button) => button.props.children === "Always allow")!.props.onClick!();
-    expect(fixture.dispatch).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({
-      type: "decideRequest", threadId: "thread-1", requestId: "request-1", behavior: "allow", rememberCommand: true,
-      alwaysAllow: undefined, always: undefined,
-    }));
+    expect(result.buttons.map((button) => button.props.children)).toEqual(["Don't allow", "Allow once"]);
+    expect(result.html).not.toContain("Always allow");
+    expect(result.html).not.toContain("/work/project");
+    for (const label of ["Allow once", "Don't allow"]) {
+      fixture.dispatch.mockClear();
+      result.buttons.find((button) => button.props.children === label)!.props.onClick!();
+      expect(fixture.dispatch.mock.calls[0]![0]).not.toHaveProperty("rememberCommand");
+    }
   });
 
   it("keeps Allow once and Deny from saving a grant", () => {
@@ -76,45 +76,44 @@ describe("remembering exact command approvals", () => {
       fixture.dispatch.mockClear();
       view().buttons.find((button) => button.props.children === label)!.props.onClick!();
       expect(fixture.dispatch).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({
-        behavior, rememberCommand: undefined, alwaysAllow: undefined, always: undefined,
+        behavior, alwaysAllow: undefined,
       }));
     }
   });
 
-  it("puts Allow once first and primary, and a durable grant last as a quiet text button", () => {
-    for (const extra of [{}, { commandAllowlist: undefined }, { allowKey: "peer:teammate" }] as const) {
+  it("puts a durable grant first as a quiet text button, and Allow once last and primary", () => {
+    for (const extra of [{ allowKey: "peer:teammate" }] as const) {
       const { buttons } = view(extra);
       const labels = buttons.map((button) => String(button.props.children));
-      expect(labels[0]).toBe("Allow once");
+      expect(labels[0]).toBe("Always allow");
       expect(labels[1]).toBe("Don't allow");
-      expect(labels.at(-1)).toMatch(/^(Always allow|Allow for this chat)$/);
+      expect(labels.at(-1)).toBe("Allow once");
       const classes = (button: (typeof buttons)[number]) => String((button.props as unknown as { className?: string }).className);
-      expect(classes(buttons[0]!)).toContain("bg-accent");
-      expect(classes(buttons.at(-1)!)).not.toContain("bg-accent");
-      expect(classes(buttons.at(-1)!).split(" ")).not.toContain("bg-control");
-      expect(classes(buttons.at(-1)!)).toContain("text-ink-secondary");
+      expect(classes(buttons.at(-1)!)).toContain("approval-parity-allow");
+      expect(classes(buttons[0]!)).not.toContain("approval-parity-allow");
+      expect(classes(buttons[0]!)).toContain("approval-parity-quiet");
     }
   });
 
-  it("never puts a durable grant on a durable confirmation or ahead of the single-use choice", () => {
+  it("keeps the single-use choice last, after a durable grant", () => {
     const { buttons } = view({ allowKey: "peer:teammate" });
-    expect(buttons.findIndex((button) => button.props.children === "Allow once"))
-      .toBeLessThan(buttons.findIndex((button) => button.props.children === "Always allow"));
+    expect(buttons.findIndex((button) => button.props.children === "Always allow"))
+      .toBeLessThan(buttons.findIndex((button) => button.props.children === "Allow once"));
   });
 
   it.each([false, null])("keeps bot-wide grants unavailable without owner/admin authority (%s)", (admin) => {
     fixture.admin = admin;
     const result = view();
     expect(result.html).not.toContain("Always allow");
-    expect(result.html).toContain("Allow for this chat");
+    expect(result.html).not.toContain("Allow for this chat");
     expect(result.html).toContain("Allow once");
   });
 
-  it("preserves session approval for requests without an exact command", () => {
-    view({ commandAllowlist: undefined }).buttons.find((button) => button.props.children === "Allow for this chat")!.props.onClick!();
-    expect(fixture.dispatch).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({
-      behavior: "allow", always: true, rememberCommand: undefined,
-    }));
+  it("answers a request without an exact command once, with no chat-long choice", () => {
+    const result = view({ commandAllowlist: undefined });
+    expect(result.buttons.map((button) => button.props.children)).toEqual(["Don't allow", "Allow once"]);
+    result.buttons.find((button) => button.props.children === "Allow once")!.props.onClick!();
+    expect(fixture.dispatch).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ behavior: "allow", scope: "once" }));
   });
 
   it("keeps peer grants separate from provider command rules", () => {
@@ -122,7 +121,7 @@ describe("remembering exact command approvals", () => {
     expect(result.buttons.filter((button) => button.props.children === "Always allow")).toHaveLength(1);
     result.buttons.find((button) => button.props.children === "Always allow")!.props.onClick!();
     expect(fixture.dispatch).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({
-      alwaysAllow: { botId: bot.id, key: "peer:teammate" }, always: undefined, rememberCommand: undefined,
+      alwaysAllow: { botId: bot.id, key: "peer:teammate" },
     }));
   });
 
@@ -131,7 +130,7 @@ describe("remembering exact command approvals", () => {
     const html = renderToStaticMarkup(createElement(PendingApprovalPanel, { pending, count: 1, index: 0 }));
     expect(html).not.toContain("View details");
     expect(html).not.toContain("<details");
-    expect(html).toMatch(/<pre[^>]*class="[^"]*max-h-40[^"]*font-mono[^"]*"[^>]*>git status --short<\/pre>/);
+    expect(html).toMatch(/<pre[^>]*class="approval-parity-command"[^>]*>git status --short<\/pre>/);
   });
 
   it("folds model proposals behind View details, as the chat card does", () => {
@@ -146,8 +145,9 @@ describe("remembering exact command approvals", () => {
   it("says in one line, one tap away, how far each lasting choice reaches", () => {
     const line = (html: string) => html.match(/<p class="[^"]*text-ink-tertiary[^"]*">([^<]*)<\/p>/)?.[1];
     const command = view();
-    expect(line(command.html)).toBe("Always allow lets Scout run this exact command in /work/project without asking, in any chat using that folder with this engine.");
-    expect(line(view({ commandAllowlist: undefined }).html)).toBe("Allow for this chat stops asking about this action until this chat&#x27;s session ends.");
+    expect(line(command.html)).toBeUndefined();
+    expect(line(view({ commandAllowlist: undefined }).html)).toBeUndefined();
+    expect(view({ commandAllowlist: undefined }).html).not.toContain("Allow for this chat");
     const ownChat = { ...bot, tasks: [{ threadId: "thread-1" }] } as Bot;
     expect(line(view({ allowKey: "ask_bot:kiwi" }, ownChat).html)).toBe("Always allow lets Scout do this again without asking in this chat.");
     expect(line(view({ allowKey: "ask_bot:kiwi" }).html)).toBe("Always allow lets Scout do this again without asking in group chats and in new chats.");
@@ -168,8 +168,8 @@ describe("a card about the owner's Mac", () => {
   const mac = { tool: "mac_run_command", allowKey: "mac", approvalScope: "local-computer" as const, commandAllowlist: undefined, allowSession: undefined };
 
   it("offers the three choices Allow once, Always allow and Never, with Never as its only refusal", () => {
-    expect(view(mac).buttons.map((button) => button.props.children)).toEqual(["Allow once", "Always allow", "Never"]);
-    expect(view({ ...mac, allowKey: undefined }).buttons.map((button) => button.props.children)).toEqual(["Allow once", "Never"]);
+    expect(view(mac).buttons.map((button) => button.props.children)).toEqual(["Always allow", "Never", "Allow once"]);
+    expect(view({ ...mac, allowKey: undefined }).buttons.map((button) => button.props.children)).toEqual(["Never", "Allow once"]);
   });
 
   it("keeps Don't allow on every other card", () => {

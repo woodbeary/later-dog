@@ -132,7 +132,9 @@ export const EVIDENCE_FIRST =
 export const SAVE_STATE =
   "The engine compacts long conversations, so keep going; before a long stretch, save decisions and where things are to a file or your memory.";
 export const STAY_FREE =
-  "Stay free to answer: if waiting on something would keep you from answering the person, run it as a background command or hand it to a helper in the background, say in one line that it started, and stay available; you are woken when it finishes. Send follow-ups on the same work to the same helper, and do quick things yourself.";
+  "Stay free to answer: if waiting on something would keep you from answering the person, run it as a background command or hand it to a helper in the background, say in one line that it started, and stay available; you are woken when it finishes. Send follow-ups on the same work to the same helper, and do quick things yourself. Do not watch or wait for helpers or teammates inside your own turn: end it; their results wake you by themselves.";
+export const LONG_WORK =
+  "When your next step needs a job, wait with one call until it ends; if a person is waiting on you, wait in short calls and answer between them. Read the part of a file you need, not the whole file again. When a long step is done and this chat is long, note where things stand and hand the next step to a fresh helper.";
 export const HELPER_BRIEF =
   "Coordinate large work yourself: keep the planning and the judgment, and hand each well-defined part to a helper or another dog with everything it needs to finish alone: the goal, the context with exact names and values, the steps, the constraints, the form of the answer and what done means. It cannot ask the person anything and only its last message reaches you. Give hard judgment to the strongest model and well-defined execution to a cheaper capable one, never the smallest for real work. Check what comes back before you rely on it.";
 export const PARALLEL_CALLS =
@@ -213,7 +215,7 @@ export interface DogRole {
 }
 
 const GENERAL_ROLE = /\b(assistant|personal|general|everything|life|home|family|household|chief|errands?)\b/i;
-const MONEY_ROLE = /\b(pay\w*|money|financ\w*|bank\w*|book\s?keep\w*|accounts?|accounting|invoic\w*|tax\w*|bills?|budget\w*|shop\w*|purchas\w*|sales|payroll)\b/i;
+const MONEY_ROLE = /\b(pay\w*|money|financ\w*|bank\w*|book\s?keep\w*|accounting|receivab\w*|(?:savings|checking|credit|card|brokerage|investment|retirement|loan|cash|expense|bank|crypto)\s+accounts?|accounts?\s+(?:payable|receivable|balances?)|invoic\w*|tax\w*|bills?|budget\w*|shop\w*|purchas\w*|sales|payroll)\b/i;
 const HEALTH_ROLE = /\b(health\w*|medic\w*|doctor|nurse|care\w*|kids?|child\w*|baby|babies|parent\w*|mom|dad|pharm\w*|wellness)\b/i;
 
 export function safetyBlocksFor(role: DogRole | undefined): { payments: boolean; medicine: boolean } {
@@ -289,6 +291,7 @@ export function dogGuidance(input: GuidanceInput): string {
     EVIDENCE_FIRST,
     input.engine === "claude" ? "" : SAVE_STATE,
     STAY_FREE,
+    LONG_WORK,
     HELPER_BRIEF,
     input.engine === "claude" ? "" : PARALLEL_CALLS,
     STOP_MEANS_STOP,

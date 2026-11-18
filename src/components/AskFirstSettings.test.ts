@@ -42,6 +42,11 @@ const type = (value: string) => {
 };
 
 describe("Ask first in Settings", () => {
+  it("says above the person's own rules what every dog always asks about", () => {
+    render();
+    expect(host.querySelector("[data-always-asks]")?.textContent).toMatch(/^Whatever its approval setting, every dog asks you before it pushes code without running its checks, .* pays or moves money from a connected app, or deletes something or changes who can see it in a connected app, every time; it goes by how a command is written, so it catches slips, not a dog set on getting around it\.$/);
+  });
+
   it("lists the person's rules and adds a new one", async () => {
     fixture.api.mockResolvedValue({ profile: { name: "", email: "", askFirst: ["Buying anything", "Sending email to anyone new"] } });
     render();

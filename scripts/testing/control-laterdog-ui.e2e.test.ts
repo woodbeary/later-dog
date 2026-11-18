@@ -108,7 +108,10 @@ describe("control-laterdog ui drives the real renderer", () => {
     await ui("type", info.ui, "--name", "Message Pepper", "--text", "Find the striped zebra");
     await ui("press", info.ui, "--keys", "Enter");
     await ui("wait-settle", info.ui, "--timeout", "60");
-    await ui("click", info.ui, "--name", "Find in conversation");
+    expect(refsNamed(await ui("snapshot", info.ui, "--interactive"), "Find in conversation")).toEqual([]);
+    await ui("click", info.ui, "--name", "More");
+    await expect.poll(async () => (await ui("eval", info.ui, "--js", "[...document.querySelectorAll('[role=menuitem]')].find(item => item.textContent === 'Find in conversation⌘F') ? true : false")).result, { timeout: 10_000 }).toBe(true);
+    await ui("eval", info.ui, "--js", "[...document.querySelectorAll('[role=menuitem]')].find(item => item.textContent === 'Find in conversation⌘F').click(); true");
     await ui("type", info.ui, "--name", "Find in this conversation", "--text", "zebra");
     const highlighted = async () => (await ui("eval", info.ui, "--js", "[...CSS.highlights.get('search-result-text') ?? []][0]?.toString() ?? null")).result;
     await expect.poll(async () => (await ui("snapshot", info.ui)).snapshot, { timeout: 10_000 }).toContain("1 of 1");
@@ -125,7 +128,7 @@ describe("control-laterdog ui drives the real renderer", () => {
     await ui("press", info.ui, "--keys", "Backspace");
     await ui("type", info.ui, "--name", "Find in this conversation", "--text", "saffron");
     await expect.poll(highlighted, { timeout: 10_000 }).toBe("saffron");
-    expect((await ui("eval", info.ui, "--js", "[...document.querySelectorAll('.chat-text')].find(el => el.textContent.includes('saffron'))?.classList.contains('max-h-40')")).result).toBe(false);
+    expect((await ui("eval", info.ui, "--js", "[...document.querySelectorAll('.chat-text')].find(el => el.textContent.includes('saffron'))?.classList.contains('max-h-[288px]')")).result).toBe(false);
     await expect.poll(async () => (await ui("eval", info.ui, "--js", "(() => { const range = [...CSS.highlights.get('search-result-text')][0]; const bounds = range.startContainer.parentElement.closest('.overflow-y-auto').getBoundingClientRect(); const match = range.getBoundingClientRect(); return match.top >= bounds.top && match.bottom <= bounds.bottom; })()")).result).toBe(true);
     await ui("click", info.ui, "--name", "Find in this conversation");
     await ui("eval", info.ui, "--js", "document.querySelector('input[aria-label=\"Find in this conversation\"]').select(); true");
@@ -300,13 +303,27 @@ describe("control-laterdog ui drives the real renderer", () => {
     expect(transcript).toContain('StaticText "hello"');
     expect(transcript).toContain(`StaticText "${REPLY}"`);
     const scripted = JSON.parse(TOOL_CALLS) as Array<{ input: { command: string }; ok: boolean }>;
-    const chips = [...transcript.matchAll(/button "Ran a command · (Completed|Failed) · Tool details"/g)].map((match) => match[1]);
-    expect(chips).toEqual(scripted.map((call) => (call.ok ? "Completed" : "Failed")));
-    for (const call of scripted) expect(transcript).toContain(`StaticText "${call.input.command}"`);
-    expect(transcript).toContain(`StaticText "Did ${scripted.length} tool calls"`);
+    expect(transcript).not.toContain("Tool details");
+    for (const call of scripted) expect(transcript).not.toContain(call.input.command);
+    expect(transcript).toContain(`button "Tried ${scripted.length} things"`);
+    expect(transcript.indexOf(`button "Tried ${scripted.length} things"`)).toBeLessThan(transcript.indexOf(`StaticText "${REPLY}"`));
+    expect(transcript).not.toContain("tool calls");
     expect(transcript).not.toMatch(/\bBash\b/);
     expect(tree).not.toContain("Not logged in");
     expect(tree).not.toContain("Execution timeline");
+
+    const panelText = async () => (await ui("eval", info.ui, "--js", "document.querySelector('[data-work-panel]')?.textContent ?? null")).result as string | null;
+    const stepStates = async () => (await ui("eval", info.ui, "--js", "JSON.stringify(Array.from(document.querySelectorAll('[data-work-panel] [data-step-id]')).map(row => row.hasAttribute('data-failed') ? 'Failed' : 'Completed'))")).result as string;
+    await ui("click", info.ui, "--name", `Tried ${scripted.length} things`);
+    await expect.poll(panelText, { timeout: 10_000 }).toContain("What Pepper did");
+    await expect.poll(stepStates, { timeout: 10_000 }).toBe(JSON.stringify([...scripted].reverse().map((call) => (call.ok ? "Completed" : "Failed"))));
+    expect((await ui("eval", info.ui, "--js", "document.querySelectorAll('[data-work-panel] [data-step-id][data-failed]').length")).result).toBe(scripted.filter((call) => !call.ok).length);
+    expect(await panelText()).toContain("Didn't work");
+    await ui("eval", info.ui, "--js", "document.querySelector('[data-work-panel] [data-step-id][data-failed]').click(); true");
+    await expect.poll(panelText, { timeout: 10_000 }).toContain(scripted.find((call) => !call.ok)!.input.command);
+    expect(await panelText()).toContain("What it ran");
+    for (let tries = 0; tries < 3 && (await panelText()) !== null; tries += 1) await ui("press", info.ui, "--keys", "Escape");
+    expect(await panelText()).toBeNull();
 
     expect(await runControlLaterDog(["doctor", "--url", info.url])).toMatchObject({ ok: true });
     await expect(ui("click", info.ui, "--name", "Deliberately missing QA control")).rejects.toThrow("no element is named");

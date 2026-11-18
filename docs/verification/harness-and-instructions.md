@@ -47,9 +47,11 @@ proven about them.
 
 4. **The engine compacts its own chat.** For Claude Code and Codex dogs
    later.dog no longer folds a chat at 80% of the model window and starts the
-   engine cold; the engine compacts at its own default and keeps its session
+   engine cold; the engine compacts the chat itself and keeps its session
    (`harnessCompacts` in `server/laterdog/native-compaction.ts`). Claude Code
-   2.1.311 and later already launch with `--autocompact auto`; later.dog sets
+   2.1.311 and later launch with `--autocompact 280000`: the engine takes the
+   smaller of that and the model's window and compacts about 33K tokens below
+   it, about 247K on a model with a 1M window. later.dog sets
    neither `model_auto_compact_token_limit` nor `model_context_window` for
    Codex, so Codex uses the limit from its own model catalog. later.dog still
    summarises the older part once when it has to start a new session that
@@ -121,6 +123,13 @@ TMPDIR=<scratch> node --experimental-strip-types scripts/measure-dog-prompt.ts
   a main Codex dog (+9.7%); across main, helper, group and handed-over dogs the
   growth is 9.5% to 17.9%. Counting the first context note too, a fresh dog's
   first request is 6.1% to 12.8% larger.
+
+Three sentences on long work (`LONG_WORK`: wait for a job with one call when the
+next step needs it, in short calls when a person is waiting; read the part of a file you need;
+hand a long step's next part to a fresh helper) added 317 bytes, about 79 tokens,
+1.4% to 1.6% for every kind of dog on both engines; the main Claude dog went from
+23,151 to 23,468 bytes. Fixture numbers for the waiting and helper-turn
+changes are in [short-turns.md](short-turns.md).
 
 `scripts/measure-turn-extras.ts` measures the second pass on the same kind of
 fixture (40 person turns, sessions started at turns 1 and 21):

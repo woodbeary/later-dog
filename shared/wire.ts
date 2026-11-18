@@ -20,10 +20,12 @@ import type { RuntimeEvent } from "./runtime-events.ts";
 import type { Notification } from "./notification.ts";
 import type { Routine, RoutineRun } from "./routines.ts";
 import type { WorkState } from "./work-state.ts";
+import type { LiveStep } from "./step-words.ts";
 import type { WirePlan } from "./dog-plan.ts";
 import type { WireExchange } from "./room-exchange.ts";
 import type { TurnReceipt } from "./turn-receipt.ts";
 import type { TurnResults } from "./turn-results.ts";
+import type { LastingOffer } from "./lasting-allows.ts";
 import type { WebhookAttempt, WebhookTrigger } from "./webhooks.ts";
 
 export const EFFORT_LEVELS = ["none", "low", "medium", "high", "xhigh", "max", "ultra"] as const;
@@ -126,6 +128,7 @@ export interface WireTask {
   workingStartedAt?: number;
   statusLine?: string;
   work?: WorkState;
+  step?: LiveStep | null;
   plan?: WirePlan | null;
   surface?: Surface;
   surfaceAuto?: true;
@@ -230,6 +233,7 @@ export interface WireBot {
   busy?: boolean;
   activity?: BotActivity;
   work?: WorkState;
+  step?: LiveStep | null;
   plan?: WirePlan | null;
   createdAt: number;
   visibility?: BotVisibility;
@@ -297,7 +301,7 @@ export interface WireMessage {
     itemId?: string;
     fullResult?: boolean;
     statusLine?: "live" | "folded";
-    pickup?: "restart" | "watch";
+    pickup?: "restart" | "watch" | "computer";
     compaction?: true;
   };
   webhookPost?: boolean;
@@ -354,6 +358,7 @@ export interface OptionCardData {
   heldCode?: string;
   allowKey?: string;
   allowSession?: boolean;
+  lasting?: LastingOffer;
   answerScope?: "once" | "always" | "chat";
   commandAllowlist?: CommandAllowlistCandidate;
   approvalScope?: "local-computer";

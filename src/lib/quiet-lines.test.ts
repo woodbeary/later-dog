@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import type { Message } from "@/state/store";
 import { groupTranscript } from "./activity-runs";
 import { exchangeRow, exchangeSummary, exchangeWording, foldedPreview, foldExchanges, quietTranscriptItemShown, singleExchange } from "./quiet-lines";
+import { notWokenTool } from "../../server/laterdog/job-wake";
+import { couldNotStopTool, partlyStoppedTool } from "../../server/laterdog/stop-computer-jobs";
 
 let n = 0;
 const comm = (direction: "to" | "from" | undefined, withBotId = "d2", name = "Study Helper", groupId = "g1"): Message => ({
@@ -277,5 +279,24 @@ describe("exchange state from the home's record", () => {
     const reply: Message = { id: "r", role: "bot", kind: "activity", at: 2, roomRequest: { id: "x", phase: "result" }, tool: { name: "Scout replied", ok: true } };
     expect(exchangeSummary(itemOf(message), [message, reply], false)).toMatchObject({ state: "Done" });
     expect(exchangeSummary(itemOf(message), null, false)).toBeNull();
+  });
+});
+
+describe("lines about a job on a dog's computer", () => {
+  const ended = [{ id: "aaaa0001", botId: "scout", threadId: "t1", command: "pnpm test", startedAt: 1, end: { how: "finished" as const, exitCode: 0, at: 2 } }];
+  const row = (tool: Message["tool"]): Message => ({ id: `m${++n}`, role: "bot", kind: "activity", at: n * 1000, tool });
+  it.each([
+    ["could not be stopped", couldNotStopTool("Scout")],
+    ["partly stopped", partlyStoppedTool("Scout")],
+    ["ended without a result", notWokenTool("Scout", ended, "lost")],
+    ["finished but not woken", notWokenTool("Scout", ended, "stale")],
+    ["stopped after 2 hours, in part", notWokenTool("Scout", [{ ...ended[0]!, end: { how: "overdue" as const, stop: "partial" as const, at: 2 } }], "long")],
+    ["not stopped after 2 hours", notWokenTool("Scout", [{ ...ended[0]!, end: { how: "overdue" as const, stop: "alive" as const, at: 2 } }], "long")],
+  ])("shows %s with step details off", (_label, tool) => {
+    expect(quietTranscriptItemShown({ kind: "message", message: row(tool) }, false)).toBe(true);
+  });
+
+  it("would hide the same words written as a plain step", () => {
+    expect(quietTranscriptItemShown({ kind: "message", message: row({ name: "Scout's command on its computer ended without a result.", ok: true, pickup: "computer" }) }, false)).toBe(false);
   });
 });

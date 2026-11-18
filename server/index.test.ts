@@ -445,6 +445,17 @@ beforeAll(async () => {
         dm: true,
       },
       {
+        id: "test-always-channel",
+        threadId: "test-always-channel-thread",
+        name: "Always channel",
+        memberIds: ["test-bot-a", "test-bot-reply"],
+        defaultResponder: { kind: "mentions" },
+        bulletin: "",
+        unread: false,
+        createdAt: 1,
+        dm: true,
+      },
+      {
         id: "test-stranded-room",
         threadId: "test-stranded-room-thread",
         name: "Stranded room",
@@ -2079,8 +2090,9 @@ describe("harness HTTP API", () => {
 
       const inactiveRetry = await api("POST", `/api/bots/${bot.id}/messages`, request);
       expect(inactiveRetry.status).toBe(202);
+      expect(typeof inactiveRetry.body.message.requestPending).toBe("boolean");
       expect(inactiveRetry.body).toEqual({
-        ...pendingReceipt, message: { ...pendingReceipt.message, requestCancelled: true },
+        ...pendingReceipt, message: { ...pendingReceipt.message, requestPending: inactiveRetry.body.message.requestPending, requestCancelled: true },
       });
       const current = (await api("GET", "/api/bots?messages=0")).body.bots.find(
         (candidate: { id: string }) => candidate.id === bot.id,
@@ -7530,7 +7542,442 @@ describe("harness HTTP API", () => {
     await api("PUT", "/api/config", { rooms: { turnTimeoutMinutes: 5 } });
   });
 
-  it("cards every ask when Claude's reviewer never started, says so once, and can hand the allow to Claude for the session", async () => {
+  it("on a shared workspace, remembers Always for exactly the same search, in another chat of the dog, and never for anything else", async () => {
+    const bot = (await api("POST", "/api/bots", { name: "Wren" })).body.bot;
+    const conns: Socket[] = [];
+    type Card = { title: string; subtitle: string; requestId?: string; tool?: string; answered?: string; answerScope?: string; lasting?: { offered: boolean; reach?: string; why?: string } };
+    type Msg = { kind: string; tool?: { name: string }; card?: Card };
+    const state = async () => (await api("GET", "/api/bots?messages=60")).body.bots.find((candidate: { id: string }) => candidate.id === bot.id);
+    const messages = async (): Promise<Msg[]> => (await state()).messages;
+    const startTurn = async (text: string) => {
+      rmSync(fakeClaudeDump, { force: true });
+      expect((await api("POST", `/api/bots/${bot.id}/messages`, { text })).status).toBe(202);
+      return z.object({
+        mcpConfig: z.object({ mcpServers: z.object({ dog: z.object({ args: z.array(z.string()) }) }) }),
+      }).parse(await readJsonFileWhenReady(fakeClaudeDump)).mcpConfig.mcpServers.dog.args[1];
+    };
+    const raise = async (socketPath: string, id: string, tool: string, input: Record<string, unknown>) => {
+      const conn = connect(socketPath);
+      conns.push(conn);
+      const answered = new Promise<{ behavior: string; always?: boolean }>((resolve) => {
+        let buf = "";
+        conn.on("data", (chunk) => {
+          buf += chunk;
+          const nl = buf.indexOf("\n");
+          if (nl !== -1) resolve(JSON.parse(buf.slice(0, nl)));
+        });
+      });
+      await new Promise<void>((resolve, reject) => {
+        conn.on("connect", resolve);
+        conn.on("error", reject);
+      });
+      conn.write(JSON.stringify({ t: "ask", id, tool, input }) + "\n");
+      return answered;
+    };
+    const cardFor = async (requestId: string) => {
+      await expect.poll(async () => (await messages()).some((m) => m.card?.requestId === requestId)).toBe(true);
+      return (await messages()).find((m) => m.card?.requestId === requestId)!.card!;
+    };
+    const oslo = { query: "weather in oslo", allowed_domains: ["yr.no"] };
+    try {
+      expect((await api("PUT", "/api/config", { signIn: { members: ["member@example.com"] } })).status).toBe(200);
+      expect((await api("PATCH", `/api/bots/${bot.id}`, {
+        modelSelection: { instanceId: "claude", model: "claude-haiku-4-5" },
+        approvalMode: "ask",
+      })).status).toBe(200);
+      const socketPath = await startTurn("look up the weather");
+      const firstThread = (await state()).threadId;
+
+      const first = raise(socketPath, "ask-search-1", "WebSearch", oslo);
+      const card = await cardFor("ask-search-1");
+      expect(card.lasting).toEqual({ offered: true, reach: "Always allow lets Wren search for exactly this again without asking, in any of its chats." });
+
+      const write = raise(socketPath, "ask-write", "Write", { file_path: "notes.md", content: "x" });
+      expect((await cardFor("ask-write")).lasting).toEqual({ offered: false, why: "state" });
+      expect((await api("POST", `/api/bots/${bot.id}/always-allow`, { threadId: firstThread, requestId: "ask-write" })).status).toBe(409);
+      expect((await api("POST", `/api/bots/${bot.id}/respond`, { requestId: "ask-write", behavior: "deny" })).status).toBe(200);
+      await write;
+
+      expect((await api("POST", `/api/bots/${bot.id}/always-allow`, { threadId: firstThread, requestId: "nobody-asked" })).status).toBe(409);
+      expect((await api("POST", `/api/bots/${bot.id}/always-allow`, { threadId: firstThread, requestId: "ask-search-1" })).body).toEqual({ granted: true });
+      expect((await api("POST", `/api/bots/${bot.id}/respond`, { requestId: "ask-search-1", behavior: "allow", scope: "always" })).status).toBe(200);
+      const firstAnswer = await first;
+      expect(firstAnswer.behavior).toBe("allow");
+      expect(firstAnswer.always).not.toBe(true);
+      await expect.poll(async () => (await cardFor("ask-search-1")).answerScope).toBe("always");
+      expect((await api("POST", `/api/bots/${bot.id}/always-allow`, { threadId: firstThread, requestId: "ask-search-1" })).status).toBe(409);
+
+      const opened = await api("POST", "/api/auth/pairing", { scopes: ["client"] });
+      const member = (await api("POST", "/api/auth/pair", { code: opened.body.code })).body.token as string;
+      const asMember = async (method: string, path: string, payload?: unknown) => {
+        const response = await fetch(`${BASE}${path}`, {
+          method,
+          headers: { authorization: `Bearer ${member}`, "x-forwarded-for": "192.0.2.10", "content-type": "application/json" },
+          ...(payload === undefined ? {} : { body: JSON.stringify(payload) }),
+        });
+        return response.status;
+      };
+      const pendingWrite = raise(socketPath, "ask-search-member", "WebSearch", { query: "weather in bergen" });
+      await cardFor("ask-search-member");
+      expect(await asMember("POST", `/api/bots/${bot.id}/always-allow`, { threadId: firstThread, requestId: "ask-search-member" })).toBe(403);
+      expect(await asMember("GET", `/api/bots/${bot.id}/always-allowed`)).toBe(403);
+      expect(await asMember("DELETE", `/api/bots/${bot.id}/always-allowed/search:nothing`)).toBe(403);
+      expect(await asMember("POST", `/api/bots/${bot.id}/always-allowed/resume`)).toBe(403);
+      const otherDog = (await api("POST", "/api/bots", { name: "Other" })).body.bot;
+      try {
+        expect((await api("POST", `/api/bots/${otherDog.id}/always-allow`, { threadId: otherDog.threadId, requestId: "ask-search-member" })).status).toBe(409);
+      } finally {
+        await api("DELETE", `/api/bots/${otherDog.id}`);
+      }
+      expect((await api("POST", `/api/bots/${bot.id}/respond`, { requestId: "ask-search-member", behavior: "deny" })).status).toBe(200);
+      await pendingWrite;
+      expect((await api("POST", `/api/bots/${bot.id}/always-allow`, { threadId: firstThread, requestId: "ask-search-member" })).status).toBe(409);
+
+      const listed = await api("GET", `/api/bots/${bot.id}/always-allowed`);
+      expect(listed.status).toBe(200);
+      expect(listed.body.paused).toBe(false);
+      expect(listed.body.items).toEqual([expect.objectContaining({ kind: "search", state: "active" })]);
+      expect(listed.body.items[0]).not.toHaveProperty("subject");
+      const stored = readFileSync(join(home, ".laterdog", "lasting-allows.json"), "utf8");
+      expect(stored).not.toMatch(/oslo|yr\.no/);
+
+      const again = await raise(socketPath, "ask-search-2", "WebSearch", { allowed_domains: ["yr.no"], query: "weather in oslo" });
+      expect(again.behavior).toBe("allow");
+      expect(again.always).not.toBe(true);
+      expect((await messages()).some((m) => m.card?.requestId === "ask-search-2")).toBe(false);
+
+      const other = raise(socketPath, "ask-search-3", "WebSearch", { query: "weather in oslo", allowed_domains: ["met.no"] });
+      expect((await cardFor("ask-search-3")).lasting?.offered).toBe(true);
+      expect((await api("POST", `/api/bots/${bot.id}/respond`, { requestId: "ask-search-3", behavior: "deny" })).status).toBe(200);
+      await other;
+
+      const log = readFileSync(join(home, ".laterdog", "events", `${firstThread}.ndjson`), "utf8");
+      expect(log).toContain("ask-search-1");
+      expect(log).not.toContain("wholeInput");
+
+      await api("POST", `/api/bots/${bot.id}/interrupt`);
+      await expect.poll(async () => (await state()).busy, { timeout: 5_000 }).toBe(false);
+      const next = await api("POST", `/api/bots/${bot.id}/tasks`, { title: "Another chat" });
+      expect(next.status).toBe(201);
+      expect((await api("POST", `/api/bots/${bot.id}/tasks/${next.body.task.threadId}?messages=0`)).status).toBe(200);
+      const secondSocket = await startTurn("and again in this chat");
+      const elsewhere = await raise(secondSocket, "ask-search-4", "WebSearch", oslo);
+      expect(elsewhere.behavior).toBe("allow");
+      expect((await messages()).some((m) => m.card?.requestId === "ask-search-4")).toBe(false);
+
+      const removed = await api("DELETE", `/api/bots/${bot.id}/always-allowed/${encodeURIComponent(listed.body.items[0].id)}`);
+      expect(removed.status).toBe(200);
+      expect(removed.body.items).toEqual([]);
+      const asked = raise(secondSocket, "ask-search-5", "WebSearch", oslo);
+      expect((await cardFor("ask-search-5")).lasting?.offered).toBe(true);
+      expect((await api("POST", `/api/bots/${bot.id}/respond`, { requestId: "ask-search-5", behavior: "deny" })).status).toBe(200);
+      await asked;
+    } finally {
+      for (const conn of conns) conn.destroy();
+      await api("POST", `/api/bots/${bot.id}/interrupt`);
+      await api("DELETE", `/api/bots/${bot.id}`);
+      await api("PUT", "/api/config", { signIn: { members: [] } });
+    }
+  });
+
+  it("pauses a dog's Always grants on the real emergency stop, asks for the search, and answers it again after Resume", async () => {
+    const isolatedHome = mkdtempSync(join(tmpdir(), "laterdog-always-pause-"));
+    const isolatedData = join(isolatedHome, ".laterdog");
+    const isolatedStatic = join(isolatedHome, "static");
+    const gate = join(isolatedHome, "desktop-gate");
+    const isolatedPort = await freePortBlock([0, 1]);
+    const dump = join(isolatedHome, "fake-claude-dump.json");
+    mkdirSync(join(isolatedStatic, "assets"), { recursive: true });
+    mkdirSync(isolatedData, { recursive: true });
+    mkdirSync(gate, { recursive: true });
+    writeFileSync(join(isolatedStatic, "index.html"), "<!doctype html><title>Always pause test</title>");
+    writeFileSync(join(isolatedStatic, "assets", "smoke.css"), "body{}");
+    writeFileSync(join(isolatedData, "config.json"), JSON.stringify({
+      instances: { claude: { driver: "claudeAgent", displayName: "Fixture Claude", config: { cli: FAKE_CLAUDE_CLI } } },
+    }));
+    const prelude = `data:text/javascript,${encodeURIComponent(`
+      const { existsSync, readFileSync, rmSync, writeFileSync } = await import("node:fs");
+      const { join } = await import("node:path");
+      const gate = ${JSON.stringify(gate)};
+      const listeners = [];
+      setInterval(() => {
+        const file = join(gate, "send.json");
+        if (!existsSync(file)) return;
+        const data = JSON.parse(readFileSync(file, "utf8"));
+        rmSync(file);
+        for (const listener of listeners) listener({ data });
+      }, 20).unref();
+      Object.defineProperty(process, "parentPort", {
+        value: {
+          on(event, callback) { if (event === "message") listeners.push(callback); },
+          postMessage(message) {
+            if (message?.type === "approval-trusted-mode-result") writeFileSync(join(gate, "result-" + message.requestId + ".json"), JSON.stringify(message));
+          },
+        },
+      });
+    `)}`;
+    let stderr = "";
+    const child = spawn(process.execPath, ["--import", prelude, join(SERVER_DIR, "index.ts")], {
+      cwd: ROOT,
+      env: {
+        ...(process.env.PATH ? { PATH: process.env.PATH } : {}),
+        ...(process.env.SystemRoot ? { SystemRoot: process.env.SystemRoot } : {}),
+        HOME: isolatedHome,
+        USERPROFILE: isolatedHome,
+        LATERDOG_SERVER_PORT: String(isolatedPort),
+        LATERDOG_WEBHOOK_PORT: String(isolatedPort + 1),
+        LATERDOG_STATIC_DIR: isolatedStatic,
+        FAKE_CLAUDE_MODE: "hang",
+        FAKE_CLAUDE_DUMP: dump,
+      },
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    child.stderr!.on("data", (chunk) => (stderr += chunk));
+    const local = async (method: string, path: string, body?: unknown): Promise<{ status: number; body: any }> => {
+      const response = await fetch(`http://127.0.0.1:${isolatedPort}${path}`, {
+        method,
+        headers: body ? { "content-type": "application/json" } : undefined,
+        body: body ? JSON.stringify(body) : undefined,
+      });
+      return { status: response.status, body: await response.json() };
+    };
+    const conns: Socket[] = [];
+    try {
+      await waitForIsolatedServer(child, isolatedPort, () => stderr);
+      expect((await local("PUT", "/api/config", { signIn: { members: ["member@example.com"] } })).status).toBe(200);
+      const bot = (await local("POST", "/api/bots", { name: "Pip" })).body.bot;
+      expect((await local("PATCH", `/api/bots/${bot.id}`, { modelSelection: { instanceId: "claude", model: "claude-haiku-4-5" }, approvalMode: "ask" })).status).toBe(200);
+      const startTurn = async (text: string) => {
+        rmSync(dump, { force: true });
+        expect((await local("POST", `/api/bots/${bot.id}/messages`, { text })).status).toBe(202);
+        return z.object({
+          mcpConfig: z.object({ mcpServers: z.object({ dog: z.object({ args: z.array(z.string()) }) }) }),
+        }).parse(await readJsonFileWhenReady(dump)).mcpConfig.mcpServers.dog.args[1];
+      };
+      const raise = async (socketPath: string, id: string) => {
+        const conn = connect(socketPath);
+        conns.push(conn);
+        const answered = new Promise<{ behavior: string }>((resolve) => {
+          let buf = "";
+          conn.on("data", (chunk) => {
+            buf += chunk;
+            const nl = buf.indexOf("\n");
+            if (nl !== -1) resolve(JSON.parse(buf.slice(0, nl)));
+          });
+        });
+        await new Promise<void>((resolve, reject) => { conn.on("connect", resolve); conn.on("error", reject); });
+        conn.write(JSON.stringify({ t: "ask", id, tool: "WebSearch", input: { query: "weather in tromso" } }) + "\n");
+        return answered;
+      };
+      const cardFor = async (requestId: string) => {
+        const find = async () => ((await local("GET", "/api/bots?messages=60")).body.bots.find((candidate: { id: string }) => candidate.id === bot.id).messages as Array<{ card?: { requestId?: string } }>)
+          .find((message) => message.card?.requestId === requestId)?.card;
+        await expect.poll(find, { timeout: 15_000 }).toBeTruthy();
+        return find();
+      };
+
+      const firstSocket = await startTurn("look up the weather");
+      const first = raise(firstSocket, "pause-1");
+      await cardFor("pause-1");
+      expect((await local("POST", `/api/bots/${bot.id}/always-allow`, { threadId: (await local("GET", "/api/bots")).body.bots.find((candidate: { id: string }) => candidate.id === bot.id).threadId, requestId: "pause-1" })).body).toEqual({ granted: true });
+      expect((await local("POST", `/api/bots/${bot.id}/respond`, { requestId: "pause-1", behavior: "allow", scope: "always" })).status).toBe(200);
+      expect((await first).behavior).toBe("allow");
+      expect((await raise(firstSocket, "pause-2")).behavior).toBe("allow");
+
+      writeFileSync(join(gate, "send.json"), JSON.stringify({ type: "approval-trusted-mode-set", requestId: "stop-1", botId: bot.id, mode: "ask", allThreads: true }));
+      await expect.poll(() => existsSync(join(gate, "result-stop-1.json")), { timeout: 15_000 }).toBe(true);
+      expect(JSON.parse(readFileSync(join(gate, "result-stop-1.json"), "utf8")).ok).toBe(true);
+      expect((await local("GET", `/api/bots/${bot.id}/always-allowed`)).body.paused).toBe(true);
+
+      const secondSocket = await startTurn("and once more");
+      const paused = raise(secondSocket, "pause-3");
+      expect((await cardFor("pause-3"))).toBeTruthy();
+      expect((await local("POST", `/api/bots/${bot.id}/always-allowed/resume`)).body.paused).toBe(false);
+      expect((await local("POST", `/api/bots/${bot.id}/respond`, { requestId: "pause-3", behavior: "deny" })).status).toBe(200);
+      await paused;
+      expect((await raise(secondSocket, "pause-4")).behavior).toBe("allow");
+    } finally {
+      for (const conn of conns) conn.destroy();
+      await waitForExit(child, { signal: "SIGTERM" });
+      await removeTempDir(isolatedHome);
+    }
+  }, 60_000);
+
+  it("never offers Always on a card in a group chat, and the grant route refuses it with 409", async () => {
+    const bot = (await api("POST", "/api/bots", { name: "Rook" })).body.bot;
+    const conns: Socket[] = [];
+    let roomId: string | undefined;
+    try {
+      expect((await api("PUT", "/api/config", { signIn: { members: ["member@example.com"] } })).status).toBe(200);
+      expect((await api("PATCH", `/api/bots/${bot.id}`, { modelSelection: { instanceId: "claude", model: "claude-haiku-4-5" }, approvalMode: "ask" })).status).toBe(200);
+      const room = (await api("POST", "/api/groups", { name: "Weather room", memberIds: [bot.id], setup: { bulletin: "", defaultResponder: { kind: "mentions" } } })).body.group;
+      roomId = room.id;
+      rmSync(fakeClaudeDump, { force: true });
+      expect((await api("POST", `/api/groups/${room.id}/messages`, { text: "@Rook look up the weather", threadId: room.threadId })).status).toBe(202);
+      const socketPath = z.object({
+        mcpConfig: z.object({ mcpServers: z.object({ dog: z.object({ args: z.array(z.string()) }) }) }),
+      }).parse(await readJsonFileWhenReady(fakeClaudeDump)).mcpConfig.mcpServers.dog.args[1];
+      const conn = connect(socketPath);
+      conns.push(conn);
+      await new Promise<void>((resolve, reject) => { conn.on("connect", resolve); conn.on("error", reject); });
+      conn.write(JSON.stringify({ t: "ask", id: "room-search", tool: "WebSearch", input: { query: "weather in oslo" } }) + "\n");
+      const roomCard = async () => ((await api("GET", "/api/bots?messages=60")).body.groups.find((group: { id: string }) => group.id === room.id)?.messages ?? [])
+        .find((message: { card?: { requestId?: string } }) => message.card?.requestId === "room-search")?.card;
+      await expect.poll(roomCard, { timeout: 15_000 }).toBeTruthy();
+      expect((await roomCard()).lasting).toEqual({ offered: false, why: "group" });
+      const granted = await api("POST", `/api/bots/${bot.id}/always-allow`, { threadId: room.threadId, requestId: "room-search" });
+      expect(granted.status).toBe(409);
+      expect(granted.body.why).toBe("group");
+    } finally {
+      for (const conn of conns) conn.destroy();
+      if (roomId) await api("POST", `/api/groups/${roomId}/interrupt`, {}).catch(() => undefined);
+      if (roomId) await api("DELETE", `/api/groups/${roomId}`).catch(() => undefined);
+      await api("DELETE", `/api/bots/${bot.id}`);
+      await api("PUT", "/api/config", { signIn: { members: [] } });
+    }
+  });
+
+  it("in a channel between two dogs, says only the owner can choose Always, never group chats, on the card and from the grant route", async () => {
+    const conns: Socket[] = [];
+    const before = ((await api("GET", "/api/bots")).body.bots as Array<{ id: string; approvalMode?: string }>).find((bot) => bot.id === "test-bot-a")?.approvalMode;
+    try {
+      expect((await api("PUT", "/api/config", { signIn: { members: ["member@example.com"] } })).status).toBe(200);
+      expect((await api("PATCH", "/api/bots/test-bot-a", { modelSelection: { instanceId: "claude", model: "claude-haiku-4-5" }, approvalMode: "ask" })).status).toBe(200);
+      rmSync(fakeClaudeDump, { force: true });
+      const sent = await api("POST", "/api/groups/test-always-channel/messages", { text: "@Test bot A look up the weather", threadId: "test-always-channel-thread" });
+      expect(sent.status, JSON.stringify(sent.body)).toBe(202);
+      const socketPath = z.object({
+        mcpConfig: z.object({ mcpServers: z.object({ dog: z.object({ args: z.array(z.string()) }) }) }),
+      }).parse(await readJsonFileWhenReady(fakeClaudeDump)).mcpConfig.mcpServers.dog.args[1];
+      const conn = connect(socketPath);
+      conns.push(conn);
+      await new Promise<void>((resolve, reject) => { conn.on("connect", resolve); conn.on("error", reject); });
+      conn.write(JSON.stringify({ t: "ask", id: "channel-search", tool: "WebSearch", input: { query: "weather in oslo" } }) + "\n");
+      const channelCard = async () => ((await api("GET", "/api/threads/test-always-channel-thread/messages?limit=100")).body.messages ?? [])
+        .find((message: { card?: { requestId?: string } }) => message.card?.requestId === "channel-search")?.card;
+      await expect.poll(channelCard, { timeout: 15_000 }).toBeTruthy();
+      expect((await channelCard()).lasting).toEqual({ offered: false, why: "owner-only" });
+      const granted = await api("POST", "/api/bots/test-bot-a/always-allow", { threadId: "test-always-channel-thread", requestId: "channel-search" });
+      expect(granted.status).toBe(409);
+      expect(granted.body.why).toBe("owner-only");
+      expect(JSON.stringify(granted.body)).not.toContain("group chat");
+    } finally {
+      for (const conn of conns) conn.destroy();
+      await api("POST", "/api/groups/test-always-channel/interrupt", {}).catch(() => undefined);
+      await api("PATCH", "/api/bots/test-bot-a", { modelSelection: { instanceId: "claude", model: "claude-sonnet-5" }, ...(before ? { approvalMode: before } : {}) });
+      await api("PUT", "/api/config", { signIn: { members: [] } });
+    }
+  });
+
+  it("says the list could not be read when the Always store is damaged, instead of showing an empty list", async () => {
+    const isolatedHome = mkdtempSync(join(tmpdir(), "laterdog-always-unreadable-"));
+    const isolatedData = join(isolatedHome, ".laterdog");
+    const isolatedStatic = join(isolatedHome, "static");
+    const isolatedPort = await freePortBlock([0, 1]);
+    mkdirSync(join(isolatedStatic, "assets"), { recursive: true });
+    mkdirSync(isolatedData, { recursive: true });
+    writeFileSync(join(isolatedStatic, "index.html"), "<!doctype html><title>Always unreadable test</title>");
+    writeFileSync(join(isolatedStatic, "assets", "smoke.css"), "body{}");
+    writeFileSync(join(isolatedData, "lasting-allows.json"), "{not json");
+    let stderr = "";
+    const child = spawn(process.execPath, [join(SERVER_DIR, "index.ts")], {
+      cwd: ROOT,
+      env: {
+        ...(process.env.PATH ? { PATH: process.env.PATH } : {}),
+        ...(process.env.SystemRoot ? { SystemRoot: process.env.SystemRoot } : {}),
+        HOME: isolatedHome,
+        USERPROFILE: isolatedHome,
+        LATERDOG_SERVER_PORT: String(isolatedPort),
+        LATERDOG_WEBHOOK_PORT: String(isolatedPort + 1),
+        LATERDOG_STATIC_DIR: isolatedStatic,
+      },
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    child.stderr!.on("data", (chunk) => (stderr += chunk));
+    const local = async (method: string, path: string, body?: unknown): Promise<{ status: number; body: any }> => {
+      const response = await fetch(`http://127.0.0.1:${isolatedPort}${path}`, {
+        method,
+        headers: body ? { "content-type": "application/json" } : undefined,
+        body: body ? JSON.stringify(body) : undefined,
+      });
+      return { status: response.status, body: await response.json() };
+    };
+    try {
+      await waitForIsolatedServer(child, isolatedPort, () => stderr);
+      const bot = (await local("POST", "/api/bots", { name: "Wren" })).body.bot;
+      const listed = await local("GET", `/api/bots/${bot.id}/always-allowed`);
+      expect(listed.status).toBe(200);
+      expect(listed.body).toEqual({ paused: false, unreadable: true, items: [] });
+      expect((await local("PATCH", `/api/bots/${bot.id}`, { alwaysAllow: ["vault:example.com"] })).status).toBe(200);
+      const withOld = await local("GET", `/api/bots/${bot.id}/always-allowed`);
+      expect(withOld.body).toMatchObject({ paused: false, unreadable: true, items: [{ kind: "saved-login", subject: "example.com", state: "no-longer-used" }] });
+      const login = withOld.body.items[0];
+      expect((await local("DELETE", `/api/bots/${bot.id}/always-allowed/${encodeURIComponent(login.id)}`)).status).toBe(200);
+      expect((await local("GET", `/api/bots/${bot.id}/always-allowed`)).body).toEqual({ paused: false, unreadable: true, items: [] });
+      expect(readFileSync(join(isolatedData, "lasting-allows.json"), "utf8")).toBe("{not json");
+    } finally {
+      await waitForExit(child, { signal: "SIGTERM" });
+      await removeTempDir(isolatedHome);
+    }
+  }, 60_000);
+
+  it("leaves unreadable off the list when the Always store reads cleanly", async () => {
+    const bot = (await api("POST", "/api/bots", { name: "Plover" })).body.bot;
+    try {
+      const listed = await api("GET", `/api/bots/${bot.id}/always-allowed`);
+      expect(listed.status).toBe(200);
+      expect(listed.body).not.toHaveProperty("unreadable");
+    } finally {
+      await api("DELETE", `/api/bots/${bot.id}`);
+    }
+  });
+
+  it("refuses a teammate key with 409 and lists a stored one as no longer used, which Remove clears", async () => {
+    const bot = (await api("POST", "/api/bots", { name: "Wagtail" })).body.bot;
+    const mate = (await api("POST", "/api/bots", { name: "Heron" })).body.bot;
+    try {
+      for (const key of [`ask_bot:${mate.id}`, `delegate_bot:${mate.id}`]) {
+        const refused = await api("POST", `/api/bots/${bot.id}/always-allow`, { threadId: bot.threadId, allowKey: key });
+        expect(refused.status, key).toBe(409);
+      }
+      expect((await api("PATCH", `/api/bots/${bot.id}`, { alwaysAllow: [`delegate_bot:${mate.id}`] })).status).toBe(200);
+      const listed = await api("GET", `/api/bots/${bot.id}/always-allowed`);
+      const row = listed.body.items.find((item: { kind: string }) => item.kind === "teammate");
+      expect(row).toMatchObject({ kind: "teammate", subject: "Heron", state: "no-longer-used" });
+      expect((await api("DELETE", `/api/bots/${bot.id}/always-allowed/${encodeURIComponent(row.id)}`)).status).toBe(200);
+      expect((await api("GET", `/api/bots/${bot.id}/always-allowed`)).body.items.some((item: { kind: string }) => item.kind === "teammate")).toBe(false);
+    } finally {
+      await api("DELETE", `/api/bots/${bot.id}`);
+      await api("DELETE", `/api/bots/${mate.id}`);
+    }
+  });
+
+  it("lists an old key from every chat it was copied into, and Remove takes it out of all of them", async () => {
+    const bot = (await api("POST", "/api/bots", { name: "Kestrel" })).body.bot;
+    try {
+      expect((await api("PATCH", `/api/bots/${bot.id}`, { alwaysAllow: ["vault:example.com"] })).status).toBe(200);
+      const second = (await api("POST", `/api/bots/${bot.id}/tasks`, { title: "Second chat" })).body.task;
+      const record = async () => (await api("GET", "/api/bots")).body.bots.find((candidate: { id: string }) => candidate.id === bot.id);
+      const holders = async () => {
+        const current = await record();
+        return [current.alwaysAllow ?? [], ...(current.tasks ?? []).map((task: { alwaysAllow?: string[] }) => task.alwaysAllow ?? [])]
+          .filter((keys: string[]) => keys.includes("vault:example.com")).length;
+      };
+      expect((await record()).tasks.find((task: { threadId: string }) => task.threadId === second.threadId).alwaysAllow).toContain("vault:example.com");
+      const listed = await api("GET", `/api/bots/${bot.id}/always-allowed`);
+      const login = listed.body.items.find((item: { kind: string }) => item.kind === "saved-login");
+      expect(login).toMatchObject({ subject: "example.com", state: "no-longer-used" });
+      expect(await holders()).toBeGreaterThan(0);
+      const removed = await api("DELETE", `/api/bots/${bot.id}/always-allowed/${encodeURIComponent(login.id)}`);
+      expect(removed.status).toBe(200);
+      expect(removed.body.items.some((item: { kind: string }) => item.kind === "saved-login")).toBe(false);
+      expect(await holders()).toBe(0);
+    } finally {
+      await api("DELETE", `/api/bots/${bot.id}`);
+    }
+  });
+
+  it("cards every ask when Claude's reviewer never started, says so once, and an Always answer reaches Claude as allow once", async () => {
     const bot = (await api("POST", "/api/bots", { name: "Quill" })).body.bot;
     const conns: Socket[] = [];
     try {
@@ -7572,7 +8019,7 @@ describe("harness HTTP API", () => {
       expect(card.title).toBe("Approval needed");
       expect(card.heldCode).toBe("approval.held.native");
       expect(card.allowKey).toBeUndefined();
-      expect(card.allowSession).toBe(true);
+      expect(card.allowSession).toBeUndefined();
       expect((await messages()).some((m) => m.tool?.name.startsWith("auto-approved"))).toBe(false);
       await expect.poll(async () => (await messages()).filter((m) => m.tool?.name.startsWith("Auto-review: Claude's automatic reviewer is not available")).length).toBe(1);
       const notices = (await messages()).filter((m) => m.tool?.name.startsWith("Auto-review: Claude's automatic reviewer is not available"));
@@ -7581,7 +8028,9 @@ describe("harness HTTP API", () => {
       expect(notices[0].tool!.name).toContain("checks with you before each action");
 
       expect((await api("POST", `/api/bots/${bot.id}/respond`, { requestId: card.requestId, behavior: "allow", always: true })).status).toBe(200);
-      await expect(first).resolves.toMatchObject({ behavior: "allow", always: true });
+      const firstAnswer = await first;
+      expect(firstAnswer).toMatchObject({ behavior: "allow" });
+      expect(firstAnswer.always).not.toBe(true);
 
       const second = raise("ask-ls", "ls memory");
       await expect.poll(async () => (await messages()).find((m) => m.card?.subtitle === "ls memory")?.card?.title).toBe("Approval needed");
@@ -9858,7 +10307,7 @@ describe("harness HTTP API", () => {
     try {
       expect((await api("PATCH", `/api/bots/${bot.id}`, {
         composio: true,
-        connectorTools: { gmail: { tools: ["GMAIL_SEND_EMAIL"] } },
+        connectorTools: { gmail: { tools: ["GMAIL_LIST_LABELS"] } },
         alwaysAllow: ["connector:gmail"],
       })).status).toBe(200);
       const token = await mintTestCapability(BASE, bot.id, bot.threadId, { kind: "connectors" });
@@ -9878,17 +10327,17 @@ describe("harness HTTP API", () => {
         params: { name: "COMPOSIO_MULTI_EXECUTE_TOOL", arguments: { tools, sync_response_to_workbench: false } },
       });
 
-      const allowed = await direct("GMAIL_SEND_EMAIL");
+      const allowed = await direct("GMAIL_LIST_LABELS");
       expect(allowed.status).toBe(200);
       expect(allowed.body.result.content[0].text).toBe("relay-ok");
       expect(relayed().at(-1)).toEqual({
         jsonrpc: "2.0",
         id: 11,
         method: "tools/call",
-        params: { name: "GMAIL_SEND_EMAIL", arguments: {} },
+        params: { name: "GMAIL_LIST_LABELS", arguments: {} },
       });
 
-      const batched = await multi([{ tool_slug: "GMAIL_SEND_EMAIL", arguments: {} }]);
+      const batched = await multi([{ tool_slug: "GMAIL_LIST_LABELS", arguments: {} }]);
       expect(batched.body.result.content[0].text).toBe("relay-ok");
 
       const held = relayed().length;
@@ -9900,23 +10349,23 @@ describe("harness HTTP API", () => {
       expect(refused.body.result.content[0].text).toContain("Ask the person");
       expect(relayed().length).toBe(held);
 
-      const other = await direct("SLACK_POST_MESSAGE");
+      const other = await direct("SLACK_LIST_ALL_CHANNELS");
       expect(other.body.result.isError).toBe(true);
-      expect(other.body.result.content[0].text).toContain("SLACK_POST_MESSAGE");
+      expect(other.body.result.content[0].text).toContain("SLACK_LIST_ALL_CHANNELS");
 
       const mixed = await multi([
-        { tool_slug: "GMAIL_SEND_EMAIL", arguments: {} },
-        { tool_slug: "SLACK_POST_MESSAGE", arguments: {} },
+        { tool_slug: "GMAIL_LIST_LABELS", arguments: {} },
+        { tool_slug: "SLACK_LIST_ALL_CHANNELS", arguments: {} },
       ]);
       expect(mixed.body.result.isError).toBe(true);
-      expect(mixed.body.result.content[0].text).toContain("SLACK_POST_MESSAGE");
+      expect(mixed.body.result.content[0].text).toContain("SLACK_LIST_ALL_CHANNELS");
       expect(relayed().length).toBe(held);
 
       await direct("COMPOSIO_SEARCH_TOOLS");
       await direct("GMAIL_MANAGE_CONNECTIONS");
       expect(relayed().length).toBe(held + 2);
 
-      expect(JSON.stringify(refused.body)).not.toContain("GMAIL_SEND_EMAIL");
+      expect(JSON.stringify(refused.body)).not.toContain("GMAIL_LIST_LABELS");
 
       const legacy = (await api("POST", "/api/bots")).body.bot;
       try {
@@ -9926,7 +10375,7 @@ describe("harness HTTP API", () => {
         })).status).toBe(200);
         const legacyToken = await mintTestCapability(BASE, legacy.id, legacy.threadId, { kind: "connectors" });
         const legacyCall = await call(
-          { jsonrpc: "2.0", id: 21, method: "tools/call", params: { name: "SLACK_POST_MESSAGE", arguments: {} } },
+          { jsonrpc: "2.0", id: 21, method: "tools/call", params: { name: "SLACK_LIST_ALL_CHANNELS", arguments: {} } },
           legacyToken,
         );
         expect(legacyCall.body.result.content[0].text).toBe("relay-ok");
@@ -9955,8 +10404,8 @@ describe("harness HTTP API", () => {
         (row) => row.botId === legacy.id && row.source === "connector-scope" && row.decision === "auto-approved",
       );
       const allowRows = rows.filter((row) => row.source === "connector-scope" && row.decision === "auto-approved");
-      expect(allowRows.some((row) => row.botId === bot.id && row.tool === "GMAIL_SEND_EMAIL" && row.rule === "connectorTools.gmail")).toBe(true);
-      expect(allowRows.some((row) => row.botId === legacy.id && row.tool === "SLACK_POST_MESSAGE" && row.rule === "composio")).toBe(true);
+      expect(allowRows.some((row) => row.botId === bot.id && row.tool === "GMAIL_LIST_LABELS" && row.rule === "connectorTools.gmail")).toBe(true);
+      expect(allowRows.some((row) => row.botId === legacy.id && row.tool === "SLACK_LIST_ALL_CHANNELS" && row.rule === "composio")).toBe(true);
     } finally {
       await api("DELETE", `/api/bots/${bot.id}`);
     }

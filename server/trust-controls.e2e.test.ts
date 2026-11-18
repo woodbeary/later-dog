@@ -200,25 +200,26 @@ it.each(["apps", "turn"])("rechecks %s revocation after project-session metadata
   expect(relayed).toHaveLength(before);
 });
 
-it("asks once per connector, remembers Always allow for it, and keeps a skip until the next message", async () => {
+it("asks once per connector for a call that is not one of the five, remembers Always allow for it, and keeps a skip until the next message", async () => {
   const b = await bot("Connector memory");
   let token = await mint(b.id, b.threadId);
   const before = relayed.length;
-  const first = relay(token, "GMAIL_SEND_EMAIL", { to: "first@fixture.test" });
+  const first = relay(token, "GITHUB_CREATE_AN_ISSUE_COMMENT", { body: "first" });
   const card = await pending(b.threadId);
-  expect(card.card).toMatchObject({ title: "Allow Gmail?", allowKey: "connector:gmail", heldCode: "approval.held.outbound" });
-  expect((await api("POST", `/api/bots/${b.id}/always-allow`, { threadId: b.threadId, allowKey: "connector:gmail" })).status).toBe(200);
+  expect(card.card).toMatchObject({ allowKey: "connector:github", heldCode: "approval.held.outbound" });
+  expect((await api("POST", `/api/bots/${b.id}/always-allow`, { threadId: b.threadId, allowKey: "connector:github" })).status).toBe(200);
   await api("POST", `/api/threads/${b.threadId}/respond`, { requestId: card.card.requestId, behavior: "allow", scope: "always" });
   expect((await first).body.result.isError).not.toBe(true);
   expect(relayed).toHaveLength(before + 1);
   expect((await cards(b.threadId)).find((row: any) => row.id === card.id).card).toMatchObject({ answered: "allow", answerScope: "always" });
   const cardsBefore = (await cards(b.threadId)).filter((row: any) => row.card?.outboundRequest).length;
-  expect((await relay(token, "GMAIL_SEND_EMAIL", { to: "second@fixture.test" })).body.result.isError).not.toBe(true);
+  expect((await relay(token, "GITHUB_CREATE_AN_ISSUE_COMMENT", { body: "second" })).body.result.isError).not.toBe(true);
   expect(relayed).toHaveLength(before + 2);
   expect((await cards(b.threadId)).filter((row: any) => row.card?.outboundRequest)).toHaveLength(cardsBefore);
   const slack = relay(token, "SLACK_SEND_MESSAGE", { channel: "#fixture" });
   const slackCard = await pending(b.threadId);
-  expect(slackCard.card).toMatchObject({ title: "Allow Slack?", allowKey: "connector:slack" });
+  expect(slackCard.card).toMatchObject({ title: "Allow Slack?" });
+  expect(slackCard.card.allowKey).toBeUndefined();
   await api("POST", `/api/threads/${b.threadId}/respond`, { requestId: slackCard.card.requestId, behavior: "deny" });
   expect((await slack).body.result.content[0].text).toContain("skipped");
   const again = await relay(token, "SLACK_SEND_MESSAGE", { channel: "#fixture" });
@@ -241,16 +242,21 @@ it("lets one Allow cover that app until the next message, then asks again", asyn
   const b = await bot("Connector turn");
   let token = await mint(b.id, b.threadId);
   const before = relayed.length;
-  const first = relay(token, "GMAIL_SEND_EMAIL", { to: "first@fixture.test" });
+  const first = relay(token, "GITHUB_CREATE_AN_ISSUE_COMMENT", { body: "first" });
   const card = await pending(b.threadId);
   await api("POST", `/api/threads/${b.threadId}/respond`, { requestId: card.card.requestId, behavior: "allow" });
   expect((await first).body.result.isError).not.toBe(true);
   const cardsBefore = (await cards(b.threadId)).filter((row: any) => row.card?.outboundRequest).length;
-  expect((await relay(token, "GMAIL_SEND_EMAIL", { to: "second@fixture.test" })).body.result.isError).not.toBe(true);
+  expect((await relay(token, "GITHUB_CREATE_AN_ISSUE_COMMENT", { body: "second" })).body.result.isError).not.toBe(true);
   expect(relayed).toHaveLength(before + 2);
   expect((await cards(b.threadId)).filter((row: any) => row.card?.outboundRequest)).toHaveLength(cardsBefore);
+  const send = relay(token, "GMAIL_SEND_EMAIL", { to: "friend@fixture.test" });
+  const sendCard = await pending(b.threadId);
+  expect(sendCard.card.allowKey).toBeUndefined();
+  await api("POST", `/api/threads/${b.threadId}/respond`, { requestId: sendCard.card.requestId, behavior: "deny" });
+  expect((await send).body.result.isError).toBe(true);
   token = await mint(b.id, b.threadId);
-  const nextTurn = relay(token, "GMAIL_SEND_EMAIL", { to: "third@fixture.test" });
+  const nextTurn = relay(token, "GITHUB_CREATE_AN_ISSUE_COMMENT", { body: "third" });
   const nextCard = await pending(b.threadId);
   expect(nextCard.id).not.toBe(card.id);
   await api("POST", `/api/threads/${b.threadId}/respond`, { requestId: nextCard.card.requestId, behavior: "deny" });

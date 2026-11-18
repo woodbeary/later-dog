@@ -163,6 +163,7 @@ export interface MacCheck {
   computerId: string;
   operation: MacOperation;
   requestMessageId?: string;
+  personSaidYes?: boolean;
   active: () => boolean;
 }
 
@@ -227,6 +228,7 @@ export class MacApprovals {
     const kind = KINDS[tool];
     const eachTime = kind === "send";
     if (mode === "always" && !eachTime) return ALLOWED;
+    if (input.personSaidYes && !eachTime) return ALLOWED;
     const requestMessageId = input.requestMessageId ?? this.latestPerson(input.threadId);
     const grant = this.grants.get(grantKey(input.threadId, input.bot.id, input.computerId));
     if (!eachTime && grant && grant.kinds.has(kind) && grant.messageId === requestMessageId) return ALLOWED;

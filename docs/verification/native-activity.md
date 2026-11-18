@@ -41,6 +41,26 @@ Also run the driver fixtures, authorization/visibility, inspector-history,
 retention and workspace-backup suites. GitHub Actions are absent on current main;
 local and remote command receipts are the evidence, not an inferred CI result.
 
+## Live step, times and subjects
+
+The run, each helper, each step, each dog and each task carry the fields listed in [the phone guide](../laterdog/native-work-phone-guide.md#live-step-times-and-words): `currentActivity.startedAt`, `lastActivityAt` on the run and on each actor, `subject` on each step, and `step` on `WireBot` and `WireTask`. Focused checks:
+
+```sh
+pnpm exec vitest run shared/step-words.test.ts server/laterdog/native-run-store.test.ts server/laterdog/step-subject.test.ts server/laterdog/live-step.test.ts server/laterdog/live-step.e2e.test.ts server/laterdog/claude-native-activity.test.ts server/laterdog/codex-native-activity.test.ts shared/native-run-selectors.test.ts
+```
+
+`server/laterdog/live-step.e2e.test.ts` starts an isolated home with the fake Claude CLI running a Read, an Edit and a Bash with a description, the Bash held open, and reads `GET /api/threads/:threadId/runs/:runId` and `GET /api/bots` while the Bash runs, for a dog's main chat and for a task. To read the same JSON by hand, start the launcher with the fake engine scripted the same way:
+
+```sh
+FAKE_CLAUDE_MODE=slow FAKE_CLAUDE_SLOW_FINISH_GATE=/tmp/finish.gate \
+FAKE_CLAUDE_TOOL_CALLS='[{"name":"Read","input":{"file_path":"/srv/shop/src/OrderForm.tsx"},"output":"ok"},{"name":"Edit","input":{"file_path":"/srv/shop/docs/spring-menu.md","old_string":"Soup","new_string":"Spring soup"},"output":"ok"},{"name":"Bash","input":{"command":"pnpm test order-form","description":"Run the order form tests"},"pending":true}]' \
+node --experimental-strip-types scripts/control-laterdog.ts launch
+```
+
+Create a dog with `POST /api/bots`, send it a message with `POST /api/bots/:id/messages`, then read `GET /api/threads/:threadId/runs`, `GET /api/threads/:threadId/runs/:runId` and `GET /api/bots`. While the Bash is held open, the run's `currentActivity` is the Bash with its `startedAt`, the steps read `order form`, `spring menu` and `Run the order form tests` as subjects, and the dog's `step` is `{ id, kind: "running", startedAt, lastActivityAt }` with the same values. Create the gate file to end the turn; `step` goes back to `null`.
+
+Fixture success does not show that real Claude and Codex events move the last-moved times, that real descriptions read well, that the 5 second hold keeps the event stream calm with many dogs, or that older apps ignore the new fields. Those need the live acceptance below.
+
 ## Live acceptance still required
 
 Fixture success does not qualify a native runtime. First deploy the frozen Cloud image to the existing test Cloud home. Then, after the isolated gates pass and a recoverable account backup exists, use clearly named QA conversations in the authorized real account for both native providers. Retain exact provider versions and sanitized comparisons of native observations with the desktop and phone projection. Existing conversation content remains intact.

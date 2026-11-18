@@ -2,6 +2,7 @@ import { soulSystemPrompt } from "./bot-folder.ts";
 import { DOG_CREATION_PROMPT } from "./laterdog/dog-creation.ts";
 import { RICH_REPLIES_PROMPT } from "./laterdog/rich-replies.ts";
 import { SECURE_FORM_PROMPT } from "./laterdog/secure-form.ts";
+import { PAGE_FIRST_PROMPT } from "./laterdog/page-tools.ts";
 import { TAKEOVER_PROMPT } from "./laterdog/takeover.ts";
 import { DEVICE_APPROVAL_PROMPT } from "./laterdog/device-approval.ts";
 import { isTimeZone } from "./laterdog/time-zone.ts";
@@ -81,9 +82,9 @@ const COMPUTER_PARAGRAPH: Record<ComputerPromptKind, string> = {
     " You can act on the user's computer through the computer tools. Discover the target app/window and inspect its state first. Prefer window-targeted accessibility actions with background delivery so the user can keep working in another app; do not bring later.dog or another app to the front just to inspect it. Use the dedicated browser tools for browser work when available, keeping the user's intended browser profile/account, and later.dog's configuration/proposal tools for supported bot setup rather than clicking through this app. Full-desktop input, app activation, and foreground delivery can move the real cursor, change focus, or switch desktops: use them only when the user asked for foreground control or agrees after background control reports it cannot perform the action. Do not silently retry a background refusal as foreground input, including through shell scripts, AppleScript/System Events, or another automation tool. If a background action unexpectedly changes focus, report it and stop that route rather than continuing to interrupt the user. Never promise that arbitrary desktop actions can run in the background.",
 };
 
-export function computerPrompt(kind: ComputerPromptKind | null): string {
+export function computerPrompt(kind: ComputerPromptKind | null, options: { pageTools?: boolean } = {}): string {
   if (!kind) return "";
-  return COMPUTER_PARAGRAPH[kind] + (kind === "box" ? SECURE_FORM_PROMPT : SIGN_IN_PROMPT);
+  return COMPUTER_PARAGRAPH[kind] + (kind === "box" ? (options.pageTools ? PAGE_FIRST_PROMPT : "") + SECURE_FORM_PROMPT : SIGN_IN_PROMPT);
 }
 
 export const CLOUD_HOME_PLACE = "the user's My Cloud, their always-on later.dog in the cloud, not on their own computer";

@@ -2,6 +2,7 @@ import { WorkerEntrypoint } from "cloudflare:workers";
 
 import { readConfig } from "./config";
 import { noteEmailFailure } from "./email-health";
+import { googleToken, sharedGoogleClient, type GoogleClientInfo, type GoogleTokenResult } from "./google";
 
 export const OWNER_EMAILS_PER_DAY = 30;
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -63,5 +64,13 @@ export async function sendOwnerEmail(
 export class AccountsApi extends WorkerEntrypoint<Env> {
   async sendOwnerEmail(accountId: string, email: OwnerEmail): Promise<OwnerEmailResult> {
     return sendOwnerEmail(this.env, accountId, email);
+  }
+
+  async googleClient(): Promise<GoogleClientInfo | null> {
+    return sharedGoogleClient(this.env);
+  }
+
+  async googleToken(accountId: string, grant: unknown): Promise<GoogleTokenResult> {
+    return googleToken(this.env, accountId, grant);
   }
 }

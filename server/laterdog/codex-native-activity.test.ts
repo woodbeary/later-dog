@@ -1,6 +1,30 @@
-import { describe, expect, it } from "vitest";
+import { DatabaseSync } from "node:sqlite";
+import { afterEach, describe, expect, it } from "vitest";
 import type { NativeActor, NativeActivity, NativeObservation } from "../../shared/native-runs.ts";
+import type { RuntimeEvent } from "../../shared/runtime-events.ts";
 import { CodexNativeActivity } from "./codex-native-activity.ts";
+import { NativeRunProjector } from "./native-run-projector.ts";
+import { ensureNativeRuns, NativeRunStore } from "./native-run-store.ts";
+
+const databases: DatabaseSync[] = [];
+afterEach(() => { for (const database of databases.splice(0)) database.close(); });
+
+function recorded() {
+  const database = new DatabaseSync(":memory:");
+  databases.push(database);
+  ensureNativeRuns(database);
+  const store = new NativeRunStore({ read: <T>(fn: (database: DatabaseSync) => T): T => fn(database), write: <T>(fn: (database: DatabaseSync) => T): T => fn(database) });
+  const projector = new NativeRunProjector(store, () => undefined);
+  let clock = 1_000;
+  let sequence = 0;
+  const native = new CodexNativeActivity(observation => {
+    projector.observe({ eventId: `native-${++sequence}`, threadId: "chat", provider: "codex", providerInstanceId: "account-a", turnId: "turn-1", createdAt: new Date(clock).toISOString(), type: "native.observed", observation } as RuntimeEvent);
+  }, () => clock);
+  const send = (method: string, params: Record<string, unknown> = {}) => native.receive({ method, params: { threadId: "root", turnId: "root-turn", ...params } });
+  native.start("root", "root-turn");
+  const helper = (threadId: string) => store.list("chat").runs[0]!.actors.find(actor => actor.nativeThreadId === threadId)!;
+  return { native, send, helper, at: (ms: number) => { clock = ms; } };
+}
 
 function fixture() {
   const observations: NativeObservation[] = [];
@@ -126,5 +150,62 @@ describe("Codex native activity details", () => {
     expect(f.latestActivity("large")?.truncated).toBe(true);
     f.native.capabilities("0.154.0");
     expect(f.observations.at(-1)).toMatchObject({ kind: "capabilities", version: "0.154.0", limitations: expect.arrayContaining(["Native helpers stop when the parent turn ends.", "Conversation branches replay later.dog history; native Codex forks, projects and worktrees are not managed from this activity view."]) });
+  });
+});
+
+describe("what a Codex step is about", () => {
+  it("names a changed file, the search words and a tool's file, and never command text", () => {
+    const f = fixture();
+    f.send("item/started", { item: { id: "patch", type: "fileChange", status: "inProgress", changes: [{ path: "/srv/shop/src/OrderForm.tsx", kind: { type: "update" }, diff: "" }] } });
+    f.send("item/started", { item: { id: "many", type: "fileChange", status: "inProgress", changes: [{ path: "a.ts" }, { path: "b.ts" }] } });
+    f.send("item/completed", { item: { id: "web", type: "webSearch", query: "pickup times", status: "completed" } });
+    f.send("item/started", { item: { id: "mcp", type: "mcpToolCall", server: "files", tool: "read_file", arguments: { path: "docs/spring-menu.md" }, status: "inProgress" } });
+    f.send("item/started", { item: { id: "cmd", type: "commandExecution", command: "pnpm test", status: "inProgress" } });
+    expect(f.latestActivity("patch")?.subject).toBe("order form");
+    expect(f.latestActivity("many")?.subject).toBeUndefined();
+    expect(f.latestActivity("web")).toMatchObject({ kind: "search", label: "pickup times", subject: "pickup times" });
+    expect(f.latestActivity("mcp")).toMatchObject({ label: "read_file", subject: "spring menu" });
+    expect(f.latestActivity("cmd")).toMatchObject({ label: "pnpm test" });
+    expect(f.latestActivity("cmd")).not.toHaveProperty("subject");
+    f.send("item/fileChange/outputDelta", { itemId: "patch", delta: "updated" });
+    f.send("item/completed", { item: { id: "patch", type: "fileChange", status: "completed", changes: [{ path: "/srv/shop/src/OrderForm.tsx", diff: "+x" }] } });
+    expect(f.latestActivity("patch")).toMatchObject({ state: "done", subject: "order form" });
+  });
+});
+
+describe("when a Codex helper last moved", () => {
+  it("moves when the parent hears what a helper is doing", () => {
+    let clock = 100;
+    const observations: NativeObservation[] = [];
+    const native = new CodexNativeActivity(value => observations.push(value), () => clock);
+    native.start("root", "root-turn");
+    const latest = () => observations.flatMap(value => value.kind === "actor" && value.actor.nativeThreadId === "child" ? [value.actor] : []).at(-1);
+    clock = 400;
+    native.receive({ method: "item/completed", params: { threadId: "root", turnId: "root-turn", item: { id: "child-started", type: "subAgentActivity", agentPath: "/root/scout", agentThreadId: "child", kind: "started" } } });
+    expect(latest()?.lastActivityAt).toBe(400);
+    clock = 900;
+    native.receive({ method: "item/completed", params: { threadId: "root", turnId: "root-turn", item: { id: "child-done", type: "subAgentActivity", agentPath: "/root/scout", agentThreadId: "child", kind: "completed" } } });
+    expect(latest()).toMatchObject({ state: "done", lastActivityAt: 900 });
+  });
+
+  it("moves when the helper's own step starts, gets output or ends, and not on the parent's work", () => {
+    const f = recorded();
+    f.send("item/completed", { item: { type: "collabAgentToolCall", id: "spawn-child", senderThreadId: "root", tool: "spawnAgent", status: "completed", receiverThreadIds: ["child"], prompt: "Check the spring menu", agentsStates: { child: { status: "running" } } } });
+    f.at(2_000);
+    f.send("turn/started", { threadId: "child", turn: { id: "child-turn" } });
+    expect(f.helper("child").lastActivityAt).toBeUndefined();
+    f.at(5_000);
+    f.send("item/started", { threadId: "child", turnId: "child-turn", item: { id: "cmd", type: "commandExecution", command: "npm test", status: "inProgress" } });
+    expect(f.helper("child").lastActivityAt).toBe(5_000);
+    f.at(7_000);
+    f.send("item/commandExecution/outputDelta", { threadId: "child", turnId: "child-turn", itemId: "cmd", delta: "ok" });
+    expect(f.helper("child").lastActivityAt).toBe(7_000);
+    f.at(9_000);
+    f.send("item/completed", { threadId: "child", turnId: "child-turn", item: { id: "cmd", type: "commandExecution", command: "npm test", status: "completed", exitCode: 0, aggregatedOutput: "ok" } });
+    expect(f.helper("child").lastActivityAt).toBe(9_000);
+    f.at(12_000);
+    f.send("item/agentMessage/delta", { itemId: "answer", delta: "Waiting on the helper" });
+    f.send("item/completed", { item: { type: "collabAgentToolCall", id: "wait-child", senderThreadId: "root", tool: "wait", status: "completed", receiverThreadIds: ["child"], agentsStates: { child: { status: "running", message: "Still checking" } } } });
+    expect(f.helper("child").lastActivityAt).toBe(9_000);
   });
 });

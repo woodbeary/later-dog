@@ -68,6 +68,24 @@ describe("native run persistence across process restart and backup", () => {
     expect(recovered.observation).toBe("interrupted");
     expect(recovered.actors.every(actor => actor.canStop === false)).toBe(true);
     expect(recovered.actors.find(actor => actor.id === "child")).toMatchObject({ label: "Scout" });
+    expect(recovered.state).toBe("stopped");
+    expect(recovered.actors.find(actor => actor.id === "child")).toMatchObject({ state: "stopped", endedAt: expect.any(Number) });
+  });
+
+  it("closes, when the home starts, runs an interrupted turn left showing as running", () => {
+    const directory = mkdtempSync(join(tmpdir(), "laterdog-native-persist-"));
+    directories.push(directory);
+    const path = join(directory, "messages.db");
+    const first = new NativeRunProjector(connect(path), () => {});
+    const run = first.observe(observed("chat", "turn-cut", { kind: "actor", actor: { id: "child", parentId: "parent", kind: "subagent", label: "Scout", state: "running", startedAt: 1000, canStop: true } }))!;
+    first.interrupt("chat", "The turn was interrupted");
+    open.splice(0).forEach(database => database.close());
+    const second = connect(path);
+    expect(second.get(run.id)).toMatchObject({ observation: "interrupted", state: "running" });
+    second.recoverInterrupted();
+    const closed = second.get(run.id)!;
+    expect(closed).toMatchObject({ observation: "interrupted", state: "stopped" });
+    expect(closed.actors.find(actor => actor.id === "child")).toMatchObject({ state: "stopped", endedAt: expect.any(Number) });
   });
 
   it("restores from a database backup with its receipts and keeps threads separate", async () => {

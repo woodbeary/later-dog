@@ -453,6 +453,15 @@ export function ApprovalCard({
     );
   }
   if (!outcome) return body;
+  if (bot && card.tool && !isProposal && !outbound && !external && !expired && card.undone !== true && (settled === "allow" || settled === "deny")) {
+    const action = approvalAction(card);
+    return (
+      <p data-approval-settled className="w-full py-0.5 text-[13px] leading-[17px] text-ink-secondary">
+        {settled === "allow" ? t("approval.settled.allowed", { name: bot.name, action }) : t("approval.settled.denied", { name: bot.name, action })}
+        {byVoice}
+      </p>
+    );
+  }
   return (
     <FoldedCard
       icon={external ? <Minus size={14} className="shrink-0" /> : settled === "allow" && !expired ? <Check size={14} className="shrink-0 text-success" /> : <X size={14} className="shrink-0" />}
