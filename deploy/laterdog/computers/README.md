@@ -688,7 +688,11 @@ charges the trial back while it waits, and what the snapshots of trial computers
 - Any Worker on the account with a service binding to `ComputersApi` has the owner's full access, without a key.
 - An ended trial frees its key: the same key can start a new trial from another network, as a new key could.
 - The trial page is in English only.
-- The screen is fixed at 1280×800. No audio. No clipboard or file transfer in the viewer: use the API.
+- The screen is fixed at 1280×800. No audio. No file transfer in the viewer: use the API.
+- In the viewer, Cmd+V types the clipboard's text into the field that has focus on the computer (line breaks as
+  Shift+Return); text over 2000 keys goes on the computer's clipboard and is pasted with Ctrl+V. Cmd+C copies the text
+  the computer last selected or copied. Both need the browser's clipboard permission, which the later.dog app grants its
+  screen window. Text outside Latin-1 depends on the computer's keyboard map.
 - Files move 16 MB at a time. Command output keeps 1 MiB per stream.
 - Commands get the environment in `src/computer.ts` (`DOG_ENV`) plus `PATH`, not the image's other variables, plus the
   request's own `env` for that command.
