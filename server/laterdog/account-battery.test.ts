@@ -856,7 +856,7 @@ describe("keeping going across engines", () => {
     expect(routeSelection({ config, selection: dog, accounts, resting, now: NOW })).toBe(dog);
   });
 
-  it("uses the model the dog chose for another engine only when the person moves it there by hand", () => {
+  it("uses the model the dog chose for another engine whenever its chat moves there, by hand or because its account is switched off", () => {
     const choice = [{ instanceId: "chatgpt", model: "gpt-5.5-mini" }];
     const second = [...accounts, codex("chatgpt-b")];
     expect(chosenModelOn(second[3]!, second, choice)).toBe("gpt-5.5-mini");

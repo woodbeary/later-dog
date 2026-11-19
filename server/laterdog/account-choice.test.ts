@@ -153,7 +153,7 @@ describe("when the chosen account cannot run", () => {
   });
 });
 
-describe("never crossing engines by itself", () => {
+describe("never crossing engines by itself on a limit", () => {
   it("waits for usage when no Claude account can run, even with ChatGPT free", () => {
     const resting = Object.fromEntries(["jacob", "adam", "anthony", "daniel"].map((id) => [id, hold(id === "adam" ? HOUR : 3 * HOUR)]));
     const choice = decide({ resting, usage: readings({ chatgpt: 100 }) });
