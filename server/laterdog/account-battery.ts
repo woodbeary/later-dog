@@ -574,6 +574,7 @@ export interface AccountBatteryOptions {
   config: () => AccountBatteryConfig | undefined;
   accounts?: () => readonly BatteryAccount[];
   preferred?: (threadId: string | undefined) => readonly ModelSelection[] | undefined;
+  pinned?: (threadId: string) => boolean;
   file?: string;
   now?: () => number;
   planReset?: (instanceId: string, kind: string | undefined) => Promise<string | undefined>;
@@ -624,11 +625,12 @@ export class AccountBattery {
     const handPicked = threadId ? this.chosen(threadId, selection, accounts) : undefined;
     const resting = this.resting(accounts);
     const current = threadId ? this.state.away[threadId]?.on ?? this.state.ran[threadId]?.on : undefined;
+    const pinned = threadId ? this.options.pinned?.(threadId) === true : false;
     return {
       chosen: selection, accounts, keepGoing: this.enabled, resting, now: this.now(),
       order: batterySequence({ config: this.options.config(), accounts, resting, now: this.now() }),
       ...(this.options.usage ? { usage: this.options.usage } : {}), ...(current ? { current } : {}),
-      ...(handPicked ? { handPicked } : {}), ...(preferred ? { preferred } : {}),
+      ...(handPicked ? { handPicked } : {}), ...(preferred ? { preferred } : {}), ...(pinned ? { pinned } : {}),
     };
   }
 

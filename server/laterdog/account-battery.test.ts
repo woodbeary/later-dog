@@ -870,6 +870,15 @@ describe("keeping going across engines", () => {
     expect(routeSelection({ config, selection: dog, accounts, resting: { ...resting, chatgpt: rest(HOUR) }, now: NOW })).toBe(dog);
   });
 
+  it("asks whether the chat's dog is pinned before carrying it to another engine when its account is switched off", () => {
+    const off = accounts.map((candidate) => candidate.driverKind === "claudeAgent" ? { ...candidate, enabled: false } : candidate);
+    const pinned = vi.fn((threadId: string) => threadId === "pinned");
+    const battery = new AccountBattery({ config: () => config, accounts: () => off, now: () => NOW, pinned });
+    expect(battery.route(dog, off, "pinned")).toBe(dog);
+    expect(battery.route(dog, off, "free")).toEqual({ instanceId: "chatgpt", model: "gpt-5.5" });
+    expect(pinned).toHaveBeenCalledWith("pinned");
+  });
+
   it("asks the battery for the dog's chosen model when the person moves it to another engine by hand", () => {
     const choice = [{ instanceId: "chatgpt", model: "gpt-5.5-mini" }];
     const preferred = vi.fn((threadId: string | undefined) => threadId === "thread-1" ? choice : undefined);

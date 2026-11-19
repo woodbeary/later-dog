@@ -17,6 +17,7 @@ export interface AccountChoiceInput {
   current?: string;
   handPicked?: string;
   preferred?: readonly ModelSelection[];
+  pinned?: boolean;
 }
 
 export type AccountChoice =
@@ -123,7 +124,7 @@ export function decideAccount(input: AccountChoiceInput): AccountChoice {
   };
   const ranked = rankByRoom(sameEngineCovers(input), input);
   if (ranked.length) return { kind: "covering", run: { ...chosen, instanceId: steady(ranked).instanceId }, chosen: own.instanceId, blocked, ...until };
-  if (blocked !== "off") return waiting;
+  if (blocked !== "off" || input.pinned) return waiting;
   if (accounts.some((account) => account.driverKind === own.driverKind && canCover(account, own, chosen.model))) return waiting;
   const across = rankByRoom(otherEngineCovers(input), input);
   if (!across.length) return waiting;

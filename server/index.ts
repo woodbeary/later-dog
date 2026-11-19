@@ -1066,11 +1066,8 @@ registerNativeBinDir();
 const accountBattery = new AccountBattery({
   config: () => cfg.accountBattery,
   accounts: batteryAccounts,
-  preferred: (threadId) => {
-    if (!threadId) return undefined;
-    const bot = store.botByThread(threadId) ?? store.bot(groupBatteryTurns.get(threadId)?.botId ?? "");
-    return bot?.fallback;
-  },
+  preferred: (threadId) => threadId ? batteryThreadBot(threadId)?.fallback : undefined,
+  pinned: (threadId) => batteryThreadBot(threadId)?.accountPinned === true,
   file: join(DATA_DIR, "account-battery.json"),
   planReset: async (instanceId, kind) => {
     const account = planAccountsFromInstances(instanceConfigs(cfg)).find((candidate) => candidate.id === instanceId);
@@ -1085,6 +1082,9 @@ const accountBattery = new AccountBattery({
   },
   onChange: () => broadcast({ kind: "config", ...configStatus() }),
 });
+function batteryThreadBot(threadId: string): BotRecord | null {
+  return store.botByThread(threadId) ?? store.bot(groupBatteryTurns.get(threadId)?.botId ?? "");
+}
 function threadChoice(threadId: string): ModelSelection | undefined {
   return store.botByThread(threadId) ? chatSelection(threadId) : undefined;
 }

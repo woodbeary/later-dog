@@ -204,6 +204,10 @@ describe("an account the person switched off, with nothing on its own engine to 
       .toMatchObject({ kind: "waiting", blocked: "off", run: ON_CHATGPT });
   });
 
+  it("keeps a dog pinned to its account on its own engine and waits, with the other engine free", () => {
+    expect(decide({ chosen: ON_CHATGPT, accounts: onlyChatgptOff, usage, pinned: true })).toMatchObject({ kind: "waiting", blocked: "off", run: ON_CHATGPT });
+  });
+
   it("takes the dog's own preferred model on the other engine when it has one", () => {
     const choice = decide({ chosen: ON_CHATGPT, accounts: onlyChatgptOff, usage, preferred: [{ instanceId: "jacob", model: "claude-fable-5-2" }] });
     expect(choice.run).toMatchObject({ instanceId: "anthony", model: "claude-fable-5-2" });
