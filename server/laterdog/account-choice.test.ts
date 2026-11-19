@@ -204,6 +204,13 @@ describe("an account the person switched off, with nothing on its own engine to 
       .toMatchObject({ kind: "waiting", blocked: "off", run: ON_CHATGPT });
   });
 
+  it("waits for an account on its own engine whose sign-in is not read yet, as after a restart, instead of crossing", () => {
+    const chatgptFirst = [claude("jacob"), chatgpt("chatgpt", { enabled: false }), chatgpt("plan", { signedIn: undefined })];
+    expect(decide({ chosen: ON_CHATGPT, accounts: chatgptFirst, usage: readings({ jacob: 90 }) })).toMatchObject({ kind: "waiting", blocked: "off", run: ON_CHATGPT });
+    const claudeFirst = [claude("daniel", { enabled: false }), claude("adam", { signedIn: undefined }), chatgpt("chatgpt")];
+    expect(decide({ accounts: claudeFirst, usage: readings({ chatgpt: 90 }) })).toMatchObject({ kind: "waiting", blocked: "off", run: ON_DANIEL });
+  });
+
   it("keeps a dog pinned to its account on its own engine and waits, with the other engine free", () => {
     expect(decide({ chosen: ON_CHATGPT, accounts: onlyChatgptOff, usage, pinned: true })).toMatchObject({ kind: "waiting", blocked: "off", run: ON_CHATGPT });
   });

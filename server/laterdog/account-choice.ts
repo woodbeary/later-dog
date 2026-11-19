@@ -70,6 +70,10 @@ function canCover(account: BatteryAccount, own: BatteryAccount, model: string): 
     (account.driverKind !== own.driverKind ? Boolean(account.defaultModel || account.models.length) : offers(account, own, model));
 }
 
+function mayComeBack(account: BatteryAccount, own: BatteryAccount, model: string): boolean {
+  return account !== own && account.eligible && account.enabled && account.signedIn !== false && offers(account, own, model);
+}
+
 function handAccount(input: AccountChoiceInput, own: BatteryAccount): BatteryAccount | undefined {
   const hand = input.handPicked ? input.accounts.find((account) => account.instanceId === input.handPicked) : undefined;
   return hand && canCover(hand, own, input.chosen.model) ? hand : undefined;
@@ -125,7 +129,7 @@ export function decideAccount(input: AccountChoiceInput): AccountChoice {
   const ranked = rankByRoom(sameEngineCovers(input), input);
   if (ranked.length) return { kind: "covering", run: { ...chosen, instanceId: steady(ranked).instanceId }, chosen: own.instanceId, blocked, ...until };
   if (blocked !== "off" || input.pinned) return waiting;
-  if (accounts.some((account) => account.driverKind === own.driverKind && canCover(account, own, chosen.model))) return waiting;
+  if (accounts.some((account) => account.driverKind === own.driverKind && mayComeBack(account, own, chosen.model))) return waiting;
   const across = rankByRoom(otherEngineCovers(input), input);
   if (!across.length) return waiting;
   return { kind: "covering", run: selectionOnAccount(chosen, steady(across), accounts, input.preferred), chosen: own.instanceId, blocked, ...until };
