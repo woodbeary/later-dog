@@ -123,7 +123,7 @@ export function decideAccount(input: AccountChoiceInput): AccountChoice {
   };
   const ranked = rankByRoom(sameEngineCovers(input), input);
   if (ranked.length) return { kind: "covering", run: { ...chosen, instanceId: steady(ranked).instanceId }, chosen: own.instanceId, blocked, ...until };
-  if (blocked === "limit") return waiting;
+  if (blocked !== "off") return waiting;
   const across = rankByRoom(otherEngineCovers(input), input);
   if (!across.length) return waiting;
   return { kind: "covering", run: selectionOnAccount(chosen, steady(across), accounts, input.preferred), chosen: own.instanceId, blocked, ...until };

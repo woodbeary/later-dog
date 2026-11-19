@@ -175,7 +175,7 @@ describe("never crossing engines by itself", () => {
   });
 });
 
-describe("an account the person must turn back on or sign in to, with nothing on its own engine to stand in", () => {
+describe("an account the person switched off, with nothing on its own engine to stand in", () => {
   const onlyChatgptOff = [claude("jacob"), claude("adam"), claude("anthony"), claude("daniel"), chatgpt("chatgpt", { enabled: false }), chatgpt("plan", { signedIn: false })];
   const usage = readings({ jacob: 30, adam: 5, anthony: 70, daniel: 50 });
 
@@ -185,11 +185,17 @@ describe("an account the person must turn back on or sign in to, with nothing on
   });
 
   it.each([
-    ["signedOut", { signedIn: false }],
-    ["off", { enabled: false }],
-  ] as const)("does the same for an account that is %s", (blocked, extra) => {
+    ["signedOut", { signedIn: false }, "waiting"],
+    ["off", { enabled: false }, "covering"],
+  ] as const)("crosses engines only for an account switched off, never for one that is %s", (blocked, extra, kind) => {
     const accounts = [claude("jacob"), chatgpt("chatgpt", extra)];
-    expect(decide({ chosen: ON_CHATGPT, accounts, usage: readings({ jacob: 40 }) })).toMatchObject({ kind: "covering", blocked, run: { instanceId: "jacob" } });
+    expect(decide({ chosen: ON_CHATGPT, accounts, usage: readings({ jacob: 40 }) })).toMatchObject({ kind, blocked, run: { instanceId: kind === "waiting" ? "chatgpt" : "jacob" } });
+  });
+
+  it("waits on a sign-in setup hold, which can be wrong for a whole engine, even with the other engine free", () => {
+    const accounts = [claude("jacob"), chatgpt("chatgpt")];
+    expect(decide({ chosen: ON_CHATGPT, accounts, usage: readings({ jacob: 40 }), resting: { chatgpt: hold(HOUR, { kind: "setup" }) } }))
+      .toMatchObject({ kind: "waiting", blocked: "signIn", run: ON_CHATGPT });
   });
 
   it("takes the dog's own preferred model on the other engine when it has one", () => {
