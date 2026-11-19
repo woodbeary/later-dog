@@ -10,6 +10,7 @@ import { useWelcomeViewer, WelcomeGate } from "@/components/onboarding/WelcomeGa
 import { type WelcomeViewer } from "@/lib/onboarding";
 import { LiveCallHost } from "@/components/LiveCallHost";
 import { initAnalytics } from "@/lib/analytics";
+import { closedViewerAction } from "@/lib/computer-control";
 import { Sidebar } from "@/components/Sidebar";
 import { TaskChat } from "@/components/TaskChat";
 import { ChatView } from "@/components/ChatView";
@@ -205,12 +206,13 @@ function Shell({ viewer }: { viewer: WelcomeViewer | null }) {
 
   useEffect(() => {
     return window.laterdog?.desktopViewer?.onState((viewer) => {
-      if (viewer.open || !viewer.contextId || viewer.contextId.startsWith("cloud-task:")) return;
-      const botId = viewer.contextId;
+      const closed = closedViewerAction(viewer);
+      if (!closed) return;
+      const { botId, action } = closed;
       void fetch(`/api/bots/${botId}/computer/control`, {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ action: "release" }),
+        body: JSON.stringify({ action }),
       })
         .then((res) => (res.ok ? res.json() : null))
         .then((snap) => {
