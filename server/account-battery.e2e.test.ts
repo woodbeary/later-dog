@@ -371,7 +371,7 @@ it("lets go of the wait when the held message is cancelled", async () => {
 }, 90_000);
 
 it("runs a held message at once when the person picks an account that can run", async () => {
-  await withBatteryFixture({ crossProvider: true }, async (fixture) => {
+  await withBatteryFixture({ crossProvider: true, enabled: false }, async (fixture) => {
     const { api } = fixture;
     const { chat } = await holdOnOff(fixture, "Pick while held", "PICK_WHILE_HELD");
     const codex = (await api("GET", "/api/instances")).instances.find((instance: any) => instance.instanceId === "codex-last");
@@ -382,6 +382,22 @@ it("runs a held message at once when the person picks an account that can run", 
     expect(fixture.firstPrompts()).toHaveLength(0);
     expect(fixture.secondPrompts()).toHaveLength(0);
     expect((await chat.task()).work.kind).not.toBe("needs-you");
+  });
+}, 90_000);
+
+it("runs on an account of another engine at once when no account of its own engine is on, instead of holding the message", async () => {
+  await withBatteryFixture({ crossProvider: true }, async (fixture) => {
+    const { api } = fixture;
+    const chat = await batteryBot(fixture, "Off with only Codex on");
+    await switchOff(fixture, ["claude", "claude-two"]);
+    const sent = await api("POST", `/api/bots/${chat.bot.id}/messages`, { threadId: chat.threadId, text: "OFF_TO_CODEX" });
+    expect(sent.queued).toBeUndefined();
+    await expect.poll(async () => lastReply(await chat.messages())?.text, { timeout: 20_000, interval: 250 }).toBe("Finished on Codex");
+    expect(fixture.firstPrompts()).toHaveLength(0);
+    expect(fixture.secondPrompts()).toHaveLength(0);
+    expect(JSON.stringify(fixture.thirdPrompts())).toContain("OFF_TO_CODEX");
+    expect((await chat.task()).work.kind).not.toBe("needs-you");
+    expect((await api("GET", "/api/config")).accountBattery.routed?.[chat.threadId]).toMatchObject({ from: "claude", on: "codex-last" });
   });
 }, 90_000);
 
