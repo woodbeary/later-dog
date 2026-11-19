@@ -81,8 +81,9 @@ class Page {
     return result?.result?.value as T;
   }
 
-  async key(type: "rawKeyDown" | "keyUp", key: string, code: string, keyCode: number, modifiers: number, location = 0): Promise<void> {
-    await this.send("Input.dispatchKeyEvent", { type, key, code, windowsVirtualKeyCode: keyCode, nativeVirtualKeyCode: keyCode, modifiers, location });
+  async key(type: "rawKeyDown" | "keyUp", key: string, code: string, keyCode: number, modifiers: number, options: { location?: number; autoRepeat?: boolean } = {}): Promise<void> {
+    const { location = 0, autoRepeat = false } = options;
+    await this.send("Input.dispatchKeyEvent", { type, key, code, windowsVirtualKeyCode: keyCode, nativeVirtualKeyCode: keyCode, modifiers, location, autoRepeat });
   }
 
   close(): void {
@@ -146,10 +147,10 @@ run("Cmd+V in the desktop's screen window types the Mac's clipboard into the com
 
     await page.evaluate(`window.__macClipboard = "Code 4821"; true`);
     const before = desktop.strokes.length;
-    await page.key("rawKeyDown", "Meta", "MetaLeft", 91, META, 1);
+    await page.key("rawKeyDown", "Meta", "MetaLeft", 91, META, { location: 1 });
     await page.key("rawKeyDown", "v", "KeyV", 86, META);
     await page.key("keyUp", "v", "KeyV", 86, META);
-    await page.key("keyUp", "Meta", "MetaLeft", 91, 0, 1);
+    await page.key("keyUp", "Meta", "MetaLeft", 91, 0, { location: 1 });
     const typed = [..."Code 4821"].map((character) => character.codePointAt(0)!);
     await expect.poll(() => desktop.strokes.slice(before).filter(([, down]) => down).map(([keysym]) => keysym).filter((keysym) => typed.includes(keysym)).length, { timeout: 10_000 }).toBe(typed.length);
     const strokes = desktop.strokes.slice(before);
@@ -172,6 +173,31 @@ run("Cmd+V in the desktop's screen window types the Mac's clipboard into the com
     const [sent] = await clipboard as [string];
     evidence.computerClipboard = sent;
     expect(sent).toBe("Paste me as well");
+
+    await expect.poll(() => page!.evaluate<number>("window.__readCount"), { timeout: 5_000 }).toBe(2);
+    const beforeHeld = desktop.strokes.length;
+    await page.key("rawKeyDown", "v", "KeyV", 86, META, { autoRepeat: true });
+    await page.key("rawKeyDown", "v", "KeyV", 86, META, { autoRepeat: true });
+    await new Promise((wait) => setTimeout(wait, 300));
+    expect(await page.evaluate<number>("window.__readCount")).toBe(2);
+    expect(desktop.strokes.slice(beforeHeld)).toEqual([]);
+
+    const long = "x".repeat(2500);
+    await page.evaluate(`window.__macClipboard = "x".repeat(${long.length}); true`);
+    const beforeLong = desktop.strokes.length;
+    const cut = desktop.nextClipboard().then(([text]) => ({ text: String(text), at: Date.now() }));
+    const control = desktop.untilKey(0xffe3).then(() => Date.now());
+    await page.key("rawKeyDown", "v", "KeyV", 86, META);
+    await page.key("keyUp", "v", "KeyV", 86, META);
+    const arrived = await cut;
+    const pressed = await control;
+    expect(arrived.text).toBe(long);
+    await expect.poll(() => desktop.strokes.length - beforeLong, { timeout: 5_000 }).toBe(4);
+    const longStrokes = desktop.strokes.slice(beforeLong);
+    evidence.longPaste = { characters: arrived.text.length, settledMs: pressed - arrived.at, strokes: longStrokes };
+    expect(longStrokes).toEqual([[0xffe3, true], [0x76, true], [0x76, false], [0xffe3, false]]);
+    expect(pressed - arrived.at).toBeGreaterThanOrEqual(280);
+    expect(await page.evaluate<string>("document.getElementById('label').textContent")).toBe(CLIPBOARD_WORDS.pasted);
 
     desktop.sendClipboard("Order 7731 confirmed");
     await new Promise((wait) => setTimeout(wait, 300));
