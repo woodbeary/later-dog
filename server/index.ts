@@ -756,7 +756,7 @@ import { removalCandidateOf, replacementAccount, selectionMovedTo, type RemovalC
 import { forgetAccountFolder } from "./laterdog/account-folder.ts";
 import { newChatGptAccount } from "./laterdog/chatgpt-accounts.ts";
 import {
-  AccountBattery, BATTERY_DRIVERS, SETUP_STOP, CONTINUE_AFTER_SWITCH, CONTINUE_AFTER_RESET, carryOnNotice, checkBatteryConfig, crossEngineNotice, limitRowToReplace, planResetAt, selectionOnAccount, signedInReading, switchNotice, withoutAccount,
+  AccountBattery, BATTERY_DRIVERS, SETUP_STOP, CONTINUE_AFTER_SWITCH, CONTINUE_AFTER_RESET, carryOnNotice, checkBatteryConfig, crossEngineNotice, limitRowToReplace, planResetAt, recharges, selectionOnAccount, signedInReading, switchNotice, withoutAccount,
   type BatteryAccount, type BatteryRerun,
 } from "./laterdog/account-battery.ts";
 import { carriesOn, carryOnAfterReset, type CarryOnInput } from "./laterdog/carry-on.ts";
@@ -6937,7 +6937,7 @@ function continueOnNextAccount(threadId: string, turnId: string | undefined, gen
     const toolRan = path.some((message) => message.kind === "activity" && message.turnId === turnId && Boolean(message.tool?.itemId));
     const newerWords = path.slice(at + 1).some((message) => message.role === "user");
     const name = (account: BatteryRerun["to"]) => account.displayName || account.instanceId;
-    const notice = { name: `recovery: ${crossEngineNotice(next.from, next.to, "Continuing") ?? switchNotice({ to: name(next.to), from: name(next.from), rest: next.rest, now: Date.now() })}`,
+    const notice = { name: `recovery: ${(recharges(next.from, next.rest) ? crossEngineNotice(next.from, next.to, "Continuing") : undefined) ?? switchNotice({ to: name(next.to), from: name(next.from), rest: next.rest, now: Date.now() })}`,
       ok: true, carry: { from: next.from.instanceId, to: next.to.instanceId } };
     const limitRow = limitRowToReplace(path, turn.requestMessageId) ?? path.findLast((message) => message.tool?.quota);
     if (limitRow) store.patchMessage(threadId, limitRow.id, { tool: notice });
@@ -11442,9 +11442,9 @@ async function runGroupMemberTurn(
     const routed = accountBattery.route(batteryTurn.selection, batteryAccounts(), threadId);
     const to = batteryAccounts().find((account) => account.instanceId === routed.instanceId);
     if (!from || !to) return false;
-    const notice = { name: `recovery: ${waited ? carryOnNotice(to.displayName || to.instanceId) : crossEngineNotice(from, to, "Continuing") ?? switchNotice({
-      to: to.displayName || to.instanceId, from: from.displayName || from.instanceId,
-      rest: accountBattery.restOf(from, batteryAccounts(), bot.modelSelection.model), now: Date.now(),
+    const rest = accountBattery.restOf(from, batteryAccounts(), bot.modelSelection.model);
+    const notice = { name: `recovery: ${waited ? carryOnNotice(to.displayName || to.instanceId) : (recharges(from, rest) ? crossEngineNotice(from, to, "Continuing") : undefined) ?? switchNotice({
+      to: to.displayName || to.instanceId, from: from.displayName || from.instanceId, rest, now: Date.now(),
     })}`, ok: true, carry: { from: from.instanceId, to: to.instanceId } };
     const limit = store.activePath(threadId).findLast((message) => message.tool?.quota && message.tool.ok === false);
     if (limit) store.patchMessage(threadId, limit.id, { tool: notice });

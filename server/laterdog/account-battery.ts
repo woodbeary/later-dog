@@ -430,6 +430,10 @@ export function engineName(driverKind: string): string {
   return ENGINE_NAMES[driverKind] ?? driverKind;
 }
 
+export function recharges(account: BatteryAccount | undefined, rest: Rest | undefined): boolean {
+  return Boolean(account?.enabled && account.signedIn !== false && rest?.kind !== SETUP_STOP);
+}
+
 export function crossEngineNotice(
   from: BatteryAccount | undefined,
   to: BatteryAccount | undefined,
@@ -551,14 +555,14 @@ export function switchNotice(input: { to: string; from: string; rest?: Rest; now
 
 export function routedNotice(input: { to: string; from: string; rest?: Rest; why?: "signedOut" | "off"; now: number; timeZone?: string }): string {
   const { to, from, rest, now, timeZone } = input;
+  if (input.why === "off") return `Running on ${to} — ${from} is turned off.`;
+  if (input.why === "signedOut") return `Running on ${to} — ${from} isn't signed in.`;
   if (rest?.kind === SETUP_STOP && Date.parse(rest.until) > now) return `Running on ${to} — ${from} needs signing in again.`;
   if (rest && Date.parse(rest.until) > now) {
     return rest.estimated
       ? `Running on ${to} — ${from} is recharging, back around ${resetLabel(rest.until, now, timeZone)}.`
       : `Running on ${to} — ${from} is recharging, back ${resetPhrase(rest.until, now, timeZone)}.`;
   }
-  if (input.why === "signedOut") return `Running on ${to} — ${from} isn't signed in.`;
-  if (input.why === "off") return `Running on ${to} — ${from} is turned off.`;
   return `Running on ${to} instead of ${from}.`;
 }
 
@@ -908,10 +912,10 @@ export class AccountBattery {
     this.save();
     const from = find(selection.instanceId);
     const rest = from ? this.restOf(from, accounts, selection.model) : undefined;
-    const engines = rest && Date.parse(rest.until) > this.now() ? crossEngineNotice(from, find(ranOn), "Running") : undefined;
+    const engines = rest && Date.parse(rest.until) > this.now() && recharges(from, rest) ? crossEngineNotice(from, find(ranOn), "Running") : undefined;
     return engines ?? routedNotice({
       to: name(ranOn), from: name(selection.instanceId), rest,
-      why: from?.signedIn === false ? "signedOut" : from && !from.enabled ? "off" : undefined, now: this.now(),
+      why: from && !from.enabled ? "off" : from?.signedIn === false ? "signedOut" : undefined, now: this.now(),
     });
   }
 
