@@ -782,6 +782,7 @@ import { askedToo, sendQueuedAsNextTurn, steerWhileRunning, withAskedQueueId } f
 import { asksToCloseQuestion, closeQuestion } from "./laterdog/close-question.ts";
 import { openQuestion, typedReplyAnswer } from "./laterdog/typed-answer.ts";
 import { finishTakeover, TakeoverWaits, takeoverResumePrompt, type TakeoverCards, type TakeoverWait } from "./laterdog/takeover.ts";
+import { HAND_BACK_ACTION, heldTakeoverCards, takeoversToHandBack } from "./laterdog/takeover-hand-back.ts";
 import { SecureForms, secureFormMessageText } from "./laterdog/secure-form.ts";
 import { cloudVaultKey, testVaultKey, VaultStore } from "./laterdog/vault.ts";
 import { transcribeRoute } from "./laterdog/transcribe.ts";
@@ -12817,6 +12818,14 @@ function answerDeviceApprovalsByTyping(threadId: string): void {
   }
 }
 
+function handBackTakeovers(bot: BotRecord, controlKey: string): number {
+  const threads = [...new Set([bot.threadId, ...store.tasks(bot.id).map((task) => task.threadId)])]
+    .map((threadId) => ({ threadId, messages: store.activePath(threadId) }));
+  const ending = takeoversToHandBack(takeoverWaits.waiting(controlKey), heldTakeoverCards(bot.id, threads), takeoverCards.read);
+  for (const wait of ending) endTakeover(wait, "done", controlKey);
+  return ending.length;
+}
+
 function answerTakeoverByTyping(botId: string, threadId: string): void {
   const bot = store.bot(botId);
   if (!bot) return;
@@ -21301,8 +21310,12 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         }
         if (action === "take") return json(res, 200, computerControl.take(controlKey));
         if (action === "release") return json(res, 200, computerControl.release(controlKey));
+        if (action === HAND_BACK_ACTION) {
+          const handedBack = handBackTakeovers(currentBot, controlKey);
+          return json(res, 200, { ...computerControl.release(controlKey), handedBack });
+        }
         if (action === "dismiss-help") return json(res, 200, computerControl.dismissHelp(controlKey));
-        return json(res, 400, { error: "action must be take, release, check, or dismiss-help" });
+        return json(res, 400, { error: "action must be take, release, hand-back, check, or dismiss-help" });
       }
       return json(res, 405, { error: "method not allowed" });
     }
