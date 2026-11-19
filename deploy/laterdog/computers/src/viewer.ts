@@ -92,6 +92,7 @@ function show(state, text) {
 }
 
 function note(text) {
+  if (finished) return;
   clearTimeout(noteTimer);
   label.textContent = text;
   noteTimer = setTimeout(() => { label.textContent = shownText; }, ${NOTE_SHOWN_MS});
@@ -101,6 +102,7 @@ const clipboard = createClipboardBridge({
   client: () => (live ? rfb : null),
   readText: () => navigator.clipboard.readText(),
   writeText: (text) => navigator.clipboard.writeText(text),
+  focused: () => document.hasFocus(),
   note,
   later: (run, ms) => setTimeout(run, ms),
 });

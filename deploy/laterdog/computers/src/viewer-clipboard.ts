@@ -7,6 +7,7 @@ export const CLIPBOARD_WORDS = {
   copied: "Copied",
   nothingToPaste: "Nothing to paste",
   nothingToCopy: "Select text on the computer first",
+  notConnected: "Not connected yet",
   pasteRefused: "Allow clipboard access to paste",
   copyRefused: "Allow clipboard access to copy",
 } as const;
@@ -17,6 +18,7 @@ const PASTE_SETTLE_MS = ${PASTE_SETTLE_MS};
 const CLIPBOARD_WORDS = ${JSON.stringify(CLIPBOARD_WORDS)};
 const KEYSYM = { backspace: 0xff08, tab: 0xff09, enter: 0xff0d, escape: 0xff1b, delete: 0xffff, shift: 0xffe1, control: 0xffe3, altLeft: 0xffe9, superLeft: 0xffeb, superRight: 0xffec, v: 0x76 };
 const COMMAND_HELD = [KEYSYM.altLeft, KEYSYM.superLeft, KEYSYM.superRight];
+const COMMAND_CODES = ["MetaLeft", "MetaRight"];
 
 function keysymForCodePoint(codePoint) {
   if (codePoint === 10 || codePoint === 13) return KEYSYM.enter;
@@ -43,8 +45,10 @@ function pasteStrokes(text, most) {
   return strokes;
 }
 
-function commandShortcut(event, code) {
-  return event.metaKey === true && !event.ctrlKey && !event.altKey && !event.shiftKey && event.code === code;
+function commandShortcut(event, letter) {
+  if (event.metaKey !== true || event.ctrlKey || event.altKey || event.shiftKey) return false;
+  const typed = typeof event.key === "string" ? event.key.toLowerCase() : "";
+  return /^[a-z]$/.test(typed) ? typed === letter : event.code === "Key" + letter.toUpperCase();
 }
 
 function sendStrokes(client, strokes) {
@@ -56,11 +60,20 @@ function sendStrokes(client, strokes) {
 
 function createClipboardBridge(host) {
   let latest = "";
+  let commandLetGo = false;
   const commandKeys = new Set();
 
+  function letGoOfCommand(client) {
+    if (commandKeys.size === 0) return;
+    for (const keysym of COMMAND_HELD) client.sendKey(keysym, null, false);
+    commandLetGo = true;
+  }
+
   async function paste() {
-    const client = host.client();
-    if (client === null) return;
+    if (host.client() === null) {
+      host.note(CLIPBOARD_WORDS.notConnected);
+      return;
+    }
     let text;
     try {
       text = await host.readText();
@@ -72,8 +85,12 @@ function createClipboardBridge(host) {
       host.note(CLIPBOARD_WORDS.nothingToPaste);
       return;
     }
-    if (host.client() !== client) return;
-    if (commandKeys.size > 0) for (const keysym of COMMAND_HELD) client.sendKey(keysym, null, false);
+    const client = host.client();
+    if (client === null) {
+      host.note(CLIPBOARD_WORDS.notConnected);
+      return;
+    }
+    letGoOfCommand(client);
     client.clipboardPasteFrom(text);
     const strokes = pasteStrokes(text, PASTE_TYPED_MOST);
     if (strokes !== null) {
@@ -82,7 +99,10 @@ function createClipboardBridge(host) {
       return;
     }
     host.later(() => {
-      if (host.client() !== client) return;
+      if (host.client() !== client) {
+        host.note(CLIPBOARD_WORDS.notConnected);
+        return;
+      }
       sendStrokes(client, [[KEYSYM.control, KEYSYM.v]]);
       host.note(CLIPBOARD_WORDS.pasted);
     }, PASTE_SETTLE_MS);
@@ -96,26 +116,36 @@ function createClipboardBridge(host) {
     new Promise((resolve) => resolve(host.writeText(latest))).then(() => host.note(CLIPBOARD_WORDS.copied), () => host.note(CLIPBOARD_WORDS.copyRefused));
   }
 
+  function forgetCommand() {
+    commandKeys.clear();
+    commandLetGo = false;
+  }
+
   return {
     heard(text) {
-      if (typeof text === "string") latest = text;
+      if (typeof text === "string" && host.focused()) latest = text;
     },
     keydown(event) {
-      if (event.code === "MetaLeft" || event.code === "MetaRight") commandKeys.add(event.code);
-      const pasting = commandShortcut(event, "KeyV");
-      if (!pasting && !commandShortcut(event, "KeyC")) return false;
+      if (COMMAND_CODES.includes(event.code)) {
+        commandKeys.add(event.code);
+        return false;
+      }
+      const pasting = commandShortcut(event, "v");
+      const copying = !pasting && commandShortcut(event, "c");
+      if (!pasting && !copying && !(commandLetGo && event.metaKey === true)) return false;
       event.preventDefault();
       event.stopImmediatePropagation();
+      if (event.repeat === true) return true;
       if (pasting) void paste();
-      else copy();
+      else if (copying) copy();
       return true;
     },
     keyup(event) {
-      if (event.code === "MetaLeft" || event.code === "MetaRight") commandKeys.delete(event.code);
+      if (!COMMAND_CODES.includes(event.code)) return;
+      commandKeys.delete(event.code);
+      if (commandKeys.size === 0) commandLetGo = false;
     },
-    blur() {
-      commandKeys.clear();
-    },
+    blur: forgetCommand,
   };
 }
 `;

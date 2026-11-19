@@ -643,6 +643,9 @@ Also not seen live yet, added after the last deploy and only unit tested against
   own logs (Workers Logs, container observability, the runtime) never record exec options.
 - The `xlarge` size (`standard-4`). Whether this account's Containers limits allow it was not checked.
 - The `ComputersApi` entrypoint and a service binding to it.
+- Cmd+V and Cmd+C in the viewer. `scripts/testing/desktop-screen-paste-ui.e2e.test.ts` runs this page and noVNC in
+  headless Chrome against a fake VNC server, with a stand-in for the Mac's clipboard. Not seen: x11vnc on a computer
+  taking the typed keys and the clipboard, and the later.dog app's screen window reading the Mac's real clipboard.
 
 Claude Haiku first has not run live: no Anthropic key is stored on the gateway yet and `ANTHROPIC_FIRST` is `0`. Only
 the fake-upstream tests cover it. Not verified: that the binding's universal `run()` picks up the gateway's stored
@@ -690,9 +693,11 @@ charges the trial back while it waits, and what the snapshots of trial computers
 - The trial page is in English only.
 - The screen is fixed at 1280×800. No audio. No file transfer in the viewer: use the API.
 - In the viewer, Cmd+V types the clipboard's text into the field that has focus on the computer (line breaks as
-  Shift+Return); text over 2000 keys goes on the computer's clipboard and is pasted with Ctrl+V. Cmd+C copies the text
-  the computer last selected or copied. Both need the browser's clipboard permission, which the later.dog app grants its
-  screen window. Text outside Latin-1 depends on the computer's keyboard map.
+  Shift+Return, so a terminal runs each line); text over 2000 keys goes on the computer's clipboard and is pasted with
+  Ctrl+V 300 ms later. A held Cmd+V pastes once, and nothing is pasted while the screen is not connected. Cmd+C copies
+  the text the computer last selected or copied while the viewer had focus. Both need the browser's clipboard
+  permission, which the later.dog app grants its screen window. Other Cmd shortcuts reach the computer as noVNC sends
+  them on a Mac: left Cmd as Alt, right Cmd as Super. Text outside Latin-1 depends on the computer's keyboard map.
 - Files move 16 MB at a time. Command output keeps 1 MiB per stream.
 - Commands get the environment in `src/computer.ts` (`DOG_ENV`) plus `PATH`, not the image's other variables, plus the
   request's own `env` for that command.
