@@ -198,6 +198,12 @@ describe("an account the person switched off, with nothing on its own engine to 
       .toMatchObject({ kind: "waiting", blocked: "signIn", run: ON_CHATGPT });
   });
 
+  it("waits for an account on its own engine that is only resting on a limit, since it will be back at its reset", () => {
+    const accounts = [claude("jacob"), chatgpt("chatgpt", { enabled: false }), chatgpt("plan")];
+    expect(decide({ chosen: ON_CHATGPT, accounts, usage: readings({ jacob: 90 }), resting: { plan: hold(HOUR) } }))
+      .toMatchObject({ kind: "waiting", blocked: "off", run: ON_CHATGPT });
+  });
+
   it("takes the dog's own preferred model on the other engine when it has one", () => {
     const choice = decide({ chosen: ON_CHATGPT, accounts: onlyChatgptOff, usage, preferred: [{ instanceId: "jacob", model: "claude-fable-5-2" }] });
     expect(choice.run).toMatchObject({ instanceId: "anthony", model: "claude-fable-5-2" });
