@@ -29,6 +29,16 @@ describe("execution evidence", () => {
     expect(tracker.running()).toEqual([]);
   });
 
+  it("tells which account a running turn chosen for an account actually runs on, and nothing for a turn chosen for another", () => {
+    const tracker = new ExecutionEvidenceTracker();
+    expect(tracker.runningFor("thread", "claude")).toBeUndefined();
+    tracker.dispatch("thread", selected, dispatched);
+    expect(tracker.runningFor("thread", "claude")).toBe("codex");
+    expect(tracker.runningFor("thread", "claude-two")).toBeUndefined();
+    tracker.cancel("thread");
+    expect(tracker.runningFor("thread", "claude")).toBeUndefined();
+  });
+
   it("keeps a newer turn when an old completion or session event arrives", () => {
     const tracker = new ExecutionEvidenceTracker();
     tracker.dispatch("thread", selected, dispatched);

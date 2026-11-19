@@ -3903,8 +3903,18 @@ const approvalModeForTurn = (bot: BotRecord, peerInitiated = false, threadId = b
   if (!supportsApprovalMode(bot.modelSelection, mode)) {
     return "ask";
   }
-  return mode;
+  return routedAcrossNeedsAsk(bot, threadId, mode) ? "ask" : mode;
 };
+
+function routedAcrossNeedsAsk(bot: BotRecord, threadId: string, mode: ApprovalMode): boolean {
+  const chosen = (store.projectBotForTask(bot.id, threadId) ?? store.bot(bot.id))?.modelSelection.instanceId;
+  if (!chosen) return false;
+  const routed = bot.modelSelection.instanceId !== chosen ? bot.modelSelection.instanceId : executionEvidence.runningFor(threadId, chosen);
+  if (!routed) return false;
+  const from = registry.cliTarget(chosen)?.driverKind;
+  const to = registry.cliTarget(routed)?.driverKind;
+  return from !== to && modelSwitchNeedsAsk(mode, from, to);
+}
 
 function ownerWorkspaceShared(): boolean {
   return workspaceShared({ hosted: HOSTED_WORKSPACE, cloudHome: Boolean(CLOUD_HOME), signIn: signInAllowList() });

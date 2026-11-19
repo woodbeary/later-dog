@@ -401,6 +401,28 @@ it("runs on an account of another engine at once when no account of its own engi
   });
 }, 90_000);
 
+it("runs with Ask on another engine when a Full access dog's accounts are switched off, since Full access never moves engines unconfirmed", async () => {
+  await withBatteryFixture({ crossProvider: true }, async (fixture) => {
+    const { api, dataDir } = fixture;
+    const chat = await batteryBot(fixture, "Full access off");
+    await fixture.restart(() => {
+      const path = join(dataDir, "bots.json");
+      const bots = JSON.parse(readFileSync(path, "utf8"));
+      const saved = bots.find((bot: any) => bot.id === chat.bot.id);
+      saved.approvalMode = "full"; saved.autoApprove = false;
+      for (const task of saved.tasks ?? []) { task.approvalMode = "full"; task.autoApprove = false; }
+      writeFileSync(path, JSON.stringify(bots, null, 2));
+    });
+    await switchOff(fixture, ["claude", "claude-two"]);
+    await api("POST", `/api/bots/${chat.bot.id}/messages`, { threadId: chat.threadId, text: "FULL_OFF_TO_CODEX" });
+    await expect.poll(async () => lastReply(await chat.messages())?.text, { timeout: 20_000, interval: 250 }).toBe("Finished on Codex");
+    const starts = fixture.codexCalls().filter((call) => call.method === "thread/start" || call.method === "thread/resume");
+    expect(starts.length).toBeGreaterThan(0);
+    expect(starts.map((call) => call.params?.approvalPolicy)).not.toContain("never");
+    expect(starts.map((call) => call.params?.sandbox)).not.toContain("danger-full-access");
+  });
+}, 90_000);
+
 it("runs on another account of the same engine when the chosen one is switched off, and says where", async () => {
   await withBatteryFixture({}, async (fixture) => {
     const { api } = fixture;
