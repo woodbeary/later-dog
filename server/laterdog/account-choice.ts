@@ -17,6 +17,7 @@ export interface AccountChoiceInput {
   current?: string;
   handPicked?: string;
   preferred?: readonly ModelSelection[];
+  pinned?: boolean;
 }
 
 export type AccountChoice =
@@ -69,6 +70,10 @@ function canCover(account: BatteryAccount, own: BatteryAccount, model: string): 
     (account.driverKind !== own.driverKind ? Boolean(account.defaultModel || account.models.length) : offers(account, own, model));
 }
 
+function mayComeBack(account: BatteryAccount, own: BatteryAccount, model: string): boolean {
+  return account !== own && account.eligible && account.enabled && account.signedIn !== false && offers(account, own, model);
+}
+
 function handAccount(input: AccountChoiceInput, own: BatteryAccount): BatteryAccount | undefined {
   const hand = input.handPicked ? input.accounts.find((account) => account.instanceId === input.handPicked) : undefined;
   return hand && canCover(hand, own, input.chosen.model) ? hand : undefined;
@@ -80,6 +85,14 @@ export function sameEngineCovers(input: AccountChoiceInput): BatteryAccount[] {
   if (!own) return [];
   return accounts.filter((account) => account.driverKind === own.driverKind && canCover(account, own, chosen.model) &&
     !activeRest(account, chosen.model, accounts, input.resting, now));
+}
+
+export function otherEngineCovers(input: AccountChoiceInput): BatteryAccount[] {
+  const { chosen, accounts, now } = input;
+  const own = accounts.find((account) => account.instanceId === chosen.instanceId);
+  if (!own) return [];
+  return accounts.filter((account) => account.driverKind !== own.driverKind && canCover(account, own, chosen.model) &&
+    !activeRest(account, selectionOnAccount(chosen, account, accounts, input.preferred).model, accounts, input.resting, now));
 }
 
 export function rankByRoom(candidates: readonly BatteryAccount[], input: Pick<AccountChoiceInput, "usage" | "now" | "order">): BatteryAccount[] {
@@ -108,13 +121,18 @@ export function decideAccount(input: AccountChoiceInput): AccountChoice {
   }
   const waiting: AccountChoice = { kind: "waiting", run: chosen, chosen: own.instanceId, blocked, ...until };
   if (!input.keepGoing) return waiting;
-  const ranked = rankByRoom(sameEngineCovers(input), input);
-  const best = ranked[0];
-  if (!best) return waiting;
-  const current = ranked.find((account) => account.instanceId === input.current);
   const usage = (account: BatteryAccount) => roomRank(roomOf(input.usage?.(account.instanceId), now));
-  const on = current && keepsCover(usage(current), usage(best)) ? current : best;
-  return { kind: "covering", run: { ...chosen, instanceId: on.instanceId }, chosen: own.instanceId, blocked, ...until };
+  const steady = (ranked: BatteryAccount[]) => {
+    const current = ranked.find((account) => account.instanceId === input.current);
+    return current && keepsCover(usage(current), usage(ranked[0]!)) ? current : ranked[0]!;
+  };
+  const ranked = rankByRoom(sameEngineCovers(input), input);
+  if (ranked.length) return { kind: "covering", run: { ...chosen, instanceId: steady(ranked).instanceId }, chosen: own.instanceId, blocked, ...until };
+  if (blocked !== "off" || input.pinned) return waiting;
+  if (accounts.some((account) => account.driverKind === own.driverKind && mayComeBack(account, own, chosen.model))) return waiting;
+  const across = rankByRoom(otherEngineCovers(input), input);
+  if (!across.length) return waiting;
+  return { kind: "covering", run: selectionOnAccount(chosen, steady(across), accounts, input.preferred), chosen: own.instanceId, blocked, ...until };
 }
 
 export function choiceReadyAt(input: AccountChoiceInput): string | undefined {

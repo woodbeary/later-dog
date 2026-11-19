@@ -30,7 +30,7 @@ interface BatteryFixture {
 }
 
 async function withBatteryFixture(
-  options: { enabled?: boolean; secondOutOfUsage?: boolean; afterTool?: boolean; resetsIn?: number; gated?: boolean; scripted?: boolean; delegateBeforeLimit?: boolean; crossProvider?: boolean; defaultEnabled?: boolean; synthetic?: "grokAgent"; slowFirst?: boolean; chiefHappy?: boolean },
+  options: { enabled?: boolean; secondOutOfUsage?: boolean; afterTool?: boolean; resetsIn?: number; gated?: boolean; scripted?: boolean; delegateBeforeLimit?: boolean; crossProvider?: boolean; signedOut?: boolean; defaultEnabled?: boolean; synthetic?: "grokAgent"; slowFirst?: boolean; chiefHappy?: boolean },
   check: (fixture: BatteryFixture) => Promise<void>,
 ) {
   const fixture = await launchVerificationServer({});
@@ -74,6 +74,7 @@ async function withBatteryFixture(
         ...(options.gated ? { FAKE_CLAUDE_USAGE_LIMIT_RELEASE: release } : {}),
         FAKE_CLAUDE_MODE: options.slowFirst ? "slow" : "usage-limit", FAKE_CLAUDE_SLOW_FINISH_GATE: slowGate, FAKE_CLAUDE_USAGE_LIMIT_GATE: gate, FAKE_CLAUDE_USAGE_RESETS_IN: String(options.resetsIn ?? 3_600),
         FAKE_CLAUDE_PROMPTS: firstFile, FAKE_CLAUDE_TOOL_CALLS: "[]",
+        ...(options.signedOut ? { FAKE_CLAUDE_AUTH: "out" } : {}),
         ...(options.afterTool ? { FAKE_CLAUDE_USAGE_LIMIT_AFTER_TOOL: "1" } : {}),
       },
     };
@@ -83,6 +84,7 @@ async function withBatteryFixture(
       environment: {
         ...roomPlan,
         FAKE_CLAUDE_MODE: options.secondOutOfUsage ? "usage-limit" : "happy", FAKE_CLAUDE_PROMPTS: secondFile, FAKE_CLAUDE_TOOL_CALLS: "[]",
+        ...(options.signedOut ? { FAKE_CLAUDE_AUTH: "out" } : {}),
         FAKE_CLAUDE_REPLIES: JSON.stringify(["hello from account 2"]),
       },
     };
@@ -371,7 +373,7 @@ it("lets go of the wait when the held message is cancelled", async () => {
 }, 90_000);
 
 it("runs a held message at once when the person picks an account that can run", async () => {
-  await withBatteryFixture({ crossProvider: true }, async (fixture) => {
+  await withBatteryFixture({ crossProvider: true, enabled: false }, async (fixture) => {
     const { api } = fixture;
     const { chat } = await holdOnOff(fixture, "Pick while held", "PICK_WHILE_HELD");
     const codex = (await api("GET", "/api/instances")).instances.find((instance: any) => instance.instanceId === "codex-last");
@@ -382,6 +384,58 @@ it("runs a held message at once when the person picks an account that can run", 
     expect(fixture.firstPrompts()).toHaveLength(0);
     expect(fixture.secondPrompts()).toHaveLength(0);
     expect((await chat.task()).work.kind).not.toBe("needs-you");
+  });
+}, 90_000);
+
+it("runs on an account of another engine at once when no account of its own engine is on, instead of holding the message", async () => {
+  await withBatteryFixture({ crossProvider: true }, async (fixture) => {
+    const { api } = fixture;
+    const chat = await batteryBot(fixture, "Off with only Codex on");
+    await switchOff(fixture, ["claude", "claude-two"]);
+    const sent = await api("POST", `/api/bots/${chat.bot.id}/messages`, { threadId: chat.threadId, text: "OFF_TO_CODEX" });
+    expect(sent.queued).toBeUndefined();
+    await expect.poll(async () => lastReply(await chat.messages())?.text, { timeout: 20_000, interval: 250 }).toBe("Finished on Codex");
+    expect(fixture.firstPrompts()).toHaveLength(0);
+    expect(fixture.secondPrompts()).toHaveLength(0);
+    expect(JSON.stringify(fixture.thirdPrompts())).toContain("OFF_TO_CODEX");
+    expect((await chat.task()).work.kind).not.toBe("needs-you");
+    expect((await api("GET", "/api/config")).accountBattery.routed?.[chat.threadId]).toMatchObject({ from: "claude", on: "codex-last" });
+  });
+}, 90_000);
+
+it("leaves a message for a signed-out account to its own engine when only another engine is on, never moving it there by itself", async () => {
+  await withBatteryFixture({ crossProvider: true, signedOut: true }, async (fixture) => {
+    const { api } = fixture;
+    const chat = await batteryBot(fixture, "Signed out with only Codex on");
+    await expect.poll(async () => (await api("GET", "/api/instances")).instances
+      .filter((instance: any) => ["claude", "claude-two"].includes(instance.instanceId) && instance.snapshot?.authenticated === false).length, { timeout: 20_000 }).toBe(2);
+    await api("POST", `/api/bots/${chat.bot.id}/messages`, { threadId: chat.threadId, text: "SIGNED_OUT_STAYS" });
+    await chat.settled(() => JSON.stringify(fixture.firstPrompts()).includes("SIGNED_OUT_STAYS"));
+    expect(JSON.stringify(fixture.thirdPrompts())).not.toContain("SIGNED_OUT_STAYS");
+    expect(fixture.codexCalls().filter((call) => call.method === "thread/start")).toHaveLength(0);
+    expect((await api("GET", "/api/config")).accountBattery.routed?.[chat.threadId]).toBeUndefined();
+  });
+}, 90_000);
+
+it("runs with Ask on another engine when a Full access dog's accounts are switched off, since Full access never moves engines unconfirmed", async () => {
+  await withBatteryFixture({ crossProvider: true }, async (fixture) => {
+    const { api, dataDir } = fixture;
+    const chat = await batteryBot(fixture, "Full access off");
+    await fixture.restart(() => {
+      const path = join(dataDir, "bots.json");
+      const bots = JSON.parse(readFileSync(path, "utf8"));
+      const saved = bots.find((bot: any) => bot.id === chat.bot.id);
+      saved.approvalMode = "full"; saved.autoApprove = false;
+      for (const task of saved.tasks ?? []) { task.approvalMode = "full"; task.autoApprove = false; }
+      writeFileSync(path, JSON.stringify(bots, null, 2));
+    });
+    await switchOff(fixture, ["claude", "claude-two"]);
+    await api("POST", `/api/bots/${chat.bot.id}/messages`, { threadId: chat.threadId, text: "FULL_OFF_TO_CODEX" });
+    await expect.poll(async () => lastReply(await chat.messages())?.text, { timeout: 20_000, interval: 250 }).toBe("Finished on Codex");
+    const starts = fixture.codexCalls().filter((call) => call.method === "thread/start" || call.method === "thread/resume");
+    expect(starts.length).toBeGreaterThan(0);
+    expect(starts.map((call) => call.params?.approvalPolicy)).not.toContain("never");
+    expect(starts.map((call) => call.params?.sandbox)).not.toContain("danger-full-access");
   });
 }, 90_000);
 
@@ -677,6 +731,26 @@ it.each([false, true])("continues a room member automatically, including an all-
       .findLast((row) => row.threadId === group.threadId && row.instanceId === "claude-two")?.execution, { timeout: 10_000 })
       .toMatchObject({ selected: FIRST, dispatched: { instanceId: "claude-two", model: FIRST.model }, verification: "unverified" });
     expect(promptText(fixture.secondPrompts()[0])).toContain("without redoing finished work");
+  });
+}, 90_000);
+
+it("carries a room member to its Backup model on another engine when its own accounts are switched off, without skipping its turn", async () => {
+  await withBatteryFixture({ crossProvider: true }, async (fixture) => {
+    const { api } = fixture;
+    const chat = await batteryBot(fixture, "Room off member");
+    await api("PATCH", `/api/bots/${chat.bot.id}`, { fallback: [{ instanceId: "codex-last", model: "gpt-page-two" }] });
+    const { group } = await api("POST", "/api/groups", {
+      name: "Off room", memberIds: [chat.bot.id], setup: { bulletin: "", defaultResponder: { kind: "member", botId: chat.bot.id } },
+    });
+    await switchOff(fixture, ["claude", "claude-two"]);
+    await api("POST", `/api/groups/${group.id}/messages`, { text: "ROOM_OFF_TO_CODEX" });
+    const rows = async () => (await api("GET", `/api/threads/${group.threadId}/messages?limit=100`)).messages;
+    await expect.poll(async () => lastReply(await rows())?.text, { timeout: 30_000, interval: 250 }).toBe("Finished on Codex");
+    expect(JSON.stringify(await rows())).not.toContain("settings changed while starting");
+    expect(JSON.stringify(fixture.thirdPrompts())).toContain("ROOM_OFF_TO_CODEX");
+    await expect.poll(() => readUsage(fixture.dataDir, { from: new Date(Date.now() - 86_400_000), to: new Date() })
+      .findLast((row) => row.threadId === group.threadId)?.execution, { timeout: 10_000 })
+      .toMatchObject({ selected: FIRST, dispatched: { instanceId: "codex-last", model: "gpt-page-two" } });
   });
 }, 90_000);
 

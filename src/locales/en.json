@@ -1912,7 +1912,7 @@
   "accounts.fromNextMessage": "From the next message",
   "chat.limit.autoContinuing": "Continuing automatically on your next available account…",
   "chat.limit.autoWaiting": "Waiting for an account to recharge. I’ll pick this up automatically.",
-  "accounts.carryOnHint": "Switch to your next account when one hits its limit.",
+  "accounts.carryOnHint": "Switch to your next account when one hits its limit or is turned off.",
   "accounts.carryOnError": "Could not save this setting. Please try again.",
   "accounts.signOutTitle": "Sign out {name}?",
   "accounts.signOutBody": "This removes the sign-in later.dog keeps for this account. Dogs using it need a sign-in before their next turn.",

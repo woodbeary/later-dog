@@ -97,6 +97,11 @@ export class ExecutionEvidenceTracker {
     return pending ? { on: pending.providerInstanceId, model: pending.reportedModel ?? pending.dispatched.model } : undefined;
   }
 
+  runningFor(threadId: string, selected: string): string | undefined {
+    const pending = this.pending.get(threadId);
+    return pending?.selected.instanceId === selected ? pending.providerInstanceId : undefined;
+  }
+
   running(): Array<[threadId: string, ran: { on: string; model: string }]> {
     return [...this.pending].map(([threadId, pending]) => [threadId, { on: pending.providerInstanceId, model: pending.reportedModel ?? pending.dispatched.model }]);
   }

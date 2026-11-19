@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { PlanProviderRow } from "../plan-usage.ts";
 import { removeTempDir } from "../testing/cleanup.ts";
 import {
-  AccountBattery, DEFAULT_REST_MS, USAGE_REFRESH_WAIT_MS, backNotice, batteryEnabled, chosenModelOn, crossEngineNotice, engineName, selectionOnAccount, batterySequence, batteryOrder, checkBatteryConfig, effectiveOrder, limitRowToReplace, percentLeft, planResetAt, resetLabel, routeSelection, usedUpRest,
+  AccountBattery, DEFAULT_REST_MS, USAGE_REFRESH_WAIT_MS, backNotice, batteryEnabled, chosenModelOn, crossEngineNotice, engineName, selectionOnAccount, batterySequence, batteryOrder, checkBatteryConfig, effectiveOrder, limitRowToReplace, percentLeft, planResetAt, recharges, resetLabel, routeSelection, usedUpRest,
   routedNotice, switchNotice, withoutAccount,
   type AccountBatteryConfig, type BatteryAccount, type Rest,
 } from "./account-battery.ts";
@@ -764,6 +764,8 @@ describe("words and times", () => {
     expect(running({ until: "2026-10-07T22:30:00.000Z", since: at(0), estimated: true })).toBe("Running on Work — Personal is recharging, back around 3:30 PM.");
     expect(running({ until: at(-1), since: at(0) }, "signedOut")).toBe("Running on Work — Personal isn't signed in.");
     expect(running(undefined, "off")).toBe("Running on Work — Personal is turned off.");
+    expect(running({ until: "2026-10-07T22:30:00.000Z", since: at(0) }, "off")).toBe("Running on Work — Personal is turned off.");
+    expect(running({ until: "2026-10-07T22:30:00.000Z", since: at(0), kind: "setup" }, "signedOut")).toBe("Running on Work — Personal isn't signed in.");
     expect(running(undefined)).toBe("Running on Work instead of Personal.");
     expect(resetLabel("2026-10-07T22:00:00.000Z", NOW, "UTC")).toBe("10:00 PM");
   });
@@ -854,7 +856,7 @@ describe("keeping going across engines", () => {
     expect(routeSelection({ config, selection: dog, accounts, resting, now: NOW })).toBe(dog);
   });
 
-  it("uses the model the dog chose for another engine only when the person moves it there by hand", () => {
+  it("uses the model the dog chose for another engine whenever its chat moves there, by hand or because its account is switched off", () => {
     const choice = [{ instanceId: "chatgpt", model: "gpt-5.5-mini" }];
     const second = [...accounts, codex("chatgpt-b")];
     expect(chosenModelOn(second[3]!, second, choice)).toBe("gpt-5.5-mini");
@@ -868,6 +870,37 @@ describe("keeping going across engines", () => {
     const resting = { claude: rest(HOUR), "claude-b": rest(HOUR) };
     expect(routeSelection({ config: { ...config, enabled: false }, selection: dog, accounts, resting, now: NOW })).toBe(dog);
     expect(routeSelection({ config, selection: dog, accounts, resting: { ...resting, chatgpt: rest(HOUR) }, now: NOW })).toBe(dog);
+  });
+
+  it("asks whether the chat's dog is pinned before carrying it to another engine when its account is switched off", () => {
+    const off = accounts.map((candidate) => candidate.driverKind === "claudeAgent" ? { ...candidate, enabled: false } : candidate);
+    const pinned = vi.fn((threadId: string) => threadId === "pinned");
+    const battery = new AccountBattery({ config: () => config, accounts: () => off, now: () => NOW, pinned });
+    expect(battery.route(dog, off, "pinned")).toBe(dog);
+    expect(battery.route(dog, off, "free")).toEqual({ instanceId: "chatgpt", model: "gpt-5.5" });
+    expect(pinned).toHaveBeenCalledWith("pinned");
+  });
+
+  it("says an account switched off is turned off, never recharging, even with a limit hold still live, when the chat runs on the other engine", () => {
+    const battery = new AccountBattery({ config: () => config, accounts: () => accounts, now: () => NOW });
+    battery.markExhausted("claude", { resetsAt: at(HOUR) });
+    const off = accounts.map((candidate) => candidate.driverKind === "claudeAgent" ? { ...candidate, enabled: false } : candidate);
+    expect(battery.route(dog, off, "thread-off")).toEqual({ instanceId: "chatgpt", model: "gpt-5.5" });
+    const notice = battery.arrive("thread-off", dog, "chatgpt", off);
+    expect(notice).toContain("is turned off");
+    expect(notice).not.toContain("recharging");
+    expect(recharges(off[0], battery.restOf(off[0]!, off, dog.model))).toBe(false);
+    expect(recharges(accounts[0], battery.restOf(accounts[0]!, accounts, dog.model))).toBe(true);
+    expect(recharges(accounts[0], { until: at(HOUR), since: at(0), kind: "setup" })).toBe(false);
+  });
+
+  it("routes with the dog it is given rather than whichever dog the thread last ran, so every route of one turn lands the same", () => {
+    const off = accounts.map((candidate) => candidate.driverKind === "claudeAgent" ? { ...candidate, enabled: false } : candidate);
+    const own = { preferred: [{ instanceId: "chatgpt", model: "gpt-5.5-mini" }] };
+    const battery = new AccountBattery({ config: () => config, accounts: () => off, now: () => NOW, preferred: () => undefined, pinned: () => true });
+    expect(battery.route(dog, off, "room")).toBe(dog);
+    expect(battery.route(dog, off, "room", own)).toEqual({ instanceId: "chatgpt", model: "gpt-5.5-mini" });
+    expect(battery.route(dog, off, "room", { ...own, pinned: true })).toBe(dog);
   });
 
   it("asks the battery for the dog's chosen model when the person moves it to another engine by hand", () => {

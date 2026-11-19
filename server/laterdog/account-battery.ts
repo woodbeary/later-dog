@@ -430,6 +430,10 @@ export function engineName(driverKind: string): string {
   return ENGINE_NAMES[driverKind] ?? driverKind;
 }
 
+export function recharges(account: BatteryAccount | undefined, rest: Rest | undefined): boolean {
+  return Boolean(account?.enabled && account.signedIn !== false && rest?.kind !== SETUP_STOP);
+}
+
 export function crossEngineNotice(
   from: BatteryAccount | undefined,
   to: BatteryAccount | undefined,
@@ -551,14 +555,14 @@ export function switchNotice(input: { to: string; from: string; rest?: Rest; now
 
 export function routedNotice(input: { to: string; from: string; rest?: Rest; why?: "signedOut" | "off"; now: number; timeZone?: string }): string {
   const { to, from, rest, now, timeZone } = input;
+  if (input.why === "off") return `Running on ${to} — ${from} is turned off.`;
+  if (input.why === "signedOut") return `Running on ${to} — ${from} isn't signed in.`;
   if (rest?.kind === SETUP_STOP && Date.parse(rest.until) > now) return `Running on ${to} — ${from} needs signing in again.`;
   if (rest && Date.parse(rest.until) > now) {
     return rest.estimated
       ? `Running on ${to} — ${from} is recharging, back around ${resetLabel(rest.until, now, timeZone)}.`
       : `Running on ${to} — ${from} is recharging, back ${resetPhrase(rest.until, now, timeZone)}.`;
   }
-  if (input.why === "signedOut") return `Running on ${to} — ${from} isn't signed in.`;
-  if (input.why === "off") return `Running on ${to} — ${from} is turned off.`;
   return `Running on ${to} instead of ${from}.`;
 }
 
@@ -570,10 +574,16 @@ export function carryOnNotice(name: string): string {
   return `Picking up where it stopped, on ${name}.`;
 }
 
+export interface BatteryDog {
+  preferred?: readonly ModelSelection[];
+  pinned?: boolean;
+}
+
 export interface AccountBatteryOptions {
   config: () => AccountBatteryConfig | undefined;
   accounts?: () => readonly BatteryAccount[];
   preferred?: (threadId: string | undefined) => readonly ModelSelection[] | undefined;
+  pinned?: (threadId: string) => boolean;
   file?: string;
   now?: () => number;
   planReset?: (instanceId: string, kind: string | undefined) => Promise<string | undefined>;
@@ -610,25 +620,26 @@ export class AccountBattery {
     return this.options.preferred?.(threadId);
   }
 
-  route(selection: ModelSelection, accounts: readonly BatteryAccount[], threadId?: string): ModelSelection {
+  route(selection: ModelSelection, accounts: readonly BatteryAccount[], threadId?: string, dog?: BatteryDog): ModelSelection {
     this.dropDisprovedRests();
-    return this.decide(selection, accounts, threadId).run;
+    return decideAccount(this.choiceInput(selection, accounts, threadId, dog)).run;
   }
 
   decide(selection: ModelSelection, accounts: readonly BatteryAccount[], threadId?: string): AccountChoice {
     return decideAccount(this.choiceInput(selection, accounts, threadId));
   }
 
-  private choiceInput(selection: ModelSelection, accounts: readonly BatteryAccount[], threadId: string | undefined): AccountChoiceInput {
-    const preferred = this.preferredFor(threadId);
+  private choiceInput(selection: ModelSelection, accounts: readonly BatteryAccount[], threadId: string | undefined, dog?: BatteryDog): AccountChoiceInput {
+    const preferred = dog ? dog.preferred : this.preferredFor(threadId);
     const handPicked = threadId ? this.chosen(threadId, selection, accounts) : undefined;
     const resting = this.resting(accounts);
     const current = threadId ? this.state.away[threadId]?.on ?? this.state.ran[threadId]?.on : undefined;
+    const pinned = dog ? dog.pinned === true : threadId ? this.options.pinned?.(threadId) === true : false;
     return {
       chosen: selection, accounts, keepGoing: this.enabled, resting, now: this.now(),
       order: batterySequence({ config: this.options.config(), accounts, resting, now: this.now() }),
       ...(this.options.usage ? { usage: this.options.usage } : {}), ...(current ? { current } : {}),
-      ...(handPicked ? { handPicked } : {}), ...(preferred ? { preferred } : {}),
+      ...(handPicked ? { handPicked } : {}), ...(preferred ? { preferred } : {}), ...(pinned ? { pinned } : {}),
     };
   }
 
@@ -906,10 +917,10 @@ export class AccountBattery {
     this.save();
     const from = find(selection.instanceId);
     const rest = from ? this.restOf(from, accounts, selection.model) : undefined;
-    const engines = rest && Date.parse(rest.until) > this.now() ? crossEngineNotice(from, find(ranOn), "Running") : undefined;
+    const engines = rest && Date.parse(rest.until) > this.now() && recharges(from, rest) ? crossEngineNotice(from, find(ranOn), "Running") : undefined;
     return engines ?? routedNotice({
       to: name(ranOn), from: name(selection.instanceId), rest,
-      why: from?.signedIn === false ? "signedOut" : from && !from.enabled ? "off" : undefined, now: this.now(),
+      why: from && !from.enabled ? "off" : from?.signedIn === false ? "signedOut" : undefined, now: this.now(),
     });
   }
 

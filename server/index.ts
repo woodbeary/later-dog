@@ -756,7 +756,7 @@ import { removalCandidateOf, replacementAccount, selectionMovedTo, type RemovalC
 import { forgetAccountFolder } from "./laterdog/account-folder.ts";
 import { newChatGptAccount } from "./laterdog/chatgpt-accounts.ts";
 import {
-  AccountBattery, BATTERY_DRIVERS, SETUP_STOP, CONTINUE_AFTER_SWITCH, CONTINUE_AFTER_RESET, carryOnNotice, checkBatteryConfig, crossEngineNotice, limitRowToReplace, planResetAt, selectionOnAccount, signedInReading, switchNotice, withoutAccount,
+  AccountBattery, BATTERY_DRIVERS, SETUP_STOP, CONTINUE_AFTER_SWITCH, CONTINUE_AFTER_RESET, carryOnNotice, checkBatteryConfig, crossEngineNotice, limitRowToReplace, planResetAt, recharges, selectionOnAccount, signedInReading, switchNotice, withoutAccount,
   type BatteryAccount, type BatteryRerun,
 } from "./laterdog/account-battery.ts";
 import { carriesOn, carryOnAfterReset, type CarryOnInput } from "./laterdog/carry-on.ts";
@@ -1066,11 +1066,8 @@ registerNativeBinDir();
 const accountBattery = new AccountBattery({
   config: () => cfg.accountBattery,
   accounts: batteryAccounts,
-  preferred: (threadId) => {
-    if (!threadId) return undefined;
-    const bot = store.botByThread(threadId) ?? store.bot(groupBatteryTurns.get(threadId)?.botId ?? "");
-    return bot?.fallback;
-  },
+  preferred: (threadId) => threadId ? batteryThreadBot(threadId)?.fallback : undefined,
+  pinned: (threadId) => batteryThreadBot(threadId)?.accountPinned === true,
   file: join(DATA_DIR, "account-battery.json"),
   planReset: async (instanceId, kind) => {
     const account = planAccountsFromInstances(instanceConfigs(cfg)).find((candidate) => candidate.id === instanceId);
@@ -1085,6 +1082,9 @@ const accountBattery = new AccountBattery({
   },
   onChange: () => broadcast({ kind: "config", ...configStatus() }),
 });
+function batteryThreadBot(threadId: string): BotRecord | null {
+  return store.botByThread(threadId) ?? store.bot(groupBatteryTurns.get(threadId)?.botId ?? "");
+}
 function threadChoice(threadId: string): ModelSelection | undefined {
   return store.botByThread(threadId) ? chatSelection(threadId) : undefined;
 }
@@ -1107,7 +1107,7 @@ function batteryAccounts(): BatteryAccount[] {
 }
 function onBatteryAccount<T extends BotRecord | null | undefined>(bot: T, threadId?: string): T {
   if (!bot || !accountBattery.routes(threadId)) return bot;
-  const modelSelection = accountBattery.route(bot.modelSelection, batteryAccounts(), threadId);
+  const modelSelection = accountBattery.route(bot.modelSelection, batteryAccounts(), threadId, { preferred: bot.fallback, pinned: bot.accountPinned === true });
   return modelSelection === bot.modelSelection ? bot : { ...bot, modelSelection };
 }
 const groupBatteryTurns = new Map<string, { botId: string; generation: string; selection: ModelSelection; pending: boolean }>();
@@ -3903,8 +3903,18 @@ const approvalModeForTurn = (bot: BotRecord, peerInitiated = false, threadId = b
   if (!supportsApprovalMode(bot.modelSelection, mode)) {
     return "ask";
   }
-  return mode;
+  return routedAcrossNeedsAsk(bot, threadId, mode) ? "ask" : mode;
 };
+
+function routedAcrossNeedsAsk(bot: BotRecord, threadId: string, mode: ApprovalMode): boolean {
+  const chosen = (store.projectBotForTask(bot.id, threadId) ?? store.bot(bot.id))?.modelSelection.instanceId;
+  if (!chosen) return false;
+  const routed = bot.modelSelection.instanceId !== chosen ? bot.modelSelection.instanceId : executionEvidence.runningFor(threadId, chosen);
+  if (!routed) return false;
+  const from = registry.cliTarget(chosen)?.driverKind;
+  const to = registry.cliTarget(routed)?.driverKind;
+  return from !== to && modelSwitchNeedsAsk(mode, from, to);
+}
 
 function ownerWorkspaceShared(): boolean {
   return workspaceShared({ hosted: HOSTED_WORKSPACE, cloudHome: Boolean(CLOUD_HOME), signIn: signInAllowList() });
@@ -6937,7 +6947,7 @@ function continueOnNextAccount(threadId: string, turnId: string | undefined, gen
     const toolRan = path.some((message) => message.kind === "activity" && message.turnId === turnId && Boolean(message.tool?.itemId));
     const newerWords = path.slice(at + 1).some((message) => message.role === "user");
     const name = (account: BatteryRerun["to"]) => account.displayName || account.instanceId;
-    const notice = { name: `recovery: ${crossEngineNotice(next.from, next.to, "Continuing") ?? switchNotice({ to: name(next.to), from: name(next.from), rest: next.rest, now: Date.now() })}`,
+    const notice = { name: `recovery: ${(recharges(next.from, next.rest) ? crossEngineNotice(next.from, next.to, "Continuing") : undefined) ?? switchNotice({ to: name(next.to), from: name(next.from), rest: next.rest, now: Date.now() })}`,
       ok: true, carry: { from: next.from.instanceId, to: next.to.instanceId } };
     const limitRow = limitRowToReplace(path, turn.requestMessageId) ?? path.findLast((message) => message.tool?.quota);
     if (limitRow) store.patchMessage(threadId, limitRow.id, { tool: notice });
@@ -10943,7 +10953,7 @@ async function runGroupMemberTurn(
   }
   if (isCancelled?.()) return false;
   const selectedBot = store.bot(bot.id);
-  const readyBot = onBatteryAccount(selectedBot);
+  const readyBot = onBatteryAccount(selectedBot, threadId);
   if (!readyBot || !selectedBot) return false;
   toolScopeForTurn(readyBot.id);
   const readyGroup = store.group(group.id);
@@ -11442,9 +11452,9 @@ async function runGroupMemberTurn(
     const routed = accountBattery.route(batteryTurn.selection, batteryAccounts(), threadId);
     const to = batteryAccounts().find((account) => account.instanceId === routed.instanceId);
     if (!from || !to) return false;
-    const notice = { name: `recovery: ${waited ? carryOnNotice(to.displayName || to.instanceId) : crossEngineNotice(from, to, "Continuing") ?? switchNotice({
-      to: to.displayName || to.instanceId, from: from.displayName || from.instanceId,
-      rest: accountBattery.restOf(from, batteryAccounts(), bot.modelSelection.model), now: Date.now(),
+    const rest = accountBattery.restOf(from, batteryAccounts(), bot.modelSelection.model);
+    const notice = { name: `recovery: ${waited ? carryOnNotice(to.displayName || to.instanceId) : (recharges(from, rest) ? crossEngineNotice(from, to, "Continuing") : undefined) ?? switchNotice({
+      to: to.displayName || to.instanceId, from: from.displayName || from.instanceId, rest, now: Date.now(),
     })}`, ok: true, carry: { from: from.instanceId, to: to.instanceId } };
     const limit = store.activePath(threadId).findLast((message) => message.tool?.quota && message.tool.ok === false);
     if (limit) store.patchMessage(threadId, limit.id, { tool: notice });
