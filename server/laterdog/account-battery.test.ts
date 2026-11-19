@@ -894,6 +894,15 @@ describe("keeping going across engines", () => {
     expect(recharges(accounts[0], { until: at(HOUR), since: at(0), kind: "setup" })).toBe(false);
   });
 
+  it("routes with the dog it is given rather than whichever dog the thread last ran, so every route of one turn lands the same", () => {
+    const off = accounts.map((candidate) => candidate.driverKind === "claudeAgent" ? { ...candidate, enabled: false } : candidate);
+    const own = { preferred: [{ instanceId: "chatgpt", model: "gpt-5.5-mini" }] };
+    const battery = new AccountBattery({ config: () => config, accounts: () => off, now: () => NOW, preferred: () => undefined, pinned: () => true });
+    expect(battery.route(dog, off, "room")).toBe(dog);
+    expect(battery.route(dog, off, "room", own)).toEqual({ instanceId: "chatgpt", model: "gpt-5.5-mini" });
+    expect(battery.route(dog, off, "room", { ...own, pinned: true })).toBe(dog);
+  });
+
   it("asks the battery for the dog's chosen model when the person moves it to another engine by hand", () => {
     const choice = [{ instanceId: "chatgpt", model: "gpt-5.5-mini" }];
     const preferred = vi.fn((threadId: string | undefined) => threadId === "thread-1" ? choice : undefined);

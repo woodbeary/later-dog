@@ -1107,7 +1107,7 @@ function batteryAccounts(): BatteryAccount[] {
 }
 function onBatteryAccount<T extends BotRecord | null | undefined>(bot: T, threadId?: string): T {
   if (!bot || !accountBattery.routes(threadId)) return bot;
-  const modelSelection = accountBattery.route(bot.modelSelection, batteryAccounts(), threadId);
+  const modelSelection = accountBattery.route(bot.modelSelection, batteryAccounts(), threadId, { preferred: bot.fallback, pinned: bot.accountPinned === true });
   return modelSelection === bot.modelSelection ? bot : { ...bot, modelSelection };
 }
 const groupBatteryTurns = new Map<string, { botId: string; generation: string; selection: ModelSelection; pending: boolean }>();
@@ -10943,7 +10943,7 @@ async function runGroupMemberTurn(
   }
   if (isCancelled?.()) return false;
   const selectedBot = store.bot(bot.id);
-  const readyBot = onBatteryAccount(selectedBot);
+  const readyBot = onBatteryAccount(selectedBot, threadId);
   if (!readyBot || !selectedBot) return false;
   toolScopeForTurn(readyBot.id);
   const readyGroup = store.group(group.id);

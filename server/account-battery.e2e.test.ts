@@ -696,6 +696,26 @@ it.each([false, true])("continues a room member automatically, including an all-
   });
 }, 90_000);
 
+it("carries a room member to its Backup model on another engine when its own accounts are switched off, without skipping its turn", async () => {
+  await withBatteryFixture({ crossProvider: true }, async (fixture) => {
+    const { api } = fixture;
+    const chat = await batteryBot(fixture, "Room off member");
+    await api("PATCH", `/api/bots/${chat.bot.id}`, { fallback: [{ instanceId: "codex-last", model: "gpt-page-two" }] });
+    const { group } = await api("POST", "/api/groups", {
+      name: "Off room", memberIds: [chat.bot.id], setup: { bulletin: "", defaultResponder: { kind: "member", botId: chat.bot.id } },
+    });
+    await switchOff(fixture, ["claude", "claude-two"]);
+    await api("POST", `/api/groups/${group.id}/messages`, { text: "ROOM_OFF_TO_CODEX" });
+    const rows = async () => (await api("GET", `/api/threads/${group.threadId}/messages?limit=100`)).messages;
+    await expect.poll(async () => lastReply(await rows())?.text, { timeout: 30_000, interval: 250 }).toBe("Finished on Codex");
+    expect(JSON.stringify(await rows())).not.toContain("settings changed while starting");
+    expect(JSON.stringify(fixture.thirdPrompts())).toContain("ROOM_OFF_TO_CODEX");
+    await expect.poll(() => readUsage(fixture.dataDir, { from: new Date(Date.now() - 86_400_000), to: new Date() })
+      .findLast((row) => row.threadId === group.threadId)?.execution, { timeout: 10_000 })
+      .toMatchObject({ selected: FIRST, dispatched: { instanceId: "codex-last", model: "gpt-page-two" } });
+  });
+}, 90_000);
+
 it("keeps queued words until the carried-on request finishes", async () => {
   await withBatteryFixture({ gated: true }, async (fixture) => {
     const chat = await batteryBot(fixture, "Queued battery");

@@ -574,6 +574,11 @@ export function carryOnNotice(name: string): string {
   return `Picking up where it stopped, on ${name}.`;
 }
 
+export interface BatteryDog {
+  preferred?: readonly ModelSelection[];
+  pinned?: boolean;
+}
+
 export interface AccountBatteryOptions {
   config: () => AccountBatteryConfig | undefined;
   accounts?: () => readonly BatteryAccount[];
@@ -615,21 +620,21 @@ export class AccountBattery {
     return this.options.preferred?.(threadId);
   }
 
-  route(selection: ModelSelection, accounts: readonly BatteryAccount[], threadId?: string): ModelSelection {
+  route(selection: ModelSelection, accounts: readonly BatteryAccount[], threadId?: string, dog?: BatteryDog): ModelSelection {
     this.dropDisprovedRests();
-    return this.decide(selection, accounts, threadId).run;
+    return decideAccount(this.choiceInput(selection, accounts, threadId, dog)).run;
   }
 
   decide(selection: ModelSelection, accounts: readonly BatteryAccount[], threadId?: string): AccountChoice {
     return decideAccount(this.choiceInput(selection, accounts, threadId));
   }
 
-  private choiceInput(selection: ModelSelection, accounts: readonly BatteryAccount[], threadId: string | undefined): AccountChoiceInput {
-    const preferred = this.preferredFor(threadId);
+  private choiceInput(selection: ModelSelection, accounts: readonly BatteryAccount[], threadId: string | undefined, dog?: BatteryDog): AccountChoiceInput {
+    const preferred = dog ? dog.preferred : this.preferredFor(threadId);
     const handPicked = threadId ? this.chosen(threadId, selection, accounts) : undefined;
     const resting = this.resting(accounts);
     const current = threadId ? this.state.away[threadId]?.on ?? this.state.ran[threadId]?.on : undefined;
-    const pinned = threadId ? this.options.pinned?.(threadId) === true : false;
+    const pinned = dog ? dog.pinned === true : threadId ? this.options.pinned?.(threadId) === true : false;
     return {
       chosen: selection, accounts, keepGoing: this.enabled, resting, now: this.now(),
       order: batterySequence({ config: this.options.config(), accounts, resting, now: this.now() }),
