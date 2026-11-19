@@ -28,7 +28,7 @@ const strings = (value: unknown): string[] =>
     : Array.isArray(value) ? value.flatMap(strings)
       : value && typeof value === "object" ? Object.values(value).flatMap(strings) : [];
 
-it("hands one step to the person, waits while they hold the screen, and picks the task back up on its own", async () => {
+it("hands one step to the person, keeps it theirs through a dropped screen, and picks the task back up only when they say they're done", async () => {
   const temp = mkdtempSync(join(tmpdir(), "laterdog-takeover-"));
   const gate = join(temp, "finish");
   const promptsLog = join(temp, "prompts.jsonl");
@@ -144,6 +144,20 @@ it("hands one step to the person, waits while they hold the screen, and picks th
     expect(prompts().filter((prompt) => prompt.includes("later.dog computer update"))).toEqual([]);
 
     await api("POST", `/api/bots/${pepper.id}/computer/control`, { action: "release" });
+    expect(await control(pepper)).toMatchObject({ held: false });
+    await new Promise((resolve) => setTimeout(resolve, 1_500));
+    expect((await cards(shop.threadId))[0].card.takeoverRequest.status).toBe("in-control");
+    expect(prompts().filter((prompt) => prompt.includes("later.dog computer update"))).toEqual([]);
+    expect((await bots()).find((entry) => entry.id === pepper.id)?.busy).toBe(false);
+    expect((await operatorWait(pepper, shop.threadId)).status).toBe("needs-user");
+    evidence.push({ afterDrop: { control: await control(pepper), card: (await cards(shop.threadId))[0].card.takeoverRequest } });
+
+    await api("POST", `/api/bots/${pepper.id}/computer/control`, { action: "take" });
+    expect(await control(pepper)).toMatchObject({ held: true });
+    expect((await cards(shop.threadId))[0].card.takeoverRequest.status).toBe("in-control");
+    expect(prompts().filter((prompt) => prompt.includes("later.dog computer update"))).toEqual([]);
+
+    expect(await api("POST", `/api/bots/${pepper.id}/takeover-cards/${signIn.id}/done`, { threadId: shop.threadId })).toEqual({ status: "done" });
     await settled(pepper, shop.threadId, "the person handed the screen back after \"Sign in to Tesco\"");
     expect((await cards(shop.threadId))[0].card.takeoverRequest.status).toBe("done");
     expect(await control(pepper)).toMatchObject({ held: false, helpReason: null });
