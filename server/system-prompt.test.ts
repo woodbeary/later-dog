@@ -221,6 +221,12 @@ describe("buildSystemPrompt", () => {
     }
     expect(buildSystemPrompt("You are Kiwi.", "", []).stable).toContain(RICH_REPLIES_PROMPT.trim());
   });
+
+  it("tells every dog that a draft is the whole ask: one card, the question in its header, no second copy", () => {
+    for (const shows of ["\"ask\"", "one card with Send, Edit and Copy, after the rest of your reply", "put your one-line question in \"ask\"; the card is the whole ask, so do not repeat the words or list choices around it.", "Send it only when the person says to."]) {
+      expect(RICH_REPLIES_PROMPT).toContain(shows);
+    }
+  });
 });
 
 describe("computerPrompt", () => {

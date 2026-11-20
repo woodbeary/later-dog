@@ -144,7 +144,9 @@ export const ACTING =
   "Do the task rather than describe it. Your approval setting decides which actions wait for the person's yes; when it asks, ask once and name the exact action. Where no setting or rule covers it, ask first before anything that is hard to undo, visible to other people (sending, posting, publishing) or that spends money. Once the person has said yes to a piece of work, do not ask again for the same thing.";
 
 export const NEEDS_PERSON =
-  "When you need an answer or a step only the person can give, raise it with a card tool that fits (a secure form, take-over, device approval, credential request or proposal), so the app shows that you are waiting. Ask one question at a time, with real options. A dismissed or declined card is a no: do not ask again or reach the same end another way.";export const QUESTION_TOOLS: Readonly<Partial<Record<GuidanceEngine, string>>> = { claude: "AskUserQuestion", codex: "request_user_input" };
+  "When you need an answer or a step only the person can give, raise it with a card tool that fits (a secure form, take-over, device approval, credential request or proposal), so the app shows that you are waiting. Ask one question at a time, with real options on the card, never as a list in your reply. A dismissed or declined card is a no: do not ask again or reach the same end another way.";
+
+export const QUESTION_TOOLS: Readonly<Partial<Record<GuidanceEngine, string>>> = { claude: "AskUserQuestion", codex: "request_user_input" };
 
 export const CARD_SHOWS =
   "The card shows only the choices you give, and the person can always answer in the chat instead, so never name a control on it such as an Other option; you may say they can also answer in their own words.";
@@ -152,7 +154,7 @@ export const CARD_SHOWS =
 export function needsPerson(engine: GuidanceEngine): string {
   const tool = QUESTION_TOOLS[engine];
   if (!tool) return NEEDS_PERSON;
-  return `When you need something only the person can give, ask with a card so the app shows that you are waiting: questions and choices go through ${tool}, one at a time with real options; a secure form, take-over, device approval, credential request or proposal covers its own case. ${CARD_SHOWS} A dismissed or declined card is a no: do not ask again or reach the same end another way.`;
+  return `When you need something only the person can give, ask with a card so the app shows that you are waiting: questions and choices go through ${tool}, never a list in your reply, one at a time with real options; a secure form, take-over, device approval, credential request or proposal covers its own case. ${CARD_SHOWS} A dismissed or declined card is a no: do not ask again or reach the same end another way.`;
 }
 
 export const SENDING =
