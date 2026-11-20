@@ -1,6 +1,6 @@
 import {
   closeTabsScript, forgetTabs, forgetUsers, listTabsScript, loadTabLedger, MAX_TABS_PER_COMPUTER, noteBrowserDown, parseTargets, recordTabs,
-  saveTabLedger, tabsAfterTurn, tabsOverCap, tabsToClose, tabToReuse, type Opened, type Owner, type TabChoice, type TabCloseReason, type TabLedger, type Target,
+  saveTabLedger, tabsAfterTurn, tabsOverCap, tabsToClose, tabToReuse, TURN_TIDY_TOOLS, type Opened, type Owner, type TabChoice, type TabCloseReason, type TabLedger, type Target,
 } from "./cloud-tabs.ts";
 import { readUpkeepReport, UPKEEP_REPORT } from "./computer-upkeep.ts";
 import type { ThreadState } from "./process-reaper.ts";
@@ -90,8 +90,8 @@ export class TabKeeper {
     return next;
   }
 
-  watch(owner: Owner, boxId: string): TabWatch {
-    this.#touch(owner, boxId);
+  watch(owner: Owner, boxId: string, tool?: string): TabWatch {
+    if (tool === undefined || TURN_TIDY_TOOLS.has(tool)) this.#touch(owner, boxId);
     return {
       choose: () => tabToReuse(this.ledger[boxId], owner, this.#deps.thread),
       seen: ({ before, after }, opened) => {

@@ -14842,7 +14842,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
           gate: () => computerCallGate(internalCapability),
           assertActive: requireActiveInternalCapability,
           secureForms: secureForms.desk(internalSender.id, internalCapability.threadId),
-          tabs: (boxId) => cloudTabs.watch({ botId: internalSender.id, threadId: internalCapability.threadId }, boxId),
+          tabs: (boxId, tool) => cloudTabs.watch({ botId: internalSender.id, threadId: internalCapability.threadId }, boxId, tool),
           vault: vaultItemsFor(internalCapability),
         }) });
       }

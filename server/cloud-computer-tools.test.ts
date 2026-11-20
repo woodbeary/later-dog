@@ -80,11 +80,11 @@ describe("cloud computer tools", () => {
     const result = await tools.cloudComputerRpc({ method: "tools/call", params: { name: "click", arguments: { x: 1, y: 2 } } }, {
       cfg, boxId: () => "bx_23456789", signal: new AbortController().signal,
       gate: async () => ({ held: false }), assertActive: () => {},
-      tabs: (boxId) => { boxes.push(boxId); return watch; },
+      tabs: (boxId, tool) => { boxes.push(`${boxId} ${tool}`); return watch; },
     }) as { content: Array<{ text: string }> };
     expect(calls[0].body.command).toContain("/json/list");
     expect(JSON.parse(result.content[0].text).stdout).toBe("clicked");
-    expect(boxes).toEqual(["bx_23456789"]);
+    expect(boxes).toEqual(["bx_23456789 click"]);
     expect(seen).toEqual([{ listing: { before: [{ id: "AAAA1111", url: "https://example.com/" }], after: [{ id: "AAAA1111", url: "https://example.com/" }] }, opened: null }]);
   });
 

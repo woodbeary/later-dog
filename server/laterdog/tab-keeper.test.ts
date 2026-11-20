@@ -210,6 +210,17 @@ describe("a dog's turn on its cloud computer", () => {
     expect(await without.keeper.turnEnded("a")).toEqual({ closed: 1, freedBytes: 0, stopped: 0 });
   });
 
+  it("sends nothing at the end of a turn that only looked at the screen, so the computer is left alone", async () => {
+    const { keeper, computer } = setup({ upkeep: () => "echo upkeep" });
+    for (const tool of ["screenshot", "zoom", "get_screen_size", "move", "scroll", "page_read", "page_text"]) keeper.watch(A, "box", tool);
+    expect(await keeper.turnEnded("a")).toEqual({ closed: 0, freedBytes: 0, stopped: 0 });
+    expect(computer.commands).toEqual([]);
+    expect(keeper.ledger).toEqual({});
+    keeper.watch(A, "box", "exec");
+    expect((await keeper.turnEnded("a")).freedBytes).toBe(2048 * 1024);
+    expect(computer.commands).toHaveLength(1);
+  });
+
   it("runs the end-of-turn upkeep after a turn that only ran commands, on a computer it never listed before", async () => {
     const { keeper, computer } = setup({ upkeep: () => "echo upkeep" });
     keeper.watch(A, "box");
