@@ -1133,3 +1133,20 @@ it("rewinds Claude to the last prompt and resends it changed with no trace of th
   expect(replay).not.toContain("ABANDONED_");
   expect(f.launches().at(-1).resume).toBeNull();
 }), 90_000);
+
+it("leaves a plan set during the dropped reply out of the edited branch's context and off the screen", () => fixture(async (f) => {
+  await warmUp(f, "KEEP_CONTEXT: work only in the test workspace.");
+  f.plan[f.chief.id] = { reply: "ABANDONED_REPLY", steps: [{ tool: "set_plan", arguments: { items: [{ text: "ABANDONED_PLAN_STEP", status: "in_progress" }] } }] };
+  await f.send("ABANDONED_REQUEST");
+  await f.wait();
+  const shownPlan = async () => (await f.api("/api/bots", undefined, "GET")).bots.find((b: any) => b.id === f.chief.id).tasks
+    .find((t: any) => t.threadId === f.thread).plan?.items ?? [];
+  expect((await shownPlan()).map((item: any) => item.text)).toEqual(["ABANDONED_PLAN_STEP"]);
+  const dropped = (await f.messages()).findLast((m: any) => m.role === "user");
+  f.plan[f.chief.id] = { reply: "Replacement accepted" };
+  f.save();
+  await f.cli("edit", "--bot", f.chief.id, "--message", dropped.id, "--task", f.thread, "--text", "REPLACEMENT_REQUEST");
+  await f.wait();
+  expect(f.prompt(f.turns().at(-1))).not.toContain("ABANDONED_");
+  expect(await shownPlan()).toEqual([]);
+}), 90_000);
