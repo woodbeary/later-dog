@@ -888,6 +888,7 @@ import { findAntigravityLeftovers, removeAntigravityLeftovers } from "./drivers/
 import { createLiveRoutes } from "./routes/live.ts";
 import { withScopeHint } from "./connector-scope-hint.ts";
 import { remoteEngineChoice, setEngineOpener, setRemoteEngineBot } from "./laterdog/engine-placement.ts";
+import { carryClaudeSession } from "./laterdog/session-carry.ts";
 import { createEnginePlacementRoutes } from "./routes/engine-placement.ts";
 import { computerEngineOpener } from "./laterdog/engine-opener.ts";
 
@@ -6961,7 +6962,7 @@ function continueOnNextAccount(threadId: string, turnId: string | undefined, gen
     if (limitRow) store.patchMessage(threadId, limitRow.id, { tool: notice });
     else store.appendMessage(threadId, { role: "bot", kind: "activity", tool: notice });
     accountBattery.takeTurn(threadId, generation);
-    accountBattery.noteSwitch(threadId, next.from.instanceId, next.to.instanceId);
+    accountBattery.noteSwitch(threadId, next.from.instanceId, next.to.instanceId, next.reason === SETUP_STOP ? "signIn" : "limit");
     console.info(`token battery: ${threadId} carrying on from ${next.from.instanceId} to ${next.to.instanceId}`);
     void turn.rerun(toolRan || newerWords ? CONTINUE_AFTER_SWITCH : null).catch((error) => {
       settleDirectFollowup(generation, { ok: false, text: String(error) });
@@ -8088,6 +8089,32 @@ function directContext(bot: BotRecord, threadId: string, messages: Message[]): C
   }));
 }
 
+function claudeConfigDirOf(instanceId: string): string | undefined {
+  const plan = planAccountsFromInstances(instanceConfigs(cfg)).find((account) => account.id === instanceId && account.driver === "claude");
+  if (!plan) return undefined;
+  try { return resolveClaudeConfigDir(plan.configDir, { ...process.env, ...plan.environment }); } catch { return undefined; }
+}
+
+function carrySessionAcross(botId: string, threadId: string, instance: NonNullable<ReturnType<typeof registry.get>>): void {
+  const task = store.taskByThread(botId, threadId);
+  const from = task?.lastInstanceId;
+  if (!task?.cwd || !from || from === instance.instanceId || task.rewound || instance.driverKind !== "claudeAgent" || registry.get(from)?.driverKind !== "claudeAgent") return;
+  const fromConfigDir = claudeConfigDirOf(from);
+  const toConfigDir = claudeConfigDirOf(instance.instanceId);
+  if (!fromConfigDir || !toConfigDir) return;
+  try {
+    const carried = carryClaudeSession({ sessionId: task.resumeCursors[from], cwd: task.cwd, fromConfigDir, toConfigDir });
+    if (!carried) return;
+    store.setResumeCursor(botId, instance.instanceId, carried.sessionId, threadId);
+    const handed = task.handedMessages?.[from];
+    if (handed) store.setHandedMessages(botId, threadId, instance.instanceId, handed);
+    store.markTaskDispatched(botId, threadId, instance.instanceId);
+    console.info(`[session-carry] ${threadId} keeps its whole conversation moving from ${from} to ${instance.instanceId}`);
+  } catch (error) {
+    console.warn(`[session-carry] ${threadId} could not carry its session to ${instance.instanceId}: ${error instanceof Error ? error.message : String(error)}`);
+  }
+}
+
 async function compactConversation(input: {
   bot: BotRecord; threadId: string; generation: string;
   instance: NonNullable<ReturnType<typeof registry.get>>; model: string;
@@ -8895,6 +8922,7 @@ async function startTurn(
         }
         if (!readiness.ready) throw new Error(readiness.reason ?? "The cloud computer is not ready");
       }
+      carrySessionAcross(bot.id, threadId, instance);
       await compactConversation({ bot, threadId, generation: dispatchClaimId, instance, model,
         excludedIds: new Set([userMessage.id, ...(opts?.excludeMessageIds ?? [])]), manual: opts?.compactOnly === true });
       if (!directTurnClaimIsCurrent(bot.id, dispatchClaimId, threadId)) throw new DirectTurnSetupCancelled("turn stopped during context setup");

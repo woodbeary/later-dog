@@ -7,7 +7,10 @@ export interface LiveReading {
   at: number;
   fiveHour?: LiveWindow;
   weekly?: LiveWindow;
+  paid?: boolean;
 }
+
+const PAID_OVERFLOW: ReadonlySet<unknown> = new Set(["allowed", "allowed_warning"]);
 
 const readings = new Map<string, LiveReading>();
 
@@ -27,19 +30,22 @@ function liveWindow(value: unknown): LiveWindow | undefined {
 }
 
 export function claudeLiveReading(info: unknown, now: number = Date.now()): LiveReading | null {
-  const windows = record(record(info)?.unifiedWindows);
-  if (!windows) return null;
-  const fiveHour = liveWindow(windows.five_hour);
-  const weekly = liveWindow(windows.seven_day);
-  if (!fiveHour && !weekly) return null;
-  return { at: now, ...(fiveHour ? { fiveHour } : {}), ...(weekly ? { weekly } : {}) };
+  const fields = record(info);
+  const overage = fields?.overageStatus;
+  const paid = overage === undefined ? undefined : PAID_OVERFLOW.has(overage);
+  const windows = record(fields?.unifiedWindows);
+  const fiveHour = windows ? liveWindow(windows.five_hour) : undefined;
+  const weekly = windows ? liveWindow(windows.seven_day) : undefined;
+  if (!fiveHour && !weekly && paid === undefined) return null;
+  return { at: now, ...(fiveHour ? { fiveHour } : {}), ...(weekly ? { weekly } : {}), ...(paid === undefined ? {} : { paid }) };
 }
 
 export function noteLiveReading(instanceId: string, reading: LiveReading | null): void {
   if (!instanceId || !reading) return;
   const known = readings.get(instanceId);
   if (known && known.at > reading.at) return;
-  readings.set(instanceId, { at: reading.at, fiveHour: reading.fiveHour ?? known?.fiveHour, weekly: reading.weekly ?? known?.weekly });
+  const paid = reading.paid ?? known?.paid;
+  readings.set(instanceId, { at: reading.at, fiveHour: reading.fiveHour ?? known?.fiveHour, weekly: reading.weekly ?? known?.weekly, ...(paid === undefined ? {} : { paid }) });
 }
 
 export function liveReading(instanceId: string): LiveReading | undefined {
