@@ -49,22 +49,26 @@ const PHRASES: Record<ActivityKind, string[]> = {
   working: ["Working on it"],
 };
 
-interface Fold { kinds: OutcomeKind[]; one: string; many: string }
+interface Told { single: string; many: string }
+interface Fold { kinds: OutcomeKind[]; one: string; told: Told; quiet?: true }
 const FOLDS: Fold[] = [
-  { kinds: ["edit"], one: "made a change", many: "made # changes" },
-  { kinds: ["command", "check", "cloud"], one: "tried something", many: "tried # things" },
-  { kinds: ["read"], one: "looked through one thing", many: "looked through # things" },
-  { kinds: ["wrote"], one: "wrote one thing", many: "wrote # things" },
-  { kinds: ["search", "chats"], one: "searched once", many: "searched # times" },
-  { kinds: ["web", "page", "open"], one: "looked something up", many: "looked up # things" },
-  { kinds: ["screen", "computer"], one: "looked at the screen", many: "looked at the screen # times" },
-  { kinds: ["team"], one: "asked a dog", many: "asked # dogs" },
-  { kinds: ["phone"], one: "used your iPhone", many: "used your iPhone # times" },
-  { kinds: ["delete"], one: "removed something", many: "removed # things" },
-  { kinds: ["dog"], one: "made a new dog", many: "made # new dogs" },
-  { kinds: ["note"], one: "made a note", many: "made # notes" },
-  { kinds: ["help"], one: "got some help", many: "got help # times" },
-  { kinds: ["tool"], one: "did something", many: "did # things" },
+  { kinds: ["edit"], one: "made a change", told: { single: "made 1 change", many: "made # changes" } },
+  { kinds: ["wrote"], one: "wrote one thing", told: { single: "wrote 1 new thing", many: "wrote # new things" } },
+  { kinds: ["delete"], one: "removed something", told: { single: "removed 1 thing", many: "removed # things" } },
+  { kinds: ["command", "cloud"], one: "tried something", told: { single: "tried 1 thing", many: "tried # things" } },
+  { kinds: ["read"], one: "looked through one thing", told: { single: "looked at 1 thing", many: "looked at # things" } },
+  { kinds: ["page", "open"], one: "looked something up", told: { single: "visited 1 page", many: "visited # pages" } },
+  { kinds: ["web"], one: "looked something up", told: { single: "searched the web once", many: "searched the web # times" } },
+  { kinds: ["search"], one: "searched once", told: { single: "searched once", many: "searched # times" } },
+  { kinds: ["chats"], one: "searched once", told: { single: "looked through past chats once", many: "looked through past chats # times" } },
+  { kinds: ["screen", "computer"], one: "looked at the screen", told: { single: "used the computer once", many: "used the computer # times" } },
+  { kinds: ["team"], one: "asked a dog", told: { single: "checked in with other dogs once", many: "checked in with other dogs # times" } },
+  { kinds: ["phone"], one: "used your iPhone", told: { single: "used your iPhone once", many: "used your iPhone # times" } },
+  { kinds: ["dog"], one: "made a new dog", told: { single: "made 1 new dog", many: "made # new dogs" } },
+  { kinds: ["note"], one: "made a note", told: { single: "made 1 note", many: "made # notes" } },
+  { kinds: ["help"], one: "got some help", told: { single: "got help once", many: "got help # times" } },
+  { kinds: ["check"], one: "tried something", told: { single: "checked a result once", many: "checked results # times" }, quiet: true },
+  { kinds: ["tool"], one: "did something", told: { single: "used 1 tool", many: "used # tools" }, quiet: true },
 ];
 
 const PAST = new Map([
@@ -155,16 +159,20 @@ export function goingWords(ms: number): string {
   return age ? `Going ${age}` : "Just started";
 }
 
+function toldCount(told: Told, count: number): string {
+  if (count === 1) return told.single;
+  if (count === 2 && told.many.endsWith("# times")) return told.many.replace("# times", "twice");
+  return told.many.replace("#", String(count));
+}
+
 export function foldSentence(counts: Partial<Record<OutcomeKind, number>>): string | null {
   const groups = FOLDS
     .map((fold, order) => ({ fold, order, count: fold.kinds.reduce((sum, kind) => sum + Math.max(0, counts[kind] ?? 0), 0) }))
     .filter(group => group.count > 0);
-  if (!groups.length) return null;
-  const named = [...groups].sort((a, b) => b.count - a.count || a.order - b.order).slice(0, 2).sort((a, b) => a.order - b.order);
-  const clauses = named.map(({ fold, count }) => count === 1 ? fold.one : fold.many.replace("#", String(count)));
-  const [first, second] = clauses;
-  if (first && second && /\bthings?$/.test(first) && /\bthings?$/.test(second)) clauses[1] = second.replace(/ things?$/, "");
-  return capitalised(clauses.join(", ") + (groups.length > named.length ? " and more" : ""));
+  const loud = groups.filter(group => !group.fold.quiet);
+  const shown = (loud.length ? loud : groups).sort((a, b) => b.count - a.count || a.order - b.order).slice(0, 2).sort((a, b) => a.order - b.order);
+  if (!shown.length) return null;
+  return capitalised(shown.map(({ fold, count }) => toldCount(fold.told, count)).join(" and "));
 }
 
 export function stepLabel(step: { outcome: OutcomeKind; state: "done" | "failed"; subject?: string; helperName?: string }): string {

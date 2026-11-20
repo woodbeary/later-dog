@@ -19,6 +19,19 @@ export interface SecureFormField {
 }
 
 export type SecureFormStatus = "open" | "sending" | "filled" | "expired" | "superseded";
+export const SECURE_FORM_RESULTS = ["signed_in", "next_step", "rejected"] as const;
+export type SecureFormResult = (typeof SECURE_FORM_RESULTS)[number];
+export type SecureFormOutcome = "signed-in" | "next-step";
+export type SecureFormVaultState = "pending" | "saved" | "unsure";
+export const SECURE_SITE_SAID_CHARS = 160;
+
+export interface SecureFormTry {
+  username?: string;
+  said?: string;
+  login?: string;
+  save?: true;
+  rejected?: true;
+}
 
 export interface SecureFormCardData {
   title: string;
@@ -26,7 +39,10 @@ export interface SecureFormCardData {
   fields: SecureFormField[];
   status: SecureFormStatus;
   until?: number;
-  saved?: { username: string };
+  saved?: { username: string; login?: string };
+  tried?: SecureFormTry;
+  outcome?: SecureFormOutcome;
+  vault?: SecureFormVaultState;
 }
 
 const SHARED_HOSTS = new Set([

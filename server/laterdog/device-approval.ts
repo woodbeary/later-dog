@@ -9,7 +9,7 @@ export const DEVICE_APPROVAL_CHECK_TIMEOUT_MS = 20_000;
 export const DEVICE_APPROVAL_CHECK_CHARS = 2_000;
 
 export const DEVICE_APPROVAL_PROMPT =
-  " For every device-code sign-in (gh auth login, wrangler login and the like), start the login in the background, then call request_device_approval and end the turn; you are woken when it is approved or expires. Never paste the url and code into chat and ask to be told when it is approved.";
+  " For every device-code sign-in (gh auth login, wrangler login and the like), start the login in the background, then call request_device_approval and end the turn; you are woken when it is approved, or when the person asks for a new code. A code that expires unused does not wake you: never refresh it yourself. Never paste the url and code into chat and ask to be told when it is approved.";
 export interface DeviceApprovalInput {
   service: string;
   url: string;
@@ -83,7 +83,7 @@ export function deviceApprovalRequestedText(card: DeviceApprovalCardData): strin
   return [
     `The person now sees a card to approve the ${card.service} sign-in${card.code ? ` with code ${card.code}` : ""}, with Copy and Open.`,
     `End this turn now with one short line, for example: "Tap Open, enter the code, and I'll carry on once it's approved." Do not repeat the url or code in chat.`,
-    `later.dog wakes you ${wake}, or when the code expires at ${new Date(card.expiresAt).toISOString()}.`,
+    `later.dog wakes you ${wake}. If the code expires at ${new Date(card.expiresAt).toISOString()} unused, you are not woken: the person asks for a new code when they are back, and you are woken then. Never refresh it yourself.`,
   ].join(" ");
 }
 

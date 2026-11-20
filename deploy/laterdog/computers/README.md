@@ -312,6 +312,34 @@ bar (`CommandLineFlagSecurityWarningsEnabled` false; `chromium-flags` still adds
 user namespaces, which Docker does and Cloudflare does not), no "Sign in to Chromium" prompt (`BrowserSignin` 0, sync
 off), no default-browser question, no promotional tabs, and no usage reporting.
 
+## A tidy computer
+
+later.dog's server keeps a dog's computer tidy through DevTools on `127.0.0.1:9339` and one command at the end of each
+turn (`server/laterdog/tab-keeper.ts`, `cloud-tabs.ts` and `computer-upkeep.ts`). The image adds only a cap on
+Chromium's disk cache.
+
+- **One tab per dog.** `open_url` and `page_open` open the page in the dog's own tab, the one it used last, or in a
+  blank tab on screen. They open a new tab only when the dog asks for one (`new_tab`, for two pages side by side) or has
+  no tab of its own yet, and never take over the person's tab, a page kept open or another working conversation's tab.
+  Without DevTools and Node on the computer, `open_url` falls back to `xdg-open`, which opens a new tab.
+- **Closed when the turn ends.** When a turn that used the computer ends, the server closes every tab that turn opened,
+  except the one on screen and pages the dog was told to leave open (`keep_open`). Nothing closes while the person
+  has control or a request for their help is open; the five-minute sweep closes what was left once they hand it back,
+  and the tabs of conversations that were closed, deleted or idle for six hours. A turn that did not use the computer,
+  or only looked at its screen, sends it nothing, so it still goes to sleep on time.
+- **At most four tabs.** After every call that can open a tab, past four the oldest idle tab a dog opened closes first,
+  then tabs nobody is known to have opened. Tabs the person opened while they had control, pages kept open and the
+  tab on screen never count against them.
+- **A lean machine.** In the same command as the turn-end tab listing, a later.dog computer empties Chromium's cache
+  folders once they pass 256 MB (through DevTools while Chromium runs, so open pages stay), removes downloads older
+  than a day and partial downloads older than an hour, the dog's files in `/tmp` untouched for a day and crash reports
+  older than a day, and stops a process of the dog's that has kept half a CPU or more busy for 30 minutes. It never
+  stops the desktop, Chromium or a `run_on_computer` job.
+- **The image.** `container/chromium-policy.json` sets `DiskCacheSize` to 100 MB, so the cache stays small between
+  turns too and adds little to a sleep's snapshot. Chromium reads the policy when it starts. A computer gets it with
+  the next image: a new computer, or `POST /computers/:id/update` for an existing one. A computer on an older image
+  keeps the end-of-turn trim.
+
 ## The idle policy (cost is the point)
 
 Activity is any API call that uses the computer (exec, files, screenshot, desktop link, wake) and any traffic from an open
@@ -589,7 +617,8 @@ ones with `wrangler containers images delete <image:tag>`.
   output capture, the idle policy and the free-trial rules. `test/exec-env.test.ts` covers exec's `env` (the rules,
   the merge, and that values stay out of the record, the logs and error bodies) and the `xlarge` size;
   `test/entrypoint.test.ts` covers the `ComputersApi` entrypoint and that the public route still needs the key.
-  `test/quit-browser.test.ts` covers Chromium quitting before the snapshot. `test/ready.test.ts` and `test/wake-readiness.test.ts` cover the screen answering, the desktop being drawn (and the two
+  `test/quit-browser.test.ts` covers Chromium quitting before the snapshot, and `test/chromium-policy.test.ts` the cache
+  cap and the session restore in the managed policy. `test/ready.test.ts` and `test/wake-readiness.test.ts` cover the screen answering, the desktop being drawn (and the two
   grace periods), screenshots waiting for it, and a desktop link while starting; `test/novnc.test.ts` checks the vendored
   noVNC against the import graph.
   `test/trial-flow.test.ts`, `test/trial-registry.test.ts` and those two also run the Worker's own request handling and Durable Object classes against in-memory stand-ins (`test/fakes.ts`:
@@ -643,6 +672,9 @@ Also not seen live yet, added after the last deploy and only unit tested against
   own logs (Workers Logs, container observability, the runtime) never record exec options.
 - The `xlarge` size (`standard-4`). Whether this account's Containers limits allow it was not checked.
 - The `ComputersApi` entrypoint and a service binding to it.
+- Cmd+V and Cmd+C in the viewer. `scripts/testing/desktop-screen-paste-ui.e2e.test.ts` runs this page and noVNC in
+  headless Chrome against a fake VNC server, with a stand-in for the Mac's clipboard. Not seen: x11vnc on a computer
+  taking the typed keys and the clipboard, and the later.dog app's screen window reading the Mac's real clipboard.
 
 Claude Haiku first has not run live: no Anthropic key is stored on the gateway yet and `ANTHROPIC_FIRST` is `0`. Only
 the fake-upstream tests cover it. Not verified: that the binding's universal `run()` picks up the gateway's stored
@@ -688,7 +720,15 @@ charges the trial back while it waits, and what the snapshots of trial computers
 - Any Worker on the account with a service binding to `ComputersApi` has the owner's full access, without a key.
 - An ended trial frees its key: the same key can start a new trial from another network, as a new key could.
 - The trial page is in English only.
-- The screen is fixed at 1280×800. No audio. No clipboard or file transfer in the viewer: use the API.
+- The screen is fixed at 1280×800. No audio. No file transfer in the viewer: use the API.
+- In the viewer, Cmd+V types the clipboard's text into the field that has focus on the computer (line breaks as
+  Shift+Return, so a terminal runs each line); text over 2000 keys goes on the computer's clipboard and is pasted with
+  Ctrl+V 300 ms later. A held Cmd+V pastes once, and nothing is pasted while the screen is not connected. Cmd+C copies
+  the text the computer last selected or copied while the viewer had focus. Clipboard text may be Latin-1 only in both
+  directions: noVNC falls back to it unless the VNC server takes UTF-8 (not checked), and other characters then become
+  `?`. Both need the browser's clipboard permission, which the later.dog app grants its screen window. Other Cmd
+  shortcuts reach the computer as noVNC sends them on a Mac, left Cmd as Alt and right Cmd as Super, except that after a
+  paste they are dropped until Cmd is let go. Typed text outside Latin-1 depends on the computer's keyboard map.
 - Files move 16 MB at a time. Command output keeps 1 MiB per stream.
 - Commands get the environment in `src/computer.ts` (`DOG_ENV`) plus `PATH`, not the image's other variables, plus the
   request's own `env` for that command.

@@ -2,6 +2,8 @@ export const DEVICE_APPROVAL_STATUSES = ["waiting", "approved", "expired", "ende
 export type DeviceApprovalStatus = (typeof DEVICE_APPROVAL_STATUSES)[number];
 export type DeviceApprovalWatch = "check" | "process" | "expiry";
 export type DeviceApprovalEndedBy = "check" | "process" | "person" | "expiry" | "dismissed" | "reply" | "replaced";
+export type DeviceApprovalRenew = "offered" | "asked";
+export type DeviceApprovalAction = "done" | "dismiss" | "renew";
 
 export interface DeviceApprovalCardData {
   version: 1;
@@ -12,6 +14,7 @@ export interface DeviceApprovalCardData {
   status: DeviceApprovalStatus;
   watching: DeviceApprovalWatch;
   endedBy?: DeviceApprovalEndedBy;
+  renew?: DeviceApprovalRenew;
 }
 
 export function isOpenDeviceApproval(card: Pick<DeviceApprovalCardData, "status">): boolean {
@@ -22,6 +25,6 @@ export function shownDeviceApprovalStatus(card: Pick<DeviceApprovalCardData, "st
   return card.status === "waiting" && card.expiresAt <= now ? "expired" : card.status;
 }
 
-export function deviceApprovalActionPath(botId: string, messageId: string, action: "done" | "dismiss"): string {
+export function deviceApprovalActionPath(botId: string, messageId: string, action: DeviceApprovalAction): string {
   return `/api/bots/${encodeURIComponent(botId)}/device-approvals/${encodeURIComponent(messageId)}/${action}`;
 }

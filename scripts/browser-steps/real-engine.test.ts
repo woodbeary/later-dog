@@ -72,7 +72,7 @@ describe("the real-engine browser-steps runner", () => {
     expect(off).toContain("zoom");
     expect(off).not.toContain("page_open");
     expect(on).toContain("page_open");
-    for (const left of ["exec", "request_secure_form", "fill_secure_field"]) expect(on).not.toContain(left);
+    for (const left of ["exec", "request_secure_form", "fill_secure_field", "secure_form_result"]) expect(on).not.toContain(left);
     scratch = mkdtempSync(join(tmpdir(), "laterdog-browser-steps-spec-"));
     const page = serverSpec("page", { engine: "", scratch, chromium: "/usr/bin/chromium", callLog: join(scratch, "calls"), port: 9555 }).spec as { args: string[]; env: Record<string, string> };
     expect(page.args.at(-1)).toMatch(/computer-tools-server\.ts$/);

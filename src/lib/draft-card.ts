@@ -6,6 +6,7 @@ export interface DraftCard {
   to: string[];
   cc: string[];
   subject?: string;
+  ask?: string;
   id?: string;
   body: string;
 }
@@ -56,8 +57,9 @@ export function draftCard(lang: string, source: string): DraftCard | null {
   const body = (data ? rest.join("\n") : source).trim().slice(0, MAX_BODY);
   if (!body) return null;
   const subject = line(data?.subject);
+  const ask = line(data?.ask);
   const id = line(data?.id, 80);
-  return { kind: "draft", via: via(data?.via), to: people(data?.to), cc: people(data?.cc), ...(subject ? { subject } : {}), ...(id ? { id } : {}), body };
+  return { kind: "draft", via: via(data?.via), to: people(data?.to), cc: people(data?.cc), ...(subject ? { subject } : {}), ...(ask ? { ask } : {}), ...(id ? { id } : {}), body };
 }
 
 export function draftsIn(text: string): DraftCard[] {

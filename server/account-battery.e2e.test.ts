@@ -30,7 +30,7 @@ interface BatteryFixture {
 }
 
 async function withBatteryFixture(
-  options: { enabled?: boolean; secondOutOfUsage?: boolean; afterTool?: boolean; resetsIn?: number; gated?: boolean; scripted?: boolean; delegateBeforeLimit?: boolean; crossProvider?: boolean; signedOut?: boolean; defaultEnabled?: boolean; synthetic?: "grokAgent"; slowFirst?: boolean; chiefHappy?: boolean },
+  options: { enabled?: boolean; secondOutOfUsage?: boolean; afterTool?: boolean; resetsIn?: number; gated?: boolean; scripted?: boolean; delegateBeforeLimit?: boolean; crossProvider?: boolean; signedOut?: boolean; defaultEnabled?: boolean; synthetic?: "grokAgent"; slowFirst?: boolean; chiefHappy?: boolean; sessions?: boolean; firstRateLimit?: unknown },
   check: (fixture: BatteryFixture) => Promise<void>,
 ) {
   const fixture = await launchVerificationServer({});
@@ -43,6 +43,7 @@ async function withBatteryFixture(
   const slowGate = join(dataDir, "slow-finish");
   const roomPlan = options.scripted ? { FAKE_CLAUDE_ROOM_PLAN: join(dataDir, "room-plan.json") } : {};
   const secondFile = join(dataDir, "account-2-prompts.jsonl");
+  const sessions = options.sessions ? { FAKE_CLAUDE_SESSION_WRITE: "1", FAKE_CLAUDE_SESSION_PROBE: join(dataDir, "session-probe.ndjson") } : {};
   const evidence: unknown[] = [{ url, options }];
   let server: ChildProcess | undefined;
   const api = async (method: string, path: string, body?: unknown, expectedStatus?: number) => {
@@ -70,6 +71,8 @@ async function withBatteryFixture(
       ...config.instances.claude, displayName: "Claude account 1",
       environment: {
         ...roomPlan,
+        ...sessions,
+        ...(options.firstRateLimit ? { FAKE_CLAUDE_RATE_LIMIT_INFO: JSON.stringify(options.firstRateLimit) } : {}),
         ...(options.delegateBeforeLimit ? { FAKE_CLAUDE_USAGE_LIMIT_ROOM_PLAN: join(dataDir, "room-plan.json") } : {}),
         ...(options.gated ? { FAKE_CLAUDE_USAGE_LIMIT_RELEASE: release } : {}),
         FAKE_CLAUDE_MODE: options.slowFirst ? "slow" : "usage-limit", FAKE_CLAUDE_SLOW_FINISH_GATE: slowGate, FAKE_CLAUDE_USAGE_LIMIT_GATE: gate, FAKE_CLAUDE_USAGE_RESETS_IN: String(options.resetsIn ?? 3_600),
@@ -83,6 +86,7 @@ async function withBatteryFixture(
       config: { cli, configDir: join(dataDir, "providers", "claude-two") },
       environment: {
         ...roomPlan,
+        ...sessions,
         FAKE_CLAUDE_MODE: options.secondOutOfUsage ? "usage-limit" : "happy", FAKE_CLAUDE_PROMPTS: secondFile, FAKE_CLAUDE_TOOL_CALLS: "[]",
         ...(options.signedOut ? { FAKE_CLAUDE_AUTH: "out" } : {}),
         FAKE_CLAUDE_REPLIES: JSON.stringify(["hello from account 2"]),
@@ -164,7 +168,7 @@ const heldForOff = { kind: "needs-you", what: "Turn Claude account 1 back on", h
 const repliesAfter = (rows: any[], text: string) =>
   rows.slice(rows.findIndex((row) => row.role === "user" && row.text === text)).filter((row) => row.role === "bot" && row.kind === "text");
 
-it("continues on account 2 with the conversation carried over, switches once, and comes back to account 1 after its reset", async () => {
+it("continues on account 2 with the conversation carried over, switches once, and stays there after account 1's reset until the person picks it", async () => {
   await withBatteryFixture({ resetsIn: 15 }, async (fixture) => {
     const { api, control, firstPrompts, secondPrompts, gate, bookedTo, evidence } = fixture;
     const chat = await batteryBot(fixture, "Battery switch");
@@ -208,20 +212,81 @@ it("continues on account 2 with the conversation carried over, switches once, an
 
     rmSync(gate);
     await expect.poll(async () => Object.keys((await api("GET", "/api/config")).accountBattery.resting), { timeout: 30_000, interval: 500 }).toEqual([]);
-    await chat.send("BACK_ON_FIRST_9S");
+    await chat.send("STAYS_ON_SECOND_9S");
+    await chat.settled((rows) => rows.at(-1)?.role === "bot" && secondPrompts().length === 3);
+    expect(firstPrompts()).toHaveLength(2);
+    expect((await api("GET", "/api/config")).accountBattery.routed[chat.threadId]).toMatchObject({ from: "claude", on: "claude-two" });
+    await api("PATCH", `/api/bots/${chat.bot.id}/tasks/${chat.threadId}`, { modelSelection: FIRST, updateBotDefault: true });
+    await chat.send("PICKED_FIRST_2V");
     await chat.settled((rows) => rows.at(-1)?.role === "bot" && firstPrompts().length === 3);
-    await chat.send("STAYS_ON_FIRST_2V");
-    await chat.settled((rows) => rows.at(-1)?.role === "bot" && firstPrompts().length === 4);
     const final = await chat.messages();
     evidence.push({ final });
-    expect(secondPrompts()).toHaveLength(2);
-    expect(final.filter((row) => row.tool?.name === "notice: Back on Claude account 1.")).toHaveLength(1);
+    expect(secondPrompts()).toHaveLength(3);
+    expect(final.some((row) => /^notice: (?:Back on|Running on) Claude account 1/.test(row.tool?.name ?? ""))).toBe(false);
     expect(switches(final)).toHaveLength(1);
     await expect.poll(() => bookedTo(chat.threadId), { timeout: 10_000 })
-      .toEqual(["claude", "claude", "claude-two", "claude-two", "claude", "claude"]);
+      .toEqual(["claude", "claude", "claude-two", "claude-two", "claude-two", "claude"]);
     await control("messages", "--bot", chat.bot.id, "--task", chat.threadId, "--limit", "30");
   });
 }, 120_000);
+
+it("keeps the whole native session when a Claude chat moves to another Claude account, with nothing replayed or summarized", async () => {
+  await withBatteryFixture({ sessions: true }, async (fixture) => {
+    const { gate, dataDir, secondPrompts, evidence } = fixture;
+    const chat = await batteryBot(fixture, "Battery session");
+    await chat.send("FIRST_HISTORY_4K");
+    await chat.settled((rows) => lastReply(rows)?.text === "hello from fake claude");
+    writeFileSync(gate, "out of usage");
+    await chat.send("MOVES_WITH_SESSION_5L");
+    await chat.settled((rows) => lastReply(rows)?.text === "hello from account 2");
+    const probe = jsonLines(join(dataDir, "session-probe.ndjson"));
+    evidence.push({ probe });
+    const turns = probe.filter((line) => line.sessionId !== "fake-session");
+    const onSecond = turns.filter((line) => String(line.configDir).endsWith("claude-two"));
+    expect(onSecond).toHaveLength(1);
+    expect(onSecond[0]).toMatchObject({ resume: true, sessionId: turns[0].sessionId });
+    expect(onSecond[0].sha256).toEqual(expect.any(String));
+    expect(promptText(secondPrompts()[0])).not.toContain("FIRST_HISTORY_4K");
+    const rows = await chat.messages();
+    expect(rows.some((row) => row.kind === "compaction")).toBe(false);
+    expect(switches(rows)).toHaveLength(1);
+  });
+}, 120_000);
+
+it("runs on an account past its plan only on paid usage it has, and says so once; without it, moves on and says why", async () => {
+  const resetsAt = Math.ceil(Date.now() / 1000) + 7_200;
+  const windows = { five_hour: { utilization: 1, resetsAt }, seven_day: { utilization: 0.4, resetsAt: resetsAt + 86_400 } };
+  await withBatteryFixture({ firstRateLimit: { status: "allowed_warning", rateLimitType: "five_hour", resetsAt, overageStatus: "allowed", isUsingOverage: true, unifiedWindows: windows } }, async (fixture) => {
+    const { firstPrompts, secondPrompts, evidence } = fixture;
+    const chat = await batteryBot(fixture, "Battery credits");
+    await chat.send("SEES_THE_READING_6M");
+    await chat.settled((rows) => lastReply(rows)?.text === "hello from fake claude");
+    await chat.send("RUNS_ON_CREDITS_7N");
+    await chat.settled((rows) => rows.at(-1)?.role === "bot" && firstPrompts().length === 2);
+    await chat.send("STILL_ON_CREDITS_8P");
+    await chat.settled((rows) => rows.at(-1)?.role === "bot" && firstPrompts().length === 3);
+    const rows = await chat.messages();
+    evidence.push({ credits: rows });
+    expect(secondPrompts()).toHaveLength(0);
+    expect(rows.filter((row) => String(row.tool?.name ?? "").startsWith("notice: Using credits on Claude account 1 — its 5-hour limit is used up until "))).toHaveLength(1);
+  });
+  await withBatteryFixture({ firstRateLimit: { status: "allowed", rateLimitType: "five_hour", resetsAt, overageStatus: "rejected", isUsingOverage: false, unifiedWindows: windows } }, async (fixture) => {
+    const { firstPrompts, secondPrompts, evidence } = fixture;
+    const chat = await batteryBot(fixture, "Battery no credits");
+    await chat.send("SEES_THE_READING_9Q");
+    await chat.settled((rows) => lastReply(rows)?.text === "hello from fake claude");
+    await expect.poll(async () => (await fixture.api("GET", "/api/instances")).instances.find((instance: any) => instance.instanceId === "claude-two")?.snapshot?.authenticated, { timeout: 20_000 }).toBe(true);
+    await expect.poll(async () => (await fixture.api("GET", "/api/config")).accountBattery.resting.claude?.kind, { timeout: 20_000 }).toBe("session");
+    await chat.send("MOVES_ON_10R");
+    await chat.settled((rows) => lastReply(rows)?.text === "hello from account 2");
+    const rows = await chat.messages();
+    evidence.push({ noCredits: rows });
+    expect(firstPrompts()).toHaveLength(1);
+    expect(secondPrompts()).toHaveLength(1);
+    expect(rows.filter((row) => /^notice: Running on Claude account 2 — Claude account 1 hit its 5-hour limit, resets (?:[A-Z][a-z]{2} \d{1,2} )?at \d{1,2}:\d\d [AP]M\.$/.test(row.tool?.name ?? ""))).toHaveLength(1);
+    expect(rows.some((row) => /Using credits/.test(row.tool?.name ?? ""))).toBe(false);
+  });
+}, 180_000);
 
 it("tells account 2 to continue, not redo, when a tool already ran on account 1", async () => {
   await withBatteryFixture({ afterTool: true }, async (fixture) => {
@@ -476,7 +541,7 @@ it("changes nothing while the battery is off, beyond reporting the limit as a fa
   });
 }, 120_000);
 
-it("continues on the account the person picks with the battery off, stays there while the first rests, then comes back", async () => {
+it("continues on the account the person picks with the battery off, and stays there after the first one's reset", async () => {
   await withBatteryFixture({ enabled: false, resetsIn: 25 }, async (fixture) => {
     const { api, firstPrompts, secondPrompts, gate, bookedTo, evidence } = fixture;
     const chat = await batteryBot(fixture, "Continue on");
@@ -508,13 +573,13 @@ it("continues on the account the person picks with the battery off, stays there 
 
     rmSync(gate);
     await expect.poll(async () => Object.keys((await api("GET", "/api/config")).accountBattery.resting), { timeout: 40_000, interval: 500 }).toEqual([]);
-    await chat.send("BACK_AFTER_PICK_6R");
-    await chat.settled((rows) => rows.at(-1)?.role === "bot" && firstPrompts().length === 2);
+    await chat.send("STILL_ON_PICK_6R");
+    await chat.settled((rows) => rows.at(-1)?.role === "bot" && secondPrompts().length === 3);
     const final = await chat.messages();
     evidence.push({ final });
-    expect(secondPrompts()).toHaveLength(2);
-    expect(final.filter((row) => row.tool?.name === "notice: Back on Claude account 1.")).toHaveLength(1);
-    await expect.poll(() => bookedTo(chat.threadId), { timeout: 10_000 }).toEqual(["claude", "claude-two", "claude-two", "claude"]);
+    expect(firstPrompts()).toHaveLength(1);
+    expect(final.some((row) => /^notice: (?:Back on|Running on) Claude account 1/.test(row.tool?.name ?? ""))).toBe(false);
+    await expect.poll(() => bookedTo(chat.threadId), { timeout: 10_000 }).toEqual(["claude", "claude-two", "claude-two", "claude-two"]);
   });
 }, 150_000);
 

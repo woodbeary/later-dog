@@ -43,6 +43,10 @@ describe("Account usage presentation", () => {
     expect(creditsLine(provider({ credits: { unlimited: true, balance: null } }))).toBe("Unlimited credits");
     expect(creditsLine(provider({ credits: { unlimited: false, balance: "0" } }))).toBeNull();
     expect(creditsLine(provider({ credits: { unlimited: false, balance: "unknown" } }))).toBeNull();
+    expect(creditsLine(provider({ credits: { unlimited: false, balance: "37.50", currency: "USD" } }))).toBe("$37.50 of extra usage left");
+    expect(creditsLine(provider({ credits: { unlimited: true, balance: null, currency: "USD" } }))).toBe("Extra usage on");
+    expect(creditsLine(provider({ credits: { unlimited: false, balance: null, currency: "USD" } }))).toBe("Extra usage on");
+    expect(creditsLine(provider({ credits: { unlimited: false, balance: "0", currency: "USD" } }))).toBeNull();
   });
 
   it.each([

@@ -940,8 +940,6 @@
   "takeover.failed": "未能完成，请重试。",
   "takeover.aria": "{name} 需要你在电脑上操作",
   "secureForm.caption": "安全表单",
-  "secureForm.filling": "正在填写",
-  "secureForm.filled": "已填写",
   "secureForm.notFilled": "未填写",
   "secureForm.replaced": "已替换",
   "secureForm.open": "打开",

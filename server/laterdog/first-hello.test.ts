@@ -17,14 +17,16 @@ function fixture(messages: { id: string; role: string; kind?: string; text?: str
 const seed = { id: "m1", role: "bot", kind: "text", text: "Hi, I'm Pepper. What would you like me to do?" };
 
 describe("the first dog speaks first", () => {
-  it("lets the dog greet in one warm message that guesses its purpose, then ask one tailored question", async () => {
+  it("keeps the greeting in the chat as the intro, then lets the dog guess its purpose in one warm message and ask one tailored question", async () => {
     const { deps, patched, started } = fixture([seed]);
     expect(await sayFirstHello(deps, "dog")).toEqual({ greeted: true, asked: true });
-    expect(patched).toEqual([{ id: "m1", text: "Hi Jacob, I'm Biscuit." }, { id: "m1", kind: "activity", text: "" }]);
+    expect(patched).toEqual([{ id: "m1", text: "Hi Jacob, I'm Biscuit." }]);
+    expect(patched.some((patch) => patch.kind === "activity" || patch.text === "")).toBe(false);
     expect(started).toHaveLength(1);
-    expect(started[0]).toContain("Say hello first, in one warm message");
-    expect(started[0]).toContain("greet Jacob by name");
-    expect(started[0]).toContain("say what you guess you are here for from your name, Biscuit");
+    expect(started[0]).toContain('The chat already shows your greeting, "Hi Jacob, I\'m Biscuit.", so do not greet or introduce yourself again.');
+    expect(started[0]).toContain("In one warm message of one or two sentences, say it is good to meet Jacob");
+    expect(started[0]).toContain("what you guess you are here for from your name, Biscuit");
+    expect(started[0]).not.toContain("Say hello first");
     expect(started[0]).toContain("Do not introduce yourself by name and do not add a second message");
     expect(started[0]).toContain("never generic ones such as Code and GitHub");
     expect(started[0]).toContain("Once they answer, start on what they asked right away");
@@ -33,11 +35,18 @@ describe("the first dog speaks first", () => {
     );
   });
 
+  it("still asks for a hello when the chat has no greeting of its own", () => {
+    const prompt = firstHelloPrompt("Jacob", "Biscuit");
+    expect(prompt).toContain("Say hello first, in one warm message");
+    expect(prompt).toContain("greet Jacob by name");
+    expect(prompt).not.toContain("already shows your greeting");
+  });
+
   it("tells the dog what the person said it is for, so the options fit that purpose", async () => {
     const { deps, started } = fixture([seed], true, "Email and calendar");
     expect(await sayFirstHello(deps, "dog")).toEqual({ greeted: true, asked: true });
     expect(started[0]).toContain('wrote what you are for: "Email and calendar"');
-    expect(started[0]).toContain("say what you guess you are here for from that purpose");
+    expect(started[0]).toContain("what you guess you are here for from that purpose");
     expect(firstHelloPrompt("Jacob", "Biscuit", "  ")).toContain("from your name, Biscuit");
   });
 

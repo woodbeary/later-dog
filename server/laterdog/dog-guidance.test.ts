@@ -151,11 +151,17 @@ describe("the guidance every dog gets", () => {
     for (const engine of ["claude", "codex", "other"] as const) expect(dogGuidance({ engine, agents: true, model: "x" })).toContain(HELPER_BRIEF);
   });
 
+  it("never offers choices as a list the person cannot tap, on any engine", () => {
+    expect(NEEDS_PERSON).toContain("with real options on the card, never as a list in your reply.");
+    for (const engine of ["claude", "codex"] as const) expect(needsPerson(engine)).toContain("never a list in your reply");
+    for (const engine of ["claude", "codex", "other"] as const) expect(dogGuidance({ engine, model: "x" })).toMatch(/never (?:as )?a list in your reply/);
+  });
+
   it("asks with a card, takes a no as final and sends exactly what was asked", () => {
     expect(NEEDS_PERSON).toMatch(/raise it with a card tool that fits .*, so the app shows that you are waiting/);
     expect(NEEDS_PERSON).toMatch(/one question at a time, with real options/);
     expect(NEEDS_PERSON).toMatch(/A dismissed or declined card is a no: do not ask again or reach the same end another way/);
-    expect(needsPerson("claude")).toMatch(/questions and choices go through AskUserQuestion, one at a time with real options; a secure form, take-over, device approval, credential request or proposal covers its own case/);
+    expect(needsPerson("claude")).toMatch(/questions and choices go through AskUserQuestion, never a list in your reply, one at a time with real options; a secure form, take-over, device approval, credential request or proposal covers its own case/);
     expect(needsPerson("codex")).toMatch(/questions and choices go through request_user_input/);
     expect(needsPerson("other")).toBe(NEEDS_PERSON);
     expect(CARD_SHOWS).toBe("The card shows only the choices you give, and the person can always answer in the chat instead, so never name a control on it such as an Other option; you may say they can also answer in their own words.");

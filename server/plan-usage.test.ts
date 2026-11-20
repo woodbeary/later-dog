@@ -116,15 +116,31 @@ describe("plan usage parsers", () => {
     expect(JSON.stringify(parsed)).not.toContain(SECRET);
   });
 
-  it("reads paid Codex credits, and leaves them out when there are none", () => {
+  it("reads paid Codex credits, says when there are none, and leaves them out when the reading does not say", () => {
     const windows = { primary_window: { used_percent: 0, limit_window_seconds: 18000, reset_at: 1_800_000_000 },
       secondary_window: { used_percent: 100, limit_window_seconds: 604800, reset_at: 1_800_000_000 } };
     expect(parseCodexUsage({ rate_limit: windows, credits: { has_credits: true, unlimited: false, balance: "42.5" } }).credits)
       .toEqual({ unlimited: false, balance: "42.5" });
     expect(parseCodexUsage({ rate_limit: windows, credits: { has_credits: false, unlimited: true, balance: null } }).credits)
       .toEqual({ unlimited: true, balance: null });
-    expect(parseCodexUsage({ rate_limit: windows, credits: { has_credits: false, unlimited: false, balance: "0" } }).credits).toBeUndefined();
+    expect(parseCodexUsage({ rate_limit: windows, credits: { has_credits: false, unlimited: false, balance: "0" } }).credits)
+      .toEqual({ unlimited: false, balance: "0" });
     expect(parseCodexUsage({ rate_limit: windows }).credits).toBeUndefined();
+  });
+
+  it("reads Claude's extra usage as credits: none when off, no cap as unlimited, else what is left of the monthly cap", () => {
+    const body = (extra_usage: unknown) => ({ five_hour: { utilization: 100, resets_at: "2026-11-20T09:20:00Z" }, seven_day: { utilization: 40 }, extra_usage });
+    expect(parseClaudeUsage(body({ is_enabled: false, monthly_limit: null, used_credits: null, utilization: null })).credits)
+      .toEqual({ unlimited: false, balance: "0", currency: "USD" });
+    expect(parseClaudeUsage(body({ is_enabled: true, monthly_limit: null, used_credits: 120, utilization: null })).credits)
+      .toEqual({ unlimited: true, balance: null, currency: "USD" });
+    expect(parseClaudeUsage(body({ is_enabled: true, monthly_limit: 5000, used_credits: 1250, utilization: 25, currency: "eur" })).credits)
+      .toEqual({ unlimited: false, balance: "37.50", currency: "EUR" });
+    expect(parseClaudeUsage(body({ is_enabled: true, monthly_limit: 5000, used_credits: 5000, utilization: 100 })).credits)
+      .toEqual({ unlimited: false, balance: "0.00", currency: "USD" });
+    expect(parseClaudeUsage(body(null)).credits).toBeUndefined();
+    expect(parseClaudeUsage({ five_hour: { utilization: 10 } }).credits).toBeUndefined();
+    expect(parseClaudeUsage(body({ is_enabled: false })).extra).toEqual([]);
   });
 
   it("keeps Codex model windows separate from the account plan", () => {

@@ -8,8 +8,9 @@ import { resetInstant } from "./usage-limit.ts";
 import type { ProviderSnapshot } from "../contracts.ts";
 import { checkUnknown } from "./cli-version.ts";
 import { NEARLY_EMPTY_PERCENT, roomTier } from "./account-spread.ts";
-import { choiceReadyAt, decideAccount, shownRoute, type AccountChoice, type AccountChoiceInput, type Ran } from "./account-choice.ts";
+import { choiceReadyAt, decideAccount, paysPastPlan, shownRoute, type AccountChoice, type AccountChoiceInput, type Blocked, type Ran } from "./account-choice.ts";
 import { SETUP_STOP, limitHit, modelLimitName, modelRestKey, restModel, restOwner, sameModel } from "./account-limits.ts";
+import { sameModelId } from "./model-change.ts";
 
 export { NEARLY_EMPTY_PERCENT, SETUP_STOP };
 
@@ -103,6 +104,7 @@ export interface BatteryStatus {
   modelResting: Record<string, ModelRestShown[]>;
   routed: Record<string, WireAccountRoute>;
   fromNextMessage: Record<string, WireAccountRoute>;
+  ranModel: Record<string, string>;
 }
 
 export interface ModelRestShown {
@@ -139,13 +141,15 @@ const stateSchema = z.object({
   resting: z.record(z.string(), restSchema).default({}),
   away: z.record(z.string(), z.object({
     from: z.string(), at: z.string(), to: z.string().optional(), ranOut: z.string().optional(), pick: z.string().optional(), on: z.string().optional(),
+    why: z.enum(["limit", "signIn", "signedOut", "off"]).optional(),
   })).default({}),
-  placed: z.record(z.string(), z.object({ on: z.string(), at: z.string(), from: z.string().optional() })).default({}),
+  placed: z.record(z.string(), z.object({ on: z.string(), at: z.string(), from: z.string().optional(), picked: z.string().optional() })).default({}),
   ran: z.record(z.string(), z.object({ on: z.string(), model: z.string(), at: z.string() })).default({}),
+  credited: z.record(z.string(), z.object({ on: z.string(), until: z.string() })).default({}),
 });
 type BatteryState = z.output<typeof stateSchema>;
 
-const emptyState = (): BatteryState => ({ version: 1, resting: {}, away: {}, placed: {}, ran: {} });
+const emptyState = (): BatteryState => ({ version: 1, resting: {}, away: {}, placed: {}, ran: {}, credited: {} });
 
 function readState(file: string | undefined): BatteryState {
   if (!file || !existsSync(file)) return emptyState();
@@ -544,13 +548,17 @@ const LIMIT_NAMES: ReadonlyMap<string, string> = new Map([
   ["session", "5-hour"], ["daily", "daily"], ["weekly", "weekly"], ["monthly", "monthly"],
 ]);
 
+function outOfUsage(name: string, rest: Rest | undefined, now: number, timeZone?: string): string {
+  const limit = (rest && restModel(rest)) ?? (rest?.kind ? LIMIT_NAMES.get(rest.kind) : undefined);
+  const known = rest && !rest.estimated && Date.parse(rest.until) > now ? rest.until : undefined;
+  if (limit) return `${name} hit its ${limit} limit${known ? `, resets ${resetPhrase(known, now, timeZone)}` : ""}`;
+  return `${name} is out of usage${known ? ` until ${resetLabel(known, now, timeZone)}` : " for now"}`;
+}
+
 export function switchNotice(input: { to: string; from: string; rest?: Rest; now: number; timeZone?: string }): string {
   const { to, from, rest, now, timeZone } = input;
   if (rest?.kind === SETUP_STOP) return `Switched to ${to} — ${from} needs signing in again.`;
-  const limit = (rest && restModel(rest)) ?? (rest?.kind ? LIMIT_NAMES.get(rest.kind) : undefined);
-  const known = rest && !rest.estimated && Date.parse(rest.until) > now ? rest.until : undefined;
-  if (limit) return `Switched to ${to} — ${from} hit its ${limit} limit${known ? `, resets ${resetPhrase(known, now, timeZone)}` : ""}.`;
-  return `Switched to ${to} — ${from} is out of usage${known ? ` until ${resetLabel(known, now, timeZone)}` : " for now"}.`;
+  return `Switched to ${to} — ${outOfUsage(from, rest, now, timeZone)}.`;
 }
 
 export function routedNotice(input: { to: string; from: string; rest?: Rest; why?: "signedOut" | "off"; now: number; timeZone?: string }): string {
@@ -558,20 +566,47 @@ export function routedNotice(input: { to: string; from: string; rest?: Rest; why
   if (input.why === "off") return `Running on ${to} — ${from} is turned off.`;
   if (input.why === "signedOut") return `Running on ${to} — ${from} isn't signed in.`;
   if (rest?.kind === SETUP_STOP && Date.parse(rest.until) > now) return `Running on ${to} — ${from} needs signing in again.`;
-  if (rest && Date.parse(rest.until) > now) {
-    return rest.estimated
-      ? `Running on ${to} — ${from} is recharging, back around ${resetLabel(rest.until, now, timeZone)}.`
-      : `Running on ${to} — ${from} is recharging, back ${resetPhrase(rest.until, now, timeZone)}.`;
-  }
+  if (rest && Date.parse(rest.until) > now) return `Running on ${to} — ${outOfUsage(from, rest, now, timeZone)}.`;
   return `Running on ${to} instead of ${from}.`;
 }
 
-export function backNotice(name: string): string {
-  return `Back on ${name}.`;
+export type LeftBecause =
+  | { why: "off" | "signedOut" | "signIn" }
+  | { why: "limit"; stay: string; state: "resting"; rest: Rest }
+  | { why: "limit"; stay: string; state: "off" | "signedOut" | "gone" | "credits" | "low" | "other" };
+
+export function homeNotice(input: { name: string; left?: LeftBecause; now: number; timeZone?: string }): string {
+  const { name, left, now, timeZone } = input;
+  if (!left) return `Running on ${name}, this dog's own account.`;
+  if (left.why !== "limit") return left.why === "off" ? `Running on ${name} — it's turned on again.` : `Running on ${name} — it's signed in again.`;
+  if (left.state === "resting") return `Running on ${name} — ${outOfUsage(left.stay, left.rest, now, timeZone)}.`;
+  if (left.state === "off") return `Running on ${name} — ${left.stay} is turned off.`;
+  if (left.state === "signedOut") return `Running on ${name} — ${left.stay} isn't signed in.`;
+  if (left.state === "credits") return `Running on ${name} — ${left.stay}'s plan is used up.`;
+  if (left.state === "low") return `Running on ${name} — ${left.stay} is nearly out of usage.`;
+  return `Running on ${name}, this dog's own account.`;
+}
+
+export function creditsNotice(input: { name: string; kind?: string; until: string; now: number; timeZone?: string }): string {
+  const { name, kind, until, now, timeZone } = input;
+  const limit = kind ? LIMIT_NAMES.get(kind) : undefined;
+  return `Using credits on ${name} — its ${limit ? `${limit} limit` : "plan"} is used up until ${resetLabel(until, now, timeZone)}.`;
 }
 
 export function carryOnNotice(name: string): string {
   return `Picking up where it stopped, on ${name}.`;
+}
+
+export function pastPlan(row: PlanProviderRow | undefined, now: number): { until: string; kind: string } | undefined {
+  if (!row?.ok || !creditsSpendable(row.credits)) return undefined;
+  const spent = [{ kind: "session", window: row.fiveHour }, { kind: "weekly", window: row.weekly }]
+    .filter(({ window }) => window.available && window.usedPercent !== null && window.usedPercent >= USED_UP_PERCENT && window.resetsAt && Date.parse(window.resetsAt) > now)
+    .sort((a, b) => Date.parse(b.window.resetsAt!) - Date.parse(a.window.resetsAt!))[0];
+  return spent ? { until: new Date(Date.parse(spent.window.resetsAt!)).toISOString(), kind: spent.kind } : undefined;
+}
+
+function joined(first: string | undefined, second: string | undefined): string | undefined {
+  return first && second ? `${first} ${second}` : first ?? second;
 }
 
 export interface BatteryDog {
@@ -635,17 +670,40 @@ export class AccountBattery {
     const resting = this.resting(accounts);
     const current = threadId ? this.state.away[threadId]?.on ?? this.state.ran[threadId]?.on : undefined;
     const pinned = dog ? dog.pinned === true : threadId ? this.options.pinned?.(threadId) === true : false;
+    const stay = threadId ? this.stayOn(threadId, selection) : undefined;
+    const pastPlan = threadId ? this.picksPastPlan(threadId, selection, accounts) : false;
     return {
       chosen: selection, accounts, keepGoing: this.enabled, resting, now: this.now(),
       order: batterySequence({ config: this.options.config(), accounts, resting, now: this.now() }),
       ...(this.options.usage ? { usage: this.options.usage } : {}), ...(current ? { current } : {}),
       ...(handPicked ? { handPicked } : {}), ...(preferred ? { preferred } : {}), ...(pinned ? { pinned } : {}),
+      ...(stay ? { stay } : {}), ...(pastPlan ? { pastPlan } : {}),
     };
+  }
+
+  private stayOn(threadId: string, selection: ModelSelection): string | undefined {
+    const away = this.state.away[threadId];
+    if (!away?.on || away.from !== selection.instanceId || away.on === selection.instanceId || (away.why ?? "limit") !== "limit") return undefined;
+    return away.on;
+  }
+
+  private picksPastPlan(threadId: string, selection: ModelSelection, accounts: readonly BatteryAccount[]): boolean {
+    const placed = this.state.placed[threadId];
+    if (!placed?.picked || placed.on !== selection.instanceId || !(Date.parse(placed.picked) > this.now())) return false;
+    const own = accounts.find((account) => account.instanceId === selection.instanceId);
+    return Boolean(own) && !activeRest(own!, selection.model, accounts, this.state.resting, this.now());
+  }
+
+  private pastPlanUntil(instanceId: string): string | undefined {
+    const accounts = this.options.accounts?.() ?? [];
+    const account = accounts.find((candidate) => candidate.instanceId === instanceId);
+    if (!account || activeRest(account, undefined, accounts, this.state.resting, this.now())) return undefined;
+    return this.restOf(account, accounts)?.until;
   }
 
   choose(threadId: string, ranOut: string, to: string, pick: string): void {
     const away = this.state.away[threadId];
-    this.state.away[threadId] = { from: away?.from ?? ranOut, at: new Date(this.now()).toISOString(), to, ranOut, pick, on: to };
+    this.state.away[threadId] = { from: away?.from ?? ranOut, at: new Date(this.now()).toISOString(), to, ranOut, pick, on: to, why: away?.why ?? "limit" };
     this.save();
   }
 
@@ -715,6 +773,11 @@ export class AccountBattery {
       delete this.state.ran[threadId];
       changed = true;
     }
+    for (const [threadId, told] of Object.entries(this.state.credited)) {
+      if (told.on !== instanceId) continue;
+      delete this.state.credited[threadId];
+      changed = true;
+    }
     for (const [threadId, away] of Object.entries(this.state.away)) {
       if (away.from === instanceId) delete this.state.away[threadId];
       else if (away.to === instanceId || away.ranOut === instanceId || away.on === instanceId) {
@@ -772,11 +835,13 @@ export class AccountBattery {
     }
     const routed: BatteryStatus["routed"] = {};
     const fromNextMessage: BatteryStatus["fromNextMessage"] = {};
+    const ranModel: BatteryStatus["ranModel"] = {};
     if (selectionOf) {
       const ran = new Map<string, Ran>(Object.entries(this.state.ran).map(([threadId, last]) => [threadId, { on: last.on, model: last.model }]));
       for (const [threadId, now] of running) ran.set(threadId, now);
       for (const [threadId, last] of ran) {
         const chosen = selectionOf(threadId);
+        if (chosen && last.on === chosen.instanceId && !sameModelId(last.model, chosen.model)) ranModel[threadId] = last.model;
         const shown = chosen ? shownRoute(this.decide(chosen, accounts, threadId), chosen, last) : undefined;
         if (!shown) continue;
         const { next, ...route } = shown;
@@ -788,7 +853,7 @@ export class AccountBattery {
     this.shownOrder = JSON.stringify({ order, sequence });
     this.shownResting = this.limitsKey(accounts);
     return { enabled: batteryEnabled(config, accounts), auto: config?.auto === true, order,
-      sequence, resting, modelResting, routed, fromNextMessage };
+      sequence, resting, modelResting, routed, fromNextMessage, ranModel };
   }
 
   noteReadings(accounts: readonly BatteryAccount[]): void {
@@ -889,10 +954,10 @@ export class AccountBattery {
     return turn && turn.generation === generation ? turn : undefined;
   }
 
-  noteSwitch(threadId: string, from: string, to: string): void {
+  noteSwitch(threadId: string, from: string, to: string, why: Blocked = "limit"): void {
     const away = this.state.away[threadId];
     if (away?.from === to) delete this.state.away[threadId];
-    else this.state.away[threadId] = away ? { ...away, on: to } : { from, at: new Date(this.now()).toISOString(), on: to };
+    else this.state.away[threadId] = away ? { ...away, on: to } : { from, at: new Date(this.now()).toISOString(), on: to, why };
     this.save();
   }
 
@@ -901,34 +966,74 @@ export class AccountBattery {
     const name = (instanceId: string) => find(instanceId)?.displayName || instanceId;
     const away = this.state.away[threadId];
     this.place(threadId, ranOn === selection.instanceId ? ranOn : undefined, selection.instanceId);
+    const paying = this.payingNotice(threadId, ranOn, name(ranOn));
     if (ranOn === selection.instanceId) {
-      if (this.takeBack(threadId, ranOn)) return backNotice(name(ranOn));
+      if (away?.from === ranOn && this.takeBack(threadId, ranOn)) {
+        return joined(homeNotice({ name: name(ranOn), left: this.leftBecause(away, selection, accounts), now: this.now() }), paying);
+      }
       if (away?.on !== undefined) {
         const { on: _on, ...kept } = away;
         this.state.away[threadId] = kept;
         this.save();
       }
-      return undefined;
+      return paying;
     }
-    if (away?.on === ranOn) return undefined;
-    this.state.away[threadId] = away?.from === selection.instanceId
-      ? { ...away, on: ranOn }
-      : { from: selection.instanceId, at: new Date(this.now()).toISOString(), on: ranOn };
-    this.save();
+    if (away?.on === ranOn) return paying;
     const from = find(selection.instanceId);
     const rest = from ? this.restOf(from, accounts, selection.model) : undefined;
+    const why: Blocked = from && !from.enabled ? "off" : from?.signedIn === false ? "signedOut" : rest?.kind === SETUP_STOP ? "signIn" : "limit";
+    this.state.away[threadId] = away?.from === selection.instanceId
+      ? { ...away, on: ranOn, why: away.why ?? why }
+      : { from: selection.instanceId, at: new Date(this.now()).toISOString(), on: ranOn, why };
+    this.save();
     const engines = rest && Date.parse(rest.until) > this.now() && recharges(from, rest) ? crossEngineNotice(from, find(ranOn), "Running") : undefined;
-    return engines ?? routedNotice({
+    return joined(engines ?? routedNotice({
       to: name(ranOn), from: name(selection.instanceId), rest,
       why: from && !from.enabled ? "off" : from?.signedIn === false ? "signedOut" : undefined, now: this.now(),
-    });
+    }), paying);
   }
 
-  private place(threadId: string, on: string | undefined, from: string): void {
+  private leftBecause(away: { on?: string; why?: Blocked }, selection: ModelSelection, accounts: readonly BatteryAccount[]): LeftBecause | undefined {
+    const why = away.why ?? "limit";
+    if (why !== "limit") return { why };
+    const stay = away.on ? accounts.find((account) => account.instanceId === away.on) : undefined;
+    const stayName = stay?.displayName || away.on;
+    if (!stay || !stayName) return stayName ? { why, stay: stayName, state: "gone" } : undefined;
+    const rest = this.restOf(stay, accounts, selection.model);
+    if (rest) return { why, stay: stayName, state: "resting", rest };
+    if (!stay.enabled) return { why, stay: stayName, state: "off" };
+    if (stay.signedIn === false) return { why, stay: stayName, state: "signedOut" };
+    const row = this.options.usage?.(stay.instanceId);
+    if (paysPastPlan(row, this.now())) return { why, stay: stayName, state: "credits" };
+    const left = percentLeft(row, this.now());
+    if (left !== undefined && left <= NEARLY_EMPTY_PERCENT) return { why, stay: stayName, state: "low" };
+    return { why, stay: stayName, state: "other" };
+  }
+
+  private payingNotice(threadId: string, ranOn: string, name: string): string | undefined {
+    const now = this.now();
+    const row = this.options.usage?.(ranOn);
+    const spent = pastPlan(row, now);
+    const told = this.state.credited[threadId];
+    if (!spent) {
+      if (told && (!(Date.parse(told.until) > now) || (told.on === ranOn && row?.ok === true))) {
+        delete this.state.credited[threadId];
+        this.persist();
+      }
+      return undefined;
+    }
+    if (told?.on === ranOn && told.until === spent.until) return undefined;
+    this.state.credited[threadId] = { on: ranOn, until: spent.until };
+    this.persist();
+    return creditsNotice({ name, kind: spent.kind, until: spent.until, now });
+  }
+
+  private place(threadId: string, on: string | undefined, from: string, picked?: string): void {
     const placed = this.state.placed[threadId];
-    if (placed?.on === on && placed?.from === from) return;
+    if (placed?.on === on && placed?.from === from && (!picked || placed.picked === picked)) return;
+    const kept = picked ?? (placed?.on === on ? placed?.picked : undefined);
     if (on === undefined) delete this.state.placed[threadId];
-    else this.state.placed[threadId] = { on, at: new Date(this.now()).toISOString(), from };
+    else this.state.placed[threadId] = { on, at: new Date(this.now()).toISOString(), from, ...(kept ? { picked: kept } : {}) };
     const all = Object.entries(this.state.placed);
     if (all.length > MAX_PLACED) {
       all.sort((a, b) => a[1].at.localeCompare(b[1].at));
@@ -950,15 +1055,16 @@ export class AccountBattery {
   }
 
   release(threadId: string): void {
-    if (!this.state.away[threadId] && !this.state.placed[threadId]) return;
+    if (!this.state.away[threadId] && !this.state.placed[threadId] && !this.state.credited[threadId]) return;
     delete this.state.away[threadId];
     delete this.state.placed[threadId];
+    delete this.state.credited[threadId];
     this.save();
   }
 
   pin(threadId: string, instanceId: string): void {
     delete this.state.away[threadId];
-    this.place(threadId, instanceId, instanceId);
+    this.place(threadId, instanceId, instanceId, this.pastPlanUntil(instanceId));
     this.save();
   }
 

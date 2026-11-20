@@ -121,4 +121,11 @@ describe("paired thread targets through an isolated HTTP fixture", () => {
     expect(spoofed.status).toBe(403);
     expect((await page(bot.threadId)).messages).toEqual(before.messages);
   });
+
+  it("answers an edit for a missing dog or task with an error and keeps serving", async () => {
+    const bot = (await api("POST", "/api/bots", { name: "Edit errors", modelSelection: selection(models[0]) })).body.bot;
+    expect((await api("POST", "/api/bots/no-such-dog/messages/no-such-message/edit", { text: "x" })).status).toBe(404);
+    expect((await api("POST", `/api/bots/${bot.id}/messages/no-such-message/edit`, { text: "x", threadId: "no-such-task" })).status).toBe(404);
+    expect((await botState(bot.id)).id).toBe(bot.id);
+  });
 });

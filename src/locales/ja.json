@@ -732,8 +732,6 @@
   "takeover.failed": "完了できませんでした。もう一度お試しください。",
   "takeover.aria": "{name} がコンピューターでの操作を待っています",
   "secureForm.caption": "安全な入力フォーム",
-  "secureForm.filling": "入力中",
-  "secureForm.filled": "入力済み",
   "secureForm.notFilled": "未入力",
   "secureForm.replaced": "置き換え済み",
   "secureForm.open": "開く",

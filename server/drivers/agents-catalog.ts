@@ -516,7 +516,7 @@ const TOOL_DEFINITIONS = [
   {
     name: "request_device_approval",
     description:
-      "For every device-code sign-in a CLI prints (codex login --device-auth, wrangler or cf login, gh auth login, tailscale up): start the login in the background, then call this instead of pasting the link and code into chat. The person gets a card with the code, Copy and Open. End the turn after calling; later.dog wakes you when check succeeds, the pid exits, they tap Approved, or the code expires.",
+      "For every device-code sign-in a CLI prints (codex login --device-auth, wrangler or cf login, gh auth login, tailscale up): start the login in the background, then call this instead of pasting the link and code into chat. The person gets a card with the code, Copy and Open. End the turn after calling; later.dog wakes you when check succeeds, the pid exits, they tap Approved, or they ask for a new code. An expired code does not wake you; never refresh one yourself.",
     inputSchema: {
       type: "object",
       additionalProperties: false,

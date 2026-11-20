@@ -92,6 +92,11 @@ export class ExecutionEvidenceTracker {
 
   cancel(threadId: string): void { this.pending.delete(threadId); }
 
+  dispatched(threadId: string): { on: string; model: string } | undefined {
+    const pending = this.pending.get(threadId);
+    return pending ? { on: pending.dispatched.instanceId, model: pending.dispatched.model } : undefined;
+  }
+
   ran(threadId: string): { on: string; model: string } | undefined {
     const pending = this.pending.get(threadId);
     return pending ? { on: pending.providerInstanceId, model: pending.reportedModel ?? pending.dispatched.model } : undefined;

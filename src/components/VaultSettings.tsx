@@ -128,7 +128,7 @@ export function VaultSettings() {
               <div className="min-w-0 flex-1">
                 <div className="truncate text-[13.5px] text-ink">{login.site}</div>
                 <div className="truncate text-[12px] text-ink-secondary">
-                  {[login.username || t("vault.noUsername"), login.note, login.usedAt ? t("vault.lastUsed", { when: relativeTime(login.usedAt) }) : null].filter(Boolean).join(" · ")}
+                  {[login.username || t("vault.noUsername"), login.note, login.workedAt ? t("vault.worked", { when: relativeTime(login.workedAt) }) : login.usedAt ? t("vault.lastUsed", { when: relativeTime(login.usedAt) }) : null].filter(Boolean).join(" · ")}
                 </div>
               </div>
               <button type="button" onClick={() => setEditing(login.id)} aria-label={t("vault.edit", { site: login.site })} className="ui-icon-button shrink-0">

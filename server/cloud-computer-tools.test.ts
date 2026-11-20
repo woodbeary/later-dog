@@ -2,6 +2,8 @@ import { createServer, type Server } from "node:http";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AppConfig } from "./config.ts";
 import type { SecureFormDesk } from "./laterdog/secure-form.ts";
+import type { Opened, Target } from "./laterdog/cloud-tabs.ts";
+import type { TabListing, TabWatch } from "./laterdog/tab-keeper.ts";
 
 const jpeg = "/9j/4AAQSkZJRgABAQEAYABgAAD/2wBDAAMCAgMCAgMDAwMEAwMEBQgFBQQEBQoHBwYIDAoMDAsKCwsNDhIQDQ4RDgsLEBYQERMUFRUVDA8XGBYUGBIUFRT/2wBDAQMEBAUEBQkFBQkUDQsNFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBT/wAARCAABAAEDASIAAhEBAxEB/8QAHwAAAQUBAQEBAQEAAAAAAAAAAAECAwQFBgcICQoL/8QAtRAAAgEDAwIEAwUFBAQAAAF9AQIDAAQRBRIhMUEGE1FhByJxFDKBkaEII0KxwRVS0fAkM2JyggkKFhcYGRolJicoKSo0NTY3ODk6Q0RFRkdISUpTVFVWV1hZWmNkZWZnaGlqc3R1dnd4eXqDhIWGh4iJipKTlJWWl5iZmqKjpKWmp6ipqrKztLW2t7i5usLDxMXGx8jJytLT1NXW19jZ2uHi4+Tl5ufo6erx8vP09fb3+Pn6/8QAHwEAAwEBAQEBAQEBAQAAAAAAAAECAwQFBgcICQoL/8QAtREAAgECBAQDBAcFBAQAAQJ3AAECAxEEBSExBhJBUQdhcRMiMoEIFEKRobHBCSMzUvAVYnLRChYkNOEl8RcYGRomJygpKjU2Nzg5OkNERUZHSElKU1RVVldYWVpjZGVmZ2hpanN0dXZ3eHl6goOEhYaHiImKkpOUlZaXmJmaoqOkpaanqKmqsrO0tba3uLm6wsPExcbHyMnK0tPU1dbX2Nna4uPk5ebn6Onq8vP09fb3+Pn6/9oADAMBAAIRAxEAPwD8qqKKKAP/2Q==";
 let server: Server;
@@ -49,38 +51,92 @@ const rpc = (request: unknown, gate: { held: boolean; blockedReason?: string } =
 };
 
 describe("cloud computer tools", () => {
-  it("lists the same fourteen tools for every engine", async () => {
+  it("lists the same fifteen tools for every engine", async () => {
     const listed = await rpc({ method: "tools/list", params: {} }).done as { tools: Array<{ name: string }> };
     expect(listed.tools.map(tool => tool.name)).toEqual([
       "screenshot", "get_screen_size", "zoom", "click", "move", "drag", "type_text", "key_press", "scroll", "run_actions", "open_url", "exec",
-      "request_secure_form", "fill_secure_field",
+      "request_secure_form", "fill_secure_field", "secure_form_result",
     ]);
     expect(calls).toEqual([]);
   });
 
-  it("lists the browser's tabs after a click and hands them over without showing them to the dog", async () => {
+  const watching = (doomed: string[] = []) => {
+    const seen: Array<{ listing: TabListing; opened: Opened | null | undefined }> = [];
+    const closed: Array<Target[] | null> = [];
+    const watch: TabWatch = {
+      choose: () => ({ target: "MINE0001", avoid: ["PERSON01"] }),
+      seen: (listing, opened) => { seen.push({ listing, opened }); return doomed; },
+      closed: (after) => { closed.push(after); },
+    };
+    return { watch, seen, closed };
+  };
+
+  it("lists the browser's tabs before and after a click and hands them over without showing them to the dog", async () => {
+    const before = JSON.stringify([{ id: "AAAA1111", type: "page", url: "https://example.com/" }]);
     const tabs = JSON.stringify([{ id: "AAAA1111", type: "page", url: "https://example.com/" }, { id: "BBBB2222", type: "browser_ui", url: "chrome://x" }]);
-    commandReply = { exitCode: 0, stdout: `clicked\n<<laterdog-tabs>>\n${tabs}`, stderr: "" };
-    const seen: unknown[] = [];
+    commandReply = { exitCode: 0, stdout: `${before}\n<<laterdog-tabs-before>>\nclicked\n<<laterdog-tabs>>\n${tabs}`, stderr: "" };
+    const { watch, seen } = watching();
+    const boxes: string[] = [];
     const result = await tools.cloudComputerRpc({ method: "tools/call", params: { name: "click", arguments: { x: 1, y: 2 } } }, {
       cfg, boxId: () => "bx_23456789", signal: new AbortController().signal,
       gate: async () => ({ held: false }), assertActive: () => {},
-      onTabs: (boxId, targets) => seen.push({ boxId, targets }),
+      tabs: (boxId, tool) => { boxes.push(`${boxId} ${tool}`); return watch; },
     }) as { content: Array<{ text: string }> };
     expect(calls[0].body.command).toContain("/json/list");
     expect(JSON.parse(result.content[0].text).stdout).toBe("clicked");
-    expect(seen).toEqual([{ boxId: "bx_23456789", targets: [{ id: "AAAA1111", url: "https://example.com/" }] }]);
+    expect(boxes).toEqual(["bx_23456789 click"]);
+    expect(seen).toEqual([{ listing: { before: [{ id: "AAAA1111", url: "https://example.com/" }], after: [{ id: "AAAA1111", url: "https://example.com/" }] }, opened: null }]);
   });
 
   it("leaves a dog's own commands and screenshots unwrapped", async () => {
-    const seen: unknown[] = [];
+    const { watch, seen } = watching();
     await tools.cloudComputerRpc({ method: "tools/call", params: { name: "exec", arguments: { command: "echo hi" } } }, {
       cfg, boxId: () => "bx_23456789", signal: new AbortController().signal,
       gate: async () => ({ held: false }), assertActive: () => {},
-      onTabs: (boxId, targets) => seen.push({ boxId, targets }),
+      tabs: () => watch,
     });
     expect(calls[0].body.command).not.toContain("/json/list");
     expect(seen).toEqual([]);
+  });
+
+  it("opens a page in the dog's own tab, and in a new one only when asked, then records which tab it used", async () => {
+    const commands: string[] = [];
+    const agent = (answer: Record<string, unknown>) => async (command: string) => {
+      commands.push(command);
+      return { ok: true, exitCode: 0, stdout: `[]\n<<laterdog-tabs-before>>\n${JSON.stringify(answer)}\n<<laterdog-tabs>>\n[{"id":"MINE0001","type":"page","url":"https://shop.test/"}]`, stderr: "" };
+    };
+    const payload = (command: string) => JSON.parse(Buffer.from(/'([A-Za-z0-9+/=]+)'; else nohup xdg-open/.exec(command)![1]!, "base64").toString("utf8"));
+    const own = watching();
+    const reused = await tools.runCloudComputerTool(cfg, "fixture", "open_url", { url: "https://shop.test/" }, new AbortController().signal, own.watch, undefined,
+      agent({ ok: true, text: "Page: Shop (https://shop.test/)", tab: "MINE0001", opened: false }));
+    expect(reused).toEqual({ content: [{ type: "text", text: "Page: Shop (https://shop.test/). Opened in your tab; take a screenshot to see it before acting." }] });
+    expect(payload(commands[0]!)).toMatchObject({ action: "go", url: "https://shop.test/", target: "MINE0001", avoid: ["PERSON01"] });
+    expect(payload(commands[0]!).fresh).toBeUndefined();
+    expect(commands[0]).toContain("else nohup xdg-open 'https://shop.test/'");
+    expect(own.seen[0]!.opened).toEqual({ id: "MINE0001", keep: false });
+    const beside = watching();
+    const fresh = await tools.runCloudComputerTool(cfg, "fixture", "open_url", { url: "https://cart.test/", new_tab: true, keep_open: true }, new AbortController().signal, beside.watch, undefined,
+      agent({ ok: true, text: "Page: Cart (https://cart.test/)", tab: "NEWTAB01", opened: true }));
+    expect((fresh.content[0] as { text: string }).text).toContain("Opened in a new tab");
+    expect(payload(commands[1]!)).toMatchObject({ action: "go", fresh: true });
+    expect(beside.seen[0]!.opened).toEqual({ id: "NEWTAB01", keep: true });
+    const refused = await tools.runCloudComputerTool(cfg, "fixture", "open_url", { url: "https://down.test/" }, new AbortController().signal, watching().watch, undefined,
+      agent({ ok: false, error: "The page did not open: net::ERR_NAME_NOT_RESOLVED", tab: "MINE0001" }));
+    expect(refused).toEqual({ isError: true, content: [{ type: "text", text: "The page did not open: net::ERR_NAME_NOT_RESOLVED" }] });
+  });
+
+  it("closes the tabs past the cap right after the call that opened one too many", async () => {
+    const commands: string[] = [];
+    const exec = async (command: string) => {
+      commands.push(command);
+      return { ok: true, exitCode: 0, stdout: command.includes("/json/close/") ? '[{"id":"KEEP0001","type":"page","url":"https://k.test/"}]' : '[]\n<<laterdog-tabs-before>>\n\n<<laterdog-tabs>>\n[{"id":"KEEP0001","type":"page","url":"https://k.test/"}]', stderr: "" };
+    };
+    const { watch, closed } = watching(["OLDTAB01", "OLDTAB02"]);
+    await tools.runCloudComputerTool(cfg, "fixture", "click", { x: 1, y: 1 }, new AbortController().signal, watch, undefined, exec);
+    expect(commands).toHaveLength(2);
+    expect(commands[1]).toContain("/json/close/OLDTAB01");
+    expect(commands[1]).toContain("/json/close/OLDTAB02");
+    expect(closed).toEqual([[{ id: "KEEP0001", url: "https://k.test/" }]]);
   });
 
   it.each([
@@ -252,6 +308,22 @@ describe("cloud computer tools", () => {
       open: vi.fn<SecureFormDesk["open"]>(() => ({ formId: "form-1" })),
       field: vi.fn<SecureFormDesk["field"]>(() => ({ ok: true, host: "example.com", label: "Password", value })),
       typed: vi.fn<SecureFormDesk["typed"]>(() => ({ last: true })),
+      result: vi.fn<SecureFormDesk["result"]>(() => ({ ok: true, text: "Noted: signed in on example.com. Carry on with the task." })),
+    });
+    const report = (args: Record<string, unknown>) => ({ method: "tools/call", params: { name: "secure_form_result", arguments: args } });
+
+    it("takes the dog's word on how the site answered, without the control gate or the computer", async () => {
+      const forms = desk();
+      const call = rpc(report({ form_id: "form-1", result: "rejected", site_said: "Incorrect password." }), { held: true }, undefined, forms);
+      expect(await call.done).toEqual({ content: [{ type: "text", text: "Noted: signed in on example.com. Carry on with the task." }] });
+      expect(forms.result).toHaveBeenCalledWith("form-1", "rejected", "Incorrect password.");
+      expect(call.gated()).toBe(0);
+      expect(calls).toEqual([]);
+      forms.result.mockReturnValueOnce({ ok: false, text: "The person has not filled in this form yet." });
+      expect(await rpc(report({ form_id: "form-1", result: "signed_in" }), { held: false }, undefined, forms).done)
+        .toEqual({ isError: true, content: [{ type: "text", text: "The person has not filled in this form yet." }] });
+      expect(await rpc(report({ form_id: "form-1", result: "maybe" }), { held: false }, undefined, forms).done).toMatchObject({ isError: true });
+      expect(await rpc(report({ form_id: "form-1", result: "signed_in" })).done).toEqual({ isError: true, content: [{ type: "text", text: SECURE_FORMS_UNAVAILABLE }] });
     });
 
     it("opens a form without the control gate or the Boat", async () => {

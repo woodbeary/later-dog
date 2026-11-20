@@ -26,6 +26,7 @@ export interface VaultLogin {
   createdBy?: string;
   updatedAt: number;
   usedAt?: number;
+  workedAt?: number;
 }
 
 export type VaultUnavailable = "cloud-only" | "unreadable";
@@ -62,6 +63,24 @@ export function vaultSite(raw: unknown): string | null {
   const tail = labels.slice(-2).join(".");
   if (!isSharedHost(tail)) return tail;
   return labels.length > 2 ? labels.slice(-3).join(".") : null;
+}
+
+export function vaultAccount(site: string, username: string): string {
+  return `${site}\n${username.toLowerCase()}`;
+}
+
+export function newestFirst(a: Pick<VaultLogin, "updatedAt" | "workedAt">, b: Pick<VaultLogin, "updatedAt" | "workedAt">): number {
+  return (b.workedAt ?? 0) - (a.workedAt ?? 0) || b.updatedAt - a.updatedAt;
+}
+
+export function oneRowPerAccount<T extends Pick<VaultLogin, "site" | "username" | "updatedAt" | "workedAt">>(logins: readonly T[]): T[] {
+  const best = new Map<string, T>();
+  for (const login of logins) {
+    const account = vaultAccount(login.site, login.username);
+    const kept = best.get(account);
+    if (!kept || newestFirst(login, kept) < 0) best.set(account, login);
+  }
+  return logins.filter((login) => best.get(vaultAccount(login.site, login.username)) === login);
 }
 
 export function vaultAllowKey(site: string): string {

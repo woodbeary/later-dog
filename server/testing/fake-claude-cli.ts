@@ -1,13 +1,14 @@
 #!/usr/bin/env node
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { appendFileSync, closeSync, existsSync, readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";
+import { appendFileSync, closeSync, existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { createPuppies } from "./fake-claude-puppies.ts";
 import { createNativeActivity } from "./fake-claude-native-activity.ts";
 import { runRoomHandoffAgent } from "./room-handoff-agent.ts";
 import { ASKS_COMMAND, ASKS_QUESTION, callDogTool, dogServer } from "./fake-claude-asks.ts";
+import { fakeDeviceApprovalPlan, playDeviceApprovalTurn } from "./fake-claude-device-approval.ts";
 import { answerControlRequest, fakeContextFrame, fakeContextMode, fakeRequestUsage } from "./fake-claude-context.ts";
 
 const mode = process.env.FAKE_CLAUDE_MODE ?? "happy";
@@ -268,7 +269,9 @@ if (["text", "json"].includes(argAfter("--output-format") ?? "")) {
 
 type JsonValue = string | number | boolean | null | JsonValue[] | { [key: string]: JsonValue };
 const sessionId = argAfter("--resume") ?? argAfter("--session-id") ?? "fake-session";
-const model = argAfter("--model") ?? "claude-fake";
+const refusalState = process.env.FAKE_CLAUDE_REFUSAL_STATE;
+const refusalFallback = process.env.FAKE_CLAUDE_REFUSAL_FALLBACK;
+let model = refusalFallback && refusalState && existsSync(refusalState) ? refusalFallback : argAfter("--model") ?? "claude-fake";
 const requestedPermissionMode = argAfter("--permission-mode") ?? "default";
 const autoUnavailableFor = (process.env.FAKE_CLAUDE_AUTO_UNAVAILABLE_MODELS ?? "").split(",").filter(Boolean);
 const permissionMode =
@@ -533,10 +536,24 @@ const playTurn = async (prompt: JsonValue, late = false) => {
   }
 
   out({ type: "system", subtype: "init", session_id: sessionId, model, permissionMode, tools });
+  if (process.env.FAKE_CLAUDE_RATE_LIMIT_INFO) {
+    out({ type: "rate_limit_event", rate_limit_info: JSON.parse(process.env.FAKE_CLAUDE_RATE_LIMIT_INFO), uuid: `fake-rate-${process.pid}`, session_id: sessionId });
+  }
+  if (process.env.FAKE_CLAUDE_SESSION_WRITE === "1") {
+    const folder = join(process.env.CLAUDE_CONFIG_DIR || join(homedir(), ".claude"), "projects", process.cwd().replace(/[^a-zA-Z0-9]/g, "-"));
+    mkdirSync(folder, { recursive: true });
+    appendFileSync(join(folder, `${sessionId}.jsonl`), `${JSON.stringify({ type: "user", session_id: sessionId, message: prompt })}\n`);
+  }
 
   if (lateContinuation && process.env.FAKE_CLAUDE_LATE_STEER_SILENT) {
     setInterval(() => {}, 1_000);
     return;
+  }
+  if (refusalFallback && refusalState && !existsSync(refusalState)) {
+    writeFileSync(refusalState, "flagged");
+    out({ type: "system", subtype: "model_refusal_fallback", trigger: "refusal", direction: "retry", scope: "session", original_model: model, fallback_model: refusalFallback,
+      api_refusal_category: "fixture", content: "The first model's safeguards flagged this session. The fallback model is answering instead.", session_id: sessionId, uuid: `fake-fallback-${process.pid}` });
+    model = refusalFallback;
   }
   replay(prompt);
 
@@ -790,6 +807,12 @@ const playTurn = async (prompt: JsonValue, late = false) => {
       clearInterval(poll);
       finish();
     }, 10);
+    return;
+  }
+  if (mode === "device-approval") {
+    launchFiles ??= readLaunchFiles();
+    const agents = (launchFiles.mcpConfig as { mcpServers?: Record<string, { command?: string; args?: string[]; env?: Record<string, string> }> } | null)?.mcpServers?.agents;
+    void playDeviceApprovalTurn({ agents, plan: fakeDeviceApprovalPlan(process.env), out, nextId: () => `tu-${process.pid}-${++toolUseCount}` }).finally(finish);
     return;
   }
   if (mode === "asks") {

@@ -730,8 +730,6 @@
   "takeover.failed": "Cela n'a pas abouti. Réessaie.",
   "takeover.aria": "{name} a besoin de toi sur l'ordinateur",
   "secureForm.caption": "Formulaire sécurisé",
-  "secureForm.filling": "Remplissage",
-  "secureForm.filled": "Rempli",
   "secureForm.notFilled": "Non rempli",
   "secureForm.replaced": "Remplacé",
   "secureForm.open": "Ouvrir",

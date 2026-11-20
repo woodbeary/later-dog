@@ -25,7 +25,7 @@ A text field, password, one-time code, card number or editable area shows only a
 
 ## The page tools and tabs
 
-`page_open` opens a new tab, brings it to the front and reads it; `page_open`, `page_click`, `page_press` and `page_back` report the browser's tabs through the same tab tracking `open_url` uses. The other page tools act on the tab in front, which is the one last opened or brought forward. A known limit: if the person or another task of the same dog brings a different tab forward, the next `page_read` or `page_click` acts on that tab, and a ref from the earlier page answers "No element … on this page; read the page again."
+`page_open` opens the page in the dog's own tab, the one it used last (or a blank tab on screen), brings it to the front and reads it; with `new_tab` it opens a new tab beside it instead, for two pages side by side. `page_open`, `page_click`, `page_press` and `page_back` report the browser's tabs through the same tab tracking `open_url` uses, and the tabs a turn opened close when it ends, except the one on screen (see "A tidy computer" in `deploy/laterdog/computers/README.md`). The other page tools act on the tab in front, which is the one last opened or brought forward. A known limit: if the person or another task of the same dog brings a different tab forward, the next `page_read` or `page_click` acts on that tab, and a ref from the earlier page answers "No element … on this page; read the page again."
 
 ## Where the page engine runs, and why
 

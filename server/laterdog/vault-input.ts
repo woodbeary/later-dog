@@ -1,4 +1,4 @@
-import type { VaultLogin } from "../../shared/vault.ts";
+import { oneRowPerAccount, type VaultLogin } from "../../shared/vault.ts";
 import type { SavedCredentials } from "./vault.ts";
 
 export interface VaultSource {
@@ -14,10 +14,10 @@ export function vaultInput(vault: VaultSource, asked: string): VaultInput {
   if (!want) return { ok: false, error: "vault_login needs the saved login's id or site." };
   const at = want.lastIndexOf("@");
   const byId = vault.list().filter((login) => login.kind !== "secret" && login.id === want);
-  const whole = byId.length ? byId : vault.matching(want);
+  const whole = byId.length ? byId : oneRowPerAccount(vault.matching(want));
   const site = whole.length || at <= 0 ? want : want.slice(at + 1);
-  const username = whole.length || at <= 0 ? undefined : want.slice(0, at);
-  const bySite = whole.length ? whole : vault.matching(site).filter((login) => !username || login.username === username);
+  const username = whole.length || at <= 0 ? undefined : want.slice(0, at).toLowerCase();
+  const bySite = whole.length ? whole : oneRowPerAccount(vault.matching(site)).filter((login) => !username || login.username.toLowerCase() === username);
   if (bySite.length !== 1) {
     const sites = [...new Set(vault.list().map((login) => login.site))].join(", ") || "none saved yet";
     return { ok: false, error: bySite.length
