@@ -61,6 +61,7 @@ Use only mapped, tested commands:
 - [Exact command allowlist UI and saved rules](command-allowlist.md)
 - [Peer approval denial, expiry, and cancellation](peer-approvals.md)
 - [Waiting for an occupied desktop](computer-wait.md)
+- [A tidy cloud computer: one tab, closed at turn end, a cap, a lean machine](tidy-computers.md)
 - [Chat UI, driven headlessly](chat-ui.md)
 - [Desktop performance, measured against a fixture](desktop-performance.md)
 - [Welcome flow](onboarding.md)
