@@ -716,13 +716,28 @@ describe("AccountBattery", () => {
     let now = NOW;
     const used: PlanProviderRow = { ok: true, fiveHour: { available: true, usedPercent: 100, remainingPercent: 0, resetsAt: at(HOUR) },
       weekly: { available: true, usedPercent: 20, remainingPercent: 80, resetsAt: at(90 * HOUR) }, extra: [], models: [] } as unknown as PlanProviderRow;
-    const instance = new AccountBattery({ config: () => ON, now: () => now, usage: (id) => (id === "claude" ? used : undefined) });
+    const instance = new AccountBattery({ config: () => ON, now: () => now, accounts: () => ACCOUNTS, usage: (id) => (id === "claude" ? used : undefined) });
     expect(instance.route(SELECTION, ACCOUNTS, "thread-1").instanceId).toBe("claude-b");
     instance.pin("thread-1", "claude");
     expect(instance.route(SELECTION, ACCOUNTS, "thread-1")).toBe(SELECTION);
     expect(instance.route(SELECTION, ACCOUNTS, "thread-2").instanceId).toBe("claude-b");
     now += 1_000;
     instance.markExhausted("claude", { resetsAt: at(HOUR), kind: "session" });
+    expect(instance.route(SELECTION, ACCOUNTS, "thread-1").instanceId).toBe("claude-b");
+  });
+
+  it("takes a pick as leave to go past the plan only when the account was past it at that moment, and only until its reset", () => {
+    let now = NOW;
+    const usage: Record<string, PlanProviderRow> = {};
+    const instance = new AccountBattery({ config: () => ON, now: () => now, accounts: () => ACCOUNTS, usage: (id) => usage[id] });
+    instance.pin("thread-1", "claude");
+    usage.claude = { ok: true, fiveHour: { available: true, usedPercent: 100, remainingPercent: 0, resetsAt: at(HOUR) },
+      weekly: { available: true, usedPercent: 20, remainingPercent: 80, resetsAt: at(90 * HOUR) }, extra: [], models: [] } as unknown as PlanProviderRow;
+    expect(instance.route(SELECTION, ACCOUNTS, "thread-1").instanceId).toBe("claude-b");
+    instance.pin("thread-1", "claude");
+    expect(instance.route(SELECTION, ACCOUNTS, "thread-1")).toBe(SELECTION);
+    now += HOUR + 1;
+    usage.claude = { ...usage.claude, fiveHour: { available: true, usedPercent: 100, remainingPercent: 0, resetsAt: at(3 * HOUR) } } as PlanProviderRow;
     expect(instance.route(SELECTION, ACCOUNTS, "thread-1").instanceId).toBe("claude-b");
   });
 
