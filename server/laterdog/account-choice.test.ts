@@ -88,13 +88,17 @@ describe("when the chosen account cannot run", () => {
     expect(decide({ resting, usage }).run.instanceId).toBe("anthony");
   });
 
-  it("counts paid credits as usage that is available, after accounts with plan room", () => {
+  it("never covers on paid credits by itself: an account past its plan stands in only when the person picks it", () => {
     const resting = { daniel: hold(HOUR) };
     const credited = reading("adam", 100, 100, { unlimited: false, balance: "42" });
     expect(roomOf(credited, NOW)).toEqual({ left: 0, credits: true });
     expect(roomOf(reading("adam", 100, 100, { unlimited: false, balance: "0" }), NOW).credits).toBe(false);
-    expect(decide({ resting, usage: (id) => id === "adam" ? credited : reading(id, 99) }).run.instanceId).toBe("adam");
+    expect(decide({ resting, usage: (id) => id === "adam" ? credited : reading(id, 99) }).run.instanceId).toBe("jacob");
     expect(decide({ resting, usage: (id) => id === "adam" ? credited : id === "jacob" ? reading(id, 50) : reading(id, 99) }).run.instanceId).toBe("jacob");
+    const pair = [claude("daniel"), claude("adam")];
+    const onlyCredits = { accounts: pair, resting, usage: (id: string) => id === "adam" ? credited : undefined };
+    expect(decide(onlyCredits)).toMatchObject({ kind: "waiting", blocked: "limit", run: ON_DANIEL });
+    expect(decide({ ...onlyCredits, handPicked: "adam" })).toMatchObject({ kind: "covering", byHand: true, run: { instanceId: "adam" } });
   });
 
   describe("which account covers, and when the one covering is left", () => {
@@ -104,15 +108,15 @@ describe("when the chosen account cannot run", () => {
     const accounts = [claude("daniel"), claude("adam"), claude("anthony"), claude("jacob")];
     const cover = (byId: Record<string, PlanProviderRow>, current?: string) => decide({ accounts, resting, usage: rows(byId), ...(current ? { current } : {}) }).run.instanceId;
 
-    it("chooses known plan room, then no reading, then paid credits only, then nearly empty", () => {
+    it("chooses known plan room, then no reading, then nearly empty, and never an account on paid credits only", () => {
       expect(cover({ adam: creditsOnly("adam"), anthony: reading("anthony", 99), jacob: reading("jacob", 50) })).toBe("jacob");
       expect(cover({ adam: creditsOnly("adam"), anthony: reading("anthony", 99) })).toBe("jacob");
-      expect(cover({ adam: creditsOnly("adam"), anthony: reading("anthony", 99), jacob: reading("jacob", 98) })).toBe("adam");
+      expect(cover({ adam: creditsOnly("adam"), anthony: reading("anthony", 99), jacob: reading("jacob", 98) })).toBe("jacob");
     });
 
-    it("leaves a cover on paid credits only for an account with known plan room", () => {
+    it("leaves a cover that is on paid credits only, for any account that can run on its plan", () => {
       expect(cover({ adam: creditsOnly("adam"), anthony: reading("anthony", 5, 10), jacob: reading("jacob", 99) }, "adam")).toBe("anthony");
-      expect(cover({ adam: creditsOnly("adam"), anthony: reading("anthony", 99) }, "adam")).toBe("adam");
+      expect(cover({ adam: creditsOnly("adam"), anthony: reading("anthony", 99) }, "adam")).toBe("jacob");
     });
 
     it("after a restart, keeps a cover with no reading while readings arrive as paid credits only, or even with room", () => {
@@ -121,9 +125,9 @@ describe("when the chosen account cannot run", () => {
       expect(cover({ adam: reading("adam", 10) }, "anthony")).toBe("anthony");
     });
 
-    it("leaves a nearly empty cover only for a better group", () => {
+    it("leaves a nearly empty cover only for a better group, and never for paid credits", () => {
       expect(cover({ adam: reading("adam", 98), anthony: reading("anthony", 96), jacob: reading("jacob", 97) }, "adam")).toBe("adam");
-      expect(cover({ adam: reading("adam", 98), anthony: creditsOnly("anthony"), jacob: reading("jacob", 97) }, "adam")).toBe("anthony");
+      expect(cover({ adam: reading("adam", 98), anthony: creditsOnly("anthony"), jacob: reading("jacob", 97) }, "adam")).toBe("adam");
     });
   });
 
@@ -143,13 +147,57 @@ describe("when the chosen account cannot run", () => {
     expect(decide({ resting, current: "adam", usage: readings({ adam: 2, anthony: 60 }) }).run.instanceId).toBe("anthony");
   });
 
-  it("goes back to the chosen account as soon as it can run again", () => {
+  it("goes back to the chosen account as soon as it can run again when nothing moved the chat for a limit", () => {
     expect(decide({ current: "anthony", resting: { daniel: hold(-1) } })).toEqual({ kind: "chosen", run: ON_DANIEL });
   });
 
   it("runs on an account the person picked by hand for this chat while the chosen one is out, on any engine", () => {
     const choice = decide({ resting: { daniel: hold(HOUR) }, handPicked: "chatgpt" });
     expect(choice).toMatchObject({ kind: "covering", byHand: true, run: { instanceId: "chatgpt", model: "gpt-6.1-sol" } });
+  });
+});
+
+describe("a chat moved for a limit stays where it runs", () => {
+  const without = (id: string, extra: Partial<BatteryAccount>) => ACCOUNTS.map((account) => account.instanceId === id ? { ...account, ...extra } : account);
+
+  it("keeps running on the account that covered once the chosen account is back, while that account has plan room", () => {
+    expect(decide({ stay: "anthony", usage: readings({ anthony: 60, daniel: 90 }) })).toEqual({ kind: "staying", run: { ...ON_DANIEL, instanceId: "anthony" }, chosen: "daniel" });
+    expect(decide({ stay: "anthony" }).run.instanceId).toBe("anthony");
+    expect(decide({ stay: "anthony", accounts: without("anthony", { signedIn: undefined }) }).kind).toBe("staying");
+  });
+
+  it("goes back to the chosen account when the one it stays on rests, is off, is signed out, would spend credits or is nearly out while the chosen has more", () => {
+    const home = { kind: "chosen", run: ON_DANIEL };
+    expect(decide({ stay: "anthony", resting: { anthony: hold(HOUR) } })).toEqual(home);
+    expect(decide({ stay: "anthony", accounts: without("anthony", { enabled: false }) })).toEqual(home);
+    expect(decide({ stay: "anthony", accounts: without("anthony", { signedIn: false }) })).toEqual(home);
+    expect(decide({ stay: "anthony", usage: (id) => id === "anthony" ? reading(id, 100, 100, { unlimited: false, balance: "9" }) : undefined })).toEqual(home);
+    expect(decide({ stay: "anthony", usage: readings({ anthony: 2, daniel: 80 }) })).toEqual(home);
+    expect(decide({ stay: "anthony", usage: readings({ anthony: 2, daniel: 3 }) }).kind).toBe("staying");
+  });
+
+  it("never stays on another engine, and covers as before while the chosen account still cannot run", () => {
+    expect(decide({ stay: "chatgpt" })).toEqual({ kind: "chosen", run: ON_DANIEL });
+    expect(decide({ stay: "anthony", resting: { daniel: hold(HOUR) }, usage: readings({ anthony: 60, jacob: 80 }), current: "anthony" }))
+      .toMatchObject({ kind: "covering", run: { instanceId: "anthony" }, blocked: "limit" });
+  });
+});
+
+describe("an account the person picked although its plan reading is used up", () => {
+  it("runs there, so a paid allowance the reading cannot see gets its chance, and still honours off and signed out", () => {
+    const resting = { daniel: hold(HOUR, { kind: "session" }) };
+    expect(decide({ resting, pastPlan: true })).toEqual({ kind: "chosen", run: ON_DANIEL });
+    expect(decide({ resting, pastPlan: true, accounts: ACCOUNTS.map((account) => account.instanceId === "daniel" ? { ...account, enabled: false } : account) }).kind)
+      .toBe("covering");
+  });
+
+  it("counts an account on paid credits only by its plan reset when a waiting chat asks when it can run", () => {
+    const resting = { daniel: hold(3 * HOUR), adam: hold(5 * HOUR), jacob: hold(5 * HOUR) };
+    const usage = (id: string) => id === "anthony" ? reading(id, 100, 10, { unlimited: true, balance: null }) : undefined;
+    const input = { chosen: ON_DANIEL, accounts: ACCOUNTS, keepGoing: true, resting, now: NOW, usage };
+    expect(decideAccount(input).kind).toBe("waiting");
+    expect(choiceReadyAt(input)).toBe(at(3 * HOUR));
+    expect(choiceReadyAt({ ...input, resting: { ...resting, daniel: hold(6 * HOUR) } })).toBe(at(4 * HOUR));
   });
 });
 
