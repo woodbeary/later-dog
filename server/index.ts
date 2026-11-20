@@ -270,6 +270,7 @@ import { withAccountLimits, type AccountUsageInput } from "./laterdog/account-us
 import { guidanceEngine, guidanceParts, homeKit, ROOM_TEAM_PROMPT, teammateTaskPrompt } from "./laterdog/dog-guidance.ts";
 import { codexHome } from "./drivers/codex-identity.ts";
 import { resolveClaudeConfigDir } from "./drivers/claude.ts";
+import { ModelChanges, modelBackNotice, modelChangeNotice, modelName as plainModelName, sameModelId } from "./laterdog/model-change.ts";
 import { createGitHubActivity } from "./github-activity.ts";
 import { createGitHubActivityRoutes } from "./routes/github-activity.ts";
 import { GroupUsageReader } from "./group-thread-usage.ts";
@@ -5603,6 +5604,11 @@ function requestBehavior(value: unknown): "allow" | "deny" | "answer" | null {
 
 const lastReply = new Map<string, string>();
 const sessionModelByThread = new Map<string, string>();
+const modelChanges = new ModelChanges();
+function shownModelName(instanceId: string | undefined, model: string): string {
+  const label = instanceId ? registry.get(instanceId)?.models.options.find((option) => sameModelId(option.id, model))?.label : undefined;
+  return plainModelName(model, label);
+}
 const nativeReviewNoticed = new Set<string>();
 const providerLabel = (provider: string): string => {
   const bare = provider.replace(/Agent$/, "");
@@ -7333,6 +7339,21 @@ bus.subscribe(guardTurnEnd((event: RuntimeEvent) => {
         store.setResumeCursor(bot.id, event.providerInstanceId, event.sessionId, event.threadId);
       }
       if (typeof event.model === "string" && event.model) sessionModelByThread.set(event.threadId, event.model);
+      {
+        const sent = executionEvidence.dispatched(event.threadId);
+        const engine = sent ? registry.get(sent.on) : undefined;
+        const watched = Boolean(sent && engine && (engine.driverKind === "claudeAgent" || engine.driverKind === "codex") &&
+          engine.models.options.some((option) => sameModelId(option.id, sent.model)));
+        const seen = watched ? modelChanges.started(event.threadId, sent!.model, event.model) : undefined;
+        if (seen?.kind === "changed") pushMessage({ role: "bot", kind: "activity", tool: { name: `notice: ${modelChangeNotice({ from: shownModelName(sent!.on, seen.from), to: shownModelName(sent!.on, seen.to), cause: "unavailable" })}`, ok: true } });
+        if (seen?.kind === "back") pushMessage({ role: "bot", kind: "activity", tool: { name: `notice: ${modelBackNotice(shownModelName(sent!.on, seen.model))}`, ok: true } });
+      }
+      break;
+    case "model.changed":
+      if (modelChanges.noted(event.threadId, { from: event.from, to: event.to })) {
+        const on = event.providerInstanceId ?? executionEvidence.dispatched(event.threadId)?.on;
+        pushMessage({ role: "bot", kind: "activity", tool: { name: `notice: ${modelChangeNotice({ from: shownModelName(on, event.from), to: shownModelName(on, event.to), cause: event.cause })}`, ok: true } });
+      }
       break;
     case "item.completed":
       if (event.itemType === "assistant_text") {

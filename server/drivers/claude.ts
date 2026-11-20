@@ -45,6 +45,7 @@ import {
 } from "./local-inject.ts";
 import { appendNative } from "./native.ts";
 import { claudeModelAnswered, claudeUsageLimit, rejectedRateLimit, type UsageLimit } from "../laterdog/usage-limit.ts";
+import { claudeModelChange } from "../laterdog/model-change.ts";
 import { claudeLiveReading, noteLiveReading } from "../laterdog/plan-readings.ts";
 import { chatEngineEnvironment } from "../laterdog/chat-environment.ts";
 import { claudeRefreshGate, claudeRefreshLockFrame, claudeRefreshLockResult, claudeSignInAgainMessage, retryClaudeRefreshLock, type RefreshLockState } from "../laterdog/claude-refresh-lock.ts";
@@ -1786,6 +1787,9 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
               emit({ ...base(threadId, currentTurnId()), type: "session.started", sessionId: o.session_id, model: o.model, ...(retry.rebuilt ? { rebuilt: true } : {}) });
             } else if (o.subtype === "thinking_tokens") {
               emit({ ...base(threadId, currentTurnId()), type: "item.updated", itemType: "reasoning", tokens: o.estimated_tokens });
+            } else if (o.subtype === "model_refusal_fallback") {
+              const change = claudeModelChange(o);
+              if (change) emit({ ...base(threadId, currentTurnId()), type: "model.changed", ...change });
             } else {
               const compaction = claudeCompactionEvent(o);
               if (compaction?.type === "session.compacted" && compaction.ok && !compaction.skipped) {
