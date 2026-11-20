@@ -7,6 +7,7 @@ import { parseToolScope, toolScopeWidens } from "../shared/tool-scope.ts";
 import { ensureSections, readSections, changeEmptySection, orderSections } from "./section-context.ts";
 import type { TeamComputers } from "./team-computers.ts";
 import { removeBotFolder, soulFile, soulHash, writeSoulMirror } from "./bot-folder.ts";
+import { loosePinRanks, pinnedInOrder, pinRankChange, rankedPins } from "./laterdog/pin-order.ts";
 import type { BotProfilePatch } from "./bot-profile.ts";
 import { peerAllowKey, type PeerAction } from "./peer-approval-key.ts";
 import { DATA_DIR, EVENTS_DIR, NATIVE_DIR, loadBrowserProfileIdAliases } from "./config.ts";
@@ -1568,6 +1569,21 @@ export class Store {
     this.emit({ type: "bot.deleted", botId: id });
     for (const g of rooms) this.emit({ type: "group", groupId: g.id });
     return true;
+  }
+
+  pinRankFor(id: string, pinned: unknown): Pick<Partial<BotRecord>, "pinRank"> {
+    const bot = this.bot(id);
+    if (pinned === true && bot && !bot.pinned) {
+      for (const [loose, rank] of loosePinRanks(this.bots)) this.patchBot(loose, { pinRank: rank });
+    }
+    return pinRankChange(bot, pinned, this.bots);
+  }
+
+  orderPins(order: readonly string[]): string[] {
+    for (const [id, rank] of rankedPins(this.bots, order)) {
+      if (this.bot(id)?.pinRank !== rank) this.patchBot(id, { pinRank: rank });
+    }
+    return pinnedInOrder(this.bots).map((bot) => bot.id);
   }
 
   patchBot(id: string, patch: Partial<BotRecord>): BotRecord | null {

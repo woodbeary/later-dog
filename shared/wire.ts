@@ -214,6 +214,7 @@ export interface WireBot {
   accountPinned?: boolean;
   rewound?: boolean;
   pinned?: boolean;
+  pinRank?: number;
   hidden?: boolean;
   section?: string;
   pinnedMessageId?: string;
