@@ -5,5 +5,6 @@
   "RestoreOnStartup": 1,
   "DefaultBrowserSettingEnabled": false,
   "PromotionalTabsEnabled": false,
-  "MetricsReportingEnabled": false
+  "MetricsReportingEnabled": false,
+  "DiskCacheSize": 104857600
 }

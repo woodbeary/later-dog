@@ -315,7 +315,8 @@ off), no default-browser question, no promotional tabs, and no usage reporting.
 ## A tidy computer
 
 later.dog's server keeps a dog's computer tidy through DevTools on `127.0.0.1:9339` and one command at the end of each
-turn (`server/laterdog/tab-keeper.ts`, `cloud-tabs.ts` and `computer-upkeep.ts`).
+turn (`server/laterdog/tab-keeper.ts`, `cloud-tabs.ts` and `computer-upkeep.ts`). The image adds only a cap on
+Chromium's disk cache.
 
 - **One tab per dog.** `open_url` and `page_open` open the page in the dog's own tab, the one it used last, or in a
   blank tab on screen. They open a new tab only when the dog asks for one (`new_tab`, for two pages side by side) or has
@@ -334,6 +335,10 @@ turn (`server/laterdog/tab-keeper.ts`, `cloud-tabs.ts` and `computer-upkeep.ts`)
   than a day and partial downloads older than an hour, the dog's files in `/tmp` untouched for a day and crash reports
   older than a day, and stops a process of the dog's that has kept half a CPU or more busy for 30 minutes. It never
   stops the desktop, Chromium or a `run_on_computer` job.
+- **The image.** `container/chromium-policy.json` sets `DiskCacheSize` to 100 MB, so the cache stays small between
+  turns too and adds little to a sleep's snapshot. Chromium reads the policy when it starts. A computer gets it with
+  the next image: a new computer, or `POST /computers/:id/update` for an existing one. A computer on an older image
+  keeps the end-of-turn trim.
 
 ## The idle policy (cost is the point)
 
@@ -612,7 +617,8 @@ ones with `wrangler containers images delete <image:tag>`.
   output capture, the idle policy and the free-trial rules. `test/exec-env.test.ts` covers exec's `env` (the rules,
   the merge, and that values stay out of the record, the logs and error bodies) and the `xlarge` size;
   `test/entrypoint.test.ts` covers the `ComputersApi` entrypoint and that the public route still needs the key.
-  `test/quit-browser.test.ts` covers Chromium quitting before the snapshot. `test/ready.test.ts` and `test/wake-readiness.test.ts` cover the screen answering, the desktop being drawn (and the two
+  `test/quit-browser.test.ts` covers Chromium quitting before the snapshot, and `test/chromium-policy.test.ts` the cache
+  cap and the session restore in the managed policy. `test/ready.test.ts` and `test/wake-readiness.test.ts` cover the screen answering, the desktop being drawn (and the two
   grace periods), screenshots waiting for it, and a desktop link while starting; `test/novnc.test.ts` checks the vendored
   noVNC against the import graph.
   `test/trial-flow.test.ts`, `test/trial-registry.test.ts` and those two also run the Worker's own request handling and Durable Object classes against in-memory stand-ins (`test/fakes.ts`:
