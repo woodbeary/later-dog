@@ -99,6 +99,30 @@ describe("PlanStore", () => {
     expect(new PlanStore(path).get("t2")).toBeUndefined();
   });
 
+  it("goes back to the plan the kept messages had after a rewind, and forward again on the old branch, across a restart", () => {
+    const path = join(scratch(), "dog-plans.json");
+    let now = 1;
+    const plans = new PlanStore(path, () => now);
+    plans.set("t1", [{ text: "kept step", status: "in_progress" }], "dog", "ask-1");
+    now = 2;
+    plans.set("t1", [{ text: "dropped step", status: "in_progress" }], "dog", "ask-2");
+    const kept = new Set(["ask-1", "reply-1", "ask-2b"]);
+    expect(plans.follow("t1", (id) => kept.has(id))).toBe(true);
+    expect(new PlanStore(path).get("t1")).toEqual({ items: [{ text: "kept step", status: "in_progress" }], updatedAt: 1 });
+    const old = new Set(["ask-1", "reply-1", "ask-2"]);
+    expect(new PlanStore(path).follow("t1", (id) => old.has(id))).toBe(true);
+    expect(new PlanStore(path).get("t1")?.items).toEqual([{ text: "dropped step", status: "in_progress" }]);
+  });
+
+  it("shows no plan after a rewind to before the first plan was set", () => {
+    const plans = new PlanStore(null);
+    plans.set("t1", [{ text: "dropped step", status: "pending" }], "dog", "ask-2");
+    expect(plans.follow("t1", (id) => id === "ask-1")).toBe(true);
+    expect(plans.get("t1")).toBeUndefined();
+    plans.set("t1", [{ text: "new step", status: "pending" }], "dog", "ask-2b");
+    expect(plans.get("t1")?.items).toEqual([{ text: "new step", status: "pending" }]);
+  });
+
   it("keeps only the most recently set chats", () => {
     const path = join(scratch(), "dog-plans.json");
     const plans = new PlanStore(path, Date.now, 2);

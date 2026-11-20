@@ -405,7 +405,7 @@ import { LiveCallController, LiveCallSignedOutError, type LiveSocket } from "./l
 import { toUtterances } from "./tts/speech-text.ts";
 import { turnStartLogLine } from "./turn-log.ts";
 import { makeCapContinuationSubscriber } from "./turn-continuation.ts";
-import { buildRecoveryText, buildTurnContext, engineIsFresh, NATIVELY_REPLAYING_DRIVER_KINDS, peerMessageText } from "./turn-context.ts";
+import { buildRecoveryText, buildTurnContext, engineIsFresh, peerMessageText, replaysTranscript } from "./turn-context.ts";
 import { Handoffs, handedStateUsable, recordHanded, renderUnseen, sessionStart, unseenMessages, withUnseenMessages, type ContextMessage } from "./delta-context.ts";
 import { extractTurnImages } from "./turn-images.ts";
 import { openingWordsTitle, threadTitlePrompt, titleConversationExcerpt, titleFromAnswer, type ThreadTitleSource } from "./thread-title.ts";
@@ -773,6 +773,8 @@ import { roomWorkFor } from "./laterdog/room-work.ts";
 import { WorkSignals } from "./laterdog/work-signals.ts";
 import { turnReceipt } from "./laterdog/turn-receipt.ts";
 import { terminalTurnPatch, turnResults } from "./laterdog/turn-results.ts";
+import { branchVersions, isPersonText } from "./laterdog/rewind.ts";
+import { answerRewind, createRewindRoutes, type RewindRouteDeps } from "./routes/rewind.ts";
 import { TurnTouches } from "./laterdog/turn-touches.ts";
 import { carryOnAfterRestart } from "./laterdog/carry-on-restart.ts";
 import { latestTurnAnswer, lookedAtImage, postTurnImage } from "./laterdog/turn-images.ts";
@@ -3733,8 +3735,14 @@ const planChanged = (threadId: string) => {
   if (bot) broadcast({ kind: "bot", bot: wireBot(bot) });
 };
 forgetDeletedChats(store, dogPlans);
+const planAnchor = (threadId: string) => store.activePath(threadId).findLast(isPersonText)?.id;
+const markRewound = (botId: string, threadId: string) => {
+  store.patchTask(botId, threadId, { rewound: true });
+  const kept = new Set(store.activePath(threadId).map((message) => message.id));
+  if (dogPlans.follow(threadId, (id) => kept.has(id))) planChanged(threadId);
+};
 enginePlans.listen((threadId, items) => {
-  dogPlans.set(threadId, items, store.botByThread(threadId)?.id);
+  dogPlans.set(threadId, items, store.botByThread(threadId)?.id, planAnchor(threadId));
   planChanged(threadId);
 });
 const liveSteps = liveStepsFrom(nativeRunDatabase);
@@ -8763,7 +8771,7 @@ async function startTurn(
   if (opts?.editedMessageId) {
     const edited = store.branchMessage(threadId, opts.editedMessageId, text, opts.sendId, opts.sender);
     if (!edited) throw Object.assign(new Error("only a user text message can be edited"), { status: 400 });
-    store.patchTask(bot.id, threadId, { rewound: true });
+    markRewound(bot.id, threadId);
     userMessage = opts.via ? store.patchMessage(threadId, edited.id, { via: opts.via }) ?? edited : edited;
   }
   if (!userMessage) {
@@ -8963,7 +8971,7 @@ async function startTurn(
           rewound,
           fresh: fresh || contextReset,
           externallyUpdated: Boolean(externalContextMarker) || handedStale,
-          replaysNatively: NATIVELY_REPLAYING_DRIVER_KINDS.includes(instance.driverKind),
+          replaysNatively: replaysTranscript(instance.adapter.capabilities),
         });
         const resumeCursor = resume ? task.resumeCursors[instanceId] : undefined;
         const recoveryIsReplay = resumeCursor !== undefined && externalUpdate && transcript.length > 0;
@@ -13637,6 +13645,35 @@ ROUTES.push(createHandoffContinueRoutes({
     if (offer) store.patchMessage(threadId, offer.id, { tool: continuingNoticeTool() });
   },
 }));
+const rewindRouteDeps: RewindRouteDeps = {
+  pinned: (req, auth, botId, threadId) => {
+    if (threadId === undefined && (auth.kind === "session" || req.headers["x-laterdog-companion"] === "1") && store.tasks(botId).length > 1) {
+      throw Object.assign(new Error("This dog has more than one thread. Update the later.dog app on this device, then choose a thread and try again."), { status: 409 });
+    }
+  },
+  bot: (botId, threadId) => requestedTaskBot(botId, threadId),
+  refusal: (auth, threadId) => cloudThreadRefusal(auth, threadId),
+  personText: (auth, bot, typed) => personCommand(auth, bot, typed).text,
+  localRefusal: EDIT_REFUSAL,
+  messages: (threadId) => store.messagesFor(threadId),
+  activePath: (threadId) => store.activePath(threadId),
+  busy: (botId, threadId) => threadBusy(botId, threadId),
+  savingSecret: (threadId) => phoneSecretSubmissions.hasThread(threadId),
+  rewindTo: (threadId, leafId) => store.rewindTo(threadId, leafId),
+  markRewound,
+  rerunRefusal: (bot) => {
+    const selection = turnSelection(bot.id, bot.threadId) ?? bot.modelSelection;
+    const instance = registry.get(selection.instanceId);
+    if (!instance) return `provider instance "${selection.instanceId}" is unavailable — pick another model in settings`;
+    return policyModelRefusal(instance) ?? null;
+  },
+  send: (auth, bot, source, text, sendId) => startTurn(bot.id, text, {
+    threadId: bot.threadId, editedMessageId: source.id, replyTo: resolveReplyTarget(bot.threadId, source.replyToId), sendId, trigger: usageTriggerFor(auth),
+    ...(fromLocalTools(auth) ? { via: "api" as const } : {}),
+    ...(CLOUD_HOME ? { sender: messageSender(auth) } : {}),
+  }),
+};
+ROUTES.push(createRewindRoutes(rewindRouteDeps));
 ROUTES.push(createContinueOnRoutes({
   mayPickEngine: (auth) => !auth.localTools && (auth.kind === "loopback" ? auth.trust !== "service" : cloudOwnerSession(auth)),
   task: requestedTaskBot,
@@ -13970,7 +14007,7 @@ INTERNAL_ROUTES.push(createReactRoute({
   active: (capability) => internalCapabilityIsActive(capability as InternalCapability),
 }));
 INTERNAL_ROUTES.push(createPlanRoute({
-  set: (threadId, items, botId) => dogPlans.set(threadId, items, botId),
+  set: (threadId, items, botId) => dogPlans.set(threadId, items, botId, planAnchor(threadId)),
   caller: (toolUseId) => enginePlans.callers.of(toolUseId, PLAN_CALLER_WAIT_MS),
   changed: planChanged,
   shown: (threadId) => !store.groupByThread(threadId),
@@ -16384,13 +16421,14 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       if (around) {
         const window = messageWindow(threadId, around, limit ?? DEFAULT_PAGE);
         if (!window) return json(res, 404, { error: "no such message" });
-        return json(res, 200, { ...window, activeLeafId: store.activeLeaf(threadId) });
+        return json(res, 200, { ...window, activeLeafId: store.activeLeaf(threadId), versions: branchVersions(store.messagesFor(threadId), store.activeLeaf(threadId)) });
       }
       if (before && !store.messagesFor(threadId).some((msg) => msg.id === before)) {
         return json(res, 404, { error: "no such message" });
       }
       const view = pageViewOf(url.searchParams);
-      return json(res, 200, { ...messagePage(threadId, limit ?? DEFAULT_PAGE, before, view), activeLeafId: store.activeLeaf(threadId) });
+      return json(res, 200, { ...messagePage(threadId, limit ?? DEFAULT_PAGE, before, view), activeLeafId: store.activeLeaf(threadId),
+        versions: branchVersions(store.messagesFor(threadId), store.activeLeaf(threadId)) });
     }
 
     m = path.match(/^\/api\/threads\/([\w-]+)\/messages\/([\w-]+)\/image$/);
@@ -18947,46 +18985,8 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
 
     m = path.match(/^\/api\/bots\/([\w-]+)\/messages\/([\w-]+)\/edit$/);
     if (m && method === "POST") {
-      const messageId = m[2];
       const body = await readBody(req);
-      requirePinnedClientThread(m[1], body?.threadId);
-      const bot = requestedTaskBot(m[1], body.threadId);
-      const notYours = cloudThreadRefusal(auth, bot.threadId);
-      if (notYours) return json(res, 403, { error: notYours });
-      const { text } = personCommand(auth, bot, String(body.text ?? "").trim());
-      if (!text) return json(res, 400, { error: "text required" });
-      const threadMessages = store.messagesFor(bot.threadId);
-      const source = threadMessages.find((msg) => msg.id === messageId);
-      if (!source || source.role !== "user" || source.kind !== "text") {
-        return json(res, 404, { error: "only user messages can be edited" });
-      }
-      if (fromLocalTools(auth) && source.via !== "api") return json(res, 403, { error: EDIT_REFUSAL });
-      const sendId = parseSendId(body.sendId);
-      if (sendId) {
-        const accepted = acceptedSendMatch(threadMessages, sendId, text, source.replyToId);
-        if (accepted.kind === "conflict" || (accepted.kind === "match" && (accepted.message.parentId ?? null) !== (source.parentId ?? null))) {
-          return json(res, 409, { error: "sendId already belongs to another message" });
-        }
-        if (accepted.kind === "match") return json(res, 202, { ok: true, message: accepted.message });
-      }
-      if (threadBusy(bot.id, bot.threadId)) return json(res, 409, { error: "the thread is working — stop it before editing" });
-      if (phoneSecretSubmissions.hasThread(bot.threadId)) {
-        return json(res, 409, { error: "this task is securely saving a credential — try again when it finishes" });
-      }
-      const rerunSelection = turnSelection(bot.id, bot.threadId) ?? bot.modelSelection;
-      if (!registry.get(rerunSelection.instanceId)) {
-        return json(res, 409, {
-          error: `provider instance "${rerunSelection.instanceId}" is unavailable — pick another model in settings`,
-        });
-      }
-      const rerunInstance = registry.get(rerunSelection.instanceId)!;
-      const rerunRefusal = policyModelRefusal(rerunInstance);
-      if (rerunRefusal) return json(res, 409, { error: rerunRefusal });
-      const replyTo = resolveReplyTarget(bot.threadId, source.replyToId);
-      const message = await startTurn(bot.id, text, { threadId: bot.threadId, editedMessageId: messageId, replyTo, sendId, trigger: usageTriggerFor(auth),
-        ...(fromLocalTools(auth) ? { via: "api" as const } : {}),
-        ...(CLOUD_HOME ? { sender: messageSender(auth) } : {}) });
-      return json(res, 202, { ok: true, message });
+      return answerRewind(rewindRouteDeps, { req, res, auth, json }, { botId: m[1], messageId: m[2], action: "send", edit: true }, body);
     }
 
     m = path.match(/^\/api\/bots\/([\w-]+)\/active-branch$/);
@@ -19002,8 +19002,8 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       }
       const leaf = store.setActiveLeaf(bot.threadId, String(body.messageId ?? ""));
       if (!leaf) return json(res, 404, { error: "no such message" });
-      store.patchTask(bot.id, bot.threadId, { rewound: true });
-      return json(res, 200, { activeLeafId: leaf });
+      markRewound(bot.id, bot.threadId);
+      return json(res, 200, { activeLeafId: leaf, versions: branchVersions(store.messagesFor(bot.threadId), leaf) });
     }
     m = path.match(/^\/api\/bots\/([\w-]+)\/respond$/);
     if (m && method === "POST") {
@@ -19886,7 +19886,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
 
     if (method === "GET" && path === "/api/health") {
       return json(res, 200, { app: "laterdog", pid: process.pid, static: Boolean(STATIC_DIR), capabilities: {
-        guardedMessages: 1, guardedRequests: 1, guardedFullAccess: 1, guardedOnBehalfOf: 1,
+        guardedMessages: 1, rewindForgets: 1, guardedRequests: 1, guardedFullAccess: 1, guardedOnBehalfOf: 1,
         ...(sharedWorkspaceFullAccessEnabled() ? { sharedWorkspaceFullAccess: 1 } : {}),
       } });
     }

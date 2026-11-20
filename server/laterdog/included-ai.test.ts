@@ -4,6 +4,8 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { selectDefaultModelSelection, type SelectableInstance } from "../default-model-selection.ts";
 import { instanceConfigs } from "../config.ts";
+import { buildTurnContext, replaysTranscript } from "../turn-context.ts";
+import { recordEvents } from "../testing/events.ts";
 import { INCLUDED_AI_INSTANCE, IncludedAiDriver, IncludedGrokDriver, includedAiError } from "./included-ai.ts";
 
 const KEY = `ldt_${"b".repeat(43)}`;
@@ -44,6 +46,29 @@ describe("later.dog AI", () => {
     const saved = instanceConfigs({ instances: { claude: { driver: "claudeAgent" }, grok: { driver: "grokAgent", displayName: "Grok" }, laterdogGrok: { driver: "laterdogGrok", displayName: "Grok" } } } as never);
     expect(saved.laterdogGrok).toMatchObject({ driver: "laterdogGrok", displayName: "Grok (free)" });
     expect(saved.grok).toMatchObject({ driver: "grokAgent", displayName: "Grok" });
+  });
+
+  it.each([["Kimi", IncludedAiDriver], ["Grok (free)", IncludedGrokDriver]] as const)("%s gets the kept history once on the first turn after a rewind", async (_name, driver) => {
+    const bodies: Array<{ messages: Array<{ role: string; content: unknown }> }> = [];
+    vi.stubGlobal("fetch", vi.fn(async (_url: string, init?: RequestInit) => {
+      bodies.push(JSON.parse(String(init?.body)));
+      return new Response('data: {"choices":[{"delta":{"content":"ok"}}]}\ndata: {"choices":[{"delta":{},"finish_reason":"stop"}]}\ndata: [DONE]\n',
+        { status: 200, headers: { "content-type": "text/event-stream" } });
+    }));
+    startTrial();
+    const instance = await driver.create({ instanceId: "included", displayName: "included", enabled: true, config: {}, environment: {} });
+    const transcript = [{ role: "user" as const, text: "KEPT_QUESTION" }, { role: "assistant" as const, text: "KEPT_ANSWER" }];
+    const { turnText } = buildTurnContext({ text: "REPLACEMENT", transcript, rewound: true, fresh: false, externallyUpdated: false,
+      replaysNatively: replaysTranscript(instance.adapter.capabilities) });
+    const recorder = recordEvents(instance.adapter);
+    await instance.adapter.sendTurn({ threadId: "t", text: turnText, transcript });
+    await recorder.until((event) => event.type === "turn.completed");
+    recorder.stop();
+    const sent = JSON.stringify(bodies.at(-1)?.messages);
+    expect(sent.split("KEPT_QUESTION").length - 1).toBe(1);
+    expect(sent.split("KEPT_ANSWER").length - 1).toBe(1);
+    expect(bodies.at(-1)?.messages.at(-1)).toEqual({ role: "user", content: "REPLACEMENT" });
+    await instance.dispose();
   });
 
   it("answers through later.dog's relay with the trial key once the trial is live", async () => {

@@ -76,18 +76,46 @@ export function planRecorded(items: readonly PlanItem[], shown = true): string {
   return `Plan recorded: ${count("done")} of ${items.length} done${current ? `, now “${current.text}”` : ""}${count("pending") ? `, ${count("pending")} not started` : ""}.${seen}`;
 }
 
+interface PlanVersion extends WirePlan {
+  anchorId?: string;
+}
+
 interface StoredPlan extends WirePlan {
   threadId: string;
   botId?: string;
+  anchorId?: string;
+  versions?: PlanVersion[];
+  current?: number | null;
 }
+
+interface ThreadPlans {
+  botId?: string;
+  versions: PlanVersion[];
+  current: number | null;
+}
+
+export const PLAN_VERSIONS_KEPT = 8;
 
 const isStored = (value: unknown): value is StoredPlan => {
   const row = value && typeof value === "object" ? value as Record<string, unknown> : null;
   return Boolean(row && typeof row.threadId === "string" && typeof row.updatedAt === "number" && parsePlanItems(row.items).ok);
 };
 
+const copyVersion = (version: PlanVersion): PlanVersion =>
+  ({ items: version.items.map((item) => ({ ...item })), updatedAt: version.updatedAt, ...(version.anchorId ? { anchorId: version.anchorId } : {}) });
+
+function threadPlansOf(row: StoredPlan): ThreadPlans {
+  const versions = Array.isArray(row.versions)
+    ? row.versions.filter((version) => typeof version?.updatedAt === "number" && parsePlanItems(version.items).ok).map(copyVersion)
+    : [copyVersion(row)];
+  const current = row.current === null ? null
+    : typeof row.current === "number" && Number.isInteger(row.current) && row.current >= 0 && row.current < versions.length ? row.current
+      : versions.length ? versions.length - 1 : null;
+  return { ...(row.botId ? { botId: row.botId } : {}), versions, current };
+}
+
 export class PlanStore {
-  private readonly plans = new Map<string, StoredPlan>();
+  private readonly plans = new Map<string, ThreadPlans>();
   private readonly path: string | null;
   private readonly now: () => number;
   private readonly kept: number;
@@ -107,7 +135,7 @@ export class PlanStore {
       this.setAside(path);
       return;
     }
-    for (const row of parsed.filter(isStored)) this.plans.set(row.threadId, row);
+    for (const row of parsed.filter(isStored)) this.plans.set(row.threadId, threadPlansOf(row));
   }
 
   private setAside(path: string): void {
@@ -117,17 +145,31 @@ export class PlanStore {
   }
 
   get(threadId: string): WirePlan | undefined {
-    const plan = this.plans.get(threadId);
+    const plans = this.plans.get(threadId);
+    const plan = plans && plans.current !== null ? plans.versions[plans.current] : undefined;
     return plan ? { items: plan.items.map((item) => ({ ...item })), updatedAt: plan.updatedAt } : undefined;
   }
 
-  set(threadId: string, items: readonly PlanItem[], botId?: string): WirePlan {
-    const plan: StoredPlan = { threadId, ...(botId ? { botId } : {}), items: items.slice(0, PLAN_MAX_ITEMS).map((item) => ({ ...item })), updatedAt: this.now() };
+  set(threadId: string, items: readonly PlanItem[], botId?: string, anchorId?: string): WirePlan {
+    const earlier = this.plans.get(threadId);
+    const version: PlanVersion = { items: items.slice(0, PLAN_MAX_ITEMS).map((item) => ({ ...item })), updatedAt: this.now(), ...(anchorId ? { anchorId } : {}) };
+    const versions = [...(earlier?.versions ?? []), version].slice(-PLAN_VERSIONS_KEPT);
     this.plans.delete(threadId);
-    this.plans.set(threadId, plan);
+    this.plans.set(threadId, { ...(botId ?? earlier?.botId ? { botId: botId ?? earlier?.botId } : {}), versions, current: versions.length - 1 });
     while (this.plans.size > this.kept) this.plans.delete(this.plans.keys().next().value!);
     this.save();
     return this.get(threadId)!;
+  }
+
+  follow(threadId: string, onPath: (messageId: string) => boolean): boolean {
+    const plans = this.plans.get(threadId);
+    if (!plans) return false;
+    const found = plans.versions.findLastIndex((version) => version.anchorId !== undefined && onPath(version.anchorId));
+    const current = found === -1 ? null : found;
+    if (current === plans.current) return false;
+    plans.current = current;
+    this.save();
+    return true;
   }
 
   forget(threadId: string): boolean {
@@ -137,7 +179,12 @@ export class PlanStore {
   }
 
   private save(): void {
-    if (this.path) writeFileAtomic(this.path, `${JSON.stringify([...this.plans.values()])}\n`, { mode: 0o600 });
+    if (!this.path) return;
+    const rows: StoredPlan[] = [...this.plans.entries()].map(([threadId, plans]) => {
+      const shown = plans.current === null ? { items: [], updatedAt: plans.versions.at(-1)?.updatedAt ?? 0 } : plans.versions[plans.current];
+      return { threadId, ...(plans.botId ? { botId: plans.botId } : {}), items: shown.items, updatedAt: shown.updatedAt, versions: plans.versions, current: plans.current };
+    });
+    writeFileAtomic(this.path, `${JSON.stringify(rows)}\n`, { mode: 0o600 });
   }
 }
 
