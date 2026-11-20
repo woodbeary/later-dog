@@ -60,11 +60,11 @@ describe("a quiet chat", () => {
     expect(markup).toContain("Opening the sign-in page on the cloud computer.");
     expect(markup).toContain("The page loaded, clicking Sign In now.");
     expect(markup).toContain("Tap Open on the form to sign in.");
-    expect(/data-fold-line="[^"]*"[^>]*>([\s\S]*?)<\/button>/.exec(markup)![1].replace(/<[^>]+>/g, "")).toBe("Looked at the screen 2 times, did something");
+    expect(/data-fold-line="[^"]*"[^>]*>([\s\S]*?)<\/button>/.exec(markup)![1].replace(/<[^>]+>/g, "")).toBe("Used the computer twice");
     expect(markup).not.toContain("Worked for");
     expect(markup).not.toContain("/attachments/shot.png");
-    expect(markup.indexOf("Looked at the screen 2 times")).toBeLessThan(markup.indexOf("Tap Open on the form to sign in."));
-    expect(markup.indexOf("The page loaded")).toBeLessThan(markup.indexOf("Looked at the screen 2 times"));
+    expect(markup.indexOf("data-fold-line")).toBeLessThan(markup.indexOf("Tap Open on the form to sign in."));
+    expect(markup.indexOf("The page loaded")).toBeLessThan(markup.indexOf("data-fold-line"));
   });
 
   it("keeps what the dog says while it works, and no fold until the turn ends", () => {

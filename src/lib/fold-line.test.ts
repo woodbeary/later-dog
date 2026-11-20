@@ -24,7 +24,7 @@ describe("the folded line of a finished turn", () => {
   it("sits above the turn's last answer and tells what the dog did, plan updates not counted", () => {
     const folds = turnFolds(turn, []);
     expect([...folds.keys()]).toEqual(["b2"]);
-    expect(folds.get("b2")).toMatchObject({ turnId: "t1", sentence: "Made 2 changes, tried 3 things and more" });
+    expect(folds.get("b2")).toMatchObject({ turnId: "t1", sentence: "Made 2 changes and tried 3 things" });
   });
 
   it("names the turn's own finished run so the panel opens on it", () => {
@@ -46,6 +46,6 @@ describe("the folded line of a finished turn", () => {
       tool("r1", "Read", "t3"),
       row("b4", { turnId: "t3", text: "Here.", turnTerminal: true }),
     ];
-    expect(turnFolds(quiet, []).get("b4")?.sentence).toBe("Looked through one thing");
+    expect(turnFolds(quiet, []).get("b4")?.sentence).toBe("Looked at 1 thing");
   });
 });
