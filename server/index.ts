@@ -19070,7 +19070,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
     m = path.match(/^\/api\/bots\/([\w-]+)\/messages\/([\w-]+)\/edit$/);
     if (m && method === "POST") {
       const body = await readBody(req);
-      return answerRewind(rewindRouteDeps, { req, res, auth, json }, { botId: m[1], messageId: m[2], action: "send", edit: true }, body);
+      return await answerRewind(rewindRouteDeps, { req, res, auth, json }, { botId: m[1], messageId: m[2], action: "send", edit: true }, body);
     }
 
     m = path.match(/^\/api\/bots\/([\w-]+)\/active-branch$/);
