@@ -241,9 +241,10 @@ it("keeps the whole native session when a Claude chat moves to another Claude ac
     await chat.settled((rows) => lastReply(rows)?.text === "hello from account 2");
     const probe = jsonLines(join(dataDir, "session-probe.ndjson"));
     evidence.push({ probe });
-    const onSecond = probe.filter((line) => String(line.configDir).endsWith("claude-two"));
+    const turns = probe.filter((line) => line.sessionId !== "fake-session");
+    const onSecond = turns.filter((line) => String(line.configDir).endsWith("claude-two"));
     expect(onSecond).toHaveLength(1);
-    expect(onSecond[0]).toMatchObject({ resume: true, sessionId: probe[0].sessionId });
+    expect(onSecond[0]).toMatchObject({ resume: true, sessionId: turns[0].sessionId });
     expect(onSecond[0].sha256).toEqual(expect.any(String));
     expect(promptText(secondPrompts()[0])).not.toContain("FIRST_HISTORY_4K");
     const rows = await chat.messages();
@@ -267,13 +268,15 @@ it("runs on an account past its plan only on paid usage it has, and says so once
     const rows = await chat.messages();
     evidence.push({ credits: rows });
     expect(secondPrompts()).toHaveLength(0);
-    expect(rows.filter((row) => /^notice: Using credits on Claude account 1 — its 5-hour limit is used up until /.test(row.tool?.name ?? ""))).toHaveLength(1);
+    expect(rows.filter((row) => String(row.tool?.name ?? "").startsWith("notice: Using credits on Claude account 1 — its 5-hour limit is used up until "))).toHaveLength(1);
   });
   await withBatteryFixture({ firstRateLimit: { status: "allowed", rateLimitType: "five_hour", resetsAt, overageStatus: "rejected", isUsingOverage: false, unifiedWindows: windows } }, async (fixture) => {
     const { firstPrompts, secondPrompts, evidence } = fixture;
     const chat = await batteryBot(fixture, "Battery no credits");
     await chat.send("SEES_THE_READING_9Q");
     await chat.settled((rows) => lastReply(rows)?.text === "hello from fake claude");
+    await expect.poll(async () => (await fixture.api("GET", "/api/instances")).instances.find((instance: any) => instance.instanceId === "claude-two")?.snapshot?.authenticated, { timeout: 20_000 }).toBe(true);
+    await expect.poll(async () => (await fixture.api("GET", "/api/config")).accountBattery.resting.claude?.kind, { timeout: 20_000 }).toBe("session");
     await chat.send("MOVES_ON_10R");
     await chat.settled((rows) => lastReply(rows)?.text === "hello from account 2");
     const rows = await chat.messages();

@@ -576,8 +576,7 @@ export type LeftBecause =
 export function homeNotice(input: { name: string; left?: LeftBecause; now: number; timeZone?: string }): string {
   const { name, left, now, timeZone } = input;
   if (!left) return `Running on ${name}, this dog's own account.`;
-  if (left.why === "off") return `Running on ${name} — it's turned on again.`;
-  if (left.why === "signedOut" || left.why === "signIn") return `Running on ${name} — it's signed in again.`;
+  if (left.why !== "limit") return left.why === "off" ? `Running on ${name} — it's turned on again.` : `Running on ${name} — it's signed in again.`;
   if (left.state === "resting") return `Running on ${name} — ${outOfUsage(left.stay, left.rest, now, timeZone)}.`;
   if (left.state === "off") return `Running on ${name} — ${left.stay} is turned off.`;
   if (left.state === "signedOut") return `Running on ${name} — ${left.stay} isn't signed in.`;
