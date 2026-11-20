@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { recordEvents } from "../testing/events.ts";
-import { buildTurnContext, NATIVELY_REPLAYING_DRIVER_KINDS } from "../turn-context.ts";
+import { buildTurnContext, replaysTranscript } from "../turn-context.ts";
 import { instanceConfigs } from "../config.ts";
 import { OpenAICompatDriver } from "./openai-compat.ts";
 
@@ -490,20 +490,20 @@ describe("OpenAICompatDriver", () => {
       { role: "user" as const, text: "u25-sentinel-first-message" },
       { role: "assistant" as const, text: "u25-sentinel-first-reply" },
     ];
-    const { turnText } = buildTurnContext({
-      text: "second message",
-      transcript,
-      rewound: true,
-      fresh: false,
-      externallyUpdated: false,
-      replaysNatively: NATIVELY_REPLAYING_DRIVER_KINDS.includes("openai-compat"),
-    });
     const inst = await OpenAICompatDriver.create({
       instanceId: "test-u25",
       displayName: "U25",
       enabled: true,
       config: { url: "http://host.lima.internal:9090/v1", apiKeyEnv: "TEST_KEY" },
       environment: { TEST_KEY: "secret" },
+    });
+    const { turnText } = buildTurnContext({
+      text: "second message",
+      transcript,
+      rewound: true,
+      fresh: false,
+      externallyUpdated: false,
+      replaysNatively: replaysTranscript(inst.adapter.capabilities),
     });
     const recorder = recordEvents(inst.adapter);
 

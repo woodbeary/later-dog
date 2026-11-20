@@ -405,7 +405,7 @@ import { LiveCallController, LiveCallSignedOutError, type LiveSocket } from "./l
 import { toUtterances } from "./tts/speech-text.ts";
 import { turnStartLogLine } from "./turn-log.ts";
 import { makeCapContinuationSubscriber } from "./turn-continuation.ts";
-import { buildRecoveryText, buildTurnContext, engineIsFresh, NATIVELY_REPLAYING_DRIVER_KINDS, peerMessageText } from "./turn-context.ts";
+import { buildRecoveryText, buildTurnContext, engineIsFresh, peerMessageText, replaysTranscript } from "./turn-context.ts";
 import { Handoffs, handedStateUsable, recordHanded, renderUnseen, sessionStart, unseenMessages, withUnseenMessages, type ContextMessage } from "./delta-context.ts";
 import { extractTurnImages } from "./turn-images.ts";
 import { openingWordsTitle, threadTitlePrompt, titleConversationExcerpt, titleFromAnswer, type ThreadTitleSource } from "./thread-title.ts";
@@ -773,6 +773,7 @@ import { roomWorkFor } from "./laterdog/room-work.ts";
 import { WorkSignals } from "./laterdog/work-signals.ts";
 import { turnReceipt } from "./laterdog/turn-receipt.ts";
 import { terminalTurnPatch, turnResults } from "./laterdog/turn-results.ts";
+import { branchVersions, droppedAfter, isPersonText, leftInPlace, rewindAction, versionOf } from "./laterdog/rewind.ts";
 import { TurnTouches } from "./laterdog/turn-touches.ts";
 import { carryOnAfterRestart } from "./laterdog/carry-on-restart.ts";
 import { latestTurnAnswer, lookedAtImage, postTurnImage } from "./laterdog/turn-images.ts";
@@ -3733,8 +3734,14 @@ const planChanged = (threadId: string) => {
   if (bot) broadcast({ kind: "bot", bot: wireBot(bot) });
 };
 forgetDeletedChats(store, dogPlans);
+const planAnchor = (threadId: string) => store.activePath(threadId).findLast(isPersonText)?.id;
+const markRewound = (botId: string, threadId: string) => {
+  store.patchTask(botId, threadId, { rewound: true });
+  const kept = new Set(store.activePath(threadId).map((message) => message.id));
+  if (dogPlans.follow(threadId, (id) => kept.has(id))) planChanged(threadId);
+};
 enginePlans.listen((threadId, items) => {
-  dogPlans.set(threadId, items, store.botByThread(threadId)?.id);
+  dogPlans.set(threadId, items, store.botByThread(threadId)?.id, planAnchor(threadId));
   planChanged(threadId);
 });
 const liveSteps = liveStepsFrom(nativeRunDatabase);
@@ -8763,7 +8770,7 @@ async function startTurn(
   if (opts?.editedMessageId) {
     const edited = store.branchMessage(threadId, opts.editedMessageId, text, opts.sendId, opts.sender);
     if (!edited) throw Object.assign(new Error("only a user text message can be edited"), { status: 400 });
-    store.patchTask(bot.id, threadId, { rewound: true });
+    markRewound(bot.id, threadId);
     userMessage = opts.via ? store.patchMessage(threadId, edited.id, { via: opts.via }) ?? edited : edited;
   }
   if (!userMessage) {
@@ -8963,7 +8970,7 @@ async function startTurn(
           rewound,
           fresh: fresh || contextReset,
           externallyUpdated: Boolean(externalContextMarker) || handedStale,
-          replaysNatively: NATIVELY_REPLAYING_DRIVER_KINDS.includes(instance.driverKind),
+          replaysNatively: replaysTranscript(instance.adapter.capabilities),
         });
         const resumeCursor = resume ? task.resumeCursors[instanceId] : undefined;
         const recoveryIsReplay = resumeCursor !== undefined && externalUpdate && transcript.length > 0;
@@ -13970,7 +13977,7 @@ INTERNAL_ROUTES.push(createReactRoute({
   active: (capability) => internalCapabilityIsActive(capability as InternalCapability),
 }));
 INTERNAL_ROUTES.push(createPlanRoute({
-  set: (threadId, items, botId) => dogPlans.set(threadId, items, botId),
+  set: (threadId, items, botId) => dogPlans.set(threadId, items, botId, planAnchor(threadId)),
   caller: (toolUseId) => enginePlans.callers.of(toolUseId, PLAN_CALLER_WAIT_MS),
   changed: planChanged,
   shown: (threadId) => !store.groupByThread(threadId),
@@ -16384,13 +16391,14 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       if (around) {
         const window = messageWindow(threadId, around, limit ?? DEFAULT_PAGE);
         if (!window) return json(res, 404, { error: "no such message" });
-        return json(res, 200, { ...window, activeLeafId: store.activeLeaf(threadId) });
+        return json(res, 200, { ...window, activeLeafId: store.activeLeaf(threadId), versions: branchVersions(store.messagesFor(threadId), store.activeLeaf(threadId)) });
       }
       if (before && !store.messagesFor(threadId).some((msg) => msg.id === before)) {
         return json(res, 404, { error: "no such message" });
       }
       const view = pageViewOf(url.searchParams);
-      return json(res, 200, { ...messagePage(threadId, limit ?? DEFAULT_PAGE, before, view), activeLeafId: store.activeLeaf(threadId) });
+      return json(res, 200, { ...messagePage(threadId, limit ?? DEFAULT_PAGE, before, view), activeLeafId: store.activeLeaf(threadId),
+        versions: branchVersions(store.messagesFor(threadId), store.activeLeaf(threadId)) });
     }
 
     m = path.match(/^\/api\/threads\/([\w-]+)\/messages\/([\w-]+)\/image$/);
@@ -18945,33 +18953,51 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       return json(res, 202, { ok: true, threadId: bot.threadId });
     }
 
-    m = path.match(/^\/api\/bots\/([\w-]+)\/messages\/([\w-]+)\/edit$/);
-    if (m && method === "POST") {
-      const messageId = m[2];
+    const editMatch = path.match(/^\/api\/bots\/([\w-]+)\/messages\/([\w-]+)\/edit$/);
+    const rewindMatch = path.match(/^\/api\/bots\/([\w-]+)\/rewind$/);
+    if ((editMatch || rewindMatch) && method === "POST") {
       const body = await readBody(req);
-      requirePinnedClientThread(m[1], body?.threadId);
-      const bot = requestedTaskBot(m[1], body.threadId);
+      const botRef = (editMatch ?? rewindMatch)![1];
+      const messageId = editMatch ? editMatch[2] : String(body?.messageId ?? "");
+      const action = editMatch ? "send" : rewindAction(body?.action);
+      if (!action) return json(res, 400, { error: "action must be hold, resend or send" });
+      requirePinnedClientThread(botRef, body?.threadId);
+      const bot = requestedTaskBot(botRef, body.threadId);
       const notYours = cloudThreadRefusal(auth, bot.threadId);
       if (notYours) return json(res, 403, { error: notYours });
-      const { text } = personCommand(auth, bot, String(body.text ?? "").trim());
-      if (!text) return json(res, 400, { error: "text required" });
       const threadMessages = store.messagesFor(bot.threadId);
       const source = threadMessages.find((msg) => msg.id === messageId);
-      if (!source || source.role !== "user" || source.kind !== "text") {
-        return json(res, 404, { error: "only user messages can be edited" });
+      const asked = action === "send" ? personCommand(auth, bot, String(body.text ?? "").trim()).text : "";
+      if (action === "send" && !asked) return json(res, 400, { error: "text required" });
+      if (!source || !isPersonText(source)) {
+        return json(res, 404, { error: editMatch ? "only user messages can be edited" : "only your own messages can be rewound to" });
       }
       if (fromLocalTools(auth) && source.via !== "api") return json(res, 403, { error: EDIT_REFUSAL });
-      const sendId = parseSendId(body.sendId);
+      const text = action === "resend" ? personCommand(auth, bot, (source.text ?? "").trim()).text : asked;
+      if (action === "resend" && !text) return json(res, 400, { error: "this message has no text to send again" });
+      const notUndone = leftInPlace(droppedAfter(store.activePath(bot.threadId), source));
+      const sendId = action === "hold" ? undefined : parseSendId(body.sendId);
       if (sendId) {
         const accepted = acceptedSendMatch(threadMessages, sendId, text, source.replyToId);
         if (accepted.kind === "conflict" || (accepted.kind === "match" && (accepted.message.parentId ?? null) !== (source.parentId ?? null))) {
           return json(res, 409, { error: "sendId already belongs to another message" });
         }
-        if (accepted.kind === "match") return json(res, 202, { ok: true, message: accepted.message });
+        if (accepted.kind === "match") {
+          return json(res, 202, { ok: true, message: accepted.message, version: versionOf(threadMessages, accepted.message) });
+        }
       }
-      if (threadBusy(bot.id, bot.threadId)) return json(res, 409, { error: "the thread is working — stop it before editing" });
+      if (threadBusy(bot.id, bot.threadId)) return json(res, 409, { error: "the thread is working — stop it before editing", code: "thread_busy" });
       if (phoneSecretSubmissions.hasThread(bot.threadId)) {
         return json(res, 409, { error: "this task is securely saving a credential — try again when it finishes" });
+      }
+      if (action === "hold") {
+        if (!source.parentId) {
+          return json(res, 409, { error: "this is the first message — send it again or send a change instead", code: "first_message" });
+        }
+        const leaf = store.rewindTo(bot.threadId, source.parentId);
+        if (!leaf) return json(res, 409, { error: "the message before this one is missing — send it again or send a change instead", code: "first_message" });
+        markRewound(bot.id, bot.threadId);
+        return json(res, 200, { ok: true, activeLeafId: leaf, draft: source.text ?? "", version: versionOf(threadMessages, source), notUndone });
       }
       const rerunSelection = turnSelection(bot.id, bot.threadId) ?? bot.modelSelection;
       if (!registry.get(rerunSelection.instanceId)) {
@@ -18986,7 +19012,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       const message = await startTurn(bot.id, text, { threadId: bot.threadId, editedMessageId: messageId, replyTo, sendId, trigger: usageTriggerFor(auth),
         ...(fromLocalTools(auth) ? { via: "api" as const } : {}),
         ...(CLOUD_HOME ? { sender: messageSender(auth) } : {}) });
-      return json(res, 202, { ok: true, message });
+      return json(res, 202, { ok: true, message, ...(message ? { version: versionOf(store.messagesFor(bot.threadId), message) } : {}), notUndone });
     }
 
     m = path.match(/^\/api\/bots\/([\w-]+)\/active-branch$/);
@@ -19002,8 +19028,8 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       }
       const leaf = store.setActiveLeaf(bot.threadId, String(body.messageId ?? ""));
       if (!leaf) return json(res, 404, { error: "no such message" });
-      store.patchTask(bot.id, bot.threadId, { rewound: true });
-      return json(res, 200, { activeLeafId: leaf });
+      markRewound(bot.id, bot.threadId);
+      return json(res, 200, { activeLeafId: leaf, versions: branchVersions(store.messagesFor(bot.threadId), leaf) });
     }
     m = path.match(/^\/api\/bots\/([\w-]+)\/respond$/);
     if (m && method === "POST") {
@@ -19886,7 +19912,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
 
     if (method === "GET" && path === "/api/health") {
       return json(res, 200, { app: "laterdog", pid: process.pid, static: Boolean(STATIC_DIR), capabilities: {
-        guardedMessages: 1, guardedRequests: 1, guardedFullAccess: 1, guardedOnBehalfOf: 1,
+        guardedMessages: 1, rewindForgets: 1, guardedRequests: 1, guardedFullAccess: 1, guardedOnBehalfOf: 1,
         ...(sharedWorkspaceFullAccessEnabled() ? { sharedWorkspaceFullAccess: 1 } : {}),
       } });
     }

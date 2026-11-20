@@ -159,6 +159,7 @@ export interface ProviderAdapter {
     localComputerMcp?: boolean;
     customMcp?: boolean;
     strictResume?: boolean;
+    replaysTranscript?: boolean;
     hooks?: boolean;
     backgroundWork?: boolean;
     guestTurns?: "confined";
