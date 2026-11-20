@@ -7,7 +7,7 @@ import { fileURLToPath } from "node:url";
 import { afterAll, expect, it } from "vitest";
 
 import { pageHeaders, viewerPage } from "../../deploy/laterdog/computers/src/viewer.ts";
-import { CLIPBOARD_WORDS } from "../../deploy/laterdog/computers/src/viewer-clipboard.ts";
+import { CLIPBOARD_WORDS, PASTE_SETTLE_MS } from "../../deploy/laterdog/computers/src/viewer-clipboard.ts";
 import { resolveAgentBrowserBinary } from "../../server/browser-engine.ts";
 import { removeTempDir, waitForExit } from "../../server/testing/cleanup.ts";
 import { ensureUiBrowser, UI_TOOLS_DIR } from "./control-laterdog-ui.ts";
@@ -22,6 +22,7 @@ const run = enabled ? it : it.skip;
 const evidenceDir = process.env.LATERDOG_UI_EVIDENCE_DIR ? resolve(ROOT, process.env.LATERDOG_UI_EVIDENCE_DIR) : mkdtempSync(join(tmpdir(), "laterdog-ui-evidence-"));
 const ownsEvidenceDir = !process.env.LATERDOG_UI_EVIDENCE_DIR;
 const MIME: Record<string, string> = { ".js": "text/javascript; charset=utf-8", ".txt": "text/plain; charset=utf-8" };
+const ANSWER_MS = 30_000;
 
 afterAll(async () => {
   if (ownsEvidenceDir) await removeTempDir(evidenceDir);
@@ -67,11 +68,15 @@ class Page {
 
   async send(method: string, params: Record<string, unknown> = {}): Promise<any> {
     const id = ++this.id;
-    const reply = await new Promise<{ result?: any; error?: { message: string } }>((done) => {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const reply = await new Promise<{ result?: any; error?: { message: string } }>((done, fail) => {
       this.waiting.set(id, done);
+      timer = setTimeout(() => fail(new Error(`the browser did not answer ${method} within ${ANSWER_MS / 1000} s`)), ANSWER_MS);
       this.socket.send(JSON.stringify({ id, method, params }));
+    }).finally(() => {
+      clearTimeout(timer);
+      this.waiting.delete(id);
     });
-    this.waiting.delete(id);
     if (reply.error) throw new Error(`${method}: ${reply.error.message}`);
     return reply.result;
   }
@@ -92,6 +97,16 @@ class Page {
 }
 
 const META = 4;
+
+async function capturePill(page: Page, name: string): Promise<{ width: number; height: number; label: string }> {
+  const box = await page.evaluate<{ x: number; y: number; width: number; height: number; label: string }>(
+    "(() => { const r = document.getElementById('status').getBoundingClientRect(); return { x: r.x, y: r.y, width: r.width, height: r.height, label: document.getElementById('label').textContent }; })()",
+  );
+  const margin = 8;
+  const shot = await page.send("Page.captureScreenshot", { format: "png", clip: { x: box.x - margin, y: box.y - margin, width: box.width + 2 * margin, height: box.height + 2 * margin, scale: 3 } });
+  writeFileSync(join(evidenceDir, `${name}.png`), Buffer.from(shot.data, "base64"));
+  return { width: box.width, height: box.height, label: box.label };
+}
 
 run("Cmd+V in the desktop's screen window types the Mac's clipboard into the computer, and Cmd+C copies its text back", async () => {
   const nonce = "fixturenonce";
@@ -129,7 +144,7 @@ run("Cmd+V in the desktop's screen window types the Mac's clipboard into the com
     const port = await freePort();
     browser = spawn(chrome, [
       "--headless=new", `--remote-debugging-port=${port}`, `--user-data-dir=${profile}`,
-      "--no-first-run", "--no-default-browser-check", "--disable-extensions", "about:blank",
+      "--no-first-run", "--no-default-browser-check", "--disable-extensions", "--use-mock-keychain", "about:blank",
     ], { stdio: "ignore" });
     page = await Page.open(port);
     await page.send("Page.enable");
@@ -165,6 +180,7 @@ run("Cmd+V in the desktop's screen window types the Mac's clipboard into the com
     expect(downs).not.toContain(0x76);
     expect(await page.evaluate<number>("window.__readCount")).toBe(1);
     expect(await page.evaluate<string>("document.getElementById('label').textContent")).toBe(CLIPBOARD_WORDS.pasted);
+    evidence.pastedPill = await capturePill(page, "desktop-screen-pasted");
 
     const clipboard = desktop.nextClipboard();
     await page.evaluate(`window.__macClipboard = "Paste me as well"; true`);
@@ -189,14 +205,13 @@ run("Cmd+V in the desktop's screen window types the Mac's clipboard into the com
     const control = desktop.untilKey(0xffe3).then(() => Date.now());
     await page.key("rawKeyDown", "v", "KeyV", 86, META);
     await page.key("keyUp", "v", "KeyV", 86, META);
-    const arrived = await cut;
-    const pressed = await control;
+    const [arrived, pressed] = await Promise.all([cut, control]);
     expect(arrived.text).toBe(long);
     await expect.poll(() => desktop.strokes.length - beforeLong, { timeout: 5_000 }).toBe(4);
     const longStrokes = desktop.strokes.slice(beforeLong);
     evidence.longPaste = { characters: arrived.text.length, settledMs: pressed - arrived.at, strokes: longStrokes };
     expect(longStrokes).toEqual([[0xffe3, true], [0x76, true], [0x76, false], [0xffe3, false]]);
-    expect(pressed - arrived.at).toBeGreaterThanOrEqual(280);
+    expect(pressed - arrived.at).toBeGreaterThanOrEqual(PASTE_SETTLE_MS - 100);
     expect(await page.evaluate<string>("document.getElementById('label').textContent")).toBe(CLIPBOARD_WORDS.pasted);
 
     desktop.sendClipboard("Order 7731 confirmed");
@@ -208,6 +223,7 @@ run("Cmd+V in the desktop's screen window types the Mac's clipboard into the com
     evidence.copied = await page.evaluate<string>("window.__macCopied");
     expect(desktop.strokes.slice(beforeCopy).filter(([, down]) => down)).toEqual([]);
     expect(await page.evaluate<string>("document.getElementById('label').textContent")).toBe(CLIPBOARD_WORDS.copied);
+    evidence.copiedPill = await capturePill(page, "desktop-screen-copied");
   } finally {
     evidence.strokes = desktop.strokes;
     page?.close();

@@ -695,9 +695,11 @@ charges the trial back while it waits, and what the snapshots of trial computers
 - In the viewer, Cmd+V types the clipboard's text into the field that has focus on the computer (line breaks as
   Shift+Return, so a terminal runs each line); text over 2000 keys goes on the computer's clipboard and is pasted with
   Ctrl+V 300 ms later. A held Cmd+V pastes once, and nothing is pasted while the screen is not connected. Cmd+C copies
-  the text the computer last selected or copied while the viewer had focus. Both need the browser's clipboard
-  permission, which the later.dog app grants its screen window. Other Cmd shortcuts reach the computer as noVNC sends
-  them on a Mac: left Cmd as Alt, right Cmd as Super. Text outside Latin-1 depends on the computer's keyboard map.
+  the text the computer last selected or copied while the viewer had focus. Clipboard text may be Latin-1 only in both
+  directions: noVNC falls back to it unless the VNC server takes UTF-8 (not checked), and other characters then become
+  `?`. Both need the browser's clipboard permission, which the later.dog app grants its screen window. Other Cmd
+  shortcuts reach the computer as noVNC sends them on a Mac, left Cmd as Alt and right Cmd as Super, except that after a
+  paste they are dropped until Cmd is let go. Typed text outside Latin-1 depends on the computer's keyboard map.
 - Files move 16 MB at a time. Command output keeps 1 MiB per stream.
 - Commands get the environment in `src/computer.ts` (`DOG_ENV`) plus `PATH`, not the image's other variables, plus the
   request's own `env` for that command.
