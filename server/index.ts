@@ -773,7 +773,8 @@ import { roomWorkFor } from "./laterdog/room-work.ts";
 import { WorkSignals } from "./laterdog/work-signals.ts";
 import { turnReceipt } from "./laterdog/turn-receipt.ts";
 import { terminalTurnPatch, turnResults } from "./laterdog/turn-results.ts";
-import { branchVersions, droppedAfter, isPersonText, leftInPlace, rewindAction, versionOf } from "./laterdog/rewind.ts";
+import { branchVersions, isPersonText } from "./laterdog/rewind.ts";
+import { answerRewind, createRewindRoutes, type RewindRouteDeps } from "./routes/rewind.ts";
 import { TurnTouches } from "./laterdog/turn-touches.ts";
 import { carryOnAfterRestart } from "./laterdog/carry-on-restart.ts";
 import { latestTurnAnswer, lookedAtImage, postTurnImage } from "./laterdog/turn-images.ts";
@@ -13635,6 +13636,35 @@ ROUTES.push(createHandoffContinueRoutes({
     if (offer) store.patchMessage(threadId, offer.id, { tool: continuingNoticeTool() });
   },
 }));
+const rewindRouteDeps: RewindRouteDeps = {
+  pinned: (req, auth, botId, threadId) => {
+    if (threadId === undefined && (auth.kind === "session" || req.headers["x-laterdog-companion"] === "1") && store.tasks(botId).length > 1) {
+      throw Object.assign(new Error("This dog has more than one thread. Update the later.dog app on this device, then choose a thread and try again."), { status: 409 });
+    }
+  },
+  bot: (botId, threadId) => requestedTaskBot(botId, threadId),
+  refusal: (auth, threadId) => cloudThreadRefusal(auth, threadId),
+  personText: (auth, bot, typed) => personCommand(auth, bot, typed).text,
+  localRefusal: EDIT_REFUSAL,
+  messages: (threadId) => store.messagesFor(threadId),
+  activePath: (threadId) => store.activePath(threadId),
+  busy: (botId, threadId) => threadBusy(botId, threadId),
+  savingSecret: (threadId) => phoneSecretSubmissions.hasThread(threadId),
+  rewindTo: (threadId, leafId) => store.rewindTo(threadId, leafId),
+  markRewound,
+  rerunRefusal: (bot) => {
+    const selection = turnSelection(bot.id, bot.threadId) ?? bot.modelSelection;
+    const instance = registry.get(selection.instanceId);
+    if (!instance) return `provider instance "${selection.instanceId}" is unavailable — pick another model in settings`;
+    return policyModelRefusal(instance) ?? null;
+  },
+  send: (auth, bot, source, text, sendId) => startTurn(bot.id, text, {
+    threadId: bot.threadId, editedMessageId: source.id, replyTo: resolveReplyTarget(bot.threadId, source.replyToId), sendId, trigger: usageTriggerFor(auth),
+    ...(fromLocalTools(auth) ? { via: "api" as const } : {}),
+    ...(CLOUD_HOME ? { sender: messageSender(auth) } : {}),
+  }),
+};
+ROUTES.push(createRewindRoutes(rewindRouteDeps));
 ROUTES.push(createContinueOnRoutes({
   mayPickEngine: (auth) => !auth.localTools && (auth.kind === "loopback" ? auth.trust !== "service" : cloudOwnerSession(auth)),
   task: requestedTaskBot,
@@ -18944,66 +18974,10 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       return json(res, 202, { ok: true, threadId: bot.threadId });
     }
 
-    const editMatch = path.match(/^\/api\/bots\/([\w-]+)\/messages\/([\w-]+)\/edit$/);
-    const rewindMatch = path.match(/^\/api\/bots\/([\w-]+)\/rewind$/);
-    if ((editMatch || rewindMatch) && method === "POST") {
+    m = path.match(/^\/api\/bots\/([\w-]+)\/messages\/([\w-]+)\/edit$/);
+    if (m && method === "POST") {
       const body = await readBody(req);
-      const botRef = (editMatch ?? rewindMatch)![1];
-      const messageId = editMatch ? editMatch[2] : String(body?.messageId ?? "");
-      const action = editMatch ? "send" : rewindAction(body?.action);
-      if (!action) return json(res, 400, { error: "action must be hold, resend or send" });
-      requirePinnedClientThread(botRef, body?.threadId);
-      const bot = requestedTaskBot(botRef, body.threadId);
-      const notYours = cloudThreadRefusal(auth, bot.threadId);
-      if (notYours) return json(res, 403, { error: notYours });
-      const threadMessages = store.messagesFor(bot.threadId);
-      const source = threadMessages.find((msg) => msg.id === messageId);
-      const asked = action === "send" ? personCommand(auth, bot, String(body.text ?? "").trim()).text : "";
-      if (action === "send" && !asked) return json(res, 400, { error: "text required" });
-      if (!source || !isPersonText(source)) {
-        return json(res, 404, { error: editMatch ? "only user messages can be edited" : "only your own messages can be rewound to" });
-      }
-      if (fromLocalTools(auth) && source.via !== "api") return json(res, 403, { error: EDIT_REFUSAL });
-      const text = action === "resend" ? personCommand(auth, bot, (source.text ?? "").trim()).text : asked;
-      if (action === "resend" && !text) return json(res, 400, { error: "this message has no text to send again" });
-      const notUndone = leftInPlace(droppedAfter(store.activePath(bot.threadId), source));
-      const sendId = action === "hold" ? undefined : parseSendId(body.sendId);
-      if (sendId) {
-        const accepted = acceptedSendMatch(threadMessages, sendId, text, source.replyToId);
-        if (accepted.kind === "conflict" || (accepted.kind === "match" && (accepted.message.parentId ?? null) !== (source.parentId ?? null))) {
-          return json(res, 409, { error: "sendId already belongs to another message" });
-        }
-        if (accepted.kind === "match") {
-          return json(res, 202, { ok: true, message: accepted.message, version: versionOf(threadMessages, accepted.message) });
-        }
-      }
-      if (threadBusy(bot.id, bot.threadId)) return json(res, 409, { error: "the thread is working — stop it before editing", code: "thread_busy" });
-      if (phoneSecretSubmissions.hasThread(bot.threadId)) {
-        return json(res, 409, { error: "this task is securely saving a credential — try again when it finishes" });
-      }
-      if (action === "hold") {
-        if (!source.parentId) {
-          return json(res, 409, { error: "this is the first message — send it again or send a change instead", code: "first_message" });
-        }
-        const leaf = store.rewindTo(bot.threadId, source.parentId);
-        if (!leaf) return json(res, 409, { error: "the message before this one is missing — send it again or send a change instead", code: "first_message" });
-        markRewound(bot.id, bot.threadId);
-        return json(res, 200, { ok: true, activeLeafId: leaf, draft: source.text ?? "", version: versionOf(threadMessages, source), notUndone });
-      }
-      const rerunSelection = turnSelection(bot.id, bot.threadId) ?? bot.modelSelection;
-      if (!registry.get(rerunSelection.instanceId)) {
-        return json(res, 409, {
-          error: `provider instance "${rerunSelection.instanceId}" is unavailable — pick another model in settings`,
-        });
-      }
-      const rerunInstance = registry.get(rerunSelection.instanceId)!;
-      const rerunRefusal = policyModelRefusal(rerunInstance);
-      if (rerunRefusal) return json(res, 409, { error: rerunRefusal });
-      const replyTo = resolveReplyTarget(bot.threadId, source.replyToId);
-      const message = await startTurn(bot.id, text, { threadId: bot.threadId, editedMessageId: messageId, replyTo, sendId, trigger: usageTriggerFor(auth),
-        ...(fromLocalTools(auth) ? { via: "api" as const } : {}),
-        ...(CLOUD_HOME ? { sender: messageSender(auth) } : {}) });
-      return json(res, 202, { ok: true, message, ...(message ? { version: versionOf(store.messagesFor(bot.threadId), message) } : {}), notUndone });
+      return answerRewind(rewindRouteDeps, { req, res, auth, json }, { botId: m[1], messageId: m[2], action: "send", edit: true }, body);
     }
 
     m = path.match(/^\/api\/bots\/([\w-]+)\/active-branch$/);
