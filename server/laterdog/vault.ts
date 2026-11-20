@@ -8,6 +8,9 @@ import {
   VAULT_MAX_LOGINS,
   VAULT_NOTE_CHARS,
   VAULT_VALUE_CHARS,
+  newestFirst,
+  oneRowPerAccount,
+  vaultAccount,
   vaultSite,
   type VaultDetails,
   type VaultDetailsView,
@@ -36,6 +39,7 @@ interface StoredLogin {
   createdAt: number;
   updatedAt: number;
   usedAt?: number;
+  workedAt?: number;
 }
 
 interface LoginMeta {
@@ -228,7 +232,7 @@ export class VaultStore {
 
   offers(host: string): VaultOffers {
     if (!this.available) return { available: false, logins: [], lookalike: null };
-    const logins = this.matching(host);
+    const logins = oneRowPerAccount(this.matching(host));
     if (logins.length) return { available: true, logins, lookalike: null };
     return { available: true, logins, lookalike: lookalikeSite(host, new Set([...this.metas.values()].filter((meta) => meta.kind !== "secret").map((meta) => meta.site))) };
   }
@@ -269,7 +273,7 @@ export class VaultStore {
     return this.logins().filter((login) => login.kind === "secret");
   }
 
-  save(input: LoginInput): { login: VaultLogin; replaced: boolean } {
+  save(input: LoginInput, options: { worked?: boolean } = {}): { login: VaultLogin; replaced: boolean } {
     const key = this.writable();
     const meta: LoginMeta = { site: cleanSite(input.site), username: cleanUsername(input.username) };
     const note = cleanNote(input.note);
@@ -277,13 +281,24 @@ export class VaultStore {
     const existing = this.find(meta.site, meta.username);
     if (existing) {
       this.write(key, existing, withNote(meta, note, this.metas.get(existing.id)?.note), password);
+      if (options.worked) existing.workedAt = this.now();
       this.persist();
       return { login: this.summary(existing), replaced: true };
     }
     if (this.stored.length >= VAULT_MAX_LOGINS) throw new VaultInputError(`Your vault holds up to ${VAULT_MAX_LOGINS} logins. Remove some first.`);
     const login = this.add(key, withNote(meta, note), password);
+    if (options.worked) login.workedAt = login.updatedAt;
     this.persist();
     return { login: this.summary(login), replaced: false };
+  }
+
+  worked(id: string): boolean {
+    if (!this.available) return false;
+    const login = this.stored.find((candidate) => candidate.id === id);
+    if (!login || this.metas.get(id)?.kind === "secret") return false;
+    login.workedAt = this.now();
+    this.persist();
+    return true;
   }
 
   update(id: string, patch: Partial<LoginInput>): VaultLogin | null {
@@ -299,8 +314,8 @@ export class VaultStore {
       };
     const note = patch.note === undefined ? previous.note : cleanNote(patch.note);
     if (note) meta.note = note;
-    const clash = meta.kind === "secret" ? undefined : this.find(meta.site, meta.username);
-    if (clash && clash.id !== id) throw new VaultInputError("You already saved this login.");
+    const moved = meta.kind !== "secret" && vaultAccount(meta.site, meta.username) !== vaultAccount(previous.site, previous.username);
+    if (moved && this.accountEntries(meta.site, meta.username).some((other) => other.id !== id)) throw new VaultInputError("You already saved this login.");
     const password = patch.password === undefined ? null : cleanPassword(patch.password);
     if (password === null) {
       login.meta = seal(key, meta, part(id, "meta"));
@@ -406,11 +421,16 @@ export class VaultStore {
     return this.key;
   }
 
-  private find(site: string, username: string): StoredLogin | undefined {
-    return this.stored.find((login) => {
+  private accountEntries(site: string, username: string): StoredLogin[] {
+    const account = vaultAccount(site, username);
+    return this.stored.filter((login) => {
       const meta = this.metas.get(login.id);
-      return meta?.kind !== "secret" && meta?.site === site && meta.username === username;
+      return meta !== undefined && meta.kind !== "secret" && vaultAccount(meta.site, meta.username) === account;
     });
+  }
+
+  private find(site: string, username: string): StoredLogin | undefined {
+    return this.accountEntries(site, username).sort(newestFirst)[0];
   }
 
   private findSecret(name: string): StoredLogin | undefined {
@@ -455,6 +475,7 @@ export class VaultStore {
       ...(meta.by ? { createdBy: meta.by } : {}),
       updatedAt: login.updatedAt,
       ...(login.usedAt ? { usedAt: login.usedAt } : {}),
+      ...(login.workedAt ? { workedAt: login.workedAt } : {}),
     };
   }
 

@@ -199,7 +199,7 @@ describe("the Secure Form card", () => {
     mount(form());
     press(openButton()!);
     await vi.waitFor(() => expect(document.querySelector("[data-vault-offers]")?.textContent).toContain("kit@example.com"));
-    press(document.querySelector<HTMLButtonElement>("button[aria-label='Use the login saved for example.com: kit@example.com']")!);
+    press(document.querySelector<HTMLButtonElement>("button[aria-label='Sign in to example.com as kit@example.com']")!);
     await vi.waitFor(() => expect(dialog()).toBeNull());
     expect(sent).toEqual([{ url: "/api/bots/pepper/secure-forms/form-1/submit", body: { threadId: "pepper-thread", login: "login-1" } }]);
   });
@@ -222,18 +222,100 @@ describe("the Secure Form card", () => {
     expect(document.querySelector("[data-vault-save]")).toBeNull();
   });
 
-  it("saves a typed login to the vault only when the person ticks Save", async () => {
+  it("keeps a typed login once it works unless the person unticks it, and says so", async () => {
     const sent = later({ available: true, logins: [], lookalike: null });
     mount(form());
     fillIn();
     await vi.waitFor(() => expect(document.querySelector("[data-vault-save]")).not.toBeNull());
+    const box = document.querySelector<HTMLInputElement>("[data-vault-save]")!;
+    expect(box.checked).toBe(true);
+    expect(box.closest("label")!.textContent).toBe("Save to your vault once it works");
+    expect(continueButton().textContent).toBe("Sign in");
+    press(continueButton());
+    await vi.waitFor(() => expect(dialog()).toBeNull());
+    press(openButton()!);
+    type(input("email"), "kit@example.com");
+    type(input("password"), "other");
+    await vi.waitFor(() => expect(document.querySelector("[data-vault-save]")).not.toBeNull());
     press(document.querySelector<HTMLInputElement>("[data-vault-save]")!);
     press(continueButton());
     await vi.waitFor(() => expect(dialog()).toBeNull());
-    expect(sent).toEqual([{
-      url: "/api/bots/pepper/secure-forms/form-1/submit",
-      body: { threadId: "pepper-thread", values: { email: "kit@example.com", password: " hunter2 " }, save: true },
-    }]);
+    expect(sent).toEqual([
+      { url: "/api/bots/pepper/secure-forms/form-1/submit", body: { threadId: "pepper-thread", values: { email: "kit@example.com", password: " hunter2 " }, save: true } },
+      { url: "/api/bots/pepper/secure-forms/form-1/submit", body: { threadId: "pepper-thread", values: { email: "kit@example.com", password: "other" } } },
+    ]);
+  });
+
+  it("shows each saved account once, even when two logins differ only in letter case, and each row signs in", async () => {
+    const sent = later({ available: true, logins: [KIT, { ...KIT, id: "login-2", username: "Kit@Example.com", updatedAt: 2 }, { ...KIT, id: "login-3", username: "sam@example.com" }], lookalike: null });
+    mount(form());
+    press(openButton()!);
+    await vi.waitFor(() => expect(document.querySelectorAll("[data-vault-login]")).toHaveLength(2));
+    expect([...document.querySelectorAll<HTMLElement>("[data-vault-login]")].map((row) => row.dataset.vaultLogin)).toEqual(["login-2", "login-3"]);
+    expect([...document.querySelectorAll("[data-vault-offers] button")].map((button) => button.textContent)).not.toContain("Use");
+    expect(continueButton()).toBeNull();
+    expect(input("email")).toBeNull();
+    press(document.querySelector<HTMLButtonElement>("[data-vault-login=login-3]")!);
+    await vi.waitFor(() => expect(dialog()).toBeNull());
+    expect(sent).toEqual([{ url: "/api/bots/pepper/secure-forms/form-1/submit", body: { threadId: "pepper-thread", login: "login-3" } }]);
+  });
+
+  it("types a different login from a quiet link, offers to update an account it already keeps, and goes back to the saved ones", async () => {
+    later({ available: true, logins: [KIT], lookalike: null });
+    mount(form());
+    press(openButton()!);
+    await vi.waitFor(() => expect(document.querySelector("[data-vault-type]")).not.toBeNull());
+    press(document.querySelector<HTMLButtonElement>("[data-vault-type]")!);
+    expect(document.activeElement).toBe(input("email"));
+    type(input("email"), "KIT@example.com");
+    expect(document.querySelector("[data-vault-save]")!.closest("label")!.textContent).toBe("Update your vault once it works");
+    press(document.querySelector<HTMLButtonElement>("[data-vault-pick]")!);
+    expect(document.querySelectorAll("[data-vault-login]")).toHaveLength(1);
+  });
+
+  it("opens again on the fields after the site turned a try down, with the email kept and the site's words", async () => {
+    const sent = later({ available: true, logins: [KIT], lookalike: null });
+    mount(form({ tried: { username: "kit@example.com", rejected: true, said: "Incorrect password.", save: true } }));
+    expect(card().querySelector("[data-secure-form-rejected]")?.textContent).toBe("That sign-in didn't work");
+    expect(openButton()?.textContent).toBe("Try again");
+    press(openButton()!);
+    await vi.waitFor(() => expect(document.querySelector("[data-vault-save]")).not.toBeNull());
+    expect(document.querySelector("[data-secure-form-retry]")?.textContent).toBe("That sign-in didn't workexample.com said “Incorrect password.”");
+    expect(input("email").value).toBe("kit@example.com");
+    expect(document.activeElement).toBe(input("password"));
+    expect(document.querySelector("[data-vault-pick]")).toBeNull();
+    expect(continueButton().textContent).toBe("Try again");
+    type(input("password"), "right");
+    press(continueButton());
+    await vi.waitFor(() => expect(dialog()).toBeNull());
+    expect(sent).toEqual([{ url: "/api/bots/pepper/secure-forms/form-1/submit", body: { threadId: "pepper-thread", values: { email: "kit@example.com", password: "right" }, save: true } }]);
+  });
+
+  it("names the saved login whose password didn't work, and offers to update it", async () => {
+    later({ available: true, logins: [KIT], lookalike: null });
+    mount(form({ tried: { username: "kit@example.com", login: "login-1", rejected: true } }));
+    press(openButton()!);
+    await vi.waitFor(() => expect(document.querySelector("[data-vault-save]")).not.toBeNull());
+    expect(document.querySelector("[data-secure-form-retry]")?.textContent).toBe("The saved password for kit@example.com didn't workType the current password. Your vault updates once it works.");
+    expect(document.querySelector<HTMLInputElement>("[data-vault-save]")!.checked).toBe(true);
+    expect(document.querySelector("[data-vault-save]")!.closest("label")!.textContent).toBe("Update your vault once it works");
+  });
+
+  it("says signed in once the dog confirms it, and whether the login was kept", () => {
+    mount(form({ status: "filled", outcome: "signed-in", vault: "saved" }));
+    const badge = card().querySelector<HTMLElement>("[data-request-status]")!;
+    expect(badge.textContent).toBe("Signed in");
+    expect(badge.dataset.requestStatus).toBe("success");
+    expect(card().textContent).toContain("Secure Form · Saved to your vault");
+    flushSync(() => root?.unmount());
+    document.body.innerHTML = "";
+    mount(form({ status: "filled", vault: "pending" }));
+    expect(card().textContent).toContain("Saves to your vault once it works");
+    expect(card().querySelector("[data-request-status]")?.textContent).toBe("Typed in");
+    flushSync(() => root?.unmount());
+    document.body.innerHTML = "";
+    mount(form({ status: "expired", vault: "unsure" }));
+    expect(card().textContent).toContain("Not saved to your vault");
   });
 
   it("fills a checkout form from the person's details in one press, for them to check before Continue", async () => {
@@ -289,8 +371,8 @@ describe("the Secure Form card", () => {
   });
 
   it.each([
-    ["sending", { status: "sending", until: Date.now() + 60_000 }, "Filling in", "muted"],
-    ["filled", { status: "filled" }, "Filled", "success"],
+    ["sending", { status: "sending", until: Date.now() + 60_000 }, "Typing it in", "muted"],
+    ["filled", { status: "filled" }, "Typed in", "muted"],
     ["expired", { status: "expired" }, "Not filled", "danger"],
     ["superseded", { status: "superseded" }, "Replaced", "muted"],
     ["expired", { status: "sending", until: Date.now() - 1 }, "Not filled", "danger"],
@@ -316,7 +398,7 @@ describe("the Secure Form card", () => {
 
   it("stops saying it is filling in once the details are cleared", async () => {
     mount(form({ status: "sending", until: Date.now() + 30 }));
-    expect(card().textContent).toContain("Filling in");
+    expect(card().textContent).toContain("Typing it in");
     await vi.waitFor(() => expect(card().dataset.secureForm).toBe("expired"));
     expect(card().textContent).toContain("Not filled");
   });
@@ -326,7 +408,10 @@ describe("the Secure Form card", () => {
 describe("Secure Form wording", () => {
   it("names each settled state in a word or two", () => {
     expect(["open", "sending", "filled", "expired", "superseded"].map((status) => secureFormStatusLabel(status as SecureFormCardData["status"])))
-      .toEqual([null, "Filling in", "Filled", "Not filled", "Replaced"]);
+      .toEqual([null, "Typing it in", "Typed in", "Not filled", "Replaced"]);
+    expect(secureFormStatusLabel("filled", "signed-in")).toBe("Signed in");
+    expect(secureFormStatusLabel("expired", "next-step")).toBe("Accepted, one more step");
+    expect(secureFormStatusLabel("superseded", "signed-in")).toBe("Replaced");
   });
 
   it("counts a password of spaces as filled in, but not other fields", () => {

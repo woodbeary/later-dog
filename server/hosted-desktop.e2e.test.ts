@@ -138,7 +138,7 @@ it("keeps the bot's own engine on the cloud computer, and a failed place never b
       expect((await client.request("initialize", { protocolVersion: "2024-11-05", capabilities: {}, clientInfo: { name: "fixture", version: "1" } })).result.serverInfo.name).toBe("laterdog-computer");
       expect((await client.request("tools/list")).result.tools.map((entry: { name: string }) => entry.name)).toEqual([
         "screenshot", "get_screen_size", "zoom", "click", "move", "drag", "type_text", "key_press", "scroll", "run_actions", "open_url", "exec",
-        "request_secure_form", "fill_secure_field",
+        "request_secure_form", "fill_secure_field", "secure_form_result",
       ]);
       const shot = await client.request("tools/call", { name: "screenshot", arguments: {} });
       expect(shot.result.content[0]).toMatchObject({ type: "image", mimeType: "image/jpeg" });

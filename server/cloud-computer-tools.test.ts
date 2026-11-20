@@ -49,11 +49,11 @@ const rpc = (request: unknown, gate: { held: boolean; blockedReason?: string } =
 };
 
 describe("cloud computer tools", () => {
-  it("lists the same fourteen tools for every engine", async () => {
+  it("lists the same fifteen tools for every engine", async () => {
     const listed = await rpc({ method: "tools/list", params: {} }).done as { tools: Array<{ name: string }> };
     expect(listed.tools.map(tool => tool.name)).toEqual([
       "screenshot", "get_screen_size", "zoom", "click", "move", "drag", "type_text", "key_press", "scroll", "run_actions", "open_url", "exec",
-      "request_secure_form", "fill_secure_field",
+      "request_secure_form", "fill_secure_field", "secure_form_result",
     ]);
     expect(calls).toEqual([]);
   });
@@ -252,6 +252,22 @@ describe("cloud computer tools", () => {
       open: vi.fn<SecureFormDesk["open"]>(() => ({ formId: "form-1" })),
       field: vi.fn<SecureFormDesk["field"]>(() => ({ ok: true, host: "example.com", label: "Password", value })),
       typed: vi.fn<SecureFormDesk["typed"]>(() => ({ last: true })),
+      result: vi.fn<SecureFormDesk["result"]>(() => ({ ok: true, text: "Noted: signed in on example.com. Carry on with the task." })),
+    });
+    const report = (args: Record<string, unknown>) => ({ method: "tools/call", params: { name: "secure_form_result", arguments: args } });
+
+    it("takes the dog's word on how the site answered, without the control gate or the computer", async () => {
+      const forms = desk();
+      const call = rpc(report({ form_id: "form-1", result: "rejected", site_said: "Incorrect password." }), { held: true }, undefined, forms);
+      expect(await call.done).toEqual({ content: [{ type: "text", text: "Noted: signed in on example.com. Carry on with the task." }] });
+      expect(forms.result).toHaveBeenCalledWith("form-1", "rejected", "Incorrect password.");
+      expect(call.gated()).toBe(0);
+      expect(calls).toEqual([]);
+      forms.result.mockReturnValueOnce({ ok: false, text: "The person has not filled in this form yet." });
+      expect(await rpc(report({ form_id: "form-1", result: "signed_in" }), { held: false }, undefined, forms).done)
+        .toEqual({ isError: true, content: [{ type: "text", text: "The person has not filled in this form yet." }] });
+      expect(await rpc(report({ form_id: "form-1", result: "maybe" }), { held: false }, undefined, forms).done).toMatchObject({ isError: true });
+      expect(await rpc(report({ form_id: "form-1", result: "signed_in" })).done).toEqual({ isError: true, content: [{ type: "text", text: SECURE_FORMS_UNAVAILABLE }] });
     });
 
     it("opens a form without the control gate or the Boat", async () => {

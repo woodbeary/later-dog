@@ -7,6 +7,7 @@ import { resolveUses, VAULT_OWNER_ONLY, type VaultItems } from "./laterdog/vault
 import { capturedValue, maskValues, secretNameProblem, vaultFingerprint, VAULT_CAPTURE_SCHEMA, VAULT_USES_SCHEMA, wrapVaultCommand } from "./laterdog/vault-refs.ts";
 import { splitTabListing, TAB_TRACKED_TOOLS, withTabListing, type Target } from "./laterdog/cloud-tabs.ts";
 import { fillSecureField, parseSecureFormInput, SECURE_FORM_TOOLS, secureFormRequestedText, type SecureFormDesk } from "./laterdog/secure-form.ts";
+import type { SecureFormResult } from "../shared/secure-form.ts";
 import { imageFromOutput, pointerTo, scaled, screenSizeCommand, SCREENSHOT_COMMAND, zoomCommand } from "./laterdog/screen-scale.ts";
 import { PAGE_TOOL_NAMES, PAGE_TOOLS, pageToolsEnabled, runPageTool, type RemoteExec } from "./laterdog/page-tools.ts";
 import { abortableWait, RUN_ACTIONS_TOOL, runActions } from "./laterdog/action-run.ts";
@@ -197,6 +198,13 @@ export async function cloudComputerRpc(
     if ("error" in opened) return { isError: true, content: [{ type: "text", text: opened.error }] };
     const text = secureFormRequestedText(opened.formId);
     return { content: [{ type: "text", text }] };
+  }
+  if (params.name === "secure_form_result") {
+    deps.assertActive();
+    if (!deps.secureForms) return { isError: true, content: [{ type: "text", text: SECURE_FORMS_UNAVAILABLE }] };
+    const { form_id: formId, result, site_said: said } = args as { form_id: string; result: SecureFormResult; site_said?: string };
+    const answered = deps.secureForms.result(formId, result, said);
+    return { ...(answered.ok ? {} : { isError: true }), content: [{ type: "text", text: answered.text }] };
   }
   const control = await deps.gate();
   deps.assertActive();
