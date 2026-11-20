@@ -5,17 +5,26 @@ export function personalGreeting(personName: string | undefined, dogName: string
   return person ? `Hi ${person}, I'm ${dogName}.` : `Hi, I'm ${dogName}.`;
 }
 
-export function firstHelloPrompt(personName: string | undefined, dogName: string, purpose?: string): string {
+export function firstHelloPrompt(personName: string | undefined, dogName: string, purpose?: string, greeting?: string): string {
   const person = personName?.trim() || "the person";
   const job = purpose?.trim();
   const setUp = job
     ? `${person} just finished setting you up, named you ${dogName} and wrote what you are for: "${job}".`
     : `${person} just finished setting you up and named you ${dogName}.`;
   const guess = job ? "that purpose" : `your name, ${dogName}`;
+  const hello = greeting
+    ? [
+      `later.dog first meeting: ${setUp} The chat already shows your greeting, "${greeting}", so do not greet or introduce yourself again.`,
+      `In one warm message of one or two sentences, say it is good to meet ${person === "the person" ? "them" : person} and what you guess you are here for from ${guess}`,
+      `(for a dog named "taskrabbit replies": "Good to meet you! Sounds like I'm here to help with your TaskRabbit replies, so let's figure out what that should look like.").`,
+    ]
+    : [
+      `later.dog first meeting: ${setUp} Say hello first, in one warm message of one or two sentences:`,
+      `greet ${person === "the person" ? "them" : person} by name, say it is good to meet them, and say what you guess you are here for from ${guess}`,
+      `(for a dog named "taskrabbit replies": "Hey Jacob, good to meet you! Sounds like I'm here to help with your TaskRabbit replies, so let's figure out what that should look like.").`,
+    ];
   return [
-    `later.dog first meeting: ${setUp} Say hello first, in one warm message of one or two sentences:`,
-    `greet ${person === "the person" ? "them" : person} by name, say it is good to meet them, and say what you guess you are here for from ${guess}`,
-    `(for a dog named "taskrabbit replies": "Hey Jacob, good to meet you! Sounds like I'm here to help with your TaskRabbit replies, so let's figure out what that should look like.").`,
+    ...hello,
     "Do not introduce yourself by name and do not add a second message. Then ask one short question that fits that purpose and helps you",
     "start, such as which side of a service they are on or what kind of work comes first. Use your tool for asking the person a question with",
     "options if you have one, with two to four short options written for that purpose (never generic ones such as Code and GitHub or",
@@ -43,9 +52,9 @@ export async function sayFirstHello(deps: FirstHelloDeps, botId: string, introdu
   if (messages.some((message) => message.role === "user")) return { greeted: false, asked: false };
   const person = deps.personName();
   const seed = messages.find((message) => message.role === "bot" && message.kind === "text" && SEED_GREETING.test(message.text ?? ""));
-  if (seed) deps.patchMessage(bot.threadId, seed.id, { text: personalGreeting(person, bot.name) });
+  const greeting = seed ? personalGreeting(person, bot.name) : undefined;
+  if (seed && greeting) deps.patchMessage(bot.threadId, seed.id, { text: greeting });
   if (messages.length > 1 || !(await deps.canRun(bot.modelSelection.instanceId))) return { greeted: Boolean(seed), asked: false };
-  if (seed) deps.patchMessage(bot.threadId, seed.id, { kind: "activity", text: "" });
-  await deps.start(bot.id, bot.threadId, firstHelloPrompt(person, bot.name, bot.title), introducedBy);
+  await deps.start(bot.id, bot.threadId, firstHelloPrompt(person, bot.name, bot.title, greeting), introducedBy);
   return { greeted: true, asked: true };
 }
