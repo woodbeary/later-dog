@@ -252,7 +252,7 @@ describe("the Secure Form card", () => {
     press(openButton()!);
     await vi.waitFor(() => expect(document.querySelectorAll("[data-vault-login]")).toHaveLength(2));
     expect([...document.querySelectorAll<HTMLElement>("[data-vault-login]")].map((row) => row.dataset.vaultLogin)).toEqual(["login-2", "login-3"]);
-    expect(document.querySelector("[data-vault-offers]")?.textContent).not.toContain("Use");
+    expect([...document.querySelectorAll("[data-vault-offers] button")].map((button) => button.textContent)).not.toContain("Use");
     expect(continueButton()).toBeNull();
     expect(input("email")).toBeNull();
     press(document.querySelector<HTMLButtonElement>("[data-vault-login=login-3]")!);
