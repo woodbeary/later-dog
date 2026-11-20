@@ -59,7 +59,7 @@ function desktopViewerPillBounds(contentWidth, pill) {
   return { x: Math.max(0, Math.round((contentWidth - width) / 2)), y: PILL_TOP, width, height: PILL_HEIGHT };
 }
 
-function attachDesktopViewerPill({ viewer, createView, pill }) {
+function attachDesktopViewerPill({ viewer, createView, pill, onDone }) {
   const view = createView({
     webPreferences: {
       nodeIntegration: false,
@@ -80,7 +80,9 @@ function attachDesktopViewerPill({ viewer, createView, pill }) {
     view.setBounds(desktopViewerPillBounds(width, pill));
   };
   const finish = (target) => {
-    if (desktopViewerPillDone(target) && !viewer.isDestroyed()) viewer.close();
+    if (!desktopViewerPillDone(target) || viewer.isDestroyed()) return;
+    onDone?.();
+    viewer.close();
   };
   contents.setWindowOpenHandler(() => ({ action: "deny" }));
   contents.on("will-navigate", (event, target) => {

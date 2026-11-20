@@ -42,8 +42,8 @@ export function parseTakeoverInput(raw: Record<string, unknown>): { step: string
 export function nextTakeoverStatus(current: TakeoverStatus, control: TakeoverControl): TakeoverStatus {
   if (!isOpenTakeover(current)) return current;
   if (control.held) return "in-control";
-  if (control.helpOpen) return current;
-  return current === "in-control" ? "done" : "skipped";
+  if (current === "in-control" || control.helpOpen) return current;
+  return "skipped";
 }
 
 export function finishTakeover(card: TakeoverRequestCardData, outcome: "done" | "skipped" | "replied"): TakeoverRequestCardData | null {
