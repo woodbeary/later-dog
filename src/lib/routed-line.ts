@@ -18,9 +18,9 @@ export function withEngine(account: RoutedAccount): string {
   return engine && !name.toLowerCase().includes(engine.toLowerCase()) ? `${name} (${engine})` : name;
 }
 
-export function routedLine(chosen: RoutedAccount | undefined, running: RoutedAccount | undefined, nextMessage: boolean): string | null {
+export function routedLine(chosen: RoutedAccount | undefined, running: RoutedAccount | undefined, nextMessage: boolean, chosenFree = false): string | null {
   if (!chosen || !running || chosen.instanceId === running.instanceId) return null;
   if (nextMessage) return t("accounts.fromNextMessage");
   const named = crossEngine(chosen, running) ? withEngine : (account: RoutedAccount) => account.displayName.trim();
-  return t("accounts.runningUntilBack", { name: named(running), from: named(chosen) });
+  return t(chosenFree ? "accounts.stayingOn" : "accounts.runningUntilBack", { name: named(running), from: named(chosen) });
 }

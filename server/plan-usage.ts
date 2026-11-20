@@ -7,6 +7,7 @@ import { codexHome } from "./drivers/codex-identity.ts";
 import { harnessHome } from "./env-path.ts";
 import { claudeKeychainAccount, claudeKeychainService } from "./laterdog/claude-keychain.ts";
 import { clearLiveReadings, liveReading, type LiveWindow } from "./laterdog/plan-readings.ts";
+import { creditsSpendable } from "../shared/spendable-credits.ts";
 
 export type PlanDriver = "claude" | "codex" | "grok";
 
@@ -32,6 +33,7 @@ export interface PlanModelUsage {
 export interface PlanCredits {
   unlimited: boolean;
   balance: string | null;
+  currency?: string;
 }
 
 export interface PlanWindows {
@@ -175,13 +177,26 @@ export function parseClaudeUsage(body: unknown): PlanWindows {
     }
   }
   sortModelWindows(models);
+  const credits = claudeExtraUsage(root?.extra_usage);
   return {
     plan: planLabel(root?.subscription_type ?? root?.plan ?? root?.plan_type),
     fiveHour: (root && readClaudeWindow(root.five_hour)) ?? closedWindow(),
     weekly: (root && readClaudeWindow(root.seven_day)) ?? closedWindow(),
     extra,
     models,
+    ...(credits ? { credits } : {}),
   };
+}
+
+export function claudeExtraUsage(value: unknown): PlanCredits | undefined {
+  const record = asRecord(value);
+  if (!record || typeof record.is_enabled !== "boolean") return undefined;
+  const currency = typeof record.currency === "string" && /^[A-Za-z]{3}$/.test(record.currency) ? record.currency.toUpperCase() : "USD";
+  if (!record.is_enabled) return { unlimited: false, balance: "0", currency };
+  const cap = finiteNumber(record.monthly_limit);
+  if (cap == null) return { unlimited: true, balance: null, currency };
+  const used = finiteNumber(record.used_credits) ?? 0;
+  return { unlimited: false, balance: (Math.max(0, cap - used) / 100).toFixed(2), currency };
 }
 
 export function parseCodexUsage(body: unknown): PlanWindows {
@@ -199,6 +214,7 @@ function codexCredits(value: unknown): PlanCredits | undefined {
   const record = asRecord(value);
   if (!record) return undefined;
   const unlimited = record.unlimited === true;
+  if (!unlimited && record.has_credits === false) return { unlimited: false, balance: "0" };
   if (!unlimited && record.has_credits !== true) return undefined;
   const balance = typeof record.balance === "string" || typeof record.balance === "number" ? String(record.balance) : null;
   return { unlimited, balance };
@@ -297,7 +313,10 @@ export function latestPlanRow(id: string): PlanProviderRow | undefined {
     id, name: id, driver: "claude", plan: null, ok: true, error: null,
     fiveHour: closedWindow(), weekly: closedWindow(), extra: [], models: [],
   };
-  return { ...row, fiveHour: liveOver(row.fiveHour, live.fiveHour), weekly: liveOver(row.weekly, live.weekly) };
+  const credits = live.paid === undefined ? row.credits
+    : row.credits && creditsSpendable(row.credits) === live.paid ? row.credits
+    : live.paid ? { unlimited: false, balance: null } : { unlimited: false, balance: "0" };
+  return { ...row, fiveHour: liveOver(row.fiveHour, live.fiveHour), weekly: liveOver(row.weekly, live.weekly), ...(credits ? { credits } : {}) };
 }
 
 export async function loadPlanUsage(input: {

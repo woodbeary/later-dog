@@ -11,6 +11,10 @@ describe("routedLine", () => {
     expect(routedLine(daniel, jacob, false)).toBe("Running on jacob until daniel is back");
   });
 
+  it("says the chat stays where it runs once the chosen account has room again", () => {
+    expect(routedLine(daniel, jacob, false, true)).toBe("Running on jacob · daniel has room again");
+  });
+
   it("says From the next message when the choice takes effect on the next message", () => {
     expect(routedLine(daniel, jacob, true)).toBe("From the next message");
   });

@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { PlanProviderRow } from "../plan-usage.ts";
 import { removeTempDir } from "../testing/cleanup.ts";
 import {
-  AccountBattery, DEFAULT_REST_MS, USAGE_REFRESH_WAIT_MS, backNotice, batteryEnabled, chosenModelOn, crossEngineNotice, engineName, selectionOnAccount, batterySequence, batteryOrder, checkBatteryConfig, effectiveOrder, limitRowToReplace, percentLeft, planResetAt, recharges, resetLabel, routeSelection, usedUpRest,
+  AccountBattery, DEFAULT_REST_MS, USAGE_REFRESH_WAIT_MS, batteryEnabled, creditsNotice, homeNotice, pastPlan, chosenModelOn, crossEngineNotice, engineName, selectionOnAccount, batterySequence, batteryOrder, checkBatteryConfig, effectiveOrder, limitRowToReplace, percentLeft, planResetAt, recharges, resetLabel, routeSelection, usedUpRest,
   routedNotice, switchNotice, withoutAccount,
   type AccountBatteryConfig, type BatteryAccount, type Rest,
 } from "./account-battery.ts";
@@ -583,12 +583,13 @@ describe("AccountBattery", () => {
     expect(JSON.parse(readFileSync(file, "utf8")).away["thread-1"]).toMatchObject({ from: "claude", to: "claude-b", ranOut: "claude" });
     expect(instance.takeBack("thread-1", "claude-b")).toBe(false);
     now += HOUR + 1;
-    expect(instance.route(SELECTION, ACCOUNTS, "thread-1")).toBe(SELECTION);
+    expect(instance.route(SELECTION, ACCOUNTS, "thread-1").instanceId).toBe("claude-b");
     expect(instance.takeBack("thread-1", "claude")).toBe(true);
+    expect(instance.route(SELECTION, ACCOUNTS, "thread-1")).toBe(SELECTION);
     expect(instance.routes("thread-1")).toBe(false);
   });
 
-  it("holds a pick over the battery's own choice until the account that ran out is back", () => {
+  it("holds a pick over the battery's own choice, and keeps the chat on it after the account that ran out is back", () => {
     let now = NOW;
     const instance = new AccountBattery({ config: () => ON, now: () => now });
     const onB = { ...SELECTION, instanceId: "claude-b" };
@@ -597,8 +598,9 @@ describe("AccountBattery", () => {
     instance.choose("thread-1", "claude-b", "claude-c", "claude-b");
     expect(instance.route(onB, ACCOUNTS, "thread-1").instanceId).toBe("claude-c");
     now += HOUR + 1;
-    expect(instance.route(onB, ACCOUNTS, "thread-1").instanceId).toBe("claude-b");
+    expect(instance.route(onB, ACCOUNTS, "thread-1").instanceId).toBe("claude-c");
     expect(instance.takeBack("thread-1", "claude-b")).toBe(true);
+    expect(instance.route(onB, ACCOUNTS, "thread-1")).toBe(onB);
   });
 
   it("lets a new pick of an account that can take the turn win over an earlier move", () => {
@@ -646,11 +648,8 @@ describe("AccountBattery", () => {
     });
     now += HOUR + 1;
     const back = instance.status(ACCOUNTS, choice, running);
-    expect(back.routed).toEqual({});
-    expect(back.fromNextMessage).toEqual({
-      finished: { from: "claude", on: "claude-b", model: "claude-sonnet-5" },
-      working: { from: "claude", on: "claude-c", model: "claude-sonnet-5" },
-    });
+    expect(back.routed).toEqual({ working: { from: "claude", on: "claude-c", model: "claude-sonnet-5" } });
+    expect(back.fromNextMessage).toEqual({ finished: { from: "claude", on: "claude-b", model: "claude-sonnet-5" } });
     instance.noteRan("finished", "claude", "claude-sonnet-5");
     expect(instance.status(ACCOUNTS, choice).routed).toEqual({});
     expect(instance.status(ACCOUNTS, choice).fromNextMessage).toEqual({});
@@ -675,7 +674,7 @@ describe("AccountBattery", () => {
     expect(status.fromNextMessage).toEqual({ working: { from: "claude-b", on: "claude", model: "claude-sonnet-5" } });
   });
 
-  it("says once that a turn runs on another account while the picked one rests, then that it is back", () => {
+  it("says once which account a turn runs on and why, then stays there after the picked account's reset until the person moves it", () => {
     const file = join(scratch(), "account-battery.json");
     let now = NOW;
     const instance = new AccountBattery({ config: () => ON, file, now: () => now });
@@ -683,16 +682,73 @@ describe("AccountBattery", () => {
     const ranOn = instance.route(SELECTION, ACCOUNTS, "thread-1").instanceId;
     expect(ranOn).toBe("claude-b");
     expect(instance.arrive("thread-1", SELECTION, ranOn, ACCOUNTS))
-      .toMatch(/^Running on claude-b — claude is recharging, back (?:[A-Z][a-z]{2} \d{1,2} )?at \d{1,2}:\d\d [AP]M\.$/);
+      .toMatch(/^Running on claude-b — claude hit its 5-hour limit, resets (?:[A-Z][a-z]{2} \d{1,2} )?at \d{1,2}:\d\d [AP]M\.$/);
     expect(instance.arrive("thread-1", SELECTION, ranOn, ACCOUNTS)).toBeUndefined();
     const restarted = new AccountBattery({ config: () => ON, file, now: () => now });
     expect(restarted.arrive("thread-1", SELECTION, "claude-b", ACCOUNTS)).toBeUndefined();
-    expect(restarted.arrive("thread-1", SELECTION, "claude-c", ACCOUNTS)).toMatch(/^Running on claude-c — claude is recharging/);
+    expect(restarted.arrive("thread-1", SELECTION, "claude-c", ACCOUNTS)).toMatch(/^Running on claude-c — claude hit its 5-hour limit/);
     now += HOUR + 1;
+    expect(restarted.route(SELECTION, ACCOUNTS, "thread-1")).toEqual({ ...SELECTION, instanceId: "claude-c" });
+    expect(restarted.arrive("thread-1", SELECTION, "claude-c", ACCOUNTS)).toBeUndefined();
+    expect(restarted.status(ACCOUNTS, () => SELECTION, [["thread-1", { on: "claude-c", model: "claude-sonnet-5" }]]).routed)
+      .toEqual({ "thread-1": { from: "claude", on: "claude-c", model: "claude-sonnet-5" } });
+    restarted.pin("thread-1", "claude");
     expect(restarted.route(SELECTION, ACCOUNTS, "thread-1")).toBe(SELECTION);
-    expect(restarted.arrive("thread-1", SELECTION, "claude", ACCOUNTS)).toBe("Back on claude.");
     expect(restarted.arrive("thread-1", SELECTION, "claude", ACCOUNTS)).toBeUndefined();
     expect(JSON.parse(readFileSync(file, "utf8")).away).toEqual({});
+  });
+
+  it("goes back to the picked account between turns only when the one it stayed on cannot keep it, and says why", () => {
+    let now = NOW;
+    const usage: Record<string, PlanProviderRow> = {};
+    const instance = new AccountBattery({ config: () => ON, now: () => now, usage: (id) => usage[id] });
+    instance.markExhausted("claude", { resetsAt: at(HOUR), kind: "session" });
+    instance.arrive("thread-1", SELECTION, "claude-b", ACCOUNTS);
+    now += HOUR + 1;
+    expect(instance.route(SELECTION, ACCOUNTS, "thread-1").instanceId).toBe("claude-b");
+    instance.markExhausted("claude-b", { resetsAt: at(5 * HOUR), kind: "weekly" });
+    expect(instance.route(SELECTION, ACCOUNTS, "thread-1")).toBe(SELECTION);
+    expect(instance.arrive("thread-1", SELECTION, "claude", ACCOUNTS))
+      .toMatch(/^Running on claude — claude-b hit its weekly limit, resets (?:[A-Z][a-z]{2} \d{1,2} )?at \d{1,2}:\d\d [AP]M\.$/);
+    instance.arrive("thread-2", SELECTION, "claude-c", [account("claude", { enabled: false }), account("claude-b"), account("claude-c")]);
+    expect(instance.route(SELECTION, ACCOUNTS, "thread-2")).toBe(SELECTION);
+    expect(instance.arrive("thread-2", SELECTION, "claude", ACCOUNTS)).toBe("Running on claude — it's turned on again.");
+    instance.markExhausted("claude", { resetsAt: at(2 * HOUR), kind: "session" });
+    instance.arrive("thread-3", SELECTION, "claude-c", ACCOUNTS);
+    now += 2 * HOUR + 1;
+    usage["claude-c"] = { ok: true, fiveHour: { available: true, usedPercent: 98, remainingPercent: 2, resetsAt: at(9 * HOUR) },
+      weekly: { available: true, usedPercent: 10, remainingPercent: 90, resetsAt: at(90 * HOUR) }, extra: [], models: [] } as unknown as PlanProviderRow;
+    expect(instance.route(SELECTION, ACCOUNTS, "thread-3")).toBe(SELECTION);
+    expect(instance.arrive("thread-3", SELECTION, "claude", ACCOUNTS)).toBe("Running on claude — claude-c is nearly out of usage.");
+  });
+
+  it("runs a chat on the account the person picked while its plan reading is used up, until the engine itself refuses", () => {
+    let now = NOW;
+    const used: PlanProviderRow = { ok: true, fiveHour: { available: true, usedPercent: 100, remainingPercent: 0, resetsAt: at(HOUR) },
+      weekly: { available: true, usedPercent: 20, remainingPercent: 80, resetsAt: at(90 * HOUR) }, extra: [], models: [] } as unknown as PlanProviderRow;
+    const instance = new AccountBattery({ config: () => ON, now: () => now, usage: (id) => (id === "claude" ? used : undefined) });
+    expect(instance.route(SELECTION, ACCOUNTS, "thread-1").instanceId).toBe("claude-b");
+    instance.pin("thread-1", "claude");
+    expect(instance.route(SELECTION, ACCOUNTS, "thread-1")).toBe(SELECTION);
+    expect(instance.route(SELECTION, ACCOUNTS, "thread-2").instanceId).toBe("claude-b");
+    now += 1_000;
+    instance.markExhausted("claude", { resetsAt: at(HOUR), kind: "session" });
+    expect(instance.route(SELECTION, ACCOUNTS, "thread-1").instanceId).toBe("claude-b");
+  });
+
+  it("says once per stretch that a turn runs on credits past the account's plan", () => {
+    let now = NOW;
+    const credited: PlanProviderRow = { ok: true, fiveHour: { available: true, usedPercent: 100, remainingPercent: 0, resetsAt: "2026-10-07T22:00:00.000Z" },
+      weekly: { available: true, usedPercent: 40, remainingPercent: 60, resetsAt: at(90 * HOUR) }, extra: [], models: [], credits: { unlimited: false, balance: "42" } } as unknown as PlanProviderRow;
+    const usage: Record<string, PlanProviderRow> = { claude: credited };
+    const instance = new AccountBattery({ config: () => ON, now: () => now, usage: (id) => usage[id] });
+    expect(instance.route(SELECTION, ACCOUNTS, "thread-1")).toBe(SELECTION);
+    expect(instance.arrive("thread-1", SELECTION, "claude", ACCOUNTS)).toMatch(/^Using credits on claude — its 5-hour limit is used up until \d{1,2}:\d\d [AP]M\.$/);
+    expect(instance.arrive("thread-1", SELECTION, "claude", ACCOUNTS)).toBeUndefined();
+    usage.claude = { ...credited, fiveHour: { ...credited.fiveHour, usedPercent: 30, remainingPercent: 70 } };
+    expect(instance.arrive("thread-1", SELECTION, "claude", ACCOUNTS)).toBeUndefined();
+    usage.claude = credited;
+    expect(instance.arrive("thread-1", SELECTION, "claude", ACCOUNTS)).toMatch(/^Using credits on claude/);
   });
 
   it("does not repeat a switch the conversation was already told about", () => {
@@ -766,17 +822,37 @@ describe("words and times", () => {
     expect(notice({ ...weekly, kind: "constructor" })).toBe("Switched to Work — Personal is out of usage until Oct 9, 5:00 PM.");
     expect(notice({ ...weekly, estimated: true })).toBe("Switched to Work — Personal is out of usage for now.");
     expect(notice(undefined)).toBe("Switched to Work — Personal is out of usage for now.");
-    expect(backNotice("Personal")).toBe("Back on Personal.");
     const running = (resting: Rest | undefined, why?: "signedOut" | "off") =>
       routedNotice({ to: "Work", from: "Personal", rest: resting, why, now: NOW, timeZone: "America/Los_Angeles" });
-    expect(running({ until: "2026-10-07T22:30:00.000Z", since: at(0) })).toBe("Running on Work — Personal is recharging, back at 3:30 PM.");
-    expect(running({ ...weekly })).toBe("Running on Work — Personal is recharging, back Oct 9 at 5:00 PM.");
-    expect(running({ until: "2026-10-07T22:30:00.000Z", since: at(0), estimated: true })).toBe("Running on Work — Personal is recharging, back around 3:30 PM.");
+    expect(running({ until: "2026-10-07T22:30:00.000Z", since: at(0), kind: "session" })).toBe("Running on Work — Personal hit its 5-hour limit, resets at 3:30 PM.");
+    expect(running({ until: "2026-10-07T22:30:00.000Z", since: at(0) })).toBe("Running on Work — Personal is out of usage until 3:30 PM.");
+    expect(running({ ...weekly, kind: "weekly" })).toBe("Running on Work — Personal hit its weekly limit, resets Oct 9 at 5:00 PM.");
+    expect(running({ until: "2026-10-07T22:30:00.000Z", since: at(0), estimated: true })).toBe("Running on Work — Personal is out of usage for now.");
     expect(running({ until: at(-1), since: at(0) }, "signedOut")).toBe("Running on Work — Personal isn't signed in.");
     expect(running(undefined, "off")).toBe("Running on Work — Personal is turned off.");
     expect(running({ until: "2026-10-07T22:30:00.000Z", since: at(0) }, "off")).toBe("Running on Work — Personal is turned off.");
     expect(running({ until: "2026-10-07T22:30:00.000Z", since: at(0), kind: "setup" }, "signedOut")).toBe("Running on Work — Personal isn't signed in.");
     expect(running(undefined)).toBe("Running on Work instead of Personal.");
+    const home = (left?: Parameters<typeof homeNotice>[0]["left"]) => homeNotice({ name: "Personal", left, now: NOW, timeZone: "America/Los_Angeles" });
+    expect(home({ why: "limit", stay: "Work", state: "resting", rest: { until: "2026-10-07T22:00:00.000Z", since: at(0), kind: "session" } }))
+      .toBe("Running on Personal — Work hit its 5-hour limit, resets at 3:00 PM.");
+    expect(home({ why: "limit", stay: "Work", state: "low" })).toBe("Running on Personal — Work is nearly out of usage.");
+    expect(home({ why: "limit", stay: "Work", state: "credits" })).toBe("Running on Personal — Work's plan is used up.");
+    expect(home({ why: "limit", stay: "Work", state: "off" })).toBe("Running on Personal — Work is turned off.");
+    expect(home({ why: "off" })).toBe("Running on Personal — it's turned on again.");
+    expect(home({ why: "signedOut" })).toBe("Running on Personal — it's signed in again.");
+    expect(home(undefined)).toBe("Running on Personal, this dog's own account.");
+    expect(creditsNotice({ name: "ChatGPT", kind: "session", until: "2026-10-07T23:09:00.000Z", now: NOW, timeZone: "America/Los_Angeles" }))
+      .toBe("Using credits on ChatGPT — its 5-hour limit is used up until 4:09 PM.");
+    expect(creditsNotice({ name: "ChatGPT", kind: "weekly", until: "2026-10-10T00:00:00.000Z", now: NOW, timeZone: "America/Los_Angeles" }))
+      .toBe("Using credits on ChatGPT — its weekly limit is used up until Oct 9, 5:00 PM.");
+    const window = (usedPercent: number, resetsAt: string) => ({ available: true, usedPercent, remainingPercent: 100 - usedPercent, resetsAt });
+    const row = (fiveHour: number, credits?: PlanProviderRow["credits"]) => ({ ok: true, fiveHour: window(fiveHour, at(HOUR)), weekly: window(10, at(90 * HOUR)),
+      extra: [], models: [], ...(credits ? { credits } : {}) }) as unknown as PlanProviderRow;
+    expect(pastPlan(row(100, { unlimited: false, balance: "5" }), NOW)).toEqual({ until: at(HOUR), kind: "session" });
+    expect(pastPlan(row(100, { unlimited: false, balance: "0" }), NOW)).toBeUndefined();
+    expect(pastPlan(row(100), NOW)).toBeUndefined();
+    expect(pastPlan(row(60, { unlimited: true, balance: null }), NOW)).toBeUndefined();
     expect(resetLabel("2026-10-07T22:00:00.000Z", NOW, "UTC")).toBe("10:00 PM");
   });
 

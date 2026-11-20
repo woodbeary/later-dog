@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { appendFileSync, closeSync, existsSync, readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";
+import { appendFileSync, closeSync, existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { createPuppies } from "./fake-claude-puppies.ts";
@@ -535,6 +535,14 @@ const playTurn = async (prompt: JsonValue, late = false) => {
   }
 
   out({ type: "system", subtype: "init", session_id: sessionId, model, permissionMode, tools });
+  if (process.env.FAKE_CLAUDE_RATE_LIMIT_INFO) {
+    out({ type: "rate_limit_event", rate_limit_info: JSON.parse(process.env.FAKE_CLAUDE_RATE_LIMIT_INFO), uuid: `fake-rate-${process.pid}`, session_id: sessionId });
+  }
+  if (process.env.FAKE_CLAUDE_SESSION_WRITE === "1") {
+    const folder = join(process.env.CLAUDE_CONFIG_DIR || join(homedir(), ".claude"), "projects", process.cwd().replace(/[^a-zA-Z0-9]/g, "-"));
+    mkdirSync(folder, { recursive: true });
+    appendFileSync(join(folder, `${sessionId}.jsonl`), `${JSON.stringify({ type: "user", session_id: sessionId, message: prompt })}\n`);
+  }
 
   if (lateContinuation && process.env.FAKE_CLAUDE_LATE_STEER_SILENT) {
     setInterval(() => {}, 1_000);

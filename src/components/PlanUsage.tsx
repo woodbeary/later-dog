@@ -38,7 +38,7 @@ export interface PlanProvider {
   weekly: PlanWindow;
   extra: PlanExtra[];
   models?: PlanModelUsage[];
-  credits?: { unlimited: boolean; balance: string | null };
+  credits?: { unlimited: boolean; balance: string | null; currency?: string };
 }
 
 export interface PlanUsageReport {
@@ -250,9 +250,11 @@ export function usageLines(provider: PlanProvider | undefined, now: number): str
 
 export function creditsLine(provider: PlanProvider | undefined): string | null {
   if (!provider?.ok || !provider.credits || !creditsSpendable(provider.credits)) return null;
-  if (provider.credits.unlimited) return t("planUsage.unlimitedCredits");
+  const { currency } = provider.credits;
+  if (provider.credits.unlimited) return t(currency ? "planUsage.extraUsageOn" : "planUsage.unlimitedCredits");
   const balance = Number(provider.credits.balance?.trim() || Number.NaN);
-  if (!Number.isFinite(balance)) return null;
+  if (!Number.isFinite(balance)) return currency ? t("planUsage.extraUsageOn") : null;
+  if (currency) return t("planUsage.extraUsageLeft", { amount: new Intl.NumberFormat(activeLocale(), { style: "currency", currency }).format(balance) });
   return t("planUsage.creditsRemaining", { balance: new Intl.NumberFormat(activeLocale(), { maximumFractionDigits: 2 }).format(balance) });
 }
 

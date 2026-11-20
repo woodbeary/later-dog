@@ -18,10 +18,13 @@ export interface AccountChoiceInput {
   handPicked?: string;
   preferred?: readonly ModelSelection[];
   pinned?: boolean;
+  stay?: string;
+  pastPlan?: boolean;
 }
 
 export type AccountChoice =
   | { kind: "chosen"; run: ModelSelection }
+  | { kind: "staying"; run: ModelSelection; chosen: string }
   | { kind: "covering"; run: ModelSelection; chosen: string; blocked: Blocked; until?: string; byHand?: true }
   | { kind: "waiting"; run: ModelSelection; chosen: string; blocked: Blocked; until?: string };
 
@@ -95,6 +98,20 @@ export function otherEngineCovers(input: AccountChoiceInput): BatteryAccount[] {
     !activeRest(account, selectionOnAccount(chosen, account, accounts, input.preferred).model, accounts, input.resting, now));
 }
 
+export function paysPastPlan(row: PlanProviderRow | undefined, now: number): boolean {
+  return roomRank(roomOf(row, now)) === CREDITS_ONLY;
+}
+
+function staysOn(input: AccountChoiceInput, own: BatteryAccount): ModelSelection | undefined {
+  const stay = input.stay ? input.accounts.find((account) => account.instanceId === input.stay) : undefined;
+  if (!stay || stay === own || stay.driverKind !== own.driverKind || !stay.eligible || !stay.enabled || stay.signedIn === false) return undefined;
+  if (!offers(stay, own, input.chosen.model) || activeRest(stay, input.chosen.model, input.accounts, input.resting, input.now)) return undefined;
+  const room = roomRank(roomOf(input.usage?.(stay.instanceId), input.now));
+  if (room === CREDITS_ONLY) return undefined;
+  if (room === NEARLY_EMPTY && roomRank(roomOf(input.usage?.(own.instanceId), input.now)) < NEARLY_EMPTY) return undefined;
+  return { ...input.chosen, instanceId: stay.instanceId };
+}
+
 export function rankByRoom(candidates: readonly BatteryAccount[], input: Pick<AccountChoiceInput, "usage" | "now" | "order">): BatteryAccount[] {
   const order = input.order ?? [];
   const position = (id: string) => { const at = order.indexOf(id); return at === -1 ? order.length : at; };
@@ -110,9 +127,12 @@ export function decideAccount(input: AccountChoiceInput): AccountChoice {
   const { chosen, accounts, now } = input;
   const own = accounts.find((account) => account.instanceId === chosen.instanceId);
   if (!own?.eligible) return { kind: "chosen", run: chosen };
-  const rest = activeRest(own, chosen.model, accounts, input.resting, now);
+  const rest = input.pastPlan ? undefined : activeRest(own, chosen.model, accounts, input.resting, now);
   const blocked = blockedBy(own, rest);
-  if (!blocked) return { kind: "chosen", run: chosen };
+  if (!blocked) {
+    const stay = staysOn(input, own);
+    return stay ? { kind: "staying", run: stay, chosen: own.instanceId } : { kind: "chosen", run: chosen };
+  }
   const until = rest && Date.parse(rest.until) > now ? { until: rest.until } : {};
   const hand = handAccount(input, own);
   const handRun = hand ? selectionOnAccount(chosen, hand, accounts, input.preferred) : undefined;
@@ -122,15 +142,16 @@ export function decideAccount(input: AccountChoiceInput): AccountChoice {
   const waiting: AccountChoice = { kind: "waiting", run: chosen, chosen: own.instanceId, blocked, ...until };
   if (!input.keepGoing) return waiting;
   const usage = (account: BatteryAccount) => roomRank(roomOf(input.usage?.(account.instanceId), now));
+  const onPlan = (account: BatteryAccount) => usage(account) !== CREDITS_ONLY;
   const steady = (ranked: BatteryAccount[]) => {
     const current = ranked.find((account) => account.instanceId === input.current);
     return current && keepsCover(usage(current), usage(ranked[0]!)) ? current : ranked[0]!;
   };
-  const ranked = rankByRoom(sameEngineCovers(input), input);
+  const ranked = rankByRoom(sameEngineCovers(input).filter(onPlan), input);
   if (ranked.length) return { kind: "covering", run: { ...chosen, instanceId: steady(ranked).instanceId }, chosen: own.instanceId, blocked, ...until };
   if (blocked !== "off" || input.pinned) return waiting;
   if (accounts.some((account) => account.driverKind === own.driverKind && mayComeBack(account, own, chosen.model))) return waiting;
-  const across = rankByRoom(otherEngineCovers(input), input);
+  const across = rankByRoom(otherEngineCovers(input).filter(onPlan), input);
   if (!across.length) return waiting;
   return { kind: "covering", run: selectionOnAccount(chosen, steady(across), accounts, input.preferred), chosen: own.instanceId, blocked, ...until };
 }
@@ -145,10 +166,18 @@ export function choiceReadyAt(input: AccountChoiceInput): string | undefined {
   for (const account of new Set([own, ...(hand ? [hand] : []), ...others])) {
     const model = account === hand ? selectionOnAccount(chosen, hand, accounts, input.preferred).model : chosen.model;
     const rest = activeRest(account, model, accounts, input.resting, now);
-    if (!rest) return undefined;
-    soonest = Math.min(soonest, Date.parse(rest.until));
+    const until = rest ? Date.parse(rest.until) : account === own || account === hand ? undefined : planBackAt(input.usage?.(account.instanceId), now);
+    if (until === undefined) return undefined;
+    soonest = Math.min(soonest, until);
   }
   return new Date(soonest).toISOString();
+}
+
+function planBackAt(row: PlanProviderRow | undefined, now: number): number | undefined {
+  if (!paysPastPlan(row, now)) return undefined;
+  const resets = [row!.fiveHour, row!.weekly].filter((window) => window.available && window.usedPercent !== null && window.resetsAt &&
+    100 - window.usedPercent <= NEARLY_EMPTY_PERCENT).map((window) => Date.parse(window.resetsAt!)).filter((at) => at > now);
+  return resets.length ? Math.max(...resets) : undefined;
 }
 
 export interface Ran {

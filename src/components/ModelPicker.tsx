@@ -800,7 +800,8 @@ export function ModelPicker({
     ? chatContextReading(chatTask?.usage?.context, active?.models.options.find((option) => option.id === selection.model)?.contextWindow)
     : null;
   const otherEngine = crossEngine(active, inUse);
-  const routedWords = routed ? routedLine(active, inUse, routed !== runningRoute || routed.from !== selection.instanceId) : null;
+  const chosenFree = Boolean(active && active.enabled !== false && signedInNow(active) && !activeRest(restsForModel, active.instanceId, usage.now));
+  const routedWords = routed ? routedLine(active, inUse, routed !== runningRoute || routed.from !== selection.instanceId, chosenFree) : null;
   const chatAccountName = inUse && otherEngine ? withEngine(inUse) : inUse && (accountRows.length > 1 || routed)
     && !shownModel.toLowerCase().startsWith(inUse.displayName.trim().toLowerCase()) ? inUse.displayName : null;
   const chatEffortName = selectedVariantLabel
