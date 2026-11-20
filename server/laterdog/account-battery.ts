@@ -1007,10 +1007,12 @@ export class AccountBattery {
   }
 
   private payingNotice(threadId: string, ranOn: string, name: string): string | undefined {
-    const spent = pastPlan(this.options.usage?.(ranOn), this.now());
+    const now = this.now();
+    const row = this.options.usage?.(ranOn);
+    const spent = pastPlan(row, now);
     const told = this.state.credited[threadId];
     if (!spent) {
-      if (told) {
+      if (told && (!(Date.parse(told.until) > now) || (told.on === ranOn && row?.ok === true))) {
         delete this.state.credited[threadId];
         this.persist();
       }
@@ -1019,7 +1021,7 @@ export class AccountBattery {
     if (told?.on === ranOn && told.until === spent.until) return undefined;
     this.state.credited[threadId] = { on: ranOn, until: spent.until };
     this.persist();
-    return creditsNotice({ name, kind: spent.kind, until: spent.until, now: this.now() });
+    return creditsNotice({ name, kind: spent.kind, until: spent.until, now });
   }
 
   private place(threadId: string, on: string | undefined, from: string, picked?: string): void {
