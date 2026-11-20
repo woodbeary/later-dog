@@ -873,6 +873,7 @@ import {
   type PendingGoogleAuth,
 } from "./laterdog/google.ts";
 import { DeviceApprovalWatcher, deviceApprovalOutcome, deviceApprovalResumePrompt, processAlive, runDeviceCheck } from "./laterdog/device-approval.ts";
+import { deviceApprovalExpiredNotice, deviceApprovalNeedsYou, deviceApprovalRenewPrompt, deviceApprovalRenewable } from "./laterdog/device-approval-wait.ts";
 import { isOpenDeviceApproval, type DeviceApprovalCardData, type DeviceApprovalEndedBy } from "../shared/device-approval.ts";
 import { createSecureFormRoutes } from "./routes/secure-forms.ts";
 import { createVaultRoutes } from "./routes/vault.ts";
@@ -3718,7 +3719,8 @@ let exchangeLookup: ExchangeLookup | undefined;
 let waitingOnPerson = (_threadId: string): boolean => false;
 let stallFacts = (_threadId: string): StallFacts => ({});
 function chatWork(threadId: string, busy: boolean, activity: BotActivity | undefined, waitingOn: WireWaitingOn[] | undefined, selection: ModelSelection): WorkState {
-  const asking = activity === "waiting-on-you" || delegatedNeedsYou(threadId) || waitingOnPerson(threadId);
+  const signIn = busy ? undefined : deviceApprovalNeedsYou(store.messagesTail(threadId, 60).messages);
+  const asking = activity === "waiting-on-you" || delegatedNeedsYou(threadId) || waitingOnPerson(threadId) || signIn !== undefined;
   const until = limitHold.heldUntil(threadId);
   const usageWait = until !== undefined || (!busy && usageStranded(threadId));
   const stall = stallFacts(threadId);
@@ -3726,7 +3728,7 @@ function chatWork(threadId: string, busy: boolean, activity: BotActivity | undef
   const account = kept ? accountNeedsYou({ carriesOn: carriesOnByItself(threadId), choice: accountBattery.decide(chatSelection(threadId) ?? selection, batteryAccounts(), threadId), name: (id) => registry.get(id)?.displayName }) : undefined;
   return workState({
     busy, helpers: busy ? 0 : helpersWorkingIn(threadId), ...(busy ? {} : computerJobs.facts(threadId)), waitingOn, ...workSignals.facts(threadId), ...(stall.stopped ? { stopped: stall.stopped } : {}),
-    ...(asking ? { needsYou: { what: openAsk(store.messagesTail(threadId, 60).messages) } } : stall.needsYou ? { needsYou: stall.needsYou } : account ? { needsYou: account } : {}),
+    ...(asking ? { needsYou: { what: signIn ?? openAsk(store.messagesTail(threadId, 60).messages) } } : stall.needsYou ? { needsYou: stall.needsYou } : account ? { needsYou: account } : {}),
     ...(usageWait ? { usageHold: { account: registry.get(selection.instanceId)?.displayName, ...(until !== undefined ? { until } : {}) } } : {}),
   });
 }
@@ -12862,11 +12864,30 @@ function endDeviceApproval(botId: string, threadId: string, messageId: string, e
   const message = deviceApprovalMessage(botId, threadId, messageId);
   const card = message?.card?.deviceApproval;
   if (!message?.card || !card || !isOpenDeviceApproval(card)) return null;
-  const next: DeviceApprovalCardData = { ...card, status: deviceApprovalOutcome(endedBy), endedBy };
+  const next: DeviceApprovalCardData = { ...card, status: deviceApprovalOutcome(endedBy), endedBy, ...(endedBy === "expiry" ? { renew: "offered" as const } : {}) };
   store.patchMessage(threadId, message.id, { card: { ...message.card, deviceApproval: next } });
-  if (endedBy !== "reply" && endedBy !== "replaced") {
+  if (endedBy === "expiry") noticeDeviceApprovalExpired(botId, threadId, next);
+  else if (endedBy !== "reply" && endedBy !== "replaced") {
     dispatchTakeoverResume({ botId, threadId, messageId, prompt: deviceApprovalResumePrompt(card, endedBy) });
   }
+  return next;
+}
+
+function noticeDeviceApprovalExpired(botId: string, threadId: string, card: DeviceApprovalCardData): void {
+  const owner = connectorThread(botId, threadId);
+  if (!owner) return;
+  announceHelpersChanged(threadId);
+  notify(buildNotification("takeover", owner.bot, threadId, deviceApprovalExpiredNotice(card), { group: owner.group ? { id: owner.group.id, name: owner.group.name } : undefined }));
+}
+
+function renewDeviceApproval(botId: string, threadId: string, messageId: string): DeviceApprovalCardData | null {
+  const message = deviceApprovalMessage(botId, threadId, messageId);
+  const card = message?.card?.deviceApproval;
+  if (!message?.card || !card || !deviceApprovalRenewable(card)) return null;
+  const next: DeviceApprovalCardData = { ...card, renew: "asked" };
+  store.patchMessage(threadId, message.id, { card: { ...message.card, deviceApproval: next } });
+  announceHelpersChanged(threadId);
+  dispatchTakeoverResume({ botId, threadId, messageId, prompt: deviceApprovalRenewPrompt(card) });
   return next;
 }
 
@@ -14151,6 +14172,7 @@ INTERNAL_ROUTES.push(createDeviceApprovalRequestRoute({
 ROUTES.push(createDeviceApprovalCardRoutes({
   read: (botId, threadId, messageId) => deviceApprovalMessage(botId, threadId, messageId)?.card?.deviceApproval ?? null,
   end: endDeviceApproval,
+  renew: renewDeviceApproval,
 }));
 INTERNAL_ROUTES.push(createTakeoverRequestRoute({
   ...takeoverLease,
