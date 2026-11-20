@@ -947,6 +947,33 @@ describe("a Secure Form and the person's saved logins", () => {
     expect(second.card("form-1")?.tried).not.toHaveProperty("save");
   });
 
+  it("saves only the reporting dog's own login when two dogs sign in to one site in a group chat", () => {
+    const messages: SecureFormMessage[] = [];
+    const saved: Array<{ username: string }> = [];
+    const forms = new SecureForms({
+      inThread: () => ({ group: true }),
+      messages: () => messages,
+      append: (botId, _threadId, card) => {
+        const id = `form-${messages.length + 1}`;
+        messages.push({ id, kind: "secret", from: { botId }, secureForm: card });
+        return id;
+      },
+      patch: (_threadId, messageId, card) => {
+        const message = messages.find((entry) => entry.id === messageId);
+        if (message) message.secureForm = card;
+      },
+      resume: () => {},
+      savedLogins: { matching: () => [], credentials: () => null, save: (input) => { saved.push({ username: input.username }); } },
+    });
+    forms.desk("dog-1", "room").open(INPUT);
+    forms.desk("dog-2", "room").open({ ...INPUT, fields: [...SIGN_IN] });
+    forms.submit("dog-1", "room", "form-1", { email: "kit@example.com", password: "kit's" }, { save: true });
+    forms.submit("dog-2", "room", "form-2", { email: "sam@example.com", password: "sam's" }, { save: true });
+    expect(forms.desk("dog-1", "room").result("form-1", "signed_in")).toMatchObject({ ok: true });
+    expect(saved).toEqual([{ username: "kit@example.com" }]);
+    expect(messages.find((entry) => entry.id === "form-2")?.secureForm).toMatchObject({ vault: "pending" });
+  });
+
   it("answers a result only for a form the person sent", () => {
     const { forms } = chat();
     const desk = forms.desk("dog-1", "thread-1");
