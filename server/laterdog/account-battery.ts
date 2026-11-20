@@ -143,7 +143,7 @@ const stateSchema = z.object({
     from: z.string(), at: z.string(), to: z.string().optional(), ranOut: z.string().optional(), pick: z.string().optional(), on: z.string().optional(),
     why: z.enum(["limit", "signIn", "signedOut", "off"]).optional(),
   })).default({}),
-  placed: z.record(z.string(), z.object({ on: z.string(), at: z.string(), from: z.string().optional(), picked: z.boolean().optional() })).default({}),
+  placed: z.record(z.string(), z.object({ on: z.string(), at: z.string(), from: z.string().optional(), picked: z.string().optional() })).default({}),
   ran: z.record(z.string(), z.object({ on: z.string(), model: z.string(), at: z.string() })).default({}),
   credited: z.record(z.string(), z.object({ on: z.string(), until: z.string() })).default({}),
 });
@@ -689,9 +689,16 @@ export class AccountBattery {
 
   private picksPastPlan(threadId: string, selection: ModelSelection, accounts: readonly BatteryAccount[]): boolean {
     const placed = this.state.placed[threadId];
-    if (!placed?.picked || placed.on !== selection.instanceId) return false;
+    if (!placed?.picked || placed.on !== selection.instanceId || !(Date.parse(placed.picked) > this.now())) return false;
     const own = accounts.find((account) => account.instanceId === selection.instanceId);
     return Boolean(own) && !activeRest(own!, selection.model, accounts, this.state.resting, this.now());
+  }
+
+  private pastPlanUntil(instanceId: string): string | undefined {
+    const accounts = this.options.accounts?.() ?? [];
+    const account = accounts.find((candidate) => candidate.instanceId === instanceId);
+    if (!account || activeRest(account, undefined, accounts, this.state.resting, this.now())) return undefined;
+    return this.restOf(account, accounts)?.until;
   }
 
   choose(threadId: string, ranOut: string, to: string, pick: string): void {
@@ -1019,11 +1026,12 @@ export class AccountBattery {
     return creditsNotice({ name, kind: spent.kind, until: spent.until, now: this.now() });
   }
 
-  private place(threadId: string, on: string | undefined, from: string, picked = false): void {
+  private place(threadId: string, on: string | undefined, from: string, picked?: string): void {
     const placed = this.state.placed[threadId];
-    if (placed?.on === on && placed?.from === from && (!picked || placed.picked)) return;
+    if (placed?.on === on && placed?.from === from && (!picked || placed.picked === picked)) return;
+    const kept = picked ?? (placed?.on === on ? placed?.picked : undefined);
     if (on === undefined) delete this.state.placed[threadId];
-    else this.state.placed[threadId] = { on, at: new Date(this.now()).toISOString(), from, ...(picked || (placed?.on === on && placed.picked) ? { picked: true } : {}) };
+    else this.state.placed[threadId] = { on, at: new Date(this.now()).toISOString(), from, ...(kept ? { picked: kept } : {}) };
     const all = Object.entries(this.state.placed);
     if (all.length > MAX_PLACED) {
       all.sort((a, b) => a[1].at.localeCompare(b[1].at));
@@ -1054,7 +1062,7 @@ export class AccountBattery {
 
   pin(threadId: string, instanceId: string): void {
     delete this.state.away[threadId];
-    this.place(threadId, instanceId, instanceId, true);
+    this.place(threadId, instanceId, instanceId, this.pastPlanUntil(instanceId));
     this.save();
   }
 
