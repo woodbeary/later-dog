@@ -122,16 +122,17 @@ describe("a Codex account past its plan window that still has paid credits", () 
     config: () => config, accounts: () => accounts, now: () => NOW, usage: (id) => (id === "codex" ? codexRow() : reading(id, 10, 10)),
   });
 
-  it("is not called used up, so the dog stays on the Codex it was set to", () => {
+  it("is not called used up, so the dog stays on the Codex it was set to, and the chat is told once that it runs on credits", () => {
     const credited = weeklyFull({ unlimited: false, balance: "42" });
     expect(usedUpRest(credited, NOW)).toBeUndefined();
     const kept = batteryWith(() => credited);
     expect(kept.route(chosen, accounts, "clover")).toEqual(chosen);
-    expect(kept.arrive("clover", chosen, "codex", accounts)).toBeUndefined();
+    expect(kept.arrive("clover", chosen, "codex", accounts)).toMatch(/^Using credits on ChatGPT — its weekly limit is used up until /);
     expect(kept.route(chosen, accounts, "clover")).toEqual(chosen);
+    expect(kept.arrive("clover", chosen, "codex", accounts)).toBeUndefined();
   });
 
-  it("does not flip between Codex and Claude as the reading comes and goes", () => {
+  it("does not flip between Codex and Claude as the reading comes and goes, and says it runs on credits only once", () => {
     let row: PlanProviderRow | undefined;
     const flapping = batteryWith(() => row);
     const notices: Array<string | undefined> = [];
@@ -141,7 +142,7 @@ describe("a Codex account past its plan window that still has paid credits", () 
       expect(routed.instanceId).toBe("codex");
       notices.push(flapping.arrive("clover", chosen, routed.instanceId, accounts));
     }
-    expect(notices).toEqual([undefined, undefined, undefined, undefined]);
+    expect(notices).toEqual([undefined, expect.stringMatching(/^Using credits on ChatGPT — its weekly limit is used up until /), undefined, undefined]);
   });
 
   it("waits on ChatGPT instead of moving to Claude when the window is full and there are no credits", () => {

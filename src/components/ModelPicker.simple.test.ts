@@ -1161,12 +1161,17 @@ describe("the message field's one AI menu", () => {
     expect(rows.find((row) => row.inUse)?.instance.instanceId).toBe("claude");
   });
 
-  it("says where the chat runs until the chosen account is back, and nothing once the person picks the account it runs on", () => {
+  it("says where the chat runs, until when the chosen account rests or that it has room again, and nothing once the person picks the account it runs on", () => {
     fixture.instances = [{ ...claude(), displayName: "jacob" }, { ...work(), displayName: "daniel" }];
     fixture.battery = { enabled: true, auto: true, order: {}, sequence: ["claude", "claude-work"],
       routed: { "thread-scout": { from: "claude", on: "claude-work", model: "claude-opus-5-5" } }, resting: {} };
+    expect(renderPart(bot()).html).toContain('title="Running on daniel · jacob has room again"');
+    fixture.battery = { enabled: true, auto: true, order: {}, sequence: ["claude", "claude-work"],
+      routed: { "thread-scout": { from: "claude", on: "claude-work", model: "claude-opus-5-5" } }, resting: { claude: { until: new Date(NOW + 3_600_000).toISOString() } } };
     expect(renderPart(bot()).html).toContain('title="Running on daniel until jacob is back"');
-    expect(renderPart(bot(undefined, "claude-work")).html).not.toContain("is back");
+    const picked = renderPart(bot(undefined, "claude-work")).html;
+    expect(picked).not.toContain("is back");
+    expect(picked).not.toContain("has room again");
   });
 
   it("lets the menu reorder accounts once the server keeps an order", () => {

@@ -114,15 +114,16 @@ it("continues a Codex conversation on ChatGPT account 2 with the conversation ca
 
     rmSync(gate);
     await expect.poll(async () => Object.keys((await api("GET", "/api/config")).accountBattery.resting), { timeout: 30_000, interval: 500 }).toEqual([]);
-    await send("BACK_ON_CODEX_ONE_7Q");
-    await settled((rows) => rows.at(-1)?.role === "bot" && jsonLines(firstFile).length === 3);
+    await send("STAYS_ON_CODEX_TWO_7Q");
+    await settled((rows) => rows.at(-1)?.role === "bot" && jsonLines(secondFile).length === 3);
+    expect(jsonLines(firstFile)).toHaveLength(2);
     const final = await messages();
     evidence.push({ final });
-    expect(final.filter((row) => row.tool?.name === "notice: Back on Codex account 1.")).toHaveLength(1);
+    expect(final.some((row) => /^notice: (?:Back on|Running on) Codex account 1/.test(row.tool?.name ?? ""))).toBe(false);
     expect(switches(final)).toHaveLength(1);
     await expect.poll(() => readUsage(dataDir, { from: new Date(Date.now() - 86_400_000), to: new Date(Date.now() + 86_400_000) })
       .filter((row) => row.threadId === threadId).map((row) => row.instanceId), { timeout: 10_000 })
-      .toEqual(["codex-one", "codex-one", "codex-two", "codex-two", "codex-one"]);
+      .toEqual(["codex-one", "codex-one", "codex-two", "codex-two", "codex-two"]);
   } finally {
     evidence.push({ firstPrompts: jsonLines(firstFile), secondPrompts: jsonLines(secondFile) });
     writeFileSync(`${logPath}.account-battery-codex.json`, JSON.stringify(evidence, null, 2));
