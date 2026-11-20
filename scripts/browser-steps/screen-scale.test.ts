@@ -78,6 +78,7 @@ describe("where a Secure Form's value is typed on a 1280x800 cloud desktop", () 
     open: () => ({ error: "unused" }),
     field: () => ({ ok: true, host: "login.example.test", label: "Password", value: "S3cret-pass!" }),
     typed: () => ({ last: true }),
+    result: () => ({ ok: true, text: "unused" }),
   };
   const landing = (log: string[]) => log.find((line) => line.startsWith("mousemove"));
 

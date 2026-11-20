@@ -19,6 +19,7 @@ const desk: SecureFormDesk = {
   open: () => ({ error: "unused" }),
   field: () => ({ ok: true, host: "login.example.test", label: "Password", value: "S3cret-pass!" }),
   typed: () => ({ last: true }),
+  result: () => ({ ok: true, text: "unused" }),
 };
 
 const rpc = (name: string, args: Record<string, unknown>) => tools.cloudComputerRpc({ method: "tools/call", params: { name, arguments: args } }, {

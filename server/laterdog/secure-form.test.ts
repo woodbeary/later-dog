@@ -433,6 +433,7 @@ describe("typing one Secure Form value", () => {
         typed.push([formId, fieldId]);
         return { last };
       },
+      result: () => ({ ok: true, text: "unused" }),
     };
     return { desk, typed };
   };
