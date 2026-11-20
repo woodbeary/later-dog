@@ -786,6 +786,7 @@ export function createOpenAIChatRuntime<Config>(options: RuntimeOptions<Config>)
         browserMcp: options.tools !== false, nativeImageInput: true, images: true } : {}),
         sessionModelSwitch: "in-session", customMcp: options.tools !== false, agentsMcp: options.tools !== false, composioMcp: options.tools !== false,
         queueing: true,
+        replaysTranscript: true,
         guestTurns: "confined" },
       sendTurn,
       interruptTurn: async (threadId, turnId) => {

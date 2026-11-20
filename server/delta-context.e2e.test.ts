@@ -1065,3 +1065,71 @@ it("keeps today's fresh return on a Claude CLI that cannot refresh a resumed sys
   expect(count(returned, "OLD_CLI_RESULT")).toBe(1);
   expect(f.handed()).toBeUndefined();
 }, { env: { FAKE_CLAUDE_VERSION: "2.1.200" } }), 90_000);
+
+const rewindOnce = async (f: any) => {
+  await warmUp(f, "KEEP_CONTEXT: work only in the test workspace.");
+  f.plan[f.chief.id] = { reply: "ABANDONED_REPLY" };
+  await f.send("ABANDONED_REQUEST");
+  await f.wait();
+  const dropped = (await f.messages()).findLast((m: any) => m.role === "user");
+  f.plan[f.chief.id] = { reply: "Replacement accepted" };
+  f.save();
+  await f.cli("edit", "--bot", f.chief.id, "--message", dropped.id, "--task", f.thread, "--text", "REPLACEMENT_REQUEST");
+  await f.wait();
+  return { dropped };
+};
+
+it("starts a Codex rewind on a new thread with only the kept history, then resumes that thread", () => fixture(async (f) => {
+  await f.useModel("codex");
+  const { dropped } = await rewindOnce(f);
+  const first = f.turns().at(-1);
+  expect(first.resumedThread).toBeFalsy();
+  expect(f.prompt(first)).toContain("KEEP_CONTEXT");
+  expect(f.prompt(first)).toContain("REPLACEMENT_REQUEST");
+  expect(f.prompt(first)).not.toContain("ABANDONED_");
+
+  f.plan[f.chief.id] = { reply: "Continuing the replacement" };
+  await f.send("Continue");
+  await f.wait();
+  const next = f.turns().at(-1);
+  expect(next.resumedThread).toBeTruthy();
+  expect(f.prompt(next)).not.toContain("KEEP_CONTEXT");
+  expect(f.prompt(next)).not.toContain("ABANDONED_");
+
+  const back = await f.api(`/api/bots/${f.chief.id}/active-branch`, { threadId: f.thread, messageId: dropped.id });
+  const path = (await f.api(`/api/threads/${f.thread}/messages`, undefined, "GET"));
+  expect(path.activeLeafId).toBe(back.activeLeafId);
+  const byId = new Map(path.messages.map((m: any) => [m.id, m]));
+  const onPath: any[] = [];
+  for (let cur: any = byId.get(back.activeLeafId); cur; cur = cur.parentId ? byId.get(cur.parentId) : undefined) onPath.unshift(cur);
+  expect(onPath.map((m: any) => m.text)).toEqual(expect.arrayContaining(["ABANDONED_REQUEST", "ABANDONED_REPLY"]));
+  expect(onPath.map((m: any) => m.text)).not.toContain("REPLACEMENT_REQUEST");
+  expect(path.versions[dropped.id]).toMatchObject({ index: 1, count: 2 });
+}, { codex: {} }), 90_000);
+
+it("rewinds Claude to the last prompt and resends it changed with no trace of the dropped reply or its plan", () => fixture(async (f) => {
+  await warmUp(f, "KEEP_CONTEXT: work only in the test workspace.");
+  f.plan[f.chief.id] = { reply: "ABANDONED_REPLY", steps: [{ tool: "set_plan", arguments: { items: [{ text: "ABANDONED_PLAN_STEP", status: "in_progress" }] } }] };
+  await f.send("ABANDONED_REQUEST");
+  await f.wait();
+  const dropped = (await f.messages()).findLast((m: any) => m.role === "user");
+
+  expect((await f.api("/api/health", undefined, "GET")).capabilities).toMatchObject({ rewindForgets: 1 });
+  const held = await f.api(`/api/bots/${f.chief.id}/rewind`, { threadId: f.thread, messageId: dropped.id, action: "hold" });
+  expect(held.draft).toBe("ABANDONED_REQUEST");
+  expect((await f.api("/api/bots", undefined, "GET")).bots.find((b: any) => b.id === f.chief.id).tasks
+    .find((t: any) => t.threadId === f.thread).plan).toBeFalsy();
+  expect(held.activeLeafId).toBe(dropped.parentId);
+
+  f.plan[f.chief.id] = { reply: "Replacement accepted" };
+  f.save();
+  const sent = await f.api(`/api/bots/${f.chief.id}/rewind`, { threadId: f.thread, messageId: dropped.id, action: "send", text: "REPLACEMENT_REQUEST" });
+  expect(sent.version).toMatchObject({ index: 2, count: 2 });
+  expect(sent.notUndone).toEqual({ files: [], moreFiles: 0, commands: 0, actions: 0 });
+  await f.wait();
+  const replay = f.prompt(f.turns().at(-1));
+  expect(replay).toContain("KEEP_CONTEXT");
+  expect(count(replay, "REPLACEMENT_REQUEST")).toBe(1);
+  expect(replay).not.toContain("ABANDONED_");
+  expect(f.launches().at(-1).resume).toBeNull();
+}), 90_000);

@@ -1,7 +1,6 @@
-import type { DriverKind } from "./contracts.ts";
 import { peerName } from "./peer-roster.ts";
 
-export const NATIVELY_REPLAYING_DRIVER_KINDS: readonly DriverKind[] = ["grok", "openai-compat", "minimax"];
+export const replaysTranscript = (capabilities: { replaysTranscript?: boolean }): boolean => capabilities.replaysTranscript === true;
 
 export interface TurnContextInput {
   text: string;

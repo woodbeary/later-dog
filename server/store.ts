@@ -1403,6 +1403,15 @@ export class Store {
     return full;
   }
 
+  rewindTo(threadId: string, leafId: string): string | null {
+    const t = this.thread(threadId);
+    if (!t.messages.some((m) => m.id === leafId)) return null;
+    t.activeLeafId = leafId;
+    mdb.setActiveLeaf(threadId, leafId);
+    this.emit({ type: "thread", threadId, activeLeafId: leafId });
+    return leafId;
+  }
+
   setActiveLeaf(threadId: string, messageId: string): string | null {
     const t = this.thread(threadId);
     if (!t.messages.some((m) => m.id === messageId)) return null;
