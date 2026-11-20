@@ -16,6 +16,7 @@ import type { BotVisibility, CardAnswerer, CloudBackend, ConnectorToolGrant, Eff
 import type { TurnDigest } from "../../shared/digest";
 import type { DamagedData } from "../../shared/damaged-data";
 import { mainDogId } from "../../shared/main-dog";
+import { withPinRanks } from "@/lib/sidebar-layout";
 import type { AppLinkSettingsSection } from "../../shared/app-link";
 import type { ToolScope } from "../../shared/tool-scope";
 import type { ModelVariantOption, RuntimeEvent } from "../../shared/runtime-events";
@@ -363,6 +364,7 @@ export interface Bot {
   voiceNotes?: boolean;
   memoryEnabled?: boolean;
   pinned?: boolean;
+  pinRank?: number;
   hidden?: boolean;
   section?: string;
   pinnedMessageId?: string;
@@ -877,6 +879,7 @@ export type Action =
   | { type: "botQueues"; queues: AppState["pendingQueued"] }
   | { type: "sections"; sections: string[] }
   | { type: "orderSections"; sections: string[] }
+  | { type: "orderPins"; order: string[] }
   | { type: "sectionDeleted"; section: string; sections: string[] }
   | { type: "routinesHydrated"; routines: Routine[]; runs: RoutineRun[] }
   | { type: "routinesLoadFailed" }
@@ -1343,6 +1346,8 @@ function baseReducer(state: AppState, action: Action): AppState {
       return { ...state, sections: action.sections };
     case "orderSections":
       return { ...state, sections: [...action.sections, ...(state.sections ?? []).filter((name) => !action.sections.includes(name))] };
+    case "orderPins":
+      return { ...state, bots: withPinRanks(state.bots, action.order) };
     case "botQueues":
       return reconcileSnapshotQueues(replaceBotQueues(state, action.queues), [...state.bots, ...state.groups]);
     case "routinesHydrated":
@@ -2987,6 +2992,9 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           if (bot) api(`/api/bots/${bot.id}/read`, { method: "POST", body: JSON.stringify({ threadId: bot.threadId }) }).catch(() => {});
           break;
         }
+        case "orderPins":
+          api("/api/bots/pin-order", { method: "PUT", body: JSON.stringify({ order: action.order }) }).catch((error) => reportError(error, "sidebar"));
+          break;
         case "orderSections":
           api("/api/sidebar-sections/order", { method: "PUT", body: JSON.stringify({ sections: action.sections }) })
             .then(({ sections }) => rawDispatch({ type: "sections", sections }))

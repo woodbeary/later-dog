@@ -17,7 +17,7 @@ import {
   saveSidebarWidth,
   toggleCollapsedSection,
 } from "./sidebar-preferences";
-import { orderPinnedBots, userSectionId } from "./sidebar-layout";
+import { hasLoosePins, orderPinnedBots, userSectionId, withPinRanks } from "./sidebar-layout";
 
 describe("sidebar density preferences", () => {
   it("accepts the two supported layouts and reads stale values, the old compact one included, as comfortable", () => {
@@ -126,5 +126,14 @@ describe("pinned grid order", () => {
     const pinned = [{ id: "a" }, { id: "b" }, { id: "main", chiefOfStaff: true }, { id: "c" }];
     expect(orderPinnedBots(pinned, ["c", "a"]).map((bot) => bot.id)).toEqual(["main", "c", "a", "b"]);
     expect(orderPinnedBots(pinned, []).map((bot) => bot.id)).toEqual(["main", "a", "b", "c"]);
+  });
+
+  it("follows the order kept on the server once there is one, so the phone and the desktop show the same pins in the same places", () => {
+    const pinned = [{ id: "a", pinRank: 3 }, { id: "b", pinRank: 1 }, { id: "main", chiefOfStaff: true, pinRank: 2 }, { id: "c" }];
+    expect(orderPinnedBots(pinned, ["c", "a"]).map((bot) => bot.id)).toEqual(["b", "main", "a", "c"]);
+    expect(withPinRanks([{ id: "a", pinned: true }, { id: "b" }, { id: "c", pinned: true }], ["c", "a", "b"])).toEqual([{ id: "a", pinned: true, pinRank: 2 }, { id: "b" }, { id: "c", pinned: true, pinRank: 1 }]);
+    expect(hasLoosePins([{ pinRank: 1 }, {}])).toBe(true);
+    expect(hasLoosePins([{ pinRank: 1 }, { pinRank: 2 }])).toBe(false);
+    expect(hasLoosePins([{}])).toBe(false);
   });
 });

@@ -79,15 +79,24 @@ export function partitionSidebarGroups<T extends SidebarGroup>(groups: T[]) {
   return { sectionedRooms, unsectionedRooms };
 }
 
-export function orderPinnedBots<T extends SidebarBot>(pinned: T[], savedOrder: readonly string[]): T[] {
-  const rank = (bot: T) => {
+export function orderPinnedBots<T extends SidebarBot & { pinRank?: number }>(pinned: T[], savedOrder: readonly string[]): T[] {
+  const served = (bot: T) => (typeof bot.pinRank === "number" && Number.isFinite(bot.pinRank) ? bot.pinRank : Number.MAX_SAFE_INTEGER);
+  const saved = (bot: T) => {
     const index = savedOrder.indexOf(bot.id);
     return index < 0 ? Number.MAX_SAFE_INTEGER : index;
   };
   return pinned
     .map((bot, index) => ({ bot, index }))
-    .sort((a, b) => Number(Boolean(b.bot.chiefOfStaff)) - Number(Boolean(a.bot.chiefOfStaff)) || rank(a.bot) - rank(b.bot) || a.index - b.index)
+    .sort((a, b) => served(a.bot) - served(b.bot) || Number(Boolean(b.bot.chiefOfStaff)) - Number(Boolean(a.bot.chiefOfStaff)) || saved(a.bot) - saved(b.bot) || a.index - b.index)
     .map(({ bot }) => bot);
+}
+
+export function withPinRanks<T extends { id: string; pinned?: boolean; pinRank?: number }>(bots: readonly T[], order: readonly string[]): T[] {
+  return bots.map((bot) => (bot.pinned && order.includes(bot.id) ? { ...bot, pinRank: order.indexOf(bot.id) + 1 } : bot));
+}
+
+export function hasLoosePins(pinned: ReadonlyArray<{ pinRank?: number }>): boolean {
+  return pinned.length > 1 && pinned.some((bot) => typeof bot.pinRank !== "number");
 }
 
 export function sidebarSectionNames(saved: readonly string[], records: ReadonlyArray<{ section?: string }>): string[] {

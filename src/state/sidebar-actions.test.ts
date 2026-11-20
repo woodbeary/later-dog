@@ -21,6 +21,12 @@ describe("sidebar actions", () => {
     expect(next.sections).toEqual(["Side", "Work", "Home"]);
   });
 
+  it("puts pinned dogs in the order they were dropped in, before the server answers", () => {
+    const state: AppState = { ...initialState, bots: [dog({ id: "a", pinned: true }), dog({ id: "b" }), dog({ id: "c", pinned: true, pinRank: 1 })] };
+    const next = reducer(state, { type: "orderPins", order: ["a", "c"] });
+    expect(next.bots.map((bot) => [bot.id, bot.pinRank])).toEqual([["a", 1], ["b", undefined], ["c", 2]]);
+  });
+
   it("opens and closes search", () => {
     const open = reducer(initialState, { type: "toggleSearch", open: true });
     expect(open.searchOpen).toBe(true);
