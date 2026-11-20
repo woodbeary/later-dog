@@ -545,7 +545,7 @@ export class SecureForms {
   private confirm(botId: string, threadId: string, site: string | null): Map<string, SecureFormVaultState> {
     const kept = new Map<string, SecureFormVaultState>();
     const vault = this.host.savedLogins;
-    for (const [key, attempt] of [...this.attempts]) {
+    for (const [key, attempt] of this.attempts) {
       if (attempt.threadId !== threadId || attempt.botId !== botId || attempt.site !== site) continue;
       this.forgetAttempt(key);
       if (attempt.login) {
@@ -643,7 +643,7 @@ export class SecureForms {
 
   private carryOver(botId: string, threadId: string, site: string | null): SecureFormTry | undefined {
     let tried: SecureFormTry | undefined;
-    for (const [key, attempt] of [...this.attempts]) {
+    for (const [key, attempt] of this.attempts) {
       if (attempt.threadId !== threadId || attempt.botId !== botId || attempt.site !== site) continue;
       this.forgetAttempt(key);
       this.drop(key);

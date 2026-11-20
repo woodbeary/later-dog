@@ -30,6 +30,7 @@ export interface SecureFormTry {
   said?: string;
   login?: string;
   save?: true;
+  rejected?: true;
 }
 
 export interface SecureFormCardData {
