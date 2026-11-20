@@ -1,4 +1,5 @@
 import { NOVNC_BASE, NOVNC_ENTRY, NOVNC_MODULES } from "./novnc";
+import { NOTE_SHOWN_MS, VIEWER_CLIPBOARD_SOURCE } from "./viewer-clipboard";
 
 export function escapeHtml(text: string): string {
   return text.replace(/[&<>"']/g, (char) => `&#${char.charCodeAt(0)};`);
@@ -70,20 +71,44 @@ ${NOVNC_MODULES.map((file) => `<link rel="modulepreload" href="${NOVNC_BASE}/${f
 </div>
 <script type="module" nonce="${nonce}">
 import RFB from "${NOVNC_ENTRY}";
-
+${VIEWER_CLIPBOARD_SOURCE}
 const EXPIRES_AT = ${Math.floor(expiresAtMs)};
 const screen = document.getElementById("screen");
 const pill = document.getElementById("status");
 const label = document.getElementById("label");
 let rfb = null;
+let live = false;
 let failures = 0;
 let finished = false;
 let retry = 0;
+let shownText = label.textContent;
+let noteTimer = 0;
 
 function show(state, text) {
+  clearTimeout(noteTimer);
+  shownText = text;
   pill.dataset.state = state;
   label.textContent = text;
 }
+
+function note(text) {
+  if (finished) return;
+  clearTimeout(noteTimer);
+  label.textContent = text;
+  noteTimer = setTimeout(() => { label.textContent = shownText; }, ${NOTE_SHOWN_MS});
+}
+
+const clipboard = createClipboardBridge({
+  client: () => (live ? rfb : null),
+  readText: () => navigator.clipboard.readText(),
+  writeText: (text) => navigator.clipboard.writeText(text),
+  focused: () => document.hasFocus(),
+  note,
+  later: (run, ms) => setTimeout(run, ms),
+});
+window.addEventListener("keydown", (event) => clipboard.keydown(event), true);
+window.addEventListener("keyup", (event) => clipboard.keyup(event), true);
+window.addEventListener("blur", () => clipboard.blur());
 
 function finish(text) {
   finished = true;
@@ -123,10 +148,13 @@ function connect() {
   rfb.compressionLevel = 2;
   rfb.addEventListener("connect", () => {
     failures = 0;
+    live = true;
     show("live", "Live");
     rfb.focus();
   });
+  rfb.addEventListener("clipboard", (event) => clipboard.heard(event.detail && event.detail.text));
   rfb.addEventListener("disconnect", async () => {
+    live = false;
     rfb = null;
     if (finished) return;
     const state = await linkState();

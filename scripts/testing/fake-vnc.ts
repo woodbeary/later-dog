@@ -1,11 +1,12 @@
-import { createServer } from "node:http";
+import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { EventEmitter, once } from "node:events";
 import { WebSocketServer } from "ws";
 
-export async function fakeVnc() {
-  const server = createServer((_req, res) => res.writeHead(404).end());
+export async function fakeVnc(options: { serve?: (req: IncomingMessage, res: ServerResponse) => void } = {}) {
+  const server = createServer((req, res) => (options.serve ? options.serve(req, res) : res.writeHead(404).end()));
   const sockets = new WebSocketServer({ server, path: "/websockify" });
   const keys: number[] = [];
+  const strokes: Array<[number, boolean]> = [];
   const events = new EventEmitter();
   let connections = 0;
   sockets.on("connection", socket => {
@@ -55,10 +56,13 @@ export async function fakeVnc() {
           init.writeUInt32BE(name.length, 20); name.copy(init, 24);
           socket.send(init);
         } else if (message[0] === 3 && !sentFrame) { sentFrame = true; frame(); }
-        else if (message[0] === 4 && message[1] === 1) {
+        else if (message[0] === 4) {
           const key = message.readUInt32BE(4);
-          keys.push(key);
-          events.emit("key", key);
+          strokes.push([key, message[1] === 1]);
+          if (message[1] === 1) {
+            keys.push(key);
+            events.emit("key", key);
+          }
         }
         else if (message[0] === 6) {
           const text = message.subarray(8).toString("latin1");
@@ -69,7 +73,7 @@ export async function fakeVnc() {
   });
   await new Promise<void>(resolve => server.listen(0, "127.0.0.1", resolve));
   return {
-    port: (server.address() as { port: number }).port, keys,
+    port: (server.address() as { port: number }).port, keys, strokes,
     nextClipboard: () => once(events, "clipboard", { signal: AbortSignal.timeout(10_000) }),
     async untilKey(key: number) {
       const signal = AbortSignal.timeout(10_000);
