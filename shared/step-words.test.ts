@@ -116,24 +116,36 @@ describe("times", () => {
 
 describe("the folded sentence", () => {
   it.each([
-    [{ edit: 4, command: 8 }, "Made 4 changes, tried 8 things"],
-    [{ edit: 2, command: 2, check: 1 }, "Made 2 changes, tried 3 things"],
-    [{ read: 3, wrote: 1 }, "Looked through 3 things, wrote one"],
-    [{ edit: 1, command: 5, search: 2, web: 1 }, "Tried 5 things, searched 2 times and more"],
-    [{ read: 2, wrote: 3 }, "Looked through 2 things, wrote 3"],
+    [{ edit: 4, command: 8 }, "Made 4 changes and tried 8 things"],
+    [{ edit: 2, command: 2, check: 1 }, "Made 2 changes and tried 2 things"],
+    [{ read: 3, wrote: 1 }, "Wrote 1 new thing and looked at 3 things"],
+    [{ edit: 1, command: 5, search: 2, web: 1 }, "Tried 5 things and searched twice"],
+    [{ read: 2, wrote: 3 }, "Wrote 3 new things and looked at 2 things"],
     [{ plan: 3 }, null],
     [{}, null],
     [{ edit: 0 }, null],
-    [{ read: 2, search: 2, edit: 2 }, "Made 2 changes, looked through 2 things and more"],
-    [{ web: 2, delete: 2 }, "Looked up 2 things, removed 2"],
-    [{ read: 1, wrote: 1 }, "Looked through one thing, wrote one"],
-    [{ command: 1, tool: 1 }, "Tried something, did something"],
-    [{ screen: 1, computer: 2 }, "Looked at the screen 3 times"],
-    [{ search: 1, chats: 1, plan: 4 }, "Searched 2 times"],
-    [{ help: 1 }, "Got some help"],
-    [{ team: 2, dog: 1, note: 1, phone: 1 }, "Asked 2 dogs, used your iPhone and more"],
+    [{ read: 2, search: 2, edit: 2 }, "Made 2 changes and looked at 2 things"],
+    [{ web: 2, delete: 2 }, "Removed 2 things and searched the web twice"],
+    [{ read: 1, wrote: 1 }, "Wrote 1 new thing and looked at 1 thing"],
+    [{ command: 1, tool: 1 }, "Tried 1 thing"],
+    [{ screen: 1, computer: 2 }, "Used the computer 3 times"],
+    [{ search: 1, chats: 1, plan: 4 }, "Searched once and looked through past chats once"],
+    [{ help: 1 }, "Got help once"],
+    [{ team: 2, dog: 1, note: 1, phone: 1 }, "Checked in with other dogs twice and used your iPhone once"],
+    [{ command: 84, tool: 24, edit: 12, web: 3 }, "Made 12 changes and tried 84 things"],
+    [{ page: 3, open: 2, web: 2 }, "Visited 5 pages and searched the web twice"],
+    [{ screen: 10, computer: 20 }, "Used the computer 30 times"],
+    [{ tool: 24 }, "Used 24 tools"],
+    [{ check: 3 }, "Checked results 3 times"],
+    [{ read: 9 }, "Looked at 9 things"],
+    [{ edit: 3, command: 12 }, "Made 3 changes and tried 12 things"],
   ] as Array<[Partial<Record<OutcomeKind, number>>, string | null]>)("folds %j into one sentence", (counts, sentence) => {
     expect(foldSentence(counts)).toBe(sentence);
+  });
+
+  it("never names files or commands, whatever the dog did", () => {
+    const kinds: OutcomeKind[] = ["edit", "command", "check", "cloud", "read", "wrote", "search", "chats", "web", "page", "open", "screen", "computer", "team", "phone", "delete", "dog", "note", "help", "plan", "tool"];
+    for (const kind of kinds) for (const count of [1, 2, 7]) expect(foldSentence({ [kind]: count }) ?? "").not.toMatch(/\b(?:files?|commands?)\b/i);
   });
 });
 
