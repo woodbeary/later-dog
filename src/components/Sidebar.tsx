@@ -61,7 +61,6 @@ import {
   loadSidebarWidth,
   clampSidebarWidth,
   saveCollapsedSections,
-  savePinOrder,
   saveSidebarWidth,
   setSidebarDensity,
   toggleCollapsedSection,
@@ -73,6 +72,7 @@ import {
   UNASSIGNED_SECTION_ID,
   moveSection,
   orderPinnedBots,
+  hasLoosePins,
   partitionSidebarBots,
   partitionSidebarGroups,
   placeSection,
@@ -1157,7 +1157,7 @@ export function Sidebar({ open, onClose, collapseToIcons = false }: {
     }
   };
   const [collapsedSections, setCollapsedSections] = useState<string[]>(() => loadCollapsedSections());
-  const [pinOrder, setPinOrder] = useState<string[]>(() => loadPinOrder());
+  const [pinOrder] = useState<string[]>(() => loadPinOrder());
   const [draggingSectionId, setDraggingSectionId] = useState<string | null>(null);
   const [dropTarget, setDropTarget] = useState<{ id: string; place: SectionDropPlace } | null>(null);
   const [reorderAnnouncement, setReorderAnnouncement] = useState("");
@@ -1224,6 +1224,10 @@ export function Sidebar({ open, onClose, collapseToIcons = false }: {
 
   const { pinnedBots: pinnedUnordered, sectionedBots, unsectionedBots, hiddenBots } = partitionSidebarBots(state.bots);
   const pinnedBots = orderPinnedBots(pinnedUnordered, pinOrder);
+  const loosePins = hasLoosePins(pinnedBots) ? pinnedBots.map((bot) => bot.id).join(",") : "";
+  useEffect(() => {
+    if (loosePins) dispatch({ type: "orderPins", order: loosePins.split(",") });
+  }, [loosePins, dispatch]);
   const { sectionedRooms, unsectionedRooms } = partitionSidebarGroups(state.groups);
   const sectionNames = sidebarSectionNames(state.sections ?? [], [...sectionedBots, ...sectionedRooms]);
   const sectionIds = [
@@ -1300,8 +1304,7 @@ export function Sidebar({ open, onClose, collapseToIcons = false }: {
     const ids = pinnedBots.map((bot) => bot.id);
     if (!ids.includes(draggedId) || draggedId === targetId) return;
     const next = placeSection(ids, draggedId, targetId, ids.indexOf(draggedId) < ids.indexOf(targetId) ? "after" : "before");
-    setPinOrder(next);
-    savePinOrder(next);
+    dispatch({ type: "orderPins", order: next });
   };
 
   const locale = activeLocale();

@@ -822,6 +822,7 @@ import { createBotPresetRoutes } from "./routes/bot-presets.ts";
 import { createRoomCardRoutes, roomOwnsThread } from "./routes/room-card.ts";
 import { createAlwaysAllowedRoutes } from "./routes/always-allowed.ts";
 import { createSidebarSectionOrderRoutes } from "./routes/sidebar-section-order.ts";
+import { createPinOrderRoutes } from "./routes/pin-order.ts";
 import { createSlashCommandRoutes } from "./routes/slash-commands.ts";
 import { commandSend, dogCommands, SavedCommands, tricksInIndex } from "./laterdog/slash-commands.ts";
 import { createBotMemoryRoutes } from "./routes/bot-memory.ts";
@@ -13551,6 +13552,7 @@ ROUTES.push(createHostedSlackRoutes({ bot: (id) => store.bot(id), hostedReady: (
 const orgInstallStatuses = () => orgLibrary?.installStatuses() ?? new Map();
 ROUTES.push(createBotPresetRoutes({ presets: presetStore, orgStatuses: orgInstallStatuses }));
 ROUTES.push(createSidebarSectionOrderRoutes({ order: (sections) => store.orderSections(sections) }));
+ROUTES.push(createPinOrderRoutes({ order: (ids) => store.orderPins(ids) }));
 ROUTES.push(createAlwaysAllowedRoutes({ dog: (id) => store.bot(id), mayManage: canManageCommandAllowlist, list: alwaysAllowedList, resume: (id) => lastingAllows.resume(id), remove: removeAlwaysAllowed }));
 const savedCommands = new SavedCommands(DATA_DIR);
 const dogTricks = (bot: BotRecord) => {
@@ -18032,6 +18034,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       for (const key of ["unread", "cloudBackend", "color", "mascotExpression", "mascotBody", "pinned", "hidden"] as const) {
         if (body[key] !== undefined) patch[key] = body[key];
       }
+      Object.assign(patch, store.pinRankFor(m[1], body.pinned));
       const computerSpecified = Object.prototype.hasOwnProperty.call(body, "computer");
       let requestedComputer = existingBot?.computer;
       if (computerSpecified) {
