@@ -1116,11 +1116,12 @@ function respondToDisplayMediaRequest(callback, response) {
   }
 }
 
-function notifyDesktopViewer(open) {
+function notifyDesktopViewer(open, handedBack = false) {
   if (!desktopViewerOwner?.isDestroyed()) {
     desktopViewerOwner.send("desktop-viewer:state", {
       open,
       contextId: desktopViewerContextId,
+      ...(handedBack ? { done: true } : {}),
     });
   }
 }
@@ -1190,7 +1191,8 @@ function openDesktopViewer(owner, rawUrl, rawTitle, contextId, rawPill) {
   desktopViewerWindow = viewer;
   const viewerOrigin = url.origin;
   const pill = desktopViewerPill(rawPill);
-  if (pill) attachDesktopViewerPill({ viewer, pill, createView: (options) => new WebContentsView(options) });
+  let handedBack = false;
+  if (pill) attachDesktopViewerPill({ viewer, pill, createView: (options) => new WebContentsView(options), onDone: () => { handedBack = true; } });
 
   viewer.webContents.session.setPermissionCheckHandler((_webContents, permission, requestingOrigin) =>
     desktopViewerPermissionAllowed(permission, requestingOrigin, viewerOrigin),
@@ -1208,7 +1210,7 @@ function openDesktopViewer(owner, rawUrl, rawTitle, contextId, rawPill) {
   viewer.on("closed", () => {
     if (desktopViewerWindow !== viewer) return;
     desktopViewerWindow = null;
-    notifyDesktopViewer(false);
+    notifyDesktopViewer(false, handedBack);
     desktopViewerOwner = null;
     desktopViewerContextId = null;
   });

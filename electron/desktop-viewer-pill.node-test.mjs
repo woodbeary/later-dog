@@ -49,7 +49,7 @@ test("sits centred at the top and never wider than the window", () => {
   assert.ok(desktopViewerPillBounds(200, pill).width <= 176);
 });
 
-test("closes the viewer when the person taps done and cleans up with the window", () => {
+test("says the person is done, then closes the viewer when they tap done, and cleans up with the window", () => {
   const listeners = new Map();
   const viewerListeners = new Map();
   let closed = 0;
@@ -72,8 +72,12 @@ test("closes the viewer when the person taps done and cleans up with the window"
     contentView: { addChildView(view) { added = view; } },
   };
   let options = null;
+  const order = [];
+  const close = viewer.close;
+  viewer.close = () => { order.push("close"); close(); };
   const view = attachDesktopViewerPill({
     viewer,
+    onDone: () => order.push("done"),
     pill: { label: "You're in control", done: "I'm done" },
     createView: (given) => {
       options = given;
@@ -94,7 +98,10 @@ test("closes the viewer when the person taps done and cleans up with the window"
   assert.equal(prevented, true);
   assert.equal(closed, 0);
 
+  assert.deepEqual(order, []);
+
   listeners.get("did-navigate-in-page")({}, `${contents.loaded}#done`);
   assert.equal(closed, 1);
+  assert.deepEqual(order, ["done", "close"]);
   assert.deepEqual(contents.closedWith, { waitForBeforeUnload: false });
 });
