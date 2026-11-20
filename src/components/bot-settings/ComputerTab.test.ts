@@ -406,7 +406,7 @@ describe("watching and taking control of the dog's computer", () => {
     expect(host.querySelector("[data-computer-hands]")!.getAttribute("data-computer-hands")).toBe("watching");
   });
 
-  it("hands control back from the tab, closing the desktop", async () => {
+  it("hands the step back from the tab's I'm done, closing the desktop", async () => {
     awake();
     reply(CONTROL, () => ({ held: true, helpReason: null }));
     reply(CONTROL_CHANGE, () => ({ held: false, helpReason: null }));
@@ -415,7 +415,7 @@ describe("watching and taking control of the dog's computer", () => {
     await press(button("I'm done"));
     await settle();
     expect(viewer.close).toHaveBeenCalledWith("scout");
-    expect(sent(CONTROL_CHANGE)).toEqual([{ action: "release" }]);
+    expect(sent(CONTROL_CHANGE)).toEqual([{ action: "hand-back" }]);
     expect(button("Take control")).toBeDefined();
   });
 

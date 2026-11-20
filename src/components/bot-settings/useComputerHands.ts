@@ -120,11 +120,11 @@ export function useComputerHands(bot: Pick<Bot, "id" | "name" | "threadId">, awa
     setProblem(null);
     await window.laterdog?.desktopViewer?.close(id).catch(() => false);
     try {
-      await transition("release");
+      await request("hand-back");
     } catch (error) {
       if (alive.current) setProblem(plainClientError(error));
     }
-  }, [id, transition]);
+  }, [id, request]);
 
   const skip = useCallback(async () => {
     setProblem(null);
