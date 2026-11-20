@@ -782,7 +782,7 @@ import { askedToo, sendQueuedAsNextTurn, steerWhileRunning, withAskedQueueId } f
 import { asksToCloseQuestion, closeQuestion } from "./laterdog/close-question.ts";
 import { openQuestion, typedReplyAnswer } from "./laterdog/typed-answer.ts";
 import { finishTakeover, TakeoverWaits, takeoverResumePrompt, type TakeoverCards, type TakeoverWait } from "./laterdog/takeover.ts";
-import { SecureForms, secureFormMessageText } from "./laterdog/secure-form.ts";
+import { SecureForms, secureFormMessageText, secureFormRetryText } from "./laterdog/secure-form.ts";
 import { cloudVaultKey, testVaultKey, VaultStore } from "./laterdog/vault.ts";
 import { transcribeRoute } from "./laterdog/transcribe.ts";
 import { pickTranscriber, xaiVoice } from "./laterdog/transcribe-xai.ts";
@@ -12927,10 +12927,18 @@ const secureForms = new SecureForms({
   },
   patch: (threadId, messageId, card) => store.patchMessage(threadId, messageId, { secureForm: card }),
   resume: (entry) => dispatchTakeoverResume(entry),
+  alert: (botId, threadId, card) => {
+    const owner = connectorThread(botId, threadId);
+    if (!owner) return;
+    notify(buildNotification("takeover", owner.bot, threadId, secureFormRetryText(card), {
+      group: owner.group ? { id: owner.group.id, name: owner.group.name } : undefined,
+    }));
+  },
   savedLogins: {
     matching: (host) => vaultStore.matching(host),
     credentials: (id) => vaultStore.credentials(id),
-    save: (input) => { vaultStore.save(input); },
+    save: (input, options) => { vaultStore.save(input, options); },
+    worked: (id) => { vaultStore.worked(id); },
     addDetails: (details) => { vaultStore.addDetails(details); },
   },
 });

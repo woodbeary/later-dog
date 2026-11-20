@@ -1,3 +1,4 @@
+import { createCipheriv, randomBytes } from "node:crypto";
 import { mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -200,6 +201,89 @@ describe("which saved logins a sign-in page gets", () => {
 
   it.each(["paypal.com", "www.paypal.com", "pineapplefund.org", "google.com", "xbox.com", "app.com"])("leaves %s alone", (host) => {
     expect(lookalikeSite(host, ["paypal.com", "apple.com", "x.com"])).toBeNull();
+  });
+});
+
+function olderVault(entries: Array<{ id: string; site: string; username: string; password: string; updatedAt: number; workedAt?: number }>): void {
+  const seal = (value: unknown, aad: string) => {
+    const iv = randomBytes(12);
+    const cipher = createCipheriv("aes-256-gcm", KEY, iv);
+    cipher.setAAD(Buffer.from(aad));
+    const data = Buffer.concat([cipher.update(JSON.stringify(value), "utf8"), cipher.final()]);
+    return { iv: iv.toString("base64"), tag: cipher.getAuthTag().toString("base64"), data: data.toString("base64") };
+  };
+  writeFileSync(file, JSON.stringify({
+    version: 1,
+    logins: entries.map(({ id, site, username, password, updatedAt, workedAt }) => ({
+      id,
+      meta: seal({ site, username }, `laterdog-vault-v1:${id}:meta`),
+      secret: seal({ password }, `laterdog-vault-v1:${id}:secret`),
+      createdAt: updatedAt,
+      updatedAt,
+      ...(workedAt ? { workedAt } : {}),
+    })),
+  }));
+}
+
+describe("one account, one saved login", () => {
+  it("updates the account it already has when the same login comes back in other letter case", () => {
+    const vault = new VaultStore(file, KEY, now);
+    const first = vault.save({ site: "errands.example", username: "kit@example.com", password: "first try" }).login;
+    clock = 2_000;
+    expect(vault.save({ site: "login.errands.example", username: "Kit@Example.com", password: "second try" })).toMatchObject({ replaced: true, login: { id: first.id } });
+    expect(vault.view().logins).toHaveLength(1);
+    expect(vault.credentials(first.id)).toEqual({ site: "errands.example", username: "Kit@Example.com", password: "second try" });
+  });
+
+  it("marks the login a sign-in just worked with, and saves a login that worked as working", () => {
+    const vault = new VaultStore(file, KEY, now);
+    const kept = vault.save({ site: "example.com", username: "kit@example.com", password: "pw" }).login;
+    clock = 3_000;
+    expect(vault.worked(kept.id)).toBe(true);
+    expect(vault.worked("missing")).toBe(false);
+    clock = 4_000;
+    const confirmed = vault.save({ site: "example.com", username: "sam@example.com", password: "pw2" }, { worked: true }).login;
+    expect(confirmed).toMatchObject({ workedAt: 4_000, updatedAt: 4_000 });
+    expect(new VaultStore(file, KEY, now).view().logins.map((login) => login.workedAt)).toEqual([3_000, 4_000]);
+  });
+
+  it("keeps every login an older home saved twice for one account, and offers the account once: the one that last worked, else the newest", () => {
+    olderVault([
+      { id: "older", site: "errands.example", username: "kit@example.com", password: "maybe right", updatedAt: 1_000 },
+      { id: "newer", site: "errands.example", username: "Kit@example.com", password: "maybe wrong", updatedAt: 2_000 },
+      { id: "other", site: "errands.example", username: "sam@example.com", password: "sam", updatedAt: 1_500 },
+    ]);
+    const vault = new VaultStore(file, KEY, now);
+    expect(vault.view().logins.map((login) => login.id).sort()).toEqual(["newer", "older", "other"]);
+    expect(vault.offers("errands.example").logins.map((login) => login.id)).toEqual(["newer", "other"]);
+    vault.worked("older");
+    expect(vault.offers("errands.example").logins.map((login) => login.id)).toEqual(["older", "other"]);
+    expect(vault.credentials("newer")?.password).toBe("maybe wrong");
+  });
+
+  it("puts a confirmed password on the account's working entry and deletes nothing", () => {
+    olderVault([
+      { id: "older", site: "errands.example", username: "kit@example.com", password: "worked once", updatedAt: 1_000, workedAt: 1_000 },
+      { id: "newer", site: "errands.example", username: "Kit@example.com", password: "typo", updatedAt: 2_000 },
+    ]);
+    const vault = new VaultStore(file, KEY, now);
+    clock = 9_000;
+    expect(vault.save({ site: "errands.example", username: "KIT@example.com", password: "new and right" }, { worked: true }).login.id).toBe("older");
+    expect(vault.credentials("older")?.password).toBe("new and right");
+    expect(vault.credentials("newer")?.password).toBe("typo");
+    expect(vault.view().logins).toHaveLength(2);
+  });
+
+  it("lets an older copy be edited, but never turned into a copy of another account", () => {
+    olderVault([
+      { id: "older", site: "errands.example", username: "kit@example.com", password: "a", updatedAt: 1_000 },
+      { id: "newer", site: "errands.example", username: "Kit@example.com", password: "b", updatedAt: 2_000 },
+      { id: "other", site: "errands.example", username: "sam@example.com", password: "c", updatedAt: 1_500 },
+    ]);
+    const vault = new VaultStore(file, KEY, now);
+    expect(vault.update("older", { note: "The first one" })).toMatchObject({ id: "older", note: "The first one" });
+    expect(vault.update("older", { username: "KIT@example.com" })).toMatchObject({ username: "KIT@example.com" });
+    expect(() => vault.update("other", { username: "kit@EXAMPLE.com" })).toThrow("You already saved this login.");
   });
 });
 
