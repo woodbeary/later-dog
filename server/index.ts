@@ -566,7 +566,9 @@ import { connectorCallsIn } from "../shared/outbound.ts";
 import { TurnToolkits, connectorAllowKey, connectorSendDecision, toolkitOf } from "./laterdog/connector-ask.ts";
 import { bindThreadLogCapProvider } from "./thread-log-rotation.ts";
 import { CLOUD_THREAD_LOG_MAX_BYTES, CLOUD_THREAD_LOG_RETENTION_DAYS, DISK_CHECK_MS, diskUse, isLowDisk, JANITOR_EVERY_MS, runJanitor, type JanitorRun, type WorkspaceTask } from "./laterdog/janitor.ts";
-import { closeTabsScript, forgetUsers, loadTabLedger, parseTargets, recordTabs, saveTabLedger, TAB_SWEEP_MS, tabsToClose, type TabLedger, type Target } from "./laterdog/cloud-tabs.ts";
+import { TAB_SWEEP_MS } from "./laterdog/cloud-tabs.ts";
+import { TabKeeper } from "./laterdog/tab-keeper.ts";
+import { computerUpkeepScript } from "./laterdog/computer-upkeep.ts";
 import { MEMORY_CHECK_MS, orphanIdleHours, readMemoryPressure, reapStrays, underMemoryPressure, type ThreadState as ReaperThreadState } from "./laterdog/process-reaper.ts";
 import { startHomeUpkeep } from "./laterdog/home-upkeep.ts";
 import { liveSignalScene, signalDecision } from "./laterdog/home-signals.ts";
@@ -14906,7 +14908,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
           gate: () => computerCallGate(internalCapability),
           assertActive: requireActiveInternalCapability,
           secureForms: secureForms.desk(internalSender.id, internalCapability.threadId),
-          onTabs: (boxId, targets) => noteCloudTabs({ botId: internalSender.id, threadId: internalCapability.threadId }, boxId, targets),
+          tabs: (boxId) => cloudTabs.watch({ botId: internalSender.id, threadId: internalCapability.threadId }, boxId),
           vault: vaultItemsFor(internalCapability),
         }) });
       }
@@ -19601,7 +19603,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       handoffs.forget(m[2]);
       settleDirectFollowup(directTurnGenerationByThread.get(m[2]));
       rejectDeletedThreadSkillStages(stagedSkillCleanups);
-      void sweepCloudTabs();
+      void cloudTabs.sweep();
       return json(res, 200, { bot: publicBot(updated) });
     }
     m = path.match(/^\/api\/bots\/([\w-]+)\/tasks\/([\w-]+)\/title$/);
@@ -21706,42 +21708,26 @@ if (CLOUD_HOME) {
   });
 }
 
-const CLOUD_TABS_FILE = join(DATA_DIR, "cloud-tabs.json");
-const cloudTabs: TabLedger = loadTabLedger(CLOUD_TABS_FILE);
-let cloudTabsSweeping = false;
+const cloudTabs = new TabKeeper({
+  file: join(DATA_DIR, "cloud-tabs.json"),
+  run: (boxId, command) => boat.runCommand(cfg, boxId, boat.isolatedRemoteCommand(command), { timeoutMs: 60_000 }),
+  thread: janitorThread,
+  control: (botId) => {
+    const snapshot = botComputerControlSnapshot(botId);
+    return { held: snapshot.held || snapshot.helpReason !== null, epoch: computerControlRevision.get(botId) ?? 0 };
+  },
+  upkeep: (boxId) => (boat.servedByComputers(boxId) ? computerUpkeepScript() : null),
+  log: (line) => console.log(line),
+});
 
-function noteCloudTabs(owner: { botId: string; threadId: string }, boxId: string, targets: Target[]): void {
-  recordTabs(cloudTabs, boxId, owner, targets);
-  saveTabLedger(CLOUD_TABS_FILE, cloudTabs);
-}
+bus.subscribe((event: RuntimeEvent) => {
+  if (shouldIgnoreProviderEvent(event) || (event.type !== "turn.completed" && event.type !== "session.exited")) return;
+  void cloudTabs.turnEnded(event.threadId).then((done) => {
+    if (done.freedBytes >= 1024 * 1024 || done.stopped) console.log(`[upkeep] cloud computer after a turn: freed ${Math.round(done.freedBytes / 1024 / 1024)} MB, stopped ${done.stopped} runaway process(es)`);
+  }, () => undefined);
+});
 
-async function sweepCloudTabs(): Promise<number> {
-  if (cloudTabsSweeping) return 0;
-  cloudTabsSweeping = true;
-  let closed = 0;
-  try {
-    forgetUsers(cloudTabs, (user) => janitorThread(user.botId, user.threadId).exists);
-    for (const [boxId, box] of Object.entries(cloudTabs)) {
-      const doomed = tabsToClose(box, janitorThread);
-      if (!doomed.length) continue;
-      const result = await boat.runCommand(cfg, boxId, boat.isolatedRemoteCommand(closeTabsScript(doomed.map((tab) => tab.id))), { timeoutMs: 20_000 }).catch(() => null);
-      if (!result?.ok) continue;
-      for (const tab of doomed) delete box.tabs[tab.id];
-      const targets = parseTargets(result.stdout);
-      if (targets) recordTabs(cloudTabs, boxId, null, targets);
-      const shut = doomed.filter((tab) => !targets?.some((target) => target.id === tab.id));
-      closed += shut.length;
-      if (shut.length) console.log(`[janitor] closed ${shut.length} cloud computer tab(s): ${[...new Set(shut.map((tab) => tab.reason))].join(", ")}`);
-    }
-    for (const [boxId, box] of Object.entries(cloudTabs)) if (!Object.keys(box.tabs).length && !Object.keys(box.users).length) delete cloudTabs[boxId];
-    saveTabLedger(CLOUD_TABS_FILE, cloudTabs);
-  } finally {
-    cloudTabsSweeping = false;
-  }
-  return closed;
-}
-
-setInterval(() => { if (Object.keys(cloudTabs).length) void sweepCloudTabs(); }, TAB_SWEEP_MS).unref();
+setInterval(() => { if (Object.keys(cloudTabs.ledger).length) void cloudTabs.sweep(); }, TAB_SWEEP_MS).unref();
 
 function cloudStorage() {
   const disk = diskUse(DATA_DIR);

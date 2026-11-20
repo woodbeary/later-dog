@@ -213,6 +213,7 @@ async function navigating(cdp, run) {
   cdp.on((event) => {
     if (event.method === "Page.frameStartedLoading") started = true;
     if (event.method === "Page.loadEventFired") loaded = true;
+    if (event.method === "Page.javascriptDialogOpening" && event.params && event.params.type === "beforeunload") cdp.send("Page.handleJavaScriptDialog", { accept: true }).catch(() => null);
   });
   await cdp.send("Page.enable");
   const result = await run();
@@ -241,22 +242,41 @@ async function reading(cdp, note) {
   return { ok: true, text: (note ? note + "\n" : "") + "Page: " + page.title + " (" + page.url + ")\n" + page.text };
 }
 
+const BLANK = /^(about:blank|chrome:\/\/new-?tab(-page)?\/?)$/;
+
+async function tabFor(list) {
+  if (!input.fresh) {
+    const avoid = new Set(input.avoid || []);
+    const mine = input.target ? list.find((target) => target.id === input.target) : undefined;
+    if (mine) return { tab: mine, opened: false };
+    const front = list[0];
+    if (front && BLANK.test(front.url) && !avoid.has(front.id)) return { tab: front, opened: false };
+  }
+  let created;
+  try { created = await (await fetch(base + "/json/new?about:blank", { method: "PUT", signal: AbortSignal.timeout(5000) })).json(); } catch {}
+  return created && created.webSocketDebuggerUrl ? { tab: created, opened: true } : null;
+}
+
 async function main() {
   let list = await pages();
-  if (input.action === "open") {
+  if (input.action === "open" || input.action === "go") {
     const deadline = Date.now() + 20000;
     while (list === null && Date.now() < deadline) { await sleep(250); list = await pages(); }
     if (list === null) return finish({ ok: false, error: "The browser on the cloud computer did not open." });
-    let created;
-    try { created = await (await fetch(base + "/json/new?about:blank", { method: "PUT", signal: AbortSignal.timeout(5000) })).json(); } catch {}
-    if (!created || !created.webSocketDebuggerUrl) return finish({ ok: false, error: "The browser did not open a new tab." });
-    await fetch(base + "/json/activate/" + created.id, { signal: AbortSignal.timeout(2000) }).catch(() => null);
-    const tab = await connect(created.webSocketDebuggerUrl);
+    const chosen = await tabFor(list);
+    if (!chosen) return finish({ ok: false, error: "The browser did not open a new tab." });
+    const where = { tab: chosen.tab.id, opened: chosen.opened };
+    await fetch(base + "/json/activate/" + chosen.tab.id, { signal: AbortSignal.timeout(2000) }).catch(() => null);
+    const tab = await connect(chosen.tab.webSocketDebuggerUrl);
     try {
       const moved = await navigating(tab, () => tab.send("Page.navigate", { url: input.url }));
-      if (moved.result && moved.result.errorText) return finish({ ok: false, error: "The page did not open: " + moved.result.errorText });
+      if (moved.result && moved.result.errorText) return finish({ ok: false, error: "The page did not open: " + moved.result.errorText, ...where });
       await settled(tab);
-      return finish(await reading(tab, ""));
+      if (input.action === "go") {
+        const shown = await evaluate(tab, "[document.title, location.href]").catch(() => ["", input.url]);
+        return finish({ ok: true, text: "Page: " + shown[0] + " (" + shown[1] + ")", ...where });
+      }
+      return finish({ ...(await reading(tab, "")), ...where });
     } finally {
       tab.close();
     }

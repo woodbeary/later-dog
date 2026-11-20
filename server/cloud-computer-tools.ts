@@ -5,11 +5,12 @@ import { CONTROL_REFUSAL_PLAIN } from "./control-client.ts";
 import { compileToolSchema } from "./mcp-schema-validator.ts";
 import { resolveUses, VAULT_OWNER_ONLY, type VaultItems } from "./laterdog/vault-commands.ts";
 import { capturedValue, maskValues, secretNameProblem, vaultFingerprint, VAULT_CAPTURE_SCHEMA, VAULT_USES_SCHEMA, wrapVaultCommand } from "./laterdog/vault-refs.ts";
-import { splitTabListing, TAB_TRACKED_TOOLS, withTabListing, type Target } from "./laterdog/cloud-tabs.ts";
+import { closeTabsScript, parseTargets, splitTabListing, TAB_TRACKED_TOOLS, withTabListing, type Opened } from "./laterdog/cloud-tabs.ts";
+import type { TabListing, TabWatch } from "./laterdog/tab-keeper.ts";
 import { fillSecureField, parseSecureFormInput, SECURE_FORM_TOOLS, secureFormRequestedText, type SecureFormDesk } from "./laterdog/secure-form.ts";
 import type { SecureFormResult } from "../shared/secure-form.ts";
 import { imageFromOutput, pointerTo, scaled, screenSizeCommand, SCREENSHOT_COMMAND, zoomCommand } from "./laterdog/screen-scale.ts";
-import { PAGE_TOOL_NAMES, PAGE_TOOLS, pageToolsEnabled, runPageTool, type RemoteExec } from "./laterdog/page-tools.ts";
+import { agentTab, OPEN_OPTIONS, openUrlCommand, PAGE_TOOL_NAMES, PAGE_TOOLS, pageToolsEnabled, readAgentAnswer, runPageAgent, type RemoteExec } from "./laterdog/page-tools.ts";
 import { abortableWait, RUN_ACTIONS_TOOL, runActions } from "./laterdog/action-run.ts";
 
 export type { RemoteExec };
@@ -30,7 +31,7 @@ export const CLOUD_COMPUTER_TOOLS = [
   tool("key_press", "Press an X11 key or shortcut.", { key: { type: "string", pattern: "^[A-Za-z0-9_+]+$", minLength: 1, maxLength: 100 } }, ["key"]),
   tool("scroll", "Scroll at a point on the cloud desktop.", { x: coordinate, y: coordinate, direction: { type: "string", enum: ["up", "down", "left", "right"] }, amount: { type: "integer", minimum: 1, maximum: 30 } }, ["x", "y", "direction"]),
   RUN_ACTIONS_TOOL,
-  tool("open_url", "Request opening an HTTP or HTTPS URL in the cloud desktop browser; inspect the screen to confirm it loaded.", { url: { type: "string", pattern: "^https?://", maxLength: 2000 } }, ["url"]),
+  tool("open_url", "Open an HTTP or HTTPS URL in your tab of the cloud computer's browser. Tabs you open close when your turn ends, except the one on screen.", { url: { type: "string", pattern: "^https?://", maxLength: 2000 }, ...OPEN_OPTIONS }, ["url"]),
   tool("exec", "Run a shell command on the assigned cloud computer. For a token, password or key, pass vault items by name with vault and keep a printed one with vault_capture; never echo, cat or generate a secret in the command itself.", {
     command: { type: "string", minLength: 1, maxLength: 4000 },
     vault: VAULT_USES_SCHEMA,
@@ -70,7 +71,7 @@ export async function runCloudComputerTool(
   name: string,
   args: Record<string, unknown>,
   signal: AbortSignal,
-  onTabs?: (targets: Target[]) => void,
+  tabs?: TabWatch,
   vault?: VaultItems,
   ownExec?: RemoteExec,
   checkpoint?: () => Promise<string | null>,
@@ -86,23 +87,25 @@ export async function runCloudComputerTool(
       reading: args.reading as "page" | "screenshot" | undefined,
       pageTools: pageToolsEnabled(cfg),
       problem: cloudComputerCallProblem,
-      run: (step, stepArgs) => runCloudComputerTool(cfg, boxId, step, stepArgs, signal, onTabs, vault, ownExec),
+      run: (step, stepArgs) => runCloudComputerTool(cfg, boxId, step, stepArgs, signal, tabs, vault, ownExec),
       checkpoint,
       wait: abortableWait(signal),
     });
   }
   if (PAGE_TOOL_NAMES.has(name)) {
     if (!pageToolsEnabled(cfg)) return { isError: true, content: [{ type: "text", text: "Unknown cloud computer tool. Use one of the advertised computer tools." }] };
-    const tracked = Boolean(onTabs) && PAGE_TRACKED_TOOLS.has(name);
+    const tracked = tabs && PAGE_TRACKED_TOOLS.has(name) ? tabs : undefined;
+    const listed: { tabs?: TabListing } = {};
     const pageExec: RemoteExec = tracked ? async (command, abort) => {
       const raw = await exec(withTabListing(command), abort);
       const split = splitTabListing(raw.stdout);
-      if (split.targets) try { onTabs!(split.targets); } catch {}
+      listed.tabs = { before: split.before, after: split.targets };
       return { ...raw, stdout: split.stdout };
     } : exec;
-    const page = await runPageTool(pageExec, name, args, signal);
+    const page = await runPageAgent(pageExec, name, args, signal, tracked && name === "page_open" ? choose(tracked) : undefined);
     signal.throwIfAborted();
-    return page;
+    if (tracked && listed.tabs) await keepTidy(tracked, listed.tabs, page.tab ? { id: page.tab, keep: args.keep_open === true } : null, exec, signal);
+    return page.result;
   }
   if (name === "screenshot" && fullSize) {
     const shot = await screenshotBoat(cfg, "", boxId, { signal, nativeSize: true });
@@ -127,24 +130,50 @@ export async function runCloudComputerTool(
     case "type_text": command = `printf %s ${quote(Buffer.from(String(a.text)).toString("base64"))} | base64 -d | xclip -selection clipboard && xdotool key --clearmodifiers ctrl+v`; break;
     case "key_press": command = `xdotool key --clearmodifiers ${quote(String(a.key))}`; break;
     case "scroll": command = scaled(`${mouse} && xdotool click --repeat ${a.amount ?? 3} --delay 80 ${scrollButtons[String(a.direction)]}`, fullSize); break;
-    case "open_url": command = `nohup xdg-open ${quote(String(a.url))} >/dev/null 2>&1 </dev/null &`; break;
+    case "open_url": command = openUrlCommand(String(a.url), tabs ? choose(tabs) : undefined, a.new_tab === true); break;
     case "exec": {
       if (a.vault === undefined && a.vault_capture === undefined) { command = String(a.command); break; }
       return execWithVault(cfg, boxId, a, signal, vault);
     }
     default: return { isError: true, content: [{ type: "text", text: "Unknown cloud computer tool." }] };
   }
-  const tracked = Boolean(onTabs) && TAB_TRACKED_TOOLS.has(name);
+  const tracked = tabs && TAB_TRACKED_TOOLS.has(name) ? tabs : undefined;
   const raw = await exec(tracked ? withTabListing(command) : command, signal);
   signal.throwIfAborted();
   let result = raw;
+  let listing: TabListing | null = null;
   if (tracked) {
     const split = splitTabListing(raw.stdout);
     result = { ...raw, stdout: split.stdout };
-    if (split.targets) try { onTabs!(split.targets); } catch {}
+    listing = { before: split.before, after: split.targets };
   }
-  if (name === "open_url" && result.ok) return { content: [{ type: "text", text: "Browser launch requested. Page loading is not confirmed; inspect the screen before continuing." }] };
+  const answer = name === "open_url" ? readAgentAnswer(result.stdout) : null;
+  const tab = agentTab(answer);
+  if (tracked && listing) await keepTidy(tracked, listing, tab ? { id: tab, keep: a.keep_open === true } : null, exec, signal);
+  if (name === "open_url") return openedResult(result.ok, answer);
   return { isError: !result.ok, content: [{ type: "text", text: JSON.stringify(result) }] };
+}
+
+function choose(tabs: TabWatch) {
+  try { return tabs.choose(); } catch { return undefined; }
+}
+
+async function keepTidy(tabs: TabWatch, listing: TabListing, opened: Opened | null, exec: RemoteExec, signal: AbortSignal): Promise<void> {
+  let doomed: string[] = [];
+  try { doomed = tabs.seen(listing, opened); } catch { return; }
+  if (!doomed.length) return;
+  const closed = await exec(closeTabsScript(doomed), signal).catch(() => null);
+  if (closed?.ok) try { tabs.closed(parseTargets(closed.stdout)); } catch {}
+}
+
+function openedResult(ok: boolean, answer: ReturnType<typeof readAgentAnswer>): CloudComputerResult {
+  if (answer?.ok) {
+    const where = answer.opened ? "a new tab" : "your tab";
+    return { content: [{ type: "text", text: `${answer.text ? `${answer.text}. ` : ""}Opened in ${where}; take a screenshot to see it before acting.` }] };
+  }
+  if (answer) return { isError: true, content: [{ type: "text", text: answer.error ?? "The page did not open." }] };
+  if (ok) return { content: [{ type: "text", text: "Browser launch requested. Page loading is not confirmed; inspect the screen before continuing." }] };
+  return { isError: true, content: [{ type: "text", text: "The browser could not be asked to open the page." }] };
 }
 
 async function execWithVault(cfg: AppConfig, boxId: string, a: Record<string, unknown>, signal: AbortSignal, vault: VaultItems | undefined): Promise<CloudComputerResult> {
@@ -176,7 +205,7 @@ export async function cloudComputerRpc(
     assertActive(): void;
     signal: AbortSignal;
     secureForms?: SecureFormDesk;
-    onTabs?: (boxId: string, targets: Target[]) => void;
+    tabs?: (boxId: string) => TabWatch;
     vault?: VaultItems;
   },
 ): Promise<{ tools: typeof CLOUD_COMPUTER_TOOLS } | CloudComputerResult> {
@@ -219,14 +248,13 @@ export async function cloudComputerRpc(
     deps.assertActive();
     return { ...(filled.ok ? {} : { isError: true }), content: [{ type: "text", text: filled.text }] };
   }
-  const onTabs = deps.onTabs;
   const checkpoint = async () => {
     const now = await deps.gate();
     deps.assertActive();
     return now.held ? now.blockedReason || CONTROL_REFUSAL_PLAIN : null;
   };
   const result = await runCloudComputerTool(deps.cfg, boxId, params.name as string, args as Record<string, unknown>, deps.signal,
-    onTabs && ((targets) => onTabs(boxId, targets)), deps.vault, undefined, checkpoint);
+    deps.tabs?.(boxId), deps.vault, undefined, checkpoint);
   deps.assertActive();
   return result;
 }
