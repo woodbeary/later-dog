@@ -8,6 +8,7 @@ import { createPuppies } from "./fake-claude-puppies.ts";
 import { createNativeActivity } from "./fake-claude-native-activity.ts";
 import { runRoomHandoffAgent } from "./room-handoff-agent.ts";
 import { ASKS_COMMAND, ASKS_QUESTION, callDogTool, dogServer } from "./fake-claude-asks.ts";
+import { fakeDeviceApprovalPlan, playDeviceApprovalTurn } from "./fake-claude-device-approval.ts";
 import { answerControlRequest, fakeContextFrame, fakeContextMode, fakeRequestUsage } from "./fake-claude-context.ts";
 
 const mode = process.env.FAKE_CLAUDE_MODE ?? "happy";
@@ -790,6 +791,12 @@ const playTurn = async (prompt: JsonValue, late = false) => {
       clearInterval(poll);
       finish();
     }, 10);
+    return;
+  }
+  if (mode === "device-approval") {
+    launchFiles ??= readLaunchFiles();
+    const agents = (launchFiles.mcpConfig as { mcpServers?: Record<string, { command?: string; args?: string[]; env?: Record<string, string> }> } | null)?.mcpServers?.agents;
+    void playDeviceApprovalTurn({ agents, plan: fakeDeviceApprovalPlan(process.env), out, nextId: () => `tu-${process.pid}-${++toolUseCount}` }).finally(finish);
     return;
   }
   if (mode === "asks") {

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { Message } from "../store.ts";
-import { CHECK_NEEDS_UNATTENDED, createDeviceApprovalRequestRoute } from "./device-approval.ts";
+import { CHECK_NEEDS_UNATTENDED, createDeviceApprovalCardRoutes, createDeviceApprovalRequestRoute } from "./device-approval.ts";
+import type { DeviceApprovalCardData } from "../../shared/device-approval.ts";
 import type { DeviceApprovalWait } from "../laterdog/device-approval.ts";
 
 const NOW = Date.UTC(2026, 10, 8, 20);
@@ -74,5 +75,67 @@ describe("device approval route", () => {
     expect(await h.call({ service: "x", url: "https://x.dev", check: "true" })).toMatchObject({ status: 403, out: { error: CHECK_NEEDS_UNATTENDED } });
     expect((await h.call({ service: "x", url: "https://x.dev", pid: 5 })).status).toBe(201);
     expect((await h.call({ url: "https://x.dev" })).status).toBe(400);
+  });
+
+  it("will not show a new code after the last one expired unused, until the person is back", async () => {
+    const h = harness();
+    await h.call({ service: "Cloudflare", url: "https://dash.cloudflare.com/oauth2/device/verify", code: "h3djWkhR", pid: 40 });
+    h.messages[0]!.card!.deviceApproval = { ...h.messages[0]!.card!.deviceApproval!, status: "expired", endedBy: "expiry", renew: "offered" };
+    const again = await h.call({ service: "Cloudflare", url: "https://dash.cloudflare.com/oauth2/device/verify", code: "VsRwAmye", pid: 41 });
+    expect(again.status).toBe(409);
+    expect(String(again.out.error)).toContain("End this turn now");
+    expect(h.messages).toHaveLength(1);
+    expect(h.watched).toHaveLength(1);
+    h.messages.push({ id: "you", at: NOW, role: "user", kind: "text", text: "try again" } as Message);
+    expect((await h.call({ service: "Cloudflare", url: "https://dash.cloudflare.com/oauth2/device/verify", code: "FWtQkLiR", pid: 42 })).status).toBe(201);
+  });
+
+  it("stops a dog that keeps replacing codes nobody used", async () => {
+    const h = harness();
+    expect((await h.call({ service: "Codex", url: "https://auth.openai.com/codex/device", code: "AAAA-1111", pid: 400 })).status).toBe(201);
+    expect((await h.call({ service: "Codex", url: "https://auth.openai.com/codex/device", code: "BBBB-2222", pid: 401 })).status).toBe(201);
+    expect((await h.call({ service: "Codex", url: "https://auth.openai.com/codex/device", code: "CCCC-3333", pid: 402 })).status).toBe(409);
+    expect(h.messages).toHaveLength(2);
+  });
+});
+
+describe("device approval card routes", () => {
+  function cards(card: DeviceApprovalCardData) {
+    let current = card;
+    const renewed: string[] = [];
+    const route = createDeviceApprovalCardRoutes({
+      read: () => current,
+      end: () => null,
+      renew: (_bot, _thread, messageId) => {
+        renewed.push(messageId);
+        current = { ...current, renew: "asked" };
+        return current;
+      },
+    });
+    const call = async (action: string) => {
+      let status = 0;
+      let out: Record<string, unknown> = {};
+      await route({
+        req: {} as never, res: {} as never, path: `/api/bots/hound/device-approvals/m1/${action}`, method: "POST", url: new URL("http://x"),
+        json: ((_res: unknown, code: number, value: Record<string, unknown>) => { status = code; out = value; }) as never,
+        readBody: async () => ({ threadId: "t1" }),
+      } as never);
+      return { status, out };
+    };
+    return { call, renewed };
+  }
+  const base: DeviceApprovalCardData = { version: 1, service: "Cloudflare", url: "https://dash.cloudflare.com/oauth2/device/verify", code: "h3djWkhR", expiresAt: NOW, status: "expired", watching: "check", endedBy: "expiry" };
+
+  it("gets a new code once when the person taps an expired card", async () => {
+    const c = cards({ ...base, renew: "offered" });
+    expect(await c.call("renew")).toMatchObject({ status: 200, out: { card: { renew: "asked" } } });
+    expect(await c.call("renew")).toMatchObject({ status: 200, out: { card: { renew: "asked" } } });
+    expect(c.renewed).toEqual(["m1"]);
+  });
+
+  it("has no new code to get on a card that did not expire unused", async () => {
+    const c = cards({ ...base, status: "approved", endedBy: "person" });
+    expect((await c.call("renew")).status).toBe(409);
+    expect(c.renewed).toEqual([]);
   });
 });

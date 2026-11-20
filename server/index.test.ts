@@ -11184,6 +11184,48 @@ describe("bot memory API", () => {
     }
   });
 
+  it("an expired device code does not wake the dog; the person's Get a new code does, once", async () => {
+    const bot = (await api("POST", "/api/bots", {})).body.bot;
+    try {
+      await api("POST", `/api/bots/${bot.id}/interrupt`);
+      const idle = Date.now() + 10_000;
+      while ((await api("GET", "/api/bots")).body.bots.find((b: { id: string }) => b.id === bot.id)?.busy && Date.now() < idle) await new Promise((resolve) => setTimeout(resolve, 100));
+      const post = async (body: Record<string, unknown>) =>
+        fetch(`${BASE}/api/internal/device-approval`, {
+          method: "POST",
+          headers: { authorization: `Bearer ${await mintTestCapability(BASE, bot.id, bot.threadId)}`, "content-type": "application/json" },
+          body: JSON.stringify({ fromBotId: bot.id, fromThreadId: bot.threadId, ...body }),
+        });
+      const prompts = () => (existsSync(fakeClaudePrompts) ? readFileSync(fakeClaudePrompts, "utf8") : "");
+      const made = await post({ service: "Cloudflare", url: "https://dash.cloudflare.com/oauth2/device/verify", code: "h3djWkhR", expiresAt: String(Date.now() + 1_500) });
+      expect(made.status).toBe(201);
+      const { messageId } = (await made.json()) as { messageId: string };
+      const cardOf = async () =>
+        ((await api("GET", `/api/threads/${bot.threadId}/messages`)).body.messages as Array<{ id: string; card?: { deviceApproval?: Record<string, unknown> } }>)
+          .find((m) => m.id === messageId)?.card?.deviceApproval;
+      const deadline = Date.now() + 15_000;
+      while ((await cardOf())?.status !== "expired" && Date.now() < deadline) await new Promise((resolve) => setTimeout(resolve, 200));
+      expect(await cardOf()).toMatchObject({ status: "expired", endedBy: "expiry", renew: "offered" });
+      await new Promise((resolve) => setTimeout(resolve, 1_500));
+      expect(prompts()).not.toContain("device code expired");
+      const listed = (await api("GET", "/api/bots")).body.bots.find((b: { id: string }) => b.id === bot.id);
+      expect(listed.busy).not.toBe(true);
+      expect(listed.work).toEqual({ kind: "needs-you", what: "Approve the Cloudflare sign-in" });
+      const again = await post({ service: "Cloudflare", url: "https://dash.cloudflare.com/oauth2/device/verify", code: "VsRwAmye" });
+      expect(again.status).toBe(409);
+      const renewed = await api("POST", `/api/bots/${bot.id}/device-approvals/${messageId}/renew`, { threadId: bot.threadId });
+      expect(renewed.status).toBe(200);
+      expect(renewed.body.card).toMatchObject({ renew: "asked" });
+      const woke = Date.now() + 15_000;
+      while (!prompts().includes("asked for a fresh") && Date.now() < woke) await new Promise((resolve) => setTimeout(resolve, 200));
+      expect(prompts()).toMatch(/asked for a fresh .{0,6}Cloudflare/);
+      expect((await post({ service: "Cloudflare", url: "https://dash.cloudflare.com/oauth2/device/verify", code: "FWtQkLiR" })).status).toBe(201);
+    } finally {
+      await api("POST", `/api/bots/${bot.id}/interrupt`);
+      await api("DELETE", `/api/bots/${bot.id}`);
+    }
+  });
+
   it("tells the desktop whether to hold the computer awake for a routine due within the hour", async () => {
     const bot = (await api("POST", "/api/bots", {})).body.bot;
     let routineId: string | null = null;

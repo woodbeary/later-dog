@@ -7,6 +7,7 @@ import {
   parseDeviceApprovalInput,
   type DeviceApprovalWait,
 } from "../laterdog/device-approval.ts";
+import { deviceApprovalHeldText, deviceApprovalHold, deviceApprovalRenewable } from "../laterdog/device-approval-wait.ts";
 import type { BotRecord, Message, Store } from "../store.ts";
 import type { InternalRouteHandler } from "./internal.ts";
 import { PASS, type RouteHandler } from "./table.ts";
@@ -47,6 +48,8 @@ export function createDeviceApprovalRequestRoute(deps: DeviceApprovalRequestDeps
     const input = parseDeviceApprovalInput(body ?? {}, deps.now());
     if (typeof input === "string") return json(res, 400, { error: input });
     if (input.check && !deps.mayRunCheck(sender, threadId)) return json(res, 403, { error: CHECK_NEEDS_UNATTENDED });
+    const hold = deviceApprovalHold(deps.messages.activePath(threadId), sender.id, Boolean(owner.group));
+    if (hold) return json(res, 409, { error: deviceApprovalHeldText(hold) });
     const card = deviceApprovalCard(input);
     const shown = { title: deviceApprovalTitle(card), subtitle: deviceApprovalSubtitle(card), options: [], deviceApproval: card };
     const open = openDeviceApproval(deps.messages.activePath(threadId), sender.id, Boolean(owner.group));
@@ -73,16 +76,22 @@ export function createDeviceApprovalRequestRoute(deps: DeviceApprovalRequestDeps
 export interface DeviceApprovalCardRouteDeps {
   read(botId: string, threadId: string, messageId: string): DeviceApprovalCardData | null;
   end(botId: string, threadId: string, messageId: string, endedBy: DeviceApprovalEndedBy): DeviceApprovalCardData | null;
+  renew(botId: string, threadId: string, messageId: string): DeviceApprovalCardData | null;
 }
 
 export function createDeviceApprovalCardRoutes(deps: DeviceApprovalCardRouteDeps): RouteHandler {
   return async ({ req, res, path, method, json, readBody }) => {
-    const m = path.match(/^\/api\/bots\/([\w-]+)\/device-approvals\/([\w-]+)\/(done|dismiss)$/);
+    const m = path.match(/^\/api\/bots\/([\w-]+)\/device-approvals\/([\w-]+)\/(done|dismiss|renew)$/);
     if (!m || method !== "POST") return PASS;
     const body = await readBody(req);
     const threadId = String(body?.threadId ?? "");
     const card = deps.read(m[1]!, threadId, m[2]!);
     if (!card) return json(res, 404, { error: "no such device sign-in card" });
+    if (m[3] === "renew") {
+      if (card.renew === "asked") return json(res, 200, { card });
+      if (!deviceApprovalRenewable(card)) return json(res, 409, { error: "This sign-in card has no new code to get.", card });
+      return json(res, 200, { card: deps.renew(m[1]!, threadId, m[2]!) ?? card });
+    }
     if (!isOpenDeviceApproval(card)) return json(res, 200, { card });
     const ended = deps.end(m[1]!, threadId, m[2]!, m[3] === "done" ? "person" : "dismissed");
     return json(res, 200, { card: ended ?? deps.read(m[1]!, threadId, m[2]!) ?? card });
