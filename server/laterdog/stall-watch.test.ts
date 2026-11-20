@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
+import type { TakeoverStatus } from "../../shared/takeover.ts";
 import type { WireMessage } from "../../shared/wire.ts";
-import { createStallWatch, handoffWorking, judgeChat, owedWork, STALL_LOOKBACK_MS, STALL_QUIET_MS, stallWatchMode, type ChatNow, type StallWatchMode } from "./stall-watch.ts";
+import { createStallWatch, handoffWorking, judgeChat, owedWork, STALL_LOOKBACK_MS, STALL_QUIET_MS, stallWatchMode, waitsOnTakeover, type ChatNow, type StallWatchMode } from "./stall-watch.ts";
 
 const T0 = Date.parse("2026-11-08T06:25:00Z");
 const MINUTE = 60_000;
@@ -171,6 +172,51 @@ describe("judging a quiet chat", () => {
     const giveUp = row(T0 + 3, { kind: "activity", tool: { name: "error: later.dog restarted again before Clover finished this. Send it again to try once more.", ok: false, pickup: "restart" } });
     expect(owedWork([...cut(), giveUp])).toBeUndefined();
     expect(judgeChat(chat([...cut(), giveUp]))).toEqual({ kind: "fine", why: "settled" });
+  });
+});
+
+describe("a dog waiting on a take-over step", () => {
+  const step = (at: number, status: TakeoverStatus) =>
+    row(at, { kind: "options", card: { title: "Paste the note into the Paste check box", subtitle: "", options: [], takeoverRequest: { step: "Paste the note into the Paste check box", reason: "other", helpRequestId: "dog-1-1", status, place: "cloud" } } });
+  const handedOver = (status: TakeoverStatus) => [
+    ask(T0, "Ask me to take over your screen for one step, then end your turn."),
+    row(T0 + 1, { kind: "activity", turnId: "t1", tool: { name: "computer_request_secure_form", ok: false, itemId: "i-form" } }),
+    step(T0 + 2, status),
+    said(T0 + 3, "Tap Take over to paste the note.", "t1"),
+    failure(T0 + 4, "error: Some steps didn't work or weren't allowed, so check them before relying on this answer."),
+    digest(T0 + 5, "t1", false),
+  ];
+
+  it.each(["waiting", "in-control"] as const)("is not carried on while the step is %s, so only I'm done, Skip or a reply wakes it", (status) => {
+    expect(owedWork(handedOver(status))).toBeDefined();
+    expect(waitsOnTakeover(handedOver(status))).toBe(true);
+    expect(judgeChat(chat(handedOver(status)))).toEqual({ kind: "fine", why: "asking" });
+  });
+
+  it.each(["done", "skipped", "replied"] as const)("is looked at as before once the step is %s", (status) => {
+    expect(waitsOnTakeover(handedOver(status))).toBe(false);
+    expect(judgeChat(chat(handedOver(status))).kind).toBe("continue");
+  });
+
+  it("goes by the newest take-over card", () => {
+    const path = [...handedOver("done"), ask(T0 + 6, "one more step please"), step(T0 + 7, "in-control"), said(T0 + 8, "Tap Take over.", "t2")];
+    expect(waitsOnTakeover(path)).toBe(true);
+    expect(waitsOnTakeover([...path, step(T0 + 9, "done")])).toBe(false);
+  });
+
+  it("is never carried on by the watch on the home while the person holds the screen", async () => {
+    const start = vi.fn(async () => undefined);
+    const append = vi.fn((_threadId: string, message: Omit<WireMessage, "id" | "at">) => ({ ...message, id: "n", at: T0 } as WireMessage));
+    const watch = createStallWatch({
+      chats: () => [{ botId: "dog-1", threadId: "thread-1" }],
+      look: () => chat(handedOver("in-control")),
+      append,
+      start,
+      log: () => undefined,
+    });
+    expect(watch.sweep()).toEqual([{ kind: "fine", why: "asking" }]);
+    expect(start).not.toHaveBeenCalled();
+    expect(append).not.toHaveBeenCalled();
   });
 });
 
