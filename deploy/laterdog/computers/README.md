@@ -325,8 +325,8 @@ Chromium's disk cache.
 - **Closed when the turn ends.** When a turn that used the computer ends, the server closes every tab that turn opened,
   except the one on screen and pages the dog was told to leave open (`keep_open`). Nothing closes while the person
   has control or a request for their help is open; the five-minute sweep closes what was left once they hand it back,
-  and the tabs of conversations that were closed, deleted or idle for six hours. A computer the turn did not use gets no
-  command, so it still goes to sleep on time.
+  and the tabs of conversations that were closed, deleted or idle for six hours. A turn that did not use the computer,
+  or only looked at its screen, sends it nothing, so it still goes to sleep on time.
 - **At most four tabs.** After every call that can open a tab, past four the oldest idle tab a dog opened closes first,
   then tabs nobody is known to have opened. Tabs the person opened while they had control, pages kept open and the
   tab on screen never count against them.

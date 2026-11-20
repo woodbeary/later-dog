@@ -10,6 +10,7 @@ export const MAX_TABS_PER_COMPUTER = 4;
 export const TABS_MARKER = "<<laterdog-tabs>>";
 export const TABS_BEFORE_MARKER = "<<laterdog-tabs-before>>";
 export const TAB_TRACKED_TOOLS: ReadonlySet<string> = new Set(["click", "drag", "key_press", "type_text", "open_url"]);
+export const TURN_TIDY_TOOLS: ReadonlySet<string> = new Set([...TAB_TRACKED_TOOLS, "page_open", "page_click", "page_press", "page_back", "run_actions", "exec"]);
 const TARGET_ID = /^[A-Za-z0-9]{8,64}$/;
 const DEVTOOLS = `http://127.0.0.1:\${LATERDOG_PAGE_CDP_PORT:-${CLOUD_TABS_CDP_PORT}}/json`;
 

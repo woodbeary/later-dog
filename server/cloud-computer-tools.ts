@@ -205,7 +205,7 @@ export async function cloudComputerRpc(
     assertActive(): void;
     signal: AbortSignal;
     secureForms?: SecureFormDesk;
-    tabs?: (boxId: string) => TabWatch;
+    tabs?: (boxId: string, tool: string) => TabWatch;
     vault?: VaultItems;
   },
 ): Promise<{ tools: typeof CLOUD_COMPUTER_TOOLS } | CloudComputerResult> {
@@ -254,7 +254,7 @@ export async function cloudComputerRpc(
     return now.held ? now.blockedReason || CONTROL_REFUSAL_PLAIN : null;
   };
   const result = await runCloudComputerTool(deps.cfg, boxId, params.name as string, args as Record<string, unknown>, deps.signal,
-    deps.tabs?.(boxId), deps.vault, undefined, checkpoint);
+    deps.tabs?.(boxId, params.name as string), deps.vault, undefined, checkpoint);
   deps.assertActive();
   return result;
 }
