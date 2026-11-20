@@ -312,6 +312,29 @@ bar (`CommandLineFlagSecurityWarningsEnabled` false; `chromium-flags` still adds
 user namespaces, which Docker does and Cloudflare does not), no "Sign in to Chromium" prompt (`BrowserSignin` 0, sync
 off), no default-browser question, no promotional tabs, and no usage reporting.
 
+## A tidy computer
+
+later.dog's server keeps a dog's computer tidy through DevTools on `127.0.0.1:9339` and one command at the end of each
+turn (`server/laterdog/tab-keeper.ts`, `cloud-tabs.ts` and `computer-upkeep.ts`).
+
+- **One tab per dog.** `open_url` and `page_open` open the page in the dog's own tab, the one it used last, or in a
+  blank tab on screen. They open a new tab only when the dog asks for one (`new_tab`, for two pages side by side) or has
+  no tab of its own yet, and never take over the person's tab, a page kept open or another working conversation's tab.
+  Without DevTools and Node on the computer, `open_url` falls back to `xdg-open`, which opens a new tab.
+- **Closed when the turn ends.** When a turn that used the computer ends, the server closes every tab that turn opened,
+  except the one on screen and pages the dog was told to leave open (`keep_open`). Nothing closes while the person
+  has control or a request for their help is open; the five-minute sweep closes what was left once they hand it back,
+  and the tabs of conversations that were closed, deleted or idle for six hours. A computer the turn did not use gets no
+  command, so it still goes to sleep on time.
+- **At most four tabs.** After every call that can open a tab, past four the oldest idle tab a dog opened closes first,
+  then tabs nobody is known to have opened. Tabs the person opened while they had control, pages kept open and the
+  tab on screen never count against them.
+- **A lean machine.** In the same command as the turn-end tab listing, a later.dog computer empties Chromium's cache
+  folders once they pass 256 MB (through DevTools while Chromium runs, so open pages stay), removes downloads older
+  than a day and partial downloads older than an hour, the dog's files in `/tmp` untouched for a day and crash reports
+  older than a day, and stops a process of the dog's that has kept half a CPU or more busy for 30 minutes. It never
+  stops the desktop, Chromium or a `run_on_computer` job.
+
 ## The idle policy (cost is the point)
 
 Activity is any API call that uses the computer (exec, files, screenshot, desktop link, wake) and any traffic from an open

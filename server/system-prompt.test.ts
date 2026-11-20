@@ -50,6 +50,8 @@ describe("computerPrompt", () => {
   it("gives the cloud computer and the user's computer their own paragraph plus the sign-in policy, and silence to none", () => {
     expect(computerPrompt(null)).toBe("");
     expect(computerPrompt("box")).toContain("You control the assigned cloud computer");
+    expect(computerPrompt("box")).toContain("work in one browser tab, and open a second only when you need two pages side by side");
+    expect(computerPrompt("local")).not.toContain("browser tab");
     expect(computerPrompt("local")).toContain("act on the user's computer");
     expect(computerPrompt("box").endsWith(SECURE_FORM_PROMPT)).toBe(true);
     expect(computerPrompt("box")).not.toContain(SIGN_IN_PROMPT);
