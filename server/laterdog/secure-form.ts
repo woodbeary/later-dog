@@ -525,7 +525,7 @@ export class SecureForms {
       return { ok: false, text: card.tried?.rejected ? "The person already has this form again. End your turn; later.dog wakes you when they press Continue." : "The person has not filled in this form yet. End your turn; later.dog wakes you when they press Continue." };
     }
     if (result === "rejected") return this.reopen(botId, threadId, formId, card, clean(said, SECURE_SITE_SAID_CHARS));
-    const kept = this.confirm(threadId, vaultSite(card.host));
+    const kept = this.confirm(botId, threadId, vaultSite(card.host));
     for (const [messageId, state] of kept) {
       if (messageId === formId) continue;
       const other = this.find(botId, threadId, messageId);
@@ -542,11 +542,11 @@ export class SecureForms {
     };
   }
 
-  private confirm(threadId: string, site: string | null): Map<string, SecureFormVaultState> {
+  private confirm(botId: string, threadId: string, site: string | null): Map<string, SecureFormVaultState> {
     const kept = new Map<string, SecureFormVaultState>();
     const vault = this.host.savedLogins;
     for (const [key, attempt] of [...this.attempts]) {
-      if (attempt.threadId !== threadId || attempt.site !== site) continue;
+      if (attempt.threadId !== threadId || attempt.botId !== botId || attempt.site !== site) continue;
       this.forgetAttempt(key);
       if (attempt.login) {
         try {
