@@ -866,8 +866,6 @@
   "takeover.failed": "Не вдалося виконати. Спробуйте ще раз.",
   "takeover.aria": "{name} потребує вас за комп’ютером",
   "secureForm.caption": "Захищена форма",
-  "secureForm.filling": "Заповнення",
-  "secureForm.filled": "Заповнено",
   "secureForm.notFilled": "Не заповнено",
   "secureForm.replaced": "Замінено",
   "secureForm.open": "Відкрити",

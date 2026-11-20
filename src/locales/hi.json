@@ -730,8 +730,6 @@
   "takeover.failed": "यह पूरा नहीं हुआ। फिर कोशिश करें।",
   "takeover.aria": "{name} को कंप्यूटर पर आपकी ज़रूरत है",
   "secureForm.caption": "सुरक्षित फ़ॉर्म",
-  "secureForm.filling": "भरा जा रहा है",
-  "secureForm.filled": "भरा गया",
   "secureForm.notFilled": "नहीं भरा गया",
   "secureForm.replaced": "बदल दिया गया",
   "secureForm.open": "खोलें",
