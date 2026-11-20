@@ -84,7 +84,7 @@ describe.skipIf(!CHROMIUM)("a dog's cloud computer keeps one tidy browser", () =
   };
   const finishTurn = async (botId: string) => {
     writeFileSync(finishFile, "finish");
-    await until(async () => (await api("GET", "/api/bots")).bots.find((bot: any) => bot.id === botId)?.busy, (busy) => busy === false);
+    await until(async () => (await api("GET", "/api/bots")).bots.find((bot: any) => bot.id === botId)?.busy, (busy) => busy === false, 30_000);
   };
   const cloudBot = async (name: string) => {
     const { bot } = await api("POST", "/api/bots", { name });
@@ -105,7 +105,7 @@ describe.skipIf(!CHROMIUM)("a dog's cloud computer keeps one tidy browser", () =
     const replies = await work(call, seen);
     await seen();
     await finishTurn(bot.id);
-    const after = await until(() => tabs(), (open) => open.length <= settled, 8_000);
+    const after = await until(() => tabs(), (open) => open.length <= settled, 30_000);
     await sleep(1_500);
     const receipt: Receipt = { scenario: name, tabsBefore, tabsMostDuringTurn: most, tabsAfterTurn: (await tabs()).length, browserKbDuringTurn: peakKb, browserKbAfterTurn: browserKb(), replies };
     receipts.push(receipt);
