@@ -1,4 +1,15 @@
-export type ComputerControlAction = "take" | "release" | "dismiss-help";
+export type ComputerControlAction = "take" | "release" | "hand-back" | "dismiss-help";
+
+export interface DesktopViewerState {
+  open: boolean;
+  contextId: string | null;
+  done?: boolean;
+}
+
+export function closedViewerAction(state: DesktopViewerState): { botId: string; action: "hand-back" | "release" } | null {
+  if (state.open || !state.contextId || state.contextId.startsWith("cloud-task:")) return null;
+  return { botId: state.contextId, action: state.done === true ? "hand-back" : "release" };
+}
 
 export interface ComputerControlSnapshot {
   held: boolean;

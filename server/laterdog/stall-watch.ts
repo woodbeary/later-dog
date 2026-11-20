@@ -1,4 +1,5 @@
 import { failedTurnTool } from "../../shared/failed-turn.ts";
+import { isOpenTakeover } from "../../shared/takeover.ts";
 import { retryCannotFix } from "../../shared/plain-failure.ts";
 import type { WireMessage } from "../../shared/wire.ts";
 import type { WorkStopCause } from "../../shared/work-state.ts";
@@ -136,6 +137,11 @@ export function owedWork(path: readonly Message[]): OwedWork | undefined {
   return { source, after, cause: words ? "the turn failed right after a promise" : "the turn failed without a reply", retry: true, need: "other" };
 }
 
+export function waitsOnTakeover(path: readonly Message[]): boolean {
+  const request = path.findLast((message) => message.card?.takeoverRequest)?.card?.takeoverRequest;
+  return Boolean(request && isOpenTakeover(request.status));
+}
+
 export function carryOnLine(name: string): string {
   return `${name} stopped before finishing, so it is carrying on by itself.`;
 }
@@ -182,7 +188,7 @@ function explainLine(name: string, owed: OwedWork): string {
 
 export function judgeChat(chat: ChatNow, options: { quietMs?: number; tries?: number; lookbackMs?: number } = {}): StallVerdict {
   if (chat.busy) return { kind: "fine", why: "busy" };
-  if (chat.requestOpen) return { kind: "fine", why: "asking" };
+  if (chat.requestOpen || waitsOnTakeover(chat.path)) return { kind: "fine", why: "asking" };
   if (chat.helpers > 0) return { kind: "fine", why: "helpers" };
   if (chat.usageWait) return { kind: "fine", why: "usage" };
   if (chat.queued) return { kind: "fine", why: "queued" };

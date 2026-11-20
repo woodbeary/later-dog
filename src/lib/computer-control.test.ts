@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { transitionComputerControlLease } from "./computer-control";
+import { closedViewerAction, transitionComputerControlLease } from "./computer-control";
 
 const snap = (held: boolean) => ({ held, helpReason: null });
 
@@ -58,5 +58,22 @@ describe("computer/browser control transition ordering", () => {
       requestControl: async () => snap(true),
     });
     expect(setNativeBrowserControl).not.toHaveBeenCalled();
+  });
+});
+
+describe("what closing the live desktop window tells later.dog", () => {
+  it("hands the step back only when the person pressed I'm done in the window", () => {
+    expect(closedViewerAction({ open: false, contextId: "scout", done: true })).toEqual({ botId: "scout", action: "hand-back" });
+  });
+
+  it("only lets go of the screen when the window closed any other way, so the step stays theirs", () => {
+    expect(closedViewerAction({ open: false, contextId: "scout" })).toEqual({ botId: "scout", action: "release" });
+    expect(closedViewerAction({ open: false, contextId: "scout", done: false })).toEqual({ botId: "scout", action: "release" });
+  });
+
+  it("does nothing while the window is open, for a cloud job's window, or without a dog", () => {
+    expect(closedViewerAction({ open: true, contextId: "scout", done: true })).toBeNull();
+    expect(closedViewerAction({ open: false, contextId: "cloud-task:job-1", done: true })).toBeNull();
+    expect(closedViewerAction({ open: false, contextId: null })).toBeNull();
   });
 });

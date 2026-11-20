@@ -52,8 +52,13 @@ describe("the needs-you card following the screen's control", () => {
     expect(nextTakeoverStatus("waiting", { held: false, helpOpen: true })).toBe("waiting");
   });
 
-  it("is done when the person hands back and skipped when the ask closes untouched", () => {
-    expect(nextTakeoverStatus("in-control", { held: false, helpOpen: false })).toBe("done");
+  it("stays the person's after they took it, however the screen's control comes and goes", () => {
+    expect(nextTakeoverStatus("in-control", { held: false, helpOpen: false })).toBe("in-control");
+    expect(nextTakeoverStatus("in-control", { held: false, helpOpen: true })).toBe("in-control");
+    expect(nextTakeoverStatus("in-control", { held: true, helpOpen: false })).toBe("in-control");
+  });
+
+  it("is skipped only when the ask closes before anyone took the screen", () => {
     expect(nextTakeoverStatus("waiting", { held: false, helpOpen: false })).toBe("skipped");
   });
 
@@ -76,7 +81,7 @@ describe("waking the dog once the person is finished", () => {
   const first = { botId: "bot", threadId: "t1", messageId: "m1" };
   const second = { botId: "bot", threadId: "t2", messageId: "m2" };
 
-  it("settles every card waiting on that screen once, and only that screen", () => {
+  it("moves every card waiting on that screen to the person when they take it, and only that screen", () => {
     const waits = new TakeoverWaits();
     const other = { botId: "other", threadId: "t3", messageId: "m3" };
     const cards = memoryCards([[first, card("waiting")], [second, card("waiting", "Solve the puzzle")], [other, card("waiting")]]);
@@ -87,16 +92,24 @@ describe("waking the dog once the person is finished", () => {
     expect(waits.settle("bot", { held: true, helpOpen: true }, cards)).toEqual([]);
     expect(cards.get(first)?.status).toBe("in-control");
     expect(cards.get(second)?.status).toBe("in-control");
-
-    const settled = waits.settle("bot", { held: false, helpOpen: false }, cards);
-    expect(settled).toEqual([
-      { wait: first, outcome: "done", step: "Sign in to iCloud" },
-      { wait: second, outcome: "done", step: "Solve the puzzle" },
-    ]);
-    expect(waits.waiting("bot")).toEqual([]);
-    expect(waits.settle("bot", { held: false, helpOpen: false }, cards)).toEqual([]);
     expect(cards.get(other)?.status).toBe("waiting");
     expect(waits.waiting("other")).toEqual([other]);
+  });
+
+  it("wakes nobody when the screen is let go, a connection drops or a viewer closes, and keeps waiting for I'm done", () => {
+    const waits = new TakeoverWaits();
+    const cards = memoryCards([[first, card("waiting")]]);
+    waits.add("bot", first);
+    waits.settle("bot", { held: true, helpOpen: true }, cards);
+
+    expect(waits.settle("bot", { held: false, helpOpen: false }, cards)).toEqual([]);
+    expect(waits.settle("bot", { held: false, helpOpen: true }, cards)).toEqual([]);
+    expect(cards.get(first)?.status).toBe("in-control");
+    expect(waits.waiting("bot")).toEqual([first]);
+
+    expect(waits.settle("bot", { held: true, helpOpen: false }, cards)).toEqual([]);
+    expect(cards.get(first)?.status).toBe("in-control");
+    expect(waits.waiting("bot")).toEqual([first]);
   });
 
   it("reports a skip when the ask closes before anyone took the screen", () => {

@@ -201,7 +201,7 @@ const __APP_VERSION__: string;
         open(url: string, title: string, contextId: string, pill?: { label: string; done: string }): Promise<boolean>;
         close(contextId: string): Promise<boolean>;
         currentState(): Promise<{ open: boolean; contextId: string | null }>;
-        onState(cb: (state: { open: boolean; contextId: string | null }) => void): () => void;
+        onState(cb: (state: { open: boolean; contextId: string | null; done?: boolean }) => void): () => void;
       };
       desktopWorkspace?: {
         open(input: {
