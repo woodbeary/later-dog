@@ -477,6 +477,7 @@ describe("AccountBattery", () => {
       modelResting: {},
       routed: {},
       fromNextMessage: {},
+      ranModel: {},
     });
   });
 
@@ -655,6 +656,15 @@ describe("AccountBattery", () => {
     expect(instance.status(ACCOUNTS, choice).fromNextMessage).toEqual({});
     instance.forget("claude");
     expect(JSON.parse(readFileSync(file, "utf8")).ran).toEqual({});
+  });
+
+  it("shows the model that really ran on the chat's own account when the engine swapped it in", () => {
+    const instance = new AccountBattery({ config: () => ON, now: () => NOW });
+    instance.noteRan("swapped", "claude", "claude-opus-4-8");
+    instance.noteRan("same", "claude", "claude-sonnet-5[1m]");
+    const status = instance.status(ACCOUNTS, () => SELECTION, [["running", { on: "claude", model: "claude-opus-4-8" }]]);
+    expect(status.ranModel).toEqual({ swapped: "claude-opus-4-8", running: "claude-opus-4-8" });
+    expect(status.routed).toEqual({});
   });
 
   it("says From the next message at once when the person picks another account while the dog works", () => {

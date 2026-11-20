@@ -24,6 +24,7 @@ import { modelForAccount } from "./account-switch";
 import { ModelMenu, type ModelMenuGroup } from "./ModelMenu";
 import { declaredEffort, effortLevelsFor, effortName, effortNote, simpleEffortLevels } from "@/lib/model-friendly";
 import { t } from "@/lib/i18n";
+import { modelName } from "../../shared/model-names";
 import { COMPACT_SQUARE } from "@/lib/compact-chip";
 import { subscriptionAccounts, useCarryOn } from "./AccountsPanel";
 import { SleepingDog } from "./AccountCharge";
@@ -40,7 +41,7 @@ type ModelOption = InstanceInfo["models"]["options"][number];
 const COMPACT_MODEL_COUNT = 5;
 
 function modelLabel(instance: InstanceInfo | undefined, model: string): string {
-  return instance?.models.options.find((option) => option.id === model)?.label ?? model;
+  return instance?.models.options.find((option) => option.id === model)?.label ?? modelName(model);
 }
 
 function modelProvider(instance: InstanceInfo | undefined, model: string): string | undefined {
@@ -781,7 +782,8 @@ export function ModelPicker({
     />
   );
 
-  const shownModel = !selection.instanceId ? t("model.choose") : routed?.model ? modelLabel(inUse, routed.model) : modelLabel(active, selection.model);
+  const ranModel = routed ? undefined : battery?.ranModel?.[threadId ?? bot.threadId];
+  const shownModel = !selection.instanceId ? t("model.choose") : routed?.model ? modelLabel(inUse, routed.model) : ranModel ? modelLabel(active, ranModel) : modelLabel(active, selection.model);
   const summary = active
     ? `${active.displayName} · ${modelLabel(active, selection.model)}${
         modelProvider(active, selection.model) ? ` · ${modelProvider(active, selection.model)}` : ""

@@ -134,6 +134,7 @@ export type RuntimeEvent = RuntimeEventBase &
         quota?: { resetsAt?: string; kind?: string };
       }
     | { type: "runtime.notice"; message: string }
+    | { type: "model.changed"; from: string; to: string; cause: "safeguards" | "unavailable"; scope?: string }
     | { type: "helper.updated"; helper: Helper }
     | { type: "native.observed"; observation: NativeObservation }
   );

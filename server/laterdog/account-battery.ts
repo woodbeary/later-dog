@@ -10,6 +10,7 @@ import { checkUnknown } from "./cli-version.ts";
 import { NEARLY_EMPTY_PERCENT, roomTier } from "./account-spread.ts";
 import { choiceReadyAt, decideAccount, shownRoute, type AccountChoice, type AccountChoiceInput, type Ran } from "./account-choice.ts";
 import { SETUP_STOP, limitHit, modelLimitName, modelRestKey, restModel, restOwner, sameModel } from "./account-limits.ts";
+import { sameModelId } from "./model-change.ts";
 
 export { NEARLY_EMPTY_PERCENT, SETUP_STOP };
 
@@ -103,6 +104,7 @@ export interface BatteryStatus {
   modelResting: Record<string, ModelRestShown[]>;
   routed: Record<string, WireAccountRoute>;
   fromNextMessage: Record<string, WireAccountRoute>;
+  ranModel: Record<string, string>;
 }
 
 export interface ModelRestShown {
@@ -772,11 +774,13 @@ export class AccountBattery {
     }
     const routed: BatteryStatus["routed"] = {};
     const fromNextMessage: BatteryStatus["fromNextMessage"] = {};
+    const ranModel: BatteryStatus["ranModel"] = {};
     if (selectionOf) {
       const ran = new Map<string, Ran>(Object.entries(this.state.ran).map(([threadId, last]) => [threadId, { on: last.on, model: last.model }]));
       for (const [threadId, now] of running) ran.set(threadId, now);
       for (const [threadId, last] of ran) {
         const chosen = selectionOf(threadId);
+        if (chosen && last.on === chosen.instanceId && !sameModelId(last.model, chosen.model)) ranModel[threadId] = last.model;
         const shown = chosen ? shownRoute(this.decide(chosen, accounts, threadId), chosen, last) : undefined;
         if (!shown) continue;
         const { next, ...route } = shown;
@@ -788,7 +792,7 @@ export class AccountBattery {
     this.shownOrder = JSON.stringify({ order, sequence });
     this.shownResting = this.limitsKey(accounts);
     return { enabled: batteryEnabled(config, accounts), auto: config?.auto === true, order,
-      sequence, resting, modelResting, routed, fromNextMessage };
+      sequence, resting, modelResting, routed, fromNextMessage, ranModel };
   }
 
   noteReadings(accounts: readonly BatteryAccount[]): void {
