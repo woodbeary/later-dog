@@ -6,6 +6,7 @@ describe("draft cards", () => {
     expect(draftCard("draft", '{"via":"email","to":["sam@example.com"],"subject":"Lunch Friday?","id":"lunch"}\nHi Sam,\n\nFree Friday?'))
       .toEqual({ kind: "draft", via: "email", to: ["sam@example.com"], cc: [], subject: "Lunch Friday?", id: "lunch", body: "Hi Sam,\n\nFree Friday?" });
     expect(draftCard("draft", "Shipping the new site today.")).toEqual({ kind: "draft", via: "message", to: [], cc: [], body: "Shipping the new site today." });
+    expect(draftCard("draft", '{"via":"text","to":["Dana"],"ask":"Send this to Dana from your number?"}\nSaturday works.')).toMatchObject({ ask: "Send this to Dana from your number?", body: "Saturday works." });
     expect(draftCard("draft", '{"via":"tweet","to":"@sam, @kim"}\nHello')).toMatchObject({ via: "x", to: ["@sam", "@kim"] });
     expect(draftCard("draft", '{"via":"email"}\n   ')).toBeNull();
     expect(draftCard("json", "{}")).toBeNull();

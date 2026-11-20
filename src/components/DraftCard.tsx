@@ -43,6 +43,7 @@ export function DraftCardView({ card, messageId }: { card: Draft; messageId?: st
         <Icon size={15} className="shrink-0 text-ink-secondary" aria-hidden="true" />
         <span className="min-w-0 truncate">{draftTitle(card)}</span>
       </div>
+      {card.ask && <div className="mt-1.5 text-[14px] font-semibold leading-snug text-ink" data-draft-ask>{card.ask}</div>}
       {card.cc.length > 0 && <div className="mt-0.5 truncate text-[12px] text-ink-secondary">{t("draft.cc", { cc: card.cc.join(", ") })}</div>}
       {card.subject && <div className="mt-1.5 text-[13.5px] font-semibold text-ink">{card.subject}</div>}
       {editing ? (
