@@ -18,6 +18,13 @@ nothing but its snapshot. Waking it restores the files.
   the deploy it ran on a throwaway Worker: Chromium 156 started, opened a page, and `chrome://policy` listed
   `DiskCacheSize` 104857600, Mandatory, Machine, OK. After the deploy, `POST /computers/:id/update` moved a test home
   dog's computer to it with its files, and the same three checks passed there.
+- Pinned next, not deployed yet: `wrangler.jsonc` names
+  `laterdog-computers-dogcomputer-desktop@sha256:6c9a67f6e9c0f00b3237cba334c6aea633715b414787dce5bbc616514b6dc7a3`,
+  the image above without Debian's `/etc/chromium.d/dev-shm`. Cloudflare mounts `/dev/shm` twice, so that file's
+  unquoted size test printed `[: 67108864: unexpected operator` from dash at every Chromium launch; `chromium-flags`
+  already passes `--disable-dev-shm-usage`, which was all the file did. On a throwaway Worker the image started
+  Chromium with no such line, `chrome://policy` listed `DiskCacheSize` 104857600 OK, and a clipboard paste reached a
+  page. The next `pnpm run deploy` puts it live.
 - The key is in `~/.laterdog/computers-key` and the base URL in `~/.laterdog/computers.json` (both mode 600).
 - later.dog's server uses these computers instead of Boat as soon as `~/.laterdog/computers.json` exists
   (`server/laterdog/cloud-computers.ts`). Delete that file to go back to Boat.

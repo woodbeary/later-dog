@@ -15,6 +15,7 @@ RUN mkdir -p /tmp/nodejs/DEBIAN \
 RUN apt-get update \
   && apt-get install -y --no-install-recommends \
     chromium fonts-dejavu-core fonts-liberation fonts-noto-color-emoji fonts-wqy-microhei \
+  && rm /etc/chromium.d/dev-shm \
   && rm -rf /var/lib/apt/lists/*
 
 RUN apt-get update \
