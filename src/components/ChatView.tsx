@@ -87,6 +87,7 @@ import { ConnectorCard } from "./ConnectorCard";
 import { SecretRequestCard } from "./SecretRequestCard";
 import { SecureFormCard } from "./SecureFormCard";
 import { TakeoverCard } from "./TakeoverCard";
+import { DeviceApprovalCard } from "./DeviceApprovalCard";
 import { RoutineRunCard } from "./RoutineRunCard";
 import { ownerShowingElsewhere } from "@/lib/open-elsewhere";
 import { AttachmentGallery, collectMessageFiles, splitMessageAttachments } from "./AttachmentGallery";
@@ -801,6 +802,8 @@ const MessagesList = memo(function MessagesList({
             case "options": {
               const card = m.card?.takeoverRequest ? (
                 <TakeoverCard botId={botId} botName={botName} threadId={threadId} message={m} />
+              ) : m.card?.deviceApproval ? (
+                <DeviceApprovalCard botId={botId} threadId={threadId} message={m} />
               ) : m.card?.requestId && m.card.questionRequest ? (
                 openQuestion([m]) ? null : <QuestionCard threadId={threadId} message={m} />
               ) : m.card?.requestId && m.card.tool ? (
