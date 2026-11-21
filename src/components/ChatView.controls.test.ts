@@ -350,6 +350,17 @@ describe("thread control placement", () => {
     expect(controls[1]).not.toContain("wrap");
   });
 
+  it("shows a device sign-in card whose code ran out with Get a new code in the transcript", () => {
+    const deviceApproval = { version: 1, service: "Cloudflare", url: "https://dash.cloudflare.com/oauth2/device/verify", code: "h3djWkhR", expiresAt: 1, status: "expired", watching: "expiry", endedBy: "expiry", renew: "offered" };
+    const card = { id: "sign-in", role: "bot", kind: "options", at: 2, parentId: "hi", card: { title: "Approve Cloudflare sign-in", subtitle: "Cloudflare", options: [], deviceApproval } } as unknown as Message;
+    const hi = { id: "hi", role: "user", kind: "text", text: "Deploy the site", at: 1 } as Message;
+    const markup = renderToStaticMarkup(createElement(ChatView, { bot: { ...bot, busy: false, messages: [hi, card], activeLeafId: "sign-in" } }));
+    const log = /role="log"[\s\S]*?data-composer-column/.exec(markup)![0];
+    expect(log).toContain('data-device-approval="expired"');
+    expect(log).toContain("Code expired");
+    expect(log).toContain("Get a new code");
+  });
+
   it("docks an open question above the composer at its width, and keeps it out of the transcript", () => {
     const ask = { id: "q", role: "bot", kind: "options", at: 2, parentId: "hi", card: { title: "Question", subtitle: "", options: [], requestId: "req-q", requestType: "question", questionRequest: { version: 1, questions: [{ question: "Which colour should the logo be?", options: [{ label: "Green" }, { label: "Blue" }] }] } } } as unknown as Message;
     const hi = { id: "hi", role: "user", kind: "text", text: "Make me a logo", at: 1 } as Message;
