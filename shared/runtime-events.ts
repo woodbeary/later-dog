@@ -45,6 +45,11 @@ export type CompactionEvent =
       postTokens?: number;
     };
 
+export interface EngineForkPoint {
+  session: string;
+  at: string;
+}
+
 export type RuntimeEvent = RuntimeEventBase &
   (
     | {
@@ -68,6 +73,7 @@ export type RuntimeEvent = RuntimeEventBase &
         cost?: number | null;
         denials?: string[];
         usage?: { input: number; output: number; cachedInput?: number };
+        forkPoint?: EngineForkPoint;
       }
     | {
         type: "cap.exhausted";

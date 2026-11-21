@@ -63,7 +63,11 @@ let experimentalApi = false;
 
 const out = (obj: unknown) => process.stdout.write(JSON.stringify(obj) + "\n");
 let nativeThreadId = "codex-thread-1";
-const nativeTurnId = "turn-1";
+let nativeTurnId = "turn-1";
+let threadReplyText: string | null = null;
+const threads = process.env.FAKE_CODEX_THREAD_DIR
+  ? new (await import("./fake-codex-threads.ts")).FakeCodexThreads(process.env.FAKE_CODEX_THREAD_DIR, { seenLog: process.env.FAKE_CODEX_SEEN_LOG, forkLog: process.env.FAKE_CODEX_FORK_LOG, forkIgnoresTurn: process.env.FAKE_CODEX_FORK_IGNORES_TURN === "1" })
+  : null;
 const notify = (method: string, params: any) => out({
   jsonrpc: "2.0", method,
   params: {
@@ -145,7 +149,7 @@ const finishTurn = () => {
     notify("item/started", { item: { id: "c1", type: "contextCompaction" } });
     notify("item/completed", { item: { id: "c1", type: "contextCompaction" } });
   }
-  notify("item/completed", { item: { id: "m1", type: "agentMessage", text: process.env.FAKE_CODEX_REPLY || "done from fake codex" } });
+  notify("item/completed", { item: { id: "m1", type: "agentMessage", text: threadReplyText ?? (process.env.FAKE_CODEX_REPLY || "done from fake codex") } });
   const carried = process.env.FAKE_CODEX_RESTORED_USAGE ? { inputTokens: 100, cachedInputTokens: 50, outputTokens: 10 } : { inputTokens: 0, cachedInputTokens: 0, outputTokens: 0 };
   notify("thread/tokenUsage/updated", { tokenUsage: {
     total: { inputTokens: carried.inputTokens + 7, cachedInputTokens: carried.cachedInputTokens + 4, outputTokens: carried.outputTokens + 3 },
@@ -211,6 +215,28 @@ process.stdin.on("data", (chunk) => {
     }
 
     if (msg.method) calls.push({ method: msg.method, params: msg.params ?? null });
+    if (threads && msg.id !== undefined && (msg.method === "thread/start" || msg.method === "thread/resume" || msg.method === "thread/fork")) {
+      if (process.env.FAKE_CODEX_CALLS_LOG) appendFileSync(process.env.FAKE_CODEX_CALLS_LOG, `${JSON.stringify({ pid: process.pid, method: msg.method, params: msg.params ?? null })}\n`);
+      developerInstructions = msg.params?.developerInstructions ?? "";
+      const opened = msg.method === "thread/start" ? threads.start()
+        : msg.method === "thread/resume" ? threads.resume(String(msg.params?.threadId ?? ""))
+        : process.env.FAKE_CODEX_NO_FORK === "1" ? undefined
+        : threads.fork(String(msg.params?.threadId ?? ""), typeof msg.params?.lastTurnId === "string" ? msg.params.lastTurnId : undefined);
+      if (opened === undefined) out({ jsonrpc: "2.0", id: msg.id, error: { code: -32601, message: "method not found" } });
+      else if (!opened) out({ jsonrpc: "2.0", id: msg.id, error: { code: -32600, message: `no rollout found for thread id ${msg.params?.threadId}` } });
+      else {
+        nativeThreadId = opened.id;
+        if (msg.method === "thread/resume") resumedThread = opened.id;
+        out({ jsonrpc: "2.0", id: msg.id, result: { thread: { id: opened.id, turns: opened.turns.map((turn) => ({ id: turn.id, status: "completed", items: [] })) }, model: "fake-codex-model", sandbox: resolvedSandbox(msg.params ?? {}) } });
+      }
+      continue;
+    }
+    if (threads && msg.method === "turn/start") {
+      const text = (msg.params?.input ?? []).filter((item: any) => item?.type === "text").map((item: any) => item.text).join("\n");
+      const turn = threads.beginTurn(String(msg.params?.threadId ?? nativeThreadId), text);
+      nativeTurnId = turn.id;
+      threadReplyText = turn.reply;
+    }
     if (msg.method && process.env.FAKE_CODEX_CALLS_LOG) {
       appendFileSync(process.env.FAKE_CODEX_CALLS_LOG, `${JSON.stringify({ pid: process.pid, method: msg.method, params: msg.params ?? null })}\n`);
     }

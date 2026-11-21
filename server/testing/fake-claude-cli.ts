@@ -9,6 +9,7 @@ import { createNativeActivity } from "./fake-claude-native-activity.ts";
 import { runRoomHandoffAgent } from "./room-handoff-agent.ts";
 import { ASKS_COMMAND, ASKS_QUESTION, callDogTool, dogServer } from "./fake-claude-asks.ts";
 import { fakeDeviceApprovalPlan, playDeviceApprovalTurn } from "./fake-claude-device-approval.ts";
+import { openFakeChain } from "./fake-claude-chain.ts";
 import { answerControlRequest, fakeContextFrame, fakeContextMode, fakeRequestUsage } from "./fake-claude-context.ts";
 
 const mode = process.env.FAKE_CLAUDE_MODE ?? "happy";
@@ -148,7 +149,11 @@ const argAfter = (flag: string): string | null => {
   return i === -1 ? null : (argv[i + 1] ?? null);
 };
 
-const out = (obj: unknown) => process.stdout.write(JSON.stringify(obj) + "\n");
+let noteChain: ((message: unknown) => void) | null = null;
+const out = (obj: unknown) => {
+  noteChain?.(obj);
+  process.stdout.write(JSON.stringify(obj) + "\n");
+};
 
 const probe = argv[0] === "--version" ? "version" : argv[0] === "--help" ? "help" : argv[0] === "auth" && argv[1] === "status" ? "auth" : null;
 if (probe) {
@@ -268,7 +273,15 @@ if (["text", "json"].includes(argAfter("--output-format") ?? "")) {
 }
 
 type JsonValue = string | number | boolean | null | JsonValue[] | { [key: string]: JsonValue };
-const sessionId = argAfter("--resume") ?? argAfter("--session-id") ?? "fake-session";
+const sessionId = (argv.includes("--fork-session") ? argAfter("--session-id") : undefined) ?? argAfter("--resume") ?? argAfter("--session-id") ?? "fake-session";
+let chainCount = 0;
+const chainOpening = openFakeChain(process.env, argv, sessionId, () => `fake-chain-${process.pid}-${++chainCount}`);
+if (chainOpening && "refused" in chainOpening) {
+  process.stderr.write(`fake-claude: ${chainOpening.refused}\n`);
+  process.exit(1);
+}
+const chain = chainOpening?.chain ?? null;
+noteChain = chain ? (message) => chain.note(message) : null;
 const refusalState = process.env.FAKE_CLAUDE_REFUSAL_STATE;
 const refusalFallback = process.env.FAKE_CLAUDE_REFUSAL_FALLBACK;
 let model = refusalFallback && refusalState && existsSync(refusalState) ? refusalFallback : argAfter("--model") ?? "claude-fake";
@@ -471,6 +484,7 @@ const playTurn = async (prompt: JsonValue, late = false) => {
   steered = [];
   steeredMessages = [];
   if (process.env.FAKE_CLAUDE_PROMPTS) appendFileSync(process.env.FAKE_CLAUDE_PROMPTS, `${JSON.stringify(prompt)}\n`);
+  if (!late) chain?.turn(steerText(prompt));
   if (!late && process.env.FAKE_CLAUDE_DUMP) {
     launchFiles ??= readLaunchFiles();
     writeFileSync(
