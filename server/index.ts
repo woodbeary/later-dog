@@ -518,6 +518,7 @@ import { LocalVmLease, LocalVmLeasePool } from "./local-vm-lease.ts";
 import { LocalVmSeatPool, type LocalVmSeatHolder } from "./local-vm-seat-pool.ts";
 import { RepeatDetector, callKey, repeatedCallLine } from "./repeat-detector.ts";
 import { permissionCallKey } from "./laterdog/repeated-tool-call.ts";
+import { SameAnswerLoop, sameAnswerLine, type SameAnswerLoopFound } from "./laterdog/same-answer-loop.ts";
 import { redactSecretsInText } from "./redact.ts";
 import * as vps from "./vps-computer.ts";
 import { RoutineManager, type Routine, type RoutineGoalStatus, type RoutineRun, type RoutineRunOn, type RoutineRunTrigger } from "./routines.ts";
@@ -5638,6 +5639,7 @@ const liveContext = new LiveContext();
 const helperTurns = new HelperTurnBudget();
 
 const repeats = new RepeatDetector({ thresholds: [5, 10, 20], maxKeysPerThread: 256 });
+const sameAnswers = new SameAnswerLoop();
 
 const TURN_STALL_MS = Math.max(60_000, Number(process.env.LATERDOG_TURN_STALL_MS) || 20 * 60_000);
 const GROUP_MEMBER_WAIT_MAX_MS = Math.max(1_000, Number(process.env.LATERDOG_GROUP_WAIT_MAX_MS) || 30 * 60_000);
@@ -5681,6 +5683,7 @@ const watchdog = new TurnWatchdog({
     const stalledVmTarget = localVmThreadTargets.get(turn.threadId);
     revokeInternalCapabilitiesForThread(turn.threadId);
     repeats.settle(turn.threadId);
+    sameAnswers.settle(turn.threadId);
     const bot = botForThread(turn.botId, turn.threadId);
     const routineRun = routineRunForTurn(turn.threadId);
     void runningTurnInstance(bot, turn.threadId)?.adapter.interruptTurn(turn.threadId).catch(() => {});
@@ -8223,9 +8226,14 @@ const handoffs = new Handoffs({
 
 bus.subscribe((event: RuntimeEvent) => {
   if (shouldIgnoreProviderEvent(event)) return;
-  if (event.type === "turn.completed" || event.type === "session.exited") return void repeats.settle(event.threadId);
+  if (event.type === "turn.completed" || event.type === "session.exited") {
+    sameAnswers.settle(event.threadId);
+    return void repeats.settle(event.threadId);
+  }
+  if (event.type === "item.completed" && event.itemType === "tool") return endSameAnswerLoop(event.threadId, sameAnswers.completed(event.threadId, event));
   let key: string | null = null;
   if (event.type === "item.started" && event.itemType === "tool") {
+    sameAnswers.started(event.threadId, { itemId: event.itemId, tool: event.title ?? "tool", args: event.input ?? event.summary, shown: event.summary ?? event.title });
     const title = event.title ?? "";
     if (/\s|\//.test(title.trim())) key = callKey("tool", title);
   } else if (event.type === "request.opened" && event.requestType === "permission") key = permissionCallKey(event);
@@ -8238,6 +8246,14 @@ bus.subscribe((event: RuntimeEvent) => {
     tool: { name: repeatedCallLine(threshold, key), ok: false },
   });
 });
+
+function endSameAnswerLoop(threadId: string, found: SameAnswerLoopFound | undefined): void {
+  const bot = found ? directTurnBots.get(threadId) : undefined;
+  if (!found || !bot) return;
+  const line = sameAnswerLine(bot.name, found);
+  store.appendMessage(threadId, { role: "bot", kind: "activity", tool: failedTurnTool(line, { written: true }) });
+  void interruptDirectThread(bot.id, threadId).catch(() => {});
+}
 
 bus.subscribe((event: RuntimeEvent) => {
   if (shouldIgnoreProviderEvent(event)) return;
