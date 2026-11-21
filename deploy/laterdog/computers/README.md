@@ -10,10 +10,14 @@ nothing but its snapshot. Waking it restores the files.
 - API: `https://cloud.later.dog/v1`, the Worker's custom domain. `wrangler.jsonc` turns its `workers.dev` address and
   preview URLs off (`workers_dev` and `preview_urls` are `false`); the `workers.dev` address answered 404 on 2026-11-03.
   later.dog's server maps an old `~/.laterdog/computers.json` that still names it to `cloud.later.dog`.
-- Worker `laterdog-computers`, version `b9a3b27d-9ac8-4196-956e-87343d85fef4` (deployed 2026-11-03 from main `5dda7d0f8`).
-- Image `laterdog-computers-dogcomputer-desktop@sha256:b388a2d643f32e0d3d66a8f1842d3149de10b6d4109ea474df486360c1676655`,
-  built by that deploy. Its Chromium listens for DevTools on `127.0.0.1:9339`, which later.dog uses to close the tabs a
-  finished task left open.
+- Worker `laterdog-computers`, version `3a99e249-d21c-435f-8fde-55a0dd3ef427` (deployed 2026-11-20 from main `1c6200839`
+  with the image pin below).
+- Image `laterdog-computers-dogcomputer-desktop@sha256:18b989e739bbe7fcbdc978f9b9daf68b114e72229d7bbe07851aecf000a56944`,
+  built from main `1c6200839` with `wrangler containers build -p`. Its Chromium listens for DevTools on `127.0.0.1:9339`,
+  which later.dog uses to close the tabs a finished task left open, and its policy caps the disk cache at 100 MB. Before
+  the deploy it ran on a throwaway Worker: Chromium 156 started, opened a page, and `chrome://policy` listed
+  `DiskCacheSize` 104857600, Mandatory, Machine, OK. After the deploy, `POST /computers/:id/update` moved a test home
+  dog's computer to it with its files, and the same three checks passed there.
 - The key is in `~/.laterdog/computers-key` and the base URL in `~/.laterdog/computers.json` (both mode 600).
 - later.dog's server uses these computers instead of Boat as soon as `~/.laterdog/computers.json` exists
   (`server/laterdog/cloud-computers.ts`). Delete that file to go back to Boat.
