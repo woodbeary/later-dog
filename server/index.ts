@@ -777,6 +777,7 @@ import { WorkSignals } from "./laterdog/work-signals.ts";
 import { turnReceipt } from "./laterdog/turn-receipt.ts";
 import { terminalTurnPatch, turnResults } from "./laterdog/turn-results.ts";
 import { branchVersions, isPersonText } from "./laterdog/rewind.ts";
+import { EngineForks } from "./laterdog/engine-forks.ts";
 import { answerRewind, createRewindRoutes, type RewindRouteDeps } from "./routes/rewind.ts";
 import { TurnTouches } from "./laterdog/turn-touches.ts";
 import { carryOnAfterRestart } from "./laterdog/carry-on-restart.ts";
@@ -3742,6 +3743,7 @@ const planChanged = (threadId: string) => {
   if (bot) broadcast({ kind: "bot", bot: wireBot(bot) });
 };
 forgetDeletedChats(store, dogPlans);
+const engineForks = new EngineForks(join(DATA_DIR, "engine-forks.json"));
 const planAnchor = (threadId: string) => store.activePath(threadId).findLast(isPersonText)?.id;
 const markRewound = (botId: string, threadId: string) => {
   store.patchTask(botId, threadId, { rewound: true });
@@ -7771,6 +7773,9 @@ bus.subscribe(guardTurnEnd((event: RuntimeEvent) => {
         const ran = execution ? turnReceipt(execution, (instanceId) => registry.get(instanceId)?.displayName) : undefined;
         if (terminal) store.patchMessage(event.threadId, terminal.id, terminalTurnPatch(event.ok, ran, observedTurnResults(event.threadId)));
       }
+      if (bot && event.ok && event.forkPoint && event.providerInstanceId) {
+        engineForks.record(event.threadId, event.providerInstanceId, event.forkPoint, store.activePath(event.threadId));
+      }
       const reply = lastReply.get(event.threadId) ?? "";
       lastReply.delete(event.threadId);
       const lazyClaimAlreadyReported = event.stopReason === "exit_before_result" &&
@@ -9015,11 +9020,15 @@ async function startTurn(
         opts?.replyTo,
         cfg.profile?.name?.trim() || "User",
       );
+      const keptForFork = rewound && !contextReset && !externalContextMarker
+        ? engineForks.pointFor(threadId, instanceId, activeMessages.filter((m) => !skipTranscript.has(m.id))) : undefined;
+      const forking = keptForFork && await instance.adapter.forksAtPoint?.().catch(() => false) === true ? keptForFork : undefined;
+      const cursorBeforeDispatch = task.resumeCursors[instanceId];
       const decideContext = (config: string) => {
         const effortHeld = !effort && typeof handed?.effort === "string";
         const handedStale = Boolean(handed && (!unseen || effortHeld || (externalUpdate && handed.config !== config)));
         const { block: unseenBlock, placed } = unseen && !handedStale ? renderUnseen(unseen) : { block: "", placed: [] };
-        const { turnText: contextTurnText, resume } = buildTurnContext({
+        const replayed = buildTurnContext({
           text: userTurnText,
           transcript,
           rewound,
@@ -9027,20 +9036,23 @@ async function startTurn(
           externallyUpdated: Boolean(externalContextMarker) || handedStale,
           replaysNatively: replaysTranscript(instance.adapter.capabilities),
         });
+        const { resume } = replayed;
+        const contextTurnText = forking ? userTurnText : replayed.turnText;
         const resumeCursor = resume ? task.resumeCursors[instanceId] : undefined;
         const recoveryIsReplay = resumeCursor !== undefined && externalUpdate && transcript.length > 0;
-        const recoveryText = resumeCursor === undefined ? undefined : recoveryIsReplay
-          ? buildTurnContext({ text: userTurnText, transcript, rewound: false, fresh: false, externallyUpdated: true, replaysNatively: false }).turnText
-          : buildRecoveryText({ text: userTurnText, transcript });
+        const recoveryText = forking ? (replayed.turnText !== userTurnText ? replayed.turnText : undefined)
+          : resumeCursor === undefined ? undefined : recoveryIsReplay
+            ? buildTurnContext({ text: userTurnText, transcript, rewound: false, fresh: false, externallyUpdated: true, replaysNatively: false }).turnText
+            : buildRecoveryText({ text: userTurnText, transcript });
         const carried = [...skipTranscript];
-        const windowIds = selection.representedIds;
+        const windowIds = forking ? contextOrder.filter((id) => !skipTranscript.has(id)) : selection.representedIds;
         return {
           turnText: withUnseenMessages(unseenBlock, contextTurnText),
-          resumeCursor, sessionReset: !resume, recoveryText, recoveryIsReplay,
+          resumeCursor, sessionReset: !resume, recoveryText, recoveryIsReplay, fork: forking,
           handoff: strictResume ? {
             botId: bot.id, instanceId, config, resumeCursor: typeof resumeCursor === "string" ? resumeCursor : undefined,
             ...(instance.driverKind === "codex" ? { effort: effort ?? null } : {}),
-            started: sessionStart(contextOrder, contextTurnText !== userTurnText ? windowIds : [], carried),
+            started: sessionStart(contextOrder, forking || contextTurnText !== userTurnText ? windowIds : [], carried),
             recovery: sessionStart(contextOrder, recoveryText !== undefined ? windowIds : [], carried),
             resumed: sessionStart(contextOrder, [], [...placed, ...carried]),
             placed, carried, own: [userMessage.id, ...(opts?.excludeMessageIds ?? [])],
@@ -9548,6 +9560,7 @@ async function startTurn(
         sessionReset: dispatchContext.sessionReset,
         ...(dispatchContext.recoveryText !== undefined ? { recoveryText: dispatchContext.recoveryText } : {}),
         ...(dispatchContext.recoveryIsReplay ? { recoveryIsReplay: true } : {}),
+        ...(dispatchContext.fork ? { fork: dispatchContext.fork } : {}),
         transcript,
         system: prompt.text,
         systemStable: prompt.stable,
@@ -9580,7 +9593,10 @@ async function startTurn(
         settleDirectFollowup(dispatchClaimId);
       }
       clearDirectTurnDispatch(threadId, dispatchClaimId);
-      if (rewound) store.patchTask(bot.id, threadId, { rewound: false, resumeCursors: {} });
+      if (rewound) {
+        const started = store.taskByThread(bot.id, threadId)?.resumeCursors[instanceId];
+        store.patchTask(bot.id, threadId, { rewound: false, resumeCursors: started !== undefined && started !== cursorBeforeDispatch ? { [instanceId]: started } : {} });
+      }
       if (contextReset && record) store.patchTask(bot.id, threadId, { appliedCompactionId: record.id, contextFloor: undefined });
       if (!isExternalContextMarker(task.lastInstanceId) || task.lastInstanceId === externalContextMarker) {
         store.markTaskDispatched(bot.id, threadId, instanceId);
