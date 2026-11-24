@@ -10,8 +10,8 @@ describe("buildNotification", () => {
       kind: "approval",
       botId: "bot-1",
       threadId: "thread-1",
-      title: "Scout needs approval",
-      body: "rm -rf ./build",
+      title: "Scout wants to delete files or a scratch folder",
+      body: "Open later.dog to allow or deny.",
     });
     expect(buildNotification("question", bot, "thread-1", "which branch?")?.title).toBe("Scout has a question");
     expect(buildNotification("done", bot, "thread-1", "pushed the branch")?.title).toBe("Scout finished");
@@ -53,8 +53,8 @@ describe("buildNotification", () => {
   it("reads a finished reply as plain words and keeps an approval's command exact", () => {
     expect(buildNotification("done", bot, "thread-1", "## Tool test complete\n\n- [x] Created `notes.md`")?.body)
       .toBe("Tool test complete Created notes.md");
-    expect(buildNotification("approval", bot, "thread-1", "Bash: find . -name *test*")?.body)
-      .toBe("Bash: find . -name *test*");
+    expect(buildNotification("approval", bot, "thread-1", "Bash: find . -name *test*")?.title)
+      .toBe("Scout wants to run a command on your computer");
   });
 
   it("uses the thread it was raised on, not the bot's current one", () => {

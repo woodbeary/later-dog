@@ -797,6 +797,7 @@ import { withOnItNote, withSteerNote, workUpdatesPrompt } from "./laterdog/work-
 import { CompactionCarry } from "./laterdog/after-compaction.ts";
 import { onlyTapbackText, replyTapback, replyTapbackStreamChunk, tapbackTarget, tapbackStreamChunk, tapbackTurnKey, withTapback } from "./laterdog/tapback.ts";
 import { createMacWaits } from "./laterdog/mac-waits.ts";
+import { pushWorthy } from "./laterdog/push-gate.ts";
 import { createMacPromptGate, macPromptOf, macPromptWords } from "./laterdog/mac-prompt.ts";
 import { createStatusLines, fileStatusLineLedger, statusLineTimingFromEnv, threadWork } from "./laterdog/status-lines.ts";
 import { createCompactionLive, fileCompactionLedger } from "./laterdog/compaction-live.ts";
@@ -1330,7 +1331,7 @@ function flagMacPrompt(capability: InternalCapability, result: unknown): unknown
   if (!prompt || !bot || !macPromptGate(capability.threadId)) return result;
   const words = macPromptWords(prompt.owner);
   store.appendMessage(capability.threadId, { role: "bot", kind: "activity", tool: { name: `notice: ${words}.`, ok: false } });
-  notify(buildNotification("takeover", bot, capability.threadId, `${words}. ${bot.name} is waiting on it.`));
+  notify(buildNotification("takeover", bot, capability.threadId, `${words}.`, { avatarUrl: bot.avatarUrl, promptKey: `mac:${prompt.owner}` }));
   return result;
 }
 
@@ -5622,10 +5623,17 @@ const providerLabel = (provider: string): string => {
 
 const phonePush = createPhonePush({ dataDir: DATA_DIR });
 
+function helperTurn(botId: string, threadId: string): boolean {
+  for (const node of roomHandoffs.nodes.values()) {
+    if (node.parentId && node.botId === botId && node.threadId === threadId && (node.status === "running" || node.status === "queued" || node.status === "resume")) return true;
+  }
+  return false;
+}
+
 function notify(notification: Notification | null) {
   if (!notification) return;
   broadcast({ kind: "notify", notification });
-  void phonePush.send(notification);
+  if (pushWorthy(notification, { fullAccess: fullAccessForSource(notification.botId, notification.threadId), helper: helperTurn(notification.botId, notification.threadId) })) void phonePush.send(notification);
 }
 
 const groupSpeakers = new Map<string, { botId: string; name: string; color: string }>();
@@ -10339,7 +10347,7 @@ async function askPersonFirst(bot: BotRecord, threadId: string, request: AlwaysA
       }).id;
       appendDecision(DATA_DIR, { threadId, requestId, botId: bot.id, botName: bot.name, tool: request.tool, summary: detail, decision: "card-shown", source: "always-asks", rule: hit.id });
       if (store.taskByThread(bot.id, threadId)?.busy) store.setTaskActivity(bot.id, threadId, "waiting-on-you");
-      notify(buildNotification("approval", bot, threadId, detail, { avatarUrl: bot.avatarUrl }));
+      notify(buildNotification("approval", bot, threadId, detail, { avatarUrl: bot.avatarUrl, requestId, mustAsk: true }));
     },
     late: (requestId) => {
       lateAsks.add(requestId);
@@ -16048,7 +16056,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
             } else if (store.taskByThread(currentSender.id, threadId)?.busy) {
               store.setTaskActivity(currentSender.id, threadId, "waiting-on-you");
             }
-            notify(buildNotification("approval", currentSender, threadId, summary, { avatarUrl: currentSender.avatarUrl }));
+            notify(buildNotification("approval", currentSender, threadId, summary, { avatarUrl: currentSender.avatarUrl, requestId: held.requestId }));
             const answer = await held.answer;
             outboundRequests.forget(held.requestId);
             if (internalCapabilityIsActive(internalCapability)) {
