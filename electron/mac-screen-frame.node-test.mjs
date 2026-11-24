@@ -84,7 +84,7 @@ test("a screen frame is captured by the driver, shrunk, and sent back as a pictu
   const encodeFrame = async (data) => { encoded.push(data); return { data: "c21hbGw=", mime: "image/jpeg" }; };
   const { result, calls } = await lendOnce(t, { work: { action: SCREEN_FRAME }, hostControl: gateFor(gate), encodeFrame });
   assert.deepEqual(result, { png: "c21hbGw=", format: "jpeg" });
-  assert.deepEqual(encoded, [PIXEL]);
+  assert.deepEqual(encoded, [{ data: PIXEL, mime: "image/png" }]);
   assert.deepEqual((await calls()).map(call => call.name), ["get_desktop_state"]);
   assert.deepEqual(gate, ["acquire", "release"]);
 });
