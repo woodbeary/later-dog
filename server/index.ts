@@ -1315,25 +1315,23 @@ async function useMac(requested: SharedComputerOperation, capability: InternalCa
   if (unavailable) throw Object.assign(new Error(unavailable), { status: 403 });
   const active = () => lendingEnabled() && internalCapabilityIsActive(capability);
   const by = store.bot(capability.botId)?.name;
-  const send = (operation: SharedComputerOperation) => sharedComputers.request(operation, principal, active, by);
-  if (!CLOUD_HOME) {
-    const result = await macWaits.run(capability.threadId, requested, send);
-    if (requested.action === "computer_call") {
+  const send = async (operation: SharedComputerOperation) => {
+    const result = await sharedComputers.request(operation, principal, active, by);
+    if (operation.action === "computer_call") {
       try {
-        const lent = sharedComputers.pick(principal, requested.computer_id);
+        const lent = sharedComputers.pick(principal, operation.computer_id);
         if (lent) watchMacScreen(capability, principal, lent.id, active);
       } catch {}
     }
-    return flagMacPrompt(capability, result);
-  }
+    return result;
+  };
+  if (!CLOUD_HOME) return flagMacPrompt(capability, await macWaits.run(capability.threadId, requested, send));
   const target = await pickMac(principal, requested.computer_id);
   const operation = completeSharedOperation(target, requested);
   const refusal = sharedComputerScopeRefusal(target, operation);
   if (refusal) throw Object.assign(new Error(refusal), { status: 403 });
   await approveMac(capability, target, operation, active, personSaidYes);
-  const result = await macWaits.run(capability.threadId, operation, send);
-  if (operation.action === "computer_call") watchMacScreen(capability, principal, target.id, active);
-  return flagMacPrompt(capability, result);
+  return flagMacPrompt(capability, await macWaits.run(capability.threadId, operation, send));
 }
 
 const macScreens = new Map<string, { botId: string; poller: ReturnType<typeof createMacScreenPoller> }>();
