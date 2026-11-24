@@ -1,9 +1,10 @@
 import { readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
-import { DISK_RUNGS, diskRung, emergencyBelowBytes } from "./disk-ladder.ts";
+import { DISK_RUNGS, diskRung } from "./disk-ladder.ts";
 import type { DiskUse } from "./janitor.ts";
 
 const MB = 1024 ** 2;
+const GB = 1024 * MB;
 const MINUTE = 60_000;
 const HOUR = 60 * MINUTE;
 
@@ -30,13 +31,24 @@ export const PRESSURE_SWEEPS: ReadonlyArray<{ from: number; sweep: ArchiveSweep 
   { from: rungOf("floor"), sweep: { ageMs: 0, sessionAgeMs: 0, byteLimit: Infinity, sessionByteLimit: Infinity, threadLimit: Infinity, quietMs: 2 * MINUTE, everyMs: 30_000 } },
 ];
 
+export const PLENTY_FREE_BYTES = 8 * GB;
+export const ROOM_KEPT_FREE_BYTES = GB;
+
+export function pressureRung(disk: DiskUse | null): number {
+  return disk && disk.freeBytes >= PLENTY_FREE_BYTES ? 0 : diskRung(disk);
+}
+
 export function archiveSweep(disk: DiskUse | null): ArchiveSweep {
-  const rung = diskRung(disk);
+  const rung = pressureRung(disk);
   return PRESSURE_SWEEPS.reduce((chosen, step) => (rung >= step.from ? step.sweep : chosen), CALM_SWEEP);
 }
 
+export function roomFor(disk: DiskUse | null, bytes: number): boolean {
+  return !disk || disk.totalBytes <= 0 || disk.freeBytes - bytes >= ROOM_KEPT_FREE_BYTES;
+}
+
 export function roomToRestore(disk: DiskUse | null): boolean {
-  return !disk || disk.totalBytes <= 0 || disk.freeBytes >= emergencyBelowBytes(disk);
+  return roomFor(disk, 0);
 }
 
 export const SAVE_COPY_RESERVE_BYTES = 256 * MB;

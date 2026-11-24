@@ -4,8 +4,8 @@ import { dirname, join } from "node:path";
 import { afterEach, expect, it, vi } from "vitest";
 import { createArchiver, serveArchive } from "../runtime/archive.mjs";
 import {
-  CALM_SWEEP, FIRST_SWEEP_MS, PRESSURE_SWEEPS, SAVE_COPY_RESERVE_BYTES, STEADY_WINDOW_MS, SWEEP_CHECK_MS, archiveSweep, roomToRestore, savesHold,
-  startArchiveSweeps, steadyDisk,
+  CALM_SWEEP, FIRST_SWEEP_MS, PLENTY_FREE_BYTES, PRESSURE_SWEEPS, SAVE_COPY_RESERVE_BYTES, STEADY_WINDOW_MS, SWEEP_CHECK_MS, archiveSweep, pressureRung,
+  roomFor, roomToRestore, savesHold, startArchiveSweeps, steadyDisk,
 } from "../../../../server/laterdog/archive-pressure.ts";
 import { DISK_RUNGS } from "../../../../server/laterdog/disk-ladder.ts";
 import {
@@ -93,12 +93,23 @@ it("sweeps as it always did while the disk is calm, and harder at every lower ru
   expect(archiveSweep({ totalBytes: 19.2 * GB, freeBytes: 0.3 * GB })).toMatchObject({ ageMs: 0, sessionAgeMs: 0, byteLimit: Infinity, sessionByteLimit: Infinity });
 });
 
-it("says there is room to bring files back until the disk reaches its emergency mark", () => {
+it("says there is room to bring files back while a gigabyte stays free, whatever the size of the disk", () => {
   expect(roomToRestore(null)).toBe(true);
   expect(roomToRestore(disk(0.5))).toBe(true);
   expect(roomToRestore({ totalBytes: 19.2 * GB, freeBytes: 1.1 * GB })).toBe(true);
   expect(roomToRestore({ totalBytes: 19.2 * GB, freeBytes: 0.9 * GB })).toBe(false);
-  expect(roomToRestore({ totalBytes: 100 * GB, freeBytes: 4 * GB })).toBe(false);
+  expect(roomToRestore({ totalBytes: 228 * GB, freeBytes: 11 * GB })).toBe(true);
+  expect(roomFor({ totalBytes: 19.2 * GB, freeBytes: 3 * GB }, 1.5 * GB)).toBe(true);
+  expect(roomFor({ totalBytes: 19.2 * GB, freeBytes: 3 * GB }, 2.5 * GB)).toBe(false);
+});
+
+it("treats a disk with plenty of free space as calm however small its free share is", () => {
+  const large = { totalBytes: 228 * GB, freeBytes: 11.6 * GB };
+  expect(pressureRung(large)).toBe(0);
+  expect(archiveSweep(large)).toBe(CALM_SWEEP);
+  expect(pressureRung({ totalBytes: 228 * GB, freeBytes: PLENTY_FREE_BYTES - 1 })).toBeGreaterThan(0);
+  expect(archiveSweep({ totalBytes: 19.2 * GB, freeBytes: 4.5 * GB })).not.toBe(CALM_SWEEP);
+  expect(archiveSweep({ totalBytes: 19.2 * GB, freeBytes: 6 * GB })).toBe(CALM_SWEEP);
 });
 
 it("counts the copy a save makes of the largest database, and its reserve, as space the home cannot use", () => {
