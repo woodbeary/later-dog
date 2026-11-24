@@ -27,6 +27,7 @@ import { AskFirstGroup } from "./AskFirstSettings";
 import { DefaultModelRow } from "./DefaultModelSettings";
 import { CallButtonRow } from "./CallButtonSettings";
 import { MacAccessGroup } from "./MacAccessGroup";
+import { FullAccessAllGroup } from "./FullAccessAllGroup";
 import { PhoneGroup } from "./PhoneGroup";
 import { DevicesGroup } from "./DevicesGroup";
 import { cloudLendingBridge } from "@/lib/cloud-plan-summary";
@@ -302,6 +303,7 @@ function ComputerPage({ mac }: { mac: boolean }) {
   const lending = cloudLendingBridge();
   return (
     <>
+      {state.config?.cloudHome === true && <FullAccessAllGroup />}
       {state.config?.cloudHome === true && <MacAccessGroup />}
       {state.config?.cloudHome === true && <PhoneGroup />}
       <DevicesGroup />

@@ -1,5 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 
+import { alwaysAsks } from "./laterdog/always-asks.ts";
+import { defaultTempRoots, type OwnerGuardContext } from "./laterdog/owner-guard.ts";
 import englishCatalog from "../src/locales/en.json" with { type: "json" };
 
 import {
@@ -153,5 +155,29 @@ describe("tools that ask a person", () => {
 
   it("still answers an ordinary tool under Full access", () => {
     expect(autoVerdict("full", "Read").approve).toBeTruthy();
+  });
+});
+
+describe("a Full access dog's local computer request", () => {
+  const WORKSPACE = "/srv/dogs/ada/work";
+  const guard = (): OwnerGuardContext => ({ cwd: WORKSPACE, workspaceRoots: [WORKSPACE], tempRoots: defaultTempRoots(), home: "/home/dog", repositoryRoot: () => WORKSPACE });
+  const answeredWithoutCard = (tool: string, command?: string) =>
+    Boolean(autoVerdict("full", tool).approve) && alwaysAsks({ tool, command }, guard) === null;
+
+  it("is answered with no card, whatever the tool is", () => {
+    expect(answeredWithoutCard("Bash", "ls -la")).toBe(true);
+    expect(answeredWithoutCard("Bash", "npm test")).toBe(true);
+    expect(answeredWithoutCard("mcp__agents__shared_computer")).toBe(true);
+    expect(answeredWithoutCard("Edit")).toBe(true);
+  });
+
+  it("still gets a card when an always-ask rule holds it", () => {
+    expect(autoVerdict("full", "Bash").approve).toBeTruthy();
+    expect(alwaysAsks({ tool: "Bash", command: "git push --no-verify" }, guard)).not.toBeNull();
+    expect(answeredWithoutCard("Bash", "git push --no-verify")).toBe(false);
+  });
+
+  it("is not answered for any other mode", () => {
+    for (const mode of ["ask", "edits", "auto", "custom"] as const) expect(autoVerdict(mode, "Bash").approve, mode).toBeNull();
   });
 });
