@@ -218,7 +218,7 @@ describe("an escalation from an owner Off-leash dog", () => {
       }).then((settled) => ({ settled, calls }));
     };
     for (const [request, id] of [
-      [{ tool: "Bash", command: "git push --no-verify origin feature" }, "push-skips-checks"],
+      [{ tool: "Bash", command: "git push --no-verify origin main" }, "push-skips-checks"],
       [{ tool: "Bash", command: "LATERDOG_SKIP_HOOKS=1 git push" }, "push-skips-checks"],
       [{ tool: "Bash", command: "gcloud iam service-accounts keys create k.json --iam-account=a" }, "cloud-credential"],
       [{ tool: "mcp__computer__open_url", summary: "https://console.cloud.google.com/apis/credentials" }, "cloud-credential"],

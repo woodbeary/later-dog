@@ -838,6 +838,8 @@ import { createThreadModelRoutes } from "./routes/thread-models.ts";
 import { createContinueOnRoutes } from "./routes/continue-on.ts";
 import { createHandoffContinueRoutes } from "./routes/handoff-continue.ts";
 import { createMacAccessRoutes } from "./routes/mac-access.ts";
+import { createFullAccessAllRoutes } from "./routes/full-access-all.ts";
+import { FullAccessAllSwitch, onFullAnywhere, onFullEverywhere, planFullAccess } from "./full-access-all.ts";
 import { createComputerChangeRoutes } from "./routes/computer-change.ts";
 import { createCloudTrialRoutes } from "./routes/cloud-trial.ts";
 import { createIncludedUsageRoutes } from "./routes/included-usage.ts";
@@ -1354,6 +1356,7 @@ async function approveMac(capability: InternalCapability, target: SharedComputer
     bot, threadId: capability.threadId, computer: target.name, computerId: target.id, operation, active,
     ...(requestMessageId ? { requestMessageId } : {}),
     ...(personSaidYes ? { personSaidYes } : {}),
+    ownerSends: ownerSendsWithoutAsking(sourceApprovalMode(bot.id, capability.threadId), ownerAutoScope(capability.threadId)),
   });
   if (!verdict.ok) throw Object.assign(new Error(verdict.error), { status: verdict.status });
 }
@@ -5973,7 +5976,10 @@ bus.subscribe((event: RuntimeEvent) => {
 bus.subscribe((event: RuntimeEvent) => {
   if (shouldIgnoreProviderEvent(event)) return;
   if (event.type === "session.started" && event.sessionId) engineSummaryWindows.sessionStarted(event.threadId, event.sessionId);
-  if (event.type === "turn.completed" || event.type === "session.exited") engineSummaryWindows.turnEnded(event.threadId);
+  if (event.type === "turn.completed" || event.type === "session.exited") {
+    engineSummaryWindows.turnEnded(event.threadId);
+    scheduleFullAccessAll();
+  }
   if (event.type === "session.compacting") {
     if (event.summaryHook) engineSummaryWindows.compacting(event.threadId);
     compactionLive.started(event.threadId, { turnId: event.turnId, stream: true });
@@ -10842,6 +10848,44 @@ function roomRoutingInput(
 
 const approvalBus: ApprovalBus = { store, broadcast, notify, autoApply: fullAccessForSource };
 const macApprovals = new MacApprovals({ store, notify, file: join(DATA_DIR, "mac-access.json") });
+const fullAccessAll = new FullAccessAllSwitch(join(DATA_DIR, "full-access-all.json"));
+let fullAccessAllTimer: NodeJS.Timeout | undefined;
+
+function dogSupportsFull(bot: BotRecord): boolean {
+  return supportsApprovalMode(bot.modelSelection, "full") &&
+    store.tasks(bot.id).every(task => supportsApprovalMode(task.modelSelection ?? bot.modelSelection, "full"));
+}
+
+function dogBusyForApproval(bot: BotRecord): boolean {
+  return Boolean(bot.busy) || botHasActiveTurn(bot.id) || Boolean(routines?.activeRunForBot(bot.id)) ||
+    store.tasks(bot.id).some(task => threadBusy(bot.id, task.threadId));
+}
+
+function applyFullAccessAll(): void {
+  if (!CLOUD_HOME || !fullAccessAll.enabled()) return;
+  const { move } = planFullAccess(store.bots, { busy: dogBusyForApproval, supported: dogSupportsFull });
+  for (const bot of move) store.setAllThreadApprovalMode(bot.id, "full");
+}
+
+function scheduleFullAccessAll(): void {
+  if (!fullAccessAll.enabled()) return;
+  clearTimeout(fullAccessAllTimer);
+  fullAccessAllTimer = setTimeout(applyFullAccessAll, 1_500);
+  fullAccessAllTimer.unref();
+}
+
+function fullAccessAllView() {
+  return { enabled: fullAccessAll.enabled(), dogs: store.bots.length, full: store.bots.filter(onFullEverywhere).length };
+}
+
+function endFullAccessAll(): void {
+  for (const bot of store.bots.filter(onFullAnywhere)) {
+    store.setAllThreadApprovalMode(bot.id, "ask");
+    void stopBotForEmergencyApprovalDowngrade(bot.id).catch(() => {
+      console.error("[approval] Could not stop a dog's turn after Full access for all dogs was switched off.");
+    });
+  }
+}
 
 {
   const stale = dismissStalePeerCards(approvalBus);
@@ -13741,6 +13785,19 @@ ROUTES.push(createMacAccessRoutes({
     return true;
   },
   view: () => macAccessView(),
+}));
+ROUTES.push(createFullAccessAllRoutes({
+  cloudHome: Boolean(CLOUD_HOME),
+  mayChange: (auth) => cloudOwnerSession(auth),
+  update: (body) => {
+    const parsed = z.object({ enabled: z.boolean() }).strict().safeParse(body);
+    if (!parsed.success) return false;
+    fullAccessAll.set(parsed.data.enabled);
+    if (parsed.data.enabled) applyFullAccessAll();
+    else endFullAccessAll();
+    return true;
+  },
+  view: () => fullAccessAllView(),
 }));
 ROUTES.push(createHandoffContinueRoutes({
   root: (id) => roomHandoffs.nodes.get(id),
@@ -17855,6 +17912,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       const bot = store.createBot({ ...profile.patch, soul: settings.soul, section, modelSelection: selection,
         toolScope: settings.toolScope ?? undefined,
         ...(created?.ok ? { visibility: created.visibility } : {}) });
+      if (!CLOUD_HOME || cloudOwnerSession(auth)) scheduleFullAccessAll();
       const createdRoutines: Array<{ id: string; enabled: boolean }> = [];
       try {
         const { toolScope: _toolScope, ...ordinary } = settings;

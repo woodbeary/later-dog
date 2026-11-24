@@ -298,18 +298,80 @@ describe("Mac approval gate", () => {
     expect(openCards()).toHaveLength(0);
   });
 
-  it("offers only Allow and Deny in a group chat", async () => {
+  it("offers Always allow in a group chat too, so one answer ends the asking for every chat", async () => {
     asking();
     const other = store.patchBot(store.createBot().id, { name: "Scout" })!;
     const room = store.createGroup("Planning", [dog.id, other.id]);
     store.appendMessage(room.threadId, { role: "user", kind: "text", text: "Biscuit, check Downloads" });
     const verdict = gate.check({ bot: dog, threadId: room.threadId, computer: MAC, computerId: MAC_ID, operation: { action: "list_files", path: "Downloads" }, active: () => true });
     const card = openCards(room.threadId)[0]!;
-    expect(card.card?.options).toEqual(["Allow", "Deny"]);
-    expect(card.card?.allowKey).toBeUndefined();
+    expect(card.card?.options).toEqual(["Allow", "Deny", "Always allow"]);
+    expect(card.card?.allowKey).toBe(MAC_ALLOW_KEY);
     expect(card.from?.name).toBe("Biscuit");
+    expect(gate.choose(card.card!.requestId!, "always")).toBe(true);
+    expect(await verdict).toEqual({ ok: true });
+    expect(gate.modeFor(MAC_ID)).toBe("always");
+  });
+
+  it("never offers Always allow on a send, in a group chat or anywhere else", async () => {
+    asking();
+    const other = store.patchBot(store.createBot().id, { name: "Scout" })!;
+    const room = store.createGroup("Planning", [dog.id, other.id]);
+    store.appendMessage(room.threadId, { role: "user", kind: "text", text: "text Sam" });
+    const verdict = gate.check({ bot: dog, threadId: room.threadId, computer: MAC, computerId: MAC_ID, operation: { action: "send_text", arguments: { to: "Sam", text: "hi" } }, active: () => true });
+    expect(openCards(room.threadId)[0]!.card?.options).toEqual(["Allow", "Deny"]);
     gate.cancelThread(room.threadId);
     expect(await verdict).toEqual({ ok: false, status: 409, error: MAC_CANCELLED });
+  });
+
+  describe("a dog on Full access", () => {
+    const sendText = { action: "send_text", arguments: { to: "Sam", text: "hi" } };
+
+    it("uses a Mac set to Always with no card, in a group chat as well", async () => {
+      gate.update({ computers: { [MAC_ID]: "always" } });
+      const other = store.patchBot(store.createBot().id, { name: "Scout" })!;
+      const room = store.createGroup("Planning", [dog.id, other.id]);
+      store.appendMessage(room.threadId, { role: "user", kind: "text", text: "Biscuit, tidy Desktop" });
+      for (const operation of [{ action: "run_command", command: "ls" }, { action: "write_file", path: "Desktop/a.md" }, { action: "read_texts" }]) {
+        await expect(gate.check({ bot: dog, threadId: room.threadId, computer: MAC, computerId: MAC_ID, operation, active: () => true })).resolves.toEqual({ ok: true });
+      }
+      expect(openCards(room.threadId)).toHaveLength(0);
+      expect(notes).toHaveLength(0);
+    });
+
+    it("sends a text or email from a Mac set to Always with no card, but only when the home says sends need no asking", async () => {
+      gate.update({ computers: { [MAC_ID]: "always" } });
+      await expect(ask(sendText, { ownerSends: true })).resolves.toEqual({ ok: true });
+      expect(openCards()).toHaveLength(0);
+      const held = ask(sendText, {});
+      expect(openCards()).toHaveLength(1);
+      gate.resolve(openCards()[0]!.card!.requestId!, "deny");
+      expect(await held).toEqual({ ok: false, status: 403, error: MAC_DENIED });
+    });
+
+    it("still asks when the person set that Mac to Ask every time, and offers Always allow in a group chat", async () => {
+      asking();
+      const other = store.patchBot(store.createBot().id, { name: "Scout" })!;
+      const room = store.createGroup("Planning", [dog.id, other.id]);
+      store.appendMessage(room.threadId, { role: "user", kind: "text", text: "Biscuit, tidy Desktop" });
+      const verdict = gate.check({ bot: dog, threadId: room.threadId, computer: MAC, computerId: MAC_ID, operation: { action: "run_command", command: "ls" }, active: () => true });
+      expect(openCards(room.threadId)[0]!.card?.options).toEqual(["Allow", "Deny", "Always allow"]);
+      gate.cancelThread(room.threadId);
+      expect(await verdict).toEqual({ ok: false, status: 409, error: MAC_CANCELLED });
+    });
+
+    it("is still refused by a Mac set to Never", async () => {
+      gate.update({ computers: { [MAC_ID]: "never" } });
+      expect(await ask({ action: "list_files", path: "Downloads" }, { ownerSends: true })).toEqual({ ok: false, status: 403, error: MAC_NEVER });
+    });
+
+    it("leaves a dog that is not on Full access asking each time on a Mac set to Ask", async () => {
+      asking();
+      const verdict = ask({ action: "run_command", command: "ls" }, {});
+      expect(openCards()).toHaveLength(1);
+      gate.cancelThread(dog.threadId);
+      expect(await verdict).toEqual({ ok: false, status: 409, error: MAC_CANCELLED });
+    });
   });
 
   it("asks before every text, showing the recipient and the whole message, even when the Mac is set to Always", async () => {

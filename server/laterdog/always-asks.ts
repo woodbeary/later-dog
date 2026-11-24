@@ -109,9 +109,39 @@ type Skip = "plain" | "api" | "unreadable" | null;
 
 const unreadable = (word: ShellWord | undefined) => word !== undefined && ((word.vars && !READABLE_SUBSTITUTION.test(word.text)) || word.glob);
 
+const PROTECTED_BRANCH = /^(?:HEAD|main|master|trunk|develop|development|production|prod|release|stable)$/i;
+const FORCE_OR_DELETE = /^(?:--force\S*|--delete|--mirror|--all|--prune|--tags|--follow-tags|-[a-zA-Z]*[fd][a-zA-Z]*)$/;
+const PUSH_VALUE_OPTIONS = new Set(["-o", "--push-option", "--repo", "--receive-pack", "--exec", "--signed"]);
+
+function namesOnlyOtherBranches(args: readonly ShellWord[]): boolean {
+  const operands: ShellWord[] = [];
+  for (let i = 0; i < args.length; i++) {
+    const word = args[i]!;
+    if (PUSH_VALUE_OPTIONS.has(word.text)) {
+      i++;
+      continue;
+    }
+    if (word.text.startsWith("-")) {
+      if (FORCE_OR_DELETE.test(word.text)) return false;
+      continue;
+    }
+    operands.push(word);
+  }
+  const [remote, ...refspecs] = operands;
+  if (!remote || remote.vars || remote.glob || !refspecs.length) return false;
+  return refspecs.every((spec) => {
+    if (spec.vars || spec.glob || spec.text.startsWith("+") || /[*?[{]/.test(spec.text)) return false;
+    const colon = spec.text.lastIndexOf(":");
+    if (colon === 0) return false;
+    const target = (colon === -1 ? spec.text : spec.text.slice(colon + 1)).replace(/^refs\/heads\//, "");
+    return target !== "" && !target.startsWith("refs/") && !PROTECTED_BRANCH.test(target);
+  });
+}
+
 function pushSkips(args: readonly ShellWord[], fromInput: boolean): Skip {
   if (fromInput) return "unreadable";
   const literals = args.filter((arg) => !arg.vars && !arg.text.startsWith("-"));
+  let skipsChecks = false;
   for (let i = 0; i < args.length; i++) {
     const word = args[i]!;
     if (WHOLE_VARIABLE.test(word.text)) {
@@ -122,11 +152,11 @@ function pushSkips(args: readonly ShellWord[], fromInput: boolean): Skip {
     }
     const refWord = word.vars && !word.glob && !word.bare && /^[^-$`]/.test(word.text) && literals.some((arg) => args.indexOf(arg) < i);
     if (unreadable(word) && !refWord) return "unreadable";
-    if (NO_VERIFY.test(word.text)) return "plain";
+    if (NO_VERIFY.test(word.text)) skipsChecks = true;
     const option = word.text === "-o" || word.text === "--push-option" ? args[i + 1]?.text ?? "" : /^(?:-o|--push-option=)(.*)$/.exec(word.text)?.[1] ?? "";
-    if (/ci\.skip|skip-checks/i.test(option)) return "plain";
+    if (/ci\.skip|skip-checks/i.test(option)) skipsChecks = true;
   }
-  return null;
+  return skipsChecks && !namesOnlyOtherBranches(args) ? "plain" : null;
 }
 
 function operandTexts(args: readonly ShellWord[]): string[] {
@@ -450,6 +480,7 @@ function macGuard(cwd: string | undefined): OwnerGuardContext {
   return {
     cwd: cwd === undefined ? undefined : cwd.startsWith("/") ? cwd : `${MAC_HOME}/${cwd.replace(/^~\/?/, "")}`,
     workspaceRoots: [],
+    scratch: true,
     tempRoots: ["/tmp", "/private/tmp", "/private/var/folders", "/var/folders"],
     home: MAC_HOME,
   };
