@@ -1353,6 +1353,7 @@ async function approveMac(capability: InternalCapability, target: SharedComputer
     bot, threadId: capability.threadId, computer: target.name, computerId: target.id, operation, active,
     ...(requestMessageId ? { requestMessageId } : {}),
     ...(personSaidYes ? { personSaidYes } : {}),
+    ownerSends: ownerSendsWithoutAsking(sourceApprovalMode(bot.id, capability.threadId), ownerAutoScope(capability.threadId)),
   });
   if (!verdict.ok) throw Object.assign(new Error(verdict.error), { status: verdict.status });
 }
