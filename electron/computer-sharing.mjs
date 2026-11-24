@@ -129,15 +129,16 @@ class Paused extends Error {}
 
 export function createComputerSharing({
   file, fetch: fetchImpl, environments, cuaConnection, hostControl, screenRecording, protectedPaths = [], enabled = async () => false, home = os.homedir(), activityFile,
-  cloud = () => null, onChange = () => {}, pairCloud = null, primeAccess = async () => {}, computerName: nameComputer = computerName, retryMs = RETRY_MS,
+  cloud = () => null, onChange = () => {}, presence = null, pairCloud = null, primeAccess = async () => {}, computerName: nameComputer = computerName, retryMs = RETRY_MS,
 }) {
   const protectedRoots = [path.dirname(file), ...protectedPaths.filter(entry => typeof entry === "string" && entry), ...personalSecretPaths(home)];
   const activity = createLendingActivity(activityFile ?? path.join(path.dirname(file), "lending-activity.jsonl"));
   let records = {};
   let homeOff = false;
+  let presenceOff = false;
   try {
     const parsed = JSON.parse(fs.readFileSync(file, "utf8"));
-    if (parsed?.version === 1 && parsed.records && typeof parsed.records === "object") { records = parsed.records; homeOff = parsed.homeOff === true; }
+    if (parsed?.version === 1 && parsed.records && typeof parsed.records === "object") { records = parsed.records; homeOff = parsed.homeOff === true; presenceOff = parsed.presenceOff === true; }
   } catch {}
   const running = new Map();
   const status = new Map();
@@ -188,7 +189,7 @@ export function createComputerSharing({
   const store = (next, off = homeOff) => {
     fs.mkdirSync(path.dirname(file), { recursive: true });
     const temporary = `${file}.tmp`;
-    fs.writeFileSync(temporary, JSON.stringify({ version: 1, records: next, ...(off ? { homeOff: true } : {}) }), { mode: 0o600 });
+    fs.writeFileSync(temporary, JSON.stringify({ version: 1, records: next, ...(off ? { homeOff: true } : {}), ...(presenceOff ? { presenceOff: true } : {}) }), { mode: 0o600 });
     fs.chmodSync(temporary, 0o600);
     fs.renameSync(temporary, file); records = next; homeOff = off;
   };
@@ -325,8 +326,25 @@ export function createComputerSharing({
           changed();
           const inflight = new Set();
           const runJob = async (job, polledAgain) => {
-            active.set(job.id, { env: env.id, action: job.operation.action });
+            const by = plainName(job.by).slice(0, 60);
+            active.set(job.id, { env: env.id, action: job.operation.action, ...(by ? { by } : {}) });
             changed();
+            const ensureCua = async () => {
+              if (!live.cua) {
+                const connection = await cuaConnection();
+                jobSignal.throwIfAborted();
+                if (!connection?.mcpCommand || !Array.isArray(connection.mcpArgs)) throw new Error(`${CUA_OFF}${cuaOffReason(connection)}`);
+                live.cua = createSharedCua(connection);
+              }
+              return live.cua;
+            };
+            const cursor = async (on, session) => {
+              const cua = on ? await ensureCua() : live.cua;
+              await cua?.agentCursor?.(on, session, on ? jobSignal : undefined);
+            };
+            const showing = { id: job.id, by, operation: job.operation, grant };
+            const tell = work => { try { return Promise.resolve(work()).catch(() => {}); } catch { return Promise.resolve(); } };
+            if (presence) void tell(() => presence.begin(showing));
             const jobStarted = Date.now();
             const jobAbort = new AbortController();
             const jobSignal = AbortSignal.any([signal, jobAbort.signal]);
@@ -351,21 +369,15 @@ export function createComputerSharing({
                 if (!effectiveGrant.computer) throw new Error(SCREEN_UNAVAILABLE);
                 control = await hostControl(job.id, jobSignal);
                 jobSignal.throwIfAborted();
+                if (presence && job.operation.action === "computer_call") await tell(() => presence.begin({ ...showing, cursor }));
+                jobSignal.throwIfAborted();
               }
               const stopped = new Promise((_, reject) => {
                 const quit = () => reject(new Error("Computer access was revoked or the requesting turn ended. Inspect the result before retrying."));
                 if (jobSignal.aborted) quit(); else jobSignal.addEventListener("abort", quit, { once: true });
               });
               stopped.catch(() => {});
-              return Promise.race([stopped, executeSharedOperation(effectiveGrant, job.operation, jobSignal, async () => {
-                if (!live.cua) {
-                  const connection = await cuaConnection();
-                  jobSignal.throwIfAborted();
-                  if (!connection?.mcpCommand || !Array.isArray(connection.mcpArgs)) throw new Error(`${CUA_OFF}${cuaOffReason(connection)}`);
-                  live.cua = createSharedCua(connection);
-                }
-                return live.cua;
-              }, { screenRecording })]);
+              return Promise.race([stopped, executeSharedOperation(effectiveGrant, job.operation, jobSignal, ensureCua, { screenRecording })]);
             };
             let result;
             try {
@@ -376,7 +388,7 @@ export function createComputerSharing({
               } else result = await work();
             } catch (error) { result = sharedComputerError(error); if (screen) { live.cua?.close(); live.cua = null; } }
             try { result = await withConsentCheck(result, job.operation, { elapsedMs: Date.now() - jobStarted }); } catch {}
-            finally { clearInterval(heartbeat); await control?.release().catch(() => {}); active.delete(job.id); changed(); }
+            finally { clearInterval(heartbeat); await control?.release().catch(() => {}); active.delete(job.id); if (presence) void tell(() => presence.end(job.id)); changed(); }
             activity.record({
               env, action: job.operation.action, detail: describeSharedOperation(grant, job.operation), ok: result?.isError !== true,
               error: result?.isError === true ? result?.content?.[0]?.text : undefined,
@@ -435,6 +447,7 @@ export function createComputerSharing({
     const lent = grant?.cloud ? grant : null;
     return {
       on: !homeOff,
+      presence: !presenceOff,
       ...(shownName ? { name: shownName } : {}),
       enabled: lent?.enabled === true,
       busy: Boolean(env && [...active.values()].some(job => job.env === env.id)),
@@ -507,6 +520,14 @@ export function createComputerSharing({
       store({ ...records, [env.id]: grant }); run(env, grant); changed(); return state(env.id);
     },
     cloudState,
+    presenceShown: () => !presenceOff,
+    setPresence(on) {
+      if (closed || presenceOff === !on) return;
+      presenceOff = !on;
+      store(records);
+      try { presence?.shownChanged?.(); } catch {}
+      changed();
+    },
     async setHome(on) {
       if (closed) return;
       if (on) {

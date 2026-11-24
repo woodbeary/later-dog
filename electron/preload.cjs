@@ -303,6 +303,7 @@ const bridge = {
     lending: {
       state: () => ipcRenderer.invoke("lending:state"),
       setHome: on => ipcRenderer.invoke("lending:home", on === true),
+      setPresence: on => ipcRenderer.invoke("lending:presence", on === true),
     },
   } : undefined,
   cloudMove: process.argv.includes("--laterdog-company-desktop=1") ? {
@@ -323,6 +324,8 @@ const bridge = {
     state: () => ipcRenderer.invoke("cloud-lending:state"),
     setHome: on => isLocalPage || navigator.userActivation?.isActive === true
       ? ipcRenderer.invoke("cloud-lending:home", on === true) : Promise.reject(new Error("Choose the switch to change this.")),
+    setPresence: on => isLocalPage || navigator.userActivation?.isActive === true
+      ? ipcRenderer.invoke("cloud-lending:presence", on === true) : Promise.reject(new Error("Choose the switch to change this.")),
   } : undefined,
   cloudPermissions: process.argv.includes("--laterdog-company-desktop=1") && process.argv.includes("--laterdog-cloud-account=1") ? {
     status: () => ipcRenderer.invoke("cloud-permissions:status"),

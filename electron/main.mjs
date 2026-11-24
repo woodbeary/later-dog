@@ -45,6 +45,8 @@ import { createStartupScreen } from "./startup-screen.mjs";
 import { createSystemTray } from "./system-tray.mjs";
 import { NOTIFY_CHANNEL, createDesktopNotifications, hideOnClose } from "./desktop-notifications.mjs";
 import { createLendingIndicator } from "./lending-indicator.mjs";
+import { createMacPresence } from "./mac-presence.mjs";
+import { createPresenceOverlay } from "./presence-overlay.mjs";
 let startupScreen = null;
 let desktopTray = null;
 import { collisionFreeDownloadPath, defaultSaveName, revealDownloadWhenDone, revealInFolder, withSavableFile } from "./save-file.mjs";
@@ -1367,6 +1369,7 @@ function sharingController() {
     cloud: cloudLendingSnapshot,
     pairCloud: async () => cloudAccount?.homeTarget() ? cloudAccount.pairHome() : null,
     primeAccess: () => app.isPackaged ? primeHomeFolders(os.homedir()) : undefined,
+    presence: macPresence(),
     onChange: summary => {
       const busy = Boolean(summary.busy && summary.lending.includes(summary.busy.env));
       lendingIndicator().update({ lending: summary.lending.length > 0, busy });
@@ -1421,8 +1424,23 @@ function cloudLendingEnvironment() {
 }
 
 function stopLending() {
+  presence?.stop();
   void computerSharing?.setHome(false);
 }
+
+let presence = null;
+let presenceOverlay = null;
+function macPresence() {
+  presenceOverlay ??= createPresenceOverlay({ BrowserWindow, screen, onStop: stopLending });
+  presence ??= createMacPresence({
+    shown: () => computerSharing?.presenceShown() !== false,
+    render: state => presenceOverlay?.render(state),
+    describe: state => lendingIndicator().describe(state),
+  });
+  return presence;
+}
+ipcMain.on("presence:hover", (event, inside) => presenceOverlay?.hover(event.sender, inside === true));
+ipcMain.on("presence:stop", event => { presenceOverlay?.stop(event.sender); });
 
 function windowOnMyCloud() {
   const home = myCloud();
@@ -2636,6 +2654,10 @@ ipcMain.handle("cloud-lending:home", cloudPageSender("cloud-lending:home", async
   await sharingController().setHome(on === true);
   return lendingSnapshot();
 }));
+ipcMain.handle("cloud-lending:presence", cloudPageSender("cloud-lending:presence", (_cloud, on) => {
+  sharingController().setPresence(on === true);
+  return lendingSnapshot();
+}));
 ipcMain.handle("cloud-permissions:status", cloudPageSender("cloud-permissions:status", () => startCuaWhenGranted(permissionChecklist(macPermissionHost()))));
 ipcMain.handle("cloud-permissions:request", cloudPageSender("cloud-permissions:request", async (_cloud, permission) => startCuaWhenGranted(await requestPermission(permission, macPermissionHost()))));
 ipcMain.handle("cloud-permissions:open-settings", cloudPageSender("cloud-permissions:open-settings", (_cloud, permission) => openPrivacyPane(permission)));
@@ -2698,6 +2720,10 @@ async function lendingSnapshot() {
 ipcMain.handle("lending:state", localWorkspaceOnly("lending:state", () => lendingSnapshot()));
 ipcMain.handle("lending:home", localWorkspaceOnly("lending:home", async (_event, on) => {
   await sharingController().setHome(on === true);
+  return lendingSnapshot();
+}));
+ipcMain.handle("lending:presence", localWorkspaceOnly("lending:presence", (_event, on) => {
+  sharingController().setPresence(on === true);
   return lendingSnapshot();
 }));
 
@@ -3091,6 +3117,8 @@ app.on("before-quit", (e) => {
   void cloudMove?.close();
   companyBackupController?.abort();
   computerSharing?.close();
+  presence?.stop();
+  presenceOverlay?.destroy();
   lendingTray?.destroy();
   if (cuaCleanedUp) return;
   e.preventDefault();

@@ -38,6 +38,21 @@ describe("shared computer authority and lifecycle", () => {
     expect(sharedActionsHeader(undefined)).toBeUndefined();
     broker.close();
   });
+  it("tells the Mac which dog asked for each action, and nothing when no dog is named", async () => {
+    const broker = new SharedComputers(() => true);
+    const computer = registration({ computer: true }); broker.register(computer, alice, secret);
+    const named = broker.request({ computer_id: computer.id, action: "computer_tools" }, alice.person, () => true, "Rex");
+    const first = await broker.poll(computer.id, "owner", secret);
+    expect(first).toMatchObject({ by: "Rex", operation: { action: "computer_tools" } });
+    broker.complete(computer.id, "owner", secret, first!.id, { ok: true });
+    await expect(named).resolves.toEqual({ ok: true });
+    const unnamed = broker.request({ computer_id: computer.id, action: "computer_tools" }, alice.person, () => true);
+    const second = await broker.poll(computer.id, "owner", secret);
+    expect(second).not.toHaveProperty("by");
+    broker.complete(computer.id, "owner", secret, second!.id, { ok: true });
+    await unnamed;
+    broker.close();
+  });
   it("needs the terminal for command follow-ups, a writable folder for edits and deletes, and a folder for searches", () => {
     const readOnly = { id: randomUUID(), name: "Docs", write: false };
     const lent = registration({ folders: [readOnly], terminal: false });

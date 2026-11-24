@@ -63,7 +63,7 @@ export type SharedComputerStatus = {
   id: string; name: string; online: boolean; busy: boolean; lastSeenAt: number;
   scopes: { folders: { id: string; name: string; write: boolean }[]; terminal: boolean; screen: boolean };
 };
-type Job = { id: string; operation: Operation; active: () => boolean; sent: boolean; leased: boolean; resolve: (result: unknown) => void; reject: (error: Error) => void; timer: NodeJS.Timeout };
+type Job = { id: string; operation: Operation; by?: string; active: () => boolean; sent: boolean; leased: boolean; resolve: (result: unknown) => void; reject: (error: Error) => void; timer: NodeJS.Timeout };
 type Computer = { registration: Registration; owner: SharedComputerOwner; secret: string; seen: number; jobs: Map<string, Job>; wake?: () => void; polls: number; actions?: ReadonlySet<string> };
 const failure = (message: string, status = 409) => Object.assign(new Error(message), { status });
 const FIRST_ACTIONS: ReadonlySet<string> = new Set(FIRST_SHARED_ACTIONS);
@@ -214,7 +214,7 @@ export class SharedComputers {
     const next = () => {
       for (const job of entry.jobs.values()) {
         if (!job.active()) { this.finish(entry, job, failure("The requesting turn ended")); continue; }
-        if (!job.sent) { job.sent = true; return { id: job.id, operation: job.operation }; }
+        if (!job.sent) { job.sent = true; return { id: job.id, operation: job.operation, ...(job.by ? { by: job.by } : {}) }; }
       }
       return null;
     };
@@ -253,7 +253,7 @@ export class SharedComputers {
     this.forget(entry => entry.session === session && entry.id === id);
     for (const job of entry.jobs.values()) this.finish(entry, job, failure("Computer disconnected. An in-flight action may have completed; inspect before retrying."));
   }
-  request(requested: Operation, principal: string | null, active: () => boolean): Promise<unknown> {
+  request(requested: Operation, principal: string | null, active: () => boolean, by?: string): Promise<unknown> {
     let registration: Registration | null;
     try { registration = this.pick(principal, requested.computer_id); } catch (error) { return Promise.reject(error); }
     const entry = registration && [...this.computers.values()].find(candidate => candidate.registration === registration);
@@ -266,7 +266,7 @@ export class SharedComputers {
     if (!active()) return Promise.reject(failure("The requesting turn ended", 401));
     return new Promise((resolve, reject) => {
       const id = randomUUID();
-      const job: Job = { id, operation, active, sent: false, leased: false, resolve, reject, timer: setTimeout(() => this.finish(entry, job, failure("Computer action timed out. Its outcome is unknown; inspect before retrying.")), 45_000) };
+      const job: Job = { id, operation, ...(by ? { by: by.slice(0, 60) } : {}), active, sent: false, leased: false, resolve, reject, timer: setTimeout(() => this.finish(entry, job, failure("Computer action timed out. Its outcome is unknown; inspect before retrying.")), 45_000) };
       entry.jobs.set(id, job); entry.wake?.();
     });
   }

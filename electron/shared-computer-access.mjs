@@ -212,6 +212,8 @@ export function sharedCommand(command, cwd, signal) {
   });
 }
 
+export const AGENT_CURSOR_THEME = Object.freeze({ theme_id: "cua.default", reduced_motion: "auto" });
+
 export function createSharedCua(connection) {
   const child = spawn(connection.mcpCommand, connection.mcpArgs, {
     stdio: ["pipe", "pipe", "ignore"], windowsHide: true,
@@ -219,6 +221,7 @@ export function createSharedCua(connection) {
   });
   let sequence = 0; let closed = false; let bytes = 0;
   const pending = new Map();
+  const cursorSessions = new Map();
   const fail = error => { closed = true; for (const item of pending.values()) item.reject(error); pending.clear(); child.kill(); };
   child.on("error", fail);
   child.stdin.on("error", fail);
@@ -255,6 +258,22 @@ export function createSharedCua(connection) {
       const lent = lentScreenArguments(operation.tool_name, operation.arguments);
       if (lent.error) throw new Error(lent.error);
       return request("tools/call", { name: operation.tool_name, arguments: lent.arguments }, signal);
+    },
+    async agentCursor(enabled, session = "", signal) {
+      await ready; signal?.throwIfAborted();
+      const label = typeof session === "string" ? session : "";
+      if (!enabled) {
+        const known = cursorSessions.get(label);
+        cursorSessions.delete(label);
+        if (known) await request("tools/call", { name: "set_agent_cursor_enabled", arguments: { session: known, enabled: false } }, signal);
+        return;
+      }
+      const started = await request("tools/call", { name: "start_session", arguments: { ...(label ? { session: label } : {}), cursor_theme: AGENT_CURSOR_THEME } }, signal);
+      const named = started?.structuredContent?.session;
+      const resolved = typeof named === "string" && named ? named : label;
+      if (!resolved) return;
+      cursorSessions.set(label, resolved);
+      await request("tools/call", { name: "set_agent_cursor_enabled", arguments: { session: resolved, enabled: true } }, signal);
     },
     close() { lines.close(); fail(new Error("Computer sharing stopped")); },
   };
