@@ -106,27 +106,44 @@ export async function findSessionFiles(root: string, wanted: ReadonlySet<string>
   return found;
 }
 
+export type ArchiveSkip = { path: string; why: string };
+
 export type LogArchiveBridge = {
-  archive(paths: string[]): Promise<{ archived: number; bytes: number }>;
+  archive(paths: string[], bytes?: number): Promise<{ archived: number; bytes: number; skipped?: ArchiveSkip[] }>;
   restore(paths: string[]): Promise<void>;
   restoreSessions(sessions: string[]): Promise<void>;
+  pending?(): Promise<string[]>;
 };
+
+export const ARCHIVE_CALL_MS = 120_000;
+export const ARCHIVE_CALL_MS_PER_MB = 2000;
+export const ARCHIVE_CALL_MAX_MS = 30 * 60_000;
+
+export function archiveCallMs(bytes = 0): number {
+  return Math.min(ARCHIVE_CALL_MAX_MS, ARCHIVE_CALL_MS + Math.ceil(bytes / (1024 * 1024)) * ARCHIVE_CALL_MS_PER_MB);
+}
 
 export function logArchiveBridge(url: string, token: string): LogArchiveBridge {
   const endpoint = new URL(url);
   if (endpoint.protocol !== "http:" || endpoint.hostname !== "127.0.0.1" || endpoint.username || endpoint.password || endpoint.pathname !== "/") {
     throw new Error("archive service must use loopback");
   }
-  const call = async (path: string, payload: Record<string, string[]>) => {
+  const call = async (path: string, payload: Record<string, string[]>, timeoutMs = ARCHIVE_CALL_MS) => {
     const response = await fetch(new URL(path, endpoint), {
       method: "POST", headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
-      body: JSON.stringify(payload), signal: AbortSignal.timeout(120_000),
+      body: JSON.stringify(payload), signal: AbortSignal.timeout(timeoutMs),
     });
     if (!response.ok) throw new Error(`archive service refused: ${response.status}`);
-    return await response.json() as { archived: number; bytes: number; failed?: number };
+    return await response.json() as { archived: number; bytes: number; failed?: number; skipped?: ArchiveSkip[] };
   };
   return {
-    archive: paths => call("archive", { paths }),
+    archive: (paths, bytes) => call("archive", { paths }, archiveCallMs(bytes)),
+    async pending() {
+      const response = await fetch(new URL("status", endpoint), { headers: { authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(ARCHIVE_CALL_MS) });
+      if (!response.ok) throw new Error(`archive service refused: ${response.status}`);
+      const status = await response.json() as { paths?: unknown };
+      return Array.isArray(status.paths) ? status.paths.filter((path): path is string => typeof path === "string") : [];
+    },
     async restore(paths) {
       const result = await call("restore-logs", { paths });
       if (result.failed !== 0) throw new Error("saved logs are not restored yet");
@@ -137,6 +154,15 @@ export function logArchiveBridge(url: string, token: string): LogArchiveBridge {
     },
   };
 }
+
+export type SweepLimits = {
+  ageMs: number;
+  sessionAgeMs: number;
+  byteLimit: number;
+  sessionByteLimit: number;
+  threadLimit: number;
+  quietMs: number;
+};
 
 type Options = {
   root: string;
@@ -151,11 +177,71 @@ type Options = {
   byteLimit?: number;
   sessionByteLimit?: number;
   threadLimit?: number;
+  quietMs?: number;
+  sweep?(): Partial<SweepLimits>;
+  room?(): boolean;
   retryMs?: number;
   report?(message: string): void;
 };
 
-type SessionBudget = { admit(size: number): boolean };
+type Budget = { admit(size: number): boolean; left(): number };
+
+function budgetOf(limit: number): Budget {
+  let remaining = limit;
+  return {
+    admit(size) {
+      if (size <= remaining) { remaining -= size; return true; }
+      if (remaining !== limit) return false;
+      remaining = 0;
+      return true;
+    },
+    left: () => remaining,
+  };
+}
+
+type SkipTally = { add(skipped?: ArchiveSkip[]): void; said(): string };
+
+function skipTally(): SkipTally {
+  const counts = new Map<string, number>();
+  return {
+    add(skipped) { for (const skip of skipped ?? []) counts.set(skip.why, (counts.get(skip.why) ?? 0) + 1); },
+    said: () => [...counts].sort(([left], [right]) => left.localeCompare(right)).map(([why, count]) => `${count} ${why}`).join(", "),
+  };
+}
+
+export const ARCHIVE_BATCH_PATHS = 50;
+export const ARCHIVE_BATCH_BYTES = 32 * 1024 * 1024;
+export const SWEEP_FAILURES_IN_A_ROW = 3;
+
+export function archiveBatches<T extends { size: number }>(files: readonly T[], maxPaths = ARCHIVE_BATCH_PATHS, maxBytes = ARCHIVE_BATCH_BYTES): T[][] {
+  const batches: T[][] = [];
+  let batch: T[] = [];
+  let bytes = 0;
+  for (const file of files) {
+    if (batch.length && (batch.length >= maxPaths || bytes + file.size > maxBytes)) {
+      batches.push(batch);
+      batch = [];
+      bytes = 0;
+    }
+    batch.push(file);
+    bytes += file.size;
+  }
+  if (batch.length) batches.push(batch);
+  return batches;
+}
+
+const ARCHIVED_SESSION = /^(?:\.claude|\.laterdog\/providers\/[A-Za-z0-9_][A-Za-z0-9_-]{0,127})\/projects\/[A-Za-z0-9-]{1,255}\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})(?:[.]jsonl$|\/)/;
+
+export function archivedSessionOf(path: string): string | null {
+  return ARCHIVED_SESSION.exec(path)?.[1] ?? null;
+}
+
+const MINUTE_MS = 60_000;
+const HOUR_MS = 60 * MINUTE_MS;
+const span = (ms: number) => (ms >= HOUR_MS ? `${Math.round(ms / HOUR_MS)} h` : `${Math.round(ms / MINUTE_MS)} min`);
+const said = (error: unknown) => (error instanceof Error ? error.message : String(error));
+
+class NoRoom extends Error {}
 
 export class LogArchiveCoordinator {
   private gates = new Map<string, Promise<unknown>>();
@@ -163,6 +249,8 @@ export class LogArchiveCoordinator {
   private cursor = 0;
   private sessionCursor = "";
   private waiting: string | null = null;
+  private touched = new Map<string, number>();
+  private limitsSaid = "";
   private totals = { archivedFiles: 0, archivedBytes: 0, sessionFiles: 0, sessionBytes: 0, lastScanAt: null as number | null, freeBefore: null as number | null, freeAfter: null as number | null };
   private readonly now: () => number;
   private readonly report: (message: string) => void;
@@ -195,22 +283,57 @@ export class LogArchiveCoordinator {
     return this.allSessionsOf(id).slice(0, MAX_SESSIONS);
   }
 
-  private sessionFree(session: string): boolean {
+  private limits(): SweepLimits {
+    const live = this.options.sweep?.() ?? {};
+    return {
+      ageMs: live.ageMs ?? this.options.ageMs ?? 24 * HOUR_MS,
+      sessionAgeMs: live.sessionAgeMs ?? this.options.sessionAgeMs ?? SESSION_AGE_MS,
+      byteLimit: live.byteLimit ?? this.options.byteLimit ?? 64 * 1024 * 1024,
+      sessionByteLimit: live.sessionByteLimit ?? this.options.sessionByteLimit ?? 128 * 1024 * 1024,
+      threadLimit: live.threadLimit ?? this.options.threadLimit ?? 100,
+      quietMs: live.quietMs ?? this.options.quietMs ?? 0,
+    };
+  }
+
+  private touch(id: string): void {
+    this.touched.set(id, this.now());
+  }
+
+  private quiet(id: string, quietMs: number): boolean {
+    const at = this.touched.get(id);
+    return at !== undefined && this.now() - at < quietMs;
+  }
+
+  private sessionFree(session: string, quietMs: number): boolean {
     const outside = this.options.outsideSessions;
     if (outside?.().includes(session)) return false;
     let tracked = false;
     for (const thread of this.options.threads()) {
       if (!this.allSessionsOf(thread).includes(session)) continue;
       tracked = true;
-      if (!this.sessionsOf(thread).includes(session) || !this.options.idle(thread)) return false;
+      if (!this.sessionsOf(thread).includes(session) || !this.options.idle(thread) || this.quiet(thread, quietMs)) return false;
     }
     return tracked || Boolean(outside);
+  }
+
+  private async roomFor(id: string): Promise<boolean> {
+    const room = this.options.room;
+    if (!room || room()) return true;
+    const pending = await this.options.bridge.pending?.().catch(() => null);
+    if (!pending) return true;
+    const logs = new Set(threadLogPaths(id));
+    const sessions = new Set(this.sessionsOf(id));
+    if (!pending.some(path => logs.has(path) || sessions.has(archivedSessionOf(path) ?? ""))) return true;
+    await this.scan().catch(() => {});
+    return room();
   }
 
   async beforeTurn(id: string, current: () => boolean): Promise<boolean> {
     let warned = false;
     while (current()) {
+      this.touch(id);
       try {
+        if (!await this.roomFor(id)) throw new NoRoom();
         return await this.gate(id, async () => {
           if (!current()) return false;
           await this.options.bridge.restore(threadLogPaths(id));
@@ -223,8 +346,12 @@ export class LogArchiveCoordinator {
             if (this.sessionsOf(id).join() === sessions.join()) return true;
           }
         });
-      } catch {
-        if (!warned) this.report("saved logs unavailable; keeping the pending turn and retrying");
+      } catch (error) {
+        if (!warned) {
+          this.report(error instanceof NoRoom
+            ? "no room to bring saved logs back; making room and keeping the pending turn"
+            : "saved logs unavailable; keeping the pending turn and retrying");
+        }
         warned = true;
         await delay(this.options.retryMs ?? 5000);
       }
@@ -233,6 +360,7 @@ export class LogArchiveCoordinator {
   }
 
   read<T>(id: string, action: () => T): Promise<T> {
+    this.touch(id);
     return this.gate(id, async () => {
       await this.options.bridge.restore(threadLogPaths(id));
       return action();
@@ -241,6 +369,7 @@ export class LogArchiveCoordinator {
 
   readMany<T>(ids: string[], action: () => T): Promise<T> {
     const ordered = [...new Set(ids)].sort();
+    for (const id of ordered) this.touch(id);
     const next = (at: number): Promise<T> => at === ordered.length
       ? Promise.resolve(action())
       : this.gate(ordered[at], async () => {
@@ -258,39 +387,44 @@ export class LogArchiveCoordinator {
     return this.scanning;
   }
 
-  private async archiveSession(session: string, group: SessionGroup | undefined, budget: SessionBudget): Promise<"archived" | "kept" | "waiting"> {
-    const sessionAge = this.options.sessionAgeMs ?? SESSION_AGE_MS;
+  private sayLimits(limits: SweepLimits): void {
+    if (!this.options.sweep) return;
+    const now = `logs idle ${span(limits.ageMs)} and engine sessions idle ${span(limits.sessionAgeMs)}`;
+    if (now === this.limitsSaid) return;
+    if (this.limitsSaid || limits.ageMs < 24 * HOUR_MS) this.report(`now archiving ${now}`);
+    this.limitsSaid = now;
+  }
+
+  private async archiveSession(session: string, group: SessionGroup | undefined, budget: Budget, limits: SweepLimits, tally: SkipTally): Promise<"archived" | "kept" | "waiting"> {
+    const sessionAge = limits.sessionAgeMs;
     if (!group || group.unsafe || !group.files.length || group.files.length > MAX_ARCHIVE_PATHS) return "kept";
     if (group.files.some(file => this.now() - file.mtimeMs < sessionAge)) return "kept";
     return this.holding([session], async () => {
-      if (!this.sessionFree(session)) return "kept";
+      if (!this.sessionFree(session, limits.quietMs)) return "kept";
       const current = await Promise.all(group.files.map(file => lstat(join(this.options.root, file.path)).catch(() => null)));
       if (current.some(info => !info?.isFile() || info.isSymbolicLink() || this.now() - info.mtimeMs < sessionAge)) return "kept";
-      if (!this.sessionFree(session)) return "kept";
+      if (!this.sessionFree(session, limits.quietMs)) return "kept";
       if (!budget.admit(current.reduce((sum, info) => sum + (info?.size ?? 0), 0))) return "waiting";
-      const result = await this.options.bridge.archive(group.files.map(file => file.path));
-      this.totals.sessionFiles += result.archived;
-      this.totals.sessionBytes += result.bytes;
+      for (const batch of archiveBatches(group.files)) {
+        const result = await this.options.bridge.archive(batch.map(file => file.path), batch.reduce((sum, file) => sum + file.size, 0));
+        this.totals.sessionFiles += result.archived;
+        this.totals.sessionBytes += result.bytes;
+        tally.add(result.skipped);
+      }
       return "archived";
     });
   }
 
   private async sweep(): Promise<void> {
     const { root, bridge, idle, threads } = this.options;
+    const limits = this.limits();
     const known = threads();
-    const maximum = Math.min(known.length, this.options.threadLimit ?? 100);
-    const age = this.options.ageMs ?? 24 * 60 * 60_000;
-    let remaining = this.options.byteLimit ?? 64 * 1024 * 1024;
-    const sessionLimit = this.options.sessionByteLimit ?? 128 * 1024 * 1024;
-    let sessionRemaining = sessionLimit;
-    const budget: SessionBudget = {
-      admit(size) {
-        if (size <= sessionRemaining) { sessionRemaining -= size; return true; }
-        if (sessionRemaining !== sessionLimit) return false;
-        sessionRemaining = 0;
-        return true;
-      },
-    };
+    const maximum = Math.min(known.length, limits.threadLimit);
+    let remaining = limits.byteLimit;
+    const sessions = budgetOf(limits.sessionByteLimit);
+    const tally = skipTally();
+    const failures: string[] = [];
+    let failedInARow = 0;
     let archived = 0;
     let bytes = 0;
     const sessionsBefore = { files: this.totals.sessionFiles, bytes: this.totals.sessionBytes };
@@ -301,6 +435,18 @@ export class LogArchiveCoordinator {
     const before = await free();
     this.totals.freeBefore = before;
     this.totals.lastScanAt = this.now();
+    this.sayLimits(limits);
+    for (const [id, at] of this.touched) if (this.now() - at >= Math.max(limits.quietMs, HOUR_MS)) this.touched.delete(id);
+    const attempt = async (name: string, work: () => Promise<void>) => {
+      try {
+        await work();
+        failedInARow = 0;
+      } catch (error) {
+        failedInARow += 1;
+        failures.push(`${name.slice(0, 8)}: ${said(error)}`);
+      }
+    };
+    const failing = () => failedInARow >= SWEEP_FAILURES_IN_A_ROW;
     const batch = Array.from({ length: maximum }, (_, at) => known[(this.cursor + at) % known.length]);
     const tracked = new Set(known.flatMap(id => this.allSessionsOf(id)));
     const held = new Set(known.filter(id => !idle(id)).flatMap(id => this.sessionsOf(id)));
@@ -311,50 +457,61 @@ export class LogArchiveCoordinator {
     const waiting = this.waiting;
     if (waiting) {
       this.waiting = null;
-      const outcome = await this.archiveSession(waiting, sessionFiles.get(waiting) ?? orphanFiles.get(waiting), budget);
-      if (outcome === "waiting") this.waiting = waiting;
-    }
-    for (let count = 0; count < maximum && (remaining > 0 || sessionRemaining > 0); count++) {
-      const id = known[this.cursor++ % known.length];
-      if (!idle(id)) continue;
-      await this.gate(id, async () => {
-        if (!idle(id)) return;
-        const paths: string[] = [];
-        for (const path of threadLogPaths(id)) {
-          const info = await lstat(join(root, path)).catch(() => null);
-          if (!info?.isFile() || info.isSymbolicLink() || this.now() - info.mtimeMs < age || info.size > remaining) continue;
-          remaining -= info.size;
-          paths.push(path);
-        }
-        if (paths.length && idle(id)) {
-          const result = await bridge.archive(paths);
-          archived += result.archived;
-          bytes += result.bytes;
-          this.totals.archivedFiles += result.archived;
-          this.totals.archivedBytes += result.bytes;
-        }
-        for (const session of this.sessionsOf(id)) {
-          if (!wanted.has(session) || session === waiting || sessionRemaining <= 0 || !idle(id)) continue;
-          const outcome = await this.archiveSession(session, sessionFiles.get(session), budget);
-          if (outcome === "waiting") this.waiting ??= session;
-        }
+      await attempt(waiting, async () => {
+        const outcome = await this.archiveSession(waiting, sessionFiles.get(waiting) ?? orphanFiles.get(waiting), sessions, limits, tally);
+        if (outcome === "waiting") this.waiting = waiting;
       });
+    }
+    const visit = (id: string) => this.gate(id, async () => {
+      if (!idle(id)) return;
+      const paths: string[] = [];
+      let size = 0;
+      for (const path of threadLogPaths(id)) {
+        const info = await lstat(join(root, path)).catch(() => null);
+        if (!info?.isFile() || info.isSymbolicLink() || this.now() - info.mtimeMs < limits.ageMs || info.size > remaining) continue;
+        remaining -= info.size;
+        size += info.size;
+        paths.push(path);
+      }
+      if (paths.length && idle(id)) {
+        const result = await bridge.archive(paths, size);
+        archived += result.archived;
+        bytes += result.bytes;
+        this.totals.archivedFiles += result.archived;
+        this.totals.archivedBytes += result.bytes;
+        tally.add(result.skipped);
+      }
+      for (const session of this.sessionsOf(id)) {
+        if (!wanted.has(session) || session === waiting || sessions.left() <= 0 || !idle(id)) continue;
+        const outcome = await this.archiveSession(session, sessionFiles.get(session), sessions, limits, tally);
+        if (outcome === "waiting") this.waiting ??= session;
+      }
+    });
+    const resting = (id: string) => !idle(id) || this.quiet(id, limits.quietMs);
+    for (let count = 0; count < maximum && (remaining > 0 || sessions.left() > 0) && !failing(); count++) {
+      const id = known[this.cursor++ % known.length];
+      if (resting(id)) continue;
+      await attempt(id, () => visit(id));
     }
     const orphans = [...orphanFiles.keys()].sort();
     const start = orphans.findIndex(id => id > this.sessionCursor);
     const ordered = start < 0 ? orphans : [...orphans.slice(start), ...orphans.slice(0, start)];
     for (const session of ordered) {
-      if (sessionRemaining <= 0 || this.waiting) break;
+      if (sessions.left() <= 0 || this.waiting || failing()) break;
       if (session === waiting) continue;
-      const outcome = await this.archiveSession(session, orphanFiles.get(session), budget);
-      if (outcome === "waiting") { this.waiting = session; break; }
-      this.sessionCursor = session;
+      await attempt(session, async () => {
+        const outcome = await this.archiveSession(session, orphanFiles.get(session), sessions, limits, tally);
+        if (outcome === "waiting") this.waiting = session;
+        else this.sessionCursor = session;
+      });
     }
     this.totals.freeAfter = await free();
     const sessionsArchived = this.totals.sessionFiles - sessionsBefore.files;
     const sessionBytes = this.totals.sessionBytes - sessionsBefore.bytes;
-    if (archived || sessionsArchived) {
-      this.report(`archived ${archived} logs / ${bytes} bytes and ${sessionsArchived} engine session files / ${sessionBytes} bytes; free disk ${before} -> ${this.totals.freeAfter} bytes`);
+    const kept = tally.said();
+    if (archived || sessionsArchived || kept || failures.length) {
+      this.report(`archived ${archived} logs / ${bytes} bytes and ${sessionsArchived} engine session files / ${sessionBytes} bytes; free disk ${before} -> ${this.totals.freeAfter} bytes${kept ? `; kept ${kept}` : ""}${failures.length ? `; ${failures.length} failed, first ${failures[0]}` : ""}`);
     }
+    if (failing()) throw new Error("the archive service keeps failing");
   }
 }
