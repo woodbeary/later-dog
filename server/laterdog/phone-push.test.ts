@@ -34,7 +34,7 @@ describe("push notifications to the phone", () => {
     const dataDir = folder();
     const fetcher = vi.fn(async () => Response.json({ data: [{ status: "ok" }] }));
     const push = createPhonePush({ dataDir, fetcher: fetcher as unknown as typeof fetch });
-    push.register(TOKEN);
+    push.register(TOKEN, "later.dog");
     await push.send(approval);
     expect(fetcher).toHaveBeenCalledTimes(1);
     const [url, init] = fetcher.mock.calls[0] as unknown as [string, RequestInit];
@@ -54,7 +54,7 @@ describe("push notifications to the phone", () => {
   it("lets the person reply from the notification to a dog's message or question, never to an approval or hand-over", async () => {
     const fetcher = vi.fn(async () => Response.json({ data: [{ status: "ok" }] }));
     const push = createPhonePush({ dataDir: folder(), fetcher: fetcher as unknown as typeof fetch });
-    push.register(TOKEN);
+    push.register(TOKEN, "later.dog");
     const category = async (kind: Notification["kind"], threadId: string | undefined = "t1") => {
       fetcher.mockClear();
       await push.send({ ...approval, kind, threadId: threadId as string });
@@ -76,8 +76,8 @@ describe("push notifications to the phone", () => {
       return next;
     });
     const push = createPhonePush({ dataDir: folder(), fetcher: fetcher as unknown as typeof fetch, warn });
-    push.register(TOKEN);
-    push.register(OTHER);
+    push.register(TOKEN, "later.dog");
+    push.register(OTHER, "later.dog");
     await push.send({ ...approval, kind: "done", title: "Biscuit is done" });
     expect(push.tokens()).toEqual([OTHER]);
     await push.send(approval);

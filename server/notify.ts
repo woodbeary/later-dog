@@ -1,5 +1,6 @@
 
 import type { Notification, NotifyKind } from "../shared/notification.ts";
+import { plainAction } from "./laterdog/plain-action.ts";
 import { markdownPreview } from "../shared/markdown-preview.ts";
 
 export type { Notification, NotifyKind } from "../shared/notification.ts";
@@ -44,15 +45,16 @@ export function buildNotification(
   bot: NotifyBot,
   threadId: string,
   detail: string,
-  extra?: { avatarUrl?: string; group?: { id: string; name: string } },
+  extra?: { avatarUrl?: string; group?: { id: string; name: string }; requestId?: string; promptKey?: string; mustAsk?: boolean },
 ): Notification | null {
   if (bot.notifications === false) return null;
 
-  const body = summarize(kind === "done" ? markdownPreview(detail) : detail);
+  const action = kind === "approval" ? plainAction(detail) : null;
+  const body = action ? "Open later.dog to allow or deny." : summarize(kind === "done" ? markdownPreview(detail) : detail);
   const who = extra?.group ? `${bot.name} in ${extra.group.name}` : bot.name;
   const title =
     kind === "approval"
-      ? `${who} needs approval`
+      ? action ? `${who} wants to ${action}` : `${who} needs approval`
       : kind === "question"
         ? `${who} has a question`
         : kind === "takeover"
@@ -74,5 +76,8 @@ export function buildNotification(
   const notification: Notification = { kind, botId: bot.id, botName: bot.name, threadId, title, body };
   if (extra?.avatarUrl) notification.avatarUrl = extra.avatarUrl;
   if (extra?.group) notification.groupId = extra.group.id;
+  if (extra?.requestId) notification.requestId = extra.requestId;
+  if (extra?.promptKey) notification.promptKey = extra.promptKey;
+  if (extra?.mustAsk) notification.mustAsk = true;
   return notification;
 }

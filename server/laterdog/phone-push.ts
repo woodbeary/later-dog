@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { writeFileAtomic } from "../atomic.ts";
 import type { Notification } from "../notify.ts";
 import { replyable } from "../../shared/notification.ts";
+import { createPushGate } from "./push-gate.ts";
 
 export const EXPO_PUSH_URL = "https://exp.host/--/api/v2/push/send";
 export const EXPO_RECEIPTS_URL = "https://exp.host/--/api/v2/push/getReceipts";
@@ -63,6 +64,7 @@ export function createPhonePush(options: {
   later?: (run: () => void, ms: number) => void;
   receiptDelayMs?: number;
   testReceiptDelayMs?: number;
+  gatherMs?: number;
 }): PhonePush {
   const file = join(options.dataDir, "phone-push.json");
   const logFile = join(options.dataDir, PUSH_LOG_FILE);
@@ -72,6 +74,7 @@ export function createPhonePush(options: {
   const later = options.later ?? ((run: () => void, ms: number) => { setTimeout(run, ms).unref?.(); });
   const receiptDelayMs = options.receiptDelayMs ?? RECEIPT_DELAY_MS;
   const testReceiptDelayMs = options.testReceiptDelayMs ?? TEST_RECEIPT_DELAY_MS;
+  const gate = createPushGate({ now: () => now().getTime(), later, gatherMs: options.gatherMs });
   const log = (line: string) => {
     try {
       appendFileSync(logFile, `${now().toISOString()} ${line.replace(/[\r\n]+/g, " ").slice(0, 1800)}\n`, { mode: 0o600 });
@@ -99,6 +102,11 @@ export function createPhonePush(options: {
     }
   };
   const read = (): string[] => load().tokens;
+  const confirmed = (): string[] => {
+    const { tokens, native } = load();
+    if (native.length && tokens.length !== native.length) write(native.filter((token) => tokens.includes(token)), native);
+    return native.filter((token) => tokens.includes(token));
+  };
   const write = (tokens: string[], native = load().native) => {
     const kept = native.filter((token) => tokens.includes(token));
     writeFileAtomic(file, `${JSON.stringify(kept.length ? { tokens, native: kept } : { tokens })}\n`, { mode: 0o600 });
@@ -231,22 +239,32 @@ export function createPhonePush(options: {
       if (!tokens.includes(token)) return { registered: false, app: null };
       return { registered: true, app: native.includes(token) ? "later.dog" : "untagged" };
     },
-    async send(notification) {
-      const tokens = read();
-      if (!tokens.length) return { phones: 0, accepted: 0, errors: [] };
-      const urgent = URGENT.has(notification.kind);
-      return deliver(tokens, (to) => ({
-        to,
-        title: notification.title,
-        body: notification.body,
-        sound: "default",
-        data: { kind: notification.kind, botId: notification.botId, threadId: notification.threadId },
-        ...(urgent ? { priority: "high", interruptionLevel: "time-sensitive" } : {}),
-        ...(notification.botId && notification.threadId && replyable(notification.kind) ? { categoryId: REPLY_CATEGORY } : {}),
-      }), `ping (${notification.kind})`, "later");
+    send(notification) {
+      const tokens = confirmed();
+      if (!tokens.length) {
+        if (read().length) log(`ping (${notification.kind}): held back, no phone has said it is the later.dog app`);
+        return Promise.resolve({ phones: 0, accepted: 0, errors: [] });
+      }
+      return new Promise<PushSendReport>((resolve) => {
+        let sent = false;
+        gate(notification, (ready) => {
+          sent = true;
+          const urgent = URGENT.has(ready.kind);
+          void deliver(tokens, (to) => ({
+            to,
+            title: ready.title,
+            body: ready.body,
+            sound: "default",
+            data: { kind: ready.kind, botId: ready.botId, threadId: ready.threadId },
+            ...(urgent ? { priority: "high", interruptionLevel: "time-sensitive" } : {}),
+            ...(ready.botId && ready.threadId && replyable(ready.kind) ? { categoryId: REPLY_CATEGORY } : {}),
+          }), `ping (${ready.kind})`, "later").then(resolve);
+        });
+        if (!sent) resolve({ phones: tokens.length, accepted: 0, errors: [] });
+      });
     },
     async test() {
-      const tokens = read();
+      const tokens = confirmed().length ? confirmed() : read();
       if (!tokens.length) {
         log("test ping: no phone is registered");
         return { phones: 0, accepted: 0, errors: ["No phone is registered for pings."] };
