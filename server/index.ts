@@ -160,6 +160,7 @@ import { waitingOn } from "./laterdog/waiting-on.ts";
 import { personAsk } from "./laterdog/asks-person.ts";
 import { engineRefusesEffort, fittedEffort, offeredEffortLevels } from "./laterdog/effort-levels.ts";
 import { isPersistentQuestionCard } from "../shared/ask-question.ts";
+import { autoPickedAnswer, QUESTION_AUTOPICK_MS as QUESTION_AUTOPICK_DEFAULT_MS, questionPicks } from "../shared/question-autopick.ts";
 import { requestCardResolution } from "./laterdog/native-request-resolution.ts";
 import { canUseMcpServer, parseToolScope, toolScopeWidens } from "../shared/tool-scope.ts";
 import type { TeamComputersPayload } from "../shared/team-computer.ts";
@@ -314,7 +315,7 @@ import { BUILT_IN_DRIVERS } from "./drivers/builtIn.ts";
 import { openCodeProviderKeysAllowed, setOpenCodeProviderKeyPolicy } from "./drivers/acp/opencode-go.ts";
 import { recordAnswerScope, type GrantLookup } from "./laterdog/answer-scope.ts";
 import { getOrCreateChannel } from "./comms-visibility.ts";
-import { readMessageText, recallMessages, recentMessages, searchMessagesAsync, closeMessageSearch, closeMessageDb, chatFollowups, cancelledChatFollowup, settleChatFollowups, threadsReferencing, openPermissionCards, latestMessageAts, reclaimFreePages } from "./message-db.ts";
+import { readMessageText, recallMessages, recentMessages, searchMessagesAsync, closeMessageSearch, closeMessageDb, chatFollowups, cancelledChatFollowup, settleChatFollowups, threadsReferencing, openPermissionCards, questionCardsCountingDown, latestMessageAts, reclaimFreePages } from "./message-db.ts";
 import { briefCrossingLabel, claimRecallCrossings, recallCrossingLabel } from "./recall-disclosure.ts";
 import { parseSince, parseUntil, recentWork, recentWorkPrompt, turnOutcomeLine } from "./recent-work.ts";
 import { IncidentLedger, incidentChip, type Incident, type IncidentKind } from "./incidents.ts";
@@ -5596,11 +5597,52 @@ function closeOpenApprovals(threadId: string): void {
     if (card.routineRequest || card.skillRequest) continue;
     if (isPersistentQuestionCard(card)) {
       askMessageByRequest.delete(`${threadId}:${card.requestId}`);
+      stopQuestionAutopick(threadId, card.requestId);
+      if (card.autoAnswerAt) store.patchMessage(threadId, message.id, { card: { ...card, autoAnswerAt: undefined } });
       continue;
     }
     store.patchMessage(threadId, message.id, { card: { ...card, answered: "unavailable", dismissed: true } });
     askMessageByRequest.delete(`${threadId}:${card.requestId}`);
   }
+}
+
+const QUESTION_AUTOPICK_MS = Math.max(1_000, Number(process.env.LATERDOG_QUESTION_AUTOPICK_MS) || QUESTION_AUTOPICK_DEFAULT_MS);
+const questionAutopicks = new Map<string, { timer: ReturnType<typeof setTimeout>; picks: string[][] }>();
+
+function scheduleQuestionAutopick(threadId: string, requestId: string, instanceId: string): void {
+  stopQuestionAutopick(threadId, requestId);
+  const timer = setTimeout(() => {
+    autoPickQuestion(threadId, requestId, instanceId).catch(() => {
+      console.error("[question] Could not pick an answer for a question nobody answered.");
+    });
+  }, QUESTION_AUTOPICK_MS);
+  timer.unref?.();
+  questionAutopicks.set(`${threadId}:${requestId}`, { timer, picks: [] });
+}
+
+function stopQuestionAutopick(threadId: string, requestId: string): void {
+  const key = `${threadId}:${requestId}`;
+  clearTimeout(questionAutopicks.get(key)?.timer);
+  questionAutopicks.delete(key);
+}
+
+async function autoPickQuestion(threadId: string, requestId: string, instanceId: string): Promise<void> {
+  const key = `${threadId}:${requestId}`;
+  const kept = questionAutopicks.get(key)?.picks ?? [];
+  questionAutopicks.delete(key);
+  const messageId = askMessageByRequest.get(key);
+  const cardMessage = messageId ? store.messagesFor(threadId).find((message) => message.id === messageId) : undefined;
+  const card = cardMessage?.card;
+  if (!cardMessage || !card || card.answered || card.dismissed) return;
+  const picked = autoPickedAnswer(card, kept, { waitedMs: QUESTION_AUTOPICK_MS, owner: cfg.profile?.name });
+  const outcome = await answerRequest(threadId, instanceId, requestId, "answer", picked.engine);
+  const latest = store.messagesFor(threadId).find((message) => message.id === cardMessage.id)?.card;
+  if (!latest) return;
+  store.patchMessage(threadId, cardMessage.id, {
+    card: outcome === "answered"
+      ? { ...latest, answered: latest.answered ?? "answer", answeredText: picked.card, autoPicked: true, autoAnswerAt: undefined }
+      : { ...latest, autoAnswerAt: undefined },
+  });
 }
 
 function requestBehavior(value: unknown): "allow" | "deny" | "answer" | null {
@@ -7492,9 +7534,13 @@ bus.subscribe(guardTurnEnd((event: RuntimeEvent) => {
             heldCode: approvalHeldNote(heldContext),
             approvalScope: event.approvalScope,
             ...(ownerAllowKey ? { allowKey: ownerAllowKey } : {}),
+            ...(!permission && event.requestId ? { autoAnswerAt: Date.now() + QUESTION_AUTOPICK_MS } : {}),
           },
         });
         if (event.requestId) askMessageByRequest.set(`${event.threadId}:${event.requestId}`, message.id);
+        if (!permission && event.requestId) {
+          scheduleQuestionAutopick(event.threadId, event.requestId, event.providerInstanceId ?? asker?.modelSelection.instanceId ?? "");
+        }
         appendDecision(DATA_DIR, {
           threadId: event.threadId,
           requestId: event.requestId,
@@ -7666,6 +7712,7 @@ bus.subscribe(guardTurnEnd((event: RuntimeEvent) => {
     case "request.resolved": {
       if (event.requestId) lastingRequests.delete(`${event.threadId}:${event.requestId}`);
       if (event.requestId) settleWaitingOnPersonChips(event.threadId, event.requestId);
+      if (event.requestId) stopQuestionAutopick(event.threadId, event.requestId);
       const waiting = bot ?? (speaker ? store.bot(speaker.botId) : undefined);
       if (bot && store.taskByThread(bot.id, event.threadId)?.activity === "waiting-on-you") {
         store.setTaskActivity(bot.id, event.threadId, "working");
@@ -7675,7 +7722,9 @@ bus.subscribe(guardTurnEnd((event: RuntimeEvent) => {
         const existing = store.messagesFor(event.threadId).find((m) => m.id === messageId);
         if (existing?.card && !existing.card.answered) {
           const resolution = requestCardResolution(existing.card, event);
-          if (resolution) store.patchMessage(event.threadId, messageId, { card: { ...existing.card, ...resolution } });
+          if (resolution || existing.card.autoAnswerAt) {
+            store.patchMessage(event.threadId, messageId, { card: { ...existing.card, ...resolution, autoAnswerAt: undefined } });
+          }
         }
         if (event.requestId) askMessageByRequest.delete(`${event.threadId}:${event.requestId}`);
       }
@@ -19184,6 +19233,17 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
     if (m && method === "POST") {
       const threadId = m[1];
       const body = await readBody(req);
+      if (body.behavior === "picks") {
+        const requestId = String(body.requestId);
+        const refusal = cardAnswerRefusal(auth, threadId, requestId, "answer");
+        if (refusal) return json(res, 403, { error: refusal });
+        const picks = questionPicks(body.picks);
+        if (!picks) return json(res, 400, { error: "picks must list the picked options for each question" });
+        const waiting = questionAutopicks.get(`${threadId}:${requestId}`);
+        if (!waiting) return json(res, 409, { error: "this question is no longer waiting for an answer" });
+        waiting.picks = picks;
+        return json(res, 200, { ok: true });
+      }
       const behavior = requestBehavior(body.behavior);
       const reviewedSha256 = typeof body.reviewedSha256 === "string" ? body.reviewedSha256 : undefined;
       if (!behavior) return json(res, 400, { error: "behavior must be allow, deny, or answer" });
@@ -21798,6 +21858,14 @@ try {
   });
 } catch (error) {
   console.warn(`approval cards left open by the last run could not be closed: ${error instanceof Error ? error.message : String(error)}`);
+}
+
+try {
+  for (const { threadId, message } of questionCardsCountingDown()) {
+    if (message.card) store.patchMessage(threadId, message.id, { card: { ...message.card, autoAnswerAt: undefined } });
+  }
+} catch (error) {
+  console.warn(`question countdowns left by the last run could not be cleared: ${error instanceof Error ? error.message : String(error)}`);
 }
 
 {
