@@ -8,6 +8,7 @@ import { setTimeout as delay } from "node:timers/promises";
 import { isDeepStrictEqual } from "node:util";
 import { cloudLendingVerdict, computerName, createComputerSharing } from "./computer-sharing.mjs";
 import { createLendingIndicator } from "./lending-indicator.mjs";
+import { createMacPresence } from "./mac-presence.mjs";
 
 const ORIGIN = "https://laterdog-u-fixture.fly.dev";
 const OTHER = "https://laterdog-u-other.fly.dev";
@@ -58,8 +59,8 @@ function cloudHome({ cloudHome = true, scopes = ["admin", "client"], paired = tr
     const wake = job => { clearTimeout(timer); resolve(job); };
     state.waiting = wake;
   });
-  state.push = operation => {
-    const job = { id: randomUUID(), operation: { computer_id: state.connects.at(-1).id, ...operation } };
+  state.push = (operation, by) => {
+    const job = { id: randomUUID(), operation: { computer_id: state.connects.at(-1).id, ...operation }, ...(by ? { by } : {}) };
     state.sent.push(job.id);
     if (state.waiting) { const wake = state.waiting; state.waiting = null; wake(job); } else state.queue.push(job);
   };
@@ -103,8 +104,8 @@ async function hangingDriver(dir) {
   const script = path.join(dir, "driver.mjs");
   await writeFile(script, `import readline from 'node:readline'; import fs from 'node:fs'; fs.writeFileSync(${JSON.stringify(pid)}, String(process.pid));
 readline.createInterface({input:process.stdin}).on('line', line => { const m=JSON.parse(line); if(!m.id)return;
-if(m.method==='tools/call'){ fs.appendFileSync(${JSON.stringify(calls)}, m.params.name+'\\n'); if(m.params.name==='drag') return; }
-const result=m.method==='initialize'?{protocolVersion:'2024-11-05',capabilities:{tools:{}}}:m.method==='tools/list'?{tools:[{name:'drag'},{name:'click'}]}:{content:[{type:'text',text:'ok'}]};
+if(m.method==='tools/call'){ const a=m.params.arguments??{}; fs.appendFileSync(${JSON.stringify(calls)}, (m.params.name==='set_agent_cursor_enabled'?m.params.name+':'+a.enabled+':'+a.session:m.params.name==='start_session'?m.params.name+':'+(a.cursor_theme?.theme_id??''):m.params.name)+'\\n'); if(m.params.name==='drag') return; }
+const result=m.method==='initialize'?{protocolVersion:'2024-11-05',capabilities:{tools:{}}}:m.method==='tools/list'?{tools:[{name:'drag'},{name:'click'}]}:m.params?.name==='start_session'?{content:[{type:'text',text:'ok'}],structuredContent:{session:m.params.arguments?.session||'implicit'}}:{content:[{type:'text',text:'ok'}]};
 process.stdout.write(JSON.stringify({jsonrpc:'2.0',id:m.id,result})+'\\n'); });`);
   return { connection: { mcpCommand: process.execPath, mcpArgs: [script] }, calls, pid };
 }
@@ -134,6 +135,7 @@ async function lendingFixture(t, options = {}) {
       cuaConnection: async () => driver.connection,
       hostControl: async id => { leases.push(`acquire:${id}`); return { renew: async () => {}, release: async () => { leases.push(`release:${id}`); } }; },
       onChange: summary => summaries.push(summary),
+      ...(options.presence ? { presence: options.presence } : {}),
     });
     t.after(() => sharing.close());
     return sharing;
@@ -171,7 +173,7 @@ test("a Mac signed in to later.dog Cloud connects to My Cloud by itself: its hom
   assert.equal(connect.environmentId, server.environmentId);
   assert.deepEqual(connect.folders.map(({ name, write }) => ({ name, write })), [{ name: "Home", write: true }]);
   assert.deepEqual([connect.terminal, connect.computer], [true, true]);
-  assert.deepEqual(sharing.cloudState(env), { on: true, name: MAC, enabled: true, busy: false, connected: true });
+  assert.deepEqual(sharing.cloudState(env), { on: true, presence: true, name: MAC, enabled: true, busy: false, connected: true });
   const folder_id = connect.folders[0].id;
   server.push({ action: "read_file", folder_id, path: "~/plan.md" });
   server.push({ action: "read_file", folder_id, path: path.join(homeDir, "plan.md") });
@@ -464,6 +466,64 @@ test("the menu-bar indicator shows only while My Cloud is using the Mac, lingers
   assert.equal(trays.length, 2);
   indicator.update({ lending: false, busy: true });
   assert.equal(trays[1].destroyed, true, "gone as soon as it's turned off");
+  indicator.update({ lending: true, busy: true });
+  indicator.describe({ name: "Rex", step: "clicking Save in Notes" });
+  assert.equal(trays[2].title, "Rex");
+  assert.equal(trays[2].tip, "later.dog: Rex \u00b7 clicking Save in Notes");
+  assert.equal(trays[2].menu[0].label, "Rex \u00b7 clicking Save in Notes");
+  assert.ok(trays[2].menu.some(item => item.label === "Turn off for this Mac"));
+  indicator.describe(null);
+  assert.deepEqual([trays[2].title, trays[2].menu[0].label], ["In use", "My Cloud is using this Mac"]);
+});
+
+function presenceWatch(shown = () => true) {
+  const rendered = [], described = [];
+  const presence = createMacPresence({ shown: () => shown(), lingerMs: 30, render: state => rendered.push(state), describe: state => described.push(state) });
+  return { presence, rendered, described };
+}
+const driverCalls = async driver => (await readFile(driver.calls, "utf8").catch(() => "")).trim().split("\n").filter(Boolean);
+
+test("the dog's name reaches the pill and the menu bar, and its cursor turns on before its first click and off once it's done", async t => {
+  const watch = presenceWatch();
+  const { server, sharing, driver, summaries } = await lendingFixture(t, { presence: watch.presence });
+  await connected(sharing, 1, server);
+  server.push({ action: "computer_call", tool_name: "click", arguments: { x: 10, y: 10 } }, "Rex\u0000");
+  server.push({ action: "computer_call", tool_name: "click", arguments: { x: 20, y: 20 } }, "Rex");
+  await until(() => server.results.length === 2, "both clicks");
+  assert.deepEqual((await driverCalls(driver)).slice(0, 4), ["start_session:cua.default", "set_agent_cursor_enabled:true:implicit", "click", "click"]);
+  assert.ok(summaries.some(summary => summary.busy?.by === "Rex"), "the Mac knows which dog is using it");
+  assert.deepEqual(watch.described.find(Boolean), { name: "Rex", step: "clicking", screen: true, point: { x: 10, y: 10 } });
+  assert.deepEqual(watch.rendered.find(Boolean), watch.described.find(Boolean));
+  await until(async () => (await driverCalls(driver)).at(-1) === "set_agent_cursor_enabled:false:implicit", "the cursor to turn off");
+  assert.equal(watch.rendered.at(-1), null);
+  assert.equal(watch.described.at(-1), null);
+  server.push({ action: "run_command", command: "true" }, "Rex");
+  await until(() => server.results.length === 3, "the command");
+  assert.equal((await driverCalls(driver)).filter(call => call.startsWith("start_session")).length, 1, "no cursor for a command");
+  assert.ok(watch.described.some(state => state?.step === "running a command" && state.screen === false));
+});
+
+test("Show what dogs do on this Mac is on by default and remembered off across launches; off means no pill and no cursor, but the menu bar still names the dog", async t => {
+  let current = null;
+  const watch = presenceWatch(() => current?.presenceShown() !== false);
+  const { server, sharing, driver, make, saved } = await lendingFixture(t, { presence: watch.presence });
+  current = sharing;
+  await connected(sharing, 1, server);
+  assert.equal(sharing.presenceShown(), true);
+  sharing.setPresence(false);
+  assert.equal(sharing.cloudState(env).presence, false);
+  assert.equal((await saved()).presenceOff, true);
+  server.push({ action: "computer_call", tool_name: "click", arguments: {} }, "Rex");
+  await until(() => server.results.length === 1, "the click");
+  assert.deepEqual(await driverCalls(driver), ["click"]);
+  assert.deepEqual(watch.rendered, []);
+  assert.equal(watch.described.find(Boolean)?.name, "Rex");
+  sharing.close();
+  const next = make();
+  assert.equal(next.presenceShown(), false, "the next launch remembers it");
+  next.setPresence(true);
+  assert.equal((await saved()).presenceOff, undefined);
+  assert.equal(next.cloudState(env).presence, true);
 });
 
 test("every request the Mac makes is marked, pairing included, so it never wakes My Cloud or keeps it awake", async t => {

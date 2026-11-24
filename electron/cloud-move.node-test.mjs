@@ -965,20 +965,22 @@ test("the person's own Cloud page reads and flips the lending switch and this Ma
   await local.bridge.cloudLending.setHome("yes");
   assert.deepEqual(local.invoked, [["cloud-lending:state"], ["cloud-lending:home", false]]);
   const page = preload({ remote: true });
-  assert.deepEqual(Object.keys(page.bridge.cloudLending), ["open", "state", "setHome"]);
+  assert.deepEqual(Object.keys(page.bridge.cloudLending), ["open", "state", "setHome", "setPresence"]);
   assert.deepEqual(Object.keys(page.bridge.cloudPermissions), ["status", "request", "openSettings"]);
   assert.equal(page.bridge.permissions, undefined, "the local permission channels stay this computer's own");
   await page.bridge.cloudLending.state();
   await page.bridge.cloudPermissions.status();
   await assert.rejects(page.bridge.cloudLending.setHome(true), /Choose the switch/);
+  await assert.rejects(page.bridge.cloudLending.setPresence(false), /Choose the switch/);
   await assert.rejects(page.bridge.cloudPermissions.request("screen"), /Choose Allow/);
   await assert.rejects(page.bridge.cloudPermissions.openSettings("screen"), /Choose Open Settings/);
   assert.deepEqual(page.invoked, [["cloud-lending:state"], ["cloud-permissions:status"]]);
   const clicked = preload({ remote: true, activation: true });
   await clicked.bridge.cloudLending.setHome(true);
+  await clicked.bridge.cloudLending.setPresence(false);
   await clicked.bridge.cloudPermissions.request("screen");
   await clicked.bridge.cloudPermissions.openSettings("accessibility");
-  assert.deepEqual(clicked.invoked, [["cloud-lending:home", true], ["cloud-permissions:request", "screen"], ["cloud-permissions:open-settings", "accessibility"]]);
+  assert.deepEqual(clicked.invoked, [["cloud-lending:home", true], ["cloud-lending:presence", false], ["cloud-permissions:request", "screen"], ["cloud-permissions:open-settings", "accessibility"]]);
 
   const source = readFileSync(new URL("./main.mjs", import.meta.url), "utf8").replace(/\r\n/g, "\n");
   const start = source.indexOf(IPC_START), end = source.indexOf(IPC_END, start);
@@ -995,7 +997,7 @@ test("the person's own Cloud page reads and flips the lending switch and this Ma
     environmentsState: { environments: [], activeId: "local" },
     cloudAccount: { homeTarget: () => ({ origin: ORIGIN }) }, myCloudOrigin, rememberedHome: null,
     lendingSnapshot: async () => { calls.push(["snapshot"]); return snapshot; },
-    sharingController: () => ({ setHome: async on => { calls.push(["setHome", on]); } }),
+    sharingController: () => ({ setHome: async on => { calls.push(["setHome", on]); }, setPresence: on => { calls.push(["setPresence", on]); } }),
     permissionChecklist: () => ({ microphone: "granted", accessibility: "denied", screen: "notDetermined" }),
     requestPermission: async permission => { calls.push(["request", permission]); return { microphone: "granted", accessibility: "granted", screen: "notDetermined" }; },
     macPermissionHost: () => ({}), startCuaWhenGranted: checklist => checklist,
@@ -1009,11 +1011,12 @@ test("the person's own Cloud page reads and flips the lending switch and this Ma
   const asCloud = { sender: cloudContents, senderFrame: cloudFrame };
   assert.equal(await handlers.get("cloud-lending:home")(asCloud, "yes"), snapshot);
   await handlers.get("cloud-lending:home")(asCloud, true);
+  assert.equal(await handlers.get("cloud-lending:presence")(asCloud, "no"), snapshot);
   assert.deepEqual(await handlers.get("cloud-permissions:status")(asCloud), { microphone: "granted", accessibility: "denied", screen: "notDetermined" });
   await handlers.get("cloud-permissions:request")(asCloud, "accessibility");
   assert.equal(await handlers.get("cloud-permissions:open-settings")(asCloud, "screen"), true);
-  assert.deepEqual(calls, [["snapshot"], ["setHome", false], ["snapshot"], ["setHome", true], ["snapshot"], ["request", "accessibility"], ["pane", "screen"]]);
-  const channels = ["cloud-lending:state", "cloud-lending:home", "cloud-permissions:status", "cloud-permissions:request", "cloud-permissions:open-settings"];
+  assert.deepEqual(calls, [["snapshot"], ["setHome", false], ["snapshot"], ["setHome", true], ["snapshot"], ["setPresence", false], ["snapshot"], ["request", "accessibility"], ["pane", "screen"]]);
+  const channels = ["cloud-lending:state", "cloud-lending:home", "cloud-lending:presence", "cloud-permissions:status", "cloud-permissions:request", "cloud-permissions:open-settings"];
   for (const event of [{ sender: cloudContents, senderFrame: { url: "https://other.example.test/" } }, { sender: {}, senderFrame: cloudFrame }]) {
     for (const channel of channels) assert.throws(() => handlers.get(channel)(event, true), /only available/);
   }
