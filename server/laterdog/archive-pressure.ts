@@ -1,3 +1,5 @@
+import { readdirSync, statSync } from "node:fs";
+import { join } from "node:path";
 import { DISK_RUNGS, diskRung, emergencyBelowBytes } from "./disk-ladder.ts";
 import type { DiskUse } from "./janitor.ts";
 
@@ -35,6 +37,42 @@ export function archiveSweep(disk: DiskUse | null): ArchiveSweep {
 
 export function roomToRestore(disk: DiskUse | null): boolean {
   return !disk || disk.totalBytes <= 0 || disk.freeBytes >= emergencyBelowBytes(disk);
+}
+
+export const SAVE_COPY_RESERVE_BYTES = 256 * MB;
+const DATABASE = /\.(?:sqlite3?|db)$/;
+
+function sizeOrZero(path: string): number {
+  try {
+    const info = statSync(path);
+    return info.isFile() ? info.size : 0;
+  } catch {
+    return 0;
+  }
+}
+
+export function savesHold(dataDir: string): number {
+  let names: string[];
+  try { names = readdirSync(dataDir); } catch { return 0; }
+  const largest = names.filter((name) => DATABASE.test(name))
+    .reduce((most, name) => Math.max(most, sizeOrZero(join(dataDir, name)) + sizeOrZero(join(dataDir, `${name}-wal`))), 0);
+  return largest > 0 ? largest + SAVE_COPY_RESERVE_BYTES : 0;
+}
+
+export const STEADY_WINDOW_MS = 90_000;
+
+export function steadyDisk(read: () => DiskUse | null, held: () => number = () => 0, options: { windowMs?: number; now?: () => number } = {}): () => DiskUse | null {
+  const windowMs = options.windowMs ?? STEADY_WINDOW_MS;
+  const now = options.now ?? Date.now;
+  let samples: Array<{ at: number; freeBytes: number }> = [];
+  return () => {
+    const disk = read();
+    if (!disk) return null;
+    const at = now();
+    samples = [...samples.filter((sample) => at - sample.at < windowMs), { at, freeBytes: disk.freeBytes }];
+    const settled = samples.reduce((most, sample) => Math.max(most, sample.freeBytes), 0);
+    return { totalBytes: disk.totalBytes, freeBytes: Math.max(0, settled - held()) };
+  };
 }
 
 export const FIRST_SWEEP_MS = MINUTE;

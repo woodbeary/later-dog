@@ -3,7 +3,10 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { afterEach, expect, it, vi } from "vitest";
 import { createArchiver, serveArchive } from "../runtime/archive.mjs";
-import { CALM_SWEEP, FIRST_SWEEP_MS, PRESSURE_SWEEPS, SWEEP_CHECK_MS, archiveSweep, roomToRestore, startArchiveSweeps } from "../../../../server/laterdog/archive-pressure.ts";
+import {
+  CALM_SWEEP, FIRST_SWEEP_MS, PRESSURE_SWEEPS, SAVE_COPY_RESERVE_BYTES, STEADY_WINDOW_MS, SWEEP_CHECK_MS, archiveSweep, roomToRestore, savesHold,
+  startArchiveSweeps, steadyDisk,
+} from "../../../../server/laterdog/archive-pressure.ts";
 import { DISK_RUNGS } from "../../../../server/laterdog/disk-ladder.ts";
 import {
   ARCHIVE_BATCH_BYTES, ARCHIVE_BATCH_PATHS, ARCHIVE_CALL_MAX_MS, ARCHIVE_CALL_MS, LogArchiveCoordinator, SWEEP_FAILURES_IN_A_ROW,
@@ -96,6 +99,37 @@ it("says there is room to bring files back until the disk reaches its emergency 
   expect(roomToRestore({ totalBytes: 19.2 * GB, freeBytes: 1.1 * GB })).toBe(true);
   expect(roomToRestore({ totalBytes: 19.2 * GB, freeBytes: 0.9 * GB })).toBe(false);
   expect(roomToRestore({ totalBytes: 100 * GB, freeBytes: 4 * GB })).toBe(false);
+});
+
+it("counts the copy a save makes of the largest database, and its reserve, as space the home cannot use", () => {
+  const root = scratch();
+  expect(savesHold(root)).toBe(0);
+  expect(savesHold(join(root, "missing"))).toBe(0);
+  writeFileSync(join(root, "messages.db"), Buffer.alloc(3000));
+  writeFileSync(join(root, "messages.db-wal"), Buffer.alloc(500));
+  writeFileSync(join(root, "small.sqlite"), Buffer.alloc(100));
+  writeFileSync(join(root, "notes.txt"), Buffer.alloc(9000));
+  mkdirSync(join(root, "folder.db"));
+  expect(savesHold(root)).toBe(3500 + SAVE_COPY_RESERVE_BYTES);
+});
+
+it("reads the disk as it stands between saves: the most free space of the last minute and a half, less what saves hold", () => {
+  const MIB = 1024 ** 2;
+  let clock = 1_000_000;
+  let free = 2700 * MIB;
+  let held = 1200 * MIB;
+  const read = steadyDisk(() => ({ totalBytes: 19_200 * MIB, freeBytes: free }), () => held, { now: () => clock });
+  expect(read()).toEqual({ totalBytes: 19_200 * MIB, freeBytes: 1500 * MIB });
+  clock += 15_000;
+  free = 1800 * MIB;
+  expect(read()!.freeBytes).toBe(1500 * MIB);
+  clock += STEADY_WINDOW_MS;
+  expect(read()!.freeBytes).toBe(600 * MIB);
+  held = 5000 * MIB;
+  expect(read()!.freeBytes).toBe(0);
+  expect(steadyDisk(() => null)()).toBeNull();
+  expect(archiveSweep(steadyDisk(() => ({ totalBytes: 19_200 * MIB, freeBytes: 2700 * MIB }), () => 1230 * MIB)())).toBe(archiveSweep(disk(0.08)));
+  expect(roomToRestore(steadyDisk(() => ({ totalBytes: 19_200 * MIB, freeBytes: 2000 * MIB }), () => 1230 * MIB)())).toBe(false);
 });
 
 it("gives one archive call more time the more bytes it carries, up to a ceiling", () => {
