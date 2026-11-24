@@ -562,6 +562,7 @@ import { fetchGithubTeam, fetchLibraryTeam, fetchTeamCatalog } from "./team-libr
 import { BOT_PACKAGE_MAX_SKILLS, isBotPackage, packageSummary, parsePackageDocument, renderBotPackageMarkdown, type PackageDocument } from "./bot-package.ts";
 import { createTeamManifest, parseTeamManifest } from "./team-manifest.ts";
 import { LogArchiveCoordinator, claudeSessionIds, logArchiveBridge, outsideSessionOwners } from "./laterdog/log-archive.ts";
+import { archiveSweep, roomToRestore, startArchiveSweeps } from "./laterdog/archive-pressure.ts";
 import { readThreadEvents } from "./thread-events.ts";
 import { describeTool, readBotActivity } from "./activity.ts";
 import { OutboundRequestService } from "./outbound-requests.ts";
@@ -2886,6 +2887,8 @@ const logArchive = CLOUD_SECRETS.LATERDOG_CLOUD_ARCHIVE_TOKEN && process.env.LAT
     },
     sessions: id => claudeSessionIds(store.bots.flatMap(bot => store.tasks(bot.id)).find(task => task.threadId === id)?.resumeCursors),
     outsideSessions: () => outsideSessionOwners(store.bots.map(bot => ({ threadId: bot.threadId, resumeCursors: bot.resumeCursors, tasks: store.tasks(bot.id) })), id => Boolean(store.groupByThread(id))),
+    sweep: () => archiveSweep(diskUse(DATA_DIR)),
+    room: () => roomToRestore(diskUse(DATA_DIR)),
     report: message => console.log(`[log archive] ${message}`),
   }) : null;
 
@@ -21852,10 +21855,7 @@ function runJanitorNow(reason: JanitorRun["reason"]): JanitorRun | null {
   }
 }
 
-if (logArchive) {
-  setTimeout(() => void logArchive.scan().catch(() => console.warn("[log archive] scan deferred")), 60_000).unref();
-  setInterval(() => void logArchive.scan().catch(() => console.warn("[log archive] scan deferred")), 5 * 60_000).unref();
-}
+if (logArchive) startArchiveSweeps({ scan: () => logArchive.scan(), disk: () => diskUse(DATA_DIR), warn: line => console.warn(line) });
 
 if (CLOUD_HOME) {
   setTimeout(() => { runJanitorNow("startup"); if (!diskBreakdown.last()) diskBreakdown.measure(); }, 2 * 60_000).unref();

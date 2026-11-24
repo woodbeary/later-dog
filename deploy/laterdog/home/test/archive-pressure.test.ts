@@ -1,0 +1,326 @@
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, utimesSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { dirname, join } from "node:path";
+import { afterEach, expect, it, vi } from "vitest";
+import { createArchiver, serveArchive } from "../runtime/archive.mjs";
+import { CALM_SWEEP, FIRST_SWEEP_MS, PRESSURE_SWEEPS, SWEEP_CHECK_MS, archiveSweep, roomToRestore, startArchiveSweeps } from "../../../../server/laterdog/archive-pressure.ts";
+import { DISK_RUNGS } from "../../../../server/laterdog/disk-ladder.ts";
+import {
+  ARCHIVE_BATCH_BYTES, ARCHIVE_BATCH_PATHS, ARCHIVE_CALL_MAX_MS, ARCHIVE_CALL_MS, LogArchiveCoordinator, SWEEP_FAILURES_IN_A_ROW,
+  archiveBatches, archiveCallMs, archivedSessionOf, claudeSessionIds, logArchiveBridge, threadLogPaths, type LogArchiveBridge,
+} from "../../../../server/laterdog/log-archive.ts";
+
+const roots: string[] = [];
+const cleanups: Array<() => Promise<void>> = [];
+afterEach(async () => {
+  vi.useRealTimers();
+  for (const close of cleanups.splice(0)) await close();
+  for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
+});
+
+const GB = 1024 ** 3;
+const MB = 1024 ** 2;
+const MINUTE = 60_000;
+const HOUR = 60 * MINUTE;
+const disk = (freeShare: number) => ({ totalBytes: 20 * GB, freeBytes: Math.round(20 * GB * freeShare) });
+const THREADS = ["thread-pressure-1", "thread-pressure-2", "thread-pressure-3", "thread-pressure-4"];
+const SESSION = "0a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d";
+const SLUG = "-home-dog-work";
+const transcript = (id: string) => `.claude/projects/${SLUG}/${id}.jsonl`;
+const eventsOf = (id: string) => threadLogPaths(id)[0];
+
+function scratch() {
+  const root = realpathSync(mkdtempSync(join(tmpdir(), "archive-pressure-")));
+  roots.push(root);
+  return root;
+}
+function put(root: string, path: string, bytes: Buffer | string, agoMs: number) {
+  mkdirSync(dirname(join(root, path)), { recursive: true });
+  writeFileSync(join(root, path), bytes);
+  const when = new Date(Date.now() - agoMs);
+  utimesSync(join(root, path), when, when);
+}
+function memory() {
+  const blobs = new Map<string, Uint8Array>();
+  let index: unknown = null;
+  return {
+    async archiveIndex() { return structuredClone(index); },
+    async putArchiveIndex(next: unknown) { index = structuredClone(next); },
+    async hasArchived(hash: string) { return blobs.has(hash); },
+    async putArchived(hash: string, bytes: Uint8Array) { blobs.set(hash, new Uint8Array(bytes)); },
+    async getArchived(hash: string) { const found = blobs.get(hash); if (!found) throw new Error("missing"); return found; },
+  };
+}
+async function fixture(canRemove: () => Promise<boolean> = async () => true) {
+  const root = scratch();
+  const archiver = createArchiver({ root, store: memory(), canRemove });
+  const service = await serveArchive(archiver, { token: "archive-pressure-fixture" });
+  cleanups.push(service.close);
+  const bridge = logArchiveBridge(service.url, "archive-pressure-fixture");
+  const busy = new Set<string>();
+  const cursors: Record<string, Record<string, unknown>> = {};
+  const reports: string[] = [];
+  const coordinator = (extra: Partial<ConstructorParameters<typeof LogArchiveCoordinator>[0]> = {}) => new LogArchiveCoordinator({
+    root, bridge, threads: () => THREADS, idle: id => !busy.has(id), retryMs: 5,
+    sessions: id => claudeSessionIds(cursors[id]), report: message => reports.push(message), ...extra,
+  });
+  return { root, bridge, busy, cursors, reports, coordinator };
+}
+const here = (root: string, path: string) => existsSync(join(root, path));
+
+it("sweeps as it always did while the disk is calm, and harder at every lower rung", () => {
+  expect(archiveSweep(null)).toBe(CALM_SWEEP);
+  expect(archiveSweep(disk(0.5))).toBe(CALM_SWEEP);
+  expect(archiveSweep(disk(0.3))).toBe(CALM_SWEEP);
+  expect(CALM_SWEEP).toMatchObject({ ageMs: 24 * HOUR, sessionAgeMs: 72 * HOUR, byteLimit: 64 * MB, sessionByteLimit: 128 * MB, threadLimit: 100, everyMs: 5 * MINUTE });
+  expect(PRESSURE_SWEEPS.map((step) => DISK_RUNGS.find((rung) => rung.rung === step.from)!.name)).toEqual(["sweep", "move", "refuse", "floor"]);
+  const ladder = [CALM_SWEEP, archiveSweep(disk(0.2)), archiveSweep(disk(0.14)), archiveSweep(disk(0.08)), archiveSweep(disk(0.02))];
+  expect(new Set(ladder).size).toBe(5);
+  for (let at = 1; at < ladder.length; at++) {
+    const [milder, harder] = [ladder[at - 1]!, ladder[at]!];
+    expect(harder.ageMs, `age at step ${at}`).toBeLessThan(milder.ageMs);
+    expect(harder.sessionAgeMs, `session age at step ${at}`).toBeLessThan(milder.sessionAgeMs);
+    expect(harder.byteLimit, `bytes at step ${at}`).toBeGreaterThan(milder.byteLimit);
+    expect(harder.sessionByteLimit, `session bytes at step ${at}`).toBeGreaterThan(milder.sessionByteLimit);
+    expect(harder.threadLimit, `threads at step ${at}`).toBeGreaterThan(milder.threadLimit);
+    expect(harder.everyMs, `pace at step ${at}`).toBeLessThanOrEqual(milder.everyMs);
+    expect(harder.quietMs, `quiet at step ${at}`).toBeLessThanOrEqual(milder.quietMs);
+  }
+  expect(archiveSweep({ totalBytes: 19.2 * GB, freeBytes: 2.7 * GB })).toBe(ladder[2]);
+  expect(archiveSweep({ totalBytes: 19.2 * GB, freeBytes: 0.3 * GB })).toMatchObject({ ageMs: 0, sessionAgeMs: 0, byteLimit: Infinity, sessionByteLimit: Infinity });
+});
+
+it("says there is room to bring files back until the disk reaches its emergency mark", () => {
+  expect(roomToRestore(null)).toBe(true);
+  expect(roomToRestore(disk(0.5))).toBe(true);
+  expect(roomToRestore({ totalBytes: 19.2 * GB, freeBytes: 1.1 * GB })).toBe(true);
+  expect(roomToRestore({ totalBytes: 19.2 * GB, freeBytes: 0.9 * GB })).toBe(false);
+  expect(roomToRestore({ totalBytes: 100 * GB, freeBytes: 4 * GB })).toBe(false);
+});
+
+it("gives one archive call more time the more bytes it carries, up to a ceiling", () => {
+  expect(archiveCallMs()).toBe(ARCHIVE_CALL_MS);
+  expect(archiveCallMs(32 * MB)).toBe(ARCHIVE_CALL_MS + 64_000);
+  expect(archiveCallMs(600 * MB)).toBeGreaterThan(10 * MINUTE);
+  expect(archiveCallMs(1024 * GB)).toBe(ARCHIVE_CALL_MAX_MS);
+});
+
+it("splits a session's files into calls of bounded size, keeping their order and sending an oversized file alone", () => {
+  const files = Array.from({ length: 120 }, (_, at) => ({ path: `f${at}`, size: 10 }));
+  const split = archiveBatches(files);
+  expect(split.map((batch) => batch.length)).toEqual([ARCHIVE_BATCH_PATHS, ARCHIVE_BATCH_PATHS, 20]);
+  expect(split.flat()).toEqual(files);
+  const heavy = [{ path: "a", size: 20 * MB }, { path: "b", size: 20 * MB }, { path: "huge", size: 5 * ARCHIVE_BATCH_BYTES }, { path: "c", size: 1 }];
+  expect(archiveBatches(heavy).map((batch) => batch.map((file) => file.path))).toEqual([["a"], ["b"], ["huge"], ["c"]]);
+  expect(archiveBatches([])).toEqual([]);
+});
+
+it("reads the engine session out of an archived path and nothing out of any other path", () => {
+  expect(archivedSessionOf(transcript(SESSION))).toBe(SESSION);
+  expect(archivedSessionOf(`.laterdog/providers/claude-2/projects/${SLUG}/${SESSION}/tool-results/shot.jpg`)).toBe(SESSION);
+  expect(archivedSessionOf(eventsOf(THREADS[0]!))).toBeNull();
+  expect(archivedSessionOf(`.claude/projects/${SLUG}/${SESSION}.jsonl.bak`)).toBeNull();
+});
+
+it("archives younger logs and sessions only when the sweep it is given asks for them", async () => {
+  const f = await fixture();
+  f.cursors[THREADS[0]!] = { claude: SESSION };
+  put(f.root, eventsOf(THREADS[0]!), "three hours old\n", 3 * HOUR);
+  put(f.root, transcript(SESSION), "eight hours old\n", 8 * HOUR);
+  let limits = { ...CALM_SWEEP };
+  const coordinator = f.coordinator({ sweep: () => limits });
+  await coordinator.scan();
+  expect(here(f.root, eventsOf(THREADS[0]!))).toBe(true);
+  expect(here(f.root, transcript(SESSION))).toBe(true);
+  expect(f.reports).toEqual([]);
+  limits = { ...archiveSweep(disk(0.14)) };
+  await coordinator.scan();
+  expect(here(f.root, eventsOf(THREADS[0]!))).toBe(false);
+  expect(here(f.root, transcript(SESSION))).toBe(false);
+  expect(f.reports[0]).toBe("now archiving logs idle 2 h and engine sessions idle 6 h");
+  expect(f.reports[1]).toMatch(/^archived 1 logs \/ 16 bytes and 1 engine session files \/ 16 bytes; free disk \d+ -> \d+ bytes$/);
+  f.busy.add(THREADS[0]!);
+  expect(await coordinator.beforeTurn(THREADS[0]!, () => true)).toBe(true);
+  expect(readFileSync(join(f.root, eventsOf(THREADS[0]!)), "utf8")).toBe("three hours old\n");
+  expect(readFileSync(join(f.root, transcript(SESSION)), "utf8")).toBe("eight hours old\n");
+});
+
+it("leaves a chat alone for the quiet time after someone read it or a turn began, then archives it", async () => {
+  const f = await fixture();
+  let clock = Date.now();
+  put(f.root, eventsOf(THREADS[0]!), "read a moment ago\n", 30 * HOUR);
+  put(f.root, eventsOf(THREADS[1]!), "nobody is looking\n", 30 * HOUR);
+  const coordinator = f.coordinator({ now: () => clock, sweep: () => ({ quietMs: 10 * MINUTE }) });
+  expect(await coordinator.read(THREADS[0]!, () => "read")).toBe("read");
+  await coordinator.scan();
+  expect(here(f.root, eventsOf(THREADS[0]!))).toBe(true);
+  expect(here(f.root, eventsOf(THREADS[1]!))).toBe(false);
+  clock += 9 * MINUTE;
+  await coordinator.scan();
+  expect(here(f.root, eventsOf(THREADS[0]!))).toBe(true);
+  clock += 2 * MINUTE;
+  await coordinator.scan();
+  expect(here(f.root, eventsOf(THREADS[0]!))).toBe(false);
+});
+
+it("keeps a session whose chat was just read, even when another idle chat shares it", async () => {
+  const f = await fixture();
+  f.cursors[THREADS[0]!] = { claude: SESSION };
+  f.cursors[THREADS[1]!] = { claude: SESSION };
+  put(f.root, transcript(SESSION), "shared\n", 100 * HOUR);
+  const coordinator = f.coordinator({ sweep: () => ({ quietMs: 10 * MINUTE }) });
+  await coordinator.readMany([THREADS[1]!], () => null);
+  await coordinator.scan();
+  expect(here(f.root, transcript(SESSION))).toBe(true);
+});
+
+it("sends a large session in several bounded calls and archives every file", async () => {
+  const f = await fixture();
+  f.cursors[THREADS[0]!] = { claude: SESSION };
+  put(f.root, transcript(SESSION), "transcript\n", 100 * HOUR);
+  const shots = Array.from({ length: 119 }, (_, at) => `.claude/projects/${SLUG}/${SESSION}/tool-results/shot-${String(at).padStart(3, "0")}.jpg`);
+  for (const shot of shots) put(f.root, shot, "jpg", 100 * HOUR);
+  const calls: Array<{ paths: number; bytes: number | undefined }> = [];
+  const bridge: LogArchiveBridge = { ...f.bridge, archive: (paths, bytes) => { calls.push({ paths: paths.length, bytes }); return f.bridge.archive(paths, bytes); } };
+  await f.coordinator({ bridge }).scan();
+  expect(calls.map((call) => call.paths)).toEqual([ARCHIVE_BATCH_PATHS, ARCHIVE_BATCH_PATHS, 20]);
+  expect(calls.every((call) => typeof call.bytes === "number" && call.bytes > 0)).toBe(true);
+  for (const path of [transcript(SESSION), ...shots]) expect(here(f.root, path), path).toBe(false);
+  expect(f.reports.at(-1)).toMatch(/^archived 0 logs \/ 0 bytes and 120 engine session files \/ \d+ bytes; free disk/);
+});
+
+it("says why it kept a file the archive service would not remove", async () => {
+  const f = await fixture(async () => false);
+  put(f.root, eventsOf(THREADS[0]!), "held open\n", 30 * HOUR);
+  await f.coordinator().scan();
+  expect(here(f.root, eventsOf(THREADS[0]!))).toBe(true);
+  expect(f.reports).toHaveLength(1);
+  expect(f.reports[0]).toMatch(/^archived 0 logs \/ 0 bytes and 0 engine session files \/ 0 bytes; free disk \d+ -> \d+ bytes; kept 1 open-or-unknown$/);
+});
+
+it("carries on past one chat whose archive fails and names it", async () => {
+  const f = await fixture();
+  for (const id of THREADS) put(f.root, eventsOf(id), `${id}\n`, 30 * HOUR);
+  const bridge: LogArchiveBridge = { ...f.bridge, archive: (paths, bytes) => paths[0] === eventsOf(THREADS[1]!) ? Promise.reject(new Error("fixture outage")) : f.bridge.archive(paths, bytes) };
+  await f.coordinator({ bridge }).scan();
+  expect(THREADS.map((id) => here(f.root, eventsOf(id)))).toEqual([false, true, false, false]);
+  expect(f.reports.at(-1)).toMatch(/^archived 3 logs \/ \d+ bytes and 0 engine session files \/ 0 bytes; free disk \d+ -> \d+ bytes; 1 failed, first thread-p: fixture outage$/);
+});
+
+it("stops a sweep after several failures in a row instead of trying every chat", async () => {
+  const f = await fixture();
+  const many = Array.from({ length: 12 }, (_, at) => `thread-failing-${String(at).padStart(2, "0")}`);
+  for (const id of many) put(f.root, eventsOf(id), `${id}\n`, 30 * HOUR);
+  let calls = 0;
+  const bridge: LogArchiveBridge = { ...f.bridge, archive: () => { calls += 1; return Promise.reject(new Error("fixture outage")); } };
+  await expect(f.coordinator({ bridge, threads: () => many }).scan()).rejects.toThrow("keeps failing");
+  expect(calls).toBe(SWEEP_FAILURES_IN_A_ROW);
+  expect(f.reports.at(-1)).toContain(`${SWEEP_FAILURES_IN_A_ROW} failed, first thread-f: fixture outage`);
+});
+
+it("holds a turn while there is no room to bring its saved files back, makes room, then proceeds", async () => {
+  const f = await fixture();
+  put(f.root, eventsOf(THREADS[0]!), "needed before the turn\n", 30 * HOUR);
+  put(f.root, eventsOf(THREADS[1]!), "x".repeat(4096), 30 * HOUR);
+  await f.coordinator({ threads: () => [THREADS[0]!] }).scan();
+  expect(here(f.root, eventsOf(THREADS[0]!))).toBe(false);
+  let room = false;
+  let asked = 0;
+  const coordinator = f.coordinator({
+    sweep: () => ({ quietMs: 10 * MINUTE }),
+    room: () => { asked += 1; if (!here(f.root, eventsOf(THREADS[1]!))) room = true; return room; },
+  });
+  f.busy.add(THREADS[0]!);
+  expect(await coordinator.beforeTurn(THREADS[0]!, () => true)).toBe(true);
+  expect(asked).toBeGreaterThan(1);
+  expect(here(f.root, eventsOf(THREADS[1]!))).toBe(false);
+  expect(readFileSync(join(f.root, eventsOf(THREADS[0]!)), "utf8")).toBe("needed before the turn\n");
+  expect(f.reports.filter((line) => line.startsWith("no room"))).toEqual([]);
+});
+
+it("keeps the turn pending and says so once while room cannot be made", async () => {
+  const f = await fixture();
+  put(f.root, eventsOf(THREADS[0]!), "needed before the turn\n", 30 * HOUR);
+  await f.coordinator().scan();
+  let room = false;
+  let checks = 0;
+  const coordinator = f.coordinator({ room: () => room });
+  f.busy.add(THREADS[0]!);
+  const turn = coordinator.beforeTurn(THREADS[0]!, () => { checks += 1; if (checks === 4) room = true; return true; });
+  expect(await turn).toBe(true);
+  expect(f.reports.filter((line) => line.startsWith("no room"))).toEqual(["no room to bring saved logs back; making room and keeping the pending turn"]);
+  expect(readFileSync(join(f.root, eventsOf(THREADS[0]!)), "utf8")).toBe("needed before the turn\n");
+});
+
+it("starts a turn at once when the disk is full but nothing of that chat is archived", async () => {
+  const f = await fixture();
+  put(f.root, eventsOf(THREADS[1]!), "another chat's archived log\n", 30 * HOUR);
+  await f.coordinator().scan();
+  put(f.root, eventsOf(THREADS[0]!), "already here\n", 0);
+  const coordinator = f.coordinator({ room: () => false });
+  f.busy.add(THREADS[0]!);
+  expect(await coordinator.beforeTurn(THREADS[0]!, () => true)).toBe(true);
+  expect(f.reports.filter((line) => line.startsWith("no room"))).toEqual([]);
+});
+
+it("starts a turn as before when the archive service cannot say what it holds", async () => {
+  const f = await fixture();
+  const bridge: LogArchiveBridge = { ...f.bridge, pending: () => Promise.reject(new Error("fixture outage")) };
+  f.busy.add(THREADS[0]!);
+  expect(await f.coordinator({ bridge, room: () => false }).beforeTurn(THREADS[0]!, () => true)).toBe(true);
+  const { pending: _unused, ...older } = f.bridge;
+  expect(await f.coordinator({ bridge: older, room: () => false }).beforeTurn(THREADS[0]!, () => true)).toBe(true);
+});
+
+it("paces sweeps by the disk: a minute after start and every five while calm, within seconds and every half minute when nearly full", async () => {
+  vi.useFakeTimers();
+  let free = 0.5;
+  const scans: number[] = [];
+  const started = Date.now();
+  const stop = startArchiveSweeps({ scan: async () => { scans.push(Date.now() - started); }, disk: () => disk(free) });
+  await vi.advanceTimersByTimeAsync(FIRST_SWEEP_MS - 1);
+  expect(scans).toEqual([]);
+  await vi.advanceTimersByTimeAsync(SWEEP_CHECK_MS);
+  expect(scans).toHaveLength(1);
+  await vi.advanceTimersByTimeAsync(CALM_SWEEP.everyMs - SWEEP_CHECK_MS);
+  expect(scans).toHaveLength(1);
+  await vi.advanceTimersByTimeAsync(2 * SWEEP_CHECK_MS);
+  expect(scans).toHaveLength(2);
+  free = 0.02;
+  await vi.advanceTimersByTimeAsync(3 * SWEEP_CHECK_MS);
+  expect(scans).toHaveLength(4);
+  await vi.advanceTimersByTimeAsync(2 * MINUTE);
+  expect(scans).toHaveLength(8);
+  expect(scans.slice(1).map((at, index) => at - scans[index]!)).toEqual([5 * MINUTE, 30_000, 30_000, 30_000, 30_000, 30_000, 30_000]);
+  stop();
+  const before = scans.length;
+  await vi.advanceTimersByTimeAsync(10 * MINUTE);
+  expect(scans).toHaveLength(before);
+});
+
+it("sweeps within seconds of starting when the home wakes with a nearly full disk, never overlaps, and survives a failing sweep", async () => {
+  vi.useFakeTimers();
+  let running = 0;
+  let most = 0;
+  let scans = 0;
+  const warned: string[] = [];
+  const stop = startArchiveSweeps({
+    disk: () => disk(0.01),
+    warn: (line) => warned.push(line),
+    scan: async () => {
+      scans += 1;
+      running += 1;
+      most = Math.max(most, running);
+      await new Promise((resolve) => setTimeout(resolve, 2 * MINUTE));
+      running -= 1;
+      if (scans === 1) throw new Error("fixture outage");
+    },
+  });
+  await vi.advanceTimersByTimeAsync(SWEEP_CHECK_MS);
+  expect(scans).toBe(1);
+  await vi.advanceTimersByTimeAsync(10 * MINUTE);
+  expect(most).toBe(1);
+  expect(scans).toBeGreaterThanOrEqual(3);
+  expect(warned).toEqual(["[log archive] scan deferred"]);
+  stop();
+});
