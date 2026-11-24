@@ -2,9 +2,11 @@ import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "
 import { dirname } from "node:path";
 
 export class FullAccessAllSwitch {
+  private readonly file: string;
   private on: boolean;
 
-  constructor(private readonly file: string) {
+  constructor(file: string) {
+    this.file = file;
     this.on = this.load();
   }
 
