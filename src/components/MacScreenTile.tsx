@@ -20,7 +20,7 @@ export function MacScreenTileView({ name, busy, screen, onStop }: { name: string
         data-mac-screen-stop
         onClick={onStop}
         aria-label={t("chat.stopTurn")}
-        className="shrink-0 rounded-full border border-hairline/60 px-3 py-1 text-[12.5px] text-ink transition-colors hover:bg-raised-hover motion-reduce:transition-none"
+        className="shrink-0 rounded-full bg-ink/[0.07] px-3 py-1 text-[12.5px] font-medium text-ink transition-colors hover:bg-ink/[0.12] motion-reduce:transition-none"
       >
         {t("chat.stop")}
       </button>
