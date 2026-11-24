@@ -23,6 +23,7 @@ export interface OwnerGuardContext {
   cwd: string | undefined;
   workspaceRoots: readonly string[];
   tempRoots?: readonly string[];
+  scratch?: boolean;
   home?: string;
   git?: GitLookup;
   repositoryRoot?: (cwd: string) => string | null;
@@ -256,6 +257,7 @@ interface Paths {
   home: string;
   temp: string[];
   roots: string[];
+  scratch?: boolean;
   links?: Map<string, string>;
   repository?: (cwd: string) => string | null;
   gitElsewhere?: boolean;
@@ -265,6 +267,19 @@ function within(path: string, root: string, allowEqual: boolean): boolean {
   const rel = relative(root, path);
   if (rel === "") return allowEqual;
   return !rel.startsWith("..") && !isAbsolute(rel) && rel.split(sep)[0] !== "..";
+}
+
+const SCRATCH_ONLY_INSIDE = new Set(["tmp", ".tmp", "scratch"]);
+const SCRATCH_FOLDERS = new Set([...SCRATCH_ONLY_INSIDE, "node_modules", ".next", ".turbo", "__pycache__", ".pytest_cache"]);
+const SCRATCH_HOME = /^(?:\/~|\/Users\/[^/]+|\/home\/[^/]+)\/(.+)$/;
+
+function inScratch(path: string, allowEqual: boolean): boolean {
+  const rest = SCRATCH_HOME.exec(path)?.[1];
+  const parts = rest === undefined ? [] : rest.split("/").filter(Boolean);
+  if (parts.length < 2 || parts.includes("..") || parts.includes(".")) return false;
+  const last = parts.length - 1;
+  if (parts.slice(0, last).some((part) => SCRATCH_FOLDERS.has(part))) return true;
+  return SCRATCH_FOLDERS.has(parts[last]!) && (allowEqual || !SCRATCH_ONLY_INSIDE.has(parts[last]!));
 }
 
 function repositoryRoot(cwd: string): string | null {
@@ -341,7 +356,7 @@ function deleteTargetRefusal(target: Word, cwd: string | undefined, paths: Paths
   const expanded = expandWord(glob ? { ...target, text: staticPrefix(target.text) } : target, cwd, paths);
   if (expanded === null || /^[^/]*:/.test(target.text)) return unreadableDelete(target.text, recursive);
   const real = deletedPath(expanded, target.text, paths, glob);
-  const inside = (path: string) => [...paths.roots, ...paths.temp].some((root) => within(path, root, glob || contents));
+  const inside = (path: string) => [...paths.roots, ...paths.temp].some((root) => within(path, root, glob || contents)) || (paths.scratch === true && inScratch(path, glob || contents));
   if (inside(real) && inside(expanded)) return null;
   const shown = glob ? target.text : inside(expanded) ? `${expanded} (which leads to ${real})` : expanded;
   return {
@@ -476,6 +491,7 @@ function gitCleanRefusal(args: Word[], cwd: string | undefined, paths: Paths, pl
     if (text.startsWith("-")) continue;
     break;
   }
+  if (args[i]?.text === "worktree" && args[i + 1]?.text === "remove") return firstRefusal(operands(args.slice(i + 2)).targets, dir, paths, true);
   if (args[i]?.text !== "clean") return null;
   const { flags, targets } = operands(args.slice(i + 1), new Set(["-e", "--exclude"]));
   const forced = flags.some((flag) => flag === "--force" || (!flag.startsWith("--") && flag.slice(1).includes("f")));
@@ -1063,6 +1079,7 @@ function guardPaths(context: OwnerGuardContext): Paths {
     home,
     temp,
     roots,
+    ...(context.scratch ? { scratch: true } : {}),
     ...(context.repositoryRoot ? { repository: context.repositoryRoot } : {}),
   };
 }

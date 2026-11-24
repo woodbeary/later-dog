@@ -18,16 +18,16 @@ describe("a push that skips its checks always asks", () => {
   it("asks for the plain spellings", () => {
     expectAll("push-skips-checks", [
       "git push --no-verify",
-      "git push --no-verify origin atelier/what-asks",
+      "git push --no-verify origin main",
       "git push origin HEAD --no-verify",
-      "git push -u origin feature --no-verify",
+      "git push -u origin main --no-verify",
       "LATERDOG_SKIP_HOOKS=1 git push",
       "git push --no-verify --force-with-lease origin feature",
     ]);
   });
 
   it("asks for the short forms git accepts", () => {
-    expectAll("push-skips-checks", ["git push --no-veri", "git push --no-verif origin x"]);
+    expectAll("push-skips-checks", ["git push --no-veri", "git push --no-verif origin main"]);
   });
 
   it("sees through quotes, escapes, braces and line breaks", () => {
@@ -39,7 +39,7 @@ describe("a push that skips its checks always asks", () => {
       "git push $'--no-verify'",
       "git p\"u\"sh --no-verify",
       "git push --no-{verify,x}",
-      "git push \\\n  --no-verify origin x",
+      "git push \\\n  --no-verify origin main",
       "git push --no-\\\nverify",
     ]);
   });
@@ -91,7 +91,7 @@ describe("a push that skips its checks always asks", () => {
   it("asks when the push skips the remote checks or hides its words", () => {
     expectAll("push-skips-checks", [
       "git push -o ci.skip",
-      "git push --push-option=ci.skip origin x",
+      "git push --push-option=ci.skip origin main",
       "git push $(echo LS1uby12ZXJpZnk= | base64 -d)",
       "git push $(echo yfirev-on-- | rev)",
       "git push $(printf '\\x2d\\x2dno-verify')",
@@ -101,7 +101,7 @@ describe("a push that skips its checks always asks", () => {
   it("lets an ordinary push and ordinary hook work through", () => {
     expectAll(null, [
       "git push",
-      "git push -u origin atelier/what-asks",
+      "git push -u origin main",
       "git push --force-with-lease origin feature",
       "git push -n origin feature",
       "git push origin $(git rev-parse --abbrev-ref HEAD)",
@@ -443,11 +443,11 @@ const REVIEW_ROWS: Row[] = [
   ["push: a variable this repository's hook never reads", bash("HUSKY=0 git push"), null],
   ["push: short form", bash("git push --no-verif"), "push-skips-checks"],
   ["push: skipping only the commit hook", bash("git commit -n -m wip && git push"), null],
-  ["push: empty command substitution inside the word", bash("git push --no-ver$(true)ify origin x"), "push-skips-checks"],
-  ["push: unset variable inside the word", bash("git push --no-ver${UNSET}ify origin x"), "push-skips-checks"],
-  ["push: empty $@ inside the word", bash("git push --no-ver$@ify origin x"), "push-skips-checks"],
-  ["push: git-push from the exec path", bash("\"$(git --exec-path)\"/git-push --no-verify origin x"), "push-skips-checks"],
-  ["push: git-push by full path", bash("/usr/lib/git-core/git-push --no-verify origin x"), "push-skips-checks"],
+  ["push: empty command substitution inside the word", bash("git push --no-ver$(true)ify origin main"), "push-skips-checks"],
+  ["push: unset variable inside the word", bash("git push --no-ver${UNSET}ify origin main"), "push-skips-checks"],
+  ["push: empty $@ inside the word", bash("git push --no-ver$@ify origin main"), "push-skips-checks"],
+  ["push: git-push from the exec path", bash("\"$(git --exec-path)\"/git-push --no-verify origin main"), "push-skips-checks"],
+  ["push: git-push by full path", bash("/usr/lib/git-core/git-push --no-verify origin main"), "push-skips-checks"],
   ["push: alias", bash("alias gp='git push --no-verify'; gp"), "push-skips-checks"],
   ["push: function", bash("g(){ git \"$@\"; }; g push --no-verify"), "push-skips-checks"],
   ["push: eval", bash("eval \"git push --no-$(echo verify)\""), "push-skips-checks"],
@@ -459,7 +459,7 @@ const REVIEW_ROWS: Row[] = [
   ["push: hooks path by config", bash("git config core.hooksPath .nohooks && git push"), "push-skips-checks"],
   ["push: a branch moved through the API", bash("gh api -X PATCH repos/o/r/git/refs/heads/main -f sha=0123abc"), "push-skips-checks"],
   ["push: an option kept for later", bash("export GITOPT=--no-verify"), null],
-  ["push: an option from a variable", bash("git push $GITOPT origin x"), "push-skips-checks"],
+  ["push: an option from a variable", bash("git push $GITOPT origin main"), "push-skips-checks"],
   ["push: option through xargs", bash("echo --no-verify | xargs git push"), "push-skips-checks"],
   ["push: the shell tool", { tool: "shell", command: "git push --no-verify" }, "push-skips-checks"],
   ["push: run_on_computer", via("mcp__agents__run_on_computer", { command: "git push --no-verify" }), "push-skips-checks"],
@@ -501,7 +501,7 @@ const REVIEW_ROWS: Row[] = [
   ["delete: on the lent Mac", via("mcp__agents__shared_computer", { action: "run_command", command: "rm -rf ~/Documents" }), "delete-outside-workspace"],
   ["delete: a file on the lent Mac", via("mcp__agents__shared_computer", { action: "delete_file", path: "Documents/report.pdf" }), "delete-outside-workspace"],
   ["ordinary: git push", bash("git push"), null],
-  ["ordinary: git push -u", bash("git push -u origin atelier/what-asks"), null],
+  ["ordinary: git push -u", bash("git push -u origin main"), null],
   ["ordinary: rm build dist", bash("rm -rf build dist"), null],
   ["ordinary: rm quoted TMPDIR", bash("rm -rf \"$TMPDIR/scratch\""), null],
   ["ordinary: rm TMPDIR", bash("rm -rf $TMPDIR/review203"), null],
@@ -558,7 +558,7 @@ describe("the independent review's inputs", () => {
   });
 
   it("says plainly when it asks because it cannot read the command", () => {
-    expect(alwaysAsks(bash("git push $GITOPT origin x"), guard)?.ask).toMatch(/^This runs text later\.dog cannot read/);
+    expect(alwaysAsks(bash("git push $GITOPT origin main"), guard)?.ask).toMatch(/^This runs text later\.dog cannot read/);
     expect(alwaysAsks(bash("git push --no-verify"), guard)?.ask).toMatch(/^This pushes code without running its checks\./);
   });
 });
@@ -607,10 +607,10 @@ describe("a delete through a real symlink", () => {
 describe("a push whose output is kept", () => {
   it.each([
     "out=$(git push --no-verify 2>&1); echo \"$out\"",
-    "result=`git push --no-verify origin x`",
+    "result=`git push --no-verify origin main`",
     "[ -n \"$(git push --no-verify 2>&1)\" ]",
     "echo $(git push --no-verify)",
-    "echo \"pushed: $(cd repo && git push --no-verify origin x)\"",
+    "echo \"pushed: $(cd repo && git push --no-verify origin main)\"",
     "x=$(echo $(git push --no-verify))",
     "key=$(gcloud iam service-accounts keys create k.json --iam-account=a)",
   ])("%s asks", (command) => {
@@ -618,7 +618,7 @@ describe("a push whose output is kept", () => {
   });
 
   it("still lets an ordinary captured push through", () => {
-    expect(alwaysAsks({ tool: "Bash", command: "out=$(git push origin x 2>&1); echo \"$out\"" }, guard)).toBeNull();
+    expect(alwaysAsks({ tool: "Bash", command: "out=$(git push origin main 2>&1); echo \"$out\"" }, guard)).toBeNull();
     expect(alwaysAsks({ tool: "Bash", command: "echo $((1 + 2))" }, guard)).toBeNull();
   });
 });
@@ -716,7 +716,7 @@ const SECOND_ORDINARY: Row[] = [
   ["ordinary by design: Edit .husky/pre-commit", via("Edit", { file_path: "/srv/dogs/ada/work/.husky/pre-commit" }), "push-skips-checks"],
   ["ordinary: run_on_computer rm -rf node_modules dist && pnpm build", internalRow("/api/internal/computer-run", { command: "rm -rf node_modules dist && pnpm build" }), null],
   ["ordinary: lent Mac ls ~/Downloads", internalRow("/api/internal/shared-computers", { action: "run_command", command: "ls ~/Downloads" }), null],
-  ["ordinary by design: lent Mac rm -rf node_modules", internalRow("/api/internal/shared-computers", { action: "run_command", command: "rm -rf node_modules", cwd: "~/code/app" }), "delete-outside-workspace"],
+  ["ordinary: lent Mac rm -rf node_modules", internalRow("/api/internal/shared-computers", { action: "run_command", command: "rm -rf node_modules", cwd: "~/code/app" }), null],
   ["ordinary: browser to a pull request", internalRow("/api/internal/browser/mcp", call2("navigate", { url: "https://github.com/woodbeary/later-dog/pull/207" })), null],
 ];
 
@@ -775,8 +775,8 @@ const FOLLOW_UPS: Row[] = [
   ...[
     "out=$(git push --no-verify 2>&1); echo \"$out\"", "git push --no-verify 2>&1 | tee push.log", "if git push --no-verify; then echo ok; fi",
     "for b in a b; do git push --no-verify origin $b; done", "while read b; do git push --no-verify origin \"$b\"; done < /tmp/branches",
-    "git push --no-verify && gh pr create --fill", "result=`git push --no-verify origin x`", "[ -n \"$(git push --no-verify 2>&1)\" ]",
-    "git push --no-verify origin x > /tmp/push.log 2>&1 &", "timeout 120 git push --no-verify origin x",
+    "git push --no-verify && gh pr create --fill", "result=`git push --no-verify origin main`", "[ -n \"$(git push --no-verify 2>&1)\" ]",
+    "git push --no-verify origin main > /tmp/push.log 2>&1 &", "timeout 120 git push --no-verify origin main",
     "gh api -X PATCH repos/o/r/git/refs/heads/main -f sha=0123abc -F force=true", "gh api repos/o/r/git/refs -f ref=refs/heads/x -f sha=0123abc",
   ].map((command): Row => [`follow-up: ${command}`, bash(command), "push-skips-checks"]),
   ["follow-up: tar --remove-files", bash("tar --remove-files -czf /tmp/old.tgz ~/old-project"), null],
@@ -795,7 +795,7 @@ describe("the second review's inputs", () => {
     expect(alwaysAsks(request, guard)?.id ?? null).toBe(expected);
   });
 
-  it("counts the cards over both ordinary tables: the skip-hooks push and three by design", () => {
+  it("counts the cards over both ordinary tables: the skip-hooks push and two by design", () => {
     const first = REVIEW_ROWS.filter(([label]) => label.startsWith("ordinary"));
     const asked = [...first, ...SECOND_ORDINARY].filter(([, request]) => alwaysAsks(request, guard)).map(([label]) => label);
     expect(first.length + SECOND_ORDINARY.length).toBe(51);
@@ -803,7 +803,6 @@ describe("the second review's inputs", () => {
       "ordinary: the skip-hooks push from a home clone",
       "ordinary by design: xargs -a … rm -f",
       "ordinary by design: Edit .husky/pre-commit",
-      "ordinary by design: lent Mac rm -rf node_modules",
     ]);
   });
 });
@@ -935,14 +934,13 @@ describe("the third review's inputs", () => {
     expect(await refused(graph("mutation { updateRef(input:{refId:\"R\", oid:\"0123abc\", force:true}) { clientMutationId } }"))).toBe("force-push-default-branch");
   });
 
-  it("counts four cards over all 71 ordinary commands", () => {
+  it("counts three cards over all 71 ordinary commands", () => {
     const ordinary = [...REVIEW_ROWS.filter(([label]) => label.startsWith("ordinary")), ...SECOND_ORDINARY, ...THIRD_ORDINARY];
     expect(ordinary).toHaveLength(71);
     expect(ordinary.filter(([, request]) => alwaysAsks(request, guard)).map(([label]) => label)).toEqual([
       "ordinary: the skip-hooks push from a home clone",
       "ordinary by design: xargs -a … rm -f",
       "ordinary by design: Edit .husky/pre-commit",
-      "ordinary by design: lent Mac rm -rf node_modules",
     ]);
   });
 });
@@ -1003,10 +1001,10 @@ describe("a temporary folder the command changes again", () => {
 
 describe("a ref word the shell would split", () => {
   it.each([
-    "B=' --no-verify'; git push origin x$B",
-    "git push origin x$OPTS",
+    "B=' --no-verify'; git push origin main$B",
+    "git push origin main$OPTS",
     "git push origin v$ver",
-    "B=' --no-verify'; git push origin \"x\"$B",
+    "B=' --no-verify'; git push origin \"main\"$B",
   ])("%s asks", (command) => {
     expect(alwaysAsks({ tool: "Bash", command }, guard)?.id).toBe("push-skips-checks");
   });
@@ -1072,10 +1070,10 @@ const RELAY_OUTSIDE: Array<[string, AlwaysAskId | null]> = [
 ];
 
 const RELAY_PUSHES: Array<[string, AlwaysAskId | null]> = [
-  ["B=' --no-verify'; git push origin x$B", "push-skips-checks"],
-  ["git push origin x$OPTS", "push-skips-checks"],
+  ["B=' --no-verify'; git push origin main$B", "push-skips-checks"],
+  ["git push origin main$OPTS", "push-skips-checks"],
   ["B='--no-verify'; git push origin \"$B\"", "push-skips-checks"],
-  ["git push origin x", null],
+  ["git push origin main", null],
 ];
 
 describe("the fourth review's inputs", () => {
@@ -1122,5 +1120,77 @@ describe("a file action on the lent Mac in a folder lent with write access", () 
   ];
   it.each(rows)("%s", (_name, request, expected) => {
     expect(alwaysAsks(request, guard)?.id ?? null).toBe(expected);
+  });
+});
+
+describe("routine dev commands on Full access run without a card", () => {
+  const mac = (command: string, cwd?: string) => alwaysAsks({ tool: "mcp__agents__shared_computer", input: { action: "run_command", command, ...(cwd ? { cwd } : {}) } }, guard)?.id ?? null;
+
+  it("lets a no-verify push to a named non-default branch through", () => {
+    expectAll(null, [
+      "git push --no-verify origin leash/full-means-full",
+      "git push -u origin leash/full-means-full --no-verify",
+      "git push --no-verify origin HEAD:leash/x",
+      "git push --no-verify origin refs/heads/feature-a",
+      "git push --no-verify origin a b",
+      "git -C ~/laterdog-wt/tmp/no-ask push --no-verify origin leash/full-means-full",
+      "git push -o ci.skip origin leash/x",
+    ]);
+  });
+
+  it("still asks when the push could reach the default branch or move history", () => {
+    expectAll("push-skips-checks", [
+      "git push --no-verify",
+      "git push --no-verify origin",
+      "git push --no-verify origin main",
+      "git push --no-verify origin HEAD",
+      "git push --no-verify origin HEAD:main",
+      "git push --no-verify origin refs/heads/master",
+      "git push --no-verify origin feature main",
+      "git push --no-verify --force origin feature",
+      "git push --no-verify --force-with-lease origin feature",
+      "git push -f --no-verify origin feature",
+      "git push --no-verify origin +feature",
+      "git push --no-verify origin :feature",
+      "git push --no-verify --delete origin feature",
+      "git push --no-verify --mirror origin",
+      "git push --no-verify origin $BRANCH",
+      "git push --no-verify origin 'feat*'",
+      "LATERDOG_SKIP_HOOKS=1 git push origin feature",
+    ]);
+  });
+
+  it("lets the dog's own scratch and worktree removals on the lent Mac through", () => {
+    for (const command of [
+      "rm -rf ~/laterdog-wt/tmp/no-ask-main/node_modules; git worktree remove --force ~/laterdog-wt/tmp/no-ask-main",
+      "git worktree remove ~/laterdog-wt/tmp/no-ask-main",
+      "rm -rf ~/laterdog-wt/tmp/scratch-1",
+      "rm -rf /Users/jacoblopez/laterdog-wt/tmp/no-ask-main",
+      "rm -rf ~/code/app/node_modules",
+      "rm -rf ~/laterdog-wt/tmp/*",
+      "rm -rf /private/tmp/x",
+    ]) expect(mac(command), command).toBeNull();
+  });
+
+  it("still asks for truly destructive targets on the lent Mac", () => {
+    for (const command of [
+      "rm -rf ~",
+      "rm -rf /",
+      "rm -rf ~/Documents",
+      "rm -rf ~/Documents/tmp",
+      "rm -rf ~/laterdog-wt/tmp",
+      "rm -rf ~/laterdog-wt/phone",
+      "rm -rf ~/laterdog-wt/tmp/../phone",
+      "rm -rf /Users/jacoblopez",
+      "rm -rf /Users/jacoblopez/Desktop",
+      "git worktree remove --force ~/laterdog-wt/phone",
+      "git worktree remove ~/Documents/other",
+      "rm -rf ~/laterdog-wt/tmp/$X",
+    ]) expect(mac(command), command).toBe("delete-outside-workspace");
+  });
+
+  it("holds a worktree removal outside the workspace on a home dog and allows one inside", () => {
+    expectAll(null, ["git worktree remove --force /srv/dogs/ada/work/wt", "git worktree remove wt"]);
+    expectAll("delete-outside-workspace", ["git worktree remove /srv/dogs/other/wt", "git worktree remove --force ~/Documents/wt"]);
   });
 });
