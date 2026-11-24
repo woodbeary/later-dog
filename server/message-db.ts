@@ -418,6 +418,16 @@ export function openPermissionCards(): Array<{ threadId: string; message: Messag
   return rows.map((row) => ({ threadId: row.thread_id, message: JSON.parse(row.json) as Message }));
 }
 
+export function questionCardsCountingDown(): Array<{ threadId: string; message: Message }> {
+  const rows = db()
+    .prepare(
+      "SELECT thread_id, json FROM messages " +
+      "WHERE kind = 'options' AND json_extract(json, '$.card.autoAnswerAt') IS NOT NULL",
+    )
+    .all() as Array<{ thread_id: string; json: string }>;
+  return rows.map((row) => ({ threadId: row.thread_id, message: JSON.parse(row.json) as Message }));
+}
+
 export function setActiveLeaf(threadId: string, leafId: string | null): void {
   db()
     .prepare(

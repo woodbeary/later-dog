@@ -349,6 +349,8 @@ export interface OptionCardData {
   answeredText?: string;
   dismissed?: boolean;
   answeredBy?: CardAnswerer;
+  autoAnswerAt?: number;
+  autoPicked?: boolean;
   requestId?: string;
   nativeActorId?: string;
   nativeActorLabel?: string;
