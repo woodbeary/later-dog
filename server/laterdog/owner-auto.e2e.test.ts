@@ -245,7 +245,7 @@ it("a push that skips its checks always asks an owner dog's person, on a card th
   await autoReview(false);
   const dog = await newDog("Hasty", "auto");
   const turn = await startTurn(dog, "Push the fix.");
-  const skipped = turn.ask("Bash", { command: "git push --no-verify origin fix/login" });
+  const skipped = turn.ask("Bash", { command: "git push --no-verify origin main" });
   await expect.poll(() => turn.card(skipped), { timeout: 10_000 }).toMatchObject({ requestType: "permission" });
   const card = await turn.card(skipped);
   expect(card.subtitle).toMatch(/^This pushes code without running its checks\. A dog always asks you before this, whatever its approval setting\./);
@@ -286,7 +286,7 @@ async function mint(botId: string, threadId: string, kind: "agents" | "computer"
 it("the cloud computer, the browser, run_on_computer and the lent Mac stop at what always asks, with Auto-review off or on", async () => {
   const call = (name: string, args: Record<string, unknown>) => ({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name, arguments: args } });
   const paths: Array<[kind: "agents" | "computer" | "browser", path: string, body: unknown, shown: string]> = [
-    ["computer", "/api/internal/computer/mcp", call("exec", { command: "git push --no-verify origin fix" }), "git push --no-verify origin fix"],
+    ["computer", "/api/internal/computer/mcp", call("exec", { command: "git push --no-verify origin main" }), "git push --no-verify origin main"],
     ["browser", "/api/internal/browser/mcp", call("agent_browser_navigate", { url: "https://console.cloud.google.com/apis/credentials" }), "console.cloud.google.com"],
     ["agents", "/api/internal/computer-run", { command: "aws iam create-access-key --user-name bot" }, "aws iam create-access-key"],
     ["agents", "/api/internal/shared-computers", { action: "run_command", command: "rm -rf ~/Documents/old" }, "rm -rf ~/Documents/old"],
@@ -309,10 +309,10 @@ it("the cloud computer, the browser, run_on_computer and the lent Mac stop at wh
       expect(answered.text, path).toContain("The person said no");
     }
     const token = await mint(dog.id, dog.threadId, "computer");
-    const allowed = fetch(`${base}/api/internal/computer/mcp`, { method: "POST", headers: { "content-type": "application/json", authorization: `Bearer ${token}` }, body: JSON.stringify(call("exec", { command: "git push --no-verify origin again" })) })
+    const allowed = fetch(`${base}/api/internal/computer/mcp`, { method: "POST", headers: { "content-type": "application/json", authorization: `Bearer ${token}` }, body: JSON.stringify(call("exec", { command: "git push --no-verify origin main" })) })
       .then(async (response) => ({ status: response.status, text: await response.text() }));
     const again = async () => ((await api("GET", `/api/threads/${dog.threadId}/messages?limit=100`)).body.messages as any[])
-      .find((message) => message.card?.subtitle?.includes("origin again") && !message.card.answered)?.card;
+      .find((message) => message.card?.subtitle?.includes("origin main") && !message.card.answered)?.card;
     await expect.poll(again, { timeout: 10_000 }).toBeTruthy();
     await api("POST", `/api/threads/${dog.threadId}/respond`, { requestId: (await again()).requestId, behavior: "allow" });
     expect((await allowed).text).toContain("this turn has no cloud computer");
@@ -346,7 +346,7 @@ it("a command cannot be saved, and what always asks still asks, off the owner's 
   await autoReview(true);
   const dog = await newDog("Saver", "auto");
   const turn = await startTurn(dog, "Push it.");
-  for (const command of ["pnpm test", "git push --no-verify origin fix"]) {
+  for (const command of ["pnpm test", "git push --no-verify origin main"]) {
     const saved = await api("POST", `/api/bots/${dog.id}/command-allowlist?threadId=${turn.threadId}`, { command, cwd: turn.launch.cwd, providerInstanceId: "held" });
     expect(saved.status, JSON.stringify(saved.body)).toBe(409);
   }
@@ -354,7 +354,7 @@ it("a command cannot be saved, and what always asks still asks, off the owner's 
   await expect.poll(() => turn.card(ordinary), { timeout: 10_000 }).toMatchObject({ requestType: "permission" });
   expect((await turn.card(ordinary)).commandAllowlist).toBeUndefined();
   expect(turn.answers.has(ordinary)).toBe(false);
-  const skipped = turn.ask("Bash", { command: "git push --no-verify origin fix" });
+  const skipped = turn.ask("Bash", { command: "git push --no-verify origin main" });
   await expect.poll(() => turn.card(skipped), { timeout: 10_000 }).toMatchObject({ requestType: "permission" });
   expect((await turn.card(skipped)).subtitle).toMatch(/^This pushes code without running its checks\./);
   expect((await turn.card(skipped)).commandAllowlist).toBeUndefined();
