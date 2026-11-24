@@ -332,6 +332,35 @@ describe("Settings → Computer, the lending switch", () => {
     expect(host.querySelector("[data-lending-apps-off]")).toBeNull();
   });
 
+  it("shows what dogs do on this Mac by default, and one switch turns it off and remembers", async () => {
+    let snapshot: CloudLendingSnapshot = { available: true, screenAvailable: true, state: { on: true, enabled: true, busy: false, connected: true }, activity: [] };
+    const lending: CloudLendingBridge = {
+      state: vi.fn(async () => snapshot),
+      setHome: vi.fn(),
+      setPresence: vi.fn(async (on) => { snapshot = { ...snapshot, state: { ...snapshot.state!, presence: on } }; return snapshot; }),
+    };
+    await showLending(lending);
+    const presence = () => host.querySelector<HTMLButtonElement>("[data-lending-presence] [role=switch]");
+    expect(text()).toContain("Show what dogs do on this Mac");
+    expect(presence()?.getAttribute("aria-checked")).toBe("true");
+    await act(async () => { presence()!.click(); });
+    await act(async () => { await Promise.resolve(); });
+    expect(lending.setPresence).toHaveBeenCalledWith(false);
+    expect(lending.setHome).not.toHaveBeenCalled();
+    expect(presence()?.getAttribute("aria-checked")).toBe("false");
+    expect(host.querySelector("[data-lending-presence]")?.getAttribute("data-lending-presence")).toBe("off");
+  });
+
+  it("has no presence switch while lending is off, or on an app too old to offer it", async () => {
+    const off: CloudLendingBridge = { state: vi.fn(async () => ({ available: true, screenAvailable: true, state: { on: false, enabled: false, busy: false } })), setHome: vi.fn(), setPresence: vi.fn() };
+    await showLending(off);
+    expect(host.querySelector("[data-lending-presence]")).toBeNull();
+    const older: CloudLendingBridge = { state: vi.fn(async () => ({ available: true, screenAvailable: true, state: { on: true, enabled: true, busy: false } })), setHome: vi.fn() };
+    await showLending(older);
+    expect(host.querySelector("[data-cloud-lending]")).not.toBeNull();
+    expect(host.querySelector("[data-lending-presence]")).toBeNull();
+  });
+
   it("shows nothing until there is a home to lend this Mac to", async () => {
     const lending: CloudLendingBridge = { state: vi.fn(async () => ({ available: false, screenAvailable: true, state: { on: true, enabled: false, busy: false } })), setHome: vi.fn() };
     await showLending(lending);

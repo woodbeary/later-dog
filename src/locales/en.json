@@ -394,6 +394,8 @@
   "lending.mac.resting": "My Cloud is resting. {name} reconnects when it wakes up.",
   "lending.mac.connecting": "Connecting {name} to My Cloud…",
   "lending.mac.appsOff": "To use apps on this Mac too, allow later.dog below.",
+  "lending.presence.title": "Show what dogs do on this Mac",
+  "lending.presence.explain": "A small bar at the top of the screen names the dog and what it's doing, with Stop. The screen edges glow while it uses apps.",
   "lending.status.paused": "Paused until you sign in to later.dog Cloud again.",
   "lending.activity.title": "What My Cloud did on this Mac",
   "lending.activity.empty": "Nothing yet.",

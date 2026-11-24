@@ -1316,7 +1316,8 @@ async function useMac(requested: SharedComputerOperation, capability: InternalCa
   const unavailable = macLendingNotice(capability, principal);
   if (unavailable) throw Object.assign(new Error(unavailable), { status: 403 });
   const active = () => lendingEnabled() && internalCapabilityIsActive(capability);
-  const send = (operation: SharedComputerOperation) => sharedComputers.request(operation, principal, active);
+  const by = store.bot(capability.botId)?.name;
+  const send = (operation: SharedComputerOperation) => sharedComputers.request(operation, principal, active, by);
   if (!CLOUD_HOME) return flagMacPrompt(capability, await macWaits.run(capability.threadId, requested, send));
   const target = await pickMac(principal, requested.computer_id);
   const operation = completeSharedOperation(target, requested);

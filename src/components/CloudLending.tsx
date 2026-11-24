@@ -53,6 +53,7 @@ export function CloudLending({ bridge }: { bridge: CloudLendingBridge }) {
   const [snapshot, setSnapshot] = useState<CloudLendingSnapshot | null>(null);
   const [working, setWorking] = useState(false);
   const [failed, setFailed] = useState(false);
+  const [showing, setShowing] = useState(false);
   const pending = useRef(false), mounted = useRef(false);
   const accept = (next: CloudLendingSnapshot) => { if (mounted.current && !pending.current) setSnapshot(next); };
   useEffect(() => {
@@ -72,6 +73,16 @@ export function CloudLending({ bridge }: { bridge: CloudLendingBridge }) {
       .catch(() => { if (mounted.current) setFailed(true); })
       .finally(() => { pending.current = false; if (mounted.current) setWorking(false); });
   };
+  const shown = state?.presence !== false;
+  const setPresence = bridge.setPresence?.bind(bridge);
+  const togglePresence = () => {
+    if (pending.current || !setPresence) return;
+    pending.current = true; setShowing(true); setFailed(false);
+    void setPresence(!shown)
+      .then((next) => { pending.current = false; accept(next); })
+      .catch(() => { if (mounted.current) setFailed(true); })
+      .finally(() => { pending.current = false; if (mounted.current) setShowing(false); });
+  };
   if (!snapshot?.available) return null;
   const status = lendingStatusKey(snapshot);
   const activity = snapshot.activity ?? [];
@@ -87,6 +98,13 @@ export function CloudLending({ bridge }: { bridge: CloudLendingBridge }) {
       className={state?.busy && on ? "text-[13px] font-medium text-ink" : "text-[13px] text-ink-secondary"}>
       {t(status, { name: state?.name || t("lending.mac.thisMac") })}
     </p>}
+    {on && setPresence && <div data-lending-presence={shown ? "on" : "off"} className="flex items-start justify-between gap-6">
+      <div className="min-w-0">
+        <p className="text-[13px] font-medium text-ink">{t("lending.presence.title")}</p>
+        <p className="mt-1 text-[12px] leading-relaxed text-ink-secondary">{t("lending.presence.explain")}</p>
+      </div>
+      <Switch checked={shown} disabled={showing} size="small" aria-label={t("lending.presence.title")} onClick={togglePresence} />
+    </div>}
     {on && !snapshot.screenAvailable && <p data-lending-apps-off className="text-[12px] leading-relaxed text-ink-secondary">
       {t("lending.mac.appsOff")}
     </p>}

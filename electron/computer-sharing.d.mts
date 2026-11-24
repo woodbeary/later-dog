@@ -20,6 +20,7 @@ export interface LendingActivityEntry {
 }
 export interface CloudLendingState {
   on: boolean;
+  presence?: boolean;
   name?: string;
   enabled: boolean;
   busy: boolean;
@@ -36,6 +37,7 @@ export interface CloudLendingSnapshot {
 export interface CloudLendingBridge {
   state(): Promise<CloudLendingSnapshot>;
   setHome(on: boolean): Promise<CloudLendingSnapshot>;
+  setPresence?(on: boolean): Promise<CloudLendingSnapshot>;
 }
 export type CloudLendingVerdict = { allow: true } | { pause: string } | { stop: "signed-out" | "account-changed" | "machine-changed" };
 export function cloudLendingVerdict(binding: { accountId: string; origin: string } | null | undefined, current: { status: string; accountId: string | null; origin: string | null } | null, env: { origin: string } | null | undefined): CloudLendingVerdict;
@@ -53,7 +55,12 @@ export function createComputerSharing(options: {
   home?: string;
   activityFile?: string;
   cloud?: () => { status: string; accountId: string | null; origin: string | null } | null;
-  onChange?: (summary: { lending: string[]; busy: { env: string; action: string } | null }) => void;
+  onChange?: (summary: { lending: string[]; busy: { env: string; action: string; by?: string } | null }) => void;
+  presence?: {
+    begin(job: { id: string; by: string; operation: Record<string, unknown>; grant: unknown; cursor?: (on: boolean, session: string) => Promise<void> }): Promise<void> | void;
+    end(id: string): void;
+    shownChanged?(): void;
+  } | null;
   pairCloud?: (() => Promise<{ origin: string; code: string; expiresAt?: number } | null>) | null;
   primeAccess?: () => Promise<unknown> | unknown;
   computerName?: () => Promise<string> | string;
@@ -69,6 +76,8 @@ export function createComputerSharing(options: {
   forget(env: Workspace): void;
   cloudState(env: Workspace | null | undefined): CloudLendingState;
   setHome(on: boolean): Promise<void>;
+  presenceShown(): boolean;
+  setPresence(on: boolean): void;
   cloudChanged(): void;
   start(options?: { maintainer?: boolean }): void;
   close(): void;
