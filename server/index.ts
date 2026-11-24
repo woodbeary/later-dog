@@ -18,6 +18,7 @@ import { z } from "zod";
 import { selectReplay, DEFAULT_REBUILD_BYTES, MAX_SUMMARY_BYTES } from "./context-rebuild.ts";
 import { foldPoint } from "./compaction-summary.ts";
 import { compactBudget, contextWindowFor, shouldCompact } from "./context-budget.ts";
+import { createMacScreenPoller } from "./mac-screen-poller.ts";
 import { completeSharedOperation, provenRequestPerson, SharedComputers, sharedActionsHeader, sharedComputerOperation, sharedComputerOperationProblem, sharedComputerRegistration, sharedComputerScopeRefusal, type SharedComputerOperation, type SharedComputerRegistration } from "./shared-computers.ts";
 import { MAC_ALLOW_KEY, MacApprovals, type MacLasting } from "./mac-approval.ts";
 import { createOwnerRunNowScope, legacyCancelledStatusIsNeutral } from "./laterdog/routine-provenance.ts";
@@ -1317,7 +1318,16 @@ async function useMac(requested: SharedComputerOperation, capability: InternalCa
   if (unavailable) throw Object.assign(new Error(unavailable), { status: 403 });
   const active = () => lendingEnabled() && internalCapabilityIsActive(capability);
   const by = store.bot(capability.botId)?.name;
-  const send = (operation: SharedComputerOperation) => sharedComputers.request(operation, principal, active, by);
+  const send = async (operation: SharedComputerOperation) => {
+    const result = await sharedComputers.request(operation, principal, active, by);
+    if (operation.action === "computer_call") {
+      try {
+        const lent = sharedComputers.pick(principal, operation.computer_id);
+        if (lent) watchMacScreen(capability, principal, lent.id, active);
+      } catch {}
+    }
+    return result;
+  };
   if (!CLOUD_HOME) return flagMacPrompt(capability, await macWaits.run(capability.threadId, requested, send));
   const target = await pickMac(principal, requested.computer_id);
   const operation = completeSharedOperation(target, requested);
@@ -1325,6 +1335,29 @@ async function useMac(requested: SharedComputerOperation, capability: InternalCa
   if (refusal) throw Object.assign(new Error(refusal), { status: 403 });
   await approveMac(capability, target, operation, active, personSaidYes);
   return flagMacPrompt(capability, await macWaits.run(capability.threadId, operation, send));
+}
+
+const macScreens = new Map<string, { botId: string; poller: ReturnType<typeof createMacScreenPoller> }>();
+function watchMacScreen(capability: InternalCapability, principal: string | null, computerId: string, active: () => boolean) {
+  const { botId, threadId } = capability;
+  if (macScreens.get(threadId)?.poller.running() || !sharedComputers.canShowScreen(principal, computerId)) return;
+  const poller = createMacScreenPoller({
+    capture: () => sharedComputers.screenFrame(principal, computerId, active),
+    active,
+    onFrame: (frame) => broadcast({ kind: "screen", botId, threadId, ...frame, place: "mac" }),
+    onStop: () => {
+      if (macScreens.get(threadId)?.poller === poller) macScreens.delete(threadId);
+      broadcast({ kind: "screen.end", botId, threadId });
+    },
+  });
+  macScreens.set(threadId, { botId, poller });
+  poller.start();
+}
+
+function stopMacScreens(botId: string, threadId?: string) {
+  for (const [id, entry] of macScreens) {
+    if (entry.botId === botId && (!threadId || id === threadId)) entry.poller.stop();
+  }
 }
 
 const macPromptGate = createMacPromptGate();
@@ -8646,6 +8679,7 @@ function pokeScreenPoller(threadId: string, touches: boolean, surface?: "browser
 }
 
 function stopScreenPoller(botId: string, threadId?: string) {
+  stopMacScreens(botId, threadId);
   for (const [id, entry] of screenPollers) {
     if (entry.botId !== botId || (threadId && id !== threadId)) continue;
     if (entry.timer) clearInterval(entry.timer);
@@ -8663,6 +8697,7 @@ function shownScreenHash(threadId: string): string | undefined {
 }
 
 async function finalScreenFrame(_botId: string, threadId: string): Promise<Frame | null> {
+  stopMacScreens(_botId, threadId);
   const entry = screenPollers.get(threadId);
   const owner = turnResourceOwners.get(threadId);
   if (!entry) return null;

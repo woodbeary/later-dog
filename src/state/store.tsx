@@ -10,6 +10,7 @@ import {
   type ReactNode,
 } from "react";
 import { flushSync } from "react-dom";
+import { liveScreenAction, withLiveScreen, type LiveScreen, type LiveScreenAction } from "@/lib/live-screens";
 import { StoreChannelContext, createStoreFeed, type StoreChannel, type StoreFeed } from "./store-channel";
 import { followsTaskView, followTaskView, reduceTaskView, type TaskView, type TaskViewAction } from "./task-view";
 import type { BotVisibility, CardAnswerer, CloudBackend, ConnectorToolGrant, EffortLevel, InstalledPackageMetadata, LiveCallState, LiveSettings, ServerFrame, GroupThreadUsage, SteerQueueReason, WireAccountRoute, WireWaitingOn } from "../../shared/wire";
@@ -773,6 +774,7 @@ export interface AppState {
   botSettingsSection: BotSettingsSection;
   botSettingsExpandAccordion: boolean;
   computerStarts: Record<string, ComputerStart>;
+  liveScreens: Record<string, LiveScreen>;
   deletingBots: Record<string, true>;
   computerControl: Record<string, { held: boolean; helpReason: string | null }>;
   takeoverIntent: { botId: string; at: number } | null;
@@ -981,6 +983,7 @@ export type Action =
   | { type: "outboxShown"; items: OutboxItem[] }
   | { type: "cardSending"; card: OutboxCard; answer: string }
   | { type: "computerStart"; botId: string; start: ComputerStart | null }
+  | LiveScreenAction
   | { type: "computerControl"; botId: string; held: boolean; helpReason: string | null }
   | { type: "takeoverIntent"; intent: { botId: string; at: number } | null }
   | { type: "modelVariantRuntime"; event: RuntimeEvent }
@@ -1724,6 +1727,10 @@ function baseReducer(state: AppState, action: Action): AppState {
         computerStarts: action.start ? { ...others, [action.botId]: action.start } : others,
       };
     }
+    case "liveScreen": {
+      const liveScreens = withLiveScreen(state.liveScreens, action);
+      return liveScreens === state.liveScreens ? state : { ...state, liveScreens };
+    }
     case "computerControl":
       return {
         ...state,
@@ -2144,6 +2151,7 @@ export const initialState: AppState = {
   botSettingsSection: "overview",
   botSettingsExpandAccordion: false,
   computerStarts: {},
+  liveScreens: {},
   deletingBots: {},
   computerControl: {},
   takeoverIntent: null,
@@ -3421,10 +3429,16 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           if (action) rawDispatch(action);
           break;
         }
-        case "screen":
+        case "screen": {
           if (stateRef.current.computerStarts[frame.botId]) {
             rawDispatch({ type: "computerStart", botId: frame.botId, start: null });
           }
+          const live = liveScreenAction(frame);
+          if (live) rawDispatch(live);
+          break;
+        }
+        case "screen.end":
+          rawDispatch(liveScreenAction(frame)!);
           break;
         case "computer":
           rawDispatch({ type: "computerStart", botId: frame.botId,

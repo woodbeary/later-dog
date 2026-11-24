@@ -1029,6 +1029,8 @@
   "chat.routine.created": "Created routine",
   "chat.routine.open": "Open routine {name}",
   "chat.botScreen": "Dog's screen",
+  "chat.macScreen.using": "{name} is using your Mac",
+  "chat.macScreen.alt": "Your Mac's screen while {name} uses it",
   "chat.digestChip": "Did {tools} tool calls · {files} files changed",
   "chat.digestChipNoFiles": "Did {tools} tool calls",
   "chat.digestTitle": "What this turn did",

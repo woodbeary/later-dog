@@ -81,6 +81,7 @@ import { OptionCard, shouldHideOnboardingCard } from "./OptionCard";
 import { ApprovalCard } from "./ApprovalCard";
 import { QuestionCard } from "./QuestionCard";
 import { Composer } from "./Composer";
+import { MacScreenTile } from "./MacScreenTile";
 import { ChatFindBar } from "./ChatFindBar";
 import { ReplyQuote } from "./ReplyQuote";
 import { ConnectorCard } from "./ConnectorCard";
@@ -1260,6 +1261,7 @@ export function ChatView({ bot: profile }: { bot: Bot }) {
       {!takeoverOpen && <NeedsYouRow botId={bot.id} name={bot.name} />}
       <PaneErrorLine panes={[chatPane(bot.threadId)]} look="tray" />
       <RunningOnLine messages={thread} threadId={bot.threadId} />
+      <MacScreenTile threadId={bot.threadId} name={bot.name} busy={Boolean(bot.busy)} onStop={() => dispatch({ type: "interrupt", botId: bot.id, threadId: bot.threadId })} />
       {dockedQuestion && canWrite !== false && (
         <div data-docked-question={dockedQuestion.id} className="pointer-events-auto px-5 pb-2">
           <QuestionCard threadId={bot.threadId} message={dockedQuestion} />
