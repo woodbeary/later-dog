@@ -52,6 +52,7 @@ export function createComputerSharing(options: {
   protectedPaths?: string[];
   cuaConnection: () => Promise<{ mcpCommand: string; mcpArgs: string[]; mcpEnv?: Record<string, string> } | null>;
   hostControl?: (id: string, signal: AbortSignal) => Promise<{ renew(): Promise<unknown>; release(): Promise<unknown> }>;
+  encodeFrame?: (frame: { data: string; mime: string }) => Promise<{ data: string; mime: string }>;
   home?: string;
   activityFile?: string;
   cloud?: () => { status: string; accountId: string | null; origin: string | null } | null;

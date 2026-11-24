@@ -96,6 +96,7 @@ import { CLOUD_MOVE_LOCAL_ROUTES, cloudPageSenderAllowed, createCloudMove, mintO
 import { createOrgLibrary } from "./org-library.mjs";
 import { createCompanyBackups } from "./company-backups.mjs";
 import { createCompanyBackupSchedule } from "./company-backup-schedule.mjs";
+import { liveFrame } from "./live-frame.mjs";
 
 const { desktopCapabilities, nativeDesktopActions } = capabilitiesModule;
 const nativeActions = nativeDesktopActions(process.platform);
@@ -1377,6 +1378,7 @@ function sharingController() {
     },
     cuaConnection: lendingCua,
     screenRecording: () => permissionChecklist(macPermissionHost()).screen,
+    encodeFrame: async frame => liveFrame(nativeImage.createFromBuffer(Buffer.from(frame.data, "base64"))),
     hostControl: async (id, signal) => {
       const lease = async action => {
         let response;

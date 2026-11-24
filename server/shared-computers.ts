@@ -14,13 +14,14 @@ export const FIRST_SHARED_ACTIONS = ["list_files", "read_file", "write_file", "r
 export const SHARED_ACTIONS = [
   ...FIRST_SHARED_ACTIONS, "edit_file", "delete_file", "search_files", "command_output", "command_input", "command_stop",
 ] as const;
+export const SCREEN_FRAME = "screen_frame";
 const COMMAND_ACTIONS: ReadonlySet<string> = new Set(["run_command", "command_output", "command_input", "command_stop"]);
 const FILE_ACTIONS: ReadonlySet<string> = new Set(["list_files", "read_file", "write_file", "edit_file", "delete_file", "search_files"]);
 const WRITING_ACTIONS: ReadonlySet<string> = new Set(["write_file", "edit_file", "delete_file"]);
 
 export function sharedActionsHeader(raw: unknown): ReadonlySet<string> | undefined {
   if (typeof raw !== "string" || !raw.trim()) return undefined;
-  const known: ReadonlySet<string> = new Set(SHARED_ACTIONS);
+  const known: ReadonlySet<string> = new Set([...SHARED_ACTIONS, SCREEN_FRAME]);
   return new Set(raw.split(",").map((action) => action.trim()).filter((action) => known.has(action)));
 }
 
@@ -63,7 +64,8 @@ export type SharedComputerStatus = {
   id: string; name: string; online: boolean; busy: boolean; lastSeenAt: number;
   scopes: { folders: { id: string; name: string; write: boolean }[]; terminal: boolean; screen: boolean };
 };
-type Job = { id: string; operation: Operation; by?: string; active: () => boolean; sent: boolean; leased: boolean; resolve: (result: unknown) => void; reject: (error: Error) => void; timer: NodeJS.Timeout };
+type FrameOperation = Omit<Operation, "action"> & { action: typeof SCREEN_FRAME; computer_id: string };
+type Job = { id: string; operation: Operation | FrameOperation; by?: string; active: () => boolean; sent: boolean; leased: boolean; resolve: (result: unknown) => void; reject: (error: Error) => void; timer: NodeJS.Timeout };
 type Computer = { registration: Registration; owner: SharedComputerOwner; secret: string; seen: number; jobs: Map<string, Job>; wake?: () => void; polls: number; actions?: ReadonlySet<string> };
 const failure = (message: string, status = 409) => Object.assign(new Error(message), { status });
 const FIRST_ACTIONS: ReadonlySet<string> = new Set(FIRST_SHARED_ACTIONS);
@@ -197,7 +199,7 @@ export class SharedComputers {
     if (!principal) return [];
     this.reap();
     return [...this.computers.values()].filter(entry => entry.owner.person === principal).map(entry => ({
-      id: entry.registration.id, name: entry.registration.name, online: this.online(entry), busy: entry.jobs.size > 0, lastSeenAt: entry.seen,
+      id: entry.registration.id, name: entry.registration.name, online: this.online(entry), busy: [...entry.jobs.values()].some(job => job.operation.action !== SCREEN_FRAME), lastSeenAt: entry.seen,
       scopes: {
         folders: entry.registration.folders.map(({ id, name, write }) => ({ id, name, write })),
         terminal: entry.registration.terminal, screen: entry.registration.computer,
@@ -264,6 +266,25 @@ export class SharedComputers {
     if (!(entry.actions ?? FIRST_ACTIONS).has(operation.action)) return Promise.reject(failure(macTooOld(operation.action)));
     if (entry.jobs.size >= SHARED_JOBS_PER_COMPUTER) return Promise.reject(failure("This shared computer is busy with other actions. Wait a moment and try again."));
     if (!active()) return Promise.reject(failure("The requesting turn ended", 401));
+    return this.enqueue(entry, operation, active, by);
+  }
+  private screenEntry(principal: string | null, computerId: string): Computer | undefined {
+    let registration: Registration | null;
+    try { registration = this.pick(principal, computerId); } catch { return undefined; }
+    const entry = registration && [...this.computers.values()].find(candidate => candidate.registration === registration);
+    return entry && entry.registration.computer && entry.actions?.has(SCREEN_FRAME) ? entry : undefined;
+  }
+  canShowScreen(principal: string | null, computerId: string): boolean {
+    return Boolean(this.screenEntry(principal, computerId));
+  }
+  screenFrame(principal: string | null, computerId: string, active: () => boolean): Promise<unknown> {
+    const entry = this.screenEntry(principal, computerId);
+    if (!entry) return Promise.reject(failure(OFFLINE));
+    if (entry.jobs.size >= SHARED_JOBS_PER_COMPUTER) return Promise.reject(failure("This shared computer is busy with other actions."));
+    if (!active()) return Promise.reject(failure("The requesting turn ended", 401));
+    return this.enqueue(entry, { action: SCREEN_FRAME, computer_id: entry.registration.id }, active);
+  }
+  private enqueue(entry: Computer, operation: Operation | FrameOperation, active: () => boolean, by?: string): Promise<unknown> {
     return new Promise((resolve, reject) => {
       const id = randomUUID();
       const job: Job = { id, operation, ...(by ? { by: by.slice(0, 60) } : {}), active, sent: false, leased: false, resolve, reject, timer: setTimeout(() => this.finish(entry, job, failure("Computer action timed out. Its outcome is unknown; inspect before retrying.")), 45_000) };

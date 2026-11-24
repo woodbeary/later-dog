@@ -16,6 +16,12 @@ export const SHARED_ACTIONS = Object.freeze([
   "list_files", "read_file", "write_file", "edit_file", "delete_file", "search_files",
   "run_command", "command_output", "command_input", "command_stop", "computer_tools", "computer_call",
 ]);
+export const SCREEN_FRAME = "screen_frame";
+export function screenFrameFrom(result) {
+  const image = Array.isArray(result?.content) ? result.content.find(item => item?.type === "image" && typeof item.data === "string" && item.data) : undefined;
+  if (!image) throw new Error("The screen answer had no picture");
+  return { data: image.data, mime: typeof image.mimeType === "string" ? image.mimeType : "image/png" };
+}
 const COMMAND_ACTIONS = new Set(["run_command", "command_output", "command_input", "command_stop"]);
 const FILE_ACTIONS = new Set(["list_files", "read_file", "write_file", "edit_file", "delete_file", "search_files"]);
 
@@ -258,6 +264,10 @@ export function createSharedCua(connection) {
       const lent = lentScreenArguments(operation.tool_name, operation.arguments);
       if (lent.error) throw new Error(lent.error);
       return request("tools/call", { name: operation.tool_name, arguments: lent.arguments }, signal);
+    },
+    async screenFrame(signal) {
+      await ready; signal.throwIfAborted();
+      return screenFrameFrom(await request("tools/call", { name: "get_desktop_state", arguments: {} }, signal));
     },
     async agentCursor(enabled, session = "", signal) {
       await ready; signal?.throwIfAborted();

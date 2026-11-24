@@ -5,7 +5,7 @@ import os from "node:os";
 import { execFile } from "node:child_process";
 import { randomBytes, randomUUID } from "node:crypto";
 import { setTimeout as delay } from "node:timers/promises";
-import { createSharedCua, executeSharedOperation, personalSecretPaths, SHARED_ACTIONS, sharedComputerError, stopSharedCommands, warmSharedCommands } from "./shared-computer-access.mjs";
+import { createSharedCua, executeSharedOperation, personalSecretPaths, SCREEN_FRAME, SHARED_ACTIONS, sharedComputerError, stopSharedCommands, warmSharedCommands } from "./shared-computer-access.mjs";
 import { createLendingActivity, describeSharedOperation } from "./lending-activity.mjs";
 import { droppedPollRetryMs } from "./lending-poll.mjs";
 import { cuaOffReason } from "./cua-grant.mjs";
@@ -95,7 +95,8 @@ const JOB_KEYS = new Set([
   "cwd", "wait_seconds", "command_id", "input", "close_input", "old_text", "new_text", "replace_all", "pattern", "glob", "ignore_case", "max_results",
 ]);
 const wholeNumber = (value, max) => value === undefined || (Number.isSafeInteger(value) && value >= 0 && value <= max);
-const JOB_ACTIONS = new Set(SHARED_ACTIONS);
+const JOB_ACTIONS = new Set([...SHARED_ACTIONS, SCREEN_FRAME]);
+const ADVERTISED_ACTIONS = [...SHARED_ACTIONS, SCREEN_FRAME].join(",");
 const optionalFlag = value => value === undefined || typeof value === "boolean";
 const optionalText = (value, max) => value === undefined || (typeof value === "string" && value.length <= max);
 export function validSharedOperation(operation, computerId) {
@@ -128,7 +129,7 @@ export function cloudLendingVerdict(binding, current, env) {
 class Paused extends Error {}
 
 export function createComputerSharing({
-  file, fetch: fetchImpl, environments, cuaConnection, hostControl, screenRecording, protectedPaths = [], enabled = async () => false, home = os.homedir(), activityFile,
+  file, fetch: fetchImpl, environments, cuaConnection, hostControl, screenRecording, encodeFrame = async frame => frame, protectedPaths = [], enabled = async () => false, home = os.homedir(), activityFile,
   cloud = () => null, onChange = () => {}, presence = null, pairCloud = null, primeAccess = async () => {}, computerName: nameComputer = computerName, retryMs = RETRY_MS,
 }) {
   const protectedRoots = [path.dirname(file), ...protectedPaths.filter(entry => typeof entry === "string" && entry), ...personalSecretPaths(home)];
@@ -318,7 +319,7 @@ export function createComputerSharing({
             id: grant.id, name: await macName(), environmentId: grant.environmentId,
             folders: grant.folders.map(({ id, name, write }) => ({ id, name, write })), terminal: grant.terminal, computer: effectiveGrant.computer,
             ...(grant.home ? { home: true } : {}),
-          }, signal, grant.secret, { "x-laterdog-computer-actions": SHARED_ACTIONS.join(",") });
+          }, signal, grant.secret, { "x-laterdog-computer-actions": ADVERTISED_ACTIONS });
           if (signal.aborted) break;
           failures = 0;
           if (grant.terminal) void warmSharedCommands();
@@ -327,8 +328,11 @@ export function createComputerSharing({
           const inflight = new Set();
           const runJob = async (job, polledAgain) => {
             const by = plainName(job.by).slice(0, 60);
-            active.set(job.id, { env: env.id, action: job.operation.action, ...(by ? { by } : {}) });
-            changed();
+            const frameJob = job.operation.action === SCREEN_FRAME;
+            if (!frameJob) {
+              active.set(job.id, { env: env.id, action: job.operation.action, ...(by ? { by } : {}) });
+              changed();
+            }
             const ensureCua = async () => {
               if (!live.cua) {
                 const connection = await cuaConnection();
@@ -344,7 +348,7 @@ export function createComputerSharing({
             };
             const showing = { id: job.id, by, operation: job.operation, grant };
             const tell = work => { try { return Promise.resolve(work()).catch(() => {}); } catch { return Promise.resolve(); } };
-            if (presence) void tell(() => presence.begin(showing));
+            if (presence && !frameJob) void tell(() => presence.begin(showing));
             const jobStarted = Date.now();
             const jobAbort = new AbortController();
             const jobSignal = AbortSignal.any([signal, jobAbort.signal]);
@@ -362,7 +366,7 @@ export function createComputerSharing({
             };
             const firstLease = lease().finally(polledAgain);
             const heartbeat = setInterval(() => void lease(), 1000);
-            const screen = SCREEN_ACTIONS.has(job.operation.action);
+            const screen = frameJob || SCREEN_ACTIONS.has(job.operation.action);
             const work = async () => {
               if (screen) {
                 await firstLease; jobSignal.throwIfAborted();
@@ -377,7 +381,14 @@ export function createComputerSharing({
                 if (jobSignal.aborted) quit(); else jobSignal.addEventListener("abort", quit, { once: true });
               });
               stopped.catch(() => {});
-              return Promise.race([stopped, executeSharedOperation(effectiveGrant, job.operation, jobSignal, ensureCua, { screenRecording })]);
+              const run = frameJob
+                ? (async () => {
+                  const shot = await (await ensureCua()).screenFrame(jobSignal);
+                  const small = await encodeFrame(shot);
+                  return { png: small.data, format: small.mime === "image/jpeg" ? "jpeg" : "png" };
+                })()
+                : executeSharedOperation(effectiveGrant, job.operation, jobSignal, ensureCua, { screenRecording });
+              return Promise.race([stopped, run]);
             };
             let result;
             try {
@@ -386,10 +397,10 @@ export function createComputerSharing({
                 screenQueue = turn.catch(() => {});
                 result = await turn;
               } else result = await work();
-            } catch (error) { result = sharedComputerError(error); if (screen) { live.cua?.close(); live.cua = null; } }
-            try { result = await withConsentCheck(result, job.operation, { elapsedMs: Date.now() - jobStarted }); } catch {}
-            finally { clearInterval(heartbeat); await control?.release().catch(() => {}); active.delete(job.id); if (presence) void tell(() => presence.end(job.id)); changed(); }
-            activity.record({
+            } catch (error) { result = sharedComputerError(error); if (screen && !frameJob) { live.cua?.close(); live.cua = null; } }
+            try { if (!frameJob) result = await withConsentCheck(result, job.operation, { elapsedMs: Date.now() - jobStarted }); } catch {}
+            finally { clearInterval(heartbeat); await control?.release().catch(() => {}); if (!frameJob) { active.delete(job.id); if (presence) void tell(() => presence.end(job.id)); changed(); } }
+            if (!frameJob) activity.record({
               env, action: job.operation.action, detail: describeSharedOperation(grant, job.operation), ok: result?.isError !== true,
               error: result?.isError === true ? result?.content?.[0]?.text : undefined,
             });

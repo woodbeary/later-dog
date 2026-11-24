@@ -518,7 +518,8 @@ export type ServerFrame =
   | { kind: "webhook.attempt"; attempt: WebhookAttempt }
   | { kind: "webhook.deleted"; webhookId: string }
   | { kind: "runtime"; event: RuntimeEvent }
-  | { kind: "screen"; botId: string; threadId: string; png: string; mime?: string }
+  | { kind: "screen"; botId: string; threadId: string; png: string; mime?: string; place?: "mac" }
+  | { kind: "screen.end"; botId: string; threadId: string }
   | { kind: "computer"; botId: string; state: "provisioning" | "waking"; place?: "cloud" }
   | { kind: "computer-control"; botId: string; held: boolean; helpReason: string | null }
   | { kind: "bot.deleted"; botId: string }
