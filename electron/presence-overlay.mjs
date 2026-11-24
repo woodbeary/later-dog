@@ -25,8 +25,9 @@ export function createPresenceOverlay({ BrowserWindow, screen, onStop, protect =
   let glow = null;
   let latest = null;
   let hiding = null;
+  const loaded = new WeakSet();
   const live = win => Boolean(win) && !win.isDestroyed();
-  const send = (win, state) => { if (live(win) && !win.webContents.isLoading()) win.webContents.send("presence:state", state); };
+  const send = (win, state) => { if (live(win) && loaded.has(win)) win.webContents.send("presence:state", state); };
   const make = (page, size) => {
     const win = new BrowserWindow({
       ...size, show: false, frame: false, transparent: true, backgroundColor: "#00000000", hasShadow: false,
@@ -41,7 +42,7 @@ export function createPresenceOverlay({ BrowserWindow, screen, onStop, protect =
     win.setIgnoreMouseEvents(true, { forward: true });
     win.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
     win.webContents.on("will-navigate", event => event.preventDefault());
-    win.webContents.on("did-finish-load", () => send(win, win === glow ? (latest?.screen ? latest : null) : latest));
+    win.webContents.on("did-finish-load", () => { loaded.add(win); send(win, win === glow ? (latest?.screen ? latest : null) : latest); });
     void win.loadFile(path.join(dir, "presence", page)).catch(() => {});
     return win;
   };
@@ -71,8 +72,8 @@ export function createPresenceOverlay({ BrowserWindow, screen, onStop, protect =
       if (latest.screen) {
         clearTimeout(hiding);
         hiding = null;
-        if (!live(glow)) glow = make("glow.html", { width: display.bounds.width, height: display.bounds.height });
-        glow.setBounds(display.bounds);
+        if (!live(glow)) glow = make("glow.html", { width: display.workArea.width, height: display.workArea.height });
+        glow.setBounds(display.workArea);
         send(glow, latest);
         appear(glow);
       } else if (live(glow) && glow.isVisible()) {

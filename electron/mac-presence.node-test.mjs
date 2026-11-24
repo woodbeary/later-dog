@@ -117,7 +117,8 @@ function electronFake() {
     constructor(options) {
       Object.assign(this, { options, calls: [], visible: false, destroyed: false, bounds: null });
       const contents = this;
-      this.webContents = { setWindowOpenHandler() {}, on() {}, isLoading: () => false, send: (...args) => contents.calls.push(["send", ...args]) };
+      this.handlers = {};
+      this.webContents = { setWindowOpenHandler() {}, on: (event, handler) => { contents.handlers[event] = handler; }, isLoading: () => true, send: (...args) => contents.calls.push(["send", ...args]) };
       windows.push(this);
     }
     setAlwaysOnTop(...args) { this.calls.push(["top", ...args]); }
@@ -147,6 +148,9 @@ test("the pill floats top centre without taking focus, stays out of screenshots,
   overlay.render({ name: "Rex", step: "running a command", screen: false, point: null });
   assert.equal(windows.length, 1, "no glow for a command");
   const [pill] = windows;
+  assert.ok(!pill.calls.some(([kind]) => kind === "send"), "nothing is sent before the page has loaded");
+  pill.handlers["did-finish-load"]();
+  assert.deepEqual(pill.calls.filter(([kind]) => kind === "send").at(-1), ["send", "presence:state", { name: "Rex", step: "running a command", screen: false, point: null }], "the first step reaches the pill once it loads, though Electron still says it is loading");
   assert.equal(pill.options.focusable, false);
   assert.equal(pill.options.type, "panel");
   assert.equal(pill.options.skipTaskbar, true);
@@ -158,7 +162,9 @@ test("the pill floats top centre without taking focus, stays out of screenshots,
   overlay.render({ name: "Rex", step: "clicking", screen: true, point: { x: 2000, y: 300 } });
   assert.equal(windows.length, 2, "a glow while it uses apps");
   assert.deepEqual(pill.bounds, pillBounds(side), "on the display where the click lands");
-  assert.deepEqual(windows[1].bounds, side.bounds);
+  assert.deepEqual(windows[1].bounds, side.workArea, "the glow frames the usable screen, never under the menu bar or off its bottom edge");
+  windows[1].handlers["did-finish-load"]();
+  assert.equal(windows[1].calls.filter(([kind]) => kind === "send").at(-1)[2].screen, true);
   assert.equal(windows[1].options.focusable, false);
   overlay.hover({}, true);
   assert.deepEqual(pill.calls.filter(([kind]) => kind === "ignore").length, 1, "only the pill itself can make itself clickable");
