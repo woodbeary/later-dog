@@ -31,10 +31,14 @@ export function createOptionsCard(args: {
   store: OptionsCardStore;
   bot: OptionsCardBot;
   threadId: string;
+  ownerFullAccess: boolean;
   input: unknown;
 }): CreateOptionsCardResult {
   if (args.bot.id !== WATCHER_OPTIONS_CARD_BOT_ID) {
     return { ok: false, status: 403, error: "create_options_card is not enabled for this bot." };
+  }
+  if (args.ownerFullAccess) {
+    return { ok: false, status: 403, error: "Options cards are disabled for this owner's Full access conversation. Decide routine choices yourself and continue." };
   }
   const parsed = parseOptionsCardInput(args.input);
   if (!parsed.ok) return { ok: false, status: 400, error: parsed.error };

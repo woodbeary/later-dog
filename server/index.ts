@@ -6420,6 +6420,7 @@ const routinePauses = new RoutinePauses({
   now: Date.now,
   routines: { listRoutines: () => routines?.listRoutines() ?? [], update: (id, patch) => routines?.update(id, patch) },
   bot: (botId) => store.bot(botId),
+  ownerFullAccess: (botId, threadId) => ownerAuthority(ownerAutoScope(threadId)) && fullAccessForSource(botId, threadId),
   appendMessage: (threadId, message) => store.appendMessage(threadId, message),
 });
 let calendarCalls: CalendarCallManager | null = null;
@@ -9975,7 +9976,7 @@ function syncRoutineRunToSource(run: RoutineRun): string | null {
   if (statusChanged && ["waiting", "completed", "failed", "missed"].includes(run.status)) {
     store.patchTask(source.bot.id, threadId, { unread: true });
   }
-  if (statusChanged && run.status === "completed") routinePauses.result(source.bot.id);
+  if (statusChanged && run.status === "completed") routinePauses.result(source.bot.id, source.threadId);
   return threadId;
 }
 
@@ -15064,6 +15065,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
           store,
           bot: internalSender,
           threadId: internalCapability.threadId,
+          ownerFullAccess: ownerAuthority(ownerAutoScope(internalCapability.threadId)) && fullAccessForSource(internalSender.id, internalCapability.threadId),
           input: body,
         });
         return result.ok

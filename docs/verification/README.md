@@ -359,3 +359,5 @@ hosted checks spent their time, the baseline for the checks that replaced them.
 
 - [Hosted checks and test-port integration](ci-port-lease-integration-2026-11-25.md): combined scope, reproduced failures and exact-head qualification in PR #260.
 - [Desktop launch timeline](launch-timeline-2026-11-25.md): measured startup stages and fixture coverage.
+
+- [Optional cards on Full access](optional-cards-full-access-2026-11-25.md): routine-result and watcher-card checks against the source conversation.

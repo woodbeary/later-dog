@@ -26,6 +26,7 @@ interface PauseRoutine {
 export interface RoutinePauseDeps {
   file: string;
   now: () => number;
+  ownerFullAccess(botId: string, threadId: string): boolean;
   routines: {
     listRoutines(): PauseRoutine[];
     update(id: string, patch: { enabled: boolean }): unknown;
@@ -85,7 +86,8 @@ export class RoutinePauses {
     this.save();
   }
 
-  result(botId: string): { paused: string[]; messageId: string } | null {
+  result(botId: string, sourceThreadId: string): { paused: string[]; messageId: string } | null {
+    if (this.deps.ownerFullAccess(botId, sourceThreadId)) return null;
     const now = this.deps.now();
     const dog = this.dogs[botId] ?? { unread: 0, since: null };
     const next: WatchedDog = { ...dog, unread: dog.unread + 1, since: dog.since ?? now };

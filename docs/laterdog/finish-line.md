@@ -413,3 +413,13 @@ regressions failed before their fixes; 121 focused main checks and all 369 home
 checks pass on the Mac.
 [Scope and evidence](../verification/ci-port-lease-integration-2026-11-25.md).
 The complete gate and hosted verdict remain the merge qualification in PR #260.
+
+## Optional cards on Full access, November 25
+
+Branch `overnight/noasks-extras-20261125` keeps owner Full routine results outside the away/unread
+pause path and refuses the watcher's generic options cards directly to the dog. Both checks use the
+actual source conversation, preserving Ask tasks, stale-capability refusals and existing disabled
+routines. Four fail-first regressions were reproduced; all 87 focused checks, lint, full typecheck
+and locale validation passed on the checking computer with source hashes matching the Mac. This is
+not live; the primary lane's complete merge gate and Sol Lead's release remain required.
+[Checks and limits](../verification/optional-cards-full-access-2026-11-25.md).
