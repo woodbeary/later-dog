@@ -1,0 +1,19 @@
+name: Seed install cache
+on:
+  push:
+    branches: [main]
+permissions:
+  contents: read
+concurrency:
+  group: seed-install-cache
+  cancel-in-progress: false
+jobs:
+  seed:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          fetch-depth: 0
+          filter: blob:none
+      - uses: ./.github/actions/prepare
