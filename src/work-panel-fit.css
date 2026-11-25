@@ -1,0 +1,19 @@
+@media (max-width: 767px) {
+  [data-work-panel-layout="open"]:has(> [data-work-panel]) > main,
+  [data-work-panel-layout="open"]:has(> [data-work-panel]) > [data-sidebar],
+  [data-work-panel-layout="open"]:has(> [data-work-panel]) > [data-sidebar-drawer-toggle],
+  [data-work-panel-layout="open"]:has(> [data-work-panel]) > [data-sidebar-drawer-backdrop] {
+    display: none;
+  }
+
+  [data-work-panel-layout="open"] > [data-work-panel] {
+    width: 100%;
+    min-width: 0;
+    flex: 1;
+    border-left: 0;
+  }
+  [data-work-panel-layout="open"] > [data-work-panel] .work-panel-step-text,
+  [data-work-panel-layout="open"] > [data-work-panel] .work-panel-helper-text {
+    overflow-wrap: anywhere;
+  }
+}
