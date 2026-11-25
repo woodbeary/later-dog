@@ -10,7 +10,29 @@ describe("the End key", () => {
   it("scrolls the chat to the bottom from the page or an empty composer", () => {
     expect(endKeyScrolls(press("End"), document.body)).toBe(true);
     const empty = document.createElement("textarea");
+    const composer = document.createElement("div");
+    composer.dataset.composerSurface = "";
+    composer.append(empty);
     expect(endKeyScrolls(press("End"), empty)).toBe(true);
+  });
+
+  it("keeps End inside the conversation instead of jumping from sidebar and menu controls", () => {
+    const scroller = document.createElement("div");
+    const row = document.createElement("p");
+    const transcriptButton = document.createElement("button");
+    scroller.append(row, transcriptButton);
+    const sidebarButton = document.createElement("button");
+    const menu = document.createElement("div");
+    menu.setAttribute("role", "menu");
+    const menuRow = document.createElement("span");
+    menu.append(menuRow);
+    expect(endKeyScrolls(press("End"), row, scroller)).toBe(true);
+    expect(endKeyScrolls(press("End"), scroller, scroller)).toBe(true);
+    expect(endKeyScrolls(press("End"), sidebarButton, scroller)).toBe(false);
+    expect(endKeyScrolls(press("End"), menuRow, scroller)).toBe(false);
+    expect(endKeyScrolls(press("End"), transcriptButton, scroller)).toBe(false);
+    expect(endKeyScrolls(press("End"), document.createElement("textarea"), scroller)).toBe(false);
+    expect(endKeyScrolls(press("End"), null, scroller)).toBe(false);
   });
 
   it("leaves End alone while you are typing, and with any modifier", () => {
