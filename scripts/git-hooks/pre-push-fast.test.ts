@@ -30,7 +30,7 @@ esac
 `,
     node: `#!/bin/sh
 case "$1" in
-  */check-push.mjs|scripts/git-hooks/check-push.mjs) exec ${quote(process.execPath)} "$@" ;;
+  */check-push.mjs|scripts/git-hooks/check-push.mjs|*/run-pre-push.mjs|scripts/git-hooks/run-pre-push.mjs) exec ${quote(process.execPath)} "$@" ;;
   *) printf 'comments %s\\n' "$*" >> ${quote(trace)} ;;
 esac
 `,
