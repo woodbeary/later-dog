@@ -3100,15 +3100,13 @@ process.stdout.write(JSON.stringify({jsonrpc:'2.0',id:m.id,result})+'\\n');});`,
     const planCalls = (["models", "accessToken", "snapshot", "start"] as const).map((name) =>
       vi.spyOn(ChatGptPlanAuthController.prototype, name),
     );
-    const device = vi
-      .spyOn(CodexDeviceAuthController.prototype, "start")
-      .mockResolvedValue({
-        phase: "waiting",
-        flowId: "flow-1",
-        authorizationUrl: "https://auth.openai.com/codex/device",
-        userCode: "FIXT-URE00",
-        expiresAt: null,
-      });
+    const device = vi.spyOn(CodexDeviceAuthController.prototype, "start").mockResolvedValue({
+      phase: "waiting",
+      flowId: "flow-1",
+      authorizationUrl: "https://auth.openai.com/codex/device",
+      userCode: "FIXT-URE00",
+      expiresAt: null,
+    });
     await create({ authMode: "chatgpt-plan" });
     expect(instance.authenticationMethod).toBeUndefined();
     expect(instance.signOut).toBeTypeOf("function");

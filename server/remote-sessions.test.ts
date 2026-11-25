@@ -116,9 +116,7 @@ const header = (headers: Record<string, string | string[] | undefined>, name: st
   return Array.isArray(v) ? v.join("\n") : (v ?? "");
 };
 
-async function pairingCode(
-  scopes?: string[],
-): Promise<{
+async function pairingCode(scopes?: string[]): Promise<{
   code: string;
   credential: string;
   url: string | null;
