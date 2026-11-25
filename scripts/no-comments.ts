@@ -75,6 +75,8 @@ const OPEN = new Set([
 ]);
 
 function find(file: string, text: string): Found {
+  if (!text.includes("//") && !text.includes("/*"))
+    return { comments: [], emptyJsx: [], emptyLists: [] };
   const source = parse(file, text);
   const byPos = new Map<number, ts.CommentRange>();
   const jsxText: Array<[number, number]> = [];
