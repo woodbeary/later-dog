@@ -12,9 +12,11 @@ function prePush(input: string) {
 
 describe("pre-push hook", () => {
   it("skips the checks when every ref in the push is a deletion", () => {
-    const result = prePush(`(delete) ${zeros} refs/heads/old-a ${sha}\n(delete) ${zeros} refs/heads/old-b ${sha}\n`);
+    const result = prePush(
+      `(delete) ${zeros} refs/heads/old-a ${sha}\n(delete) ${zeros} refs/heads/old-b ${sha}\n`,
+    );
     expect(result.status).toBe(0);
-    expect(result.stdout).toContain("only deleting branches");
+    expect(result.stdout).toContain("only deleting refs");
   });
 
   it("runs the checks when a branch is pushed", () => {

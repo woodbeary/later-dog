@@ -5,18 +5,46 @@ if [ -n "$LATERDOG_SKIP_HOOKS" ]; then
   exit 0
 fi
 only_deletes=true
-while read -r local_ref local_sha remote_ref remote_sha; do
+push_refs=""
+valid_oid() {
+  case "$1" in ''|*[!0-9a-f]*) return 1 ;; esac
+  [ "${#1}" -eq 40 ] || [ "${#1}" -eq 64 ]
+}
+while :; do
+  local_ref= local_sha= remote_ref= remote_sha= extra=
+  if IFS=' ' read -r local_ref local_sha remote_ref remote_sha extra; then
+    :
+  elif [ -n "$local_ref$local_sha$remote_ref$remote_sha$extra" ]; then
+    echo "pre-push: invalid unterminated pushed ref record" >&2
+    exit 1
+  else
+    break
+  fi
+  if [ -z "$local_ref" ] || [ -z "$remote_ref" ] || [ -n "$extra" ] || ! valid_oid "$local_sha" || ! valid_oid "$remote_sha" || [ "${#local_sha}" -ne "${#remote_sha}" ] || ! git check-ref-format "$remote_ref"; then
+    echo "pre-push: invalid pushed ref record" >&2
+    exit 1
+  fi
+  push_refs="$push_refs$local_ref $local_sha $remote_ref $remote_sha
+"
   case "$local_sha" in
-    *[!0]*) only_deletes=false ;;
+    *[!0]*)
+      if [ "$local_ref" = '(delete)' ]; then
+        echo "pre-push: invalid pushed ref record" >&2
+        exit 1
+      fi
+      only_deletes=false ;;
+    *)
+      case "$remote_sha" in *[!0]*) : ;; *) echo "pre-push: invalid pushed ref record" >&2; exit 1 ;; esac
+      if [ "$local_ref" != '(delete)' ]; then
+        echo "pre-push: invalid pushed ref record" >&2
+        exit 1
+      fi ;;
   esac
 done
 if [ "$only_deletes" = true ]; then
-  echo "pre-push: only deleting branches, nothing to check"
+  echo "pre-push: only deleting refs, nothing to check"
   exit 0
 fi
 cd "$(git rev-parse --show-toplevel)"
-echo "pre-push: no comments, lint, typecheck, locale check (git push --no-verify to skip)"
-node scripts/no-comments.ts --check
-pnpm lint
-pnpm typecheck
-pnpm i18n:check
+echo "pre-push: format, no comments, lint, typecheck, locale check"
+printf '%s' "$push_refs" | node scripts/git-hooks/check-push.mjs
