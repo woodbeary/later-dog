@@ -89,7 +89,7 @@ imported skills stay disabled until individually reviewed and enabled in the
 bot profile. Existing scheduled routines still arrive paused.
 
 ```sh
-pnpm exec vitest run server/team-package-skills.e2e.test.ts --silent=false
+bun run vitest run server/team-package-skills.e2e.test.ts --silent=false
 ```
 
 This launches and cleans its own fake-engine fixture. It verifies explicit-only

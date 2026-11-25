@@ -3,11 +3,11 @@
 Run the isolated integration recipe:
 
 ```sh
-pnpm exec vitest run server/full-access-workflows.e2e.test.ts
-pnpm exec vitest run server/profile-requests.test.ts server/routine-requests.test.ts
-pnpm exec electron scripts/smoke-approval-modes.cjs --all-threads-only
-pnpm typecheck
-pnpm lint
+bun run vitest run server/full-access-workflows.e2e.test.ts
+bun run vitest run server/profile-requests.test.ts server/routine-requests.test.ts
+bun run electron scripts/smoke-approval-modes.cjs --all-threads-only
+bun run typecheck
+bun run lint
 ```
 
 The test launches its own temporary server through `launchVerificationServer`,

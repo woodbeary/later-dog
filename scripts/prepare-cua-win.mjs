@@ -8,7 +8,8 @@ import { promisify } from "node:util";
 import { build } from "esbuild";
 import { createBackgroundExecutable } from "./cua-windows-background.mjs";
 
-if (process.platform !== "win32" || process.arch !== "x64") throw new Error("prepare-cua-win requires Windows x64");
+if (process.platform !== "win32" || process.arch !== "x64")
+  throw new Error("prepare-cua-win requires Windows x64");
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const run = promisify(execFile);
@@ -42,7 +43,13 @@ async function binaryVersion(candidate) {
 }
 
 async function officialBinary() {
-  const cache = join(root, "node_modules", ".cache", "laterdog", `cua-driver-${release.version}-win`);
+  const cache = join(
+    root,
+    "node_modules",
+    ".cache",
+    "laterdog",
+    `cua-driver-${release.version}-win`,
+  );
   const cachedBinary = join(cache, "cua-driver.exe");
   if ((await binaryVersion(cachedBinary)) === expectedVersion) return cachedBinary;
 
@@ -62,12 +69,20 @@ async function officialBinary() {
   }
   const archive = join(cache, release.file);
   await writeFile(archive, bytes);
-  await run("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command",
-    "Expand-Archive -LiteralPath $env:LATERDOG_CUA_ARCHIVE -DestinationPath $env:LATERDOG_CUA_EXTRACT"], {
-    env: { ...process.env, LATERDOG_CUA_ARCHIVE: archive, LATERDOG_CUA_EXTRACT: cache },
-    timeout: 60_000,
-    windowsHide: true,
-  });
+  await run(
+    "powershell.exe",
+    [
+      "-NoProfile",
+      "-NonInteractive",
+      "-Command",
+      "Expand-Archive -LiteralPath $env:LATERDOG_CUA_ARCHIVE -DestinationPath $env:LATERDOG_CUA_EXTRACT",
+    ],
+    {
+      env: { ...process.env, LATERDOG_CUA_ARCHIVE: archive, LATERDOG_CUA_EXTRACT: cache },
+      timeout: 60_000,
+      windowsHide: true,
+    },
+  );
   if ((await binaryVersion(cachedBinary)) !== expectedVersion) {
     throw new Error(`downloaded CUA Driver does not report version ${expectedVersion}`);
   }
@@ -87,7 +102,7 @@ if (process.env.CUA_DRIVER_PATH) {
   const nativePackage = join(dependencyRoot, "@trycua", "cua-driver-win32-x64-msvc");
   if (!existsSync(nativePackage)) {
     throw new Error(
-      `required CUA win32-x64 native package is missing — is pnpm.supportedArchitectures.cpu set in package.json?`,
+      `required CUA win32-x64 native package is missing — run bun install --frozen-lockfile --cpu=arm64 --cpu=x64`,
     );
   }
   const candidate = join(realpathSync(nativePackage), "cua_driver.exe");
@@ -109,27 +124,32 @@ if (!details.isFile()) {
 await rm(stage, { recursive: true, force: true });
 await mkdir(stage, { recursive: true });
 await copyFile(binary, join(stage, "cua-driver.exe"));
-await writeFile(join(stage, "cua-driver-background.exe"), createBackgroundExecutable(await readFile(binary)));
+await writeFile(
+  join(stage, "cua-driver-background.exe"),
+  createBackgroundExecutable(await readFile(binary)),
+);
 
 const nativeDir = join(stage, "cua-sdk", "native");
 const winNativePackage = join(dependencyRoot, "@trycua", "cua-driver-win32-x64-msvc");
 if (!existsSync(winNativePackage)) {
-  throw new Error(
-    `required CUA win32-x64 native package is missing`,
-  );
+  throw new Error(`required CUA win32-x64 native package is missing`);
 }
 await mkdir(nativeDir, { recursive: true });
 await Promise.all([
-  copyFile(join(realpathSync(winNativePackage), "cua_driver_sdk.dll"), join(nativeDir, "cua_driver_sdk.dll")),
-  copyFile(join(realpathSync(winNativePackage), "cua_driver_node_runtime.node"), join(nativeDir, "cua_driver_node_runtime.node")),
+  copyFile(
+    join(realpathSync(winNativePackage), "cua_driver_sdk.dll"),
+    join(nativeDir, "cua_driver_sdk.dll"),
+  ),
+  copyFile(
+    join(realpathSync(winNativePackage), "cua_driver_node_runtime.node"),
+    join(nativeDir, "cua_driver_node_runtime.node"),
+  ),
 ]);
 
 const bundle = join(stage, "cua-sdk", "cua-sdk.mjs");
 await build({
   stdin: {
-    contents: [
-      'export { EmbeddedCuaDriverHost } from "@trycua/cua-driver/embedded";',
-    ].join("\n"),
+    contents: ['export { EmbeddedCuaDriverHost } from "@trycua/cua-driver/embedded";'].join("\n"),
     resolveDir: root,
     sourcefile: "laterdog-cua-entry.mjs",
     loader: "js",

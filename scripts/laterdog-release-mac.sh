@@ -70,8 +70,8 @@ notarize() {
 
 echo "== Package $SHA, signed as $IDENTITY"
 rm -rf dist dist-server release out
-pnpm laterdog:package
-pnpm test:packaged-server
+bun run laterdog:package
+bun run test:packaged-server
 
 echo "== Inspect the app"
 APP='release/mac-arm64/later.dog.app'
@@ -124,7 +124,7 @@ node scripts/release-file-list.mjs "$WORK/previous-files.txt" "$WORK/files.txt"
 echo "== Build, sign, notarize and staple the disk image"
 DMG='release/later.dog-macOS-arm64.dmg'
 rm -f "$DMG"
-CSC_IDENTITY_AUTO_DISCOVERY=false pnpm exec electron-builder --mac dmg --arm64 --prepackaged "$APP" --publish never -c.dmg.artifactName=later.dog-macOS-arm64.dmg
+CSC_IDENTITY_AUTO_DISCOVERY=false bun run electron-builder --mac dmg --arm64 --prepackaged "$APP" --publish never -c.dmg.artifactName=later.dog-macOS-arm64.dmg
 hdiutil verify "$DMG"
 codesign --force --sign "Developer ID Application: $IDENTITY" --timestamp "$DMG"
 codesign --verify --strict "$DMG"

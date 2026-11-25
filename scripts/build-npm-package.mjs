@@ -1,4 +1,12 @@
-import { copyFileSync, cpSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  copyFileSync,
+  cpSync,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -8,7 +16,7 @@ const app = JSON.parse(readFileSync(join(root, "package.json"), "utf8"));
 
 for (const required of ["dist-server/index.js", "dist-server/laterdog.js", "dist/index.html"]) {
   if (!existsSync(join(root, required))) {
-    console.error(`missing ${required}: run \`pnpm build:server && pnpm exec vite build\` first`);
+    console.error(`missing ${required}: run \`bun run build:server && bun run vite build\` first`);
     process.exit(1);
   }
 }
@@ -22,7 +30,8 @@ if (existsSync(enterpriseBundle)) {
   mkdirSync(join(out, "enterprise", "server"), { recursive: true });
   copyFileSync(enterpriseBundle, join(out, "enterprise", "server", "index.js"));
   for (const file of ["LICENSE", "README.md"]) {
-    if (existsSync(join(root, "enterprise", file))) copyFileSync(join(root, "enterprise", file), join(out, "enterprise", file));
+    if (existsSync(join(root, "enterprise", file)))
+      copyFileSync(join(root, "enterprise", file), join(out, "enterprise", file));
   }
 }
 cpSync(join(root, "LICENSE"), join(out, "LICENSE"));

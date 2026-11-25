@@ -14,8 +14,8 @@ Open a bot's model picker or Settings → Engines.
 ## Driving it
 
 ```sh
-pnpm control:laterdog doctor --url http://127.0.0.1:PORT
-pnpm control:laterdog models --url http://127.0.0.1:PORT
+bun run control:laterdog doctor --url http://127.0.0.1:PORT
+bun run control:laterdog models --url http://127.0.0.1:PORT
 ```
 
 `doctor.ok` is true only when the endpoint is later.dog and at least one
@@ -26,7 +26,7 @@ engine is available. The isolated fixture should expose `claude`.
 Run the offline API fixture and driver regressions:
 
 ```sh
-pnpm exec vitest run server/claude-account-api.test.ts server/claude-accounts.test.ts server/drivers/claude-accounts.test.ts
+bun run vitest run server/claude-account-api.test.ts server/claude-accounts.test.ts server/drivers/claude-accounts.test.ts
 ```
 
 The API fixture launches its own disposable server and synthetic CLI. It checks

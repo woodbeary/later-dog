@@ -3,12 +3,12 @@
 Run the fixtures in isolated homes; nothing here touches a person's app, home or computer:
 
 ```sh
-pnpm exec vitest run server/laterdog/work-state-table.test.ts server/laterdog/work-state.test.ts server/laterdog/chat-work.test.ts
-pnpm exec vitest run server/laterdog/computer-jobs.test.ts server/laterdog/computer-run-route.test.ts server/laterdog/room-work.test.ts server/laterdog/job-wake.test.ts
-pnpm exec vitest run src/lib/work-state.test.ts server/laterdog/stop-computer-jobs.test.ts
-pnpm exec vitest run server/laterdog/work-state-truth.e2e.test.ts server/laterdog/handoff-wait.e2e.test.ts server/laterdog/work-state-model-rest.e2e.test.ts
-pnpm exec vitest run src/lib/quiet-lines.test.ts
-pnpm exec vitest run server/chief-level-delegation.e2e.test.ts server/thread-aware-bots.e2e.test.ts server/direct-coordination.e2e.test.ts server/delta-context.e2e.test.ts
+bun run vitest run server/laterdog/work-state-table.test.ts server/laterdog/work-state.test.ts server/laterdog/chat-work.test.ts
+bun run vitest run server/laterdog/computer-jobs.test.ts server/laterdog/computer-run-route.test.ts server/laterdog/room-work.test.ts server/laterdog/job-wake.test.ts
+bun run vitest run src/lib/work-state.test.ts server/laterdog/stop-computer-jobs.test.ts
+bun run vitest run server/laterdog/work-state-truth.e2e.test.ts server/laterdog/handoff-wait.e2e.test.ts server/laterdog/work-state-model-rest.e2e.test.ts
+bun run vitest run src/lib/quiet-lines.test.ts
+bun run vitest run server/chief-level-delegation.e2e.test.ts server/thread-aware-bots.e2e.test.ts server/direct-coordination.e2e.test.ts server/delta-context.e2e.test.ts
 ```
 
 ## What each state means
@@ -16,16 +16,16 @@ pnpm exec vitest run server/chief-level-delegation.e2e.test.ts server/thread-awa
 The home sends one `work` per chat (`shared/work-state.ts`), built by `workState` in
 `server/laterdog/work-state.ts`. The first true line wins, in `WORK_PRIORITY` order:
 
-| State | True when |
-| --- | --- |
-| needs-you | an open question, card or sign-in waits on the person |
-| waiting-for-usage | the chat is held until an account's usage resets |
-| waiting-on-dog | the chat sent work that wants a reply, its own handoff is still open, and that work is still open (named dogs) |
-| waiting-for-computer | the turn waits for a computer another chat holds |
-| retrying | the turn is reconnecting to its engine |
-| running | a turn runs, helpers still work, or a job the dog started on its computer is alive; `helpers` and `computerJobs` say how many after the turn, `computerSince` when the oldest live job started |
-| stopped | the last turn ended without finishing and nothing runs now |
-| idle | nothing runs and nothing waits |
+| State                | True when                                                                                                                                                                                      |
+| -------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| needs-you            | an open question, card or sign-in waits on the person                                                                                                                                          |
+| waiting-for-usage    | the chat is held until an account's usage resets                                                                                                                                               |
+| waiting-on-dog       | the chat sent work that wants a reply, its own handoff is still open, and that work is still open (named dogs)                                                                                 |
+| waiting-for-computer | the turn waits for a computer another chat holds                                                                                                                                               |
+| retrying             | the turn is reconnecting to its engine                                                                                                                                                         |
+| running              | a turn runs, helpers still work, or a job the dog started on its computer is alive; `helpers` and `computerJobs` say how many after the turn, `computerSince` when the oldest live job started |
+| stopped              | the last turn ended without finishing and nothing runs now                                                                                                                                     |
+| idle                 | nothing runs and nothing waits                                                                                                                                                                 |
 
 ## The table
 
@@ -33,27 +33,27 @@ The home sends one `work` per chat (`shared/work-state.ts`), built by `workState
 records: a `RoomHandoffs` record for handoffs, a `ComputerJobs` ledger for jobs, a `HelperBoard` for
 helpers. A restart reloads the job ledger from disk and starts with an empty helper board.
 
-| Turn | Helpers | Job | Awaits reply | Sent, no reply | Needs you | Usage | Restart | State |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| | | | | | | | | idle |
-| yes | | | | | | | | running |
-| | yes | | | | | | | running |
-| | | yes | | | | | | running |
-| | | yes | | | | | yes | running |
-| | yes | | | | | | yes | idle |
-| | yes | yes | | | | | yes | running |
-| | | | yes | | | | | waiting-on-dog |
-| yes | | | yes | | | | | running |
-| | | yes | yes | | | | | waiting-on-dog |
-| | | | | yes | | | | idle |
-| yes | | | | yes | | | | running |
-| | | yes | | yes | | | | running |
-| yes | | yes | yes | | yes | yes | | needs-you |
-| | | yes | | | yes | | | needs-you |
-| | | | yes | | | yes | | waiting-for-usage |
-| | | yes | | | | yes | | waiting-for-usage |
-| | | | | | | yes | yes | waiting-for-usage |
-| | | | yes | | | | yes | waiting-on-dog |
+| Turn | Helpers | Job | Awaits reply | Sent, no reply | Needs you | Usage | Restart | State             |
+| ---- | ------- | --- | ------------ | -------------- | --------- | ----- | ------- | ----------------- |
+|      |         |     |              |                |           |       |         | idle              |
+| yes  |         |     |              |                |           |       |         | running           |
+|      | yes     |     |              |                |           |       |         | running           |
+|      |         | yes |              |                |           |       |         | running           |
+|      |         | yes |              |                |           |       | yes     | running           |
+|      | yes     |     |              |                |           |       | yes     | idle              |
+|      | yes     | yes |              |                |           |       | yes     | running           |
+|      |         |     | yes          |                |           |       |         | waiting-on-dog    |
+| yes  |         |     | yes          |                |           |       |         | running           |
+|      |         | yes | yes          |                |           |       |         | waiting-on-dog    |
+|      |         |     |              | yes            |           |       |         | idle              |
+| yes  |         |     |              | yes            |           |       |         | running           |
+|      |         | yes |              | yes            |           |       |         | running           |
+| yes  |         | yes | yes          |                | yes       | yes   |         | needs-you         |
+|      |         | yes |              |                | yes       |       |         | needs-you         |
+|      |         |     | yes          |                |           | yes   |         | waiting-for-usage |
+|      |         | yes |              |                |           | yes   |         | waiting-for-usage |
+|      |         |     |              |                |           | yes   | yes     | waiting-for-usage |
+|      |         |     | yes          |                |           |       | yes     | waiting-on-dog    |
 
 Two more rows come from the handoff record itself: a teammate's reply that is back but not yet handed
 to the dog (the dog waits for a free slot to take it) is `idle` in `work`, and a dog the person stopped

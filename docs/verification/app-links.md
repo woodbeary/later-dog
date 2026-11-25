@@ -2,11 +2,11 @@
 
 later.dog opens three kinds of link, on the Mac and on a Cloud home window:
 
-| Link | Opens |
-|---|---|
-| `laterdog://dog/<id>` | That dog's one conversation, or that group chat |
-| `laterdog://chat/<id>?thread=<old id>` | The same; the thread id is ignored |
-| `laterdog://thread/<old id>?bot=<id>` | The same, for links older dogs wrote |
+| Link                                                            | Opens                                                                                                            |
+| --------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
+| `laterdog://dog/<id>`                                           | That dog's one conversation, or that group chat                                                                  |
+| `laterdog://chat/<id>?thread=<old id>`                          | The same; the thread id is ignored                                                                               |
+| `laterdog://thread/<old id>?bot=<id>`                           | The same, for links older dogs wrote                                                                             |
 | `laterdog://settings?section=general\|computer\|usage\|updates` | That Settings page; `updates` opens General at Help, where the update button is; any other section opens General |
 
 `electron/app-link.mjs` (shared with the renderer and server as
@@ -35,7 +35,7 @@ Never use the installed app. Start a fixture and a renderer for it:
 ```sh
 node --experimental-strip-types scripts/control-laterdog.ts launch
 LATERDOG_HOME=<tmp>/home LATERDOG_SERVER_PORT=<fixture port> node node_modules/vite/bin/vite.js --host 127.0.0.1 --port 5391 --strictPort
-pnpm control:laterdog new-bot --name "Link Target" --url http://127.0.0.1:<fixture port>
+bun run control:laterdog new-bot --name "Link Target" --url http://127.0.0.1:<fixture port>
 ```
 
 Then start the source Dev desktop with the link as its argument (cold), and run

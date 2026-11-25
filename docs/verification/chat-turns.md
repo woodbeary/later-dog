@@ -17,11 +17,11 @@ Starting or selecting another bot task does not stop the previous one.
 ## Driving it
 
 ```sh
-pnpm control:laterdog new-bot --name Probe --url http://127.0.0.1:PORT
+bun run control:laterdog new-bot --name Probe --url http://127.0.0.1:PORT
 # Copy bot.id from the JSON above as BOT_ID.
-pnpm control:laterdog send --bot BOT_ID --text "hello" --url http://127.0.0.1:PORT
-pnpm control:laterdog wait --bot BOT_ID --timeout 30 --url http://127.0.0.1:PORT
-pnpm control:laterdog messages --bot BOT_ID --limit 10 --url http://127.0.0.1:PORT
+bun run control:laterdog send --bot BOT_ID --text "hello" --url http://127.0.0.1:PORT
+bun run control:laterdog wait --bot BOT_ID --timeout 30 --url http://127.0.0.1:PORT
+bun run control:laterdog messages --bot BOT_ID --limit 10 --url http://127.0.0.1:PORT
 ```
 
 The wait result must be `settled`, and the messages result must contain the
@@ -49,16 +49,16 @@ pinned from the composer chip wins over the bot's Works on, except Off.
 
 ```sh
 node --experimental-strip-types scripts/control-laterdog.ts launch
-pnpm control:laterdog new-bot --name Orbit --url http://127.0.0.1:PORT
+bun run control:laterdog new-bot --name Orbit --url http://127.0.0.1:PORT
 curl -s -X PATCH "http://127.0.0.1:PORT/api/bots/BOT_ID" \
   -H 'content-type: application/json' -d '{"computer":"cloud"}'
-pnpm control:laterdog send --bot BOT_ID --text "compare shipping prices on two sites" --url http://127.0.0.1:PORT
-pnpm control:laterdog wait --bot BOT_ID --timeout 40 --url http://127.0.0.1:PORT
+bun run control:laterdog send --bot BOT_ID --text "compare shipping prices on two sites" --url http://127.0.0.1:PORT
+bun run control:laterdog wait --bot BOT_ID --timeout 40 --url http://127.0.0.1:PORT
 # pin this conversation to the browser, the way the composer chip does
 curl -s -X PATCH "http://127.0.0.1:PORT/api/bots/BOT_ID/tasks/THREAD_ID" \
   -H 'content-type: application/json' -d '{"surface":"browser"}'
-pnpm control:laterdog send --bot BOT_ID --text "compare shipping prices on two sites" --url http://127.0.0.1:PORT
-pnpm control:laterdog wait --bot BOT_ID --timeout 40 --url http://127.0.0.1:PORT
+bun run control:laterdog send --bot BOT_ID --text "compare shipping prices on two sites" --url http://127.0.0.1:PORT
+bun run control:laterdog wait --bot BOT_ID --timeout 40 --url http://127.0.0.1:PORT
 ```
 
 In `fake-claude-dump.json` the Cloud turn's `systemPrompt` must say everything
@@ -82,14 +82,14 @@ it to narrate a browser it cannot call.
 ```sh
 node --experimental-strip-types scripts/control-laterdog.ts launch
 # second terminal, using the printed URL
-pnpm control:laterdog new-bot --name Orbit --url http://127.0.0.1:PORT
-pnpm control:laterdog send --bot BOT_ID --text "list my calendar events" --url http://127.0.0.1:PORT
-pnpm control:laterdog wait --bot BOT_ID --timeout 40 --url http://127.0.0.1:PORT
+bun run control:laterdog new-bot --name Orbit --url http://127.0.0.1:PORT
+bun run control:laterdog send --bot BOT_ID --text "list my calendar events" --url http://127.0.0.1:PORT
+bun run control:laterdog wait --bot BOT_ID --timeout 40 --url http://127.0.0.1:PORT
 # the fixture's own API sets the destination the Works on picker sets
 curl -s -X PATCH "http://127.0.0.1:PORT/api/bots/BOT_ID" \
   -H 'content-type: application/json' -d '{"computer":"off"}'
-pnpm control:laterdog send --bot BOT_ID --text "open a browser and check my calendar" --url http://127.0.0.1:PORT
-pnpm control:laterdog wait --bot BOT_ID --timeout 40 --url http://127.0.0.1:PORT
+bun run control:laterdog send --bot BOT_ID --text "open a browser and check my calendar" --url http://127.0.0.1:PORT
+bun run control:laterdog wait --bot BOT_ID --timeout 40 --url http://127.0.0.1:PORT
 ```
 
 After each settled turn read `fake-claude-dump.json` in the fixture's printed
@@ -129,7 +129,7 @@ Cancellation receipts survive restart. Importing a workspace backup pauses all
 of its queued work for review, even when restoring to the original directory.
 
 ```sh
-pnpm exec vitest run server/chat-followups.test.ts server/chat-followups-restart.test.ts server/workspace-backup.test.ts
+bun run vitest run server/chat-followups.test.ts server/chat-followups-restart.test.ts server/workspace-backup.test.ts
 ```
 
 The restart test launches an isolated real server with the fake engine, accepts
@@ -157,9 +157,9 @@ until the handoff settles (potentially about 25 hours); it never duplicates
 the pending job to catch up.
 
 ```sh
-pnpm exec vitest run server/peer-roster.test.ts server/drivers/agents-proxy.test.ts
-pnpm exec vitest run server/independent-threads-api.test.ts -t "queues coordinated work behind a peer's approval"
-pnpm exec vitest run server/routine-delegation.e2e.test.ts
+bun run vitest run server/peer-roster.test.ts server/drivers/agents-proxy.test.ts
+bun run vitest run server/independent-threads-api.test.ts -t "queues coordinated work behind a peer's approval"
+bun run vitest run server/routine-delegation.e2e.test.ts
 ```
 
 The mailbox API fixture uses the isolated launcher and per-model fake-engine
@@ -176,7 +176,7 @@ persisted deadlines. These tests do not claim real-provider performance.
 ### Independent tasks
 
 ```sh
-pnpm exec vitest run server/independent-threads-api.test.ts
+bun run vitest run server/independent-threads-api.test.ts
 ```
 
 This test launches a fresh `control-laterdog` fixture for each case, wraps only its
@@ -204,7 +204,7 @@ checks that extra tasks never add rows, folders or unread dots.
 ## CLI Stop regression
 
 ```sh
-pnpm exec vitest run server/kill-tree.test.ts server/engine-install.test.ts server/cli-stop.e2e.test.ts
+bun run vitest run server/kill-tree.test.ts server/engine-install.test.ts server/cli-stop.e2e.test.ts
 ```
 
 The Stop fixture wraps only the isolated launcher's fake Claude CLI with an

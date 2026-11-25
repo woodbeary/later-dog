@@ -25,15 +25,15 @@ node --experimental-strip-types scripts/verify-claude-auth-settings.ts /absolute
   personal SessionStart hook must not run. later.dog retains project settings but
   projects only account authentication from personal settings. Explicit later.dog
   credentials/endpoints take precedence as a pair.
-These prove transport/auth integration, not hosted image interpretation,
-subscription entitlement, Console-profile availability, or production API
-uptime. If Claude still reports signed out, compare its `/status` Profile
-and the account selected in later.dog; never request the user's keys or tokens.
+  These prove transport/auth integration, not hosted image interpretation,
+  subscription entitlement, Console-profile availability, or production API
+  uptime. If Claude still reports signed out, compare its `/status` Profile
+  and the account selected in later.dog; never request the user's keys or tokens.
 
 ## ACP internal-error recovery
 
 ```sh
-pnpm exec vitest run server/drivers/acp/acp.test.ts server/acp-recovery.e2e.test.ts server/resume-recovery.test.ts server/delta-context.test.ts server/incidents.test.ts server/room-coordination.e2e.test.ts
+bun run vitest run server/drivers/acp/acp.test.ts server/acp-recovery.e2e.test.ts server/resume-recovery.test.ts server/delta-context.test.ts server/incidents.test.ts server/room-coordination.e2e.test.ts
 ```
 
 The ACP transport fixture injects an internal RPC error, including one after
@@ -57,7 +57,7 @@ persistently invalid account or provider configuration.
 ## Isolated server and private grants
 
 ```sh
-pnpm exec electron scripts/smoke-approval-modes.cjs
+bun run electron scripts/smoke-approval-modes.cjs
 ```
 
 The real server runs under Electron's private utility-process channel with
@@ -83,10 +83,10 @@ disposable server data.
 ## Regression checks
 
 ```sh
-pnpm exec vitest run server/drivers/acp/acp.test.ts server/drivers/claude.test.ts server/drivers/claude-auth.test.ts server/drivers/codex.test.ts server/drivers/retry.test.ts server/store.test.ts src/components/ChatView.controls.test.ts
+bun run vitest run server/drivers/acp/acp.test.ts server/drivers/claude.test.ts server/drivers/claude-auth.test.ts server/drivers/codex.test.ts server/drivers/retry.test.ts server/store.test.ts src/components/ChatView.controls.test.ts
 node --test electron/approval-trusted-mode.node-test.mjs
-pnpm typecheck
-pnpm lint
+bun run typecheck
+bun run lint
 ```
 
 The tests also cover image-byte redaction, unknown ACP runtimes, private

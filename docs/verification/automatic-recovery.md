@@ -27,11 +27,11 @@ runner changes require a manual choice. Backup provider charges may apply.
 ## Repeatable checks
 
 ```sh
-pnpm exec vitest run server/automatic-recovery.test.ts server/automatic-recovery.e2e.test.ts server/drivers/acp/acp.test.ts server/drivers/retry.test.ts server/turn-dispatch-guard.test.ts server/config.test.ts src/state/store.test.ts
-pnpm exec vitest run server/direct-coordination.e2e.test.ts server/guarded-messages-api.test.ts server/acp-recovery.e2e.test.ts --maxWorkers=2
-pnpm typecheck
-pnpm lint
-pnpm i18n:check
+bun run vitest run server/automatic-recovery.test.ts server/automatic-recovery.e2e.test.ts server/drivers/acp/acp.test.ts server/drivers/retry.test.ts server/turn-dispatch-guard.test.ts server/config.test.ts src/state/store.test.ts
+bun run vitest run server/direct-coordination.e2e.test.ts server/guarded-messages-api.test.ts server/acp-recovery.e2e.test.ts --maxWorkers=2
+bun run typecheck
+bun run lint
+bun run i18n:check
 ```
 
 The recovery integration suite launches `launchVerificationServer` in a

@@ -8,7 +8,7 @@ It needs no provider account, API key, browser, or desktop access.
 Run the permanent acceptance test:
 
 ```sh
-pnpm exec vitest run server/openai-tools.e2e.test.ts
+bun run vitest run server/openai-tools.e2e.test.ts
 ```
 
 `server/openai-tools.e2e.test.ts` launches its own server with
@@ -51,7 +51,7 @@ Driver contract tests cover the three shared adapters, protocol errors,
 non-streaming responses, tool errors, and lifecycle edge cases:
 
 ```sh
-pnpm exec vitest run server/drivers/openai-chat-tools.test.ts server/workspace.test.ts
+bun run vitest run server/drivers/openai-chat-tools.test.ts server/workspace.test.ts
 ```
 
 One turn stops after 64 model steps, or 200 tool calls in total (each reply
@@ -101,7 +101,7 @@ inference, and do not establish vision/tool support for every provider model.
 
 ### Boat cloud computer
 
-`pnpm exec vitest run server/cloud-computer-tools.test.ts server/harness-mcp-proxy.test.ts server/openai-boat.e2e.test.ts server/hosted-desktop.e2e.test.ts`
+`bun run vitest run server/cloud-computer-tools.test.ts server/harness-mcp-proxy.test.ts server/openai-boat.e2e.test.ts server/hosted-desktop.e2e.test.ts`
 tests an owned loopback Boat/API fixture. It covers direct chats, group member
 turns and cloud routines retaining the selected model, screenshots arriving as
 image parts, and human control blocking an approved action. The tool tests
@@ -111,7 +111,7 @@ capabilities and in-flight cancellation without replay. The hosted-desktop
 fixture runs the same tools for a Claude bot and proves Boat's own runner is
 never asked.
 
-`pnpm exec vitest run server/cloud-computer-lazy.e2e.test.ts server/cloud-computer-slow-start.e2e.test.ts server/computer-selection.test.ts server/room-turn-end.test.ts server/boat-wait-ready.test.ts`
+`bun run vitest run server/cloud-computer-lazy.e2e.test.ts server/cloud-computer-slow-start.e2e.test.ts server/computer-selection.test.ts server/room-turn-end.test.ts server/boat-wait-ready.test.ts`
 proves a cloud computer starts only when the bot uses it. Against a loopback
 relay that counts every request, a plain chat ("hi") on Works on: Cloud
 computer, in a bot's chat or a room, makes no relay call; choosing Cloud
@@ -147,7 +147,7 @@ Content-Type: application/json
 {"tools": false}
 ```
 
-Use the exact instance ID from `pnpm control:laterdog models --url URL`, and direct
+Use the exact instance ID from `bun run control:laterdog models --url URL`, and direct
 the request only to that explicitly selected server. The route accepts this
 setting for OpenAI-compatible, Grok API, and MiniMax API instances, refuses
 changes while the instance is busy, and stores `config.tools` on that instance.
@@ -181,7 +181,7 @@ Dispatch repeats the check so a removed key or unavailable Boat fails the run
 before model execution. Explicit Cloud still permits creating/waking the bot’s
 own Boat.
 
-Run `pnpm exec vitest run server/routine-requests.test.ts server/openai-boat.e2e.test.ts`
+Run `bun run vitest run server/routine-requests.test.ts server/openai-boat.e2e.test.ts`
 for target selection and the isolated direct/group/scheduled bridge fixture,
 including credentials removed after scheduling and a Boat outage at dispatch.
 The fixture also holds the Boat readiness response: the execution stays busy,

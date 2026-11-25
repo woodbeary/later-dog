@@ -44,11 +44,11 @@ batch. Neither mode injects disk contention or proves an idle host.
 macOS arm64, Node 26.7.0, baseline `d1d6bc701` plus this change. Three serial
 baseline/worker comparisons, with 50,000 seeded messages:
 
-| Mixed workload | Median of three maximum event-loop delays, synchronous | Worker |
-| --- | ---: | ---: |
-| 1 session | 70.84 ms | 3.22 ms |
-| 10 sessions | 73.14 ms | 9.77 ms |
-| 50 sessions | 90.11 ms | 25.90 ms |
+| Mixed workload | Median of three maximum event-loop delays, synchronous |   Worker |
+| -------------- | -----------------------------------------------------: | -------: |
+| 1 session      |                                               70.84 ms |  3.22 ms |
+| 10 sessions    |                                               73.14 ms |  9.77 ms |
+| 50 sessions    |                                               90.11 ms | 25.90 ms |
 
 Search itself remained roughly 65–85 ms: the change frees the server while
 the scan runs; it does not accelerate SQL. Ordinary write p95 was usually
@@ -67,11 +67,11 @@ these are not proof that every stall is SQLite or a production regression.
 Three additional serial baseline/worker pairs used `--checkpoint-seed --paced`,
 including native logs as well as canonical events:
 
-| Paced mixed workload | Median maximum event-loop delay, synchronous | Worker |
-| --- | ---: | ---: |
-| 1 session | 99.81 ms | 3.47 ms |
-| 10 sessions | 102.11 ms | 9.04 ms |
-| 50 sessions | 107.22 ms | 25.99 ms |
+| Paced mixed workload | Median maximum event-loop delay, synchronous |   Worker |
+| -------------------- | -------------------------------------------: | -------: |
+| 1 session            |                                     99.81 ms |  3.47 ms |
+| 10 sessions          |                                    102.11 ms |  9.04 ms |
+| 50 sessions          |                                    107.22 ms | 25.99 ms |
 
 Across these six invocations, write/log-only scenarios had event-loop maxima
 of 4.97–30.41 ms; the largest measured message append was 6.17 ms and the
@@ -99,9 +99,9 @@ finding without justifying a wholesale asynchronous writer/logger rewrite.
 ## Verification commands
 
 ```sh
-pnpm exec vitest run server/message-search-worker.test.ts server/message-db.test.ts server/message-search.e2e.test.ts server/bot-visibility.e2e.test.ts server/workspace-backup.test.ts
-pnpm exec vitest run server/index.test.ts -t 'searches transcripts and exports'
-pnpm test:packaged-server
+bun run vitest run server/message-search-worker.test.ts server/message-db.test.ts server/message-search.e2e.test.ts server/bot-visibility.e2e.test.ts server/workspace-backup.test.ts
+bun run vitest run server/index.test.ts -t 'searches transcripts and exports'
+bun run test:packaged-server
 ```
 
 The search fixture uses the standard isolated launcher, seeds only its new

@@ -43,7 +43,7 @@ body:
     attributes:
       label: Logs
       description: >-
-        Anything from the terminal running `pnpm dev:server`, or the per-thread
+        Anything from the terminal running `bun run dev:server`, or the per-thread
         event logs in `~/.laterdog/events/`. Redact anything that looks like
         a key or token before pasting.
       render: text

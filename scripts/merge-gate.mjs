@@ -16,15 +16,15 @@ export const SHARDS = 8;
 export const EDGE_DIR = "deploy/laterdog/home";
 export const CONTROL_PLANE_DIR = "cloudflare/control-plane";
 export const COMPUTERS_DIR = "deploy/laterdog/computers";
-export const TYPECHECK = "pnpm typecheck";
-export const OUTSIDE_WORKSPACE_INSTALL = "pnpm install --ignore-workspace --frozen-lockfile";
+export const TYPECHECK = "bun run typecheck";
+export const OUTSIDE_WORKSPACE_INSTALL = "bun install --frozen-lockfile";
 
 export function gateSteps(shards = SHARDS) {
   return [
     {
       name: "typecheck",
       kind: "check",
-      command: ["sh", "-c", TYPECHECK],
+      command: ["bun", "run", "typecheck"],
       expect: [
         /^typecheck tsconfig\.json: checked [1-9]\d* files$/m,
         /^typecheck tsconfig\.server\.json: checked [1-9]\d* files$/m,
@@ -34,14 +34,14 @@ export function gateSteps(shards = SHARDS) {
     {
       name: "lint",
       kind: "check",
-      command: ["pnpm", "lint", "--format=json"],
+      command: ["bun", "run", "lint", "--format=json"],
       expect: [/"number_of_files":\s*[1-9]\d*/],
       refuse: [/"diagnostics":\s*\[\s*\{/],
     },
     {
       name: "electron",
       kind: "check",
-      command: ["pnpm", "test:electron"],
+      command: ["bun", "run", "test:electron"],
       expect: [/^ℹ tests [1-9]/m],
       refuse: [/^ℹ fail [1-9]/m],
     },
@@ -49,8 +49,8 @@ export function gateSteps(shards = SHARDS) {
       name: "broker",
       kind: "vitest",
       command: [
-        "pnpm",
-        "exec",
+        "bun",
+        "run",
         "vitest",
         "run",
         "--config",
@@ -60,13 +60,13 @@ export function gateSteps(shards = SHARDS) {
     {
       name: "packaged-server",
       kind: "check",
-      command: ["pnpm", "test:packaged-server"],
+      command: ["bun", "run", "test:packaged-server"],
       expect: [/packaged backup worker exported an encrypted archive/],
     },
     ...Array.from({ length: shards }, (_, index) => ({
       name: `suite ${index + 1}/${shards}`,
       kind: "vitest",
-      command: ["pnpm", "exec", "vitest", "run", `--shard=${index + 1}/${shards}`],
+      command: ["bun", "run", "vitest", "run", `--shard=${index + 1}/${shards}`],
     })),
     {
       name: "edge",
@@ -74,14 +74,14 @@ export function gateSteps(shards = SHARDS) {
       cwd: EDGE_DIR,
       install: OUTSIDE_WORKSPACE_INSTALL,
       needs: join(EDGE_DIR, "node_modules"),
-      command: ["pnpm", "exec", "vitest", "run"],
+      command: ["bun", "run", "vitest", "run"],
     },
     {
       name: "control-plane",
       kind: "vitest",
       cwd: CONTROL_PLANE_DIR,
       needs: join(CONTROL_PLANE_DIR, "node_modules"),
-      command: ["pnpm", "exec", "vitest", "run"],
+      command: ["bun", "run", "vitest", "run"],
     },
     {
       name: "computers",
@@ -89,7 +89,7 @@ export function gateSteps(shards = SHARDS) {
       cwd: COMPUTERS_DIR,
       install: OUTSIDE_WORKSPACE_INSTALL,
       needs: join(COMPUTERS_DIR, "node_modules"),
-      command: ["pnpm", "exec", "vitest", "run"],
+      command: ["bun", "run", "vitest", "run"],
     },
   ];
 }
@@ -161,7 +161,7 @@ export function missingDependencies(step) {
     failed: true,
     failing: [`${step.name} (${step.needs} is missing)`],
     skippedNoBrowser: [],
-    note: `${step.needs} is missing: run ${step.install ?? "pnpm install"} in ${step.cwd}, or name ${step.name} in LATERDOG_GATE_UNAVAILABLE on a machine meant to go without it`,
+    note: `${step.needs} is missing: run ${step.install ?? "bun install"} in ${step.cwd}, or name ${step.name} in LATERDOG_GATE_UNAVAILABLE on a machine meant to go without it`,
   };
 }
 

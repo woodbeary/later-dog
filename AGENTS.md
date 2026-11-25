@@ -1,13 +1,16 @@
 # later.dog agent notes
 
-Always use pnpm instead of npm. Node 24+ is required.
+Use the exact Bun 1.4.5 package manager declared in package.json. Node 24+ remains required.
+Install the root with `bun install --frozen-lockfile --cpu=arm64 --cpu=x64`; standalone packages use
+`bun install --cwd <folder> --frozen-lockfile`. Every package uses isolated linkage and explicit
+trustedDependencies. Keep external projects and registry publishing on the tools they require.
 Keep native backend limitations visible; fixture success does not qualify a live provider.
 
 The installed pre-push hook checks changed-file format, comments and lint together with full
 application/server types and locale validation. It requires a clean HEAD checkout with no hidden
 index flags or tracked symlinks, handles HEAD release tags, and requires completed checks below nine
 seconds. See [`docs/laterdog/pre-push.md`](docs/laterdog/pre-push.md) for selection and limits.
-Run `pnpm exec vitest run scripts/git-hooks` after changing the hook. Local success never replaces
+Run `bun run vitest run scripts/git-hooks` after changing the hook. Local success never replaces
 the complete clean merge gate below.
 
 Use `cf` for Cloudflare account and zone work (DNS, rules, zone settings, gateways) and
@@ -27,7 +30,7 @@ names out; the attribution the licence requires stays in NOTICE.
 
 Work in progress, its gates, and how to resume any lane: [`docs/laterdog/finish-line.md`](docs/laterdog/finish-line.md). Read it before starting.
 
-Nothing merges to `main` until a complete `pnpm gate` run (`scripts/merge-gate.mjs`) on a
+Nothing merges to `main` until a complete `bun run gate` run (`scripts/merge-gate.mjs`) on a
 clean checkout of the branch, with `origin/main` fetched and merged in, ends with the line
 `VERDICT: PASS` and nothing after `PASS` but the commits, and exits 0. The gate runs typecheck,
 lint, the desktop node tests, the broker tests, the

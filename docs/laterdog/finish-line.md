@@ -24,34 +24,34 @@ Decisions that hold for every package:
   fix cannot close it, the same bar as [rust-seams.md](../verification/rust-seams.md). That file's Mac
   measurements are still owed and are part of track F.
 - Hosted checks return on GitHub's standard runners for this public repository. Signing, notarizing, releases
-  and device checks stay on the owner's Mac. Until the hosted gate exists, `pnpm gate` on the Mac is the rule.
-- pnpm stays. No formatter yet. Typecheck moves to TypeScript 7 only after its diagnostics are compared side by
-  side with today's.
+  and device checks stay on the owner's Mac. The complete clean `bun run gate` on the Mac remains required.
+- This local tooling candidate pins Bun 1.4.5 for installs, explicit script dispatch and checked whole-graph diagnostics,
+  and Oxfmt 0.80.0 for changed-file formatting. It is not live yet; complete gate and runtime qualification remain required.
 
-| Track | What it does | State |
-| --- | --- | --- |
-| A Measure first | A current desktop baseline with landing, layout-shift and redraw-cause measures; a budget mode; a launch timeline; phone renders by name, UI-thread frames, cold-start marks and a bundle budget | A1, A3 and A4 are draft pull requests with their first numbers; A2 in progress on A1's branch |
-| B The wait and the landing | The desktop stops receiving reply text it never shows, a work update redraws only its work row, and network frames commit once per display frame. The phone drops in-progress reply text, steadies its list rows and moves screens to selectors | B6 (phone, finished replies only) in progress on A4's branch |
-| C Open, switch, launch | The desktop launch chain, one splash instead of two, later loading of heavy panels; chat open on both apps | not started |
-| D Typing, scrolling, keyboard | The message box apart from store churn, idle timers and animation, the phone's keyboard and composer motion | not started |
-| E One of each | One working surface per turn, a landing that moves nothing, and on the phone one sheet system, one message menu and one transcript | the design for the wait and the landing has started |
-| F Weight | Footprint on the Mac, the Mac measurements owed by rust-seams.md, dev-only code out of the phone's release bundle | waits for the Mac |
-| G Hosted checks | An audit of past runs, test files in parallel, the gate split into jobs with one verdict, selection proven by a hidden change | G1 is a draft pull request; G3 (port leases) in progress |
-| H What dogs are told and can do | Stop everything in one call, steer a running helper, quieter routine runs and rooms, connector status, exact draft sends, faster browser work | not started |
+| Track                           | What it does                                                                                                                                                                                                                                    | State                                                                                         |
+| ------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------- |
+| A Measure first                 | A current desktop baseline with landing, layout-shift and redraw-cause measures; a budget mode; a launch timeline; phone renders by name, UI-thread frames, cold-start marks and a bundle budget                                                | A1, A3 and A4 are draft pull requests with their first numbers; A2 in progress on A1's branch |
+| B The wait and the landing      | The desktop stops receiving reply text it never shows, a work update redraws only its work row, and network frames commit once per display frame. The phone drops in-progress reply text, steadies its list rows and moves screens to selectors | B6 (phone, finished replies only) in progress on A4's branch                                  |
+| C Open, switch, launch          | The desktop launch chain, one splash instead of two, later loading of heavy panels; chat open on both apps                                                                                                                                      | not started                                                                                   |
+| D Typing, scrolling, keyboard   | The message box apart from store churn, idle timers and animation, the phone's keyboard and composer motion                                                                                                                                     | not started                                                                                   |
+| E One of each                   | One working surface per turn, a landing that moves nothing, and on the phone one sheet system, one message menu and one transcript                                                                                                              | the design for the wait and the landing has started                                           |
+| F Weight                        | Footprint on the Mac, the Mac measurements owed by rust-seams.md, dev-only code out of the phone's release bundle                                                                                                                               | waits for the Mac                                                                             |
+| G Hosted checks                 | An audit of past runs, test files in parallel, the gate split into jobs with one verdict, selection proven by a hidden change                                                                                                                   | G1 is a draft pull request; G3 (port leases) in progress                                      |
+| H What dogs are told and can do | Stop everything in one call, steer a running helper, quieter routine runs and rooms, connector status, exact draft sends, faster browser work                                                                                                   | not started                                                                                   |
 
 Packages so far:
 
-| Package | Branch | State |
-| --- | --- | --- |
-| A1 Desktop baseline and new measures | `refine/a1-desktop-baseline` | pull request 258, in the first batch (pull request 255) |
-| A2 Budget mode for the desktop performance script | `refine/a2-desktop-budget`, on A1 | pull request 259, in the first batch: 22 lines, each with today's budget and its target |
-| A3 Desktop launch timeline | `refine/a3-launch-timeline` | pull request 257, in the first batch |
-| A4 Phone performance log, Run Check and bundle budget | later-dog-phone `refine/a4-phone-perf-log` | merged to later-dog-phone main on November 25 |
-| B6 Phone shows finished replies only | later-dog-phone `refine/b6-finished-replies`, on A4 | merged to later-dog-phone main on November 25 as `86dd5cc`: reply text in progress changes nothing on screen, the finished reply changes it once. Not published as an update and not yet seen on an iPhone or a simulator |
-| E1 and E2 The wait and the landing, design | `refine/e1-wait-and-landing` | in progress, a proposal for the owner |
-| G1 Audit of the last 150 hosted check runs | `refine/g1-hosted-checks-audit` | pull request 256, in the first batch |
-| G2 Hosted checks return on standard runners | `refine/g2-hosted-checks-return`, on G1 | in progress |
-| G3 Port leases so test files can run in parallel | `refine/g3-port-leases` | in progress |
+| Package                                               | Branch                                              | State                                                                                                                                                                                                                     |
+| ----------------------------------------------------- | --------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| A1 Desktop baseline and new measures                  | `refine/a1-desktop-baseline`                        | pull request 258, in the first batch (pull request 255)                                                                                                                                                                   |
+| A2 Budget mode for the desktop performance script     | `refine/a2-desktop-budget`, on A1                   | pull request 259, in the first batch: 22 lines, each with today's budget and its target                                                                                                                                   |
+| A3 Desktop launch timeline                            | `refine/a3-launch-timeline`                         | pull request 257, in the first batch                                                                                                                                                                                      |
+| A4 Phone performance log, Run Check and bundle budget | later-dog-phone `refine/a4-phone-perf-log`          | merged to later-dog-phone main on November 25                                                                                                                                                                             |
+| B6 Phone shows finished replies only                  | later-dog-phone `refine/b6-finished-replies`, on A4 | merged to later-dog-phone main on November 25 as `86dd5cc`: reply text in progress changes nothing on screen, the finished reply changes it once. Not published as an update and not yet seen on an iPhone or a simulator |
+| E1 and E2 The wait and the landing, design            | `refine/e1-wait-and-landing`                        | in progress, a proposal for the owner                                                                                                                                                                                     |
+| G1 Audit of the last 150 hosted check runs            | `refine/g1-hosted-checks-audit`                     | pull request 256, in the first batch                                                                                                                                                                                      |
+| G2 Hosted checks return on standard runners           | `refine/g2-hosted-checks-return`, on G1             | in progress                                                                                                                                                                                                               |
+| G3 Port leases so test files can run in parallel      | `refine/g3-port-leases`                             | in progress                                                                                                                                                                                                               |
 
 The first batch is pull request 255: this section, the handoff, G1, A3, A1 and A2 merged together so one gate run
 covers them. It merges on `VERDICT: PASS`.

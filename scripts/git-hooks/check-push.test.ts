@@ -70,13 +70,17 @@ describe("push check failures", () => {
   it("runs full lint after a lint configuration change and keeps whole-graph types and locale checks", () => {
     const checks = pushChecks([".oxlintrc.json"], new Set<string>());
     expect(checks.find((check: { label: string }) => check.label === "lint")?.args).toEqual([
+      "run",
       "lint",
     ]);
     expect(
       checks
         .filter((check: { label: string }) => ["typecheck", "locale"].includes(check.label))
         .map((check: { args: string[] }) => check.args),
-    ).toEqual([["typecheck"], ["i18n:check"]]);
+    ).toEqual([
+      ["run", "typecheck"],
+      ["run", "i18n:check"],
+    ]);
   });
 
   it("collects a signal failure while another process finishes", async () => {

@@ -19,10 +19,10 @@ serializes it without an additional embedded JSON copy.
 Use Node 24 and pnpm:
 
 ```sh
-pnpm exec vitest run server/thread-capacity-api.test.ts server/execution-advisor.e2e.test.ts server/laterdog/execution-advisor.test.ts server/laterdog/execution-evidence.test.ts server/routes/execution-advice.test.ts server/routes/execution-receipts.test.ts server/usage-ledger.test.ts server/laterdog/supervisor.test.ts server/drivers/codex-helpers.test.ts server/drivers/claude-tasks.test.ts server/laterdog/helper-board.test.ts
-pnpm exec node --expose-gc scripts/bench-execution-advice.ts --baseline-ref d2c39c4ede7308ee905b620e0473d2a65374a217
-pnpm typecheck
-pnpm lint
+bun run vitest run server/thread-capacity-api.test.ts server/execution-advisor.e2e.test.ts server/laterdog/execution-advisor.test.ts server/laterdog/execution-evidence.test.ts server/routes/execution-advice.test.ts server/routes/execution-receipts.test.ts server/usage-ledger.test.ts server/laterdog/supervisor.test.ts server/drivers/codex-helpers.test.ts server/drivers/claude-tasks.test.ts server/laterdog/helper-board.test.ts
+bun run node --expose-gc scripts/bench-execution-advice.ts --baseline-ref d2c39c4ede7308ee905b620e0473d2a65374a217
+bun run typecheck
+bun run lint
 ```
 
 The benchmark reads the baseline implementation from Git and gives both variants

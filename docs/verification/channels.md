@@ -17,11 +17,11 @@ the channel composer.
 Create two fixture bots with `new-bot`, then:
 
 ```sh
-pnpm control:laterdog new-channel --name Review --members BOT_A_ID,BOT_B_ID --url http://127.0.0.1:PORT
+bun run control:laterdog new-channel --name Review --members BOT_A_ID,BOT_B_ID --url http://127.0.0.1:PORT
 # Copy channel.id from the JSON above as CHANNEL_ID.
-pnpm control:laterdog send-channel --channel CHANNEL_ID --text "Reply once" --url http://127.0.0.1:PORT
-pnpm control:laterdog wait --channel CHANNEL_ID --timeout 60 --url http://127.0.0.1:PORT
-pnpm control:laterdog messages --channel CHANNEL_ID --limit 20 --url http://127.0.0.1:PORT
+bun run control:laterdog send-channel --channel CHANNEL_ID --text "Reply once" --url http://127.0.0.1:PORT
+bun run control:laterdog wait --channel CHANNEL_ID --timeout 60 --url http://127.0.0.1:PORT
+bun run control:laterdog messages --channel CHANNEL_ID --limit 20 --url http://127.0.0.1:PORT
 ```
 
 Capture the returned channel ID from `new-channel`. The wait result must be
@@ -36,7 +36,7 @@ Capture the returned channel ID from `new-channel`. The wait result must be
 ## Group chat routines and plain group turns
 
 ```sh
-pnpm exec vitest run server/laterdog/room-routine.e2e.test.ts server/laterdog/room-prompt.test.ts
+bun run vitest run server/laterdog/room-routine.e2e.test.ts server/laterdog/room-prompt.test.ts
 ```
 
 A routine that targets a group chat posts its prompt into that chat and its
@@ -48,8 +48,8 @@ prompt says only who the dog is, who is in the chat and how to @mention.
 ## Room management by dogs
 
 ```sh
-pnpm exec vitest run server/chief-rooms.e2e.test.ts
-pnpm exec vitest run server/index.test.ts -t 'room management|credential-card ownership'
+bun run vitest run server/chief-rooms.e2e.test.ts
+bun run vitest run server/index.test.ts -t 'room management|credential-card ownership'
 ```
 
 Any dog, the main dog included, can create and manage group chats it is in

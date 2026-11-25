@@ -14,8 +14,7 @@ const root = fileURLToPath(new URL("../../", import.meta.url));
 
 const TS_PATH = "../../shared/mascot-bodies.ts";
 
-const read = (p) =>
-  readFileSync(new URL(p, import.meta.url), "utf8").replace(/\r\n/g, "\n");
+const read = (p) => readFileSync(new URL(p, import.meta.url), "utf8").replace(/\r\n/g, "\n");
 const write = (p, contents) => writeFileSync(new URL(p, import.meta.url), contents);
 
 function describeDrift(label, before, after) {
@@ -26,7 +25,9 @@ function describeDrift(label, before, after) {
   const diffs = [];
   for (let i = 0; i < max && diffs.length < 8; i++) {
     if (beforeLines[i] !== afterLines[i]) {
-      diffs.push(`  line ${i + 1}:\n    checked-in: ${JSON.stringify(beforeLines[i] ?? "<missing>")}\n    fresh run:  ${JSON.stringify(afterLines[i] ?? "<missing>")}`);
+      diffs.push(
+        `  line ${i + 1}:\n    checked-in: ${JSON.stringify(beforeLines[i] ?? "<missing>")}\n    fresh run:  ${JSON.stringify(afterLines[i] ?? "<missing>")}`,
+      );
     }
   }
   const more = diffs.length >= 8 ? "\n  ...(more lines differ, truncated)" : "";
@@ -40,16 +41,20 @@ describe("generated catalogs", () => {
     };
 
     try {
-      execFileSync(process.execPath, ["--experimental-strip-types", "scripts/gen-mascot-bodies.ts"], {
-        cwd: root,
-        stdio: "pipe",
-      });
+      execFileSync(
+        process.execPath,
+        ["--experimental-strip-types", "scripts/gen-mascot-bodies.ts"],
+        {
+          cwd: root,
+          stdio: "pipe",
+        },
+      );
     } catch (err) {
       throw new Error(
-        `Running \`pnpm gen:bodies\` failed while checking the catalogs for drift. ` +
+        `Running \`bun run gen:bodies\` failed while checking the catalogs for drift. ` +
           `The working tree may now hold a partially-written or reverted file — run ` +
           `\`git status\` / \`git diff -- shared/mascot-bodies.ts\` ` +
-          `before trusting either file. Original error:\n${err.stderr?.toString() ?? err.message}`
+          `before trusting either file. Original error:\n${err.stderr?.toString() ?? err.message}`,
       );
     }
 
@@ -59,17 +64,15 @@ describe("generated catalogs", () => {
 
     write(TS_PATH, before.ts);
 
-    const drifts = [
-      describeDrift("shared/mascot-bodies.ts", before.ts, after.ts),
-    ].filter(Boolean);
+    const drifts = [describeDrift("shared/mascot-bodies.ts", before.ts, after.ts)].filter(Boolean);
 
     if (drifts.length > 0) {
       throw new Error(
-        `A fresh \`pnpm gen:bodies\` run produced output that does not match the ` +
+        `A fresh \`bun run gen:bodies\` run produced output that does not match the ` +
           `checked-in catalog(s). Either a catalog was hand-edited after it was ` +
           `generated, or the generator is non-deterministic — in either case, fix the ` +
           `cause, never this assertion. The working tree has been restored to the ` +
-          `checked-in bytes; the divergence was:\n\n${drifts.join("\n\n")}`
+          `checked-in bytes; the divergence was:\n\n${drifts.join("\n\n")}`,
       );
     }
   }, 120_000);
@@ -77,12 +80,15 @@ describe("generated catalogs", () => {
 
 describe("every baked anchor", () => {
   const AIMS = [
-    { x: -1, y: -1 }, { x: 1, y: -1 }, { x: -1, y: 1 }, { x: 1, y: 1 },
+    { x: -1, y: -1 },
+    { x: 1, y: -1 },
+    { x: -1, y: 1 },
+    { x: 1, y: 1 },
   ];
 
   it("clears the silhouette across every expression and every gaze", () => {
     for (const id of MASCOT_BODY_IDS) {
-      const def = BODY_DEFS.find(s => s.id === id);
+      const def = BODY_DEFS.find((s) => s.id === id);
       const polylines = flatten(def.d);
       const fit = fitTransform(boundsOf(polylines));
       const sdf = fieldFromMask(maskFromPolylines(applyFit(polylines, fit), 256), 256);

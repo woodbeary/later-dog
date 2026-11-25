@@ -34,7 +34,7 @@ late answer clears that count.
 ## Run on fixtures
 
 ```sh
-pnpm exec vitest run server/laterdog/context-parts.test.ts server/laterdog/chat-context-breakdowns.test.ts \
+bun run vitest run server/laterdog/context-parts.test.ts server/laterdog/chat-context-breakdowns.test.ts \
   server/laterdog/engine-context-ask.test.ts server/laterdog/context-tool-sizes.test.ts \
   server/routes/chat-context.test.ts server/testing/fake-claude-context.test.ts \
   server/laterdog/chat-context.e2e.test.ts shared/context-breakdown.test.ts src/components/ChatContextBreakdown.test.ts

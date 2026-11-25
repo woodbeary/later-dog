@@ -1,5 +1,14 @@
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  readdirSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -10,8 +19,15 @@ const workflowFile = new URL("../.github/workflows/docker.yml", import.meta.url)
 const workflow = existsSync(workflowFile) ? parse(readFileSync(workflowFile, "utf8")) : null;
 const publishes = workflow !== null;
 
-interface Step { op: string; args: string }
-interface Stage { name: string; from: string; steps: Step[] }
+interface Step {
+  op: string;
+  args: string;
+}
+interface Stage {
+  name: string;
+  from: string;
+  steps: Step[];
+}
 
 function stages(text: string): Stage[] {
   const all: Stage[] = [];
@@ -32,27 +48,58 @@ function stages(text: string): Stage[] {
 
 const all = stages(dockerfile);
 function chain(target: string): Step[] {
-  const stage = all.find(s => s.name === target);
+  const stage = all.find((s) => s.name === target);
   if (!stage) throw new Error(`the Dockerfile has no ${target} stage`);
-  return [...(all.some(s => s.name === stage.from) ? chain(stage.from) : []), ...stage.steps];
+  return [...(all.some((s) => s.name === stage.from) ? chain(stage.from) : []), ...stage.steps];
 }
-const shipped = () => all.filter(s => s.name !== "build" && s.name !== "edge").flatMap(s => s.steps);
+const shipped = () =>
+  all.filter((s) => s.name !== "build" && s.name !== "edge").flatMap((s) => s.steps);
 const npmInstall = (step: Step) => step.op === "RUN" && /\bnpm install\b/.test(step.args);
-const browserRun = () => chain("runtime").find(step => step.op === "RUN" && step.args.includes("agent-browser install"))!;
-const grokRun = (steps: Step[]) => steps.findIndex(step => step.op === "RUN" && step.args.includes("https://x.ai/cli/install.sh"));
-const cursorRun = (steps: Step[]) => steps.findIndex(step => step.op === "RUN" && step.args.includes("https://downloads.cursor.com/lab/"));
-const jq = process.platform === "win32" ? "" : spawnSync("sh", ["-c", "command -v jq"], { encoding: "utf8" }).stdout.trim();
+const browserRun = () =>
+  chain("runtime").find(
+    (step) => step.op === "RUN" && step.args.includes("agent-browser install"),
+  )!;
+const grokRun = (steps: Step[]) =>
+  steps.findIndex((step) => step.op === "RUN" && step.args.includes("https://x.ai/cli/install.sh"));
+const cursorRun = (steps: Step[]) =>
+  steps.findIndex(
+    (step) => step.op === "RUN" && step.args.includes("https://downloads.cursor.com/lab/"),
+  );
+const jq =
+  process.platform === "win32"
+    ? ""
+    : spawnSync("sh", ["-c", "command -v jq"], { encoding: "utf8" }).stdout.trim();
 
 const temporaryDirectories: string[] = [];
 afterEach(() => {
-  for (const directory of temporaryDirectories.splice(0)) rmSync(directory, { recursive: true, force: true });
+  for (const directory of temporaryDirectories.splice(0))
+    rmSync(directory, { recursive: true, force: true });
 });
 
 describe("container images", () => {
+  it("supplies pinned Bun separately to the native runtime and build-platform tools", () => {
+    expect(all.find((stage) => stage.name === "bun-runtime")?.from).toBe("oven/bun:1.4.5");
+    expect(all.find((stage) => stage.name === "bun-tool")?.from).toBe("oven/bun:1.4.5");
+    expect(dockerfile).toContain("FROM --platform=$BUILDPLATFORM oven/bun:1.4.5 AS bun-tool");
+    expect(dockerfile).toContain("FROM oven/bun:1.4.5 AS bun-runtime");
+    for (const [name, source] of [
+      ["build", "bun-tool"],
+      ["runtime", "bun-runtime"],
+    ]) {
+      const steps = all.find((stage) => stage.name === name)!.steps;
+      expect(
+        steps.filter((step) => step.op === "COPY" && step.args.includes("/usr/local/bin/bun")),
+      ).toEqual([
+        { op: "COPY", args: "--from=" + source + " /usr/local/bin/bun /usr/local/bin/bun" },
+      ]);
+      expect(steps).toContainEqual({ op: "RUN", args: 'test "$(bun --version)" = 1.4.5' });
+    }
+  });
+
   it("keeps the self-hosted server the default target, and Cloud home a target of the same file", () => {
     expect(all.at(-1)!.name).toBe("server");
-    expect(all.find(s => s.name === "cloud-home")!.from).toBe("runtime");
-    expect(all.find(s => s.name === "server")!.from).toBe("runtime");
+    expect(all.find((s) => s.name === "cloud-home")!.from).toBe("runtime");
+    expect(all.find((s) => s.name === "server")!.from).toBe("runtime");
     expect(chain("server")).toContainEqual({ op: "ARG", args: 'ENGINES=""' });
   });
 
@@ -60,9 +107,18 @@ describe("container images", () => {
     for (const target of ["server", "cloud-home"]) {
       const steps = chain(target);
       const heavy = steps.flatMap((step, i) => (npmInstall(step) ? [i] : []));
-      const app = steps.flatMap((step, i) => (step.op === "COPY" && !step.args.includes("--from=edge") ? [i] : []));
+      const app = steps.flatMap((step, i) =>
+        step.op === "COPY" &&
+        !step.args.includes("--from=edge") &&
+        !step.args.includes("--from=bun-runtime")
+          ? [i]
+          : [],
+      );
       expect(heavy, target).toHaveLength(2);
-      expect(steps.filter(step => step.op === "COPY" && step.args.includes("--from=build")), target).toHaveLength(2);
+      expect(
+        steps.filter((step) => step.op === "COPY" && step.args.includes("--from=build")),
+        target,
+      ).toHaveLength(2);
       expect(Math.max(...heavy), target).toBeLessThan(Math.min(...app));
     }
   });
@@ -80,19 +136,34 @@ describe("container images", () => {
 
   it("ships Caddy once, without its file capability, and the app files once, root's without a rewrite", () => {
     for (const { args } of shipped()) expect(args).not.toMatch(/\bch(own|mod) -R\b/);
-    const build = all.find(s => s.name === "build")!.steps.find(step => step.op === "RUN" && step.args.startsWith("pnpm build:server"))!;
+    const build = all
+      .find((s) => s.name === "build")!
+      .steps.find((step) => step.op === "RUN" && step.args.startsWith("bun run build:server"))!;
     expect(build.args).toMatch(/ && chmod -R go-w dist dist-server$/);
-    expect(all.find(s => s.name === "edge")!.steps).toContainEqual({ op: "RUN", args: "cp /usr/bin/caddy /caddy" });
+    expect(all.find((s) => s.name === "edge")!.steps).toContainEqual({
+      op: "RUN",
+      args: "cp /usr/bin/caddy /caddy",
+    });
     const home = chain("cloud-home");
-    expect(home.filter(step => step.args.includes("/usr/local/bin/caddy") && step.op === "COPY")).toEqual([
-      { op: "COPY", args: "--from=edge /caddy /usr/local/bin/caddy" },
-    ]);
-    expect(home.findIndex(step => step.args.startsWith("--from=edge "))).toBeLessThan(home.findLastIndex(npmInstall));
-    expect(home.filter(step => step.op === "RUN" && /\b(cp|mv)\b[^&]*caddy/.test(step.args))).toEqual([]);
-    expect(home.filter(step => step.args.includes("--from=build")).map(step => step.args)).toEqual([
-      "/src/dist-server ./dist-server", "/src/dist ./dist",
-    ].map(path => `--from=build ${path}`));
-    expect(chain("server").filter(step => step.args.includes("--from=build")).every(step => step.args.startsWith("--from=build --chown=dog:dog "))).toBe(true);
+    expect(
+      home.filter((step) => step.args.includes("/usr/local/bin/caddy") && step.op === "COPY"),
+    ).toEqual([{ op: "COPY", args: "--from=edge /caddy /usr/local/bin/caddy" }]);
+    expect(home.findIndex((step) => step.args.startsWith("--from=edge "))).toBeLessThan(
+      home.findLastIndex(npmInstall),
+    );
+    expect(
+      home.filter((step) => step.op === "RUN" && /\b(cp|mv)\b[^&]*caddy/.test(step.args)),
+    ).toEqual([]);
+    expect(
+      home.filter((step) => step.args.includes("--from=build")).map((step) => step.args),
+    ).toEqual(
+      ["/src/dist-server ./dist-server", "/src/dist ./dist"].map((path) => `--from=build ${path}`),
+    );
+    expect(
+      chain("server")
+        .filter((step) => step.args.includes("--from=build"))
+        .every((step) => step.args.startsWith("--from=build --chown=dog:dog ")),
+    ).toBe(true);
   });
 
   it("installs the pinned Grok in Cloud home only, beneath the engines and the app, from a home the same step removes", () => {
@@ -102,10 +173,12 @@ describe("container images", () => {
     expect(home.slice(0, grok)).toContainEqual({ op: "ARG", args: "GROK_VERSION=1.0.41" });
     expect(grok).toBeLessThan(home.findLastIndex(npmInstall));
     expect(grok).toBeGreaterThan(home.indexOf(browserRun()));
-    expect(grok).toBeLessThan(home.findIndex(step => step.args.includes("--from=build")));
+    expect(grok).toBeLessThan(home.findIndex((step) => step.args.includes("--from=build")));
     const { args } = home[grok];
     expect(args.match(/\bHOME=\S+/g)).toEqual(["HOME=/tmp/grok-install", "HOME=/tmp/grok-install"]);
-    expect(args).toMatch(/ && install -m 0755 "\$\(readlink -f \/tmp\/grok-install\/\.grok\/bin\/grok\)" \/usr\/local\/bin\/grok /);
+    expect(args).toMatch(
+      / && install -m 0755 "\$\(readlink -f \/tmp\/grok-install\/\.grok\/bin\/grok\)" \/usr\/local\/bin\/grok /,
+    );
     expect(args).toContain('grep -qF "grok $GROK_VERSION "');
     expect(args).toMatch(/ && rm -rf \/tmp\/grok-install; +fi$/);
     expect(grokRun(chain("server"))).toBe(-1);
@@ -115,32 +188,54 @@ describe("container images", () => {
     const home = chain("cloud-home");
     const cursor = cursorRun(home);
     expect(cursor).toBeGreaterThan(-1);
-    expect(home.slice(0, cursor)).toContainEqual({ op: "ARG", args: expect.stringMatching(/^CURSOR_VERSION=\d{4}\.\d{2}\.\d{2}-[0-9a-f]{7}$/) });
+    expect(home.slice(0, cursor)).toContainEqual({
+      op: "ARG",
+      args: expect.stringMatching(/^CURSOR_VERSION=\d{4}\.\d{2}\.\d{2}-[0-9a-f]{7}$/),
+    });
     expect(cursor).toBeLessThan(home.findLastIndex(npmInstall));
     expect(cursor).toBeGreaterThan(grokRun(home));
-    expect(cursor).toBeLessThan(home.findIndex(step => step.args.includes("--from=build")));
+    expect(cursor).toBeLessThan(home.findIndex((step) => step.args.includes("--from=build")));
     const { args } = home[cursor];
-    expect(args).toContain('"https://downloads.cursor.com/lab/${CURSOR_VERSION}/linux/${arch}/agent-cli-package.tar.gz"');
-    expect(args).toContain("tar --strip-components=1 --no-same-owner --no-same-permissions -xzf - -C /opt/cursor-agent");
+    expect(args).toContain(
+      '"https://downloads.cursor.com/lab/${CURSOR_VERSION}/linux/${arch}/agent-cli-package.tar.gz"',
+    );
+    expect(args).toContain(
+      "tar --strip-components=1 --no-same-owner --no-same-permissions -xzf - -C /opt/cursor-agent",
+    );
     expect(args).toContain("ln -s /opt/cursor-agent/cursor-agent /usr/local/bin/cursor-agent");
     expect(args).toContain('cursor-agent --version | grep -qF "$CURSOR_VERSION"');
     expect(args).toMatch(/ && rm -rf \/tmp\/cursor-install; +fi$/);
     expect(cursorRun(chain("server"))).toBe(-1);
   });
 
-  it.skipIf(!publishes)("scans the saved images for every throwaway build directory, and for one Grok", () => {
-    const scan = (workflow.jobs["build-and-smoke"].steps as { name?: string; run?: string }[])
-      .find(step => step.name?.startsWith("Prove each image ships its files once"))!.run!;
-    const cache = new RegExp(/cache = re\.compile\(r"(.*)"\)/.exec(scan)![1]);
-    const removed = shipped().flatMap(step => [...step.args.matchAll(/\brm -rf ([^;&|]+)/g)].flatMap(match => match[1].trim().split(/\s+/)));
-    const throwaway = [...new Set(removed.filter(path => path.startsWith("/tmp/")))].sort();
-    expect(throwaway).toEqual(["/tmp/cursor-install", "/tmp/grok-install", "/tmp/node-compile-cache", "/tmp/npm-cache", "/tmp/laterdog-build-home"]);
-    for (const path of throwaway) expect(cache.test(`${path.slice(1)}/leftover`), path).toBe(true);
-    expect(scan).toContain('grok = files["usr/local/bin/grok"]');
-  });
+  it.skipIf(!publishes)(
+    "scans the saved images for every throwaway build directory, and for one Grok",
+    () => {
+      const scan = (
+        workflow.jobs["build-and-smoke"].steps as { name?: string; run?: string }[]
+      ).find((step) => step.name?.startsWith("Prove each image ships its files once"))!.run!;
+      const cache = new RegExp(/cache = re\.compile\(r"(.*)"\)/.exec(scan)![1]);
+      const removed = shipped().flatMap((step) =>
+        [...step.args.matchAll(/\brm -rf ([^;&|]+)/g)].flatMap((match) =>
+          match[1].trim().split(/\s+/),
+        ),
+      );
+      const throwaway = [...new Set(removed.filter((path) => path.startsWith("/tmp/")))].sort();
+      expect(throwaway).toEqual([
+        "/tmp/cursor-install",
+        "/tmp/grok-install",
+        "/tmp/node-compile-cache",
+        "/tmp/npm-cache",
+        "/tmp/laterdog-build-home",
+      ]);
+      for (const path of throwaway)
+        expect(cache.test(`${path.slice(1)}/leftover`), path).toBe(true);
+      expect(scan).toContain('grok = files["usr/local/bin/grok"]');
+    },
+  );
 
   it("keeps each image's runtime contract", () => {
-    const last = (steps: Step[], op: string) => steps.filter(step => step.op === op).at(-1)?.args;
+    const last = (steps: Step[], op: string) => steps.filter((step) => step.op === op).at(-1)?.args;
     const server = chain("server");
     expect(last(server, "USER")).toBe("dog");
     expect(last(server, "VOLUME")).toBe('["/data"]');
@@ -152,22 +247,35 @@ describe("container images", () => {
     expect(last(home, "EXPOSE")).toBe("8080");
     expect(last(home, "CMD")).toBe('["node", "/app/dist-server/cloud-home-start.js"]');
     expect(last(home, "HEALTHCHECK")).toContain("http://127.0.0.1:8080/api/health");
-    expect(last(chain("runtime"), "ENV")).toMatch(/^AGENT_BROWSER_EXECUTABLE_PATH=\/opt\/laterdog-browser\/chrome .*NODE_ENV=production$/);
+    expect(last(chain("runtime"), "ENV")).toMatch(
+      /^AGENT_BROWSER_EXECUTABLE_PATH=\/opt\/laterdog-browser\/chrome .*NODE_ENV=production$/,
+    );
   });
 
   it("runs every image that hosts the server under tini, so orphaned engine helpers are reaped and Stop can confirm them gone", () => {
     const init = '["/usr/bin/tini", "--"]';
-    const last = (steps: Step[], op: string) => steps.filter(step => step.op === op).at(-1)?.args;
-    const apt = chain("runtime").find(step => step.op === "RUN" && step.args.startsWith("apt-get update"))!;
+    const last = (steps: Step[], op: string) => steps.filter((step) => step.op === op).at(-1)?.args;
+    const apt = chain("runtime").find(
+      (step) => step.op === "RUN" && step.args.startsWith("apt-get update"),
+    )!;
     expect(apt.args).toMatch(/apt-get install -y --no-install-recommends [^&]*\btini\b/);
-    for (const target of ["server", "cloud-home"]) expect(last(chain(target), "ENTRYPOINT"), target).toBe(init);
-    const file = (path: string) => stages(readFileSync(new URL(path, import.meta.url), "utf8").replace(/^FROM --platform=\S+ /gm, "FROM ")).at(-1)!.steps;
+    for (const target of ["server", "cloud-home"])
+      expect(last(chain(target), "ENTRYPOINT"), target).toBe(init);
+    const file = (path: string) =>
+      stages(
+        readFileSync(new URL(path, import.meta.url), "utf8").replace(
+          /^FROM --platform=\S+ /gm,
+          "FROM ",
+        ),
+      ).at(-1)!.steps;
     const home = file("../deploy/laterdog/home/Dockerfile");
     expect(last(home, "ENTRYPOINT")).toBe(init);
     expect(last(home, "CMD")).toBe('["node", "/app/cloud/runtime/run.mjs"]');
     expect(last(home, "RUN")).toMatch(/ && \/usr\/bin\/tini --version$/);
     const supervisor = file("../deploy/laterdog/Dockerfile");
-    expect(supervisor.find(step => step.op === "RUN" && step.args.startsWith("apt-get update"))!.args).toMatch(/--no-install-recommends [^&]*\btini\b/);
+    expect(
+      supervisor.find((step) => step.op === "RUN" && step.args.startsWith("apt-get update"))!.args,
+    ).toMatch(/--no-install-recommends [^&]*\btini\b/);
     expect(last(supervisor, "ENTRYPOINT")).toBe(init);
     expect(last(supervisor, "CMD")).toBe('["./entrypoint.sh"]');
   });
@@ -175,92 +283,168 @@ describe("container images", () => {
   it("never runs a build step with HOME on the volume, so nothing lands in what a fresh volume starts with", () => {
     for (const target of ["server", "cloud-home"]) {
       const steps = chain(target);
-      const home = steps.findIndex(step => step.op === "ENV" && /(^|\s)HOME=\/data\b/.test(step.args));
+      const home = steps.findIndex(
+        (step) => step.op === "ENV" && /(^|\s)HOME=\/data\b/.test(step.args),
+      );
       expect(home, target).toBeGreaterThan(-1);
-      expect(steps.slice(home).filter(step => step.op === "RUN"), target).toEqual([]);
+      expect(
+        steps.slice(home).filter((step) => step.op === "RUN"),
+        target,
+      ).toEqual([]);
     }
   });
 
-  it.skipIf(process.platform === "win32")("keeps only agent-browser's native binary, and refuses when the command is not one", () => {
-    const { args } = browserRun();
-    const start = args.indexOf("native=");
-    const end = args.indexOf("&& agent-browser --version", start);
-    expect(start).toBeGreaterThan(args.indexOf("agent-browser install"));
-    expect(end).toBeGreaterThan(start);
-    const prune = args.slice(start, end);
-    const run = (target: string, elf = true) => {
-      const root = mkdtempSync(join(tmpdir(), "laterdog-agent-browser-"));
-      temporaryDirectories.push(root);
-      const bin = join(root, "lib/node_modules/agent-browser/bin");
-      mkdirSync(bin, { recursive: true });
-      mkdirSync(join(root, "bin"));
-      const names = ["agent-browser-darwin-arm64", "agent-browser-linux-arm64", "agent-browser-linux-musl-x64", "agent-browser-linux-x64", "agent-browser-win32-x64.exe", "agent-browser.js"];
-      for (const name of names) writeFileSync(join(bin, name), name === "agent-browser-linux-x64" && elf ? "\x7fELF\x02\x01" : "#!/usr/bin/env node\n", { mode: 0o755 });
-      symlinkSync(join(bin, target), join(root, "bin/agent-browser"));
-      const result = spawnSync("sh", ["-c", prune], { env: { PATH: `${join(root, "bin")}:/usr/bin:/bin` }, encoding: "utf8" });
-      return { status: result.status, left: readdirSync(bin).sort(), names };
-    };
-    expect(run("agent-browser-linux-x64")).toMatchObject({ status: 0, left: ["agent-browser-linux-x64", "agent-browser.js"] });
-    const wrapper = run("agent-browser.js");
-    expect(wrapper.status).not.toBe(0);
-    expect(wrapper.left).toEqual(wrapper.names);
-    const script = run("agent-browser-linux-x64", false);
-    expect(script.status).not.toBe(0);
-    expect(script.left).toEqual(script.names);
-  });
+  it.skipIf(process.platform === "win32")(
+    "keeps only agent-browser's native binary, and refuses when the command is not one",
+    () => {
+      const { args } = browserRun();
+      const start = args.indexOf("native=");
+      const end = args.indexOf("&& agent-browser --version", start);
+      expect(start).toBeGreaterThan(args.indexOf("agent-browser install"));
+      expect(end).toBeGreaterThan(start);
+      const prune = args.slice(start, end);
+      const run = (target: string, elf = true) => {
+        const root = mkdtempSync(join(tmpdir(), "laterdog-agent-browser-"));
+        temporaryDirectories.push(root);
+        const bin = join(root, "lib/node_modules/agent-browser/bin");
+        mkdirSync(bin, { recursive: true });
+        mkdirSync(join(root, "bin"));
+        const names = [
+          "agent-browser-darwin-arm64",
+          "agent-browser-linux-arm64",
+          "agent-browser-linux-musl-x64",
+          "agent-browser-linux-x64",
+          "agent-browser-win32-x64.exe",
+          "agent-browser.js",
+        ];
+        for (const name of names)
+          writeFileSync(
+            join(bin, name),
+            name === "agent-browser-linux-x64" && elf ? "\x7fELF\x02\x01" : "#!/usr/bin/env node\n",
+            { mode: 0o755 },
+          );
+        symlinkSync(join(bin, target), join(root, "bin/agent-browser"));
+        const result = spawnSync("sh", ["-c", prune], {
+          env: { PATH: `${join(root, "bin")}:/usr/bin:/bin` },
+          encoding: "utf8",
+        });
+        return { status: result.status, left: readdirSync(bin).sort(), names };
+      };
+      expect(run("agent-browser-linux-x64")).toMatchObject({
+        status: 0,
+        left: ["agent-browser-linux-x64", "agent-browser.js"],
+      });
+      const wrapper = run("agent-browser.js");
+      expect(wrapper.status).not.toBe(0);
+      expect(wrapper.left).toEqual(wrapper.names);
+      const script = run("agent-browser-linux-x64", false);
+      expect(script.status).not.toBe(0);
+      expect(script.left).toEqual(script.names);
+    },
+  );
 
-  it.skipIf(!publishes)("builds Cloud home from the same Dockerfile in CI, with its own layer cache", () => {
-    const smoke = workflow.jobs["build-and-smoke"].steps.map((step: { run?: string }) => step.run ?? "").join("\n");
-    expect(smoke).toContain("docker build --target cloud-home --build-arg CLOUD_HOME_ENGINES= -t laterdog-cloud-home:ci .");
-    const steps = workflow.jobs.publish.steps as { id?: string; uses?: string; with?: Record<string, string> }[];
-    const server = steps.find(step => step.uses?.startsWith("docker/build-push-action@") && step.id !== "home")!;
-    const home = steps.find(step => step.id === "home")!;
-    expect(home.with).not.toHaveProperty("file");
-    expect(home.with!.target).toBe("cloud-home");
-    expect(home.with!["build-args"]).not.toContain("BASE_IMAGE");
-    expect(home.with!["cache-from"].split("\n")).toEqual(expect.arrayContaining(["type=gha", "type=gha,scope=cloud-home"]));
-    expect(home.with!["cache-to"]).toBe("type=gha,scope=cloud-home,mode=max");
-    for (const build of [server, home]) expect(build.with!["build-args"]).toContain("CHROME_CACHE_TAG=${{ steps.keys.outputs.chrome }}");
-    expect(home.with!["build-args"]).toContain("CLOUD_HOME_ENGINES=${{ steps.keys.outputs.engines }}");
-    expect(home.with!["build-args"]).toContain("ENGINES_CACHE_TAG=${{ steps.keys.outputs.engines_tag }}");
-  });
+  it.skipIf(!publishes)(
+    "builds Cloud home from the same Dockerfile in CI, with its own layer cache",
+    () => {
+      const smoke = workflow.jobs["build-and-smoke"].steps
+        .map((step: { run?: string }) => step.run ?? "")
+        .join("\n");
+      expect(smoke).toContain(
+        "docker build --target cloud-home --build-arg CLOUD_HOME_ENGINES= -t laterdog-cloud-home:ci .",
+      );
+      const steps = workflow.jobs.publish.steps as {
+        id?: string;
+        uses?: string;
+        with?: Record<string, string>;
+      }[];
+      const server = steps.find(
+        (step) => step.uses?.startsWith("docker/build-push-action@") && step.id !== "home",
+      )!;
+      const home = steps.find((step) => step.id === "home")!;
+      expect(home.with).not.toHaveProperty("file");
+      expect(home.with!.target).toBe("cloud-home");
+      expect(home.with!["build-args"]).not.toContain("BASE_IMAGE");
+      expect(home.with!["cache-from"].split("\n")).toEqual(
+        expect.arrayContaining(["type=gha", "type=gha,scope=cloud-home"]),
+      );
+      expect(home.with!["cache-to"]).toBe("type=gha,scope=cloud-home,mode=max");
+      for (const build of [server, home])
+        expect(build.with!["build-args"]).toContain(
+          "CHROME_CACHE_TAG=${{ steps.keys.outputs.chrome }}",
+        );
+      expect(home.with!["build-args"]).toContain(
+        "CLOUD_HOME_ENGINES=${{ steps.keys.outputs.engines }}",
+      );
+      expect(home.with!["build-args"]).toContain(
+        "ENGINES_CACHE_TAG=${{ steps.keys.outputs.engines_tag }}",
+      );
+    },
+  );
 
   it("keys the browser and engine layers on the versions they install, so a release rebuilds them", () => {
-    const runtime = all.find(s => s.name === "runtime")!.steps;
-    const declared = runtime.findIndex(step => step.op === "ARG" && step.args.startsWith("CHROME_CACHE_TAG="));
-    expect(declared).toBeGreaterThan(runtime.findIndex(step => step.op === "RUN" && step.args.startsWith("apt-get update")));
+    const runtime = all.find((s) => s.name === "runtime")!.steps;
+    const declared = runtime.findIndex(
+      (step) => step.op === "ARG" && step.args.startsWith("CHROME_CACHE_TAG="),
+    );
+    expect(declared).toBeGreaterThan(
+      runtime.findIndex((step) => step.op === "RUN" && step.args.startsWith("apt-get update")),
+    );
     expect(declared).toBeLessThan(runtime.indexOf(browserRun()));
     expect(browserRun().args).toContain("${CHROME_CACHE_TAG");
-    const home = all.find(s => s.name === "cloud-home")!.steps;
-    expect(home).toContainEqual({ op: "ARG", args: 'CLOUD_HOME_ENGINES="@anthropic-ai/claude-code@2.1.316 @openai/codex@0.163.0"' });
+    const home = all.find((s) => s.name === "cloud-home")!.steps;
+    expect(home).toContainEqual({
+      op: "ARG",
+      args: 'CLOUD_HOME_ENGINES="@anthropic-ai/claude-code@2.1.316 @openai/codex@0.163.0"',
+    });
     expect(home.find(npmInstall)!.args).toContain("${ENGINES_CACHE_TAG");
     if (!publishes) return;
-    const keys = (workflow.jobs.publish.steps as { id?: string; env?: Record<string, string> }[]).find(step => step.id === "keys")!;
+    const keys = (
+      workflow.jobs.publish.steps as { id?: string; env?: Record<string, string> }[]
+    ).find((step) => step.id === "keys")!;
     expect(keys.env!.CLOUD_HOME_ENGINES).toBe("@anthropic-ai/claude-code @openai/codex");
   });
 
-  it.skipIf(!jq || !publishes)("resolves the current Chrome and engine releases, and keys on the date when a lookup fails", () => {
-    const keys = (workflow.jobs.publish.steps as { id?: string; run?: string; env?: Record<string, string> }[]).find(step => step.id === "keys")!;
-    const resolve = (ok: boolean) => {
-      const root = mkdtempSync(join(tmpdir(), "laterdog-docker-keys-"));
-      temporaryDirectories.push(root);
-      const fake = (name: string, body: string) => writeFileSync(join(root, name), `#!/bin/sh\n${ok ? body : "exit 1"}\n`, { mode: 0o755 });
-      fake("curl", `echo '{"channels":{"Stable":{"version":"154.0.8037.92","downloads":{}}}}'`);
-      fake("npm", `case "$2" in @anthropic-ai/claude-code@latest) echo 2.1.291;; @openai/codex@latest) echo 0.160.1;; *) exit 1;; esac`);
-      const output = join(root, "output");
-      writeFileSync(output, "");
-      const result = spawnSync("bash", ["-e", "-c", keys.run!], {
-        env: { ...keys.env, PATH: `${root}:${dirname(jq)}:/usr/bin:/bin`, GITHUB_OUTPUT: output }, encoding: "utf8",
+  it.skipIf(!jq || !publishes)(
+    "resolves the current Chrome and engine releases, and keys on the date when a lookup fails",
+    () => {
+      const keys = (
+        workflow.jobs.publish.steps as { id?: string; run?: string; env?: Record<string, string> }[]
+      ).find((step) => step.id === "keys")!;
+      const resolve = (ok: boolean) => {
+        const root = mkdtempSync(join(tmpdir(), "laterdog-docker-keys-"));
+        temporaryDirectories.push(root);
+        const fake = (name: string, body: string) =>
+          writeFileSync(join(root, name), `#!/bin/sh\n${ok ? body : "exit 1"}\n`, { mode: 0o755 });
+        fake("curl", `echo '{"channels":{"Stable":{"version":"154.0.8037.92","downloads":{}}}}'`);
+        fake(
+          "npm",
+          `case "$2" in @anthropic-ai/claude-code@latest) echo 2.1.291;; @openai/codex@latest) echo 0.160.1;; *) exit 1;; esac`,
+        );
+        const output = join(root, "output");
+        writeFileSync(output, "");
+        const result = spawnSync("bash", ["-e", "-c", keys.run!], {
+          env: { ...keys.env, PATH: `${root}:${dirname(jq)}:/usr/bin:/bin`, GITHUB_OUTPUT: output },
+          encoding: "utf8",
+        });
+        expect(result.status, result.stderr).toBe(0);
+        return Object.fromEntries(
+          readFileSync(output, "utf8")
+            .trim()
+            .split("\n")
+            .map((line) => [line.slice(0, line.indexOf("=")), line.slice(line.indexOf("=") + 1)]),
+        );
+      };
+      expect(resolve(true)).toEqual({
+        chrome: "154.0.8037.92",
+        engines: "@anthropic-ai/claude-code@2.1.291 @openai/codex@0.160.1",
+        engines_tag: "",
       });
-      expect(result.status, result.stderr).toBe(0);
-      return Object.fromEntries(readFileSync(output, "utf8").trim().split("\n").map(line => [line.slice(0, line.indexOf("=")), line.slice(line.indexOf("=") + 1)]));
-    };
-    expect(resolve(true)).toEqual({
-      chrome: "154.0.8037.92",
-      engines: "@anthropic-ai/claude-code@2.1.291 @openai/codex@0.160.1",
-      engines_tag: "",
-    });
-    const today = `date-${new Date().toISOString().slice(0, 10)}`;
-    expect(resolve(false)).toEqual({ chrome: today, engines: "@anthropic-ai/claude-code @openai/codex", engines_tag: today });
-  });
+      const today = `date-${new Date().toISOString().slice(0, 10)}`;
+      expect(resolve(false)).toEqual({
+        chrome: today,
+        engines: "@anthropic-ai/claude-code @openai/codex",
+        engines_tag: today,
+      });
+    },
+  );
 });

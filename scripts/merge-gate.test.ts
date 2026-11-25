@@ -51,12 +51,15 @@ describe("merge gate verdict", () => {
       "computers",
     ]);
     const step = (name: string) => gateSteps().find((candidate) => candidate.name === name);
-    expect(step("electron")).toMatchObject({ kind: "check", command: ["pnpm", "test:electron"] });
+    expect(step("electron")).toMatchObject({
+      kind: "check",
+      command: ["bun", "run", "test:electron"],
+    });
     expect(step("broker")).toMatchObject({
       kind: "vitest",
       command: [
-        "pnpm",
-        "exec",
+        "bun",
+        "run",
         "vitest",
         "run",
         "--config",
@@ -65,7 +68,7 @@ describe("merge gate verdict", () => {
     });
     expect(step("packaged-server")).toMatchObject({
       kind: "check",
-      command: ["pnpm", "test:packaged-server"],
+      command: ["bun", "run", "test:packaged-server"],
     });
     for (const [name, cwd] of [
       ["edge", "deploy/laterdog/home"],
@@ -76,12 +79,12 @@ describe("merge gate verdict", () => {
         kind: "vitest",
         cwd,
         needs: `${cwd}/node_modules`,
-        command: ["pnpm", "exec", "vitest", "run"],
+        command: ["bun", "run", "vitest", "run"],
       });
     }
     const pkg = JSON.parse(readFileSync(join(repoRoot, "package.json"), "utf8"));
     expect(pkg.scripts.test).toBe(
-      "vitest run && pnpm broker:test && pnpm test:electron && pnpm test:packaged-server",
+      "vitest run && bun run broker:test && bun run test:electron && bun run test:packaged-server",
     );
   });
 
@@ -157,13 +160,13 @@ describe("merge gate verdict", () => {
   it("runs typecheck and lint as package.json does, but so that each prints how much it checked", () => {
     const pkg = JSON.parse(readFileSync(join(repoRoot, "package.json"), "utf8"));
     expect(pkg.scripts.typecheck).toBe("node scripts/typecheck.mjs");
-    expect(pkg.scripts.build).toBe("pnpm typecheck && vite build");
+    expect(pkg.scripts.build).toBe("bun run typecheck && vite build");
     expect(pkg.scripts["build:server"]).toBe(
       "tsc -p tsconfig.server.build.json && node scripts/bundle-server.mjs",
     );
     expect(pkg.scripts.lint).toBe("oxlint --deny-warnings .");
-    expect(gateSteps()[0].command).toEqual(["sh", "-c", "pnpm typecheck"]);
-    expect(gateSteps()[1].command).toEqual(["pnpm", "lint", "--format=json"]);
+    expect(gateSteps()[0].command).toEqual(["bun", "run", "typecheck"]);
+    expect(gateSteps()[1].command).toEqual(["bun", "run", "lint", "--format=json"]);
   });
 
   it("fails typecheck, lint and the node tests on what they print, and when they print nothing", () => {
@@ -435,7 +438,7 @@ console.log(words.includes("vitest") ? ${JSON.stringify(passing)} : words.includ
       "FAIL computers  deploy/laterdog/computers/node_modules is missing",
     );
     expect(missing.stdout).toContain(
-      "run pnpm install --ignore-workspace --frozen-lockfile in deploy/laterdog/computers",
+      "run bun install --frozen-lockfile in deploy/laterdog/computers",
     );
     expect(missing.stdout).toContain(
       "Failing:\n  computers (deploy/laterdog/computers/node_modules is missing)",

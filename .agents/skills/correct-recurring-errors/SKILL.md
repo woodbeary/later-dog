@@ -14,9 +14,10 @@ Use when a mistake comes back: the same review finding, the same failed check, t
 3. **Pick the strongest prevention that fits,** in this order:
    1. Make it impossible: a type, a schema, a single source of truth, a narrower interface.
    2. Make CI catch it: a lint rule, a test, a fixture or a verification recipe (`docs/verification/`, `docs/laterdog/verification.md`).
-   3. Only if neither works, write a short rule where agents will read it: `AGENTS.md`, or the canonical skill in `skills/laterdog/` followed by `pnpm laterdog:skills`. Never edit an exported copy.
+   3. Only if neither works, write a short rule where agents will read it: `AGENTS.md`, or the canonical skill in `skills/laterdog/` followed by `bun run laterdog:skills`. Never edit an exported copy.
 
    Counting on someone to spot it in review is not a prevention.
+
 4. **Keep it narrow.** The prevention names the trigger and the failure. It does not fence off a whole area because one path through it went wrong.
 5. **Show it works.** Run the prevention against the failing case (revert the fix or replay the input) and watch it fail, then against a good case and watch it pass.
 

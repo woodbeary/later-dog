@@ -1,6 +1,6 @@
 # Terminal setup
 
-> **Not published yet.** later.dog has no npm package yet, so `npx laterdog` and `npm install -g laterdog` do not work today. Run the server from a clone instead (`pnpm install && pnpm build`, then `node dist-server/laterdog.js`).
+> **Not published yet.** later.dog has no npm package yet, so `npx laterdog` and `npm install -g laterdog` do not work today. Run the server from a clone instead (`bun install --cpu=arm64 --cpu=x64 && bun run build`, then `node dist-server/laterdog.js`).
 
 Install [Node.js](https://nodejs.org/) 24 or newer, then choose either way to run later.dog:
 
@@ -56,17 +56,17 @@ If the workspace starts but its HTTPS check fails, the local workspace remains u
 
 The examples below assume a global install; prefix them with `npx` otherwise.
 
-| Command | Use |
-| --- | --- |
-| `laterdog` | Set up once, then start with saved settings. |
-| `laterdog setup` | Revisit AI and optional phone setup, save, and exit without starting. This is not a reset. |
-| `laterdog --no-open` | Start without opening a browser. |
-| `laterdog --local` | Ignore saved remote access for this launch; keep the saved choice for next time. |
+| Command              | Use                                                                                                                           |
+| -------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
+| `laterdog`           | Set up once, then start with saved settings.                                                                                  |
+| `laterdog setup`     | Revisit AI and optional phone setup, save, and exit without starting. This is not a reset.                                    |
+| `laterdog --no-open` | Start without opening a browser.                                                                                              |
+| `laterdog --local`   | Ignore saved remote access for this launch; keep the saved choice for next time.                                              |
 | `laterdog --no-pair` | Suppress phone setup prompts and pairing invitations. This does **not** turn off saved remote access; use `--local` for that. |
-| `laterdog pair` | Create another phone invitation while the configured workspace and HTTPS connection are running. |
-| `laterdog sessions` | List paired devices; `laterdog sessions revoke ID` signs one out. |
-| `laterdog serve` | Start without onboarding prompts or automatic browser opening; specify remote-access flags explicitly for a service. |
-| `laterdog login` | Sign in to a later.dog account for `--tunnel`; this does not sign in to an AI provider or start the tunnel. |
+| `laterdog pair`      | Create another phone invitation while the configured workspace and HTTPS connection are running.                              |
+| `laterdog sessions`  | List paired devices; `laterdog sessions revoke ID` signs one out.                                                             |
+| `laterdog serve`     | Start without onboarding prompts or automatic browser opening; specify remote-access flags explicitly for a service.          |
+| `laterdog login`     | Sign in to a later.dog account for `--tunnel`; this does not sign in to an AI provider or start the tunnel.                   |
 
 `start` accepts the same server options as `serve`, including `--port`, `--data-dir`, `--tailscale`, `--tunnel`, and `--public-url`. Keep using your custom data directory and port when starting or pairing:
 

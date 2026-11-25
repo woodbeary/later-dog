@@ -1,3 +1,5 @@
+import { BUN_INSTALL } from "../../shared/bun-install.ts";
+
 export const ACTIVITY_SCRIPT = String.raw`import { appendFileSync } from "node:fs";
 import { createInterface } from "node:readline";
 import { homedir } from "node:os";
@@ -116,12 +118,15 @@ setInterval(tick, 700);
 tick();
 `;
 
-export const AUTO_SETUP_SCRIPT = String.raw`set -uo pipefail
+export const AUTO_SETUP_SCRIPT = String.raw`${BUN_INSTALL}
+set -uo pipefail
 status=0
 run() { printf '+ %s\n' "$*"; "$@"; }
 if [ -f pnpm-lock.yaml ]; then
   sudo corepack enable >/dev/null 2>&1 || true
   run pnpm install --frozen-lockfile || status=$?
+elif [ -f bun.lock ] || [ -f bun.lockb ]; then
+  run laterdog_bun || status=$?
 elif [ -f yarn.lock ]; then
   sudo corepack enable >/dev/null 2>&1 || true
   run yarn install --frozen-lockfile || run yarn install --immutable || status=$?
@@ -136,4 +141,5 @@ fi
 exit $status
 `;
 
-export const SETUP_FAILED_NOTE = "\n\nNote from later.dog: installing this project's dependencies failed during setup (the output is in ~/task/log). Install what you need before running checks.\n";
+export const SETUP_FAILED_NOTE =
+  "\n\nNote from later.dog: installing this project's dependencies failed during setup (the output is in ~/task/log). Install what you need before running checks.\n";

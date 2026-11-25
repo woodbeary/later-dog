@@ -7,7 +7,7 @@ isolated checkout, write-scope check and draft PR as Codex results. Nothing from
 
 ## Create one routine per repository (claude.ai/code → Routines)
 
-1. **Repository:** the repository this routine works on. **Environment:** the cloud environment to use (Node 24 + pnpm for
+1. **Repository:** the repository this routine works on. **Environment:** the cloud environment to use (Node 24 + Bun 1.4.5 for
    this project's repositories). **Model:** your choice.
 2. **Trigger:** add an **API** trigger and generate its token. The token is shown once. It becomes the Worker secret named by
    the profile's `routineTokenEnv` (for example `CLAUDE_ROUTINE_TOKEN_TASK_COM_AI`); it is never written into `config.json`.
@@ -46,14 +46,21 @@ If the payload is missing or malformed, do nothing and stop.
 In the supervisor's `config.json`:
 
 ```json
-{ "profiles": [
-  { "id": "default", "label": "Codex subscription" },
-  { "id": "claude", "label": "Claude Code cloud", "backend": "claude-cloud", "routineTokenEnv": "CLAUDE_ROUTINE_TOKEN_TASK_COM_AI" }
-] }
+{
+  "profiles": [
+    { "id": "default", "label": "Codex subscription" },
+    {
+      "id": "claude",
+      "label": "Claude Code cloud",
+      "backend": "claude-cloud",
+      "routineTokenEnv": "CLAUDE_ROUTINE_TOKEN_TASK_COM_AI"
+    }
+  ]
+}
 ```
 
 A profile is one token; use one profile per routine when repositories have different routines, and set the matching Worker
-secret (`pnpm exec wrangler secret put CLAUDE_ROUTINE_TOKEN_TASK_COM_AI`, then `/admin/restart`).
+secret (`bun run wrangler secret put CLAUDE_ROUTINE_TOKEN_TASK_COM_AI`, then `/admin/restart`).
 
 ## Known limits
 

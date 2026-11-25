@@ -57,12 +57,12 @@ Measured with fake backends in tests, so they show what this code adds, not what
 
 Recorded 2026-10-14 on the integrator's Mac (Node 24, one test worker), 2,000 or 120 or 200 runs each after 10 warm-up runs.
 
-| Path | What was measured | p50 | p95 | max | Budget |
-| --- | --- | --- | --- | --- | --- |
-| Fast path | `fastCandidates` plus `pickFast` over a full 300-phrase book, 2,000 runs, no request | 0.024 ms | 0.050 ms | 0.43 ms | under 100 ms |
-| Model path through the app server, backend answers at once | the app's `POST /api/typing/complete` over loopback to a fake backend, 120 runs | 2.0 ms | 2.3 ms | 4.4 ms | server adds under 30 ms |
-| Model path through the app server, backend takes 120 ms | the same, with the fake backend waiting 120 ms | 123.1 ms | 124.1 ms | 136.8 ms | under 300 ms |
-| Worker around the model | `POST /v1/complete` through the Worker with an instant fake `AI` binding and in-memory fake Durable Objects, 200 runs | 0.11 ms | 0.18 ms | 0.61 ms | under 25 ms |
+| Path                                                       | What was measured                                                                                                     | p50      | p95      | max      | Budget                  |
+| ---------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------- | -------- | -------- | -------- | ----------------------- |
+| Fast path                                                  | `fastCandidates` plus `pickFast` over a full 300-phrase book, 2,000 runs, no request                                  | 0.024 ms | 0.050 ms | 0.43 ms  | under 100 ms            |
+| Model path through the app server, backend answers at once | the app's `POST /api/typing/complete` over loopback to a fake backend, 120 runs                                       | 2.0 ms   | 2.3 ms   | 4.4 ms   | server adds under 30 ms |
+| Model path through the app server, backend takes 120 ms    | the same, with the fake backend waiting 120 ms                                                                        | 123.1 ms | 124.1 ms | 136.8 ms | under 300 ms            |
+| Worker around the model                                    | `POST /v1/complete` through the Worker with an instant fake `AI` binding and in-memory fake Durable Objects, 200 runs | 0.11 ms  | 0.18 ms  | 0.61 ms  | under 25 ms             |
 
 What these say: this code adds about 2 ms in the app server and a fraction of a millisecond in the Worker's own code, and the fast path is effectively free. What they do not say: how long Workers AI takes, how long the real Durable Object hop for the usage count takes (the test fakes it), or how long the network between the app and the Worker takes. For the 300 ms target the person's round trip plus the model has to fit in about 275 ms. Measure that after deploying (see below). The tests keep the budgets above from regressing.
 
@@ -70,7 +70,7 @@ The pause before the grey words show is separate: 120 ms for the fast path, 400 
 
 ## Limits worth knowing
 
-- Nothing here has run against the live Worker or a real model. The first live number is the person's to measure after deploying: `pnpm --dir deploy/laterdog/computers deploy:worker`, then type in a chat.
+- Nothing here has run against the live Worker or a real model. The first live number is the person's to measure after deploying: `bun run --cwd deploy/laterdog/computers deploy:worker`, then type in a chat.
 - The 300 ms budget is for the whole model path. With the 400 ms pause the grey words appear about 400 ms plus the service time after the last key.
 - The ghost text is drawn in the composer's mirror layer, so a suggestion that wraps onto a new line does not grow the box until it is accepted.
 - Ranking uses the `typingSuggestions` job name with a cast in `server/laterdog/typing-rank.ts`, because the `DeciderJob` union on this branch does not have it yet. PR #41 widens that union. Once it lands, add the name there and drop the cast.

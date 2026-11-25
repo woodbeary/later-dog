@@ -1,9 +1,9 @@
 # Bot setup, model scope, and file continuity
 
 ```sh
-pnpm exec vitest run server/bot-setup.e2e.test.ts server/bot-continuity.e2e.test.ts server/independent-threads-api.test.ts
-LATERDOG_UI_E2E=1 pnpm exec vitest run scripts/testing/control-laterdog-ui.e2e.test.ts
-pnpm exec electron scripts/smoke-approval-modes.cjs --model-ui-only
+bun run vitest run server/bot-setup.e2e.test.ts server/bot-continuity.e2e.test.ts server/independent-threads-api.test.ts
+LATERDOG_UI_E2E=1 bun run vitest run scripts/testing/control-laterdog-ui.e2e.test.ts
+bun run electron scripts/smoke-approval-modes.cjs --model-ui-only
 ```
 
 The server recipe launches the real app in a temporary home with only the
@@ -120,10 +120,10 @@ not live user conversations. `--safe-mode`, `--restricted`,
 saved sessions. Tools were disabled except for the final test, which allowed
 only Read inside the disposable working directories.
 
-| Request | Observed response |
-| --- | --- |
-| `What is 17 + 25? Answer with the number.` | `42` |
-| Explicit setup for tracking garden watering | Asked about the job, timing, apps and folder |
+| Request                                                                 | Observed response                                                             |
+| ----------------------------------------------------------------------- | ----------------------------------------------------------------------------- |
+| `What is 17 + 25? Answer with the number.`                              | `42`                                                                          |
+| Explicit setup for tracking garden watering                             | Asked about the job, timing, apps and folder                                  |
 | Find `garden-plan.txt` from earlier work, outside the current directory | Read the shared-bot file and returned its hidden verification code, `MOSS-42` |
 
 An arithmetic control using the old automatic-setup block also answered `42`.

@@ -4,7 +4,7 @@ Run the focused checks and real Electron utility-process fixture:
 
 ```sh
 node --test electron/server-supervisor.node-test.mjs electron/server-boot-probe.node-test.mjs
-pnpm build:server
+bun run build:server
 node scripts/verify-server-recovery.mjs
 ```
 

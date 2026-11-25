@@ -28,8 +28,8 @@ Check these user paths:
    the full text; both must return on revisiting Overview.
 5. Open a skill's full text or its enable-review dialog. Tab must remain
    inside that layer and Escape must close only it. Identity → View full
-    must also close without closing settings. The settings sidebar itself is
-    non-modal: Tab may return to chat, while nested dialogs retain focus.
+   must also close without closing settings. The settings sidebar itself is
+   non-modal: Tab may return to chat, while nested dialogs retain focus.
 6. Change Soul twice, then Undo this change from History. Cancel must be
    focused by default, and cancelling must leave the profile unchanged.
    Confirm Restore instructions. The appropriate
@@ -88,7 +88,7 @@ Use only the fixture's harmless skills and routines.
 Automated coverage:
 
 ```sh
-pnpm exec vitest run server/new-bot-defaults.test.ts server/new-bot-defaults.e2e.test.ts src/components/NewBotDialog.test.ts
+bun run vitest run server/new-bot-defaults.test.ts server/new-bot-defaults.e2e.test.ts src/components/NewBotDialog.test.ts
 node --test electron/approval-trusted-mode.node-test.mjs
 ```
 

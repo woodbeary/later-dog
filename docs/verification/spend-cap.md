@@ -34,8 +34,8 @@ send is refused with the limit message once the cap is reached.
 ## Driving it
 
 ```sh
-pnpm exec vitest run --no-file-parallelism server/spend-cap-api.test.ts
-pnpm exec vitest run --no-file-parallelism server/send-landed-first-api.test.ts
+bun run vitest run --no-file-parallelism server/spend-cap-api.test.ts
+bun run vitest run --no-file-parallelism server/send-landed-first-api.test.ts
 ```
 
 The test writes a stand-in enterprise layer (the folder shape core loads,
@@ -63,7 +63,7 @@ folder whose `server/index.js` exports such a `register()`, and
 ## Unit regressions
 
 ```sh
-pnpm exec vitest run server/spend.test.ts server/model-prices.test.ts server/prices.ts server/config.test.ts server/usage-ledger.test.ts src/lib/notify.test.ts
+bun run vitest run server/spend.test.ts server/model-prices.test.ts server/prices.ts server/config.test.ts server/usage-ledger.test.ts src/lib/notify.test.ts
 ```
 
 These cover price precedence and cached-input pricing, month-to-date sums

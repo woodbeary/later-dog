@@ -22,7 +22,7 @@ This guard only applies to agent creation proposals; intentional duplicates
 made through the API remain possible. Existing routines are never removed.
 
 ```sh
-pnpm exec vitest run shared/routine-schedule.test.ts server/routine-cron.e2e.test.ts server/routine-requests.test.ts server/routines.test.ts server/routines-startup.test.ts src/lib/schedule-label.test.ts server/bot-package.test.ts server/package-export.test.ts
+bun run vitest run shared/routine-schedule.test.ts server/routine-cron.e2e.test.ts server/routine-requests.test.ts server/routines.test.ts server/routines-startup.test.ts src/lib/schedule-label.test.ts server/bot-package.test.ts server/package-export.test.ts
 ```
 
 ## Launch the isolated renderer
@@ -147,7 +147,7 @@ line is a button that scrolls to the row and flashes it; below the side-by-side
 width it also closes Details, which would otherwise cover the conversation.
 
 ```sh
-pnpm exec vitest run src/lib/time-zone-sync.test.ts server/laterdog/routine-schedule-label.test.ts \
+bun run vitest run src/lib/time-zone-sync.test.ts server/laterdog/routine-schedule-label.test.ts \
   src/components/bot-settings/RoutinesCard.test.ts src/lib/routine-display.test.ts \
   server/laterdog/time-zone.test.ts server/bot-overview.test.ts
 ```
@@ -159,8 +159,8 @@ final startup JSON. For bounded chat evidence, copy the exact fixture bot and
 execution-thread IDs into the shared control commands:
 
 ```sh
-pnpm control:laterdog wait --bot BOT_ID --task THREAD_ID --timeout 30 --url http://127.0.0.1:PORT
-pnpm control:laterdog messages --bot BOT_ID --task THREAD_ID --limit 20 --url http://127.0.0.1:PORT
+bun run control:laterdog wait --bot BOT_ID --task THREAD_ID --timeout 30 --url http://127.0.0.1:PORT
+bun run control:laterdog messages --bot BOT_ID --task THREAD_ID --limit 20 --url http://127.0.0.1:PORT
 ```
 
 Use only the printed fixture server URL. The browser interaction checklist is
@@ -200,12 +200,12 @@ that the same VPS computer tools reach the agent without a Boat key. These are
 deterministic routing checks, not a live model-choice or real VPS acceptance test.
 
 ```sh
-pnpm exec vitest run server/vps-routing.test.ts server/routine-cron.e2e.test.ts
+bun run vitest run server/vps-routing.test.ts server/routine-cron.e2e.test.ts
 ```
 
 ```sh
-pnpm exec vitest run server/routines.test.ts server/routines-startup.test.ts server/routine-results.e2e.test.ts server/routine-delegation.e2e.test.ts server/drivers/agents-proxy.test.ts
-pnpm exec vitest run src/components/RoutineRunCard.test.ts src/state/store.test.ts
+bun run vitest run server/routines.test.ts server/routines-startup.test.ts server/routine-results.e2e.test.ts server/routine-delegation.e2e.test.ts server/drivers/agents-proxy.test.ts
+bun run vitest run src/components/RoutineRunCard.test.ts src/state/store.test.ts
 ```
 
 The delegation integration tests launch their own shared-control fixtures.
@@ -222,7 +222,7 @@ unfinished work remains deduplicated beyond that window. A full retry ledger
 rejects new work rather than discarding identities that senders may still retry.
 
 ```sh
-pnpm exec vitest run server/webhook-idempotency.test.ts server/webhook-restart.e2e.test.ts
+bun run vitest run server/webhook-idempotency.test.ts server/webhook-restart.e2e.test.ts
 ```
 
 The restart test launches a disposable fake-engine server, creates a webhook,
@@ -280,7 +280,7 @@ unknown legacy report stays denied. An owner who wants the Mac back in such a
 conversation starts a new one.
 
 ```sh
-pnpm exec vitest run server/cloud-lending.test.ts server/laterdog/routine-provenance.test.ts server/laterdog/routine-provenance.integration.test.ts
+bun run vitest run server/cloud-lending.test.ts server/laterdog/routine-provenance.test.ts server/laterdog/routine-provenance.integration.test.ts
 ```
 
 The integration test boots a disposable cloud-home server with a fake engine. It
@@ -294,7 +294,7 @@ tests for the mark. It does not cover a real Mac or a live account.
 
 ## Server build type check
 
-`pnpm build:server` compiles with `tsconfig.server.build.json`, which plain `tsc --noEmit` does not read. Before claiming a server change builds, run `pnpm exec tsc -p tsconfig.server.build.json --noEmit` as well as `pnpm exec tsc --noEmit`. The legacy report and retained-run types in `server/laterdog/routine-provenance.ts` carry no index signature, so `WireMessage` and `RoutineRun` pass structurally; the exact-key guards read `Object.entries`.
+`bun run build:server` compiles with `tsconfig.server.build.json`, which plain `tsc --noEmit` does not read. Before claiming a server change builds, run `bun run tsc -p tsconfig.server.build.json --noEmit` as well as `bun run tsc --noEmit`. The legacy report and retained-run types in `server/laterdog/routine-provenance.ts` carry no index signature, so `WireMessage` and `RoutineRun` pass structurally; the exact-key guards read `Object.entries`.
 
 ## Owner provenance of a manual run
 

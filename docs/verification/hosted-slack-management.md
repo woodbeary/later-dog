@@ -25,9 +25,9 @@ its own visitors.
 Run these disposable fixtures:
 
 ```sh
-pnpm exec vitest run server/hosted-slack.test.ts server/routes/hosted-slack.test.ts server/request-auth.test.ts server/hosted-access.test.ts
-pnpm typecheck
-pnpm lint
+bun run vitest run server/hosted-slack.test.ts server/routes/hosted-slack.test.ts server/request-auth.test.ts server/hosted-access.test.ts
+bun run typecheck
+bun run lint
 ```
 
 The route test serves the module through the route table on a real HTTP

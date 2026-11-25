@@ -1,38 +1,41 @@
 name: Prepare node_modules
-description: Restores node_modules for the root and both standalone packages, installs on a miss, and saves on a miss.
+description: Restores node_modules for the root and standalone packages, installs on a miss, and saves on a miss.
 runs:
   using: composite
   steps:
-    - name: Set up pnpm from the packageManager field
-      uses: pnpm/action-setup@a7487c7e89a18df4991f7f222e4898a00d66ddda
-      with:
-        run_install: false
     - name: Set up Node from .nvmrc
       uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
       with:
         node-version-file: .nvmrc
-    - name: Name the cache after the OS, architecture, Node, pnpm and lockfiles
+    - name: Set up the pinned Bun
+      uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
+      with:
+        bun-version-file: .bun-version
+    - name: Name the cache after the OS, architecture, Node, Bun and lockfiles
       id: key
       shell: bash
       run: |
-        echo "name=node-modules-${RUNNER_OS}-${RUNNER_ARCH}-$(cat .nvmrc)-$(node -p "require('./package.json').packageManager")-${{ hashFiles('pnpm-lock.yaml', 'pnpm-workspace.yaml', 'deploy/laterdog/home/pnpm-lock.yaml', 'deploy/laterdog/computers/pnpm-lock.yaml') }}" >> "$GITHUB_OUTPUT"
+        echo "name=node-modules-${RUNNER_OS}-${RUNNER_ARCH}-$(cat .nvmrc)-$(node -p "require('./package.json').packageManager")-${{ hashFiles('.bun-version', 'bunfig.toml', 'bun.lock', 'package.json', 'cloudflare/control-plane/package.json', 'deploy/laterdog/home/bun.lock', 'deploy/laterdog/computers/bun.lock', 'deploy/laterdog/cloudflare/bun.lock', 'deploy/laterdog/*/bunfig.toml', 'deploy/laterdog/*/package.json', '**/scripts/check-package-manager.mjs') }}" >> "$GITHUB_OUTPUT"
     - name: Restore node_modules
       id: restore
       uses: actions/cache/restore@0400d5f644dc74513175e3cd8d07132dd4860809
       with:
         key: ${{ steps.key.outputs.name }}
         path: |
+          ~/.bun/install/cache
           node_modules
           cloudflare/control-plane/node_modules
           deploy/laterdog/home/node_modules
           deploy/laterdog/computers/node_modules
+          deploy/laterdog/cloudflare/node_modules
     - name: Install every package on a cache miss
       if: steps.restore.outputs.cache-hit != 'true'
       shell: bash
       run: |
-        pnpm install --frozen-lockfile
-        pnpm install --ignore-workspace --frozen-lockfile --dir deploy/laterdog/home
-        pnpm install --ignore-workspace --frozen-lockfile --dir deploy/laterdog/computers
+        bun install --frozen-lockfile --cpu=arm64 --cpu=x64
+        bun install --cwd deploy/laterdog/home --frozen-lockfile
+        bun install --cwd deploy/laterdog/computers --frozen-lockfile
+        bun install --cwd deploy/laterdog/cloudflare --frozen-lockfile
     - name: Prepare Electron test runtime
       if: steps.restore.outputs.cache-hit != 'true'
       shell: bash
@@ -41,9 +44,10 @@ runs:
       if: steps.restore.outputs.cache-hit == 'true'
       shell: bash
       run: |
-        pnpm install --frozen-lockfile --offline
-        pnpm install --ignore-workspace --frozen-lockfile --offline --dir deploy/laterdog/home
-        pnpm install --ignore-workspace --frozen-lockfile --offline --dir deploy/laterdog/computers
+        bun install --frozen-lockfile --offline --cpu=arm64 --cpu=x64
+        bun install --cwd deploy/laterdog/home --frozen-lockfile --offline
+        bun install --cwd deploy/laterdog/computers --frozen-lockfile --offline
+        bun install --cwd deploy/laterdog/cloudflare --frozen-lockfile --offline
         node --input-type=commonjs -e "require('electron')"
     - name: Save node_modules on a cache miss
       if: steps.restore.outputs.cache-hit != 'true'
@@ -51,7 +55,9 @@ runs:
       with:
         key: ${{ steps.key.outputs.name }}
         path: |
+          ~/.bun/install/cache
           node_modules
           cloudflare/control-plane/node_modules
           deploy/laterdog/home/node_modules
           deploy/laterdog/computers/node_modules
+          deploy/laterdog/cloudflare/node_modules

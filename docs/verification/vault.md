@@ -13,7 +13,7 @@ It prints the fixture's `url`, the dog and both tasks, and a `continueFile`. Poi
 renderer at the url:
 
 ```sh
-LATERDOG_DEV_API_URL=<url> pnpm exec vite --host 127.0.0.1 --port 5294 --strictPort
+LATERDOG_DEV_API_URL=<url> bun run vite --host 127.0.0.1 --port 5294 --strictPort
 ```
 
 ## What to check

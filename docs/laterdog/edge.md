@@ -17,14 +17,14 @@ node scripts/edge-apply.mjs --only=rate-limits,managed-rules --apply
 node scripts/edge-apply.mjs --apply      # every step marked "change", in order
 ```
 
-| Flag | What it does |
-| --- | --- |
-| `--apply` | Writes. Before the first write it saves what it read to `~/.laterdog/edge-snapshots/<time>.json` |
-| `--only=a,b` | Limits the run to these steps (names below) |
-| `--prune` | Lets a ruleset step remove rules someone added in the dashboard, and the `dns` step delete extra apex or `www` records. Without it, such a step is `blocked` |
-| `--rollback=<snapshot>` | Plans the way back to a saved snapshot. Add `--apply` to do it |
-| `--save-state=<file>` | Writes what was read (no secrets) to a file |
-| `--replay=<file>` | Reads recorded GET answers instead of the API. Read-only, refuses `--apply` |
+| Flag                    | What it does                                                                                                                                                 |
+| ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `--apply`               | Writes. Before the first write it saves what it read to `~/.laterdog/edge-snapshots/<time>.json`                                                             |
+| `--only=a,b`            | Limits the run to these steps (names below)                                                                                                                  |
+| `--prune`               | Lets a ruleset step remove rules someone added in the dashboard, and the `dns` step delete extra apex or `www` records. Without it, such a step is `blocked` |
+| `--rollback=<snapshot>` | Plans the way back to a saved snapshot. Add `--apply` to do it                                                                                               |
+| `--save-state=<file>`   | Writes what was read (no secrets) to a file                                                                                                                  |
+| `--replay=<file>`       | Reads recorded GET answers instead of the API. Read-only, refuses `--apply`                                                                                  |
 
 Each step prints one status: `ok` (already matches), `change` (will be written), `blocked` (a safety check failed, the
 reason is printed), `waiting` (depends on something not done yet) or `report` (only a person or a deploy can fix it).
@@ -49,30 +49,30 @@ Rate limits and log-mode rules go first because they are the cheapest to undo: a
 that is over its limit, and log mode only records. They can still hurt real people who share one address (see the shared
 address section below), so watch Security, Events after applying. Steps that can change what every request sees come later.
 
-| # | Step | What it sets | File |
-| --- | --- | --- | --- |
-| 1 | `rate-limits` | R1 to R5 below | `rate-limits.json` |
-| 2 | `managed-rules` | Cloudflare Managed Ruleset in log mode on `later.dog` and every subdomain, in one rule | `managed-rules.json` |
-| 3 | `bots` | Bot classes stay at allow, no JavaScript detections | `bots.json` |
-| 4 | `ai-gateway` | Gateway `laterdog` with spend limits (the money kill switch) | `ai-gateway.json` |
-| 5 | `dns` | Apex and `www` become `AAAA 100::` (proxied) instead of the Namecheap parking records | `zone.json` |
-| 6 | `zone-settings` | Always Use HTTPS, minimum TLS 1.2, HSTS for 1 day, Brotli, HTTP/3 | `zone.json` |
-| 7 | `ssl-strict` | SSL mode Full (strict), only after the certificate check passes | `zone.json` |
-| 8 | `workers-dev` | Reports workers.dev and preview URLs that bypass the zone rules | `workers-dev.json` |
-| 9 | `turnstile` | Drops the workers.dev hostname from the trial widget, once that URL is off | `workers-dev.json` |
+| #   | Step            | What it sets                                                                           | File                 |
+| --- | --------------- | -------------------------------------------------------------------------------------- | -------------------- |
+| 1   | `rate-limits`   | R1 to R5 below                                                                         | `rate-limits.json`   |
+| 2   | `managed-rules` | Cloudflare Managed Ruleset in log mode on `later.dog` and every subdomain, in one rule | `managed-rules.json` |
+| 3   | `bots`          | Bot classes stay at allow, no JavaScript detections                                    | `bots.json`          |
+| 4   | `ai-gateway`    | Gateway `laterdog` with spend limits (the money kill switch)                           | `ai-gateway.json`    |
+| 5   | `dns`           | Apex and `www` become `AAAA 100::` (proxied) instead of the Namecheap parking records  | `zone.json`          |
+| 6   | `zone-settings` | Always Use HTTPS, minimum TLS 1.2, HSTS for 1 day, Brotli, HTTP/3                      | `zone.json`          |
+| 7   | `ssl-strict`    | SSL mode Full (strict), only after the certificate check passes                        | `zone.json`          |
+| 8   | `workers-dev`   | Reports workers.dev and preview URLs that bypass the zone rules                        | `workers-dev.json`   |
+| 9   | `turnstile`     | Drops the workers.dev hostname from the trial widget, once that URL is off             | `workers-dev.json`   |
 
 ### 1. Rate limits
 
 The zone allows 5 rules, counting periods of 10, 60 or 600 seconds, counted per IP and per Cloudflare data centre. Each
 rule answers `429` with JSON in the shape the app already reads, for the rule's block time.
 
-| Rule | Matches | Limit | Blocked for |
-| --- | --- | --- | --- |
-| R1 | `POST accounts.later.dog/api/auth/email-otp/send-verification-otp`, `/api/auth/email-otp/request-password-reset` and `/api/auth/forget-password/email-otp` (every Better Auth route that emails a code) | 3 per 10 min | 10 min |
-| R2 | `POST accounts.later.dog/api/auth/sign-in/email-otp` | 10 per 10 min | 10 min |
-| R3 | `POST cloud.later.dog/v1/trials/start` and `POST /trial` | 3 per 10 min | 10 min |
-| R4 | everything on `cloud.later.dog` except `/v1/ai/*`, `/v1/voice/*`, `/v1/computers` and `/v1/computers/*`, `/v1/complete`, `/v1/systemone`, `/v1/trial` and `/v1/plan` | 300 per min | 1 min |
-| R5 | every `*-home.later.dog` | 600 per min | 1 min |
+| Rule | Matches                                                                                                                                                                                                 | Limit         | Blocked for |
+| ---- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------- | ----------- |
+| R1   | `POST accounts.later.dog/api/auth/email-otp/send-verification-otp`, `/api/auth/email-otp/request-password-reset` and `/api/auth/forget-password/email-otp` (every Better Auth route that emails a code) | 3 per 10 min  | 10 min      |
+| R2   | `POST accounts.later.dog/api/auth/sign-in/email-otp`                                                                                                                                                    | 10 per 10 min | 10 min      |
+| R3   | `POST cloud.later.dog/v1/trials/start` and `POST /trial`                                                                                                                                                | 3 per 10 min  | 10 min      |
+| R4   | everything on `cloud.later.dog` except `/v1/ai/*`, `/v1/voice/*`, `/v1/computers` and `/v1/computers/*`, `/v1/complete`, `/v1/systemone`, `/v1/trial` and `/v1/plan`                                    | 300 per min   | 1 min       |
+| R5   | every `*-home.later.dog`                                                                                                                                                                                | 600 per min   | 1 min       |
 
 R1 and R2 sit in front of Better Auth's own per-IP limits (5 and 10 a minute, kept in D1), so a flood stops before it costs
 an email or a database write. R3 caps trial farming from one network. R4 and R5 blunt floods and home wake-up storms.
@@ -152,12 +152,12 @@ Cloud Worker already falls back on any non-OK answer: Grok to Kimi, ElevenLabs t
 `all-daily` has no provider filter, so it is the hard stop: once it trips, every call through the gateway gets `429`,
 Kimi included once Kimi goes through `laterdog`, and the free AI and voice go dark until the 24 hours roll over.
 
-| Rule | Provider | Limit per 24 h |
-| --- | --- | --- |
-| `grok-daily` | grok | $40 |
-| `anthropic-daily` | anthropic | $16 |
-| `elevenlabs-daily` | elevenlabs | `LATERDOG_EDGE_ELEVENLABS_USD_PER_DAY` (left out while unset; keep it unset until the ElevenLabs key is on the gateway) |
-| `all-daily` | every provider | $250 |
+| Rule               | Provider       | Limit per 24 h                                                                                                          |
+| ------------------ | -------------- | ----------------------------------------------------------------------------------------------------------------------- |
+| `grok-daily`       | grok           | $40                                                                                                                     |
+| `anthropic-daily`  | anthropic      | $16                                                                                                                     |
+| `elevenlabs-daily` | elevenlabs     | `LATERDOG_EDGE_ELEVENLABS_USD_PER_DAY` (left out while unset; keep it unset until the ElevenLabs key is on the gateway) |
+| `all-daily`        | every provider | $250                                                                                                                    |
 
 `byok_only` ("Require provider credentials") stays off until provider keys for grok and anthropic are stored on the
 gateway; the dry run after that turns it on.
@@ -180,7 +180,7 @@ such as `LATERDOG_ANTHROPIC`, is never found, whatever `secret_id` a provider co
 
 Attaching a secret to a gateway counts as a write to Secrets Store, so the role or token needs Secrets Store Edit. The
 dry run's `ai-gateway` step says so while the key is missing. Turn Claude Haiku first on only after that line is gone:
-set `ANTHROPIC_FIRST` to `"1"` in `deploy/laterdog/computers/wrangler.jsonc`, run `pnpm run eval:haiku` there, and
+set `ANTHROPIC_FIRST` to `"1"` in `deploy/laterdog/computers/wrangler.jsonc`, run `bun run eval:haiku` there, and
 deploy the computers Worker. Without the key, every chat would first get a 400 from the gateway and then fall through to
 Kimi.
 
@@ -259,6 +259,7 @@ Quicker, narrower ways out:
 
    Better Auth also answers `429` after 10 tries a minute, so look at the body: from the 11th request on it should be
    R2's own message, "Too many sign-in tries from this network. Wait 10 minutes, then try again."
+
 4. The desktop and phone fixtures sign in on a test account (see [verification](verification.md)).
 
 ## Recorded live dry run

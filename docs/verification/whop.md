@@ -47,11 +47,11 @@ S256, refresh tokens and the `admin` scope.
 ## Regression checks
 
 ```sh
-pnpm exec vitest run src/lib/whop-integration.test.ts src/components/McpConnectorCards.test.ts src/components/McpServersPanel.whop.test.ts src/components/PluginsPanel.connectors.test.ts src/components/PluginsPanel.navigation.test.ts src/components/PluginsPanel.i18n.test.ts src/components/McpServersPanel.test.ts src/components/McpServersPanel.embedded.test.ts src/lib/mcp-sign-in.test.ts server/mcp-oauth.test.ts server/mcp-oauth-discovery.test.ts server/mcp-oauth-store.test.ts server/mcp-probe.test.ts server/mcp-selection.e2e.test.ts server/mcp-remote-proxy.test.ts server/mcp-gate-config.test.ts server/drivers/pi-mcp-extension.test.ts scripts/testing/verification-docs.test.ts
-pnpm typecheck
-pnpm lint
-pnpm i18n:check
-pnpm build
+bun run vitest run src/lib/whop-integration.test.ts src/components/McpConnectorCards.test.ts src/components/McpServersPanel.whop.test.ts src/components/PluginsPanel.connectors.test.ts src/components/PluginsPanel.navigation.test.ts src/components/PluginsPanel.i18n.test.ts src/components/McpServersPanel.test.ts src/components/McpServersPanel.embedded.test.ts src/lib/mcp-sign-in.test.ts server/mcp-oauth.test.ts server/mcp-oauth-discovery.test.ts server/mcp-oauth-store.test.ts server/mcp-probe.test.ts server/mcp-selection.e2e.test.ts server/mcp-remote-proxy.test.ts server/mcp-gate-config.test.ts server/drivers/pi-mcp-extension.test.ts scripts/testing/verification-docs.test.ts
+bun run typecheck
+bun run lint
+bun run i18n:check
+bun run build
 ```
 
 ## Live acceptance (account owner required)

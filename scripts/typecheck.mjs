@@ -39,7 +39,7 @@ export function typecheck({
       version.stdout?.trim() ||
       `exit ${version.status}`;
     stderr(
-      `typecheck: pinned Bun ${pin} is unavailable at ${checker}: ${reason}; run pnpm install --frozen-lockfile\n`,
+      `typecheck: pinned Bun ${pin} is unavailable at ${checker}: ${reason}; run bun install --frozen-lockfile --cpu=arm64 --cpu=x64\n`,
     );
     return 1;
   }

@@ -3,11 +3,11 @@
 Run the fixtures in isolated homes, with local Boat and VPS stubs:
 
 ```sh
-pnpm exec vitest run server/index.test.ts -t 'keeps every dog on its own computer|dispatches the conversation.s pinned computer|blocks bot-scoped Boat lifecycle'
-pnpm exec vitest run server/vps-routing.test.ts -t 'runs two turns of one bot on the VPS at once'
-pnpm exec vitest run server/turn-resources.test.ts server/computer-wait.test.ts server/shared-computers.e2e.test.ts
-pnpm exec vitest run server/cloud-computer-slow-start.e2e.test.ts
-pnpm exec vitest run server/managed-desktop-cleanup.test.ts
+bun run vitest run server/index.test.ts -t 'keeps every dog on its own computer|dispatches the conversation.s pinned computer|blocks bot-scoped Boat lifecycle'
+bun run vitest run server/vps-routing.test.ts -t 'runs two turns of one bot on the VPS at once'
+bun run vitest run server/turn-resources.test.ts server/computer-wait.test.ts server/shared-computers.e2e.test.ts
+bun run vitest run server/cloud-computer-slow-start.e2e.test.ts
+bun run vitest run server/managed-desktop-cleanup.test.ts
 ```
 
 Every dog has its own computer, so waiting happens between conversations of

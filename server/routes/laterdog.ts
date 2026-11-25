@@ -6,7 +6,10 @@ import { connectedRepositories } from "../laterdog/connected-repositories.ts";
 const FORWARDED_QUERY = ["ids", "bot", "limit", "after"];
 function queryFor(url: URL): string {
   const kept = new URLSearchParams();
-  for (const name of FORWARDED_QUERY) { const value = url.searchParams.get(name); if (value !== null && value.length <= 4000) kept.set(name, value); }
+  for (const name of FORWARDED_QUERY) {
+    const value = url.searchParams.get(name);
+    if (value !== null && value.length <= 4000) kept.set(name, value);
+  }
   const text = kept.toString();
   return text ? `?${text}` : "";
 }
@@ -15,21 +18,44 @@ export function createLaterDogRoutes(): RouteHandler {
   return async ({ req, res, method, path, url, json, readBody }) => {
     if (!path.startsWith("/api/laterdog/")) return PASS;
     const suffix = path.slice("/api/laterdog".length);
-    if (!/^\/(workspace|verification-policy|github\/(?:access|login)|profiles\/[a-zA-Z0-9_-]+\/(access|tasks)|observations|repositories|jobs(?:\/[\w-]+(?:\/(action|patch|activity|screen))?)?|bridge\/(?:devices(?:\/[\w-]+)?|pairing|requests))$/.test(suffix)) return PASS;
-    let origin: string; let token: string;
-    try { origin = supervisorOrigin(); token = desktopSupervisorToken(); }
-    catch (error) { return json(res,503,{ error: error instanceof Error ? error.message : String(error) }); }
+    if (
+      !/^\/(workspace|verification-policy|github\/(?:access|login)|profiles\/[a-zA-Z0-9_-]+\/(access|tasks)|observations|repositories|jobs(?:\/[\w-]+(?:\/(action|patch|activity|screen))?)?|bridge\/(?:devices(?:\/[\w-]+)?|pairing|requests))$/.test(
+        suffix,
+      )
+    )
+      return PASS;
+    let origin: string;
+    let token: string;
     try {
-      const body = ["POST","PUT"].includes(method) ? JSON.stringify(await readBody(req,200_000)) : undefined;
-      const query = method === "GET" && /^\/jobs(?:\/[\w-]+\/activity)?$/.test(suffix) ? queryFor(url) : "";
-      const response = await fetch(`${origin}/v1${suffix}${query}`,{ method, headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
-        ...(body === undefined ? {} : { body }), redirect: "error", signal: AbortSignal.timeout(method === "GET" ? (suffix.endsWith("/activity") ? 45_000 : 10_000) : 660_000) });
-      const result = await response.json() as Record<string, unknown>;
+      origin = supervisorOrigin();
+      token = desktopSupervisorToken();
+    } catch (error) {
+      return json(res, 503, { error: error instanceof Error ? error.message : String(error) });
+    }
+    try {
+      const body = ["POST", "PUT"].includes(method)
+        ? JSON.stringify(await readBody(req, 200_000))
+        : undefined;
+      const query =
+        method === "GET" && /^\/jobs(?:\/[\w-]+\/activity)?$/.test(suffix) ? queryFor(url) : "";
+      const response = await fetch(`${origin}/v1${suffix}${query}`, {
+        method,
+        headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+        ...(body === undefined ? {} : { body }),
+        redirect: "error",
+        signal: AbortSignal.timeout(
+          method === "GET" ? (suffix.endsWith("/activity") ? 45_000 : 10_000) : 660_000,
+        ),
+      });
+      const result = (await response.json()) as Record<string, unknown>;
       if (suffix === "/repositories" && method !== "GET") connectedRepositories.forget();
-      if (suffix === "/workspace" && response.ok && wakeupPullActive()) result.wakeupsConfigured = true;
-      return json(res,response.status,result);
+      if (suffix === "/workspace" && response.ok && wakeupPullActive())
+        result.wakeupsConfigured = true;
+      return json(res, response.status, result);
     } catch {
-      return json(res,503,{ error: `The later.dog supervisor at ${origin} is unavailable. Start it with pnpm laterdog:supervisor, or save a hosted connection in ~/.laterdog/supervisor.json.` });
+      return json(res, 503, {
+        error: `The later.dog supervisor at ${origin} is unavailable. Start it with bun run laterdog:supervisor, or save a hosted connection in ~/.laterdog/supervisor.json.`,
+      });
     }
   };
 }

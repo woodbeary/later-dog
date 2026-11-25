@@ -1,4 +1,4 @@
-import { MINUTE, bounded } from "./idle";
+import { MINUTE, bounded } from "./idle.js";
 
 export const DAY = 24 * 60 * MINUTE;
 export const TRIAL_TOKEN = /^ldt_[A-Za-z0-9_-]{43}$/;
@@ -53,8 +53,12 @@ export function trialPolicy(env: TrialEnv): TrialPolicy {
   const siteKey = env.TURNSTILE_SITE_KEY?.trim() ?? "";
   const secret = env.TURNSTILE_SECRET_KEY?.trim() ?? "";
   const perDay = Math.floor(bounded(env.TRIALS_PER_DAY, 20, 0, 10_000));
-  const configured = siteKey !== "" && secret !== "" && Boolean(env.TRIAL_NETWORK_KEY?.trim())
-    && !TURNSTILE_TEST_KEY.test(siteKey) && !TURNSTILE_TEST_KEY.test(secret);
+  const configured =
+    siteKey !== "" &&
+    secret !== "" &&
+    Boolean(env.TRIAL_NETWORK_KEY?.trim()) &&
+    !TURNSTILE_TEST_KEY.test(siteKey) &&
+    !TURNSTILE_TEST_KEY.test(secret);
   return {
     enabled: env.TRIALS_ENABLED?.trim() === "true" && configured && perDay > 0,
     siteKey,
@@ -63,12 +67,22 @@ export function trialPolicy(env: TrialEnv): TrialPolicy {
     perDay,
     perNetwork: Math.floor(bounded(env.TRIALS_PER_NETWORK, 2, 1, 50)),
     idleSleepMs: Math.round(bounded(env.TRIAL_IDLE_SLEEP_MINUTES, 5, 1, 60)) * MINUTE,
-    countries: [...new Set((env.TRIAL_COUNTRIES ?? "").split(",").map((code) => code.trim().toUpperCase()))].filter((code) => /^[A-Z]{2}$/.test(code)),
+    countries: [
+      ...new Set((env.TRIAL_COUNTRIES ?? "").split(",").map((code) => code.trim().toUpperCase())),
+    ].filter((code) => /^[A-Z]{2}$/.test(code)),
   };
 }
 
-export function trialOffer(policy: TrialPolicy): { offered: boolean; minutes: number; days: number } {
-  return { offered: policy.enabled, minutes: Math.round(policy.limitMs / MINUTE), days: Math.round(policy.windowMs / DAY) };
+export function trialOffer(policy: TrialPolicy): {
+  offered: boolean;
+  minutes: number;
+  days: number;
+} {
+  return {
+    offered: policy.enabled,
+    minutes: Math.round(policy.limitMs / MINUTE),
+    days: Math.round(policy.windowMs / DAY),
+  };
 }
 
 export function trialView(trial: TrialRecord): TrialView {
@@ -86,23 +100,30 @@ export function trialListing(id: string): string {
 }
 
 export function allowedCountry(policy: TrialPolicy, country: string | undefined): boolean {
-  return policy.countries.length === 0 || (country !== undefined && policy.countries.includes(country.toUpperCase()));
+  return (
+    policy.countries.length === 0 ||
+    (country !== undefined && policy.countries.includes(country.toUpperCase()))
+  );
 }
 
-export type TrialForm = { ok: true; claim: string; token: string } | { ok: false; problem: "claim" | "check" };
+export type TrialForm =
+  | { ok: true; claim: string; token: string }
+  | { ok: false; problem: "claim" | "check" };
 
 export function parseTrialForm(text: string): TrialForm {
   const form = new URLSearchParams(text);
   const claim = form.get("claim") ?? "";
   if (!TRIAL_CLAIM.test(claim)) return { ok: false, problem: "claim" };
   const token = form.get("cf-turnstile-response") ?? "";
-  if (token.length === 0 || token.length > TURNSTILE_TOKEN_MAX_CHARS) return { ok: false, problem: "check" };
+  if (token.length === 0 || token.length > TURNSTILE_TOKEN_MAX_CHARS)
+    return { ok: false, problem: "check" };
   return { ok: true, claim, token };
 }
 
 function ipv4(text: string): number[] | undefined {
   const parts = text.split(".");
-  if (parts.length !== 4 || !parts.every((part) => /^\d{1,3}$/.test(part) && Number(part) <= 255)) return undefined;
+  if (parts.length !== 4 || !parts.every((part) => /^\d{1,3}$/.test(part) && Number(part) <= 255))
+    return undefined;
   return parts.map(Number);
 }
 
@@ -154,15 +175,35 @@ export function networkOf(raw: string | null | undefined): string | undefined {
 }
 
 export async function networkDigest(secret: string, network: string): Promise<string> {
-  const key = await crypto.subtle.importKey("raw", new TextEncoder().encode(secret), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
-  const mac = new Uint8Array(await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(`laterdog-trial-network\n${network}`)));
+  const key = await crypto.subtle.importKey(
+    "raw",
+    new TextEncoder().encode(secret),
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["sign"],
+  );
+  const mac = new Uint8Array(
+    await crypto.subtle.sign(
+      "HMAC",
+      key,
+      new TextEncoder().encode(`laterdog-trial-network\n${network}`),
+    ),
+  );
   return Array.from(mac, (byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 
-export function turnstileVerdict(outcome: unknown, expected: { hostname: string; cdata: string }): boolean {
+export function turnstileVerdict(
+  outcome: unknown,
+  expected: { hostname: string; cdata: string },
+): boolean {
   if (typeof outcome !== "object" || outcome === null) return false;
   const result = outcome as Record<string, unknown>;
-  return result.success === true && result.hostname === expected.hostname && result.action === TRIAL_ACTION && result.cdata === expected.cdata;
+  return (
+    result.success === true &&
+    result.hostname === expected.hostname &&
+    result.action === TRIAL_ACTION &&
+    result.cdata === expected.cdata
+  );
 }
 
 export async function verifyTurnstile(input: {
@@ -176,7 +217,11 @@ export async function verifyTurnstile(input: {
   if (input.ip) body.set("remoteip", input.ip);
   let outcome: unknown;
   try {
-    const response = await fetch(SITEVERIFY_URL, { method: "POST", body, signal: AbortSignal.timeout(10_000) });
+    const response = await fetch(SITEVERIFY_URL, {
+      method: "POST",
+      body,
+      signal: AbortSignal.timeout(10_000),
+    });
     if (!response.ok) {
       await response.body?.cancel();
       return "unavailable";
@@ -186,8 +231,13 @@ export async function verifyTurnstile(input: {
     return "unavailable";
   }
   const codes = (outcome as { "error-codes"?: unknown } | null)?.["error-codes"];
-  if (Array.isArray(codes) && codes.some((code) => code === "invalid-input-secret" || code === "missing-input-secret")) {
-    console.error("laterdog computers: Turnstile refused the secret key; check TURNSTILE_SECRET_KEY");
+  if (
+    Array.isArray(codes) &&
+    codes.some((code) => code === "invalid-input-secret" || code === "missing-input-secret")
+  ) {
+    console.error(
+      "laterdog computers: Turnstile refused the secret key; check TURNSTILE_SECRET_KEY",
+    );
     return "unavailable";
   }
   return turnstileVerdict(outcome, input) ? "passed" : "failed";

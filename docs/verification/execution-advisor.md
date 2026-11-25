@@ -46,9 +46,9 @@ production verification without sending synthetic requests to live dogs.
 Use Node 24 or newer and pnpm:
 
 ```sh
-pnpm exec vitest run server/laterdog/execution-evidence.test.ts server/laterdog/execution-advisor.test.ts server/execution-advisor.e2e.test.ts server/usage-ledger.test.ts server/model-prices.test.ts server/agent-tool-policy.test.ts server/routes/execution-advice.test.ts server/drivers/agents-proxy.test.ts server/drivers/agents-catalog-wire.test.ts
-pnpm typecheck
-pnpm lint
+bun run vitest run server/laterdog/execution-evidence.test.ts server/laterdog/execution-advisor.test.ts server/execution-advisor.e2e.test.ts server/usage-ledger.test.ts server/model-prices.test.ts server/agent-tool-policy.test.ts server/routes/execution-advice.test.ts server/drivers/agents-proxy.test.ts server/drivers/agents-catalog-wire.test.ts
+bun run typecheck
+bun run lint
 ```
 
 The end-to-end test launches the standard isolated verification server and fake

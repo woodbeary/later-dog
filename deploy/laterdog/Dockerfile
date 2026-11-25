@@ -1,16 +1,23 @@
+FROM oven/bun:1.4.5 AS bun-runtime
+
+FROM --platform=$BUILDPLATFORM oven/bun:1.4.5 AS bun-tool
+
 FROM --platform=$BUILDPLATFORM node:24-bookworm-slim AS build
 WORKDIR /app
-RUN corepack enable && corepack prepare pnpm@10.33.0 --activate
-COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
-RUN pnpm install --frozen-lockfile --ignore-scripts
+COPY --from=bun-tool /usr/local/bin/bun /usr/local/bin/bun
+RUN test "$(bun --version)" = 1.4.5
+COPY package.json bun.lock bunfig.toml .bun-version ./
+COPY cloudflare/control-plane/package.json ./cloudflare/control-plane/package.json
+COPY scripts/check-package-manager.mjs ./scripts/check-package-manager.mjs
+RUN bun install --frozen-lockfile --ignore-scripts --cpu=arm64 --cpu=x64
 COPY . .
-RUN pnpm laterdog:build
+RUN bun run laterdog:build
 
 FROM node:24-bookworm-slim
+COPY --from=bun-runtime /usr/local/bin/bun /usr/local/bin/bun
+RUN test "$(bun --version)" = 1.4.5
 RUN apt-get update && apt-get install -y --no-install-recommends git gh ca-certificates openssh-client sqlite3 openssl curl tini && rm -rf /var/lib/apt/lists/*
-ENV PNPM_HOME=/opt/pnpm
-ENV PATH=/opt/pnpm:$PATH
-RUN corepack enable && corepack prepare pnpm@10.33.0 --activate && pnpm add -g @openai/codex@0.154.0
+RUN corepack enable pnpm && npm install -g @openai/codex@0.154.0
 WORKDIR /app
 COPY --from=build /app/dist-server/laterdog ./laterdog
 COPY deploy/laterdog/entrypoint.sh ./entrypoint.sh

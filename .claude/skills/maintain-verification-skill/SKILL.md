@@ -9,7 +9,7 @@ Use when a change moves a route, command, screen, label or side effect that a ve
 
 ## Procedure
 
-1. **Read what exists first:** the verification skill and its feature map. For later.dog itself these are `docs/verification/README.md` and its feature pages, `docs/laterdog/verification.md`, and the canonical `skills/laterdog/verify-laterdog/` (exported by `pnpm laterdog:skills`; never edit the exports).
+1. **Read what exists first:** the verification skill and its feature map. For later.dog itself these are `docs/verification/README.md` and its feature pages, `docs/laterdog/verification.md`, and the canonical `skills/laterdog/verify-laterdog/` (exported by `bun run laterdog:skills`; never edit the exports).
 2. **Decide what is wrong.** If a recipe fails because the product is broken, report the bug with its evidence. Do not rewrite the recipe until it passes.
 3. **Match the change to the map.** List the routes, commands, entry points and side effects the change touched, and find each one's entry. Add entries for new surfaces, including second ways in (a menu item, a shortcut, an MCP tool). Before deleting a stale entry, search for anything that links to it or runs it.
 4. **Correct commands by running them** against the real app in an isolated instance, not by reading the code alone.

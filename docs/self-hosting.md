@@ -1,6 +1,6 @@
 # Self-hosting the later.dog server
 
-> **Not published yet.** later.dog has no npm package yet, so `npx laterdog` and `npm install -g laterdog` do not work today. Run the server from a clone instead (`pnpm install && pnpm build`, then `node dist-server/laterdog.js`).
+> **Not published yet.** later.dog has no npm package yet, so `npx laterdog` and `npm install -g laterdog` do not work today. Run the server from a clone instead (`bun install --cpu=arm64 --cpu=x64 && bun run build`, then `node dist-server/laterdog.js`).
 
 Run the harness server on an always-on Linux box (a VPS, a home server, a
 Mac mini in a closet) and pair browsers, the desktop app, or phones with it.
@@ -101,6 +101,7 @@ is present. Three ways to make the server reachable from elsewhere:
   fleet issued and skip `login`: the address and connector token are fetched
   at every start and nothing is written to disk. A rejected credential stops
   the start with a clear message rather than serving locally.
+
 - **Your own domain, still one command:**
 
   ```sh
@@ -113,6 +114,7 @@ is present. Three ways to make the server reachable from elsewhere:
   and renews the certificate from Let's Encrypt. On Linux, binding ports 80
   and 443 as a normal user needs one privilege grant; when Caddy reports the
   refusal, `serve` prints the exact `setcap` command to run once.
+
 - **Behind your own proxy or domain:** `npx laterdog serve --public-url
   https://dog.example.com`, with the proxy rules from "Putting a proxy in
   front".
@@ -254,12 +256,12 @@ docker compose build --build-arg CHROME_CACHE_TAG=$(date +%F) laterdog && docker
 
 ## From source
 
-Requirements: Node 24+, pnpm, and at least one agent CLI installed and
+Requirements: Node 24+, Bun 1.4.5, and at least one agent CLI installed and
 signed in on the server.
 
 ```sh
 git clone https://github.com/woodbeary/later-dog && cd later-dog
-pnpm install
+bun install --cpu=arm64 --cpu=x64
 
 # choose where data lives and start the server
 LATERDOG_HOME="$HOME/.laterdog" LATERDOG_SERVER_PORT=8799 \
@@ -402,7 +404,7 @@ reach it. On the server:
 
 ```sh
 npx laterdog pair                         # npm install
-pnpm laterdog pair                                # from a checkout
+bun run laterdog pair                                # from a checkout
 docker compose exec laterdog node dist-server/laterdog.js pair   # Docker
 ```
 
@@ -505,9 +507,9 @@ local requests: owner trust (self-hosted default)
 local requests: service trust (hosted workspace); without a session, loopback may use only health, the Slack worker's guarded routes and bot capability routes
 ```
 
-| Trust | Default for | A session-less loopback request may |
-|---|---|---|
-| `owner` | a self-hosted server, the desktop app | do everything, as today |
+| Trust     | Default for                                                                                                                                                                          | A session-less loopback request may                                                                                                                                                                                                                                                                      |
+| --------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `owner`   | a self-hosted server, the desktop app                                                                                                                                                | do everything, as today                                                                                                                                                                                                                                                                                  |
 | `service` | a hosted workspace: any of `LATERDOG_ADMIN_URL`, `LATERDOG_ADMIN_WORKSPACE` or `LATERDOG_ADMIN_MEMBERSHIP` set (shared-workspace Full access only works there, so it is covered too) | read health, who-am-I, the bot list, a thread's messages and a bot's picture; open a thread; send through the guarded route; watch and stop its exact request; withdraw a queued line; **decline** a card; use the bots' own capability routes (`/api/internal/*`, which check their own per-turn token) |
 
 Under `service`, everything else from loopback needs a real session and
@@ -922,7 +924,7 @@ selects a particular published release; replace `X.Y.Z` with that version.
 
 ```sh
 docker compose -f deploy/docker-compose.yml pull laterdog && docker compose -f deploy/docker-compose.yml up -d   # Docker
-git pull && pnpm install && sudo systemctl restart laterdog          # from source
+git pull && bun install --cpu=arm64 --cpu=x64 && sudo systemctl restart laterdog          # from source
 ```
 
 Routines and queued work survive restarts; in-flight turns do not, so

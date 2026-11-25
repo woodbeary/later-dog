@@ -3,7 +3,7 @@
 Build and run the isolated server/browser fixture on Linux or macOS:
 
 ```sh
-pnpm build
+bun run build
 node --experimental-strip-types scripts/verify-desktop-viewer.ts
 ```
 
@@ -16,7 +16,7 @@ server data are disposable; it never contacts the host Docker daemon or a real
 desktop. Cleanup closes the owned browser, server and RFB sockets.
 The synthetic Docker and SSH executables are POSIX shebang scripts; this standalone
 recipe does not cover Windows. It is a manual smoke command, not part of
-`pnpm test` or the renderer CI job.
+`bun run test` or the renderer CI job.
 
 The fixture reuses the shared HTTP and browser helpers. Keyboard and clipboard
 checks wait for received RFB events, with bounded waits. Set
@@ -61,8 +61,8 @@ upstream rejection/timeouts, and stripping workspace credentials from the
 upstream request:
 
 ```sh
-pnpm exec vitest run server/routes/desktop-viewer.test.ts server/container-computer.test.ts server/request-auth.test.ts server/vps-computer.test.ts
-pnpm exec vitest run scripts/testing/verification-docs.test.ts
+bun run vitest run server/routes/desktop-viewer.test.ts server/container-computer.test.ts server/request-auth.test.ts server/vps-computer.test.ts
+bun run vitest run scripts/testing/verification-docs.test.ts
 ```
 
 The page is built with the app; VM-controlled HTML and JavaScript never run

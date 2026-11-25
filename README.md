@@ -27,8 +27,6 @@ Start free, or use the Claude, ChatGPT, Grok or Cursor plan you already have.</p
 
 <p align="center">Ask for real work. Your dog checks your accounts, asks another dog for help, uses its own computer, and comes back with it done. Say "every Monday" and it keeps doing it.</p>
 
-
-
 <h3 align="center">Message your dogs like teammates</h3>
 
 <p align="center">Give a dog a task the way you would ask someone you work with, from your <b>Mac</b> or your <b>iPhone</b>. Sign in with the same email on both and the same dogs and chats are there.</p>
@@ -77,8 +75,6 @@ Start free, or use the Claude, ChatGPT, Grok or Cursor plan you already have.</p
 
 <p align="center">Start on the <b>free AI</b> that comes with later.dog. When you want more, sign in to <b>Claude</b>, <b>ChatGPT</b>, <b>Grok</b> or <b>Cursor</b> with the plan you already pay for. No API keys.</p>
 
-
-
 ## How it works
 
 <p align="center">
@@ -123,8 +119,8 @@ account, the Mac runs dogs on its own and the app can offer the same allowance a
 
 ```sh
 git clone https://github.com/woodbeary/later-dog.git && cd later-dog
-pnpm install --frozen-lockfile        # Node 24 and pnpm 10.33
-pnpm laterdog:package                 # unsigned local build → release/mac-arm64/later.dog.app
+bun install --cpu=arm64 --cpu=x64 --frozen-lockfile        # Node 24 and Bun 1.4.5
+bun run laterdog:package                 # unsigned local build → release/mac-arm64/later.dog.app
 ```
 
 The released `later.dog-macOS-arm64.dmg` is signed and notarized and updates itself (**Restart to update**).
@@ -134,16 +130,16 @@ Coding agents: start with [`AGENTS.md`](AGENTS.md), the
 
 ### Project layout
 
-| Path | What |
-| --- | --- |
-| `src/`, `server/`, `electron/` | The desktop app and the later.dog server (the same server runs in the Cloud home) |
-| `deploy/laterdog/home/` | The Cloud home: Worker, Durable Object and Container |
-| `deploy/laterdog/computers/` | `cloud.later.dog`: each dog's computer, the included AI, voice, trials and the plan |
-| `cloudflare/control-plane/` | `accounts.later.dog`: email sign-in and accounts |
-| `skills/laterdog/` | Canonical agent skills, exported by `pnpm laterdog:skills` |
-| `docs/` | [User guide](docs/laterdog/README.md), [Cloud home contract](docs/cloud-pro.md), [verification](docs/verification/README.md) |
-| `docs/assets/readme/` | The animations and diagram on this page, recorded from the [later.dog](https://later.dog) site's own scenes |
-| `scripts/readme-media/` | Records those scenes from a local build of the site and encodes them (`render.mjs`), and draws the diagram (`how-it-works.mjs`) |
+| Path                           | What                                                                                                                            |
+| ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------- |
+| `src/`, `server/`, `electron/` | The desktop app and the later.dog server (the same server runs in the Cloud home)                                               |
+| `deploy/laterdog/home/`        | The Cloud home: Worker, Durable Object and Container                                                                            |
+| `deploy/laterdog/computers/`   | `cloud.later.dog`: each dog's computer, the included AI, voice, trials and the plan                                             |
+| `cloudflare/control-plane/`    | `accounts.later.dog`: email sign-in and accounts                                                                                |
+| `skills/laterdog/`             | Canonical agent skills, exported by `bun run laterdog:skills`                                                                   |
+| `docs/`                        | [User guide](docs/laterdog/README.md), [Cloud home contract](docs/cloud-pro.md), [verification](docs/verification/README.md)    |
+| `docs/assets/readme/`          | The animations and diagram on this page, recorded from the [later.dog](https://later.dog) site's own scenes                     |
+| `scripts/readme-media/`        | Records those scenes from a local build of the site and encodes them (`render.mjs`), and draws the diagram (`how-it-works.mjs`) |
 
 Current screenshots of the app live in [`docs/assets/screenshots/`](docs/assets/screenshots/README.md), taken from an
 isolated fixture, never from someone's real data.

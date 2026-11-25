@@ -1,7 +1,7 @@
 # Ubuntu Desktop
 
 later.dog has an Ubuntu 24.04 LTS x86_64 desktop beta. The Electron package embeds the harness server, so
-installed builds do not require Node, pnpm, Swift, or a terminal at runtime.
+installed builds do not require Node, Bun, Swift, or a terminal at runtime.
 
 ## What works
 
@@ -44,14 +44,14 @@ Requirements for building from source:
 
 - Ubuntu 24.04 LTS x86_64
 - Node.js 24 or newer
-- pnpm 10.33.0 (Corepack can install the version declared by the project)
+- Bun 1.4.5 (the exact version in `.bun-version` and `package.json`)
 
 ```sh
 git clone https://github.com/woodbeary/later-dog
 cd later-dog
-corepack enable
-pnpm install --frozen-lockfile
-pnpm package:linux
+bun --version
+bun install --cpu=arm64 --cpu=x64 --frozen-lockfile
+bun run package:linux
 ```
 
 The build creates:
@@ -105,15 +105,15 @@ configuration directory (`~/.config/laterdog` unless the environment overrides i
 Development mode uses three processes. Keep each command running in its own terminal:
 
 ```sh
-pnpm dev:server
-pnpm dev
-pnpm dev:desktop
+bun run dev:server
+bun run dev
+bun run dev:desktop
 ```
 
 For a package-shaped build without creating `.deb` or AppImage artifacts:
 
 ```sh
-pnpm package:linux:dir
+bun run package:linux:dir
 ./release/linux-unpacked/laterdog
 ```
 
@@ -211,14 +211,14 @@ defenses remain necessary, but none substitutes for the real-seat acceptance evi
 ## Validate a package change
 
 ```sh
-pnpm typecheck
-pnpm test
-pnpm check:electron
-pnpm build:cua:linux          # networked, checksum-pinned staging
-dbus-run-session -- xvfb-run -a pnpm smoke:cua-x11-input
-pnpm package:linux:offline    # CUA staging is offline; builder caches must already be available
+bun run typecheck
+bun run test
+bun run check:electron
+bun run build:cua:linux          # networked, checksum-pinned staging
+dbus-run-session -- xvfb-run -a bun run smoke:cua-x11-input
+bun run package:linux:offline    # CUA staging is offline; builder caches must already be available
 node scripts/verify-linux-package.mjs
-pnpm smoke:linux-package
+bun run smoke:linux-package
 ```
 
 The verifier checks `.deb` metadata, desktop identity, the exact dormant Cua resource tree and provenance,

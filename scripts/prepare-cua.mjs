@@ -101,7 +101,9 @@ const { stdout: archList } = await run("/usr/bin/lipo", ["-archs", binary]);
 for (const arch of MAC_ARCHES) {
   const lipoName = LIPO_ARCH[arch];
   if (!archList.trim().split(/\s+/).includes(lipoName)) {
-    throw new Error(`cua-driver at ${binary} is not universal: has [${archList.trim()}], needs ${lipoName}`);
+    throw new Error(
+      `cua-driver at ${binary} is not universal: has [${archList.trim()}], needs ${lipoName}`,
+    );
   }
 }
 
@@ -111,18 +113,32 @@ for (const arch of MAC_ARCHES) {
   await mkdir(archStage, { recursive: true });
   await writeThinMachO(binary, join(archStage, "cua-driver"), LIPO_ARCH[arch]);
   await chmod(join(archStage, "cua-driver"), 0o755);
-  await run("/usr/bin/codesign", ["--force", "--sign", "-", "--options", "runtime", join(archStage, "cua-driver")]);
+  await run("/usr/bin/codesign", [
+    "--force",
+    "--sign",
+    "-",
+    "--options",
+    "runtime",
+    join(archStage, "cua-driver"),
+  ]);
 
   const nativeDir = join(archStage, "cua-sdk", "native");
   const nativePackage = join(dependencyRoot, "@trycua", `cua-driver-darwin-${arch}`);
   if (!existsSync(nativePackage)) {
     throw new Error(
-      `required CUA darwin-${arch} native package is missing — is supportedArchitectures.cpu set in pnpm-workspace.yaml?`,
+      `required CUA darwin-${arch} native package is missing — run bun install --frozen-lockfile --cpu=arm64 --cpu=x64`,
     );
   }
   await mkdir(nativeDir, { recursive: true });
-  await Promise.all(["libcua_driver_sdk.dylib", "cua_driver_node_runtime.node"].map((name) =>
-    writeThinMachO(join(realpathSync(nativePackage), name), join(nativeDir, name), LIPO_ARCH[arch])));
+  await Promise.all(
+    ["libcua_driver_sdk.dylib", "cua_driver_node_runtime.node"].map((name) =>
+      writeThinMachO(
+        join(realpathSync(nativePackage), name),
+        join(nativeDir, name),
+        LIPO_ARCH[arch],
+      ),
+    ),
+  );
 }
 
 const bundle = join(stage, MAC_ARCHES[0], "cua-sdk", "cua-sdk.mjs");

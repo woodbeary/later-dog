@@ -42,17 +42,17 @@ would make operator cleanup impossible.
 
 ## API surface
 
-| Method | Path | Authentication |
-| --- | --- | --- |
-| `GET` | `/healthz` | none |
-| `GET` | `/google-oauth/callback` | none; passes Google's answer on to a Cloud home |
-| any | `/api/auth/*` | Better Auth |
-| `GET` | `/v1/me` | account bearer |
-| `GET`, `POST` | `/v1/installations` | account bearer |
-| `POST` | `/v1/installations/:id/credentials/rotate` | owning account bearer |
-| `DELETE` | `/v1/installations/:id` | owning account bearer |
-| `GET` | `/v1/installations/self` | installation credential |
-| `GET`, `POST`, `DELETE` | `/v1/installations/self/endpoint` | installation credential |
+| Method                  | Path                                       | Authentication                                  |
+| ----------------------- | ------------------------------------------ | ----------------------------------------------- |
+| `GET`                   | `/healthz`                                 | none                                            |
+| `GET`                   | `/google-oauth/callback`                   | none; passes Google's answer on to a Cloud home |
+| any                     | `/api/auth/*`                              | Better Auth                                     |
+| `GET`                   | `/v1/me`                                   | account bearer                                  |
+| `GET`, `POST`           | `/v1/installations`                        | account bearer                                  |
+| `POST`                  | `/v1/installations/:id/credentials/rotate` | owning account bearer                           |
+| `DELETE`                | `/v1/installations/:id`                    | owning account bearer                           |
+| `GET`                   | `/v1/installations/self`                   | installation credential                         |
+| `GET`, `POST`, `DELETE` | `/v1/installations/self/endpoint`          | installation credential                         |
 
 Installation registration requires a stable `clientInstanceId`, a display
 `name`, and a `platform` of `darwin`, `windows`, or `linux`; `appVersion` is
@@ -175,6 +175,7 @@ capacity step before cleanup:
    request holds the row's lease. Those guards live in the marking SQL itself,
    so a check-in that races the scan wins. Tunnels with no endpoint row are
    only counted (`unmatched`), never touched.
+
 3. Before each destructive call of a reclaim, cleanup re-reads the tunnel
    from Cloudflare. If it has reconnected, or the installation checked in after
    the mark, the reclaim is cancelled and the row returns to `ready` (or to a
@@ -270,7 +271,7 @@ Known limits, until the S2 edge rate limits and an S7 signal from the home land:
 ### Alerts to the owner
 
 When a step of signing in breaks, the Worker emails the address in the
-`ALERT_EMAIL` secret (`pnpm exec wrangler secret put ALERT_EMAIL --config
+`ALERT_EMAIL` secret (`bun run wrangler secret put ALERT_EMAIL --config
 wrangler.production.json`). It is a secret so the address stays out of this
 repository; without it nothing is sent. It writes when:
 
@@ -299,7 +300,7 @@ set up by its owner. Three settings switch it on:
 - `GOOGLE_CLIENT_ID` (variable): the Web application client's ID. Empty means
   off; it stays empty in every file in this repository.
 - `GOOGLE_CLIENT_SECRET` (secret, optional): typed by a person with
-  `pnpm exec wrangler secret put GOOGLE_CLIENT_SECRET --config
+  `bun run wrangler secret put GOOGLE_CLIENT_SECRET --config
   wrangler.production.json`. It is not in `secrets.required`, so the Worker
   deploys and runs without it, and the connection is off until both are set.
 - `CLOUD_HOME_HOST_SUFFIX` (variable): `-home.later.dog` in production, the same
@@ -335,8 +336,8 @@ release order are in `docs/laterdog/google-setup.md`.
 Install from the repository root, then run:
 
 ```sh
-pnpm control-plane:check
-pnpm control-plane:test
+bun run control-plane:check
+bun run control-plane:test
 pnpm control-plane:dry-run
 ```
 
@@ -346,8 +347,8 @@ non-production scoped `CLOUDFLARE_API_TOKEN`, apply the migrations locally, and
 start Wrangler:
 
 ```sh
-pnpm --filter @laterdog/control-plane exec wrangler d1 migrations apply DB --local --config wrangler.jsonc
-pnpm --filter @laterdog/control-plane exec wrangler dev --config wrangler.jsonc
+bun run --cwd cloudflare/control-plane wrangler d1 migrations apply DB --local --config wrangler.jsonc
+bun run --cwd cloudflare/control-plane wrangler dev --config wrangler.jsonc
 ```
 
 Do not commit `.dev.vars`.
@@ -374,7 +375,7 @@ companion on port `8810` also does not prove managed HTTPS is ready.
 2. Check the scope of failures without exporting account or installation data:
 
    ```sh
-   pnpm --filter @laterdog/control-plane exec wrangler d1 execute DB --remote --command "SELECT status, last_error_code, COUNT(*) AS endpoints FROM installation_endpoints GROUP BY status, last_error_code"
+   bun run --cwd cloudflare/control-plane wrangler d1 execute DB --remote --command "SELECT status, last_error_code, COUNT(*) AS endpoints FROM installation_endpoints GROUP BY status, last_error_code"
    ```
 
 3. Check **account-wide** undeleted tunnel usage in Cloudflare, not just ready

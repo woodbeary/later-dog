@@ -3,7 +3,7 @@
 Run the existing disposable Electron/server harness with its skill UI recipe:
 
 ```sh
-pnpm exec electron scripts/smoke-approval-modes.cjs --skill-ui-only
+bun run electron scripts/smoke-approval-modes.cjs --skill-ui-only
 ```
 
 The harness creates a temporary home, runs the real server with fake provider
@@ -31,10 +31,10 @@ data are cleaned up after the run; the evidence remains.
 ## Ordering regressions
 
 ```sh
-pnpm exec vitest run src/state/store.test.ts src/components/ChatView.controls.test.ts src/components/ApprovalCard.test.ts server/skills.test.ts server/independent-task-store.test.ts
-pnpm exec vitest run server/index.test.ts -t 'only enables the exact learned-skill'
-pnpm typecheck
-pnpm lint
+bun run vitest run src/state/store.test.ts src/components/ChatView.controls.test.ts src/components/ApprovalCard.test.ts server/skills.test.ts server/independent-task-store.test.ts
+bun run vitest run server/index.test.ts -t 'only enables the exact learned-skill'
+bun run typecheck
+bun run lint
 ```
 
 The original failure is a slim bot event arriving before its full replacement

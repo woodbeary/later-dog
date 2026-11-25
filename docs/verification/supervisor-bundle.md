@@ -1,14 +1,14 @@
 # Compiled supervisor bundle
 
-The supervisor image copies only `dist-server/laterdog`. `pnpm laterdog:build` now runs
-`pnpm build:server`, so `scripts/bundle-server.mjs` is the one place that names the
+The supervisor image copies only `dist-server/laterdog`. `bun run laterdog:build` now runs
+`bun run build:server`, so `scripts/bundle-server.mjs` is the one place that names the
 entry points, the `createRequire` banner and the YAML plugin. A separate supervisor
 builder once omitted the banner, and its `main.js` exited before listening with
 `Dynamic require of "events" is not supported`.
 
 Extra work against the old two-line builder: `tsc -p tsconfig.server.build.json`
 and every other server entry now build too. The image
-still copies only `dist-server/laterdog`, and the Dockerfile, `pnpm laterdog:build`
+still copies only `dist-server/laterdog`, and the Dockerfile, `bun run laterdog:build`
 and the runtime choices are unchanged.
 
 ## Run
@@ -18,7 +18,7 @@ pnpm smoke:laterdog-bundle
 node scripts/smoke-laterdog-bundle.mjs --skip-build --evidence DIR
 ```
 
-It runs `pnpm laterdog:build`, then starts the compiled `main.js` in a fresh temporary
+It runs `bun run laterdog:build`, then starts the compiled `main.js` in a fresh temporary
 data directory and home, with synthetic tokens, stubbed `git`, `gh`, `codex` and
 `claude` that fail closed, a clean child environment, and a loopback computers URL
 whose listener counts requests. It uses a `laterdog-cloud` profile capped at

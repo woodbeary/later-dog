@@ -42,11 +42,11 @@ reads included.
 When the desktop app starts, it writes a fresh random token to a private file (mode 0600) in its own folder and hands the
 same token to its server:
 
-| System | File |
-| --- | --- |
-| macOS | `~/Library/Application Support/later.dog/local-control-token` |
-| Windows | `%APPDATA%\later.dog\local-control-token` |
-| Linux | `$XDG_CONFIG_HOME/later.dog/local-control-token` (else `~/.config/later.dog/local-control-token`) |
+| System  | File                                                                                              |
+| ------- | ------------------------------------------------------------------------------------------------- |
+| macOS   | `~/Library/Application Support/later.dog/local-control-token`                                     |
+| Windows | `%APPDATA%\later.dog\local-control-token`                                                         |
+| Linux   | `$XDG_CONFIG_HOME/later.dog/local-control-token` (else `~/.config/later.dog/local-control-token`) |
 
 `scripts/mcp-server.ts` (the MCP server, including the one bundled in release builds) and `scripts/control-laterdog.ts`
 read that file by themselves, so Claude Code, Codex and your own scripts on this Mac just work with no setup. A script
@@ -62,19 +62,19 @@ more (`LOCAL_TOOLS_ALLOWED_ROUTES` in `server/laterdog/local-tools-scope.ts`). F
 of the listed shapes, are accepted; any other field, nested field or wrong shape is refused. Everything else gets "a dog
 must not be able to approve its own work" and needs the desktop app or a paired device.
 
-| Request | Fields the token may send |
-| --- | --- |
-| `POST /api/bots/:id/messages`, `POST /api/groups/:id/messages` | `text`, `threadId` |
-| `POST /api/bots/:id/messages/:id/edit` | `text`, `threadId` |
-| `POST /api/bots/:id/interrupt`, `POST /api/groups/:id/interrupt` | `threadId` |
-| `POST /api/bots` | `name`, `title`, `description`, `modelSelection`, `requireAvailableModel` |
-| `PATCH /api/bots/:id` | `name`, `title`, `description`, `modelSelection`, `requireAvailableModel` |
-| `POST /api/groups` | `name`, `memberIds`, `setup` (`defaultResponder`) |
-| `PATCH /api/groups/:id` | `name`, `memberIds`, `defaultResponder` |
-| `POST /api/bots/:id/tasks`, `POST /api/groups/:id/tasks` | `title` |
-| `POST /api/bots/:id/tasks/:id`, `POST /api/groups/:id/tasks/:id` (switch) | none |
-| `PATCH /api/bots/:id/tasks/:id` | `title`, `modelSelection`, `requireAvailableModel` |
-| `PATCH /api/groups/:id/tasks/:id` | `title` |
+| Request                                                                   | Fields the token may send                                                 |
+| ------------------------------------------------------------------------- | ------------------------------------------------------------------------- |
+| `POST /api/bots/:id/messages`, `POST /api/groups/:id/messages`            | `text`, `threadId`                                                        |
+| `POST /api/bots/:id/messages/:id/edit`                                    | `text`, `threadId`                                                        |
+| `POST /api/bots/:id/interrupt`, `POST /api/groups/:id/interrupt`          | `threadId`                                                                |
+| `POST /api/bots`                                                          | `name`, `title`, `description`, `modelSelection`, `requireAvailableModel` |
+| `PATCH /api/bots/:id`                                                     | `name`, `title`, `description`, `modelSelection`, `requireAvailableModel` |
+| `POST /api/groups`                                                        | `name`, `memberIds`, `setup` (`defaultResponder`)                         |
+| `PATCH /api/groups/:id`                                                   | `name`, `memberIds`, `defaultResponder`                                   |
+| `POST /api/bots/:id/tasks`, `POST /api/groups/:id/tasks`                  | `title`                                                                   |
+| `POST /api/bots/:id/tasks/:id`, `POST /api/groups/:id/tasks/:id` (switch) | none                                                                      |
+| `PATCH /api/bots/:id/tasks/:id`                                           | `title`, `modelSelection`, `requireAvailableModel`                        |
+| `PATCH /api/groups/:id/tasks/:id`                                         | `title`                                                                   |
 
 A `modelSelection` is `instanceId`, `model` and optionally `effort`. Reads need no token on loopback; the reads that
 return secrets (the desktop viewer's links and passwords, connector card status) are not on the list, so the token does not
@@ -117,6 +117,7 @@ external MCP client:
 
    If the desktop selected a fallback port, replace `8799` with the port shown
    in Settings. Copy the returned `token`; the pairing code is single-use.
+
 3. Pin that same port and token in the MCP configuration:
 
    ```json
@@ -133,7 +134,7 @@ revoked there. Do not share the token or commit it to a repository.
 ## From the installed desktop app
 
 Release builds bundle `server/mcp-server.js` and can run it with Electron's embedded Node runtime, so users do
-not need Node.js or pnpm installed.
+not need Node.js or bun install --cpu=arm64 --cpu=x64ed.
 
 macOS example:
 
@@ -181,11 +182,11 @@ described above; it is not a generic reverse-proxy secret.
 
 ## Tools
 
-| Purpose | Tools |
-|---|---|
-| Inspect | `get_system_health`, `list_bots`, `list_channels`, `get_bot_messages`, `get_channel_messages`, `search_messages`, `list_available_models` |
-| Create and organize | `create_bot`, `update_bot_profile`, `create_channel`, `update_channel`, `create_task`, `switch_task`, `rename_task` |
-| Run work | `send_bot_message`, `send_channel_message`, `wait_for_conversation`, `interrupt_conversation`, `set_bot_model` |
+| Purpose             | Tools                                                                                                                                     |
+| ------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
+| Inspect             | `get_system_health`, `list_bots`, `list_channels`, `get_bot_messages`, `get_channel_messages`, `search_messages`, `list_available_models` |
+| Create and organize | `create_bot`, `update_bot_profile`, `create_channel`, `update_channel`, `create_task`, `switch_task`, `rename_task`                       |
+| Run work            | `send_bot_message`, `send_channel_message`, `wait_for_conversation`, `interrupt_conversation`, `set_bot_model`                            |
 
 `wait_for_conversation` returns `settled`, `needs-user`, `failed`, `stalled`, or `timed-out`, along with a
 small redacted transcript tail. MCP cancellation is honored while a tool is waiting.

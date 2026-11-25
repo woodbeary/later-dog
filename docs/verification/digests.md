@@ -7,8 +7,8 @@ actions transactional, nor authorize a deployment.
 ## Drive and evidence
 
 ```sh
-pnpm exec vitest run server/digest-control.e2e.test.ts
-pnpm exec vitest run server/commands.test.ts server/store.test.ts server/message-db.test.ts server/digest.test.ts server/checkpoints.test.ts server/hooks/laterdog-hook.test.ts server/hooks.e2e.test.ts server/digest.e2e.test.ts
+bun run vitest run server/digest-control.e2e.test.ts
+bun run vitest run server/commands.test.ts server/store.test.ts server/message-db.test.ts server/digest.test.ts server/checkpoints.test.ts server/hooks/laterdog-hook.test.ts server/hooks.e2e.test.ts server/digest.e2e.test.ts
 ```
 
 The first test starts `launchVerificationServer`, then uses the shared
@@ -29,14 +29,14 @@ behavior rather than treating a local macOS run as Windows verification.
 ## Replies with no recorded work
 
 Android and desktop omit empty receipts. Both mobile parsers stop at the
-trailing `reply:` field, including when the reply contains ` · ` separators.
+trailing `reply:` field, including when the reply contains `·` separators.
 Recorded tools, files, memory changes, truncation notices and unknown work
 sections remain visible; the stored digest is not deleted.
 
 Regression checks:
 
 ```sh
-pnpm exec vitest run src/components/DigestChip.test.ts
+bun run vitest run src/components/DigestChip.test.ts
 (cd ios && swift test --filter RoutineRunDigestTests)
 (cd android && ./gradlew :core:test --tests '*TurnDigestTest' --tests '*ChatPreferencesTest' :app:testDebugUnitTest --tests '*TranscriptPresentationTest')
 ```

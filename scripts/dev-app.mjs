@@ -1,5 +1,22 @@
 import { execFile, spawn } from "node:child_process";
-import { accessSync, appendFileSync, closeSync, constants, copyFileSync, existsSync, mkdirSync, openSync, readFileSync, readSync, realpathSync, renameSync, rmSync, symlinkSync, unlinkSync, writeFileSync } from "node:fs";
+import {
+  accessSync,
+  appendFileSync,
+  closeSync,
+  constants,
+  copyFileSync,
+  existsSync,
+  mkdirSync,
+  openSync,
+  readFileSync,
+  readSync,
+  realpathSync,
+  renameSync,
+  rmSync,
+  symlinkSync,
+  unlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { StringDecoder } from "node:string_decoder";
@@ -18,22 +35,35 @@ export const EARLIER_BUTTON = "Open an Earlier Version…";
 export const SHARED_APPS = "/Applications";
 const READY = /^later\.dog Dev: http/;
 const COLOUR = new RegExp(`${String.fromCharCode(27)}\\[[0-9;]*[A-Za-z]`, "g");
-const LSREGISTER = "/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister";
+const LSREGISTER =
+  "/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister";
 const OPEN_WAIT_MS = 120_000;
 const TAIL_LINES = 60;
 const SESSION_POLL_MS = 250;
-const NOISE = /^\s*(?:at\s|\^+\s*$|[{}]\s*$|Node\.js v\d|node:internal\/|triggerUncaughtException\(|code: ')/;
-const TELLING = /error|refus|cannot|can't|could not|couldn't|in use|timed out|not found|failed|exception/i;
+const NOISE =
+  /^\s*(?:at\s|\^+\s*$|[{}]\s*$|Node\.js v\d|node:internal\/|triggerUncaughtException\(|code: ')/;
+const TELLING =
+  /error|refus|cannot|can't|could not|couldn't|in use|timed out|not found|failed|exception/i;
 const PLACE = /^file:\/\/(\S+?):(\d+)$/;
 const DAY_MS = 86_400_000;
 const INSTALL_LIMIT_MS = 15 * 60_000;
 
 export function command(file, args, { env, cwd, timeout } = {}) {
   return new Promise((resolve, reject) => {
-    execFile(file, args, { cwd, timeout, env: env ? { ...process.env, ...env } : process.env, maxBuffer: 16 * 1024 * 1024 }, (error, stdout, stderr) => {
-      if (error) reject(Object.assign(error, { stderr: String(stderr ?? "") }));
-      else resolve(String(stdout));
-    });
+    execFile(
+      file,
+      args,
+      {
+        cwd,
+        timeout,
+        env: env ? { ...process.env, ...env } : process.env,
+        maxBuffer: 16 * 1024 * 1024,
+      },
+      (error, stdout, stderr) => {
+        if (error) reject(Object.assign(error, { stderr: String(stderr ?? "") }));
+        else resolve(String(stdout));
+      },
+    );
   });
 }
 
@@ -46,13 +76,31 @@ function writable(dir) {
   }
 }
 
-export function defaultSettings({ repo, home = homedir(), env = process.env, canWrite = writable }) {
+export function defaultSettings({
+  repo,
+  home = homedir(),
+  env = process.env,
+  canWrite = writable,
+}) {
   const tools = env.LATERDOG_DEV_DIR?.trim() || join(home, ".laterdog-dev-tools");
-  return { repo, apps: canWrite(SHARED_APPS) ? SHARED_APPS : join(home, "Applications"), state: join(tools, "app"), logs: join(home, "Library", "Logs", APP_NAME), dataHome: null, homeSession: join(tools, HOME_SESSION_FILE) };
+  return {
+    repo,
+    apps: canWrite(SHARED_APPS) ? SHARED_APPS : join(home, "Applications"),
+    state: join(tools, "app"),
+    logs: join(home, "Library", "Logs", APP_NAME),
+    dataHome: null,
+    homeSession: join(tools, HOME_SESSION_FILE),
+  };
 }
 
 export function plistChanges() {
-  return [["CFBundleName", APP_NAME], ["CFBundleDisplayName", APP_NAME], ["CFBundleIdentifier", BUNDLE_ID], ["CFBundleExecutable", APP_NAME], ["CFBundleIconFile", ICON_FILE]];
+  return [
+    ["CFBundleName", APP_NAME],
+    ["CFBundleDisplayName", APP_NAME],
+    ["CFBundleIdentifier", BUNDLE_ID],
+    ["CFBundleExecutable", APP_NAME],
+    ["CFBundleIconFile", ICON_FILE],
+  ];
 }
 
 export function launcherScript() {
@@ -77,39 +125,105 @@ export function launcherScript() {
 
 export function electronVersion(checkout) {
   try {
-    return JSON.parse(readFileSync(join(checkout, "node_modules", "electron", "package.json"), "utf8")).version ?? null;
+    return (
+      JSON.parse(readFileSync(join(checkout, "node_modules", "electron", "package.json"), "utf8"))
+        .version ?? null
+    );
   } catch {
     return null;
   }
 }
 
-export function missingDependencies(checkout, { platform = process.platform, exists = existsSync } = {}) {
+export function missingDependencies(
+  checkout,
+  { platform = process.platform, exists = existsSync } = {},
+) {
   const modules = join(checkout, "node_modules");
   const electron = join(modules, "electron");
-  const present = exists(modules) && exists(join(modules, "vite", "bin", "vite.js")) && exists(join(electron, "install.js"));
-  if (!present) return { kind: "dependencies", sentence: `${APP_NAME}'s dependencies are missing in ${checkout}.` };
-  const binary = platform === "darwin" ? "Electron.app" : platform === "win32" ? "electron.exe" : "electron";
-  if (!exists(join(electron, "dist", binary))) return { kind: "electron", sentence: `Electron's files are missing in ${checkout}.` };
+  const present =
+    exists(modules) &&
+    exists(join(modules, "vite", "bin", "vite.js")) &&
+    exists(join(electron, "install.js"));
+  if (!present)
+    return {
+      kind: "dependencies",
+      sentence: `${APP_NAME}'s dependencies are missing in ${checkout}.`,
+    };
+  const binary =
+    platform === "darwin" ? "Electron.app" : platform === "win32" ? "electron.exe" : "electron";
+  if (!exists(join(electron, "dist", binary)))
+    return { kind: "electron", sentence: `Electron's files are missing in ${checkout}.` };
   return null;
 }
 
-export async function installDependencies(checkout, { run = command, check = (folder) => missingDependencies(folder), node = process.execPath, exists = existsSync, limit = INSTALL_LIMIT_MS } = {}) {
-  const env = { PATH: `${dirname(node)}:${process.env.PATH ?? ""}` };
+export async function installDependencies(
+  checkout,
+  {
+    run = command,
+    check = (folder) => missingDependencies(folder),
+    node = process.execPath,
+    exists = existsSync,
+    limit = INSTALL_LIMIT_MS,
+  } = {},
+) {
+  const env = { PATH: dirname(node) + ":" + (process.env.PATH ?? "") };
   const within = (file, args) =>
     run(file, args, { cwd: checkout, env, timeout: limit }).catch((error) => {
-      throw error.killed ? new Error(`It took longer than ${Math.round(limit / 60_000)} minutes.`) : error;
+      throw error.killed
+        ? new Error("It took longer than " + Math.round(limit / 60_000) + " minutes.")
+        : error;
     });
   if (check(checkout)?.kind === "dependencies") {
-    const sibling = join(dirname(node), "pnpm");
-    await within(exists(sibling) ? sibling : "pnpm", ["install", "--frozen-lockfile"]);
+    const manager = JSON.parse(readFileSync(join(checkout, "package.json"), "utf8")).packageManager;
+    const bun = /^bun@(\d+\.\d+\.\d+)$/.exec(manager ?? "");
+    const pnpm = /^pnpm@\d+\.\d+\.\d+(?:\+sha(?:224|256|384|512)\.[a-f0-9]+)?$/.test(manager ?? "");
+    if (bun) {
+      const candidates = [
+        join(checkout, "node_modules", "bun", "bin", "bun.exe"),
+        join(dirname(node), "bun"),
+        join(homedir(), ".bun", "bin", "bun"),
+      ];
+      const binary = candidates.find((file) => exists(file)) ?? "bun";
+      try {
+        const version = await within(binary, ["--version"]);
+        if (version.trim() !== bun[1])
+          throw new Error("the installed version is " + version.trim());
+      } catch (error) {
+        throw new Error("Bun " + bun[1] + " is required for this checkout: " + error.message);
+      }
+      await within(binary, ["install", "--frozen-lockfile", "--cpu=arm64", "--cpu=x64"]);
+    } else if (pnpm) {
+      const sibling = join(dirname(node), "corepack");
+      await within(exists(sibling) ? sibling : "corepack", [
+        manager,
+        "install",
+        "--frozen-lockfile",
+      ]);
+    } else {
+      throw new Error("Unsupported package manager in this checkout's package.json.");
+    }
   }
-  if (check(checkout)?.kind === "electron") await within(node, [join(checkout, "node_modules", "electron", "install.js")]);
+  if (check(checkout)?.kind === "electron")
+    await within(node, [join(checkout, "node_modules", "electron", "install.js")]);
   return check(checkout);
 }
 
-export async function installApp({ repo, apps, state, logs, dataHome = null, homeSession = null, others = [], source = fileURLToPath(import.meta.url), run = command }) {
+export async function installApp({
+  repo,
+  apps,
+  state,
+  logs,
+  dataHome = null,
+  homeSession = null,
+  others = [],
+  source = fileURLToPath(import.meta.url),
+  run = command,
+}) {
   const stock = join(repo, "node_modules", "electron", "dist", "Electron.app");
-  if (!existsSync(stock)) throw new Error(`Electron isn't installed in ${repo} yet. Run pnpm install there first.`);
+  if (!existsSync(stock))
+    throw new Error(
+      `Electron isn't installed in ${repo} yet. Run bun install --frozen-lockfile --cpu=arm64 --cpu=x64 there first.`,
+    );
   const electronApp = realpathSync(stock);
   const target = join(apps, `${APP_NAME}.app`);
   const staging = join(state, "staging");
@@ -122,13 +236,17 @@ export async function installApp({ repo, apps, state, logs, dataHome = null, hom
     await run("cp", ["-R", electronApp, fresh]);
   });
   const contents = join(fresh, "Contents");
-  for (const [key, value] of plistChanges()) await run("plutil", ["-replace", key, "-string", value, join(contents, "Info.plist")]);
+  for (const [key, value] of plistChanges())
+    await run("plutil", ["-replace", key, "-string", value, join(contents, "Info.plist")]);
   copyFileSync(join(repo, "build", "dev", "icon.icns"), join(contents, "Resources", ICON_FILE));
   writeFileSync(join(contents, "MacOS", APP_NAME), launcherScript(), { mode: 0o755 });
   const own = join(contents, "Resources", "laterdog-dev");
   mkdirSync(own, { recursive: true });
   copyFileSync(source, join(own, "dev-app.mjs"));
-  writeFileSync(join(own, "install.json"), `${JSON.stringify({ repo, apps, state, logs, dataHome, homeSession, electron: electronVersion(repo) }, null, 2)}\n`);
+  writeFileSync(
+    join(own, "install.json"),
+    `${JSON.stringify({ repo, apps, state, logs, dataHome, homeSession, electron: electronVersion(repo) }, null, 2)}\n`,
+  );
   await run("xattr", ["-dr", "com.apple.quarantine", fresh]).catch(() => {});
   const previous = join(staging, "previous.app");
   if (existsSync(target)) renameSync(target, previous);
@@ -137,7 +255,11 @@ export async function installApp({ repo, apps, state, logs, dataHome = null, hom
   await run(LSREGISTER, ["-f", target]).catch(() => {});
   for (const folder of others) {
     const other = join(folder, `${APP_NAME}.app`);
-    if (other === target || !existsSync(join(other, "Contents", "Resources", "laterdog-dev", "install.json"))) continue;
+    if (
+      other === target ||
+      !existsSync(join(other, "Contents", "Resources", "laterdog-dev", "install.json"))
+    )
+      continue;
     rmSync(other, { recursive: true, force: true });
     await run(LSREGISTER, ["-u", other]).catch(() => {});
   }
@@ -151,9 +273,17 @@ export function refreshLauncher(target, source = fileURLToPath(import.meta.url))
   renameSync(next, join(own, "dev-app.mjs"));
 }
 
-export function installedSettings(file = fileURLToPath(import.meta.url), { home = homedir(), env = process.env } = {}) {
+export function installedSettings(
+  file = fileURLToPath(import.meta.url),
+  { home = homedir(), env = process.env } = {},
+) {
   const saved = JSON.parse(readFileSync(join(dirname(file), "install.json"), "utf8"));
-  const homeSession = "homeSession" in saved ? saved.homeSession : saved.dataHome ? null : defaultSettings({ repo: saved.repo, home, env, canWrite: () => true }).homeSession;
+  const homeSession =
+    "homeSession" in saved
+      ? saved.homeSession
+      : saved.dataHome
+        ? null
+        : defaultSettings({ repo: saved.repo, home, env, canWrite: () => true }).homeSession;
   return { ...saved, homeSession, bundle: dirname(dirname(dirname(dirname(file)))) };
 }
 
@@ -163,7 +293,11 @@ export function homeSessionUsable(file) {
     const saved = JSON.parse(readFileSync(file, "utf8"));
     const url = new URL(saved.url);
     const local = ["127.0.0.1", "localhost"].includes(url.hostname);
-    return (url.protocol === "https:" || local) && typeof saved.token === "string" && SESSION_TOKEN.test(saved.token);
+    return (
+      (url.protocol === "https:" || local) &&
+      typeof saved.token === "string" &&
+      SESSION_TOKEN.test(saved.token)
+    );
   } catch {
     return false;
   }
@@ -228,7 +362,14 @@ export function takeLock(state) {
   return null;
 }
 
-export async function openApp(settings, { startKeeper = () => startDetached(["keep"]), pause = (ms) => new Promise((resolve) => setTimeout(resolve, ms)), now = Date.now } = {}) {
+export async function openApp(
+  settings,
+  {
+    startKeeper = () => startDetached(["keep"]),
+    pause = (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+    now = Date.now,
+  } = {},
+) {
   const begun = now();
   const running = keeperPid(settings.state);
   if (running && readState(settings.state)?.phase === "ready") return "ready";
@@ -236,14 +377,19 @@ export async function openApp(settings, { startKeeper = () => startDetached(["ke
   while (now() - begun < OPEN_WAIT_MS) {
     await pause(250);
     const current = readState(settings.state);
-    if (current && current.at >= begun && ["ready", "failed", "stopped"].includes(current.phase)) return current.phase;
+    if (current && current.at >= begun && ["ready", "failed", "stopped"].includes(current.phase))
+      return current.phase;
     if (now() - begun > 5_000 && !keeperPid(settings.state)) return "stopped";
   }
   return "waiting";
 }
 
 function startDetached(args) {
-  const child = spawn(process.execPath, [fileURLToPath(import.meta.url), ...args], { detached: true, stdio: "ignore", env: process.env });
+  const child = spawn(process.execPath, [fileURLToPath(import.meta.url), ...args], {
+    detached: true,
+    stdio: "ignore",
+    env: process.env,
+  });
   child.unref();
 }
 
@@ -285,7 +431,10 @@ export async function chooseEarlier(saved, { run = command, now = Date.now() } =
   return picked === -1 ? null : saved[picked];
 }
 
-const gitIn = (dir, run = command) => (args, env) => run("git", ["-C", dir, ...args], { env });
+const gitIn =
+  (dir, run = command) =>
+  (args, env) =>
+    run("git", ["-C", dir, ...args], { env });
 
 export function parseSnapshots(output) {
   return output
@@ -293,17 +442,38 @@ export function parseSnapshots(output) {
     .filter(Boolean)
     .map((line) => {
       const [ref, commit, tree, ...message] = line.split("\t");
-      return { ref, at: Number(ref.slice(SNAPSHOT_REFS.length + 1)), commit, tree, message: message.join("\t") };
+      return {
+        ref,
+        at: Number(ref.slice(SNAPSHOT_REFS.length + 1)),
+        commit,
+        tree,
+        message: message.join("\t"),
+      };
     })
-    .filter((entry) => entry.ref.startsWith(`${SNAPSHOT_REFS}/`) && Number.isFinite(entry.at) && entry.at > 0)
+    .filter(
+      (entry) =>
+        entry.ref.startsWith(`${SNAPSHOT_REFS}/`) && Number.isFinite(entry.at) && entry.at > 0,
+    )
     .sort((a, b) => b.at - a.at);
 }
 
 export async function listSnapshots(repo, run = command) {
-  return parseSnapshots(await gitIn(repo, run)(["for-each-ref", "--format=%(refname)%09%(objectname)%09%(tree)%09%(contents:subject)", SNAPSHOT_REFS]));
+  return parseSnapshots(
+    await gitIn(
+      repo,
+      run,
+    )([
+      "for-each-ref",
+      "--format=%(refname)%09%(objectname)%09%(tree)%09%(contents:subject)",
+      SNAPSHOT_REFS,
+    ]),
+  );
 }
 
-export async function recordSnapshot(repo, { now = Date.now(), run = command, kept = SNAPSHOTS_KEPT } = {}) {
+export async function recordSnapshot(
+  repo,
+  { now = Date.now(), run = command, kept = SNAPSHOTS_KEPT } = {},
+) {
   const git = gitIn(repo, run);
   const index = (await git(["rev-parse", "--path-format=absolute", "--git-path", "index"])).trim();
   const scratch = join(tmpdir(), `laterdog-dev-snapshot-${process.pid}-${now}.index`);
@@ -317,7 +487,9 @@ export async function recordSnapshot(repo, { now = Date.now(), run = command, ke
     const headTree = (await git(["rev-parse", "HEAD^{tree}"])).trim();
     const subject = (await git(["log", "-1", "--format=%s", head])).trim();
     const message = tree === headTree ? subject : `${subject}, plus changes not yet committed`;
-    const commit = (await git(["commit-tree", "--no-gpg-sign", tree, "-p", head, "-m", message])).trim();
+    const commit = (
+      await git(["commit-tree", "--no-gpg-sign", tree, "-p", head, "-m", message])
+    ).trim();
     const ref = `${SNAPSHOT_REFS}/${now}`;
     await git(["update-ref", ref, commit]);
     for (const old of saved.slice(Math.max(0, kept - 1))) await git(["update-ref", "-d", old.ref]);
@@ -335,7 +507,10 @@ export async function prepareEarlier(settings, snapshot, run = command) {
   } else {
     rmSync(dir, { recursive: true, force: true });
     mkdirSync(dirname(dir), { recursive: true });
-    await gitIn(settings.repo, run)(["worktree", "add", "--detach", "--force", dir, snapshot.commit]);
+    await gitIn(
+      settings.repo,
+      run,
+    )(["worktree", "add", "--detach", "--force", dir, snapshot.commit]);
   }
   const modules = join(dir, "node_modules");
   if (!existsSync(modules)) symlinkSync(join(settings.repo, "node_modules"), modules);
@@ -347,16 +522,32 @@ export async function refreshElectron(settings, checkout, install = installApp) 
   const wanted = electronVersion(checkout);
   if (!wanted) return null;
   if (wanted !== settings.electron) {
-    await install({ ...settings, source: join(settings.bundle, "Contents", "Resources", "laterdog-dev", "dev-app.mjs") });
+    await install({
+      ...settings,
+      source: join(settings.bundle, "Contents", "Resources", "laterdog-dev", "dev-app.mjs"),
+    });
     settings.electron = wanted;
   }
   return join(settings.bundle, "Contents", "MacOS", "Electron");
 }
 
-export function sessionEnv(settings, version, electron, base = process.env, now = Date.now(), usable = homeSessionUsable) {
+export function sessionEnv(
+  settings,
+  version,
+  electron,
+  base = process.env,
+  now = Date.now(),
+  usable = homeSessionUsable,
+) {
   const env = { ...base, LATERDOG_DEV_SESSION: "1" };
-  for (const key of ["LATERDOG_DEV_SESSION_VERSION", "LATERDOG_DEV_ELECTRON", "LATERDOG_DEV_HOME_SESSION"]) delete env[key];
-  if (settings.homeSession && usable(settings.homeSession)) env.LATERDOG_DEV_HOME_SESSION = settings.homeSession;
+  for (const key of [
+    "LATERDOG_DEV_SESSION_VERSION",
+    "LATERDOG_DEV_ELECTRON",
+    "LATERDOG_DEV_HOME_SESSION",
+  ])
+    delete env[key];
+  if (settings.homeSession && usable(settings.homeSession))
+    env.LATERDOG_DEV_HOME_SESSION = settings.homeSession;
   if (version) env.LATERDOG_DEV_SESSION_VERSION = snapshotWhen(version.at, now);
   if (electron) env.LATERDOG_DEV_ELECTRON = electron;
   if (settings.dataHome) env.LATERDOG_HOME = settings.dataHome;
@@ -368,7 +559,14 @@ export function openSessionLog(logs) {
     const file = join(folder, folder === logs ? "session.log" : "laterdog-dev-session.log");
     try {
       mkdirSync(folder, { recursive: true });
-      if (existsSync(file)) renameSync(file, join(folder, folder === logs ? "session.previous.log" : "laterdog-dev-session.previous.log"));
+      if (existsSync(file))
+        renameSync(
+          file,
+          join(
+            folder,
+            folder === logs ? "session.previous.log" : "laterdog-dev-session.previous.log",
+          ),
+        );
       const output = openSync(file, "a");
       return { file, output, reader: openSync(file, "r") };
     } catch {}
@@ -376,7 +574,16 @@ export function openSessionLog(logs) {
   throw new Error(`${APP_NAME} could not open a session log`);
 }
 
-export function runSession({ checkout, env, logs, onReady = () => {}, spawnProcess = spawn, node = process.execPath, signals = process, pollMs = SESSION_POLL_MS }) {
+export function runSession({
+  checkout,
+  env,
+  logs,
+  onReady = () => {},
+  spawnProcess = spawn,
+  node = process.execPath,
+  signals = process,
+  pollMs = SESSION_POLL_MS,
+}) {
   const { output, reader } = openSessionLog(logs);
   return new Promise((resolve) => {
     const tail = [];
@@ -397,7 +604,9 @@ export function runSession({ checkout, env, logs, onReady = () => {}, spawnProce
         if (tail.length > TAIL_LINES) tail.shift();
         if (!ready && READY.test(line)) {
           ready = true;
-          Promise.resolve().then(onReady).catch(() => {});
+          Promise.resolve()
+            .then(onReady)
+            .catch(() => {});
         }
       }
     };
@@ -416,7 +625,11 @@ export function runSession({ checkout, env, logs, onReady = () => {}, spawnProce
     };
     let child;
     try {
-      child = spawnProcess(node, [join(checkout, "scripts", "dev-desktop.mjs")], { cwd: checkout, env, stdio: ["ignore", output, output] });
+      child = spawnProcess(node, [join(checkout, "scripts", "dev-desktop.mjs")], {
+        cwd: checkout,
+        env,
+        stdio: ["ignore", output, output],
+      });
     } catch (error) {
       closeSync(reader);
       resolve({ code: 1, ready: false, interrupted: false, tail: [error.message], checkout });
@@ -448,12 +661,19 @@ export function runSession({ checkout, env, logs, onReady = () => {}, spawnProce
 export function failureDetail(tail, checkout = "") {
   const kept = tail.filter((line) => !NOISE.test(line));
   const telling = kept.filter((line) => TELLING.test(line) || PLACE.test(line));
-  const place = (line) => line.replace(PLACE, (_, file, row) => `${checkout && file.startsWith(`${checkout}/`) ? file.slice(checkout.length + 1) : file} line ${row}`);
+  const place = (line) =>
+    line.replace(
+      PLACE,
+      (_, file, row) =>
+        `${checkout && file.startsWith(`${checkout}/`) ? file.slice(checkout.length + 1) : file} line ${row}`,
+    );
   return [...new Set((telling.length ? telling : kept).map(place))].slice(-4);
 }
 
 export function failureMessage({ ready, code, tail, checkout }, logs, home = homedir()) {
-  const head = ready ? `${APP_NAME} stopped unexpectedly (exit code ${code}).` : `${APP_NAME} didn't start.`;
+  const head = ready
+    ? `${APP_NAME} stopped unexpectedly (exit code ${code}).`
+    : `${APP_NAME} didn't start.`;
   const detail = failureDetail(tail, checkout).join("\n");
   const log = join(logs, "session.log");
   return `${head}${detail ? `\n\n${detail}` : ""}\n\nFull log: ${log.startsWith(`${home}/`) ? `~${log.slice(home.length)}` : log}`;
@@ -462,7 +682,11 @@ export function failureMessage({ ready, code, tail, checkout }, logs, home = hom
 async function pickEarlier({ list, choose, ask, fallback }) {
   const saved = await list().catch(() => []);
   if (!saved.length) {
-    await ask({ message: `There are no earlier versions yet. ${APP_NAME} keeps one each time it opens.`, buttons: ["OK"], defaultButton: "OK" });
+    await ask({
+      message: `There are no earlier versions yet. ${APP_NAME} keeps one each time it opens.`,
+      buttons: ["OK"],
+      defaultButton: "OK",
+    });
     return { kind: "start", version: fallback };
   }
   return { kind: "start", version: (await choose(saved)) ?? fallback };
@@ -475,19 +699,33 @@ export async function nextStep(result, { version, logs, list, ask, choose }) {
   const saved = await list().catch(() => []);
   const again = result.ready ? "Restart" : "Try Again";
   const buttons = ["Quit", again, ...(saved.length ? [EARLIER_BUTTON] : [])];
-  const answer = await ask({ message: failureMessage(result, logs), buttons, defaultButton: buttons.at(-1), cancelButton: "Quit" });
-  if (answer === EARLIER_BUTTON) return pickEarlier({ list: async () => saved, choose, ask, fallback: version });
+  const answer = await ask({
+    message: failureMessage(result, logs),
+    buttons,
+    defaultButton: buttons.at(-1),
+    cancelButton: "Quit",
+  });
+  if (answer === EARLIER_BUTTON)
+    return pickEarlier({ list: async () => saved, choose, ask, fallback: version });
   if (answer === again) return { kind: "start", version };
   return { kind: "quit" };
 }
 
 export async function notifyUser(text, run = command) {
-  await run("osascript", ["-e", `display notification ${quote(text)} with title ${quote(APP_NAME)}`]).catch(() => {});
+  await run("osascript", [
+    "-e",
+    `display notification ${quote(text)} with title ${quote(APP_NAME)}`,
+  ]).catch(() => {});
 }
 
 export async function dependencyStep(missing, { version, ask, install, notify, log }) {
   const start = "Install and Start";
-  const answer = await ask({ message: `${missing.sentence}\n\n${start} installs them from the lockfile, which takes a minute or two, then opens ${APP_NAME}.`, buttons: ["Quit", "Try Again", start], defaultButton: start, cancelButton: "Quit" });
+  const answer = await ask({
+    message: `${missing.sentence}\n\n${start} installs them from the lockfile, which takes a minute or two, then opens ${APP_NAME}.`,
+    buttons: ["Quit", "Try Again", start],
+    defaultButton: start,
+    cancelButton: "Quit",
+  });
   if (answer === "Try Again") return { kind: "start", version };
   if (answer !== start) return { kind: "quit" };
   await notify(`Installing ${APP_NAME}'s dependencies. It opens when they are ready.`);
@@ -498,7 +736,11 @@ export async function dependencyStep(missing, { version, ask, install, notify, l
     log("dependencies installed");
   } catch (error) {
     log(`install failed: ${error.message}`);
-    await ask({ message: `The install didn't finish.\n\n${String(error.message).split("\n")[0]}`, buttons: ["OK"], defaultButton: "OK" });
+    await ask({
+      message: `The install didn't finish.\n\n${String(error.message).split("\n")[0]}`,
+      buttons: ["OK"],
+      defaultButton: "OK",
+    });
   }
   return { kind: "start", version };
 }
@@ -548,7 +790,11 @@ export async function keep(settings, deps = {}) {
           checkout = await earlier(version);
         } catch (error) {
           log(`could not open ${version.ref}: ${error.message}`);
-          await ask({ message: `${APP_NAME} could not open that earlier version.\n\n${error.message}`, buttons: ["OK"], defaultButton: "OK" });
+          await ask({
+            message: `${APP_NAME} could not open that earlier version.\n\n${error.message}`,
+            buttons: ["OK"],
+            defaultButton: "OK",
+          });
           version = null;
           continue;
         }
@@ -557,7 +803,9 @@ export async function keep(settings, deps = {}) {
         log(`keeping the stock Electron for this session: ${error.message}`);
         return null;
       });
-      log(`starting ${version ? version.ref : "the latest code"} from ${checkout}${settings.homeSession && usable(settings.homeSession) ? " as a window onto your later.dog Cloud" : ""}`);
+      log(
+        `starting ${version ? version.ref : "the latest code"} from ${checkout}${settings.homeSession && usable(settings.homeSession) ? " as a window onto your later.dog Cloud" : ""}`,
+      );
       const result = await session({
         checkout,
         env: sessionEnv(settings, version, executable, process.env, Date.now(), usable),
@@ -574,7 +822,8 @@ export async function keep(settings, deps = {}) {
         },
       });
       log(`session ended with code ${result.code}${result.ready ? "" : " before it was ready"}`);
-      if (!result.ready) writeState(settings.state, { phase: "failed", version: version?.ref ?? null });
+      if (!result.ready)
+        writeState(settings.state, { phase: "failed", version: version?.ref ?? null });
       const step = await nextStep(result, { version, logs: settings.logs, list, ask, choose });
       if (step.kind === "quit") break;
       version = step.version;
@@ -592,7 +841,11 @@ function readFlags(argv) {
     const name = argv[at];
     if (name === "--open") flags.open = true;
     else if (name === "--mac-only") flags.macOnly = true;
-    else if (["--apps", "--home", "--state", "--logs", "--home-session"].includes(name) && argv[at + 1]) flags[name.slice(2)] = argv[++at];
+    else if (
+      ["--apps", "--home", "--state", "--logs", "--home-session"].includes(name) &&
+      argv[at + 1]
+    )
+      flags[name.slice(2)] = argv[++at];
     else throw new Error(`unknown option ${name}`);
   }
   return flags;
@@ -613,21 +866,37 @@ async function install(argv) {
   };
   if (keeperPid(chosen.state)) {
     const installed = join(chosen.apps, `${APP_NAME}.app`);
-    if (!existsSync(join(installed, "Contents", "Resources", "laterdog-dev", "dev-app.mjs"))) throw new Error(`${APP_NAME} is open. Quit it, then run pnpm dev:app again.`);
+    if (!existsSync(join(installed, "Contents", "Resources", "laterdog-dev", "dev-app.mjs")))
+      throw new Error(`${APP_NAME} is open. Quit it, then run bun run dev:app again.`);
     refreshLauncher(installed, self);
-    process.stdout.write(`${APP_NAME} is open, so only its launcher was updated. The change takes effect the next time it opens.\n`);
+    process.stdout.write(
+      `${APP_NAME} is open, so only its launcher was updated. The change takes effect the next time it opens.\n`,
+    );
     return;
   }
   const others = flags.apps ? [] : [SHARED_APPS, join(homedir(), "Applications")];
   const target = await installApp({ ...chosen, others });
-  const chats = homeSessionUsable(chosen.homeSession) ? "It shows your later.dog Cloud chats, the same ones as later.dog and the phone." : chosen.homeSession ? "It shows this Mac's Dev dogs. Run pnpm dev:connect once to show your later.dog Cloud chats instead." : "It shows this Mac's Dev dogs.";
-  process.stdout.write(`Installed ${target}\nIt runs ${chosen.repo} with hot reload${chosen.dataHome ? ` on ${chosen.dataHome}` : ""}. ${chats} Open it from Applications, Spotlight or the Dock.\n`);
+  const chats = homeSessionUsable(chosen.homeSession)
+    ? "It shows your later.dog Cloud chats, the same ones as later.dog and the phone."
+    : chosen.homeSession
+      ? "It shows this Mac's Dev dogs. Run bun run dev:connect once to show your later.dog Cloud chats instead."
+      : "It shows this Mac's Dev dogs.";
+  process.stdout.write(
+    `Installed ${target}\nIt runs ${chosen.repo} with hot reload${chosen.dataHome ? ` on ${chosen.dataHome}` : ""}. ${chats} Open it from Applications, Spotlight or the Dock.\n`,
+  );
   if (flags.open) await command("open", [target]);
 }
 
 if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
   const [action = "install", ...rest] = process.argv.slice(2);
-  const work = action === "install" ? install(rest) : action === "open" ? openApp(installedSettings()) : action === "keep" ? keep(installedSettings()) : Promise.reject(new Error(`unknown command ${action}`));
+  const work =
+    action === "install"
+      ? install(rest)
+      : action === "open"
+        ? openApp(installedSettings())
+        : action === "keep"
+          ? keep(installedSettings())
+          : Promise.reject(new Error(`unknown command ${action}`));
   work.catch((error) => {
     process.stderr.write(`${APP_NAME}: ${error.message}\n`);
     process.exitCode = 1;

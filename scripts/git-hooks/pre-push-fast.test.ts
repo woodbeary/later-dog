@@ -34,9 +34,9 @@ case "$1" in
   *) printf 'comments %s\\n' "$*" >> ${quote(trace)} ;;
 esac
 `,
-    pnpm: `#!/bin/sh
+    bun: `#!/bin/sh
 printf '%s\\n' "$*" >> ${quote(trace)}
-if [ "$1" = exec ] && [ "$2" = oxfmt ] && [ ${formatFails ? 1 : 0} = 1 ]; then exit 7; fi
+if [ "$1" = run ] && [ "$2" = oxfmt ] && [ ${formatFails ? 1 : 0} = 1 ]; then exit 7; fi
 exit 0
 `,
   };
@@ -58,8 +58,8 @@ describe("changed-file push checks", () => {
   it("checks formatting and lint only for changed supported files", () => {
     const result = checkPush();
     expect(result.status, result.stderr).toBe(0);
-    expect(result.checks).toContain("exec oxfmt --check -- ./README.md ./src/main.tsx");
-    expect(result.checks).toContain("exec oxlint --deny-warnings -- ./src/main.tsx");
+    expect(result.checks).toContain("run oxfmt --check -- ./README.md ./src/main.tsx");
+    expect(result.checks).toContain("run oxlint --deny-warnings -- ./src/main.tsx");
     expect(result.checks).toContain("comments scripts/no-comments.ts --check src/main.tsx");
     expect(result.checks).toContain("typecheck");
     expect(result.checks).toContain("i18n:check");
