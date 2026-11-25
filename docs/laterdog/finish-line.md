@@ -391,3 +391,15 @@ approvals return to `accounts.later.dog` and are passed on to the right home,
 and refresh tokens stay in each home's vault. It is off until the one-time
 setup in [google-setup.md](google-setup.md) is done; the same file gives the
 release order.
+
+
+## Hosted checks and test ports, November 25
+
+PR #260 integrates #262's process-wide port leases and #263's shared-workspace
+approval fixture onto main `4efafe4ce`. Commands on a dog's computer now wait for
+their wrapper to record its process group before checking for a lost process.
+The corrupt Git-cache, process-group signal and filesystem-time fixtures also
+run consistently across the Mac and hosted Linux runners. The slow-wrapper
+regression failed before the startup fix; 178 focused checks pass on the Mac.
+[Scope and evidence](../verification/ci-port-lease-integration-2026-11-25.md).
+The complete gate and hosted verdict remain the merge qualification in PR #260.

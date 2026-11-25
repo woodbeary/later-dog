@@ -141,7 +141,6 @@ describe("one copy of a repository's history", () => {
     const cache = join(cacheRoot, `${cacheKey(url)}.git`);
     for (const pack of packs(cache)) rmSync(pack);
     for (const name of readdirSync(join(cache, "objects", "pack"))) rmSync(join(cache, "objects", "pack", name));
-    git(cache, "update-ref", "refs/heads/trunk", git(join(work, "one"), "rev-parse", "HEAD"));
     const seed = join(root, "seed");
     writeFileSync(join(seed, "more.txt"), "more\n");
     git(seed, "add", ".");

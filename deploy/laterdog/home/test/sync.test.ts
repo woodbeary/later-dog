@@ -718,7 +718,7 @@ describe("listing the home", () => {
     expect(paths.indexOf(join("workspaces", "dog", "notes", "note-1.md"))).toBe(paths.indexOf(join("workspaces", "dog", "notes", "note-1")) + 2);
     expect(paths.filter((path: string) => /node_modules|pnpm|-wal|db-journal|dog\.lock/.test(path))).toEqual([]);
     expect(paths).toContain(join(".laterdog", "memory-journal", "dog.ndjson"));
-    expect(listed.find((entry: Listed) => entry.path === "run.sh")).toEqual({ path: "run.sh", mode: 0o755, mtimeMs: 1_700_000_000_123, type: "file", size: 18 });
+    expect(listed.find((entry: Listed) => entry.path === "run.sh")).toEqual({ path: "run.sh", mode: 0o755, mtimeMs: Math.floor(lstatSync(join(home, "run.sh")).mtimeMs), type: "file", size: 18 });
     expect(listed.find((entry: Listed) => entry.path === "latest")).toMatchObject({ type: "link", target: "run.sh" });
     expect(listed.find((entry: Listed) => entry.path === "dangling")).toMatchObject({ type: "link", target: "nowhere" });
     expect(listed.find((entry: Listed) => entry.path === join("workspaces", "dog", "empty"))).toMatchObject({ type: "dir" });

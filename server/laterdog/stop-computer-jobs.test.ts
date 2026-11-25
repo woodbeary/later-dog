@@ -81,7 +81,8 @@ describe("stopping a command on the dog's computer", () => {
     const { home, box, runs, record } = await launch(sleeper("dead"));
     expect(await until(() => alive(`${RUN_MARK}-dead`))).toBe(true);
     const pg = readFileSync(join(home, "runs/.logs", `${record.id}.pgid`), "utf8").trim();
-    spawnSync("kill", ["-KILL", `-${pg}`]);
+    expect(Number(pg)).toBeGreaterThan(1);
+    process.kill(-Number(pg), "SIGKILL");
     rmSync(join(home, "runs/.logs", `${record.id}.pgid`));
     expect(await until(() => !alive(`${RUN_MARK}-dead`))).toBe(true);
     expect(await runs.liveness(box, record)).toBe("dead");

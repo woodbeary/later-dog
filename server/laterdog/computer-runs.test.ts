@@ -61,6 +61,32 @@ describe("a heavy command on the dog's own computer", () => {
     expect(existsSync(join(folder, "dist"))).toBe(false);
   });
 
+  it("waits for a slow command wrapper to start before checking whether the run died", async () => {
+    const { root, folder, computer, state } = project();
+    mkdirSync(computer);
+    const slowBin = join(root, "slow-bin");
+    mkdirSync(slowBin);
+    writeFileSync(join(slowBin, "bash"), '#!/bin/sh\nsleep 0.25\nexec /bin/bash "$@"\n', { mode: 0o755 });
+    const { box } = localBox(computer);
+    const direct = box.exec;
+    box.exec = async (command, timeoutMs) => {
+      if (!command.includes("nohup")) return direct(command, timeoutMs);
+      const result = spawnSync("/bin/bash", ["-c", command], {
+        cwd: computer,
+        env: { ...process.env, HOME: computer, PATH: `${slowBin}:${process.env.PATH}` },
+        encoding: "utf8",
+      });
+      return { exitCode: result.status, stdout: result.stdout, stderr: result.stderr };
+    };
+    const runs = new ComputerRuns(state, fast);
+    const started = await runs.start(box, { botId: "dog", folder, command: "echo ready > report.txt" });
+    expect(existsSync(join(computer, "runs/.logs", `${started.id}.pgid`))).toBe(true);
+    const outcome = await runs.finish(box, started);
+    expect(outcome.state).toBe("finished");
+    expect(outcome.exitCode).toBe(0);
+    expect(readFileSync(join(folder, "report.txt"), "utf8")).toBe("ready\n");
+  });
+
   it("sends only what changed the next time, removes deleted files there, and reports a failing command", async () => {
     const { folder, computer, state } = project();
     mkdirSync(computer);
@@ -253,7 +279,8 @@ describe("a heavy command on the dog's own computer", () => {
     const record = await runs.start(box, { botId: "dog", folder, command: "sleep 31.9" });
     for (let tries = 0; tries < 50 && !(existsSync(join(computer, `runs/.logs/${record.id}.pgid`)) && readFileSync(join(computer, `runs/.logs/${record.id}.pgid`), "utf8").trim()); tries += 1) spawnSync("sleep", ["0.1"]);
     const pg = readFileSync(join(computer, "runs/.logs", `${record.id}.pgid`), "utf8").trim();
-    spawnSync("kill", ["-KILL", `-${pg}`]);
+    expect(Number(pg)).toBeGreaterThan(1);
+    process.kill(-Number(pg), "SIGKILL");
     spawnSync("rm", ["-f", join(computer, "runs/.logs", `${record.id}.pgid`)]);
     spawnSync("pkill", ["-f", "sleep 31[.]9"]);
     let clock = 1_000_000;

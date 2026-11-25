@@ -356,3 +356,5 @@ printed path. Never kill processes by name and never delete a broad temp root.
 
 The [hosted checks audit](hosted-checks-audit-2026-11-25.md) records how the removed
 hosted checks spent their time, the baseline for the checks that replaced them.
+
+- [Hosted checks and test-port integration](ci-port-lease-integration-2026-11-25.md): combined scope, reproduced failures and exact-head qualification in PR #260.
