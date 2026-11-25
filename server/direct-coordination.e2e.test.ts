@@ -549,6 +549,7 @@ it("parks a message behind outstanding teammate work when the bot opts in, then 
   await f.api(`/api/bots/${f.chief.id}`, { parkDirectMessages: true }, "PATCH");
   await f.start();
   await expect.poll(() => f.nodes().find((node: any) => node.parentId)?.status, { timeout: 15_000 }).toBe("running");
+  await expect.poll(async () => (await f.api("/api/bots?messages=0")).bots.find((bot: any) => bot.id === f.chief.id).busy, { timeout: 15_000 }).toBe(false);
   const assignment = f.nodes().find((node: any) => node.parentId);
 
   const receipt = await f.api(`/api/bots/${f.chief.id}/messages`, { text: "Also make sure the export is UTF-8.", threadId: f.chief.activeTaskId });
