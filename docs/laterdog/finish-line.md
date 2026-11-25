@@ -398,8 +398,10 @@ release order.
 PR #260 integrates #262's process-wide port leases and #263's shared-workspace
 approval fixture onto main `4efafe4ce`. Commands on a dog's computer now wait for
 their wrapper to record its process group before checking for a lost process.
-The corrupt Git-cache, process-group signal and filesystem-time fixtures also
-run consistently across the Mac and hosted Linux runners. The slow-wrapper
-regression failed before the startup fix; 178 focused checks pass on the Mac.
+The corrupt Git-cache, process-group signal and filesystem-time fixtures are
+portable across the Mac and hosted Linux runners. Resumed home restores compare
+completed-file timestamps at the manifest's millisecond precision. Both new
+regressions failed before their fixes; 121 focused main checks and all 369 home
+checks pass on the Mac.
 [Scope and evidence](../verification/ci-port-lease-integration-2026-11-25.md).
 The complete gate and hosted verdict remain the merge qualification in PR #260.

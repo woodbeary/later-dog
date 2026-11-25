@@ -206,6 +206,34 @@ describe("home data sync", () => {
     for (let i = 0; i < 30; i++) expect(readFileSync(join(target, `${i}.json`), "utf8")).toBe(`{"chat":${i}}`);
   });
 
+  it.each<[string, number, string, number]>([
+    ["the filesystem rounds below the saved millisecond", -0.25, "saved words", 0],
+    ["the completed copy has changed", 2, "other words", 1],
+  ])("checks a completed file when %s", async (_reason, offsetMs, words, expectedReads) => {
+    const source = folder();
+    writeFileSync(join(source, "note.txt"), "saved words");
+    const savedTime = 1_700_000_000_000;
+    utimesSync(join(source, "note.txt"), new Date(savedTime), new Date(savedTime));
+    const store = memoryStore();
+    await snapshot(source, store, null, { scratch: folder() });
+    const target = folder();
+    const finished = new Set<string>();
+    await restore(target, store, null, { finished });
+    const path = join(target, "note.txt");
+    writeFileSync(path, words);
+    const seconds = (savedTime + Number(offsetMs)) / 1000;
+    utimesSync(path, seconds, seconds);
+    expect(Math.abs(statSync(path).mtimeMs - savedTime)).toBeGreaterThan(0);
+    let reads = 0;
+    const counting = { ...store, async get(hash: string) {
+      reads += 1;
+      return store.get(hash);
+    } };
+    expect((await restore(target, counting, null, { finished })).files).toBe(1);
+    expect(reads).toBe(expectedReads);
+    expect(readFileSync(path, "utf8")).toBe("saved words");
+  });
+
   it("fetches a file again when the copy on disk differs from the save", async () => {
     const source = folder();
     writeFileSync(join(source, "note.txt"), "saved words");

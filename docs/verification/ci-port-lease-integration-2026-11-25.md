@@ -28,6 +28,10 @@ The full local merge gate remains required.
 - Process-group fixtures signal the recorded group through Node's process API
   after validating the group ID. This avoids differences in external `kill`
   argument parsing.
+- Home restores now round a completed file's timestamp to the manifest's
+  millisecond precision before deciding whether to download it again. The
+  submillisecond-roundoff regression fails before this change; a changed-file
+  counterexample still requires another download.
 - The home-listing fixture compares the stored file timestamp. Linux returns
   one millisecond less than the requested fractional time on the hosted runner;
   the scan still must match every entry from the independent serial listing.
@@ -49,7 +53,7 @@ serialized by `heavy.sh`; temporary test data outside the owner's home.
 - Integrated focused suite: 121 tests pass in command runs, shared clones,
   stopping jobs, question autopick, port leases, the port ratchet, workflow
   contracts, verdict judging and no-comments checks.
-- Home sync: 57 tests pass.
+- Complete home side package: all 369 tests pass, including 59 sync cases.
 - Full gate and hosted qualification: use the exact final head and linked
   logs in PR #260.
 
