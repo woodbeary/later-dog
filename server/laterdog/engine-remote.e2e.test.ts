@@ -350,6 +350,29 @@ createInterface({ input: process.stdin }).on("line", (l) => { const f = JSON.par
   expect(w.localLaunches()).toBe(0);
 }, 60_000);
 
+it("withholds remote success and preserves the newer home file when a required checkpoint conflicts", async () => {
+  const w = world();
+  const planned = w.plan();
+  planned.launch.requireCompleteCheckpoint = true;
+  const { engine, placed } = w.start(planned);
+  await turn(engine, "first remote turn");
+  const conflict = join(w.cwd, "turn-2.txt");
+  writeFileSync(conflict, "newer home file");
+  const stdout: string[] = [];
+  const stderr: string[] = [];
+  engine.stdout.on("data", bytes => stdout.push(String(bytes)));
+  engine.stderr.on("data", bytes => stderr.push(String(bytes)));
+  engine.stdout.resume();
+  const finished = closed(engine);
+  engine.stdin.write(message("remote would overwrite it"));
+  expect(await finished).toBe(1);
+  expect(stdout.join("")).not.toContain('"type":"result"');
+  expect(stderr.join("")).toContain("checkpoint could not be committed");
+  expect(readFileSync(conflict, "utf8")).toBe("newer home file");
+  expect(placed).toEqual(["computer"]);
+  expect(w.localLaunches()).toBe(0);
+}, 60_000);
+
 it.each(["exit", "disconnect"] as const)("settles a remote %s delivered alongside the launch reply", async (outcome) => {
   const w = world();
   const link = new EventEmitter() as EngineLink;

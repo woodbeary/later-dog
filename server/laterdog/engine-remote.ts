@@ -39,6 +39,7 @@ export interface RemoteLaunch {
   outputIds: string[];
   pushes?: () => PushedFile[];
   pushEveryMs?: number;
+  requireCompleteCheckpoint?: boolean;
   mcp: Record<string, StdioSpec>;
   hooks: string[];
   hookEnv: Record<string, string>;
@@ -190,6 +191,7 @@ export class RemoteSession extends EventEmitter {
   checkpoint(): Promise<unknown> { return this.#request({ type: "checkpoint_request" }, SYNC_REPLY_MS); }
 
   #line(line: string): void {
+    if (this.#closed) return;
     let frame: any;
     try { frame = JSON.parse(line); } catch { return; }
     switch (frame.type) {
@@ -206,7 +208,17 @@ export class RemoteSession extends EventEmitter {
       case "file_chunk": if (!this.#skipping) try { this.#receiver!.chunk(Buffer.from(frame.data, "base64")); } catch (error) { this.#skipping = true; this.#receiver!.close(); this.conflicts.push((error as Error).message); } return;
       case "file_end": if (!this.#skipping) try { this.#receiver!.end(); } catch (error) { this.conflicts.push((error as Error).message); } this.#skipping = false; return;
       case "file_remove": try { this.#receiver!.remove(frame.file); } catch (error) { this.conflicts.push(`${frame.file?.path}: ${(error as Error).message}`); } return;
-      case "checkpoint": this.#receiver?.resetBudget(); this.emit("checkpoint", frame.id); this.#send({ type: "ack", id: frame.id }); return;
+      case "checkpoint":
+        if (this.#launch.requireCompleteCheckpoint && this.conflicts.length) {
+          this.emit("diagnostic", "The cloud computer's checkpoint could not be committed because files conflicted or failed to transfer.\n");
+          this.#lost("incomplete checkpoint");
+          this.#link.close();
+          return;
+        }
+        this.#receiver?.resetBudget();
+        this.emit("checkpoint", frame.id);
+        this.#send({ type: "ack", id: frame.id });
+        return;
       case "proxy_open": this.#openProxy(String(frame.id), String(frame.name)); return;
       case "proxy_stdin": this.#proxies.get(String(frame.id))?.stdin?.write(Buffer.from(frame.data, "base64")); return;
       case "proxy_end": this.#proxies.get(String(frame.id))?.stdin?.end(); return;
