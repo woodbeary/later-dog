@@ -235,6 +235,13 @@ in over `--duration-normal`; what leaves goes at once. `landing-mac-reduced-shee
 - **Landing never scrolls.** The reply's first line appears where the person was already looking; a
   long reply is read from its top, and the jump control appears for the rest.
 - **Reading older messages.** Nothing in view moves; the jump control reads "1 new reply".
+- **A full transcript window.** Today the window holds 120 rows and drops the oldest as new ones
+  arrive; on the Mac fixture that moved the rows above 103.5 px when following and 48 px when scrolled
+  up, for at least one frame. The correct behaviour is 0 px for every row on screen in both cases.
+  Following: the reply lands into the room, and a row dropped from the top must be off screen, with
+  its height taken off the scroll position in the same frame. Scrolled up: the window drops nothing
+  while the person reads; it trims once they are back at the bottom, off screen, with the same
+  correction. A separate package fixes the mechanics.
 - **Several close together.** Arrivals within one `--duration-slower` land as one batch, each one
   `--duration-instant` after the previous, at most four staggered.
 - **A reply in the middle of a turn** lands the same way; the slot comes back below it if work goes
@@ -336,8 +343,11 @@ pacing (`src/lib/turn-slot.ts`) and the work sheet. What changes:
   animation.
 - **Room for the answer** in the inverted list's footer: slot plus 40% of the visible list.
 - **No shimmer** (`ThinkingLabel`) on the line: plain secondary text, the face moves.
-- **Landing in place.** The line becomes the fold line instead of stepping aside; the answer keeps the
-  phone's own arrival (rise 12 pt, 260 ms; fade only with Reduce Motion).
+- **Landing in place.** The phone already holds the working line until the reply's row arrives, with
+  exactly one of the two on screen at every step, and lands the reply through one component (rise
+  12 pt, 260 ms, with opacity). Keep that component and its timing for the reply. The one restyle:
+  the line's row becomes the fold line in place instead of stepping aside, its words leaving over
+  100 ms as the reply starts; under Reduce Motion, fades only.
 - **Announcements**: drop the per-step `announceForAccessibility`; follow the rules above.
 - **Words**: the shared table, copied byte for byte.
 - **Waking**: `src/lib/waking.ts` keeps its full-screen waking dog for a home that is not reachable at
