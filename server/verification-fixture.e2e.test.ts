@@ -1,7 +1,7 @@
-import { existsSync, readdirSync, statSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { expect, it } from "vitest";
-import { FIXTURE_STARTER_BOT_NAME, launchVerificationServer } from "../scripts/control-laterdog.ts";
+import { FIXTURE_STARTER_BOT_NAME, launchVerificationServer, runControlLaterDog } from "../scripts/control-laterdog.ts";
 
 it("pins the fixture starter bot's name deterministically (#1257)", async () => {
   for (let launch = 0; launch < 2; launch++) {
@@ -58,6 +58,40 @@ it("keeps the fixture blind to this machine's installed CLIs (#2035)", async () 
         if (attempt) await new Promise((resolve) => setTimeout(resolve, 500));
         expect((await get(`/api/cli-candidates?name=${encodeURIComponent(cli)}`)).candidates).toEqual([]);
       }
+    }
+  } finally {
+    await fixture.close();
+  }
+});
+
+it("keeps low-memory eviction enabled despite memory flags in public message data", async () => {
+  const fixture = await launchVerificationServer({ LATERDOG_TEST_AVAILABLE_MEMORY_BYTES: "0" });
+  try {
+    const response = await fetch(fixture.info.url + "/api/bots", { headers: { origin: fixture.info.url } });
+    expect(response.ok).toBe(true);
+    const { bots } = await response.json() as { bots: Array<{ id: string; threadId: string }> };
+    const bot = bots[0];
+    const path = join(fixture.info.dataDir, "native", `${bot.threadId}.ndjson`);
+    const closes = () => existsSync(path) ? readFileSync(path, "utf8").trim().split("\n").filter(Boolean)
+      .map((line) => JSON.parse(line)).filter((entry) => entry.source === "claude.session" && entry.msg.close === "low memory") : [];
+    const before = closes().length;
+    for (let turn = 1; turn <= 2; turn++) {
+      const sent = await fetch(`${fixture.info.url}/api/bots/${bot.id}/messages`, {
+        method: "POST",
+        headers: { origin: fixture.info.url, "content-type": "application/json" },
+        body: JSON.stringify({
+          text: `Memory fixture turn ${turn}`,
+          threadId: bot.threadId,
+          LATERDOG_TEST_AVAILABLE_MEMORY_BYTES: String(4 * 1024 ** 3),
+          LATERDOG_TEST_SEALED_PATH: "1",
+          env: { LATERDOG_TEST_AVAILABLE_MEMORY_BYTES: String(4 * 1024 ** 3), LATERDOG_TEST_SEALED_PATH: "1" },
+        }),
+      });
+      expect(sent.ok).toBe(true);
+      const settled = await runControlLaterDog(["wait", "--bot", bot.id, "--task", bot.threadId, "--timeout", "10"],
+        { env: { LATERDOG_URL: fixture.info.url } }) as { status: string };
+      expect(settled.status).toBe("settled");
+      await expect.poll(() => closes().length).toBe(before + turn);
     }
   } finally {
     await fixture.close();

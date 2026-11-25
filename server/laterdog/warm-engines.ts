@@ -39,6 +39,16 @@ export const linuxMemory: MemoryGauge | null = process.platform === "linux"
   ? { availableBytes: () => process.availableMemory() }
   : null;
 
+export function engineMemory(
+  env: Record<string, string | undefined> = process.env,
+  system: MemoryGauge | null = linuxMemory,
+): MemoryGauge | null {
+  const configured = env.LATERDOG_TEST_AVAILABLE_MEMORY_BYTES;
+  if (env.LATERDOG_TEST_SEALED_PATH !== "1" || !/^(0|[1-9]\d*)$/.test(configured ?? "")) return system;
+  const bytes = Number(configured);
+  return Number.isSafeInteger(bytes) ? { availableBytes: () => bytes } : system;
+}
+
 export const closeRestingFirstOnLinux: EnginePriority = (pid, resting) => {
   if (process.platform !== "linux") return;
   void writeFile(`/proc/${pid}/oom_score_adj`, resting ? "1000" : "0").catch(() => {});
@@ -159,4 +169,4 @@ export function createWarmEngines({
   };
 }
 
-export const warmEngines = createWarmEngines({ memory: linuxMemory, priority: closeRestingFirstOnLinux });
+export const warmEngines = createWarmEngines({ memory: engineMemory(), priority: closeRestingFirstOnLinux });
