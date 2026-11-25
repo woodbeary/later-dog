@@ -7,8 +7,12 @@ The hook must be executable. CI does not install local hooks.
 The pre-push hook checks changed supported files with Oxfmt 0.80.0, the comment checker
 and Oxlint. It always runs the public `pnpm typecheck` command on both complete application
 and server graphs, and `pnpm i18n:check`. These checks run concurrently and every failure is
-reported. The completed invocation must finish below nine seconds. The budget
-does not terminate running checks; a hung command still needs to be stopped.
+reported. The completed invocation must finish below nine seconds. An early Node entry
+uses process uptime, including Node bootstrap, module initialization and the complete shell
+ref/cwd preamble. The shell launcher only locates and execs this entry; its initial exec
+lookup is outside the portable process clock. With no Node, only the validated deletion
+fallback can succeed. The budget does not terminate running checks; a hung command still
+needs to be stopped.
 
 The selection is the union of every updated remote-to-local range. A new ref uses the merge
 base with `origin/main`; a missing base or object fails the push. Config deletions and renames
