@@ -281,7 +281,9 @@ it("adopts a fresh volume that holds only the included services the home seeded 
 it("gives the edge only its routing name and the server the contract, never a gateway's settings or a secret", () => {
   const relay = { LATERDOG_CLOUD_ARCHIVE_TOKEN: "archive-fixture-private", LATERDOG_CLOUD_BOAT_TOKEN: `box_laterdog_${"b".repeat(43)}`, LATERDOG_CLOUD_VOICE_TOKEN: `laterdog_voice_${"v".repeat(43)}`, LATERDOG_CLOUD_DECIDER_TOKEN: `laterdog_decide_${"d".repeat(43)}` };
   const config = cloudHomeConfiguration(withGateway())!;
-  const { server, edge, secrets } = cloudHomeChildEnvironments(config, { ...withGateway(), ...relay, PATH: "/usr/bin" }, "/data");
+  const { server, edge, secrets } = cloudHomeChildEnvironments(config, { ...withGateway(), ...relay, LATERDOG_ARCHIVE_CODEX_SESSIONS: "1", PATH: "/usr/bin" }, "/data");
+  expect(server.LATERDOG_ARCHIVE_CODEX_SESSIONS).toBe("1");
+  expect(edge).not.toHaveProperty("LATERDOG_ARCHIVE_CODEX_SESSIONS");
   expect(server).toMatchObject({ HOME: "/data", LATERDOG_HOME: "/data/.laterdog", LATERDOG_SERVER_PORT: "8799", LATERDOG_WEBHOOK_PORT: "8800",
     LATERDOG_PUBLIC_URL: "https://laterdog-u-1a2b3c4d5e6f.fly.dev", LATERDOG_WEBHOOK_PUBLIC_URL: "https://laterdog-u-1a2b3c4d5e6f.fly.dev", LATERDOG_CLOUD_SECRETS_FD: "3", GIT_TERMINAL_PROMPT: "0" });
   for (const key of CLOUD_IGNORED_KEYS) expect(server).not.toHaveProperty(key);

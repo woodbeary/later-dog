@@ -18,9 +18,10 @@ The storage branch carries the deployed one-pass SQLite backup and shutdown fixe
 room and engine-log archiving, makes a chat's folder restore visible, and evicts idle transcripts
 from memory while preserving their SQLite records. Archive capability 4 ties the server to a
 matching home image. The scanner and the archive writer leave Codex session files in place by
-default. The new image can read and restore those sessions from an existing archive. A capability
-3 image cannot read an index containing Codex sessions, so qualify recovery before enabling new
-Codex archive writes. Work folder restores still need space on the shared home.
+default. The Worker enables writes for the homes in `CODEX_ARCHIVE_ACCOUNTS`. The previous
+capability 4 image reads and restores those sessions with writes off. Use that image for
+rollback once a home archives its first Codex session. A capability 3 image cannot read an
+index containing Codex sessions. Work folder restores still need space on the shared home.
 All 423 home fixture tests passed, including restart recovery with a fake engine.
 
 ## Refinement program, November 25

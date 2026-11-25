@@ -76,7 +76,8 @@ async function main() {
   if (included === "seeded" || included === "replaced") log("included later.dog AI, voice and decisions are ready");
   if (store && !await archiveCompatible(LAUNCHER)) throw new Error("this image predates safe log restoration; rebuild the home image");
   const environment = { ...process.env };
-  const archive = store ? await serveArchive(createArchiver({ root: DATA, store, owner: dogOwner(), log, canRemove: async (file, entry) => {
+  const archiveCodexSessions = process.env.LATERDOG_ARCHIVE_CODEX_SESSIONS === "1";
+  const archive = store ? await serveArchive(createArchiver({ root: DATA, store, owner: dogOwner(), log, archiveCodexSessions, canRemove: async (file, entry) => {
     const launcher = child;
     if (!await launcherOwnsNoFile(launcher, entry)) return false;
     const clear = await fileIsUnopened(file, { asOwner: dogOwner(), launcherPid: launcher.pid, maxDescriptors: 50_000 });

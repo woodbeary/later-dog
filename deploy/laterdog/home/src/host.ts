@@ -7,7 +7,7 @@ import { parsePairingGrant, signedPairingRequest, type PairingGrant } from "./pa
 import { handleOwnerEmail, type OwnerMail } from "./email.ts";
 import { GOOGLE_HOST, handleGoogle, type GoogleAccounts } from "./google.ts";
 import { Handover, type HandoverPeer, type HomeStanding } from "./handover.ts";
-import { homeNamespace, otherSize, type HomeSize } from "./size.ts";
+import { homeNamespace, largeHomeAccounts, otherSize, type HomeSize } from "./size.ts";
 import { authorizedState, EMAIL_HOST, forgetHomeState, handleState, STATE_HOST, stateOwner } from "./state.ts";
 import { devCodeOn, handleDevCode } from "./dev-code.ts";
 import { alwaysOn, KEEP_UP_EVERY_S, personSleepAfter, RESTART_AFTER_STOP_S } from "./always-on.ts";
@@ -232,6 +232,7 @@ export class CloudHomeHost extends Container<Env> {
       ...(record.emailToken ? { LATERDOG_CLOUD_EMAIL_URL: `http://${EMAIL_HOST}/send`, LATERDOG_CLOUD_EMAIL_TOKEN: record.emailToken } : {}),
       ...(record.googleToken ? { LATERDOG_CLOUD_GOOGLE_URL: `http://${GOOGLE_HOST}`, LATERDOG_CLOUD_GOOGLE_TOKEN: record.googleToken } : {}),
       ...(record.includedKey ? { LATERDOG_INCLUDED_KEY: record.includedKey, LATERDOG_INCLUDED_API: this.env.INCLUDED_API } : {}),
+      ...(largeHomeAccounts(this.env.CODEX_ARCHIVE_ACCOUNTS).includes(record.accountId) ? { LATERDOG_ARCHIVE_CODEX_SESSIONS: "1" } : {}),
       ...(devCodeOn(this.env.DEV_CODE, record.accountId) ? { LATERDOG_DEV_CODE: "1" } : {}),
     };
   }

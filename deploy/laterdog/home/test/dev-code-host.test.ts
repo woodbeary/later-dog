@@ -28,12 +28,12 @@ function emptyBucket(): StateBucket {
   };
 }
 
-function cloud(devCode: string) {
+function cloud(devCode: string, archiveAccounts = "") {
   const HOMES = new FakeNamespace<Host>("HOMES");
   const HOMES_LARGE = new FakeNamespace<Host>("HOMES_LARGE");
   const env = {
     HOME_SECRET: SECRET, HOME_HOST_SUFFIX: SUFFIX, ADMIN_ORIGIN: "https://accounts.later.dog", INCLUDED_API: "https://cloud.later.dog/v1",
-    LARGE_HOME_ACCOUNTS: "", DEV_CODE: devCode, HOMES, HOMES_LARGE, STATE: emptyBucket(),
+    LARGE_HOME_ACCOUNTS: "", CODEX_ARCHIVE_ACCOUNTS: archiveAccounts, DEV_CODE: devCode, HOMES, HOMES_LARGE, STATE: emptyBucket(),
     COMPUTERS: { fetch: async () => Response.json({ trial: { state: "active" }, home: true }, { status: 201 }) },
     ACCOUNTS: {},
   };
@@ -56,6 +56,14 @@ async function afterDeploy(world: ReturnType<typeof cloud>, ctx: unknown, devCod
   await world.settle();
   return reloaded;
 }
+
+it("passes Codex archive writes only to the named home", async () => {
+  const world = cloud("", OWNER);
+  const owner = await homeOf(world, OWNER);
+  const other = await homeOf(world, SOMEONE);
+  expect(owner.home.envVars.LATERDOG_ARCHIVE_CODEX_SESSIONS).toBe("1");
+  expect(other.home.envVars).not.toHaveProperty("LATERDOG_ARCHIVE_CODEX_SESSIONS");
+});
 
 beforeEach(() => resetWorld());
 afterEach(() => vi.restoreAllMocks());

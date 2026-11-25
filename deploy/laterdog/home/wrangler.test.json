@@ -95,6 +95,7 @@
     "HOME_HOST_SUFFIX": "-hometest.later.dog",
     "ADMIN_ORIGIN": "https://accounts.later.dog",
     "INCLUDED_API": "https://cloud.later.dog/v1",
+    "CODEX_ARCHIVE_ACCOUNTS": "test-cold-codex-writer",
     "LARGE_HOME_ACCOUNTS": "",
     "ALWAYS_ON_ACCOUNTS": "",
     "HOME_SLEEP_AFTER": "2m",

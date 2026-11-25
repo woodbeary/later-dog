@@ -2909,6 +2909,7 @@ const logArchive = archiveBridge
       ]),
     ],
     orphanLogs: true,
+    archiveCodexSessions: process.env.LATERDOG_ARCHIVE_CODEX_SESSIONS === "1",
     idle: id => {
       if (registry.instances().some(instance => instance.adapter.hasSession(id))) return false;
       if (store.hasPendingRequest(id)) return false;
