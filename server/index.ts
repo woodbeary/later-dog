@@ -562,7 +562,9 @@ import { fetchGithubTeam, fetchLibraryTeam, fetchTeamCatalog } from "./team-libr
 import { BOT_PACKAGE_MAX_SKILLS, isBotPackage, packageSummary, parsePackageDocument, renderBotPackageMarkdown, type PackageDocument } from "./bot-package.ts";
 import { createTeamManifest, parseTeamManifest } from "./team-manifest.ts";
 import { LogArchiveCoordinator, claudeSessionIds, logArchiveBridge, outsideSessionOwners } from "./laterdog/log-archive.ts";
-import { archiveSweep, roomToRestore, savesHold, startArchiveSweeps, steadyDisk } from "./laterdog/archive-pressure.ts";
+import { archiveSweep, roomFor, roomToRestore, savesHold, startArchiveSweeps, steadyDisk, workFolderSweep } from "./laterdog/archive-pressure.ts";
+import { WorkFolderArchive } from "./laterdog/work-folder-archive.ts";
+import { workFolderChats } from "./laterdog/work-folder-chats.ts";
 import { readThreadEvents } from "./thread-events.ts";
 import { describeTool, readBotActivity } from "./activity.ts";
 import { OutboundRequestService } from "./outbound-requests.ts";
@@ -573,7 +575,7 @@ import { CLOUD_THREAD_LOG_MAX_BYTES, CLOUD_THREAD_LOG_RETENTION_DAYS, DISK_CHECK
 import { TAB_SWEEP_MS } from "./laterdog/cloud-tabs.ts";
 import { TabKeeper } from "./laterdog/tab-keeper.ts";
 import { computerUpkeepScript } from "./laterdog/computer-upkeep.ts";
-import { MEMORY_CHECK_MS, orphanIdleHours, readMemoryPressure, reapStrays, underMemoryPressure, type ThreadState as ReaperThreadState } from "./laterdog/process-reaper.ts";
+import { MEMORY_CHECK_MS, orphanIdleHours, readMemoryPressure, readProcesses, reapStrays, underMemoryPressure, type ThreadState as ReaperThreadState } from "./laterdog/process-reaper.ts";
 import { startHomeUpkeep } from "./laterdog/home-upkeep.ts";
 import { liveSignalScene, signalDecision } from "./laterdog/home-signals.ts";
 import { homeFloorDecision } from "./laterdog/disk-floor.ts";
@@ -2875,10 +2877,13 @@ function threadBusy(botId: string, threadId: string): boolean {
 }
 
 const archiveDisk = steadyDisk(() => diskUse(DATA_DIR), () => savesHold(DATA_DIR));
-const logArchive = CLOUD_SECRETS.LATERDOG_CLOUD_ARCHIVE_TOKEN && process.env.LATERDOG_CLOUD_ARCHIVE_URL
+const archiveBridge = CLOUD_SECRETS.LATERDOG_CLOUD_ARCHIVE_TOKEN && process.env.LATERDOG_CLOUD_ARCHIVE_URL
+  ? logArchiveBridge(process.env.LATERDOG_CLOUD_ARCHIVE_URL, CLOUD_SECRETS.LATERDOG_CLOUD_ARCHIVE_TOKEN)
+  : null;
+const logArchive = archiveBridge
   ? new LogArchiveCoordinator({
     root: homedir(),
-    bridge: logArchiveBridge(process.env.LATERDOG_CLOUD_ARCHIVE_URL, CLOUD_SECRETS.LATERDOG_CLOUD_ARCHIVE_TOKEN),
+    bridge: archiveBridge,
     threads: () => [...new Set(store.bots.flatMap(bot => store.tasks(bot.id).map(task => task.threadId)))].filter(id => !store.groupByThread(id)),
     idle: id => {
       const owner = store.bots.find(bot => store.tasks(bot.id).some(task => task.threadId === id));
@@ -2892,6 +2897,19 @@ const logArchive = CLOUD_SECRETS.LATERDOG_CLOUD_ARCHIVE_TOKEN && process.env.LAT
     sweep: () => archiveSweep(archiveDisk()),
     room: () => roomToRestore(archiveDisk()),
     report: message => console.log(`[log archive] ${message}`),
+  }) : null;
+const workFolders = archiveBridge && logArchive
+  ? new WorkFolderArchive({
+    home: homedir(),
+    dataDir: DATA_DIR,
+    workspacesDir: TASK_WORKSPACES_DIR,
+    bridge: archiveBridge,
+    chats: () => workFolderChats({ workspacesDir: TASK_WORKSPACES_DIR, bots: store.bots, groups: store.groups, damaged: store.damaged, thread: janitorThread, atWork: threadAtWork }),
+    live: () => readProcesses(),
+    limits: () => workFolderSweep(archiveDisk()),
+    room: bytes => roomFor(archiveDisk(), bytes),
+    makeRoom: () => logArchive.scan(),
+    log: line => console.log(line),
   }) : null;
 
 function parksBehindCoordination(botId: string, threadId: string): boolean {
@@ -9081,6 +9099,9 @@ async function startTurn(
       if (logArchive && !await logArchive.beforeTurn(threadId, () => directTurnClaimIsCurrent(bot.id, dispatchClaimId, threadId))) {
         throw new DirectTurnSetupCancelled("turn stopped while saved logs were restored");
       }
+      if (workFolders && !await workFolders.beforeTurn(bot.id, threadId, () => directTurnClaimIsCurrent(bot.id, dispatchClaimId, threadId))) {
+        throw new DirectTurnSetupCancelled("turn stopped while its work folder came back from storage");
+      }
       if (logArchive) watchdog.watch(threadId, bot.id);
       if (enginesRead) {
         await enginesRead;
@@ -11477,6 +11498,7 @@ async function runGroupMemberTurn(
   const worksInWorkspace = supportsWorkspaceFiles(instance.driverKind);
   const workspace = worksInWorkspace ? ensureWorkspace(bot.id) : undefined;
   if (workspace && bot.memoryEnabled !== false) beginMemoryTurn(bot.id, threadId);
+  if (workFolders && workspace && cloudGuestOpened(threadId)) await workFolders.beforeTurn(bot.id, threadId);
   const cwd = workspace && cloudGuestOpened(threadId)
     ? ensureTaskWorkspace(bot.id, threadId)
     : groupTurnCwd(workspace, () => store.pinGroupCwd(readyGroup.id, threadId));
@@ -21886,6 +21908,12 @@ function janitorWorkspaces(): WorkspaceTask[] {
   return tasks;
 }
 
+function threadAtWork(threadId: string): boolean {
+  const bot = store.botByThread(threadId);
+  return runningTurnEngines.has(threadId) || Boolean(bot && threadBusy(bot.id, threadId)) || Boolean(store.groupByThread(threadId)?.busyBotId)
+    || helperBoard.running(threadId) || nativeRuns.running(threadId);
+}
+
 let lastJanitorRun: JanitorRun | null = null;
 let homeUpkeep: ReturnType<typeof startHomeUpkeep> | null = null;
 const diskBreakdown = createDiskBreakdown({ dataDir: DATA_DIR, home: CLOUD_HOME ? homedir() : null, scratch: CLOUD_HOME ? [tmpdir()] : [], dogName: (id) => store.bot(id)?.name ?? null });
@@ -21914,7 +21942,16 @@ function runJanitorNow(reason: JanitorRun["reason"]): JanitorRun | null {
   }
 }
 
-if (logArchive) startArchiveSweeps({ scan: () => logArchive.scan(), disk: archiveDisk, warn: line => console.warn(line) });
+if (logArchive) {
+  startArchiveSweeps({
+    scan: async () => {
+      await logArchive.scan();
+      await workFolders?.sweep();
+    },
+    disk: archiveDisk,
+    warn: line => console.warn(line),
+  });
+}
 
 if (CLOUD_HOME) {
   setTimeout(() => { runJanitorNow("startup"); if (!diskBreakdown.last()) diskBreakdown.measure(); }, 2 * 60_000).unref();
@@ -21928,11 +21965,7 @@ if (CLOUD_HOME) {
   }, MEMORY_CHECK_MS).unref();
   homeUpkeep = startHomeUpkeep({
     subscribe: (listener) => bus.subscribe((event: RuntimeEvent) => { if (!shouldIgnoreProviderEvent(event)) listener(event); }),
-    atWork: (threadId) => {
-      const bot = store.botByThread(threadId);
-      return runningTurnEngines.has(threadId) || Boolean(bot && threadBusy(bot.id, threadId)) || Boolean(store.groupByThread(threadId)?.busyBotId)
-        || helperBoard.running(threadId) || nativeRuns.running(threadId);
-    },
+    atWork: threadAtWork,
     chats: () => janitorWorkspaces(),
     dataDir: DATA_DIR,
     home: homedir(),
@@ -21970,6 +22003,7 @@ function cloudStorage() {
     low: isLowDisk(disk),
     warning: homeUpkeep?.warning() ?? null,
     archive: logArchive?.status() ?? { enabled: false },
+    workFolders: workFolders?.status() ?? { enabled: false },
     janitor: lastJanitorRun ? { at: lastJanitorRun.at, freedBytes: lastJanitorRun.freedBytes, stopped: lastJanitorRun.reaped } : null,
     breakdown: diskBreakdown.last(),
   };
