@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { codexHome } from "../drivers/codex-identity.ts";
 import type { McpServerSpec } from "../contracts.ts";
@@ -8,10 +8,23 @@ import { SPAWNED_PROXIES } from "../proxy-paths.ts";
 import { ChangedCodexCheckpoint, codexCheckpoint } from "./codex-checkpoint.ts";
 import { codexExternalAccount } from "./codex-external-auth.ts";
 import { engineFilePath } from "./engine-files.ts";
-import { engineCliPackage, REMOTE_ENGINE_BASE, type EngineOpener, type PlacedEnginePlan } from "./engine-placement.ts";
+import { botFolderRoot, engineCliPackage, REMOTE_ENGINE_BASE, type EngineOpener, type PlacedEnginePlan } from "./engine-placement.ts";
 import type { StdioSpec } from "./engine-remote.ts";
 
 const quoted = (value: string) => `'${value.replace(/'/g, "'\\''")}'`;
+
+export function codexComputerWorkspace(dataDir: string, bot: string, thread: string, cwd: string): boolean {
+  if (![bot, thread].every(value => /^[\w-]{1,128}$/.test(value))) return false;
+  const data = resolve(dataDir);
+  const folder = resolve(cwd);
+  const owned = [join(data, "workspaces", bot), join(data, "task-workspaces", bot, thread)].some(root => {
+    const rel = relative(root, folder);
+    return rel !== ".." && !rel.startsWith("../") && !isAbsolute(rel);
+  });
+  if (!owned) return false;
+  try { return realpathSync(folder) === join(realpathSync(data), relative(data, folder)); }
+  catch { return false; }
+}
 
 export interface CodexPlacement {
   dataDir: string; botId: string; threadId: string; instanceId: string; cli: string; cwd: string;
@@ -36,9 +49,7 @@ export function planCodexRemote(input: CodexPlacement) {
   const cli = engineCliPackage(input.cli, input.env.PATH, "@openai/codex");
   if (!cli) return { stay: "the selected Codex CLI package could not be identified" } as const;
   const cwd = resolve(input.cwd);
-  const botFolder = join(resolve(input.dataDir), "workspaces", input.botId);
-  const rel = relative(botFolder, cwd);
-  if (!/^[\w-]{1,128}$/.test(input.botId) || rel.startsWith("..") || isAbsolute(rel)) return { stay: "this working folder is outside the dog's cloud workspace" } as const;
+  if (!codexComputerWorkspace(input.dataDir, input.botId, input.threadId, cwd)) return { stay: "this working folder is outside the dog's cloud workspace" } as const;
   const run = randomUUID();
   const remoteBase = input.opener.remoteBase ?? REMOTE_ENGINE_BASE;
   const stagingDir = join(input.dataDir, "engine-launch", run);
@@ -59,6 +70,11 @@ export function planCodexRemote(input: CodexPlacement) {
       socketPath, stateFile: `${remoteBase}/state/${binding.key}.json`, lockFile: `${remoteBase}/locks/${binding.key}.lock`,
     },
   };
+  const botRoot = botFolderRoot(input.dataDir, input.botId, cwd, home, stagingDir);
+  if (botRoot) {
+    plan.launch.roots.push(botRoot);
+    plan.mkdirs.push(botRoot.path);
+  }
   try {
     mkdirSync(sessions, { recursive: true, mode: 0o700 });
     writeFileSync(join(stagingDir, "config.toml"), 'cli_auth_credentials_store = "ephemeral"\n', { mode: 0o600 });

@@ -1,8 +1,9 @@
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { expect, it, onTestFinished } from "vitest";
+import { codexComputerWorkspace } from "./codex-placement.ts";
 import { codexCheckpoint, codexPendingDispatch } from "./codex-checkpoint.ts";
 
 it("binds a resumed cursor to the dog's native account, chat and exact saved checkpoint", () => {
@@ -54,4 +55,19 @@ it("keeps an unconfirmed remote dispatch across restart until its own completion
   expect(codexPendingDispatch(scratch, "other", "chat", "first").has()).toBe(false);
   second.clear();
   expect(first.has()).toBe(false);
+});
+
+it("places the normal task workspace and rejects other chats and linked paths", () => {
+  const data = mkdtempSync(join(tmpdir(), "codex-placement-"));
+  onTestFinished(() => rmSync(data, { recursive: true, force: true }));
+  const dog = join(data, "workspaces", "dog");
+  const task = join(data, "task-workspaces", "dog", "chat");
+  const sibling = join(data, "task-workspaces", "dog", "other");
+  for (const path of [dog, task, sibling]) mkdirSync(path, { recursive: true });
+  symlinkSync(sibling, join(task, "linked"), "dir");
+  expect(codexComputerWorkspace(data, "dog", "chat", dog)).toBe(true);
+  expect(codexComputerWorkspace(data, "dog", "chat", task)).toBe(true);
+  expect(codexComputerWorkspace(data, "dog", "chat", sibling)).toBe(false);
+  expect(codexComputerWorkspace(data, "dog", "chat", join(task, "linked"))).toBe(false);
+  expect(codexComputerWorkspace(data, "other", "chat", dog)).toBe(false);
 });
