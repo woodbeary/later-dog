@@ -17,7 +17,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        checker: [tsc, bun, tsgo]
+        checker: [tsrs, tsrs-fast]
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
@@ -36,12 +36,12 @@ jobs:
       - name: Install the frozen project dependencies
         run: pnpm install --frozen-lockfile
       - name: Install the native checker outside the repository
-        if: matrix.checker == 'tsgo'
+        if: startsWith(matrix.checker, 'tsrs')
         run: |
           mkdir -p "$RUNNER_TEMP/typecheck-tools"
           printf '{"private":true}\n' > "$RUNNER_TEMP/typecheck-tools/package.json"
-          pnpm --dir "$RUNNER_TEMP/typecheck-tools" add --save-exact @typescript/native-preview
-          echo "CI_FAST_TSGO=$RUNNER_TEMP/typecheck-tools/node_modules/.bin/tsgo" >> "$GITHUB_ENV"
+          pnpm --dir "$RUNNER_TEMP/typecheck-tools" add --save-exact tsrs@7.1.0-beta.tsrs5
+          echo "CI_FAST_TSGO=$RUNNER_TEMP/typecheck-tools/node_modules/.bin/tsrs" >> "$GITHUB_ENV"
       - name: Measure checks and prove intentional type errors fail
         env:
           CI_FAST_OUTPUT: ${{ runner.temp }}/typecheck-comparison

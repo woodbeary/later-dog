@@ -4,10 +4,10 @@ import { join, resolve } from 'node:path';
 import { availableParallelism, totalmem } from 'node:os';
 
 const checker = process.argv[2];
-if (!['tsc', 'bun', 'tsgo'].includes(checker)) throw new Error('Choose tsc, bun or tsgo');
+if (!['tsc', 'bun', 'tsgo', 'tsrs', 'tsrs-fast'].includes(checker)) throw new Error('Choose tsc, bun, tsgo, tsrs or tsrs-fast');
 const output = resolve(process.env.CI_FAST_OUTPUT || '.typecheck-comparison');
 mkdirSync(output, { recursive: true });
-const command = checker === 'bun' ? 'bun' : checker === 'tsgo' ? process.env.CI_FAST_TSGO : './node_modules/.bin/tsc';
+const command = checker === 'bun' ? 'bun' : checker.startsWith('tsrs') || checker === 'tsgo' ? process.env.CI_FAST_TSGO : './node_modules/.bin/tsc';
 if (!command) throw new Error('CI_FAST_TSGO must name the installed native checker');
 const version = spawnSync(command, ['--version'], { encoding: 'utf8' });
 if (version.error || version.status !== 0) throw version.error || new Error(version.stderr);
@@ -17,6 +17,7 @@ function check(label, project) {
   const args = project === 'app' ? ['-b'] : ['-p', 'tsconfig.server.json'];
   if (project === 'app' && checker !== 'bun') args.push('--force');
   args.push('--pretty', 'false');
+  if (checker === 'tsrs-fast') args.push('--fast');
   if (checker === 'bun') args.unshift('check', '--no-script');
   const start = performance.now();
   const child = spawnSync(command, args, { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
