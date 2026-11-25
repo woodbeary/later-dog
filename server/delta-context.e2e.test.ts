@@ -35,6 +35,7 @@ async function fixture(test: (f: any) => Promise<void>, options: { env?: NodeJS.
         'import { appendFileSync, existsSync, readFileSync } from "node:fs";',
         `Object.assign(process.env, ${JSON.stringify(env)});`,
         "const argv = process.argv.slice(2);",
+        'if (argv.includes("--version") && process.env.FAKE_CLAUDE_START_DELAY === "1") await new Promise(resolve => setTimeout(resolve, 750));',
         "const after = (flag) => { const i = argv.indexOf(flag); return i === -1 ? null : argv[i + 1] ?? null; };",
         `const modes = existsSync(${JSON.stringify(modePath(name))}) ? Object.fromEntries(readFileSync(${JSON.stringify(modePath(name))}, "utf8").trim().split(",").map((part) => part.includes("=") ? part.split("=") : ["any", part])) : {};`,
         'const mode = (after("--resume") ? modes.resume : modes.fresh) ?? modes.any;',
@@ -441,7 +442,7 @@ const resultAcrossRestart = async (f: any, stripRecord: boolean) => {
     }
     if (!stripRecord) return;
     for (const task of bots.find((b: any) => b.id === f.chief.id).tasks) { delete task.handedMessages; delete task.handedWatermarks; }
-  });
+  }, "SIGTERM", { FAKE_CLAUDE_START_DELAY: "1" });
   await expect.poll(async () => (await f.messages()).some((m: any) => m.roomRequest?.phase === "result"), { timeout: 20_000 }).toBe(true);
   f.plan[f.chief.id] = { reply: "Engineering was interrupted" };
   await f.send("What happened to the Engineering work?");

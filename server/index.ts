@@ -10851,6 +10851,7 @@ const webhookIngressStatus = () => ({
 });
 
 const roomHandoffTimer = setInterval(() => {
+  if (enginesRead) return;
   try {
     for (const node of roomHandoffs.nodes.values()) {
       if (node.parentId && node.status === "needs-you") syncDelegatedNeedsYou(node);
