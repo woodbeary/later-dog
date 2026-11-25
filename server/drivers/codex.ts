@@ -766,8 +766,8 @@ export const CodexDriver: ProviderDriver<CodexConfig> = {
         emit({ ...base(threadId, turnId), type: "runtime.error", message: error instanceof Error ? error.message : "Codex could not open the selected session." });
         emit({ ...base(threadId, turnId), type: "turn.completed", ok: false, stopReason: "engine_open_failed", cost: null });
       };
-      const pendingDispatch = turn.botId ? codexPendingDispatch(DATA_DIR, turn.botId, threadId, turnId) : null;
-      if (turn.startupRecovery && pendingDispatch?.has()) throw new Error("The previous Codex turn was sent to the computer. Check its work before sending another message.");
+      const pendingDispatch = turn.botId ? codexPendingDispatch(DATA_DIR, turn.botId, threadId, turnId, turn.sourceMessageId) : null;
+      if (pendingDispatch?.sameSource() || (!turn.sourceMessageId && turn.startupRecovery && pendingDispatch?.has())) throw new Error("The previous Codex turn was sent to the computer. Check its work before sending another message.");
       let startedNoticeSent = false;
       let binding: ReturnType<typeof codexCheckpoint> | undefined;
       const launchAttempt = async (attempt: number, homeOnly = false): Promise<void> => {

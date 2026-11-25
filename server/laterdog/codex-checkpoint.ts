@@ -8,16 +8,24 @@ const digest = (bytes: Buffer | string) => createHash("sha256").update(bytes).di
 const UUID = /^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/;
 const ROLLOUT = /^(\d{4}\/\d{2}\/\d{2}\/rollout-[a-zA-Z0-9_.-]+)-([a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12})\.jsonl$/;
 
-export function codexPendingDispatch(dataDir: string, botId: string, threadId: string, turnId: string) {
+export function codexPendingDispatch(dataDir: string, botId: string, threadId: string, turnId: string, sourceMessageId?: string) {
   const file = join(dataDir, "engine-checkpoints", digest(JSON.stringify([botId, threadId])) + ".pending");
   return {
     has: () => existsSync(file),
+    sameSource() {
+      if (!sourceMessageId || !existsSync(file)) return false;
+      const raw = readFileSync(file, "utf8");
+      return raw.startsWith("{") && JSON.parse(raw).source === sourceMessageId;
+    },
     start() {
       mkdirSync(dirname(file), { recursive: true, mode: 0o700 });
-      writeFileAtomic(file, turnId, { mode: 0o600 });
+      writeFileAtomic(file, JSON.stringify({ turnId, source: sourceMessageId }), { mode: 0o600 });
     },
     clear() {
-      try { if (readFileSync(file, "utf8") === turnId) unlinkSync(file); }
+      try {
+        const raw = readFileSync(file, "utf8");
+        if ((raw.startsWith("{") ? JSON.parse(raw).turnId : raw) === turnId) unlinkSync(file);
+      }
       catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; }
     },
   };

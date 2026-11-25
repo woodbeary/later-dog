@@ -9709,6 +9709,7 @@ async function startTurn(
       const dispatch = await guardTurnDispatch(instance.adapter.sendTurn({
         threadId,
         botId: bot.id,
+        sourceMessageId: userMessage.id,
         startupRecovery: cfg.automaticRecovery?.enabled === true &&
           (opts?.automaticRecoveryIndex ?? 0) < ((liveBot ?? bot).fallback?.length || (cfg.automaticRecovery.backup ? 1 : 0)),
         text: withRecalled(recalled, fromPerson && !fromLocalTool ? withOnItNote(dispatchContext.turnText, guidanceEngine(instance.driverKind)) : dispatchContext.turnText),
