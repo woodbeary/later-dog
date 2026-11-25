@@ -930,7 +930,7 @@ async function landingCase(page: Page, cdp: Cdp, api: ReturnType<typeof fixtureA
   });
   await settled(api, [dogs.long.id]);
   rmSync(files.stream, { force: true });
-  return { characters, shape, follow, mainThread: tasksAroundLanding(events, LANDING_BEFORE_MS, LANDING_AFTER_MS), ...(landed ?? {}) };
+  return { characters, shape, follow, mainThread: tasksAroundLanding(events, LANDING_BEFORE_MS, LANDING_AFTER_MS), ...landed };
 }
 
 async function landing(browser: Browser, url: string, api: ReturnType<typeof fixtureApi>, dogs: { long: Dog; others: Dog[] }, files: FixtureFiles, reps: number) {
