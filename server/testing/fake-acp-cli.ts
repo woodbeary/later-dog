@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { spawn } from "node:child_process";
-import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 
 const mode = process.env.FAKE_ACP_MODE ?? "happy";
 
@@ -62,6 +62,10 @@ const configOptions = () => {
   ];
   return options.length ? options : null;
 };
+const sessionModeIds = (process.env.FAKE_ACP_SESSION_MODES ?? "").split(",").filter(Boolean);
+const sessionModes = () => sessionModeIds.length
+  ? { modes: { currentModeId: sessionModeIds[0], availableModes: sessionModeIds.map((id) => ({ id, name: id })) } }
+  : null;
 const acpModels = (process.env.FAKE_ACP_SESSION_MODELS ?? "")
   .split(",")
   .filter(Boolean)
@@ -120,6 +124,11 @@ const dumpEnv = Object.fromEntries(
     "GEMINI_API_KEY",
     "MISTRAL_API_KEY",
     "LATERDOG_ANTHROPIC_API_KEY",
+    "BROWSER",
+    "AGY_CLI_DISABLE_AUTO_UPDATE",
+    "AGY_CLI_FORCE_FILE_TOKEN_STORAGE",
+    "DISPLAY",
+    "WAYLAND_DISPLAY",
   ].flatMap((key) => (process.env[key] === undefined ? [] : [[key, process.env[key]]] as const)),
 );
 const dumpState: Record<string, unknown> = { argv, env: dumpEnv, pid: process.pid };
@@ -187,6 +196,37 @@ if (argv[0] === "models" || argv.includes("--list-models")) {
     ].join("\n"),
   );
   process.exit(0);
+}
+
+const authFile = process.env.FAKE_ACP_AUTH_FILE ?? "";
+const signedOut = () => Boolean(authFile) && !existsSync(authFile);
+if (argv.includes("--login")) {
+  if (process.env.FAKE_ACP_LOGIN_DUMP) {
+    writeFileSync(process.env.FAKE_ACP_LOGIN_DUMP, JSON.stringify({ argv, env: dumpEnv, cwd: process.cwd(), pid: process.pid }));
+  }
+  if (process.env.FAKE_ACP_LOGIN_SILENT !== "1") {
+    process.stdout.write([
+      "Open this link in a browser to log in with Google:",
+      "",
+      "  https://accounts.google.com/o/oauth2/auth?access_type=offline&client_id=fake.apps.googleusercontent.com&code_challenge=fake&code_challenge_method=S256&prompt=consent&redirect_uri=https%3A%2F%2Fantigravity.google%2Foauth-callback&response_type=code&scope=openid&state=fake-state",
+      "",
+      "Then paste the authorization code, or the full URL of the page you land on, and press Enter:",
+      "",
+    ].join("\n"));
+  }
+  let pasted = "";
+  process.stdin.on("data", (chunk) => {
+    pasted += chunk.toString("utf8");
+    if (!pasted.includes("\n")) return;
+    if (process.env.FAKE_ACP_LOGIN_INPUT) writeFileSync(process.env.FAKE_ACP_LOGIN_INPUT, pasted);
+    if (pasted === `${process.env.FAKE_ACP_LOGIN_CODE ?? "good-code"}\n`) {
+      if (authFile) writeFileSync(authFile, "signed in\n");
+      process.stdout.write("Logged in.\n");
+      process.exit(0);
+    }
+    process.stdout.write("couldn't log in: token exchange failed: oauth2: \"invalid_grant\" \"Malformed auth code.\"\n");
+    process.exit(1);
+  });
 }
 
 const out = (obj: unknown) => process.stdout.write(JSON.stringify(obj) + "\n");
@@ -394,10 +434,17 @@ function handle(msg: any) {
         process.stderr.write("fake-acp: simulated crash before result\n");
         process.exit(3);
       }
-      const authMethods = mode === "no-auth" ? [] : [{ id: process.env.FAKE_ACP_AUTH_METHOD ?? "cached_token" }];
+      if (process.env.FAKE_ACP_DUMP) writeFileSync(`${process.env.FAKE_ACP_DUMP}.initialize.json`, JSON.stringify(msg.params ?? null));
+      const terminalLogin = msg.params?.clientCapabilities?.auth?.terminal === true && process.env.FAKE_ACP_TERMINAL_LOGIN !== "0"
+        ? [{ id: "terminal-login", name: "Log in from the terminal", type: "terminal", args: JSON.parse(process.env.FAKE_ACP_TERMINAL_LOGIN_ARGS ?? "[\"--login\"]") }]
+        : [];
+      const authMethods = mode === "no-auth" ? [] : [{ id: process.env.FAKE_ACP_AUTH_METHOD ?? "cached_token" }, ...terminalLogin];
       const agentName = process.env.FAKE_ACP_AGENT_NAME;
       const acceptsImages = process.env.FAKE_ACP_IMAGE_CAPABILITY === "1";
-      const mcpTransports = (process.env.FAKE_ACP_MCP_TRANSPORTS ?? "").split(",").map((entry) => entry.trim()).filter(Boolean);
+      const mcpTransports = [
+        ...(process.env.FAKE_ACP_MCP_TRANSPORTS ?? "").split(",").map((entry) => entry.trim()).filter(Boolean),
+        ...(process.env.FAKE_ACP_HTTP_PER_SESSION === "1" && argv.includes("--process-per-session") ? ["http"] : []),
+      ];
       result(msg.id, {
         protocolVersion: 1,
         authMethods,
@@ -406,7 +453,9 @@ function handle(msg: any) {
           : undefined,
         agentCapabilities: agentName || acceptsImages || mcpTransports.length
           ? {
-              ...(agentName ? { loadSession: true, sessionCapabilities: { resume: true }, auth: { logout: true } } : {}),
+              ...(agentName ? { loadSession: true, sessionCapabilities: {
+                resume: true, list: {}, ...(process.env.FAKE_ACP_ADDITIONAL_DIRECTORIES === "1" ? { additionalDirectories: {} } : {}),
+              }, auth: { logout: true } } : {}),
               ...(acceptsImages ? { promptCapabilities: { image: true } } : {}),
               ...(mcpTransports.length ? { mcpCapabilities: { http: mcpTransports.includes("http"), sse: mcpTransports.includes("sse") } } : {}),
             }
@@ -424,9 +473,20 @@ function handle(msg: any) {
     case "_x.ai/mcp/list":
       result(msg.id, { result: { servers: [], sessionMcpResolved: true } });
       break;
+    case "session/list":
+      if (signedOut()) {
+        out({ jsonrpc: "2.0", id: msg.id, error: { code: -32000, message: "Authentication required" } });
+        break;
+      }
+      result(msg.id, { sessions: [] });
+      break;
+    case "logout":
+      if (authFile && existsSync(authFile)) rmSync(authFile);
+      result(msg.id, {});
+      break;
     case "session/new": {
       if (failRpc(msg)) break;
-      if (mode === "auth-required") {
+      if (mode === "auth-required" || signedOut()) {
         out({
           jsonrpc: "2.0",
           id: msg.id,
@@ -451,6 +511,7 @@ function handle(msg: any) {
         sessionId: "fake-acp-session",
         ...(opts ? { configOptions: opts } : {}),
         ...(mdls ? { models: mdls } : {}),
+        ...(sessionModes() ?? {}),
       }, "session/new", "fake-acp-session");
       break;
     }
@@ -493,13 +554,18 @@ function handle(msg: any) {
         });
         break;
       }
+      if (signedOut()) {
+        out({ jsonrpc: "2.0", id: msg.id, error: { code: -32000, message: "Authentication required" } });
+        break;
+      }
       if (process.env.FAKE_ACP_DUMP) {
         writeFileSync(`${process.env.FAKE_ACP_DUMP}.mcp.json`, JSON.stringify(msg.params?.mcpServers ?? []));
+        writeFileSync(`${process.env.FAKE_ACP_DUMP}.resume.json`, JSON.stringify(msg.params ?? null));
       }
       const opts = configOptions();
       const mdls = sessionModels();
       liveSession = typeof msg.params?.sessionId === "string" ? msg.params.sessionId : liveSession;
-      result(msg.id, { ...(opts ? { configOptions: opts } : {}), ...(mdls ? { models: mdls } : {}) });
+      result(msg.id, { ...(opts ? { configOptions: opts } : {}), ...(mdls ? { models: mdls } : {}), ...(sessionModes() ?? {}) });
       break;
     }
     case "session/set_mode":

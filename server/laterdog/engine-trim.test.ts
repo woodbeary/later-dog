@@ -12,7 +12,7 @@ describe("the engines later.dog offers", () => {
     const registered = BUILT_IN_DRIVERS.map((driver) => driver.driverKind).sort();
     expect(registered).toEqual([...OFFERED_DRIVERS].sort());
     for (const engine of SHOWN_ENGINES) expect(registered).toContain(engine);
-    expect(SHOWN_ENGINES).toContain("antigravityAgent");
+    expect(SHOWN_ENGINES).toEqual(["claudeAgent", "codex", "grokAgent", "cursorAgent", "antigravityAgent", "laterdogAi", "laterdogGrok"]);
     expect(registered).toContain("antigravityAgent");
     expect(RETIRED_DRIVERS.has("antigravityAgent")).toBe(false);
     for (const driver of RETIRED_DRIVERS) expect(registered).not.toContain(driver);

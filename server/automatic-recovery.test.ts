@@ -12,6 +12,11 @@ describe("automatic recovery capabilities", () => {
       expect(recoveryCapabilityError(engine, { ...engine, capabilities: { ...engine.capabilities, [key]: false } })).toMatch(/tools and attachments/);
     }
   });
+  it("never moves work onto or off Antigravity", () => {
+    const antigravity = { ...engine, driverKind: "antigravityAgent" };
+    expect(recoveryCapabilityError(antigravity, { ...engine, driverKind: "claudeAgent" })).toMatch(/Antigravity/);
+    expect(recoveryCapabilityError({ ...engine, driverKind: "claudeAgent" }, antigravity)).toMatch(/Antigravity/);
+  });
   it("does not silently move work to a file-less engine", () => {
     expect(recoveryCapabilityError(engine, { ...engine, driverKind: "openai-compat" })).toMatch(/same workspace/);
   });
