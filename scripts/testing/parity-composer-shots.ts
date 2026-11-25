@@ -2,7 +2,7 @@ import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { mountPreview, REPO_ROOT } from "./preview-fixture.ts";
 
-const SCENES = ["idle", "draft", "working", "working-draft", "usage-weekly-75", "usage-weekly-90", "usage-five-hour", "question", "permission", "settled"];
+const SCENES = ["idle", "draft", "pasted-text", "pasted-text-line-breaks", "working", "working-draft", "usage-weekly-75", "usage-weekly-90", "usage-five-hour", "question", "permission", "settled"];
 const OUT = join(REPO_ROOT, ".laterdog-evidence", "parity-composer");
 mkdirSync(OUT, { recursive: true });
 

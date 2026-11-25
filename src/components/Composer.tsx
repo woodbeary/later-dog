@@ -46,6 +46,8 @@ import {
   clipboardHasImages,
   clipboardImageFiles,
   composeMessage,
+  fileAttachmentFromFile,
+  FILE_MAX_BYTES,
   composerShouldRefocus,
   composerTakesFocusOnOpen,
   imageAttachmentFromFile,
@@ -55,6 +57,7 @@ import {
   isLongPaste,
   optimisticImageAttachment,
   pasteAttachment,
+  pastedTextFileName,
   releaseAttachmentImagePreview,
   type Attachment,
   type PasteAttachment,
@@ -758,13 +761,26 @@ export function Composer({
     const pasted = e.clipboardData.getData("text/plain");
     if (!isLongPaste(pasted)) return;
     e.preventDefault();
+    const name = pastedTextFileName(attachments);
+    const attachment = pasteAttachment(pasted, name);
+    if (attachment.size > FILE_MAX_BYTES) {
+      dispatch({ type: "reportError", error: null, pane: errorPane, line: "Pasted text is bigger than 25 MB." });
+      return;
+    }
     const start = e.currentTarget.selectionStart;
     const end = e.currentTarget.selectionEnd;
     if (start !== end) {
       editText(`${text.slice(0, start)}${text.slice(end)}`);
       setCaret(start);
     }
-    editAttachments((prev) => [...prev, pasteAttachment(pasted)]);
+    editAttachments((prev) => [...prev, attachment]);
+    changeDraftAttachmentPending(draftId, true);
+    void fileAttachmentFromFile(new File([pasted], name, { type: "text/plain" }))
+      .then((file) => {
+        if (file) replaceDraftAttachment(draftId, attachment.id, { ...attachment, file });
+      })
+      .catch((error) => dispatch({ type: "reportError", error, pane: errorPane }))
+      .finally(() => changeDraftAttachmentPending(draftId, false));
   };
 
   const dropRecorder = () => {

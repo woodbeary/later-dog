@@ -83,6 +83,10 @@ nothing above a landing reply moves; no deliberate hold on a splash; on the phon
 switch and no stall over 200 ms, the targets stated on November 10
 ([phone-chat-performance-2026-11-10.md](../verification/phone-chat-performance-2026-11-10.md)).
 
+## Desktop pasted text files, November 25
+
+Branch `desktop/overnight-paste` turns pastes longer than 2,000 Unicode characters or 40 lines into editable attachment chips and sends uploaded text files. It matches the phone cutoff, supports all common line endings, preserves the draft, and keeps Send waiting while a file uploads. The shared-behavior baseline had six failures; all 134 paste, attachment, draft, send and no-comments checks pass, with typecheck and lint. See [verification](../verification/desktop-pasted-text-2026-11-25.md). A full passing merge gate is required before release.
+
 ## Real account limit, November 14
 
 Draft pull request 199, branch `atelier/real-account-limit`, item 30, server half. One model reaching

@@ -6,6 +6,8 @@ export type PasteAttachment = {
   text: string;
   size: number;
   lines: number;
+  name?: string;
+  file?: FileAttachment;
 };
 
 export type FileAttachment = {
@@ -39,7 +41,9 @@ export function isAttachment(value: unknown): value is Attachment {
       typeof attachment.text === "string" &&
       typeof attachment.lines === "number" &&
       Number.isInteger(attachment.lines) &&
-      attachment.lines >= 1
+      attachment.lines >= 1 &&
+      (attachment.name === undefined || typeof attachment.name === "string") &&
+      (attachment.file === undefined || (isAttachment(attachment.file) && attachment.file.kind === "file"))
     );
   }
   if (attachment.kind === "file") {
@@ -65,15 +69,24 @@ function validSize(value: unknown): value is number {
   return typeof value === "number" && Number.isFinite(value) && value >= 0;
 }
 
-export const PASTE_CHARS = 900;
-export const PASTE_LINES = 12;
+export const PASTE_CHARS = 2000;
+export const PASTE_LINES = 40;
 
 export function isLongPaste(text: string): boolean {
-  return text.length >= PASTE_CHARS || countLines(text) >= PASTE_LINES;
+  let characters = 0;
+  let lines = 1;
+  let previous = "";
+  for (const character of text) {
+    characters += 1;
+    if (character === "\r" || character === "\n" && previous !== "\r" || character === "\u2028" || character === "\u2029") lines += 1;
+    if (characters > PASTE_CHARS || lines > PASTE_LINES) return true;
+    previous = character;
+  }
+  return false;
 }
 
 export function countLines(text: string): number {
-  return text.split("\n").length;
+  return text.split(/\r\n|[\r\n\u2028\u2029]/).length;
 }
 
 function newId(): string {
@@ -321,9 +334,21 @@ export async function fileAttachmentFromFile(file: File): Promise<FileAttachment
   return fileAttachment(saved.name || file.name, saved.path, saved.bytes);
 }
 
-export function pasteAttachment(text: string): PasteAttachment {
+export function pastedTextFileName(attachments: readonly Attachment[]): string {
+  const names = new Set(attachments.flatMap((attachment) => attachment.kind === "file"
+    ? [attachment.name] : attachment.kind === "paste" ? [attachment.name ?? "Pasted text.txt"] : []));
+  let number = 1;
+  let name = "Pasted text.txt";
+  while (names.has(name)) {
+    number += 1;
+    name = `Pasted text ${number}.txt`;
+  }
+  return name;
+}
+
+export function pasteAttachment(text: string, name = "Pasted text.txt"): PasteAttachment {
   const id = newId();
-  return { kind: "paste", id, text, size: byteLength(text), lines: countLines(text) };
+  return { kind: "paste", id, text, size: byteLength(text), lines: countLines(text), name };
 }
 
 export function appendPastedText(text: string, pasted: string): string {
@@ -390,7 +415,9 @@ export function composeMessage(text: string, attachments: Attachment[]): string 
     if (a.kind === "citation") {
       parts.push(serializeCitation(a));
     } else if (a.kind === "paste") {
-      parts.push(`<pasted-text index="${i + 1}">\n${a.text}\n</pasted-text>`);
+      parts.push(a.file
+        ? `<attached-file path="${escapeAttribute(a.file.path)}" name="${escapeAttribute(a.file.name)}" />`
+        : `<pasted-text index="${i + 1}">\n${a.text}\n</pasted-text>`);
     } else if (a.kind === "image") {
       parts.push(`<attached-image path="${escapeAttribute(a.path)}" name="${escapeAttribute(a.name)}" />`);
     } else {
