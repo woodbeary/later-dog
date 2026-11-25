@@ -7878,7 +7878,8 @@ bus.subscribe(guardTurnEnd((event: RuntimeEvent) => {
         if (terminal) store.patchMessage(event.threadId, terminal.id, terminalTurnPatch(event.ok, ran, observedTurnResults(event.threadId)));
       }
       if (bot && event.ok && event.forkPoint && event.providerInstanceId) {
-        engineForks.record(event.threadId, event.providerInstanceId, event.forkPoint, store.activePath(event.threadId));
+        engineForks.record(event.threadId, event.providerInstanceId, event.forkPoint, store.activePath(event.threadId),
+          store.taskByThread(bot.id, event.threadId)?.handedMessages?.[event.providerInstanceId]);
       }
       const reply = lastReply.get(event.threadId) ?? "";
       lastReply.delete(event.threadId);

@@ -46,15 +46,33 @@ describe("forkPointFor", () => {
 });
 
 describe("EngineForks", () => {
+  it("does not anchor an unseen steer or teammate result that arrived before the reply", () => {
+    const forks = new EngineForks();
+    const point = { session: "s1", at: "native-reply" };
+    for (const unseen of [ask("steer", "unread steer"), msg("peer", { kind: "activity", roomRequest: { id: "child", phase: "result" } as Message["roomRequest"] })]) {
+      const path = [ask("a1", "first"), unseen, reply("r1", "one")];
+      const handed = { session: "s1", through: "a1", ids: ["r1"] };
+      expect(forks.record("t1", "claude", point, path, handed)).toBeNull();
+      expect(forks.pointFor("t1", "claude", path)).toBeUndefined();
+    }
+  });
+
+  it("does not anchor a path under a different session's delivery receipt", () => {
+    const forks = new EngineForks();
+    const path = [ask("a1", "first"), reply("r1", "one")];
+    expect(forks.record("t1", "claude", { session: "s1", at: "native-reply" }, path,
+      { session: "other-session", through: "r1", ids: [] })).toBeNull();
+  });
+
   it("records each turn against the last message the engine saw, keeps the newest per message, and survives a restart", () => {
     const dir = mkdtempSync(join(process.env.TMPDIR ?? "/tmp", "engine-forks-"));
     try {
       const file = join(dir, "engine-forks.json");
       const forks = new EngineForks(file);
       const path = [ask("a1", "first"), reply("r1", "one"), activity("x")];
-      expect(forks.record("t1", "claude", { session: "s1", at: "u1" }, path)?.lastMessageId).toBe("r1");
-      forks.record("t1", "claude", { session: "s1", at: "u1b" }, path);
-      expect(forks.record("t1", "claude", { session: "s1", at: "u" }, [activity("only")])).toBeNull();
+      expect(forks.record("t1", "claude", { session: "s1", at: "u1" }, path, { session: "s1", through: "r1", ids: [] })?.lastMessageId).toBe("r1");
+      forks.record("t1", "claude", { session: "s1", at: "u1b" }, path, { session: "s1", through: "r1", ids: [] });
+      expect(forks.record("t1", "claude", { session: "s1", at: "u" }, [activity("only")], { session: "s1", ids: [] })).toBeNull();
       const reloaded = new EngineForks(file);
       expect(reloaded.pointFor("t1", "claude", path)).toEqual({ session: "s1", at: "u1b" });
       expect(JSON.parse(readFileSync(file, "utf8")).t1).toHaveLength(1);

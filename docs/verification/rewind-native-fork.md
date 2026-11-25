@@ -10,16 +10,17 @@ own session at the end of the last kept turn:
 - Codex: `thread/fork` with `lastTurnId` set to the last kept turn. The fork is used only if the
   thread it returns ends at that turn; otherwise it is dropped and the turn starts a new thread.
 
-Every engine turn that finishes records where it ended (the Claude chain entry or the Codex turn
-id) against the last message the engine saw, in `engine-forks.json` in the data folder. A fork is
-used only if, walking back from the end of the kept path past activity rows and digests, the first
-message the engine would have seen is one a turn ended on. A kept path that ends partway through a
+A successful engine turn offers where it ended (the Claude chain entry or the Codex turn id).
+Its point is saved against the last message in `engine-forks.json` in the data folder only when the same native session's delivery record covers the conversation path. An
+unread steer or a teammate result received during the turn prevents a point from claiming that
+history. A fork is used only if, walking back from the end of the kept path past activity rows
+and digests, the first message the engine would have seen is one a turn ended on. A kept path that ends partway through a
 turn, or that has anything the engine never saw after its last turn, gets today's text replay.
 That replay is also what a failed fork falls back to, and what an older Claude Code gets.
 
 ## Recipe
 
-`pnpm exec vitest run server/rewind-native-fork.e2e.test.ts` runs four fixtures and writes
+`pnpm exec vitest run server/rewind-native-fork.e2e.test.ts` runs five fixtures and writes
 `.laterdog-evidence/rewind-native-fork/`:
 
 - Claude (`FAKE_CLAUDE_VERSION=2.1.316`, `FAKE_CLAUDE_CHAIN_DIR`): two turns, then the second message
@@ -32,6 +33,12 @@ That replay is also what a failed fork falls back to, and what an older Claude C
   sees only the kept turn, and the follow-up resumes the fork.
 - Codex whose fork ignores `lastTurnId` (`FAKE_CODEX_FORK_IGNORES_TURN=1`): the fork comes back with
   both turns, later.dog drops it, and the edited turn starts a new thread with the text replay.
+- Claude with a steer held before native input acknowledgement: the first turn finishes, but the
+  steer remains unread and absent from native input. No fork point is saved across that message.
+
+The driver tests also feed the captured Claude Code 2.1.316 missing-session error result to a
+fork attempt. It rebuilds once with the kept text and the current message, rather than ending the
+turn as a failure. The existing stderr and ordinary resume refusal tests remain in place.
 
 ## Real Claude Code 2.1.316, no account
 
