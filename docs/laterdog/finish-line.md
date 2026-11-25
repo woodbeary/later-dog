@@ -15,6 +15,7 @@ matching home image. The scanner and the archive writer leave Codex session file
 default. The new image can read and restore those sessions from an existing archive. A capability
 3 image cannot read an index containing Codex sessions, so qualify recovery before enabling new
 Codex archive writes. Work folder restores still need space on the shared home.
+All 423 home fixture tests passed, including restart recovery with a fake engine.
 
 ## Refinement program, November 25
 

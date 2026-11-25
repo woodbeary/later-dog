@@ -1442,9 +1442,10 @@ describe("database copies", () => {
     const source = folder();
     for (const [name, rows] of [["a.db", 30], ["b.db", 90], ["c.db", 60]] as const) {
       const database = new DatabaseSync(join(source, name));
-      database.exec("CREATE TABLE notes (body BLOB)");
+      database.exec("CREATE TABLE notes (body BLOB); BEGIN");
       const insert = database.prepare("INSERT INTO notes VALUES (randomblob(4000))");
       for (let row = 0; row < rows; row += 1) insert.run();
+      database.exec("COMMIT");
       database.close();
     }
     const memory = folder();
