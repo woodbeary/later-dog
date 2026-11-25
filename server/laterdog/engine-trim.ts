@@ -7,14 +7,13 @@ export const API_KEY_DRIVERS = ["grok", "openai-compat"] as const;
 export const OFFERED_DRIVERS: ReadonlySet<string> = new Set<string>([...SHOWN_ENGINES, ...API_KEY_DRIVERS]);
 
 export const RETIRED_DRIVERS: ReadonlySet<string> = new Set([
-  "kimiAgent", "droidAgent", "geminiAgent", "antigravityAgent", "opencodeGo", "qwenAgent",
+  "kimiAgent", "droidAgent", "geminiAgent", "opencodeGo", "qwenAgent",
   "hermesAgent", "customAcp", "piAgent", "mistral", "cerebras", "minimax",
 ]);
 
 const RETIRED_BUILT_IN_INSTANCES: Readonly<Record<string, string>> = {
   kimi: "kimiAgent",
   droid: "droidAgent",
-  antigravity: "antigravityAgent",
   opencodeGo: "opencodeGo",
   openaiCompat: "openai-compat",
   openrouter: "openai-compat",

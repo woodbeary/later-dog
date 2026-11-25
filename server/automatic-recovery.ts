@@ -4,6 +4,9 @@ import { supportsWorkspaceFiles } from "./workspace.ts";
 type Engine = { driverKind: string; capabilities: ProviderAdapter["capabilities"] };
 
 export function recoveryCapabilityError(from: Engine, to: Engine): string | undefined {
+  if (from.driverKind === "antigravityAgent" || to.driverKind === "antigravityAgent") {
+    return "Antigravity keeps its own Google sign-in, so later.dog never moves work onto or off it on its own.";
+  }
   if (supportsWorkspaceFiles(from.driverKind) !== supportsWorkspaceFiles(to.driverKind)) {
     return "The backup cannot use the same workspace.";
   }

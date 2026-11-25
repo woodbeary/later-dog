@@ -2,7 +2,7 @@ import { narrowsNativeTools, parseToolScope, type ToolScope } from "./tool-scope
 
 export const TOOL_SCOPE_SUPPORT = {
   grok: "native-and-mcp", grokAgent: "native-and-mcp", "openai-compat": "native-and-mcp", laterdogAi: "native-and-mcp", laterdogGrok: "native-and-mcp",
-  claudeAgent: "mcp", codex: "mcp", cursorAgent: "mcp",
+  claudeAgent: "mcp", codex: "mcp", cursorAgent: "mcp", antigravityAgent: "mcp",
 } as const;
 
 export function assertToolScopeSupported(engine: string, value: unknown): ToolScope | undefined {

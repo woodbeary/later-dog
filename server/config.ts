@@ -1279,10 +1279,34 @@ const API_KEY_FLEET: InstanceConfigMap = {
   laterdogGrok: { driver: "laterdogGrok", displayName: "Grok (free)", access: "subscription", icon: { kind: "preset", preset: "xai" } },
 };
 
+const OLD_ANTIGRAVITY_ENV = /^(GEMINI_HOME|BROWSER|ANTIGRAVITY_HARNESS_PATH|AGY_ACP_.*|AGY_LLM_GATEWAY_.*)$/u;
+const OLD_ANTIGRAVITY_CLI = /(\.par$|[\\/]antigravity[\\/]runtime[\\/])/iu;
+
+function keepOneAntigravity(map: InstanceConfigMap): void {
+  const ids = Object.keys(map).filter((id) => map[id]?.driver === "antigravityAgent");
+  const kept = ids.includes("antigravity") ? "antigravity" : ids[0];
+  for (const id of ids) {
+    if (id !== kept) {
+      delete map[id];
+      continue;
+    }
+    const entry = map[id]!;
+    const config = typeof entry.config === "object" && entry.config !== null && !Array.isArray(entry.config)
+      ? { ...(entry.config as Record<string, unknown>) }
+      : undefined;
+    if (config && typeof config.cli === "string" && OLD_ANTIGRAVITY_CLI.test(config.cli)) delete config.cli;
+    const environment = entry.environment
+      ? Object.fromEntries(Object.entries(entry.environment).filter(([key]) => !OLD_ANTIGRAVITY_ENV.test(key)))
+      : undefined;
+    map[id] = { ...entry, ...(config ? { config } : {}), ...(environment ? { environment } : {}) };
+  }
+}
+
 export function instanceConfigs(cfg: AppConfig): InstanceConfigMap {
   const DEFAULT_FLEET: InstanceConfigMap = {
     grok: { driver: "grokAgent" },
     cursor: { driver: "cursorAgent" },
+    antigravity: { driver: "antigravityAgent" },
     claude: { driver: "claudeAgent" },
     codex: { driver: "codex" },
     chatgpt: { driver: "codex", displayName: "ChatGPT plan", config: { authMode: "chatgpt-plan" } },
@@ -1292,6 +1316,7 @@ export function instanceConfigs(cfg: AppConfig): InstanceConfigMap {
     grok: { driver: "grokAgent" },
     chatgpt: { driver: "codex", displayName: "ChatGPT plan", config: { authMode: "chatgpt-plan" } },
     cursor: { driver: "cursorAgent" },
+    antigravity: { driver: "antigravityAgent" },
     ...API_KEY_FLEET,
   } as const;
   const configured = cfg.instances && Object.keys(cfg.instances).length ? cfg.instances : null;
@@ -1299,12 +1324,15 @@ export function instanceConfigs(cfg: AppConfig): InstanceConfigMap {
     withoutComputerEngine(configured ? { ...configured } : { ...DEFAULT_FLEET }),
     cfg.instances,
   );
+  keepOneAntigravity(map);
   if (
     configured &&
     (Object.hasOwn(configured, "claude") || Object.hasOwn(configured, "grok") || Object.hasOwn(configured, "codex"))
   ) {
     for (const [id, entry] of Object.entries(PRODUCT_FLEET_ADDITIONS)) {
-      if (!Object.hasOwn(map, id)) map[id] = { ...entry };
+      if (Object.hasOwn(map, id)) continue;
+      if (entry.driver === "antigravityAgent" && Object.values(map).some((saved) => saved.driver === "antigravityAgent")) continue;
+      map[id] = { ...entry };
     }
   }
   for (const [id, builtIn] of Object.entries(API_KEY_FLEET)) {
