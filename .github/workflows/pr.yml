@@ -46,7 +46,7 @@ jobs:
           filter: blob:none
       - uses: ./.github/actions/prepare
       - name: Typecheck the app and the server
-        run: pnpm exec tsc -b --force && pnpm exec tsc -p tsconfig.server.json
+        run: pnpm typecheck
   build:
     needs: scope
     if: needs.scope.outputs.runtime == 'true'

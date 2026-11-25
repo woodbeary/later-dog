@@ -110,6 +110,13 @@ describe("later.dog's hosted checks run on free standard runners and release sta
     }
   });
 
+  it("uses the public full-graph typecheck command in hosted CI", () => {
+    const job = workflows()[0].data.jobs?.typecheck;
+    expect(job?.if).toBeUndefined();
+    expect(job?.needs).toBeUndefined();
+    expect(job?.steps?.filter((step) => step.run).map((step) => step.run)).toEqual(["pnpm typecheck"]);
+  });
+
   it("keeps the cache written by the seeder and by misses only, keyed on the lockfiles", () => {
     const [, seed] = workflows();
     expect(JSON.stringify(seed.data.jobs)).toContain("./.github/actions/prepare");

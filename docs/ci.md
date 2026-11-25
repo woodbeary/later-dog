@@ -18,13 +18,34 @@ Everything runs on GitHub's free standard runner, `ubuntu-latest` (4 vCPU, 16 GB
 | --- | --- |
 | `scope` | `scripts/ci-scope.mjs`: is the change docs-only |
 | `lint` | `pnpm lint`, then the brand, comment and verification-documentation tests |
-| `typecheck` | `tsc -b --force` and the server project |
+| `typecheck` | `pnpm typecheck`, checking both app and server projects with the pinned Bun binary |
 | `build` | `vite build`, `pnpm build:server`, the packaged-server smoke |
 | `electron-broker` | `pnpm test:electron`, `pnpm broker:test` |
 | `suite 1/8` to `suite 8/8` | the main suite, `vitest run --shard=n/8` |
 | `side <dir>` | the tests in `deploy/laterdog/home`, `cloudflare/control-plane`, `deploy/laterdog/computers` |
 | `interface` | the `ui.e2e` tests that drive a real browser (`LATERDOG_UI_E2E=1`) |
 | `CI` | fails if any job above failed, was cancelled, is missing, or was skipped without the docs-only selection |
+
+## Type checking
+
+`pnpm typecheck` uses the exact Bun version in the root devDependencies, installed
+by `pnpm install --frozen-lockfile`. The workspace permits Bun's install script
+to put the platform binary in `node_modules/bun/bin/bun.exe`; no global Bun
+installation or package-manager change is needed.
+
+`scripts/typecheck.mjs` checks both `tsconfig.json` and
+`tsconfig.server.json` with `bun check --no-script --no-pretty`, even when the
+first graph fails. It verifies the local binary's version, preserves diagnostics,
+and requires a nonempty clean result for each graph. A missing binary, a signal,
+an unsuccessful exit, printed errors or missing file counts fails the
+command. The hosted typecheck job and the merge gate call this same command. The gate
+requires separate successful file counts for both graphs.
+
+[Bun's checker](https://bun.sh/docs/runtime/check) never emits JavaScript. TypeScript
+stays installed for `build:server`, which emits the server JavaScript. The root
+`build` runs the same `pnpm typecheck` before Vite builds the UI. The app config
+uses explicit relative path targets because Bun's checker no longer accepts
+`baseUrl`.
 
 ## Docs-only changes
 
