@@ -85,6 +85,8 @@ vi.mock("@/state/store-selectors", async (original) => ({ ...await original<type
 vi.mock("@/state/store", () => ({ useStore: () => store }));
 vi.mock("@/lib/focus-message", () => ({ useFocusMessage: () => {} }));
 
+vi.mock("./use-turn-landing", () => ({ useTurnLanding: ({ followingRef, turn }: { followingRef: { current: boolean }; turn?: { active: boolean } }) => ({ roomRef: { current: null }, pinFollowingRef: followingRef, holdsViewport: Boolean(turn?.active), release: () => {} }) }));
+
 import { useTranscriptViewport } from "./use-transcript-viewport";
 
 type Row = { id: string; role?: "user" | "bot" };
@@ -218,6 +220,53 @@ const press = (key: string, target: unknown = page.body, extra: Partial<Keyboard
 };
 
 describe("transcript viewport", () => {
+  it("keeps the current turn's first row when a reply reaches a full window", () => {
+    const messages: Row[] = [...rows(130), { id: "ask", role: "user" }];
+    const view = mount({ messages: rows(130) });
+    view.rerender({ messages, turn: { key: "one", active: true } });
+    const first = view.current.windowedMessages[0]?.id;
+    const landed: Row[] = [...messages, { id: "reply", role: "bot" }];
+    view.rerender({ messages: landed, turn: { key: "one", active: false } });
+    expect(view.current.windowedMessages[0]?.id).toBe(first);
+    expect(view.current.windowedMessages).toHaveLength(121);
+    expect(view.current.windowedMessages.at(-1)?.id).toBe("reply");
+    view.rerender({ messages: [...landed, { id: "next-ask", role: "user" }], turn: { key: "two", active: true } });
+    expect(view.current.windowedMessages[0]?.id).toBe("m13");
+    expect(view.current.windowedMessages).toHaveLength(120);
+    view.rerender({ messages: [...landed, { id: "next-ask", role: "user" }, { id: "next-reply", role: "bot" }], turn: { key: "two", active: false } });
+    expect(view.current.windowedMessages).toHaveLength(121);
+    expect(view.current.windowedMessages.at(-1)?.id).toBe("next-reply");
+  });
+
+  it("releases the held window on an explicit jump after cancellation", () => {
+    const messages: Row[] = [...rows(130), { id: "ask", role: "user" }];
+    const view = mount({ messages: rows(130) });
+    view.rerender({ messages, turn: { key: "one", active: true } });
+    view.rerender({ messages: [...messages, { id: "reply", role: "bot" }], turn: { key: "one", active: false } });
+    expect(view.current.windowedMessages).toHaveLength(121);
+    view.act(() => view.current.jumpToLatest());
+    expect(view.current.windowedMessages).toHaveLength(120);
+    expect(view.current.windowedMessages[0]?.id).toBe("m12");
+  });
+
+  it("retains the existing two-window ceiling when a turn receives a large burst", () => {
+    const messages: Row[] = [...rows(130), { id: "ask", role: "user" }];
+    const view = mount({ messages: rows(130) });
+    view.rerender({ messages, turn: { key: "one", active: true } });
+    view.rerender({ messages: [...messages, ...rows(120, 1000)], turn: { key: "one", active: false } });
+    expect(view.current.windowedMessages).toHaveLength(240);
+    expect(view.current.windowedMessages[0]?.id).toBe("m11");
+    expect(view.current.windowedMessages.at(-1)?.id).toBe("m1119");
+    view.rerender({ messages: [...messages, ...rows(121, 1000)], turn: { key: "one", active: false } });
+    expect(view.current.windowedMessages).toHaveLength(122);
+    expect(view.current.windowedMessages[0]?.id).toBe("ask");
+    expect(view.current.windowedMessages.at(-1)?.id).toBe("m1120");
+    view.rerender({ messages: [...messages, ...rows(500, 1000)], turn: { key: "one", active: false } });
+    expect(view.current.windowedMessages).toHaveLength(120);
+    expect(view.current.windowedMessages.at(-1)?.id).toBe("m1499");
+  });
+
+
   it("opens a long chat on its newest rows, then fills the rest a frame at a time while staying at the bottom", () => {
     const view = mount({ messages: rows(300) }, { opening: true });
     expect(view.current.windowedMessages).toHaveLength(30);

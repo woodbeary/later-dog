@@ -2,6 +2,8 @@ import type { NativeRun } from "../../shared/native-runs";
 import type { WorkState } from "../../shared/work-state";
 import { ageWords, helpersLine, liveStep, sideJobsWords, stepPhrase, type LiveStep } from "../../shared/step-words";
 import { t } from "./i18n";
+import { longStepSubject } from "../../shared/step-subject";
+import { outcomeKindOfTool } from "../../shared/step-words";
 import type { LocaleKey } from "@/locales";
 
 export type WorkLine =
@@ -16,6 +18,8 @@ export interface WorkLineInput {
   work?: WorkState;
   sideJobs: number;
   now: number;
+  turnKey?: string;
+  kindStartedAt?: number;
 }
 
 const WAITING: Partial<Record<WorkState["kind"], LocaleKey>> = {
@@ -34,7 +38,7 @@ function heldBySideJobs(run: NativeRun | undefined, sideJobs: number): boolean {
   return run.actors.find(actor => actor.kind === "parent")?.state === "waiting";
 }
 
-export function workLine({ working, run, step, work, sideJobs, now }: WorkLineInput): WorkLine | null {
+export function workLine({ working, run, step, work, sideJobs, now, turnKey, kindStartedAt }: WorkLineInput): WorkLine | null {
   if (work?.kind === "waiting-on-dog") {
     const helpers = helpersLine(work.dogs.map(dog => ({ name: dog.name, state: dog.ask ? "needsYou" as const : "running" as const })));
     if (!helpers) return null;
@@ -46,12 +50,16 @@ export function workLine({ working, run, step, work, sideJobs, now }: WorkLineIn
   if (!working || (work && work.kind !== "running")) return null;
   if (heldBySideJobs(run, sideJobs)) return { kind: "waiting", text: t("workLine.sideJobs", { sideJobs: sideJobsWords(sideJobs) }) };
   const current = liveStep(run) ?? step ?? null;
-  if (!current) return null;
+  const stableKey = turnKey ?? run?.id ?? current?.id ?? "";
+  if (!current) return { kind: "step", stepId: stableKey, phrase: stepPhrase("working", stableKey), age: null, sideJobs: sideJobs > 0 ? sideJobsWords(sideJobs) : null };
+  const subject = now - current.startedAt >= 60_000 && run?.currentActivity
+    ? longStepSubject(outcomeKindOfTool(run.currentActivity.label), run.currentActivity.subject)
+    : null;
   return {
     kind: "step",
     stepId: current.id,
-    phrase: stepPhrase(current.kind, current.id),
-    age: ageWords(now - current.startedAt),
+    phrase: subject ?? stepPhrase(current.kind, stableKey),
+    age: ageWords(now - (subject ? current.startedAt : kindStartedAt ?? current.startedAt)),
     sideJobs: sideJobs > 0 ? sideJobsWords(sideJobs) : null,
   };
 }

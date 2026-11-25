@@ -4,7 +4,8 @@ export type WorkPanelPage =
   | { kind: "work"; threadId: string; runId?: string }
   | { kind: "side-jobs"; threadId: string }
   | { kind: "step"; threadId: string; runId: string; activityId: string }
-  | { kind: "side-job"; threadId: string; jobId: string };
+  | { kind: "side-job"; threadId: string; jobId: string }
+  | { kind: "puppy"; threadId: string; runId: string; actorId: string };
 
 let current: WorkPanelPage | null = null;
 let opener: HTMLElement | null = null;
@@ -12,7 +13,7 @@ let below: WorkPanelPage[] = [];
 const listeners = new Set<() => void>();
 
 const notify = () => { for (const listener of listeners) listener(); };
-const pushed = (page: WorkPanelPage) => page.kind === "step" || page.kind === "side-job";
+const pushed = (page: WorkPanelPage) => page.kind === "step" || page.kind === "side-job" || page.kind === "puppy";
 
 export function openWorkPanel(page: WorkPanelPage): void {
   if (current === null) {

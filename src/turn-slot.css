@@ -1,0 +1,59 @@
+.turn-slot {
+  display: flex;
+  align-items: center;
+  flex: none;
+  block-size: max(32px, 1lh);
+  min-inline-size: 0;
+  max-inline-size: 100%;
+  font-size: 14px;
+  line-height: 20px;
+  color: var(--color-ink-secondary);
+}
+.turn-slot-button {
+  display: flex;
+  align-items: center;
+  min-inline-size: 0;
+  max-inline-size: 100%;
+  flex: 0 1 auto;
+  white-space: nowrap;
+  border-radius: 8px;
+  text-align: start;
+}
+.turn-slot-face {
+  display: flex;
+  flex: none;
+  margin-inline-end: 10px;
+}
+.turn-slot-phrase {
+  min-inline-size: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.turn-slot-age, .turn-slot-side-jobs {
+  flex: none;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+.turn-slot-side-jobs {
+  min-inline-size: 0;
+  max-inline-size: 45%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  border-radius: 8px;
+}
+.turn-slot [data-turn-urgent] {
+  color: var(--color-waiting-text, var(--color-warning));
+}
+.turn-slot[data-slot-shown="false"] > :not(.sr-only) {
+  visibility: hidden;
+}
+.turn-slot-button:focus-visible, .turn-slot-side-jobs:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+}
+[data-turn-room] {
+  flex: none;
+  block-size: 0;
+  margin-block-start: -12px;
+  pointer-events: none;
+}

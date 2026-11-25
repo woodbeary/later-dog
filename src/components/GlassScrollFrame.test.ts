@@ -14,6 +14,11 @@ function frame(children: ReturnType<typeof child>[]) {
 }
 
 describe("publishGlassInsets", () => {
+  it("keeps a zoomed bar's layout height instead of writing its scaled visual height back into padding", () => {
+    const top = { ...child("top", 128), ownerDocument: { defaultView: { getComputedStyle: () => ({ height: "64px" }) } } };
+    const vars = frame([top]);
+    expect(vars.get("--glass-top")).toBe("64px");
+  });
   it("publishes each bar's height, rounded up so no row ever tucks under a sub-pixel edge", () => {
     const vars = frame([child("top", 120.4), child(undefined, 900), child("bottom", 186)]);
     expect(vars.get("--glass-top")).toBe("121px");

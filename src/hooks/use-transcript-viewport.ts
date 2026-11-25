@@ -11,6 +11,7 @@ import {
   type WheelEvent,
 } from "react";
 import { flushSync } from "react-dom";
+import { useTurnLanding, type TurnLanding } from "./use-turn-landing";
 import { BOTTOM_FOLLOW_THRESHOLD, shouldResumeBottomFollow, useBottomFollowResize } from "@/lib/bottom-follow";
 import { useFocusMessage } from "@/lib/focus-message";
 import {
@@ -69,6 +70,7 @@ export function useTranscriptViewport<T extends { id: string; role?: string }>({
   transcriptShown = true,
   counts,
   unread,
+  turn,
 }: {
   ownerId: string;
   threadId: string;
@@ -77,6 +79,7 @@ export function useTranscriptViewport<T extends { id: string; role?: string }>({
   transcriptShown?: boolean;
   counts?: CountsInWindow<T>;
   unread?: (message: T) => boolean;
+  turn?: TurnLanding;
 }) {
   const dispatch = useStoreDispatch();
   const focusMessage = useStoreSelector((state) => (state.focusMessage?.threadId === threadId ? state.focusMessage : null));
@@ -100,11 +103,14 @@ export function useTranscriptViewport<T extends { id: string; role?: string }>({
   const staged = reopened ? null : transcriptWindow.staged;
   const stagedAt = staged ? stagedStart(staged, messages) : -1;
   const stagingOver = staged !== null && (stagedAt <= tailStart || messages[0]?.id !== staged.oldestId);
+  const turnWindow = useRef<{ key: string; turnKey: string } | null>(null);
+  const keepsTurnWindow = Boolean(turn && turnWindow.current?.key === transcriptKey && turnWindow.current.turnKey === turn.key && windowStartBefore(messages, messages.length, TRANSCRIPT_WINDOW_SIZE * 2, counts) <= transcriptWindow.start);
   const nextStart = reopened
     ? reopening.start
-    : !staged && follow && transcriptWindow.end === null
+    : !staged && follow && transcriptWindow.end === null && !keepsTurnWindow
       ? followWindowStart(messages, transcriptWindow.start, counts)
       : transcriptWindow.start;
+  if (turn?.active && !staged) turnWindow.current = { key: transcriptKey, turnKey: turn.key };
   if (reopened) {
     setTranscriptWindow(reopening);
   } else if (stagingOver) {
@@ -140,9 +146,9 @@ export function useTranscriptViewport<T extends { id: string; role?: string }>({
     followRef.current = next;
     setFollow(next);
   }, []);
-  useBottomFollowResize(scrollRef, transcriptRef, followRef, transcriptShown ? transcriptKey : null);
-
-  useEffect(() => setBottomFollow(true), [ownerId, setBottomFollow]);
+  useLayoutEffect(() => setBottomFollow(true), [ownerId, setBottomFollow]);
+  const landing = useTurnLanding({ scrollRef, transcriptRef, followingRef: followRef, setFollowing: setBottomFollow, threadKey: transcriptKey, firstId: windowedMessages[0]?.id, turn, settling: staged !== null });
+  useBottomFollowResize(scrollRef, transcriptRef, turn ? landing.pinFollowingRef : followRef, transcriptShown ? transcriptKey : null);
 
   const appliedFocus = useRef<number | null>(null);
   useEffect(() => {
@@ -159,7 +165,7 @@ export function useTranscriptViewport<T extends { id: string; role?: string }>({
 
   useEffect(() => {
     const el = scrollRef.current;
-    if (!el || !followRef.current) return;
+    if (!el || !followRef.current || landing.holdsViewport) return;
     el.scrollTo({ top: el.scrollHeight });
     previousScrollTop.current = el.scrollTop;
     // eslint-disable-next-line react-hooks/exhaustive-deps -- pinOn is the caller's dependency list
@@ -236,6 +242,8 @@ export function useTranscriptViewport<T extends { id: string; role?: string }>({
     return !el || el.scrollHeight - el.scrollTop - el.clientHeight < BOTTOM_FOLLOW_THRESHOLD;
   };
   const jumpToLatest = () => {
+    turnWindow.current = null;
+    landing.release();
     setBottomFollow(true);
     setTranscriptWindow({ key: transcriptKey, start: tailStart, end: null, staged: null, empty: false, ownerId });
     requestAnimationFrame(() => {
@@ -287,6 +295,8 @@ export function useTranscriptViewport<T extends { id: string; role?: string }>({
     transcriptRef,
     transcriptKey,
     following: follow,
+    turnPreservingAnchor: landing.holdsViewport,
+    turnRoomRef: landing.roomRef,
     followingRef: followRef,
     windowedMessages,
     filledMessages,

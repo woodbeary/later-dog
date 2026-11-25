@@ -11,6 +11,7 @@ import { cn } from "@/lib/cn";
 import { t } from "@/lib/i18n";
 import { plainToolLabel } from "@/lib/tool-words";
 import { DogAvatar } from "./Avatar";
+import { FoldLine } from "./FoldLine";
 import { WorkingTimer } from "./WorkingIndicator";
 
 const executionText = (execution: NonNullable<ReturnType<typeof nativeExecutionComparison>>): string => {
@@ -40,7 +41,7 @@ function WorkActivity({ activity }: { activity: NativeActivity }) {
   </li>;
 }
 
-export function NativeWorkDetail({ run, selectedActorId, onSelect, onClose, selection }: { run: NativeRun; selectedActorId: string; onSelect: (id: string) => void; onClose: () => void; selection?: NativeExecutionSelection }) {
+export function NativeWorkDetail({ run, selectedActorId, onSelect, onClose, selection, embedded = false }: { run: NativeRun; selectedActorId: string; onSelect: (id: string) => void; onClose: () => void; selection?: NativeExecutionSelection; embedded?: boolean }) {
   const execution = nativeExecutionComparison(run, selection);
   const title = useId();
   const close = useRef<HTMLButtonElement>(null);
@@ -81,6 +82,7 @@ export function NativeWorkDetail({ run, selectedActorId, onSelect, onClose, sele
     return () => timers.forEach(clearTimeout);
   }, [stopAttempts, refreshStop]);
   useEffect(() => {
+    if (embedded) return;
     const opener = document.activeElement as HTMLElement | null;
     close.current?.focus();
     const onKey = (event: KeyboardEvent) => {
@@ -95,7 +97,7 @@ export function NativeWorkDetail({ run, selectedActorId, onSelect, onClose, sele
     };
     window.addEventListener("keydown", onKey);
     return () => { window.removeEventListener("keydown", onKey); if (opener?.isConnected) opener.focus(); request.current += 1; };
-  }, [run.id]);
+  }, [run.id, embedded]);
   useEffect(() => {
     let active = true;
     let revision = -1;
@@ -148,9 +150,8 @@ export function NativeWorkDetail({ run, selectedActorId, onSelect, onClose, sele
   };
   const shown = activities.filter(activity => activity.actorId === selected?.id);
   const ancestry = selected ? actorAncestry(run, selected) : [];
-  return createPortal(<div className="fixed inset-0 z-50 flex items-center justify-center bg-black/20 p-3" onPointerDown={event => { if (event.target === event.currentTarget) onClose(); }}>
-    <section ref={panel} role="dialog" aria-modal="true" aria-labelledby={title} className="flex max-h-[85vh] w-full max-w-3xl flex-col overflow-hidden rounded-2xl border border-hairline/70 bg-panel text-ink shadow-xl">
-      <div className="flex items-center justify-between border-b border-hairline/50 px-4 py-3"><h2 id={title} className="text-[14px] font-medium">Work details</h2>{run.observation === "live" && <WorkingTimer since={run.startedAt} className="ml-auto mr-3 text-[11px] tabular-nums text-ink-tertiary" />}<button ref={close} type="button" aria-label="Close work details" onClick={onClose} className="rounded-lg p-1.5 text-ink-secondary hover:bg-control"><X size={17} /></button></div>
+  const content = <section ref={panel} role={embedded ? undefined : "dialog"} aria-modal={embedded ? undefined : true} aria-labelledby={embedded ? undefined : title} className={cn("flex w-full flex-col overflow-hidden text-ink", embedded ? "min-h-0" : "max-h-[85vh] max-w-3xl rounded-2xl border border-hairline/70 bg-panel shadow-xl")}>
+      {!embedded && (<div className="flex items-center justify-between border-b border-hairline/50 px-4 py-3"><h2 id={title} className="text-[14px] font-medium">Work details</h2>{run.observation === "live" && <WorkingTimer since={run.startedAt} className="ml-auto mr-3 text-[11px] tabular-nums text-ink-tertiary" />}<button ref={close} type="button" aria-label="Close work details" onClick={onClose} className="rounded-lg p-1.5 text-ink-secondary hover:bg-control"><X size={17} /></button></div>)}
       <div className="flex min-h-0 flex-1 flex-col sm:flex-row">
         <nav aria-label="Agents and tasks" className="flex max-h-40 shrink-0 gap-1 overflow-auto border-b border-hairline/50 p-2 sm:max-h-none sm:w-52 sm:flex-col sm:border-r sm:border-b-0">{run.actors.map(actor => <button key={actor.id} type="button" aria-pressed={selected?.id === actor.id} onClick={() => onSelect(actor.id)} className={cn("flex shrink-0 items-start gap-2 rounded-lg px-2 py-2 text-left text-[12px] sm:shrink", selected?.id === actor.id ? "bg-control text-ink" : "text-ink-secondary hover:bg-control/60")}><StateIcon state={actor.state} /><span className="min-w-0"><span className="block break-words">{actor.label}</span><span className="mt-0.5 block text-[10px] text-ink-tertiary">{roleText[nativeActorRole(actor)]} · {stateText[actor.state]}</span></span></button>)}</nav>
         <div tabIndex={0} className="min-h-0 min-w-0 flex-1 overflow-auto px-4 py-3">
@@ -163,8 +164,8 @@ export function NativeWorkDetail({ run, selectedActorId, onSelect, onClose, sele
         </div>
       </div>
       <details className="shrink-0 border-t border-hairline/50 px-4 py-2 text-[11px] text-ink-secondary"><summary className="cursor-pointer">{run.provider === "claudeAgent" ? "Claude Code" : /codex/i.test(run.provider) ? "Codex" : run.provider}{run.providerVersion ? ` ${run.providerVersion}` : " · version not reported"} · {run.observation === "partial" ? "Partial activity" : run.observation === "interrupted" ? "Observation interrupted" : run.observation === "live" ? "Live" : "Recorded"}</summary><div className="max-h-32 overflow-auto py-2">{execution && <p className="mb-1" data-native-execution={execution.status}>{executionText(execution)}</p>}<p className="mb-1">Puppies are native helpers inside this run. A task given to another dog continues in that dog's own conversation.</p><ul className="space-y-1">{run.limitations.map((line, index) => <li key={index}>{line}</li>)}</ul>{run.truncated && <p className="mt-1">Some activity exceeded the recording limit.</p>}{!run.limitations.length && <p>No additional limitations were reported by this harness.</p>}</div></details>
-    </section>
-  </div>, document.body);
+    </section>;
+  return embedded ? content : createPortal(<div className="fixed inset-0 z-50 flex items-center justify-center bg-black/20 p-3" onPointerDown={event => { if (event.target === event.currentTarget) onClose(); }}>{content}</div>, document.body);
 }
 
 export const NativeWork = memo(function NativeWork({ run, color = "yellow", bodyId, live = false, label, avatar, selection }: { run: NativeRun; color?: DogColor; bodyId?: MascotBodyId | null; live?: boolean; label?: string; avatar?: ReactNode; selection?: NativeExecutionSelection }) {
@@ -181,7 +182,7 @@ export const NativeWork = memo(function NativeWork({ run, color = "yellow", body
   </div>;
 });
 
-export function NativeWorkFallbacks({ runs, messages, ownerForRun, hidden }: { runs: readonly NativeRun[]; messages: readonly { id: string; turnId?: string; role: string; kind: string; at: number }[]; ownerForRun?: (run: NativeRun) => { color: DogColor; mascotBody?: MascotBodyId | null } | undefined; hidden?: ReadonlySet<string> }) {
+export function NativeWorkFallbacks({ runs, messages, hidden }: { runs: readonly NativeRun[]; messages: readonly { id: string; turnId?: string; role: string; kind: string; at: number }[]; ownerForRun?: (run: NativeRun) => { color: DogColor; mascotBody?: MascotBodyId | null } | undefined; hidden?: ReadonlySet<string> }) {
   const anchored = new Set([...nativeReceiptAnchors(runs, messages).values()].flat().map(run => run.id));
   const unanchored = runs.filter(run => (run.endedAt || run.observation !== "live") && !anchored.has(run.id) && !hidden?.has(run.id));
   const firstAt = messages[0]?.at ?? Infinity;
@@ -189,8 +190,7 @@ export function NativeWorkFallbacks({ runs, messages, ownerForRun, hidden }: { r
   const earlier = unanchored.filter(run => run.startedAt < firstAt && messages.length);
   if (!unanchored.length) return null;
   const receipt = (run: NativeRun) => {
-    const owner = ownerForRun?.(run);
-    return <NativeWork key={run.id} run={run} color={owner?.color} bodyId={owner?.mascotBody} />;
+    return <FoldLine key={run.id} threadId={run.threadId} runId={run.id} sentence={run.state === "failed" ? "Couldn’t finish" : run.state === "stopped" || run.observation === "interrupted" ? "Stopped before it finished" : "View work"} />;
   };
   return <div className="space-y-1" data-native-work-fallbacks="">{recent.map(receipt)}{!!earlier.length && <details className="text-[11px] text-ink-tertiary"><summary className="w-fit cursor-pointer">Earlier work · {earlier.length}</summary><div className="max-h-60 overflow-auto py-2">{earlier.map(run => <div key={run.id} className="flex flex-wrap items-center gap-3"><time className="text-[10px]" dateTime={new Date(run.startedAt).toISOString()}>{new Date(run.startedAt).toLocaleString()}</time>{receipt(run)}</div>)}</div></details>}</div>;
 }

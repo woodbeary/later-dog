@@ -19,7 +19,9 @@ export function publishGlassInsets(frame: HTMLElement): void {
   const bars = frameBars(frame);
   for (const edge of EDGES) {
     const bar = bars[edge];
-    frame.style.setProperty(`--glass-${edge}`, `${bar ? Math.ceil(bar.getBoundingClientRect().height) : 0}px`);
+    const cssHeight = Number.parseFloat(bar?.ownerDocument?.defaultView?.getComputedStyle(bar).height ?? "");
+    const height = bar ? Number.isFinite(cssHeight) && cssHeight > 0 ? cssHeight : bar.getBoundingClientRect().height : 0;
+    frame.style.setProperty(`--glass-${edge}`, `${Math.ceil(height)}px`);
   }
 }
 

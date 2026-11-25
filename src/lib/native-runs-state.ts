@@ -72,8 +72,12 @@ export function useNativeHistoryIncomplete(threadId: string): boolean {
   return useSyncExternalStore(subscribe, () => nativeHistoryIncomplete(threadId), () => false);
 }
 
+export function useCurrentNativeRuns(threadId: string | null | undefined): NativeRun[] {
+  return useSyncExternalStore(subscribe, () => threadId ? currentNativeRuns(threadId) : empty, () => empty);
+}
+
 export function useNativeRuns(threadId: string | null | undefined, oldestMessageAt?: number): NativeRun[] {
-  const runs = useSyncExternalStore(subscribe, () => threadId ? currentNativeRuns(threadId) : empty, () => empty);
+  const runs = useCurrentNativeRuns(threadId);
   useEffect(() => { if (threadId) void loadNativeRuns(threadId); }, [threadId]);
   useEffect(() => {
     if (threadId && oldestMessageAt !== undefined && (runs.at(-1)?.startedAt ?? 0) > oldestMessageAt) void loadNativeRuns(threadId, { older: true });
