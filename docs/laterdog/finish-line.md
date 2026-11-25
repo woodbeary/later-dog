@@ -4,6 +4,14 @@
 
 Started 2026-10-13. This file is the single place that says what is in progress, what is done, and how to pick up any piece of it. Every gate updates it in the same commit as the work.
 
+## Wait and landing design decisions, November 25
+
+PR #261 settles the five design choices under full delegation: one bubble per authored reply,
+40% answer room while following the bottom, no work-line shimmer, no sidebar working dot, and a
+plain long-step subject after one minute. The specification records boundaries and implementation
+checks. This remains a design prototype, with no production wiring. The 30 focused model, brand
+and no-comments checks passed; the complete merge gate has not run.
+
 ## Real account limit, November 14
 
 Draft pull request 199, branch `atelier/real-account-limit`, item 30, server half. One model reaching

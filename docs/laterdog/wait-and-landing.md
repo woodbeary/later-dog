@@ -1,8 +1,9 @@
 # The wait and the landing
 
 Refinement packages E1 (the wait) and E2 (the landing), designed together because they are one
-experience. This is a design for the owner to accept or refuse by looking. It is a prototype, not
-production wiring: builders work from it once the look is approved.
+experience. The five design decisions below are settled under the owner's full delegation on
+25 November 2026. Builders can use this specification without another design approval. This PR is
+still a prototype: none of its proposed behaviour is wired into either production app.
 
 - Prototype: `scripts/testing/wait-and-landing-preview.tsx` (a preview page the app never loads),
   its model `scripts/testing/wait-and-landing-model.ts` (every state, its words and the pacing
@@ -270,12 +271,11 @@ when the work line mounted.
 `bubbles-mac.png` and `bubbles-phone.png` show the same finished reply both ways: a short result, a
 paragraph of what changed, and a question back.
 
-Recommendation: **one bubble**. The reply is one finished thing; kept whole it reads top to bottom,
-copies in one go and lands as one arrival. Separate bubbles turn one answer into three arrivals and
-three gaps, and splitting has to be guessed: on paragraphs it cuts lists and code apart, and the
-question it means to lift out is better served by the question card the dog can already raise. A dog
-that truly has two things to say can already send two messages. Separate bubbles do make a closing
-question easier to spot; that is the case for choosing them.
+Decision: **one bubble per authored reply**. Keep its paragraphs, lists, tables and code together so
+it reads top to bottom, copies in one go and lands as one arrival. Do not infer message boundaries
+from paragraphs or lift a closing question into another bubble. A dog that deliberately sends two
+messages still produces two messages. The separate-bubble pictures remain a comparison, not an
+implementation option.
 
 ## Screen readers
 
@@ -379,16 +379,30 @@ pacing (`src/lib/turn-slot.ts`) and the work sheet. What changes:
 - **Skins.** Shots use Daylight and Midnight; other skins were not shot.
 - **The full merge gate was not run** for this prototype; lint, typecheck and the new tests were.
 
-## The owner's choices
+## Settled design decisions
 
-1. **One bubble or separate bubbles** for a reply with clearly separate parts. Recommendation: one
-   bubble.
-2. **Room for the answer.** 40% of the visible chat (recommended); none, where the view scrolls at
-   landing as today; or a full page, where every send lifts the person's message to the top.
-3. **The line's shimmer.** Drop it (recommended: the dog is the one moving thing) or keep it.
-4. **The sidebar's green working dot.** Remove it (recommended: the moving face and the line say it)
-   or keep it.
-5. **Saying what a long step is** after a minute ("Running the order form tests"). Recommended yes.
+These five choices were made on 25 November 2026 under the owner's full delegation. They are the
+implementation defaults for both apps where the surface exists. No design choice remains for the
+owner to answer.
+
+| Choice | Decision | Reason and implementation boundary |
+| --- | --- | --- |
+| Reply bubbles | **One bubble per authored reply.** | One result has one arrival and one copy action; preserve structured content. Deliberately separate messages stay separate. Never split by paragraph. |
+| Room for the answer | **Reserve 40% of the visible transcript at turn start while following the bottom.** | This gives the reply's opening room without lifting every send a full page. Measure the visible transcript once at turn start, consume the room as rows land, and never move the viewport at landing. Do not reserve or scroll while the person reads older messages. A reply taller than the room continues below the fold. |
+| Work-line shimmer | **Remove it.** | The dog's face supplies the work signal; the words stay still and readable. Under Reduce Motion the face holds a still pose too. |
+| Sidebar green working dot | **Remove only the working dot.** | The row's face and paced line already carry working state. Keep waiting and unread dots because they indicate something to act on or read; keep the accessible working state when animation is off. |
+| Long-step subject | **Show a plain subject after the same step has lasted one minute.** | A long wait should say what is taking time, such as "Running the order form tests · for 6 min". Use only a plain subject supplied by the home; when it is missing or unsuitable, retain the generic phrase and elapsed minutes. Keep raw tools, paths and commands in the work panel. No seconds and no per-step screen-reader announcements. |
+
+The decisions give later.dog one quiet work signal, detail on demand and elapsed time withheld
+until a minute. The five choices, including the 40% reservation and using the dog's face instead of
+a second working mark, are design judgments. The existing prototype measures the landing mechanics;
+it does not establish how the reservation feels over a long session.
+
+This settles the design only. Before either app ships it, check short and long replies, deliberate
+multiple messages, rapid step bursts, older-message reading, a full transcript window, keyboard
+changes, 375-wide layouts, largest text, light and dark, screen readers and Reduce Motion on the
+real app. Preserve the 0 px movement target for rows already on screen. The phone mock and its
+existing pictures do not replace a simulator check of the phone implementation.
 
 ## Running the shots
 
