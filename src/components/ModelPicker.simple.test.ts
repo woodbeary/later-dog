@@ -578,6 +578,30 @@ describe("the model picker in Simple mode", () => {
     expect(pane(open(bot("xhigh")))!.props.effort!.levels).toContain("xhigh");
   });
 
+  it("lists Antigravity with every model and effort level its server sends, none dropped and none added", () => {
+    const sent: Option[] = [
+      { id: "gemini-4-neon", label: "Gemini 4 Neon" },
+      { id: "gemini-4-carbon", label: "Gemini 4 Carbon" },
+      { id: "gemini-4-argon", label: "Gemini 4 Argon" },
+      { id: "gemini-4-hydrogen", label: "Gemini 4 Hydrogen" },
+      { id: "gemini-4-orchestrator", label: "Gemini 4 Orchestrator" },
+      { id: "gemini-3.8-flash", label: "Gemini 3.8 Flash" },
+    ];
+    const antigravity: InstanceInfo = { ...engine("antigravity", "antigravityAgent", "Antigravity", "subscription", sent), capabilities: { effortLevels: levels } };
+    fixture.instances = [claude(), antigravity];
+    const forBot = bot(undefined, "antigravity", "gemini-4-hydrogen");
+    const opened = open(forBot);
+    expect(pane(opened)!.props.providers.map((provider) => provider.label)).toEqual(["Claude", "Antigravity"]);
+    expect(pane(opened)!.props.effort!.levels).toEqual(["low", "medium", "high", "xhigh", "max"]);
+    const band = region(menu(opened.html), "data-simple-effort-band");
+    for (const step of ["Low", "Medium", "High", "Extra high", "Max"]) expect(band).toContain(`>${step}</button>`);
+    click(inside(opened).find((node) => node.props["data-simple-show-all"] !== undefined));
+    expect([...labels(render(forBot))].sort()).toEqual(sent.map((option) => option.label).sort());
+    const chip = render(bot("xhigh", "antigravity", "gemini-4-hydrogen")).html;
+    expect(chip).toContain("Gemini 4 Hydrogen");
+    expect(chip).toContain("· Extra high");
+  });
+
   it("opens Claude's sign-in right where you are, before sign-in, with one button", async () => {
     const { subscribeAddAccount } = await import("@/lib/add-account-request");
     fixture.instances = [claude(false)];

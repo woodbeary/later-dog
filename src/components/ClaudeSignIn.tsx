@@ -4,9 +4,55 @@ import { api } from "@/state/store";
 import { useStore } from "@/state/store";
 import { t } from "@/lib/i18n";
 import { openExternalLink } from "@/lib/app-links";
+import type { LocaleKey } from "@/locales";
 import { deviceFlowUnavailable, type DeviceSignInStatus } from "./DeviceSignIn";
 
 const SIGN_IN_HOSTS = ["claude.com", "claude.ai", "console.anthropic.com", "platform.claude.com"];
+const GOOGLE_SIGN_IN_HOST = "accounts.google.com";
+
+export type PasteSignInProvider = "claude" | "google";
+
+const PASTE_SIGN_IN_PROVIDERS: Partial<Record<string, PasteSignInProvider>> = { claudeAgent: "claude", antigravityAgent: "google" };
+
+export function pasteSignInProvider(driverKind: string): PasteSignInProvider | null {
+  return PASTE_SIGN_IN_PROVIDERS[driverKind] ?? null;
+}
+
+export const PASTE_SIGN_IN_COPY: Record<PasteSignInProvider, Record<"description" | "start" | "open" | "codeLabel" | "compactCodeLabel" | "finishing" | "security" | "connected" | "invalidChallenge", LocaleKey>> = {
+  claude: {
+    description: "engineSetup.claude.description",
+    start: "engineSetup.claude.start",
+    open: "engineSetup.claude.open",
+    codeLabel: "engineSetup.claude.codeLabel",
+    compactCodeLabel: "accounts.sheet.pasteCode",
+    finishing: "engineSetup.claude.finishing",
+    security: "engineSetup.claude.security",
+    connected: "engineSetup.claude.connected",
+    invalidChallenge: "engineSetup.claude.invalidChallenge",
+  },
+  google: {
+    description: "engineSetup.google.description",
+    start: "engineSetup.signInGoogle",
+    open: "engineSetup.google.open",
+    codeLabel: "engineSetup.google.codeLabel",
+    compactCodeLabel: "engineSetup.google.codeLabel",
+    finishing: "engineSetup.google.finishing",
+    security: "engineSetup.google.security",
+    connected: "engineSetup.google.connected",
+    invalidChallenge: "engineSetup.google.invalidChallenge",
+  },
+};
+
+export function googleSignInLink(value: string | null | undefined): string | null {
+  if (!value) return null;
+  try {
+    const url = new URL(value);
+    const authority = value.trim().slice("https://".length).split(/[/?#\\]/, 1)[0]?.toLowerCase();
+    return url.protocol === "https:" && url.hostname === GOOGLE_SIGN_IN_HOST && authority === GOOGLE_SIGN_IN_HOST ? url.href : null;
+  } catch {
+    return null;
+  }
+}
 
 export function claudeSignInLink(value: string | null | undefined): string | null {
   if (!value) return null;
@@ -37,13 +83,14 @@ function endedFlow(phase: "expired" | "failed"): DeviceSignInStatus {
 
 export interface ClaudeSignInProps {
   instanceId: string;
+  provider?: PasteSignInProvider;
   autoStart?: boolean;
   compact?: boolean;
   onSignedIn?: () => void;
   onCancelled?: () => void;
 }
 
-export function ClaudeSignIn({ instanceId, autoStart = false, compact = false, onSignedIn, onCancelled }: ClaudeSignInProps) {
+export function ClaudeSignIn({ instanceId, provider = "claude", autoStart = false, compact = false, onSignedIn, onCancelled }: ClaudeSignInProps) {
   const { refreshInstances, refreshModels } = useStore();
   const [auth, setAuth] = useState<DeviceSignInStatus | null>(null);
   const [code, setCode] = useState("");
@@ -53,8 +100,10 @@ export function ClaudeSignIn({ instanceId, autoStart = false, compact = false, o
   const [autoStarted] = useState(() => ({ current: false }));
   const [withCode, setWithCode] = useState(false);
   const base = `/api/instances/${encodeURIComponent(instanceId)}/auth`;
-  const callback = withCode ? null : claudeCallbackLink(auth?.callbackUrl);
-  const link = callback ?? claudeSignInLink(auth?.authorizationUrl);
+  const copy = PASTE_SIGN_IN_COPY[provider];
+  const signInLink = provider === "google" ? googleSignInLink : claudeSignInLink;
+  const callback = withCode || provider !== "claude" ? null : claudeCallbackLink(auth?.callbackUrl);
+  const link = callback ?? signInLink(auth?.authorizationUrl);
 
   const refresh = async () => {
     await refreshInstances();
@@ -104,7 +153,7 @@ export function ClaudeSignIn({ instanceId, autoStart = false, compact = false, o
       const { auth: next }: { auth: DeviceSignInStatus } = await api(`${base}/start`, { method: "POST" });
       await settle(next);
       if (next.phase === "waiting") {
-        const page = claudeCallbackLink(next.callbackUrl) ?? (compact ? claudeSignInLink(next.authorizationUrl) : null);
+        const page = provider !== "claude" ? null : claudeCallbackLink(next.callbackUrl) ?? (compact ? claudeSignInLink(next.authorizationUrl) : null);
         if (page) await openExternalLink(page);
       }
     } catch (cause) {
@@ -172,7 +221,7 @@ export function ClaudeSignIn({ instanceId, autoStart = false, compact = false, o
 
   const outcome = auth && auth.phase !== "waiting"
     ? auth.phase === "succeeded"
-      ? t("engineSetup.claude.connected")
+      ? t(copy.connected)
       : auth.phase === "cancelled"
         ? t("engineSetup.device.cancelled")
         : auth.phase === "expired"
@@ -183,7 +232,7 @@ export function ClaudeSignIn({ instanceId, autoStart = false, compact = false, o
   const codeField = (
     <>
       <label className="block text-[12px] text-ink-secondary" htmlFor={`claude-code-${instanceId}`}>
-        {t(compact ? "accounts.sheet.pasteCode" : "engineSetup.claude.codeLabel")}
+        {t(compact ? copy.compactCodeLabel : copy.codeLabel)}
       </label>
       <input
         id={`claude-code-${instanceId}`}
@@ -200,19 +249,28 @@ export function ClaudeSignIn({ instanceId, autoStart = false, compact = false, o
         className="flex w-full items-center justify-center gap-2 rounded-lg bg-accent px-3 py-2 text-[12.5px] font-semibold text-white hover:brightness-110 disabled:opacity-50"
       >
         {busy === "finish" ? <Loader2 size={14} className="animate-spin" /> : <LogIn size={14} />}
-        {busy === "finish" ? t("engineSetup.claude.finishing") : t("engineSetup.claude.finish")}
+        {busy === "finish" ? t(copy.finishing) : t("engineSetup.claude.finish")}
       </button>
     </>
   );
 
   if (compact) {
     return (
-      <div className="space-y-3" data-claude-sign-in>
+      <div className="space-y-3" data-paste-sign-in={provider}>
         {outcome && <p role="status" className={auth?.phase === "succeeded" ? "text-[13px] text-success" : "text-[13px] text-ink-secondary"}>{outcome}</p>}
         {busy === "start" && !auth && (
           <p role="status" className="flex items-center gap-1.5 text-[13px] text-ink-secondary"><Loader2 size={13} className="animate-spin" /> {t("engineSetup.claude.starting")}</p>
         )}
-        {auth?.phase === "waiting" && (link ? (
+        {auth?.phase === "waiting" && (link ? provider === "google" ? (
+          <>
+            <a href={link} target="_blank" rel="noopener noreferrer" data-sign-in-link className="flex items-center justify-center gap-2 rounded-lg bg-accent px-3 py-2 text-center text-[12.5px] font-semibold text-white hover:brightness-110" onClick={(event) => {
+              if (window.laterdog?.openExternal) { event.preventDefault(); void openExternalLink(link); }
+            }}>
+              {t(copy.open)} <ExternalLink size={13} className="shrink-0" />
+            </a>
+            {codeField}
+          </>
+        ) : (
           <>
             <p role="status" className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[13px] text-ink-secondary">
               <Loader2 size={13} className="animate-spin" /> {t("accounts.sheet.waiting")}
@@ -231,7 +289,7 @@ export function ClaudeSignIn({ instanceId, autoStart = false, compact = false, o
             ) : codeField}
           </>
         ) : (
-          <p role="alert" className="text-[13px] text-danger">{t("engineSetup.claude.invalidChallenge")}</p>
+          <p role="alert" className="text-[13px] text-danger">{t(copy.invalidChallenge)}</p>
         ))}
         {error && <p role="alert" className="text-[13px] text-danger">{error}</p>}
         {auth?.phase !== "succeeded" && (
@@ -251,7 +309,7 @@ export function ClaudeSignIn({ instanceId, autoStart = false, compact = false, o
   }
 
   return (
-    <div className="mt-3 space-y-2" data-claude-sign-in>
+    <div className="mt-3 space-y-2" data-paste-sign-in={provider}>
       {outcome ? (
         <p role="status" className={auth?.phase === "succeeded" ? "text-[12px] text-success" : "text-[12px] text-ink-secondary"}>{outcome}</p>
       ) : null}
@@ -279,20 +337,20 @@ export function ClaudeSignIn({ instanceId, autoStart = false, compact = false, o
           </div>
         ) : link ? (
           <div className="space-y-2 rounded-lg border border-hairline/50 bg-app p-3">
-            <a href={link} target="_blank" rel="noopener noreferrer" className="flex items-center justify-center gap-2 rounded-lg bg-accent px-3 py-2 text-[12.5px] font-semibold text-white hover:brightness-110">
-              {t("engineSetup.claude.open")} <ExternalLink size={13} />
+            <a href={link} target="_blank" rel="noopener noreferrer" data-sign-in-link className="flex items-center justify-center gap-2 rounded-lg bg-accent px-3 py-2 text-center text-[12.5px] font-semibold text-white hover:brightness-110">
+              {t(copy.open)} <ExternalLink size={13} className="shrink-0" />
             </a>
             {codeField}
             {auth.expiresAt && Number.isFinite(Date.parse(auth.expiresAt)) ? (
               <p className="text-[11px] text-ink-secondary">{t("engineSetup.device.expires", { time: new Date(auth.expiresAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) })}</p>
             ) : null}
-            <p className="text-[11px] leading-relaxed text-ink-secondary">{t("engineSetup.claude.security")}</p>
+            <p className="text-[11px] leading-relaxed text-ink-secondary">{t(copy.security)}</p>
             <button type="button" disabled={busy !== null} onClick={() => void cancel()} className="w-full rounded-lg bg-control px-3 py-2 text-[12px] font-medium text-ink disabled:opacity-50 transition-colors enabled:hover:bg-control-hover">
               {busy === "cancel" ? t("engineSetup.device.cancelling") : t("engineSetup.device.cancel")}
             </button>
           </div>
         ) : (
-          <p role="alert" className="text-[12px] text-danger">{t("engineSetup.claude.invalidChallenge")}</p>
+          <p role="alert" className="text-[12px] text-danger">{t(copy.invalidChallenge)}</p>
         )
       ) : auth?.phase !== "succeeded" ? (
         <button
@@ -302,7 +360,7 @@ export function ClaudeSignIn({ instanceId, autoStart = false, compact = false, o
           className="flex w-full items-center justify-center gap-2 rounded-lg bg-accent px-3 py-2 text-[12.5px] font-semibold text-white hover:brightness-110 disabled:opacity-50"
         >
           {busy === "start" ? <Loader2 size={14} className="animate-spin" /> : <LogIn size={14} />}
-          {busy === "start" ? t("engineSetup.claude.starting") : t("engineSetup.claude.start")}
+          {busy === "start" ? t("engineSetup.claude.starting") : t(copy.start)}
         </button>
       ) : null}
       {error ? <p role="alert" className="text-[12px] text-danger">{error}</p> : null}

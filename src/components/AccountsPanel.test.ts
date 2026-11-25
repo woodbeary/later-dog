@@ -44,7 +44,8 @@ vi.mock("./PlanUsage", async (importOriginal) => ({
   ...(await importOriginal<typeof import("./PlanUsage")>()),
   usePlanUsage: () => ({ report: fixture.report, loading: fixture.loading, error: "", now: Date.now(), reload: fixture.reload }),
 }));
-vi.mock("./ClaudeSignIn", () => ({
+vi.mock("./ClaudeSignIn", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./ClaudeSignIn")>()),
   ClaudeSignIn: (props: SignInProps) => {
     fixture.signIns.push({ kind: "claude", props });
     return createElement("div", { "data-sign-in": "claude" });
@@ -93,6 +94,12 @@ const cursorAccount = (snapshot: Partial<InstanceInfo["snapshot"]> = {}): Instan
   snapshot: { state: "available", authenticated: true, ...snapshot },
   models: { default: "auto", options: [] },
   authentication: { method: "device-code", signOut: true },
+});
+const antigravityAccount = (snapshot: Partial<InstanceInfo["snapshot"]> = {}): InstanceInfo => ({
+  instanceId: "antigravity", driverKind: "antigravityAgent", displayName: "Antigravity", access: "subscription",
+  snapshot: { state: "available", authenticated: true, ...snapshot },
+  models: { default: "", options: [] },
+  authentication: { method: "paste-code", signOut: true },
 });
 const includedKimi = (snapshot: Partial<InstanceInfo["snapshot"]> = {}): InstanceInfo => ({
   instanceId: "laterdogAi", driverKind: "laterdogAi", displayName: "Kimi", access: "subscription",
@@ -728,6 +735,55 @@ describe("Accounts", () => {
     await settle();
     expect(sheet()?.getAttribute("aria-label")).toBe("Sign in to Cursor");
     expect(lastSignIn()).toMatchObject({ kind: "device", props: { instanceId: "cursor", provider: "cursor" } });
+  });
+
+  it("adds Antigravity from its own tile with the Google paste-code sign-in, shows one plain card line and no meter, and signs it out from its row", async () => {
+    fixture.report = { providers: [usage("antigravity", 40, "Google AI Pro")] };
+    await remount({ instances: [claude("claude", "Claude"), cursorAccount({ authenticated: false }), antigravityAccount({ authenticated: false })] });
+    await click(button("Add account"));
+    expect(all("[data-account-engine]").map((tile) => tile.dataset.accountEngine)).toEqual(["claudeAgent", "codex", "cursorAgent", "antigravityAgent"]);
+    await click(button("Antigravity", sheet()!));
+    expect(sheet()?.getAttribute("aria-label")).toBe("Sign in to Antigravity");
+    expect(lastSignIn()).toMatchObject({ kind: "claude", props: { instanceId: "antigravity", provider: "google", autoStart: true, compact: true } });
+    await act(async () => publish({ instances: signedInAs("antigravity", "me@gmail.test") }));
+    await act(async () => lastSignIn().props.onSignedIn!());
+    await settle();
+    expect(sheet()).toBeNull();
+    expect(ids()).toEqual(["claude", "antigravity"]);
+    expect(line("antigravity")).toBe("me@gmail.test");
+    expect(row("antigravity")!.querySelector("[data-account-note]")?.textContent).toBe("Google limits automated use of personal plans.");
+    expect(usageOf("antigravity")).toBeNull();
+    expect(row("antigravity")!.querySelector("[data-account-resets]")).toBeNull();
+    expect(row("antigravity")!.textContent).not.toMatch(/Google AI Pro|resets|left/);
+    expect(row("antigravity")!.querySelector("[data-account-note]")!.className).not.toContain("truncate");
+
+    await click(button("Add account"));
+    const tile = sheet()!.querySelector<HTMLButtonElement>('[data-account-engine="antigravityAgent"]')!;
+    expect(tile.disabled).toBe(true);
+    expect(tile.textContent).toBe("AntigravitySigned in");
+    await press(sheet()!, "Escape");
+
+    fixture.api.mockResolvedValueOnce({ instances: signedOut("antigravity") });
+    await click(removeButton("Antigravity"));
+    await click(button("Remove", row("antigravity")!));
+    expect(fixture.api).toHaveBeenCalledWith("/api/instances/antigravity/auth/sign-out", { method: "POST" });
+    expect(fixture.api).not.toHaveBeenCalledWith("/api/instances/antigravity", { method: "DELETE" });
+  });
+
+  it("opens the Add sheet straight on Antigravity's Google sign-in when another screen asks, and never offers a second Antigravity account", async () => {
+    await remount({ instances: [claude("claude", "Claude"), antigravityAccount({ authenticated: false })] });
+    await act(async () => requestAddAccount("antigravityAgent"));
+    await settle();
+    expect(sheet()?.getAttribute("aria-label")).toBe("Sign in to Antigravity");
+    expect(lastSignIn()).toMatchObject({ kind: "claude", props: { instanceId: "antigravity", provider: "google" } });
+    await press(sheet()!, "Escape");
+
+    await remount({ instances: [claude("claude", "Claude"), antigravityAccount({ account: { email: "me@gmail.test" } })] });
+    await act(async () => requestAddAccount("antigravityAgent"));
+    await settle();
+    expect(sheet()?.getAttribute("aria-label")).toBe("Add account");
+    expect(sheet()!.querySelector("input")).toBeNull();
+    expect(sheet()!.querySelector<HTMLButtonElement>('[data-account-engine="antigravityAgent"]')?.disabled).toBe(true);
   });
 
   it("shows the included free AI with its daily allowance in the list and in the Add sheet, with nothing to remove", async () => {

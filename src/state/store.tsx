@@ -657,7 +657,6 @@ export interface EngineInstall {
   docsUrl?: string;
   signInCommand?: string;
   needsNode?: boolean;
-  managed?: { label: string; downloadBytes: number };
   server?: { package: string };
   settings?: "connections";
 }

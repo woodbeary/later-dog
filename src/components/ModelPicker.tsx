@@ -765,7 +765,7 @@ export function ModelPicker({
     ?? declaredEffort(activeLevels, active?.models?.options.find((option) => option.id === selection.model)?.defaultEffort);
   const shownEffortName = shownEffort ? effortName(shownEffort, active?.driverKind) : undefined;
   const simpleEffort = activeLevels.length > 0 ? {
-    levels: simpleEffortLevels(activeLevels, shownEffort),
+    levels: simpleEffortLevels(activeLevels, shownEffort, active?.driverKind),
     current: shownEffort,
     driverKind: active?.driverKind,
     onPick: (level: EffortLevel) => dispatch({ type: "setModel", botId: bot.id, threadId,

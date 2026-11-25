@@ -37,7 +37,7 @@ const PROBE_MAX_MS = 5 * 60_000;
 
 const PERSONAL_SECRETS = [
   ".ssh", ".gnupg", ".aws", ".azure", ".kube", ".docker", ".netrc", ".git-credentials", ".npmrc", ".pypirc",
-  ".claude", ".claude.json", ".codex", ".mozilla", ".local/share/keyrings", ".local/bin",
+  ".claude", ".claude.json", ".codex", ".gemini", ".mozilla", ".local/share/keyrings", ".local/bin",
   ".config/gh", ".config/gcloud", ".config/op", ".config/git", ".config/fish", ".config/autostart", ".config/systemd",
   ".config/google-chrome", ".config/chromium", ".config/BraveSoftware", ".config/microsoft-edge",
   "Library/Keychains", "Library/Cookies", "Library/LaunchAgents", "Library/Safari",

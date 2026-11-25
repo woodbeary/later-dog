@@ -131,6 +131,35 @@ test("a read-only share around the person's keys never exposes them (read-only â
   assert.equal(listed.notes, "directory");
 });
 
+test("a lent home never shows agy's Google sign-in folder, read-only or writable", async t => {
+  const dir = await scratch(t);
+  const home = path.join(dir, "home");
+  for (const [relative, content] of [[".gemini/antigravity-cli/installation_id", "agy-install"], [".gemini/config/config.json", "agy-config"], ["notes/todo.md", "ordinary"]]) {
+    await mkdir(path.dirname(path.join(home, relative)), { recursive: true });
+    await writeFile(path.join(home, relative), content);
+  }
+  for (const write of [false, true]) {
+    const folder = { id: randomUUID(), path: home, write };
+    const { results } = await lend(t, dir, {
+      home, folders: [folder],
+      jobs: [
+        { action: "read_file", path: ".gemini/antigravity-cli/installation_id" },
+        { action: "list_files", path: ".gemini/config" },
+        { action: "read_file", path: "notes/todo.md" },
+        { action: "list_files" },
+      ],
+    });
+    for (const refused of results.slice(0, 2)) {
+      assert.equal(refused.isError, true, text(refused));
+      assert.match(text(refused), /cannot be accessed through a shared folder/);
+      assert.doesNotMatch(text(refused), /agy-install|agy-config/);
+    }
+    assert.equal(JSON.parse(text(results[2])).content, "ordinary");
+    const listed = Object.fromEntries(JSON.parse(text(results[3])).entries.map(entry => [entry.name, entry.type]));
+    assert.equal(listed[".gemini"], "protected");
+  }
+});
+
 test("a writable folder never reaches git's configuration, hooks or login items (write â†’ exec)", async t => {
   const dir = await scratch(t);
   const home = path.join(dir, "home");
