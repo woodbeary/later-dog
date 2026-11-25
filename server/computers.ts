@@ -4,7 +4,7 @@ import * as boat from "./boat.ts";
 import { cloudComputerStartBudgetMs } from "./laterdog/cloud-start.ts";
 import { REFUSED_START_SPACING_MS, REFUSED_START_TRIES, START_REFUSED_CODE, bootFailure, createStartWatch, didNotStart } from "./laterdog/computer-start.ts";
 import type { BoatIdentityInspection, ManagedBoatInventory, ManagedBoatInventoryInstance, ManagedBoatMutationClaim, ManagedBoatOwner } from "./boat.ts";
-import { DATA_DIR, type AppConfig } from "./config.ts";
+import { DATA_DIR, loadConfig, type AppConfig } from "./config.ts";
 import { loadEnvironmentId } from "./environment.ts";
 import type { ServiceCredential } from "./included-services.ts";
 import {
@@ -486,10 +486,20 @@ export function startDidNotFinish(botId: string, since?: number): void {
   if (id) starts.exhaust(id, since);
 }
 
+async function workComputer(client: ComputersClient, botId: string, repository?: string): Promise<OwnComputer> {
+  const cfg = ownComputersChosen() ? loadConfig() : {};
+  const found = await findOwn(client, botId);
+  if (found) {
+    await fitSize(client, cfg, found.id);
+    return found;
+  }
+  return createOwn(client, botId, ownName(botId), wantedSize(cfg), repository);
+}
+
 export async function heavyRunBox(botId: string, options: { repository?: string; wanted?: () => boolean; budgetMs?: number } = {}): Promise<{ box: RunBox }> {
   if (!computersSelected()) throw Object.assign(new Error("Cloud computers are not set up here, so run it in your own folder instead."), { status: 409 });
   const client = ownClient();
-  const computer = await findOwn(client, botId) ?? await createOwn(client, botId, ownName(botId), undefined, options.repository);
+  const computer = await workComputer(client, botId, options.repository);
   const entry = computer.state;
   const refusedStart = entry === "running" ? undefined : starts.failure(computer.id);
   if (refusedStart !== undefined) throw didNotStart(refusedStart);
@@ -542,7 +552,7 @@ export async function jobComputer(botId: string): Promise<JobComputer> {
 export async function engineComputer(botId: string): Promise<{ box: RunBox; stream: () => ReturnType<ComputersClient["process"]> }> {
   if (!computersSelected()) throw new Error("Cloud computers are not configured.");
   const client = ownClient();
-  const computer = await findOwn(client, botId) ?? await createOwn(client, botId, ownName(botId));
+  const computer = await workComputer(client, botId);
   const ready = await waitRunning(client, computer.id, PROVISION_BUDGET_MS);
   if (!ready) throw new Error("The dog's cloud computer could not start.");
   return {

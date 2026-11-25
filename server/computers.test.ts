@@ -9,7 +9,7 @@ import { RETRY_FAILED_START_AFTER_MS } from "./laterdog/computer-start.ts";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 type State = "starting" | "running" | "sleeping" | "stopping" | "error";
-type FakeComputer = { id: string; name: string; state: State; error?: string; lastStart?: { generation: number; outcome: string; at?: string; ms?: number } };
+type FakeComputer = { id: string; name: string; state: State; size?: string; error?: string; lastStart?: { generation: number; outcome: string; at?: string; ms?: number } };
 type Recorded = { method: string; path: string; headers: IncomingMessage["headers"]; body: string };
 
 const KEY = `ldc_${"f".repeat(48)}`;
@@ -27,6 +27,7 @@ describe("the cloud computer facade", () => {
   let environmentId = "";
   let computers: typeof import("./computers.ts");
   let boat: typeof import("./boat.ts");
+  let config: typeof import("./config.ts");
   const fleet = new Map<string, FakeComputer>();
   const keys = new Map<string, FakeComputer>();
   const requests: Recorded[] = [];
@@ -99,7 +100,7 @@ describe("the cloud computer facade", () => {
           if (runsAt && computer.state === "starting" && Date.now() >= runsAt) computer.state = "running";
           return send(200, { computer });
         }
-        if (!action && method === "PATCH") { computer.name = JSON.parse(body).name; return send(200, { computer }); }
+        if (!action && method === "PATCH") { Object.assign(computer, JSON.parse(body)); return send(200, { computer }); }
         if (!action && method === "DELETE") { fleet.delete(computer.id); return send(200, { deleted: true }); }
         if (action === "wake") { computer.state = wakeTo; return send(200, { computer }); }
         if (action === "sleep") { computer.state = "sleeping"; return send(200, { computer }); }
@@ -122,8 +123,8 @@ describe("the cloud computer facade", () => {
     vi.resetModules();
     computers = await import("./computers.ts");
     boat = await import("./boat.ts");
-    const { DATA_DIR } = await import("./config.ts");
-    environmentId = (await import("./environment.ts")).loadEnvironmentId(DATA_DIR);
+    config = await import("./config.ts");
+    environmentId = (await import("./environment.ts")).loadEnvironmentId(config.DATA_DIR);
   });
 
   beforeEach(() => {
@@ -498,6 +499,37 @@ describe("the cloud computer facade", () => {
     expect(inventory).toMatchObject({ available: true, problem: null });
     expect(inventory.instances.map((instance) => instance.ownerBotId).sort()).toEqual(["dog-long-reason", "dog-next-door"]);
     expect(await computers.findBoat(noBoat, "dog-next-door")).toMatchObject({ state: "running" });
+  });
+
+  it.each(["command", "engine"] as const)("uses the owner's chosen size when a %s starts the dog's first computer", async (purpose) => {
+    const sizing = vi.spyOn(config, "loadConfig").mockReturnValue({ box: { size: "xlarge" } });
+    try {
+      const botId = `sized-${purpose}`;
+      if (purpose === "command") await computers.heavyRunBox(botId, { repository: "owner/repo" });
+      else await computers.engineComputer(botId);
+      expect(creates().map(({ body }) => JSON.parse(body))).toEqual([{
+        name: nameFor(botId), size: "xlarge", ...(purpose === "command" ? { repository: "owner/repo" } : {}),
+      }]);
+    } finally {
+      sizing.mockRestore();
+    }
+  });
+
+  it("applies an engine computer's new size before it wakes without replacing it", async () => {
+    const sizing = vi.spyOn(config, "loadConfig").mockReturnValue({ box: { size: "xlarge" } });
+    try {
+      const botId = "resize-sleeping-engine";
+      const machine = add(botId, "sleeping");
+      machine.size = "standard";
+      await computers.engineComputer(botId);
+      expect(creates()).toHaveLength(0);
+      expect(ours().filter(({ method }) => method !== "GET").map(({ method, path, body }) => ({ method, path, body }))).toEqual([
+        { method: "PATCH", path: `/v1/computers/${machine.id}`, body: '{"size":"xlarge"}' },
+        { method: "POST", path: `/v1/computers/${machine.id}/wake`, body: "{}" },
+      ]);
+    } finally {
+      sizing.mockRestore();
+    }
   });
 
   describe("waking a computer for run_on_computer", () => {

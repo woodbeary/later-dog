@@ -83,6 +83,36 @@ nothing above a landing reply moves; no deliberate hold on a splash; on the phon
 switch and no stall over 200 ms, the targets stated on November 10
 ([phone-chat-performance-2026-11-10.md](../verification/phone-chat-performance-2026-11-10.md)).
 
+## Cloud capacity, November 25
+
+The Home owns chats, permissions, scheduling, and recovery. Each dog's computer
+owns its execution and can keep job outputs beside the workspace that produced
+them. A Cloud task can still use a disposable computer under the supervisor's
+job policy. Interactive engine placement uses the dog's existing computer so
+its native session can survive a wake without cloning the Home.
+
+Resizing the Home can buy recovery headroom, but leaves each engine and workspace
+competing on the same disk. Sending every chat to a new job computer would give
+the job and Home competing authority over the interactive turn and its native
+session. The per-dog computer keeps one execution owner and the Home retains
+turn authority. The provider and Home keep their account credentials. A computer
+receives only the scoped inputs its engine and relay require.
+
+The Home's selected computer size applies when a dog starts an engine or heavy
+command on its computer. Existing computers change size at their next wake.
+The fixture checks the creation request and the order of resize and wake on a
+saved computer. Scaling proof uses distinct real computers, concurrent work,
+and separate file receipts after sleep and wake. Provider qualification requires
+a named native turn, an execution receipt on the computer, and a resumed turn
+on the same thread. A process relay fixture can prove transport and checkpointing
+with an isolated provider.
+
+Keep the verified November 25 save and shutdown fixes in any candidate image.
+Check a fresh backup and keep the existing restore point before changing
+production. After activation, verify the exact running image or server bundle,
+chat retention, completed backups during work, and actual placements. A saved
+placement setting shows intent. The engine receipt shows where it ran.
+
 ## Real account limit, November 14
 
 Draft pull request 199, branch `atelier/real-account-limit`, item 30, server half. One model reaching
