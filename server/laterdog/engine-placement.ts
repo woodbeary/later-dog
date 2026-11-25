@@ -32,39 +32,55 @@ function remoteClaudeEnvironment(env: Record<string, unknown>): Record<string, s
     typeof entry[1] === "string" && REMOTE_CLAUDE_ENV.has(entry[0])));
 }
 
-export function remoteEngineBots(dataDir: string, env: NodeJS.ProcessEnv = process.env): Set<string> {
-  const chosen = new Set<string>();
-  for (const id of (env.LATERDOG_REMOTE_ENGINE_BOTS ?? "").split(",")) if (id.trim()) chosen.add(id.trim());
-  try {
-    const file = JSON.parse(readFileSync(join(dataDir, REMOTE_ENGINES_FILE), "utf8")) as { bots?: unknown };
-    if (Array.isArray(file.bots)) for (const id of file.bots) if (typeof id === "string" && id) chosen.add(id);
-  } catch {}
-  return chosen;
-}
-
 export const REMOTE_ENGINES_FILE = "remote-engines.json";
 
 export interface RemoteEngineChoice { botId: string; computer: boolean; fromEnvironment: boolean }
 
 const environmentBots = (env: NodeJS.ProcessEnv) => new Set((env.LATERDOG_REMOTE_ENGINE_BOTS ?? "").split(",").map((id) => id.trim()).filter(Boolean));
+const botIds = (value: unknown): string[] => Array.isArray(value) ? value.filter((id): id is string => typeof id === "string" && id.length > 0) : [];
+
+function placementSettings(dataDir: string, forWrite = false): Record<string, unknown> {
+  try {
+    const saved: unknown = JSON.parse(readFileSync(join(dataDir, REMOTE_ENGINES_FILE), "utf8"));
+    if (saved && typeof saved === "object" && !Array.isArray(saved)) return saved as Record<string, unknown>;
+    throw new Error("Invalid engine placement settings");
+  } catch (error) {
+    if (forWrite && (error as NodeJS.ErrnoException).code !== "ENOENT") throw new Error("The saved engine placement could not be read, so it was left unchanged.");
+    return {};
+  }
+}
+
+function savePlacementSettings(dataDir: string, settings: Record<string, unknown>): void {
+  mkdirSync(dataDir, { recursive: true, mode: 0o700 });
+  writeFileAtomic(join(dataDir, REMOTE_ENGINES_FILE), `${JSON.stringify(settings, null, 2)}\n`, { mode: 0o600 });
+}
+
+export function remoteEngineBots(dataDir: string, env: NodeJS.ProcessEnv = process.env): Set<string> {
+  return new Set([...environmentBots(env), ...botIds(placementSettings(dataDir).bots)]);
+}
+
+export function remoteEngineDefault(dataDir: string): boolean {
+  return placementSettings(dataDir).placement === "computer";
+}
+
+export function setRemoteEngineDefault(dataDir: string, computer: boolean): boolean {
+  savePlacementSettings(dataDir, { ...placementSettings(dataDir, true), placement: computer ? "computer" : "home" });
+  return computer;
+}
 
 export function remoteEngineChoice(dataDir: string, botId: string, env: NodeJS.ProcessEnv = process.env): RemoteEngineChoice {
-  return { botId, computer: remoteEngineBots(dataDir, env).has(botId), fromEnvironment: environmentBots(env).has(botId) };
+  const saved = placementSettings(dataDir);
+  const fromEnvironment = environmentBots(env).has(botId);
+  const computer = fromEnvironment || botIds(saved.bots).includes(botId) || (saved.placement === "computer" && !botIds(saved.homeBots).includes(botId));
+  return { botId, computer, fromEnvironment };
 }
 
 export function setRemoteEngineBot(dataDir: string, botId: string, computer: boolean, env: NodeJS.ProcessEnv = process.env): RemoteEngineChoice {
-  const file = join(dataDir, REMOTE_ENGINES_FILE);
-  let saved: Record<string, unknown> = {};
-  try {
-    const parsed = JSON.parse(readFileSync(file, "utf8")) as unknown;
-    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) saved = parsed as Record<string, unknown>;
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw new Error("The saved engine placement could not be read, so it was left unchanged.");
-  }
-  const bots = Array.isArray(saved.bots) ? saved.bots.filter((id): id is string => typeof id === "string" && id.length > 0 && id !== botId) : [];
-  if (computer) bots.push(botId);
-  mkdirSync(dataDir, { recursive: true, mode: 0o700 });
-  writeFileAtomic(file, `${JSON.stringify({ ...saved, bots }, null, 2)}\n`, { mode: 0o600 });
+  const saved = placementSettings(dataDir, true);
+  const bots = botIds(saved.bots).filter(id => id !== botId);
+  const homeBots = botIds(saved.homeBots).filter(id => id !== botId);
+  (computer ? bots : homeBots).push(botId);
+  savePlacementSettings(dataDir, { ...saved, bots, ...(homeBots.length || saved.homeBots ? { homeBots } : {}) });
   return remoteEngineChoice(dataDir, botId, env);
 }
 
