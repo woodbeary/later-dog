@@ -13,6 +13,7 @@ const recorded = (name: string, root: string) => JSON.parse(readFileSync(new URL
 const passing = " ✓ server/a.test.ts (3 tests) 20ms\n\n Test Files  1 passed (1)\n      Tests  3 passed (3)\n";
 const failing = " FAIL  server/b.test.ts > b > breaks\nAssertionError\n FAIL  server/b.test.ts > b > breaks again\n FAIL  src/c.test.ts [ src/c.test.ts ]\n\n Test Files  2 failed | 4 passed (6)\n      Tests  2 failed | 9 passed (11)\n";
 const shard = { name: "suite 1/8", kind: "vitest", command: [] };
+const typed = "typecheck tsconfig.json: checked 891 files\ntypecheck tsconfig.server.json: checked 1700 files\n";
 
 describe("merge gate verdict", () => {
   it("runs every test set in the repository, in this order", () => {
@@ -65,20 +66,22 @@ describe("merge gate verdict", () => {
 
   it("runs typecheck and lint as package.json does, but so that each prints how much it checked", () => {
     const pkg = JSON.parse(readFileSync(join(repoRoot, "package.json"), "utf8"));
-    expect(pkg.scripts.typecheck).toBe("tsc -b && tsc -p tsconfig.server.json");
+    expect(pkg.scripts.typecheck).toBe("node scripts/typecheck.mjs");
+    expect(pkg.scripts.build).toBe("pnpm typecheck && vite build");
+    expect(pkg.scripts["build:server"]).toBe("tsc -p tsconfig.server.build.json && node scripts/bundle-server.mjs");
     expect(pkg.scripts.lint).toBe("oxlint --deny-warnings .");
-    expect(gateSteps()[0].command).toEqual(["sh", "-c", "pnpm exec tsc -b --verbose --force && pnpm exec tsc -p tsconfig.server.json --diagnostics"]);
+    expect(gateSteps()[0].command).toEqual(["sh", "-c", "pnpm typecheck"]);
     expect(gateSteps()[1].command).toEqual(["pnpm", "lint", "--format=json"]);
   });
 
   it("fails typecheck, lint and the node tests on what they print, and when they print nothing", () => {
     const step = (name: string) => gateSteps().find((candidate) => candidate.name === name)!;
-    const typed = "2:21:26 AM - Building project '/repo/tsconfig.json'...\n\nFiles:              2573\nCheck time:       15.20s\n";
     const linted = (diagnostics: string) => `{ "diagnostics": [${diagnostics}],\n  "number_of_files": 3262,\n  "number_of_rules": 97 }`;
     expect(judgeStep(step("typecheck"), 0, typed)).toMatchObject({ failed: false });
     expect(judgeStep(step("typecheck"), 0, "")).toMatchObject({ failed: true });
-    expect(judgeStep(step("typecheck"), 0, typed.replace(/Files:.*\n/, ""))).toMatchObject({ failed: true });
-    expect(judgeStep(step("typecheck"), 0, `${typed}src/a.ts(1,1): error TS2322: no`)).toMatchObject({ failed: true, failing: ["typecheck (printed error TS2322)"] });
+    expect(judgeStep(step("typecheck"), 0, `${typed}error: unable to read the project\n`)).toMatchObject({ failed: true });
+    expect(judgeStep(step("typecheck"), 0, typed.replace(/typecheck tsconfig\.server\.json:.*\n/, ""))).toMatchObject({ failed: true });
+    expect(judgeStep(step("typecheck"), 0, `${typed}src/a.ts(1,1): error TS2322: no`)).toMatchObject({ failed: true, failing: ["typecheck (printed error)"] });
     expect(judgeStep(step("lint"), 0, linted("")) ).toMatchObject({ failed: false });
     expect(judgeStep(step("lint"), 0, "")).toMatchObject({ failed: true });
     expect(judgeStep(step("lint"), 0, linted(`{ "message": "no" }`))).toMatchObject({ failed: true });
@@ -89,6 +92,21 @@ describe("merge gate verdict", () => {
     expect(judgeStep(step("electron"), 0, "")).toMatchObject({ failed: true });
     expect(judgeStep(step("packaged-server"), 0, "")).toMatchObject({ failed: true });
     expect(judgeStep(step("lint"), 1, linted(""))).toMatchObject({ failed: true, failing: ["lint"] });
+  });
+
+  it("accepts typecheck only with a nonempty result for both named graphs", () => {
+    const step = gateSteps().find((candidate) => candidate.name === "typecheck")!;
+    const app = "typecheck tsconfig.json: checked 891 files\n";
+    const server = "typecheck tsconfig.server.json: checked 1700 files\n";
+    expect(judgeStep(step, 0, app + server)).toMatchObject({ failed: false });
+    for (const output of [app, server, app + app, server + server, app + server.replace("1700", "0"), app.replace("891", "0") + server]) {
+      expect(judgeStep(step, 0, output), output).toMatchObject({ failed: true });
+    }
+  });
+
+  it("rejects unlabelled compiler output that leaves a typecheck graph unproven", () => {
+    const step = gateSteps().find((candidate) => candidate.name === "typecheck")!;
+    expect(judgeStep(step, 0, "Building project '/repo/tsconfig.json'...\nFiles: 10\n")).toMatchObject({ failed: true });
   });
 
   it("passes only when every step passed and at least one ran", () => {
@@ -155,8 +173,8 @@ if (words.includes("vitest") && process.env.FAKE_VITEST_SILENT) process.exit(0);
 const out = process.argv.find((word) => word.startsWith("--outputFile.json="))?.slice("--outputFile.json=".length);
 const skip = words.includes("--shard=2/8") && process.env.FAKE_NO_BROWSER;
 if (out) require("node:fs").writeFileSync(out, (skip ? ${JSON.stringify(JSON.stringify(recorded("skip.json", "<cwd>")))} : ${JSON.stringify(JSON.stringify(recorded("stray.json", "<cwd>")))}).replaceAll("<cwd>", process.cwd()));
-if (words.includes("tsc -b") && process.env.FAKE_TYPE_ERROR) console.log("src/a.ts(1,1): error TS2322: no");
-console.log(words.includes("vitest") ? ${JSON.stringify(passing)} : words.includes("tsc -b") ? "Building project '/repo/tsconfig.json'...\\nFiles: 10" : words.includes("lint") ? '{ "diagnostics": [], "number_of_files": 10 }' : words.includes("test:electron") ? "ℹ tests 3\\nℹ fail 0" : words.includes("test:packaged-server") ? "packaged backup worker exported an encrypted archive ✓" : "checked");
+if (words.includes("typecheck") && process.env.FAKE_TYPE_ERROR) console.log("src/a.ts(1,1): error TS2322: no");
+console.log(words.includes("vitest") ? ${JSON.stringify(passing)} : words.includes("typecheck") ? ${JSON.stringify(typed)} : words.includes("lint") ? '{ "diagnostics": [], "number_of_files": 10 }' : words.includes("test:electron") ? "ℹ tests 3\\nℹ fail 0" : words.includes("test:packaged-server") ? "packaged backup worker exported an encrypted archive ✓" : "checked");
 `);
     return spawnSync(process.execPath, [script, ...args], {
       cwd: repo, encoding: "utf8",

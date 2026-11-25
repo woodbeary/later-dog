@@ -8,12 +8,12 @@ export const SHARDS = 8;
 export const EDGE_DIR = "deploy/laterdog/home";
 export const CONTROL_PLANE_DIR = "cloudflare/control-plane";
 export const COMPUTERS_DIR = "deploy/laterdog/computers";
-export const TYPECHECK = "pnpm exec tsc -b --verbose --force && pnpm exec tsc -p tsconfig.server.json --diagnostics";
+export const TYPECHECK = "pnpm typecheck";
 export const OUTSIDE_WORKSPACE_INSTALL = "pnpm install --ignore-workspace --frozen-lockfile";
 
 export function gateSteps(shards = SHARDS) {
   return [
-    { name: "typecheck", kind: "check", command: ["sh", "-c", TYPECHECK], expect: [/Building project '/, /^Files:\s+[1-9]\d*/m], refuse: [/error TS\d+/] },
+    { name: "typecheck", kind: "check", command: ["sh", "-c", TYPECHECK], expect: [/^typecheck tsconfig\.json: checked [1-9]\d* files$/m, /^typecheck tsconfig\.server\.json: checked [1-9]\d* files$/m], refuse: [/\bTS\d+\b|\berror\b|<error\b/i] },
     { name: "lint", kind: "check", command: ["pnpm", "lint", "--format=json"], expect: [/"number_of_files":\s*[1-9]\d*/], refuse: [/"diagnostics":\s*\[\s*\{/] },
     { name: "electron", kind: "check", command: ["pnpm", "test:electron"], expect: [/^ℹ tests [1-9]/m], refuse: [/^ℹ fail [1-9]/m] },
     { name: "broker", kind: "vitest", command: ["pnpm", "exec", "vitest", "run", "--config", "cloudflare/composio-broker/vitest.config.ts"] },

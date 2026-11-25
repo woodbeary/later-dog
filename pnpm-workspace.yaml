@@ -6,11 +6,13 @@ supportedArchitectures:
     - arm64
     - x64
 allowBuilds:
+  bun: true
   electron: true
   esbuild: true
   workerd: true
   electron-winstaller: false
 onlyBuiltDependencies:
+  - bun
   - electron
   - esbuild
   - workerd
