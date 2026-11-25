@@ -3,7 +3,7 @@ import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, it } from "vitest";
-import { HOME_HEALTH_FILE, lastError, noteHomeHealth, outputTail, pushedCodeFellBack } from "../runtime/home-health.mjs";
+import { HOME_HEALTH_FILE, lastError, noteHomeHealth, outputTail, pushedCodeFellBack, shouldFallBackFromPushed } from "../runtime/home-health.mjs";
 
 it("says in home-health.log that a crashed pushed server left the home on the image's server, with its last error", () => {
   const dir = mkdtempSync(join(tmpdir(), "home-health-"));
@@ -29,4 +29,15 @@ it("keeps only the end of a long error and never fails the runtime when the log 
   const notAFolder = join(mkdtempSync(join(tmpdir(), "home-health-")), "a-file");
   writeFileSync(notAFolder, "");
   expect(noteHomeHealth(join(notAFolder, "nope"), "message")).toBe(false);
+});
+
+it("falls back only when pushed code crashes right after start, never on container shutdown signals", () => {
+  expect(shouldFallBackFromPushed({ stopping: false, code: 1, signal: null, elapsedMs: 5_000, graceMs: 30_000 })).toBe(true);
+  expect(shouldFallBackFromPushed({ stopping: false, code: null, signal: "SIGKILL", elapsedMs: 5_000, graceMs: 30_000 })).toBe(true);
+  expect(shouldFallBackFromPushed({ stopping: false, code: 0, signal: null, elapsedMs: 5_000, graceMs: 30_000 })).toBe(false);
+  expect(shouldFallBackFromPushed({ stopping: false, code: 1, signal: null, elapsedMs: 30_000, graceMs: 30_000 })).toBe(false);
+  expect(shouldFallBackFromPushed({ stopping: true, code: 1, signal: null, elapsedMs: 5_000, graceMs: 30_000 })).toBe(false);
+  expect(shouldFallBackFromPushed({ stopping: true, code: null, signal: "SIGTERM", elapsedMs: 11_000, graceMs: 30_000 })).toBe(false);
+  expect(shouldFallBackFromPushed({ stopping: false, code: null, signal: "SIGTERM", elapsedMs: 11_000, graceMs: 30_000 })).toBe(false);
+  expect(shouldFallBackFromPushed({ stopping: false, code: null, signal: "SIGINT", elapsedMs: 11_000, graceMs: 30_000 })).toBe(false);
 });

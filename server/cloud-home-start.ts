@@ -183,11 +183,12 @@ export function startCloudHome(env: NodeJS.ProcessEnv = process.env) {
   runEdge();
   listenForArchiveOwnership();
   const asked = (signal: NodeJS.Signals) => {
+    if (stopping) return;
     record(`cloud home: asked to stop (${signal}); stopping the server and the edge`);
     stop(false);
   };
-  process.once("SIGTERM", () => asked("SIGTERM"));
-  process.once("SIGINT", () => asked("SIGINT"));
+  process.on("SIGTERM", () => asked("SIGTERM"));
+  process.on("SIGINT", () => asked("SIGINT"));
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {

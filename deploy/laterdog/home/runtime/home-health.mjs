@@ -21,6 +21,12 @@ export function lastError(tail) {
   return said.length > SAID_ERROR_CHARS ? `…${said.slice(-SAID_ERROR_CHARS)}` : said;
 }
 
+export function shouldFallBackFromPushed({ stopping = false, code, signal, elapsedMs, graceMs }) {
+  if (stopping) return false;
+  if (signal === "SIGTERM" || signal === "SIGINT") return false;
+  return code !== 0 && elapsedMs < graceMs;
+}
+
 export function pushedCodeFellBack({ code, signal, tail }) {
   const error = lastError(tail);
   return `the pushed server code stopped right away (exit code ${code ?? "none"}, signal ${signal ?? "none"}); this home now runs the image's own server, so the pushed changes are not live${error ? `. Last output: ${error}` : ""}`;

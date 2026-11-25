@@ -7,7 +7,7 @@ import { spawn } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { devCodeWatcher, homeIdle } from "./dev-code.mjs";
-import { noteHomeHealth, outputTail, pushedCodeFellBack } from "./home-health.mjs";
+import { noteHomeHealth, outputTail, pushedCodeFellBack, shouldFallBackFromPushed } from "./home-health.mjs";
 import { seedIncluded } from "./included.mjs";
 import { SAVE_STATUS_PATH, saveRecorder, slowCopies, writeSaveStatus } from "./save-status.mjs";
 import { RESTORE_POINTS, appRelease, upgradeFrom, upgradeKeeper } from "./restore-points.mjs";
@@ -143,7 +143,22 @@ async function main() {
   };
   const timer = setInterval(() => void save(), INTERVAL_MS);
   const alive = () => child && child.exitCode === null && child.signalCode === null;
+  let stopping = false;
+  let shuttingDown = null;
+  const shutdown = (code, signal) => {
+    if (shuttingDown) return shuttingDown;
+    shuttingDown = (async () => {
+      clearInterval(timer);
+      devCode?.stop();
+      await archive?.close();
+      const finished = await settleWithin((running ?? Promise.resolve()).then(() => save({ final: true })), FINAL_SAVE_MS);
+      if (finished === "late") log(`the last save did not finish within ${FINAL_SAVE_MS / 1000} seconds; stopping anyway`);
+      process.exit(code ?? (signal ? 1 : 0));
+    })();
+    return shuttingDown;
+  };
   const forward = (signal) => () => {
+    stopping = true;
     reloading = false;
     if (alive()) child.kill(signal);
   };
@@ -153,7 +168,7 @@ async function main() {
   const stderrTail = outputTail();
   const stopped = async (code, signal) => {
     if (reloading) return;
-    if (launcher !== LAUNCHER && code !== 0 && Date.now() - startedAt < PUSHED_CODE_GRACE_MS) {
+    if (launcher !== LAUNCHER && shouldFallBackFromPushed({ stopping, code, signal, elapsedMs: Date.now() - startedAt, graceMs: PUSHED_CODE_GRACE_MS })) {
       const said = pushedCodeFellBack({ code, signal, tail: stderrTail.text() });
       log(said);
       noteHomeHealth(HEALTH_DIR, said, { owner: dogOwner() });
@@ -162,12 +177,7 @@ async function main() {
       return;
     }
     log(`the launcher stopped (exit code ${code ?? "none"}, signal ${signal ?? "none"})`);
-    clearInterval(timer);
-    devCode?.stop();
-    await archive?.close();
-    const finished = await settleWithin((running ?? Promise.resolve()).then(() => save({ final: true })), FINAL_SAVE_MS);
-    if (finished === "late") log(`the last save did not finish within ${FINAL_SAVE_MS / 1000} seconds; stopping anyway`);
-    process.exit(code ?? (signal ? 1 : 0));
+    await shutdown(code, signal);
   };
   const start = () => {
     startedAt = Date.now();
@@ -180,6 +190,7 @@ async function main() {
     child.on("exit", stopped);
   };
   const reload = async (next) => {
+    if (stopping) return;
     if (archive && !await archiveCompatible(next.launcher)) {
       log("the pushed server predates log restoration; keeping the current server");
       return;
@@ -191,8 +202,12 @@ async function main() {
     const late = setTimeout(() => { if (previous.exitCode === null) previous.kill("SIGKILL"); }, STOP_CHILD_MS);
     await exited;
     clearTimeout(late);
-    if (!reloading) return;
+    if (!reloading || stopping) return;
     await (running ?? Promise.resolve()).then(() => save());
+    if (stopping) {
+      await shutdown(0, null);
+      return;
+    }
     launcher = next.launcher;
     reloading = false;
     log(`running pushed server code ${next.hash.slice(0, 12)}${next.label ? ` (${next.label})` : ""}`);
