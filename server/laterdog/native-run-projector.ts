@@ -7,6 +7,8 @@ import { NativeRunStore } from "./native-run-store.ts";
 
 const terminal = (state: NativeActorState): boolean => state === "done" || state === "failed" || state === "stopped";
 const active = (state: NativeActorState): boolean => state === "running" || state === "waiting";
+const counted = (actor: NativeActor): boolean => actor.kind !== "parent" && !actor.ambient && active(actor.state);
+const outlivesTurn = (actor: NativeActor): boolean => actor.kind !== "parent" && !actor.ambient && actor.background === true && actor.state === "running";
 const textLimit = 24_000;
 const clip = (value: string | undefined, limit = textLimit): string | undefined => value?.slice(0, limit);
 const publicLink = (value: string): boolean => {
@@ -151,12 +153,20 @@ export class NativeRunProjector {
   }
 
   running(threadId: string, event?: RuntimeEvent): boolean {
-    const runs = event ? [this.forEvent(event)] : this.store.live(threadId);
-    return runs.some(run => run?.observation === "live" && run.actors.some(actor => actor.kind !== "parent" && !actor.ambient && active(actor.state)));
+    if (!event) return this.runningCount(threadId) > 0;
+    const run = this.forEvent(event);
+    return run?.observation === "live" && run.actors.some(counted);
   }
 
   runningCount(threadId: string): number {
-    return this.store.live(threadId).reduce((total, run) => total + (run.observation === "live" ? run.actors.filter(actor => actor.kind !== "parent" && !actor.ambient && active(actor.state)).length : 0), 0);
+    const live = this.store.live(threadId);
+    return live.reduce((total, run) => total + run.actors.filter(counted).length, 0) + this.outliving(this.current(threadId), live).length;
+  }
+
+  private outliving(newest: NativeRun | undefined, live: readonly NativeRun[]): NativeActor[] {
+    if (newest?.observation !== "partial") return [];
+    const known = new Set(live.flatMap(run => run.actors.map(actor => actor.id)));
+    return newest.actors.filter(actor => outlivesTurn(actor) && !known.has(actor.id));
   }
 
   current(threadId: string): NativeRun | undefined {
@@ -180,9 +190,11 @@ export class NativeRunProjector {
     for (const [threadId, id] of this.latest) {
       if (!visible(threadId)) continue;
       const current = this.store.get(id);
-      const runs = this.store.live(threadId);
-      if (current && current.observation !== "live" && current.endedAt && Date.now() - current.endedAt <= 10_000) runs.push(current);
-      helpers[threadId] = runs.flatMap(run => run.actors.filter(actor => actor.kind === "subagent" || actor.kind === "workflow").map(actor => ({
+      const live = this.store.live(threadId);
+      const shown = live.map(run => ({ run, actors: run.actors }));
+      if (current && current.observation !== "live" && current.endedAt && Date.now() - current.endedAt <= 10_000) shown.push({ run: current, actors: current.actors });
+      else if (current) shown.push({ run: current, actors: this.outliving(current, live) });
+      helpers[threadId] = shown.flatMap(({ run, actors }) => actors.filter(actor => actor.kind === "subagent" || actor.kind === "workflow").map(actor => ({
         id: `${run.id}:${actor.id}`, kind: actor.kind === "workflow" ? "workflow" : "agent", label: actor.label, state: actor.state === "paused" ? "stopped" : actor.state === "waiting" ? "running" : actor.state,
         background: actor.background ?? false, startedAt: actor.startedAt, endedAt: actor.endedAt, activity: actor.activity, summary: actor.summary,
       })));

@@ -31,12 +31,16 @@ async function setUp(fixture: Awaited<ReturnType<typeof launchVerificationServer
   const lead = (await cli("new-bot", "--name", "Lena", "--section", "Operations")).bot;
   const ask = { includes: "Have Lena check the report", reply: "Asked Lena.",
     steps: [{ tool: "coordinate_bots", arguments: { bot_ids: [lead.id], request_key: "check-report", message: "Check the fixture report and say what you found." } }] };
+  const tell = { includes: "Tell Lena to ship the report", reply: "Told Lena; no reply needed.",
+    steps: [{ tool: "coordinate_bots", arguments: { bot_ids: [lead.id], request_key: "ship-report", message: "Ship the fixture report. No need to reply.", reply: "none" } }] };
   writeFileSync(planPath, JSON.stringify({
     [lead.id]: { reply: "LENA_RESULT_BACK", gateFile: gate("lena") },
     [chief.id]: { when: [
       { includes: SETTLED_LINE, reply: "Lena's check came back." },
       { includes: "Meanwhile, tidy the notes", reply: "Tidied.", gateFile: gate("meanwhile") },
+      { includes: "Anything else for today", reply: "Nothing else.", gateFile: gate("again") },
       ask,
+      tell,
     ] },
   }));
   const turns = (): any[] => existsSync(`${planPath}.evidence.jsonl`)
@@ -45,14 +49,19 @@ async function setUp(fixture: Awaited<ReturnType<typeof launchVerificationServer
     .tasks.find((stored: any) => stored.threadId === threadId);
   const messages = async (threadId: string) => (await api("GET", `/api/threads/${threadId}/messages?limit=100`)).messages as any[];
   const wait = async (threadId: string, seconds: number) => (await cli("wait", "--bot", chief.id, "--task", threadId, "--timeout", String(seconds))).status as string;
-  const asked = async (threadId: string) => {
-    await cli("send", "--bot", chief.id, "--task", threadId, "--text", "Have Lena check the report.");
+  const waitsOnLena = async (threadId: string, text: string) => {
+    await cli("send", "--bot", chief.id, "--task", threadId, "--text", text);
     await expect.poll(async () => {
       const now = await task(threadId);
       return Boolean(now && !now.busy && now.waitingForTeammates && now.work?.kind === "waiting-on-dog");
     }, { timeout: 25_000 }).toBe(true);
   };
-  return { api, cli, chief, lead, gate, turns, task, messages, wait, asked, open: (name: string) => writeFileSync(gate(name), "go") };
+  const lenaWork = async () => (await api("GET", "/api/bots")).bots.find((bot: any) => bot.id === lead.id)?.work?.kind;
+  const said = async (threadId: string, line: string) => (await messages(threadId)).some((message) => message.tool?.name?.includes(line));
+  return { api, cli, chief, lead, gate, turns, task, messages, wait, lenaWork, said,
+    asked: (threadId: string) => waitsOnLena(threadId, "Have Lena check the report."),
+    told: (threadId: string) => waitsOnLena(threadId, "Tell Lena to ship the report."),
+    open: (name: string) => writeFileSync(gate(name), "go") };
 }
 
 it("does not call a dog settled while its teammate's result is back but not yet handed to it", () => twoDogs(async (f) => {
@@ -83,8 +92,7 @@ it("does not call a dog settled while its teammate's result is back but not yet 
 it("settles a dog the person stopped while its teammate still works, and does not show it waiting on that teammate", () => twoDogs(async (f) => {
   const first = f.chief.activeTaskId;
   await f.asked(first);
-  const lenaWork = async () => (await f.api("GET", "/api/bots")).bots.find((bot: any) => bot.id === f.lead.id)?.work?.kind;
-  await expect.poll(lenaWork, { timeout: 15_000 }).toBe("running");
+  await expect.poll(f.lenaWork, { timeout: 15_000 }).toBe("running");
 
   await f.api("POST", `/api/bots/${f.chief.id}/interrupt`, { threadId: first });
   expect(await f.wait(first, 15)).toBe("settled");
@@ -92,8 +100,56 @@ it("settles a dog the person stopped while its teammate still works, and does no
   expect(stopped.waitingForTeammates).toBe(false);
   expect(stopped).not.toHaveProperty("waitingOn");
   expect(stopped.work?.kind).not.toBe("waiting-on-dog");
-  expect(await lenaWork()).toBe("running");
+  expect(await f.lenaWork()).toBe("running");
 
   f.open("lena");
   await expect.poll(async () => (await f.api("GET", "/api/bots")).bots.find((bot: any) => bot.id === f.lead.id)?.busy, { timeout: 20_000 }).toBe(false);
+}), 120_000);
+
+it("shows a dog waiting on work it sent with no reply wanted, starts the person's next message at once without ending that work, and clears when it ends", () => twoDogs(async (f) => {
+  await f.api("PATCH", `/api/bots/${f.chief.id}`, { parkDirectMessages: true });
+  const first = f.chief.activeTaskId;
+  await f.told(first);
+  const waiting = await f.task(first);
+  expect(waiting.work).toEqual({ kind: "waiting-on-dog", dogs: [{ id: f.lead.id, name: "Lena" }] });
+  expect(waiting.waitingOn).toEqual([expect.objectContaining({ botId: f.lead.id, name: "Lena" })]);
+  await expect.poll(async () => (await f.task(first))?.waitingOn, { timeout: 15_000 })
+    .toEqual([expect.objectContaining({ botId: f.lead.id, name: "Lena", state: "running" })]);
+  expect(await f.lenaWork()).toBe("running");
+
+  await f.cli("send", "--bot", f.chief.id, "--task", first, "--text", "Anything else for today?");
+  await expect.poll(async () => (await f.task(first))?.busy, { timeout: 10_000 }).toBe(true);
+  expect(await f.lenaWork()).toBe("running");
+  f.open("again");
+  await expect.poll(async () => {
+    const now = await f.task(first);
+    return Boolean(now && !now.busy && now.work?.kind === "waiting-on-dog");
+  }, { timeout: 20_000 }).toBe(true);
+  expect(await f.said(first, "Lena done")).toBe(false);
+
+  f.open("lena");
+  await expect.poll(() => f.said(first, "Lena done"), { timeout: 20_000 }).toBe(true);
+  await expect.poll(async () => (await f.task(first))?.work?.kind, { timeout: 10_000 }).toBe("idle");
+  expect(await f.task(first)).toMatchObject({ busy: false, waitingForTeammates: false });
+  expect(await f.wait(first, 10)).toBe("settled");
+  const chiefTurns = f.turns().filter((turn) => turn.botId === f.chief.id && turn.threadId === first);
+  expect(chiefTurns).toHaveLength(2);
+  expect(chiefTurns.some((turn) => turn.resumed)).toBe(false);
+}), 120_000);
+
+it("lets the person stop a dog waiting on work it sent with no reply wanted, leaving that work running and saying so", () => twoDogs(async (f) => {
+  const first = f.chief.activeTaskId;
+  await f.told(first);
+  await expect.poll(f.lenaWork, { timeout: 15_000 }).toBe("running");
+  await f.api("POST", `/api/bots/${f.chief.id}/interrupt`, { threadId: first });
+  await expect.poll(async () => (await f.task(first))?.waitingForTeammates, { timeout: 15_000 }).toBe(false);
+  const stopped = await f.task(first);
+  expect(stopped).not.toHaveProperty("waitingOn");
+  expect(stopped.work?.kind).not.toBe("waiting-on-dog");
+  expect(await f.lenaWork()).toBe("running");
+  expect(await f.said(first, "Lena is still working")).toBe(true);
+
+  f.open("lena");
+  await expect.poll(() => f.said(first, "Lena done"), { timeout: 20_000 }).toBe(true);
+  expect((await f.task(first)).waitingForTeammates).toBe(false);
 }), 120_000);
