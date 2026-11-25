@@ -8,6 +8,8 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { launchVerificationServer, type VerificationServer } from "./control-laterdog.ts";
 import { fixtureApi } from "./testing/preview-fixture.ts";
+import { compare, table, type Budget } from "./desktop-perf-budget.ts";
+import { calibrate, partsNeeded, readMeasures, type PerfResult } from "./desktop-perf-measures.ts";
 
 const WELCOME_VERSION = 2;
 const WINDOW_ROWS = 120;
@@ -265,7 +267,7 @@ const PAGE_PROBE = `(() => {
   const nativeFetch = window.fetch.bind(window);
   window.fetch = (input, init) => nativeFetch(input, init).then((response) => {
     let path = "(request)";
-    try { path = new URL(typeof input === "string" ? input : input.url, location.href).pathname.replace(/[0-9a-f]{8,}/g, ":id"); } catch {}
+    try { path = new URL(typeof input === "string" ? input : input.url, location.href).pathname.replace(/[0-9a-f]{8,}(?:-[0-9a-f]+)*/g, ":id"); } catch {}
     trigger("requestAnswered", path);
     return response;
   });
@@ -2043,6 +2045,35 @@ function redraws(activity: Activity & { top?: string[] }) {
   return { commits: activity.commits, rendered: activity.rendered, ...(activity.causes ? { causeTotals: causeTotals(activity.causes), causes: activity.causes } : {}), ...(activity.top ? { top: activity.top } : {}) };
 }
 
+const DEFAULT_BUDGET = "scripts/desktop-perf.budget.json";
+
+function budgetRequest() {
+  const index = process.argv.indexOf("--budget");
+  if (index === -1) return null;
+  const next = process.argv[index + 1];
+  const file = resolve(ROOT, next && !next.startsWith("--") ? next : DEFAULT_BUDGET);
+  const budget = JSON.parse(readFileSync(file, "utf8")) as Budget;
+  const quick = process.argv.includes("--budget-quick");
+  const wanted = partsNeeded(budget.lines.flatMap((line) => (line.reference ? [line.measure, line.reference] : [line.measure])));
+  const parts = quick ? new Set([...wanted].filter((part) => part === "counted" || part === "landing")) : wanted;
+  const runnable = (name: string) => [...partsNeeded([name])].every((part) => part === "calibration" || parts.has(part));
+  const lines = quick ? budget.lines.filter((line) => runnable(line.measure) && (!line.reference || runnable(line.reference))) : budget.lines;
+  return { file, budget: { lines }, skipped: budget.lines.filter((line) => !lines.includes(line)), parts };
+}
+
+function checkBudget(request: NonNullable<ReturnType<typeof budgetRequest>>, result: PerfResult): string {
+  const measures = readMeasures(result);
+  const referenceFile = process.argv.includes("--reference") ? resolve(option("reference")) : null;
+  if (referenceFile) {
+    const reference = readMeasures(JSON.parse(readFileSync(referenceFile, "utf8")) as PerfResult);
+    for (const line of request.budget.lines) if (line.reference && reference[line.reference] !== undefined) measures[line.reference] = reference[line.reference];
+  }
+  const comparison = compare(request.budget, measures);
+  process.exitCode = comparison.ok ? 0 : 1;
+  const skipped = request.skipped.length > 0 ? `\nNot run in --budget-quick (${request.skipped.length}): ${request.skipped.map((line) => line.measure).join(", ")}` : "";
+  return `${table(comparison)}${skipped}\nbudget file: ${request.file}`;
+}
+
 async function main() {
   const setup = options();
   const staticDir = resolve(option("dist", join(ROOT, "dist")));
@@ -2205,10 +2236,12 @@ async function main() {
       process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
       return;
     }
-    const cold = await coldLoads(browser, fixture.info.url, setup.coldRuns);
-    const timed = await pass(browser, fixture, api, dogs, setup, files, false);
-    const counted = await pass(browser, fixture, api, dogs, setup, files, true);
-    const landed = await landing(browser, fixture.info.url, api, dogs, files, Number(option("landing-reps", "3")));
+    const budgeting = budgetRequest();
+    const needs = budgeting ? budgeting.parts : new Set(["cold", "timed", "counted", "landing"]);
+    const cold = needs.has("cold") ? await coldLoads(browser, fixture.info.url, setup.coldRuns) : undefined;
+    const timed = needs.has("timed") ? await pass(browser, fixture, api, dogs, setup, files, false) : undefined;
+    const counted = needs.has("counted") ? await pass(browser, fixture, api, dogs, setup, files, true) : undefined;
+    const landed = needs.has("landing") ? await landing(browser, fixture.info.url, api, dogs, files, Number(option("landing-reps", "3"))) : undefined;
     const result = {
       label: setup.label,
       at: new Date().toISOString(),
@@ -2216,7 +2249,7 @@ async function main() {
       cold,
       timed,
       landing: landed,
-      counted: {
+      counted: counted && {
         switching: redraws(counted.switching),
         typing: redraws(counted.typing),
         scrolling: redraws(counted.scrolling),
@@ -2224,10 +2257,15 @@ async function main() {
         streamingWithSettingsOpen: redraws(counted.streamingWithSettingsOpen),
         otherDogsWorking: redraws(counted.otherDogsWorking),
       },
-      memory: timed.rssMb,
+      memory: timed?.rssMb,
+      ...(budgeting ? { calibration: { ms: calibrate() } } : {}),
     };
     mkdirSync(dirname(setup.out), { recursive: true });
     writeFileSync(setup.out, `${JSON.stringify(result, null, 2)}\n`);
+    if (budgeting) {
+      process.stdout.write(`${checkBudget(budgeting, result as PerfResult)}\n`);
+      return;
+    }
     process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
   } finally {
     await browser.close();
@@ -2236,7 +2274,7 @@ async function main() {
   }
 }
 
-main().then(() => process.exit(0), (error) => {
+main().then(() => process.exit(process.exitCode ?? 0), (error) => {
   process.stderr.write(`${error instanceof Error ? error.stack : String(error)}\n`);
   process.exit(1);
 });
