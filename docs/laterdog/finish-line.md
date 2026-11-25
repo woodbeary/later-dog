@@ -27,23 +27,46 @@ Decisions that hold for every package:
 
 | Track | What it does | State |
 | --- | --- | --- |
-| A Measure first | A current desktop baseline with landing, layout-shift and redraw-cause measures; a budget mode; a launch timeline; phone renders by name, UI-thread frames, cold-start marks and a bundle budget | A1, A3 and A4 started November 25; A2 follows A1 |
-| B The wait and the landing | The desktop stops receiving reply text it never shows, a work update redraws only its work row, and network frames commit once per display frame. The phone drops in-progress reply text, steadies its list rows and moves screens to selectors | not started |
+| A Measure first | A current desktop baseline with landing, layout-shift and redraw-cause measures; a budget mode; a launch timeline; phone renders by name, UI-thread frames, cold-start marks and a bundle budget | A1, A3 and A4 are draft pull requests with their first numbers; A2 in progress on A1's branch |
+| B The wait and the landing | The desktop stops receiving reply text it never shows, a work update redraws only its work row, and network frames commit once per display frame. The phone drops in-progress reply text, steadies its list rows and moves screens to selectors | B6 (phone, finished replies only) in progress on A4's branch |
 | C Open, switch, launch | The desktop launch chain, one splash instead of two, later loading of heavy panels; chat open on both apps | not started |
 | D Typing, scrolling, keyboard | The message box apart from store churn, idle timers and animation, the phone's keyboard and composer motion | not started |
-| E One of each | One working surface per turn, a landing that moves nothing, and on the phone one sheet system, one message menu and one transcript | not started |
+| E One of each | One working surface per turn, a landing that moves nothing, and on the phone one sheet system, one message menu and one transcript | the design for the wait and the landing has started |
 | F Weight | Footprint on the Mac, the Mac measurements owed by rust-seams.md, dev-only code out of the phone's release bundle | waits for the Mac |
-| G Hosted checks | An audit of past runs, test files in parallel, the gate split into jobs with one verdict, selection proven by a hidden change | G1 started November 25 |
+| G Hosted checks | An audit of past runs, test files in parallel, the gate split into jobs with one verdict, selection proven by a hidden change | G1 is a draft pull request; G3 (port leases) in progress |
 | H What dogs are told and can do | Stop everything in one call, steer a running helper, quieter routine runs and rooms, connector status, exact draft sends, faster browser work | not started |
 
 In flight:
 
 | Package | Branch | State |
 | --- | --- | --- |
-| A1 Desktop baseline and new measures | `refine/a1-desktop-baseline` | started November 25 |
-| A3 Desktop launch timeline | `refine/a3-launch-timeline` | started November 25 |
-| A4 Phone performance log, Run Check and bundle budget | later-dog-phone `refine/a4-phone-perf-log` | started November 25 |
-| G1 Audit of the last 150 hosted check runs | `refine/g1-hosted-checks-audit` | started November 25 |
+| A1 Desktop baseline and new measures | `refine/a1-desktop-baseline` | draft pull request 258 |
+| A2 Budget mode for the desktop performance script | `refine/a2-desktop-budget`, on A1 | in progress |
+| A3 Desktop launch timeline | `refine/a3-launch-timeline` | draft pull request 257 |
+| A4 Phone performance log, Run Check and bundle budget | later-dog-phone `refine/a4-phone-perf-log` | draft pull request 264 there |
+| B6 Phone shows finished replies only | later-dog-phone `refine/b6-finished-replies`, on A4 | in progress |
+| E1 and E2 The wait and the landing, design | `refine/e1-wait-and-landing` | started, waiting for a slot |
+| G1 Audit of the last 150 hosted check runs | `refine/g1-hosted-checks-audit` | draft pull request 256 |
+| G3 Port leases so test files can run in parallel | `refine/g3-port-leases` | in progress |
+
+First numbers, each from its package's own record and none from the Mac app or an iPhone:
+
+- Hosted checks before they were removed (G1, 150 runs, all on Linux): waiting 3 s at the median and 6 s at
+  p95, setup 18 s and 26 s, running 169 s and 965 s. Running was 94.8% of all job time and a whole run took
+  16.6 minutes at the median, because test files ran one at a time; five files are 29% of the per-file time.
+- Desktop launch (A3, Linux, virtual display, unpackaged, 12 launches each): 1,830 ms from spawn to a usable
+  message box on a first launch and 829 ms on a repeat launch. About 1,060 ms of the first launch is the
+  second splash's hold and fade. The window is not created until the whole startup chain has finished.
+- Desktop while a dog works (A1, fixture, headless Chrome, three runs): 26 commits and 5,018 components
+  redrawn per working turn, about 4,750 of them in ten commits no named cause explains yet. With Settings open,
+  22 of 22 frames in the working turn take over 25 ms. A finished reply lands with no task over 50 ms, but
+  moves the rows of a person reading older messages by 48 px for at least one frame.
+- Phone (A4): the check now reports renders by name, UI-thread frames, a frame budget from the real refresh
+  rate, start marks and a verdict; the bundle is 8,056,387 bytes against a budget of 8,096,768. Nothing in it
+  has run on an iPhone, and the home accepts the new report shape only after a small server change.
+
+The account's usage limit stopped A2, B6, G3 and the design package part-way on November 25; they resumed the
+same day.
 
 Targets, enforced as budgets once A2 lands (counts as they are, timings as a ratio to a baseline on the same
 machine): a work update redraws only its work row; no task over 50 ms while a dog works or when a reply lands;
