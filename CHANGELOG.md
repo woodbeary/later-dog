@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.3.49 — 2026-11-25
+
+- **Long pasted text becomes an editable file attachment** in the desktop composer, keeping the message box compact.
+- **Chat controls fit narrow windows and enlarged text.** Menus stay within the window, and End moves the conversation without taking the cursor out of your message.
+- **The chat appears as soon as it is ready**, without an extra wait behind the opening screen.
+- **Full access follows your saved choice** for new dogs and idle chats. Helpers keep the right conversation folder and the access of the conversation they came from.
+- **Work resumes more reliably after a home restart.** Editing a message can reuse its earlier conversation, with recovery when the engine cannot fork it.
+- **Quiet cloud conversation folders can move into storage and return when needed.** Backups refuse incomplete stored folders instead of silently omitting their contents.
+
 ## 0.3.48 — 2026-11-13
 
 - **Every dog keeps a plan you can see.** It writes down what you asked for, including what you want later, ticks items off as it works and answers "checkpoint?" from it. The plan shows as a checklist under the working line and survives a restart.

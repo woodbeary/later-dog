@@ -61,6 +61,7 @@ Use only mapped, tested commands:
 - [Enlarged composer controls](desktop-composer-bounds-2026-11-25.md)
 - [Editable pasted text files](desktop-pasted-text-2026-11-25.md)
 - [Helper folders and guest provenance](helper-folders-2026-11-25.md)
+- [Stored conversation folders and recovery](stored-work-folders-2026-11-25.md)
 - [Full Access without duplicate approvals](full-access.md)
 - [Exact command allowlist UI and saved rules](command-allowlist.md)
 - [Peer approval denial, expiry, and cancellation](peer-approvals.md)
