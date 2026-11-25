@@ -4,6 +4,53 @@
 
 Started 2026-10-13. This file is the single place that says what is in progress, what is done, and how to pick up any piece of it. Every gate updates it in the same commit as the work.
 
+## Refinement program, November 25
+
+One pass over the desktop and the phone for speed, weight and fewer surfaces that say the same thing. Each
+package is one small draft pull request with its numbers taken by the same script on the same machine before and
+after. Nothing merges without the gate's verdict and the owner's yes; no package deploys, releases or publishes.
+One session keeps this section, so packages do not edit it and their numbers go in the pull request and in the
+track's own file under `docs/verification/`.
+
+Decisions that hold for every package:
+
+- A reply arrives finished on both apps. The desktop already waits for the whole reply
+  ([chat-ui.md](../verification/chat-ui.md), "In-flight reply text"); the phone stops showing a reply while it is
+  being written.
+- No Rust component and no new shell unless a step still misses its budget after tracks B to D and a JavaScript
+  fix cannot close it, the same bar as [rust-seams.md](../verification/rust-seams.md). That file's Mac
+  measurements are still owed and are part of track F.
+- Hosted checks return on GitHub's standard runners for this public repository. Signing, notarizing, releases
+  and device checks stay on the owner's Mac. Until the hosted gate exists, `pnpm gate` on the Mac is the rule.
+- pnpm stays. No formatter yet. Typecheck moves to TypeScript 7 only after its diagnostics are compared side by
+  side with today's.
+
+| Track | What it does | State |
+| --- | --- | --- |
+| A Measure first | A current desktop baseline with landing, layout-shift and redraw-cause measures; a budget mode; a launch timeline; phone renders by name, UI-thread frames, cold-start marks and a bundle budget | A1, A3 and A4 started November 25; A2 follows A1 |
+| B The wait and the landing | The desktop stops receiving reply text it never shows, a work update redraws only its work row, and network frames commit once per display frame. The phone drops in-progress reply text, steadies its list rows and moves screens to selectors | not started |
+| C Open, switch, launch | The desktop launch chain, one splash instead of two, later loading of heavy panels; chat open on both apps | not started |
+| D Typing, scrolling, keyboard | The message box apart from store churn, idle timers and animation, the phone's keyboard and composer motion | not started |
+| E One of each | One working surface per turn, a landing that moves nothing, and on the phone one sheet system, one message menu and one transcript | not started |
+| F Weight | Footprint on the Mac, the Mac measurements owed by rust-seams.md, dev-only code out of the phone's release bundle | waits for the Mac |
+| G Hosted checks | An audit of past runs, test files in parallel, the gate split into jobs with one verdict, selection proven by a hidden change | G1 started November 25 |
+| H What dogs are told and can do | Stop everything in one call, steer a running helper, quieter routine runs and rooms, connector status, exact draft sends, faster browser work | not started |
+
+In flight:
+
+| Package | Branch | State |
+| --- | --- | --- |
+| A1 Desktop baseline and new measures | `refine/a1-desktop-baseline` | started November 25 |
+| A3 Desktop launch timeline | `refine/a3-launch-timeline` | started November 25 |
+| A4 Phone performance log, Run Check and bundle budget | later-dog-phone `refine/a4-phone-perf-log` | started November 25 |
+| G1 Audit of the last 150 hosted check runs | `refine/g1-hosted-checks-audit` | started November 25 |
+
+Targets, enforced as budgets once A2 lands (counts as they are, timings as a ratio to a baseline on the same
+machine): a work update redraws only its work row; no task over 50 ms while a dog works or when a reply lands;
+nothing above a landing reply moves; no deliberate hold on a splash; on the phone, under 5 renders per chat
+switch and no stall over 200 ms, the targets stated on November 10
+([phone-chat-performance-2026-11-10.md](../verification/phone-chat-performance-2026-11-10.md)).
+
 ## Real account limit, November 14
 
 Draft pull request 199, branch `atelier/real-account-limit`, item 30, server half. One model reaching
