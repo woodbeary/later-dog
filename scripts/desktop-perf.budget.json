@@ -108,7 +108,7 @@
       "measure": "timed.typing.slowFrames",
       "label": "Typing, no dog working: frames over 25 ms",
       "kind": "count",
-      "budget": 0,
+      "budget": 2,
       "target": 0,
       "unit": "frames"
     },

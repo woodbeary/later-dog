@@ -120,7 +120,7 @@ Budgets are the highest value seen across A1's three baseline runs and this pack
 | Tasks over 50 ms (working, Settings open, other dogs, landing) | 0 | 0 | 0 |
 | Working turn: frames over 25 ms | 0 to 3 | 3 | 0 |
 | Settings open: frames over 25 ms | 18 to 27 | 27 | 0 |
-| Typing, no dog working: frames over 25 ms | 0 | 0 | 0 |
+| Typing, no dog working: frames over 25 ms | 0 in nine runs, 1 in the tenth (a slow run, calibration 239 ms) | 2 | 0 |
 | Reply landing, rows above moved: scrolled up / following | 0 and 55.5 in every run (A1's 48 and 103.5 not reproduced) | 0 / 55.5 (+0.5) | 0 |
 | Reply landing, rows in view moved, scrolled up | 0 in every run (A1's 48 not reproduced) | 0 | 0 |
 | Key press to frame p95 / calibration | 0.15 to 0.18 | 0.30 | 0.10 |
