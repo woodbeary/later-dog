@@ -18,15 +18,15 @@ describe("the working line under the last message", () => {
     const live = run();
     const line = workLine({ working: true, run: live, sideJobs: 0, now: 2_000 });
     const step = liveStep(live)!;
-    expect(line).toEqual({ kind: "step", stepId: "act-7", phrase: stepPhrase(step.kind, step.id), age: null, sideJobs: null });
+    expect(line).toEqual({ kind: "step", stepId: "act-7", phrase: stepPhrase(step.kind, live.id), age: null, sideJobs: null });
   });
 
-  it("keeps its phrase while the step id stays and changes it only with the step", () => {
+  it("keeps one phrase per kind for the turn while step ids change", () => {
     const first = workLine({ working: true, run: run(), sideJobs: 0, now: 2_000 });
     const later = workLine({ working: true, run: run({ lastActivityAt: 50_000 }), sideJobs: 0, now: 55_000 });
     expect(later?.kind === "step" && later.phrase).toBe(first?.kind === "step" && first.phrase);
     const next = workLine({ working: true, run: run({ currentActivity: { id: "act-8", actorId: "parent", kind: "tool", label: "Read", state: "running", startedAt: 60_000 } }), sideJobs: 0, now: 61_000 });
-    expect(next).toMatchObject({ stepId: "act-8", phrase: stepPhrase("reading", "act-8") });
+    expect(next).toMatchObject({ stepId: "act-8", phrase: stepPhrase("reading", "run-1") });
   });
 
   it("adds the age only after a minute on the same step", () => {

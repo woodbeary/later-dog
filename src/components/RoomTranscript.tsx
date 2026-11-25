@@ -18,8 +18,11 @@ import { plainThreadLinks } from "@/lib/thread-refs";
 import { freshenDogName } from "@/lib/dog-refs";
 import { singleExchange } from "@/lib/quiet-lines";
 import { ExchangeLine, PlainNoteLine, QuietLine } from "./QuietLines";
-import { NativeWork, NativeWorkFallbacks, NativeHistoryNotice } from "./NativeWork";
-import { nativeReceiptAnchors, useNativeRuns } from "@/lib/native-runs-state";
+import { NativeHistoryNotice, NativeWorkFallbacks } from "./NativeWork";
+import { FoldLine } from "./FoldLine";
+import { turnFolds } from "@/lib/fold-line";
+import { useArrivals } from "@/lib/arrivals";
+import { useNativeRuns } from "@/lib/native-runs-state";
 import { showToolCallsEnabled } from "@/lib/feature-flags";
 import { isUnread, useUnreadBoundary } from "@/lib/unread-boundary";
 import { UnreadDivider } from "./UnreadDivider";
@@ -52,8 +55,6 @@ import { QuestionCard } from "./QuestionCard";
 import { groupActivityRuns, isStatusActivity } from "@/lib/activity-runs";
 import { ActivityRun } from "./ActivityRun";
 import { cn } from "@/lib/cn";
-import { OPTIMISTIC_PREFIX } from "@/lib/dog-status";
-import { SendingTrack } from "./SendingTrack";
 import { splitTranscriptAttachments } from "@/lib/composer-attachments";
 import { splitTranscriptCitations, type CitationAttachment } from "@/lib/citations";
 import { highlightCitationSource } from "@/lib/citations-dom";
@@ -166,7 +167,6 @@ interface TranscriptProps {
   messages: Message[];
   filledWindow?: Message[];
   transcript: Message[];
-  emergingId?: string | null;
   onReply: (message: Message) => void;
   readOnly?: boolean;
 }
@@ -184,7 +184,6 @@ export const TranscriptRows = memo(function TranscriptRows({
   messages,
   filledWindow = messages,
   transcript,
-  emergingId,
   onReply,
   readOnly = false,
   unreadSince,
@@ -195,7 +194,8 @@ export const TranscriptRows = memo(function TranscriptRows({
   const showToolCalls = useStoreSelector((state) => showToolCallsEnabled(state.config));
   const focus = useStoreSelector((state) => (state.focusMessage?.threadId === group.threadId ? state.focusMessage : null));
   const nativeRuns = useNativeRuns(group.threadId, filledWindow[0]?.at);
-  const receipts = useMemo(() => nativeReceiptAnchors(nativeRuns, messages), [nativeRuns, messages]);
+  const folds = useMemo(() => turnFolds(transcript, nativeRuns), [transcript, nativeRuns]);
+  const arriving = useArrivals(roomThreadKey(group), messages);
   const memberOf = (id?: string) => members.find((b) => b.id === id);
   const items = useMemo(() => groupActivityRuns(messages.filter(message =>
     message.kind !== "activity" || roomActivityVisible(message, showToolCalls))), [messages, showToolCalls]);
@@ -305,7 +305,6 @@ export const TranscriptRows = memo(function TranscriptRows({
                   data-chat-bubble
                   className={cn(
                     "relative w-fit max-w-[min(42rem,78%)] rounded-bubble text-[14px] leading-[21px]",
-                    !user && m.id === emergingId && "turn-answer",
                     (user ? sentOnly : !m.text?.trim() && !m.replyToId && m.attachments?.length)
                       ? "text-ink"
                       : user ? "chat-text whitespace-pre-wrap bg-bubble-user px-3 py-[7px] text-ink" : "bg-card px-3 py-[7px] text-ink",
@@ -374,13 +373,12 @@ export const TranscriptRows = memo(function TranscriptRows({
                   {formatTime(m.at)}
                 </span>
               </div>
-              {user && m.id.startsWith(OPTIMISTIC_PREFIX) && <SendingTrack at={m.at} held={m.held} />}
             </div>
           ) : null;
         if (!row) return null;
         return (
           <Fragment key={m.id}>
-            <div className="contents" data-mid={m.id}>
+            <div className="contents" data-mid={m.id} data-arriving={arriving(m.id) ? "" : undefined}>
               {newDay && (
                 <div className="py-3 text-center text-[13px] text-ink-secondary">
                   {dayLabel(m.at)} {formatTime(m.at)}
@@ -390,9 +388,9 @@ export const TranscriptRows = memo(function TranscriptRows({
               {!user && m.from && newCluster && !(m.kind === "activity" && m.comm) && (
                 <ClusterLabel bot={memberOf(m.from.botId)} name={memberOf(m.from.botId)?.name ?? m.from.name} color={memberOf(m.from.botId)?.color ?? m.from.color} tinted={readOnly} />
               )}
+              {folds.has(m.id) && <FoldLine threadId={group.threadId} runId={folds.get(m.id)!.runId} sentence={folds.get(m.id)!.sentence} />}
               {row}
             </div>
-            {receipts.get(m.id)?.map(run => <NativeWork key={run.id} run={run} color={memberOf(run.botId ?? m.from?.botId)?.color} bodyId={memberOf(run.botId ?? m.from?.botId)?.mascotBody} />)}
           </Fragment>
         );
       })}

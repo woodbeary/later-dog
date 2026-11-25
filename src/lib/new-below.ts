@@ -9,8 +9,8 @@ export function newBelowCount(rows: readonly Row[], anchorId: string | null): nu
   return rows.slice(index + 1).filter((row) => row.role !== "user").length;
 }
 
-export function useNewBelow(following: boolean, rows: readonly Row[]): number {
+export function useNewBelow(following: boolean, rows: readonly Row[], hold = false): number {
   const anchor = useRef<string | null>(null);
-  if (following || anchor.current === null) anchor.current = rows.at(-1)?.id ?? null;
+  if (following && (!hold || rows.at(-1)?.role === "user") || anchor.current === null) anchor.current = rows.at(-1)?.id ?? null;
   return following ? 0 : newBelowCount(rows, anchor.current);
 }

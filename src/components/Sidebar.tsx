@@ -94,6 +94,8 @@ import { ConnectAppsPill, SidebarFooterNav } from "./SidebarFooterNav";
 import { GlassBar, GlassScrollFrame, GlassScroller } from "./GlassScrollFrame";
 import { SidebarProfileMenu } from "./SidebarProfileMenu";
 import { SidebarSectionHeader } from "./SidebarSectionHeader";
+import { useCurrentNativeRuns } from "@/lib/native-runs-state";
+import { useTurnSlotLine } from "@/lib/turn-slot-state";
 import { dogRowFacts, type DogRowFacts, type RowDot as RowDotKind } from "@/lib/dog-row";
 import { roomRowLine } from "@/lib/work-state";
 import { botShowsUnread } from "@/lib/bot-unread";
@@ -142,7 +144,7 @@ function preview(bot: Bot, visible: Message[], instances: InstanceInfo[], showTo
   return last.role === "user" ? text : markdownPreview(text);
 }
 
-const ROW_DOT_TONE: Record<RowDotKind, string> = { working: "bg-working", waiting: "bg-waiting", unread: "bg-unread" };
+const ROW_DOT_TONE: Record<RowDotKind, string> = { waiting: "bg-waiting", unread: "bg-unread" };
 
 function RowDot({ kind, ring, className }: { kind: RowDotKind | null; ring: string; className?: string }) {
   if (!kind) return null;
@@ -150,8 +152,8 @@ function RowDot({ kind, ring, className }: { kind: RowDotKind | null; ring: stri
   return (
     <span
       data-row-dot={kind}
-      data-status={kind === "working" ? undefined : kind}
-      data-testid={kind === "working" ? undefined : `${kind}-dot`}
+      data-status={kind}
+      data-testid={`${kind}-dot`}
       role={kind === "waiting" ? "status" : words ? "img" : undefined}
       aria-label={words ?? undefined}
       aria-hidden={words ? undefined : true}
@@ -260,6 +262,17 @@ export function GroupListItem({
     .map((id) => dogs.find((b) => b.id === id))
     .filter((b): b is Bot => Boolean(b));
   const last = group.messages.at(-1);
+  const runs = useCurrentNativeRuns(group.threadId);
+  const run = runs.find(candidate => candidate.observation === "live" && !candidate.endedAt);
+  const { line: workLine } = useTurnSlotLine({
+    working: Boolean(group.working || group.busyBotId || group.work?.kind === "running"),
+    busy: Boolean(group.working || group.busyBotId),
+    name: members.find(member => member.id === group.busyBotId)?.name ?? group.name,
+    turnKey: `${group.threadId}:${group.turnStartedAt ?? run?.id ?? "live"}`,
+    since: group.turnStartedAt ?? run?.startedAt,
+    run,
+    work: group.work,
+  });
   return (
     <button
       data-sidebar-group-row={group.id}
@@ -299,7 +312,7 @@ export function GroupListItem({
           {selected && last && <span className="shrink-0 text-[10px] text-ink-secondary">{formatTime(last.at)}</span>}
         </div>
         <div className="flex items-center justify-between gap-2">
-          <span className="truncate text-[11px] text-ink-secondary">{groupPreview(group, dogs, instances, showToolCalls)}</span>
+          <span className="truncate text-[11px] text-ink-secondary">{workLine?.words ?? groupPreview(group, dogs, instances, showToolCalls)}</span>
           <StatusDot kind={group.unread ? "unread" : null} />
         </div>
       </div>
@@ -811,6 +824,24 @@ export function botRowProps(
   };
 }
 
+function useRowFacts(bot: Bot, pendingQueued: AppState["pendingQueued"]): DogRowFacts {
+  const current = currentTaskBot(bot);
+  const runs = useCurrentNativeRuns(current.threadId);
+  const run = runs.find(candidate => candidate.botId === bot.id && candidate.observation === "live" && !candidate.endedAt);
+  const facts = dogRowFacts(bot, pendingQueued, run);
+  const { line } = useTurnSlotLine({
+    working: facts.working,
+    busy: Boolean(current.busy),
+    name: bot.name,
+    turnKey: `${current.threadId}:${current.turnStartedAt ?? run?.id ?? "live"}`,
+    since: current.turnStartedAt ?? run?.startedAt,
+    run,
+    step: (current as Bot & { step?: import("../../shared/step-words").LiveStep | null }).step,
+    work: current.work,
+  });
+  return line ? { ...facts, step: line.words, work: line.words } : facts;
+}
+
 function useVisibleMessages(bot: Bot): Message[] {
   const { messages, activeLeafId } = bot;
   return useMemo(() => visibleMessages({ messages, activeLeafId }), [messages, activeLeafId]);
@@ -818,7 +849,7 @@ function useVisibleMessages(bot: Bot): Message[] {
 
 export const PinnedBotCircle = memo(function PinnedBotCircle({ bot, selected, mascotMotion, pendingQueued, dispatch, onMenu, onPinDrop }: BotRowProps & { onPinDrop?: (draggedId: string, targetId: string) => void }) {
   const visible = useVisibleMessages(bot);
-  const facts = dogRowFacts(bot, pendingQueued);
+  const facts = useRowFacts(bot, pendingQueued);
   const { working, unread } = facts;
   const line = rowLine(bot, facts, visible, [], false);
   const radius = avatarCropRadius(botAvatarProfile(bot).avatarCrop);
@@ -942,7 +973,7 @@ export const BotListItem = memo(function BotListItem(props: BotRowProps) {
       : "min-h-[52px] gap-3 px-2.5 py-2",
     selected ? "bg-card" : "hover:bg-card",
   );
-  const facts = dogRowFacts(bot, pendingQueued);
+  const facts = useRowFacts(bot, pendingQueued);
   const { working, unread } = facts;
   const line = rowLine(bot, facts, visible, instances, showToolCalls);
   const ring = selected ? "border-card" : "border-panel";

@@ -5,10 +5,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { NativeRun, NativeRunDetail } from "../../shared/native-runs";
 
 vi.mock("@/state/store", () => ({ api: vi.fn() }));
+vi.mock("@/lib/work-panel", () => ({ openWorkPanel: vi.fn() }));
+const { openWorkPanel } = await import("@/lib/work-panel");
 const puppiesDrawn = vi.hoisted(() => ({ count: 0 }));
 vi.mock("./Avatar", () => ({ DogAvatar: ({ label }: { label: string }) => { puppiesDrawn.count += 1; return createElement("span", null, label); } }));
 const { api } = await import("@/state/store");
-const { NativeWork, NativeWorkFallbacks, actorAncestry, nativePuppies } = await import("./NativeWork");
+const { NativeWork, NativeWorkDetail, NativeWorkFallbacks, actorAncestry, nativePuppies } = await import("./NativeWork");
 const { currentNativeRuns, forgetNativeRuns } = await import("@/lib/native-runs-state");
 
 function run(): NativeRun {
@@ -17,8 +19,8 @@ function run(): NativeRun {
 
 let host: HTMLDivElement;
 let root: Root;
-beforeEach(() => { host = document.createElement("div"); document.body.append(host); root = createRoot(host); vi.mocked(api).mockReset(); });
-afterEach(async () => { await act(async () => root.unmount()); host.remove(); forgetNativeRuns(); vi.clearAllMocks(); vi.useRealTimers(); });
+beforeEach(() => { vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true); host = document.createElement("div"); document.body.append(host); root = createRoot(host); vi.mocked(api).mockReset(); });
+afterEach(async () => { await act(async () => root.unmount()); host.remove(); forgetNativeRuns(); vi.clearAllMocks(); vi.useRealTimers(); vi.unstubAllGlobals(); });
 
 describe("native work", () => {
   it("shows at most five selectable puppies plus overflow without turning shell tasks into puppies", async () => {
@@ -51,6 +53,20 @@ describe("native work", () => {
     await act(async () => window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })));
     expect(document.querySelector('[role="dialog"]')).toBeNull();
     expect(document.activeElement).toBe(trigger);
+  });
+
+  it("keeps a puppy's evidence and stop action inside the work panel without opening a second dialog", async () => {
+    const data = run();
+    vi.mocked(api).mockResolvedValue({ run: data, activities: [{ id: "search", actorId: "child-1", kind: "search", label: "Search documentation", state: "done", startedAt: 110, text: "Found the source" }] });
+    await act(async () => root.render(createElement(NativeWorkDetail, { run: data, selectedActorId: "child-1", onSelect: vi.fn(), onClose: vi.fn(), embedded: true })));
+    expect(document.querySelector('[role="dialog"]')).toBeNull();
+    expect(host.textContent).toContain("Found the source");
+    const stop = [...host.querySelectorAll("button")].find(button => button.textContent === "Stop helper")!;
+    vi.mocked(api).mockResolvedValueOnce({ status: "requested" });
+    await act(async () => stop.click());
+    expect(api).toHaveBeenCalledWith("/api/threads/thread/runs/run/actors/child-1/stop", { method: "POST" });
+    expect(stop.disabled).toBe(true);
+    expect(stop.textContent).toBe("Stop requested");
   });
 
   it("keeps a completed receipt available and shows harness limits without an unsupported stop button", async () => {
@@ -134,8 +150,11 @@ describe("native work", () => {
   it("keeps interrupted work with no answer or end timestamp discoverable", async () => {
     const interrupted = { ...run(), observation: "interrupted" as const };
     await act(async () => root.render(createElement(NativeWorkFallbacks, { runs: [interrupted], messages: [] })));
-    expect(host.textContent).toContain("View work");
-    expect(host.textContent).toContain("Interrupted");
+    expect(host.textContent).toContain("Stopped before it finished");
+    expect(host.querySelectorAll("[data-fold-line] button, button")).toHaveLength(1);
+    await act(async () => host.querySelector<HTMLButtonElement>("button")!.click());
+    expect(openWorkPanel).toHaveBeenCalledWith({ kind: "work", threadId: "thread", runId: "run" });
+    expect(document.querySelector('[role="dialog"]')).toBeNull();
   });
 
   it("uses native search evidence for the active label", async () => {

@@ -1,17 +1,19 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { activeLocale, t } from "@/lib/i18n";
 import { ArrowDown, Plus, Search } from "lucide-react";
 import type {
+  Bot,
   Group,
   Message,
 } from "@/state/store";
-import { dogIn, sameItems, useStoreSelector } from "@/state/store-selectors";
+import { dogIn, sameItems, useStoreDispatch, useStoreSelector } from "@/state/store-selectors";
 import { BotAvatar } from "./Avatar";
-import { WorkStatusLine } from "./WorkStatusLine";
 import { PlaceIcon } from "./PlaceIcon";
 import { effectivePlace, placeLabelKey } from "@/lib/place";
 import { ExchangeViewHost } from "./ExchangeViewHost";
-import { TurnPresence } from "./TurnPresence";
+import { TurnSlot, turnNeedsYouWords } from "./TurnSlot";
+import { WorkPanel } from "./WorkPanel";
+import { closeWorkPanel } from "@/lib/work-panel";
 import { showToolCallsEnabled } from "@/lib/feature-flags";
 import { useScrollAnchor } from "@/lib/scroll-anchor";
 import { transcriptRowShown } from "@/lib/room-activity";
@@ -28,8 +30,10 @@ import { useCaptionChrome } from "./DesktopCapabilities";
 import { cn } from "@/lib/cn";
 import { useComposerDockPad } from "@/lib/composer-dock";
 import { GlassBar, GlassScrollFrame } from "./GlassScrollFrame";
-import { awaitedMemberId, showWorkingDots } from "@/lib/turn-tail";
+import { useWorkingDots } from "@/lib/working-dots";
 import { liveActivity } from "@/lib/live-activity";
+import { useNewBelow } from "@/lib/new-below";
+import { turnInProgress } from "@/lib/turn-slot";
 import { useTranscriptViewport } from "@/hooks/use-transcript-viewport";
 import { appendDraftAttachments, useReplyDraft } from "@/lib/drafts";
 import { latestReply, type TranscriptSnapshot } from "@/lib/transcript-announcer";
@@ -42,6 +46,7 @@ import { isUnread, useUnreadBoundary } from "@/lib/unread-boundary";
 export { RoomToolChip, Transcript };
 
 export function GroupView({ group }: { group: Group }) {
+  const dispatch = useStoreDispatch();
   const config = useStoreSelector((state) => state.config);
   const showToolCalls = showToolCallsEnabled(config);
   const countsInWindow = useCallback((message: Message) => transcriptRowShown(message, showToolCalls), [showToolCalls]);
@@ -73,48 +78,20 @@ export function GroupView({ group }: { group: Group }) {
   const speaker = members.find((b) => b.id === group.busyBotId);
 
   const lastGroupMessage = group.messages.at(-1);
-  const toolInFlight = lastGroupMessage?.kind === "activity" && lastGroupMessage.tool?.ok === undefined;
   const groupActivity = liveActivity(lastGroupMessage);
-  const awaited = members.find(
-    (b) => b.id === awaitedMemberId(group.working, group.busyBotId, lastGroupMessage),
-  );
-  const waiting =
-    Boolean(speaker && showWorkingDots(true, group.messages.at(-1), speaker.id)) || awaited !== undefined;
-  const wasWaiting = useRef(false);
-  const [popping, setPopping] = useState<{ id: string; botId?: string } | null>(null);
-  const poppingTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  useEffect(() => () => {
-    if (poppingTimer.current) clearTimeout(poppingTimer.current);
-  }, []);
-  useLayoutEffect(() => {
-    if (poppingTimer.current) clearTimeout(poppingTimer.current);
-    poppingTimer.current = null;
-    wasWaiting.current = false;
-    setPopping(null);
-  }, [group.id, group.threadId]);
-  useEffect(() => {
-    if (waiting) wasWaiting.current = true;
-  }, [waiting]);
-  useLayoutEffect(() => {
-    if (lastGroupMessage?.role !== "bot" || lastGroupMessage.kind !== "text" || !wasWaiting.current) return;
-    wasWaiting.current = false;
-    setPopping({
-      id: lastGroupMessage.id,
-      botId: lastGroupMessage.from?.botId,
-    });
-    const messageId = lastGroupMessage.id;
-    if (poppingTimer.current) clearTimeout(poppingTimer.current);
-    poppingTimer.current = setTimeout(() => {
-      poppingTimer.current = null;
-      setPopping((current) => current?.id === messageId ? null : current);
-    }, 520);
-  }, [
-    lastGroupMessage?.id,
-    lastGroupMessage?.role,
-    lastGroupMessage?.kind,
-    lastGroupMessage?.from?.botId,
-  ]);
-  const presenceVisible = waiting || popping !== null;
+  const presenceSpeaker = speaker ?? members[0];
+  const working = useWorkingDots(Boolean(group.working || group.busyBotId), lastGroupMessage, group.turnStartedAt);
+  const slotBot = presenceSpeaker ? {
+    ...presenceSpeaker,
+    threadId: group.threadId,
+    messages: group.messages,
+    busy: Boolean(group.working || group.busyBotId),
+    turnStartedAt: group.turnStartedAt,
+    work: group.work,
+    activity: group.work?.kind === "needs-you" ? "waiting-on-you" : group.working || group.busyBotId ? "working" : "idle",
+    step: null,
+  } as Bot : undefined;
+  const needsYouWords = slotBot ? turnNeedsYouWords(slotBot, group.messages) : null;
   const announcement = useMemo((): TranscriptSnapshot => {
     const approval = pendingApprovals(group.messages)[0];
     const question = openQuestion(group.messages);
@@ -129,9 +106,6 @@ export function GroupView({ group }: { group: Group }) {
         : undefined,
     };
   }, [group.messages, group.working, group.busyBotId, group.name, speaker?.name]);
-  const presenceSpeaker =
-    speaker ?? awaited ?? members.find((member) => member.id === popping?.botId) ?? members[0];
-
   const unreadSince = useUnreadBoundary(roomThreadKey(group), group.messages);
   const unreadRow = useCallback((message: Message) => isUnread(message, unreadSince), [unreadSince]);
   const {
@@ -140,6 +114,8 @@ export function GroupView({ group }: { group: Group }) {
     transcriptKey,
     following,
     followingRef,
+    turnRoomRef,
+    turnPreservingAnchor,
     windowedMessages,
     filledMessages,
     hiddenCount,
@@ -157,10 +133,20 @@ export function GroupView({ group }: { group: Group }) {
     pinOn: [group.busyBotId, group.working, composerDock.pad],
     counts: countsInWindow,
     unread: unreadRow,
+    turn: {
+      key: `${group.threadId}:${group.turnStartedAt ?? "live"}`,
+      active: Boolean(turnInProgress({ busy: group.working || Boolean(group.busyBotId), work: group.work }) || group.messages.some(message => message.id.startsWith("optimistic-"))),
+      delivering: group.messages.some(message => message.id.startsWith("optimistic-")),
+      replyId: group.messages.findLast(message => message.role === "bot" && message.kind === "text")?.id,
+      topInset: 64,
+      bottomInset: composerDock.height,
+    },
   });
 
+  const shownRows = useMemo(() => group.messages.filter(countsInWindow), [group.messages, countsInWindow]);
+  const newBelow = useNewBelow(following, shownRows, turnPreservingAnchor);
   useScrollAnchor(scrollRef, transcriptRef, followingRef, true);
-  useEffect(() => setMembersOpen(false), [group.id]);
+  useEffect(() => { setMembersOpen(false); closeWorkPanel(); }, [group.id, group.threadId]);
 
   const memberDogs = members.map((b) => {
     const busy = group.busyBotId === b.id;
@@ -188,6 +174,7 @@ export function GroupView({ group }: { group: Group }) {
   });
 
   return (
+    <>
     <main className="relative flex h-full min-w-0 flex-1 flex-col bg-app">
       <ExchangeViewHost botId={group.id} />
       {membersOpen && !group.dm && (
@@ -205,7 +192,6 @@ export function GroupView({ group }: { group: Group }) {
         <div data-roomhead-row className="flex items-center justify-between @max-3xl/roomhead:flex-wrap @max-3xl/roomhead:gap-y-1">
         <div data-roomhead-identity className="flex min-w-0 items-center gap-2 @max-3xl/roomhead:basis-full" style={headerNoDragStyle}>
           <span className="truncate text-[15px] font-semibold text-ink">{group.name}</span>
-          <WorkStatusLine bot={{ busy: Boolean(group.working), work: group.work }} />
         </div>
         <div
           data-roomhead-controls
@@ -320,7 +306,6 @@ export function GroupView({ group }: { group: Group }) {
             messages={windowedMessages}
             filledWindow={filledMessages}
             transcript={group.messages}
-            emergingId={popping?.id}
             onReply={selectReply}
             unreadSince={unreadSince}
           />
@@ -334,43 +319,20 @@ export function GroupView({ group }: { group: Group }) {
               </button>
             </div>
           )}
-          {(speaker || presenceVisible) && (
-            <TurnPresence
-              threadId={group.threadId}
-              botId={presenceSpeaker?.id}
-              color={presenceSpeaker?.color}
-              bodyId={presenceSpeaker?.mascotBody}
-              selection={presenceSpeaker?.modelSelection}
-              avatar={
-                <BotAvatar
-                  bot={presenceSpeaker ?? { color: "yellow" }}
-                  state={toolInFlight && !awaited ? "working" : "thinking"}
-                  size={36}
-                  forward={false}
-                  lookAround={1}
-                  trackPointer={false}
-                />
-              }
-              visible={presenceVisible}
-              label={groupActivity.spoken ?? undefined}
-              kind={groupActivity.kind}
-              answering={popping !== null}
-              since={speaker ? group.turnStartedAt ?? null : null}
-            />
-          )}
+          {slotBot && <TurnSlot bot={slotBot} working={working} onOpenDog={id => dispatch({ type: "select", id })} fallback={{ id: lastGroupMessage?.id ?? group.threadId, kind: groupActivity.kind, startedAt: lastGroupMessage?.at ?? group.turnStartedAt ?? 0, lastActivityAt: lastGroupMessage?.at ?? 0 }} />}
+          <div ref={turnRoomRef} data-turn-room aria-hidden="true" />
         </div>
       </div>
 
       <TranscriptAnnouncer threadKey={transcriptKey} snapshot={announcement} />
-
       {!following && (
         <button
           onClick={jumpToLatest}
-          aria-label={t("chat.jumpToLatestAria")}
-          className="animate-pop-in absolute left-1/2 z-10 flex -translate-x-1/2 items-center gap-1.5 rounded-full border border-hairline/40 bg-raised px-3 py-1.5 text-[12.5px] text-ink shadow-lg hover:bg-raised-hover"
+          aria-label={needsYouWords ?? t("chat.jumpToLatestAria")}
+          className={cn("animate-pop-in absolute left-1/2 z-10 flex max-w-[calc(100%-24px)] -translate-x-1/2 items-center gap-1.5 rounded-full border border-hairline/40 bg-raised px-3 py-1.5 text-[12.5px] shadow-lg hover:bg-raised-hover", needsYouWords ? "text-[var(--color-waiting-text,var(--color-warning))]" : "text-ink")}
           style={{ bottom: composerDock.height }}
         >
-          <ArrowDown size={13} /> {t("chat.jumpToLatest")}
+          <ArrowDown size={13} className="shrink-0" /> <span className="min-w-0 truncate">{needsYouWords ?? (newBelow ? `${newBelow} new ${newBelow === 1 ? "reply" : "replies"}` : t("chat.jumpToLatest"))}</span>
         </button>
       )}
 
@@ -393,5 +355,7 @@ export function GroupView({ group }: { group: Group }) {
       </div>
       </GlassScrollFrame>
     </main>
+    {slotBot && <WorkPanel botId={slotBot.id} botName={slotBot.name} />}
+    </>
   );
 }

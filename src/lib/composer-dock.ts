@@ -16,7 +16,10 @@ export function useComposerDockPad(ref: RefObject<HTMLElement | null>) {
   useLayoutEffect(() => {
     const el = ref.current;
     if (!el) return;
-    const apply = () => setHeight(el.getBoundingClientRect().height);
+    const apply = () => {
+      const cssHeight = Number.parseFloat(el.ownerDocument.defaultView?.getComputedStyle(el).height ?? "");
+      setHeight(Number.isFinite(cssHeight) && cssHeight > 0 ? cssHeight : el.getBoundingClientRect().height);
+    };
     apply();
     const observer = new ResizeObserver(apply);
     observer.observe(el);

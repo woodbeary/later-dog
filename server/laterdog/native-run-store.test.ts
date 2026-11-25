@@ -61,3 +61,10 @@ describe("when the run last moved", () => {
     expect(store.get(finished.id)!.lastActivityAt).toBe(ms(12));
   });
 });
+
+it("shares the home's plain subject with the live current activity", () => {
+  const { projector } = fixture();
+  projector.observe(event(0, { type: "turn.started" }));
+  const run = projector.observe(step(1, "tests", { label: "Bash", subject: "Run the order form tests" }))!;
+  expect(run.currentActivity).toMatchObject({ id: "tests", subject: "Run the order form tests", startedAt: ms(1) });
+});

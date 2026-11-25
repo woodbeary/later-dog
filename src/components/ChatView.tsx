@@ -1,4 +1,4 @@
-import { Component, Fragment, createContext, memo, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type Dispatch, type ReactNode } from "react";
+import { Component, Fragment, createContext, memo, useCallback, useContext, useEffect, useMemo, useRef, useState, type Dispatch, type ReactNode } from "react";
 import { useCopyFeedback } from "@/lib/copy-text";
 import {
   ArrowDown,
@@ -53,7 +53,7 @@ import { ExchangeViewHost } from "./ExchangeViewHost";
 import { foldExchanges, expandedExchange, quietTranscriptItemShown, shownInChat } from "@/lib/quiet-lines";
 import { RecoveredLine } from "./RecoveredLine";
 import { freshenDogName } from "@/lib/dog-refs";
-import { ChatWorkLine } from "./TurnPresence";
+import { TurnSlot, turnNeedsYouWords } from "./TurnSlot";
 import { FoldLine, SideJobsStillGoing } from "./FoldLine";
 import { useNativeRuns } from "@/lib/native-runs-state";
 import { turnFolds } from "@/lib/fold-line";
@@ -61,15 +61,12 @@ import { sideJobCount } from "@/lib/work-line";
 import { WorkPanel } from "./WorkPanel";
 import { closeWorkPanel, useWorkPanel } from "@/lib/work-panel";
 import { transcriptRowShown } from "@/lib/room-activity";
-import { restingStateForBot, turnState } from "@/lib/mascot";
+import { restingStateForBot } from "@/lib/mascot";
 import { liveActivity } from "@/lib/live-activity";
 import type { LiveStep } from "../../shared/step-words";
 import { peerLine, type PeerLine } from "@/lib/peer-message";
 import { useWorkingDots } from "@/lib/working-dots";
-import { StatusDot } from "./StatusDot";
 import { OPTIMISTIC_PREFIX } from "@/lib/dog-status";
-import { ReadReceipt, SendingTrack } from "./SendingTrack";
-import { MOTION } from "@/lib/motion";
 import { useArrivals } from "@/lib/arrivals";
 import { ChatMarkdown } from "./ChatMarkdown";
 import { VoiceNoteBubble, type VoiceNoteAttachment } from "./VoiceNoteBubble";
@@ -117,6 +114,7 @@ import { composeMessage, splitTranscriptAttachments } from "@/lib/composer-attac
 import { editableGallery, editableMessage } from "@/lib/composer-message-edit";
 import { useComposerDockPad } from "@/lib/composer-dock";
 import { GlassBar, GlassScrollFrame } from "./GlassScrollFrame";
+import { turnInProgress } from "@/lib/turn-slot";
 import { useTranscriptViewport } from "@/hooks/use-transcript-viewport";
 import { useNewBelow } from "@/lib/new-below";
 import { dismissKey, useUnreadPosition, useVisitUnreadCount } from "@/lib/unread-pill";
@@ -275,7 +273,6 @@ function BubbleEditor({
 
 const Bubble = memo(function Bubble({
   message,
-  emerging = false,
   eagerAttachments = false,
   editing,
   versions,
@@ -284,12 +281,10 @@ const Bubble = memo(function Bubble({
   onSubmitEdit,
   replyTarget,
   onReply,
-  receipt = false,
   joinAbove = false,
   joinBelow = false,
 }: {
   message: Message;
-  emerging?: boolean;
   eagerAttachments?: boolean;
   editing: boolean;
   versions?: readonly Message[];
@@ -298,7 +293,6 @@ const Bubble = memo(function Bubble({
   onSubmitEdit: (messageId: string, text: string) => void;
   replyTarget?: Message;
   onReply: (message: Message) => void;
-  receipt?: boolean;
   joinAbove?: boolean;
   joinBelow?: boolean;
 }) {
@@ -401,13 +395,15 @@ const Bubble = memo(function Bubble({
       <div className={cn("flex w-full items-center gap-1.5", user ? "justify-end" : "justify-start")}>
         {user && (
           <MessageActions side="user" forceOpen={picking} more={userMore}>
-            {message.kind === "text" && canWrite !== false && !webhookView && !cited?.citations.length && !busy && !message.id.startsWith(OPTIMISTIC_PREFIX) && (
+            {message.kind === "text" && canWrite !== false && !webhookView && !cited?.citations.length && !message.id.startsWith(OPTIMISTIC_PREFIX) && (
               <button
                 type="button"
                 onClick={() => onStartEdit(message.id)}
+                disabled={busy}
+                aria-hidden={busy || undefined}
                 aria-label={t("chat.editMessage")}
                 title={t("chat.editMessage")}
-                className={messageActionClass}
+                className={cn(messageActionClass, busy && "invisible")}
               >
                 <Pencil size={14} />
               </button>
@@ -431,7 +427,6 @@ const Bubble = memo(function Bubble({
             "chat-bubble relative w-fit max-w-[min(42rem,78%)] rounded-[20px] text-[16px] leading-6",
             user ? joinAbove && "rounded-tr-[8px]" : joinAbove && "rounded-tl-[8px]",
             user ? joinBelow && "rounded-br-[8px]" : joinBelow && "rounded-bl-[8px]",
-            emerging && "turn-answer",
             user && webhookView
               ? "overflow-hidden border border-accent/25 bg-card text-ink shadow-[0_10px_30px_rgba(0,0,0,0.18)]"
               : attachmentsOnly
@@ -565,8 +560,6 @@ const Bubble = memo(function Bubble({
       </div>
       {!user && showRan && <TurnReceiptLine receipt={message.ran} />}
       {!user && showRan && <TurnResultsBlock results={message.results} />}
-      {user && message.id.startsWith(OPTIMISTIC_PREFIX) && <SendingTrack at={message.at} held={message.held} />}
-      {user && receipt && message.steered && <ReadReceipt readAt={message.readAt} working={busy} name={botName} />}
       {forks.length > 1 && (
         <div className="mt-1 flex items-center gap-0.5 pr-1 text-[12px] text-ink-secondary">
           <button
@@ -689,7 +682,6 @@ const MessagesList = memo(function MessagesList({
   plan,
   lookups,
   today,
-  emergingId,
   canRetryLast,
   engine,
   selection,
@@ -708,7 +700,6 @@ const MessagesList = memo(function MessagesList({
   plan: TranscriptPlan;
   lookups: TranscriptLookups;
   today: number;
-  emergingId?: string | null;
   canRetryLast: boolean;
   engine: InstanceInfo | undefined;
   selection: Bot["modelSelection"];
@@ -725,8 +716,6 @@ const MessagesList = memo(function MessagesList({
   const nativeRuns = useNativeRuns(threadId, filledWindow[0]?.at);
   const folds = useMemo(() => turnFolds(transcript, nativeRuns), [transcript, nativeRuns]);
   const arriving = useArrivals(`${botId}/${threadId}`, messages);
-  const emerged = useRef(new Set<string>());
-  if (emergingId) emerged.current.add(emergingId);
   const items = useMemo(
     () => foldTeams(foldExchanges(groupTranscript(messages, plan), {
       renders: (item) => quietTranscriptItemShown(item, false),
@@ -848,7 +837,6 @@ const MessagesList = memo(function MessagesList({
               return (
                 <Bubble
                   message={m}
-                  emerging={m.id === emergingId}
                   eagerAttachments={m.id === newestMessageId || m.id === newestUserMessageId}
                   editing={editingId === m.id}
                   versions={lookups.editVersions(m)}
@@ -857,7 +845,6 @@ const MessagesList = memo(function MessagesList({
                   onSubmitEdit={onSubmitEdit}
                   replyTarget={lookups.replyTarget(m)}
                   onReply={onReply}
-                  receipt={m.id === newestUserMessageId}
                   joinAbove={bubbleSide(items[i - 1]) === bubbleSide(item)}
                   joinBelow={bubbleSide(items[i + 1]) === bubbleSide(item)}
                 />
@@ -865,7 +852,7 @@ const MessagesList = memo(function MessagesList({
           }
         })();
         if (!row) return null;
-        const arrives = arriving(m.id) && !emerged.current.has(m.id);
+        const arrives = arriving(m.id);
         const fold = folds.get(m.id);
         return (
           <Fragment key={m.id}>
@@ -889,12 +876,6 @@ function bubbleSide(item: ReturnType<typeof foldTeams>[number] | undefined): str
   if (message.kind !== "text" || cloudWakeupOf(message)) return undefined;
   if (peerLine(message)) return `peer:${message.from?.botId ?? ""}`;
   return message.role;
-}
-
-function HeaderStatusDot({ bot }: { bot: Bot }) {
-  if (bot.activity === "waiting-on-you") return <StatusDot kind="waiting" ring="border-composer" size="size-2.5" className="absolute -right-0.5 -bottom-0.5" />;
-  if (!bot.busy) return null;
-  return <span data-working-dot aria-hidden="true" className="absolute -right-0.5 -bottom-0.5 size-2.5 rounded-full border-2 border-composer bg-success" />;
 }
 
 const CHATHEAD_PILL = "flex h-8 min-w-0 items-center gap-2 rounded-full border-[0.5px] border-[var(--color-hairline,var(--hairline-default))] bg-composer pl-1 pr-3.5 text-ink";
@@ -930,7 +911,7 @@ export function ChatView({ bot: profile }: { bot: Bot }) {
   const { messages: allMessages, activeLeafId } = bot;
   const thread = useMemo(() => visibleMessages({ messages: allMessages, activeLeafId }), [allMessages, activeLeafId]);
   const dockedQuestion = useMemo(() => openQuestion(thread)?.message, [thread]);
-  const messages = useMemo(() => thread.filter(shownInChat), [thread]);
+  const messages = useMemo(() => thread.filter(message => shownInChat(message) && message.tool?.statusLine !== "live" && !message.tool?.carry), [thread]);
   const exchangeThread = useMemo(() => ({ thread, working: Boolean(bot.busy) }), [thread, bot.busy]);
   const lookups = useMemo(() => transcriptLookups(allMessages, messages), [allMessages, messages]);
   const takeoverOpen = useMemo(
@@ -956,6 +937,8 @@ export function ChatView({ bot: profile }: { bot: Bot }) {
     transcriptKey,
     following,
     followingRef,
+    turnRoomRef,
+    turnPreservingAnchor,
     windowedMessages,
     filledMessages,
     hiddenCount,
@@ -974,10 +957,18 @@ export function ChatView({ bot: profile }: { bot: Bot }) {
     pinOn: [bot.busy, composerDock.pad],
     counts: countsInWindow,
     unread: unreadRow,
+    turn: {
+      key: `${bot.threadId}:${bot.turnStartedAt ?? "live"}`,
+      active: Boolean(turnInProgress(bot) || messages.some(message => message.id.startsWith("optimistic-"))),
+      delivering: messages.some(message => message.id.startsWith("optimistic-")),
+      replyId: messages.findLast(message => message.role === "bot" && message.kind === "text")?.id,
+      topInset: HEADER_INSET,
+      bottomInset: composerDock.height,
+    },
   });
   useScrollAnchor(scrollRef, transcriptRef, followingRef, true);
   const shownRows = useMemo(() => messages.filter(countsInWindow), [messages, countsInWindow]);
-  const newBelow = useNewBelow(following, shownRows);
+  const newBelow = useNewBelow(following, shownRows, turnPreservingAnchor);
   const visitUnread = useVisitUnreadCount(threadKey, unreadSince, shownRows);
   const unreadPlace = useUnreadPosition(scrollRef, unreadSince !== null, HEADER_INSET, composerDock.height, windowedMessages.length);
   const [aboveDismissed, setAboveDismissed] = useState<string | null>(null);
@@ -1034,32 +1025,6 @@ export function ChatView({ bot: profile }: { bot: Bot }) {
   const lastMessage = shownMessages.at(-1);
   const working = useWorkingDots(bot.busy, lastMessage, bot.turnStartedAt);
   const waiting = Boolean(bot.busy && bot.activity !== "waiting-on-you" && working);
-  const wasWaiting = useRef(false);
-  const [popping, setPopping] = useState<string | null>(null);
-  const poppingTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  useEffect(() => () => {
-    if (poppingTimer.current) clearTimeout(poppingTimer.current);
-  }, []);
-  useLayoutEffect(() => {
-    if (poppingTimer.current) clearTimeout(poppingTimer.current);
-    poppingTimer.current = null;
-    wasWaiting.current = false;
-    setPopping(null);
-  }, [bot.id]);
-  useEffect(() => {
-    if (waiting) wasWaiting.current = true;
-  }, [waiting]);
-  useLayoutEffect(() => {
-    if (lastMessage?.role !== "bot" || lastMessage.kind !== "text" || !wasWaiting.current) return;
-    wasWaiting.current = false;
-    const messageId = lastMessage.id;
-    if (poppingTimer.current) clearTimeout(poppingTimer.current);
-    setPopping(messageId);
-    poppingTimer.current = setTimeout(() => {
-      poppingTimer.current = null;
-      setPopping((current) => current === messageId ? null : current);
-    }, MOTION.enter + MOTION.base);
-  }, [lastMessage?.id, lastMessage?.role, lastMessage?.kind]);
   const workPanel = useWorkPanel();
   const settingsOpen = useStoreSelector((state) => state.settingsOpen);
   useEffect(() => closeWorkPanel(), [bot.id, bot.threadId]);
@@ -1073,6 +1038,7 @@ export function ChatView({ bot: profile }: { bot: Bot }) {
     const startedAt = anchor?.at ?? bot.turnStartedAt ?? lastMessage?.at ?? 0;
     return { id: `${bot.threadId}:${anchor?.id ?? startedAt}:${kind}`, kind, startedAt, lastActivityAt: startedAt };
   }, [bot.busy, bot.threadId, bot.turnStartedAt, lastMessage]);
+  const needsYouWords = turnNeedsYouWords(bot, messages);
   const announcement = useMemo((): TranscriptSnapshot => {
     const approval = pendingApprovals(messages)[0];
     const question = openQuestion(messages);
@@ -1122,7 +1088,6 @@ export function ChatView({ bot: profile }: { bot: Bot }) {
           >
             <span className="relative flex shrink-0">
               <BotAvatar bot={bot} state={restingStateForBot(bot)} size={24} animated={false} />
-              <HeaderStatusDot bot={bot} />
             </span>
             <span className="min-w-0 truncate text-[14px] leading-5 font-medium text-ink">{bot.name}</span>
           </button>
@@ -1192,7 +1157,6 @@ export function ChatView({ bot: profile }: { bot: Bot }) {
                   plan={plan}
                   lookups={lookups}
                   today={localDay(Date.now())}
-                  emergingId={popping}
                   canRetryLast={!bot.busy && Boolean(lastUserMessage)}
                   engine={engine}
                   selection={bot.modelSelection}
@@ -1218,7 +1182,8 @@ export function ChatView({ bot: profile }: { bot: Bot }) {
               </button>
             </div>
           )}
-          <ChatWorkLine bot={bot} working={waiting && popping === null} onOpenDog={openDog} fallback={fallbackStep} face={turnState(messages)} />
+          <TurnSlot bot={bot} working={waiting} onOpenDog={openDog} fallback={fallbackStep} messages={messages} />
+          <div ref={turnRoomRef} data-turn-room aria-hidden="true" />
         </div>
       </div>
 
@@ -1235,7 +1200,17 @@ export function ChatView({ bot: profile }: { bot: Bot }) {
         />
       )}
 
-      {!following && (belowShown > 0 ? (
+      {!following && (needsYouWords ? (
+        <button
+          type="button"
+          onClick={jumpToLatest}
+          aria-label={needsYouWords}
+          className="absolute left-1/2 z-10 flex max-w-[calc(100%-24px)] -translate-x-1/2 items-center gap-1.5 rounded-full border border-hairline/40 bg-raised px-3 py-1.5 text-[12.5px] text-[var(--color-waiting-text,var(--color-warning))] shadow-lg"
+          style={{ bottom: composerDock.height + 8 }}
+        >
+          <span className="min-w-0 truncate">{needsYouWords}</span><ArrowDown size={13} className="shrink-0" />
+        </button>
+      ) : belowShown > 0 ? (
         <NewMessagesPill
           direction="down"
           tint={bot.color}
