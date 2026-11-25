@@ -1,6 +1,6 @@
 import { randomBytes, randomUUID } from "node:crypto";
 import { spawn, type ChildProcess } from "node:child_process";
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { createInterface } from "node:readline";
@@ -527,4 +527,111 @@ it("creation request flags cannot enable the saved owner-wide Full grant", async
   const newDog = (await api("GET", "/api/bots", { token: owner })).body.bots.find((bot: any) => bot.id === child.id);
   expect(newDog.approvalMode).toBe("ask");
   expect(newDog.tasks.every((task: any) => task.approvalMode !== "full")).toBe(true);
+}, 60_000);
+
+async function requestDogInFolder(agents: Spawn["mcpConfig"]["mcpServers"]["agents"], name: string, extra: Record<string, unknown> = {}) {
+  return fetch(`${agents.env.LATERDOG_HARNESS_URL}/api/internal/create-bot`, {
+    method: "POST",
+    headers: { authorization: `Bearer ${agents.env.LATERDOG_COMMS_TOKEN}`, "content-type": "application/json" },
+    body: JSON.stringify({ name, role: "Checking results", instructions: "Check the fixture result.", ...extra }),
+  });
+}
+
+it("a guest source cannot aim a helper at owner folders or escape through symlinks", async () => {
+  expect((await api("PUT", "/api/full-access-all", { token: owner, body: { enabled: false } })).status).toBe(200);
+  const ownerFolder = join(home, "owner-project");
+  const otherDogFolder = join(home, "another-dog");
+  mkdirSync(ownerFolder);
+  mkdirSync(otherDogFolder);
+  const creator = (await api("POST", "/api/bots", { token: owner, body: {
+    name: "Guest creator", settings: { approvalMode: "ask", cwd: ownerFolder }, modelSelection: { instanceId: "claude", model: "claude-sonnet-5" },
+  } })).body.bot;
+  await leftBehind({ threadIds: [creator.threadId] });
+  const agents = await agentsFor(async () => {
+    expect((await api("POST", `/api/bots/${creator.id}/messages`, { token: owner, body: { text: "Check this older conversation." } })).status).toBe(202);
+  }, creator.id);
+  const creatorFolder = lastSpawn!.cwd;
+  expect(creatorFolder).not.toBe(ownerFolder);
+  expect(lastSpawn!.argv).toContain("--restricted");
+  symlinkSync(ownerFolder, join(creatorFolder, "escape"), "dir");
+  for (const [index, folder] of [home, otherDogFolder, join(creatorFolder, "escape")].entries()) {
+    const response = await requestDogInFolder(agents, `Blocked guest helper ${index}`, { cwd: folder, ownerFull: true, ownersWorkspace: true });
+    expect(response.status, await response.clone().text()).toBe(403);
+  }
+  const inside = join(creatorFolder, "child-work");
+  mkdirSync(inside);
+  const allowed = await requestDogInFolder(agents, "Contained guest helper", { cwd: inside });
+  expect(allowed.status, await allowed.clone().text()).toBe(201);
+  const made = await allowed.json() as { id: string };
+  const newDog = (await api("GET", "/api/bots", { token: owner })).body.bots.find((bot: any) => bot.id === made.id);
+  expect(newDog.cwd).toBe(realpathSync(inside));
+}, 60_000);
+
+it("a guest-created default chat stays confined after global Full migration and when it coordinates", async () => {
+  expect((await api("PUT", "/api/full-access-all", { token: owner, body: { enabled: false } })).status).toBe(200);
+  const creator = (await api("POST", "/api/bots", { token: owner, body: {
+    name: "Guest lineage creator", modelSelection: { instanceId: "claude", model: "claude-sonnet-5" },
+  } })).body.bot;
+  await leftBehind({ threadIds: [creator.threadId] });
+  const agents = await agentsFor(async () => {
+    expect((await api("POST", `/api/bots/${creator.id}/messages`, { token: owner, body: { text: "Create a helper for this older conversation." } })).status).toBe(202);
+  }, creator.id);
+  expect(lastSpawn!.argv).toContain("--restricted");
+  const response = await requestDogInFolder(agents, "Guest lineage helper", { cwd: null, ownerFull: true });
+  expect(response.status, await response.clone().text()).toBe(201);
+  const made = await response.json() as { id: string };
+  expect((await api("PUT", "/api/full-access-all", { token: owner, body: { enabled: true } })).status).toBe(200);
+  const childAgents = await agentsFor(async () => {
+    expect((await api("POST", `/api/bots/${made.id}/messages`, { token: owner, body: { text: "Continue this same helper conversation." } })).status).toBe(202);
+  }, made.id);
+  expect(lastSpawn!.argv).toContain("--restricted");
+  expect(lastSpawn!.argv[lastSpawn!.argv.indexOf("--permission-mode") + 1]).toBe("default");
+  expect(lastSpawn!.cwd).toContain(`/task-workspaces/${made.id}/`);
+  const target = (await api("POST", "/api/bots", { token: owner, body: {
+    name: "Owner Full recipient", settings: { cwd: home }, modelSelection: { instanceId: "claude", model: "claude-sonnet-5" },
+  } })).body.bot;
+  expect(target.approvalMode).toBe("full");
+  await agentsFor(async () => {
+    const sent = await fetch(`${childAgents.env.LATERDOG_HARNESS_URL}/api/internal/coordinate-bots`, {
+      method: "POST", headers: { authorization: `Bearer ${childAgents.env.LATERDOG_COMMS_TOKEN}`, "content-type": "application/json" },
+      body: JSON.stringify({ botIds: [target.id], message: "Check this guest-origin fixture task.", reply: "none" }),
+    });
+    expect(sent.status, await sent.clone().text()).toBe(200);
+  }, target.id);
+  expect(lastSpawn!.argv).toContain("--restricted");
+  expect(lastSpawn!.argv[lastSpawn!.argv.indexOf("--permission-mode") + 1]).toBe("default");
+  expect(lastSpawn!.cwd).toContain(`/task-workspaces/${target.id}/`);
+  expect(lastSpawn!.cwd).not.toBe(home);
+}, 60_000);
+
+it("limits an owner creator below Full to its chat folder and preserves an existing owner Full creator's literal choice", async () => {
+  expect((await api("PUT", "/api/full-access-all", { token: owner, body: { enabled: false } })).status).toBe(200);
+  const root = join(home, "limited-owner-folder");
+  mkdirSync(root);
+  const creator = (await api("POST", "/api/bots", { token: owner, body: {
+    name: "Limited owner creator", settings: { approvalMode: "ask", cwd: root }, modelSelection: { instanceId: "claude", model: "claude-sonnet-5" },
+  } })).body.bot;
+  const agents = await agentsFor(async () => {
+    expect((await api("POST", `/api/bots/${creator.id}/messages`, { token: owner, body: { text: "Make a helper inside this project." } })).status).toBe(202);
+  }, creator.id);
+  expect(lastSpawn!.cwd).toBe(root);
+  const denied = await requestDogInFolder(agents, "Outside limited helper", { cwd: home, ownerFull: true });
+  expect(denied.status, await denied.clone().text()).toBe(403);
+  const inside = await requestDogInFolder(agents, "Limited project helper", { cwd: root });
+  expect(inside.status, await inside.clone().text()).toBe(201);
+  expect((await api("PUT", "/api/full-access-all", { token: owner, body: { enabled: true } })).status).toBe(200);
+  const full = (await api("POST", "/api/bots", { token: owner, body: {
+    name: "Full folder creator", modelSelection: { instanceId: "claude", model: "claude-sonnet-5" },
+  } })).body.bot;
+  expect(full.approvalMode).toBe("full");
+  const fullAgents = await agentsFor(async () => {
+    expect((await api("POST", `/api/bots/${full.id}/messages`, { token: owner, body: { text: "Make an owner-authorized helper in this chosen folder." } })).status).toBe(202);
+  }, full.id);
+  const literal = join(root, "owner-picked-link");
+  symlinkSync(home, literal, "dir");
+  const allowed = await requestDogInFolder(fullAgents, "Owner chosen folder helper", { cwd: literal });
+  expect(allowed.status, await allowed.clone().text()).toBe(201);
+  const made = await allowed.json() as { id: string };
+  const newDog = (await api("GET", "/api/bots", { token: owner })).body.bots.find((bot: any) => bot.id === made.id);
+  expect(newDog).toMatchObject({ cwd: literal, approvalMode: "full" });
 }, 60_000);

@@ -15860,8 +15860,11 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         if (hostedModels && !hostedModels.allows(selection)) return json(res, 400, { error: hostedModels.error() });
         let cwd: string | undefined;
         if (body.cwd !== undefined) {
-          const checkedCwd = validateBotCwd(body.cwd);
-          if (!checkedCwd.ok) return json(res, 400, { error: checkedCwd.error });
+          const ownerFull = creatorOwnsWorkspace && fullAccessForSource(creator.id, fromThreadId);
+          const root = cloudGuestDriven(fromThreadId) ? ensureTaskWorkspace(creator.id, fromThreadId)
+            : store.taskByThread(creator.id, fromThreadId)?.cwd ?? creator.cwd ?? workspaceDir(creator.id);
+          const checkedCwd = validateBotCwd(body.cwd, ownerFull ? undefined : [root]);
+          if (!checkedCwd.ok) return json(res, checkedCwd.forbidden ? 403 : 400, { error: checkedCwd.error });
           cwd = checkedCwd.cwd ?? undefined;
         }
         if (store.bot(creator.id) !== creator || !connectorThread(creator.id, fromThreadId)) {
@@ -15890,6 +15893,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
           },
           { seedMessages: false },
         );
+        if (CLOUD_HOME && cloudGuestDriven(fromThreadId)) threadStarters.set(created.threadId, openerFrom(fromThreadId));
         const safeBot = store.patchBot(created.id, dogMadeDogAccess(
           creator,
           sourceApprovalMode(creator.id, fromThreadId),
