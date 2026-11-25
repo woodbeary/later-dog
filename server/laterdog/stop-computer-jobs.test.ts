@@ -1,5 +1,5 @@
 import { spawn, spawnSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, utimesSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { randomBytes } from "node:crypto";
@@ -79,9 +79,14 @@ describe("stopping a command on the dog's computer", () => {
 
   it("finds a job whose processes died without an exit record dead, and Stop clears it even with its group id gone", async () => {
     const { home, box, runs, record } = await launch(sleeper("dead"));
-    expect(await until(() => alive(`${RUN_MARK}-dead`))).toBe(true);
-    const pg = readFileSync(join(home, "runs/.logs", `${record.id}.pgid`), "utf8").trim();
-    spawnSync("kill", ["-KILL", `-${pg}`]);
+    const start = join(home, "runs/.logs", `${record.id}.start`);
+    expect(await until(() => existsSync(start) && alive(`${RUN_MARK}-dead`))).toBe(true);
+    const group = Number(readFileSync(join(home, "runs/.logs", `${record.id}.pgid`), "utf8").trim());
+    const ownGroup = spawnSync("ps", ["-o", "pgid=", "-p", String(process.pid)], { encoding: "utf8" });
+    expect(ownGroup.status).toBe(0);
+    expect(Number.isSafeInteger(group) && group > 1).toBe(true);
+    expect(group).not.toBe(Number(ownGroup.stdout.trim()));
+    process.kill(-group, "SIGKILL");
     rmSync(join(home, "runs/.logs", `${record.id}.pgid`));
     expect(await until(() => !alive(`${RUN_MARK}-dead`))).toBe(true);
     expect(await runs.liveness(box, record)).toBe("dead");
