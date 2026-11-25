@@ -83,6 +83,10 @@ nothing above a landing reply moves; no deliberate hold on a splash; on the phon
 switch and no stall over 200 ms, the targets stated on November 10
 ([phone-chat-performance-2026-11-10.md](../verification/phone-chat-performance-2026-11-10.md)).
 
+## Desktop pasted text files, November 25
+
+Branch `desktop/overnight-paste` preserves the shared cutoff of at least 900 UTF-16 code units or 12 lines, creates editable text/plain attachments, and sends the ordinary uploaded-file shape. Final 134 focused checks, types/lint, 224 phone/desktop boundary comparisons, a persisted UTF-8 file send through the actual App/home, and six rendered fit/edit checks passed. Screenshots and limitations are in the [verification record](../verification/desktop-pasted-text-2026-11-25.md). Companion PR274 keeps enlarged controls in bounds. This remains a draft until the final combined merge gate passes and Sol Lead ships it.
+
 ## Real account limit, November 14
 
 Draft pull request 199, branch `atelier/real-account-limit`, item 30, server half. One model reaching

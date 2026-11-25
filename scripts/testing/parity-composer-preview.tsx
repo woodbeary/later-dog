@@ -7,7 +7,8 @@ import { reloadPlanUsage } from "../../src/components/PlanUsage";
 import { DesktopCapabilitiesProvider } from "../../src/components/DesktopCapabilities";
 import { BotEditorStore, initialState, reducer, type AppState, type Bot, type Message } from "../../src/state/store";
 import { setAnalyticsEnabled } from "../../src/lib/analytics";
-import { appendComposerDraft } from "../../src/lib/drafts";
+import { appendComposerDraft, appendDraftAttachments } from "../../src/lib/drafts";
+import { pasteAttachment } from "../../src/lib/composer-attachments";
 import { applySkin } from "../../src/lib/skins";
 import "../../src/styles.css";
 
@@ -22,6 +23,7 @@ interface Scene {
   name: string;
   busy?: boolean;
   draft?: string;
+  pasted?: string;
   usage?: { weekly: number; fiveHour: number };
   messages?: Message[];
   above?: "question" | "settled";
@@ -46,6 +48,8 @@ const permission = (extra: Partial<NonNullable<Message["card"]>> = {}): Message 
 const SCENES: Scene[] = [
   { name: "idle" },
   { name: "draft", draft: "Add a pickup time to the order form" },
+  { name: "pasted-text", draft: "Please read this", pasted: "Notes for the next update\n".repeat(50) },
+  { name: "pasted-text-line-breaks", draft: "Please read this", pasted: Array.from({ length: 12 }, (_, index) => `Note ${index + 1}`).join("\r") },
   { name: "working", busy: true },
   { name: "working-draft", busy: true, draft: "Also check it on a small phone" },
   { name: "usage-weekly-75", usage: { weekly: 76, fiveHour: 20 } },
@@ -70,6 +74,7 @@ const report = scene.usage ? {
 const realFetch = window.fetch.bind(window);
 window.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
   const url = String(input instanceof Request ? input.url : input);
+  if (url.includes("/api/files?")) return Response.json({ path: "/fixture/pasted.txt", name: "Pasted text.txt", bytes: (init?.body as Blob)?.size ?? 0 });
   if (url.includes("/api/plan-usage")) return Response.json(report);
   if (url.includes("/api/")) return Response.json({});
   return realFetch(input, init);
@@ -83,6 +88,7 @@ const dog: Bot = {
   messages: scene.messages ?? [], busy: Boolean(scene.busy), ...(scene.busy ? { turnStartedAt: NOW - 3 * 60_000 } : {}),
 } as Bot;
 if (scene.draft) appendComposerDraft(`bot:${dog.id}:${dog.threadId}`, scene.draft);
+if (scene.pasted) appendDraftAttachments(`bot:${dog.id}:${dog.threadId}`, [pasteAttachment(scene.pasted)]);
 
 const instances = [
   { instanceId: "claude", displayName: "Home", driverKind: "claudeAgent", snapshot: { state: "available", authenticated: true }, capabilities: { queueing: true }, models: { default: "claude-sonnet-5", options: [{ id: "claude-sonnet-5", label: "Sonnet 5" }] } },
@@ -100,8 +106,8 @@ function Fixture() {
   return (
     <BotEditorStore value={value}>
       <main data-parity-scene={scene.name} className="flex h-screen bg-app text-ink">
-        <aside className="h-full w-[320px] shrink-0 border-r border-hairline/40 bg-app" />
-        <section className="flex min-w-0 flex-1 flex-col justify-end px-[55px] pb-[9px]">
+        <aside className="hidden h-full w-[320px] shrink-0 border-r border-hairline/40 bg-app md:block" />
+        <section className="flex min-w-0 flex-1 flex-col justify-end px-3 pb-[9px] md:px-[55px]">
           {scene.above === "question" && <div className="px-5"><QuestionCard threadId={bot.threadId} bot={{ name: bot.name }} message={question} /></div>}
           {scene.above === "settled" && (
             <div className="mb-4 px-6">
