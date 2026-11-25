@@ -1,4 +1,4 @@
-import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useId, useLayoutEffect, useRef, useState, type KeyboardEvent } from "react";
 import { createPortal } from "react-dom";
 import { ChevronRight } from "lucide-react";
 import { cn } from "@/lib/cn";
@@ -27,6 +27,25 @@ export interface SidebarMenuItem {
 
 const OPEN_DELAY_MS = 80;
 const CLOSE_DELAY_MS = 250;
+
+function enabledMenuItems(menu: HTMLElement | null): HTMLElement[] {
+  return [...(menu?.querySelectorAll<HTMLElement>('[role="menuitem"]:not(:disabled):not([aria-disabled="true"])') ?? [])]
+    .filter((item) => item.closest('[role="menu"]') === menu);
+}
+
+function navigatePopover(event: KeyboardEvent<HTMLDivElement>): void {
+  if (event.defaultPrevented || event.nativeEvent.isComposing || event.metaKey || event.ctrlKey || event.altKey) return;
+  if (!["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) return;
+  if (!(event.target instanceof Element) || event.target.closest('[role="menu"]') !== event.currentTarget) return;
+  event.preventDefault();
+  event.stopPropagation();
+  const items = enabledMenuItems(event.currentTarget);
+  const index = items.indexOf(document.activeElement as HTMLElement);
+  const next = event.key === "Home" ? 0 : event.key === "End" ? items.length - 1
+    : index < 0 ? (event.key === "ArrowDown" ? 0 : items.length - 1)
+      : (index + (event.key === "ArrowDown" ? 1 : -1) + items.length) % items.length;
+  items[next]?.focus();
+}
 
 function clipEdges(node: HTMLElement): { top: number; bottom: number } {
   for (let parent = node.parentElement; parent; parent = parent.parentElement) {
@@ -65,6 +84,8 @@ export function SidebarPopoverMenu({
   const [position, setPosition] = useState({ left: 0, top: 0 });
   const rootRef = useRef<HTMLDivElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
+  const focusOnOpen = useRef<"first" | "last" | null>(null);
+  const [maxHeight, setMaxHeight] = useState<number>();
   const openChange = useRef(onOpenChange);
   openChange.current = onOpenChange;
   const itemKeys = items.map((item) => item.key).join("\n");
@@ -109,7 +130,7 @@ export function SidebarPopoverMenu({
     closeTimer.current = setTimeout(() => setOpen(false), CLOSE_DELAY_MS);
   };
   const close = () => {
-    if (portal && menuRef.current?.contains(document.activeElement)) rootRef.current?.querySelector<HTMLButtonElement>("button")?.focus();
+    if (menuRef.current?.contains(document.activeElement)) rootRef.current?.querySelector<HTMLButtonElement>("button")?.focus();
     clearTimers();
     setPinned(false);
     setOpen(false);
@@ -142,9 +163,29 @@ export function SidebarPopoverMenu({
     };
   }, [align, itemKeys, open, placement, portal]);
 
+  useLayoutEffect(() => {
+    if (portal || placement !== "below" || !open) return;
+    const place = () => {
+      const root = rootRef.current;
+      if (root) setMaxHeight(Math.max(0, window.innerHeight - root.getBoundingClientRect().bottom - 12));
+    };
+    place();
+    const observer = new ResizeObserver(place);
+    if (rootRef.current) observer.observe(rootRef.current);
+    window.addEventListener("resize", place);
+    window.addEventListener("scroll", place, true);
+    return () => {
+      observer.disconnect();
+      window.removeEventListener("resize", place);
+      window.removeEventListener("scroll", place, true);
+    };
+  }, [open, placement, portal]);
   useLayoutEffect(() => openChange.current?.(open), [open]);
   useEffect(() => {
-    if (portal && open) menuRef.current?.querySelector<HTMLElement>('[role="menuitem"]:not(:disabled)')?.focus();
+    if (!open) return;
+    const edge = focusOnOpen.current;
+    focusOnOpen.current = null;
+    if (portal || edge) enabledMenuItems(menuRef.current).at(edge === "last" ? -1 : 0)?.focus();
   }, [open, portal]);
   useLayoutEffect(() => {
     const root = rootRef.current;
@@ -173,9 +214,19 @@ export function SidebarPopoverMenu({
       {...motion.exitProps}
       onPointerEnter={hoverOpen}
       onPointerLeave={hoverClose}
-      style={portal ? position : undefined}
+      onKeyDown={(event) => {
+        if (event.defaultPrevented) return;
+        if (event.key === "Escape" && !event.nativeEvent.isComposing) {
+          event.preventDefault();
+          event.stopPropagation();
+          close();
+          return;
+        }
+        navigatePopover(event);
+      }}
+      style={portal ? position : placement === "below" ? { maxHeight } : undefined}
       className={cn(
-        hasSubmenu ? "overflow-visible" : "overflow-hidden",
+        hasSubmenu ? "overflow-visible" : placement === "below" ? "overflow-x-hidden overflow-y-auto overscroll-contain" : "overflow-hidden",
         "popover-menu",
         portal ? "fixed z-[100] w-52 max-w-[calc(100vw-1rem)]" : "absolute z-40",
         !portal && (placement === "below"
@@ -211,11 +262,16 @@ export function SidebarPopoverMenu({
               if (!item.submenu) return;
               if (event.key === "ArrowRight") {
                 event.preventDefault();
+                event.stopPropagation();
                 showFlyout(item.key, 0);
                 const wrapper = event.currentTarget.parentElement;
-                setTimeout(() => wrapper?.querySelector<HTMLElement>("[data-menu-flyout] [role=\"menuitem\"]")?.focus(), 0);
+                setTimeout(() => enabledMenuItems(wrapper?.querySelector<HTMLElement>("[data-menu-flyout]") ?? null)[0]?.focus(), 0);
               }
-              if (event.key === "ArrowLeft") showFlyout(null, 0);
+              if (event.key === "ArrowLeft") {
+                event.preventDefault();
+                event.stopPropagation();
+                showFlyout(null, 0);
+              }
             }}
             className={cn(
               "popover-menu-row disabled:opacity-60",
@@ -260,10 +316,15 @@ export function SidebarPopoverMenu({
               aria-label={item.label}
               onPointerEnter={clearFlyoutTimer}
               onKeyDown={(event) => {
-                if (event.key !== "ArrowLeft") return;
-                event.preventDefault();
-                showFlyout(null, 0);
-                event.currentTarget.parentElement?.querySelector<HTMLElement>(":scope > button")?.focus();
+                if (event.defaultPrevented) return;
+                if ((event.key === "ArrowLeft" || event.key === "Escape") && !event.nativeEvent.isComposing) {
+                  event.preventDefault();
+                  event.stopPropagation();
+                  showFlyout(null, 0);
+                  event.currentTarget.parentElement?.querySelector<HTMLElement>(":scope > button")?.focus();
+                  return;
+                }
+                navigatePopover(event);
               }}
               className="absolute bottom-0 left-full z-50 pl-1.5"
             >
@@ -306,6 +367,24 @@ export function SidebarPopoverMenu({
             setOpen(true);
           }
         }}
+        onKeyDown={(event) => {
+          if (event.defaultPrevented || event.nativeEvent.isComposing) return;
+          if (event.key === "Escape" && open) {
+            event.preventDefault();
+            event.stopPropagation();
+            close();
+            return;
+          }
+          if (event.metaKey || event.ctrlKey || event.altKey || !["ArrowDown", "ArrowUp", "Enter", " "].includes(event.key)) return;
+          event.preventDefault();
+          event.stopPropagation();
+          clearTimers();
+          setPinned(true);
+          const edge = event.key === "ArrowUp" ? "last" : "first";
+          if (open) enabledMenuItems(menuRef.current).at(edge === "last" ? -1 : 0)?.focus();
+          else focusOnOpen.current = edge;
+          setOpen(true);
+        }}
         className="w-full"
       >
         {renderTrigger({ open })}
@@ -315,3 +394,4 @@ export function SidebarPopoverMenu({
     </div>
   );
 }
+
