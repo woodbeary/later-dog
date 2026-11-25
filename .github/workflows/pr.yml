@@ -34,8 +34,8 @@ jobs:
       - uses: ./.github/actions/prepare
       - name: Lint
         run: pnpm lint
-      - name: Check the brand, comment and verification-documentation rules
-        run: pnpm exec vitest run scripts/brand-links.test.ts scripts/no-comments.test.ts scripts/testing/verification-docs.test.ts
+      - name: Check repository rules and hosted-check contracts
+        run: pnpm exec vitest run scripts/brand-links.test.ts scripts/no-comments.test.ts scripts/testing/verification-docs.test.ts scripts/ci-scope.test.ts scripts/ci-verdict.test.ts scripts/laterdog-workflows.test.ts
   typecheck:
     runs-on: ubuntu-latest
     timeout-minutes: 15
