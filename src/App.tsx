@@ -16,6 +16,9 @@ import { TaskChat } from "@/components/TaskChat";
 import { ChatView } from "@/components/ChatView";
 import { GroupView } from "@/components/GroupView";
 import { SIDEBAR_AND_PANEL_FIT, TWO_SIDE_PANELS_FIT, useMediaQuery } from "@/lib/use-media-query";
+import { foldSidebarToRail } from "@/lib/sidebar-fold";
+import "./work-panel-fit.css";
+import { useWorkPanelOpen } from "@/lib/work-panel";
 import { PluginsPanel, preloadConnectedApps } from "@/components/PluginsPanel";
 import {
   BotSettingsDialog, CloudTaskPanel, KeyboardShortcutsModal, NewChatPicker, preloadScreens, RoutinesPage, SettingsModal,
@@ -100,8 +103,8 @@ function Shell({ viewer }: { viewer: WelcomeViewer | null }) {
   const menuButtonRef = useRef<HTMLButtonElement>(null);
   const { groupId, botId } = state;
   const cloudTaskOpen = state.computerOpen && state.cloudTaskId !== null;
-  const sidePanelOpen = (Boolean(botId) && state.settingsOpen) || cloudTaskOpen;
-  const collapseSidebar = sidePanelOpen && !sidebarAndPanelFit;
+  const workPanelOpen = useWorkPanelOpen();
+  const collapseSidebar = foldSidebarToRail({ botOpen: Boolean(botId), roomOpen: Boolean(groupId), settingsOpen: state.settingsOpen, cloudTaskOpen, workPanelOpen }, sidebarAndPanelFit);
   const calendarFocus = state.routinesOpen;
 
   const { noEngines, cloudSignIn } = state;
@@ -234,10 +237,11 @@ function Shell({ viewer }: { viewer: WelcomeViewer | null }) {
         <CredentialStoreNotice />
         <DamagedDataNotice />
       </div>
-      <div className="relative flex min-h-0 flex-1">
+      <div data-work-panel-layout={workPanelOpen ? "open" : undefined} className="relative flex min-h-0 flex-1">
       {!calendarFocus && <button
         type="button"
         ref={menuButtonRef}
+        data-sidebar-drawer-toggle
         aria-label="Open dog list"
         aria-expanded={drawerOpen}
         onClick={() => setDrawerOpen(true)}
@@ -248,6 +252,7 @@ function Shell({ viewer }: { viewer: WelcomeViewer | null }) {
       {drawerOpen && !calendarFocus && (
         <div
           aria-hidden
+          data-sidebar-drawer-backdrop
           onMouseDown={(e) => e.target === e.currentTarget && setDrawerOpen(false)}
           className="absolute inset-0 z-30 bg-black/50 md:hidden"
         />
