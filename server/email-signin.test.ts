@@ -27,7 +27,10 @@ interface Reply {
   body: any;
 }
 
-function call(path: string, init: { method?: string; body?: unknown; headers?: Record<string, string>; from?: string } = {}): Promise<Reply> {
+function call(
+  path: string,
+  init: { method?: string; body?: unknown; headers?: Record<string, string>; from?: string } = {},
+): Promise<Reply> {
   return new Promise((resolve, reject) => {
     const payload = init.body === undefined ? undefined : JSON.stringify(init.body);
     const req = httpRequest(
@@ -77,7 +80,9 @@ async function signIn(email: string): Promise<string> {
 
 async function openEvents(cookie: string) {
   const stream = await openSse(`http://127.0.0.1:${PORT}/api/events`, {
-    "x-forwarded-for": "203.0.113.7", "x-forwarded-proto": "https", cookie,
+    "x-forwarded-for": "203.0.113.7",
+    "x-forwarded-proto": "https",
+    cookie,
   });
   await stream.until((frame) => frame.kind === "hello");
   return stream;
@@ -90,10 +95,13 @@ beforeAll(async () => {
   mkdirSync(join(home, ".laterdog"), { recursive: true });
   mkdirSync(join(staticDir, "assets"), { recursive: true });
   writeFileSync(join(staticDir, "index.html"), "<!doctype html><title>Served UI</title>");
-  writeFileSync(join(home, ".laterdog", "config.json"), JSON.stringify({
-    instances: { fixture: { driver: "email-signin-test-shadow" } },
-    signIn: { admins: ["her@example.test", "@agentada.test"], members: ["staff@example.test"] },
-  }));
+  writeFileSync(
+    join(home, ".laterdog", "config.json"),
+    JSON.stringify({
+      instances: { fixture: { driver: "email-signin-test-shadow" } },
+      signIn: { admins: ["her@example.test", "@agentada.test"], members: ["staff@example.test"] },
+    }),
+  );
   child = spawn(process.execPath, [join(SERVER_DIR, "index.ts")], {
     cwd: ROOT,
     env: {
@@ -139,16 +147,33 @@ describe("sign in with your email on a hosted server", () => {
 
   it("is JSON-only and refuses addresses that are not on the list", async () => {
     const form = await new Promise<Reply>((resolve, reject) => {
-      const req = httpRequest({ hostname: "127.0.0.1", port: PORT, path: "/api/auth/email/start", method: "POST", headers: { host: HOST, "x-forwarded-for": "203.0.113.9", "content-type": "application/x-www-form-urlencoded" } }, (res) => {
-        let raw = "";
-        res.on("data", (c) => (raw += c));
-        res.on("end", () => resolve({ status: res.statusCode ?? 0, headers: res.headers, body: raw }));
-      });
+      const req = httpRequest(
+        {
+          hostname: "127.0.0.1",
+          port: PORT,
+          path: "/api/auth/email/start",
+          method: "POST",
+          headers: {
+            host: HOST,
+            "x-forwarded-for": "203.0.113.9",
+            "content-type": "application/x-www-form-urlencoded",
+          },
+        },
+        (res) => {
+          let raw = "";
+          res.on("data", (c) => (raw += c));
+          res.on("end", () =>
+            resolve({ status: res.statusCode ?? 0, headers: res.headers, body: raw }),
+          );
+        },
+      );
       req.on("error", reject);
       req.end("email=her%40example.test");
     });
     expect(form.status).toBe(415);
-    const stranger = await call("/api/auth/email/start", { body: { email: "stranger@example.test" } });
+    const stranger = await call("/api/auth/email/start", {
+      body: { email: "stranger@example.test" },
+    });
     expect(stranger.status).toBe(403);
     expect(stranger.body.error).toMatch(/not on this server's sign-in list/);
     expect(stub.calls).not.toContain("POST /api/auth/email-otp/send-verification-otp");
@@ -159,13 +184,21 @@ describe("sign in with your email on a hosted server", () => {
     expect(started.status).toBe(200);
     expect(stub.calls).toContain("POST /api/auth/email-otp/send-verification-otp");
 
-    const wrong = await call("/api/auth/email/verify", { body: { email: "her@example.test", code: "00000000", label: "Her iPad" } });
+    const wrong = await call("/api/auth/email/verify", {
+      body: { email: "her@example.test", code: "00000000", label: "Her iPad" },
+    });
     expect(wrong.status).toBe(401);
     expect(cookieOf(wrong)).toBe("");
 
-    const right = await call("/api/auth/email/verify", { body: { email: "her@example.test", code: stub.otp, label: "Her iPad" } });
+    const right = await call("/api/auth/email/verify", {
+      body: { email: "her@example.test", code: stub.otp, label: "Her iPad" },
+    });
     expect(right.status).toBe(200);
-    expect(right.body.session).toMatchObject({ label: "Her iPad", scopes: ["admin", "client"], email: "her@example.test" });
+    expect(right.body.session).toMatchObject({
+      label: "Her iPad",
+      scopes: ["admin", "client"],
+      email: "her@example.test",
+    });
     expect(right.body.environment.environmentId).toBeTruthy();
     const cookie = cookieOf(right);
     expect(cookie).toMatch(/^laterdog_session_/);
@@ -173,28 +206,49 @@ describe("sign in with your email on a hosted server", () => {
 
     const me = await call("/api/auth/session", { headers: { cookie, origin: `https://${HOST}` } });
     expect(me.status).toBe(200);
-    expect(me.body).toMatchObject({ kind: "session", email: "her@example.test", scopes: ["admin", "client"], via: "cookie" });
+    expect(me.body).toMatchObject({
+      kind: "session",
+      email: "her@example.test",
+      scopes: ["admin", "client"],
+      via: "cookie",
+    });
     expect(me.body).not.toHaveProperty("hosted");
-    const config = await call("/api/config", { method: "PUT", body: { language: "en" }, headers: { cookie, origin: `https://${HOST}` } });
+    const config = await call("/api/config", {
+      method: "PUT",
+      body: { language: "en" },
+      headers: { cookie, origin: `https://${HOST}` },
+    });
     expect(config.status).toBe(200);
-    const listed = await call("/api/auth/sessions", { headers: { cookie, origin: `https://${HOST}` } });
+    const listed = await call("/api/auth/sessions", {
+      headers: { cookie, origin: `https://${HOST}` },
+    });
     expect(listed.status).toBe(200);
-    expect(listed.body.sessions.some((s: { email?: string }) => s.email === "her@example.test")).toBe(true);
+    expect(
+      listed.body.sessions.some((s: { email?: string }) => s.email === "her@example.test"),
+    ).toBe(true);
   });
 
   it("a member address gets a chat-only session; a domain entry welcomes the whole company", async () => {
     await call("/api/auth/email/start", { body: { email: "staff@example.test" } });
-    const member = await call("/api/auth/email/verify", { body: { email: "staff@example.test", code: stub.otp, label: "Staff phone" } });
+    const member = await call("/api/auth/email/verify", {
+      body: { email: "staff@example.test", code: stub.otp, label: "Staff phone" },
+    });
     expect(member.status).toBe(200);
     expect(member.body.session.scopes).toEqual(["client"]);
     const cookie = cookieOf(member);
     const bots = await call("/api/bots", { headers: { cookie, origin: `https://${HOST}` } });
     expect(bots.status).toBe(200);
-    const config = await call("/api/config", { method: "PUT", body: { language: "en" }, headers: { cookie, origin: `https://${HOST}` } });
+    const config = await call("/api/config", {
+      method: "PUT",
+      body: { language: "en" },
+      headers: { cookie, origin: `https://${HOST}` },
+    });
     expect(config.status).toBe(403);
 
     await call("/api/auth/email/start", { body: { email: "anyone@agentada.test" } });
-    const colleague = await call("/api/auth/email/verify", { body: { email: "anyone@agentada.test", code: stub.otp } });
+    const colleague = await call("/api/auth/email/verify", {
+      body: { email: "anyone@agentada.test", code: stub.otp },
+    });
     expect(colleague.status).toBe(200);
     expect(colleague.body.session.scopes).toEqual(["admin", "client"]);
     expect(colleague.body.session.label).toBe("Unnamed device");
@@ -203,12 +257,18 @@ describe("sign in with your email on a hosted server", () => {
   it("locks a source out after repeated wrong codes, like pairing does", async () => {
     let last = 0;
     for (let i = 0; i < 12; i += 1) {
-      const reply = await call("/api/auth/email/verify", { body: { email: "her@example.test", code: "99999999" }, from: "198.51.100.42" });
+      const reply = await call("/api/auth/email/verify", {
+        body: { email: "her@example.test", code: "99999999" },
+        from: "198.51.100.42",
+      });
       last = reply.status;
       if (last === 429) break;
     }
     expect(last).toBe(429);
-    const other = await call("/api/auth/email/verify", { body: { email: "her@example.test", code: stub.otp }, from: "198.51.100.43" });
+    const other = await call("/api/auth/email/verify", {
+      body: { email: "her@example.test", code: stub.otp },
+      from: "198.51.100.43",
+    });
     expect(other.status).toBe(200);
   });
 
@@ -218,36 +278,77 @@ describe("sign in with your email on a hosted server", () => {
     const second = await signIn("anyone@agentada.test");
     const streams = await Promise.all([openEvents(first), openEvents(second)]);
     try {
-      const ticket = await call("/api/auth/stream-ticket", { body: {}, headers: { cookie: first } });
+      const ticket = await call("/api/auth/stream-ticket", {
+        body: {},
+        headers: { cookie: first },
+      });
       expect(ticket.status).toBe(200);
       const pairing = await call("/api/auth/pairing", { body: {}, headers: { cookie: owner } });
       expect(pairing.status).toBe(200);
-      const paired = await call("/api/auth/pair", { body: { code: pairing.body.code, cookie: true, label: "QR device" } });
+      const paired = await call("/api/auth/pair", {
+        body: { code: pairing.body.code, cookie: true, label: "QR device" },
+      });
       expect(paired.status).toBe(200);
       const changed = await call("/api/config", {
-        method: "PUT", headers: { cookie: owner },
+        method: "PUT",
+        headers: { cookie: owner },
         body: {
-          signIn: { admins: ["her@example.test"], members: ["staff@example.test", "@agentada.test"] },
+          signIn: {
+            admins: ["her@example.test"],
+            members: ["staff@example.test", "@agentada.test"],
+          },
           profile: { name: "post-demotion-private-marker" },
         },
       });
       expect(changed.status).toBe(200);
-      await Promise.all(streams.map((stream) => expect(stream.until(() => false, 2_000)).rejects.toThrow("SSE stream closed")));
-      expect(JSON.stringify(streams.map((stream) => stream.frames))).not.toContain("post-demotion-private-marker");
+      await Promise.all(
+        streams.map((stream) =>
+          expect(stream.until(() => false, 2_000)).rejects.toThrow("SSE stream closed"),
+        ),
+      );
+      expect(JSON.stringify(streams.map((stream) => stream.frames))).not.toContain(
+        "post-demotion-private-marker",
+      );
       expect((await call("/api/bots", { headers: { cookie: first } })).status).toBe(401);
       expect((await call("/api/bots", { headers: { cookie: second } })).status).toBe(401);
       expect((await call(`/api/events?ticket=${ticket.body.ticket}`)).status).toBe(401);
-      expect((await call("/api/auth/sessions", { headers: { cookie: cookieOf(paired) } })).status).toBe(200);
+      expect(
+        (await call("/api/auth/sessions", { headers: { cookie: cookieOf(paired) } })).status,
+      ).toBe(200);
 
       const member = await signIn("anyone@agentada.test");
-      expect((await call("/api/auth/session", { headers: { cookie: member } })).body.scopes).toEqual(["client"]);
-      expect((await call("/api/config", { method: "PUT", headers: { cookie: member }, body: { language: "en" } })).status).toBe(403);
-      expect((await call("/api/config", {
-        method: "PUT", headers: { cookie: owner },
-        body: { signIn: { admins: ["her@example.test", "@agentada.test"], members: ["staff@example.test"] } },
-      })).status).toBe(200);
-      expect((await call("/api/auth/session", { headers: { cookie: member } })).body.scopes).toEqual(["client"]);
-    } finally { for (const stream of streams) stream.close(); }
+      expect(
+        (await call("/api/auth/session", { headers: { cookie: member } })).body.scopes,
+      ).toEqual(["client"]);
+      expect(
+        (
+          await call("/api/config", {
+            method: "PUT",
+            headers: { cookie: member },
+            body: { language: "en" },
+          })
+        ).status,
+      ).toBe(403);
+      expect(
+        (
+          await call("/api/config", {
+            method: "PUT",
+            headers: { cookie: owner },
+            body: {
+              signIn: {
+                admins: ["her@example.test", "@agentada.test"],
+                members: ["staff@example.test"],
+              },
+            },
+          })
+        ).status,
+      ).toBe(200);
+      expect(
+        (await call("/api/auth/session", { headers: { cookie: member } })).body.scopes,
+      ).toEqual(["client"]);
+    } finally {
+      for (const stream of streams) stream.close();
+    }
   });
 
   it("ends an idle email stream after an external allow-list removal and never revives the old cookie", async () => {
@@ -256,12 +357,20 @@ describe("sign in with your email on a hosted server", () => {
     const configPath = join(home, ".laterdog", "config.json");
     const config = JSON.parse(readFileSync(configPath, "utf8"));
     try {
-      writeFileSync(configPath, JSON.stringify({ ...config, signIn: { ...config.signIn, members: [] } }));
+      writeFileSync(
+        configPath,
+        JSON.stringify({ ...config, signIn: { ...config.signIn, members: [] } }),
+      );
       await expect(stream.until(() => false, 2_000)).rejects.toThrow("SSE stream closed");
       expect((await call("/api/bots", { headers: { cookie } })).status).toBe(401);
-      expect((await call("/api/auth/email/start", { body: { email: "staff@example.test" } })).status).toBe(403);
+      expect(
+        (await call("/api/auth/email/start", { body: { email: "staff@example.test" } })).status,
+      ).toBe(403);
       writeFileSync(configPath, JSON.stringify(config));
       expect((await call("/api/bots", { headers: { cookie } })).status).toBe(401);
-    } finally { stream.close(); writeFileSync(configPath, JSON.stringify(config)); }
+    } finally {
+      stream.close();
+      writeFileSync(configPath, JSON.stringify(config));
+    }
   });
 });

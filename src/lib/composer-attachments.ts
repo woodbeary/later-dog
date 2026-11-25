@@ -43,7 +43,8 @@ export function isAttachment(value: unknown): value is Attachment {
       Number.isInteger(attachment.lines) &&
       attachment.lines >= 1 &&
       (attachment.name === undefined || typeof attachment.name === "string") &&
-      (attachment.file === undefined || (isAttachment(attachment.file) && attachment.file.kind === "file"))
+      (attachment.file === undefined ||
+        (isAttachment(attachment.file) && attachment.file.kind === "file"))
     );
   }
   if (attachment.kind === "file") {
@@ -141,7 +142,10 @@ const AUDIO_MIMES_BY_EXTENSION: Readonly<Record<string, string>> = {
 };
 const ACCEPTED_AUDIO_MIMES = new Set([
   ...Object.values(AUDIO_MIMES_BY_EXTENSION),
-  "audio/x-m4a", "audio/x-wav", "audio/wave", "audio/x-flac",
+  "audio/x-m4a",
+  "audio/x-wav",
+  "audio/wave",
+  "audio/x-flac",
 ]);
 
 export function documentMime(file: Pick<File, "name" | "type">): string | null {
@@ -154,15 +158,20 @@ export function documentMime(file: Pick<File, "name" | "type">): string | null {
 export function isImageFile(file: { type: string; size?: number }): boolean {
   return (
     file.type.startsWith("image/") &&
-    ["image/png", "image/jpeg", "image/gif", "image/webp"].includes(file.type.split(";")[0]!.trim().toLowerCase())
+    ["image/png", "image/jpeg", "image/gif", "image/webp"].includes(
+      file.type.split(";")[0]!.trim().toLowerCase(),
+    )
   );
 }
 
 export function clipboardImageFiles(
-  clipboardData: {
-    files?: Iterable<File> | null;
-    items?: Iterable<{ kind: string; type: string; getAsFile(): File | null }> | null;
-  } | null | undefined,
+  clipboardData:
+    | {
+        files?: Iterable<File> | null;
+        items?: Iterable<{ kind: string; type: string; getAsFile(): File | null }> | null;
+      }
+    | null
+    | undefined,
 ): File[] {
   if (!clipboardData) return [];
   if (clipboardData.items) {
@@ -184,10 +193,13 @@ export function clipboardImageFiles(
 }
 
 export function clipboardHasImages(
-  clipboardData: {
-    files?: Iterable<{ type: string; size?: number }> | null;
-    items?: Iterable<{ kind: string; type: string }> | null;
-  } | null | undefined,
+  clipboardData:
+    | {
+        files?: Iterable<{ type: string; size?: number }> | null;
+        items?: Iterable<{ kind: string; type: string }> | null;
+      }
+    | null
+    | undefined,
 ): boolean {
   if (!clipboardData) return false;
   if (clipboardData.items) {
@@ -224,7 +236,11 @@ async function uploadWithRetry<T>(url: string, init: RequestInit): Promise<T> {
     try {
       response = await fetch(url, init);
     } catch (error) {
-      const aborted = typeof error === "object" && error !== null && "name" in error && error.name === "AbortError";
+      const aborted =
+        typeof error === "object" &&
+        error !== null &&
+        "name" in error &&
+        error.name === "AbortError";
       if (aborted || attempt === UPLOAD_ATTEMPTS - 1) throw error;
       continue;
     }
@@ -233,11 +249,13 @@ async function uploadWithRetry<T>(url: string, init: RequestInit): Promise<T> {
         await response.body?.cancel().catch(() => undefined);
         continue;
       }
-      const detail = (await response.json().catch(() => ({ error: response.statusText }))) as { error?: string };
+      const detail = (await response.json().catch(() => ({ error: response.statusText }))) as {
+        error?: string;
+      };
       throw Object.assign(new Error(detail.error ?? "upload failed"), { status: response.status });
     }
     try {
-      return await response.json() as T;
+      return (await response.json()) as T;
     } catch (error) {
       if (attempt === UPLOAD_ATTEMPTS - 1) {
         throw new Error("upload returned an invalid response", { cause: error });
@@ -262,9 +280,11 @@ function canonicalImageName(originalName: string, path: string, mime: string): s
 
 export function optimisticImageAttachment(file: File): ImageAttachment | null {
   if (!isImageFile(file)) return null;
-  if (file.size > IMAGE_MAX_BYTES) throw Object.assign(new Error(`${file.name} exceeds 10 MB`), { status: 413 });
+  if (file.size > IMAGE_MAX_BYTES)
+    throw Object.assign(new Error(`${file.name} exceeds 10 MB`), { status: 413 });
   const mime = file.type.split(";", 1)[0]!.trim().toLowerCase();
-  const previewUrl = typeof URL.createObjectURL === "function" ? URL.createObjectURL(file) : undefined;
+  const previewUrl =
+    typeof URL.createObjectURL === "function" ? URL.createObjectURL(file) : undefined;
   return {
     kind: "image",
     id: newId(),
@@ -282,7 +302,8 @@ export async function imageAttachmentFromFile(
   optimistic?: Pick<ImageAttachment, "id" | "previewUrl">,
 ): Promise<ImageAttachment | null> {
   if (!isImageFile(file)) return null;
-  if (file.size > IMAGE_MAX_BYTES) throw Object.assign(new Error(`${file.name} exceeds 10 MB`), { status: 413 });
+  if (file.size > IMAGE_MAX_BYTES)
+    throw Object.assign(new Error(`${file.name} exceeds 10 MB`), { status: 413 });
   const bytes = new Uint8Array(await file.arrayBuffer());
   const uploadId = newUploadId();
   const saved = await uploadWithRetry<{ path: string; mime: string; bytes: number }>(
@@ -307,7 +328,8 @@ export async function imageAttachmentFromFile(
 export async function fileAttachmentFromFile(file: File): Promise<FileAttachment | null> {
   const declared = file.type.split(";", 1)[0]!.trim().toLowerCase();
   const extension = file.name.split(".").at(-1)?.toLowerCase() ?? "";
-  const mime = documentMime(file) ??
+  const mime =
+    documentMime(file) ??
     (ACCEPTED_AUDIO_MIMES.has(declared) ? declared : AUDIO_MIMES_BY_EXTENSION[extension]);
   if (!mime) return null;
   if (file.size > FILE_MAX_BYTES) {
@@ -326,8 +348,15 @@ export async function fileAttachmentFromFile(file: File): Promise<FileAttachment
 }
 
 export function pastedTextFileName(attachments: readonly Attachment[]): string {
-  const names = new Set(attachments.flatMap((attachment) => attachment.kind === "file"
-    ? [attachment.name] : attachment.kind === "paste" ? [attachment.name ?? "Pasted text.txt"] : []));
+  const names = new Set(
+    attachments.flatMap((attachment) =>
+      attachment.kind === "file"
+        ? [attachment.name]
+        : attachment.kind === "paste"
+          ? [attachment.name ?? "Pasted text.txt"]
+          : [],
+    ),
+  );
   let number = 1;
   let name = "Pasted text.txt";
   while (names.has(name)) {
@@ -406,13 +435,19 @@ export function composeMessage(text: string, attachments: Attachment[]): string 
     if (a.kind === "citation") {
       parts.push(serializeCitation(a));
     } else if (a.kind === "paste") {
-      parts.push(a.file
-        ? `<attached-file path="${escapeAttribute(a.file.path)}" name="${escapeAttribute(a.file.name)}" />`
-        : `<pasted-text index="${i + 1}">\n${a.text}\n</pasted-text>`);
+      parts.push(
+        a.file
+          ? `<attached-file path="${escapeAttribute(a.file.path)}" name="${escapeAttribute(a.file.name)}" />`
+          : `<pasted-text index="${i + 1}">\n${a.text}\n</pasted-text>`,
+      );
     } else if (a.kind === "image") {
-      parts.push(`<attached-image path="${escapeAttribute(a.path)}" name="${escapeAttribute(a.name)}" />`);
+      parts.push(
+        `<attached-image path="${escapeAttribute(a.path)}" name="${escapeAttribute(a.name)}" />`,
+      );
     } else {
-      parts.push(`<attached-file path="${escapeAttribute(a.path)}" name="${escapeAttribute(a.name)}" />`);
+      parts.push(
+        `<attached-file path="${escapeAttribute(a.path)}" name="${escapeAttribute(a.name)}" />`,
+      );
     }
   });
   return parts.filter(Boolean).join("\n\n");
@@ -448,34 +483,44 @@ export type TranscriptAttachments = {
 };
 
 function decodeAttachmentAttribute(value: string): string {
-  return value.replace(/&(quot|lt|gt|amp);|&#(9|10|13);/g, (entity, named: string | undefined, numeric: string | undefined) => {
-    if (numeric === "9") return "\t";
-    if (numeric === "10") return "\n";
-    if (numeric === "13") return "\r";
-    if (named === "quot") return '"';
-    if (named === "lt") return "<";
-    if (named === "gt") return ">";
-    if (named === "amp") return "&";
-    return entity;
-  });
+  return value.replace(
+    /&(quot|lt|gt|amp);|&#(9|10|13);/g,
+    (entity, named: string | undefined, numeric: string | undefined) => {
+      if (numeric === "9") return "\t";
+      if (numeric === "10") return "\n";
+      if (numeric === "13") return "\r";
+      if (named === "quot") return '"';
+      if (named === "lt") return "<";
+      if (named === "gt") return ">";
+      if (named === "amp") return "&";
+      return entity;
+    },
+  );
 }
 
 function transcriptFileName(path: string, suppliedName?: string): string {
   const decoded = suppliedName ? decodeAttachmentAttribute(suppliedName) : attachmentBasename(path);
-  const clean = (value: string) => Array.from(value, (character) => {
-    const code = character.codePointAt(0) ?? 0;
-    const control = code <= 31 || (code >= 127 && code <= 159);
-    const bidiControl = (code >= 0x202a && code <= 0x202e) || (code >= 0x2066 && code <= 0x2069);
-    return control || bidiControl ? " " : character;
-  }).join("").replace(/\s+/g, " ").trim();
+  const clean = (value: string) =>
+    Array.from(value, (character) => {
+      const code = character.codePointAt(0) ?? 0;
+      const control = code <= 31 || (code >= 127 && code <= 159);
+      const bidiControl = (code >= 0x202a && code <= 0x202e) || (code >= 0x2066 && code <= 0x2069);
+      return control || bidiControl ? " " : character;
+    })
+      .join("")
+      .replace(/\s+/g, " ")
+      .trim();
   const safe = clean(attachmentBasename(decoded));
   const fallback = clean(attachmentBasename(path));
-  return Array.from(safe || fallback || "Attached file").slice(0, 180).join("");
+  return Array.from(safe || fallback || "Attached file")
+    .slice(0, 180)
+    .join("");
 }
 
 export function isPrivateAttachmentPath(path: string): boolean {
-  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\.[a-z0-9]+$/i
-    .test(attachmentBasename(path));
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\.[a-z0-9]+$/i.test(
+    attachmentBasename(path),
+  );
 }
 
 type TranscriptFence = {
@@ -504,19 +549,67 @@ function transcriptFenceMarker(line: string): (TranscriptFence & { remainder: st
 }
 
 const COMMONMARK_BLOCK_TAGS = [
-  "address", "article", "aside", "base", "basefont", "blockquote", "body", "caption", "center", "col",
-  "colgroup", "dd", "details", "dialog", "dir", "div", "dl", "dt", "fieldset", "figcaption", "figure",
-  "footer", "form", "frame", "frameset", "h[1-6]", "head", "header", "hr", "html", "iframe", "legend",
-  "li", "link", "main", "menu", "menuitem", "nav", "noframes", "ol", "optgroup", "option", "p",
-  "param", "search", "section", "summary", "table", "tbody", "td", "tfoot", "th", "thead", "title",
-  "tr", "track", "ul",
+  "address",
+  "article",
+  "aside",
+  "base",
+  "basefont",
+  "blockquote",
+  "body",
+  "caption",
+  "center",
+  "col",
+  "colgroup",
+  "dd",
+  "details",
+  "dialog",
+  "dir",
+  "div",
+  "dl",
+  "dt",
+  "fieldset",
+  "figcaption",
+  "figure",
+  "footer",
+  "form",
+  "frame",
+  "frameset",
+  "h[1-6]",
+  "head",
+  "header",
+  "hr",
+  "html",
+  "iframe",
+  "legend",
+  "li",
+  "link",
+  "main",
+  "menu",
+  "menuitem",
+  "nav",
+  "noframes",
+  "ol",
+  "optgroup",
+  "option",
+  "p",
+  "param",
+  "search",
+  "section",
+  "summary",
+  "table",
+  "tbody",
+  "td",
+  "tfoot",
+  "th",
+  "thead",
+  "title",
+  "tr",
+  "track",
+  "ul",
 ].join("|");
 
 const COMMONMARK_TYPE_1 = /^ {0,3}<(script|pre|style|textarea)(?:[\t ]|>|$)/i;
-const COMMONMARK_TYPE_6 = new RegExp(
-  `^ {0,3}</?(?:${COMMONMARK_BLOCK_TAGS})(?:[\\t ]|/?>|$)`,
-  "i",
-);
+const COMMONMARK_TYPE_6 = new RegExp(`^ {0,3}</?(?:${COMMONMARK_BLOCK_TAGS})(?:[\\t ]|/?>|$)`, "i");
 const HTML_ATTRIBUTE_NAME = "[A-Za-z_:][A-Za-z0-9_.:-]*";
 const HTML_ATTRIBUTE_VALUE = `(?:[^\\s"'=<>\\x60]+|'[^']*'|"[^"]*")`;
 const HTML_ATTRIBUTE = `(?:[\\t ]+${HTML_ATTRIBUTE_NAME}(?:[\\t ]*=[\\t ]*${HTML_ATTRIBUTE_VALUE})?)`;
@@ -545,27 +638,19 @@ function transcriptBlockStarting(line: string): TranscriptBlock | null {
   const typeOne = COMMONMARK_TYPE_1.exec(line);
   if (typeOne) {
     const closingToken = `</${typeOne[1]!.toLowerCase()}>`;
-    return lower.includes(closingToken)
-      ? null
-      : { kind: "untilToken", closingToken };
+    return lower.includes(closingToken) ? null : { kind: "untilToken", closingToken };
   }
 
   const processing = lowerContent.indexOf("<?");
   if (processing === 0) {
-    return lowerContent.indexOf("?>", 2) >= 0
-      ? null
-      : { kind: "untilToken", closingToken: "?>" };
+    return lowerContent.indexOf("?>", 2) >= 0 ? null : { kind: "untilToken", closingToken: "?>" };
   }
   const cdata = lowerContent.indexOf("<![cdata[");
   if (cdata === 0) {
-    return lowerContent.indexOf("]]>", 9) >= 0
-      ? null
-      : { kind: "untilToken", closingToken: "]]>" };
+    return lowerContent.indexOf("]]>", 9) >= 0 ? null : { kind: "untilToken", closingToken: "]]>" };
   }
   if (/^<![A-Za-z]/.test(content)) {
-    return content.indexOf(">", 2) >= 0
-      ? null
-      : { kind: "untilToken", closingToken: ">" };
+    return content.indexOf(">", 2) >= 0 ? null : { kind: "untilToken", closingToken: ">" };
   }
 
   if (COMMONMARK_TYPE_6.test(line) || COMMONMARK_TYPE_7.test(line)) {
@@ -635,7 +720,12 @@ export function splitTranscriptAttachments(
       }
       if (!consumed) {
         block = transcriptBlockStarting(line);
-        if (hidePasteWrappers && block?.kind === "untilToken" && block.closingToken === "</pasted-text>" && PASTED_TEXT_OPEN.test(line)) {
+        if (
+          hidePasteWrappers &&
+          block?.kind === "untilToken" &&
+          block.closingToken === "</pasted-text>" &&
+          PASTED_TEXT_OPEN.test(line)
+        ) {
           block = { ...block, hiddenWrapper: true };
           consumed = true;
         }
@@ -719,45 +809,55 @@ export async function intakeFiles<T extends DroppedFile & { type: string }>(
 ): Promise<{ attachments: Attachment[]; notice: string | null }> {
   const files = [..._files];
   const { allowImages, getPath, uploadImage } = _opts;
-  const uploadFile = _opts.uploadFile ?? (async (file: T) => {
-    if (!file.arrayBuffer) return null;
-    return fileAttachmentFromFile(file as unknown as File);
-  });
-  const results = await Promise.all(files.map(async (file): Promise<{
-    attachments: Attachment[];
-    rejectedNames: string[];
-    uploadError?: string;
-  }> => {
-    if (allowImages && isImageFile(file)) {
-      try {
-        const attachment = await uploadImage(file);
-        return { attachments: attachment ? [attachment] : [], rejectedNames: [] };
-      } catch (err) {
-        return {
-          attachments: [],
-          rejectedNames: [],
-          uploadError: `${file.name}: ${err instanceof Error ? err.message : "upload failed"}`,
-        };
-      }
-    }
-    try {
-      const attachment = await uploadFile(file);
-      if (attachment) {
-        return { attachments: [attachment], rejectedNames: [] };
-      }
-    } catch (err) {
-      return {
-        attachments: [],
-        rejectedNames: [],
-        uploadError: `${file.name}: ${err instanceof Error ? err.message : "upload failed"}`,
-      };
-    }
-    const result = await attachmentsFromDroppedFiles([file], getPath);
-    return result;
-  }));
+  const uploadFile =
+    _opts.uploadFile ??
+    (async (file: T) => {
+      if (!file.arrayBuffer) return null;
+      return fileAttachmentFromFile(file as unknown as File);
+    });
+  const results = await Promise.all(
+    files.map(
+      async (
+        file,
+      ): Promise<{
+        attachments: Attachment[];
+        rejectedNames: string[];
+        uploadError?: string;
+      }> => {
+        if (allowImages && isImageFile(file)) {
+          try {
+            const attachment = await uploadImage(file);
+            return { attachments: attachment ? [attachment] : [], rejectedNames: [] };
+          } catch (err) {
+            return {
+              attachments: [],
+              rejectedNames: [],
+              uploadError: `${file.name}: ${err instanceof Error ? err.message : "upload failed"}`,
+            };
+          }
+        }
+        try {
+          const attachment = await uploadFile(file);
+          if (attachment) {
+            return { attachments: [attachment], rejectedNames: [] };
+          }
+        } catch (err) {
+          return {
+            attachments: [],
+            rejectedNames: [],
+            uploadError: `${file.name}: ${err instanceof Error ? err.message : "upload failed"}`,
+          };
+        }
+        const result = await attachmentsFromDroppedFiles([file], getPath);
+        return result;
+      },
+    ),
+  );
   const attachments = results.flatMap((result) => result.attachments);
   const rejectedNames = results.flatMap((result) => result.rejectedNames);
-  const uploadErrors = results.flatMap((result) => result.uploadError ? [result.uploadError] : []);
+  const uploadErrors = results.flatMap((result) =>
+    result.uploadError ? [result.uploadError] : [],
+  );
   const pathless = rejectedNames.length
     ? `Unable to attach ${rejectedNames.join(", ")}. Choose a supported image, document, or audio file.`
     : null;
@@ -776,15 +876,22 @@ export function composerShouldRefocus(active: FocusNode | null, input: ComposerI
   return Boolean(composer?.contains(active));
 }
 
-export function composerTakesFocusOnOpen(active: OpenFocusNode | null, input: ComposerInputNode): boolean {
+export function composerTakesFocusOnOpen(
+  active: OpenFocusNode | null,
+  input: ComposerInputNode,
+): boolean {
   if (composerShouldRefocus(active, input)) return true;
   if (!active) return true;
   const tag = active.tagName?.toUpperCase();
-  if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || active.isContentEditable) return false;
+  if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || active.isContentEditable)
+    return false;
   return !active.closest?.("[role=dialog], [role=alertdialog], [aria-modal=true]");
 }
 
-export function replyTargetTakesFocus(previousId: string | null | undefined, nextId: string | null | undefined): boolean {
+export function replyTargetTakesFocus(
+  previousId: string | null | undefined,
+  nextId: string | null | undefined,
+): boolean {
   return Boolean(nextId) && nextId !== previousId;
 }
 

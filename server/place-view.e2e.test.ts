@@ -10,11 +10,32 @@ import { removeTempDir, waitForExit } from "./testing/cleanup.ts";
 
 const ROOT = fileURLToPath(new URL("..", import.meta.url));
 
-const refusal = (status: number, code: string, message: string) =>
-  ({ status, body: { ok: false, type: "sandbox.error", status, code, message, error: { code, message, status } } });
-const HOURS = refusal(429, "limit_reached", "Your Pro plan's 50 cloud computer hours for October are used up. They reset on 1 November.");
-const AT_ONCE = refusal(429, "limit_reached", "Your Personal plan includes 1 cloud computer at once. Delete one to start another.");
-const DOWN = refusal(503, "service_unavailable", "Cloud computers are temporarily unavailable. Try again later.");
+const refusal = (status: number, code: string, message: string) => ({
+  status,
+  body: {
+    ok: false,
+    type: "sandbox.error",
+    status,
+    code,
+    message,
+    error: { code, message, status },
+  },
+});
+const HOURS = refusal(
+  429,
+  "limit_reached",
+  "Your Pro plan's 50 cloud computer hours for October are used up. They reset on 1 November.",
+);
+const AT_ONCE = refusal(
+  429,
+  "limit_reached",
+  "Your Personal plan includes 1 cloud computer at once. Delete one to start another.",
+);
+const DOWN = refusal(
+  503,
+  "service_unavailable",
+  "Cloud computers are temporarily unavailable. Try again later.",
+);
 
 describe("a cloud computer that can't start, against the real server", () => {
   let home = "";
@@ -32,35 +53,53 @@ describe("a cloud computer that can't start, against the real server", () => {
 
   const api = async (method: string, path: string, body?: unknown) => {
     const response = await fetch(base + path, {
-      method, headers: { "content-type": "application/json" },
+      method,
+      headers: { "content-type": "application/json" },
       ...(body === undefined ? {} : { body: JSON.stringify(body) }),
     });
-    return { status: response.status, body: await response.json() as any };
+    return { status: response.status, body: (await response.json()) as any };
   };
   const apiOk = async (method: string, path: string, body?: unknown) => {
     const result = await api(method, path, body);
     expect(result.status, `${method} ${path}: ${JSON.stringify(result.body)}`).toBeLessThan(400);
     return result.body;
   };
-  async function until<T>(read: () => T | Promise<T>, accept: (value: NoInfer<T>) => boolean, what = "fixture"): Promise<T> {
+  async function until<T>(
+    read: () => T | Promise<T>,
+    accept: (value: NoInfer<T>) => boolean,
+    what = "fixture",
+  ): Promise<T> {
     const end = Date.now() + 30_000;
     for (;;) {
       const value = await read();
       if (accept(value)) return value;
-      if (Date.now() >= end) throw new Error(`${what} wait expired: ${JSON.stringify(value)}\n${output.slice(-2_000)}`);
-      await new Promise(resolve => setTimeout(resolve, 50));
+      if (Date.now() >= end)
+        throw new Error(`${what} wait expired: ${JSON.stringify(value)}\n${output.slice(-2_000)}`);
+      await new Promise((resolve) => setTimeout(resolve, 50));
     }
   }
-  const messages = async (threadId: string) => (await apiOk("GET", `/api/threads/${threadId}/messages?limit=50`)).messages as any[];
-  const failedRow = (threadId: string, after = 0): Promise<any> => until(
-    async () => (await messages(threadId)).slice(after).find((message) => String(message.tool?.name ?? "").startsWith("error:")),
-    Boolean, "failed row");
-  const idle = (botId: string) => until(
-    async () => (await apiOk("GET", "/api/bots?messages=0")).bots.find((bot: any) => bot.id === botId),
-    (bot: any) => bot && !bot.busy, "idle bot");
+  const messages = async (threadId: string) =>
+    (await apiOk("GET", `/api/threads/${threadId}/messages?limit=50`)).messages as any[];
+  const failedRow = (threadId: string, after = 0): Promise<any> =>
+    until(
+      async () =>
+        (await messages(threadId))
+          .slice(after)
+          .find((message) => String(message.tool?.name ?? "").startsWith("error:")),
+      Boolean,
+      "failed row",
+    );
+  const idle = (botId: string) =>
+    until(
+      async () =>
+        (await apiOk("GET", "/api/bots?messages=0")).bots.find((bot: any) => bot.id === botId),
+      (bot: any) => bot && !bot.busy,
+      "idle bot",
+    );
   const savedTask = (botId: string, threadId: string) =>
     (JSON.parse(readFileSync(join(data, "bots.json"), "utf8")) as any[])
-      .find((bot: any) => bot.id === botId)?.tasks.find((task: any) => task.threadId === threadId);
+      .find((bot: any) => bot.id === botId)
+      ?.tasks.find((task: any) => task.threadId === threadId);
   const editSavedBot = (botId: string, edit: (bot: any) => void) => {
     const bots = JSON.parse(readFileSync(join(data, "bots.json"), "utf8")) as any[];
     edit(bots.find((bot: any) => bot.id === botId));
@@ -74,25 +113,55 @@ describe("a cloud computer that can't start, against the real server", () => {
     base = `http://127.0.0.1:${port}`;
     output = "";
     const proc = spawn(process.execPath, [join(ROOT, "server/index.ts")], {
-      cwd: ROOT, env: {
-        PATH: dirname(process.execPath), ...(process.env.SystemRoot ? { SystemRoot: process.env.SystemRoot } : {}),
-        HOME: home, USERPROFILE: home, LATERDOG_HOME: data,
-        APPDATA: join(home, "appdata"), LOCALAPPDATA: join(home, "localappdata"),
-        TEMP: home, TMP: home, TMPDIR: home, LATERDOG_TEST_SEALED_PATH: "1",
-        LATERDOG_SERVER_PORT: String(port), LATERDOG_WEBHOOK_PORT: String(port + 1), LATERDOG_STATIC_DIR: ui,
+      cwd: ROOT,
+      env: {
+        PATH: dirname(process.execPath),
+        ...(process.env.SystemRoot ? { SystemRoot: process.env.SystemRoot } : {}),
+        HOME: home,
+        USERPROFILE: home,
+        LATERDOG_HOME: data,
+        APPDATA: join(home, "appdata"),
+        LOCALAPPDATA: join(home, "localappdata"),
+        TEMP: home,
+        TMP: home,
+        TMPDIR: home,
+        LATERDOG_TEST_SEALED_PATH: "1",
+        LATERDOG_SERVER_PORT: String(port),
+        LATERDOG_WEBHOOK_PORT: String(port + 1),
+        LATERDOG_STATIC_DIR: ui,
         LATERDOG_BOX_API: boatApi,
-        LATERDOG_CLOUD_COMPUTER_START_WAIT_MS: "1000", LATERDOG_CLOUD_COMPUTER_START_BUDGET_MS: "1000",
-        LATERDOG_CLOUD_COMPUTER_RETRY_PAUSE_MS: "1000", LATERDOG_USER_DATA: join(home, "user-data"),
-        ...(included ? { LATERDOG_CLOUD_BOAT_URL: boatApi, LATERDOG_CLOUD_BOAT_TOKEN: "relay_place_view_fixture" } : {}),
-      }, stdio: ["ignore", "pipe", "pipe"],
+        LATERDOG_CLOUD_COMPUTER_START_WAIT_MS: "1000",
+        LATERDOG_CLOUD_COMPUTER_START_BUDGET_MS: "1000",
+        LATERDOG_CLOUD_COMPUTER_RETRY_PAUSE_MS: "1000",
+        LATERDOG_USER_DATA: join(home, "user-data"),
+        ...(included
+          ? {
+              LATERDOG_CLOUD_BOAT_URL: boatApi,
+              LATERDOG_CLOUD_BOAT_TOKEN: "relay_place_view_fixture",
+            }
+          : {}),
+      },
+      stdio: ["ignore", "pipe", "pipe"],
     });
     child = proc;
-    proc.stdout!.on("data", chunk => { output += chunk; });
-    proc.stderr!.on("data", chunk => { output += chunk; });
-    await until(async () => {
-      if (proc.exitCode !== null) throw new Error(`server exited during boot:\n${output}`);
-      try { return (await fetch(base + "/api/health")).ok; } catch { return false; }
-    }, Boolean, "boot");
+    proc.stdout!.on("data", (chunk) => {
+      output += chunk;
+    });
+    proc.stderr!.on("data", (chunk) => {
+      output += chunk;
+    });
+    await until(
+      async () => {
+        if (proc.exitCode !== null) throw new Error(`server exited during boot:\n${output}`);
+        try {
+          return (await fetch(base + "/api/health")).ok;
+        } catch {
+          return false;
+        }
+      },
+      Boolean,
+      "boot",
+    );
   }
   async function stop() {
     if (!child) return;
@@ -112,45 +181,67 @@ describe("a cloud computer that can't start, against the real server", () => {
     boatServer = createServer(async (req, res) => {
       res.setHeader("content-type", "application/json");
       const path = new URL(req.url ?? "/", "http://box.fixture").pathname;
-      let raw = ""; for await (const part of req) raw += part;
+      let raw = "";
+      for await (const part of req) raw += part;
       const body = raw ? JSON.parse(raw) : {};
       if (path === "/boxes" && req.method === "POST") {
         creates++;
-        if (createAnswer) { res.statusCode = createAnswer.status; return res.end(JSON.stringify(createAnswer.body)); }
-        const row = { id: `bx_${String(23456789 + boxes.length)}`, name: String(body.name ?? ""), state: "idle" };
+        if (createAnswer) {
+          res.statusCode = createAnswer.status;
+          return res.end(JSON.stringify(createAnswer.body));
+        }
+        const row = {
+          id: `bx_${String(23456789 + boxes.length)}`,
+          name: String(body.name ?? ""),
+          state: "idle",
+        };
         boxes.push(row);
         return res.end(JSON.stringify({ box: row }));
       }
       if (path === "/boxes") return res.end(JSON.stringify({ boxes }));
-      if (path.endsWith("/desktop")) return res.end(JSON.stringify({ desktopUrl: "https://desktop.fixture.invalid" }));
-      if (path.endsWith("/commands")) return res.end(JSON.stringify({ exitCode: 0, stdout: "", stderr: "" }));
-      const row = boxes.find(entry => path === `/boxes/${entry.id}`);
+      if (path.endsWith("/desktop"))
+        return res.end(JSON.stringify({ desktopUrl: "https://desktop.fixture.invalid" }));
+      if (path.endsWith("/commands"))
+        return res.end(JSON.stringify({ exitCode: 0, stdout: "", stderr: "" }));
+      const row = boxes.find((entry) => path === `/boxes/${entry.id}`);
       if (row) {
         if (req.method === "PATCH" && typeof body.name === "string") row.name = body.name;
         return res.end(JSON.stringify({ box: row }));
       }
       res.end("{}");
     });
-    await new Promise<void>(resolve => boatServer.listen(0, "127.0.0.1", resolve));
+    await new Promise<void>((resolve) => boatServer.listen(0, "127.0.0.1", resolve));
     boatApi = `http://127.0.0.1:${(boatServer.address() as { port: number }).port}`;
     writeConfig(true);
   });
-  const writeConfig = (ownKey: boolean) => writeFileSync(join(data, "config.json"), JSON.stringify({
-    ...(ownKey ? { box: { token: "box_place_view_fixture" } } : {}),
-    instances: { claude: {
-      driver: "claudeAgent", config: { cli: join(ROOT, "server/testing/fake-claude-cli.ts") },
-      environment: { FAKE_CLAUDE_USES_CLOUD_COMPUTER: "1" },
-    } },
-  }));
+  const writeConfig = (ownKey: boolean) =>
+    writeFileSync(
+      join(data, "config.json"),
+      JSON.stringify({
+        ...(ownKey ? { box: { token: "box_place_view_fixture" } } : {}),
+        instances: {
+          claude: {
+            driver: "claudeAgent",
+            config: { cli: join(ROOT, "server/testing/fake-claude-cli.ts") },
+            environment: { FAKE_CLAUDE_USES_CLOUD_COMPUTER: "1" },
+          },
+        },
+      }),
+    );
   afterAll(async () => {
     await stop();
-    if (boatServer) await new Promise<void>(resolve => boatServer.close(() => resolve()));
+    if (boatServer) await new Promise<void>((resolve) => boatServer.close(() => resolve()));
     if (home) await removeTempDir(home);
   });
   afterEach(async () => {
     await stop();
-    createAnswer = null; creates = 0; boxes.length = 0;
-    if (included) { included = false; writeConfig(true); }
+    createAnswer = null;
+    creates = 0;
+    boxes.length = 0;
+    if (included) {
+      included = false;
+      writeConfig(true);
+    }
   });
 
   it("J5: no hours left says when they come back, offers the plan, and starts nothing", async () => {
@@ -160,8 +251,14 @@ describe("a cloud computer that can't start, against the real server", () => {
     createAnswer = HOURS;
     await send(bot.id, bot.threadId, "Open the desktop.");
     const row = await failedRow(bot.threadId);
-    expect(row.tool.name).toBe("error: This month's 50 cloud computer hours are used up. They come back on 1 November. See your plan on the Plan page.");
-    expect(row.tool.place).toEqual({ state: "cc-no-hours", params: { bot: "Hours Bot", plan: "Pro", hours: 50, month: "November" }, source: "works-on" });
+    expect(row.tool.name).toBe(
+      "error: This month's 50 cloud computer hours are used up. They come back on 1 November. See your plan on the Plan page.",
+    );
+    expect(row.tool.place).toEqual({
+      state: "cc-no-hours",
+      params: { bot: "Hours Bot", plan: "Pro", hours: 50, month: "November" },
+      source: "works-on",
+    });
     await idle(bot.id);
     expect(creates).toBe(1);
     expect(boxes).toEqual([]);
@@ -172,17 +269,31 @@ describe("a cloud computer that can't start, against the real server", () => {
     const { bot: holder } = await apiOk("POST", "/api/bots", { name: "Ada" });
     await apiOk("PATCH", `/api/bots/${holder.id}`, { computer: "cloud" });
     await send(holder.id, holder.threadId, "Use your desktop.");
-    await until(() => boxes.length, count => count === 1, "Ada's computer");
+    await until(
+      () => boxes.length,
+      (count) => count === 1,
+      "Ada's computer",
+    );
     await idle(holder.id);
-    expect((await messages(holder.threadId)).some(message => String(message.tool?.name ?? "").startsWith("error:"))).toBe(false);
+    expect(
+      (await messages(holder.threadId)).some((message) =>
+        String(message.tool?.name ?? "").startsWith("error:"),
+      ),
+    ).toBe(false);
 
     const { bot } = await apiOk("POST", "/api/bots", { name: "Bo" });
     await apiOk("PATCH", `/api/bots/${bot.id}`, { computer: "cloud" });
     createAnswer = AT_ONCE;
     await send(bot.id, bot.threadId, "Use your desktop too.");
     const row = await failedRow(bot.threadId);
-    expect(row.tool.name).toBe("error: Your Personal plan includes 1 cloud computer, and Ada has it. Manage your cloud computers in Settings → Computer.");
-    expect(row.tool.place).toEqual({ state: "cc-at-once", params: { bot: "Bo", plan: "Personal", max: 1, holders: ["Ada"] }, source: "works-on" });
+    expect(row.tool.name).toBe(
+      "error: Your Personal plan includes 1 cloud computer, and Ada has it. Manage your cloud computers in Settings → Computer.",
+    );
+    expect(row.tool.place).toEqual({
+      state: "cc-at-once",
+      params: { bot: "Bo", plan: "Personal", max: 1, holders: ["Ada"] },
+      source: "works-on",
+    });
   }, 90_000);
 
   it("J7: a relay that can't start one says so plainly, with Try again and no Boat words", async () => {
@@ -192,9 +303,15 @@ describe("a cloud computer that can't start, against the real server", () => {
     createAnswer = DOWN;
     await send(bot.id, bot.threadId, "Open the desktop.");
     const row = await failedRow(bot.threadId);
-    expect(row.tool.name).toBe("error: Cloud computers can't start right now. It isn't anything you did. Try again.");
+    expect(row.tool.name).toBe(
+      "error: Cloud computers can't start right now. It isn't anything you did. Try again.",
+    );
     expect(row.tool.name).not.toMatch(/boat|box|Works on to Auto/i);
-    expect(row.tool.place).toEqual({ state: "cc-unavailable", params: { bot: "Down Bot" }, source: "works-on" });
+    expect(row.tool.place).toEqual({
+      state: "cc-unavailable",
+      params: { bot: "Down Bot" },
+      source: "works-on",
+    });
   }, 90_000);
 
   it("the Admin's subscription_inactive reads as Plan ended, by its code, with See your plan", async () => {
@@ -203,32 +320,58 @@ describe("a cloud computer that can't start, against the real server", () => {
     await start();
     const { bot } = await apiOk("POST", "/api/bots", { name: "Ended Bot" });
     await apiOk("PATCH", `/api/bots/${bot.id}`, { computer: "cloud" });
-    createAnswer = refusal(402, "subscription_inactive", "Cloud computers are included with an active Cloud subscription.");
+    createAnswer = refusal(
+      402,
+      "subscription_inactive",
+      "Cloud computers are included with an active Cloud subscription.",
+    );
     await send(bot.id, bot.threadId, "Open the desktop.");
     const row = await failedRow(bot.threadId);
-    expect(row.tool.name).toBe("error: Your later.dog Cloud plan has ended, so cloud computers are off. See your plan on the Plan page.");
-    expect(row.tool.place).toEqual({ state: "cc-ended", params: { bot: "Ended Bot" }, source: "works-on" });
+    expect(row.tool.name).toBe(
+      "error: Your later.dog Cloud plan has ended, so cloud computers are off. See your plan on the Plan page.",
+    );
+    expect(row.tool.place).toEqual({
+      state: "cc-ended",
+      params: { bot: "Ended Bot" },
+      source: "works-on",
+    });
   }, 90_000);
 
   it("an automatic pin that fails is cleared, and the row says the conversation is back on Auto", async () => {
     await start();
     const { bot } = await apiOk("POST", "/api/bots", { name: "Pinned Bot" });
     await stop();
-    editSavedBot(bot.id, saved => {
-      Object.assign(saved.tasks.find((task: any) => task.threadId === bot.threadId), { surface: "cloud", surfaceSource: "auto" });
+    editSavedBot(bot.id, (saved) => {
+      Object.assign(
+        saved.tasks.find((task: any) => task.threadId === bot.threadId),
+        { surface: "cloud", surfaceSource: "auto" },
+      );
     });
     await start();
     createAnswer = DOWN;
     await send(bot.id, bot.threadId, "Carry on on the desktop.");
     const row = await failedRow(bot.threadId);
-    expect(row.tool.name).toBe("error: Cloud computers can't start right now. It isn't anything you did. This conversation is back on Auto. Send your message again.");
-    expect(row.tool.place).toEqual({ state: "cc-unavailable", params: { bot: "Pinned Bot" }, source: "auto-pin" });
+    expect(row.tool.name).toBe(
+      "error: Cloud computers can't start right now. It isn't anything you did. This conversation is back on Auto. Send your message again.",
+    );
+    expect(row.tool.place).toEqual({
+      state: "cc-unavailable",
+      params: { bot: "Pinned Bot" },
+      source: "auto-pin",
+    });
     await idle(bot.id);
     expect(savedTask(bot.id, bot.threadId)?.surface).toBeUndefined();
     const createsBefore = creates;
     const after = (await messages(bot.threadId)).length;
     await send(bot.id, bot.threadId, "What is 2+2?");
-    await until(async () => (await messages(bot.threadId)).slice(after).some(message => message.role === "bot" && message.kind === "text"), Boolean, "Auto reply");
+    await until(
+      async () =>
+        (await messages(bot.threadId))
+          .slice(after)
+          .some((message) => message.role === "bot" && message.kind === "text"),
+      Boolean,
+      "Auto reply",
+    );
     expect(creates).toBe(createsBefore);
   }, 90_000);
 
@@ -236,15 +379,31 @@ describe("a cloud computer that can't start, against the real server", () => {
     await start();
     const { bot } = await apiOk("POST", "/api/bots", { name: "Routine Bot" });
     createAnswer = DOWN;
-    const { routine } = await apiOk("POST", "/api/routines", { name: "Desktop check", botId: bot.id,
-      prompt: "Check the cloud desktop.", runOn: "cloud", enabled: false,
-      schedule: { type: "interval", everyMinutes: 60, anchorAt: Date.now() + 3_600_000 } });
+    const { routine } = await apiOk("POST", "/api/routines", {
+      name: "Desktop check",
+      botId: bot.id,
+      prompt: "Check the cloud desktop.",
+      runOn: "cloud",
+      enabled: false,
+      schedule: { type: "interval", everyMinutes: 60, anchorAt: Date.now() + 3_600_000 },
+    });
     const { run } = await apiOk("POST", `/api/routines/${routine.id}/run`, {});
-    const threadId: string = await until(async (): Promise<string> =>
-      (await apiOk("GET", "/api/routines")).runs.find((entry: any) => entry.id === run.id)?.threadId ?? "", Boolean, "routine thread");
+    const threadId: string = await until(
+      async (): Promise<string> =>
+        (await apiOk("GET", "/api/routines")).runs.find((entry: any) => entry.id === run.id)
+          ?.threadId ?? "",
+      Boolean,
+      "routine thread",
+    );
     const row = await failedRow(threadId);
-    expect(row.tool.name).toBe("error: Cloud computers can't start right now. It isn't anything you did. Change where this routine runs.");
-    expect(row.tool.place).toEqual({ state: "cc-unavailable", params: { bot: "Routine Bot" }, source: "routine" });
+    expect(row.tool.name).toBe(
+      "error: Cloud computers can't start right now. It isn't anything you did. Change where this routine runs.",
+    );
+    expect(row.tool.place).toEqual({
+      state: "cc-unavailable",
+      params: { bot: "Routine Bot" },
+      source: "routine",
+    });
     expect(row.tool.name).not.toMatch(/Works on/);
   }, 90_000);
 });

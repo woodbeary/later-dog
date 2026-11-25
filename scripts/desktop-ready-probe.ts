@@ -9,7 +9,12 @@ export function installComposerProbe(perf: ComposerReadiness): () => void {
     const composer = document.querySelector<HTMLElement>('textarea[aria-label^="Message "]');
     if (!composer) return;
     if (perf.composerAt === null) perf.composerAt = performance.now();
-    if (perf.composerUncoveredAt === null && !document.querySelector("[data-launch-splash]") && document.visibilityState === "visible" && composer.getClientRects().length) {
+    if (
+      perf.composerUncoveredAt === null &&
+      !document.querySelector("[data-launch-splash]") &&
+      document.visibilityState === "visible" &&
+      composer.getClientRects().length
+    ) {
       perf.composerUncoveredAt = performance.now();
       seen.disconnect();
     }

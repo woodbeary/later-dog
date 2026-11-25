@@ -8,7 +8,14 @@ const proxy = (status: "waiting" | "answered" | "dismissed"): Message => ({
   role: "bot",
   kind: "text",
   at: 1,
-  needsYou: { botId: "kennel", botName: "Kennel", threadId: "kennel-thread", messageId: "sign-in", label: "Sign in to Cloudflare", status },
+  needsYou: {
+    botId: "kennel",
+    botName: "Kennel",
+    threadId: "kennel-thread",
+    messageId: "sign-in",
+    label: "Sign in to Cloudflare",
+    status,
+  },
 });
 
 const bot = (message: Message): Bot => ({
@@ -31,14 +38,24 @@ describe("delegated Needs you attention", () => {
     expect(dogRowFacts(bot(proxy("waiting")), {}).waiting).toBe(true);
   });
 
-  it.each(["answered", "dismissed"] as const)("clears the Needs you state when the source card is %s", (status) => {
-    expect(dogRowFacts(bot(proxy(status)), {}).waiting).toBe(false);
-  });
+  it.each(["answered", "dismissed"] as const)(
+    "clears the Needs you state when the source card is %s",
+    (status) => {
+      expect(dogRowFacts(bot(proxy(status)), {}).waiting).toBe(false);
+    },
+  );
 });
 
 describe("the home's work state on the row", () => {
   it("names who a busy dog is waiting for instead of plain working dots", () => {
-    const facts = dogRowFacts({ ...bot(proxy("answered")), busy: true, work: { kind: "waiting-for-computer", holder: "Patch" } }, {});
+    const facts = dogRowFacts(
+      {
+        ...bot(proxy("answered")),
+        busy: true,
+        work: { kind: "waiting-for-computer", holder: "Patch" },
+      },
+      {},
+    );
     expect(facts.work).toBe("Waiting for the computer while Patch uses it");
   });
 
@@ -48,8 +65,19 @@ describe("the home's work state on the row", () => {
 
   it("follows the open task's work, not the dog's main chat", () => {
     const base = bot(proxy("answered"));
-    const tasked = { ...base, threadId: "task", work: { kind: "idle" as const },
-      tasks: [{ threadId: "task", title: "Task", createdAt: 1, work: { kind: "waiting-on-dog" as const, dogs: [{ id: "s", name: "Scout" }] } }] };
+    const tasked = {
+      ...base,
+      threadId: "task",
+      work: { kind: "idle" as const },
+      tasks: [
+        {
+          threadId: "task",
+          title: "Task",
+          createdAt: 1,
+          work: { kind: "waiting-on-dog" as const, dogs: [{ id: "s", name: "Scout" }] },
+        },
+      ],
+    };
     expect(dogRowFacts(tasked, {}).work).toBe("Waiting on Scout");
   });
 });
@@ -66,7 +94,12 @@ describe("the row's one dot and its step words", () => {
 
   it("follows the open task's step, not the dog's main chat", () => {
     const taskStep = { ...step, id: "task-run:read-1", kind: "reading" as const };
-    const tasked = { ...quiet, threadId: "task", step, tasks: [{ threadId: "task", title: "Task", createdAt: 1, busy: true, step: taskStep }] } as unknown as Bot;
+    const tasked = {
+      ...quiet,
+      threadId: "task",
+      step,
+      tasks: [{ threadId: "task", title: "Task", createdAt: 1, busy: true, step: taskStep }],
+    } as unknown as Bot;
     expect(dogRowFacts(tasked, {}).step).toBe(stepPhrase("reading", "task:live"));
   });
 
@@ -79,13 +112,27 @@ describe("the row's one dot and its step words", () => {
   });
 
   it("keeps helper work in the line without a second working mark", () => {
-    const facts = dogRowFacts({ ...quiet, waitingForTeammates: true, waitingOn: [{ botId: "otis", name: "Otis", state: "running" }] }, {});
+    const facts = dogRowFacts(
+      {
+        ...quiet,
+        waitingForTeammates: true,
+        waitingOn: [{ botId: "otis", name: "Otis", state: "running" }],
+      },
+      {},
+    );
     expect(facts.dot).toBeNull();
     expect(facts.helperAsk).toBeNull();
   });
 
   it("names the helper that needs your answer", () => {
-    const facts = dogRowFacts({ ...quiet, waitingForTeammates: true, waitingOn: [{ botId: "otis", name: "Otis", state: "needsYou" }] }, {});
+    const facts = dogRowFacts(
+      {
+        ...quiet,
+        waitingForTeammates: true,
+        waitingOn: [{ botId: "otis", name: "Otis", state: "needsYou" }],
+      },
+      {},
+    );
     expect(facts.helperAsk).toBe(helpersLine([{ name: "Otis", state: "needsYou" }])!.text);
     expect(facts.dot).toBe("waiting");
   });

@@ -1,6 +1,12 @@
 #!/usr/bin/env node
-import { appendFileSync, existsSync, readFileSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
-
+import {
+  appendFileSync,
+  existsSync,
+  readFileSync,
+  renameSync,
+  unlinkSync,
+  writeFileSync,
+} from "node:fs";
 
 const mode = process.env.FAKE_CODEX_MODE ?? "happy";
 
@@ -8,7 +14,9 @@ const mode = process.env.FAKE_CODEX_MODE ?? "happy";
   const spawner = process.ppid;
   const orphanWatch = setInterval(() => {
     if (process.ppid !== spawner) process.exit(0);
-    try { process.kill(spawner, 0); } catch (error) {
+    try {
+      process.kill(spawner, 0);
+    } catch (error) {
       if ((error as NodeJS.ErrnoException).code === "ESRCH") process.exit(0);
     }
   }, 500);
@@ -41,20 +49,41 @@ if (process.argv[2] === "login" && process.argv[3] === "status") {
 }
 const calls: Array<{ method: string; params: unknown }> = [];
 const mcpOverrides: Record<string, Record<string, unknown>> = {};
-for (let index = 0; process.env.FAKE_CODEX_MCP_OVERRIDES === "1" && index < process.argv.length; index++) {
-  const match = process.argv[index - 1] === "-c" ? /^mcp_servers\.([^.]+)\.([^.]+)=(.*)$/.exec(process.argv[index]!) : null;
+for (
+  let index = 0;
+  process.env.FAKE_CODEX_MCP_OVERRIDES === "1" && index < process.argv.length;
+  index++
+) {
+  const match =
+    process.argv[index - 1] === "-c"
+      ? /^mcp_servers\.([^.]+)\.([^.]+)=(.*)$/.exec(process.argv[index]!)
+      : null;
   if (match) (mcpOverrides[match[1]!] ??= {})[match[2]!] = JSON.parse(match[3]!);
 }
 const shellExcludeOverride = process.argv.reduce<unknown>((found, arg, index) => {
-  const match = process.argv[index - 1] === "-c" ? /^shell_environment_policy\.exclude=(.*)$/.exec(arg) : null;
+  const match =
+    process.argv[index - 1] === "-c" ? /^shell_environment_policy\.exclude=(.*)$/.exec(arg) : null;
   return match ? JSON.parse(match[1]!) : found;
 }, undefined);
 const shellEnvironmentPolicy = (): unknown => {
-  const unset = { inherit: null, ignore_default_excludes: null, exclude: null, set: null,
-    include_only: null, filters: null, experimental_use_profile: null };
-  const supplied: unknown = process.env.FAKE_CODEX_SHELL_ENVIRONMENT_POLICY ? JSON.parse(process.env.FAKE_CODEX_SHELL_ENVIRONMENT_POLICY) : {};
+  const unset = {
+    inherit: null,
+    ignore_default_excludes: null,
+    exclude: null,
+    set: null,
+    include_only: null,
+    filters: null,
+    experimental_use_profile: null,
+  };
+  const supplied: unknown = process.env.FAKE_CODEX_SHELL_ENVIRONMENT_POLICY
+    ? JSON.parse(process.env.FAKE_CODEX_SHELL_ENVIRONMENT_POLICY)
+    : {};
   if (!supplied || typeof supplied !== "object" || Array.isArray(supplied)) return supplied;
-  return { ...unset, ...supplied, ...(shellExcludeOverride !== undefined ? { exclude: shellExcludeOverride, filters: null } : {}) };
+  return {
+    ...unset,
+    ...supplied,
+    ...(shellExcludeOverride !== undefined ? { exclude: shellExcludeOverride, filters: null } : {}),
+  };
 };
 let developerInstructions = "";
 let resumedThread: string | null = null;
@@ -66,34 +95,52 @@ let nativeThreadId = "codex-thread-1";
 let nativeTurnId = "turn-1";
 let threadReplyText: string | null = null;
 const threads = process.env.FAKE_CODEX_THREAD_DIR
-  ? new (await import("./fake-codex-threads.ts")).FakeCodexThreads(process.env.FAKE_CODEX_THREAD_DIR, { seenLog: process.env.FAKE_CODEX_SEEN_LOG, forkLog: process.env.FAKE_CODEX_FORK_LOG, forkIgnoresTurn: process.env.FAKE_CODEX_FORK_IGNORES_TURN === "1" })
+  ? new (await import("./fake-codex-threads.ts")).FakeCodexThreads(
+      process.env.FAKE_CODEX_THREAD_DIR,
+      {
+        seenLog: process.env.FAKE_CODEX_SEEN_LOG,
+        forkLog: process.env.FAKE_CODEX_FORK_LOG,
+        forkIgnoresTurn: process.env.FAKE_CODEX_FORK_IGNORES_TURN === "1",
+      },
+    )
   : null;
-const notify = (method: string, params: any) => out({
-  jsonrpc: "2.0", method,
-  params: {
-    threadId: nativeThreadId,
-    ...(method.startsWith("turn/") ? {} : { turnId: nativeTurnId }),
-    ...params,
-    ...(params.turn ? { turn: { id: nativeTurnId, ...params.turn } } : {}),
-  },
-});
+const notify = (method: string, params: any) =>
+  out({
+    jsonrpc: "2.0",
+    method,
+    params: {
+      threadId: nativeThreadId,
+      ...(method.startsWith("turn/") ? {} : { turnId: nativeTurnId }),
+      ...params,
+      ...(params.turn ? { turn: { id: nativeTurnId, ...params.turn } } : {}),
+    },
+  });
 
 const resolvedSandbox = (params: Record<string, unknown>) => {
-  if (process.env.FAKE_CODEX_RESOLVED_SANDBOX) return JSON.parse(process.env.FAKE_CODEX_RESOLVED_SANDBOX);
+  if (process.env.FAKE_CODEX_RESOLVED_SANDBOX)
+    return JSON.parse(process.env.FAKE_CODEX_RESOLVED_SANDBOX);
   if (params.sandbox === "danger-full-access") return { type: "dangerFullAccess" };
-  if (params.sandbox === "workspace-write") return {
-    type: "workspaceWrite", networkAccess: false, writableRoots: [],
-    excludeTmpdirEnvVar: false, excludeSlashTmp: false,
-  };
+  if (params.sandbox === "workspace-write")
+    return {
+      type: "workspaceWrite",
+      networkAccess: false,
+      writableRoots: [],
+      excludeTmpdirEnvVar: false,
+      excludeSlashTmp: false,
+    };
   return { type: "readOnly" };
 };
 
 const threadReply = (response: unknown) => {
   if (!process.env.FAKE_CODEX_RESTORED_USAGE) return out(response);
   const restored = {
-    jsonrpc: "2.0", method: "thread/tokenUsage/updated",
-    params: { threadId: nativeThreadId, turnId: nativeTurnId,
-      tokenUsage: { total: { inputTokens: 100, cachedInputTokens: 50, outputTokens: 10 } } },
+    jsonrpc: "2.0",
+    method: "thread/tokenUsage/updated",
+    params: {
+      threadId: nativeThreadId,
+      turnId: nativeTurnId,
+      tokenUsage: { total: { inputTokens: 100, cachedInputTokens: 50, outputTokens: 10 } },
+    },
   };
   process.stdout.write(`${JSON.stringify(response)}\n${JSON.stringify(restored)}\n`);
 };
@@ -110,7 +157,9 @@ const writeDumpAtomic = (path: string, contents: string): void => {
     } catch (error) {
       const code = (error as NodeJS.ErrnoException).code ?? "";
       if (!RETRYABLE_RENAME_CODES.has(code) || attempt >= RENAME_RETRY_DELAYS_MS.length) {
-        try { unlinkSync(tmp); } catch {}
+        try {
+          unlinkSync(tmp);
+        } catch {}
         throw error;
       }
       Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, RENAME_RETRY_DELAYS_MS[attempt]);
@@ -121,13 +170,25 @@ const dump = () => {
   if (process.env.FAKE_CODEX_DUMP) {
     writeDumpAtomic(
       process.env.FAKE_CODEX_DUMP,
-      JSON.stringify({ pid: process.pid, argv: process.argv.slice(2), env: process.env, calls, decision }, null, 2),
+      JSON.stringify(
+        { pid: process.pid, argv: process.argv.slice(2), env: process.env, calls, decision },
+        null,
+        2,
+      ),
     );
   }
 };
 
 const finishTurn = () => {
-  notify("item/completed", { item: { id: "i1", type: "commandExecution", status: "completed", aggregatedOutput: "README.md\nAPI_KEY=codex-output-secret", exitCode: 0 } });
+  notify("item/completed", {
+    item: {
+      id: "i1",
+      type: "commandExecution",
+      status: "completed",
+      aggregatedOutput: "README.md\nAPI_KEY=codex-output-secret",
+      exitCode: 0,
+    },
+  });
   notify("item/completed", { item: { id: "w1", type: "webSearch", status: "completed" } });
   if (mode === "stream") {
     notify("item/agentMessage/delta", { itemId: "m1", delta: "done from " });
@@ -139,7 +200,8 @@ const finishTurn = () => {
         id: "img1",
         type: "imageGeneration",
         status: "completed",
-        result: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=",
+        result:
+          "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=",
         revisedPrompt: "a tiny green mouse",
         savedPath: "/tmp/provider-owned-path-must-not-be-read.png",
       },
@@ -149,18 +211,41 @@ const finishTurn = () => {
     notify("item/started", { item: { id: "c1", type: "contextCompaction" } });
     notify("item/completed", { item: { id: "c1", type: "contextCompaction" } });
   }
-  notify("item/completed", { item: { id: "m1", type: "agentMessage", text: threadReplyText ?? (process.env.FAKE_CODEX_REPLY || "done from fake codex") } });
-  const carried = process.env.FAKE_CODEX_RESTORED_USAGE ? { inputTokens: 100, cachedInputTokens: 50, outputTokens: 10 } : { inputTokens: 0, cachedInputTokens: 0, outputTokens: 0 };
-  notify("thread/tokenUsage/updated", { tokenUsage: {
-    total: { inputTokens: carried.inputTokens + 7, cachedInputTokens: carried.cachedInputTokens + 4, outputTokens: carried.outputTokens + 3 },
-    last: { inputTokens: Number(process.env.FAKE_CODEX_CONTEXT_TOKENS) || 7, cachedInputTokens: 4, outputTokens: 3 },
-    modelContextWindow: 272000,
-  } });
+  notify("item/completed", {
+    item: {
+      id: "m1",
+      type: "agentMessage",
+      text: threadReplyText ?? (process.env.FAKE_CODEX_REPLY || "done from fake codex"),
+    },
+  });
+  const carried = process.env.FAKE_CODEX_RESTORED_USAGE
+    ? { inputTokens: 100, cachedInputTokens: 50, outputTokens: 10 }
+    : { inputTokens: 0, cachedInputTokens: 0, outputTokens: 0 };
+  notify("thread/tokenUsage/updated", {
+    tokenUsage: {
+      total: {
+        inputTokens: carried.inputTokens + 7,
+        cachedInputTokens: carried.cachedInputTokens + 4,
+        outputTokens: carried.outputTokens + 3,
+      },
+      last: {
+        inputTokens: Number(process.env.FAKE_CODEX_CONTEXT_TOKENS) || 7,
+        cachedInputTokens: 4,
+        outputTokens: 3,
+      },
+      modelContextWindow: 272000,
+    },
+  });
   dump();
   if (mode === "late-request") process.stdout.cork();
   notify("turn/completed", { turn: { status: "completed" } });
   if (mode === "late-request") {
-    out({ jsonrpc: "2.0", id: 100, method: "execCommandApproval", params: { command: "echo too late" } });
+    out({
+      jsonrpc: "2.0",
+      id: 100,
+      method: "execCommandApproval",
+      params: { command: "echo too late" },
+    });
     process.stdout.uncork();
   }
 };
@@ -175,18 +260,34 @@ const playRoomPlanTurn = (msg: any, planPath: string) => {
   const integration = {
     command: setting("command"),
     args: setting("args") ?? [],
-    env: Object.fromEntries((setting("env_vars") ?? []).map((key: string) => [key, process.env[key] ?? ""])),
+    env: Object.fromEntries(
+      (setting("env_vars") ?? []).map((key: string) => [key, process.env[key] ?? ""]),
+    ),
   };
-  const text = (msg.params?.input ?? []).filter((item: any) => item?.type === "text").map((item: any) => item.text).join("\n");
+  const text = (msg.params?.input ?? [])
+    .filter((item: any) => item?.type === "text")
+    .map((item: any) => item.text)
+    .join("\n");
   if (!early) ack();
-  void import("./room-handoff-agent.ts").then(({ runRoomHandoffAgent }) => runRoomHandoffAgent(process.argv.slice(2), planPath, { message: { content: text } },
-    { integration, system: developerInstructions, evidence: { resumedThread } }))
+  void import("./room-handoff-agent.ts")
+    .then(({ runRoomHandoffAgent }) =>
+      runRoomHandoffAgent(
+        process.argv.slice(2),
+        planPath,
+        { message: { content: text } },
+        { integration, system: developerInstructions, evidence: { resumedThread } },
+      ),
+    )
     .then((reply) => {
       notify("item/completed", { item: { id: "m1", type: "agentMessage", text: reply } });
       notify("turn/completed", { turn: { status: "completed" } });
     })
-    .catch((error) => notify("turn/completed", { turn: { status: "failed", error: { message: String(error) } } }))
-    .finally(() => { if (early) ack(); });
+    .catch((error) =>
+      notify("turn/completed", { turn: { status: "failed", error: { message: String(error) } } }),
+    )
+    .finally(() => {
+      if (early) ack();
+    });
 };
 
 let buf = "";
@@ -204,9 +305,15 @@ process.stdin.on("data", (chunk) => {
       continue;
     }
 
-    if ((msg.id === 100 || msg.id === 101) && (msg.result !== undefined || msg.error !== undefined)) {
+    if (
+      (msg.id === 100 || msg.id === 101) &&
+      (msg.result !== undefined || msg.error !== undefined)
+    ) {
       decision = msg.result ?? { error: msg.error };
-      if ((mode === "question" || mode === "multi-question" || mode === "empty-question") && process.env.FAKE_CODEX_ASK_HOLD === "1") {
+      if (
+        (mode === "question" || mode === "multi-question" || mode === "empty-question") &&
+        process.env.FAKE_CODEX_ASK_HOLD === "1"
+      ) {
         dump();
       } else {
         finishTurn();
@@ -215,30 +322,73 @@ process.stdin.on("data", (chunk) => {
     }
 
     if (msg.method) calls.push({ method: msg.method, params: msg.params ?? null });
-    if (threads && msg.id !== undefined && (msg.method === "thread/start" || msg.method === "thread/resume" || msg.method === "thread/fork")) {
-      if (process.env.FAKE_CODEX_CALLS_LOG) appendFileSync(process.env.FAKE_CODEX_CALLS_LOG, `${JSON.stringify({ pid: process.pid, method: msg.method, params: msg.params ?? null })}\n`);
+    if (
+      threads &&
+      msg.id !== undefined &&
+      (msg.method === "thread/start" ||
+        msg.method === "thread/resume" ||
+        msg.method === "thread/fork")
+    ) {
+      if (process.env.FAKE_CODEX_CALLS_LOG)
+        appendFileSync(
+          process.env.FAKE_CODEX_CALLS_LOG,
+          `${JSON.stringify({ pid: process.pid, method: msg.method, params: msg.params ?? null })}\n`,
+        );
       developerInstructions = msg.params?.developerInstructions ?? "";
-      const opened = msg.method === "thread/start" ? threads.start()
-        : msg.method === "thread/resume" ? threads.resume(String(msg.params?.threadId ?? ""))
-        : process.env.FAKE_CODEX_NO_FORK === "1" ? undefined
-        : threads.fork(String(msg.params?.threadId ?? ""), typeof msg.params?.lastTurnId === "string" ? msg.params.lastTurnId : undefined);
-      if (opened === undefined) out({ jsonrpc: "2.0", id: msg.id, error: { code: -32601, message: "method not found" } });
-      else if (!opened) out({ jsonrpc: "2.0", id: msg.id, error: { code: -32600, message: `no rollout found for thread id ${msg.params?.threadId}` } });
+      const opened =
+        msg.method === "thread/start"
+          ? threads.start()
+          : msg.method === "thread/resume"
+            ? threads.resume(String(msg.params?.threadId ?? ""))
+            : process.env.FAKE_CODEX_NO_FORK === "1"
+              ? undefined
+              : threads.fork(
+                  String(msg.params?.threadId ?? ""),
+                  typeof msg.params?.lastTurnId === "string" ? msg.params.lastTurnId : undefined,
+                );
+      if (opened === undefined)
+        out({ jsonrpc: "2.0", id: msg.id, error: { code: -32601, message: "method not found" } });
+      else if (!opened)
+        out({
+          jsonrpc: "2.0",
+          id: msg.id,
+          error: {
+            code: -32600,
+            message: `no rollout found for thread id ${msg.params?.threadId}`,
+          },
+        });
       else {
         nativeThreadId = opened.id;
         if (msg.method === "thread/resume") resumedThread = opened.id;
-        out({ jsonrpc: "2.0", id: msg.id, result: { thread: { id: opened.id, turns: opened.turns.map((turn) => ({ id: turn.id, status: "completed", items: [] })) }, model: "fake-codex-model", sandbox: resolvedSandbox(msg.params ?? {}) } });
+        out({
+          jsonrpc: "2.0",
+          id: msg.id,
+          result: {
+            thread: {
+              id: opened.id,
+              turns: opened.turns.map((turn) => ({ id: turn.id, status: "completed", items: [] })),
+            },
+            model: "fake-codex-model",
+            sandbox: resolvedSandbox(msg.params ?? {}),
+          },
+        });
       }
       continue;
     }
     if (threads && msg.method === "turn/start") {
-      const text = (msg.params?.input ?? []).filter((item: any) => item?.type === "text").map((item: any) => item.text).join("\n");
+      const text = (msg.params?.input ?? [])
+        .filter((item: any) => item?.type === "text")
+        .map((item: any) => item.text)
+        .join("\n");
       const turn = threads.beginTurn(String(msg.params?.threadId ?? nativeThreadId), text);
       nativeTurnId = turn.id;
       threadReplyText = turn.reply;
     }
     if (msg.method && process.env.FAKE_CODEX_CALLS_LOG) {
-      appendFileSync(process.env.FAKE_CODEX_CALLS_LOG, `${JSON.stringify({ pid: process.pid, method: msg.method, params: msg.params ?? null })}\n`);
+      appendFileSync(
+        process.env.FAKE_CODEX_CALLS_LOG,
+        `${JSON.stringify({ pid: process.pid, method: msg.method, params: msg.params ?? null })}\n`,
+      );
     }
 
     switch (msg.method) {
@@ -251,15 +401,26 @@ process.stdin.on("data", (chunk) => {
         const accountMode = process.env.FAKE_CODEX_ACCOUNT_MODE;
         if (accountMode === "hang") break;
         if (accountMode === "unsupported" || accountMode === "error") {
-          out({ jsonrpc: "2.0", id: msg.id, error: {
-            code: accountMode === "unsupported" ? -32601 : -32000,
-            message: "Offline fixture account read unavailable",
-          } });
+          out({
+            jsonrpc: "2.0",
+            id: msg.id,
+            error: {
+              code: accountMode === "unsupported" ? -32601 : -32000,
+              message: "Offline fixture account read unavailable",
+            },
+          });
           break;
         }
-        const account = accountMode === "none" || mode === "logged-out" ? null
-          : accountMode === "api-key" ? { type: "apiKey" }
-          : { type: "chatgpt", email: process.env.FAKE_CODEX_ACCOUNT_EMAIL ?? "ada@example.test", planType: "pro" };
+        const account =
+          accountMode === "none" || mode === "logged-out"
+            ? null
+            : accountMode === "api-key"
+              ? { type: "apiKey" }
+              : {
+                  type: "chatgpt",
+                  email: process.env.FAKE_CODEX_ACCOUNT_EMAIL ?? "ada@example.test",
+                  planType: "pro",
+                };
         out({ jsonrpc: "2.0", id: msg.id, result: { account, requiresOpenaiAuth: true } });
         break;
       }
@@ -271,7 +432,12 @@ process.stdin.on("data", (chunk) => {
             result: {
               data: [
                 { id: "gpt-hidden", displayName: "Hidden", hidden: true, isDefault: false },
-                { id: "gpt-page-two", displayName: "GPT Page Two", hidden: false, isDefault: false },
+                {
+                  id: "gpt-page-two",
+                  displayName: "GPT Page Two",
+                  hidden: false,
+                  isDefault: false,
+                },
               ],
               nextCursor: null,
             },
@@ -284,11 +450,33 @@ process.stdin.on("data", (chunk) => {
             result: {
               data: [
                 ...(hasAstra
-                  ? [{ id: "gpt-6-astra", displayName: "GPT-6 Astra", hidden: false, isDefault: true,
-                    supportedReasoningEfforts: ["low", "medium", "high", "xhigh", "max", "ultra"].map((reasoningEffort) => ({ reasoningEffort, description: reasoningEffort })),
-                    defaultReasoningEffort: "medium" }]
+                  ? [
+                      {
+                        id: "gpt-6-astra",
+                        displayName: "GPT-6 Astra",
+                        hidden: false,
+                        isDefault: true,
+                        supportedReasoningEfforts: [
+                          "low",
+                          "medium",
+                          "high",
+                          "xhigh",
+                          "max",
+                          "ultra",
+                        ].map((reasoningEffort) => ({
+                          reasoningEffort,
+                          description: reasoningEffort,
+                        })),
+                        defaultReasoningEffort: "medium",
+                      },
+                    ]
                   : []),
-                { id: "gpt-fake-default", displayName: "GPT Fake Default", hidden: false, isDefault: !hasAstra },
+                {
+                  id: "gpt-fake-default",
+                  displayName: "GPT Fake Default",
+                  hidden: false,
+                  isDefault: !hasAstra,
+                },
               ],
               nextCursor: "page-2",
             },
@@ -298,7 +486,11 @@ process.stdin.on("data", (chunk) => {
       case "config/read":
         if (mode === "config-read-error") {
           dump();
-          out({ jsonrpc: "2.0", id: msg.id, error: { code: -32000, message: "config unavailable" } });
+          out({
+            jsonrpc: "2.0",
+            id: msg.id,
+            error: { code: -32000, message: "config unavailable" },
+          });
           break;
         }
         out({
@@ -307,29 +499,43 @@ process.stdin.on("data", (chunk) => {
           result: {
             config: {
               ...(mode === "config-profile" || mode === "config-profile-unsupported"
-              ? {
-                  default_permissions: "private-operator-profile",
-                  permissions: {
-                    "private-operator-profile": { extends: ":danger-full-access" },
-                  },
-                  approval_policy: null,
-                  approvals_reviewer: null,
-                  sandbox_mode: "read-only",
-                }
-              : {
-                  approval_policy: "never",
-                  approvals_reviewer: "auto_review",
-                  sandbox_mode: "read-only",
-                  mcp_servers: process.env.FAKE_CODEX_MCP_OVERRIDES === "1" ? mcpOverrides : process.env.FAKE_CODEX_MCP_CONFIG ? JSON.parse(process.env.FAKE_CODEX_MCP_CONFIG) : {
-                    harmless_name: { env: { DISPLAY_LABEL: "innocuous-config-secret-7a9c" } },
-                  },
-                }),
+                ? {
+                    default_permissions: "private-operator-profile",
+                    permissions: {
+                      "private-operator-profile": { extends: ":danger-full-access" },
+                    },
+                    approval_policy: null,
+                    approvals_reviewer: null,
+                    sandbox_mode: "read-only",
+                  }
+                : {
+                    approval_policy: "never",
+                    approvals_reviewer: "auto_review",
+                    sandbox_mode: "read-only",
+                    mcp_servers:
+                      process.env.FAKE_CODEX_MCP_OVERRIDES === "1"
+                        ? mcpOverrides
+                        : process.env.FAKE_CODEX_MCP_CONFIG
+                          ? JSON.parse(process.env.FAKE_CODEX_MCP_CONFIG)
+                          : {
+                              harmless_name: {
+                                env: { DISPLAY_LABEL: "innocuous-config-secret-7a9c" },
+                              },
+                            },
+                  }),
               developer_instructions: process.env.FAKE_CODEX_INSTRUCTIONS ?? null,
               shell_environment_policy: shellEnvironmentPolicy(),
-              features: Object.fromEntries(process.argv.flatMap((arg, index) => {
-                const match = process.argv[index - 1] === "-c" ? /^features\.(\w+)=(true|false)$/.exec(arg) : null;
-                return match && process.env.FAKE_CODEX_IGNORE_FEATURES !== "1" ? [[match[1], match[2] === "true"]] : [];
-              })),
+              features: Object.fromEntries(
+                process.argv.flatMap((arg, index) => {
+                  const match =
+                    process.argv[index - 1] === "-c"
+                      ? /^features\.(\w+)=(true|false)$/.exec(arg)
+                      : null;
+                  return match && process.env.FAKE_CODEX_IGNORE_FEATURES !== "1"
+                    ? [[match[1], match[2] === "true"]]
+                    : [];
+                }),
+              ),
             },
             origins: {},
           },
@@ -340,14 +546,47 @@ process.stdin.on("data", (chunk) => {
         developerInstructions = msg.params?.developerInstructions ?? "";
         resumedThread = msg.params?.threadId ?? null;
         if (process.env.FAKE_CODEX_RESUME_ERROR) {
-          out({ jsonrpc: "2.0", id: msg.id, error: JSON.parse(process.env.FAKE_CODEX_RESUME_ERROR) });
-        } else if (msg.params?.permissions && (!experimentalApi || mode === "config-profile-unsupported")) {
-          out({ jsonrpc: "2.0", id: msg.id, error: { code: -32602, message: "experimental API required for permissions" } });
-        } else if (mode === "resume" || mode === "usage-limit" || mode === "review-events" || mode === "helper-events" || mode === "instructions-unsupported" || mode === "config-profile" || mode === "config-profile-unsupported" ||
-            (mode === "resume-then-missing" && !existsSync(process.env.FAKE_CODEX_STATE ?? ""))) {
-          threadReply({ jsonrpc: "2.0", id: msg.id, result: { thread: { id: msg.params?.threadId }, sandbox: resolvedSandbox(msg.params ?? {}) } });
+          out({
+            jsonrpc: "2.0",
+            id: msg.id,
+            error: JSON.parse(process.env.FAKE_CODEX_RESUME_ERROR),
+          });
+        } else if (
+          msg.params?.permissions &&
+          (!experimentalApi || mode === "config-profile-unsupported")
+        ) {
+          out({
+            jsonrpc: "2.0",
+            id: msg.id,
+            error: { code: -32602, message: "experimental API required for permissions" },
+          });
+        } else if (
+          mode === "resume" ||
+          mode === "usage-limit" ||
+          mode === "review-events" ||
+          mode === "helper-events" ||
+          mode === "instructions-unsupported" ||
+          mode === "config-profile" ||
+          mode === "config-profile-unsupported" ||
+          (mode === "resume-then-missing" && !existsSync(process.env.FAKE_CODEX_STATE ?? ""))
+        ) {
+          threadReply({
+            jsonrpc: "2.0",
+            id: msg.id,
+            result: {
+              thread: { id: msg.params?.threadId },
+              sandbox: resolvedSandbox(msg.params ?? {}),
+            },
+          });
         } else {
-          out({ jsonrpc: "2.0", id: msg.id, error: { code: -32600, message: `no rollout found for thread id ${msg.params?.threadId}` } });
+          out({
+            jsonrpc: "2.0",
+            id: msg.id,
+            error: {
+              code: -32600,
+              message: `no rollout found for thread id ${msg.params?.threadId}`,
+            },
+          });
         }
         break;
       case "thread/inject_items":
@@ -363,10 +602,17 @@ process.stdin.on("data", (chunk) => {
         const refused = (message: string) =>
           out({ jsonrpc: "2.0", id: msg.id, error: { code: -32000, message } });
         if (process.env.FAKE_CODEX_STEER_ERROR) {
-          out({ jsonrpc: "2.0", id: msg.id, error: JSON.parse(process.env.FAKE_CODEX_STEER_ERROR) });
+          out({
+            jsonrpc: "2.0",
+            id: msg.id,
+            error: JSON.parse(process.env.FAKE_CODEX_STEER_ERROR),
+          });
           break;
         }
-        if (process.env.FAKE_CODEX_STEER_ERROR_FILE && existsSync(process.env.FAKE_CODEX_STEER_ERROR_FILE)) {
+        if (
+          process.env.FAKE_CODEX_STEER_ERROR_FILE &&
+          existsSync(process.env.FAKE_CODEX_STEER_ERROR_FILE)
+        ) {
           refused("active turn is not steerable");
           break;
         }
@@ -377,7 +623,12 @@ process.stdin.on("data", (chunk) => {
         }
         out({ jsonrpc: "2.0", id: msg.id, result: { turnId: nativeTurnId } });
         if (!process.env.FAKE_CODEX_STEER_UNREAD) {
-          const steered = { id: `steer-${msg.id}`, type: "userMessage", clientId: null, content: msg.params?.input ?? [] };
+          const steered = {
+            id: `steer-${msg.id}`,
+            type: "userMessage",
+            clientId: null,
+            content: msg.params?.input ?? [],
+          };
           notify("item/started", { item: steered });
           notify("item/completed", { item: steered });
         }
@@ -393,11 +644,30 @@ process.stdin.on("data", (chunk) => {
         dump();
         developerInstructions = msg.params?.developerInstructions ?? "";
         if (process.env.FAKE_CODEX_START_ERROR) {
-          out({ jsonrpc: "2.0", id: msg.id, error: JSON.parse(process.env.FAKE_CODEX_START_ERROR) });
-        } else if (msg.params?.permissions && (!experimentalApi || mode === "config-profile-unsupported")) {
-          out({ jsonrpc: "2.0", id: msg.id, error: { code: -32602, message: "experimental API required for permissions" } });
+          out({
+            jsonrpc: "2.0",
+            id: msg.id,
+            error: JSON.parse(process.env.FAKE_CODEX_START_ERROR),
+          });
+        } else if (
+          msg.params?.permissions &&
+          (!experimentalApi || mode === "config-profile-unsupported")
+        ) {
+          out({
+            jsonrpc: "2.0",
+            id: msg.id,
+            error: { code: -32602, message: "experimental API required for permissions" },
+          });
         } else {
-          threadReply({ jsonrpc: "2.0", id: msg.id, result: { thread: { id: "codex-thread-1" }, model: "fake-codex-model", sandbox: resolvedSandbox(msg.params ?? {}) } });
+          threadReply({
+            jsonrpc: "2.0",
+            id: msg.id,
+            result: {
+              thread: { id: "codex-thread-1" },
+              model: "fake-codex-model",
+              sandbox: resolvedSandbox(msg.params ?? {}),
+            },
+          });
         }
         break;
       case "turn/start": {
@@ -440,7 +710,14 @@ process.stdin.on("data", (chunk) => {
           }
         }
         if (mode === "safety-rpc") {
-          out({ jsonrpc: "2.0", id: msg.id, error: { code: -32603, message: "HTTP 503: This task was blocked by our safety systems." } });
+          out({
+            jsonrpc: "2.0",
+            id: msg.id,
+            error: {
+              code: -32603,
+              message: "HTTP 503: This task was blocked by our safety systems.",
+            },
+          });
           break;
         }
         if (mode === "safety-completion" || mode === "safety-notification") {
@@ -451,48 +728,98 @@ process.stdin.on("data", (chunk) => {
           break;
         }
         if (process.env.FAKE_CODEX_PROMPTS) {
-          const text = (msg.params?.input ?? []).filter((item: any) => item?.type === "text").map((item: any) => item.text).join("\n");
+          const text = (msg.params?.input ?? [])
+            .filter((item: any) => item?.type === "text")
+            .map((item: any) => item.text)
+            .join("\n");
           appendFileSync(process.env.FAKE_CODEX_PROMPTS, JSON.stringify({ text }) + "\n");
         }
-        if (mode === "usage-limit" && (!process.env.FAKE_CODEX_USAGE_LIMIT_GATE || existsSync(process.env.FAKE_CODEX_USAGE_LIMIT_GATE))) {
+        if (
+          mode === "usage-limit" &&
+          (!process.env.FAKE_CODEX_USAGE_LIMIT_GATE ||
+            existsSync(process.env.FAKE_CODEX_USAGE_LIMIT_GATE))
+        ) {
           out({ jsonrpc: "2.0", id: msg.id, result: { turn: { id: nativeTurnId } } });
-          const resetsAt = Math.floor(Date.now() / 1000) + (Number(process.env.FAKE_CODEX_USAGE_RESETS_IN) || 3600);
-          notify("account/rateLimits/updated", { rateLimits: {
-            primary: { usedPercent: 100, windowDurationMins: 300, resetsAt },
-            secondary: { usedPercent: 40, windowDurationMins: 10_080, resetsAt: resetsAt + 6 * 86_400 },
-          } });
+          const resetsAt =
+            Math.floor(Date.now() / 1000) +
+            (Number(process.env.FAKE_CODEX_USAGE_RESETS_IN) || 3600);
+          notify("account/rateLimits/updated", {
+            rateLimits: {
+              primary: { usedPercent: 100, windowDurationMins: 300, resetsAt },
+              secondary: {
+                usedPercent: 40,
+                windowDurationMins: 10_080,
+                resetsAt: resetsAt + 6 * 86_400,
+              },
+            },
+          });
           const error = {
-            message: "You've hit your usage limit. Upgrade to Pro (https://chatgpt.com/explore/pro), visit https://chatgpt.com/codex/settings/usage to purchase more credits or try again at 3:05 PM.",
-            codexErrorInfo: "usageLimitExceeded", additionalDetails: null,
+            message:
+              "You've hit your usage limit. Upgrade to Pro (https://chatgpt.com/explore/pro), visit https://chatgpt.com/codex/settings/usage to purchase more credits or try again at 3:05 PM.",
+            codexErrorInfo: "usageLimitExceeded",
+            additionalDetails: null,
           };
           notify("error", { error, willRetry: false });
           notify("turn/completed", { turn: { status: "failed", error } });
           break;
         }
-        if (msg.params?.permissions && (!experimentalApi || mode === "config-profile-unsupported")) {
-          out({ jsonrpc: "2.0", id: msg.id, error: { code: -32602, message: "experimental API required for permissions" } });
+        if (
+          msg.params?.permissions &&
+          (!experimentalApi || mode === "config-profile-unsupported")
+        ) {
+          out({
+            jsonrpc: "2.0",
+            id: msg.id,
+            error: { code: -32602, message: "experimental API required for permissions" },
+          });
           break;
         }
         if (mode === "retry-then-complete" || mode === "signin-refused") {
           out({ jsonrpc: "2.0", id: msg.id, result: { turn: { id: nativeTurnId } } });
           for (let attempt = 1; attempt <= 5; attempt++) {
-            notify("error", { willRetry: true, error: { message: `Reconnecting... ${attempt}/5`, codexErrorInfo: null, additionalDetails: "workspace routing discovery unauthorized (401)" } });
+            notify("error", {
+              willRetry: true,
+              error: {
+                message: `Reconnecting... ${attempt}/5`,
+                codexErrorInfo: null,
+                additionalDetails: "workspace routing discovery unauthorized (401)",
+              },
+            });
           }
-          if (mode === "retry-then-complete") { finishTurn(); break; }
-          const error = { message: "workspace routing discovery unauthorized (401)", codexErrorInfo: "unauthorized", additionalDetails: null };
+          if (mode === "retry-then-complete") {
+            finishTurn();
+            break;
+          }
+          const error = {
+            message: "workspace routing discovery unauthorized (401)",
+            codexErrorInfo: "unauthorized",
+            additionalDetails: null,
+          };
           notify("error", { willRetry: false, error });
           notify("turn/completed", { turn: { status: "failed", error } });
           break;
         }
         if (mode === "auth-recovery") {
           out({ jsonrpc: "2.0", id: msg.id, result: { turn: { id: nativeTurnId } } });
-          notify("modelProvider/authRecoveryStarted", { provider: "openai", message: "Refreshing sign-in" });
-          notify("turn/completed", { turn: { status: "failed", error: { message: "unexpected status 401 Unauthorized", codexErrorInfo: null } } });
+          notify("modelProvider/authRecoveryStarted", {
+            provider: "openai",
+            message: "Refreshing sign-in",
+          });
+          notify("turn/completed", {
+            turn: {
+              status: "failed",
+              error: { message: "unexpected status 401 Unauthorized", codexErrorInfo: null },
+            },
+          });
           break;
         }
         if (mode === "key-401") {
           out({ jsonrpc: "2.0", id: msg.id, result: { turn: { id: nativeTurnId } } });
-          const error = { message: "unexpected status 401 Unauthorized: Incorrect API key provided", codexErrorInfo: { httpConnectionFailed: { httpStatusCode: 401 } }, additionalDetails: null };
+          const error = {
+            message: "unexpected status 401 Unauthorized: Incorrect API key provided",
+            codexErrorInfo: { httpConnectionFailed: { httpStatusCode: 401 } },
+            additionalDetails: null,
+          };
           notify("error", { willRetry: false, error });
           notify("turn/completed", { turn: { status: "failed", error } });
           break;
@@ -500,22 +827,53 @@ process.stdin.on("data", (chunk) => {
         const recovery = /^(recovered|recovering)-(401|403)$/.exec(mode);
         if (recovery) {
           out({ jsonrpc: "2.0", id: msg.id, result: { turn: { id: nativeTurnId } } });
-          notify("modelProvider/authRecoveryStarted", { provider: "openai", message: "Refreshing sign-in" });
-          if (recovery[1] === "recovered") notify("modelProvider/authRecoveryCompleted", { provider: "openai", message: "Signed in" });
-          const message = recovery[2] === "403" ? "unexpected status 403 Forbidden: unauthorized client" : "unexpected status 401 Unauthorized";
-          notify("turn/completed", { turn: { status: "failed", error: { message, codexErrorInfo: recovery[2] === "403" ? { responseStreamConnectionFailed: { httpStatusCode: 403 } } : null } } });
+          notify("modelProvider/authRecoveryStarted", {
+            provider: "openai",
+            message: "Refreshing sign-in",
+          });
+          if (recovery[1] === "recovered")
+            notify("modelProvider/authRecoveryCompleted", {
+              provider: "openai",
+              message: "Signed in",
+            });
+          const message =
+            recovery[2] === "403"
+              ? "unexpected status 403 Forbidden: unauthorized client"
+              : "unexpected status 401 Unauthorized";
+          notify("turn/completed", {
+            turn: {
+              status: "failed",
+              error: {
+                message,
+                codexErrorInfo:
+                  recovery[2] === "403"
+                    ? { responseStreamConnectionFailed: { httpStatusCode: 403 } }
+                    : null,
+              },
+            },
+          });
           break;
         }
         if (mode === "mcp-401") {
           out({ jsonrpc: "2.0", id: msg.id, result: { turn: { id: nativeTurnId } } });
-          notify("item/completed", { item: { id: "t1", type: "mcpToolCall", tool: "fetch", status: "failed", error: { message: "HTTP 401 Unauthorized: Please sign in again" } } });
+          notify("item/completed", {
+            item: {
+              id: "t1",
+              type: "mcpToolCall",
+              tool: "fetch",
+              status: "failed",
+              error: { message: "HTTP 401 Unauthorized: Please sign in again" },
+            },
+          });
           finishTurn();
           break;
         }
         if (mode === "legacy-error") {
           out({ jsonrpc: "2.0", id: msg.id, result: { turn: { id: nativeTurnId } } });
           notify("error", { message: "stream disconnected before completion" });
-          notify("turn/completed", { turn: { status: "failed", error: { message: "stream disconnected before completion" } } });
+          notify("turn/completed", {
+            turn: { status: "failed", error: { message: "stream disconnected before completion" } },
+          });
           break;
         }
         if (mode === "unauthorized") {
@@ -524,7 +882,8 @@ process.stdin.on("data", (chunk) => {
             id: msg.id,
             error: {
               code: -32603,
-              message: "unexpected status 401 Unauthorized: Missing bearer or basic authentication in header",
+              message:
+                "unexpected status 401 Unauthorized: Missing bearer or basic authentication in header",
             },
           });
           break;
@@ -540,7 +899,9 @@ process.stdin.on("data", (chunk) => {
             if (process.env.FAKE_CODEX_PARTIAL_FAILS) {
               out({ jsonrpc: "2.0", id: msg.id, result: { turn: { id: nativeTurnId } } });
               notify("item/agentMessage/delta", { itemId: "m1", delta: "half an answer" });
-              notify("turn/completed", { turn: { status: "failed", error: { message: "provider overloaded, try again" } } });
+              notify("turn/completed", {
+                turn: { status: "failed", error: { message: "provider overloaded, try again" } },
+              });
               break;
             }
             out({
@@ -560,7 +921,9 @@ process.stdin.on("data", (chunk) => {
           break;
         }
         if (process.env.FAKE_CODEX_EXIT_MID_TURN) {
-          console.error("2026-09-14T20:24:19Z ERROR codex_api::endpoint::responses_websocket: failed to connect to websocket: HTTP error: 426 Upgrade Required, url: ws://127.0.0.1:10100/v1/responses");
+          console.error(
+            "2026-09-14T20:24:19Z ERROR codex_api::endpoint::responses_websocket: failed to connect to websocket: HTTP error: 426 Upgrade Required, url: ws://127.0.0.1:10100/v1/responses",
+          );
           void waitForGate(process.env.FAKE_CODEX_EXIT_MID_TURN).then(() => {
             out({ jsonrpc: "2.0", id: msg.id, result: { turn: { id: nativeTurnId } } });
             notify("item/reasoning/textDelta", { itemId: "m1", delta: "still thinking" });
@@ -578,9 +941,37 @@ process.stdin.on("data", (chunk) => {
         out({ jsonrpc: "2.0", id: msg.id, result: { turn: { id: nativeTurnId } } });
         if (mode === "early-turn-events") break;
         if (mode === "helper-events") {
-          notify("item/completed", { item: { id: "spawn-helper", type: "collabAgentToolCall", tool: "spawnAgent", status: "completed", receiverThreadIds: ["helper-thread"], agentsStates: { "helper-thread": { status: "running", message: null } } } });
-          notify("item/started", { item: { id: "helper-active", type: "subAgentActivity", kind: "started", agentThreadId: "helper-thread", agentPath: "/root/checker" } });
-          notify("item/completed", { item: { id: "wait-helper", type: "collabAgentToolCall", tool: "wait", status: "completed", receiverThreadIds: ["helper-thread"], agentsStates: { "helper-thread": { status: "completed", message: "Checked the outline" } } } });
+          notify("item/completed", {
+            item: {
+              id: "spawn-helper",
+              type: "collabAgentToolCall",
+              tool: "spawnAgent",
+              status: "completed",
+              receiverThreadIds: ["helper-thread"],
+              agentsStates: { "helper-thread": { status: "running", message: null } },
+            },
+          });
+          notify("item/started", {
+            item: {
+              id: "helper-active",
+              type: "subAgentActivity",
+              kind: "started",
+              agentThreadId: "helper-thread",
+              agentPath: "/root/checker",
+            },
+          });
+          notify("item/completed", {
+            item: {
+              id: "wait-helper",
+              type: "collabAgentToolCall",
+              tool: "wait",
+              status: "completed",
+              receiverThreadIds: ["helper-thread"],
+              agentsStates: {
+                "helper-thread": { status: "completed", message: "Checked the outline" },
+              },
+            },
+          });
           for (const scope of [
             { threadId: "helper-thread", turnId: "helper-turn" },
             { threadId: nativeThreadId, turnId: "previous-turn" },
@@ -588,23 +979,38 @@ process.stdin.on("data", (chunk) => {
           ]) {
             notify("item/agentMessage/delta", { ...scope, delta: "FOREIGN answer" });
             notify("item/reasoning/textDelta", { ...scope, delta: "FOREIGN reasoning" });
-            notify("item/started", { ...scope, item: { id: "foreign-tool", type: "commandExecution", command: "FOREIGN command" } });
-            notify("item/completed", { ...scope, item: { type: "agentMessage", text: "FOREIGN final" } });
-            notify("thread/tokenUsage/updated", { ...scope, tokenUsage: { total: { inputTokens: 999, outputTokens: 999 } } });
+            notify("item/started", {
+              ...scope,
+              item: { id: "foreign-tool", type: "commandExecution", command: "FOREIGN command" },
+            });
+            notify("item/completed", {
+              ...scope,
+              item: { type: "agentMessage", text: "FOREIGN final" },
+            });
+            notify("thread/tokenUsage/updated", {
+              ...scope,
+              tokenUsage: { total: { inputTokens: 999, outputTokens: 999 } },
+            });
             notify("error", { ...scope, message: "FOREIGN error" });
             notify("turn/completed", { ...scope, turn: { id: scope.turnId, status: "completed" } });
             notify("turn/completed", { ...scope, turn: { id: scope.turnId, status: "failed" } });
           }
-          out({ jsonrpc: "2.0", id: 100, method: "execCommandApproval", params: { command: "echo parent continues" } });
+          out({
+            jsonrpc: "2.0",
+            id: 100,
+            method: "execCommandApproval",
+            params: { command: "echo parent continues" },
+          });
           break;
         }
-        const command = mode === "windows-command"
-          ? [
-              "\"C:\\WINDOWS\\System32\\WindowsPowerShell\\v1.0\\powershell.exe\"",
-              "-Command",
-              `"Get-Content -Raw -LiteralPath 'C:\\Users\\Ada\\workspaces\\${"very-long-folder\\".repeat(8)}NOTES.md'"`,
-            ].join(" ")
-          : "ls -la";
+        const command =
+          mode === "windows-command"
+            ? [
+                '"C:\\WINDOWS\\System32\\WindowsPowerShell\\v1.0\\powershell.exe"',
+                "-Command",
+                `"Get-Content -Raw -LiteralPath 'C:\\Users\\Ada\\workspaces\\${"very-long-folder\\".repeat(8)}NOTES.md'"`,
+              ].join(" ")
+            : "ls -la";
         notify("item/started", { item: { id: "i1", type: "commandExecution", command } });
         notify("item/started", { item: { id: "w1", type: "webSearch", query: "later.dog" } });
         const reviewOnce = process.env.FAKE_CODEX_REVIEW_ONCE_FILE;
@@ -699,25 +1105,46 @@ process.stdin.on("data", (chunk) => {
             id: 101,
             method: "item/tool/requestUserInput",
             params: {
-              questions: mode === "malformed-question"
-                ? "please"
-                : mode === "question"
-                ? [{
-                    id: "q-ship",
-                    question: "Ship today?",
-                    options: ["Yes", "No", "Maybe", "Later", "Soon", "Never"].map((label) => ({ label })),
-                  }]
-                : mode === "mixed-question"
-                ? [
-                    { id: "q-broken", question: "   ", options: [{ label: "Broken choice" }] },
-                    { id: "q-review", question: "Who reviews?", options: [{ label: "Ada" }, { label: "Lin" }] },
-                  ]
-                : mode === "empty-question"
-                ? []
-                : [
-                    { id: "q-ship", question: "Ship today?", options: [{ label: "Yes" }, { label: "No" }] },
-                    { id: "q-review", question: "Who reviews?", options: [{ label: "Ada" }, { label: "Lin" }] },
-                  ],
+              questions:
+                mode === "malformed-question"
+                  ? "please"
+                  : mode === "question"
+                    ? [
+                        {
+                          id: "q-ship",
+                          question: "Ship today?",
+                          options: ["Yes", "No", "Maybe", "Later", "Soon", "Never"].map(
+                            (label) => ({ label }),
+                          ),
+                        },
+                      ]
+                    : mode === "mixed-question"
+                      ? [
+                          {
+                            id: "q-broken",
+                            question: "   ",
+                            options: [{ label: "Broken choice" }],
+                          },
+                          {
+                            id: "q-review",
+                            question: "Who reviews?",
+                            options: [{ label: "Ada" }, { label: "Lin" }],
+                          },
+                        ]
+                      : mode === "empty-question"
+                        ? []
+                        : [
+                            {
+                              id: "q-ship",
+                              question: "Ship today?",
+                              options: [{ label: "Yes" }, { label: "No" }],
+                            },
+                            {
+                              id: "q-review",
+                              question: "Who reviews?",
+                              options: [{ label: "Ada" }, { label: "Lin" }],
+                            },
+                          ],
             },
           });
         } else if (mode === "approval" || mode === "windows-command") {
@@ -727,7 +1154,8 @@ process.stdin.on("data", (chunk) => {
             : { method: "execCommandApproval", params: { command: approvalCommand } };
           out({ jsonrpc: "2.0", id: 100, ...approval });
         } else {
-          if (process.env.FAKE_CODEX_FINISH_GATE) void waitForGate(process.env.FAKE_CODEX_FINISH_GATE).then(finishTurn);
+          if (process.env.FAKE_CODEX_FINISH_GATE)
+            void waitForGate(process.env.FAKE_CODEX_FINISH_GATE).then(finishTurn);
           else finishTurn();
           if (process.env.FAKE_CODEX_REVIEW_AFTER_COMPLETION) {
             const event = JSON.parse(process.env.FAKE_CODEX_REVIEW_AFTER_COMPLETION);

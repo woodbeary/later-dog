@@ -1,9 +1,14 @@
-
 import type { ApprovalMode } from "../shared/approval-mode.ts";
 import type { ToolScope } from "../shared/tool-scope.ts";
 import type { EffortLevel } from "../shared/wire.ts";
 import type {
-  DriverKind, EngineForkPoint, InstanceId, ModelVariantOption, RuntimeEventListener, ThreadId, TurnId,
+  DriverKind,
+  EngineForkPoint,
+  InstanceId,
+  ModelVariantOption,
+  RuntimeEventListener,
+  ThreadId,
+  TurnId,
 } from "../shared/runtime-events.ts";
 import type { ProviderIcon } from "../shared/provider-icon.ts";
 import type { VolatileSection } from "./laterdog/volatile-sections.ts";
@@ -13,10 +18,17 @@ import type { EngineContextReply } from "./laterdog/engine-context-ask.ts";
 
 export type { CloudBackend, EffortLevel, ModelSelection } from "../shared/wire.ts";
 export type {
-  CompactionEvent, DriverKind, InstanceId, ModelVariantOption, ModelVariantState, RuntimeEvent,
-  RuntimeEventBase, RuntimeEventListener, ThreadId, TurnId,
+  CompactionEvent,
+  DriverKind,
+  InstanceId,
+  ModelVariantOption,
+  ModelVariantState,
+  RuntimeEvent,
+  RuntimeEventBase,
+  RuntimeEventListener,
+  ThreadId,
+  TurnId,
 } from "../shared/runtime-events.ts";
-
 
 export type ProviderErrorCode =
   | "missing_cli"
@@ -47,12 +59,15 @@ export class TurnNotStartedError extends Error {
   }
 }
 
-
 export function isModelVariant(value: unknown): value is string {
-  return typeof value === "string" && value.length > 0 && value.length <= 256 &&
-    value.trim() === value && !/\p{Cc}/u.test(value);
+  return (
+    typeof value === "string" &&
+    value.length > 0 &&
+    value.length <= 256 &&
+    value.trim() === value &&
+    !/\p{Cc}/u.test(value)
+  );
 }
-
 
 export interface TurnImageInput {
   path: string;
@@ -167,7 +182,10 @@ export interface ProviderAdapter {
   };
   sendTurn(input: SendTurnInput): Promise<TurnStartResult>;
   interruptTurn(threadId: ThreadId, turnId?: TurnId): Promise<void>;
-  stopNativeActor?(threadId: ThreadId, actor: { id: string; nativeThreadId?: string; nativeTurnId?: string; generation?: string }): Promise<void>;
+  stopNativeActor?(
+    threadId: ThreadId,
+    actor: { id: string; nativeThreadId?: string; nativeTurnId?: string; generation?: string },
+  ): Promise<void>;
   respondToRequest(
     threadId: ThreadId,
     requestId: string,
@@ -177,7 +195,12 @@ export interface ProviderAdapter {
       always?: boolean;
     },
   ): Promise<RequestOutcome>;
-  steer?(threadId: ThreadId, text: string, images?: TurnImageInput[], onRead?: () => void): Promise<SteerOutcome>;
+  steer?(
+    threadId: ThreadId,
+    text: string,
+    images?: TurnImageInput[],
+    onRead?: () => void,
+  ): Promise<SteerOutcome>;
   hasSession(threadId: ThreadId): boolean;
   nativeCompactAt?(): Promise<number | undefined>;
   forksAtPoint?(): Promise<boolean>;

@@ -20,12 +20,18 @@ let child: ChildProcess;
 let stderr = "";
 let botId = "";
 
-interface ApiResult { status: number; body: Record<string, unknown> }
+interface ApiResult {
+  status: number;
+  body: Record<string, unknown>;
+}
 
 const api = async (method: string, path: string, body?: unknown): Promise<ApiResult> => {
   const res = await fetch(`${BASE}${path}`, {
     method,
-    headers: { origin: BASE, ...(body === undefined ? {} : { "content-type": "application/json" }) },
+    headers: {
+      origin: BASE,
+      ...(body === undefined ? {} : { "content-type": "application/json" }),
+    },
     ...(body === undefined ? {} : { body: JSON.stringify(body) }),
   });
   const parsed: unknown = await res.json().catch(() => ({}));
@@ -35,13 +41,19 @@ const api = async (method: string, path: string, body?: unknown): Promise<ApiRes
 const internal = async (method: string, path: string, body?: unknown): Promise<ApiResult> => {
   const minted = await fetch(`${BASE}/api/testing/internal-capability`, {
     method: "POST",
-    headers: { "content-type": "application/json", "x-laterdog-test-capability": TEST_CAPABILITY_KEY },
+    headers: {
+      "content-type": "application/json",
+      "x-laterdog-test-capability": TEST_CAPABILITY_KEY,
+    },
     body: JSON.stringify({ botId, threadId: botId, kind: "agents" }),
   });
-  const { token } = await minted.json() as { token: string };
+  const { token } = (await minted.json()) as { token: string };
   const res = await fetch(`${BASE}${path}`, {
     method,
-    headers: { authorization: `Bearer ${token}`, ...(body === undefined ? {} : { "content-type": "application/json" }) },
+    headers: {
+      authorization: `Bearer ${token}`,
+      ...(body === undefined ? {} : { "content-type": "application/json" }),
+    },
     ...(body === undefined ? {} : { body: JSON.stringify(body) }),
   });
   const parsed: unknown = await res.json().catch(() => ({}));
@@ -49,7 +61,10 @@ const internal = async (method: string, path: string, body?: unknown): Promise<A
 };
 
 const descriptorCapabilities = async (): Promise<Record<string, unknown>> =>
-  ((await api("GET", "/.well-known/laterdog/environment")).body.capabilities ?? {}) as Record<string, unknown>;
+  ((await api("GET", "/.well-known/laterdog/environment")).body.capabilities ?? {}) as Record<
+    string,
+    unknown
+  >;
 
 const PUBLIC_ROUTES = [
   "/api/shared-computers/connect",
@@ -67,9 +82,18 @@ beforeAll(async () => {
   BASE = `http://127.0.0.1:${PORT}`;
   home = mkdtempSync(join(tmpdir(), "laterdog-shared-computer-gate-"));
   mkdirSync(join(home, ".laterdog"), { recursive: true });
-  writeFileSync(join(home, ".laterdog", "config.json"), JSON.stringify({
-    instances: { claude: { driver: "claudeAgent", displayName: "Gate fixture", config: { cli: FAKE_CLAUDE_CLI } } },
-  }));
+  writeFileSync(
+    join(home, ".laterdog", "config.json"),
+    JSON.stringify({
+      instances: {
+        claude: {
+          driver: "claudeAgent",
+          displayName: "Gate fixture",
+          config: { cli: FAKE_CLAUDE_CLI },
+        },
+      },
+    }),
+  );
   child = spawn(process.execPath, [join(SERVER_DIR, "index.ts")], {
     cwd: join(SERVER_DIR, ".."),
     env: {
@@ -86,11 +110,15 @@ beforeAll(async () => {
   child.stderr?.on("data", (chunk) => (stderr += String(chunk)));
   const deadline = Date.now() + 20_000;
   for (;;) {
-    try { if ((await fetch(`${BASE}/api/health`)).ok) break; } catch {}
+    try {
+      if ((await fetch(`${BASE}/api/health`)).ok) break;
+    } catch {}
     if (Date.now() > deadline) throw new Error(`server never came up. stderr:\n${stderr}`);
     await new Promise((wake) => setTimeout(wake, 150));
   }
-  botId = String(((await api("POST", "/api/bots", { name: "Gate fixture bot" })).body.bot as { id: string }).id);
+  botId = String(
+    ((await api("POST", "/api/bots", { name: "Gate fixture bot" })).body.bot as { id: string }).id,
+  );
 }, 60_000);
 
 afterAll(async () => {
@@ -108,7 +136,10 @@ it("answers every shared-computer route the way a route this build never had ans
     expect(gated.status, path).toBe(404);
     expect(gated.body, path).toEqual({ error: `no route: POST ${path}` });
   }
-  expect(await api("GET", "/api/shared-computers")).toEqual({ status: 404, body: { error: "no route: GET /api/shared-computers" } });
+  expect(await api("GET", "/api/shared-computers")).toEqual({
+    status: 404,
+    body: { error: "no route: GET /api/shared-computers" },
+  });
 });
 
 it("hides the bot-facing route behind the same unknown-endpoint answer", async () => {
@@ -120,7 +151,10 @@ it("hides the bot-facing route behind the same unknown-endpoint answer", async (
   expect(listed.status).toBe(404);
   expect(listed.body).toEqual({ error: "unknown internal endpoint" });
 
-  const used = await internal("POST", "/api/internal/shared-computers", { computer_id: "x", action: "list_files" });
+  const used = await internal("POST", "/api/internal/shared-computers", {
+    computer_id: "x",
+    action: "list_files",
+  });
   expect(used.status).toBe(404);
   expect(used.body).toEqual({ error: "unknown internal endpoint" });
 });
@@ -130,7 +164,9 @@ it("advertises no sharedComputers capability while the gate is off", async () =>
 });
 
 it("brings the whole surface back when features.sharedComputers is turned on", async () => {
-  expect((await api("PATCH", "/api/config", { features: { sharedComputers: true } })).status).toBe(200);
+  expect((await api("PATCH", "/api/config", { features: { sharedComputers: true } })).status).toBe(
+    200,
+  );
   expect((await api("GET", "/api/config")).body.features).toMatchObject({ sharedComputers: true });
 
   const connect = await api("POST", "/api/shared-computers/connect", {});
@@ -140,7 +176,10 @@ it("brings the whole surface back when features.sharedComputers is turned on", a
   const listed = await internal("GET", "/api/internal/shared-computers");
   expect(listed.status).toBe(200);
   expect(listed.body).toEqual({ computers: [] });
-  expect(await api("GET", "/api/shared-computers")).toEqual({ status: 200, body: { computers: [] } });
+  expect(await api("GET", "/api/shared-computers")).toEqual({
+    status: 200,
+    body: { computers: [] },
+  });
 
   expect(await descriptorCapabilities()).toMatchObject({ sharedComputers: true });
 });

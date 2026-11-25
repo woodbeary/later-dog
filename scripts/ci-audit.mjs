@@ -32,7 +32,9 @@ export function runnerOs(labels = []) {
 }
 
 export function splitJob(job) {
-  const measured = (job.steps ?? []).some((step) => ["success", "failure", "cancelled"].includes(step.conclusion));
+  const measured = (job.steps ?? []).some((step) =>
+    ["success", "failure", "cancelled"].includes(step.conclusion),
+  );
   const waiting = measured ? seconds(job.created_at, job.started_at) : null;
   let setup = 0;
   let running = 0;
@@ -68,17 +70,19 @@ export function splitJob(job) {
 
 function deriveConclusion(jobs) {
   const conclusions = jobs.map((job) => job.conclusion);
-  if (conclusions.includes('failure')) return 'failure';
-  const incomplete = conclusions.findIndex((value) => !['success', 'skipped'].includes(value));
-  if (incomplete >= 0) return conclusions[incomplete] || 'in_progress';
-  return conclusions.every((value) => value === 'skipped') ? 'skipped' : 'success';
+  if (conclusions.includes("failure")) return "failure";
+  const incomplete = conclusions.findIndex((value) => !["success", "skipped"].includes(value));
+  if (incomplete >= 0) return conclusions[incomplete] || "in_progress";
+  return conclusions.every((value) => value === "skipped") ? "skipped" : "success";
 }
 
 export function loadRuns(dir) {
   const metaPath = path.join(dir, "runs.json");
   const meta = fs.existsSync(metaPath) ? JSON.parse(fs.readFileSync(metaPath, "utf8")) : [];
   const metaById = new Map(meta.map((run) => [String(run.id), run]));
-  const runs = new Map(meta.map((run) => [String(run.id), { id: String(run.id), jobs: [], meta: run }]));
+  const runs = new Map(
+    meta.map((run) => [String(run.id), { id: String(run.id), jobs: [], meta: run }]),
+  );
   for (const file of fs.readdirSync(dir).sort()) {
     if (!file.endsWith(".json") || file === "runs.json") continue;
     const id = file.slice(0, -".json".length);
@@ -105,17 +109,21 @@ export function analyze(runs) {
       .filter(Boolean)
       .sort()
       .at(-1);
-    const active = (run.meta?.status && run.meta.status !== 'completed') || run.jobs.some((job) => ['queued', 'waiting', 'in_progress', 'pending'].includes(job.status));
-    const conclusion = active ? 'in_progress' : run.meta?.conclusion || (jobs.length ? deriveConclusion(run.jobs) : 'unknown');
+    const active =
+      (run.meta?.status && run.meta.status !== "completed") ||
+      run.jobs.some((job) => ["queued", "waiting", "in_progress", "pending"].includes(job.status));
+    const conclusion = active
+      ? "in_progress"
+      : run.meta?.conclusion || (jobs.length ? deriveConclusion(run.jobs) : "unknown");
     runRows.push({
       id: run.id,
-      workflow: run.meta?.name ?? run.meta?.workflowName ?? 'unknown',
+      workflow: run.meta?.name ?? run.meta?.workflowName ?? "unknown",
       ranWork: jobs.some(({ split }) => split.ranWork),
-      allJobsPassed: jobs.every(({ job }) => ['success', 'skipped'].includes(job.conclusion)),
+      allJobsPassed: jobs.every(({ job }) => ["success", "skipped"].includes(job.conclusion)),
       jobCount: jobs.length,
-      event: run.meta?.event ?? 'unknown',
+      event: run.meta?.event ?? "unknown",
       conclusion,
-      os: oses.length === 1 ? oses[0] : oses.length === 0 ? 'none' : 'mixed',
+      os: oses.length === 1 ? oses[0] : oses.length === 0 ? "none" : "mixed",
       wall: jobs.length && !active ? seconds(created, finished) : null,
     });
   }
@@ -177,7 +185,10 @@ export function renderReport({ jobRows, runRows }) {
     "",
   );
 
-  out.push(`## Run wall time (seconds, completed attempts including failures and cancellations; latest attempt start to last job completed)`, '');
+  out.push(
+    `## Run wall time (seconds, completed attempts including failures and cancellations; latest attempt start to last job completed)`,
+    "",
+  );
   const wallRows = [];
   for (const [label, key] of [
     ["event", (run) => run.event],
@@ -202,20 +213,30 @@ export function renderReport({ jobRows, runRows }) {
     "",
   );
 
-  out.push('## Successful runs that executed work', '');
-  out.push('Successful attempts with at least one completed work step. Runs with no job data, no executed work, or an unfinished attempt do not qualify. Groups with no successful sample are absent; absence does not meet a budget.', '');
+  out.push("## Successful runs that executed work", "");
+  out.push(
+    "Successful attempts with at least one completed work step. Runs with no job data, no executed work, or an unfinished attempt do not qualify. Groups with no successful sample are absent; absence does not meet a budget.",
+    "",
+  );
   const successRows = [];
-  for (const [key, rows] of [...groupBy(runRows.filter((row) => row.conclusion === 'success' && row.allJobsPassed && row.ranWork && row.wall !== null), (row) => `${row.workflow}|${row.event}`).entries()].sort()) {
+  for (const [key, rows] of [
+    ...groupBy(
+      runRows.filter(
+        (row) =>
+          row.conclusion === "success" && row.allJobsPassed && row.ranWork && row.wall !== null,
+      ),
+      (row) => `${row.workflow}|${row.event}`,
+    ).entries(),
+  ].sort()) {
     const s = stats(rows.map((row) => row.wall));
-    successRows.push([...key.split('|'), String(s.n), fmt(s.p50), fmt(s.p95)]);
+    successRows.push([...key.split("|"), String(s.n), fmt(s.p50), fmt(s.p95)]);
   }
-  out.push(table(['workflow', 'event', 'n runs', 'p50 s', 'p95 s'], successRows), '');
+  out.push(table(["workflow", "event", "n runs", "p50 s", "p95 s"], successRows), "");
 
-
-  out.push(`## Buckets per job (seconds)`, '');
+  out.push(`## Buckets per job (seconds)`, "");
   out.push(
     `waiting: created to started; a job whose started time precedes its created time (a re-run keeps the earlier created time) is left out of that bucket. failed in setup: the job's own setup step failed. setup: set up, checkout, package manager, Node, install, the composite prepare action, runtime preparation. Jobs without any executed steps have no measured timing buckets. running: every other step, counted only for jobs that ran at least one work step. teardown (post steps, complete job) is listed for reconciliation.`,
-    '',
+    "",
   );
   const jobTable = [];
   for (const [name, rows] of [

@@ -10,28 +10,62 @@ import { RechargeLine, SleepingDog, rechargeProgress } from "./AccountCharge";
 import { InstanceProviderMark } from "./ProviderIcons";
 import { plainClientError } from "@/lib/plain-client-error";
 
-function CarriedAccount({ from, to, text, model }: { from: string; to: string; text: string; model?: string }) {
+function CarriedAccount({
+  from,
+  to,
+  text,
+  model,
+}: {
+  from: string;
+  to: string;
+  text: string;
+  model?: string;
+}) {
   const battery = useStoreSelector((state) => state.config?.accountBattery);
-  const active = useStoreSelector((state) => state.instances.find((instance) => instance.instanceId === to));
+  const active = useStoreSelector((state) =>
+    state.instances.find((instance) => instance.instanceId === to),
+  );
   const [now, setNow] = useState(Date.now);
   const rest = restingFor(battery, model, now)[from];
-  useEffect(() => { const timer = window.setInterval(() => setNow(Date.now()), 30_000); return () => window.clearInterval(timer); }, []);
-  return <div role="status" data-account-carry className="flex w-fit max-w-full flex-wrap items-center gap-2 rounded-xl border border-hairline/40 bg-panel px-3 py-2 text-[13px] text-ink-secondary">
-    {rest && Date.parse(rest.until) > now && <><SleepingDog size={20} /><RechargeLine progress={rest.estimated ? null : rechargeProgress(rest, now)} /></>}
-    <ArrowRight size={13} aria-hidden="true" />{active && <InstanceProviderMark instance={active} size={15} />}
-    <span className="min-w-0 break-words">{text}</span>
-  </div>;
+  useEffect(() => {
+    const timer = window.setInterval(() => setNow(Date.now()), 30_000);
+    return () => window.clearInterval(timer);
+  }, []);
+  return (
+    <div
+      role="status"
+      data-account-carry
+      className="flex w-fit max-w-full flex-wrap items-center gap-2 rounded-xl border border-hairline/40 bg-panel px-3 py-2 text-[13px] text-ink-secondary"
+    >
+      {rest && Date.parse(rest.until) > now && (
+        <>
+          <SleepingDog size={20} />
+          <RechargeLine progress={rest.estimated ? null : rechargeProgress(rest, now)} />
+        </>
+      )}
+      <ArrowRight size={13} aria-hidden="true" />
+      {active && <InstanceProviderMark instance={active} size={15} />}
+      <span className="min-w-0 break-words">{text}</span>
+    </div>
+  );
 }
 
 function ContinueWork({ handoffId, text }: { handoffId: string; text: string }) {
-  const [state, setState] = useState<{ phase: "ready" | "sending" | "failed"; error?: string }>({ phase: "ready" });
+  const [state, setState] = useState<{ phase: "ready" | "sending" | "failed"; error?: string }>({
+    phase: "ready",
+  });
   const send = () => {
     setState({ phase: "sending" });
-    api(`/api/handoffs/${handoffId}/continue`, { method: "POST" })
-      .catch((cause: unknown) => setState({ phase: "failed", error: plainClientError(cause) }));
+    api(`/api/handoffs/${handoffId}/continue`, { method: "POST" }).catch((cause: unknown) =>
+      setState({ phase: "failed", error: plainClientError(cause) }),
+    );
   };
   return (
-    <div role="status" data-continue-work className="flex w-fit max-w-full flex-wrap items-center gap-2 rounded-xl border border-hairline/40 bg-panel px-3 py-2 text-[13px] text-ink-secondary">
+    <div
+      role="status"
+      data-continue-work
+      className="flex w-fit max-w-full flex-wrap items-center gap-2 rounded-xl border border-hairline/40 bg-panel px-3 py-2 text-[13px] text-ink-secondary"
+    >
       <Info size={13} aria-hidden="true" className="shrink-0" />
       <span className="min-w-0 break-words">{text.replace(/\s*Continue\?$/, "")}</span>
       <button
@@ -43,7 +77,11 @@ function ContinueWork({ handoffId, text }: { handoffId: string; text: string }) 
       >
         {state.phase === "sending" ? t("chat.handoff.continuing") : t("chat.handoff.continue")}
       </button>
-      {state.phase === "failed" && <span data-continue-work-error className="min-w-0 basis-full break-words">{state.error}</span>}
+      {state.phase === "failed" && (
+        <span data-continue-work-error className="min-w-0 basis-full break-words">
+          {state.error}
+        </span>
+      )}
     </div>
   );
 }
@@ -52,11 +90,16 @@ export function StatusActivityRow({ message, model }: { message: Message; model?
   const status = statusActivity(message);
   if (!status) return null;
   if (status.kind === "progress") return null;
-  if (message.tool?.carry) return <CarriedAccount {...message.tool.carry} text={status.text} model={model} />;
-  if (message.tool?.resume) return <ContinueWork handoffId={message.tool.resume.handoffId} text={status.text} />;
+  if (message.tool?.carry)
+    return <CarriedAccount {...message.tool.carry} text={status.text} model={model} />;
+  if (message.tool?.resume)
+    return <ContinueWork handoffId={message.tool.resume.handoffId} text={status.text} />;
   const Icon = status.kind === "recovery" ? RefreshCw : Info;
   return (
-    <div role="status" className="flex w-fit max-w-full items-start gap-2 rounded-xl border border-hairline/40 bg-panel px-3 py-2 text-[13px] text-ink-secondary">
+    <div
+      role="status"
+      className="flex w-fit max-w-full items-start gap-2 rounded-xl border border-hairline/40 bg-panel px-3 py-2 text-[13px] text-ink-secondary"
+    >
       <Icon size={13} aria-hidden="true" className="mt-0.5 shrink-0" />
       <span className="min-w-0 break-words">{status.text}</span>
     </div>

@@ -13,7 +13,12 @@ const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 let PORT: number;
 const HOST = "acme.example.test";
 const EMAIL = "member@example.test";
-const INSTANCES = { claude: { driver: "claudeAgent", config: { cli: join(ROOT, "server/testing/fake-claude-cli.ts") } } };
+const INSTANCES = {
+  claude: {
+    driver: "claudeAgent",
+    config: { cli: join(ROOT, "server/testing/fake-claude-cli.ts") },
+  },
+};
 let home: string;
 let child: ChildProcess;
 let log = "";
@@ -21,18 +26,39 @@ let pairedToken: string;
 let policyBotId: string | undefined;
 const policyEvidence: unknown[] = [];
 
-function call(path: string, options: { method?: string; token?: string; local?: boolean; body?: unknown } = {}) {
+function call(
+  path: string,
+  options: { method?: string; token?: string; local?: boolean; body?: unknown } = {},
+) {
   return new Promise<{ status: number; body: any }>((resolve, reject) => {
-    const req = request({ hostname: "127.0.0.1", port: PORT, path, method: options.method ?? "GET", headers: {
-      ...(options.local ? {} : { host: HOST, "x-forwarded-for": "203.0.113.8", "x-forwarded-proto": "https" }),
-      ...(options.token ? { authorization: `Bearer ${options.token}` } : {}),
-      ...(options.body === undefined ? {} : { "content-type": "application/json" }),
-    } }, (res) => {
-      let raw = ""; res.on("data", (chunk) => raw += chunk);
-      res.on("end", () => { let body: unknown = raw; try { body = JSON.parse(raw); } catch {}
-        resolve({ status: res.statusCode!, body }); });
-    });
-    req.on("error", reject); req.end(options.body === undefined ? undefined : JSON.stringify(options.body));
+    const req = request(
+      {
+        hostname: "127.0.0.1",
+        port: PORT,
+        path,
+        method: options.method ?? "GET",
+        headers: {
+          ...(options.local
+            ? {}
+            : { host: HOST, "x-forwarded-for": "203.0.113.8", "x-forwarded-proto": "https" }),
+          ...(options.token ? { authorization: `Bearer ${options.token}` } : {}),
+          ...(options.body === undefined ? {} : { "content-type": "application/json" }),
+        },
+      },
+      (res) => {
+        let raw = "";
+        res.on("data", (chunk) => (raw += chunk));
+        res.on("end", () => {
+          let body: unknown = raw;
+          try {
+            body = JSON.parse(raw);
+          } catch {}
+          resolve({ status: res.statusCode!, body });
+        });
+      },
+    );
+    req.on("error", reject);
+    req.end(options.body === undefined ? undefined : JSON.stringify(options.body));
   });
 }
 async function policyBot() {
@@ -42,11 +68,17 @@ async function policyBot() {
   expect(provider.driverKind).toBe("claudeAgent");
   expect(provider.snapshot.state).not.toBe("unavailable");
   expect(provider.cli).toBe(INSTANCES.claude.config.cli);
-  const created = await call("/api/bots", { method: "POST", local: true, body: {
-    name: "Hosted policy fixture", requireAvailableModel: true, modelSelection: { instanceId: "claude", model: provider.models.default },
-  } });
+  const created = await call("/api/bots", {
+    method: "POST",
+    local: true,
+    body: {
+      name: "Hosted policy fixture",
+      requireAvailableModel: true,
+      modelSelection: { instanceId: "claude", model: provider.models.default },
+    },
+  });
   expect(created.status, JSON.stringify(created.body)).toBe(201);
-  return policyBotId = created.body.bot.id as string;
+  return (policyBotId = created.body.bot.id as string);
 }
 async function policyHealth() {
   const health = await call("/api/health", { local: true });
@@ -59,11 +91,18 @@ async function refuseFullTask() {
   const botId = await policyBot();
   const bots = async () => (await call("/api/bots?messages=0", { local: true })).body.bots;
   const before = (await bots()).find((bot: any) => bot.id === botId);
-  const denied = await call(`/api/bots/${botId}/tasks`, { method: "POST", local: true,
-    body: { title: "Must not become Full", approvalMode: "full" } });
+  const denied = await call(`/api/bots/${botId}/tasks`, {
+    method: "POST",
+    local: true,
+    body: { title: "Must not become Full", approvalMode: "full" },
+  });
   expect(denied.status, JSON.stringify(denied.body)).toBe(403);
   expect((await bots()).find((bot: any) => bot.id === botId)).toEqual(before);
-  policyEvidence.push({ deniedFullTask: denied.body, status: denied.status, authenticatedAs: "loopback" });
+  policyEvidence.push({
+    deniedFullTask: denied.body,
+    status: denied.status,
+    authenticatedAs: "loopback",
+  });
 }
 
 beforeAll(async () => {
@@ -71,24 +110,48 @@ beforeAll(async () => {
   home = mkdtempSync(join(tmpdir(), "laterdog-hosted-server-"));
   const data = join(home, ".laterdog");
   mkdirSync(join(home, "static"));
-  writeFileSync(join(home, "static", "index.html"), "<!doctype html><title>Fixture workspace</title>");
+  writeFileSync(
+    join(home, "static", "index.html"),
+    "<!doctype html><title>Fixture workspace</title>",
+  );
   const sessions = new SessionRegistry({ file: join(data, "sessions.json") });
-  pairedToken = sessions.issue({ label: "Pre-existing QR device", scopes: ["admin", "client"] }).token;
-  writeFileSync(join(data, "config.json"), JSON.stringify({ signIn: { admins: [EMAIL] }, instances: INSTANCES }));
-  child = spawn(process.execPath, [join(ROOT, "server/index.ts")], { cwd: ROOT, env: {
-    ...(process.env.PATH ? { PATH: process.env.PATH } : {}),
-    ...(process.env.SystemRoot ? { SystemRoot: process.env.SystemRoot } : {}),
-    HOME: home, USERPROFILE: home, LATERDOG_SERVER_PORT: String(PORT), LATERDOG_WEBHOOK_PORT: String(PORT + 1),
-    LATERDOG_STATIC_DIR: join(home, "static"), LATERDOG_BROWSER_CONNECTION: join(home, "browser-connection.json"),
-    LATERDOG_ENTERPRISE_DIR: join(home, "absent-layer"), LATERDOG_LICENSE_KEY: "fixture-only",
-    LATERDOG_ADMIN_URL: "https://admin.example.test", LATERDOG_ADMIN_WORKSPACE: "acme", LATERDOG_PUBLIC_URL: `https://${HOST}`,
-    LATERDOG_ADMIN_MEMBERSHIP: "portal", LATERDOG_SHARED_WORKSPACE_FULL_ACCESS: "1",
-    LATERDOG_LOOPBACK_TRUST: "owner",
-  }, stdio: ["ignore", "pipe", "pipe"] });
-  child.stdout?.on("data", (chunk) => log += chunk); child.stderr?.on("data", (chunk) => log += chunk);
+  pairedToken = sessions.issue({
+    label: "Pre-existing QR device",
+    scopes: ["admin", "client"],
+  }).token;
+  writeFileSync(
+    join(data, "config.json"),
+    JSON.stringify({ signIn: { admins: [EMAIL] }, instances: INSTANCES }),
+  );
+  child = spawn(process.execPath, [join(ROOT, "server/index.ts")], {
+    cwd: ROOT,
+    env: {
+      ...(process.env.PATH ? { PATH: process.env.PATH } : {}),
+      ...(process.env.SystemRoot ? { SystemRoot: process.env.SystemRoot } : {}),
+      HOME: home,
+      USERPROFILE: home,
+      LATERDOG_SERVER_PORT: String(PORT),
+      LATERDOG_WEBHOOK_PORT: String(PORT + 1),
+      LATERDOG_STATIC_DIR: join(home, "static"),
+      LATERDOG_BROWSER_CONNECTION: join(home, "browser-connection.json"),
+      LATERDOG_ENTERPRISE_DIR: join(home, "absent-layer"),
+      LATERDOG_LICENSE_KEY: "fixture-only",
+      LATERDOG_ADMIN_URL: "https://admin.example.test",
+      LATERDOG_ADMIN_WORKSPACE: "acme",
+      LATERDOG_PUBLIC_URL: `https://${HOST}`,
+      LATERDOG_ADMIN_MEMBERSHIP: "portal",
+      LATERDOG_SHARED_WORKSPACE_FULL_ACCESS: "1",
+      LATERDOG_LOOPBACK_TRUST: "owner",
+    },
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  child.stdout?.on("data", (chunk) => (log += chunk));
+  child.stderr?.on("data", (chunk) => (log += chunk));
   const deadline = Date.now() + 20_000;
   while (Date.now() < deadline) {
-    try { if ((await call("/api/health", { local: true })).status === 200) return; } catch {}
+    try {
+      if ((await call("/api/health", { local: true })).status === 200) return;
+    } catch {}
     await new Promise((resolve) => setTimeout(resolve, 100));
   }
   throw new Error(`Owned hosted fixture failed to start:\n${log}`);

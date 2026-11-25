@@ -29,7 +29,8 @@
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.turn-slot-age, .turn-slot-side-jobs {
+.turn-slot-age,
+.turn-slot-side-jobs {
   flex: none;
   white-space: nowrap;
   font-variant-numeric: tabular-nums;
@@ -47,7 +48,8 @@
 .turn-slot[data-slot-shown="false"] > :not(.sr-only) {
   visibility: hidden;
 }
-.turn-slot-button:focus-visible, .turn-slot-side-jobs:focus-visible {
+.turn-slot-button:focus-visible,
+.turn-slot-side-jobs:focus-visible {
   outline: 2px solid var(--color-accent);
   outline-offset: 2px;
 }

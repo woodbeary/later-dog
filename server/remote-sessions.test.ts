@@ -23,7 +23,11 @@ let home: string;
 let child: ChildProcess;
 let stderr = "";
 
-const remote = (source: string, extra: Record<string, string> = {}) => ({ host: REMOTE_HOST, "x-forwarded-for": source, ...extra });
+const remote = (source: string, extra: Record<string, string> = {}) => ({
+  host: REMOTE_HOST,
+  "x-forwarded-for": source,
+  ...extra,
+});
 
 function call(
   path: string,
@@ -31,7 +35,13 @@ function call(
 ): Promise<{ status: number; body: any; headers: Record<string, string | string[] | undefined> }> {
   return new Promise((resolve, reject) => {
     const req = request(
-      { host: "127.0.0.1", port: PORT, path, method: init.method ?? "GET", headers: { "content-type": "application/json", ...init.headers } },
+      {
+        host: "127.0.0.1",
+        port: PORT,
+        path,
+        method: init.method ?? "GET",
+        headers: { "content-type": "application/json", ...init.headers },
+      },
       (res) => {
         let raw = "";
         res.setEncoding("utf8");
@@ -61,20 +71,18 @@ function delayedCall(
   close: () => void;
 }> {
   const raw = JSON.stringify(init.body);
-  const req = request(
-    {
-      host: "127.0.0.1",
-      port: PORT,
-      path,
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        "content-length": Buffer.byteLength(raw),
-        expect: "100-continue",
-        ...init.headers,
-      },
+  const req = request({
+    host: "127.0.0.1",
+    port: PORT,
+    path,
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      "content-length": Buffer.byteLength(raw),
+      expect: "100-continue",
+      ...init.headers,
     },
-  );
+  });
   const response = new Promise<{ status: number; body: any }>((resolve, reject) => {
     req.on("error", reject);
     req.on("response", (res) => {
@@ -108,8 +116,20 @@ const header = (headers: Record<string, string | string[] | undefined>, name: st
   return Array.isArray(v) ? v.join("\n") : (v ?? "");
 };
 
-async function pairingCode(scopes?: string[]): Promise<{ code: string; credential: string; url: string | null; inviteUrl: string | null; serverName: string; hint: string | null }> {
-  const opened = await call("/api/auth/pairing", { method: "POST", body: JSON.stringify(scopes ? { scopes } : {}) });
+async function pairingCode(
+  scopes?: string[],
+): Promise<{
+  code: string;
+  credential: string;
+  url: string | null;
+  inviteUrl: string | null;
+  serverName: string;
+  hint: string | null;
+}> {
+  const opened = await call("/api/auth/pairing", {
+    method: "POST",
+    body: JSON.stringify(scopes ? { scopes } : {}),
+  });
   expect(opened.status).toBe(200);
   return opened.body;
 }
@@ -120,12 +140,17 @@ beforeAll(async () => {
   mkdirSync(join(home, ".laterdog"), { recursive: true });
   mkdirSync(join(staticDir, "assets"), { recursive: true });
   writeFileSync(join(staticDir, "index.html"), "<!doctype html><title>Served UI</title>");
-  writeFileSync(join(home, ".laterdog", "config.json"), JSON.stringify({
-    instances: { fixture: { driver: "remote-session-test-shadow" } },
-    profile: { name: "Security fixture", email: "private@example.invalid" },
-    vps: { sshAlias: "fixture-private-host" },
-    browserProfiles: [{ id: "fixture", name: "Fixture browser", partitionId: "fixture-private-partition" }],
-  }));
+  writeFileSync(
+    join(home, ".laterdog", "config.json"),
+    JSON.stringify({
+      instances: { fixture: { driver: "remote-session-test-shadow" } },
+      profile: { name: "Security fixture", email: "private@example.invalid" },
+      vps: { sshAlias: "fixture-private-host" },
+      browserProfiles: [
+        { id: "fixture", name: "Fixture browser", partitionId: "fixture-private-partition" },
+      ],
+    }),
+  );
   child = spawn(process.execPath, [join(SERVER_DIR, "index.ts")], {
     cwd: ROOT,
     env: {
@@ -162,18 +187,23 @@ afterAll(async () => {
 });
 
 describe("before pairing", () => {
-  it.each(["//%5B", "//[", "http://["])("rejects malformed request target %s and stays healthy", async (path) => {
-    const response = await call(path, { headers: remote("10.0.0.1") });
-    expect(response.status).toBe(400);
-    expect(response.body).toEqual({ error: "invalid request URL" });
-    const health = await call("/api/health");
-    expect(health.status).toBe(200);
-    expect(health.body).toMatchObject({ app: "laterdog", pid: child.pid });
-    expect(child.exitCode).toBeNull();
-  });
+  it.each(["//%5B", "//[", "http://["])(
+    "rejects malformed request target %s and stays healthy",
+    async (path) => {
+      const response = await call(path, { headers: remote("10.0.0.1") });
+      expect(response.status).toBe(400);
+      expect(response.body).toEqual({ error: "invalid request URL" });
+      const health = await call("/api/health");
+      expect(health.status).toBe(200);
+      expect(health.body).toMatchObject({ app: "laterdog", pid: child.pid });
+      expect(child.exitCode).toBeNull();
+    },
+  );
 
   it("describes itself to anyone, but serves nothing else off-machine", async () => {
-    const descriptor = await call("/.well-known/laterdog/environment", { headers: remote("10.0.0.1") });
+    const descriptor = await call("/.well-known/laterdog/environment", {
+      headers: remote("10.0.0.1"),
+    });
     expect(descriptor.status).toBe(200);
     expect(descriptor.body.environmentId).toMatch(/^[0-9a-f-]{36}$/);
     expect(descriptor.body.label).toBe("cab mini");
@@ -216,12 +246,26 @@ describe("pairing", () => {
 
   it("refuses to mint or list codes from a client-only session", async () => {
     const opened = await pairingCode(["client"]);
-    const paired = await call("/api/auth/pair", { method: "POST", headers: remote("10.0.0.2"), body: JSON.stringify({ code: opened.code, label: "viewer" }) });
+    const paired = await call("/api/auth/pair", {
+      method: "POST",
+      headers: remote("10.0.0.2"),
+      body: JSON.stringify({ code: opened.code, label: "viewer" }),
+    });
     expect(paired.status).toBe(200);
-    const denied = await call("/api/auth/pairing", { method: "POST", headers: remote("10.0.0.2", { authorization: `Bearer ${paired.body.token}` }), body: "{}" });
+    const denied = await call("/api/auth/pairing", {
+      method: "POST",
+      headers: remote("10.0.0.2", { authorization: `Bearer ${paired.body.token}` }),
+      body: "{}",
+    });
     expect(denied.status).toBe(403);
     expect(denied.body.error).toContain("lacks the admin scope");
-    expect((await call("/api/bots", { headers: remote("10.0.0.2", { authorization: `Bearer ${paired.body.token}` }) })).status).toBe(200);
+    expect(
+      (
+        await call("/api/bots", {
+          headers: remote("10.0.0.2", { authorization: `Bearer ${paired.body.token}` }),
+        })
+      ).status,
+    ).toBe(200);
   });
 
   it("rechecks an admin session after a slow pairing body before minting a code", async () => {
@@ -237,19 +281,27 @@ describe("pairing", () => {
       body: { label: "must not be minted after revocation", scopes: ["admin", "client"] },
     });
     try {
-      const revoked = await call(`/api/auth/sessions/${paired.body.session.id}`, { method: "DELETE" });
+      const revoked = await call(`/api/auth/sessions/${paired.body.session.id}`, {
+        method: "DELETE",
+      });
       expect(revoked.status).toBe(200);
-      expect((await call("/api/auth/session", {
-        headers: remote("10.0.0.22", { authorization: `Bearer ${paired.body.token}` }),
-      })).status).toBe(401);
+      expect(
+        (
+          await call("/api/auth/session", {
+            headers: remote("10.0.0.22", { authorization: `Bearer ${paired.body.token}` }),
+          })
+        ).status,
+      ).toBe(401);
 
       const late = await held.finish();
       expect(late.status).toBe(401);
       expect(late.body.error).toMatch(/session ended/i);
       const remaining = await call("/api/auth/pairing");
-      expect(remaining.body.pairings).not.toEqual(expect.arrayContaining([
-        expect.objectContaining({ label: "must not be minted after revocation" }),
-      ]));
+      expect(remaining.body.pairings).not.toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ label: "must not be minted after revocation" }),
+        ]),
+      );
     } finally {
       held.close();
     }
@@ -257,36 +309,55 @@ describe("pairing", () => {
 
   it("exchanges a code exactly once, with a bearer token for native clients", async () => {
     const opened = await pairingCode();
-    const wrong = await call("/api/auth/pair", { method: "POST", headers: remote("10.0.0.3"), body: JSON.stringify({ code: "AAAA-AAAA-AAAA" }) });
+    const wrong = await call("/api/auth/pair", {
+      method: "POST",
+      headers: remote("10.0.0.3"),
+      body: JSON.stringify({ code: "AAAA-AAAA-AAAA" }),
+    });
     expect(wrong.status).toBe(401);
     expect(wrong.body.error).toMatch(/wrong or has expired/);
     const paired = await call("/api/auth/pair", {
       method: "POST",
-      headers: remote("10.0.0.3", { "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_0) Safari/605.1" }),
+      headers: remote("10.0.0.3", {
+        "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_0) Safari/605.1",
+      }),
       body: JSON.stringify({ code: opened.code.toLowerCase() }),
     });
     expect(paired.status).toBe(200);
     expect(paired.body.token).toMatch(/^laterdog_sess_/);
     expect(paired.body.session.label).toBe("Safari on Mac");
     expect(paired.body.environment.label).toBe("cab mini");
-    const again = await call("/api/auth/pair", { method: "POST", headers: remote("10.0.0.3"), body: JSON.stringify({ code: opened.code }) });
+    const again = await call("/api/auth/pair", {
+      method: "POST",
+      headers: remote("10.0.0.3"),
+      body: JSON.stringify({ code: opened.code }),
+    });
     expect(again.status).toBe(401);
 
     const bearer = remote("10.0.0.3", { authorization: `Bearer ${paired.body.token}` });
     expect((await call("/api/bots", { headers: bearer })).status).toBe(200);
     const me = await call("/api/auth/session", { headers: bearer });
-    expect(me.body).toMatchObject({ kind: "session", via: "bearer", label: "Safari on Mac", scopes: ["admin", "client"] });
+    expect(me.body).toMatchObject({
+      kind: "session",
+      via: "bearer",
+      label: "Safari on Mac",
+      scopes: ["admin", "client"],
+    });
 
     const ticket = await call("/api/auth/stream-ticket", { method: "POST", headers: bearer });
     expect(ticket.body.ticket).toMatch(/^laterdog_tick_/);
-    const stream = await openSse(`${BASE}/api/events?ticket=${ticket.body.ticket}`, { host: REMOTE_HOST });
+    const stream = await openSse(`${BASE}/api/events?ticket=${ticket.body.ticket}`, {
+      host: REMOTE_HOST,
+    });
     try {
       const hello = await stream.until((f) => f.kind === "hello", 5_000);
       expect(hello.kind).toBe("hello");
     } finally {
       stream.close();
     }
-    const reused = await call(`/api/events?ticket=${ticket.body.ticket}`, { headers: remote("10.0.0.3") });
+    const reused = await call(`/api/events?ticket=${ticket.body.ticket}`, {
+      headers: remote("10.0.0.3"),
+    });
     expect(reused.status).toBe(401);
 
     const sessionsList = await call("/api/auth/sessions");
@@ -316,22 +387,40 @@ describe("pairing", () => {
     expect(setCookie).toContain("Secure");
     const cookie = setCookie.split(";")[0];
 
-    const sameOrigin = await call("/api/bots", { headers: remote("10.0.0.4", { cookie, origin: `http://${REMOTE_HOST}` }) });
+    const sameOrigin = await call("/api/bots", {
+      headers: remote("10.0.0.4", { cookie, origin: `http://${REMOTE_HOST}` }),
+    });
     expect(sameOrigin.status).toBe(200);
     const refreshed = header(sameOrigin.headers, "set-cookie");
     expect(refreshed.split(";")[0]).toBe(cookie);
     expect(refreshed).toMatch(/Max-Age=\d+/);
     expect(refreshed).toContain("HttpOnly");
-    const stranger = await call("/api/bots", { headers: remote("10.0.0.4", { cookie: `${cookie.split("=")[0]}=laterdog_sess_nope`, origin: `http://${REMOTE_HOST}` }) });
+    const stranger = await call("/api/bots", {
+      headers: remote("10.0.0.4", {
+        cookie: `${cookie.split("=")[0]}=laterdog_sess_nope`,
+        origin: `http://${REMOTE_HOST}`,
+      }),
+    });
     expect(stranger.status).toBe(401);
     expect(header(stranger.headers, "set-cookie")).toBe("");
     const noOrigin = await call("/api/auth/session", { headers: remote("10.0.0.4", { cookie }) });
-    expect(noOrigin.body).toMatchObject({ kind: "session", via: "cookie", label: "iPad in the kitchen" });
-    const csrf = await call("/api/bots", { method: "POST", headers: remote("10.0.0.4", { cookie, origin: "https://evil.example" }), body: "{}" });
+    expect(noOrigin.body).toMatchObject({
+      kind: "session",
+      via: "cookie",
+      label: "iPad in the kitchen",
+    });
+    const csrf = await call("/api/bots", {
+      method: "POST",
+      headers: remote("10.0.0.4", { cookie, origin: "https://evil.example" }),
+      body: "{}",
+    });
     expect(csrf.status).toBe(403);
     expect(csrf.body.error).toBe("forbidden: cross-origin request");
 
-    const logout = await call("/api/auth/logout", { method: "POST", headers: remote("10.0.0.4", { cookie }) });
+    const logout = await call("/api/auth/logout", {
+      method: "POST",
+      headers: remote("10.0.0.4", { cookie }),
+    });
     expect(header(logout.headers, "set-cookie")).toContain("Max-Age=0");
     expect((await call("/api/bots", { headers: remote("10.0.0.4", { cookie }) })).status).toBe(401);
   });
@@ -343,7 +432,11 @@ describe("pairing", () => {
     const paired = await call("/api/pair", {
       method: "POST",
       headers: remote("10.0.0.31"),
-      body: JSON.stringify({ credential: opened.credential, deviceName: "Pixel 9", pairRequestId: "11111111-2222-4333-8444-555555555555" }),
+      body: JSON.stringify({
+        credential: opened.credential,
+        deviceName: "Pixel 9",
+        pairRequestId: "11111111-2222-4333-8444-555555555555",
+      }),
     });
     expect(paired.status).toBe(200);
     expect(typeof paired.body.token).toBe("string");
@@ -354,7 +447,9 @@ describe("pairing", () => {
     expect(typeof paired.body.device.createdAt).toBe("number");
     expect(typeof paired.body.device.lastSeenAt).toBe("number");
 
-    const used = await call("/api/bots", { headers: remote("10.0.0.31", { authorization: `Bearer ${paired.body.token}` }) });
+    const used = await call("/api/bots", {
+      headers: remote("10.0.0.31", { authorization: `Bearer ${paired.body.token}` }),
+    });
     expect(used.status).toBe(200);
     const listed = await call("/api/auth/sessions");
     expect(listed.body.sessions.some((s: { label: string }) => s.label === "Pixel 9")).toBe(true);
@@ -397,38 +492,69 @@ describe("pairing", () => {
 
   it("only accepts JSON for the exchange, and replays a lost response by attempt id", async () => {
     const opened = await pairingCode();
-    const form = await call("/api/auth/pair", { method: "POST", headers: { ...remote("10.0.0.20"), "content-type": "application/x-www-form-urlencoded" }, body: `code=${opened.code}` });
+    const form = await call("/api/auth/pair", {
+      method: "POST",
+      headers: { ...remote("10.0.0.20"), "content-type": "application/x-www-form-urlencoded" },
+      body: `code=${opened.code}`,
+    });
     expect(form.status).toBe(415);
-    const first = await call("/api/auth/pair", { method: "POST", headers: remote("10.0.0.20"), body: JSON.stringify({ code: opened.code, attemptId: "attempt-first-0001" }) });
+    const first = await call("/api/auth/pair", {
+      method: "POST",
+      headers: remote("10.0.0.20"),
+      body: JSON.stringify({ code: opened.code, attemptId: "attempt-first-0001" }),
+    });
     expect(first.status).toBe(200);
-    const replay = await call("/api/auth/pair", { method: "POST", headers: remote("10.0.0.21"), body: JSON.stringify({ code: opened.code, attemptId: "attempt-first-0001" }) });
+    const replay = await call("/api/auth/pair", {
+      method: "POST",
+      headers: remote("10.0.0.21"),
+      body: JSON.stringify({ code: opened.code, attemptId: "attempt-first-0001" }),
+    });
     expect(replay.status).toBe(200);
     expect(replay.body.token).toBe(first.body.token);
-    const other = await call("/api/auth/pair", { method: "POST", headers: remote("10.0.0.20"), body: JSON.stringify({ code: opened.code, attemptId: "attempt-other-0002" }) });
+    const other = await call("/api/auth/pair", {
+      method: "POST",
+      headers: remote("10.0.0.20"),
+      body: JSON.stringify({ code: opened.code, attemptId: "attempt-other-0002" }),
+    });
     expect(other.status).toBe(401);
   });
 
   it("ends a live event stream the moment its session is revoked", async () => {
     const opened = await pairingCode();
-    const paired = await call("/api/auth/pair", { method: "POST", headers: remote("10.0.0.30"), body: JSON.stringify({ code: opened.code, label: "stream" }) });
+    const paired = await call("/api/auth/pair", {
+      method: "POST",
+      headers: remote("10.0.0.30"),
+      body: JSON.stringify({ code: opened.code, label: "stream" }),
+    });
     const bearer = remote("10.0.0.30", { authorization: `Bearer ${paired.body.token}` });
     const ticket = await call("/api/auth/stream-ticket", { method: "POST", headers: bearer });
     const ended = new Promise<{ hello: boolean; endedMs: number }>((resolve, reject) => {
       const startedAt = Date.now();
       let hello = false;
-      const req = request({ host: "127.0.0.1", port: PORT, path: `/api/events?ticket=${ticket.body.ticket}`, method: "GET", headers: { accept: "text/event-stream", ...remote("10.0.0.30") } }, (res) => {
-        res.setEncoding("utf8");
-        res.on("data", (chunk: string) => {
-          if (chunk.includes('"kind":"hello"')) {
-            hello = true;
-            void call(`/api/auth/sessions/${paired.body.session.id}`, { method: "DELETE" }).then((r) => {
-              if (r.status !== 200) reject(new Error(`revoke returned ${r.status}`));
-            });
-          }
-        });
-        res.on("end", () => resolve({ hello, endedMs: Date.now() - startedAt }));
-        res.on("error", reject);
-      });
+      const req = request(
+        {
+          host: "127.0.0.1",
+          port: PORT,
+          path: `/api/events?ticket=${ticket.body.ticket}`,
+          method: "GET",
+          headers: { accept: "text/event-stream", ...remote("10.0.0.30") },
+        },
+        (res) => {
+          res.setEncoding("utf8");
+          res.on("data", (chunk: string) => {
+            if (chunk.includes('"kind":"hello"')) {
+              hello = true;
+              void call(`/api/auth/sessions/${paired.body.session.id}`, { method: "DELETE" }).then(
+                (r) => {
+                  if (r.status !== 200) reject(new Error(`revoke returned ${r.status}`));
+                },
+              );
+            }
+          });
+          res.on("end", () => resolve({ hello, endedMs: Date.now() - startedAt }));
+          res.on("error", reject);
+        },
+      );
       req.on("error", reject);
       req.end();
       setTimeout(() => reject(new Error("stream did not end after revocation")), 8_000).unref();
@@ -440,21 +566,47 @@ describe("pairing", () => {
 
   it("gives a client-scope session chat but not the machine: allow-list, display-only edits, stripped config", async () => {
     const opened = await pairingCode(["client"]);
-    const paired = await call("/api/auth/pair", { method: "POST", headers: remote("10.0.0.40"), body: JSON.stringify({ code: opened.code, label: "viewer" }) });
+    const paired = await call("/api/auth/pair", {
+      method: "POST",
+      headers: remote("10.0.0.40"),
+      body: JSON.stringify({ code: opened.code, label: "viewer" }),
+    });
     expect(paired.status).toBe(200);
-    const h = (extra: Record<string, string> = {}) => remote("10.0.0.40", { authorization: `Bearer ${paired.body.token}`, ...extra });
+    const h = (extra: Record<string, string> = {}) =>
+      remote("10.0.0.40", { authorization: `Bearer ${paired.body.token}`, ...extra });
     expect((await call("/api/bots", { headers: h() })).status).toBe(200);
-    for (const [method, path] of [["POST", "/api/cli-test"], ["GET", "/api/instances"], ["POST", "/api/webhooks"], ["GET", "/api/mcp/servers"], ["POST", "/api/local-computer/run"]] as const) {
-      const r = await call(path, { method, headers: h(), body: method === "POST" ? "{}" : undefined });
+    for (const [method, path] of [
+      ["POST", "/api/cli-test"],
+      ["GET", "/api/instances"],
+      ["POST", "/api/webhooks"],
+      ["GET", "/api/mcp/servers"],
+      ["POST", "/api/local-computer/run"],
+    ] as const) {
+      const r = await call(path, {
+        method,
+        headers: h(),
+        body: method === "POST" ? "{}" : undefined,
+      });
       expect(r.status, `${method} ${path}`).toBe(403);
       expect(r.body.error, `${method} ${path}`).toContain("admin scope");
     }
-    const created = await call("/api/bots", { method: "POST", body: JSON.stringify({ name: "Scoped" }) });
+    const created = await call("/api/bots", {
+      method: "POST",
+      body: JSON.stringify({ name: "Scoped" }),
+    });
     const botId = created.body?.id ?? created.body?.bot?.id;
     if (botId) {
-      const cosmetic = await call(`/api/bots/${botId}`, { method: "PATCH", headers: h(), body: JSON.stringify({ unread: true }) });
+      const cosmetic = await call(`/api/bots/${botId}`, {
+        method: "PATCH",
+        headers: h(),
+        body: JSON.stringify({ unread: true }),
+      });
       expect(cosmetic.status).toBe(200);
-      const smuggled = await call(`/api/bots/${botId}`, { method: "PATCH", headers: h(), body: JSON.stringify({ unread: true, autoApprove: true }) });
+      const smuggled = await call(`/api/bots/${botId}`, {
+        method: "PATCH",
+        headers: h(),
+        body: JSON.stringify({ unread: true, autoApprove: true }),
+      });
       expect(smuggled.status).toBe(403);
       expect(smuggled.body.error).toContain('"autoApprove"');
     }
@@ -469,7 +621,9 @@ describe("pairing", () => {
     async function pair(scopes: string[], source: string) {
       const opened = await pairingCode(scopes);
       const paired = await call("/api/auth/pair", {
-        method: "POST", headers: remote(source), body: JSON.stringify({ code: opened.code }),
+        method: "POST",
+        headers: remote(source),
+        body: JSON.stringify({ code: opened.code }),
       });
       expect(paired.status).toBe(200);
       return remote(source, { authorization: `Bearer ${paired.body.token}` });
@@ -478,11 +632,23 @@ describe("pairing", () => {
     const adminHeaders = await pair(["admin", "client"], "10.0.0.42");
     const streams: Awaited<ReturnType<typeof openSse>>[] = [];
     async function stream(headers: Record<string, string>, cursor?: string) {
-      const opened = await openSse(`${BASE}/api/events${cursor ? `?since=${encodeURIComponent(cursor)}` : ""}`, headers);
+      const opened = await openSse(
+        `${BASE}/api/events${cursor ? `?since=${encodeURIComponent(cursor)}` : ""}`,
+        headers,
+      );
       streams.push(opened);
       return opened;
     }
-    expect((await call("/api/config", { method: "PUT", body: JSON.stringify({ opencodeGo: { providerKeys: { VENICE_API_KEY: "venice-fixture-key" } } }) })).status).toBe(200);
+    expect(
+      (
+        await call("/api/config", {
+          method: "PUT",
+          body: JSON.stringify({
+            opencodeGo: { providerKeys: { VENICE_API_KEY: "venice-fixture-key" } },
+          }),
+        })
+      ).status,
+    ).toBe(200);
     function expectClientConfig(config: any) {
       expect(config.opencodeGo).toEqual({ configured: false, providerKeys: [] });
       expect(config.profile).toEqual({ name: "Updated fixture", email: "" });
@@ -491,9 +657,18 @@ describe("pairing", () => {
     }
     function expectAdminConfig(config: any) {
       expect(config.opencodeGo).toEqual({ configured: false, providerKeys: ["VENICE_API_KEY"] });
-      expect(config.profile).toEqual({ name: "Updated fixture", email: "updated-private@example.invalid", aboutMe: "", reviewLearned: false, learnedWaiting: 0, askFirst: [] });
+      expect(config.profile).toEqual({
+        name: "Updated fixture",
+        email: "updated-private@example.invalid",
+        aboutMe: "",
+        reviewLearned: false,
+        learnedWaiting: 0,
+        askFirst: [],
+      });
       expect(config.vps).toEqual({ configured: true, sshAlias: "fixture-private-host" });
-      expect(config.browserProfiles).toEqual([{ id: "fixture", name: "Fixture browser", partitionId: "fixture-private-partition" }]);
+      expect(config.browserProfiles).toEqual([
+        { id: "fixture", name: "Fixture browser", partitionId: "fixture-private-partition" },
+      ]);
     }
     try {
       const client = await stream(clientHeaders);
@@ -501,8 +676,11 @@ describe("pairing", () => {
       const admin = await stream(adminHeaders);
       await admin.until((frame) => frame.kind === "hello");
       const changed = await call("/api/config", {
-        method: "PATCH", headers: adminHeaders,
-        body: JSON.stringify({ profile: { name: "Updated fixture", email: "updated-private@example.invalid" } }),
+        method: "PATCH",
+        headers: adminHeaders,
+        body: JSON.stringify({
+          profile: { name: "Updated fixture", email: "updated-private@example.invalid" },
+        }),
       });
       expect(changed.status).toBe(200);
       expectAdminConfig(changed.body);
@@ -537,14 +715,30 @@ describe("pairing", () => {
 
   it("locks a source out after repeated bad codes and says how long", async () => {
     for (let i = 0; i < LOCKOUT.failures; i++) {
-      const r = await call("/api/auth/pair", { method: "POST", headers: remote("10.0.0.99"), body: JSON.stringify({ code: `BAD${i}-BADB-ADBA` }) });
+      const r = await call("/api/auth/pair", {
+        method: "POST",
+        headers: remote("10.0.0.99"),
+        body: JSON.stringify({ code: `BAD${i}-BADB-ADBA` }),
+      });
       expect(r.status).toBe(401);
     }
     const opened = await pairingCode();
-    const locked = await call("/api/auth/pair", { method: "POST", headers: remote("10.0.0.99"), body: JSON.stringify({ code: opened.code }) });
+    const locked = await call("/api/auth/pair", {
+      method: "POST",
+      headers: remote("10.0.0.99"),
+      body: JSON.stringify({ code: opened.code }),
+    });
     expect(locked.status).toBe(429);
     expect(locked.body.error).toMatch(/from your address; try again in \d+s/);
-    expect((await call("/api/auth/pair", { method: "POST", headers: remote("10.0.0.100"), body: JSON.stringify({ code: opened.code }) })).status).toBe(200);
+    expect(
+      (
+        await call("/api/auth/pair", {
+          method: "POST",
+          headers: remote("10.0.0.100"),
+          body: JSON.stringify({ code: opened.code }),
+        })
+      ).status,
+    ).toBe(200);
     expect(stderr).toMatch(/pairing refused from 10\.0\.0\.99/);
   });
 });

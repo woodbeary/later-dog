@@ -1,10 +1,30 @@
 import { spawnSync } from "node:child_process";
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readlinkSync, statSync, utimesSync, writeFileSync } from "node:fs";
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  readlinkSync,
+  statSync,
+  utimesSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { type ComputerJob, ComputerJobs, JOB_CHECK_MS } from "./computer-jobs.ts";
-import { bringBackList, changesSince, ComputerRuns, parts, type RunBox, type RunRecord, runKey, setupKey, stampFolder } from "./computer-runs.ts";
+import {
+  bringBackList,
+  changesSince,
+  ComputerRuns,
+  parts,
+  type RunBox,
+  type RunRecord,
+  runKey,
+  setupKey,
+  stampFolder,
+} from "./computer-runs.ts";
 
 const ENVIRONMENTS_MODULE = "../../deploy/laterdog/computers/src/environments.ts";
 const environments = await import(ENVIRONMENTS_MODULE);
@@ -17,14 +37,20 @@ function localBox(home: string) {
   const box: RunBox = {
     async exec(command) {
       commands.push(command);
-      const out = spawnSync("bash", ["-c", command], { cwd: home, env: { ...process.env, HOME: home }, encoding: "utf8" });
+      const out = spawnSync("bash", ["-c", command], {
+        cwd: home,
+        env: { ...process.env, HOME: home },
+        encoding: "utf8",
+      });
       return { exitCode: out.status, stdout: out.stdout, stderr: out.stderr };
     },
     async write(path, bytes) {
       mkdirSync(dirname(join(home, path)), { recursive: true });
       writeFileSync(join(home, path), bytes);
     },
-    async read(path) { return readFileSync(join(home, path)); },
+    async read(path) {
+      return readFileSync(join(home, path));
+    },
   };
   return { box, commands };
 }
@@ -50,7 +76,12 @@ describe("a heavy command on the dog's own computer", () => {
     mkdirSync(computer);
     const { box } = localBox(computer);
     const runs = new ComputerRuns(state, fast);
-    const outcome = await runs.run(box, { botId: "dog", folder, command: "mkdir -p dist report && echo built > dist/app.js && echo 'all 12 tests passed' | tee report/result.txt && echo changed > src/page.ts" });
+    const outcome = await runs.run(box, {
+      botId: "dog",
+      folder,
+      command:
+        "mkdir -p dist report && echo built > dist/app.js && echo 'all 12 tests passed' | tee report/result.txt && echo changed > src/page.ts",
+    });
     expect(outcome.state).toBe("finished");
     expect(outcome.exitCode).toBe(0);
     expect(outcome.output).toContain("all 12 tests passed");
@@ -66,7 +97,9 @@ describe("a heavy command on the dog's own computer", () => {
     mkdirSync(computer);
     const slowBin = join(root, "slow-bin");
     mkdirSync(slowBin);
-    writeFileSync(join(slowBin, "bash"), '#!/bin/sh\nsleep 0.25\nexec /bin/bash "$@"\n', { mode: 0o755 });
+    writeFileSync(join(slowBin, "bash"), '#!/bin/sh\nsleep 0.25\nexec /bin/bash "$@"\n', {
+      mode: 0o755,
+    });
     const { box } = localBox(computer);
     const direct = box.exec;
     box.exec = async (command, timeoutMs) => {
@@ -79,7 +112,11 @@ describe("a heavy command on the dog's own computer", () => {
       return { exitCode: result.status, stdout: result.stdout, stderr: result.stderr };
     };
     const runs = new ComputerRuns(state, fast);
-    const started = await runs.start(box, { botId: "dog", folder, command: "echo ready > report.txt" });
+    const started = await runs.start(box, {
+      botId: "dog",
+      folder,
+      command: "echo ready > report.txt",
+    });
     expect(existsSync(join(computer, "runs/.logs", `${started.id}.pgid`))).toBe(true);
     const outcome = await runs.finish(box, started);
     expect(outcome.state).toBe("finished");
@@ -95,7 +132,12 @@ describe("a heavy command on the dog's own computer", () => {
     await runs.run(box, { botId: "dog", folder, command: "true" });
     writeFileSync(join(folder, "src/new.ts"), "export {};\n");
     spawnSync("rm", [join(folder, "package.json")]);
-    const outcome = await runs.run(box, { botId: "dog", folder, subdir: "src", command: "ls; ls .. ; exit 3" });
+    const outcome = await runs.run(box, {
+      botId: "dog",
+      folder,
+      subdir: "src",
+      command: "ls; ls .. ; exit 3",
+    });
     expect(outcome.sentFiles).toBe(1);
     expect(outcome.exitCode).toBe(3);
     expect(outcome.output).toContain("new.ts");
@@ -108,7 +150,12 @@ describe("a heavy command on the dog's own computer", () => {
     mkdirSync(join(folder, "pub"));
     const { box } = localBox(computer);
     const runs = new ComputerRuns(state, fast);
-    const outcome = await runs.run(box, { botId: "dog", folder, subdir: "pub", command: "pwd; echo made > made.txt" });
+    const outcome = await runs.run(box, {
+      botId: "dog",
+      folder,
+      subdir: "pub",
+      command: "pwd; echo made > made.txt",
+    });
     expect(outcome.state).toBe("finished");
     expect(outcome.exitCode).toBe(0);
     expect(outcome.output).toMatch(/\/pub\n/);
@@ -129,13 +176,18 @@ describe("a heavy command on the dog's own computer", () => {
     writeFileSync(join(other, "pnpm-lock.yaml"), "lockfileVersion: '9.0'\nchanged: true\n");
     const { box } = localBox(computer);
     const runs = new ComputerRuns(state, fast);
-    const install = "test -d node_modules/left-pad || (mkdir -p node_modules/left-pad && echo installed > node_modules/left-pad/index.js && echo INSTALLED)";
+    const install =
+      "test -d node_modules/left-pad || (mkdir -p node_modules/left-pad && echo installed > node_modules/left-pad/index.js && echo INSTALLED)";
 
     const first = await runs.run(box, { botId: "dog", folder, command: install });
     expect(first.output).toContain("INSTALLED");
     expect(first.note ?? "").not.toContain("Reused");
 
-    const failed = await runs.run(box, { botId: "dog", folder: other, command: "mkdir -p node_modules/broken; exit 1" });
+    const failed = await runs.run(box, {
+      botId: "dog",
+      folder: other,
+      command: "mkdir -p node_modules/broken; exit 1",
+    });
     expect(failed.exitCode).toBe(1);
 
     const second = await runs.run(box, { botId: "dog", folder: copy, command: install });
@@ -154,7 +206,11 @@ describe("a heavy command on the dog's own computer", () => {
     mkdirSync(computer);
     const { box } = localBox(computer);
     const runs = new ComputerRuns(state, fast);
-    const started = await runs.start(box, { botId: "dog", folder, command: "sleep 1; echo theirs > src/page.ts" });
+    const started = await runs.start(box, {
+      botId: "dog",
+      folder,
+      command: "sleep 1; echo theirs > src/page.ts",
+    });
     writeFileSync(join(folder, "src/page.ts"), "mine\n");
     const outcome = await runs.finish(box, started);
     expect(outcome.broughtBack).toEqual([]);
@@ -167,12 +223,24 @@ describe("a heavy command on the dog's own computer", () => {
     mkdirSync(computer);
     const { box } = localBox(computer);
     const runs = new ComputerRuns(state, fast);
-    const started = await runs.start(box, { botId: "dog", folder, command: "mkdir -p dist && echo built > dist/app.js && echo result-7f3a > report.txt && echo theirs > src/page.ts" });
-    while (!existsSync(join(computer, "runs/.logs", `${started.id}.exit`))) await new Promise((done) => setTimeout(done, 20));
+    const started = await runs.start(box, {
+      botId: "dog",
+      folder,
+      command:
+        "mkdir -p dist && echo built > dist/app.js && echo result-7f3a > report.txt && echo theirs > src/page.ts",
+    });
+    while (!existsSync(join(computer, "runs/.logs", `${started.id}.exit`)))
+      await new Promise((done) => setTimeout(done, 20));
     const remote = join(computer, "runs", started.key);
     const marker = join(computer, "runs/.logs", `${started.id}.start`);
-    expect(spawnSync("touch", ["-r", marker, "report.txt", "src/page.ts", "dist/app.js"], { cwd: remote }).status).toBe(0);
-    expect(statSync(join(remote, "report.txt"), { bigint: true }).mtimeNs).toBe(statSync(marker, { bigint: true }).mtimeNs);
+    expect(
+      spawnSync("touch", ["-r", marker, "report.txt", "src/page.ts", "dist/app.js"], {
+        cwd: remote,
+      }).status,
+    ).toBe(0);
+    expect(statSync(join(remote, "report.txt"), { bigint: true }).mtimeNs).toBe(
+      statSync(marker, { bigint: true }).mtimeNs,
+    );
     writeFileSync(join(folder, "src/page.ts"), "mine\n");
     const outcome = await runs.finish(box, started);
     expect(outcome.state).toBe("finished");
@@ -189,12 +257,23 @@ describe("a heavy command on the dog's own computer", () => {
     mkdirSync(computer);
     const { box } = localBox(computer);
     let clock = 0;
-    const runs = new ComputerRuns(state, { now: () => clock, sleep: async () => { clock += 10 * 60_000; } });
-    const started = await runs.start(box, { botId: "dog", folder, command: "sleep 2; echo done > out.txt" });
+    const runs = new ComputerRuns(state, {
+      now: () => clock,
+      sleep: async () => {
+        clock += 10 * 60_000;
+      },
+    });
+    const started = await runs.start(box, {
+      botId: "dog",
+      folder,
+      command: "sleep 2; echo done > out.txt",
+    });
     const first = await runs.finish(box, started);
     expect(first.state).toBe("running");
     expect(first.note).toContain(started.id);
-    expect(first.note).toBe(`Still running. Call run_on_computer again with run_id "${started.id}" to keep waiting. That call waits up to its wait_minutes (default 4).`);
+    expect(first.note).toBe(
+      `Still running. Call run_on_computer again with run_id "${started.id}" to keep waiting. That call waits up to its wait_minutes (default 4).`,
+    );
     const record = runs.record("dog", started.id)!;
     await new Promise((done) => setTimeout(done, 2500));
     const second = await runs.finish(box, record);
@@ -208,13 +287,22 @@ describe("a heavy command on the dog's own computer", () => {
     const { box, commands } = localBox(computer);
     const runs = new ComputerRuns(state, fast);
     const started = await runs.start(box, { botId: "dog", folder, command: "sleep 5" });
-    const outcome = await runs.finish(box, runs.record("dog", started.id)!, undefined, runs.window(1));
+    const outcome = await runs.finish(
+      box,
+      runs.record("dog", started.id)!,
+      undefined,
+      runs.window(1),
+    );
     spawnSync("pkill", ["-f", `runs/[.]logs/${started.id}[.]log`]);
     expect(outcome.state).toBe("running");
-    for (const command of commands.filter((command) => /pgrep -f /.test(command))) expect(searchesItself(command, "pgrep"), command).toBe(false);
-    const afterStart = commands.slice(commands.findIndex((command) => command.includes("nohup")) + 1);
+    for (const command of commands.filter((command) => /pgrep -f /.test(command)))
+      expect(searchesItself(command, "pgrep"), command).toBe(false);
+    const afterStart = commands.slice(
+      commands.findIndex((command) => command.includes("nohup")) + 1,
+    );
     expect(afterStart.length).toBeGreaterThan(0);
-    for (const command of afterStart) expect(command, command).not.toContain(`runs/.logs/${started.id}.log`);
+    for (const command of afterStart)
+      expect(command, command).not.toContain(`runs/.logs/${started.id}.log`);
   });
 
   it("reads a run whose liveness says dead as not gone once its exit record has appeared", async () => {
@@ -222,7 +310,15 @@ describe("a heavy command on the dog's own computer", () => {
     const runs = new ComputerRuns(state, fast);
     const record = { id: "abcd1234" } as RunRecord;
     let exit = "";
-    const box = { exec: async (command: string) => ({ exitCode: 0, stdout: command.includes(".pgid") ? "marked\n" : `${exit}<<<\nlog`, stderr: "" }), write: async () => undefined, read: async () => Buffer.alloc(0) } as RunBox;
+    const box = {
+      exec: async (command: string) => ({
+        exitCode: 0,
+        stdout: command.includes(".pgid") ? "marked\n" : `${exit}<<<\nlog`,
+        stderr: "",
+      }),
+      write: async () => undefined,
+      read: async () => Buffer.alloc(0),
+    } as RunBox;
     runs.liveness = async () => "dead";
     expect(await runs.gone(box, record)).toBe(true);
     exit = "0\n";
@@ -233,10 +329,23 @@ describe("a heavy command on the dog's own computer", () => {
     const { folder, computer, state } = project();
     mkdirSync(join(computer, "runs/.logs"), { recursive: true });
     const id = "00d0c0de";
-    spawnSync("bash", ["-c", `setsid nohup bash -lc 'sleep 31.7' > runs/.logs/${id}.log 2>&1 < /dev/null &`], { cwd: computer });
+    spawnSync(
+      "bash",
+      ["-c", `setsid nohup bash -lc 'sleep 31.7' > runs/.logs/${id}.log 2>&1 < /dev/null &`],
+      { cwd: computer },
+    );
     const { box } = localBox(computer);
     const runs = new ComputerRuns(state, fast);
-    const record: RunRecord = { id, botId: "dog", key: runKey(folder), folder, subdir: "", command: "sleep 31.7", startedAt: Date.now(), sent: {} };
+    const record: RunRecord = {
+      id,
+      botId: "dog",
+      key: runKey(folder),
+      folder,
+      subdir: "",
+      command: "sleep 31.7",
+      startedAt: Date.now(),
+      sent: {},
+    };
     try {
       expect(await runs.liveness(box, record)).toBe("unsure");
       expect(await runs.gone(box, record)).toBe(false);
@@ -252,14 +361,26 @@ describe("a heavy command on the dog's own computer", () => {
     const { computer, state } = project();
     mkdirSync(join(computer, "runs/.logs"), { recursive: true });
     const id = "00d0c0df";
-    spawnSync("bash", ["-c", `setsid nohup bash -lc 'sleep 31.8' > runs/.logs/${id}.log 2>&1 < /dev/null &`], { cwd: computer });
+    spawnSync(
+      "bash",
+      ["-c", `setsid nohup bash -lc 'sleep 31.8' > runs/.logs/${id}.log 2>&1 < /dev/null &`],
+      { cwd: computer },
+    );
     const { box } = localBox(computer);
     const runs = new ComputerRuns(state, fast);
     let clock = 1_000_000;
     const changed: string[] = [];
-    const jobs = new ComputerJobs(null, { now: () => clock, changed: (threadId) => changed.push(threadId) });
+    const jobs = new ComputerJobs(null, {
+      now: () => clock,
+      changed: (threadId) => changed.push(threadId),
+    });
     jobs.started({ id, botId: "dog", threadId: "t1", command: "sleep 31.8", startedAt: clock });
-    const probe = { computer: async () => ({ state: "running" as const, box }), exit: (b: RunBox, job: ComputerJob) => runs.ended(b, job), liveness: (b: RunBox, job: ComputerJob) => runs.liveness(b, job), stop: (b: RunBox, job: ComputerJob) => runs.stop(b, job) };
+    const probe = {
+      computer: async () => ({ state: "running" as const, box }),
+      exit: (b: RunBox, job: ComputerJob) => runs.ended(b, job),
+      liveness: (b: RunBox, job: ComputerJob) => runs.liveness(b, job),
+      stop: (b: RunBox, job: ComputerJob) => runs.stop(b, job),
+    };
     try {
       changed.length = 0;
       expect(await jobs.check(probe)).toEqual([]);
@@ -277,7 +398,16 @@ describe("a heavy command on the dog's own computer", () => {
     const { box } = localBox(computer);
     const runs = new ComputerRuns(state, fast);
     const record = await runs.start(box, { botId: "dog", folder, command: "sleep 31.9" });
-    for (let tries = 0; tries < 50 && !(existsSync(join(computer, `runs/.logs/${record.id}.pgid`)) && readFileSync(join(computer, `runs/.logs/${record.id}.pgid`), "utf8").trim()); tries += 1) spawnSync("sleep", ["0.1"]);
+    for (
+      let tries = 0;
+      tries < 50 &&
+      !(
+        existsSync(join(computer, `runs/.logs/${record.id}.pgid`)) &&
+        readFileSync(join(computer, `runs/.logs/${record.id}.pgid`), "utf8").trim()
+      );
+      tries += 1
+    )
+      spawnSync("sleep", ["0.1"]);
     const pg = readFileSync(join(computer, "runs/.logs", `${record.id}.pgid`), "utf8").trim();
     expect(Number(pg)).toBeGreaterThan(1);
     process.kill(-Number(pg), "SIGKILL");
@@ -285,8 +415,19 @@ describe("a heavy command on the dog's own computer", () => {
     spawnSync("pkill", ["-f", "sleep 31[.]9"]);
     let clock = 1_000_000;
     const jobs = new ComputerJobs(null, { now: () => clock });
-    jobs.started({ id: record.id, botId: "dog", threadId: "t1", command: record.command, startedAt: clock });
-    const probe = { computer: async () => ({ state: "running" as const, box }), exit: (b: RunBox, job: ComputerJob) => runs.ended(b, job), liveness: (b: RunBox, job: ComputerJob) => runs.liveness(b, job), stop: (b: RunBox, job: ComputerJob) => runs.stop(b, job) };
+    jobs.started({
+      id: record.id,
+      botId: "dog",
+      threadId: "t1",
+      command: record.command,
+      startedAt: clock,
+    });
+    const probe = {
+      computer: async () => ({ state: "running" as const, box }),
+      exit: (b: RunBox, job: ComputerJob) => runs.ended(b, job),
+      liveness: (b: RunBox, job: ComputerJob) => runs.liveness(b, job),
+      stop: (b: RunBox, job: ComputerJob) => runs.stop(b, job),
+    };
     expect(await runs.liveness(box, record)).toBe("dead");
     expect(await runs.gone(box, record)).toBe(true);
     expect(await jobs.check(probe)).toEqual([]);
@@ -298,12 +439,18 @@ describe("a heavy command on the dog's own computer", () => {
     const { state } = project();
     const runs = new ComputerRuns(state, fast);
     const record = { id: "abcd1234" } as RunRecord;
-    const box = { exec: async () => ({ exitCode: 0, stdout: "<<<\nlog", stderr: "" }), write: async () => undefined, read: async () => Buffer.alloc(0) } as RunBox;
+    const box = {
+      exec: async () => ({ exitCode: 0, stdout: "<<<\nlog", stderr: "" }),
+      write: async () => undefined,
+      read: async () => Buffer.alloc(0),
+    } as RunBox;
     for (const said of ["unsure", "alive", "exited"] as const) {
       runs.liveness = async () => said;
       expect(await runs.gone(box, record), said).toBe(false);
     }
-    runs.liveness = async () => { throw new Error("the computer did not answer"); };
+    runs.liveness = async () => {
+      throw new Error("the computer did not answer");
+    };
     expect(await runs.gone(box, record)).toBe(false);
   });
 
@@ -313,8 +460,18 @@ describe("a heavy command on the dog's own computer", () => {
     const { box, commands } = localBox(computer);
     const runs = new ComputerRuns(state, fast);
     const started = await runs.start(box, { botId: "dog", folder, command: "true" });
-    for (let tries = 0; tries < 50 && !existsSync(join(computer, `runs/.logs/${started.id}.exit`)); tries += 1) spawnSync("sleep", ["0.1"]);
-    const outcome = await runs.finish(box, runs.record("dog", started.id)!, undefined, runs.window(60_000));
+    for (
+      let tries = 0;
+      tries < 50 && !existsSync(join(computer, `runs/.logs/${started.id}.exit`));
+      tries += 1
+    )
+      spawnSync("sleep", ["0.1"]);
+    const outcome = await runs.finish(
+      box,
+      runs.record("dog", started.id)!,
+      undefined,
+      runs.window(60_000),
+    );
     expect(outcome.state).toBe("finished");
     expect(commands.filter((command) => /pgrep/.test(command))).toEqual([]);
   });
@@ -329,8 +486,14 @@ describe("a heavy command on the dog's own computer", () => {
     clock.at += 3 * 60 * 60_000;
     const outcome = await runs.finish(box, runs.record("dog", started.id)!, undefined, () => 1);
     expect(outcome.note).toBe("Stopped after 2 hours.");
-    for (const kill of commands.filter((command) => /pkill -f /.test(command))) expect(searchesItself(kill, "pkill"), kill).toBe(false);
-    for (let tries = 0; tries < 50 && spawnSync("pgrep", ["-f", `runs/[.]logs/${started.id}[.]log`]).status === 0; tries += 1) spawnSync("sleep", ["0.1"]);
+    for (const kill of commands.filter((command) => /pkill -f /.test(command)))
+      expect(searchesItself(kill, "pkill"), kill).toBe(false);
+    for (
+      let tries = 0;
+      tries < 50 && spawnSync("pgrep", ["-f", `runs/[.]logs/${started.id}[.]log`]).status === 0;
+      tries += 1
+    )
+      spawnSync("sleep", ["0.1"]);
     expect(spawnSync("pgrep", ["-f", `runs/[.]logs/${started.id}[.]log`]).status).not.toBe(0);
   });
 
@@ -341,29 +504,65 @@ describe("a heavy command on the dog's own computer", () => {
     const runs = new ComputerRuns(state, fast);
     const started = await runs.start(box, { botId: "dog", folder, command: "sleep 5" });
     const pattern = `runs/[.]logs/${started.id}[.]log`;
-    for (let tries = 0; tries < 50 && !existsSync(join(computer, `runs/.logs/${started.id}.pgid`)); tries += 1) spawnSync("sleep", ["0.1"]);
+    for (
+      let tries = 0;
+      tries < 50 && !existsSync(join(computer, `runs/.logs/${started.id}.pgid`));
+      tries += 1
+    )
+      spawnSync("sleep", ["0.1"]);
     spawnSync("pkill", ["-f", pattern]);
-    for (let tries = 0; tries < 50 && spawnSync("pgrep", ["-f", pattern]).status === 0; tries += 1) spawnSync("sleep", ["0.1"]);
-    const outcome = await runs.finish(box, runs.record("dog", started.id)!, undefined, runs.window(60_000));
+    for (let tries = 0; tries < 50 && spawnSync("pgrep", ["-f", pattern]).status === 0; tries += 1)
+      spawnSync("sleep", ["0.1"]);
+    const outcome = await runs.finish(
+      box,
+      runs.record("dog", started.id)!,
+      undefined,
+      runs.window(60_000),
+    );
     expect(outcome.state).toBe("failed");
-    expect(outcome.note).toBe("It stopped before finishing and left no exit code. Run it again if you still need its result.");
+    expect(outcome.note).toBe(
+      "It stopped before finishing and left no exit code. Run it again if you still need its result.",
+    );
   });
 });
 
 function searchesItself(command: string, tool: "pgrep" | "pkill"): boolean {
-  return [...command.matchAll(new RegExp(`${tool} -f '([^']+)'`, "g"))].some((match) => new RegExp(match[1]!).test(command));
+  return [...command.matchAll(new RegExp(`${tool} -f '([^']+)'`, "g"))].some((match) =>
+    new RegExp(match[1]!).test(command),
+  );
 }
 
 function computerShell(home: string, repoDir: string, runKey: string) {
   return (script: string) => {
-    const out = spawnSync("bash", ["-c", script], { cwd: home, encoding: "utf8",
-      env: { PATH: process.env.PATH, HOME: home, LATERDOG_REPOSITORY: "acme/site", LATERDOG_REPOSITORY_DIR: repoDir, LATERDOG_RUN_KEY: runKey } });
+    const out = spawnSync("bash", ["-c", script], {
+      cwd: home,
+      encoding: "utf8",
+      env: {
+        PATH: process.env.PATH,
+        HOME: home,
+        LATERDOG_REPOSITORY: "acme/site",
+        LATERDOG_REPOSITORY_DIR: repoDir,
+        LATERDOG_RUN_KEY: runKey,
+      },
+    });
     return { exitCode: out.status, stdout: out.stdout, stderr: out.stderr };
   };
 }
 
 const git = (cwd: string, ...args: string[]) => {
-  const out = spawnSync("git", ["-c", "user.name=fixture", "-c", "user.email=fixture@example.test", "-c", "init.defaultBranch=main", ...args], { cwd, encoding: "utf8" });
+  const out = spawnSync(
+    "git",
+    [
+      "-c",
+      "user.name=fixture",
+      "-c",
+      "user.email=fixture@example.test",
+      "-c",
+      "init.defaultBranch=main",
+      ...args,
+    ],
+    { cwd, encoding: "utf8" },
+  );
   if (out.status !== 0) throw new Error(out.stderr);
   return out.stdout;
 };
@@ -380,12 +579,22 @@ describe("a repository environment on the dog's computer", () => {
     const runKey = await environments.setupRunKey("acme/site");
     const shell = computerShell(computer, repoDir, runKey);
     expect(shell(environments.REGISTER_SCRIPT).exitCode).toBe(0);
-    expect(readFileSync(join(computer, "runs/.setup", setupKey(folder)!), "utf8").trim()).toBe(runKey);
+    expect(readFileSync(join(computer, "runs/.setup", setupKey(folder)!), "utf8").trim()).toBe(
+      runKey,
+    );
     expect(readlinkSync(join(computer, "runs", runKey))).toBe(repoDir);
-    expect(shell(`${environments.ENVIRONMENT_PRELUDE}\ncd ${JSON.stringify(repoDir)} && laterdog_lock_key`).stdout.trim()).toBe(setupKey(folder));
+    expect(
+      shell(
+        `${environments.ENVIRONMENT_PRELUDE}\ncd ${JSON.stringify(repoDir)} && laterdog_lock_key`,
+      ).stdout.trim(),
+    ).toBe(setupKey(folder));
 
     const { box } = localBox(computer);
-    const outcome = await new ComputerRuns(state, fast).run(box, { botId: "dog", folder, command: "cat node_modules/left-pad/index.js" });
+    const outcome = await new ComputerRuns(state, fast).run(box, {
+      botId: "dog",
+      folder,
+      command: "cat node_modules/left-pad/index.js",
+    });
     expect(outcome.exitCode).toBe(0);
     expect(outcome.output).toContain("from the environment");
     expect(outcome.note).toContain("Reused the packages");
@@ -397,7 +606,10 @@ describe("a repository environment on the dog's computer", () => {
     const origin = join(root, "origin.git");
     const work = join(root, "work");
     mkdirSync(join(computer, ".local/bin"), { recursive: true });
-    writeFileSync(join(computer, ".local/bin/pnpm"), "#!/bin/sh\necho \"$@\" >> \"$HOME/pnpm-calls\"\nmkdir -p node_modules/.installed\n");
+    writeFileSync(
+      join(computer, ".local/bin/pnpm"),
+      '#!/bin/sh\necho "$@" >> "$HOME/pnpm-calls"\nmkdir -p node_modules/.installed\n',
+    );
     chmodSync(join(computer, ".local/bin/pnpm"), 0o755);
     git(root, "init", "-q", "--bare", origin);
     git(root, "clone", "-q", origin, work);
@@ -414,21 +626,35 @@ describe("a repository environment on the dog's computer", () => {
     expect(shell(environments.REGISTER_SCRIPT).exitCode).toBe(0);
 
     const unchanged = shell(environments.MAINTENANCE_SCRIPT);
-    expect(environments.maintenanceFrom(unchanged.stdout)).toEqual({ fetched: "yes", installed: "no" });
+    expect(environments.maintenanceFrom(unchanged.stdout)).toEqual({
+      fetched: "yes",
+      installed: "no",
+    });
     expect(existsSync(join(computer, "pnpm-calls"))).toBe(false);
 
     writeFileSync(join(work, "pnpm-lock.yaml"), "lockfileVersion: '9.0'\npackages: {}\n");
     git(work, "commit", "-q", "-am", "new lockfile");
     git(work, "push", "-q", "origin", "HEAD:main");
     const changed = shell(environments.MAINTENANCE_SCRIPT);
-    expect(environments.maintenanceFrom(changed.stdout)).toEqual({ fetched: "yes", installed: "yes" });
+    expect(environments.maintenanceFrom(changed.stdout)).toEqual({
+      fetched: "yes",
+      installed: "yes",
+    });
     expect(readFileSync(join(repoDir, "pnpm-lock.yaml"), "utf8")).toContain("packages: {}");
-    expect(readFileSync(join(computer, "pnpm-calls"), "utf8")).toBe("install --frozen-lockfile --prefer-offline\n");
+    expect(readFileSync(join(computer, "pnpm-calls"), "utf8")).toBe(
+      "install --frozen-lockfile --prefer-offline\n",
+    );
     expect(existsSync(join(computer, "runs/.setup", setupKey(repoDir)!))).toBe(true);
 
-    expect(environments.maintenanceFrom(shell(environments.MAINTENANCE_SCRIPT).stdout)).toEqual({ fetched: "yes", installed: "no" });
+    expect(environments.maintenanceFrom(shell(environments.MAINTENANCE_SCRIPT).stdout)).toEqual({
+      fetched: "yes",
+      installed: "no",
+    });
     const missing = computerShell(computer, join(computer, "repos/acme/none"), "0000000000000000");
-    expect(environments.maintenanceFrom(missing(environments.MAINTENANCE_SCRIPT).stdout)).toEqual({ fetched: "no_checkout", installed: "no" });
+    expect(environments.maintenanceFrom(missing(environments.MAINTENANCE_SCRIPT).stdout)).toEqual({
+      fetched: "no_checkout",
+      installed: "no",
+    });
   });
 });
 
@@ -437,11 +663,21 @@ describe("the pieces", () => {
     const { folder } = project();
     const stamps = stampFolder(folder);
     expect(Object.keys(stamps).sort()).toEqual(["package.json", "src/page.ts"]);
-    expect(changesSince({ "a": { size: 1, mtimeMs: 1 }, "b": { size: 1, mtimeMs: 1 } }, { "a": { size: 2, mtimeMs: 1 }, "c": { size: 1, mtimeMs: 1 } })).toEqual({ changed: ["a", "c"], removed: ["b"] });
+    expect(
+      changesSince(
+        { a: { size: 1, mtimeMs: 1 }, b: { size: 1, mtimeMs: 1 } },
+        { a: { size: 2, mtimeMs: 1 }, c: { size: 1, mtimeMs: 1 } },
+      ),
+    ).toEqual({ changed: ["a", "c"], removed: ["b"] });
   });
 
   it("brings back files up to the size limit and never build output or paths that leave the folder", () => {
-    expect(bringBackList("10\t./a.txt\n5\t./node_modules/x.js\n7\t./../escape\n20\t./big.bin\n3\t./c.txt\n", 15)).toEqual({ take: ["a.txt", "c.txt"], skipped: ["big.bin"] });
+    expect(
+      bringBackList(
+        "10\t./a.txt\n5\t./node_modules/x.js\n7\t./../escape\n20\t./big.bin\n3\t./c.txt\n",
+        15,
+      ),
+    ).toEqual({ take: ["a.txt", "c.txt"], skipped: ["big.bin"] });
   });
 
   it("splits large archives into parts the computer accepts", () => {
@@ -450,52 +686,111 @@ describe("the pieces", () => {
   });
 });
 
-
 describe("generated transfer paths", () => {
   it("leaves all 252 generated files on the computer while returning source and results", async () => {
-    const { folder, computer, state } = project(); mkdirSync(computer);
-    mkdirSync(join(folder, ".open-next")); writeFileSync(join(folder, ".open-next/keep.js"), "home copy");
+    const { folder, computer, state } = project();
+    mkdirSync(computer);
+    mkdirSync(join(folder, ".open-next"));
+    writeFileSync(join(folder, ".open-next/keep.js"), "home copy");
     const { box } = localBox(computer);
-    const outcome = await new ComputerRuns(state, fast).run(box, { botId: "dog", folder,
-      command: "mkdir -p apps/site/.open-next/assets apps/site/.wrangler/tmp/dev apps/site/.wrangler/state apps/site/.wrangler/cache results .git; for i in $(seq 1 252); do echo generated > apps/site/.open-next/assets/$i.js; done; echo scratch > apps/site/.wrangler/tmp/dev/x; echo state > apps/site/.wrangler/state/db; echo cache > apps/site/.wrangler/cache/x; echo source > src/page.ts; echo result > results/check.txt; echo ref > .git/HEAD" });
-    expect(outcome.broughtBack.sort()).toEqual([".git/HEAD", "apps/site/.wrangler/cache/x", "apps/site/.wrangler/state/db", "results/check.txt", "src/page.ts"]);
+    const outcome = await new ComputerRuns(state, fast).run(box, {
+      botId: "dog",
+      folder,
+      command:
+        "mkdir -p apps/site/.open-next/assets apps/site/.wrangler/tmp/dev apps/site/.wrangler/state apps/site/.wrangler/cache results .git; for i in $(seq 1 252); do echo generated > apps/site/.open-next/assets/$i.js; done; echo scratch > apps/site/.wrangler/tmp/dev/x; echo state > apps/site/.wrangler/state/db; echo cache > apps/site/.wrangler/cache/x; echo source > src/page.ts; echo result > results/check.txt; echo ref > .git/HEAD",
+    });
+    expect(outcome.broughtBack.sort()).toEqual([
+      ".git/HEAD",
+      "apps/site/.wrangler/cache/x",
+      "apps/site/.wrangler/state/db",
+      "results/check.txt",
+      "src/page.ts",
+    ]);
     expect(outcome.sentFiles).toBe(2);
     expect(existsSync(join(folder, "apps/site/.open-next"))).toBe(false);
     expect(readFileSync(join(folder, ".open-next/keep.js"), "utf8")).toBe("home copy");
-    expect(readFileSync(join(computer, "runs", runKey(folder), "apps/site/.open-next/assets/252.js"), "utf8")).toBe("generated\n");
+    expect(
+      readFileSync(
+        join(computer, "runs", runKey(folder), "apps/site/.open-next/assets/252.js"),
+        "utf8",
+      ),
+    ).toBe("generated\n");
   });
   it("filters legacy stamps before removal while still deleting removed real source remotely", async () => {
-    const { folder, computer, state } = project(); mkdirSync(computer);
-    const key = runKey(folder); const remote = join(computer, "runs", key);
-    const oldPaths = [".open-next/assets/old.js", "apps/site/.wrangler/tmp/old.js", "src/deleted.ts"];
-    for (const path of oldPaths) { mkdirSync(dirname(join(remote, path)), { recursive: true }); writeFileSync(join(remote, path), "retained"); }
+    const { folder, computer, state } = project();
+    mkdirSync(computer);
+    const key = runKey(folder);
+    const remote = join(computer, "runs", key);
+    const oldPaths = [
+      ".open-next/assets/old.js",
+      "apps/site/.wrangler/tmp/old.js",
+      "src/deleted.ts",
+    ];
+    for (const path of oldPaths) {
+      mkdirSync(dirname(join(remote, path)), { recursive: true });
+      writeFileSync(join(remote, path), "retained");
+    }
     mkdirSync(join(state, "dog"), { recursive: true });
-    writeFileSync(join(state, "dog", `${key}.sent.json`), JSON.stringify(Object.fromEntries(oldPaths.map(path => [path, { size: 8, mtimeMs: 1 }]))));
+    writeFileSync(
+      join(state, "dog", `${key}.sent.json`),
+      JSON.stringify(Object.fromEntries(oldPaths.map((path) => [path, { size: 8, mtimeMs: 1 }]))),
+    );
     const { box } = localBox(computer);
     await new ComputerRuns(state, fast).run(box, { botId: "dog", folder, command: "true" });
-    for (const path of oldPaths.slice(0, 2)) expect(readFileSync(join(remote, path), "utf8")).toBe("retained");
+    for (const path of oldPaths.slice(0, 2))
+      expect(readFileSync(join(remote, path), "utf8")).toBe("retained");
     expect(existsSync(join(remote, "src/deleted.ts"))).toBe(false);
-    expect(Object.keys(JSON.parse(readFileSync(join(state, "dog", `${key}.sent.json`), "utf8")))).not.toEqual(expect.arrayContaining(oldPaths.slice(0, 2)));
+    expect(
+      Object.keys(JSON.parse(readFileSync(join(state, "dog", `${key}.sent.json`), "utf8"))),
+    ).not.toEqual(expect.arrayContaining(oldPaths.slice(0, 2)));
   });
   it("excludes generated paths consistently from stamps, deltas and returned lists", () => {
     const { folder } = project();
     const skip = [".open-next/a", "apps/site/.open-next/a", "apps/site/.wrangler/tmp/dev/a"];
-    const keep = ["apps/site/.wrangler/state/db", "apps/site/.wrangler/cache/db", "src/tmp/a", "results/a", ".git/HEAD"];
-    for (const path of [...skip, ...keep]) { mkdirSync(dirname(join(folder, path)), { recursive: true }); writeFileSync(join(folder, path), "x"); }
+    const keep = [
+      "apps/site/.wrangler/state/db",
+      "apps/site/.wrangler/cache/db",
+      "src/tmp/a",
+      "results/a",
+      ".git/HEAD",
+    ];
+    for (const path of [...skip, ...keep]) {
+      mkdirSync(dirname(join(folder, path)), { recursive: true });
+      writeFileSync(join(folder, path), "x");
+    }
     const stamps = stampFolder(folder);
     for (const path of skip) expect(stamps[path], path).toBeUndefined();
     for (const path of keep) expect(stamps[path], path).toBeTruthy();
-    expect(changesSince(Object.fromEntries(skip.map(path => [path, { size: 1, mtimeMs: 1 }])), {})).toEqual({ changed: [], removed: [] });
-    expect(bringBackList([...skip, ...keep].map(path => `1\t./${path}`).join("\n")).take).toEqual(keep);
+    expect(
+      changesSince(Object.fromEntries(skip.map((path) => [path, { size: 1, mtimeMs: 1 }])), {}),
+    ).toEqual({ changed: [], removed: [] });
+    expect(bringBackList([...skip, ...keep].map((path) => `1\t./${path}`).join("\n")).take).toEqual(
+      keep,
+    );
   });
   it("rejects malicious listing and legacy-stamp paths before transfer or removal", () => {
-    const paths = ["../outside", "/absolute", "a/../../outside", "a//b", "a/./b", "a\\b", "a\0b", "a\tb"];
+    const paths = [
+      "../outside",
+      "/absolute",
+      "a/../../outside",
+      "a//b",
+      "a/./b",
+      "a\\b",
+      "a\0b",
+      "a\tb",
+    ];
     for (const path of paths) {
       expect(bringBackList(`1\t${path}`).take, path).toEqual([]);
-      expect(changesSince({ [path]: { size: 1, mtimeMs: 1 } }, {}), path).toEqual({ changed: [], removed: [] });
+      expect(changesSince({ [path]: { size: 1, mtimeMs: 1 } }, {}), path).toEqual({
+        changed: [],
+        removed: [],
+      });
     }
-    for (const size of ["NaN", "-1", "Infinity", "1.5"]) expect(bringBackList(`${size}\tsrc/a`).take).toEqual([]);
-    expect(bringBackList("10\tsrc/a\n20\tresults/b\n1\tresults/c", 15)).toEqual({ take: ["src/a", "results/c"], skipped: ["results/b"] });
+    for (const size of ["NaN", "-1", "Infinity", "1.5"])
+      expect(bringBackList(`${size}\tsrc/a`).take).toEqual([]);
+    expect(bringBackList("10\tsrc/a\n20\tresults/b\n1\tresults/c", 15)).toEqual({
+      take: ["src/a", "results/c"],
+      skipped: ["results/b"],
+    });
   });
-
 });

@@ -9,13 +9,13 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { removeTempDir, waitForExit } from "./testing/cleanup.ts";
 import { leasePortBlock } from "./testing/ports.ts";
 
-
 const SERVER_DIR = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(SERVER_DIR, "..");
 const FAKE_CLAUDE = join(SERVER_DIR, "testing", "fake-claude-cli.ts");
 const TEST_CAPABILITY_KEY = "room-chat-wait-fixture-capability";
 
-const WAIT_CHIP = (name: string) => `${name} is finishing another conversation — will reply here when free`;
+const WAIT_CHIP = (name: string) =>
+  `${name} is finishing another conversation — will reply here when free`;
 
 let child: ChildProcess;
 let home = "";
@@ -65,18 +65,24 @@ beforeAll(async () => {
   penDump = join(home, "pen-dump.json");
   patientFinishGate = join(home, "patient-finish");
   writeFileSync(patientFinishGate, "initial turns may finish");
-  writeFileSync(join(data, "config.json"), JSON.stringify({
-    instances: {
-      patient: fixture("Patient fixture", { FAKE_CLAUDE_MODE: "slow", FAKE_CLAUDE_SLOW_FINISH_GATE: patientFinishGate }),
-      quick: fixture("Quick fixture", { FAKE_CLAUDE_MODE: "happy" }),
-      summoner: fixture("Summoning fixture", {
-        FAKE_CLAUDE_MODE: "happy",
-        FAKE_CLAUDE_REPLIES: JSON.stringify(["Let me pull in @Bee for this."]),
-        FAKE_CLAUDE_REPLY_STATE: join(home, "summoner-replies.txt"),
-      }),
-      pen: fixture("Dumping fixture", { FAKE_CLAUDE_MODE: "happy", FAKE_CLAUDE_DUMP: penDump }),
-    },
-  }));
+  writeFileSync(
+    join(data, "config.json"),
+    JSON.stringify({
+      instances: {
+        patient: fixture("Patient fixture", {
+          FAKE_CLAUDE_MODE: "slow",
+          FAKE_CLAUDE_SLOW_FINISH_GATE: patientFinishGate,
+        }),
+        quick: fixture("Quick fixture", { FAKE_CLAUDE_MODE: "happy" }),
+        summoner: fixture("Summoning fixture", {
+          FAKE_CLAUDE_MODE: "happy",
+          FAKE_CLAUDE_REPLIES: JSON.stringify(["Let me pull in @Bee for this."]),
+          FAKE_CLAUDE_REPLY_STATE: join(home, "summoner-replies.txt"),
+        }),
+        pen: fixture("Dumping fixture", { FAKE_CLAUDE_MODE: "happy", FAKE_CLAUDE_DUMP: penDump }),
+      },
+    }),
+  );
   const port = await leasePortBlock([0, 1]);
   base = `http://127.0.0.1:${port}`;
   child = spawn(process.execPath, [join(SERVER_DIR, "index.ts")], {
@@ -112,11 +118,13 @@ afterAll(async () => {
 });
 
 const createBot = async (name: string, instanceId: string) =>
-  (await api("POST", "/api/bots", {
-    name,
-    modelSelection: { instanceId, model: "claude-sonnet-5" },
-    requireAvailableModel: true,
-  })).body.bot;
+  (
+    await api("POST", "/api/bots", {
+      name,
+      modelSelection: { instanceId, model: "claude-sonnet-5" },
+      requireAvailableModel: true,
+    })
+  ).body.bot;
 
 const snapshot = async (groupId: string) => {
   const state = (await api("GET", "/api/bots?messages=40")).body;
@@ -137,14 +145,20 @@ const holdBusy = async (botId: string, text: string) => {
 };
 
 const roundSummary = (messages: StateMessage[], waitedBotId: string) => {
-  const waitChip = messages.find((message) =>
-    message.kind === "activity" && message.from?.botId === waitedBotId && /another conversation/i.test(message.tool?.name ?? "")
+  const waitChip = messages.find(
+    (message) =>
+      message.kind === "activity" &&
+      message.from?.botId === waitedBotId &&
+      /another conversation/i.test(message.tool?.name ?? ""),
   );
   return {
     waitChip: waitChip?.tool?.name,
     waitChipOk: waitChip?.tool?.ok,
-    waitChips: messages.filter((message) =>
-      message.kind === "activity" && message.from?.botId === waitedBotId && /another conversation/i.test(message.tool?.name ?? "")
+    waitChips: messages.filter(
+      (message) =>
+        message.kind === "activity" &&
+        message.from?.botId === waitedBotId &&
+        /another conversation/i.test(message.tool?.name ?? ""),
     ).length,
     skipped: messages.some((message) => /skipped this round/i.test(message.tool?.name ?? "")),
     speakers: messages
@@ -156,26 +170,45 @@ const roundSummary = (messages: StateMessage[], waitedBotId: string) => {
 
 const directReply = async (botId: string, needle: string) => {
   const state = (await api("GET", "/api/bots?messages=20")).body;
-  const messages: StateMessage[] = state.bots.find((bot: { id: string }) => bot.id === botId)?.messages ?? [];
-  return messages.some((message) => message.kind === "text" && message.role === "bot" && (message.text ?? "").includes(needle));
+  const messages: StateMessage[] =
+    state.bots.find((bot: { id: string }) => bot.id === botId)?.messages ?? [];
+  return messages.some(
+    (message) =>
+      message.kind === "text" && message.role === "bot" && (message.text ?? "").includes(needle),
+  );
 };
 
 const cleanup = async (roomId: string | undefined, botIds: string[]) => {
   if (roomId) await api("POST", `/api/groups/${roomId}/interrupt`, {}).catch(() => undefined);
-  for (const botId of botIds) await api("POST", `/api/bots/${botId}/interrupt`, {}).catch(() => undefined);
+  for (const botId of botIds)
+    await api("POST", `/api/bots/${botId}/interrupt`, {}).catch(() => undefined);
   if (roomId) await api("DELETE", `/api/groups/${roomId}`).catch(() => undefined);
   for (const botId of botIds) await api("DELETE", `/api/bots/${botId}`).catch(() => undefined);
   writeFileSync(patientFinishGate, "cleanup complete");
 };
 
 const releaseAfterRoomWait = async (roomId: string, botId: string, name: string) => {
-  await expect.poll(async () => {
-    const { state, room, messages } = await snapshot(roomId);
-    const { speakers: _speakers, ...wait } = roundSummary(messages, botId);
-    return { working: room?.working, busy: state.bots.find((bot: { id: string }) => bot.id === botId)?.busy, ...wait };
-  }, { timeout: 15_000 }).toEqual({
-    working: true, busy: true, waitChip: WAIT_CHIP(name), waitChipOk: undefined, waitChips: 1, skipped: false,
-  });
+  await expect
+    .poll(
+      async () => {
+        const { state, room, messages } = await snapshot(roomId);
+        const { speakers: _speakers, ...wait } = roundSummary(messages, botId);
+        return {
+          working: room?.working,
+          busy: state.bots.find((bot: { id: string }) => bot.id === botId)?.busy,
+          ...wait,
+        };
+      },
+      { timeout: 15_000 },
+    )
+    .toEqual({
+      working: true,
+      busy: true,
+      waitChip: WAIT_CHIP(name),
+      waitChipOk: undefined,
+      waitChips: 1,
+      skipped: false,
+    });
   writeFileSync(patientFinishGate, "observed room waiting; finish the direct turn");
 };
 
@@ -183,28 +216,37 @@ describe("chat rooms wait for a member busy elsewhere", { timeout: 45_000 }, () 
   it("parks on a responder busy in a 1:1, then lets them reply once that turn settles, in order", async () => {
     const busy = await createBot("Busy", "patient");
     const quick = await createBot("Quick", "quick");
-    const room = (await api("POST", "/api/groups", {
-      name: "Wait chat",
-      memberIds: [busy.id, quick.id],
-      setup: { bulletin: "", defaultResponder: { kind: "everyone" } },
-    })).body.group;
+    const room = (
+      await api("POST", "/api/groups", {
+        name: "Wait chat",
+        memberIds: [busy.id, quick.id],
+        setup: { bulletin: "", defaultResponder: { kind: "everyone" } },
+      })
+    ).body.group;
 
     try {
       await holdBusy(busy.id, "Finish this first");
-      expect((await api("POST", `/api/groups/${room.id}/messages`, { text: "Hello team" })).status).toBe(202);
+      expect(
+        (await api("POST", `/api/groups/${room.id}/messages`, { text: "Hello team" })).status,
+      ).toBe(202);
       await releaseAfterRoomWait(room.id, busy.id, "Busy");
 
-      await expect.poll(async () => {
-        const { room: current, messages } = await snapshot(room.id);
-        return { working: current?.working, ...roundSummary(messages, busy.id) };
-      }, { timeout: 15_000 }).toEqual({
-        working: false,
-        waitChip: WAIT_CHIP("Busy"),
-        waitChipOk: true,
-        waitChips: 1,
-        skipped: false,
-        speakers: ["Busy", "Quick"],
-      });
+      await expect
+        .poll(
+          async () => {
+            const { room: current, messages } = await snapshot(room.id);
+            return { working: current?.working, ...roundSummary(messages, busy.id) };
+          },
+          { timeout: 15_000 },
+        )
+        .toEqual({
+          working: false,
+          waitChip: WAIT_CHIP("Busy"),
+          waitChipOk: true,
+          waitChips: 1,
+          skipped: false,
+          speakers: ["Busy", "Quick"],
+        });
 
       expect(await directReply(busy.id, "Finish this first")).toBe(true);
       expect(await botBusy(busy.id)).toBe(false);
@@ -216,28 +258,38 @@ describe("chat rooms wait for a member busy elsewhere", { timeout: 45_000 }, () 
   it("waits for a teammate summoned by a chained @mention who is busy elsewhere", async () => {
     const ace = await createBot("Ace", "summoner");
     const bee = await createBot("Bee", "patient");
-    const room = (await api("POST", "/api/groups", {
-      name: "Chained chat",
-      memberIds: [ace.id, bee.id],
-      setup: { bulletin: "", defaultResponder: { kind: "member", botId: ace.id } },
-    })).body.group;
+    const room = (
+      await api("POST", "/api/groups", {
+        name: "Chained chat",
+        memberIds: [ace.id, bee.id],
+        setup: { bulletin: "", defaultResponder: { kind: "member", botId: ace.id } },
+      })
+    ).body.group;
 
     try {
       await holdBusy(bee.id, "Bee, finish this first");
-      expect((await api("POST", `/api/groups/${room.id}/messages`, { text: "@Ace please bring Bee in" })).status).toBe(202);
+      expect(
+        (await api("POST", `/api/groups/${room.id}/messages`, { text: "@Ace please bring Bee in" }))
+          .status,
+      ).toBe(202);
       await releaseAfterRoomWait(room.id, bee.id, "Bee");
 
-      await expect.poll(async () => {
-        const { room: current, messages } = await snapshot(room.id);
-        return { working: current?.working, ...roundSummary(messages, bee.id) };
-      }, { timeout: 15_000 }).toEqual({
-        working: false,
-        waitChip: WAIT_CHIP("Bee"),
-        waitChipOk: true,
-        waitChips: 1,
-        skipped: false,
-        speakers: ["Ace", "Bee"],
-      });
+      await expect
+        .poll(
+          async () => {
+            const { room: current, messages } = await snapshot(room.id);
+            return { working: current?.working, ...roundSummary(messages, bee.id) };
+          },
+          { timeout: 15_000 },
+        )
+        .toEqual({
+          working: false,
+          waitChip: WAIT_CHIP("Bee"),
+          waitChipOk: true,
+          waitChips: 1,
+          skipped: false,
+          speakers: ["Ace", "Bee"],
+        });
 
       expect(await directReply(bee.id, "Bee, finish this first")).toBe(true);
     } finally {
@@ -251,7 +303,9 @@ describe("chat rooms wait for a member busy elsewhere", { timeout: 45_000 }, () 
     let channelId: string | undefined;
 
     try {
-      expect((await api("POST", `/api/bots/${pen.id}/messages`, { text: "Warm up" })).status).toBe(202);
+      expect((await api("POST", `/api/bots/${pen.id}/messages`, { text: "Warm up" })).status).toBe(
+        202,
+      );
       const readToken = (): string | undefined => {
         try {
           const dump = JSON.parse(readFileSync(penDump, "utf8"));
@@ -281,33 +335,48 @@ describe("chat rooms wait for a member busy elsewhere", { timeout: 45_000 }, () 
       );
       expect(asked.status).toBe(200);
       expect(asked.body.receipts).toEqual([expect.objectContaining({ botId: ink.id })]);
-      const channel = (await api("GET", "/api/bots?messages=0")).body.groups.find((group: {
-        dm?: boolean;
-        memberIds: string[];
-      }) => group.dm === true && group.memberIds.includes(pen.id) && group.memberIds.includes(ink.id));
+      const channel = (await api("GET", "/api/bots?messages=0")).body.groups.find(
+        (group: { dm?: boolean; memberIds: string[] }) =>
+          group.dm === true && group.memberIds.includes(pen.id) && group.memberIds.includes(ink.id),
+      );
       expect(channel).toBeTruthy();
       channelId = channel.id;
       await expect.poll(() => botBusy(ink.id)).toBe(false);
       await holdBusy(ink.id, "Ink, finish this first");
-      expect((await api("POST", `/api/groups/${channel.id}/messages`, { text: "@Ink one more thing" })).status).toBe(202);
+      expect(
+        (await api("POST", `/api/groups/${channel.id}/messages`, { text: "@Ink one more thing" }))
+          .status,
+      ).toBe(202);
       await releaseAfterRoomWait(channel.id, ink.id, "Ink");
 
-      await expect.poll(async () => {
-        const { room: current, messages } = await snapshot(channel.id);
-        const { speakers: _speakers, ...summary } = roundSummary(messages, ink.id);
-        const waitAt = messages.findIndex((message) => message.tool?.name === WAIT_CHIP("Ink"));
-        const inkRepliedAfterWait = waitAt !== -1 && messages.slice(waitAt + 1).some((message) =>
-          message.kind === "text" && message.role === "bot" && message.from?.botId === ink.id
-        );
-        return { working: current?.working, ...summary, inkRepliedAfterWait };
-      }, { timeout: 15_000 }).toEqual({
-        working: false,
-        waitChip: WAIT_CHIP("Ink"),
-        waitChipOk: true,
-        waitChips: 1,
-        skipped: false,
-        inkRepliedAfterWait: true,
-      });
+      await expect
+        .poll(
+          async () => {
+            const { room: current, messages } = await snapshot(channel.id);
+            const { speakers: _speakers, ...summary } = roundSummary(messages, ink.id);
+            const waitAt = messages.findIndex((message) => message.tool?.name === WAIT_CHIP("Ink"));
+            const inkRepliedAfterWait =
+              waitAt !== -1 &&
+              messages
+                .slice(waitAt + 1)
+                .some(
+                  (message) =>
+                    message.kind === "text" &&
+                    message.role === "bot" &&
+                    message.from?.botId === ink.id,
+                );
+            return { working: current?.working, ...summary, inkRepliedAfterWait };
+          },
+          { timeout: 15_000 },
+        )
+        .toEqual({
+          working: false,
+          waitChip: WAIT_CHIP("Ink"),
+          waitChipOk: true,
+          waitChips: 1,
+          skipped: false,
+          inkRepliedAfterWait: true,
+        });
 
       expect(await directReply(ink.id, "Ink, finish this first")).toBe(true);
     } finally {

@@ -24,17 +24,25 @@ interface Frame {
 }
 
 function viewportScale(scroller: HTMLElement): number {
-  const scale = scroller.clientHeight > 0 ? scroller.getBoundingClientRect().height / scroller.clientHeight : 1;
+  const scale =
+    scroller.clientHeight > 0 ? scroller.getBoundingClientRect().height / scroller.clientHeight : 1;
   return Number.isFinite(scale) && scale > 0 ? scale : 1;
 }
 
 function viewportTopInset(scroller: HTMLElement, turn?: TurnLanding): number {
   const measured = Number.parseFloat(getComputedStyle(scroller).scrollPaddingTop);
-  return Number.isFinite(measured) ? Math.max(0, measured) : turn?.topInset ?? 0;
+  return Number.isFinite(measured) ? Math.max(0, measured) : (turn?.topInset ?? 0);
 }
 
 export function useTurnLanding({
-  scrollRef, transcriptRef, followingRef, setFollowing, threadKey, firstId, turn, settling = false,
+  scrollRef,
+  transcriptRef,
+  followingRef,
+  setFollowing,
+  threadKey,
+  firstId,
+  turn,
+  settling = false,
 }: {
   scrollRef: RefObject<HTMLDivElement | null>;
   transcriptRef: RefObject<HTMLDivElement | null>;
@@ -47,11 +55,23 @@ export function useTurnLanding({
 }) {
   const roomRef = useRef<HTMLDivElement>(null);
   const previous = useRef<Frame | null>(null);
-  const record = useRef({ thread: threadKey, key: "", delivery: Boolean(turn?.delivering), active: false, held: false, opening: false, landed: false, target: 0, replyId: turn?.replyId });
+  const record = useRef({
+    thread: threadKey,
+    key: "",
+    delivery: Boolean(turn?.delivering),
+    active: false,
+    held: false,
+    opening: false,
+    landed: false,
+    target: 0,
+    replyId: turn?.replyId,
+  });
   const latest = useRef({ turn, threadKey, firstId, settling });
   latest.current = { turn, threadKey, firstId, settling };
   const current = record.current;
-  const holdsViewport = Boolean(turn && (turn.active || current.thread === threadKey && current.held));
+  const holdsViewport = Boolean(
+    turn && (turn.active || (current.thread === threadKey && current.held)),
+  );
   const pinFollowingRef = useRef(false);
   pinFollowingRef.current = followingRef.current && !holdsViewport;
 
@@ -67,20 +87,33 @@ export function useTurnLanding({
     for (const row of scroller.querySelectorAll<HTMLElement>("[data-mid]")) {
       const rect = boxOf(row);
       if (!rect) continue;
-      last = { id: row.dataset.mid ?? "", top: rect.top, offset: (rect.top - top) / scale + scroller.scrollTop };
-      if (rect.bottom > top + viewportTopInset(scroller, latest.current.turn) * scale && rect.top < bottom) {
+      last = {
+        id: row.dataset.mid ?? "",
+        top: rect.top,
+        offset: (rect.top - top) / scale + scroller.scrollTop,
+      };
+      if (
+        rect.bottom > top + viewportTopInset(scroller, latest.current.turn) * scale &&
+        rect.top < bottom
+      ) {
         anchor = last;
         break;
       }
     }
     if (!anchor && record.current.held && followingRef.current) anchor = last;
-    previous.current = { thread: latest.current.threadKey, firstId: latest.current.firstId, anchor };
+    previous.current = {
+      thread: latest.current.threadKey,
+      firstId: latest.current.firstId,
+      anchor,
+    };
   };
   const hold = () => {
     const scroller = scrollRef.current;
     const before = previous.current;
     if (!scroller || !before?.anchor || before.thread !== latest.current.threadKey) return 0;
-    const row = [...scroller.querySelectorAll<HTMLElement>("[data-mid]")].find(candidate => candidate.dataset.mid === before.anchor!.id);
+    const row = [...scroller.querySelectorAll<HTMLElement>("[data-mid]")].find(
+      (candidate) => candidate.dataset.mid === before.anchor!.id,
+    );
     const rect = row ? boxOf(row) : null;
     if (!rect) return 0;
     const scale = viewportScale(scroller);
@@ -114,10 +147,16 @@ export function useTurnLanding({
     const room = roomRef.current;
     if (!scroller || !transcript || !room) return;
     const measured = room.getBoundingClientRect().height / viewportScale(scroller);
-    const visible = Math.max(0, scroller.clientHeight - viewportTopInset(scroller, latest.current.turn) - (latest.current.turn?.bottomInset ?? 0));
+    const visible = Math.max(
+      0,
+      scroller.clientHeight -
+        viewportTopInset(scroller, latest.current.turn) -
+        (latest.current.turn?.bottomInset ?? 0),
+    );
     const wanted = turnRoomHeight(visible);
     if (Math.abs(wanted - (Number.parseFloat(room.style.height) || 0)) > 0.01) {
-      state.target = transcript.getBoundingClientRect().height / viewportScale(scroller) - measured + wanted;
+      state.target =
+        transcript.getBoundingClientRect().height / viewportScale(scroller) - measured + wanted;
       room.style.height = `${wanted}px`;
       return;
     }
@@ -134,7 +173,17 @@ export function useTurnLanding({
     if (!scroller || !transcript || !room) return;
     let state = record.current;
     if (state.thread !== threadKey) {
-      state = { thread: threadKey, key: "", delivery: Boolean(turn?.delivering), active: false, held: false, opening: false, landed: false, target: 0, replyId: turn.replyId };
+      state = {
+        thread: threadKey,
+        key: "",
+        delivery: Boolean(turn?.delivering),
+        active: false,
+        held: false,
+        opening: false,
+        landed: false,
+        target: 0,
+        replyId: turn.replyId,
+      };
       record.current = state;
       previous.current = null;
       room.style.height = "0px";
@@ -143,9 +192,11 @@ export function useTurnLanding({
       state.key = turn.key;
       state.delivery = false;
     }
-    const begins = turn.active && (!state.active || !state.delivery && state.key !== turn.key);
+    const begins = turn.active && (!state.active || (!state.delivery && state.key !== turn.key));
     if (begins) {
-      const contentHeight = (transcript.getBoundingClientRect().height - room.getBoundingClientRect().height) / viewportScale(scroller);
+      const contentHeight =
+        (transcript.getBoundingClientRect().height - room.getBoundingClientRect().height) /
+        viewportScale(scroller);
       room.style.height = "0px";
       state.key = turn.key;
       state.delivery = Boolean(turn.delivering);
@@ -154,7 +205,10 @@ export function useTurnLanding({
       state.opening = state.held;
       state.landed = false;
       if (state.held) {
-        const visible = Math.max(0, scroller.clientHeight - viewportTopInset(scroller, turn) - (turn.bottomInset ?? 0));
+        const visible = Math.max(
+          0,
+          scroller.clientHeight - viewportTopInset(scroller, turn) - (turn.bottomInset ?? 0),
+        );
         const height = turnRoomHeight(visible);
         state.target = contentHeight + height;
         room.style.height = `${height}px`;
@@ -165,14 +219,21 @@ export function useTurnLanding({
         state.target += hold();
       }
       consume();
-      if (state.held && (state.replyId !== turn.replyId || state.active && !turn.active && !state.delivery)) {
+      if (
+        state.held &&
+        (state.replyId !== turn.replyId || (state.active && !turn.active && !state.delivery))
+      ) {
         state.landed = true;
         state.replyId = turn.replyId;
         state.delivery = false;
         const padding = Number.parseFloat(getComputedStyle(transcript).paddingBottom) || 0;
         const scale = viewportScale(scroller);
-        const contentBottom = transcript.getBoundingClientRect().bottom - room.getBoundingClientRect().height - padding * scale;
-        const visibleBottom = scroller.getBoundingClientRect().bottom - (turn.bottomInset ?? 0) * scale;
+        const contentBottom =
+          transcript.getBoundingClientRect().bottom -
+          room.getBoundingClientRect().height -
+          padding * scale;
+        const visibleBottom =
+          scroller.getBoundingClientRect().bottom - (turn.bottomInset ?? 0) * scale;
         if (contentBottom > visibleBottom + 0.5) setFollowing(false);
       }
     }
@@ -216,7 +277,9 @@ export function useTurnLanding({
     if (room) room.style.height = "0px";
     record.current.opening = false;
     record.current.held = Boolean(turn?.active);
-    record.current.target = (transcriptRef.current?.getBoundingClientRect().height ?? 0) / (scrollRef.current ? viewportScale(scrollRef.current) : 1);
+    record.current.target =
+      (transcriptRef.current?.getBoundingClientRect().height ?? 0) /
+      (scrollRef.current ? viewportScale(scrollRef.current) : 1);
     pinFollowingRef.current = followingRef.current && !turn?.active;
     remember();
   };

@@ -128,16 +128,16 @@ request estimates. Tokens are UTF-8 bytes divided by four, rounded up; these
 are not tokenizer readings and exclude tool schemas, the provider's native
 instructions and conversation history.
 
-| Dog / engine | Before tokens | After tokens |
-| --- | ---: | ---: |
-| Main / Claude | 7,935 | 7,799 |
-| Helper / Claude | 7,258 | 7,122 |
-| Group / Claude | 7,030 | 6,894 |
-| Started / Claude | 7,264 | 7,128 |
-| Main / Codex | 7,787 | 7,616 |
-| Helper / Codex | 7,365 | 7,194 |
-| Group / Codex | 7,137 | 6,966 |
-| Started / Codex | 7,371 | 7,200 |
+| Dog / engine     | Before tokens | After tokens |
+| ---------------- | ------------: | -----------: |
+| Main / Claude    |         7,935 |        7,799 |
+| Helper / Claude  |         7,258 |        7,122 |
+| Group / Claude   |         7,030 |        6,894 |
+| Started / Claude |         7,264 |        7,128 |
+| Main / Codex     |         7,787 |        7,616 |
+| Helper / Codex   |         7,365 |        7,194 |
+| Group / Codex    |         7,137 |        6,966 |
+| Started / Codex  |         7,371 |        7,200 |
 
 Standing text saves 544 bytes on Claude and 684 on Codex. First context notes
 and their 100-turn resend totals are unchanged. The Mac fixture has 50 more

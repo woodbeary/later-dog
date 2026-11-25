@@ -3,19 +3,28 @@ import { describe, expect, it } from "vitest";
 import { publishGlassInsets } from "./GlassScrollFrame";
 
 function child(glassBar: string | undefined, height: number) {
-  return { dataset: glassBar === undefined ? {} : { glassBar }, getBoundingClientRect: () => ({ height }) };
+  return {
+    dataset: glassBar === undefined ? {} : { glassBar },
+    getBoundingClientRect: () => ({ height }),
+  };
 }
 
 function frame(children: ReturnType<typeof child>[]) {
   const vars = new Map<string, string>();
-  const element = { children, style: { setProperty: (name: string, value: string) => vars.set(name, value) } };
+  const element = {
+    children,
+    style: { setProperty: (name: string, value: string) => vars.set(name, value) },
+  };
   publishGlassInsets(element as unknown as HTMLElement);
   return vars;
 }
 
 describe("publishGlassInsets", () => {
   it("keeps a zoomed bar's layout height instead of writing its scaled visual height back into padding", () => {
-    const top = { ...child("top", 128), ownerDocument: { defaultView: { getComputedStyle: () => ({ height: "64px" }) } } };
+    const top = {
+      ...child("top", 128),
+      ownerDocument: { defaultView: { getComputedStyle: () => ({ height: "64px" }) } },
+    };
     const vars = frame([top]);
     expect(vars.get("--glass-top")).toBe("64px");
   });

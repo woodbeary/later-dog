@@ -13,7 +13,10 @@ const ROOT = fileURLToPath(new URL("..", import.meta.url));
 const FAKE_CLI = join(ROOT, "server/testing/fake-claude-cli.ts");
 const ENGINE_NAME = "Verification Claude";
 const REMOVED = "The Computer choice in the model list was removed.";
-const JPEG = Buffer.from("/9j/4AAQSkZJRgABAQEAYABgAAD/2wBDAAMCAgMCAgMDAwMEAwMEBQgFBQQEBQoHBwYIDAoMDAsKCwsNDhIQDQ4RDgsLEBYQERMUFRUVDA8XGBYUGBIUFRT/2wBDAQMEBAUEBQkFBQkUDQsNFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBT/wAARCAABAAEDASIAAhEBAxEB/8QAHwAAAQUBAQEBAQEAAAAAAAAAAAECAwQFBgcICQoL/8QAtRAAAgEDAwIEAwUFBAQAAAF9AQIDAAQRBRIhMUEGE1FhByJxFDKBkaEII0KxwRVS0fAkM2JyggkKFhcYGRolJicoKSo0NTY3ODk6Q0RFRkdISUpTVFVWV1hZWmNkZWZnaGlqc3R1dnd4eXqDhIWGh4iJipKTlJWWl5iZmqKjpKWmp6ipqrKztLW2t7i5usLDxMXGx8jJytLT1NXW19jZ2uHi4+Tl5ufo6erx8vP09fb3+Pn6/8QAHwEAAwEBAQEBAQEBAQAAAAAAAAECAwQFBgcICQoL/8QAtREAAgECBAQDBAcFBAQAAQJ3AAECAxEEBSExBhJBUQdhcRMiMoEIFEKRobHBCSMzUvAVYnLRChYkNOEl8RcYGRomJygpKjU2Nzg5OkNERUZHSElKU1RVVldYWVpjZGVmZ2hpanN0dXZ3eHl6goOEhYaHiImKkpOUlZaXmJmaoqOkpaanqKmqsrO0tba3uLm6wsPExcbHyMnK0tPU1dbX2Nna4uPk5ebn6Onq8vP09fb3+Pn6/9oADAMBAAIRAxEAPwD8qqKKKAP/2Q==", "base64");
+const JPEG = Buffer.from(
+  "/9j/4AAQSkZJRgABAQEAYABgAAD/2wBDAAMCAgMCAgMDAwMEAwMEBQgFBQQEBQoHBwYIDAoMDAsKCwsNDhIQDQ4RDgsLEBYQERMUFRUVDA8XGBYUGBIUFRT/2wBDAQMEBAUEBQkFBQkUDQsNFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBT/wAARCAABAAEDASIAAhEBAxEB/8QAHwAAAQUBAQEBAQEAAAAAAAAAAAECAwQFBgcICQoL/8QAtRAAAgEDAwIEAwUFBAQAAAF9AQIDAAQRBRIhMUEGE1FhByJxFDKBkaEII0KxwRVS0fAkM2JyggkKFhcYGRolJicoKSo0NTY3ODk6Q0RFRkdISUpTVFVWV1hZWmNkZWZnaGlqc3R1dnd4eXqDhIWGh4iJipKTlJWWl5iZmqKjpKWmp6ipqrKztLW2t7i5usLDxMXGx8jJytLT1NXW19jZ2uHi4+Tl5ufo6erx8vP09fb3+Pn6/8QAHwEAAwEBAQEBAQEBAQAAAAAAAAECAwQFBgcICQoL/8QAtREAAgECBAQDBAcFBAQAAQJ3AAECAxEEBSExBhJBUQdhcRMiMoEIFEKRobHBCSMzUvAVYnLRChYkNOEl8RcYGRomJygpKjU2Nzg5OkNERUZHSElKU1RVVldYWVpjZGVmZ2hpanN0dXZ3eHl6goOEhYaHiImKkpOUlZaXmJmaoqOkpaanqKmqsrO0tba3uLm6wsPExcbHyMnK0tPU1dbX2Nna4uPk5ebn6Onq8vP09fb3+Pn6/9oADAMBAAIRAxEAPwD8qqKKKAP/2Q==",
+  "base64",
+);
 
 function install(home: string, boatPort: () => number) {
   const data = join(home, "data");
@@ -28,23 +31,27 @@ function install(home: string, boatPort: () => number) {
 
   const api = async (method: string, path: string, body?: unknown) => {
     const response = await fetch(base + path, {
-      method, headers: { "content-type": "application/json" },
+      method,
+      headers: { "content-type": "application/json" },
       ...(body === undefined ? {} : { body: JSON.stringify(body) }),
     });
-    const result = await response.json() as any;
+    const result = (await response.json()) as any;
     expect(response.status, `${method} ${path}: ${JSON.stringify(result)}`).toBeLessThan(400);
     return result;
   };
   const control = (args: string[]) => runControlLaterDog([...args, "--url", base]) as Promise<any>;
-  const send = (botId: string, threadId: string, text: string) => fetch(`${base}/api/bots/${botId}/messages`, {
-    method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ text, threadId }),
-  }).then(response => response.status);
+  const send = (botId: string, threadId: string, text: string) =>
+    fetch(`${base}/api/bots/${botId}/messages`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ text, threadId }),
+    }).then((response) => response.status);
   const bots = async (): Promise<any[]> => (await api("GET", "/api/bots?messages=0")).bots;
-  const bot = async (botId: string) => (await bots()).find(entry => entry.id === botId);
+  const bot = async (botId: string) => (await bots()).find((entry) => entry.id === botId);
   const savedBots = (): any[] => JSON.parse(readFileSync(join(data, "bots.json"), "utf8"));
   const editSavedBot = (botId: string, edit: (bot: any) => void) => {
     const saved = savedBots();
-    edit(saved.find(entry => entry.id === botId));
+    edit(saved.find((entry) => entry.id === botId));
     writeFileSync(join(data, "bots.json"), JSON.stringify(saved, null, 2));
   };
   const editConfig = (edit: (config: any) => void) => {
@@ -55,14 +62,26 @@ function install(home: string, boatPort: () => number) {
   };
   const lines = async (threadId: string): Promise<string[]> =>
     (await api("GET", `/api/threads/${threadId}/messages?limit=50`)).messages
-      .filter((message: any) => message.kind === "activity").map((message: any) => String(message.tool?.name));
-  const moveLines = async (threadId: string) => (await lines(threadId)).filter(line => line.includes(REMOVED));
+      .filter((message: any) => message.kind === "activity")
+      .map((message: any) => String(message.tool?.name));
+  const moveLines = async (threadId: string) =>
+    (await lines(threadId)).filter((line) => line.includes(REMOVED));
   const dump = async () => {
     let parsed: any = null;
-    await expect.poll(() => {
-      if (!existsSync(dumpFile)) return false;
-      try { parsed = JSON.parse(readFileSync(dumpFile, "utf8")); return true; } catch { return false; }
-    }, { timeout: 15_000 }).toBe(true);
+    await expect
+      .poll(
+        () => {
+          if (!existsSync(dumpFile)) return false;
+          try {
+            parsed = JSON.parse(readFileSync(dumpFile, "utf8"));
+            return true;
+          } catch {
+            return false;
+          }
+        },
+        { timeout: 15_000 },
+      )
+      .toBe(true);
     return parsed;
   };
   const turn = async (botId: string, threadId: string, text: string) => {
@@ -77,23 +96,46 @@ function install(home: string, boatPort: () => number) {
     base = `http://127.0.0.1:${port}`;
     output = "";
     const proc = spawn(process.execPath, [join(ROOT, "server/index.ts")], {
-      cwd: ROOT, env: {
-        PATH: dirname(process.execPath), ...(process.env.SystemRoot ? { SystemRoot: process.env.SystemRoot } : {}),
-        HOME: home, USERPROFILE: home, LATERDOG_HOME: data,
-        APPDATA: join(home, "appdata"), LOCALAPPDATA: join(home, "localappdata"),
-        TEMP: home, TMP: home, TMPDIR: home,
-        LATERDOG_SERVER_PORT: String(port), LATERDOG_WEBHOOK_PORT: String(port + 1), LATERDOG_STATIC_DIR: join(home, "static"),
+      cwd: ROOT,
+      env: {
+        PATH: dirname(process.execPath),
+        ...(process.env.SystemRoot ? { SystemRoot: process.env.SystemRoot } : {}),
+        HOME: home,
+        USERPROFILE: home,
+        LATERDOG_HOME: data,
+        APPDATA: join(home, "appdata"),
+        LOCALAPPDATA: join(home, "localappdata"),
+        TEMP: home,
+        TMP: home,
+        TMPDIR: home,
+        LATERDOG_SERVER_PORT: String(port),
+        LATERDOG_WEBHOOK_PORT: String(port + 1),
+        LATERDOG_STATIC_DIR: join(home, "static"),
         LATERDOG_BOX_API: `http://127.0.0.1:${boatPort()}`,
         LATERDOG_USER_DATA: join(home, "user-data"),
-      }, stdio: ["ignore", "pipe", "pipe"],
+      },
+      stdio: ["ignore", "pipe", "pipe"],
     });
     child = proc;
-    proc.stdout!.on("data", chunk => { output += chunk; });
-    proc.stderr!.on("data", chunk => { output += chunk; });
-    await expect.poll(async () => {
-      if (proc.exitCode !== null) throw new Error(`server exited during boot:\n${output}`);
-      try { return (await fetch(base + "/api/health")).ok; } catch { return false; }
-    }, { timeout: 20_000, interval: 50 }).toBe(true);
+    proc.stdout!.on("data", (chunk) => {
+      output += chunk;
+    });
+    proc.stderr!.on("data", (chunk) => {
+      output += chunk;
+    });
+    await expect
+      .poll(
+        async () => {
+          if (proc.exitCode !== null) throw new Error(`server exited during boot:\n${output}`);
+          try {
+            return (await fetch(base + "/api/health")).ok;
+          } catch {
+            return false;
+          }
+        },
+        { timeout: 20_000, interval: 50 },
+      )
+      .toBe(true);
   }
   async function stop() {
     if (!child) return;
@@ -101,11 +143,29 @@ function install(home: string, boatPort: () => number) {
     child = null;
     await waitForExit(proc, { signal: "SIGTERM" });
   }
-  return { data, dumpFile, api, send, bots, bot, editSavedBot, editConfig, lines, moveLines, turn, start, stop, log: () => output };
+  return {
+    data,
+    dumpFile,
+    api,
+    send,
+    bots,
+    bot,
+    editSavedBot,
+    editConfig,
+    lines,
+    moveLines,
+    turn,
+    start,
+    stop,
+    log: () => output,
+  };
 }
 
 const claudeEntry = (dumpFile: string) => ({
-  driver: "claudeAgent", displayName: ENGINE_NAME, config: { cli: FAKE_CLI }, environment: { FAKE_CLAUDE_DUMP: dumpFile },
+  driver: "claudeAgent",
+  displayName: ENGINE_NAME,
+  config: { cli: FAKE_CLI },
+  environment: { FAKE_CLAUDE_DUMP: dumpFile },
 });
 const onEngine = (model: string) => ({ instanceId: "computer", model });
 const savedOnEngine = (saved: any) => {
@@ -133,46 +193,69 @@ describe("removing the Computer engine", () => {
   beforeAll(async () => {
     boatServer = createServer(async (req, res) => {
       const path = new URL(req.url ?? "/", "http://box.fixture").pathname;
-      let raw = ""; for await (const part of req) raw += part;
+      let raw = "";
+      for await (const part of req) raw += part;
       const body = raw ? JSON.parse(raw) : {};
       res.setHeader("content-type", "application/json");
       boatCalls++;
       if (/\/(prompt|events|interrupt)$|\/prompts\//.test(path)) {
         agentCalls.push(`${req.method} ${path}`);
         res.statusCode = 409;
-        return res.end(JSON.stringify({ ok: false, code: "provider_not_configured", message: "Claude login required" }));
+        return res.end(
+          JSON.stringify({
+            ok: false,
+            code: "provider_not_configured",
+            message: "Claude login required",
+          }),
+        );
       }
       if (path === "/boxes" && req.method === "POST") {
         boxesCreated++;
-        const row = { id: `bx_2345678${"abcdefgh"[rows.length]}`, name: body.name, state: "idle" }; rows.push(row);
+        const row = { id: `bx_2345678${"abcdefgh"[rows.length]}`, name: body.name, state: "idle" };
+        rows.push(row);
         return res.end(JSON.stringify({ box: row }));
       }
       if (path === "/boxes") return res.end(JSON.stringify({ boxes: rows }));
-      if (path.endsWith("/commands")) return res.end(JSON.stringify({ exitCode: 0, stdout: "captured", stderr: "" }));
-      if (path.endsWith("/artifacts")) { res.setHeader("content-type", "image/jpeg"); return res.end(JPEG); }
-      if (path.endsWith("/desktop")) return res.end(JSON.stringify({ desktopUrl: "https://desktop.fixture.invalid" }));
-      const row = rows.find(entry => path === "/boxes/" + entry.id);
+      if (path.endsWith("/commands"))
+        return res.end(JSON.stringify({ exitCode: 0, stdout: "captured", stderr: "" }));
+      if (path.endsWith("/artifacts")) {
+        res.setHeader("content-type", "image/jpeg");
+        return res.end(JPEG);
+      }
+      if (path.endsWith("/desktop"))
+        return res.end(JSON.stringify({ desktopUrl: "https://desktop.fixture.invalid" }));
+      const row = rows.find((entry) => path === "/boxes/" + entry.id);
       if (row) {
         if (req.method === "PATCH" && typeof body.name === "string") row.name = body.name;
         return res.end(JSON.stringify({ box: row }));
       }
       res.end("{}");
     });
-    await new Promise<void>(resolve => boatServer.listen(0, "127.0.0.1", resolve));
+    await new Promise<void>((resolve) => boatServer.listen(0, "127.0.0.1", resolve));
   });
   afterAll(async () => {
     for (const server of running) await server.stop();
-    if (boatServer) { boatServer.closeAllConnections(); await new Promise<void>(resolve => boatServer.close(() => resolve())); }
+    if (boatServer) {
+      boatServer.closeAllConnections();
+      await new Promise<void>((resolve) => boatServer.close(() => resolve()));
+    }
     for (const home of homes) await removeTempDir(home);
   });
 
   it("moves bots off it once, keeps each conversation where it worked, and never hands a turn to Boat's own agent", async () => {
     const { server } = fresh();
     const claudeEntry = (dumpFile: string) => ({
-      driver: "claudeAgent", displayName: ENGINE_NAME, config: { cli: FAKE_CLI },
+      driver: "claudeAgent",
+      displayName: ENGINE_NAME,
+      config: { cli: FAKE_CLI },
       environment: { FAKE_CLAUDE_DUMP: dumpFile, FAKE_CLAUDE_USES_CLOUD_COMPUTER: "1" },
     });
-    server.editConfig(config => Object.assign(config, { box: { token: "box_verification_fixture" }, instances: { claude: claudeEntry(server.dumpFile) } }));
+    server.editConfig((config) =>
+      Object.assign(config, {
+        box: { token: "box_verification_fixture" },
+        instances: { claude: claudeEntry(server.dumpFile) },
+      }),
+    );
     await server.start();
     const [starter] = await server.bots();
     const { task: opened } = await server.api("POST", `/api/bots/${starter.id}/tasks`, {});
@@ -183,40 +266,51 @@ describe("removing the Computer engine", () => {
     const { task: mixedConversation } = await server.api("POST", `/api/bots/${mixed.id}/tasks`, {});
     await server.stop();
 
-    server.editConfig(config => Object.assign(config, {
-      instances: { claude: claudeEntry(server.dumpFile), computer: { driver: "boxAgent" } },
-      defaultModelSelection: { instanceId: "computer", model: "claude-fable-5" },
-      newBotDefaults: { profile: { modelSelection: { instanceId: "computer", model: "claude-fable-5" } } },
-      automaticRecovery: { enabled: true, backup: { instanceId: "computer", model: "sonnet" } },
-    }));
-    server.editSavedBot(starter.id, saved => {
+    server.editConfig((config) =>
+      Object.assign(config, {
+        instances: { claude: claudeEntry(server.dumpFile), computer: { driver: "boxAgent" } },
+        defaultModelSelection: { instanceId: "computer", model: "claude-fable-5" },
+        newBotDefaults: {
+          profile: { modelSelection: { instanceId: "computer", model: "claude-fable-5" } },
+        },
+        automaticRecovery: { enabled: true, backup: { instanceId: "computer", model: "sonnet" } },
+      }),
+    );
+    server.editSavedBot(starter.id, (saved) => {
       saved.modelSelection = onEngine("claude-fable-5");
       saved.computer = "cloud";
       saved.fallback = [onEngine("sonnet")];
       saved.resumeCursors = { computer: "boat-prompt-run" };
-      for (const task of saved.tasks) task.modelSelection = onEngine(task.threadId === other ? "gpt-5.4" : "claude-fable-5");
+      for (const task of saved.tasks)
+        task.modelSelection = onEngine(task.threadId === other ? "gpt-5.4" : "claude-fable-5");
     });
-    server.editSavedBot(auto.id, saved => {
+    server.editSavedBot(auto.id, (saved) => {
       saved.modelSelection = onEngine("claude-fable-5");
       delete saved.computer;
       for (const task of saved.tasks) task.modelSelection = onEngine("claude-fable-5");
     });
-    server.editSavedBot(mixed.id, saved => {
-      saved.tasks.find((task: any) => task.threadId === mixedConversation.threadId).modelSelection = onEngine("claude-fable-5");
+    server.editSavedBot(mixed.id, (saved) => {
+      saved.tasks.find((task: any) => task.threadId === mixedConversation.threadId).modelSelection =
+        onEngine("claude-fable-5");
     });
 
     await server.start();
     const { instances } = await server.api("GET", "/api/instances");
     expect(instances.map((instance: any) => instance.instanceId)).not.toContain("computer");
     expect(instances.map((instance: any) => instance.driverKind)).not.toContain("boxAgent");
-    const replacement = { instanceId: "claude", model: instances.find((instance: any) => instance.instanceId === "claude").models.default };
+    const replacement = {
+      instanceId: "claude",
+      model: instances.find((instance: any) => instance.instanceId === "claude").models.default,
+    };
 
     const movedStarter = await server.bot(starter.id);
     expect(movedStarter.modelSelection).toEqual(replacement);
     expect(movedStarter.computer).toBe("cloud");
     expect(movedStarter.fallback ?? []).toEqual([]);
     expect(movedStarter.threadId).toBe(main);
-    expect(movedStarter.tasks.find((task: any) => task.threadId === other).modelSelection).toEqual(replacement);
+    expect(movedStarter.tasks.find((task: any) => task.threadId === other).modelSelection).toEqual(
+      replacement,
+    );
     const starterLine = `${starter.name} now uses ${ENGINE_NAME}. ${REMOVED} ${starter.name} still works on its cloud computer.`;
     const otherLine = `This conversation now uses ${ENGINE_NAME}. ${REMOVED} It still works on ${starter.name}'s cloud computer.`;
     expect(await server.moveLines(main)).toEqual([starterLine]);
@@ -225,15 +319,20 @@ describe("removing the Computer engine", () => {
     const movedAuto = await server.bot(auto.id);
     expect(movedAuto.modelSelection).toEqual(replacement);
     expect(movedAuto.computer).toBe("cloud");
-    expect(await server.moveLines(auto.threadId)).toEqual([`Atlas now uses ${ENGINE_NAME}. ${REMOVED} Atlas still works on its cloud computer.`]);
+    expect(await server.moveLines(auto.threadId)).toEqual([
+      `Atlas now uses ${ENGINE_NAME}. ${REMOVED} Atlas still works on its cloud computer.`,
+    ]);
 
     const movedMixed = await server.bot(mixed.id);
     expect(movedMixed.modelSelection).toEqual(mixed.modelSelection);
     expect(movedMixed.computer).toBeUndefined();
     expect(await server.moveLines(mixed.threadId)).toEqual([]);
-    expect(await server.moveLines(mixedConversation.threadId))
-      .toEqual([`This conversation now uses ${ENGINE_NAME}. ${REMOVED} It still works on Iris's cloud computer.`]);
-    const mixedTask = movedMixed.tasks.find((task: any) => task.threadId === mixedConversation.threadId);
+    expect(await server.moveLines(mixedConversation.threadId)).toEqual([
+      `This conversation now uses ${ENGINE_NAME}. ${REMOVED} It still works on Iris's cloud computer.`,
+    ]);
+    const mixedTask = movedMixed.tasks.find(
+      (task: any) => task.threadId === mixedConversation.threadId,
+    );
     expect(mixedTask.modelSelection).toEqual(replacement);
     expect(mixedTask).toMatchObject({ surface: "cloud", surfaceAuto: true });
 
@@ -252,15 +351,29 @@ describe("removing the Computer engine", () => {
     expect(await server.moveLines(auto.threadId)).toHaveLength(1);
     expect(await server.moveLines(mixedConversation.threadId)).toHaveLength(1);
 
-    const cloudTurn = await server.turn(starter.id, main, "Take a screenshot of the cloud computer.");
+    const cloudTurn = await server.turn(
+      starter.id,
+      main,
+      "Take a screenshot of the cloud computer.",
+    );
     expect(cloudTurn.argv[cloudTurn.argv.indexOf("--model") + 1]).toBe(replacement.model);
-    expect(cloudTurn.mcpConfig.mcpServers.computer.args).toEqual([expect.stringMatching(/harness-mcp-proxy\.(?:ts|js)$/), "computer"]);
+    expect(cloudTurn.mcpConfig.mcpServers.computer.args).toEqual([
+      expect.stringMatching(/harness-mcp-proxy\.(?:ts|js)$/),
+      "computer",
+    ]);
     expect(boxesCreated).toBe(1);
     expect(agentCalls).toEqual([]);
 
     const { task: atlasNew } = await server.api("POST", `/api/bots/${auto.id}/tasks`, {});
-    const autoMovedTurn = await server.turn(auto.id, atlasNew.threadId, "Take a screenshot of the cloud computer.");
-    expect(autoMovedTurn.mcpConfig.mcpServers.computer.args).toEqual([expect.stringMatching(/harness-mcp-proxy\.(?:ts|js)$/), "computer"]);
+    const autoMovedTurn = await server.turn(
+      auto.id,
+      atlasNew.threadId,
+      "Take a screenshot of the cloud computer.",
+    );
+    expect(autoMovedTurn.mcpConfig.mcpServers.computer.args).toEqual([
+      expect.stringMatching(/harness-mcp-proxy\.(?:ts|js)$/),
+      "computer",
+    ]);
     expect(boxesCreated).toBe(2);
     expect(agentCalls).toEqual([]);
 
@@ -268,7 +381,10 @@ describe("removing the Computer engine", () => {
     const callsBeforeAuto = boatCalls;
     const autoTurn = await server.turn(starter.id, other, "what is 2+2?");
     expect(autoTurn.mcpConfig?.mcpServers?.computer?.args?.[1]).toBe("computer");
-    expect(boatCalls - callsBeforeAuto, "an Auto turn that left its computer alone reached the Boat account").toBe(0);
+    expect(
+      boatCalls - callsBeforeAuto,
+      "an Auto turn that left its computer alone reached the Boat account",
+    ).toBe(0);
     expect(agentCalls).toEqual([]);
     await server.stop();
   }, 180_000);
@@ -276,15 +392,25 @@ describe("removing the Computer engine", () => {
   it("moves a bot later, as soon as an engine is there to move it to", async () => {
     const { home, server } = fresh();
     const cli = join(home, "later", "claude.mjs");
-    const later = { driver: "claudeAgent", displayName: ENGINE_NAME, config: { cli }, environment: { FAKE_CLAUDE_DUMP: server.dumpFile } };
-    server.editConfig(config => Object.assign(config, { box: { token: "box_verification_fixture" }, instances: { later } }));
+    const later = {
+      driver: "claudeAgent",
+      displayName: ENGINE_NAME,
+      config: { cli },
+      environment: { FAKE_CLAUDE_DUMP: server.dumpFile },
+    };
+    server.editConfig((config) =>
+      Object.assign(config, { box: { token: "box_verification_fixture" }, instances: { later } }),
+    );
     await server.start();
     const [starter] = await server.bots();
     await server.stop();
-    server.editConfig(config => Object.assign(config, { instances: { later, computer: { driver: "boxAgent" } } }));
-    server.editSavedBot(starter.id, saved => {
+    server.editConfig((config) =>
+      Object.assign(config, { instances: { later, computer: { driver: "boxAgent" } } }),
+    );
+    server.editSavedBot(starter.id, (saved) => {
       saved.modelSelection = { instanceId: "computer", model: "claude-fable-5" };
-      for (const task of saved.tasks) task.modelSelection = { instanceId: "computer", model: "claude-fable-5" };
+      for (const task of saved.tasks)
+        task.modelSelection = { instanceId: "computer", model: "claude-fable-5" };
     });
 
     await server.start();
@@ -292,10 +418,15 @@ describe("removing the Computer engine", () => {
     expect((await server.bot(starter.id)).modelSelection.instanceId).toBe("computer");
 
     mkdirSync(dirname(cli), { recursive: true });
-    writeFileSync(cli, `#!/usr/bin/env node\nawait import(${JSON.stringify(pathToFileURL(FAKE_CLI).href)});\n`, { mode: 0o755 });
+    writeFileSync(
+      cli,
+      `#!/usr/bin/env node\nawait import(${JSON.stringify(pathToFileURL(FAKE_CLI).href)});\n`,
+      { mode: 0o755 },
+    );
     const { instances } = await server.api("GET", "/api/instances");
     const model = instances.find((instance: any) => instance.instanceId === "later").models.default;
-    await expect.poll(async () => (await server.bot(starter.id)).modelSelection, { timeout: 15_000 })
+    await expect
+      .poll(async () => (await server.bot(starter.id)).modelSelection, { timeout: 15_000 })
       .toEqual({ instanceId: "later", model });
     expect(await server.moveLines(starter.threadId)).toEqual([
       `${starter.name} now uses ${ENGINE_NAME}. ${REMOVED} ${starter.name} still works on its cloud computer.`,
@@ -306,11 +437,20 @@ describe("removing the Computer engine", () => {
   it("keeps serving when the move fails at start, and moves the bots on a later try", async () => {
     const { server } = fresh();
     const teams = join(server.data, "section-contexts.json");
-    server.editConfig(config => Object.assign(config, { box: { token: "box_verification_fixture" }, instances: { claude: claudeEntry(server.dumpFile) } }));
+    server.editConfig((config) =>
+      Object.assign(config, {
+        box: { token: "box_verification_fixture" },
+        instances: { claude: claudeEntry(server.dumpFile) },
+      }),
+    );
     await server.start();
     const [starter] = await server.bots();
     await server.stop();
-    server.editConfig(config => Object.assign(config, { instances: { claude: claudeEntry(server.dumpFile), computer: { driver: "boxAgent" } } }));
+    server.editConfig((config) =>
+      Object.assign(config, {
+        instances: { claude: claudeEntry(server.dumpFile), computer: { driver: "boxAgent" } },
+      }),
+    );
     server.editSavedBot(starter.id, savedOnEngine);
     writeFileSync(teams, "not json");
 
@@ -321,7 +461,11 @@ describe("removing the Computer engine", () => {
 
     rmSync(teams);
     await server.send(starter.id, starter.threadId, "hello");
-    await expect.poll(async () => (await server.bot(starter.id)).modelSelection.instanceId, { timeout: 15_000 }).toBe("claude");
+    await expect
+      .poll(async () => (await server.bot(starter.id)).modelSelection.instanceId, {
+        timeout: 15_000,
+      })
+      .toBe("claude");
     expect((await server.bot(starter.id)).computer).toBe("cloud");
     expect(await server.moveLines(starter.threadId)).toEqual([
       `${starter.name} now uses ${ENGINE_NAME}. ${REMOVED} ${starter.name} still works on its cloud computer.`,
@@ -332,15 +476,28 @@ describe("removing the Computer engine", () => {
   it("keeps a bot on Auto when the engine it moves to can't use a computer, and says so", async () => {
     const { server } = fresh();
     const chat = {
-      driver: "openai-compat", displayName: "Chat Only",
-      config: { url: "http://127.0.0.1:9/v1", key: "sk-verification-fixture", tools: false, model: "chat-model" },
+      driver: "openai-compat",
+      displayName: "Chat Only",
+      config: {
+        url: "http://127.0.0.1:9/v1",
+        key: "sk-verification-fixture",
+        tools: false,
+        model: "chat-model",
+      },
     };
-    server.editConfig(config => Object.assign(config, { box: { token: "box_verification_fixture" }, instances: { chat } }));
+    server.editConfig((config) =>
+      Object.assign(config, { box: { token: "box_verification_fixture" }, instances: { chat } }),
+    );
     await server.start();
     const [starter] = await server.bots();
     await server.stop();
-    server.editConfig(config => Object.assign(config, { instances: { chat, computer: { driver: "boxAgent" } } }));
-    server.editSavedBot(starter.id, saved => { savedOnEngine(saved); delete saved.computer; });
+    server.editConfig((config) =>
+      Object.assign(config, { instances: { chat, computer: { driver: "boxAgent" } } }),
+    );
+    server.editSavedBot(starter.id, (saved) => {
+      savedOnEngine(saved);
+      delete saved.computer;
+    });
 
     await server.start();
     const moved = await server.bot(starter.id);
@@ -348,7 +505,7 @@ describe("removing the Computer engine", () => {
     expect(moved.computer).toBeUndefined();
     expect(await server.moveLines(starter.threadId)).toEqual([
       `${starter.name} now uses Chat Only. ${REMOVED} Chat Only can't use a computer, so ${starter.name} no longer works ` +
-      "on its cloud computer. To use it again, choose a model that can use a computer.",
+        "on its cloud computer. To use it again, choose a model that can use a computer.",
     ]);
     await server.stop();
   }, 120_000);

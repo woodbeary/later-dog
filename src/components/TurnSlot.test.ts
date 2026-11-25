@@ -13,8 +13,17 @@ let host: HTMLDivElement;
 let root: Root;
 
 const dog: Bot = {
-  id: "scout", threadId: "thread", name: "Scout", title: "", description: "", color: "yellow",
-  notifications: true, unread: false, busy: true, activity: "waiting-on-you", messages: [],
+  id: "scout",
+  threadId: "thread",
+  name: "Scout",
+  title: "",
+  description: "",
+  color: "yellow",
+  notifications: true,
+  unread: false,
+  busy: true,
+  activity: "waiting-on-you",
+  messages: [],
   modelSelection: { instanceId: "fixture", model: "fixture" },
 };
 
@@ -39,17 +48,42 @@ afterEach(() => {
 });
 
 describe("a turn slot's request link", () => {
-  it.each(["data-question-card", "data-approval-card", "data-takeover-card", "data-secure-form"])("focuses its own pane's %s instead of another visible pane", attribute => {
-    const card = (id: string) => createElement("section", { [attribute]: "open" }, createElement("button", { id }, "Open"));
-    act(() => root.render(createElement("div", null,
-      createElement("main", null, card("other-pane")),
-      createElement("main", null, card("current-pane"), createElement(TurnSlot, { bot: dog, working: false, onOpenDog: vi.fn() })),
-    )));
-    for (const node of host.querySelectorAll<HTMLElement>("section")) {
-      node.getBoundingClientRect = () => ({ x: 0, y: 0, top: 0, left: 0, right: 100, bottom: 20, width: 100, height: 20, toJSON: () => ({}) });
-      node.scrollIntoView = vi.fn();
-    }
-    act(() => host.querySelector<HTMLButtonElement>("[data-turn-slot] button")!.click());
-    expect(document.activeElement?.id).toBe("current-pane");
-  });
+  it.each(["data-question-card", "data-approval-card", "data-takeover-card", "data-secure-form"])(
+    "focuses its own pane's %s instead of another visible pane",
+    (attribute) => {
+      const card = (id: string) =>
+        createElement("section", { [attribute]: "open" }, createElement("button", { id }, "Open"));
+      act(() =>
+        root.render(
+          createElement(
+            "div",
+            null,
+            createElement("main", null, card("other-pane")),
+            createElement(
+              "main",
+              null,
+              card("current-pane"),
+              createElement(TurnSlot, { bot: dog, working: false, onOpenDog: vi.fn() }),
+            ),
+          ),
+        ),
+      );
+      for (const node of host.querySelectorAll<HTMLElement>("section")) {
+        node.getBoundingClientRect = () => ({
+          x: 0,
+          y: 0,
+          top: 0,
+          left: 0,
+          right: 100,
+          bottom: 20,
+          width: 100,
+          height: 20,
+          toJSON: () => ({}),
+        });
+        node.scrollIntoView = vi.fn();
+      }
+      act(() => host.querySelector<HTMLButtonElement>("[data-turn-slot] button")!.click());
+      expect(document.activeElement?.id).toBe("current-pane");
+    },
+  );
 });

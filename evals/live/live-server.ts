@@ -18,7 +18,10 @@ export interface LiveServerSession {
   close(): Promise<void>;
 }
 
-export function resolveLiveEnvironment(instance: LiveInstance, parentEnv: NodeJS.ProcessEnv): Record<string, string> {
+export function resolveLiveEnvironment(
+  instance: LiveInstance,
+  parentEnv: NodeJS.ProcessEnv,
+): Record<string, string> {
   const environment: Record<string, string> = { ...instance.environment };
   for (const name of instance.environmentFrom ?? []) {
     const value = parentEnv[name];
@@ -37,16 +40,23 @@ export async function spawnLiveServer(
   const fixtureTemp = join(dataDir, "tmp");
   mkdirSync(fixtureTemp, { recursive: true });
   const environment = resolveLiveEnvironment(instance, parentEnv);
-  writeFileSync(join(dataDir, "config.json"), JSON.stringify({
-    instances: {
-      [instance.instanceId]: {
-        driver: instance.driver,
-        displayName: instance.displayName ?? "Live eval engine",
-        ...(instance.config === undefined ? {} : { config: instance.config }),
-        ...(Object.keys(environment).length === 0 ? {} : { environment }),
+  writeFileSync(
+    join(dataDir, "config.json"),
+    JSON.stringify(
+      {
+        instances: {
+          [instance.instanceId]: {
+            driver: instance.driver,
+            displayName: instance.displayName ?? "Live eval engine",
+            ...(instance.config === undefined ? {} : { config: instance.config }),
+            ...(Object.keys(environment).length === 0 ? {} : { environment }),
+          },
+        },
       },
-    },
-  }, null, 2));
+      null,
+      2,
+    ),
+  );
   const logPath = join(dataDir, "live-server.log");
   const childEnv = verificationServerEnvironment(parentEnv, dataDir, port);
   for (const name of ["PATH", ...passEnvNames]) {
@@ -54,11 +64,15 @@ export async function spawnLiveServer(
     if (value !== undefined) childEnv[name] = value;
   }
   const log = openSync(logPath, "a", 0o600);
-  const child = spawn(process.execPath, ["--experimental-strip-types", join(ROOT, "server", "index.ts")], {
-    cwd: ROOT,
-    env: childEnv,
-    stdio: ["ignore", log, log],
-  });
+  const child = spawn(
+    process.execPath,
+    ["--experimental-strip-types", join(ROOT, "server", "index.ts")],
+    {
+      cwd: ROOT,
+      env: childEnv,
+      stdio: ["ignore", log, log],
+    },
+  );
   closeSync(log);
 
   const url = "http://127.0.0.1:" + port;
@@ -70,7 +84,7 @@ export async function spawnLiveServer(
     }
     try {
       const response = await fetch(url + "/api/health", { signal: AbortSignal.timeout(1_000) });
-      const body = response.ok ? await response.json() as { app?: string } : null;
+      const body = response.ok ? ((await response.json()) as { app?: string }) : null;
       if (body?.app === "laterdog") break;
     } catch {}
     if (Date.now() >= deadline) {

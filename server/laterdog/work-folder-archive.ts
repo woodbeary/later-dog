@@ -1,7 +1,29 @@
 import { spawn } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
-import { closeSync, createReadStream, fsyncSync, lstatSync, mkdirSync, openSync, readFileSync, realpathSync } from "node:fs";
-import { chmod, link, lstat, mkdir, mkdtemp, open, readdir, readlink, rm, rmdir, symlink, writeFile } from "node:fs/promises";
+import {
+  closeSync,
+  createReadStream,
+  fsyncSync,
+  lstatSync,
+  mkdirSync,
+  openSync,
+  readFileSync,
+  realpathSync,
+} from "node:fs";
+import {
+  chmod,
+  link,
+  lstat,
+  mkdir,
+  mkdtemp,
+  open,
+  readdir,
+  readlink,
+  rm,
+  rmdir,
+  symlink,
+  writeFile,
+} from "node:fs/promises";
 import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { writeFileAtomic } from "../atomic.ts";
@@ -40,7 +62,10 @@ export interface WorkFolderLimits {
 }
 
 export interface WorkFolderBridge {
-  archive(paths: string[], bytes?: number): Promise<{ archived: number; bytes: number; skipped?: ArchiveSkip[] }>;
+  archive(
+    paths: string[],
+    bytes?: number,
+  ): Promise<{ archived: number; bytes: number; skipped?: ArchiveSkip[] }>;
   restoreContaining(needles: string[]): Promise<{ restored: number; failed: number }>;
 }
 
@@ -73,14 +98,28 @@ export async function measureFolder(dir: string): Promise<FolderSize> {
   const size: FolderSize = { files: 0, bytes: 0, newestMs: 0, fingerprint: "" };
   const fingerprint = createHash("sha256");
   const walk = async (path: string): Promise<void> => {
-    for (const entry of (await readdir(path, { withFileTypes: true })).sort((left, right) => left.name.localeCompare(right.name))) {
+    for (const entry of (await readdir(path, { withFileTypes: true })).sort((left, right) =>
+      left.name.localeCompare(right.name),
+    )) {
       const full = join(path, entry.name);
       const info = await lstat(full);
       size.newestMs = Math.max(size.newestMs, info.mtimeMs);
-      fingerprint.update(JSON.stringify([relative(dir, full), info.mode, info.ino, info.dev, info.size, info.mtimeMs, info.ctimeMs, info.isSymbolicLink() ? await readlink(full) : null]));
+      fingerprint.update(
+        JSON.stringify([
+          relative(dir, full),
+          info.mode,
+          info.ino,
+          info.dev,
+          info.size,
+          info.mtimeMs,
+          info.ctimeMs,
+          info.isSymbolicLink() ? await readlink(full) : null,
+        ]),
+      );
       if (info.isDirectory()) await walk(full);
       else {
-        if (!info.isFile() && !info.isSymbolicLink()) throw new Error("unsupported work folder entry");
+        if (!info.isFile() && !info.isSymbolicLink())
+          throw new Error("unsupported work folder entry");
         size.files += 1;
         if (info.isFile()) size.bytes += info.size;
       }
@@ -91,7 +130,11 @@ export async function measureFolder(dir: string): Promise<FolderSize> {
   return size;
 }
 
-const sameSize = (left: FolderSize, right: FolderSize) => left.files === right.files && left.bytes === right.bytes && left.newestMs === right.newestMs && left.fingerprint === right.fingerprint;
+const sameSize = (left: FolderSize, right: FolderSize) =>
+  left.files === right.files &&
+  left.bytes === right.bytes &&
+  left.newestMs === right.newestMs &&
+  left.fingerprint === right.fingerprint;
 const mb = (bytes: number) => `${Math.round(bytes / 1024 ** 2)} MB`;
 const said = (error: unknown) => (error instanceof Error ? error.message : String(error));
 
@@ -107,21 +150,37 @@ export function movedOutNote(record: Pick<MovedOut, "movedAt" | "bytes" | "files
 
 function validKey(key: string): boolean {
   const parts = key.split("/");
-  return parts.length === 2 && parts.every(part => ID.test(part));
+  return parts.length === 2 && parts.every((part) => ID.test(part));
 }
 
 function validRecord(key: string, value: unknown): value is MovedOut {
   if (!validKey(key) || !value || typeof value !== "object" || Array.isArray(value)) return false;
   const record = value as MovedOut;
-  const count = (number: unknown) => typeof number === "number" && Number.isSafeInteger(number) && number >= 0;
-  if (typeof record.stamp !== "string" || !/^[a-z0-9-]{1,80}$/.test(record.stamp)
-    || !count(record.bytes) || !count(record.files) || !count(record.movedAt) || typeof record.cleared !== "boolean"
-    || !Array.isArray(record.parts) || !record.parts.length) return false;
+  const count = (number: unknown) =>
+    typeof number === "number" && Number.isSafeInteger(number) && number >= 0;
+  if (
+    typeof record.stamp !== "string" ||
+    !/^[a-z0-9-]{1,80}$/.test(record.stamp) ||
+    !count(record.bytes) ||
+    !count(record.files) ||
+    !count(record.movedAt) ||
+    typeof record.cleared !== "boolean" ||
+    !Array.isArray(record.parts) ||
+    !record.parts.length
+  )
+    return false;
   const thread = key.split("/")[1]!;
-  return record.parts.every((part, index) => part && typeof part === "object"
-    && part.name === `wf-${thread}-${record.stamp}-${String(index + 1).padStart(4, "0")}.tar`
-    && count(part.bytes) && part.bytes > 0 && part.bytes <= PART_BYTES
-    && typeof part.sha256 === "string" && /^[a-f0-9]{64}$/.test(part.sha256));
+  return record.parts.every(
+    (part, index) =>
+      part &&
+      typeof part === "object" &&
+      part.name === `wf-${thread}-${record.stamp}-${String(index + 1).padStart(4, "0")}.tar` &&
+      count(part.bytes) &&
+      part.bytes > 0 &&
+      part.bytes <= PART_BYTES &&
+      typeof part.sha256 === "string" &&
+      /^[a-f0-9]{64}$/.test(part.sha256),
+  );
 }
 
 async function fileHash(path: string): Promise<string> {
@@ -138,7 +197,13 @@ export class WorkFolderArchive {
   private locks = new Map<string, Promise<unknown>>();
   private turns = new Set<string>();
   private sweeping: Promise<number> | null = null;
-  private totals = { movedOut: 0, movedOutBytes: 0, broughtBack: 0, broughtBackBytes: 0, lastSweepAt: null as number | null };
+  private totals = {
+    movedOut: 0,
+    movedOutBytes: 0,
+    broughtBack: 0,
+    broughtBackBytes: 0,
+    lastSweepAt: null as number | null,
+  };
   private readonly deps: WorkFolderDeps;
   private readonly now: () => number;
   private readonly log: (line: string) => void;
@@ -147,7 +212,12 @@ export class WorkFolderArchive {
     this.deps = deps;
     this.now = deps.now ?? Date.now;
     this.log = deps.log ?? (() => {});
-    if (!Number.isSafeInteger(deps.partBytes ?? PART_BYTES) || (deps.partBytes ?? PART_BYTES) < 1 || (deps.partBytes ?? PART_BYTES) > PART_BYTES) throw new Error("invalid work folder part size");
+    if (
+      !Number.isSafeInteger(deps.partBytes ?? PART_BYTES) ||
+      (deps.partBytes ?? PART_BYTES) < 1 ||
+      (deps.partBytes ?? PART_BYTES) > PART_BYTES
+    )
+      throw new Error("invalid work folder part size");
   }
 
   private file(): string {
@@ -157,15 +227,25 @@ export class WorkFolderArchive {
   private safeDir(dir: string, make = false): void {
     const home = resolve(this.deps.home);
     const path = relative(home, resolve(dir));
-    if (realpathSync(home) !== home || isAbsolute(path) || path.split(sep).some(part => part === "..")) throw new Error("unsafe work folder path");
+    if (
+      realpathSync(home) !== home ||
+      isAbsolute(path) ||
+      path.split(sep).some((part) => part === "..")
+    )
+      throw new Error("unsafe work folder path");
     let at = home;
     for (const part of path.split(sep).filter(Boolean)) {
       at = join(at, part);
       if (make) {
-        try { mkdirSync(at, { mode: 0o700 }); } catch (error) { if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error; }
+        try {
+          mkdirSync(at, { mode: 0o700 });
+        } catch (error) {
+          if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+        }
       }
       const info = lstatSync(at);
-      if (!info.isDirectory() || info.isSymbolicLink()) throw new Error("unsafe work folder parent");
+      if (!info.isDirectory() || info.isSymbolicLink())
+        throw new Error("unsafe work folder parent");
     }
   }
 
@@ -176,14 +256,20 @@ export class WorkFolderArchive {
     try {
       const file = this.file();
       const info = lstatSync(file);
-      if (!info.isFile() || info.isSymbolicLink()) throw new Error("invalid work folder record file");
+      if (!info.isFile() || info.isSymbolicLink())
+        throw new Error("invalid work folder record file");
       parsed = JSON.parse(readFileSync(file, "utf8")) as unknown;
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
       parsed = {};
     }
-    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)
-      || !Object.entries(parsed).every(([key, value]) => validRecord(key, value))) throw new Error("invalid work folder record");
+    if (
+      !parsed ||
+      typeof parsed !== "object" ||
+      Array.isArray(parsed) ||
+      !Object.entries(parsed).every(([key, value]) => validRecord(key, value))
+    )
+      throw new Error("invalid work folder record");
     this.records = Object.assign(Object.create(null) as Record<string, MovedOut>, parsed);
     return this.records;
   }
@@ -192,7 +278,11 @@ export class WorkFolderArchive {
     this.safeDir(this.deps.dataDir);
     writeFileAtomic(this.file(), JSON.stringify(this.load()), { mode: 0o600 });
     const fd = openSync(this.deps.dataDir, "r");
-    try { fsyncSync(fd); } finally { closeSync(fd); }
+    try {
+      fsyncSync(fd);
+    } finally {
+      closeSync(fd);
+    }
   }
 
   private keyOf(dir: string): string | null {
@@ -206,7 +296,8 @@ export class WorkFolderArchive {
   }
 
   private partPath(key: string, name: string): string {
-    if (!validKey(key) || !/^[A-Za-z0-9_-]+[.]tar$/.test(name)) throw new Error("invalid work folder part path");
+    if (!validKey(key) || !/^[A-Za-z0-9_-]+[.]tar$/.test(name))
+      throw new Error("invalid work folder part path");
     return `${WORK_FOLDER_PARTS}/${key.split("/")[0]}/${name}`;
   }
 
@@ -214,12 +305,19 @@ export class WorkFolderArchive {
     const previous = this.locks.get(key) ?? Promise.resolve();
     const next = previous.catch(() => {}).then(action);
     this.locks.set(key, next);
-    return next.finally(() => { if (this.locks.get(key) === next) this.locks.delete(key); });
+    return next.finally(() => {
+      if (this.locks.get(key) === next) this.locks.delete(key);
+    });
   }
 
   status() {
     const records = Object.values(this.load());
-    return { enabled: true, out: records.length, outBytes: records.reduce((sum, record) => sum + record.bytes, 0), ...this.totals };
+    return {
+      enabled: true,
+      out: records.length,
+      outBytes: records.reduce((sum, record) => sum + record.bytes, 0),
+      ...this.totals,
+    };
   }
 
   movedOut(botId: string, threadId: string): MovedOut | null {
@@ -229,20 +327,36 @@ export class WorkFolderArchive {
   private async archivePart(key: string, name: string, bytes: number): Promise<void> {
     const path = this.partPath(key, name);
     const result = await this.deps.bridge.archive([path], bytes);
-    if (result.archived !== 1) throw new Error(`the archive kept ${name} (${result.skipped?.[0]?.why ?? "no reason given"})`);
+    if (result.archived !== 1)
+      throw new Error(
+        `the archive kept ${name} (${result.skipped?.[0]?.why ?? "no reason given"})`,
+      );
   }
 
-  private async tarOut(key: string, dir: string, stamp: string, stillQuiet: () => boolean): Promise<MovedOutPart[] | null> {
+  private async tarOut(
+    key: string,
+    dir: string,
+    stamp: string,
+    stillQuiet: () => boolean,
+  ): Promise<MovedOutPart[] | null> {
     const partBytes = this.deps.partBytes ?? PART_BYTES;
     const folder = join(this.deps.home, WORK_FOLDER_PARTS, key.split("/")[0]!);
     this.safeDir(folder, true);
     this.safeDir(dir);
-    const child = spawn(this.deps.tar ?? "tar", ["-cf", "-", "-C", dir, "."], { stdio: ["ignore", "pipe", "pipe"] });
+    const child = spawn(this.deps.tar ?? "tar", ["-cf", "-", "-C", dir, "."], {
+      stdio: ["ignore", "pipe", "pipe"],
+    });
     let complaint = "";
-    child.stderr.on("data", (chunk: Buffer) => { complaint = (complaint + chunk.toString()).slice(-400); });
+    child.stderr.on("data", (chunk: Buffer) => {
+      complaint = (complaint + chunk.toString()).slice(-400);
+    });
     let spawnError: Error | null = null;
-    child.once("error", error => { spawnError = error; });
-    const ended = new Promise<number | null>((resolve) => child.once("close", (code) => resolve(code)));
+    child.once("error", (error) => {
+      spawnError = error;
+    });
+    const ended = new Promise<number | null>((resolve) =>
+      child.once("close", (code) => resolve(code)),
+    );
     const parts: MovedOutPart[] = [];
     const thread = key.split("/")[1]!;
     let handle: Awaited<ReturnType<typeof open>> | null = null;
@@ -279,7 +393,10 @@ export class WorkFolderArchive {
       await finish();
       const code = await ended;
       if (spawnError) throw spawnError;
-      if (code !== 0) throw new Error(`tar stopped with code ${code ?? "none"}: ${complaint.trim().split("\n").at(-1) ?? ""}`);
+      if (code !== 0)
+        throw new Error(
+          `tar stopped with code ${code ?? "none"}: ${complaint.trim().split("\n").at(-1) ?? ""}`,
+        );
       return parts;
     } catch (error) {
       child.kill("SIGKILL");
@@ -306,8 +423,13 @@ export class WorkFolderArchive {
     await writeFile(join(dir, MOVED_OUT_NOTE), movedOutNote(record), { mode: 0o600 });
   }
 
-  private eligible(chat: WorkspaceTask, limits: WorkFolderLimits, live: readonly ProcessInfo[]): boolean {
-    if (chat.busy || chat.lastActiveAt === null || chat.lastActiveAt > this.now() - limits.idleMs) return false;
+  private eligible(
+    chat: WorkspaceTask,
+    limits: WorkFolderLimits,
+    live: readonly ProcessInfo[],
+  ): boolean {
+    if (chat.busy || chat.lastActiveAt === null || chat.lastActiveAt > this.now() - limits.idleMs)
+      return false;
     return !hasLiveWork(chat, live);
   }
 
@@ -319,16 +441,28 @@ export class WorkFolderArchive {
       const stamp = `${this.now().toString(36)}-${randomUUID()}`;
       const stillQuiet = () => {
         const current = this.deps.chats().find((candidate) => candidate.dir === chat.dir);
-        return !this.turns.has(key) && Boolean(current && this.eligible(current, this.deps.limits(), this.deps.live()));
+        return (
+          !this.turns.has(key) &&
+          Boolean(current && this.eligible(current, this.deps.limits(), this.deps.live()))
+        );
       };
       if (!stillQuiet()) return 0;
       const parts = await this.tarOut(key, chat.dir, stamp, stillQuiet);
       this.safeDir(chat.dir);
       if (!parts || !stillQuiet() || !sameSize(before, await measureFolder(chat.dir))) {
-        this.log(`laterdog home: left ${key.slice(0, 8)}'s work folder on the disk; the chat woke or the folder changed while it was being stored`);
+        this.log(
+          `laterdog home: left ${key.slice(0, 8)}'s work folder on the disk; the chat woke or the folder changed while it was being stored`,
+        );
         return 0;
       }
-      const record: MovedOut = { stamp, parts, bytes: before.bytes, files: before.files, movedAt: this.now(), cleared: false };
+      const record: MovedOut = {
+        stamp,
+        parts,
+        bytes: before.bytes,
+        files: before.files,
+        movedAt: this.now(),
+        cleared: false,
+      };
       records[key] = record;
       this.save();
       await this.clear(chat.dir, record, stillQuiet);
@@ -342,7 +476,9 @@ export class WorkFolderArchive {
 
   sweep(): Promise<number> {
     if (this.sweeping) return this.sweeping;
-    this.sweeping = this.sweepOnce().finally(() => { this.sweeping = null; });
+    this.sweeping = this.sweepOnce().finally(() => {
+      this.sweeping = null;
+    });
     return this.sweeping;
   }
 
@@ -373,7 +509,12 @@ export class WorkFolderArchive {
       if (!key) continue;
       if (records[key]) continue;
       let size: FolderSize;
-      try { this.safeDir(chat.dir); size = await measureFolder(chat.dir); } catch { continue; }
+      try {
+        this.safeDir(chat.dir);
+        size = await measureFolder(chat.dir);
+      } catch {
+        continue;
+      }
       if (size.bytes < limits.minBytes && size.files < limits.minFiles) continue;
       if (size.bytes > remaining && remaining !== limits.byteLimit) continue;
       try {
@@ -388,7 +529,10 @@ export class WorkFolderArchive {
         this.log(`laterdog home: could not store ${key.slice(0, 8)}'s work folder: ${said(error)}`);
       }
     }
-    if (moved) this.log(`laterdog home: moved ${moved} quiet chat(s)' work folders into storage, freed ${mb(freed)}`);
+    if (moved)
+      this.log(
+        `laterdog home: moved ${moved} quiet chat(s)' work folders into storage, freed ${mb(freed)}`,
+      );
     return freed;
   }
 
@@ -397,7 +541,7 @@ export class WorkFolderArchive {
     this.safeDir(dirname(full), true);
     let present = await lstat(full).catch(() => null);
     if (present && !present.isFile()) throw new Error("unsafe work folder part");
-    if (present && (present.size !== part.bytes || await fileHash(full) !== part.sha256)) {
+    if (present && (present.size !== part.bytes || (await fileHash(full)) !== part.sha256)) {
       this.safeDir(dirname(full));
       await rm(full);
       present = null;
@@ -408,7 +552,8 @@ export class WorkFolderArchive {
     }
     this.safeDir(dirname(full));
     const info = await lstat(full).catch(() => null);
-    if (!info?.isFile() || info.size !== part.bytes || await fileHash(full) !== part.sha256) throw new Error(`${part.name} came back incomplete`);
+    if (!info?.isFile() || info.size !== part.bytes || (await fileHash(full)) !== part.sha256)
+      throw new Error(`${part.name} came back incomplete`);
     return full;
   }
 
@@ -416,7 +561,11 @@ export class WorkFolderArchive {
     this.safeDir(dir);
     if (this.deps.syncDirectory) return this.deps.syncDirectory(dir);
     const handle = await open(dir, "r");
-    try { await handle.sync(); } finally { await handle.close(); }
+    try {
+      await handle.sync();
+    } finally {
+      await handle.close();
+    }
   }
 
   private async syncParents(dir: string): Promise<void> {
@@ -436,13 +585,21 @@ export class WorkFolderArchive {
       if (entry.isDirectory()) await this.syncTree(path);
       else if (entry.isFile()) {
         const handle = await open(path, "r");
-        try { await handle.sync(); } finally { await handle.close(); }
+        try {
+          await handle.sync();
+        } finally {
+          await handle.close();
+        }
       }
     }
     await this.syncDirectory(dir);
   }
 
-  private async mergeRestored(source: string, target: string, names?: readonly string[]): Promise<void> {
+  private async mergeRestored(
+    source: string,
+    target: string,
+    names?: readonly string[],
+  ): Promise<void> {
     this.safeDir(source);
     this.safeDir(target);
     for (const entry of await readdir(source, { withFileTypes: true })) {
@@ -451,7 +608,12 @@ export class WorkFolderArchive {
       const to = join(target, entry.name);
       if (entry.isDirectory()) {
         let made = false;
-        try { await mkdir(to, { mode: 0o700 }); made = true; } catch (error) { if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error; }
+        try {
+          await mkdir(to, { mode: 0o700 });
+          made = true;
+        } catch (error) {
+          if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+        }
         this.safeDir(to);
         await this.mergeRestored(from, to);
         if (made) {
@@ -498,7 +660,7 @@ export class WorkFolderArchive {
       const records = this.load();
       const record = records[key];
       if (!record) return false;
-      const needed = record.bytes + Math.max(...record.parts.map(part => part.bytes));
+      const needed = record.bytes + Math.max(...record.parts.map((part) => part.bytes));
       if (!this.deps.room(needed)) {
         await this.deps.makeRoom?.();
         if (!this.deps.room(needed)) throw new NoRoom();
@@ -509,12 +671,20 @@ export class WorkFolderArchive {
       const scratch = await mkdtemp(join(dirname(dir), `.restoring-${key.split("/")[1]}-`));
       const staging = join(scratch, "files");
       await mkdir(staging, { mode: 0o700 });
-      const child = spawn(this.deps.tar ?? "tar", ["-xpf", "-", "-C", staging], { stdio: ["pipe", "ignore", "pipe"] });
+      const child = spawn(this.deps.tar ?? "tar", ["-xpf", "-", "-C", staging], {
+        stdio: ["pipe", "ignore", "pipe"],
+      });
       let complaint = "";
-      child.stderr.on("data", (chunk: Buffer) => { complaint = (complaint + chunk.toString()).slice(-400); });
+      child.stderr.on("data", (chunk: Buffer) => {
+        complaint = (complaint + chunk.toString()).slice(-400);
+      });
       let spawnError: Error | null = null;
-      child.once("error", error => { spawnError = error; });
-      const ended = new Promise<number | null>((resolve) => child.once("close", (code) => resolve(code)));
+      child.once("error", (error) => {
+        spawnError = error;
+      });
+      const ended = new Promise<number | null>((resolve) =>
+        child.once("close", (code) => resolve(code)),
+      );
       child.stdin.on("error", () => {});
       const restored: string[] = [];
       try {
@@ -523,7 +693,7 @@ export class WorkFolderArchive {
           restored.push(full);
           for await (const bytes of createReadStream(full)) {
             await new Promise<void>((resolve, reject) => {
-              child.stdin.write(bytes, error => error ? reject(error) : resolve());
+              child.stdin.write(bytes, (error) => (error ? reject(error) : resolve()));
             });
           }
           this.safeDir(dirname(full));
@@ -532,7 +702,10 @@ export class WorkFolderArchive {
         child.stdin.end();
         const code = await ended;
         if (spawnError) throw spawnError;
-        if (code !== 0) throw new Error(`tar stopped with code ${code ?? "none"}: ${complaint.trim().split("\n").at(-1) ?? ""}`);
+        if (code !== 0)
+          throw new Error(
+            `tar stopped with code ${code ?? "none"}: ${complaint.trim().split("\n").at(-1) ?? ""}`,
+          );
       } catch (error) {
         child.kill("SIGKILL");
         await ended;
@@ -547,11 +720,14 @@ export class WorkFolderArchive {
       let removedNote = false;
       try {
         await this.syncTree(staging);
-        const names = (await readdir(staging)).filter(name => name !== MOVED_OUT_NOTE);
+        const names = (await readdir(staging)).filter((name) => name !== MOVED_OUT_NOTE);
         await this.mergeRestored(staging, dir, names);
         await this.syncParents(dir);
         const note = join(dir, MOVED_OUT_NOTE);
-        if ((await lstat(note).catch(() => null))?.isFile() && readFileSync(note, "utf8") === movedOutNote(record)) {
+        if (
+          (await lstat(note).catch(() => null))?.isFile() &&
+          readFileSync(note, "utf8") === movedOutNote(record)
+        ) {
           this.safeDir(dir);
           await rm(note);
           removedNote = true;
@@ -565,25 +741,39 @@ export class WorkFolderArchive {
       } catch (error) {
         if (!records[key]) {
           records[key] = record;
-          try { this.save(); } catch (saveError) { this.log(`laterdog home: could not keep restore record: ${said(saveError)}`); }
+          try {
+            this.save();
+          } catch (saveError) {
+            this.log(`laterdog home: could not keep restore record: ${said(saveError)}`);
+          }
         }
         if (removedNote) {
-          await this.restoreNote(dir, scratch, record).catch(noteError => this.log(`laterdog home: could not put storage note back: ${said(noteError)}`));
+          await this.restoreNote(dir, scratch, record).catch((noteError) =>
+            this.log(`laterdog home: could not put storage note back: ${said(noteError)}`),
+          );
         }
         throw error;
       } finally {
         this.safeDir(dirname(scratch));
-        await rm(scratch, { recursive: true, force: true }).catch(error => this.log(`laterdog home: could not remove restore scratch: ${said(error)}`));
+        await rm(scratch, { recursive: true, force: true }).catch((error) =>
+          this.log(`laterdog home: could not remove restore scratch: ${said(error)}`),
+        );
       }
       await rmdir(join(this.deps.home, WORK_FOLDER_PARTS, key.split("/")[0]!)).catch(() => {});
       this.totals.broughtBack += 1;
       this.totals.broughtBackBytes += record.bytes;
-      this.log(`laterdog home: brought ${key.slice(0, 8)}'s work folder back from storage, ${mb(record.bytes)}`);
+      this.log(
+        `laterdog home: brought ${key.slice(0, 8)}'s work folder back from storage, ${mb(record.bytes)}`,
+      );
       return true;
     });
   }
 
-  async beforeTurn(botId: string, threadId: string, current: () => boolean = () => true): Promise<boolean> {
+  async beforeTurn(
+    botId: string,
+    threadId: string,
+    current: () => boolean = () => true,
+  ): Promise<boolean> {
     const key = `${botId}/${threadId}`;
     if (!validKey(key)) throw new Error("invalid work folder key");
     this.turns.add(key);
@@ -597,9 +787,11 @@ export class WorkFolderArchive {
           return current();
         } catch (error) {
           if (!warned) {
-            this.log(error instanceof NoRoom
-              ? `laterdog home: no room to bring ${key.slice(0, 8)}'s work folder back; making room and keeping the pending turn`
-              : `laterdog home: ${key.slice(0, 8)}'s work folder is not back yet (${said(error)}); keeping the pending turn and retrying`);
+            this.log(
+              error instanceof NoRoom
+                ? `laterdog home: no room to bring ${key.slice(0, 8)}'s work folder back; making room and keeping the pending turn`
+                : `laterdog home: ${key.slice(0, 8)}'s work folder is not back yet (${said(error)}); keeping the pending turn and retrying`,
+            );
           }
           warned = true;
           await delay(this.deps.retryMs ?? 5000);

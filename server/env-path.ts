@@ -1,5 +1,13 @@
 import { execFile, type ChildProcess } from "node:child_process";
-import { closeSync, existsSync, openSync, readFileSync, readSync, statSync, readdirSync } from "node:fs";
+import {
+  closeSync,
+  existsSync,
+  openSync,
+  readFileSync,
+  readSync,
+  statSync,
+  readdirSync,
+} from "node:fs";
 import { homedir } from "node:os";
 import { basename, delimiter, dirname, extname, join } from "node:path";
 
@@ -28,10 +36,7 @@ function knownDirs(): string[] {
     join(home, ".grok", "bin"),
     join(home, ".opencode", "bin"),
     join(home, ".claude", "local"),
-    ...(sealedFixture() ? [] : [
-      "/opt/homebrew/bin",
-      "/usr/local/bin",
-    ]),
+    ...(sealedFixture() ? [] : ["/opt/homebrew/bin", "/usr/local/bin"]),
     join(home, ".volta", "bin"),
     join(home, ".bun", "bin"),
     join(home, ".asdf", "shims"),
@@ -89,7 +94,9 @@ export function augmentedPath(): string {
       ...(process.env.LATERDOG_EXTRA_PATH ? process.env.LATERDOG_EXTRA_PATH.split(delimiter) : []),
       ...(process.env.PATH ? process.env.PATH.split(delimiter) : []),
       ...(loginShellPath ? loginShellPath.split(delimiter) : []),
-      ...(process.platform === "win32" ? windowsKnownDirs() : knownDirs()).filter((d) => existsSync(d)),
+      ...(process.platform === "win32" ? windowsKnownDirs() : knownDirs()).filter((d) =>
+        existsSync(d),
+      ),
     ]);
   }
   if (!probed && !process.env.VITEST && !sealedFixture() && process.platform !== "win32") {
@@ -135,14 +142,20 @@ export function userHome(env: Record<string, string | undefined> = process.env):
     : env.HOME || env.USERPROFILE || homedir();
 }
 
-export function harnessHome(name: string, env: Record<string, string | undefined> = process.env): string {
+export function harnessHome(
+  name: string,
+  env: Record<string, string | undefined> = process.env,
+): string {
   return join(userHome(env), `.${name}`);
 }
 
 export function findCliCandidates(name: string): string[] {
   if (!name || /[\n\r]/.test(name)) return [];
   if (/[/\\]/.test(name) || /^[a-zA-Z]:/.test(name)) return [name];
-  const exts = process.platform === "win32" ? (process.env.PATHEXT ?? ".COM;.EXE;.BAT;.CMD").split(";").filter(Boolean) : [""];
+  const exts =
+    process.platform === "win32"
+      ? (process.env.PATHEXT ?? ".COM;.EXE;.BAT;.CMD").split(";").filter(Boolean)
+      : [""];
   const out: string[] = [];
   for (const dir of augmentedPath().split(delimiter)) {
     if (!dir) continue;
@@ -156,7 +169,6 @@ export function findCliCandidates(name: string): string[] {
   }
   return out;
 }
-
 
 export interface ResolvedSpawn {
   command: string;
@@ -195,7 +207,9 @@ function isFile(p: string): boolean {
 function whichWin(cli: string, env?: NodeJS.ProcessEnv): string | null {
   const exts = ((env ?? process.env).PATHEXT ?? ".COM;.EXE;.BAT;.CMD").split(";").filter(Boolean);
   const probe = (base: string) => {
-    const order = extname(base) ? [base, ...exts.map((e) => base + e)] : [...exts.map((e) => base + e), base];
+    const order = extname(base)
+      ? [base, ...exts.map((e) => base + e)]
+      : [...exts.map((e) => base + e), base];
     return order.find(isFile) ?? null;
   };
   if (/[\\/]/.test(cli) || /^[a-zA-Z]:/.test(cli)) return probe(cli);
@@ -213,7 +227,9 @@ function nodeExe(near: string, env?: NodeJS.ProcessEnv): string | null {
   if (isFile(local)) return local;
   const onPath = whichWin("node.exe", env);
   if (onPath && extname(onPath).toLowerCase() === ".exe") return onPath;
-  return (process.versions as Record<string, string | undefined>).electron ? null : process.execPath;
+  return (process.versions as Record<string, string | undefined>).electron
+    ? null
+    : process.execPath;
 }
 
 function parseCmdShim(shim: string, env?: NodeJS.ProcessEnv): ResolvedSpawn | null {
@@ -266,14 +282,22 @@ function resolveWord(cli: string, args: string[], env?: NodeJS.ProcessEnv): Reso
   const ext = extname(file).toLowerCase();
   if (ext === ".cmd" || ext === ".bat") {
     const direct = parseCmdShim(file, env);
-    return direct ? { command: direct.command, args: [...direct.args, ...args] } : { command: file, args };
+    return direct
+      ? { command: direct.command, args: [...direct.args, ...args] }
+      : { command: file, args };
   }
   if (ext === ".exe" || ext === ".com") return { command: file, args };
   const viaNode = parseNodeShebang(file, env);
-  return viaNode ? { command: viaNode.command, args: [...viaNode.args, ...args] } : { command: file, args };
+  return viaNode
+    ? { command: viaNode.command, args: [...viaNode.args, ...args] }
+    : { command: file, args };
 }
 
-export function resolveCliSpawn(cli: string, args: string[], env?: NodeJS.ProcessEnv): ResolvedSpawn {
+export function resolveCliSpawn(
+  cli: string,
+  args: string[],
+  env?: NodeJS.ProcessEnv,
+): ResolvedSpawn {
   const trimmed = cli.trim();
   if (trimmed.includes(" ") && existsSync(trimmed)) return resolveWord(trimmed, args, env);
   const split = splitCliString(cli);

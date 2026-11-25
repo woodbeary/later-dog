@@ -1,5 +1,13 @@
 import { spawn, type ChildProcess } from "node:child_process";
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
@@ -73,7 +81,8 @@ describe("steer-queue module", () => {
   it("keeps readable citation prompts byte-for-byte through queue, hold, and drain", () => {
     const bot = fakeBot("bot-citation-queue", "thread-citation-queue", true);
     const store = fakeStore([bot]);
-    const prompt = '<!--laterdog-citation-v1:fixture-->\n> Quoted message:\n> const café = "🐭";\n\nComment:\nExplain this';
+    const prompt =
+      '<!--laterdog-citation-v1:fixture-->\n> Quoted message:\n> const café = "🐭";\n\nComment:\nExplain this';
     const queued = queueSteeredMessage(bot.id, bot.threadId, prompt);
     const held = holdSteeredQueue(bot.id, bot.threadId, queued.id)!;
     expect(held.items[0]).toMatchObject({ text: prompt, prompt });
@@ -96,25 +105,41 @@ describe("steer-queue module", () => {
     restoreHeldSteeredQueue(held);
     expect(cancelSteeredMessage(botId, "send-first", threadId)).toBe(true);
     expect(cancelSteeredMessage(botId, "send-first", threadId)).toBe(false);
-    expect(holdSteeredQueue(botId, threadId, "send-second")!.items.map((item) => item.text)).toEqual(["second"]);
+    expect(
+      holdSteeredQueue(botId, threadId, "send-second")!.items.map((item) => item.text),
+    ).toEqual(["second"]);
   });
 
   it("after a restart, still finds a queued message by the sender's id, so a send again adds nothing and cancel by that id works", () => {
     const bot = fakeBot("bot-restart-send-id", "thread-restart-send-id", true);
     const store = fakeStore([bot]);
-    const kept = queueSteeredMessage(bot.id, bot.threadId, "goes after the restart", { sendId: "send-kept-through-restart" });
-    const dropped = queueSteeredMessage(bot.id, bot.threadId, "cancelled after the restart", { sendId: "send-cancelled-after-restart" });
+    const kept = queueSteeredMessage(bot.id, bot.threadId, "goes after the restart", {
+      sendId: "send-kept-through-restart",
+    });
+    const dropped = queueSteeredMessage(bot.id, bot.threadId, "cancelled after the restart", {
+      sendId: "send-cancelled-after-restart",
+    });
     restoreSteeredMessages();
-    expect(queuedSteeredMessage(bot.id, bot.threadId, "send-kept-through-restart")?.id).toBe(kept.id);
-    expect(queuedSteeredMessage(bot.id, bot.threadId, "send-cancelled-after-restart")?.id).toBe(dropped.id);
+    expect(queuedSteeredMessage(bot.id, bot.threadId, "send-kept-through-restart")?.id).toBe(
+      kept.id,
+    );
+    expect(queuedSteeredMessage(bot.id, bot.threadId, "send-cancelled-after-restart")?.id).toBe(
+      dropped.id,
+    );
     expect(_queuedCount(bot.threadId)).toBe(2);
     expect(queuedSteerSnapshot((botId) => botId === bot.id)[bot.threadId]).toEqual([
       { queueId: kept.id, text: "goes after the restart", sendId: "send-kept-through-restart" },
-      { queueId: dropped.id, text: "cancelled after the restart", sendId: "send-cancelled-after-restart" },
+      {
+        queueId: dropped.id,
+        text: "cancelled after the restart",
+        sendId: "send-cancelled-after-restart",
+      },
     ]);
 
     expect(cancelSteeredMessage(bot.id, "send-cancelled-after-restart", bot.threadId)).toBe(true);
-    expect(cancelledChatFollowup("bot", bot.id, bot.threadId, "send-cancelled-after-restart")).toBe(true);
+    expect(cancelledChatFollowup("bot", bot.id, bot.threadId, "send-cancelled-after-restart")).toBe(
+      true,
+    );
     restoreSteeredMessages();
     expect(queuedSteeredMessage(bot.id, bot.threadId, "send-cancelled-after-restart")).toBeNull();
     expect(_queuedCount(bot.threadId)).toBe(1);
@@ -122,7 +147,9 @@ describe("steer-queue module", () => {
     bot.busy = false;
     const run = vi.fn();
     drainSteeredMessages(store, run);
-    expect(store.messages.map((message) => [message.text, message.sendId, message.queueId])).toEqual([["goes after the restart", "send-kept-through-restart", kept.id]]);
+    expect(
+      store.messages.map((message) => [message.text, message.sendId, message.queueId]),
+    ).toEqual([["goes after the restart", "send-kept-through-restart", kept.id]]);
   });
 
   it("gives a cancel and a delivery of the same message one winner: cancelled and never sent, or sent once and no longer waiting", () => {
@@ -130,36 +157,47 @@ describe("steer-queue module", () => {
     const store = fakeStore([bot]);
     const run = vi.fn();
 
-    queueSteeredMessage(bot.id, bot.threadId, "delivered first", { sendId: "send-delivered-first" });
+    queueSteeredMessage(bot.id, bot.threadId, "delivered first", {
+      sendId: "send-delivered-first",
+    });
     drainSteeredMessages(store, run);
     expect(cancelSteeredMessage(bot.id, "send-delivered-first", bot.threadId)).toBe(false);
     expect(holdSteeredQueue(bot.id, bot.threadId, "send-delivered-first")).toBeNull();
-    expect(store.messages.filter((message) => message.sendId === "send-delivered-first")).toHaveLength(1);
+    expect(
+      store.messages.filter((message) => message.sendId === "send-delivered-first"),
+    ).toHaveLength(1);
 
-    queueSteeredMessage(bot.id, bot.threadId, "cancelled first", { sendId: "send-cancelled-first" });
+    queueSteeredMessage(bot.id, bot.threadId, "cancelled first", {
+      sendId: "send-cancelled-first",
+    });
     expect(cancelSteeredMessage(bot.id, "send-cancelled-first", bot.threadId)).toBe(true);
     drainSteeredMessages(store, run);
     expect(store.messages.some((message) => message.sendId === "send-cancelled-first")).toBe(false);
     expect(store.messages).toHaveLength(1);
 
-    const held = queueSteeredMessage(bot.id, bot.threadId, "being sent now", { sendId: "send-held-for-send-now" });
+    const held = queueSteeredMessage(bot.id, bot.threadId, "being sent now", {
+      sendId: "send-held-for-send-now",
+    });
     const lifted = holdSteeredQueue(bot.id, bot.threadId, "send-held-for-send-now")!;
     expect(cancelSteeredMessage(bot.id, "send-held-for-send-now", bot.threadId)).toBe(false);
     restoreHeldSteeredQueue(lifted);
     expect(cancelSteeredMessage(bot.id, held.id, bot.threadId)).toBe(true);
   });
 
-  it.each([undefined, "capacity", "group-turn"] as const)("detects an exact owner's queued correction with reason %s", (reason) => {
-    const botId = `correction-${reason ?? "busy"}`;
-    const threadId = `${botId}-thread`;
-    expect(hasQueuedSteeredMessages(botId, threadId)).toBe(false);
-    const queued = queueSteeredMessage(botId, threadId, "Use this new request", { reason });
-    expect(hasQueuedSteeredMessages(botId, threadId)).toBe(true);
-    expect(hasQueuedSteeredMessages("other-bot", threadId)).toBe(false);
-    expect(hasQueuedSteeredMessages(botId, "other-thread")).toBe(false);
-    expect(cancelSteeredMessage(botId, queued.id, threadId)).toBe(true);
-    expect(hasQueuedSteeredMessages(botId, threadId)).toBe(false);
-  });
+  it.each([undefined, "capacity", "group-turn"] as const)(
+    "detects an exact owner's queued correction with reason %s",
+    (reason) => {
+      const botId = `correction-${reason ?? "busy"}`;
+      const threadId = `${botId}-thread`;
+      expect(hasQueuedSteeredMessages(botId, threadId)).toBe(false);
+      const queued = queueSteeredMessage(botId, threadId, "Use this new request", { reason });
+      expect(hasQueuedSteeredMessages(botId, threadId)).toBe(true);
+      expect(hasQueuedSteeredMessages("other-bot", threadId)).toBe(false);
+      expect(hasQueuedSteeredMessages(botId, "other-thread")).toBe(false);
+      expect(cancelSteeredMessage(botId, queued.id, threadId)).toBe(true);
+      expect(hasQueuedSteeredMessages(botId, threadId)).toBe(false);
+    },
+  );
 
   it("places a thread in line whether it waits on a slot or a room turn, not on its own turn", () => {
     const botId = "bot-position-reasons";
@@ -177,7 +215,10 @@ describe("steer-queue module", () => {
     const store = fakeStore([bot]);
     const run = vi.fn();
     const peerAsk = { botId: bot.id, name: "Planner" };
-    queueSteeredMessage(bot.id, bot.threadId, "Review this independent job", { reason: "capacity", peerAsk });
+    queueSteeredMessage(bot.id, bot.threadId, "Review this independent job", {
+      reason: "capacity",
+      peerAsk,
+    });
     restoreSteeredMessages();
     drainSteeredMessages(store, run);
     expect(run).not.toHaveBeenCalled();
@@ -191,7 +232,9 @@ describe("steer-queue module", () => {
   it("keeps who sent each queued message, so a steer of the held queue can still name them", () => {
     const botId = "bot-sender-held";
     const threadId = "thread-sender-held";
-    const theirs = queueSteeredMessage(botId, threadId, "from the paired person", { sender: { name: "Priya" } });
+    const theirs = queueSteeredMessage(botId, threadId, "from the paired person", {
+      sender: { name: "Priya" },
+    });
     queueSteeredMessage(botId, threadId, "from the owner");
     restoreSteeredMessages();
     const held = holdSteeredQueue(botId, threadId, theirs.id);
@@ -204,7 +247,9 @@ describe("steer-queue module", () => {
     const store = fakeStore([bot]);
     const run = vi.fn();
     queueSteeredMessage(bot.id, bot.threadId, "from the owner");
-    queueSteeredMessage(bot.id, bot.threadId, "from the paired person", { sender: { name: "Priya" } });
+    queueSteeredMessage(bot.id, bot.threadId, "from the paired person", {
+      sender: { name: "Priya" },
+    });
     bot.busy = false;
     drainSteeredMessages(store, run);
     expect(store.messages.map((message) => [message.text, message.sender])).toEqual([
@@ -242,14 +287,20 @@ describe("steer-queue module", () => {
     const store = fakeStore([bot]);
     const run = vi.fn();
     saveChatFollowup({
-      id: "legacy-followup-without-sender", kind: "bot", ownerId: bot.id, threadId: bot.threadId,
+      id: "legacy-followup-without-sender",
+      kind: "bot",
+      ownerId: bot.id,
+      threadId: bot.threadId,
       payload: { text: "queued by an older build", prompt: "queued by an older build" },
     });
     expect(() => restoreSteeredMessages()).not.toThrow();
     drainSteeredMessages(store, run);
-    expect(store.messages).toEqual([expect.objectContaining({
-      text: "queued by an older build", queueId: "legacy-followup-without-sender",
-    })]);
+    expect(store.messages).toEqual([
+      expect.objectContaining({
+        text: "queued by an older build",
+        queueId: "legacy-followup-without-sender",
+      }),
+    ]);
     expect(store.messages[0].sender).toBeUndefined();
   });
 
@@ -258,7 +309,9 @@ describe("steer-queue module", () => {
     const store = fakeStore([bot]);
     const run = vi.fn();
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
-    const unsubscribeBroken = onSteeredQueueChange(() => { throw new Error("notification failed"); });
+    const unsubscribeBroken = onSteeredQueueChange(() => {
+      throw new Error("notification failed");
+    });
     const listener = vi.fn();
     const unsubscribeHealthy = onSteeredQueueChange(listener);
     try {
@@ -266,28 +319,42 @@ describe("steer-queue module", () => {
       const cancel = queueSteeredMessage(bot.id, bot.threadId, "cancel me");
       expect(cancelSteeredMessage(bot.id, cancel.id)).toBe(true);
       expect(() => drainSteeredMessages(store, run)).not.toThrow();
-      expect(store.messages).toEqual([expect.objectContaining({ text: "still dispatch", queueId: keep.id })]);
+      expect(store.messages).toEqual([
+        expect.objectContaining({ text: "still dispatch", queueId: keep.id }),
+      ]);
       expect(run).toHaveBeenCalledTimes(1);
       expect(_queuedCount(bot.threadId)).toBe(0);
       expect(listener).toHaveBeenCalledTimes(4);
       expect(warn).toHaveBeenCalledTimes(4);
     } finally {
-      unsubscribeBroken(); unsubscribeHealthy(); warn.mockRestore();
+      unsubscribeBroken();
+      unsubscribeHealthy();
+      warn.mockRestore();
     }
   });
 
   it("exports owned public receipts without sharing internal queue state", () => {
     const owned = queueSteeredMessage("bot-public", "thread-public", "public words", {
-      prompt: "private provider context", replyToId: "private-reply", sendId: "client-send", reason: "capacity",
+      prompt: "private provider context",
+      replyToId: "private-reply",
+      sendId: "client-send",
+      reason: "capacity",
     });
     const orphan = queueSteeredMessage("bot-orphan", "thread-orphan", "deleted task");
     try {
-      const ownsThread = (botId: string, threadId: string) => botId === "bot-public" && threadId === "thread-public";
+      const ownsThread = (botId: string, threadId: string) =>
+        botId === "bot-public" && threadId === "thread-public";
       const snapshot = queuedSteerSnapshot(ownsThread);
-      expect(snapshot).toEqual({ "thread-public": [{ queueId: owned.id, text: "public words", sendId: "client-send", reason: "capacity" }] });
+      expect(snapshot).toEqual({
+        "thread-public": [
+          { queueId: owned.id, text: "public words", sendId: "client-send", reason: "capacity" },
+        ],
+      });
       snapshot["thread-public"][0].text = "client mutation";
       snapshot["thread-public"].pop();
-      expect(queuedSteerSnapshot(ownsThread)["thread-public"]).toEqual([{ queueId: owned.id, text: "public words", sendId: "client-send", reason: "capacity" }]);
+      expect(queuedSteerSnapshot(ownsThread)["thread-public"]).toEqual([
+        { queueId: owned.id, text: "public words", sendId: "client-send", reason: "capacity" },
+      ]);
     } finally {
       cancelSteeredMessage("bot-public", owned.id);
       cancelSteeredMessage("bot-orphan", orphan.id);
@@ -325,7 +392,11 @@ describe("steer-queue module", () => {
     const queued = queueSteeredMessage("bot-hold-merge", "thread-hold-merge", "held words");
     try {
       const held = holdSteeredQueue("bot-hold-merge", "thread-hold-merge", queued.id)!;
-      const later = queueSteeredMessage("bot-hold-merge", "thread-hold-merge", "queued during the hold");
+      const later = queueSteeredMessage(
+        "bot-hold-merge",
+        "thread-hold-merge",
+        "queued during the hold",
+      );
       restoreHeldSteeredQueue(held);
       const snapshot = queuedSteerSnapshot(() => true);
       expect(snapshot["thread-hold-merge"].map((item) => item.text)).toEqual([
@@ -353,7 +424,9 @@ describe("steer-queue module", () => {
   it("publishes enqueue/cancel/drain snapshots before a failed dispatch can leave stale chips", () => {
     const bot = fakeBot("bot-publish", "thread-publish", true);
     const snapshots: unknown[] = [];
-    const unsubscribe = onSteeredQueueChange(() => snapshots.push(queuedSteerSnapshot((id) => id === bot.id)));
+    const unsubscribe = onSteeredQueueChange(() =>
+      snapshots.push(queuedSteerSnapshot((id) => id === bot.id)),
+    );
     try {
       const first = queueSteeredMessage(bot.id, bot.threadId, "keep");
       const second = queueSteeredMessage(bot.id, bot.threadId, "cancel");
@@ -362,14 +435,25 @@ describe("steer-queue module", () => {
       expect(snapshots).toHaveLength(2);
       expect(cancelSteeredMessage(bot.id, second.id)).toBe(true);
       bot.busy = false;
-      expect(() => drainSteeredMessages(fakeStore([bot]), () => { throw new Error("failed dispatch"); })).toThrow("failed dispatch");
+      expect(() =>
+        drainSteeredMessages(fakeStore([bot]), () => {
+          throw new Error("failed dispatch");
+        }),
+      ).toThrow("failed dispatch");
       expect(snapshots).toEqual([
         { [bot.threadId]: [{ queueId: first.id, text: "keep" }] },
-        { [bot.threadId]: [{ queueId: first.id, text: "keep" }, { queueId: second.id, text: "cancel" }] },
+        {
+          [bot.threadId]: [
+            { queueId: first.id, text: "keep" },
+            { queueId: second.id, text: "cancel" },
+          ],
+        },
         { [bot.threadId]: [{ queueId: first.id, text: "keep" }] },
         {},
       ]);
-    } finally { unsubscribe(); }
+    } finally {
+      unsubscribe();
+    }
     const later = queueSteeredMessage(bot.id, bot.threadId, "unsubscribed");
     cancelSteeredMessage(bot.id, later.id);
     expect(snapshots).toHaveLength(4);
@@ -383,7 +467,9 @@ describe("steer-queue module", () => {
       drainSteeredMessages(fakeStore([]), vi.fn());
       expect(listener).toHaveBeenCalledTimes(1);
       expect(queuedSteerSnapshot(() => true)).toEqual({});
-    } finally { unsubscribe(); }
+    } finally {
+      unsubscribe();
+    }
   });
 
   it("retains an idle task's queue until its runtime dispatch claim clears", () => {
@@ -562,7 +648,7 @@ describe("steer-queue module", () => {
     const taskA = { ...bot };
     const taskB = { ...bot, threadId: "thread-independent-b", busy: false };
     const store = fakeStore([bot]);
-    store.projectBotForTask = (_botId, threadId) => threadId === taskA.threadId ? taskA : taskB;
+    store.projectBotForTask = (_botId, threadId) => (threadId === taskA.threadId ? taskA : taskB);
     queueSteeredMessage(bot.id, taskA.threadId, "wait for A");
     queueSteeredMessage(bot.id, taskB.threadId, "run B");
     const run = vi.fn();
@@ -591,7 +677,6 @@ describe("steer-queue module", () => {
     expect(store.messages).toHaveLength(0);
     expect(_queuedCount(bot.threadId)).toBe(0);
   });
-
 });
 
 describe("steer-queue e2e (fake ACP fleet)", () => {
@@ -617,7 +702,11 @@ describe("steer-queue e2e (fake ACP fleet)", () => {
     | { bulletin: string; defaultResponder: { kind: string; botId: string } }
   >;
 
-  const api = async (method: string, path: string, body?: ApiBody): Promise<{ status: number; body: any }> => {
+  const api = async (
+    method: string,
+    path: string,
+    body?: ApiBody,
+  ): Promise<{ status: number; body: any }> => {
     const res = await fetch(`${BASE}${path}`, {
       method,
       headers: body ? { "content-type": "application/json" } : undefined,
@@ -635,19 +724,24 @@ describe("steer-queue e2e (fake ACP fleet)", () => {
     (await api("GET", "/api/bots?messages=0")).body.groups.find((g: any) => g.id === id);
 
   const echoes = (bot: any): any[] =>
-    bot.messages.filter((m: any) => m.role === "bot" && m.kind === "text" && m.text?.startsWith("echo: "));
+    bot.messages.filter(
+      (m: any) => m.role === "bot" && m.kind === "text" && m.text?.startsWith("echo: "),
+    );
 
   const until = async (probe: () => Promise<boolean>, what: string, timeoutMs = 30_000) => {
     const deadline = Date.now() + timeoutMs;
     for (;;) {
       if (await probe()) return;
-      if (Date.now() > deadline) throw new Error(`${what} never happened. stderr: ${stderr.slice(-2000)}`);
+      if (Date.now() > deadline)
+        throw new Error(`${what} never happened. stderr: ${stderr.slice(-2000)}`);
       await new Promise((r) => setTimeout(r, 200));
     }
   };
 
   const newBot = async (instanceId: string, name: string) => {
-    return (await api("POST", "/api/bots", { name, modelSelection: { instanceId, model: "fake-model" } })).body.bot;
+    return (
+      await api("POST", "/api/bots", { name, modelSelection: { instanceId, model: "fake-model" } })
+    ).body.bot;
   };
 
   beforeAll(async () => {
@@ -664,46 +758,49 @@ describe("steer-queue e2e (fake ACP fleet)", () => {
     roomGate = join(home, "gates", "room.gate");
     evidencePath = join(tmpdir(), `laterdog-steer-evidence-${Date.now()}-${process.pid}.json`);
     const prelude = join(home, "delayed-dispatch.mjs");
-    writeFileSync(prelude, [
-      `import { ProviderRegistry } from ${JSON.stringify(pathToFileURL(join(SERVER_DIR, "harness/registry.ts")).href)};`,
-      `import { EventBus } from ${JSON.stringify(pathToFileURL(join(SERVER_DIR, "harness/bus.ts")).href)};`,
-      'import { existsSync, writeFileSync } from "node:fs";',
-      'import { randomUUID } from "node:crypto";',
-      'let oldCompletion, receiptBus;',
-      'const publish = EventBus.prototype.publish;',
-      'EventBus.prototype.publish = function(event) {',
-      '  if (event.providerInstanceId === "steerReceipt" && event.type === "turn.completed" && !oldCompletion) { oldCompletion = event; receiptBus = this; }',
-      '  return publish.call(this, event);',
-      '};',
-      'const load = ProviderRegistry.prototype.load;',
-      'ProviderRegistry.prototype.load = async function(configs) {',
-      '  await load.call(this, configs);',
-      '  const instance = this.get("steerEarly");',
-      '  if (!instance) return;',
-      '  const send = instance.adapter.sendTurn;',
-      '  instance.adapter.sendTurn = async (turn) => {',
-      '    const result = await send(turn);',
-      `    writeFileSync(${JSON.stringify(`${dispatchGate}.entered`)}, "entered");`,
-      `    while (!existsSync(${JSON.stringify(dispatchGate)})) await new Promise(resolve => setTimeout(resolve, 20));`,
-      '    return result;',
-      '  };',
-      '  const receipt = this.get("steerReceipt");',
-      '  if (!receipt) return;',
-      '  const sendReceipt = receipt.adapter.sendTurn;',
-      '  let calls = 0;',
-      '  receipt.adapter.sendTurn = async (turn) => {',
-      '    const replacement = ++calls === 2;',
-      '    if (replacement) {',
-      '      publish.call(receiptBus, { ...oldCompletion, eventId: randomUUID(), createdAt: new Date().toISOString() });',
-      `      writeFileSync(${JSON.stringify(`${receiptGate}.late`)}, "old completion delivered");`,
-      `      while (!existsSync(${JSON.stringify(`${receiptGate}.dispatch`)})) await new Promise(resolve => setTimeout(resolve, 20));`,
-      '    }',
-      '    const result = await sendReceipt(turn);',
-      `    while (replacement && !existsSync(${JSON.stringify(`${receiptGate}.ack`)})) await new Promise(resolve => setTimeout(resolve, 20));`,
-      '    return result;',
-      '  };',
-      '};',
-    ].join("\n"));
+    writeFileSync(
+      prelude,
+      [
+        `import { ProviderRegistry } from ${JSON.stringify(pathToFileURL(join(SERVER_DIR, "harness/registry.ts")).href)};`,
+        `import { EventBus } from ${JSON.stringify(pathToFileURL(join(SERVER_DIR, "harness/bus.ts")).href)};`,
+        'import { existsSync, writeFileSync } from "node:fs";',
+        'import { randomUUID } from "node:crypto";',
+        "let oldCompletion, receiptBus;",
+        "const publish = EventBus.prototype.publish;",
+        "EventBus.prototype.publish = function(event) {",
+        '  if (event.providerInstanceId === "steerReceipt" && event.type === "turn.completed" && !oldCompletion) { oldCompletion = event; receiptBus = this; }',
+        "  return publish.call(this, event);",
+        "};",
+        "const load = ProviderRegistry.prototype.load;",
+        "ProviderRegistry.prototype.load = async function(configs) {",
+        "  await load.call(this, configs);",
+        '  const instance = this.get("steerEarly");',
+        "  if (!instance) return;",
+        "  const send = instance.adapter.sendTurn;",
+        "  instance.adapter.sendTurn = async (turn) => {",
+        "    const result = await send(turn);",
+        `    writeFileSync(${JSON.stringify(`${dispatchGate}.entered`)}, "entered");`,
+        `    while (!existsSync(${JSON.stringify(dispatchGate)})) await new Promise(resolve => setTimeout(resolve, 20));`,
+        "    return result;",
+        "  };",
+        '  const receipt = this.get("steerReceipt");',
+        "  if (!receipt) return;",
+        "  const sendReceipt = receipt.adapter.sendTurn;",
+        "  let calls = 0;",
+        "  receipt.adapter.sendTurn = async (turn) => {",
+        "    const replacement = ++calls === 2;",
+        "    if (replacement) {",
+        "      publish.call(receiptBus, { ...oldCompletion, eventId: randomUUID(), createdAt: new Date().toISOString() });",
+        `      writeFileSync(${JSON.stringify(`${receiptGate}.late`)}, "old completion delivered");`,
+        `      while (!existsSync(${JSON.stringify(`${receiptGate}.dispatch`)})) await new Promise(resolve => setTimeout(resolve, 20));`,
+        "    }",
+        "    const result = await sendReceipt(turn);",
+        `    while (replacement && !existsSync(${JSON.stringify(`${receiptGate}.ack`)})) await new Promise(resolve => setTimeout(resolve, 20));`,
+        "    return result;",
+        "  };",
+        "};",
+      ].join("\n"),
+    );
     writeFileSync(
       join(home, ".laterdog", "config.json"),
       JSON.stringify({
@@ -748,11 +845,15 @@ describe("steer-queue e2e (fake ACP fleet)", () => {
     };
     if (process.env.PATH) env.PATH = process.env.PATH;
     if (process.env.SystemRoot) env.SystemRoot = process.env.SystemRoot;
-    child = spawn(process.execPath, ["--import", pathToFileURL(prelude).href, join(SERVER_DIR, "index.ts")], {
-      cwd: join(SERVER_DIR, ".."),
-      env,
-      stdio: ["ignore", "pipe", "pipe"],
-    });
+    child = spawn(
+      process.execPath,
+      ["--import", pathToFileURL(prelude).href, join(SERVER_DIR, "index.ts")],
+      {
+        cwd: join(SERVER_DIR, ".."),
+        env,
+        stdio: ["ignore", "pipe", "pipe"],
+      },
+    );
     child.stderr!.on("data", (c) => (stderr += c));
 
     const deadline = Date.now() + 20_000;
@@ -762,7 +863,8 @@ describe("steer-queue e2e (fake ACP fleet)", () => {
         if (res.ok) break;
       } catch {}
       if (Date.now() > deadline) throw new Error(`server never came up. stderr:\n${stderr}`);
-      if (child.exitCode !== null) throw new Error(`server exited ${child.exitCode}. stderr:\n${stderr}`);
+      if (child.exitCode !== null)
+        throw new Error(`server exited ${child.exitCode}. stderr:\n${stderr}`);
       await new Promise((r) => setTimeout(r, 150));
     }
   }, 30_000);
@@ -774,180 +876,237 @@ describe("steer-queue e2e (fake ACP fleet)", () => {
       child.on("close", () => resolve());
       setTimeout(() => (child.kill("SIGKILL"), resolve()), 5_000).unref?.();
     });
-    writeFileSync(evidencePath, JSON.stringify({ url: BASE, fixtureHome: home, requests: evidence, stderr }, null, 2));
+    writeFileSync(
+      evidencePath,
+      JSON.stringify({ url: BASE, fixtureHome: home, requests: evidence, stderr }, null, 2),
+    );
     console.info(JSON.stringify({ evidencePath }));
     rmSync(home, { recursive: true, force: true });
   });
 
   it("drains exactly once after completion precedes the dispatch acknowledgment", async () => {
     const bot = await newBot("steerEarly", "Early completion");
-    expect((await api("POST", `/api/bots/${bot.id}/messages`, { text: "first before acknowledgment" })).status).toBe(202);
-    await until(async () => existsSync(`${dispatchGate}.entered`), "the pending dispatch acknowledgment");
-    expect((await api("POST", `/api/bots/${bot.id}/messages`, { text: "queued after acknowledgment" })).body.queued).toBe(true);
+    expect(
+      (await api("POST", `/api/bots/${bot.id}/messages`, { text: "first before acknowledgment" }))
+        .status,
+    ).toBe(202);
+    await until(
+      async () => existsSync(`${dispatchGate}.entered`),
+      "the pending dispatch acknowledgment",
+    );
+    expect(
+      (await api("POST", `/api/bots/${bot.id}/messages`, { text: "queued after acknowledgment" }))
+        .body.queued,
+    ).toBe(true);
     writeFileSync(earlyGate, "complete provider turn");
-    await until(async () => echoes(await botById(bot.id)).length === 1, "completion before acknowledgment");
+    await until(
+      async () => echoes(await botById(bot.id)).length === 1,
+      "completion before acknowledgment",
+    );
     const pending = await botById(bot.id);
-    expect(pending.messages.filter((message: any) => message.role === "user").map((message: any) => message.text))
-      .toEqual(["first before acknowledgment"]);
-    expect(pending.messages.some((message: any) => message.tool?.name?.includes("queued message could not start"))).toBe(false);
+    expect(
+      pending.messages
+        .filter((message: any) => message.role === "user")
+        .map((message: any) => message.text),
+    ).toEqual(["first before acknowledgment"]);
+    expect(
+      pending.messages.some((message: any) =>
+        message.tool?.name?.includes("queued message could not start"),
+      ),
+    ).toBe(false);
     writeFileSync(dispatchGate, "acknowledge provider dispatch");
-    await until(async () => echoes(await botById(bot.id)).length === 2, "the queued turn after acknowledgment");
+    await until(
+      async () => echoes(await botById(bot.id)).length === 2,
+      "the queued turn after acknowledgment",
+    );
     const final = await botById(bot.id);
-    expect(final.messages.filter((message: any) => message.role === "user").map((message: any) => message.text))
-      .toEqual(["first before acknowledgment", "queued after acknowledgment"]);
+    expect(
+      final.messages
+        .filter((message: any) => message.role === "user")
+        .map((message: any) => message.text),
+    ).toEqual(["first before acknowledgment", "queued after acknowledgment"]);
     expect(echoes(final)[1].text).toContain("queued after acknowledgment");
-    expect(final.messages.some((message: any) => message.tool?.name?.includes("queued message could not start"))).toBe(false);
+    expect(
+      final.messages.some((message: any) =>
+        message.tool?.name?.includes("queued message could not start"),
+      ),
+    ).toBe(false);
     evidence.push({ earlyCompletionQueue: { pending, final } });
   }, 30_000);
 
   it("retains a replacement receipt through stale completion and settles its own completion before ACK", async () => {
     const bot = await newBot("steerReceipt", "Receipt generation");
-    expect((await api("POST", `/api/bots/${bot.id}/messages`, { text: "first receipt turn" })).status).toBe(202);
-    const body = { threadId: bot.threadId, text: "queued replacement", sendId: "replacement_receipt_123456" };
+    expect(
+      (await api("POST", `/api/bots/${bot.id}/messages`, { text: "first receipt turn" })).status,
+    ).toBe(202);
+    const body = {
+      threadId: bot.threadId,
+      text: "queued replacement",
+      sendId: "replacement_receipt_123456",
+    };
     const queued = await api("POST", `/api/bots/${bot.id}/messages`, body);
     expect(queued.body).toMatchObject({ queued: true, queueId: expect.any(String) });
     const receipt = () => {
       const database = new DatabaseSync(join(home, ".laterdog", "messages.db"), { readOnly: true });
-      try { return database.prepare("SELECT status FROM chat_followups WHERE id = ?").get(queued.body.queueId); }
-      finally { database.close(); }
+      try {
+        return database
+          .prepare("SELECT status FROM chat_followups WHERE id = ?")
+          .get(queued.body.queueId);
+      } finally {
+        database.close();
+      }
     };
     writeFileSync(receiptGate, "finish the old turn");
-    await until(async () => existsSync(`${receiptGate}.late`), "old completion during replacement setup");
+    await until(
+      async () => existsSync(`${receiptGate}.late`),
+      "old completion during replacement setup",
+    );
     expect(receipt()).toEqual({ status: "dispatching" });
     writeFileSync(`${receiptGate}.dispatch`, "start replacement provider");
-    await until(async () => echoes(await botById(bot.id)).length === 2, "replacement completion before its ACK");
+    await until(
+      async () => echoes(await botById(bot.id)).length === 2,
+      "replacement completion before its ACK",
+    );
     expect(receipt()).toEqual({ status: "dispatching" });
     writeFileSync(`${receiptGate}.ack`, "acknowledge replacement");
-    await until(async () => receipt() === undefined, "receipt settlement by the replacement's exact provider turn");
+    await until(
+      async () => receipt() === undefined,
+      "receipt settlement by the replacement's exact provider turn",
+    );
     const retried = await api("POST", `/api/bots/${bot.id}/messages`, body);
-    expect(retried.body.message).toMatchObject({ queueId: queued.body.queueId, sendId: body.sendId });
+    expect(retried.body.message).toMatchObject({
+      queueId: queued.body.queueId,
+      sendId: body.sendId,
+    });
     expect(echoes(await botById(bot.id))).toHaveLength(2);
     evidence.push({ receiptGeneration: { queued, retried, final: await botById(bot.id) } });
   }, 30_000);
 
-  it(
-    "queues sends while busy and drains them into exactly one attended turn",
-    async () => {
-      const bot = await newBot("steer", "Steerable");
+  it("queues sends while busy and drains them into exactly one attended turn", async () => {
+    const bot = await newBot("steer", "Steerable");
 
-      const first = await api("POST", `/api/bots/${bot.id}/messages`, { text: "first task please" });
-      expect(first.status).toBe(202);
-      expect(first.body.queued).toBeUndefined();
-      expect((await botById(bot.id)).busy).toBe(true);
+    const first = await api("POST", `/api/bots/${bot.id}/messages`, { text: "first task please" });
+    expect(first.status).toBe(202);
+    expect(first.body.queued).toBeUndefined();
+    expect((await botById(bot.id)).busy).toBe(true);
 
-      const second = await api("POST", `/api/bots/${bot.id}/messages`, { text: "steer two" });
-      expect(second.status).toBe(202);
-      expect(second.body).toMatchObject({ ok: true, queued: true });
-      const third = await api("POST", `/api/bots/${bot.id}/messages`, { text: "steer three" });
-      expect(third.body.queued).toBe(true);
+    const second = await api("POST", `/api/bots/${bot.id}/messages`, { text: "steer two" });
+    expect(second.status).toBe(202);
+    expect(second.body).toMatchObject({ ok: true, queued: true });
+    const third = await api("POST", `/api/bots/${bot.id}/messages`, { text: "steer three" });
+    expect(third.body.queued).toBe(true);
 
-      let snapshot = await botById(bot.id);
-      expect(snapshot.busy).toBe(true);
-      expect(snapshot.messages.filter((m: any) => m.role === "user").map((m: any) => m.text)).toEqual([
-        "first task please",
-      ]);
-      expect(echoes(snapshot)).toHaveLength(0);
+    let snapshot = await botById(bot.id);
+    expect(snapshot.busy).toBe(true);
+    expect(snapshot.messages.filter((m: any) => m.role === "user").map((m: any) => m.text)).toEqual(
+      ["first task please"],
+    );
+    expect(echoes(snapshot)).toHaveLength(0);
 
-      writeFileSync(drainGate, "open");
-      await until(async () => {
-        snapshot = await botById(bot.id);
-        return !snapshot.busy && echoes(snapshot).length >= 2;
-      }, "the queued turn");
+    writeFileSync(drainGate, "open");
+    await until(async () => {
+      snapshot = await botById(bot.id);
+      return !snapshot.busy && echoes(snapshot).length >= 2;
+    }, "the queued turn");
 
-      const replies = echoes(snapshot);
-      expect(replies).toHaveLength(2);
-      expect(replies[0].text).toContain("first task please");
-      expect(replies[1].text).toContain("steer two\n\nsteer three");
-      expect(replies[1].text).not.toContain("authenticated external webhook");
-      expect(replies[1].text).not.toContain("[The person rewound");
-      const userTexts = snapshot.messages.filter((m: any) => m.role === "user").map((m: any) => m.text);
-      expect(userTexts).toEqual(["first task please", "steer two", "steer three"]);
-      expect(snapshot.messages.some((m: any) => m.queued)).toBe(false);
+    const replies = echoes(snapshot);
+    expect(replies).toHaveLength(2);
+    expect(replies[0].text).toContain("first task please");
+    expect(replies[1].text).toContain("steer two\n\nsteer three");
+    expect(replies[1].text).not.toContain("authenticated external webhook");
+    expect(replies[1].text).not.toContain("[The person rewound");
+    const userTexts = snapshot.messages
+      .filter((m: any) => m.role === "user")
+      .map((m: any) => m.text);
+    expect(userTexts).toEqual(["first task please", "steer two", "steer three"]);
+    expect(snapshot.messages.some((m: any) => m.queued)).toBe(false);
 
-      const followUp = await api("POST", `/api/bots/${bot.id}/messages`, { text: "plain follow-up" });
-      expect(followUp.body.queued).toBeUndefined();
-      await until(async () => {
-        snapshot = await botById(bot.id);
-        return !snapshot.busy && echoes(snapshot).length >= 3;
-      }, "the follow-up turn");
-      expect(echoes(snapshot)).toHaveLength(3);
-    },
-    60_000,
-  );
+    const followUp = await api("POST", `/api/bots/${bot.id}/messages`, { text: "plain follow-up" });
+    expect(followUp.body.queued).toBeUndefined();
+    await until(async () => {
+      snapshot = await botById(bot.id);
+      return !snapshot.busy && echoes(snapshot).length >= 3;
+    }, "the follow-up turn");
+    expect(echoes(snapshot)).toHaveLength(3);
+  }, 60_000);
 
-  it(
-    "drains the queue after an interrupt — stop-then-steer",
-    async () => {
-      const bot = await newBot("steerStop", "Stoppable");
+  it("drains the queue after an interrupt — stop-then-steer", async () => {
+    const bot = await newBot("steerStop", "Stoppable");
 
-      const first = await api("POST", `/api/bots/${bot.id}/messages`, { text: "long job" });
-      expect(first.status).toBe(202);
-      expect((await botById(bot.id)).busy).toBe(true);
+    const first = await api("POST", `/api/bots/${bot.id}/messages`, { text: "long job" });
+    expect(first.status).toBe(202);
+    expect((await botById(bot.id)).busy).toBe(true);
 
-      const queued = await api("POST", `/api/bots/${bot.id}/messages`, { text: "after stop please" });
-      expect(queued.body.queued).toBe(true);
+    const queued = await api("POST", `/api/bots/${bot.id}/messages`, { text: "after stop please" });
+    expect(queued.body.queued).toBe(true);
 
-      await until(async () => {
-        try {
-          return readFileSync(stopRpcDump, "utf8").includes("session/prompt");
-        } catch {
-          return false;
-        }
-      }, "the hung prompt");
-      expect((await api("POST", `/api/bots/${bot.id}/interrupt`)).status).toBe(200);
+    await until(async () => {
+      try {
+        return readFileSync(stopRpcDump, "utf8").includes("session/prompt");
+      } catch {
+        return false;
+      }
+    }, "the hung prompt");
+    expect((await api("POST", `/api/bots/${bot.id}/interrupt`)).status).toBe(200);
 
-      await until(async () => {
-        const snapshot = await botById(bot.id);
-        const message = snapshot.messages.find((m: any) => m.text === "after stop please");
-        return Boolean(message) && !message.queued;
-      }, "the post-interrupt drain");
+    await until(async () => {
+      const snapshot = await botById(bot.id);
+      const message = snapshot.messages.find((m: any) => m.text === "after stop please");
+      return Boolean(message) && !message.queued;
+    }, "the post-interrupt drain");
 
-      writeFileSync(stopGate, "open");
-      let snapshot: any;
-      await until(async () => {
-        snapshot = await botById(bot.id);
-        return !snapshot.busy && echoes(snapshot).length >= 1;
-      }, "the steered turn");
+    writeFileSync(stopGate, "open");
+    let snapshot: any;
+    await until(async () => {
+      snapshot = await botById(bot.id);
+      return !snapshot.busy && echoes(snapshot).length >= 1;
+    }, "the steered turn");
 
-      const replies = echoes(snapshot);
-      expect(replies).toHaveLength(1);
-      expect(replies[0].text).toContain("after stop please");
-    },
-    60_000,
-  );
+    const replies = echoes(snapshot);
+    expect(replies).toHaveLength(1);
+    expect(replies[0].text).toContain("after stop please");
+  }, 60_000);
 
-  it(
-    "queues a person's 1:1 message behind the bot's room turn instead of bouncing it",
-    async () => {
-      const bot = await newBot("steerRoom", "RoomBusy");
+  it("queues a person's 1:1 message behind the bot's room turn instead of bouncing it", async () => {
+    const bot = await newBot("steerRoom", "RoomBusy");
 
-      const room = (await api("POST", "/api/groups", {
+    const room = (
+      await api("POST", "/api/groups", {
         name: "Ops Room",
         memberIds: [bot.id],
         setup: { bulletin: "", defaultResponder: { kind: "member", botId: bot.id } },
-      })).body.group;
-      expect((await api("POST", `/api/groups/${room.id}/messages`, { text: "room work" })).status).toBe(202);
-      await until(async () => (await groupById(room.id))?.working === true, "the room turn to start");
+      })
+    ).body.group;
+    expect(
+      (await api("POST", `/api/groups/${room.id}/messages`, { text: "room work" })).status,
+    ).toBe(202);
+    await until(async () => (await groupById(room.id))?.working === true, "the room turn to start");
 
-      const direct = await api("POST", `/api/bots/${bot.id}/messages`, { text: "meanwhile, direct words" });
-      expect(direct.status).toBe(202);
-      expect(direct.body).toMatchObject({ ok: true, queued: true, reason: "group-turn" });
+    const direct = await api("POST", `/api/bots/${bot.id}/messages`, {
+      text: "meanwhile, direct words",
+    });
+    expect(direct.status).toBe(202);
+    expect(direct.body).toMatchObject({ ok: true, queued: true, reason: "group-turn" });
 
-      const during = await botById(bot.id);
-      expect(during.messages.filter((m: any) => m.role === "user").map((m: any) => m.text)).toEqual([]);
+    const during = await botById(bot.id);
+    expect(during.messages.filter((m: any) => m.role === "user").map((m: any) => m.text)).toEqual(
+      [],
+    );
 
-      writeFileSync(roomGate, "open");
-      await until(async () => {
-        const after = await botById(bot.id);
-        return !after.busy && echoes(after).some((reply) => reply.text.includes("meanwhile, direct words"));
-      }, "the drained 1:1 turn");
-
+    writeFileSync(roomGate, "open");
+    await until(async () => {
       const after = await botById(bot.id);
-      const directEchoes = echoes(after).filter((reply) => reply.text.includes("meanwhile, direct words"));
-      expect(directEchoes).toHaveLength(1);
-      expect((await groupById(room.id))?.working).toBe(false);
-      evidence.push({ groupTurnQueue: { direct, after } });
-    },
-    60_000,
-  );
+      return (
+        !after.busy && echoes(after).some((reply) => reply.text.includes("meanwhile, direct words"))
+      );
+    }, "the drained 1:1 turn");
+
+    const after = await botById(bot.id);
+    const directEchoes = echoes(after).filter((reply) =>
+      reply.text.includes("meanwhile, direct words"),
+    );
+    expect(directEchoes).toHaveLength(1);
+    expect((await groupById(room.id))?.working).toBe(false);
+    evidence.push({ groupTurnQueue: { direct, after } });
+  }, 60_000);
 });

@@ -13,31 +13,56 @@ type Bot = { id: string; threadId: string; name: string };
 type Mounted = { command: string; args: string[]; env: Record<string, string> };
 type ToolResult = { isError?: boolean; content: Array<{ text: string }> };
 
-const REMOVED_TEAM_TOOLS = ["list_team_setup", "propose_team_setup", "propose_bot_deletion", "retry_thread"];
+const REMOVED_TEAM_TOOLS = [
+  "list_team_setup",
+  "propose_team_setup",
+  "propose_bot_deletion",
+  "retry_thread",
+];
 const dumpSchema = z.object({
   systemPrompt: z.string(),
-  mcpConfig: z.object({ mcpServers: z.object({
-    agents: z.object({ command: z.string(), args: z.array(z.string()), env: z.record(z.string(), z.string()) }),
-  }) }),
+  mcpConfig: z.object({
+    mcpServers: z.object({
+      agents: z.object({
+        command: z.string(),
+        args: z.array(z.string()),
+        env: z.record(z.string(), z.string()),
+      }),
+    }),
+  }),
 });
 
 it("lets an ordinary dog create a dog that greets the person, with no per-turn cap in the owner workspace; an archived dog cannot", async () => {
   const temp = mkdtempSync(join(tmpdir(), "laterdog-dog-creation-"));
   const gate = join(temp, "finish");
-  const fixture = await launchVerificationServer({ FAKE_CLAUDE_MODE: "slow", FAKE_CLAUDE_SLOW_FINISH_GATE: gate });
+  const fixture = await launchVerificationServer({
+    FAKE_CLAUDE_MODE: "slow",
+    FAKE_CLAUDE_SLOW_FINISH_GATE: gate,
+  });
   const proxies: ChildProcess[] = [];
   const evidence: unknown[] = [{ fixture: fixture.info }];
-  const api = async (method: string, path: string, body?: unknown, expected = 200, token?: string) => {
+  const api = async (
+    method: string,
+    path: string,
+    body?: unknown,
+    expected = 200,
+    token?: string,
+  ) => {
     const response = await fetch(fixture.info.url + path, {
       method,
-      headers: { "content-type": "application/json", origin: fixture.info.url, ...(token ? { authorization: `Bearer ${token}` } : {}) },
+      headers: {
+        "content-type": "application/json",
+        origin: fixture.info.url,
+        ...(token ? { authorization: `Bearer ${token}` } : {}),
+      },
       ...(body === undefined ? {} : { body: JSON.stringify(body) }),
     });
-    const result = await response.json() as any;
+    const result = (await response.json()) as any;
     expect(response.status, `${method} ${path}: ${JSON.stringify(result)}`).toBe(expected);
     return result;
   };
-  const bots = async () => (await api("GET", "/api/bots?messages=0")).bots as Array<Record<string, any>>;
+  const bots = async () =>
+    (await api("GET", "/api/bots?messages=0")).bots as Array<Record<string, any>>;
   const startTurn = async (bot: Bot, text: string) => {
     rmSync(fixture.fixtureDumpPath, { force: true });
     await api("POST", `/api/bots/${bot.id}/messages`, { text }, 202);
@@ -47,7 +72,12 @@ it("lets an ordinary dog create a dog that greets the person, with no per-turn c
     expect(mounted.env.LATERDOG_BOT_ID).toBe(bot.id);
     expect(mounted.env.LATERDOG_CHIEF_OF_STAFF).toBeUndefined();
     const proxy = spawn(mounted.command, mounted.args, {
-      env: { ...mounted.env, HOME: fixture.info.dataDir, USERPROFILE: fixture.info.dataDir, ...(process.env.SystemRoot ? { SystemRoot: process.env.SystemRoot } : {}) },
+      env: {
+        ...mounted.env,
+        HOME: fixture.info.dataDir,
+        USERPROFILE: fixture.info.dataDir,
+        ...(process.env.SystemRoot ? { SystemRoot: process.env.SystemRoot } : {}),
+      },
       stdio: ["pipe", "pipe", "pipe"],
     });
     proxies.push(proxy);
@@ -57,33 +87,62 @@ it("lets an ordinary dog create a dog that greets the person, with no per-turn c
       const reply = JSON.parse(line) as { id: number; result?: unknown; error?: unknown };
       pending.get(reply.id)?.(reply);
     });
-    const rpc = (method: string, params: Record<string, unknown> = {}) => new Promise<{ result?: any; error?: any }>((resolve, reject) => {
-      const id = ++nextId;
-      const timer = setTimeout(() => { pending.delete(id); reject(new Error(`${method} did not answer`)); }, 10_000);
-      pending.set(id, (reply) => { clearTimeout(timer); pending.delete(id); resolve(reply); });
-      proxy.stdin!.write(JSON.stringify({ jsonrpc: "2.0", id, method, params }) + "\n");
-    });
+    const rpc = (method: string, params: Record<string, unknown> = {}) =>
+      new Promise<{ result?: any; error?: any }>((resolve, reject) => {
+        const id = ++nextId;
+        const timer = setTimeout(() => {
+          pending.delete(id);
+          reject(new Error(`${method} did not answer`));
+        }, 10_000);
+        pending.set(id, (reply) => {
+          clearTimeout(timer);
+          pending.delete(id);
+          resolve(reply);
+        });
+        proxy.stdin!.write(JSON.stringify({ jsonrpc: "2.0", id, method, params }) + "\n");
+      });
     const tool = async (name: string, args: Record<string, unknown>): Promise<ToolResult> => {
       const reply = await rpc("tools/call", { name, arguments: args });
       evidence.push({ bot: bot.name, tool: name, args, reply });
       expect(reply.error, JSON.stringify(reply.error)).toBeUndefined();
       return reply.result as ToolResult;
     };
-    const toolNames = async () => ((await rpc("tools/list")).result.tools as Array<{ name: string }>).map((entry) => entry.name);
-    return { token: mounted.env.LATERDOG_COMMS_TOKEN!, systemPrompt: dump.systemPrompt, tool, toolNames };
+    const toolNames = async () =>
+      ((await rpc("tools/list")).result.tools as Array<{ name: string }>).map(
+        (entry) => entry.name,
+      );
+    return {
+      token: mounted.env.LATERDOG_COMMS_TOKEN!,
+      systemPrompt: dump.systemPrompt,
+      tool,
+      toolNames,
+    };
   };
 
   try {
     await api("PUT", "/api/config", { profile: { name: "Jacob" } });
-    const biscuit: Bot = (await api("POST", "/api/bots", { name: "Biscuit", section: "Research" }, 201)).bot;
-    const rex: Bot = (await api("POST", "/api/bots", { name: "Rex", section: "Research" }, 201)).bot;
-    expect((await bots()).filter((bot) => bot.chiefOfStaff && [biscuit.id, rex.id].includes(bot.id))).toEqual([]);
+    const biscuit: Bot = (
+      await api("POST", "/api/bots", { name: "Biscuit", section: "Research" }, 201)
+    ).bot;
+    const rex: Bot = (await api("POST", "/api/bots", { name: "Rex", section: "Research" }, 201))
+      .bot;
+    expect(
+      (await bots()).filter((bot) => bot.chiefOfStaff && [biscuit.id, rex.id].includes(bot.id)),
+    ).toEqual([]);
     await api("PATCH", `/api/bots/${biscuit.id}`, { approvalMode: "auto" });
-    const makerKeys = ["vault:example.com", "Delete folders outside its workspace", "connector:gmail", `delegate_bot:${rex.id}`];
+    const makerKeys = [
+      "vault:example.com",
+      "Delete folders outside its workspace",
+      "connector:gmail",
+      `delegate_bot:${rex.id}`,
+    ];
     await api("PATCH", `/api/bots/${biscuit.id}`, { alwaysAllow: makerKeys });
     const maker = (await bots()).find((bot) => bot.id === biscuit.id)!;
     expect(maker.alwaysAllow).toEqual(makerKeys);
-    expect(maker.tasks.find((task: { threadId: string }) => task.threadId === biscuit.threadId)?.alwaysAllow ?? maker.alwaysAllow).toEqual(makerKeys);
+    expect(
+      maker.tasks.find((task: { threadId: string }) => task.threadId === biscuit.threadId)
+        ?.alwaysAllow ?? maker.alwaysAllow,
+    ).toEqual(makerKeys);
 
     const turn = await startTurn(biscuit, "can u make another agent");
     const tools = await turn.toolNames();
@@ -91,7 +150,9 @@ it("lets an ordinary dog create a dog that greets the person, with no per-turn c
     expect(tools).toContain("create_bot");
     expect(REMOVED_TEAM_TOOLS.filter((name) => tools.includes(name))).toEqual([]);
     expect(turn.systemPrompt).toContain("create_bot");
-    expect(turn.systemPrompt).not.toMatch(/bot-creation and team-setup tools for Chiefs|only the section's Chief of Staff creates bots|create bots unless you are a Chief/);
+    expect(turn.systemPrompt).not.toMatch(
+      /bot-creation and team-setup tools for Chiefs|only the section's Chief of Staff creates bots|create bots unless you are a Chief/,
+    );
 
     const created = await turn.tool("create_bot", {
       name: "Scout",
@@ -105,9 +166,13 @@ it("lets an ordinary dog create a dog that greets the person, with no per-turn c
 
     const scout = (await bots()).find((bot) => bot.name === "Scout")!;
     expect(scout).toMatchObject({
-      section: "Research", title: "research and writing",
+      section: "Research",
+      title: "research and writing",
       description: "Find sources, read them closely and draft short summaries with links.",
-      approvalMode: "auto", autoApprove: true, approvePeerComms: false, unread: true,
+      approvalMode: "auto",
+      autoApprove: true,
+      approvePeerComms: false,
+      unread: true,
     });
     expect(scout.composio).not.toBe(false);
     expect(scout.connectorTools).toBeUndefined();
@@ -116,27 +181,60 @@ it("lets an ordinary dog create a dog that greets the person, with no per-turn c
     expect(scout.chiefOfStaff).toBeFalsy();
     expect(scout.visibility).toBeUndefined();
     expect(said).toContain(`[id: ${scout.id}]`);
-    const greeting = (await api("GET", `/api/threads/${scout.threadId}/messages`)).messages as Array<Record<string, unknown>>;
+    const greeting = (await api("GET", `/api/threads/${scout.threadId}/messages`))
+      .messages as Array<Record<string, unknown>>;
     evidence.push({ greeting });
     expect(greeting).toHaveLength(1);
     expect(greeting[0]).toMatchObject({
-      role: "bot", kind: "text",
+      role: "bot",
+      kind: "text",
       text: "Hi Jacob, I'm Scout. Biscuit set me up for research and writing. What should I start on?",
     });
 
-    const create = (name: string, expected: number) => api("POST", "/api/internal/create-bot",
-      { name, role: "research and writing", instructions: "Help with research." }, expected, turn.token);
+    const create = (name: string, expected: number) =>
+      api(
+        "POST",
+        "/api/internal/create-bot",
+        { name, role: "research and writing", instructions: "Help with research." },
+        expected,
+        turn.token,
+      );
     expect((await create("scout", 409)).error).toContain("@Scout already exists in this section");
-    for (const name of ["Scout Two", "Scout Three", "Scout Four", "Scout Five"]) await create(name, 201);
-    const research = (await bots()).filter((bot) => bot.section === "Research").map((bot) => bot.name).sort();
-    expect(research).toEqual(["Biscuit", "Rex", "Scout", "Scout Five", "Scout Four", "Scout Three", "Scout Two"]);
+    for (const name of ["Scout Two", "Scout Three", "Scout Four", "Scout Five"])
+      await create(name, 201);
+    const research = (await bots())
+      .filter((bot) => bot.section === "Research")
+      .map((bot) => bot.name)
+      .sort();
+    expect(research).toEqual([
+      "Biscuit",
+      "Rex",
+      "Scout",
+      "Scout Five",
+      "Scout Four",
+      "Scout Three",
+      "Scout Two",
+    ]);
 
     const rexTurn = await startTurn(rex, "make me a helper");
     expect(await rexTurn.toolNames()).toContain("create_bot");
-    await api("POST", "/api/internal/create-bot", { name: "Pup", role: "keeping notes", instructions: "Keep notes." }, 201, rexTurn.token);
-    expect((await bots()).find((bot) => bot.name === "Pup")).toMatchObject({ approvalMode: "ask", autoApprove: false });
+    await api(
+      "POST",
+      "/api/internal/create-bot",
+      { name: "Pup", role: "keeping notes", instructions: "Keep notes." },
+      201,
+      rexTurn.token,
+    );
+    expect((await bots()).find((bot) => bot.name === "Pup")).toMatchObject({
+      approvalMode: "ask",
+      autoApprove: false,
+    });
     await api("PATCH", `/api/bots/${rex.id}`, { hidden: true });
-    const made = await rexTurn.tool("create_bot", { name: "Shadow", role: "keeping watch", instructions: "Watch." });
+    const made = await rexTurn.tool("create_bot", {
+      name: "Shadow",
+      role: "keeping watch",
+      instructions: "Watch.",
+    });
     expect(made.isError).toBeFalsy();
     expect((await bots()).some((bot) => bot.name === "Shadow")).toBe(true);
   } finally {
@@ -154,30 +252,61 @@ it("shared-workspace helpers stay inside the creating chat's folder and cannot a
   mkdirSync(root);
   const api = async (method: string, path: string, body?: unknown) => {
     const response = await fetch(fixture.info.url + path, {
-      method, headers: { "content-type": "application/json", origin: fixture.info.url },
+      method,
+      headers: { "content-type": "application/json", origin: fixture.info.url },
       ...(body === undefined ? {} : { body: JSON.stringify(body) }),
     });
-    return { status: response.status, body: await response.json() as any };
+    return { status: response.status, body: (await response.json()) as any };
   };
   try {
-    expect((await api("PUT", "/api/config", { signIn: { admins: ["one@example.test", "two@example.test"] } })).status).toBe(200);
-    const created = await api("POST", "/api/bots", { name: "Shared creator", settings: { approvalMode: "auto", cwd: root } });
+    expect(
+      (
+        await api("PUT", "/api/config", {
+          signIn: { admins: ["one@example.test", "two@example.test"] },
+        })
+      ).status,
+    ).toBe(200);
+    const created = await api("POST", "/api/bots", {
+      name: "Shared creator",
+      settings: { approvalMode: "auto", cwd: root },
+    });
     expect(created.status).toBe(201);
     const source = created.body.bot;
-    expect((await api("POST", `/api/bots/${source.id}/messages`, { text: "Create a helper inside our project." })).status).toBe(202);
+    expect(
+      (
+        await api("POST", `/api/bots/${source.id}/messages`, {
+          text: "Create a helper inside our project.",
+        })
+      ).status,
+    ).toBe(202);
     await expect.poll(() => existsSync(fixture.fixtureDumpPath), { timeout: 15_000 }).toBe(true);
-    const mounted = dumpSchema.parse(JSON.parse(readFileSync(fixture.fixtureDumpPath, "utf8"))).mcpConfig.mcpServers.agents;
-    const create = (name: string, cwd?: string | null) => fetch(`${mounted.env.LATERDOG_HARNESS_URL}/api/internal/create-bot`, {
-      method: "POST", headers: { authorization: `Bearer ${mounted.env.LATERDOG_COMMS_TOKEN}`, "content-type": "application/json" },
-      body: JSON.stringify({ name, role: "Shared checks", instructions: "Check this shared task.", cwd, ownerFull: true, fullAccessAll: true }),
-    });
+    const mounted = dumpSchema.parse(JSON.parse(readFileSync(fixture.fixtureDumpPath, "utf8")))
+      .mcpConfig.mcpServers.agents;
+    const create = (name: string, cwd?: string | null) =>
+      fetch(`${mounted.env.LATERDOG_HARNESS_URL}/api/internal/create-bot`, {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${mounted.env.LATERDOG_COMMS_TOKEN}`,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          name,
+          role: "Shared checks",
+          instructions: "Check this shared task.",
+          cwd,
+          ownerFull: true,
+          fullAccessAll: true,
+        }),
+      });
     const blocked = await create("Outside shared helper", fixture.info.dataDir);
     expect(blocked.status, await blocked.clone().text()).toBe(403);
     for (const [index, folder] of [root, null, undefined].entries()) {
       const response = await create(`Shared helper ${index}`, folder);
       expect(response.status, await response.clone().text()).toBe(201);
-      const made = await response.json() as { id: string };
-      const dog = (await api("GET", "/api/bots?messages=0")).body.bots.find((bot: any) => bot.id === made.id);
+      const made = (await response.json()) as { id: string };
+      const dog = (await api("GET", "/api/bots?messages=0")).body.bots.find(
+        (bot: any) => bot.id === made.id,
+      );
       expect(dog.approvalMode).not.toBe("full");
       expect(dog.tasks.every((task: any) => task.approvalMode !== "full")).toBe(true);
       expect(dog.cwd).toBe(folder ?? undefined);

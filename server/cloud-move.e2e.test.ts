@@ -1,6 +1,14 @@
 import { createHash, randomBytes } from "node:crypto";
 import { spawn, type ChildProcess } from "node:child_process";
-import { existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  lstatSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  writeFileSync,
+} from "node:fs";
 import { request as httpRequest } from "node:http";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -21,15 +29,30 @@ const SERVER_ORIGIN = `https://${SERVER_HOST}`;
 const bootstrapSecret = randomBytes(32).toString("base64url");
 const unique = (label: string) => `${label}-${randomBytes(12).toString("hex")}`;
 const SOURCE_SECRETS = {
-  anthropic: unique("sk-ant-source"), tts: unique("source-voice-key"), box: unique("box_source"),
-  env: unique("source-driver-env"), credential: unique("source-workspace-credential"), provider: unique("source-provider-login"),
+  anthropic: unique("sk-ant-source"),
+  tts: unique("source-voice-key"),
+  box: unique("box_source"),
+  env: unique("source-driver-env"),
+  credential: unique("source-workspace-credential"),
+  provider: unique("source-provider-login"),
 };
 const CLOUD_KEY = unique("sk-ant-cloud");
 const SERVER_KEY = unique("sk-ant-server");
 const OFFLINE = `data:text/javascript,${encodeURIComponent('globalThis.fetch = async () => new Response("offline fixture", { status: 503 });')}`;
 
-interface Fixture { name: string; host: string; home: string; dataDir: string; base: string; env: NodeJS.ProcessEnv; child?: ChildProcess; log: string; closing: boolean; boots: number;
-  failure?: Error }
+interface Fixture {
+  name: string;
+  host: string;
+  home: string;
+  dataDir: string;
+  base: string;
+  env: NodeJS.ProcessEnv;
+  child?: ChildProcess;
+  log: string;
+  closing: boolean;
+  boots: number;
+  failure?: Error;
+}
 let source: Fixture;
 let cloud: Fixture;
 let server: Fixture;
@@ -40,21 +63,36 @@ let movedRoutine = "";
 let desktopBots: string[];
 
 async function boot(fixture: Fixture): Promise<void> {
-  const child = spawn(process.execPath, ["--import", OFFLINE, join(SERVER_DIR, "index.ts")], { cwd: join(SERVER_DIR, ".."), env: fixture.env, stdio: ["ignore", "pipe", "pipe"] });
+  const child = spawn(process.execPath, ["--import", OFFLINE, join(SERVER_DIR, "index.ts")], {
+    cwd: join(SERVER_DIR, ".."),
+    env: fixture.env,
+    stdio: ["ignore", "pipe", "pipe"],
+  });
   fixture.child = child;
   fixture.boots++;
-  child.stdout?.on("data", (chunk) => { fixture.log += chunk; });
-  child.stderr?.on("data", (chunk) => { fixture.log += chunk; });
-  child.once("exit", (code) => { if (code === RESTART_EXIT_CODE && !fixture.closing && fixture.child === child) boot(fixture).catch((error: Error) => { fixture.failure = error; }); });
+  child.stdout?.on("data", (chunk) => {
+    fixture.log += chunk;
+  });
+  child.stderr?.on("data", (chunk) => {
+    fixture.log += chunk;
+  });
+  child.once("exit", (code) => {
+    if (code === RESTART_EXIT_CODE && !fixture.closing && fixture.child === child)
+      boot(fixture).catch((error: Error) => {
+        fixture.failure = error;
+      });
+  });
   const deadline = Date.now() + 30_000;
   for (;;) {
     if (fixture.closing || fixture.child !== child) return;
-    if (child.exitCode !== null) throw new Error(`the ${fixture.name} server exited:\n${fixture.log}`);
+    if (child.exitCode !== null)
+      throw new Error(`the ${fixture.name} server exited:\n${fixture.log}`);
     try {
-      const health = await (await fetch(`${fixture.base}/api/health`)).json() as { pid?: number };
+      const health = (await (await fetch(`${fixture.base}/api/health`)).json()) as { pid?: number };
       if (health.pid === child.pid) return;
     } catch {}
-    if (Date.now() > deadline) throw new Error(`the ${fixture.name} server did not start:\n${fixture.log}`);
+    if (Date.now() > deadline)
+      throw new Error(`the ${fixture.name} server did not start:\n${fixture.log}`);
     await new Promise((resolve) => setTimeout(resolve, 100));
   }
 }
@@ -64,60 +102,139 @@ async function launch(name: "desktop" | "cloud" | "server"): Promise<Fixture> {
   const dataDir = join(home, ".laterdog");
   mkdirSync(dataDir, { recursive: true });
   const cli = join(home, "fixture-claude.mjs");
-  writeFileSync(cli, `#!/usr/bin/env node
+  writeFileSync(
+    cli,
+    `#!/usr/bin/env node
 if (process.argv[2] === "auth") {
   console.log(JSON.stringify({ loggedIn: true, email: "person@example.test" }));
   process.exit(0);
 }
 await import(${JSON.stringify(pathToFileURL(join(SERVER_DIR, "testing", "fake-claude-cli.ts")).href)});
-`, { mode: 0o755 });
+`,
+    { mode: 0o755 },
+  );
   const instances: Record<string, unknown> = {
-    ...Object.fromEntries(["codex", "cursor", "openaiCompat", "qwen", "hermes", "pi"].map((id) => [id, { driver: "not-a-real-driver" }])),
-    claude: { driver: "claudeAgent", displayName: "Claude", config: { cli }, ...(name === "desktop" ? { environment: { FIXTURE_TOKEN: SOURCE_SECRETS.env } } : {}) },
+    ...Object.fromEntries(
+      ["codex", "cursor", "openaiCompat", "qwen", "hermes", "pi"].map((id) => [
+        id,
+        { driver: "not-a-real-driver" },
+      ]),
+    ),
+    claude: {
+      driver: "claudeAgent",
+      displayName: "Claude",
+      config: { cli },
+      ...(name === "desktop" ? { environment: { FIXTURE_TOKEN: SOURCE_SECRETS.env } } : {}),
+    },
   };
-  writeFileSync(join(dataDir, "config.json"), JSON.stringify(name === "desktop"
-    ? { instances, anthropic: { key: SOURCE_SECRETS.anthropic }, tts: { key: SOURCE_SECRETS.tts }, box: { token: SOURCE_SECRETS.box }, features: { sharedComputers: true } }
-    : { instances, anthropic: { key: name === "cloud" ? CLOUD_KEY : SERVER_KEY } }));
+  writeFileSync(
+    join(dataDir, "config.json"),
+    JSON.stringify(
+      name === "desktop"
+        ? {
+            instances,
+            anthropic: { key: SOURCE_SECRETS.anthropic },
+            tts: { key: SOURCE_SECRETS.tts },
+            box: { token: SOURCE_SECRETS.box },
+            features: { sharedComputers: true },
+          }
+        : { instances, anthropic: { key: name === "cloud" ? CLOUD_KEY : SERVER_KEY } },
+    ),
+  );
   if (name === "desktop") {
-    writeFileSync(join(dataDir, "workspace-credentials.json"), JSON.stringify({ fixture: SOURCE_SECRETS.credential }), { mode: 0o600 });
+    writeFileSync(
+      join(dataDir, "workspace-credentials.json"),
+      JSON.stringify({ fixture: SOURCE_SECRETS.credential }),
+      { mode: 0o600 },
+    );
     mkdirSync(join(dataDir, "providers", "fixture"), { recursive: true });
-    writeFileSync(join(dataDir, "providers", "fixture", ".credentials.json"), JSON.stringify({ token: SOURCE_SECRETS.provider }), { mode: 0o600 });
+    writeFileSync(
+      join(dataDir, "providers", "fixture", ".credentials.json"),
+      JSON.stringify({ token: SOURCE_SECRETS.provider }),
+      { mode: 0o600 },
+    );
   }
   const port = await leasePortBlock([0, 1]);
   const env: NodeJS.ProcessEnv = {
     PATH: process.env.PATH,
     ...(process.env.PATHEXT ? { PATHEXT: process.env.PATHEXT } : {}),
     ...(process.env.SystemRoot ? { SystemRoot: process.env.SystemRoot } : {}),
-    HOME: home, USERPROFILE: home, LATERDOG_HOME: dataDir, LATERDOG_SERVER_PORT: String(port), LATERDOG_WEBHOOK_PORT: String(port + 1),
-    ...(name === "cloud" ? {
-      LATERDOG_CLOUD_ROLE: "home", LATERDOG_CLOUD_MACHINE_ID: "3f9c2a4e-8b1d-4c6e-9a7f-2d5e8c1b0a93", LATERDOG_CLOUD_ADMIN_URL: "https://cloud.example.test",
-      LATERDOG_CLOUD_BOOTSTRAP_SECRET: bootstrapSecret, LATERDOG_PUBLIC_URL: ORIGIN,
-    } : {}),
+    HOME: home,
+    USERPROFILE: home,
+    LATERDOG_HOME: dataDir,
+    LATERDOG_SERVER_PORT: String(port),
+    LATERDOG_WEBHOOK_PORT: String(port + 1),
+    ...(name === "cloud"
+      ? {
+          LATERDOG_CLOUD_ROLE: "home",
+          LATERDOG_CLOUD_MACHINE_ID: "3f9c2a4e-8b1d-4c6e-9a7f-2d5e8c1b0a93",
+          LATERDOG_CLOUD_ADMIN_URL: "https://cloud.example.test",
+          LATERDOG_CLOUD_BOOTSTRAP_SECRET: bootstrapSecret,
+          LATERDOG_PUBLIC_URL: ORIGIN,
+        }
+      : {}),
     ...(name === "server" ? { LATERDOG_PUBLIC_URL: SERVER_ORIGIN } : {}),
   };
-  const fixture: Fixture = { name, host: name === "server" ? SERVER_HOST : HOST, home, dataDir, base: `http://127.0.0.1:${port}`, env, log: "", closing: false, boots: 0 };
+  const fixture: Fixture = {
+    name,
+    host: name === "server" ? SERVER_HOST : HOST,
+    home,
+    dataDir,
+    base: `http://127.0.0.1:${port}`,
+    env,
+    log: "",
+    closing: false,
+    boots: 0,
+  };
   await boot(fixture);
   return fixture;
 }
 
-const edge = (fixture: Fixture) => ({ host: fixture.host, "x-forwarded-for": "203.0.113.9", "x-forwarded-proto": "https" });
+const edge = (fixture: Fixture) => ({
+  host: fixture.host,
+  "x-forwarded-for": "203.0.113.9",
+  "x-forwarded-proto": "https",
+});
 const forwarded = edge({ host: HOST } as Fixture);
 function viaEdge(url: string, init: RequestInit = {}): Promise<Response> {
   return new Promise((resolve, reject) => {
     const target = new URL(url);
-    const request = httpRequest({ hostname: target.hostname, port: target.port, path: `${target.pathname}${target.search}`, method: init.method ?? "GET",
-      headers: Object.fromEntries(new Headers(init.headers)) }, (response) => {
-      const chunks: Buffer[] = [];
-      response.on("data", (chunk: Buffer) => chunks.push(chunk));
-      response.on("end", () => resolve(new Response(chunks.length ? Buffer.concat(chunks) : null, { status: response.statusCode,
-        headers: Object.entries(response.headers).flatMap(([name, value]) => (Array.isArray(value) ? value : value === undefined ? [] : [value]).map((one) => [name, String(one)] as [string, string])) })));
-      response.on("error", reject);
-    });
+    const request = httpRequest(
+      {
+        hostname: target.hostname,
+        port: target.port,
+        path: `${target.pathname}${target.search}`,
+        method: init.method ?? "GET",
+        headers: Object.fromEntries(new Headers(init.headers)),
+      },
+      (response) => {
+        const chunks: Buffer[] = [];
+        response.on("data", (chunk: Buffer) => chunks.push(chunk));
+        response.on("end", () =>
+          resolve(
+            new Response(chunks.length ? Buffer.concat(chunks) : null, {
+              status: response.statusCode,
+              headers: Object.entries(response.headers).flatMap(([name, value]) =>
+                (Array.isArray(value) ? value : value === undefined ? [] : [value]).map(
+                  (one) => [name, String(one)] as [string, string],
+                ),
+              ),
+            }),
+          ),
+        );
+        response.on("error", reject);
+      },
+    );
     request.on("error", reject);
     request.end(typeof init.body === "string" ? init.body : undefined);
   });
 }
-async function api(fixture: Fixture, method: string, path: string, options: { body?: unknown; token?: string; cookie?: string; remote?: boolean; raw?: Buffer } = {}) {
+async function api(
+  fixture: Fixture,
+  method: string,
+  path: string,
+  options: { body?: unknown; token?: string; cookie?: string; remote?: boolean; raw?: Buffer } = {},
+) {
   if (fixture.failure) throw fixture.failure;
   const response = await (options.cookie ? viaEdge : fetch)(`${fixture.base}${path}`, {
     method,
@@ -130,17 +247,25 @@ async function api(fixture: Fixture, method: string, path: string, options: { bo
     },
     body: options.raw ?? (options.body === undefined ? undefined : JSON.stringify(options.body)),
   });
-  return { status: response.status, body: await response.json().catch(() => null) as any };
+  return { status: response.status, body: (await response.json().catch(() => null)) as any };
 }
 
 async function cloudGrant(): Promise<{ origin: string; code: string; expiresAt: number }> {
   const body = JSON.stringify({ label: "later.dog app (Cloud)", ttlSeconds: 300 });
-  const timestamp = String(Math.floor(Date.now() / 1000)), nonce = randomBytes(16).toString("base64url");
-  const response = await fetch(`${cloud.base}/api/cloud/pairing`, { method: "POST", body, headers: {
-    ...forwarded, "content-type": "application/json", "x-laterdog-cloud-timestamp": timestamp, "x-laterdog-cloud-nonce": nonce,
-    "x-laterdog-cloud-signature": `v1=${cloudPairingSignature(bootstrapSecret, timestamp, nonce, body)}`,
-  } });
-  const granted = await response.json() as { code: string; expiresAt: number };
+  const timestamp = String(Math.floor(Date.now() / 1000)),
+    nonce = randomBytes(16).toString("base64url");
+  const response = await fetch(`${cloud.base}/api/cloud/pairing`, {
+    method: "POST",
+    body,
+    headers: {
+      ...forwarded,
+      "content-type": "application/json",
+      "x-laterdog-cloud-timestamp": timestamp,
+      "x-laterdog-cloud-nonce": nonce,
+      "x-laterdog-cloud-signature": `v1=${cloudPairingSignature(bootstrapSecret, timestamp, nonce, body)}`,
+    },
+  });
+  const granted = (await response.json()) as { code: string; expiresAt: number };
   expect(response.status, JSON.stringify(granted)).toBe(200);
   return { origin: ORIGIN, code: granted.code, expiresAt: granted.expiresAt };
 }
@@ -154,27 +279,55 @@ const windowFetch = ((url: string, init: RequestInit = {}) => {
   const headers = new Headers(init.headers);
   expect(headers.get("origin")).toBe(SERVER_ORIGIN);
   expect(init.credentials).toBe("include");
-  return viaEdge(target.url, { ...init, headers: { ...Object.fromEntries(headers), ...edge(target.fixture), cookie: serverCookie } });
+  return viaEdge(target.url, {
+    ...init,
+    headers: { ...Object.fromEntries(headers), ...edge(target.fixture), cookie: serverCookie },
+  });
 }) as typeof fetch;
-const cloudHome = { id: "cloud", name: "My Cloud", origin: ORIGIN, kind: "cloud" as const, grant: cloudGrant };
-const selfHosted = { id: "self", name: SERVER_HOST, origin: SERVER_ORIGIN, kind: "server" as const, grant: () => mintOwnerCode(windowFetch, SERVER_ORIGIN) };
+const cloudHome = {
+  id: "cloud",
+  name: "My Cloud",
+  origin: ORIGIN,
+  kind: "cloud" as const,
+  grant: cloudGrant,
+};
+const selfHosted = {
+  id: "self",
+  name: SERVER_HOST,
+  origin: SERVER_ORIGIN,
+  kind: "server" as const,
+  grant: () => mintOwnerCode(windowFetch, SERVER_ORIGIN),
+};
 function mover() {
   return createCloudMove({
     localRequest: (route, init) => fetch(`${source.base}${route}`, init),
     fetchImpl: ((url: string, init: RequestInit = {}) => {
       const target = routed(String(url));
-      return fetch(target.url, { ...init, headers: { ...Object.fromEntries(new Headers(init.headers)), ...edge(target.fixture) } });
+      return fetch(target.url, {
+        ...init,
+        headers: { ...Object.fromEntries(new Headers(init.headers)), ...edge(target.fixture) },
+      });
     }) as typeof fetch,
     tempRoot: join(scratch, "move-temp"),
     availableBytes: async () => Number.MAX_SAFE_INTEGER,
-    pollMs: 150, retryDelaysMs: [100, 300], restartTimeoutMs: 90_000,
+    pollMs: 150,
+    retryDelaysMs: [100, 300],
+    restartTimeoutMs: 90_000,
   });
 }
 
-const why = (result: { error?: unknown }, fixture: Fixture) => `${JSON.stringify(result.error ?? null)}\n${fixture.log.slice(-2000)}`;
+const why = (result: { error?: unknown }, fixture: Fixture) =>
+  `${JSON.stringify(result.error ?? null)}\n${fixture.log.slice(-2000)}`;
 
 async function newBot(fixture: Fixture, name: string, token?: string) {
-  const created = await api(fixture, "POST", "/api/bots", { token, body: { name, modelSelection: { instanceId: "claude", model: "claude-sonnet-5" }, requireAvailableModel: true } });
+  const created = await api(fixture, "POST", "/api/bots", {
+    token,
+    body: {
+      name,
+      modelSelection: { instanceId: "claude", model: "claude-sonnet-5" },
+      requireAvailableModel: true,
+    },
+  });
   expect(created.status, JSON.stringify(created.body)).toBe(201);
   return created.body.bot as { id: string; threadId: string };
 }
@@ -190,14 +343,20 @@ async function until(what: string, check: () => Promise<boolean>, timeout = 20_0
     await new Promise((resolve) => setTimeout(resolve, 100));
   }
 }
-const idle = (fixture: Fixture) => until("idle bots", async () => (await api(fixture, "GET", "/api/bots")).body.bots
-  .every((bot: { activity?: string }) => bot.activity !== "working"));
+const idle = (fixture: Fixture) =>
+  until("idle bots", async () =>
+    (await api(fixture, "GET", "/api/bots")).body.bots.every(
+      (bot: { activity?: string }) => bot.activity !== "working",
+    ),
+  );
 function filesUnder(root: string): string[] {
   const found: string[] = [];
   const walk = (directory: string) => {
     for (const name of readdirSync(directory)) {
-      const path = join(directory, name), stat = lstatSync(path);
-      if (stat.isDirectory()) walk(path); else if (stat.isFile()) found.push(path);
+      const path = join(directory, name),
+        stat = lstatSync(path);
+      if (stat.isDirectory()) walk(path);
+      else if (stat.isFile()) found.push(path);
     }
   };
   walk(root);
@@ -206,32 +365,70 @@ function filesUnder(root: string): string[] {
 
 beforeAll(async () => {
   scratch = mkdtempSync(join(tmpdir(), "laterdog-move-scratch-"));
-  [source, cloud, server] = await Promise.all([launch("desktop"), launch("cloud"), launch("server")]);
-  const paired = await api(cloud, "POST", "/api/auth/pair", { remote: true, body: { code: (await cloudGrant()).code } });
+  [source, cloud, server] = await Promise.all([
+    launch("desktop"),
+    launch("cloud"),
+    launch("server"),
+  ]);
+  const paired = await api(cloud, "POST", "/api/auth/pair", {
+    remote: true,
+    body: { code: (await cloudGrant()).code },
+  });
   expect(paired.status, JSON.stringify(paired.body)).toBe(200);
   windowToken = paired.body.token;
-  const owner = await api(server, "POST", "/api/auth/pairing", { body: { scopes: ["admin", "client"], label: "Owner code" } });
+  const owner = await api(server, "POST", "/api/auth/pairing", {
+    body: { scopes: ["admin", "client"], label: "Owner code" },
+  });
   expect(owner.status, JSON.stringify(owner.body)).toBe(200);
-  const pairPage = await viaEdge(`${server.base}/api/auth/pair`, { method: "POST", headers: { ...edge(server), "content-type": "application/json", origin: SERVER_ORIGIN },
-    body: JSON.stringify({ code: owner.body.code, cookie: true, label: "later.dog desktop" }) });
+  const pairPage = await viaEdge(`${server.base}/api/auth/pair`, {
+    method: "POST",
+    headers: { ...edge(server), "content-type": "application/json", origin: SERVER_ORIGIN },
+    body: JSON.stringify({ code: owner.body.code, cookie: true, label: "later.dog desktop" }),
+  });
   expect(pairPage.status).toBe(200);
   serverCookie = (pairPage.headers.get("set-cookie") ?? "").split(";")[0]!;
   expect(serverCookie).toMatch(/^laterdog_session_\d+_\w+=laterdog_sess_/);
   const planner = await newBot(source, "Moved Planner");
-  expect((await api(source, "POST", `/api/bots/${planner.id}/messages`, { body: { text: "Plan the launch party" } })).status).toBe(202);
-  await until("the bot's reply", async () => ((await api(source, "GET", `/api/threads/${planner.threadId}/messages`)).body?.messages ?? [])
-    .filter((message: { role: string }) => message.role === "bot").length >= 2);
+  expect(
+    (
+      await api(source, "POST", `/api/bots/${planner.id}/messages`, {
+        body: { text: "Plan the launch party" },
+      })
+    ).status,
+  ).toBe(202);
+  await until(
+    "the bot's reply",
+    async () =>
+      (
+        (await api(source, "GET", `/api/threads/${planner.threadId}/messages`)).body?.messages ?? []
+      ).filter((message: { role: string }) => message.role === "bot").length >= 2,
+  );
   await idle(source);
-  const routine = await api(source, "POST", "/api/routines", { body: { name: "Weekly plan", prompt: "Plan the week.", botId: planner.id, enabled: true,
-    schedule: { type: "interval", everyMinutes: 60, anchorAt: Date.now() + 3_600_000 } } });
+  const routine = await api(source, "POST", "/api/routines", {
+    body: {
+      name: "Weekly plan",
+      prompt: "Plan the week.",
+      botId: planner.id,
+      enabled: true,
+      schedule: { type: "interval", everyMinutes: 60, anchorAt: Date.now() + 3_600_000 },
+    },
+  });
   expect(routine.status, JSON.stringify(routine.body)).toBe(201);
   movedRoutine = routine.body.routine.id;
-  const room = await api(source, "POST", "/api/groups", { body: { name: "Launch room", memberIds: [planner.id] } });
+  const room = await api(source, "POST", "/api/groups", {
+    body: { name: "Launch room", memberIds: [planner.id] },
+  });
   expect(room.status, JSON.stringify(room.body)).toBe(201);
   desktopBots = (await botNames(source)).sort();
   expect(desktopBots).toHaveLength(2);
   const saved = readFileSync(join(source.dataDir, "config.json"), "utf8");
-  for (const value of [SOURCE_SECRETS.anthropic, SOURCE_SECRETS.tts, SOURCE_SECRETS.box, SOURCE_SECRETS.env]) expect(saved).toContain(value);
+  for (const value of [
+    SOURCE_SECRETS.anthropic,
+    SOURCE_SECRETS.tts,
+    SOURCE_SECRETS.box,
+    SOURCE_SECRETS.env,
+  ])
+    expect(saved).toContain(value);
 }, 90_000);
 
 afterAll(async () => {
@@ -240,7 +437,8 @@ afterAll(async () => {
     fixture.closing = true;
     await waitForExit(fixture.child, { signal: "SIGTERM" });
   }
-  for (const directory of [source?.home, cloud?.home, server?.home, scratch]) if (directory) await removeTempDir(directory);
+  for (const directory of [source?.home, cloud?.home, server?.home, scratch])
+    if (directory) await removeTempDir(directory);
   const failed = [source, cloud, server].find((fixture) => fixture?.failure);
   if (failed) throw failed.failure;
 });
@@ -252,27 +450,54 @@ it("moves this computer's bots, chats and rooms to an empty Cloud, which keeps i
   const boots = cloud.boots;
 
   const result = await mover().move(cloudHome);
-  expect(result, why(result, cloud)).toMatchObject({ phase: "done", action: "move", previous: false, routines: 1, destination: { id: "cloud", origin: ORIGIN, kind: "cloud" } });
+  expect(result, why(result, cloud)).toMatchObject({
+    phase: "done",
+    action: "move",
+    previous: false,
+    routines: 1,
+    destination: { id: "cloud", origin: ORIGIN, kind: "cloud" },
+  });
   expect(result.moved).toMatchObject({ bots: 2, rooms: 1, chats: 1 });
   expect(cloud.boots).toBe(boots + 1);
 
   const session = await api(cloud, "GET", "/api/auth/session", { token: windowToken });
-  expect(session.body).toMatchObject({ kind: "session", cloudHome: true, scopes: ["admin", "client"] });
+  expect(session.body).toMatchObject({
+    kind: "session",
+    cloudHome: true,
+    scopes: ["admin", "client"],
+  });
   expect((await botNames(cloud, windowToken)).sort()).toEqual(desktopBots);
   const moved = (await api(cloud, "GET", "/api/bots", { token: windowToken })).body;
   const planner = moved.bots.find((bot: { name: string }) => bot.name === "Moved Planner");
-  const transcript = await api(cloud, "GET", `/api/threads/${planner.threadId}/messages`, { token: windowToken });
+  const transcript = await api(cloud, "GET", `/api/threads/${planner.threadId}/messages`, {
+    token: windowToken,
+  });
   expect(JSON.stringify(transcript.body.messages)).toContain("Plan the launch party");
   const ownerKey = `p_${createHash("sha256").update("cloud-owner:3f9c2a4e-8b1d-4c6e-9a7f-2d5e8c1b0a93").digest("base64url").slice(0, 22)}`;
-  expect(JSON.parse(readFileSync(join(cloud.dataDir, "lending-routines.json"), "utf8")).writers[movedRoutine]).toBe(ownerKey);
+  expect(
+    JSON.parse(readFileSync(join(cloud.dataDir, "lending-routines.json"), "utf8")).writers[
+      movedRoutine
+    ],
+  ).toBe(ownerKey);
   expect(cloud.log).toContain("settled what came before (a restore)");
-  const resumed = await api(cloud, "PATCH", `/api/routines/${movedRoutine}`, { token: windowToken, body: { enabled: true } });
+  const resumed = await api(cloud, "PATCH", `/api/routines/${movedRoutine}`, {
+    token: windowToken,
+    body: { enabled: true },
+  });
   expect(resumed.status, JSON.stringify(resumed.body)).toBe(200);
   const authors = JSON.parse(readFileSync(join(cloud.dataDir, "lending-routines.json"), "utf8"));
   expect(authors.writers[movedRoutine]).toBe(ownerKey);
   expect(authors.routines[movedRoutine]).toMatch(/^[a-f0-9]{64}$/);
-  expect((await api(cloud, "PATCH", `/api/routines/${movedRoutine}`, { token: windowToken, body: { enabled: false } })).status).toBe(200);
-  const sessions = (await api(cloud, "GET", "/api/auth/sessions", { token: windowToken })).body.sessions as Array<{ label: string }>;
+  expect(
+    (
+      await api(cloud, "PATCH", `/api/routines/${movedRoutine}`, {
+        token: windowToken,
+        body: { enabled: false },
+      })
+    ).status,
+  ).toBe(200);
+  const sessions = (await api(cloud, "GET", "/api/auth/sessions", { token: windowToken })).body
+    .sessions as Array<{ label: string }>;
   expect(sessions.map((entry) => entry.label)).not.toContain("Copy from desktop");
 
   const config = JSON.parse(readFileSync(join(cloud.dataDir, "config.json"), "utf8"));
@@ -280,28 +505,53 @@ it("moves this computer's bots, chats and rooms to an empty Cloud, which keeps i
   expect(config.features?.sharedComputers).toBeUndefined();
   for (const file of filesUnder(cloud.home)) {
     const text = readFileSync(file).toString("latin1");
-    for (const value of Object.values(SOURCE_SECRETS)) expect(text.includes(value), `${value} in ${file}`).toBe(false);
+    for (const value of Object.values(SOURCE_SECRETS))
+      expect(text.includes(value), `${value} in ${file}`).toBe(false);
   }
-  expect(readdirSync(join(cloud.dataDir, ".backups")).filter((name) => name.startsWith("safety-") || /^[0-9a-f-]{36}$/.test(name))).toEqual([]);
+  expect(
+    readdirSync(join(cloud.dataDir, ".backups")).filter(
+      (name) => name.startsWith("safety-") || /^[0-9a-f-]{36}$/.test(name),
+    ),
+  ).toEqual([]);
   expect((await botNames(source)).sort()).toEqual(desktopBots);
-  expect(readFileSync(join(source.dataDir, "config.json"), "utf8")).toContain(SOURCE_SECRETS.anthropic);
+  expect(readFileSync(join(source.dataDir, "config.json"), "utf8")).toContain(
+    SOURCE_SECRETS.anthropic,
+  );
 }, 150_000);
 
 it("the bundle a move sends carries no key, sign-in, credential or session of this computer", async () => {
   const password = "fixture bundle password";
-  const exported = await api(source, "POST", "/api/workspace-backup/export", { body: { password, clientState: {} } });
+  const exported = await api(source, "POST", "/api/workspace-backup/export", {
+    body: { password, clientState: {} },
+  });
   expect(exported.status, JSON.stringify(exported.body)).toBe(200);
   const archive = join(scratch, "bundle.dogbackup");
-  writeFileSync(archive, Buffer.from(await (await fetch(`${source.base}/api/workspace-backup/download/${exported.body.id}`)).arrayBuffer()));
+  writeFileSync(
+    archive,
+    Buffer.from(
+      await (
+        await fetch(`${source.base}/api/workspace-backup/download/${exported.body.id}`)
+      ).arrayBuffer(),
+    ),
+  );
   const inspect = mkdtempSync(join(scratch, "bundle-"));
   const staged = await stageWorkspaceBackup(inspect, archive, { password });
   const data = join(inspect, ".backups", staged.id, "staged", "data");
   const config = JSON.parse(readFileSync(join(data, "config.json"), "utf8"));
-  for (const field of ["anthropic", "tts", "box", "instances", "mcpServers", "signIn"]) expect(config).not.toHaveProperty(field);
-  for (const path of ["workspace-credentials.json", "providers", "sessions.json", "sessions.json.open", "environment-id"]) expect(existsSync(join(data, path)), path).toBe(false);
+  for (const field of ["anthropic", "tts", "box", "instances", "mcpServers", "signIn"])
+    expect(config).not.toHaveProperty(field);
+  for (const path of [
+    "workspace-credentials.json",
+    "providers",
+    "sessions.json",
+    "sessions.json.open",
+    "environment-id",
+  ])
+    expect(existsSync(join(data, path)), path).toBe(false);
   for (const file of filesUnder(data)) {
     const text = readFileSync(file).toString("latin1");
-    for (const value of Object.values(SOURCE_SECRETS)) expect(text.includes(value), `${value} in ${file}`).toBe(false);
+    for (const value of Object.values(SOURCE_SECRETS))
+      expect(text.includes(value), `${value} in ${file}`).toBe(false);
   }
   expect(readFileSync(join(data, "bots.json"), "utf8")).toContain("Moved Planner");
 }, 60_000);
@@ -320,46 +570,84 @@ it("backs up a Cloud that has work before replacing it; swapping back keeps what
   await newBot(cloud, "Post-move work", windowToken);
   const swapped = await mover().restorePrevious(cloudHome);
   expect(swapped, why(swapped, cloud)).toMatchObject({ phase: "done", action: "restore" });
-  expect((await botNames(cloud, windowToken)).sort()).toEqual(["Cloud-only bot", ...desktopBots].sort());
-  expect((await api(cloud, "GET", "/api/cloud-move", { token: windowToken })).body.previous).toMatchObject({ bots: 3, rooms: 1 });
+  expect((await botNames(cloud, windowToken)).sort()).toEqual(
+    ["Cloud-only bot", ...desktopBots].sort(),
+  );
+  expect(
+    (await api(cloud, "GET", "/api/cloud-move", { token: windowToken })).body.previous,
+  ).toMatchObject({ bots: 3, rooms: 1 });
   const again = await mover().restorePrevious(cloudHome);
   expect(again, why(again, cloud)).toMatchObject({ phase: "done", action: "restore" });
-  expect((await botNames(cloud, windowToken)).sort()).toEqual(["Post-move work", ...desktopBots].sort());
+  expect((await botNames(cloud, windowToken)).sort()).toEqual(
+    ["Post-move work", ...desktopBots].sort(),
+  );
 
   const backups = join(cloud.dataDir, ".backups");
-  expect(readdirSync(backups).filter((name) => name.startsWith("safety-") || /^[0-9a-f-]{36}$/.test(name) || name === "cloud-previous.next")).toEqual([]);
+  expect(
+    readdirSync(backups).filter(
+      (name) =>
+        name.startsWith("safety-") ||
+        /^[0-9a-f-]{36}$/.test(name) ||
+        name === "cloud-previous.next",
+    ),
+  ).toEqual([]);
   const held = (await api(cloud, "GET", "/api/cloud-move", { token: windowToken })).body;
   const archive = lstatSync(join(backups, "cloud-previous", "workspace.dogbackup")).size;
   expect(held.previous.bytes).toBe(archive);
   expect(held.heldBytes).toBeLessThan(archive + 256 * 1024);
   const config = JSON.parse(readFileSync(join(cloud.dataDir, "config.json"), "utf8"));
   expect(config.anthropic).toEqual({ key: CLOUD_KEY });
-  expect((await api(cloud, "GET", "/api/auth/session", { token: windowToken })).body).toMatchObject({ kind: "session", cloudHome: true });
+  expect((await api(cloud, "GET", "/api/auth/session", { token: windowToken })).body).toMatchObject(
+    { kind: "session", cloudHome: true },
+  );
 }, 300_000);
 
 it("copies this computer to an empty self-hosted server by the same path: the window's own owner session mints the code, and the server keeps its own key", async () => {
   const before = await api(server, "GET", "/api/cloud-move", { cookie: serverCookie });
   expect(before.status, JSON.stringify(before.body)).toBe(200);
-  expect(before.body).toMatchObject({ empty: true, previous: null, environmentId: expect.any(String) });
+  expect(before.body).toMatchObject({
+    empty: true,
+    previous: null,
+    environmentId: expect.any(String),
+  });
   const boots = server.boots;
 
   const result = await mover().move(selfHosted, { requireEmpty: true });
-  expect(result, why(result, server)).toMatchObject({ phase: "done", action: "move", previous: false, routines: 1, destination: { id: "self", origin: SERVER_ORIGIN, kind: "server" } });
+  expect(result, why(result, server)).toMatchObject({
+    phase: "done",
+    action: "move",
+    previous: false,
+    routines: 1,
+    destination: { id: "self", origin: SERVER_ORIGIN, kind: "server" },
+  });
   expect(result.moved).toMatchObject({ bots: 2, rooms: 1, chats: 1 });
   expect(server.boots).toBe(boots + 1);
 
-  expect((await api(server, "GET", "/api/auth/session", { cookie: serverCookie })).body).toMatchObject({ kind: "session", scopes: ["admin", "client"] });
-  const sessions = (await api(server, "GET", "/api/auth/sessions", { cookie: serverCookie })).body.sessions as Array<{ label: string }>;
+  expect(
+    (await api(server, "GET", "/api/auth/session", { cookie: serverCookie })).body,
+  ).toMatchObject({ kind: "session", scopes: ["admin", "client"] });
+  const sessions = (await api(server, "GET", "/api/auth/sessions", { cookie: serverCookie })).body
+    .sessions as Array<{ label: string }>;
   expect(sessions.map((entry) => entry.label)).not.toContain("Copy from desktop");
   expect((await botNames(server, undefined)).sort()).toEqual(desktopBots);
-  const routines = (await api(server, "GET", "/api/routines")).body.routines as Array<{ id: string; enabled: boolean }>;
+  const routines = (await api(server, "GET", "/api/routines")).body.routines as Array<{
+    id: string;
+    enabled: boolean;
+  }>;
   expect(routines.find((routine) => routine.id === movedRoutine)).toMatchObject({ enabled: false });
-  expect(JSON.parse(readFileSync(join(server.dataDir, "config.json"), "utf8")).anthropic).toEqual({ key: SERVER_KEY });
+  expect(JSON.parse(readFileSync(join(server.dataDir, "config.json"), "utf8")).anthropic).toEqual({
+    key: SERVER_KEY,
+  });
   for (const file of filesUnder(server.home)) {
     const text = readFileSync(file).toString("latin1");
-    for (const value of Object.values(SOURCE_SECRETS)) expect(text.includes(value), `${value} in ${file}`).toBe(false);
+    for (const value of Object.values(SOURCE_SECRETS))
+      expect(text.includes(value), `${value} in ${file}`).toBe(false);
   }
-  expect(readdirSync(join(server.dataDir, ".backups")).filter((name) => name.startsWith("safety-") || /^[0-9a-f-]{36}$/.test(name))).toEqual([]);
+  expect(
+    readdirSync(join(server.dataDir, ".backups")).filter(
+      (name) => name.startsWith("safety-") || /^[0-9a-f-]{36}$/.test(name),
+    ),
+  ).toEqual([]);
 }, 150_000);
 
 it("a self-hosted server with work is replaced only from this computer's Settings, backed up first, and swaps back", async () => {
@@ -371,14 +659,29 @@ it("a self-hosted server with work is replaced only from this computer's Setting
   const result = await mover().move(selfHosted);
   expect(result, why(result, server)).toMatchObject({ phase: "done", previous: true });
   expect((await botNames(server)).sort()).toEqual(desktopBots);
-  expect((await api(server, "GET", "/api/cloud-move", { cookie: serverCookie })).body.previous).toMatchObject({ bots: 3, rooms: 1 });
+  expect(
+    (await api(server, "GET", "/api/cloud-move", { cookie: serverCookie })).body.previous,
+  ).toMatchObject({ bots: 3, rooms: 1 });
   const swapped = await mover().restorePrevious(selfHosted);
   expect(swapped, why(swapped, server)).toMatchObject({ phase: "done", action: "restore" });
   expect((await botNames(server)).sort()).toEqual(["Server-only bot", ...desktopBots].sort());
-  expect(readdirSync(join(server.dataDir, ".backups")).filter((name) => name.startsWith("safety-") || /^[0-9a-f-]{36}$/.test(name) || name === "cloud-previous.next")).toEqual([]);
-  expect((await api(server, "GET", "/api/auth/session", { cookie: serverCookie })).body).toMatchObject({ kind: "session" });
+  expect(
+    readdirSync(join(server.dataDir, ".backups")).filter(
+      (name) =>
+        name.startsWith("safety-") ||
+        /^[0-9a-f-]{36}$/.test(name) ||
+        name === "cloud-previous.next",
+    ),
+  ).toEqual([]);
+  expect(
+    (await api(server, "GET", "/api/auth/session", { cookie: serverCookie })).body,
+  ).toMatchObject({ kind: "session" });
 
-  const kept = async () => (await api(server, "GET", "/api/cloud-move", { cookie: serverCookie })).body.previous as { createdAt: string; bots: number };
+  const kept = async () =>
+    (await api(server, "GET", "/api/cloud-move", { cookie: serverCookie })).body.previous as {
+      createdAt: string;
+      bots: number;
+    };
   const firstCopy = await mover().move(selfHosted);
   expect(firstCopy, why(firstCopy, server)).toMatchObject({ phase: "done", previous: true });
   const first = await kept();
@@ -399,7 +702,10 @@ it("a self-hosted server whose email sign-in lets other people in never receives
     server.closing = true;
     await waitForExit(server.child, { signal: "SIGTERM" });
     const config = JSON.parse(readFileSync(join(server.dataDir, "config.json"), "utf8"));
-    writeFileSync(join(server.dataDir, "config.json"), JSON.stringify({ ...config, signIn: lists }));
+    writeFileSync(
+      join(server.dataDir, "config.json"),
+      JSON.stringify({ ...config, signIn: lists }),
+    );
     server.closing = false;
     await boot(server);
   };
@@ -418,44 +724,101 @@ it("a self-hosted server whose email sign-in lets other people in never receives
 
 it("refuses a move too big for a Cloud, an upload that is not a backup, and anyone but the owner's app", async () => {
   const sha256 = (bytes: Buffer) => createHash("sha256").update(bytes).digest("hex");
-  const tooBig = await api(cloud, "POST", "/api/cloud-move/upload", { token: windowToken, body: { sha256: "a".repeat(64), bytes: 11 * 1024 ** 3 } });
+  const tooBig = await api(cloud, "POST", "/api/cloud-move/upload", {
+    token: windowToken,
+    body: { sha256: "a".repeat(64), bytes: 11 * 1024 ** 3 },
+  });
   expect(tooBig.status).toBe(413);
-  const tooMany = await api(cloud, "POST", "/api/cloud-move/upload", { token: windowToken, body: { sha256: "a".repeat(64), bytes: 4096, files: 100_001 } });
+  const tooMany = await api(cloud, "POST", "/api/cloud-move/upload", {
+    token: windowToken,
+    body: { sha256: "a".repeat(64), bytes: 4096, files: 100_001 },
+  });
   expect(tooMany.status).toBe(413);
 
   const garbage = randomBytes(4096);
-  const begun = await api(cloud, "POST", "/api/cloud-move/upload", { token: windowToken, body: { sha256: sha256(garbage), bytes: garbage.length } });
+  const begun = await api(cloud, "POST", "/api/cloud-move/upload", {
+    token: windowToken,
+    body: { sha256: sha256(garbage), bytes: garbage.length },
+  });
   expect(begun.body).toMatchObject({ received: 0 });
-  const beyond = await api(cloud, "PUT", `/api/cloud-move/upload/${sha256(garbage)}?offset=0`, { token: windowToken, raw: Buffer.concat([garbage, Buffer.alloc(1)]) });
+  const beyond = await api(cloud, "PUT", `/api/cloud-move/upload/${sha256(garbage)}?offset=0`, {
+    token: windowToken,
+    raw: Buffer.concat([garbage, Buffer.alloc(1)]),
+  });
   expect(beyond.status).toBe(413);
-  expect((await api(cloud, "PUT", `/api/cloud-move/upload/${sha256(garbage)}?offset=0`, { token: windowToken, raw: garbage })).body).toEqual({ received: 4096 });
-  expect((await api(cloud, "POST", "/api/cloud-move/preview", { token: windowToken, body: { sha256: sha256(garbage), password: "fixture password 123" } })).status).toBe(202);
-  await expect.poll(async () => (await api(cloud, "GET", "/api/cloud-move", { token: windowToken })).body.job?.state, { timeout: 15_000 }).toBe("failed");
+  expect(
+    (
+      await api(cloud, "PUT", `/api/cloud-move/upload/${sha256(garbage)}?offset=0`, {
+        token: windowToken,
+        raw: garbage,
+      })
+    ).body,
+  ).toEqual({ received: 4096 });
+  expect(
+    (
+      await api(cloud, "POST", "/api/cloud-move/preview", {
+        token: windowToken,
+        body: { sha256: sha256(garbage), password: "fixture password 123" },
+      })
+    ).status,
+  ).toBe(202);
+  await expect
+    .poll(
+      async () =>
+        (await api(cloud, "GET", "/api/cloud-move", { token: windowToken })).body.job?.state,
+      { timeout: 15_000 },
+    )
+    .toBe("failed");
   const refused = (await api(cloud, "GET", "/api/cloud-move", { token: windowToken })).body;
   expect(refused.job.error).toMatch(/not a supported encrypted workspace backup/);
   expect(refused.upload).toBeNull();
 
   expect((await api(cloud, "GET", "/api/cloud-move")).status).toBe(403);
   expect((await api(cloud, "POST", "/api/cloud-move/undo", { body: {} })).status).toBe(403);
-  const invite = await api(cloud, "POST", "/api/auth/pairing", { token: windowToken, body: { scopes: ["client"], label: "Phone" } });
-  const phone = (await api(cloud, "POST", "/api/auth/pair", { remote: true, body: { code: invite.body.code } })).body.token;
+  const invite = await api(cloud, "POST", "/api/auth/pairing", {
+    token: windowToken,
+    body: { scopes: ["client"], label: "Phone" },
+  });
+  const phone = (
+    await api(cloud, "POST", "/api/auth/pair", { remote: true, body: { code: invite.body.code } })
+  ).body.token;
   expect((await api(cloud, "GET", "/api/cloud-move", { token: phone })).status).toBe(403);
-  expect((await api(cloud, "POST", "/api/cloud-move/restore", { token: phone, body: { id: "3f9c2a4e-8b1d-4c6e-9a7f-2d5e8c1b0a93" } })).status).toBe(403);
-  expect([401, 403]).toContain((await api(cloud, "GET", "/api/cloud-move", { remote: true })).status);
+  expect(
+    (
+      await api(cloud, "POST", "/api/cloud-move/restore", {
+        token: phone,
+        body: { id: "3f9c2a4e-8b1d-4c6e-9a7f-2d5e8c1b0a93" },
+      })
+    ).status,
+  ).toBe(403);
+  expect([401, 403]).toContain(
+    (await api(cloud, "GET", "/api/cloud-move", { remote: true })).status,
+  );
   expect((await api(source, "GET", "/api/cloud-move")).status).toBe(403);
-  expect((await api(source, "GET", "/api/cloud-move/estimate")).body).toMatchObject({ bots: 2, rooms: 1, chats: 1 });
+  expect((await api(source, "GET", "/api/cloud-move/estimate")).body).toMatchObject({
+    bots: 2,
+    rooms: 1,
+    chats: 1,
+  });
 }, 60_000);
 
 it("a process on the machine (a bot's shell, bare loopback) cannot pair itself as the owner or reach any owner route", async () => {
   for (const scopes of [["admin", "client"], ["client"]]) {
-    const minted = await api(cloud, "POST", "/api/auth/pairing", { body: { scopes, label: "bot shell" } });
+    const minted = await api(cloud, "POST", "/api/auth/pairing", {
+      body: { scopes, label: "bot shell" },
+    });
     expect(minted.status, JSON.stringify(minted.body)).toBe(403);
   }
   for (const [method, path, body] of [
-    ["GET", "/api/cloud-move", undefined], ["GET", "/api/config", undefined], ["GET", "/api/auth/sessions", undefined],
+    ["GET", "/api/cloud-move", undefined],
+    ["GET", "/api/config", undefined],
+    ["GET", "/api/auth/sessions", undefined],
     ["PATCH", "/api/config", { profile: { name: "Shell" } }],
   ] as const) {
-    expect((await api(cloud, method, path, body === undefined ? {} : { body })).status, `${method} ${path}`).toBe(403);
+    expect(
+      (await api(cloud, method, path, body === undefined ? {} : { body })).status,
+      `${method} ${path}`,
+    ).toBe(403);
   }
   expect((await api(cloud, "GET", "/api/health")).status).toBe(200);
 }, 60_000);

@@ -159,13 +159,13 @@ listed in runs.json stays in the report even if its job file is missing. Without
 a timed-out, queued or skipped job cannot be inferred to have succeeded. Completed successful
 work has a separate workflow/event table so an early failure cannot satisfy a speed target.
 
-| sample | n | p50 seconds | p95 seconds |
-| --- | --- | --- | --- |
-| Linux waiting, measured jobs | 858 | 3 | 4 |
-| Linux setup, measured jobs | 871 | 18 | 35 |
-| Linux running, completed work steps | 844 | 164 | 971 |
-| Historical main checks, successful pull requests only | 8 | 988 | 1105 |
-| Restored checks, successful completed pull requests | 0 | unknown | unknown |
+| sample                                                | n   | p50 seconds | p95 seconds |
+| ----------------------------------------------------- | --- | ----------- | ----------- |
+| Linux waiting, measured jobs                          | 858 | 3           | 4           |
+| Linux setup, measured jobs                            | 871 | 18          | 35          |
+| Linux running, completed work steps                   | 844 | 164         | 971         |
+| Historical main checks, successful pull requests only | 8   | 988         | 1105        |
+| Restored checks, successful completed pull requests   | 0   | unknown     | unknown     |
 
 The current prepare-action classification matters: for the same three restored lint jobs,
 setup changes from a misleading 4 / 5 seconds to 44 / 47 seconds; running changes from

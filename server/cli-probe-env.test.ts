@@ -11,13 +11,25 @@ import { leasePortBlock } from "./testing/ports.ts";
 
 const SERVER_DIR = dirname(fileURLToPath(import.meta.url));
 const HOSTED_ONLY = ["LATERDOG_HOSTED_MODELS", "LATERDOG_HOSTED_MODEL_TOKEN"];
-const secretNames = [...new Set<string>([
-  ...WORKSPACE_CREDENTIAL_ENV, ...PROVIDER_CREDENTIAL_ENV, ...CONTROL_PLANE_ENV, "LATERDOG_CLOUD_FIXTURE_TOKEN",
-])].filter((name) => !HOSTED_ONLY.includes(name));
-const secrets: Record<string, string> = Object.fromEntries(secretNames.map((name) => {
-  const unique = randomBytes(12).toString("hex");
-  return [name, name.endsWith("_URL") ? `https://fixture-${unique}.example.test/v1` : `fixture-${name.toLowerCase()}-${unique}`];
-}));
+const secretNames = [
+  ...new Set<string>([
+    ...WORKSPACE_CREDENTIAL_ENV,
+    ...PROVIDER_CREDENTIAL_ENV,
+    ...CONTROL_PLANE_ENV,
+    "LATERDOG_CLOUD_FIXTURE_TOKEN",
+  ]),
+].filter((name) => !HOSTED_ONLY.includes(name));
+const secrets: Record<string, string> = Object.fromEntries(
+  secretNames.map((name) => {
+    const unique = randomBytes(12).toString("hex");
+    return [
+      name,
+      name.endsWith("_URL")
+        ? `https://fixture-${unique}.example.test/v1`
+        : `fixture-${name.toLowerCase()}-${unique}`,
+    ];
+  }),
+);
 const kept = { HTTPS_PROXY: "http://proxy.example.test:3128", NO_PROXY: "localhost,127.0.0.1" };
 let home: string;
 let base: string;
@@ -30,16 +42,20 @@ async function post(path: string, body: unknown) {
     headers: { "content-type": "application/json" },
     body: JSON.stringify(body),
   });
-  return { status: response.status, body: await response.json().catch(() => null) as any };
+  return { status: response.status, body: (await response.json().catch(() => null)) as any };
 }
 
 const stubCli = (...fixed: string[]) =>
-  [process.execPath, join(home, "stub-cli.mjs"), ...fixed].map((part) => JSON.stringify(part)).join(" ");
+  [process.execPath, join(home, "stub-cli.mjs"), ...fixed]
+    .map((part) => JSON.stringify(part))
+    .join(" ");
 
 function expectNoCredentials(file: string) {
   const env = JSON.parse(readFileSync(file, "utf8")) as Record<string, string>;
   expect(env.HOME).toBe(home);
-  expect(env.PATH?.split(delimiter)).toEqual(expect.arrayContaining(process.env.PATH!.split(delimiter).filter(Boolean)));
+  expect(env.PATH?.split(delimiter)).toEqual(
+    expect.arrayContaining(process.env.PATH!.split(delimiter).filter(Boolean)),
+  );
   expect(env).toMatchObject(kept);
   const leaked = secretNames.filter((name) => name in env);
   expect(leaked).toEqual([]);
@@ -51,19 +67,30 @@ beforeAll(async () => {
   home = mkdtempSync(join(tmpdir(), "laterdog-cli-probe-env-"));
   const dataDir = join(home, ".laterdog");
   mkdirSync(dataDir, { recursive: true });
-  writeFileSync(join(home, "stub-cli.mjs"), `import { writeFileSync } from "node:fs";
+  writeFileSync(
+    join(home, "stub-cli.mjs"),
+    `import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 const args = process.argv.slice(2);
 if (args[0] === "probe" || args[0] === "update") writeFileSync(join(${JSON.stringify(home)}, args[0] + "-env.json"), JSON.stringify(process.env));
 if (args[0] === "auth") console.log(JSON.stringify({ loggedIn: true, authMethod: "claude.ai", apiProvider: "firstParty" }));
 else if (args.at(-1) === "--version") console.log("9.9.9 (Claude Code)");
-`);
-  writeFileSync(join(dataDir, "config.json"), JSON.stringify({
-    instances: {
-      ...Object.fromEntries(["codex", "cursor", "openaiCompat", "mistral", "qwen", "hermes", "pi"].map((id) => [id, { driver: "not-a-real-driver" }])),
-      claude: { driver: "claudeAgent", displayName: "Claude", config: { cli: stubCli() } },
-    },
-  }));
+`,
+  );
+  writeFileSync(
+    join(dataDir, "config.json"),
+    JSON.stringify({
+      instances: {
+        ...Object.fromEntries(
+          ["codex", "cursor", "openaiCompat", "mistral", "qwen", "hermes", "pi"].map((id) => [
+            id,
+            { driver: "not-a-real-driver" },
+          ]),
+        ),
+        claude: { driver: "claudeAgent", displayName: "Claude", config: { cli: stubCli() } },
+      },
+    }),
+  );
   const port = await leasePortBlock([0, 1]);
   base = `http://127.0.0.1:${port}`;
   const offlinePrelude = `data:text/javascript,${encodeURIComponent('globalThis.fetch = async () => new Response("offline fixture", { status: 503 });')}`;
@@ -73,20 +100,28 @@ else if (args.at(-1) === "--version") console.log("9.9.9 (Claude Code)");
       PATH: process.env.PATH,
       ...(process.env.PATHEXT ? { PATHEXT: process.env.PATHEXT } : {}),
       ...(process.env.SystemRoot ? { SystemRoot: process.env.SystemRoot } : {}),
-      HOME: home, USERPROFILE: home, LATERDOG_HOME: dataDir, LATERDOG_SERVER_PORT: String(port), LATERDOG_WEBHOOK_PORT: String(port + 1),
+      HOME: home,
+      USERPROFILE: home,
+      LATERDOG_HOME: dataDir,
+      LATERDOG_SERVER_PORT: String(port),
+      LATERDOG_WEBHOOK_PORT: String(port + 1),
       ...kept,
       ...secrets,
     },
     stdio: ["ignore", "pipe", "pipe"],
   });
-  child.stdout?.on("data", (chunk) => { log += chunk; });
-  child.stderr?.on("data", (chunk) => { log += chunk; });
+  child.stdout?.on("data", (chunk) => {
+    log += chunk;
+  });
+  child.stderr?.on("data", (chunk) => {
+    log += chunk;
+  });
   const deadline = Date.now() + 20_000;
   for (;;) {
     if (child.exitCode !== null) throw new Error(`the server exited:\n${log}`);
     try {
       const health = await fetch(`${base}/api/health`);
-      if (health.ok && (await health.json() as { pid?: number }).pid === child.pid) break;
+      if (health.ok && ((await health.json()) as { pid?: number }).pid === child.pid) break;
     } catch {}
     if (Date.now() > deadline) throw new Error(`the server did not start:\n${log}`);
     await new Promise((resolve) => setTimeout(resolve, 100));
@@ -100,12 +135,18 @@ afterAll(async () => {
 
 it("probes a CLI chosen in Settings without handing it any credential the server holds", async () => {
   const probe = await post("/api/cli-test", { cli: stubCli("probe") });
-  expect(probe.body, JSON.stringify(probe.body)).toMatchObject({ ok: true, version: "9.9.9 (Claude Code)" });
+  expect(probe.body, JSON.stringify(probe.body)).toMatchObject({
+    ok: true,
+    version: "9.9.9 (Claude Code)",
+  });
   expectNoCredentials(join(home, "probe-env.json"));
 });
 
 it("updates Claude Code without handing the updater any credential the server holds", async () => {
   const updated = await post("/api/instances/claude/claude-update", {});
-  expect(updated.body, JSON.stringify(updated.body)).toEqual({ ok: true, version: "9.9.9 (Claude Code)" });
+  expect(updated.body, JSON.stringify(updated.body)).toEqual({
+    ok: true,
+    version: "9.9.9 (Claude Code)",
+  });
   expectNoCredentials(join(home, "update-env.json"));
 });

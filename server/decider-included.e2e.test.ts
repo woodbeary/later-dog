@@ -1,7 +1,14 @@
 import { randomBytes } from "node:crypto";
 import { spawn, type ChildProcess } from "node:child_process";
 import { createServer, type Server } from "node:http";
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  writeFileSync,
+} from "node:fs";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -13,27 +20,50 @@ import { leasePortBlock } from "./testing/ports.ts";
 const SERVER_DIR = dirname(fileURLToPath(import.meta.url));
 const FAKE_CLAUDE = join(SERVER_DIR, "testing", "fake-claude-cli.ts");
 const RELAY_PATH = "/relay/api/cloud/services/decider";
-const ROOM_INSTRUCTIONS = "Which bot in this room should answer `new_message`? Choose __everyone__ only when the message needs several members to answer.";
-const ROOM_STATE_KEYS = ["room", "humans_in_room", "bots_in_room", "recent_messages", "new_message"];
+const ROOM_INSTRUCTIONS =
+  "Which bot in this room should answer `new_message`? Choose __everyone__ only when the message needs several members to answer.";
+const ROOM_STATE_KEYS = [
+  "room",
+  "humans_in_room",
+  "bots_in_room",
+  "recent_messages",
+  "new_message",
+];
 const KEY_CHECK = {
   state: { purpose: "later.dog is checking that a decision-model key works." },
   questions: { answer: { type: "noul", instructions: "Is this a connection check?" } },
 };
 
 function relayTakes(raw: string, body: any): boolean {
-  if (Buffer.byteLength(raw) > 64 * 1024 || Buffer.byteLength(JSON.stringify(body.state)) > 24_000) return false;
-  if (JSON.stringify({ state: body.state, questions: body.questions }) === JSON.stringify(KEY_CHECK)) return true;
+  if (Buffer.byteLength(raw) > 64 * 1024 || Buffer.byteLength(JSON.stringify(body.state)) > 24_000)
+    return false;
+  if (
+    JSON.stringify({ state: body.state, questions: body.questions }) === JSON.stringify(KEY_CHECK)
+  )
+    return true;
   const ids = Object.keys(body.questions ?? {});
   const question = body.questions?.answer;
   const state = body.state;
-  return ids.length === 1 && question?.type === "choice" && question.instructions === ROOM_INSTRUCTIONS &&
-    Boolean(state) && typeof state === "object" && Object.keys(state).every((key) => ROOM_STATE_KEYS.includes(key));
+  return (
+    ids.length === 1 &&
+    question?.type === "choice" &&
+    question.instructions === ROOM_INSTRUCTIONS &&
+    Boolean(state) &&
+    typeof state === "object" &&
+    Object.keys(state).every((key) => ROOM_STATE_KEYS.includes(key))
+  );
 }
 const INCLUDED = `laterdog_decide_${randomBytes(32).toString("base64url")}`;
 const OWN = "tsk_own_person_key_5e1c";
 let stub: Server;
 let relayUrl = "";
-const requests: Array<{ side: string; path: string; auth: string; type?: string; refused?: boolean }> = [];
+const requests: Array<{
+  side: string;
+  path: string;
+  auth: string;
+  type?: string;
+  refused?: boolean;
+}> = [];
 let pick = "";
 let home: string;
 let data: string;
@@ -58,23 +88,40 @@ beforeAll(async () => {
     req.on("data", (chunk) => (raw += chunk));
     req.on("end", () => {
       const url = new URL(req.url ?? "/", "http://stub.test");
-      const side = url.pathname.startsWith("/relay/") ? "relay" : url.pathname.startsWith("/jev/") ? "jev" : "";
+      const side = url.pathname.startsWith("/relay/")
+        ? "relay"
+        : url.pathname.startsWith("/jev/")
+          ? "jev"
+          : "";
       const body = JSON.parse(raw || "{}");
       const question = body.questions?.answer;
       const auth = String(req.headers.authorization ?? "");
       const refused = side === "relay" && !relayTakes(raw, body);
-      requests.push({ side, path: url.pathname, auth, type: question?.type, ...(refused ? { refused } : {}) });
+      requests.push({
+        side,
+        path: url.pathname,
+        auth,
+        type: question?.type,
+        ...(refused ? { refused } : {}),
+      });
       const send = (status: number, payload: unknown) => {
         res.writeHead(status, { "content-type": "application/json" });
         res.end(JSON.stringify(payload));
       };
       const route = side === "relay" ? `${RELAY_PATH}/v1/systemone` : "/jev/v1/systemone";
-      if (!side || req.method !== "POST" || url.pathname !== route) return send(404, { error: { type: "not_found" } });
-      if (auth !== (side === "relay" ? `Bearer ${INCLUDED}` : `Bearer ${OWN}`)) return send(401, { error: { type: "invalid_api_key" } });
+      if (!side || req.method !== "POST" || url.pathname !== route)
+        return send(404, { error: { type: "not_found" } });
+      if (auth !== (side === "relay" ? `Bearer ${INCLUDED}` : `Bearer ${OWN}`))
+        return send(401, { error: { type: "invalid_api_key" } });
       if (refused) return send(400, { error: { type: "invalid_request" } });
-      if (question?.type === "noul") return send(200, { answers: { answer: { type: "noul", noul: 0.97 } } });
+      if (question?.type === "noul")
+        return send(200, { answers: { answer: { type: "noul", noul: 0.97 } } });
       const other = Object.keys(question.criteria).find((key) => key !== pick)!;
-      send(200, { answers: { answer: { type: "choice", choice: pick, probabilities: { [pick]: 0.95, [other]: 0.05 } } } });
+      send(200, {
+        answers: {
+          answer: { type: "choice", choice: pick, probabilities: { [pick]: 0.95, [other]: 0.05 } },
+        },
+      });
     });
   });
   await new Promise<void>((resolve) => stub.listen(0, "127.0.0.1", resolve));
@@ -85,15 +132,20 @@ beforeAll(async () => {
   data = join(home, ".laterdog");
   mkdirSync(data, { recursive: true });
   engineDump = join(home, "engine-dump.json");
-  writeFileSync(join(data, "config.json"), JSON.stringify({
-    instances: {
-      quick: {
-        driver: "claudeAgent", displayName: "Quick fixture", config: { cli: FAKE_CLAUDE },
-        environment: { FAKE_CLAUDE_MODE: "happy", FAKE_CLAUDE_DUMP: engineDump },
+  writeFileSync(
+    join(data, "config.json"),
+    JSON.stringify({
+      instances: {
+        quick: {
+          driver: "claudeAgent",
+          displayName: "Quick fixture",
+          config: { cli: FAKE_CLAUDE },
+          environment: { FAKE_CLAUDE_MODE: "happy", FAKE_CLAUDE_DUMP: engineDump },
+        },
       },
-    },
-    decider: { baseUrl: `${stubBase}/jev` },
-  }));
+      decider: { baseUrl: `${stubBase}/jev` },
+    }),
+  );
   const port = await leasePortBlock([0, 1]);
   base = `http://127.0.0.1:${port}`;
   child = spawn(process.execPath, [join(SERVER_DIR, "index.ts")], {
@@ -102,18 +154,28 @@ beforeAll(async () => {
       PATH: process.env.PATH,
       ...(process.env.PATHEXT ? { PATHEXT: process.env.PATHEXT } : {}),
       ...(process.env.SystemRoot ? { SystemRoot: process.env.SystemRoot } : {}),
-      HOME: home, USERPROFILE: home, LATERDOG_HOME: data, LATERDOG_SERVER_PORT: String(port), LATERDOG_WEBHOOK_PORT: String(port + 1),
+      HOME: home,
+      USERPROFILE: home,
+      LATERDOG_HOME: data,
+      LATERDOG_SERVER_PORT: String(port),
+      LATERDOG_WEBHOOK_PORT: String(port + 1),
       LATERDOG_CLOUD_DECIDER_URL: relayUrl,
       LATERDOG_CLOUD_DECIDER_TOKEN: INCLUDED,
     },
     stdio: ["ignore", "pipe", "pipe"],
   });
-  child.stdout?.on("data", (chunk) => { log += chunk; });
-  child.stderr?.on("data", (chunk) => { log += chunk; });
+  child.stdout?.on("data", (chunk) => {
+    log += chunk;
+  });
+  child.stderr?.on("data", (chunk) => {
+    log += chunk;
+  });
   const deadline = Date.now() + 20_000;
   for (;;) {
     if (child.exitCode !== null) throw new Error(`the server exited:\n${log}`);
-    try { if ((await api("GET", "/api/health")).body?.pid === child.pid) break; } catch {}
+    try {
+      if ((await api("GET", "/api/health")).body?.pid === child.pid) break;
+    } catch {}
     if (Date.now() > deadline) throw new Error(`the server did not start:\n${log}`);
     await new Promise((resolve) => setTimeout(resolve, 100));
   }
@@ -125,10 +187,20 @@ afterAll(async () => {
   if (home) await removeTempDir(home);
 });
 
-type RoomMessage = { id: string; kind: string; role: string; from?: { botId: string; name: string }; routedBy?: { provider: string } };
+type RoomMessage = {
+  id: string;
+  kind: string;
+  role: string;
+  from?: { botId: string; name: string };
+  routedBy?: { provider: string };
+};
 
-async function roomMessages(roomId: string): Promise<{ working: boolean; messages: RoomMessage[] }> {
-  const room = (await api("GET", "/api/bots?messages=200")).body.groups.find((group: { id: string }) => group.id === roomId);
+async function roomMessages(
+  roomId: string,
+): Promise<{ working: boolean; messages: RoomMessage[] }> {
+  const room = (await api("GET", "/api/bots?messages=200")).body.groups.find(
+    (group: { id: string }) => group.id === roomId,
+  );
   return { working: Boolean(room?.working), messages: room?.messages ?? [] };
 }
 
@@ -136,17 +208,28 @@ async function round(roomId: string, text: string): Promise<RoomMessage> {
   const before = new Set((await roomMessages(roomId)).messages.map((message) => message.id));
   expect((await api("POST", `/api/groups/${roomId}/messages`, { text })).status).toBe(202);
   let replies: RoomMessage[] = [];
-  await expect.poll(async () => {
-    const { working, messages } = await roomMessages(roomId);
-    replies = messages.filter((message) => !before.has(message.id) && message.kind === "text" && message.role === "bot");
-    return !working && replies.length > 0;
-  }, { timeout: 20_000, interval: 150 }).toBe(true);
+  await expect
+    .poll(
+      async () => {
+        const { working, messages } = await roomMessages(roomId);
+        replies = messages.filter(
+          (message) => !before.has(message.id) && message.kind === "text" && message.role === "bot",
+        );
+        return !working && replies.length > 0;
+      },
+      { timeout: 20_000, interval: 150 },
+    )
+    .toBe(true);
   return replies[0]!;
 }
 
 const routed = () => requests.filter((request) => request.type === "choice");
-const crossed = () => requests.filter((request) =>
-  (request.side === "jev" && request.auth.includes(INCLUDED)) || (request.side === "relay" && !request.auth.includes(INCLUDED)));
+const crossed = () =>
+  requests.filter(
+    (request) =>
+      (request.side === "jev" && request.auth.includes(INCLUDED)) ||
+      (request.side === "relay" && !request.auth.includes(INCLUDED)),
+  );
 
 describe("Cloud Pro's included decision model", { timeout: 90_000 }, () => {
   const bots: Record<string, { id: string }> = {};
@@ -154,17 +237,39 @@ describe("Cloud Pro's included decision model", { timeout: 90_000 }, () => {
 
   it("works with no key: Settings sees it included and on, and a new room starts on Auto", async () => {
     const config = await api("GET", "/api/config");
-    expect(config.body.decider).toEqual({ provider: "jev", configured: true, included: true, enabled: true, jobs: { roomRouting: true } });
+    expect(config.body.decider).toEqual({
+      provider: "jev",
+      configured: true,
+      included: true,
+      enabled: true,
+      jobs: { roomRouting: true },
+    });
     expect(config.text).not.toContain(INCLUDED);
     for (const name of ["Maya", "Theo"]) {
-      bots[name] = (await api("POST", "/api/bots", {
-        name, modelSelection: { instanceId: "quick", model: "claude-sonnet-5" }, requireAvailableModel: true,
-      })).body.bot;
+      bots[name] = (
+        await api("POST", "/api/bots", {
+          name,
+          modelSelection: { instanceId: "quick", model: "claude-sonnet-5" },
+          requireAvailableModel: true,
+        })
+      ).body.bot;
     }
-    const created = await api("POST", "/api/groups", { name: "Launch", memberIds: [bots.Maya!.id, bots.Theo!.id] });
+    const created = await api("POST", "/api/groups", {
+      name: "Launch",
+      memberIds: [bots.Maya!.id, bots.Theo!.id],
+    });
     expect(created.body.group.defaultResponder).toEqual({ kind: "auto" });
     room = created.body.group;
-    expect((await api("PATCH", `/api/groups/${room.id}/setup`, { action: "complete", cwd: null, bulletin: "", defaultResponder: { kind: "auto" } })).status).toBe(200);
+    expect(
+      (
+        await api("PATCH", `/api/groups/${room.id}/setup`, {
+          action: "complete",
+          cwd: null,
+          bulletin: "",
+          defaultResponder: { kind: "auto" },
+        })
+      ).status,
+    ).toBe(200);
   });
 
   it("asks the relay who answers, at exactly <LATERDOG_CLOUD_DECIDER_URL>/v1/systemone with the included token", async () => {
@@ -172,7 +277,11 @@ describe("Cloud Pro's included decision model", { timeout: 90_000 }, () => {
     const reply = await round(room.id, "The signup button overlaps the footer on Safari.");
     expect(reply.from!.name).toBe("Theo");
     expect(reply.routedBy).toMatchObject({ provider: "jev" });
-    expect(routed().at(-1)).toMatchObject({ side: "relay", path: new URL(`${relayUrl}/v1/systemone`).pathname, auth: `Bearer ${INCLUDED}` });
+    expect(routed().at(-1)).toMatchObject({
+      side: "relay",
+      path: new URL(`${relayUrl}/v1/systemone`).pathname,
+      auth: `Bearer ${INCLUDED}`,
+    });
     expect(routed().at(-1)).not.toHaveProperty("refused");
   });
 
@@ -189,14 +298,27 @@ describe("Cloud Pro's included decision model", { timeout: 90_000 }, () => {
   it("an own key wins and goes only to Jev; clearing it falls back to the included decisions", async () => {
     const saved = await api("PUT", "/api/config", { decider: { key: OWN } });
     expect(saved.status, saved.text).toBe(200);
-    expect(saved.body.decider).toEqual({ provider: "jev", configured: true, enabled: true, jobs: { roomRouting: true } });
+    expect(saved.body.decider).toEqual({
+      provider: "jev",
+      configured: true,
+      enabled: true,
+      jobs: { roomRouting: true },
+    });
     pick = bots.Maya!.id;
-    expect((await round(room.id, "Can someone redo the pricing page copy?")).from!.name).toBe("Maya");
+    expect((await round(room.id, "Can someone redo the pricing page copy?")).from!.name).toBe(
+      "Maya",
+    );
     expect(routed().at(-1)).toMatchObject({ side: "jev", auth: `Bearer ${OWN}` });
 
     const cleared = await api("PUT", "/api/config", { decider: { key: "" } });
     expect(cleared.status, cleared.text).toBe(200);
-    expect(cleared.body.decider).toEqual({ provider: "jev", configured: true, included: true, enabled: true, jobs: { roomRouting: true } });
+    expect(cleared.body.decider).toEqual({
+      provider: "jev",
+      configured: true,
+      included: true,
+      enabled: true,
+      jobs: { roomRouting: true },
+    });
     pick = bots.Theo!.id;
     expect((await round(room.id, "The navbar flickers on scroll.")).from!.name).toBe("Theo");
     expect(routed().at(-1)).toMatchObject({ side: "relay", auth: `Bearer ${INCLUDED}` });
@@ -205,14 +327,23 @@ describe("Cloud Pro's included decision model", { timeout: 90_000 }, () => {
   it("an explicit off wins: no call, the room's lead answers, new rooms keep a lead", async () => {
     const off = await api("PUT", "/api/config", { decider: { enabled: false } });
     expect(off.status, off.text).toBe(200);
-    expect(off.body.decider).toEqual({ provider: "jev", configured: true, included: true, enabled: false, jobs: { roomRouting: true } });
+    expect(off.body.decider).toEqual({
+      provider: "jev",
+      configured: true,
+      included: true,
+      enabled: false,
+      jobs: { roomRouting: true },
+    });
     const asked = routed().length;
     pick = bots.Theo!.id;
     const reply = await round(room.id, "Who can look at the webhook retries?");
     expect(reply.from!.name).toBe("Maya");
     expect(reply.routedBy).toBeUndefined();
     expect(routed().length).toBe(asked);
-    const another = await api("POST", "/api/groups", { name: "Quiet", memberIds: [bots.Maya!.id, bots.Theo!.id] });
+    const another = await api("POST", "/api/groups", {
+      name: "Quiet",
+      memberIds: [bots.Maya!.id, bots.Theo!.id],
+    });
     expect(another.body.group.defaultResponder).not.toEqual({ kind: "auto" });
     const on = await api("PUT", "/api/config", { decider: { enabled: true } });
     expect(on.status, on.text).toBe(200);
@@ -221,11 +352,15 @@ describe("Cloud Pro's included decision model", { timeout: 90_000 }, () => {
 
   it("never sends a credential to the other side, nor the relay a request it refuses, and never saves, logs or hands on the included token", async () => {
     expect(crossed()).toEqual([]);
-    expect(requests.filter((request) => request.side === "relay").map((request) => request.type)).toEqual(["choice", "noul", "choice"]);
+    expect(
+      requests.filter((request) => request.side === "relay").map((request) => request.type),
+    ).toEqual(["choice", "noul", "choice"]);
     expect(requests.filter((request) => request.refused)).toEqual([]);
     expect(readFileSync(join(data, "config.json"), "utf8")).not.toContain(INCLUDED);
     const decisions = join(data, "decider-log");
-    const rows = readdirSync(decisions).map((name) => readFileSync(join(decisions, name), "utf8")).join("");
+    const rows = readdirSync(decisions)
+      .map((name) => readFileSync(join(decisions, name), "utf8"))
+      .join("");
     expect(rows).toContain('"seam":"roomRouting"');
     expect(rows).not.toContain(INCLUDED);
     expect(log).not.toContain(INCLUDED);
@@ -235,11 +370,15 @@ describe("Cloud Pro's included decision model", { timeout: 90_000 }, () => {
     expect(JSON.stringify(engine)).not.toContain(INCLUDED);
     const dump = join(home, "cli-env.json");
     const cli = join(home, "dump-env.mjs");
-    writeFileSync(cli, `#!/usr/bin/env node
+    writeFileSync(
+      cli,
+      `#!/usr/bin/env node
 import { writeFileSync } from "node:fs";
 writeFileSync(${JSON.stringify(dump)}, JSON.stringify(process.env));
 console.log("dump-env 1.0.0");
-`, { mode: 0o755 });
+`,
+      { mode: 0o755 },
+    );
     const probe = await api("POST", "/api/cli-test", { cli });
     expect(probe.body, probe.text).toMatchObject({ ok: true, version: "dump-env 1.0.0" });
     const raw = JSON.parse(readFileSync(dump, "utf8"));

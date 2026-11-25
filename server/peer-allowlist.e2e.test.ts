@@ -50,22 +50,28 @@ beforeAll(async () => {
   const staticDir = join(home, "static");
   mkdirSync(data, { recursive: true });
   mkdirSync(staticDir, { recursive: true });
-  writeFileSync(join(staticDir, "index.html"), "<!doctype html><title>Peer allow-list test</title>");
+  writeFileSync(
+    join(staticDir, "index.html"),
+    "<!doctype html><title>Peer allow-list test</title>",
+  );
   askerDump = join(home, "asker-dump.json");
   boundDump = join(home, "bound-dump.json");
-  writeFileSync(join(data, "config.json"), JSON.stringify({
-    instances: {
-      plain: fixture("Plain fixture"),
-      asker: fixture("Asker fixture", askerDump),
-      bound: fixture("Allow-listed fixture", boundDump),
-      stuck: {
-        driver: "claudeAgent",
-        displayName: "Stuck fixture",
-        environment: { FAKE_CLAUDE_MODE: "hang" },
-        config: { cli: FAKE_CLAUDE },
+  writeFileSync(
+    join(data, "config.json"),
+    JSON.stringify({
+      instances: {
+        plain: fixture("Plain fixture"),
+        asker: fixture("Asker fixture", askerDump),
+        bound: fixture("Allow-listed fixture", boundDump),
+        stuck: {
+          driver: "claudeAgent",
+          displayName: "Stuck fixture",
+          environment: { FAKE_CLAUDE_MODE: "hang" },
+          config: { cli: FAKE_CLAUDE },
+        },
       },
-    },
-  }));
+    }),
+  );
   const port = await leasePortBlock([0, 1]);
   base = `http://127.0.0.1:${port}`;
   child = spawn(process.execPath, [join(SERVER_DIR, "index.ts")], {
@@ -101,11 +107,13 @@ afterAll(async () => {
 });
 
 const createBot = async (name: string, instanceId: string) =>
-  (await api("POST", "/api/bots", {
-    name,
-    modelSelection: { instanceId, model: "claude-sonnet-5" },
-    requireAvailableModel: true,
-  })).body.bot;
+  (
+    await api("POST", "/api/bots", {
+      name,
+      modelSelection: { instanceId, model: "claude-sonnet-5" },
+      requireAvailableModel: true,
+    })
+  ).body.bot;
 
 const readDump = (path: string) => (): { systemPrompt?: string; mcpConfig?: any } | undefined => {
   try {
@@ -161,8 +169,12 @@ describe("peer allow-list", () => {
 
     try {
       rmSync(askerDump, { force: true });
-      expect((await api("POST", `/api/bots/${asker.id}/messages`, { text: "Warm up" })).status).toBe(202);
-      await expect.poll(() => readDump(askerDump)()?.systemPrompt, { timeout: 10_000 }).toBeTruthy();
+      expect(
+        (await api("POST", `/api/bots/${asker.id}/messages`, { text: "Warm up" })).status,
+      ).toBe(202);
+      await expect
+        .poll(() => readDump(askerDump)()?.systemPrompt, { timeout: 10_000 })
+        .toBeTruthy();
       const dump = readDump(askerDump)()!;
 
       const systemPrompt = String(dump.systemPrompt);
@@ -173,21 +185,26 @@ describe("peer allow-list", () => {
       expect(systemPrompt).toContain("make a real dog yourself with create_bot");
       expect(systemPrompt).not.toContain("list_team_setup");
 
-      const providerToken = String(dump.mcpConfig?.mcpServers?.agents?.env?.LATERDOG_COMMS_TOKEN ?? "");
+      const providerToken = String(
+        dump.mcpConfig?.mcpServers?.agents?.env?.LATERDOG_COMMS_TOKEN ?? "",
+      );
       expect(providerToken).toMatch(/^[a-f0-9]{48}$/);
       await expect.poll(() => botBusy(asker.id)).toBe(false);
       const token = await mintCapability(asker.id, asker.threadId);
 
       expect(await peerNames(asker.id, token)).toEqual(["Patch", "Quill"]);
-      const ask = (toBotId: string, message: string) => api(
-        "POST",
-        "/api/internal/coordinate-bots",
-        { botIds: [toBotId], message },
-        { authorization: `Bearer ${token}` },
-      );
+      const ask = (toBotId: string, message: string) =>
+        api(
+          "POST",
+          "/api/internal/coordinate-bots",
+          { botIds: [toBotId], message },
+          { authorization: `Bearer ${token}` },
+        );
       const openAsk = await ask(patch.id, "Patch, still there?");
       expect(openAsk.status).toBe(200);
-      expect(openAsk.body.receipts).toEqual([expect.objectContaining({ botId: patch.id, outcome: "queued" })]);
+      expect(openAsk.body.receipts).toEqual([
+        expect.objectContaining({ botId: patch.id, outcome: "queued" }),
+      ]);
 
       expect((await api("PATCH", `/api/bots/${asker.id}`, { peers: [quill.id] })).status).toBe(200);
       expect(await peerNames(asker.id, token)).toEqual(["Quill"]);
@@ -215,7 +232,9 @@ describe("peer allow-list", () => {
 
     try {
       expect((await api("PATCH", `/api/bots/${bound.id}`, { peers: [near.id] })).status).toBe(200);
-      expect(await peerNames(bound.id, await mintCapability(bound.id, bound.threadId))).toEqual(["Near"]);
+      expect(await peerNames(bound.id, await mintCapability(bound.id, bound.threadId))).toEqual([
+        "Near",
+      ]);
     } finally {
       for (const bot of [bound, near, far]) {
         await api("POST", `/api/bots/${bot.id}/interrupt`, {}).catch(() => undefined);
@@ -231,13 +250,28 @@ describe("peer allow-list", () => {
     const peer = await createBot("Ash", "plain");
     const other = await createBot("Elm", "plain");
     const botState = async (id: string) =>
-      (await api("GET", "/api/bots?messages=0")).body.bots.find((bot: { id: string }) => bot.id === id);
-    const browser = async (path: string, body: unknown) => api("PATCH", path, body, { origin: base });
+      (await api("GET", "/api/bots?messages=0")).body.bots.find(
+        (bot: { id: string }) => bot.id === id,
+      );
+    const browser = async (path: string, body: unknown) =>
+      api("PATCH", path, body, { origin: base });
 
     try {
-      expect((await api("PATCH", `/api/bots/${bound.id}`, { peers: [peer.id], approvePeerComms: true, section: "Ops" })).status).toBe(200);
-      expect((await api("POST", `/api/bots/${held.id}/messages`, { text: "hold the line" })).status).toBe(202);
-      await expect.poll(async () => (await botState(held.id))?.busy, { timeout: 20_000 }).toBe(true);
+      expect(
+        (
+          await api("PATCH", `/api/bots/${bound.id}`, {
+            peers: [peer.id],
+            approvePeerComms: true,
+            section: "Ops",
+          })
+        ).status,
+      ).toBe(200);
+      expect(
+        (await api("POST", `/api/bots/${held.id}/messages`, { text: "hold the line" })).status,
+      ).toBe(202);
+      await expect
+        .poll(async () => (await botState(held.id))?.busy, { timeout: 20_000 })
+        .toBe(true);
 
       const attempts: Array<Record<string, unknown>> = [
         { peers: [peer.id, other.id], acknowledgePeerScope: true },
@@ -251,15 +285,29 @@ describe("peer allow-list", () => {
         expect(refused.status, JSON.stringify(body)).toBe(409);
         expect(String(refused.body.error)).toContain("desktop app or a paired device");
       }
-      expect(await botState(bound.id)).toMatchObject({ peers: [peer.id], approvePeerComms: true, section: "Ops" });
+      expect(await botState(bound.id)).toMatchObject({
+        peers: [peer.id],
+        approvePeerComms: true,
+        section: "Ops",
+      });
       expect((await api("PATCH", `/api/bots/${bound.id}`, { peers: [] })).status).toBe(200);
-      expect((await api("PATCH", `/api/bots/${bound.id}`, { name: "Ivy renamed" })).status).toBe(200);
-      expect((await browser(`/api/bots/${bound.id}`, { peers: [peer.id], acknowledgePeerScope: true })).status).toBe(200);
+      expect((await api("PATCH", `/api/bots/${bound.id}`, { name: "Ivy renamed" })).status).toBe(
+        200,
+      );
+      expect(
+        (await browser(`/api/bots/${bound.id}`, { peers: [peer.id], acknowledgePeerScope: true }))
+          .status,
+      ).toBe(200);
       expect((await browser(`/api/bots/${bound.id}`, { section: "Finance" })).status).toBe(200);
 
       expect((await api("POST", `/api/bots/${held.id}/interrupt`, {})).status).toBe(200);
-      await expect.poll(async () => (await botState(held.id))?.busy, { timeout: 20_000 }).toBeFalsy();
-      expect((await api("PATCH", `/api/bots/${bound.id}`, { peers: null, acknowledgePeerScope: true })).status).toBe(200);
+      await expect
+        .poll(async () => (await botState(held.id))?.busy, { timeout: 20_000 })
+        .toBeFalsy();
+      expect(
+        (await api("PATCH", `/api/bots/${bound.id}`, { peers: null, acknowledgePeerScope: true }))
+          .status,
+      ).toBe(200);
       expect(await botPeers(bound.id)).toBeUndefined();
     } finally {
       for (const bot of [held, bound, peer, other]) {
@@ -276,7 +324,9 @@ describe("peer allow-list", () => {
     const other = await createBot("Elm", "plain");
 
     try {
-      expect((await api("PATCH", `/api/bots/${bound.id}`, { peers: [peer.id, other.id] })).status).toBe(200);
+      expect(
+        (await api("PATCH", `/api/bots/${bound.id}`, { peers: [peer.id, other.id] })).status,
+      ).toBe(200);
       expect((await api("PATCH", `/api/bots/${bound.id}`, { peers: [peer.id] })).status).toBe(200);
       expect(await botPeers(bound.id)).toEqual([peer.id]);
 
@@ -294,7 +344,10 @@ describe("peer allow-list", () => {
       });
       expect(acknowledged.status).toBe(200);
       expect(await botPeers(bound.id)).toEqual([peer.id, other.id]);
-      expect((await api("PATCH", `/api/bots/${bound.id}`, { peers: null, acknowledgePeerScope: true })).status).toBe(200);
+      expect(
+        (await api("PATCH", `/api/bots/${bound.id}`, { peers: null, acknowledgePeerScope: true }))
+          .status,
+      ).toBe(200);
       expect(await botPeers(bound.id)).toBeUndefined();
     } finally {
       for (const bot of [bound, peer, other]) {

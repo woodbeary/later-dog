@@ -87,7 +87,8 @@ posixOnly("routine failure notification wiring", () => {
         if ((await fetch(`${BASE}/api/health`)).ok) break;
       } catch {}
       if (Date.now() > deadline) throw new Error(`server never came up. stderr:\n${stderr}`);
-      if (child.exitCode !== null) throw new Error(`server exited ${child.exitCode}. stderr:\n${stderr}`);
+      if (child.exitCode !== null)
+        throw new Error(`server exited ${child.exitCode}. stderr:\n${stderr}`);
       await new Promise((resolve) => setTimeout(resolve, 150));
     }
   }, 40_000);
@@ -97,87 +98,96 @@ posixOnly("routine failure notification wiring", () => {
     await removeTempDir(home);
   });
 
-  it(
-    "emits one routine-failed notification linking the results card and no generic done notification",
-    async () => {
-      const listed = await api("GET", "/api/bots");
-      const bot = listed.body.bots[0];
-      expect(
-        (
-          await api("PATCH", `/api/bots/${bot.id}`, {
-            name: "Routine Scout",
-            notifications: true,
-            modelSelection: { instanceId: "grok", model: "fake-model" },
-          })
-        ).status,
-      ).toBe(200);
+  it("emits one routine-failed notification linking the results card and no generic done notification", async () => {
+    const listed = await api("GET", "/api/bots");
+    const bot = listed.body.bots[0];
+    expect(
+      (
+        await api("PATCH", `/api/bots/${bot.id}`, {
+          name: "Routine Scout",
+          notifications: true,
+          modelSelection: { instanceId: "grok", model: "fake-model" },
+        })
+      ).status,
+    ).toBe(200);
 
-      const created = await api("POST", "/api/routines", {
-        name: "Broken nightly report",
-        prompt: "Prepare the report",
+    const created = await api("POST", "/api/routines", {
+      name: "Broken nightly report",
+      prompt: "Prepare the report",
+      botId: bot.id,
+      runOn: "dog",
+      schedule: { type: "once", at: Date.now() + 60_000 },
+    });
+    expect(created.status).toBe(201);
+
+    const stream = await openSse(`${BASE}/api/events`);
+    try {
+      await stream.until((frame) => frame.kind === "hello");
+      const launched = await api("POST", `/api/routines/${created.body.routine.id}/run`);
+      expect(launched.status).toBe(201);
+
+      const frame = await stream.until(
+        (candidate) =>
+          candidate.kind === "notify" &&
+          candidate.notification?.kind === "routine-failed" &&
+          candidate.notification?.botId === bot.id,
+        30_000,
+      );
+      expect(frame.notification).toMatchObject({
+        kind: "routine-failed",
         botId: bot.id,
-        runOn: "dog",
-        schedule: { type: "once", at: Date.now() + 60_000 },
+        title: "Routine Scout's routine failed",
       });
-      expect(created.status).toBe(201);
+      expect(frame.notification.threadId).toBe(bot.threadId);
+      expect(frame.notification.body).toContain("Broken nightly report");
 
-      const stream = await openSse(`${BASE}/api/events`);
-      try {
-        await stream.until((frame) => frame.kind === "hello");
-        const launched = await api("POST", `/api/routines/${created.body.routine.id}/run`);
-        expect(launched.status).toBe(201);
+      const receipts = await api("GET", "/api/routines");
+      const receipt = receipts.body.runs.find(
+        (run: { id: string }) => run.id === launched.body.run.id,
+      );
+      expect(receipt).toMatchObject({
+        status: "failed",
+        botId: bot.id,
+        threadId: frame.notification.threadId,
+      });
+      expect(receipt).not.toHaveProperty("resultsThreadId");
+      const report = await api(
+        "GET",
+        `/api/threads/${frame.notification.threadId}/messages?limit=20`,
+      );
+      expect(report.status).toBe(200);
+      const card = report.body.messages.find(
+        (message: any) => message.routineRun?.runId === receipt.id,
+      )?.routineRun;
+      expect(card).toMatchObject({ status: "failed" });
+      expect(card).not.toHaveProperty("executionThreadId");
+      const currentBot = (await api("GET", "/api/bots")).body.bots.find(
+        (candidate: any) => candidate.id === bot.id,
+      );
+      expect(currentBot.tasks).toHaveLength(1);
+      expect(currentBot.tasks[0].threadId).toBe(bot.threadId);
+      expect(currentBot.tasks[0].routineRunId).toBeUndefined();
 
-        const frame = await stream.until(
-          (candidate) =>
-            candidate.kind === "notify" &&
-            candidate.notification?.kind === "routine-failed" &&
-            candidate.notification?.botId === bot.id,
-          30_000,
-        );
-        expect(frame.notification).toMatchObject({
-          kind: "routine-failed",
-          botId: bot.id,
-          title: "Routine Scout's routine failed",
-        });
-        expect(frame.notification.threadId).toBe(bot.threadId);
-        expect(frame.notification.body).toContain("Broken nightly report");
+      expect((await api("PATCH", `/api/bots/${bot.id}`, { name: "Failure observed" })).status).toBe(
+        200,
+      );
+      await stream.until(
+        (candidate) =>
+          candidate.kind === "bot" &&
+          candidate.bot?.id === bot.id &&
+          candidate.bot?.name === "Failure observed",
+      );
 
-        const receipts = await api("GET", "/api/routines");
-        const receipt = receipts.body.runs.find((run: { id: string }) => run.id === launched.body.run.id);
-        expect(receipt).toMatchObject({
-          status: "failed",
-          botId: bot.id,
-          threadId: frame.notification.threadId,
-        });
-        expect(receipt).not.toHaveProperty("resultsThreadId");
-        const report = await api("GET", `/api/threads/${frame.notification.threadId}/messages?limit=20`);
-        expect(report.status).toBe(200);
-        const card = report.body.messages.find((message: any) => message.routineRun?.runId === receipt.id)?.routineRun;
-        expect(card).toMatchObject({ status: "failed" });
-        expect(card).not.toHaveProperty("executionThreadId");
-        const currentBot = (await api("GET", "/api/bots")).body.bots.find((candidate: any) => candidate.id === bot.id);
-        expect(currentBot.tasks).toHaveLength(1);
-        expect(currentBot.tasks[0].threadId).toBe(bot.threadId);
-        expect(currentBot.tasks[0].routineRunId).toBeUndefined();
-
-        expect((await api("PATCH", `/api/bots/${bot.id}`, { name: "Failure observed" })).status).toBe(200);
-        await stream.until(
-          (candidate) => candidate.kind === "bot" && candidate.bot?.id === bot.id && candidate.bot?.name === "Failure observed",
-        );
-
-        expect(
-          stream.frames
-            .filter(
-              (candidate) =>
-                candidate.kind === "notify" && candidate.notification?.botId === bot.id,
-            )
-            .map((candidate) => candidate.notification.kind),
-        ).toEqual(["routine-failed"]);
-      } finally {
-        stream.close();
-        await api("DELETE", `/api/routines/${created.body.routine.id}`);
-      }
-    },
-    60_000,
-  );
+      expect(
+        stream.frames
+          .filter(
+            (candidate) => candidate.kind === "notify" && candidate.notification?.botId === bot.id,
+          )
+          .map((candidate) => candidate.notification.kind),
+      ).toEqual(["routine-failed"]);
+    } finally {
+      stream.close();
+      await api("DELETE", `/api/routines/${created.body.routine.id}`);
+    }
+  }, 60_000);
 });

@@ -53,7 +53,9 @@ export interface EngineForkPoint {
 export type RuntimeEvent = RuntimeEventBase &
   (
     | {
-        type: "session.started"; sessionId: string | null; model?: string | null;
+        type: "session.started";
+        sessionId: string | null;
+        model?: string | null;
         rebuilt?: boolean;
       }
     | { type: "session.model-variants"; model: string; variants: ModelVariantState }
@@ -105,7 +107,12 @@ export type RuntimeEvent = RuntimeEventBase &
     | { type: "item.completed"; itemType: "tool"; ok: boolean; output?: string }
     | { type: "item.completed"; itemType: "assistant_text"; text: string }
     | { type: "item.completed"; itemType: "assistant_image"; data: string; alt?: string }
-    | { type: "content.delta"; streamKind: "assistant_text" | "reasoning_text"; delta: string; summary?: boolean }
+    | {
+        type: "content.delta";
+        streamKind: "assistant_text" | "reasoning_text";
+        delta: string;
+        summary?: boolean;
+      }
     | {
         type: "request.opened";
         requestType: "permission" | "question";
@@ -132,15 +139,29 @@ export type RuntimeEvent = RuntimeEventBase &
         approvalScope?: "local-computer";
       }
     | {
-        type: "thread.token-usage.updated"; input: number; output: number; cachedInput?: number;
-        contextTokens?: number; contextWindow?: number;
+        type: "thread.token-usage.updated";
+        input: number;
+        output: number;
+        cachedInput?: number;
+        contextTokens?: number;
+        contextWindow?: number;
       }
     | {
-        type: "runtime.error"; message: string; setup?: boolean; terminal?: boolean; claudeUpdate?: boolean;
+        type: "runtime.error";
+        message: string;
+        setup?: boolean;
+        terminal?: boolean;
+        claudeUpdate?: boolean;
         quota?: { resetsAt?: string; kind?: string };
       }
     | { type: "runtime.notice"; message: string }
-    | { type: "model.changed"; from: string; to: string; cause: "safeguards" | "unavailable"; scope?: string }
+    | {
+        type: "model.changed";
+        from: string;
+        to: string;
+        cause: "safeguards" | "unavailable";
+        scope?: string;
+      }
     | { type: "helper.updated"; helper: Helper }
     | { type: "native.observed"; observation: NativeObservation }
   );

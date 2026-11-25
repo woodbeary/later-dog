@@ -8,24 +8,40 @@ import { DOG_CREATION_PROMPT, dogGreeting, dogMadeDogAccess, greetNewDog } from 
 
 describe("dogGreeting", () => {
   it("makes a real dog, not a subagent, when the person asks for another agent", () => {
-    expect(DOG_CREATION_PROMPT).toMatch(/another dog, agent or helper to take on work, make a real dog yourself with create_bot/);
-    expect(DOG_CREATION_PROMPT).toMatch(/Subagents inside your own engine are only for splitting up your own work/);
+    expect(DOG_CREATION_PROMPT).toMatch(
+      /another dog, agent or helper to take on work, make a real dog yourself with create_bot/,
+    );
+    expect(DOG_CREATION_PROMPT).toMatch(
+      /Subagents inside your own engine are only for splitting up your own work/,
+    );
   });
 
   it("says hello to the person, names who set it up and for what, and asks where to start", () => {
-    expect(dogGreeting({ name: "Scout", role: "research and writing", personName: "Jacob", creatorName: "Biscuit" }))
-      .toBe("Hi Jacob, I'm Scout. Biscuit set me up for research and writing. What should I start on?");
+    expect(
+      dogGreeting({
+        name: "Scout",
+        role: "research and writing",
+        personName: "Jacob",
+        creatorName: "Biscuit",
+      }),
+    ).toBe(
+      "Hi Jacob, I'm Scout. Biscuit set me up for research and writing. What should I start on?",
+    );
   });
 
   it("leaves out what it was not given instead of inventing it", () => {
-    expect(dogGreeting({ name: "Scout", role: "research and writing", creatorName: "Biscuit" }))
-      .toBe("Hi, I'm Scout. Biscuit set me up for research and writing. What should I start on?");
-    expect(dogGreeting({ name: "Scout", role: "research", personName: "  ", creatorName: "Biscuit" }))
-      .toBe("Hi, I'm Scout. Biscuit set me up for research. What should I start on?");
-    expect(dogGreeting({ name: "Scout", personName: "Jacob", creatorName: "Biscuit" }))
-      .toBe("Hi Jacob, I'm Scout. Biscuit set me up. What should I start on?");
-    expect(dogGreeting({ name: "Scout", role: "research", personName: "Jacob" }))
-      .toBe("Hi Jacob, I'm Scout. I'm here for research. What should I start on?");
+    expect(
+      dogGreeting({ name: "Scout", role: "research and writing", creatorName: "Biscuit" }),
+    ).toBe("Hi, I'm Scout. Biscuit set me up for research and writing. What should I start on?");
+    expect(
+      dogGreeting({ name: "Scout", role: "research", personName: "  ", creatorName: "Biscuit" }),
+    ).toBe("Hi, I'm Scout. Biscuit set me up for research. What should I start on?");
+    expect(dogGreeting({ name: "Scout", personName: "Jacob", creatorName: "Biscuit" })).toBe(
+      "Hi Jacob, I'm Scout. Biscuit set me up. What should I start on?",
+    );
+    expect(dogGreeting({ name: "Scout", role: "research", personName: "Jacob" })).toBe(
+      "Hi Jacob, I'm Scout. I'm here for research. What should I start on?",
+    );
     expect(dogGreeting({ name: "Scout" })).toBe("Hi, I'm Scout. What should I start on?");
   });
 
@@ -65,11 +81,26 @@ const scout = { id: "scout", threadId: "scout-chat", name: "Scout", title: "rese
 
 describe("greetNewDog", () => {
   it("posts the greeting in the new dog's own chat and marks it unread", () => {
-    const { store, posted, patched } = fakeStore([{ role: "user", kind: "text", text: "can u make another agent" }]);
-    expect(greetNewDog(store, scout, { creatorName: "Biscuit", threadId: "source", profileName: "Jacob" })).toBe(true);
-    expect(posted).toEqual([{ threadId: "scout-chat", message: {
-      role: "bot", kind: "text", text: "Hi Jacob, I'm Scout. Biscuit set me up for research and writing. What should I start on?",
-    } }]);
+    const { store, posted, patched } = fakeStore([
+      { role: "user", kind: "text", text: "can u make another agent" },
+    ]);
+    expect(
+      greetNewDog(store, scout, {
+        creatorName: "Biscuit",
+        threadId: "source",
+        profileName: "Jacob",
+      }),
+    ).toBe(true);
+    expect(posted).toEqual([
+      {
+        threadId: "scout-chat",
+        message: {
+          role: "bot",
+          kind: "text",
+          text: "Hi Jacob, I'm Scout. Biscuit set me up for research and writing. What should I start on?",
+        },
+      },
+    ]);
     expect(patched).toEqual([{ botId: "scout", threadId: "scout-chat", patch: { unread: true } }]);
   });
 
@@ -79,16 +110,34 @@ describe("greetNewDog", () => {
       greetNewDog(store, scout, { creatorName: "Biscuit", threadId: "source", profileName });
       return String(posted[0]!.message.text);
     };
-    const ada = { role: "user", kind: "text", text: "make a helper", sender: { name: "Ada", id: "ada@example.test" } } as const;
-    const peer = { role: "user", kind: "text", text: "please", peerAsk: { botId: "rex", name: "Rex" } } as const;
+    const ada = {
+      role: "user",
+      kind: "text",
+      text: "make a helper",
+      sender: { name: "Ada", id: "ada@example.test" },
+    } as const;
+    const peer = {
+      role: "user",
+      kind: "text",
+      text: "please",
+      peerAsk: { botId: "rex", name: "Rex" },
+    } as const;
     expect(greeted([ada, peer], "Jacob")).toMatch(/^Hi Ada, /);
-    expect(greeted([ada, { role: "user", kind: "text", text: "go on" }], "Jacob")).toMatch(/^Hi Jacob, /);
+    expect(greeted([ada, { role: "user", kind: "text", text: "go on" }], "Jacob")).toMatch(
+      /^Hi Jacob, /,
+    );
     expect(greeted([], undefined)).toMatch(/^Hi, I'm Scout\./);
   });
 
   it("reports a greeting it could not save instead of failing the creation", () => {
     const { store, patched } = fakeStore([], true);
-    expect(greetNewDog(store, scout, { creatorName: "Biscuit", threadId: "source", profileName: "Jacob" })).toBe(false);
+    expect(
+      greetNewDog(store, scout, {
+        creatorName: "Biscuit",
+        threadId: "source",
+        profileName: "Jacob",
+      }),
+    ).toBe(false);
     expect(patched).toEqual([]);
   });
 });
@@ -101,7 +150,9 @@ describe("what a dog is told about creating dogs", () => {
     expect(DOG_CREATION_PROMPT).toContain("manage_room");
     expect(DOG_CREATION_PROMPT).toContain("Do not click through this app with computer control");
     expect(DOG_CREATION_PROMPT).not.toMatch(/Chief|pack|per turn|at most|limit/i);
-    expect(PROFILE_PROMPT).not.toMatch(/bot-creation and team-setup tools for Chiefs|bots cannot be created/);
+    expect(PROFILE_PROMPT).not.toMatch(
+      /bot-creation and team-setup tools for Chiefs|bots cannot be created/,
+    );
   });
 
   it("a dog's peer sentence never names a Chief or offers bot creation", () => {
@@ -112,23 +163,34 @@ describe("what a dog is told about creating dogs", () => {
 
 describe("create_bot's result", () => {
   const context = (body: Record<string, unknown>): ToolCallContext => ({
-    botId: "biscuit", threadId: "source", depth: 0, sharedComputers: false,
+    botId: "biscuit",
+    threadId: "source",
+    depth: 0,
+    sharedComputers: false,
     client: { api: async () => body, apiResponse: async () => ({ ok: true, status: 201, body }) },
   });
   const args = { name: "Scout", role: "research and writing", instructions: "Help." };
 
   it("tells the model the new bot is in the person's sidebar, greeting them, and how to say so", async () => {
-    const result = await callTool("create_bot", args, context({ id: "scout", name: "Scout", section: "Research", greeted: true }));
+    const result = await callTool(
+      "create_bot",
+      args,
+      context({ id: "scout", name: "Scout", section: "Research", greeted: true }),
+    );
     expect(result.isError).toBeFalsy();
     expect(result.text).toBe(
       "Created @Scout in Research [id: scout]. It is in the person's sidebar now, greeting them in its own chat. " +
-      "Tell them so in one sentence, for example: \"I've created Scout, and it should be in your sidebar now.\" " +
-      "If they gave it a job, hand that job over now with coordinate_bots so it starts working; otherwise leave it to greet them.",
+        'Tell them so in one sentence, for example: "I\'ve created Scout, and it should be in your sidebar now." ' +
+        "If they gave it a job, hand that job over now with coordinate_bots so it starts working; otherwise leave it to greet them.",
     );
   });
 
   it("claims no greeting the harness did not post", async () => {
-    const result = await callTool("create_bot", args, context({ id: "scout", name: "Scout", section: "Research", greeted: false }));
+    const result = await callTool(
+      "create_bot",
+      args,
+      context({ id: "scout", name: "Scout", section: "Research", greeted: false }),
+    );
     expect(result.text).toContain("It is in the person's sidebar now. Tell them so");
   });
 });
@@ -138,59 +200,114 @@ describe("dogMadeDogAccess", () => {
 
   it("gives a dog made by an Off-leash dog the same level, apps and tools, as copies, and none of its Always keys", () => {
     const creator = {
-      approvalMode: "auto" as const, composio: true, connectorTools: { gmail: { tools: "*" as const } },
-      mcpServers: ["cloudflare"], toolScope: { deny: ["native:Bash"] }, alwaysAllow: ["WebFetch"], browser: true,
+      approvalMode: "auto" as const,
+      composio: true,
+      connectorTools: { gmail: { tools: "*" as const } },
+      mcpServers: ["cloudflare"],
+      toolScope: { deny: ["native:Bash"] },
+      alwaysAllow: ["WebFetch"],
+      browser: true,
     };
     const access = dogMadeDogAccess(creator, "auto", "auto", everywhere);
     expect(access).toEqual({
-      approvalMode: "auto", autoApprove: true, approvePeerComms: false, composio: true,
-      connectorTools: { gmail: { tools: "*" } }, mcpServers: ["cloudflare"], toolScope: { deny: ["native:Bash"] },
-      alwaysAllow: [], browser: true,
+      approvalMode: "auto",
+      autoApprove: true,
+      approvePeerComms: false,
+      composio: true,
+      connectorTools: { gmail: { tools: "*" } },
+      mcpServers: ["cloudflare"],
+      toolScope: { deny: ["native:Bash"] },
+      alwaysAllow: [],
+      browser: true,
     });
     expect(access.connectorTools).not.toBe(creator.connectorTools);
     expect(access.toolScope).not.toBe(creator.toolScope);
   });
 
   it("never gives more than the creator has here, or than the person's level for new dogs", () => {
-    expect(dogMadeDogAccess({ approvalMode: "ask" }, "ask", "auto", everywhere).approvalMode).toBe("ask");
-    expect(dogMadeDogAccess({ approvalMode: "auto" }, "ask", "auto", everywhere).approvalMode).toBe("ask");
-    expect(dogMadeDogAccess({ approvalMode: "auto" }, "auto", "ask", everywhere).approvalMode).toBe("ask");
-    expect(dogMadeDogAccess({ approvalMode: "edits" }, "edits", "auto", everywhere).approvalMode).toBe("edits");
-    expect(dogMadeDogAccess({ autoApprove: true }, "auto", undefined, everywhere).approvalMode).toBe("ask");
-    expect(dogMadeDogAccess({ approvalMode: "auto", composio: false, connectorTools: {} }, "auto", "auto", everywhere))
-      .toMatchObject({ composio: false, connectorTools: {} });
+    expect(dogMadeDogAccess({ approvalMode: "ask" }, "ask", "auto", everywhere).approvalMode).toBe(
+      "ask",
+    );
+    expect(dogMadeDogAccess({ approvalMode: "auto" }, "ask", "auto", everywhere).approvalMode).toBe(
+      "ask",
+    );
+    expect(dogMadeDogAccess({ approvalMode: "auto" }, "auto", "ask", everywhere).approvalMode).toBe(
+      "ask",
+    );
+    expect(
+      dogMadeDogAccess({ approvalMode: "edits" }, "edits", "auto", everywhere).approvalMode,
+    ).toBe("edits");
+    expect(
+      dogMadeDogAccess({ autoApprove: true }, "auto", undefined, everywhere).approvalMode,
+    ).toBe("ask");
+    expect(
+      dogMadeDogAccess(
+        { approvalMode: "auto", composio: false, connectorTools: {} },
+        "auto",
+        "auto",
+        everywhere,
+      ),
+    ).toMatchObject({ composio: false, connectorTools: {} });
   });
 
   it("never passes on Full access or a Codex config, and falls back to Heel where the engine can't run the level", () => {
-    expect(dogMadeDogAccess({ approvalMode: "full" }, "full", "full", everywhere).approvalMode).toBe("auto");
-    expect(dogMadeDogAccess({ approvalMode: "custom" }, "custom", "auto", everywhere).approvalMode).toBe("ask");
-    const pending = { approvalMode: "full" as const, approvalGrant: { requestId: "r", mode: "full" as const, phase: "prepared" as const } };
+    expect(
+      dogMadeDogAccess({ approvalMode: "full" }, "full", "full", everywhere).approvalMode,
+    ).toBe("auto");
+    expect(
+      dogMadeDogAccess({ approvalMode: "custom" }, "custom", "auto", everywhere).approvalMode,
+    ).toBe("ask");
+    const pending = {
+      approvalMode: "full" as const,
+      approvalGrant: { requestId: "r", mode: "full" as const, phase: "prepared" as const },
+    };
     expect(dogMadeDogAccess(pending, "auto", "auto", everywhere).approvalMode).toBe("ask");
-    expect(dogMadeDogAccess({ approvalMode: "edits" }, "edits", "auto", (mode) => mode !== "edits")).toMatchObject({ approvalMode: "ask", autoApprove: false });
+    expect(
+      dogMadeDogAccess({ approvalMode: "edits" }, "edits", "auto", (mode) => mode !== "edits"),
+    ).toMatchObject({ approvalMode: "ask", autoApprove: false });
   });
 });
 
 describe("Full access for new dogs under the owner's saved switch", () => {
-  const policy = { cloudHome: true, fullAccessAll: true, sharedWorkspace: false, guestDriven: false };
+  const policy = {
+    cloudHome: true,
+    fullAccessAll: true,
+    sharedWorkspace: false,
+    guestDriven: false,
+  };
   const supported = () => true;
 
-  it.each(["ask", "auto", "full", "custom"] as const)("starts the new owner dog on Full while leaving the %s creator unchanged", (sourceMode) => {
-    const creator = {
-      approvalMode: sourceMode, composio: false, connectorTools: { gmail: { tools: [] as string[] } },
-      mcpServers: ["files"], toolScope: { deny: ["native:Bash"] }, alwaysAllow: ["WebFetch"], browser: false,
-    };
-    const before = structuredClone(creator);
-    const access = dogMadeDogAccess(creator, sourceMode, "auto", supported, policy);
-    expect(access).toEqual({
-      approvalMode: "full", autoApprove: false, approvePeerComms: false, composio: false,
-      connectorTools: { gmail: { tools: [] } }, mcpServers: ["files"], toolScope: { deny: ["native:Bash"] },
-      alwaysAllow: [], browser: false,
-    });
-    expect(creator).toEqual(before);
-    expect(access.connectorTools).not.toBe(creator.connectorTools);
-    expect(access.mcpServers).not.toBe(creator.mcpServers);
-    expect(access.toolScope).not.toBe(creator.toolScope);
-  });
+  it.each(["ask", "auto", "full", "custom"] as const)(
+    "starts the new owner dog on Full while leaving the %s creator unchanged",
+    (sourceMode) => {
+      const creator = {
+        approvalMode: sourceMode,
+        composio: false,
+        connectorTools: { gmail: { tools: [] as string[] } },
+        mcpServers: ["files"],
+        toolScope: { deny: ["native:Bash"] },
+        alwaysAllow: ["WebFetch"],
+        browser: false,
+      };
+      const before = structuredClone(creator);
+      const access = dogMadeDogAccess(creator, sourceMode, "auto", supported, policy);
+      expect(access).toEqual({
+        approvalMode: "full",
+        autoApprove: false,
+        approvePeerComms: false,
+        composio: false,
+        connectorTools: { gmail: { tools: [] } },
+        mcpServers: ["files"],
+        toolScope: { deny: ["native:Bash"] },
+        alwaysAllow: [],
+        browser: false,
+      });
+      expect(creator).toEqual(before);
+      expect(access.connectorTools).not.toBe(creator.connectorTools);
+      expect(access.mcpServers).not.toBe(creator.mcpServers);
+      expect(access.toolScope).not.toBe(creator.toolScope);
+    },
+  );
 
   it.each([
     ["outside a Cloud home", { cloudHome: false }],
@@ -198,16 +315,27 @@ describe("Full access for new dogs under the owner's saved switch", () => {
     ["in a shared workspace", { sharedWorkspace: true }],
     ["for a guest source", { guestDriven: true }],
   ])("keeps the existing cap %s", (_label, changes) => {
-    expect(dogMadeDogAccess({ approvalMode: "full" }, "full", "auto", supported, { ...policy, ...changes }).approvalMode).toBe("auto");
-    expect(dogMadeDogAccess({ approvalMode: "ask" }, "ask", "auto", supported, { ...policy, ...changes }).approvalMode).toBe("ask");
+    expect(
+      dogMadeDogAccess({ approvalMode: "full" }, "full", "auto", supported, {
+        ...policy,
+        ...changes,
+      }).approvalMode,
+    ).toBe("auto");
+    expect(
+      dogMadeDogAccess({ approvalMode: "ask" }, "ask", "auto", supported, { ...policy, ...changes })
+        .approvalMode,
+    ).toBe("ask");
   });
 
   it("keeps engine support and existing fallback levels", () => {
-    expect(dogMadeDogAccess({ approvalMode: "full" }, "full", "auto", (mode) => mode !== "full", policy))
-      .toMatchObject({ approvalMode: "auto", autoApprove: true });
-    expect(dogMadeDogAccess({ approvalMode: "ask" }, "ask", "auto", (mode) => mode !== "full", policy))
-      .toMatchObject({ approvalMode: "ask", autoApprove: false });
-    expect(dogMadeDogAccess({ approvalMode: "full" }, "full", "auto", () => false, policy))
-      .toMatchObject({ approvalMode: "ask", autoApprove: false });
+    expect(
+      dogMadeDogAccess({ approvalMode: "full" }, "full", "auto", (mode) => mode !== "full", policy),
+    ).toMatchObject({ approvalMode: "auto", autoApprove: true });
+    expect(
+      dogMadeDogAccess({ approvalMode: "ask" }, "ask", "auto", (mode) => mode !== "full", policy),
+    ).toMatchObject({ approvalMode: "ask", autoApprove: false });
+    expect(
+      dogMadeDogAccess({ approvalMode: "full" }, "full", "auto", () => false, policy),
+    ).toMatchObject({ approvalMode: "ask", autoApprove: false });
   });
 });

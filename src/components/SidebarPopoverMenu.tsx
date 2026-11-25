@@ -29,21 +29,42 @@ const OPEN_DELAY_MS = 80;
 const CLOSE_DELAY_MS = 250;
 
 function enabledMenuItems(menu: HTMLElement | null): HTMLElement[] {
-  return [...(menu?.querySelectorAll<HTMLElement>('[role="menuitem"]:not(:disabled):not([aria-disabled="true"])') ?? [])]
-    .filter((item) => item.closest('[role="menu"]') === menu);
+  return [
+    ...(menu?.querySelectorAll<HTMLElement>(
+      '[role="menuitem"]:not(:disabled):not([aria-disabled="true"])',
+    ) ?? []),
+  ].filter((item) => item.closest('[role="menu"]') === menu);
 }
 
 function navigatePopover(event: KeyboardEvent<HTMLDivElement>): void {
-  if (event.defaultPrevented || event.nativeEvent.isComposing || event.metaKey || event.ctrlKey || event.altKey) return;
+  if (
+    event.defaultPrevented ||
+    event.nativeEvent.isComposing ||
+    event.metaKey ||
+    event.ctrlKey ||
+    event.altKey
+  )
+    return;
   if (!["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) return;
-  if (!(event.target instanceof Element) || event.target.closest('[role="menu"]') !== event.currentTarget) return;
+  if (
+    !(event.target instanceof Element) ||
+    event.target.closest('[role="menu"]') !== event.currentTarget
+  )
+    return;
   event.preventDefault();
   event.stopPropagation();
   const items = enabledMenuItems(event.currentTarget);
   const index = items.indexOf(document.activeElement as HTMLElement);
-  const next = event.key === "Home" ? 0 : event.key === "End" ? items.length - 1
-    : index < 0 ? (event.key === "ArrowDown" ? 0 : items.length - 1)
-      : (index + (event.key === "ArrowDown" ? 1 : -1) + items.length) % items.length;
+  const next =
+    event.key === "Home"
+      ? 0
+      : event.key === "End"
+        ? items.length - 1
+        : index < 0
+          ? event.key === "ArrowDown"
+            ? 0
+            : items.length - 1
+          : (index + (event.key === "ArrowDown" ? 1 : -1) + items.length) % items.length;
   items[next]?.focus();
 }
 
@@ -52,7 +73,10 @@ function clipEdges(node: HTMLElement): { top: number; bottom: number } {
     const style = getComputedStyle(parent);
     if (!/auto|scroll|hidden/.test(style.overflowY)) continue;
     const box = parent.getBoundingClientRect();
-    return { top: box.top + (parseFloat(style.scrollPaddingTop) || 0), bottom: box.bottom - (parseFloat(style.scrollPaddingBottom) || 0) };
+    return {
+      top: box.top + (parseFloat(style.scrollPaddingTop) || 0),
+      bottom: box.bottom - (parseFloat(style.scrollPaddingBottom) || 0),
+    };
   }
   return { top: 0, bottom: window.innerHeight };
 }
@@ -130,13 +154,18 @@ export function SidebarPopoverMenu({
     closeTimer.current = setTimeout(() => setOpen(false), CLOSE_DELAY_MS);
   };
   const close = () => {
-    if (menuRef.current?.contains(document.activeElement)) rootRef.current?.querySelector<HTMLButtonElement>("button")?.focus();
+    if (menuRef.current?.contains(document.activeElement))
+      rootRef.current?.querySelector<HTMLButtonElement>("button")?.focus();
     clearTimers();
     setPinned(false);
     setOpen(false);
   };
 
-  const dismissRef = useRef({ contains: (target: unknown) => target instanceof Node && Boolean(rootRef.current?.contains(target) || menuRef.current?.contains(target)) });
+  const dismissRef = useRef({
+    contains: (target: unknown) =>
+      target instanceof Node &&
+      Boolean(rootRef.current?.contains(target) || menuRef.current?.contains(target)),
+  });
   usePopoverDismiss(open, dismissRef, close);
 
   useLayoutEffect(() => {
@@ -148,10 +177,20 @@ export function SidebarPopoverMenu({
       const box = root.getBoundingClientRect();
       const width = menu.offsetWidth;
       const height = menu.offsetHeight;
-      const above = placement === "above" || (placement === "auto" && window.innerHeight - box.bottom < height + 8 && box.top > window.innerHeight - box.bottom);
+      const above =
+        placement === "above" ||
+        (placement === "auto" &&
+          window.innerHeight - box.bottom < height + 8 &&
+          box.top > window.innerHeight - box.bottom);
       setPosition({
-        left: Math.max(8, Math.min(align === "start" ? box.left : box.right - width, window.innerWidth - width - 8)),
-        top: Math.max(8, Math.min(above ? box.top - height - 4 : box.bottom + 4, window.innerHeight - height - 8)),
+        left: Math.max(
+          8,
+          Math.min(align === "start" ? box.left : box.right - width, window.innerWidth - width - 8),
+        ),
+        top: Math.max(
+          8,
+          Math.min(above ? box.top - height - 4 : box.bottom + 4, window.innerHeight - height - 8),
+        ),
       });
     };
     place();
@@ -167,7 +206,8 @@ export function SidebarPopoverMenu({
     if (portal || placement !== "below" || !open) return;
     const place = () => {
       const root = rootRef.current;
-      if (root) setMaxHeight(Math.max(0, window.innerHeight - root.getBoundingClientRect().bottom - 12));
+      if (root)
+        setMaxHeight(Math.max(0, window.innerHeight - root.getBoundingClientRect().bottom - 12));
     };
     place();
     const observer = new ResizeObserver(place);
@@ -185,7 +225,10 @@ export function SidebarPopoverMenu({
     if (!open) return;
     const edge = focusOnOpen.current;
     focusOnOpen.current = null;
-    if (portal || edge) enabledMenuItems(menuRef.current).at(edge === "last" ? -1 : 0)?.focus();
+    if (portal || edge)
+      enabledMenuItems(menuRef.current)
+        .at(edge === "last" ? -1 : 0)
+        ?.focus();
   }, [open, portal]);
   useLayoutEffect(() => {
     const root = rootRef.current;
@@ -226,14 +269,23 @@ export function SidebarPopoverMenu({
       }}
       style={portal ? position : placement === "below" ? { maxHeight } : undefined}
       className={cn(
-        hasSubmenu ? "overflow-visible" : placement === "below" ? "overflow-x-hidden overflow-y-auto overscroll-contain" : "overflow-hidden",
+        hasSubmenu
+          ? "overflow-visible"
+          : placement === "below"
+            ? "overflow-x-hidden overflow-y-auto overscroll-contain"
+            : "overflow-hidden",
         "popover-menu",
         portal ? "fixed z-[100] w-52 max-w-[calc(100vw-1rem)]" : "absolute z-40",
-        !portal && (placement === "below"
-          ? "top-full right-0 mt-1 w-72 max-w-[calc(100vw-2rem)]"
-          : placement === "auto"
-            ? cn(menuWidth, up ? "bottom-full mb-1" : "top-full mt-1", align === "start" ? "left-0" : "right-0")
-            : "bottom-full left-0 right-0 mb-1"),
+        !portal &&
+          (placement === "below"
+            ? "top-full right-0 mt-1 w-72 max-w-[calc(100vw-2rem)]"
+            : placement === "auto"
+              ? cn(
+                  menuWidth,
+                  up ? "bottom-full mb-1" : "top-full mt-1",
+                  align === "start" ? "left-0" : "right-0",
+                )
+              : "bottom-full left-0 right-0 mb-1"),
         motion.className,
       )}
     >
@@ -241,8 +293,16 @@ export function SidebarPopoverMenu({
         <div
           key={item.key}
           className="group relative"
-          onPointerEnter={() => { if (hasSubmenu) showFlyout(item.submenu ? item.key : null, item.submenu ? OPEN_DELAY_MS : CLOSE_DELAY_MS); }}
-          onPointerLeave={() => { if (item.submenu) showFlyout(null, CLOSE_DELAY_MS); }}
+          onPointerEnter={() => {
+            if (hasSubmenu)
+              showFlyout(
+                item.submenu ? item.key : null,
+                item.submenu ? OPEN_DELAY_MS : CLOSE_DELAY_MS,
+              );
+          }}
+          onPointerLeave={() => {
+            if (item.submenu) showFlyout(null, CLOSE_DELAY_MS);
+          }}
         >
           {item.separatorBefore && <div className="mx-2 my-1.5 h-px bg-hairline" />}
           {item.heading && <div className="popover-menu-heading">{item.heading}</div>}
@@ -265,7 +325,13 @@ export function SidebarPopoverMenu({
                 event.stopPropagation();
                 showFlyout(item.key, 0);
                 const wrapper = event.currentTarget.parentElement;
-                setTimeout(() => enabledMenuItems(wrapper?.querySelector<HTMLElement>("[data-menu-flyout]") ?? null)[0]?.focus(), 0);
+                setTimeout(
+                  () =>
+                    enabledMenuItems(
+                      wrapper?.querySelector<HTMLElement>("[data-menu-flyout]") ?? null,
+                    )[0]?.focus(),
+                  0,
+                );
               }
               if (event.key === "ArrowLeft") {
                 event.preventDefault();
@@ -292,14 +358,20 @@ export function SidebarPopoverMenu({
             {item.subtitle || item.note ? (
               <span className="flex min-w-0 flex-1 flex-col">
                 <span className="truncate">{item.label}</span>
-                {item.subtitle && <span className="truncate text-[12px] text-ink-secondary">{item.subtitle}</span>}
-                {item.note && <span className="text-[11.5px] leading-snug text-ink-tertiary">{item.note}</span>}
+                {item.subtitle && (
+                  <span className="truncate text-[12px] text-ink-secondary">{item.subtitle}</span>
+                )}
+                {item.note && (
+                  <span className="text-[11.5px] leading-snug text-ink-tertiary">{item.note}</span>
+                )}
               </span>
             ) : (
               <span className="flex-1 truncate">{item.label}</span>
             )}
             {item.trailing}
-            {item.submenu && <ChevronRight size={14} aria-hidden="true" className="shrink-0 text-ink-secondary" />}
+            {item.submenu && (
+              <ChevronRight size={14} aria-hidden="true" className="shrink-0 text-ink-secondary" />
+            )}
             {item.attention && (
               <span
                 className={cn(
@@ -317,25 +389,43 @@ export function SidebarPopoverMenu({
               onPointerEnter={clearFlyoutTimer}
               onKeyDown={(event) => {
                 if (event.defaultPrevented) return;
-                if ((event.key === "ArrowLeft" || event.key === "Escape") && !event.nativeEvent.isComposing) {
+                if (
+                  (event.key === "ArrowLeft" || event.key === "Escape") &&
+                  !event.nativeEvent.isComposing
+                ) {
                   event.preventDefault();
                   event.stopPropagation();
                   showFlyout(null, 0);
-                  event.currentTarget.parentElement?.querySelector<HTMLElement>(":scope > button")?.focus();
+                  event.currentTarget.parentElement
+                    ?.querySelector<HTMLElement>(":scope > button")
+                    ?.focus();
                   return;
                 }
                 navigatePopover(event);
               }}
               className="absolute bottom-0 left-full z-50 pl-1.5"
             >
-              <div className="popover-menu overflow-hidden">{typeof item.submenu === "function" ? item.submenu(close) : item.submenu}</div>
+              <div className="popover-menu overflow-hidden">
+                {typeof item.submenu === "function" ? item.submenu(close) : item.submenu}
+              </div>
             </div>
           )}
-          {item.action && <button type="button" role="menuitem" aria-label={item.action.label} title={item.action.label}
-            disabled={item.action.disabled} onClick={() => { item.action?.onSelect(); close(); }}
-            className="absolute bottom-1 right-2 flex size-8 items-center justify-center rounded-lg text-ink-secondary opacity-0 hover:bg-control focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus group-hover:opacity-100 group-focus-within:opacity-100 touch:opacity-100 disabled:opacity-40">
-            {item.action.icon}
-          </button>}
+          {item.action && (
+            <button
+              type="button"
+              role="menuitem"
+              aria-label={item.action.label}
+              title={item.action.label}
+              disabled={item.action.disabled}
+              onClick={() => {
+                item.action?.onSelect();
+                close();
+              }}
+              className="absolute bottom-1 right-2 flex size-8 items-center justify-center rounded-lg text-ink-secondary opacity-0 hover:bg-control focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus group-hover:opacity-100 group-focus-within:opacity-100 touch:opacity-100 disabled:opacity-40"
+            >
+              {item.action.icon}
+            </button>
+          )}
         </div>
       ))}
     </div>
@@ -350,7 +440,12 @@ export function SidebarPopoverMenu({
       onFocus={() => openOnHover && setOpen(true)}
       onBlur={(event) => {
         if (pinned) return;
-        if (!event.relatedTarget || (!rootRef.current?.contains(event.relatedTarget as Node) && !menuRef.current?.contains(event.relatedTarget as Node))) setOpen(false);
+        if (
+          !event.relatedTarget ||
+          (!rootRef.current?.contains(event.relatedTarget as Node) &&
+            !menuRef.current?.contains(event.relatedTarget as Node))
+        )
+          setOpen(false);
       }}
     >
       <button
@@ -375,13 +470,22 @@ export function SidebarPopoverMenu({
             close();
             return;
           }
-          if (event.metaKey || event.ctrlKey || event.altKey || !["ArrowDown", "ArrowUp", "Enter", " "].includes(event.key)) return;
+          if (
+            event.metaKey ||
+            event.ctrlKey ||
+            event.altKey ||
+            !["ArrowDown", "ArrowUp", "Enter", " "].includes(event.key)
+          )
+            return;
           event.preventDefault();
           event.stopPropagation();
           clearTimers();
           setPinned(true);
           const edge = event.key === "ArrowUp" ? "last" : "first";
-          if (open) enabledMenuItems(menuRef.current).at(edge === "last" ? -1 : 0)?.focus();
+          if (open)
+            enabledMenuItems(menuRef.current)
+              .at(edge === "last" ? -1 : 0)
+              ?.focus();
           else focusOnOpen.current = edge;
           setOpen(true);
         }}
@@ -394,4 +498,3 @@ export function SidebarPopoverMenu({
     </div>
   );
 }
-

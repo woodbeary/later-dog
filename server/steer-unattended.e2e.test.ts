@@ -20,7 +20,11 @@ let base = "";
 let stderr = "";
 let finishGate = "";
 
-const api = async (method: string, path: string, body?: unknown): Promise<{ status: number; body: any }> => {
+const api = async (
+  method: string,
+  path: string,
+  body?: unknown,
+): Promise<{ status: number; body: any }> => {
   const res = await fetch(`${base}${path}`, {
     method,
     headers: body ? { "content-type": "application/json" } : undefined,
@@ -28,20 +32,34 @@ const api = async (method: string, path: string, body?: unknown): Promise<{ stat
   });
   return { status: res.status, body: await res.json() };
 };
-const getBot = async (id: string) => (await api("GET", "/api/bots?messages=0")).body.bots.find((b: { id: string }) => b.id === id);
-const threadMessages = async (threadId: string): Promise<Array<{ kind: string; card?: { requestId?: string; answered?: string } }>> =>
+const getBot = async (id: string) =>
+  (await api("GET", "/api/bots?messages=0")).body.bots.find((b: { id: string }) => b.id === id);
+const threadMessages = async (
+  threadId: string,
+): Promise<Array<{ kind: string; card?: { requestId?: string; answered?: string } }>> =>
   (await api("GET", `/api/threads/${threadId}/messages`)).body.messages ?? [];
 
 function brokerCandidates(threadId: string, botId: string): string[] {
   const dataDir = join(home, ".laterdog");
   const prefix = threadId.replace(/[^\w-]/g, "").slice(0, 4);
   const digest = createHash("sha256").update(`${botId}\0${threadId}`).digest("hex").slice(0, 4);
-  const scope = createHash("sha256").update(`${dataDir}\0${child.pid}\0${botId}\0${threadId}`).digest("hex").slice(0, 16);
-  return [join(dataDir, `perm-${prefix}${digest}.sock`), join(tmpdir(), `laterdog-perm-${scope}.sock`), `/tmp/ld-${scope}.sock`];
+  const scope = createHash("sha256")
+    .update(`${dataDir}\0${child.pid}\0${botId}\0${threadId}`)
+    .digest("hex")
+    .slice(0, 16);
+  return [
+    join(dataDir, `perm-${prefix}${digest}.sock`),
+    join(tmpdir(), `laterdog-perm-${scope}.sock`),
+    `/tmp/ld-${scope}.sock`,
+  ];
 }
 
 async function connectBroker(threadId: string, botId: string): Promise<Socket> {
-  await expect.poll(() => brokerCandidates(threadId, botId).some((path) => existsSync(path)), { timeout: 20_000 }).toBe(true);
+  await expect
+    .poll(() => brokerCandidates(threadId, botId).some((path) => existsSync(path)), {
+      timeout: 20_000,
+    })
+    .toBe(true);
   for (const path of brokerCandidates(threadId, botId)) {
     if (!existsSync(path)) continue;
     const socket = await new Promise<Socket | null>((resolve) => {
@@ -65,7 +83,9 @@ function ask(conn: Socket, id: string, command: string): { answered: () => boole
       } catch {}
     }
   });
-  conn.write(JSON.stringify({ t: "ask", id, kind: "permission", tool: "Bash", input: { command } }) + "\n");
+  conn.write(
+    JSON.stringify({ t: "ask", id, kind: "permission", tool: "Bash", input: { command } }) + "\n",
+  );
   return { answered: () => answered };
 }
 
@@ -76,16 +96,19 @@ posixOnly("a steered message does not lift the unattended mark on its own", () =
     const data = join(home, ".laterdog");
     mkdirSync(data, { recursive: true });
     finishGate = join(home, "finish.gate");
-    writeFileSync(join(data, "config.json"), JSON.stringify({
-      features: { autoReview: true },
-      instances: {
-        claude: {
-          driver: "claudeAgent",
-          environment: { FAKE_CLAUDE_MODE: "slow", FAKE_CLAUDE_SLOW_FINISH_GATE: finishGate },
-          config: { cli: FAKE_CLAUDE, permissionMode: "acceptEdits" },
+    writeFileSync(
+      join(data, "config.json"),
+      JSON.stringify({
+        features: { autoReview: true },
+        instances: {
+          claude: {
+            driver: "claudeAgent",
+            environment: { FAKE_CLAUDE_MODE: "slow", FAKE_CLAUDE_SLOW_FINISH_GATE: finishGate },
+            config: { cli: FAKE_CLAUDE, permissionMode: "acceptEdits" },
+          },
         },
-      },
-    }));
+      }),
+    );
     const port = await leasePortBlock([0, 1]);
     base = `http://127.0.0.1:${port}`;
     child = spawn(process.execPath, [join(SERVER_DIR, "index.ts")], {
@@ -120,10 +143,14 @@ posixOnly("a steered message does not lift the unattended mark on its own", () =
 
   it("keeps asking after the turn POSTs into itself with no session", async () => {
     const bot = (await api("GET", "/api/bots?messages=0")).body.bots[0];
-    expect((await api("PATCH", `/api/bots/${bot.id}`, {
-      autoApprove: true,
-      modelSelection: { instanceId: "claude", model: "claude-fake" },
-    })).status).toBe(200);
+    expect(
+      (
+        await api("PATCH", `/api/bots/${bot.id}`, {
+          autoApprove: true,
+          modelSelection: { instanceId: "claude", model: "claude-fake" },
+        })
+      ).status,
+    ).toBe(200);
     const hook = await api("POST", "/api/webhooks", {
       name: "Nightly build",
       prompt: "Handle the incoming build event",
@@ -140,34 +167,64 @@ posixOnly("a steered message does not lift the unattended mark on its own", () =
     const { runId } = (await delivered.json()) as { runId: string };
 
     let runThreadId = "";
-    await expect.poll(async () => {
-      const run = ((await api("GET", "/api/routines")).body.runs ?? []).find((r: { id: string }) => r.id === runId);
-      runThreadId = run?.threadId ?? "";
-      return Boolean(runThreadId);
-    }, { timeout: 20_000 }).toBe(true);
-    await expect.poll(async () => (await getBot(bot.id))?.tasks?.find((task: { threadId: string }) => task.threadId === runThreadId)?.busy === true, {
-      timeout: 20_000,
-    }).toBe(true);
+    await expect
+      .poll(
+        async () => {
+          const run = ((await api("GET", "/api/routines")).body.runs ?? []).find(
+            (r: { id: string }) => r.id === runId,
+          );
+          runThreadId = run?.threadId ?? "";
+          return Boolean(runThreadId);
+        },
+        { timeout: 20_000 },
+      )
+      .toBe(true);
+    await expect
+      .poll(
+        async () =>
+          (await getBot(bot.id))?.tasks?.find(
+            (task: { threadId: string }) => task.threadId === runThreadId,
+          )?.busy === true,
+        {
+          timeout: 20_000,
+        },
+      )
+      .toBe(true);
     expect((await getBot(bot.id)).threadId).not.toBe(runThreadId);
 
     const conn = await connectBroker(runThreadId, bot.id);
     try {
-      const steer = await api("POST", `/api/bots/${bot.id}/messages`, { text: "continue", threadId: runThreadId });
+      const steer = await api("POST", `/api/bots/${bot.id}/messages`, {
+        text: "continue",
+        threadId: runThreadId,
+      });
       expect(steer.status).toBe(202);
       expect(steer.body.steered).toBe(true);
 
       const second = ask(conn, "ask-after-steer", "ls -la ./dist");
-      await expect.poll(
-        async () => (await threadMessages(runThreadId)).some((m) => m.kind === "options" && m.card?.requestId === "ask-after-steer"),
-        { timeout: 20_000 },
-      ).toBe(true);
-      const card = (await threadMessages(runThreadId)).find((m) => m.card?.requestId === "ask-after-steer");
-      expect(card?.card?.answered, "the steered turn auto-approved — the self-POST lifted the unattended mark").toBeUndefined();
+      await expect
+        .poll(
+          async () =>
+            (await threadMessages(runThreadId)).some(
+              (m) => m.kind === "options" && m.card?.requestId === "ask-after-steer",
+            ),
+          { timeout: 20_000 },
+        )
+        .toBe(true);
+      const card = (await threadMessages(runThreadId)).find(
+        (m) => m.card?.requestId === "ask-after-steer",
+      );
+      expect(
+        card?.card?.answered,
+        "the steered turn auto-approved — the self-POST lifted the unattended mark",
+      ).toBeUndefined();
       expect(second.answered()).toBe(false);
     } finally {
       conn.destroy();
       writeFileSync(finishGate, "finish");
-      await api("POST", `/api/bots/${bot.id}/interrupt`, { threadId: runThreadId }).catch(() => undefined);
+      await api("POST", `/api/bots/${bot.id}/interrupt`, { threadId: runThreadId }).catch(
+        () => undefined,
+      );
     }
   }, 60_000);
 });

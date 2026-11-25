@@ -12,15 +12,21 @@ export function loadScenarios(): Scenario[] {
   return readdirSync(SCENARIOS_DIR)
     .filter((name) => name.endsWith(".json"))
     .sort()
-    .map((name) => scenarioSchema.parse(JSON.parse(readFileSync(join(SCENARIOS_DIR, name), "utf8"))));
+    .map((name) =>
+      scenarioSchema.parse(JSON.parse(readFileSync(join(SCENARIOS_DIR, name), "utf8"))),
+    );
 }
 
 async function main(): Promise<number> {
   const args = process.argv.slice(2);
   if (args.includes("--help") || args.includes("-h")) {
     console.log("usage: bun run eval [--scenario <id>]... [--out <dir>]");
-    console.log("       bun run eval --golden [--scenario <id>]... [--update-baseline]  # tier 2: replay + trace baselines");
-    console.log("       bun run eval --live [--out <dir>]                                # tier 3: opt-in live-model smoke (needs LATERDOG_EVAL_LIVE=1)");
+    console.log(
+      "       bun run eval --golden [--scenario <id>]... [--update-baseline]  # tier 2: replay + trace baselines",
+    );
+    console.log(
+      "       bun run eval --live [--out <dir>]                                # tier 3: opt-in live-model smoke (needs LATERDOG_EVAL_LIVE=1)",
+    );
     return 0;
   }
   if (args.includes("--live")) {
@@ -55,9 +61,21 @@ async function main(): Promise<number> {
     console.log("running " + scenario.id + " (" + scenario.world + ")...");
     const result = await runScenario(scenario);
     results.push(result);
-    console.log("  " + (result.pass ? "PASS" : "FAIL") + " in " + Math.round(result.durationMs / 100) / 10 + "s");
+    console.log(
+      "  " +
+        (result.pass ? "PASS" : "FAIL") +
+        " in " +
+        Math.round(result.durationMs / 100) / 10 +
+        "s",
+    );
     for (const assertion of result.assertions) {
-      if (!assertion.pass) console.log("    assertion failed: " + assertion.assertion.kind + " — " + assertion.detail.replaceAll("\n", " "));
+      if (!assertion.pass)
+        console.log(
+          "    assertion failed: " +
+            assertion.assertion.kind +
+            " — " +
+            assertion.detail.replaceAll("\n", " "),
+        );
     }
     if (result.error !== undefined) console.log("    run error: " + result.error);
   }

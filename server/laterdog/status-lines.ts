@@ -43,7 +43,10 @@ export interface StatusLineTiming {
 const UNSAID = new Set(["needs your input", "working on it"]);
 
 export function statusWords(phrase: string): string {
-  const flat = phrase.replace(/\s+/g, " ").trim().replace(/[\s.…:;,!]+$/u, "");
+  const flat = phrase
+    .replace(/\s+/g, " ")
+    .trim()
+    .replace(/[\s.…:;,!]+$/u, "");
   if (!flat || UNSAID.has(flat.toLowerCase())) return "";
   const [first, ...rest] = flat.split(" ");
   const verb = STEP_GERUNDS[first!.toLowerCase()];
@@ -55,12 +58,19 @@ export function statusLineFor(recentSteps: readonly string[]): { text: string; w
   if (!said) return { text: STATUS_LINE_LEAD };
   const budget = STATUS_LINE_MAX_WORDS - STATUS_LINE_LEAD.split(" ").length;
   const all = said.split(" ");
-  const words = redactSecretsInText(all.length > budget ? `${all.slice(0, budget).join(" ")}…` : said);
+  const words = redactSecretsInText(
+    all.length > budget ? `${all.slice(0, budget).join(" ")}…` : said,
+  );
   return { text: `${STATUS_LINE_LEAD}: ${words}`, words };
 }
 
 export function foldedStatusTool(line: { text: string; words?: string }): Tool {
-  return { name: line.text, ok: true, statusLine: "folded", ...(line.words ? { spoken: line.words } : {}) };
+  return {
+    name: line.text,
+    ok: true,
+    statusLine: "folded",
+    ...(line.words ? { spoken: line.words } : {}),
+  };
 }
 
 export function speaksToPerson(message: WireMessage): boolean {
@@ -85,7 +95,15 @@ export function speaksToPerson(message: WireMessage): boolean {
 
 function stepWords(message: WireMessage): string | null {
   const tool = message.tool;
-  if (message.role !== "bot" || message.kind !== "activity" || !tool || tool.statusLine || tool.compaction || tool.ok !== undefined) return null;
+  if (
+    message.role !== "bot" ||
+    message.kind !== "activity" ||
+    !tool ||
+    tool.statusLine ||
+    tool.compaction ||
+    tool.ok !== undefined
+  )
+    return null;
   return tool.spoken?.trim() || null;
 }
 
@@ -104,7 +122,9 @@ export function createStatusLines(host: StatusLineHost, timing: StatusLineTiming
   let timer: ReturnType<typeof setInterval> | null = null;
 
   const changed = (threadId: string) => {
-    try { host.changed?.(threadId); } catch (error) {
+    try {
+      host.changed?.(threadId);
+    } catch (error) {
       console.error("[status-lines] could not share a status line change", error);
     }
   };
@@ -141,7 +161,8 @@ export function createStatusLines(host: StatusLineHost, timing: StatusLineTiming
 
   return {
     begin(threadId: string): void {
-      if (!stretches.has(threadId)) stretches.set(threadId, { since: now(), steps: [], line: null });
+      if (!stretches.has(threadId))
+        stretches.set(threadId, { since: now(), steps: [], line: null });
     },
 
     observe(threadId: string, message: WireMessage): void {
@@ -181,7 +202,9 @@ export function createStatusLines(host: StatusLineHost, timing: StatusLineTiming
         }
       }
       if (leftovers.length) {
-        try { host.ledger?.write([]); } catch (error) {
+        try {
+          host.ledger?.write([]);
+        } catch (error) {
           console.error("[status-lines] could not clear open status lines", error);
         }
       }
@@ -219,9 +242,14 @@ export interface ThreadWorkSources {
   taskByThread(botId: string, threadId: string): { activity?: string } | undefined;
 }
 
-export type WatchedWaits = (threadId: string) => { waitingOnHuman: boolean; waitingOnComputer: boolean } | undefined;
+export type WatchedWaits = (
+  threadId: string,
+) => { waitingOnHuman: boolean; waitingOnComputer: boolean } | undefined;
 
-export function threadWork(store: ThreadWorkSources, waits: WatchedWaits): (threadId: string) => ThreadWork {
+export function threadWork(
+  store: ThreadWorkSources,
+  waits: WatchedWaits,
+): (threadId: string) => ThreadWork {
   return (threadId) => {
     const bot = store.botByThread(threadId);
     if (!bot || store.groupByThread(threadId)) return "idle";
@@ -235,15 +263,22 @@ export function threadWork(store: ThreadWorkSources, waits: WatchedWaits): (thre
 
 function isOpenLine(value: unknown): value is OpenStatusLine {
   const line = value as Partial<OpenStatusLine> | null;
-  return Boolean(line) && typeof line!.threadId === "string" && typeof line!.messageId === "string" && typeof line!.text === "string" &&
-    (line!.words === undefined || typeof line!.words === "string");
+  return (
+    Boolean(line) &&
+    typeof line!.threadId === "string" &&
+    typeof line!.messageId === "string" &&
+    typeof line!.text === "string" &&
+    (line!.words === undefined || typeof line!.words === "string")
+  );
 }
 
 export function fileStatusLineLedger(path: string): StatusLineLedger {
   return fileListLedger(path, isOpenLine);
 }
 
-export function statusLineTimingFromEnv(env: NodeJS.ProcessEnv = process.env): Required<Omit<StatusLineTiming, "now">> {
+export function statusLineTimingFromEnv(
+  env: NodeJS.ProcessEnv = process.env,
+): Required<Omit<StatusLineTiming, "now">> {
   const read = (name: string, fallback: number, floor: number) => {
     const value = Number(env[name]);
     return Number.isFinite(value) && value > 0 ? Math.max(floor, value) : fallback;

@@ -9,7 +9,11 @@ import { join } from "node:path";
 import { homedir } from "node:os";
 import { codexConfigMcpServerNames, mountedMcpServerName } from "./codex-mcp-names.ts";
 
-import { DATA_DIR, DEFAULT_MCP_CALL_TIMEOUT_MINUTES, stripWorkspaceCredentialEnv } from "../config.ts";
+import {
+  DATA_DIR,
+  DEFAULT_MCP_CALL_TIMEOUT_MINUTES,
+  stripWorkspaceCredentialEnv,
+} from "../config.ts";
 import { hostedWorkspaceConfigured } from "../enterprise.ts";
 import { cloudHomeConfigured } from "../cloud-home.ts";
 import { serverVersion } from "../environment.ts";
@@ -30,7 +34,12 @@ import type {
   TurnImageInput,
 } from "../contracts.ts";
 import { newEventId, newId } from "../contracts.ts";
-import { decodeCodexSelection, OFFICIAL_CODEX_PROVIDER, readCodexModelCatalog, STATIC_CODEX_MODELS } from "./codex-catalog.ts";
+import {
+  decodeCodexSelection,
+  OFFICIAL_CODEX_PROVIDER,
+  readCodexModelCatalog,
+  STATIC_CODEX_MODELS,
+} from "./codex-catalog.ts";
 import { codexLocalProviderArgs } from "./local-inject.ts";
 import { readCliVersion, unreadCli } from "../laterdog/cli-version.ts";
 import { augmentedPath, splitCliString } from "../env-path.ts";
@@ -38,7 +47,11 @@ import { classifyError, computeBackoff, interruptibleDelay, RETRY_MAX_ATTEMPTS }
 import { appendNative } from "./native.ts";
 import { permissionCommand, permissionLaunchCwd } from "./permission-command.ts";
 import { commandSummary, toolDetailPreview } from "../tool-summary.ts";
-import { codexDeveloperInstructions, forgetDeliveredContext, syncCodexInstructions } from "./codex-instructions.ts";
+import {
+  codexDeveloperInstructions,
+  forgetDeliveredContext,
+  syncCodexInstructions,
+} from "./codex-instructions.ts";
 import { withContextNote } from "./prompt-split.ts";
 import type { ApprovalMode } from "../../shared/approval-mode.ts";
 import { CodexDeviceAuthController } from "./codex-device-auth.ts";
@@ -50,7 +63,11 @@ import { chatgptPlanSignIn, cloudChatGptHome } from "../laterdog/cloud-chatgpt.t
 import { keyRejected, noteKeyAccepted, noteKeyRejected } from "../key-rejections.ts";
 import { classifyResumeFailure, mayReplay, recoveryPromptFor } from "../resume-recovery.ts";
 import { extractMcpImages } from "../mcp-tool-images.ts";
-import { parseProtocolAskQuestions, questionAnswersById, questionChoices } from "../../shared/ask-question.ts";
+import {
+  parseProtocolAskQuestions,
+  questionAnswersById,
+  questionChoices,
+} from "../../shared/ask-question.ts";
 import { codexVersionBehind, readLatestCodexRelease } from "./codex-release.ts";
 import { canUseMcpServer } from "../../shared/tool-scope.ts";
 import { assertToolScopeSupported } from "../../shared/tool-scope-support.ts";
@@ -64,7 +81,11 @@ import { codexToolTouch } from "../laterdog/tool-touches.ts";
 import { codexCompactionEvent } from "../laterdog/native-compaction.ts";
 import { helpersStoppedLine } from "../laterdog/helpers-stopped.ts";
 
-export { decodeCodexSelection, readCodexModelCatalog, STATIC_CODEX_MODELS } from "./codex-catalog.ts";
+export {
+  decodeCodexSelection,
+  readCodexModelCatalog,
+  STATIC_CODEX_MODELS,
+} from "./codex-catalog.ts";
 
 const DRIVER_KIND = "codex";
 
@@ -80,23 +101,36 @@ export function codexUserError(value: string, chatgptPlan: boolean): string {
   return value.slice(0, 400);
 }
 
-const CODEX_SIGN_IN_REFUSED = /workspace routing discovery unauthorized|access token could not be refreshed|authentication session could not be refreshed|ChatGPT login is required|auth data is not available|please (?:log out and )?sign in again/i;
+const CODEX_SIGN_IN_REFUSED =
+  /workspace routing discovery unauthorized|access token could not be refreshed|authentication session could not be refreshed|ChatGPT login is required|auth data is not available|please (?:log out and )?sign in again/i;
 
 export function codexSignInRefused(error: unknown): boolean {
   if (!error || typeof error !== "object") return false;
-  const { message, codexErrorInfo: info } = error as { message?: unknown; codexErrorInfo?: unknown };
+  const { message, codexErrorInfo: info } = error as {
+    message?: unknown;
+    codexErrorInfo?: unknown;
+  };
   if (info === "unauthorized") return true;
-  if (info && typeof info === "object" &&
-    Object.values(info).some((variant) => (variant as { httpStatusCode?: unknown } | null)?.httpStatusCode === 401)) return true;
+  if (
+    info &&
+    typeof info === "object" &&
+    Object.values(info).some(
+      (variant) => (variant as { httpStatusCode?: unknown } | null)?.httpStatusCode === 401,
+    )
+  )
+    return true;
   return typeof message === "string" && CODEX_SIGN_IN_REFUSED.test(message);
 }
 
-export const CODEX_SIGN_IN_EXPIRED = "Codex's ChatGPT sign-in has expired. Sign in again in Settings → General → Accounts.";
+export const CODEX_SIGN_IN_EXPIRED =
+  "Codex's ChatGPT sign-in has expired. Sign in again in Settings → General → Accounts.";
 
 export const CODEX_CLOUD_SIGN_IN_AGAIN = "ChatGPT needs signing in again.";
 
 export function codexSignInExpired(raw: string, cloudHome = cloudHomeConfigured()): string {
-  return cloudHome ? CODEX_CLOUD_SIGN_IN_AGAIN : `${CODEX_SIGN_IN_EXPIRED} Codex said: ${raw.slice(0, 300)}`;
+  return cloudHome
+    ? CODEX_CLOUD_SIGN_IN_AGAIN
+    : `${CODEX_SIGN_IN_EXPIRED} Codex said: ${raw.slice(0, 300)}`;
 }
 
 export class CodexRpcError extends Error {
@@ -108,9 +142,19 @@ export class CodexRpcError extends Error {
   }
 }
 
-export function codexForkEndsAt(forked: unknown, lastTurnId: string): forked is { thread: { id: string; turns: Array<{ id: string }> }; model?: unknown } {
+export function codexForkEndsAt(
+  forked: unknown,
+  lastTurnId: string,
+): forked is { thread: { id: string; turns: Array<{ id: string }> }; model?: unknown } {
   const thread = (forked as { thread?: { id?: unknown; turns?: unknown } } | null)?.thread;
-  if (!thread || typeof thread.id !== "string" || !thread.id || !Array.isArray(thread.turns) || thread.turns.length === 0) return false;
+  if (
+    !thread ||
+    typeof thread.id !== "string" ||
+    !thread.id ||
+    !Array.isArray(thread.turns) ||
+    thread.turns.length === 0
+  )
+    return false;
   const last = thread.turns.at(-1) as { id?: unknown } | undefined;
   return last?.id === lastTurnId;
 }
@@ -118,24 +162,32 @@ export function codexForkEndsAt(forked: unknown, lastTurnId: string): forked is 
 export function missingNativeCodexThread(error: unknown, cursor: string): boolean {
   if (!(error instanceof CodexRpcError) || error.code !== -32600) return false;
   const message = error.message.trim();
-  return [`no rollout found for thread id ${cursor}`, `no rollout found for conversation id ${cursor}`, `thread not found: ${cursor}`]
-    .includes(message);
+  return [
+    `no rollout found for thread id ${cursor}`,
+    `no rollout found for conversation id ${cursor}`,
+    `thread not found: ${cursor}`,
+  ].includes(message);
 }
 
-export function codexUpdateCommand(cli: string, platform: NodeJS.Platform = process.platform): string {
+export function codexUpdateCommand(
+  cli: string,
+  platform: NodeJS.Platform = process.platform,
+): string {
   if (cli === "codex") return "codex update";
   const trimmed = cli.trim();
-  const tokens = trimmed.includes(" ") && existsSync(trimmed)
-    ? [trimmed]
-    : splitCliString(trimmed);
-  const quote = platform === "win32"
-    ? (token: string) => `'${token.replaceAll("'", "''")}'`
-    : (token: string) => `'${token.replaceAll("'", `'\\''`)}'`;
+  const tokens = trimmed.includes(" ") && existsSync(trimmed) ? [trimmed] : splitCliString(trimmed);
+  const quote =
+    platform === "win32"
+      ? (token: string) => `'${token.replaceAll("'", "''")}'`
+      : (token: string) => `'${token.replaceAll("'", `'\\''`)}'`;
   const command = (tokens.length > 0 ? tokens : [trimmed]).map(quote).join(" ");
   return platform === "win32" ? `& ${command} update` : `${command} update`;
 }
 
-async function codexReleaseUpdate(version: string, cli: string): Promise<ProviderSnapshot["update"] | undefined> {
+async function codexReleaseUpdate(
+  version: string,
+  cli: string,
+): Promise<ProviderSnapshot["update"] | undefined> {
   const latest = await readLatestCodexRelease();
   if (!latest || !codexVersionBehind(version, latest)) return undefined;
   return {
@@ -154,58 +206,109 @@ export interface CodexConfig {
 
 function decodeConfig(raw: unknown): CodexConfig {
   const o = (raw ?? {}) as Record<string, unknown>;
-  if (o.authMode !== undefined && o.authMode !== "chatgpt-plan") throw new Error("Unknown Codex sign-in mode.");
-  if (o.authMode && o.managed) throw new Error("ChatGPT plan and Company billing cannot be combined.");
+  if (o.authMode !== undefined && o.authMode !== "chatgpt-plan")
+    throw new Error("Unknown Codex sign-in mode.");
+  if (o.authMode && o.managed)
+    throw new Error("ChatGPT plan and Company billing cannot be combined.");
   return {
     cli: typeof o.cli === "string" ? o.cli : "codex",
     fullAuto: o.fullAuto === true,
     ...(o.authMode === "chatgpt-plan" ? { authMode: "chatgpt-plan" as const } : {}),
-    ...(o.managed && typeof o.managed === "object" ? { managed: decodeManagedCodex(o.managed) } : {}),
+    ...(o.managed && typeof o.managed === "object"
+      ? { managed: decodeManagedCodex(o.managed) }
+      : {}),
   };
 }
 
 export function chatgptPlanCodexArgs(): string[] {
   return [
-    "-c", 'model_provider="openai_chatgpt_plan"',
-    "-c", 'model_providers.openai_chatgpt_plan.name="ChatGPT plan"',
-    "-c", 'model_providers.openai_chatgpt_plan.base_url="https://api.openai.com/v1"',
-    "-c", 'model_providers.openai_chatgpt_plan.env_key="LATERDOG_CHATGPT_TOKEN"',
-    "-c", 'model_providers.openai_chatgpt_plan.wire_api="responses"',
-    "-c", "model_providers.openai_chatgpt_plan.requires_openai_auth=false",
-    "-c", "model_providers.openai_chatgpt_plan.supports_websockets=false",
-    "-c", 'cli_auth_credentials_store="ephemeral"',
-    "-c", "features.tool_search=false",
-    "-c", "shell_environment_policy.ignore_default_excludes=false",
+    "-c",
+    'model_provider="openai_chatgpt_plan"',
+    "-c",
+    'model_providers.openai_chatgpt_plan.name="ChatGPT plan"',
+    "-c",
+    'model_providers.openai_chatgpt_plan.base_url="https://api.openai.com/v1"',
+    "-c",
+    'model_providers.openai_chatgpt_plan.env_key="LATERDOG_CHATGPT_TOKEN"',
+    "-c",
+    'model_providers.openai_chatgpt_plan.wire_api="responses"',
+    "-c",
+    "model_providers.openai_chatgpt_plan.requires_openai_auth=false",
+    "-c",
+    "model_providers.openai_chatgpt_plan.supports_websockets=false",
+    "-c",
+    'cli_auth_credentials_store="ephemeral"',
+    "-c",
+    "features.tool_search=false",
+    "-c",
+    "shell_environment_policy.ignore_default_excludes=false",
   ];
 }
 
 function decodeManagedCodex(raw: object): NonNullable<CodexConfig["managed"]> {
   const value = raw as { url?: unknown; models?: unknown };
-  if (typeof value.url !== "string" || !Array.isArray(value.models) || !value.models.length || value.models.some(model => typeof model !== "string" || !/^[\w][\w./+-]*$/.test(model))) {
+  if (
+    typeof value.url !== "string" ||
+    !Array.isArray(value.models) ||
+    !value.models.length ||
+    value.models.some((model) => typeof model !== "string" || !/^[\w][\w./+-]*$/.test(model))
+  ) {
     throw new Error("Invalid Company Codex configuration.");
   }
   const url = new URL(value.url);
-  const loopback = url.hostname === "localhost" || url.hostname === "[::1]" || /^127(?:\.\d{1,3}){3}$/.test(url.hostname);
-  if (url.username || url.password || url.search || url.hash || (url.protocol !== "https:" && !(url.protocol === "http:" && loopback))) throw new Error("Invalid Company Codex endpoint.");
+  const loopback =
+    url.hostname === "localhost" ||
+    url.hostname === "[::1]" ||
+    /^127(?:\.\d{1,3}){3}$/.test(url.hostname);
+  if (
+    url.username ||
+    url.password ||
+    url.search ||
+    url.hash ||
+    (url.protocol !== "https:" && !(url.protocol === "http:" && loopback))
+  )
+    throw new Error("Invalid Company Codex endpoint.");
   return { url: url.href.replace(/\/$/, ""), models: value.models as string[] };
 }
 
 export function managedCodexArgs(config: NonNullable<CodexConfig["managed"]>): string[] {
   return [
-    "-c", 'model_provider="laterdog_company"',
-    "-c", 'model_providers.laterdog_company.name="Company"',
-    "-c", `model_providers.laterdog_company.base_url=${JSON.stringify(config.url)}`,
-    "-c", 'model_providers.laterdog_company.env_key="LATERDOG_COMPANY_API_KEY"',
-    "-c", 'model_providers.laterdog_company.wire_api="responses"',
-    "-c", "model_providers.laterdog_company.requires_openai_auth=false",
-    "-c", 'cli_auth_credentials_store="ephemeral"',
-    "-c", "shell_environment_policy.ignore_default_excludes=false",
+    "-c",
+    'model_provider="laterdog_company"',
+    "-c",
+    'model_providers.laterdog_company.name="Company"',
+    "-c",
+    `model_providers.laterdog_company.base_url=${JSON.stringify(config.url)}`,
+    "-c",
+    'model_providers.laterdog_company.env_key="LATERDOG_COMPANY_API_KEY"',
+    "-c",
+    'model_providers.laterdog_company.wire_api="responses"',
+    "-c",
+    "model_providers.laterdog_company.requires_openai_auth=false",
+    "-c",
+    'cli_auth_credentials_store="ephemeral"',
+    "-c",
+    "shell_environment_policy.ignore_default_excludes=false",
   ];
 }
 
-const PRIVATE_ENV_FAMILIES = ["LATERDOG_GATE_CONFIG_", "LATERDOG_REMOTE_MCP_CONFIG_", "LATERDOG_MCP_HEADER_"];
+const PRIVATE_ENV_FAMILIES = [
+  "LATERDOG_GATE_CONFIG_",
+  "LATERDOG_REMOTE_MCP_CONFIG_",
+  "LATERDOG_MCP_HEADER_",
+];
 const PROXY_LITERAL_ENV = ["NODE_USE_ENV_PROXY", "NO_PROXY", "no_proxy"];
-const SHELL_ESSENTIALS = new Set(["PATH", "HOME", "USER", "LOGNAME", "SHELL", "TMPDIR", "TERM", "LANG", "TZ"]);
+const SHELL_ESSENTIALS = new Set([
+  "PATH",
+  "HOME",
+  "USER",
+  "LOGNAME",
+  "SHELL",
+  "TMPDIR",
+  "TERM",
+  "LANG",
+  "TZ",
+]);
 
 const DENY_TIMEOUT_NOTE =
   "later.dog: nobody answered this permission request in time. Skip this action and finish what you can without it.";
@@ -215,17 +318,23 @@ const renamedMcpServers = new Set<string>();
 function noteRenamedMcpServer(name: string, mountName: string): void {
   if (renamedMcpServers.has(name)) return;
   renamedMcpServers.add(name);
-  console.error(`codex: MCP server ${JSON.stringify(name)} is also declared in Codex's own config.toml — mounted as ${JSON.stringify(mountName)} for this bot so the two do not merge`);
+  console.error(
+    `codex: MCP server ${JSON.stringify(name)} is also declared in Codex's own config.toml — mounted as ${JSON.stringify(mountName)} for this bot so the two do not merge`,
+  );
 }
 
 function noteSkippedSseServer(name: string): void {
   if (skippedSseServers.has(name)) return;
   skippedSseServers.add(name);
-  console.error(`codex: MCP server ${JSON.stringify(name)} uses the SSE transport, which codex does not speak — it is available to Claude bots only`);
+  console.error(
+    `codex: MCP server ${JSON.stringify(name)} uses the SSE transport, which codex does not speak — it is available to Claude bots only`,
+  );
 }
 
 function tomlInlineTable(entries: Record<string, string>): string {
-  return `{ ${Object.entries(entries).map(([key, value]) => `${JSON.stringify(key)} = ${JSON.stringify(value)}`).join(", ")} }`;
+  return `{ ${Object.entries(entries)
+    .map(([key, value]) => `${JSON.stringify(key)} = ${JSON.stringify(value)}`)
+    .join(", ")} }`;
 }
 
 interface CodexApprovalParams {
@@ -237,7 +346,9 @@ interface CodexApprovalParams {
 function grantedPermissions(raw: unknown): Record<string, unknown> {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) return {};
   return Object.fromEntries(
-    Object.entries(raw as Record<string, unknown>).filter(([, value]) => value !== null && value !== undefined),
+    Object.entries(raw as Record<string, unknown>).filter(
+      ([, value]) => value !== null && value !== undefined,
+    ),
   );
 }
 
@@ -256,7 +367,7 @@ type McpApprovalForm = {
 
 const plainRecord = (value: unknown): Record<string, unknown> | null =>
   value && typeof value === "object" && !Array.isArray(value)
-    ? value as Record<string, unknown>
+    ? (value as Record<string, unknown>)
     : null;
 
 const containsControlCharacter = (value: string): boolean => {
@@ -286,17 +397,20 @@ function mcpAppApprovalForm(params: unknown): McpApprovalForm | null {
   const target = plainRecord(metadata?.target);
   const toolParams = plainRecord(metadata?.tool_params);
   const message = boundedLabel(request.message) ?? "App access requested";
-  const appName = [
-    metadata?.app_name,
-    metadata?.appName,
-    metadata?.app,
-    target?.app,
-    target?.name,
-    toolParams?.app_name,
-    toolParams?.app,
-    metadata?.connector_name,
-    metadata?.connectorName,
-  ].map(boundedLabel).find(Boolean) ?? message.match(/^Allow ChatGPT to use (.+?)\?$/i)?.[1]?.trim();
+  const appName =
+    [
+      metadata?.app_name,
+      metadata?.appName,
+      metadata?.app,
+      target?.app,
+      target?.name,
+      toolParams?.app_name,
+      toolParams?.app,
+      metadata?.connector_name,
+      metadata?.connectorName,
+    ]
+      .map(boundedLabel)
+      .find(Boolean) ?? message.match(/^Allow ChatGPT to use (.+?)\?$/i)?.[1]?.trim();
   if (!appName) return null;
 
   const schema = plainRecord(request.requestedSchema);
@@ -308,7 +422,8 @@ function mcpAppApprovalForm(params: unknown): McpApprovalForm | null {
     required.length === 0 ||
     required.length > 8 ||
     !required.every((key) => typeof key === "string" && key.length > 0 && key.length <= 100)
-  ) return null;
+  )
+    return null;
 
   const content: Record<string, string> = {};
   for (const key of required as string[]) {
@@ -332,33 +447,63 @@ function mcpAppApprovalForm(params: unknown): McpApprovalForm | null {
 }
 
 export const GUEST_CONFINED_CODEX_ARGS = [
-  "-c", "features.shell_tool=false", "-c", "features.unified_exec=false", "-c", "features.view_image=false", "-c", 'web_search="disabled"',
+  "-c",
+  "features.shell_tool=false",
+  "-c",
+  "features.unified_exec=false",
+  "-c",
+  "features.view_image=false",
+  "-c",
+  'web_search="disabled"',
 ] as const;
 
 export function codexShellDisabled(config: unknown): boolean {
   const features = plainRecord(plainRecord(config)?.features);
-  return features?.shell_tool === false && features?.unified_exec === false && features?.view_image === false;
+  return (
+    features?.shell_tool === false &&
+    features?.unified_exec === false &&
+    features?.view_image === false
+  );
 }
 
-function extendShellExclusions(policy: Record<string, unknown>, patterns: readonly string[]): Record<string, unknown> {
-  const unconfirmed = () => new Error("Codex could not confirm its shell environment exclusions. No prompt was sent.");
+function extendShellExclusions(
+  policy: Record<string, unknown>,
+  patterns: readonly string[],
+): Record<string, unknown> {
+  const unconfirmed = () =>
+    new Error("Codex could not confirm its shell environment exclusions. No prompt was sent.");
   const exclude = policy.exclude ?? undefined;
   const filters = policy.filters ?? undefined;
-  if (exclude !== undefined && (!Array.isArray(exclude) || exclude.some(name => typeof name !== "string"))) throw unconfirmed();
+  if (
+    exclude !== undefined &&
+    (!Array.isArray(exclude) || exclude.some((name) => typeof name !== "string"))
+  )
+    throw unconfirmed();
   if (filters === undefined) {
-    return { "shell_environment_policy.exclude": [...new Set([...(exclude ?? []) as string[], ...patterns])] };
+    return {
+      "shell_environment_policy.exclude": [
+        ...new Set([...((exclude ?? []) as string[]), ...patterns]),
+      ],
+    };
   }
   const table = plainRecord(filters);
-  if (!table || Object.values(table).some(action => action !== "exclude" && action !== "include")) throw unconfirmed();
-  if (exclude !== undefined || (policy.include_only ?? undefined) !== undefined) throw unconfirmed();
-  const ours = new Set(patterns.map(pattern => pattern.toLowerCase()));
-  return { "shell_environment_policy.filters": Object.fromEntries([
-    ...Object.entries(table).filter(([pattern]) => !ours.has(pattern.toLowerCase())),
-    ...patterns.map(pattern => [pattern, "exclude"]),
-  ]) };
+  if (!table || Object.values(table).some((action) => action !== "exclude" && action !== "include"))
+    throw unconfirmed();
+  if (exclude !== undefined || (policy.include_only ?? undefined) !== undefined)
+    throw unconfirmed();
+  const ours = new Set(patterns.map((pattern) => pattern.toLowerCase()));
+  return {
+    "shell_environment_policy.filters": Object.fromEntries([
+      ...Object.entries(table).filter(([pattern]) => !ours.has(pattern.toLowerCase())),
+      ...patterns.map((pattern) => [pattern, "exclude"]),
+    ]),
+  };
 }
 
-function namedApprovalParams(mode: Exclude<ApprovalMode, "custom">, ownerAnswers = false): CodexApprovalParams {
+function namedApprovalParams(
+  mode: Exclude<ApprovalMode, "custom">,
+  ownerAnswers = false,
+): CodexApprovalParams {
   if (mode === "full") {
     return {
       thread: {
@@ -393,10 +538,14 @@ function withResolvedSandbox(params: CodexApprovalParams, session: unknown): Cod
   if (!requested) return params;
   const sandbox = plainRecord(plainRecord(session)?.sandbox);
   if (!sandbox || typeof sandbox.type !== "string") {
-    throw new Error("Codex did not return its resolved sandbox policy. Update Codex, then retry; the turn was not started because its permissions could not be verified.");
+    throw new Error(
+      "Codex did not return its resolved sandbox policy. Update Codex, then retry; the turn was not started because its permissions could not be verified.",
+    );
   }
   if (sandbox.type !== requested.type) {
-    throw new Error("Codex did not apply the requested sandbox mode; cannot safely start the turn.");
+    throw new Error(
+      "Codex did not apply the requested sandbox mode; cannot safely start the turn.",
+    );
   }
   return { ...params, turn: { ...params.turn, sandboxPolicy: sandbox } };
 }
@@ -409,7 +558,8 @@ function effectiveApprovalPolicy(value: unknown): unknown {
     typeof granular.mcp_elicitations === "boolean" &&
     typeof granular.rules === "boolean" &&
     typeof granular.sandbox_approval === "boolean" &&
-    (granular.request_permissions === undefined || typeof granular.request_permissions === "boolean") &&
+    (granular.request_permissions === undefined ||
+      typeof granular.request_permissions === "boolean") &&
     (granular.skill_approval === undefined || typeof granular.skill_approval === "boolean")
   ) {
     return {
@@ -436,23 +586,31 @@ function effectiveApprovalsReviewer(value: unknown): string {
 function legacyCustomApprovalParams(config: Record<string, unknown>): CodexApprovalParams {
   const approvalPolicy = effectiveApprovalPolicy(config.approval_policy);
   const approvalsReviewer = effectiveApprovalsReviewer(config.approvals_reviewer);
-  const sandbox = config.sandbox_mode === "workspace-write" ||
+  const sandbox =
+    config.sandbox_mode === "workspace-write" ||
     config.sandbox_mode === "danger-full-access" ||
     config.sandbox_mode === "read-only"
-    ? config.sandbox_mode
-    : "read-only";
+      ? config.sandbox_mode
+      : "read-only";
   let sandboxPolicy: Record<string, unknown>;
   if (sandbox === "danger-full-access") sandboxPolicy = { type: "dangerFullAccess" };
   else if (sandbox === "read-only") sandboxPolicy = { type: "readOnly" };
   else {
-    const workspace = config.sandbox_workspace_write && typeof config.sandbox_workspace_write === "object"
-      ? config.sandbox_workspace_write as Record<string, unknown>
-      : {};
+    const workspace =
+      config.sandbox_workspace_write && typeof config.sandbox_workspace_write === "object"
+        ? (config.sandbox_workspace_write as Record<string, unknown>)
+        : {};
     sandboxPolicy = {
       type: "workspaceWrite",
-      ...(Array.isArray(workspace.writable_roots) ? { writableRoots: workspace.writable_roots } : {}),
-      ...(typeof workspace.network_access === "boolean" ? { networkAccess: workspace.network_access } : {}),
-      ...(typeof workspace.exclude_slash_tmp === "boolean" ? { excludeSlashTmp: workspace.exclude_slash_tmp } : {}),
+      ...(Array.isArray(workspace.writable_roots)
+        ? { writableRoots: workspace.writable_roots }
+        : {}),
+      ...(typeof workspace.network_access === "boolean"
+        ? { networkAccess: workspace.network_access }
+        : {}),
+      ...(typeof workspace.exclude_slash_tmp === "boolean"
+        ? { excludeSlashTmp: workspace.exclude_slash_tmp }
+        : {}),
       ...(typeof workspace.exclude_tmpdir_env_var === "boolean"
         ? { excludeTmpdirEnvVar: workspace.exclude_tmpdir_env_var }
         : {}),
@@ -472,9 +630,8 @@ function configuredPermissionProfile(config: Record<string, unknown>): string | 
 }
 
 function customApprovalParams(raw: unknown): CodexApprovalParams {
-  const config = raw && typeof raw === "object" && !Array.isArray(raw)
-    ? raw as Record<string, unknown>
-    : {};
+  const config =
+    raw && typeof raw === "object" && !Array.isArray(raw) ? (raw as Record<string, unknown>) : {};
   const fallback = legacyCustomApprovalParams(config);
   const permissions = configuredPermissionProfile(config);
   const approvalPolicy = effectiveApprovalPolicy(config.approval_policy);
@@ -490,7 +647,9 @@ function customApprovalParams(raw: unknown): CodexApprovalParams {
 
 function permissionProfileUnsupported(error: unknown): boolean {
   const message = error instanceof Error ? error.message : String(error);
-  return /(?:experimental api|invalid params|unknown field|unknown.*permissions|permissions.*(?:unsupported|sandbox)|cannot.*permissions)/i.test(message);
+  return /(?:experimental api|invalid params|unknown field|unknown.*permissions|permissions.*(?:unsupported|sandbox)|cannot.*permissions)/i.test(
+    message,
+  );
 }
 
 function codexNativeLogMessage(message: unknown): unknown {
@@ -499,7 +658,10 @@ function codexNativeLogMessage(message: unknown): unknown {
   const params = record.params;
   if (!params || typeof params !== "object" || Array.isArray(params)) return message;
   if (record.method === "thread/start" || record.method === "thread/resume") {
-    return { ...record, params: { ...params, developerInstructions: "[developer instructions omitted]" } };
+    return {
+      ...record,
+      params: { ...params, developerInstructions: "[developer instructions omitted]" },
+    };
   }
   if (record.method === "thread/inject_items") {
     return { ...record, params: { ...params, items: "[developer instruction update omitted]" } };
@@ -566,11 +728,15 @@ function mountMcpServer(
     const stem = `LATERDOG_MCP_HEADER_${name.toUpperCase().replace(/[^A-Z0-9]/g, "_")}`;
     const variables: Record<string, string> = {};
     Object.entries(server.headers).forEach(([header, value], index) => {
-      const bearer = header.toLowerCase() === "authorization" ? /^Bearer\s+(\S+)$/i.exec(value) : null;
+      const bearer =
+        header.toLowerCase() === "authorization" ? /^Bearer\s+(\S+)$/i.exec(value) : null;
       if (bearer) {
         env[`${stem}_BEARER`] = bearer[1];
         written.add(`${stem}_BEARER`);
-        appServerArgs.push("-c", `${prefix}.bearer_token_env_var=${JSON.stringify(`${stem}_BEARER`)}`);
+        appServerArgs.push(
+          "-c",
+          `${prefix}.bearer_token_env_var=${JSON.stringify(`${stem}_BEARER`)}`,
+        );
         return;
       }
       const variable = `${stem}_${index}`;
@@ -585,11 +751,15 @@ function mountMcpServer(
     Object.assign(env, server.env);
     for (const name of Object.keys(server.env)) written.add(name);
     appServerArgs.push(
-      "-c", `${prefix}.command=${JSON.stringify(server.command)}`,
-      "-c", `${prefix}.args=${JSON.stringify(server.args)}`,
-      "-c", `${prefix}.env_vars=${JSON.stringify(Object.keys(server.env))}`,
+      "-c",
+      `${prefix}.command=${JSON.stringify(server.command)}`,
+      "-c",
+      `${prefix}.args=${JSON.stringify(server.args)}`,
+      "-c",
+      `${prefix}.env_vars=${JSON.stringify(Object.keys(server.env))}`,
     );
-    if (Object.keys(literalEnv).length) appServerArgs.push("-c", `${prefix}.env=${tomlInlineTable(literalEnv)}`);
+    if (Object.keys(literalEnv).length)
+      appServerArgs.push("-c", `${prefix}.env=${tomlInlineTable(literalEnv)}`);
   }
   if (preApproved) {
     appServerArgs.push("-c", `${prefix}.default_tools_approval_mode="auto"`);
@@ -615,12 +785,19 @@ export const CodexDriver: ProviderDriver<CodexConfig> = {
 
   async create(input: DriverCreateInput<CodexConfig>): Promise<ProviderInstance> {
     const { instanceId, config } = input;
-    const deviceChatGpt = config.authMode === "chatgpt-plan" && chatgptPlanSignIn() === "device-code";
+    const deviceChatGpt =
+      config.authMode === "chatgpt-plan" && chatgptPlanSignIn() === "device-code";
     const plan = config.authMode === "chatgpt-plan" && !deviceChatGpt;
-    const planUnavailable = plan && hostedWorkspaceConfigured()
-      ? "ChatGPT plan sign-in for hosted Pro requires OpenAI's hosted-app approval. Use a Company model or API key until that integration is approved; the local desktop flow cannot be used here."
-      : undefined;
-    const planDirectory = join(DATA_DIR, "providers", "chatgpt-plan", createHash("sha256").update(instanceId).digest("hex"));
+    const planUnavailable =
+      plan && hostedWorkspaceConfigured()
+        ? "ChatGPT plan sign-in for hosted Pro requires OpenAI's hosted-app approval. Use a Company model or API key until that integration is approved; the local desktop flow cannot be used here."
+        : undefined;
+    const planDirectory = join(
+      DATA_DIR,
+      "providers",
+      "chatgpt-plan",
+      createHash("sha256").update(instanceId).digest("hex"),
+    );
     const deviceHome = deviceChatGpt ? cloudChatGptHome(planDirectory, input.environment) : null;
     const childEnv = (): Record<string, string | undefined> => {
       const env: Record<string, string | undefined> = {
@@ -642,7 +819,14 @@ export const CodexDriver: ProviderDriver<CodexConfig> = {
     let planSigningOut = false;
     let disposed = false;
     let planWarning: string | undefined;
-    let models = plan ? { default: "", options: [] } : config.managed ? { default: config.managed.models[0], options: config.managed.models.map(id => ({ id, label: id })) } : STATIC_CODEX_MODELS;
+    let models = plan
+      ? { default: "", options: [] }
+      : config.managed
+        ? {
+            default: config.managed.models[0],
+            options: config.managed.models.map((id) => ({ id, label: id })),
+          }
+        : STATIC_CODEX_MODELS;
     const refreshModels = async () => {
       if (config.managed || disposed) return;
       if (planAuth) {
@@ -659,37 +843,71 @@ export const CodexDriver: ProviderDriver<CodexConfig> = {
         if (resolved.options.length) models = resolved;
       } catch {}
     };
-    if (planAuth) { try { await refreshModels(); } catch {} }
-    else await readEngineModels(refreshModels);
+    if (planAuth) {
+      try {
+        await refreshModels();
+      } catch {}
+    } else await readEngineModels(refreshModels);
     const ownLogin = !plan && !config.managed;
     const loginMark = (): [string, string] | null => {
       const home = ownLogin ? codexHome(childEnv()) : null;
       if (!home) return null;
       let stored = "";
-      try { stored = readFileSync(join(home, "auth.json"), "utf8"); } catch { return null; }
+      try {
+        stored = readFileSync(join(home, "auth.json"), "utf8");
+      } catch {
+        return null;
+      }
       try {
         const auth = JSON.parse(stored) as { auth_mode?: unknown; tokens?: unknown };
-        const chatgpt = typeof auth.auth_mode === "string" ? /chatgpt/i.test(auth.auth_mode) : Boolean(auth.tokens);
+        const chatgpt =
+          typeof auth.auth_mode === "string"
+            ? /chatgpt/i.test(auth.auth_mode)
+            : Boolean(auth.tokens);
         if (!chatgpt) return null;
-      } catch { return null; }
+      } catch {
+        return null;
+      }
       return [`codex-login:${home}`, stored];
     };
-    const loginRefused = () => { const mark = loginMark(); if (mark) noteKeyRejected(...mark); };
-    const loginAccepted = (mark = loginMark()) => { if (mark) noteKeyAccepted(...mark); };
-    const loginRejected = () => { const mark = loginMark(); return mark !== null && keyRejected(...mark); };
+    const loginRefused = () => {
+      const mark = loginMark();
+      if (mark) noteKeyRejected(...mark);
+    };
+    const loginAccepted = (mark = loginMark()) => {
+      if (mark) noteKeyAccepted(...mark);
+    };
+    const loginRejected = () => {
+      const mark = loginMark();
+      return mark !== null && keyRejected(...mark);
+    };
     const authentication = new CodexDeviceAuthController({
       cli: config.cli,
       environment: childEnv,
       signInRejected: loginRejected,
-      onAuthenticated: async () => { loginAccepted(); await refreshModels(); },
+      onAuthenticated: async () => {
+        loginAccepted();
+        await refreshModels();
+      },
     });
     const listeners = new Set<RuntimeEventListener>();
     interface Turn {
       stop: () => Promise<boolean>;
       stopNativeActor: (actor: CodexActorTarget) => Promise<void>;
-      steer?: (text: string, images?: TurnImageInput[], onRead?: () => void) => Promise<SteerOutcome>;
+      steer?: (
+        text: string,
+        images?: TurnImageInput[],
+        onRead?: () => void,
+      ) => Promise<SteerOutcome>;
       turnId: string;
-      asks: Map<string, (behavior: "allow" | "deny" | "answer", message?: string, source?: "user" | "timeout" | "system") => void>;
+      asks: Map<
+        string,
+        (
+          behavior: "allow" | "deny" | "answer",
+          message?: string,
+          source?: "user" | "timeout" | "system",
+        ) => void
+      >;
     }
     const active = new Map<string, Turn>();
 
@@ -710,33 +928,50 @@ export const CodexDriver: ProviderDriver<CodexConfig> = {
       turn = { ...turn, toolScope: assertToolScopeSupported(DRIVER_KIND, turn.toolScope) };
       const generation = planGeneration;
       const assertPlanCurrent = () => {
-        if (disposed) throw new Error("This provider was removed. Select a connected account and send again.");
-        if (planAuth && (planSigningOut || generation !== planGeneration)) throw new Error("The ChatGPT account changed while this message was preparing. Select a connected account and send again.");
+        if (disposed)
+          throw new Error("This provider was removed. Select a connected account and send again.");
+        if (planAuth && (planSigningOut || generation !== planGeneration))
+          throw new Error(
+            "The ChatGPT account changed while this message was preparing. Select a connected account and send again.",
+          );
       };
       assertPlanCurrent();
       if (planUnavailable) throw new Error(planUnavailable);
       const planToken = planAuth ? await planAuth.accessToken() : undefined;
       assertPlanCurrent();
       if (planAuth) {
-        if (!turn.model || !models.options.some(model => model.id === turn.model)) {
+        if (!turn.model || !models.options.some((model) => model.id === turn.model)) {
           await refreshModels();
           assertPlanCurrent();
-          if (!turn.model || !models.options.some(model => model.id === turn.model)) throw new Error("This model is not available to the selected ChatGPT plan. Refresh models and choose a listed model; API billing will not be used.");
+          if (!turn.model || !models.options.some((model) => model.id === turn.model))
+            throw new Error(
+              "This model is not available to the selected ChatGPT plan. Refresh models and choose a listed model; API billing will not be used.",
+            );
         }
         mkdirSync(join(planDirectory, "codex"), { recursive: true, mode: 0o700 });
       }
       if (config.managed) {
         if (!turn.model) {
-          throw new Error("Company model access is unavailable: no model is selected. Reconnect your organization; personal billing will not be used.");
+          throw new Error(
+            "Company model access is unavailable: no model is selected. Reconnect your organization; personal billing will not be used.",
+          );
         }
         if (!config.managed.models.includes(turn.model)) {
-          throw new Error("Company model access is unavailable: " + turn.model + " is not approved for your organization. Reconnect your organization; personal billing will not be used.");
+          throw new Error(
+            "Company model access is unavailable: " +
+              turn.model +
+              " is not approved for your organization. Reconnect your organization; personal billing will not be used.",
+          );
         }
         if (!input.environment.LATERDOG_COMPANY_API_KEY) {
-          throw new Error("Company model access is unavailable: LATERDOG_COMPANY_API_KEY is missing. Reconnect your organization; personal billing will not be used.");
+          throw new Error(
+            "Company model access is unavailable: LATERDOG_COMPANY_API_KEY is missing. Reconnect your organization; personal billing will not be used.",
+          );
         }
         if (!input.environment.CODEX_HOME) {
-          throw new Error("Company model access is unavailable: CODEX_HOME is missing. Reconnect your organization; personal billing will not be used.");
+          throw new Error(
+            "Company model access is unavailable: CODEX_HOME is missing. Reconnect your organization; personal billing will not be used.",
+          );
         }
       }
       let stopRequested = false;
@@ -749,7 +984,9 @@ export const CodexDriver: ProviderDriver<CodexConfig> = {
         if ("url" in server || name === BUILT_IN_MCP_SERVER) continue;
         const reserved = Object.keys(server.env).find(isHarnessOwnedMcpEnvName);
         if (reserved) {
-          throw new Error(`Custom MCP server “${name}” cannot set reserved environment variable “${reserved}”`);
+          throw new Error(
+            `Custom MCP server “${name}” cannot set reserved environment variable “${reserved}”`,
+          );
         }
       }
       let autoAcceptPermissions = approvalMode === "full";
@@ -757,50 +994,100 @@ export const CodexDriver: ProviderDriver<CodexConfig> = {
       const turnId = newId();
       const retryScale = Number(process.env.FAKE_CODEX_RETRY_SCALE ?? "1");
 
-      const chatgptTurn = ownLogin &&
-        decodeCodexSelection(turn.model || models.default).modelProvider === OFFICIAL_CODEX_PROVIDER;
+      const chatgptTurn =
+        ownLogin &&
+        decodeCodexSelection(turn.model || models.default).modelProvider ===
+          OFFICIAL_CODEX_PROVIDER;
       const launchAttempt = async (attempt: number): Promise<void> => {
         const env = childEnv();
         prepareCodexShellGuard(env, threadId, turn.integrations?.hooks);
         Object.assign(env, chatEngineEnvironment(threadId, env));
         if (planToken) env.LATERDOG_CHATGPT_TOKEN = planToken;
-        const appServerArgs = ["app-server", ...(plan ? chatgptPlanCodexArgs() : config.managed ? managedCodexArgs(config.managed) : codexLocalProviderArgs(env, turn.model)), ...codexToolSurfaceArgs(),
+        const appServerArgs = [
+          "app-server",
+          ...(plan
+            ? chatgptPlanCodexArgs()
+            : config.managed
+              ? managedCodexArgs(config.managed)
+              : codexLocalProviderArgs(env, turn.model)),
+          ...codexToolSurfaceArgs(),
           ...(turn.toolScope === undefined ? [] : ["-c", "features.shell_snapshot=false"]),
-          ...(turn.guestConfined ? GUEST_CONFINED_CODEX_ARGS : [])];
+          ...(turn.guestConfined ? GUEST_CONFINED_CODEX_ARGS : []),
+        ];
         const baseEnv = new Map(Object.entries(env).filter(([, value]) => value !== undefined));
         const mountedNames = new Set<string>();
         const selectedMcp = new Map<string, McpServerSpec>();
         const selectedApprovals = new Map<string, boolean>();
         const directoryMounts = new Set<string>();
         const literalEnvs = new Map<string, Record<string, string>>();
-        const toolTimeoutSec = Math.ceil((turn.mcpCallTimeoutMs ?? DEFAULT_MCP_CALL_TIMEOUT_MINUTES * 60_000) / 1000);
-        const scopedServer = (name: string, mountName: string, server: McpServerSpec): McpServerSpec | null => {
+        const toolTimeoutSec = Math.ceil(
+          (turn.mcpCallTimeoutMs ?? DEFAULT_MCP_CALL_TIMEOUT_MINUTES * 60_000) / 1000,
+        );
+        const scopedServer = (
+          name: string,
+          mountName: string,
+          server: McpServerSpec,
+        ): McpServerSpec | null => {
           if (!canUseMcpServer(turn.toolScope, name)) return null;
           const directory = plan && "url" in server;
           if (turn.toolScope === undefined && !directory) return server;
           const hash = createHash("sha256").update(mountName).digest("hex");
-          const proxy = turn.toolScope === undefined
-            ? mcpStdioServer(server, { nodeEnv: { ELECTRON_RUN_AS_NODE: "1" }, directory: { name }, configEnvName: `LATERDOG_REMOTE_MCP_CONFIG_${hash}`, sourceEnv: env })
-            : gateServer({ name, server, threadId, budget: 0, toolScope: turn.toolScope, nodeEnv: { ELECTRON_RUN_AS_NODE: "1" },
-              configEnvName: `LATERDOG_GATE_CONFIG_${hash}`, directory, sourceEnv: env });
+          const proxy =
+            turn.toolScope === undefined
+              ? mcpStdioServer(server, {
+                  nodeEnv: { ELECTRON_RUN_AS_NODE: "1" },
+                  directory: { name },
+                  configEnvName: `LATERDOG_REMOTE_MCP_CONFIG_${hash}`,
+                  sourceEnv: env,
+                })
+              : gateServer({
+                  name,
+                  server,
+                  threadId,
+                  budget: 0,
+                  toolScope: turn.toolScope,
+                  nodeEnv: { ELECTRON_RUN_AS_NODE: "1" },
+                  configEnvName: `LATERDOG_GATE_CONFIG_${hash}`,
+                  directory,
+                  sourceEnv: env,
+                });
           if (proxy && directory) directoryMounts.add(mountName);
           if (!proxy) return null;
           const shared = { ...proxy.env };
           if (turn.toolScope === undefined) {
-            const literal = Object.fromEntries(Object.entries(shared).filter(([key]) => PROXY_LITERAL_ENV.includes(key)));
+            const literal = Object.fromEntries(
+              Object.entries(shared).filter(([key]) => PROXY_LITERAL_ENV.includes(key)),
+            );
             for (const key of PROXY_LITERAL_ENV) delete shared[key];
             if (Object.keys(literal).length) literalEnvs.set(mountName, literal);
           }
           return { command: proxy.command, args: proxy.args ?? [], env: shared };
         };
-        const mountSelected = (name: string, mountName: string, server: McpServerSpec, preApproved = true) => {
+        const mountSelected = (
+          name: string,
+          mountName: string,
+          server: McpServerSpec,
+          preApproved = true,
+        ) => {
           const selected = scopedServer(name, mountName, server);
           if (selected) {
             selectedMcp.set(mountName, selected);
             selectedApprovals.set(mountName, preApproved);
-            mountMcpServer(appServerArgs, env, mountName, selected, preApproved, literalEnvs.get(mountName), mountedNames);
+            mountMcpServer(
+              appServerArgs,
+              env,
+              mountName,
+              selected,
+              preApproved,
+              literalEnvs.get(mountName),
+              mountedNames,
+            );
             appServerArgs.push("-c", `mcp_servers.${mountName}.tool_timeout_sec=${toolTimeoutSec}`);
-            if (turn.toolScope !== undefined && !preApproved) appServerArgs.push("-c", `mcp_servers.${mountName}.default_tools_approval_mode="prompt"`);
+            if (turn.toolScope !== undefined && !preApproved)
+              appServerArgs.push(
+                "-c",
+                `mcp_servers.${mountName}.default_tools_approval_mode="prompt"`,
+              );
           }
         };
         if (turn.integrations?.composio) {
@@ -817,7 +1104,8 @@ export const CodexDriver: ProviderDriver<CodexConfig> = {
         }
         const declaredInCodexConfig = codexConfigMcpServerNames(env);
         if (turn.toolScope !== undefined) {
-          for (const name of declaredInCodexConfig) appServerArgs.push("-c", `mcp_servers.${name}.enabled=false`);
+          for (const name of declaredInCodexConfig)
+            appServerArgs.push("-c", `mcp_servers.${name}.enabled=false`);
         }
         for (const [name, server] of Object.entries(turn.integrations?.custom ?? {})) {
           if (turn.toolScope === undefined && !plan && "url" in server && server.type === "sse") {
@@ -829,22 +1117,52 @@ export const CodexDriver: ProviderDriver<CodexConfig> = {
           mountSelected(name, mountName, server, false);
         }
 
-        const mountedEnv = [...mountedNames].filter((name) => env[name] !== undefined && !SHELL_ESSENTIALS.has(name) && !name.startsWith("LC_")
-          && (name === "ELECTRON_RUN_AS_NODE" || baseEnv.get(name) !== env[name]));
-        const privateEnv = [...new Set([
-          ...(turn.toolScope !== undefined ? ["LATERDOG_GATE_CONFIG_*"] : []),
-          ...PRIVATE_ENV_FAMILIES.filter((family) => mountedEnv.some((name) => name.startsWith(family))).map((family) => `${family}*`),
-          ...mountedEnv.filter((name) => !PRIVATE_ENV_FAMILIES.some((family) => name.startsWith(family))).sort(),
-        ])];
+        const mountedEnv = [...mountedNames].filter(
+          (name) =>
+            env[name] !== undefined &&
+            !SHELL_ESSENTIALS.has(name) &&
+            !name.startsWith("LC_") &&
+            (name === "ELECTRON_RUN_AS_NODE" || baseEnv.get(name) !== env[name]),
+        );
+        const privateEnv = [
+          ...new Set([
+            ...(turn.toolScope !== undefined ? ["LATERDOG_GATE_CONFIG_*"] : []),
+            ...PRIVATE_ENV_FAMILIES.filter((family) =>
+              mountedEnv.some((name) => name.startsWith(family)),
+            ).map((family) => `${family}*`),
+            ...mountedEnv
+              .filter((name) => !PRIVATE_ENV_FAMILIES.some((family) => name.startsWith(family)))
+              .sort(),
+          ]),
+        ];
         const provenPrivateEnv = turn.toolScope !== undefined || directoryMounts.size > 0;
-        if (privateEnv.length && turn.toolScope === undefined) appServerArgs.push("-c", "features.shell_snapshot=false");
+        if (privateEnv.length && turn.toolScope === undefined)
+          appServerArgs.push("-c", "features.shell_snapshot=false");
 
-        const selectionConfig: { config?: Record<string, unknown> } = turn.toolScope === undefined ? {} : { config: { mcp_servers: Object.fromEntries(
-          [...selectedMcp].map(([name, server]) => [name, "command" in server ? {
-            command: server.command, args: server.args, env_vars: Object.keys(server.env), env: {}, default_tools_approval_mode: selectedApprovals.get(name) ? "auto" : "prompt",
-            tool_timeout_sec: toolTimeoutSec,
-          } : {}]),
-        ) } };
+        const selectionConfig: { config?: Record<string, unknown> } =
+          turn.toolScope === undefined
+            ? {}
+            : {
+                config: {
+                  mcp_servers: Object.fromEntries(
+                    [...selectedMcp].map(([name, server]) => [
+                      name,
+                      "command" in server
+                        ? {
+                            command: server.command,
+                            args: server.args,
+                            env_vars: Object.keys(server.env),
+                            env: {},
+                            default_tools_approval_mode: selectedApprovals.get(name)
+                              ? "auto"
+                              : "prompt",
+                            tool_timeout_sec: toolTimeoutSec,
+                          }
+                        : {},
+                    ]),
+                  ),
+                },
+              };
 
         const commandCwd = permissionLaunchCwd(turn.cwd ?? homedir());
         const child = spawnCli(config.cli, appServerArgs, {
@@ -853,1067 +1171,1504 @@ export const CodexDriver: ProviderDriver<CodexConfig> = {
           stdio: ["pipe", "pipe", "pipe"],
         });
 
-      let abandoned = false;
-      let codexThreadId: string | null = null;
-      let codexTurnId: string | null = null;
-      const steerReads = new SteerReads();
-      let startingNativeTurn = false;
-      let compacted = false;
-      const earlyNotifications: any[] = [];
-      const helpers = new CodexHelpers(helper => emit({ ...base(threadId, turnId), type: "helper.updated", helper }));
-      const nativeActivity = new CodexNativeActivity(observation => emit({ ...base(threadId, turnId), type: "native.observed", observation }), Date.now, items => enginePlans.report(threadId, items));
-      const state = {
-        settled: false,
-        lastError: "",
-        lastErrorSetup: false,
-        retryError: "",
-        authRecovery: false,
-        usageLimited: false,
-        rateLimits: undefined as CodexRateLimits | undefined,
-        lastText: "",
-        sawStreamDelta: false,
-        usage: undefined as { input: number; output: number; cachedInput?: number } | undefined,
-        usageBaseline: undefined as { input: number; output: number; cachedInput: number } | undefined,
-      };
-
-      const asks = new Map<string, (behavior: "allow" | "deny" | "answer", message?: string, source?: "user" | "timeout" | "system") => void>();
-      const nativeRequests = new Map<string, { threadId: string | null; resolve: () => void }>();
-      let nextId = 1;
-      const sensitiveResponseIds = new Set<number>();
-      const rpcPending = new Map<number, {
-        resolve: (v: any) => void;
-        reject: (e: Error) => void;
-      }>();
-
-      const send = (obj: unknown) => {
-        try {
-          child.stdin.write(JSON.stringify(obj) + "\n");
-        } catch {}
-        appendNative(threadId, {
-          dir: "out",
-          source: "codex.app-server",
-          msg: codexNativeLogMessage(obj),
-        });
-      };
-      const request = (method: string, params: unknown, timeoutMs = 60_000) =>
-        new Promise<any>((resolve, reject) => {
-          const id = nextId++;
-          if (method === "config/read") sensitiveResponseIds.add(id);
-          const timer = setTimeout(() => {
-            if (rpcPending.delete(id)) reject(new Error(`codex ${method} timed out after ${timeoutMs}ms`));
-          }, timeoutMs);
-          if (typeof timer.unref === "function") timer.unref();
-          rpcPending.set(id, {
-            resolve: (v) => {
-              clearTimeout(timer);
-              if (method === "thread/start" || method === "thread/resume") {
-                const returnedId = v?.thread?.id;
-                const requestedId = method === "thread/resume"
-                  && params && typeof params === "object" && "threadId" in params
-                  ? params.threadId : null;
-                if (typeof returnedId === "string" && returnedId) codexThreadId = returnedId;
-                else if (typeof requestedId === "string" && requestedId) codexThreadId = requestedId;
-              }
-              if (method === "turn/start") {
-                if (typeof v?.turn?.id !== "string" || !v.turn.id) {
-                  reject(new Error("Codex did not return a native turn id"));
-                  return;
-                }
-                codexTurnId = v.turn.id;
-                if (codexThreadId) nativeActivity.start(codexThreadId, codexTurnId!);
-                startingNativeTurn = false;
-                for (const notification of earlyNotifications.splice(0)) {
-                  if (state.settled) break;
-                  handleNotification(notification, false);
-                }
-              }
-              resolve(v);
-            },
-            reject: (e) => {
-              clearTimeout(timer);
-              reject(e);
-            },
-          });
-          send({ jsonrpc: "2.0", id, method, params });
-        });
-
-      let stopping: Promise<boolean> | undefined;
-      const terminate = () => stopping ??= killCliTree(child).then((stopped) => {
-        if (!stopped) stopping = undefined;
-        return stopped;
-      });
-      let completeStoppedTurn: (() => void) | undefined;
-      let leftoversNoted = false;
-      const rootExited = () => child.exitCode !== null || child.signalCode !== null;
-      const finishStoppedTurn = (stopped: boolean) => {
-        if (!completeStoppedTurn || (!stopped && !rootExited())) return;
-        if (!stopped && !leftoversNoted) {
-          leftoversNoted = true;
-          emit({ ...base(threadId, turnId), type: "runtime.notice", message: leftoverProgramsNotice("Codex") });
-        }
-        completeStoppedTurn();
-      };
-      let interruptRequested = false;
-      const stop = async () => {
-        stopRequested = true;
-        stopSignal.abort();
-        if (!state.settled && !interruptRequested && codexThreadId && codexTurnId &&
-            child.exitCode === null && child.signalCode === null) {
-          interruptRequested = true;
-          const graceMs = Math.max(1, Number(process.env.FAKE_CODEX_INTERRUPT_GRACE_MS ?? 750) || 750);
-          try {
-            await request("turn/interrupt", { threadId: codexThreadId, turnId: codexTurnId }, graceMs);
-          } catch {}
-          const deadline = Date.now() + graceMs;
-          while (!state.settled && Date.now() < deadline) {
-            await new Promise((wake) => setTimeout(wake, 15));
-          }
-        }
-        const stopped = await terminate();
-        finishStoppedTurn(stopped);
-        if (!stopped && rootExited() && !state.settled) void settle(false, "interrupted");
-        return stopped;
-      };
-
-      const settle = async (ok: boolean, stopReason: string | null) => {
-        if (state.settled) return;
-        state.settled = true;
-        for (const finish of Array.from(asks.values())) finish("deny", "later.dog: the turn ended", "system");
-        for (const p of rpcPending.values()) p.reject(new Error("turn settled"));
-        rpcPending.clear();
-        const complete = () => {
-          if (active.get(threadId)?.stop !== stop) return;
-          active.delete(threadId);
-          nativeActivity.finish(ok);
-          const stoppedLine = helpersStoppedLine({ helpers: helpers.stop(), commands: 0 });
-          if (stoppedLine) emit({ ...base(threadId, turnId), type: "runtime.error", message: stoppedLine });
-          const forkPoint = ok && codexThreadId && codexTurnId ? { session: codexThreadId, at: codexTurnId } : undefined;
-          emit({ ...base(threadId, turnId), type: "turn.completed", ok, stopReason, cost: null, ...(state.usage ? { usage: state.usage } : {}), ...(forkPoint ? { forkPoint } : {}) });
-        };
-        completeStoppedTurn = complete;
-        if (!(await stop()) && !rootExited()) {
-          emit({ ...base(threadId, turnId), type: "runtime.error", message: "Codex did not shut down after it was asked to stop." });
-        }
-      };
-
-      const steerActiveTurn = async (text: string, images?: TurnImageInput[], onRead?: () => void): Promise<SteerOutcome> => {
-        if (state.settled || abandoned || stopRequested || !codexThreadId || !codexTurnId) return "refused";
-        if (child.exitCode !== null || child.signalCode !== null) return "refused";
-        const forget = steerReads.expect(text, onRead);
-        try {
-          const steerTimeoutMs = Math.max(1, Number(process.env.FAKE_CODEX_STEER_TIMEOUT_MS ?? 10_000) || 10_000);
-          await request("turn/steer", {
-            threadId: codexThreadId,
-            input: [
-              { type: "text", text },
-              ...(images ?? []).map((image) => ({ type: "localImage" as const, path: image.path })),
-            ],
-            expectedTurnId: codexTurnId,
-          }, steerTimeoutMs);
-          return "steered";
-        } catch (error) {
-          const message = error instanceof Error ? error.message : String(error);
-          if (state.settled || message.includes("timed out")) return "indeterminate";
-          forget();
-          return "refused";
-        }
-      };
-
-      const controlsHost = turn.integrations?.localComputer?.scope === "local-computer";
-      const handleServerRequest = (msg: any) => {
-        const method = msg.method as string;
-        const params = msg.params ?? {};
-        const legacy = method === "execCommandApproval" || method === "applyPatchApproval";
-        const isMcpElicitation = method === "mcpServer/elicitation/request";
-        const isLegacyMcpPermission =
-          method === "mcpServer/elicitation/request" &&
-          params?._meta?.codex_approval_kind === "mcp_tool_call";
-        const mcpAppApproval = isMcpElicitation ? mcpAppApprovalForm(params) : null;
-        const isMcpPermission = isLegacyMcpPermission || mcpAppApproval !== null;
-        const isQuestion = method === "item/tool/requestUserInput";
-        const isAdditionalPermission = method === "item/permissions/requestApproval";
-        const isPermission = legacy || isMcpPermission || isAdditionalPermission ||
-          method === "item/commandExecution/requestApproval" ||
-          method === "item/fileChange/requestApproval";
-        if (!isQuestion && !isPermission) {
-          nativeActivity.notice(params, "Unsupported native request", `${method} could not be answered by later.dog.`);
-          if (isMcpElicitation) {
-            send({ jsonrpc: "2.0", id: msg.id, result: { action: "decline" } });
-          } else {
-            send({
-              jsonrpc: "2.0",
-              id: msg.id,
-              error: { code: -32601, message: `Unsupported server request: ${method}` },
-            });
-          }
-          return;
-        }
-        const protocolQuestions = isQuestion ? parseProtocolAskQuestions(params.questions) : null;
-        if (isQuestion && !protocolQuestions) {
-          send({
-            jsonrpc: "2.0",
-            id: msg.id,
-            error: {
-              code: -32602,
-              message: Array.isArray(params.questions)
-                ? "ask needs at least one answerable question — a string id and question text each; this request sent none."
-                : "ask needs params.questions to be an array of questions, each with a string id and question text.",
-            },
-          });
-          return;
-        }
-        const mcpMessage = typeof params.message === "string" ? params.message : "";
-        const mcpTool = isLegacyMcpPermission ? / to run tool "(.*)"\?$/.exec(mcpMessage)?.[1] : undefined;
-        const searchedServer = isLegacyMcpPermission && typeof params.serverName === "string" && directoryMounts.has(params.serverName);
-        const asksAbout = (tool: string) => mcpMessage === `Allow the ${params.serverName} MCP server to run tool "${tool}"?`;
-        if (searchedServer && (asksAbout(SEARCH_TOOL) || asksAbout(DESCRIBE_TOOL))) {
-          send({ jsonrpc: "2.0", id: msg.id, result: { action: "accept", content: {} } });
-          return;
-        }
-        const runs = searchedServer && asksAbout(CALL_TOOL) ? directoryCallTarget(CALL_TOOL, params._meta?.tool_params) : undefined;
-        const tool =
-          mcpAppApproval
-            ? mcpAppApproval.tool
-            : isLegacyMcpPermission
-            ? (runs ?? mcpTool ?? "mcp")
-            : isAdditionalPermission
-              ? "permissions"
-            : method === "item/fileChange/requestApproval" || method === "applyPatchApproval"
-            ? "edit"
-            : isQuestion
-              ? "ask_user"
-              : "shell";
-        const permissionResult = (allow: boolean) =>
-          isMcpPermission
-            ? allow
-              ? (mcpAppApproval?.allowResult ?? { action: "accept", content: {} })
-              : { action: "decline" }
-            : isAdditionalPermission
-              ? { permissions: allow ? grantedPermissions(params.permissions) : {}, scope: "turn" }
-              : { decision: allow ? (legacy ? "approved" : "accept") : legacy ? "denied" : "decline" };
-        if (autoAcceptPermissions && isPermission) {
-          nativeActivity.notice(params, "Permission allowed automatically", method);
-          return send({
-            jsonrpc: "2.0",
-            id: msg.id,
-            result: permissionResult(true),
-          });
-        }
-        const requestId = newId();
-        const summary =
-          isAdditionalPermission
-            ? additionalPermissionSummary(params.permissions, params.reason)
-            : isMcpPermission
-            ? (mcpAppApproval?.summary ?? (runs ? `Allow the ${params.serverName} MCP server to run tool ${JSON.stringify(runs)}?`
-              : typeof params.message === "string" ? params.message : "MCP access requested"))
-            : typeof params.command === "string"
-            ? params.command
-            : protocolQuestions
-              ? protocolQuestions.map(({ question }) => question.question).join(" · ")
-            : Array.isArray(params.questions)
-              ? params.questions.map((q: any) => q.question ?? q.header).filter(Boolean).join(" · ")
-              : typeof params.reason === "string"
-                ? params.reason
-                : tool;
-        const choices =
-          isQuestion && protocolQuestions ? questionChoices(protocolQuestions.map(({ question }) => question)) : undefined;
-        const nativeActorId = nativeActivity.request(params, requestId, summary);
-        const finish = (behavior: "allow" | "deny" | "answer", message?: string, source: "user" | "timeout" | "system" = "user", alreadyResolved = false) => {
-          if (!asks.delete(requestId)) return;
-          nativeRequests.delete(JSON.stringify(msg.id));
-          clearTimeout(timer);
-          if (!alreadyResolved && isQuestion) {
-            const mapped =
-              behavior === "answer" && source === "user" && typeof message === "string"
-                ? questionAnswersById(message, protocolQuestions ?? [])
-                : {};
-            const answers: Record<string, { answers: string[] }> = Object.create(null);
-            for (const [id, answer] of Object.entries(mapped)) answers[id] = { answers: [answer] };
-            send({ jsonrpc: "2.0", id: msg.id, result: { answers } });
-          } else if (!alreadyResolved) {
-            send({
-              jsonrpc: "2.0",
-              id: msg.id,
-              result: permissionResult(behavior === "allow"),
-            });
-          }
-          nativeActivity.request(params, requestId, summary, alreadyResolved ? "Resolved by Codex" : `${behavior} (${source})`);
-          emit({ ...base(threadId, turnId), type: "request.resolved", requestId, behavior, source, ...(alreadyResolved ? { resolvedExternally: true } : {}), ...(nativeActorId ? { nativeActorId } : {}) });
-        };
-        const mcpArgsDigest = isMcpPermission ? toolArgsDigest(params._meta?.tool_params) : undefined;
-        const mcpArgsIdentity = !isMcpPermission ? {} : mcpArgsDigest ? { argsDigest: mcpArgsDigest } : { argsUnknown: true as const };
-        const timer = setTimeout(
-          () => finish("deny", isQuestion ? undefined : DENY_TIMEOUT_NOTE, "timeout"),
-          15 * 60_000,
+        let abandoned = false;
+        let codexThreadId: string | null = null;
+        let codexTurnId: string | null = null;
+        const steerReads = new SteerReads();
+        let startingNativeTurn = false;
+        let compacted = false;
+        const earlyNotifications: any[] = [];
+        const helpers = new CodexHelpers((helper) =>
+          emit({ ...base(threadId, turnId), type: "helper.updated", helper }),
         );
-        timer.unref?.();
-        asks.set(requestId, finish);
-        nativeRequests.set(JSON.stringify(msg.id), { threadId: typeof params.threadId === "string" ? params.threadId : codexThreadId, resolve: () => finish("deny", "Codex resolved this request", "system", true) });
-        emit({
-          ...base(threadId, turnId),
-          type: "request.opened",
-          requestId,
-          ...(nativeActorId ? { nativeActorId } : {}),
-          requestType: isQuestion ? "question" : "permission",
-          tool,
-          summary,
-          ...mcpArgsIdentity,
-          command: method === "execCommandApproval" || method === "item/commandExecution/requestApproval"
-            ? permissionCommand(params.command, params.cwd ?? (
-              !params.threadId || params.threadId === codexThreadId ? commandCwd : undefined
-            )) : undefined,
-          choices,
-          ...(protocolQuestions ? { questions: protocolQuestions.map((pair) => pair.question) } : {}),
-          approvalScope: controlsHost ? "local-computer" : undefined,
-          requiresExplicitApproval: isAdditionalPermission || (
-            (method === "execCommandApproval" || method === "item/commandExecution/requestApproval") &&
-            (params.additionalPermissions != null || params.networkApprovalContext != null)
-          ) || undefined,
-        });
-      };
+        const nativeActivity = new CodexNativeActivity(
+          (observation) =>
+            emit({ ...base(threadId, turnId), type: "native.observed", observation }),
+          Date.now,
+          (items) => enginePlans.report(threadId, items),
+        );
+        const state = {
+          settled: false,
+          lastError: "",
+          lastErrorSetup: false,
+          retryError: "",
+          authRecovery: false,
+          usageLimited: false,
+          rateLimits: undefined as CodexRateLimits | undefined,
+          lastText: "",
+          sawStreamDelta: false,
+          usage: undefined as { input: number; output: number; cachedInput?: number } | undefined,
+          usageBaseline: undefined as
+            | { input: number; output: number; cachedInput: number }
+            | undefined,
+        };
 
-      const seenReviews = new Set<string>();
-      let reviewWarning = false;
-      let timedOutReview = false;
-      const retryMode = approvalMode[0].toUpperCase() + approvalMode.slice(1);
-      const reviewNotice = (status: "warning" | "timedOut" | "denied", action?: any) => {
-        if (status === "warning") {
-          emit({ ...base(threadId, turnId), type: "runtime.error",
-            message: `Codex automatic review reported a timeout. Check what ran before retrying. Retry stays ${retryMode}. Select Ask for human approval in approval settings.`,
+        const asks = new Map<
+          string,
+          (
+            behavior: "allow" | "deny" | "answer",
+            message?: string,
+            source?: "user" | "timeout" | "system",
+          ) => void
+        >();
+        const nativeRequests = new Map<string, { threadId: string | null; resolve: () => void }>();
+        let nextId = 1;
+        const sensitiveResponseIds = new Set<number>();
+        const rpcPending = new Map<
+          number,
+          {
+            resolve: (v: any) => void;
+            reject: (e: Error) => void;
+          }
+        >();
+
+        const send = (obj: unknown) => {
+          try {
+            child.stdin.write(JSON.stringify(obj) + "\n");
+          } catch {}
+          appendNative(threadId, {
+            dir: "out",
+            source: "codex.app-server",
+            msg: codexNativeLogMessage(obj),
           });
-          return;
-        }
-        const command = action?.type === "command" ? commandSummary({ command: action.command }) : undefined;
-        const target = command ? `: "${command.slice(0, 30)}"` : " for the requested action";
-        const outcome = status === "timedOut" ? "timed out" : "denied";
-        emit({ ...base(threadId, turnId), type: "runtime.error",
-          message: `Codex automatic review ${outcome}${target}. Action did not run. Retry stays ${retryMode}. Select Ask for human approval in approval settings.`,
-        });
-      };
-      const turnError = (error: { message?: unknown; codexErrorInfo?: unknown }) => {
-        const raw = String(error.message);
-        const limit = codexUsageLimit(error, state.rateLimits);
-        if (limit) {
-          state.usageLimited = true;
-          const message = codexUserError(raw, plan);
-          if (message === state.lastError) return;
-          state.lastError = message;
-          emit({ ...base(threadId, turnId), type: "runtime.error", message, terminal: true, quota: limit });
-          return;
-        }
-        const refused = chatgptTurn && loginMark() !== null && (codexSignInRefused(error) ||
-          (state.authRecovery && !/\b403\b|forbidden/i.test(raw) && /\b401\b|unauthorized/i.test(raw)));
-        if (refused) loginRefused();
-        const message = refused ? codexSignInExpired(raw) : codexUserError(raw, plan);
-        const setup = refused || classifyError({ text: message }).reason === "auth";
-        if (message === state.lastError && (state.lastErrorSetup || !setup)) return;
-        state.lastError = message;
-        state.lastErrorSetup ||= setup;
-        emit({ ...base(threadId, turnId), type: "runtime.error", message, ...(setup ? { setup: true } : {}) });
-      };
-      const handleNotification = (msg: any, observe = true) => {
-        const p = msg.params ?? {};
-        if (observe) nativeActivity.receive(msg);
-        if (msg.method === "serverRequest/resolved") {
-          const pending = nativeRequests.get(JSON.stringify(p.requestId));
-          if (pending && pending.threadId === p.threadId) pending.resolve();
-          return;
-        }
-        if (msg.method === "account/rateLimits/updated") {
-          const next = p.rateLimits ?? {};
-          state.rateLimits = { primary: next.primary ?? state.rateLimits?.primary, secondary: next.secondary ?? state.rateLimits?.secondary };
-          return;
-        }
-        const connectionError = msg.method === "error" &&
-          !("threadId" in p) && !("turnId" in p);
-        if (!connectionError) {
-          if (!codexThreadId || p.threadId !== codexThreadId) return;
-          if (!codexTurnId && msg.method === "thread/tokenUsage/updated" && p.tokenUsage?.total) {
-            const t = p.tokenUsage.total;
-            state.usageBaseline = { input: t.inputTokens ?? 0, output: t.outputTokens ?? 0, cachedInput: t.cachedInputTokens ?? 0 };
-            return;
-          }
-          if (!codexTurnId) {
-            if (startingNativeTurn) {
-              if (earlyNotifications.length >= 1024) {
-                void settle(false, "too_many_events_before_turn_start");
-              } else {
-                earlyNotifications.push(msg);
-              }
-            }
-            return;
-          }
-          const eventTurnId = msg.method === "turn/started" || msg.method === "turn/completed"
-            ? p.turn?.id : p.turnId;
-          if (eventTurnId !== codexTurnId && !(msg.method === "guardianWarning" && eventTurnId === undefined)) return;
-        }
-        switch (msg.method) {
-          case "guardianWarning":
-            if (typeof p.message === "string" && /automatic approval review.*timed out/i.test(p.message)) reviewWarning = true;
-            break;
-          case "item/autoApprovalReview/completed": {
-            const status = p.review?.status;
-            if (status !== "timedOut" && status !== "denied") break;
-            if (typeof p.reviewId !== "string" || !p.reviewId) break;
-            if (!seenReviews.has(p.reviewId)) {
-              seenReviews.add(p.reviewId);
-              if (status === "timedOut") timedOutReview = true;
-              reviewNotice(status, p.action);
-            }
-            break;
-          }
-          case "item/agentMessage/delta": {
-            const delta = typeof p.delta === "string" ? p.delta : "";
-            if (delta) {
-              state.sawStreamDelta = true;
-              emit({ ...base(threadId, turnId), type: "content.delta", streamKind: "assistant_text", delta });
-            }
-            break;
-          }
-          case "item/reasoning/textDelta":
-          case "item/reasoning/summaryTextDelta": {
-            const delta = typeof p.delta === "string" ? p.delta : "";
-            if (delta) emit({ ...base(threadId, turnId), type: "content.delta", streamKind: "reasoning_text", delta, ...(msg.method === "item/reasoning/summaryTextDelta" ? { summary: true } : {}) });
-            break;
-          }
-          case "item/started": {
-            const item = p.item ?? {};
-            helpers.receive(item);
-            if (item.type === "userMessage") steerReads.seen(item.content);
-            const compacting = codexCompactionEvent("started", item);
-            if (compacting) emit({ ...base(threadId, turnId), ...compacting });
-            const runs = item.type === "mcpToolCall" && item.tool === CALL_TOOL && typeof item.server === "string" && directoryMounts.has(item.server)
-              ? directoryCallTarget(CALL_TOOL, item.arguments) : undefined;
-            const title =
-              item.type === "commandExecution"
-                ? String(item.command ?? "shell")
-                : item.type === "fileChange"
-                  ? "edit"
-                  : item.type === "mcpToolCall"
-                    ? (runs ?? item.tool ?? item.name ?? "mcp")
-                    : item.type === "webSearch"
-                      ? "web_search"
+        };
+        const request = (method: string, params: unknown, timeoutMs = 60_000) =>
+          new Promise<any>((resolve, reject) => {
+            const id = nextId++;
+            if (method === "config/read") sensitiveResponseIds.add(id);
+            const timer = setTimeout(() => {
+              if (rpcPending.delete(id))
+                reject(new Error(`codex ${method} timed out after ${timeoutMs}ms`));
+            }, timeoutMs);
+            if (typeof timer.unref === "function") timer.unref();
+            rpcPending.set(id, {
+              resolve: (v) => {
+                clearTimeout(timer);
+                if (method === "thread/start" || method === "thread/resume") {
+                  const returnedId = v?.thread?.id;
+                  const requestedId =
+                    method === "thread/resume" &&
+                    params &&
+                    typeof params === "object" &&
+                    "threadId" in params
+                      ? params.threadId
                       : null;
-            if (title) {
-              emit({
-                ...base(threadId, turnId),
-                type: "item.started",
-                itemType: "tool",
-                itemId: item.id,
-                title,
-                summary: item.type === "commandExecution" ? commandSummary({ command: item.command }) : undefined,
-                input: toolDetailPreview(item.type === "commandExecution" ? { command: item.command, cwd: item.cwd } : item.type === "mcpToolCall" ? (runs ? item.arguments?.arguments ?? {} : item.arguments) : item.type === "fileChange" ? item.changes : item.query),
-                touches: codexToolTouch(item),
+                  if (typeof returnedId === "string" && returnedId) codexThreadId = returnedId;
+                  else if (typeof requestedId === "string" && requestedId)
+                    codexThreadId = requestedId;
+                }
+                if (method === "turn/start") {
+                  if (typeof v?.turn?.id !== "string" || !v.turn.id) {
+                    reject(new Error("Codex did not return a native turn id"));
+                    return;
+                  }
+                  codexTurnId = v.turn.id;
+                  if (codexThreadId) nativeActivity.start(codexThreadId, codexTurnId!);
+                  startingNativeTurn = false;
+                  for (const notification of earlyNotifications.splice(0)) {
+                    if (state.settled) break;
+                    handleNotification(notification, false);
+                  }
+                }
+                resolve(v);
+              },
+              reject: (e) => {
+                clearTimeout(timer);
+                reject(e);
+              },
+            });
+            send({ jsonrpc: "2.0", id, method, params });
+          });
+
+        let stopping: Promise<boolean> | undefined;
+        const terminate = () =>
+          (stopping ??= killCliTree(child).then((stopped) => {
+            if (!stopped) stopping = undefined;
+            return stopped;
+          }));
+        let completeStoppedTurn: (() => void) | undefined;
+        let leftoversNoted = false;
+        const rootExited = () => child.exitCode !== null || child.signalCode !== null;
+        const finishStoppedTurn = (stopped: boolean) => {
+          if (!completeStoppedTurn || (!stopped && !rootExited())) return;
+          if (!stopped && !leftoversNoted) {
+            leftoversNoted = true;
+            emit({
+              ...base(threadId, turnId),
+              type: "runtime.notice",
+              message: leftoverProgramsNotice("Codex"),
+            });
+          }
+          completeStoppedTurn();
+        };
+        let interruptRequested = false;
+        const stop = async () => {
+          stopRequested = true;
+          stopSignal.abort();
+          if (
+            !state.settled &&
+            !interruptRequested &&
+            codexThreadId &&
+            codexTurnId &&
+            child.exitCode === null &&
+            child.signalCode === null
+          ) {
+            interruptRequested = true;
+            const graceMs = Math.max(
+              1,
+              Number(process.env.FAKE_CODEX_INTERRUPT_GRACE_MS ?? 750) || 750,
+            );
+            try {
+              await request(
+                "turn/interrupt",
+                { threadId: codexThreadId, turnId: codexTurnId },
+                graceMs,
+              );
+            } catch {}
+            const deadline = Date.now() + graceMs;
+            while (!state.settled && Date.now() < deadline) {
+              await new Promise((wake) => setTimeout(wake, 15));
+            }
+          }
+          const stopped = await terminate();
+          finishStoppedTurn(stopped);
+          if (!stopped && rootExited() && !state.settled) void settle(false, "interrupted");
+          return stopped;
+        };
+
+        const settle = async (ok: boolean, stopReason: string | null) => {
+          if (state.settled) return;
+          state.settled = true;
+          for (const finish of Array.from(asks.values()))
+            finish("deny", "later.dog: the turn ended", "system");
+          for (const p of rpcPending.values()) p.reject(new Error("turn settled"));
+          rpcPending.clear();
+          const complete = () => {
+            if (active.get(threadId)?.stop !== stop) return;
+            active.delete(threadId);
+            nativeActivity.finish(ok);
+            const stoppedLine = helpersStoppedLine({ helpers: helpers.stop(), commands: 0 });
+            if (stoppedLine)
+              emit({ ...base(threadId, turnId), type: "runtime.error", message: stoppedLine });
+            const forkPoint =
+              ok && codexThreadId && codexTurnId
+                ? { session: codexThreadId, at: codexTurnId }
+                : undefined;
+            emit({
+              ...base(threadId, turnId),
+              type: "turn.completed",
+              ok,
+              stopReason,
+              cost: null,
+              ...(state.usage ? { usage: state.usage } : {}),
+              ...(forkPoint ? { forkPoint } : {}),
+            });
+          };
+          completeStoppedTurn = complete;
+          if (!(await stop()) && !rootExited()) {
+            emit({
+              ...base(threadId, turnId),
+              type: "runtime.error",
+              message: "Codex did not shut down after it was asked to stop.",
+            });
+          }
+        };
+
+        const steerActiveTurn = async (
+          text: string,
+          images?: TurnImageInput[],
+          onRead?: () => void,
+        ): Promise<SteerOutcome> => {
+          if (state.settled || abandoned || stopRequested || !codexThreadId || !codexTurnId)
+            return "refused";
+          if (child.exitCode !== null || child.signalCode !== null) return "refused";
+          const forget = steerReads.expect(text, onRead);
+          try {
+            const steerTimeoutMs = Math.max(
+              1,
+              Number(process.env.FAKE_CODEX_STEER_TIMEOUT_MS ?? 10_000) || 10_000,
+            );
+            await request(
+              "turn/steer",
+              {
+                threadId: codexThreadId,
+                input: [
+                  { type: "text", text },
+                  ...(images ?? []).map((image) => ({
+                    type: "localImage" as const,
+                    path: image.path,
+                  })),
+                ],
+                expectedTurnId: codexTurnId,
+              },
+              steerTimeoutMs,
+            );
+            return "steered";
+          } catch (error) {
+            const message = error instanceof Error ? error.message : String(error);
+            if (state.settled || message.includes("timed out")) return "indeterminate";
+            forget();
+            return "refused";
+          }
+        };
+
+        const controlsHost = turn.integrations?.localComputer?.scope === "local-computer";
+        const handleServerRequest = (msg: any) => {
+          const method = msg.method as string;
+          const params = msg.params ?? {};
+          const legacy = method === "execCommandApproval" || method === "applyPatchApproval";
+          const isMcpElicitation = method === "mcpServer/elicitation/request";
+          const isLegacyMcpPermission =
+            method === "mcpServer/elicitation/request" &&
+            params?._meta?.codex_approval_kind === "mcp_tool_call";
+          const mcpAppApproval = isMcpElicitation ? mcpAppApprovalForm(params) : null;
+          const isMcpPermission = isLegacyMcpPermission || mcpAppApproval !== null;
+          const isQuestion = method === "item/tool/requestUserInput";
+          const isAdditionalPermission = method === "item/permissions/requestApproval";
+          const isPermission =
+            legacy ||
+            isMcpPermission ||
+            isAdditionalPermission ||
+            method === "item/commandExecution/requestApproval" ||
+            method === "item/fileChange/requestApproval";
+          if (!isQuestion && !isPermission) {
+            nativeActivity.notice(
+              params,
+              "Unsupported native request",
+              `${method} could not be answered by later.dog.`,
+            );
+            if (isMcpElicitation) {
+              send({ jsonrpc: "2.0", id: msg.id, result: { action: "decline" } });
+            } else {
+              send({
+                jsonrpc: "2.0",
+                id: msg.id,
+                error: { code: -32601, message: `Unsupported server request: ${method}` },
               });
             }
-            break;
+            return;
           }
-          case "item/completed": {
-            const item = p.item ?? {};
-            helpers.receive(item);
-            if (item.type === "userMessage") steerReads.seen(item.content);
-            const compaction = codexCompactionEvent("completed", item);
-            if (compaction) {
-              compacted = true;
-              if (codexThreadId) forgetDeliveredContext(threadId, codexThreadId);
-              emit({ ...base(threadId, turnId), ...compaction });
+          const protocolQuestions = isQuestion ? parseProtocolAskQuestions(params.questions) : null;
+          if (isQuestion && !protocolQuestions) {
+            send({
+              jsonrpc: "2.0",
+              id: msg.id,
+              error: {
+                code: -32602,
+                message: Array.isArray(params.questions)
+                  ? "ask needs at least one answerable question — a string id and question text each; this request sent none."
+                  : "ask needs params.questions to be an array of questions, each with a string id and question text.",
+              },
+            });
+            return;
+          }
+          const mcpMessage = typeof params.message === "string" ? params.message : "";
+          const mcpTool = isLegacyMcpPermission
+            ? / to run tool "(.*)"\?$/.exec(mcpMessage)?.[1]
+            : undefined;
+          const searchedServer =
+            isLegacyMcpPermission &&
+            typeof params.serverName === "string" &&
+            directoryMounts.has(params.serverName);
+          const asksAbout = (tool: string) =>
+            mcpMessage === `Allow the ${params.serverName} MCP server to run tool "${tool}"?`;
+          if (searchedServer && (asksAbout(SEARCH_TOOL) || asksAbout(DESCRIBE_TOOL))) {
+            send({ jsonrpc: "2.0", id: msg.id, result: { action: "accept", content: {} } });
+            return;
+          }
+          const runs =
+            searchedServer && asksAbout(CALL_TOOL)
+              ? directoryCallTarget(CALL_TOOL, params._meta?.tool_params)
+              : undefined;
+          const tool = mcpAppApproval
+            ? mcpAppApproval.tool
+            : isLegacyMcpPermission
+              ? (runs ?? mcpTool ?? "mcp")
+              : isAdditionalPermission
+                ? "permissions"
+                : method === "item/fileChange/requestApproval" || method === "applyPatchApproval"
+                  ? "edit"
+                  : isQuestion
+                    ? "ask_user"
+                    : "shell";
+          const permissionResult = (allow: boolean) =>
+            isMcpPermission
+              ? allow
+                ? (mcpAppApproval?.allowResult ?? { action: "accept", content: {} })
+                : { action: "decline" }
+              : isAdditionalPermission
+                ? {
+                    permissions: allow ? grantedPermissions(params.permissions) : {},
+                    scope: "turn",
+                  }
+                : {
+                    decision: allow
+                      ? legacy
+                        ? "approved"
+                        : "accept"
+                      : legacy
+                        ? "denied"
+                        : "decline",
+                  };
+          if (autoAcceptPermissions && isPermission) {
+            nativeActivity.notice(params, "Permission allowed automatically", method);
+            return send({
+              jsonrpc: "2.0",
+              id: msg.id,
+              result: permissionResult(true),
+            });
+          }
+          const requestId = newId();
+          const summary = isAdditionalPermission
+            ? additionalPermissionSummary(params.permissions, params.reason)
+            : isMcpPermission
+              ? (mcpAppApproval?.summary ??
+                (runs
+                  ? `Allow the ${params.serverName} MCP server to run tool ${JSON.stringify(runs)}?`
+                  : typeof params.message === "string"
+                    ? params.message
+                    : "MCP access requested"))
+              : typeof params.command === "string"
+                ? params.command
+                : protocolQuestions
+                  ? protocolQuestions.map(({ question }) => question.question).join(" · ")
+                  : Array.isArray(params.questions)
+                    ? params.questions
+                        .map((q: any) => q.question ?? q.header)
+                        .filter(Boolean)
+                        .join(" · ")
+                    : typeof params.reason === "string"
+                      ? params.reason
+                      : tool;
+          const choices =
+            isQuestion && protocolQuestions
+              ? questionChoices(protocolQuestions.map(({ question }) => question))
+              : undefined;
+          const nativeActorId = nativeActivity.request(params, requestId, summary);
+          const finish = (
+            behavior: "allow" | "deny" | "answer",
+            message?: string,
+            source: "user" | "timeout" | "system" = "user",
+            alreadyResolved = false,
+          ) => {
+            if (!asks.delete(requestId)) return;
+            nativeRequests.delete(JSON.stringify(msg.id));
+            clearTimeout(timer);
+            if (!alreadyResolved && isQuestion) {
+              const mapped =
+                behavior === "answer" && source === "user" && typeof message === "string"
+                  ? questionAnswersById(message, protocolQuestions ?? [])
+                  : {};
+              const answers: Record<string, { answers: string[] }> = Object.create(null);
+              for (const [id, answer] of Object.entries(mapped))
+                answers[id] = { answers: [answer] };
+              send({ jsonrpc: "2.0", id: msg.id, result: { answers } });
+            } else if (!alreadyResolved) {
+              send({
+                jsonrpc: "2.0",
+                id: msg.id,
+                result: permissionResult(behavior === "allow"),
+              });
             }
-            if (item.type === "agentMessage") {
-              if (item.text?.trim()) {
-                state.lastText = item.text;
-                if (!state.sawStreamDelta) {
-                  emit({ ...base(threadId, turnId), type: "content.delta", streamKind: "assistant_text", delta: item.text });
+            nativeActivity.request(
+              params,
+              requestId,
+              summary,
+              alreadyResolved ? "Resolved by Codex" : `${behavior} (${source})`,
+            );
+            emit({
+              ...base(threadId, turnId),
+              type: "request.resolved",
+              requestId,
+              behavior,
+              source,
+              ...(alreadyResolved ? { resolvedExternally: true } : {}),
+              ...(nativeActorId ? { nativeActorId } : {}),
+            });
+          };
+          const mcpArgsDigest = isMcpPermission
+            ? toolArgsDigest(params._meta?.tool_params)
+            : undefined;
+          const mcpArgsIdentity = !isMcpPermission
+            ? {}
+            : mcpArgsDigest
+              ? { argsDigest: mcpArgsDigest }
+              : { argsUnknown: true as const };
+          const timer = setTimeout(
+            () => finish("deny", isQuestion ? undefined : DENY_TIMEOUT_NOTE, "timeout"),
+            15 * 60_000,
+          );
+          timer.unref?.();
+          asks.set(requestId, finish);
+          nativeRequests.set(JSON.stringify(msg.id), {
+            threadId: typeof params.threadId === "string" ? params.threadId : codexThreadId,
+            resolve: () => finish("deny", "Codex resolved this request", "system", true),
+          });
+          emit({
+            ...base(threadId, turnId),
+            type: "request.opened",
+            requestId,
+            ...(nativeActorId ? { nativeActorId } : {}),
+            requestType: isQuestion ? "question" : "permission",
+            tool,
+            summary,
+            ...mcpArgsIdentity,
+            command:
+              method === "execCommandApproval" || method === "item/commandExecution/requestApproval"
+                ? permissionCommand(
+                    params.command,
+                    params.cwd ??
+                      (!params.threadId || params.threadId === codexThreadId
+                        ? commandCwd
+                        : undefined),
+                  )
+                : undefined,
+            choices,
+            ...(protocolQuestions
+              ? { questions: protocolQuestions.map((pair) => pair.question) }
+              : {}),
+            approvalScope: controlsHost ? "local-computer" : undefined,
+            requiresExplicitApproval:
+              isAdditionalPermission ||
+              ((method === "execCommandApproval" ||
+                method === "item/commandExecution/requestApproval") &&
+                (params.additionalPermissions != null || params.networkApprovalContext != null)) ||
+              undefined,
+          });
+        };
+
+        const seenReviews = new Set<string>();
+        let reviewWarning = false;
+        let timedOutReview = false;
+        const retryMode = approvalMode[0].toUpperCase() + approvalMode.slice(1);
+        const reviewNotice = (status: "warning" | "timedOut" | "denied", action?: any) => {
+          if (status === "warning") {
+            emit({
+              ...base(threadId, turnId),
+              type: "runtime.error",
+              message: `Codex automatic review reported a timeout. Check what ran before retrying. Retry stays ${retryMode}. Select Ask for human approval in approval settings.`,
+            });
+            return;
+          }
+          const command =
+            action?.type === "command" ? commandSummary({ command: action.command }) : undefined;
+          const target = command ? `: "${command.slice(0, 30)}"` : " for the requested action";
+          const outcome = status === "timedOut" ? "timed out" : "denied";
+          emit({
+            ...base(threadId, turnId),
+            type: "runtime.error",
+            message: `Codex automatic review ${outcome}${target}. Action did not run. Retry stays ${retryMode}. Select Ask for human approval in approval settings.`,
+          });
+        };
+        const turnError = (error: { message?: unknown; codexErrorInfo?: unknown }) => {
+          const raw = String(error.message);
+          const limit = codexUsageLimit(error, state.rateLimits);
+          if (limit) {
+            state.usageLimited = true;
+            const message = codexUserError(raw, plan);
+            if (message === state.lastError) return;
+            state.lastError = message;
+            emit({
+              ...base(threadId, turnId),
+              type: "runtime.error",
+              message,
+              terminal: true,
+              quota: limit,
+            });
+            return;
+          }
+          const refused =
+            chatgptTurn &&
+            loginMark() !== null &&
+            (codexSignInRefused(error) ||
+              (state.authRecovery &&
+                !/\b403\b|forbidden/i.test(raw) &&
+                /\b401\b|unauthorized/i.test(raw)));
+          if (refused) loginRefused();
+          const message = refused ? codexSignInExpired(raw) : codexUserError(raw, plan);
+          const setup = refused || classifyError({ text: message }).reason === "auth";
+          if (message === state.lastError && (state.lastErrorSetup || !setup)) return;
+          state.lastError = message;
+          state.lastErrorSetup ||= setup;
+          emit({
+            ...base(threadId, turnId),
+            type: "runtime.error",
+            message,
+            ...(setup ? { setup: true } : {}),
+          });
+        };
+        const handleNotification = (msg: any, observe = true) => {
+          const p = msg.params ?? {};
+          if (observe) nativeActivity.receive(msg);
+          if (msg.method === "serverRequest/resolved") {
+            const pending = nativeRequests.get(JSON.stringify(p.requestId));
+            if (pending && pending.threadId === p.threadId) pending.resolve();
+            return;
+          }
+          if (msg.method === "account/rateLimits/updated") {
+            const next = p.rateLimits ?? {};
+            state.rateLimits = {
+              primary: next.primary ?? state.rateLimits?.primary,
+              secondary: next.secondary ?? state.rateLimits?.secondary,
+            };
+            return;
+          }
+          const connectionError = msg.method === "error" && !("threadId" in p) && !("turnId" in p);
+          if (!connectionError) {
+            if (!codexThreadId || p.threadId !== codexThreadId) return;
+            if (!codexTurnId && msg.method === "thread/tokenUsage/updated" && p.tokenUsage?.total) {
+              const t = p.tokenUsage.total;
+              state.usageBaseline = {
+                input: t.inputTokens ?? 0,
+                output: t.outputTokens ?? 0,
+                cachedInput: t.cachedInputTokens ?? 0,
+              };
+              return;
+            }
+            if (!codexTurnId) {
+              if (startingNativeTurn) {
+                if (earlyNotifications.length >= 1024) {
+                  void settle(false, "too_many_events_before_turn_start");
+                } else {
+                  earlyNotifications.push(msg);
                 }
-                state.sawStreamDelta = false;
-                emit({ ...base(threadId, turnId), type: "item.completed", itemType: "assistant_text", text: item.text });
               }
-            } else if (item.type === "imageGeneration" && item.status !== "failed") {
-              if (typeof item.result === "string" && item.result.trim()) {
+              return;
+            }
+            const eventTurnId =
+              msg.method === "turn/started" || msg.method === "turn/completed"
+                ? p.turn?.id
+                : p.turnId;
+            if (
+              eventTurnId !== codexTurnId &&
+              !(msg.method === "guardianWarning" && eventTurnId === undefined)
+            )
+              return;
+          }
+          switch (msg.method) {
+            case "guardianWarning":
+              if (
+                typeof p.message === "string" &&
+                /automatic approval review.*timed out/i.test(p.message)
+              )
+                reviewWarning = true;
+              break;
+            case "item/autoApprovalReview/completed": {
+              const status = p.review?.status;
+              if (status !== "timedOut" && status !== "denied") break;
+              if (typeof p.reviewId !== "string" || !p.reviewId) break;
+              if (!seenReviews.has(p.reviewId)) {
+                seenReviews.add(p.reviewId);
+                if (status === "timedOut") timedOutReview = true;
+                reviewNotice(status, p.action);
+              }
+              break;
+            }
+            case "item/agentMessage/delta": {
+              const delta = typeof p.delta === "string" ? p.delta : "";
+              if (delta) {
+                state.sawStreamDelta = true;
+                emit({
+                  ...base(threadId, turnId),
+                  type: "content.delta",
+                  streamKind: "assistant_text",
+                  delta,
+                });
+              }
+              break;
+            }
+            case "item/reasoning/textDelta":
+            case "item/reasoning/summaryTextDelta": {
+              const delta = typeof p.delta === "string" ? p.delta : "";
+              if (delta)
+                emit({
+                  ...base(threadId, turnId),
+                  type: "content.delta",
+                  streamKind: "reasoning_text",
+                  delta,
+                  ...(msg.method === "item/reasoning/summaryTextDelta" ? { summary: true } : {}),
+                });
+              break;
+            }
+            case "item/started": {
+              const item = p.item ?? {};
+              helpers.receive(item);
+              if (item.type === "userMessage") steerReads.seen(item.content);
+              const compacting = codexCompactionEvent("started", item);
+              if (compacting) emit({ ...base(threadId, turnId), ...compacting });
+              const runs =
+                item.type === "mcpToolCall" &&
+                item.tool === CALL_TOOL &&
+                typeof item.server === "string" &&
+                directoryMounts.has(item.server)
+                  ? directoryCallTarget(CALL_TOOL, item.arguments)
+                  : undefined;
+              const title =
+                item.type === "commandExecution"
+                  ? String(item.command ?? "shell")
+                  : item.type === "fileChange"
+                    ? "edit"
+                    : item.type === "mcpToolCall"
+                      ? (runs ?? item.tool ?? item.name ?? "mcp")
+                      : item.type === "webSearch"
+                        ? "web_search"
+                        : null;
+              if (title) {
+                emit({
+                  ...base(threadId, turnId),
+                  type: "item.started",
+                  itemType: "tool",
+                  itemId: item.id,
+                  title,
+                  summary:
+                    item.type === "commandExecution"
+                      ? commandSummary({ command: item.command })
+                      : undefined,
+                  input: toolDetailPreview(
+                    item.type === "commandExecution"
+                      ? { command: item.command, cwd: item.cwd }
+                      : item.type === "mcpToolCall"
+                        ? runs
+                          ? (item.arguments?.arguments ?? {})
+                          : item.arguments
+                        : item.type === "fileChange"
+                          ? item.changes
+                          : item.query,
+                  ),
+                  touches: codexToolTouch(item),
+                });
+              }
+              break;
+            }
+            case "item/completed": {
+              const item = p.item ?? {};
+              helpers.receive(item);
+              if (item.type === "userMessage") steerReads.seen(item.content);
+              const compaction = codexCompactionEvent("completed", item);
+              if (compaction) {
+                compacted = true;
+                if (codexThreadId) forgetDeliveredContext(threadId, codexThreadId);
+                emit({ ...base(threadId, turnId), ...compaction });
+              }
+              if (item.type === "agentMessage") {
+                if (item.text?.trim()) {
+                  state.lastText = item.text;
+                  if (!state.sawStreamDelta) {
+                    emit({
+                      ...base(threadId, turnId),
+                      type: "content.delta",
+                      streamKind: "assistant_text",
+                      delta: item.text,
+                    });
+                  }
+                  state.sawStreamDelta = false;
+                  emit({
+                    ...base(threadId, turnId),
+                    type: "item.completed",
+                    itemType: "assistant_text",
+                    text: item.text,
+                  });
+                }
+              } else if (item.type === "imageGeneration" && item.status !== "failed") {
+                if (typeof item.result === "string" && item.result.trim()) {
+                  emit({
+                    ...base(threadId, turnId),
+                    type: "item.completed",
+                    itemType: "assistant_image",
+                    itemId: item.id,
+                    data: item.result,
+                    alt: typeof item.revisedPrompt === "string" ? item.revisedPrompt : undefined,
+                  });
+                }
+              } else if (
+                ["commandExecution", "fileChange", "mcpToolCall", "webSearch"].includes(item.type)
+              ) {
                 emit({
                   ...base(threadId, turnId),
                   type: "item.completed",
-                  itemType: "assistant_image",
+                  itemType: "tool",
                   itemId: item.id,
-                  data: item.result,
-                  alt: typeof item.revisedPrompt === "string" ? item.revisedPrompt : undefined,
+                  ok: item.status !== "failed" && item.status !== "declined",
+                  output: toolDetailPreview(
+                    item.type === "commandExecution"
+                      ? { output: item.aggregatedOutput, exitCode: item.exitCode }
+                      : item.type === "mcpToolCall"
+                        ? (item.error ?? item.result)
+                        : item.type === "fileChange"
+                          ? item.changes
+                          : item.action,
+                  ),
+                });
+                if (item.type === "mcpToolCall") {
+                  for (const img of extractMcpImages(item.result)) {
+                    emit({
+                      ...base(threadId, turnId),
+                      type: "item.completed",
+                      itemType: "assistant_image",
+                      itemId: item.id,
+                      data: img.data,
+                    });
+                  }
+                }
+              } else if (item.type === "reasoning") {
+                emit({
+                  ...base(threadId, turnId),
+                  type: "item.updated",
+                  itemType: "reasoning",
+                  tokens: null,
                 });
               }
-            } else if (["commandExecution", "fileChange", "mcpToolCall", "webSearch"].includes(item.type)) {
-              emit({
-                ...base(threadId, turnId),
-                type: "item.completed",
-                itemType: "tool",
-                itemId: item.id,
-                ok: item.status !== "failed" && item.status !== "declined",
-                output: toolDetailPreview(item.type === "commandExecution" ? { output: item.aggregatedOutput, exitCode: item.exitCode } : item.type === "mcpToolCall" ? item.error ?? item.result : item.type === "fileChange" ? item.changes : item.action),
-              });
-              if (item.type === "mcpToolCall") {
-                for (const img of extractMcpImages(item.result)) {
-                  emit({ ...base(threadId, turnId), type: "item.completed", itemType: "assistant_image", itemId: item.id, data: img.data });
-                }
-              }
-            } else if (item.type === "reasoning") {
-              emit({ ...base(threadId, turnId), type: "item.updated", itemType: "reasoning", tokens: null });
-            }
-            break;
-          }
-          case "thread/tokenUsage/updated": {
-            const t = p.tokenUsage?.total;
-            const last = p.tokenUsage?.last;
-            const shape = (u: { inputTokens?: number; outputTokens?: number; cachedInputTokens?: number }) => ({
-              input: u.inputTokens ?? 0, output: u.outputTokens ?? 0, cachedInput: u.cachedInputTokens ?? 0,
-            });
-            if (t) {
-              const b = state.usageBaseline ?? { input: 0, output: 0, cachedInput: 0 };
-              const now = shape(t);
-              state.usage = {
-                input: Math.max(0, now.input - b.input),
-                output: Math.max(0, now.output - b.output),
-                ...(typeof t.cachedInputTokens === "number" ? { cachedInput: Math.max(0, now.cachedInput - b.cachedInput) } : {}),
-              };
-            } else if (last) {
-              state.usage = { input: last.inputTokens ?? 0, output: last.outputTokens ?? 0, ...(typeof last.cachedInputTokens === "number" ? { cachedInput: last.cachedInputTokens } : {}) };
-            }
-            if (t) {
-              const window = p.tokenUsage?.modelContextWindow;
-              emit({
-                ...base(threadId, turnId),
-                type: "thread.token-usage.updated",
-                input: t.inputTokens ?? 0,
-                output: t.outputTokens ?? 0,
-                ...(typeof t.cachedInputTokens === "number" ? { cachedInput: t.cachedInputTokens } : {}),
-                ...(last && typeof last.inputTokens === "number" ? { contextTokens: last.inputTokens } : {}),
-                ...(typeof window === "number" && window > 0 ? { contextWindow: window } : {}),
-              });
-            }
-            break;
-          }
-          case "turn/completed": {
-            if (reviewWarning && !timedOutReview) reviewNotice("warning");
-            const t = p.turn ?? {};
-            if (t.status === "completed") {
-              if (chatgptTurn) loginAccepted();
-            } else if (typeof t.error?.message === "string") {
-              turnError(t.error);
-            } else if (t.status === "failed" && !state.lastError && state.retryError) {
-              turnError({ message: state.retryError });
-            }
-            void settle(t.status === "completed", t.status === "completed" ? null : state.usageLimited ? "usage_limit" :
-              (classifyError({ text: state.lastError }).reason === "provider_safety" ? "provider_safety" : (state.lastError || t.status || "failed")));
-            break;
-          }
-          case "error": {
-            const error = p.error && typeof p.error === "object" ? p.error : { message: p.message };
-            if (!error.message) break;
-            if (p.willRetry === true) {
-              state.retryError = String(error.message);
               break;
             }
-            turnError(error);
-            break;
-          }
-          case "modelProvider/authRecoveryStarted":
-            state.authRecovery = true;
-            break;
-          case "modelProvider/authRecoveryCompleted":
-            state.authRecovery = false;
-            break;
-        }
-      };
-
-      let buf = "";
-      child.stdout.setEncoding("utf8");
-      child.stdout.on("data", (chunk) => {
-        if (abandoned || state.settled) return;
-        buf += chunk;
-        let nl;
-        while (!state.settled && (nl = buf.indexOf("\n")) !== -1) {
-          const line = buf.slice(0, nl);
-          buf = buf.slice(nl + 1);
-          if (!line.trim()) continue;
-          let msg: any;
-          try {
-            msg = JSON.parse(line);
-          } catch {
-            continue;
-          }
-          stderrSinceOutput = "";
-          const loggedMessage = codexNativeIncomingLogMessage(msg, sensitiveResponseIds);
-          appendNative(threadId, { dir: "in", source: "codex.app-server", msg: loggedMessage });
-          if (msg.id !== undefined && (msg.result !== undefined || msg.error !== undefined)) {
-            const pend = rpcPending.get(msg.id);
-            if (pend) {
-              rpcPending.delete(msg.id);
-              if (msg.error) pend.reject(new CodexRpcError(msg.error));
-              else pend.resolve(msg.result);
+            case "thread/tokenUsage/updated": {
+              const t = p.tokenUsage?.total;
+              const last = p.tokenUsage?.last;
+              const shape = (u: {
+                inputTokens?: number;
+                outputTokens?: number;
+                cachedInputTokens?: number;
+              }) => ({
+                input: u.inputTokens ?? 0,
+                output: u.outputTokens ?? 0,
+                cachedInput: u.cachedInputTokens ?? 0,
+              });
+              if (t) {
+                const b = state.usageBaseline ?? { input: 0, output: 0, cachedInput: 0 };
+                const now = shape(t);
+                state.usage = {
+                  input: Math.max(0, now.input - b.input),
+                  output: Math.max(0, now.output - b.output),
+                  ...(typeof t.cachedInputTokens === "number"
+                    ? { cachedInput: Math.max(0, now.cachedInput - b.cachedInput) }
+                    : {}),
+                };
+              } else if (last) {
+                state.usage = {
+                  input: last.inputTokens ?? 0,
+                  output: last.outputTokens ?? 0,
+                  ...(typeof last.cachedInputTokens === "number"
+                    ? { cachedInput: last.cachedInputTokens }
+                    : {}),
+                };
+              }
+              if (t) {
+                const window = p.tokenUsage?.modelContextWindow;
+                emit({
+                  ...base(threadId, turnId),
+                  type: "thread.token-usage.updated",
+                  input: t.inputTokens ?? 0,
+                  output: t.outputTokens ?? 0,
+                  ...(typeof t.cachedInputTokens === "number"
+                    ? { cachedInput: t.cachedInputTokens }
+                    : {}),
+                  ...(last && typeof last.inputTokens === "number"
+                    ? { contextTokens: last.inputTokens }
+                    : {}),
+                  ...(typeof window === "number" && window > 0 ? { contextWindow: window } : {}),
+                });
+              }
+              break;
             }
-          } else if (msg.id !== undefined && msg.method) {
-            handleServerRequest(msg);
-          } else if (msg.method) {
-            handleNotification(msg);
+            case "turn/completed": {
+              if (reviewWarning && !timedOutReview) reviewNotice("warning");
+              const t = p.turn ?? {};
+              if (t.status === "completed") {
+                if (chatgptTurn) loginAccepted();
+              } else if (typeof t.error?.message === "string") {
+                turnError(t.error);
+              } else if (t.status === "failed" && !state.lastError && state.retryError) {
+                turnError({ message: state.retryError });
+              }
+              void settle(
+                t.status === "completed",
+                t.status === "completed"
+                  ? null
+                  : state.usageLimited
+                    ? "usage_limit"
+                    : classifyError({ text: state.lastError }).reason === "provider_safety"
+                      ? "provider_safety"
+                      : state.lastError || t.status || "failed",
+              );
+              break;
+            }
+            case "error": {
+              const error =
+                p.error && typeof p.error === "object" ? p.error : { message: p.message };
+              if (!error.message) break;
+              if (p.willRetry === true) {
+                state.retryError = String(error.message);
+                break;
+              }
+              turnError(error);
+              break;
+            }
+            case "modelProvider/authRecoveryStarted":
+              state.authRecovery = true;
+              break;
+            case "modelProvider/authRecoveryCompleted":
+              state.authRecovery = false;
+              break;
           }
-        }
-      });
+        };
 
-      let stderr = "";
-      let stderrSinceOutput = "";
-      child.stderr.on("data", (c) => {
-        stderr += c;
-        stderrSinceOutput += c;
-        if (stderr.length > 8192) stderr = stderr.slice(-8192);
-        if (stderrSinceOutput.length > 2048) stderrSinceOutput = stderrSinceOutput.slice(-2048);
-      });
-      child.on("error", (e) => {
-        if (abandoned) return;
-        emit({ ...base(threadId, turnId), type: "runtime.error", ...describeSpawnFailure(e, config.cli) });
-        void settle(false, "spawn_error");
-      });
-      child.on("close", (code, signal) => {
-        if (abandoned) return;
-        if (state.settled) {
-          void stop();
-          return;
-        }
-        if (stopRequested) {
-          void settle(false, "interrupted");
-          return;
-        }
-        const recentStderr = stderrSinceOutput.trim();
-        const hadStreamedOutput = codexTurnId !== null || state.sawStreamDelta;
-        const verdict =
-          signal !== null
-            ? { transient: false, reason: "interrupted" }
-            : classifyError({ exitCode: code, stderr: recentStderr });
-        if (
-          !stopRequested && codexTurnId === null && earlyNotifications.length === 0 &&
-          verdict.transient && attempt < RETRY_MAX_ATTEMPTS - 1
-        ) {
-          const delayMs = computeBackoff(attempt);
-          attempt++;
+        let buf = "";
+        child.stdout.setEncoding("utf8");
+        child.stdout.on("data", (chunk) => {
+          if (abandoned || state.settled) return;
+          buf += chunk;
+          let nl;
+          while (!state.settled && (nl = buf.indexOf("\n")) !== -1) {
+            const line = buf.slice(0, nl);
+            buf = buf.slice(nl + 1);
+            if (!line.trim()) continue;
+            let msg: any;
+            try {
+              msg = JSON.parse(line);
+            } catch {
+              continue;
+            }
+            stderrSinceOutput = "";
+            const loggedMessage = codexNativeIncomingLogMessage(msg, sensitiveResponseIds);
+            appendNative(threadId, { dir: "in", source: "codex.app-server", msg: loggedMessage });
+            if (msg.id !== undefined && (msg.result !== undefined || msg.error !== undefined)) {
+              const pend = rpcPending.get(msg.id);
+              if (pend) {
+                rpcPending.delete(msg.id);
+                if (msg.error) pend.reject(new CodexRpcError(msg.error));
+                else pend.resolve(msg.result);
+              }
+            } else if (msg.id !== undefined && msg.method) {
+              handleServerRequest(msg);
+            } else if (msg.method) {
+              handleNotification(msg);
+            }
+          }
+        });
+
+        let stderr = "";
+        let stderrSinceOutput = "";
+        child.stderr.on("data", (c) => {
+          stderr += c;
+          stderrSinceOutput += c;
+          if (stderr.length > 8192) stderr = stderr.slice(-8192);
+          if (stderrSinceOutput.length > 2048) stderrSinceOutput = stderrSinceOutput.slice(-2048);
+        });
+        child.on("error", (e) => {
+          if (abandoned) return;
           emit({
             ...base(threadId, turnId),
-            type: "turn.retrying",
-            attempt,
-            delayMs,
-            reason: verdict.reason,
+            type: "runtime.error",
+            ...describeSpawnFailure(e, config.cli),
           });
-          abandoned = true;
-          void (async () => {
-            const alreadyDead = child.exitCode !== null || child.signalCode !== null;
-            if (!alreadyDead && !(await terminate())) {
+          void settle(false, "spawn_error");
+        });
+        child.on("close", (code, signal) => {
+          if (abandoned) return;
+          if (state.settled) {
+            void stop();
+            return;
+          }
+          if (stopRequested) {
+            void settle(false, "interrupted");
+            return;
+          }
+          const recentStderr = stderrSinceOutput.trim();
+          const hadStreamedOutput = codexTurnId !== null || state.sawStreamDelta;
+          const verdict =
+            signal !== null
+              ? { transient: false, reason: "interrupted" }
+              : classifyError({ exitCode: code, stderr: recentStderr });
+          if (
+            !stopRequested &&
+            codexTurnId === null &&
+            earlyNotifications.length === 0 &&
+            verdict.transient &&
+            attempt < RETRY_MAX_ATTEMPTS - 1
+          ) {
+            const delayMs = computeBackoff(attempt);
+            attempt++;
+            emit({
+              ...base(threadId, turnId),
+              type: "turn.retrying",
+              attempt,
+              delayMs,
+              reason: verdict.reason,
+            });
+            abandoned = true;
+            void (async () => {
+              const alreadyDead = child.exitCode !== null || child.signalCode !== null;
+              if (!alreadyDead && !(await terminate())) {
+                void settle(false, "shutdown_timeout");
+                return;
+              }
+              await interruptibleDelay(
+                Math.max(1, Math.round(delayMs * retryScale)),
+                stopSignal.signal,
+              ).promise;
+              if (!stopRequested) {
+                void launchAttempt(attempt).catch(() => {});
+              } else {
+                await settle(false, "interrupted");
+              }
+            })().catch(() => {});
+            return;
+          }
+          if (state.usageLimited) {
+            void settle(false, "usage_limit");
+            return;
+          }
+          emit({
+            ...base(threadId, turnId),
+            type: "runtime.error",
+            message: `codex exited ${code}${signal ? ` (signal ${signal})` : ""} before turn/completed${
+              recentStderr
+                ? `: ${recentStderr.slice(-300)}`
+                : hadStreamedOutput && stderr.trim()
+                  ? "; no stderr after the last app-server output"
+                  : ""
+            }`,
+          });
+          void settle(false, "exit_before_result");
+        });
+
+        const stopNativeActor = async (actor: CodexActorTarget) => {
+          if (
+            state.settled ||
+            abandoned ||
+            stopRequested ||
+            child.exitCode !== null ||
+            child.signalCode !== null
+          )
+            throw new Error("This native run is no longer connected.");
+          const target = nativeActivity.stopTarget(actor);
+          await request("turn/interrupt", target, 10_000);
+        };
+        active.set(threadId, { stop, stopNativeActor, turnId, asks, steer: steerActiveTurn });
+        if (attempt === 0) emit({ ...base(threadId, turnId), type: "turn.started" });
+        nativeActivity.capabilities();
+
+        try {
+          const initialized = await request("initialize", {
+            clientInfo: { name: "laterdog", title: "later.dog", version: serverVersion() },
+            capabilities: { experimentalApi: true },
+          });
+          nativeActivity.capabilities(
+            typeof initialized?.userAgent === "string"
+              ? initialized.userAgent.match(/\b\d+\.\d+\.\d+(?:[-+][^\s()]+)?/)?.[0]
+              : undefined,
+          );
+          send({ jsonrpc: "2.0", method: "initialized", params: {} });
+          let effectiveConfig: unknown;
+          try {
+            const configured = await request("config/read", {
+              cwd: turn.cwd ?? homedir(),
+              includeLayers: false,
+            });
+            effectiveConfig = configured?.config;
+          } catch (error) {
+            const invalid =
+              error instanceof CodexRpcError && /^invalid configuration\b/i.test(error.message);
+            throw new Error(
+              invalid
+                ? "Codex rejected its configuration as invalid. Check ~/.codex/config.toml (or CODEX_HOME) for a broken entry, then retry."
+                : "Could not read Codex configuration; cannot safely update bot instructions. Retry after checking Codex.",
+            );
+          }
+          if (privateEnv.length) {
+            const snapshot = (effectiveConfig as { features?: { shell_snapshot?: unknown } } | null)
+              ?.features?.shell_snapshot;
+            if (provenPrivateEnv ? snapshot !== false : snapshot === true) {
+              throw new Error(
+                "Codex could not disable inherited shell snapshots. No prompt was sent.",
+              );
+            }
+          }
+          if (privateEnv.length || plan) {
+            const rawPolicy = (effectiveConfig as { shell_environment_policy?: unknown } | null)
+              ?.shell_environment_policy;
+            if (
+              rawPolicy !== undefined &&
+              (!rawPolicy || typeof rawPolicy !== "object" || Array.isArray(rawPolicy))
+            ) {
+              throw new Error(
+                "Codex could not confirm its shell environment policy. No prompt was sent.",
+              );
+            }
+            selectionConfig.config = {
+              ...selectionConfig.config,
+              ...extendShellExclusions((rawPolicy ?? {}) as Record<string, unknown>, [
+                ...(plan ? ["LATERDOG_CHATGPT_TOKEN"] : []),
+                ...privateEnv,
+              ]),
+            };
+          }
+          if (turn.toolScope !== undefined) {
+            const catalog = (effectiveConfig as { mcp_servers?: unknown } | null)?.mcp_servers;
+            if (!catalog || typeof catalog !== "object" || Array.isArray(catalog))
+              throw new Error(
+                "Codex could not confirm its selected MCP configuration. No prompt was sent.",
+              );
+            for (const [name, entry] of Object.entries(catalog)) {
+              if (
+                entry &&
+                typeof entry === "object" &&
+                (entry as { enabled?: unknown }).enabled === false
+              )
+                continue;
+              const expected = selectedMcp.get(name);
+              const actual = entry as {
+                command?: unknown;
+                args?: unknown;
+                env_vars?: unknown;
+                env?: unknown;
+                default_tools_approval_mode?: unknown;
+                tools?: unknown;
+              } | null;
+              if (
+                !expected ||
+                !("command" in expected) ||
+                actual?.command !== expected.command ||
+                JSON.stringify(actual?.args ?? []) !== JSON.stringify(expected.args ?? []) ||
+                !Array.isArray(actual?.env_vars) ||
+                JSON.stringify([...actual.env_vars].sort()) !==
+                  JSON.stringify(Object.keys(expected.env).sort()) ||
+                actual.default_tools_approval_mode !==
+                  (selectedApprovals.get(name) ? "auto" : "prompt") ||
+                (actual.env != null &&
+                  (typeof actual.env !== "object" ||
+                    Array.isArray(actual.env) ||
+                    Object.keys(actual.env).length > 0)) ||
+                (actual.tools != null &&
+                  (typeof actual.tools !== "object" ||
+                    Array.isArray(actual.tools) ||
+                    Object.keys(actual.tools).length > 0))
+              ) {
+                throw new Error(
+                  "Codex has an MCP server outside the selected configuration. Disable native MCP entries for this account before using tool selection. No prompt was sent.",
+                );
+              }
+            }
+          }
+          if (turn.guestConfined && !codexShellDisabled(effectiveConfig)) {
+            throw new Error(
+              `This Codex could not turn its shell off, so it can't run this turn. Update Codex, or switch this bot to Claude.${turn.confinedWhy ? ` ${turn.confinedWhy}` : ""}`,
+            );
+          }
+          const stableInstructions =
+            typeof turn.systemStable === "string" && typeof turn.systemVolatile === "string"
+              ? turn.systemStable
+              : null;
+          const promptSplit = stableInstructions !== null;
+          const developerInstructions = codexDeveloperInstructions(
+            effectiveConfig,
+            stableInstructions ?? turn.system ?? "",
+          );
+          let approvalParams: CodexApprovalParams;
+          if (approvalMode === "custom") {
+            approvalParams = customApprovalParams(effectiveConfig);
+          } else {
+            approvalParams = withContainerAccess(
+              namedApprovalParams(approvalMode, turn.ownerAnswers === true),
+              approvalMode,
+              turn,
+            );
+          }
+          autoAcceptPermissions = approvalMode === "full";
+          const selection = config.managed
+            ? { model: turn.model, modelProvider: "laterdog_company" }
+            : plan
+              ? { model: turn.model, modelProvider: "openai_chatgpt_plan" }
+              : decodeCodexSelection(turn.model);
+          const cursor = typeof turn.resumeCursor === "string" ? turn.resumeCursor : null;
+          let startedModel: string | null = null;
+          let resumedNativeThread = false;
+          let rebuiltFromReplay = false;
+          let promptText = turn.text;
+          if (cursor) {
+            const resumeThread = () =>
+              request("thread/resume", {
+                ...selectionConfig,
+                threadId: cursor,
+                developerInstructions,
+                model: selection.model,
+                ...(selection.modelProvider ? { modelProvider: selection.modelProvider } : {}),
+                ...approvalParams.thread,
+              });
+            try {
+              let resumed;
+              try {
+                resumed = await resumeThread();
+              } catch (error) {
+                if (!approvalParams.fallback || !permissionProfileUnsupported(error)) throw error;
+                approvalParams = approvalParams.fallback;
+                resumed = await resumeThread();
+              }
+              approvalParams = withResolvedSandbox(approvalParams, resumed);
+              codexThreadId = resumed?.thread?.id ?? cursor;
+              resumedNativeThread = true;
+            } catch (error) {
+              const failure = classifyResumeFailure({
+                attempted: true,
+                rejected: error instanceof CodexRpcError,
+                promptSubmitted,
+                producedOutput: state.sawStreamDelta,
+              });
+              if (
+                recoveredMissingSession ||
+                stopRequested ||
+                state.settled ||
+                !turn.recoveryText?.trim() ||
+                !missingNativeCodexThread(error, cursor) ||
+                !mayReplay(failure)
+              )
+                throw error;
+              recoveredMissingSession = true;
+              const rebuild = recoveryPromptFor({
+                recoveryText: turn.recoveryText,
+                currentText: turn.text,
+                failure,
+              });
+              rebuiltFromReplay = rebuild.replayed;
+              promptText = rebuild.text;
+            }
+          }
+          if (!cursor && !codexThreadId && turn.fork) {
+            try {
+              const forked = await request("thread/fork", {
+                ...selectionConfig,
+                threadId: turn.fork.session,
+                lastTurnId: turn.fork.at,
+                developerInstructions,
+                model: selection.model,
+                ...(selection.modelProvider ? { modelProvider: selection.modelProvider } : {}),
+                ...approvalParams.thread,
+              });
+              if (!codexForkEndsAt(forked, turn.fork.at))
+                throw new Error("Codex did not fork the conversation at the kept point");
+              approvalParams = withResolvedSandbox(approvalParams, forked);
+              codexThreadId = forked.thread.id;
+              startedModel = typeof forked.model === "string" ? forked.model : null;
+              resumedNativeThread = true;
+            } catch (error) {
+              if (stopRequested || state.settled) throw error;
+              codexThreadId = null;
+              if (turn.recoveryText?.trim()) {
+                promptText = turn.recoveryText;
+                rebuiltFromReplay = true;
+              }
+            }
+          }
+          if (!codexThreadId) {
+            const startThread = () =>
+              request("thread/start", {
+                ...selectionConfig,
+                developerInstructions,
+                cwd: turn.cwd ?? homedir(),
+                model: selection.model,
+                ...(selection.modelProvider ? { modelProvider: selection.modelProvider } : {}),
+                ...approvalParams.thread,
+                ...(turn.guestConfined ? { environments: [] } : {}),
+                ephemeral: false,
+              });
+            let started;
+            try {
+              started = await startThread();
+            } catch (error) {
+              if (!approvalParams.fallback || !permissionProfileUnsupported(error)) throw error;
+              approvalParams = approvalParams.fallback;
+              started = await startThread();
+            }
+            approvalParams = withResolvedSandbox(approvalParams, started);
+            codexThreadId = started?.thread?.id ?? null;
+            startedModel = started?.model ?? null;
+          }
+          if (!codexThreadId) throw new Error("Codex did not return a native thread id");
+          const { note: volatileNote, commitVolatile } = await syncCodexInstructions(
+            threadId,
+            codexThreadId,
+            developerInstructions,
+            promptSplit ? (turn.systemVolatile ?? "") : "",
+            resumedNativeThread,
+            request,
+            Boolean(turn.mentionTurn),
+            promptSplit ? turn.systemVolatileSections : undefined,
+          );
+          promptText = withContextNote(volatileNote, promptText);
+          emit({
+            ...base(threadId, turnId),
+            type: "session.started",
+            sessionId: codexThreadId,
+            model: startedModel ?? turn.model ?? null,
+            ...(rebuiltFromReplay ? { rebuilt: true } : {}),
+          });
+          const turnInput = [
+            ...(promptText ? [{ type: "text" as const, text: promptText }] : []),
+            ...(turn.images ?? []).map((image) => ({
+              type: "localImage" as const,
+              path: image.path,
+            })),
+          ];
+          const startTurn = () => {
+            promptSubmitted = true;
+            startingNativeTurn = true;
+            return request("turn/start", {
+              threadId: codexThreadId,
+              input: turnInput,
+              ...approvalParams.turn,
+              ...(turn.guestConfined ? { environments: [] } : {}),
+              ...(turn.effort ? { effort: turn.effort } : {}),
+            });
+          };
+          try {
+            await startTurn();
+          } catch (error) {
+            if (!approvalParams.fallback || !permissionProfileUnsupported(error)) throw error;
+            approvalParams = approvalParams.fallback;
+            await startTurn();
+          }
+          if (commitVolatile && !compacted) commitVolatile();
+        } catch (e) {
+          const failure = e instanceof Error ? e : { text: String(e) };
+          const raw = e instanceof Error ? e.message : String(e);
+          const refused =
+            chatgptTurn && loginMark() !== null && codexSignInRefused({ message: raw });
+          const message = refused ? codexSignInExpired(raw) : codexUserError(raw, plan);
+          const needsAuth =
+            refused ||
+            /(?:\b401\b|unauthorized|missing bearer|authentication required)/i.test(message);
+          const verdict = classifyError(failure);
+          if (
+            !state.settled &&
+            !abandoned &&
+            !recoveredMissingSession &&
+            !stopRequested &&
+            !needsAuth &&
+            verdict.transient &&
+            attempt < RETRY_MAX_ATTEMPTS - 1 &&
+            state.sawStreamDelta === false
+          ) {
+            const delayMs = computeBackoff(attempt);
+            attempt++;
+            emit({
+              ...base(threadId, turnId),
+              type: "turn.retrying",
+              attempt,
+              delayMs,
+              reason: verdict.reason,
+            });
+            abandoned = true;
+            if (!(await terminate())) {
               void settle(false, "shutdown_timeout");
               return;
             }
-            await interruptibleDelay(Math.max(1, Math.round(delayMs * retryScale)), stopSignal.signal).promise;
+            await interruptibleDelay(
+              Math.max(1, Math.round(delayMs * retryScale)),
+              stopSignal.signal,
+            ).promise;
             if (!stopRequested) {
               void launchAttempt(attempt).catch(() => {});
             } else {
               await settle(false, "interrupted");
             }
-          })().catch(() => {});
-          return;
-        }
-        if (state.usageLimited) {
-          void settle(false, "usage_limit");
-          return;
-        }
-        emit({
-          ...base(threadId, turnId),
-          type: "runtime.error",
-          message: `codex exited ${code}${signal ? ` (signal ${signal})` : ""} before turn/completed${
-            recentStderr ? `: ${recentStderr.slice(-300)}` : hadStreamedOutput && stderr.trim() ? "; no stderr after the last app-server output" : ""
-          }`,
-        });
-        void settle(false, "exit_before_result");
-      });
-
-      const stopNativeActor = async (actor: CodexActorTarget) => {
-        if (state.settled || abandoned || stopRequested || child.exitCode !== null || child.signalCode !== null) throw new Error("This native run is no longer connected.");
-        const target = nativeActivity.stopTarget(actor);
-        await request("turn/interrupt", target, 10_000);
-      };
-      active.set(threadId, { stop, stopNativeActor, turnId, asks, steer: steerActiveTurn });
-      if (attempt === 0) emit({ ...base(threadId, turnId), type: "turn.started" });
-      nativeActivity.capabilities();
-
-      try {
-        const initialized = await request("initialize", {
-          clientInfo: { name: "laterdog", title: "later.dog", version: serverVersion() },
-          capabilities: { experimentalApi: true },
-        });
-        nativeActivity.capabilities(typeof initialized?.userAgent === "string" ? initialized.userAgent.match(/\b\d+\.\d+\.\d+(?:[-+][^\s()]+)?/)?.[0] : undefined);
-        send({ jsonrpc: "2.0", method: "initialized", params: {} });
-        let effectiveConfig: unknown;
-        try {
-          const configured = await request("config/read", {
-            cwd: turn.cwd ?? homedir(),
-            includeLayers: false,
-          });
-          effectiveConfig = configured?.config;
-        } catch (error) {
-          const invalid = error instanceof CodexRpcError && /^invalid configuration\b/i.test(error.message);
-          throw new Error(
-            invalid
-              ? "Codex rejected its configuration as invalid. Check ~/.codex/config.toml (or CODEX_HOME) for a broken entry, then retry."
-              : "Could not read Codex configuration; cannot safely update bot instructions. Retry after checking Codex.",
-          );
-        }
-        if (privateEnv.length) {
-          const snapshot = (effectiveConfig as { features?: { shell_snapshot?: unknown } } | null)?.features?.shell_snapshot;
-          if (provenPrivateEnv ? snapshot !== false : snapshot === true) {
-            throw new Error("Codex could not disable inherited shell snapshots. No prompt was sent.");
-          }
-        }
-        if (privateEnv.length || plan) {
-          const rawPolicy = (effectiveConfig as { shell_environment_policy?: unknown } | null)?.shell_environment_policy;
-          if (rawPolicy !== undefined && (!rawPolicy || typeof rawPolicy !== "object" || Array.isArray(rawPolicy))) {
-            throw new Error("Codex could not confirm its shell environment policy. No prompt was sent.");
-          }
-          selectionConfig.config = { ...selectionConfig.config,
-            ...extendShellExclusions((rawPolicy ?? {}) as Record<string, unknown>, [...(plan ? ["LATERDOG_CHATGPT_TOKEN"] : []), ...privateEnv]) };
-        }
-        if (turn.toolScope !== undefined) {
-          const catalog = (effectiveConfig as { mcp_servers?: unknown } | null)?.mcp_servers;
-          if (!catalog || typeof catalog !== "object" || Array.isArray(catalog)) throw new Error("Codex could not confirm its selected MCP configuration. No prompt was sent.");
-          for (const [name, entry] of Object.entries(catalog)) {
-            if (entry && typeof entry === "object" && (entry as { enabled?: unknown }).enabled === false) continue;
-            const expected = selectedMcp.get(name);
-            const actual = entry as { command?: unknown; args?: unknown; env_vars?: unknown; env?: unknown; default_tools_approval_mode?: unknown; tools?: unknown } | null;
-            if (!expected || !("command" in expected) || actual?.command !== expected.command
-              || JSON.stringify(actual?.args ?? []) !== JSON.stringify(expected.args ?? [])
-              || !Array.isArray(actual?.env_vars) || JSON.stringify([...actual.env_vars].sort()) !== JSON.stringify(Object.keys(expected.env).sort())
-              || actual.default_tools_approval_mode !== (selectedApprovals.get(name) ? "auto" : "prompt")
-              || (actual.env != null && (typeof actual.env !== "object" || Array.isArray(actual.env) || Object.keys(actual.env).length > 0))
-              || (actual.tools != null && (typeof actual.tools !== "object" || Array.isArray(actual.tools) || Object.keys(actual.tools).length > 0))) {
-              throw new Error("Codex has an MCP server outside the selected configuration. Disable native MCP entries for this account before using tool selection. No prompt was sent.");
-            }
-          }
-        }
-        if (turn.guestConfined && !codexShellDisabled(effectiveConfig)) {
-          throw new Error(`This Codex could not turn its shell off, so it can't run this turn. Update Codex, or switch this bot to Claude.${turn.confinedWhy ? ` ${turn.confinedWhy}` : ""}`);
-        }
-        const stableInstructions = typeof turn.systemStable === "string" && typeof turn.systemVolatile === "string"
-          ? turn.systemStable
-          : null;
-        const promptSplit = stableInstructions !== null;
-        const developerInstructions = codexDeveloperInstructions(
-          effectiveConfig,
-          stableInstructions ?? turn.system ?? "",
-        );
-        let approvalParams: CodexApprovalParams;
-        if (approvalMode === "custom") {
-          approvalParams = customApprovalParams(effectiveConfig);
-        } else {
-          approvalParams = withContainerAccess(namedApprovalParams(approvalMode, turn.ownerAnswers === true), approvalMode, turn);
-        }
-        autoAcceptPermissions = approvalMode === "full";
-        const selection = config.managed
-          ? { model: turn.model, modelProvider: "laterdog_company" }
-          : plan
-            ? { model: turn.model, modelProvider: "openai_chatgpt_plan" }
-            : decodeCodexSelection(turn.model);
-        const cursor = typeof turn.resumeCursor === "string" ? turn.resumeCursor : null;
-        let startedModel: string | null = null;
-        let resumedNativeThread = false;
-        let rebuiltFromReplay = false;
-        let promptText = turn.text;
-        if (cursor) {
-          const resumeThread = () => request("thread/resume", {
-            ...selectionConfig,
-            threadId: cursor,
-            developerInstructions,
-            model: selection.model,
-            ...(selection.modelProvider ? { modelProvider: selection.modelProvider } : {}),
-            ...approvalParams.thread,
-          });
-          try {
-            let resumed;
-            try {
-              resumed = await resumeThread();
-            } catch (error) {
-              if (!approvalParams.fallback || !permissionProfileUnsupported(error)) throw error;
-              approvalParams = approvalParams.fallback;
-              resumed = await resumeThread();
-            }
-            approvalParams = withResolvedSandbox(approvalParams, resumed);
-            codexThreadId = resumed?.thread?.id ?? cursor;
-            resumedNativeThread = true;
-          } catch (error) {
-            const failure = classifyResumeFailure({
-              attempted: true,
-              rejected: error instanceof CodexRpcError,
-              promptSubmitted,
-              producedOutput: state.sawStreamDelta,
-            });
-            if (recoveredMissingSession || stopRequested || state.settled ||
-                !turn.recoveryText?.trim() || !missingNativeCodexThread(error, cursor) || !mayReplay(failure)) throw error;
-            recoveredMissingSession = true;
-            const rebuild = recoveryPromptFor({ recoveryText: turn.recoveryText, currentText: turn.text, failure });
-            rebuiltFromReplay = rebuild.replayed;
-            promptText = rebuild.text;
-          }
-        }
-        if (!cursor && !codexThreadId && turn.fork) {
-          try {
-            const forked = await request("thread/fork", {
-              ...selectionConfig,
-              threadId: turn.fork.session,
-              lastTurnId: turn.fork.at,
-              developerInstructions,
-              model: selection.model,
-              ...(selection.modelProvider ? { modelProvider: selection.modelProvider } : {}),
-              ...approvalParams.thread,
-            });
-            if (!codexForkEndsAt(forked, turn.fork.at)) throw new Error("Codex did not fork the conversation at the kept point");
-            approvalParams = withResolvedSandbox(approvalParams, forked);
-            codexThreadId = forked.thread.id;
-            startedModel = typeof forked.model === "string" ? forked.model : null;
-            resumedNativeThread = true;
-          } catch (error) {
-            if (stopRequested || state.settled) throw error;
-            codexThreadId = null;
-            if (turn.recoveryText?.trim()) {
-              promptText = turn.recoveryText;
-              rebuiltFromReplay = true;
-            }
-          }
-        }
-        if (!codexThreadId) {
-          const startThread = () => request("thread/start", {
-              ...selectionConfig,
-              developerInstructions,
-              cwd: turn.cwd ?? homedir(),
-              model: selection.model,
-              ...(selection.modelProvider ? { modelProvider: selection.modelProvider } : {}),
-              ...approvalParams.thread,
-              ...(turn.guestConfined ? { environments: [] } : {}),
-              ephemeral: false,
-            });
-          let started;
-          try {
-            started = await startThread();
-          } catch (error) {
-            if (!approvalParams.fallback || !permissionProfileUnsupported(error)) throw error;
-            approvalParams = approvalParams.fallback;
-            started = await startThread();
-          }
-          approvalParams = withResolvedSandbox(approvalParams, started);
-          codexThreadId = started?.thread?.id ?? null;
-          startedModel = started?.model ?? null;
-        }
-        if (!codexThreadId) throw new Error("Codex did not return a native thread id");
-        const { note: volatileNote, commitVolatile } = await syncCodexInstructions(
-          threadId,
-          codexThreadId,
-          developerInstructions,
-          promptSplit ? turn.systemVolatile ?? "" : "",
-          resumedNativeThread,
-          request,
-          Boolean(turn.mentionTurn),
-          promptSplit ? turn.systemVolatileSections : undefined,
-        );
-        promptText = withContextNote(volatileNote, promptText);
-        emit({ ...base(threadId, turnId), type: "session.started", sessionId: codexThreadId, model: startedModel ?? turn.model ?? null, ...(rebuiltFromReplay ? { rebuilt: true } : {}) });
-        const turnInput = [
-          ...(promptText ? [{ type: "text" as const, text: promptText }] : []),
-          ...(turn.images ?? []).map((image) => ({ type: "localImage" as const, path: image.path })),
-        ];
-        const startTurn = () => {
-          promptSubmitted = true;
-          startingNativeTurn = true;
-          return request("turn/start", {
-            threadId: codexThreadId,
-            input: turnInput,
-            ...approvalParams.turn,
-            ...(turn.guestConfined ? { environments: [] } : {}),
-            ...(turn.effort ? { effort: turn.effort } : {}),
-          });
-        };
-        try {
-          await startTurn();
-        } catch (error) {
-          if (!approvalParams.fallback || !permissionProfileUnsupported(error)) throw error;
-          approvalParams = approvalParams.fallback;
-          await startTurn();
-        }
-        if (commitVolatile && !compacted) commitVolatile();
-      } catch (e) {
-        const failure = e instanceof Error ? e : { text: String(e) };
-        const raw = e instanceof Error ? e.message : String(e);
-        const refused = chatgptTurn && loginMark() !== null && codexSignInRefused({ message: raw });
-        const message = refused ? codexSignInExpired(raw) : codexUserError(raw, plan);
-        const needsAuth = refused || /(?:\b401\b|unauthorized|missing bearer|authentication required)/i.test(message);
-        const verdict = classifyError(failure);
-        if (!state.settled && !abandoned && !recoveredMissingSession && !stopRequested && !needsAuth && verdict.transient && attempt < RETRY_MAX_ATTEMPTS - 1 && state.sawStreamDelta === false) {
-          const delayMs = computeBackoff(attempt);
-          attempt++;
-          emit({
-            ...base(threadId, turnId),
-            type: "turn.retrying",
-            attempt,
-            delayMs,
-            reason: verdict.reason,
-          });
-          abandoned = true;
-          if (!await terminate()) {
-            void settle(false, "shutdown_timeout");
             return;
           }
-          await interruptibleDelay(Math.max(1, Math.round(delayMs * retryScale)), stopSignal.signal).promise;
-          if (!stopRequested) {
-            void launchAttempt(attempt).catch(() => {});
-          } else {
-            await settle(false, "interrupted");
+          if (!state.settled && !abandoned) {
+            if (refused) loginRefused();
+            emit({
+              ...base(threadId, turnId),
+              type: "runtime.error",
+              message,
+              ...(needsAuth ? { setup: true } : {}),
+            });
+            await settle(
+              false,
+              needsAuth
+                ? "auth_required"
+                : verdict.reason === "provider_safety"
+                  ? "provider_safety"
+                  : "rpc_error",
+            );
           }
+        }
+      };
+
+      void launchAttempt(0).catch(() => {});
+      return { turnId };
+    };
+
+    const snapshot = async (): Promise<ProviderSnapshot> => {
+      if (planUnavailable)
+        return {
+          state: "unavailable",
+          authenticated: false,
+          chatgptPlan: true,
+          reason: planUnavailable,
+          authenticationUnavailableReason: planUnavailable,
+        };
+      const env = childEnv();
+      const read = await readCliVersion(config.cli, env);
+      if (!("version" in read))
+        return { ...unreadCli(config.cli, read), ...(plan ? { chatgptPlan: true } : {}) };
+      const version = read.version;
+      if (planAuth)
+        return {
+          state: "available",
+          version,
+          chatgptPlan: true,
+          billing: "subscription",
+          ...(await planAuth.snapshot()),
+          update: await codexReleaseUpdate(version, config.cli),
+          ...(planWarning
+            ? { warning: { title: "Check ChatGPT connection", message: planWarning } }
+            : {}),
+        };
+      if (config.managed)
+        return {
+          state: "available",
+          version,
+          authenticated: Boolean(
+            input.environment.LATERDOG_COMPANY_API_KEY && input.environment.CODEX_HOME,
+          ),
+          billing: "metered",
+        };
+      const authenticated = await new Promise<boolean>((resolve) => {
+        execCli(config.cli, ["login", "status"], { timeout: 8000, env }, (err, stdout, stderr) =>
+          resolve(!err && /^logged in\b/im.test(`${stdout}\n${stderr ?? ""}`)),
+        );
+      });
+      if (authenticated && loginRejected()) {
+        return {
+          state: "available",
+          version,
+          authenticated: false,
+          reason: cloudHomeConfigured() ? CODEX_CLOUD_SIGN_IN_AGAIN : CODEX_SIGN_IN_EXPIRED,
+          update: await codexReleaseUpdate(version, config.cli),
+          billing: "subscription",
+        };
+      }
+      const email = authenticated ? await codexAccountEmail(config.cli, env) : null;
+      return {
+        state: "available",
+        version,
+        authenticated,
+        ...(email ? { account: { email } } : {}),
+        update: await codexReleaseUpdate(version, config.cli),
+        billing: "subscription",
+      };
+    };
+
+    return {
+      instanceId,
+      driverKind: DRIVER_KIND,
+      displayName: input.displayName,
+      enabled: input.enabled,
+      get models() {
+        return models;
+      },
+      refreshModels,
+      ...(plan ? { authenticationMethod: "browser-pkce" as const } : {}),
+      startAuthentication: async () => {
+        if (planUnavailable) throw new Error(planUnavailable);
+        if (planSigningOut || disposed)
+          throw new Error("This account is being disconnected. Wait before signing in again.");
+        return (planAuth ?? authentication).start();
+      },
+      getAuthentication: async (flowId) => {
+        const result = await (planAuth ?? authentication).get(flowId);
+        if (planAuth && result.phase === "succeeded") planWarning = undefined;
+        if (planAuth && result.phase === "succeeded" && !models.options.length)
+          await refreshModels();
+        return result;
+      },
+      cancelAuthentication: () => (planAuth ?? authentication).cancel(),
+      signOut: async () => {
+        if (!planAuth) {
+          const mark = loginMark();
+          await authentication.signOut();
+          loginAccepted(mark);
           return;
         }
-        if (!state.settled && !abandoned) {
-          if (refused) loginRefused();
-          emit({
-            ...base(threadId, turnId),
-            type: "runtime.error",
-            message,
-            ...(needsAuth ? { setup: true } : {}),
-          });
-          await settle(false, needsAuth ? "auth_required" : verdict.reason === "provider_safety" ? "provider_safety" : "rpc_error");
+        planSigningOut = true;
+        planGeneration++;
+        try {
+          const stopped = await Promise.all([...active.values()].map(({ stop }) => stop()));
+          if (stopped.some((value) => !value))
+            throw new Error(
+              "A ChatGPT task could not stop safely. Stop the task before signing out.",
+            );
+          models = { default: "", options: [] };
+          await planAuth.signOut();
+          planWarning = undefined;
+        } catch (error) {
+          if ((error as { code?: string }).code !== "chatgpt_revocation_unconfirmed") throw error;
+          planWarning = (error as Error).message;
+        } finally {
+          planSigningOut = false;
         }
-      }
-    };
-
-    void launchAttempt(0).catch(() => {});
-    return { turnId };
-  };
-
-  const snapshot = async (): Promise<ProviderSnapshot> => {
-    if (planUnavailable) return { state: "unavailable", authenticated: false, chatgptPlan: true, reason: planUnavailable, authenticationUnavailableReason: planUnavailable };
-    const env = childEnv();
-    const read = await readCliVersion(config.cli, env);
-    if (!("version" in read)) return { ...unreadCli(config.cli, read), ...(plan ? { chatgptPlan: true } : {}) };
-    const version = read.version;
-    if (planAuth) return { state: "available", version, chatgptPlan: true, billing: "subscription", ...await planAuth.snapshot(), update: await codexReleaseUpdate(version, config.cli),
-      ...(planWarning ? { warning: { title: "Check ChatGPT connection", message: planWarning } } : {}) };
-    if (config.managed) return { state: "available", version, authenticated: Boolean(input.environment.LATERDOG_COMPANY_API_KEY && input.environment.CODEX_HOME), billing: "metered" };
-    const authenticated = await new Promise<boolean>((resolve) => {
-      execCli(config.cli, ["login", "status"], { timeout: 8000, env }, (err, stdout, stderr) =>
-        resolve(!err && /^logged in\b/im.test(`${stdout}\n${stderr ?? ""}`)),
-      );
-    });
-    if (authenticated && loginRejected()) {
-      return { state: "available", version, authenticated: false, reason: cloudHomeConfigured() ? CODEX_CLOUD_SIGN_IN_AGAIN : CODEX_SIGN_IN_EXPIRED,
-        update: await codexReleaseUpdate(version, config.cli), billing: "subscription" };
-    }
-    const email = authenticated ? await codexAccountEmail(config.cli, env) : null;
-    return {
-      state: "available",
-      version,
-      authenticated,
-      ...(email ? { account: { email } } : {}),
-      update: await codexReleaseUpdate(version, config.cli),
-      billing: "subscription",
-    };
-  };
-
-  return {
-    instanceId,
-    driverKind: DRIVER_KIND,
-    displayName: input.displayName,
-    enabled: input.enabled,
-    get models() {
-      return models;
-    },
-    refreshModels,
-    ...(plan ? { authenticationMethod: "browser-pkce" as const } : {}),
-    startAuthentication: async () => {
-      if (planUnavailable) throw new Error(planUnavailable);
-      if (planSigningOut || disposed) throw new Error("This account is being disconnected. Wait before signing in again.");
-      return (planAuth ?? authentication).start();
-    },
-    getAuthentication: async (flowId) => {
-      const result = await (planAuth ?? authentication).get(flowId);
-      if (planAuth && result.phase === "succeeded") planWarning = undefined;
-      if (planAuth && result.phase === "succeeded" && !models.options.length) await refreshModels();
-      return result;
-    },
-    cancelAuthentication: () => (planAuth ?? authentication).cancel(),
-    signOut: async () => {
-      if (!planAuth) {
-        const mark = loginMark();
-        await authentication.signOut();
-        loginAccepted(mark);
-        return;
-      }
-      planSigningOut = true;
-      planGeneration++;
-      try {
-        const stopped = await Promise.all([...active.values()].map(({ stop }) => stop()));
-        if (stopped.some(value => !value)) throw new Error("A ChatGPT task could not stop safely. Stop the task before signing out.");
-        models = { default: "", options: [] };
-        await planAuth.signOut();
-        planWarning = undefined;
-      } catch (error) {
-        if ((error as { code?: string }).code !== "chatgpt_revocation_unconfirmed") throw error;
-        planWarning = (error as Error).message;
-      } finally { planSigningOut = false; }
-    },
-    snapshot,
-    adapter: {
-      provider: DRIVER_KIND,
-      capabilities: {
-        sessionModelSwitch: "unsupported",
-        guestTurns: "confined",
-        queueing: true,
-        steerImages: true,
-        computerMcp: true,
-        localComputerMcp: true,
-        composioMcp: true,
-        agentsMcp: true,
-      customMcp: true,
-        browserMcp: true,
-        images: true,
-        nativeImageInput: true,
-        effortLevels: ["low", "medium", "high", "xhigh", "max", "ultra"],
-        strictResume: true,
-        hooks: true,
       },
-      sendTurn,
-      interruptTurn: async (threadId) => {
-        await active.get(threadId)?.stop();
+      snapshot,
+      adapter: {
+        provider: DRIVER_KIND,
+        capabilities: {
+          sessionModelSwitch: "unsupported",
+          guestTurns: "confined",
+          queueing: true,
+          steerImages: true,
+          computerMcp: true,
+          localComputerMcp: true,
+          composioMcp: true,
+          agentsMcp: true,
+          customMcp: true,
+          browserMcp: true,
+          images: true,
+          nativeImageInput: true,
+          effortLevels: ["low", "medium", "high", "xhigh", "max", "ultra"],
+          strictResume: true,
+          hooks: true,
+        },
+        sendTurn,
+        interruptTurn: async (threadId) => {
+          await active.get(threadId)?.stop();
+        },
+        stopNativeActor: async (threadId, actor) => {
+          const turn = active.get(threadId);
+          if (!turn) throw new Error("This native run is no longer connected.");
+          await turn.stopNativeActor(actor);
+        },
+        steer: async (threadId, text, images, onRead) => {
+          const turn = active.get(threadId);
+          return turn?.steer ? await turn.steer(text, images, onRead) : "refused";
+        },
+        respondToRequest: async (threadId, requestId, decision) => {
+          const turn = active.get(threadId);
+          const finish = turn?.asks.get(requestId);
+          if (!finish) return "unavailable";
+          finish(decision.behavior, decision.message, "user");
+          return decision.behavior === "allow"
+            ? "allowed-once"
+            : decision.behavior === "answer"
+              ? "answered"
+              : "rejected";
+        },
+        hasSession: (threadId) => active.has(threadId),
+        compactionSigns: async () => ({ managed: Boolean(config.managed), switchedOff: false }),
+        forksAtPoint: async () => true,
+        stopAll: async () => {
+          await Promise.all([...active.values()].map(({ stop }) => stop()));
+        },
+        onEvent: (listener) => {
+          listeners.add(listener);
+          return () => listeners.delete(listener);
+        },
       },
-      stopNativeActor: async (threadId, actor) => {
-        const turn = active.get(threadId);
-        if (!turn) throw new Error("This native run is no longer connected.");
-        await turn.stopNativeActor(actor);
-      },
-      steer: async (threadId, text, images, onRead) => {
-        const turn = active.get(threadId);
-        return turn?.steer ? await turn.steer(text, images, onRead) : "refused";
-      },
-      respondToRequest: async (threadId, requestId, decision) => {
-        const turn = active.get(threadId);
-        const finish = turn?.asks.get(requestId);
-        if (!finish) return "unavailable";
-        finish(decision.behavior, decision.message, "user");
-        return decision.behavior === "allow" ? "allowed-once" : decision.behavior === "answer" ? "answered" : "rejected";
-      },
-      hasSession: (threadId) => active.has(threadId),
-      compactionSigns: async () => ({ managed: Boolean(config.managed), switchedOff: false }),
-      forksAtPoint: async () => true,
-      stopAll: async () => {
+      dispose: async () => {
+        disposed = true;
+        planGeneration++;
+        await authentication.dispose();
+        await planAuth?.dispose();
         await Promise.all([...active.values()].map(({ stop }) => stop()));
+        listeners.clear();
       },
-      onEvent: (listener) => {
-        listeners.add(listener);
-        return () => listeners.delete(listener);
-      },
-    },
-    dispose: async () => {
-      disposed = true;
-      planGeneration++;
-      await authentication.dispose();
-      await planAuth?.dispose();
-      await Promise.all([...active.values()].map(({ stop }) => stop()));
-      listeners.clear();
-    },
-  };
-},
+    };
+  },
 };

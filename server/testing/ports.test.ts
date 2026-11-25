@@ -1,12 +1,29 @@
 import { spawn, spawnSync } from "node:child_process";
-import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, utimesSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  utimesSync,
+  writeFileSync,
+} from "node:fs";
 import { createServer } from "node:net";
 import { hostname, tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { FOREIGN_LEASE_MAX_AGE_MS, leasePort, leasePortBlock, PORT_LEASE_CEILING, MALFORMED_LEASE_GRACE_MS, PORT_LEASE_FLOOR, releasePortLeases, tryLeasePorts } from "./ports.ts";
+import {
+  FOREIGN_LEASE_MAX_AGE_MS,
+  leasePort,
+  leasePortBlock,
+  PORT_LEASE_CEILING,
+  MALFORMED_LEASE_GRACE_MS,
+  PORT_LEASE_FLOOR,
+  releasePortLeases,
+  tryLeasePorts,
+} from "./ports.ts";
 
 const PORTS_MODULE = pathToFileURL(join(import.meta.dirname, "ports.ts")).href;
 
@@ -26,7 +43,10 @@ afterEach(() => {
   rmSync(leaseDir, { recursive: true, force: true });
 });
 
-const leaseFiles = () => readdirSync(leaseDir).filter((name) => name.endsWith(".lease")).sort();
+const leaseFiles = () =>
+  readdirSync(leaseDir)
+    .filter((name) => name.endsWith(".lease"))
+    .sort();
 
 interface Leaser {
   answer: Promise<string>;
@@ -35,16 +55,26 @@ interface Leaser {
 }
 
 function startLeaser(script: string): Leaser {
-  const child = spawn(process.execPath, ["--experimental-strip-types", "--input-type=module", "-e",
-    `import * as ports from ${JSON.stringify(PORTS_MODULE)};\n${script}\nprocess.stdin.resume();\nprocess.stdin.once("end", () => process.exit(0));`], {
-    env: { ...process.env, LATERDOG_PORT_LEASE_DIR: leaseDir },
-    stdio: ["pipe", "pipe", "pipe"],
-  });
+  const child = spawn(
+    process.execPath,
+    [
+      "--experimental-strip-types",
+      "--input-type=module",
+      "-e",
+      `import * as ports from ${JSON.stringify(PORTS_MODULE)};\n${script}\nprocess.stdin.resume();\nprocess.stdin.once("end", () => process.exit(0));`,
+    ],
+    {
+      env: { ...process.env, LATERDOG_PORT_LEASE_DIR: leaseDir },
+      stdio: ["pipe", "pipe", "pipe"],
+    },
+  );
   let out = "";
   let err = "";
   child.stderr.on("data", (chunk) => (err += String(chunk)));
   const exited = new Promise<void>((resolve, reject) => {
-    child.once("exit", (code) => (code === 0 ? resolve() : reject(new Error(`leaser exited ${code}: ${err}`))));
+    child.once("exit", (code) =>
+      code === 0 ? resolve() : reject(new Error(`leaser exited ${code}: ${err}`)),
+    );
   });
   const answer = new Promise<string>((resolve, reject) => {
     child.stdout.on("data", (chunk) => {
@@ -77,18 +107,28 @@ describe("port leases", () => {
   it("gives the same port to only one of many processes asking for it at once", async () => {
     const wanted = await leasePortBlock([0, 1]);
     releasePortLeases([wanted, wanted + 1]);
-    const answers = await whileAllHold(Array.from({ length: 8 }, () =>
-      `const won = await ports.tryLeasePorts([${wanted}, ${wanted + 1}]);\nconsole.log(won ? "won" : "lost");`,
-    ));
+    const answers = await whileAllHold(
+      Array.from(
+        { length: 8 },
+        () =>
+          `const won = await ports.tryLeasePorts([${wanted}, ${wanted + 1}]);\nconsole.log(won ? "won" : "lost");`,
+      ),
+    );
     expect(answers.filter((answer) => answer === "won")).toHaveLength(1);
     expect(answers.filter((answer) => answer === "lost")).toHaveLength(7);
   });
 
   it("never hands overlapping blocks to processes leasing at the same time", async () => {
-    const blocks = await whileAllHold(Array.from({ length: 6 }, () =>
-      `const bases = [];\nfor (let i = 0; i < 40; i++) bases.push(await ports.leasePortBlock([0, 1]));\nconsole.log(JSON.stringify(bases));`,
-    ));
-    const ports = blocks.flatMap((line) => (JSON.parse(line) as number[]).flatMap((base) => [base, base + 1]));
+    const blocks = await whileAllHold(
+      Array.from(
+        { length: 6 },
+        () =>
+          `const bases = [];\nfor (let i = 0; i < 40; i++) bases.push(await ports.leasePortBlock([0, 1]));\nconsole.log(JSON.stringify(bases));`,
+      ),
+    );
+    const ports = blocks.flatMap((line) =>
+      (JSON.parse(line) as number[]).flatMap((base) => [base, base + 1]),
+    );
     expect(ports).toHaveLength(6 * 40 * 2);
     expect(new Set(ports).size).toBe(ports.length);
   });
@@ -104,7 +144,9 @@ describe("port leases", () => {
   });
 
   it("takes over a lease whose process died without releasing it", async () => {
-    const dead = spawnSync(process.execPath, ["-e", "console.log(process.pid)"], { encoding: "utf8" });
+    const dead = spawnSync(process.execPath, ["-e", "console.log(process.pid)"], {
+      encoding: "utf8",
+    });
     const deadPid = Number(dead.stdout.trim());
     const port = await leasePort();
     releasePortLeases([port]);
@@ -120,7 +162,10 @@ describe("port leases", () => {
     expect(existsSync(join(leaseDir, `${port}.lease`))).toBe(true);
   });
 
-  async function plantLease(contents: string, ageMs: number): Promise<{ port: number; file: string }> {
+  async function plantLease(
+    contents: string,
+    ageMs: number,
+  ): Promise<{ port: number; file: string }> {
     const port = await leasePort();
     releasePortLeases([port]);
     const file = join(leaseDir, `${port}.lease`);
@@ -132,18 +177,30 @@ describe("port leases", () => {
 
   it("records the host with the pid in the lease file", async () => {
     const port = await leasePort();
-    expect(readFileSync(join(leaseDir, `${port}.lease`), "utf8").trim().split(/\s+/)).toEqual([String(process.pid), expect.any(String), hostname()]);
+    expect(
+      readFileSync(join(leaseDir, `${port}.lease`), "utf8")
+        .trim()
+        .split(/\s+/),
+    ).toEqual([String(process.pid), expect.any(String), hostname()]);
   });
 
   it("keeps a recent lease from another host even when its pid is not alive here", async () => {
-    const dead = spawnSync(process.execPath, ["-e", "console.log(process.pid)"], { encoding: "utf8" });
-    const { port, file } = await plantLease(`${Number(dead.stdout.trim())} foreign other-container-host\n`, 5 * 60_000);
+    const dead = spawnSync(process.execPath, ["-e", "console.log(process.pid)"], {
+      encoding: "utf8",
+    });
+    const { port, file } = await plantLease(
+      `${Number(dead.stdout.trim())} foreign other-container-host\n`,
+      5 * 60_000,
+    );
     expect(await tryLeasePorts([port])).toBe(false);
     expect(existsSync(file)).toBe(true);
   });
 
   it("reclaims a lease from another host once it is older than the age limit", async () => {
-    const { port } = await plantLease("999999 foreign other-container-host\n", FOREIGN_LEASE_MAX_AGE_MS + 60_000);
+    const { port } = await plantLease(
+      "999999 foreign other-container-host\n",
+      FOREIGN_LEASE_MAX_AGE_MS + 60_000,
+    );
     expect(await tryLeasePorts([port])).toBe(true);
   });
 

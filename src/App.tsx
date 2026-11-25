@@ -3,7 +3,13 @@ import { Loader2, Menu } from "lucide-react";
 import { CLOUD_LINK_SETTINGS, LENDING_SETTINGS, StoreProvider } from "@/state/store";
 import { shellView } from "@/state/shell-view";
 import { UnreadCountBadge } from "@/components/UnreadCountBadge";
-import { dogIn, sameFields, useStoreDispatch, useStoreReader, useStoreSelector } from "@/state/store-selectors";
+import {
+  dogIn,
+  sameFields,
+  useStoreDispatch,
+  useStoreReader,
+  useStoreSelector,
+} from "@/state/store-selectors";
 import { CloudQuietLine } from "@/components/CloudQuietLine";
 import { CloudSignInGate, useCloudSignInGate } from "@/components/CloudSignInGate";
 import { useWelcomeViewer, WelcomeGate } from "@/components/onboarding/WelcomeGate";
@@ -21,11 +27,20 @@ import "./work-panel-fit.css";
 import { useWorkPanelOpen } from "@/lib/work-panel";
 import { PluginsPanel, preloadConnectedApps } from "@/components/PluginsPanel";
 import {
-  BotSettingsDialog, CloudTaskPanel, KeyboardShortcutsModal, NewChatPicker, preloadScreens, RoutinesPage, SettingsModal,
+  BotSettingsDialog,
+  CloudTaskPanel,
+  KeyboardShortcutsModal,
+  NewChatPicker,
+  preloadScreens,
+  RoutinesPage,
+  SettingsModal,
 } from "@/components/lazy-screens";
 import { CredentialStoreNotice } from "@/components/CredentialStoreNotice";
 import { DamagedDataNotice } from "@/components/DamagedDataNotice";
-import { DesktopCapabilitiesProvider, useDesktopCapabilities } from "@/components/DesktopCapabilities";
+import {
+  DesktopCapabilitiesProvider,
+  useDesktopCapabilities,
+} from "@/components/DesktopCapabilities";
 import { WindowCaptionButtons } from "@/components/WindowCaptionButtons";
 import { NoEngines } from "@/components/NoEngines";
 import { LaunchSplash } from "@/components/LaunchSplash";
@@ -36,7 +51,14 @@ import { AppLinkHost } from "@/components/AppLinkHost";
 import { UpdateDialog } from "@/components/UpdateButton";
 import { setLocale } from "@/lib/i18n";
 import { isMacPlatform, shouldOpenKeyboardShortcuts } from "@/lib/keyboard-shortcuts";
-import { appShortcut, EMPTY_HISTORY, moveInHistory, stepThrough, visitSelection, type SelectionHistory } from "@/lib/app-shortcuts";
+import {
+  appShortcut,
+  EMPTY_HISTORY,
+  moveInHistory,
+  stepThrough,
+  visitSelection,
+  type SelectionHistory,
+} from "@/lib/app-shortcuts";
 import { sidebarOrder } from "@/lib/sidebar-order";
 import { loadSidebarDensity, setSidebarDensity } from "@/lib/sidebar-preferences";
 import { isLiveCallRunning, liveCallShortcut, liveMedia } from "@/lib/live-call-media";
@@ -83,8 +105,14 @@ function Shell({ viewer }: { viewer: WelcomeViewer | null }) {
     };
     const url = new URL(window.location.href);
     const requestedSettings = url.searchParams.get("desktop-settings");
-    if (requestedSettings === "workspaces" || (requestedSettings === "organization" && window.laterdog.organization) ||
-      ((requestedSettings === "cloud" || requestedSettings === "cloud-settings" || requestedSettings === "lending") && window.laterdog.cloudAccount)) {
+    if (
+      requestedSettings === "workspaces" ||
+      (requestedSettings === "organization" && window.laterdog.organization) ||
+      ((requestedSettings === "cloud" ||
+        requestedSettings === "cloud-settings" ||
+        requestedSettings === "lending") &&
+        window.laterdog.cloudAccount)
+    ) {
       url.searchParams.delete("desktop-settings");
       window.history.replaceState(null, "", `${url.pathname}${url.search}${url.hash}`);
       if (requestedSettings === "workspaces") open();
@@ -104,7 +132,16 @@ function Shell({ viewer }: { viewer: WelcomeViewer | null }) {
   const { groupId, botId } = state;
   const cloudTaskOpen = state.computerOpen && state.cloudTaskId !== null;
   const workPanelOpen = useWorkPanelOpen();
-  const collapseSidebar = foldSidebarToRail({ botOpen: Boolean(botId), roomOpen: Boolean(groupId), settingsOpen: state.settingsOpen, cloudTaskOpen, workPanelOpen }, sidebarAndPanelFit);
+  const collapseSidebar = foldSidebarToRail(
+    {
+      botOpen: Boolean(botId),
+      roomOpen: Boolean(groupId),
+      settingsOpen: state.settingsOpen,
+      cloudTaskOpen,
+      workPanelOpen,
+    },
+    sidebarAndPanelFit,
+  );
   const calendarFocus = state.routinesOpen;
 
   const { noEngines, cloudSignIn } = state;
@@ -126,8 +163,14 @@ function Shell({ viewer }: { viewer: WelcomeViewer | null }) {
       }
       const shortcut = appShortcut(e, isMac);
       if (!shortcut) return;
-      if (shortcut.kind === "connectApps" && liveCallShortcut(e, isMac) && isLiveCallRunning(liveMedia().phase)) return;
-      const exists = (id: string) => state.bots.some((b) => b.id === id) || state.groups.some((g) => g.id === id && !g.dm);
+      if (
+        shortcut.kind === "connectApps" &&
+        liveCallShortcut(e, isMac) &&
+        isLiveCallRunning(liveMedia().phase)
+      )
+        return;
+      const exists = (id: string) =>
+        state.bots.some((b) => b.id === id) || state.groups.some((g) => g.id === id && !g.dm);
       const go = (id: string | undefined) => {
         if (!id) return;
         e.preventDefault();
@@ -151,7 +194,9 @@ function Shell({ viewer }: { viewer: WelcomeViewer | null }) {
           dispatch({ type: "togglePlugins", open: true, surface: "apps" });
           return;
         case "focusComposer": {
-          const composer = document.querySelector<HTMLTextAreaElement>('[data-tour="composer"] textarea');
+          const composer = document.querySelector<HTMLTextAreaElement>(
+            '[data-tour="composer"] textarea',
+          );
           if (!composer) return;
           e.preventDefault();
           composer.focus();
@@ -198,11 +243,23 @@ function Shell({ viewer }: { viewer: WelcomeViewer | null }) {
 
   useEffect(() => {
     setDrawerOpen(false);
-  }, [state.selectedId, state.botThreadId, state.groupThreadId, state.pluginsOpen, state.settingsOpen]);
+  }, [
+    state.selectedId,
+    state.botThreadId,
+    state.groupThreadId,
+    state.pluginsOpen,
+    state.settingsOpen,
+  ]);
 
   useEffect(() => {
-    return window.laterdog?.onOpenAppSettings?.(section => {
-      dispatch(section === "lending" ? LENDING_SETTINGS : section ? CLOUD_LINK_SETTINGS : { type: "toggleAppSettings", open: true });
+    return window.laterdog?.onOpenAppSettings?.((section) => {
+      dispatch(
+        section === "lending"
+          ? LENDING_SETTINGS
+          : section
+            ? CLOUD_LINK_SETTINGS
+            : { type: "toggleAppSettings", open: true },
+      );
       acknowledgeOrganizationSettings(section, window.laterdog?.organization);
     });
   }, [dispatch]);
@@ -219,7 +276,13 @@ function Shell({ viewer }: { viewer: WelcomeViewer | null }) {
       })
         .then((res) => (res.ok ? res.json() : null))
         .then((snap) => {
-          if (snap) dispatch({ type: "computerControl", botId, held: snap.held === true, helpReason: snap.helpReason ?? null });
+          if (snap)
+            dispatch({
+              type: "computerControl",
+              botId,
+              held: snap.held === true,
+              helpReason: snap.helpReason ?? null,
+            });
         })
         .catch(() => {});
       void fetch(`/api/bots/${botId}/computer/viewer-close`, {
@@ -237,86 +300,111 @@ function Shell({ viewer }: { viewer: WelcomeViewer | null }) {
         <CredentialStoreNotice />
         <DamagedDataNotice />
       </div>
-      <div data-work-panel-layout={workPanelOpen ? "open" : undefined} className="relative flex min-h-0 flex-1">
-      {!calendarFocus && <button
-        type="button"
-        ref={menuButtonRef}
-        data-sidebar-drawer-toggle
-        aria-label="Open dog list"
-        aria-expanded={drawerOpen}
-        onClick={() => setDrawerOpen(true)}
-        className="absolute left-3 top-3 z-30 rounded-md p-1.5 text-ink-secondary hover:bg-raised hover:text-ink md:hidden"
+      <div
+        data-work-panel-layout={workPanelOpen ? "open" : undefined}
+        className="relative flex min-h-0 flex-1"
       >
-        <Menu size={18} />
-      </button>}
-      {drawerOpen && !calendarFocus && (
-        <div
-          aria-hidden
-          data-sidebar-drawer-backdrop
-          onMouseDown={(e) => e.target === e.currentTarget && setDrawerOpen(false)}
-          className="absolute inset-0 z-30 bg-black/50 md:hidden"
-        />
-      )}
-      {!calendarFocus && <Sidebar
-        collapseToIcons={collapseSidebar}
-        open={drawerOpen}
-        onClose={() => {
-          setDrawerOpen(false);
-          menuButtonRef.current?.focus();
-        }}
-      />}
-      {calendarFocus ? (
-        <RoutinesPage onBack={() => dispatch({ type: "closeRoutines" })} onOpenRoom={(id) => dispatch({ type: "select", id })} />
-      ) : state.taskView ? (
-        <TaskChat view={state.taskView} />
-      ) : cloudSignIn ? (
-        <CloudEngineSignIn />
-      ) : noEngines ? (
-        <NoEngines />
-      ) : groupId ? (
-        <OpenRoom groupId={groupId} />
-      ) : botId ? (
-        <OpenDog botId={botId} />
-      ) : (
-        <main className="flex h-full min-w-0 flex-1 flex-col items-center justify-center gap-3 bg-app text-ink-secondary">
-          {!state.connected ? (
-            <>
-              <Loader2 size={20} className="animate-spin" />
-              <div className="text-[14px]">{import.meta.env.DEV ? "Connecting to the later.dog server…" : "Starting later.dog…"}</div>
-              {import.meta.env.DEV && (
-                <div className="text-[12px]">
-                  Start it with <code className="rounded bg-raised px-1.5 py-0.5">bun run dev:server</code>
+        {!calendarFocus && (
+          <button
+            type="button"
+            ref={menuButtonRef}
+            data-sidebar-drawer-toggle
+            aria-label="Open dog list"
+            aria-expanded={drawerOpen}
+            onClick={() => setDrawerOpen(true)}
+            className="absolute left-3 top-3 z-30 rounded-md p-1.5 text-ink-secondary hover:bg-raised hover:text-ink md:hidden"
+          >
+            <Menu size={18} />
+          </button>
+        )}
+        {drawerOpen && !calendarFocus && (
+          <div
+            aria-hidden
+            data-sidebar-drawer-backdrop
+            onMouseDown={(e) => e.target === e.currentTarget && setDrawerOpen(false)}
+            className="absolute inset-0 z-30 bg-black/50 md:hidden"
+          />
+        )}
+        {!calendarFocus && (
+          <Sidebar
+            collapseToIcons={collapseSidebar}
+            open={drawerOpen}
+            onClose={() => {
+              setDrawerOpen(false);
+              menuButtonRef.current?.focus();
+            }}
+          />
+        )}
+        {calendarFocus ? (
+          <RoutinesPage
+            onBack={() => dispatch({ type: "closeRoutines" })}
+            onOpenRoom={(id) => dispatch({ type: "select", id })}
+          />
+        ) : state.taskView ? (
+          <TaskChat view={state.taskView} />
+        ) : cloudSignIn ? (
+          <CloudEngineSignIn />
+        ) : noEngines ? (
+          <NoEngines />
+        ) : groupId ? (
+          <OpenRoom groupId={groupId} />
+        ) : botId ? (
+          <OpenDog botId={botId} />
+        ) : (
+          <main className="flex h-full min-w-0 flex-1 flex-col items-center justify-center gap-3 bg-app text-ink-secondary">
+            {!state.connected ? (
+              <>
+                <Loader2 size={20} className="animate-spin" />
+                <div className="text-[14px]">
+                  {import.meta.env.DEV
+                    ? "Connecting to the later.dog server…"
+                    : "Starting later.dog…"}
                 </div>
-              )}
-            </>
-          ) : state.hydrated ? (
-            <div className="text-[14px]">No dogs yet</div>
-          ) : null}
-        </main>
-      )}
-      {state.settingsOpen && botId && !calendarFocus && (
-        <OpenDogSettings key={`settings:${botId}`} botId={botId} overlay={cloudTaskOpen && !twoSidePanelsFit} />
-      )}
-      {cloudTaskOpen && state.cloudTaskId && (
-        <OpenCloudTask key={`cloud-task:${state.cloudTaskId}`} jobId={state.cloudTaskId} botId={botId} />
-      )}
-      {state.appSettingsOpen && <SettingsModal />}
-      {state.pluginsOpen && <PluginsPanel />}
-      {state.newBotOpen && <NewChatPicker />}
-      {state.shortcutsOpen && (
-        <KeyboardShortcutsModal
-          open={state.shortcutsOpen}
-          onClose={() => dispatch({ type: "toggleShortcuts", open: false })}
-        />
-      )}
-      <CommandPalette />
-      <AddAccountHost />
-      <AppLinkHost />
-      <UpdateDialog />
+                {import.meta.env.DEV && (
+                  <div className="text-[12px]">
+                    {"Start it with "}
+                    <code className="rounded bg-raised px-1.5 py-0.5">bun run dev:server</code>
+                  </div>
+                )}
+              </>
+            ) : state.hydrated ? (
+              <div className="text-[14px]">No dogs yet</div>
+            ) : null}
+          </main>
+        )}
+        {state.settingsOpen && botId && !calendarFocus && (
+          <OpenDogSettings
+            key={`settings:${botId}`}
+            botId={botId}
+            overlay={cloudTaskOpen && !twoSidePanelsFit}
+          />
+        )}
+        {cloudTaskOpen && state.cloudTaskId && (
+          <OpenCloudTask
+            key={`cloud-task:${state.cloudTaskId}`}
+            jobId={state.cloudTaskId}
+            botId={botId}
+          />
+        )}
+        {state.appSettingsOpen && <SettingsModal />}
+        {state.pluginsOpen && <PluginsPanel />}
+        {state.newBotOpen && <NewChatPicker />}
+        {state.shortcutsOpen && (
+          <KeyboardShortcutsModal
+            open={state.shortcutsOpen}
+            onClose={() => dispatch({ type: "toggleShortcuts", open: false })}
+          />
+        )}
+        <CommandPalette />
+        <AddAccountHost />
+        <AppLinkHost />
+        <UpdateDialog />
       </div>
       <CloudQuietLine />
       <WindowCaptionButtons
-        visible={capabilities.windowChrome === "win-caption" && Boolean(window.laterdog?.windowControls)}
+        visible={
+          capabilities.windowChrome === "win-caption" && Boolean(window.laterdog?.windowControls)
+        }
       />
     </div>
   );

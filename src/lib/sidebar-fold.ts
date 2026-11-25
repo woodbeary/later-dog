@@ -6,7 +6,13 @@ export type SidePanels = {
   workPanelOpen: boolean;
 };
 
-export function sidePanelOpen({ botOpen, roomOpen = false, settingsOpen, cloudTaskOpen, workPanelOpen }: SidePanels): boolean {
+export function sidePanelOpen({
+  botOpen,
+  roomOpen = false,
+  settingsOpen,
+  cloudTaskOpen,
+  workPanelOpen,
+}: SidePanels): boolean {
   return (botOpen && settingsOpen) || cloudTaskOpen || ((botOpen || roomOpen) && workPanelOpen);
 }
 

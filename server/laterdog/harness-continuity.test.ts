@@ -11,7 +11,12 @@ const engines = [
 
 describe("continuity in a dog's delivered instructions", () => {
   it.each(engines)("keeps a usable checkpoint on $engine", (input) => {
-    const built = buildSystemPrompt("You are Scout.", "", [guidancePart({ ...input, agents: true })], "Sam");
+    const built = buildSystemPrompt(
+      "You are Scout.",
+      "",
+      [guidancePart({ ...input, agents: true })],
+      "Sam",
+    );
     expect(built.stable).toContain(SAVE_STATE);
     expect(SAVE_STATE).toMatch(/goal.*decisions.*changed files.*checks.*blockers.*next step/);
     expect(SAVE_STATE).toMatch(/After compaction.*resume/);

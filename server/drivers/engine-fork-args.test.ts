@@ -13,14 +13,22 @@ describe("Claude fork at a point", () => {
 
   it("resumes the kept session as a new session that stops at the kept entry", () => {
     expect(claudeForkArgs({ session: "kept-session", at: "kept-entry" }, "new-session")).toEqual([
-      "--resume", "kept-session", "--fork-session", "--session-id", "new-session", "--resume-session-at", "kept-entry",
+      "--resume",
+      "kept-session",
+      "--fork-session",
+      "--session-id",
+      "new-session",
+      "--resume-session-at",
+      "kept-entry",
     ]);
   });
 });
 
 describe("Codex fork through a turn", () => {
   it("is trusted only when the forked thread ends at the asked turn", () => {
-    const thread = (turns: string[]) => ({ thread: { id: "fork", turns: turns.map((id) => ({ id })) } });
+    const thread = (turns: string[]) => ({
+      thread: { id: "fork", turns: turns.map((id) => ({ id })) },
+    });
     expect(codexForkEndsAt(thread(["t1", "t2"]), "t2")).toBe(true);
     expect(codexForkEndsAt(thread(["t1", "t2", "t3"]), "t2")).toBe(false);
     expect(codexForkEndsAt(thread([]), "t2")).toBe(false);

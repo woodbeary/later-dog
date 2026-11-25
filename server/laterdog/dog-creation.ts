@@ -18,7 +18,11 @@ export function dogGreeting({ name, role, personName, creatorName }: DogGreeting
   const creator = clip(creatorName ?? "", 80);
   const job = clip(role ?? "", 120).replace(/[\s.!?…]+$/u, "");
   const hello = person ? `Hi ${person}, I'm ${dog}.` : `Hi, I'm ${dog}.`;
-  const setUp = creator ? `${creator} set me up${job ? ` for ${job}` : ""}.` : job ? `I'm here for ${job}.` : "";
+  const setUp = creator
+    ? `${creator} set me up${job ? ` for ${job}` : ""}.`
+    : job
+      ? `I'm here for ${job}.`
+      : "";
   return [hello, setUp, "What should I start on?"].filter(Boolean).join(" ");
 }
 
@@ -28,8 +32,15 @@ export function greetNewDog(
   request: { creatorName: string; threadId: string; profileName?: string },
 ): boolean {
   try {
-    const asked = store.messagesFor(request.threadId).findLast((line) => line.role === "user" && !line.peerAsk);
-    const text = dogGreeting({ name: dog.name, role: dog.title, personName: asked?.sender?.name ?? request.profileName, creatorName: request.creatorName });
+    const asked = store
+      .messagesFor(request.threadId)
+      .findLast((line) => line.role === "user" && !line.peerAsk);
+    const text = dogGreeting({
+      name: dog.name,
+      role: dog.title,
+      personName: asked?.sender?.name ?? request.profileName,
+      creatorName: request.creatorName,
+    });
     store.appendMessage(dog.threadId, { role: "bot", kind: "text", text });
     store.patchTask(dog.id, dog.threadId, { unread: true });
     return true;
@@ -46,8 +57,17 @@ function inheritedLevel(mode: ApprovalMode | undefined): (typeof INHERITED_LEVEL
   return mode === "edits" || mode === "auto" ? mode : "ask";
 }
 
-export type DogAccessSource = Pick<BotRecord, "approvalMode" | "autoApprove" | "approvalGrant" | "composio" | "connectorTools"
-  | "mcpServers" | "toolScope" | "browser">;
+export type DogAccessSource = Pick<
+  BotRecord,
+  | "approvalMode"
+  | "autoApprove"
+  | "approvalGrant"
+  | "composio"
+  | "connectorTools"
+  | "mcpServers"
+  | "toolScope"
+  | "browser"
+>;
 
 export interface DogCreationAccessPolicy {
   cloudHome: boolean;
@@ -68,8 +88,14 @@ export function dogMadeDogAccess(
     INHERITED_LEVELS.indexOf(inheritedLevel(creatorThreadMode)),
     INHERITED_LEVELS.indexOf(inheritedLevel(newDogMode)),
   );
-  const level = policy?.cloudHome && policy.fullAccessAll && !policy.sharedWorkspace && !policy.guestDriven && supported("full")
-    ? "full" : INHERITED_LEVELS[cap]!;
+  const level =
+    policy?.cloudHome &&
+    policy.fullAccessAll &&
+    !policy.sharedWorkspace &&
+    !policy.guestDriven &&
+    supported("full")
+      ? "full"
+      : INHERITED_LEVELS[cap]!;
   const approvalMode = supported(level) ? level : "ask";
   const copy = <T>(value: T): T => (value === undefined ? value : structuredClone(value));
   return {

@@ -1,7 +1,16 @@
 #!/usr/bin/env node
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { appendFileSync, closeSync, existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";
+import {
+  appendFileSync,
+  closeSync,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  readdirSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { createPuppies } from "./fake-claude-puppies.ts";
@@ -11,7 +20,12 @@ import { ASKS_COMMAND, ASKS_QUESTION, callDogTool, dogServer } from "./fake-clau
 import { fakeDeviceApprovalPlan, playDeviceApprovalTurn } from "./fake-claude-device-approval.ts";
 import { fakeRepeatLoopPlan, playRepeatLoopTurn } from "./fake-claude-repeat-loop.ts";
 import { openFakeChain } from "./fake-claude-chain.ts";
-import { answerControlRequest, fakeContextFrame, fakeContextMode, fakeRequestUsage } from "./fake-claude-context.ts";
+import {
+  answerControlRequest,
+  fakeContextFrame,
+  fakeContextMode,
+  fakeRequestUsage,
+} from "./fake-claude-context.ts";
 
 const mode = process.env.FAKE_CLAUDE_MODE ?? "happy";
 
@@ -19,7 +33,9 @@ const mode = process.env.FAKE_CLAUDE_MODE ?? "happy";
   const spawner = process.ppid;
   const orphanWatch = setInterval(() => {
     if (process.ppid !== spawner) process.exit(0);
-    try { process.kill(spawner, 0); } catch (error) {
+    try {
+      process.kill(spawner, 0);
+    } catch (error) {
       if ((error as NodeJS.ErrnoException).code === "ESRCH") process.exit(0);
     }
   }, 500);
@@ -28,23 +44,38 @@ const mode = process.env.FAKE_CLAUDE_MODE ?? "happy";
 {
   const exitDelay = Number(process.env.FAKE_CLAUDE_EXIT_DELAY_MS);
   if (Number.isFinite(exitDelay) && exitDelay > 0) {
-    process.on("SIGTERM", () => { setTimeout(() => process.exit(0), exitDelay); });
+    process.on("SIGTERM", () => {
+      setTimeout(() => process.exit(0), exitDelay);
+    });
   }
   if (process.env.FAKE_CLAUDE_STAYS_AFTER_INPUT === "1") setInterval(() => {}, 1_000);
 }
 const scriptedReplies = (() => {
   try {
     const file = process.env.FAKE_CLAUDE_REPLIES_FILE;
-    const parsed = JSON.parse(file && existsSync(file) ? readFileSync(file, "utf8") : process.env.FAKE_CLAUDE_REPLIES ?? "[]");
+    const parsed = JSON.parse(
+      file && existsSync(file)
+        ? readFileSync(file, "utf8")
+        : (process.env.FAKE_CLAUDE_REPLIES ?? "[]"),
+    );
     if (!Array.isArray(parsed)) return [];
-    return parsed.filter((value): value is string | string[] =>
-      typeof value === "string" || (Array.isArray(value) && value.every((part) => typeof part === "string"))
+    return parsed.filter(
+      (value): value is string | string[] =>
+        typeof value === "string" ||
+        (Array.isArray(value) && value.every((part) => typeof part === "string")),
     );
   } catch {
     return [];
   }
 })();
-type ScriptedToolCall = { name: string; id?: string; input: Record<string, unknown>; ok: boolean; output?: unknown; pending?: boolean };
+type ScriptedToolCall = {
+  name: string;
+  id?: string;
+  input: Record<string, unknown>;
+  ok: boolean;
+  output?: unknown;
+  pending?: boolean;
+};
 const scriptedToolCalls: ScriptedToolCall[] | null = (() => {
   const raw = process.env.FAKE_CLAUDE_TOOL_CALLS;
   if (raw === undefined) return null;
@@ -52,11 +83,25 @@ const scriptedToolCalls: ScriptedToolCall[] | null = (() => {
     const parsed = JSON.parse(raw);
     if (!Array.isArray(parsed)) return null;
     return parsed
-      .filter((call): call is { name: string; id?: unknown; input?: unknown; ok?: unknown; output?: unknown; pending?: unknown } => typeof call?.name === "string")
+      .filter(
+        (
+          call,
+        ): call is {
+          name: string;
+          id?: unknown;
+          input?: unknown;
+          ok?: unknown;
+          output?: unknown;
+          pending?: unknown;
+        } => typeof call?.name === "string",
+      )
       .map((call) => ({
         name: call.name,
         ...(typeof call.id === "string" ? { id: call.id } : {}),
-        input: call.input && typeof call.input === "object" && !Array.isArray(call.input) ? call.input as Record<string, unknown> : {},
+        input:
+          call.input && typeof call.input === "object" && !Array.isArray(call.input)
+            ? (call.input as Record<string, unknown>)
+            : {},
         ok: call.ok !== false,
         output: call.output,
         ...(call.pending === true ? { pending: true } : {}),
@@ -72,14 +117,22 @@ const streamPlan = (): { everyMs: number; chars: number } | null => {
     const plan = JSON.parse(readFileSync(file, "utf8")) as { everyMs?: unknown; chars?: unknown };
     const everyMs = Number(plan.everyMs);
     const chars = Number(plan.chars);
-    return Number.isFinite(everyMs) && everyMs >= 0 && Number.isInteger(chars) && chars > 0 ? { everyMs, chars } : null;
+    return Number.isFinite(everyMs) && everyMs >= 0 && Number.isInteger(chars) && chars > 0
+      ? { everyMs, chars }
+      : null;
   } catch {
     return null;
   }
 };
 const streamInPieces = async (text: string, plan: { everyMs: number; chars: number }) => {
   for (let at = 0; at < text.length; at += plan.chars) {
-    out({ type: "stream_event", event: { type: "content_block_delta", delta: { type: "text_delta", text: text.slice(at, at + plan.chars) } } });
+    out({
+      type: "stream_event",
+      event: {
+        type: "content_block_delta",
+        delta: { type: "text_delta", text: text.slice(at, at + plan.chars) },
+      },
+    });
     if (plan.everyMs > 0) await new Promise((resolve) => setTimeout(resolve, plan.everyMs));
   }
 };
@@ -101,7 +154,10 @@ const nextScriptedReply = (): string[] => {
 };
 
 const argv = process.argv.slice(2);
-const settingsHooks: Record<string, Array<{ hooks?: Array<{ type?: string; command?: string; timeout?: number }> }>> = (() => {
+const settingsHooks: Record<
+  string,
+  Array<{ hooks?: Array<{ type?: string; command?: string; timeout?: number }> }>
+> = (() => {
   if (process.env.FAKE_CLAUDE_HOOKS !== "1") return {};
   const i = argv.indexOf("--settings");
   if (i === -1) return {};
@@ -119,7 +175,12 @@ function runHooks(event: string, payload: Record<string, unknown>): string {
       if (hook.type !== "command" || !hook.command) continue;
       const result = spawnSync(hook.command, {
         shell: true,
-        input: JSON.stringify({ hook_event_name: event, session_id: sessionId, cwd: process.cwd(), ...payload }),
+        input: JSON.stringify({
+          hook_event_name: event,
+          session_id: sessionId,
+          cwd: process.cwd(),
+          ...payload,
+        }),
         env: process.env,
         timeout: ((hook.timeout ?? 5) + 1) * 1000,
         stdio: ["pipe", "pipe", "pipe"],
@@ -138,10 +199,18 @@ function playNativeCompaction(): string {
   runHooks("PreCompact", { trigger: "auto" });
   const context = runHooks("SessionStart", { source: "compact" });
   out({ type: "system", subtype: "status", status: null, compact_result: "success" });
-  out({ type: "system", subtype: "compact_boundary", compact_metadata: { trigger: "auto", pre_tokens: 182_345, post_tokens: 24_100 } });
+  out({
+    type: "system",
+    subtype: "compact_boundary",
+    compact_metadata: { trigger: "auto", pre_tokens: 182_345, post_tokens: 24_100 },
+  });
   const summaryGate = process.env.FAKE_CLAUDE_SUMMARY_GATE;
-  while (summaryGate && !existsSync(summaryGate)) Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 25);
-  runHooks("PostCompact", { trigger: "auto", compact_summary: process.env.FAKE_CLAUDE_COMPACT_SUMMARY ?? "Fixture compaction summary." });
+  while (summaryGate && !existsSync(summaryGate))
+    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 25);
+  runHooks("PostCompact", {
+    trigger: "auto",
+    compact_summary: process.env.FAKE_CLAUDE_COMPACT_SUMMARY ?? "Fixture compaction summary.",
+  });
   return context;
 }
 let resumedErrorPlayed = false;
@@ -156,9 +225,17 @@ const out = (obj: unknown) => {
   process.stdout.write(JSON.stringify(obj) + "\n");
 };
 
-const probe = argv[0] === "--version" ? "version" : argv[0] === "--help" ? "help" : argv[0] === "auth" && argv[1] === "status" ? "auth" : null;
+const probe =
+  argv[0] === "--version"
+    ? "version"
+    : argv[0] === "--help"
+      ? "help"
+      : argv[0] === "auth" && argv[1] === "status"
+        ? "auth"
+        : null;
 if (probe) {
-  if (process.env.FAKE_CLAUDE_PROBE_LOG) appendFileSync(process.env.FAKE_CLAUDE_PROBE_LOG, `${probe} ${process.pid}\n`);
+  if (process.env.FAKE_CLAUDE_PROBE_LOG)
+    appendFileSync(process.env.FAKE_CLAUDE_PROBE_LOG, `${probe} ${process.pid}\n`);
   const hold = process.env[`FAKE_CLAUDE_HOLD_${probe.toUpperCase()}`];
   while (hold && !existsSync(hold)) await new Promise((resolve) => setTimeout(resolve, 20));
   if (process.env[`FAKE_CLAUDE_FAIL_${probe.toUpperCase()}`] === "1") process.exit(1);
@@ -170,17 +247,24 @@ if (argv[0] === "--version") {
 }
 
 if (argv[0] === "--help") {
-  const [maj = 0, min = 0, pat = 0] = (process.env.FAKE_CLAUDE_VERSION ?? "2.1.232").split(".").map(Number);
-  const has = process.env.FAKE_CLAUDE_AUTOCOMPACT !== "0" && (maj > 2 || (maj === 2 && (min > 1 || (min === 1 && pat >= 122))));
+  const [maj = 0, min = 0, pat = 0] = (process.env.FAKE_CLAUDE_VERSION ?? "2.1.232")
+    .split(".")
+    .map(Number);
+  const has =
+    process.env.FAKE_CLAUDE_AUTOCOMPACT !== "0" &&
+    (maj > 2 || (maj === 2 && (min > 1 || (min === 1 && pat >= 122))));
   process.stdout.write(
     `Usage: claude [options]\n\nOptions:\n  --model <model>  Model\n${has ? "  --autocompact <tokens>  Compaction window\n" : ""}  -h, --help  Display help\n`,
   );
   process.exit(0);
 }
 
-const unknownFlag = (process.env.FAKE_CLAUDE_UNKNOWN_FLAGS ?? "").split(",").find((flag) => flag && argv.includes(flag));
+const unknownFlag = (process.env.FAKE_CLAUDE_UNKNOWN_FLAGS ?? "")
+  .split(",")
+  .find((flag) => flag && argv.includes(flag));
 if (unknownFlag) {
-  if (process.env.FAKE_CLAUDE_REFUSALS) appendFileSync(process.env.FAKE_CLAUDE_REFUSALS, `${unknownFlag}\n`);
+  if (process.env.FAKE_CLAUDE_REFUSALS)
+    appendFileSync(process.env.FAKE_CLAUDE_REFUSALS, `${unknownFlag}\n`);
   const delay = Number(process.env.FAKE_CLAUDE_UNKNOWN_DELAY_MS ?? 0);
   if (delay > 0) await new Promise((resolve) => setTimeout(resolve, delay));
   process.stderr.write(`error: unknown option '${unknownFlag}'\n`);
@@ -207,9 +291,14 @@ if (argv[0] === "auth" && argv[1] === "status") {
     process.stdout.write("not json\n");
     process.exit(0);
   }
-  const loggedIn = auth === "in" || (auth === "inherited-api-key" && Boolean(process.env.ANTHROPIC_API_KEY));
+  const loggedIn =
+    auth === "in" || (auth === "inherited-api-key" && Boolean(process.env.ANTHROPIC_API_KEY));
   process.stdout.write(
-    JSON.stringify({ loggedIn, authMethod: loggedIn ? "claude.ai" : "none", apiProvider: "firstParty" }) + "\n",
+    JSON.stringify({
+      loggedIn,
+      authMethod: loggedIn ? "claude.ai" : "none",
+      apiProvider: "firstParty",
+    }) + "\n",
     () => process.exit(auth === "out" ? 1 : 0),
   );
 }
@@ -218,15 +307,22 @@ if (["text", "json"].includes(argAfter("--output-format") ?? "")) {
   const prompt = await new Promise<string>((resolve) => {
     let input = "";
     process.stdin.setEncoding("utf8");
-    process.stdin.on("data", (chunk) => { input += chunk; });
+    process.stdin.on("data", (chunk) => {
+      input += chunk;
+    });
     process.stdin.on("end", () => resolve(input));
   });
   const upkeepCall = /You are the (?:CAPTURE|TIDY|ORGANIZE) step of a memory system/.test(prompt);
-  const oneShotDump = process.env.FAKE_CLAUDE_TEXT_DUMP ?? (upkeepCall ? undefined : process.env.FAKE_CLAUDE_DUMP);
+  const oneShotDump =
+    process.env.FAKE_CLAUDE_TEXT_DUMP ?? (upkeepCall ? undefined : process.env.FAKE_CLAUDE_DUMP);
   if (oneShotDump) {
     writeFileSync(
       oneShotDump,
-      JSON.stringify({ pid: process.pid, argv, env: process.env, prompt, mcpConfig: null }, null, 2),
+      JSON.stringify(
+        { pid: process.pid, argv, env: process.env, prompt, mcpConfig: null },
+        null,
+        2,
+      ),
     );
   }
   if (process.env.FAKE_CLAUDE_TEXT_HANG) {
@@ -234,27 +330,52 @@ if (["text", "json"].includes(argAfter("--output-format") ?? "")) {
   }
   const replyText = (text: string, code = 0) => {
     const model = argAfter("--model") ?? "claude-haiku-4-5";
-    process.stdout.write(argAfter("--output-format") === "json"
-      ? process.env.FAKE_CLAUDE_TEXT_RESULT ?? JSON.stringify({
-          type: "result", is_error: code !== 0, result: text,
-          usage: { input_tokens: 10, cache_read_input_tokens: 2, cache_creation_input_tokens: 3, output_tokens: 5 },
-          total_cost_usd: 0.01,
-          modelUsage: { [model]: { inputTokens: 10, cacheReadInputTokens: 2, cacheCreationInputTokens: 3, outputTokens: 5, costUSD: 0.01 } },
-        })
-      : code === 0 ? text : "");
+    process.stdout.write(
+      argAfter("--output-format") === "json"
+        ? (process.env.FAKE_CLAUDE_TEXT_RESULT ??
+            JSON.stringify({
+              type: "result",
+              is_error: code !== 0,
+              result: text,
+              usage: {
+                input_tokens: 10,
+                cache_read_input_tokens: 2,
+                cache_creation_input_tokens: 3,
+                output_tokens: 5,
+              },
+              total_cost_usd: 0.01,
+              modelUsage: {
+                [model]: {
+                  inputTokens: 10,
+                  cacheReadInputTokens: 2,
+                  cacheCreationInputTokens: 3,
+                  outputTokens: 5,
+                  costUSD: 0.01,
+                },
+              },
+            }))
+        : code === 0
+          ? text
+          : "",
+    );
     process.exit(code);
   };
   if (process.env.FAKE_CLAUDE_TEXT_OBEYS) {
     const asked = argAfter("--model") ?? "claude-haiku-4-5";
     const gate = /stop and report unless you are ([A-Za-z0-9._-]+?)[.,;\s"]/i.exec(prompt)?.[1];
     if (gate && gate !== asked) {
-      replyText(`**Model mismatch: this turn is running on ${asked}, not ${gate}.**\n\nPer your instruction, I'm stopping before taking actions. I cannot proceed until the thread runs on ${gate}.`);
+      replyText(
+        `**Model mismatch: this turn is running on ${asked}, not ${gate}.**\n\nPer your instruction, I'm stopping before taking actions. I cannot proceed until the thread runs on ${gate}.`,
+      );
     }
-    if (existsSync(process.env.FAKE_CLAUDE_TEXT_OBEYS)) replyText(readFileSync(process.env.FAKE_CLAUDE_TEXT_OBEYS, "utf8"));
+    if (existsSync(process.env.FAKE_CLAUDE_TEXT_OBEYS))
+      replyText(readFileSync(process.env.FAKE_CLAUDE_TEXT_OBEYS, "utf8"));
   }
   if (process.env.FAKE_CLAUDE_TEXT_ROUTES && existsSync(process.env.FAKE_CLAUDE_TEXT_ROUTES)) {
     try {
-      const routes = JSON.parse(readFileSync(process.env.FAKE_CLAUDE_TEXT_ROUTES, "utf8")) as Record<string, string>;
+      const routes = JSON.parse(
+        readFileSync(process.env.FAKE_CLAUDE_TEXT_ROUTES, "utf8"),
+      ) as Record<string, string>;
       const hit = Object.entries(routes).find(([marker]) => prompt.includes(marker));
       if (hit) {
         replyText(hit[1]);
@@ -274,9 +395,18 @@ if (["text", "json"].includes(argAfter("--output-format") ?? "")) {
 }
 
 type JsonValue = string | number | boolean | null | JsonValue[] | { [key: string]: JsonValue };
-const sessionId = (argv.includes("--fork-session") ? argAfter("--session-id") : undefined) ?? argAfter("--resume") ?? argAfter("--session-id") ?? "fake-session";
+const sessionId =
+  (argv.includes("--fork-session") ? argAfter("--session-id") : undefined) ??
+  argAfter("--resume") ??
+  argAfter("--session-id") ??
+  "fake-session";
 let chainCount = 0;
-const chainOpening = openFakeChain(process.env, argv, sessionId, () => `fake-chain-${process.pid}-${++chainCount}`);
+const chainOpening = openFakeChain(
+  process.env,
+  argv,
+  sessionId,
+  () => `fake-chain-${process.pid}-${++chainCount}`,
+);
 if (chainOpening && "refused" in chainOpening) {
   process.stderr.write(`fake-claude: ${chainOpening.refused}\n`);
   process.exit(1);
@@ -285,14 +415,27 @@ const chain = chainOpening?.chain ?? null;
 noteChain = chain ? (message) => chain.note(message) : null;
 const refusalState = process.env.FAKE_CLAUDE_REFUSAL_STATE;
 const refusalFallback = process.env.FAKE_CLAUDE_REFUSAL_FALLBACK;
-let model = refusalFallback && refusalState && existsSync(refusalState) ? refusalFallback : argAfter("--model") ?? "claude-fake";
+let model =
+  refusalFallback && refusalState && existsSync(refusalState)
+    ? refusalFallback
+    : (argAfter("--model") ?? "claude-fake");
 const requestedPermissionMode = argAfter("--permission-mode") ?? "default";
-const autoUnavailableFor = (process.env.FAKE_CLAUDE_AUTO_UNAVAILABLE_MODELS ?? "").split(",").filter(Boolean);
+const autoUnavailableFor = (process.env.FAKE_CLAUDE_AUTO_UNAVAILABLE_MODELS ?? "")
+  .split(",")
+  .filter(Boolean);
 const permissionMode =
-  requestedPermissionMode === "auto" && autoUnavailableFor.includes(model) ? "default" : requestedPermissionMode;
+  requestedPermissionMode === "auto" && autoUnavailableFor.includes(model)
+    ? "default"
+    : requestedPermissionMode;
 const toolsFlag = argAfter("--tools");
-const tools = [...new Set([...(toolsFlag ? toolsFlag.split(",") : ["Bash", "Read", "Edit", "Write", "Glob", "Grep", "WebFetch", "WebSearch"]),
-  ...(process.env.FAKE_CLAUDE_KEEP_BASH === "1" ? ["Bash"] : [])])];
+const tools = [
+  ...new Set([
+    ...(toolsFlag
+      ? toolsFlag.split(",")
+      : ["Bash", "Read", "Edit", "Write", "Glob", "Grep", "WebFetch", "WebSearch"]),
+    ...(process.env.FAKE_CLAUDE_KEEP_BASH === "1" ? ["Bash"] : []),
+  ]),
+];
 let launchFiles: Record<string, unknown> | null = null;
 let turnRunning = false;
 let steered: string[] = [];
@@ -302,8 +445,16 @@ let replayCount = 0;
 const replay = (sent: JsonValue) => {
   if (!replayUserMessages) return;
   const message = (sent ?? {}) as { uuid?: unknown; message?: unknown };
-  const uuid = typeof message.uuid === "string" ? message.uuid : `fake-replay-${process.pid}-${++replayCount}`;
-  out({ type: "user", message: message.message ?? null, uuid, session_id: sessionId, parent_tool_use_id: null, isReplay: true });
+  const uuid =
+    typeof message.uuid === "string" ? message.uuid : `fake-replay-${process.pid}-${++replayCount}`;
+  out({
+    type: "user",
+    message: message.message ?? null,
+    uuid,
+    session_id: sessionId,
+    parent_tool_use_id: null,
+    isReplay: true,
+  });
 };
 const replaySteered = () => {
   for (const message of steeredMessages.splice(0)) replay(message);
@@ -311,8 +462,16 @@ const replaySteered = () => {
 const lateSteers: JsonValue[] = [];
 let lateContinuation = false;
 let lateTurnWaiting = false;
-type FakeModelUsage = { inputTokens: number; outputTokens: number; cacheReadInputTokens: number; cacheCreationInputTokens: number; costUSD: number };
-const costStateFile = process.env.FAKE_CLAUDE_COST_STATE ? join(process.env.FAKE_CLAUDE_COST_STATE, `${sessionId}.json`) : null;
+type FakeModelUsage = {
+  inputTokens: number;
+  outputTokens: number;
+  cacheReadInputTokens: number;
+  cacheCreationInputTokens: number;
+  costUSD: number;
+};
+const costStateFile = process.env.FAKE_CLAUDE_COST_STATE
+  ? join(process.env.FAKE_CLAUDE_COST_STATE, `${sessionId}.json`)
+  : null;
 const runningCost: { total: number; modelUsage: Record<string, FakeModelUsage> } = (() => {
   if (costStateFile && argv.includes("--resume")) {
     try {
@@ -325,10 +484,19 @@ if (process.env.FAKE_CLAUDE_SESSION_PROBE) {
   const configDir = process.env.CLAUDE_CONFIG_DIR || join(homedir(), ".claude");
   const projects = join(configDir, "projects");
   const found = existsSync(projects)
-    ? readdirSync(projects).map((slug) => join(projects, slug, `${sessionId}.jsonl`)).find((file) => existsSync(file))
+    ? readdirSync(projects)
+        .map((slug) => join(projects, slug, `${sessionId}.jsonl`))
+        .find((file) => existsSync(file))
     : undefined;
-  appendFileSync(process.env.FAKE_CLAUDE_SESSION_PROBE, JSON.stringify({ sessionId, configDir, resume: argv.includes("--resume"),
-    sha256: found ? createHash("sha256").update(readFileSync(found)).digest("hex") : null }) + "\n");
+  appendFileSync(
+    process.env.FAKE_CLAUDE_SESSION_PROBE,
+    JSON.stringify({
+      sessionId,
+      configDir,
+      resume: argv.includes("--resume"),
+      sha256: found ? createHash("sha256").update(readFileSync(found)).digest("hex") : null,
+    }) + "\n",
+  );
 }
 let stdinEnded = false;
 let steerGateArmed = false;
@@ -345,21 +513,33 @@ const armSteerGate = () => {
   }, 10);
 };
 
-const personWords = (text: string): string => text
-  .replace(/^<system-reminder>\n[\s\S]*?\n<\/system-reminder>\n\n/, "")
-  .replace(/\n\n\[later\.dog(?: note, not typed by the person)?: [^\]\n]*\]$/, "");
+const personWords = (text: string): string =>
+  text
+    .replace(/^<system-reminder>\n[\s\S]*?\n<\/system-reminder>\n\n/, "")
+    .replace(/\n\n\[later\.dog(?: note, not typed by the person)?: [^\]\n]*\]$/, "");
 
 const promptText = (prompt: JsonValue): string => {
-  const m = prompt && typeof prompt === "object" && !Array.isArray(prompt) ? (prompt as { message?: { content?: unknown } }).message : undefined;
+  const m =
+    prompt && typeof prompt === "object" && !Array.isArray(prompt)
+      ? (prompt as { message?: { content?: unknown } }).message
+      : undefined;
   return typeof m?.content === "string" ? personWords(m.content) : "";
 };
 
 const steerText = (prompt: JsonValue): string => {
-  const m = prompt && typeof prompt === "object" && !Array.isArray(prompt) ? (prompt as { message?: { content?: unknown } }).message : undefined;
+  const m =
+    prompt && typeof prompt === "object" && !Array.isArray(prompt)
+      ? (prompt as { message?: { content?: unknown } }).message
+      : undefined;
   if (!Array.isArray(m?.content)) return promptText(prompt);
   return m.content
     .map((block: { type?: string; text?: string; source?: { media_type?: string } }) =>
-      block?.type === "text" ? block.text ?? "" : block?.type === "image" ? `[image ${block.source?.media_type ?? "unknown"}]` : "")
+      block?.type === "text"
+        ? (block.text ?? "")
+        : block?.type === "image"
+          ? `[image ${block.source?.media_type ?? "unknown"}]`
+          : "",
+    )
     .filter(Boolean)
     .join(" ");
 };
@@ -388,19 +568,29 @@ const finishIfDone = () => {
   if (turnRunning) return;
   if (startLateTurn()) return;
   if (stdinEnded && process.env.FAKE_CLAUDE_STAYS_AFTER_INPUT !== "1") process.exit(0);
-  if (process.env.FAKE_CLAUDE_EXIT_AFTER_TURN === "1") process.stdout.write("", () => process.exit(0));
+  if (process.env.FAKE_CLAUDE_EXIT_AFTER_TURN === "1")
+    process.stdout.write("", () => process.exit(0));
   const gone = process.env.FAKE_CLAUDE_GONE_AFTER_TURN;
-  if (gone) process.stdout.write("", () => {
-    process.stdin.pause();
-    closeSync(0);
-    writeFileSync(`${gone}.closed`, "closed");
-    setInterval(() => { if (existsSync(gone)) process.exit(0); }, 10);
-  });
+  if (gone)
+    process.stdout.write("", () => {
+      process.stdin.pause();
+      closeSync(0);
+      writeFileSync(`${gone}.closed`, "closed");
+      setInterval(() => {
+        if (existsSync(gone)) process.exit(0);
+      }, 10);
+    });
 };
 
 const finishTurn = () => {
   runHooks("Stop", { stop_hook_active: false });
-  out({ type: "result", is_error: false, stop_reason: "end_turn", total_cost_usd: 0.01, usage: { input_tokens: 10, cache_read_input_tokens: 2, output_tokens: 5 } });
+  out({
+    type: "result",
+    is_error: false,
+    stop_reason: "end_turn",
+    total_cost_usd: 0.01,
+    usage: { input_tokens: 10, cache_read_input_tokens: 2, output_tokens: 5 },
+  });
   turnRunning = false;
   finishIfDone();
 };
@@ -437,38 +627,93 @@ const ASKS_FOR_SCREEN = /\b(computer|desktop|screen|screenshot|chrome|browser)\b
 
 const useCloudComputer = () => {
   launchFiles ??= readLaunchFiles();
-  const server = (launchFiles.mcpConfig as { mcpServers?: Record<string, { command?: string; args?: string[]; env?: Record<string, string> }> } | null)
-    ?.mcpServers?.computer;
-  if (!server?.command || server.args?.at(-1) !== "computer" || !/harness-mcp-proxy/.test(server.args[0] ?? "")) return;
+  const server = (
+    launchFiles.mcpConfig as {
+      mcpServers?: Record<
+        string,
+        { command?: string; args?: string[]; env?: Record<string, string> }
+      >;
+    } | null
+  )?.mcpServers?.computer;
+  if (
+    !server?.command ||
+    server.args?.at(-1) !== "computer" ||
+    !/harness-mcp-proxy/.test(server.args[0] ?? "")
+  )
+    return;
   const id = `tu-${process.pid}-${++toolUseCount}`;
-  out({ type: "assistant", message: { content: [{ type: "tool_use", id, name: "mcp__computer__screenshot", input: {} }] } });
+  out({
+    type: "assistant",
+    message: { content: [{ type: "tool_use", id, name: "mcp__computer__screenshot", input: {} }] },
+  });
   const ran = spawnSync(server.command, server.args, {
     input: `${JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "screenshot", arguments: {} } })}\n`,
-    env: { ...process.env, ...server.env }, encoding: "utf8", timeout: 150_000,
+    env: { ...process.env, ...server.env },
+    encoding: "utf8",
+    timeout: 150_000,
   });
-  let reply: { result?: { isError?: boolean; content?: unknown }; error?: { message?: string } } = {};
-  try { reply = JSON.parse(ran.stdout.trim().split("\n")[0] ?? ""); } catch { reply = { error: { message: ran.stderr || "no answer" } }; }
-  out({ type: "user", message: { content: [{ type: "tool_result", tool_use_id: id,
-    is_error: Boolean(reply.error || reply.result?.isError), content: reply.result?.content ?? reply.error?.message ?? "" }] } });
+  let reply: { result?: { isError?: boolean; content?: unknown }; error?: { message?: string } } =
+    {};
+  try {
+    reply = JSON.parse(ran.stdout.trim().split("\n")[0] ?? "");
+  } catch {
+    reply = { error: { message: ran.stderr || "no answer" } };
+  }
+  out({
+    type: "user",
+    message: {
+      content: [
+        {
+          type: "tool_result",
+          tool_use_id: id,
+          is_error: Boolean(reply.error || reply.result?.isError),
+          content: reply.result?.content ?? reply.error?.message ?? "",
+        },
+      ],
+    },
+  });
 };
 
 const runOnComputer = async (file: string, said: string) => {
   const told = /run_id "([0-9a-f]{8})"/.exec(said)?.[1];
   let args: Record<string, unknown>;
   if (told) args = { run_id: told };
-  else try { args = JSON.parse(readFileSync(file, "utf8")) as Record<string, unknown>; } catch { return; }
+  else
+    try {
+      args = JSON.parse(readFileSync(file, "utf8")) as Record<string, unknown>;
+    } catch {
+      return;
+    }
   launchFiles ??= readLaunchFiles();
-  const agents = (launchFiles.mcpConfig as { mcpServers?: Record<string, { command?: string; args?: string[]; env?: Record<string, string> }> } | null)?.mcpServers?.agents;
+  const agents = (
+    launchFiles.mcpConfig as {
+      mcpServers?: Record<
+        string,
+        { command?: string; args?: string[]; env?: Record<string, string> }
+      >;
+    } | null
+  )?.mcpServers?.agents;
   if (!agents?.command) return;
   const id = `tu-${process.pid}-${++toolUseCount}`;
-  out({ type: "assistant", message: { content: [{ type: "tool_use", id, name: "mcp__agents__run_on_computer", input: args }] } });
+  out({
+    type: "assistant",
+    message: {
+      content: [{ type: "tool_use", id, name: "mcp__agents__run_on_computer", input: args }],
+    },
+  });
   const text = await callDogTool(agents, "run_on_computer", args);
-  out({ type: "user", message: { content: [{ type: "tool_result", tool_use_id: id, is_error: false, content: text }] } });
+  out({
+    type: "user",
+    message: {
+      content: [{ type: "tool_result", tool_use_id: id, is_error: false, content: text }],
+    },
+  });
 };
 
 const playPuppies = createPuppies({
   out,
-  init: () => out({ type: "system", subtype: "init", session_id: sessionId, model, permissionMode, tools }),
+  init: () =>
+    out({ type: "system", subtype: "init", session_id: sessionId, model, permissionMode, tools }),
   endTurn: () => {
     turnRunning = false;
     finishIfDone();
@@ -477,55 +722,102 @@ const playPuppies = createPuppies({
   model,
 });
 
-const playNativeActivity = createNativeActivity({ out, sessionId, model, endTurn: () => { turnRunning = false; finishIfDone(); } });
+const playNativeActivity = createNativeActivity({
+  out,
+  sessionId,
+  model,
+  endTurn: () => {
+    turnRunning = false;
+    finishIfDone();
+  },
+});
 
 const playTurn = async (prompt: JsonValue, late = false) => {
   turnRunning = true;
   lateContinuation = late;
   steered = [];
   steeredMessages = [];
-  if (process.env.FAKE_CLAUDE_PROMPTS) appendFileSync(process.env.FAKE_CLAUDE_PROMPTS, `${JSON.stringify(prompt)}\n`);
+  if (process.env.FAKE_CLAUDE_PROMPTS)
+    appendFileSync(process.env.FAKE_CLAUDE_PROMPTS, `${JSON.stringify(prompt)}\n`);
   if (!late) chain?.turn(steerText(prompt));
   if (!late && process.env.FAKE_CLAUDE_DUMP) {
     launchFiles ??= readLaunchFiles();
     writeFileSync(
       process.env.FAKE_CLAUDE_DUMP,
-      JSON.stringify({ pid: process.pid, argv, env: process.env, cwd: process.cwd(), prompt, ...launchFiles }, null, 2),
+      JSON.stringify(
+        { pid: process.pid, argv, env: process.env, cwd: process.cwd(), prompt, ...launchFiles },
+        null,
+        2,
+      ),
     );
   }
 
   if (process.env.FAKE_CLAUDE_ROUTER_PING === "1" && process.env.ANTHROPIC_BASE_URL) {
     const headers: Record<string, string> = { "content-type": "application/json" };
-    if (process.env.ANTHROPIC_AUTH_TOKEN) headers.authorization = `Bearer ${process.env.ANTHROPIC_AUTH_TOKEN}`;
+    if (process.env.ANTHROPIC_AUTH_TOKEN)
+      headers.authorization = `Bearer ${process.env.ANTHROPIC_AUTH_TOKEN}`;
     if (process.env.ANTHROPIC_API_KEY) headers["x-api-key"] = process.env.ANTHROPIC_API_KEY;
-    spawnSync(process.execPath, [
-      "-e",
-      "fetch(process.argv[1], { method: 'POST', headers: JSON.parse(process.argv[2]), body: '{}' }).then((r) => r.text(), () => {})",
-      `${process.env.ANTHROPIC_BASE_URL.replace(/\/+$/u, "")}/v1/messages`,
-      JSON.stringify(headers),
-    ], { stdio: "ignore", timeout: 5_000 });
+    spawnSync(
+      process.execPath,
+      [
+        "-e",
+        "fetch(process.argv[1], { method: 'POST', headers: JSON.parse(process.argv[2]), body: '{}' }).then((r) => r.text(), () => {})",
+        `${process.env.ANTHROPIC_BASE_URL.replace(/\/+$/u, "")}/v1/messages`,
+        JSON.stringify(headers),
+      ],
+      { stdio: "ignore", timeout: 5_000 },
+    );
   }
 
   if (mode === "dead-session-result" && argv.includes("--resume")) {
     const id = argAfter("--resume");
     const captured = process.env.FAKE_CLAUDE_RESUME_RESULT;
     if (captured) out(JSON.parse(readFileSync(captured, "utf8")));
-    else out({ type: "result", subtype: "error_during_execution", duration_ms: 0, duration_api_ms: 0, is_error: true, num_turns: 0, stop_reason: null,
-      session_id: id, total_cost_usd: 0, usage: { input_tokens: 0, cache_creation_input_tokens: 0, cache_read_input_tokens: 0, output_tokens: 0 },
-      modelUsage: {}, permission_denials: [], errors: [`No conversation found with session ID: ${id}`], result_index: 0 });
+    else
+      out({
+        type: "result",
+        subtype: "error_during_execution",
+        duration_ms: 0,
+        duration_api_ms: 0,
+        is_error: true,
+        num_turns: 0,
+        stop_reason: null,
+        session_id: id,
+        total_cost_usd: 0,
+        usage: {
+          input_tokens: 0,
+          cache_creation_input_tokens: 0,
+          cache_read_input_tokens: 0,
+          output_tokens: 0,
+        },
+        modelUsage: {},
+        permission_denials: [],
+        errors: [`No conversation found with session ID: ${id}`],
+        result_index: 0,
+      });
     await new Promise((resolve) => process.stdout.write("", resolve));
     process.exit(1);
   }
 
   if (mode === "error-result") {
-    out({ type: "result", subtype: "error_during_execution", is_error: true, num_turns: 0, stop_reason: null, session_id: "fake-session",
-      total_cost_usd: 0, errors: [process.env.FAKE_CLAUDE_ERROR_TEXT ?? "Fixture engine error"] });
+    out({
+      type: "result",
+      subtype: "error_during_execution",
+      is_error: true,
+      num_turns: 0,
+      stop_reason: null,
+      session_id: "fake-session",
+      total_cost_usd: 0,
+      errors: [process.env.FAKE_CLAUDE_ERROR_TEXT ?? "Fixture engine error"],
+    });
     await new Promise((resolve) => process.stdout.write("", resolve));
     process.exit(1);
   }
 
   if (mode === "dead-session" && argv.includes("--resume")) {
-    process.stderr.write(`fake-claude: No conversation found with session ID: ${argAfter("--resume")}\n`);
+    process.stderr.write(
+      `fake-claude: No conversation found with session ID: ${argAfter("--resume")}\n`,
+    );
     process.exit(1);
   }
 
@@ -543,7 +835,13 @@ const playTurn = async (prompt: JsonValue, late = false) => {
     out({ type: "system", subtype: "init", session_id: sessionId, model, permissionMode, tools });
     if (launched < quota) {
       if (process.env.FAKE_CLAUDE_PARTIAL_FAILS) {
-        out({ type: "stream_event", event: { type: "content_block_delta", delta: { type: "text_delta", text: "half an answer" } } });
+        out({
+          type: "stream_event",
+          event: {
+            type: "content_block_delta",
+            delta: { type: "text_delta", text: "half an answer" },
+          },
+        });
       }
       process.stderr.write("claude: API error (503): service temporarily unavailable\n");
       process.exit(5);
@@ -552,12 +850,24 @@ const playTurn = async (prompt: JsonValue, late = false) => {
 
   out({ type: "system", subtype: "init", session_id: sessionId, model, permissionMode, tools });
   if (process.env.FAKE_CLAUDE_RATE_LIMIT_INFO) {
-    out({ type: "rate_limit_event", rate_limit_info: JSON.parse(process.env.FAKE_CLAUDE_RATE_LIMIT_INFO), uuid: `fake-rate-${process.pid}`, session_id: sessionId });
+    out({
+      type: "rate_limit_event",
+      rate_limit_info: JSON.parse(process.env.FAKE_CLAUDE_RATE_LIMIT_INFO),
+      uuid: `fake-rate-${process.pid}`,
+      session_id: sessionId,
+    });
   }
   if (process.env.FAKE_CLAUDE_SESSION_WRITE === "1") {
-    const folder = join(process.env.CLAUDE_CONFIG_DIR || join(homedir(), ".claude"), "projects", process.cwd().replace(/[^a-zA-Z0-9]/g, "-"));
+    const folder = join(
+      process.env.CLAUDE_CONFIG_DIR || join(homedir(), ".claude"),
+      "projects",
+      process.cwd().replace(/[^a-zA-Z0-9]/g, "-"),
+    );
     mkdirSync(folder, { recursive: true });
-    appendFileSync(join(folder, `${sessionId}.jsonl`), `${JSON.stringify({ type: "user", session_id: sessionId, message: prompt })}\n`);
+    appendFileSync(
+      join(folder, `${sessionId}.jsonl`),
+      `${JSON.stringify({ type: "user", session_id: sessionId, message: prompt })}\n`,
+    );
   }
 
   if (lateContinuation && process.env.FAKE_CLAUDE_LATE_STEER_SILENT) {
@@ -566,8 +876,20 @@ const playTurn = async (prompt: JsonValue, late = false) => {
   }
   if (refusalFallback && refusalState && !existsSync(refusalState)) {
     writeFileSync(refusalState, "flagged");
-    out({ type: "system", subtype: "model_refusal_fallback", trigger: "refusal", direction: "retry", scope: "session", original_model: model, fallback_model: refusalFallback,
-      api_refusal_category: "fixture", content: "The first model's safeguards flagged this session. The fallback model is answering instead.", session_id: sessionId, uuid: `fake-fallback-${process.pid}` });
+    out({
+      type: "system",
+      subtype: "model_refusal_fallback",
+      trigger: "refusal",
+      direction: "retry",
+      scope: "session",
+      original_model: model,
+      fallback_model: refusalFallback,
+      api_refusal_category: "fixture",
+      content:
+        "The first model's safeguards flagged this session. The fallback model is answering instead.",
+      session_id: sessionId,
+      uuid: `fake-fallback-${process.pid}`,
+    });
     model = refusalFallback;
   }
   replay(prompt);
@@ -586,23 +908,60 @@ const playTurn = async (prompt: JsonValue, late = false) => {
     } catch {}
     if (failed < refreshLockFails) {
       writeFileSync(refreshLockState, String(failed + 1));
-      const text = "Failed to refresh OAuth token: another Claude Code process is refreshing it or exited mid-refresh. This is usually transient; retry in a minute, and if it persists close other Claude Code processes or sign in again";
-      out({ type: "assistant", message: { model: "<synthetic>", content: [{ type: "text", text }] }, error: "server_error", is_api_error_message: true });
-      out({ type: "result", subtype: "success", is_error: true, stop_reason: "stop_sequence", terminal_reason: "api_error", result: text });
+      const text =
+        "Failed to refresh OAuth token: another Claude Code process is refreshing it or exited mid-refresh. This is usually transient; retry in a minute, and if it persists close other Claude Code processes or sign in again";
+      out({
+        type: "assistant",
+        message: { model: "<synthetic>", content: [{ type: "text", text }] },
+        error: "server_error",
+        is_api_error_message: true,
+      });
+      out({
+        type: "result",
+        subtype: "success",
+        is_error: true,
+        stop_reason: "stop_sequence",
+        terminal_reason: "api_error",
+        result: text,
+      });
       turnRunning = false;
       finishIfDone();
       return;
     }
   }
 
-  const resumedError = process.env.FAKE_CLAUDE_RESUMED_API_ERROR === "1" && argv.includes("--resume") && !resumedErrorPlayed;
+  const resumedError =
+    process.env.FAKE_CLAUDE_RESUMED_API_ERROR === "1" &&
+    argv.includes("--resume") &&
+    !resumedErrorPlayed;
   if (resumedError) resumedErrorPlayed = true;
   if (mode === "api-error" || resumedError) {
-    const text = process.env.FAKE_CLAUDE_API_ERROR ?? "API Error: 529 Overloaded. This is a server-side issue, usually temporary.";
-    out({ type: "assistant", message: { model: "<synthetic>", content: [{ type: "text", text }] }, error: "unknown", is_api_error_message: true });
-    out(process.env.FAKE_CLAUDE_API_ERROR_BARE === "1"
-      ? { type: "result", is_error: true, stop_reason: "stop_sequence", terminal_reason: "api_error", errors: [text] }
-      : { type: "result", is_error: true, stop_reason: "stop_sequence", terminal_reason: "api_error", result: text });
+    const text =
+      process.env.FAKE_CLAUDE_API_ERROR ??
+      "API Error: 529 Overloaded. This is a server-side issue, usually temporary.";
+    out({
+      type: "assistant",
+      message: { model: "<synthetic>", content: [{ type: "text", text }] },
+      error: "unknown",
+      is_api_error_message: true,
+    });
+    out(
+      process.env.FAKE_CLAUDE_API_ERROR_BARE === "1"
+        ? {
+            type: "result",
+            is_error: true,
+            stop_reason: "stop_sequence",
+            terminal_reason: "api_error",
+            errors: [text],
+          }
+        : {
+            type: "result",
+            is_error: true,
+            stop_reason: "stop_sequence",
+            terminal_reason: "api_error",
+            result: text,
+          },
+    );
     turnRunning = false;
     finishIfDone();
     return;
@@ -610,7 +969,11 @@ const playTurn = async (prompt: JsonValue, late = false) => {
 
   const usageGate = process.env.FAKE_CLAUDE_USAGE_LIMIT_GATE;
   const limitedModel = process.env.FAKE_CLAUDE_USAGE_LIMIT_MODEL;
-  if (mode === "usage-limit" && (!usageGate || existsSync(usageGate)) && (!limitedModel || model.includes(limitedModel))) {
+  if (
+    mode === "usage-limit" &&
+    (!usageGate || existsSync(usageGate)) &&
+    (!limitedModel || model.includes(limitedModel))
+  ) {
     const release = process.env.FAKE_CLAUDE_USAGE_LIMIT_RELEASE;
     while (release && !existsSync(release)) await new Promise((resolve) => setTimeout(resolve, 20));
     replaySteered();
@@ -619,26 +982,59 @@ const playTurn = async (prompt: JsonValue, late = false) => {
     }
     if (process.env.FAKE_CLAUDE_USAGE_LIMIT_AFTER_TOOL === "1") {
       const id = `tu-${process.pid}-${++toolUseCount}`;
-      out({ type: "assistant", message: { content: [{ type: "tool_use", id, name: "Bash", input: { command: "echo started" } }] } });
-      out({ type: "user", message: { content: [{ type: "tool_result", tool_use_id: id, is_error: false, content: [{ type: "text", text: "started" }] }] } });
+      out({
+        type: "assistant",
+        message: {
+          content: [{ type: "tool_use", id, name: "Bash", input: { command: "echo started" } }],
+        },
+      });
+      out({
+        type: "user",
+        message: {
+          content: [
+            {
+              type: "tool_result",
+              tool_use_id: id,
+              is_error: false,
+              content: [{ type: "text", text: "started" }],
+            },
+          ],
+        },
+      });
     }
     const resetsIn = Number(process.env.FAKE_CLAUDE_USAGE_RESETS_IN);
-    const resetsAt = Number(process.env.FAKE_CLAUDE_USAGE_RESETS_AT) ||
-      (resetsIn > 0 ? Math.ceil(Date.now() / 1000 + resetsIn) : Math.ceil(Date.now() / 3_600_000 + 1) * 3_600);
+    const resetsAt =
+      Number(process.env.FAKE_CLAUDE_USAGE_RESETS_AT) ||
+      (resetsIn > 0
+        ? Math.ceil(Date.now() / 1000 + resetsIn)
+        : Math.ceil(Date.now() / 3_600_000 + 1) * 3_600);
     const hour = new Date(resetsAt * 1000).getUTCHours();
-    const text = process.env.FAKE_CLAUDE_USAGE_LIMIT ??
+    const text =
+      process.env.FAKE_CLAUDE_USAGE_LIMIT ??
       `You've hit your session limit · resets ${hour % 12 || 12}${hour < 12 ? "am" : "pm"} (UTC)`;
     const apiError = process.env.FAKE_CLAUDE_USAGE_LIMIT_API_ERROR ?? "usage_limit_reached";
     const namesLimit = apiError === "usage_limit_reached";
     const info = namesLimit
-      ? { status: "rejected", rateLimitType: process.env.FAKE_CLAUDE_USAGE_LIMIT_TYPE ?? "five_hour", resetsAt }
+      ? {
+          status: "rejected",
+          rateLimitType: process.env.FAKE_CLAUDE_USAGE_LIMIT_TYPE ?? "five_hour",
+          resetsAt,
+        }
       : { status: "rejected", isUsingOverage: false, resetsAt };
-    if (namesLimit) out({ type: "rate_limit_event", rate_limit_info: info, uuid: `fake-rate-limit-${process.pid}`, session_id: sessionId });
+    if (namesLimit)
+      out({
+        type: "rate_limit_event",
+        rate_limit_info: info,
+        uuid: `fake-rate-limit-${process.pid}`,
+        session_id: sessionId,
+      });
     out({
       type: "assistant",
       message: { model: "<synthetic>", content: [{ type: "text", text }] },
-      error: "rate_limit", is_api_error_message: true,
-      api_error: apiError, api_error_params: { rate_limit_info: info },
+      error: "rate_limit",
+      is_api_error_message: true,
+      api_error: apiError,
+      api_error_params: { rate_limit_info: info },
     });
     if (process.env.FAKE_CLAUDE_USAGE_LIMIT_NO_RESULT === "1") {
       process.stdout.write("", () => process.exit(1));
@@ -646,14 +1042,35 @@ const playTurn = async (prompt: JsonValue, late = false) => {
     }
     if (process.env.FAKE_CLAUDE_USAGE_LIMIT_THEN_ANSWER === "1") {
       const answer = "back once the limit reset";
-      out({ type: "rate_limit_event", rate_limit_info: { status: "allowed", rateLimitType: "five_hour", resetsAt }, uuid: `fake-rate-allowed-${process.pid}`, session_id: sessionId });
-      out({ type: "assistant", message: { model: "claude-opus-5-5", content: [{ type: "text", text: answer }] } });
-      out({ type: "result", subtype: "success", is_error: false, stop_reason: "end_turn", result: answer, usage: { input_tokens: 10, output_tokens: 5 } });
+      out({
+        type: "rate_limit_event",
+        rate_limit_info: { status: "allowed", rateLimitType: "five_hour", resetsAt },
+        uuid: `fake-rate-allowed-${process.pid}`,
+        session_id: sessionId,
+      });
+      out({
+        type: "assistant",
+        message: { model: "claude-opus-5-5", content: [{ type: "text", text: answer }] },
+      });
+      out({
+        type: "result",
+        subtype: "success",
+        is_error: false,
+        stop_reason: "end_turn",
+        result: answer,
+        usage: { input_tokens: 10, output_tokens: 5 },
+      });
       turnRunning = false;
       finishIfDone();
       return;
     }
-    out({ type: "result", is_error: true, stop_reason: "stop_sequence", terminal_reason: "api_error", result: text });
+    out({
+      type: "result",
+      is_error: true,
+      stop_reason: "stop_sequence",
+      terminal_reason: "api_error",
+      result: text,
+    });
     turnRunning = false;
     finishIfDone();
     return;
@@ -671,24 +1088,81 @@ const playTurn = async (prompt: JsonValue, late = false) => {
 
   if (process.env.FAKE_CLAUDE_ROOM_PLAN) {
     roomTurnsPlayed += 1;
-    const compactContext = process.env.FAKE_CLAUDE_COMPACT === "1" && (roomTurnsPlayed >= 2 || argv.includes("--resume")) ? playNativeCompaction().trim() : "";
-    const progress = (text: string) => out({ type: "assistant", message: { content: [{ type: "text", text }] } });
-    const announce = (call: { id: string; name: string; input: unknown; parentToolUseId?: string; agentId?: string }) => {
-      out({ type: "assistant", parent_tool_use_id: call.parentToolUseId ?? null, ...(call.agentId ? { agent_id: call.agentId } : {}), message: { content: [{ type: "tool_use", id: call.id, name: call.name, input: call.input }] } });
+    const compactContext =
+      process.env.FAKE_CLAUDE_COMPACT === "1" && (roomTurnsPlayed >= 2 || argv.includes("--resume"))
+        ? playNativeCompaction().trim()
+        : "";
+    const progress = (text: string) =>
+      out({ type: "assistant", message: { content: [{ type: "text", text }] } });
+    const announce = (call: {
+      id: string;
+      name: string;
+      input: unknown;
+      parentToolUseId?: string;
+      agentId?: string;
+    }) => {
+      out({
+        type: "assistant",
+        parent_tool_use_id: call.parentToolUseId ?? null,
+        ...(call.agentId ? { agent_id: call.agentId } : {}),
+        message: {
+          content: [{ type: "tool_use", id: call.id, name: call.name, input: call.input }],
+        },
+      });
       if (process.env.FAKE_CLAUDE_HOOK_OUTPUT) {
-        const hook = runHooks("PostToolUse", { tool_name: call.name, tool_input: call.input, tool_response: "ok", tool_use_id: call.id });
-        appendFileSync(process.env.FAKE_CLAUDE_HOOK_OUTPUT, `${JSON.stringify({ id: call.id, hook: hook.trim() })}\n`);
+        const hook = runHooks("PostToolUse", {
+          tool_name: call.name,
+          tool_input: call.input,
+          tool_response: "ok",
+          tool_use_id: call.id,
+        });
+        appendFileSync(
+          process.env.FAKE_CLAUDE_HOOK_OUTPUT,
+          `${JSON.stringify({ id: call.id, hook: hook.trim() })}\n`,
+        );
       }
     };
-    void runRoomHandoffAgent(argv, process.env.FAKE_CLAUDE_ROOM_PLAN, prompt, undefined, progress, announce).then(text => {
-      const contextTokens = Number(process.env.FAKE_CLAUDE_CONTEXT_TOKENS);
-      const contextWindow = Number(process.env.FAKE_CLAUDE_CONTEXT_WINDOW);
-      const usage = Number.isSafeInteger(contextTokens) && contextTokens > 0 ? { input_tokens: contextTokens, output_tokens: 5 } : undefined;
-      out({ type: "assistant", message: { content: [{ type: "text", text: compactContext ? `${compactContext}\n\n${text}` : text }], ...(usage ? { usage } : {}) } });
-      out({ type: "result", is_error: false, stop_reason: "end_turn", usage: { input_tokens: 10, output_tokens: 5 }, ...(Number.isSafeInteger(contextWindow) && contextWindow > 0 ? { modelUsage: { [model]: { contextWindow } } } : {}) });
-    }).catch(error => {
-      out({ type: "result", is_error: true, result: String(error), stop_reason: "error" });
-    }).finally(() => { turnRunning = false; finishIfDone(); });
+    void runRoomHandoffAgent(
+      argv,
+      process.env.FAKE_CLAUDE_ROOM_PLAN,
+      prompt,
+      undefined,
+      progress,
+      announce,
+    )
+      .then((text) => {
+        const contextTokens = Number(process.env.FAKE_CLAUDE_CONTEXT_TOKENS);
+        const contextWindow = Number(process.env.FAKE_CLAUDE_CONTEXT_WINDOW);
+        const usage =
+          Number.isSafeInteger(contextTokens) && contextTokens > 0
+            ? { input_tokens: contextTokens, output_tokens: 5 }
+            : undefined;
+        out({
+          type: "assistant",
+          message: {
+            content: [
+              { type: "text", text: compactContext ? `${compactContext}\n\n${text}` : text },
+            ],
+            ...(usage ? { usage } : {}),
+          },
+        });
+        out({
+          type: "result",
+          is_error: false,
+          stop_reason: "end_turn",
+          usage: { input_tokens: 10, output_tokens: 5 },
+          ...(Number.isSafeInteger(contextWindow) && contextWindow > 0
+            ? { modelUsage: { [model]: { contextWindow } } }
+            : {}),
+        });
+      })
+      .catch((error) => {
+        out({ type: "result", is_error: true, result: String(error), stop_reason: "error" });
+      })
+      .finally(() => {
+        turnRunning = false;
+        finishIfDone();
+      });
     return;
   }
 
@@ -696,20 +1170,31 @@ const playTurn = async (prompt: JsonValue, late = false) => {
     if (process.env.FAKE_CLAUDE_COMPACT === "1") playNativeCompaction();
     const release = process.env.FAKE_CLAUDE_RELEASE;
     const finishGate = process.env.FAKE_CLAUDE_FINISH_GATE;
-    const held = setInterval(() => {
-      if (finishGate && existsSync(finishGate)) {
+    const held = setInterval(
+      () => {
+        if (finishGate && existsSync(finishGate)) {
+          clearInterval(held);
+          out({
+            type: "assistant",
+            message: { content: [{ type: "text", text: "fixture turn completed" }] },
+          });
+          finishTurn();
+          return;
+        }
+        if (!release || !existsSync(release)) return;
         clearInterval(held);
-        out({ type: "assistant", message: { content: [{ type: "text", text: "fixture turn completed" }] } });
-        finishTurn();
-        return;
-      }
-      if (!release || !existsSync(release)) return;
-      clearInterval(held);
-      out({ type: "assistant", message: { content: [{ type: "text", text: "released" }] } });
-      out({ type: "result", is_error: false, stop_reason: "end_turn", usage: { input_tokens: 10, output_tokens: 5 } });
-      turnRunning = false;
-      finishIfDone();
-    }, finishGate ? 10 : 100);
+        out({ type: "assistant", message: { content: [{ type: "text", text: "released" }] } });
+        out({
+          type: "result",
+          is_error: false,
+          stop_reason: "end_turn",
+          usage: { input_tokens: 10, output_tokens: 5 },
+        });
+        turnRunning = false;
+        finishIfDone();
+      },
+      finishGate ? 10 : 100,
+    );
     return;
   }
 
@@ -720,7 +1205,10 @@ const playTurn = async (prompt: JsonValue, late = false) => {
   if (mode === "not-logged-in") {
     out({
       type: "assistant",
-      message: { model: "<synthetic>", content: [{ type: "text", text: "Not logged in \u00b7 Please run /login" }] },
+      message: {
+        model: "<synthetic>",
+        content: [{ type: "text", text: "Not logged in \u00b7 Please run /login" }],
+      },
       error: "authentication_failed",
       is_api_error_message: true,
     });
@@ -737,7 +1225,8 @@ const playTurn = async (prompt: JsonValue, late = false) => {
   }
 
   if (mode === "stream") {
-    const delta = (d: unknown) => out({ type: "stream_event", event: { type: "content_block_delta", delta: d } });
+    const delta = (d: unknown) =>
+      out({ type: "stream_event", event: { type: "content_block_delta", delta: d } });
     delta({ type: "thinking_delta", thinking: "hmm" });
     delta({ type: "text_delta", text: "hello from " });
     delta({ type: "text_delta", text: "fake claude" });
@@ -748,54 +1237,111 @@ const playTurn = async (prompt: JsonValue, late = false) => {
     });
   }
 
-  if (process.env.FAKE_CLAUDE_USES_CLOUD_COMPUTER === "1" && ASKS_FOR_SCREEN.test(steerText(prompt))) useCloudComputer();
-  if (process.env.FAKE_CLAUDE_RUN_ON_COMPUTER) await runOnComputer(process.env.FAKE_CLAUDE_RUN_ON_COMPUTER, steerText(prompt));
+  if (
+    process.env.FAKE_CLAUDE_USES_CLOUD_COMPUTER === "1" &&
+    ASKS_FOR_SCREEN.test(steerText(prompt))
+  )
+    useCloudComputer();
+  if (process.env.FAKE_CLAUDE_RUN_ON_COMPUTER)
+    await runOnComputer(process.env.FAKE_CLAUDE_RUN_ON_COMPUTER, steerText(prompt));
 
   let replyParts = nextScriptedReply();
   const defaultToolId = `tu-${process.pid}-${++toolUseCount}`;
   if (process.env.FAKE_CLAUDE_TURN_STATE) {
     let n = 0;
-    try { n = Number(readFileSync(process.env.FAKE_CLAUDE_TURN_STATE, "utf8")) || 0; } catch {}
+    try {
+      n = Number(readFileSync(process.env.FAKE_CLAUDE_TURN_STATE, "utf8")) || 0;
+    } catch {}
     turnsPlayed = n;
     writeFileSync(process.env.FAKE_CLAUDE_TURN_STATE, String(n + 1));
   }
   turnsPlayed += 1;
   if (process.env.FAKE_CLAUDE_COMPACT === "1" && turnsPlayed >= 2) {
     const context = playNativeCompaction();
-    if (context.trim()) replyParts = [`${context.trim()}\n\n${replyParts[0] ?? ""}`, ...replyParts.slice(1)];
+    if (context.trim())
+      replyParts = [`${context.trim()}\n\n${replyParts[0] ?? ""}`, ...replyParts.slice(1)];
   }
-  const usage = process.env.FAKE_CLAUDE_CONTEXT_FOLLOWS_TURNS === "1" ? fakeRequestUsage(turnsPlayed) : { input_tokens: 10, cache_read_input_tokens: 2, output_tokens: 5 };
+  const usage =
+    process.env.FAKE_CLAUDE_CONTEXT_FOLLOWS_TURNS === "1"
+      ? fakeRequestUsage(turnsPlayed)
+      : { input_tokens: 10, cache_read_input_tokens: 2, output_tokens: 5 };
   const stream = streamPlan();
   if (scriptedToolCalls) {
     for (const call of scriptedToolCalls) {
       const id = call.id ?? `tu-${process.pid}-${++toolUseCount}`;
-      out({ type: "assistant", message: { content: [{ type: "tool_use", id, name: call.name, input: call.input }], usage } });
+      out({
+        type: "assistant",
+        message: { content: [{ type: "tool_use", id, name: call.name, input: call.input }], usage },
+      });
       if (call.pending) continue;
-      out({ type: "user", message: { content: [{ type: "tool_result", tool_use_id: id, is_error: !call.ok, content: call.output }] } });
-      runHooks("PostToolUse", { tool_name: call.name, tool_input: call.input, tool_response: call.output, tool_use_id: id });
+      out({
+        type: "user",
+        message: {
+          content: [
+            { type: "tool_result", tool_use_id: id, is_error: !call.ok, content: call.output },
+          ],
+        },
+      });
+      runHooks("PostToolUse", {
+        tool_name: call.name,
+        tool_input: call.input,
+        tool_response: call.output,
+        tool_use_id: id,
+      });
     }
-    if (!scriptedToolCalls.some((call) => call.pending)) for (const text of replyParts) {
-      if (stream) await streamInPieces(text, stream);
-      out({ type: "assistant", message: { content: [{ type: "text", text }], usage } });
-    }
+    if (!scriptedToolCalls.some((call) => call.pending))
+      for (const text of replyParts) {
+        if (stream) await streamInPieces(text, stream);
+        out({ type: "assistant", message: { content: [{ type: "text", text }], usage } });
+      }
   } else {
     for (const [index, text] of replyParts.entries()) {
       if (stream) await streamInPieces(text, stream);
       const content: Array<
-        { type: "text"; text: string } | { type: "tool_use"; id: string; name: string; input: Record<string, unknown> }
+        | { type: "text"; text: string }
+        | { type: "tool_use"; id: string; name: string; input: Record<string, unknown> }
       > = [{ type: "text", text }];
-      if (index === replyParts.length - 1) content.push({ type: "tool_use", id: defaultToolId, name: "Bash", input: { command: "echo hi" } });
+      if (index === replyParts.length - 1)
+        content.push({
+          type: "tool_use",
+          id: defaultToolId,
+          name: "Bash",
+          input: { command: "echo hi" },
+        });
       out({ type: "assistant", message: { content, usage } });
     }
-    out({ type: "user", message: { content: [{ type: "tool_result", tool_use_id: defaultToolId, is_error: false, content: [{ type: "text", text: "hi" }] }] } });
-    runHooks("PostToolUse", { tool_name: "Bash", tool_input: { command: "echo hi" }, tool_response: "hi", tool_use_id: defaultToolId });
+    out({
+      type: "user",
+      message: {
+        content: [
+          {
+            type: "tool_result",
+            tool_use_id: defaultToolId,
+            is_error: false,
+            content: [{ type: "text", text: "hi" }],
+          },
+        ],
+      },
+    });
+    runHooks("PostToolUse", {
+      tool_name: "Bash",
+      tool_input: { command: "echo hi" },
+      tool_response: "hi",
+      tool_use_id: defaultToolId,
+    });
   }
 
   const finish = () => {
     replaySteered();
     runHooks("Stop", { stop_hook_active: false });
     runningCost.total = Number((runningCost.total + 0.01).toFixed(2));
-    const counted = (runningCost.modelUsage[model] ??= { inputTokens: 0, outputTokens: 0, cacheReadInputTokens: 0, cacheCreationInputTokens: 0, costUSD: 0 });
+    const counted = (runningCost.modelUsage[model] ??= {
+      inputTokens: 0,
+      outputTokens: 0,
+      cacheReadInputTokens: 0,
+      cacheCreationInputTokens: 0,
+      costUSD: 0,
+    });
     counted.inputTokens += 10;
     counted.cacheReadInputTokens += 2;
     counted.outputTokens += 5;
@@ -809,45 +1355,126 @@ const playTurn = async (prompt: JsonValue, late = false) => {
       total_cost_usd: runningCost.total,
       usage: { input_tokens: 10, cache_read_input_tokens: 2, output_tokens: 5 },
       modelUsage: runningCost.modelUsage,
-      ...(queued === "zero" ? { queued_turn_count: 0 } : queued === "count" ? { queued_turn_count: lateSteers.length } : {}),
+      ...(queued === "zero"
+        ? { queued_turn_count: 0 }
+        : queued === "count"
+          ? { queued_turn_count: lateSteers.length }
+          : {}),
     });
     turnRunning = false;
     finishIfDone();
   };
   if (mode === "background-result") {
-    out({ type: "result", origin: { kind: "task-notification" }, is_error: false, total_cost_usd: 99 });
-    out({ type: "stream_event", event: { type: "content_block_delta", delta: { type: "text_delta", text: "parent still working" } } });
+    out({
+      type: "result",
+      origin: { kind: "task-notification" },
+      is_error: false,
+      total_cost_usd: 99,
+    });
+    out({
+      type: "stream_event",
+      event: {
+        type: "content_block_delta",
+        delta: { type: "text_delta", text: "parent still working" },
+      },
+    });
     const poll = setInterval(() => {
-      if (!process.env.FAKE_CLAUDE_FINISH_GATE || !existsSync(process.env.FAKE_CLAUDE_FINISH_GATE)) return;
+      if (!process.env.FAKE_CLAUDE_FINISH_GATE || !existsSync(process.env.FAKE_CLAUDE_FINISH_GATE))
+        return;
       clearInterval(poll);
       finish();
     }, 10);
     return;
   }
   if (mode === "repeat-loop") {
-    void playRepeatLoopTurn({ plan: fakeRepeatLoopPlan(process.env), out, nextId: () => `tu-${process.pid}-${++toolUseCount}` }).finally(finish);
+    void playRepeatLoopTurn({
+      plan: fakeRepeatLoopPlan(process.env),
+      out,
+      nextId: () => `tu-${process.pid}-${++toolUseCount}`,
+    }).finally(finish);
     return;
   }
   if (mode === "device-approval") {
     launchFiles ??= readLaunchFiles();
-    const agents = (launchFiles.mcpConfig as { mcpServers?: Record<string, { command?: string; args?: string[]; env?: Record<string, string> }> } | null)?.mcpServers?.agents;
-    void playDeviceApprovalTurn({ agents, plan: fakeDeviceApprovalPlan(process.env), out, nextId: () => `tu-${process.pid}-${++toolUseCount}` }).finally(finish);
+    const agents = (
+      launchFiles.mcpConfig as {
+        mcpServers?: Record<
+          string,
+          { command?: string; args?: string[]; env?: Record<string, string> }
+        >;
+      } | null
+    )?.mcpServers?.agents;
+    void playDeviceApprovalTurn({
+      agents,
+      plan: fakeDeviceApprovalPlan(process.env),
+      out,
+      nextId: () => `tu-${process.pid}-${++toolUseCount}`,
+    }).finally(finish);
     return;
   }
   if (mode === "asks") {
     launchFiles ??= readLaunchFiles();
     const server = dogServer(launchFiles.mcpConfig);
-    if (!server) { out({ type: "assistant", message: { content: [{ type: "text", text: "no dog server" }] } }); finish(); return; }
+    if (!server) {
+      out({ type: "assistant", message: { content: [{ type: "text", text: "no dog server" }] } });
+      finish();
+      return;
+    }
     void (async () => {
       const bash = `tu-${process.pid}-${++toolUseCount}`;
-      out({ type: "assistant", message: { content: [{ type: "tool_use", id: bash, name: "Bash", input: { command: ASKS_COMMAND } }] } });
-      const allowed = await callDogTool(server, "approve", { tool_name: "Bash", input: { command: ASKS_COMMAND }, tool_use_id: bash });
-      out({ type: "user", message: { content: [{ type: "tool_result", tool_use_id: bash, is_error: false, content: [{ type: "text", text: allowed }] }] } });
+      out({
+        type: "assistant",
+        message: {
+          content: [{ type: "tool_use", id: bash, name: "Bash", input: { command: ASKS_COMMAND } }],
+        },
+      });
+      const allowed = await callDogTool(server, "approve", {
+        tool_name: "Bash",
+        input: { command: ASKS_COMMAND },
+        tool_use_id: bash,
+      });
+      out({
+        type: "user",
+        message: {
+          content: [
+            {
+              type: "tool_result",
+              tool_use_id: bash,
+              is_error: false,
+              content: [{ type: "text", text: allowed }],
+            },
+          ],
+        },
+      });
       const ask = `tu-${process.pid}-${++toolUseCount}`;
-      out({ type: "assistant", message: { content: [{ type: "tool_use", id: ask, name: "AskUserQuestion", input: ASKS_QUESTION }] } });
-      const answer = await callDogTool(server, "approve", { tool_name: "AskUserQuestion", input: ASKS_QUESTION, tool_use_id: ask });
-      out({ type: "user", message: { content: [{ type: "tool_result", tool_use_id: ask, is_error: false, content: [{ type: "text", text: answer }] }] } });
-      out({ type: "assistant", message: { content: [{ type: "text", text: `asked: ${allowed} / ${answer}` }] } });
+      out({
+        type: "assistant",
+        message: {
+          content: [{ type: "tool_use", id: ask, name: "AskUserQuestion", input: ASKS_QUESTION }],
+        },
+      });
+      const answer = await callDogTool(server, "approve", {
+        tool_name: "AskUserQuestion",
+        input: ASKS_QUESTION,
+        tool_use_id: ask,
+      });
+      out({
+        type: "user",
+        message: {
+          content: [
+            {
+              type: "tool_result",
+              tool_use_id: ask,
+              is_error: false,
+              content: [{ type: "text", text: answer }],
+            },
+          ],
+        },
+      });
+      out({
+        type: "assistant",
+        message: { content: [{ type: "text", text: `asked: ${allowed} / ${answer}` }] },
+      });
       finish();
     })();
     return;
@@ -856,15 +1483,37 @@ const playTurn = async (prompt: JsonValue, late = false) => {
     const finishSlowTurn = () => {
       if (process.env.FAKE_CLAUDE_SLOW_TAIL_TOOL) {
         const id = `tu-${process.pid}-${++toolUseCount}`;
-        out({ type: "assistant", message: { content: [{ type: "tool_use", id, name: "Bash", input: { command: "echo tail" } }] } });
-        out({ type: "user", message: { content: [{ type: "tool_result", tool_use_id: id, is_error: false, content: [{ type: "text", text: "tail" }] }] } });
+        out({
+          type: "assistant",
+          message: {
+            content: [{ type: "tool_use", id, name: "Bash", input: { command: "echo tail" } }],
+          },
+        });
+        out({
+          type: "user",
+          message: {
+            content: [
+              {
+                type: "tool_result",
+                tool_use_id: id,
+                is_error: false,
+                content: [{ type: "text", text: "tail" }],
+              },
+            ],
+          },
+        });
       }
       const tail = steered.length ? ` + steered: ${steered.join(" | ")}` : "";
       replaySteered();
-      out({ type: "assistant", message: { content: [{ type: "text", text: `reply to: ${promptText(prompt)}${tail}` }] } });
+      out({
+        type: "assistant",
+        message: { content: [{ type: "text", text: `reply to: ${promptText(prompt)}${tail}` }] },
+      });
       finish();
     };
-    const finishGate = lateContinuation ? process.env.FAKE_CLAUDE_LATE_STEER_GATE : process.env.FAKE_CLAUDE_SLOW_FINISH_GATE;
+    const finishGate = lateContinuation
+      ? process.env.FAKE_CLAUDE_LATE_STEER_GATE
+      : process.env.FAKE_CLAUDE_SLOW_FINISH_GATE;
     if (finishGate) {
       const poll = setInterval(() => {
         if (!existsSync(finishGate)) return;
@@ -893,14 +1542,27 @@ process.stdin.on("data", (c) => {
     } catch {
       continue;
     }
-    if (answerControlRequest(prompt, { mode: fakeContextMode(process.env.FAKE_CLAUDE_CONTEXT), turnsPlayed, seenFile: process.env.FAKE_CLAUDE_CONTEXT_SEEN, frame: fakeContextFrame(process.env.FAKE_CLAUDE_MODEL_WINDOW, argAfter("--autocompact")) }, out)) continue;
+    if (
+      answerControlRequest(
+        prompt,
+        {
+          mode: fakeContextMode(process.env.FAKE_CLAUDE_CONTEXT),
+          turnsPlayed,
+          seenFile: process.env.FAKE_CLAUDE_CONTEXT_SEEN,
+          frame: fakeContextFrame(process.env.FAKE_CLAUDE_MODEL_WINDOW, argAfter("--autocompact")),
+        },
+        out,
+      )
+    )
+      continue;
     if (turnRunning || lateTurnWaiting) {
       if (process.env.FAKE_CLAUDE_LATE_STEER_GATE) lateSteers.push(prompt);
       else {
         steered.push(steerText(prompt));
         steeredMessages.push(prompt);
       }
-      if (process.env.FAKE_CLAUDE_STEER_RECEIVED) writeFileSync(process.env.FAKE_CLAUDE_STEER_RECEIVED, "received");
+      if (process.env.FAKE_CLAUDE_STEER_RECEIVED)
+        writeFileSync(process.env.FAKE_CLAUDE_STEER_RECEIVED, "received");
     } else {
       playTurn(prompt);
       armSteerGate();

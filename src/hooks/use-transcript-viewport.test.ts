@@ -3,16 +3,29 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const react = vi.hoisted(() => {
   type Committed = { deps?: DependencyList; cleanup?: void | (() => void) };
-  type Pending = { slot: number; layout: boolean; deps?: DependencyList; run: () => void | (() => void) };
-  const runtime = { slots: [] as unknown[], cursor: 0, dirty: false, pending: [] as Pending[], commitNow: () => {} };
+  type Pending = {
+    slot: number;
+    layout: boolean;
+    deps?: DependencyList;
+    run: () => void | (() => void);
+  };
+  const runtime = {
+    slots: [] as unknown[],
+    cursor: 0,
+    dirty: false,
+    pending: [] as Pending[],
+    commitNow: () => {},
+  };
   const same = (a?: DependencyList, b?: DependencyList) =>
-    Boolean(a && b && a.length === b.length && a.every((value, index) => Object.is(value, b[index])));
+    Boolean(
+      a && b && a.length === b.length && a.every((value, index) => Object.is(value, b[index])),
+    );
   const effect = (layout: boolean) => (run: () => void | (() => void), deps?: DependencyList) => {
     const slot = runtime.cursor++;
     if (same((runtime.slots[slot] as Committed | undefined)?.deps, deps)) return;
     runtime.pending.push({ slot, layout, deps, run });
   };
-  const memo = <T,>(factory: () => T, deps: DependencyList): T => {
+  const memo = <T>(factory: () => T, deps: DependencyList): T => {
     const slot = runtime.cursor++;
     const held = runtime.slots[slot] as { value: T; deps: DependencyList } | undefined;
     if (held && same(held.deps, deps)) return held.value;
@@ -27,7 +40,8 @@ const react = vi.hoisted(() => {
         const cell = {
           value: typeof initial === "function" ? (initial as () => T)() : initial,
           set: (next: T | ((current: T) => T)) => {
-            const value = typeof next === "function" ? (next as (current: T) => T)(cell.value) : next;
+            const value =
+              typeof next === "function" ? (next as (current: T) => T)(cell.value) : next;
             if (Object.is(value, cell.value)) return;
             cell.value = value;
             runtime.dirty = true;
@@ -35,7 +49,10 @@ const react = vi.hoisted(() => {
         };
         runtime.slots[slot] = cell;
       }
-      const cell = runtime.slots[slot] as { value: T; set: (next: T | ((current: T) => T)) => void };
+      const cell = runtime.slots[slot] as {
+        value: T;
+        set: (next: T | ((current: T) => T)) => void;
+      };
       return [cell.value, cell.set] as const;
     },
     useRef<T>(initial: T) {
@@ -43,7 +60,7 @@ const react = vi.hoisted(() => {
       return (runtime.slots[slot] ??= { current: initial }) as { current: T };
     },
     useMemo: memo,
-    useCallback: <T,>(callback: T, deps: DependencyList) => memo(() => callback, deps),
+    useCallback: <T>(callback: T, deps: DependencyList) => memo(() => callback, deps),
     useEffect: effect(false),
     useLayoutEffect: effect(true),
   };
@@ -55,7 +72,10 @@ const react = vi.hoisted(() => {
       draw();
       if (runtime.dirty) continue;
       commit();
-      const pending = [...runtime.pending.filter((e) => e.layout), ...runtime.pending.filter((e) => !e.layout)];
+      const pending = [
+        ...runtime.pending.filter((e) => e.layout),
+        ...runtime.pending.filter((e) => !e.layout),
+      ];
       for (const { slot, deps, run } of pending) {
         (runtime.slots[slot] as Committed | undefined)?.cleanup?.();
         runtime.slots[slot] = { deps, cleanup: run() };
@@ -66,7 +86,10 @@ const react = vi.hoisted(() => {
   }
   return { runtime, hooks, render };
 });
-vi.mock("react", async (original) => ({ ...await original<typeof import("react")>(), ...react.hooks }));
+vi.mock("react", async (original) => ({
+  ...(await original<typeof import("react")>()),
+  ...react.hooks,
+}));
 vi.mock("react-dom", () => ({
   flushSync: (update: () => void) => {
     update();
@@ -76,21 +99,43 @@ vi.mock("react-dom", () => ({
 
 const store = vi.hoisted(() => ({
   state: {
-    focusMessage: null as null | { threadId: string; messageId: string; nonce: number; consumed: boolean },
+    focusMessage: null as null | {
+      threadId: string;
+      messageId: string;
+      nonce: number;
+      consumed: boolean;
+    },
     loadingOlder: {} as Record<string, true>,
   },
   dispatch: (() => {}) as (action: unknown) => void,
 }));
-vi.mock("@/state/store-selectors", async (original) => ({ ...await original<typeof import("@/state/store-selectors")>(), ...await (await import("@/testing/store-selectors")).selectorsOverMockedStore() }));
+vi.mock("@/state/store-selectors", async (original) => ({
+  ...(await original<typeof import("@/state/store-selectors")>()),
+  ...(await (await import("@/testing/store-selectors")).selectorsOverMockedStore()),
+}));
 vi.mock("@/state/store", () => ({ useStore: () => store }));
 vi.mock("@/lib/focus-message", () => ({ useFocusMessage: () => {} }));
 
-vi.mock("./use-turn-landing", () => ({ useTurnLanding: ({ followingRef, turn }: { followingRef: { current: boolean }; turn?: { active: boolean } }) => ({ roomRef: { current: null }, pinFollowingRef: followingRef, holdsViewport: Boolean(turn?.active), release: () => {} }) }));
+vi.mock("./use-turn-landing", () => ({
+  useTurnLanding: ({
+    followingRef,
+    turn,
+  }: {
+    followingRef: { current: boolean };
+    turn?: { active: boolean };
+  }) => ({
+    roomRef: { current: null },
+    pinFollowingRef: followingRef,
+    holdsViewport: Boolean(turn?.active),
+    release: () => {},
+  }),
+}));
 
 import { useTranscriptViewport } from "./use-transcript-viewport";
 
 type Row = { id: string; role?: "user" | "bot" };
-const rows = (count: number, from = 0): Row[] => Array.from({ length: count }, (_, index) => ({ id: `m${from + index}` }));
+const rows = (count: number, from = 0): Row[] =>
+  Array.from({ length: count }, (_, index) => ({ id: `m${from + index}` }));
 
 const ROW = 50;
 const page = { body: { name: "body" }, documentElement: { name: "html" } };
@@ -126,7 +171,13 @@ let observers: number;
 let dispatched: unknown[];
 
 function mount(initial: Partial<Props> = {}, { opening = false }: { opening?: boolean } = {}) {
-  let props: Props = { ownerId: "bot", threadId: "thread", messages: rows(10), pinOn: [false], ...initial };
+  let props: Props = {
+    ownerId: "bot",
+    threadId: "thread",
+    messages: rows(10),
+    pinOn: [false],
+    ...initial,
+  };
   let result!: ReturnType<typeof useTranscriptViewport<Row>>;
   const draw = () => {
     result = useTranscriptViewport(props);
@@ -189,8 +240,10 @@ beforeEach(() => {
   store.state.loadingOlder = {};
   store.dispatch = (action) => dispatched.push(action);
   vi.stubGlobal("window", {
-    addEventListener: (_: string, listener: (event: Partial<KeyboardEvent>) => void) => keyListeners.add(listener),
-    removeEventListener: (_: string, listener: (event: Partial<KeyboardEvent>) => void) => keyListeners.delete(listener),
+    addEventListener: (_: string, listener: (event: Partial<KeyboardEvent>) => void) =>
+      keyListeners.add(listener),
+    removeEventListener: (_: string, listener: (event: Partial<KeyboardEvent>) => void) =>
+      keyListeners.delete(listener),
   });
   const asked = new Map<number, FrameRequestCallback>();
   vi.stubGlobal("requestAnimationFrame", (frame: FrameRequestCallback) => {
@@ -201,22 +254,33 @@ beforeEach(() => {
   vi.stubGlobal("cancelAnimationFrame", (handle: number) => {
     frames = frames.filter((frame) => frame !== asked.get(handle));
   });
-  vi.stubGlobal("ResizeObserver", class {
-    constructor() {
-      observers++;
-    }
-    observe() {}
-    disconnect() {}
-  });
+  vi.stubGlobal(
+    "ResizeObserver",
+    class {
+      constructor() {
+        observers++;
+      }
+      observe() {}
+      disconnect() {}
+    },
+  );
   vi.stubGlobal("HTMLTextAreaElement", class {});
   vi.stubGlobal("HTMLInputElement", class {});
-  vi.stubGlobal("HTMLElement", class { closest() { return null; } });
+  vi.stubGlobal(
+    "HTMLElement",
+    class {
+      closest() {
+        return null;
+      }
+    },
+  );
   vi.stubGlobal("Node", class {});
   return () => vi.unstubAllGlobals();
 });
 
 const press = (key: string, target: unknown = page.body, extra: Partial<KeyboardEvent> = {}) => {
-  for (const listener of keyListeners) listener({ key, target, ...extra } as unknown as KeyboardEvent);
+  for (const listener of keyListeners)
+    listener({ key, target, ...extra } as unknown as KeyboardEvent);
 };
 
 describe("transcript viewport", () => {
@@ -230,10 +294,16 @@ describe("transcript viewport", () => {
     expect(view.current.windowedMessages[0]?.id).toBe(first);
     expect(view.current.windowedMessages).toHaveLength(121);
     expect(view.current.windowedMessages.at(-1)?.id).toBe("reply");
-    view.rerender({ messages: [...landed, { id: "next-ask", role: "user" }], turn: { key: "two", active: true } });
+    view.rerender({
+      messages: [...landed, { id: "next-ask", role: "user" }],
+      turn: { key: "two", active: true },
+    });
     expect(view.current.windowedMessages[0]?.id).toBe("m13");
     expect(view.current.windowedMessages).toHaveLength(120);
-    view.rerender({ messages: [...landed, { id: "next-ask", role: "user" }, { id: "next-reply", role: "bot" }], turn: { key: "two", active: false } });
+    view.rerender({
+      messages: [...landed, { id: "next-ask", role: "user" }, { id: "next-reply", role: "bot" }],
+      turn: { key: "two", active: false },
+    });
     expect(view.current.windowedMessages).toHaveLength(121);
     expect(view.current.windowedMessages.at(-1)?.id).toBe("next-reply");
   });
@@ -242,7 +312,10 @@ describe("transcript viewport", () => {
     const messages: Row[] = [...rows(130), { id: "ask", role: "user" }];
     const view = mount({ messages: rows(130) });
     view.rerender({ messages, turn: { key: "one", active: true } });
-    view.rerender({ messages: [...messages, { id: "reply", role: "bot" }], turn: { key: "one", active: false } });
+    view.rerender({
+      messages: [...messages, { id: "reply", role: "bot" }],
+      turn: { key: "one", active: false },
+    });
     expect(view.current.windowedMessages).toHaveLength(121);
     view.act(() => view.current.jumpToLatest());
     expect(view.current.windowedMessages).toHaveLength(120);
@@ -253,19 +326,27 @@ describe("transcript viewport", () => {
     const messages: Row[] = [...rows(130), { id: "ask", role: "user" }];
     const view = mount({ messages: rows(130) });
     view.rerender({ messages, turn: { key: "one", active: true } });
-    view.rerender({ messages: [...messages, ...rows(120, 1000)], turn: { key: "one", active: false } });
+    view.rerender({
+      messages: [...messages, ...rows(120, 1000)],
+      turn: { key: "one", active: false },
+    });
     expect(view.current.windowedMessages).toHaveLength(240);
     expect(view.current.windowedMessages[0]?.id).toBe("m11");
     expect(view.current.windowedMessages.at(-1)?.id).toBe("m1119");
-    view.rerender({ messages: [...messages, ...rows(121, 1000)], turn: { key: "one", active: false } });
+    view.rerender({
+      messages: [...messages, ...rows(121, 1000)],
+      turn: { key: "one", active: false },
+    });
     expect(view.current.windowedMessages).toHaveLength(122);
     expect(view.current.windowedMessages[0]?.id).toBe("ask");
     expect(view.current.windowedMessages.at(-1)?.id).toBe("m1120");
-    view.rerender({ messages: [...messages, ...rows(500, 1000)], turn: { key: "one", active: false } });
+    view.rerender({
+      messages: [...messages, ...rows(500, 1000)],
+      turn: { key: "one", active: false },
+    });
     expect(view.current.windowedMessages).toHaveLength(120);
     expect(view.current.windowedMessages.at(-1)?.id).toBe("m1499");
   });
-
 
   it("opens a long chat on its newest rows, then fills the rest a frame at a time while staying at the bottom", () => {
     const view = mount({ messages: rows(300) }, { opening: true });
@@ -313,13 +394,18 @@ describe("transcript viewport", () => {
       return { shown, hidden };
     };
     expect(hiddenAtEachStep(100)).toEqual({ shown: [30, 60, 90, 100], hidden: [0, 0, 0, 0] });
-    expect(hiddenAtEachStep(300)).toEqual({ shown: [30, 60, 90, 120], hidden: [180, 180, 180, 180] });
+    expect(hiddenAtEachStep(300)).toEqual({
+      shown: [30, 60, 90, 120],
+      hidden: [180, 180, 180, 180],
+    });
 
     react.runtime.slots = [];
     const everyOther = (row: Row) => Number(row.id.slice(1)) % 2 === 0;
     const counted = mount({ messages: rows(300), counts: everyOther }, { opening: true });
     const settledAt = counted.current.hiddenCount;
-    expect(counted.current.filledMessages.length).toBeGreaterThan(counted.current.windowedMessages.length);
+    expect(counted.current.filledMessages.length).toBeGreaterThan(
+      counted.current.windowedMessages.length,
+    );
     counted.settle();
     expect(counted.current.filledMessages).toBe(counted.current.windowedMessages);
     expect(counted.current.hiddenCount).toBe(settledAt);
@@ -379,7 +465,9 @@ describe("transcript viewport", () => {
 
   it("shows the same rows and then the whole tail when an older page lands during the fill", () => {
     const view = mount({ messages: rows(150, 200) }, { opening: true });
-    expect(view.current.windowedMessages.map((row) => row.id)).toEqual(rows(30, 320).map((row) => row.id));
+    expect(view.current.windowedMessages.map((row) => row.id)).toEqual(
+      rows(30, 320).map((row) => row.id),
+    );
     view.rerender({ messages: rows(350) });
     expect(view.current.windowedMessages).toHaveLength(120);
     expect(view.current.windowedMessages[0]?.id).toBe("m230");
@@ -493,7 +581,10 @@ describe("transcript viewport", () => {
     expect(view.current.windowedMessages).toHaveLength(0);
     view.settle();
 
-    const late = mount({ ownerId: "late", threadId: "late-thread", messages: [] }, { opening: true });
+    const late = mount(
+      { ownerId: "late", threadId: "late-thread", messages: [] },
+      { opening: true },
+    );
     late.rerender({ messages: rows(200) });
     expect(late.current.windowedMessages).toHaveLength(30);
     late.settle();
@@ -521,20 +612,24 @@ describe("transcript viewport", () => {
 
   it("keeps the reader's position when End belongs to another control, and still jumps from the page", () => {
     vi.stubGlobal("HTMLSelectElement", class {});
-    vi.stubGlobal("document", { ...page, documentElement: { ...page.documentElement, dataset: {} }, querySelector: () => null });
+    vi.stubGlobal("document", {
+      ...page,
+      documentElement: { ...page.documentElement, dataset: {} },
+      querySelector: () => null,
+    });
     const view = mount({ messages: rows(300) });
     view.act(() => view.current.showEarlier());
     view.act(() => view.current.scrollHandlers.onWheel({ deltaY: -40 } as never));
     scroller.scrollTop = 200;
     const position = scroller.scrollTop;
-    const shown = view.current.windowedMessages.map(row => row.id);
+    const shown = view.current.windowedMessages.map((row) => row.id);
     const calls = scroller.calls.length;
     const preventDefault = vi.fn();
     view.act(() => press("End", new HTMLElement(), { preventDefault }));
     expect(view.current.following).toBe(false);
     expect(scroller.scrollTop).toBe(position);
     expect(scroller.calls).toHaveLength(calls);
-    expect(view.current.windowedMessages.map(row => row.id)).toEqual(shown);
+    expect(view.current.windowedMessages.map((row) => row.id)).toEqual(shown);
     expect(preventDefault).not.toHaveBeenCalled();
     view.act(() => press("End", page.body, { preventDefault }));
     expect(view.current.following).toBe(true);
@@ -545,7 +640,10 @@ describe("transcript viewport", () => {
   it("treats scrollbar grabs, scroll keys and a dragging finger as leaving the bottom", () => {
     const view = mount({ messages: rows(30) });
     view.act(() =>
-      view.current.scrollHandlers.onPointerDown({ target: scroller, nativeEvent: { offsetX: 404 } } as never),
+      view.current.scrollHandlers.onPointerDown({
+        target: scroller,
+        nativeEvent: { offsetX: 404 },
+      } as never),
     );
     expect(view.current.following).toBe(false);
 
@@ -567,8 +665,12 @@ describe("transcript viewport", () => {
 
     view.act(() => view.current.scrollHandlers.onWheel({ deltaY: 30 } as never));
     expect(view.current.following).toBe(true);
-    view.act(() => view.current.scrollHandlers.onTouchStart({ touches: [{ clientY: 100 }] } as never));
-    view.act(() => view.current.scrollHandlers.onTouchMove({ touches: [{ clientY: 110 }] } as never));
+    view.act(() =>
+      view.current.scrollHandlers.onTouchStart({ touches: [{ clientY: 100 }] } as never),
+    );
+    view.act(() =>
+      view.current.scrollHandlers.onTouchMove({ touches: [{ clientY: 110 }] } as never),
+    );
     expect(view.current.following).toBe(false);
   });
 
@@ -580,7 +682,10 @@ describe("transcript viewport", () => {
     view.act(() => view.current.showEarlier());
     expect(view.current.hiddenCount).toBe(60);
 
-    view.rerender({ threadId: "other", messages: [{ id: "ask", role: "user" }, ...rows(299, 1_001)] });
+    view.rerender({
+      threadId: "other",
+      messages: [{ id: "ask", role: "user" }, ...rows(299, 1_001)],
+    });
     expect(view.current.transcriptKey).toBe("bot:other");
     expect(view.current.hiddenCount).toBe(180);
     expect(view.current.windowedMessages[0]?.id).toBe("m1180");

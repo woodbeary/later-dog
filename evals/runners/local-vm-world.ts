@@ -33,15 +33,18 @@ export class LocalVmWorld extends BaseWorld {
     writeFileSync(join(ui, "assets", "eval.css"), "body{}");
     mkdirSync(data, { recursive: true });
     this.vmState({});
-    writeFileSync(join(data, "config.json"), JSON.stringify({
-      instances: {
-        claude: {
-          driver: "claudeAgent",
-          config: { cli: join(ROOT, "server", "testing", "fake-claude-cli.ts") },
-          environment: { FAKE_CLAUDE_ROOM_PLAN: this.planPath, FAKE_CLAUDE_DUMP: this.dumpFile },
+    writeFileSync(
+      join(data, "config.json"),
+      JSON.stringify({
+        instances: {
+          claude: {
+            driver: "claudeAgent",
+            config: { cli: join(ROOT, "server", "testing", "fake-claude-cli.ts") },
+            environment: { FAKE_CLAUDE_ROOM_PLAN: this.planPath, FAKE_CLAUDE_DUMP: this.dumpFile },
+          },
         },
-      },
-    }));
+      }),
+    );
     const port = await leasePortBlock([0, 1]);
     const hooks = pathToFileURL(join(ROOT, "server", "testing", "group-local-vm-hooks.mjs")).href;
     const env: NodeJS.ProcessEnv = {
@@ -60,11 +63,15 @@ export class LocalVmWorld extends BaseWorld {
       LATERDOG_TEST_VM_STATE: this.stateFile,
       ...(process.env.SystemRoot ? { SystemRoot: process.env.SystemRoot } : {}),
     };
-    const child = this.child = spawn(process.execPath, ["--import", hooks, join(ROOT, "server", "index.ts")], {
-      cwd: ROOT,
-      env,
-      stdio: ["ignore", "pipe", "pipe"],
-    });
+    const child = (this.child = spawn(
+      process.execPath,
+      ["--import", hooks, join(ROOT, "server", "index.ts")],
+      {
+        cwd: ROOT,
+        env,
+        stdio: ["ignore", "pipe", "pipe"],
+      },
+    ));
     this.child.stderr?.on("data", (chunk) => (this.stderr += chunk));
     const base = "http://127.0.0.1:" + port;
     await waitUntil(
@@ -86,17 +93,23 @@ export class LocalVmWorld extends BaseWorld {
     await this.initBase(base, this.planPath + ".evidence.jsonl", join(data, "eval-gates"));
     for (const bot of scenario.bots) {
       const created = await this.api.post("/api/bots", { name: bot.name });
-      if (created.status >= 300) throw new Error("bot create failed: " + JSON.stringify(created.body));
+      if (created.status >= 300)
+        throw new Error("bot create failed: " + JSON.stringify(created.body));
       this.bots.set(bot.key, { id: created.body.bot.id, threadId: created.body.bot.threadId });
       const patch: Record<string, unknown> = {};
       if (bot.computer !== undefined) patch.computer = bot.computer;
       if (bot.browser !== undefined) patch.browser = bot.browser;
       if (Object.keys(patch).length > 0) {
         const response = await this.api.patch("/api/bots/" + created.body.bot.id, patch);
-        if (response.status >= 300) throw new Error("bot patch failed: " + JSON.stringify(response.body));
+        if (response.status >= 300)
+          throw new Error("bot patch failed: " + JSON.stringify(response.body));
       }
     }
-    const plan = buildScriptedPlan(scenario, (ref) => this.botId(ref), (gate) => this.gatePath(gate));
+    const plan = buildScriptedPlan(
+      scenario,
+      (ref) => this.botId(ref),
+      (gate) => this.gatePath(gate),
+    );
     writeFileSync(this.planPath, JSON.stringify(plan));
   }
 
@@ -135,14 +148,20 @@ export class LocalVmWorld extends BaseWorld {
       case "captureComputer": {
         const dump = await this.readDump(20_000);
         const computer = dump?.mcpConfig?.mcpServers?.computer;
-        if (!computer?.env?.LATERDOG_CONTROL_URL) throw new Error("no computer mount in dump: " + JSON.stringify(dump?.mcpConfig ?? null));
-        this.computers.set(step.bot, { url: computer.env.LATERDOG_CONTROL_URL, token: computer.env.LATERDOG_CONTROL_TOKEN });
+        if (!computer?.env?.LATERDOG_CONTROL_URL)
+          throw new Error("no computer mount in dump: " + JSON.stringify(dump?.mcpConfig ?? null));
+        this.computers.set(step.bot, {
+          url: computer.env.LATERDOG_CONTROL_URL,
+          token: computer.env.LATERDOG_CONTROL_TOKEN,
+        });
         return "computer gate captured for " + step.bot;
       }
       case "pollComputerGate": {
         const computer = this.computers.get(step.bot);
         if (computer === undefined) throw new Error("no captured computer for " + step.bot);
-        const response = await fetch(computer.url, { headers: { authorization: "Bearer " + computer.token } });
+        const response = await fetch(computer.url, {
+          headers: { authorization: "Bearer " + computer.token },
+        });
         const body = (await response.json().catch(() => ({}))) as Record<string, unknown>;
         ctx.observations[step.saveAs] = { httpStatus: response.status, ...body };
         return "gate answered " + response.status + ": " + JSON.stringify(body);

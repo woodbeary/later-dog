@@ -1,5 +1,14 @@
 export type NativeActorState = "running" | "waiting" | "paused" | "done" | "failed" | "stopped";
-export type NativeActivityKind = "tool" | "search" | "reasoning" | "message" | "plan" | "hook" | "compaction" | "request" | "notice";
+export type NativeActivityKind =
+  | "tool"
+  | "search"
+  | "reasoning"
+  | "message"
+  | "plan"
+  | "hook"
+  | "compaction"
+  | "request"
+  | "notice";
 
 export interface NativeActor {
   id: string;
@@ -44,7 +53,12 @@ export interface NativeActivity {
 export type NativeObservation =
   | { kind: "actor"; actor: NativeActor }
   | { kind: "activity"; activity: NativeActivity; append?: "text" | "output" }
-  | { kind: "capabilities"; version?: string; limitations: string[]; handlesParentActivity?: boolean };
+  | {
+      kind: "capabilities";
+      version?: string;
+      limitations: string[];
+      handlesParentActivity?: boolean;
+    };
 
 export interface NativeRun {
   id: string;
@@ -68,7 +82,8 @@ export interface NativeRun {
   truncated?: boolean;
   nativeActivity?: boolean;
   nativeParentActivity?: boolean;
-  currentActivity?: Pick<NativeActivity, "id" | "actorId" | "kind" | "label" | "state"> & Partial<Pick<NativeActivity, "startedAt" | "subject">>;
+  currentActivity?: Pick<NativeActivity, "id" | "actorId" | "kind" | "label" | "state"> &
+    Partial<Pick<NativeActivity, "startedAt" | "subject">>;
 }
 
 export interface NativeRunDetail {

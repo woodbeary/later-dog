@@ -9,7 +9,6 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { removeTempDir, waitForExit } from "./testing/cleanup.ts";
 import { leasePortBlock } from "./testing/ports.ts";
 
-
 const SERVER_DIR = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(SERVER_DIR, "..");
 const FAKE_CLAUDE = join(SERVER_DIR, "testing", "fake-claude-cli.ts");
@@ -21,7 +20,11 @@ let output = "";
 let titleFile = "";
 let titleDump = "";
 
-const api = async (method: string, path: string, body?: unknown): Promise<{ status: number; body: any }> => {
+const api = async (
+  method: string,
+  path: string,
+  body?: unknown,
+): Promise<{ status: number; body: any }> => {
   const response = await fetch(`${base}${path}`, {
     method,
     headers: body ? { "content-type": "application/json" } : {},
@@ -32,7 +35,9 @@ const api = async (method: string, path: string, body?: unknown): Promise<{ stat
 };
 
 const taskTitle = async (botId: string, threadId: string): Promise<string | undefined> => {
-  const bot = (await api("GET", "/api/bots?messages=0")).body.bots.find((candidate: { id: string }) => candidate.id === botId);
+  const bot = (await api("GET", "/api/bots?messages=0")).body.bots.find(
+    (candidate: { id: string }) => candidate.id === botId,
+  );
   return bot?.tasks?.find((task: { threadId: string }) => task.threadId === threadId)?.title;
 };
 
@@ -42,19 +47,31 @@ beforeAll(async () => {
   const staticDir = join(home, "static");
   mkdirSync(data, { recursive: true });
   mkdirSync(join(staticDir, "assets"), { recursive: true });
-  writeFileSync(join(staticDir, "index.html"), "<!doctype html><title>Regenerate title test</title>");
+  writeFileSync(
+    join(staticDir, "index.html"),
+    "<!doctype html><title>Regenerate title test</title>",
+  );
   writeFileSync(join(staticDir, "assets", "smoke.css"), "body{}");
   titleFile = join(home, "title.txt");
   titleDump = join(home, "title-dump.json");
-  writeFileSync(join(data, "config.json"), JSON.stringify({
-    features: { llmThreadTitles: true },
-    instances: {
-      titled: {
-        driver: "claudeAgent", displayName: "Titled fixture", config: { cli: FAKE_CLAUDE },
-        environment: { FAKE_CLAUDE_MODE: "happy", FAKE_CLAUDE_TEXT_DUMP: titleDump, FAKE_CLAUDE_TEXT_FILE: titleFile },
+  writeFileSync(
+    join(data, "config.json"),
+    JSON.stringify({
+      features: { llmThreadTitles: true },
+      instances: {
+        titled: {
+          driver: "claudeAgent",
+          displayName: "Titled fixture",
+          config: { cli: FAKE_CLAUDE },
+          environment: {
+            FAKE_CLAUDE_MODE: "happy",
+            FAKE_CLAUDE_TEXT_DUMP: titleDump,
+            FAKE_CLAUDE_TEXT_FILE: titleFile,
+          },
+        },
       },
-    },
-  }));
+    }),
+  );
   const port = await leasePortBlock([0, 1]);
   base = `http://127.0.0.1:${port}`;
   child = spawn(process.execPath, [join(SERVER_DIR, "index.ts")], {
@@ -97,25 +114,46 @@ describe("Regenerate title", { timeout: 60_000 }, () => {
   });
 
   it("names a renamed thread from its recent conversation, without tool output", async () => {
-    const bot = (await api("POST", "/api/bots", {
-      modelSelection: { instanceId: "titled", model: "claude-sonnet-5" }, requireAvailableModel: true,
-    })).body.bot;
+    const bot = (
+      await api("POST", "/api/bots", {
+        modelSelection: { instanceId: "titled", model: "claude-sonnet-5" },
+        requireAvailableModel: true,
+      })
+    ).body.bot;
     botId = bot.id;
     expect((await api("PATCH", `/api/bots/${botId}`, { memoryUpkeep: false })).status).toBe(200);
     rmSync(titleFile, { force: true });
-    const sent = await api("POST", `/api/bots/${botId}/messages`, { text: "every login hangs after the session expires" });
+    const sent = await api("POST", `/api/bots/${botId}/messages`, {
+      text: "every login hangs after the session expires",
+    });
     expect(sent.status).toBe(202);
     threadId = sent.body.threadId;
-    await expect.poll(async () => {
-      const page = (await api("GET", `/api/threads/${threadId}/messages?limit=50`)).body;
-      const current = (await api("GET", "/api/bots?messages=0")).body.bots.find((candidate: { id: string }) => candidate.id === botId);
-      return !current?.busy && (page?.messages ?? []).some((message: { role: string; kind: string }) => message.role === "bot" && message.kind === "text");
-    }, { timeout: 20_000, interval: 150 }).toBe(true);
+    await expect
+      .poll(
+        async () => {
+          const page = (await api("GET", `/api/threads/${threadId}/messages?limit=50`)).body;
+          const current = (await api("GET", "/api/bots?messages=0")).body.bots.find(
+            (candidate: { id: string }) => candidate.id === botId,
+          );
+          return (
+            !current?.busy &&
+            (page?.messages ?? []).some(
+              (message: { role: string; kind: string }) =>
+                message.role === "bot" && message.kind === "text",
+            )
+          );
+        },
+        { timeout: 20_000, interval: 150 },
+      )
+      .toBe(true);
     await expect.poll(() => existsSync(titleDump), { timeout: 10_000 }).toBe(true);
     rmSync(titleDump, { force: true });
 
-    expect((await api("PATCH", `/api/bots/${botId}/tasks/${threadId}`, { title: "My name for it" })).status).toBe(200);
-    writeFileSync(titleFile, "\"Session expiry login hang.\"\n");
+    expect(
+      (await api("PATCH", `/api/bots/${botId}/tasks/${threadId}`, { title: "My name for it" }))
+        .status,
+    ).toBe(200);
+    writeFileSync(titleFile, '"Session expiry login hang."\n');
     const regenerated = await api("POST", `/api/bots/${botId}/tasks/${threadId}/title`);
     expect(regenerated.status).toBe(200);
     expect(regenerated.body.task.title).toBe("Session expiry login hang");
@@ -123,7 +161,9 @@ describe("Regenerate title", { timeout: 60_000 }, () => {
 
     const seen = JSON.parse(readFileSync(titleDump, "utf8"));
     expect(seen.prompt).toContain("an excerpt of a conversation");
-    expect(seen.prompt).toContain('"User: every login hangs after the session expires"\n"Bot: hello from fake claude"');
+    expect(seen.prompt).toContain(
+      '"User: every login hangs after the session expires"\n"Bot: hello from fake claude"',
+    );
     expect(seen.prompt).not.toContain("echo hi");
   });
 
@@ -132,7 +172,9 @@ describe("Regenerate title", { timeout: 60_000 }, () => {
     const failed = await api("POST", `/api/bots/${botId}/tasks/${threadId}/title`);
     expect(failed.status).toBe(200);
     expect(failed.body.task.title).toBe("every login hangs after the session expires");
-    expect(await api("PATCH", `/api/bots/${botId}/tasks/${threadId}`, { title: "My name for it" })).toMatchObject({ status: 200 });
+    expect(
+      await api("PATCH", `/api/bots/${botId}/tasks/${threadId}`, { title: "My name for it" }),
+    ).toMatchObject({ status: 200 });
     writeFileSync(titleFile, "Sorry, I can't help with that");
     const unusable = await api("POST", `/api/bots/${botId}/tasks/${threadId}/title`);
     expect(unusable.status).toBe(200);
@@ -148,7 +190,9 @@ describe("Regenerate title", { timeout: 60_000 }, () => {
   });
 
   it("is refused once generated titles are switched off", async () => {
-    expect((await api("PATCH", "/api/config", { features: { llmThreadTitles: false } })).status).toBe(200);
+    expect(
+      (await api("PATCH", "/api/config", { features: { llmThreadTitles: false } })).status,
+    ).toBe(200);
     expect((await api("GET", "/api/config")).body.features.llmThreadTitles).toBe(false);
     writeFileSync(titleFile, "Anything at all");
     const off = await api("POST", `/api/bots/${botId}/tasks/${threadId}/title`);

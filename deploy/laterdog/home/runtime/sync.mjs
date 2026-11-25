@@ -1,5 +1,18 @@
 import { createHash } from "node:crypto";
-import { chmod, lchown, lstat, mkdir, open, readdir, readlink, rename, rm, statfs, symlink, utimes } from "node:fs/promises";
+import {
+  chmod,
+  lchown,
+  lstat,
+  mkdir,
+  open,
+  readdir,
+  readlink,
+  rename,
+  rm,
+  statfs,
+  symlink,
+  utimes,
+} from "node:fs/promises";
 import { dirname, join, relative } from "node:path";
 import { backup, DatabaseSync } from "node:sqlite";
 
@@ -12,7 +25,20 @@ export const FINAL_SAVE_MS = 120_000;
 export const SNAPSHOT_RESERVE_BYTES = 256 * 1024 * 1024;
 const RESTORING_PREFIX = ".laterdog-restoring-";
 const SQLITE = /\.(?:sqlite3?|db)$/;
-const SKIPPED_NAMES = new Set(["node_modules", ".cache", ".tmp", ".npm", ".pnpm-store", "Cache", "Code Cache", "GPUCache", "ShaderCache", "Crashpad", ".Trash", "lost+found"]);
+const SKIPPED_NAMES = new Set([
+  "node_modules",
+  ".cache",
+  ".tmp",
+  ".npm",
+  ".pnpm-store",
+  "Cache",
+  "Code Cache",
+  "GPUCache",
+  "ShaderCache",
+  "Crashpad",
+  ".Trash",
+  "lost+found",
+]);
 const SKIPPED_SUFFIXES = ["-wal", "-shm", "-journal"];
 const SKIPPED_PATHS = [".local/share/pnpm"];
 const REFRESH_LOCK_NAMES = new Set([".oauth_refresh.lock", ".oauth_refresh.lock.owner"]);
@@ -32,11 +58,18 @@ function restorePointAge(name) {
 }
 
 export function skipped(name, type = "file") {
-  return SKIPPED_NAMES.has(name) || REFRESH_LOCK_NAMES.has(name) || name.startsWith(RESTORING_PREFIX) || (type !== "dir" && SKIPPED_SUFFIXES.some((suffix) => name.endsWith(suffix)));
+  return (
+    SKIPPED_NAMES.has(name) ||
+    REFRESH_LOCK_NAMES.has(name) ||
+    name.startsWith(RESTORING_PREFIX) ||
+    (type !== "dir" && SKIPPED_SUFFIXES.some((suffix) => name.endsWith(suffix)))
+  );
 }
 
 export function skippedPath(path) {
-  return SKIPPED_PATHS.some((skippedRoot) => path === skippedRoot || path.startsWith(`${skippedRoot}/`));
+  return SKIPPED_PATHS.some(
+    (skippedRoot) => path === skippedRoot || path.startsWith(`${skippedRoot}/`),
+  );
 }
 
 export function heldLock(name, type) {
@@ -58,16 +91,31 @@ const NAMED_FAILURES = new Set(["TimeoutError", "AbortError"]);
 
 export function failureReason(error) {
   const code = error?.cause?.code ?? (typeof error?.code === "string" ? error.code : undefined);
-  return String(code ?? (NAMED_FAILURES.has(error?.name) ? error.name : undefined) ?? error?.message ?? error).slice(0, 120);
+  return String(
+    code ?? (NAMED_FAILURES.has(error?.name) ? error.name : undefined) ?? error?.message ?? error,
+  ).slice(0, 120);
 }
 
-export function createHttpStore(baseUrl, token, fetcher = globalThis.fetch, { blobTimeoutMs = BLOB_TIMEOUT_MS, requestTimeoutMs = REQUEST_TIMEOUT_MS, uploadTimeoutMs = UPLOAD_TIMEOUT_MS } = {}) {
+export function createHttpStore(
+  baseUrl,
+  token,
+  fetcher = globalThis.fetch,
+  {
+    blobTimeoutMs = BLOB_TIMEOUT_MS,
+    requestTimeoutMs = REQUEST_TIMEOUT_MS,
+    uploadTimeoutMs = UPLOAD_TIMEOUT_MS,
+  } = {},
+) {
   const base = baseUrl.replace(/\/+$/, "");
   const headers = { authorization: `Bearer ${token}` };
   const call = async (path, init = {}, timeoutMs = requestTimeoutMs) => {
     const deadline = AbortSignal.timeout(timeoutMs);
     const signal = init.signal ? AbortSignal.any([init.signal, deadline]) : deadline;
-    return fetcher(`${base}/${path}`, { ...init, signal, headers: { ...headers, ...init.headers } });
+    return fetcher(`${base}/${path}`, {
+      ...init,
+      signal,
+      headers: { ...headers, ...init.headers },
+    });
   };
   return {
     async manifest() {
@@ -77,7 +125,10 @@ export function createHttpStore(baseUrl, token, fetcher = globalThis.fetch, { bl
       return parseManifest(await response.json());
     },
     async putManifest(manifest) {
-      const response = await call("manifest.json", { method: "PUT", body: JSON.stringify(manifest) });
+      const response = await call("manifest.json", {
+        method: "PUT",
+        body: JSON.stringify(manifest),
+      });
       if (!response.ok) throw new Error(`manifest write failed: ${response.status}`);
     },
     async has(hash) {
@@ -99,34 +150,51 @@ export function createHttpStore(baseUrl, token, fetcher = globalThis.fetch, { bl
       const response = await call(`blobs/${cursor ? `?cursor=${encodeURIComponent(cursor)}` : ""}`);
       if (!response.ok) throw new Error(`blob list failed: ${response.status}`);
       const page = await response.json();
-      return { hashes: Array.isArray(page?.hashes) ? page.hashes.filter((hash) => HASH.test(hash)) : [], ...(typeof page?.cursor === "string" ? { cursor: page.cursor } : {}) };
+      return {
+        hashes: Array.isArray(page?.hashes) ? page.hashes.filter((hash) => HASH.test(hash)) : [],
+        ...(typeof page?.cursor === "string" ? { cursor: page.cursor } : {}),
+      };
     },
     async deleteBlob(hash) {
       const response = await call(`blobs/${hash}`, { method: "DELETE" });
-      if (!response.ok && response.status !== 404) throw new Error(`blob delete failed: ${response.status}`);
+      if (!response.ok && response.status !== 404)
+        throw new Error(`blob delete failed: ${response.status}`);
     },
     async restorePoints() {
       const response = await call("restore-points/");
-      if (!response.ok) throw new StoreRefused(`restore point list failed: ${response.status}`, response.status);
+      if (!response.ok)
+        throw new StoreRefused(`restore point list failed: ${response.status}`, response.status);
       const page = await response.json();
-      const names = Array.isArray(page?.names) ? page.names.filter((name) => RESTORE_POINT_NAME.test(name)) : [];
+      const names = Array.isArray(page?.names)
+        ? page.names.filter((name) => RESTORE_POINT_NAME.test(name))
+        : [];
       return names.sort((left, right) => restorePointAge(left) - restorePointAge(right));
     },
     async restorePoint(name) {
       const response = await call(`restore-points/${name}`);
-      if (!response.ok) throw new StoreRefused(`restore point read failed: ${response.status}`, response.status);
+      if (!response.ok)
+        throw new StoreRefused(`restore point read failed: ${response.status}`, response.status);
       return parseManifest(await response.json());
     },
     async putRestorePoint(name, manifest) {
-      const response = await call(`restore-points/${name}`, { method: "PUT", body: JSON.stringify(manifest) });
-      if (!response.ok) throw new StoreRefused(`restore point write failed: ${response.status}`, response.status);
+      const response = await call(`restore-points/${name}`, {
+        method: "PUT",
+        body: JSON.stringify(manifest),
+      });
+      if (!response.ok)
+        throw new StoreRefused(`restore point write failed: ${response.status}`, response.status);
     },
     async devCode() {
       const response = await call("dev-code.json");
       if (response.status === 404) return null;
       if (!response.ok) throw new Error(`dev code read failed: ${response.status}`);
       const pointer = await response.json().catch(() => null);
-      return typeof pointer?.hash === "string" && HASH.test(pointer.hash) ? { hash: pointer.hash, ...(typeof pointer.label === "string" ? { label: pointer.label } : {}) } : null;
+      return typeof pointer?.hash === "string" && HASH.test(pointer.hash)
+        ? {
+            hash: pointer.hash,
+            ...(typeof pointer.label === "string" ? { label: pointer.label } : {}),
+          }
+        : null;
     },
     async devBundle(hash) {
       const response = await call(`dev-code/${hash}.tgz`, {}, blobTimeoutMs);
@@ -140,7 +208,10 @@ export function createHttpStore(baseUrl, token, fetcher = globalThis.fetch, { bl
       return await response.json();
     },
     async putArchiveIndex(index) {
-      const response = await call("archive/index.json", { method: "PUT", body: JSON.stringify(index) });
+      const response = await call("archive/index.json", {
+        method: "PUT",
+        body: JSON.stringify(index),
+      });
       if (!response.ok) throw new Error(`archive index write failed: ${response.status}`);
     },
     async hasArchived(hash) {
@@ -155,29 +226,50 @@ export function createHttpStore(baseUrl, token, fetcher = globalThis.fetch, { bl
       return new Uint8Array(await response.arrayBuffer());
     },
     async putArchived(hash, bytes) {
-      const response = await call(`archive/blobs/${hash}`, { method: "PUT", body: bytes }, uploadTimeoutMs);
+      const response = await call(
+        `archive/blobs/${hash}`,
+        { method: "PUT", body: bytes },
+        uploadTimeoutMs,
+      );
       if (!response.ok) throw new Error(`archive write failed: ${response.status}`);
     },
     async listArchived(cursor) {
-      const response = await call(`archive/blobs/${cursor ? `?cursor=${encodeURIComponent(cursor)}` : ""}`);
+      const response = await call(
+        `archive/blobs/${cursor ? `?cursor=${encodeURIComponent(cursor)}` : ""}`,
+      );
       if (!response.ok) throw new Error(`archive list failed: ${response.status}`);
       const page = await response.json();
-      return { hashes: Array.isArray(page?.hashes) ? page.hashes.filter((hash) => HASH.test(hash)) : [], ...(typeof page?.cursor === "string" ? { cursor: page.cursor } : {}) };
+      return {
+        hashes: Array.isArray(page?.hashes) ? page.hashes.filter((hash) => HASH.test(hash)) : [],
+        ...(typeof page?.cursor === "string" ? { cursor: page.cursor } : {}),
+      };
     },
     async deleteRestorePoint(name) {
       const response = await call(`restore-points/${name}`, { method: "DELETE" });
-      if (!response.ok && response.status !== 404) throw new StoreRefused(`restore point delete failed: ${response.status}`, response.status);
+      if (!response.ok && response.status !== 404)
+        throw new StoreRefused(`restore point delete failed: ${response.status}`, response.status);
     },
   };
 }
 
 export function parseManifest(input) {
-  if (!input || input.version !== MANIFEST_VERSION || !Array.isArray(input.entries)) throw new Error("unreadable manifest");
+  if (!input || input.version !== MANIFEST_VERSION || !Array.isArray(input.entries))
+    throw new Error("unreadable manifest");
   for (const entry of input.entries) {
-    if (typeof entry?.path !== "string" || entry.path.startsWith("/") || entry.path.split("/").includes("..")) throw new Error("unsafe manifest path");
+    if (
+      typeof entry?.path !== "string" ||
+      entry.path.startsWith("/") ||
+      entry.path.split("/").includes("..")
+    )
+      throw new Error("unsafe manifest path");
     if (!["dir", "file", "link"].includes(entry.type)) throw new Error("unknown manifest entry");
-    if (entry.type === "file" && !(Array.isArray(entry.chunks) && entry.chunks.every((hash) => HASH.test(hash)))) throw new Error("bad manifest chunks");
-    if (entry.type === "link" && typeof entry.target !== "string") throw new Error("bad manifest link");
+    if (
+      entry.type === "file" &&
+      !(Array.isArray(entry.chunks) && entry.chunks.every((hash) => HASH.test(hash)))
+    )
+      throw new Error("bad manifest chunks");
+    if (entry.type === "link" && typeof entry.target !== "string")
+      throw new Error("bad manifest link");
   }
   return input;
 }
@@ -196,7 +288,11 @@ async function inspected(path, inspect) {
 async function inspectedTogether(paths, inspect) {
   const all = [];
   for (let start = 0; start < paths.length; start += LISTING_PARALLEL) {
-    all.push(...(await Promise.all(paths.slice(start, start + LISTING_PARALLEL).map((path) => inspected(path, inspect)))));
+    all.push(
+      ...(await Promise.all(
+        paths.slice(start, start + LISTING_PARALLEL).map((path) => inspected(path, inspect)),
+      )),
+    );
   }
   return all;
 }
@@ -208,14 +304,23 @@ async function walk(root, directory, found, inspect) {
   } catch {
     return;
   }
-  const kept = names.sort().filter((name) => !skipped(name, "dir") && !skippedPath(relative(root, join(directory, name))));
-  const listed = await inspectedTogether(kept.map((name) => join(directory, name)), inspect);
+  const kept = names
+    .sort()
+    .filter((name) => !skipped(name, "dir") && !skippedPath(relative(root, join(directory, name))));
+  const listed = await inspectedTogether(
+    kept.map((name) => join(directory, name)),
+    inspect,
+  );
   for (const [index, name] of kept.entries()) {
     if (!listed[index]) continue;
     const { info, target } = listed[index];
     if (!info.isDirectory() && skipped(name)) continue;
     const path = join(directory, name);
-    const entry = { path: relative(root, path), mode: info.mode & 0o7777, mtimeMs: Math.floor(info.mtimeMs) };
+    const entry = {
+      path: relative(root, path),
+      mode: info.mode & 0o7777,
+      mtimeMs: Math.floor(info.mtimeMs),
+    };
     if (info.isDirectory()) {
       if (heldLock(name, "dir")) continue;
       found.push({ ...entry, type: "dir" });
@@ -298,9 +403,13 @@ async function diskFree(path) {
 }
 
 async function roomForCopy(path, entry, scratch, freeBytes) {
-  const free = await Promise.resolve().then(() => freeBytes(scratch)).catch(() => null);
+  const free = await Promise.resolve()
+    .then(() => freeBytes(scratch))
+    .catch(() => null);
   if (typeof free !== "number" || !Number.isFinite(free)) return false;
-  const wal = await lstat(`${path}-wal`).catch((error) => (error?.code === "ENOENT" ? { size: 0 } : null));
+  const wal = await lstat(`${path}-wal`).catch((error) =>
+    error?.code === "ENOENT" ? { size: 0 } : null,
+  );
   if (!wal) return false;
   return free >= entry.size + wal.size + SNAPSHOT_RESERVE_BYTES;
 }
@@ -339,8 +448,25 @@ export function resumeOrder(waiting, resumeAfter) {
   return start <= 0 ? waiting : [...waiting.slice(start), ...waiting.slice(0, start)];
 }
 
-export async function snapshot(root, store, previous, { scratch, now = Date.now, app, budgetMs = Infinity, freeBytes = diskFree, resumeAfter, parallel = SAVE_PARALLEL } = {}) {
-  const known = new Map((previous?.entries ?? []).filter((entry) => entry.type === "file").map((entry) => [entry.path, entry]));
+export async function snapshot(
+  root,
+  store,
+  previous,
+  {
+    scratch,
+    now = Date.now,
+    app,
+    budgetMs = Infinity,
+    freeBytes = diskFree,
+    resumeAfter,
+    parallel = SAVE_PARALLEL,
+  } = {},
+) {
+  const known = new Map(
+    (previous?.entries ?? [])
+      .filter((entry) => entry.type === "file")
+      .map((entry) => [entry.path, entry]),
+  );
   const unsaved = [];
   let unsavedReason;
   const keep = storedPieces(store, referencedBlobs(previous));
@@ -363,7 +489,12 @@ export async function snapshot(root, store, previous, { scratch, now = Date.now,
     const before = known.get(entry.path);
     const database = SQLITE.test(entry.path);
     const stamp = database ? await databaseStamp(join(root, entry.path), entry) : undefined;
-    if (before && before.size === entry.size && before.mtimeMs === entry.mtimeMs && before.stamp === stamp) {
+    if (
+      before &&
+      before.size === entry.size &&
+      before.mtimeMs === entry.mtimeMs &&
+      before.stamp === stamp
+    ) {
       slots[index] = { ...entry, ...(stamp ? { stamp } : {}), chunks: before.chunks };
       continue;
     }
@@ -419,25 +550,66 @@ export async function snapshot(root, store, previous, { scratch, now = Date.now,
   await Promise.all(Array.from({ length: Math.max(1, Math.min(parallel, order.length)) }, worker));
   const entries = slots.filter(Boolean);
   const carryOn = deferred > 0 ? lastStarted : undefined;
-  const manifest = { version: MANIFEST_VERSION, createdAt: now(), ...(app ? { app } : {}), entries };
-  if (uploaded > 0 || !previous || (app && previous.app !== app) || previous.entries.length !== entries.length || changedShape(previous.entries, entries)) {
+  const manifest = {
+    version: MANIFEST_VERSION,
+    createdAt: now(),
+    ...(app ? { app } : {}),
+    entries,
+  };
+  if (
+    uploaded > 0 ||
+    !previous ||
+    (app && previous.app !== app) ||
+    previous.entries.length !== entries.length ||
+    changedShape(previous.entries, entries)
+  ) {
     await store.putManifest(manifest);
-    return { manifest, written: true, uploaded, unsaved, unsavedReason, deferred, resumeAfter: carryOn };
+    return {
+      manifest,
+      written: true,
+      uploaded,
+      unsaved,
+      unsavedReason,
+      deferred,
+      resumeAfter: carryOn,
+    };
   }
-  return { manifest: previous, written: false, uploaded, unsaved, unsavedReason, deferred, resumeAfter: carryOn };
+  return {
+    manifest: previous,
+    written: false,
+    uploaded,
+    unsaved,
+    unsavedReason,
+    deferred,
+    resumeAfter: carryOn,
+  };
 }
 
 export function settleWithin(work, ms) {
   let timer;
-  const late = new Promise((resolve) => { timer = setTimeout(() => resolve("late"), ms); });
-  return Promise.race([work.then(() => "done", () => "failed"), late]).finally(() => clearTimeout(timer));
+  const late = new Promise((resolve) => {
+    timer = setTimeout(() => resolve("late"), ms);
+  });
+  return Promise.race([
+    work.then(
+      () => "done",
+      () => "failed",
+    ),
+    late,
+  ]).finally(() => clearTimeout(timer));
 }
 
 function changedShape(before, after) {
   for (let index = 0; index < after.length; index += 1) {
     const left = before[index];
     const right = after[index];
-    if (left.path !== right.path || left.type !== right.type || left.mode !== right.mode || left.target !== right.target) return true;
+    if (
+      left.path !== right.path ||
+      left.type !== right.type ||
+      left.mode !== right.mode ||
+      left.target !== right.target
+    )
+      return true;
   }
   return false;
 }
@@ -453,7 +625,12 @@ function sha256(bytes) {
 async function writeAll(handle, bytes, position) {
   let written = 0;
   while (written < bytes.length) {
-    const { bytesWritten } = await handle.write(bytes, written, bytes.length - written, position + written);
+    const { bytesWritten } = await handle.write(
+      bytes,
+      written,
+      bytes.length - written,
+      position + written,
+    );
     written += bytesWritten;
   }
   return position + written;
@@ -485,7 +662,11 @@ async function readChunk(store, hash, stop, { attempts, retryMs }) {
 
 async function alreadyRestored(path, entry) {
   const existing = await lstat(path).catch(() => null);
-  return existing?.isFile() === true && existing.size === entry.size && Math.round(existing.mtimeMs) === Math.trunc(entry.mtimeMs);
+  return (
+    existing?.isFile() === true &&
+    existing.size === entry.size &&
+    Math.round(existing.mtimeMs) === Math.trunc(entry.mtimeMs)
+  );
 }
 
 async function download(entry, store, staging, stop, retries) {
@@ -509,7 +690,12 @@ async function clearForFile(path) {
   if (existing?.isDirectory()) await rm(path, { recursive: true, force: true });
 }
 
-export async function restore(root, store, owner, { chunkAttempts = CHUNK_ATTEMPTS, chunkRetryMs = CHUNK_RETRY_MS, finished = new Set() } = {}) {
+export async function restore(
+  root,
+  store,
+  owner,
+  { chunkAttempts = CHUNK_ATTEMPTS, chunkRetryMs = CHUNK_RETRY_MS, finished = new Set() } = {},
+) {
   const retries = { attempts: chunkAttempts, retryMs: chunkRetryMs };
   const manifest = await store.manifest();
   if (!manifest) return { manifest: null, files: 0 };
@@ -568,7 +754,9 @@ export async function restore(root, store, owner, { chunkAttempts = CHUNK_ATTEMP
       }
     }
   };
-  await Promise.allSettled(Array.from({ length: Math.min(RESTORE_PARALLEL, pending.length) }, worker));
+  await Promise.allSettled(
+    Array.from({ length: Math.min(RESTORE_PARALLEL, pending.length) }, worker),
+  );
   if (failures.length > 0) throw failures[0];
   for (const entry of [...kept].reverse()) {
     if (entry.type !== "dir") continue;
@@ -581,7 +769,8 @@ export async function restore(root, store, owner, { chunkAttempts = CHUNK_ATTEMP
 
 export function referencedBlobs(manifest) {
   const keep = new Set();
-  for (const entry of manifest?.entries ?? []) if (entry.type === "file") for (const hash of entry.chunks) keep.add(hash);
+  for (const entry of manifest?.entries ?? [])
+    if (entry.type === "file") for (const hash of entry.chunks) keep.add(hash);
   return keep;
 }
 
@@ -593,10 +782,15 @@ export async function keptRestorePoints(store) {
 
 export const CLEANUP_PARALLEL = 8;
 
-export async function collectGarbageWithin(store, manifest, { pending = [], budgetMs = Infinity, now = Date.now, parallel = CLEANUP_PARALLEL } = {}) {
+export async function collectGarbageWithin(
+  store,
+  manifest,
+  { pending = [], budgetMs = Infinity, now = Date.now, parallel = CLEANUP_PARALLEL } = {},
+) {
   if (!manifest) return { removed: 0, finished: true };
   const keep = referencedBlobs(manifest);
-  for (const kept of [...pending, ...(await keptRestorePoints(store))]) for (const hash of referencedBlobs(kept)) keep.add(hash);
+  for (const kept of [...pending, ...(await keptRestorePoints(store))])
+    for (const hash of referencedBlobs(kept)) keep.add(hash);
   const unused = [];
   let cursor;
   do {

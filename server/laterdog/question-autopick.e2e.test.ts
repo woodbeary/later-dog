@@ -1,6 +1,14 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { connect, type Socket } from "node:net";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -14,8 +22,14 @@ const PORT = await leasePortBlock([0, 1]);
 const BASE = `http://127.0.0.1:${PORT}`;
 const WAIT_MS = 2_000;
 
-const deploy = { question: "Should I point it at the live address?", options: [{ label: "Leave it" }, { label: "Yes, update it (Recommended)" }] };
-const branch = { question: "Which branch should I use?", options: [{ label: "main" }, { label: "dev" }] };
+const deploy = {
+  question: "Should I point it at the live address?",
+  options: [{ label: "Leave it" }, { label: "Yes, update it (Recommended)" }],
+};
+const branch = {
+  question: "Which branch should I use?",
+  options: [{ label: "main" }, { label: "dev" }],
+};
 
 describe.skipIf(process.platform === "win32")("a question nobody answers in time", () => {
   let child: ChildProcess;
@@ -25,7 +39,11 @@ describe.skipIf(process.platform === "win32")("a question nobody answers in time
   let finishGate: string;
   const sockets: Socket[] = [];
 
-  const api = async (method: string, path: string, body?: unknown): Promise<{ status: number; body: any }> => {
+  const api = async (
+    method: string,
+    path: string,
+    body?: unknown,
+  ): Promise<{ status: number; body: any }> => {
     const res = await fetch(`${BASE}${path}`, {
       method,
       headers: body ? { "content-type": "application/json" } : undefined,
@@ -33,20 +51,33 @@ describe.skipIf(process.platform === "win32")("a question nobody answers in time
     });
     return { status: res.status, body: await res.json() };
   };
-  const waitFor = async <T>(read: () => Promise<T | null | undefined | false>, what: string, ms = 15_000): Promise<T> => {
+  const waitFor = async <T>(
+    read: () => Promise<T | null | undefined | false>,
+    what: string,
+    ms = 15_000,
+  ): Promise<T> => {
     const deadline = Date.now() + ms;
     for (;;) {
       const value = await read();
       if (value) return value;
-      if (Date.now() > deadline) throw new Error(`timed out waiting for ${what}. stderr: ${stderr.slice(-2000)}`);
+      if (Date.now() > deadline)
+        throw new Error(`timed out waiting for ${what}. stderr: ${stderr.slice(-2000)}`);
       await new Promise((r) => setTimeout(r, 100));
     }
   };
-  const busy = async (botId: string) => (await api("GET", "/api/bots?messages=0")).body.bots.find((b: any) => b.id === botId)?.busy === true;
-  const messages = async (threadId: string): Promise<any[]> => (await api("GET", `/api/threads/${threadId}/messages`)).body.messages;
-  const card = async (threadId: string, requestId: string) => (await messages(threadId)).find((m) => m.card?.requestId === requestId)?.card;
+  const busy = async (botId: string) =>
+    (await api("GET", "/api/bots?messages=0")).body.bots.find((b: any) => b.id === botId)?.busy ===
+    true;
+  const messages = async (threadId: string): Promise<any[]> =>
+    (await api("GET", `/api/threads/${threadId}/messages`)).body.messages;
+  const card = async (threadId: string, requestId: string) =>
+    (await messages(threadId)).find((m) => m.card?.requestId === requestId)?.card;
 
-  const dogAsks = async (ask: { kind?: "question"; tool: string; input: Record<string, unknown> }) => {
+  const dogAsks = async (ask: {
+    kind?: "question";
+    tool: string;
+    input: Record<string, unknown>;
+  }) => {
     rmSync(finishGate, { force: true });
     rmSync(dump, { force: true });
     const created = await api("POST", "/api/bots", {
@@ -56,12 +87,20 @@ describe.skipIf(process.platform === "win32")("a question nobody answers in time
     });
     expect(created.status).toBe(201);
     const bot = created.body.bot as { id: string; threadId: string };
-    expect((await api("POST", `/api/bots/${bot.id}/messages`, { text: "Fix the address, then tell me." })).status).toBe(202);
+    expect(
+      (
+        await api("POST", `/api/bots/${bot.id}/messages`, {
+          text: "Fix the address, then tell me.",
+        })
+      ).status,
+    ).toBe(202);
     await waitFor(() => busy(bot.id), "the dog to start working");
     const launch = await waitFor(async () => {
       if (!existsSync(dump)) return null;
       try {
-        return JSON.parse(readFileSync(dump, "utf8")) as { mcpConfig: { mcpServers: { dog: { args: string[] } } } };
+        return JSON.parse(readFileSync(dump, "utf8")) as {
+          mcpConfig: { mcpServers: { dog: { args: string[] } } };
+        };
       } catch {
         return null;
       }
@@ -109,9 +148,15 @@ describe.skipIf(process.platform === "win32")("a question nobody answers in time
     });
     child.stderr!.on("data", (c) => (stderr += c));
     const deadline = Date.now() + 20_000;
-    while (!(await fetch(`${BASE}/api/health`).then((res) => res.ok, () => false))) {
+    while (
+      !(await fetch(`${BASE}/api/health`).then(
+        (res) => res.ok,
+        () => false,
+      ))
+    ) {
       if (Date.now() > deadline) throw new Error(`server never came up. stderr:\n${stderr}`);
-      if (child.exitCode !== null) throw new Error(`server exited ${child.exitCode}. stderr:\n${stderr}`);
+      if (child.exitCode !== null)
+        throw new Error(`server exited ${child.exitCode}. stderr:\n${stderr}`);
       await new Promise((r) => setTimeout(r, 150));
     }
   };
@@ -141,7 +186,11 @@ describe.skipIf(process.platform === "win32")("a question nobody answers in time
           claude: {
             driver: "claudeAgent",
             displayName: "Fixture Claude",
-            environment: { FAKE_CLAUDE_MODE: "hang", FAKE_CLAUDE_DUMP: dump, FAKE_CLAUDE_FINISH_GATE: finishGate },
+            environment: {
+              FAKE_CLAUDE_MODE: "hang",
+              FAKE_CLAUDE_DUMP: dump,
+              FAKE_CLAUDE_FINISH_GATE: finishGate,
+            },
             config: { cli: FAKE_CLAUDE },
           },
         },
@@ -158,13 +207,20 @@ describe.skipIf(process.platform === "win32")("a question nobody answers in time
   });
 
   it("shows when it will pick, then picks the recommended option, tells the dog, and lets the next message through as a message", async () => {
-    const { bot, requestId, replies, asked } = await dogAsks({ kind: "question", tool: "AskUserQuestion", input: { questions: [deploy] } });
+    const { bot, requestId, replies, asked } = await dogAsks({
+      kind: "question",
+      tool: "AskUserQuestion",
+      input: { questions: [deploy] },
+    });
     const open = await card(bot.threadId, requestId);
     expect(open.answered).toBeUndefined();
     expect(open.autoAnswerAt).toBeGreaterThanOrEqual(asked + WAIT_MS - 50);
     expect(open.autoAnswerAt).toBeLessThanOrEqual(Date.now() + WAIT_MS);
 
-    const reply = await waitFor(async () => replies.find((entry) => entry.id === requestId), "the picked answer");
+    const reply = await waitFor(
+      async () => replies.find((entry) => entry.id === requestId),
+      "the picked answer",
+    );
     expect(reply).toMatchObject({
       t: "answer",
       behavior: "answer",
@@ -175,34 +231,65 @@ describe.skipIf(process.platform === "win32")("a question nobody answers in time
       const latest = await card(bot.threadId, requestId);
       return latest?.autoPicked ? latest : null;
     }, "the card to show the pick");
-    expect(settled).toMatchObject({ answered: "answer", autoPicked: true, answeredText: `Q: ${deploy.question}\nA: Yes, update it (Recommended)` });
+    expect(settled).toMatchObject({
+      answered: "answer",
+      autoPicked: true,
+      answeredText: `Q: ${deploy.question}\nA: Yes, update it (Recommended)`,
+    });
     expect(settled.dismissed).not.toBe(true);
 
-    const sent = await api("POST", `/api/bots/${bot.id}/messages`, { text: "Actually, leave it as it is.", sendId: "after-autopick-001" });
+    const sent = await api("POST", `/api/bots/${bot.id}/messages`, {
+      text: "Actually, leave it as it is.",
+      sendId: "after-autopick-001",
+    });
     expect(sent.status).toBe(202);
     expect(replies.filter((entry) => entry.id === requestId)).toHaveLength(1);
-    expect((await messages(bot.threadId)).find((m) => m.sendId === "after-autopick-001")).toMatchObject({ role: "user", text: "Actually, leave it as it is." });
+    expect(
+      (await messages(bot.threadId)).find((m) => m.sendId === "after-autopick-001"),
+    ).toMatchObject({ role: "user", text: "Actually, leave it as it is." });
     await finish(bot.id);
   }, 60_000);
 
   it("tells the dog to keep going on its own judgment when the question had nothing to pick", async () => {
-    const { bot, requestId, replies } = await dogAsks({ kind: "question", tool: "ask_user", input: { question: "Anything I should know first?" } });
-    const reply = await waitFor(async () => replies.find((entry) => entry.id === requestId), "the answer for the dog");
+    const { bot, requestId, replies } = await dogAsks({
+      kind: "question",
+      tool: "ask_user",
+      input: { question: "Anything I should know first?" },
+    });
+    const reply = await waitFor(
+      async () => replies.find((entry) => entry.id === requestId),
+      "the answer for the dog",
+    );
     expect(reply).toMatchObject({
       behavior: "answer",
-      message: "Robin didn't answer in time. Use your best judgment and keep going. They can correct you later.",
+      message:
+        "Robin didn't answer in time. Use your best judgment and keep going. They can correct you later.",
     });
-    await waitFor(async () => (await card(bot.threadId, requestId))?.autoPicked, "the card to settle");
+    await waitFor(
+      async () => (await card(bot.threadId, requestId))?.autoPicked,
+      "the card to settle",
+    );
     await finish(bot.id);
   }, 60_000);
 
   it("keeps what the person already picked and fills in only the rest", async () => {
-    const { bot, requestId, replies } = await dogAsks({ kind: "question", tool: "AskUserQuestion", input: { questions: [branch, deploy] } });
-    const kept = await api("POST", `/api/threads/${bot.threadId}/respond`, { requestId, behavior: "picks", picks: [["dev"], []] });
+    const { bot, requestId, replies } = await dogAsks({
+      kind: "question",
+      tool: "AskUserQuestion",
+      input: { questions: [branch, deploy] },
+    });
+    const kept = await api("POST", `/api/threads/${bot.threadId}/respond`, {
+      requestId,
+      behavior: "picks",
+      picks: [["dev"], []],
+    });
     expect(kept).toMatchObject({ status: 200, body: { ok: true } });
     expect(replies.filter((entry) => entry.id === requestId)).toEqual([]);
 
-    const reply = await waitFor(async () => replies.find((entry) => entry.id === requestId), "the answers");
+    const reply = await waitFor(
+      async () => replies.find((entry) => entry.id === requestId),
+      "the answers",
+    );
     expect(reply.message).toBe(
       `Q: ${branch.question}\nA: dev\n\nQ: ${deploy.question}\nA: No answer after 2 s; auto-picked the recommended option: Yes, update it (Recommended)`,
     );
@@ -210,17 +297,29 @@ describe.skipIf(process.platform === "win32")("a question nobody answers in time
       const latest = await card(bot.threadId, requestId);
       return latest?.autoPicked ? latest : null;
     }, "the card to settle");
-    expect(settled.answeredText).toBe(`Q: ${branch.question}\nA: dev\n\nQ: ${deploy.question}\nA: Yes, update it (Recommended)`);
+    expect(settled.answeredText).toBe(
+      `Q: ${branch.question}\nA: dev\n\nQ: ${deploy.question}\nA: Yes, update it (Recommended)`,
+    );
     await finish(bot.id);
   }, 60_000);
 
   it("leaves a question the person answered in time alone", async () => {
-    const { bot, requestId, replies } = await dogAsks({ kind: "question", tool: "AskUserQuestion", input: { questions: [branch] } });
-    const picked = await api("POST", `/api/threads/${bot.threadId}/respond`, { requestId, behavior: "answer", message: `Q: ${branch.question}\nA: dev` });
+    const { bot, requestId, replies } = await dogAsks({
+      kind: "question",
+      tool: "AskUserQuestion",
+      input: { questions: [branch] },
+    });
+    const picked = await api("POST", `/api/threads/${bot.threadId}/respond`, {
+      requestId,
+      behavior: "answer",
+      message: `Q: ${branch.question}\nA: dev`,
+    });
     expect(picked).toMatchObject({ status: 200, body: { ok: true } });
     await new Promise((r) => setTimeout(r, WAIT_MS + 1_000));
     expect(replies.filter((entry) => entry.id === requestId)).toHaveLength(1);
-    expect(replies.find((entry) => entry.id === requestId)?.message).toBe(`Q: ${branch.question}\nA: dev`);
+    expect(replies.find((entry) => entry.id === requestId)?.message).toBe(
+      `Q: ${branch.question}\nA: dev`,
+    );
     const settled = await card(bot.threadId, requestId);
     expect(settled).toMatchObject({ answered: "answer" });
     expect(settled.autoPicked).toBeUndefined();
@@ -229,7 +328,10 @@ describe.skipIf(process.platform === "win32")("a question nobody answers in time
   }, 60_000);
 
   it("leaves an approval waiting for the person", async () => {
-    const { bot, requestId, replies } = await dogAsks({ tool: "Bash", input: { command: "git push --no-verify origin fix/login" } });
+    const { bot, requestId, replies } = await dogAsks({
+      tool: "Bash",
+      input: { command: "git push --no-verify origin fix/login" },
+    });
     const open = await card(bot.threadId, requestId);
     expect(open.requestType).toBe("permission");
     expect(open.autoAnswerAt).toBeUndefined();
@@ -242,7 +344,11 @@ describe.skipIf(process.platform === "win32")("a question nobody answers in time
   }, 60_000);
 
   it("drops the countdown when later.dog stops suddenly, since no turn is left waiting on the answer", async () => {
-    const { bot, requestId } = await dogAsks({ kind: "question", tool: "AskUserQuestion", input: { questions: [branch] } });
+    const { bot, requestId } = await dogAsks({
+      kind: "question",
+      tool: "AskUserQuestion",
+      input: { questions: [branch] },
+    });
     expect((await card(bot.threadId, requestId)).autoAnswerAt).toBeGreaterThan(Date.now());
     await stopServer("SIGKILL");
     await startServer();

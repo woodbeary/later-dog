@@ -1,6 +1,14 @@
 #!/usr/bin/env -S node --experimental-strip-types
 import { spawn, type ChildProcess } from "node:child_process";
-import { closeSync, existsSync, mkdirSync, mkdtempSync, openSync, symlinkSync, writeFileSync } from "node:fs";
+import {
+  closeSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  openSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { delimiter, dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -17,8 +25,18 @@ export const FIXTURE_STARTER_BOT_NAME = "Fixture Starter";
 const FAKE_CLI = join(ROOT, "server", "testing", "fake-claude-cli.ts");
 const VERIFICATION_READY_MS = 60_000;
 const MUTATING = new Set([
-  "new-bot", "new-channel", "send", "send-channel", "interrupt", "set-model", "edit",
-  "ui click", "ui type", "ui press", "ui flag", "ui eval",
+  "new-bot",
+  "new-channel",
+  "send",
+  "send-channel",
+  "interrupt",
+  "set-model",
+  "edit",
+  "ui click",
+  "ui type",
+  "ui press",
+  "ui flag",
+  "ui eval",
 ]);
 
 export class ControlLaterDogError extends Error {
@@ -106,7 +124,8 @@ export function parse(
 }
 
 function required(value: unknown, name: string): string {
-  if (typeof value !== "string" || !value.trim()) throw new ControlLaterDogError(`${name} is required`);
+  if (typeof value !== "string" || !value.trim())
+    throw new ControlLaterDogError(`${name} is required`);
   return value.trim();
 }
 
@@ -119,10 +138,16 @@ function positiveInteger(value: unknown, name: string, fallback: number, maximum
   return parsed;
 }
 
-function configuredUrl(raw: unknown, env: NodeJS.ProcessEnv, requiredForMutation: boolean): string | undefined {
-  const explicit = typeof raw === "string" && raw.trim()
-    ? raw.trim()
-    : env.LATERDOG_URL?.trim() || (env.LATERDOG_SERVER_PORT ? `http://127.0.0.1:${env.LATERDOG_SERVER_PORT}` : "");
+function configuredUrl(
+  raw: unknown,
+  env: NodeJS.ProcessEnv,
+  requiredForMutation: boolean,
+): string | undefined {
+  const explicit =
+    typeof raw === "string" && raw.trim()
+      ? raw.trim()
+      : env.LATERDOG_URL?.trim() ||
+        (env.LATERDOG_SERVER_PORT ? `http://127.0.0.1:${env.LATERDOG_SERVER_PORT}` : "");
   if (!explicit) {
     if (requiredForMutation) {
       throw new ControlLaterDogError(
@@ -144,8 +169,15 @@ function target(values: Record<string, unknown>): { type: "bot" | "channel"; id:
   return bot ? { type: "bot", id: bot } : { type: "channel", id: channel };
 }
 
-function dryRun(command: string, values: Record<string, unknown>, tool: string, args: Record<string, unknown>) {
-  return values["dry-run"] === true ? { ok: true, dryRun: true, command, tool, arguments: args } : null;
+function dryRun(
+  command: string,
+  values: Record<string, unknown>,
+  tool: string,
+  args: Record<string, unknown>,
+) {
+  return values["dry-run"] === true
+    ? { ok: true, dryRun: true, command, tool, arguments: args }
+    : null;
 }
 
 export async function runControlLaterDog(
@@ -154,7 +186,8 @@ export async function runControlLaterDog(
 ): Promise<unknown> {
   const [command = "help", ...args] = argv;
   if (command === "help" || command === "--help" || command === "-h") return HELP;
-  if (command === "launch") throw new ControlLaterDogError("launch is available only from the executable CLI");
+  if (command === "launch")
+    throw new ControlLaterDogError("launch is available only from the executable CLI");
   if (command === "ui") return runControlLaterDogUi(args);
 
   const env = dependencies.env ?? process.env;
@@ -164,7 +197,8 @@ export async function runControlLaterDog(
   const call = async (tool: string, input: Record<string, unknown>, rawUrl: unknown) => {
     const url = configuredUrl(rawUrl, env, mutation);
     const fetcher = url
-      ? (path: string, options: RequestInit = {}) => requester(path, withLocalTools(options, url, env), url)
+      ? (path: string, options: RequestInit = {}) =>
+          requester(path, withLocalTools(options, url, env), url)
       : requester;
     return callTool(tool, input, fetcher);
   };
@@ -176,11 +210,19 @@ export async function runControlLaterDog(
       call("get_system_health", {}, values.url),
       call("list_available_models", {}, values.url),
     ]);
-    const health = rawHealth as { status: string; endpoint?: string; app: string; packaged: boolean };
-    const instances = (models as { instances?: Array<{ instanceId?: string; snapshot?: { state?: string } }> }).instances ?? [];
+    const health = rawHealth as {
+      status: string;
+      endpoint?: string;
+      app: string;
+      packaged: boolean;
+    };
+    const instances =
+      (models as { instances?: Array<{ instanceId?: string; snapshot?: { state?: string } }> })
+        .instances ?? [];
     return {
-      ok: health.app === "laterdog"
-        && instances.some((instance) => instance.snapshot?.state === "available"),
+      ok:
+        health.app === "laterdog" &&
+        instances.some((instance) => instance.snapshot?.state === "available"),
       health: endpoint ? { ...health, endpoint } : health,
       availableEngines: instances
         .filter((instance) => instance.snapshot?.state === "available")
@@ -191,7 +233,12 @@ export async function runControlLaterDog(
 
   if (command === "bots" || command === "channels" || command === "models") {
     const values = parse(command, args);
-    const tool = command === "bots" ? "list_bots" : command === "channels" ? "list_channels" : "list_available_models";
+    const tool =
+      command === "bots"
+        ? "list_bots"
+        : command === "channels"
+          ? "list_channels"
+          : "list_available_models";
     return call(tool, {}, values.url);
   }
 
@@ -201,11 +248,15 @@ export async function runControlLaterDog(
       title: { type: "string" },
       section: { type: "string" },
     });
-    return call("create_bot", {
-      name: required(values.name, "--name"),
-      ...(values.title ? { title: values.title } : {}),
-      ...(values.section ? { section: values.section } : {}),
-    }, values.url);
+    return call(
+      "create_bot",
+      {
+        name: required(values.name, "--name"),
+        ...(values.title ? { title: values.title } : {}),
+        ...(values.section ? { section: values.section } : {}),
+      },
+      values.url,
+    );
   }
 
   if (command === "new-channel") {
@@ -214,15 +265,22 @@ export async function runControlLaterDog(
       members: { type: "string" },
       section: { type: "string" },
     });
-    const memberIds = required(values.members, "--members").split(",").map((id) => id.trim()).filter(Boolean);
+    const memberIds = required(values.members, "--members")
+      .split(",")
+      .map((id) => id.trim())
+      .filter(Boolean);
     if (!memberIds.length || new Set(memberIds).size !== memberIds.length) {
       throw new ControlLaterDogError("--members must contain unique comma-separated bot IDs");
     }
-    return call("create_channel", {
-      name: required(values.name, "--name"),
-      member_ids: memberIds,
-      ...(values.section ? { section: values.section } : {}),
-    }, values.url);
+    return call(
+      "create_channel",
+      {
+        name: required(values.name, "--name"),
+        member_ids: memberIds,
+        ...(values.section ? { section: values.section } : {}),
+      },
+      values.url,
+    );
   }
 
   if (command === "send" || command === "send-channel") {
@@ -235,7 +293,8 @@ export async function runControlLaterDog(
     });
     const expected = command === "send" ? "bot" : "channel";
     const destination = target(values);
-    if (destination.type !== expected) throw new ControlLaterDogError(`${command} requires --${expected} ID`);
+    if (destination.type !== expected)
+      throw new ControlLaterDogError(`${command} requires --${expected} ID`);
     const tool = expected === "bot" ? "send_bot_message" : "send_channel_message";
     const input = {
       [`${expected}_id`]: destination.id,
@@ -247,8 +306,11 @@ export async function runControlLaterDog(
 
   if (command === "edit") {
     const values = parse(command, args, {
-      bot: { type: "string" }, message: { type: "string" }, text: { type: "string" },
-      task: { type: "string" }, "dry-run": { type: "boolean", default: false },
+      bot: { type: "string" },
+      message: { type: "string" },
+      text: { type: "string" },
+      task: { type: "string" },
+      "dry-run": { type: "boolean", default: false },
     });
     const input = {
       bot_id: required(values.bot, "--bot"),
@@ -256,13 +318,19 @@ export async function runControlLaterDog(
       text: required(values.text, "--text"),
       ...(values.task !== undefined ? { task_id: required(values.task, "--task") } : {}),
     };
-    return dryRun(command, values, "edit_bot_message", input) ?? call("edit_bot_message", input, values.url);
+    return (
+      dryRun(command, values, "edit_bot_message", input) ??
+      call("edit_bot_message", input, values.url)
+    );
   }
 
   if (command === "set-model") {
     const values = parse(command, args, {
-      bot: { type: "string" }, task: { type: "string" }, instance: { type: "string" },
-      model: { type: "string" }, effort: { type: "string" },
+      bot: { type: "string" },
+      task: { type: "string" },
+      instance: { type: "string" },
+      model: { type: "string" },
+      effort: { type: "string" },
       "dry-run": { type: "boolean", default: false },
     });
     const input = {
@@ -272,7 +340,9 @@ export async function runControlLaterDog(
       ...(values.task !== undefined ? { task_id: required(values.task, "--task") } : {}),
       ...(values.effort !== undefined ? { effort: required(values.effort, "--effort") } : {}),
     };
-    return dryRun(command, values, "set_bot_model", input) ?? call("set_bot_model", input, values.url);
+    return (
+      dryRun(command, values, "set_bot_model", input) ?? call("set_bot_model", input, values.url)
+    );
   }
 
   if (command === "wait" || command === "messages" || command === "interrupt") {
@@ -287,27 +357,38 @@ export async function runControlLaterDog(
     const destination = target(values);
     const pinned = values.task !== undefined ? { task_id: required(values.task, "--task") } : {};
     if (command === "wait") {
-      return call("wait_for_conversation", {
-        target_type: destination.type,
-        target_id: destination.id,
-        ...pinned,
-        timeout_seconds: positiveInteger(values.timeout, "--timeout", 30, 120),
-      }, values.url);
+      return call(
+        "wait_for_conversation",
+        {
+          target_type: destination.type,
+          target_id: destination.id,
+          ...pinned,
+          timeout_seconds: positiveInteger(values.timeout, "--timeout", 30, 120),
+        },
+        values.url,
+      );
     }
     if (command === "messages") {
       const tool = destination.type === "bot" ? "get_bot_messages" : "get_channel_messages";
-      return call(tool, {
-        [`${destination.type}_id`]: destination.id,
-        ...pinned,
-        limit: positiveInteger(values.limit, "--limit", 30, 200),
-      }, values.url);
+      return call(
+        tool,
+        {
+          [`${destination.type}_id`]: destination.id,
+          ...pinned,
+          limit: positiveInteger(values.limit, "--limit", 30, 200),
+        },
+        values.url,
+      );
     }
     const tool = "interrupt_conversation";
     const input = { target_type: destination.type, target_id: destination.id, ...pinned };
     return dryRun(command, values, tool, input) ?? call(tool, input, values.url);
   }
 
-  throw new ControlLaterDogError(`unknown command ${JSON.stringify(command)}`, "run control-laterdog help");
+  throw new ControlLaterDogError(
+    `unknown command ${JSON.stringify(command)}`,
+    "run control-laterdog help",
+  );
 }
 
 export interface VerificationServer {
@@ -325,17 +406,31 @@ export function sealedFixtureBin(dataDir: string): string {
   return bin;
 }
 
-export function verificationServerEnvironment(parentEnv: NodeJS.ProcessEnv, dataDir: string, port: number): NodeJS.ProcessEnv {
+export function verificationServerEnvironment(
+  parentEnv: NodeJS.ProcessEnv,
+  dataDir: string,
+  port: number,
+): NodeJS.ProcessEnv {
   const childEnv: NodeJS.ProcessEnv = {};
-  const platformKeys = new Set(["SYSTEMROOT", "WINDIR", "COMSPEC", "PATHEXT", "LANG", "LC_ALL", "TZ"]);
+  const platformKeys = new Set([
+    "SYSTEMROOT",
+    "WINDIR",
+    "COMSPEC",
+    "PATHEXT",
+    "LANG",
+    "LC_ALL",
+    "TZ",
+  ]);
   for (const [key, value] of Object.entries(parentEnv)) {
     const normalized = key.toUpperCase();
     if (value && platformKeys.has(normalized)) childEnv[normalized] = value;
   }
   const fixtureTemp = join(dataDir, "tmp");
   const configuredMemory = parentEnv.LATERDOG_TEST_AVAILABLE_MEMORY_BYTES;
-  const fixtureMemory = /^(0|[1-9]\d*)$/.test(configuredMemory ?? "") && Number.isSafeInteger(Number(configuredMemory))
-    ? configuredMemory : String(4 * 1024 ** 3);
+  const fixtureMemory =
+    /^(0|[1-9]\d*)$/.test(configuredMemory ?? "") && Number.isSafeInteger(Number(configuredMemory))
+      ? configuredMemory
+      : String(4 * 1024 ** 3);
   Object.assign(childEnv, {
     HOME: dataDir,
     USERPROFILE: dataDir,
@@ -359,20 +454,30 @@ export function verificationServerEnvironment(parentEnv: NodeJS.ProcessEnv, data
     LATERDOG_TRIAL_API: parentEnv.LATERDOG_TRIAL_API || "off",
   });
   for (const [key, value] of Object.entries(parentEnv)) {
-    if (key.startsWith("FAKE_CLAUDE_") && key !== "FAKE_CLAUDE_DUMP" && value) childEnv[key] = value;
+    if (key.startsWith("FAKE_CLAUDE_") && key !== "FAKE_CLAUDE_DUMP" && value)
+      childEnv[key] = value;
   }
-  if (parentEnv.LATERDOG_TEST_STATIC_DIR && existsSync(join(parentEnv.LATERDOG_TEST_STATIC_DIR, "index.html"))) childEnv.LATERDOG_STATIC_DIR = parentEnv.LATERDOG_TEST_STATIC_DIR;
-  if (parentEnv.LATERDOG_TEST_ORG_LIBRARY_KEY) childEnv.LATERDOG_TEST_ORG_LIBRARY_KEY = parentEnv.LATERDOG_TEST_ORG_LIBRARY_KEY;
-  if (parentEnv.LATERDOG_TEST_VAULT_KEY) childEnv.LATERDOG_TEST_VAULT_KEY = parentEnv.LATERDOG_TEST_VAULT_KEY;
-  if (/^[1-9]\d{0,8}$/.test(parentEnv.LATERDOG_COMPUTER_JOB_CHECK_MS ?? "")) childEnv.LATERDOG_COMPUTER_JOB_CHECK_MS = parentEnv.LATERDOG_COMPUTER_JOB_CHECK_MS;
+  if (
+    parentEnv.LATERDOG_TEST_STATIC_DIR &&
+    existsSync(join(parentEnv.LATERDOG_TEST_STATIC_DIR, "index.html"))
+  )
+    childEnv.LATERDOG_STATIC_DIR = parentEnv.LATERDOG_TEST_STATIC_DIR;
+  if (parentEnv.LATERDOG_TEST_ORG_LIBRARY_KEY)
+    childEnv.LATERDOG_TEST_ORG_LIBRARY_KEY = parentEnv.LATERDOG_TEST_ORG_LIBRARY_KEY;
+  if (parentEnv.LATERDOG_TEST_VAULT_KEY)
+    childEnv.LATERDOG_TEST_VAULT_KEY = parentEnv.LATERDOG_TEST_VAULT_KEY;
+  if (/^[1-9]\d{0,8}$/.test(parentEnv.LATERDOG_COMPUTER_JOB_CHECK_MS ?? ""))
+    childEnv.LATERDOG_COMPUTER_JOB_CHECK_MS = parentEnv.LATERDOG_COMPUTER_JOB_CHECK_MS;
   const liveUrl = parentEnv.LATERDOG_OPENAI_LIVE_URL?.trim() ?? "";
   if (/^http:\/\/127\.0\.0\.1:\d{1,5}$/.test(liveUrl)) {
     childEnv.LATERDOG_OPENAI_LIVE_URL = liveUrl;
-    if (parentEnv.LATERDOG_OPENAI_LIVE_KEY) childEnv.LATERDOG_OPENAI_LIVE_KEY = parentEnv.LATERDOG_OPENAI_LIVE_KEY;
+    if (parentEnv.LATERDOG_OPENAI_LIVE_KEY)
+      childEnv.LATERDOG_OPENAI_LIVE_KEY = parentEnv.LATERDOG_OPENAI_LIVE_KEY;
   }
   if (parentEnv.LATERDOG_TEST_DESKTOP_OWNER_TOKEN) {
     childEnv.LATERDOG_TEST_DESKTOP_OWNER_TOKEN = parentEnv.LATERDOG_TEST_DESKTOP_OWNER_TOKEN;
-    if (parentEnv.LATERDOG_TEST_LOCAL_TOOLS_TOKEN) childEnv.LATERDOG_TEST_LOCAL_TOOLS_TOKEN = parentEnv.LATERDOG_TEST_LOCAL_TOOLS_TOKEN;
+    if (parentEnv.LATERDOG_TEST_LOCAL_TOOLS_TOKEN)
+      childEnv.LATERDOG_TEST_LOCAL_TOOLS_TOKEN = parentEnv.LATERDOG_TEST_LOCAL_TOOLS_TOKEN;
     childEnv.LATERDOG_DESKTOP_PARENT = "1";
   }
   return childEnv;
@@ -391,18 +496,32 @@ export async function launchVerificationServer(
   boatFixtureApi?: string,
   laterdogFixture?: { origin: string; token: string; wakeupPullMs?: number },
 ): Promise<VerificationServer> {
-  if (laterdogFixture && (!/^http:\/\/127\.0\.0\.1:[1-9]\d{0,4}$/.test(laterdogFixture.origin) || laterdogFixture.token.length < 32)) throw new ControlLaterDogError("later.dog verification requires an explicit owned loopback supervisor and fixture token");
+  if (
+    laterdogFixture &&
+    (!/^http:\/\/127\.0\.0\.1:[1-9]\d{0,4}$/.test(laterdogFixture.origin) ||
+      laterdogFixture.token.length < 32)
+  )
+    throw new ControlLaterDogError(
+      "later.dog verification requires an explicit owned loopback supervisor and fixture token",
+    );
   if (boatFixtureApi) {
     if (!/^http:\/\/127\.0\.0\.1:[1-9]\d{0,4}$/.test(boatFixtureApi)) {
-      throw new ControlLaterDogError("Boat verification requires an explicit loopback HTTP provider");
+      throw new ControlLaterDogError(
+        "Boat verification requires an explicit loopback HTTP provider",
+      );
     }
-    try { new URL(boatFixtureApi); }
-    catch { throw new ControlLaterDogError("Boat verification requires a valid loopback port"); }
+    try {
+      new URL(boatFixtureApi);
+    } catch {
+      throw new ControlLaterDogError("Boat verification requires a valid loopback port");
+    }
   }
   if (localVm) {
     const endpoint = new URL(localVm.host);
     if (endpoint.protocol !== "ssh:" || endpoint.hostname !== "127.0.0.1" || endpoint.password) {
-      throw new ControlLaterDogError("Local VM verification requires an explicit loopback Podman machine");
+      throw new ControlLaterDogError(
+        "Local VM verification requires an explicit loopback Podman machine",
+      );
     }
   }
   const port = await leasePortBlock([0, 1]);
@@ -412,51 +531,97 @@ export async function launchVerificationServer(
     throw new ControlLaterDogError("verification launch cancelled");
   }
   const url = `http://127.0.0.1:${port}`;
-  const dataDir = mkdtempSync(join(browser && process.platform !== "win32" ? "/tmp" : tmpdir(), "laterdog-verify-data-"));
+  const dataDir = mkdtempSync(
+    join(browser && process.platform !== "win32" ? "/tmp" : tmpdir(), "laterdog-verify-data-"),
+  );
   const fixtureTemp = join(dataDir, "tmp");
   const fixtureDumpPath = join(dataDir, "fake-claude-dump.json");
   mkdirSync(fixtureTemp, { recursive: true });
   const evidenceDir = join(tmpdir(), "laterdog-verification-evidence");
   mkdirSync(evidenceDir, { recursive: true });
   const logPath = join(evidenceDir, `server-${Date.now()}-${process.pid}.log`);
-  writeFileSync(join(dataDir, "config.json"), JSON.stringify({
-    ...(boatFixtureApi ? { box: { token: "box_verification_fixture" } } : {}),
-    features: { autoReview: true },
-    instances: {
-      ...(extraProviders.includes("codex") ? { codex: {
-        driver: "codex", displayName: "Verification Codex", config: { cli: fileURLToPath(new URL("../server/testing/fake-codex-app-server.ts", import.meta.url)) },
-      } } : {}),
-      ...(extraProviders.includes("openai-compat") ? { [VERIFICATION_COMPAT_INSTANCE]: {
-        driver: "openai-compat", displayName: "Verification OpenAI-compatible",
-      } } : {}),
-      claude: {
-        driver: "claudeAgent",
-        displayName: "Verification fixture",
-        config: { cli: FAKE_CLI },
-        ...(room?.scripted ? { environment: { FAKE_CLAUDE_ROOM_PLAN: join(dataDir, "room-plan.json") } } : {}),
+  writeFileSync(
+    join(dataDir, "config.json"),
+    JSON.stringify(
+      {
+        ...(boatFixtureApi ? { box: { token: "box_verification_fixture" } } : {}),
+        features: { autoReview: true },
+        instances: {
+          ...(extraProviders.includes("codex")
+            ? {
+                codex: {
+                  driver: "codex",
+                  displayName: "Verification Codex",
+                  config: {
+                    cli: fileURLToPath(
+                      new URL("../server/testing/fake-codex-app-server.ts", import.meta.url),
+                    ),
+                  },
+                },
+              }
+            : {}),
+          ...(extraProviders.includes("openai-compat")
+            ? {
+                [VERIFICATION_COMPAT_INSTANCE]: {
+                  driver: "openai-compat",
+                  displayName: "Verification OpenAI-compatible",
+                },
+              }
+            : {}),
+          claude: {
+            driver: "claudeAgent",
+            displayName: "Verification fixture",
+            config: { cli: FAKE_CLI },
+            ...(room?.scripted
+              ? { environment: { FAKE_CLAUDE_ROOM_PLAN: join(dataDir, "room-plan.json") } }
+              : {}),
+          },
+        },
       },
-    },
-  }, null, 2));
+      null,
+      2,
+    ),
+  );
 
   const log = openSync(logPath, "a", 0o600);
   const childEnv = verificationServerEnvironment(parentEnv, dataDir, port);
-  if (localVm) Object.assign(childEnv, {
-    LATERDOG_EXTRA_PATH: [localVm.binDir, ...(process.platform === "win32" ? [join(childEnv.SYSTEMROOT || "C:\\Windows", "System32")] : [])].join(delimiter),
-    CONTAINER_HOST: localVm.host,
-    CONTAINER_SSHKEY: localVm.sshKey,
-    LATERDOG_STATIC_DIR: localVm.staticDir,
-  });
-  if (enterprise) Object.assign(childEnv, { LATERDOG_ENTERPRISE_DIR: enterprise.dir, LATERDOG_LICENSE_KEY: enterprise.licenseKey });
-  if (browser) Object.assign(childEnv, {
-    LATERDOG_AGENT_BROWSER_PATH: browser.binaryPath,
-    AGENT_BROWSER_EXECUTABLE_PATH: browser.executablePath,
-  });
+  if (localVm)
+    Object.assign(childEnv, {
+      LATERDOG_EXTRA_PATH: [
+        localVm.binDir,
+        ...(process.platform === "win32"
+          ? [join(childEnv.SYSTEMROOT || "C:\\Windows", "System32")]
+          : []),
+      ].join(delimiter),
+      CONTAINER_HOST: localVm.host,
+      CONTAINER_SSHKEY: localVm.sshKey,
+      LATERDOG_STATIC_DIR: localVm.staticDir,
+    });
+  if (enterprise)
+    Object.assign(childEnv, {
+      LATERDOG_ENTERPRISE_DIR: enterprise.dir,
+      LATERDOG_LICENSE_KEY: enterprise.licenseKey,
+    });
+  if (browser)
+    Object.assign(childEnv, {
+      LATERDOG_AGENT_BROWSER_PATH: browser.binaryPath,
+      AGENT_BROWSER_EXECUTABLE_PATH: browser.executablePath,
+    });
   if (boatFixtureApi) childEnv.LATERDOG_BOX_API = boatFixtureApi;
-  if (laterdogFixture) Object.assign(childEnv,{ LATERDOG_SUPERVISOR_URL: laterdogFixture.origin, LATERDOG_TOKEN: laterdogFixture.token,
-    ...(laterdogFixture.wakeupPullMs === undefined ? {} : { LATERDOG_WAKEUP_PULL_MS: String(laterdogFixture.wakeupPullMs) }) });
+  if (laterdogFixture)
+    Object.assign(childEnv, {
+      LATERDOG_SUPERVISOR_URL: laterdogFixture.origin,
+      LATERDOG_TOKEN: laterdogFixture.token,
+      ...(laterdogFixture.wakeupPullMs === undefined
+        ? {}
+        : { LATERDOG_WAKEUP_PULL_MS: String(laterdogFixture.wakeupPullMs) }),
+    });
   const serverArgs = ["--experimental-strip-types"];
   if (childEnv.LATERDOG_TEST_DESKTOP_OWNER_TOKEN) {
-    serverArgs.push("--import", pathToFileURL(join(ROOT, "server", "testing", "desktop-parent.mjs")).href);
+    serverArgs.push(
+      "--import",
+      pathToFileURL(join(ROOT, "server", "testing", "desktop-parent.mjs")).href,
+    );
   }
   serverArgs.push(join(ROOT, "server", "index.ts"));
   const child = spawn(process.execPath, serverArgs, {
@@ -478,10 +643,11 @@ export async function launchVerificationServer(
         const response = await fetch(`${url}/api/health`, {
           signal: signal ? AbortSignal.any([signal, timeout]) : timeout,
         });
-        const body = response.ok ? await response.json() as { app?: string } : null;
+        const body = response.ok ? ((await response.json()) as { app?: string }) : null;
         if (body?.app === "laterdog") break;
       } catch {}
-      if (Date.now() >= deadline) throw new Error(`verification server did not become ready; see ${logPath}`);
+      if (Date.now() >= deadline)
+        throw new Error(`verification server did not become ready; see ${logPath}`);
       await new Promise((resolve) => setTimeout(resolve, 150));
     }
   } catch (error) {
@@ -497,7 +663,7 @@ export async function launchVerificationServer(
       headers: { origin: url },
       signal: signal ? AbortSignal.any([signal, timeout]) : timeout,
     });
-    const body = list.ok ? await list.json() as { bots?: Array<{ id: string }> } : null;
+    const body = list.ok ? ((await list.json()) as { bots?: Array<{ id: string }> }) : null;
     const seeded = body?.bots;
     if (!Array.isArray(seeded) || seeded.length !== 1) {
       throw new Error(`verification fixture did not seed exactly one starter bot; see ${logPath}`);
@@ -509,7 +675,8 @@ export async function launchVerificationServer(
       body: JSON.stringify({ name: FIXTURE_STARTER_BOT_NAME }),
       signal: signal ? AbortSignal.any([signal, renameTimeout]) : renameTimeout,
     });
-    if (!rename.ok) throw new Error(`verification starter rename failed (${rename.status}); see ${logPath}`);
+    if (!rename.ok)
+      throw new Error(`verification starter rename failed (${rename.status}); see ${logPath}`);
   } catch (error) {
     await waitForExit(child, { signal: "SIGTERM" });
     releasePortLeases(leased);
@@ -582,10 +749,16 @@ async function main() {
         if (!stopping) {
           stopping = true;
           process.exitCode = 1;
-          process.stderr.write(`${JSON.stringify({
-            ok: false,
-            error: `verification server exited unexpectedly; see ${session.info.logPath}`,
-          }, null, 2)}\n`);
+          process.stderr.write(
+            `${JSON.stringify(
+              {
+                ok: false,
+                error: `verification server exited unexpectedly; see ${session.info.logPath}`,
+              },
+              null,
+              2,
+            )}\n`,
+          );
           void removeTempDir(session.info.dataDir).finally(resolve);
         }
       });
@@ -593,15 +766,18 @@ async function main() {
     return;
   }
   const result = await runControlLaterDog(process.argv.slice(2));
-  process.stdout.write(typeof result === "string" ? `${result}\n` : `${JSON.stringify(result, null, 2)}\n`);
+  process.stdout.write(
+    typeof result === "string" ? `${result}\n` : `${JSON.stringify(result, null, 2)}\n`,
+  );
   if (!controlResultSucceeded(command, result)) process.exitCode = 1;
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   main().catch((error) => {
-    const failure = error instanceof ControlLaterDogError
-      ? { ok: false, error: error.message, ...(error.hint ? { hint: error.hint } : {}) }
-      : { ok: false, error: error instanceof Error ? error.message : String(error) };
+    const failure =
+      error instanceof ControlLaterDogError
+        ? { ok: false, error: error.message, ...(error.hint ? { hint: error.hint } : {}) }
+        : { ok: false, error: error instanceof Error ? error.message : String(error) };
     process.stderr.write(`${JSON.stringify(failure, null, 2)}\n`);
     process.exitCode = 1;
   });

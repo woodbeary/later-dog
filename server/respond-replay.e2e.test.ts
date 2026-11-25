@@ -20,7 +20,11 @@ let child: ChildProcess;
 let home: string;
 let log = "";
 
-const api = async (method: string, path: string, body?: unknown): Promise<{ status: number; body: any }> => {
+const api = async (
+  method: string,
+  path: string,
+  body?: unknown,
+): Promise<{ status: number; body: any }> => {
   const res = await fetch(`${BASE}${path}`, {
     method,
     headers: body ? { "content-type": "application/json" } : {},
@@ -35,7 +39,10 @@ async function start() {
     env: {
       ...(process.env.PATH ? { PATH: process.env.PATH } : {}),
       ...(process.env.SystemRoot ? { SystemRoot: process.env.SystemRoot } : {}),
-      HOME: home, USERPROFILE: home, LATERDOG_SERVER_PORT: String(PORT), LATERDOG_WEBHOOK_PORT: String(PORT + 1),
+      HOME: home,
+      USERPROFILE: home,
+      LATERDOG_SERVER_PORT: String(PORT),
+      LATERDOG_WEBHOOK_PORT: String(PORT + 1),
     },
     stdio: ["ignore", "pipe", "pipe"],
   });
@@ -51,7 +58,10 @@ async function start() {
   }
 }
 
-async function waitFor<T>(read: () => Promise<T | null | undefined>, ms = 30_000): Promise<T | null> {
+async function waitFor<T>(
+  read: () => Promise<T | null | undefined>,
+  ms = 30_000,
+): Promise<T | null> {
   const deadline = Date.now() + ms;
   for (;;) {
     const value = await read();
@@ -64,13 +74,22 @@ async function waitFor<T>(read: () => Promise<T | null | undefined>, ms = 30_000
 const messages = async (threadId: string): Promise<any[]> =>
   (await api("GET", `/api/threads/${threadId}/messages`)).body.messages ?? [];
 const undelivered = async (threadId: string) =>
-  (await messages(threadId)).filter((m) => typeof m.tool?.name === "string" && m.tool.name.includes(UNDELIVERED));
-const openCard = (threadId: string) => waitFor(async () =>
-  (await messages(threadId)).find((m) => m.kind === "options" && m.card?.requestId && !m.card.answered) ?? null);
+  (await messages(threadId)).filter(
+    (m) => typeof m.tool?.name === "string" && m.tool.name.includes(UNDELIVERED),
+  );
+const openCard = (threadId: string) =>
+  waitFor(
+    async () =>
+      (await messages(threadId)).find(
+        (m) => m.kind === "options" && m.card?.requestId && !m.card.answered,
+      ) ?? null,
+  );
 const userDecisionsFor = async (requestId: string) => {
   const { body } = await api("GET", "/api/decisions");
   return ((body.decisions ?? []) as DecisionRow[]).filter(
-    (row) => row.requestId === requestId && (row.decision === "user-approved" || row.decision === "user-denied"),
+    (row) =>
+      row.requestId === requestId &&
+      (row.decision === "user-approved" || row.decision === "user-denied"),
   );
 };
 
@@ -80,10 +99,19 @@ posixOnly("a replayed respond for a settled card", () => {
     home = mkdtempSync(join(tmpdir(), "laterdog-respond-replay-"));
     const data = join(home, ".laterdog");
     mkdirSync(data, { recursive: true });
-    writeFileSync(join(data, "config.json"), JSON.stringify({
-      features: { autoReview: true },
-      instances: { grok: { driver: "grokAgent", environment: { FAKE_ACP_MODE: "permission" }, config: { cli: FAKE_CLI, fullAuto: false } } },
-    }));
+    writeFileSync(
+      join(data, "config.json"),
+      JSON.stringify({
+        features: { autoReview: true },
+        instances: {
+          grok: {
+            driver: "grokAgent",
+            environment: { FAKE_ACP_MODE: "permission" },
+            config: { cli: FAKE_CLI, fullAuto: false },
+          },
+        },
+      }),
+    );
     await start();
   }, 40_000);
 
@@ -96,30 +124,48 @@ posixOnly("a replayed respond for a settled card", () => {
     const created = await api("POST", "/api/bots", { name: "Replayed" });
     expect(created.status, JSON.stringify(created.body)).toBe(201);
     const bot = created.body.bot as { id: string; threadId: string };
-    const patched = await api("PATCH", `/api/bots/${bot.id}`, { modelSelection: { instanceId: "grok", model: "fake-model" } });
+    const patched = await api("PATCH", `/api/bots/${bot.id}`, {
+      modelSelection: { instanceId: "grok", model: "fake-model" },
+    });
     expect(patched.status).toBe(200);
 
-    const sent = await api("POST", `/api/bots/${bot.id}/messages`, { text: "run it", threadId: bot.threadId });
+    const sent = await api("POST", `/api/bots/${bot.id}/messages`, {
+      text: "run it",
+      threadId: bot.threadId,
+    });
     expect(sent.status, JSON.stringify(sent.body)).toBe(202);
     const card = await openCard(bot.threadId);
     expect(card, `no approval card appeared:\n${log.slice(-2_000)}`).not.toBeNull();
     const requestId = card.card.requestId as string;
 
-    const first = await api("POST", `/api/threads/${bot.threadId}/respond`, { requestId, behavior: "allow" });
+    const first = await api("POST", `/api/threads/${bot.threadId}/respond`, {
+      requestId,
+      behavior: "allow",
+    });
     expect(first.status, JSON.stringify(first.body)).toBe(200);
     expect(first.body.outcome).not.toBe("unavailable");
-    const settled = await waitFor(async () =>
-      (await messages(bot.threadId)).find((m) => m.card?.requestId === requestId && m.card.answered) ?? null);
+    const settled = await waitFor(
+      async () =>
+        (await messages(bot.threadId)).find(
+          (m) => m.card?.requestId === requestId && m.card.answered,
+        ) ?? null,
+    );
     expect(settled?.card.answered).toBe("allow");
     expect(await undelivered(bot.threadId)).toHaveLength(0);
 
-    const replay = await api("POST", `/api/threads/${bot.threadId}/respond`, { requestId, behavior: "allow" });
+    const replay = await api("POST", `/api/threads/${bot.threadId}/respond`, {
+      requestId,
+      behavior: "allow",
+    });
     expect(replay.status, JSON.stringify(replay.body)).toBe(200);
     expect(replay.body.outcome).toBe("unavailable");
     expect(await undelivered(bot.threadId)).toHaveLength(0);
     expect(await userDecisionsFor(requestId)).toHaveLength(1);
 
-    const unknown = await api("POST", `/api/threads/${bot.threadId}/respond`, { requestId: "req-never-issued", behavior: "allow" });
+    const unknown = await api("POST", `/api/threads/${bot.threadId}/respond`, {
+      requestId: "req-never-issued",
+      behavior: "allow",
+    });
     expect(unknown.status, JSON.stringify(unknown.body)).toBe(200);
     expect(unknown.body.outcome).toBe("unavailable");
     expect(await undelivered(bot.threadId)).toHaveLength(1);

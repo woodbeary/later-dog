@@ -3,7 +3,14 @@ import { Window } from "happy-dom";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 
-import { BotEditorStore, initialState, StoreProvider, type Bot, type Group, type Message } from "@/state/store";
+import {
+  BotEditorStore,
+  initialState,
+  StoreProvider,
+  type Bot,
+  type Group,
+  type Message,
+} from "@/state/store";
 
 vi.mock("./DesktopCapabilities", () => ({
   useDesktopCapabilities: () => ({ capabilities: { dictation: { available: false } } }),
@@ -22,23 +29,34 @@ const chip = (patch: Partial<Message> = {}): Message => ({
 });
 
 const render = (message: Message) =>
-  renderToStaticMarkup(createElement(StoreProvider, null, createElement(RoomToolChip, { message })));
+  renderToStaticMarkup(
+    createElement(StoreProvider, null, createElement(RoomToolChip, { message })),
+  );
 
 describe("RoomToolChip", () => {
   it("turns a linked receipt into a button that opens the room it names", () => {
-    const markup = render(chip({
-      comm: { groupId: "room-standup", withBotId: "scout", withName: "Standup", withColor: "green" },
-    }));
+    const markup = render(
+      chip({
+        comm: {
+          groupId: "room-standup",
+          withBotId: "scout",
+          withName: "Standup",
+          withColor: "green",
+        },
+      }),
+    );
     expect(markup).toContain("<button");
     expect(markup).toContain("Posted in Standup");
     expect(markup).toContain('title="Open Standup"');
   });
 
   it("shows an old opened-thread receipt as plain text with nothing to open", () => {
-    const markup = render(chip({
-      tool: { name: "Opened thread #QA PR 245 on Scout", ok: true },
-      threadRef: { botId: "scout", threadId: "qa-245", title: "QA PR 245" },
-    }));
+    const markup = render(
+      chip({
+        tool: { name: "Opened thread #QA PR 245 on Scout", ok: true },
+        threadRef: { botId: "scout", threadId: "qa-245", title: "QA PR 245" },
+      }),
+    );
     expect(markup).not.toContain("<button");
     expect(markup).toContain("Opened thread #QA PR 245 on Scout");
   });
@@ -54,8 +72,9 @@ describe("RoomToolChip", () => {
       tool: { name: "Sent to Eli", ok: true },
       comm: { groupId: "here", withBotId: "eli", withName: "Eli", withColor: "green" },
     });
-    const markup = renderToStaticMarkup(createElement(StoreProvider, null,
-      createElement(RoomToolChip, { message, roomId: "here" })));
+    const markup = renderToStaticMarkup(
+      createElement(StoreProvider, null, createElement(RoomToolChip, { message, roomId: "here" })),
+    );
     expect(markup).toContain("Sent to Eli");
     expect(markup).toContain('aria-label="Eli"');
     expect(markup).not.toContain("<button");
@@ -64,16 +83,25 @@ describe("RoomToolChip", () => {
 
 describe("room header", () => {
   const room: Group = {
-    id: "room", threadId: "room-thread", name: "Launch planning", memberIds: [],
-    defaultResponder: { kind: "member", botId: "atlas" }, bulletin: "", unread: false,
-    createdAt: 1, setupCompletedAt: 1, messages: [],
+    id: "room",
+    threadId: "room-thread",
+    name: "Launch planning",
+    memberIds: [],
+    defaultResponder: { kind: "member", botId: "atlas" },
+    bulletin: "",
+    unread: false,
+    createdAt: 1,
+    setupCompletedAt: 1,
+    messages: [],
   };
 
   it("wraps into a name line and a control line when the column is narrow", () => {
     vi.stubGlobal("window", { laterdog: undefined });
     let markup: string;
     try {
-      markup = renderToStaticMarkup(createElement(StoreProvider, null, createElement(GroupView, { group: room })));
+      markup = renderToStaticMarkup(
+        createElement(StoreProvider, null, createElement(GroupView, { group: room })),
+      );
     } finally {
       vi.unstubAllGlobals();
     }
@@ -81,29 +109,53 @@ describe("room header", () => {
     const row = /data-roomhead-row="[^"]*" class="([^"]*)"/.exec(markup)!;
     expect(row[1].split(" ")).toContain("@max-3xl/roomhead:flex-wrap");
     const identity = /data-roomhead-identity="[^"]*" class="([^"]*)"/.exec(markup)!;
-    expect(identity[1].split(" ")).toEqual(expect.arrayContaining(["min-w-0", "@max-3xl/roomhead:basis-full"]));
+    expect(identity[1].split(" ")).toEqual(
+      expect.arrayContaining(["min-w-0", "@max-3xl/roomhead:basis-full"]),
+    );
     const controls = /data-roomhead-controls="[^"]*" class="([^"]*)"/.exec(markup)!;
-    expect(controls[1].split(" ")).toEqual(expect.arrayContaining(["@max-3xl/roomhead:ml-auto", "@max-3xl/roomhead:flex-wrap"]));
+    expect(controls[1].split(" ")).toEqual(
+      expect.arrayContaining(["@max-3xl/roomhead:ml-auto", "@max-3xl/roomhead:flex-wrap"]),
+    );
     expect(markup).toContain("Launch planning");
   });
 });
 
-
 describe("old opened-thread rows in room transcripts", () => {
   const messages: Message[] = ["first", "second"].map((id, index) => ({
-    id, role: "bot", kind: "activity", at: 1000 + index, turnId: "turn-a",
+    id,
+    role: "bot",
+    kind: "activity",
+    at: 1000 + index,
+    turnId: "turn-a",
     tool: { name: `Opened thread #${id} on Scout`, ok: true },
     threadRef: { botId: "scout", threadId: id, title: id },
   }));
   const group: Group = {
-    id: "room", threadId: "room-thread", name: "Standup", memberIds: [],
-    defaultResponder: { kind: "member", botId: "scout" }, bulletin: "", unread: false,
-    createdAt: 1, messages,
+    id: "room",
+    threadId: "room-thread",
+    name: "Standup",
+    memberIds: [],
+    defaultResponder: { kind: "member", botId: "scout" },
+    bulletin: "",
+    unread: false,
+    createdAt: 1,
+    messages,
   };
   it("shows each old receipt as plain text with nothing to open", () => {
-    const markup = renderToStaticMarkup(createElement(StoreProvider, null, createElement(Transcript, {
-      group, members: [], locale: "en", messages, transcript: messages, onReply: () => {},
-    })));
+    const markup = renderToStaticMarkup(
+      createElement(
+        StoreProvider,
+        null,
+        createElement(Transcript, {
+          group,
+          members: [],
+          locale: "en",
+          messages,
+          transcript: messages,
+          onReply: () => {},
+        }),
+      ),
+    );
     expect(markup.match(/data-quiet-line="note"/g)).toHaveLength(2);
     expect(markup).toContain("Opened thread #first on Scout");
     expect(markup).toContain("Opened thread #second on Scout");
@@ -112,21 +164,42 @@ describe("old opened-thread rows in room transcripts", () => {
   });
 });
 
-
 describe("old stored thread links in a room", () => {
-  const messages: Message[] = [{
-    id: "sent", role: "user", kind: "text", at: 1000,
-    text: "@Scout please finish [Fix login](laterdog://thread/abc?bot=b1) first",
-  }];
+  const messages: Message[] = [
+    {
+      id: "sent",
+      role: "user",
+      kind: "text",
+      at: 1000,
+      text: "@Scout please finish [Fix login](laterdog://thread/abc?bot=b1) first",
+    },
+  ];
   const group: Group = {
-    id: "room", threadId: "room-thread", name: "Standup", memberIds: [],
-    defaultResponder: { kind: "member", botId: "scout" }, bulletin: "", unread: false,
-    createdAt: 1, messages,
+    id: "room",
+    threadId: "room-thread",
+    name: "Standup",
+    memberIds: [],
+    defaultResponder: { kind: "member", botId: "scout" },
+    bulletin: "",
+    unread: false,
+    createdAt: 1,
+    messages,
   };
   it("shows a sent message saved with a thread link as plain #Title text", () => {
-    const markup = renderToStaticMarkup(createElement(StoreProvider, null, createElement(Transcript, {
-      group, members: [], locale: "en", messages, transcript: messages, onReply: () => {},
-    })));
+    const markup = renderToStaticMarkup(
+      createElement(
+        StoreProvider,
+        null,
+        createElement(Transcript, {
+          group,
+          members: [],
+          locale: "en",
+          messages,
+          transcript: messages,
+          onReply: () => {},
+        }),
+      ),
+    );
     expect(markup).toContain("please finish #Fix login first");
     expect(markup).not.toContain("laterdog://");
     expect(markup).not.toContain("bot=b1");
@@ -135,16 +208,26 @@ describe("old stored thread links in a room", () => {
 
 describe("a group chat without the extras", () => {
   const room: Group = {
-    id: "room", threadId: "room-thread", name: "Launch planning", memberIds: [],
-    defaultResponder: { kind: "auto" }, bulletin: "Ship on Friday", unread: false,
-    createdAt: 1, messages: [], pinnedMessageId: "gone", turnTimeoutMinutes: 30,
+    id: "room",
+    threadId: "room-thread",
+    name: "Launch planning",
+    memberIds: [],
+    defaultResponder: { kind: "auto" },
+    bulletin: "Ship on Friday",
+    unread: false,
+    createdAt: 1,
+    messages: [],
+    pinnedMessageId: "gone",
+    turnTimeoutMinutes: 30,
   };
 
   it("has no setup form, responder picker, folder, turn limit, bulletin, usage or call in its header, but keeps export", () => {
     vi.stubGlobal("window", { laterdog: undefined });
     let markup: string;
     try {
-      markup = renderToStaticMarkup(createElement(StoreProvider, null, createElement(GroupView, { group: room })));
+      markup = renderToStaticMarkup(
+        createElement(StoreProvider, null, createElement(GroupView, { group: room })),
+      );
     } finally {
       vi.unstubAllGlobals();
     }
@@ -158,37 +241,85 @@ describe("a group chat without the extras", () => {
 
   it("keeps work and needs-you in one transcript slot without a redundant header badge", () => {
     const bots = ["Scout", "Biscuit"].map((name): Bot => ({
-      id: name.toLowerCase(), threadId: `${name}-private`, name, title: "", description: "", color: "green",
-      notifications: true, unread: false, busy: false, messages: [], modelSelection: { instanceId: "test", model: "test" },
+      id: name.toLowerCase(),
+      threadId: `${name}-private`,
+      name,
+      title: "",
+      description: "",
+      color: "green",
+      notifications: true,
+      unread: false,
+      busy: false,
+      messages: [],
+      modelSelection: { instanceId: "test", model: "test" },
     }));
     const draw = (patch: Partial<Group>) => {
-      const group = { ...room, memberIds: bots.map(bot => bot.id), turnStartedAt: Date.now() - 1_000, ...patch };
-      const value = { state: { ...initialState, bots, groups: [group], selectedId: group.id }, dispatch: vi.fn(), flushBotPatches: async () => null, refreshInstances: async () => {}, refreshModels: async () => {} };
+      const group = {
+        ...room,
+        memberIds: bots.map((bot) => bot.id),
+        turnStartedAt: Date.now() - 1_000,
+        ...patch,
+      };
+      const value = {
+        state: { ...initialState, bots, groups: [group], selectedId: group.id },
+        dispatch: vi.fn(),
+        flushBotPatches: async () => null,
+        refreshInstances: async () => {},
+        refreshModels: async () => {},
+      };
       vi.stubGlobal("window", { laterdog: undefined });
       try {
         const document = new Window().document;
-        document.body.innerHTML = renderToStaticMarkup(createElement(BotEditorStore, { value, children: createElement(GroupView, { group }) }));
+        document.body.innerHTML = renderToStaticMarkup(
+          createElement(BotEditorStore, { value, children: createElement(GroupView, { group }) }),
+        );
         return document;
       } finally {
         vi.unstubAllGlobals();
       }
     };
-    const working = draw({ working: true, work: { kind: "running", dogs: bots.map(({ id, name }) => ({ id, name })) } });
+    const working = draw({
+      working: true,
+      work: { kind: "running", dogs: bots.map(({ id, name }) => ({ id, name })) },
+    });
     expect(working.querySelectorAll("[data-turn-slot]")).toHaveLength(1);
     expect(working.querySelector("[data-turn-slot]")?.textContent).toContain("Scout and Biscuit");
-    expect(working.querySelector('[data-glass-bar="top"]')?.textContent).not.toContain("are working");
+    expect(working.querySelector('[data-glass-bar="top"]')?.textContent).not.toContain(
+      "are working",
+    );
     expect(working.querySelector("[data-work-state]")).toBeNull();
     expect(draw({ working: true }).querySelectorAll("[data-turn-slot]")).toHaveLength(1);
-    expect(draw({ work: { kind: "needs-you", what: "Allow the deploy?" } }).querySelector("[data-turn-slot]")?.textContent).toContain("Waiting for your OK");
+    expect(
+      draw({ work: { kind: "needs-you", what: "Allow the deploy?" } }).querySelector(
+        "[data-turn-slot]",
+      )?.textContent,
+    ).toContain("Waiting for your OK");
   });
 
   it("shows an old fetch card as one plain line of its saved text", () => {
-    const messages: Message[] = [{
-      id: "goal", role: "bot", kind: "goal.run", at: 1, text: "Completed: Write the launch post",
-    }];
-    const markup = renderToStaticMarkup(createElement(StoreProvider, null, createElement(Transcript, {
-      group: { ...room, messages }, members: [], locale: "en", messages, transcript: messages, onReply: () => {},
-    })));
+    const messages: Message[] = [
+      {
+        id: "goal",
+        role: "bot",
+        kind: "goal.run",
+        at: 1,
+        text: "Completed: Write the launch post",
+      },
+    ];
+    const markup = renderToStaticMarkup(
+      createElement(
+        StoreProvider,
+        null,
+        createElement(Transcript, {
+          group: { ...room, messages },
+          members: [],
+          locale: "en",
+          messages,
+          transcript: messages,
+          onReply: () => {},
+        }),
+      ),
+    );
     expect(markup).toContain('data-quiet-line="note"');
     expect(markup).toContain("Completed: Write the launch post");
     expect(markup).not.toContain("coordinating");
@@ -196,9 +327,20 @@ describe("a group chat without the extras", () => {
 
   it("has no pin on a message", () => {
     const messages: Message[] = [{ id: "m", role: "user", kind: "text", at: 1, text: "hello" }];
-    const markup = renderToStaticMarkup(createElement(StoreProvider, null, createElement(Transcript, {
-      group: { ...room, messages }, members: [], locale: "en", messages, transcript: messages, onReply: () => {},
-    })));
+    const markup = renderToStaticMarkup(
+      createElement(
+        StoreProvider,
+        null,
+        createElement(Transcript, {
+          group: { ...room, messages },
+          members: [],
+          locale: "en",
+          messages,
+          transcript: messages,
+          onReply: () => {},
+        }),
+      ),
+    );
     expect(markup).not.toContain("Pin message");
     expect(markup).toContain(`aria-label="Reply to message"`);
   });
@@ -206,17 +348,52 @@ describe("a group chat without the extras", () => {
 
 describe("reactions in a group chat", () => {
   const room: Group = {
-    id: "room", threadId: "room-thread", name: "Trip", memberIds: ["scout"],
-    defaultResponder: { kind: "auto" }, bulletin: "", unread: false, createdAt: 1, messages: [],
+    id: "room",
+    threadId: "room-thread",
+    name: "Trip",
+    memberIds: ["scout"],
+    defaultResponder: { kind: "auto" },
+    bulletin: "",
+    unread: false,
+    createdAt: 1,
+    messages: [],
   };
   const scout = { id: "scout", name: "Scout", color: "green" } as Bot;
   const messages: Message[] = [
-    { id: "ask", role: "user", kind: "text", at: 1, text: "Pack light?", reactions: [{ emoji: "👍", by: "scout" }] },
-    { id: "answer", role: "bot", kind: "text", at: 2, text: "Yes.", from: { botId: "scout", name: "Scout", color: "green" }, reactions: [{ emoji: "❤️", by: "user" }] },
+    {
+      id: "ask",
+      role: "user",
+      kind: "text",
+      at: 1,
+      text: "Pack light?",
+      reactions: [{ emoji: "👍", by: "scout" }],
+    },
+    {
+      id: "answer",
+      role: "bot",
+      kind: "text",
+      at: 2,
+      text: "Yes.",
+      from: { botId: "scout", name: "Scout", color: "green" },
+      reactions: [{ emoji: "❤️", by: "user" }],
+    },
   ];
-  const draw = (readOnly = false) => renderToStaticMarkup(createElement(StoreProvider, null, createElement(Transcript, {
-    group: { ...room, messages }, members: [scout], locale: "en", messages, transcript: messages, onReply: () => {}, readOnly,
-  })));
+  const draw = (readOnly = false) =>
+    renderToStaticMarkup(
+      createElement(
+        StoreProvider,
+        null,
+        createElement(Transcript, {
+          group: { ...room, messages },
+          members: [scout],
+          locale: "en",
+          messages,
+          transcript: messages,
+          onReply: () => {},
+          readOnly,
+        }),
+      ),
+    );
 
   it("shows each reaction on its bubble's top corner with who reacted, and a React button beside Reply", () => {
     const markup = draw();

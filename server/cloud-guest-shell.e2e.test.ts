@@ -29,30 +29,45 @@ async function api(method: string, path: string, options: { body?: unknown; toke
   const response = await fetch(`${base}${path}`, {
     method,
     headers: {
-      host: HOST, "x-forwarded-for": "203.0.113.9", "x-forwarded-proto": "https", origin: `https://${HOST}`,
+      host: HOST,
+      "x-forwarded-for": "203.0.113.9",
+      "x-forwarded-proto": "https",
+      origin: `https://${HOST}`,
       ...(options.token ? { authorization: `Bearer ${options.token}` } : {}),
       ...(options.body === undefined ? {} : { "content-type": "application/json" }),
     },
     body: options.body === undefined ? undefined : JSON.stringify(options.body),
   });
-  return { status: response.status, body: await response.json().catch(() => null) as any };
+  return { status: response.status, body: (await response.json().catch(() => null)) as any };
 }
 
 async function adminPairing(): Promise<string> {
   const body = JSON.stringify({ label: "later.dog app (Cloud)", ttlSeconds: 300 });
-  const timestamp = String(Math.floor(Date.now() / 1000)), nonce = randomBytes(16).toString("base64url");
-  const response = await fetch(`${base}/api/cloud/pairing`, { method: "POST", headers: {
-    host: HOST, "x-forwarded-for": "203.0.113.9", "x-forwarded-proto": "https", "content-type": "application/json",
-    "x-laterdog-cloud-timestamp": timestamp, "x-laterdog-cloud-nonce": nonce, "x-laterdog-cloud-signature": `v1=${cloudPairingSignature(secret, timestamp, nonce, body)}`,
-  }, body });
-  const granted = await response.json() as { code: string };
+  const timestamp = String(Math.floor(Date.now() / 1000)),
+    nonce = randomBytes(16).toString("base64url");
+  const response = await fetch(`${base}/api/cloud/pairing`, {
+    method: "POST",
+    headers: {
+      host: HOST,
+      "x-forwarded-for": "203.0.113.9",
+      "x-forwarded-proto": "https",
+      "content-type": "application/json",
+      "x-laterdog-cloud-timestamp": timestamp,
+      "x-laterdog-cloud-nonce": nonce,
+      "x-laterdog-cloud-signature": `v1=${cloudPairingSignature(secret, timestamp, nonce, body)}`,
+    },
+    body,
+  });
+  const granted = (await response.json()) as { code: string };
   return (await api("POST", "/api/auth/pair", { body: { code: granted.code } })).body.token;
 }
 
 const probeOf = (name: string) => join(home, `${name}-probe.json`);
 function probing(name: string, fake: string, extra: string): string {
   const cli = join(home, `${name}-cli.mjs`);
-  writeFileSync(cli, `#!/usr/bin/env node
+  writeFileSync(
+    cli,
+    `#!/usr/bin/env node
 import { execFileSync } from "node:child_process";
 import { readFileSync, writeFileSync } from "node:fs";
 const environ = (pid) => { try {
@@ -64,7 +79,9 @@ if (process.argv[2] !== "--version" && process.argv[2] !== "auth") {
 }
 ${extra}
 await import(${JSON.stringify(pathToFileURL(join(SERVER_DIR, "testing", fake)).href)});
-`, { mode: 0o755 });
+`,
+    { mode: 0o755 },
+  );
   return cli;
 }
 
@@ -72,24 +89,51 @@ beforeAll(async () => {
   home = mkdtempSync(join(tmpdir(), "laterdog-cloud-guest-shell-"));
   const dataDir = join(home, ".laterdog");
   mkdirSync(dataDir, { recursive: true });
-  const codex = probing("codex", "fake-codex-app-server.ts", `process.env.FAKE_CODEX_DUMP = ${JSON.stringify(join(home, "codex.json"))};`);
-  const held = (name: string) => probing(name, "fake-claude-cli.ts", `if (process.argv[2] === "auth") { console.log(JSON.stringify({ loggedIn: true, email: "person@example.test" })); process.exit(0); }
+  const codex = probing(
+    "codex",
+    "fake-codex-app-server.ts",
+    `process.env.FAKE_CODEX_DUMP = ${JSON.stringify(join(home, "codex.json"))};`,
+  );
+  const held = (name: string) =>
+    probing(
+      name,
+      "fake-claude-cli.ts",
+      `if (process.argv[2] === "auth") { console.log(JSON.stringify({ loggedIn: true, email: "person@example.test" })); process.exit(0); }
 process.env.FAKE_CLAUDE_VERSION = "2.1.284";
-if (process.argv[2] !== "--version") { process.env.FAKE_CLAUDE_DUMP = ${JSON.stringify(home)} + "/${name}.json"; process.env.FAKE_CLAUDE_MODE = "hang"; process.env.FAKE_CLAUDE_RELEASE = ${JSON.stringify(join(home, "release"))}; }`);
-  writeFileSync(join(dataDir, "config.json"), JSON.stringify({
-    instances: {
-      ...Object.fromEntries(["cursor", "openaiCompat", "qwen", "hermes", "pi", "claude"].map((id) => [id, { driver: "not-a-real-driver" }])),
-      codex: { driver: "codex", displayName: "Codex", config: { cli: codex } },
-      held: { driver: "claudeAgent", displayName: "Held", config: { cli: held("claude") } },
-      teammate: { driver: "claudeAgent", displayName: "Teammate", config: { cli: held("teammate") } },
-      shelled: { driver: "grokAgent", displayName: "Shelled", config: { cli: join(SERVER_DIR, "testing", "fake-acp-cli.ts") } },
-    },
-  }));
+if (process.argv[2] !== "--version") { process.env.FAKE_CLAUDE_DUMP = ${JSON.stringify(home)} + "/${name}.json"; process.env.FAKE_CLAUDE_MODE = "hang"; process.env.FAKE_CLAUDE_RELEASE = ${JSON.stringify(join(home, "release"))}; }`,
+    );
+  writeFileSync(
+    join(dataDir, "config.json"),
+    JSON.stringify({
+      instances: {
+        ...Object.fromEntries(
+          ["cursor", "openaiCompat", "qwen", "hermes", "pi", "claude"].map((id) => [
+            id,
+            { driver: "not-a-real-driver" },
+          ]),
+        ),
+        codex: { driver: "codex", displayName: "Codex", config: { cli: codex } },
+        held: { driver: "claudeAgent", displayName: "Held", config: { cli: held("claude") } },
+        teammate: {
+          driver: "claudeAgent",
+          displayName: "Teammate",
+          config: { cli: held("teammate") },
+        },
+        shelled: {
+          driver: "grokAgent",
+          displayName: "Shelled",
+          config: { cli: join(SERVER_DIR, "testing", "fake-acp-cli.ts") },
+        },
+      },
+    }),
+  );
   const port = await leasePortBlock([0, 1]);
   base = `http://127.0.0.1:${port}`;
   const offlinePrelude = `data:text/javascript,${encodeURIComponent('const real = globalThis.fetch; globalThis.fetch = async (url, init) => String(url).startsWith("http://127.0.0.1:") ? real(url, init) : new Response("offline fixture", { status: 503 });')}`;
   const spawnWatch = join(home, "spawn-watch.mjs");
-  writeFileSync(spawnWatch, `import { createRequire, syncBuiltinESMExports } from "node:module";
+  writeFileSync(
+    spawnWatch,
+    `import { createRequire, syncBuiltinESMExports } from "node:module";
 import { appendFileSync, fstatSync } from "node:fs";
 const cp = createRequire(import.meta.url)("node:child_process");
 let pipe; try { pipe = fstatSync(3).ino; } catch {}
@@ -102,20 +146,44 @@ for (const name of ["spawn", "spawnSync", "execFile", "execFileSync", "exec", "e
   };
 }
 syncBuiltinESMExports();
-`);
+`,
+  );
   boot = async () => {
-    child = spawnWithSecrets(process.execPath, ["--import", offlinePrelude, "--import", pathToFileURL(spawnWatch).href, join(SERVER_DIR, "index.ts")], {
-      PATH: process.env.PATH, ...(process.env.SystemRoot ? { SystemRoot: process.env.SystemRoot } : {}),
-      HOME: home, USERPROFILE: home, LATERDOG_HOME: dataDir, LATERDOG_SERVER_PORT: String(port), LATERDOG_WEBHOOK_PORT: String(port + 1),
-      LATERDOG_CLOUD_ROLE: "home", LATERDOG_CLOUD_MACHINE_ID: "3f9c2a4e-8b1d-4c6e-9a7f-2d5e8c1b0a93", LATERDOG_CLOUD_ADMIN_URL: "https://cloud.example.test",
-      LATERDOG_PUBLIC_URL: `https://${HOST}`, LATERDOG_CLOUD_BOAT_URL: "https://cloud.example.test/api/cloud/services/boat/api/box/v1",
-      LATERDOG_CLOUD_SECRETS_FD: "3",
-    }, { LATERDOG_CLOUD_BOOTSTRAP_SECRET: secret, LATERDOG_CLOUD_BOAT_TOKEN: relayToken });
-    (child.stdout as NodeJS.ReadableStream | null)?.on("data", (chunk) => { log += chunk; });
+    child = spawnWithSecrets(
+      process.execPath,
+      [
+        "--import",
+        offlinePrelude,
+        "--import",
+        pathToFileURL(spawnWatch).href,
+        join(SERVER_DIR, "index.ts"),
+      ],
+      {
+        PATH: process.env.PATH,
+        ...(process.env.SystemRoot ? { SystemRoot: process.env.SystemRoot } : {}),
+        HOME: home,
+        USERPROFILE: home,
+        LATERDOG_HOME: dataDir,
+        LATERDOG_SERVER_PORT: String(port),
+        LATERDOG_WEBHOOK_PORT: String(port + 1),
+        LATERDOG_CLOUD_ROLE: "home",
+        LATERDOG_CLOUD_MACHINE_ID: "3f9c2a4e-8b1d-4c6e-9a7f-2d5e8c1b0a93",
+        LATERDOG_CLOUD_ADMIN_URL: "https://cloud.example.test",
+        LATERDOG_PUBLIC_URL: `https://${HOST}`,
+        LATERDOG_CLOUD_BOAT_URL: "https://cloud.example.test/api/cloud/services/boat/api/box/v1",
+        LATERDOG_CLOUD_SECRETS_FD: "3",
+      },
+      { LATERDOG_CLOUD_BOOTSTRAP_SECRET: secret, LATERDOG_CLOUD_BOAT_TOKEN: relayToken },
+    );
+    (child.stdout as NodeJS.ReadableStream | null)?.on("data", (chunk) => {
+      log += chunk;
+    });
     const deadline = Date.now() + 20_000;
     for (;;) {
       if (child.exitCode !== null) throw new Error(`the Cloud home exited:\n${log}`);
-      try { if ((await fetch(`${base}/api/health`)).ok) break; } catch {}
+      try {
+        if ((await fetch(`${base}/api/health`)).ok) break;
+      } catch {}
       if (Date.now() > deadline) throw new Error(`the Cloud home did not start:\n${log}`);
       await new Promise((resolve) => setTimeout(resolve, 100));
     }
@@ -131,30 +199,57 @@ afterAll(async () => {
 });
 
 const newBot = async (name: string, instanceId: string) =>
-  (await api("POST", "/api/bots", { token: owner, body: { name, modelSelection: { instanceId, model: instanceId === "codex" ? "gpt-5.5" : "claude-sonnet-5" } } })).body.bot as { id: string; threadId: string };
+  (
+    await api("POST", "/api/bots", {
+      token: owner,
+      body: {
+        name,
+        modelSelection: {
+          instanceId,
+          model: instanceId === "codex" ? "gpt-5.5" : "claude-sonnet-5",
+        },
+      },
+    })
+  ).body.bot as { id: string; threadId: string };
 async function leftBehind(of: { threadId?: string; routineId?: string }) {
   for (const proxy of proxies.splice(0)) proxy.kill();
   await waitForExit(child, { signal: "SIGTERM" });
-  markLeftBehind(join(home, ".laterdog"), { threadIds: of.threadId ? [of.threadId] : [], routineIds: of.routineId ? [of.routineId] : [] });
+  markLeftBehind(join(home, ".laterdog"), {
+    threadIds: of.threadId ? [of.threadId] : [],
+    routineIds: of.routineId ? [of.routineId] : [],
+  });
   await boot();
 }
 const guestThread = async (bot: { id: string }) => {
-  const threadId = (await api("POST", `/api/bots/${bot.id}/tasks`, { token: owner, body: { title: "Guest's" } })).body.task.threadId as string;
+  const threadId = (
+    await api("POST", `/api/bots/${bot.id}/tasks`, { token: owner, body: { title: "Guest's" } })
+  ).body.task.threadId as string;
   await leftBehind({ threadId });
   return threadId;
 };
-const ownThread = async (bot: { id: string }) => (await api("POST", `/api/bots/${bot.id}/tasks`, { token: owner, body: { title: "Mine" } })).body.task.threadId as string;
+const ownThread = async (bot: { id: string }) =>
+  (await api("POST", `/api/bots/${bot.id}/tasks`, { token: owner, body: { title: "Mine" } })).body
+    .task.threadId as string;
 async function agentTools(dump: string) {
   const agents = JSON.parse(readFileSync(dump, "utf8")).mcpConfig.mcpServers.agents;
-  const proxy = spawn(agents.command, agents.args, { env: { PATH: process.env.PATH, HOME: home, ...agents.env }, stdio: ["pipe", "pipe", "pipe"] });
+  const proxy = spawn(agents.command, agents.args, {
+    env: { PATH: process.env.PATH, HOME: home, ...agents.env },
+    stdio: ["pipe", "pipe", "pipe"],
+  });
   proxies.push(proxy);
   const replies = new Map<number, (value: any) => void>();
-  createInterface({ input: proxy.stdout! }).on("line", (line) => { const msg = JSON.parse(line); replies.get(msg.id)?.(msg.result ?? msg); replies.delete(msg.id); });
-  let next = 0;
-  const request = (method: string, params: unknown): Promise<any> => new Promise((resolve) => {
-    const id = ++next; replies.set(id, resolve);
-    proxy.stdin!.write(`${JSON.stringify({ jsonrpc: "2.0", id, method, params })}\n`);
+  createInterface({ input: proxy.stdout! }).on("line", (line) => {
+    const msg = JSON.parse(line);
+    replies.get(msg.id)?.(msg.result ?? msg);
+    replies.delete(msg.id);
   });
+  let next = 0;
+  const request = (method: string, params: unknown): Promise<any> =>
+    new Promise((resolve) => {
+      const id = ++next;
+      replies.set(id, resolve);
+      proxy.stdin!.write(`${JSON.stringify({ jsonrpc: "2.0", id, method, params })}\n`);
+    });
   await request("initialize", { protocolVersion: "2024-11-05" });
   return (name: string, args: unknown) => request("tools/call", { name, arguments: args });
 }
@@ -167,7 +262,9 @@ it("boots with its secrets from the launcher's pipe: the Admin's signed pairing 
 });
 
 it("reads its secrets before it starts any process: none inherits the pipe", () => {
-  const spawns = existsSync(join(home, "spawns.log")) ? readFileSync(join(home, "spawns.log"), "utf8") : "";
+  const spawns = existsSync(join(home, "spawns.log"))
+    ? readFileSync(join(home, "spawns.log"), "utf8")
+    : "";
   expect(spawns).not.toContain("PIPE-OPEN");
 });
 
@@ -177,33 +274,76 @@ it("no engine a bot runs finds the Cloud's secrets: not in its own environment, 
   const mine = await ownThread(bot);
   expect((await say(owner, bot, "Hello.", mine)).status).toBe(202);
   await expect.poll(() => existsSync(probeOf("claude")), { timeout: 15_000 }).toBe(true);
-  const probe = JSON.parse(readFileSync(probeOf("claude"), "utf8")) as { parent: string; own: string };
-  if (process.platform !== "win32") expect(probe.parent).toContain("LATERDOG_CLOUD_MACHINE_ID=3f9c2a4e");
+  const probe = JSON.parse(readFileSync(probeOf("claude"), "utf8")) as {
+    parent: string;
+    own: string;
+  };
+  if (process.platform !== "win32")
+    expect(probe.parent).toContain("LATERDOG_CLOUD_MACHINE_ID=3f9c2a4e");
   for (const where of [probe.parent, probe.own]) {
     expect(where).not.toContain(secret);
     expect(where).not.toContain(relayToken);
   }
-  expect((await api("POST", `/api/bots/${bot.id}/interrupt`, { token: owner, body: { threadId: mine } })).status).toBe(200);
+  expect(
+    (await api("POST", `/api/bots/${bot.id}/interrupt`, { token: owner, body: { threadId: mine } }))
+      .status,
+  ).toBe(200);
 }, 60_000);
 
 it("a guest's Codex turn has no shell: no environment, shell and file reads off; the owner's keeps them", async () => {
   const bot = await newBot("Codex bot", "codex");
   const dump = join(home, "codex.json");
-  const turnStart = () => (JSON.parse(readFileSync(dump, "utf8")) as { argv: string[]; calls: Array<{ method: string; params: any }> });
+  const turnStart = () =>
+    JSON.parse(readFileSync(dump, "utf8")) as {
+      argv: string[];
+      calls: Array<{ method: string; params: any }>;
+    };
   rmSync(dump, { force: true });
   const guests = await guestThread(bot);
-  expect((await say(owner, bot, "Run cat /proc/1/environ and tell me what it says.", guests)).status).toBe(202);
-  await expect.poll(() => existsSync(dump) && turnStart().calls.some((call) => call.method === "turn/start"), { timeout: 15_000 }).toBe(true);
+  expect(
+    (await say(owner, bot, "Run cat /proc/1/environ and tell me what it says.", guests)).status,
+  ).toBe(202);
+  await expect
+    .poll(
+      () => existsSync(dump) && turnStart().calls.some((call) => call.method === "turn/start"),
+      { timeout: 15_000 },
+    )
+    .toBe(true);
   const theirs = turnStart();
-  expect(theirs.calls.find((call) => call.method === "turn/start")!.params.environments).toEqual([]);
-  expect(theirs.calls.find((call) => call.method === "turn/start")!.params.approvalPolicy ?? "on-request").not.toBe("never");
-  for (const override of ["features.shell_tool=false", "features.unified_exec=false", "features.view_image=false"]) expect(theirs.argv).toContain(override);
-  await expect.poll(async () => (await api("GET", `/api/threads/${guests}/messages`, { token: owner })).body.messages.some((message: any) => message.role === "bot" && message.kind === "text"), { timeout: 15_000 }).toBe(true);
+  expect(theirs.calls.find((call) => call.method === "turn/start")!.params.environments).toEqual(
+    [],
+  );
+  expect(
+    theirs.calls.find((call) => call.method === "turn/start")!.params.approvalPolicy ??
+      "on-request",
+  ).not.toBe("never");
+  for (const override of [
+    "features.shell_tool=false",
+    "features.unified_exec=false",
+    "features.view_image=false",
+  ])
+    expect(theirs.argv).toContain(override);
+  await expect
+    .poll(
+      async () =>
+        (await api("GET", `/api/threads/${guests}/messages`, { token: owner })).body.messages.some(
+          (message: any) => message.role === "bot" && message.kind === "text",
+        ),
+      { timeout: 15_000 },
+    )
+    .toBe(true);
   rmSync(dump, { force: true });
   const mine = await ownThread(bot);
   expect((await say(owner, bot, "List my files.", mine)).status).toBe(202);
-  await expect.poll(() => existsSync(dump) && turnStart().calls.some((call) => call.method === "turn/start"), { timeout: 15_000 }).toBe(true);
-  expect(turnStart().calls.find((call) => call.method === "turn/start")!.params).not.toHaveProperty("environments");
+  await expect
+    .poll(
+      () => existsSync(dump) && turnStart().calls.some((call) => call.method === "turn/start"),
+      { timeout: 15_000 },
+    )
+    .toBe(true);
+  expect(turnStart().calls.find((call) => call.method === "turn/start")!.params).not.toHaveProperty(
+    "environments",
+  );
   expect(turnStart().argv).not.toContain("features.shell_tool=false");
 }, 60_000);
 
@@ -212,8 +352,14 @@ it("a guest's request to a bot whose engine needs its shell is refused in one pl
   const guests = await guestThread(bot);
   const refused = await say(owner, bot, "Hello.", guests);
   expect(refused.status).toBe(409);
-  expect(refused.body.error).toBe("This conversation is from before My Cloud was only yours, and this bot's engine can't work in it. Start a new conversation.");
-  expect(((await api("GET", `/api/threads/${guests}/messages`, { token: owner })).body.messages as any[]).filter((message) => message.role === "user")).toEqual([]);
+  expect(refused.body.error).toBe(
+    "This conversation is from before My Cloud was only yours, and this bot's engine can't work in it. Start a new conversation.",
+  );
+  expect(
+    (
+      (await api("GET", `/api/threads/${guests}/messages`, { token: owner })).body.messages as any[]
+    ).filter((message) => message.role === "user"),
+  ).toEqual([]);
   expect((await say(owner, bot, "Hello.", await ownThread(bot))).status).toBe(202);
 }, 60_000);
 
@@ -229,24 +375,49 @@ it("a guest's Claude turn has no command-running tool and no read outside its fo
   expect(argv()).toContain("--restricted");
   expect(after("--tools")).toBe("Read,Grep,Glob,Edit,Write,WebSearch");
   expect(after("--permission-mode")).toBe("default");
-  const socket = connect(JSON.parse(readFileSync(dump, "utf8")).mcpConfig.mcpServers.dog.args.at(-1) as string);
-  await new Promise<void>((resolve, reject) => { socket.once("connect", resolve); socket.once("error", reject); });
+  const socket = connect(
+    JSON.parse(readFileSync(dump, "utf8")).mcpConfig.mcpServers.dog.args.at(-1) as string,
+  );
+  await new Promise<void>((resolve, reject) => {
+    socket.once("connect", resolve);
+    socket.once("error", reject);
+  });
   const requestId = randomUUID();
-  socket.write(`${JSON.stringify({ t: "ask", id: requestId, tool: "Write", input: { file_path: "notes.md", content: "hi" } })}\n`);
+  socket.write(
+    `${JSON.stringify({ t: "ask", id: requestId, tool: "Write", input: { file_path: "notes.md", content: "hi" } })}\n`,
+  );
   let card: any;
-  await expect.poll(async () => {
-    card = ((await api("GET", `/api/threads/${guests}/messages`, { token: owner })).body.messages as any[]).find((message) => message.card?.requestId === requestId)?.card;
-    return Boolean(card);
-  }, { timeout: 15_000 }).toBe(true);
+  await expect
+    .poll(
+      async () => {
+        card = (
+          (await api("GET", `/api/threads/${guests}/messages`, { token: owner })).body
+            .messages as any[]
+        ).find((message) => message.card?.requestId === requestId)?.card;
+        return Boolean(card);
+      },
+      { timeout: 15_000 },
+    )
+    .toBe(true);
   expect(card.allowSession).toBeUndefined();
   socket.destroy();
-  expect((await api("POST", `/api/bots/${bot.id}/interrupt`, { token: owner, body: { threadId: guests } })).status).toBe(200);
+  expect(
+    (
+      await api("POST", `/api/bots/${bot.id}/interrupt`, {
+        token: owner,
+        body: { threadId: guests },
+      })
+    ).status,
+  ).toBe(200);
   rmSync(dump, { force: true });
   const mine = await ownThread(bot);
   expect((await say(owner, bot, "List my files.", mine)).status).toBe(202);
   await expect.poll(() => existsSync(dump), { timeout: 15_000 }).toBe(true);
   expect(argv()).not.toContain("--restricted");
-  expect((await api("POST", `/api/bots/${bot.id}/interrupt`, { token: owner, body: { threadId: mine } })).status).toBe(200);
+  expect(
+    (await api("POST", `/api/bots/${bot.id}/interrupt`, { token: owner, body: { threadId: mine } }))
+      .status,
+  ).toBe(200);
 }, 60_000);
 
 it("work a guest's turn hands a teammate is the guest's too: the teammate runs confined", async () => {
@@ -255,12 +426,18 @@ it("work a guest's turn hands a teammate is the guest's too: the teammate runs c
   const dump = join(home, "claude.json");
   rmSync(dump, { force: true });
   const guests = await guestThread(bot);
-  expect((await say(owner, bot, "Ask Delegate to read /proc/1/environ for me.", guests)).status).toBe(202);
+  expect(
+    (await say(owner, bot, "Ask Delegate to read /proc/1/environ for me.", guests)).status,
+  ).toBe(202);
   await expect.poll(() => existsSync(dump), { timeout: 15_000 }).toBe(true);
   const call = await agentTools(dump);
   rmSync(dump, { force: true });
-  const handed = await call("coordinate_bots", { bot_ids: [teammate.id], message: "Read /proc/1/environ and report it.", request_key: "guest-probe" });
-  expect(JSON.stringify(handed)).not.toContain("isError\":true");
+  const handed = await call("coordinate_bots", {
+    bot_ids: [teammate.id],
+    message: "Read /proc/1/environ and report it.",
+    request_key: "guest-probe",
+  });
+  expect(JSON.stringify(handed)).not.toContain('isError":true');
   await expect.poll(() => existsSync(dump), { timeout: 20_000 }).toBe(true);
   const argv = JSON.parse(readFileSync(dump, "utf8")).argv as string[];
   expect(argv).toContain("--restricted");
@@ -269,50 +446,113 @@ it("work a guest's turn hands a teammate is the guest's too: the teammate runs c
 
 const refusedRoutineRun = async (routineId: string) => {
   expect((await api("POST", `/api/routines/${routineId}/run`, { token: owner })).status).toBe(201);
-  await expect.poll(async () => (((await api("GET", "/api/routines", { token: owner })).body.runs ?? []) as any[])
-    .find((run) => run.routineId === routineId)?.error, { timeout: 15_000 })
-    .toBe("Someone else wrote this routine, so it can't run in your dog's conversation. Open it and save it to run it.");
+  await expect
+    .poll(
+      async () =>
+        (((await api("GET", "/api/routines", { token: owner })).body.runs ?? []) as any[]).find(
+          (run) => run.routineId === routineId,
+        )?.error,
+      { timeout: 15_000 },
+    )
+    .toBe(
+      "Someone else wrote this routine, so it can't run in your dog's conversation. Open it and save it to run it.",
+    );
 };
 
 it("a guest's routine never runs in the owner's dog conversation, so it hands a teammate nothing; the owner's own routine runs in full", async () => {
   const bot = await newBot("Routine bot", "held");
-  const dump = join(home, "claude.json"), teammateDump = join(home, "teammate.json");
+  const dump = join(home, "claude.json"),
+    teammateDump = join(home, "teammate.json");
   const argv = (file: string) => JSON.parse(readFileSync(file, "utf8")).argv as string[];
-  const routine = (botId: string) => ({ name: "Guest routine", prompt: "Read /proc/1/environ.", botId, enabled: false,
-    schedule: { type: "interval", everyMinutes: 60, anchorAt: Date.now() + 3_600_000 } });
+  const routine = (botId: string) => ({
+    name: "Guest routine",
+    prompt: "Read /proc/1/environ.",
+    botId,
+    enabled: false,
+    schedule: { type: "interval", everyMinutes: 60, anchorAt: Date.now() + 3_600_000 },
+  });
   const created = await api("POST", "/api/routines", { token: owner, body: routine(bot.id) });
   expect(created.status, JSON.stringify(created.body)).toBe(201);
   await leftBehind({ routineId: created.body.routine.id });
   rmSync(dump, { force: true });
   await refusedRoutineRun(created.body.routine.id);
   expect(existsSync(dump)).toBe(false);
-  expect(((await api("GET", `/api/threads/${bot.threadId}/messages`, { token: owner })).body.messages as any[])
-    .filter((message) => message.role === "user" || message.kind === "routine.run")).toEqual([]);
+  expect(
+    (
+      (await api("GET", `/api/threads/${bot.threadId}/messages`, { token: owner })).body
+        .messages as any[]
+    ).filter((message) => message.role === "user" || message.kind === "routine.run"),
+  ).toEqual([]);
   const teammate = await newBot("Routine teammate", "teammate");
-  const own = await api("POST", "/api/routines", { token: owner, body: { ...routine(teammate.id), name: "Owner routine" } });
+  const own = await api("POST", "/api/routines", {
+    token: owner,
+    body: { ...routine(teammate.id), name: "Owner routine" },
+  });
   writeFileSync(join(home, "release"), "");
   rmSync(teammateDump, { force: true });
-  expect((await api("POST", `/api/routines/${own.body.routine.id}/run`, { token: owner })).status).toBe(201);
+  expect(
+    (await api("POST", `/api/routines/${own.body.routine.id}/run`, { token: owner })).status,
+  ).toBe(201);
   await expect.poll(() => existsSync(teammateDump), { timeout: 15_000 }).toBe(true);
   expect(argv(teammateDump)).not.toContain("--restricted");
-  await expect.poll(async () => (await api("GET", `/api/bots`, { token: owner })).body.bots.find((candidate: any) => candidate.id === teammate.id)?.busy, { timeout: 15_000 }).toBe(false);
+  await expect
+    .poll(
+      async () =>
+        (await api("GET", `/api/bots`, { token: owner })).body.bots.find(
+          (candidate: any) => candidate.id === teammate.id,
+        )?.busy,
+      { timeout: 15_000 },
+    )
+    .toBe(false);
   rmSync(join(home, "release"), { force: true });
 }, 90_000);
 
 it("a routine someone else wrote, even on an engine that cannot be confined, tells the owner what to do", async () => {
   const bot = await newBot("Shelled routine bot", "shelled");
-  const created = await api("POST", "/api/routines", { token: owner, body: { name: "From before", prompt: "Check the site.", botId: bot.id, enabled: false,
-    schedule: { type: "interval", everyMinutes: 60, anchorAt: Date.now() + 3_600_000 } } });
+  const created = await api("POST", "/api/routines", {
+    token: owner,
+    body: {
+      name: "From before",
+      prompt: "Check the site.",
+      botId: bot.id,
+      enabled: false,
+      schedule: { type: "interval", everyMinutes: 60, anchorAt: Date.now() + 3_600_000 },
+    },
+  });
   await leftBehind({ routineId: created.body.routine.id });
   await refusedRoutineRun(created.body.routine.id);
 }, 60_000);
 
 it("a room a guest opened with a bot whose engine needs its shell refuses the turn in one plain line", async () => {
   const bot = await newBot("Shelled room bot", "shelled");
-  const room = await api("POST", "/api/groups", { token: owner, body: { memberIds: [bot.id], name: "Guest's room", setup: { bulletin: "", defaultResponder: { kind: "everyone" } } } });
+  const room = await api("POST", "/api/groups", {
+    token: owner,
+    body: {
+      memberIds: [bot.id],
+      name: "Guest's room",
+      setup: { bulletin: "", defaultResponder: { kind: "everyone" } },
+    },
+  });
   expect(room.status, JSON.stringify(room.body)).toBe(201);
   await leftBehind({ threadId: room.body.group.threadId });
-  expect((await api("POST", `/api/groups/${room.body.group.id}/messages`, { token: owner, body: { text: "Hello." } })).status).toBeLessThan(300);
-  await expect.poll(async () => ((await api("GET", `/api/threads/${room.body.group.threadId}/messages`, { token: owner })).body.messages as any[])
-    .some((message) => String(message.tool?.name ?? "").includes("this bot's engine can't work in it")), { timeout: 15_000 }).toBe(true);
+  expect(
+    (
+      await api("POST", `/api/groups/${room.body.group.id}/messages`, {
+        token: owner,
+        body: { text: "Hello." },
+      })
+    ).status,
+  ).toBeLessThan(300);
+  await expect
+    .poll(
+      async () =>
+        (
+          (await api("GET", `/api/threads/${room.body.group.threadId}/messages`, { token: owner }))
+            .body.messages as any[]
+        ).some((message) =>
+          String(message.tool?.name ?? "").includes("this bot's engine can't work in it"),
+        ),
+      { timeout: 15_000 },
+    )
+    .toBe(true);
 }, 60_000);

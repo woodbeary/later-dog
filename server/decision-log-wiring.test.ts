@@ -19,7 +19,11 @@ let child: ChildProcess;
 let home: string;
 let stderr = "";
 
-const api = async (method: string, path: string, body?: unknown): Promise<{ status: number; body: any }> => {
+const api = async (
+  method: string,
+  path: string,
+  body?: unknown,
+): Promise<{ status: number; body: any }> => {
   const res = await fetch(`${BASE}${path}`, {
     method,
     headers: body ? { "content-type": "application/json" } : undefined,
@@ -28,7 +32,10 @@ const api = async (method: string, path: string, body?: unknown): Promise<{ stat
   return { status: res.status, body: await res.json() };
 };
 
-async function waitForDecision(pred: (r: DecisionRow) => boolean, ms = 30_000): Promise<DecisionRow | null> {
+async function waitForDecision(
+  pred: (r: DecisionRow) => boolean,
+  ms = 30_000,
+): Promise<DecisionRow | null> {
   const deadline = Date.now() + ms;
   for (;;) {
     const { body } = await api("GET", "/api/decisions");
@@ -60,7 +67,8 @@ async function waitForThreadCard(threadId: string, ms = 30_000) {
   while (Date.now() < deadline) {
     const { body } = await api("GET", `/api/threads/${threadId}/messages`);
     const card = (body.messages ?? []).find(
-      (m: { kind: string; card?: { requestId?: string } }) => m.kind === "options" && m.card?.requestId,
+      (m: { kind: string; card?: { requestId?: string } }) =>
+        m.kind === "options" && m.card?.requestId,
     );
     if (card) return card;
     await new Promise((r) => setTimeout(r, 250));
@@ -141,142 +149,147 @@ posixOnly("authorization decisions are logged", () => {
     await removeTempDir(home);
   });
 
-  it(
-    "an Auto bot's card is logged as the provider's own request",
-    async () => {
-      const bot = await makePermissionBot({ name: "Granted", autoApprove: true });
-      expect((await api("POST", `/api/bots/${bot.id}/messages`, { text: "run it" })).status).toBe(202);
+  it("an Auto bot's card is logged as the provider's own request", async () => {
+    const bot = await makePermissionBot({ name: "Granted", autoApprove: true });
+    expect((await api("POST", `/api/bots/${bot.id}/messages`, { text: "run it" })).status).toBe(
+      202,
+    );
 
-      const card = await waitForBotCard(bot.id);
-      expect(card, "no approval card ever appeared").not.toBeNull();
-      const row = await waitForDecision((r) => r.decision === "card-shown" && r.botId === bot.id);
-      expect(row, "the card never reached the decision log").not.toBeNull();
-      expect(row!.source).toBe("native-approval");
-      expect(row!.rule).toBeUndefined();
-      expect(row!.tool).toBe("shell");
-      expect(row!.summary).toBe("echo hi");
-      expect(row!.botName).toBe("Granted");
-      expect(row!.threadId).toBeTruthy();
-      expect(row!.requestId).toBeTruthy();
-      expect(card.card.held).toBe("This always asks you first.");
-      expect(card.card.allowSession).toBeUndefined();
-    },
-    60_000,
-  );
+    const card = await waitForBotCard(bot.id);
+    expect(card, "no approval card ever appeared").not.toBeNull();
+    const row = await waitForDecision((r) => r.decision === "card-shown" && r.botId === bot.id);
+    expect(row, "the card never reached the decision log").not.toBeNull();
+    expect(row!.source).toBe("native-approval");
+    expect(row!.rule).toBeUndefined();
+    expect(row!.tool).toBe("shell");
+    expect(row!.summary).toBe("echo hi");
+    expect(row!.botName).toBe("Granted");
+    expect(row!.threadId).toBeTruthy();
+    expect(row!.requestId).toBeTruthy();
+    expect(card.card.held).toBe("This always asks you first.");
+    expect(card.card.allowSession).toBeUndefined();
+  }, 60_000);
 
-  it(
-    "a card and the human's allow write two rows",
-    async () => {
-      const bot = await makePermissionBot({ name: "Askme" });
-      expect((await api("POST", `/api/bots/${bot.id}/messages`, { text: "run it" })).status).toBe(202);
+  it("a card and the human's allow write two rows", async () => {
+    const bot = await makePermissionBot({ name: "Askme" });
+    expect((await api("POST", `/api/bots/${bot.id}/messages`, { text: "run it" })).status).toBe(
+      202,
+    );
 
-      const card = await waitForBotCard(bot.id);
-      expect(card, "no approval card ever appeared").not.toBeNull();
-      const requestId = card.card.requestId as string;
+    const card = await waitForBotCard(bot.id);
+    expect(card, "no approval card ever appeared").not.toBeNull();
+    const requestId = card.card.requestId as string;
 
-      const shown = await waitForDecision((r) => r.decision === "card-shown" && r.requestId === requestId);
-      expect(shown, "the card was shown but never logged").not.toBeNull();
-      expect(shown!.source).toBe("native-approval");
-      expect(shown!.botId).toBe(bot.id);
-      expect(shown!.tool).toBe("shell");
+    const shown = await waitForDecision(
+      (r) => r.decision === "card-shown" && r.requestId === requestId,
+    );
+    expect(shown, "the card was shown but never logged").not.toBeNull();
+    expect(shown!.source).toBe("native-approval");
+    expect(shown!.botId).toBe(bot.id);
+    expect(shown!.tool).toBe("shell");
 
-      const answered = await api("POST", `/api/bots/${bot.id}/respond`, { requestId, behavior: "allow" });
-      expect(answered.status).toBe(200);
-      expect(answered.body.outcome).not.toBe("unavailable");
+    const answered = await api("POST", `/api/bots/${bot.id}/respond`, {
+      requestId,
+      behavior: "allow",
+    });
+    expect(answered.status).toBe(200);
+    expect(answered.body.outcome).not.toBe("unavailable");
 
-      const user = await waitForDecision((r) => r.decision === "user-approved" && r.requestId === requestId);
-      expect(user, "the human's answer never reached the decision log").not.toBeNull();
-      expect(user!.source).toBe("user");
-      expect(user!.tool).toBe("shell");
-      expect(user!.summary).toBe("echo hi");
-      expect(user!.botName).toBe("Askme");
-    },
-    90_000,
-  );
+    const user = await waitForDecision(
+      (r) => r.decision === "user-approved" && r.requestId === requestId,
+    );
+    expect(user, "the human's answer never reached the decision log").not.toBeNull();
+    expect(user!.source).toBe("user");
+    expect(user!.tool).toBe("shell");
+    expect(user!.summary).toBe("echo hi");
+    expect(user!.botName).toBe("Askme");
+  }, 90_000);
 
-  it(
-    "a human deny writes its row too",
-    async () => {
-      const bot = await makePermissionBot({ name: "Refused" });
-      expect((await api("POST", `/api/bots/${bot.id}/messages`, { text: "run it" })).status).toBe(202);
+  it("a human deny writes its row too", async () => {
+    const bot = await makePermissionBot({ name: "Refused" });
+    expect((await api("POST", `/api/bots/${bot.id}/messages`, { text: "run it" })).status).toBe(
+      202,
+    );
 
-      const card = await waitForBotCard(bot.id);
-      expect(card).not.toBeNull();
-      const requestId = card.card.requestId as string;
-      expect((await api("POST", `/api/bots/${bot.id}/respond`, { requestId, behavior: "deny" })).status).toBe(200);
+    const card = await waitForBotCard(bot.id);
+    expect(card).not.toBeNull();
+    const requestId = card.card.requestId as string;
+    expect(
+      (await api("POST", `/api/bots/${bot.id}/respond`, { requestId, behavior: "deny" })).status,
+    ).toBe(200);
 
-      const user = await waitForDecision((r) => r.decision === "user-denied" && r.requestId === requestId);
-      expect(user, "the denial never reached the decision log").not.toBeNull();
-      expect(user!.source).toBe("user");
-    },
-    90_000,
-  );
+    const user = await waitForDecision(
+      (r) => r.decision === "user-denied" && r.requestId === requestId,
+    );
+    expect(user, "the denial never reached the decision log").not.toBeNull();
+    expect(user!.source).toBe("user");
+  }, 90_000);
 
-  it(
-    "a question card carries its questions and logs the row without an origin",
-    async () => {
-      const created = await api("POST", "/api/bots");
-      expect(created.status).toBe(201);
-      const patched = await api("PATCH", `/api/bots/${created.body.bot.id}`, {
-        name: "Queried",
-        modelSelection: { instanceId: "grokq", model: "fake-model" },
-      });
-      expect(patched.status).toBe(200);
-      const bot = patched.body.bot ?? created.body.bot;
-      expect((await api("POST", `/api/bots/${bot.id}/messages`, { text: "ask me" })).status).toBe(202);
+  it("a question card carries its questions and logs the row without an origin", async () => {
+    const created = await api("POST", "/api/bots");
+    expect(created.status).toBe(201);
+    const patched = await api("PATCH", `/api/bots/${created.body.bot.id}`, {
+      name: "Queried",
+      modelSelection: { instanceId: "grokq", model: "fake-model" },
+    });
+    expect(patched.status).toBe(200);
+    const bot = patched.body.bot ?? created.body.bot;
+    expect((await api("POST", `/api/bots/${bot.id}/messages`, { text: "ask me" })).status).toBe(
+      202,
+    );
 
-      const card = await waitForBotCard(bot.id);
-      expect(card, "no question card ever appeared").not.toBeNull();
-      expect(card.card.tool).toBeUndefined();
-      expect(card.card.options).toContain("Blue");
-      expect(card.card.questionRequest?.origin).toBeUndefined();
+    const card = await waitForBotCard(bot.id);
+    expect(card, "no question card ever appeared").not.toBeNull();
+    expect(card.card.tool).toBeUndefined();
+    expect(card.card.options).toContain("Blue");
+    expect(card.card.questionRequest?.origin).toBeUndefined();
 
-      const row = await waitForDecision((r) => r.decision === "card-shown" && r.botId === bot.id);
-      expect(row, "the question card never reached the decision log").not.toBeNull();
-      expect(row!.source).toBe("question");
-      expect(row!.origin).toBeUndefined();
+    const row = await waitForDecision((r) => r.decision === "card-shown" && r.botId === bot.id);
+    expect(row, "the question card never reached the decision log").not.toBeNull();
+    expect(row!.source).toBe("question");
+    expect(row!.origin).toBeUndefined();
 
-      const requestId = card.card.requestId as string;
-      const answered = await api("POST", `/api/bots/${bot.id}/respond`, { requestId, behavior: "answer", message: "Blue" });
-      expect(answered.status).toBe(200);
-      expect(answered.body.outcome).toBe("answered");
-    },
-    90_000,
-  );
+    const requestId = card.card.requestId as string;
+    const answered = await api("POST", `/api/bots/${bot.id}/respond`, {
+      requestId,
+      behavior: "answer",
+      message: "Blue",
+    });
+    expect(answered.status).toBe(200);
+    expect(answered.body.outcome).toBe("answered");
+  }, 90_000);
 
-  it(
-    "a webhook turn's card is logged as unattended, in the bot's own mode",
-    async () => {
-      const bot = await makePermissionBot({ name: "Nightshift", autoApprove: true });
+  it("a webhook turn's card is logged as unattended, in the bot's own mode", async () => {
+    const bot = await makePermissionBot({ name: "Nightshift", autoApprove: true });
 
-      const hook = await api("POST", "/api/webhooks", {
-        name: "Nightly build",
-        prompt: "Handle the incoming build event",
-        botId: bot.id,
-        runOn: "dog",
-      });
-      expect(hook.status).toBe(201);
-      const delivered = await fetch(hook.body.credential.url, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ status: "failed" }),
-      });
-      expect(delivered.status).toBe(202);
-      const { runId } = (await delivered.json()) as { runId: string };
+    const hook = await api("POST", "/api/webhooks", {
+      name: "Nightly build",
+      prompt: "Handle the incoming build event",
+      botId: bot.id,
+      runOn: "dog",
+    });
+    expect(hook.status).toBe(201);
+    const delivered = await fetch(hook.body.credential.url, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ status: "failed" }),
+    });
+    expect(delivered.status).toBe(202);
+    const { runId } = (await delivered.json()) as { runId: string };
 
-      const threadId = await waitForRunThread(runId);
-      expect(threadId, "the webhook never started a task").toBeTruthy();
-      const card = await waitForThreadCard(threadId!);
-      expect(card, "the webhook turn never asked").not.toBeNull();
+    const threadId = await waitForRunThread(runId);
+    expect(threadId, "the webhook never started a task").toBeTruthy();
+    const card = await waitForThreadCard(threadId!);
+    expect(card, "the webhook turn never asked").not.toBeNull();
 
-      const row = await waitForDecision((r) => r.threadId === threadId && r.decision === "card-shown");
-      expect(row, "the card never reached the decision log").not.toBeNull();
-      expect(row!.source).toBe("native-approval");
-      expect(row!.unattended).toBe(true);
-      expect(row!.botId).toBe(bot.id);
-    },
-    90_000,
-  );
+    const row = await waitForDecision(
+      (r) => r.threadId === threadId && r.decision === "card-shown",
+    );
+    expect(row, "the card never reached the decision log").not.toBeNull();
+    expect(row!.source).toBe("native-approval");
+    expect(row!.unattended).toBe(true);
+    expect(row!.botId).toBe(bot.id);
+  }, 90_000);
 
   it("GET /api/decisions pages newest-last and validates limit", async () => {
     const all = (await api("GET", "/api/decisions")).body.decisions as DecisionRow[];
@@ -296,12 +309,22 @@ posixOnly("authorization decisions are logged", () => {
     const res = await fetch(`${BASE}/api/decisions.csv?from=${from}&to=${to}`);
     expect(res.status).toBe(200);
     expect(res.headers.get("content-type")).toMatch(/^text\/csv/);
-    expect(res.headers.get("content-disposition")).toBe(`attachment; filename="decisions-${from}-${to}.csv"`);
+    expect(res.headers.get("content-disposition")).toBe(
+      `attachment; filename="decisions-${from}-${to}.csv"`,
+    );
     const lines = (await res.text()).trim().split("\n");
-    expect(lines[0]).toBe("time,decision,source,bot,tool,summary,rule,unattended,answered_by,thread,request");
+    expect(lines[0]).toBe(
+      "time,decision,source,bot,tool,summary,rule,unattended,answered_by,thread,request",
+    );
     expect(lines).toHaveLength(all.length + 1);
-    expect(lines.some((line) => line.includes(",user-approved,user,") && line.includes(",This computer,"))).toBe(true);
+    expect(
+      lines.some(
+        (line) => line.includes(",user-approved,user,") && line.includes(",This computer,"),
+      ),
+    ).toBe(true);
     expect((await fetch(`${BASE}/api/decisions.csv?from=2026-13-01`)).status).toBe(400);
-    expect((await fetch(`${BASE}/api/decisions.csv?from=2025-01-01&to=2026-09-01`)).status).toBe(400);
+    expect((await fetch(`${BASE}/api/decisions.csv?from=2025-01-01&to=2026-09-01`)).status).toBe(
+      400,
+    );
   });
 });

@@ -3,7 +3,17 @@ import os from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { afterEach, describe, expect, it } from "vitest";
-import { analyze, analyzeLogs, loadRuns, parseTestDurations, percentile, renderLogReport, renderReport, runnerOs, splitJob } from "./ci-audit.mjs";
+import {
+  analyze,
+  analyzeLogs,
+  loadRuns,
+  parseTestDurations,
+  percentile,
+  renderLogReport,
+  renderReport,
+  runnerOs,
+  splitJob,
+} from "./ci-audit.mjs";
 
 const folders = [];
 
@@ -18,7 +28,12 @@ function folder() {
 }
 
 function step(name, start, end, conclusion = "success") {
-  return { name, conclusion, started_at: `2026-11-01T00:00:${start}Z`, completed_at: `2026-11-01T00:00:${end}Z` };
+  return {
+    name,
+    conclusion,
+    started_at: `2026-11-01T00:00:${start}Z`,
+    completed_at: `2026-11-01T00:00:${end}Z`,
+  };
 }
 
 function job(overrides = {}) {
@@ -53,7 +68,14 @@ describe("percentile", () => {
 
 describe("splitJob", () => {
   it("splits a job into waiting, setup, running and teardown", () => {
-    expect(splitJob(job())).toMatchObject({ waiting: 10, setup: 15, running: 30, teardown: 3, ranWork: true, os: "Linux" });
+    expect(splitJob(job())).toMatchObject({
+      waiting: 10,
+      setup: 15,
+      running: 30,
+      teardown: 3,
+      ranWork: true,
+      os: "Linux",
+    });
   });
 
   it("marks a job whose work steps were all skipped", () => {
@@ -66,7 +88,12 @@ describe("splitJob", () => {
         step("Complete job", "40", "41"),
       ],
     });
-    expect(splitJob(skipped)).toMatchObject({ setup: 30, running: 0, ranWork: false, failedInSetup: true });
+    expect(splitJob(skipped)).toMatchObject({
+      setup: 30,
+      running: 0,
+      ranWork: false,
+      failedInSetup: true,
+    });
   });
 });
 
@@ -85,11 +112,32 @@ describe("report", () => {
       path.join(dir, "runs.json"),
       JSON.stringify([
         { id: 10, event: "push", conclusion: "success", created_at: "2026-11-01T00:00:00Z" },
-        { id: 11, event: "pull_request", conclusion: "failure", created_at: "2026-11-01T00:00:00Z" },
+        {
+          id: 11,
+          event: "pull_request",
+          conclusion: "failure",
+          created_at: "2026-11-01T00:00:00Z",
+        },
       ]),
     );
     fs.writeFileSync(path.join(dir, "10.json"), JSON.stringify({ total_count: 1, jobs: [job()] }));
-    fs.writeFileSync(path.join(dir, "11.json"), JSON.stringify({ total_count: 1, jobs: [job({ id: 2, conclusion: "failure", steps: [step("Set up job", "10", "12"), step("Run pnpm install --frozen-lockfile", "12", "20", "failure"), step("Complete job", "20", "21")] })] }));
+    fs.writeFileSync(
+      path.join(dir, "11.json"),
+      JSON.stringify({
+        total_count: 1,
+        jobs: [
+          job({
+            id: 2,
+            conclusion: "failure",
+            steps: [
+              step("Set up job", "10", "12"),
+              step("Run pnpm install --frozen-lockfile", "12", "20", "failure"),
+              step("Complete job", "20", "21"),
+            ],
+          }),
+        ],
+      }),
+    );
     fs.writeFileSync(path.join(dir, "12.json"), JSON.stringify({ total_count: 0, jobs: [] }));
   }
 
@@ -99,13 +147,19 @@ describe("report", () => {
     const runs = loadRuns(dir);
     expect(runs.map((run) => run.id)).toEqual(["10", "11", "12"]);
     const { runRows } = analyze(runs);
-    expect(runRows.find((run) => run.id === "10")).toMatchObject({ event: "push", os: "Linux", wall: 59 });
+    expect(runRows.find((run) => run.id === "10")).toMatchObject({
+      event: "push",
+      os: "Linux",
+      wall: 59,
+    });
     const text = renderReport(analyze(runs));
     expect(text).toContain("3 runs read, 2 with job data, 1 without.");
     expect(text).toContain("| pull_request | failure | 1 |");
     expect(text).toContain("| vitest (shard 1/4) | Run pnpm install --frozen-lockfile | 1 |");
     expect(text).toContain("| event | push | 1 | 59 | 59 |");
-    expect(text).toContain("| Linux | vitest (shard 1/4) | 2 | 10 / 10 | 2 | 10 / 15 | 1 | 30 / 30 | 1 | 1 | 1 / 3 |");
+    expect(text).toContain(
+      "| Linux | vitest (shard 1/4) | 2 | 10 / 10 | 2 | 10 / 15 | 1 | 30 / 30 | 1 | 1 | 1 / 3 |",
+    );
   });
 
   it("prints from the command line", () => {
@@ -114,7 +168,9 @@ describe("report", () => {
     const run = spawnSync(process.execPath, ["scripts/ci-audit.mjs", dir], { encoding: "utf8" });
     expect(run.status).toBe(0);
     expect(run.stdout).toContain("## Buckets per job (seconds)");
-    expect(spawnSync(process.execPath, ["scripts/ci-audit.mjs"], { encoding: "utf8" }).status).toBe(2);
+    expect(spawnSync(process.execPath, ["scripts/ci-audit.mjs"], { encoding: "utf8" }).status).toBe(
+      2,
+    );
   });
 });
 
@@ -140,29 +196,52 @@ describe("test durations from logs", () => {
     fs.writeFileSync(path.join(logs, "77.log"), log);
     const result = analyzeLogs(loadRuns(dir), logs);
     expect(result.logsRead).toBe(1);
-    expect(renderLogReport(result)).toContain("| scripts/testing/thinking-timer-ui.e2e.test.ts | 1 | 47.1 | 47.1 |");
+    expect(renderLogReport(result)).toContain(
+      "| scripts/testing/thinking-timer-ui.e2e.test.ts | 1 | 47.1 | 47.1 |",
+    );
   });
 });
 
-
 describe("current hosted measurements", () => {
   it("counts the composite preparation action as setup", () => {
-    expect(splitJob(job({ steps: [
-      step("Set up job", "10", "12"),
-      step("Run ./.github/actions/prepare", "12", "44"),
-      step("Lint", "44", "55"),
-    ] }))).toMatchObject({ setup: 34, running: 11 });
+    expect(
+      splitJob(
+        job({
+          steps: [
+            step("Set up job", "10", "12"),
+            step("Run ./.github/actions/prepare", "12", "44"),
+            step("Lint", "44", "55"),
+          ],
+        }),
+      ),
+    ).toMatchObject({ setup: 34, running: 11 });
   });
 
   it("does not report a runner that never executed as zero-second setup", () => {
     const empty = job({ runner_id: 0, conclusion: "failure", steps: [] });
-    expect(splitJob(empty)).toMatchObject({ waiting: null, setup: null, running: null, teardown: null, ranWork: false });
-    const text = renderReport(analyze([{ id: "empty", jobs: [empty], meta: { event: "pull_request", conclusion: "failure" } }]));
+    expect(splitJob(empty)).toMatchObject({
+      waiting: null,
+      setup: null,
+      running: null,
+      teardown: null,
+      ranWork: false,
+    });
+    const text = renderReport(
+      analyze([
+        { id: "empty", jobs: [empty], meta: { event: "pull_request", conclusion: "failure" } },
+      ]),
+    );
     expect(text).toContain("| Linux | setup | 0 | - | - |");
   });
 
   it("keeps unfinished runs out of completed wall-time samples", () => {
-    const { runRows } = analyze([{ id: "live", jobs: [job()], meta: { status: "in_progress", event: "pull_request", conclusion: null } }]);
+    const { runRows } = analyze([
+      {
+        id: "live",
+        jobs: [job()],
+        meta: { status: "in_progress", event: "pull_request", conclusion: null },
+      },
+    ]);
     expect(runRows[0]).toMatchObject({ conclusion: "in_progress", wall: null });
   });
 
@@ -173,27 +252,63 @@ describe("current hosted measurements", () => {
       { id: "missing", jobs: [job({ conclusion: undefined, steps: [] })] },
       { id: "skip", jobs: [job({ conclusion: "skipped", steps: [] })] },
     ]).runRows;
-    expect(result.map((row) => row.conclusion)).toEqual(["timed_out", "in_progress", "in_progress", "skipped"]);
+    expect(result.map((row) => row.conclusion)).toEqual([
+      "timed_out",
+      "in_progress",
+      "in_progress",
+      "skipped",
+    ]);
   });
 
   it("records an Install failure as setup rather than executed checks", () => {
-    expect(splitJob(job({ steps: [step("Install", "10", "30", "failure"), step("Full tests", "30", "30", "skipped")] })))
-      .toMatchObject({ setup: 20, running: 0, failedInSetup: true, ranWork: false });
+    expect(
+      splitJob(
+        job({
+          steps: [
+            step("Install", "10", "30", "failure"),
+            step("Full tests", "30", "30", "skipped"),
+          ],
+        }),
+      ),
+    ).toMatchObject({ setup: 20, running: 0, failedInSetup: true, ranWork: false });
   });
 
   it("retains listed runs with no downloaded job data", () => {
     const dir = folder();
-    fs.writeFileSync(path.join(dir, "runs.json"), JSON.stringify([{ id: 99, event: "pull_request", conclusion: "failure" }]));
-    expect(loadRuns(dir)).toEqual([{ id: "99", jobs: [], meta: { id: 99, event: "pull_request", conclusion: "failure" } }]);
+    fs.writeFileSync(
+      path.join(dir, "runs.json"),
+      JSON.stringify([{ id: 99, event: "pull_request", conclusion: "failure" }]),
+    );
+    expect(loadRuns(dir)).toEqual([
+      { id: "99", jobs: [], meta: { id: 99, event: "pull_request", conclusion: "failure" } },
+    ]);
   });
 
   it("reports completed successful work separately by workflow", () => {
-    const text = renderReport(analyze([
-      { id: "good", jobs: [job()], meta: { name: "Checks", event: "pull_request", conclusion: "success" } },
-      { id: "bad", jobs: [job()], meta: { name: "Checks", event: "pull_request", conclusion: "failure" } },
-      { id: "inconsistent", jobs: [job({ conclusion: "failure" })], meta: { name: "Checks", event: "pull_request", conclusion: "success" } },
-      { id: "empty", jobs: [job({ steps: [] })], meta: { name: "Checks", event: "pull_request", conclusion: "success" } },
-    ]));
+    const text = renderReport(
+      analyze([
+        {
+          id: "good",
+          jobs: [job()],
+          meta: { name: "Checks", event: "pull_request", conclusion: "success" },
+        },
+        {
+          id: "bad",
+          jobs: [job()],
+          meta: { name: "Checks", event: "pull_request", conclusion: "failure" },
+        },
+        {
+          id: "inconsistent",
+          jobs: [job({ conclusion: "failure" })],
+          meta: { name: "Checks", event: "pull_request", conclusion: "success" },
+        },
+        {
+          id: "empty",
+          jobs: [job({ steps: [] })],
+          meta: { name: "Checks", event: "pull_request", conclusion: "success" },
+        },
+      ]),
+    );
     expect(text).toContain("## Successful runs that executed work");
     expect(text).toContain("| Checks | pull_request | 1 | 59 | 59 |");
   });

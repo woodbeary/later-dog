@@ -1,6 +1,13 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import { createServer, type Server } from "node:http";
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  writeFileSync,
+} from "node:fs";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -10,7 +17,6 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import { removeTempDir, waitForExit } from "./testing/cleanup.ts";
 import { leasePortBlock } from "./testing/ports.ts";
-
 
 const SERVER_DIR = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(SERVER_DIR, "..");
@@ -32,10 +38,16 @@ let fallbackTitleDump = "";
 const jevRequests: JevRequest[] = [];
 let script: RouteScript = {};
 
-const routeRequests = () => jevRequests.filter((request) => request.body?.questions?.answer?.type === "choice");
-const keyChecks = () => jevRequests.filter((request) => request.body?.questions?.answer?.type === "noul");
+const routeRequests = () =>
+  jevRequests.filter((request) => request.body?.questions?.answer?.type === "choice");
+const keyChecks = () =>
+  jevRequests.filter((request) => request.body?.questions?.answer?.type === "noul");
 
-const api = async (method: string, path: string, body?: unknown): Promise<{ status: number; body: any; text: string }> => {
+const api = async (
+  method: string,
+  path: string,
+  body?: unknown,
+): Promise<{ status: number; body: any; text: string }> => {
   const response = await fetch(`${base}${path}`, {
     method,
     headers: body ? { "content-type": "application/json" } : {},
@@ -57,21 +69,37 @@ beforeAll(async () => {
         res.end(JSON.stringify(value));
       };
       const question = body.questions?.answer;
-      if (req.url !== "/v1/systemone" || body.model !== "jev-latest" || !question) return send(422, { detail: "bad request shape" });
+      if (req.url !== "/v1/systemone" || body.model !== "jev-latest" || !question)
+        return send(422, { detail: "bad request shape" });
       if (question.type === "noul") {
         return req.headers.authorization === "Bearer tsk_bad"
           ? send(401, { detail: `invalid key ${req.headers.authorization}` })
-          : send(200, { model: "jev-1.13.0", answers: { answer: { type: "noul", noul: 0.96 } }, usage: { input_tokens: 40 } });
+          : send(200, {
+              model: "jev-1.13.0",
+              answers: { answer: { type: "noul", noul: 0.96 } },
+              usage: { input_tokens: 40 },
+            });
       }
       const current = script;
       if (current.hold) await current.hold;
-      if (current.status && current.status !== 200) return send(current.status, { detail: "overloaded" });
+      if (current.status && current.status !== 200)
+        return send(current.status, { detail: "overloaded" });
       const keys = Object.keys(question.criteria);
       const choice = current.choice!;
       const other = keys.find((key) => key !== choice)!;
       send(200, {
         model: "jev-1.13.0",
-        answers: { answer: { type: "choice", choice, confidence: current.p, probabilities: { [choice]: current.p, [other]: Math.round((1 - current.p!) * 100) / 100 } } },
+        answers: {
+          answer: {
+            type: "choice",
+            choice,
+            confidence: current.p,
+            probabilities: {
+              [choice]: current.p,
+              [other]: Math.round((1 - current.p!) * 100) / 100,
+            },
+          },
+        },
         usage: { input_tokens: 700 },
       });
     });
@@ -91,20 +119,36 @@ beforeAll(async () => {
   fallbackTitleDump = join(home, "fallback-title-dump.json");
   const titleFile = join(home, "title.txt");
   writeFileSync(titleFile, "Safari footer fix");
-  writeFileSync(join(data, "config.json"), JSON.stringify({
-    features: { llmThreadTitles: true },
-    instances: {
-      quick: {
-        driver: "claudeAgent", displayName: "Quick fixture", config: { cli: FAKE_CLAUDE },
-        environment: { FAKE_CLAUDE_MODE: "happy", FAKE_CLAUDE_DUMP: engineDump, FAKE_CLAUDE_TEXT_DUMP: fallbackTitleDump, FAKE_CLAUDE_TEXT_FILE: titleFile },
+  writeFileSync(
+    join(data, "config.json"),
+    JSON.stringify({
+      features: { llmThreadTitles: true },
+      instances: {
+        quick: {
+          driver: "claudeAgent",
+          displayName: "Quick fixture",
+          config: { cli: FAKE_CLAUDE },
+          environment: {
+            FAKE_CLAUDE_MODE: "happy",
+            FAKE_CLAUDE_DUMP: engineDump,
+            FAKE_CLAUDE_TEXT_DUMP: fallbackTitleDump,
+            FAKE_CLAUDE_TEXT_FILE: titleFile,
+          },
+        },
+        titled: {
+          driver: "claudeAgent",
+          displayName: "Titled fixture",
+          config: { cli: FAKE_CLAUDE },
+          environment: {
+            FAKE_CLAUDE_MODE: "happy",
+            FAKE_CLAUDE_TEXT_DUMP: titleDump,
+            FAKE_CLAUDE_TEXT_FILE: titleFile,
+          },
+        },
       },
-      titled: {
-        driver: "claudeAgent", displayName: "Titled fixture", config: { cli: FAKE_CLAUDE },
-        environment: { FAKE_CLAUDE_MODE: "happy", FAKE_CLAUDE_TEXT_DUMP: titleDump, FAKE_CLAUDE_TEXT_FILE: titleFile },
-      },
-    },
-    decider: { enabled: true, baseUrl: jevUrl, jobs: { roomRouting: true } },
-  }));
+      decider: { enabled: true, baseUrl: jevUrl, jobs: { roomRouting: true } },
+    }),
+  );
   const port = await leasePortBlock([0, 1]);
   base = `http://127.0.0.1:${port}`;
   child = spawn(process.execPath, [join(SERVER_DIR, "index.ts")], {
@@ -140,7 +184,14 @@ afterAll(async () => {
   if (home) await removeTempDir(home);
 });
 
-type RoomMessage = { id: string; kind: string; role: string; text?: string; from?: { botId: string; name: string }; routedBy?: { provider: string; probability: number } };
+type RoomMessage = {
+  id: string;
+  kind: string;
+  role: string;
+  text?: string;
+  from?: { botId: string; name: string };
+  routedBy?: { provider: string; probability: number };
+};
 
 const roomState = async (roomId: string) => {
   const state = (await api("GET", "/api/bots?messages=200")).body;
@@ -153,13 +204,21 @@ async function round(roomId: string, text: string): Promise<{ post: any; replies
   const post = await api("POST", `/api/groups/${roomId}/messages`, { text });
   expect(post.status).toBe(202);
   let replies: RoomMessage[] = [];
-  await expect.poll(async () => {
-    const { room, messages } = await roomState(roomId);
-    replies = messages.filter((message) => !before.has(message.id) && message.kind === "text" && message.role === "bot");
-    return !room?.working && replies.length > 0;
-  }, { timeout: 20_000, interval: 150 }).toBe(true);
+  await expect
+    .poll(
+      async () => {
+        const { room, messages } = await roomState(roomId);
+        replies = messages.filter(
+          (message) => !before.has(message.id) && message.kind === "text" && message.role === "bot",
+        );
+        return !room?.working && replies.length > 0;
+      },
+      { timeout: 20_000, interval: 150 },
+    )
+    .toBe(true);
   const firstBySpeaker = new Map<string, RoomMessage>();
-  for (const reply of replies) if (!firstBySpeaker.has(reply.from!.botId)) firstBySpeaker.set(reply.from!.botId, reply);
+  for (const reply of replies)
+    if (!firstBySpeaker.has(reply.from!.botId)) firstBySpeaker.set(reply.from!.botId, reply);
   return { post: post.body, replies: [...firstBySpeaker.values()] };
 }
 
@@ -169,17 +228,38 @@ describe("Auto rooms ask the decision model who answers", { timeout: 90_000 }, (
 
   it("reports only booleans in the config, and new rooms default to Auto", async () => {
     const config = await api("GET", "/api/config");
-    expect(config.body.decider).toEqual({ provider: "jev", configured: true, enabled: true, jobs: { roomRouting: true } });
+    expect(config.body.decider).toEqual({
+      provider: "jev",
+      configured: true,
+      enabled: true,
+      jobs: { roomRouting: true },
+    });
     expect(config.text).not.toContain(KEY);
 
     for (const name of ["Maya", "Theo", "Ravi"]) {
-      bots[name] = (await api("POST", "/api/bots", {
-        name, title: `${name} title`, modelSelection: { instanceId: name === "Theo" ? "titled" : "quick", model: "claude-sonnet-5" }, requireAvailableModel: true,
-      })).body.bot;
+      bots[name] = (
+        await api("POST", "/api/bots", {
+          name,
+          title: `${name} title`,
+          modelSelection: {
+            instanceId: name === "Theo" ? "titled" : "quick",
+            model: "claude-sonnet-5",
+          },
+          requireAvailableModel: true,
+        })
+      ).body.bot;
     }
-    const created = await api("POST", "/api/groups", { name: "Launch", memberIds: [bots.Maya!.id, bots.Theo!.id, bots.Ravi!.id] });
+    const created = await api("POST", "/api/groups", {
+      name: "Launch",
+      memberIds: [bots.Maya!.id, bots.Theo!.id, bots.Ravi!.id],
+    });
     expect(created.body.group.defaultResponder).toEqual({ kind: "auto" });
-    const setup = await api("PATCH", `/api/groups/${created.body.group.id}/setup`, { action: "complete", cwd: null, bulletin: "", defaultResponder: { kind: "auto" } });
+    const setup = await api("PATCH", `/api/groups/${created.body.group.id}/setup`, {
+      action: "complete",
+      cwd: null,
+      bulletin: "",
+      defaultResponder: { kind: "auto" },
+    });
     expect(setup.status).toBe(200);
     expect(setup.body.group.defaultResponder).toEqual({ kind: "auto" });
     room = created.body.group;
@@ -196,23 +276,39 @@ describe("Auto rooms ask the decision model who answers", { timeout: 90_000 }, (
 
   it("a confident pick answers alone, and the send does not wait for the decision", async () => {
     let release!: () => void;
-    script = { choice: bots.Theo!.id, p: 0.94, hold: new Promise<void>((resolve) => (release = resolve)) };
+    script = {
+      choice: bots.Theo!.id,
+      p: 0.94,
+      hold: new Promise<void>((resolve) => (release = resolve)),
+    };
     const asked = routeRequests().length;
     const text = "The signup button overlaps the footer on Safari mobile.";
     const sent = api("POST", `/api/groups/${room.id}/messages`, { text });
     await expect.poll(() => routeRequests().length, { timeout: 5_000 }).toBe(asked + 1);
-    const early = await Promise.race([sent, new Promise<"still waiting">((resolve) => setTimeout(() => resolve("still waiting"), 1_000))]);
+    const early = await Promise.race([
+      sent,
+      new Promise<"still waiting">((resolve) => setTimeout(() => resolve("still waiting"), 1_000)),
+    ]);
     expect(early).not.toBe("still waiting");
     expect((early as Awaited<typeof sent>).status).toBe(202);
     expect((early as Awaited<typeof sent>).body.message).toMatchObject({ role: "user", text });
-    expect((await roomState(room.id)).messages.some((message) => message.role === "user" && message.text === text)).toBe(true);
+    expect(
+      (await roomState(room.id)).messages.some(
+        (message) => message.role === "user" && message.text === text,
+      ),
+    ).toBe(true);
     release();
     let replies: RoomMessage[] = [];
-    await expect.poll(async () => {
-      const { room: current, messages } = await roomState(room.id);
-      replies = messages.filter((message) => message.kind === "text" && message.role === "bot");
-      return !current?.working && replies.length > 0;
-    }, { timeout: 20_000, interval: 150 }).toBe(true);
+    await expect
+      .poll(
+        async () => {
+          const { room: current, messages } = await roomState(room.id);
+          replies = messages.filter((message) => message.kind === "text" && message.role === "bot");
+          return !current?.working && replies.length > 0;
+        },
+        { timeout: 20_000, interval: 150 },
+      )
+      .toBe(true);
     expect([...new Set(replies.map((reply) => reply.from!.name))]).toEqual(["Theo"]);
     expect(replies[0]!.routedBy).toEqual({ provider: "jev", probability: 0.94 });
     expect(replies.slice(1).every((reply) => reply.routedBy === undefined)).toBe(true);
@@ -221,9 +317,18 @@ describe("Auto rooms ask the decision model who answers", { timeout: 90_000 }, (
 
     const request = routeRequests().at(-1)!;
     expect(request.auth).toBe(`Bearer ${KEY}`);
-    expect(Object.keys(request.body.questions.answer.criteria)).toEqual([bots.Maya!.id, bots.Theo!.id, bots.Ravi!.id, "__everyone__"]);
-    expect(request.body.questions.answer.criteria[bots.Theo!.id]).toMatch(/^Theo, Theo title bot\./);
-    expect(request.body.state.new_message.text).toBe("The signup button overlaps the footer on Safari mobile.");
+    expect(Object.keys(request.body.questions.answer.criteria)).toEqual([
+      bots.Maya!.id,
+      bots.Theo!.id,
+      bots.Ravi!.id,
+      "__everyone__",
+    ]);
+    expect(request.body.questions.answer.criteria[bots.Theo!.id]).toMatch(
+      /^Theo, Theo title bot\./,
+    );
+    expect(request.body.state.new_message.text).toBe(
+      "The signup button overlaps the footer on Safari mobile.",
+    );
     expect(request.body.state.bots_in_room).toEqual(["Maya", "Theo", "Ravi"]);
   });
 
@@ -258,13 +363,24 @@ describe("Auto rooms ask the decision model who answers", { timeout: 90_000 }, (
   });
 
   it("a lead-mode room never asks", async () => {
-    expect((await api("PATCH", `/api/groups/${room.id}`, { defaultResponder: { kind: "member", botId: bots.Theo!.id } })).status).toBe(200);
+    expect(
+      (
+        await api("PATCH", `/api/groups/${room.id}`, {
+          defaultResponder: { kind: "member", botId: bots.Theo!.id },
+        })
+      ).status,
+    ).toBe(200);
     const asked = routeRequests().length;
     const { replies } = await round(room.id, "Rewrite the launch email.");
     expect(replies.map((reply) => reply.from!.name)).toEqual(["Theo"]);
     expect(routeRequests().length).toBe(asked);
-    expect((await api("PATCH", `/api/groups/${room.id}`, { defaultResponder: { kind: "auto", fallbackBotId: bots.Ravi!.id } })).body.group.defaultResponder)
-      .toEqual({ kind: "auto", fallbackBotId: bots.Ravi!.id });
+    expect(
+      (
+        await api("PATCH", `/api/groups/${room.id}`, {
+          defaultResponder: { kind: "auto", fallbackBotId: bots.Ravi!.id },
+        })
+      ).body.group.defaultResponder,
+    ).toEqual({ kind: "auto", fallbackBotId: bots.Ravi!.id });
   });
 
   it("engines never see the key; the decision log holds no text and no key", async () => {
@@ -273,29 +389,54 @@ describe("Auto rooms ask the decision model who answers", { timeout: 90_000 }, (
     expect(JSON.parse(dump).env).not.toHaveProperty("LATERDOG_JEV_API_KEY");
     expect(dump).not.toContain(KEY);
     const dir = join(data, "decider-log");
-    const log = readdirSync(dir).map((name) => readFileSync(join(dir, name), "utf8")).join("");
-    const rows = log.trim().split("\n").map((line) => JSON.parse(line));
-    expect(rows.some((row) => row.seam === "roomRouting" && row.ok && row.choice === bots.Theo!.id)).toBe(true);
-    expect(rows.some((row) => row.seam === "roomRouting" && !row.ok && row.reason === "overloaded")).toBe(true);
+    const log = readdirSync(dir)
+      .map((name) => readFileSync(join(dir, name), "utf8"))
+      .join("");
+    const rows = log
+      .trim()
+      .split("\n")
+      .map((line) => JSON.parse(line));
+    expect(
+      rows.some((row) => row.seam === "roomRouting" && row.ok && row.choice === bots.Theo!.id),
+    ).toBe(true);
+    expect(
+      rows.some((row) => row.seam === "roomRouting" && !row.ok && row.reason === "overloaded"),
+    ).toBe(true);
     expect(log).not.toContain(KEY);
     expect(log).not.toContain("Safari");
     expect(output).not.toContain(KEY);
   });
 
   it("saving a key turns it on with the room job; a rejected key is not saved", async () => {
-    const off = await api("PUT", "/api/config", { decider: { enabled: false, jobs: { roomRouting: false } } });
+    const off = await api("PUT", "/api/config", {
+      decider: { enabled: false, jobs: { roomRouting: false } },
+    });
     expect(off.body.decider).toMatchObject({ enabled: false, jobs: { roomRouting: false } });
     const rejected = await api("PUT", "/api/config", { decider: { key: "tsk_bad" } });
     expect(rejected.status).toBe(400);
     expect((await api("GET", "/api/config")).body.decider).toMatchObject({ enabled: false });
-    const saved = await api("PUT", "/api/config?secretStorage=external", { decider: { key: "tsk_new_valid_key" } });
+    const saved = await api("PUT", "/api/config?secretStorage=external", {
+      decider: { key: "tsk_new_valid_key" },
+    });
     expect(saved.status).toBe(200);
-    expect(saved.body.decider).toEqual({ provider: "jev", configured: true, enabled: true, jobs: { roomRouting: true } });
+    expect(saved.body.decider).toEqual({
+      provider: "jev",
+      configured: true,
+      enabled: true,
+      jobs: { roomRouting: true },
+    });
     expect(keyChecks().at(-1)?.auth).toBe("Bearer tsk_new_valid_key");
     expect(saved.text).not.toContain("tsk_new_valid_key");
     const disk = readFileSync(join(data, "config.json"), "utf8");
-    expect(JSON.parse(disk).decider).toMatchObject({ key: "", enabled: true, jobs: { roomRouting: true } });
+    expect(JSON.parse(disk).decider).toMatchObject({
+      key: "",
+      enabled: true,
+      jobs: { roomRouting: true },
+    });
     expect(disk).not.toContain("tsk_new_valid_key");
-    expect((await api("PUT", "/api/config", { decider: { key: "" } })).body.decider).toMatchObject({ configured: false, enabled: false });
+    expect((await api("PUT", "/api/config", { decider: { key: "" } })).body.decider).toMatchObject({
+      configured: false,
+      enabled: false,
+    });
   });
 });

@@ -15,7 +15,10 @@ const OWN = "box_own_person_key";
 const INCLUDED_BOX = "bx_23456789";
 let stub: Server;
 let stubBase = "";
-const accounts: Record<string, Array<{ id: string; name: string; state: string }>> = { boat: [], relay: [] };
+const accounts: Record<string, Array<{ id: string; name: string; state: string }>> = {
+  boat: [],
+  relay: [],
+};
 const requests: Array<{ side: string; method: string; path: string; auth: string }> = [];
 let home: string;
 let journal: string;
@@ -29,7 +32,7 @@ async function api(method: string, path: string, body?: unknown) {
     headers: body === undefined ? {} : { "content-type": "application/json" },
     body: body === undefined ? undefined : JSON.stringify(body),
   });
-  return { status: response.status, body: await response.json().catch(() => null) as any };
+  return { status: response.status, body: (await response.json().catch(() => null)) as any };
 }
 
 beforeAll(async () => {
@@ -38,20 +41,30 @@ beforeAll(async () => {
     req.resume();
     req.on("end", () => {
       const [, side = ""] = /^\/(boat|relay)\//.exec(url.pathname) ?? [];
-      requests.push({ side, method: req.method ?? "GET", path: url.pathname, auth: String(req.headers.authorization ?? "") });
+      requests.push({
+        side,
+        method: req.method ?? "GET",
+        path: url.pathname,
+        auth: String(req.headers.authorization ?? ""),
+      });
       const send = (status: number, payload: unknown) => {
         res.writeHead(status, { "content-type": "application/json" });
         res.end(JSON.stringify(payload));
       };
-      const expected = side === "relay" ? `Bearer ${INCLUDED}` : side === "boat" ? `Bearer ${OWN}` : "";
-      if (!side || req.headers.authorization !== expected) return send(401, { ok: false, code: "unauthorized", message: "Unauthorized" });
+      const expected =
+        side === "relay" ? `Bearer ${INCLUDED}` : side === "boat" ? `Bearer ${OWN}` : "";
+      if (!side || req.headers.authorization !== expected)
+        return send(401, { ok: false, code: "unauthorized", message: "Unauthorized" });
       const path = url.pathname.replace(/^\/(boat|relay)\/api\/box\/v1/, "");
       const rows = accounts[side]!;
-      if (path === "/boxes" && req.method === "GET") return send(200, { ok: true, boxes: rows, pageInfo: { nextCursor: null } });
+      if (path === "/boxes" && req.method === "GET")
+        return send(200, { ok: true, boxes: rows, pageInfo: { nextCursor: null } });
       const box = /^\/boxes\/([^/]+)$/.exec(path);
       if (box && req.method === "GET") {
         const row = rows.find((candidate) => candidate.id === box[1]);
-        return row ? send(200, { ok: true, box: row }) : send(404, { ok: false, code: "not_found", message: "Not found" });
+        return row
+          ? send(200, { ok: true, box: row })
+          : send(404, { ok: false, code: "not_found", message: "Not found" });
       }
       send(404, { ok: false, code: "not_found", message: "Not found" });
     });
@@ -62,13 +75,28 @@ beforeAll(async () => {
   home = mkdtempSync(join(tmpdir(), "laterdog-boat-included-"));
   const dataDir = join(home, ".laterdog");
   mkdirSync(dataDir, { recursive: true });
-  writeFileSync(join(dataDir, "config.json"), JSON.stringify({ instances: { fixture: { driver: "not-a-real-driver" } } }));
+  writeFileSync(
+    join(dataDir, "config.json"),
+    JSON.stringify({ instances: { fixture: { driver: "not-a-real-driver" } } }),
+  );
   accounts.relay = [{ id: INCLUDED_BOX, name: "laterdog-included-fixture", state: "archived" }];
   journal = join(dataDir, "box-create-requests.json");
-  writeFileSync(journal, JSON.stringify({ version: 1, requests: [{
-    botId: "included-fixture-bot", requestBody: JSON.stringify({ fixture: true }), idempotencyKey: randomUUID(),
-    createdAt: Date.now(), boxId: INCLUDED_BOX, resolved: true,
-  }] }));
+  writeFileSync(
+    journal,
+    JSON.stringify({
+      version: 1,
+      requests: [
+        {
+          botId: "included-fixture-bot",
+          requestBody: JSON.stringify({ fixture: true }),
+          idempotencyKey: randomUUID(),
+          createdAt: Date.now(),
+          boxId: INCLUDED_BOX,
+          resolved: true,
+        },
+      ],
+    }),
+  );
 
   const port = await leasePortBlock([0, 1]);
   base = `http://127.0.0.1:${port}`;
@@ -78,19 +106,29 @@ beforeAll(async () => {
       PATH: process.env.PATH,
       ...(process.env.PATHEXT ? { PATHEXT: process.env.PATHEXT } : {}),
       ...(process.env.SystemRoot ? { SystemRoot: process.env.SystemRoot } : {}),
-      HOME: home, USERPROFILE: home, LATERDOG_HOME: dataDir, LATERDOG_SERVER_PORT: String(port), LATERDOG_WEBHOOK_PORT: String(port + 1),
+      HOME: home,
+      USERPROFILE: home,
+      LATERDOG_HOME: dataDir,
+      LATERDOG_SERVER_PORT: String(port),
+      LATERDOG_WEBHOOK_PORT: String(port + 1),
       LATERDOG_BOX_API: `${stubBase}/boat/api/box/v1`,
       LATERDOG_CLOUD_BOAT_URL: `${stubBase}/relay/api/box/v1`,
       LATERDOG_CLOUD_BOAT_TOKEN: INCLUDED,
     },
     stdio: ["ignore", "pipe", "pipe"],
   });
-  child.stdout?.on("data", (chunk) => { log += chunk; });
-  child.stderr?.on("data", (chunk) => { log += chunk; });
+  child.stdout?.on("data", (chunk) => {
+    log += chunk;
+  });
+  child.stderr?.on("data", (chunk) => {
+    log += chunk;
+  });
   const deadline = Date.now() + 20_000;
   for (;;) {
     if (child.exitCode !== null) throw new Error(`the server exited:\n${log}`);
-    try { if ((await api("GET", "/api/health")).body?.pid === child.pid) break; } catch {}
+    try {
+      if ((await api("GET", "/api/health")).body?.pid === child.pid) break;
+    } catch {}
     if (Date.now() > deadline) throw new Error(`the server did not start:\n${log}`);
     await new Promise((resolve) => setTimeout(resolve, 100));
   }
@@ -102,14 +140,20 @@ afterAll(async () => {
   if (home) await removeTempDir(home);
 });
 
-const crossed = () => requests.filter((request) =>
-  (request.side === "relay" && request.auth.includes(OWN)) || (request.side === "boat" && request.auth.includes(INCLUDED)));
+const crossed = () =>
+  requests.filter(
+    (request) =>
+      (request.side === "relay" && request.auth.includes(OWN)) ||
+      (request.side === "boat" && request.auth.includes(INCLUDED)),
+  );
 
 it("refuses an own Boat key while this installation has computers on the included account", async () => {
   expect((await api("GET", "/api/config")).body.box).toEqual({ configured: true, included: true });
   const refused = await api("PUT", "/api/config", { box: { token: OWN } });
   expect(refused.status).toBe(409);
-  expect(refused.body.error).toBe("that Boat token cannot access the remembered cloud computers from this installation");
+  expect(refused.body.error).toBe(
+    "that Boat token cannot access the remembered cloud computers from this installation",
+  );
   expect((await api("GET", "/api/config")).body.box).toEqual({ configured: true, included: true });
   expect(readFileSync(join(home, ".laterdog", "config.json"), "utf8")).not.toContain(OWN);
   expect(crossed()).toEqual([]);
@@ -125,7 +169,9 @@ it("once they are gone, the own key wins; clearing it falls back to the included
   expect(cleared.status, JSON.stringify(cleared.body)).toBe(200);
   expect(cleared.body.box).toEqual({ configured: true, included: true });
   expect(readFileSync(join(home, ".laterdog", "config.json"), "utf8")).not.toContain(INCLUDED);
-  expect(requests.some((request) => request.side === "boat" && request.auth === `Bearer ${OWN}`)).toBe(true);
+  expect(
+    requests.some((request) => request.side === "boat" && request.auth === `Bearer ${OWN}`),
+  ).toBe(true);
   expect(crossed()).toEqual([]);
   expect(log).not.toContain(INCLUDED);
 });

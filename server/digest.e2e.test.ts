@@ -21,7 +21,12 @@ interface Msg {
   text?: string;
   turnId?: string;
   tool?: { name: string };
-  digest?: { turnId: string; tools: Array<{ name: string; count: number }>; files?: { added: string[]; changed: string[] }; hookCoverage: string };
+  digest?: {
+    turnId: string;
+    tools: Array<{ name: string; count: number }>;
+    files?: { added: string[]; changed: string[] };
+    hookCoverage: string;
+  };
 }
 
 const ENGINES = [
@@ -37,7 +42,11 @@ posixOnly("work digest e2e (every fake engine)", () => {
   const gate = () => join(home, "acp.gate");
   const started = () => join(home, "acp.started");
 
-  const api = async (method: string, path: string, body?: unknown): Promise<{ status: number; body: any }> => {
+  const api = async (
+    method: string,
+    path: string,
+    body?: unknown,
+  ): Promise<{ status: number; body: any }> => {
     const res = await fetch(`${BASE}${path}`, {
       method,
       headers: body ? { "content-type": "application/json" } : undefined,
@@ -45,17 +54,21 @@ posixOnly("work digest e2e (every fake engine)", () => {
     });
     return { status: res.status, body: await res.json() };
   };
-  const getBot = async (id: string) => (await api("GET", "/api/bots")).body.bots.find((b: any) => b.id === id);
+  const getBot = async (id: string) =>
+    (await api("GET", "/api/bots")).body.bots.find((b: any) => b.id === id);
   const waitFor = async (predicate: () => Promise<boolean>, what: string, ms = 30_000) => {
     const deadline = Date.now() + ms;
     while (!(await predicate())) {
-      if (Date.now() > deadline) throw new Error(`timed out waiting for ${what}. stderr: ${stderr.slice(-3000)}`);
+      if (Date.now() > deadline)
+        throw new Error(`timed out waiting for ${what}. stderr: ${stderr.slice(-3000)}`);
       await new Promise((r) => setTimeout(r, 200));
     }
   };
   const settled = async (id: string) => {
     const b = await getBot(id);
-    return !!b && !b.busy && b.messages.some((m: Msg) => m.role === "bot" && m.kind === "text" && m.text);
+    return (
+      !!b && !b.busy && b.messages.some((m: Msg) => m.role === "bot" && m.kind === "text" && m.text)
+    );
   };
 
   beforeAll(async () => {
@@ -64,11 +77,19 @@ posixOnly("work digest e2e (every fake engine)", () => {
     mkdirSync(join(home, ".laterdog"), { recursive: true });
     const instances: Record<string, unknown> = {};
     for (const e of ENGINES) {
-      instances[e.id] = { driver: e.driver, environment: e.env, config: { cli: fake(e.cli), fullAuto: true } };
+      instances[e.id] = {
+        driver: e.driver,
+        environment: e.env,
+        config: { cli: fake(e.cli), fullAuto: true },
+      };
     }
     instances.gated = {
       driver: "grokAgent",
-      environment: { FAKE_ACP_MODE: "echo-gated", FAKE_ACP_GATE_FILE: gate(), FAKE_ACP_STARTED_FILE: started() },
+      environment: {
+        FAKE_ACP_MODE: "echo-gated",
+        FAKE_ACP_GATE_FILE: gate(),
+        FAKE_ACP_STARTED_FILE: started(),
+      },
       config: { cli: fake("fake-acp-cli.ts"), fullAuto: true },
     };
     instances.echo = {
@@ -78,7 +99,11 @@ posixOnly("work digest e2e (every fake engine)", () => {
     };
     writeFileSync(join(home, ".laterdog", "config.json"), JSON.stringify({ instances }));
 
-    const env: NodeJS.ProcessEnv = { HOME: home, USERPROFILE: home, LATERDOG_SERVER_PORT: String(PORT) };
+    const env: NodeJS.ProcessEnv = {
+      HOME: home,
+      USERPROFILE: home,
+      LATERDOG_SERVER_PORT: String(PORT),
+    };
     if (process.env.PATH) env.PATH = process.env.PATH;
     child = spawn(process.execPath, [join(SERVER_DIR, "index.ts")], {
       cwd: join(SERVER_DIR, ".."),
@@ -92,7 +117,8 @@ posixOnly("work digest e2e (every fake engine)", () => {
         if ((await fetch(`${BASE}/api/health`)).ok) break;
       } catch {}
       if (Date.now() > deadline) throw new Error(`server never came up. stderr:\n${stderr}`);
-      if (child.exitCode !== null) throw new Error(`server exited ${child.exitCode}. stderr:\n${stderr}`);
+      if (child.exitCode !== null)
+        throw new Error(`server exited ${child.exitCode}. stderr:\n${stderr}`);
       await new Promise((r) => setTimeout(r, 150));
     }
   }, 30_000);
@@ -102,53 +128,96 @@ posixOnly("work digest e2e (every fake engine)", () => {
     await removeTempDir(home);
   });
 
-  it.each(ENGINES)("$id: one settled turn yields exactly one digest naming its tools", async (engine) => {
-    const created = (await api("POST", "/api/bots")).body.bot;
-    expect((await api("PATCH", `/api/bots/${created.id}`, { modelSelection: { instanceId: engine.id, model: "fake-model" } })).status).toBe(200);
-    expect((await api("POST", `/api/bots/${created.id}/messages`, { text: "do one thing" })).status).toBe(202);
-    await waitFor(() => settled(created.id), `${engine.id} to settle`);
-    await waitFor(async () => (await getBot(created.id)).messages.some((m: Msg) => m.kind === "digest"), `${engine.id} digest`);
+  it.each(ENGINES)(
+    "$id: one settled turn yields exactly one digest naming its tools",
+    async (engine) => {
+      const created = (await api("POST", "/api/bots")).body.bot;
+      expect(
+        (
+          await api("PATCH", `/api/bots/${created.id}`, {
+            modelSelection: { instanceId: engine.id, model: "fake-model" },
+          })
+        ).status,
+      ).toBe(200);
+      expect(
+        (await api("POST", `/api/bots/${created.id}/messages`, { text: "do one thing" })).status,
+      ).toBe(202);
+      await waitFor(() => settled(created.id), `${engine.id} to settle`);
+      await waitFor(
+        async () => (await getBot(created.id)).messages.some((m: Msg) => m.kind === "digest"),
+        `${engine.id} digest`,
+      );
 
-    const bot = await getBot(created.id);
-    const digests: Msg[] = bot.messages.filter((m: Msg) => m.kind === "digest");
-    const reply: Msg = bot.messages.find((m: Msg) => m.role === "bot" && m.kind === "text" && m.text);
-    expect(digests).toHaveLength(1);
-    const [d] = digests;
-    expect(d!.role).toBe("bot");
-    expect(d!.text).toMatch(/^\[digest\]/);
-    expect(d!.digest?.turnId).toBeTruthy();
-    if (reply.turnId) expect(d!.digest?.turnId).toBe(reply.turnId);
-    const names = d!.digest!.tools.map((t) => t.name);
-    if (engine.tools[0] === "*") expect(names.length).toBeGreaterThan(0);
-    else for (const name of engine.tools) expect(names).toContain(name);
-    const activities: Msg[] = bot.messages.filter((m: Msg) => m.kind === "activity" && m.tool);
-    for (const a of activities) expect(a.turnId).toBe(d!.digest?.turnId);
-    expect(d!.digest!.tools.reduce((n, t) => n + t.count, 0)).toBe(activities.length);
-  }, 45_000);
+      const bot = await getBot(created.id);
+      const digests: Msg[] = bot.messages.filter((m: Msg) => m.kind === "digest");
+      const reply: Msg = bot.messages.find(
+        (m: Msg) => m.role === "bot" && m.kind === "text" && m.text,
+      );
+      expect(digests).toHaveLength(1);
+      const [d] = digests;
+      expect(d!.role).toBe("bot");
+      expect(d!.text).toMatch(/^\[digest\]/);
+      expect(d!.digest?.turnId).toBeTruthy();
+      if (reply.turnId) expect(d!.digest?.turnId).toBe(reply.turnId);
+      const names = d!.digest!.tools.map((t) => t.name);
+      if (engine.tools[0] === "*") expect(names.length).toBeGreaterThan(0);
+      else for (const name of engine.tools) expect(names).toContain(name);
+      const activities: Msg[] = bot.messages.filter((m: Msg) => m.kind === "activity" && m.tool);
+      for (const a of activities) expect(a.turnId).toBe(d!.digest?.turnId);
+      expect(d!.digest!.tools.reduce((n, t) => n + t.count, 0)).toBe(activities.length);
+    },
+    45_000,
+  );
 
   it("names the project files a turn changed, and a different engine taking over sees that in its replay", async () => {
     const project = mkdtempSync(join(tmpdir(), "laterdog-digest-project-"));
     writeFileSync(join(project, "README.md"), "hello");
     const created = (await api("POST", "/api/bots")).body.bot;
     expect((await api("PATCH", `/api/bots/${created.id}`, { cwd: project })).status).toBe(200);
-    expect((await api("PATCH", `/api/bots/${created.id}`, { modelSelection: { instanceId: "gated", model: "fake-model" } })).status).toBe(200);
+    expect(
+      (
+        await api("PATCH", `/api/bots/${created.id}`, {
+          modelSelection: { instanceId: "gated", model: "fake-model" },
+        })
+      ).status,
+    ).toBe(200);
 
-    expect((await api("POST", `/api/bots/${created.id}/messages`, { text: "raise the retry limit" })).status).toBe(202);
+    expect(
+      (await api("POST", `/api/bots/${created.id}/messages`, { text: "raise the retry limit" }))
+        .status,
+    ).toBe(202);
     await waitFor(async () => existsSync(started()), "the gated turn to reach the engine");
     writeFileSync(join(project, "retry.ts"), "export const RETRY_LIMIT = 5;");
     writeFileSync(gate(), "go");
     await waitFor(() => settled(created.id), "the gated turn to settle");
-    await waitFor(async () => (await getBot(created.id)).messages.some((m: Msg) => m.kind === "digest"), "digest with files");
+    await waitFor(
+      async () => (await getBot(created.id)).messages.some((m: Msg) => m.kind === "digest"),
+      "digest with files",
+    );
     const digest: Msg = (await getBot(created.id)).messages.find((m: Msg) => m.kind === "digest");
     expect(digest.digest?.files?.added).toEqual(["retry.ts"]);
 
-    expect((await api("PATCH", `/api/bots/${created.id}`, { modelSelection: { instanceId: "echo", model: "fake-model" } })).status).toBe(200);
-    expect((await api("POST", `/api/bots/${created.id}/messages`, { text: "what did you change?" })).status).toBe(202);
+    expect(
+      (
+        await api("PATCH", `/api/bots/${created.id}`, {
+          modelSelection: { instanceId: "echo", model: "fake-model" },
+        })
+      ).status,
+    ).toBe(200);
+    expect(
+      (await api("POST", `/api/bots/${created.id}/messages`, { text: "what did you change?" }))
+        .status,
+    ).toBe(202);
     await waitFor(async () => {
       const b = await getBot(created.id);
-      return !b.busy && b.messages.filter((m: Msg) => m.role === "bot" && m.kind === "text" && m.text).length >= 2;
+      return (
+        !b.busy &&
+        b.messages.filter((m: Msg) => m.role === "bot" && m.kind === "text" && m.text).length >= 2
+      );
     }, "the echo engine to reply");
-    const replies: Msg[] = (await getBot(created.id)).messages.filter((m: Msg) => m.role === "bot" && m.kind === "text" && m.text);
+    const replies: Msg[] = (await getBot(created.id)).messages.filter(
+      (m: Msg) => m.role === "bot" && m.kind === "text" && m.text,
+    );
     const echoed = replies.at(-1)!.text!;
     expect(echoed).toContain("did in an earlier turn");
     expect(echoed).toContain("retry.ts");

@@ -1,6 +1,14 @@
 import { randomUUID } from "node:crypto";
 import { autoPickedAnswer } from "../../../shared/question-autopick.ts";
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, unlinkSync, writeFileSync } from "node:fs";
+import {
+  chmodSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  realpathSync,
+  unlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -11,7 +19,12 @@ import type { ProviderInstance } from "../../contracts.ts";
 import { TurnNotStartedError } from "../../contracts.ts";
 import { recordEvents, type EventRecorder } from "../../testing/events.ts";
 import { promptSplitFingerprints, writePromptSplitReceipt } from "../prompt-split.ts";
-import { createAcpDriver, DEFAULT_ACP_PROMPT_IDLE_MS, skipSubscriptionAuthForLocalInject, type AcpSupport } from "./core.ts";
+import {
+  createAcpDriver,
+  DEFAULT_ACP_PROMPT_IDLE_MS,
+  skipSubscriptionAuthForLocalInject,
+  type AcpSupport,
+} from "./core.ts";
 import { GrokAgentDriver, grokAcceptsUnadvertisedImages } from "./grok.ts";
 import { GeminiAgentDriver } from "./gemini.ts";
 import { KimiAgentDriver } from "./kimi.ts";
@@ -22,12 +35,24 @@ import { removeTempDir } from "../../testing/cleanup.ts";
 import * as procs from "../../procs.ts";
 import * as quietStatus from "./quiet-status.ts";
 
-const FAKE_CLI = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "testing", "fake-acp-cli.ts");
+const FAKE_CLI = join(
+  dirname(fileURLToPath(import.meta.url)),
+  "..",
+  "..",
+  "testing",
+  "fake-acp-cli.ts",
+);
 
 const SELECT_MODEL_SUPPORT: AcpSupport = {
   driverKind: "selectModelTest",
   displayName: "Select Model Test",
-  models: { default: "m-one", options: [{ id: "m-one", label: "One" }, { id: "m-two", label: "Two" }] },
+  models: {
+    default: "m-one",
+    options: [
+      { id: "m-one", label: "One" },
+      { id: "m-two", label: "Two" },
+    ],
+  },
   defaultCli: "fake-select-model",
   nativeSource: "test.acp",
   loginNote: "never reached",
@@ -72,14 +97,18 @@ const ClassifiedErrorDriver = createAcpDriver({
 });
 
 const CONTROL_PLANE_FIXTURE = {
-  LATERDOG_CLOUD_READY_TOKEN: "ready-should-not-leak", LATERDOG_CLOUD_BOOTSTRAP: "bootstrap-should-not-leak",
-  LATERDOG_LICENSE_KEY: "license-should-not-leak", LATERDOG_INSTALLATION_CREDENTIAL: "fleet-should-not-leak",
+  LATERDOG_CLOUD_READY_TOKEN: "ready-should-not-leak",
+  LATERDOG_CLOUD_BOOTSTRAP: "bootstrap-should-not-leak",
+  LATERDOG_LICENSE_KEY: "license-should-not-leak",
+  LATERDOG_INSTALLATION_CREDENTIAL: "fleet-should-not-leak",
 };
 
 describe("skipSubscriptionAuthForLocalInject", () => {
   it("is true only for a host:: inject id", () => {
     expect(skipSubscriptionAuthForLocalInject("omlx::MiniMax-M3-4bit")).toBe(true);
-    expect(skipSubscriptionAuthForLocalInject("unsloth::orcarouter/Qwen3.8-27B-Uncensored-GGUF")).toBe(true);
+    expect(
+      skipSubscriptionAuthForLocalInject("unsloth::orcarouter/Qwen3.8-27B-Uncensored-GGUF"),
+    ).toBe(true);
     expect(skipSubscriptionAuthForLocalInject("grok-4.6")).toBe(false);
     expect(skipSubscriptionAuthForLocalInject(undefined)).toBe(false);
   });
@@ -119,7 +148,11 @@ describe("ACP decodeConfig", () => {
   });
   it("starts with its built-in models when the catalog is slow, then takes the catalog once it answers", async () => {
     let answer!: (catalog: { default: string; options: { id: string; label: string }[] }) => void;
-    const catalog = new Promise<{ default: string; options: { id: string; label: string }[] }>((resolve) => { answer = resolve; });
+    const catalog = new Promise<{ default: string; options: { id: string; label: string }[] }>(
+      (resolve) => {
+        answer = resolve;
+      },
+    );
     const support: AcpSupport = {
       driverKind: "slow-catalog-test",
       displayName: "Slow Catalog Test",
@@ -151,13 +184,25 @@ describe("ACP decodeConfig", () => {
     await instance.dispose();
   });
   it("grok defaults to the grok binary", () => {
-    expect(GrokAgentDriver.decodeConfig({})).toEqual({ cli: "grok", fullAuto: false, workspace: undefined });
+    expect(GrokAgentDriver.decodeConfig({})).toEqual({
+      cli: "grok",
+      fullAuto: false,
+      workspace: undefined,
+    });
   });
   it("gemini defaults to the gemini binary", () => {
-    expect(GeminiAgentDriver.decodeConfig(undefined)).toEqual({ cli: "gemini", fullAuto: false, workspace: undefined });
+    expect(GeminiAgentDriver.decodeConfig(undefined)).toEqual({
+      cli: "gemini",
+      fullAuto: false,
+      workspace: undefined,
+    });
   });
   it("kimi defaults to the kimi binary and declares cross-platform setup", () => {
-    expect(KimiAgentDriver.decodeConfig(undefined)).toEqual({ cli: "kimi", fullAuto: false, workspace: undefined });
+    expect(KimiAgentDriver.decodeConfig(undefined)).toEqual({
+      cli: "kimi",
+      fullAuto: false,
+      workspace: undefined,
+    });
     expect(KimiAgentDriver.install?.command).toMatchObject({
       darwin: expect.stringContaining("install.sh"),
       linux: expect.stringContaining("install.sh"),
@@ -166,7 +211,11 @@ describe("ACP decodeConfig", () => {
     expect(KimiAgentDriver.install?.signInCommand).toBe("kimi login");
   });
   it("droid defaults to the droid binary and declares cross-platform setup", () => {
-    expect(DroidAgentDriver.decodeConfig(undefined)).toEqual({ cli: "droid", fullAuto: false, workspace: undefined });
+    expect(DroidAgentDriver.decodeConfig(undefined)).toEqual({
+      cli: "droid",
+      fullAuto: false,
+      workspace: undefined,
+    });
     expect(DroidAgentDriver.install?.command).toMatchObject({
       darwin: expect.stringContaining("factory.ai/cli"),
       linux: expect.stringContaining("factory.ai/cli"),
@@ -319,7 +368,9 @@ describe("ACP turns (fake CLI)", () => {
     const { turnId } = await instance.adapter.sendTurn({ threadId: "t-unkeyed-tool", text: "go" });
     await recorder.until((e) => e.type === "turn.completed" && e.turnId === turnId);
     const started = recorder.events.find((e) => e.type === "item.started" && e.itemType === "tool");
-    const completed = recorder.events.find((e) => e.type === "item.completed" && e.itemType === "tool");
+    const completed = recorder.events.find(
+      (e) => e.type === "item.completed" && e.itemType === "tool",
+    );
     expect(typeof started?.itemId).toBe("string");
     expect(started?.itemId).toBeTruthy();
     expect(completed?.itemId).toBe(started?.itemId);
@@ -327,7 +378,11 @@ describe("ACP turns (fake CLI)", () => {
 
   it("normalizes a full turn into the canonical event sequence", async () => {
     await create();
-    const { turnId } = await instance.adapter.sendTurn({ threadId: "t-happy", text: "hi", model: "grok-4.5" });
+    const { turnId } = await instance.adapter.sendTurn({
+      threadId: "t-happy",
+      text: "hi",
+      model: "grok-4.5",
+    });
     await recorder.until((e) => e.type === "turn.completed");
 
     const types = recorder.events.map((e) => e.type);
@@ -341,7 +396,9 @@ describe("ACP turns (fake CLI)", () => {
       "thread.token-usage.updated",
       "turn.completed",
     ]);
-    expect(recorder.events.every((e) => e.turnId === turnId && e.provider === "grokAgent")).toBe(true);
+    expect(recorder.events.every((e) => e.turnId === turnId && e.provider === "grokAgent")).toBe(
+      true,
+    );
     expect(recorder.events.filter((event) => event.itemId === "tc-1")).toMatchObject([
       { type: "item.started", input: expect.stringContaining("/fixture/readme.md") },
       { type: "item.completed", output: expect.stringContaining("fixture file content") },
@@ -350,7 +407,9 @@ describe("ACP turns (fake CLI)", () => {
     expect(JSON.stringify(recorder.events)).not.toContain("acp-output-secret");
     const usage = recorder.events.find((e) => e.type === "thread.token-usage.updated")!;
     expect(usage).toMatchObject({ input: 10, output: 5 });
-    const text = recorder.events.find((e) => e.type === "item.completed" && (e as any).itemType === "assistant_text")!;
+    const text = recorder.events.find(
+      (e) => e.type === "item.completed" && (e as any).itemType === "assistant_text",
+    )!;
     expect((text as any).text).toBe("hello from fake acp");
     const done = recorder.events.at(-1)!;
     expect(done).toMatchObject({ type: "turn.completed", ok: true });
@@ -391,7 +450,12 @@ describe("ACP turns (fake CLI)", () => {
     await create();
     const threadId = "t-acp-prompt-split-" + randomUUID();
     const promptOf = () =>
-      (JSON.parse(readFileSync(dump + ".prompt.json", "utf8")) as Array<{ type: string; text: string }>)[0]?.text;
+      (
+        JSON.parse(readFileSync(dump + ".prompt.json", "utf8")) as Array<{
+          type: string;
+          text: string;
+        }>
+      )[0]?.text;
     const send = async (text: string, volatile: string) => {
       const { turnId } = await instance.adapter.sendTurn({
         threadId,
@@ -404,11 +468,13 @@ describe("ACP turns (fake CLI)", () => {
       return promptOf();
     };
 
-    expect(await send("first", "Memory: likes quiet hours."))
-      .toBe("Standing rules.\n\nMemory: likes quiet hours.\n\nfirst");
+    expect(await send("first", "Memory: likes quiet hours.")).toBe(
+      "Standing rules.\n\nMemory: likes quiet hours.\n\nfirst",
+    );
     expect(await send("second", "Memory: likes quiet hours.")).toBe("second");
-    expect(await send("third", "Memory: moved to Toronto."))
-      .toBe("Context from later.dog updated since this conversation started; it replaces any earlier copy:\n\nMemory: moved to Toronto.\n\nthird");
+    expect(await send("third", "Memory: moved to Toronto.")).toBe(
+      "Context from later.dog updated since this conversation started; it replaces any earlier copy:\n\nMemory: moved to Toronto.\n\nthird",
+    );
     expect(await send("fourth", "")).toContain("have been cleared");
     expect(await send("fifth", "")).toBe("fifth");
   });
@@ -420,7 +486,12 @@ describe("ACP turns (fake CLI)", () => {
     await create();
     const threadId = "t-acp-prompt-reanchor-" + randomUUID();
     const promptOf = () =>
-      (JSON.parse(readFileSync(dump + ".prompt.json", "utf8")) as Array<{ type: string; text: string }>)[0]?.text;
+      (
+        JSON.parse(readFileSync(dump + ".prompt.json", "utf8")) as Array<{
+          type: string;
+          text: string;
+        }>
+      )[0]?.text;
     const messages: string[] = [];
     for (let i = 0; i < 10; i++) {
       const { turnId } = await instance.adapter.sendTurn({
@@ -458,8 +529,15 @@ describe("ACP turns (fake CLI)", () => {
         systemStable: "Standing rules.",
         systemVolatile: "Memory: likes quiet hours.",
       });
-      expect(await recorder.until((event) => event.type === "turn.completed" && event.turnId === turnId)).toMatchObject({ ok });
-      return (JSON.parse(readFileSync(dump + ".prompt.json", "utf8")) as Array<{ type: string; text: string }>)[0]?.text;
+      expect(
+        await recorder.until((event) => event.type === "turn.completed" && event.turnId === turnId),
+      ).toMatchObject({ ok });
+      return (
+        JSON.parse(readFileSync(dump + ".prompt.json", "utf8")) as Array<{
+          type: string;
+          text: string;
+        }>
+      )[0]?.text;
     };
     return { threadId, usage, send };
   };
@@ -507,21 +585,27 @@ describe("ACP turns (fake CLI)", () => {
     expect(await send("turn 4")).toBe("turn 4");
   });
 
-  it.each([40000, 75000])("invalidates a rejected prompt's receipt only after compaction (usage: %s)", async (used) => {
-    const failureFile = join(scratch, "compaction-failure.json");
-    process.env.FAKE_ACP_RPC_FAILURE_FILE = failureFile;
-    process.env.FAKE_ACP_RPC_FAILURE_AFTER_USAGE = "1";
-    const { usage, send } = await usageThread("rejected-compaction");
-    usage(100000);
-    expect(await send("turn 1")).toBe(FULL + "\n\nturn 1");
-    usage(used);
-    writeFileSync(failureFile, JSON.stringify({ code: -32603, message: "Internal error after compaction" }));
-    expect(await send("turn 2", false)).toBe("turn 2");
-    unlinkSync(failureFile);
-    usage();
-    expect(await send("turn 3")).toBe(used < 60000 ? FULL + "\n\nturn 3" : "turn 3");
-    expect(await send("turn 4")).toBe("turn 4");
-  });
+  it.each([40000, 75000])(
+    "invalidates a rejected prompt's receipt only after compaction (usage: %s)",
+    async (used) => {
+      const failureFile = join(scratch, "compaction-failure.json");
+      process.env.FAKE_ACP_RPC_FAILURE_FILE = failureFile;
+      process.env.FAKE_ACP_RPC_FAILURE_AFTER_USAGE = "1";
+      const { usage, send } = await usageThread("rejected-compaction");
+      usage(100000);
+      expect(await send("turn 1")).toBe(FULL + "\n\nturn 1");
+      usage(used);
+      writeFileSync(
+        failureFile,
+        JSON.stringify({ code: -32603, message: "Internal error after compaction" }),
+      );
+      expect(await send("turn 2", false)).toBe("turn 2");
+      unlinkSync(failureFile);
+      usage();
+      expect(await send("turn 3")).toBe(used < 60000 ? FULL + "\n\nturn 3" : "turn 3");
+      expect(await send("turn 4")).toBe("turn 4");
+    },
+  );
 
   it("ignores a zero usage report", async () => {
     const { usage, send } = await usageThread("zero-usage");
@@ -554,7 +638,9 @@ describe("ACP turns (fake CLI)", () => {
       text: "Inspect this",
       images: [{ path: imagePath, mime: "image/png", bytes: 32 }],
     });
-    const done = await recorder.until((event) => event.type === "turn.completed" && event.turnId === turnId);
+    const done = await recorder.until(
+      (event) => event.type === "turn.completed" && event.turnId === turnId,
+    );
 
     expect(done).toMatchObject({ ok: false, stopReason: "rpc_error" });
     expect(recorder.events.find((event) => event.type === "runtime.error")?.message).toMatch(
@@ -576,7 +662,9 @@ describe("ACP turns (fake CLI)", () => {
     });
     await recorder.until((event) => event.type === "turn.completed" && event.turnId === turnId);
 
-    expect(JSON.parse(readFileSync(`${dump}.prompt.json`, "utf8"))).toEqual([{ type: "text", text }]);
+    expect(JSON.parse(readFileSync(`${dump}.prompt.json`, "utf8"))).toEqual([
+      { type: "text", text },
+    ]);
   });
 
   it("sends native images on Grok's verified runtime even with the false capability", async () => {
@@ -590,17 +678,31 @@ describe("ACP turns (fake CLI)", () => {
     await create(GrokAgentDriver);
     expect(instance.adapter.capabilities.images).toBe(true);
     const { turnId } = await instance.adapter.sendTurn({
-      threadId: "t-grok-image", text: "Inspect", images: [{ path: imagePath, mime: "image/png", bytes: bytes.length }],
+      threadId: "t-grok-image",
+      text: "Inspect",
+      images: [{ path: imagePath, mime: "image/png", bytes: bytes.length }],
     });
-    const done = await recorder.until((event) => event.type === "turn.completed" && event.turnId === turnId);
+    const done = await recorder.until(
+      (event) => event.type === "turn.completed" && event.turnId === turnId,
+    );
     expect(done).toMatchObject({ ok: true });
-    expect(JSON.parse(readFileSync(`${dump}.prompt.json`, "utf8"))).toContainEqual({ type: "image", data: bytes.toString("base64"), mimeType: "image/png" });
-    expect(readFileSync(join(NATIVE_DIR, "t-grok-image.ndjson"), "utf8")).not.toContain(bytes.toString("base64"));
+    expect(JSON.parse(readFileSync(`${dump}.prompt.json`, "utf8"))).toContainEqual({
+      type: "image",
+      data: bytes.toString("base64"),
+      mimeType: "image/png",
+    });
+    expect(readFileSync(join(NATIVE_DIR, "t-grok-image.ndjson"), "utf8")).not.toContain(
+      bytes.toString("base64"),
+    );
   });
 
-  it.each([null, {}, { _meta: { grokShell: true, agentVersion: "1.0.24" } },
+  it.each([
+    null,
+    {},
+    { _meta: { grokShell: true, agentVersion: "1.0.24" } },
     { _meta: { grokShell: true, agentVersion: "1.0.25-preview" } },
-    { _meta: { grokShell: false, agentVersion: "1.0.25" } }])("does not assume image support for unknown Grok runtime %j", (init) => {
+    { _meta: { grokShell: false, agentVersion: "1.0.25" } },
+  ])("does not assume image support for unknown Grok runtime %j", (init) => {
     expect(grokAcceptsUnadvertisedImages(init)).toBe(false);
   });
 
@@ -627,7 +729,10 @@ describe("ACP turns (fake CLI)", () => {
       "turn.completed",
     ]);
     const texts = recorder.events
-      .filter((e) => e.type === "item.completed" && (e as { itemType?: string }).itemType === "assistant_text")
+      .filter(
+        (e) =>
+          e.type === "item.completed" && (e as { itemType?: string }).itemType === "assistant_text",
+      )
       .map((e) => (e as { text: string }).text);
     expect(texts).toEqual(["before one", "before two", "after"]);
   });
@@ -669,25 +774,39 @@ describe("ACP turns (fake CLI)", () => {
       const child = spawn(...args);
       const stdout = child.stdout;
       const spliceUsage = (message: any) => {
-        if (message?.result && typeof message.result === "object" && "stopReason" in message.result) {
-          message.result = at === "root"
-            ? { ...message.result, usage: { ...usage }, _meta: {} }
-            : { ...message.result, _meta: { ...message.result._meta, ...usage } };
+        if (
+          message?.result &&
+          typeof message.result === "object" &&
+          "stopReason" in message.result
+        ) {
+          message.result =
+            at === "root"
+              ? { ...message.result, usage: { ...usage }, _meta: {} }
+              : { ...message.result, _meta: { ...message.result._meta, ...usage } };
         }
         return message;
       };
       const rewriteChunk = (chunk: string) =>
-        chunk.split("\n").map((line) => {
-          if (!line.includes("stopReason")) return line;
-          try {
-            return JSON.stringify(spliceUsage(JSON.parse(line)));
-          } catch {
-            return line;
-          }
-        }).join("\n");
+        chunk
+          .split("\n")
+          .map((line) => {
+            if (!line.includes("stopReason")) return line;
+            try {
+              return JSON.stringify(spliceUsage(JSON.parse(line)));
+            } catch {
+              return line;
+            }
+          })
+          .join("\n");
       const realOn = stdout.on.bind(stdout);
-      vi.spyOn(stdout, "on").mockImplementation(((event: string, listener: (chunk: string) => void) =>
-        realOn(event, event === "data" ? (chunk: string) => listener(rewriteChunk(String(chunk))) : listener)) as never);
+      vi.spyOn(stdout, "on").mockImplementation(((
+        event: string,
+        listener: (chunk: string) => void,
+      ) =>
+        realOn(
+          event,
+          event === "data" ? (chunk: string) => listener(rewriteChunk(String(chunk))) : listener,
+        )) as never);
       return child;
     });
   };
@@ -782,7 +901,9 @@ describe("ACP turns (fake CLI)", () => {
         composio: {
           command: process.execPath,
           args: ["/tmp/connector-proxy.js"],
-          env: { LATERDOG_CONNECTOR_UPSTREAM_URL: "http://127.0.0.1:8799/api/internal/connectors/mcp" },
+          env: {
+            LATERDOG_CONNECTOR_UPSTREAM_URL: "http://127.0.0.1:8799/api/internal/connectors/mcp",
+          },
         },
       },
     });
@@ -791,7 +912,12 @@ describe("ACP turns (fake CLI)", () => {
       name: "composio",
       command: process.execPath,
       args: ["/tmp/connector-proxy.js"],
-      env: [{ name: "LATERDOG_CONNECTOR_UPSTREAM_URL", value: "http://127.0.0.1:8799/api/internal/connectors/mcp" }],
+      env: [
+        {
+          name: "LATERDOG_CONNECTOR_UPSTREAM_URL",
+          value: "http://127.0.0.1:8799/api/internal/connectors/mcp",
+        },
+      ],
     });
   });
 
@@ -816,8 +942,14 @@ describe("ACP turns (fake CLI)", () => {
 
     const applied = JSON.parse(readFileSync(`${dump}.config.json`, "utf8"));
     expect(applied).toEqual([
-      { method: "session/set_mode", params: { sessionId: "fake-acp-session", modeId: "auto-high" } },
-      { method: "session/set_model", params: { sessionId: "fake-acp-session", modelId: "claude-sonnet-5" } },
+      {
+        method: "session/set_mode",
+        params: { sessionId: "fake-acp-session", modeId: "auto-high" },
+      },
+      {
+        method: "session/set_model",
+        params: { sessionId: "fake-acp-session", modelId: "claude-sonnet-5" },
+      },
     ]);
   });
 
@@ -838,7 +970,10 @@ describe("ACP turns (fake CLI)", () => {
 
     expect(JSON.parse(readFileSync(`${dump}.config.json`, "utf8"))).toEqual([
       { method: "session/set_mode", params: { sessionId: "fake-acp-session", modeId: "normal" } },
-      { method: "session/set_model", params: { sessionId: "fake-acp-session", modelId: "claude-opus-5" } },
+      {
+        method: "session/set_model",
+        params: { sessionId: "fake-acp-session", modelId: "claude-opus-5" },
+      },
     ]);
   });
 
@@ -918,7 +1053,11 @@ describe("ACP turns (fake CLI)", () => {
   });
 
   const remoteServers = {
-    docs: { type: "http" as const, url: "https://docs.example/mcp", headers: { Authorization: "Bearer tok-docs" } },
+    docs: {
+      type: "http" as const,
+      url: "https://docs.example/mcp",
+      headers: { Authorization: "Bearer tok-docs" },
+    },
     legacy: { type: "sse" as const, url: "https://old.example/sse", headers: {} },
     notes: { command: "npx", args: [], env: {} },
   };
@@ -927,7 +1066,11 @@ describe("ACP turns (fake CLI)", () => {
     await create();
     const dump = join(scratch, "remote-plain.json");
     process.env.FAKE_ACP_DUMP = dump;
-    await instance.adapter.sendTurn({ threadId: "t-remote-plain", text: "go", integrations: { custom: remoteServers } });
+    await instance.adapter.sendTurn({
+      threadId: "t-remote-plain",
+      text: "go",
+      integrations: { custom: remoteServers },
+    });
     await recorder.until((event) => event.type === "turn.completed");
     const seen = JSON.parse(readFileSync(dump, "utf8"));
     expect(seen.mcpServers.map((server: { name: string }) => server.name)).toEqual(["notes"]);
@@ -939,7 +1082,11 @@ describe("ACP turns (fake CLI)", () => {
       await create();
       const dump = join(scratch, "remote-http.json");
       process.env.FAKE_ACP_DUMP = dump;
-      await instance.adapter.sendTurn({ threadId: "t-remote-http", text: "go", integrations: { custom: remoteServers } });
+      await instance.adapter.sendTurn({
+        threadId: "t-remote-http",
+        text: "go",
+        integrations: { custom: remoteServers },
+      });
       await recorder.until((event) => event.type === "turn.completed");
       const seen = JSON.parse(readFileSync(dump, "utf8"));
       expect(seen.mcpServers).toContainEqual({
@@ -948,7 +1095,10 @@ describe("ACP turns (fake CLI)", () => {
         url: "https://docs.example/mcp",
         headers: [{ name: "Authorization", value: "Bearer tok-docs" }],
       });
-      expect(seen.mcpServers.map((server: { name: string }) => server.name)).toEqual(["docs", "notes"]);
+      expect(seen.mcpServers.map((server: { name: string }) => server.name)).toEqual([
+        "docs",
+        "notes",
+      ]);
     } finally {
       delete process.env.FAKE_ACP_MCP_TRANSPORTS;
     }
@@ -978,7 +1128,11 @@ describe("ACP turns (fake CLI)", () => {
       command: { command: "echo hi", cwd: realpathSync(scratch) },
     });
 
-    expect(await instance.adapter.respondToRequest("t-perm", (opened as any).requestId, { behavior: "allow" })).toBe("allowed-once");
+    expect(
+      await instance.adapter.respondToRequest("t-perm", (opened as any).requestId, {
+        behavior: "allow",
+      }),
+    ).toBe("allowed-once");
     const resolved = await recorder.until((e) => e.type === "request.resolved");
     expect(resolved).toMatchObject({
       behavior: "allow",
@@ -990,42 +1144,116 @@ describe("ACP turns (fake CLI)", () => {
   });
 
   it.each([
-    { name: "full raw command", toolCall: { kind: "execute", rawInput: { command: `printf '  ${"complete input ".repeat(30)}'\n  pwd  ` } }, descriptor: true },
-    { name: "title without raw input", toolCall: { kind: "execute", title: "echo display only" }, descriptor: false },
-    { name: "argv raw input", toolCall: { kind: "execute", rawInput: { command: ["echo", "do not join argv"] } }, descriptor: false },
-    { name: "MCP tool", toolCall: { kind: "other", title: "mcp__example__run", rawInput: { command: "echo not a shell approval" } }, descriptor: false },
-    { name: "MCP execute tool", toolCall: { kind: "execute", title: "mcp__example__run", rawInput: { command: "echo not a native shell approval" } }, descriptor: false },
-    { name: "question", toolCall: { toolCallId: "interaction_command", kind: "execute", rawInput: { command: "echo not a shell approval" } }, descriptor: false },
-    { name: "relative cwd", toolCall: { kind: "execute", rawInput: { command: "pwd", cwd: "unknown-relative-directory" } }, descriptor: false },
-  ])("keeps command grants scoped to complete shell input: $name", async ({ toolCall, descriptor }) => {
-    process.env.FAKE_ACP_PERMISSION_TOOL_CALL = JSON.stringify(toolCall);
-    await create(GrokAgentDriver, "permission");
-    await instance.adapter.sendTurn({ threadId: "t-acp-command-descriptor", text: "go", cwd: scratch });
-    const opened = await recorder.until((event) => event.type === "request.opened");
-    expect(opened).toHaveProperty("command", descriptor ? { command: toolCall.rawInput?.command, cwd: realpathSync(scratch) } : undefined);
-    await instance.adapter.respondToRequest("t-acp-command-descriptor", opened.requestId!, { behavior: "deny" });
-    await recorder.until((event) => event.type === "turn.completed");
-  });
+    {
+      name: "full raw command",
+      toolCall: {
+        kind: "execute",
+        rawInput: { command: `printf '  ${"complete input ".repeat(30)}'\n  pwd  ` },
+      },
+      descriptor: true,
+    },
+    {
+      name: "title without raw input",
+      toolCall: { kind: "execute", title: "echo display only" },
+      descriptor: false,
+    },
+    {
+      name: "argv raw input",
+      toolCall: { kind: "execute", rawInput: { command: ["echo", "do not join argv"] } },
+      descriptor: false,
+    },
+    {
+      name: "MCP tool",
+      toolCall: {
+        kind: "other",
+        title: "mcp__example__run",
+        rawInput: { command: "echo not a shell approval" },
+      },
+      descriptor: false,
+    },
+    {
+      name: "MCP execute tool",
+      toolCall: {
+        kind: "execute",
+        title: "mcp__example__run",
+        rawInput: { command: "echo not a native shell approval" },
+      },
+      descriptor: false,
+    },
+    {
+      name: "question",
+      toolCall: {
+        toolCallId: "interaction_command",
+        kind: "execute",
+        rawInput: { command: "echo not a shell approval" },
+      },
+      descriptor: false,
+    },
+    {
+      name: "relative cwd",
+      toolCall: {
+        kind: "execute",
+        rawInput: { command: "pwd", cwd: "unknown-relative-directory" },
+      },
+      descriptor: false,
+    },
+  ])(
+    "keeps command grants scoped to complete shell input: $name",
+    async ({ toolCall, descriptor }) => {
+      process.env.FAKE_ACP_PERMISSION_TOOL_CALL = JSON.stringify(toolCall);
+      await create(GrokAgentDriver, "permission");
+      await instance.adapter.sendTurn({
+        threadId: "t-acp-command-descriptor",
+        text: "go",
+        cwd: scratch,
+      });
+      const opened = await recorder.until((event) => event.type === "request.opened");
+      expect(opened).toHaveProperty(
+        "command",
+        descriptor
+          ? { command: toolCall.rawInput?.command, cwd: realpathSync(scratch) }
+          : undefined,
+      );
+      await instance.adapter.respondToRequest("t-acp-command-descriptor", opened.requestId!, {
+        behavior: "deny",
+      });
+      await recorder.until((event) => event.type === "turn.completed");
+    },
+  );
 
   it("uses an explicit ACP shell directory and rejects conflicting directory metadata", async () => {
     const command = "pwd";
     const directory = join(scratch, "execution-directory");
-    process.env.FAKE_ACP_PERMISSION_TOOL_CALL = JSON.stringify({ kind: "execute", rawInput: { command, workdir: directory } });
+    process.env.FAKE_ACP_PERMISSION_TOOL_CALL = JSON.stringify({
+      kind: "execute",
+      rawInput: { command, workdir: directory },
+    });
     await create(GrokAgentDriver, "permission");
     await instance.adapter.sendTurn({ threadId: "t-acp-explicit-cwd", text: "go", cwd: scratch });
     const opened = await recorder.until((event) => event.type === "request.opened");
     expect(opened).toHaveProperty("command", { command, cwd: directory });
-    await instance.adapter.respondToRequest("t-acp-explicit-cwd", opened.requestId!, { behavior: "deny" });
+    await instance.adapter.respondToRequest("t-acp-explicit-cwd", opened.requestId!, {
+      behavior: "deny",
+    });
     await recorder.until((event) => event.type === "turn.completed");
 
     await instance.dispose();
     recorder.stop();
-    process.env.FAKE_ACP_PERMISSION_TOOL_CALL = JSON.stringify({ kind: "execute", rawInput: { command, cwd: scratch, workdir: directory } });
+    process.env.FAKE_ACP_PERMISSION_TOOL_CALL = JSON.stringify({
+      kind: "execute",
+      rawInput: { command, cwd: scratch, workdir: directory },
+    });
     await create(GrokAgentDriver, "permission");
-    await instance.adapter.sendTurn({ threadId: "t-acp-conflicting-cwd", text: "go", cwd: scratch });
+    await instance.adapter.sendTurn({
+      threadId: "t-acp-conflicting-cwd",
+      text: "go",
+      cwd: scratch,
+    });
     const conflict = await recorder.until((event) => event.type === "request.opened");
     expect(conflict).toHaveProperty("command", undefined);
-    await instance.adapter.respondToRequest("t-acp-conflicting-cwd", conflict.requestId!, { behavior: "deny" });
+    await instance.adapter.respondToRequest("t-acp-conflicting-cwd", conflict.requestId!, {
+      behavior: "deny",
+    });
     await recorder.until((event) => event.type === "turn.completed");
   });
 
@@ -1047,10 +1275,14 @@ describe("ACP turns (fake CLI)", () => {
     await create(GrokAgentDriver, "question");
     await instance.adapter.sendTurn({ threadId: "t-question-answer", text: "go" });
     const opened = await recorder.until((e) => e.type === "request.opened");
-    const outcome = await instance.adapter.respondToRequest("t-question-answer", (opened as { requestId: string }).requestId, {
-      behavior: "answer",
-      message: "The user answered your questions.\n\nQ: Which color?\nA: Green",
-    });
+    const outcome = await instance.adapter.respondToRequest(
+      "t-question-answer",
+      (opened as { requestId: string }).requestId,
+      {
+        behavior: "answer",
+        message: "The user answered your questions.\n\nQ: Which color?\nA: Green",
+      },
+    );
     expect(outcome).toBe("answered");
     const resolved = await recorder.until((e) => e.type === "request.resolved");
     expect(resolved).toMatchObject({ behavior: "answer", source: "user" });
@@ -1066,12 +1298,26 @@ describe("ACP turns (fake CLI)", () => {
       { optionId: "green-id", kind: "allow_once", name: "Green (Recommended)" },
     ]);
     await create(GrokAgentDriver, "question");
-    await instance.adapter.sendTurn({ threadId: "t-delegated-question", text: "go", approvalMode: "full" });
+    await instance.adapter.sendTurn({
+      threadId: "t-delegated-question",
+      text: "go",
+      approvalMode: "full",
+    });
     const opened = await recorder.until((event) => event.type === "request.opened");
     if (opened.type !== "request.opened") throw new Error("Expected a question request.");
-    const picked = autoPickedAnswer({ questionRequest: { questions: opened.questions! } }, [], { waitedMs: 0, delegated: true });
-    expect(await instance.adapter.respondToRequest("t-delegated-question", opened.requestId!, { behavior: "answer", message: picked.engine })).toBe("answered");
-    expect(await recorder.until((event) => event.type === "request.resolved")).toMatchObject({ behavior: "answer" });
+    const picked = autoPickedAnswer({ questionRequest: { questions: opened.questions! } }, [], {
+      waitedMs: 0,
+      delegated: true,
+    });
+    expect(
+      await instance.adapter.respondToRequest("t-delegated-question", opened.requestId!, {
+        behavior: "answer",
+        message: picked.engine,
+      }),
+    ).toBe("answered");
+    expect(await recorder.until((event) => event.type === "request.resolved")).toMatchObject({
+      behavior: "answer",
+    });
     await recorder.until((event) => event.type === "turn.completed");
     expect(readFileSync(answer, "utf8")).toBe("green-id");
   });
@@ -1082,10 +1328,14 @@ describe("ACP turns (fake CLI)", () => {
     await create(GrokAgentDriver, "question");
     await instance.adapter.sendTurn({ threadId: "t-question-cancel", text: "go" });
     const opened = await recorder.until((e) => e.type === "request.opened");
-    await instance.adapter.respondToRequest("t-question-cancel", (opened as { requestId: string }).requestId, {
-      behavior: "answer",
-      message: "Purple",
-    });
+    await instance.adapter.respondToRequest(
+      "t-question-cancel",
+      (opened as { requestId: string }).requestId,
+      {
+        behavior: "answer",
+        message: "Purple",
+      },
+    );
     const resolved = await recorder.until((e) => e.type === "request.resolved");
     expect(resolved).toMatchObject({ behavior: "deny", source: "system" });
     expect(recorder.events.find((e) => e.type === "runtime.error")).toMatchObject({
@@ -1095,25 +1345,34 @@ describe("ACP turns (fake CLI)", () => {
     expect(readFileSync(answer, "utf8")).toBe("cancelled");
   });
 
-  it.each([false, true])("maps capped labels back to their option id, refusing collisions (%s)", async collision => {
-    const label = "Green ".repeat(30);
-    const answer = join(scratch, "long-question-answer.txt");
-    process.env.FAKE_ACP_PERMISSION_ANSWER = answer;
-    process.env.FAKE_ACP_QUESTION_OPTIONS = JSON.stringify([
-      { optionId: "green-id", kind: "allow_once", name: label },
-      { optionId: "other-id", kind: "allow_once", name: collision ? label + "other" : "Blue" },
-    ]);
-    await create(GrokAgentDriver, "question");
-    await instance.adapter.sendTurn({ threadId: "t-long-question", text: "go" });
-    const opened = await recorder.until(e => e.type === "request.opened");
-    expect(opened).toMatchObject({ choices: expect.arrayContaining([label.trim().slice(0, 120).trim()]) });
-    await instance.adapter.respondToRequest("t-long-question", (opened as { requestId: string }).requestId, {
-      behavior: "answer",
-      message: `The user answered your questions.\n\nQ: Which color?\nA: ${label.trim().slice(0, 120)}`,
-    });
-    await recorder.until(e => e.type === "turn.completed");
-    expect(readFileSync(answer, "utf8")).toBe(collision ? "cancelled" : "green-id");
-  });
+  it.each([false, true])(
+    "maps capped labels back to their option id, refusing collisions (%s)",
+    async (collision) => {
+      const label = "Green ".repeat(30);
+      const answer = join(scratch, "long-question-answer.txt");
+      process.env.FAKE_ACP_PERMISSION_ANSWER = answer;
+      process.env.FAKE_ACP_QUESTION_OPTIONS = JSON.stringify([
+        { optionId: "green-id", kind: "allow_once", name: label },
+        { optionId: "other-id", kind: "allow_once", name: collision ? label + "other" : "Blue" },
+      ]);
+      await create(GrokAgentDriver, "question");
+      await instance.adapter.sendTurn({ threadId: "t-long-question", text: "go" });
+      const opened = await recorder.until((e) => e.type === "request.opened");
+      expect(opened).toMatchObject({
+        choices: expect.arrayContaining([label.trim().slice(0, 120).trim()]),
+      });
+      await instance.adapter.respondToRequest(
+        "t-long-question",
+        (opened as { requestId: string }).requestId,
+        {
+          behavior: "answer",
+          message: `The user answered your questions.\n\nQ: Which color?\nA: ${label.trim().slice(0, 120)}`,
+        },
+      );
+      await recorder.until((e) => e.type === "turn.completed");
+      expect(readFileSync(answer, "utf8")).toBe(collision ? "cancelled" : "green-id");
+    },
+  );
 
   it("per-bot Ask surfaces permissions from a legacy full-auto instance", async () => {
     process.env.FAKE_ACP_MODE = "permission";
@@ -1149,38 +1408,66 @@ describe("ACP turns (fake CLI)", () => {
     await create(GrokAgentDriver);
     const dump = join(scratch, "grok-edits.json");
     process.env.FAKE_ACP_DUMP = dump;
-    const { turnId } = await instance.adapter.sendTurn({ threadId: "t-grok-edits", text: "go", approvalMode: "edits" });
+    const { turnId } = await instance.adapter.sendTurn({
+      threadId: "t-grok-edits",
+      text: "go",
+      approvalMode: "edits",
+    });
     await recorder.until((e) => e.type === "turn.completed" && e.turnId === turnId);
     const argv = JSON.parse(readFileSync(dump, "utf8")).argv as string[];
     expect(argv[argv.indexOf("--permission-mode") + 1]).toBe("acceptEdits");
   });
 
-  it.each([false, true])("returns rejected when an allow has no native permission option (always: %s)", async (always) => {
-    process.env.FAKE_ACP_PERMISSION_OPTIONS = JSON.stringify([{ optionId: "reject", kind: "reject_once" }]);
-    const answer = join(scratch, "reject-only-answer.txt");
-    process.env.FAKE_ACP_PERMISSION_ANSWER = answer;
-    await create(GrokAgentDriver, "permission");
-    const threadId = "t-reject-only";
-    await instance.adapter.sendTurn({ threadId, text: "go", approvalMode: "ask" });
-    const opened = await recorder.until((event) => event.type === "request.opened");
-    expect(await instance.adapter.respondToRequest(threadId, "unknown-request", { behavior: "allow" })).toBe("unavailable");
-    expect(await instance.adapter.respondToRequest(threadId, opened.requestId!, { behavior: "allow", always })).toBe("rejected");
-    const resolved = await recorder.until((event) => event.type === "request.resolved" && event.requestId === opened.requestId);
-    expect(resolved).toMatchObject({ behavior: "deny", source: "system" });
-    await recorder.until((event) => event.type === "turn.completed");
-    expect(readFileSync(answer, "utf8")).toBe("cancelled");
-    expect(await instance.adapter.respondToRequest(threadId, opened.requestId!, { behavior: "allow" })).toBe("unavailable");
-  });
+  it.each([false, true])(
+    "returns rejected when an allow has no native permission option (always: %s)",
+    async (always) => {
+      process.env.FAKE_ACP_PERMISSION_OPTIONS = JSON.stringify([
+        { optionId: "reject", kind: "reject_once" },
+      ]);
+      const answer = join(scratch, "reject-only-answer.txt");
+      process.env.FAKE_ACP_PERMISSION_ANSWER = answer;
+      await create(GrokAgentDriver, "permission");
+      const threadId = "t-reject-only";
+      await instance.adapter.sendTurn({ threadId, text: "go", approvalMode: "ask" });
+      const opened = await recorder.until((event) => event.type === "request.opened");
+      expect(
+        await instance.adapter.respondToRequest(threadId, "unknown-request", { behavior: "allow" }),
+      ).toBe("unavailable");
+      expect(
+        await instance.adapter.respondToRequest(threadId, opened.requestId!, {
+          behavior: "allow",
+          always,
+        }),
+      ).toBe("rejected");
+      const resolved = await recorder.until(
+        (event) => event.type === "request.resolved" && event.requestId === opened.requestId,
+      );
+      expect(resolved).toMatchObject({ behavior: "deny", source: "system" });
+      await recorder.until((event) => event.type === "turn.completed");
+      expect(readFileSync(answer, "utf8")).toBe("cancelled");
+      expect(
+        await instance.adapter.respondToRequest(threadId, opened.requestId!, { behavior: "allow" }),
+      ).toBe("unavailable");
+    },
+  );
 
   it("never picks the agent's own allow_always, even when the answer asks for always", async () => {
     process.env.FAKE_ACP_ALLOW_ALWAYS = "1";
     const answer = join(scratch, "permission-answer.txt");
     process.env.FAKE_ACP_PERMISSION_ANSWER = answer;
     await create(GrokAgentDriver, "permission");
-    await instance.adapter.sendTurn({ threadId: "t-always-native", text: "go", approvalMode: "ask" });
+    await instance.adapter.sendTurn({
+      threadId: "t-always-native",
+      text: "go",
+      approvalMode: "ask",
+    });
     const opened = await recorder.until((e) => e.type === "request.opened");
     expect((opened as { allowSession?: boolean }).allowSession).toBeUndefined();
-    await instance.adapter.respondToRequest("t-always-native", (opened as { requestId: string }).requestId, { behavior: "allow", always: true });
+    await instance.adapter.respondToRequest(
+      "t-always-native",
+      (opened as { requestId: string }).requestId,
+      { behavior: "allow", always: true },
+    );
     await recorder.until((e) => e.type === "turn.completed");
     expect(readFileSync(answer, "utf8")).toBe("allow-once");
   });
@@ -1189,28 +1476,55 @@ describe("ACP turns (fake CLI)", () => {
     const answer = join(scratch, "permission-answer-once.txt");
     process.env.FAKE_ACP_PERMISSION_ANSWER = answer;
     await create(GrokAgentDriver, "permission");
-    await instance.adapter.sendTurn({ threadId: "t-always-memory", text: "go", approvalMode: "ask" });
+    await instance.adapter.sendTurn({
+      threadId: "t-always-memory",
+      text: "go",
+      approvalMode: "ask",
+    });
     const opened = await recorder.until((e) => e.type === "request.opened");
-    await instance.adapter.respondToRequest("t-always-memory", (opened as { requestId: string }).requestId, { behavior: "allow", always: true });
+    await instance.adapter.respondToRequest(
+      "t-always-memory",
+      (opened as { requestId: string }).requestId,
+      { behavior: "allow", always: true },
+    );
     await recorder.until((e) => e.type === "turn.completed");
     expect(readFileSync(answer, "utf8")).toBe("allow-once");
 
-    const second = await instance.adapter.sendTurn({ threadId: "t-always-memory", text: "again", approvalMode: "ask", resumeCursor: "fake-acp-session" });
-    const reopened = await recorder.until((e) => e.type === "request.opened" && e.turnId === second.turnId);
-    await instance.adapter.respondToRequest("t-always-memory", (reopened as { requestId: string }).requestId, { behavior: "deny" });
+    const second = await instance.adapter.sendTurn({
+      threadId: "t-always-memory",
+      text: "again",
+      approvalMode: "ask",
+      resumeCursor: "fake-acp-session",
+    });
+    const reopened = await recorder.until(
+      (e) => e.type === "request.opened" && e.turnId === second.turnId,
+    );
+    await instance.adapter.respondToRequest(
+      "t-always-memory",
+      (reopened as { requestId: string }).requestId,
+      { behavior: "deny" },
+    );
     await recorder.until((e) => e.type === "turn.completed" && e.turnId === second.turnId);
     expect(recorder.events.filter((e) => e.type === "request.opened")).toHaveLength(2);
   });
 
   it("cancels, with its plain message, when the agent offers only allow_always", async () => {
-    process.env.FAKE_ACP_PERMISSION_OPTIONS = JSON.stringify([{ optionId: "always", kind: "allow_always" }, { optionId: "reject", kind: "reject_once" }]);
+    process.env.FAKE_ACP_PERMISSION_OPTIONS = JSON.stringify([
+      { optionId: "always", kind: "allow_always" },
+      { optionId: "reject", kind: "reject_once" },
+    ]);
     const answer = join(scratch, "always-only-answer.txt");
     process.env.FAKE_ACP_PERMISSION_ANSWER = answer;
     await create(GrokAgentDriver, "permission");
     const threadId = "t-always-only";
     await instance.adapter.sendTurn({ threadId, text: "go", approvalMode: "ask" });
     const opened = await recorder.until((event) => event.type === "request.opened");
-    expect(await instance.adapter.respondToRequest(threadId, opened.requestId!, { behavior: "allow", always: true })).toBe("rejected");
+    expect(
+      await instance.adapter.respondToRequest(threadId, opened.requestId!, {
+        behavior: "allow",
+        always: true,
+      }),
+    ).toBe("rejected");
     const error = await recorder.until((event) => event.type === "runtime.error");
     expect((error as { message: string }).message).toMatch(/offered no "allow" permission option/);
     await recorder.until((event) => event.type === "turn.completed");
@@ -1218,14 +1532,19 @@ describe("ACP turns (fake CLI)", () => {
   });
 
   it("cancels a deny, never picking reject_always, when the agent offers no reject_once, and says only Not allowed.", async () => {
-    process.env.FAKE_ACP_PERMISSION_OPTIONS = JSON.stringify([{ optionId: "once", kind: "allow_once" }, { optionId: "never", kind: "reject_always" }]);
+    process.env.FAKE_ACP_PERMISSION_OPTIONS = JSON.stringify([
+      { optionId: "once", kind: "allow_once" },
+      { optionId: "never", kind: "reject_always" },
+    ]);
     const answer = join(scratch, "reject-always-only-answer.txt");
     process.env.FAKE_ACP_PERMISSION_ANSWER = answer;
     await create(GrokAgentDriver, "permission");
     const threadId = "t-reject-always-only";
     await instance.adapter.sendTurn({ threadId, text: "go", approvalMode: "ask" });
     const opened = await recorder.until((event) => event.type === "request.opened");
-    expect(await instance.adapter.respondToRequest(threadId, opened.requestId!, { behavior: "deny" })).toBe("rejected");
+    expect(
+      await instance.adapter.respondToRequest(threadId, opened.requestId!, { behavior: "deny" }),
+    ).toBe("rejected");
     const notice = await recorder.until((event) => event.type === "runtime.notice");
     expect((notice as { message: string }).message).toBe("Not allowed.");
     await recorder.until((event) => event.type === "turn.completed");
@@ -1235,7 +1554,10 @@ describe("ACP turns (fake CLI)", () => {
 
   it("cancels in full auto too when the agent offers only allow_always", async () => {
     process.env.FAKE_ACP_MODE = "permission";
-    process.env.FAKE_ACP_PERMISSION_OPTIONS = JSON.stringify([{ optionId: "always", kind: "allow_always" }, { optionId: "reject", kind: "reject_once" }]);
+    process.env.FAKE_ACP_PERMISSION_OPTIONS = JSON.stringify([
+      { optionId: "always", kind: "allow_always" },
+      { optionId: "reject", kind: "reject_once" },
+    ]);
     const answer = join(scratch, "always-only-full-auto.txt");
     process.env.FAKE_ACP_PERMISSION_ANSWER = answer;
     instance = await GrokAgentDriver.create({
@@ -1278,19 +1600,31 @@ describe("ACP turns (fake CLI)", () => {
         await recorder.until((e) => e.type === "turn.completed" && e.turnId === turnId);
         const seen = JSON.parse(readFileSync(dump, "utf8"));
         expect(seen.argv).toEqual([
-          "--permission-mode", "auto",
-          "agent", "-m", model, "--reasoning-effort", "high", "stdio",
+          "--permission-mode",
+          "auto",
+          "agent",
+          "-m",
+          model,
+          "--reasoning-effort",
+          "high",
+          "stdio",
         ]);
         const sessionMethod = resumeCursor ? "session/load" : "session/new";
         const sent = readFileSync(join(NATIVE_DIR, `${threadId}.ndjson`), "utf8")
-          .trim().split("\n").map((line) => JSON.parse(line))
+          .trim()
+          .split("\n")
+          .map((line) => JSON.parse(line))
           .find((entry) => entry.dir === "out" && entry.msg.method === sessionMethod);
         expect(sent.msg.params.mcpServers).toEqual([{ name: "agents", ...agents, env: [] }]);
         expect(JSON.parse(readFileSync(`${dump}.config.json`, "utf8"))).toEqual([
-          { method: "session/set_model", params: { sessionId: "fake-acp-session", modelId: model } },
+          {
+            method: "session/set_model",
+            params: { sessionId: "fake-acp-session", modelId: model },
+          },
         ]);
-        expect(recorder.events.find((e) => e.type === "session.started" && e.turnId === turnId))
-          .toMatchObject({ model });
+        expect(
+          recorder.events.find((e) => e.type === "session.started" && e.turnId === turnId),
+        ).toMatchObject({ model });
       }
     },
   );
@@ -1300,29 +1634,35 @@ describe("ACP turns (fake CLI)", () => {
     ["full", true, "bypassPermissions"],
     ["custom", true, "default"],
     ["auto", false, "auto"],
-  ] as const)("Grok %s with agents mounted=%s overrides a legacy full-auto setting", async (approvalMode, mounted, nativeMode) => {
-    instance = await GrokAgentDriver.create({
-      instanceId: "grok-mode-override",
-      displayName: "Grok",
-      environment: {},
-      enabled: true,
-      config: { cli: FAKE_CLI, fullAuto: true },
-    });
-    recorder = recordEvents(instance.adapter);
-    const dump = join(scratch, "grok-mode-override.json");
-    process.env.FAKE_ACP_DUMP = dump;
-    await instance.adapter.sendTurn({
-      threadId: "t-grok-mode-override",
-      text: "continue",
-      approvalMode,
-      resumeCursor: "fake-acp-session",
-      integrations: mounted ? { agents: { command: "node", args: [], env: {} } } : undefined,
-    });
-    await recorder.until((e) => e.type === "turn.completed");
-    expect(JSON.parse(readFileSync(dump, "utf8")).argv).toEqual([
-      "--permission-mode", nativeMode, "agent", "stdio",
-    ]);
-  });
+  ] as const)(
+    "Grok %s with agents mounted=%s overrides a legacy full-auto setting",
+    async (approvalMode, mounted, nativeMode) => {
+      instance = await GrokAgentDriver.create({
+        instanceId: "grok-mode-override",
+        displayName: "Grok",
+        environment: {},
+        enabled: true,
+        config: { cli: FAKE_CLI, fullAuto: true },
+      });
+      recorder = recordEvents(instance.adapter);
+      const dump = join(scratch, "grok-mode-override.json");
+      process.env.FAKE_ACP_DUMP = dump;
+      await instance.adapter.sendTurn({
+        threadId: "t-grok-mode-override",
+        text: "continue",
+        approvalMode,
+        resumeCursor: "fake-acp-session",
+        integrations: mounted ? { agents: { command: "node", args: [], env: {} } } : undefined,
+      });
+      await recorder.until((e) => e.type === "turn.completed");
+      expect(JSON.parse(readFileSync(dump, "utf8")).argv).toEqual([
+        "--permission-mode",
+        nativeMode,
+        "agent",
+        "stdio",
+      ]);
+    },
+  );
 
   it("keeps residual Grok Auto permissions interactive", async () => {
     await create(GrokAgentDriver, "permission");
@@ -1335,9 +1675,13 @@ describe("ACP turns (fake CLI)", () => {
     const opened = await recorder.until((e) => e.type === "request.opened");
     expect(opened).toMatchObject({ requestType: "permission", tool: "shell" });
     expect(recorder.events.some((e) => e.type === "request.resolved")).toBe(false);
-    await instance.adapter.respondToRequest("t-grok-auto-permission", opened.requestId!, { behavior: "deny" });
-    expect(await recorder.until((e) => e.type === "request.resolved"))
-      .toMatchObject({ behavior: "deny", source: "user" });
+    await instance.adapter.respondToRequest("t-grok-auto-permission", opened.requestId!, {
+      behavior: "deny",
+    });
+    expect(await recorder.until((e) => e.type === "request.resolved")).toMatchObject({
+      behavior: "deny",
+      source: "user",
+    });
     await recorder.until((e) => e.type === "turn.completed");
   });
 
@@ -1395,7 +1739,9 @@ describe("ACP turns (fake CLI)", () => {
     await create(GrokAgentDriver, "hang");
     await instance.adapter.sendTurn({ threadId: "t-busy", text: "one" });
     await recorder.until((e) => e.type === "session.started");
-    await expect(instance.adapter.sendTurn({ threadId: "t-busy", text: "two" })).rejects.toThrow(/already running/);
+    await expect(instance.adapter.sendTurn({ threadId: "t-busy", text: "two" })).rejects.toThrow(
+      /already running/,
+    );
     await instance.adapter.interruptTurn("t-busy");
     await recorder.until((e) => e.type === "turn.completed");
   });
@@ -1420,34 +1766,55 @@ describe("ACP turns (fake CLI)", () => {
   it("does not expire an agent while a person is answering an approval", async () => {
     process.env.LATERDOG_ACP_PROMPT_IDLE_TIMEOUT_MS = "150";
     await create(GrokAgentDriver, "permission");
-    await instance.adapter.sendTurn({ threadId: "t-idle-approval", text: "go", approvalMode: "ask" });
-    const opened = await recorder.until(e => e.type === "request.opened");
-    await new Promise(resolve => setTimeout(resolve, 450));
-    expect(recorder.events.some(e => e.type === "turn.completed")).toBe(false);
-    await instance.adapter.respondToRequest("t-idle-approval", (opened as { requestId: string }).requestId, { behavior: "allow" });
-    expect(await recorder.until(e => e.type === "turn.completed")).toMatchObject({ ok: true });
-    await new Promise(resolve => setTimeout(resolve, 300));
-    expect(recorder.events.some(e => e.type === "runtime.error")).toBe(false);
+    await instance.adapter.sendTurn({
+      threadId: "t-idle-approval",
+      text: "go",
+      approvalMode: "ask",
+    });
+    const opened = await recorder.until((e) => e.type === "request.opened");
+    await new Promise((resolve) => setTimeout(resolve, 450));
+    expect(recorder.events.some((e) => e.type === "turn.completed")).toBe(false);
+    await instance.adapter.respondToRequest(
+      "t-idle-approval",
+      (opened as { requestId: string }).requestId,
+      { behavior: "allow" },
+    );
+    expect(await recorder.until((e) => e.type === "turn.completed")).toMatchObject({ ok: true });
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    expect(recorder.events.some((e) => e.type === "runtime.error")).toBe(false);
   });
 
-  it.each([GrokAgentDriver, QwenAgentDriver])("does not expire $driverKind while a tool it started is still running", async (driver) => {
-    process.env.LATERDOG_ACP_PROMPT_IDLE_TIMEOUT_MS = "150";
-    process.env.FAKE_ACP_TOOL_MS = "600";
-    await create(driver, "slow-tool");
-    await instance.adapter.sendTurn({ threadId: "t-slow-tool", text: "go" });
-    expect(await recorder.until(e => e.type === "turn.completed")).toMatchObject({ ok: true });
-    expect(recorder.events.some(e => e.type === "runtime.error")).toBe(false);
-    expect(recorder.events.find(e => e.type === "item.completed" && e.itemType === "tool")).toMatchObject({ ok: true });
-  });
+  it.each([GrokAgentDriver, QwenAgentDriver])(
+    "does not expire $driverKind while a tool it started is still running",
+    async (driver) => {
+      process.env.LATERDOG_ACP_PROMPT_IDLE_TIMEOUT_MS = "150";
+      process.env.FAKE_ACP_TOOL_MS = "600";
+      await create(driver, "slow-tool");
+      await instance.adapter.sendTurn({ threadId: "t-slow-tool", text: "go" });
+      expect(await recorder.until((e) => e.type === "turn.completed")).toMatchObject({ ok: true });
+      expect(recorder.events.some((e) => e.type === "runtime.error")).toBe(false);
+      expect(
+        recorder.events.find((e) => e.type === "item.completed" && e.itemType === "tool"),
+      ).toMatchObject({ ok: true });
+    },
+  );
 
-  it.each([GrokAgentDriver, QwenAgentDriver])("still fails $driverKind when it goes silent once its tool has finished", async (driver) => {
-    process.env.LATERDOG_ACP_PROMPT_IDLE_TIMEOUT_MS = "150";
-    await create(driver, "stall-after-tool");
-    await instance.adapter.sendTurn({ threadId: "t-stall-tool", text: "go" });
-    expect(await recorder.until(e => e.type === "turn.completed")).toMatchObject({ ok: false, stopReason: "rpc_error" });
-    expect(recorder.events.find(e => e.type === "runtime.error")?.message).toMatch(/no tool running/i);
-    expect(instance.adapter.hasSession("t-stall-tool")).toBe(false);
-  });
+  it.each([GrokAgentDriver, QwenAgentDriver])(
+    "still fails $driverKind when it goes silent once its tool has finished",
+    async (driver) => {
+      process.env.LATERDOG_ACP_PROMPT_IDLE_TIMEOUT_MS = "150";
+      await create(driver, "stall-after-tool");
+      await instance.adapter.sendTurn({ threadId: "t-stall-tool", text: "go" });
+      expect(await recorder.until((e) => e.type === "turn.completed")).toMatchObject({
+        ok: false,
+        stopReason: "rpc_error",
+      });
+      expect(recorder.events.find((e) => e.type === "runtime.error")?.message).toMatch(
+        /no tool running/i,
+      );
+      expect(instance.adapter.hasSession("t-stall-tool")).toBe(false);
+    },
+  );
 
   it("tells the person what a quiet agent is doing, then finishes the turn", async () => {
     vi.spyOn(quietStatus, "sampleProcessTree").mockResolvedValue({ cpuMs: 0, connections: 1 });
@@ -1456,11 +1823,13 @@ describe("ACP turns (fake CLI)", () => {
     process.env.FAKE_ACP_QUIET_MS = "700";
     await create(GrokAgentDriver, "quiet-then-answer");
     await instance.adapter.sendTurn({ threadId: "t-quiet", text: "go" });
-    expect(await recorder.until(e => e.type === "turn.completed")).toMatchObject({ ok: true });
-    const notices = recorder.events.filter(e => e.type === "runtime.notice") as Array<{ message: string }>;
+    expect(await recorder.until((e) => e.type === "turn.completed")).toMatchObject({ ok: true });
+    const notices = recorder.events.filter((e) => e.type === "runtime.notice") as Array<{
+      message: string;
+    }>;
     expect(notices.length).toBeGreaterThanOrEqual(1);
     expect(notices[0].message).toMatch(/^Grok (is waiting on its model|is busy|has sent nothing)/);
-    expect(recorder.events.some(e => e.type === "runtime.error")).toBe(false);
+    expect(recorder.events.some((e) => e.type === "runtime.error")).toBe(false);
   });
 
   it("reads Qwen's debug log: a logged rate-limit retry is reported and keeps the turn alive", async () => {
@@ -1476,10 +1845,18 @@ describe("ACP turns (fake CLI)", () => {
     ]);
     await create(QwenAgentDriver, "quiet-then-answer");
     await instance.adapter.sendTurn({ threadId: "t-qwen-retry", text: "go" });
-    expect(await recorder.until(e => e.type === "turn.completed")).toMatchObject({ ok: true });
-    const notices = (recorder.events.filter(e => e.type === "runtime.notice") as Array<{ message: string }>).map(n => n.message);
-    expect(notices.some(m => /Qwen hit a rate limit \(HTTP 429\) and is retrying \(attempt 2\)\. Next try in 20 s\./.test(m))).toBe(true);
-    expect(recorder.events.some(e => e.type === "runtime.error")).toBe(false);
+    expect(await recorder.until((e) => e.type === "turn.completed")).toMatchObject({ ok: true });
+    const notices = (
+      recorder.events.filter((e) => e.type === "runtime.notice") as Array<{ message: string }>
+    ).map((n) => n.message);
+    expect(
+      notices.some((m) =>
+        /Qwen hit a rate limit \(HTTP 429\) and is retrying \(attempt 2\)\. Next try in 20 s\./.test(
+          m,
+        ),
+      ),
+    ).toBe(true);
+    expect(recorder.events.some((e) => e.type === "runtime.error")).toBe(false);
   });
 
   it("defaults the prompt idle guard above an agent's longest normal silence", () => {
@@ -1505,8 +1882,9 @@ describe("ACP turns (fake CLI)", () => {
     await instance.adapter.sendTurn({ threadId: "t-empty", text: "go" });
     const done = await recorder.until((e) => e.type === "turn.completed");
     expect(done).toMatchObject({ ok: false, stopReason: "empty_turn" });
-    expect(recorder.events.find((e) => e.type === "runtime.error")?.message)
-      .toMatch(/no reply, image, or tool result/);
+    expect(recorder.events.find((e) => e.type === "runtime.error")?.message).toMatch(
+      /no reply, image, or tool result/,
+    );
   });
 
   it("reasoning with no answer is a lost turn, not a success", async () => {
@@ -1514,10 +1892,15 @@ describe("ACP turns (fake CLI)", () => {
     await instance.adapter.sendTurn({ threadId: "t-reasoning", text: "go" });
     const done = await recorder.until((e) => e.type === "turn.completed");
     expect(done).toMatchObject({ ok: false, stopReason: "empty_turn" });
-    expect(recorder.events.some((e) => e.type === "content.delta" && (e as any).streamKind === "reasoning_text")).toBe(true);
+    expect(
+      recorder.events.some(
+        (e) => e.type === "content.delta" && (e as any).streamKind === "reasoning_text",
+      ),
+    ).toBe(true);
     expect(recorder.events.some((e) => e.type === "item.completed")).toBe(false);
-    expect(recorder.events.find((e) => e.type === "runtime.error")?.message)
-      .toMatch(/no reply, image, or tool result/);
+    expect(recorder.events.find((e) => e.type === "runtime.error")?.message).toMatch(
+      /no reply, image, or tool result/,
+    );
   });
 
   it("preserves ACP error codes for provider setup classification", async () => {
@@ -1610,47 +1993,73 @@ describe("ACP turns (fake CLI)", () => {
     expect(done).toMatchObject({ ok: true });
   });
 
-  it.each(["null", "opencode-not-found"])("rebuilds a missing native session from the canonical recovery text once (%s)", async (failure) => {
-    if (failure === "null") process.env.FAKE_ACP_LOAD_NULL = "1";
-    else process.env.FAKE_ACP_LOAD_ERROR = JSON.stringify({ code: -32602, message: "Session not found", data: { sessionId: "missing-cursor" } });
-    const dump = join(scratch, "recovery.json");
-    process.env.FAKE_ACP_DUMP = dump;
-    process.env.FAKE_ACP_DUMP_PROMPT = "1";
-    await create(GrokAgentDriver);
-    const recoveryText = "User: Remember ALPHA.\nAssistant: Remembered.\nUser: What did I say?";
-    await instance.adapter.sendTurn({
-      threadId: "t-resume-history", text: "What did I say?", resumeCursor: "missing-cursor",
-      recoveryText, system: "Keep current bot instructions.",
-    });
-    expect(await recorder.until((e) => e.type === "turn.completed")).toMatchObject({ ok: true });
-    expect(recorder.events.find((e) => e.type === "session.started")).toMatchObject({ rebuilt: true });
-    const prompt = JSON.parse(readFileSync(`${dump}.prompt.json`, "utf8"));
-    expect(prompt).toEqual([{ type: "text", text: `Keep current bot instructions.\n\n${recoveryText}` }]);
-  });
+  it.each(["null", "opencode-not-found"])(
+    "rebuilds a missing native session from the canonical recovery text once (%s)",
+    async (failure) => {
+      if (failure === "null") process.env.FAKE_ACP_LOAD_NULL = "1";
+      else
+        process.env.FAKE_ACP_LOAD_ERROR = JSON.stringify({
+          code: -32602,
+          message: "Session not found",
+          data: { sessionId: "missing-cursor" },
+        });
+      const dump = join(scratch, "recovery.json");
+      process.env.FAKE_ACP_DUMP = dump;
+      process.env.FAKE_ACP_DUMP_PROMPT = "1";
+      await create(GrokAgentDriver);
+      const recoveryText = "User: Remember ALPHA.\nAssistant: Remembered.\nUser: What did I say?";
+      await instance.adapter.sendTurn({
+        threadId: "t-resume-history",
+        text: "What did I say?",
+        resumeCursor: "missing-cursor",
+        recoveryText,
+        system: "Keep current bot instructions.",
+      });
+      expect(await recorder.until((e) => e.type === "turn.completed")).toMatchObject({ ok: true });
+      expect(recorder.events.find((e) => e.type === "session.started")).toMatchObject({
+        rebuilt: true,
+      });
+      const prompt = JSON.parse(readFileSync(`${dump}.prompt.json`, "utf8"));
+      expect(prompt).toEqual([
+        { type: "text", text: `Keep current bot instructions.\n\n${recoveryText}` },
+      ]);
+    },
+  );
 
   it.each([
     [-32000, "authentication required", "auth_required"],
     [-32602, "Invalid params", "rpc_error"],
-  ])("does not replace native history after a resume refusal (%s)", async (code, message, stopReason) => {
-    process.env.FAKE_ACP_LOAD_ERROR = JSON.stringify({ code, message });
-    const rpcFile = join(scratch, "refused-load.json");
-    process.env.FAKE_ACP_RPC_DUMP = rpcFile;
-    const countFile = join(scratch, "launches");
-    process.env.FAKE_ACP_LAUNCH_COUNT_FILE = countFile;
-    await create(ClassifiedErrorDriver);
-    const turn = {
-      threadId: "t-load-refused", text: "Continue", resumeCursor: "saved-session", recoveryText: "Prior messages\nContinue",
-    };
-    await instance.adapter.sendTurn(turn);
-    expect(await recorder.until((e) => e.type === "turn.completed")).toMatchObject({ ok: false, stopReason });
-    const methods = JSON.parse(readFileSync(rpcFile, "utf8"));
-    expect(methods).toContain("session/load");
-    expect(methods).not.toContain("session/new");
-    expect(methods).not.toContain("session/prompt");
-    const retry = await instance.adapter.sendTurn(turn);
-    expect(await recorder.until((e) => e.type === "turn.completed" && e.turnId === retry.turnId)).toMatchObject({ ok: false, stopReason });
-    expect(Number(readFileSync(countFile, "utf8"))).toBe(1);
-  });
+  ])(
+    "does not replace native history after a resume refusal (%s)",
+    async (code, message, stopReason) => {
+      process.env.FAKE_ACP_LOAD_ERROR = JSON.stringify({ code, message });
+      const rpcFile = join(scratch, "refused-load.json");
+      process.env.FAKE_ACP_RPC_DUMP = rpcFile;
+      const countFile = join(scratch, "launches");
+      process.env.FAKE_ACP_LAUNCH_COUNT_FILE = countFile;
+      await create(ClassifiedErrorDriver);
+      const turn = {
+        threadId: "t-load-refused",
+        text: "Continue",
+        resumeCursor: "saved-session",
+        recoveryText: "Prior messages\nContinue",
+      };
+      await instance.adapter.sendTurn(turn);
+      expect(await recorder.until((e) => e.type === "turn.completed")).toMatchObject({
+        ok: false,
+        stopReason,
+      });
+      const methods = JSON.parse(readFileSync(rpcFile, "utf8"));
+      expect(methods).toContain("session/load");
+      expect(methods).not.toContain("session/new");
+      expect(methods).not.toContain("session/prompt");
+      const retry = await instance.adapter.sendTurn(turn);
+      expect(
+        await recorder.until((e) => e.type === "turn.completed" && e.turnId === retry.turnId),
+      ).toMatchObject({ ok: false, stopReason });
+      expect(Number(readFileSync(countFile, "utf8"))).toBe(1);
+    },
+  );
 
   it("applyTurnEnv sees the picker model after resolveTurnModel", async () => {
     const dump = join(scratch, "turn-env.json");
@@ -1760,7 +2169,12 @@ describe("ACP turns (fake CLI)", () => {
     const dump = join(scratch, "grok-argv-order.json");
     await create(GrokAgentDriver);
     process.env.FAKE_ACP_DUMP = dump;
-    await instance.adapter.sendTurn({ threadId: "t-argv", text: "hi", model: "grok-4.5", effort: "high" });
+    await instance.adapter.sendTurn({
+      threadId: "t-argv",
+      text: "hi",
+      model: "grok-4.5",
+      effort: "high",
+    });
     await recorder.until((e) => e.type === "turn.completed");
 
     const argv = JSON.parse(readFileSync(dump, "utf8")).argv as string[];
@@ -1787,10 +2201,18 @@ describe("ACP turns (fake CLI)", () => {
     it("rejects a transient setup failure only after its exact child stops, without terminal events", async () => {
       await failStartup();
       const kill = vi.spyOn(procs, "killCliTree");
-      const failed = await instance.adapter.sendTurn({ threadId: "startup", text: "go", startupRecovery: true }).catch((error) => error);
+      const failed = await instance.adapter
+        .sendTurn({ threadId: "startup", text: "go", startupRecovery: true })
+        .catch((error) => error);
       expect(failed).toBeInstanceOf(TurnNotStartedError);
-      expect(failed.turnId).toBe(recorder.events.find((event) => event.type === "turn.started")?.turnId);
-      expect(recorder.events.some((event) => event.type === "runtime.error" || event.type === "turn.completed")).toBe(false);
+      expect(failed.turnId).toBe(
+        recorder.events.find((event) => event.type === "turn.started")?.turnId,
+      );
+      expect(
+        recorder.events.some(
+          (event) => event.type === "runtime.error" || event.type === "turn.completed",
+        ),
+      ).toBe(false);
       expect(kill).toHaveBeenCalled();
       expect(await kill.mock.results[0].value).toBe(true);
       const child = kill.mock.calls[0][0];
@@ -1799,34 +2221,64 @@ describe("ACP turns (fake CLI)", () => {
     });
 
     it.each([
-      "503 invalid api key", "503 quota exceeded", "503 unknown model", "503 blocked by our safety systems", "unrecognized failure",
-      "503 permission denied", "approval required after timeout", "503 policy restriction", "timeout blocked by policy",
+      "503 invalid api key",
+      "503 quota exceeded",
+      "503 unknown model",
+      "503 blocked by our safety systems",
+      "unrecognized failure",
+      "503 permission denied",
+      "approval required after timeout",
+      "503 policy restriction",
+      "timeout blocked by policy",
     ])("keeps normal completion for %s", async (message) => {
       await failStartup(message);
-      const ack = await instance.adapter.sendTurn({ threadId: "startup-terminal", text: "go", startupRecovery: true });
-      expect(await recorder.until((event) => event.type === "turn.completed" && event.turnId === ack.turnId)).toMatchObject({ ok: false });
+      const ack = await instance.adapter.sendTurn({
+        threadId: "startup-terminal",
+        text: "go",
+        startupRecovery: true,
+      });
+      expect(
+        await recorder.until(
+          (event) => event.type === "turn.completed" && event.turnId === ack.turnId,
+        ),
+      ).toMatchObject({ ok: false });
       expect(recorder.events.some((event) => event.type === "runtime.error")).toBe(true);
     });
 
     it("acknowledges before a prompt timeout and never offers startup recovery afterward", async () => {
       process.env.LATERDOG_ACP_PROMPT_IDLE_TIMEOUT_MS = "100";
       await create(GrokAgentDriver, "stall-after-text");
-      const ack = await instance.adapter.sendTurn({ threadId: "startup-prompt", text: "go", startupRecovery: true });
+      const ack = await instance.adapter.sendTurn({
+        threadId: "startup-prompt",
+        text: "go",
+        startupRecovery: true,
+      });
       expect(recorder.events.some((event) => event.type === "turn.completed")).toBe(false);
-      expect(await recorder.until((event) => event.type === "turn.completed" && event.turnId === ack.turnId))
-        .toMatchObject({ ok: false, stopReason: "rpc_error" });
+      expect(
+        await recorder.until(
+          (event) => event.type === "turn.completed" && event.turnId === ack.turnId,
+        ),
+      ).toMatchObject({ ok: false, stopReason: "rpc_error" });
     });
 
     it("resolves the pending ACK when Stop interrupts initialization", async () => {
       await create(GrokAgentDriver, "hang-initialize");
-      const pending = instance.adapter.sendTurn({ threadId: "startup-stop", text: "go", startupRecovery: true });
+      const pending = instance.adapter.sendTurn({
+        threadId: "startup-stop",
+        text: "go",
+        startupRecovery: true,
+      });
       let acknowledged = false;
-      void pending.then(() => { acknowledged = true; });
+      void pending.then(() => {
+        acknowledged = true;
+      });
       await recorder.until((event) => event.type === "turn.started");
       expect(acknowledged).toBe(false);
       await instance.adapter.interruptTurn("startup-stop");
       const ack = await pending;
-      await recorder.until((event) => event.type === "turn.completed" && event.turnId === ack.turnId);
+      await recorder.until(
+        (event) => event.type === "turn.completed" && event.turnId === ack.turnId,
+      );
       expect(instance.adapter.hasSession("startup-stop")).toBe(false);
     });
 
@@ -1834,26 +2286,42 @@ describe("ACP turns (fake CLI)", () => {
       await failStartup();
       const spawn = procs.spawnCli;
       let startupChild: ReturnType<typeof procs.spawnCli>;
-      vi.spyOn(procs, "spawnCli").mockImplementation((...args) => startupChild = spawn(...args));
+      vi.spyOn(procs, "spawnCli").mockImplementation((...args) => (startupChild = spawn(...args)));
       let release!: () => void;
       let stopping!: () => void;
-      const gate = new Promise<void>((resolve) => { release = resolve; });
-      const startedStopping = new Promise<void>((resolve) => { stopping = resolve; });
+      const gate = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      const startedStopping = new Promise<void>((resolve) => {
+        stopping = resolve;
+      });
       const kill = procs.killCliTree;
       vi.spyOn(procs, "killCliTree").mockImplementation(async (child, timeout) => {
-        if (child === startupChild) { stopping(); await gate; }
+        if (child === startupChild) {
+          stopping();
+          await gate;
+        }
         return kill(child, timeout);
       });
       try {
-        const pending = instance.adapter.sendTurn({ threadId: "startup-cleanup-stop", text: "go", startupRecovery: true });
+        const pending = instance.adapter.sendTurn({
+          threadId: "startup-cleanup-stop",
+          text: "go",
+          startupRecovery: true,
+        });
         await startedStopping;
         await instance.adapter.interruptTurn("startup-cleanup-stop");
         release();
         const ack = await pending;
-        expect(await recorder.until((event) => event.type === "turn.completed" && event.turnId === ack.turnId))
-          .toMatchObject({ ok: true, stopReason: "cancelled" });
+        expect(
+          await recorder.until(
+            (event) => event.type === "turn.completed" && event.turnId === ack.turnId,
+          ),
+        ).toMatchObject({ ok: true, stopReason: "cancelled" });
         expect(recorder.events.some((event) => event.type === "runtime.error")).toBe(false);
-      } finally { release(); }
+      } finally {
+        release();
+      }
     });
 
     it("fails normally when process cleanup cannot be confirmed", async () => {
@@ -1861,35 +2329,66 @@ describe("ACP turns (fake CLI)", () => {
       const kill = procs.killCliTree;
       const stop = vi.spyOn(procs, "killCliTree").mockResolvedValue(false);
       try {
-        const ack = await instance.adapter.sendTurn({ threadId: "startup-kill-failed", text: "go", startupRecovery: true });
-        expect(await recorder.until((event) => event.type === "turn.completed" && event.turnId === ack.turnId)).toMatchObject({ ok: false });
+        const ack = await instance.adapter.sendTurn({
+          threadId: "startup-kill-failed",
+          text: "go",
+          startupRecovery: true,
+        });
+        expect(
+          await recorder.until(
+            (event) => event.type === "turn.completed" && event.turnId === ack.turnId,
+          ),
+        ).toMatchObject({ ok: false });
         expect(recorder.events.some((event) => event.type === "runtime.error")).toBe(true);
       } finally {
         await Promise.all(stop.mock.calls.map(([child]) => kill(child, 0)));
       }
     });
 
-    it.each(["request", "output"])("does not recover after pre-prompt %s activity", async (kind) => {
-      const spawn = procs.spawnCli;
-      vi.spyOn(procs, "spawnCli").mockImplementation((...args) => {
-        const child = spawn(...args);
-        const write = child.stdin.write.bind(child.stdin);
-        vi.spyOn(child.stdin, "write").mockImplementation((...writeArgs) => {
-          const message = JSON.parse(String(writeArgs[0]));
-          if (message.method === "session/new") {
-            const activity = kind === "request"
-              ? { jsonrpc: "2.0", id: "before-prompt", method: "fs/read_text_file", params: { path: join(scratch, "absent") } }
-              : { jsonrpc: "2.0", method: "session/update", params: { update: { sessionUpdate: "tool_call", toolCallId: "before-prompt" } } };
-            child.stdout.emit("data", Buffer.from(`${JSON.stringify(activity)}\n`));
-          }
-          return write(...writeArgs);
+    it.each(["request", "output"])(
+      "does not recover after pre-prompt %s activity",
+      async (kind) => {
+        const spawn = procs.spawnCli;
+        vi.spyOn(procs, "spawnCli").mockImplementation((...args) => {
+          const child = spawn(...args);
+          const write = child.stdin.write.bind(child.stdin);
+          vi.spyOn(child.stdin, "write").mockImplementation((...writeArgs) => {
+            const message = JSON.parse(String(writeArgs[0]));
+            if (message.method === "session/new") {
+              const activity =
+                kind === "request"
+                  ? {
+                      jsonrpc: "2.0",
+                      id: "before-prompt",
+                      method: "fs/read_text_file",
+                      params: { path: join(scratch, "absent") },
+                    }
+                  : {
+                      jsonrpc: "2.0",
+                      method: "session/update",
+                      params: {
+                        update: { sessionUpdate: "tool_call", toolCallId: "before-prompt" },
+                      },
+                    };
+              child.stdout.emit("data", Buffer.from(`${JSON.stringify(activity)}\n`));
+            }
+            return write(...writeArgs);
+          });
+          return child;
         });
-        return child;
-      });
-      await failStartup();
-      const ack = await instance.adapter.sendTurn({ threadId: "startup-activity", text: "go", startupRecovery: true });
-      expect(await recorder.until((event) => event.type === "turn.completed" && event.turnId === ack.turnId)).toMatchObject({ ok: false });
-    });
+        await failStartup();
+        const ack = await instance.adapter.sendTurn({
+          threadId: "startup-activity",
+          text: "go",
+          startupRecovery: true,
+        });
+        expect(
+          await recorder.until(
+            (event) => event.type === "turn.completed" && event.turnId === ack.turnId,
+          ),
+        ).toMatchObject({ ok: false });
+      },
+    );
   });
 
   describe("ACP session pool (persistent child)", () => {
@@ -1906,62 +2405,118 @@ describe("ACP turns (fake CLI)", () => {
       process.env.FAKE_ACP_RPC_APPEND_FILE = appendFile;
       process.env.FAKE_ACP_RPC_FAILURE_FILE = failureFile;
       process.env.FAKE_ACP_RPC_FAILURE_METHOD = "session/new";
-      writeFileSync(failureFile, JSON.stringify({ code: -32603, message: "Internal error", data: {
-        service: "directory", details: "OpenCode service failure", errorName: "Error",
-      } }));
+      writeFileSync(
+        failureFile,
+        JSON.stringify({
+          code: -32603,
+          message: "Internal error",
+          data: {
+            service: "directory",
+            details: "OpenCode service failure",
+            errorName: "Error",
+          },
+        }),
+      );
       await create();
       const threadId = "t-new-rpc-recovery";
       const first = await instance.adapter.sendTurn({ threadId, text: "Hello" });
-      expect(await recorder.until((e) => e.type === "turn.completed" && e.turnId === first.turnId)).toMatchObject({ ok: false, stopReason: "rpc_error" });
-      const calls = () => readFileSync(appendFile, "utf8").trim().split("\n").map((line) => JSON.parse(line));
+      expect(
+        await recorder.until((e) => e.type === "turn.completed" && e.turnId === first.turnId),
+      ).toMatchObject({ ok: false, stopReason: "rpc_error" });
+      const calls = () =>
+        readFileSync(appendFile, "utf8")
+          .trim()
+          .split("\n")
+          .map((line) => JSON.parse(line));
       expect(launches()).toBe(1);
       expect(calls().filter((entry) => entry.method === "session/prompt")).toHaveLength(0);
       expect(recorder.events.some((e) => e.type === "session.started")).toBe(false);
       unlinkSync(failureFile);
       const next = await instance.adapter.sendTurn({ threadId, text: "Hello again" });
-      expect(await recorder.until((e) => e.type === "turn.completed" && e.turnId === next.turnId)).toMatchObject({ ok: true });
+      expect(
+        await recorder.until((e) => e.type === "turn.completed" && e.turnId === next.turnId),
+      ).toMatchObject({ ok: true });
       expect(launches()).toBe(2);
       expect(calls().filter((entry) => entry.method === "session/prompt")).toHaveLength(1);
-      expect(recorder.events.filter((e) => e.type === "turn.completed" && e.turnId === first.turnId)).toHaveLength(1);
+      expect(
+        recorder.events.filter((e) => e.type === "turn.completed" && e.turnId === first.turnId),
+      ).toHaveLength(1);
     });
 
-    it.each([false, true])("evicts internal-error processes without replaying a failed prompt (output: %s)", async (afterOutput) => {
-      countFile = join(scratch, "launches");
-      const appendFile = join(scratch, "rpc-all.jsonl");
-      const failureFile = join(scratch, "failure.json");
-      process.env.FAKE_ACP_LAUNCH_COUNT_FILE = countFile;
-      process.env.FAKE_ACP_RPC_APPEND_FILE = appendFile;
-      process.env.FAKE_ACP_RPC_FAILURE_FILE = failureFile;
-      if (afterOutput) process.env.FAKE_ACP_RPC_FAILURE_AFTER_OUTPUT = "1";
-      await create();
-      const threadId = "t-rpc-recovery";
-      const first = await instance.adapter.sendTurn({ threadId, text: "Remember ALPHA" });
-      expect(await recorder.until((e) => e.type === "turn.completed" && e.turnId === first.turnId)).toMatchObject({ ok: true });
-      writeFileSync(failureFile, JSON.stringify({ code: -32603, message: "Internal error", data: {
-        details: "OpenCode service failure; api_key=fixture-secret",
-        service: "session", errorName: "APIError",
-        responseBody: "PRIVATE RESPONSE BODY MUST NOT APPEAR",
-      } }));
-      const failed = await instance.adapter.sendTurn({ threadId, text: "Do work", resumeCursor: "fake-acp-session" });
-      expect(await recorder.until((e) => e.type === "turn.completed" && e.turnId === failed.turnId)).toMatchObject({ ok: false, stopReason: "rpc_error" });
-      expect(launches()).toBe(1);
-      expect(instance.adapter.hasSession(threadId)).toBe(false);
-      const error = recorder.events.find((e) => e.type === "runtime.error" && e.turnId === failed.turnId);
-      const message = error?.type === "runtime.error" ? error.message : "";
-      expect(message).toContain("Internal error: OpenCode service failure");
-      expect(message).toContain("session/prompt, service: session, APIError");
-      expect(message).not.toContain("fixture-secret");
-      expect(message).not.toContain("PRIVATE RESPONSE");
-      expect(recorder.events.filter((e) => e.type === "item.completed" && e.itemType === "tool" && e.turnId === failed.turnId)).toHaveLength(afterOutput ? 1 : 0);
-      unlinkSync(failureFile);
-      const next = await instance.adapter.sendTurn({ threadId, text: "Continue after the interruption", resumeCursor: "fake-acp-session" });
-      expect(await recorder.until((e) => e.type === "turn.completed" && e.turnId === next.turnId)).toMatchObject({ ok: true });
-      expect(launches()).toBe(2);
-      const calls = readFileSync(appendFile, "utf8").trim().split("\n").map((line) => JSON.parse(line));
-      expect(calls.filter((entry) => entry.method === "session/prompt")).toHaveLength(3);
-      expect(calls.filter((entry) => entry.method === "session/load")).toHaveLength(1);
-      expect(recorder.events.filter((e) => e.type === "turn.completed" && e.turnId === failed.turnId)).toHaveLength(1);
-    });
+    it.each([false, true])(
+      "evicts internal-error processes without replaying a failed prompt (output: %s)",
+      async (afterOutput) => {
+        countFile = join(scratch, "launches");
+        const appendFile = join(scratch, "rpc-all.jsonl");
+        const failureFile = join(scratch, "failure.json");
+        process.env.FAKE_ACP_LAUNCH_COUNT_FILE = countFile;
+        process.env.FAKE_ACP_RPC_APPEND_FILE = appendFile;
+        process.env.FAKE_ACP_RPC_FAILURE_FILE = failureFile;
+        if (afterOutput) process.env.FAKE_ACP_RPC_FAILURE_AFTER_OUTPUT = "1";
+        await create();
+        const threadId = "t-rpc-recovery";
+        const first = await instance.adapter.sendTurn({ threadId, text: "Remember ALPHA" });
+        expect(
+          await recorder.until((e) => e.type === "turn.completed" && e.turnId === first.turnId),
+        ).toMatchObject({ ok: true });
+        writeFileSync(
+          failureFile,
+          JSON.stringify({
+            code: -32603,
+            message: "Internal error",
+            data: {
+              details: "OpenCode service failure; api_key=fixture-secret",
+              service: "session",
+              errorName: "APIError",
+              responseBody: "PRIVATE RESPONSE BODY MUST NOT APPEAR",
+            },
+          }),
+        );
+        const failed = await instance.adapter.sendTurn({
+          threadId,
+          text: "Do work",
+          resumeCursor: "fake-acp-session",
+        });
+        expect(
+          await recorder.until((e) => e.type === "turn.completed" && e.turnId === failed.turnId),
+        ).toMatchObject({ ok: false, stopReason: "rpc_error" });
+        expect(launches()).toBe(1);
+        expect(instance.adapter.hasSession(threadId)).toBe(false);
+        const error = recorder.events.find(
+          (e) => e.type === "runtime.error" && e.turnId === failed.turnId,
+        );
+        const message = error?.type === "runtime.error" ? error.message : "";
+        expect(message).toContain("Internal error: OpenCode service failure");
+        expect(message).toContain("session/prompt, service: session, APIError");
+        expect(message).not.toContain("fixture-secret");
+        expect(message).not.toContain("PRIVATE RESPONSE");
+        expect(
+          recorder.events.filter(
+            (e) =>
+              e.type === "item.completed" && e.itemType === "tool" && e.turnId === failed.turnId,
+          ),
+        ).toHaveLength(afterOutput ? 1 : 0);
+        unlinkSync(failureFile);
+        const next = await instance.adapter.sendTurn({
+          threadId,
+          text: "Continue after the interruption",
+          resumeCursor: "fake-acp-session",
+        });
+        expect(
+          await recorder.until((e) => e.type === "turn.completed" && e.turnId === next.turnId),
+        ).toMatchObject({ ok: true });
+        expect(launches()).toBe(2);
+        const calls = readFileSync(appendFile, "utf8")
+          .trim()
+          .split("\n")
+          .map((line) => JSON.parse(line));
+        expect(calls.filter((entry) => entry.method === "session/prompt")).toHaveLength(3);
+        expect(calls.filter((entry) => entry.method === "session/load")).toHaveLength(1);
+        expect(
+          recorder.events.filter((e) => e.type === "turn.completed" && e.turnId === failed.turnId),
+        ).toHaveLength(1);
+      },
+    );
 
     it("honors explicit session reset even when a healthy child and cursor are retained", async () => {
       countFile = join(scratch, "launches");
@@ -1971,8 +2526,15 @@ describe("ACP turns (fake CLI)", () => {
       await create();
       const first = await instance.adapter.sendTurn({ threadId: "t-reset", text: "one" });
       await recorder.until((e) => e.type === "turn.completed" && e.turnId === first.turnId);
-      const second = await instance.adapter.sendTurn({ threadId: "t-reset", text: "rebuilt conversation", sessionReset: true, resumeCursor: "fake-acp-session" });
-      expect(await recorder.until((e) => e.type === "turn.completed" && e.turnId === second.turnId)).toMatchObject({ ok: true });
+      const second = await instance.adapter.sendTurn({
+        threadId: "t-reset",
+        text: "rebuilt conversation",
+        sessionReset: true,
+        resumeCursor: "fake-acp-session",
+      });
+      expect(
+        await recorder.until((e) => e.type === "turn.completed" && e.turnId === second.turnId),
+      ).toMatchObject({ ok: true });
       expect(launches()).toBe(2);
       expect(rpc()).toContain("session/new");
       expect(rpc()).not.toContain("session/load");
@@ -1985,7 +2547,9 @@ describe("ACP turns (fake CLI)", () => {
       process.env.FAKE_ACP_RPC_DUMP = rpcFile;
       await create();
       const first = await instance.adapter.sendTurn({ threadId: "t-pool-reuse", text: "one" });
-      const firstDone = await recorder.until((e) => e.type === "turn.completed" && e.turnId === first.turnId);
+      const firstDone = await recorder.until(
+        (e) => e.type === "turn.completed" && e.turnId === first.turnId,
+      );
       expect(firstDone).toMatchObject({ ok: true });
 
       const second = await instance.adapter.sendTurn({
@@ -1993,7 +2557,9 @@ describe("ACP turns (fake CLI)", () => {
         text: "two",
         resumeCursor: "fake-acp-session",
       });
-      const secondDone = await recorder.until((e) => e.type === "turn.completed" && e.turnId === second.turnId);
+      const secondDone = await recorder.until(
+        (e) => e.type === "turn.completed" && e.turnId === second.turnId,
+      );
       expect(secondDone).toMatchObject({ ok: true });
 
       expect(launches()).toBe(1);
@@ -2038,7 +2604,9 @@ describe("ACP turns (fake CLI)", () => {
         text: "two",
         resumeCursor: "fake-acp-session",
       });
-      const done = await recorder.until((e) => e.type === "turn.completed" && e.turnId === second.turnId);
+      const done = await recorder.until(
+        (e) => e.type === "turn.completed" && e.turnId === second.turnId,
+      );
       expect(done).toMatchObject({ ok: true });
       expect(launches()).toBe(2);
       expect(rpc()).toContain("session/load");
@@ -2051,8 +2619,14 @@ describe("ACP turns (fake CLI)", () => {
       const dirA = mkdtempSync(join(scratch, "a-"));
       const dirB = mkdtempSync(join(scratch, "b-"));
       await create();
-      const first = await instance.adapter.sendTurn({ threadId: "t-pool-contract", text: "one", cwd: dirA });
-      const firstDone = await recorder.until((e) => e.type === "turn.completed" && e.turnId === first.turnId);
+      const first = await instance.adapter.sendTurn({
+        threadId: "t-pool-contract",
+        text: "one",
+        cwd: dirA,
+      });
+      const firstDone = await recorder.until(
+        (e) => e.type === "turn.completed" && e.turnId === first.turnId,
+      );
       expect(firstDone).toMatchObject({ ok: true });
 
       const second = await instance.adapter.sendTurn({
@@ -2061,7 +2635,9 @@ describe("ACP turns (fake CLI)", () => {
         cwd: dirB,
         resumeCursor: "fake-acp-session",
       });
-      const secondDone = await recorder.until((e) => e.type === "turn.completed" && e.turnId === second.turnId);
+      const secondDone = await recorder.until(
+        (e) => e.type === "turn.completed" && e.turnId === second.turnId,
+      );
       expect(secondDone).toMatchObject({ ok: true });
       expect(launches()).toBe(2);
     });
@@ -2069,13 +2645,78 @@ describe("ACP turns (fake CLI)", () => {
     it.each([
       { driver: GrokAgentDriver, expectedLaunches: 1 },
       { driver: QwenAgentDriver, expectedLaunches: 2 },
-    ])("rotating credentials refreshes $driver.driverKind with $expectedLaunches process(es)", async ({ driver, expectedLaunches }) => {
-      countFile = join(scratch, "launches");
+    ])(
+      "rotating credentials refreshes $driver.driverKind with $expectedLaunches process(es)",
+      async ({ driver, expectedLaunches }) => {
+        countFile = join(scratch, "launches");
+        const appendFile = join(scratch, "rpc-all.jsonl");
+        process.env.FAKE_ACP_LAUNCH_COUNT_FILE = countFile;
+        process.env.FAKE_ACP_RPC_APPEND_FILE = appendFile;
+        instance = await driver.create({
+          instanceId: "acp-test",
+          displayName: "ACP Test",
+          enabled: true,
+          environment: { HOME: scratch, USERPROFILE: scratch },
+          config: { cli: FAKE_CLI, fullAuto: false },
+        });
+        recorder = recordEvents(instance.adapter);
+        const integration = (token: string) => ({
+          command: process.execPath,
+          args: [FAKE_CLI],
+          env: { LATERDOG_COMMS_TOKEN: token },
+        });
+        const first = await instance.adapter.sendTurn({
+          threadId: "t-pool-token",
+          text: "one",
+          integrations: { agents: integration("token-one") },
+        });
+        const firstDone = await recorder.until(
+          (e) => e.type === "turn.completed" && e.turnId === first.turnId,
+        );
+        expect(firstDone).toMatchObject({ ok: true });
+
+        const second = await instance.adapter.sendTurn({
+          threadId: "t-pool-token",
+          text: "two",
+          resumeCursor: "fake-acp-session",
+          integrations: { agents: integration("token-two") },
+        });
+        const secondDone = await recorder.until(
+          (e) => e.type === "turn.completed" && e.turnId === second.turnId,
+        );
+        expect(secondDone).toMatchObject({ ok: true });
+
+        const third = await instance.adapter.sendTurn({
+          threadId: "t-pool-token",
+          text: "unchanged MCP inputs",
+          resumeCursor: "fake-acp-session",
+          integrations: { agents: integration("token-two") },
+        });
+        expect(
+          await recorder.until((e) => e.type === "turn.completed" && e.turnId === third.turnId),
+        ).toMatchObject({ ok: true });
+        expect(launches()).toBe(expectedLaunches);
+        const calls = readFileSync(appendFile, "utf8")
+          .trim()
+          .split("\n")
+          .map((line) => JSON.parse(line).method);
+        expect(calls.filter((m) => m === "initialize")).toHaveLength(expectedLaunches);
+        expect(calls.filter((m) => m === "session/new")).toHaveLength(1);
+        expect(calls.filter((m) => m === "session/load")).toHaveLength(1);
+        expect(calls.filter((m) => m === "session/prompt")).toHaveLength(3);
+        expect(
+          recorder.events.filter((e) => e.type === "session.started").map((e) => e.sessionId),
+        ).toEqual(["fake-acp-session", "fake-acp-session", "fake-acp-session"]);
+      },
+    );
+
+    it("does not load or prompt Qwen after Stop during old-process cleanup", async () => {
       const appendFile = join(scratch, "rpc-all.jsonl");
-      process.env.FAKE_ACP_LAUNCH_COUNT_FILE = countFile;
       process.env.FAKE_ACP_RPC_APPEND_FILE = appendFile;
-      instance = await driver.create({
-        instanceId: "acp-test", displayName: "ACP Test", enabled: true,
+      instance = await QwenAgentDriver.create({
+        instanceId: "qwen-stop",
+        displayName: "Qwen Stop",
+        enabled: true,
         environment: { HOME: scratch, USERPROFILE: scratch },
         config: { cli: FAKE_CLI, fullAuto: false },
       });
@@ -2086,56 +2727,20 @@ describe("ACP turns (fake CLI)", () => {
         env: { LATERDOG_COMMS_TOKEN: token },
       });
       const first = await instance.adapter.sendTurn({
-        threadId: "t-pool-token",
+        threadId: "qwen-stop",
         text: "one",
-        integrations: { agents: integration("token-one") },
+        integrations: { agents: integration("one") },
       });
-      const firstDone = await recorder.until((e) => e.type === "turn.completed" && e.turnId === first.turnId);
-      expect(firstDone).toMatchObject({ ok: true });
-
-      const second = await instance.adapter.sendTurn({
-        threadId: "t-pool-token",
-        text: "two",
-        resumeCursor: "fake-acp-session",
-        integrations: { agents: integration("token-two") },
-      });
-      const secondDone = await recorder.until((e) => e.type === "turn.completed" && e.turnId === second.turnId);
-      expect(secondDone).toMatchObject({ ok: true });
-
-      const third = await instance.adapter.sendTurn({
-        threadId: "t-pool-token", text: "unchanged MCP inputs",
-        resumeCursor: "fake-acp-session",
-        integrations: { agents: integration("token-two") },
-      });
-      expect(await recorder.until((e) => e.type === "turn.completed" && e.turnId === third.turnId)).toMatchObject({ ok: true });
-      expect(launches()).toBe(expectedLaunches);
-      const calls = readFileSync(appendFile, "utf8").trim().split("\n").map((line) => JSON.parse(line).method);
-      expect(calls.filter((m) => m === "initialize")).toHaveLength(expectedLaunches);
-      expect(calls.filter((m) => m === "session/new")).toHaveLength(1);
-      expect(calls.filter((m) => m === "session/load")).toHaveLength(1);
-      expect(calls.filter((m) => m === "session/prompt")).toHaveLength(3);
-      expect(recorder.events.filter((e) => e.type === "session.started").map((e) => e.sessionId)).toEqual([
-        "fake-acp-session", "fake-acp-session", "fake-acp-session",
-      ]);
-    });
-
-    it("does not load or prompt Qwen after Stop during old-process cleanup", async () => {
-      const appendFile = join(scratch, "rpc-all.jsonl");
-      process.env.FAKE_ACP_RPC_APPEND_FILE = appendFile;
-      instance = await QwenAgentDriver.create({
-        instanceId: "qwen-stop", displayName: "Qwen Stop", enabled: true,
-        environment: { HOME: scratch, USERPROFILE: scratch },
-        config: { cli: FAKE_CLI, fullAuto: false },
-      });
-      recorder = recordEvents(instance.adapter);
-      const integration = (token: string) => ({ command: process.execPath, args: [FAKE_CLI], env: { LATERDOG_COMMS_TOKEN: token } });
-      const first = await instance.adapter.sendTurn({ threadId: "qwen-stop", text: "one", integrations: { agents: integration("one") } });
       await recorder.until((e) => e.type === "turn.completed" && e.turnId === first.turnId);
 
       let stopped!: () => void;
       let release!: () => void;
-      const stopping = new Promise<void>((resolve) => { stopped = resolve; });
-      const gate = new Promise<void>((resolve) => { release = resolve; });
+      const stopping = new Promise<void>((resolve) => {
+        stopped = resolve;
+      });
+      const gate = new Promise<void>((resolve) => {
+        release = resolve;
+      });
       const kill = procs.killCliTree;
       vi.spyOn(procs, "killCliTree").mockImplementationOnce(async (child) => {
         stopped();
@@ -2144,94 +2749,149 @@ describe("ACP turns (fake CLI)", () => {
       });
       try {
         const second = await instance.adapter.sendTurn({
-          threadId: "qwen-stop", text: "two", resumeCursor: "fake-acp-session",
+          threadId: "qwen-stop",
+          text: "two",
+          resumeCursor: "fake-acp-session",
           integrations: { agents: integration("two") },
         });
         await stopping;
         await instance.adapter.interruptTurn("qwen-stop");
         release();
-        expect(await recorder.until((e) => e.type === "turn.completed" && e.turnId === second.turnId)).toMatchObject({ ok: false });
-        const calls = readFileSync(appendFile, "utf8").trim().split("\n").map((line) => JSON.parse(line).method);
+        expect(
+          await recorder.until((e) => e.type === "turn.completed" && e.turnId === second.turnId),
+        ).toMatchObject({ ok: false });
+        const calls = readFileSync(appendFile, "utf8")
+          .trim()
+          .split("\n")
+          .map((line) => JSON.parse(line).method);
         expect(calls.filter((method) => method === "initialize")).toHaveLength(1);
         expect(calls.filter((method) => method === "session/load")).toHaveLength(0);
         expect(calls.filter((method) => method === "session/prompt")).toHaveLength(1);
         expect(instance.adapter.hasSession("qwen-stop")).toBe(false);
-      } finally { release(); }
-    });
-
-    it.each(["Stop", "prompt stall", "failed cleanup"])("waits for Qwen cleanup before an immediate retry after %s", async (reason) => {
-      const children: ReturnType<typeof procs.spawnCli>[] = [];
-      const spawn = procs.spawnCli;
-      vi.spyOn(procs, "spawnCli").mockImplementation((...args) => {
-        const child = spawn(...args);
-        vi.spyOn(child.stdin, "write");
-        children.push(child);
-        return child;
-      });
-      const calls = () => children.flatMap((child) => vi.mocked(child.stdin.write).mock.calls
-        .map(([chunk]) => JSON.parse(String(chunk)) as { method: string; params: { sessionId?: string } }));
-      let release!: () => void;
-      let stopping!: () => void;
-      const gate = new Promise<void>((resolve) => { release = resolve; });
-      const startedStopping = new Promise<void>((resolve) => { stopping = resolve; });
-      const kill = procs.killCliTree;
-      let rejectCleanup = reason === "failed cleanup";
-      vi.spyOn(procs, "killCliTree").mockImplementation(async (child, timeout) => {
-        if (child === children[0]) {
-          stopping();
-          await gate;
-          if (rejectCleanup) return false;
-        }
-        return kill(child, timeout);
-      });
-      if (reason === "prompt stall") {
-        process.env.LATERDOG_ACP_PROMPT_IDLE_TIMEOUT_MS = "100";
-        process.env.FAKE_ACP_MODE = "stall-after-text";
-      }
-      instance = await QwenAgentDriver.create({
-        instanceId: "qwen-retry", displayName: "Qwen Retry", enabled: true,
-        environment: { HOME: scratch, USERPROFILE: scratch },
-        config: { cli: FAKE_CLI, fullAuto: false },
-      });
-      recorder = recordEvents(instance.adapter);
-      const integration = (token: string) => ({ agents: { command: process.execPath, args: [FAKE_CLI], env: { LATERDOG_COMMS_TOKEN: token } } });
-      try {
-        const first = await instance.adapter.sendTurn({ threadId: "qwen-retry", text: "one", integrations: integration("one") });
-        expect(await recorder.until((e) => e.type === "turn.completed" && e.turnId === first.turnId))
-          .toMatchObject({ ok: reason !== "prompt stall" });
-        if (reason !== "prompt stall") {
-          const second = await instance.adapter.sendTurn({
-            threadId: "qwen-retry", text: "two", resumeCursor: "fake-acp-session", integrations: integration("two"),
-          });
-          await startedStopping;
-          if (reason === "Stop") await instance.adapter.interruptTurn("qwen-retry");
-          else release();
-          expect(await recorder.until((e) => e.type === "turn.completed" && e.turnId === second.turnId)).toMatchObject({ ok: false });
-          if (rejectCleanup) {
-            expect(recorder.events.find((e) => e.type === "runtime.error" && e.turnId === second.turnId))
-              .toMatchObject({ message: expect.stringMatching(/could not close its previous tool session/) });
-            rejectCleanup = false;
-          }
-        }
-        process.env.FAKE_ACP_MODE = "happy";
-        const retry = await instance.adapter.sendTurn({
-          threadId: "qwen-retry", text: "retry", resumeCursor: "fake-acp-session", integrations: integration("three"),
-        });
-        expect(calls().filter((call) => call.method === "initialize")).toHaveLength(1);
-        expect(calls().filter((call) => call.method === "session/load")).toHaveLength(0);
-        release();
-        expect(await recorder.until((e) => e.type === "turn.completed" && e.turnId === retry.turnId)).toMatchObject({ ok: true });
-        expect(calls().filter((call) => call.method === "session/new")).toHaveLength(1);
-        expect(calls().filter((call) => call.method === "session/load")).toEqual([
-          expect.objectContaining({ params: expect.objectContaining({ sessionId: "fake-acp-session" }) }),
-        ]);
-        expect(calls().filter((call) => call.method === "session/prompt")).toHaveLength(2);
       } finally {
         release();
-        await instance.dispose();
-        await Promise.all(children.map((child) => kill(child, 0)));
       }
     });
+
+    it.each(["Stop", "prompt stall", "failed cleanup"])(
+      "waits for Qwen cleanup before an immediate retry after %s",
+      async (reason) => {
+        const children: ReturnType<typeof procs.spawnCli>[] = [];
+        const spawn = procs.spawnCli;
+        vi.spyOn(procs, "spawnCli").mockImplementation((...args) => {
+          const child = spawn(...args);
+          vi.spyOn(child.stdin, "write");
+          children.push(child);
+          return child;
+        });
+        const calls = () =>
+          children.flatMap((child) =>
+            vi
+              .mocked(child.stdin.write)
+              .mock.calls.map(
+                ([chunk]) =>
+                  JSON.parse(String(chunk)) as { method: string; params: { sessionId?: string } },
+              ),
+          );
+        let release!: () => void;
+        let stopping!: () => void;
+        const gate = new Promise<void>((resolve) => {
+          release = resolve;
+        });
+        const startedStopping = new Promise<void>((resolve) => {
+          stopping = resolve;
+        });
+        const kill = procs.killCliTree;
+        let rejectCleanup = reason === "failed cleanup";
+        vi.spyOn(procs, "killCliTree").mockImplementation(async (child, timeout) => {
+          if (child === children[0]) {
+            stopping();
+            await gate;
+            if (rejectCleanup) return false;
+          }
+          return kill(child, timeout);
+        });
+        if (reason === "prompt stall") {
+          process.env.LATERDOG_ACP_PROMPT_IDLE_TIMEOUT_MS = "100";
+          process.env.FAKE_ACP_MODE = "stall-after-text";
+        }
+        instance = await QwenAgentDriver.create({
+          instanceId: "qwen-retry",
+          displayName: "Qwen Retry",
+          enabled: true,
+          environment: { HOME: scratch, USERPROFILE: scratch },
+          config: { cli: FAKE_CLI, fullAuto: false },
+        });
+        recorder = recordEvents(instance.adapter);
+        const integration = (token: string) => ({
+          agents: {
+            command: process.execPath,
+            args: [FAKE_CLI],
+            env: { LATERDOG_COMMS_TOKEN: token },
+          },
+        });
+        try {
+          const first = await instance.adapter.sendTurn({
+            threadId: "qwen-retry",
+            text: "one",
+            integrations: integration("one"),
+          });
+          expect(
+            await recorder.until((e) => e.type === "turn.completed" && e.turnId === first.turnId),
+          ).toMatchObject({ ok: reason !== "prompt stall" });
+          if (reason !== "prompt stall") {
+            const second = await instance.adapter.sendTurn({
+              threadId: "qwen-retry",
+              text: "two",
+              resumeCursor: "fake-acp-session",
+              integrations: integration("two"),
+            });
+            await startedStopping;
+            if (reason === "Stop") await instance.adapter.interruptTurn("qwen-retry");
+            else release();
+            expect(
+              await recorder.until(
+                (e) => e.type === "turn.completed" && e.turnId === second.turnId,
+              ),
+            ).toMatchObject({ ok: false });
+            if (rejectCleanup) {
+              expect(
+                recorder.events.find(
+                  (e) => e.type === "runtime.error" && e.turnId === second.turnId,
+                ),
+              ).toMatchObject({
+                message: expect.stringMatching(/could not close its previous tool session/),
+              });
+              rejectCleanup = false;
+            }
+          }
+          process.env.FAKE_ACP_MODE = "happy";
+          const retry = await instance.adapter.sendTurn({
+            threadId: "qwen-retry",
+            text: "retry",
+            resumeCursor: "fake-acp-session",
+            integrations: integration("three"),
+          });
+          expect(calls().filter((call) => call.method === "initialize")).toHaveLength(1);
+          expect(calls().filter((call) => call.method === "session/load")).toHaveLength(0);
+          release();
+          expect(
+            await recorder.until((e) => e.type === "turn.completed" && e.turnId === retry.turnId),
+          ).toMatchObject({ ok: true });
+          expect(calls().filter((call) => call.method === "session/new")).toHaveLength(1);
+          expect(calls().filter((call) => call.method === "session/load")).toEqual([
+            expect.objectContaining({
+              params: expect.objectContaining({ sessionId: "fake-acp-session" }),
+            }),
+          ]);
+          expect(calls().filter((call) => call.method === "session/prompt")).toHaveLength(2);
+        } finally {
+          release();
+          await instance.dispose();
+          await Promise.all(children.map((child) => kill(child, 0)));
+        }
+      },
+    );
 
     it("an agent that refuses to re-load its live session gets one fresh process, then resumes", async () => {
       countFile = join(scratch, "launches");
@@ -2242,7 +2902,10 @@ describe("ACP turns (fake CLI)", () => {
       process.env.FAKE_ACP_REJECT_LIVE_LOAD_FILE = rejectFile;
       await create();
       const rpcAll = () =>
-        readFileSync(appendFile, "utf8").split("\n").filter(Boolean).map((line) => JSON.parse(line) as { pid: number; method: string });
+        readFileSync(appendFile, "utf8")
+          .split("\n")
+          .filter(Boolean)
+          .map((line) => JSON.parse(line) as { pid: number; method: string });
       const integration = (token: string) => ({
         command: process.execPath,
         args: [FAKE_CLI],
@@ -2253,7 +2916,9 @@ describe("ACP turns (fake CLI)", () => {
         text: "one",
         integrations: { agents: integration("token-one") },
       });
-      const firstDone = await recorder.until((e) => e.type === "turn.completed" && e.turnId === first.turnId);
+      const firstDone = await recorder.until(
+        (e) => e.type === "turn.completed" && e.turnId === first.turnId,
+      );
       expect(firstDone).toMatchObject({ ok: true });
 
       writeFileSync(rejectFile, "1");
@@ -2263,7 +2928,9 @@ describe("ACP turns (fake CLI)", () => {
         resumeCursor: "fake-acp-session",
         integrations: { agents: integration("token-two") },
       });
-      const secondDone = await recorder.until((e) => e.type === "turn.completed" && e.turnId === second.turnId);
+      const secondDone = await recorder.until(
+        (e) => e.type === "turn.completed" && e.turnId === second.turnId,
+      );
       expect(secondDone).toMatchObject({ ok: true });
 
       expect(launches()).toBe(2);
@@ -2289,7 +2956,9 @@ describe("ACP turns (fake CLI)", () => {
         text: "two",
         resumeCursor: "fake-acp-session",
       });
-      const done = await recorder.until((e) => e.type === "turn.completed" && e.turnId === second.turnId);
+      const done = await recorder.until(
+        (e) => e.type === "turn.completed" && e.turnId === second.turnId,
+      );
       expect(done).toMatchObject({ ok: true });
       expect(launches()).toBe(2);
       expect(rpc()).toContain("session/load");
@@ -2359,7 +3028,11 @@ describe("ACP snapshot", () => {
       DroidAgentDriver.create({
         instanceId: "droid-auth",
         displayName: undefined,
-        environment: { FACTORY_API_KEY: "", ...(environment.HOME ? { USERPROFILE: environment.HOME } : {}), ...environment },
+        environment: {
+          FACTORY_API_KEY: "",
+          ...(environment.HOME ? { USERPROFILE: environment.HOME } : {}),
+          ...environment,
+        },
         enabled: true,
         config: { cli: FAKE_CLI, fullAuto: false },
       });

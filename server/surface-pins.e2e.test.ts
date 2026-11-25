@@ -26,14 +26,20 @@ describe("surface pin provenance against the real server", () => {
   let boatApi = "";
   let boatDown = false;
 
-  const vmState = (state: Record<string, unknown> = {}) => writeFileSync(stateFile, JSON.stringify(state));
-  const resetTurn = () => { vmState(); rmSync(dumpFile, { force: true }); rmSync(finishFile, { force: true }); };
+  const vmState = (state: Record<string, unknown> = {}) =>
+    writeFileSync(stateFile, JSON.stringify(state));
+  const resetTurn = () => {
+    vmState();
+    rmSync(dumpFile, { force: true });
+    rmSync(finishFile, { force: true });
+  };
   const api = async (method: string, path: string, body?: unknown) => {
     const response = await fetch(base + path, {
-      method, headers: { "content-type": "application/json" },
+      method,
+      headers: { "content-type": "application/json" },
       ...(body === undefined ? {} : { body: JSON.stringify(body) }),
     });
-    return { status: response.status, body: await response.json() as any };
+    return { status: response.status, body: (await response.json()) as any };
   };
   const apiOk = async (method: string, path: string, body?: unknown) => {
     const result = await api(method, path, body);
@@ -46,22 +52,39 @@ describe("surface pin provenance against the real server", () => {
       const value = await read();
       if (accept(value)) return value;
       if (Date.now() >= end) throw new Error(`Fixture wait expired: ${JSON.stringify(value)}`);
-      await new Promise(resolve => setTimeout(resolve, 40));
+      await new Promise((resolve) => setTimeout(resolve, 40));
     }
   }
-  const dump = (): Promise<any> => until((): any => {
-    if (!existsSync(dumpFile)) return null;
-    try { return JSON.parse(readFileSync(dumpFile, "utf8")); } catch { return null; }
-  }, Boolean);
+  const dump = (): Promise<any> =>
+    until((): any => {
+      if (!existsSync(dumpFile)) return null;
+      try {
+        return JSON.parse(readFileSync(dumpFile, "utf8"));
+      } catch {
+        return null;
+      }
+    }, Boolean);
   const mountedComputer = (sent: any) => sent.mcpConfig.mcpServers.computer;
   const threadState = (botId: string, threadId: string) =>
     api("GET", "/api/bots?messages=0").then(({ body }) =>
-      body.bots.find((bot: any) => bot.id === botId)?.tasks.find((task: any) => task.threadId === threadId));
-  const busy = (botId: string, threadId: string) => until(() => threadState(botId, threadId), task => Boolean(task?.busy));
-  const idle = (botId: string, threadId: string) => until(() => threadState(botId, threadId), task => !task?.busy);
+      body.bots
+        .find((bot: any) => bot.id === botId)
+        ?.tasks.find((task: any) => task.threadId === threadId),
+    );
+  const busy = (botId: string, threadId: string) =>
+    until(
+      () => threadState(botId, threadId),
+      (task) => Boolean(task?.busy),
+    );
+  const idle = (botId: string, threadId: string) =>
+    until(
+      () => threadState(botId, threadId),
+      (task) => !task?.busy,
+    );
   const savedTask = (botId: string, threadId: string) =>
     (JSON.parse(readFileSync(join(data, "bots.json"), "utf8")) as any[])
-      .find((bot: any) => bot.id === botId)?.tasks.find((task: any) => task.threadId === threadId);
+      .find((bot: any) => bot.id === botId)
+      ?.tasks.find((task: any) => task.threadId === threadId);
   const editSavedBot = (botId: string, edit: (bot: any) => void) => {
     const bots = JSON.parse(readFileSync(join(data, "bots.json"), "utf8")) as any[];
     edit(bots.find((bot: any) => bot.id === botId));
@@ -72,24 +95,53 @@ describe("surface pin provenance against the real server", () => {
     const port = await leasePortBlock([0, 1]);
     base = `http://127.0.0.1:${port}`;
     output = "";
-    const proc = spawn(process.execPath, ["--import", pathToFileURL(join(ROOT, "server/testing/group-local-vm-hooks.mjs")).href, join(ROOT, "server/index.ts")], {
-      cwd: ROOT, env: {
-        PATH: dirname(process.execPath), ...(process.env.SystemRoot ? { SystemRoot: process.env.SystemRoot } : {}),
-        HOME: home, USERPROFILE: home, LATERDOG_HOME: data,
-        APPDATA: join(home, "appdata"), LOCALAPPDATA: join(home, "localappdata"),
-        TEMP: home, TMP: home, TMPDIR: home,
-        LATERDOG_SERVER_PORT: String(port), LATERDOG_WEBHOOK_PORT: String(port + 1), LATERDOG_STATIC_DIR: ui, LATERDOG_TEST_VM_STATE: stateFile,
-        LATERDOG_BOX_API: boatApi,
-        LATERDOG_CLOUD_COMPUTER_START_WAIT_MS: "1000", LATERDOG_CLOUD_COMPUTER_START_BUDGET_MS: "1000",
-        LATERDOG_CLOUD_COMPUTER_RETRY_PAUSE_MS: "1000", LATERDOG_USER_DATA: join(home, "user-data"),
-      }, stdio: ["ignore", "pipe", "pipe"],
-    });
+    const proc = spawn(
+      process.execPath,
+      [
+        "--import",
+        pathToFileURL(join(ROOT, "server/testing/group-local-vm-hooks.mjs")).href,
+        join(ROOT, "server/index.ts"),
+      ],
+      {
+        cwd: ROOT,
+        env: {
+          PATH: dirname(process.execPath),
+          ...(process.env.SystemRoot ? { SystemRoot: process.env.SystemRoot } : {}),
+          HOME: home,
+          USERPROFILE: home,
+          LATERDOG_HOME: data,
+          APPDATA: join(home, "appdata"),
+          LOCALAPPDATA: join(home, "localappdata"),
+          TEMP: home,
+          TMP: home,
+          TMPDIR: home,
+          LATERDOG_SERVER_PORT: String(port),
+          LATERDOG_WEBHOOK_PORT: String(port + 1),
+          LATERDOG_STATIC_DIR: ui,
+          LATERDOG_TEST_VM_STATE: stateFile,
+          LATERDOG_BOX_API: boatApi,
+          LATERDOG_CLOUD_COMPUTER_START_WAIT_MS: "1000",
+          LATERDOG_CLOUD_COMPUTER_START_BUDGET_MS: "1000",
+          LATERDOG_CLOUD_COMPUTER_RETRY_PAUSE_MS: "1000",
+          LATERDOG_USER_DATA: join(home, "user-data"),
+        },
+        stdio: ["ignore", "pipe", "pipe"],
+      },
+    );
     child = proc;
-    proc.stdout!.on("data", chunk => { output += chunk; });
-    proc.stderr!.on("data", chunk => { output += chunk; });
+    proc.stdout!.on("data", (chunk) => {
+      output += chunk;
+    });
+    proc.stderr!.on("data", (chunk) => {
+      output += chunk;
+    });
     await until(async () => {
       if (proc.exitCode !== null) throw new Error(`server exited during boot:\n${output}`);
-      try { return (await fetch(base + "/api/health")).ok; } catch { return false; }
+      try {
+        return (await fetch(base + "/api/health")).ok;
+      } catch {
+        return false;
+      }
     }, Boolean);
   }
   async function stop() {
@@ -116,30 +168,53 @@ describe("surface pin provenance against the real server", () => {
     boatServer = createServer(async (req, res) => {
       res.setHeader("content-type", "application/json");
       const path = new URL(req.url ?? "/", "http://box.fixture").pathname;
-      if (boatDown && path.startsWith("/boxes")) { res.statusCode = 503; return res.end(JSON.stringify({ error: "Fixture Boat unavailable" })); }
+      if (boatDown && path.startsWith("/boxes")) {
+        res.statusCode = 503;
+        return res.end(JSON.stringify({ error: "Fixture Boat unavailable" }));
+      }
       if (path === "/boxes") return res.end(JSON.stringify({ boxes: [] }));
       return res.end("{}");
     });
-    await new Promise<void>(resolve => boatServer.listen(0, "127.0.0.1", resolve));
+    await new Promise<void>((resolve) => boatServer.listen(0, "127.0.0.1", resolve));
     boatApi = `http://127.0.0.1:${(boatServer.address() as { port: number }).port}`;
-    writeFileSync(join(data, "config.json"), JSON.stringify({ instances: { claude: {
-      driver: "claudeAgent", config: { cli: join(ROOT, "server/testing/fake-claude-cli.ts") },
-      environment: { FAKE_CLAUDE_MODE: "slow", FAKE_CLAUDE_DUMP: dumpFile, FAKE_CLAUDE_SLOW_FINISH_GATE: finishFile, FAKE_CLAUDE_USES_CLOUD_COMPUTER: "1" },
-    } } }));
+    writeFileSync(
+      join(data, "config.json"),
+      JSON.stringify({
+        instances: {
+          claude: {
+            driver: "claudeAgent",
+            config: { cli: join(ROOT, "server/testing/fake-claude-cli.ts") },
+            environment: {
+              FAKE_CLAUDE_MODE: "slow",
+              FAKE_CLAUDE_DUMP: dumpFile,
+              FAKE_CLAUDE_SLOW_FINISH_GATE: finishFile,
+              FAKE_CLAUDE_USES_CLOUD_COMPUTER: "1",
+            },
+          },
+        },
+      }),
+    );
   });
   afterAll(async () => {
     await stop();
-    if (boatServer) await new Promise<void>(resolve => boatServer.close(() => resolve()));
+    if (boatServer) await new Promise<void>((resolve) => boatServer.close(() => resolve()));
     if (home) await removeTempDir(home);
   });
-  afterEach(async () => { await stop(); resetTurn(); boatDown = false; });
+  afterEach(async () => {
+    await stop();
+    resetTurn();
+    boatDown = false;
+  });
 
   it("marks a person's thread pin as theirs and clears provenance with the pin", async () => {
     await start();
     const { bot } = await apiOk("POST", "/api/bots", { name: "Pin Bot" });
     const { task } = await apiOk("POST", `/api/bots/${bot.id}/tasks`, {});
     await apiOk("PATCH", `/api/bots/${bot.id}/tasks/${task.threadId}`, { surface: "local" });
-    expect(savedTask(bot.id, task.threadId)).toMatchObject({ surface: "local", surfaceSource: "user" });
+    expect(savedTask(bot.id, task.threadId)).toMatchObject({
+      surface: "local",
+      surfaceSource: "user",
+    });
     const personPin = await threadState(bot.id, task.threadId);
     expect(personPin).toMatchObject({ surface: "local" });
     expect(personPin).not.toHaveProperty("surfaceAuto");
@@ -156,7 +231,10 @@ describe("surface pin provenance against the real server", () => {
     const { bot } = await apiOk("POST", "/api/bots", { name: "Busy Pin Bot" });
     const { task } = await apiOk("POST", `/api/bots/${bot.id}/tasks`, {});
     resetTurn();
-    await apiOk("POST", `/api/bots/${bot.id}/messages`, { text: "Work slowly.", threadId: task.threadId });
+    await apiOk("POST", `/api/bots/${bot.id}/messages`, {
+      text: "Work slowly.",
+      threadId: task.threadId,
+    });
     await dump();
     await busy(bot.id, task.threadId);
     for (const surface of ["local", "cloud", null]) {
@@ -173,26 +251,42 @@ describe("surface pin provenance against the real server", () => {
   it("sweeps only conflicting auto pins when Works on is set, and nothing when it returns to Auto", async () => {
     await start();
     const { bot } = await apiOk("POST", "/api/bots", { name: "Sweep Bot" });
-    const [autoMismatch, personMismatch, autoMatch] = (await Promise.all([
-      apiOk("POST", `/api/bots/${bot.id}/tasks`, {}),
-      apiOk("POST", `/api/bots/${bot.id}/tasks`, {}),
-      apiOk("POST", `/api/bots/${bot.id}/tasks`, {}),
-    ])).map(({ task }) => task);
-    await apiOk("PATCH", `/api/bots/${bot.id}/tasks/${personMismatch.threadId}`, { surface: "local" });
+    const [autoMismatch, personMismatch, autoMatch] = (
+      await Promise.all([
+        apiOk("POST", `/api/bots/${bot.id}/tasks`, {}),
+        apiOk("POST", `/api/bots/${bot.id}/tasks`, {}),
+        apiOk("POST", `/api/bots/${bot.id}/tasks`, {}),
+      ])
+    ).map(({ task }) => task);
+    await apiOk("PATCH", `/api/bots/${bot.id}/tasks/${personMismatch.threadId}`, {
+      surface: "local",
+    });
     await stop();
-    editSavedBot(bot.id, saved => {
-      Object.assign(saved.tasks.find((task: any) => task.threadId === autoMismatch.threadId), { surface: "local", surfaceSource: "auto" });
-      Object.assign(saved.tasks.find((task: any) => task.threadId === autoMatch.threadId), { surface: "cloud", surfaceSource: "auto" });
+    editSavedBot(bot.id, (saved) => {
+      Object.assign(
+        saved.tasks.find((task: any) => task.threadId === autoMismatch.threadId),
+        { surface: "local", surfaceSource: "auto" },
+      );
+      Object.assign(
+        saved.tasks.find((task: any) => task.threadId === autoMatch.threadId),
+        { surface: "cloud", surfaceSource: "auto" },
+      );
     });
     await start();
     expect(output).not.toContain("auto-pinned");
     expect(savedTask(bot.id, autoMismatch.threadId)?.surface).toBe("local");
     await apiOk("PATCH", `/api/bots/${bot.id}`, { computer: "cloud" });
     expect(savedTask(bot.id, autoMismatch.threadId)?.surface).toBeUndefined();
-    expect(savedTask(bot.id, personMismatch.threadId)).toMatchObject({ surface: "local", surfaceSource: "user" });
+    expect(savedTask(bot.id, personMismatch.threadId)).toMatchObject({
+      surface: "local",
+      surfaceSource: "user",
+    });
     expect(savedTask(bot.id, autoMatch.threadId)?.surface).toBe("cloud");
     await apiOk("PATCH", `/api/bots/${bot.id}`, { computer: null });
-    expect(savedTask(bot.id, personMismatch.threadId)).toMatchObject({ surface: "local", surfaceSource: "user" });
+    expect(savedTask(bot.id, personMismatch.threadId)).toMatchObject({
+      surface: "local",
+      surfaceSource: "user",
+    });
     expect(savedTask(bot.id, autoMatch.threadId)?.surface).toBe("cloud");
     expect(savedTask(bot.id, autoMismatch.threadId)?.surface).toBeUndefined();
     await apiOk("DELETE", `/api/bots/${bot.id}`);
@@ -205,7 +299,7 @@ describe("surface pin provenance against the real server", () => {
     const { task } = await apiOk("POST", `/api/bots/${bot.id}/tasks`, {});
     await apiOk("PATCH", `/api/bots/${bot.id}/tasks/${task.threadId}`, { surface: "local" });
     await stop();
-    editSavedBot(bot.id, saved => {
+    editSavedBot(bot.id, (saved) => {
       saved.computer = "cloud";
       const target = saved.tasks.find((entry: any) => entry.threadId === task.threadId);
       target.surface = "local";
@@ -235,7 +329,7 @@ describe("surface pin provenance against the real server", () => {
     const { task } = await apiOk("POST", `/api/bots/${bot.id}/tasks`, {});
     await apiOk("PATCH", `/api/bots/${bot.id}/tasks/${task.threadId}`, { surface: "local" });
     await stop();
-    editSavedBot(bot.id, saved => {
+    editSavedBot(bot.id, (saved) => {
       saved.computer = "cloud";
       saved.tasks.find((entry: any) => entry.threadId === task.threadId).surfaceSource = "auto";
     });
@@ -255,19 +349,31 @@ describe("surface pin provenance against the real server", () => {
     const { bot } = await apiOk("POST", "/api/bots", { name: "New Auto Pin Bot" });
     const { task } = await apiOk("POST", `/api/bots/${bot.id}/tasks`, {});
     await stop();
-    editSavedBot(bot.id, saved => {
-      Object.assign(saved.tasks.find((entry: any) => entry.threadId === task.threadId), { surface: "local", surfaceSource: "auto" });
+    editSavedBot(bot.id, (saved) => {
+      Object.assign(
+        saved.tasks.find((entry: any) => entry.threadId === task.threadId),
+        { surface: "local", surfaceSource: "auto" },
+      );
     });
     await start();
-    expect(savedTask(bot.id, task.threadId)).toMatchObject({ surface: "local", surfaceSource: "auto" });
+    expect(savedTask(bot.id, task.threadId)).toMatchObject({
+      surface: "local",
+      surfaceSource: "auto",
+    });
     expect(await threadState(bot.id, task.threadId)).not.toHaveProperty("surfaceSource");
-    expect(await threadState(bot.id, task.threadId)).toMatchObject({ surface: "local", surfaceAuto: true });
+    expect(await threadState(bot.id, task.threadId)).toMatchObject({
+      surface: "local",
+      surfaceAuto: true,
+    });
     expect(savedTask(bot.id, task.threadId)).not.toHaveProperty("surfaceAuto");
     await apiOk("PATCH", `/api/bots/${bot.id}`, { computer: "off" });
     expect(savedTask(bot.id, task.threadId)?.surface).toBeUndefined();
     expect(savedTask(bot.id, task.threadId)?.surfaceSource).toBeUndefined();
     resetTurn();
-    await apiOk("POST", `/api/bots/${bot.id}/messages`, { text: "Continue without a computer.", threadId: task.threadId });
+    await apiOk("POST", `/api/bots/${bot.id}/messages`, {
+      text: "Continue without a computer.",
+      threadId: task.threadId,
+    });
     expect(mountedComputer(await dump())).toBeUndefined();
     writeFileSync(finishFile, "finish");
     await idle(bot.id, task.threadId);
@@ -281,30 +387,50 @@ describe("surface pin provenance against the real server", () => {
     const { task } = await apiOk("POST", `/api/bots/${bot.id}/tasks`, {});
     await apiOk("PATCH", `/api/bots/${bot.id}/tasks/${task.threadId}`, { surface: "local" });
     await stop();
-    editSavedBot(bot.id, saved => { saved.computer = "vm"; });
+    editSavedBot(bot.id, (saved) => {
+      saved.computer = "vm";
+    });
     await start();
     expect(output).not.toContain("auto-pinned thread");
-    expect(savedTask(bot.id, task.threadId)).toMatchObject({ surface: "local", surfaceSource: "user" });
+    expect(savedTask(bot.id, task.threadId)).toMatchObject({
+      surface: "local",
+      surfaceSource: "user",
+    });
     const place = await apiOk("GET", `/api/bots/${bot.id}/computer?threadId=${task.threadId}`);
     expect(place.surface).toBe("local");
     mkdirSync(dirname(cuaDescriptor), { recursive: true });
-    writeFileSync(cuaDescriptor, JSON.stringify({
-      mode: "embedded", status: "ready", socketPath: join(home, "cua.sock"),
-      mcpCommand: "/fixture/cua-driver", mcpArgs: ["mcp"], mcpEnv: {},
-    }), { mode: 0o600 });
+    writeFileSync(
+      cuaDescriptor,
+      JSON.stringify({
+        mode: "embedded",
+        status: "ready",
+        socketPath: join(home, "cua.sock"),
+        mcpCommand: "/fixture/cua-driver",
+        mcpArgs: ["mcp"],
+        mcpEnv: {},
+      }),
+      { mode: 0o600 },
+    );
     try {
-      const platforms: NodeJS.Platform[] = process.platform === "win32" ? ["win32"] : ["darwin", "win32"];
+      const platforms: NodeJS.Platform[] =
+        process.platform === "win32" ? ["win32"] : ["darwin", "win32"];
       for (const platform of platforms) {
-        expect(readCuaConnection({ platform, userData: dirname(cuaDescriptor), home }))
-          .toMatchObject({ command: "/fixture/cua-driver", platform, scope: "local-computer" });
+        expect(
+          readCuaConnection({ platform, userData: dirname(cuaDescriptor), home }),
+        ).toMatchObject({ command: "/fixture/cua-driver", platform, scope: "local-computer" });
       }
       if (process.platform !== "linux") {
         resetTurn();
-        await apiOk("POST", `/api/bots/${bot.id}/messages`, { text: "Stay where I pinned you.", threadId: task.threadId });
+        await apiOk("POST", `/api/bots/${bot.id}/messages`, {
+          text: "Stay where I pinned you.",
+          threadId: task.threadId,
+        });
         const sent = await dump();
         expect(sent.systemPrompt).toContain("You can act on the user's computer");
         expect(mountedComputer(sent).env.LATERDOG_CUA_COMMAND).toBe("/fixture/cua-driver");
-        expect(mountedComputer(sent).args.some((arg: string) => arg.includes("container-mcp"))).toBe(false);
+        expect(
+          mountedComputer(sent).args.some((arg: string) => arg.includes("container-mcp")),
+        ).toBe(false);
         writeFileSync(finishFile, "finish");
         await idle(bot.id, task.threadId);
       }
@@ -322,43 +448,75 @@ describe("surface pin provenance against the real server", () => {
     await apiOk("PUT", "/api/config", { box: { token: "box_fixture" } });
     const lastRow = async () => {
       const { messages } = await apiOk("GET", `/api/threads/${task.threadId}/messages?limit=30`);
-      return String(messages.filter((message: any) => message.kind !== "digest").at(-1)?.tool?.name ?? "");
+      return String(
+        messages.filter((message: any) => message.kind !== "digest").at(-1)?.tool?.name ?? "",
+      );
     };
     boatDown = true;
     resetTurn();
-    await apiOk("POST", `/api/bots/${bot.id}/messages`, { text: "Open Chrome on the cloud computer.", threadId: task.threadId });
+    await apiOk("POST", `/api/bots/${bot.id}/messages`, {
+      text: "Open Chrome on the cloud computer.",
+      threadId: task.threadId,
+    });
     const sent = await dump();
     expect(mountedComputer(sent).args.at(-1)).toBe("computer");
     expect(sent.systemPrompt).toContain("assigned cloud computer");
-    await until(() => lastRow(), row => row.startsWith("error:"));
+    await until(
+      () => lastRow(),
+      (row) => row.startsWith("error:"),
+    );
     writeFileSync(finishFile, "finish");
     await idle(bot.id, task.threadId);
-    expect(await lastRow()).toBe("error: Cloud computers can't start right now. It isn't anything you did. Try again.");
+    expect(await lastRow()).toBe(
+      "error: Cloud computers can't start right now. It isn't anything you did. Try again.",
+    );
     expect(savedTask(bot.id, task.threadId)?.surface).toBeUndefined();
 
     await stop();
-    editSavedBot(bot.id, saved => {
-      Object.assign(saved.tasks.find((entry: any) => entry.threadId === task.threadId), { surface: "cloud", surfaceSource: "auto" });
+    editSavedBot(bot.id, (saved) => {
+      Object.assign(
+        saved.tasks.find((entry: any) => entry.threadId === task.threadId),
+        { surface: "cloud", surfaceSource: "auto" },
+      );
     });
     await start();
     resetTurn();
-    await apiOk("POST", `/api/bots/${bot.id}/messages`, { text: "Keep going on the cloud computer.", threadId: task.threadId });
-    await until(() => lastRow(), row => row.includes("back on Auto"));
+    await apiOk("POST", `/api/bots/${bot.id}/messages`, {
+      text: "Keep going on the cloud computer.",
+      threadId: task.threadId,
+    });
+    await until(
+      () => lastRow(),
+      (row) => row.includes("back on Auto"),
+    );
     writeFileSync(finishFile, "finish");
     await idle(bot.id, task.threadId);
-    expect(await lastRow()).toBe("error: Cloud computers can't start right now. It isn't anything you did. This conversation is back on Auto. Send your message again.");
+    expect(await lastRow()).toBe(
+      "error: Cloud computers can't start right now. It isn't anything you did. This conversation is back on Auto. Send your message again.",
+    );
     const cleared = savedTask(bot.id, task.threadId)!;
     expect(cleared.surface).toBeUndefined();
     expect(cleared.surfaceSource).toBeUndefined();
 
     await apiOk("PATCH", `/api/bots/${bot.id}/tasks/${task.threadId}`, { surface: "cloud" });
     resetTurn();
-    await apiOk("POST", `/api/bots/${bot.id}/messages`, { text: "Use the cloud computer.", threadId: task.threadId });
-    await until(() => lastRow(), row => row.includes("Clear this conversation's place"));
+    await apiOk("POST", `/api/bots/${bot.id}/messages`, {
+      text: "Use the cloud computer.",
+      threadId: task.threadId,
+    });
+    await until(
+      () => lastRow(),
+      (row) => row.includes("Clear this conversation's place"),
+    );
     writeFileSync(finishFile, "finish");
     await idle(bot.id, task.threadId);
-    expect(await lastRow()).toBe("error: Cloud computers can't start right now. It isn't anything you did. Clear this conversation's place in the composer to continue.");
-    expect(savedTask(bot.id, task.threadId)).toMatchObject({ surface: "cloud", surfaceSource: "user" });
+    expect(await lastRow()).toBe(
+      "error: Cloud computers can't start right now. It isn't anything you did. Clear this conversation's place in the composer to continue.",
+    );
+    expect(savedTask(bot.id, task.threadId)).toMatchObject({
+      surface: "cloud",
+      surfaceSource: "user",
+    });
     boatDown = false;
     await apiOk("DELETE", `/api/bots/${bot.id}`);
     await stop();

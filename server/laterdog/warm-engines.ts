@@ -24,7 +24,12 @@ export interface WarmEngines {
   own(key: string, engine: object, owned: OwnedEngine): void;
   release(key: string, engine: object): void;
   retire(key: string, engine: object): Promise<void>;
-  launch<T>(key: string, adapter: object, signal: AbortSignal, run: (check: () => void) => Promise<T>): Promise<T>;
+  launch<T>(
+    key: string,
+    adapter: object,
+    signal: AbortSignal,
+    run: (check: () => void) => Promise<T>,
+  ): Promise<T>;
   rest(engine: object, resting: RestingEngine): void;
   wake(engine: object): void;
   forget(engine: object): void;
@@ -35,16 +40,16 @@ export const ENGINE_BYTES = 256 * 1024 ** 2;
 export const RESERVE_BYTES = 1024 ** 3;
 const CHECK_EVERY_MS = 5_000;
 
-export const linuxMemory: MemoryGauge | null = process.platform === "linux"
-  ? { availableBytes: () => process.availableMemory() }
-  : null;
+export const linuxMemory: MemoryGauge | null =
+  process.platform === "linux" ? { availableBytes: () => process.availableMemory() } : null;
 
 export function engineMemory(
   env: Record<string, string | undefined> = process.env,
   system: MemoryGauge | null = linuxMemory,
 ): MemoryGauge | null {
   const configured = env.LATERDOG_TEST_AVAILABLE_MEMORY_BYTES;
-  if (env.LATERDOG_TEST_SEALED_PATH !== "1" || !/^(0|[1-9]\d*)$/.test(configured ?? "")) return system;
+  if (env.LATERDOG_TEST_SEALED_PATH !== "1" || !/^(0|[1-9]\d*)$/.test(configured ?? ""))
+    return system;
   const bytes = Number(configured);
   return Number.isSafeInteger(bytes) ? { availableBytes: () => bytes } : system;
 }
@@ -59,7 +64,8 @@ export function engineIdleLimit(
   env: Record<string, string | undefined> = process.env,
   memory: MemoryGauge | null = linuxMemory,
 ): number | null {
-  const configured = env[`LATERDOG_${driverPrefix}_SESSION_IDLE_MS`] ?? env.LATERDOG_SESSION_IDLE_MS;
+  const configured =
+    env[`LATERDOG_${driverPrefix}_SESSION_IDLE_MS`] ?? env.LATERDOG_SESSION_IDLE_MS;
   return configured === undefined && memory ? null : sessionIdlePolicy(driverPrefix, env).idleMs;
 }
 
@@ -76,7 +82,10 @@ export function createWarmEngines({
 }): WarmEngines {
   const owners = new Map<string, OwnedEngine & { engine: object; draining?: Promise<void> }>();
   const launches = new Map<string, object>();
-  const resting = new Map<object, RestingEngine & { since: number; timer: ReturnType<typeof setTimeout> | null }>();
+  const resting = new Map<
+    object,
+    RestingEngine & { since: number; timer: ReturnType<typeof setTimeout> | null }
+  >();
   let watch: ReturnType<typeof setInterval> | null = null;
 
   const take = (engine: object) => {
@@ -104,7 +113,8 @@ export function createWarmEngines({
 
   const retire = (key: string, engine: object): Promise<void> => {
     const held = owners.get(key);
-    if (!held || held.engine !== engine) return Promise.reject(new Error("The engine owner changed."));
+    if (!held || held.engine !== engine)
+      return Promise.reject(new Error("The engine owner changed."));
     if (!held.draining) {
       if (!held.idle()) return Promise.reject(new Error("This chat's engine is still working."));
       held.draining = held.drain();
@@ -129,10 +139,12 @@ export function createWarmEngines({
     async launch(key, adapter, signal, run) {
       const request = {};
       const held = owners.get(key);
-      if (held && held.adapter !== adapter && !held.draining && !held.idle()) throw new Error("This chat's engine is still working.");
+      if (held && held.adapter !== adapter && !held.draining && !held.idle())
+        throw new Error("This chat's engine is still working.");
       launches.set(key, request);
       const check = () => {
-        if (signal.aborted || launches.get(key) !== request) throw new Error("This engine start was interrupted or replaced by a newer message.");
+        if (signal.aborted || launches.get(key) !== request)
+          throw new Error("This engine start was interrupted or replaced by a newer message.");
       };
       try {
         check();
@@ -169,4 +181,7 @@ export function createWarmEngines({
   };
 }
 
-export const warmEngines = createWarmEngines({ memory: engineMemory(), priority: closeRestingFirstOnLinux });
+export const warmEngines = createWarmEngines({
+  memory: engineMemory(),
+  priority: closeRestingFirstOnLinux,
+});

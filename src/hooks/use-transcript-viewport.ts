@@ -12,7 +12,11 @@ import {
 } from "react";
 import { flushSync } from "react-dom";
 import { useTurnLanding, type TurnLanding } from "./use-turn-landing";
-import { BOTTOM_FOLLOW_THRESHOLD, shouldResumeBottomFollow, useBottomFollowResize } from "@/lib/bottom-follow";
+import {
+  BOTTOM_FOLLOW_THRESHOLD,
+  shouldResumeBottomFollow,
+  useBottomFollowResize,
+} from "@/lib/bottom-follow";
 import { useFocusMessage } from "@/lib/focus-message";
 import {
   TRANSCRIPT_WINDOW_SIZE,
@@ -31,15 +35,41 @@ import {
 import { useStoreDispatch, useStoreSelector } from "@/state/store-selectors";
 
 export function scrollBehavior(): ScrollBehavior {
-  if (typeof document !== "undefined" && document.documentElement.dataset.reducedMotion === "true") return "auto";
-  return globalThis.window?.matchMedia?.("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth";
+  if (typeof document !== "undefined" && document.documentElement.dataset.reducedMotion === "true")
+    return "auto";
+  return globalThis.window?.matchMedia?.("(prefers-reduced-motion: reduce)").matches
+    ? "auto"
+    : "smooth";
 }
 
-export function endKeyScrolls(event: Pick<KeyboardEvent, "key" | "metaKey" | "ctrlKey" | "altKey" | "shiftKey" | "defaultPrevented">, target: EventTarget | null, scroller: HTMLElement | null = null): boolean {
-  if (event.key !== "End" || event.defaultPrevented || event.metaKey || event.ctrlKey || event.altKey || event.shiftKey) return false;
+export function endKeyScrolls(
+  event: Pick<
+    KeyboardEvent,
+    "key" | "metaKey" | "ctrlKey" | "altKey" | "shiftKey" | "defaultPrevented"
+  >,
+  target: EventTarget | null,
+  scroller: HTMLElement | null = null,
+): boolean {
+  if (
+    event.key !== "End" ||
+    event.defaultPrevented ||
+    event.metaKey ||
+    event.ctrlKey ||
+    event.altKey ||
+    event.shiftKey
+  )
+    return false;
   if (target instanceof HTMLInputElement || target instanceof HTMLSelectElement) return false;
-  if (target instanceof HTMLTextAreaElement) return target.value.length === 0 && Boolean(target.closest("[data-composer-surface]"));
-  if (target instanceof HTMLElement && (target.isContentEditable || target.closest("button, a[href], [role=button], [role=menu], [role=listbox], [role=tree], [contenteditable]:not([contenteditable=false])"))) return false;
+  if (target instanceof HTMLTextAreaElement)
+    return target.value.length === 0 && Boolean(target.closest("[data-composer-surface]"));
+  if (
+    target instanceof HTMLElement &&
+    (target.isContentEditable ||
+      target.closest(
+        "button, a[href], [role=button], [role=menu], [role=listbox], [role=tree], [contenteditable]:not([contenteditable=false])",
+      ))
+  )
+    return false;
   const ownerDocument = scroller?.ownerDocument ?? globalThis.document;
   if (target === ownerDocument?.body || target === ownerDocument?.documentElement) return true;
   return Boolean(scroller && target instanceof Node && scroller.contains(target));
@@ -54,11 +84,22 @@ export function scrollKeyLeavesBottom(
   target: EventTarget | null,
   scroller: HTMLElement | null,
 ): boolean {
-  if (!LEAVE_BOTTOM_KEYS.has(event.key) || event.defaultPrevented || event.metaKey || event.ctrlKey || event.altKey) return false;
+  if (
+    !LEAVE_BOTTOM_KEYS.has(event.key) ||
+    event.defaultPrevented ||
+    event.metaKey ||
+    event.ctrlKey ||
+    event.altKey
+  )
+    return false;
   if (!scroller || scroller.scrollHeight <= scroller.clientHeight) return false;
-  if (target === scroller.ownerDocument.body || target === scroller.ownerDocument.documentElement) return true;
+  if (target === scroller.ownerDocument.body || target === scroller.ownerDocument.documentElement)
+    return true;
   if (!(target instanceof Node) || !scroller.contains(target)) return false;
-  const typing = target instanceof HTMLTextAreaElement || target instanceof HTMLInputElement || (target instanceof HTMLElement && target.isContentEditable);
+  const typing =
+    target instanceof HTMLTextAreaElement ||
+    target instanceof HTMLInputElement ||
+    (target instanceof HTMLElement && target.isContentEditable);
   return !typing;
 }
 
@@ -82,7 +123,9 @@ export function useTranscriptViewport<T extends { id: string; role?: string }>({
   turn?: TurnLanding;
 }) {
   const dispatch = useStoreDispatch();
-  const focusMessage = useStoreSelector((state) => (state.focusMessage?.threadId === threadId ? state.focusMessage : null));
+  const focusMessage = useStoreSelector((state) =>
+    state.focusMessage?.threadId === threadId ? state.focusMessage : null,
+  );
   const olderPending = useStoreSelector((state) => Boolean(state.loadingOlder[threadId]));
   const scrollRef = useRef<HTMLDivElement>(null);
   const transcriptRef = useRef<HTMLDivElement>(null);
@@ -93,8 +136,14 @@ export function useTranscriptViewport<T extends { id: string; role?: string }>({
   const touchY = useRef(0);
 
   const transcriptKey = `${ownerId}:${threadId}`;
-  const tailStart = useMemo(() => windowStartBefore(messages, messages.length, TRANSCRIPT_WINDOW_SIZE, counts), [messages, counts]);
-  const opening = useMemo(() => ({ ...openingWindow(transcriptKey, messages, counts, unread), ownerId }), [transcriptKey, messages, counts, unread, ownerId]);
+  const tailStart = useMemo(
+    () => windowStartBefore(messages, messages.length, TRANSCRIPT_WINDOW_SIZE, counts),
+    [messages, counts],
+  );
+  const opening = useMemo(
+    () => ({ ...openingWindow(transcriptKey, messages, counts, unread), ownerId }),
+    [transcriptKey, messages, counts, unread, ownerId],
+  );
   const [transcriptWindow, setTranscriptWindow] = useState(opening);
   const switched = transcriptWindow.key !== transcriptKey;
   const reopened = switched || (transcriptWindow.empty && messages.length > 0);
@@ -102,9 +151,16 @@ export function useTranscriptViewport<T extends { id: string; role?: string }>({
   const reopening = opensAtBottom ? opening : filledWindow(opening, tailStart);
   const staged = reopened ? null : transcriptWindow.staged;
   const stagedAt = staged ? stagedStart(staged, messages) : -1;
-  const stagingOver = staged !== null && (stagedAt <= tailStart || messages[0]?.id !== staged.oldestId);
+  const stagingOver =
+    staged !== null && (stagedAt <= tailStart || messages[0]?.id !== staged.oldestId);
   const turnWindow = useRef<{ key: string; turnKey: string } | null>(null);
-  const keepsTurnWindow = Boolean(turn && turnWindow.current?.key === transcriptKey && turnWindow.current.turnKey === turn.key && windowStartBefore(messages, messages.length, TRANSCRIPT_WINDOW_SIZE * 2, counts) <= transcriptWindow.start);
+  const keepsTurnWindow = Boolean(
+    turn &&
+    turnWindow.current?.key === transcriptKey &&
+    turnWindow.current.turnKey === turn.key &&
+    windowStartBefore(messages, messages.length, TRANSCRIPT_WINDOW_SIZE * 2, counts) <=
+      transcriptWindow.start,
+  );
   const nextStart = reopened
     ? reopening.start
     : !staged && follow && transcriptWindow.end === null && !keepsTurnWindow
@@ -114,7 +170,9 @@ export function useTranscriptViewport<T extends { id: string; role?: string }>({
   if (reopened) {
     setTranscriptWindow(reopening);
   } else if (stagingOver) {
-    setTranscriptWindow(filledWindow(transcriptWindow, stagedAt < 0 ? tailStart : Math.min(stagedAt, tailStart)));
+    setTranscriptWindow(
+      filledWindow(transcriptWindow, stagedAt < 0 ? tailStart : Math.min(stagedAt, tailStart)),
+    );
   } else if (!staged && nextStart !== transcriptWindow.start) {
     setTranscriptWindow({ ...transcriptWindow, start: nextStart, end: null });
   }
@@ -129,7 +187,14 @@ export function useTranscriptViewport<T extends { id: string; role?: string }>({
     startIndex,
     endIndex,
   } = useMemo(
-    () => resolveTranscriptWindow(messages, windowStart, TRANSCRIPT_WINDOW_SIZE, transcriptWindow.end, counts),
+    () =>
+      resolveTranscriptWindow(
+        messages,
+        windowStart,
+        TRANSCRIPT_WINDOW_SIZE,
+        transcriptWindow.end,
+        counts,
+      ),
     [messages, windowStart, transcriptWindow.end, counts],
   );
   const filledStart = staged ? Math.min(startIndex, tailStart) : startIndex;
@@ -138,7 +203,8 @@ export function useTranscriptViewport<T extends { id: string; role?: string }>({
     [staged, windowedMessages, messages, filledStart],
   );
   const hiddenCount = useMemo(
-    () => (filledStart === startIndex ? hiddenBeforeShown : countedBefore(messages, filledStart, counts)),
+    () =>
+      filledStart === startIndex ? hiddenBeforeShown : countedBefore(messages, filledStart, counts),
     [filledStart, startIndex, hiddenBeforeShown, messages, counts],
   );
 
@@ -147,8 +213,22 @@ export function useTranscriptViewport<T extends { id: string; role?: string }>({
     setFollow(next);
   }, []);
   useLayoutEffect(() => setBottomFollow(true), [ownerId, setBottomFollow]);
-  const landing = useTurnLanding({ scrollRef, transcriptRef, followingRef: followRef, setFollowing: setBottomFollow, threadKey: transcriptKey, firstId: windowedMessages[0]?.id, turn, settling: staged !== null });
-  useBottomFollowResize(scrollRef, transcriptRef, turn ? landing.pinFollowingRef : followRef, transcriptShown ? transcriptKey : null);
+  const landing = useTurnLanding({
+    scrollRef,
+    transcriptRef,
+    followingRef: followRef,
+    setFollowing: setBottomFollow,
+    threadKey: transcriptKey,
+    firstId: windowedMessages[0]?.id,
+    turn,
+    settling: staged !== null,
+  });
+  useBottomFollowResize(
+    scrollRef,
+    transcriptRef,
+    turn ? landing.pinFollowingRef : followRef,
+    transcriptShown ? transcriptKey : null,
+  );
 
   const appliedFocus = useRef<number | null>(null);
   useEffect(() => {
@@ -159,7 +239,14 @@ export function useTranscriptViewport<T extends { id: string; role?: string }>({
     appliedFocus.current = focus.nonce;
     const range = focusWindowRange(messages.length, targetIndex);
     setBottomFollow(false);
-    setTranscriptWindow({ key: transcriptKey, start: range.start, end: range.end, staged: null, empty: false, ownerId });
+    setTranscriptWindow({
+      key: transcriptKey,
+      start: range.start,
+      end: range.end,
+      staged: null,
+      empty: false,
+      ownerId,
+    });
   }, [threadId, messages, setBottomFollow, focusMessage, transcriptKey, ownerId]);
   useFocusMessage(threadId, messages.length > 0);
 
@@ -173,7 +260,9 @@ export function useTranscriptViewport<T extends { id: string; role?: string }>({
 
   const preExpandHeight = useRef<{ key: string; height: number } | null>(null);
   const holdRowForPrepend = () => {
-    preExpandHeight.current = scrollRef.current ? { key: transcriptKey, height: scrollRef.current.scrollHeight } : null;
+    preExpandHeight.current = scrollRef.current
+      ? { key: transcriptKey, height: scrollRef.current.scrollHeight }
+      : null;
     setBottomFollow(false);
   };
   const oldestId = messages[0]?.id;
@@ -197,10 +286,17 @@ export function useTranscriptViewport<T extends { id: string; role?: string }>({
         frame = requestAnimationFrame(widen);
         return;
       }
-      const held = !followRef.current && scrollRef.current ? { key: transcriptKey, height: scrollRef.current.scrollHeight } : null;
+      const held =
+        !followRef.current && scrollRef.current
+          ? { key: transcriptKey, height: scrollRef.current.scrollHeight }
+          : null;
       if (held) preExpandHeight.current = held;
       flushSync(() => {
-        setTranscriptWindow((current) => (current.key === transcriptKey ? widenedWindow(current, latest.current.messages, latest.current.counts) : current));
+        setTranscriptWindow((current) =>
+          current.key === transcriptKey
+            ? widenedWindow(current, latest.current.messages, latest.current.counts)
+            : current,
+        );
       });
       if (preExpandHeight.current === held) preExpandHeight.current = null;
     };
@@ -228,7 +324,10 @@ export function useTranscriptViewport<T extends { id: string; role?: string }>({
     const onKey = (e: KeyboardEvent) => {
       lastKeyAt.current = performance.now();
       if (scrollKeyLeavesBottom(e, e.target, scrollRef.current)) setBottomFollow(false);
-      if (endKeyScrolls(e, e.target, scrollRef.current) && !document.querySelector('[role="dialog"][aria-modal="true"]')) {
+      if (
+        endKeyScrolls(e, e.target, scrollRef.current) &&
+        !document.querySelector('[role="dialog"][aria-modal="true"]')
+      ) {
         e.preventDefault();
         jumpRef.current();
       }
@@ -245,9 +344,19 @@ export function useTranscriptViewport<T extends { id: string; role?: string }>({
     turnWindow.current = null;
     landing.release();
     setBottomFollow(true);
-    setTranscriptWindow({ key: transcriptKey, start: tailStart, end: null, staged: null, empty: false, ownerId });
+    setTranscriptWindow({
+      key: transcriptKey,
+      start: tailStart,
+      end: null,
+      staged: null,
+      empty: false,
+      ownerId,
+    });
     requestAnimationFrame(() => {
-      scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: scrollBehavior() });
+      scrollRef.current?.scrollTo({
+        top: scrollRef.current.scrollHeight,
+        behavior: scrollBehavior(),
+      });
     });
   };
   jumpRef.current = jumpToLatest;

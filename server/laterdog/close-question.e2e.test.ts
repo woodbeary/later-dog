@@ -1,13 +1,24 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { connect, type Socket } from "node:net";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
-import { LEGACY_QUESTION_DISMISS_MESSAGE, QUESTION_DISMISS_MESSAGE } from "../../shared/ask-question.ts";
+import {
+  LEGACY_QUESTION_DISMISS_MESSAGE,
+  QUESTION_DISMISS_MESSAGE,
+} from "../../shared/ask-question.ts";
 import { leasePortBlock } from "../testing/ports.ts";
 
 const SERVER_DIR = join(dirname(fileURLToPath(import.meta.url)), "..");
@@ -23,7 +34,11 @@ describe.skipIf(process.platform === "win32")("the × on a dog's question", () =
   let finishGate: string;
   const sockets: Socket[] = [];
 
-  const api = async (method: string, path: string, body?: unknown): Promise<{ status: number; body: any }> => {
+  const api = async (
+    method: string,
+    path: string,
+    body?: unknown,
+  ): Promise<{ status: number; body: any }> => {
     const res = await fetch(`${BASE}${path}`, {
       method,
       headers: body ? { "content-type": "application/json" } : undefined,
@@ -31,19 +46,30 @@ describe.skipIf(process.platform === "win32")("the × on a dog's question", () =
     });
     return { status: res.status, body: await res.json() };
   };
-  const waitFor = async <T>(read: () => Promise<T | null | undefined | false>, what: string, ms = 15_000): Promise<T> => {
+  const waitFor = async <T>(
+    read: () => Promise<T | null | undefined | false>,
+    what: string,
+    ms = 15_000,
+  ): Promise<T> => {
     const deadline = Date.now() + ms;
     for (;;) {
       const value = await read();
       if (value) return value;
-      if (Date.now() > deadline) throw new Error(`timed out waiting for ${what}. stderr: ${stderr.slice(-2000)}`);
+      if (Date.now() > deadline)
+        throw new Error(`timed out waiting for ${what}. stderr: ${stderr.slice(-2000)}`);
       await new Promise((r) => setTimeout(r, 100));
     }
   };
-  const busy = async (botId: string) => (await api("GET", "/api/bots?messages=0")).body.bots.find((b: any) => b.id === botId)?.busy === true;
-  const messages = async (threadId: string): Promise<any[]> => (await api("GET", `/api/threads/${threadId}/messages`)).body.messages;
-  const card = async (threadId: string, requestId: string) => (await messages(threadId)).find((m) => m.card?.requestId === requestId)?.card;
-  const working = async (roomId: string) => (await api("GET", "/api/bots?messages=0")).body.groups.find((g: any) => g.id === roomId)?.working === true;
+  const busy = async (botId: string) =>
+    (await api("GET", "/api/bots?messages=0")).body.bots.find((b: any) => b.id === botId)?.busy ===
+    true;
+  const messages = async (threadId: string): Promise<any[]> =>
+    (await api("GET", `/api/threads/${threadId}/messages`)).body.messages;
+  const card = async (threadId: string, requestId: string) =>
+    (await messages(threadId)).find((m) => m.card?.requestId === requestId)?.card;
+  const working = async (roomId: string) =>
+    (await api("GET", "/api/bots?messages=0")).body.groups.find((g: any) => g.id === roomId)
+      ?.working === true;
 
   const newAsker = async () => {
     rmSync(finishGate, { force: true });
@@ -59,7 +85,10 @@ describe.skipIf(process.platform === "win32")("the × on a dog's question", () =
 
   const dogAskingAQuestion = async () => {
     const bot = await newAsker();
-    expect((await api("POST", `/api/bots/${bot.id}/messages`, { text: "Ask me what to work on first." })).status).toBe(202);
+    expect(
+      (await api("POST", `/api/bots/${bot.id}/messages`, { text: "Ask me what to work on first." }))
+        .status,
+    ).toBe(202);
     return { bot, ...(await askOn(bot.threadId, () => busy(bot.id))) };
   };
 
@@ -72,7 +101,13 @@ describe.skipIf(process.platform === "win32")("the × on a dog's question", () =
     });
     expect(created.status).toBe(201);
     const room = created.body.group as { id: string; threadId: string };
-    expect((await api("POST", `/api/groups/${room.id}/messages`, { text: "Ask me what to work on first." })).status).toBe(202);
+    expect(
+      (
+        await api("POST", `/api/groups/${room.id}/messages`, {
+          text: "Ask me what to work on first.",
+        })
+      ).status,
+    ).toBe(202);
     return { room, ...(await askOn(room.threadId, () => working(room.id))) };
   };
 
@@ -81,7 +116,9 @@ describe.skipIf(process.platform === "win32")("the × on a dog's question", () =
     const launch = await waitFor(async () => {
       if (!existsSync(dump)) return null;
       try {
-        return JSON.parse(readFileSync(dump, "utf8")) as { mcpConfig: { mcpServers: { dog: { args: string[] } } } };
+        return JSON.parse(readFileSync(dump, "utf8")) as {
+          mcpConfig: { mcpServers: { dog: { args: string[] } } };
+        };
       } catch {
         return null;
       }
@@ -103,13 +140,22 @@ describe.skipIf(process.platform === "win32")("the × on a dog's question", () =
       }
     });
     const requestId = randomUUID();
-    socket.write(JSON.stringify({
-      t: "ask",
-      kind: "question",
-      id: requestId,
-      tool: "AskUserQuestion",
-      input: { questions: [{ question: "What should I help with first?", options: [{ label: "Code and GitHub" }, { label: "Research and writing" }] }] },
-    }) + "\n");
+    socket.write(
+      JSON.stringify({
+        t: "ask",
+        kind: "question",
+        id: requestId,
+        tool: "AskUserQuestion",
+        input: {
+          questions: [
+            {
+              question: "What should I help with first?",
+              options: [{ label: "Code and GitHub" }, { label: "Research and writing" }],
+            },
+          ],
+        },
+      }) + "\n",
+    );
     await waitFor(() => card(threadId, requestId), "the question card");
     return { requestId, replies };
   };
@@ -127,7 +173,11 @@ describe.skipIf(process.platform === "win32")("the × on a dog's question", () =
           claude: {
             driver: "claudeAgent",
             displayName: "Fixture Claude",
-            environment: { FAKE_CLAUDE_MODE: "hang", FAKE_CLAUDE_DUMP: dump, FAKE_CLAUDE_FINISH_GATE: finishGate },
+            environment: {
+              FAKE_CLAUDE_MODE: "hang",
+              FAKE_CLAUDE_DUMP: dump,
+              FAKE_CLAUDE_FINISH_GATE: finishGate,
+            },
             config: { cli: FAKE_CLAUDE },
           },
         },
@@ -146,9 +196,15 @@ describe.skipIf(process.platform === "win32")("the × on a dog's question", () =
     });
     child.stderr!.on("data", (c) => (stderr += c));
     const deadline = Date.now() + 20_000;
-    while (!(await fetch(`${BASE}/api/health`).then((res) => res.ok, () => false))) {
+    while (
+      !(await fetch(`${BASE}/api/health`).then(
+        (res) => res.ok,
+        () => false,
+      ))
+    ) {
       if (Date.now() > deadline) throw new Error(`server never came up. stderr:\n${stderr}`);
-      if (child.exitCode !== null) throw new Error(`server exited ${child.exitCode}. stderr:\n${stderr}`);
+      if (child.exitCode !== null)
+        throw new Error(`server exited ${child.exitCode}. stderr:\n${stderr}`);
       await new Promise((r) => setTimeout(r, 150));
     }
   }, 30_000);
@@ -172,14 +228,31 @@ describe.skipIf(process.platform === "win32")("the × on a dog's question", () =
       behavior: "answer",
       message: QUESTION_DISMISS_MESSAGE,
     });
-    expect(closed).toMatchObject({ status: 200, body: { ok: true, dismissed: true, outcome: "answered" } });
-    const reply = await waitFor(async () => replies.find((entry) => entry.id === requestId), "the dog to get the close note");
-    expect(reply).toMatchObject({ t: "answer", behavior: "answer", message: QUESTION_DISMISS_MESSAGE, source: "user" });
-    expect(await card(bot.threadId, requestId)).toMatchObject({ answered: "answer", dismissed: true });
+    expect(closed).toMatchObject({
+      status: 200,
+      body: { ok: true, dismissed: true, outcome: "answered" },
+    });
+    const reply = await waitFor(
+      async () => replies.find((entry) => entry.id === requestId),
+      "the dog to get the close note",
+    );
+    expect(reply).toMatchObject({
+      t: "answer",
+      behavior: "answer",
+      message: QUESTION_DISMISS_MESSAGE,
+      source: "user",
+    });
+    expect(await card(bot.threadId, requestId)).toMatchObject({
+      answered: "answer",
+      dismissed: true,
+    });
 
     writeFileSync(finishGate, "finish");
     await waitFor(async () => !(await busy(bot.id)), "the turn to settle");
-    expect(await card(bot.threadId, requestId)).toMatchObject({ answered: "answer", dismissed: true });
+    expect(await card(bot.threadId, requestId)).toMatchObject({
+      answered: "answer",
+      dismissed: true,
+    });
   }, 60_000);
 
   it("hears the new close note even when an older window sends the old one", async () => {
@@ -189,10 +262,24 @@ describe.skipIf(process.platform === "win32")("the × on a dog's question", () =
       behavior: "answer",
       message: LEGACY_QUESTION_DISMISS_MESSAGE,
     });
-    expect(closed).toMatchObject({ status: 200, body: { ok: true, dismissed: true, outcome: "answered" } });
-    const reply = await waitFor(async () => replies.find((entry) => entry.id === requestId), "the dog to get the close note");
-    expect(reply).toMatchObject({ t: "answer", behavior: "answer", message: QUESTION_DISMISS_MESSAGE, source: "user" });
-    expect(await card(bot.threadId, requestId)).toMatchObject({ answered: "answer", dismissed: true });
+    expect(closed).toMatchObject({
+      status: 200,
+      body: { ok: true, dismissed: true, outcome: "answered" },
+    });
+    const reply = await waitFor(
+      async () => replies.find((entry) => entry.id === requestId),
+      "the dog to get the close note",
+    );
+    expect(reply).toMatchObject({
+      t: "answer",
+      behavior: "answer",
+      message: QUESTION_DISMISS_MESSAGE,
+      source: "user",
+    });
+    expect(await card(bot.threadId, requestId)).toMatchObject({
+      answered: "answer",
+      dismissed: true,
+    });
 
     writeFileSync(finishGate, "finish");
     await waitFor(async () => !(await busy(bot.id)), "the turn to settle");
@@ -202,7 +289,10 @@ describe.skipIf(process.platform === "win32")("the × on a dog's question", () =
     const { bot, requestId, replies } = await dogAskingAQuestion();
     writeFileSync(finishGate, "finish");
     await waitFor(async () => !(await busy(bot.id)), "the turn to settle");
-    const ending = await waitFor(async () => replies.find((entry) => entry.id === requestId), "the broker to end the ask");
+    const ending = await waitFor(
+      async () => replies.find((entry) => entry.id === requestId),
+      "the broker to end the ask",
+    );
     expect(ending).toMatchObject({ behavior: "answer", source: "system" });
     const left = await card(bot.threadId, requestId);
     expect(left.answered).toBeUndefined();
@@ -210,14 +300,28 @@ describe.skipIf(process.platform === "win32")("the × on a dog's question", () =
     const before = (await messages(bot.threadId)).length;
 
     rmSync(finishGate, { force: true });
-    const closed = await api("POST", `/api/bots/${bot.id}/respond`, { requestId, behavior: "answer", dismiss: true });
-    expect(closed).toMatchObject({ status: 200, body: { ok: true, dismissed: true, outcome: "unavailable" } });
-    expect(await card(bot.threadId, requestId)).toMatchObject({ answered: "answer", dismissed: true });
+    const closed = await api("POST", `/api/bots/${bot.id}/respond`, {
+      requestId,
+      behavior: "answer",
+      dismiss: true,
+    });
+    expect(closed).toMatchObject({
+      status: 200,
+      body: { ok: true, dismissed: true, outcome: "unavailable" },
+    });
+    expect(await card(bot.threadId, requestId)).toMatchObject({
+      answered: "answer",
+      dismissed: true,
+    });
     await new Promise((r) => setTimeout(r, 500));
     expect(await busy(bot.id)).toBe(false);
     expect(await messages(bot.threadId)).toHaveLength(before);
 
-    const again = await api("POST", `/api/threads/${bot.threadId}/respond`, { requestId, behavior: "answer", message: QUESTION_DISMISS_MESSAGE });
+    const again = await api("POST", `/api/threads/${bot.threadId}/respond`, {
+      requestId,
+      behavior: "answer",
+      message: QUESTION_DISMISS_MESSAGE,
+    });
     expect(again).toMatchObject({ status: 200, body: { ok: true, dismissed: true } });
     expect(again.body.outcome).toBeUndefined();
   }, 60_000);
@@ -232,9 +336,19 @@ describe.skipIf(process.platform === "win32")("the × on a dog's question", () =
     const before = (await messages(room.threadId)).length;
 
     rmSync(finishGate, { force: true });
-    const closed = await api("POST", `/api/threads/${room.threadId}/respond`, { requestId, behavior: "answer", dismiss: true });
-    expect(closed).toMatchObject({ status: 200, body: { ok: true, dismissed: true, outcome: "unavailable" } });
-    expect(await card(room.threadId, requestId)).toMatchObject({ answered: "answer", dismissed: true });
+    const closed = await api("POST", `/api/threads/${room.threadId}/respond`, {
+      requestId,
+      behavior: "answer",
+      dismiss: true,
+    });
+    expect(closed).toMatchObject({
+      status: 200,
+      body: { ok: true, dismissed: true, outcome: "unavailable" },
+    });
+    expect(await card(room.threadId, requestId)).toMatchObject({
+      answered: "answer",
+      dismissed: true,
+    });
     await new Promise((r) => setTimeout(r, 500));
     expect(await working(room.id)).toBe(false);
     expect(await messages(room.threadId)).toHaveLength(before);

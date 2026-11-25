@@ -4,16 +4,16 @@ An owner's Full access turn completes routine work without a permission or quest
 
 ## Decisions
 
-| Action | Owner Full behavior |
-| --- | --- |
-| Cleanup inside the dog's workspace, task folders, temporary folders and existing cache allowance | Resolve known command assignments and home, working-folder and temporary-folder values; proceed when the target stays inside the allowed folders |
-| Unknown delete targets, paths outside those folders, protected roots, repository roots and links that lead out | Refuse to the dog with a concrete reason and a literal-path recovery where appropriate; no approval hold |
-| A protected push or hook edit that bypasses checks | Refuse to the dog; run checks and rewrite the operation |
-| Credential settings and authorized account changes | Proceed through the existing account and tool scopes |
-| Connected-app changes that delete or share | Proceed within existing scopes; remote repository deletion and unreadable proxy code remain refused |
-| Sends in the person's name and payments | Keep per-action confirmation; saved access does not cover them |
-| Questions | Pick the recommended option, otherwise the first option, immediately; without options, delegate judgment back to the dog |
-| Ask chats, guest turns and shared workspaces | Keep their existing permission and question rules |
+| Action                                                                                                         | Owner Full behavior                                                                                                                              |
+| -------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Cleanup inside the dog's workspace, task folders, temporary folders and existing cache allowance               | Resolve known command assignments and home, working-folder and temporary-folder values; proceed when the target stays inside the allowed folders |
+| Unknown delete targets, paths outside those folders, protected roots, repository roots and links that lead out | Refuse to the dog with a concrete reason and a literal-path recovery where appropriate; no approval hold                                         |
+| A protected push or hook edit that bypasses checks                                                             | Refuse to the dog; run checks and rewrite the operation                                                                                          |
+| Credential settings and authorized account changes                                                             | Proceed through the existing account and tool scopes                                                                                             |
+| Connected-app changes that delete or share                                                                     | Proceed within existing scopes; remote repository deletion and unreadable proxy code remain refused                                              |
+| Sends in the person's name and payments                                                                        | Keep per-action confirmation; saved access does not cover them                                                                                   |
+| Questions                                                                                                      | Pick the recommended option, otherwise the first option, immediately; without options, delegate judgment back to the dog                         |
+| Ask chats, guest turns and shared workspaces                                                                   | Keep their existing permission and question rules                                                                                                |
 
 The engine hook, permission request handler and internal computer/browser endpoints use the same owner-Full decision. Internal refusals return an error directly instead of creating a card. Native question answers contain the actual selected label, including structured question keys, so engines that require an exact option can accept the answer. The decision ledger records the automatic answer separately.
 

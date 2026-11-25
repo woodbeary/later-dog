@@ -1,26 +1,59 @@
 import { spawn, type ChildProcess } from "node:child_process";
-import { closeSync, existsSync, mkdirSync, openSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  closeSync,
+  existsSync,
+  mkdirSync,
+  openSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { delimiter, dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { expect, it } from "vitest";
 
-import { launchVerificationServer, runControlLaterDog, verificationServerEnvironment } from "../scripts/control-laterdog.ts";
+import {
+  launchVerificationServer,
+  runControlLaterDog,
+  verificationServerEnvironment,
+} from "../scripts/control-laterdog.ts";
 import { request } from "../scripts/mcp-server.ts";
 import { withOnItNote } from "./laterdog/work-updates.ts";
 import { waitForExit } from "./testing/cleanup.ts";
 
 const count = (text: string, needle: string) => text.split(needle).length - 1;
-const jsonl = (path: string) => existsSync(path)
-  ? readFileSync(path, "utf8").trim().split("\n").filter(Boolean).map((line) => JSON.parse(line)) : [];
+const jsonl = (path: string) =>
+  existsSync(path)
+    ? readFileSync(path, "utf8")
+        .trim()
+        .split("\n")
+        .filter(Boolean)
+        .map((line) => JSON.parse(line))
+    : [];
 
-async function fixture(test: (f: any) => Promise<void>, options: { env?: NodeJS.ProcessEnv; codex?: Record<string, string> } = {}) {
+async function fixture(
+  test: (f: any) => Promise<void>,
+  options: { env?: NodeJS.ProcessEnv; codex?: Record<string, string> } = {},
+) {
   const parentEnv = { ...process.env, FAKE_CLAUDE_VERSION: "2.1.270", ...options.env };
-  const session = await launchVerificationServer(parentEnv, undefined, undefined, undefined, undefined,
-    { scripted: true }, options.codex ? ["codex"] : []);
-  const cli = (...args: string[]) => runControlLaterDog(args, { env: { LATERDOG_URL: session.info.url } }) as Promise<any>;
+  const session = await launchVerificationServer(
+    parentEnv,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    { scripted: true },
+    options.codex ? ["codex"] : [],
+  );
+  const cli = (...args: string[]) =>
+    runControlLaterDog(args, { env: { LATERDOG_URL: session.info.url } }) as Promise<any>;
   const api = (path: string, body?: unknown, method = "POST") =>
-    request(path, body === undefined ? {} : { method, body: JSON.stringify(body) }, session.info.url) as Promise<any>;
+    request(
+      path,
+      body === undefined ? {} : { method, body: JSON.stringify(body) },
+      session.info.url,
+    ) as Promise<any>;
   let restarted: ChildProcess | undefined;
   try {
     const dataDir = session.info.dataDir;
@@ -30,83 +63,139 @@ async function fixture(test: (f: any) => Promise<void>, options: { env?: NodeJS.
     const modePath = (name: string) => join(dataDir, `${name}-mode`);
     const wrap = (name: string, fake: string, env: Record<string, string>) => {
       const path = join(dataDir, `${name}.mjs`);
-      writeFileSync(path, [
-        "#!/usr/bin/env node",
-        'import { appendFileSync, existsSync, readFileSync } from "node:fs";',
-        `Object.assign(process.env, ${JSON.stringify(env)});`,
-        "const argv = process.argv.slice(2);",
-        'if (argv.includes("--version") && process.env.FAKE_CLAUDE_START_DELAY === "1") await new Promise(resolve => setTimeout(resolve, 750));',
-        "const after = (flag) => { const i = argv.indexOf(flag); return i === -1 ? null : argv[i + 1] ?? null; };",
-        `const modes = existsSync(${JSON.stringify(modePath(name))}) ? Object.fromEntries(readFileSync(${JSON.stringify(modePath(name))}, "utf8").trim().split(",").map((part) => part.includes("=") ? part.split("=") : ["any", part])) : {};`,
-        'const mode = (after("--resume") ? modes.resume : modes.fresh) ?? modes.any;',
-        `if (mode) process.env[${JSON.stringify(name === "codex" ? "FAKE_CODEX_MODE" : "FAKE_CLAUDE_MODE")}] = mode;`,
-        "let botId = null;",
-        'try { for (const s of Object.values(JSON.parse(readFileSync(after("--mcp-config"), "utf8")).mcpServers ?? {})) botId = s?.env?.LATERDOG_BOT_ID ?? botId; } catch {}',
-        `if (after("--resume") || after("--session-id")) appendFileSync(${JSON.stringify(launchesPath)}, JSON.stringify({ botId, pid: process.pid, resume: after("--resume"), sessionId: after("--session-id"), mode: process.env.FAKE_CLAUDE_MODE ?? "happy" }) + "\\n");`,
-        `else if (argv[0] === "app-server") appendFileSync(${JSON.stringify(codexLaunchesPath)}, JSON.stringify({ botId: process.env.LATERDOG_BOT_ID ?? null }) + "\\n");`,
-        `if (botId) process.env.FAKE_CLAUDE_PROMPTS = ${JSON.stringify(join(dataDir, "consumed-"))} + botId + ".jsonl";`,
-        ...(name === "claude" ? [
-          'if (after("--resume") || after("--session-id")) {',
-          `  const modeNow = () => existsSync(${JSON.stringify(modePath(name))}) ? readFileSync(${JSON.stringify(modePath(name))}, "utf8") : "";`,
-          "  const launched = modeNow();",
-          "  let idle = false;",
-          "  const write = process.stdout.write.bind(process.stdout);",
-          "  process.stdout.write = (chunk, ...rest) => {",
-          "    const text = String(chunk);",
-          `    if (text.includes('"subtype":"init"')) idle = false;`,
-          `    if (text.includes('"type":"result"')) idle = true;`,
-          "    return write(chunk, ...rest);",
-          "  };",
-          '  setInterval(() => { if (idle && modeNow() !== launched) write("", () => process.exit(0)); }, 50).unref();',
-          "}",
-        ] : []),
-        'process.stdin.on("end", () => process.exit(0));',
-        `if (after("--resume") && modes.holdresume) { while (!existsSync(${JSON.stringify(join(dataDir, "resume-hold.gate"))})) await new Promise((r) => setTimeout(r, 20)); }`,
-        `await import(${JSON.stringify(pathToFileURL(join(process.cwd(), "server", "testing", fake)).href)});`,
-      ].join("\n"), { mode: 0o700 });
+      writeFileSync(
+        path,
+        [
+          "#!/usr/bin/env node",
+          'import { appendFileSync, existsSync, readFileSync } from "node:fs";',
+          `Object.assign(process.env, ${JSON.stringify(env)});`,
+          "const argv = process.argv.slice(2);",
+          'if (argv.includes("--version") && process.env.FAKE_CLAUDE_START_DELAY === "1") await new Promise(resolve => setTimeout(resolve, 750));',
+          "const after = (flag) => { const i = argv.indexOf(flag); return i === -1 ? null : argv[i + 1] ?? null; };",
+          `const modes = existsSync(${JSON.stringify(modePath(name))}) ? Object.fromEntries(readFileSync(${JSON.stringify(modePath(name))}, "utf8").trim().split(",").map((part) => part.includes("=") ? part.split("=") : ["any", part])) : {};`,
+          'const mode = (after("--resume") ? modes.resume : modes.fresh) ?? modes.any;',
+          `if (mode) process.env[${JSON.stringify(name === "codex" ? "FAKE_CODEX_MODE" : "FAKE_CLAUDE_MODE")}] = mode;`,
+          "let botId = null;",
+          'try { for (const s of Object.values(JSON.parse(readFileSync(after("--mcp-config"), "utf8")).mcpServers ?? {})) botId = s?.env?.LATERDOG_BOT_ID ?? botId; } catch {}',
+          `if (after("--resume") || after("--session-id")) appendFileSync(${JSON.stringify(launchesPath)}, JSON.stringify({ botId, pid: process.pid, resume: after("--resume"), sessionId: after("--session-id"), mode: process.env.FAKE_CLAUDE_MODE ?? "happy" }) + "\\n");`,
+          `else if (argv[0] === "app-server") appendFileSync(${JSON.stringify(codexLaunchesPath)}, JSON.stringify({ botId: process.env.LATERDOG_BOT_ID ?? null }) + "\\n");`,
+          `if (botId) process.env.FAKE_CLAUDE_PROMPTS = ${JSON.stringify(join(dataDir, "consumed-"))} + botId + ".jsonl";`,
+          ...(name === "claude"
+            ? [
+                'if (after("--resume") || after("--session-id")) {',
+                `  const modeNow = () => existsSync(${JSON.stringify(modePath(name))}) ? readFileSync(${JSON.stringify(modePath(name))}, "utf8") : "";`,
+                "  const launched = modeNow();",
+                "  let idle = false;",
+                "  const write = process.stdout.write.bind(process.stdout);",
+                "  process.stdout.write = (chunk, ...rest) => {",
+                "    const text = String(chunk);",
+                `    if (text.includes('"subtype":"init"')) idle = false;`,
+                `    if (text.includes('"type":"result"')) idle = true;`,
+                "    return write(chunk, ...rest);",
+                "  };",
+                '  setInterval(() => { if (idle && modeNow() !== launched) write("", () => process.exit(0)); }, 50).unref();',
+                "}",
+              ]
+            : []),
+          'process.stdin.on("end", () => process.exit(0));',
+          `if (after("--resume") && modes.holdresume) { while (!existsSync(${JSON.stringify(join(dataDir, "resume-hold.gate"))})) await new Promise((r) => setTimeout(r, 20)); }`,
+          `await import(${JSON.stringify(pathToFileURL(join(process.cwd(), "server", "testing", fake)).href)});`,
+        ].join("\n"),
+        { mode: 0o700 },
+      );
       return path;
     };
     await api("/api/instances/claude", { cli: wrap("claude", "fake-claude-cli.ts", {}) }, "PATCH");
     const codexDumpPath = join(dataDir, "codex-dump.json");
     if (options.codex) {
-      await api("/api/instances/codex", { cli: wrap("codex", "fake-codex-app-server.ts",
-        { FAKE_CODEX_MODE: "resume", FAKE_CODEX_ROOM_PLAN: planPath, FAKE_CODEX_DUMP: codexDumpPath, ...options.codex }) }, "PATCH");
+      await api(
+        "/api/instances/codex",
+        {
+          cli: wrap("codex", "fake-codex-app-server.ts", {
+            FAKE_CODEX_MODE: "resume",
+            FAKE_CODEX_ROOM_PLAN: planPath,
+            FAKE_CODEX_DUMP: codexDumpPath,
+            ...options.codex,
+          }),
+        },
+        "PATCH",
+      );
     }
-    const bot = async (name: string, section: string) => (await cli("new-bot", "--name", name, "--section", section)).bot;
+    const bot = async (name: string, section: string) =>
+      (await cli("new-bot", "--name", name, "--section", section)).bot;
     const chief = await bot("Clive", "Leadership");
     const lead = await bot("Engineering lead", "Engineering");
     const qa = await bot("QA", "Engineering");
     const ops = await bot("Ops", "Engineering");
-    await api(`/api/bots/${chief.id}`, { chiefOfStaff: true, managedSections: ["Engineering"], acknowledgePeerScope: true }, "PATCH");
+    await api(
+      `/api/bots/${chief.id}`,
+      { chiefOfStaff: true, managedSections: ["Engineering"], acknowledgePeerScope: true },
+      "PATCH",
+    );
     const plan: Record<string, any> = {};
     const save = () => writeFileSync(planPath, JSON.stringify(plan));
     save();
     const thread = chief.activeTaskId;
-    const send = async (text: string, threadId = thread) => { save(); return api(`/api/bots/${chief.id}/messages`, { text, threadId }); };
+    const send = async (text: string, threadId = thread) => {
+      save();
+      return api(`/api/bots/${chief.id}/messages`, { text, threadId });
+    };
     const wait = async (threadId = thread) =>
-      expect((await cli("wait", "--bot", chief.id, "--task", threadId, "--timeout", "40")).status).toBe("settled");
-    const turns = (botId = chief.id) => jsonl(`${planPath}.evidence.jsonl`).filter((turn: any) => turn.botId === botId);
+      expect(
+        (await cli("wait", "--bot", chief.id, "--task", threadId, "--timeout", "40")).status,
+      ).toBe("settled");
+    const turns = (botId = chief.id) =>
+      jsonl(`${planPath}.evidence.jsonl`).filter((turn: any) => turn.botId === botId);
     const prompt = (turn: any) => String(turn?.prompt?.message?.content ?? "");
-    const messages = async (threadId = thread) => (await api(`/api/threads/${threadId}/messages`)).messages;
+    const messages = async (threadId = thread) =>
+      (await api(`/api/threads/${threadId}/messages`)).messages;
     const nodes = () => jsonl(join(dataDir, "room-handoffs.json")).flat();
-    const task = (threadId = thread) => JSON.parse(readFileSync(join(dataDir, "bots.json"), "utf8"))
-      .find((b: any) => b.id === chief.id).tasks.find((stored: any) => stored.threadId === threadId);
+    const task = (threadId = thread) =>
+      JSON.parse(readFileSync(join(dataDir, "bots.json"), "utf8"))
+        .find((b: any) => b.id === chief.id)
+        .tasks.find((stored: any) => stored.threadId === threadId);
     const handed = (threadId = thread) => task(threadId).handedMessages;
-    const idle = (threadId = thread) => expect.poll(async () => (await api("/api/bots")).bots.find((b: any) => b.id === chief.id)
-      .tasks.find((stored: any) => stored.threadId === threadId).busy, { timeout: 30_000 }).toBe(false);
-    const launches = (botId = chief.id) => jsonl(launchesPath).filter((launch: any) => launch.botId === botId);
+    const idle = (threadId = thread) =>
+      expect
+        .poll(
+          async () =>
+            (await api("/api/bots")).bots
+              .find((b: any) => b.id === chief.id)
+              .tasks.find((stored: any) => stored.threadId === threadId).busy,
+          { timeout: 30_000 },
+        )
+        .toBe(false);
+    const launches = (botId = chief.id) =>
+      jsonl(launchesPath).filter((launch: any) => launch.botId === botId);
     const nativeSession = (botId = chief.id) => {
       const launch = launches(botId).at(-1);
       return launch?.resume ?? launch?.sessionId ?? null;
     };
     const consumed = (botId = chief.id) => jsonl(join(dataDir, `consumed-${botId}.jsonl`)).length;
-    const codexLaunches = (botId = chief.id) => jsonl(codexLaunchesPath).filter((launch: any) => launch.botId === botId);
-    const codexCalls = () => JSON.parse(readFileSync(codexDumpPath, "utf8")).calls as Array<{ method: string; params: any }>;
-    const codexModels = async () => (await cli("models")).instances.find((item: any) => item.instanceId === "codex").models.options.map((m: any) => m.id);
+    const codexLaunches = (botId = chief.id) =>
+      jsonl(codexLaunchesPath).filter((launch: any) => launch.botId === botId);
+    const codexCalls = () =>
+      JSON.parse(readFileSync(codexDumpPath, "utf8")).calls as Array<{
+        method: string;
+        params: any;
+      }>;
+    const codexModels = async () =>
+      (await cli("models")).instances
+        .find((item: any) => item.instanceId === "codex")
+        .models.options.map((m: any) => m.id);
     const selectModel = (model: string, extra: Record<string, unknown> = {}) =>
-      api(`/api/bots/${chief.id}/tasks/${thread}`, { modelSelection: { instanceId: "codex", model, ...extra }, requireAvailableModel: true }, "PATCH");
+      api(
+        `/api/bots/${chief.id}/tasks/${thread}`,
+        { modelSelection: { instanceId: "codex", model, ...extra }, requireAvailableModel: true },
+        "PATCH",
+      );
     const alive = (pid: number) => {
-      try { process.kill(pid, 0); return true; } catch (error) { return (error as NodeJS.ErrnoException).code === "EPERM"; }
+      try {
+        process.kill(pid, 0);
+        return true;
+      } catch (error) {
+        return (error as NodeJS.ErrnoException).code === "EPERM";
+      }
     };
     const setMode = async (mode?: string, engine = "claude") => {
       if (mode) writeFileSync(modePath(engine), mode);
@@ -114,958 +203,1776 @@ async function fixture(test: (f: any) => Promise<void>, options: { env?: NodeJS.
       const pid = engine === "claude" ? launches().at(-1)?.pid : undefined;
       if (pid) await expect.poll(() => alive(pid), { timeout: 30_000 }).toBe(false);
     };
-    const delegate = (key: string, to: any[], message: string, extra: Record<string, unknown> = {}) =>
-      ({ steps: [{ arguments: { bot_ids: to.map((b) => b.id), request_key: key, message } }], reply: "Assigned", resumeReply: "Done", ...extra });
+    const delegate = (
+      key: string,
+      to: any[],
+      message: string,
+      extra: Record<string, unknown> = {},
+    ) => ({
+      steps: [{ arguments: { bot_ids: to.map((b) => b.id), request_key: key, message } }],
+      reply: "Assigned",
+      resumeReply: "Done",
+      ...extra,
+    });
     const gate = (name: string) => join(dataDir, `${name}.gate`);
     const useModel = async (instanceId: string) => {
-      const model = (await cli("models")).instances.find((item: any) => item.instanceId === instanceId).models.options[0].id;
-      await cli("set-model", "--bot", chief.id, "--instance", instanceId, "--model", model, "--task", thread);
+      const model = (await cli("models")).instances.find(
+        (item: any) => item.instanceId === instanceId,
+      ).models.options[0].id;
+      await cli(
+        "set-model",
+        "--bot",
+        chief.id,
+        "--instance",
+        instanceId,
+        "--model",
+        model,
+        "--task",
+        thread,
+      );
     };
     const open = (path: string) => writeFileSync(path, "open");
-    const restart = async (edit: (bots: any[]) => void, signal: NodeJS.Signals = "SIGTERM", extraEnv: NodeJS.ProcessEnv = {}) => {
+    const restart = async (
+      edit: (bots: any[]) => void,
+      signal: NodeJS.Signals = "SIGTERM",
+      extraEnv: NodeJS.ProcessEnv = {},
+    ) => {
       await waitForExit(restarted ?? session.child, { signal });
       const bots = JSON.parse(readFileSync(join(dataDir, "bots.json"), "utf8"));
       edit(bots);
       writeFileSync(join(dataDir, "bots.json"), JSON.stringify(bots, null, 2));
-      const env = { ...verificationServerEnvironment(parentEnv, dataDir, Number(new URL(session.info.url).port)), ...extraEnv };
+      const env = {
+        ...verificationServerEnvironment(
+          parentEnv,
+          dataDir,
+          Number(new URL(session.info.url).port),
+        ),
+        ...extraEnv,
+      };
       const log = openSync(session.info.logPath, "a", 0o600);
-      restarted = spawn(process.execPath, ["--experimental-strip-types", fileURLToPath(new URL("./index.ts", import.meta.url))],
-        { cwd: fileURLToPath(new URL("..", import.meta.url)), env, stdio: ["ignore", log, log] });
+      restarted = spawn(
+        process.execPath,
+        ["--experimental-strip-types", fileURLToPath(new URL("./index.ts", import.meta.url))],
+        { cwd: fileURLToPath(new URL("..", import.meta.url)), env, stdio: ["ignore", log, log] },
+      );
       closeSync(log);
-      await expect.poll(async () => {
-        try { return (await fetch(`${session.info.url}/api/health`, { signal: AbortSignal.timeout(1_000) })).ok; } catch { return false; }
-      }, { timeout: 20_000 }).toBe(true);
+      await expect
+        .poll(
+          async () => {
+            try {
+              return (
+                await fetch(`${session.info.url}/api/health`, {
+                  signal: AbortSignal.timeout(1_000),
+                })
+              ).ok;
+            } catch {
+              return false;
+            }
+          },
+          { timeout: 20_000 },
+        )
+        .toBe(true);
     };
-    await test({ session, dataDir, cli, api, chief, lead, qa, ops, plan, save, send, wait, idle, turns, prompt, messages, nodes, task, handed,
-      launches, nativeSession, consumed, codexLaunches, codexCalls, codexModels, selectModel, setMode, delegate, gate, open, thread, useModel, restart });
+    await test({
+      session,
+      dataDir,
+      cli,
+      api,
+      chief,
+      lead,
+      qa,
+      ops,
+      plan,
+      save,
+      send,
+      wait,
+      idle,
+      turns,
+      prompt,
+      messages,
+      nodes,
+      task,
+      handed,
+      launches,
+      nativeSession,
+      consumed,
+      codexLaunches,
+      codexCalls,
+      codexModels,
+      selectModel,
+      setMode,
+      delegate,
+      gate,
+      open,
+      thread,
+      useModel,
+      restart,
+    });
   } finally {
     if (restarted) await waitForExit(restarted, { signal: "SIGTERM" });
     await session.close();
   }
 }
 
-const warmUp = async (f: any, text = "Remember: the final answer must use the codename ORCHID_7Q.") => {
+const warmUp = async (
+  f: any,
+  text = "Remember: the final answer must use the codename ORCHID_7Q.",
+) => {
   f.plan[f.chief.id] = { reply: "Noted." };
   await f.send(text);
   await f.wait();
 };
 
-it("resumes the source session and gives it each of three results exactly once, with a long brief", () => fixture(async (f) => {
-  await warmUp(f);
-  for (const [bot, tag] of [[f.lead, "LEAD"], [f.qa, "QA"], [f.ops, "OPS"]] as const) {
-    f.plan[bot.id] = { reply: `RESULT_${tag}_START ${"r".repeat(1_200)} RESULT_${tag}_END` };
-  }
-  f.plan[f.chief.id] = f.delegate("fanout", [f.lead, f.qa, f.ops], `BRIEF_START ${"b".repeat(1_500)} BRIEF_END`);
-  await f.send("Have Engineering, QA and Ops each check the release.");
-  await f.wait();
+it(
+  "resumes the source session and gives it each of three results exactly once, with a long brief",
+  () =>
+    fixture(async (f) => {
+      await warmUp(f);
+      for (const [bot, tag] of [
+        [f.lead, "LEAD"],
+        [f.qa, "QA"],
+        [f.ops, "OPS"],
+      ] as const) {
+        f.plan[bot.id] = { reply: `RESULT_${tag}_START ${"r".repeat(1_200)} RESULT_${tag}_END` };
+      }
+      f.plan[f.chief.id] = f.delegate(
+        "fanout",
+        [f.lead, f.qa, f.ops],
+        `BRIEF_START ${"b".repeat(1_500)} BRIEF_END`,
+      );
+      await f.send("Have Engineering, QA and Ops each check the release.");
+      await f.wait();
 
-  const returned = f.turns().at(-1);
-  const text = f.prompt(returned);
-  expect(returned.resumed).toBe(true);
-  const launches = f.launches();
-  expect(launches.at(-1).resume).toBe(launches[0].sessionId);
-  for (const tag of ["LEAD", "QA", "OPS"]) {
-    expect(count(text, `RESULT_${tag}_START`)).toBe(1);
-    expect(count(text, `RESULT_${tag}_END`)).toBe(1);
-  }
-  expect(text).not.toContain("ORCHID_7Q");
-  expect(text).not.toMatch(/^Assistant: @/m);
-}), 60_000);
+      const returned = f.turns().at(-1);
+      const text = f.prompt(returned);
+      expect(returned.resumed).toBe(true);
+      const launches = f.launches();
+      expect(launches.at(-1).resume).toBe(launches[0].sessionId);
+      for (const tag of ["LEAD", "QA", "OPS"]) {
+        expect(count(text, `RESULT_${tag}_START`)).toBe(1);
+        expect(count(text, `RESULT_${tag}_END`)).toBe(1);
+      }
+      expect(text).not.toContain("ORCHID_7Q");
+      expect(text).not.toMatch(/^Assistant: @/m);
+    }),
+  60_000,
+);
 
-it("gives the return turn a result that landed while a newer message was running, exactly once", () => fixture(async (f) => {
-  await warmUp(f);
-  f.plan[f.lead.id] = { reply: "LEAD_RESULT_TOKEN", gateFile: f.gate("lead") };
-  f.plan[f.chief.id] = { turns: [{}, f.delegate("build", [f.lead], "Build the export"), { reply: "4", gateFile: f.gate("steer") }, { reply: "Done" }] };
-  await f.send("Please have Engineering build the export.");
-  await expect.poll(() => f.nodes().find((node: any) => node.botId === f.lead.id)?.status, { timeout: 15_000 }).toBe("running");
-  expect((await f.send("Meanwhile, what is 2+2?")).queued).toBeUndefined();
-  f.open(f.gate("lead"));
-  await expect.poll(async () => (await f.messages()).some((m: any) => m.tool?.name === "Engineering lead replied"), { timeout: 20_000 }).toBe(true);
-  f.open(f.gate("steer"));
-  await f.wait();
+it(
+  "gives the return turn a result that landed while a newer message was running, exactly once",
+  () =>
+    fixture(async (f) => {
+      await warmUp(f);
+      f.plan[f.lead.id] = { reply: "LEAD_RESULT_TOKEN", gateFile: f.gate("lead") };
+      f.plan[f.chief.id] = {
+        turns: [
+          {},
+          f.delegate("build", [f.lead], "Build the export"),
+          { reply: "4", gateFile: f.gate("steer") },
+          { reply: "Done" },
+        ],
+      };
+      await f.send("Please have Engineering build the export.");
+      await expect
+        .poll(() => f.nodes().find((node: any) => node.botId === f.lead.id)?.status, {
+          timeout: 15_000,
+        })
+        .toBe("running");
+      expect((await f.send("Meanwhile, what is 2+2?")).queued).toBeUndefined();
+      f.open(f.gate("lead"));
+      await expect
+        .poll(
+          async () =>
+            (await f.messages()).some((m: any) => m.tool?.name === "Engineering lead replied"),
+          { timeout: 20_000 },
+        )
+        .toBe(true);
+      f.open(f.gate("steer"));
+      await f.wait();
 
-  const returned = f.turns().at(-1);
-  expect(returned.resumed).toBe(true);
-  expect(count(f.prompt(returned), "LEAD_RESULT_TOKEN")).toBe(1);
-  expect(f.launches().at(-1).resume).not.toBeNull();
-}), 60_000);
+      const returned = f.turns().at(-1);
+      expect(returned.resumed).toBe(true);
+      expect(count(f.prompt(returned), "LEAD_RESULT_TOKEN")).toBe(1);
+      expect(f.launches().at(-1).resume).not.toBeNull();
+    }),
+  60_000,
+);
 
-it("offers a result that lands mid-turn after its source was stopped to the next turn, once, labelled", () => fixture(async (f) => {
-  await warmUp(f);
-  f.plan[f.lead.id] = { reply: "STOPPED_SOURCE_RESULT", gateFile: f.gate("lead") };
-  f.plan[f.chief.id] = f.delegate("build", [f.lead], "Build the export");
-  await f.send("Please have Engineering build the export.");
-  await expect.poll(() => f.nodes().find((node: any) => node.botId === f.lead.id)?.status, { timeout: 15_000 }).toBe("running");
-  await f.api(`/api/bots/${f.chief.id}/interrupt`, { threadId: f.thread });
-  await f.wait();
+it(
+  "offers a result that lands mid-turn after its source was stopped to the next turn, once, labelled",
+  () =>
+    fixture(async (f) => {
+      await warmUp(f);
+      f.plan[f.lead.id] = { reply: "STOPPED_SOURCE_RESULT", gateFile: f.gate("lead") };
+      f.plan[f.chief.id] = f.delegate("build", [f.lead], "Build the export");
+      await f.send("Please have Engineering build the export.");
+      await expect
+        .poll(() => f.nodes().find((node: any) => node.botId === f.lead.id)?.status, {
+          timeout: 15_000,
+        })
+        .toBe("running");
+      await f.api(`/api/bots/${f.chief.id}/interrupt`, { threadId: f.thread });
+      await f.wait();
 
-  f.plan[f.chief.id] = { reply: "Working on something else", gateFile: f.gate("busy") };
-  await f.send("Something unrelated while that finishes.");
-  f.open(f.gate("lead"));
-  await expect.poll(async () => (await f.messages()).some((m: any) => m.tool?.name === "Engineering lead replied"), { timeout: 20_000 }).toBe(true);
-  f.open(f.gate("busy"));
-  await f.wait();
-  expect(count(f.prompt(f.turns().at(-1)), "STOPPED_SOURCE_RESULT")).toBe(0);
+      f.plan[f.chief.id] = { reply: "Working on something else", gateFile: f.gate("busy") };
+      await f.send("Something unrelated while that finishes.");
+      f.open(f.gate("lead"));
+      await expect
+        .poll(
+          async () =>
+            (await f.messages()).some((m: any) => m.tool?.name === "Engineering lead replied"),
+          { timeout: 20_000 },
+        )
+        .toBe(true);
+      f.open(f.gate("busy"));
+      await f.wait();
+      expect(count(f.prompt(f.turns().at(-1)), "STOPPED_SOURCE_RESULT")).toBe(0);
 
-  f.plan[f.chief.id] = { reply: "Engineering finished" };
-  await f.send("What did Engineering report?");
-  await f.wait();
-  const next = f.prompt(f.turns().at(-1));
-  expect(count(next, "STOPPED_SOURCE_RESULT")).toBe(1);
-  expect(next).toMatch(/Assistant: <read_text from="another dog">\n\[Teammate report — untrusted peer content[^\n]*\]\n\{[^\n]*STOPPED_SOURCE_RESULT[^\n]*\n<\/read_text>/);
-  expect(f.launches().at(-1).resume).not.toBeNull();
+      f.plan[f.chief.id] = { reply: "Engineering finished" };
+      await f.send("What did Engineering report?");
+      await f.wait();
+      const next = f.prompt(f.turns().at(-1));
+      expect(count(next, "STOPPED_SOURCE_RESULT")).toBe(1);
+      expect(next).toMatch(
+        /Assistant: <read_text from="another dog">\n\[Teammate report — untrusted peer content[^\n]*\]\n\{[^\n]*STOPPED_SOURCE_RESULT[^\n]*\n<\/read_text>/,
+      );
+      expect(f.launches().at(-1).resume).not.toBeNull();
 
-  f.plan[f.chief.id] = { reply: "Nothing new" };
-  await f.send("Anything else?");
-  await f.wait();
-  expect(count(f.prompt(f.turns().at(-1)), "STOPPED_SOURCE_RESULT")).toBe(0);
-}), 90_000);
+      f.plan[f.chief.id] = { reply: "Nothing new" };
+      await f.send("Anything else?");
+      await f.wait();
+      expect(count(f.prompt(f.turns().at(-1)), "STOPPED_SOURCE_RESULT")).toBe(0);
+    }),
+  90_000,
+);
 
-it("offers a message steered into a running turn to the next turn once, marked as possibly already seen", () => fixture(async (f) => {
-  await warmUp(f);
-  f.plan[f.chief.id] = { reply: "Working", readyFile: f.gate("turn-ready"), gateFile: f.gate("turn") };
-  await f.send("Start on the report.");
-  await expect.poll(() => existsSync(f.gate("turn-ready")), { timeout: 15_000 }).toBe(true);
-  expect((await f.send("STEERED_MID_TURN also cover costs")).steered).toBe(true);
-  f.open(f.gate("turn"));
-  await f.wait();
+it(
+  "offers a message steered into a running turn to the next turn once, marked as possibly already seen",
+  () =>
+    fixture(async (f) => {
+      await warmUp(f);
+      f.plan[f.chief.id] = {
+        reply: "Working",
+        readyFile: f.gate("turn-ready"),
+        gateFile: f.gate("turn"),
+      };
+      await f.send("Start on the report.");
+      await expect.poll(() => existsSync(f.gate("turn-ready")), { timeout: 15_000 }).toBe(true);
+      expect((await f.send("STEERED_MID_TURN also cover costs")).steered).toBe(true);
+      f.open(f.gate("turn"));
+      await f.wait();
 
-  f.plan[f.chief.id] = { reply: "Covered" };
-  await f.send("Is it done?");
-  await f.wait();
-  const next = f.prompt(f.turns().at(-1));
-  expect(count(next, "STEERED_MID_TURN")).toBe(1);
-  expect(next).toMatch(/User \(sent while an earlier turn was running; you may already have it\): STEERED_MID_TURN/);
+      f.plan[f.chief.id] = { reply: "Covered" };
+      await f.send("Is it done?");
+      await f.wait();
+      const next = f.prompt(f.turns().at(-1));
+      expect(count(next, "STEERED_MID_TURN")).toBe(1);
+      expect(next).toMatch(
+        /User \(sent while an earlier turn was running; you may already have it\): STEERED_MID_TURN/,
+      );
 
-  f.plan[f.chief.id] = { reply: "Nothing new" };
-  await f.send("Anything else?");
-  await f.wait();
-  expect(f.prompt(f.turns().at(-1))).not.toContain("STEERED_MID_TURN");
-}), 60_000);
+      f.plan[f.chief.id] = { reply: "Nothing new" };
+      await f.send("Anything else?");
+      await f.wait();
+      expect(f.prompt(f.turns().at(-1))).not.toContain("STEERED_MID_TURN");
+    }),
+  60_000,
+);
 
-it("offers the results again when the return turn fails before the provider acts on it", () => fixture(async (f) => {
-  await warmUp(f);
-  f.plan[f.lead.id] = { reply: "UNACCEPTED_RESULT" };
-  f.plan[f.chief.id] = f.delegate("build", [f.lead], "Build the export", { failResumed: true });
-  await f.send("Please have Engineering build the export.");
-  await f.wait();
-  expect(f.nodes().find((node: any) => !node.parentId).status).toBe("failed");
+it(
+  "offers the results again when the return turn fails before the provider acts on it",
+  () =>
+    fixture(async (f) => {
+      await warmUp(f);
+      f.plan[f.lead.id] = { reply: "UNACCEPTED_RESULT" };
+      f.plan[f.chief.id] = f.delegate("build", [f.lead], "Build the export", { failResumed: true });
+      await f.send("Please have Engineering build the export.");
+      await f.wait();
+      expect(f.nodes().find((node: any) => !node.parentId).status).toBe("failed");
 
-  f.plan[f.chief.id] = { reply: "Here is what Engineering found" };
-  await f.send("What did Engineering find?");
-  await f.wait();
-  const next = f.prompt(f.turns().at(-1));
-  expect(count(next, "UNACCEPTED_RESULT")).toBe(1);
-  expect(JSON.stringify(f.handed())).not.toContain("card-");
-}), 60_000);
+      f.plan[f.chief.id] = { reply: "Here is what Engineering found" };
+      await f.send("What did Engineering find?");
+      await f.wait();
+      const next = f.prompt(f.turns().at(-1));
+      expect(count(next, "UNACCEPTED_RESULT")).toBe(1);
+      expect(JSON.stringify(f.handed())).not.toContain("card-");
+    }),
+  60_000,
+);
 
-it("offers the results again when the person stops the return turn before the provider acts on it", () => fixture(async (f) => {
-  await warmUp(f);
-  f.plan[f.lead.id] = { reply: "STOPPED_RETURN_RESULT" };
-  f.plan[f.chief.id] = { turns: [{}, f.delegate("build", [f.lead], "Build the export"), { reply: "never sent", gateFile: f.gate("return") }] };
-  await f.send("Please have Engineering build the export.");
-  await expect.poll(() => f.nodes().find((node: any) => node.botId === f.lead.id)?.status, { timeout: 20_000 }).toBe("completed");
-  await expect.poll(() => f.nodes().find((node: any) => !node.parentId)?.status, { timeout: 20_000 }).toBe("running");
-  await f.api(`/api/bots/${f.chief.id}/interrupt`, { threadId: f.thread });
-  await f.idle();
+it(
+  "offers the results again when the person stops the return turn before the provider acts on it",
+  () =>
+    fixture(async (f) => {
+      await warmUp(f);
+      f.plan[f.lead.id] = { reply: "STOPPED_RETURN_RESULT" };
+      f.plan[f.chief.id] = {
+        turns: [
+          {},
+          f.delegate("build", [f.lead], "Build the export"),
+          { reply: "never sent", gateFile: f.gate("return") },
+        ],
+      };
+      await f.send("Please have Engineering build the export.");
+      await expect
+        .poll(() => f.nodes().find((node: any) => node.botId === f.lead.id)?.status, {
+          timeout: 20_000,
+        })
+        .toBe("completed");
+      await expect
+        .poll(() => f.nodes().find((node: any) => !node.parentId)?.status, { timeout: 20_000 })
+        .toBe("running");
+      await f.api(`/api/bots/${f.chief.id}/interrupt`, { threadId: f.thread });
+      await f.idle();
 
-  f.plan[f.chief.id] = { reply: "Recovered", resumeReply: "Recovered" };
-  await f.send("What did Engineering find?");
-  await f.wait();
-  const next = f.turns().filter((turn: any) => f.prompt(turn).includes("What did Engineering find?")).at(-1);
-  expect(count(f.prompt(next), "STOPPED_RETURN_RESULT")).toBe(1);
-  const replies = (await f.messages()).map((message: any) => message.text);
-  expect(replies).toContain("Recovered");
-  expect(replies).not.toContain("never sent");
-}), 60_000);
+      f.plan[f.chief.id] = { reply: "Recovered", resumeReply: "Recovered" };
+      await f.send("What did Engineering find?");
+      await f.wait();
+      const next = f
+        .turns()
+        .filter((turn: any) => f.prompt(turn).includes("What did Engineering find?"))
+        .at(-1);
+      expect(count(f.prompt(next), "STOPPED_RETURN_RESULT")).toBe(1);
+      const replies = (await f.messages()).map((message: any) => message.text);
+      expect(replies).toContain("Recovered");
+      expect(replies).not.toContain("never sent");
+    }),
+  60_000,
+);
 
-it("rebuilds a rejected resume with each result exactly once", () => fixture(async (f) => {
-  await warmUp(f);
-  f.plan[f.lead.id] = { reply: `RECOVERY_RESULT_START ${"r".repeat(900)} RECOVERY_RESULT_END` };
-  f.plan[f.chief.id] = f.delegate("build", [f.lead], "Build the export");
-  await f.send("Please have Engineering build the export.");
-  await f.wait();
-  const recovered = f.prompt(f.turns().at(-1));
-  expect(recovered).toContain("received an update outside your provider session");
-  expect(recovered).toContain("ORCHID_7Q");
-  expect(count(recovered, "RECOVERY_RESULT_START")).toBe(1);
-  expect(count(recovered, "RECOVERY_RESULT_END")).toBe(1);
-}, { env: { FAKE_CLAUDE_MODE: "dead-session" } }), 60_000);
+it(
+  "rebuilds a rejected resume with each result exactly once",
+  () =>
+    fixture(
+      async (f) => {
+        await warmUp(f);
+        f.plan[f.lead.id] = {
+          reply: `RECOVERY_RESULT_START ${"r".repeat(900)} RECOVERY_RESULT_END`,
+        };
+        f.plan[f.chief.id] = f.delegate("build", [f.lead], "Build the export");
+        await f.send("Please have Engineering build the export.");
+        await f.wait();
+        const recovered = f.prompt(f.turns().at(-1));
+        expect(recovered).toContain("received an update outside your provider session");
+        expect(recovered).toContain("ORCHID_7Q");
+        expect(count(recovered, "RECOVERY_RESULT_START")).toBe(1);
+        expect(count(recovered, "RECOVERY_RESULT_END")).toBe(1);
+      },
+      { env: { FAKE_CLAUDE_MODE: "dead-session" } },
+    ),
+  60_000,
+);
 
-it("keeps provenance and exactly-once delivery across rework rounds to the same teammate", () => fixture(async (f) => {
-  await warmUp(f);
-  f.plan[f.lead.id] = { turns: [{ reply: "ROUND_ONE_RESULT" }, { reply: "ROUND_TWO_RESULT" }] };
-  f.plan[f.chief.id] = { turns: [
-    {},
-    f.delegate("r1", [f.lead], "REQUEST_ONE please build it"),
-    { steps: [{ arguments: { bot_ids: [f.lead.id], request_key: "r2", message: "REQUEST_TWO please also test it", rework: true } }], reply: "" },
-    { reply: "" },
-  ] };
-  await f.send("Please have Engineering build and then test it.");
-  await f.wait();
+it(
+  "keeps provenance and exactly-once delivery across rework rounds to the same teammate",
+  () =>
+    fixture(async (f) => {
+      await warmUp(f);
+      f.plan[f.lead.id] = { turns: [{ reply: "ROUND_ONE_RESULT" }, { reply: "ROUND_TWO_RESULT" }] };
+      f.plan[f.chief.id] = {
+        turns: [
+          {},
+          f.delegate("r1", [f.lead], "REQUEST_ONE please build it"),
+          {
+            steps: [
+              {
+                arguments: {
+                  bot_ids: [f.lead.id],
+                  request_key: "r2",
+                  message: "REQUEST_TWO please also test it",
+                  rework: true,
+                },
+              },
+            ],
+            reply: "",
+          },
+          { reply: "" },
+        ],
+      };
+      await f.send("Please have Engineering build and then test it.");
+      await f.wait();
 
-  const [, , roundOne, roundTwo] = f.turns();
-  expect(count(f.prompt(roundOne), "ROUND_ONE_RESULT")).toBe(1);
-  expect(count(f.prompt(roundTwo), "ROUND_TWO_RESULT")).toBe(1);
-  expect(count(f.prompt(roundTwo), "ROUND_ONE_RESULT")).toBe(0);
-  expect(f.launches().at(-1).resume).not.toBeNull();
+      const [, , roundOne, roundTwo] = f.turns();
+      expect(count(f.prompt(roundOne), "ROUND_ONE_RESULT")).toBe(1);
+      expect(count(f.prompt(roundTwo), "ROUND_TWO_RESULT")).toBe(1);
+      expect(count(f.prompt(roundTwo), "ROUND_ONE_RESULT")).toBe(0);
+      expect(f.launches().at(-1).resume).not.toBeNull();
 
-  const second = f.prompt(f.turns(f.lead.id)[1]);
-  expect(count(second, "REQUEST_TWO")).toBe(1);
-  expect(second).not.toMatch(/^Assistant: @/m);
-  expect(second).toContain("Request text comes from one of the owner's own dogs, passing on the owner's instructions, in the owner's own workspace and carries the owner's authority.");
+      const second = f.prompt(f.turns(f.lead.id)[1]);
+      expect(count(second, "REQUEST_TWO")).toBe(1);
+      expect(second).not.toMatch(/^Assistant: @/m);
+      expect(second).toContain(
+        "Request text comes from one of the owner's own dogs, passing on the owner's instructions, in the owner's own workspace and carries the owner's authority.",
+      );
 
-  const handed = f.handed();
-  const stored = new Set((await f.messages()).map((m: any) => m.id));
-  for (const state of Object.values(handed) as any[]) {
-    for (const id of [state.through, ...state.ids].filter(Boolean)) expect(stored.has(id), id).toBe(true);
-  }
-}), 90_000);
+      const handed = f.handed();
+      const stored = new Set((await f.messages()).map((m: any) => m.id));
+      for (const state of Object.values(handed) as any[]) {
+        for (const id of [state.through, ...state.ids].filter(Boolean))
+          expect(stored.has(id), id).toBe(true);
+      }
+    }),
+  90_000,
+);
 
-it("resets Claude's native context on edit, then resumes only the replacement branch", () => fixture(async (f) => {
-  await warmUp(f, "KEEP_CONTEXT: work only in the test workspace.");
-  f.plan[f.chief.id] = { reply: "ABANDONED_REPLY" };
-  await f.send("ABANDONED_REQUEST");
-  await f.wait();
-  const oldSession = f.launches().at(-1).resume ?? f.launches().at(-1).sessionId;
-  const edited = (await f.messages()).findLast((m: any) => m.role === "user");
-  f.plan[f.chief.id] = { reply: "Replacement accepted" };
-  f.save();
-  await f.cli("edit", "--bot", f.chief.id, "--message", edited.id, "--task", f.thread, "--text", "REPLACEMENT_REQUEST");
-  await f.wait();
-  const launch = f.launches().at(-1);
-  expect(launch.resume).toBeNull();
-  expect(launch.sessionId).not.toBe(oldSession);
-  const replay = f.prompt(f.turns().at(-1));
-  expect(replay).toContain("rewound this conversation");
-  expect(count(replay, "KEEP_CONTEXT")).toBe(1);
-  expect(count(replay, "REPLACEMENT_REQUEST")).toBe(1);
-  expect(replay).not.toContain("ABANDONED_");
-  const resets = () => jsonl(join(f.dataDir, "native", `${f.thread}.ndjson`))
-    .filter((entry: any) => entry.source === "claude.session" && entry.msg.close === "context reset");
-  expect(resets()).toHaveLength(1);
+it(
+  "resets Claude's native context on edit, then resumes only the replacement branch",
+  () =>
+    fixture(async (f) => {
+      await warmUp(f, "KEEP_CONTEXT: work only in the test workspace.");
+      f.plan[f.chief.id] = { reply: "ABANDONED_REPLY" };
+      await f.send("ABANDONED_REQUEST");
+      await f.wait();
+      const oldSession = f.launches().at(-1).resume ?? f.launches().at(-1).sessionId;
+      const edited = (await f.messages()).findLast((m: any) => m.role === "user");
+      f.plan[f.chief.id] = { reply: "Replacement accepted" };
+      f.save();
+      await f.cli(
+        "edit",
+        "--bot",
+        f.chief.id,
+        "--message",
+        edited.id,
+        "--task",
+        f.thread,
+        "--text",
+        "REPLACEMENT_REQUEST",
+      );
+      await f.wait();
+      const launch = f.launches().at(-1);
+      expect(launch.resume).toBeNull();
+      expect(launch.sessionId).not.toBe(oldSession);
+      const replay = f.prompt(f.turns().at(-1));
+      expect(replay).toContain("rewound this conversation");
+      expect(count(replay, "KEEP_CONTEXT")).toBe(1);
+      expect(count(replay, "REPLACEMENT_REQUEST")).toBe(1);
+      expect(replay).not.toContain("ABANDONED_");
+      const resets = () =>
+        jsonl(join(f.dataDir, "native", `${f.thread}.ndjson`)).filter(
+          (entry: any) => entry.source === "claude.session" && entry.msg.close === "context reset",
+        );
+      expect(resets()).toHaveLength(1);
 
-  f.plan[f.chief.id] = { reply: "Continuing the replacement" };
-  await f.send("Continue");
-  await f.wait();
-  expect(f.nativeSession()).toBe(launch.sessionId);
-  expect(f.prompt(f.turns().at(-1))).not.toContain("ABANDONED_");
-  expect(resets()).toHaveLength(1);
-}), 60_000);
+      f.plan[f.chief.id] = { reply: "Continuing the replacement" };
+      await f.send("Continue");
+      await f.wait();
+      expect(f.nativeSession()).toBe(launch.sessionId);
+      expect(f.prompt(f.turns().at(-1))).not.toContain("ABANDONED_");
+      expect(resets()).toHaveLength(1);
+    }),
+  60_000,
+);
 
-it("replays a delegated result once after a rewind, and keeps resuming afterwards", () => fixture(async (f) => {
-  await warmUp(f);
-  f.plan[f.lead.id] = { reply: "REWIND_RESULT" };
-  f.plan[f.chief.id] = f.delegate("build", [f.lead], "Build the export");
-  await f.send("Please have Engineering build the export.");
-  await f.wait();
-  f.plan[f.chief.id] = { reply: "Anything else?" };
-  await f.send("Thanks.");
-  await f.wait();
+it(
+  "replays a delegated result once after a rewind, and keeps resuming afterwards",
+  () =>
+    fixture(async (f) => {
+      await warmUp(f);
+      f.plan[f.lead.id] = { reply: "REWIND_RESULT" };
+      f.plan[f.chief.id] = f.delegate("build", [f.lead], "Build the export");
+      await f.send("Please have Engineering build the export.");
+      await f.wait();
+      f.plan[f.chief.id] = { reply: "Anything else?" };
+      await f.send("Thanks.");
+      await f.wait();
 
-  const followup = (await f.messages()).findLast((m: any) => m.role === "user");
-  f.plan[f.chief.id] = { reply: "Rebuilt" };
-  f.save();
-  await f.cli("edit", "--bot", f.chief.id, "--message", followup.id, "--task", f.thread, "--text", "Thanks, one more thing (edited).");
-  await f.wait();
-  const rewound = f.prompt(f.turns().at(-1));
-  expect(rewound).toContain("rewound this conversation");
-  expect(count(rewound, "REWIND_RESULT")).toBe(1);
-  expect(f.launches().at(-1).resume).toBeNull();
-  const rebuilt = f.nativeSession();
+      const followup = (await f.messages()).findLast((m: any) => m.role === "user");
+      f.plan[f.chief.id] = { reply: "Rebuilt" };
+      f.save();
+      await f.cli(
+        "edit",
+        "--bot",
+        f.chief.id,
+        "--message",
+        followup.id,
+        "--task",
+        f.thread,
+        "--text",
+        "Thanks, one more thing (edited).",
+      );
+      await f.wait();
+      const rewound = f.prompt(f.turns().at(-1));
+      expect(rewound).toContain("rewound this conversation");
+      expect(count(rewound, "REWIND_RESULT")).toBe(1);
+      expect(f.launches().at(-1).resume).toBeNull();
+      const rebuilt = f.nativeSession();
 
-  f.plan[f.chief.id] = { reply: "Still here" };
-  await f.send("And now?");
-  await f.wait();
-  expect(count(f.prompt(f.turns().at(-1)), "REWIND_RESULT")).toBe(0);
-  expect(f.nativeSession()).toBe(rebuilt);
-}), 90_000);
+      f.plan[f.chief.id] = { reply: "Still here" };
+      await f.send("And now?");
+      await f.wait();
+      expect(count(f.prompt(f.turns().at(-1)), "REWIND_RESULT")).toBe(0);
+      expect(f.nativeSession()).toBe(rebuilt);
+    }),
+  90_000,
+);
 
-it("resumes a Codex source with each result exactly once, then replays once for a model switch", () => fixture(async (f) => {
-  await f.useModel("codex");
-  await warmUp(f);
-  f.plan[f.lead.id] = { reply: "CODEX_RETURN_RESULT" };
-  f.plan[f.chief.id] = f.delegate("build", [f.lead], `CODEX_BRIEF ${"b".repeat(800)}`);
-  await f.send("Please have Engineering build the export.");
-  await f.wait();
-  const returned = f.turns().at(-1);
-  expect(returned.resumed).toBe(true);
-  expect(returned.resumedThread).toBeTruthy();
-  expect(count(f.prompt(returned), "CODEX_RETURN_RESULT")).toBe(1);
-  expect(f.prompt(returned)).not.toContain("ORCHID_7Q");
+it(
+  "resumes a Codex source with each result exactly once, then replays once for a model switch",
+  () =>
+    fixture(
+      async (f) => {
+        await f.useModel("codex");
+        await warmUp(f);
+        f.plan[f.lead.id] = { reply: "CODEX_RETURN_RESULT" };
+        f.plan[f.chief.id] = f.delegate("build", [f.lead], `CODEX_BRIEF ${"b".repeat(800)}`);
+        await f.send("Please have Engineering build the export.");
+        await f.wait();
+        const returned = f.turns().at(-1);
+        expect(returned.resumed).toBe(true);
+        expect(returned.resumedThread).toBeTruthy();
+        expect(count(f.prompt(returned), "CODEX_RETURN_RESULT")).toBe(1);
+        expect(f.prompt(returned)).not.toContain("ORCHID_7Q");
 
-  f.plan[f.chief.id] = { reply: "Continuing on Claude" };
-  await f.useModel("claude");
-  await f.send("Switching engines: what did Engineering report?");
-  await f.wait();
-  const switched = f.prompt(f.turns().at(-1));
-  expect(switched).toContain("switched this bot over to you");
-  expect(switched).toContain("ORCHID_7Q");
-  expect(count(switched, "CODEX_RETURN_RESULT")).toBe(1);
+        f.plan[f.chief.id] = { reply: "Continuing on Claude" };
+        await f.useModel("claude");
+        await f.send("Switching engines: what did Engineering report?");
+        await f.wait();
+        const switched = f.prompt(f.turns().at(-1));
+        expect(switched).toContain("switched this bot over to you");
+        expect(switched).toContain("ORCHID_7Q");
+        expect(count(switched, "CODEX_RETURN_RESULT")).toBe(1);
 
-  f.plan[f.chief.id] = { reply: "Still on Claude" };
-  await f.send("And now?");
-  await f.wait();
-  expect(count(f.prompt(f.turns().at(-1)), "CODEX_RETURN_RESULT")).toBe(0);
-}, { codex: {} }), 90_000);
+        f.plan[f.chief.id] = { reply: "Still on Claude" };
+        await f.send("And now?");
+        await f.wait();
+        expect(count(f.prompt(f.turns().at(-1)), "CODEX_RETURN_RESULT")).toBe(0);
+      },
+      { codex: {} },
+    ),
+  90_000,
+);
 
-it("records a Codex handoff whose turn completes before turn/start is acknowledged", () => fixture(async (f) => {
-  await f.useModel("codex");
-  await warmUp(f);
-  f.plan[f.lead.id] = { reply: "EARLY_ACK_RESULT" };
-  f.plan[f.chief.id] = f.delegate("build", [f.lead], "Build the export");
-  await f.send("Please have Engineering build the export.");
-  await f.wait();
-  expect(count(f.prompt(f.turns().at(-1)), "EARLY_ACK_RESULT")).toBe(1);
+it(
+  "records a Codex handoff whose turn completes before turn/start is acknowledged",
+  () =>
+    fixture(
+      async (f) => {
+        await f.useModel("codex");
+        await warmUp(f);
+        f.plan[f.lead.id] = { reply: "EARLY_ACK_RESULT" };
+        f.plan[f.chief.id] = f.delegate("build", [f.lead], "Build the export");
+        await f.send("Please have Engineering build the export.");
+        await f.wait();
+        expect(count(f.prompt(f.turns().at(-1)), "EARLY_ACK_RESULT")).toBe(1);
 
-  f.plan[f.chief.id] = { reply: "Nothing new" };
-  await f.send("Anything else?");
-  await f.wait();
-  const next = f.turns().at(-1);
-  expect(next.resumedThread).toBeTruthy();
-  expect(count(f.prompt(next), "EARLY_ACK_RESULT")).toBe(0);
-  expect(f.prompt(next)).not.toContain("Messages this conversation received");
-}, { codex: { FAKE_CODEX_COMPLETE_BEFORE_ACK: "1" } }), 90_000);
+        f.plan[f.chief.id] = { reply: "Nothing new" };
+        await f.send("Anything else?");
+        await f.wait();
+        const next = f.turns().at(-1);
+        expect(next.resumedThread).toBeTruthy();
+        expect(count(f.prompt(next), "EARLY_ACK_RESULT")).toBe(0);
+        expect(f.prompt(next)).not.toContain("Messages this conversation received");
+      },
+      { codex: { FAKE_CODEX_COMPLETE_BEFORE_ACK: "1" } },
+    ),
+  90_000,
+);
 
 const resultAcrossRestart = async (f: any, stripRecord: boolean) => {
   await warmUp(f);
   f.plan[f.lead.id] = { reply: "never finishes", gateFile: f.gate("never") };
   f.plan[f.chief.id] = f.delegate("build", [f.lead], "Build the export");
   await f.send("Please have Engineering build the export.");
-  await expect.poll(() => f.nodes().find((node: any) => node.botId === f.lead.id)?.status, { timeout: 15_000 }).toBe("running");
+  await expect
+    .poll(() => f.nodes().find((node: any) => node.botId === f.lead.id)?.status, {
+      timeout: 15_000,
+    })
+    .toBe("running");
   const leadThread = f.nodes().find((node: any) => node.botId === f.lead.id).threadId;
   await f.api(`/api/bots/${f.chief.id}/interrupt`, { threadId: f.thread });
   await f.wait();
-  await f.restart((bots: any[]) => {
-    for (const task of bots.find((b: any) => b.id === f.lead.id).tasks) {
-      if (task.threadId === leadThread) Object.assign(task, { approvalMode: "ask", autoApprove: false });
-    }
-    if (!stripRecord) return;
-    for (const task of bots.find((b: any) => b.id === f.chief.id).tasks) { delete task.handedMessages; delete task.handedWatermarks; }
-  }, "SIGTERM", { FAKE_CLAUDE_START_DELAY: "1" });
-  await expect.poll(async () => (await f.messages()).some((m: any) => m.roomRequest?.phase === "result"), { timeout: 20_000 }).toBe(true);
+  await f.restart(
+    (bots: any[]) => {
+      for (const task of bots.find((b: any) => b.id === f.lead.id).tasks) {
+        if (task.threadId === leadThread)
+          Object.assign(task, { approvalMode: "ask", autoApprove: false });
+      }
+      if (!stripRecord) return;
+      for (const task of bots.find((b: any) => b.id === f.chief.id).tasks) {
+        delete task.handedMessages;
+        delete task.handedWatermarks;
+      }
+    },
+    "SIGTERM",
+    { FAKE_CLAUDE_START_DELAY: "1" },
+  );
+  await expect
+    .poll(async () => (await f.messages()).some((m: any) => m.roomRequest?.phase === "result"), {
+      timeout: 20_000,
+    })
+    .toBe(true);
   f.plan[f.chief.id] = { reply: "Engineering was interrupted" };
   await f.send("What happened to the Engineering work?");
   await f.wait();
   return f.turns().at(-1);
 };
 
-it("replays once for a stored conversation without a handoff record when a result arrives after restart", () => fixture(async (f) => {
-  const turn = await resultAcrossRestart(f, true);
-  expect(count(f.prompt(turn), "restarted while this was running")).toBe(1);
-  expect(f.prompt(turn)).toContain("ORCHID_7Q");
-  expect(f.launches().at(-1).resume).toBeNull();
-  const rebuilt = f.nativeSession();
-  f.plan[f.chief.id] = { reply: "ok" };
-  await f.send("Thanks.");
-  await f.wait();
-  expect(count(f.prompt(f.turns().at(-1)), "restarted while this was running")).toBe(0);
-  expect(f.nativeSession()).toBe(rebuilt);
-}), 90_000);
+it(
+  "replays once for a stored conversation without a handoff record when a result arrives after restart",
+  () =>
+    fixture(async (f) => {
+      const turn = await resultAcrossRestart(f, true);
+      expect(count(f.prompt(turn), "restarted while this was running")).toBe(1);
+      expect(f.prompt(turn)).toContain("ORCHID_7Q");
+      expect(f.launches().at(-1).resume).toBeNull();
+      const rebuilt = f.nativeSession();
+      f.plan[f.chief.id] = { reply: "ok" };
+      await f.send("Thanks.");
+      await f.wait();
+      expect(count(f.prompt(f.turns().at(-1)), "restarted while this was running")).toBe(0);
+      expect(f.nativeSession()).toBe(rebuilt);
+    }),
+  90_000,
+);
 
-it("keeps resuming a stored conversation with a handoff record when a result arrives after restart", () => fixture(async (f) => {
-  const turn = await resultAcrossRestart(f, false);
-  expect(count(f.prompt(turn), "restarted while this was running")).toBe(1);
-  expect(f.prompt(turn)).not.toContain("ORCHID_7Q");
-  expect(f.launches().at(-1).resume).not.toBeNull();
-}), 90_000);
+it(
+  "keeps resuming a stored conversation with a handoff record when a result arrives after restart",
+  () =>
+    fixture(async (f) => {
+      const turn = await resultAcrossRestart(f, false);
+      expect(count(f.prompt(turn), "restarted while this was running")).toBe(1);
+      expect(f.prompt(turn)).not.toContain("ORCHID_7Q");
+      expect(f.launches().at(-1).resume).not.toBeNull();
+    }),
+  90_000,
+);
 
 const leadRunning = async (f: any, launches = 1) => {
-  await expect.poll(() => f.nodes().find((node: any) => node.botId === f.lead.id)?.status, { timeout: 15_000 }).toBe("running");
+  await expect
+    .poll(() => f.nodes().find((node: any) => node.botId === f.lead.id)?.status, {
+      timeout: 15_000,
+    })
+    .toBe("running");
   await expect.poll(() => f.launches(f.lead.id).length, { timeout: 15_000 }).toBe(launches);
 };
 const cursor = (f: any) => Object.values(f.task().resumeCursors)[0];
 
-it("gives a replacement session the full assignment when a result returns after its resume was rejected", () => fixture(async (f) => {
-  await warmUp(f);
-  f.plan[f.lead.id] = { reply: "REPLACED_RESULT", gateFile: f.gate("lead") };
-  f.plan[f.chief.id] = { turns: [{}, f.delegate("build", [f.lead], `BRIEF_START ${"b".repeat(800)} BRIEF_END`), { reply: "4" }, { reply: "Reviewed" }] };
-  await f.send("Please have Engineering build the export.");
-  await leadRunning(f);
-  const original = cursor(f);
-  await f.setMode("resume=dead-session");
-  await f.send("Meanwhile, what is 2+2?");
-  await expect.poll(() => f.turns().length, { timeout: 20_000 }).toBe(3);
-  await expect.poll(async () => (await f.messages()).some((m: any) => m.role === "bot" && m.text === "4"), { timeout: 10_000 }).toBe(true);
-  await f.setMode();
-  await expect.poll(() => cursor(f), { timeout: 15_000 }).toBeTruthy();
-  await expect.poll(() => cursor(f), { timeout: 15_000 }).not.toBe(original);
-  const replacement = cursor(f);
-  f.open(f.gate("lead"));
-  await f.wait();
+it(
+  "gives a replacement session the full assignment when a result returns after its resume was rejected",
+  () =>
+    fixture(async (f) => {
+      await warmUp(f);
+      f.plan[f.lead.id] = { reply: "REPLACED_RESULT", gateFile: f.gate("lead") };
+      f.plan[f.chief.id] = {
+        turns: [
+          {},
+          f.delegate("build", [f.lead], `BRIEF_START ${"b".repeat(800)} BRIEF_END`),
+          { reply: "4" },
+          { reply: "Reviewed" },
+        ],
+      };
+      await f.send("Please have Engineering build the export.");
+      await leadRunning(f);
+      const original = cursor(f);
+      await f.setMode("resume=dead-session");
+      await f.send("Meanwhile, what is 2+2?");
+      await expect.poll(() => f.turns().length, { timeout: 20_000 }).toBe(3);
+      await expect
+        .poll(
+          async () => (await f.messages()).some((m: any) => m.role === "bot" && m.text === "4"),
+          { timeout: 10_000 },
+        )
+        .toBe(true);
+      await f.setMode();
+      await expect.poll(() => cursor(f), { timeout: 15_000 }).toBeTruthy();
+      await expect.poll(() => cursor(f), { timeout: 15_000 }).not.toBe(original);
+      const replacement = cursor(f);
+      f.open(f.gate("lead"));
+      await f.wait();
 
-  const recovery = f.prompt(f.turns()[2]);
-  const returned = f.prompt(f.turns().at(-1));
-  expect(recovery).toContain("could not be resumed");
-  expect(replacement).not.toBe(original);
-  expect(f.launches().at(-1).resume).toBe(replacement);
-  expect(count(recovery + returned, "REPLACED_RESULT")).toBe(1);
-  expect(count(returned, "BRIEF_END")).toBeGreaterThanOrEqual(1);
-}), 90_000);
+      const recovery = f.prompt(f.turns()[2]);
+      const returned = f.prompt(f.turns().at(-1));
+      expect(recovery).toContain("could not be resumed");
+      expect(replacement).not.toBe(original);
+      expect(f.launches().at(-1).resume).toBe(replacement);
+      expect(count(recovery + returned, "REPLACED_RESULT")).toBe(1);
+      expect(count(returned, "BRIEF_END")).toBeGreaterThanOrEqual(1);
+    }),
+  90_000,
+);
 
-it("gives a replacement session an earlier round's result that its rebuild could not replay, and credits it only with that rebuild", () => fixture(async (f) => {
-  await warmUp(f, "Warm up.");
-  const chat = 21;
-  f.plan[f.lead.id] = { turns: [{ reply: "ROUND_ONE_RESULT_TOKEN" }, { reply: "ROUND_TWO_RESULT", gateFile: f.gate("r2") }] };
-  f.plan[f.chief.id] = { turns: [
-    {},
-    f.delegate("r1", [f.lead], "REQUEST_ONE build it"),
-    { steps: [{ arguments: { bot_ids: [f.lead.id], request_key: "r2", message: "REQUEST_TWO also test it", rework: true } }], reply: "Round two sent" },
-    ...Array.from({ length: chat }, (_, i) => ({ reply: `chat reply ${i}` })),
-    { reply: "recovered reply" },
-    { reply: "Final" },
-  ] };
-  await f.send("Please have Engineering build and then test it.");
-  await expect.poll(() => f.nodes().filter((node: any) => node.botId === f.lead.id).map((node: any) => node.status).join(","), { timeout: 30_000 }).toBe("completed,running");
-  await expect.poll(() => f.turns().length, { timeout: 10_000 }).toBe(3);
-  await expect.poll(() => count(f.prompt(f.turns()[2]), "ROUND_ONE_RESULT_TOKEN"), { timeout: 10_000 }).toBe(1);
-  await expect.poll(() => f.launches(f.lead.id).length, { timeout: 15_000 }).toBe(2);
-  const sourceWaiting = () => expect.poll(async () => (await f.api("/api/bots")).bots
-    .find((bot: any) => bot.id === f.chief.id).tasks
-    .find((task: any) => task.threadId === f.thread).waitingForTeammates,
-  { timeout: 15_000 }).toBe(true);
-  for (let i = 0; i < chat; i++) {
-    await sourceWaiting();
-    expect((await f.send(`chat ${i}`)).steered).toBeUndefined();
-    await expect.poll(() => f.turns().length, { timeout: 20_000 }).toBe(4 + i);
-    await expect.poll(async () => (await f.messages()).some((m: any) => m.text === `chat reply ${i}` && m.turnTerminal), { timeout: 10_000 }).toBe(true);
-  }
-  const history = async () => (await f.api(`/api/threads/${f.thread}/messages?limit=200`)).messages.map((m: any) => m.id);
-  const resultMessage = (await f.api(`/api/threads/${f.thread}/messages?limit=200`)).messages.find((m: any) => m.roomRequest?.phase === "result");
-  const original = cursor(f);
-  await f.setMode("resume=dead-session");
-  await expect.poll(async () => (await f.messages()).some((m: any) => m.text === `chat reply ${chat - 1}` && m.turnTerminal), { timeout: 10_000 }).toBe(true);
-  await sourceWaiting();
-  expect((await f.send("One more question.")).steered).toBeUndefined();
-  await expect.poll(() => f.turns().length, { timeout: 20_000 }).toBe(4 + chat);
-  await expect.poll(async () => (await f.messages()).some((m: any) => m.text === "recovered reply"), { timeout: 10_000 }).toBe(true);
-  await f.setMode();
-  const recovery = f.prompt(f.turns().at(-1));
-  expect(recovery).toContain("could not be resumed");
-  expect(count(recovery, "ROUND_ONE_RESULT_TOKEN")).toBe(0);
+it(
+  "gives a replacement session an earlier round's result that its rebuild could not replay, and credits it only with that rebuild",
+  () =>
+    fixture(async (f) => {
+      await warmUp(f, "Warm up.");
+      const chat = 21;
+      f.plan[f.lead.id] = {
+        turns: [
+          { reply: "ROUND_ONE_RESULT_TOKEN" },
+          { reply: "ROUND_TWO_RESULT", gateFile: f.gate("r2") },
+        ],
+      };
+      f.plan[f.chief.id] = {
+        turns: [
+          {},
+          f.delegate("r1", [f.lead], "REQUEST_ONE build it"),
+          {
+            steps: [
+              {
+                arguments: {
+                  bot_ids: [f.lead.id],
+                  request_key: "r2",
+                  message: "REQUEST_TWO also test it",
+                  rework: true,
+                },
+              },
+            ],
+            reply: "Round two sent",
+          },
+          ...Array.from({ length: chat }, (_, i) => ({ reply: `chat reply ${i}` })),
+          { reply: "recovered reply" },
+          { reply: "Final" },
+        ],
+      };
+      await f.send("Please have Engineering build and then test it.");
+      await expect
+        .poll(
+          () =>
+            f
+              .nodes()
+              .filter((node: any) => node.botId === f.lead.id)
+              .map((node: any) => node.status)
+              .join(","),
+          { timeout: 30_000 },
+        )
+        .toBe("completed,running");
+      await expect.poll(() => f.turns().length, { timeout: 10_000 }).toBe(3);
+      await expect
+        .poll(() => count(f.prompt(f.turns()[2]), "ROUND_ONE_RESULT_TOKEN"), { timeout: 10_000 })
+        .toBe(1);
+      await expect.poll(() => f.launches(f.lead.id).length, { timeout: 15_000 }).toBe(2);
+      const sourceWaiting = () =>
+        expect
+          .poll(
+            async () =>
+              (await f.api("/api/bots")).bots
+                .find((bot: any) => bot.id === f.chief.id)
+                .tasks.find((task: any) => task.threadId === f.thread).waitingForTeammates,
+            { timeout: 15_000 },
+          )
+          .toBe(true);
+      for (let i = 0; i < chat; i++) {
+        await sourceWaiting();
+        expect((await f.send(`chat ${i}`)).steered).toBeUndefined();
+        await expect.poll(() => f.turns().length, { timeout: 20_000 }).toBe(4 + i);
+        await expect
+          .poll(
+            async () =>
+              (await f.messages()).some((m: any) => m.text === `chat reply ${i}` && m.turnTerminal),
+            { timeout: 10_000 },
+          )
+          .toBe(true);
+      }
+      const history = async () =>
+        (await f.api(`/api/threads/${f.thread}/messages?limit=200`)).messages.map((m: any) => m.id);
+      const resultMessage = (
+        await f.api(`/api/threads/${f.thread}/messages?limit=200`)
+      ).messages.find((m: any) => m.roomRequest?.phase === "result");
+      const original = cursor(f);
+      await f.setMode("resume=dead-session");
+      await expect
+        .poll(
+          async () =>
+            (await f.messages()).some(
+              (m: any) => m.text === `chat reply ${chat - 1}` && m.turnTerminal,
+            ),
+          { timeout: 10_000 },
+        )
+        .toBe(true);
+      await sourceWaiting();
+      expect((await f.send("One more question.")).steered).toBeUndefined();
+      await expect.poll(() => f.turns().length, { timeout: 20_000 }).toBe(4 + chat);
+      await expect
+        .poll(async () => (await f.messages()).some((m: any) => m.text === "recovered reply"), {
+          timeout: 10_000,
+        })
+        .toBe(true);
+      await f.setMode();
+      const recovery = f.prompt(f.turns().at(-1));
+      expect(recovery).toContain("could not be resumed");
+      expect(count(recovery, "ROUND_ONE_RESULT_TOKEN")).toBe(0);
 
-  const replacement = cursor(f);
-  expect(replacement).not.toBe(original);
-  const records = Object.values(f.handed()) as any[];
-  expect(records).toHaveLength(1);
-  expect(records[0].session).toBe(replacement);
-  const order = await history();
-  expect(records[0].ids).not.toContain(resultMessage.id);
-  expect(order.indexOf(records[0].omitted)).toBeGreaterThanOrEqual(order.indexOf(resultMessage.id));
+      const replacement = cursor(f);
+      expect(replacement).not.toBe(original);
+      const records = Object.values(f.handed()) as any[];
+      expect(records).toHaveLength(1);
+      expect(records[0].session).toBe(replacement);
+      const order = await history();
+      expect(records[0].ids).not.toContain(resultMessage.id);
+      expect(order.indexOf(records[0].omitted)).toBeGreaterThanOrEqual(
+        order.indexOf(resultMessage.id),
+      );
 
-  await sourceWaiting();
-  f.open(f.gate("r2"));
-  await expect.poll(() => f.turns().length, { timeout: 30_000 }).toBe(5 + chat);
-  await expect.poll(async () => (await f.messages()).some((m: any) => m.text === "Final" && m.turnTerminal), { timeout: 15_000 }).toBe(true);
-  await f.wait();
-  const returned = f.prompt(f.turns().at(-1));
-  expect(count(returned, "ROUND_TWO_RESULT")).toBe(1);
-  expect(count(returned, "ROUND_ONE_RESULT_TOKEN")).toBe(1);
-  expect(returned).not.toContain("already delivered");
-}), 240_000);
+      await sourceWaiting();
+      f.open(f.gate("r2"));
+      await expect.poll(() => f.turns().length, { timeout: 30_000 }).toBe(5 + chat);
+      await expect
+        .poll(
+          async () => (await f.messages()).some((m: any) => m.text === "Final" && m.turnTerminal),
+          { timeout: 15_000 },
+        )
+        .toBe(true);
+      await f.wait();
+      const returned = f.prompt(f.turns().at(-1));
+      expect(count(returned, "ROUND_TWO_RESULT")).toBe(1);
+      expect(count(returned, "ROUND_ONE_RESULT_TOKEN")).toBe(1);
+      expect(returned).not.toContain("already delivered");
+    }),
+  240_000,
+);
 
-it("gives a session that cannot be resumed on the last results turn the earlier result once, by replay", () => fixture(async (f) => {
-  await warmUp(f);
-  f.plan[f.lead.id] = { reply: "EARLY_LEAD_RESULT" };
-  f.plan[f.qa.id] = { reply: "LATE_QA_RESULT", gateFile: f.gate("qa") };
-  f.plan[f.chief.id] = { turns: [{}, f.delegate("split", [f.lead, f.qa], "Check the release"), { reply: "Acted on the lead" }, { reply: "Final" }] };
-  await f.send("Have Engineering and QA check the release.");
-  await expect.poll(() => f.turns().length, { timeout: 40_000 }).toBe(3);
-  await expect.poll(async () => (await f.messages()).some((m: any) => m.text === "Acted on the lead" && m.turnTerminal), { timeout: 10_000 }).toBe(true);
-  expect(count(f.prompt(f.turns()[2]), "EARLY_LEAD_RESULT")).toBe(1);
-  const original = cursor(f);
-  await f.setMode("resume=dead-session");
-  f.open(f.gate("qa"));
-  await expect.poll(() => f.turns().length, { timeout: 40_000 }).toBe(4);
-  await expect.poll(async () => (await f.messages()).some((m: any) => m.text === "Final" && m.turnTerminal), { timeout: 15_000 }).toBe(true);
-  await f.setMode();
-  expect(cursor(f)).not.toBe(original);
-  const last = f.prompt(f.turns().at(-1));
-  expect(count(last, "EARLY_LEAD_RESULT")).toBe(1);
-  expect(count(last, "LATE_QA_RESULT")).toBe(1);
-}), 120_000);
+it(
+  "gives a session that cannot be resumed on the last results turn the earlier result once, by replay",
+  () =>
+    fixture(async (f) => {
+      await warmUp(f);
+      f.plan[f.lead.id] = { reply: "EARLY_LEAD_RESULT" };
+      f.plan[f.qa.id] = { reply: "LATE_QA_RESULT", gateFile: f.gate("qa") };
+      f.plan[f.chief.id] = {
+        turns: [
+          {},
+          f.delegate("split", [f.lead, f.qa], "Check the release"),
+          { reply: "Acted on the lead" },
+          { reply: "Final" },
+        ],
+      };
+      await f.send("Have Engineering and QA check the release.");
+      await expect.poll(() => f.turns().length, { timeout: 40_000 }).toBe(3);
+      await expect
+        .poll(
+          async () =>
+            (await f.messages()).some((m: any) => m.text === "Acted on the lead" && m.turnTerminal),
+          { timeout: 10_000 },
+        )
+        .toBe(true);
+      expect(count(f.prompt(f.turns()[2]), "EARLY_LEAD_RESULT")).toBe(1);
+      const original = cursor(f);
+      await f.setMode("resume=dead-session");
+      f.open(f.gate("qa"));
+      await expect.poll(() => f.turns().length, { timeout: 40_000 }).toBe(4);
+      await expect
+        .poll(
+          async () => (await f.messages()).some((m: any) => m.text === "Final" && m.turnTerminal),
+          { timeout: 15_000 },
+        )
+        .toBe(true);
+      await f.setMode();
+      expect(cursor(f)).not.toBe(original);
+      const last = f.prompt(f.turns().at(-1));
+      expect(count(last, "EARLY_LEAD_RESULT")).toBe(1);
+      expect(count(last, "LATE_QA_RESULT")).toBe(1);
+    }),
+  120_000,
+);
 
-it("gives a chat moved to another account between results an earlier result in full once more, and not again", () => fixture(async (f) => {
-  await warmUp(f);
-  f.plan[f.lead.id] = { reply: "MOVED_EARLY_RESULT" };
-  f.plan[f.qa.id] = { reply: "MOVED_MIDDLE_RESULT", gateFile: f.gate("qa") };
-  f.plan[f.ops.id] = { reply: "MOVED_LAST_RESULT", gateFile: f.gate("ops") };
-  f.plan[f.chief.id] = { turns: [{}, f.delegate("split", [f.lead, f.qa, f.ops], "Check the release"),
-    { reply: "Acted on the lead" }, { reply: "Acted on QA" }, { reply: "Final on the new account" }] };
-  const replied = (text: string) => expect.poll(async () => (await f.messages()).some((m: any) => m.text === text && m.turnTerminal), { timeout: 40_000 }).toBe(true);
-  await f.send("Have Engineering, QA and Ops check the release.");
-  await replied("Acted on the lead");
-  f.open(f.gate("qa"));
-  await expect.poll(() => f.nodes().some((n: any) => n.botId === f.qa.id && n.reported), { timeout: 10_000 }).toBe(true);
-  await f.useModel("codex");
-  await replied("Acted on QA");
-  f.open(f.gate("ops"));
-  await replied("Final on the new account");
-  const given = (turn: any) => f.prompt(turn).split("downstream room requests have settled").slice(1).join("");
-  const moved = f.turns().find((turn: any) => given(turn).includes("MOVED_MIDDLE_RESULT"));
-  expect(count(given(moved), "MOVED_EARLY_RESULT")).toBe(1);
-  expect(count(f.prompt(moved), "MOVED_EARLY_RESULT")).toBe(1);
-  expect(f.turns().reduce((sum: number, turn: any) => sum + count(given(turn), "MOVED_EARLY_RESULT"), 0)).toBe(2);
-}, { codex: {} }), 150_000);
+it(
+  "gives a chat moved to another account between results an earlier result in full once more, and not again",
+  () =>
+    fixture(
+      async (f) => {
+        await warmUp(f);
+        f.plan[f.lead.id] = { reply: "MOVED_EARLY_RESULT" };
+        f.plan[f.qa.id] = { reply: "MOVED_MIDDLE_RESULT", gateFile: f.gate("qa") };
+        f.plan[f.ops.id] = { reply: "MOVED_LAST_RESULT", gateFile: f.gate("ops") };
+        f.plan[f.chief.id] = {
+          turns: [
+            {},
+            f.delegate("split", [f.lead, f.qa, f.ops], "Check the release"),
+            { reply: "Acted on the lead" },
+            { reply: "Acted on QA" },
+            { reply: "Final on the new account" },
+          ],
+        };
+        const replied = (text: string) =>
+          expect
+            .poll(
+              async () => (await f.messages()).some((m: any) => m.text === text && m.turnTerminal),
+              { timeout: 40_000 },
+            )
+            .toBe(true);
+        await f.send("Have Engineering, QA and Ops check the release.");
+        await replied("Acted on the lead");
+        f.open(f.gate("qa"));
+        await expect
+          .poll(() => f.nodes().some((n: any) => n.botId === f.qa.id && n.reported), {
+            timeout: 10_000,
+          })
+          .toBe(true);
+        await f.useModel("codex");
+        await replied("Acted on QA");
+        f.open(f.gate("ops"));
+        await replied("Final on the new account");
+        const given = (turn: any) =>
+          f.prompt(turn).split("downstream room requests have settled").slice(1).join("");
+        const moved = f.turns().find((turn: any) => given(turn).includes("MOVED_MIDDLE_RESULT"));
+        expect(count(given(moved), "MOVED_EARLY_RESULT")).toBe(1);
+        expect(count(f.prompt(moved), "MOVED_EARLY_RESULT")).toBe(1);
+        expect(
+          f
+            .turns()
+            .reduce((sum: number, turn: any) => sum + count(given(turn), "MOVED_EARLY_RESULT"), 0),
+        ).toBe(2);
+      },
+      { codex: {} },
+    ),
+  150_000,
+);
 
-it("does not send a message again that a recovery replay carried, including one the unseen limit had deferred", () => fixture(async (f) => {
-  await warmUp(f);
-  await f.setMode("exit-early");
-  const marks = Array.from({ length: 13 }, (_, i) => `DEFERRED_${String(i).padStart(2, "0")}_MARK`);
-  for (const [i, mark] of marks.entries()) {
-    expect((await f.send(`${mark} please note this`)).steered).toBeUndefined();
-    await expect.poll(() => f.launches().length, { timeout: 15_000 }).toBe(3 + 2 * i);
-    await f.idle();
-  }
-  await f.setMode("resume=dead-session");
-  f.plan[f.chief.id] = { reply: "Rebuilt" };
-  await f.send("Recover now.");
-  await f.wait();
-  await f.setMode();
-  const recovery = f.prompt(f.turns().at(-1));
-  expect(recovery).toContain("could not be resumed");
-  for (const mark of marks) expect(count(recovery, mark), mark).toBe(1);
+it(
+  "does not send a message again that a recovery replay carried, including one the unseen limit had deferred",
+  () =>
+    fixture(async (f) => {
+      await warmUp(f);
+      await f.setMode("exit-early");
+      const marks = Array.from(
+        { length: 13 },
+        (_, i) => `DEFERRED_${String(i).padStart(2, "0")}_MARK`,
+      );
+      for (const [i, mark] of marks.entries()) {
+        expect((await f.send(`${mark} please note this`)).steered).toBeUndefined();
+        await expect.poll(() => f.launches().length, { timeout: 15_000 }).toBe(3 + 2 * i);
+        await f.idle();
+      }
+      await f.setMode("resume=dead-session");
+      f.plan[f.chief.id] = { reply: "Rebuilt" };
+      await f.send("Recover now.");
+      await f.wait();
+      await f.setMode();
+      const recovery = f.prompt(f.turns().at(-1));
+      expect(recovery).toContain("could not be resumed");
+      for (const mark of marks) expect(count(recovery, mark), mark).toBe(1);
 
-  f.plan[f.chief.id] = { reply: "Nothing to repeat" };
-  await f.send("Anything left?");
-  await f.wait();
-  const next = f.prompt(f.turns().at(-1));
-  expect(f.launches().at(-1).resume).toBe(cursor(f));
-  for (const mark of marks) expect(count(next, mark), mark).toBe(0);
-  expect(next).not.toContain("not seen yet");
-}), 120_000);
+      f.plan[f.chief.id] = { reply: "Nothing to repeat" };
+      await f.send("Anything left?");
+      await f.wait();
+      const next = f.prompt(f.turns().at(-1));
+      expect(f.launches().at(-1).resume).toBe(cursor(f));
+      for (const mark of marks) expect(count(next, mark), mark).toBe(0);
+      expect(next).not.toContain("not seen yet");
+    }),
+  120_000,
+);
 
-it("replays again when a replacement session fails before the provider acts on it", () => fixture(async (f) => {
-  await warmUp(f);
-  await f.setMode("resume=dead-session,fresh=api-error");
-  await f.send("REPLACEMENT_FAILS please answer this");
-  await expect.poll(() => f.launches().length, { timeout: 15_000 }).toBe(3);
-  await f.idle();
-  await f.setMode();
-  f.plan[f.chief.id] = { reply: "Answered" };
-  await f.send("Try again.");
-  await f.wait();
-  const next = f.prompt(f.turns().at(-1));
-  expect(f.launches().at(-1).resume).toBeNull();
-  expect(next).toContain("ORCHID_7Q");
-  expect(count(next, "REPLACEMENT_FAILS")).toBe(1);
-}), 60_000);
+it(
+  "replays again when a replacement session fails before the provider acts on it",
+  () =>
+    fixture(async (f) => {
+      await warmUp(f);
+      await f.setMode("resume=dead-session,fresh=api-error");
+      await f.send("REPLACEMENT_FAILS please answer this");
+      await expect.poll(() => f.launches().length, { timeout: 15_000 }).toBe(3);
+      await f.idle();
+      await f.setMode();
+      f.plan[f.chief.id] = { reply: "Answered" };
+      await f.send("Try again.");
+      await f.wait();
+      const next = f.prompt(f.turns().at(-1));
+      expect(f.launches().at(-1).resume).toBeNull();
+      expect(next).toContain("ORCHID_7Q");
+      expect(count(next, "REPLACEMENT_FAILS")).toBe(1);
+    }),
+  60_000,
+);
 
-it("gives an engine switched in while a teammate works the full assignment when the result returns", () => fixture(async (f) => {
-  await warmUp(f);
-  f.plan[f.lead.id] = { reply: "SWITCH_RESULT", gateFile: f.gate("lead") };
-  f.plan[f.chief.id] = { turns: [{}, f.delegate("build", [f.lead], `ASSIGNMENT_START ${"a".repeat(400)} MUST_KEEP_CONSTRAINT`), { reply: "On Codex now" }, { reply: "Reviewed on Codex" }] };
-  await f.send("Please have Engineering build the export.");
-  await leadRunning(f);
-  await expect.poll(async () => (await f.messages()).some((m: any) => m.role === "bot" && m.text === "Assigned"), { timeout: 15_000 }).toBe(true);
-  const model = (await f.cli("models")).instances.find((item: any) => item.instanceId === "codex").models.options[0].id;
-  await f.api(`/api/bots/${f.chief.id}/tasks/${f.thread}`, { modelSelection: { instanceId: "codex", model }, requireAvailableModel: true }, "PATCH");
-  await f.send("Switching engines while Engineering works.");
-  await expect.poll(() => f.turns().length, { timeout: 20_000 }).toBe(3);
-  await expect.poll(async () => (await f.messages()).some((m: any) => m.role === "bot" && m.text === "On Codex now"), { timeout: 10_000 }).toBe(true);
-  f.open(f.gate("lead"));
-  await f.wait();
-  const returned = f.turns().at(-1);
-  expect(returned.resumedThread).toBeTruthy();
-  expect(count(f.prompt(returned), "SWITCH_RESULT")).toBe(1);
-  expect(f.prompt(returned)).toContain("MUST_KEEP_CONSTRAINT");
-}, { codex: {} }), 90_000);
+it(
+  "gives an engine switched in while a teammate works the full assignment when the result returns",
+  () =>
+    fixture(
+      async (f) => {
+        await warmUp(f);
+        f.plan[f.lead.id] = { reply: "SWITCH_RESULT", gateFile: f.gate("lead") };
+        f.plan[f.chief.id] = {
+          turns: [
+            {},
+            f.delegate(
+              "build",
+              [f.lead],
+              `ASSIGNMENT_START ${"a".repeat(400)} MUST_KEEP_CONSTRAINT`,
+            ),
+            { reply: "On Codex now" },
+            { reply: "Reviewed on Codex" },
+          ],
+        };
+        await f.send("Please have Engineering build the export.");
+        await leadRunning(f);
+        await expect
+          .poll(
+            async () =>
+              (await f.messages()).some((m: any) => m.role === "bot" && m.text === "Assigned"),
+            { timeout: 15_000 },
+          )
+          .toBe(true);
+        const model = (await f.cli("models")).instances.find(
+          (item: any) => item.instanceId === "codex",
+        ).models.options[0].id;
+        await f.api(
+          `/api/bots/${f.chief.id}/tasks/${f.thread}`,
+          { modelSelection: { instanceId: "codex", model }, requireAvailableModel: true },
+          "PATCH",
+        );
+        await f.send("Switching engines while Engineering works.");
+        await expect.poll(() => f.turns().length, { timeout: 20_000 }).toBe(3);
+        await expect
+          .poll(
+            async () =>
+              (await f.messages()).some((m: any) => m.role === "bot" && m.text === "On Codex now"),
+            { timeout: 10_000 },
+          )
+          .toBe(true);
+        f.open(f.gate("lead"));
+        await f.wait();
+        const returned = f.turns().at(-1);
+        expect(returned.resumedThread).toBeTruthy();
+        expect(count(f.prompt(returned), "SWITCH_RESULT")).toBe(1);
+        expect(f.prompt(returned)).toContain("MUST_KEEP_CONSTRAINT");
+      },
+      { codex: {} },
+    ),
+  90_000,
+);
 
-it("does not offer a message or steer the person stopped before any reply again", () => fixture(async (f) => {
-  f.plan[f.chief.id] = { turns: [{ reply: "Noted." }, { readyFile: f.gate("slow-ready"), reply: "never shown", gateFile: f.gate("slow") }, { reply: "Listed" }] };
-  await f.send("Warm up.");
-  await f.wait();
-  await f.send("STOPPED_ASK please drop the staging database");
-  await expect.poll(() => existsSync(f.gate("slow-ready")), { timeout: 15_000 }).toBe(true);
-  expect((await f.send("STOPPED_STEER and the backups")).steered).toBe(true);
-  await f.api(`/api/bots/${f.chief.id}/interrupt`, { threadId: f.thread });
-  await f.idle();
-  f.open(f.gate("slow"));
-  await f.send("Actually, just list the tables.");
-  await f.wait();
-  const next = f.prompt(f.turns().at(-1));
-  expect(f.launches().at(-1).resume).not.toBeNull();
-  expect(next).not.toContain("STOPPED_ASK");
-  expect(next).not.toContain("STOPPED_STEER");
-}), 60_000);
+it(
+  "does not offer a message or steer the person stopped before any reply again",
+  () =>
+    fixture(async (f) => {
+      f.plan[f.chief.id] = {
+        turns: [
+          { reply: "Noted." },
+          { readyFile: f.gate("slow-ready"), reply: "never shown", gateFile: f.gate("slow") },
+          { reply: "Listed" },
+        ],
+      };
+      await f.send("Warm up.");
+      await f.wait();
+      await f.send("STOPPED_ASK please drop the staging database");
+      await expect.poll(() => existsSync(f.gate("slow-ready")), { timeout: 15_000 }).toBe(true);
+      expect((await f.send("STOPPED_STEER and the backups")).steered).toBe(true);
+      await f.api(`/api/bots/${f.chief.id}/interrupt`, { threadId: f.thread });
+      await f.idle();
+      f.open(f.gate("slow"));
+      await f.send("Actually, just list the tables.");
+      await f.wait();
+      const next = f.prompt(f.turns().at(-1));
+      expect(f.launches().at(-1).resume).not.toBeNull();
+      expect(next).not.toContain("STOPPED_ASK");
+      expect(next).not.toContain("STOPPED_STEER");
+    }),
+  60_000,
+);
 
-it("does not offer a message the person stopped before any reply again on Codex", () => fixture(async (f) => {
-  await f.useModel("codex");
-  f.plan[f.chief.id] = { turns: [{ reply: "Noted." }, { reply: "never shown", gateFile: f.gate("slow") }, { reply: "Listed" }] };
-  await f.send("Warm up.");
-  await f.wait();
-  await f.send("CODEX_STOPPED_ASK please drop the staging database");
-  await expect.poll(() => f.codexLaunches().length, { timeout: 15_000 }).toBe(2);
-  await f.api(`/api/bots/${f.chief.id}/interrupt`, { threadId: f.thread });
-  await f.idle();
-  f.open(f.gate("slow"));
-  await f.send("Actually, just list the tables.");
-  await f.wait();
-  const next = f.turns().at(-1);
-  expect(next.resumedThread).toBeTruthy();
-  expect(f.prompt(next)).not.toContain("CODEX_STOPPED_ASK");
-}, { codex: {} }), 90_000);
+it(
+  "does not offer a message the person stopped before any reply again on Codex",
+  () =>
+    fixture(
+      async (f) => {
+        await f.useModel("codex");
+        f.plan[f.chief.id] = {
+          turns: [
+            { reply: "Noted." },
+            { reply: "never shown", gateFile: f.gate("slow") },
+            { reply: "Listed" },
+          ],
+        };
+        await f.send("Warm up.");
+        await f.wait();
+        await f.send("CODEX_STOPPED_ASK please drop the staging database");
+        await expect.poll(() => f.codexLaunches().length, { timeout: 15_000 }).toBe(2);
+        await f.api(`/api/bots/${f.chief.id}/interrupt`, { threadId: f.thread });
+        await f.idle();
+        f.open(f.gate("slow"));
+        await f.send("Actually, just list the tables.");
+        await f.wait();
+        const next = f.turns().at(-1);
+        expect(next.resumedThread).toBeTruthy();
+        expect(f.prompt(next)).not.toContain("CODEX_STOPPED_ASK");
+      },
+      { codex: {} },
+    ),
+  90_000,
+);
 
-it("offers a steered message again when the turn fails before the provider used it", () => fixture(async (f) => {
-  f.plan[f.chief.id] = { turns: [{ reply: "Noted." }, { progress: "Looking into it", gateFile: f.gate("turn"), fail: true }, { reply: "Covered" }] };
-  await f.send("Warm up.");
-  await f.wait();
-  await f.send("Start on the report.");
-  await expect.poll(async () => (await f.messages()).some((m: any) => m.role === "bot" && m.text === "Looking into it"), { timeout: 15_000 }).toBe(true);
-  expect((await f.send("UNUSED_STEER also cover costs")).steered).toBe(true);
-  f.open(f.gate("turn"));
-  await f.idle();
-  await f.send("Is it done?");
-  await f.wait();
-  const next = f.prompt(f.turns().at(-1));
-  expect(count(next, "UNUSED_STEER")).toBe(1);
-  expect(next).not.toContain("Start on the report.");
-}), 60_000);
+it(
+  "offers a steered message again when the turn fails before the provider used it",
+  () =>
+    fixture(async (f) => {
+      f.plan[f.chief.id] = {
+        turns: [
+          { reply: "Noted." },
+          { progress: "Looking into it", gateFile: f.gate("turn"), fail: true },
+          { reply: "Covered" },
+        ],
+      };
+      await f.send("Warm up.");
+      await f.wait();
+      await f.send("Start on the report.");
+      await expect
+        .poll(
+          async () =>
+            (await f.messages()).some((m: any) => m.role === "bot" && m.text === "Looking into it"),
+          { timeout: 15_000 },
+        )
+        .toBe(true);
+      expect((await f.send("UNUSED_STEER also cover costs")).steered).toBe(true);
+      f.open(f.gate("turn"));
+      await f.idle();
+      await f.send("Is it done?");
+      await f.wait();
+      const next = f.prompt(f.turns().at(-1));
+      expect(count(next, "UNUSED_STEER")).toBe(1);
+      expect(next).not.toContain("Start on the report.");
+    }),
+  60_000,
+);
 
-it("does not offer a steered message again after the person stops the turn it went into", () => fixture(async (f) => {
-  f.plan[f.chief.id] = { turns: [{ reply: "Noted." }, { progress: "Looking into it", reply: "never shown", gateFile: f.gate("turn") }, { reply: "Covered" }] };
-  await f.send("Warm up.");
-  await f.wait();
-  await f.send("Start on the report.");
-  await expect.poll(async () => (await f.messages()).some((m: any) => m.role === "bot" && m.text === "Looking into it"), { timeout: 15_000 }).toBe(true);
-  expect((await f.send("STOPPED_TURN_STEER also cover costs")).steered).toBe(true);
-  await f.api(`/api/bots/${f.chief.id}/interrupt`, { threadId: f.thread });
-  await f.idle();
-  f.open(f.gate("turn"));
-  await f.send("Is it done?");
-  await f.wait();
-  expect(f.prompt(f.turns().at(-1))).not.toContain("STOPPED_TURN_STEER");
-}), 60_000);
+it(
+  "does not offer a steered message again after the person stops the turn it went into",
+  () =>
+    fixture(async (f) => {
+      f.plan[f.chief.id] = {
+        turns: [
+          { reply: "Noted." },
+          { progress: "Looking into it", reply: "never shown", gateFile: f.gate("turn") },
+          { reply: "Covered" },
+        ],
+      };
+      await f.send("Warm up.");
+      await f.wait();
+      await f.send("Start on the report.");
+      await expect
+        .poll(
+          async () =>
+            (await f.messages()).some((m: any) => m.role === "bot" && m.text === "Looking into it"),
+          { timeout: 15_000 },
+        )
+        .toBe(true);
+      expect((await f.send("STOPPED_TURN_STEER also cover costs")).steered).toBe(true);
+      await f.api(`/api/bots/${f.chief.id}/interrupt`, { threadId: f.thread });
+      await f.idle();
+      f.open(f.gate("turn"));
+      await f.send("Is it done?");
+      await f.wait();
+      expect(f.prompt(f.turns().at(-1))).not.toContain("STOPPED_TURN_STEER");
+    }),
+  60_000,
+);
 
 it("does not offer a message again that the person steered out of the queue into a turn they then stopped", () => {
   const refuseLiveSteers = join(tmpdir(), `laterdog-queue-steer-${process.pid}-${Date.now()}.gate`);
   writeFileSync(refuseLiveSteers, "refuse live steers until the queue is lifted");
-  return fixture(async (f) => {
-    await f.useModel("codex");
-    f.plan[f.chief.id] = { turns: [{ reply: "Noted." }, { readyFile: f.gate("slow-ready"), reply: "never shown", gateFile: f.gate("slow") }, { reply: "Listed" }] };
-    await f.send("Warm up.");
-    await f.wait();
-    await f.send("Start on the report.");
-    await expect.poll(() => existsSync(f.gate("slow-ready")), { timeout: 15_000 }).toBe(true);
-    const queued = await f.send("QUEUED_STEER also cover costs");
-    expect(queued.queued).toBe(true);
-    rmSync(refuseLiveSteers, { force: true });
-    await expect.poll(async () =>
-      (await f.api(`/api/bots/${f.chief.id}/queue/${queued.queueId}/steer`, { threadId: f.thread })).steered,
-    { timeout: 20_000 }).toBe(true);
-    await f.api(`/api/bots/${f.chief.id}/interrupt`, { threadId: f.thread });
-    await f.idle();
-    f.open(f.gate("slow"));
-    await f.send("Is it done?");
-    await f.wait();
-    expect(f.prompt(f.turns().at(-1))).not.toContain("QUEUED_STEER");
-  }, { codex: { FAKE_CODEX_STEER_ERROR_FILE: refuseLiveSteers } });
+  return fixture(
+    async (f) => {
+      await f.useModel("codex");
+      f.plan[f.chief.id] = {
+        turns: [
+          { reply: "Noted." },
+          { readyFile: f.gate("slow-ready"), reply: "never shown", gateFile: f.gate("slow") },
+          { reply: "Listed" },
+        ],
+      };
+      await f.send("Warm up.");
+      await f.wait();
+      await f.send("Start on the report.");
+      await expect.poll(() => existsSync(f.gate("slow-ready")), { timeout: 15_000 }).toBe(true);
+      const queued = await f.send("QUEUED_STEER also cover costs");
+      expect(queued.queued).toBe(true);
+      rmSync(refuseLiveSteers, { force: true });
+      await expect
+        .poll(
+          async () =>
+            (
+              await f.api(`/api/bots/${f.chief.id}/queue/${queued.queueId}/steer`, {
+                threadId: f.thread,
+              })
+            ).steered,
+          { timeout: 20_000 },
+        )
+        .toBe(true);
+      await f.api(`/api/bots/${f.chief.id}/interrupt`, { threadId: f.thread });
+      await f.idle();
+      f.open(f.gate("slow"));
+      await f.send("Is it done?");
+      await f.wait();
+      expect(f.prompt(f.turns().at(-1))).not.toContain("QUEUED_STEER");
+    },
+    { codex: { FAKE_CODEX_STEER_ERROR_FILE: refuseLiveSteers } },
+  );
 }, 90_000);
 
-it("offers the results again when the provider reports an API error instead of answering", () => fixture(async (f) => {
-  await warmUp(f);
-  f.plan[f.lead.id] = { reply: "API_ERROR_RESULT", gateFile: f.gate("lead") };
-  f.plan[f.chief.id] = { turns: [{}, f.delegate("build", [f.lead], "Build the export"), { reply: "Here is what Engineering found" }] };
-  await f.send("Please have Engineering build the export.");
-  await leadRunning(f);
-  await expect.poll(async () => (await f.messages()).some((m: any) => m.role === "bot" && m.text === "Assigned"), { timeout: 15_000 }).toBe(true);
-  await f.setMode("api-error");
-  f.open(f.gate("lead"));
-  await expect.poll(() => f.nodes().find((node: any) => !node.parentId)?.status, { timeout: 20_000 }).toBe("failed");
-  await f.idle();
-  await f.setMode();
-  await f.send("What did Engineering find?");
-  await f.wait();
-  expect(count(f.prompt(f.turns().at(-1)), "API_ERROR_RESULT")).toBe(1);
-}), 60_000);
+it(
+  "offers the results again when the provider reports an API error instead of answering",
+  () =>
+    fixture(async (f) => {
+      await warmUp(f);
+      f.plan[f.lead.id] = { reply: "API_ERROR_RESULT", gateFile: f.gate("lead") };
+      f.plan[f.chief.id] = {
+        turns: [
+          {},
+          f.delegate("build", [f.lead], "Build the export"),
+          { reply: "Here is what Engineering found" },
+        ],
+      };
+      await f.send("Please have Engineering build the export.");
+      await leadRunning(f);
+      await expect
+        .poll(
+          async () =>
+            (await f.messages()).some((m: any) => m.role === "bot" && m.text === "Assigned"),
+          { timeout: 15_000 },
+        )
+        .toBe(true);
+      await f.setMode("api-error");
+      f.open(f.gate("lead"));
+      await expect
+        .poll(() => f.nodes().find((node: any) => !node.parentId)?.status, { timeout: 20_000 })
+        .toBe("failed");
+      await f.idle();
+      await f.setMode();
+      await f.send("What did Engineering find?");
+      await f.wait();
+      expect(count(f.prompt(f.turns().at(-1)), "API_ERROR_RESULT")).toBe(1);
+    }),
+  60_000,
+);
 
-it("does not hand the model a queued follow-up that a restart recovered with an unknown outcome", () => fixture(async (f) => {
-  await f.api("/api/config", { threads: { maxConcurrentPerBot: 1 } }, "PATCH");
-  const other = (await f.api(`/api/bots/${f.chief.id}/tasks`, { title: "Second conversation" })).task.threadId;
-  f.plan[f.chief.id] = { turns: [{ reply: "Noted." }, { readyFile: f.gate("hold-ready"), reply: "Held", gateFile: f.gate("hold") }, { reply: "never", gateFile: f.gate("never") }] };
-  await f.send("Warm up.", other);
-  await f.wait(other);
-  await f.send("Hold the only slot.");
-  await expect.poll(() => existsSync(f.gate("hold-ready")), { timeout: 15_000 }).toBe(true);
-  expect((await f.send("RECOVERED_FOLLOWUP deploy it", other)).queued).toBe(true);
-  f.open(f.gate("hold"));
-  await expect.poll(() => f.consumed(), { timeout: 15_000 }).toBe(3);
-  const interruptedPid = f.launches().at(-1).pid;
-  await f.restart(() => {}, "SIGKILL");
-  await expect.poll(() => {
-    try { process.kill(interruptedPid, 0); return true; } catch { return false; }
-  }, { timeout: 5_000 }).toBe(false);
-  await expect.poll(async () => (await f.messages(other)).some((m: any) => m.kind === "activity" && m.tool?.name?.includes("Review the result")), { timeout: 20_000 }).toBe(true);
-  expect((await f.messages(other)).filter((m: any) => m.role === "user" && m.text?.includes("RECOVERED_FOLLOWUP"))).toHaveLength(1);
+it(
+  "does not hand the model a queued follow-up that a restart recovered with an unknown outcome",
+  () =>
+    fixture(async (f) => {
+      await f.api("/api/config", { threads: { maxConcurrentPerBot: 1 } }, "PATCH");
+      const other = (await f.api(`/api/bots/${f.chief.id}/tasks`, { title: "Second conversation" }))
+        .task.threadId;
+      f.plan[f.chief.id] = {
+        turns: [
+          { reply: "Noted." },
+          { readyFile: f.gate("hold-ready"), reply: "Held", gateFile: f.gate("hold") },
+          { reply: "never", gateFile: f.gate("never") },
+        ],
+      };
+      await f.send("Warm up.", other);
+      await f.wait(other);
+      await f.send("Hold the only slot.");
+      await expect.poll(() => existsSync(f.gate("hold-ready")), { timeout: 15_000 }).toBe(true);
+      expect((await f.send("RECOVERED_FOLLOWUP deploy it", other)).queued).toBe(true);
+      f.open(f.gate("hold"));
+      await expect.poll(() => f.consumed(), { timeout: 15_000 }).toBe(3);
+      const interruptedPid = f.launches().at(-1).pid;
+      await f.restart(() => {}, "SIGKILL");
+      await expect
+        .poll(
+          () => {
+            try {
+              process.kill(interruptedPid, 0);
+              return true;
+            } catch {
+              return false;
+            }
+          },
+          { timeout: 5_000 },
+        )
+        .toBe(false);
+      await expect
+        .poll(
+          async () =>
+            (await f.messages(other)).some(
+              (m: any) => m.kind === "activity" && m.tool?.name?.includes("Review the result"),
+            ),
+          { timeout: 20_000 },
+        )
+        .toBe(true);
+      expect(
+        (await f.messages(other)).filter(
+          (m: any) => m.role === "user" && m.text?.includes("RECOVERED_FOLLOWUP"),
+        ),
+      ).toHaveLength(1);
 
-  f.plan[f.chief.id] = { reply: "Answered" };
-  await f.send("Anything new?", other);
-  await f.wait(other);
-  const next = f.turns().filter((turn: any) => f.prompt(turn).includes("Anything new?")).at(-1);
-  expect(next).toBeDefined();
-  expect(f.launches().at(-1).resume).not.toBeNull();
-  expect(f.prompt(next)).not.toContain("RECOVERED_FOLLOWUP");
-}), 90_000);
+      f.plan[f.chief.id] = { reply: "Answered" };
+      await f.send("Anything new?", other);
+      await f.wait(other);
+      const next = f
+        .turns()
+        .filter((turn: any) => f.prompt(turn).includes("Anything new?"))
+        .at(-1);
+      expect(next).toBeDefined();
+      expect(f.launches().at(-1).resume).not.toBeNull();
+      expect(f.prompt(next)).not.toContain("RECOVERED_FOLLOWUP");
+    }),
+  90_000,
+);
 
-it("gives a delegated return the fresh session and replay it always had when the bot's soul changed while teammates worked", () => fixture(async (f) => {
-  await warmUp(f);
-  f.plan[f.lead.id] = { reply: "SOUL_CHANGE_RESULT", gateFile: f.gate("lead") };
-  f.plan[f.chief.id] = { turns: [{}, f.delegate("build", [f.lead], "Build the export"), { reply: "Reviewed in German" }, { reply: "Still German" }] };
-  await f.send("Please have Engineering build the export.");
-  await leadRunning(f);
-  await expect.poll(async () => (await f.messages()).some((m: any) => m.role === "bot" && m.text === "Assigned"), { timeout: 15_000 }).toBe(true);
-  await f.api(`/api/bots/${f.chief.id}`, { soul: "NEW_SOUL_MARK Always answer in German." }, "PATCH");
-  f.open(f.gate("lead"));
-  await f.wait();
+it(
+  "gives a delegated return the fresh session and replay it always had when the bot's soul changed while teammates worked",
+  () =>
+    fixture(async (f) => {
+      await warmUp(f);
+      f.plan[f.lead.id] = { reply: "SOUL_CHANGE_RESULT", gateFile: f.gate("lead") };
+      f.plan[f.chief.id] = {
+        turns: [
+          {},
+          f.delegate("build", [f.lead], "Build the export"),
+          { reply: "Reviewed in German" },
+          { reply: "Still German" },
+        ],
+      };
+      await f.send("Please have Engineering build the export.");
+      await leadRunning(f);
+      await expect
+        .poll(
+          async () =>
+            (await f.messages()).some((m: any) => m.role === "bot" && m.text === "Assigned"),
+          { timeout: 15_000 },
+        )
+        .toBe(true);
+      await f.api(
+        `/api/bots/${f.chief.id}`,
+        { soul: "NEW_SOUL_MARK Always answer in German." },
+        "PATCH",
+      );
+      f.open(f.gate("lead"));
+      await f.wait();
 
-  const returned = f.turns().at(-1);
-  expect(f.launches().at(-1).resume).toBeNull();
-  expect(returned.system).toContain("NEW_SOUL_MARK");
-  expect(f.prompt(returned)).toContain("received an update outside your provider session");
-  expect(f.prompt(returned)).toContain("ORCHID_7Q");
-  expect(count(f.prompt(returned), "SOUL_CHANGE_RESULT")).toBe(1);
+      const returned = f.turns().at(-1);
+      expect(f.launches().at(-1).resume).toBeNull();
+      expect(returned.system).toContain("NEW_SOUL_MARK");
+      expect(f.prompt(returned)).toContain("received an update outside your provider session");
+      expect(f.prompt(returned)).toContain("ORCHID_7Q");
+      expect(count(f.prompt(returned), "SOUL_CHANGE_RESULT")).toBe(1);
 
-  await f.send("And now?");
-  await f.wait();
-  expect(f.launches().at(-1).resume).not.toBeNull();
-  expect(count(f.prompt(f.turns().at(-1)), "SOUL_CHANGE_RESULT")).toBe(0);
-}), 90_000);
+      await f.send("And now?");
+      await f.wait();
+      expect(f.launches().at(-1).resume).not.toBeNull();
+      expect(count(f.prompt(f.turns().at(-1)), "SOUL_CHANGE_RESULT")).toBe(0);
+    }),
+  90_000,
+);
 
-it("keeps resuming an ordinary turn after a soul change, as before", () => fixture(async (f) => {
-  await warmUp(f);
-  await f.api(`/api/bots/${f.chief.id}`, { soul: "NEW_SOUL_MARK Always answer in German." }, "PATCH");
-  f.plan[f.chief.id] = { reply: "Noted again." };
-  await f.send("Second message.");
-  await f.wait();
-  expect(f.launches().at(-1).resume).not.toBeNull();
-  expect(f.prompt(f.turns().at(-1))).toBe(withOnItNote("Second message."));
-}), 60_000);
+it(
+  "keeps resuming an ordinary turn after a soul change, as before",
+  () =>
+    fixture(async (f) => {
+      await warmUp(f);
+      await f.api(
+        `/api/bots/${f.chief.id}`,
+        { soul: "NEW_SOUL_MARK Always answer in German." },
+        "PATCH",
+      );
+      f.plan[f.chief.id] = { reply: "Noted again." };
+      await f.send("Second message.");
+      await f.wait();
+      expect(f.launches().at(-1).resume).not.toBeNull();
+      expect(f.prompt(f.turns().at(-1))).toBe(withOnItNote("Second message."));
+    }),
+  60_000,
+);
 
-it("offers a steer written into a resume the provider then rejected on the next turn", () => fixture(async (f) => {
-  await warmUp(f);
-  await f.setMode("resume=dead-session,holdresume=1");
-  f.plan[f.chief.id] = { reply: "Four." };
-  await f.send("QUESTION_ONE what is 2+2?");
-  await expect.poll(() => f.launches().length, { timeout: 15_000 }).toBe(2);
-  expect((await f.send("LOST_STEER_MARK and also mention the backups")).steered).toBe(true);
-  f.open(f.gate("resume-hold"));
-  await f.wait();
-  await f.setMode();
-  expect(count(f.prompt(f.turns().at(-1)), "LOST_STEER_MARK")).toBe(0);
+it(
+  "offers a steer written into a resume the provider then rejected on the next turn",
+  () =>
+    fixture(async (f) => {
+      await warmUp(f);
+      await f.setMode("resume=dead-session,holdresume=1");
+      f.plan[f.chief.id] = { reply: "Four." };
+      await f.send("QUESTION_ONE what is 2+2?");
+      await expect.poll(() => f.launches().length, { timeout: 15_000 }).toBe(2);
+      expect((await f.send("LOST_STEER_MARK and also mention the backups")).steered).toBe(true);
+      f.open(f.gate("resume-hold"));
+      await f.wait();
+      await f.setMode();
+      expect(count(f.prompt(f.turns().at(-1)), "LOST_STEER_MARK")).toBe(0);
 
-  f.plan[f.chief.id] = { reply: "Nothing else." };
-  await f.send("NEXT_Q anything else?");
-  await f.wait();
-  expect(f.launches().at(-1).resume).not.toBeNull();
-  expect(count(f.prompt(f.turns().at(-1)), "LOST_STEER_MARK")).toBe(1);
-}), 90_000);
+      f.plan[f.chief.id] = { reply: "Nothing else." };
+      await f.send("NEXT_Q anything else?");
+      await f.wait();
+      expect(f.launches().at(-1).resume).not.toBeNull();
+      expect(count(f.prompt(f.turns().at(-1)), "LOST_STEER_MARK")).toBe(1);
+    }),
+  90_000,
+);
 
-it("offers a steered message again when only output of the model call already running follows it before the turn fails", () => fixture(async (f) => {
-  f.plan[f.chief.id] = { turns: [
-    { reply: "Noted." },
-    { progress: "Looking into it", gateFile: f.gate("turn"), progressAfterGate: "Still answering the first question", fail: true },
-    { reply: "Covered" },
-  ] };
-  await f.send("Warm up.");
-  await f.wait();
-  await f.send("Start on the report.");
-  await expect.poll(async () => (await f.messages()).some((m: any) => m.role === "bot" && m.text === "Looking into it"), { timeout: 15_000 }).toBe(true);
-  expect((await f.send("BUFFERED_STEER also cover costs")).steered).toBe(true);
-  f.open(f.gate("turn"));
-  await expect.poll(async () => (await f.messages()).some((m: any) => m.role === "bot" && m.text === "Still answering the first question"), { timeout: 15_000 }).toBe(true);
-  await f.idle();
-  await f.send("Is it done?");
-  await f.wait();
-  expect(count(f.prompt(f.turns().at(-1)), "BUFFERED_STEER")).toBe(1);
-}), 60_000);
+it(
+  "offers a steered message again when only output of the model call already running follows it before the turn fails",
+  () =>
+    fixture(async (f) => {
+      f.plan[f.chief.id] = {
+        turns: [
+          { reply: "Noted." },
+          {
+            progress: "Looking into it",
+            gateFile: f.gate("turn"),
+            progressAfterGate: "Still answering the first question",
+            fail: true,
+          },
+          { reply: "Covered" },
+        ],
+      };
+      await f.send("Warm up.");
+      await f.wait();
+      await f.send("Start on the report.");
+      await expect
+        .poll(
+          async () =>
+            (await f.messages()).some((m: any) => m.role === "bot" && m.text === "Looking into it"),
+          { timeout: 15_000 },
+        )
+        .toBe(true);
+      expect((await f.send("BUFFERED_STEER also cover costs")).steered).toBe(true);
+      f.open(f.gate("turn"));
+      await expect
+        .poll(
+          async () =>
+            (await f.messages()).some(
+              (m: any) => m.role === "bot" && m.text === "Still answering the first question",
+            ),
+          { timeout: 15_000 },
+        )
+        .toBe(true);
+      await f.idle();
+      await f.send("Is it done?");
+      await f.wait();
+      expect(count(f.prompt(f.turns().at(-1)), "BUFFERED_STEER")).toBe(1);
+    }),
+  60_000,
+);
 
-it("rebuilds a delegated return whose Codex thread is gone into a new thread with today's replay", () => fixture(async (f) => {
-  await f.useModel("codex");
-  await warmUp(f);
-  f.plan[f.lead.id] = { reply: "MISSING_THREAD_RESULT", gateFile: f.gate("lead") };
-  f.plan[f.chief.id] = { turns: [{}, f.delegate("build", [f.lead], "Build the export"), { reply: "Rebuilt on Codex" }, { reply: "Still on Codex" }] };
-  await f.send("Please have Engineering build the export.");
-  await leadRunning(f);
-  await expect.poll(async () => (await f.messages()).some((m: any) => m.role === "bot" && m.text === "Assigned"), { timeout: 15_000 }).toBe(true);
-  await f.setMode("happy", "codex");
-  f.open(f.gate("lead"));
-  await f.wait();
-  await f.setMode(undefined, "codex");
+it(
+  "rebuilds a delegated return whose Codex thread is gone into a new thread with today's replay",
+  () =>
+    fixture(
+      async (f) => {
+        await f.useModel("codex");
+        await warmUp(f);
+        f.plan[f.lead.id] = { reply: "MISSING_THREAD_RESULT", gateFile: f.gate("lead") };
+        f.plan[f.chief.id] = {
+          turns: [
+            {},
+            f.delegate("build", [f.lead], "Build the export"),
+            { reply: "Rebuilt on Codex" },
+            { reply: "Still on Codex" },
+          ],
+        };
+        await f.send("Please have Engineering build the export.");
+        await leadRunning(f);
+        await expect
+          .poll(
+            async () =>
+              (await f.messages()).some((m: any) => m.role === "bot" && m.text === "Assigned"),
+            { timeout: 15_000 },
+          )
+          .toBe(true);
+        await f.setMode("happy", "codex");
+        f.open(f.gate("lead"));
+        await f.wait();
+        await f.setMode(undefined, "codex");
 
-  expect(f.nodes().find((node: any) => !node.parentId).status).toBe("completed");
-  const returned = f.prompt(f.turns().at(-1));
-  expect(returned).toContain("received an update outside your provider session");
-  expect(returned).toContain("ORCHID_7Q");
-  expect(count(returned, "MISSING_THREAD_RESULT")).toBe(1);
+        expect(f.nodes().find((node: any) => !node.parentId).status).toBe("completed");
+        const returned = f.prompt(f.turns().at(-1));
+        expect(returned).toContain("received an update outside your provider session");
+        expect(returned).toContain("ORCHID_7Q");
+        expect(count(returned, "MISSING_THREAD_RESULT")).toBe(1);
 
-  await f.send("And now?");
-  await f.wait();
-  const next = f.turns().at(-1);
-  expect(next.resumedThread).toBeTruthy();
-  expect(count(f.prompt(next), "MISSING_THREAD_RESULT")).toBe(0);
-}, { codex: {} }), 90_000);
+        await f.send("And now?");
+        await f.wait();
+        const next = f.turns().at(-1);
+        expect(next.resumedThread).toBeTruthy();
+        expect(count(f.prompt(next), "MISSING_THREAD_RESULT")).toBe(0);
+      },
+      { codex: {} },
+    ),
+  90_000,
+);
 
-it("replays a result that reaches an engine switched in before it arrived with today's update preamble", () => fixture(async (f) => {
-  await warmUp(f);
-  f.plan[f.lead.id] = { reply: "EARLY_SWITCH_RESULT", gateFile: f.gate("lead") };
-  f.plan[f.chief.id] = { turns: [{}, f.delegate("build", [f.lead], "Build the export"), { reply: "Reviewed on Codex" }] };
-  await f.send("Please have Engineering build the export.");
-  await leadRunning(f);
-  await expect.poll(async () => (await f.messages()).some((m: any) => m.role === "bot" && m.text === "Assigned"), { timeout: 15_000 }).toBe(true);
-  const model = (await f.cli("models")).instances.find((item: any) => item.instanceId === "codex").models.options[0].id;
-  await f.api(`/api/bots/${f.chief.id}/tasks/${f.thread}`, { modelSelection: { instanceId: "codex", model }, requireAvailableModel: true }, "PATCH");
-  f.open(f.gate("lead"));
-  await f.wait();
-  const returned = f.prompt(f.turns().at(-1));
-  expect(returned).toContain("received an update outside your provider session");
-  expect(returned).not.toContain("switched this bot over to you");
-  expect(returned).toContain("ORCHID_7Q");
-  expect(count(returned, "EARLY_SWITCH_RESULT")).toBe(1);
-}, { codex: {} }), 90_000);
+it(
+  "replays a result that reaches an engine switched in before it arrived with today's update preamble",
+  () =>
+    fixture(
+      async (f) => {
+        await warmUp(f);
+        f.plan[f.lead.id] = { reply: "EARLY_SWITCH_RESULT", gateFile: f.gate("lead") };
+        f.plan[f.chief.id] = {
+          turns: [
+            {},
+            f.delegate("build", [f.lead], "Build the export"),
+            { reply: "Reviewed on Codex" },
+          ],
+        };
+        await f.send("Please have Engineering build the export.");
+        await leadRunning(f);
+        await expect
+          .poll(
+            async () =>
+              (await f.messages()).some((m: any) => m.role === "bot" && m.text === "Assigned"),
+            { timeout: 15_000 },
+          )
+          .toBe(true);
+        const model = (await f.cli("models")).instances.find(
+          (item: any) => item.instanceId === "codex",
+        ).models.options[0].id;
+        await f.api(
+          `/api/bots/${f.chief.id}/tasks/${f.thread}`,
+          { modelSelection: { instanceId: "codex", model }, requireAvailableModel: true },
+          "PATCH",
+        );
+        f.open(f.gate("lead"));
+        await f.wait();
+        const returned = f.prompt(f.turns().at(-1));
+        expect(returned).toContain("received an update outside your provider session");
+        expect(returned).not.toContain("switched this bot over to you");
+        expect(returned).toContain("ORCHID_7Q");
+        expect(count(returned, "EARLY_SWITCH_RESULT")).toBe(1);
+      },
+      { codex: {} },
+    ),
+  90_000,
+);
 
 const holdingGit = (dataDir: string, hold: string, held: string) => {
-  const real = (process.env.PATH ?? "").split(delimiter).map((dir) => join(dir, "git")).find((path) => existsSync(path));
+  const real = (process.env.PATH ?? "")
+    .split(delimiter)
+    .map((dir) => join(dir, "git"))
+    .find((path) => existsSync(path));
   if (!real) throw new Error("this test needs git on PATH");
   const bin = join(dataDir, "fake-bin");
   mkdirSync(bin, { recursive: true });
-  writeFileSync(join(bin, "git"), [
-    "#!/usr/bin/env node",
-    'import { existsSync, writeFileSync } from "node:fs";',
-    'import { spawnSync } from "node:child_process";',
-    "const args = process.argv.slice(2);",
-    `if (args[0] !== "--version" && existsSync(${JSON.stringify(hold)})) {`,
-    `  writeFileSync(${JSON.stringify(held)}, "held");`,
-    `  while (existsSync(${JSON.stringify(hold)})) await new Promise((r) => setTimeout(r, 20));`,
-    "}",
-    `process.exit(spawnSync(${JSON.stringify(real)}, args, { stdio: "inherit" }).status ?? 1);`,
-  ].join("\n"), { mode: 0o700 });
+  writeFileSync(
+    join(bin, "git"),
+    [
+      "#!/usr/bin/env node",
+      'import { existsSync, writeFileSync } from "node:fs";',
+      'import { spawnSync } from "node:child_process";',
+      "const args = process.argv.slice(2);",
+      `if (args[0] !== "--version" && existsSync(${JSON.stringify(hold)})) {`,
+      `  writeFileSync(${JSON.stringify(held)}, "held");`,
+      `  while (existsSync(${JSON.stringify(hold)})) await new Promise((r) => setTimeout(r, 20));`,
+      "}",
+      `process.exit(spawnSync(${JSON.stringify(real)}, args, { stdio: "inherit" }).status ?? 1);`,
+    ].join("\n"),
+    { mode: 0o700 },
+  );
   return bin;
 };
 
-it.skipIf(process.platform === "win32")("gives a delegated return today's fresh session and replay when the soul changes while that turn is being set up", () => fixture(async (f) => {
-  const project = join(f.dataDir, "project");
-  mkdirSync(project);
-  await f.api(`/api/bots/${f.chief.id}`, { cwd: project }, "PATCH");
-  const hold = join(f.dataDir, "git.hold");
-  const held = join(f.dataDir, "git.held");
-  await f.restart(() => {}, "SIGTERM", { PATH: [holdingGit(f.dataDir, hold, held), dirname(process.execPath)].join(delimiter) });
-  await warmUp(f);
-  f.plan[f.lead.id] = { reply: "SETUP_SOUL_RESULT", gateFile: f.gate("lead") };
-  f.plan[f.chief.id] = { turns: [{}, f.delegate("build", [f.lead], "Build the export"), { reply: "Reviewed" }] };
-  await f.send("Please have Engineering build the export.");
-  await leadRunning(f);
-  await expect.poll(async () => (await f.messages()).some((m: any) => m.role === "bot" && m.text === "Assigned"), { timeout: 15_000 }).toBe(true);
-  writeFileSync(hold, "hold");
-  f.open(f.gate("lead"));
-  await expect.poll(() => existsSync(held), { timeout: 20_000 }).toBe(true);
-  await f.api(`/api/bots/${f.chief.id}`, { soul: "SETUP_SOUL_MARK Always answer in German." }, "PATCH");
-  rmSync(hold);
-  await f.wait();
+it.skipIf(process.platform === "win32")(
+  "gives a delegated return today's fresh session and replay when the soul changes while that turn is being set up",
+  () =>
+    fixture(async (f) => {
+      const project = join(f.dataDir, "project");
+      mkdirSync(project);
+      await f.api(`/api/bots/${f.chief.id}`, { cwd: project }, "PATCH");
+      const hold = join(f.dataDir, "git.hold");
+      const held = join(f.dataDir, "git.held");
+      await f.restart(() => {}, "SIGTERM", {
+        PATH: [holdingGit(f.dataDir, hold, held), dirname(process.execPath)].join(delimiter),
+      });
+      await warmUp(f);
+      f.plan[f.lead.id] = { reply: "SETUP_SOUL_RESULT", gateFile: f.gate("lead") };
+      f.plan[f.chief.id] = {
+        turns: [{}, f.delegate("build", [f.lead], "Build the export"), { reply: "Reviewed" }],
+      };
+      await f.send("Please have Engineering build the export.");
+      await leadRunning(f);
+      await expect
+        .poll(
+          async () =>
+            (await f.messages()).some((m: any) => m.role === "bot" && m.text === "Assigned"),
+          { timeout: 15_000 },
+        )
+        .toBe(true);
+      writeFileSync(hold, "hold");
+      f.open(f.gate("lead"));
+      await expect.poll(() => existsSync(held), { timeout: 20_000 }).toBe(true);
+      await f.api(
+        `/api/bots/${f.chief.id}`,
+        { soul: "SETUP_SOUL_MARK Always answer in German." },
+        "PATCH",
+      );
+      rmSync(hold);
+      await f.wait();
 
-  const returned = f.turns().at(-1);
-  expect(returned.system).toContain("SETUP_SOUL_MARK");
-  expect(f.launches().at(-1).resume).toBeNull();
-  expect(f.prompt(returned)).toContain("received an update outside your provider session");
-  expect(count(f.prompt(returned), "SETUP_SOUL_RESULT")).toBe(1);
-  const record = Object.values(f.handed())[0] as any;
-  expect(record.session).toBe(Object.values(f.task().resumeCursors)[0]);
-  expect(record.omitted).toBeUndefined();
-  expect(record.through).toBeTruthy();
+      const returned = f.turns().at(-1);
+      expect(returned.system).toContain("SETUP_SOUL_MARK");
+      expect(f.launches().at(-1).resume).toBeNull();
+      expect(f.prompt(returned)).toContain("received an update outside your provider session");
+      expect(count(f.prompt(returned), "SETUP_SOUL_RESULT")).toBe(1);
+      const record = Object.values(f.handed())[0] as any;
+      expect(record.session).toBe(Object.values(f.task().resumeCursors)[0]);
+      expect(record.omitted).toBeUndefined();
+      expect(record.through).toBeTruthy();
 
-  f.plan[f.chief.id] = { reply: "Nothing new" };
-  await f.send("And now?");
-  await f.wait();
-  expect(f.launches().at(-1).resume).toBe(Object.values(f.task().resumeCursors)[0]);
-  expect(count(f.prompt(f.turns().at(-1)), "SETUP_SOUL_RESULT")).toBe(0);
-}), 90_000);
+      f.plan[f.chief.id] = { reply: "Nothing new" };
+      await f.send("And now?");
+      await f.wait();
+      expect(f.launches().at(-1).resume).toBe(Object.values(f.task().resumeCursors)[0]);
+      expect(count(f.prompt(f.turns().at(-1)), "SETUP_SOUL_RESULT")).toBe(0);
+    }),
+  90_000,
+);
 
-it("gives a Codex return the model chosen while its teammate worked", () => fixture(async (f) => {
-  await f.useModel("codex");
-  await warmUp(f);
-  f.plan[f.lead.id] = { reply: "CODEX_MODEL_RESULT", gateFile: f.gate("lead") };
-  f.plan[f.chief.id] = { turns: [{}, f.delegate("build", [f.lead], "Build the export"), { reply: "Reviewed on the new model" }] };
-  await f.send("Please have Engineering build the export.");
-  await leadRunning(f);
-  await expect.poll(async () => (await f.messages()).some((m: any) => m.role === "bot" && m.text === "Assigned"), { timeout: 15_000 }).toBe(true);
-  const [, other] = await f.codexModels();
-  await f.selectModel(other);
-  f.open(f.gate("lead"));
-  await f.wait();
+it(
+  "gives a Codex return the model chosen while its teammate worked",
+  () =>
+    fixture(
+      async (f) => {
+        await f.useModel("codex");
+        await warmUp(f);
+        f.plan[f.lead.id] = { reply: "CODEX_MODEL_RESULT", gateFile: f.gate("lead") };
+        f.plan[f.chief.id] = {
+          turns: [
+            {},
+            f.delegate("build", [f.lead], "Build the export"),
+            { reply: "Reviewed on the new model" },
+          ],
+        };
+        await f.send("Please have Engineering build the export.");
+        await leadRunning(f);
+        await expect
+          .poll(
+            async () =>
+              (await f.messages()).some((m: any) => m.role === "bot" && m.text === "Assigned"),
+            { timeout: 15_000 },
+          )
+          .toBe(true);
+        const [, other] = await f.codexModels();
+        await f.selectModel(other);
+        f.open(f.gate("lead"));
+        await f.wait();
 
-  const started = f.codexCalls().filter((call: any) => call.method === "thread/start");
-  expect(started).toHaveLength(1);
-  expect(started[0].params.model).toBe(other);
-  const returned = f.prompt(f.turns().at(-1));
-  expect(returned).toContain("received an update outside your provider session");
-  expect(count(returned, "CODEX_MODEL_RESULT")).toBe(1);
-}, { codex: {} }), 90_000);
+        const started = f.codexCalls().filter((call: any) => call.method === "thread/start");
+        expect(started).toHaveLength(1);
+        expect(started[0].params.model).toBe(other);
+        const returned = f.prompt(f.turns().at(-1));
+        expect(returned).toContain("received an update outside your provider session");
+        expect(count(returned, "CODEX_MODEL_RESULT")).toBe(1);
+      },
+      { codex: {} },
+    ),
+  90_000,
+);
 
-it("gives a Codex return today's fresh thread when explicit effort is cleared while its teammate worked", () => fixture(async (f) => {
-  await f.useModel("codex");
-  const [model] = await f.codexModels();
-  await f.selectModel(model, { effort: "high" });
-  await warmUp(f);
-  f.plan[f.lead.id] = { reply: "CODEX_EFFORT_RESULT", gateFile: f.gate("lead") };
-  f.plan[f.chief.id] = { turns: [{}, f.delegate("build", [f.lead], "Build the export"), { reply: "Reviewed on default effort" }] };
-  await f.send("Please have Engineering build the export.");
-  await leadRunning(f);
-  await expect.poll(async () => (await f.messages()).some((m: any) => m.role === "bot" && m.text === "Assigned"), { timeout: 15_000 }).toBe(true);
-  await expect.poll(async () => (await f.api("/api/bots")).bots.find((bot: any) => bot.id === f.chief.id)
-    .tasks.find((task: any) => task.threadId === f.thread).waitingForTeammates, { timeout: 15_000 }).toBe(true);
-  await f.selectModel(model);
-  f.open(f.gate("lead"));
-  await f.wait();
+it(
+  "gives a Codex return today's fresh thread when explicit effort is cleared while its teammate worked",
+  () =>
+    fixture(
+      async (f) => {
+        await f.useModel("codex");
+        const [model] = await f.codexModels();
+        await f.selectModel(model, { effort: "high" });
+        await warmUp(f);
+        f.plan[f.lead.id] = { reply: "CODEX_EFFORT_RESULT", gateFile: f.gate("lead") };
+        f.plan[f.chief.id] = {
+          turns: [
+            {},
+            f.delegate("build", [f.lead], "Build the export"),
+            { reply: "Reviewed on default effort" },
+          ],
+        };
+        await f.send("Please have Engineering build the export.");
+        await leadRunning(f);
+        await expect
+          .poll(
+            async () =>
+              (await f.messages()).some((m: any) => m.role === "bot" && m.text === "Assigned"),
+            { timeout: 15_000 },
+          )
+          .toBe(true);
+        await expect
+          .poll(
+            async () =>
+              (await f.api("/api/bots")).bots
+                .find((bot: any) => bot.id === f.chief.id)
+                .tasks.find((task: any) => task.threadId === f.thread).waitingForTeammates,
+            { timeout: 15_000 },
+          )
+          .toBe(true);
+        await f.selectModel(model);
+        f.open(f.gate("lead"));
+        await f.wait();
 
-  expect(f.codexCalls().filter((call: any) => call.method === "thread/start")).toHaveLength(1);
-  expect(f.codexCalls().find((call: any) => call.method === "turn/start")?.params.effort).toBeUndefined();
-  expect(count(f.prompt(f.turns().at(-1)), "CODEX_EFFORT_RESULT")).toBe(1);
-}, { codex: {} }), 90_000);
+        expect(f.codexCalls().filter((call: any) => call.method === "thread/start")).toHaveLength(
+          1,
+        );
+        expect(
+          f.codexCalls().find((call: any) => call.method === "turn/start")?.params.effort,
+        ).toBeUndefined();
+        expect(count(f.prompt(f.turns().at(-1)), "CODEX_EFFORT_RESULT")).toBe(1);
+      },
+      { codex: {} },
+    ),
+  90_000,
+);
 
-it("moves a Codex chat to a new thread with its history when the person clears an effort its thread holds", () => fixture(async (f) => {
-  await f.useModel("codex");
-  const [model] = await f.codexModels();
-  await f.selectModel(model);
-  await warmUp(f);
-  await f.selectModel(model, { effort: "high" });
-  f.plan[f.chief.id] = { reply: "On high effort" };
-  await f.send("Think harder about this one.");
-  await f.wait();
-  expect(f.codexCalls().filter((call: any) => call.method === "thread/resume")).toHaveLength(1);
-  expect(f.codexCalls().find((call: any) => call.method === "turn/start")?.params.effort).toBe("high");
+it(
+  "moves a Codex chat to a new thread with its history when the person clears an effort its thread holds",
+  () =>
+    fixture(
+      async (f) => {
+        await f.useModel("codex");
+        const [model] = await f.codexModels();
+        await f.selectModel(model);
+        await warmUp(f);
+        await f.selectModel(model, { effort: "high" });
+        f.plan[f.chief.id] = { reply: "On high effort" };
+        await f.send("Think harder about this one.");
+        await f.wait();
+        expect(f.codexCalls().filter((call: any) => call.method === "thread/resume")).toHaveLength(
+          1,
+        );
+        expect(
+          f.codexCalls().find((call: any) => call.method === "turn/start")?.params.effort,
+        ).toBe("high");
 
-  await f.selectModel(model);
-  f.plan[f.chief.id] = { reply: "On default effort" };
-  await f.send("What is the codename?");
-  await f.wait();
-  expect(f.codexCalls().filter((call: any) => call.method === "thread/resume")).toHaveLength(0);
-  expect(f.codexCalls().filter((call: any) => call.method === "thread/start")).toHaveLength(1);
-  expect(f.codexCalls().find((call: any) => call.method === "turn/start")?.params.effort).toBeUndefined();
-  expect(count(f.prompt(f.turns().at(-1)), "ORCHID_7Q")).toBe(1);
+        await f.selectModel(model);
+        f.plan[f.chief.id] = { reply: "On default effort" };
+        await f.send("What is the codename?");
+        await f.wait();
+        expect(f.codexCalls().filter((call: any) => call.method === "thread/resume")).toHaveLength(
+          0,
+        );
+        expect(f.codexCalls().filter((call: any) => call.method === "thread/start")).toHaveLength(
+          1,
+        );
+        expect(
+          f.codexCalls().find((call: any) => call.method === "turn/start")?.params.effort,
+        ).toBeUndefined();
+        expect(count(f.prompt(f.turns().at(-1)), "ORCHID_7Q")).toBe(1);
 
-  f.plan[f.chief.id] = { reply: "Still on default effort" };
-  await f.send("And now?");
-  await f.wait();
-  const next = f.turns().at(-1);
-  expect(next.resumedThread).toBeTruthy();
-  expect(f.prompt(next)).not.toContain("ORCHID_7Q");
-}, { codex: {} }), 90_000);
+        f.plan[f.chief.id] = { reply: "Still on default effort" };
+        await f.send("And now?");
+        await f.wait();
+        const next = f.turns().at(-1);
+        expect(next.resumedThread).toBeTruthy();
+        expect(f.prompt(next)).not.toContain("ORCHID_7Q");
+      },
+      { codex: {} },
+    ),
+  90_000,
+);
 
-it("keeps today's fresh return on a Claude CLI that cannot refresh a resumed system prompt", () => fixture(async (f) => {
-  await warmUp(f);
-  f.plan[f.lead.id] = { reply: "OLD_CLI_RESULT", gateFile: f.gate("lead") };
-  f.plan[f.chief.id] = { turns: [{}, f.delegate("build", [f.lead], "Build the export"), { reply: "Reviewed" }] };
-  await f.send("Please have Engineering build the export.");
-  await leadRunning(f);
-  f.open(f.gate("lead"));
-  await f.wait();
+it(
+  "keeps today's fresh return on a Claude CLI that cannot refresh a resumed system prompt",
+  () =>
+    fixture(
+      async (f) => {
+        await warmUp(f);
+        f.plan[f.lead.id] = { reply: "OLD_CLI_RESULT", gateFile: f.gate("lead") };
+        f.plan[f.chief.id] = {
+          turns: [{}, f.delegate("build", [f.lead], "Build the export"), { reply: "Reviewed" }],
+        };
+        await f.send("Please have Engineering build the export.");
+        await leadRunning(f);
+        f.open(f.gate("lead"));
+        await f.wait();
 
-  expect(f.launches().at(-1).resume).toBeNull();
-  const returned = f.prompt(f.turns().at(-1));
-  expect(returned).toContain("received an update outside your provider session");
-  expect(returned).toContain("ORCHID_7Q");
-  expect(count(returned, "OLD_CLI_RESULT")).toBe(1);
-  expect(f.handed()).toBeUndefined();
-}, { env: { FAKE_CLAUDE_VERSION: "2.1.200" } }), 90_000);
+        expect(f.launches().at(-1).resume).toBeNull();
+        const returned = f.prompt(f.turns().at(-1));
+        expect(returned).toContain("received an update outside your provider session");
+        expect(returned).toContain("ORCHID_7Q");
+        expect(count(returned, "OLD_CLI_RESULT")).toBe(1);
+        expect(f.handed()).toBeUndefined();
+      },
+      { env: { FAKE_CLAUDE_VERSION: "2.1.200" } },
+    ),
+  90_000,
+);
 
 const rewindOnce = async (f: any) => {
   await warmUp(f, "KEEP_CONTEXT: work only in the test workspace.");
@@ -1075,79 +1982,159 @@ const rewindOnce = async (f: any) => {
   const dropped = (await f.messages()).findLast((m: any) => m.role === "user");
   f.plan[f.chief.id] = { reply: "Replacement accepted" };
   f.save();
-  await f.cli("edit", "--bot", f.chief.id, "--message", dropped.id, "--task", f.thread, "--text", "REPLACEMENT_REQUEST");
+  await f.cli(
+    "edit",
+    "--bot",
+    f.chief.id,
+    "--message",
+    dropped.id,
+    "--task",
+    f.thread,
+    "--text",
+    "REPLACEMENT_REQUEST",
+  );
   await f.wait();
   return { dropped };
 };
 
-it("starts a Codex rewind on a new thread with only the kept history, then resumes that thread", () => fixture(async (f) => {
-  await f.useModel("codex");
-  const { dropped } = await rewindOnce(f);
-  const first = f.turns().at(-1);
-  expect(first.resumedThread).toBeFalsy();
-  expect(f.prompt(first)).toContain("KEEP_CONTEXT");
-  expect(f.prompt(first)).toContain("REPLACEMENT_REQUEST");
-  expect(f.prompt(first)).not.toContain("ABANDONED_");
+it(
+  "starts a Codex rewind on a new thread with only the kept history, then resumes that thread",
+  () =>
+    fixture(
+      async (f) => {
+        await f.useModel("codex");
+        const { dropped } = await rewindOnce(f);
+        const first = f.turns().at(-1);
+        expect(first.resumedThread).toBeFalsy();
+        expect(f.prompt(first)).toContain("KEEP_CONTEXT");
+        expect(f.prompt(first)).toContain("REPLACEMENT_REQUEST");
+        expect(f.prompt(first)).not.toContain("ABANDONED_");
 
-  f.plan[f.chief.id] = { reply: "Continuing the replacement" };
-  await f.send("Continue");
-  await f.wait();
-  const next = f.turns().at(-1);
-  expect(next.resumedThread).toBeTruthy();
-  expect(f.prompt(next)).not.toContain("KEEP_CONTEXT");
-  expect(f.prompt(next)).not.toContain("ABANDONED_");
+        f.plan[f.chief.id] = { reply: "Continuing the replacement" };
+        await f.send("Continue");
+        await f.wait();
+        const next = f.turns().at(-1);
+        expect(next.resumedThread).toBeTruthy();
+        expect(f.prompt(next)).not.toContain("KEEP_CONTEXT");
+        expect(f.prompt(next)).not.toContain("ABANDONED_");
 
-  const back = await f.api(`/api/bots/${f.chief.id}/active-branch`, { threadId: f.thread, messageId: dropped.id });
-  const path = (await f.api(`/api/threads/${f.thread}/messages`, undefined, "GET"));
-  expect(path.activeLeafId).toBe(back.activeLeafId);
-  const byId = new Map(path.messages.map((m: any) => [m.id, m]));
-  const onPath: any[] = [];
-  for (let cur: any = byId.get(back.activeLeafId); cur; cur = cur.parentId ? byId.get(cur.parentId) : undefined) onPath.unshift(cur);
-  expect(onPath.map((m: any) => m.text)).toEqual(expect.arrayContaining(["ABANDONED_REQUEST", "ABANDONED_REPLY"]));
-  expect(onPath.map((m: any) => m.text)).not.toContain("REPLACEMENT_REQUEST");
-  expect(path.versions[dropped.id]).toMatchObject({ index: 1, count: 2 });
-}, { codex: {} }), 90_000);
+        const back = await f.api(`/api/bots/${f.chief.id}/active-branch`, {
+          threadId: f.thread,
+          messageId: dropped.id,
+        });
+        const path = await f.api(`/api/threads/${f.thread}/messages`, undefined, "GET");
+        expect(path.activeLeafId).toBe(back.activeLeafId);
+        const byId = new Map(path.messages.map((m: any) => [m.id, m]));
+        const onPath: any[] = [];
+        for (
+          let cur: any = byId.get(back.activeLeafId);
+          cur;
+          cur = cur.parentId ? byId.get(cur.parentId) : undefined
+        )
+          onPath.unshift(cur);
+        expect(onPath.map((m: any) => m.text)).toEqual(
+          expect.arrayContaining(["ABANDONED_REQUEST", "ABANDONED_REPLY"]),
+        );
+        expect(onPath.map((m: any) => m.text)).not.toContain("REPLACEMENT_REQUEST");
+        expect(path.versions[dropped.id]).toMatchObject({ index: 1, count: 2 });
+      },
+      { codex: {} },
+    ),
+  90_000,
+);
 
-it("rewinds Claude to the last prompt and resends it changed with no trace of the dropped reply or its plan", () => fixture(async (f) => {
-  await warmUp(f, "KEEP_CONTEXT: work only in the test workspace.");
-  f.plan[f.chief.id] = { reply: "ABANDONED_REPLY", steps: [{ tool: "set_plan", arguments: { items: [{ text: "ABANDONED_PLAN_STEP", status: "in_progress" }] } }] };
-  await f.send("ABANDONED_REQUEST");
-  await f.wait();
-  const dropped = (await f.messages()).findLast((m: any) => m.role === "user");
+it(
+  "rewinds Claude to the last prompt and resends it changed with no trace of the dropped reply or its plan",
+  () =>
+    fixture(async (f) => {
+      await warmUp(f, "KEEP_CONTEXT: work only in the test workspace.");
+      f.plan[f.chief.id] = {
+        reply: "ABANDONED_REPLY",
+        steps: [
+          {
+            tool: "set_plan",
+            arguments: { items: [{ text: "ABANDONED_PLAN_STEP", status: "in_progress" }] },
+          },
+        ],
+      };
+      await f.send("ABANDONED_REQUEST");
+      await f.wait();
+      const dropped = (await f.messages()).findLast((m: any) => m.role === "user");
 
-  expect((await f.api("/api/health", undefined, "GET")).capabilities).toMatchObject({ rewindForgets: 1 });
-  const held = await f.api(`/api/bots/${f.chief.id}/rewind`, { threadId: f.thread, messageId: dropped.id, action: "hold" });
-  expect(held.draft).toBe("ABANDONED_REQUEST");
-  expect((await f.api("/api/bots", undefined, "GET")).bots.find((b: any) => b.id === f.chief.id).tasks
-    .find((t: any) => t.threadId === f.thread).plan).toBeFalsy();
-  expect(held.activeLeafId).toBe(dropped.parentId);
+      expect((await f.api("/api/health", undefined, "GET")).capabilities).toMatchObject({
+        rewindForgets: 1,
+      });
+      const held = await f.api(`/api/bots/${f.chief.id}/rewind`, {
+        threadId: f.thread,
+        messageId: dropped.id,
+        action: "hold",
+      });
+      expect(held.draft).toBe("ABANDONED_REQUEST");
+      expect(
+        (await f.api("/api/bots", undefined, "GET")).bots
+          .find((b: any) => b.id === f.chief.id)
+          .tasks.find((t: any) => t.threadId === f.thread).plan,
+      ).toBeFalsy();
+      expect(held.activeLeafId).toBe(dropped.parentId);
 
-  f.plan[f.chief.id] = { reply: "Replacement accepted" };
-  f.save();
-  const sent = await f.api(`/api/bots/${f.chief.id}/rewind`, { threadId: f.thread, messageId: dropped.id, action: "send", text: "REPLACEMENT_REQUEST" });
-  expect(sent.version).toMatchObject({ index: 2, count: 2 });
-  expect(sent.notUndone).toEqual({ files: [], moreFiles: 0, commands: 0, actions: 0 });
-  await f.wait();
-  const replay = f.prompt(f.turns().at(-1));
-  expect(replay).toContain("KEEP_CONTEXT");
-  expect(count(replay, "REPLACEMENT_REQUEST")).toBe(1);
-  expect(replay).not.toContain("ABANDONED_");
-  expect(f.launches().at(-1).resume).toBeNull();
-}), 90_000);
+      f.plan[f.chief.id] = { reply: "Replacement accepted" };
+      f.save();
+      const sent = await f.api(`/api/bots/${f.chief.id}/rewind`, {
+        threadId: f.thread,
+        messageId: dropped.id,
+        action: "send",
+        text: "REPLACEMENT_REQUEST",
+      });
+      expect(sent.version).toMatchObject({ index: 2, count: 2 });
+      expect(sent.notUndone).toEqual({ files: [], moreFiles: 0, commands: 0, actions: 0 });
+      await f.wait();
+      const replay = f.prompt(f.turns().at(-1));
+      expect(replay).toContain("KEEP_CONTEXT");
+      expect(count(replay, "REPLACEMENT_REQUEST")).toBe(1);
+      expect(replay).not.toContain("ABANDONED_");
+      expect(f.launches().at(-1).resume).toBeNull();
+    }),
+  90_000,
+);
 
-it("leaves a plan set during the dropped reply out of the edited branch's context and off the screen", () => fixture(async (f) => {
-  await warmUp(f, "KEEP_CONTEXT: work only in the test workspace.");
-  f.plan[f.chief.id] = { reply: "ABANDONED_REPLY", steps: [{ tool: "set_plan", arguments: { items: [{ text: "ABANDONED_PLAN_STEP", status: "in_progress" }] } }] };
-  await f.send("ABANDONED_REQUEST");
-  await f.wait();
-  const shownPlan = async () => (await f.api("/api/bots", undefined, "GET")).bots.find((b: any) => b.id === f.chief.id).tasks
-    .find((t: any) => t.threadId === f.thread).plan?.items ?? [];
-  expect((await shownPlan()).map((item: any) => item.text)).toEqual(["ABANDONED_PLAN_STEP"]);
-  const dropped = (await f.messages()).findLast((m: any) => m.role === "user");
-  f.plan[f.chief.id] = { reply: "Replacement accepted" };
-  f.save();
-  await f.cli("edit", "--bot", f.chief.id, "--message", dropped.id, "--task", f.thread, "--text", "REPLACEMENT_REQUEST");
-  await f.wait();
-  expect(f.prompt(f.turns().at(-1))).not.toContain("ABANDONED_");
-  expect(await shownPlan()).toEqual([]);
-}), 90_000);
+it(
+  "leaves a plan set during the dropped reply out of the edited branch's context and off the screen",
+  () =>
+    fixture(async (f) => {
+      await warmUp(f, "KEEP_CONTEXT: work only in the test workspace.");
+      f.plan[f.chief.id] = {
+        reply: "ABANDONED_REPLY",
+        steps: [
+          {
+            tool: "set_plan",
+            arguments: { items: [{ text: "ABANDONED_PLAN_STEP", status: "in_progress" }] },
+          },
+        ],
+      };
+      await f.send("ABANDONED_REQUEST");
+      await f.wait();
+      const shownPlan = async () =>
+        (await f.api("/api/bots", undefined, "GET")).bots
+          .find((b: any) => b.id === f.chief.id)
+          .tasks.find((t: any) => t.threadId === f.thread).plan?.items ?? [];
+      expect((await shownPlan()).map((item: any) => item.text)).toEqual(["ABANDONED_PLAN_STEP"]);
+      const dropped = (await f.messages()).findLast((m: any) => m.role === "user");
+      f.plan[f.chief.id] = { reply: "Replacement accepted" };
+      f.save();
+      await f.cli(
+        "edit",
+        "--bot",
+        f.chief.id,
+        "--message",
+        dropped.id,
+        "--task",
+        f.thread,
+        "--text",
+        "REPLACEMENT_REQUEST",
+      );
+      await f.wait();
+      expect(f.prompt(f.turns().at(-1))).not.toContain("ABANDONED_");
+      expect(await shownPlan()).toEqual([]);
+    }),
+  90_000,
+);

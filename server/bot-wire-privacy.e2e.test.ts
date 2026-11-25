@@ -35,26 +35,42 @@ describe("bot wire privacy against the real server", () => {
     const port = await leasePortBlock([0, 1]);
     base = `http://127.0.0.1:${port}`;
     output = "";
-    writeFileSync(join(data, "config.json"), JSON.stringify({
-      features: { skillsLibrary },
-      instances: { grok: { driver: "grokAgent", config: { cli: FAKE_CLI, fullAuto: false } } },
-    }));
+    writeFileSync(
+      join(data, "config.json"),
+      JSON.stringify({
+        features: { skillsLibrary },
+        instances: { grok: { driver: "grokAgent", config: { cli: FAKE_CLI, fullAuto: false } } },
+      }),
+    );
     const proc = spawn(process.execPath, [join(SERVER_DIR, "index.ts")], {
       cwd: ROOT,
       env: {
-        PATH: dirname(process.execPath), ...(process.env.SystemRoot ? { SystemRoot: process.env.SystemRoot } : {}),
-        HOME: home, USERPROFILE: home, LATERDOG_HOME: data,
-        APPDATA: join(home, "appdata"), LOCALAPPDATA: join(home, "localappdata"),
-        LATERDOG_SERVER_PORT: String(port), LATERDOG_WEBHOOK_PORT: String(port + 1),
+        PATH: dirname(process.execPath),
+        ...(process.env.SystemRoot ? { SystemRoot: process.env.SystemRoot } : {}),
+        HOME: home,
+        USERPROFILE: home,
+        LATERDOG_HOME: data,
+        APPDATA: join(home, "appdata"),
+        LOCALAPPDATA: join(home, "localappdata"),
+        LATERDOG_SERVER_PORT: String(port),
+        LATERDOG_WEBHOOK_PORT: String(port + 1),
       },
       stdio: ["ignore", "pipe", "pipe"],
     });
     child = proc;
-    proc.stdout!.on("data", (chunk) => { output += chunk; });
-    proc.stderr!.on("data", (chunk) => { output += chunk; });
+    proc.stdout!.on("data", (chunk) => {
+      output += chunk;
+    });
+    proc.stderr!.on("data", (chunk) => {
+      output += chunk;
+    });
     await until(async () => {
       if (proc.exitCode !== null) throw new Error(`server exited during boot:\n${output}`);
-      try { return (await fetch(base + "/api/health")).ok; } catch { return false; }
+      try {
+        return (await fetch(base + "/api/health")).ok;
+      } catch {
+        return false;
+      }
     }, Boolean);
   }
 
@@ -65,9 +81,14 @@ describe("bot wire privacy against the real server", () => {
     await waitForExit(proc, { signal: "SIGTERM" });
   }
 
-  const api = async (method: string, path: string, body?: unknown): Promise<{ status: number; body: any }> => {
+  const api = async (
+    method: string,
+    path: string,
+    body?: unknown,
+  ): Promise<{ status: number; body: any }> => {
     const response = await fetch(base + path, {
-      method, headers: { "content-type": "application/json" },
+      method,
+      headers: { "content-type": "application/json" },
       ...(body === undefined ? {} : { body: JSON.stringify(body) }),
     });
     return { status: response.status, body: await response.json().catch(() => ({})) };
@@ -83,7 +104,9 @@ describe("bot wire privacy against the real server", () => {
     await stop();
     if (home) await removeTempDir(home);
   });
-  afterEach(async () => { await stop(); });
+  afterEach(async () => {
+    await stop();
+  });
 
   it("never serializes assignedSkills, flag off or on, even when the record carries assignments", async () => {
     await start(false);
@@ -105,12 +128,15 @@ describe("bot wire privacy against the real server", () => {
       await stop();
     }
 
-    const stored = (JSON.parse(readFileSync(join(data, "bots.json"), "utf8")) as any[]).find((bot) => bot.id === botId)!;
+    const stored = (JSON.parse(readFileSync(join(data, "bots.json"), "utf8")) as any[]).find(
+      (bot) => bot.id === botId,
+    )!;
     expect(stored.assignedSkills).toEqual(["some-library-skill"]);
   });
 
   it("serves an assigned library-only skill on the single-skill GET route only while the library is on", async () => {
-    const instructions = "---\nname: route-library-skill\ndescription: Serves through the assigned-skill route.\n---\n\n# route-library-skill\n\nReads through the library.\n";
+    const instructions =
+      "---\nname: route-library-skill\ndescription: Serves through the assigned-skill route.\n---\n\n# route-library-skill\n\nReads through the library.\n";
     const installed = installLibrarySkill({
       name: "route-library-skill",
       instructions,
@@ -130,12 +156,16 @@ describe("bot wire privacy against the real server", () => {
     writeFileSync(join(data, "bots.json"), JSON.stringify(bots, null, 2));
 
     await start(false);
-    expect(await api("GET", `/api/bots/${botId}/skills/route-library-skill`)).toMatchObject({ status: 404 });
+    expect(await api("GET", `/api/bots/${botId}/skills/route-library-skill`)).toMatchObject({
+      status: 404,
+    });
     await stop();
 
     await start(true);
-    expect(await api("GET", `/api/bots/${botId}/skills/route-library-skill`))
-      .toMatchObject({ status: 200, body: { text: instructions } });
+    expect(await api("GET", `/api/bots/${botId}/skills/route-library-skill`)).toMatchObject({
+      status: 200,
+      body: { text: instructions },
+    });
     await stop();
   });
 });

@@ -21,11 +21,26 @@ let output = "";
 const environment = () => ({
   ...(process.env.PATH ? { PATH: process.env.PATH } : {}),
   ...(process.env.SystemRoot ? { SystemRoot: process.env.SystemRoot } : {}),
-  HOME: home, USERPROFILE: home, LATERDOG_WEBHOOK_PORT: String(PORT + 1), LATERDOG_LOOPBACK_TRUST: "service",
+  HOME: home,
+  USERPROFILE: home,
+  LATERDOG_WEBHOOK_PORT: String(PORT + 1),
+  LATERDOG_LOOPBACK_TRUST: "service",
 });
 const cli = async (args: string[]) => {
   try {
-    const { stdout, stderr } = await run(process.execPath, ["--experimental-strip-types", ENTRY, ...args, "--port", String(PORT), "--data-dir", join(home, "data")], { env: environment(), timeout: 20_000 });
+    const { stdout, stderr } = await run(
+      process.execPath,
+      [
+        "--experimental-strip-types",
+        ENTRY,
+        ...args,
+        "--port",
+        String(PORT),
+        "--data-dir",
+        join(home, "data"),
+      ],
+      { env: environment(), timeout: 20_000 },
+    );
     return { code: 0, stdout, stderr };
   } catch (error) {
     const failed = error as { code?: number; stdout?: string; stderr?: string };
@@ -36,9 +51,22 @@ const cli = async (args: string[]) => {
 describe.skipIf(process.platform === "win32")("laterdog serve under service loopback trust", () => {
   beforeAll(async () => {
     home = mkdtempSync(join(tmpdir(), "laterdog-cli-service-"));
-    serve = spawn(process.execPath, ["--experimental-strip-types", ENTRY, "serve", "--port", String(PORT), "--data-dir", join(home, "data")], {
-      env: environment(), stdio: ["ignore", "pipe", "pipe"],
-    });
+    serve = spawn(
+      process.execPath,
+      [
+        "--experimental-strip-types",
+        ENTRY,
+        "serve",
+        "--port",
+        String(PORT),
+        "--data-dir",
+        join(home, "data"),
+      ],
+      {
+        env: environment(),
+        stdio: ["ignore", "pipe", "pipe"],
+      },
+    );
     serve.stdout!.on("data", (chunk) => (output += chunk));
     serve.stderr!.on("data", (chunk) => (output += chunk));
     const deadline = Date.now() + 40_000;
@@ -64,16 +92,26 @@ describe.skipIf(process.platform === "win32")("laterdog serve under service loop
 
   it("refuses everyone else on this machine the pairing route", async () => {
     for (const headers of [{}, { "x-laterdog-cli-owner": "x".repeat(43) }]) {
-      const minted = await fetch(`http://127.0.0.1:${PORT}/api/auth/pairing`, { method: "POST", headers: { "content-type": "application/json", ...headers }, body: "{}" });
+      const minted = await fetch(`http://127.0.0.1:${PORT}/api/auth/pairing`, {
+        method: "POST",
+        headers: { "content-type": "application/json", ...headers },
+        body: "{}",
+      });
       expect(minted.status).toBe(403);
     }
   });
 
   it("explains itself to separate CLI commands instead of printing an empty answer", async () => {
-    for (const args of [["sessions"], ["sessions", "revoke", "sess-1"], ["pair", "--label", "Kitchen iPad"]]) {
+    for (const args of [
+      ["sessions"],
+      ["sessions", "revoke", "sess-1"],
+      ["pair", "--label", "Kitchen iPad"],
+    ]) {
       const result = await cli(args);
       expect(result.code, args.join(" ")).toBe(1);
-      expect(result.stderr, args.join(" ")).toContain("does not treat commands on this computer as its owner");
+      expect(result.stderr, args.join(" ")).toContain(
+        "does not treat commands on this computer as its owner",
+      );
       expect(result.stdout).not.toContain("no paired devices yet");
     }
   }, 60_000);

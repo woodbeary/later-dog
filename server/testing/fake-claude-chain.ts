@@ -22,7 +22,11 @@ const argAfter = (argv: readonly string[], flag: string) => {
 function read(dir: string, session: string): FakeChainEntry[] | null {
   const file = join(dir, `${session}.json`);
   if (!existsSync(file)) return null;
-  try { return JSON.parse(readFileSync(file, "utf8")) as FakeChainEntry[]; } catch { return null; }
+  try {
+    return JSON.parse(readFileSync(file, "utf8")) as FakeChainEntry[];
+  } catch {
+    return null;
+  }
 }
 
 function describe(block: Record<string, unknown>): FakeChainEntry["kind"] | null {
@@ -37,11 +41,23 @@ function blockText(block: Record<string, unknown>): string {
   if (block.type === "tool_use") return JSON.stringify({ name: block.name, input: block.input });
   const content = block.content;
   if (typeof content === "string") return content;
-  if (Array.isArray(content)) return content.map((part) => (part && typeof part === "object" && typeof (part as { text?: unknown }).text === "string" ? (part as { text: string }).text : "")).join("");
+  if (Array.isArray(content))
+    return content
+      .map((part) =>
+        part && typeof part === "object" && typeof (part as { text?: unknown }).text === "string"
+          ? (part as { text: string }).text
+          : "",
+      )
+      .join("");
   return "";
 }
 
-export function openFakeChain(env: NodeJS.ProcessEnv, argv: readonly string[], sessionId: string, uuid: () => string): FakeChainOpening | null {
+export function openFakeChain(
+  env: NodeJS.ProcessEnv,
+  argv: readonly string[],
+  sessionId: string,
+  uuid: () => string,
+): FakeChainOpening | null {
   const dir = env.FAKE_CLAUDE_CHAIN_DIR;
   if (!dir) return null;
   mkdirSync(dir, { recursive: true });
@@ -60,7 +76,10 @@ export function openFakeChain(env: NodeJS.ProcessEnv, argv: readonly string[], s
     }
   }
   if (env.FAKE_CLAUDE_FORK_LOG && resumed) {
-    appendFileSync(env.FAKE_CLAUDE_FORK_LOG, `${JSON.stringify({ from: resumed, at: at ?? null, forked: forking, session: sessionId, kept: entries.length })}\n`);
+    appendFileSync(
+      env.FAKE_CLAUDE_FORK_LOG,
+      `${JSON.stringify({ from: resumed, at: at ?? null, forked: forking, session: sessionId, kept: entries.length })}\n`,
+    );
   }
   const save = () => writeFileSync(join(dir, `${sessionId}.json`), JSON.stringify(entries));
   save();
@@ -69,10 +88,22 @@ export function openFakeChain(env: NodeJS.ProcessEnv, argv: readonly string[], s
       note(message) {
         if (!message || typeof message !== "object") return;
         const frame = message as Record<string, unknown>;
-        if ((frame.type !== "assistant" && frame.type !== "user") || frame.parent_tool_use_id || frame.isReplay === true) return;
+        if (
+          (frame.type !== "assistant" && frame.type !== "user") ||
+          frame.parent_tool_use_id ||
+          frame.isReplay === true
+        )
+          return;
         const content = (frame.message as { content?: unknown } | undefined)?.content;
-        const blocks = Array.isArray(content) ? content.filter((block): block is Record<string, unknown> => Boolean(block) && typeof block === "object") : [];
-        const kinds = blocks.map((block) => ({ kind: describe(block), text: blockText(block) })).filter((entry) => entry.kind !== null);
+        const blocks = Array.isArray(content)
+          ? content.filter(
+              (block): block is Record<string, unknown> =>
+                Boolean(block) && typeof block === "object",
+            )
+          : [];
+        const kinds = blocks
+          .map((block) => ({ kind: describe(block), text: blockText(block) }))
+          .filter((entry) => entry.kind !== null);
         if (!kinds.length) return;
         const id = typeof frame.uuid === "string" ? frame.uuid : uuid();
         frame.uuid = id;
@@ -81,7 +112,10 @@ export function openFakeChain(env: NodeJS.ProcessEnv, argv: readonly string[], s
       },
       turn(prompt) {
         if (env.FAKE_CLAUDE_SEEN_LOG) {
-          appendFileSync(env.FAKE_CLAUDE_SEEN_LOG, `${JSON.stringify({ session: sessionId, prompt, history: entries.map(({ kind, text }) => ({ kind, text })) })}\n`);
+          appendFileSync(
+            env.FAKE_CLAUDE_SEEN_LOG,
+            `${JSON.stringify({ session: sessionId, prompt, history: entries.map(({ kind, text }) => ({ kind, text })) })}\n`,
+          );
         }
         entries.push({ uuid: uuid(), kind: "prompt", text: prompt });
         save();

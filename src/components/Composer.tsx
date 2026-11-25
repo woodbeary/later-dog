@@ -1,7 +1,15 @@
 import { track } from "@/lib/analytics";
 import { shortcutLabel } from "./ShortcutHint";
 import type { SendDelivery } from "../../shared/send-delivery";
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type SetStateAction } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type SetStateAction,
+} from "react";
 import { ModelPicker } from "./ModelPicker";
 import { ArrowUp, Check, Loader2, Mic, Pencil, Plus, Users, X } from "lucide-react";
 import { visibleMessages, currentTaskBot, type Bot, type Group, type Message } from "@/state/store";
@@ -9,7 +17,13 @@ import { useDrawnDogs, useStoreDispatch, useStoreSelector } from "@/state/store-
 import { chatPane } from "@/state/pane-errors";
 import { waitingOnPerson } from "@/lib/waiting-on-person";
 import { QUESTION_DISMISS_MESSAGE } from "../../shared/ask-question";
-import { answerByTyping, answerTooLong, forgetClosedAnswer, useClosedAnswer, useTypedAnswer } from "@/lib/typed-answer";
+import {
+  answerByTyping,
+  answerTooLong,
+  forgetClosedAnswer,
+  useClosedAnswer,
+  useTypedAnswer,
+} from "@/lib/typed-answer";
 import { cn } from "@/lib/cn";
 import { useMenuMotion } from "./MenuMotion";
 import { activeLocale, t } from "@/lib/i18n";
@@ -65,7 +79,11 @@ import {
 import { admitPictures, joinNotices, PICTURES_PER_MESSAGE } from "@/lib/picture-limit";
 import { useTextWrapped } from "@/lib/composer-expand";
 import { normalizeState } from "@/lib/mascot";
-import { groupComposerHint, jevRoomRoutingOn, roomRespondersForComposer } from "@/lib/group-routing";
+import {
+  groupComposerHint,
+  jevRoomRoutingOn,
+  roomRespondersForComposer,
+} from "@/lib/group-routing";
 import { PendingApprovalActions, PendingApprovalPanel, pendingApprovals } from "./PendingApproval";
 import { CallButton } from "./CallView";
 import { AddAccountSheet } from "./AccountsPanel";
@@ -82,7 +100,12 @@ import {
 import { DictationStrip, useDictationMeter } from "./DictationStrip";
 import { callButtonShown, skillAuthoringEnabled } from "@/lib/feature-flags";
 import { transcribeDictation, type SharperOutcome } from "@/lib/sharper-dictation";
-import { micRecordingSupported, MicUnavailableError, startMicRecorder, type MicRecorder } from "@/lib/mic-recorder";
+import {
+  micRecordingSupported,
+  MicUnavailableError,
+  startMicRecorder,
+  type MicRecorder,
+} from "@/lib/mic-recorder";
 import { holdReloads, holdReloadsUntil } from "@/lib/reload-guard";
 import { forgetVoiceNote, saveVoiceNote, savedVoiceNote } from "@/lib/voice-notes";
 import { useComposerSuggestion } from "@/lib/use-composer-suggestion";
@@ -159,8 +182,8 @@ export function Composer({
   const approvals = pendingApprovals(group ? group.messages : bot ? visibleMessages(bot) : []);
   const approval = approvals[0];
   const approvalBot = group
-    ? members?.find((member) => member.id === approval?.message.from?.botId) ??
-      members?.find((member) => member.id === group.busyBotId)
+    ? (members?.find((member) => member.id === approval?.message.from?.botId) ??
+      members?.find((member) => member.id === group.busyBotId))
     : bot;
   const busyName = group
     ? (members?.find((b) => b.id === group.busyBotId)?.name ??
@@ -226,10 +249,14 @@ export function Composer({
     [text, editText, editAttachments],
   );
   const [recording, setRecording] = useState(false);
-  const [voiceNote, setVoiceNote] = useState<string | null>(() => (savedVoiceNote(draftId) ? draftId : null));
+  const [voiceNote, setVoiceNote] = useState<string | null>(() =>
+    savedVoiceNote(draftId) ? draftId : null,
+  );
   const [retryingNote, setRetryingNote] = useState<string | null>(null);
   const listening = recording || retryingNote !== null;
-  const [speechError, setSpeechError] = useState<string | null>(() => savedVoiceNote(draftId)?.message ?? null);
+  const [speechError, setSpeechError] = useState<string | null>(
+    () => savedVoiceNote(draftId)?.message ?? null,
+  );
   const [sharpening, setSharpening] = useState(0);
   const recorder = useRef<MicRecorder | null>(null);
   const recorderGeneration = useRef(0);
@@ -239,8 +266,14 @@ export function Composer({
   const [highlight, setHighlight] = useState(0);
   const [dismissedAt, setDismissedAt] = useState<number | null>(null);
   const [dismissedSlashAt, setDismissedSlashAt] = useState<number | null>(null);
-  const [listedCommands, setListedCommands] = useState<{ botId: string; commands: DogCommand[] } | null>(null);
-  const [commandDialog, setCommandDialog] = useState<{ name?: string; editing?: { name: string; text: string } } | null>(null);
+  const [listedCommands, setListedCommands] = useState<{
+    botId: string;
+    commands: DogCommand[];
+  } | null>(null);
+  const [commandDialog, setCommandDialog] = useState<{
+    name?: string;
+    editing?: { name: string; text: string };
+  } | null>(null);
   const commandListRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const textWrapped = useTextWrapped(inputRef, text);
@@ -275,7 +308,8 @@ export function Composer({
     if (window.matchMedia?.("(hover: none) and (pointer: coarse)").matches) return;
     const frame = requestAnimationFrame(() => {
       const input = inputRef.current;
-      if (!input || input.disabled || !composerTakesFocusOnOpen(document.activeElement, input)) return;
+      if (!input || input.disabled || !composerTakesFocusOnOpen(document.activeElement, input))
+        return;
       input.focus();
       const position = composerDraftPosition(draftIdRef.current);
       if (position) placeDraftPosition(input, position);
@@ -292,7 +326,8 @@ export function Composer({
     if (window.matchMedia?.("(hover: none) and (pointer: coarse)").matches) return;
     const frame = requestAnimationFrame(() => {
       const input = inputRef.current;
-      if (!input || input.disabled || !composerTakesFocusOnOpen(document.activeElement, input)) return;
+      if (!input || input.disabled || !composerTakesFocusOnOpen(document.activeElement, input))
+        return;
       input.focus();
       input.setSelectionRange(input.value.length, input.value.length);
     });
@@ -333,7 +368,13 @@ export function Composer({
       }
       if ("miss" in outcome && outcome.miss === "no-audio") return;
       const miss = "miss" in outcome ? outcome.miss : "failed";
-      const message = t(miss === "no-service" ? "composer.dictation.noService" : miss === "off" ? "composer.dictation.off" : "composer.dictation.cloudFailed");
+      const message = t(
+        miss === "no-service"
+          ? "composer.dictation.noService"
+          : miss === "off"
+            ? "composer.dictation.off"
+            : "composer.dictation.cloudFailed",
+      );
       saveVoiceNote(id, { audio, message });
       if (!here) return;
       setVoiceNote(id);
@@ -344,7 +385,8 @@ export function Composer({
   const botSupportsImages = (candidate?: Bot) =>
     Boolean(
       candidate &&
-        instances.find((i) => i.instanceId === candidate.modelSelection.instanceId)?.capabilities?.images,
+      instances.find((i) => i.instanceId === candidate.modelSelection.instanceId)?.capabilities
+        ?.images,
     );
   const imageTargetsSupport = (message: string) => {
     if (!group) return botSupportsImages(bot);
@@ -365,22 +407,35 @@ export function Composer({
   useEffect(() => {
     if (slashOpen && commandsBotId) loadCommands(commandsBotId);
   }, [slashOpen, commandsBotId, loadCommands]);
-  const dogCommands = commandsBotId && listedCommands?.botId === commandsBotId ? listedCommands.commands : [];
+  const dogCommands =
+    commandsBotId && listedCommands?.botId === commandsBotId ? listedCommands.commands : [];
   const commandCandidates = useMemo((): ComposerSlashChoice[] => {
     if (!slash || slash.start === dismissedSlashAt) return [];
     const supportsAgents = (candidate?: Bot) =>
       Boolean(
         candidate &&
-          instances.find(
-            (instance) => instance.instanceId === candidate.modelSelection.instanceId,
-          )?.capabilities?.agentsMcp,
+        instances.find((instance) => instance.instanceId === candidate.modelSelection.instanceId)
+          ?.capabilities?.agentsMcp,
       );
     const learn: DogCommand[] =
-      skillAuthoringEnabled(config) && (group ? (members ?? []).some(supportsAgents) : supportsAgents(bot)) && !dogCommands.some((command) => command.name === "learn")
+      skillAuthoringEnabled(config) &&
+      (group ? (members ?? []).some(supportsAgents) : supportsAgents(bot)) &&
+      !dogCommands.some((command) => command.name === "learn")
         ? [{ name: "learn", line: t("composer.command.learnDesc"), kind: "standard" }]
         : [];
     return slashChoices([...dogCommands, ...learn], slash.query, Boolean(commandsBotId));
-  }, [slash, dismissedSlashAt, group, members, bot, config, instances, locale, dogCommands, commandsBotId]);
+  }, [
+    slash,
+    dismissedSlashAt,
+    group,
+    members,
+    bot,
+    config,
+    instances,
+    locale,
+    dogCommands,
+    commandsBotId,
+  ]);
   const commandPickerOpen = commandCandidates.length > 0;
 
   const mention = mentionQueryAt(text, caret);
@@ -404,7 +459,10 @@ export function Composer({
     field: inputRef.current,
     lines: group ? group.messages : bot ? visibleMessages(bot) : [],
     dog: group ? group.name : (bot?.name ?? ""),
-    dogNames: (group ? members ?? [] : drawnDogs.filter((member) => member.id !== bot?.id && !member.hidden)).map((member) => member.name),
+    dogNames: (group
+      ? (members ?? [])
+      : drawnDogs.filter((member) => member.id !== bot?.id && !member.hidden)
+    ).map((member) => member.name),
     commands: ["/learn"],
     recording,
     listening,
@@ -420,10 +478,7 @@ export function Composer({
   const commandMotion = useMenuMotion(commandPickerOpen);
   const mentionMotion = useMenuMotion(mentionPickerOpen);
 
-  useEffect(
-    () => setHighlight(0),
-    [mention?.start, mention?.query, slash?.start, slash?.query],
-  );
+  useEffect(() => setHighlight(0), [mention?.start, mention?.query, slash?.start, slash?.query]);
 
   useEffect(() => {
     if (!commandPickerOpen) return;
@@ -457,8 +512,17 @@ export function Composer({
     if (!bot || group || action.name !== COMPACT_ACTION.name) return;
     editText("");
     setCaret(0);
-    void api(`/api/bots/${encodeURIComponent(bot.id)}/compact`, { method: "POST", body: JSON.stringify({ threadId }) })
-      .catch(() => dispatch({ type: "reportError", error: null, pane: errorPane, line: t("composer.command.compactFailed") }));
+    void api(`/api/bots/${encodeURIComponent(bot.id)}/compact`, {
+      method: "POST",
+      body: JSON.stringify({ threadId }),
+    }).catch(() =>
+      dispatch({
+        type: "reportError",
+        error: null,
+        pane: errorPane,
+        line: t("composer.command.compactFailed"),
+      }),
+    );
   };
 
   const pickCommand = (choice: ComposerSlashChoice) => {
@@ -499,14 +563,28 @@ export function Composer({
     if (group) dispatch({ type: "interruptGroup", groupId: group.id, threadId });
     else if (bot) dispatch({ type: "interrupt", botId: bot.id, threadId });
   };
-  const openQuestion = asking && bot
-    ? visibleMessages(bot).find((message) => message.kind === "options" && message.card?.requestId && !message.card.answered && !message.card.dismissed && !message.card.expired
-      && (message.card.requestType === "question" || Boolean(message.card.questionRequest)))
-    : undefined;
+  const openQuestion =
+    asking && bot
+      ? visibleMessages(bot).find(
+          (message) =>
+            message.kind === "options" &&
+            message.card?.requestId &&
+            !message.card.answered &&
+            !message.card.dismissed &&
+            !message.card.expired &&
+            (message.card.requestType === "question" || Boolean(message.card.questionRequest)),
+        )
+      : undefined;
   const stopOrEndWait = () => {
     const requestId = openQuestion?.card?.requestId;
     if (requestId) {
-      dispatch({ type: "decideRequest", threadId, requestId, behavior: "answer", message: QUESTION_DISMISS_MESSAGE });
+      dispatch({
+        type: "decideRequest",
+        threadId,
+        requestId,
+        behavior: "answer",
+        message: QUESTION_DISMISS_MESSAGE,
+      });
       return;
     }
     interruptTurn();
@@ -515,15 +593,31 @@ export function Composer({
   const steerLive =
     canSteer &&
     (steerCapabilities?.steerImages === true ||
-      !(group ? queuedMessages.slice(0, 1) : queuedMessages).some((item) => item.text.includes("<attached-image")));
+      !(group ? queuedMessages.slice(0, 1) : queuedMessages).some((item) =>
+        item.text.includes("<attached-image"),
+      ));
   const steerQueued = () => {
     if (!queueHeadId) return;
     setSteering(true);
     const settle = () => setSteering(false);
     if (group) {
-      dispatch({ type: "steerGroupQueued", groupId: group.id, threadId, queueId: queueHeadId, onError: settle, onSettled: settle });
+      dispatch({
+        type: "steerGroupQueued",
+        groupId: group.id,
+        threadId,
+        queueId: queueHeadId,
+        onError: settle,
+        onSettled: settle,
+      });
     } else if (bot) {
-      dispatch({ type: "steerQueued", botId: bot.id, threadId, queueId: queueHeadId, onError: settle, onSettled: settle });
+      dispatch({
+        type: "steerQueued",
+        botId: bot.id,
+        threadId,
+        queueId: queueHeadId,
+        onError: settle,
+        onSettled: settle,
+      });
     }
   };
   useEffect(() => setSteering(false), [threadId, queueHeadId]);
@@ -542,7 +636,8 @@ export function Composer({
         input.setSelectionRange(editable.text.length, editable.text.length);
       });
     };
-    if (group) dispatch({ type: "cancelGroupQueued", groupId: group.id, threadId, queueId, onCancelled });
+    if (group)
+      dispatch({ type: "cancelGroupQueued", groupId: group.id, threadId, queueId, onCancelled });
     else if (bot) dispatch({ type: "cancelQueued", botId: bot.id, threadId, queueId, onCancelled });
   };
   const steerAgainUntilRef = useRef(0);
@@ -570,36 +665,45 @@ export function Composer({
   const [signingIn, setSigningIn] = useState<string | null>(null);
   const sendAfterSignIn = useRef<() => void>(() => {});
   const [attachmentNotice, setAttachmentNotice] = useState<string | null>(null);
-  const uploadImage = useCallback(async (file: File): Promise<Attachment | null> => {
-    const optimistic = optimisticImageAttachment(file);
-    if (!optimistic) return null;
-    appendDraftAttachments(draftId, [optimistic]);
-    try {
-      const completed = await imageAttachmentFromFile(file, optimistic);
-      if (!completed) {
+  const uploadImage = useCallback(
+    async (file: File): Promise<Attachment | null> => {
+      const optimistic = optimisticImageAttachment(file);
+      if (!optimistic) return null;
+      appendDraftAttachments(draftId, [optimistic]);
+      try {
+        const completed = await imageAttachmentFromFile(file, optimistic);
+        if (!completed) {
+          replaceDraftAttachment(draftId, optimistic.id, null);
+          releaseAttachmentImagePreview(optimistic);
+          return null;
+        }
+        handoffAttachmentImagePreview(completed.path, completed.previewUrl);
+        if (!replaceDraftAttachment(draftId, optimistic.id, completed)) {
+          releaseAttachmentImagePreview(completed);
+        }
+        return null;
+      } catch (error) {
         replaceDraftAttachment(draftId, optimistic.id, null);
         releaseAttachmentImagePreview(optimistic);
-        return null;
+        throw error;
       }
-      handoffAttachmentImagePreview(completed.path, completed.previewUrl);
-      if (!replaceDraftAttachment(draftId, optimistic.id, completed)) {
-        releaseAttachmentImagePreview(completed);
-      }
-      return null;
-    } catch (error) {
-      replaceDraftAttachment(draftId, optimistic.id, null);
-      releaseAttachmentImagePreview(optimistic);
-      throw error;
-    }
-  }, [draftId]);
-  const admitFiles = useCallback((files: File[]) => {
-    const { admitted, refused } = admitPictures(
-      files,
-      (file) => engineSupportsImages && isImageFile(file),
-      draftAttachments(draftId),
-    );
-    return { files: admitted, notice: refused ? t("composer.picturesLimit", { max: PICTURES_PER_MESSAGE }) : null };
-  }, [draftId, engineSupportsImages]);
+    },
+    [draftId],
+  );
+  const admitFiles = useCallback(
+    (files: File[]) => {
+      const { admitted, refused } = admitPictures(
+        files,
+        (file) => engineSupportsImages && isImageFile(file),
+        draftAttachments(draftId),
+      );
+      return {
+        files: admitted,
+        notice: refused ? t("composer.picturesLimit", { max: PICTURES_PER_MESSAGE }) : null,
+      };
+    },
+    [draftId, engineSupportsImages],
+  );
   const pickFiles = async (picked: FileList | null) => {
     if (!picked?.length) return;
     const admitted = admitFiles(Array.from(picked));
@@ -621,10 +725,19 @@ export function Composer({
   const hasContent = Boolean(text.trim()) || attachments.length > 0;
   const answerWithFiles = Boolean(typedAnswer) && attachments.length > 0;
   const stopShown = (working || asking) && !hasContent && !recording && sharpening === 0;
-  const expanded = textWrapped || attachments.length > 0 || Boolean(attachmentNotice) || Boolean(replyTo);
+  const expanded =
+    textWrapped || attachments.length > 0 || Boolean(attachmentNotice) || Boolean(replyTo);
   const retryFailedSend = (failed: FailedComposerSend) => {
-    if (failed.requestText.includes("<attached-image ") && !imageTargetsSupport(failed.requestText)) {
-      dispatch({ type: "reportError", error: null, pane: errorPane, line: t("composer.error.noImages") });
+    if (
+      failed.requestText.includes("<attached-image ") &&
+      !imageTargetsSupport(failed.requestText)
+    ) {
+      dispatch({
+        type: "reportError",
+        error: null,
+        pane: errorPane,
+        line: t("composer.error.noImages"),
+      });
       return;
     }
     forgetFailedComposerSend(draftId, failed.id);
@@ -656,16 +769,27 @@ export function Composer({
       attachments.some((attachment) => attachment.kind === "image") &&
       !imageTargetsSupport(text)
     ) {
-      dispatch({ type: "reportError", error: null, pane: errorPane, line: t("composer.error.noImages") });
+      dispatch({
+        type: "reportError",
+        error: null,
+        pane: errorPane,
+        line: t("composer.error.noImages"),
+      });
       return;
     }
     if (typedAnswer) {
       const typed = text;
-      const result = answerByTyping(threadId, typed, (answer) => dispatch({ type: "decideRequest", behavior: "answer", ...answer }), () => setText(typed));
+      const result = answerByTyping(
+        threadId,
+        typed,
+        (answer) => dispatch({ type: "decideRequest", behavior: "answer", ...answer }),
+        () => setText(typed),
+      );
       if (result === "sent" || result === "kept") setText("");
       if (result) return;
     }
-    const action = attachments.length === 0 ? typedAction(text, [...dogCommands, COMPACT_ACTION]) : null;
+    const action =
+      attachments.length === 0 ? typedAction(text, [...dogCommands, COMPACT_ACTION]) : null;
     if (action && bot && !group) {
       runAction(action);
       return;
@@ -673,8 +797,16 @@ export function Composer({
     const body = composeMessage(text, attachments);
     if (!body) return;
     forgetClosedAnswer(threadId);
-    const account = !group && bot ? instances.find((instance) => instance.instanceId === bot.modelSelection.instanceId) : undefined;
-    if (!signedInNow && account?.snapshot && signInFamily(account) && (needsSignIn(account) || needsCli(account))) {
+    const account =
+      !group && bot
+        ? instances.find((instance) => instance.instanceId === bot.modelSelection.instanceId)
+        : undefined;
+    if (
+      !signedInNow &&
+      account?.snapshot &&
+      signInFamily(account) &&
+      (needsSignIn(account) || needsCli(account))
+    ) {
       sendAfterSignIn.current = () => send(true, deliver);
       setSigningIn(account.instanceId);
       return;
@@ -714,7 +846,10 @@ export function Composer({
         recovery: { draftId, text },
         onError: () => restoreDraft(sentDraft),
       });
-      track("message_sent", { driver: bot.modelSelection?.instanceId, queued: busy && (!canSteer || deliver === "queue") });
+      track("message_sent", {
+        driver: bot.modelSelection?.instanceId,
+        queued: busy && (!canSteer || deliver === "queue"),
+      });
     }
     suggestion.sent(text);
     dropRecorder();
@@ -731,11 +866,21 @@ export function Composer({
     if (imageFiles.length > 0 || clipboardHasImages(e.clipboardData)) {
       e.preventDefault();
       if (!engineSupportsImages) {
-        dispatch({ type: "reportError", error: null, pane: errorPane, line: t("composer.error.noImages") });
+        dispatch({
+          type: "reportError",
+          error: null,
+          pane: errorPane,
+          line: t("composer.error.noImages"),
+        });
         return;
       }
       if (!imageFiles.length) {
-        dispatch({ type: "reportError", error: null, pane: errorPane, line: t("composer.error.clipboardImage") });
+        dispatch({
+          type: "reportError",
+          error: null,
+          pane: errorPane,
+          line: t("composer.error.clipboardImage"),
+        });
         return;
       }
       if (imageFiles.length > 0) {
@@ -764,7 +909,12 @@ export function Composer({
     const name = pastedTextFileName(attachments);
     const attachment = pasteAttachment(pasted, name);
     if (attachment.size > FILE_MAX_BYTES) {
-      dispatch({ type: "reportError", error: null, pane: errorPane, line: "Pasted text is bigger than 25 MB." });
+      dispatch({
+        type: "reportError",
+        error: null,
+        pane: errorPane,
+        line: "Pasted text is bigger than 25 MB.",
+      });
       return;
     }
     const start = e.currentTarget.selectionStart;
@@ -816,18 +966,27 @@ export function Composer({
     setRecording(false);
     if (!active) return;
     const finish = transcribeLater();
-    void holdReloadsUntil(active.stop().then(
-      (audio) => {
-        if (audio && !dictationCancelled.current) return finish(audio);
-      },
-      (error: unknown) => {
-        if (!mounted.current || dictationCancelled.current) return;
-        setSpeechError(t(error instanceof MicUnavailableError && error.reason === "denied" ? "composer.dictation.permission" : "composer.dictation.failed"));
-      },
-    ));
+    void holdReloadsUntil(
+      active.stop().then(
+        (audio) => {
+          if (audio && !dictationCancelled.current) return finish(audio);
+        },
+        (error: unknown) => {
+          if (!mounted.current || dictationCancelled.current) return;
+          setSpeechError(
+            t(
+              error instanceof MicUnavailableError && error.reason === "denied"
+                ? "composer.dictation.permission"
+                : "composer.dictation.failed",
+            ),
+          );
+        },
+      ),
+    );
   };
   const leaveDictation = useRef(stopDictation);
-  leaveDictation.current = () => (recorder.current && !dictationCancelled.current ? stopDictation() : dropRecorder());
+  leaveDictation.current = () =>
+    recorder.current && !dictationCancelled.current ? stopDictation() : dropRecorder();
   useEffect(() => () => leaveDictation.current(), []);
 
   const cancelDictation = useCallback(() => {
@@ -874,7 +1033,15 @@ export function Composer({
         if (generation !== recorderGeneration.current || !mounted.current) return;
         setRecording(false);
         const reason = error instanceof MicUnavailableError ? error.reason : "failed";
-        setSpeechError(t(reason === "denied" ? "composer.dictation.permission" : reason === "unsupported" ? "composer.dictation.unavailable" : "composer.dictation.failed"));
+        setSpeechError(
+          t(
+            reason === "denied"
+              ? "composer.dictation.permission"
+              : reason === "unsupported"
+                ? "composer.dictation.unavailable"
+                : "composer.dictation.failed",
+          ),
+        );
       },
     );
   };
@@ -882,12 +1049,23 @@ export function Composer({
   return (
     <div className="pointer-events-none relative px-5 pb-3">
       {(speechError || retryingNote) && (
-        <div data-voice-note className="pointer-events-auto mb-2 flex w-full items-center gap-2 rounded-lg border border-warning/30 bg-warning/10 px-3 py-2 text-[12px] text-warning">
+        <div
+          data-voice-note
+          className="pointer-events-auto mb-2 flex w-full items-center gap-2 rounded-lg border border-warning/30 bg-warning/10 px-3 py-2 text-[12px] text-warning"
+        >
           <span className="min-w-0 flex-1">
-            {retryingNote ? t("composer.dictation.retrying") : voiceNote ? `${speechError} ${t("composer.dictation.saved")}` : speechError}
+            {retryingNote
+              ? t("composer.dictation.retrying")
+              : voiceNote
+                ? `${speechError} ${t("composer.dictation.saved")}`
+                : speechError}
           </span>
           {voiceNote && !retryingNote && (
-            <button type="button" onClick={retryVoiceNote} className="shrink-0 rounded px-2 py-1 font-medium hover:bg-warning/10">
+            <button
+              type="button"
+              onClick={retryVoiceNote}
+              className="shrink-0 rounded px-2 py-1 font-medium hover:bg-warning/10"
+            >
               {t("chat.retry")}
             </button>
           )}
@@ -928,64 +1106,84 @@ export function Composer({
             role="listbox"
             aria-label={t("composer.commands.aria")}
             data-command-list
-            className={cn("absolute bottom-full left-2 z-20 mb-2 flex max-h-[min(24rem,55vh)] w-[min(26rem,calc(100%-1rem))] flex-col overflow-hidden rounded-menu origin-bottom-left border border-hairline/40 bg-raised shadow-popover", commandMotion.className)} {...commandMotion.exitProps}
+            className={cn(
+              "absolute bottom-full left-2 z-20 mb-2 flex max-h-[min(24rem,55vh)] w-[min(26rem,calc(100%-1rem))] flex-col overflow-hidden rounded-menu origin-bottom-left border border-hairline/40 bg-raised shadow-popover",
+              commandMotion.className,
+            )}
+            {...commandMotion.exitProps}
           >
             <div className="min-h-0 overflow-y-auto overflow-x-hidden overscroll-contain py-1">
-            {commandCandidates.map((choice, index) => choice.type === "new" ? null : (
-              <div key={choice.key} className={cn("flex items-center", index === highlight && "bg-raised-hover")} onMouseEnter={() => setHighlight(index)}>
+              {commandCandidates.map((choice, index) =>
+                choice.type === "new" ? null : (
+                  <div
+                    key={choice.key}
+                    className={cn("flex items-center", index === highlight && "bg-raised-hover")}
+                    onMouseEnter={() => setHighlight(index)}
+                  >
+                    <button
+                      type="button"
+                      role="option"
+                      data-command-index={index}
+                      aria-selected={index === highlight}
+                      onMouseDown={(event) => event.preventDefault()}
+                      onClick={() => pickCommand(choice)}
+                      className="flex min-w-0 flex-1 items-baseline gap-2.5 px-3 py-2 text-left"
+                    >
+                      <span className="shrink-0 text-[14px] font-medium text-ink">
+                        /{choice.command.name}
+                      </span>
+                      <span className="min-w-0 flex-1 truncate text-[13px] text-ink-secondary">
+                        {choice.command.line}
+                      </span>
+                      {choice.command.kind !== "standard" && (
+                        <span className="shrink-0 text-[11px] text-ink-tertiary">
+                          {t(`composer.command.kind.${choice.command.kind}`)}
+                        </span>
+                      )}
+                    </button>
+                    {choice.command.kind === "mine" && (
+                      <button
+                        type="button"
+                        aria-label={t("composer.command.edit", { name: choice.command.name })}
+                        title={t("composer.command.edit", { name: choice.command.name })}
+                        onMouseDown={(event) => event.preventDefault()}
+                        onClick={() => {
+                          setDismissedSlashAt(slash?.start ?? null);
+                          setCommandDialog({
+                            editing: { name: choice.command.name, text: choice.command.text ?? "" },
+                          });
+                        }}
+                        className="mr-1.5 shrink-0 rounded-md p-1 text-ink-tertiary hover:bg-control hover:text-ink"
+                      >
+                        <Pencil size={13} aria-hidden="true" />
+                      </button>
+                    )}
+                  </div>
+                ),
+              )}
+            </div>
+            {commandCandidates.map((choice, index) =>
+              choice.type !== "new" ? null : (
                 <button
+                  key={choice.key}
                   type="button"
                   role="option"
                   data-command-index={index}
                   aria-selected={index === highlight}
                   onMouseDown={(event) => event.preventDefault()}
                   onClick={() => pickCommand(choice)}
-                  className="flex min-w-0 flex-1 items-baseline gap-2.5 px-3 py-2 text-left"
-                >
-                  <span className="shrink-0 text-[14px] font-medium text-ink">/{choice.command.name}</span>
-                  <span className="min-w-0 flex-1 truncate text-[13px] text-ink-secondary">{choice.command.line}</span>
-                  {choice.command.kind !== "standard" && (
-                    <span className="shrink-0 text-[11px] text-ink-tertiary">{t(`composer.command.kind.${choice.command.kind}`)}</span>
+                  onMouseEnter={() => setHighlight(index)}
+                  className={cn(
+                    "flex w-full shrink-0 items-center gap-2 px-3 py-2.5 text-left text-[13px] text-ink-secondary",
+                    index > 0 && "border-t border-hairline/20",
+                    index === highlight && "bg-raised-hover text-ink",
                   )}
+                >
+                  <Plus size={14} aria-hidden="true" />
+                  {t("composer.command.new")}
                 </button>
-                {choice.command.kind === "mine" && (
-                  <button
-                    type="button"
-                    aria-label={t("composer.command.edit", { name: choice.command.name })}
-                    title={t("composer.command.edit", { name: choice.command.name })}
-                    onMouseDown={(event) => event.preventDefault()}
-                    onClick={() => {
-                      setDismissedSlashAt(slash?.start ?? null);
-                      setCommandDialog({ editing: { name: choice.command.name, text: choice.command.text ?? "" } });
-                    }}
-                    className="mr-1.5 shrink-0 rounded-md p-1 text-ink-tertiary hover:bg-control hover:text-ink"
-                  >
-                    <Pencil size={13} aria-hidden="true" />
-                  </button>
-                )}
-              </div>
-            ))}
-            </div>
-            {commandCandidates.map((choice, index) => choice.type !== "new" ? null : (
-              <button
-                key={choice.key}
-                type="button"
-                role="option"
-                data-command-index={index}
-                aria-selected={index === highlight}
-                onMouseDown={(event) => event.preventDefault()}
-                onClick={() => pickCommand(choice)}
-                onMouseEnter={() => setHighlight(index)}
-                className={cn(
-                  "flex w-full shrink-0 items-center gap-2 px-3 py-2.5 text-left text-[13px] text-ink-secondary",
-                  index > 0 && "border-t border-hairline/20",
-                  index === highlight && "bg-raised-hover text-ink",
-                )}
-              >
-                <Plus size={14} aria-hidden="true" />
-                {t("composer.command.new")}
-              </button>
-            ))}
+              ),
+            )}
           </div>
         )}
         {commandDialog && (
@@ -996,7 +1194,9 @@ export function Composer({
               setCommandDialog(null);
               requestAnimationFrame(() => inputRef.current?.focus());
             }}
-            onSaved={() => { if (commandsBotId) loadCommands(commandsBotId); }}
+            onSaved={() => {
+              if (commandsBotId) loadCommands(commandsBotId);
+            }}
           />
         )}
         {mentionMotion.shown && (
@@ -1004,7 +1204,11 @@ export function Composer({
             ref={mentionListRef}
             role="listbox"
             aria-label={t("composer.mention.aria")}
-            className={cn("absolute bottom-full left-2 z-20 mb-2 max-h-72 w-72 overflow-x-hidden overflow-y-auto overscroll-contain rounded-menu origin-bottom-left border border-hairline/40 bg-raised shadow-popover", mentionMotion.className)} {...mentionMotion.exitProps}
+            className={cn(
+              "absolute bottom-full left-2 z-20 mb-2 max-h-72 w-72 overflow-x-hidden overflow-y-auto overscroll-contain rounded-menu origin-bottom-left border border-hairline/40 bg-raised shadow-popover",
+              mentionMotion.className,
+            )}
+            {...mentionMotion.exitProps}
           >
             {candidates.map((peer, i) => (
               <button
@@ -1030,7 +1234,9 @@ export function Composer({
                     <Users size={14} aria-hidden="true" />
                   </span>
                 )}
-                <span className="min-w-0 flex-1 truncate text-[14px] font-medium text-ink">{peer.name}</span>
+                <span className="min-w-0 flex-1 truncate text-[14px] font-medium text-ink">
+                  {peer.name}
+                </span>
                 <span className="shrink-0 text-xs text-ink-secondary">
                   {peer.bot ? t("composer.mention.agent") : t("composer.mention.channel")}
                 </span>
@@ -1047,7 +1253,13 @@ export function Composer({
               locale={activeLocale()}
               botName={approvalBot?.name}
               coversId={`approval-covers-${approval.requestId}`}
-              onCancelTurn={approval.message.card?.routineRequest || approval.message.card?.skillRequest || approval.message.card?.profileRequest ? undefined : interruptTurn}
+              onCancelTurn={
+                approval.message.card?.routineRequest ||
+                approval.message.card?.skillRequest ||
+                approval.message.card?.profileRequest
+                  ? undefined
+                  : interruptTurn
+              }
             />
             <PendingApprovalActions
               pending={approval}
@@ -1064,7 +1276,8 @@ export function Composer({
           steerMode={group ? "next" : "all"}
           steering={steering}
           onCancel={(queueId) => {
-            if (group) dispatch({ type: "cancelGroupQueued", groupId: group.id, threadId, queueId });
+            if (group)
+              dispatch({ type: "cancelGroupQueued", groupId: group.id, threadId, queueId });
             else if (bot) dispatch({ type: "cancelQueued", botId: bot.id, threadId, queueId });
           }}
           onEdit={locked ? undefined : editQueued}
@@ -1075,261 +1288,334 @@ export function Composer({
             data-composer-backdrop
             className="pointer-events-none absolute -left-5 -right-5 -bottom-3 top-1/2 bg-app"
           />
-        <div
-          data-tour="composer"
-          data-composer-surface
-          data-expanded={expanded || undefined}
-          className="@container/composer relative z-[1]"
-        >
-        {!locked && bot && !group && (
-          <ComposerUsageNotice
-            instanceId={bot.modelSelection?.instanceId}
-            onOpen={() => dispatch({ type: "toggleAppSettings", open: true, section: "usage" })}
-          />
-        )}
-        {replyTo && (
-          <div className="px-1 pb-1.5 pt-0.5">
-            <ReplyQuote
-              message={replyTo}
-              fallbackName={bot?.name}
-              onClear={onClearReply}
-            />
-          </div>
-        )}
-        <ComposerAttachments
-          items={attachments}
-          onAdd={addAttachments}
-          onRemove={removeAttachment}
-          onChangeCitation={(citation: CitationAttachment) => editAttachments((current) => current.map((attachment) => attachment.id === citation.id ? citation : attachment))}
-          onDisplayInChatBox={displayPasteInChatBox}
-          allowImages={engineSupportsImages}
-          notice={attachmentNotice}
-          onNotice={setAttachmentNotice}
-          onPendingChange={(pending) => changeDraftAttachmentPending(draftId, pending)}
-          uploadImage={uploadImage}
-          admitFiles={admitFiles}
-        />
-        {answerTooLong(typedAnswer, text) && (
-          <p data-typed-answer-long role="status" className="px-1 pb-1 text-[12px] text-ink-secondary">{t("composer.answerTooLong", { limit: typedAnswer!.limit!.toLocaleString(), count: text.trim().length.toLocaleString() })}</p>
-        )}
-        {answerWithFiles && (
-          <p data-typed-answer-files role="status" className="px-1 pb-1 text-[12px] text-ink-secondary">{t("composer.answerNoFiles")}</p>
-        )}
-        {answerClosed && Boolean(text.trim()) && (
-          <p data-typed-answer-closed role="status" className="px-1 pb-1 text-[12px] text-ink-secondary">{t("composer.answerClosed")}</p>
-        )}
-        {(recording || (sharpening > 0 && !retryingNote)) && (
-          <DictationStrip
-            phase={recording ? "recording" : "transcribing"}
-            levels={dictationMeter.levels}
-            elapsedMs={dictationMeter.elapsedMs}
-            onCancel={cancelDictation}
-          />
-        )}
-        <div data-composer-row className={cn("flex items-end gap-1 @max-[30rem]/composer:flex-wrap", expanded && "flex-wrap")}>
-          <input
-            ref={fileInput}
-            type="file"
-            multiple
-            className="hidden"
-            onChange={(e) => {
-              void pickFiles(e.target.files);
-              e.target.value = "";
-            }}
-          />
-          {!locked && (
-            <div data-composer-tools className="flex items-center gap-1">
-              <ComposerPlusMenu
-                onAttach={() => fileInput.current?.click()}
-                onConnectors={() => dispatch({ type: "togglePlugins", open: true })}
+          <div
+            data-tour="composer"
+            data-composer-surface
+            data-expanded={expanded || undefined}
+            className="@container/composer relative z-[1]"
+          >
+            {!locked && bot && !group && (
+              <ComposerUsageNotice
+                instanceId={bot.modelSelection?.instanceId}
+                onOpen={() => dispatch({ type: "toggleAppSettings", open: true, section: "usage" })}
               />
+            )}
+            {replyTo && (
+              <div className="px-1 pb-1.5 pt-0.5">
+                <ReplyQuote message={replyTo} fallbackName={bot?.name} onClear={onClearReply} />
+              </div>
+            )}
+            <ComposerAttachments
+              items={attachments}
+              onAdd={addAttachments}
+              onRemove={removeAttachment}
+              onChangeCitation={(citation: CitationAttachment) =>
+                editAttachments((current) =>
+                  current.map((attachment) =>
+                    attachment.id === citation.id ? citation : attachment,
+                  ),
+                )
+              }
+              onDisplayInChatBox={displayPasteInChatBox}
+              allowImages={engineSupportsImages}
+              notice={attachmentNotice}
+              onNotice={setAttachmentNotice}
+              onPendingChange={(pending) => changeDraftAttachmentPending(draftId, pending)}
+              uploadImage={uploadImage}
+              admitFiles={admitFiles}
+            />
+            {answerTooLong(typedAnswer, text) && (
+              <p
+                data-typed-answer-long
+                role="status"
+                className="px-1 pb-1 text-[12px] text-ink-secondary"
+              >
+                {t("composer.answerTooLong", {
+                  limit: typedAnswer!.limit!.toLocaleString(),
+                  count: text.trim().length.toLocaleString(),
+                })}
+              </p>
+            )}
+            {answerWithFiles && (
+              <p
+                data-typed-answer-files
+                role="status"
+                className="px-1 pb-1 text-[12px] text-ink-secondary"
+              >
+                {t("composer.answerNoFiles")}
+              </p>
+            )}
+            {answerClosed && Boolean(text.trim()) && (
+              <p
+                data-typed-answer-closed
+                role="status"
+                className="px-1 pb-1 text-[12px] text-ink-secondary"
+              >
+                {t("composer.answerClosed")}
+              </p>
+            )}
+            {(recording || (sharpening > 0 && !retryingNote)) && (
+              <DictationStrip
+                phase={recording ? "recording" : "transcribing"}
+                levels={dictationMeter.levels}
+                elapsedMs={dictationMeter.elapsedMs}
+                onCancel={cancelDictation}
+              />
+            )}
+            <div
+              data-composer-row
+              className={cn(
+                "flex items-end gap-1 @max-[30rem]/composer:flex-wrap",
+                expanded && "flex-wrap",
+              )}
+            >
+              <input
+                ref={fileInput}
+                type="file"
+                multiple
+                className="hidden"
+                onChange={(e) => {
+                  void pickFiles(e.target.files);
+                  e.target.value = "";
+                }}
+              />
+              {!locked && (
+                <div data-composer-tools className="flex items-center gap-1">
+                  <ComposerPlusMenu
+                    onAttach={() => fileInput.current?.click()}
+                    onConnectors={() => dispatch({ type: "togglePlugins", open: true })}
+                  />
+                </div>
+              )}
+              <MentionTextarea
+                wrapperClassName={cn(
+                  "@max-[30rem]/composer:order-first @max-[30rem]/composer:basis-full",
+                  expanded && "order-first basis-full",
+                )}
+                inputRef={inputRef}
+                peers={
+                  group ? (members ?? []) : drawnDogs.filter((member) => member.id !== bot?.id)
+                }
+                everyone={Boolean(group && !group.dm)}
+                dir="auto"
+                rows={1}
+                value={text}
+                onChange={(e) => {
+                  editText(e.target.value);
+                  setCaret(e.target.selectionStart ?? e.target.value.length);
+                  setDismissedAt(null);
+                  setDismissedSlashAt(null);
+                  rememberPosition();
+                }}
+                onPaste={handlePaste}
+                onSelect={rememberPosition}
+                onScroll={rememberPosition}
+                onKeyUp={(e) => {
+                  setCaret((e.target as HTMLTextAreaElement).selectionStart ?? 0);
+                  rememberPosition();
+                }}
+                onClick={(e) => setCaret((e.target as HTMLTextAreaElement).selectionStart ?? 0)}
+                onCompositionStart={suggestion.onCompositionStart}
+                onCompositionEnd={suggestion.onCompositionEnd}
+                ghost={<TypingGhost text={suggestion.ghost} source={suggestion.source} />}
+                onKeyDown={(e) => {
+                  if (suggestion.onKeyDown(e)) return;
+                  if (commandPickerOpen) {
+                    if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+                      e.preventDefault();
+                      const delta = e.key === "ArrowDown" ? 1 : -1;
+                      setHighlight(
+                        (current) =>
+                          (current + delta + commandCandidates.length) % commandCandidates.length,
+                      );
+                      return;
+                    }
+                    if (e.key === "Enter" || e.key === "Tab") {
+                      e.preventDefault();
+                      pickCommand(commandCandidates[highlight]);
+                      return;
+                    }
+                    if (e.key === "Escape") {
+                      e.preventDefault();
+                      setDismissedSlashAt(slash?.start ?? null);
+                      return;
+                    }
+                  }
+                  if (mentionPickerOpen) {
+                    if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+                      e.preventDefault();
+                      const delta = e.key === "ArrowDown" ? 1 : -1;
+                      setHighlight((h) => (h + delta + candidates.length) % candidates.length);
+                      return;
+                    }
+                    if (e.key === "Enter" || e.key === "Tab") {
+                      e.preventDefault();
+                      pickMention(candidates[highlight]);
+                      return;
+                    }
+                    if (e.key === "Escape") {
+                      e.preventDefault();
+                      setDismissedAt(mention?.start ?? null);
+                      return;
+                    }
+                  }
+                  if (e.key === "ArrowUp" && !hasContent && onEditLast) {
+                    e.preventDefault();
+                    onEditLast();
+                    return;
+                  }
+                  if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
+                    e.preventDefault();
+                    if (e.metaKey || e.ctrlKey) {
+                      send(false, busy && !group ? "queue" : undefined);
+                      return;
+                    }
+                    if (
+                      doubleEnterSteersQueue(
+                        steerAgainUntilRef.current,
+                        Date.now(),
+                        pendingCount,
+                        hasContent,
+                      )
+                    ) {
+                      steerAgainUntilRef.current = 0;
+                      steerQueued();
+                      return;
+                    }
+                    send();
+                  }
+                }}
+                disabled={Boolean(approval) || locked}
+                aria-busy={bot?.awaitingThreadSnapshot || undefined}
+                placeholder={
+                  typedAnswer
+                    ? t("composer.placeholder.answer")
+                    : approval
+                      ? t("composer.placeholder.approval")
+                      : attachmentPending
+                        ? t("composer.placeholder.attaching")
+                        : recording
+                          ? t("composer.placeholder.listening")
+                          : busy && canSteer && !asking && pendingCount > 0
+                            ? t("composer.placeholder.steerQueued", { name: busyName })
+                            : busy && !asking
+                              ? group && !canSteer
+                                ? t("composer.placeholder.queueGroup", { name: busyName })
+                                : t("composer.placeholder.steer", { name: busyName })
+                              : group
+                                ? t("composer.placeholder.group", {
+                                    name: group.name,
+                                    hint: groupComposerHint(group, members ?? [], {
+                                      jevOn: jevRoomRoutingOn(config),
+                                    }),
+                                  })
+                                : t("composer.placeholder.bot", { name: bot?.name ?? "" })
+                }
+                aria-label={t("composer.placeholder.bot", {
+                  name: group ? group.name : (bot?.name ?? ""),
+                })}
+                className="block max-h-[9rem] min-h-6 w-full resize-none overflow-y-auto bg-transparent px-1 py-[3px] text-[16px] leading-6 placeholder:text-ink-secondary focus:outline-none"
+              />
+              <TypingGhostAnnouncement text={suggestion.ghost} />
+              <div data-composer-actions className="ml-auto flex items-center gap-1">
+                {!locked && bot && !group && (
+                  <ModelPicker
+                    key={bot.threadId}
+                    bot={bot}
+                    threadId={bot.threadId}
+                    above
+                    part="chat"
+                  />
+                )}
+                {!locked &&
+                  micRecordingSupported() &&
+                  (recording || !retryingNote) &&
+                  (!hasContent || recording || sharpening > 0) && (
+                    <button
+                      type="button"
+                      data-composer-mic
+                      aria-pressed={recording}
+                      aria-busy={(sharpening > 0 && !recording) || undefined}
+                      onClick={toggleMic}
+                      aria-label={
+                        recording ? t("composer.dictation.stop") : t("composer.dictation.start")
+                      }
+                      className={cn("composer-mic", recording && "composer-mic-on")}
+                      title={
+                        recording
+                          ? t("composer.dictation.stopHint")
+                          : sharpening > 0
+                            ? t("composer.dictation.transcribing")
+                            : t("composer.dictation.hint")
+                      }
+                    >
+                      {recording ? (
+                        <Check size={17} strokeWidth={2.5} />
+                      ) : sharpening > 0 ? (
+                        <Loader2 size={19} className="animate-spin motion-reduce:animate-none" />
+                      ) : (
+                        <Mic size={19} />
+                      )}
+                    </button>
+                  )}
+                {bot && !group && callButtonShown(config) && <CallButton bot={bot} />}
+                {!locked && stopShown && (
+                  <button
+                    type="button"
+                    data-composer-stop
+                    onClick={stopOrEndWait}
+                    aria-label={t("chat.stopTurn")}
+                    className="composer-disc composer-stop"
+                    title={t("chat.stop")}
+                  >
+                    <span aria-hidden="true" className="composer-stop-square" />
+                  </button>
+                )}
+                {!locked && !stopShown && hasContent && (
+                  <button
+                    type="button"
+                    data-composer-send
+                    onClick={() => send()}
+                    disabled={attachmentPending || !hasContent}
+                    aria-label={
+                      busy && canSteer
+                        ? t("composer.send.steer")
+                        : busy
+                          ? t("composer.send.queue")
+                          : t("composer.send.message")
+                    }
+                    title={
+                      busy && canSteer && !group
+                        ? t("composer.send.steerHint", {
+                            shortcut: shortcutLabel("queue-message") ?? "",
+                          })
+                        : busy
+                          ? t("composer.send.queueHint")
+                          : t("chat.send")
+                    }
+                    className="composer-disc composer-send"
+                  >
+                    <ArrowUp size={17} strokeWidth={2.25} />
+                  </button>
+                )}
+              </div>
             </div>
-          )}
-          <MentionTextarea
-          wrapperClassName={cn("@max-[30rem]/composer:order-first @max-[30rem]/composer:basis-full", expanded && "order-first basis-full")}
-          inputRef={inputRef}
-          peers={group ? members ?? [] : drawnDogs.filter((member) => member.id !== bot?.id)}
-          everyone={Boolean(group && !group.dm)}
-          dir="auto"
-          rows={1}
-          value={text}
-          onChange={(e) => {
-            editText(e.target.value);
-            setCaret(e.target.selectionStart ?? e.target.value.length);
-            setDismissedAt(null);
-            setDismissedSlashAt(null);
-            rememberPosition();
-          }}
-          onPaste={handlePaste}
-          onSelect={rememberPosition}
-          onScroll={rememberPosition}
-          onKeyUp={(e) => {
-            setCaret((e.target as HTMLTextAreaElement).selectionStart ?? 0);
-            rememberPosition();
-          }}
-          onClick={(e) => setCaret((e.target as HTMLTextAreaElement).selectionStart ?? 0)}
-          onCompositionStart={suggestion.onCompositionStart}
-          onCompositionEnd={suggestion.onCompositionEnd}
-          ghost={<TypingGhost text={suggestion.ghost} source={suggestion.source} />}
-          onKeyDown={(e) => {
-            if (suggestion.onKeyDown(e)) return;
-            if (commandPickerOpen) {
-              if (e.key === "ArrowDown" || e.key === "ArrowUp") {
-                e.preventDefault();
-                const delta = e.key === "ArrowDown" ? 1 : -1;
-                setHighlight((current) =>
-                  (current + delta + commandCandidates.length) % commandCandidates.length,
-                );
-                return;
-              }
-              if (e.key === "Enter" || e.key === "Tab") {
-                e.preventDefault();
-                pickCommand(commandCandidates[highlight]);
-                return;
-              }
-              if (e.key === "Escape") {
-                e.preventDefault();
-                setDismissedSlashAt(slash?.start ?? null);
-                return;
-              }
-            }
-            if (mentionPickerOpen) {
-              if (e.key === "ArrowDown" || e.key === "ArrowUp") {
-                e.preventDefault();
-                const delta = e.key === "ArrowDown" ? 1 : -1;
-                setHighlight((h) => (h + delta + candidates.length) % candidates.length);
-                return;
-              }
-              if (e.key === "Enter" || e.key === "Tab") {
-                e.preventDefault();
-                pickMention(candidates[highlight]);
-                return;
-              }
-              if (e.key === "Escape") {
-                e.preventDefault();
-                setDismissedAt(mention?.start ?? null);
-                return;
-              }
-            }
-            if (e.key === "ArrowUp" && !hasContent && onEditLast) {
-              e.preventDefault();
-              onEditLast();
-              return;
-            }
-            if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
-              e.preventDefault();
-              if (e.metaKey || e.ctrlKey) {
-                send(false, busy && !group ? "queue" : undefined);
-                return;
-              }
-              if (doubleEnterSteersQueue(steerAgainUntilRef.current, Date.now(), pendingCount, hasContent)) {
-                steerAgainUntilRef.current = 0;
-                steerQueued();
-                return;
-              }
-              send();
-            }
-          }}
-          disabled={Boolean(approval) || locked}
-          aria-busy={bot?.awaitingThreadSnapshot || undefined}
-          placeholder={
-            typedAnswer
-              ? t("composer.placeholder.answer")
-              : approval
-              ? t("composer.placeholder.approval")
-              : attachmentPending
-              ? t("composer.placeholder.attaching")
-              : recording
-              ? t("composer.placeholder.listening")
-              : busy && canSteer && !asking && pendingCount > 0
-                ? t("composer.placeholder.steerQueued", { name: busyName })
-              : busy && !asking
-                ? group && !canSteer
-                  ? t("composer.placeholder.queueGroup", { name: busyName })
-                  : t("composer.placeholder.steer", { name: busyName })
-              : group
-                ? t("composer.placeholder.group", {
-                    name: group.name,
-                    hint: groupComposerHint(group, members ?? [], { jevOn: jevRoomRoutingOn(config) }),
-                  })
-                : t("composer.placeholder.bot", { name: bot?.name ?? "" })
-          }
-          aria-label={t("composer.placeholder.bot", { name: group ? group.name : (bot?.name ?? "") })}
-            className="block max-h-[9rem] min-h-6 w-full resize-none overflow-y-auto bg-transparent px-1 py-[3px] text-[16px] leading-6 placeholder:text-ink-secondary focus:outline-none"
-          />
-          <TypingGhostAnnouncement text={suggestion.ghost} />
-          <div data-composer-actions className="ml-auto flex items-center gap-1">
-          {!locked && bot && !group && <ModelPicker key={bot.threadId} bot={bot} threadId={bot.threadId} above part="chat" />}
-        {!locked && micRecordingSupported() && (recording || !retryingNote) && (!hasContent || recording || sharpening > 0) && (
-          <button
-            type="button"
-            data-composer-mic
-            aria-pressed={recording}
-            aria-busy={(sharpening > 0 && !recording) || undefined}
-            onClick={toggleMic}
-            aria-label={recording ? t("composer.dictation.stop") : t("composer.dictation.start")}
-            className={cn("composer-mic", recording && "composer-mic-on")}
-            title={recording ? t("composer.dictation.stopHint") : sharpening > 0 ? t("composer.dictation.transcribing") : t("composer.dictation.hint")}
-          >
-            {recording ? <Check size={17} strokeWidth={2.5} /> : sharpening > 0 ? <Loader2 size={19} className="animate-spin motion-reduce:animate-none" /> : <Mic size={19} />}
-          </button>
-        )}
-        {bot && !group && callButtonShown(config) && <CallButton bot={bot} />}
-        {!locked && stopShown && (
-          <button
-            type="button"
-            data-composer-stop
-            onClick={stopOrEndWait}
-            aria-label={t("chat.stopTurn")}
-            className="composer-disc composer-stop"
-            title={t("chat.stop")}
-          >
-            <span aria-hidden="true" className="composer-stop-square" />
-          </button>
-        )}
-        {!locked && !stopShown && hasContent && (
-          <button
-            type="button"
-            data-composer-send
-            onClick={() => send()}
-            disabled={attachmentPending || !hasContent}
-            aria-label={
-              busy && canSteer
-                ? t("composer.send.steer")
-                : busy
-                  ? t("composer.send.queue")
-                  : t("composer.send.message")
-            }
-            title={
-              busy && canSteer && !group
-                ? t("composer.send.steerHint", { shortcut: shortcutLabel("queue-message") ?? "" })
-                : busy
-                  ? t("composer.send.queueHint")
-                  : t("chat.send")
-            }
-            className="composer-disc composer-send"
-          >
-            <ArrowUp size={17} strokeWidth={2.25} />
-          </button>
-          )}
           </div>
-        </div>
-        </div>
         </div>
       </div>
       <div className="pointer-events-auto">
-      {signingIn && (
-        <AddAccountSheet
-          sheet={{ step: "signIn", instanceId: signingIn }}
-          instances={instances}
-          onStep={() => {}}
-          onClose={() => setSigningIn(null)}
-          onSignedIn={() => {
-            setSigningIn(null);
-            window.setTimeout(() => sendAfterSignIn.current(), 0);
-          }}
-        />
-      )}
+        {signingIn && (
+          <AddAccountSheet
+            sheet={{ step: "signIn", instanceId: signingIn }}
+            instances={instances}
+            onStep={() => {}}
+            onClose={() => setSigningIn(null)}
+            onSignedIn={() => {
+              setSigningIn(null);
+              window.setTimeout(() => sendAfterSignIn.current(), 0);
+            }}
+          />
+        )}
       </div>
     </div>
   );

@@ -1,4 +1,17 @@
-import { Component, Fragment, createContext, memo, useCallback, useContext, useEffect, useMemo, useRef, useState, type Dispatch, type ReactNode } from "react";
+import {
+  Component,
+  Fragment,
+  createContext,
+  memo,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type Dispatch,
+  type ReactNode,
+} from "react";
 import { useCopyFeedback } from "@/lib/copy-text";
 import {
   ArrowDown,
@@ -40,7 +53,13 @@ import {
   type Message,
   type AppState,
 } from "@/state/store";
-import { dogIn, useDrawnDogs, useStoreDispatch, useStoreReader, useStoreSelector } from "@/state/store-selectors";
+import {
+  dogIn,
+  useDrawnDogs,
+  useStoreDispatch,
+  useStoreReader,
+  useStoreSelector,
+} from "@/state/store-selectors";
 import { failedTurnCause } from "@/lib/failed-turn";
 import { FailedTurnRow } from "./FailedTurnRow";
 import { isOpenTakeover } from "../../shared/takeover";
@@ -50,7 +69,12 @@ import { FailedSendLine, TeamBlock } from "./TeamBlock";
 import { foldTeams } from "@/lib/team-block";
 import { RunningOnLine } from "./RunningOnLine";
 import { ExchangeViewHost } from "./ExchangeViewHost";
-import { foldExchanges, expandedExchange, quietTranscriptItemShown, shownInChat } from "@/lib/quiet-lines";
+import {
+  foldExchanges,
+  expandedExchange,
+  quietTranscriptItemShown,
+  shownInChat,
+} from "@/lib/quiet-lines";
 import { RecoveredLine } from "./RecoveredLine";
 import { freshenDogName } from "@/lib/dog-refs";
 import { TurnSlot, turnNeedsYouWords } from "./TurnSlot";
@@ -88,7 +112,11 @@ import { TakeoverCard } from "./TakeoverCard";
 import { DeviceApprovalCard } from "./DeviceApprovalCard";
 import { RoutineRunCard } from "./RoutineRunCard";
 import { ownerShowingElsewhere } from "@/lib/open-elsewhere";
-import { AttachmentGallery, collectMessageFiles, splitMessageAttachments } from "./AttachmentGallery";
+import {
+  AttachmentGallery,
+  collectMessageFiles,
+  splitMessageAttachments,
+} from "./AttachmentGallery";
 import { CompactionChip } from "./DigestChip";
 import { CitationSelectionToolbar, SentCitations } from "./CitationUI";
 
@@ -105,7 +133,12 @@ import { PaneErrorLine } from "./PaneErrorLine";
 import { activeLocale, t } from "@/lib/i18n";
 import { TurnReceiptLine } from "./TurnReceiptLine";
 import { TurnResultsBlock, hasTurnResults } from "./TurnResultsBlock";
-import { groupTranscript, isStatusActivity, planTranscript, type TranscriptPlan } from "@/lib/activity-runs";
+import {
+  groupTranscript,
+  isStatusActivity,
+  planTranscript,
+  type TranscriptPlan,
+} from "@/lib/activity-runs";
 import { isUnread, useUnreadBoundary } from "@/lib/unread-boundary";
 import { UnreadDivider } from "./UnreadDivider";
 import { StatusActivityRow } from "@/components/StatusActivityRow";
@@ -122,7 +155,12 @@ import { NewMessagesPill } from "./NewMessagesPill";
 import { useScrollAnchor } from "@/lib/scroll-anchor";
 import { appendComposerDraft, appendDraftAttachments, useReplyDraft } from "@/lib/drafts";
 import { taskDraft } from "@/lib/task-from-message";
-import { dayLabel, localDay, transcriptLookups, type TranscriptLookups } from "@/lib/transcript-derivations";
+import {
+  dayLabel,
+  localDay,
+  transcriptLookups,
+  type TranscriptLookups,
+} from "@/lib/transcript-derivations";
 import { splitTranscriptCitations, type CitationAttachment } from "@/lib/citations";
 import { highlightCitationSource } from "@/lib/citations-dom";
 import { useCanWriteIn } from "@/lib/cloud-guest";
@@ -180,7 +218,13 @@ function DaySeparator({ at, today }: { at: number; today: number }) {
 
 function CopyButton({ text, className }: { text: string; className?: string }) {
   const { state, copy } = useCopyFeedback(text);
-  const label = t(state === "copied" ? "chat.copyMessageDone" : state === "failed" ? "chat.copyMessageFailed" : "chat.copyMessage");
+  const label = t(
+    state === "copied"
+      ? "chat.copyMessageDone"
+      : state === "failed"
+        ? "chat.copyMessageFailed"
+        : "chat.copyMessage",
+  );
   return (
     <button
       onClick={copy}
@@ -192,12 +236,21 @@ function CopyButton({ text, className }: { text: string; className?: string }) {
         className,
       )}
     >
-      {state === "copied" ? <Check size={14} className="text-success" /> : state === "failed" ? <X size={14} className="text-danger" /> : <Copy size={14} />}
+      {state === "copied" ? (
+        <Check size={14} className="text-success" />
+      ) : state === "failed" ? (
+        <X size={14} className="text-danger" />
+      ) : (
+        <Copy size={14} />
+      )}
     </button>
   );
 }
 
-class MessageBoundary extends Component<{ children: ReactNode; fallbackText: string }, { failed: boolean }> {
+class MessageBoundary extends Component<
+  { children: ReactNode; fallbackText: string },
+  { failed: boolean }
+> {
   state = { failed: false };
   static getDerivedStateFromError() {
     return { failed: true };
@@ -296,7 +349,19 @@ const Bubble = memo(function Bubble({
   joinAbove?: boolean;
   joinBelow?: boolean;
 }) {
-  const { botId, threadId, botName, busy, mentionPeers, focus, dispatch, onBranch, bots, readStore, canWrite } = useChatRows();
+  const {
+    botId,
+    threadId,
+    botName,
+    busy,
+    mentionPeers,
+    focus,
+    dispatch,
+    onBranch,
+    bots,
+    readStore,
+    canWrite,
+  } = useChatRows();
   const peer = peerLine(message);
   const user = message.role === "user" && !peer;
   const [expanded, setExpanded] = useState(false);
@@ -304,28 +369,48 @@ const Bubble = memo(function Bubble({
   const [savingCommand, setSavingCommand] = useState(false);
   const reactable = canReactTo(message) && canWrite !== false;
   const react = (emoji: string) => void reactToMessage(dispatch, threadId, message, emoji);
-  const reactionName = (by: string) => (by === botId ? botName : bots.find((candidate) => candidate.id === by)?.name ?? by);
+  const reactionName = (by: string) =>
+    by === botId ? botName : (bots.find((candidate) => candidate.id === by)?.name ?? by);
   const focusedSearch = focus?.messageId === message.id && Boolean(focus.matchText);
   const [viewRaw, setViewRaw] = useState(false);
   const [showRan, setShowRan] = useState(false);
   const speech = useSpeech();
   const speaking = speech.messageId === message.id && speech.status !== "idle";
   const text = peer ? peer.body : (message.text ?? "");
-  const attached = useMemo(() => splitMessageAttachments(message.attachments), [message.attachments]);
+  const attached = useMemo(
+    () => splitMessageAttachments(message.attachments),
+    [message.attachments],
+  );
   const generatedPaths = attached.images;
   const linkedFiles = useMemo(
-    () => user ? [] : [...attached.files, ...collectMessageFiles(text, [...attached.images, ...attached.files.map((file) => file.path)])],
+    () =>
+      user
+        ? []
+        : [
+            ...attached.files,
+            ...collectMessageFiles(text, [
+              ...attached.images,
+              ...attached.files.map((file) => file.path),
+            ]),
+          ],
     [user, text, attached],
   );
   const voiceNotes = useMemo(
-    () => message.attachments?.filter((attachment): attachment is VoiceNoteAttachment => attachment.kind === "audio") ?? [],
+    () =>
+      message.attachments?.filter(
+        (attachment): attachment is VoiceNoteAttachment => attachment.kind === "audio",
+      ) ?? [],
     [message.attachments],
   );
   const webhookView = user ? webhookMessageView(text) : null;
   const cited = user && !webhookView ? splitTranscriptCitations(text) : null;
-  const attachments = user && !webhookView ? splitTranscriptAttachments(cited?.display ?? text) : null;
+  const attachments =
+    user && !webhookView ? splitTranscriptAttachments(cited?.display ?? text) : null;
   const visibleText = webhookView?.task ?? attachments?.display ?? text;
-  const hasAttachments = Boolean(cited?.citations.length || (attachments && (attachments.images.length || attachments.files.length)));
+  const hasAttachments = Boolean(
+    cited?.citations.length ||
+    (attachments && (attachments.images.length || attachments.files.length)),
+  );
   const sentImages = attachments?.images ?? [];
   const sentFiles = attachments?.files ?? [];
   const sentAttachments = sentImages.length + sentFiles.length > 0;
@@ -334,31 +419,56 @@ const Bubble = memo(function Bubble({
     if (!message.needsYou) return;
     dispatch({ type: "select", id: message.needsYou.botId });
     if (dogIn(readStore(), message.needsYou.botId)?.threadId !== message.needsYou.threadId) {
-      dispatch({ type: "openTask", botId: message.needsYou.botId, threadId: message.needsYou.threadId });
+      dispatch({
+        type: "openTask",
+        botId: message.needsYou.botId,
+        threadId: message.needsYou.threadId,
+      });
     }
-    dispatch({ type: "focusMessage", threadId: message.needsYou.threadId, messageId: message.needsYou.messageId });
+    dispatch({
+      type: "focusMessage",
+      threadId: message.needsYou.threadId,
+      messageId: message.needsYou.messageId,
+    });
   };
-  const attachmentsOnly = !webhookView && !replyTarget && !visibleText.trim() &&
+  const attachmentsOnly =
+    !webhookView &&
+    !replyTarget &&
+    !visibleText.trim() &&
     (user ? hasAttachments : generatedPaths.length + linkedFiles.length > 0);
   const collapsible =
-    user && !webhookView && !expanded && (visibleText.length > USER_COLLAPSE_CHARS || visibleText.split("\n").length > USER_COLLAPSE_LINES);
+    user &&
+    !webhookView &&
+    !expanded &&
+    (visibleText.length > USER_COLLAPSE_CHARS ||
+      visibleText.split("\n").length > USER_COLLAPSE_LINES);
   useEffect(() => {
     if (focusedSearch && collapsible) setExpanded(true);
   }, [focusedSearch, collapsible, focus?.nonce]);
 
-  const editable = user && editing && !webhookView && !cited?.citations.length ? editableMessage(text) : null;
+  const editable =
+    user && editing && !webhookView && !cited?.citations.length ? editableMessage(text) : null;
   if (editable) {
     const kept = editableGallery(editable.attachments);
     return (
       <div className="flex w-full flex-col items-end">
         {kept.images.length + kept.files.length > 0 && (
-          <AttachmentGallery sent images={kept.images} files={kept.files} message={{ threadId, messageId: message.id }} eager={eagerAttachments} className="mb-1.5 max-w-[min(42rem,78%)]" />
+          <AttachmentGallery
+            sent
+            images={kept.images}
+            files={kept.files}
+            message={{ threadId, messageId: message.id }}
+            eager={eagerAttachments}
+            className="mb-1.5 max-w-[min(42rem,78%)]"
+          />
         )}
         <BubbleEditor
           initial={editable.text}
           allowEmpty={editable.attachments.length > 0}
           onCancel={onCancelEdit}
-          onSubmit={(edited) => onSubmitEdit(message.id, composeMessage(edited, editable.attachments))}
+          onSubmit={(edited) =>
+            onSubmitEdit(message.id, composeMessage(edited, editable.attachments))
+          }
         />
       </div>
     );
@@ -367,49 +477,120 @@ const Bubble = memo(function Bubble({
   const forks = user && versions ? versions : [message];
   const versionIndex = forks.findIndex((v) => v.id === message.id);
   const switchTo = (v: Message | undefined) => {
-    if (v && !busy && !v.id.startsWith(OPTIMISTIC_PREFIX)) dispatch({ type: "switchBranch", botId, threadId, messageId: v.id });
+    if (v && !busy && !v.id.startsWith(OPTIMISTIC_PREFIX))
+      dispatch({ type: "switchBranch", botId, threadId, messageId: v.id });
   };
   const draftForTask = text && !viewRaw ? taskDraft(t("chat.action.taskLead"), text) : "";
-  const userMore: SidebarMenuItem[] = user && message.kind === "text" && canWrite !== false && !webhookView && visibleText.trim()
-    ? [{ key: "command", label: t("chat.action.saveCommand"), icon: <SquareSlash size={16} />, onSelect: () => setSavingCommand(true) }]
-    : [];
+  const userMore: SidebarMenuItem[] =
+    user && message.kind === "text" && canWrite !== false && !webhookView && visibleText.trim()
+      ? [
+          {
+            key: "command",
+            label: t("chat.action.saveCommand"),
+            icon: <SquareSlash size={16} />,
+            onSelect: () => setSavingCommand(true),
+          },
+        ]
+      : [];
   const botMore: SidebarMenuItem[] = [
     ...(text && !viewRaw
       ? [
-          { key: "source", label: t("chat.action.viewSource"), icon: <Code size={16} />, onSelect: () => setViewRaw(true) },
-          ...(draftForTask && canWrite !== false ? [{ key: "task", label: t("chat.action.startTask"), icon: <ListPlus size={16} />, onSelect: () => {
-            appendComposerDraft(`bot:${botId}:${threadId}`, draftForTask);
-            requestAnimationFrame(() => document.querySelector<HTMLTextAreaElement>('[data-tour="composer"] textarea')?.focus());
-          } }] : []),
+          {
+            key: "source",
+            label: t("chat.action.viewSource"),
+            icon: <Code size={16} />,
+            onSelect: () => setViewRaw(true),
+          },
+          ...(draftForTask && canWrite !== false
+            ? [
+                {
+                  key: "task",
+                  label: t("chat.action.startTask"),
+                  icon: <ListPlus size={16} />,
+                  onSelect: () => {
+                    appendComposerDraft(`bot:${botId}:${threadId}`, draftForTask);
+                    requestAnimationFrame(() =>
+                      document
+                        .querySelector<HTMLTextAreaElement>('[data-tour="composer"] textarea')
+                        ?.focus(),
+                    );
+                  },
+                },
+              ]
+            : []),
         ]
       : []),
-    ...(!user && (message.ran || hasTurnResults(message.results)) ? [{ key: "ran", label: t(hasTurnResults(message.results) ? "chat.action.ranAndChanged" : "chat.action.howItRan"), icon: <Cpu size={16} />, onSelect: () => setShowRan((value) => !value) }] : []),
+    ...(!user && (message.ran || hasTurnResults(message.results))
+      ? [
+          {
+            key: "ran",
+            label: t(
+              hasTurnResults(message.results)
+                ? "chat.action.ranAndChanged"
+                : "chat.action.howItRan",
+            ),
+            icon: <Cpu size={16} />,
+            onSelect: () => setShowRan((value) => !value),
+          },
+        ]
+      : []),
   ];
 
   return (
-    <div data-from={user ? "user" : "agent"} className={cn("group flex w-full flex-col", user ? "items-end" : "items-start", hasTapback(message.reactions) && "pt-3")}>
-      {savingCommand && <SaveCommandDialog initialText={visibleText} onClose={() => setSavingCommand(false)} />}
-      {sentAbove && (
-        <AttachmentGallery sent images={sentImages} files={sentFiles} message={{ threadId, messageId: message.id }} eager={eagerAttachments} className="mb-1.5 max-w-[min(42rem,78%)]" />
+    <div
+      data-from={user ? "user" : "agent"}
+      className={cn(
+        "group flex w-full flex-col",
+        user ? "items-end" : "items-start",
+        hasTapback(message.reactions) && "pt-3",
       )}
-      <div className={cn("flex w-full items-center gap-1.5", user ? "justify-end" : "justify-start")}>
+    >
+      {savingCommand && (
+        <SaveCommandDialog initialText={visibleText} onClose={() => setSavingCommand(false)} />
+      )}
+      {sentAbove && (
+        <AttachmentGallery
+          sent
+          images={sentImages}
+          files={sentFiles}
+          message={{ threadId, messageId: message.id }}
+          eager={eagerAttachments}
+          className="mb-1.5 max-w-[min(42rem,78%)]"
+        />
+      )}
+      <div
+        className={cn("flex w-full items-center gap-1.5", user ? "justify-end" : "justify-start")}
+      >
         {user && (
           <MessageActions side="user" forceOpen={picking} more={userMore}>
-            {message.kind === "text" && canWrite !== false && !webhookView && !cited?.citations.length && !message.id.startsWith(OPTIMISTIC_PREFIX) && (
-              <button
-                type="button"
-                onClick={() => onStartEdit(message.id)}
-                disabled={busy}
-                aria-hidden={busy || undefined}
-                aria-label={t("chat.editMessage")}
-                title={t("chat.editMessage")}
-                className={cn(messageActionClass, busy && "invisible")}
-              >
-                <Pencil size={14} />
-              </button>
+            {message.kind === "text" &&
+              canWrite !== false &&
+              !webhookView &&
+              !cited?.citations.length &&
+              !message.id.startsWith(OPTIMISTIC_PREFIX) && (
+                <button
+                  type="button"
+                  onClick={() => onStartEdit(message.id)}
+                  disabled={busy}
+                  aria-hidden={busy || undefined}
+                  aria-label={t("chat.editMessage")}
+                  title={t("chat.editMessage")}
+                  className={cn(messageActionClass, busy && "invisible")}
+                >
+                  <Pencil size={14} />
+                </button>
+              )}
+            {reactable && (
+              <ReactionPicker
+                reacted={myReactions(message.reactions)}
+                onReact={react}
+                onOpenChange={setPicking}
+                align="end"
+              />
             )}
-            {reactable && <ReactionPicker reacted={myReactions(message.reactions)} onReact={react} onOpenChange={setPicking} align="end" />}
-            {Boolean(visibleText.trim()) && <CopyButton text={visibleText} className="opacity-100" />}
+            {Boolean(visibleText.trim()) && (
+              <CopyButton text={visibleText} className="opacity-100" />
+            )}
             <button
               type="button"
               onClick={() => onReply(message)}
@@ -438,7 +619,12 @@ const Bubble = memo(function Bubble({
           title={new Date(message.at).toLocaleString()}
         >
           {peer && <PeerLabel peer={peer} />}
-          <ReactionPills reactions={message.reactions} side={user ? "user" : "bot"} nameOf={reactionName} onToggle={reactable ? react : undefined} />
+          <ReactionPills
+            reactions={message.reactions}
+            side={user ? "user" : "bot"}
+            nameOf={reactionName}
+            onToggle={reactable ? react : undefined}
+          />
           {replyTarget && (
             <div className="mb-2">
               <ReplyQuote
@@ -460,19 +646,33 @@ const Bubble = memo(function Bubble({
               <div className="chat-text px-4 py-3 whitespace-pre-wrap">{webhookView.task}</div>
               {webhookView.payload && (
                 <details className="border-t border-hairline/30 bg-inset/25 px-4 py-2.5 text-[11.5px] text-ink-secondary">
-                  <summary className="cursor-pointer select-none hover:text-ink">{t("chat.viewPayload")}</summary>
-                  <pre className="mt-2 max-h-48 overflow-auto rounded-lg border border-hairline/25 bg-black/25 p-3 font-mono text-[10.5px] leading-relaxed whitespace-pre-wrap text-ink-secondary">{webhookView.payload}</pre>
+                  <summary className="cursor-pointer select-none hover:text-ink">
+                    {t("chat.viewPayload")}
+                  </summary>
+                  <pre className="mt-2 max-h-48 overflow-auto rounded-lg border border-hairline/25 bg-black/25 p-3 font-mono text-[10.5px] leading-relaxed whitespace-pre-wrap text-ink-secondary">
+                    {webhookView.payload}
+                  </pre>
                 </details>
               )}
             </div>
           ) : user ? (
             <>
               {sentAttachments && !sentAbove && (
-                <AttachmentGallery sent images={sentImages} files={sentFiles} message={{ threadId, messageId: message.id }} eager={eagerAttachments} />
+                <AttachmentGallery
+                  sent
+                  images={sentImages}
+                  files={sentFiles}
+                  message={{ threadId, messageId: message.id }}
+                  eager={eagerAttachments}
+                />
               )}
               {visibleText && (
                 <div
-                  className={cn("chat-text", collapsible && "max-h-[288px] overflow-hidden [mask-image:linear-gradient(to_bottom,black_60%,transparent)]")}
+                  className={cn(
+                    "chat-text",
+                    collapsible &&
+                      "max-h-[288px] overflow-hidden [mask-image:linear-gradient(to_bottom,black_60%,transparent)]",
+                  )}
                   data-citation-source={message.id}
                   data-citation-owner-type="bot"
                   data-citation-owner={botId}
@@ -481,53 +681,113 @@ const Bubble = memo(function Bubble({
                   <MentionText text={plainThreadLinks(visibleText)} peers={mentionPeers} faces />
                 </div>
               )}
-              {cited && <SentCitations
-                citations={cited.citations}
-                onNavigate={async (citation: CitationAttachment) => {
-                  if (citation.source.ownerType !== "bot" || !onBranch(citation.source.messageId)) return false;
-                  dispatch({ type: "focusMessage", threadId, messageId: citation.source.messageId });
-                  return highlightCitationSource(citation);
-                }}
-              />}
+              {cited && (
+                <SentCitations
+                  citations={cited.citations}
+                  onNavigate={async (citation: CitationAttachment) => {
+                    if (citation.source.ownerType !== "bot" || !onBranch(citation.source.messageId))
+                      return false;
+                    dispatch({
+                      type: "focusMessage",
+                      threadId,
+                      messageId: citation.source.messageId,
+                    });
+                    return highlightCitationSource(citation);
+                  }}
+                />
+              )}
               {message.via === "call" && (
                 <span className="mt-1 text-[11px] text-ink-tertiary" title={t("chat.viaCall")}>
                   {t("chat.viaCall")}
                 </span>
               )}
               {collapsible && (
-                <button onClick={() => setExpanded(true)} className="mt-1 text-[12.5px] text-ink-secondary hover:text-ink">
+                <button
+                  onClick={() => setExpanded(true)}
+                  className="mt-1 text-[12.5px] text-ink-secondary hover:text-ink"
+                >
                   {t("chat.showFull")}
                 </button>
               )}
               {expanded && (
-                <button onClick={() => setExpanded(false)} className="mt-1 text-[12.5px] text-ink-secondary hover:text-ink">
+                <button
+                  onClick={() => setExpanded(false)}
+                  className="mt-1 text-[12.5px] text-ink-secondary hover:text-ink"
+                >
                   {t("chat.showLess")}
                 </button>
               )}
             </>
           ) : message.needsYou ? (
-            <div className="flex min-w-[280px] items-center gap-3" data-needs-you-proxy={message.needsYou.status}>
+            <div
+              className="flex min-w-[280px] items-center gap-3"
+              data-needs-you-proxy={message.needsYou.status}
+            >
               <span className="min-w-0 flex-1 truncate">
-                {t(message.needsYou.status === "waiting" ? "chat.needsYou.proxy" : "chat.needsYou.resolved", { name: message.needsYou.botName, label: message.needsYou.label })}
+                {t(
+                  message.needsYou.status === "waiting"
+                    ? "chat.needsYou.proxy"
+                    : "chat.needsYou.resolved",
+                  { name: message.needsYou.botName, label: message.needsYou.label },
+                )}
               </span>
-              <button type="button" onClick={openNeedsYou} className="shrink-0 rounded-md px-2 py-1 text-[12px] text-accent hover:bg-raised">
+              <button
+                type="button"
+                onClick={openNeedsYou}
+                className="shrink-0 rounded-md px-2 py-1 text-[12px] text-accent hover:bg-raised"
+              >
                 {t("chat.needsYou.open")}
               </button>
             </div>
           ) : (
-            <MessageBoundary key={viewRaw ? "raw" : "rendered"} fallbackText={text || t("chat.generatedImage")}>
+            <MessageBoundary
+              key={viewRaw ? "raw" : "rendered"}
+              fallbackText={text || t("chat.generatedImage")}
+            >
               {voiceNotes.length > 0 && (
-                <div className={cn("flex flex-col", (text || generatedPaths.length > 0 || linkedFiles.length > 0) && "mb-2")}>
+                <div
+                  className={cn(
+                    "flex flex-col",
+                    (text || generatedPaths.length > 0 || linkedFiles.length > 0) && "mb-2",
+                  )}
+                >
                   {voiceNotes.map((note) => (
                     <VoiceNoteBubble key={note.path} attachment={note} />
                   ))}
                 </div>
               )}
-              <AttachmentGallery images={generatedPaths} files={linkedFiles} message={{ threadId, messageId: message.id }} className={text ? undefined : "mb-0"} eager={eagerAttachments} />
+              <AttachmentGallery
+                images={generatedPaths}
+                files={linkedFiles}
+                message={{ threadId, messageId: message.id }}
+                className={text ? undefined : "mb-0"}
+                eager={eagerAttachments}
+              />
               {viewRaw && text ? (
-                <div data-citation-source={message.id} data-citation-owner-type="bot" data-citation-owner={botId} data-citation-thread={threadId}><RawMarkdownView text={text} /></div>
+                <div
+                  data-citation-source={message.id}
+                  data-citation-owner-type="bot"
+                  data-citation-owner={botId}
+                  data-citation-thread={threadId}
+                >
+                  <RawMarkdownView text={text} />
+                </div>
               ) : text ? (
-                <><div data-citation-source={message.id} data-citation-owner-type="bot" data-citation-owner={botId} data-citation-thread={threadId}><ChatMarkdown text={text} mentionPeers={mentionPeers} message={{ threadId, messageId: message.id }} /></div><LinkPreviews text={text} /></>
+                <>
+                  <div
+                    data-citation-source={message.id}
+                    data-citation-owner-type="bot"
+                    data-citation-owner={botId}
+                    data-citation-thread={threadId}
+                  >
+                    <ChatMarkdown
+                      text={text}
+                      mentionPeers={mentionPeers}
+                      message={{ threadId, messageId: message.id }}
+                    />
+                  </div>
+                  <LinkPreviews text={text} />
+                </>
               ) : null}
             </MessageBoundary>
           )}
@@ -535,8 +795,16 @@ const Bubble = memo(function Bubble({
         {!user && (
           <MessageActions side="bot" forceOpen={viewRaw || speaking || picking} more={botMore}>
             {speaking && <StopSpeakingButton preparing={speech.status === "preparing"} />}
-            {viewRaw && text && <RawToggleAction active onToggle={() => setViewRaw(false)} className="opacity-100" />}
-            {reactable && <ReactionPicker reacted={myReactions(message.reactions)} onReact={react} onOpenChange={setPicking} />}
+            {viewRaw && text && (
+              <RawToggleAction active onToggle={() => setViewRaw(false)} className="opacity-100" />
+            )}
+            {reactable && (
+              <ReactionPicker
+                reacted={myReactions(message.reactions)}
+                onReact={react}
+                onOpenChange={setPicking}
+              />
+            )}
             {text && <CopyButton text={text} className="opacity-100" />}
             <button
               type="button"
@@ -595,7 +863,10 @@ function PeerLabel({ peer }: { peer: PeerLine }) {
   const { bots } = useChatRows();
   const author = bots.find((b) => b.id === peer.botId) ?? bots.find((b) => b.name === peer.name);
   return (
-    <div className="text-[13px] leading-[17px] font-medium text-ink-secondary" data-testid="peer-label">
+    <div
+      className="text-[13px] leading-[17px] font-medium text-ink-secondary"
+      data-testid="peer-label"
+    >
       {`From ${author?.name ?? peer.name}`}
     </div>
   );
@@ -617,7 +888,12 @@ const ActivityChip = memo(function ActivityChip({ message }: { message: Message 
           title={t("chat.openConversationWith", { name: comm.withName })}
           className="flex items-center gap-2 rounded-full border border-hairline/40 bg-panel px-3 py-1.5 text-[13px] text-ink-secondary hover:bg-raised hover:text-ink"
         >
-          <BotAvatar bot={withBot ?? { name: comm.withName, color: comm.withColor }} state="happy" size={16} animated={false} />
+          <BotAvatar
+            bot={withBot ?? { name: comm.withName, color: comm.withColor }}
+            state="happy"
+            size={16}
+            animated={false}
+          />
           <span className="max-w-[480px] truncate">{freshenDogName(tool.name, withBot)}</span>
           <ChevronRight size={13} />
         </button>
@@ -630,7 +906,10 @@ const ActivityChip = memo(function ActivityChip({ message }: { message: Message 
 function RoutineRunRow({ message, botId }: { message: Message; botId: string }) {
   const dispatch = useStoreDispatch();
   const executionThreadId = message.routineRun?.executionThreadId;
-  const targetId = useStoreSelector((state) => ownerShowingElsewhere([...state.bots, ...state.groups], executionThreadId, botId)?.id);
+  const targetId = useStoreSelector(
+    (state) =>
+      ownerShowingElsewhere([...state.bots, ...state.groups], executionThreadId, botId)?.id,
+  );
   return (
     <RoutineRunCard
       message={message}
@@ -640,13 +919,21 @@ function RoutineRunRow({ message, botId }: { message: Message; botId: string }) 
 }
 
 function bubblesKept(plan: TranscriptPlan): TranscriptPlan {
-  const spoken = new Set([...plan.byAnchorId.values()].flatMap((turn) => turn.messages.map((message) => message.id)));
-  return { byAnchorId: new Map(), hiddenIds: new Set([...plan.hiddenIds].filter((id) => !spoken.has(id))) };
+  const spoken = new Set(
+    [...plan.byAnchorId.values()].flatMap((turn) => turn.messages.map((message) => message.id)),
+  );
+  return {
+    byAnchorId: new Map(),
+    hiddenIds: new Set([...plan.hiddenIds].filter((id) => !spoken.has(id))),
+  };
 }
 
 function EmptyChat({ bot }: { bot: Bot }) {
   return (
-    <div data-empty-chat className="flex flex-1 flex-col items-center justify-center gap-2 py-24 text-center">
+    <div
+      data-empty-chat
+      className="flex flex-1 flex-col items-center justify-center gap-2 py-24 text-center"
+    >
       <BotAvatar bot={bot} state="idle" size={40} motion="none" motionKey={0} animated={false} />
       <div className="mt-1 text-[20px] leading-[26px] font-semibold text-ink">{bot.name}</div>
       <div className="max-w-[360px] text-[14px] leading-5 text-ink-secondary">
@@ -664,13 +951,24 @@ function ChatLoading() {
   useEffect(() => {
     const spinner = setTimeout(() => setShown("spinner"), LOADING_SPINNER_MS);
     const words = setTimeout(() => setShown("words"), LOADING_WORDS_MS);
-    return () => { clearTimeout(spinner); clearTimeout(words); };
+    return () => {
+      clearTimeout(spinner);
+      clearTimeout(words);
+    };
   }, []);
   if (shown === "nothing") return <div data-chat-loading="" className="flex-1" />;
   return (
-    <div data-chat-loading={shown} role="status" className="flex flex-1 flex-col items-center justify-center gap-2 py-24 text-[14px] leading-5 text-ink-secondary">
+    <div
+      data-chat-loading={shown}
+      role="status"
+      className="flex flex-1 flex-col items-center justify-center gap-2 py-24 text-[14px] leading-5 text-ink-secondary"
+    >
       <Loader2 size={20} aria-hidden="true" className="animate-spin motion-reduce:animate-none" />
-      {shown === "words" ? <span>{t("chat.loadingEarlier")}</span> : <span className="sr-only">{t("chat.loadingEarlier")}</span>}
+      {shown === "words" ? (
+        <span>{t("chat.loadingEarlier")}</span>
+      ) : (
+        <span className="sr-only">{t("chat.loadingEarlier")}</span>
+      )}
     </div>
   );
 }
@@ -717,13 +1015,17 @@ const MessagesList = memo(function MessagesList({
   const folds = useMemo(() => turnFolds(transcript, nativeRuns), [transcript, nativeRuns]);
   const arriving = useArrivals(`${botId}/${threadId}`, messages);
   const items = useMemo(
-    () => foldTeams(foldExchanges(groupTranscript(messages, plan), {
-      renders: (item) => quietTranscriptItemShown(item, false),
-      hasGroup: (groupId) => groupIds.split("|").includes(groupId),
-    }), (item) => quietTranscriptItemShown(item, false)),
+    () =>
+      foldTeams(
+        foldExchanges(groupTranscript(messages, plan), {
+          renders: (item) => quietTranscriptItemShown(item, false),
+          hasGroup: (groupId) => groupIds.split("|").includes(groupId),
+        }),
+        (item) => quietTranscriptItemShown(item, false),
+      ),
     [messages, plan, locale, groupIds],
   );
-  const owner = bots.find(bot => bot.id === botId);
+  const owner = bots.find((bot) => bot.id === botId);
   let unreadPlaced = false;
   const unreadDivider = (rows: readonly Message[]) => {
     if (unreadPlaced || !rows.some((row) => isUnread(row, unreadSince))) return null;
@@ -740,12 +1042,17 @@ const MessagesList = memo(function MessagesList({
     <>
       {items.map((item, i) => {
         const previous = items[i - 1];
-        const prev = previous && (previous.kind === "message" ? previous.message : previous.messages.at(-1));
+        const prev =
+          previous && (previous.kind === "message" ? previous.message : previous.messages.at(-1));
         const first = item.kind === "message" ? item.message : item.messages[0];
         const newDay = !prev || localDay(prev.at) !== localDay(first.at);
         if (item.kind === "failed-send") {
           return (
-            <div key={item.id} className="contents" data-arriving={arriving(item.message.id) ? "" : undefined}>
+            <div
+              key={item.id}
+              className="contents"
+              data-arriving={arriving(item.message.id) ? "" : undefined}
+            >
               {newDay && <DaySeparator at={first.at} today={today} />}
               {unreadDivider(item.messages)}
               <FailedSendLine item={item} />
@@ -754,7 +1061,11 @@ const MessagesList = memo(function MessagesList({
         }
         if (item.kind === "team") {
           return (
-            <div key={item.id} className="contents" data-arriving={arriving(item.messages.at(-1)!.id) ? "" : undefined}>
+            <div
+              key={item.id}
+              className="contents"
+              data-arriving={arriving(item.messages.at(-1)!.id) ? "" : undefined}
+            >
               {newDay && <DaySeparator at={first.at} today={today} />}
               {unreadDivider(item.messages)}
               <TeamBlock item={item} waitingOn={owner?.waitingOn} />
@@ -763,19 +1074,38 @@ const MessagesList = memo(function MessagesList({
         }
         if (item.kind === "exchange") {
           return (
-            <div key={item.id} className="contents" data-mid={expandedExchange(item) ? undefined : item.messages[0]!.id} data-arriving={arriving(item.messages.at(-1)!.id) ? "" : undefined}>
+            <div
+              key={item.id}
+              className="contents"
+              data-mid={expandedExchange(item) ? undefined : item.messages[0]!.id}
+              data-arriving={arriving(item.messages.at(-1)!.id) ? "" : undefined}
+            >
               {newDay && <DaySeparator at={first.at} today={today} />}
               {unreadDivider(item.messages)}
-              <ExchangeLine item={item} forceOpen={item.messages.some(message => message.id === focusedId)} />
+              <ExchangeLine
+                item={item}
+                forceOpen={item.messages.some((message) => message.id === focusedId)}
+              />
             </div>
           );
         }
         if (item.kind === "recovered") {
           return (
-            <div key={item.id} className="contents" data-mid={item.recovery.id} data-arriving={arriving(item.recovery.id) ? "" : undefined}>
+            <div
+              key={item.id}
+              className="contents"
+              data-mid={item.recovery.id}
+              data-arriving={arriving(item.recovery.id) ? "" : undefined}
+            >
               {newDay && <DaySeparator at={first.at} today={today} />}
               {unreadDivider(item.messages)}
-              <RecoveredLine item={item} engine={engine} botId={botId} threadId={threadId} forceOpen={item.folded.some((message) => message.id === focusedId)} />
+              <RecoveredLine
+                item={item}
+                engine={engine}
+                botId={botId}
+                threadId={threadId}
+                forceOpen={item.folded.some((message) => message.id === focusedId)}
+              />
             </div>
           );
         }
@@ -786,16 +1116,22 @@ const MessagesList = memo(function MessagesList({
             case "secret":
               return m.secureForm ? (
                 <SecureFormCard botId={botId} botName={botName} threadId={threadId} message={m} />
-              ) : m.secret ? <SecretRequestCard botId={botId} threadId={threadId} message={m} /> : null;
+              ) : m.secret ? (
+                <SecretRequestCard botId={botId} threadId={threadId} message={m} />
+              ) : null;
             case "connector":
-              return m.connector ? <ConnectorCard botId={botId} threadId={threadId} message={m} /> : null;
+              return m.connector ? (
+                <ConnectorCard botId={botId} threadId={threadId} message={m} />
+              ) : null;
             case "options": {
               const card = m.card?.takeoverRequest ? (
                 <TakeoverCard botId={botId} botName={botName} threadId={threadId} message={m} />
               ) : m.card?.deviceApproval ? (
                 <DeviceApprovalCard botId={botId} threadId={threadId} message={m} />
               ) : m.card?.requestId && m.card.questionRequest ? (
-                openQuestion([m]) ? null : <QuestionCard threadId={threadId} message={m} />
+                openQuestion([m]) ? null : (
+                  <QuestionCard threadId={threadId} message={m} />
+                )
               ) : m.card?.requestId && m.card.tool ? (
                 <ApprovalCard bot={{ name: botName }} message={m} threadId={threadId} />
               ) : shouldHideOnboardingCard(m, transcript) ? null : (
@@ -811,7 +1147,8 @@ const MessagesList = memo(function MessagesList({
             case "routine.run":
               return <RoutineRunRow message={m} botId={botId} />;
             case "activity": {
-              if (isStatusActivity(m)) return <StatusActivityRow message={m} model={selection.model} />;
+              if (isStatusActivity(m))
+                return <StatusActivityRow message={m} model={selection.model} />;
               if (m.tool && failedTurnCause(m.tool.name) !== null) {
                 return (
                   <FailedTurnRow
@@ -865,7 +1202,15 @@ const MessagesList = memo(function MessagesList({
           </Fragment>
         );
       })}
-      {!owner?.busy && <SideJobsStillGoing threadId={threadId} count={sideJobCount(nativeRuns.findLast(run => run.botId === botId), undefined)} />}
+      {!owner?.busy && (
+        <SideJobsStillGoing
+          threadId={threadId}
+          count={sideJobCount(
+            nativeRuns.findLast((run) => run.botId === botId),
+            undefined,
+          )}
+        />
+      )}
     </>
   );
 });
@@ -878,13 +1223,18 @@ function bubbleSide(item: ReturnType<typeof foldTeams>[number] | undefined): str
   return message.role;
 }
 
-const CHATHEAD_PILL = "flex h-8 min-w-0 items-center gap-2 rounded-full border-[0.5px] border-[var(--color-hairline,var(--hairline-default))] bg-composer pl-1 pr-3.5 text-ink";
+const CHATHEAD_PILL =
+  "flex h-8 min-w-0 items-center gap-2 rounded-full border-[0.5px] border-[var(--color-hairline,var(--hairline-default))] bg-composer pl-1 pr-3.5 text-ink";
 
 export function ChatView({ bot: profile }: { bot: Bot }) {
   const bot = useMemo(() => currentTaskBot(profile), [profile]);
   const dispatch = useStoreDispatch();
   const readStore = useStoreReader();
-  const { dragStyle: headerDragStyle, noDragStyle: headerNoDragStyle, controlsShiftStyle } = useCaptionChrome();
+  const {
+    dragStyle: headerDragStyle,
+    noDragStyle: headerNoDragStyle,
+    controlsShiftStyle,
+  } = useCaptionChrome();
   const composerDockRef = useRef<HTMLDivElement>(null);
   const composerDock = useComposerDockPad(composerDockRef);
   const canWrite = useCanWriteIn(bot.threadId);
@@ -899,7 +1249,12 @@ export function ChatView({ bot: profile }: { bot: Bot }) {
   const openFind = useCallback(() => setFindOpen(true), []);
   useEffect(() => {
     const onFind = (event: KeyboardEvent) => {
-      if ((event.metaKey || event.ctrlKey) && !event.shiftKey && !event.altKey && event.key.toLowerCase() === "f") {
+      if (
+        (event.metaKey || event.ctrlKey) &&
+        !event.shiftKey &&
+        !event.altKey &&
+        event.key.toLowerCase() === "f"
+      ) {
         event.preventDefault();
         setFindOpen(true);
       }
@@ -909,19 +1264,41 @@ export function ChatView({ bot: profile }: { bot: Bot }) {
   }, []);
 
   const { messages: allMessages, activeLeafId } = bot;
-  const thread = useMemo(() => visibleMessages({ messages: allMessages, activeLeafId }), [allMessages, activeLeafId]);
+  const thread = useMemo(
+    () => visibleMessages({ messages: allMessages, activeLeafId }),
+    [allMessages, activeLeafId],
+  );
   const dockedQuestion = useMemo(() => openQuestion(thread)?.message, [thread]);
-  const messages = useMemo(() => thread.filter(message => shownInChat(message) && message.tool?.statusLine !== "live" && !message.tool?.carry), [thread]);
-  const exchangeThread = useMemo(() => ({ thread, working: Boolean(bot.busy) }), [thread, bot.busy]);
+  const messages = useMemo(
+    () =>
+      thread.filter(
+        (message) =>
+          shownInChat(message) && message.tool?.statusLine !== "live" && !message.tool?.carry,
+      ),
+    [thread],
+  );
+  const exchangeThread = useMemo(
+    () => ({ thread, working: Boolean(bot.busy) }),
+    [thread, bot.busy],
+  );
   const lookups = useMemo(() => transcriptLookups(allMessages, messages), [allMessages, messages]);
   const takeoverOpen = useMemo(
-    () => messages.some((m) => m.kind === "options" && m.card?.takeoverRequest && isOpenTakeover(m.card.takeoverRequest.status)),
+    () =>
+      messages.some(
+        (m) =>
+          m.kind === "options" &&
+          m.card?.takeoverRequest &&
+          isOpenTakeover(m.card.takeoverRequest.status),
+      ),
     [messages],
   );
   const groupIds = useStoreSelector((state) => roomIds(state.groups));
   const plan = useMemo(() => bubblesKept(planTranscript(messages, { quiet: true })), [messages]);
   const shownMessages = useMemo(
-    () => plan.hiddenIds.size ? messages.filter((message) => !plan.hiddenIds.has(message.id)) : messages,
+    () =>
+      plan.hiddenIds.size
+        ? messages.filter((message) => !plan.hiddenIds.has(message.id))
+        : messages,
     [messages, plan],
   );
   const countsInWindow = useCallback(
@@ -930,7 +1307,10 @@ export function ChatView({ bot: profile }: { bot: Bot }) {
   );
   const threadKey = `${bot.id}/${bot.threadId}`;
   const unreadSince = useUnreadBoundary(threadKey, messages);
-  const unreadRow = useCallback((message: Message) => isUnread(message, unreadSince), [unreadSince]);
+  const unreadRow = useCallback(
+    (message: Message) => isUnread(message, unreadSince),
+    [unreadSince],
+  );
   const {
     scrollRef,
     transcriptRef,
@@ -959,9 +1339,12 @@ export function ChatView({ bot: profile }: { bot: Bot }) {
     unread: unreadRow,
     turn: {
       key: `${bot.threadId}:${bot.turnStartedAt ?? "live"}`,
-      active: Boolean(turnInProgress(bot) || messages.some(message => message.id.startsWith("optimistic-"))),
-      delivering: messages.some(message => message.id.startsWith("optimistic-")),
-      replyId: messages.findLast(message => message.role === "bot" && message.kind === "text")?.id,
+      active: Boolean(
+        turnInProgress(bot) || messages.some((message) => message.id.startsWith("optimistic-")),
+      ),
+      delivering: messages.some((message) => message.id.startsWith("optimistic-")),
+      replyId: messages.findLast((message) => message.role === "bot" && message.kind === "text")
+        ?.id,
       topInset: HEADER_INSET,
       bottomInset: composerDock.height,
     },
@@ -970,37 +1353,88 @@ export function ChatView({ bot: profile }: { bot: Bot }) {
   const shownRows = useMemo(() => messages.filter(countsInWindow), [messages, countsInWindow]);
   const newBelow = useNewBelow(following, shownRows, turnPreservingAnchor);
   const visitUnread = useVisitUnreadCount(threadKey, unreadSince, shownRows);
-  const unreadPlace = useUnreadPosition(scrollRef, unreadSince !== null, HEADER_INSET, composerDock.height, windowedMessages.length);
+  const unreadPlace = useUnreadPosition(
+    scrollRef,
+    unreadSince !== null,
+    HEADER_INSET,
+    composerDock.height,
+    windowedMessages.length,
+  );
   const [aboveDismissed, setAboveDismissed] = useState<string | null>(null);
   const [belowDismissed, setBelowDismissed] = useState(0);
-  useEffect(() => { if (following) setBelowDismissed(0); }, [following]);
+  useEffect(() => {
+    if (following) setBelowDismissed(0);
+  }, [following]);
   useEffect(() => {
     if (unreadPlace === "visible") setAboveDismissed(dismissKey(threadKey, unreadSince));
   }, [unreadPlace, threadKey, unreadSince]);
-  const unreadAboveShown = unreadPlace === "above" && visitUnread > 0 && aboveDismissed !== dismissKey(threadKey, unreadSince);
+  const unreadAboveShown =
+    unreadPlace === "above" &&
+    visitUnread > 0 &&
+    aboveDismissed !== dismissKey(threadKey, unreadSince);
   const belowCount = Math.max(newBelow, unreadPlace === "below" ? visitUnread : 0);
   const belowShown = belowCount > belowDismissed ? belowCount : 0;
 
   const bots = useDrawnDogs();
-  const mentionPeers = useMemo<MentionPeer[]>(() => bots.map((peer) => (peer.id === bot.id ? { ...peer, self: true } : peer)), [bots, bot.id]);
-  const focus = useStoreSelector((state) => (state.focusMessage?.threadId === bot.threadId ? state.focusMessage : null));
+  const mentionPeers = useMemo<MentionPeer[]>(
+    () => bots.map((peer) => (peer.id === bot.id ? { ...peer, self: true } : peer)),
+    [bots, bot.id],
+  );
+  const focus = useStoreSelector((state) =>
+    state.focusMessage?.threadId === bot.threadId ? state.focusMessage : null,
+  );
   const locale = activeLocale();
   const branch = useRef(messages);
   branch.current = messages;
-  const onBranch = useCallback((messageId: string) => branch.current.some((m) => m.id === messageId), []);
+  const onBranch = useCallback(
+    (messageId: string) => branch.current.some((m) => m.id === messageId),
+    [],
+  );
   const busy = Boolean(bot.busy);
   const rows = useMemo<ChatRows>(
-    () => ({ botId: bot.id, threadId: bot.threadId, botName: bot.name, busy, bots, readStore, mentionPeers, focus, locale, dispatch, onBranch, canWrite }),
-    [bot.id, bot.threadId, bot.name, busy, bots, readStore, mentionPeers, focus, locale, dispatch, onBranch, canWrite],
+    () => ({
+      botId: bot.id,
+      threadId: bot.threadId,
+      botName: bot.name,
+      busy,
+      bots,
+      readStore,
+      mentionPeers,
+      focus,
+      locale,
+      dispatch,
+      onBranch,
+      canWrite,
+    }),
+    [
+      bot.id,
+      bot.threadId,
+      bot.name,
+      busy,
+      bots,
+      readStore,
+      mentionPeers,
+      focus,
+      locale,
+      dispatch,
+      onBranch,
+      canWrite,
+    ],
   );
-  const drafts = useMemo<DraftScope>(() => ({
-    botName: bot.name,
-    send: (text: string) => dispatch({ type: "send", botId: bot.id, threadId: bot.threadId, text }),
-    earlier: (messageId: string | undefined) => {
-      const index = messageId ? messages.findIndex((message) => message.id === messageId) : -1;
-      return (index < 0 ? messages : messages.slice(0, index)).filter((message) => message.role !== "user" && typeof message.text === "string").map((message) => message.text!);
-    },
-  }), [bot.id, bot.threadId, bot.name, dispatch, messages]);
+  const drafts = useMemo<DraftScope>(
+    () => ({
+      botName: bot.name,
+      send: (text: string) =>
+        dispatch({ type: "send", botId: bot.id, threadId: bot.threadId, text }),
+      earlier: (messageId: string | undefined) => {
+        const index = messageId ? messages.findIndex((message) => message.id === messageId) : -1;
+        return (index < 0 ? messages : messages.slice(0, index))
+          .filter((message) => message.role !== "user" && typeof message.text === "string")
+          .map((message) => message.text!);
+      },
+    }),
+    [bot.id, bot.threadId, bot.name, dispatch, messages],
+  );
 
   const [editingId, setEditingId] = useState<string | null>(null);
   useEffect(() => setEditingId(null), [bot.id, bot.threadId]);
@@ -1014,11 +1448,16 @@ export function ChatView({ bot: profile }: { bot: Bot }) {
     [bot.id, bot.threadId, dispatch],
   );
   const lastUserMessage = useMemo(
-    () => [...messages].reverse().find((m) => m.role === "user" && m.kind === "text" && !peerLine(m)),
+    () =>
+      [...messages].reverse().find((m) => m.role === "user" && m.kind === "text" && !peerLine(m)),
     [messages],
   );
   const lastUserMessageCites = useMemo(
-    () => Boolean(lastUserMessage?.text && splitTranscriptCitations(lastUserMessage.text).citations.length > 0),
+    () =>
+      Boolean(
+        lastUserMessage?.text &&
+        splitTranscriptCitations(lastUserMessage.text).citations.length > 0,
+      ),
     [lastUserMessage],
   );
 
@@ -1028,15 +1467,24 @@ export function ChatView({ bot: profile }: { bot: Bot }) {
   const workPanel = useWorkPanel();
   const settingsOpen = useStoreSelector((state) => state.settingsOpen);
   useEffect(() => closeWorkPanel(), [bot.id, bot.threadId]);
-  useEffect(() => { if (settingsOpen) closeWorkPanel(); }, [settingsOpen]);
-  useEffect(() => { if (workPanel) dispatch({ type: "toggleSettings", open: false }); }, [workPanel, dispatch]);
+  useEffect(() => {
+    if (settingsOpen) closeWorkPanel();
+  }, [settingsOpen]);
+  useEffect(() => {
+    if (workPanel) dispatch({ type: "toggleSettings", open: false });
+  }, [workPanel, dispatch]);
   const openDog = useCallback((id: string) => dispatch({ type: "select", id }), [dispatch]);
   const fallbackStep = useMemo((): LiveStep | null => {
     if (!bot.busy) return null;
     const kind = liveActivity(lastMessage).kind;
     const anchor = lastMessage && lastMessage.role !== "user" ? lastMessage : undefined;
     const startedAt = anchor?.at ?? bot.turnStartedAt ?? lastMessage?.at ?? 0;
-    return { id: `${bot.threadId}:${anchor?.id ?? startedAt}:${kind}`, kind, startedAt, lastActivityAt: startedAt };
+    return {
+      id: `${bot.threadId}:${anchor?.id ?? startedAt}:${kind}`,
+      kind,
+      startedAt,
+      lastActivityAt: startedAt,
+    };
   }, [bot.busy, bot.threadId, bot.turnStartedAt, lastMessage]);
   const needsYouWords = turnNeedsYouWords(bot, messages);
   const announcement = useMemo((): TranscriptSnapshot => {
@@ -1051,225 +1499,327 @@ export function ChatView({ bot: profile }: { bot: Bot }) {
   }, [messages, shownMessages, bot.busy, bot.name]);
   const regenerate = useCallback(() => {
     if (lastUserMessage?.text && !bot.busy && !lastUserMessage.id.startsWith("optimistic-")) {
-      dispatch({ type: "editMessage", botId: bot.id, threadId: bot.threadId, messageId: lastUserMessage.id, text: lastUserMessage.text });
+      dispatch({
+        type: "editMessage",
+        botId: bot.id,
+        threadId: bot.threadId,
+        messageId: lastUserMessage.id,
+        text: lastUserMessage.text,
+      });
     }
   }, [lastUserMessage, bot.busy, bot.id, bot.threadId, dispatch]);
 
   const executionRunId = bot.tasks?.find((task) => task.threadId === bot.threadId)?.routineRunId;
-  const routineExecution = useStoreSelector((state) => (executionRunId ? state.routineRuns.find((run) => run.id === executionRunId && run.threadId === bot.threadId) : undefined));
-  const resultsThreadId = routineExecution?.sourceThreadId !== bot.threadId ? routineExecution?.sourceThreadId : undefined;
-  const resultsOwnerId = useStoreSelector((state) => ownerShowingElsewhere([...state.bots, ...state.groups], resultsThreadId, bot.id)?.id);
-  const engine = useStoreSelector((state) => state.instances.find((i) => i.instanceId === bot.modelSelection.instanceId));
+  const routineExecution = useStoreSelector((state) =>
+    executionRunId
+      ? state.routineRuns.find((run) => run.id === executionRunId && run.threadId === bot.threadId)
+      : undefined,
+  );
+  const resultsThreadId =
+    routineExecution?.sourceThreadId !== bot.threadId
+      ? routineExecution?.sourceThreadId
+      : undefined;
+  const resultsOwnerId = useStoreSelector(
+    (state) => ownerShowingElsewhere([...state.bots, ...state.groups], resultsThreadId, bot.id)?.id,
+  );
+  const engine = useStoreSelector((state) =>
+    state.instances.find((i) => i.instanceId === bot.modelSelection.instanceId),
+  );
 
   return (
     <>
-    <main className="relative flex h-full min-w-0 flex-1 flex-col bg-app">
-      <CallOverlay bot={bot} />
-      <ExchangeViewHost botId={bot.id} />
-      <GlassScrollFrame className="flex-1 [--glass-tint:var(--color-app)]">
-      <GlassBar edge="top" className="z-[25]">
-      <div
-        style={headerDragStyle}
-        data-chathead
-        className={cn(
-          "@container/chathead flex min-h-[52px] flex-col justify-center px-5 py-2.5",
-          "pl-11 md:pl-5",
-        )}
-      >
-        <div data-chathead-row className="grid grid-cols-[minmax(0,1fr)_minmax(0,auto)_minmax(max-content,1fr)] items-center">
-        <div data-chathead-identity className="col-start-2 flex min-w-0 items-center gap-2 justify-self-center" style={headerNoDragStyle}>
-          <button
-            type="button"
-            data-chathead-pill
-            onClick={() => dispatch({ type: "toggleSettings", open: true })}
-            title={t("chat.openProfile")}
-            aria-label={t("chat.openProfileAria", { name: bot.name })}
-            className={cn(CHATHEAD_PILL, "hover:bg-raised-hover")}
+      <main className="relative flex h-full min-w-0 flex-1 flex-col bg-app">
+        <CallOverlay bot={bot} />
+        <ExchangeViewHost botId={bot.id} />
+        <GlassScrollFrame className="flex-1 [--glass-tint:var(--color-app)]">
+          <GlassBar edge="top" className="z-[25]">
+            <div
+              style={headerDragStyle}
+              data-chathead
+              className={cn(
+                "@container/chathead flex min-h-[52px] flex-col justify-center px-5 py-2.5",
+                "pl-11 md:pl-5",
+              )}
+            >
+              <div
+                data-chathead-row
+                className="grid grid-cols-[minmax(0,1fr)_minmax(0,auto)_minmax(max-content,1fr)] items-center"
+              >
+                <div
+                  data-chathead-identity
+                  className="col-start-2 flex min-w-0 items-center gap-2 justify-self-center"
+                  style={headerNoDragStyle}
+                >
+                  <button
+                    type="button"
+                    data-chathead-pill
+                    onClick={() => dispatch({ type: "toggleSettings", open: true })}
+                    title={t("chat.openProfile")}
+                    aria-label={t("chat.openProfileAria", { name: bot.name })}
+                    className={cn(CHATHEAD_PILL, "hover:bg-raised-hover")}
+                  >
+                    <span className="relative flex shrink-0">
+                      <BotAvatar
+                        bot={bot}
+                        state={restingStateForBot(bot)}
+                        size={24}
+                        animated={false}
+                      />
+                    </span>
+                    <span className="min-w-0 truncate text-[14px] leading-5 font-medium text-ink">
+                      {bot.name}
+                    </span>
+                  </button>
+                </div>
+                <div
+                  data-chathead-controls
+                  className="col-start-3 flex shrink-0 items-center gap-2 justify-self-end"
+                  style={controlsShiftStyle}
+                >
+                  <LiveCallChip
+                    currentBotId={bot.id}
+                    onOpen={(botId, threadId) =>
+                      openNotificationTarget(dispatch, { botId, threadId }, readStore())
+                    }
+                  />
+                  <ChatHeaderMenu
+                    key={`menu:${bot.threadId}`}
+                    bot={bot}
+                    messages={messages}
+                    onFind={openFind}
+                  />
+                </div>
+              </div>
+            </div>
+
+            {routineExecution && (
+              <div className="mx-5 mb-2 flex flex-wrap items-center gap-2 rounded-lg border border-hairline/40 bg-inset px-3 py-2 text-[11.5px] text-ink-secondary">
+                <span className="min-w-0 flex-1 truncate">
+                  {t("routines.executionDetails", { name: routineExecution.routineName })}
+                </span>
+                {resultsOwnerId && (
+                  <button
+                    type="button"
+                    onClick={() => dispatch({ type: "select", id: resultsOwnerId })}
+                    className="rounded px-2 py-1 text-accent hover:bg-raised"
+                  >
+                    {t("routines.results.back")}
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={() =>
+                    dispatch({
+                      type: "showRoutines",
+                      section: "logs",
+                      routineId: routineExecution.routineId,
+                      botId: bot.id,
+                    })
+                  }
+                  className="rounded px-2 py-1 hover:bg-raised hover:text-ink"
+                >
+                  {t("routines.logs")}
+                </button>
+              </div>
+            )}
+            {findOpen && <ChatFindBar threadId={bot.threadId} onClose={() => setFindOpen(false)} />}
+          </GlassBar>
+
+          <div
+            ref={scrollRef}
+            className="glass-scroller h-full overflow-x-hidden overflow-y-auto overscroll-y-contain [overflow-anchor:none]"
+            style={{ scrollPaddingBottom: composerDock.height }}
+            {...scrollHandlers}
           >
-            <span className="relative flex shrink-0">
-              <BotAvatar bot={bot} state={restingStateForBot(bot)} size={24} animated={false} />
-            </span>
-            <span className="min-w-0 truncate text-[14px] leading-5 font-medium text-ink">{bot.name}</span>
-          </button>
-        </div>
-        <div
-          data-chathead-controls
-          className="col-start-3 flex shrink-0 items-center gap-2 justify-self-end"
-          style={controlsShiftStyle}
-        >
-          <LiveCallChip currentBotId={bot.id} onOpen={(botId, threadId) => openNotificationTarget(dispatch, { botId, threadId }, readStore())} />
-          <ChatHeaderMenu key={`menu:${bot.threadId}`} bot={bot} messages={messages} onFind={openFind} />
-        </div>
-        </div>
-      </div>
-
-      {routineExecution && <div className="mx-5 mb-2 flex flex-wrap items-center gap-2 rounded-lg border border-hairline/40 bg-inset px-3 py-2 text-[11.5px] text-ink-secondary">
-        <span className="min-w-0 flex-1 truncate">{t("routines.executionDetails", { name: routineExecution.routineName })}</span>
-        {resultsOwnerId && <button type="button" onClick={() => dispatch({ type: "select", id: resultsOwnerId })} className="rounded px-2 py-1 text-accent hover:bg-raised">{t("routines.results.back")}</button>}
-        <button type="button" onClick={() => dispatch({ type: "showRoutines", section: "logs", routineId: routineExecution.routineId, botId: bot.id })} className="rounded px-2 py-1 hover:bg-raised hover:text-ink">{t("routines.logs")}</button>
-      </div>}
-      {findOpen && <ChatFindBar threadId={bot.threadId} onClose={() => setFindOpen(false)} />}
-
-      </GlassBar>
-
-      <div
-        ref={scrollRef}
-        className="glass-scroller h-full overflow-x-hidden overflow-y-auto overscroll-y-contain [overflow-anchor:none]"
-        style={{ scrollPaddingBottom: composerDock.height }}
-        {...scrollHandlers}
-      >
-        <div
-          ref={transcriptRef}
-          className="glass-scroller-content mx-auto flex w-full max-w-[672px] flex-col gap-3 px-5"
-          style={{ paddingBottom: composerDock.pad }}
-          role="log"
-          aria-live="off"
-          aria-label={t("chat.conversationWith", { name: bot.name })}
-        >
-          {hiddenCount > 0 ? (
-            <div className="flex justify-center pt-2">
-              <button
-                onClick={showEarlier}
-                className="rounded-full border border-hairline/40 bg-panel px-3 py-1 text-[12.5px] text-ink-secondary hover:bg-raised hover:text-ink"
-              >
-                {t("chat.showEarlier", { count: hiddenCount })}
-              </button>
+            <div
+              ref={transcriptRef}
+              className="glass-scroller-content mx-auto flex w-full max-w-[672px] flex-col gap-3 px-5"
+              style={{ paddingBottom: composerDock.pad }}
+              role="log"
+              aria-live="off"
+              aria-label={t("chat.conversationWith", { name: bot.name })}
+            >
+              {hiddenCount > 0 ? (
+                <div className="flex justify-center pt-2">
+                  <button
+                    onClick={showEarlier}
+                    className="rounded-full border border-hairline/40 bg-panel px-3 py-1 text-[12.5px] text-ink-secondary hover:bg-raised hover:text-ink"
+                  >
+                    {t("chat.showEarlier", { count: hiddenCount })}
+                  </button>
+                </div>
+              ) : bot.hasMore ? (
+                <div className="flex justify-center pt-2">
+                  <button
+                    onClick={loadOlder}
+                    disabled={olderPending}
+                    className="rounded-full border border-hairline/40 bg-panel px-3 py-1 text-[12.5px] text-ink-secondary hover:bg-raised hover:text-ink disabled:opacity-60"
+                  >
+                    {olderPending ? t("chat.loadingEarlier") : t("chat.loadEarlier")}
+                  </button>
+                </div>
+              ) : null}
+              {windowedMessages.length === 0 &&
+                !bot.busy &&
+                (bot.awaitingThreadSnapshot ? <ChatLoading /> : <EmptyChat bot={bot} />)}
+              <ExchangeThreadContext.Provider value={exchangeThread}>
+                <ChatRowsContext.Provider value={rows}>
+                  <DraftContext.Provider value={drafts}>
+                    <MessagesList
+                      messages={windowedMessages}
+                      filledWindow={filledMessages}
+                      transcript={messages}
+                      plan={plan}
+                      lookups={lookups}
+                      today={localDay(Date.now())}
+                      canRetryLast={!bot.busy && Boolean(lastUserMessage)}
+                      engine={engine}
+                      selection={bot.modelSelection}
+                      unreadSince={unreadSince}
+                      groupIds={groupIds}
+                      editingId={editingId}
+                      onStartEdit={startEdit}
+                      onCancelEdit={cancelEdit}
+                      onSubmitEdit={submitEdit}
+                      onRetry={regenerate}
+                      onReply={selectReply}
+                    />
+                  </DraftContext.Provider>
+                </ChatRowsContext.Provider>
+              </ExchangeThreadContext.Provider>
+              {laterCount > 0 && (
+                <div className="flex justify-center">
+                  <button
+                    onClick={showLater}
+                    className="rounded-full border border-hairline/40 bg-panel px-3 py-1 text-[12.5px] text-ink-secondary hover:bg-raised hover:text-ink"
+                  >
+                    {t("chat.showLater", { count: laterCount })}
+                  </button>
+                </div>
+              )}
+              <TurnSlot
+                bot={bot}
+                working={waiting}
+                onOpenDog={openDog}
+                fallback={fallbackStep}
+                messages={messages}
+              />
+              <div ref={turnRoomRef} data-turn-room aria-hidden="true" />
             </div>
-          ) : bot.hasMore ? (
-            <div className="flex justify-center pt-2">
-              <button
-                onClick={loadOlder}
-                disabled={olderPending}
-                className="rounded-full border border-hairline/40 bg-panel px-3 py-1 text-[12.5px] text-ink-secondary hover:bg-raised hover:text-ink disabled:opacity-60"
-              >
-                {olderPending ? t("chat.loadingEarlier") : t("chat.loadEarlier")}
-              </button>
-            </div>
-          ) : null}
-          {windowedMessages.length === 0 && !bot.busy && (bot.awaitingThreadSnapshot ? <ChatLoading /> : <EmptyChat bot={bot} />)}
-          <ExchangeThreadContext.Provider value={exchangeThread}>
-            <ChatRowsContext.Provider value={rows}>
-              <DraftContext.Provider value={drafts}>
-                <MessagesList
-                  messages={windowedMessages}
-                  filledWindow={filledMessages}
-                  transcript={messages}
-                  plan={plan}
-                  lookups={lookups}
-                  today={localDay(Date.now())}
-                  canRetryLast={!bot.busy && Boolean(lastUserMessage)}
-                  engine={engine}
-                  selection={bot.modelSelection}
-                  unreadSince={unreadSince}
-                  groupIds={groupIds}
-                  editingId={editingId}
-                  onStartEdit={startEdit}
-                  onCancelEdit={cancelEdit}
-                  onSubmitEdit={submitEdit}
-                  onRetry={regenerate}
-                  onReply={selectReply}
-                />
-              </DraftContext.Provider>
-            </ChatRowsContext.Provider>
-          </ExchangeThreadContext.Provider>
-          {laterCount > 0 && (
-            <div className="flex justify-center">
-              <button
-                onClick={showLater}
-                className="rounded-full border border-hairline/40 bg-panel px-3 py-1 text-[12.5px] text-ink-secondary hover:bg-raised hover:text-ink"
-              >
-                {t("chat.showLater", { count: laterCount })}
-              </button>
-            </div>
+          </div>
+
+          <TranscriptAnnouncer threadKey={transcriptKey} snapshot={announcement} />
+
+          {unreadAboveShown && (
+            <NewMessagesPill
+              direction="up"
+              tint={bot.color}
+              count={visitUnread}
+              onJump={scrollToUnread}
+              onDismiss={() => setAboveDismissed(dismissKey(threadKey, unreadSince))}
+              style={{ top: HEADER_INSET + 8 }}
+            />
           )}
-          <TurnSlot bot={bot} working={waiting} onOpenDog={openDog} fallback={fallbackStep} messages={messages} />
-          <div ref={turnRoomRef} data-turn-room aria-hidden="true" />
-        </div>
-      </div>
 
-      <TranscriptAnnouncer threadKey={transcriptKey} snapshot={announcement} />
+          {!following &&
+            (needsYouWords ? (
+              <button
+                type="button"
+                onClick={jumpToLatest}
+                aria-label={needsYouWords}
+                className="absolute left-1/2 z-10 flex max-w-[calc(100%-24px)] -translate-x-1/2 items-center gap-1.5 rounded-full border border-hairline/40 bg-raised px-3 py-1.5 text-[12.5px] text-[var(--color-waiting-text,var(--color-warning))] shadow-lg"
+                style={{ bottom: composerDock.height + 8 }}
+              >
+                <span className="min-w-0 truncate">{needsYouWords}</span>
+                <ArrowDown size={13} className="shrink-0" />
+              </button>
+            ) : belowShown > 0 ? (
+              <NewMessagesPill
+                direction="down"
+                tint={bot.color}
+                count={belowShown}
+                onJump={jumpToLatest}
+                onDismiss={() => setBelowDismissed(belowCount)}
+                style={{ bottom: composerDock.height + 8 }}
+              />
+            ) : (
+              <button
+                onClick={jumpToLatest}
+                aria-label={t("chat.jumpToLatestAria")}
+                className="animate-pop-in absolute left-1/2 z-10 flex -translate-x-1/2 items-center gap-1.5 rounded-full border border-hairline/40 bg-raised px-3 py-1.5 text-[12.5px] text-ink shadow-lg transition-colors hover:bg-raised-hover motion-reduce:transition-none"
+                style={{ bottom: composerDock.height + 8 }}
+              >
+                <ArrowDown size={13} /> {t("chat.jumpToLatest")}
+              </button>
+            ))}
 
-      {unreadAboveShown && (
-        <NewMessagesPill
-          direction="up"
-          tint={bot.color}
-          count={visitUnread}
-          onJump={scrollToUnread}
-          onDismiss={() => setAboveDismissed(dismissKey(threadKey, unreadSince))}
-          style={{ top: HEADER_INSET + 8 }}
-        />
-      )}
-
-      {!following && (needsYouWords ? (
-        <button
-          type="button"
-          onClick={jumpToLatest}
-          aria-label={needsYouWords}
-          className="absolute left-1/2 z-10 flex max-w-[calc(100%-24px)] -translate-x-1/2 items-center gap-1.5 rounded-full border border-hairline/40 bg-raised px-3 py-1.5 text-[12.5px] text-[var(--color-waiting-text,var(--color-warning))] shadow-lg"
-          style={{ bottom: composerDock.height + 8 }}
-        >
-          <span className="min-w-0 truncate">{needsYouWords}</span><ArrowDown size={13} className="shrink-0" />
-        </button>
-      ) : belowShown > 0 ? (
-        <NewMessagesPill
-          direction="down"
-          tint={bot.color}
-          count={belowShown}
-          onJump={jumpToLatest}
-          onDismiss={() => setBelowDismissed(belowCount)}
-          style={{ bottom: composerDock.height + 8 }}
-        />
-      ) : (
-        <button
-          onClick={jumpToLatest}
-          aria-label={t("chat.jumpToLatestAria")}
-          className="animate-pop-in absolute left-1/2 z-10 flex -translate-x-1/2 items-center gap-1.5 rounded-full border border-hairline/40 bg-raised px-3 py-1.5 text-[12.5px] text-ink shadow-lg transition-colors hover:bg-raised-hover motion-reduce:transition-none"
-          style={{ bottom: composerDock.height + 8 }}
-        >
-          <ArrowDown size={13} /> {t("chat.jumpToLatest")}
-        </button>
-      ))}
-
-      <div ref={composerDockRef} className="pointer-events-none absolute inset-x-0 bottom-0 z-[2]">
-      <div data-composer-column className="mx-auto w-full max-w-[672px]">
-      <LiveCallBar bot={bot} />
-      {!takeoverOpen && <NeedsYouRow botId={bot.id} name={bot.name} />}
-      <PaneErrorLine panes={[chatPane(bot.threadId)]} look="tray" />
-      <RunningOnLine messages={thread} threadId={bot.threadId} />
-      <MacScreenTile threadId={bot.threadId} name={bot.name} busy={Boolean(bot.busy)} onStop={() => dispatch({ type: "interrupt", botId: bot.id, threadId: bot.threadId })} />
-      {dockedQuestion && canWrite !== false && (
-        <div data-docked-question={dockedQuestion.id} className="pointer-events-auto px-5 pb-2">
-          <QuestionCard threadId={bot.threadId} message={dockedQuestion} />
-        </div>
-      )}
-      {canWrite === false ? (
-        <p className="pointer-events-auto mx-5 mb-4 rounded-2xl border border-hairline/60 bg-raised px-4 py-3 text-[13px] text-ink-secondary" data-testid="cloud-guest-composer">{t("chat.cloudGuest.notYours")}</p>
-      ) : (
-      <Composer
-        key={bot.threadId}
-        bot={profile}
-        replyTo={replyTo}
-        onClearReply={clearReply}
-        onConsumeReply={consumeReply}
-        onRestoreReply={restoreReply}
-        onEditLast={lastUserMessage && !lastUserMessageCites && !bot.busy && !lastUserMessage.id.startsWith("optimistic-")
-          ? () => setEditingId(lastUserMessage.id)
-          : undefined}
-      />
-      )}
-      {canWrite !== false && (
-      <CitationSelectionToolbar
-        key={`${bot.id}:${bot.threadId}`}
-        viewportRef={scrollRef}
-        onAdd={(citation) => appendDraftAttachments(`bot:${citation.source.ownerId}:${citation.source.threadId}`, [citation])}
-      />
-      )}
-      </div>
-      </div>
-      </GlassScrollFrame>
-
-    </main>
-    <WorkPanel botId={bot.id} botName={bot.name} />
+          <div
+            ref={composerDockRef}
+            className="pointer-events-none absolute inset-x-0 bottom-0 z-[2]"
+          >
+            <div data-composer-column className="mx-auto w-full max-w-[672px]">
+              <LiveCallBar bot={bot} />
+              {!takeoverOpen && <NeedsYouRow botId={bot.id} name={bot.name} />}
+              <PaneErrorLine panes={[chatPane(bot.threadId)]} look="tray" />
+              <RunningOnLine messages={thread} threadId={bot.threadId} />
+              <MacScreenTile
+                threadId={bot.threadId}
+                name={bot.name}
+                busy={Boolean(bot.busy)}
+                onStop={() =>
+                  dispatch({ type: "interrupt", botId: bot.id, threadId: bot.threadId })
+                }
+              />
+              {dockedQuestion && canWrite !== false && (
+                <div
+                  data-docked-question={dockedQuestion.id}
+                  className="pointer-events-auto px-5 pb-2"
+                >
+                  <QuestionCard threadId={bot.threadId} message={dockedQuestion} />
+                </div>
+              )}
+              {canWrite === false ? (
+                <p
+                  className="pointer-events-auto mx-5 mb-4 rounded-2xl border border-hairline/60 bg-raised px-4 py-3 text-[13px] text-ink-secondary"
+                  data-testid="cloud-guest-composer"
+                >
+                  {t("chat.cloudGuest.notYours")}
+                </p>
+              ) : (
+                <Composer
+                  key={bot.threadId}
+                  bot={profile}
+                  replyTo={replyTo}
+                  onClearReply={clearReply}
+                  onConsumeReply={consumeReply}
+                  onRestoreReply={restoreReply}
+                  onEditLast={
+                    lastUserMessage &&
+                    !lastUserMessageCites &&
+                    !bot.busy &&
+                    !lastUserMessage.id.startsWith("optimistic-")
+                      ? () => setEditingId(lastUserMessage.id)
+                      : undefined
+                  }
+                />
+              )}
+              {canWrite !== false && (
+                <CitationSelectionToolbar
+                  key={`${bot.id}:${bot.threadId}`}
+                  viewportRef={scrollRef}
+                  onAdd={(citation) =>
+                    appendDraftAttachments(
+                      `bot:${citation.source.ownerId}:${citation.source.threadId}`,
+                      [citation],
+                    )
+                  }
+                />
+              )}
+            </div>
+          </div>
+        </GlassScrollFrame>
+      </main>
+      <WorkPanel botId={bot.id} botName={bot.name} />
     </>
   );
 }
@@ -1277,16 +1827,28 @@ export function ChatView({ bot: profile }: { bot: Bot }) {
 function NeedsYouRow({ botId, name }: { botId: string; name: string }) {
   const dispatch = useStoreDispatch();
   const control = useStoreSelector((state) => state.computerControl[botId]);
-  const computerShown = useStoreSelector((state) => state.settingsOpen && state.botSettingsExpandAccordion && tabForSection(state.botSettingsSection) === "computer");
+  const computerShown = useStoreSelector(
+    (state) =>
+      state.settingsOpen &&
+      state.botSettingsExpandAccordion &&
+      tabForSection(state.botSettingsSection) === "computer",
+  );
   if (!control?.helpReason || control.held || computerShown) return null;
   return (
-    <div className="pointer-events-auto mx-auto mb-2 flex w-full max-w-[min(48rem,calc(100%-2.5rem))] items-center gap-2 rounded-xl bg-card px-3 py-2 text-[13px] text-ink ring-[0.5px] ring-ink/10" data-needs-you>
+    <div
+      className="pointer-events-auto mx-auto mb-2 flex w-full max-w-[min(48rem,calc(100%-2.5rem))] items-center gap-2 rounded-xl bg-card px-3 py-2 text-[13px] text-ink ring-[0.5px] ring-ink/10"
+      data-needs-you
+    >
       <Hand size={14} aria-hidden="true" className="shrink-0 text-ink-secondary" />
       <span className="min-w-0 flex-1 truncate">
-        <b className="font-medium">{t("computer.needsYou", { name })}</b> <span className="text-ink-secondary">{control.helpReason}</span>
+        <b className="font-medium">{t("computer.needsYou", { name })}</b>{" "}
+        <span className="text-ink-secondary">{control.helpReason}</span>
       </span>
-      <button type="button" onClick={() => dispatch({ type: "toggleSettings", open: true, section: "access" })}
-        className="shrink-0 rounded-full bg-control px-3 py-1 text-[12.5px] font-medium hover:bg-control-hover">
+      <button
+        type="button"
+        onClick={() => dispatch({ type: "toggleSettings", open: true, section: "access" })}
+        className="shrink-0 rounded-full bg-control px-3 py-1 text-[12.5px] font-medium hover:bg-control-hover"
+      >
         {t("computer.needsYouOpen")}
       </button>
     </div>

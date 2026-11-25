@@ -1,7 +1,12 @@
 import { describe, expect, it } from "vitest";
 import { foldSidebarToRail, type SidePanels } from "./sidebar-fold";
 
-const closed: SidePanels = { botOpen: true, settingsOpen: false, cloudTaskOpen: false, workPanelOpen: false };
+const closed: SidePanels = {
+  botOpen: true,
+  settingsOpen: false,
+  cloudTaskOpen: false,
+  workPanelOpen: false,
+};
 
 describe("sidebar room beside a panel", () => {
   it("leaves the sidebar alone without a panel, at either side of the width boundary", () => {
@@ -16,7 +21,9 @@ describe("sidebar room beside a panel", () => {
   });
 
   it("ignores a work panel when no dog is selected", () => {
-    expect(foldSidebarToRail({ ...closed, botOpen: false, workPanelOpen: true }, false)).toBe(false);
+    expect(foldSidebarToRail({ ...closed, botOpen: false, workPanelOpen: true }, false)).toBe(
+      false,
+    );
   });
 
   it("makes room for a room's work panel while leaving dog settings rules unchanged", () => {

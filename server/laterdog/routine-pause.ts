@@ -32,20 +32,39 @@ export interface RoutinePauseDeps {
     update(id: string, patch: { enabled: boolean }): unknown;
   };
   bot(botId: string): { id: string; name: string; color: DogColor; threadId: string } | null;
-  appendMessage(threadId: string, message: { role: "bot"; kind: "options"; text: string; from: { botId: string; name: string; color: DogColor }; card: OptionCardData }): { id: string };
+  appendMessage(
+    threadId: string,
+    message: {
+      role: "bot";
+      kind: "options";
+      text: string;
+      from: { botId: string; name: string; color: DogColor };
+      card: OptionCardData;
+    },
+  ): { id: string };
 }
 
-export function routinePauseCard(names: readonly string[], routineIds: readonly string[], unread: number): OptionCardData {
+export function routinePauseCard(
+  names: readonly string[],
+  routineIds: readonly string[],
+  unread: number,
+): OptionCardData {
   const named = names.length === 1 ? `“${names[0]}”` : `${names.length} routines`;
   return {
     title: "I paused my routines while you were away",
     subtitle: `${unread} results in a row went unread, so I stopped ${named} to avoid spending for nothing. Want them running again?`,
-    options: [ROUTINE_PAUSE_ANSWERS.resume, ROUTINE_PAUSE_ANSWERS.keepRunning, ROUTINE_PAUSE_ANSWERS.keepPaused],
+    options: [
+      ROUTINE_PAUSE_ANSWERS.resume,
+      ROUTINE_PAUSE_ANSWERS.keepRunning,
+      ROUTINE_PAUSE_ANSWERS.keepPaused,
+    ],
     routinePause: { version: 1, routineIds: [...routineIds] },
   };
 }
 
-export function routinePauseOutcome(answer: string): NonNullable<RoutinePauseCardData["outcome"]> | null {
+export function routinePauseOutcome(
+  answer: string,
+): NonNullable<RoutinePauseCardData["outcome"]> | null {
   if (answer === ROUTINE_PAUSE_ANSWERS.resume) return "resumed";
   if (answer === ROUTINE_PAUSE_ANSWERS.keepRunning) return "keep-running";
   if (answer === ROUTINE_PAUSE_ANSWERS.keepPaused) return "kept";
@@ -65,7 +84,9 @@ export class RoutinePauses {
     if (!existsSync(file)) return {};
     try {
       const parsed: unknown = JSON.parse(readFileSync(file, "utf8"));
-      return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed as Record<string, WatchedDog> : {};
+      return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+        ? (parsed as Record<string, WatchedDog>)
+        : {};
     } catch {
       return {};
     }
@@ -92,9 +113,16 @@ export class RoutinePauses {
     const dog = this.dogs[botId] ?? { unread: 0, since: null };
     const next: WatchedDog = { ...dog, unread: dog.unread + 1, since: dog.since ?? now };
     this.dogs[botId] = next;
-    const due = !next.keepRunning && next.unread >= UNREAD_RESULTS_BEFORE_PAUSE && now - next.since! >= AWAY_BEFORE_PAUSE_MS;
+    const due =
+      !next.keepRunning &&
+      next.unread >= UNREAD_RESULTS_BEFORE_PAUSE &&
+      now - next.since! >= AWAY_BEFORE_PAUSE_MS;
     const bot = due ? this.deps.bot(botId) : null;
-    const running = bot ? this.deps.routines.listRoutines().filter((routine) => routine.botId === botId && routine.enabled) : [];
+    const running = bot
+      ? this.deps.routines
+          .listRoutines()
+          .filter((routine) => routine.botId === botId && routine.enabled)
+      : [];
     if (!bot || running.length === 0) {
       this.save();
       return null;
@@ -102,7 +130,11 @@ export class RoutinePauses {
     for (const routine of running) this.deps.routines.update(routine.id, { enabled: false });
     this.dogs[botId] = { ...next, unread: 0, since: null };
     this.save();
-    const card = routinePauseCard(running.map((routine) => routine.name), running.map((routine) => routine.id), next.unread);
+    const card = routinePauseCard(
+      running.map((routine) => routine.name),
+      running.map((routine) => routine.id),
+      next.unread,
+    );
     const message = this.deps.appendMessage(bot.threadId, {
       role: "bot",
       kind: "options",
@@ -120,11 +152,17 @@ export class RoutinePauses {
     if (outcome !== "kept") {
       const paused = new Set(pause.routineIds);
       for (const routine of this.deps.routines.listRoutines()) {
-        if (routine.botId === botId && paused.has(routine.id) && !routine.enabled) this.deps.routines.update(routine.id, { enabled: true });
+        if (routine.botId === botId && paused.has(routine.id) && !routine.enabled)
+          this.deps.routines.update(routine.id, { enabled: true });
       }
     }
     const dog = this.dogs[botId] ?? { unread: 0, since: null };
-    this.dogs[botId] = { ...dog, unread: 0, since: null, ...(outcome === "keep-running" ? { keepRunning: true } : {}) };
+    this.dogs[botId] = {
+      ...dog,
+      unread: 0,
+      since: null,
+      ...(outcome === "keep-running" ? { keepRunning: true } : {}),
+    };
     this.save();
     return { ...card, routinePause: { ...pause, outcome } };
   }

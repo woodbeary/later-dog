@@ -1,6 +1,13 @@
 import type { NativeRun } from "../../shared/native-runs";
 import type { WorkState } from "../../shared/work-state";
-import { ageWords, helpersLine, liveStep, sideJobsWords, stepPhrase, type LiveStep } from "../../shared/step-words";
+import {
+  ageWords,
+  helpersLine,
+  liveStep,
+  sideJobsWords,
+  stepPhrase,
+  type LiveStep,
+} from "../../shared/step-words";
 import { t } from "./i18n";
 import { longStepSubject } from "../../shared/step-subject";
 import { outcomeKindOfTool } from "../../shared/step-words";
@@ -29,37 +36,65 @@ const WAITING: Partial<Record<WorkState["kind"], LocaleKey>> = {
 };
 
 export function sideJobCount(run: NativeRun | undefined, work: WorkState | undefined): number {
-  const actors = run?.actors.filter(actor => actor.kind !== "parent" && actor.background && actor.state === "running").length ?? 0;
-  return actors + (work?.kind === "running" ? work.computerBackground ?? 0 : 0);
+  const actors =
+    run?.actors.filter(
+      (actor) => actor.kind !== "parent" && actor.background && actor.state === "running",
+    ).length ?? 0;
+  return actors + (work?.kind === "running" ? (work.computerBackground ?? 0) : 0);
 }
 
 function heldBySideJobs(run: NativeRun | undefined, sideJobs: number): boolean {
   if (!run || sideJobs <= 0 || run.currentActivity) return false;
-  return run.actors.find(actor => actor.kind === "parent")?.state === "waiting";
+  return run.actors.find((actor) => actor.kind === "parent")?.state === "waiting";
 }
 
-export function workLine({ working, run, step, work, sideJobs, now, turnKey, kindStartedAt }: WorkLineInput): WorkLine | null {
+export function workLine({
+  working,
+  run,
+  step,
+  work,
+  sideJobs,
+  now,
+  turnKey,
+  kindStartedAt,
+}: WorkLineInput): WorkLine | null {
   if (work?.kind === "waiting-on-dog") {
-    const helpers = helpersLine(work.dogs.map(dog => ({ name: dog.name, state: dog.ask ? "needsYou" as const : "running" as const })));
+    const helpers = helpersLine(
+      work.dogs.map((dog) => ({
+        name: dog.name,
+        state: dog.ask ? ("needsYou" as const) : ("running" as const),
+      })),
+    );
     if (!helpers) return null;
-    const asking = work.dogs.find(dog => dog.ask);
-    return helpers.needsYou && asking ? { kind: "helpers", text: helpers.text, needsYou: true, open: asking.id } : { kind: "helpers", text: helpers.text, needsYou: false };
+    const asking = work.dogs.find((dog) => dog.ask);
+    return helpers.needsYou && asking
+      ? { kind: "helpers", text: helpers.text, needsYou: true, open: asking.id }
+      : { kind: "helpers", text: helpers.text, needsYou: false };
   }
   const waiting = work ? WAITING[work.kind] : undefined;
   if (waiting) return { kind: "waiting", text: t(waiting) };
   if (!working || (work && work.kind !== "running")) return null;
-  if (heldBySideJobs(run, sideJobs)) return { kind: "waiting", text: t("workLine.sideJobs", { sideJobs: sideJobsWords(sideJobs) }) };
+  if (heldBySideJobs(run, sideJobs))
+    return { kind: "waiting", text: t("workLine.sideJobs", { sideJobs: sideJobsWords(sideJobs) }) };
   const current = liveStep(run) ?? step ?? null;
   const stableKey = turnKey ?? run?.id ?? current?.id ?? "";
-  if (!current) return { kind: "step", stepId: stableKey, phrase: stepPhrase("working", stableKey), age: null, sideJobs: sideJobs > 0 ? sideJobsWords(sideJobs) : null };
-  const subject = now - current.startedAt >= 60_000 && run?.currentActivity
-    ? longStepSubject(outcomeKindOfTool(run.currentActivity.label), run.currentActivity.subject)
-    : null;
+  if (!current)
+    return {
+      kind: "step",
+      stepId: stableKey,
+      phrase: stepPhrase("working", stableKey),
+      age: null,
+      sideJobs: sideJobs > 0 ? sideJobsWords(sideJobs) : null,
+    };
+  const subject =
+    now - current.startedAt >= 60_000 && run?.currentActivity
+      ? longStepSubject(outcomeKindOfTool(run.currentActivity.label), run.currentActivity.subject)
+      : null;
   return {
     kind: "step",
     stepId: current.id,
     phrase: subject ?? stepPhrase(current.kind, stableKey),
-    age: ageWords(now - (subject ? current.startedAt : kindStartedAt ?? current.startedAt)),
+    age: ageWords(now - (subject ? current.startedAt : (kindStartedAt ?? current.startedAt))),
     sideJobs: sideJobs > 0 ? sideJobsWords(sideJobs) : null,
   };
 }

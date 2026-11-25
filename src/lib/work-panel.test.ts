@@ -2,22 +2,45 @@
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
-import { backWorkPanel, closeWorkPanel, openWorkPanel, useWorkPanel, useWorkPanelOpen, workPanelCanGoBack, workPanelOpener, type WorkPanelPage } from "./work-panel";
+import {
+  backWorkPanel,
+  closeWorkPanel,
+  openWorkPanel,
+  useWorkPanel,
+  useWorkPanelOpen,
+  workPanelCanGoBack,
+  workPanelOpener,
+  type WorkPanelPage,
+} from "./work-panel";
 
 let root: Root;
 let host: HTMLDivElement;
 let seen: Array<WorkPanelPage | null> = [];
 let openSeen: boolean[] = [];
-function OpenProbe() { openSeen.push(useWorkPanelOpen()); return null; }
-function Probe() { seen.push(useWorkPanel()); return null; }
+function OpenProbe() {
+  openSeen.push(useWorkPanelOpen());
+  return null;
+}
+function Probe() {
+  seen.push(useWorkPanel());
+  return null;
+}
 
 beforeEach(() => {
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
-  host = document.createElement("div"); document.body.append(host); root = createRoot(host);
+  host = document.createElement("div");
+  document.body.append(host);
+  root = createRoot(host);
   seen = [];
   openSeen = [];
 });
-afterEach(() => { act(() => { closeWorkPanel(); root.unmount(); }); host.remove(); });
+afterEach(() => {
+  act(() => {
+    closeWorkPanel();
+    root.unmount();
+  });
+  host.remove();
+});
 
 it("opens a page, shows it to every reader, and closes to nothing", async () => {
   await act(async () => root.render(createElement(Probe)));
@@ -31,7 +54,9 @@ it("opens a page, shows it to every reader, and closes to nothing", async () => 
 it("pushes a step or a side job over its chat's page and goes back to it, but a new chat starts fresh", async () => {
   await act(async () => root.render(createElement(Probe)));
   await act(async () => openWorkPanel({ kind: "work", threadId: "t1" }));
-  await act(async () => openWorkPanel({ kind: "step", threadId: "t1", runId: "r1", activityId: "a1" }));
+  await act(async () =>
+    openWorkPanel({ kind: "step", threadId: "t1", runId: "r1", activityId: "a1" }),
+  );
   expect(workPanelCanGoBack()).toBe(true);
   await act(async () => backWorkPanel());
   expect(seen.at(-1)).toEqual({ kind: "work", threadId: "t1" });
@@ -46,7 +71,9 @@ it("tells layout readers only when the panel opens or closes", async () => {
   expect(openSeen).toEqual([false]);
   await act(async () => openWorkPanel({ kind: "work", threadId: "t1" }));
   expect(openSeen).toEqual([false, true]);
-  await act(async () => openWorkPanel({ kind: "step", threadId: "t1", runId: "r1", activityId: "a1" }));
+  await act(async () =>
+    openWorkPanel({ kind: "step", threadId: "t1", runId: "r1", activityId: "a1" }),
+  );
   await act(async () => backWorkPanel());
   await act(async () => openWorkPanel({ kind: "side-jobs", threadId: "t1" }));
   expect(openSeen).toEqual([false, true]);
@@ -63,7 +90,9 @@ it("keeps the opening control through panel navigation and close, then remembers
     await act(async () => openWorkPanel({ kind: "work", threadId: "t1" }));
     expect(workPanelOpener()).toBe(first);
     second.focus();
-    await act(async () => openWorkPanel({ kind: "step", threadId: "t1", runId: "r1", activityId: "a1" }));
+    await act(async () =>
+      openWorkPanel({ kind: "step", threadId: "t1", runId: "r1", activityId: "a1" }),
+    );
     await act(async () => backWorkPanel());
     expect(workPanelOpener()).toBe(first);
     await act(async () => closeWorkPanel());

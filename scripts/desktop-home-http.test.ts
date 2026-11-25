@@ -25,7 +25,9 @@ describe("fixture HTTP timing", () => {
   it("waits for the complete body and records headers separately", async () => {
     let release = () => {};
     let sent = () => {};
-    const headers = new Promise<void>((done) => { sent = done; });
+    const headers = new Promise<void>((done) => {
+      sent = done;
+    });
     const url = await serve((_request, response) => {
       response.writeHead(200, { "content-type": "application/json" });
       response.write('{"text":"');
@@ -33,7 +35,10 @@ describe("fixture HTTP timing", () => {
       sent();
     });
     let completed = false;
-    const pending = measureFixtureResponse(`${url}/api/health`).then((value) => { completed = true; return value; });
+    const pending = measureFixtureResponse(`${url}/api/health`).then((value) => {
+      completed = true;
+      return value;
+    });
     await headers;
     await new Promise<void>((done) => setImmediate(done));
     expect(completed).toBe(false);
@@ -46,12 +51,20 @@ describe("fixture HTTP timing", () => {
   });
 
   it("fails a run when a fixture endpoint does not succeed", async () => {
-    const url = await serve((_request, response) => { response.writeHead(503); response.end("unavailable"); });
-    await expect(measureFixtureResponse(`${url}/api/health`)).rejects.toThrow("fixture HTTP /api/health: 503");
+    const url = await serve((_request, response) => {
+      response.writeHead(503);
+      response.end("unavailable");
+    });
+    await expect(measureFixtureResponse(`${url}/api/health`)).rejects.toThrow(
+      "fixture HTTP /api/health: 503",
+    );
   });
 
   it("does not follow a redirect out of the measured endpoint", async () => {
-    const url = await serve((_request, response) => { response.writeHead(302, { location: "/api/other" }); response.end(); });
+    const url = await serve((_request, response) => {
+      response.writeHead(302, { location: "/api/other" });
+      response.end();
+    });
     await expect(measureFixtureResponse(`${url}/api/health`)).rejects.toThrow();
   });
 

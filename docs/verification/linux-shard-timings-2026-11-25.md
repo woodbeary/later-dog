@@ -43,15 +43,15 @@ the old 133-entry table and the candidate table. Each assignment is scored by
 summing the same real per-file durations; no unmeasured time is invented.
 
 | Shard | Old assignment, median measured seconds | Candidate assignment, median measured seconds |
-| --- | ---: | ---: |
-| 1 | 538.294 | 694.190 |
-| 2 | 617.179 | 677.082 |
-| 3 | 496.225 | 698.235 |
-| 4 | 1,133.899 | 675.041 |
-| 5 | 384.465 | 683.957 |
-| 6 | 667.281 | 686.139 |
-| 7 | 1,170.634 | 677.682 |
-| 8 | 476.384 | 692.037 |
+| ----- | --------------------------------------: | --------------------------------------------: |
+| 1     |                                 538.294 |                                       694.190 |
+| 2     |                                 617.179 |                                       677.082 |
+| 3     |                                 496.225 |                                       698.235 |
+| 4     |                               1,133.899 |                                       675.041 |
+| 5     |                                 384.465 |                                       683.957 |
+| 6     |                                 667.281 |                                       686.139 |
+| 7     |                               1,170.634 |                                       677.682 |
+| 8     |                                 476.384 |                                       692.037 |
 
 These are sums of Vitest file durations, fitted and evaluated on the same two
 runs. They exclude queueing, runner setup, transform/collection overhead and
@@ -60,10 +60,10 @@ speed improvement.
 
 The actual main-suite step times for shards 1 through 8 were:
 
-| Run | Actual hosted seconds, shards 1 through 8 | Failed shards |
-| --- | --- | --- |
-| 45549371601 | 662, 614, 864, 996, 477, 463, 1139, 538 | 1, 7 |
-| 45546603106 | 836, 795, 803, 999, 526, 473, 1255, 508 | 1, 7, 8 |
+| Run         | Actual hosted seconds, shards 1 through 8 | Failed shards |
+| ----------- | ----------------------------------------- | ------------- |
+| 45549371601 | 662, 614, 864, 996, 477, 463, 1139, 538   | 1, 7          |
+| 45546603106 | 836, 795, 803, 999, 526, 473, 1255, 508   | 1, 7, 8       |
 
 The checked-in weights remain unchanged. Both source runs failed, and failures
 can distort durations. Refresh from complete passing Linux runs once those

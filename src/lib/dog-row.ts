@@ -26,16 +26,30 @@ function liveStepOf(bot: Bot): LiveStep | null {
   return ((task ?? bot) as Stepped).step ?? null;
 }
 
-export function dogRowFacts(bot: Bot, pendingQueued: AppState["pendingQueued"], run?: NativeRun): DogRowFacts {
+export function dogRowFacts(
+  bot: Bot,
+  pendingQueued: AppState["pendingQueued"],
+  run?: NativeRun,
+): DogRowFacts {
   const current = currentTaskBot(bot);
-  const waiting = current.activity === "waiting-on-you" || visibleMessages(current).some((message) => message.needsYou?.status === "waiting");
+  const waiting =
+    current.activity === "waiting-on-you" ||
+    visibleMessages(current).some((message) => message.needsYou?.status === "waiting");
   const working = !waiting && (Boolean(current.busy) || current.activity === "working");
   const teammates = !waiting && !working && Boolean(current.waitingForTeammates);
   const queued = Boolean(pendingQueued[bot.threadId]?.length);
   const unread = botShowsUnread(bot);
   const live = liveStep(run) ?? liveStepOf(bot);
   const turnKey = `${bot.threadId}:${current.turnStartedAt ?? run?.id ?? "live"}`;
-  const line = workLine({ working, run, step: live, work: current.work, sideJobs: 0, now: Date.now(), turnKey });
+  const line = workLine({
+    working,
+    run,
+    step: live,
+    work: current.work,
+    sideJobs: 0,
+    now: Date.now(),
+    turnKey,
+  });
   const helpers = waiting ? null : helpersLine(current.waitingOn ?? []);
   return {
     waiting,
@@ -44,7 +58,13 @@ export function dogRowFacts(bot: Bot, pendingQueued: AppState["pendingQueued"], 
     queued,
     unread,
     work: waiting ? null : sidebarWorkLine(current.work),
-    step: working ? (line?.kind === "step" ? line.phrase : live ? stepPhrase(live.kind, turnKey) : stepPhrase("working", turnKey)) : null,
+    step: working
+      ? line?.kind === "step"
+        ? line.phrase
+        : live
+          ? stepPhrase(live.kind, turnKey)
+          : stepPhrase("working", turnKey)
+      : null,
     helperAsk: helpers?.needsYou ? helpers.text : null,
     dot: waiting || helpers?.needsYou ? "waiting" : unread ? "unread" : null,
   };

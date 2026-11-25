@@ -21,9 +21,12 @@ beforeAll(async () => {
   home = mkdtempSync(join(tmpdir(), "laterdog-legacy-test-"));
   const legacy = join(home, ".laterdog-v0");
   mkdirSync(legacy, { recursive: true });
-  writeFileSync(join(legacy, "config.json"), JSON.stringify({
-    instances: { fixture: { driver: "migration-test-shadow" } },
-  }));
+  writeFileSync(
+    join(legacy, "config.json"),
+    JSON.stringify({
+      instances: { fixture: { driver: "migration-test-shadow" } },
+    }),
+  );
   writeFileSync(join(legacy, "keep-me.txt"), "carried over");
   child = spawn(process.execPath, [join(SERVER_DIR, "index.ts")], {
     cwd: ROOT,

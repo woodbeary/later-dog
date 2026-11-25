@@ -11,15 +11,22 @@ const full = () => ({
   tempRoots: defaultTempRoots(),
   home: "/home/dog",
   ownerFull: true,
-  repositoryRoot: (cwd: string) => cwd.startsWith(workspace + "/repo") ? workspace + "/repo" : null,
+  repositoryRoot: (cwd: string) =>
+    cwd.startsWith(workspace + "/repo") ? workspace + "/repo" : null,
   git: { currentBranch: async () => "main", defaultBranch: async () => "main" },
 });
 const settle = async (request: OwnerAutoPermission) => {
   const calls: string[] = [];
   const result = await settleOwnerAutoPermission(request, {
     guard: full(),
-    allow: async () => { calls.push("allow"); return "allowed-once"; },
-    deny: async (message) => { calls.push(message); return "rejected"; },
+    allow: async () => {
+      calls.push("allow");
+      return "allowed-once";
+    },
+    deny: async (message) => {
+      calls.push(message);
+      return "rejected";
+    },
     hold: () => calls.push("card"),
     holdAlways: (hit) => calls.push("card: " + hit.id),
     refusedAlways: () => {},
@@ -55,7 +62,10 @@ describe("a Full access owner's dog never delegates routine permissions back to 
     `d=build; out=$(d=/etc; printf ok); rm -rf "$d"`,
     'd="build /"; rm -rf "out=$d"',
   ])("resolves safe cleanup without a card: %s", async (command) => {
-    expect(await settle({ tool: "Bash", command })).toEqual({ result: "approved", calls: ["allow"] });
+    expect(await settle({ tool: "Bash", command })).toEqual({
+      result: "approved",
+      calls: ["allow"],
+    });
     expect(alwaysAskHook({ tool_name: "Bash", tool_input: { command } }, full)).toBeNull();
   });
 
@@ -63,17 +73,17 @@ describe("a Full access owner's dog never delegates routine permissions back to 
     'rm -rf "$d"',
     'd=$(cat target); rm -rf "$d"',
     'd=build; read d; rm -rf "$d"',
-    'rm -rf /srv/dogs/other',
-    'rm -rf /',
-    'rm -rf /data',
-    'rm -rf /home/dog',
-    'rm -rf /srv/dogs/ada/work',
-    'rm -rf /srv/dogs/ada/work/repo',
-    'rm -rf /tmp',
+    "rm -rf /srv/dogs/other",
+    "rm -rf /",
+    "rm -rf /data",
+    "rm -rf /home/dog",
+    "rm -rf /srv/dogs/ada/work",
+    "rm -rf /srv/dogs/ada/work/repo",
+    "rm -rf /tmp",
     'rm -rf "$HOME_NOT_A_PATH"',
     "d='build /'; rm -rf $d",
     'git --work-tree="$unknown" clean -fdx',
-    'cat targets | xargs rm -rf',
+    "cat targets | xargs rm -rf",
     'TMPDIR=/home/dog; d=$(mktemp -d); rm -rf "$d"',
     'TMPDIR=/etc; d=$(mktemp -d); rm -rf "$d"',
     'read TMPDIR; d=$(mktemp -d); rm -rf "$d"',
@@ -99,7 +109,10 @@ describe("a Full access owner's dog never delegates routine permissions back to 
   });
 
   it("refuses an unresolved Mac cleanup without a card", async () => {
-    const result = await settle({ tool: "mcp__agents__shared_computer", input: { action: "run_command", command: 'rm -rf "$unknown"' } });
+    const result = await settle({
+      tool: "mcp__agents__shared_computer",
+      input: { action: "run_command", command: 'rm -rf "$unknown"' },
+    });
     expect(result.result).toBe("refused");
     expect(result.calls).toHaveLength(1);
     expect(result.calls[0]).toContain("Write the literal path");
@@ -113,7 +126,10 @@ describe("a Full access owner's dog never delegates routine permissions back to 
 
   it.each([
     { tool: "Bash", command: "gcloud iam service-accounts keys create k.json --iam-account=a" },
-    { tool: "mcp__computer__open_url", input: { url: "https://console.cloud.google.com/apis/credentials" } },
+    {
+      tool: "mcp__computer__open_url",
+      input: { url: "https://console.cloud.google.com/apis/credentials" },
+    },
     { tool: "mcp__composio__GMAIL_DELETE_MESSAGE", input: { id: "example" } },
     { tool: "mcp__composio__GOOGLEDRIVE_UPDATE_FILE_PERMISSION", input: { id: "example" } },
   ])("lets routine account work proceed: $tool", async (request) => {
@@ -126,8 +142,12 @@ describe("a Full access owner's dog never delegates routine permissions back to 
     expect(settled.result).toBe("refused");
     expect(settled.calls).toHaveLength(1);
     expect(settled.calls[0]).toMatch(/checks/);
-    expect(alwaysAskHook({ tool_name: "Bash", tool_input: { command: "git push --no-verify origin main" } }, full))
-      .toMatchObject({ permissionDecision: "deny" });
+    expect(
+      alwaysAskHook(
+        { tool_name: "Bash", tool_input: { command: "git push --no-verify origin main" } },
+        full,
+      ),
+    ).toMatchObject({ permissionDecision: "deny" });
   });
 
   it.each([
@@ -141,13 +161,16 @@ describe("a Full access owner's dog never delegates routine permissions back to 
     expect(connectorAlwaysAsks(["GMAIL_DELETE_MESSAGE"], true)).toBeNull();
     expect(connectorAlwaysAsks(["GMAIL_SEND_EMAIL"], true)?.id).toBe("sends-for-you");
     expect(connectorAlwaysAsks(["STRIPE_CREATE_PAYMENT_INTENT"], true)?.id).toBe("pays");
-    expect(connectorAlwaysAsks(["GMAIL_DELETE_MESSAGE", "GMAIL_SEND_EMAIL"], true)?.id).toBe("sends-for-you");
+    expect(connectorAlwaysAsks(["GMAIL_DELETE_MESSAGE", "GMAIL_SEND_EMAIL"], true)?.id).toBe(
+      "sends-for-you",
+    );
   });
 
   it("preserves existing approval rules without owner Full authority", () => {
     const guard = (): OwnerGuardContext => ({ ...full(), ownerFull: false });
-    expect(alwaysAskHook({ tool_name: "Bash", tool_input: { command: 'rm -rf "$d"' } }, guard))
-      .toMatchObject({ permissionDecision: "ask" });
+    expect(
+      alwaysAskHook({ tool_name: "Bash", tool_input: { command: 'rm -rf "$d"' } }, guard),
+    ).toMatchObject({ permissionDecision: "ask" });
     expect(alwaysAsks({ tool: "mcp__mail__send_email" }, guard)?.id).toBe("sends-for-you");
   });
 });

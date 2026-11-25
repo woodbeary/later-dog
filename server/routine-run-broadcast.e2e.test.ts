@@ -21,16 +21,26 @@ let home: string;
 let log = "";
 let token = "";
 
-const api = async (method: string, path: string, body?: unknown): Promise<{ status: number; body: any }> => {
+const api = async (
+  method: string,
+  path: string,
+  body?: unknown,
+): Promise<{ status: number; body: any }> => {
   const res = await fetch(`${BASE}${path}`, {
     method,
-    headers: { authorization: `Bearer ${token}`, ...(body === undefined ? {} : { "content-type": "application/json" }) },
+    headers: {
+      authorization: `Bearer ${token}`,
+      ...(body === undefined ? {} : { "content-type": "application/json" }),
+    },
     body: body === undefined ? undefined : JSON.stringify(body),
   });
   return { status: res.status, body: await res.json().catch(() => ({})) };
 };
 
-async function waitFor<T>(read: () => Promise<T | null | undefined> | T | null | undefined, ms = 30_000): Promise<T | null> {
+async function waitFor<T>(
+  read: () => Promise<T | null | undefined> | T | null | undefined,
+  ms = 30_000,
+): Promise<T | null> {
   const deadline = Date.now() + ms;
   for (;;) {
     const value = await read();
@@ -46,7 +56,10 @@ function openStream() {
   const state: { hello: any } = { hello: null };
   void (async () => {
     try {
-      const res = await fetch(`${BASE}/api/events`, { headers: { authorization: `Bearer ${token}` }, signal: controller.signal });
+      const res = await fetch(`${BASE}/api/events`, {
+        headers: { authorization: `Bearer ${token}` },
+        signal: controller.signal,
+      });
       const reader = res.body!.getReader();
       const decoder = new TextDecoder();
       let buffer = "";
@@ -68,7 +81,11 @@ function openStream() {
       }
     } catch {}
   })();
-  return { frames, ready: () => waitFor(() => state.hello, 10_000), close: () => controller.abort() };
+  return {
+    frames,
+    ready: () => waitFor(() => state.hello, 10_000),
+    close: () => controller.abort(),
+  };
 }
 
 posixOnly("a routine run's task on the event stream", () => {
@@ -77,19 +94,31 @@ posixOnly("a routine run's task on the event stream", () => {
     home = mkdtempSync(join(tmpdir(), "laterdog-routine-broadcast-"));
     const data = join(home, ".laterdog");
     mkdirSync(data, { recursive: true });
-    writeFileSync(join(data, "config.json"), JSON.stringify({
-      signIn: { admins: [OWNER], members: [] },
-      instances: { grok: { driver: "grokAgent", config: { cli: FAKE_CLI, fullAuto: false } } },
-    }));
-    const registry = new SessionRegistry({ file: join(data, "sessions.json"), emailScopes: () => ["admin", "client"] });
-    token = registry.issue({ label: "Owner's laptop", email: OWNER, scopes: ["admin", "client"] }).token;
+    writeFileSync(
+      join(data, "config.json"),
+      JSON.stringify({
+        signIn: { admins: [OWNER], members: [] },
+        instances: { grok: { driver: "grokAgent", config: { cli: FAKE_CLI, fullAuto: false } } },
+      }),
+    );
+    const registry = new SessionRegistry({
+      file: join(data, "sessions.json"),
+      emailScopes: () => ["admin", "client"],
+    });
+    token = registry.issue({
+      label: "Owner's laptop",
+      email: OWNER,
+      scopes: ["admin", "client"],
+    }).token;
     registry.close();
 
     child = spawn(process.execPath, [join(SERVER_DIR, "index.ts")], {
       cwd: join(SERVER_DIR, ".."),
       env: {
         ...(process.env.PATH ? { PATH: process.env.PATH } : {}),
-        HOME: home, LATERDOG_SERVER_PORT: String(PORT), LATERDOG_WEBHOOK_PORT: String(PORT + 1),
+        HOME: home,
+        LATERDOG_SERVER_PORT: String(PORT),
+        LATERDOG_WEBHOOK_PORT: String(PORT + 1),
       },
       stdio: ["ignore", "pipe", "pipe"],
     });
@@ -115,8 +144,21 @@ posixOnly("a routine run's task on the event stream", () => {
     const created = await api("POST", "/api/bots", { name: "Report Otter" });
     expect(created.status, JSON.stringify(created.body)).toBe(201);
     const bot = created.body.bot as { id: string; threadId: string };
-    expect((await api("PATCH", `/api/bots/${bot.id}`, { modelSelection: { instanceId: "grok", model: "fake-model" } })).status).toBe(200);
-    expect((await api("POST", `/api/bots/${bot.id}/messages`, { text: "Summarise the week", threadId: bot.threadId })).status).toBe(202);
+    expect(
+      (
+        await api("PATCH", `/api/bots/${bot.id}`, {
+          modelSelection: { instanceId: "grok", model: "fake-model" },
+        })
+      ).status,
+    ).toBe(200);
+    expect(
+      (
+        await api("POST", `/api/bots/${bot.id}/messages`, {
+          text: "Summarise the week",
+          threadId: bot.threadId,
+        })
+      ).status,
+    ).toBe(202);
     const replied = await waitFor(async () => {
       const { body } = await api("GET", `/api/threads/${bot.threadId}/messages`);
       return (body.messages ?? []).some((m: any) => m.role === "bot" && m.text) ? true : null;
@@ -124,7 +166,10 @@ posixOnly("a routine run's task on the event stream", () => {
     expect(replied, log.slice(-2_000)).toBe(true);
 
     const routine = await api("POST", "/api/routines", {
-      name: "Hourly report", botId: bot.id, prompt: "Write the report.", enabled: false,
+      name: "Hourly report",
+      botId: bot.id,
+      prompt: "Write the report.",
+      enabled: false,
       schedule: { type: "interval", everyMinutes: 60, anchorAt: Date.now() + 86_400_000 },
     });
     expect(routine.status, JSON.stringify(routine.body)).toBe(201);
@@ -132,12 +177,20 @@ posixOnly("a routine run's task on the event stream", () => {
     const stream = openStream();
     try {
       expect(await stream.ready()).not.toBeNull();
-      expect((await api("POST", `/api/routines/${routine.body.routine.id}/run`)).status).toBeLessThan(300);
+      expect(
+        (await api("POST", `/api/routines/${routine.body.routine.id}/run`)).status,
+      ).toBeLessThan(300);
 
-      const finished = await waitFor(() => stream.frames.find((frame) =>
-        frame.kind === "routine.run" && ["completed", "failed"].includes(frame.run?.status)));
+      const finished = await waitFor(() =>
+        stream.frames.find(
+          (frame) =>
+            frame.kind === "routine.run" && ["completed", "failed"].includes(frame.run?.status),
+        ),
+      );
       expect(finished, log.slice(-2_000)).not.toBeNull();
-      const botFrames = stream.frames.filter((frame) => frame.kind === "bot" && frame.bot?.id === bot.id);
+      const botFrames = stream.frames.filter(
+        (frame) => frame.kind === "bot" && frame.bot?.id === bot.id,
+      );
       expect(botFrames.length).toBeGreaterThan(0);
       expect(botFrames.every((frame) => (frame.bot.tasks ?? []).length === 1)).toBe(true);
       expect(botFrames.filter((frame) => "messages" in frame.bot)).toEqual([]);

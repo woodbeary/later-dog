@@ -6,13 +6,30 @@ import { SidebarPopoverMenu, type SidebarMenuItem } from "./SidebarPopoverMenu";
 
 let root: Root;
 let host: HTMLDivElement;
-const item = (key: string, extra: Partial<SidebarMenuItem> = {}): SidebarMenuItem => ({ key, label: key, onSelect: () => {}, ...extra });
+const item = (key: string, extra: Partial<SidebarMenuItem> = {}): SidebarMenuItem => ({
+  key,
+  label: key,
+  onSelect: () => {},
+  ...extra,
+});
 const menu = () => document.querySelector<HTMLElement>('[role="menu"][aria-label="Menu"]')!;
 const trigger = () => host.querySelector<HTMLButtonElement>('button[aria-haspopup="menu"]')!;
-const row = (name: string) => [...document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')].find((button) => button.textContent === name)!;
+const row = (name: string) =>
+  [...document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')].find(
+    (button) => button.textContent === name,
+  )!;
 
 async function draw(items: SidebarMenuItem[], portal = false) {
-  await act(async () => root.render(createElement(SidebarPopoverMenu, { items, portal, ariaLabel: "Menu", renderTrigger: () => "Menu" })));
+  await act(async () =>
+    root.render(
+      createElement(SidebarPopoverMenu, {
+        items,
+        portal,
+        ariaLabel: "Menu",
+        renderTrigger: () => "Menu",
+      }),
+    ),
+  );
 }
 
 async function click(element: HTMLElement) {
@@ -23,7 +40,12 @@ async function key(element: HTMLElement, value: string) {
   const event = new KeyboardEvent("keydown", { key: value, bubbles: true, cancelable: true });
   await act(async () => {
     element.dispatchEvent(event);
-    if (!event.defaultPrevented && (value === "Enter" || value === " ") && element instanceof HTMLButtonElement) element.click();
+    if (
+      !event.defaultPrevented &&
+      (value === "Enter" || value === " ") &&
+      element instanceof HTMLButtonElement
+    )
+      element.click();
     await vi.runOnlyPendingTimersAsync();
   });
   return event;
@@ -47,16 +69,24 @@ afterEach(async () => {
 });
 
 describe("keyboard use of a popover menu", () => {
-  it.each([false, true])("returns focus to its trigger after Escape with portal=%s", async (portal) => {
-    await draw([item("First"), item("Last")], portal);
-    await click(trigger());
-    row("Last").focus();
-    await key(row("Last"), "Escape");
-    expect(document.querySelector('[role="menu"]')).toBeNull();
-    expect(document.activeElement).toBe(trigger());
-  });
+  it.each([false, true])(
+    "returns focus to its trigger after Escape with portal=%s",
+    async (portal) => {
+      await draw([item("First"), item("Last")], portal);
+      await click(trigger());
+      row("Last").focus();
+      await key(row("Last"), "Escape");
+      expect(document.querySelector('[role="menu"]')).toBeNull();
+      expect(document.activeElement).toBe(trigger());
+    },
+  );
 
-  it.each([["ArrowDown", "First"], ["ArrowUp", "Last"], ["Enter", "First"], [" ", "First"]])("opens from %s on its %s enabled row", async (pressed, focused) => {
+  it.each([
+    ["ArrowDown", "First"],
+    ["ArrowUp", "Last"],
+    ["Enter", "First"],
+    [" ", "First"],
+  ])("opens from %s on its %s enabled row", async (pressed, focused) => {
     await draw([item("Disabled", { disabled: true }), item("First"), item("Last")]);
     trigger().focus();
     const event = await key(trigger(), pressed!);
@@ -72,7 +102,12 @@ describe("keyboard use of a popover menu", () => {
     const leaked = vi.fn();
     window.addEventListener("keydown", leaked);
     try {
-      for (const [pressed, focused] of [["ArrowDown", "Middle"], ["End", "Last"], ["Home", "First"], ["ArrowUp", "Last"]]) {
+      for (const [pressed, focused] of [
+        ["ArrowDown", "Middle"],
+        ["End", "Last"],
+        ["Home", "First"],
+        ["ArrowUp", "Last"],
+      ]) {
         const event = await key(document.activeElement as HTMLElement, pressed!);
         expect(document.activeElement).toBe(row(focused!));
         expect(event.defaultPrevented).toBe(true);
@@ -92,7 +127,9 @@ describe("keyboard use of a popover menu", () => {
   });
 
   it("keeps submenu navigation in its own rows", async () => {
-    const submenu = createElement("div", null,
+    const submenu = createElement(
+      "div",
+      null,
       createElement("button", { role: "menuitem" }, "Inside first"),
       createElement("button", { role: "menuitem", disabled: true }, "Inside disabled"),
       createElement("button", { role: "menuitem" }, "Inside last"),
@@ -105,7 +142,11 @@ describe("keyboard use of a popover menu", () => {
     const leaked = vi.fn();
     window.addEventListener("keydown", leaked);
     try {
-      for (const [pressed, focused] of [["End", "Inside last"], ["Home", "Inside first"], ["ArrowUp", "Inside last"]]) {
+      for (const [pressed, focused] of [
+        ["End", "Inside last"],
+        ["Home", "Inside first"],
+        ["ArrowUp", "Inside last"],
+      ]) {
         await key(document.activeElement as HTMLElement, pressed!);
         expect(document.activeElement).toBe(row(focused!));
       }
@@ -120,7 +161,9 @@ describe("keyboard use of a popover menu", () => {
   });
 
   it("closes a submenu first on Escape and keeps the parent open", async () => {
-    await draw([item("Support", { submenu: createElement("button", { role: "menuitem" }, "Inside") })]);
+    await draw([
+      item("Support", { submenu: createElement("button", { role: "menuitem" }, "Inside") }),
+    ]);
     await click(trigger());
     row("Support").focus();
     await key(row("Support"), "ArrowRight");
@@ -130,4 +173,3 @@ describe("keyboard use of a popover menu", () => {
     expect(menu()).toBeTruthy();
   });
 });
-

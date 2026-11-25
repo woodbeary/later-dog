@@ -10,7 +10,6 @@ import { removeTempDir, waitForExit } from "./testing/cleanup.ts";
 import { leasePortBlock } from "./testing/ports.ts";
 import { openSse } from "./testing/sse.ts";
 
-
 const SERVER_DIR = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(SERVER_DIR, "..");
 const FAKE_CLAUDE = join(SERVER_DIR, "testing", "fake-claude-cli.ts");
@@ -73,7 +72,8 @@ const cleanup = async (groupIds: Array<string | undefined>, botIds: string[]) =>
   for (const groupId of groupIds) {
     if (groupId) await api("POST", `/api/groups/${groupId}/interrupt`, {}).catch(() => undefined);
   }
-  for (const botId of botIds) await api("POST", `/api/bots/${botId}/interrupt`, {}).catch(() => undefined);
+  for (const botId of botIds)
+    await api("POST", `/api/bots/${botId}/interrupt`, {}).catch(() => undefined);
   for (const groupId of groupIds) {
     if (groupId) await api("DELETE", `/api/groups/${groupId}`).catch(() => undefined);
   }
@@ -87,28 +87,31 @@ beforeAll(async () => {
   const data = join(home, ".laterdog");
   mkdirSync(data, { recursive: true });
   dumpFile = join(home, "quick-dump.json");
-  writeFileSync(join(data, "config.json"), JSON.stringify({
-    instances: {
-      quick: {
-        driver: "claudeAgent",
-        displayName: "Quick fixture",
-        environment: { FAKE_CLAUDE_MODE: "happy", FAKE_CLAUDE_DUMP: dumpFile },
-        config: { cli: FAKE_CLAUDE },
+  writeFileSync(
+    join(data, "config.json"),
+    JSON.stringify({
+      instances: {
+        quick: {
+          driver: "claudeAgent",
+          displayName: "Quick fixture",
+          environment: { FAKE_CLAUDE_MODE: "happy", FAKE_CLAUDE_DUMP: dumpFile },
+          config: { cli: FAKE_CLAUDE },
+        },
+        stuck: {
+          driver: "claudeAgent",
+          displayName: "Stuck fixture",
+          environment: { FAKE_CLAUDE_MODE: "hang" },
+          config: { cli: FAKE_CLAUDE },
+        },
+        curious: {
+          driver: "grokAgent",
+          displayName: "Curious fixture",
+          environment: { FAKE_ACP_MODE: "question" },
+          config: { cli: FAKE_ACP, fullAuto: true },
+        },
       },
-      stuck: {
-        driver: "claudeAgent",
-        displayName: "Stuck fixture",
-        environment: { FAKE_CLAUDE_MODE: "hang" },
-        config: { cli: FAKE_CLAUDE },
-      },
-      curious: {
-        driver: "grokAgent",
-        displayName: "Curious fixture",
-        environment: { FAKE_ACP_MODE: "question" },
-        config: { cli: FAKE_ACP, fullAuto: true },
-      },
-    },
-  }));
+    }),
+  );
   const port = await leasePortBlock([0, 1]);
   base = `http://127.0.0.1:${port}`;
   child = spawn(process.execPath, [join(SERVER_DIR, "index.ts")], {
@@ -136,7 +139,6 @@ beforeAll(async () => {
     if (Date.now() >= deadline) throw new Error(`server never became healthy: ${stderr}`);
     await new Promise((resolve) => setTimeout(resolve, 100));
   }
-
 }, 45_000);
 
 afterAll(async () => {
@@ -149,7 +151,9 @@ describe("an ordinary turn still announces itself", () => {
     const bot = await createBot("Herald", "quick");
     const stream = await openSse(`${base}/api/events`);
     try {
-      expect((await api("POST", `/api/bots/${bot.id}/messages`, { text: "how did it go?" })).status).toBe(202);
+      expect(
+        (await api("POST", `/api/bots/${bot.id}/messages`, { text: "how did it go?" })).status,
+      ).toBe(202);
 
       const frame = await stream.until(
         (candidate) =>
@@ -158,10 +162,15 @@ describe("an ordinary turn still announces itself", () => {
           candidate.notification?.botId === bot.id,
         20_000,
       );
-      expect(frame.notification).toMatchObject({ threadId: bot.threadId, title: "Herald finished" });
+      expect(frame.notification).toMatchObject({
+        threadId: bot.threadId,
+        title: "Herald finished",
+      });
       expect(frame.notification.body).toContain("hello from fake claude");
       expect(frame.notification.groupId).toBeUndefined();
-      await expect.poll(async () => (await botState(bot.id))?.unread, { timeout: 20_000 }).toBe(true);
+      await expect
+        .poll(async () => (await botState(bot.id))?.unread, { timeout: 20_000 })
+        .toBe(true);
     } finally {
       stream.close();
       await cleanup([], [bot.id]);
@@ -174,21 +183,31 @@ describe("a room turn belongs to the room", () => {
     const bot = await createBot("Roomie", "quick");
     let roomId: string | undefined;
     try {
-      const room = (await api("POST", "/api/groups", {
-        name: "Standup",
-        memberIds: [bot.id],
-        setup: { bulletin: "", defaultResponder: { kind: "everyone" } },
-      })).body.group;
+      const room = (
+        await api("POST", "/api/groups", {
+          name: "Standup",
+          memberIds: [bot.id],
+          setup: { bulletin: "", defaultResponder: { kind: "everyone" } },
+        })
+      ).body.group;
       roomId = room.id;
-      expect((await api("POST", `/api/groups/${room.id}/messages`, { text: "status?" })).status).toBe(202);
+      expect(
+        (await api("POST", `/api/groups/${room.id}/messages`, { text: "status?" })).status,
+      ).toBe(202);
 
-      await expect.poll(async () => {
-        const current = await groupState(room.id);
-        const replied = (current?.messages ?? []).some(
-          (message: { kind: string; role?: string }) => message.kind === "text" && message.role === "bot",
-        );
-        return { working: current?.working, replied };
-      }, { timeout: 20_000 }).toEqual({ working: false, replied: true });
+      await expect
+        .poll(
+          async () => {
+            const current = await groupState(room.id);
+            const replied = (current?.messages ?? []).some(
+              (message: { kind: string; role?: string }) =>
+                message.kind === "text" && message.role === "bot",
+            );
+            return { working: current?.working, replied };
+          },
+          { timeout: 20_000 },
+        )
+        .toEqual({ working: false, replied: true });
 
       expect((await groupState(room.id))?.unread).toBe(true);
       expect((await botState(bot.id))?.unread).toBeFalsy();
@@ -202,14 +221,20 @@ describe("a room turn belongs to the room", () => {
     let roomId: string | undefined;
     let requestId: string | undefined;
     try {
-      const room = (await api("POST", "/api/groups", {
-        name: "War Room",
-        memberIds: [bot.id],
-        setup: { bulletin: "", defaultResponder: { kind: "everyone" } },
-      })).body.group;
+      const room = (
+        await api("POST", "/api/groups", {
+          name: "War Room",
+          memberIds: [bot.id],
+          setup: { bulletin: "", defaultResponder: { kind: "everyone" } },
+        })
+      ).body.group;
       roomId = room.id;
-      expect((await api("POST", `/api/groups/${room.id}/messages`, { text: "take the wheel" })).status).toBe(202);
-      await expect.poll(async () => (await groupState(room.id))?.busyBotId, { timeout: 20_000 }).toBe(bot.id);
+      expect(
+        (await api("POST", `/api/groups/${room.id}/messages`, { text: "take the wheel" })).status,
+      ).toBe(202);
+      await expect
+        .poll(async () => (await groupState(room.id))?.busyBotId, { timeout: 20_000 })
+        .toBe(bot.id);
 
       const stream = await openSse(`${base}/api/events`);
       try {
@@ -243,7 +268,11 @@ describe("a room turn belongs to the room", () => {
           "DELETE",
           `/api/internal/computer-control?botId=${bot.id}`,
           { requestId },
-          await capability(bot.id, roomId ? (await groupState(roomId)).threadId : bot.threadId, "computer"),
+          await capability(
+            bot.id,
+            roomId ? (await groupState(roomId)).threadId : bot.threadId,
+            "computer",
+          ),
         ).catch(() => undefined);
       }
       await cleanup([roomId], [bot.id]);
@@ -265,27 +294,52 @@ describe("a dog asking another dog", () => {
         await capability(asker.id, asker.threadId),
       );
       expect(asked.status, JSON.stringify(asked.body)).toBe(200);
-      const exchange = async () => (await state(40)).groups.find(
-        (group: { dm?: boolean; memberIds: string[] }) =>
-          group.dm === true && group.memberIds.includes(asker.id) && group.memberIds.includes(peer.id),
-      );
-      await expect.poll(async () => ((await exchange())?.messages ?? []).some(
-        (message: { from?: { botId?: string }; text?: string }) =>
-          message.from?.botId === peer.id && (message.text ?? "").includes("hello from fake claude"),
-      ), { timeout: 20_000 }).toBe(true);
+      const exchange = async () =>
+        (await state(40)).groups.find(
+          (group: { dm?: boolean; memberIds: string[] }) =>
+            group.dm === true &&
+            group.memberIds.includes(asker.id) &&
+            group.memberIds.includes(peer.id),
+        );
+      await expect
+        .poll(
+          async () =>
+            ((await exchange())?.messages ?? []).some(
+              (message: { from?: { botId?: string }; text?: string }) =>
+                message.from?.botId === peer.id &&
+                (message.text ?? "").includes("hello from fake claude"),
+            ),
+          { timeout: 20_000 },
+        )
+        .toBe(true);
       const channel = await exchange();
       channelId = channel.id;
-      expect(channel.messages.some((message: { from?: { botId?: string }; text?: string }) =>
-        message.from?.botId === asker.id && message.text === "Ink, can you take the deploy?")).toBe(true);
+      expect(
+        channel.messages.some(
+          (message: { from?: { botId?: string }; text?: string }) =>
+            message.from?.botId === asker.id && message.text === "Ink, can you take the deploy?",
+        ),
+      ).toBe(true);
       expect(channel.unread).toBeFalsy();
       expect((await botState(peer.id))?.unread).toBeFalsy();
 
-      expect((await api("PATCH", `/api/bots/${peer.id}`, { name: "Ink observed" })).status).toBe(200);
-      await stream.until(
-        (candidate) => candidate.kind === "bot" && candidate.bot?.id === peer.id && candidate.bot?.name === "Ink observed",
+      expect((await api("PATCH", `/api/bots/${peer.id}`, { name: "Ink observed" })).status).toBe(
+        200,
       );
-      expect(stream.frames.filter((candidate) => candidate.kind === "notify" &&
-        (candidate.notification?.botId === peer.id || candidate.notification?.threadId === channel.threadId))).toEqual([]);
+      await stream.until(
+        (candidate) =>
+          candidate.kind === "bot" &&
+          candidate.bot?.id === peer.id &&
+          candidate.bot?.name === "Ink observed",
+      );
+      expect(
+        stream.frames.filter(
+          (candidate) =>
+            candidate.kind === "notify" &&
+            (candidate.notification?.botId === peer.id ||
+              candidate.notification?.threadId === channel.threadId),
+        ),
+      ).toEqual([]);
     } finally {
       stream.close();
       await cleanup([channelId], [asker.id, peer.id]);
@@ -315,14 +369,20 @@ describe("a dog asking another dog", () => {
         title: "Sage has a question",
       });
       const card = (await botState(peer.id))?.messages.findLast(
-        (message: { kind: string; card?: { title?: string } }) => message.kind === "options" && Boolean(message.card),
+        (message: { kind: string; card?: { title?: string } }) =>
+          message.kind === "options" && Boolean(message.card),
       );
-      expect(card?.card).toMatchObject({ title: "Your dog has a question", subtitle: "Which color?" });
+      expect(card?.card).toMatchObject({
+        title: "Your dog has a question",
+        subtitle: "Which color?",
+      });
 
       const current = await state(0);
       channelId = current.groups.find(
         (group: { dm?: boolean; memberIds: string[] }) =>
-          group.dm === true && group.memberIds.includes(asker.id) && group.memberIds.includes(peer.id),
+          group.dm === true &&
+          group.memberIds.includes(asker.id) &&
+          group.memberIds.includes(peer.id),
       )?.id;
     } finally {
       stream.close();

@@ -4,7 +4,8 @@ import { dirname } from "node:path";
 import { pathToFileURL } from "node:url";
 import { goldenExportSchema, redactThread } from "./redact-thread.ts";
 
-const USAGE = "usage: node --experimental-strip-types evals/golden/redact/redact-cli.ts --input export.json --out evals/golden/scenarios/<id>.json";
+const USAGE =
+  "usage: node --experimental-strip-types evals/golden/redact/redact-cli.ts --input export.json --out evals/golden/scenarios/<id>.json";
 
 function argument(args: string[], name: string): string | undefined {
   const index = args.indexOf(name);

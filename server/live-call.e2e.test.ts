@@ -29,7 +29,11 @@ posixOnly("Live call e2e", () => {
   let live: FakeOpenAiLive;
 
   const serverOutput = () => output;
-  const post = async (path: string, body: unknown, headers: Record<string, string> = {}): Promise<{ status: number; body: unknown }> => {
+  const post = async (
+    path: string,
+    body: unknown,
+    headers: Record<string, string> = {},
+  ): Promise<{ status: number; body: unknown }> => {
     const res = await fetch(`${base}${path}`, {
       method: "POST",
       headers: { "content-type": "application/json", ...headers },
@@ -37,7 +41,10 @@ posixOnly("Live call e2e", () => {
     });
     return { status: res.status, body: await res.json() };
   };
-  const createBot = async (instanceId = "claude", model = "claude-fake"): Promise<{ id: string; threadId: string }> => {
+  const createBot = async (
+    instanceId = "claude",
+    model = "claude-fake",
+  ): Promise<{ id: string; threadId: string }> => {
     const { bot } = (await post("/api/bots", {})).body as { bot: { id: string; threadId: string } };
     const res = await fetch(`${base}/api/bots/${bot.id}`, {
       method: "PATCH",
@@ -48,7 +55,9 @@ posixOnly("Live call e2e", () => {
     return bot;
   };
   const isBusy = async (botId: string): Promise<boolean> => {
-    const { bots } = (await (await fetch(`${base}/api/bots`)).json()) as { bots: Array<{ id: string; busy?: boolean }> };
+    const { bots } = (await (await fetch(`${base}/api/bots`)).json()) as {
+      bots: Array<{ id: string; busy?: boolean }>;
+    };
     return bots.find((bot) => bot.id === botId)?.busy === true;
   };
   const spokenTurnsLogged = () => serverOutput().split("text=(spoken)").length - 1;
@@ -78,9 +87,21 @@ posixOnly("Live call e2e", () => {
             environment: { FAKE_CLAUDE_REPLIES: JSON.stringify(["Six times seven is 42."]) },
             config: { cli: FAKE_CLAUDE, permissionMode: "bypassPermissions" },
           },
-          acp: { driver: "grokAgent", environment: { FAKE_ACP_MODE: "hang" }, config: { cli: FAKE_ACP, fullAuto: true } },
-          asks: { driver: "grokAgent", environment: { FAKE_ACP_MODE: "permission" }, config: { cli: FAKE_ACP, fullAuto: false } },
-          questions: { driver: "grokAgent", environment: { FAKE_ACP_MODE: "question" }, config: { cli: FAKE_ACP, fullAuto: false } },
+          acp: {
+            driver: "grokAgent",
+            environment: { FAKE_ACP_MODE: "hang" },
+            config: { cli: FAKE_ACP, fullAuto: true },
+          },
+          asks: {
+            driver: "grokAgent",
+            environment: { FAKE_ACP_MODE: "permission" },
+            config: { cli: FAKE_ACP, fullAuto: false },
+          },
+          questions: {
+            driver: "grokAgent",
+            environment: { FAKE_ACP_MODE: "question" },
+            config: { cli: FAKE_ACP, fullAuto: false },
+          },
         },
       }),
     );
@@ -107,7 +128,8 @@ posixOnly("Live call e2e", () => {
         if ((await fetch(`${base}/api/health`)).ok) break;
       } catch {}
       if (Date.now() > deadline) throw new Error(`server never came up. output:\n${output}`);
-      if (child.exitCode !== null) throw new Error(`server exited ${child.exitCode}. output:\n${output}`);
+      if (child.exitCode !== null)
+        throw new Error(`server exited ${child.exitCode}. output:\n${output}`);
       await new Promise((r) => setTimeout(r, 150));
     }
   }, 120_000);
@@ -125,26 +147,62 @@ posixOnly("Live call e2e", () => {
       const { started, call, session } = await startCall(bot.id);
       expect(JSON.stringify(started.body)).not.toContain(LIVE_KEY);
       expect(call).toMatchObject({ botId: bot.id, threadId: bot.threadId, client: "desktop" });
-      expect(session.body).toMatchObject({ session: { client: { data_channel: { allowed_client_events: ["session.close"] } } } });
-      expect((session.body.session as { instructions: string }).instructions).toContain("runs in later.dog on the user's own computer.");
+      expect(session.body).toMatchObject({
+        session: { client: { data_channel: { allowed_client_events: ["session.close"] } } },
+      });
+      expect((session.body.session as { instructions: string }).instructions).toContain(
+        "runs in later.dog on the user's own computer.",
+      );
       await live.waitForAttach(session.id);
-      await sse.until((frame) => frame.kind === "live.call" && frame.call?.callId === call.callId && frame.call?.status === "live");
+      await sse.until(
+        (frame) =>
+          frame.kind === "live.call" &&
+          frame.call?.callId === call.callId &&
+          frame.call?.status === "live",
+      );
 
-      live.emit(session.id, { type: "session.input_transcript.delta", delta: "what is six times seven", start_ms: 100, end_ms: 900 });
-      live.emit(session.id, { type: "session.delegation.created", offset_ms: 950, delegation: { id: "del_1", target: "client", type: "delegation" } });
+      live.emit(session.id, {
+        type: "session.input_transcript.delta",
+        delta: "what is six times seven",
+        start_ms: 100,
+        end_ms: 900,
+      });
+      live.emit(session.id, {
+        type: "session.delegation.created",
+        offset_ms: 950,
+        delegation: { id: "del_1", target: "client", type: "delegation" },
+      });
 
       const asked = await sse.until(
-        (frame) => frame.kind === "message" && frame.threadId === bot.threadId && frame.message?.role === "user" && frame.message?.via === "call",
+        (frame) =>
+          frame.kind === "message" &&
+          frame.threadId === bot.threadId &&
+          frame.message?.role === "user" &&
+          frame.message?.via === "call",
       );
       expect(asked.message.text).toBe("what is six times seven");
-      const spoken = await live.waitForCommand(session.id, (c) => c.type === "session.commentary.append" && String(c.content).includes("42"), 20_000);
+      const spoken = await live.waitForCommand(
+        session.id,
+        (c) => c.type === "session.commentary.append" && String(c.content).includes("42"),
+        20_000,
+      );
       expect(spoken.delegation_id).toBe("del_1");
 
       const ended = await post("/api/live/call/end", { callId: call.callId });
-      expect(ended).toMatchObject({ status: 200, body: { call: { status: "ended", endReason: "hung-up" } } });
+      expect(ended).toMatchObject({
+        status: 200,
+        body: { call: { status: "ended", endReason: "hung-up" } },
+      });
       expect(session.commands.some((c) => c.type === "session.close")).toBe(true);
-      await sse.until((frame) => frame.kind === "live.call" && frame.call?.callId === call.callId && frame.call?.status === "ended");
-      await expect.poll(serverOutput, { timeout: 5_000 }).toMatch(/\[live\] call ended bot=\S+ .*client=desktop .*end=hung-up/);
+      await sse.until(
+        (frame) =>
+          frame.kind === "live.call" &&
+          frame.call?.callId === call.callId &&
+          frame.call?.status === "ended",
+      );
+      await expect
+        .poll(serverOutput, { timeout: 5_000 })
+        .toMatch(/\[live\] call ended bot=\S+ .*client=desktop .*end=hung-up/);
       expect(serverOutput()).toContain("text=(spoken)");
       expect(serverOutput()).not.toMatch(/six times seven/i);
       expect(serverOutput()).not.toContain(LIVE_KEY);
@@ -161,11 +219,17 @@ posixOnly("Live call e2e", () => {
 
     const second = await post("/api/live/session", { botId: bot.id, sdp: SDP, client: "ios" });
     expect(second.status).toBe(409);
-    expect((second.body as { activeCall: LiveCallState }).activeCall).toMatchObject({ callId: call.callId, client: "web" });
+    expect((second.body as { activeCall: LiveCallState }).activeCall).toMatchObject({
+      callId: call.callId,
+      client: "web",
+    });
     expect(live.sessions.at(-1)).toBe(session);
 
     const ended = await post("/api/live/call/end", { callId: call.callId });
-    expect(ended).toMatchObject({ status: 200, body: { call: { callId: call.callId, status: "ended" } } });
+    expect(ended).toMatchObject({
+      status: 200,
+      body: { call: { callId: call.callId, status: "ended" } },
+    });
   }, 40_000);
 
   it("queues a spoken request while the bot is busy, and the drained turn still keeps the words out of the log", async () => {
@@ -177,17 +241,33 @@ posixOnly("Live call e2e", () => {
       const { call, session } = await startCall(bot.id);
       await live.waitForAttach(session.id);
 
-      live.emit(session.id, { type: "session.input_transcript.delta", delta: "spell the word banana", start_ms: 100, end_ms: 900 });
-      live.emit(session.id, { type: "session.delegation.created", offset_ms: 950, delegation: { id: "del_q", target: "client", type: "delegation" } });
+      live.emit(session.id, {
+        type: "session.input_transcript.delta",
+        delta: "spell the word banana",
+        start_ms: 100,
+        end_ms: 900,
+      });
+      live.emit(session.id, {
+        type: "session.delegation.created",
+        offset_ms: 950,
+        delegation: { id: "del_q", target: "client", type: "delegation" },
+      });
       await sse.until(
-        (frame) => frame.kind === "bot.queued" && (frame.queues?.[bot.threadId] ?? []).some((item: { text?: string }) => item.text === "spell the word banana"),
+        (frame) =>
+          frame.kind === "bot.queued" &&
+          (frame.queues?.[bot.threadId] ?? []).some(
+            (item: { text?: string }) => item.text === "spell the word banana",
+          ),
         20_000,
       );
 
       const logged = spokenTurnsLogged();
       await post(`/api/bots/${bot.id}/interrupt`, {});
       const drained = await sse.until(
-        (frame) => frame.kind === "message" && frame.threadId === bot.threadId && frame.message?.text === "spell the word banana",
+        (frame) =>
+          frame.kind === "message" &&
+          frame.threadId === bot.threadId &&
+          frame.message?.text === "spell the word banana",
         20_000,
       );
       expect(drained.message).toMatchObject({ role: "user", via: "call" });
@@ -196,7 +276,9 @@ posixOnly("Live call e2e", () => {
 
       await post(`/api/bots/${bot.id}/interrupt`, {});
       await expect.poll(() => isBusy(bot.id), { timeout: 20_000 }).toBe(false);
-      expect(await post("/api/live/call/end", { callId: call.callId })).toMatchObject({ status: 200 });
+      expect(await post("/api/live/call/end", { callId: call.callId })).toMatchObject({
+        status: 200,
+      });
     } finally {
       sse.close();
     }
@@ -208,16 +290,40 @@ posixOnly("Live call e2e", () => {
     try {
       const { call, session } = await startCall(bot.id);
       await live.waitForAttach(session.id);
-      live.emit(session.id, { type: "session.input_transcript.delta", delta: "check the build", start_ms: 100, end_ms: 900 });
-      live.emit(session.id, { type: "session.delegation.created", offset_ms: 950, delegation: { id: "del_a", target: "client", type: "delegation" } });
+      live.emit(session.id, {
+        type: "session.input_transcript.delta",
+        delta: "check the build",
+        start_ms: 100,
+        end_ms: 900,
+      });
+      live.emit(session.id, {
+        type: "session.delegation.created",
+        offset_ms: 950,
+        delegation: { id: "del_a", target: "client", type: "delegation" },
+      });
       await expect.poll(() => isBusy(bot.id), { timeout: 20_000 }).toBe(true);
-      live.emit(session.id, { type: "session.input_transcript.delta", delta: "and the tests", start_ms: 2_000, end_ms: 2_800 });
-      live.emit(session.id, { type: "session.delegation.created", offset_ms: 2_850, delegation: { id: "del_b", target: "client", type: "delegation" } });
+      live.emit(session.id, {
+        type: "session.input_transcript.delta",
+        delta: "and the tests",
+        start_ms: 2_000,
+        end_ms: 2_800,
+      });
+      live.emit(session.id, {
+        type: "session.delegation.created",
+        offset_ms: 2_850,
+        delegation: { id: "del_b", target: "client", type: "delegation" },
+      });
       const waiting = await sse.until(
-        (frame) => frame.kind === "bot.queued" && (frame.queues?.[bot.threadId] ?? []).some((item: { text?: string }) => item.text === "and the tests"),
+        (frame) =>
+          frame.kind === "bot.queued" &&
+          (frame.queues?.[bot.threadId] ?? []).some(
+            (item: { text?: string }) => item.text === "and the tests",
+          ),
         20_000,
       );
-      const { queueId } = (waiting.queues[bot.threadId] as Array<{ queueId: string; text: string }>).find((item) => item.text === "and the tests")!;
+      const { queueId } = (
+        waiting.queues[bot.threadId] as Array<{ queueId: string; text: string }>
+      ).find((item) => item.text === "and the tests")!;
 
       const cancelled = await fetch(`${base}/api/bots/${bot.id}/queue/${queueId}`, {
         method: "DELETE",
@@ -226,8 +332,14 @@ posixOnly("Live call e2e", () => {
       });
       expect(cancelled.status).toBe(200);
       await post(`/api/bots/${bot.id}/interrupt`, {});
-      await live.waitForCommand(session.id, (c) => c.type === "session.commentary.append" && c.content === LIVE_COPY.noAnswer, 20_000);
-      expect(await post("/api/live/call/end", { callId: call.callId })).toMatchObject({ status: 200 });
+      await live.waitForCommand(
+        session.id,
+        (c) => c.type === "session.commentary.append" && c.content === LIVE_COPY.noAnswer,
+        20_000,
+      );
+      expect(await post("/api/live/call/end", { callId: call.callId })).toMatchObject({
+        status: 200,
+      });
     } finally {
       sse.close();
     }
@@ -239,25 +351,51 @@ posixOnly("Live call e2e", () => {
     const sse = await openSse(`${base}/api/events`);
     try {
       const before = live.sessions.length;
-      const started = await post("/api/live/session", { botId: bot.id, sdp: SDP, client: "ios" }, phone);
+      const started = await post(
+        "/api/live/session",
+        { botId: bot.id, sdp: SDP, client: "ios" },
+        phone,
+      );
       expect(started.status).toBe(201);
       const { call } = started.body as { call: LiveCallState };
       const session = live.sessions[before];
       await live.waitForAttach(session.id);
-      await sse.until((frame) => frame.kind === "live.call" && frame.call?.callId === call.callId && frame.call?.status === "live");
+      await sse.until(
+        (frame) =>
+          frame.kind === "live.call" &&
+          frame.call?.callId === call.callId &&
+          frame.call?.status === "live",
+      );
 
-      expect(await post("/api/live/device-revoked", {}, { ...phone, "x-laterdog-companion-device": "phone-other" }))
-        .toEqual({ status: 200, body: { call: null } });
-      expect(await post("/api/live/device-revoked", {}, phone)).toMatchObject({ status: 200, body: { call: { callId: call.callId } } });
+      expect(
+        await post(
+          "/api/live/device-revoked",
+          {},
+          { ...phone, "x-laterdog-companion-device": "phone-other" },
+        ),
+      ).toEqual({ status: 200, body: { call: null } });
+      expect(await post("/api/live/device-revoked", {}, phone)).toMatchObject({
+        status: 200,
+        body: { call: { callId: call.callId } },
+      });
       await live.waitForCommand(session.id, (c) => c.type === "session.close", 5_000);
       const ended = await sse.until(
-        (frame) => frame.kind === "live.call" && frame.call?.callId === call.callId && frame.call?.status === "ended",
+        (frame) =>
+          frame.kind === "live.call" &&
+          frame.call?.callId === call.callId &&
+          frame.call?.status === "ended",
         10_000,
       );
       expect(ended.call).toMatchObject({ endReason: "signed-out", error: LIVE_COPY.unpaired });
-      const again = await post("/api/live/session", { botId: bot.id, sdp: SDP, client: "ios" }, phone);
+      const again = await post(
+        "/api/live/session",
+        { botId: bot.id, sdp: SDP, client: "ios" },
+        phone,
+      );
       expect(again.status).toBe(401);
-      await expect.poll(serverOutput, { timeout: 5_000 }).toMatch(/\[live\] call ended .*client=ios .*end=signed-out/);
+      await expect
+        .poll(serverOutput, { timeout: 5_000 })
+        .toMatch(/\[live\] call ended .*client=ios .*end=signed-out/);
     } finally {
       sse.close();
     }
@@ -266,23 +404,62 @@ posixOnly("Live call e2e", () => {
   it("never reads back a line a worker relayed into the call's chat as the caller's own", async () => {
     const bot = await createBot();
     const { call, session } = await startCall(bot.id);
-    type Line = { id: string; role: string; text?: string; relayed?: boolean; requestMessageId?: string; turnTerminal?: boolean };
-    const lines = async () => ((await (await fetch(`${base}/api/threads/${bot.threadId}/messages`)).json()) as { messages: Line[] }).messages;
+    type Line = {
+      id: string;
+      role: string;
+      text?: string;
+      relayed?: boolean;
+      requestMessageId?: string;
+      turnTerminal?: boolean;
+    };
+    const lines = async () =>
+      (
+        (await (await fetch(`${base}/api/threads/${bot.threadId}/messages`)).json()) as {
+          messages: Line[];
+        }
+      ).messages;
     try {
       await live.waitForAttach(session.id);
-      const page = (await (await fetch(`${base}/api/threads/${bot.threadId}/messages?limit=0`)).json()) as { activeLeafId?: string | null };
+      const page = (await (
+        await fetch(`${base}/api/threads/${bot.threadId}/messages?limit=0`)
+      ).json()) as { activeLeafId?: string | null };
       const relayed = await post(`/api/bots/${bot.id}/messages/guarded`, {
-        threadId: bot.threadId, sendId: "slackjob_live_call_relay_1", text: "relayed from Slack",
-        expectedActiveLeafId: page.activeLeafId ?? null, onBehalfOf: { email: "ada@example.test", name: "Ada" },
+        threadId: bot.threadId,
+        sendId: "slackjob_live_call_relay_1",
+        text: "relayed from Slack",
+        expectedActiveLeafId: page.activeLeafId ?? null,
+        onBehalfOf: { email: "ada@example.test", name: "Ada" },
       });
       expect(relayed.status, JSON.stringify(relayed.body)).toBe(202);
       const relayedId = (relayed.body as { message: { id: string } }).message.id;
-      await expect.poll(async () => (await lines()).some((m) => m.requestMessageId === relayedId && m.turnTerminal), { timeout: 20_000 }).toBe(true);
+      await expect
+        .poll(
+          async () =>
+            (await lines()).some((m) => m.requestMessageId === relayedId && m.turnTerminal),
+          { timeout: 20_000 },
+        )
+        .toBe(true);
       await expect.poll(() => isBusy(bot.id), { timeout: 20_000 }).toBe(false);
 
-      expect((await post(`/api/bots/${bot.id}/messages`, { threadId: bot.threadId, text: "typed on the desktop", sendId: "typed-live-call-e2e-0001" })).status).toBe(202);
-      await live.waitForCommand(session.id, (c) => c.type === "session.commentary.append" && String(c.content).includes("typed on the desktop"), 20_000);
-      const said = session.commands.filter((c) => c.type === "session.commentary.append").map((c) => String(c.content));
+      expect(
+        (
+          await post(`/api/bots/${bot.id}/messages`, {
+            threadId: bot.threadId,
+            text: "typed on the desktop",
+            sendId: "typed-live-call-e2e-0001",
+          })
+        ).status,
+      ).toBe(202);
+      await live.waitForCommand(
+        session.id,
+        (c) =>
+          c.type === "session.commentary.append" &&
+          String(c.content).includes("typed on the desktop"),
+        20_000,
+      );
+      const said = session.commands
+        .filter((c) => c.type === "session.commentary.append")
+        .map((c) => String(c.content));
       expect(said).toHaveLength(1);
       expect(said[0]).not.toContain("relayed from Slack");
 
@@ -299,20 +476,50 @@ posixOnly("Live call e2e", () => {
     const { call, session } = await startCall(bot.id);
     try {
       await live.waitForAttach(session.id);
-      live.emit(session.id, { type: "session.input_transcript.delta", delta: "run the check", start_ms: 100, end_ms: 900 });
-      live.emit(session.id, { type: "session.delegation.created", offset_ms: 950, delegation: { id: "del_p", target: "client", type: "delegation" } });
-      await live.waitForCommand(session.id, (c) => c.type === "session.instructions.append" && String(c.content).includes("May I?"), 20_000);
-      live.emit(session.id, { type: "session.input_transcript.delta", delta: "yes", start_ms: 5_000, end_ms: 5_300 });
-      live.emit(session.id, { type: "session.delegation.created", offset_ms: 5_400, delegation: { id: "del_y", target: "client", type: "delegation" } });
+      live.emit(session.id, {
+        type: "session.input_transcript.delta",
+        delta: "run the check",
+        start_ms: 100,
+        end_ms: 900,
+      });
+      live.emit(session.id, {
+        type: "session.delegation.created",
+        offset_ms: 950,
+        delegation: { id: "del_p", target: "client", type: "delegation" },
+      });
+      await live.waitForCommand(
+        session.id,
+        (c) => c.type === "session.instructions.append" && String(c.content).includes("May I?"),
+        20_000,
+      );
+      live.emit(session.id, {
+        type: "session.input_transcript.delta",
+        delta: "yes",
+        start_ms: 5_000,
+        end_ms: 5_300,
+      });
+      live.emit(session.id, {
+        type: "session.delegation.created",
+        offset_ms: 5_400,
+        delegation: { id: "del_y", target: "client", type: "delegation" },
+      });
       type Card = { requestId?: string; answered?: string; answeredBy?: unknown };
       const approved = async () => {
-        const { messages } = (await (await fetch(`${base}/api/threads/${bot.threadId}/messages`)).json()) as { messages: Array<{ card?: Card }> };
+        const { messages } = (await (
+          await fetch(`${base}/api/threads/${bot.threadId}/messages`)
+        ).json()) as { messages: Array<{ card?: Card }> };
         return messages.find((m) => m.card?.requestId && m.card.answered === "allow")?.card;
       };
-      await expect.poll(approved, { timeout: 20_000 }).toMatchObject({ answeredBy: { kind: "loopback", via: "call" } });
+      await expect
+        .poll(approved, { timeout: 20_000 })
+        .toMatchObject({ answeredBy: { kind: "loopback", via: "call" } });
       const requestId = (await approved())!.requestId;
-      const decision = async () => ((await (await fetch(`${base}/api/decisions`)).json()) as { decisions: Array<{ requestId?: string; decision: string; via?: string }> })
-        .decisions.find((row) => row.requestId === requestId && row.decision === "user-approved");
+      const decision = async () =>
+        (
+          (await (await fetch(`${base}/api/decisions`)).json()) as {
+            decisions: Array<{ requestId?: string; decision: string; via?: string }>;
+          }
+        ).decisions.find((row) => row.requestId === requestId && row.decision === "user-approved");
       await expect.poll(decision, { timeout: 10_000 }).toMatchObject({ via: "call" });
     } finally {
       await post("/api/live/call/end", { callId: call.callId });
@@ -324,23 +531,93 @@ posixOnly("Live call e2e", () => {
     const { call, session } = await startCall(bot.id);
     try {
       await live.waitForAttach(session.id);
-      live.emit(session.id, { type: "session.input_transcript.delta", delta: "ask me which color", start_ms: 100, end_ms: 900 });
-      live.emit(session.id, { type: "session.delegation.created", offset_ms: 950, delegation: { id: "del_question", target: "client" } });
-      await live.waitForCommand(session.id, (c) => c.type === "session.instructions.append" && String(c.content).includes("Which color"), 20_000);
-      type Line = { id: string; role: string; replyToId?: string; via?: string; card?: { requestId?: string; answered?: string; answeredText?: string; answeredBy?: unknown } };
-      const lines = async (): Promise<Line[]> => ((await (await fetch(`${base}/api/threads/${bot.threadId}/messages`)).json()) as { messages: Line[] }).messages;
+      live.emit(session.id, {
+        type: "session.input_transcript.delta",
+        delta: "ask me which color",
+        start_ms: 100,
+        end_ms: 900,
+      });
+      live.emit(session.id, {
+        type: "session.delegation.created",
+        offset_ms: 950,
+        delegation: { id: "del_question", target: "client" },
+      });
+      await live.waitForCommand(
+        session.id,
+        (c) =>
+          c.type === "session.instructions.append" && String(c.content).includes("Which color"),
+        20_000,
+      );
+      type Line = {
+        id: string;
+        role: string;
+        replyToId?: string;
+        via?: string;
+        card?: {
+          requestId?: string;
+          answered?: string;
+          answeredText?: string;
+          answeredBy?: unknown;
+        };
+      };
+      const lines = async (): Promise<Line[]> =>
+        (
+          (await (await fetch(`${base}/api/threads/${bot.threadId}/messages`)).json()) as {
+            messages: Line[];
+          }
+        ).messages;
       const original = (await lines()).find((m) => m.card?.requestId)!;
-      live.emit(session.id, { type: "session.input_transcript.delta", delta: "Purple", start_ms: 5_000, end_ms: 5_300 });
-      live.emit(session.id, { type: "session.delegation.created", offset_ms: 5_400, delegation: { id: "del_rejected", target: "client" } });
-      await live.waitForCommand(session.id, (c) => c.type === "session.commentary.append" && String(c.content).includes("could not be saved"), 5_000);
-      expect((await lines()).find((m) => m.id === original.id)?.card).not.toHaveProperty("answeredText");
-      expect(session.commands.some((c) => c.type === "session.thinking.append" && c.content === LIVE_COPY.answerPassed)).toBe(false);
+      live.emit(session.id, {
+        type: "session.input_transcript.delta",
+        delta: "Purple",
+        start_ms: 5_000,
+        end_ms: 5_300,
+      });
+      live.emit(session.id, {
+        type: "session.delegation.created",
+        offset_ms: 5_400,
+        delegation: { id: "del_rejected", target: "client" },
+      });
+      await live.waitForCommand(
+        session.id,
+        (c) =>
+          c.type === "session.commentary.append" &&
+          String(c.content).includes("could not be saved"),
+        5_000,
+      );
+      expect((await lines()).find((m) => m.id === original.id)?.card).not.toHaveProperty(
+        "answeredText",
+      );
+      expect(
+        session.commands.some(
+          (c) => c.type === "session.thinking.append" && c.content === LIVE_COPY.answerPassed,
+        ),
+      ).toBe(false);
       await expect.poll(() => isBusy(bot.id), { timeout: 5_000 }).toBe(false);
 
-      live.emit(session.id, { type: "session.input_transcript.delta", delta: "Blue", start_ms: 8_000, end_ms: 8_300 });
-      live.emit(session.id, { type: "session.delegation.created", offset_ms: 8_400, delegation: { id: "del_retry", target: "client" } });
-      await expect.poll(async () => (await lines()).find((m) => m.id === original.id)?.card, { timeout: 10_000 }).toMatchObject({ answered: "answer", answeredText: "Blue", answeredBy: { kind: "loopback", via: "call" } });
-      expect((await lines()).find((m) => m.role === "user" && m.replyToId === original.id)).toMatchObject({ via: "call" });
+      live.emit(session.id, {
+        type: "session.input_transcript.delta",
+        delta: "Blue",
+        start_ms: 8_000,
+        end_ms: 8_300,
+      });
+      live.emit(session.id, {
+        type: "session.delegation.created",
+        offset_ms: 8_400,
+        delegation: { id: "del_retry", target: "client" },
+      });
+      await expect
+        .poll(async () => (await lines()).find((m) => m.id === original.id)?.card, {
+          timeout: 10_000,
+        })
+        .toMatchObject({
+          answered: "answer",
+          answeredText: "Blue",
+          answeredBy: { kind: "loopback", via: "call" },
+        });
+      expect(
+        (await lines()).find((m) => m.role === "user" && m.replyToId === original.id),
+      ).toMatchObject({ via: "call" });
       expect(serverOutput()).not.toContain("text=Blue");
     } finally {
       await post("/api/bots/" + bot.id + "/interrupt", { threadId: bot.threadId });
@@ -353,18 +630,69 @@ posixOnly("Live call e2e", () => {
     const { call, session } = await startCall(bot.id);
     try {
       await live.waitForAttach(session.id);
-      live.emit(session.id, { type: "session.input_transcript.delta", delta: "ask me which color", start_ms: 100, end_ms: 900 });
-      live.emit(session.id, { type: "session.delegation.created", offset_ms: 950, delegation: { id: "del_stopped_question", target: "client" } });
-      await live.waitForCommand(session.id, (c) => c.type === "session.instructions.append" && String(c.content).includes("Which color"), 20_000);
-      type Line = { id: string; role: string; replyToId?: string; via?: string; card?: { requestId?: string; answered?: string; answeredText?: string; answeredBy?: unknown } };
-      const lines = async (): Promise<Line[]> => ((await (await fetch(`${base}/api/threads/${bot.threadId}/messages`)).json()) as { messages: Line[] }).messages;
+      live.emit(session.id, {
+        type: "session.input_transcript.delta",
+        delta: "ask me which color",
+        start_ms: 100,
+        end_ms: 900,
+      });
+      live.emit(session.id, {
+        type: "session.delegation.created",
+        offset_ms: 950,
+        delegation: { id: "del_stopped_question", target: "client" },
+      });
+      await live.waitForCommand(
+        session.id,
+        (c) =>
+          c.type === "session.instructions.append" && String(c.content).includes("Which color"),
+        20_000,
+      );
+      type Line = {
+        id: string;
+        role: string;
+        replyToId?: string;
+        via?: string;
+        card?: {
+          requestId?: string;
+          answered?: string;
+          answeredText?: string;
+          answeredBy?: unknown;
+        };
+      };
+      const lines = async (): Promise<Line[]> =>
+        (
+          (await (await fetch(`${base}/api/threads/${bot.threadId}/messages`)).json()) as {
+            messages: Line[];
+          }
+        ).messages;
       const original = (await lines()).find((m) => m.card?.requestId)!;
-      expect((await post(`/api/bots/${bot.id}/interrupt`, { threadId: bot.threadId })).status).toBe(200);
+      expect((await post(`/api/bots/${bot.id}/interrupt`, { threadId: bot.threadId })).status).toBe(
+        200,
+      );
       await expect.poll(() => isBusy(bot.id), { timeout: 5_000 }).toBe(false);
-      live.emit(session.id, { type: "session.input_transcript.delta", delta: "Green", start_ms: 5_000, end_ms: 5_300 });
-      live.emit(session.id, { type: "session.delegation.created", offset_ms: 5_400, delegation: { id: "del_late", target: "client" } });
-      await expect.poll(async () => (await lines()).find((m) => m.id === original.id)?.card, { timeout: 5_000 }).toMatchObject({ answered: "answer", answeredText: "Green", answeredBy: { kind: "loopback", via: "call" } });
-      expect((await lines()).find((m) => m.role === "user" && m.replyToId === original.id)).toMatchObject({ via: "call" });
+      live.emit(session.id, {
+        type: "session.input_transcript.delta",
+        delta: "Green",
+        start_ms: 5_000,
+        end_ms: 5_300,
+      });
+      live.emit(session.id, {
+        type: "session.delegation.created",
+        offset_ms: 5_400,
+        delegation: { id: "del_late", target: "client" },
+      });
+      await expect
+        .poll(async () => (await lines()).find((m) => m.id === original.id)?.card, {
+          timeout: 5_000,
+        })
+        .toMatchObject({
+          answered: "answer",
+          answeredText: "Green",
+          answeredBy: { kind: "loopback", via: "call" },
+        });
+      expect(
+        (await lines()).find((m) => m.role === "user" && m.replyToId === original.id),
+      ).toMatchObject({ via: "call" });
       expect(serverOutput()).not.toContain("text=Green");
     } finally {
       await post(`/api/bots/${bot.id}/interrupt`, { threadId: bot.threadId });
@@ -378,14 +706,26 @@ posixOnly("Live call e2e", () => {
     try {
       const { call, session } = await startCall(bot.id);
       await live.waitForAttach(session.id);
-      await sse.until((frame) => frame.kind === "live.call" && frame.call?.callId === call.callId && frame.call?.status === "live");
+      await sse.until(
+        (frame) =>
+          frame.kind === "live.call" &&
+          frame.call?.callId === call.callId &&
+          frame.call?.status === "live",
+      );
 
       live.dropSideband(session.id);
 
       const ended = await sse.until(
-        (frame) => frame.kind === "live.call" && frame.call?.callId === call.callId && frame.call?.status === "ended",
+        (frame) =>
+          frame.kind === "live.call" &&
+          frame.call?.callId === call.callId &&
+          frame.call?.status === "ended",
       );
-      expect(ended).toMatchObject({ botId: bot.id, threadId: bot.threadId, call: { endReason: "sideband-lost" } });
+      expect(ended).toMatchObject({
+        botId: bot.id,
+        threadId: bot.threadId,
+        call: { endReason: "sideband-lost" },
+      });
       const current = await (await fetch(`${base}/api/live/call`)).json();
       expect(current).toEqual({ call: null });
       await expect.poll(serverOutput, { timeout: 5_000 }).toContain("end=sideband-lost");
@@ -406,18 +746,25 @@ posixOnly("Live call on the person's Cloud", () => {
   let live: FakeOpenAiLive;
   let ownerToken = "";
 
-  const request = async (method: string, path: string, body?: unknown, headers: Record<string, string> = {}) => {
+  const request = async (
+    method: string,
+    path: string,
+    body?: unknown,
+    headers: Record<string, string> = {},
+  ) => {
     const res = await fetch(`${base}${path}`, {
       method,
       headers: {
-        host: HOST, "x-forwarded-for": "203.0.113.9", "x-forwarded-proto": "https",
+        host: HOST,
+        "x-forwarded-for": "203.0.113.9",
+        "x-forwarded-proto": "https",
         ...(ownerToken ? { authorization: `Bearer ${ownerToken}` } : {}),
         ...(body === undefined ? {} : { "content-type": "application/json" }),
         ...headers,
       },
       body: body === undefined ? undefined : JSON.stringify(body),
     });
-    return { status: res.status, body: await res.json().catch(() => null) as any };
+    return { status: res.status, body: (await res.json().catch(() => null)) as any };
   };
 
   beforeAll(async () => {
@@ -426,27 +773,45 @@ posixOnly("Live call on the person's Cloud", () => {
     home = mkdtempSync(join(tmpdir(), "laterdog-live-cloud-"));
     const dataDir = join(home, ".laterdog");
     mkdirSync(dataDir, { recursive: true });
-    writeFileSync(join(dataDir, "config.json"), JSON.stringify({
-      instances: {
-        ...Object.fromEntries(["codex", "cursor", "openaiCompat", "qwen", "hermes", "pi"].map((id) => [id, { driver: "not-a-real-driver" }])),
-        claude: { driver: "claudeAgent", config: { cli: FAKE_CLAUDE, permissionMode: "bypassPermissions" } },
-      },
-    }));
+    writeFileSync(
+      join(dataDir, "config.json"),
+      JSON.stringify({
+        instances: {
+          ...Object.fromEntries(
+            ["codex", "cursor", "openaiCompat", "qwen", "hermes", "pi"].map((id) => [
+              id,
+              { driver: "not-a-real-driver" },
+            ]),
+          ),
+          claude: {
+            driver: "claudeAgent",
+            config: { cli: FAKE_CLAUDE, permissionMode: "bypassPermissions" },
+          },
+        },
+      }),
+    );
     mkdirSync(join(home, "web"));
     writeFileSync(join(home, "web", "index.html"), "<!doctype html><title>later.dog</title>");
     const port = await leasePortBlock([0, 1]);
     base = `http://127.0.0.1:${port}`;
     const loopbackOnly = `data:text/javascript,${encodeURIComponent(
-      "const real = globalThis.fetch; globalThis.fetch = async (input, init) => new URL(input instanceof Request ? input.url : String(input)).hostname === \"127.0.0.1\" ? real(input, init) : new Response(\"offline fixture\", { status: 503 });",
+      'const real = globalThis.fetch; globalThis.fetch = async (input, init) => new URL(input instanceof Request ? input.url : String(input)).hostname === "127.0.0.1" ? real(input, init) : new Response("offline fixture", { status: 503 });',
     )}`;
     child = spawn(process.execPath, ["--import", loopbackOnly, join(SERVER_DIR, "index.ts")], {
       cwd: join(SERVER_DIR, ".."),
       env: {
         ...(process.env.PATH ? { PATH: process.env.PATH } : {}),
-        HOME: home, USERPROFILE: home, LATERDOG_HOME: dataDir, LATERDOG_STATIC_DIR: join(home, "web"),
-        LATERDOG_SERVER_PORT: String(port), LATERDOG_WEBHOOK_PORT: String(port + 1),
-        LATERDOG_CLOUD_ROLE: "home", LATERDOG_CLOUD_MACHINE_ID: "3f9c2a4e-8b1d-4c6e-9a7f-2d5e8c1b0a93", LATERDOG_CLOUD_ADMIN_URL: "https://cloud.example.test",
-        LATERDOG_CLOUD_BOOTSTRAP_SECRET: secret, LATERDOG_PUBLIC_URL: `https://${HOST}`,
+        HOME: home,
+        USERPROFILE: home,
+        LATERDOG_HOME: dataDir,
+        LATERDOG_STATIC_DIR: join(home, "web"),
+        LATERDOG_SERVER_PORT: String(port),
+        LATERDOG_WEBHOOK_PORT: String(port + 1),
+        LATERDOG_CLOUD_ROLE: "home",
+        LATERDOG_CLOUD_MACHINE_ID: "3f9c2a4e-8b1d-4c6e-9a7f-2d5e8c1b0a93",
+        LATERDOG_CLOUD_ADMIN_URL: "https://cloud.example.test",
+        LATERDOG_CLOUD_BOOTSTRAP_SECRET: secret,
+        LATERDOG_PUBLIC_URL: `https://${HOST}`,
         LATERDOG_OPENAI_LIVE_URL: live.url,
       },
       stdio: ["ignore", "pipe", "pipe"],
@@ -455,18 +820,22 @@ posixOnly("Live call on the person's Cloud", () => {
     child.stderr!.on("data", (chunk) => (output += chunk));
     const deadline = Date.now() + 90_000;
     for (;;) {
-      if (child.exitCode !== null) throw new Error(`the Cloud home exited ${child.exitCode}. output:\n${output}`);
+      if (child.exitCode !== null)
+        throw new Error(`the Cloud home exited ${child.exitCode}. output:\n${output}`);
       try {
         const health = (await (await fetch(`${base}/api/health`)).json()) as { pid?: number };
         if (health.pid === child.pid) break;
       } catch {}
-      if (Date.now() > deadline) throw new Error(`the Cloud home never came up. output:\n${output}`);
+      if (Date.now() > deadline)
+        throw new Error(`the Cloud home never came up. output:\n${output}`);
       await new Promise((r) => setTimeout(r, 150));
     }
     const pairing = JSON.stringify({ label: "later.dog app (Cloud)", ttlSeconds: 300 });
-    const timestamp = String(Math.floor(Date.now() / 1000)), nonce = randomBytes(16).toString("base64url");
+    const timestamp = String(Math.floor(Date.now() / 1000)),
+      nonce = randomBytes(16).toString("base64url");
     const granted = await request("POST", "/api/cloud/pairing", JSON.parse(pairing), {
-      "x-laterdog-cloud-timestamp": timestamp, "x-laterdog-cloud-nonce": nonce,
+      "x-laterdog-cloud-timestamp": timestamp,
+      "x-laterdog-cloud-nonce": nonce,
       "x-laterdog-cloud-signature": `v1=${cloudPairingSignature(secret, timestamp, nonce, pairing)}`,
     });
     expect(granted.status, JSON.stringify(granted.body)).toBe(200);
@@ -484,12 +853,22 @@ posixOnly("Live call on the person's Cloud", () => {
   it("saves the owner's OpenAI key on the Cloud, and a Live call starts with it", async () => {
     const before = await request("GET", "/api/config");
     expect(before.body).toMatchObject({ cloudHome: true, live: { configured: false } });
-    const created = await request("POST", "/api/bots", { name: "Ada", modelSelection: { instanceId: "claude", model: "claude-fake" } });
+    const created = await request("POST", "/api/bots", {
+      name: "Ada",
+      modelSelection: { instanceId: "claude", model: "claude-fake" },
+    });
     expect(created.status, JSON.stringify(created.body)).toBe(201);
     const { id: botId, threadId } = created.body.bot as { id: string; threadId: string };
 
-    const refused = await request("POST", "/api/live/session", { botId, sdp: SDP, client: "desktop" });
-    expect(refused, JSON.stringify(refused.body)).toMatchObject({ status: 409, body: { needsKey: true } });
+    const refused = await request("POST", "/api/live/session", {
+      botId,
+      sdp: SDP,
+      client: "desktop",
+    });
+    expect(refused, JSON.stringify(refused.body)).toMatchObject({
+      status: 409,
+      body: { needsKey: true },
+    });
     expect(live.sessions).toHaveLength(0);
 
     const saved = await request("PUT", "/api/config", { live: { key: OWNER_KEY } });
@@ -497,14 +876,23 @@ posixOnly("Live call on the person's Cloud", () => {
     expect(saved.body).toMatchObject({ cloudHome: true, live: { configured: true } });
     expect(JSON.stringify(saved.body)).not.toContain(OWNER_KEY);
 
-    const started = await request("POST", "/api/live/session", { botId, sdp: SDP, client: "desktop" });
+    const started = await request("POST", "/api/live/session", {
+      botId,
+      sdp: SDP,
+      client: "desktop",
+    });
     expect(started.status, JSON.stringify(started.body)).toBe(201);
-    expect(started.body).toMatchObject({ call: { botId, threadId }, transport: { type: "webrtc", sdp: expect.any(String) } });
+    expect(started.body).toMatchObject({
+      call: { botId, threadId },
+      transport: { type: "webrtc", sdp: expect.any(String) },
+    });
     expect(live.sessions).toHaveLength(1);
     const [session] = live.sessions;
     expect(session.key).toBe(OWNER_KEY);
     const { instructions } = session.body.session as { instructions: string };
-    expect(instructions.split("\n")[0]).toBe(`You are Ada, an AI agent that runs on ${CLOUD_HOME_PLACE}.`);
+    expect(instructions.split("\n")[0]).toBe(
+      `You are Ada, an AI agent that runs on ${CLOUD_HOME_PLACE}.`,
+    );
     expect(instructions).not.toContain("on the user's own computer");
     await live.waitForAttach(session.id);
 

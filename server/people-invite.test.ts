@@ -45,7 +45,11 @@ function send(path: string, init: CallInit, headers: Record<string, string>): Pr
         path,
         signal: AbortSignal.timeout(5_000),
         method: init.method ?? (payload ? "POST" : "GET"),
-        headers: { ...headers, ...(payload ? { "content-type": "application/json" } : {}), ...init.headers },
+        headers: {
+          ...headers,
+          ...(payload ? { "content-type": "application/json" } : {}),
+          ...init.headers,
+        },
       },
       (res) => {
         let raw = "";
@@ -66,10 +70,16 @@ function send(path: string, init: CallInit, headers: Record<string, string>): Pr
   });
 }
 
-const owner = (path: string, init: CallInit = {}) => send(path, init, { host: `127.0.0.1:${port}`, origin: `http://127.0.0.1:${port}` });
+const owner = (path: string, init: CallInit = {}) =>
+  send(path, init, { host: `127.0.0.1:${port}`, origin: `http://127.0.0.1:${port}` });
 
 const remote = (path: string, init: CallInit = {}) =>
-  send(path, init, { host: HOST, "x-forwarded-for": init.from ?? "203.0.113.7", "x-forwarded-proto": "https", origin: `https://${HOST}` });
+  send(path, init, {
+    host: HOST,
+    "x-forwarded-for": init.from ?? "203.0.113.7",
+    "x-forwarded-proto": "https",
+    origin: `https://${HOST}`,
+  });
 
 const cookieOf = (reply: Reply): string => {
   const raw = reply.headers["set-cookie"];
@@ -84,7 +94,10 @@ async function signIn(email: string, label: string): Promise<{ reply: Reply; coo
   return { reply, cookie: cookieOf(reply) };
 }
 
-const as = (cookie: string) => (path: string, init: CallInit = {}) => remote(path, { ...init, headers: { cookie, ...init.headers } });
+const as =
+  (cookie: string) =>
+  (path: string, init: CallInit = {}) =>
+    remote(path, { ...init, headers: { cookie, ...init.headers } });
 
 beforeAll(async () => {
   port = await leasePortBlock([0, 1]);
@@ -94,7 +107,10 @@ beforeAll(async () => {
   mkdirSync(join(home, ".laterdog"), { recursive: true });
   mkdirSync(join(staticDir, "assets"), { recursive: true });
   writeFileSync(join(staticDir, "index.html"), "<!doctype html><title>Served UI</title>");
-  writeFileSync(join(home, ".laterdog", "config.json"), JSON.stringify({ instances: { fixture: { driver: "people-invite-test-shadow" } } }));
+  writeFileSync(
+    join(home, ".laterdog", "config.json"),
+    JSON.stringify({ instances: { fixture: { driver: "people-invite-test-shadow" } } }),
+  );
   child = spawn(process.execPath, [join(SERVER_DIR, "index.ts")], {
     cwd: ROOT,
     env: {
@@ -114,14 +130,19 @@ beforeAll(async () => {
   });
   child.stdout?.resume();
   let spawnError: Error | undefined;
-  child.on("error", (error) => { spawnError = error; });
+  child.on("error", (error) => {
+    spawnError = error;
+  });
   child.stderr?.on("data", (chunk) => (stderr += String(chunk)));
   const deadline = Date.now() + 20_000;
   while (Date.now() < deadline) {
     if (spawnError) throw spawnError;
-    if (child.exitCode !== null || child.signalCode !== null) throw new Error(`fixture exited:\n${stderr}`);
+    if (child.exitCode !== null || child.signalCode !== null)
+      throw new Error(`fixture exited:\n${stderr}`);
     try {
-      const res = await fetch(`http://127.0.0.1:${port}/api/health`, { signal: AbortSignal.timeout(1_000) });
+      const res = await fetch(`http://127.0.0.1:${port}/api/health`, {
+        signal: AbortSignal.timeout(1_000),
+      });
       if (res.ok) return;
     } catch {}
     await new Promise((r) => setTimeout(r, 100));
@@ -142,15 +163,22 @@ describe("adding people to a hosted workspace", () => {
   let bobTicket = "";
 
   it("offers no email sign-in until the owner names the first admin", async () => {
-    expect((await remote("/.well-known/laterdog/environment")).body.capabilities.emailSignIn).toBe(false);
+    expect((await remote("/.well-known/laterdog/environment")).body.capabilities.emailSignIn).toBe(
+      false,
+    );
     const early = await remote("/api/auth/email/start", { body: { email: ADA } });
     expect(early.status).toBe(404);
     expect(early.body.error).toMatch(/not set up/);
 
-    const saved = await owner("/api/config", { method: "PUT", body: { signIn: { admins: [ADA], members: [] } } });
+    const saved = await owner("/api/config", {
+      method: "PUT",
+      body: { signIn: { admins: [ADA], members: [] } },
+    });
     expect(saved.status).toBe(200);
     expect((await owner("/api/config")).body.signIn).toEqual({ admins: [ADA], members: [] });
-    expect((await remote("/.well-known/laterdog/environment")).body.capabilities.emailSignIn).toBe(true);
+    expect((await remote("/.well-known/laterdog/environment")).body.capabilities.emailSignIn).toBe(
+      true,
+    );
     expect(stub.calls).not.toContain("POST /api/auth/email-otp/send-verification-otp");
   });
 
@@ -171,7 +199,10 @@ describe("adding people to a hosted workspace", () => {
     const domain = await ada("/api/settings/custom-domain");
     expect(domain.body.publicUrl).toBe(`https://${HOST}`);
 
-    const invited = await ada("/api/config", { method: "PUT", body: { signIn: { admins: [ADA], members: [BOB] } } });
+    const invited = await ada("/api/config", {
+      method: "PUT",
+      body: { signIn: { admins: [ADA], members: [BOB] } },
+    });
     expect(invited.status).toBe(200);
     expect((await ada("/api/config")).body.signIn).toEqual({ admins: [ADA], members: [BOB] });
 
@@ -185,15 +216,33 @@ describe("adding people to a hosted workspace", () => {
     expect(bob.reply.body.session).toMatchObject({ email: BOB, scopes: ["client"] });
     bobCookie = bob.cookie;
     expect((await as(bobCookie)("/api/bots")).status).toBe(200);
-    expect((await as(bobCookie)("/api/config", { method: "PUT", body: { signIn: { admins: [BOB], members: [] } } })).status).toBe(403);
+    expect(
+      (
+        await as(bobCookie)("/api/config", {
+          method: "PUT",
+          body: { signIn: { admins: [BOB], members: [] } },
+        })
+      ).status,
+    ).toBe(403);
     expect((await ada("/api/config")).body.signIn).toEqual({ admins: [ADA], members: [BOB] });
     const listed = await ada("/api/auth/sessions");
-    expect(listed.body.sessions.find((s: { email?: string; label: string }) => s.email === BOB)?.label).toBe("Bob's phone");
+    expect(
+      listed.body.sessions.find((s: { email?: string; label: string }) => s.email === BOB)?.label,
+    ).toBe("Bob's phone");
   });
 
   it("applies a promotion to the next sign-in, and refuses new sign-ins after removal", async () => {
-    expect((await ada("/api/config", { method: "PUT", body: { signIn: { admins: [ADA, BOB], members: [] } } })).status).toBe(200);
-    expect((await as(bobCookie)("/api/config", { method: "PUT", body: { language: "en" } })).status).toBe(403);
+    expect(
+      (
+        await ada("/api/config", {
+          method: "PUT",
+          body: { signIn: { admins: [ADA, BOB], members: [] } },
+        })
+      ).status,
+    ).toBe(200);
+    expect(
+      (await as(bobCookie)("/api/config", { method: "PUT", body: { language: "en" } })).status,
+    ).toBe(403);
     const again = await signIn(BOB, "Bob's laptop");
     expect(again.reply.body.session.scopes).toEqual(["admin", "client"]);
     bobAdminCookie = again.cookie;
@@ -201,11 +250,20 @@ describe("adding people to a hosted workspace", () => {
     expect(ticket.status).toBe(200);
     bobTicket = ticket.body.ticket;
 
-    expect((await ada("/api/config", { method: "PUT", body: { signIn: { admins: [ADA], members: [] } } })).status).toBe(200);
+    expect(
+      (
+        await ada("/api/config", {
+          method: "PUT",
+          body: { signIn: { admins: [ADA], members: [] } },
+        })
+      ).status,
+    ).toBe(200);
     const refused = await remote("/api/auth/email/start", { body: { email: BOB } });
     expect(refused.status).toBe(403);
     expect(refused.body.error).toMatch(/not on this server's sign-in list/);
-    expect(stub.calls.filter((c) => c === "POST /api/auth/email-otp/send-verification-otp")).toHaveLength(3);
+    expect(
+      stub.calls.filter((c) => c === "POST /api/auth/email-otp/send-verification-otp"),
+    ).toHaveLength(3);
   });
 
   it("immediately revokes every removed account device and its tickets, without reviving them on reinvitation", async () => {
@@ -215,8 +273,17 @@ describe("adding people to a hosted workspace", () => {
     const listed = await ada("/api/auth/sessions");
     const bobs = listed.body.sessions.filter((s: { email?: string }) => s.email === BOB);
     expect(bobs).toHaveLength(0);
-    expect((await ada("/api/auth/sessions")).body.sessions.map((s: { email?: string }) => s.email)).toEqual([ADA]);
-    expect((await ada("/api/config", { method: "PUT", body: { signIn: { admins: [ADA], members: [BOB] } } })).status).toBe(200);
+    expect(
+      (await ada("/api/auth/sessions")).body.sessions.map((s: { email?: string }) => s.email),
+    ).toEqual([ADA]);
+    expect(
+      (
+        await ada("/api/config", {
+          method: "PUT",
+          body: { signIn: { admins: [ADA], members: [BOB] } },
+        })
+      ).status,
+    ).toBe(200);
     expect((await as(bobCookie)("/api/bots")).status).toBe(401);
     expect((await as(bobAdminCookie)("/api/bots")).status).toBe(401);
     const fresh = await signIn(BOB, "Bob's fresh sign-in");
@@ -225,9 +292,19 @@ describe("adding people to a hosted workspace", () => {
   });
 
   it("welcomes a whole domain from one entry", async () => {
-    expect((await ada("/api/config", { method: "PUT", body: { signIn: { admins: [ADA], members: ["@acme.test"] } } })).status).toBe(200);
+    expect(
+      (
+        await ada("/api/config", {
+          method: "PUT",
+          body: { signIn: { admins: [ADA], members: ["@acme.test"] } },
+        })
+      ).status,
+    ).toBe(200);
     const carol = await signIn("carol@acme.test", "Carol's tablet");
-    expect(carol.reply.body.session).toMatchObject({ email: "carol@acme.test", scopes: ["client"] });
+    expect(carol.reply.body.session).toMatchObject({
+      email: "carol@acme.test",
+      scopes: ["client"],
+    });
     expect((await signIn("carol@acme.test.evil", "Impostor")).reply.status).toBe(403);
   });
 });

@@ -21,13 +21,18 @@ describe("lazy host claim and pin on use (issue #1650)", () => {
   let base = "";
 
   const vmState = () => writeFileSync(stateFile, JSON.stringify({ noContainers: true }));
-  const resetTurn = () => { vmState(); rmSync(dumpFile, { force: true }); rmSync(finishFile, { force: true }); };
+  const resetTurn = () => {
+    vmState();
+    rmSync(dumpFile, { force: true });
+    rmSync(finishFile, { force: true });
+  };
   const api = async (method: string, path: string, body?: unknown) => {
     const response = await fetch(base + path, {
-      method, headers: { "content-type": "application/json" },
+      method,
+      headers: { "content-type": "application/json" },
       ...(body === undefined ? {} : { body: JSON.stringify(body) }),
     });
-    return { status: response.status, body: await response.json() as any };
+    return { status: response.status, body: (await response.json()) as any };
   };
   const apiOk = async (method: string, path: string, body?: unknown) => {
     const result = await api(method, path, body);
@@ -40,49 +45,91 @@ describe("lazy host claim and pin on use (issue #1650)", () => {
       const value = await read();
       if (accept(value)) return value;
       if (Date.now() >= end) throw new Error(`Fixture wait expired: ${JSON.stringify(value)}`);
-      await new Promise(resolve => setTimeout(resolve, 40));
+      await new Promise((resolve) => setTimeout(resolve, 40));
     }
   }
-  const dumpFor = (botId: string): Promise<any> => until((): any => {
-    if (!existsSync(dumpFile)) return null;
-    try {
-      const sent = JSON.parse(readFileSync(dumpFile, "utf8"));
-      return sent.mcpConfig?.mcpServers?.computer?.env?.LATERDOG_CONTROL_URL?.includes(botId) ? sent : null;
-    } catch { return null; }
-  }, Boolean);
+  const dumpFor = (botId: string): Promise<any> =>
+    until((): any => {
+      if (!existsSync(dumpFile)) return null;
+      try {
+        const sent = JSON.parse(readFileSync(dumpFile, "utf8"));
+        return sent.mcpConfig?.mcpServers?.computer?.env?.LATERDOG_CONTROL_URL?.includes(botId)
+          ? sent
+          : null;
+      } catch {
+        return null;
+      }
+    }, Boolean);
   const mountedComputer = (sent: any) => sent.mcpConfig.mcpServers.computer;
-  const gate = (computer: any) => fetch(computer.env.LATERDOG_CONTROL_URL, {
-    headers: { authorization: `Bearer ${computer.env.LATERDOG_CONTROL_TOKEN}` },
-  }).then(response => response.json() as Promise<any>);
+  const gate = (computer: any) =>
+    fetch(computer.env.LATERDOG_CONTROL_URL, {
+      headers: { authorization: `Bearer ${computer.env.LATERDOG_CONTROL_TOKEN}` },
+    }).then((response) => response.json() as Promise<any>);
   const threadState = (botId: string, threadId: string) =>
     api("GET", "/api/bots?messages=0").then(({ body }) =>
-      body.bots.find((bot: any) => bot.id === botId)?.tasks.find((task: any) => task.threadId === threadId));
-  const busy = (botId: string, threadId: string) => until(() => threadState(botId, threadId), Boolean);
-  const idle = (botId: string, threadId: string) => until(() => threadState(botId, threadId), task => !task?.busy);
+      body.bots
+        .find((bot: any) => bot.id === botId)
+        ?.tasks.find((task: any) => task.threadId === threadId),
+    );
+  const busy = (botId: string, threadId: string) =>
+    until(() => threadState(botId, threadId), Boolean);
+  const idle = (botId: string, threadId: string) =>
+    until(
+      () => threadState(botId, threadId),
+      (task) => !task?.busy,
+    );
   const savedTask = (botId: string, threadId: string) =>
     (JSON.parse(readFileSync(join(data, "bots.json"), "utf8")) as any[])
-      .find((bot: any) => bot.id === botId)?.tasks.find((task: any) => task.threadId === threadId);
+      .find((bot: any) => bot.id === botId)
+      ?.tasks.find((task: any) => task.threadId === threadId);
 
   async function start() {
     const port = await leasePortBlock([0, 1]);
     base = `http://127.0.0.1:${port}`;
     output = "";
-    const proc = spawn(process.execPath, ["--import", pathToFileURL(join(ROOT, "server/testing/group-local-vm-hooks.mjs")).href, join(ROOT, "server/index.ts")], {
-      cwd: ROOT, env: {
-        PATH: dirname(process.execPath), ...(process.env.SystemRoot ? { SystemRoot: process.env.SystemRoot } : {}),
-        HOME: home, USERPROFILE: home, LATERDOG_HOME: data,
-        APPDATA: join(home, "appdata"), LOCALAPPDATA: join(home, "localappdata"),
-        TEMP: home, TMP: home, TMPDIR: home,
-        LATERDOG_SERVER_PORT: String(port), LATERDOG_WEBHOOK_PORT: String(port + 1), LATERDOG_STATIC_DIR: ui, LATERDOG_TEST_VM_STATE: stateFile,
-        LATERDOG_USER_DATA: join(home, "user-data"),
-      }, stdio: ["ignore", "pipe", "pipe"],
-    });
+    const proc = spawn(
+      process.execPath,
+      [
+        "--import",
+        pathToFileURL(join(ROOT, "server/testing/group-local-vm-hooks.mjs")).href,
+        join(ROOT, "server/index.ts"),
+      ],
+      {
+        cwd: ROOT,
+        env: {
+          PATH: dirname(process.execPath),
+          ...(process.env.SystemRoot ? { SystemRoot: process.env.SystemRoot } : {}),
+          HOME: home,
+          USERPROFILE: home,
+          LATERDOG_HOME: data,
+          APPDATA: join(home, "appdata"),
+          LOCALAPPDATA: join(home, "localappdata"),
+          TEMP: home,
+          TMP: home,
+          TMPDIR: home,
+          LATERDOG_SERVER_PORT: String(port),
+          LATERDOG_WEBHOOK_PORT: String(port + 1),
+          LATERDOG_STATIC_DIR: ui,
+          LATERDOG_TEST_VM_STATE: stateFile,
+          LATERDOG_USER_DATA: join(home, "user-data"),
+        },
+        stdio: ["ignore", "pipe", "pipe"],
+      },
+    );
     child = proc;
-    proc.stdout!.on("data", chunk => { output += chunk; });
-    proc.stderr!.on("data", chunk => { output += chunk; });
+    proc.stdout!.on("data", (chunk) => {
+      output += chunk;
+    });
+    proc.stderr!.on("data", (chunk) => {
+      output += chunk;
+    });
     await until(async () => {
       if (proc.exitCode !== null) throw new Error(`server exited during boot:\n${output}`);
-      try { return (await fetch(base + "/api/health")).ok; } catch { return false; }
+      try {
+        return (await fetch(base + "/api/health")).ok;
+      } catch {
+        return false;
+      }
     }, Boolean);
   }
   async function stop() {
@@ -107,59 +154,103 @@ describe("lazy host claim and pin on use (issue #1650)", () => {
     writeFileSync(join(ui, "index.html"), "<title>Host lazy claim</title>");
     writeFileSync(join(ui, "assets", "test.css"), "body{}");
     mkdirSync(join(home, "user-data"), { recursive: true });
-    writeFileSync(join(home, "user-data", "cua-connection.json"), JSON.stringify({
-      mode: "embedded", status: "ready", socketPath: join(home, "cua.sock"),
-      mcpCommand: "/fixture/cua-driver", mcpArgs: ["mcp"], mcpEnv: {},
-    }), { mode: 0o600 });
-    writeFileSync(join(data, "config.json"), JSON.stringify({ instances: { claude: {
-      driver: "claudeAgent", config: { cli: join(ROOT, "server/testing/fake-claude-cli.ts") },
-      environment: { FAKE_CLAUDE_MODE: "slow", FAKE_CLAUDE_DUMP: dumpFile, FAKE_CLAUDE_SLOW_FINISH_GATE: finishFile },
-    } } }));
+    writeFileSync(
+      join(home, "user-data", "cua-connection.json"),
+      JSON.stringify({
+        mode: "embedded",
+        status: "ready",
+        socketPath: join(home, "cua.sock"),
+        mcpCommand: "/fixture/cua-driver",
+        mcpArgs: ["mcp"],
+        mcpEnv: {},
+      }),
+      { mode: 0o600 },
+    );
+    writeFileSync(
+      join(data, "config.json"),
+      JSON.stringify({
+        instances: {
+          claude: {
+            driver: "claudeAgent",
+            config: { cli: join(ROOT, "server/testing/fake-claude-cli.ts") },
+            environment: {
+              FAKE_CLAUDE_MODE: "slow",
+              FAKE_CLAUDE_DUMP: dumpFile,
+              FAKE_CLAUDE_SLOW_FINISH_GATE: finishFile,
+            },
+          },
+        },
+      }),
+    );
   });
   afterAll(async () => {
     await stop();
     if (home) await removeTempDir(home);
   });
-  afterEach(async () => { await stop(); resetTurn(); });
-
-  itAutoHost("holds no computer:host claim and records no pin until a screen tool runs", async () => {
-    await start();
-    const { bot: holder } = await apiOk("POST", "/api/bots", { name: "Screenless Host Bot" });
-    const { task } = await apiOk("POST", `/api/bots/${holder.id}/tasks`, {});
+  afterEach(async () => {
+    await stop();
     resetTurn();
-    await apiOk("POST", `/api/bots/${holder.id}/messages`, { text: "Work slowly without touching the screen.", threadId: task.threadId });
-    await busy(holder.id, task.threadId);
-    const computer = mountedComputer(await dumpFor(holder.id));
-    expect(computer.env.LATERDOG_CUA_COMMAND).toBe("/fixture/cua-driver");
-    expect(computer.args.some((arg: string) => arg.includes("local-computer-proxy"))).toBe(true);
-    expect(savedTask(holder.id, task.threadId)).not.toHaveProperty("surface");
-    const { bot: claimer } = await apiOk("POST", "/api/bots", { name: "Host Claim Bot" });
-    const { task: claimTask } = await apiOk("POST", `/api/bots/${claimer.id}/tasks`, {});
-    await apiOk("POST", `/api/bots/${claimer.id}/messages`, { text: "Work slowly too.", threadId: claimTask.threadId });
-    await busy(claimer.id, claimTask.threadId);
-    expect(await gate(mountedComputer(await dumpFor(claimer.id)))).toEqual({ held: false, helpOpen: false });
-    await until(() => savedTask(claimer.id, claimTask.threadId)?.surface === "local", Boolean);
-    expect(savedTask(holder.id, task.threadId)).not.toHaveProperty("surface");
-    writeFileSync(finishFile, "finish");
-    await idle(holder.id, task.threadId);
-    await idle(claimer.id, claimTask.threadId);
   });
+
+  itAutoHost(
+    "holds no computer:host claim and records no pin until a screen tool runs",
+    async () => {
+      await start();
+      const { bot: holder } = await apiOk("POST", "/api/bots", { name: "Screenless Host Bot" });
+      const { task } = await apiOk("POST", `/api/bots/${holder.id}/tasks`, {});
+      resetTurn();
+      await apiOk("POST", `/api/bots/${holder.id}/messages`, {
+        text: "Work slowly without touching the screen.",
+        threadId: task.threadId,
+      });
+      await busy(holder.id, task.threadId);
+      const computer = mountedComputer(await dumpFor(holder.id));
+      expect(computer.env.LATERDOG_CUA_COMMAND).toBe("/fixture/cua-driver");
+      expect(computer.args.some((arg: string) => arg.includes("local-computer-proxy"))).toBe(true);
+      expect(savedTask(holder.id, task.threadId)).not.toHaveProperty("surface");
+      const { bot: claimer } = await apiOk("POST", "/api/bots", { name: "Host Claim Bot" });
+      const { task: claimTask } = await apiOk("POST", `/api/bots/${claimer.id}/tasks`, {});
+      await apiOk("POST", `/api/bots/${claimer.id}/messages`, {
+        text: "Work slowly too.",
+        threadId: claimTask.threadId,
+      });
+      await busy(claimer.id, claimTask.threadId);
+      expect(await gate(mountedComputer(await dumpFor(claimer.id)))).toEqual({
+        held: false,
+        helpOpen: false,
+      });
+      await until(() => savedTask(claimer.id, claimTask.threadId)?.surface === "local", Boolean);
+      expect(savedTask(holder.id, task.threadId)).not.toHaveProperty("surface");
+      writeFileSync(finishFile, "finish");
+      await idle(holder.id, task.threadId);
+      await idle(claimer.id, claimTask.threadId);
+    },
+  );
 
   itAutoHost("claims the seat and records the pin on the first screen tool call", async () => {
     await start();
     const { bot } = await apiOk("POST", "/api/bots", { name: "Host Screen Bot" });
     const { task } = await apiOk("POST", `/api/bots/${bot.id}/tasks`, {});
     resetTurn();
-    await apiOk("POST", `/api/bots/${bot.id}/messages`, { text: "Work slowly; the screen comes later.", threadId: task.threadId });
+    await apiOk("POST", `/api/bots/${bot.id}/messages`, {
+      text: "Work slowly; the screen comes later.",
+      threadId: task.threadId,
+    });
     await busy(bot.id, task.threadId);
     const computer = mountedComputer(await dumpFor(bot.id));
     expect(savedTask(bot.id, task.threadId)).not.toHaveProperty("surface");
     expect(await gate(computer)).toEqual({ held: false, helpOpen: false });
     await until(() => savedTask(bot.id, task.threadId)?.surface === "local", Boolean);
-    expect(savedTask(bot.id, task.threadId)).toMatchObject({ surface: "local", surfaceSource: "auto" });
+    expect(savedTask(bot.id, task.threadId)).toMatchObject({
+      surface: "local",
+      surfaceSource: "auto",
+    });
     const { bot: second } = await apiOk("POST", "/api/bots", { name: "Host Contended Bot" });
     const { task: secondTask } = await apiOk("POST", `/api/bots/${second.id}/tasks`, {});
-    await apiOk("POST", `/api/bots/${second.id}/messages`, { text: "Also work slowly.", threadId: secondTask.threadId });
+    await apiOk("POST", `/api/bots/${second.id}/messages`, {
+      text: "Also work slowly.",
+      threadId: secondTask.threadId,
+    });
     await busy(second.id, secondTask.threadId);
     const contested = await gate(mountedComputer(await dumpFor(second.id)));
     expect(contested).toMatchObject({ held: true, helpOpen: false });

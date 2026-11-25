@@ -32,15 +32,38 @@ afterEach(() => {
 
 function run(stepId: string, startedAt: number): NativeRun {
   return {
-    id: "turn-one", threadId: "thread", turnId: "one", provider: "fixture", revision: startedAt + 1,
-    startedAt: 0, state: "running", observation: "live", actors: [], activityCount: 1,
-    failureCount: 0, limitations: [],
-    currentActivity: { id: stepId, actorId: "parent", kind: "tool", label: "Bash", state: "running", startedAt, subject: "Run the order form tests" },
+    id: "turn-one",
+    threadId: "thread",
+    turnId: "one",
+    provider: "fixture",
+    revision: startedAt + 1,
+    startedAt: 0,
+    state: "running",
+    observation: "live",
+    actors: [],
+    activityCount: 1,
+    failureCount: 0,
+    limitations: [],
+    currentActivity: {
+      id: stepId,
+      actorId: "parent",
+      kind: "tool",
+      label: "Bash",
+      state: "running",
+      startedAt,
+      subject: "Run the order form tests",
+    },
   };
 }
 
 function Probe({ current }: { current: NativeRun }) {
-  const { line } = useTurnSlotLine({ name: "Scout", working: true, turnKey: "one", since: 0, run: current });
+  const { line } = useTurnSlotLine({
+    name: "Scout",
+    working: true,
+    turnKey: "one",
+    since: 0,
+    run: current,
+  });
   return createElement("output", { "data-age": line?.age ?? "" }, line?.words ?? "");
 }
 

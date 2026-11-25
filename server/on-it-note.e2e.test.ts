@@ -23,21 +23,35 @@ beforeAll(async () => {
   const dataDir = join(dir, ".laterdog");
   promptsFile = join(dir, "prompts.jsonl");
   mkdirSync(dataDir, { recursive: true });
-  writeFileSync(join(dataDir, "config.json"), JSON.stringify({ instances: {
-    claude: { driver: "claudeAgent", displayName: "Claude", config: { cli: FAKE_CLAUDE } },
-  } }));
+  writeFileSync(
+    join(dataDir, "config.json"),
+    JSON.stringify({
+      instances: {
+        claude: { driver: "claudeAgent", displayName: "Claude", config: { cli: FAKE_CLAUDE } },
+      },
+    }),
+  );
   const port = await leasePortBlock([0, 1]);
   base = `http://127.0.0.1:${port}`;
   child = spawn(process.execPath, ["--import", OFFLINE, join(ROOT, "server", "index.ts")], {
     cwd: ROOT,
     env: {
-      PATH: dirname(process.execPath), HOME: dir, USERPROFILE: dir, LATERDOG_HOME: dataDir,
-      LATERDOG_SERVER_PORT: String(port), LATERDOG_WEBHOOK_PORT: String(port + 1), FAKE_CLAUDE_PROMPTS: promptsFile,
+      PATH: dirname(process.execPath),
+      HOME: dir,
+      USERPROFILE: dir,
+      LATERDOG_HOME: dataDir,
+      LATERDOG_SERVER_PORT: String(port),
+      LATERDOG_WEBHOOK_PORT: String(port + 1),
+      FAKE_CLAUDE_PROMPTS: promptsFile,
     },
     stdio: ["ignore", "pipe", "pipe"],
   });
-  child.stdout?.on("data", (chunk) => { log += chunk; });
-  child.stderr?.on("data", (chunk) => { log += chunk; });
+  child.stdout?.on("data", (chunk) => {
+    log += chunk;
+  });
+  child.stderr?.on("data", (chunk) => {
+    log += chunk;
+  });
   const deadline = Date.now() + 30_000;
   for (;;) {
     if (child.exitCode !== null) throw new Error(`the server fixture exited:\n${log}`);
@@ -71,26 +85,42 @@ it("asks a dog to say it's on it on a person's message, and not on a routine run
       await new Promise((resolve) => setTimeout(resolve, 100));
     }
   };
-  const sent = () => existsSync(promptsFile) ? readFileSync(promptsFile, "utf8").trim().split("\n").filter(Boolean) : [];
+  const sent = () =>
+    existsSync(promptsFile)
+      ? readFileSync(promptsFile, "utf8").trim().split("\n").filter(Boolean)
+      : [];
   const { bot: dog } = await ask("POST", "/api/bots", { name: "Pip" });
-  await ask("PATCH", `/api/bots/${dog.id}`, { modelSelection: { instanceId: "claude", model: "claude-sonnet-5" }, browser: false });
+  await ask("PATCH", `/api/bots/${dog.id}`, {
+    modelSelection: { instanceId: "claude", model: "claude-sonnet-5" },
+    browser: false,
+  });
 
-  await ask("POST", `/api/bots/${dog.id}/messages`, { text: "Which branch is the repo on?", threadId: dog.threadId });
+  await ask("POST", `/api/bots/${dog.id}/messages`, {
+    text: "Which branch is the repo on?",
+    threadId: dog.threadId,
+  });
   await until(async () => sent().length === 1, "the person's turn");
 
   const { routine } = await ask("POST", "/api/routines", {
-    botId: dog.id, name: "Morning check", prompt: "Check the repo's branch.", enabled: false,
+    botId: dog.id,
+    name: "Morning check",
+    prompt: "Check the repo's branch.",
+    enabled: false,
     schedule: { type: "interval", everyMinutes: 60, anchorAt: Date.now() + 3_600_000 },
   });
   const { run } = await ask("POST", `/api/routines/${routine.id}/run`, {});
   await until(async () => {
-    const found = (await ask("GET", "/api/routines")).runs.find((candidate: { id: string }) => candidate.id === run.id);
+    const found = (await ask("GET", "/api/routines")).runs.find(
+      (candidate: { id: string }) => candidate.id === run.id,
+    );
     return Boolean(found) && !["queued", "running", "waiting"].includes(found.status);
   }, "the routine run");
 
   const [person, routineTurn] = sent();
   expect(person).toContain("Which branch is the repo on?");
-  expect(JSON.parse(person).message.content).toMatch(new RegExp(`${ON_IT_NOTE.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`));
+  expect(JSON.parse(person).message.content).toMatch(
+    new RegExp(`${ON_IT_NOTE.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`),
+  );
   expect(routineTurn).toContain("Check the repo's branch.");
   expect(routineTurn).not.toContain(ON_IT_NOTE);
 }, 120_000);

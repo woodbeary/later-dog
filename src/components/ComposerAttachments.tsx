@@ -48,12 +48,20 @@ export function ComposerAttachments({
   const [dragging, setDragging] = useState(false);
   const [preview, setPreview] = useState<PreviewImage | null>(null);
   const depth = useRef(0);
-  const callbacks = useRef({ onAdd, onNotice, onPendingChange, allowImages, uploadImage, admitFiles });
+  const callbacks = useRef({
+    onAdd,
+    onNotice,
+    onPendingChange,
+    allowImages,
+    uploadImage,
+    admitFiles,
+  });
   callbacks.current = { onAdd, onNotice, onPendingChange, allowImages, uploadImage, admitFiles };
   const pendingDrops = useRef(new Set<symbol>());
 
   useEffect(() => {
-    const carriesFiles = (e: DragEvent) => Array.from(e.dataTransfer?.types ?? []).includes("Files");
+    const carriesFiles = (e: DragEvent) =>
+      Array.from(e.dataTransfer?.types ?? []).includes("Files");
 
     const onEnter = (e: DragEvent) => {
       if (!carriesFiles(e)) return;
@@ -106,17 +114,21 @@ export function ComposerAttachments({
 
   return (
     <>
-      {dragging && createPortal(
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-10">
-          <div className="rounded-2xl border-2 border-dashed border-accent/70 bg-panel/90 px-8 py-6 text-[14px] font-medium text-ink shadow-2xl">
-            Drop to attach
-          </div>
-        </div>,
-        document.body,
-      )}
+      {dragging &&
+        createPortal(
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-10">
+            <div className="rounded-2xl border-2 border-dashed border-accent/70 bg-panel/90 px-8 py-6 text-[14px] font-medium text-ink shadow-2xl">
+              Drop to attach
+            </div>
+          </div>,
+          document.body,
+        )}
 
       {notice && (
-        <div role="status" className="flex items-start gap-2 px-1 pb-1.5 pt-0.5 text-[12px] text-warning">
+        <div
+          role="status"
+          className="flex items-start gap-2 px-1 pb-1.5 pt-0.5 text-[12px] text-warning"
+        >
           <span className="min-w-0 flex-1">{notice}</span>
           <button
             type="button"
@@ -130,7 +142,12 @@ export function ComposerAttachments({
       )}
 
       {items.length > 0 && (
-        <div role="list" aria-label="Attachments" data-composer-attachments className="flex items-center gap-2 overflow-x-auto px-1 pb-2 pt-1">
+        <div
+          role="list"
+          aria-label="Attachments"
+          data-composer-attachments
+          className="flex items-center gap-2 overflow-x-auto px-1 pb-2 pt-1"
+        >
           {items.map((a) =>
             a.kind === "citation" ? (
               <div key={a.id} role="listitem" className="shrink-0">
@@ -141,10 +158,23 @@ export function ComposerAttachments({
                 />
               </div>
             ) : a.kind === "paste" ? (
-              <div key={a.id} role="listitem" data-pasted-text title={a.text.slice(0, 4000)} className={chipClass("w-[200px] max-w-full gap-2 pl-3 pr-7")}>
-                <ClipboardPaste data-paste-icon size={16} className="shrink-0 text-ink-secondary" aria-hidden="true" />
+              <div
+                key={a.id}
+                role="listitem"
+                data-pasted-text
+                title={a.text.slice(0, 4000)}
+                className={chipClass("w-[200px] max-w-full gap-2 pl-3 pr-7")}
+              >
+                <ClipboardPaste
+                  data-paste-icon
+                  size={16}
+                  className="shrink-0 text-ink-secondary"
+                  aria-hidden="true"
+                />
                 <div className="min-w-0">
-                  <div data-paste-summary className="truncate text-[12px] text-ink">{pasteSummary(a)}</div>
+                  <div data-paste-summary className="truncate text-[12px] text-ink">
+                    {pasteSummary(a)}
+                  </div>
                   <button
                     type="button"
                     onClick={() => onDisplayInChatBox(a)}
@@ -159,7 +189,12 @@ export function ComposerAttachments({
                 <RemoveButton label="Remove pasted text" onClick={() => onRemove(a.id)} />
               </div>
             ) : a.kind === "image" ? (
-              <div key={a.id} role="listitem" title={a.name} className={chipClass("size-14 overflow-hidden bg-inset")}>
+              <div
+                key={a.id}
+                role="listitem"
+                title={a.name}
+                className={chipClass("size-14 overflow-hidden bg-inset")}
+              >
                 <button
                   type="button"
                   onClick={() => {
@@ -188,11 +223,18 @@ export function ComposerAttachments({
                 <RemoveButton label="Remove file" onImage onClick={() => onRemove(a.id)} />
               </div>
             ) : (
-              <div key={a.id} role="listitem" title={a.path} className={chipClass("w-[180px] gap-2 pl-3 pr-7")}>
+              <div
+                key={a.id}
+                role="listitem"
+                title={a.path}
+                className={chipClass("w-[180px] gap-2 pl-3 pr-7")}
+              >
                 <FileIcon size={16} className="shrink-0 text-ink-secondary" aria-hidden="true" />
                 <div className="min-w-0">
                   <div className="truncate text-[12px] text-ink">{a.name}</div>
-                  {a.size > 0 && <div className="text-[10.5px] text-ink-tertiary">{formatSize(a.size)}</div>}
+                  {a.size > 0 && (
+                    <div className="text-[10.5px] text-ink-tertiary">{formatSize(a.size)}</div>
+                  )}
                 </div>
                 <RemoveButton label="Remove file" onClick={() => onRemove(a.id)} />
               </div>
@@ -206,10 +248,21 @@ export function ComposerAttachments({
 }
 
 function chipClass(extra: string) {
-  return cn("group relative flex h-14 shrink-0 items-center rounded-xl border border-hairline/40 bg-raised transition-colors hover:border-hairline", extra);
+  return cn(
+    "group relative flex h-14 shrink-0 items-center rounded-xl border border-hairline/40 bg-raised transition-colors hover:border-hairline",
+    extra,
+  );
 }
 
-function RemoveButton({ label, onClick, onImage = false }: { label: string; onClick: () => void; onImage?: boolean }) {
+function RemoveButton({
+  label,
+  onClick,
+  onImage = false,
+}: {
+  label: string;
+  onClick: () => void;
+  onImage?: boolean;
+}) {
   return (
     <button
       type="button"
@@ -217,7 +270,9 @@ function RemoveButton({ label, onClick, onImage = false }: { label: string; onCl
       aria-label={label}
       className={cn(
         "absolute right-1 top-1 flex size-5 items-center justify-center rounded-full opacity-0 transition-opacity focus-visible:opacity-100 group-hover:opacity-100 touch:opacity-100",
-        onImage ? "bg-black/60 text-white hover:bg-black/75" : "border border-hairline/60 bg-panel text-ink-secondary hover:text-ink",
+        onImage
+          ? "bg-black/60 text-white hover:bg-black/75"
+          : "border border-hairline/60 bg-panel text-ink-secondary hover:text-ink",
       )}
     >
       <X size={11} />

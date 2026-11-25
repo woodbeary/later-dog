@@ -3,8 +3,15 @@ import { describe, expect, it } from "vitest";
 
 import { endKeyScrolls, scrollKeyLeavesBottom } from "./use-transcript-viewport";
 
-const press = (key: string, extra: Partial<KeyboardEvent> = {}) =>
-  ({ key, metaKey: false, ctrlKey: false, altKey: false, shiftKey: false, defaultPrevented: false, ...extra });
+const press = (key: string, extra: Partial<KeyboardEvent> = {}) => ({
+  key,
+  metaKey: false,
+  ctrlKey: false,
+  altKey: false,
+  shiftKey: false,
+  defaultPrevented: false,
+  ...extra,
+});
 
 describe("the End key", () => {
   it("scrolls the chat to the bottom from the page or an empty composer", () => {
@@ -66,7 +73,9 @@ describe("scroll keys that leave the bottom of a transcript", () => {
     expect(scrollKeyLeavesBottom(press("ArrowUp"), document.body, scroller)).toBe(true);
     expect(scrollKeyLeavesBottom(press("ArrowUp", { altKey: true }), header, scroller)).toBe(false);
     expect(scrollKeyLeavesBottom(press("ArrowUp"), header, scroller)).toBe(false);
-    expect(scrollKeyLeavesBottom(press("ArrowUp", { defaultPrevented: true }), row, scroller)).toBe(false);
+    expect(scrollKeyLeavesBottom(press("ArrowUp", { defaultPrevented: true }), row, scroller)).toBe(
+      false,
+    );
     expect(scrollKeyLeavesBottom(press("ArrowUp"), scrollable(300), scroller)).toBe(false);
     expect(scrollKeyLeavesBottom(press("ArrowUp"), document.body, scrollable(300))).toBe(false);
   });

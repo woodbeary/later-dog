@@ -1,5 +1,13 @@
 import { createHash, randomBytes, randomUUID } from "node:crypto";
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, unlinkSync, writeFileSync } from "node:fs";
+import {
+  chmodSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  unlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { createServer as createNetServer } from "node:net";
 import { homedir, tmpdir } from "node:os";
 import { join, dirname, isAbsolute, normalize } from "node:path";
@@ -7,9 +15,27 @@ import { join, dirname, isAbsolute, normalize } from "node:path";
 import { DATA_DIR, stripWorkspaceCredentialEnv } from "../config.ts";
 import { writeFileAtomic, writeFileAtomicIfChanged } from "../atomic.ts";
 import { augmentedPath } from "../env-path.ts";
-import { brokerSocketPath, describeSpawnFailure, execCli, killCliTree, resolveCli, spawnCli } from "../procs.ts";
-import { engineOpener, notePlacement, planClaudeRemote, remoteEngineBots, spawnPlacedEngine } from "../laterdog/engine-placement.ts";
-import { claudeResumeRefusal, classifyResumeFailure, mayReplay, recoveryPromptFor } from "../resume-recovery.ts";
+import {
+  brokerSocketPath,
+  describeSpawnFailure,
+  execCli,
+  killCliTree,
+  resolveCli,
+  spawnCli,
+} from "../procs.ts";
+import {
+  engineOpener,
+  notePlacement,
+  planClaudeRemote,
+  remoteEngineBots,
+  spawnPlacedEngine,
+} from "../laterdog/engine-placement.ts";
+import {
+  claudeResumeRefusal,
+  classifyResumeFailure,
+  mayReplay,
+  recoveryPromptFor,
+} from "../resume-recovery.ts";
 import { ClaudeLoginController } from "./claude-login-auth.ts";
 
 import type {
@@ -45,11 +71,23 @@ import {
   resolveInjectId,
 } from "./local-inject.ts";
 import { appendNative } from "./native.ts";
-import { claudeModelAnswered, claudeUsageLimit, rejectedRateLimit, type UsageLimit } from "../laterdog/usage-limit.ts";
+import {
+  claudeModelAnswered,
+  claudeUsageLimit,
+  rejectedRateLimit,
+  type UsageLimit,
+} from "../laterdog/usage-limit.ts";
 import { claudeModelChange } from "../laterdog/model-change.ts";
 import { claudeLiveReading, noteLiveReading } from "../laterdog/plan-readings.ts";
 import { chatEngineEnvironment } from "../laterdog/chat-environment.ts";
-import { claudeRefreshGate, claudeRefreshLockFrame, claudeRefreshLockResult, claudeSignInAgainMessage, retryClaudeRefreshLock, type RefreshLockState } from "../laterdog/claude-refresh-lock.ts";
+import {
+  claudeRefreshGate,
+  claudeRefreshLockFrame,
+  claudeRefreshLockResult,
+  claudeSignInAgainMessage,
+  retryClaudeRefreshLock,
+  type RefreshLockState,
+} from "../laterdog/claude-refresh-lock.ts";
 import { permissionCommand, permissionLaunchCwd } from "./permission-command.ts";
 import { SPAWNED_PROXIES } from "../proxy-paths.ts";
 import { laterdogPreallowedTools } from "../laterdog/own-tools.ts";
@@ -74,7 +112,12 @@ import { readCliVersion as readCliVersionOf, unreadCli } from "../laterdog/cli-v
 import { claudeToolTouch } from "../laterdog/tool-touches.ts";
 import { claudeContextNote, claudeSeenVolatile } from "../laterdog/volatile-sections.ts";
 import { claudeHelperEnvironment } from "../laterdog/helper-model.ts";
-import { helperContractArgs, helperContractWanted, helperFlagRefused, SUBAGENT_PROMPT_FLAG } from "../laterdog/helper-contract.ts";
+import {
+  helperContractArgs,
+  helperContractWanted,
+  helperFlagRefused,
+  SUBAGENT_PROMPT_FLAG,
+} from "../laterdog/helper-contract.ts";
 import { disallowedWithOnePlan, hasSetPlan } from "../laterdog/one-plan.ts";
 import { agentsServerLaunch } from "../laterdog/tool-loading.ts";
 import { claudeRareToolsOnDemand } from "../laterdog/defer-by-model.ts";
@@ -91,30 +134,47 @@ export function claudeAuthStatus(
   run: typeof execCli = execCli,
 ): Promise<{ authenticated?: boolean; account?: ProviderSnapshot["account"] }> {
   return new Promise((resolve) => {
-    run(cli, ["auth", "status", "--json"], { timeout: 8000, maxBuffer: 65_536, env }, (error, stdout) => {
-      if (unanswered(error, stdout)) return resolve({});
-      try {
-        const status: unknown = JSON.parse(stdout);
-        if (!status || typeof status !== "object" || !("loggedIn" in status) || status.loggedIn !== true) {
-          return resolve({ authenticated: false });
+    run(
+      cli,
+      ["auth", "status", "--json"],
+      { timeout: 8000, maxBuffer: 65_536, env },
+      (error, stdout) => {
+        if (unanswered(error, stdout)) return resolve({});
+        try {
+          const status: unknown = JSON.parse(stdout);
+          if (
+            !status ||
+            typeof status !== "object" ||
+            !("loggedIn" in status) ||
+            status.loggedIn !== true
+          ) {
+            return resolve({ authenticated: false });
+          }
+          const identity = status as { email?: unknown; orgName?: unknown; authMethod?: unknown };
+          const boundedText = (value: unknown, max: number): string | undefined =>
+            typeof value === "string" &&
+            value.trim().length > 0 &&
+            value.length <= max &&
+            !/[\p{Cc}\p{Cf}]/u.test(value)
+              ? value.trim()
+              : undefined;
+          const candidateEmail = boundedText(identity.email, 254);
+          const email =
+            candidateEmail && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(candidateEmail)
+              ? candidateEmail
+              : undefined;
+          const organization = boundedText(identity.orgName, 160);
+          const account = {
+            ...(email ? { email } : {}),
+            ...(organization ? { organization } : {}),
+            ...(identity.authMethod === "api_key" ? { method: "api-key" as const } : {}),
+          };
+          resolve({ authenticated: true, ...(Object.keys(account).length ? { account } : {}) });
+        } catch {
+          resolve({ authenticated: false });
         }
-        const identity = status as { email?: unknown; orgName?: unknown; authMethod?: unknown };
-        const boundedText = (value: unknown, max: number): string | undefined =>
-          typeof value === "string" && value.trim().length > 0 && value.length <= max && !/[\p{Cc}\p{Cf}]/u.test(value)
-            ? value.trim() : undefined;
-        const candidateEmail = boundedText(identity.email, 254);
-        const email = candidateEmail && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(candidateEmail) ? candidateEmail : undefined;
-        const organization = boundedText(identity.orgName, 160);
-        const account = {
-          ...(email ? { email } : {}),
-          ...(organization ? { organization } : {}),
-          ...(identity.authMethod === "api_key" ? { method: "api-key" as const } : {}),
-        };
-        resolve({ authenticated: true, ...(Object.keys(account).length ? { account } : {}) });
-      } catch {
-        resolve({ authenticated: false });
-      }
-    });
+      },
+    );
   });
 }
 
@@ -123,12 +183,20 @@ const BUSY_CODES = new Set(["EAGAIN", "ENOMEM", "EMFILE", "ENFILE"]);
 function unanswered(error: unknown, stdout: string): boolean {
   if (!error || stdout.trim()) return false;
   const failure = error as { signal?: unknown; code?: unknown };
-  return (typeof failure.signal === "string" && failure.signal.length > 0) || (typeof failure.code === "string" && BUSY_CODES.has(failure.code));
+  return (
+    (typeof failure.signal === "string" && failure.signal.length > 0) ||
+    (typeof failure.code === "string" && BUSY_CODES.has(failure.code))
+  );
 }
 
-function keptAuth(snapshot: ProviderSnapshot | null): Pick<ProviderSnapshot, "authenticated" | "account"> {
+function keptAuth(
+  snapshot: ProviderSnapshot | null,
+): Pick<ProviderSnapshot, "authenticated" | "account"> {
   if (snapshot?.authenticated === undefined) return {};
-  return { authenticated: snapshot.authenticated, ...(snapshot.account ? { account: snapshot.account } : {}) };
+  return {
+    authenticated: snapshot.authenticated,
+    ...(snapshot.account ? { account: snapshot.account } : {}),
+  };
 }
 
 export async function claudeSignedIn(
@@ -154,10 +222,18 @@ export const CLAUDE_ACCOUNT_ENV_KEYS = [
   "CLAUDE_CODE_USE_FOUNDRY",
 ] as const;
 
-export function resolveClaudeConfigDir(configDir?: string, env: NodeJS.ProcessEnv = process.env): string {
+export function resolveClaudeConfigDir(
+  configDir?: string,
+  env: NodeJS.ProcessEnv = process.env,
+): string {
   const home = env.HOME || env.USERPROFILE || homedir();
   const configured = configDir?.trim() || env.CLAUDE_CONFIG_DIR?.trim() || join(home, ".claude");
-  const expanded = configured === "~" ? home : configured.startsWith("~/") ? join(home, configured.slice(2)) : configured;
+  const expanded =
+    configured === "~"
+      ? home
+      : configured.startsWith("~/")
+        ? join(home, configured.slice(2))
+        : configured;
   if (!isAbsolute(expanded) || /[\p{Cc}\p{Cf}]/u.test(expanded)) {
     throw new Error("claude: configDir must be an absolute path or start with ~/");
   }
@@ -190,7 +266,11 @@ function claudeEnvironment(
   if (configDir?.trim()) {
     env.CLAUDE_CONFIG_DIR = resolveClaudeConfigDir(configDir, env);
     for (const key of CLAUDE_ACCOUNT_ENV_KEYS) {
-      if (key.startsWith("CLAUDE_CODE_OAUTH_") || key.endsWith("_FILE_DESCRIPTOR") || !Object.hasOwn(instanceEnvironment, key)) {
+      if (
+        key.startsWith("CLAUDE_CODE_OAUTH_") ||
+        key.endsWith("_FILE_DESCRIPTOR") ||
+        !Object.hasOwn(instanceEnvironment, key)
+      ) {
         delete env[key];
       }
     }
@@ -210,7 +290,9 @@ function inheritsUserConfig(env: NodeJS.ProcessEnv): boolean {
   return env.LATERDOG_CLAUDE_INHERIT_USER_CONFIG === "1";
 }
 
-export function claudeInheritWarning(env: NodeJS.ProcessEnv): ProviderSnapshot["warning"] | undefined {
+export function claudeInheritWarning(
+  env: NodeJS.ProcessEnv,
+): ProviderSnapshot["warning"] | undefined {
   if (!inheritsUserConfig(env)) return undefined;
   return {
     title: "Bots inherit this machine's Claude Code setup",
@@ -229,7 +311,9 @@ export function readClaudeAuthSettings(
 ): { env?: Record<string, string>; apiKeyHelper?: string } {
   if (CLAUDE_ACCOUNT_ENV_KEYS.some((key) => instanceEnvironment[key])) return {};
   try {
-    const settings = JSON.parse(readFileSync(join(resolveClaudeConfigDir(undefined, env), "settings.json"), "utf8"));
+    const settings = JSON.parse(
+      readFileSync(join(resolveClaudeConfigDir(undefined, env), "settings.json"), "utf8"),
+    );
     const authEnv: Record<string, string> = {};
     for (const key of CLAUDE_ACCOUNT_ENV_KEYS) {
       if (!key.endsWith("_FILE_DESCRIPTOR") && typeof settings?.env?.[key] === "string") {
@@ -239,7 +323,8 @@ export function readClaudeAuthSettings(
     return {
       ...(Object.keys(authEnv).length ? { env: authEnv } : {}),
       ...(typeof settings?.apiKeyHelper === "string" && settings.apiKeyHelper.trim()
-        ? { apiKeyHelper: settings.apiKeyHelper } : {}),
+        ? { apiKeyHelper: settings.apiKeyHelper }
+        : {}),
     };
   } catch {
     return {};
@@ -267,7 +352,8 @@ export function autoCompactWindow(env: NodeJS.ProcessEnv, tuned = false): string
   if (raw === "off") return null;
   if (raw === "auto") return "auto";
   const parsed = raw ? Number(raw) : NaN;
-  if (!Number.isFinite(parsed) || parsed <= 0) return String(tuned ? DOG_COMPACT_WINDOW_TOKENS : STANDARD_WINDOW_TOKENS);
+  if (!Number.isFinite(parsed) || parsed <= 0)
+    return String(tuned ? DOG_COMPACT_WINDOW_TOKENS : STANDARD_WINDOW_TOKENS);
   return String(Math.min(1_000_000, Math.max(100_000, Math.floor(parsed))));
 }
 
@@ -299,10 +385,20 @@ export const CLAUDE_FLAG_FLOORS = {
 
 const FLAGS_LEARNED_AFTER_LAUNCH = ["--autocompact", "--system-prompt-snapshot"] as const;
 
-const withWhy = (refusal: string, why: string | undefined) => why ? `${refusal} ${why}` : refusal;
+const withWhy = (refusal: string, why: string | undefined) => (why ? `${refusal} ${why}` : refusal);
 
 export const GUEST_CLAUDE_TOOLS = ["Read", "Grep", "Glob", "Edit", "Write", "WebSearch"] as const;
-const GUEST_FORBIDDEN_TOOLS = new Set(["Bash", "PowerShell", "WebFetch", "BashOutput", "KillShell", "KillBash", "NotebookEdit", "Task", "Agent"]);
+const GUEST_FORBIDDEN_TOOLS = new Set([
+  "Bash",
+  "PowerShell",
+  "WebFetch",
+  "BashOutput",
+  "KillShell",
+  "KillBash",
+  "NotebookEdit",
+  "Task",
+  "Agent",
+]);
 export const GUEST_CLAUDE_PERMISSIONS = {
   blockReadsOutsideWorkingDirectories: true,
   deny: ["Bash", "PowerShell", "WebFetch", "Read(//proc/**)"],
@@ -310,7 +406,8 @@ export const GUEST_CLAUDE_PERMISSIONS = {
 
 export type ClaudeCliVersion = readonly [number, number, number];
 
-export const CLAUDE_CONTEXT_CONTROL_MIN_VERSION: ClaudeCliVersion = CLAUDE_FLAG_FLOORS["--system-prompt-snapshot"];
+export const CLAUDE_CONTEXT_CONTROL_MIN_VERSION: ClaudeCliVersion =
+  CLAUDE_FLAG_FLOORS["--system-prompt-snapshot"];
 
 export const CLAUDE_REPLAY_FLOOR: ClaudeCliVersion = [2, 1, 282];
 
@@ -318,20 +415,31 @@ export function parseClaudeCliVersion(stdout: string | null | undefined): Claude
   return parseVersionTriple(stdout ?? "");
 }
 
-export function claudeCliSupports(version: ClaudeCliVersion | null, flag: keyof typeof CLAUDE_FLAG_FLOORS): boolean {
+export function claudeCliSupports(
+  version: ClaudeCliVersion | null,
+  flag: keyof typeof CLAUDE_FLAG_FLOORS,
+): boolean {
   return version === null || versionAtLeast(version, CLAUDE_FLAG_FLOORS[flag]);
 }
 
-export function claudeCliUpdate(version: string | null, cli: string): ProviderSnapshot["update"] | undefined {
+export function claudeCliUpdate(
+  version: string | null,
+  cli: string,
+): ProviderSnapshot["update"] | undefined {
   const parsed = parseClaudeCliVersion(version);
   if (!parsed || versionAtLeast(parsed, CLAUDE_CONTEXT_CONTROL_MIN_VERSION)) return undefined;
   const floor = CLAUDE_CONTEXT_CONTROL_MIN_VERSION.join(".");
-  const missing = (Object.keys(CLAUDE_FLAG_FLOORS) as (keyof typeof CLAUDE_FLAG_FLOORS)[])
-    .filter((flag) => !claudeCliSupports(parsed, flag));
+  const missing = (Object.keys(CLAUDE_FLAG_FLOORS) as (keyof typeof CLAUDE_FLAG_FLOORS)[]).filter(
+    (flag) => !claudeCliSupports(parsed, flag),
+  );
   const effects = [
     ...(missing.includes("--autocompact") ? ["no compaction window picked by later.dog"] : []),
-    ...(missing.includes("--setting-sources") ? ["bots still see this machine's own Claude Code setup"] : []),
-    ...(missing.includes("--system-prompt-snapshot") ? ["resumed turns cannot refresh stale system prompts"] : []),
+    ...(missing.includes("--setting-sources")
+      ? ["bots still see this machine's own Claude Code setup"]
+      : []),
+    ...(missing.includes("--system-prompt-snapshot")
+      ? ["resumed turns cannot refresh stale system prompts"]
+      : []),
   ];
   return {
     title: "Update Claude Code for context controls",
@@ -362,14 +470,60 @@ const CLAUDE_5_EFFORT: readonly EffortLevel[] = ["low", "medium", "high", "xhigh
 export const STATIC_CLAUDE_MODELS: ModelCatalog = {
   default: "claude-opus-5-5",
   options: [
-    { id: "claude-fable-5-2", label: "Claude Fable 5.2", contextWindow: 1_000_000, effortLevels: CLAUDE_5_EFFORT, defaultEffort: "high" },
-    { id: "claude-fable-5-1", label: "Claude Fable 5.1", contextWindow: 1_000_000, effortLevels: CLAUDE_5_EFFORT, defaultEffort: "high" },
-    { id: "claude-fable-5", label: "Claude Fable 5", contextWindow: 1_000_000, effortLevels: CLAUDE_5_EFFORT, defaultEffort: "high" },
-    { id: "claude-opus-5-5", label: "Claude Opus 5.5", contextWindow: 1_000_000, effortLevels: CLAUDE_5_EFFORT, defaultEffort: "medium" },
-    { id: "claude-opus-5", label: "Claude Opus 5", effortLevels: CLAUDE_5_EFFORT, defaultEffort: "high" },
-    { id: "claude-sonnet-5-5", label: "Claude Sonnet 5.5", contextWindow: 1_000_000, effortLevels: CLAUDE_5_EFFORT, defaultEffort: "medium" },
-    { id: "claude-sonnet-5", label: "Claude Sonnet 5", effortLevels: CLAUDE_5_EFFORT, defaultEffort: "high" },
-    { id: "claude-haiku-5-5", label: "Claude Haiku 5.5", contextWindow: 1_000_000, effortLevels: CLAUDE_5_EFFORT, defaultEffort: "medium" },
+    {
+      id: "claude-fable-5-2",
+      label: "Claude Fable 5.2",
+      contextWindow: 1_000_000,
+      effortLevels: CLAUDE_5_EFFORT,
+      defaultEffort: "high",
+    },
+    {
+      id: "claude-fable-5-1",
+      label: "Claude Fable 5.1",
+      contextWindow: 1_000_000,
+      effortLevels: CLAUDE_5_EFFORT,
+      defaultEffort: "high",
+    },
+    {
+      id: "claude-fable-5",
+      label: "Claude Fable 5",
+      contextWindow: 1_000_000,
+      effortLevels: CLAUDE_5_EFFORT,
+      defaultEffort: "high",
+    },
+    {
+      id: "claude-opus-5-5",
+      label: "Claude Opus 5.5",
+      contextWindow: 1_000_000,
+      effortLevels: CLAUDE_5_EFFORT,
+      defaultEffort: "medium",
+    },
+    {
+      id: "claude-opus-5",
+      label: "Claude Opus 5",
+      effortLevels: CLAUDE_5_EFFORT,
+      defaultEffort: "high",
+    },
+    {
+      id: "claude-sonnet-5-5",
+      label: "Claude Sonnet 5.5",
+      contextWindow: 1_000_000,
+      effortLevels: CLAUDE_5_EFFORT,
+      defaultEffort: "medium",
+    },
+    {
+      id: "claude-sonnet-5",
+      label: "Claude Sonnet 5",
+      effortLevels: CLAUDE_5_EFFORT,
+      defaultEffort: "high",
+    },
+    {
+      id: "claude-haiku-5-5",
+      label: "Claude Haiku 5.5",
+      contextWindow: 1_000_000,
+      effortLevels: CLAUDE_5_EFFORT,
+      defaultEffort: "medium",
+    },
     { id: "claude-haiku-4-5", label: "Claude Haiku 4.5", effortLevels: [] },
   ],
 };
@@ -381,7 +535,11 @@ async function resolveClaudeTurnModel(
   model: string | null | undefined,
   env: Record<string, string | undefined>,
 ): Promise<string | null | undefined> {
-  if (!model || decodeInjectId(model) || STATIC_CLAUDE_MODELS.options.some((option) => option.id === model)) {
+  if (
+    !model ||
+    decodeInjectId(model) ||
+    STATIC_CLAUDE_MODELS.options.some((option) => option.id === model)
+  ) {
     return model;
   }
   return resolveInjectId(model, await probeLocalInjects(env)) ?? model;
@@ -394,10 +552,21 @@ function extrasFromUnknown(value: unknown): Array<{ id: string; label: string }>
       return CLAUDE_MODEL_ID.test(item) ? [{ id: item, label: item }] : [];
     }
     if (!item || typeof item !== "object") return [];
-    const row = item as { id?: unknown; model?: unknown; slug?: unknown; name?: unknown; displayName?: unknown; label?: unknown };
-    const id = [row.id, row.model, row.slug].find((candidate): candidate is string => typeof candidate === "string");
+    const row = item as {
+      id?: unknown;
+      model?: unknown;
+      slug?: unknown;
+      name?: unknown;
+      displayName?: unknown;
+      label?: unknown;
+    };
+    const id = [row.id, row.model, row.slug].find(
+      (candidate): candidate is string => typeof candidate === "string",
+    );
     if (!id || !CLAUDE_MODEL_ID.test(id)) return [];
-    const label = [row.name, row.displayName, row.label].find((candidate): candidate is string => typeof candidate === "string");
+    const label = [row.name, row.displayName, row.label].find(
+      (candidate): candidate is string => typeof candidate === "string",
+    );
     return [{ id, label: label || id }];
   });
 }
@@ -405,7 +574,9 @@ function extrasFromUnknown(value: unknown): Array<{ id: string; label: string }>
 export function readClaudeModelCatalog(env: Record<string, string | undefined> = process.env) {
   let settings: Record<string, unknown> = {};
   try {
-    settings = JSON.parse(readFileSync(join(resolveClaudeConfigDir(undefined, env), "settings.json"), "utf8")) as Record<string, unknown>;
+    settings = JSON.parse(
+      readFileSync(join(resolveClaudeConfigDir(undefined, env), "settings.json"), "utf8"),
+    ) as Record<string, unknown>;
   } catch {
     settings = {};
   }
@@ -413,20 +584,29 @@ export function readClaudeModelCatalog(env: Record<string, string | undefined> =
   const extras = [
     ...extrasFromUnknown(settings.availableModels).map((extra) => ({ ...extra, custom: true })),
     ...extrasFromUnknown(settings.customModels).map((extra) => ({ ...extra, custom: true })),
-    ...extrasFromUnknown(settings.extraModels).map((extra) => ({ ...extra, custom: !OFFICIAL_CLAUDE_ID.test(extra.id) })),
+    ...extrasFromUnknown(settings.extraModels).map((extra) => ({
+      ...extra,
+      custom: !OFFICIAL_CLAUDE_ID.test(extra.id),
+    })),
   ];
-  const nestedEnv = settings.env && typeof settings.env === "object" ? (settings.env as Record<string, unknown>) : {};
+  const nestedEnv =
+    settings.env && typeof settings.env === "object"
+      ? (settings.env as Record<string, unknown>)
+      : {};
   const envModel = nestedEnv.ANTHROPIC_MODEL ?? env.ANTHROPIC_MODEL;
-  if (typeof envModel === "string") extras.push(...extrasFromUnknown([envModel]).map((extra) => ({ ...extra, custom: true })));
+  if (typeof envModel === "string")
+    extras.push(...extrasFromUnknown([envModel]).map((extra) => ({ ...extra, custom: true })));
 
   const options = STATIC_CLAUDE_MODELS.options.map((option) => ({ ...option }));
   const seen = new Set(options.map((option) => option.id));
   for (const extra of extras) {
     if (seen.has(extra.id)) continue;
     seen.add(extra.id);
-    options.push(extra.custom || extra.id === envModel
-      ? { id: extra.id, label: extra.label, custom: true }
-      : { id: extra.id, label: extra.label });
+    options.push(
+      extra.custom || extra.id === envModel
+        ? { id: extra.id, label: extra.label, custom: true }
+        : { id: extra.id, label: extra.label },
+    );
   }
   return { default: STATIC_CLAUDE_MODELS.default, options };
 }
@@ -445,7 +625,10 @@ function removePrivateTempDir(filePath: string | null | undefined): boolean {
   }
 }
 
-function removeLaunchFiles(session: { mcpConfigPath: string | null; systemPromptPath: string | null }): void {
+function removeLaunchFiles(session: {
+  mcpConfigPath: string | null;
+  systemPromptPath: string | null;
+}): void {
   if (removePrivateTempDir(session.mcpConfigPath)) session.mcpConfigPath = null;
   if (removePrivateTempDir(session.systemPromptPath)) session.systemPromptPath = null;
 }
@@ -464,7 +647,8 @@ type AskResolutionSource = "user" | "timeout" | "system";
 
 const DENY_TIMEOUT_NOTE =
   "later.dog: nobody answered this permission request in time. Skip this action and finish what you can without it.";
-const QUESTION_TIMEOUT_NOTE = "later.dog: nobody answered in time. Use your best judgment and continue.";
+const QUESTION_TIMEOUT_NOTE =
+  "later.dog: nobody answered in time. Use your best judgment and continue.";
 const DUPLICATE_ASK_ID_NOTE = "later.dog: duplicate ask id — skipping this request.";
 
 function systemEndedReply(kind: Ask["kind"]): { behavior: AskBehavior; message: string } {
@@ -477,14 +661,24 @@ function askQuestions(ask: Ask): AskQuestion[] | null {
   return ask.tool === ASK_USER_QUESTION_TOOL ? parseAskQuestions(ask.input) : null;
 }
 
-const ASKED_FIELDS = ["command", "url", "file_path", "notebook_path", "path", "action", "cwd"] as const;
+const ASKED_FIELDS = [
+  "command",
+  "url",
+  "file_path",
+  "notebook_path",
+  "path",
+  "action",
+  "cwd",
+] as const;
 
 function askedFields(input: unknown): Record<string, unknown> | undefined {
   if (!input || typeof input !== "object") return undefined;
-  const fields = Object.fromEntries(ASKED_FIELDS.flatMap((key) => {
-    const value = (input as Record<string, unknown>)[key];
-    return typeof value === "string" ? [[key, value]] : [];
-  }));
+  const fields = Object.fromEntries(
+    ASKED_FIELDS.flatMap((key) => {
+      const value = (input as Record<string, unknown>)[key];
+      return typeof value === "string" ? [[key, value]] : [];
+    }),
+  );
   return Object.keys(fields).length ? fields : undefined;
 }
 
@@ -501,17 +695,21 @@ export interface NativeTurnResult {
   usage?: { input: number; output: number; cachedInput?: number };
 }
 
-export function sumNativeTurnResults(earlier: NativeTurnResult | null, latest: NativeTurnResult): NativeTurnResult {
+export function sumNativeTurnResults(
+  earlier: NativeTurnResult | null,
+  latest: NativeTurnResult,
+): NativeTurnResult {
   if (!earlier) return latest;
-  const usage = earlier.usage && latest.usage
-    ? {
-        input: earlier.usage.input + latest.usage.input,
-        output: earlier.usage.output + latest.usage.output,
-        ...(earlier.usage.cachedInput !== undefined || latest.usage.cachedInput !== undefined
-          ? { cachedInput: (earlier.usage.cachedInput ?? 0) + (latest.usage.cachedInput ?? 0) }
-          : {}),
-      }
-    : latest.usage ?? earlier.usage;
+  const usage =
+    earlier.usage && latest.usage
+      ? {
+          input: earlier.usage.input + latest.usage.input,
+          output: earlier.usage.output + latest.usage.output,
+          ...(earlier.usage.cachedInput !== undefined || latest.usage.cachedInput !== undefined
+            ? { cachedInput: (earlier.usage.cachedInput ?? 0) + (latest.usage.cachedInput ?? 0) }
+            : {}),
+        }
+      : (latest.usage ?? earlier.usage);
   return {
     ok: earlier.ok && latest.ok,
     stopReason: latest.stopReason ?? earlier.stopReason,
@@ -529,31 +727,55 @@ const steerGraceScale = () => fakeTimerScale("FAKE_CLAUDE_STEER_GRACE_SCALE");
 const steerSilenceScale = () => fakeTimerScale("FAKE_CLAUDE_STEER_SILENCE_SCALE");
 
 export function hookTokenFile(threadId: string, botId?: string): string {
-  const digest = createHash("sha256").update(`${botId ?? ""}\0${threadId}`).digest("hex").slice(0, 24);
+  const digest = createHash("sha256")
+    .update(`${botId ?? ""}\0${threadId}`)
+    .digest("hex")
+    .slice(0, 24);
   return join(DATA_DIR, "hook-tokens", `${digest}.token`);
 }
 
 const HOOK_ADDRESS_VARIABLES = ["LATERDOG_HOOK_URL", "LATERDOG_HOOK_TOKEN_FILE"] as const;
 
-export function claudeHookEnvironment(platform: NodeJS.Platform, target: ClaudeHookTarget, helperPath: string): Record<string, string> {
+export function claudeHookEnvironment(
+  platform: NodeJS.Platform,
+  target: ClaudeHookTarget,
+  helperPath: string,
+): Record<string, string> {
   if (platform !== "win32") return {};
-  return { LATERDOG_HOOK_URL: target.url, LATERDOG_HOOK_TOKEN_FILE: target.tokenFile, LATERDOG_HOOK_NODE: process.execPath, LATERDOG_HOOK_HELPER: helperPath };
+  return {
+    LATERDOG_HOOK_URL: target.url,
+    LATERDOG_HOOK_TOKEN_FILE: target.tokenFile,
+    LATERDOG_HOOK_NODE: process.execPath,
+    LATERDOG_HOOK_HELPER: helperPath,
+  };
 }
 
 export function localModelEndpoint(baseUrl: string | undefined): boolean {
   if (!baseUrl?.trim()) return false;
   try {
     const host = new URL(baseUrl).hostname.replace(/^\[|\]$/g, "").toLowerCase();
-    return host === "localhost" || host === "::1" || host.startsWith("127.") || host.endsWith(".local") || host.endsWith(".localhost");
+    return (
+      host === "localhost" ||
+      host === "::1" ||
+      host.startsWith("127.") ||
+      host.endsWith(".local") ||
+      host.endsWith(".localhost")
+    );
   } catch {
     return false;
   }
 }
 
-export function claudeUnansweredError(frame: { is_error?: unknown; errors?: unknown; result?: unknown }): string | null {
+export function claudeUnansweredError(frame: {
+  is_error?: unknown;
+  errors?: unknown;
+  result?: unknown;
+}): string | null {
   if (frame.is_error !== true || !Array.isArray(frame.errors)) return null;
   if (typeof frame.result === "string" && frame.result.trim()) return null;
-  const errors = frame.errors.filter((error): error is string => typeof error === "string" && Boolean(error.trim())).map((error) => error.trim());
+  const errors = frame.errors
+    .filter((error): error is string => typeof error === "string" && Boolean(error.trim()))
+    .map((error) => error.trim());
   return errors.length ? errors.join("; ").slice(0, 2_000) : null;
 }
 
@@ -565,7 +787,15 @@ export function claudeForksAtPoint(version: ClaudeCliVersion | null): boolean {
 }
 
 export function claudeForkArgs(fork: EngineForkPoint, sessionId: string): string[] {
-  return ["--resume", fork.session, "--fork-session", "--session-id", sessionId, "--resume-session-at", fork.at];
+  return [
+    "--resume",
+    fork.session,
+    "--fork-session",
+    "--session-id",
+    sessionId,
+    "--resume-session-at",
+    fork.at,
+  ];
 }
 
 export interface ClaudeHookTarget {
@@ -573,15 +803,30 @@ export interface ClaudeHookTarget {
   tokenFile: string;
 }
 
-export function claudeHookSettings(helperPath: string, options: { guardShell?: boolean; postCompact?: boolean; target?: ClaudeHookTarget } = {}): Record<string, unknown> {
+export function claudeHookSettings(
+  helperPath: string,
+  options: { guardShell?: boolean; postCompact?: boolean; target?: ClaudeHookTarget } = {},
+): Record<string, unknown> {
   const target = options.target ? [options.target.url, options.target.tokenFile] : [];
-  const command = process.platform === "win32"
-    ? '"%LATERDOG_HOOK_NODE%" "%LATERDOG_HOOK_HELPER%"'
-    : [process.execPath, helperPath, ...target].map(path => `'${path.replace(/'/g, "'\\''")}'`).join(" ");
+  const command =
+    process.platform === "win32"
+      ? '"%LATERDOG_HOOK_NODE%" "%LATERDOG_HOOK_HELPER%"'
+      : [process.execPath, helperPath, ...target]
+          .map((path) => `'${path.replace(/'/g, "'\\''")}'`)
+          .join(" ");
   const entry = [{ matcher: "", hooks: [{ type: "command", command, timeout: 5 }] }];
-  const settings: Record<string, unknown> = { PostToolUse: entry, PreCompact: entry, SessionStart: entry, Stop: entry };
+  const settings: Record<string, unknown> = {
+    PostToolUse: entry,
+    PreCompact: entry,
+    SessionStart: entry,
+    Stop: entry,
+  };
   if (options.postCompact) settings.PostCompact = entry;
-  if (options.guardShell) settings.PreToolUse = GUARDED_TOOLS.map((matcher) => ({ matcher, hooks: [{ type: "command", command, timeout: 5 }] }));
+  if (options.guardShell)
+    settings.PreToolUse = GUARDED_TOOLS.map((matcher) => ({
+      matcher,
+      hooks: [{ type: "command", command, timeout: 5 }],
+    }));
   return settings;
 }
 
@@ -607,7 +852,9 @@ export function brokerSocketCandidates(threadId: string, botId?: string): string
       .slice(0, 16);
     const candidates = [base, join(tmpdir(), `laterdog-perm-${scope}.sock`)];
     const fitting = candidates.filter(fitsUnixSocketPath);
-    return fitting.length === candidates.length ? candidates : [...fitting, `/tmp/ld-${scope}.sock`];
+    return fitting.length === candidates.length
+      ? candidates
+      : [...fitting, `/tmp/ld-${scope}.sock`];
   }
   return [
     base,
@@ -626,7 +873,15 @@ export async function createPermissionBroker(opts: {
   const timeoutMs = opts.timeoutMs ?? 15 * 60_000;
   const pending = new Map<
     string,
-    { ask: Ask; finish: (behavior: AskBehavior, message: string | undefined, source: AskResolutionSource, always?: boolean) => void }
+    {
+      ask: Ask;
+      finish: (
+        behavior: AskBehavior,
+        message: string | undefined,
+        source: AskResolutionSource,
+        always?: boolean,
+      ) => void;
+    }
   >();
   let closed = false;
   let boundPath = opts.socketPaths[0] ?? "";
@@ -651,30 +906,63 @@ export async function createPermissionBroker(opts: {
         const kind = msg.kind === "question" ? ("question" as const) : ("permission" as const);
         if (closed) {
           try {
-            conn.write(JSON.stringify({ t: "answer", id: askId, ...systemEndedReply(kind) }) + "\n");
+            conn.write(
+              JSON.stringify({ t: "answer", id: askId, ...systemEndedReply(kind) }) + "\n",
+            );
           } catch {}
           continue;
         }
         if (opts.isActive && !opts.isActive()) {
           try {
-            conn.write(JSON.stringify({ t: "answer", id: askId, ...systemEndedReply(kind) }) + "\n");
+            conn.write(
+              JSON.stringify({ t: "answer", id: askId, ...systemEndedReply(kind) }) + "\n",
+            );
           } catch {}
           continue;
         }
         if (pending.has(askId)) {
-          console.error(`permission broker on ${boundPath}: duplicate ask id ${JSON.stringify(askId)} — denying`);
+          console.error(
+            `permission broker on ${boundPath}: duplicate ask id ${JSON.stringify(askId)} — denying`,
+          );
           try {
-            conn.write(JSON.stringify({ t: "answer", id: askId, behavior: "deny", message: DUPLICATE_ASK_ID_NOTE }) + "\n");
+            conn.write(
+              JSON.stringify({
+                t: "answer",
+                id: askId,
+                behavior: "deny",
+                message: DUPLICATE_ASK_ID_NOTE,
+              }) + "\n",
+            );
           } catch {}
           continue;
         }
-        const ask: Ask = { id: askId, kind, tool: msg.tool ?? "tool", input: msg.input ?? {}, at: Date.now(), toolUseId: typeof msg.tool_use_id === "string" ? msg.tool_use_id : undefined, agentId: typeof msg.agent_id === "string" ? msg.agent_id : undefined };
-        const finish = (behavior: AskBehavior, message: string | undefined, source: AskResolutionSource, always?: boolean) => {
+        const ask: Ask = {
+          id: askId,
+          kind,
+          tool: msg.tool ?? "tool",
+          input: msg.input ?? {},
+          at: Date.now(),
+          toolUseId: typeof msg.tool_use_id === "string" ? msg.tool_use_id : undefined,
+          agentId: typeof msg.agent_id === "string" ? msg.agent_id : undefined,
+        };
+        const finish = (
+          behavior: AskBehavior,
+          message: string | undefined,
+          source: AskResolutionSource,
+          always?: boolean,
+        ) => {
           if (!pending.delete(askId)) return;
           clearTimeout(timer);
           try {
             conn.write(
-              JSON.stringify({ t: "answer", id: askId, behavior, message, source, ...(always ? { always: true } : {}) }) + "\n",
+              JSON.stringify({
+                t: "answer",
+                id: askId,
+                behavior,
+                message,
+                source,
+                ...(always ? { always: true } : {}),
+              }) + "\n",
             );
           } catch {}
           opts.onResolve({ ...ask, behavior, source });
@@ -718,7 +1006,9 @@ export async function createPermissionBroker(opts: {
     }
     if (outcome === "listening") {
       if (index > 0) {
-        console.error(`permission broker: ${opts.socketPaths[0]} is still held — bound fallback ${candidate}`);
+        console.error(
+          `permission broker: ${opts.socketPaths[0]} is still held — bound fallback ${candidate}`,
+        );
       }
       boundPath = candidate;
       server = attempt;
@@ -769,7 +1059,8 @@ export async function createPermissionBroker(opts: {
 
 function decodeToolList(value: unknown, field: "tools" | "disallowedTools"): string[] | undefined {
   if (value === undefined) return undefined;
-  if (!Array.isArray(value)) throw new Error(`claude: ${field} must be an array of non-empty strings`);
+  if (!Array.isArray(value))
+    throw new Error(`claude: ${field} must be an array of non-empty strings`);
   const decoded: string[] = [];
   const seen = new Set<string>();
   for (const entry of value) {
@@ -787,15 +1078,30 @@ function decodeToolList(value: unknown, field: "tools" | "disallowedTools"): str
 function decodeConfig(raw: unknown): ClaudeConfig {
   const o = (raw ?? {}) as Record<string, unknown>;
   const mode = o.permissionMode;
-  if (mode !== undefined && mode !== "acceptEdits" && mode !== "auto" && mode !== "bypassPermissions") {
+  if (
+    mode !== undefined &&
+    mode !== "acceptEdits" &&
+    mode !== "auto" &&
+    mode !== "bypassPermissions"
+  ) {
     throw new Error(`claude: invalid permissionMode ${JSON.stringify(mode)}`);
   }
   const tools = decodeToolList(o.tools, "tools");
   const disallowedTools = decodeToolList(o.disallowedTools, "disallowedTools");
-  if (o.configDir !== undefined && typeof o.configDir !== "string") throw new Error("claude: configDir must be a string");
+  if (o.configDir !== undefined && typeof o.configDir !== "string")
+    throw new Error("claude: configDir must be a string");
   const configDir = typeof o.configDir === "string" ? o.configDir.trim() : undefined;
   if (configDir) resolveClaudeConfigDir(configDir);
-  if (o.managedModels !== undefined && (o.managed !== true || !Array.isArray(o.managedModels) || !o.managedModels.length || o.managedModels.some(model => typeof model !== "string" || !/^[A-Za-z0-9][A-Za-z0-9._-]{0,159}$/.test(model)))) throw new Error("Invalid hosted Claude models.");
+  if (
+    o.managedModels !== undefined &&
+    (o.managed !== true ||
+      !Array.isArray(o.managedModels) ||
+      !o.managedModels.length ||
+      o.managedModels.some(
+        (model) => typeof model !== "string" || !/^[A-Za-z0-9][A-Za-z0-9._-]{0,159}$/.test(model),
+      ))
+  )
+    throw new Error("Invalid hosted Claude models.");
   return {
     cli: typeof o.cli === "string" ? o.cli : "claude",
     ...(configDir ? { configDir } : {}),
@@ -819,7 +1125,10 @@ function firstText(content: unknown): string {
   return "";
 }
 
-export function turnCostFromRunningTotal(total: number | null, previous: number | null): number | null {
+export function turnCostFromRunningTotal(
+  total: number | null,
+  previous: number | null,
+): number | null {
   if (total === null) return null;
   if (previous === null || total < previous) return total;
   return Number((total - previous).toFixed(10));
@@ -829,7 +1138,10 @@ export function claudeCompactionEvent(o: any): CompactionEvent | null {
   if (!o || o.type !== "system" || o.parent_tool_use_id) return null;
   if (o.subtype === "compact_boundary") {
     const meta = o.compact_metadata ?? {};
-    const tokens = (value: unknown) => (typeof value === "number" && Number.isFinite(value) && value >= 0 ? Math.round(value) : undefined);
+    const tokens = (value: unknown) =>
+      typeof value === "number" && Number.isFinite(value) && value >= 0
+        ? Math.round(value)
+        : undefined;
     const preTokens = tokens(meta.pre_tokens);
     const postTokens = tokens(meta.post_tokens);
     return {
@@ -857,24 +1169,37 @@ export interface ClaudeCostSnapshot {
   models: Record<string, [number, number, number, number]>;
 }
 
-export function claudeReportedContextWindow(modelUsage: unknown, model: string | undefined): number | undefined {
+export function claudeReportedContextWindow(
+  modelUsage: unknown,
+  model: string | undefined,
+): number | undefined {
   if (!modelUsage || typeof modelUsage !== "object" || Array.isArray(modelUsage)) return undefined;
   const rows = modelUsage as Record<string, { contextWindow?: unknown } | null>;
   const keys = Object.keys(rows);
-  const key = model ? keys.find((key) => key === model) ?? keys.find((key) => key.startsWith(`${model}-`)) : keys.length === 1 ? keys[0] : undefined;
+  const key = model
+    ? (keys.find((key) => key === model) ?? keys.find((key) => key.startsWith(`${model}-`)))
+    : keys.length === 1
+      ? keys[0]
+      : undefined;
   const window = key ? rows[key]?.contextWindow : undefined;
   return typeof window === "number" && Number.isFinite(window) && window > 0 ? window : undefined;
 }
 
 export function claudeCostSnapshot(total: unknown, modelUsage: unknown): ClaudeCostSnapshot | null {
   if (typeof total !== "number" || !Number.isFinite(total)) return null;
-  const count = (value: unknown) => (typeof value === "number" && Number.isFinite(value) ? value : 0);
+  const count = (value: unknown) =>
+    typeof value === "number" && Number.isFinite(value) ? value : 0;
   const models: ClaudeCostSnapshot["models"] = {};
   if (modelUsage && typeof modelUsage === "object" && !Array.isArray(modelUsage)) {
     for (const [model, raw] of Object.entries(modelUsage as Record<string, unknown>)) {
       if (!raw || typeof raw !== "object") continue;
       const u = raw as Record<string, unknown>;
-      models[model] = [count(u.inputTokens), count(u.cacheReadInputTokens), count(u.cacheCreationInputTokens), count(u.outputTokens)];
+      models[model] = [
+        count(u.inputTokens),
+        count(u.cacheReadInputTokens),
+        count(u.cacheCreationInputTokens),
+        count(u.outputTokens),
+      ];
     }
   }
   return { total, models };
@@ -891,11 +1216,13 @@ export function restoredCostBase(
   let inside = 0;
   for (const state of [nothing, ...earlier]) {
     const within = Object.entries(state.models).every(([model, counts]) =>
-      counts.every((n, i) => n <= (current.models[model]?.[i] ?? 0)));
+      counts.every((n, i) => n <= (current.models[model]?.[i] ?? 0)),
+    );
     if (!within) continue;
     inside = state.total;
     const growth = Object.entries(current.models).map(([model, counts]) =>
-      counts.map((n, i) => n - (state.models[model]?.[i] ?? 0)));
+      counts.map((n, i) => n - (state.models[model]?.[i] ?? 0)),
+    );
     const isTurn = (counts: number[]) => counts.every((n, i) => n === turn[i]);
     const summed = turn.map((_, i) => growth.reduce((sum, counts) => sum + counts[i]!, 0));
     if (growth.some(isTurn) || isTurn(summed)) exact = state.total;
@@ -910,15 +1237,27 @@ const COST_HISTORY_STATES = 8;
 function isCostSnapshot(value: unknown): value is ClaudeCostSnapshot {
   if (!value || typeof value !== "object") return false;
   const { total, models } = value as { total?: unknown; models?: unknown };
-  return typeof total === "number" && !!models && typeof models === "object" &&
-    Object.values(models).every((counts) => Array.isArray(counts) && counts.length === 4 && counts.every((n) => typeof n === "number"));
+  return (
+    typeof total === "number" &&
+    !!models &&
+    typeof models === "object" &&
+    Object.values(models).every(
+      (counts) =>
+        Array.isArray(counts) && counts.length === 4 && counts.every((n) => typeof n === "number"),
+    )
+  );
 }
 
 function readCostHistory(): Record<string, ClaudeCostSnapshot[]> {
   try {
     const parsed: unknown = JSON.parse(readFileSync(COST_HISTORY_FILE, "utf8"));
     if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return {};
-    return Object.fromEntries(Object.entries(parsed).map(([id, states]) => [id, Array.isArray(states) ? states.filter(isCostSnapshot) : []]));
+    return Object.fromEntries(
+      Object.entries(parsed).map(([id, states]) => [
+        id,
+        Array.isArray(states) ? states.filter(isCostSnapshot) : [],
+      ]),
+    );
   } catch {
     return {};
   }
@@ -930,7 +1269,8 @@ function recordCostState(sessionId: string, state: ClaudeCostSnapshot): void {
   delete history[sessionId];
   history[sessionId] = states;
   const ids = Object.keys(history);
-  for (const id of ids.slice(0, Math.max(0, ids.length - COST_HISTORY_SESSIONS))) delete history[id];
+  for (const id of ids.slice(0, Math.max(0, ids.length - COST_HISTORY_SESSIONS)))
+    delete history[id];
   try {
     writeFileAtomic(COST_HISTORY_FILE, JSON.stringify(history), { mode: 0o600, durable: false });
   } catch {}
@@ -1009,12 +1349,24 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
   async create(input: DriverCreateInput<ClaudeConfig>): Promise<ProviderInstance> {
     const { instanceId, config } = input;
     const environment = (model?: string | null) =>
-      claudeEnvironment(config.managed ? undefined : model, { ...process.env, ...input.environment }, config.configDir, input.environment);
+      claudeEnvironment(
+        config.managed ? undefined : model,
+        { ...process.env, ...input.environment },
+        config.configDir,
+        input.environment,
+      );
     const catalogEnv = environment();
     if (inheritsUserConfig(catalogEnv)) {
-      console.error(`claude (${instanceId}): LATERDOG_CLAUDE_INHERIT_USER_CONFIG=1 — bots inherit this machine's Claude Code MCP servers, skills, hooks and CLAUDE.md on every turn; remove it unless a bot needs a user-scope server`);
+      console.error(
+        `claude (${instanceId}): LATERDOG_CLAUDE_INHERIT_USER_CONFIG=1 — bots inherit this machine's Claude Code MCP servers, skills, hooks and CLAUDE.md on every turn; remove it unless a bot needs a user-scope server`,
+      );
     }
-    let models = config.managedModels ? { default: config.managedModels[0], options: config.managedModels.map(id => ({ id, label: id })) } : STATIC_CLAUDE_MODELS;
+    let models = config.managedModels
+      ? {
+          default: config.managedModels[0],
+          options: config.managedModels.map((id) => ({ id, label: id })),
+        }
+      : STATIC_CLAUDE_MODELS;
     const refreshModels = async () => {
       if (config.managed) return;
       try {
@@ -1038,12 +1390,16 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
       const read = {
         version,
         done: new Promise<string | null>((resolve) => {
-          execCli(config.cli, ["--help"], { timeout: 8000, env }, (err, stdout) => resolve(err ? null : stdout));
-        }).catch(() => null).then((help) => {
-          cliHasAutocompact = help === null ? null : /^\s*--autocompact\b/m.test(help);
-          cliHelpVersion = version;
-          if (helpRead === read) helpRead = null;
-        }),
+          execCli(config.cli, ["--help"], { timeout: 8000, env }, (err, stdout) =>
+            resolve(err ? null : stdout),
+          );
+        })
+          .catch(() => null)
+          .then((help) => {
+            cliHasAutocompact = help === null ? null : /^\s*--autocompact\b/m.test(help);
+            cliHelpVersion = version;
+            if (helpRead === read) helpRead = null;
+          }),
       };
       helpRead = read;
       return read.done;
@@ -1060,7 +1416,14 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
       if (helpRead) await helpRead.done;
     };
     const listeners = new Set<RuntimeEventListener>();
-    const active = new Map<string, { stop: () => void; turnId: string; broker?: Awaited<ReturnType<typeof createPermissionBroker>> }>();
+    const active = new Map<
+      string,
+      {
+        stop: () => void;
+        turnId: string;
+        broker?: Awaited<ReturnType<typeof createPermissionBroker>>;
+      }
+    >();
     const workFolders = new Map<string, string>();
 
     interface Session {
@@ -1117,14 +1480,21 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
     const starting = new Map<string, AbortController>();
     const ownershipKey = (threadId: string) => JSON.stringify([DATA_DIR, "claude", threadId]);
     const drainSession = async (threadId: string, session: Session) => {
-      if (sessions.get(threadId) !== session || session.turn || session.helpers.running()) throw new Error("The previous engine is no longer idle.");
+      if (sessions.get(threadId) !== session || session.turn || session.helpers.running())
+        throw new Error("The previous engine is no longer idle.");
       closeSession(threadId, "engine handoff");
-      if (!await killCliTree(session.child, 2_000)) throw new Error("The previous engine stop was not confirmed.");
+      if (!(await killCliTree(session.child, 2_000)))
+        throw new Error("The previous engine stop was not confirmed.");
       let timer: ReturnType<typeof setTimeout> | undefined;
       try {
         await Promise.race([
           session.closed,
-          new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new Error("The previous engine did not finish closing.")), 5_000); }),
+          new Promise<never>((_, reject) => {
+            timer = setTimeout(
+              () => reject(new Error("The previous engine did not finish closing.")),
+              5_000,
+            );
+          }),
         ]);
         warmEngines.release(ownershipKey(threadId), session);
         if (sessions.get(threadId) === session) sessions.delete(threadId);
@@ -1132,7 +1502,10 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
         if (timer) clearTimeout(timer);
       }
     };
-    const deliveredVolatile = new Map<string, { sessionId: string | null; volatile: string | null }>();
+    const deliveredVolatile = new Map<
+      string,
+      { sessionId: string | null; volatile: string | null }
+    >();
     const rememberVolatile = (threadId: string, s: Session) => {
       deliveredVolatile.set(threadId, { sessionId: s.sessionId, volatile: s.volatile });
     };
@@ -1168,10 +1541,16 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
       warmEngines.rest(s, {
         pid: s.child.pid,
         idleMs: SESSION_IDLE_MS,
-        close: (why) => { if (sessions.get(threadId) === s) closeSession(threadId, why); },
+        close: (why) => {
+          if (sessions.get(threadId) === s) closeSession(threadId, why);
+        },
       });
     };
-    const writeUser = (s: Session, threadId: string, promptMsg: ClaudeUserMessage): Promise<boolean> => {
+    const writeUser = (
+      s: Session,
+      threadId: string,
+      promptMsg: ClaudeUserMessage,
+    ): Promise<boolean> => {
       if (!s.child.stdin.writable || s.child.stdin.destroyed) return Promise.resolve(false);
       return new Promise((resolve) => {
         try {
@@ -1202,7 +1581,10 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
       turnId,
       createdAt: new Date().toISOString(),
     });
-    const retryState = new Map<string, { attempt: number; cancelled: boolean; rebuilt?: boolean }>();
+    const retryState = new Map<
+      string,
+      { attempt: number; cancelled: boolean; rebuilt?: boolean }
+    >();
 
     const rareLaunches = new Map<string, boolean>();
     const sendTurn = async (turn: SendTurnInput, logicalTurnId?: string) => {
@@ -1210,12 +1592,22 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
       starting.get(turn.threadId)?.abort();
       starting.set(turn.threadId, controller);
       try {
-        return await warmEngines.launch(ownershipKey(turn.threadId), adapterOwner, controller.signal,
-          (check) => sendOwnedTurn(turn, logicalTurnId, check));
+        return await warmEngines.launch(
+          ownershipKey(turn.threadId),
+          adapterOwner,
+          controller.signal,
+          (check) => sendOwnedTurn(turn, logicalTurnId, check),
+        );
       } catch (error) {
         if (logicalTurnId && controller.signal.aborted) {
           if (active.get(turn.threadId)?.turnId === logicalTurnId) active.delete(turn.threadId);
-          emit({ ...base(turn.threadId, logicalTurnId), type: "turn.completed", ok: false, stopReason: "interrupted", cost: null });
+          emit({
+            ...base(turn.threadId, logicalTurnId),
+            type: "turn.completed",
+            ok: false,
+            stopReason: "interrupted",
+            cost: null,
+          });
           return { turnId: logicalTurnId };
         }
         throw error;
@@ -1223,27 +1615,52 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
         if (starting.get(turn.threadId) === controller) starting.delete(turn.threadId);
       }
     };
-    const sendOwnedTurn = async (turn: SendTurnInput, logicalTurnId: string | undefined, checkStart: () => void) => {
+    const sendOwnedTurn = async (
+      turn: SendTurnInput,
+      logicalTurnId: string | undefined,
+      checkStart: () => void,
+    ) => {
       turn = { ...turn, toolScope: assertToolScopeSupported(DRIVER_KIND, turn.toolScope) };
-      if (config.managedModels && (!turn.model || !config.managedModels.includes(turn.model))) throw new Error("This model is not assigned to this workspace.");
-      if (config.requireApiKey && !input.environment.ANTHROPIC_API_KEY) throw new Error(NO_ANTHROPIC_KEY);
-      if (config.managed && (!turn.model || turn.model.includes("::") || !config.configDir ||
-          !input.environment.ANTHROPIC_API_KEY || !input.environment.ANTHROPIC_BASE_URL)) {
-        throw new Error("Company model access is unavailable. Reconnect your organization; personal billing will not be used.");
+      if (config.managedModels && (!turn.model || !config.managedModels.includes(turn.model)))
+        throw new Error("This model is not assigned to this workspace.");
+      if (config.requireApiKey && !input.environment.ANTHROPIC_API_KEY)
+        throw new Error(NO_ANTHROPIC_KEY);
+      if (
+        config.managed &&
+        (!turn.model ||
+          turn.model.includes("::") ||
+          !config.configDir ||
+          !input.environment.ANTHROPIC_API_KEY ||
+          !input.environment.ANTHROPIC_BASE_URL)
+      ) {
+        throw new Error(
+          "Company model access is unavailable. Reconnect your organization; personal billing will not be used.",
+        );
       }
       const { threadId, botId } = turn;
       const relaunch = logicalTurnId !== undefined;
       if (!relaunch) {
         const stopped = sessions.get(threadId);
-        if (stopped?.turn?.stopRequested && active.get(threadId)?.turnId === stopped.turn.turnId &&
-            await killCliTree(stopped.child)) await stopped.closed;
+        if (
+          stopped?.turn?.stopRequested &&
+          active.get(threadId)?.turnId === stopped.turn.turnId &&
+          (await killCliTree(stopped.child))
+        )
+          await stopped.closed;
         if (active.has(threadId)) throw new Error("a turn is already running on this thread");
       }
-      const permissionMode = turn.approvalMode === undefined
-        ? config.permissionMode
-        : turn.approvalMode === "full" ? "bypassPermissions"
-          : turn.approvalMode === "auto" ? (turn.ownerAnswers ? "default" : "auto")
-            : turn.approvalMode === "edits" ? "acceptEdits" : "default";
+      const permissionMode =
+        turn.approvalMode === undefined
+          ? config.permissionMode
+          : turn.approvalMode === "full"
+            ? "bypassPermissions"
+            : turn.approvalMode === "auto"
+              ? turn.ownerAnswers
+                ? "default"
+                : "auto"
+              : turn.approvalMode === "edits"
+                ? "acceptEdits"
+                : "default";
       const controlsHost = turn.integrations?.localComputer?.scope === "local-computer";
       if (controlsHost && permissionMode === "bypassPermissions" && turn.approvalMode !== "full") {
         throw new Error("local computer control requires the interactive approval broker");
@@ -1258,16 +1675,20 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
       }
       retryState.set(threadId, retry);
       const retryScale = Number(process.env.FAKE_CLAUDE_RETRY_SCALE ?? "1");
-      const sessionId = !turn.sessionReset && typeof turn.resumeCursor === "string" ? turn.resumeCursor : null;
+      const sessionId =
+        !turn.sessionReset && typeof turn.resumeCursor === "string" ? turn.resumeCursor : null;
       const newSessionId = sessionId ? null : newId();
 
       const args = [
         "-p",
-        "--output-format", "stream-json",
-        "--input-format", "stream-json",
+        "--output-format",
+        "stream-json",
+        "--input-format",
+        "stream-json",
         "--verbose",
         "--include-partial-messages",
-        "--permission-mode", permissionMode,
+        "--permission-mode",
+        permissionMode,
       ];
       if (turn.guestConfined && permissionMode !== "default") {
         throw new Error("A guest's turn on this Cloud runs only in Ask.");
@@ -1278,32 +1699,61 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
       await learnCliFlags(turnEnvironment);
       const forking = turn.fork && claudeForksAtPoint(cliVersion) ? turn.fork : undefined;
       if (turn.fork && !forking) {
-        turn = { ...turn, fork: undefined, text: turn.recoveryText?.trim() ? turn.recoveryText : turn.text, recoveryText: undefined };
+        turn = {
+          ...turn,
+          fork: undefined,
+          text: turn.recoveryText?.trim() ? turn.recoveryText : turn.text,
+          recoveryText: undefined,
+        };
         promptMsg = claudeUserMessage(turn.text, turn.images);
       }
       if (turn.guestConfined && !claudeCliSupports(cliVersion, "--restricted")) {
-        throw new Error(withWhy("This Claude Code is too old to run this turn without a shell. Update Claude Code.", turn.confinedWhy));
+        throw new Error(
+          withWhy(
+            "This Claude Code is too old to run this turn without a shell. Update Claude Code.",
+            turn.confinedWhy,
+          ),
+        );
       }
-      const replaysUserMessages = cliVersion === null || versionAtLeast(cliVersion, CLAUDE_REPLAY_FLOOR);
+      const replaysUserMessages =
+        cliVersion === null || versionAtLeast(cliVersion, CLAUDE_REPLAY_FLOOR);
       if (replaysUserMessages) args.push("--replay-user-messages");
-      if (cliVersion && claudeCliSupports(cliVersion, "--forward-subagent-text")) args.push("--forward-subagent-text");
+      if (cliVersion && claudeCliSupports(cliVersion, "--forward-subagent-text"))
+        args.push("--forward-subagent-text");
       const isolated = !inheritsUserConfig(turnEnvironment);
-      if (turn.toolScope !== undefined && (!isolated || turn.mcpFromUserConfig || cliVersion === null || !claudeCliSupports(cliVersion, "--strict-mcp-config"))) {
-        throw new Error("Claude cannot confirm a restricted MCP configuration for this account. Disable inherited Claude MCP servers and use a current, identifiable Claude CLI before using tool selection.");
+      if (
+        turn.toolScope !== undefined &&
+        (!isolated ||
+          turn.mcpFromUserConfig ||
+          cliVersion === null ||
+          !claudeCliSupports(cliVersion, "--strict-mcp-config"))
+      ) {
+        throw new Error(
+          "Claude cannot confirm a restricted MCP configuration for this account. Disable inherited Claude MCP servers and use a current, identifiable Claude CLI before using tool selection.",
+        );
       }
       if (isolated) {
-        if (!turn.mcpFromUserConfig && claudeCliSupports(cliVersion, "--strict-mcp-config")) args.push("--strict-mcp-config");
-        if (claudeCliSupports(cliVersion, "--setting-sources")) args.push("--setting-sources", "project");
+        if (!turn.mcpFromUserConfig && claudeCliSupports(cliVersion, "--strict-mcp-config"))
+          args.push("--strict-mcp-config");
+        if (claudeCliSupports(cliVersion, "--setting-sources"))
+          args.push("--setting-sources", "project");
       }
-      const compactWindow = autoCompactWindow(turnEnvironment, claudeKeepsTunedWindow(cliVersion, config.managed));
+      const compactWindow = autoCompactWindow(
+        turnEnvironment,
+        claudeKeepsTunedWindow(cliVersion, config.managed),
+      );
       if (compactWindow && cliHasAutocompact === true) {
         args.push("--autocompact", compactWindow);
       }
       if (cliVersionChecked && claudeCliSupports(cliVersion, "--system-prompt-snapshot")) {
         args.push("--system-prompt-snapshot", "off");
       }
-      const turnModel = config.managed ? turn.model : await resolveClaudeTurnModel(turn.model, turnEnvironment);
-      const injected = config.managed ? { model: turnModel ?? null, injected: false } : applyClaudeInject({ ...turnEnvironment }, turnModel);
+      const turnModel = config.managed
+        ? turn.model
+        : await resolveClaudeTurnModel(turn.model, turnEnvironment);
+      const injected = config.managed
+        ? { model: turnModel ?? null, injected: false }
+        : applyClaudeInject({ ...turnEnvironment }, turnModel);
       if (injected.model) args.push("--model", injected.model);
       if (turn.effort) args.push("--effort", claudeEffortArg(turn.effort));
 
@@ -1326,7 +1776,10 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
       }
       if (turn.integrations?.agents) {
         const rareOnDemand = claudeRareToolsOnDemand({
-          model: injected.model, injected: injected.injected, managed: Boolean(config.managed), env: turnEnvironment,
+          model: injected.model,
+          injected: injected.injected,
+          managed: Boolean(config.managed),
+          env: turnEnvironment,
         });
         rareLaunches.set(threadId, rareOnDemand);
         mcpServers.agents = agentsServerLaunch(turn.integrations.agents, rareOnDemand);
@@ -1351,20 +1804,58 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
       }
       const budget = resultBudget(turnEnvironment);
       for (const name of turn.toolScope === undefined ? botOwned : Object.keys(mcpServers)) {
-        if (!canUseMcpServer(turn.toolScope, name)) { delete mcpServers[name]; continue; }
-        const gated = gateServer({ name, server: mcpServers[name], threadId, budget: botOwned.has(name) ? budget : 0, nodeEnv: NODE_ENV_FLAG, toolScope: turn.toolScope });
-        if (gated) mcpServers[name] = { ...gated, ...((mcpServers[name] as { alwaysLoad?: unknown })?.alwaysLoad === true ? { alwaysLoad: true } : {}) };
+        if (!canUseMcpServer(turn.toolScope, name)) {
+          delete mcpServers[name];
+          continue;
+        }
+        const gated = gateServer({
+          name,
+          server: mcpServers[name],
+          threadId,
+          budget: botOwned.has(name) ? budget : 0,
+          nodeEnv: NODE_ENV_FLAG,
+          toolScope: turn.toolScope,
+        });
+        if (gated)
+          mcpServers[name] = {
+            ...gated,
+            ...((mcpServers[name] as { alwaysLoad?: unknown })?.alwaysLoad === true
+              ? { alwaysLoad: true }
+              : {}),
+          };
       }
-      allowed.splice(0, allowed.length, ...allowed.filter((name) => Object.hasOwn(mcpServers, name.slice("mcp__".length))));
+      allowed.splice(
+        0,
+        allowed.length,
+        ...allowed.filter((name) => Object.hasOwn(mcpServers, name.slice("mcp__".length))),
+      );
       allowed.push(...laterdogPreallowedTools(turn.integrations?.custom ?? {}, mcpServers));
       let broker: Awaited<ReturnType<typeof createPermissionBroker>> | undefined;
       const socketPath = permissionSocketPath(threadId, botId);
       args.push("--permission-prompt-tool", "mcp__dog__approve");
-      const permissionEnv = { ...NODE_ENV_FLAG, ...(turn.toolScope !== undefined ? { LATERDOG_PERMISSION_TOOL_SCOPE: JSON.stringify(turn.toolScope) } : {}) };
-      mcpServers.dog = { command: process.execPath, args: [PERM_PROXY_PATH, socketPath], env: permissionEnv, alwaysLoad: true };
+      const permissionEnv = {
+        ...NODE_ENV_FLAG,
+        ...(turn.toolScope !== undefined
+          ? { LATERDOG_PERMISSION_TOOL_SCOPE: JSON.stringify(turn.toolScope) }
+          : {}),
+      };
+      mcpServers.dog = {
+        command: process.execPath,
+        args: [PERM_PROXY_PATH, socketPath],
+        env: permissionEnv,
+        alwaysLoad: true,
+      };
       allowed.push("mcp__dog");
-      if (turn.guestConfined) allowed.splice(0, allowed.length, ...allowed.filter((name) => name === "mcp__dog" || name === "mcp__agents"));
-      const disallowed = disallowedWithOnePlan(config.disallowedTools, !turn.guestConfined && hasSetPlan(mcpServers, turn.toolScope));
+      if (turn.guestConfined)
+        allowed.splice(
+          0,
+          allowed.length,
+          ...allowed.filter((name) => name === "mcp__dog" || name === "mcp__agents"),
+        );
+      const disallowed = disallowedWithOnePlan(
+        config.disallowedTools,
+        !turn.guestConfined && hasSetPlan(mcpServers, turn.toolScope),
+      );
       if (disallowed.length) args.push("--disallowedTools", disallowed.join(","));
       let mcpConfigPath: string | null = null;
       if (Object.keys(mcpServers).length) {
@@ -1374,59 +1865,106 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
       }
 
       const env = environment(turnModel);
-      const authSettings = isolated && !injected.injected
-        ? readClaudeAuthSettings(env, input.environment) : {};
+      const authSettings =
+        isolated && !injected.injected ? readClaudeAuthSettings(env, input.environment) : {};
       const hooks = turn.integrations?.hooks;
       const hookTokenPath = hooks ? hookTokenFile(threadId, botId) : null;
       if (hooks && hookTokenPath) {
         mkdirSync(dirname(hookTokenPath), { recursive: true, mode: 0o700 });
         writeFileAtomicIfChanged(hookTokenPath, hooks.token, { mode: 0o600, durable: false });
-        Object.assign(env, claudeHookEnvironment(process.platform, { url: hooks.url, tokenFile: hookTokenPath }, HOOK_HELPER_PATH));
+        Object.assign(
+          env,
+          claudeHookEnvironment(
+            process.platform,
+            { url: hooks.url, tokenFile: hookTokenPath },
+            HOOK_HELPER_PATH,
+          ),
+        );
         if (process.versions.electron) env.ELECTRON_RUN_AS_NODE = "1";
       }
-      for (const name of HOOK_ADDRESS_VARIABLES) if (!(hooks && process.platform === "win32")) delete env[name];
+      for (const name of HOOK_ADDRESS_VARIABLES)
+        if (!(hooks && process.platform === "win32")) delete env[name];
       const settings: Record<string, unknown> = { ...authSettings };
       if (isolated) settings.claudeMdExcludes = machineClaudeMemoryExcludes(env);
-      const summaryHook = Boolean(hooks && hookTokenPath && cliVersion && versionAtLeast(cliVersion, CLAUDE_POST_COMPACT_HOOK));
-      if (hooks && hookTokenPath) settings.hooks = claudeHookSettings(HOOK_HELPER_PATH, { guardShell: hooks.guardShell === true,
-        postCompact: summaryHook,
-        target: { url: hooks.url, tokenFile: hookTokenPath } });
+      const summaryHook = Boolean(
+        hooks &&
+        hookTokenPath &&
+        cliVersion &&
+        versionAtLeast(cliVersion, CLAUDE_POST_COMPACT_HOOK),
+      );
+      if (hooks && hookTokenPath)
+        settings.hooks = claudeHookSettings(HOOK_HELPER_PATH, {
+          guardShell: hooks.guardShell === true,
+          postCompact: summaryHook,
+          target: { url: hooks.url, tokenFile: hookTokenPath },
+        });
       if (turn.guestConfined) settings.permissions = GUEST_CLAUDE_PERMISSIONS;
       if (turn.fast) settings.fastMode = true;
       if (turn.reviewerGrant && permissionMode === "auto") settings.autoMode = turn.reviewerGrant;
-      const authSettingsPath = mcpConfigPath && Object.keys(settings).length
-        ? join(dirname(mcpConfigPath), "auth-settings.json") : null;
+      const authSettingsPath =
+        mcpConfigPath && Object.keys(settings).length
+          ? join(dirname(mcpConfigPath), "auth-settings.json")
+          : null;
       if (authSettingsPath) args.push("--settings", authSettingsPath);
-      const cacheLifetime = claudeCacheLifetime(env, Boolean(cliVersion && versionAtLeast(cliVersion, CLAUDE_PICKS_CACHE_LIFETIME)),
-        injected.injected ? {} : readClaudeAuthSettings(env, input.environment));
+      const cacheLifetime = claudeCacheLifetime(
+        env,
+        Boolean(cliVersion && versionAtLeast(cliVersion, CLAUDE_PICKS_CACHE_LIFETIME)),
+        injected.injected ? {} : readClaudeAuthSettings(env, input.environment),
+      );
       if (cacheLifetime) env.CLAUDE_CODE_PROMPT_CACHE_TTL = cacheLifetime;
-      Object.assign(env, quietWorkEnvironment(turn.quietWork), chatEngineEnvironment(threadId, env));
-      Object.assign(env, claudeHelperEnvironment(turnModel, turn.helperModel, { custom: Boolean(config.managed) || injected.injected }));
+      Object.assign(
+        env,
+        quietWorkEnvironment(turn.quietWork),
+        chatEngineEnvironment(threadId, env),
+      );
+      Object.assign(
+        env,
+        claudeHelperEnvironment(turnModel, turn.helperModel, {
+          custom: Boolean(config.managed) || injected.injected,
+        }),
+      );
       const cwd = turn.cwd ?? homedir();
       workFolders.set(threadId, cwd);
       const commandCwd = permissionLaunchCwd(cwd);
-      const unkeyedFlags = new Set<string>(["--mcp-config", "--settings", ...FLAGS_LEARNED_AFTER_LAUNCH]);
-      const keyArgs = args.filter((a, i) => a !== "--forward-subagent-text" && !unkeyedFlags.has(a) && !unkeyedFlags.has(args[i - 1] ?? ""));
-      const chosenRemote = Boolean(botId && !turn.guestConfined && !forking && remoteEngineBots(DATA_DIR).has(botId));
-      const argsParts = Object.fromEntries(Object.entries({
-        args: keyArgs,
-        system: turn.systemStable ?? turn.system ?? null,
-        mcpServers,
-        cwd,
-        model: injected.model ?? null,
-        base: env.ANTHROPIC_BASE_URL ?? null,
-        configDir: env.CLAUDE_CONFIG_DIR ?? null,
-        hooks: Boolean(hooks),
-        fast: Boolean(turn.fast),
-        quiet: Boolean(turn.quietWork),
-        helpers: env.CLAUDE_CODE_SUBAGENT_MODEL ?? null,
-        reviewerGrant: permissionMode === "auto" ? turn.reviewerGrant ?? null : null,
-        placement: chosenRemote ? "computer" : "home",
-        auth: createHash("sha256").update(JSON.stringify({
-          settings: authSettings,
-          env: Object.fromEntries(CLAUDE_ACCOUNT_ENV_KEYS.map((key) => [key, env[key]])),
-        })).digest("hex"),
-      }).map(([key, value]) => [key, JSON.stringify(value)]));
+      const unkeyedFlags = new Set<string>([
+        "--mcp-config",
+        "--settings",
+        ...FLAGS_LEARNED_AFTER_LAUNCH,
+      ]);
+      const keyArgs = args.filter(
+        (a, i) =>
+          a !== "--forward-subagent-text" &&
+          !unkeyedFlags.has(a) &&
+          !unkeyedFlags.has(args[i - 1] ?? ""),
+      );
+      const chosenRemote = Boolean(
+        botId && !turn.guestConfined && !forking && remoteEngineBots(DATA_DIR).has(botId),
+      );
+      const argsParts = Object.fromEntries(
+        Object.entries({
+          args: keyArgs,
+          system: turn.systemStable ?? turn.system ?? null,
+          mcpServers,
+          cwd,
+          model: injected.model ?? null,
+          base: env.ANTHROPIC_BASE_URL ?? null,
+          configDir: env.CLAUDE_CONFIG_DIR ?? null,
+          hooks: Boolean(hooks),
+          fast: Boolean(turn.fast),
+          quiet: Boolean(turn.quietWork),
+          helpers: env.CLAUDE_CODE_SUBAGENT_MODEL ?? null,
+          reviewerGrant: permissionMode === "auto" ? (turn.reviewerGrant ?? null) : null,
+          placement: chosenRemote ? "computer" : "home",
+          auth: createHash("sha256")
+            .update(
+              JSON.stringify({
+                settings: authSettings,
+                env: Object.fromEntries(CLAUDE_ACCOUNT_ENV_KEYS.map((key) => [key, env[key]])),
+              }),
+            )
+            .digest("hex"),
+        }).map(([key, value]) => [key, JSON.stringify(value)]),
+      );
       const argsKey = JSON.stringify(argsParts);
 
       const cleanupUnownedLaunch = () => {
@@ -1442,33 +1980,62 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
           removePrivateTempDir(systemPromptPath);
           systemPromptPath = null;
         }
-        try { checkStart(); retryState.delete(threadId); } catch {}
+        try {
+          checkStart();
+          retryState.delete(threadId);
+        } catch {}
       };
 
       try {
         await claudeRefreshGate.enter(env);
         checkStart();
         const live = sessions.get(threadId);
-        if (!turn.sessionReset && live && !live.turn && !live.closing && live.child.exitCode === null && live.argsKey === argsKey && (!sessionId || sessionId === live.sessionId)) {
+        if (
+          !turn.sessionReset &&
+          live &&
+          !live.turn &&
+          !live.closing &&
+          live.child.exitCode === null &&
+          live.argsKey === argsKey &&
+          (!sessionId || sessionId === live.sessionId)
+        ) {
           warmEngines.wake(live);
           live.helpers.beginTurn();
           live.helperTurnId = turnId;
-          live.turn = { turnId, input: turn, retryAbort, settled: false, sawStreamDelta: false, awaitingInit: true, pendingSteers: new Map(), deferred: null, continuationGrace: null, continuationSilence: null };
-          active.set(threadId, { stop: () => {
-            if (live.turn) live.turn.stopRequested = true;
-            closeSession(threadId, "interrupted");
-            retry.cancelled = true;
-            retryAbort.abort();
-            stopSession(live);
-          }, turnId, broker: live.broker });
+          live.turn = {
+            turnId,
+            input: turn,
+            retryAbort,
+            settled: false,
+            sawStreamDelta: false,
+            awaitingInit: true,
+            pendingSteers: new Map(),
+            deferred: null,
+            continuationGrace: null,
+            continuationSilence: null,
+          };
+          active.set(threadId, {
+            stop: () => {
+              if (live.turn) live.turn.stopRequested = true;
+              closeSession(threadId, "interrupted");
+              retry.cancelled = true;
+              retryAbort.abort();
+              stopSession(live);
+            },
+            turnId,
+            broker: live.broker,
+          });
           emit({ ...base(threadId, turnId), type: "turn.started" });
           live.nativeActivity.beginTurn();
           const { note, seen } = claudeContextNote(turn, live.volatile);
-          const message = note ? claudeUserMessage(withVolatileNote(turn.text, note), turn.images) : promptMsg;
+          const message = note
+            ? claudeUserMessage(withVolatileNote(turn.text, note), turn.images)
+            : promptMsg;
           live.volatile = seen;
           rememberVolatile(threadId, live);
           const running = live.turn;
-          if (!(await writeUser(live, threadId, message)) && !running?.stopRequested) closeSession(threadId, "stdin write failed");
+          if (!(await writeUser(live, threadId, message)) && !running?.stopRequested)
+            closeSession(threadId, "stdin write failed");
           if (mcpConfigPath) {
             try {
               rmSync(dirname(mcpConfigPath), { recursive: true, force: true });
@@ -1477,9 +2044,16 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
           return { turnId };
         }
         if (live) {
-          const changed = Object.keys(argsParts).filter((key) => live.argsParts[key] !== argsParts[key]);
-          if (live.turn || live.helpers.running()) throw new Error("The previous engine is still working.");
-          appendNative(threadId, { dir: "out", source: "claude.session", msg: turn.sessionReset ? { close: "context reset" } : { changed } });
+          const changed = Object.keys(argsParts).filter(
+            (key) => live.argsParts[key] !== argsParts[key],
+          );
+          if (live.turn || live.helpers.running())
+            throw new Error("The previous engine is still working.");
+          appendNative(threadId, {
+            dir: "out",
+            source: "claude.session",
+            msg: turn.sessionReset ? { close: "context reset" } : { changed },
+          });
           await warmEngines.retire(ownershipKey(threadId), live);
           checkStart();
         }
@@ -1491,13 +2065,20 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
       try {
         checkStart();
         const launchSystem = turn.systemStable ?? turn.system;
-        const helperContract = helperContractWanted(config.cli, cliVersion && claudeCliSupports(cliVersion, SUBAGENT_PROMPT_FLAG) ? cliVersion.join(".") : null);
-        if (launchSystem || helperContract) systemPromptPath = join(mkdtempSync(join(tmpdir(), "laterdog-system-")), "prompt.txt");
+        const helperContract = helperContractWanted(
+          config.cli,
+          cliVersion && claudeCliSupports(cliVersion, SUBAGENT_PROMPT_FLAG)
+            ? cliVersion.join(".")
+            : null,
+        );
+        if (launchSystem || helperContract)
+          systemPromptPath = join(mkdtempSync(join(tmpdir(), "laterdog-system-")), "prompt.txt");
         if (launchSystem && systemPromptPath) {
           writeFileSync(systemPromptPath, launchSystem, { mode: 0o600 });
           args.push("--append-system-prompt-file", systemPromptPath);
         }
-        if (helperContract && systemPromptPath) args.push(...helperContractArgs(dirname(systemPromptPath)));
+        if (helperContract && systemPromptPath)
+          args.push(...helperContractArgs(dirname(systemPromptPath)));
         if (socketPath) {
           const askTools = new Map<string, string | undefined>();
           broker = await createPermissionBroker({
@@ -1509,7 +2090,9 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
               const nativeMode = sessions.get(threadId)?.nativePermissionMode ?? null;
               const nativeReview =
                 permissionMode === "auto" && nativeMode !== null
-                  ? nativeMode === "auto" ? "active" : "inactive"
+                  ? nativeMode === "auto"
+                    ? "active"
+                    : "inactive"
                   : undefined;
               const questions = askQuestions(ask);
               emit({
@@ -1521,13 +2104,28 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
                 tool: ask.tool,
                 summary: askSummary(ask),
                 input: askedFields(ask.input),
-                wholeInput: ask.kind === "permission" && ask.tool === "WebSearch" && ask.input && typeof ask.input === "object" && !Array.isArray(ask.input) ? ask.input : undefined,
-                command: ask.kind === "permission" && ask.tool === "Bash"
-                  ? permissionCommand(ask.input.command, commandCwd) : undefined,
-                requiresExplicitApproval: ask.kind === "permission" && ask.tool === "Bash" && ask.input.dangerouslyDisableSandbox === true || undefined,
+                wholeInput:
+                  ask.kind === "permission" &&
+                  ask.tool === "WebSearch" &&
+                  ask.input &&
+                  typeof ask.input === "object" &&
+                  !Array.isArray(ask.input)
+                    ? ask.input
+                    : undefined,
+                command:
+                  ask.kind === "permission" && ask.tool === "Bash"
+                    ? permissionCommand(ask.input.command, commandCwd)
+                    : undefined,
+                requiresExplicitApproval:
+                  (ask.kind === "permission" &&
+                    ask.tool === "Bash" &&
+                    ask.input.dangerouslyDisableSandbox === true) ||
+                  undefined,
                 nativeReview,
                 approvalScope:
-                  typeof ask.tool === "string" && controlsHost && ask.tool.startsWith("mcp__computer")
+                  typeof ask.tool === "string" &&
+                  controlsHost &&
+                  ask.tool.startsWith("mcp__computer")
                     ? "local-computer"
                     : undefined,
                 questions: questions ?? undefined,
@@ -1544,13 +2142,22 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
                 behavior: resolved.behavior,
                 source: resolved.source,
                 approvalScope:
-                  controlsHost && typeof askTools.get(resolved.id) === "string" && askTools.get(resolved.id)!.startsWith("mcp__computer") ? "local-computer" : undefined,
+                  controlsHost &&
+                  typeof askTools.get(resolved.id) === "string" &&
+                  askTools.get(resolved.id)!.startsWith("mcp__computer")
+                    ? "local-computer"
+                    : undefined,
               });
               askTools.delete(resolved.id);
             },
           });
           if (broker.socketPath !== socketPath && mcpConfigPath) {
-            mcpServers.dog = { command: process.execPath, args: [PERM_PROXY_PATH, broker.socketPath], env: permissionEnv, alwaysLoad: true };
+            mcpServers.dog = {
+              command: process.execPath,
+              args: [PERM_PROXY_PATH, broker.socketPath],
+              env: permissionEnv,
+              alwaysLoad: true,
+            };
           }
         }
 
@@ -1571,7 +2178,13 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
       if (relaunch && retry.cancelled) {
         cleanupUnownedLaunch();
         if (active.get(threadId)?.turnId === turnId) active.delete(threadId);
-        emit({ ...base(threadId, turnId), type: "turn.completed", ok: false, stopReason: "interrupted", cost: null });
+        emit({
+          ...base(threadId, turnId),
+          type: "turn.completed",
+          ok: false,
+          stopReason: "interrupted",
+          cost: null,
+        });
         return { turnId };
       }
 
@@ -1580,28 +2193,61 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
       try {
         checkStart();
         warmEngines.assertVacant(ownershipKey(threadId));
-        const local = () => spawnCli(config.cli, args, { cwd, env, stdio: ["pipe", "pipe", "pipe"] });
+        const local = () =>
+          spawnCli(config.cli, args, { cwd, env, stdio: ["pipe", "pipe", "pipe"] });
         const opener = engineOpener();
         let remote: ReturnType<typeof planClaudeRemote> | null = null;
-        if (chosenRemote && !opener) notePlacement(DATA_DIR, `[engine] ${botId!.slice(0, 8)} ${threadId.slice(0, 8)} stays on the home: no cloud computer opener in this server`);
+        if (chosenRemote && !opener)
+          notePlacement(
+            DATA_DIR,
+            `[engine] ${botId!.slice(0, 8)} ${threadId.slice(0, 8)} stays on the home: no cloud computer opener in this server`,
+          );
         if (opener && chosenRemote) {
           try {
-            remote = planClaudeRemote({ botId: botId!, threadId, sessionId: (sessionId ?? newSessionId)!, cliCommand: resolveCli(config.cli, args, env).command,
-              args, cwd, env, managed: Boolean(config.managed), dataDir: DATA_DIR, proxyPath: opener.proxyPath, remoteBase: opener.remoteBase });
-          } catch (error) { remote = { stay: `launch could not be mirrored: ${(error as Error).message}` }; }
-          if ("stay" in remote) notePlacement(DATA_DIR, `[engine] ${botId!.slice(0, 8)} ${threadId.slice(0, 8)} stays on the home: ${remote.stay}`);
+            remote = planClaudeRemote({
+              botId: botId!,
+              threadId,
+              sessionId: (sessionId ?? newSessionId)!,
+              cliCommand: resolveCli(config.cli, args, env).command,
+              args,
+              cwd,
+              env,
+              managed: Boolean(config.managed),
+              dataDir: DATA_DIR,
+              proxyPath: opener.proxyPath,
+              remoteBase: opener.remoteBase,
+            });
+          } catch (error) {
+            remote = { stay: `launch could not be mirrored: ${(error as Error).message}` };
+          }
+          if ("stay" in remote)
+            notePlacement(
+              DATA_DIR,
+              `[engine] ${botId!.slice(0, 8)} ${threadId.slice(0, 8)} stays on the home: ${remote.stay}`,
+            );
         }
-        child = remote && "plan" in remote
-          ? spawnPlacedEngine(remote.plan, (plan) => opener!.open(botId!, plan), local, (where, why) =>
-            notePlacement(DATA_DIR, `[engine] ${botId!.slice(0, 8)} ${threadId.slice(0, 8)} runs on the ${where === "computer" ? "dog's cloud computer" : "home"}${why ? ` (${why})` : ""}`)) as unknown as ReturnType<typeof spawnCli>
-          : local();
+        child =
+          remote && "plan" in remote
+            ? (spawnPlacedEngine(
+                remote.plan,
+                (plan) => opener!.open(botId!, plan),
+                local,
+                (where, why) =>
+                  notePlacement(
+                    DATA_DIR,
+                    `[engine] ${botId!.slice(0, 8)} ${threadId.slice(0, 8)} runs on the ${where === "computer" ? "dog's cloud computer" : "home"}${why ? ` (${why})` : ""}`,
+                  ),
+              ) as unknown as ReturnType<typeof spawnCli>)
+            : local();
       } catch (error) {
         cleanupUnownedLaunch();
         throw error;
       }
       let markClosed!: () => void;
       const session: Session = {
-        closed: new Promise<void>((resolve) => { markClosed = resolve; }),
+        closed: new Promise<void>((resolve) => {
+          markClosed = resolve;
+        }),
         child,
         broker,
         mcpConfigPath,
@@ -1614,10 +2260,34 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
         passedHelperFlag: args.includes(SUBAGENT_PROMPT_FLAG),
         nativePermissionMode: null,
         replaysUserMessages,
-        turn: { turnId, input: turn, retryAbort, settled: false, sawStreamDelta: false, pendingSteers: new Map(), deferred: null, continuationGrace: null, continuationSilence: null },
+        turn: {
+          turnId,
+          input: turn,
+          retryAbort,
+          settled: false,
+          sawStreamDelta: false,
+          pendingSteers: new Map(),
+          deferred: null,
+          continuationGrace: null,
+          continuationSilence: null,
+        },
         helperTurnId: turnId,
-        helpers: new ClaudeTasks((helper) => emit({ ...base(threadId, session.turn?.turnId ?? session.helperTurnId), type: "helper.updated", helper })),
-        nativeActivity: new ClaudeNativeActivity((observation) => emit({ ...base(threadId, session.turn?.turnId ?? session.helperTurnId), type: "native.observed", observation }), { version: cliVersion?.join("."), sessionId: sessionId ?? newSessionId ?? undefined }),
+        helpers: new ClaudeTasks((helper) =>
+          emit({
+            ...base(threadId, session.turn?.turnId ?? session.helperTurnId),
+            type: "helper.updated",
+            helper,
+          }),
+        ),
+        nativeActivity: new ClaudeNativeActivity(
+          (observation) =>
+            emit({
+              ...base(threadId, session.turn?.turnId ?? session.helperTurnId),
+              type: "native.observed",
+              observation,
+            }),
+          { version: cliVersion?.join("."), sessionId: sessionId ?? newSessionId ?? undefined },
+        ),
         contextAsk: new EngineContextAsk((line) => writeEngineLine(child.stdin, line)),
         helperTimer: null,
         repliedSinceResult: false,
@@ -1671,24 +2341,59 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
         if (stopReason === "update_required") closeSession(threadId, "update required");
         const cost = turnCostFromRunningTotal(total, session.costTotal ?? null);
         if (total !== null) session.costTotal = total;
-        const forkPoint = ok && session.sessionId && session.lastChainUuid ? { session: session.sessionId, at: session.lastChainUuid } : undefined;
-        emit({ ...base(threadId, t.turnId), type: "turn.completed", ok, stopReason, cost, ...(usage ? { usage } : {}), ...(forkPoint ? { forkPoint } : {}) });
+        const forkPoint =
+          ok && session.sessionId && session.lastChainUuid
+            ? { session: session.sessionId, at: session.lastChainUuid }
+            : undefined;
+        emit({
+          ...base(threadId, t.turnId),
+          type: "turn.completed",
+          ok,
+          stopReason,
+          cost,
+          ...(usage ? { usage } : {}),
+          ...(forkPoint ? { forkPoint } : {}),
+        });
         if (session.child.exitCode === null && !session.closing) armIdle(threadId);
       };
-      const settleResult = (result: NativeTurnResult) => settle(result.ok, result.stopReason, result.cost, result.usage);
+      const settleResult = (result: NativeTurnResult) =>
+        settle(result.ok, result.stopReason, result.cost, result.usage);
       const currentTurnId = () => session.turn?.turnId ?? session.helperTurnId;
       const continueAfterHelpers = (): boolean => {
         const held = session.turn;
-        if (!held?.deferred || held.settled || held.stopRequested || session.helpers.backgroundRunning()) return false;
+        if (
+          !held?.deferred ||
+          held.settled ||
+          held.stopRequested ||
+          session.helpers.backgroundRunning()
+        )
+          return false;
         if (session.helpers.continuationLimitReached()) {
-          emit({ ...base(threadId, held.turnId), type: "runtime.error", message: "Your dog reached the limit for consecutive helper rounds. Check its reported results before continuing." });
+          emit({
+            ...base(threadId, held.turnId),
+            type: "runtime.error",
+            message:
+              "Your dog reached the limit for consecutive helper rounds. Check its reported results before continuing.",
+          });
           settle(false, "helper_continuation_limit");
           return true;
         }
         if (!session.helpers.takeContinuation()) return false;
-        void writeUser(session, threadId, claudeUserMessage("Your background helpers have finished. Review their reported results, complete the original request, and reply. Do not repeat work that is already complete.", undefined)).then((written) => {
+        void writeUser(
+          session,
+          threadId,
+          claudeUserMessage(
+            "Your background helpers have finished. Review their reported results, complete the original request, and reply. Do not repeat work that is already complete.",
+            undefined,
+          ),
+        ).then((written) => {
           if (!written && session.turn === held && !held.settled) {
-            emit({ ...base(threadId, held.turnId), type: "runtime.error", message: "Your helpers finished, but their results could not be delivered to the dog." });
+            emit({
+              ...base(threadId, held.turnId),
+              type: "runtime.error",
+              message:
+                "Your helpers finished, but their results could not be delivered to the dog.",
+            });
             settle(false, "helper_continuation_failed");
           }
         });
@@ -1696,22 +2401,37 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
       };
       const recoverRefreshLock = (frame: { is_error?: unknown; result?: unknown }): boolean => {
         const held = session.turn;
-        if (!held || held.settled || !(held.refreshLock?.failed || claudeRefreshLockResult(frame))) return false;
-        const state = held.refreshLock ??= { failed: false, retries: 0 };
+        if (!held || held.settled || !(held.refreshLock?.failed || claudeRefreshLockResult(frame)))
+          return false;
+        const state = (held.refreshLock ??= { failed: false, retries: 0 });
         if (held.stopRequested || session.closing) return false;
-        const waiting = () => session.turn === held && !held.settled && !held.stopRequested && !session.closing;
-        if (retryClaudeRefreshLock(state, {
-          delayScale: retryScale,
-          signal: held.retryAbort.signal,
-          stillWaiting: waiting,
-          resend: () => writeUser(session, threadId, claudeUserMessage(held.input.text, held.input.images)),
-          resendFailed: () => settle(false, "stdin_write_failed"),
-        })) return true;
+        const waiting = () =>
+          session.turn === held && !held.settled && !held.stopRequested && !session.closing;
+        if (
+          retryClaudeRefreshLock(state, {
+            delayScale: retryScale,
+            signal: held.retryAbort.signal,
+            stillWaiting: waiting,
+            resend: () =>
+              writeUser(session, threadId, claudeUserMessage(held.input.text, held.input.images)),
+            resendFailed: () => settle(false, "stdin_write_failed"),
+          })
+        )
+          return true;
         held.authFailed = true;
-        emit({ ...base(threadId, held.turnId), type: "runtime.error", message: claudeSignInAgainMessage(input.displayName), setup: true });
+        emit({
+          ...base(threadId, held.turnId),
+          type: "runtime.error",
+          message: claudeSignInAgainMessage(input.displayName),
+          setup: true,
+        });
         return false;
       };
-      const noteCostState = (total: unknown, modelUsage: unknown, usage: Parameters<typeof restoredCostBase>[2]) => {
+      const noteCostState = (
+        total: unknown,
+        modelUsage: unknown,
+        usage: Parameters<typeof restoredCostBase>[2],
+      ) => {
         const state = claudeCostSnapshot(total, modelUsage);
         if (!state) return;
         if (session.costTotal === undefined) {
@@ -1731,20 +2451,37 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
           return;
         }
         if (session.contextAsk.receive(o)) return;
-        appendNative(threadId, { dir: "in", source: "claude.sdk.message", msg: o?.type === "user" && o.isReplay === true && o.message ? diagnosticClaudeUserMessage(o) : o });
-        if (claudeChildMessage(o) || !claudeRefreshLockFrame(o, firstText(o.message?.content))) session.nativeActivity.receive(o);
-        if (claudeChildMessage(o) && (o.type === "assistant" || o.type === "user" || o.type === "stream_event")) {
+        appendNative(threadId, {
+          dir: "in",
+          source: "claude.sdk.message",
+          msg:
+            o?.type === "user" && o.isReplay === true && o.message
+              ? diagnosticClaudeUserMessage(o)
+              : o,
+        });
+        if (claudeChildMessage(o) || !claudeRefreshLockFrame(o, firstText(o.message?.content)))
+          session.nativeActivity.receive(o);
+        if (
+          claudeChildMessage(o) &&
+          (o.type === "assistant" || o.type === "user" || o.type === "stream_event")
+        ) {
           if (o.type === "assistant") {
             for (const b of Array.isArray(o.message?.content) ? o.message.content : []) {
               if (b.type !== "tool_use") continue;
-              if (o.parent_tool_use_id) session.helpers.noteStep(o.parent_tool_use_id, helperStep(b.name, b.input));
+              if (o.parent_tool_use_id)
+                session.helpers.noteStep(o.parent_tool_use_id, helperStep(b.name, b.input));
               enginePlans.callers.note(b.id, "helper");
             }
           }
           return;
         }
-        if ((o.type === "assistant" || o.type === "user") && typeof o.uuid === "string" && o.uuid) session.lastChainUuid = o.uuid;
-        if (session.turn?.continuationSilence && !(o.type === "system" && o.subtype === "init") && !(o.type === "user" && o.isReplay === true)) {
+        if ((o.type === "assistant" || o.type === "user") && typeof o.uuid === "string" && o.uuid)
+          session.lastChainUuid = o.uuid;
+        if (
+          session.turn?.continuationSilence &&
+          !(o.type === "system" && o.subtype === "init") &&
+          !(o.type === "user" && o.isReplay === true)
+        ) {
           clearTimeout(session.turn.continuationSilence);
           session.turn.continuationSilence = null;
         }
@@ -1753,13 +2490,29 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
             if (session.helpers.receive(o)) {
               if (session.helpers.running()) warmEngines.wake(session);
               if (session.helpers.running() && !session.helperTimer) {
-                const helperMaxMs = Math.min(2_147_483_647, Math.max(1_000, Number(input.environment.LATERDOG_HELPERS_MAX_MS ?? process.env.LATERDOG_HELPERS_MAX_MS) || 4 * 60 * 60_000));
+                const helperMaxMs = Math.min(
+                  2_147_483_647,
+                  Math.max(
+                    1_000,
+                    Number(
+                      input.environment.LATERDOG_HELPERS_MAX_MS ??
+                        process.env.LATERDOG_HELPERS_MAX_MS,
+                    ) || 4 * 60 * 60_000,
+                  ),
+                );
                 session.helperTimer = setTimeout(() => {
                   if (!session.helpers.running()) return;
-                  emit({ ...base(threadId, currentTurnId()), type: "runtime.error", message: "Your helpers reached their time limit and are being stopped." });
+                  emit({
+                    ...base(threadId, currentTurnId()),
+                    type: "runtime.error",
+                    message: "Your helpers reached their time limit and are being stopped.",
+                  });
                   const runningTurn = active.get(threadId);
                   if (runningTurn) runningTurn.stop();
-                  else { closeSession(threadId, "helper time limit"); stopSession(session); }
+                  else {
+                    closeSession(threadId, "helper time limit");
+                    stopSession(session);
+                  }
                 }, helperMaxMs);
                 session.helperTimer.unref?.();
               }
@@ -1771,8 +2524,19 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
             }
             if (o.subtype === "init") {
               const tools: unknown[] = Array.isArray(o.tools) ? o.tools : [];
-              if (session.turn?.input.guestConfined && (o.permissionMode !== "default" || tools.some((tool) => typeof tool === "string" && GUEST_FORBIDDEN_TOOLS.has(tool)))) {
-                emit({ ...base(threadId, currentTurnId()), type: "runtime.error", message: withWhy("This Claude Code kept its shell, so it can't run this turn. Update Claude Code.", session.turn?.input.confinedWhy) });
+              if (
+                session.turn?.input.guestConfined &&
+                (o.permissionMode !== "default" ||
+                  tools.some((tool) => typeof tool === "string" && GUEST_FORBIDDEN_TOOLS.has(tool)))
+              ) {
+                emit({
+                  ...base(threadId, currentTurnId()),
+                  type: "runtime.error",
+                  message: withWhy(
+                    "This Claude Code kept its shell, so it can't run this turn. Update Claude Code.",
+                    session.turn?.input.confinedWhy,
+                  ),
+                });
                 session.closing = true;
                 stopSession(session);
                 break;
@@ -1780,7 +2544,8 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
               session.sawInit = true;
               if (session.turn) session.turn.awaitingInit = false;
               if (session.turn && typeof o.model === "string") session.turn.usageModel = o.model;
-              session.nativePermissionMode = typeof o.permissionMode === "string" ? o.permissionMode : null;
+              session.nativePermissionMode =
+                typeof o.permissionMode === "string" ? o.permissionMode : null;
               if (typeof o.session_id === "string") {
                 session.sessionId = o.session_id;
                 rememberVolatile(threadId, session);
@@ -1803,19 +2568,42 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
                 }, STEERED_CONTINUATION_SILENCE_MS * steerSilenceScale());
                 held.continuationSilence.unref?.();
               }
-              emit({ ...base(threadId, currentTurnId()), type: "session.started", sessionId: o.session_id, model: o.model, ...(retry.rebuilt ? { rebuilt: true } : {}) });
+              emit({
+                ...base(threadId, currentTurnId()),
+                type: "session.started",
+                sessionId: o.session_id,
+                model: o.model,
+                ...(retry.rebuilt ? { rebuilt: true } : {}),
+              });
             } else if (o.subtype === "thinking_tokens") {
-              emit({ ...base(threadId, currentTurnId()), type: "item.updated", itemType: "reasoning", tokens: o.estimated_tokens });
+              emit({
+                ...base(threadId, currentTurnId()),
+                type: "item.updated",
+                itemType: "reasoning",
+                tokens: o.estimated_tokens,
+              });
             } else if (o.subtype === "model_refusal_fallback") {
               const change = claudeModelChange(o);
-              if (change) emit({ ...base(threadId, currentTurnId()), type: "model.changed", ...change });
+              if (change)
+                emit({ ...base(threadId, currentTurnId()), type: "model.changed", ...change });
             } else {
               const compaction = claudeCompactionEvent(o);
-              if (compaction?.type === "session.compacted" && compaction.ok && !compaction.skipped) {
+              if (
+                compaction?.type === "session.compacted" &&
+                compaction.ok &&
+                !compaction.skipped
+              ) {
                 session.volatile = null;
                 rememberVolatile(threadId, session);
               }
-              if (compaction) emit({ ...base(threadId, currentTurnId()), ...compaction, ...(compaction.type === "session.compacting" && summaryHook ? { summaryHook } : {}) });
+              if (compaction)
+                emit({
+                  ...base(threadId, currentTurnId()),
+                  ...compaction,
+                  ...(compaction.type === "session.compacting" && summaryHook
+                    ? { summaryHook }
+                    : {}),
+                });
             }
             break;
           case "stream_event": {
@@ -1825,9 +2613,23 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
             const d = ev.delta ?? {};
             if (d.type === "text_delta" && typeof d.text === "string" && d.text) {
               if (session.turn) session.turn.sawStreamDelta = true;
-              emit({ ...base(threadId, currentTurnId()), type: "content.delta", streamKind: "assistant_text", delta: d.text });
-            } else if (d.type === "thinking_delta" && typeof d.thinking === "string" && d.thinking) {
-              emit({ ...base(threadId, currentTurnId()), type: "content.delta", streamKind: "reasoning_text", delta: d.thinking });
+              emit({
+                ...base(threadId, currentTurnId()),
+                type: "content.delta",
+                streamKind: "assistant_text",
+                delta: d.text,
+              });
+            } else if (
+              d.type === "thinking_delta" &&
+              typeof d.thinking === "string" &&
+              d.thinking
+            ) {
+              emit({
+                ...base(threadId, currentTurnId()),
+                type: "content.delta",
+                streamKind: "reasoning_text",
+                delta: d.thinking,
+              });
             }
             break;
           }
@@ -1835,17 +2637,29 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
             const msg = o.message ?? {};
             const text = firstText(msg.content);
             if (claudeRefreshLockFrame(o, text)) {
-              if (session.turn) (session.turn.refreshLock ??= { failed: false, retries: 0 }).failed = true;
+              if (session.turn)
+                (session.turn.refreshLock ??= { failed: false, retries: 0 }).failed = true;
               break;
             }
             if (claudeAuthFailure(o, text)) {
               if (session.turn) session.turn.authFailed = true;
-              emit({ ...base(threadId, currentTurnId()), type: "runtime.error", message: text, setup: true });
+              emit({
+                ...base(threadId, currentTurnId()),
+                type: "runtime.error",
+                message: text,
+                setup: true,
+              });
               break;
             }
             if (claudeVersionTooOld(o, text)) {
               if (session.turn) session.turn.updateRequired = true;
-              emit({ ...base(threadId, currentTurnId()), type: "runtime.error", message: text, setup: true, claudeUpdate: true });
+              emit({
+                ...base(threadId, currentTurnId()),
+                type: "runtime.error",
+                message: text,
+                setup: true,
+                claudeUpdate: true,
+              });
               break;
             }
             const limit = claudeUsageLimit(o, text, Date.now(), session.turn?.rateLimit);
@@ -1866,22 +2680,46 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
             }
             if (!o.parent_tool_use_id && text.trim() && claudeApiErrorFrame(o)) {
               if (session.turn) session.turn.failureShown = true;
-              emit({ ...base(threadId, currentTurnId()), type: "runtime.error", message: text.trim() });
+              emit({
+                ...base(threadId, currentTurnId()),
+                type: "runtime.error",
+                message: text.trim(),
+              });
               break;
             }
             if (text.trim()) {
               if (!o.parent_tool_use_id) session.repliedSinceResult = true;
-              const synthetic = o.is_api_error_message === true || typeof o.error === "string" ? { synthetic: true } : {};
+              const synthetic =
+                o.is_api_error_message === true || typeof o.error === "string"
+                  ? { synthetic: true }
+                  : {};
               if (!session.turn?.sawStreamDelta) {
-                emit({ ...base(threadId, currentTurnId()), ...synthetic, type: "content.delta", streamKind: "assistant_text", delta: text });
+                emit({
+                  ...base(threadId, currentTurnId()),
+                  ...synthetic,
+                  type: "content.delta",
+                  streamKind: "assistant_text",
+                  delta: text,
+                });
               }
               if (session.turn) session.turn.sawStreamDelta = false;
-              emit({ ...base(threadId, currentTurnId()), ...synthetic, type: "item.completed", itemType: "assistant_text", text });
+              emit({
+                ...base(threadId, currentTurnId()),
+                ...synthetic,
+                type: "item.completed",
+                itemType: "assistant_text",
+                text,
+              });
             }
             for (const b of Array.isArray(msg.content) ? msg.content : []) {
-              if (b.type === "tool_use" && o.parent_tool_use_id) session.helpers.noteStep(o.parent_tool_use_id, helperStep(b.name, b.input));
-              if (b.type === "tool_use") enginePlans.callers.note(b.id, o.parent_tool_use_id ? "helper" : "dog");
-              const engineSteps = b.type === "tool_use" && b.name === "TodoWrite" && !o.parent_tool_use_id ? todoWriteSteps(b.input) : null;
+              if (b.type === "tool_use" && o.parent_tool_use_id)
+                session.helpers.noteStep(o.parent_tool_use_id, helperStep(b.name, b.input));
+              if (b.type === "tool_use")
+                enginePlans.callers.note(b.id, o.parent_tool_use_id ? "helper" : "dog");
+              const engineSteps =
+                b.type === "tool_use" && b.name === "TodoWrite" && !o.parent_tool_use_id
+                  ? todoWriteSteps(b.input)
+                  : null;
               if (engineSteps) enginePlans.report(threadId, engineSteps);
               if (b.type === "tool_use") {
                 emit({
@@ -1897,7 +2735,10 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
               }
             }
             if (msg.usage) {
-              const contextTokens = (msg.usage.input_tokens || 0) + (msg.usage.cache_read_input_tokens || 0) + (msg.usage.cache_creation_input_tokens || 0);
+              const contextTokens =
+                (msg.usage.input_tokens || 0) +
+                (msg.usage.cache_read_input_tokens || 0) +
+                (msg.usage.cache_creation_input_tokens || 0);
               if (session.turn) {
                 session.turn.contextTokens = contextTokens;
                 if (typeof msg.model === "string") session.turn.usageModel = msg.model;
@@ -1933,9 +2774,22 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
             }
             for (const b of Array.isArray(o.message?.content) ? o.message.content : []) {
               if (b.type === "tool_result") {
-                emit({ ...base(threadId, currentTurnId()), type: "item.completed", itemType: "tool", itemId: b.tool_use_id, ok: !b.is_error, output: toolDetailPreview(b.content) });
+                emit({
+                  ...base(threadId, currentTurnId()),
+                  type: "item.completed",
+                  itemType: "tool",
+                  itemId: b.tool_use_id,
+                  ok: !b.is_error,
+                  output: toolDetailPreview(b.content),
+                });
                 for (const img of extractMcpImages(b.content)) {
-                  emit({ ...base(threadId, currentTurnId()), type: "item.completed", itemType: "assistant_image", itemId: b.tool_use_id, data: img.data });
+                  emit({
+                    ...base(threadId, currentTurnId()),
+                    type: "item.completed",
+                    itemType: "assistant_image",
+                    itemId: b.tool_use_id,
+                    data: img.data,
+                  });
                 }
               }
             }
@@ -1951,10 +2805,22 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
               }
               session.helpers.markReported();
             }
-            const refusal = (sessionId || turn.fork) && session.turn && !session.turn.settled && !session.turn.sawStreamDelta ? claudeResumeRefusal(o) : null;
+            const refusal =
+              (sessionId || turn.fork) &&
+              session.turn &&
+              !session.turn.settled &&
+              !session.turn.sawStreamDelta
+                ? claudeResumeRefusal(o)
+                : null;
             if (refusal) {
               session.resumeRefused = refusal;
-              appendNative(threadId, { dir: "out", source: "claude.session", msg: { hold: `result: the saved session was refused (${refusal}); rebuilding when the engine exits` } });
+              appendNative(threadId, {
+                dir: "out",
+                source: "claude.session",
+                msg: {
+                  hold: `result: the saved session was refused (${refusal}); rebuilding when the engine exits`,
+                },
+              });
               break;
             }
             if (recoverRefreshLock(o)) break;
@@ -1972,12 +2838,15 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
                   ? "update_required"
                   : session.turn?.usageLimited
                     ? "usage_limit"
-                    : o.stop_reason ?? o.terminal_reason ?? null,
+                    : (o.stop_reason ?? o.terminal_reason ?? null),
               cost: o.total_cost_usd ?? null,
               ...(o.usage
                 ? {
                     usage: {
-                      input: (o.usage.input_tokens || 0) + (o.usage.cache_read_input_tokens || 0) + (o.usage.cache_creation_input_tokens || 0),
+                      input:
+                        (o.usage.input_tokens || 0) +
+                        (o.usage.cache_read_input_tokens || 0) +
+                        (o.usage.cache_creation_input_tokens || 0),
                       output: o.usage.output_tokens || 0,
                       ...(typeof o.usage.cache_read_input_tokens === "number"
                         ? { cachedInput: o.usage.cache_read_input_tokens }
@@ -1988,14 +2857,43 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
             };
             const t = session.turn;
             const unhandled = claudeUnansweredError(o);
-            if (unhandled && t && !t.settled && !t.authFailed && !t.usageLimited && !t.updateRequired && !t.failureShown) {
-              emit({ ...base(threadId, currentTurnId()), type: "runtime.error", message: unhandled });
+            if (
+              unhandled &&
+              t &&
+              !t.settled &&
+              !t.authFailed &&
+              !t.usageLimited &&
+              !t.updateRequired &&
+              !t.failureShown
+            ) {
+              emit({
+                ...base(threadId, currentTurnId()),
+                type: "runtime.error",
+                message: unhandled,
+              });
             }
-            const contextWindow = claudeReportedContextWindow(o.modelUsage, t?.usageModel ?? injected.model ?? undefined);
+            const contextWindow = claudeReportedContextWindow(
+              o.modelUsage,
+              t?.usageModel ?? injected.model ?? undefined,
+            );
             if (native.usage && contextWindow && t?.contextTokens) {
-              emit({ ...base(threadId, currentTurnId()), type: "thread.token-usage.updated", ...native.usage, contextTokens: t.contextTokens, contextWindow });
+              emit({
+                ...base(threadId, currentTurnId()),
+                type: "thread.token-usage.updated",
+                ...native.usage,
+                contextTokens: t.contextTokens,
+                contextWindow,
+              });
             }
-            if (t && !t.settled && session.helpers.backgroundRunning() && native.ok && !t.usageLimited && !t.authFailed && !t.updateRequired) {
+            if (
+              t &&
+              !t.settled &&
+              session.helpers.backgroundRunning() &&
+              native.ok &&
+              !t.usageLimited &&
+              !t.authFailed &&
+              !t.updateRequired
+            ) {
               t.deferred = sumNativeTurnResults(t.deferred, native);
               if (t.continuationGrace) clearTimeout(t.continuationGrace);
               t.continuationGrace = null;
@@ -2020,7 +2918,13 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
                 t.continuationGrace.unref?.();
               };
               t.armGrace();
-              appendNative(threadId, { dir: "out", source: "claude.session", msg: { hold: `result: a steered message is still queued (queued_turn_count ${o.queued_turn_count ?? "absent"})` } });
+              appendNative(threadId, {
+                dir: "out",
+                source: "claude.session",
+                msg: {
+                  hold: `result: a steered message is still queued (queued_turn_count ${o.queued_turn_count ?? "absent"})`,
+                },
+              });
               break;
             }
             if (t && native.ok && !t.usageLimited && !t.authFailed && !t.updateRequired) {
@@ -2053,7 +2957,11 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
       });
 
       child.on("error", (e) => {
-        emit({ ...base(threadId, currentTurnId()), type: "runtime.error", ...describeSpawnFailure(e, config.cli) });
+        emit({
+          ...base(threadId, currentTurnId()),
+          type: "runtime.error",
+          ...describeSpawnFailure(e, config.cli),
+        });
         settle(false, "spawn_error");
       });
 
@@ -2064,11 +2972,17 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
         if (closeFinalized) return;
         closeFinalized = true;
         if (confirmed) warmEngines.release(ownershipKey(threadId), session);
-        if (!confirmed) emit({ ...base(threadId, currentTurnId()), type: "runtime.notice", message: leftoverProgramsNotice("Claude Code") });
+        if (!confirmed)
+          emit({
+            ...base(threadId, currentTurnId()),
+            type: "runtime.notice",
+            message: leftoverProgramsNotice("Claude Code"),
+          });
         if (session.helperTimer) clearTimeout(session.helperTimer);
         session.helperTimer = null;
         const stoppedLine = helpersStoppedLine(session.helpers.stopAll());
-        if (stoppedLine) emit({ ...base(threadId, currentTurnId()), type: "runtime.error", message: stoppedLine });
+        if (stoppedLine)
+          emit({ ...base(threadId, currentTurnId()), type: "runtime.error", message: stoppedLine });
         if (session.turn?.stopRequested && !session.turn.settled) {
           settle(false, "interrupted");
         } else if (session.turn?.deferred && !session.turn.settled) {
@@ -2093,16 +3007,23 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
           const verdict = classifyError({ exitCode: code, stderr: message });
           const endedBeforeTurn = session.turn.awaitingInit === true;
           const refusedResume = Boolean(session.resumeRefused);
-          const refusedHelperFlag = !session.sawInit && helperFlagRefused(config.cli, cliVersion?.join(".") ?? null, session.stderr, session.passedHelperFlag);
+          const refusedHelperFlag =
+            !session.sawInit &&
+            helperFlagRefused(
+              config.cli,
+              cliVersion?.join(".") ?? null,
+              session.stderr,
+              session.passedHelperFlag,
+            );
           if (
             !refusedResume &&
             !retry.cancelled &&
-            (endedBeforeTurn || refusedHelperFlag || (
-              code !== 0 &&
-              verdict.transient &&
-              !session.turn.sawStreamDelta &&
-              retry.attempt < RETRY_MAX_ATTEMPTS - 1
-            ))
+            (endedBeforeTurn ||
+              refusedHelperFlag ||
+              (code !== 0 &&
+                verdict.transient &&
+                !session.turn.sawStreamDelta &&
+                retry.attempt < RETRY_MAX_ATTEMPTS - 1))
           ) {
             const failedBroker = session.broker;
             session.broker = undefined;
@@ -2148,10 +3069,21 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
                 return;
               }
               retryState.set(threadId, retry);
-              active.set(threadId, { stop: () => { retry.cancelled = true; retryAbort.abort(); }, turnId });
+              active.set(threadId, {
+                stop: () => {
+                  retry.cancelled = true;
+                  retryAbort.abort();
+                },
+                turnId,
+              });
               try {
                 const cursor = session.sessionId ?? sessionId ?? undefined;
-                await sendTurn(refusedHelperFlag || (turn.fork && !session.sawInit) ? turn : { ...turn, fork: undefined, sessionReset: false, resumeCursor: cursor }, turnId);
+                await sendTurn(
+                  refusedHelperFlag || (turn.fork && !session.sawInit)
+                    ? turn
+                    : { ...turn, fork: undefined, sessionReset: false, resumeCursor: cursor },
+                  turnId,
+                );
               } catch (e) {
                 if (active.get(threadId)?.turnId === turnId) active.delete(threadId);
                 retryState.delete(threadId);
@@ -2199,7 +3131,13 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
             session.turn = null;
             retry.rebuilt = recovery.replayed;
             retryState.set(threadId, retry);
-            active.set(threadId, { stop: () => { retry.cancelled = true; retryAbort.abort(); }, turnId });
+            active.set(threadId, {
+              stop: () => {
+                retry.cancelled = true;
+                retryAbort.abort();
+              },
+              turnId,
+            });
             emit({
               ...base(threadId, turnId),
               type: "turn.retrying",
@@ -2209,7 +3147,16 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
             });
             void (async () => {
               try {
-                await sendTurn({ ...turn, fork: undefined, resumeCursor: undefined, recoveryText: undefined, text: recovery.text }, turnId);
+                await sendTurn(
+                  {
+                    ...turn,
+                    fork: undefined,
+                    resumeCursor: undefined,
+                    recoveryText: undefined,
+                    text: recovery.text,
+                  },
+                  turnId,
+                );
               } catch (e) {
                 if (active.get(threadId)?.turnId === turnId) active.delete(threadId);
                 retryState.delete(threadId);
@@ -2218,7 +3165,13 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
                   type: "runtime.error",
                   message: e instanceof Error ? e.message : String(e),
                 });
-                emit({ ...base(threadId, turnId), type: "turn.completed", ok: false, stopReason: "exit_before_result", cost: null });
+                emit({
+                  ...base(threadId, turnId),
+                  type: "turn.completed",
+                  ok: false,
+                  stopReason: "exit_before_result",
+                  cost: null,
+                });
               }
             })();
             return;
@@ -2258,8 +3211,16 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
       session.nativeActivity.beginTurn();
 
       const remembered = sessionId ? deliveredVolatile.get(threadId) : undefined;
-      const launchNote = turn.systemStable === undefined ? "" : claudeContextNote(turn, remembered?.sessionId === sessionId ? remembered.volatile : null).note;
-      const launchMsg = launchNote ? claudeUserMessage(withVolatileNote(turn.text, launchNote), turn.images) : promptMsg;
+      const launchNote =
+        turn.systemStable === undefined
+          ? ""
+          : claudeContextNote(
+              turn,
+              remembered?.sessionId === sessionId ? remembered.volatile : null,
+            ).note;
+      const launchMsg = launchNote
+        ? claudeUserMessage(withVolatileNote(turn.text, launchNote), turn.images)
+        : promptMsg;
       if (!(await writeUser(session, threadId, launchMsg))) {
         if (!session.turn?.stopRequested) settle(false, "stdin_write_failed");
         closeSession(threadId, "stdin write failed");
@@ -2268,9 +3229,15 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
       return { turnId };
     };
 
-    const steer = async (threadId: string, text: string, images?: readonly ClaudeImage[], onRead?: () => void): Promise<SteerOutcome> => {
+    const steer = async (
+      threadId: string,
+      text: string,
+      images?: readonly ClaudeImage[],
+      onRead?: () => void,
+    ): Promise<SteerOutcome> => {
       const s = sessions.get(threadId);
-      if (!s || !s.turn || s.turn.settled || s.closing || s.child.exitCode !== null) return "refused";
+      if (!s || !s.turn || s.turn.settled || s.closing || s.child.exitCode !== null)
+        return "refused";
       const turn = s.turn;
       const id = randomUUID();
       turn.pendingSteers.set(id, onRead);
@@ -2282,13 +3249,20 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
       return "steered";
     };
 
-    const login = new ClaudeLoginController({ cli: config.cli, environment, onAuthenticated: async () => { await refreshModels(); } });
+    const login = new ClaudeLoginController({
+      cli: config.cli,
+      environment,
+      onAuthenticated: async () => {
+        await refreshModels();
+      },
+    });
 
     let lastAnswered: ProviderSnapshot | null = null;
     const snapshot = async (): Promise<ProviderSnapshot> => {
       const env = environment();
       const read = await readCliVersionOf(config.cli, env);
-      if (!("version" in read)) return "starting" in read && lastAnswered ? lastAnswered : unreadCli(config.cli, read);
+      if (!("version" in read))
+        return "starting" in read && lastAnswered ? lastAnswered : unreadCli(config.cli, read);
       const version = read.version;
       cliVersion = parseClaudeCliVersion(version);
       cliVersionChecked = true;
@@ -2296,28 +3270,62 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
       const update = claudeCliUpdate(version, config.cli);
       const warning = claudeInheritWarning(env);
       if (config.requireApiKey) {
-        if (!input.environment.ANTHROPIC_API_KEY) return { state: "unavailable", version, reason: NO_ANTHROPIC_KEY };
-        return { state: "available", version, authenticated: true, account: { method: "api-key" }, ...(update ? { update } : {}), ...(warning ? { warning } : {}), billing: "metered" };
+        if (!input.environment.ANTHROPIC_API_KEY)
+          return { state: "unavailable", version, reason: NO_ANTHROPIC_KEY };
+        return {
+          state: "available",
+          version,
+          authenticated: true,
+          account: { method: "api-key" },
+          ...(update ? { update } : {}),
+          ...(warning ? { warning } : {}),
+          billing: "metered",
+        };
       }
       const auth = await claudeAuthStatus(config.cli, env);
       const known = auth.authenticated === undefined ? keptAuth(lastAnswered) : auth;
-      const answer: ProviderSnapshot = { state: "available", version, ...known, ...(update ? { update } : {}), ...(warning ? { warning } : {}), billing: "subscription" };
+      const answer: ProviderSnapshot = {
+        state: "available",
+        version,
+        ...known,
+        ...(update ? { update } : {}),
+        ...(warning ? { warning } : {}),
+        billing: "subscription",
+      };
       if (auth.authenticated !== undefined) lastAnswered = answer;
       return answer;
     };
 
     const quickModel = config.managedModels?.[0] ?? APPROVAL_REVIEW_MODEL;
-    const generateReview = (prompt: string, model: string, signal?: AbortSignal, onUsage?: TextGenerationOptions["onUsage"]): Promise<string> =>
+    const generateReview = (
+      prompt: string,
+      model: string,
+      signal?: AbortSignal,
+      onUsage?: TextGenerationOptions["onUsage"],
+    ): Promise<string> =>
       new Promise((resolve, reject) => {
         if (config.requireApiKey && !input.environment.ANTHROPIC_API_KEY) {
           reject(new Error(NO_ANTHROPIC_KEY));
           return;
         }
         const oneShotEnvironment = environment(model);
-        const compactWindow = cliHasAutocompact === true ? autoCompactWindow(oneShotEnvironment, claudeKeepsTunedWindow(cliVersion, config.managed)) : null;
+        const compactWindow =
+          cliHasAutocompact === true
+            ? autoCompactWindow(
+                oneShotEnvironment,
+                claudeKeepsTunedWindow(cliVersion, config.managed),
+              )
+            : null;
         const child = spawnCli(
           config.cli,
-          ["-p", "--model", model, "--output-format", onUsage ? "json" : "text", ...(compactWindow ? ["--autocompact", compactWindow] : [])],
+          [
+            "-p",
+            "--model",
+            model,
+            "--output-format",
+            onUsage ? "json" : "text",
+            ...(compactWindow ? ["--autocompact", compactWindow] : []),
+          ],
           {
             stdio: ["pipe", "pipe", "pipe"],
             env: oneShotEnvironment,
@@ -2361,22 +3369,44 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
           if (onUsage) {
             try {
               const result = JSON.parse(stdout);
-              if (!result || result.type !== "result") throw new Error("Claude text generation returned no result");
-              const count = (value: unknown) => typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : undefined;
+              if (!result || result.type !== "result")
+                throw new Error("Claude text generation returned no result");
+              const count = (value: unknown) =>
+                typeof value === "number" && Number.isFinite(value) && value >= 0
+                  ? value
+                  : undefined;
               const cachedInput = count(result.usage?.cache_read_input_tokens);
-              const inputs = [count(result.usage?.input_tokens), cachedInput, count(result.usage?.cache_creation_input_tokens)]
-                .filter((value): value is number => value !== undefined);
-              const models = result.modelUsage && typeof result.modelUsage === "object" && !Array.isArray(result.modelUsage)
-                ? Object.keys(result.modelUsage) : [];
+              const inputs = [
+                count(result.usage?.input_tokens),
+                cachedInput,
+                count(result.usage?.cache_creation_input_tokens),
+              ].filter((value): value is number => value !== undefined);
+              const models =
+                result.modelUsage &&
+                typeof result.modelUsage === "object" &&
+                !Array.isArray(result.modelUsage)
+                  ? Object.keys(result.modelUsage)
+                  : [];
               onUsage({
-                model: models.length === 1 ? models[0]! : models.find(candidate => candidate === model || candidate.startsWith(`${model}-`)) ?? model,
+                model:
+                  models.length === 1
+                    ? models[0]!
+                    : (models.find(
+                        (candidate) => candidate === model || candidate.startsWith(`${model}-`),
+                      ) ?? model),
                 input: inputs.length ? inputs.reduce((sum, value) => sum + value, 0) : undefined,
                 output: count(result.usage?.output_tokens),
                 cachedInput,
                 costUsd: count(result.total_cost_usd),
               });
-              if (result.is_error === true) throw new Error(typeof result.result === "string" && result.result.trim() ? result.result : stderr.trim() || "Claude text generation failed");
-              if (typeof result.result !== "string") throw new Error("Claude text generation returned no text");
+              if (result.is_error === true)
+                throw new Error(
+                  typeof result.result === "string" && result.result.trim()
+                    ? result.result
+                    : stderr.trim() || "Claude text generation failed",
+                );
+              if (typeof result.result !== "string")
+                throw new Error("Claude text generation returned no text");
               stdout = result.result;
             } catch (error) {
               finish(error instanceof Error ? error : new Error(String(error)));
@@ -2414,7 +3444,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
           sessionModelSwitch: "in-session",
           guestTurns: "confined",
           agentsMcp: true,
-        customMcp: true,
+          customMcp: true,
           computerMcp: true,
           composioMcp: true,
           browserMcp: true,
@@ -2427,7 +3457,11 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
           queueing: true,
           steerImages: true,
           get strictResume() {
-            return cliVersionChecked && cliVersion !== null && claudeCliSupports(cliVersion, "--system-prompt-snapshot");
+            return (
+              cliVersionChecked &&
+              cliVersion !== null &&
+              claudeCliSupports(cliVersion, "--system-prompt-snapshot")
+            );
           },
           localComputerMcp: true,
           hooks: true,
@@ -2443,8 +3477,13 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
           const broker = sessions.get(threadId)?.broker ?? active.get(threadId)?.broker;
           if (!broker) return "unavailable";
           const behavior = decision.behavior === "answer" ? "answer" : decision.behavior;
-          if (!broker.answer(requestId, behavior, decision.message, decision.always)) return "unavailable";
-          return behavior === "allow" ? "allowed-once" : behavior === "answer" ? "answered" : "rejected";
+          if (!broker.answer(requestId, behavior, decision.message, decision.always))
+            return "unavailable";
+          return behavior === "allow"
+            ? "allowed-once"
+            : behavior === "answer"
+              ? "answered"
+              : "rejected";
         },
         hasSession: (threadId) => active.has(threadId),
         contextUsage: async (threadId) => {
@@ -2454,12 +3493,22 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
         rareToolsOnDemand: (threadId) => rareLaunches.get(threadId),
         compactionSigns: async (threadId, taskFolder) => {
           const env = environment();
-          const read = (path: string): unknown => { try { return JSON.parse(readFileSync(path, "utf8")); } catch { return undefined; } };
-          const inherited = inheritsUserConfig(env) ? read(join(resolveClaudeConfigDir(undefined, env), "settings.json")) : undefined;
+          const read = (path: string): unknown => {
+            try {
+              return JSON.parse(readFileSync(path, "utf8"));
+            } catch {
+              return undefined;
+            }
+          };
+          const inherited = inheritsUserConfig(env)
+            ? read(join(resolveClaudeConfigDir(undefined, env), "settings.json"))
+            : undefined;
           const folder = taskFolder ?? (threadId ? workFolders.get(threadId) : undefined);
           const project = folder ? read(join(folder, ".claude", "settings.json")) : undefined;
           return {
-            switchedOff: claudeCompactionSwitchedOff(env, inherited) || claudeCompactionSwitchedOff({}, project),
+            switchedOff:
+              claudeCompactionSwitchedOff(env, inherited) ||
+              claudeCompactionSwitchedOff({}, project),
             customEndpoint: !config.managed && localModelEndpoint(env.ANTHROPIC_BASE_URL),
           };
         },
@@ -2485,7 +3534,12 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
       generateText: async (prompt, options) => {
         await claudeRefreshGate.enter(environment());
         await learnCliFlags(environment());
-        return generateReview(prompt, options?.model ?? quickModel, options?.signal, options?.onUsage);
+        return generateReview(
+          prompt,
+          options?.model ?? quickModel,
+          options?.signal,
+          options?.onUsage,
+        );
       },
       reviewPermission: async (prompt, signal) => {
         await claudeRefreshGate.enter(environment());
@@ -2497,7 +3551,9 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
         try {
           await login.dispose();
         } finally {
-          const stopping = Array.from(sessions.values(), (session) => killCliTree(session.child, DISPOSE_STOP_MS));
+          const stopping = Array.from(sessions.values(), (session) =>
+            killCliTree(session.child, DISPOSE_STOP_MS),
+          );
           for (const { stop } of active.values()) stop();
           for (const threadId of Array.from(sessions.keys())) closeSession(threadId, "dispose");
           for (const session of sessions.values()) removeLaunchFiles(session);

@@ -1814,8 +1814,17 @@ async function coldLoads(
       paint: performance.getEntriesByName("first-contentful-paint")[0]?.startTime ?? 0,
     }));
     const uncoveredAt = await page.evaluate(() => {
-      const perf = (window as unknown as { __perf: { composerUncoveredAt: number | null; until(test: () => boolean, timeoutMs: number): Promise<number> } }).__perf;
-      return perf.until(() => perf.composerUncoveredAt !== null, 60_000).then(() => perf.composerUncoveredAt!);
+      const perf = (
+        window as unknown as {
+          __perf: {
+            composerUncoveredAt: number | null;
+            until(test: () => boolean, timeoutMs: number): Promise<number>;
+          };
+        }
+      ).__perf;
+      return perf
+        .until(() => perf.composerUncoveredAt !== null, 60_000)
+        .then(() => perf.composerUncoveredAt!);
     });
     ready.push(seen.composer);
     painted.push(seen.paint);
@@ -1828,13 +1837,23 @@ async function coldLoads(
     composerReadyMs: distribution(ready),
     uncoveredComposerMs: distribution(uncovered),
     composerCoverWaitMs: distribution(coverWait),
-    samples: ready.map((composerMs, index) => ({ firstPaintMs: painted[index], composerReadyMs: composerMs, uncoveredComposerMs: uncovered[index], composerCoverWaitMs: coverWait[index] })),
+    samples: ready.map((composerMs, index) => ({
+      firstPaintMs: painted[index],
+      composerReadyMs: composerMs,
+      uncoveredComposerMs: uncovered[index],
+      composerCoverWaitMs: coverWait[index],
+    })),
   };
 }
 
 async function homeHttp(url: string, dog: Dog, runs: number) {
-  if (!Number.isInteger(runs) || runs < 1) throw new Error("--http-runs takes a positive whole number");
-  const paths = ["/api/health", "/api/bots", `/api/threads/${encodeURIComponent(dog.threadId)}/messages?limit=200`];
+  if (!Number.isInteger(runs) || runs < 1)
+    throw new Error("--http-runs takes a positive whole number");
+  const paths = [
+    "/api/health",
+    "/api/bots",
+    `/api/threads/${encodeURIComponent(dog.threadId)}/messages?limit=200`,
+  ];
   const rows = paths.map((path) => ({ path, samples: [] as HttpTiming[] }));
   for (const row of rows) await measureFixtureResponse(`${url}${row.path}`);
   for (let run = 0; run < runs; run++) {
@@ -3425,12 +3444,35 @@ async function main() {
       return;
     }
     const budgeting = budgetRequest();
-    const needs = budgeting ? budgeting.parts : new Set(process.argv.includes("--loads-only") ? ["cold", "http"] : ["cold", "http", "timed", "counted", "landing"]);
-    const cold = needs.has("cold") ? await coldLoads(browser, fixture.info.url, setup.coldRuns) : undefined;
-    const http = needs.has("http") ? await homeHttp(fixture.info.url, dogs.long, Number(option("http-runs", "20"))) : undefined;
-    const timed = needs.has("timed") ? await pass(browser, fixture, api, dogs, setup, files, false) : undefined;
-    const counted = needs.has("counted") ? await pass(browser, fixture, api, dogs, setup, files, true) : undefined;
-    const landed = needs.has("landing") ? await landing(browser, fixture.info.url, api, dogs, files, Number(option("landing-reps", "3"))) : undefined;
+    const needs = budgeting
+      ? budgeting.parts
+      : new Set(
+          process.argv.includes("--loads-only")
+            ? ["cold", "http"]
+            : ["cold", "http", "timed", "counted", "landing"],
+        );
+    const cold = needs.has("cold")
+      ? await coldLoads(browser, fixture.info.url, setup.coldRuns)
+      : undefined;
+    const http = needs.has("http")
+      ? await homeHttp(fixture.info.url, dogs.long, Number(option("http-runs", "20")))
+      : undefined;
+    const timed = needs.has("timed")
+      ? await pass(browser, fixture, api, dogs, setup, files, false)
+      : undefined;
+    const counted = needs.has("counted")
+      ? await pass(browser, fixture, api, dogs, setup, files, true)
+      : undefined;
+    const landed = needs.has("landing")
+      ? await landing(
+          browser,
+          fixture.info.url,
+          api,
+          dogs,
+          files,
+          Number(option("landing-reps", "3")),
+        )
+      : undefined;
     const result = {
       label: setup.label,
       at: new Date().toISOString(),
@@ -3444,7 +3486,14 @@ async function main() {
       },
       cold,
       homeHttp: http,
-      machine: { node: process.version, cpu: cpus()[0]?.model, cores: cpus().length, memoryGb: Math.round(totalmem() / 2 ** 30), release: release(), loadAverage: loadavg() },
+      machine: {
+        node: process.version,
+        cpu: cpus()[0]?.model,
+        cores: cpus().length,
+        memoryGb: Math.round(totalmem() / 2 ** 30),
+        release: release(),
+        loadAverage: loadavg(),
+      },
       timed,
       landing: landed,
       counted: counted && {

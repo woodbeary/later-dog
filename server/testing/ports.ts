@@ -18,8 +18,12 @@ interface LeaseRegistry {
 }
 
 const REGISTRY_KEY = Symbol.for("laterdog.testing.portLeases");
-const registry: LeaseRegistry = ((globalThis as Record<symbol, unknown>)[REGISTRY_KEY] as LeaseRegistry | undefined)
-  ?? ((globalThis as Record<symbol, unknown>)[REGISTRY_KEY] = { held: new Map(), exitHookInstalled: false } as LeaseRegistry);
+const registry: LeaseRegistry =
+  ((globalThis as Record<symbol, unknown>)[REGISTRY_KEY] as LeaseRegistry | undefined) ??
+  ((globalThis as Record<symbol, unknown>)[REGISTRY_KEY] = {
+    held: new Map(),
+    exitHookInstalled: false,
+  } as LeaseRegistry);
 const heldByThisModule = new Set<number>();
 let leaseSequence = 0;
 
@@ -47,7 +51,11 @@ function processIsAlive(pid: number): boolean {
   }
 }
 
-interface Lease { pid: number; token: string; host: string }
+interface Lease {
+  pid: number;
+  token: string;
+  host: string;
+}
 
 function readLease(path: string): Lease | null {
   try {
@@ -83,7 +91,11 @@ function createExclusively(path: string, token: string): boolean {
 function removeIfStillHeldBy(path: string, holder: { pid: number; token: string }): void {
   const current = readLease(path);
   if (current && Object.is(current.pid, holder.pid) && current.token === holder.token) {
-    try { unlinkSync(path); } catch (error) { if (errorCode(error) !== "ENOENT") throw error; }
+    try {
+      unlinkSync(path);
+    } catch (error) {
+      if (errorCode(error) !== "ENOENT") throw error;
+    }
   }
 }
 
@@ -96,7 +108,12 @@ function reclaimAbandoned(port: number): boolean {
   const token = nextToken();
   if (!createExclusively(guard, token)) {
     const holder = readLease(guard);
-    if (holder && !leaseIsLive(holder, guard) && Date.now() - modifiedAt(guard) > ABANDONED_RECLAIM_MS) removeIfStillHeldBy(guard, holder);
+    if (
+      holder &&
+      !leaseIsLive(holder, guard) &&
+      Date.now() - modifiedAt(guard) > ABANDONED_RECLAIM_MS
+    )
+      removeIfStillHeldBy(guard, holder);
     return false;
   }
   try {
@@ -109,7 +126,11 @@ function reclaimAbandoned(port: number): boolean {
 }
 
 function modifiedAt(path: string): number {
-  try { return statSync(path).mtimeMs; } catch { return Date.now(); }
+  try {
+    return statSync(path).mtimeMs;
+  } catch {
+    return Date.now();
+  }
 }
 
 function nextToken(): string {
@@ -122,7 +143,9 @@ function installExitHook(): void {
   registry.exitHookInstalled = true;
   process.once("exit", () => {
     for (const { path, token } of registry.held.values()) {
-      try { removeIfStillHeldBy(path, { pid: process.pid, token }); } catch {}
+      try {
+        removeIfStillHeldBy(path, { pid: process.pid, token });
+      } catch {}
     }
     registry.held.clear();
   });
@@ -158,7 +181,11 @@ const isFree = (port: number): Promise<boolean> =>
 
 function ephemeralFloor(): number {
   try {
-    return Number(readFileSync("/proc/sys/net/ipv4/ip_local_port_range", "utf8").trim().split(/\s+/)[0]) || 49_152;
+    return (
+      Number(
+        readFileSync("/proc/sys/net/ipv4/ip_local_port_range", "utf8").trim().split(/\s+/)[0],
+      ) || 49_152
+    );
   } catch {
     return 49_152;
   }
@@ -170,7 +197,8 @@ async function leaseAll(ports: number[]): Promise<boolean> {
     if (!acquire(port)) break;
     taken.push(port);
   }
-  if (taken.length === ports.length && (await Promise.all(ports.map(isFree))).every(Boolean)) return true;
+  if (taken.length === ports.length && (await Promise.all(ports.map(isFree))).every(Boolean))
+    return true;
   for (const port of taken) release(port);
   return false;
 }
@@ -191,7 +219,9 @@ export async function leasePortBlock(offsets: number[]): Promise<number> {
     const base = PORT_LEASE_FLOOR + Math.floor(Math.random() * span);
     if (await leaseAll(offsets.map((offset) => base + offset))) return base;
   }
-  throw new Error(`no free port block for offsets ${offsets.join(",")} in ${PORT_LEASE_FLOOR}..${ceiling} (leases in ${portLeaseDirectory()})`);
+  throw new Error(
+    `no free port block for offsets ${offsets.join(",")} in ${PORT_LEASE_FLOOR}..${ceiling} (leases in ${portLeaseDirectory()})`,
+  );
 }
 
 export function leasePort(): Promise<number> {
@@ -208,7 +238,7 @@ export async function withFreeSignInPort(url: string): Promise<string> {
     const candidate = new URL(url);
     candidate.searchParams.set("app", String(attempt));
     const port = Number(new URL(mcpOAuthRedirectUri(candidate.toString())).port);
-    if (port < floor && await tryLeasePorts([port])) return candidate.toString();
+    if (port < floor && (await tryLeasePorts([port]))) return candidate.toString();
   }
   throw new Error(`no free sign-in redirect port below ${floor} for ${url}`);
 }

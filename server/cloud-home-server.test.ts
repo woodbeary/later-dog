@@ -16,9 +16,14 @@ const HOST = "laterdog-t-0123456789ab.fly.dev";
 const secret = randomBytes(32).toString("base64url");
 const token = `laterdog_cloudai_${randomBytes(32).toString("base64url")}`;
 const gateway = {
-  LATERDOG_HOSTED_MODEL_URL: "https://cloud.example.test/api/cloud/gateway/g0123456789abcdef0123456789abcd",
+  LATERDOG_HOSTED_MODEL_URL:
+    "https://cloud.example.test/api/cloud/gateway/g0123456789abcdef0123456789abcd",
   LATERDOG_HOSTED_MODEL_TOKEN: token,
-  LATERDOG_HOSTED_MODELS: JSON.stringify({ anthropic: [], openai: ["gpt-fixture"], openrouter: ["anthropic/claude-fixture"] }),
+  LATERDOG_HOSTED_MODELS: JSON.stringify({
+    anthropic: [],
+    openai: ["gpt-fixture"],
+    openrouter: ["anthropic/claude-fixture"],
+  }),
 };
 const included = {
   LATERDOG_CLOUD_BOAT_URL: "https://cloud.example.test/api/cloud/services/boat/api/box/v1",
@@ -29,7 +34,11 @@ const included = {
   LATERDOG_CLOUD_DECIDER_URL: "https://cloud.example.test/api/cloud/services/decider",
   LATERDOG_CLOUD_DECIDER_TOKEN: `laterdog_decide_${randomBytes(32).toString("base64url")}`,
 };
-const includedTokens = [included.LATERDOG_CLOUD_BOAT_TOKEN, included.LATERDOG_CLOUD_VOICE_TOKEN, included.LATERDOG_CLOUD_DECIDER_TOKEN];
+const includedTokens = [
+  included.LATERDOG_CLOUD_BOAT_TOKEN,
+  included.LATERDOG_CLOUD_VOICE_TOKEN,
+  included.LATERDOG_CLOUD_DECIDER_TOKEN,
+];
 let home: string;
 let base: string;
 let child: ChildProcess;
@@ -37,19 +46,25 @@ let log = "";
 
 let ownerToken = "";
 
-async function api(method: string, path: string, options: { body?: unknown; remote?: boolean; headers?: Record<string, string> } = {}) {
+async function api(
+  method: string,
+  path: string,
+  options: { body?: unknown; remote?: boolean; headers?: Record<string, string> } = {},
+) {
   const asOwner = !options.remote && ownerToken !== "";
   const response = await fetch(`${base}${path}`, {
     method,
     headers: {
-      ...(options.remote || asOwner ? { host: HOST, "x-forwarded-for": "203.0.113.9", "x-forwarded-proto": "https" } : {}),
+      ...(options.remote || asOwner
+        ? { host: HOST, "x-forwarded-for": "203.0.113.9", "x-forwarded-proto": "https" }
+        : {}),
       ...(asOwner ? { authorization: `Bearer ${ownerToken}` } : {}),
       ...(options.body === undefined ? {} : { "content-type": "application/json" }),
       ...options.headers,
     },
     body: options.body === undefined ? undefined : JSON.stringify(options.body),
   });
-  return { status: response.status, body: await response.json().catch(() => null) as any };
+  return { status: response.status, body: (await response.json().catch(() => null)) as any };
 }
 
 beforeAll(async () => {
@@ -57,7 +72,9 @@ beforeAll(async () => {
   const dataDir = join(home, ".laterdog");
   mkdirSync(dataDir, { recursive: true });
   const cli = join(home, "fixture-claude.mjs");
-  writeFileSync(cli, `#!/usr/bin/env node
+  writeFileSync(
+    cli,
+    `#!/usr/bin/env node
 import { existsSync } from "node:fs";
 if (process.argv[2] === "auth") {
   console.log(JSON.stringify({ loggedIn: true, email: "person@example.test" }));
@@ -67,13 +84,23 @@ const hang = existsSync(${JSON.stringify(join(home, "hang"))});
 if (hang) process.env.FAKE_CLAUDE_MODE = "hang";
 if (process.argv[2] !== "--version") process.env.FAKE_CLAUDE_DUMP = ${JSON.stringify(join(home, "spawn"))} + (hang ? "-hang.json" : ".json");
 await import(${JSON.stringify(pathToFileURL(join(SERVER_DIR, "testing", "fake-claude-cli.ts")).href)});
-`, { mode: 0o755 });
-  writeFileSync(join(dataDir, "config.json"), JSON.stringify({
-    instances: {
-      ...Object.fromEntries(["codex", "cursor", "openaiCompat", "qwen", "hermes", "pi"].map((id) => [id, { driver: "not-a-real-driver" }])),
-      claude: { driver: "claudeAgent", displayName: "Claude", config: { cli } },
-    },
-  }));
+`,
+    { mode: 0o755 },
+  );
+  writeFileSync(
+    join(dataDir, "config.json"),
+    JSON.stringify({
+      instances: {
+        ...Object.fromEntries(
+          ["codex", "cursor", "openaiCompat", "qwen", "hermes", "pi"].map((id) => [
+            id,
+            { driver: "not-a-real-driver" },
+          ]),
+        ),
+        claude: { driver: "claudeAgent", displayName: "Claude", config: { cli } },
+      },
+    }),
+  );
   mkdirSync(join(home, "web"));
   writeFileSync(join(home, "web", "index.html"), "<!doctype html><title>later.dog</title>");
   const port = await leasePortBlock([0, 1]);
@@ -85,20 +112,34 @@ await import(${JSON.stringify(pathToFileURL(join(SERVER_DIR, "testing", "fake-cl
       PATH: process.env.PATH,
       ...(process.env.PATHEXT ? { PATHEXT: process.env.PATHEXT } : {}),
       ...(process.env.SystemRoot ? { SystemRoot: process.env.SystemRoot } : {}),
-      HOME: home, USERPROFILE: home, LATERDOG_HOME: dataDir, LATERDOG_SERVER_PORT: String(port), LATERDOG_WEBHOOK_PORT: String(port + 1), LATERDOG_STATIC_DIR: join(home, "web"),
-      LATERDOG_CLOUD_ROLE: "home", LATERDOG_CLOUD_MACHINE_ID: "3f9c2a4e-8b1d-4c6e-9a7f-2d5e8c1b0a93", LATERDOG_CLOUD_ADMIN_URL: "https://cloud.example.test",
-      LATERDOG_CLOUD_BOOTSTRAP_SECRET: secret, LATERDOG_PUBLIC_URL: `https://${HOST}`,
+      HOME: home,
+      USERPROFILE: home,
+      LATERDOG_HOME: dataDir,
+      LATERDOG_SERVER_PORT: String(port),
+      LATERDOG_WEBHOOK_PORT: String(port + 1),
+      LATERDOG_STATIC_DIR: join(home, "web"),
+      LATERDOG_CLOUD_ROLE: "home",
+      LATERDOG_CLOUD_MACHINE_ID: "3f9c2a4e-8b1d-4c6e-9a7f-2d5e8c1b0a93",
+      LATERDOG_CLOUD_ADMIN_URL: "https://cloud.example.test",
+      LATERDOG_CLOUD_BOOTSTRAP_SECRET: secret,
+      LATERDOG_PUBLIC_URL: `https://${HOST}`,
       ...gateway,
       ...included,
     },
     stdio: ["ignore", "pipe", "pipe"],
   });
-  child.stdout?.on("data", (chunk) => { log += chunk; });
-  child.stderr?.on("data", (chunk) => { log += chunk; });
+  child.stdout?.on("data", (chunk) => {
+    log += chunk;
+  });
+  child.stderr?.on("data", (chunk) => {
+    log += chunk;
+  });
   const deadline = Date.now() + 20_000;
   for (;;) {
     if (child.exitCode !== null) throw new Error(`the Cloud home exited:\n${log}`);
-    try { if ((await api("GET", "/api/health")).body?.pid === child.pid) break; } catch {}
+    try {
+      if ((await api("GET", "/api/health")).body?.pid === child.pid) break;
+    } catch {}
     if (Date.now() > deadline) throw new Error(`the Cloud home did not start:\n${log}`);
     await new Promise((resolve) => setTimeout(resolve, 100));
   }
@@ -107,12 +148,20 @@ await import(${JSON.stringify(pathToFileURL(join(SERVER_DIR, "testing", "fake-cl
 
 async function ownerPairing(): Promise<string> {
   const body = JSON.stringify({ label: "later.dog app (Cloud)", ttlSeconds: 300 });
-  const timestamp = String(Math.floor(Date.now() / 1000)), nonce = randomBytes(16).toString("base64url");
-  const granted = await api("POST", "/api/cloud/pairing", { remote: true, headers: {
-    "content-type": "application/json", "x-laterdog-cloud-timestamp": timestamp, "x-laterdog-cloud-nonce": nonce,
-    "x-laterdog-cloud-signature": `v1=${cloudPairingSignature(secret, timestamp, nonce, body)}`,
-  }, body: JSON.parse(body) });
-  return (await api("POST", "/api/auth/pair", { remote: true, body: { code: granted.body.code } })).body.token as string;
+  const timestamp = String(Math.floor(Date.now() / 1000)),
+    nonce = randomBytes(16).toString("base64url");
+  const granted = await api("POST", "/api/cloud/pairing", {
+    remote: true,
+    headers: {
+      "content-type": "application/json",
+      "x-laterdog-cloud-timestamp": timestamp,
+      "x-laterdog-cloud-nonce": nonce,
+      "x-laterdog-cloud-signature": `v1=${cloudPairingSignature(secret, timestamp, nonce, body)}`,
+    },
+    body: JSON.parse(body),
+  });
+  return (await api("POST", "/api/auth/pair", { remote: true, body: { code: granted.body.code } }))
+    .body.token as string;
 }
 
 afterAll(async () => {
@@ -121,7 +170,11 @@ afterAll(async () => {
 });
 
 it("boots with a gateway's settings, says once that it ignores them, and never logs them", () => {
-  expect(log.match(/cloud home: ignoring LATERDOG_HOSTED_MODEL_URL, LATERDOG_HOSTED_MODEL_TOKEN, LATERDOG_HOSTED_MODELS: Cloud Pro includes no AI/g)).toHaveLength(1);
+  expect(
+    log.match(
+      /cloud home: ignoring LATERDOG_HOSTED_MODEL_URL, LATERDOG_HOSTED_MODEL_TOKEN, LATERDOG_HOSTED_MODELS: Cloud Pro includes no AI/g,
+    ),
+  ).toHaveLength(1);
   expect(log).not.toContain(token);
   expect(log).not.toContain(secret);
   for (const includedToken of includedTokens) expect(log).not.toContain(includedToken);
@@ -131,8 +184,20 @@ it("offers the included computers, voice and decisions with no key, and never sh
   const status = await api("GET", "/api/config");
   expect(status.status).toBe(200);
   expect(status.body.box).toEqual({ configured: true, included: true });
-  expect(status.body.tts).toMatchObject({ configured: true, ready: true, provider: "elevenlabs", voice: "preset0voice0id", included: true });
-  expect(status.body.decider).toEqual({ provider: "jev", configured: true, included: true, enabled: true, jobs: { roomRouting: true } });
+  expect(status.body.tts).toMatchObject({
+    configured: true,
+    ready: true,
+    provider: "elevenlabs",
+    voice: "preset0voice0id",
+    included: true,
+  });
+  expect(status.body.decider).toEqual({
+    provider: "jev",
+    configured: true,
+    included: true,
+    enabled: true,
+    jobs: { roomRouting: true },
+  });
   const saved = readFileSync(join(home, ".laterdog", "config.json"), "utf8");
   for (const includedToken of includedTokens) {
     expect(JSON.stringify(status.body)).not.toContain(includedToken);
@@ -142,52 +207,117 @@ it("offers the included computers, voice and decisions with no key, and never sh
 
 it("pairs the app on a signed request and tells it its first run is the engine sign-in; no gateway models are served", async () => {
   const body = JSON.stringify({ label: "later.dog app (Cloud)", ttlSeconds: 300 });
-  const timestamp = String(Math.floor(Date.now() / 1000)), nonce = randomBytes(16).toString("base64url");
-  const granted = await api("POST", "/api/cloud/pairing", { remote: true, headers: {
-    "content-type": "application/json", "x-laterdog-cloud-timestamp": timestamp, "x-laterdog-cloud-nonce": nonce,
-    "x-laterdog-cloud-signature": `v1=${cloudPairingSignature(secret, timestamp, nonce, body)}`,
-  }, body: JSON.parse(body) });
+  const timestamp = String(Math.floor(Date.now() / 1000)),
+    nonce = randomBytes(16).toString("base64url");
+  const granted = await api("POST", "/api/cloud/pairing", {
+    remote: true,
+    headers: {
+      "content-type": "application/json",
+      "x-laterdog-cloud-timestamp": timestamp,
+      "x-laterdog-cloud-nonce": nonce,
+      "x-laterdog-cloud-signature": `v1=${cloudPairingSignature(secret, timestamp, nonce, body)}`,
+    },
+    body: JSON.parse(body),
+  });
   expect(granted.status, JSON.stringify(granted.body)).toBe(200);
-  const paired = await api("POST", "/api/auth/pair", { remote: true, body: { code: granted.body.code } });
+  const paired = await api("POST", "/api/auth/pair", {
+    remote: true,
+    body: { code: granted.body.code },
+  });
   expect(paired.status, JSON.stringify(paired.body)).toBe(200);
   const auth = { authorization: `Bearer ${paired.body.token}` };
   const session = await api("GET", "/api/auth/session", { remote: true, headers: auth });
-  expect(session.body).toMatchObject({ kind: "session", scopes: ["admin", "client"], cloudHome: true });
+  expect(session.body).toMatchObject({
+    kind: "session",
+    scopes: ["admin", "client"],
+    cloudHome: true,
+  });
   expect(session.body).not.toHaveProperty("hosted");
-  expect((await api("GET", "/api/config", { remote: true, headers: auth })).body.onboarding).not.toHaveProperty("firstTurnAt");
+  expect(
+    (await api("GET", "/api/config", { remote: true, headers: auth })).body.onboarding,
+  ).not.toHaveProperty("firstTurnAt");
   const { instances } = (await api("GET", "/api/instances", { remote: true, headers: auth })).body;
   expect(instances.map((instance: any) => instance.instanceId)).toContain("claude");
-  expect(instances.filter((instance: any) => instance.instanceId.startsWith("included.") || "included" in instance || instance.readOnly)).toEqual([]);
+  expect(
+    instances.filter(
+      (instance: any) =>
+        instance.instanceId.startsWith("included.") || "included" in instance || instance.readOnly,
+    ),
+  ).toEqual([]);
   expect(JSON.stringify(instances)).not.toContain("cloud.example.test");
 });
 
 async function mintBrowserSignIn(owner = "ada@example.test"): Promise<string> {
-  const body = JSON.stringify({ label: "Web browser (Cloud page)", ttlSeconds: 120, purpose: "browser", owner });
-  const timestamp = String(Math.floor(Date.now() / 1000)), nonce = randomBytes(16).toString("base64url");
-  const granted = await api("POST", "/api/cloud/pairing", { remote: true, headers: {
-    "content-type": "application/json", "x-laterdog-cloud-timestamp": timestamp, "x-laterdog-cloud-nonce": nonce,
-    "x-laterdog-cloud-signature": `v1=${cloudPairingSignature(secret, timestamp, nonce, body)}`,
-  }, body: JSON.parse(body) });
+  const body = JSON.stringify({
+    label: "Web browser (Cloud page)",
+    ttlSeconds: 120,
+    purpose: "browser",
+    owner,
+  });
+  const timestamp = String(Math.floor(Date.now() / 1000)),
+    nonce = randomBytes(16).toString("base64url");
+  const granted = await api("POST", "/api/cloud/pairing", {
+    remote: true,
+    headers: {
+      "content-type": "application/json",
+      "x-laterdog-cloud-timestamp": timestamp,
+      "x-laterdog-cloud-nonce": nonce,
+      "x-laterdog-cloud-signature": `v1=${cloudPairingSignature(secret, timestamp, nonce, body)}`,
+    },
+    body: JSON.parse(body),
+  });
   expect(granted.status, JSON.stringify(granted.body)).toBe(200);
-  expect(granted.body).toMatchObject({ purpose: "browser", credential: expect.stringMatching(/^laterdog_pair_/) });
+  expect(granted.body).toMatchObject({
+    purpose: "browser",
+    credential: expect.stringMatching(/^laterdog_pair_/),
+  });
   expect(granted.body).not.toHaveProperty("code");
   return granted.body.credential as string;
 }
-const browserRequest = (body: Record<string, unknown>, cookie?: string) => fetch(`${base}/api/auth/pair`, { method: "POST", headers: {
-  host: HOST, "x-forwarded-for": "203.0.113.9", "x-forwarded-proto": "https", "content-type": "application/json", ...(cookie ? { cookie } : {}) }, body: JSON.stringify(body) });
+const browserRequest = (body: Record<string, unknown>, cookie?: string) =>
+  fetch(`${base}/api/auth/pair`, {
+    method: "POST",
+    headers: {
+      host: HOST,
+      "x-forwarded-for": "203.0.113.9",
+      "x-forwarded-proto": "https",
+      "content-type": "application/json",
+      ...(cookie ? { cookie } : {}),
+    },
+    body: JSON.stringify(body),
+  });
 
 it("signs a browser in from the Cloud page's \"Use in your browser\" into an owner's session, once, and never logs it", async () => {
   const credential = await mintBrowserSignIn();
-  expect((await api("POST", "/api/auth/pair", { remote: true, body: { code: credential } })).status).toBe(401);
+  expect(
+    (await api("POST", "/api/auth/pair", { remote: true, body: { code: credential } })).status,
+  ).toBe(401);
   expect((await api("POST", "/api/pair", { remote: true, body: { credential } })).status).toBe(401);
-  expect((await api("POST", "/api/auth/pair", { remote: true, body: { code: credential, browser: true } })).status).toBe(400);
+  expect(
+    (
+      await api("POST", "/api/auth/pair", {
+        remote: true,
+        body: { code: credential, browser: true },
+      })
+    ).status,
+  ).toBe(400);
   for (let i = 0; i < 2; i++) {
     const preview = await browserRequest({ code: credential, browser: true, preview: true });
     expect(preview.status).toBe(200);
-    expect(await preview.json()).toEqual({ owner: "ada@example.test", expiresAt: expect.any(Number) });
+    expect(await preview.json()).toEqual({
+      owner: "ada@example.test",
+      expiresAt: expect.any(Number),
+    });
     expect(preview.headers.get("set-cookie")).toBeNull();
   }
-  const signIn = () => browserRequest({ code: credential, label: "Safari on iPad", cookie: true, browser: true, attemptId: randomBytes(12).toString("base64url") });
+  const signIn = () =>
+    browserRequest({
+      code: credential,
+      label: "Safari on iPad",
+      cookie: true,
+      browser: true,
+      attemptId: randomBytes(12).toString("base64url"),
+    });
   const signedIn = await signIn();
   expect(signedIn.status).toBe(200);
   expect(await signedIn.json()).not.toHaveProperty("token");
@@ -195,46 +325,118 @@ it("signs a browser in from the Cloud page's \"Use in your browser\" into an own
   expect(cookie).toMatch(/HttpOnly/);
   expect(cookie).toMatch(/Secure/);
   expect(cookie).toMatch(/SameSite=Lax/);
-  const session = await api("GET", "/api/auth/session", { remote: true, headers: { cookie: cookie.split(";")[0] } });
-  expect(session.body).toMatchObject({ kind: "session", label: "Safari on iPad", scopes: ["admin", "client"], cloudHome: true, owner: "ada@example.test" });
+  const session = await api("GET", "/api/auth/session", {
+    remote: true,
+    headers: { cookie: cookie.split(";")[0] },
+  });
+  expect(session.body).toMatchObject({
+    kind: "session",
+    label: "Safari on iPad",
+    scopes: ["admin", "client"],
+    cloudHome: true,
+    owner: "ada@example.test",
+  });
   const token = cookie.split(";")[0].split("=").slice(1).join("=");
-  expect((await api("GET", "/api/auth/session", { remote: true, headers: { authorization: `Bearer ${token}` } })).status).toBe(401);
-  const change = (headers: Record<string, string>) => api("POST", "/api/auth/stream-ticket", { remote: true, headers: { cookie: cookie.split(";")[0], ...headers } });
+  expect(
+    (
+      await api("GET", "/api/auth/session", {
+        remote: true,
+        headers: { authorization: `Bearer ${token}` },
+      })
+    ).status,
+  ).toBe(401);
+  const change = (headers: Record<string, string>) =>
+    api("POST", "/api/auth/stream-ticket", {
+      remote: true,
+      headers: { cookie: cookie.split(";")[0], ...headers },
+    });
   expect((await change({})).status).toBe(403);
   expect((await change({ "sec-fetch-site": "cross-site" })).status).toBe(403);
   expect((await change({ origin: base.replace("http:", "https:") })).status).toBe(200);
-  expect((await change({ origin: `https://evil.example`, "sec-fetch-site": "same-origin" })).status).toBe(403);
+  expect(
+    (await change({ origin: `https://evil.example`, "sec-fetch-site": "same-origin" })).status,
+  ).toBe(403);
   expect((await change({ "sec-fetch-site": "same-origin" })).status).toBe(200);
   expect((await signIn()).status).toBe(401);
-  expect((await browserRequest({ code: credential, browser: true, preview: true })).status).toBe(401);
+  expect((await browserRequest({ code: credential, browser: true, preview: true })).status).toBe(
+    401,
+  );
   expect(log).not.toContain(credential);
 });
 
 it("replaces a browser's own session when it signs in again, and a lost answer leaves a named session that can be revoked", async () => {
   const cookieOf = (response: Response) => (response.headers.get("set-cookie") ?? "").split(";")[0];
-  const first = await browserRequest({ code: await mintBrowserSignIn(), label: "Chrome on Mac", cookie: true, browser: true, attemptId: randomBytes(12).toString("base64url") });
+  const first = await browserRequest({
+    code: await mintBrowserSignIn(),
+    label: "Chrome on Mac",
+    cookie: true,
+    browser: true,
+    attemptId: randomBytes(12).toString("base64url"),
+  });
   expect(first.status).toBe(200);
-  const firstCookie = cookieOf(first), firstId = ((await first.json()) as any).session.id as string;
-  const second = await browserRequest({ code: await mintBrowserSignIn(), label: "Chrome on Mac", cookie: true, browser: true, attemptId: randomBytes(12).toString("base64url") }, firstCookie);
+  const firstCookie = cookieOf(first),
+    firstId = ((await first.json()) as any).session.id as string;
+  const second = await browserRequest(
+    {
+      code: await mintBrowserSignIn(),
+      label: "Chrome on Mac",
+      cookie: true,
+      browser: true,
+      attemptId: randomBytes(12).toString("base64url"),
+    },
+    firstCookie,
+  );
   expect(second.status).toBe(200);
-  const secondCookie = cookieOf(second), secondId = ((await second.json()) as any).session.id as string;
-  expect((await api("GET", "/api/auth/session", { remote: true, headers: { cookie: firstCookie } })).status).toBe(401);
-  const listed = await api("GET", "/api/auth/sessions", { remote: true, headers: { cookie: secondCookie } });
+  const secondCookie = cookieOf(second),
+    secondId = ((await second.json()) as any).session.id as string;
+  expect(
+    (await api("GET", "/api/auth/session", { remote: true, headers: { cookie: firstCookie } }))
+      .status,
+  ).toBe(401);
+  const listed = await api("GET", "/api/auth/sessions", {
+    remote: true,
+    headers: { cookie: secondCookie },
+  });
   expect(listed.body.sessions.map((s: any) => s.id)).toContain(secondId);
   expect(listed.body.sessions.map((s: any) => s.id)).not.toContain(firstId);
-  const lost = await browserRequest({ code: await mintBrowserSignIn(), label: "Firefox on Chromebook", cookie: true, browser: true, attemptId: randomBytes(12).toString("base64url") });
+  const lost = await browserRequest({
+    code: await mintBrowserSignIn(),
+    label: "Firefox on Chromebook",
+    cookie: true,
+    browser: true,
+    attemptId: randomBytes(12).toString("base64url"),
+  });
   const lostId = ((await lost.json()) as any).session.id as string;
-  const orphan = (await api("GET", "/api/auth/sessions", { remote: true, headers: { cookie: secondCookie } })).body.sessions.find((s: any) => s.id === lostId);
-  expect(orphan).toMatchObject({ label: "Firefox on Chromebook", scopes: ["admin", "client"], owner: "ada@example.test" });
-  const revoke = await fetch(`${base}/api/auth/sessions/${lostId}`, { method: "DELETE", headers: { host: HOST, "x-forwarded-for": "203.0.113.9", "x-forwarded-proto": "https",
-    "sec-fetch-site": "same-origin", cookie: secondCookie } });
+  const orphan = (
+    await api("GET", "/api/auth/sessions", { remote: true, headers: { cookie: secondCookie } })
+  ).body.sessions.find((s: any) => s.id === lostId);
+  expect(orphan).toMatchObject({
+    label: "Firefox on Chromebook",
+    scopes: ["admin", "client"],
+    owner: "ada@example.test",
+  });
+  const revoke = await fetch(`${base}/api/auth/sessions/${lostId}`, {
+    method: "DELETE",
+    headers: {
+      host: HOST,
+      "x-forwarded-for": "203.0.113.9",
+      "x-forwarded-proto": "https",
+      "sec-fetch-site": "same-origin",
+      cookie: secondCookie,
+    },
+  });
   expect(revoke.status).toBe(200);
-  expect((await api("GET", "/api/auth/session", { remote: true, headers: { cookie: cookieOf(lost) } })).status).toBe(401);
+  expect(
+    (await api("GET", "/api/auth/session", { remote: true, headers: { cookie: cookieOf(lost) } }))
+      .status,
+  ).toBe(401);
 });
 
 it("serves its pages to no frame and with no Referer", async () => {
   for (const path of ["/pair", "/", "/settings"]) {
-    const page = await fetch(`${base}${path}`, { headers: { host: HOST, "x-forwarded-for": "203.0.113.9", "x-forwarded-proto": "https" } });
+    const page = await fetch(`${base}${path}`, {
+      headers: { host: HOST, "x-forwarded-for": "203.0.113.9", "x-forwarded-proto": "https" },
+    });
     expect(page.status, path).toBe(200);
     expect(page.headers.get("content-type"), path).toBe("text/html");
     expect(page.headers.get("content-security-policy"), path).toBe("frame-ancestors 'none'");
@@ -246,36 +448,57 @@ it("serves its pages to no frame and with no Referer", async () => {
 it("never hands the included tokens or the signing secret to a CLI it probes", async () => {
   const dump = join(home, "cli-env.json");
   const cli = join(home, "dump-env.mjs");
-  writeFileSync(cli, `#!/usr/bin/env node
+  writeFileSync(
+    cli,
+    `#!/usr/bin/env node
 import { writeFileSync } from "node:fs";
 writeFileSync(${JSON.stringify(dump)}, JSON.stringify(process.env));
 console.log("dump-env 1.0.0");
-`, { mode: 0o755 });
+`,
+    { mode: 0o755 },
+  );
   const probe = await api("POST", "/api/cli-test", { body: { cli } });
-  expect(probe.body, JSON.stringify(probe.body)).toMatchObject({ ok: true, version: "dump-env 1.0.0" });
+  expect(probe.body, JSON.stringify(probe.body)).toMatchObject({
+    ok: true,
+    version: "dump-env 1.0.0",
+  });
   const env = JSON.parse(readFileSync(dump, "utf8"));
   expect(env.LATERDOG_TTS_DEFAULT_VOICE).toBe(included.LATERDOG_TTS_DEFAULT_VOICE);
-  for (const key of ["LATERDOG_CLOUD_BOAT_TOKEN", "LATERDOG_CLOUD_VOICE_TOKEN", "LATERDOG_CLOUD_DECIDER_TOKEN", "LATERDOG_CLOUD_BOOTSTRAP_SECRET"]) expect(env).not.toHaveProperty(key);
+  for (const key of [
+    "LATERDOG_CLOUD_BOAT_TOKEN",
+    "LATERDOG_CLOUD_VOICE_TOKEN",
+    "LATERDOG_CLOUD_DECIDER_TOKEN",
+    "LATERDOG_CLOUD_BOOTSTRAP_SECRET",
+  ])
+    expect(env).not.toHaveProperty(key);
   for (const value of [...includedTokens, secret]) expect(JSON.stringify(env)).not.toContain(value);
 });
 
 it("does not count a turn that was stopped before it finished", async () => {
   writeFileSync(join(home, "hang"), "");
-  const created = await api("POST", "/api/bots", { body: {
-    name: "Stopped fixture", modelSelection: { instanceId: "claude", model: "claude-sonnet-5" }, requireAvailableModel: true,
-  } });
+  const created = await api("POST", "/api/bots", {
+    body: {
+      name: "Stopped fixture",
+      modelSelection: { instanceId: "claude", model: "claude-sonnet-5" },
+      requireAvailableModel: true,
+    },
+  });
   expect(created.status, JSON.stringify(created.body)).toBe(201);
   const botId = created.body.bot.id;
   const dump = join(home, "spawn-hang.json");
   try {
-    expect((await api("POST", `/api/bots/${botId}/messages`, { body: { text: "wait for me" } })).status).toBe(202);
+    expect(
+      (await api("POST", `/api/bots/${botId}/messages`, { body: { text: "wait for me" } })).status,
+    ).toBe(202);
     await expect.poll(() => existsSync(dump), { timeout: 15_000 }).toBe(true);
   } finally {
     rmSync(join(home, "hang"), { force: true });
     await api("POST", `/api/bots/${botId}/interrupt`, { body: {} });
   }
   const busy = async () => {
-    const { bots } = (await api("GET", "/api/bots?messages=10")).body as { bots: Array<{ id: string; busy?: boolean }> };
+    const { bots } = (await api("GET", "/api/bots?messages=10")).body as {
+      bots: Array<{ id: string; busy?: boolean }>;
+    };
     return bots.find((bot) => bot.id === botId)?.busy === true;
   };
   await expect.poll(busy, { timeout: 15_000 }).toBe(false);
@@ -284,36 +507,66 @@ it("does not count a turn that was stopped before it finished", async () => {
 });
 
 it("never hands a gateway's settings or the signing secret to an engine", async () => {
-  const created = await api("POST", "/api/bots", { body: {
-    name: "Cloud fixture", modelSelection: { instanceId: "claude", model: "claude-sonnet-5" }, requireAvailableModel: true,
-  } });
+  const created = await api("POST", "/api/bots", {
+    body: {
+      name: "Cloud fixture",
+      modelSelection: { instanceId: "claude", model: "claude-sonnet-5" },
+      requireAvailableModel: true,
+    },
+  });
   expect(created.status, JSON.stringify(created.body)).toBe(201);
-  expect((await api("POST", `/api/bots/${created.body.bot.id}/messages`, { body: { text: "hello" } })).status).toBe(202);
+  expect(
+    (await api("POST", `/api/bots/${created.body.bot.id}/messages`, { body: { text: "hello" } }))
+      .status,
+  ).toBe(202);
   const dump = join(home, "spawn.json");
   await expect.poll(() => existsSync(dump), { timeout: 15_000 }).toBe(true);
   const { env } = JSON.parse(readFileSync(dump, "utf8"));
   expect(env.HOME).toBe(home);
-  for (const key of [...CLOUD_IGNORED_KEYS, "LATERDOG_CLOUD_BOOTSTRAP_SECRET", "LATERDOG_CLOUD_BOAT_TOKEN", "LATERDOG_CLOUD_VOICE_TOKEN", "LATERDOG_CLOUD_DECIDER_TOKEN"]) expect(env).not.toHaveProperty(key);
+  for (const key of [
+    ...CLOUD_IGNORED_KEYS,
+    "LATERDOG_CLOUD_BOOTSTRAP_SECRET",
+    "LATERDOG_CLOUD_BOAT_TOKEN",
+    "LATERDOG_CLOUD_VOICE_TOKEN",
+    "LATERDOG_CLOUD_DECIDER_TOKEN",
+  ])
+    expect(env).not.toHaveProperty(key);
   expect(JSON.stringify(env)).not.toContain(token);
   expect(JSON.stringify(env)).not.toContain(secret);
-  for (const includedToken of includedTokens) expect(JSON.stringify(env)).not.toContain(includedToken);
+  for (const includedToken of includedTokens)
+    expect(JSON.stringify(env)).not.toContain(includedToken);
 });
 
 it("records when a bot's turn first finished here, once, in the Cloud's own settings", async () => {
-  const first = async () => (await api("GET", "/api/config")).body.onboarding?.firstTurnAt as string | undefined;
+  const first = async () =>
+    (await api("GET", "/api/config")).body.onboarding?.firstTurnAt as string | undefined;
   await expect.poll(first, { timeout: 15_000 }).toMatch(/^\d{4}-\d{2}-\d{2}T/);
   const recorded = await first();
-  expect(JSON.parse(readFileSync(join(home, ".laterdog", "config.json"), "utf8")).onboarding.firstTurnAt).toBe(recorded);
-  const created = await api("POST", "/api/bots", { body: {
-    name: "Second fixture", modelSelection: { instanceId: "claude", model: "claude-sonnet-5" }, requireAvailableModel: true,
-  } });
+  expect(
+    JSON.parse(readFileSync(join(home, ".laterdog", "config.json"), "utf8")).onboarding.firstTurnAt,
+  ).toBe(recorded);
+  const created = await api("POST", "/api/bots", {
+    body: {
+      name: "Second fixture",
+      modelSelection: { instanceId: "claude", model: "claude-sonnet-5" },
+      requireAvailableModel: true,
+    },
+  });
   expect(created.status, JSON.stringify(created.body)).toBe(201);
   const botId = created.body.bot.id;
-  expect((await api("POST", `/api/bots/${botId}/messages`, { body: { text: "hello again" } })).status).toBe(202);
+  expect(
+    (await api("POST", `/api/bots/${botId}/messages`, { body: { text: "hello again" } })).status,
+  ).toBe(202);
   const replied = async () => {
-    const { bots } = (await api("GET", "/api/bots?messages=10")).body as { bots: Array<{ id: string; busy?: boolean; messages: Array<{ role: string; kind: string }> }> };
+    const { bots } = (await api("GET", "/api/bots?messages=10")).body as {
+      bots: Array<{ id: string; busy?: boolean; messages: Array<{ role: string; kind: string }> }>;
+    };
     const bot = bots.find((entry) => entry.id === botId);
-    return Boolean(bot && !bot.busy && bot.messages.some((message) => message.role === "bot" && message.kind === "text"));
+    return Boolean(
+      bot &&
+      !bot.busy &&
+      bot.messages.some((message) => message.role === "bot" && message.kind === "text"),
+    );
   };
   await expect.poll(replied, { timeout: 15_000 }).toBe(true);
   expect(await first()).toBe(recorded);
@@ -323,35 +576,63 @@ it("offers its bots cloud computers only, and tells them they cannot see the per
   const status = await api("GET", "/api/config");
   expect(status.body).toMatchObject({ cloudHome: true });
   writeFileSync(join(home, "hang"), "");
-  const created = await api("POST", "/api/bots", { body: {
-    name: "Desk fixture", modelSelection: { instanceId: "claude", model: "claude-sonnet-5" }, requireAvailableModel: true,
-  } });
+  const created = await api("POST", "/api/bots", {
+    body: {
+      name: "Desk fixture",
+      modelSelection: { instanceId: "claude", model: "claude-sonnet-5" },
+      requireAvailableModel: true,
+    },
+  });
   expect(created.status, JSON.stringify(created.body)).toBe(201);
   const botId = created.body.bot.id;
   try {
-    expect((await api("POST", `/api/bots/${botId}/messages`, { body: { text: "list the files on my desktop" } })).status).toBe(202);
+    expect(
+      (
+        await api("POST", `/api/bots/${botId}/messages`, {
+          body: { text: "list the files on my desktop" },
+        })
+      ).status,
+    ).toBe(202);
     const dump = join(home, "spawn-hang.json");
     await expect.poll(() => existsSync(dump), { timeout: 15_000 }).toBe(true);
     const { systemPrompt, mcpConfig } = JSON.parse(readFileSync(dump, "utf8"));
     expect(systemPrompt).toContain(cloudHomePrompt(true, "claude").trim());
-    expect(systemPrompt).toContain("use shared_computer: it reaches the Mac where later.dog is open and signed in to this account");
-    expect(systemPrompt).not.toMatch(/Local VM is an isolated desktop|user's host|host desktop|select an available Local VM/);
+    expect(systemPrompt).toContain(
+      "use shared_computer: it reaches the Mac where later.dog is open and signed in to this account",
+    );
+    expect(systemPrompt).not.toMatch(
+      /Local VM is an isolated desktop|user's host|host desktop|select an available Local VM/,
+    );
     const agents = mcpConfig.mcpServers.agents;
     expect(agents.env.LATERDOG_CLOUD_HOME).toBe("1");
-    const preview = (await api("GET", `/api/bots/${botId}/system-prompt`)).body.sections as Array<{ id: string; text: string }>;
-    expect(preview.find((section) => section.id === "cloud-home")?.text).toBe(cloudHomePrompt(true, "claude"));
-    const select = (surface?: string) => fetch(`${base}/api/internal/computer/select`, {
-      method: surface === undefined ? "GET" : "POST",
-      headers: { authorization: `Bearer ${agents.env.LATERDOG_COMMS_TOKEN}`, ...(surface === undefined ? {} : { "content-type": "application/json" }) },
-      ...(surface === undefined ? {} : { body: JSON.stringify({ surface }) }),
-    });
-    const listed = await (await select()).json() as { canSelect: boolean; options: Array<{ surface: string }> };
+    const preview = (await api("GET", `/api/bots/${botId}/system-prompt`)).body.sections as Array<{
+      id: string;
+      text: string;
+    }>;
+    expect(preview.find((section) => section.id === "cloud-home")?.text).toBe(
+      cloudHomePrompt(true, "claude"),
+    );
+    const select = (surface?: string) =>
+      fetch(`${base}/api/internal/computer/select`, {
+        method: surface === undefined ? "GET" : "POST",
+        headers: {
+          authorization: `Bearer ${agents.env.LATERDOG_COMMS_TOKEN}`,
+          ...(surface === undefined ? {} : { "content-type": "application/json" }),
+        },
+        ...(surface === undefined ? {} : { body: JSON.stringify({ surface }) }),
+      });
+    const listed = (await (await select()).json()) as {
+      canSelect: boolean;
+      options: Array<{ surface: string }>;
+    };
     expect(listed.canSelect).toBe(true);
     expect(listed.options.map((option) => option.surface)).toEqual(["cloud"]);
     expect(JSON.stringify(listed)).not.toMatch(/this computer|Local VM|container runtime|browser/i);
     const refused = await select("local");
     expect(refused.status).toBe(409);
-    expect(((await refused.json()) as { error: string }).error).toBe(cloudHomePlaceRefusal("local"));
+    expect(((await refused.json()) as { error: string }).error).toBe(
+      cloudHomePlaceRefusal("local"),
+    );
     expect((await select("vm")).status).toBe(400);
   } finally {
     rmSync(join(home, "hang"), { force: true });
@@ -361,38 +642,69 @@ it("offers its bots cloud computers only, and tells them they cannot see the per
 
 it("refuses a bot still set to this computer, saying what is true on a Cloud home", async () => {
   for (const computer of ["local"] as const) {
-    const created = await api("POST", "/api/bots", { body: {
-      name: `Earlier ${computer} fixture`, modelSelection: { instanceId: "claude", model: "claude-sonnet-5" }, requireAvailableModel: true,
-    } });
+    const created = await api("POST", "/api/bots", {
+      body: {
+        name: `Earlier ${computer} fixture`,
+        modelSelection: { instanceId: "claude", model: "claude-sonnet-5" },
+        requireAvailableModel: true,
+      },
+    });
     expect(created.status, JSON.stringify(created.body)).toBe(201);
     const botId = created.body.bot.id;
     expect((await api("PATCH", `/api/bots/${botId}`, { body: { computer } })).status).toBe(200);
-    expect((await api("POST", `/api/bots/${botId}/messages`, { body: { text: "list the files on my desktop" } })).status).toBe(202);
+    expect(
+      (
+        await api("POST", `/api/bots/${botId}/messages`, {
+          body: { text: "list the files on my desktop" },
+        })
+      ).status,
+    ).toBe(202);
     const failure = async () => {
-      const { bots } = (await api("GET", "/api/bots?messages=10")).body as { bots: Array<{ id: string; messages: Array<{ kind: string; tool?: { name: string; ok: boolean } }> }> };
-      return bots.find((bot) => bot.id === botId)?.messages.find((message) => message.kind === "activity" && message.tool?.ok === false)?.tool?.name;
+      const { bots } = (await api("GET", "/api/bots?messages=10")).body as {
+        bots: Array<{
+          id: string;
+          messages: Array<{ kind: string; tool?: { name: string; ok: boolean } }>;
+        }>;
+      };
+      return bots
+        .find((bot) => bot.id === botId)
+        ?.messages.find((message) => message.kind === "activity" && message.tool?.ok === false)
+        ?.tool?.name;
     };
-    await expect.poll(failure, { timeout: 15_000 }).toBe(`error: ${cloudHomePlaceRefusal(computer)}`);
+    await expect
+      .poll(failure, { timeout: 15_000 })
+      .toBe(`error: ${cloudHomePlaceRefusal(computer)}`);
   }
 });
 
 function deskHeaders(parts: string[]) {
-  const timestamp = String(Math.floor(Date.now() / 1000)), nonce = randomBytes(16).toString("base64url");
+  const timestamp = String(Math.floor(Date.now() / 1000)),
+    nonce = randomBytes(16).toString("base64url");
   return {
-    "x-laterdog-cloud-timestamp": timestamp, "x-laterdog-cloud-nonce": nonce,
+    "x-laterdog-cloud-timestamp": timestamp,
+    "x-laterdog-cloud-nonce": nonce,
     "x-laterdog-cloud-signature": `v1=${deskSignature(secret, [timestamp, nonce, ...parts])}`,
   };
 }
 
 it("tells only its signed Worker which dogs can answer while it sleeps", async () => {
   expect((await api("GET", DESK_BRAIN_PATH, { remote: true })).status).toBe(401);
-  const brain = await api("GET", DESK_BRAIN_PATH, { remote: true, headers: deskHeaders(["GET", DESK_BRAIN_PATH]) });
+  const brain = await api("GET", DESK_BRAIN_PATH, {
+    remote: true,
+    headers: deskHeaders(["GET", DESK_BRAIN_PATH]),
+  });
   expect(brain.status, JSON.stringify(brain.body)).toBe(200);
   expect(brain.body).toMatchObject({ at: expect.any(Number), dogs: [] });
 });
 
 it("records a reply its Worker signed while it slept as the dog's answer, without running the dog", async () => {
-  const created = await api("POST", "/api/bots", { body: { name: "Desk fixture", modelSelection: { instanceId: "claude", model: "claude-sonnet-5" }, requireAvailableModel: true } });
+  const created = await api("POST", "/api/bots", {
+    body: {
+      name: "Desk fixture",
+      modelSelection: { instanceId: "claude", model: "claude-sonnet-5" },
+      requireAvailableModel: true,
+    },
+  });
   expect(created.status, JSON.stringify(created.body)).toBe(201);
   const { id: botId, threadId } = created.body.bot as { id: string; threadId: string };
   const dump = join(home, "spawn.json");
@@ -400,21 +712,53 @@ it("records a reply its Worker signed while it slept as the dog's answer, withou
   const path = `/api/bots/${botId}/messages`;
   const reply = { text: "Hi! I'm right here.", model: "kimi-k2.6" };
   const sendId = `desk-${randomBytes(8).toString("hex")}`;
-  const forged = await api("POST", path, { body: { text: "hello?", sendId: `${sendId}-x`, threadId, deskReply: reply }, headers: deskHeaders(["POST", path, `${sendId}-x`, sha256Hex("Something else.")]) });
+  const forged = await api("POST", path, {
+    body: { text: "hello?", sendId: `${sendId}-x`, threadId, deskReply: reply },
+    headers: deskHeaders(["POST", path, `${sendId}-x`, sha256Hex("Something else.")]),
+  });
   expect(forged.status).toBe(202);
-  const sent = await api("POST", path, { body: { text: "hello?", sendId, threadId, deskReply: reply }, headers: deskHeaders(["POST", path, sendId, sha256Hex(reply.text)]) });
+  const sent = await api("POST", path, {
+    body: { text: "hello?", sendId, threadId, deskReply: reply },
+    headers: deskHeaders(["POST", path, sendId, sha256Hex(reply.text)]),
+  });
   expect(sent.status, JSON.stringify(sent.body)).toBe(202);
-  expect(sent.body).toMatchObject({ ok: true, threadId, message: { role: "user", text: "hello?", sendId } });
+  expect(sent.body).toMatchObject({
+    ok: true,
+    threadId,
+    message: { role: "user", text: "hello?", sendId },
+  });
   const lines = async () => {
-    const { bots } = (await api("GET", "/api/bots?messages=10")).body as { bots: Array<{ id: string; messages: Array<{ role: string; kind: string; text?: string; sendId?: string; turnTerminal?: boolean }> }> };
+    const { bots } = (await api("GET", "/api/bots?messages=10")).body as {
+      bots: Array<{
+        id: string;
+        messages: Array<{
+          role: string;
+          kind: string;
+          text?: string;
+          sendId?: string;
+          turnTerminal?: boolean;
+        }>;
+      }>;
+    };
     return bots.find((bot) => bot.id === botId)?.messages ?? [];
   };
-  const mine = (await lines()).filter((message) => message.sendId === sendId || message.text === reply.text);
-  expect(mine.map(({ role, text, turnTerminal }) => ({ role, text, turnTerminal: turnTerminal ?? false }))).toEqual([
+  const mine = (await lines()).filter(
+    (message) => message.sendId === sendId || message.text === reply.text,
+  );
+  expect(
+    mine.map(({ role, text, turnTerminal }) => ({
+      role,
+      text,
+      turnTerminal: turnTerminal ?? false,
+    })),
+  ).toEqual([
     { role: "user", text: "hello?", turnTerminal: false },
     { role: "bot", text: reply.text, turnTerminal: true },
   ]);
-  const again = await api("POST", path, { body: { text: "hello?", sendId, threadId, deskReply: reply }, headers: deskHeaders(["POST", path, sendId, sha256Hex(reply.text)]) });
+  const again = await api("POST", path, {
+    body: { text: "hello?", sendId, threadId, deskReply: reply },
+    headers: deskHeaders(["POST", path, sendId, sha256Hex(reply.text)]),
+  });
   expect(again.body.message.id).toBe(sent.body.message.id);
   expect((await lines()).filter((message) => message.text === reply.text)).toHaveLength(1);
 });

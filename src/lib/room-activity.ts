@@ -7,7 +7,8 @@ export function roomActivityVisible(message: Message, showToolCalls: boolean): b
   const tool = message.tool;
   if (message.kind !== "activity" || !tool) return false;
   if (tool.statusLine === "live" || tool.carry) return false;
-  if (message.comm || message.threadRef || message.cloudTask || isStatusActivity(message)) return true;
+  if (message.comm || message.threadRef || message.cloudTask || isStatusActivity(message))
+    return true;
   return tool.ok === false || failedTurnCause(tool.name) !== null || showToolCalls;
 }
 
@@ -17,7 +18,10 @@ export function transcriptRowShown(message: Message, showToolCalls: boolean): bo
   return roomActivityVisible(message, showToolCalls);
 }
 
-export function lastShownRow(messages: readonly Message[], showToolCalls: boolean): Message | undefined {
+export function lastShownRow(
+  messages: readonly Message[],
+  showToolCalls: boolean,
+): Message | undefined {
   for (let i = messages.length - 1; i >= 0; i -= 1) {
     const message = messages[i]!;
     if (!isReceipt(message) && transcriptRowShown(message, showToolCalls)) return message;

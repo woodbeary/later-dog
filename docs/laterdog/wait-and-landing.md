@@ -106,86 +106,86 @@ sources is `turnStates()` in the model. Tones: plain (secondary ink), asks (wait
 
 ### Delivery
 
-| State | Caused by | The slot says | Face |
-| --- | --- | --- | --- |
-| Sending | The send is still on its way after 2 s (`PROGRESS_AFTER_MS`, `src/lib/outbox.ts`) | Sending | idle |
-| Not sent yet | The outbox holds it: offline, timeout, 502/503/504, 408, 429 (`sendOutcome`) | Not sent yet | idle |
-| Waking a sleeping home | 503 with `x-laterdog-home: waking` or `asleep` (`shared/home-wake.ts`, `src/lib/api.ts`) | Waking up your home | waking |
-| Home busy | 503 with `busy` | Waiting for your home | idle |
-| Home slow to wake | Waking past 2 min (`WAKE_TOO_LONG`); the outbox keeps holding | Still waking your home | sleeping |
-| Queued behind this turn | Sent with queue while a turn runs (`pendingQueued`) | the running turn's line; the message waits in the composer's queued strip | — |
-| Read your message | A message steered into the turn was read (`readAt`) | Read your message (one hold) | listening |
+| State                   | Caused by                                                                                | The slot says                                                             | Face      |
+| ----------------------- | ---------------------------------------------------------------------------------------- | ------------------------------------------------------------------------- | --------- |
+| Sending                 | The send is still on its way after 2 s (`PROGRESS_AFTER_MS`, `src/lib/outbox.ts`)        | Sending                                                                   | idle      |
+| Not sent yet            | The outbox holds it: offline, timeout, 502/503/504, 408, 429 (`sendOutcome`)             | Not sent yet                                                              | idle      |
+| Waking a sleeping home  | 503 with `x-laterdog-home: waking` or `asleep` (`shared/home-wake.ts`, `src/lib/api.ts`) | Waking up your home                                                       | waking    |
+| Home busy               | 503 with `busy`                                                                          | Waiting for your home                                                     | idle      |
+| Home slow to wake       | Waking past 2 min (`WAKE_TOO_LONG`); the outbox keeps holding                            | Still waking your home                                                    | sleeping  |
+| Queued behind this turn | Sent with queue while a turn runs (`pendingQueued`)                                      | the running turn's line; the message waits in the composer's queued strip | —         |
+| Read your message       | A message steered into the turn was read (`readAt`)                                      | Read your message (one hold)                                              | listening |
 
 ### Working
 
-| State | Caused by | The slot says | Face |
-| --- | --- | --- | --- |
-| Thinking | Live run with no current step, or reasoning (`liveStep`) | Thinking it over · Working it out · Sorting it out | thinking |
-| Reading | read, view, open | Doing some reading · Reading it through · Going through it | searching |
-| Searching files | search, find, list | Looking around · Digging through it | searching |
-| Looking something up | web search, fetch, open a site | Looking it up · Reading up on it | searching |
-| Changing things | edit, patch | Making changes · Tidying it up | working |
-| Writing something new | write a file | Writing it up · Putting it into words | writing |
-| Running a command | shell | Trying it out · Checking the result | working |
-| Using the screen | screenshot, click, type | Looking at the screen · Taking a look · Clicking around | searching |
-| Asking another dog | coordinate with dogs | Checking in with the others | listening |
-| One long step | One step past a minute with a plain `subject` | Running the order form tests · for 6 min | working |
-| Same kind for minutes | Many short steps of one kind | Reading it through · for 3 min | searching |
-| Puppies helping | The current step hands work to native helpers (`nativePuppies`) | Getting help from 3 puppies | listening |
-| Side jobs alongside | Background helpers or commands (`sideJobCount`) | Making changes · 2 side jobs | working |
-| Waiting on side jobs | The dog waits; only background work runs (`heldBySideJobs`) | Waiting on 2 side jobs | listening |
-| Writing the reply | Current activity is the reply (`message`) | Writing back | writing |
-| Tidying its memory | The engine summarizes earlier context (`compaction`) | Tidying up its notes | thinking |
-| Other dogs working | `work.kind` waiting-on-dog (`handoffWait`) | Pebble and Thistle are working · for 4 min | listening |
-| A command still running | The turn ended; a job on its computer lives (`work.computerJobs`) | Running a command · for 12 min | working |
-| A command past two hours | `work.computerBackground` (past 2 h, or unreadable) | Still running a command · for 2 hr 5 min | idle |
-| Picking up | A pickup turn: restart, stall watch, a finished command (`tool.pickup`) | Picking up where it left off | waking |
-| Moving to another account | Limit mid-turn, carried on elsewhere (`tool.carry`) | Moving to Personal (one hold) | waking |
+| State                     | Caused by                                                               | The slot says                                              | Face      |
+| ------------------------- | ----------------------------------------------------------------------- | ---------------------------------------------------------- | --------- |
+| Thinking                  | Live run with no current step, or reasoning (`liveStep`)                | Thinking it over · Working it out · Sorting it out         | thinking  |
+| Reading                   | read, view, open                                                        | Doing some reading · Reading it through · Going through it | searching |
+| Searching files           | search, find, list                                                      | Looking around · Digging through it                        | searching |
+| Looking something up      | web search, fetch, open a site                                          | Looking it up · Reading up on it                           | searching |
+| Changing things           | edit, patch                                                             | Making changes · Tidying it up                             | working   |
+| Writing something new     | write a file                                                            | Writing it up · Putting it into words                      | writing   |
+| Running a command         | shell                                                                   | Trying it out · Checking the result                        | working   |
+| Using the screen          | screenshot, click, type                                                 | Looking at the screen · Taking a look · Clicking around    | searching |
+| Asking another dog        | coordinate with dogs                                                    | Checking in with the others                                | listening |
+| One long step             | One step past a minute with a plain `subject`                           | Running the order form tests · for 6 min                   | working   |
+| Same kind for minutes     | Many short steps of one kind                                            | Reading it through · for 3 min                             | searching |
+| Puppies helping           | The current step hands work to native helpers (`nativePuppies`)         | Getting help from 3 puppies                                | listening |
+| Side jobs alongside       | Background helpers or commands (`sideJobCount`)                         | Making changes · 2 side jobs                               | working   |
+| Waiting on side jobs      | The dog waits; only background work runs (`heldBySideJobs`)             | Waiting on 2 side jobs                                     | listening |
+| Writing the reply         | Current activity is the reply (`message`)                               | Writing back                                               | writing   |
+| Tidying its memory        | The engine summarizes earlier context (`compaction`)                    | Tidying up its notes                                       | thinking  |
+| Other dogs working        | `work.kind` waiting-on-dog (`handoffWait`)                              | Pebble and Thistle are working · for 4 min                 | listening |
+| A command still running   | The turn ended; a job on its computer lives (`work.computerJobs`)       | Running a command · for 12 min                             | working   |
+| A command past two hours  | `work.computerBackground` (past 2 h, or unreadable)                     | Still running a command · for 2 hr 5 min                   | idle      |
+| Picking up                | A pickup turn: restart, stall watch, a finished command (`tool.pickup`) | Picking up where it left off                               | waking    |
+| Moving to another account | Limit mid-turn, carried on elsewhere (`tool.carry`)                     | Moving to Personal (one hold)                              | waking    |
 
 ### Waiting on you
 
 All in the waiting colour, all at once, face alert (one hop, then still).
 
-| State | Caused by | The slot says |
-| --- | --- | --- |
-| Approval | Open approval or device approval card; `activity` waiting-on-you | Waiting for your OK |
-| Question | Open question, docked above the composer (`openQuestion`) | Waiting for your answer |
-| Secure form | Secure form or secret request card | Waiting for your details |
-| Sign in to an app | Connector card | Waiting for you to sign in |
-| Take over the screen | Take-over card, or the computer's help reason (`NeedsYouRow`) | Your turn at the screen |
-| A helper dog asks | waiting-on-dog with an `ask` | Pebble needs your answer (opens Pebble's chat) |
-| Account off or signed out | needs-you with an account `hold` | Sign in to Work to carry on · Turn on Work to carry on |
+| State                     | Caused by                                                        | The slot says                                          |
+| ------------------------- | ---------------------------------------------------------------- | ------------------------------------------------------ |
+| Approval                  | Open approval or device approval card; `activity` waiting-on-you | Waiting for your OK                                    |
+| Question                  | Open question, docked above the composer (`openQuestion`)        | Waiting for your answer                                |
+| Secure form               | Secure form or secret request card                               | Waiting for your details                               |
+| Sign in to an app         | Connector card                                                   | Waiting for you to sign in                             |
+| Take over the screen      | Take-over card, or the computer's help reason (`NeedsYouRow`)    | Your turn at the screen                                |
+| A helper dog asks         | waiting-on-dog with an `ask`                                     | Pebble needs your answer (opens Pebble's chat)         |
+| Account off or signed out | needs-you with an account `hold`                                 | Sign in to Work to carry on · Turn on Work to carry on |
 
 ### Waiting on something else
 
-| State | Caused by | The slot says | Face |
-| --- | --- | --- | --- |
-| Usage limit | waiting-for-usage with `until` | Resting until 3:40 | sleeping |
-| Usage limit, no time | waiting-for-usage without `until` | Resting until its limit resets | sleeping |
-| Computer in use | waiting-for-computer (`turn.wait_started`) | Waiting for its computer | idle |
-| Reconnecting | retrying (`turn.retrying`) | Trying again | thinking |
+| State                | Caused by                                  | The slot says                  | Face     |
+| -------------------- | ------------------------------------------ | ------------------------------ | -------- |
+| Usage limit          | waiting-for-usage with `until`             | Resting until 3:40             | sleeping |
+| Usage limit, no time | waiting-for-usage without `until`          | Resting until its limit resets | sleeping |
+| Computer in use      | waiting-for-computer (`turn.wait_started`) | Waiting for its computer       | idle     |
+| Reconnecting         | retrying (`turn.retrying`)                 | Trying again                   | thinking |
 
 ### Ends
 
 The slot always ends as a one-line record or hands its place to the outcome.
 
-| State | Caused by | What stays |
-| --- | --- | --- |
-| Finished | Reply arrived, run ended | Fold line "Made 1 change and tried 1 thing ›" with the reply below |
-| Finished, no steps | Reply arrived, run had no steps | The reply takes the slot's place |
-| Stopped by you | The person pressed Stop | "Stopped by you · Made 1 change ›" |
-| Stopped early | The engine closed (`stopped`, detail closed) | "Stopped before it finished" |
-| Stopped after a stall | The stall watch (`stopped`, detail stalled) | "Stopped: no progress for too long" |
-| Failed | An error ended the turn | Fold line, then the error row with its own action (`FailedTurnRow`, `LimitRow`) |
-| Side jobs after the reply | Background work still runs | "2 side jobs still going ›" under the reply until they end |
+| State                     | Caused by                                    | What stays                                                                      |
+| ------------------------- | -------------------------------------------- | ------------------------------------------------------------------------------- |
+| Finished                  | Reply arrived, run ended                     | Fold line "Made 1 change and tried 1 thing ›" with the reply below              |
+| Finished, no steps        | Reply arrived, run had no steps              | The reply takes the slot's place                                                |
+| Stopped by you            | The person pressed Stop                      | "Stopped by you · Made 1 change ›"                                              |
+| Stopped early             | The engine closed (`stopped`, detail closed) | "Stopped before it finished"                                                    |
+| Stopped after a stall     | The stall watch (`stopped`, detail stalled)  | "Stopped: no progress for too long"                                             |
+| Failed                    | An error ended the turn                      | Fold line, then the error row with its own action (`FailedTurnRow`, `LimitRow`) |
+| Side jobs after the reply | Background work still runs                   | "2 side jobs still going ›" under the reply until they end                      |
 
 ### Rooms
 
-| State | Caused by | The slot says |
-| --- | --- | --- |
-| One dog working | `group.busyBotId` | that dog's face and line, as in a dog's chat |
-| Several dogs working | `group.work` running with dogs | Pebble and Thistle are working |
-| A dog in the room asks | an approval card from one member | Waiting for your OK, with that dog's face |
+| State                  | Caused by                        | The slot says                                |
+| ---------------------- | -------------------------------- | -------------------------------------------- |
+| One dog working        | `group.busyBotId`                | that dog's face and line, as in a dog's chat |
+| Several dogs working   | `group.work` running with dogs   | Pebble and Thistle are working               |
+| A dog in the room asks | an approval card from one member | Waiting for your OK, with that dog's face    |
 
 ## One vocabulary for both apps
 
@@ -204,14 +204,14 @@ the phone like `shared/step-words.ts`. The rules the model's test enforces:
 
 Only opacity and transform, with the tokens in `docs/laterdog/motion.md`.
 
-| Moment | Motion |
-| --- | --- |
-| Line appears | Face grows from 82% and fades in over `--duration-slower` on `--ease-enter`; words rise 4 px and fade in over `--duration-slow` |
+| Moment                  | Motion                                                                                                                                                           |
+| ----------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Line appears            | Face grows from 82% and fades in over `--duration-slower` on `--ease-enter`; words rise 4 px and fade in over `--duration-slow`                                  |
 | Phrase changes in place | Old words fade out over `--duration-fast` on `--ease-exit`; then new words rise 4 px and fade in over `--duration-slow` on `--ease-enter`. The two never overlap |
-| Mood changes | The face's own pose transition (ears and eyes, `--duration-slower`) |
-| Waiting for the person | One alert hop, then still |
-| The time | Changes in place, no animation |
-| Landing | See below; one `--duration-slower` beat in all |
+| Mood changes            | The face's own pose transition (ears and eyes, `--duration-slower`)                                                                                              |
+| Waiting for the person  | One alert hop, then still                                                                                                                                        |
+| The time                | Changes in place, no animation                                                                                                                                   |
+| Landing                 | See below; one `--duration-slower` beat in all                                                                                                                   |
 
 In-place swaps leave over `--duration-fast`, faster than they arrive, so two phrases are never on
 screen together; the 300 ms exit in motion.md stays for surfaces that leave the screen. The thinking
@@ -253,15 +253,15 @@ in over `--duration-normal`; what leaves goes at once. `landing-mac-reduced-shee
 Measured in the prototype (`checks.json`, rows that were already on screen, every frame of the
 landing and after it):
 
-| Case | Mac rows · max move · scroll · content growth | Phone rows · max move · scroll · content growth |
-| --- | --- | --- |
-| Reply with steps | 9 · 0 px · 0 px · 0 px | 9 · 0 · 0 · 0 |
-| Reply without steps | 8 · 0 px · 0 px · 0 px | 8 · 0 · 0 · 0 |
-| Long reply | 9 · 0 px · 0 px · grows 221 px below | 9 · 0 · 0 · grows 450 pt below |
-| Reading older messages | 15 · 0 px · 0 px · 0 px | 15 · 0 · 0 · 0 |
-| Three replies from two dogs | 8 · 0 px · 0 px · 0 px | 8 · 0 · 0 · 0 |
-| Separate bubbles | 9 · 0 px · 0 px · 0 px | 9 · 0 · 0 · grows 14 pt below |
-| With Reduce Motion | 9 · 0 px · 0 px · 0 px | 9 · 0 · 0 · 0 |
+| Case                        | Mac rows · max move · scroll · content growth | Phone rows · max move · scroll · content growth |
+| --------------------------- | --------------------------------------------- | ----------------------------------------------- |
+| Reply with steps            | 9 · 0 px · 0 px · 0 px                        | 9 · 0 · 0 · 0                                   |
+| Reply without steps         | 8 · 0 px · 0 px · 0 px                        | 8 · 0 · 0 · 0                                   |
+| Long reply                  | 9 · 0 px · 0 px · grows 221 px below          | 9 · 0 · 0 · grows 450 pt below                  |
+| Reading older messages      | 15 · 0 px · 0 px · 0 px                       | 15 · 0 · 0 · 0                                  |
+| Three replies from two dogs | 8 · 0 px · 0 px · 0 px                        | 8 · 0 · 0 · 0                                   |
+| Separate bubbles            | 9 · 0 px · 0 px · 0 px                        | 9 · 0 · 0 · grows 14 pt below                   |
+| With Reduce Motion          | 9 · 0 px · 0 px · 0 px                        | 9 · 0 · 0 · 0                                   |
 
 Today's app on the same turn: 14 rows, each moved 68 px at landing; the person's message moved 39 px
 when the work line mounted.
@@ -291,43 +291,43 @@ implementation option.
 
 The builders' table. Mac files unless noted.
 
-| Surface | Today | Fate |
-| --- | --- | --- |
-| `ChatWorkLine` in `src/components/TurnPresence.tsx`, `src/lib/work-line.ts`, `.work-line` in `src/chat-calm.css` | The dog chat's work line; mounts and unmounts, phrase per step | **Becomes the turn slot.** Fixed height, never unmounts mid-turn, pacing, face moods, new words, no shimmer. Move it to its own file |
-| `TurnPresence` (rooms, `src/components/GroupView.tsx`) | 36 px mascot row, 4.5 s rotating phrases, elapsed, puppies, 300 ms exit, swaps to `NativeWork` | **Merged** into the slot. Remove the rotation (`ROTATE_MS`, `rowPhrase`, `src/lib/thinking-row.ts`), `useArmedAfter` and `useActivityPresence` (`src/lib/activity-presence.ts`), `.turn-mascot-in/out` and `.turn-answer` in `src/styles.css` |
-| `NativeWork` live row (`src/components/NativeWork.tsx`) | Swaps in for `TurnPresence` when armed; different size | **Merged** into the slot |
-| `NativeWork` receipts after room messages | "View work ›" and puppy faces under each room reply | **Merged** into the fold line, as in dog chats |
-| `NativeWorkDetail` (same file) | Modal with actors, activities and Stop helper | **Merged** into the work panel: a page per puppy, with Stop helper there. Rooms open the work panel too |
-| `NativeWorkFallbacks`, `NativeHistoryNotice` | Receipts with no reply; "Some earlier work is no longer available" | **Kept**: fallbacks as fold lines; the notice moves into the work panel |
-| `WorkPanel` (`src/components/WorkPanel.tsx`, `src/work-panel.css`, `src/lib/work-panel*.ts`, `WorkSteps`, `WorkHelpers`, `WorkTodo`, `SideJobs`, `StepPage`, `SideJobPage`) | On-demand detail | **Kept**, the one place for detail. Gains the live reasoning summary, puppy pages, the turn's total time in its title, the account and model. Not a duplicate: nothing else lists steps |
-| `ActivityPeek` (`src/components/ActivityPeek.tsx`) | Popover from `TurnPresence`: reasoning, steps, updates | **Merged** into the work panel |
-| `Puppies` (`src/components/Puppies.tsx`) | Puppy faces in the presence row | **Removed** from the line; "Getting help from 3 puppies" and the panel replace it |
-| `StatusActivityRow` progress kind (`notice:` with `statusLine: "live"`, "Still on it: …") | A transcript row during long quiet stretches | **Merged** into the slot's long-step line; reuse the server's gerund table (`server/laterdog/status-lines.ts`) for subjects |
-| `StatusActivityRow` carry (`CarriedAccount`) | Transcript row "→ Continuing on Personal" mid-turn | **Merged**: "Moving to Personal" in the slot for one hold; the record is How it ran. `RunningOnLine` keeps the standing route |
-| `StatusActivityRow` recovery and notice | `recovery:` and `notice:` lines | **Kept**: records of what happened while the person was away; the slot says "Picking up where it left off" live |
-| `StatusActivityRow` resume (`ContinueWork`) | "Continue?" with a button | **Kept**: an action, not a status |
-| `ActivityChip` (in `ChatView.tsx`) | "Messaged ◯ Pebble", thread notes, cloud task cards | **Kept**: records that open the exchange; they land like any row |
-| `TurnReceiptLine` (`src/components/TurnReceiptLine.tsx`) | "Ran on Work · model", on demand | **Kept**: the only place for account and model, now also the record of a move |
-| `WorkingDots` (`src/components/WorkingIndicator.tsx`) | Three pulsing dots in running tool chips | **Removed** from the default view; stays only inside the tool-call developer view |
-| `WorkingTimer` (same file) | A seconds timer in `NativeWork`, `NativeWorkDetail`, `WorkStatusLine`, `ActivityPeek` | **Removed**: minutes only, in the slot or the panel title |
-| `HeaderStatusDot` (in `ChatView.tsx`) with `StatusDot` | Green working or amber waiting dot on the header pill | **Removed**: the slot says it in the same view |
-| `StatusDot` (`src/components/StatusDot.tsx`) in the sidebar | Unread dot on room rows | **Kept** |
-| Sidebar `RowDot` (`src/components/Sidebar.tsx`, `dot` in `src/lib/dog-row.ts`) | Green working, amber waiting, blue unread | **Working dot removed**: the row's face moves and its line says what. Waiting and unread **kept**: they ask for attention |
-| Sidebar row line (`rowLine`, `src/lib/dog-row.ts`) | Its own words from the home's `step` | **Kept**, with the slot's words and pacing from the same source (the run first), so the two never disagree. Needs-you keeps its detail ("Waiting for you: run the tests") because the card is not on screen |
-| `WorkStatusLine` (`src/components/WorkStatusLine.tsx`, room header) | "Pebble and Thistle are working", computer jobs with a seconds timer | **Removed**: the room's slot carries it; the sidebar row carries it for rooms not in view |
-| `ToolActivity`, `ActivityRun` (`src/components/ToolActivity.tsx`, `ActivityRun.tsx`) | Tool chips in rooms, only with `features.showToolCalls` | **Kept behind the flag** as a developer view; with the flag off nothing changes |
-| `SendingTrack` (`src/components/SendingTrack.tsx`) | Sending bar after 2 s and "Not sent yet" under the bubble | **Merged** into the slot: "Sending", "Not sent yet", "Waking up your home" |
-| `ReadReceipt` (same file) | "Sent" and "Read" under a steered bubble | **Merged**: "Read your message" in the slot for one hold; the line under the bubble goes |
-| `FoldLine` (`src/components/FoldLine.tsx`) | Receipt above the reply | **Kept**: it is what the slot becomes at landing; rooms get it too |
-| `SideJobsStillGoing` (same file) | Quiet line under the reply | **Kept** as the slot's after-the-reply form |
-| `FailedTurnRow`, `ErrorRow`, `LimitRow` | Outcomes with actions | **Kept**: they land like a reply |
-| `TranscriptAnnouncer` (`src/components/TranscriptAnnouncer.tsx`, `src/lib/transcript-announcer.ts`) | Announces approvals, questions, replies | **Kept**, with the rules above |
-| Approval, question, secure form, connector, take-over, device cards; `NeedsYouRow`; `MacScreenTile` | Actions | **Kept**: the slot names the state; the card holds the action |
-| `RunningOnLine` (`src/components/RunningOnLine.tsx`) | The chat's standing account route | **Kept**: a fact about the chat, not the turn |
-| `ComposerQueuedMessages` | Queued messages above the composer | **Kept**: the person's own outgoing messages, with Send now |
-| `useWorkingDots` (`src/lib/working-dots.ts`) | 2 s before working shows again after a mid-turn reply | **Kept** as the rule for the slot coming back |
-| `src/lib/live-activity.ts` | Activity kind from transcript rows | **Kept** as the fallback for homes and engines without native runs |
-| `workLine`, `sidebarWorkLine`, `roomRowLine` (`src/lib/work-state.ts`) | Words for work states | **Replaced** by the shared table |
+| Surface                                                                                                                                                                     | Today                                                                                          | Fate                                                                                                                                                                                                                                          |
+| --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `ChatWorkLine` in `src/components/TurnPresence.tsx`, `src/lib/work-line.ts`, `.work-line` in `src/chat-calm.css`                                                            | The dog chat's work line; mounts and unmounts, phrase per step                                 | **Becomes the turn slot.** Fixed height, never unmounts mid-turn, pacing, face moods, new words, no shimmer. Move it to its own file                                                                                                          |
+| `TurnPresence` (rooms, `src/components/GroupView.tsx`)                                                                                                                      | 36 px mascot row, 4.5 s rotating phrases, elapsed, puppies, 300 ms exit, swaps to `NativeWork` | **Merged** into the slot. Remove the rotation (`ROTATE_MS`, `rowPhrase`, `src/lib/thinking-row.ts`), `useArmedAfter` and `useActivityPresence` (`src/lib/activity-presence.ts`), `.turn-mascot-in/out` and `.turn-answer` in `src/styles.css` |
+| `NativeWork` live row (`src/components/NativeWork.tsx`)                                                                                                                     | Swaps in for `TurnPresence` when armed; different size                                         | **Merged** into the slot                                                                                                                                                                                                                      |
+| `NativeWork` receipts after room messages                                                                                                                                   | "View work ›" and puppy faces under each room reply                                            | **Merged** into the fold line, as in dog chats                                                                                                                                                                                                |
+| `NativeWorkDetail` (same file)                                                                                                                                              | Modal with actors, activities and Stop helper                                                  | **Merged** into the work panel: a page per puppy, with Stop helper there. Rooms open the work panel too                                                                                                                                       |
+| `NativeWorkFallbacks`, `NativeHistoryNotice`                                                                                                                                | Receipts with no reply; "Some earlier work is no longer available"                             | **Kept**: fallbacks as fold lines; the notice moves into the work panel                                                                                                                                                                       |
+| `WorkPanel` (`src/components/WorkPanel.tsx`, `src/work-panel.css`, `src/lib/work-panel*.ts`, `WorkSteps`, `WorkHelpers`, `WorkTodo`, `SideJobs`, `StepPage`, `SideJobPage`) | On-demand detail                                                                               | **Kept**, the one place for detail. Gains the live reasoning summary, puppy pages, the turn's total time in its title, the account and model. Not a duplicate: nothing else lists steps                                                       |
+| `ActivityPeek` (`src/components/ActivityPeek.tsx`)                                                                                                                          | Popover from `TurnPresence`: reasoning, steps, updates                                         | **Merged** into the work panel                                                                                                                                                                                                                |
+| `Puppies` (`src/components/Puppies.tsx`)                                                                                                                                    | Puppy faces in the presence row                                                                | **Removed** from the line; "Getting help from 3 puppies" and the panel replace it                                                                                                                                                             |
+| `StatusActivityRow` progress kind (`notice:` with `statusLine: "live"`, "Still on it: …")                                                                                   | A transcript row during long quiet stretches                                                   | **Merged** into the slot's long-step line; reuse the server's gerund table (`server/laterdog/status-lines.ts`) for subjects                                                                                                                   |
+| `StatusActivityRow` carry (`CarriedAccount`)                                                                                                                                | Transcript row "→ Continuing on Personal" mid-turn                                             | **Merged**: "Moving to Personal" in the slot for one hold; the record is How it ran. `RunningOnLine` keeps the standing route                                                                                                                 |
+| `StatusActivityRow` recovery and notice                                                                                                                                     | `recovery:` and `notice:` lines                                                                | **Kept**: records of what happened while the person was away; the slot says "Picking up where it left off" live                                                                                                                               |
+| `StatusActivityRow` resume (`ContinueWork`)                                                                                                                                 | "Continue?" with a button                                                                      | **Kept**: an action, not a status                                                                                                                                                                                                             |
+| `ActivityChip` (in `ChatView.tsx`)                                                                                                                                          | "Messaged ◯ Pebble", thread notes, cloud task cards                                            | **Kept**: records that open the exchange; they land like any row                                                                                                                                                                              |
+| `TurnReceiptLine` (`src/components/TurnReceiptLine.tsx`)                                                                                                                    | "Ran on Work · model", on demand                                                               | **Kept**: the only place for account and model, now also the record of a move                                                                                                                                                                 |
+| `WorkingDots` (`src/components/WorkingIndicator.tsx`)                                                                                                                       | Three pulsing dots in running tool chips                                                       | **Removed** from the default view; stays only inside the tool-call developer view                                                                                                                                                             |
+| `WorkingTimer` (same file)                                                                                                                                                  | A seconds timer in `NativeWork`, `NativeWorkDetail`, `WorkStatusLine`, `ActivityPeek`          | **Removed**: minutes only, in the slot or the panel title                                                                                                                                                                                     |
+| `HeaderStatusDot` (in `ChatView.tsx`) with `StatusDot`                                                                                                                      | Green working or amber waiting dot on the header pill                                          | **Removed**: the slot says it in the same view                                                                                                                                                                                                |
+| `StatusDot` (`src/components/StatusDot.tsx`) in the sidebar                                                                                                                 | Unread dot on room rows                                                                        | **Kept**                                                                                                                                                                                                                                      |
+| Sidebar `RowDot` (`src/components/Sidebar.tsx`, `dot` in `src/lib/dog-row.ts`)                                                                                              | Green working, amber waiting, blue unread                                                      | **Working dot removed**: the row's face moves and its line says what. Waiting and unread **kept**: they ask for attention                                                                                                                     |
+| Sidebar row line (`rowLine`, `src/lib/dog-row.ts`)                                                                                                                          | Its own words from the home's `step`                                                           | **Kept**, with the slot's words and pacing from the same source (the run first), so the two never disagree. Needs-you keeps its detail ("Waiting for you: run the tests") because the card is not on screen                                   |
+| `WorkStatusLine` (`src/components/WorkStatusLine.tsx`, room header)                                                                                                         | "Pebble and Thistle are working", computer jobs with a seconds timer                           | **Removed**: the room's slot carries it; the sidebar row carries it for rooms not in view                                                                                                                                                     |
+| `ToolActivity`, `ActivityRun` (`src/components/ToolActivity.tsx`, `ActivityRun.tsx`)                                                                                        | Tool chips in rooms, only with `features.showToolCalls`                                        | **Kept behind the flag** as a developer view; with the flag off nothing changes                                                                                                                                                               |
+| `SendingTrack` (`src/components/SendingTrack.tsx`)                                                                                                                          | Sending bar after 2 s and "Not sent yet" under the bubble                                      | **Merged** into the slot: "Sending", "Not sent yet", "Waking up your home"                                                                                                                                                                    |
+| `ReadReceipt` (same file)                                                                                                                                                   | "Sent" and "Read" under a steered bubble                                                       | **Merged**: "Read your message" in the slot for one hold; the line under the bubble goes                                                                                                                                                      |
+| `FoldLine` (`src/components/FoldLine.tsx`)                                                                                                                                  | Receipt above the reply                                                                        | **Kept**: it is what the slot becomes at landing; rooms get it too                                                                                                                                                                            |
+| `SideJobsStillGoing` (same file)                                                                                                                                            | Quiet line under the reply                                                                     | **Kept** as the slot's after-the-reply form                                                                                                                                                                                                   |
+| `FailedTurnRow`, `ErrorRow`, `LimitRow`                                                                                                                                     | Outcomes with actions                                                                          | **Kept**: they land like a reply                                                                                                                                                                                                              |
+| `TranscriptAnnouncer` (`src/components/TranscriptAnnouncer.tsx`, `src/lib/transcript-announcer.ts`)                                                                         | Announces approvals, questions, replies                                                        | **Kept**, with the rules above                                                                                                                                                                                                                |
+| Approval, question, secure form, connector, take-over, device cards; `NeedsYouRow`; `MacScreenTile`                                                                         | Actions                                                                                        | **Kept**: the slot names the state; the card holds the action                                                                                                                                                                                 |
+| `RunningOnLine` (`src/components/RunningOnLine.tsx`)                                                                                                                        | The chat's standing account route                                                              | **Kept**: a fact about the chat, not the turn                                                                                                                                                                                                 |
+| `ComposerQueuedMessages`                                                                                                                                                    | Queued messages above the composer                                                             | **Kept**: the person's own outgoing messages, with Send now                                                                                                                                                                                   |
+| `useWorkingDots` (`src/lib/working-dots.ts`)                                                                                                                                | 2 s before working shows again after a mid-turn reply                                          | **Kept** as the rule for the slot coming back                                                                                                                                                                                                 |
+| `src/lib/live-activity.ts`                                                                                                                                                  | Activity kind from transcript rows                                                             | **Kept** as the fallback for homes and engines without native runs                                                                                                                                                                            |
+| `workLine`, `sidebarWorkLine`, `roomRowLine` (`src/lib/work-state.ts`)                                                                                                      | Words for work states                                                                          | **Replaced** by the shared table                                                                                                                                                                                                              |
 
 ## The phone
 
@@ -385,13 +385,13 @@ These five choices were made on 25 November 2026 under the owner's full delegati
 implementation defaults for both apps where the surface exists. No design choice remains for the
 owner to answer.
 
-| Choice | Decision | Reason and implementation boundary |
-| --- | --- | --- |
-| Reply bubbles | **One bubble per authored reply.** | One result has one arrival and one copy action; preserve structured content. Deliberately separate messages stay separate. Never split by paragraph. |
-| Room for the answer | **Reserve 40% of the visible transcript at turn start while following the bottom.** | This gives the reply's opening room without lifting every send a full page. Measure the visible transcript once at turn start, consume the room as rows land, and never move the viewport at landing. Do not reserve or scroll while the person reads older messages. A reply taller than the room continues below the fold. |
-| Work-line shimmer | **Remove it.** | The dog's face supplies the work signal; the words stay still and readable. Under Reduce Motion the face holds a still pose too. |
-| Sidebar green working dot | **Remove only the working dot.** | The row's face and paced line already carry working state. Keep waiting and unread dots because they indicate something to act on or read; keep the accessible working state when animation is off. |
-| Long-step subject | **Show a plain subject after the same step has lasted one minute.** | A long wait should say what is taking time, such as "Running the order form tests · for 6 min". Use only a plain subject supplied by the home; when it is missing or unsuitable, retain the generic phrase and elapsed minutes. Keep raw tools, paths and commands in the work panel. No seconds and no per-step screen-reader announcements. |
+| Choice                    | Decision                                                                            | Reason and implementation boundary                                                                                                                                                                                                                                                                                                            |
+| ------------------------- | ----------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Reply bubbles             | **One bubble per authored reply.**                                                  | One result has one arrival and one copy action; preserve structured content. Deliberately separate messages stay separate. Never split by paragraph.                                                                                                                                                                                          |
+| Room for the answer       | **Reserve 40% of the visible transcript at turn start while following the bottom.** | This gives the reply's opening room without lifting every send a full page. Measure the visible transcript once at turn start, consume the room as rows land, and never move the viewport at landing. Do not reserve or scroll while the person reads older messages. A reply taller than the room continues below the fold.                  |
+| Work-line shimmer         | **Remove it.**                                                                      | The dog's face supplies the work signal; the words stay still and readable. Under Reduce Motion the face holds a still pose too.                                                                                                                                                                                                              |
+| Sidebar green working dot | **Remove only the working dot.**                                                    | The row's face and paced line already carry working state. Keep waiting and unread dots because they indicate something to act on or read; keep the accessible working state when animation is off.                                                                                                                                           |
+| Long-step subject         | **Show a plain subject after the same step has lasted one minute.**                 | A long wait should say what is taking time, such as "Running the order form tests · for 6 min". Use only a plain subject supplied by the home; when it is missing or unsuitable, retain the generic phrase and elapsed minutes. Keep raw tools, paths and commands in the work panel. No seconds and no per-step screen-reader announcements. |
 
 The decisions give later.dog one quiet work signal, detail on demand and elapsed time withheld
 until a minute. The five choices, including the 40% reservation and using the dog's face instead of

@@ -1,19 +1,53 @@
 import { describe, expect, it } from "vitest";
-import { BUSY_TURN, NOTHING_SHOWN, PACE, busyTimeline, pace, roomFor, stepLine, turnStates, visibleChanges, type SlotLine } from "./wait-and-landing-model.ts";
+import {
+  BUSY_TURN,
+  NOTHING_SHOWN,
+  PACE,
+  busyTimeline,
+  pace,
+  roomFor,
+  stepLine,
+  turnStates,
+  visibleChanges,
+  type SlotLine,
+} from "./wait-and-landing-model.ts";
 
 const states = turnStates();
 const lines = states.flatMap((state) => (state.line ? [state.line] : []));
-const shownWords = (line: SlotLine) => [line.words, line.age, line.sideJobs].filter(Boolean).join(" · ");
-const NAMED = new Set(["long-step", "helpers", "room-many", "helper-needs-you", "needs-account", "moving-account", "computer-background", "computer-job"]);
+const shownWords = (line: SlotLine) =>
+  [line.words, line.age, line.sideJobs].filter(Boolean).join(" · ");
+const NAMED = new Set([
+  "long-step",
+  "helpers",
+  "room-many",
+  "helper-needs-you",
+  "needs-account",
+  "moving-account",
+  "computer-background",
+  "computer-job",
+]);
 
 describe("the turn slot's states", () => {
   it("gives every state a line, a fold form or an outcome, so none is left without a home", () => {
-    for (const state of states) expect(state.line !== null || state.fold !== undefined || state.outcome !== undefined, state.id).toBe(true);
+    for (const state of states)
+      expect(
+        state.line !== null || state.fold !== undefined || state.outcome !== undefined,
+        state.id,
+      ).toBe(true);
     expect(new Set(states.map((state) => state.id)).size).toBe(states.length);
   });
 
   it("covers delivery, work, waiting on the person, waiting on something else, the ends and rooms", () => {
-    expect(new Set(states.map((state) => state.group))).toEqual(new Set(["Delivery", "Working", "Waiting on you", "Waiting on something else", "Ends", "Rooms"]));
+    expect(new Set(states.map((state) => state.group))).toEqual(
+      new Set([
+        "Delivery",
+        "Working",
+        "Waiting on you",
+        "Waiting on something else",
+        "Ends",
+        "Rooms",
+      ]),
+    );
   });
 
   it("keeps fixed words short enough for one line on a 393 point phone", () => {
@@ -24,9 +58,14 @@ describe("the turn slot's states", () => {
   });
 
   it("never names a tool, a path, a command or seconds, in what it shows or says", () => {
-    const said = [...lines.flatMap((line) => [shownWords(line), line.spoken]), ...states.flatMap((state) => (state.fold ? [state.fold.words, state.fold.spoken] : []))];
+    const said = [
+      ...lines.flatMap((line) => [shownWords(line), line.spoken]),
+      ...states.flatMap((state) => (state.fold ? [state.fold.words, state.fold.spoken] : [])),
+    ];
     for (const text of said) {
-      expect(text, text).not.toMatch(/\/|\.(?:tsx?|md|json)\b|\b(?:bash|grep|glob|pnpm|npm|mcp|tool|seconds?)\b|\d+\s?s\b/i);
+      expect(text, text).not.toMatch(
+        /\/|\.(?:tsx?|md|json)\b|\b(?:bash|grep|glob|pnpm|npm|mcp|tool|seconds?)\b|\d+\s?s\b/i,
+      );
     }
   });
 
@@ -46,7 +85,8 @@ describe("the turn slot's states", () => {
 });
 
 describe("how often the slot may change", () => {
-  const step = (kind: "reading" | "editing" | "running" | "thinking") => stepLine({ kind, runKey: "turn" });
+  const step = (kind: "reading" | "editing" | "running" | "thinking") =>
+    stepLine({ kind, runKey: "turn" });
   const ask = states.find((state) => state.id === "needs-ok")!.line!;
 
   it("shows the first line at once", () => {
@@ -79,7 +119,11 @@ describe("how often the slot may change", () => {
   });
 
   it("updates the age under a phrase that stays, without counting a change", () => {
-    let paced = pace(NOTHING_SHOWN, stepLine({ kind: "running", runKey: "turn", runMs: 30_000 }), 0);
+    let paced = pace(
+      NOTHING_SHOWN,
+      stepLine({ kind: "running", runKey: "turn", runMs: 30_000 }),
+      0,
+    );
     paced = pace(paced, stepLine({ kind: "running", runKey: "turn", runMs: 61_000 }), 31_000);
     expect(paced.shown?.age).toBe("for 1 min");
     expect(paced.shownAt).toBe(0);
@@ -93,7 +137,8 @@ describe("how often the slot may change", () => {
       "Running the order form tests · for 1 min",
       "Writing back",
     ]);
-    for (let index = 1; index < changes.length; index += 1) expect(changes[index]!.at - changes[index - 1]!.at).toBeGreaterThanOrEqual(PACE.holdMs);
+    for (let index = 1; index < changes.length; index += 1)
+      expect(changes[index]!.at - changes[index - 1]!.at).toBeGreaterThanOrEqual(PACE.holdMs);
     expect(changes.at(-1)!.at).toBeLessThan(BUSY_TURN.landsAt);
   });
 });

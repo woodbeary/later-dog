@@ -20,7 +20,11 @@ describe.skipIf(process.platform === "win32")("Steer on a turn that will not sto
   let stderr = "";
   let promptDump: string;
 
-  const api = async (method: string, path: string, body?: unknown): Promise<{ status: number; body: any }> => {
+  const api = async (
+    method: string,
+    path: string,
+    body?: unknown,
+  ): Promise<{ status: number; body: any }> => {
     const res = await fetch(`${BASE}${path}`, {
       method,
       headers: body ? { "content-type": "application/json" } : undefined,
@@ -33,7 +37,8 @@ describe.skipIf(process.platform === "win32")("Steer on a turn that will not sto
   const waitFor = async (predicate: () => Promise<boolean>, what: string, ms = 30_000) => {
     const deadline = Date.now() + ms;
     while (!(await predicate())) {
-      if (Date.now() > deadline) throw new Error(`timed out waiting for ${what}. stderr: ${stderr.slice(-2000)}`);
+      if (Date.now() > deadline)
+        throw new Error(`timed out waiting for ${what}. stderr: ${stderr.slice(-2000)}`);
       await new Promise((r) => setTimeout(r, 100));
     }
   };
@@ -49,7 +54,12 @@ describe.skipIf(process.platform === "win32")("Steer on a turn that will not sto
         instances: {
           stubborn: {
             driver: "grokAgent",
-            environment: { FAKE_ACP_MODE: "hang", FAKE_ACP_IGNORE_CANCEL: "1", FAKE_ACP_DUMP: promptDump, FAKE_ACP_DUMP_PROMPT: "1" },
+            environment: {
+              FAKE_ACP_MODE: "hang",
+              FAKE_ACP_IGNORE_CANCEL: "1",
+              FAKE_ACP_DUMP: promptDump,
+              FAKE_ACP_DUMP_PROMPT: "1",
+            },
             config: { cli: FAKE_ACP, fullAuto: true },
           },
         },
@@ -68,9 +78,15 @@ describe.skipIf(process.platform === "win32")("Steer on a turn that will not sto
     });
     child.stderr!.on("data", (c) => (stderr += c));
     const deadline = Date.now() + 20_000;
-    while (!(await fetch(`${BASE}/api/health`).then((res) => res.ok, () => false))) {
+    while (
+      !(await fetch(`${BASE}/api/health`).then(
+        (res) => res.ok,
+        () => false,
+      ))
+    ) {
       if (Date.now() > deadline) throw new Error(`server never came up. stderr:\n${stderr}`);
-      if (child.exitCode !== null) throw new Error(`server exited ${child.exitCode}. stderr:\n${stderr}`);
+      if (child.exitCode !== null)
+        throw new Error(`server exited ${child.exitCode}. stderr:\n${stderr}`);
       await new Promise((r) => setTimeout(r, 150));
     }
   }, 30_000);
@@ -87,25 +103,44 @@ describe.skipIf(process.platform === "win32")("Steer on a turn that will not sto
 
   it("answers with one plain line, keeps the message queued, and sends it once when the turn finally stops", async () => {
     const created = (await api("POST", "/api/bots")).body.bot;
-    await api("PATCH", `/api/bots/${created.id}`, { modelSelection: { instanceId: "stubborn", model: "fake-model" } });
-    expect((await api("POST", `/api/bots/${created.id}/messages`, { text: "keep going" })).status).toBe(202);
-    await waitFor(async () => existsSync(`${promptDump}.prompt.json`), "the stubborn turn to reach the engine");
+    await api("PATCH", `/api/bots/${created.id}`, {
+      modelSelection: { instanceId: "stubborn", model: "fake-model" },
+    });
+    expect(
+      (await api("POST", `/api/bots/${created.id}/messages`, { text: "keep going" })).status,
+    ).toBe(202);
+    await waitFor(
+      async () => existsSync(`${promptDump}.prompt.json`),
+      "the stubborn turn to reach the engine",
+    );
     const queued = await api("POST", `/api/bots/${created.id}/messages`, { text: "hello" });
     expect(queued.body).toMatchObject({ ok: true, queued: true });
 
-    const answer = await api("POST", `/api/bots/${created.id}/queue/${queued.body.queueId}/steer`, { threadId: created.threadId });
+    const answer = await api("POST", `/api/bots/${created.id}/queue/${queued.body.queueId}/steer`, {
+      threadId: created.threadId,
+    });
     expect(answer.status).toBe(200);
-    expect(answer.body).toEqual({ ok: true, queued: true, threadId: created.threadId, reason: stillStoppingReason(created.name) });
+    expect(answer.body).toEqual({
+      ok: true,
+      queued: true,
+      threadId: created.threadId,
+      reason: stillStoppingReason(created.name),
+    });
     expect((await listing()).botQueuedMessages[created.threadId]).toEqual([
       expect.objectContaining({ queueId: queued.body.queueId, text: "hello" }),
     ]);
     expect((await getBot(created.id)).messages.some((m: any) => m.text === "hello")).toBe(false);
 
     await waitFor(
-      async () => (await getBot(created.id)).messages.some((m: any) => m.role === "user" && m.text === "hello"),
+      async () =>
+        (await getBot(created.id)).messages.some(
+          (m: any) => m.role === "user" && m.text === "hello",
+        ),
       "the queued message to go once the turn stops",
     );
-    const lines = (await getBot(created.id)).messages.filter((m: any) => m.role === "user" && m.text === "hello");
+    const lines = (await getBot(created.id)).messages.filter(
+      (m: any) => m.role === "user" && m.text === "hello",
+    );
     expect(lines).toHaveLength(1);
     expect(lines[0].queueId).toBe(queued.body.queueId);
     expect((await listing()).botQueuedMessages[created.threadId] ?? []).toEqual([]);
@@ -116,34 +151,75 @@ describe.skipIf(process.platform === "win32")("Steer on a turn that will not sto
 
   it("finds a queued message by the sender's own id, cancels by it, and says a message that already went was sent", async () => {
     const created = (await api("POST", "/api/bots")).body.bot;
-    await api("PATCH", `/api/bots/${created.id}`, { modelSelection: { instanceId: "stubborn", model: "fake-model" } });
-    expect((await api("POST", `/api/bots/${created.id}/messages`, { text: "keep going" })).status).toBe(202);
-    await waitFor(async () => (await getBot(created.id)).busy === true, "the stubborn turn to start");
+    await api("PATCH", `/api/bots/${created.id}`, {
+      modelSelection: { instanceId: "stubborn", model: "fake-model" },
+    });
+    expect(
+      (await api("POST", `/api/bots/${created.id}/messages`, { text: "keep going" })).status,
+    ).toBe(202);
+    await waitFor(
+      async () => (await getBot(created.id)).busy === true,
+      "the stubborn turn to start",
+    );
     const goes = randomUUID();
     const dropped = randomUUID();
-    const first = await api("POST", `/api/bots/${created.id}/messages`, { text: "goes later", sendId: goes });
+    const first = await api("POST", `/api/bots/${created.id}/messages`, {
+      text: "goes later",
+      sendId: goes,
+    });
     expect(first.body).toMatchObject({ ok: true, queued: true });
     expect(first.body.queueId).not.toBe(goes);
-    expect((await api("POST", `/api/bots/${created.id}/messages`, { text: "never goes", sendId: dropped })).body).toMatchObject({ queued: true });
+    expect(
+      (
+        await api("POST", `/api/bots/${created.id}/messages`, {
+          text: "never goes",
+          sendId: dropped,
+        })
+      ).body,
+    ).toMatchObject({ queued: true });
 
-    const cancelled = await api("DELETE", `/api/bots/${created.id}/queue/${dropped}`, { threadId: created.threadId });
+    const cancelled = await api("DELETE", `/api/bots/${created.id}/queue/${dropped}`, {
+      threadId: created.threadId,
+    });
     expect(cancelled).toEqual({ status: 200, body: { ok: true } });
-    expect((await listing()).botQueuedMessages[created.threadId]).toEqual([expect.objectContaining({ text: "goes later" })]);
+    expect((await listing()).botQueuedMessages[created.threadId]).toEqual([
+      expect.objectContaining({ text: "goes later" }),
+    ]);
 
-    const asked = await api("POST", `/api/bots/${created.id}/queue/${goes}/steer`, { threadId: created.threadId });
+    const asked = await api("POST", `/api/bots/${created.id}/queue/${goes}/steer`, {
+      threadId: created.threadId,
+    });
     expect(asked.status).toBe(200);
     if (asked.body.sent) expect(asked.body.queueIds).toEqual([first.body.queueId, goes]);
-    else expect(asked.body).toEqual({ ok: true, queued: true, threadId: created.threadId, reason: stillStoppingReason(created.name) });
+    else
+      expect(asked.body).toEqual({
+        ok: true,
+        queued: true,
+        threadId: created.threadId,
+        reason: stillStoppingReason(created.name),
+      });
 
     await waitFor(
-      async () => (await getBot(created.id)).messages.some((m: any) => m.role === "user" && m.text === "goes later"),
+      async () =>
+        (await getBot(created.id)).messages.some(
+          (m: any) => m.role === "user" && m.text === "goes later",
+        ),
       "the queued message to go once the turn stops",
     );
-    const again = await api("POST", `/api/bots/${created.id}/queue/${goes}/steer`, { threadId: created.threadId });
-    expect(again).toEqual({ status: 200, body: { ok: true, sent: true, threadId: created.threadId, messages: [], queueIds: [goes] } });
-    const unknown = await api("POST", `/api/bots/${created.id}/queue/${randomUUID()}/steer`, { threadId: created.threadId });
+    const again = await api("POST", `/api/bots/${created.id}/queue/${goes}/steer`, {
+      threadId: created.threadId,
+    });
+    expect(again).toEqual({
+      status: 200,
+      body: { ok: true, sent: true, threadId: created.threadId, messages: [], queueIds: [goes] },
+    });
+    const unknown = await api("POST", `/api/bots/${created.id}/queue/${randomUUID()}/steer`, {
+      threadId: created.threadId,
+    });
     expect(unknown).toEqual({ status: 404, body: { error: "no such queued message" } });
-    const all = (await getBot(created.id)).messages.filter((m: any) => m.role === "user").map((m: any) => m.text);
+    const all = (await getBot(created.id)).messages
+      .filter((m: any) => m.role === "user")
+      .map((m: any) => m.text);
     expect(all.filter((text: string) => text === "goes later")).toHaveLength(1);
     expect(all).not.toContain("never goes");
 

@@ -6,7 +6,7 @@ Pull requests are welcome. Read this once; it is short on purpose: most of it is
 
 - **Evidence, not promises.** A PR says what changed, shows the command and its real output or a screenshot, and names
   what it did not verify. "Fixture success does not qualify a live provider": a passing fixture is a fixture result.
-- **One concern per PR.** A feature *and* a refactor will be asked to split. Big changes: open an issue first.
+- **One concern per PR.** A feature _and_ a refactor will be asked to split. Big changes: open an issue first.
 - **Keep native limitations visible.** Backends and engines state what they cannot do (`capabilities.limitation`,
   readiness checks that tell the truth). Never paper over a provider's limit with a hopeful default.
 - **Isolated fixtures only.** Server and conversation changes are verified with the isolated launcher in
@@ -42,17 +42,17 @@ Everything the project knows about itself is indexed in [`llms.txt`](llms.txt); 
 
 ## Repo map
 
-| Path | What lives there |
-|---|---|
-| `server/laterdog/` | The supervisor (SQLite jobs, publishing, verification, review, repair), its HTTP API and MCP tools |
-| `deploy/laterdog/` | Supervisor container, entrypoint, Cloudflare Worker |
-| `skills/laterdog/` | Canonical skills exported to Codex, Cursor and Claude Code |
-| `docs/laterdog/` | Deployment, Cloudflare, verification, playbook, roadmap, audit and acceptance records |
-| `server/contracts.ts` | The engine driver contract and canonical runtime events — read it first |
-| `server/drivers/` | One file per provider; adding one = one file + one registration line in `builtIn.ts` |
-| `server/index.ts` | The HTTP + SSE API the app talks to (being split into modules; add new routes under `server/routes/`) |
-| `src/` | The React app; `src/locales/en.json` is the copy's source of truth |
-| `electron/` | Desktop shell: dictation, screen capture, local computer control; macOS-specific code gated |
+| Path                  | What lives there                                                                                      |
+| --------------------- | ----------------------------------------------------------------------------------------------------- |
+| `server/laterdog/`    | The supervisor (SQLite jobs, publishing, verification, review, repair), its HTTP API and MCP tools    |
+| `deploy/laterdog/`    | Supervisor container, entrypoint, Cloudflare Worker                                                   |
+| `skills/laterdog/`    | Canonical skills exported to Codex, Cursor and Claude Code                                            |
+| `docs/laterdog/`      | Deployment, Cloudflare, verification, playbook, roadmap, audit and acceptance records                 |
+| `server/contracts.ts` | The engine driver contract and canonical runtime events — read it first                               |
+| `server/drivers/`     | One file per provider; adding one = one file + one registration line in `builtIn.ts`                  |
+| `server/index.ts`     | The HTTP + SSE API the app talks to (being split into modules; add new routes under `server/routes/`) |
+| `src/`                | The React app; `src/locales/en.json` is the copy's source of truth                                    |
+| `electron/`           | Desktop shell: dictation, screen capture, local computer control; macOS-specific code gated           |
 
 ## Tests
 

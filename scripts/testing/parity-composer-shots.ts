@@ -2,22 +2,44 @@ import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { mountPreview, REPO_ROOT } from "./preview-fixture.ts";
 
-const SCENES = ["idle", "draft", "pasted-text", "pasted-text-line-breaks", "working", "working-draft", "usage-weekly-75", "usage-weekly-90", "usage-five-hour", "question", "permission", "settled"];
+const SCENES = [
+  "idle",
+  "draft",
+  "pasted-text",
+  "pasted-text-line-breaks",
+  "working",
+  "working-draft",
+  "usage-weekly-75",
+  "usage-weekly-90",
+  "usage-five-hour",
+  "question",
+  "permission",
+  "settled",
+];
 const OUT = join(REPO_ROOT, ".laterdog-evidence", "parity-composer");
 mkdirSync(OUT, { recursive: true });
 
-const ui = await mountPreview({ info: { url: "http://127.0.0.1:9" } }, {
-  entry: "/scripts/testing/parity-composer-preview.tsx",
-  route: "/__parity-composer.html",
-  title: "Composer parity preview",
-  logLevel: "warn",
-});
+const ui = await mountPreview(
+  { info: { url: "http://127.0.0.1:9" } },
+  {
+    entry: "/scripts/testing/parity-composer-preview.tsx",
+    route: "/__parity-composer.html",
+    title: "Composer parity preview",
+    logLevel: "warn",
+  },
+);
 const { chromium } = await import(process.env.LATERDOG_DESKTOP_VERIFY_PLAYWRIGHT || "playwright");
-const browser = await chromium.launch({ headless: true, executablePath: process.env.LATERDOG_DESKTOP_VERIFY_BROWSER_CHROME || undefined });
+const browser = await chromium.launch({
+  headless: true,
+  executablePath: process.env.LATERDOG_DESKTOP_VERIFY_BROWSER_CHROME || undefined,
+});
 const errors: string[] = [];
 try {
   for (const theme of ["light", "dark"]) {
-    const context = await browser.newContext({ viewport: { width: 1100, height: 800 }, deviceScaleFactor: 2 });
+    const context = await browser.newContext({
+      viewport: { width: 1100, height: 800 },
+      deviceScaleFactor: 2,
+    });
     const page = await context.newPage();
     page.on("pageerror", (error: Error) => errors.push(`${theme}: ${error.message}`));
     const shoot = async (scene: string, file = scene, after?: () => Promise<void>) => {
