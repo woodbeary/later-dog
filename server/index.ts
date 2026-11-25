@@ -137,6 +137,7 @@ import { createSharedJoins } from "./laterdog/shared-join.ts";
 import { configuredSpeechKey, SpeechCache } from "./laterdog/speech-cache.ts";
 import { mp3DurationMs } from "./laterdog/mp3-duration.ts";
 import { HOME_HEALTH_FILE, startHomeHealthLog } from "./laterdog/home-health-log.ts";
+import { HOME_SERVER_LOG_DIR, installHomeServerLog } from "./laterdog/home-server-log.ts";
 import { startMemoryGuard } from "./laterdog/memory-guard.ts";
 import { parseHelperModelChoice } from "./laterdog/helper-model.ts";
 import { makeSpace } from "./laterdog/space-maker.ts";
@@ -153,6 +154,7 @@ import { HeavyCommandGuard, preToolUseDecision } from "./laterdog/heavy-commands
 import { computersSelected } from "./laterdog/cloud-computers.ts";
 import { createComputerRunRoute } from "./routes/computer-run.ts";
 import { createStorageRoutes } from "./routes/storage.ts";
+import { createHomeLogRoutes } from "./routes/home-log.ts";
 import * as boat from "./computers.ts";
 import { cloudComputerRpc } from "./cloud-computer-tools.ts";
 import { pageToolsEnabled } from "./laterdog/page-tools.ts";
@@ -968,6 +970,7 @@ const CLOUD_SECRETS = BOOT_CLOUD_SECRETS;
 const CLOUD_ENV: NodeJS.ProcessEnv = { ...process.env, ...CLOUD_SECRETS };
 const deliverOwnerEmail = cloudEmailDelivery(CLOUD_ENV.LATERDOG_CLOUD_EMAIL_URL, CLOUD_ENV.LATERDOG_CLOUD_EMAIL_TOKEN);
 const CLOUD_HOME = cloudHomeConfiguration(CLOUD_ENV);
+if (CLOUD_HOME) installHomeServerLog({ dir: join(DATA_DIR, HOME_SERVER_LOG_DIR) });
 if (CLOUD_HOME) startHomeHealthLog({ file: join(DATA_DIR, HOME_HEALTH_FILE) });
 if (CLOUD_HOME) startMemoryGuard();
 const vaultStore = new VaultStore(join(DATA_DIR, "vault.json"), CLOUD_HOME
@@ -13819,6 +13822,7 @@ ROUTES.push(createEnginePlacementRoutes({
 }));
 ROUTES.push(createStreamWatchRoutes({ clients: () => sseClients }));
 ROUTES.push(createStorageRoutes({ storage: () => cloudStorage(), clean: () => runJanitorNow("low-disk"), measure: () => diskBreakdown.measure() }));
+ROUTES.push(createHomeLogRoutes({ dir: () => (CLOUD_HOME ? join(DATA_DIR, HOME_SERVER_LOG_DIR) : null) }));
 ROUTES.push(createLinkPreviewRoutes());
 ROUTES.push(createBotMemoryRoutes({
   bot: (id) => store.bot(id),
