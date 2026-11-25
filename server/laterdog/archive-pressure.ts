@@ -24,15 +24,17 @@ export const CALM_SWEEP: ArchiveSweep = {
   ageMs: 24 * HOUR, sessionAgeMs: 72 * HOUR, byteLimit: 64 * MB, sessionByteLimit: 128 * MB, threadLimit: 100, quietMs: 30 * MINUTE, everyMs: 5 * MINUTE,
 };
 
+export const LEAST_IDLE_MS = 30 * MINUTE;
+
 export const PRESSURE_SWEEPS: ReadonlyArray<{ from: number; sweep: ArchiveSweep }> = [
   { from: rungOf("sweep"), sweep: { ageMs: 12 * HOUR, sessionAgeMs: 24 * HOUR, byteLimit: 256 * MB, sessionByteLimit: 512 * MB, threadLimit: 200, quietMs: 30 * MINUTE, everyMs: 5 * MINUTE } },
   { from: rungOf("move"), sweep: { ageMs: 2 * HOUR, sessionAgeMs: 6 * HOUR, byteLimit: 1024 * MB, sessionByteLimit: 1024 * MB, threadLimit: 400, quietMs: 15 * MINUTE, everyMs: 2 * MINUTE } },
-  { from: rungOf("refuse"), sweep: { ageMs: 30 * MINUTE, sessionAgeMs: HOUR, byteLimit: 2048 * MB, sessionByteLimit: 2048 * MB, threadLimit: 1000, quietMs: 10 * MINUTE, everyMs: MINUTE } },
-  { from: rungOf("floor"), sweep: { ageMs: 0, sessionAgeMs: 0, byteLimit: Infinity, sessionByteLimit: Infinity, threadLimit: Infinity, quietMs: 2 * MINUTE, everyMs: 30_000 } },
+  { from: rungOf("refuse"), sweep: { ageMs: HOUR, sessionAgeMs: 2 * HOUR, byteLimit: 2048 * MB, sessionByteLimit: 2048 * MB, threadLimit: 1000, quietMs: 10 * MINUTE, everyMs: MINUTE } },
+  { from: rungOf("floor"), sweep: { ageMs: LEAST_IDLE_MS, sessionAgeMs: HOUR, byteLimit: Infinity, sessionByteLimit: Infinity, threadLimit: Infinity, quietMs: 10 * MINUTE, everyMs: 30_000 } },
 ];
 
 export const PLENTY_FREE_BYTES = 8 * GB;
-export const ROOM_KEPT_FREE_BYTES = GB;
+export const ROOM_KEPT_FREE_BYTES = 256 * MB;
 
 export function pressureRung(disk: DiskUse | null): number {
   return disk && disk.freeBytes >= PLENTY_FREE_BYTES ? 0 : diskRung(disk);

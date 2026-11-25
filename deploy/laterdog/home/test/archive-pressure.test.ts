@@ -4,7 +4,7 @@ import { dirname, join } from "node:path";
 import { afterEach, expect, it, vi } from "vitest";
 import { createArchiver, serveArchive } from "../runtime/archive.mjs";
 import {
-  CALM_SWEEP, FIRST_SWEEP_MS, PLENTY_FREE_BYTES, PRESSURE_SWEEPS, SAVE_COPY_RESERVE_BYTES, STEADY_WINDOW_MS, SWEEP_CHECK_MS, archiveSweep, pressureRung,
+  CALM_SWEEP, FIRST_SWEEP_MS, LEAST_IDLE_MS, PLENTY_FREE_BYTES, PRESSURE_SWEEPS, ROOM_KEPT_FREE_BYTES, SAVE_COPY_RESERVE_BYTES, STEADY_WINDOW_MS, SWEEP_CHECK_MS, archiveSweep, pressureRung,
   roomFor, roomToRestore, savesHold, startArchiveSweeps, steadyDisk,
 } from "../../../../server/laterdog/archive-pressure.ts";
 import { DISK_RUNGS } from "../../../../server/laterdog/disk-ladder.ts";
@@ -90,17 +90,27 @@ it("sweeps as it always did while the disk is calm, and harder at every lower ru
     expect(harder.quietMs, `quiet at step ${at}`).toBeLessThanOrEqual(milder.quietMs);
   }
   expect(archiveSweep({ totalBytes: 19.2 * GB, freeBytes: 2.7 * GB })).toBe(ladder[2]);
-  expect(archiveSweep({ totalBytes: 19.2 * GB, freeBytes: 0.3 * GB })).toMatchObject({ ageMs: 0, sessionAgeMs: 0, byteLimit: Infinity, sessionByteLimit: Infinity });
+  expect(archiveSweep({ totalBytes: 19.2 * GB, freeBytes: 0.3 * GB })).toMatchObject({ ageMs: LEAST_IDLE_MS, sessionAgeMs: HOUR, byteLimit: Infinity, sessionByteLimit: Infinity });
 });
 
-it("says there is room to bring files back while a gigabyte stays free, whatever the size of the disk", () => {
+it("never takes what a chat used in the last half hour, however full the disk is", () => {
+  expect(LEAST_IDLE_MS).toBe(30 * MINUTE);
+  for (const sweep of [CALM_SWEEP, ...PRESSURE_SWEEPS.map((step) => step.sweep)]) {
+    expect(sweep.ageMs).toBeGreaterThanOrEqual(LEAST_IDLE_MS);
+    expect(sweep.sessionAgeMs).toBeGreaterThanOrEqual(LEAST_IDLE_MS);
+  }
+  expect(archiveSweep({ totalBytes: 19.2 * GB, freeBytes: 0 })).toMatchObject({ ageMs: LEAST_IDLE_MS, sessionAgeMs: HOUR });
+});
+
+it("says there is room to bring files back while a quarter of a gigabyte stays free, whatever the size of the disk", () => {
+  expect(ROOM_KEPT_FREE_BYTES).toBe(256 * MB);
   expect(roomToRestore(null)).toBe(true);
   expect(roomToRestore(disk(0.5))).toBe(true);
-  expect(roomToRestore({ totalBytes: 19.2 * GB, freeBytes: 1.1 * GB })).toBe(true);
-  expect(roomToRestore({ totalBytes: 19.2 * GB, freeBytes: 0.9 * GB })).toBe(false);
+  expect(roomToRestore({ totalBytes: 19.2 * GB, freeBytes: 0.3 * GB })).toBe(true);
+  expect(roomToRestore({ totalBytes: 19.2 * GB, freeBytes: 0.2 * GB })).toBe(false);
   expect(roomToRestore({ totalBytes: 228 * GB, freeBytes: 11 * GB })).toBe(true);
-  expect(roomFor({ totalBytes: 19.2 * GB, freeBytes: 3 * GB }, 1.5 * GB)).toBe(true);
-  expect(roomFor({ totalBytes: 19.2 * GB, freeBytes: 3 * GB }, 2.5 * GB)).toBe(false);
+  expect(roomFor({ totalBytes: 19.2 * GB, freeBytes: 3 * GB }, 2.5 * GB)).toBe(true);
+  expect(roomFor({ totalBytes: 19.2 * GB, freeBytes: 3 * GB }, 2.8 * GB)).toBe(false);
 });
 
 it("treats a disk with plenty of free space as calm however small its free share is", () => {
@@ -140,7 +150,8 @@ it("reads the disk as it stands between saves: the most free space of the last m
   expect(read()!.freeBytes).toBe(0);
   expect(steadyDisk(() => null)()).toBeNull();
   expect(archiveSweep(steadyDisk(() => ({ totalBytes: 19_200 * MIB, freeBytes: 2700 * MIB }), () => 1230 * MIB)())).toBe(archiveSweep(disk(0.08)));
-  expect(roomToRestore(steadyDisk(() => ({ totalBytes: 19_200 * MIB, freeBytes: 2000 * MIB }), () => 1230 * MIB)())).toBe(false);
+  expect(roomToRestore(steadyDisk(() => ({ totalBytes: 19_200 * MIB, freeBytes: 2000 * MIB }), () => 1230 * MIB)())).toBe(true);
+  expect(roomToRestore(steadyDisk(() => ({ totalBytes: 19_200 * MIB, freeBytes: 1400 * MIB }), () => 1230 * MIB)())).toBe(false);
 });
 
 it("gives one archive call more time the more bytes it carries, up to a ceiling", () => {
@@ -188,6 +199,44 @@ it("archives younger logs and sessions only when the sweep it is given asks for 
   expect(await coordinator.beforeTurn(THREADS[0]!, () => true)).toBe(true);
   expect(readFileSync(join(f.root, eventsOf(THREADS[0]!)), "utf8")).toBe("three hours old\n");
   expect(readFileSync(join(f.root, transcript(SESSION)), "utf8")).toBe("eight hours old\n");
+});
+
+it("keeps a chat that worked minutes ago on a nearly full disk, and archives its log after half an hour idle and its session after an hour", async () => {
+  const f = await fixture();
+  let clock = Date.now();
+  f.cursors[THREADS[0]!] = { claude: SESSION };
+  put(f.root, eventsOf(THREADS[0]!), "a turn ended three minutes ago\n", 3 * MINUTE);
+  put(f.root, transcript(SESSION), "and so did its engine session\n", 3 * MINUTE);
+  const coordinator = f.coordinator({ now: () => clock, sweep: () => archiveSweep(disk(0.02)) });
+  await coordinator.scan();
+  expect(here(f.root, eventsOf(THREADS[0]!))).toBe(true);
+  expect(here(f.root, transcript(SESSION))).toBe(true);
+  clock += 20 * MINUTE;
+  await coordinator.scan();
+  expect(here(f.root, eventsOf(THREADS[0]!))).toBe(true);
+  expect(here(f.root, transcript(SESSION))).toBe(true);
+  clock += 10 * MINUTE;
+  await coordinator.scan();
+  expect(here(f.root, eventsOf(THREADS[0]!))).toBe(false);
+  expect(here(f.root, transcript(SESSION))).toBe(true);
+  clock += 30 * MINUTE;
+  await coordinator.scan();
+  expect(here(f.root, transcript(SESSION))).toBe(false);
+});
+
+it("starts a turn at once on a home with two gigabytes free beside a one-gigabyte database, bringing the chat's archived log back", async () => {
+  const f = await fixture();
+  put(f.root, eventsOf(THREADS[0]!), "archived while the chat was idle\n", 30 * HOUR);
+  await f.coordinator().scan();
+  expect(here(f.root, eventsOf(THREADS[0]!))).toBe(false);
+  const GIB = 1024 ** 3;
+  const home = steadyDisk(() => ({ totalBytes: 17.91 * GIB, freeBytes: 2.02 * GIB }), () => 1.26 * GIB);
+  expect(archiveSweep(home())).toBe(PRESSURE_SWEEPS.at(-1)!.sweep);
+  const coordinator = f.coordinator({ room: () => roomToRestore(home()), sweep: () => archiveSweep(home()) });
+  f.busy.add(THREADS[0]!);
+  expect(await coordinator.beforeTurn(THREADS[0]!, () => true)).toBe(true);
+  expect(readFileSync(join(f.root, eventsOf(THREADS[0]!)), "utf8")).toBe("archived while the chat was idle\n");
+  expect(f.reports.filter((line) => line.startsWith("no room"))).toEqual([]);
 });
 
 it("leaves a chat alone for the quiet time after someone read it or a turn began, then archives it", async () => {
