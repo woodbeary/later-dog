@@ -1,40 +1,51 @@
-# CI job selection
+# Hosted checks
 
-Every PR still runs the workflow and its static checks: locale validation,
-typecheck, lint, Electron checks, the UI build, CI-selection tests and the
-verification-documentation checks. Selection never skips the entire workflow.
+Hosted checks are feedback only. The merge rule is still a complete local `pnpm gate` on a clean checkout (see `AGENTS.md`); a green hosted run does not replace it. Signing, notarizing, releases and device checks run from the owner's Mac, never on GitHub.
 
-- Root Markdown files, Markdown under `docs/`, and `.github/FUNDING.yml` alone
-  do not run the runtime jobs.
-- Any other change runs the runtime suite.
-- Main pushes, merge groups and manual runs always run all jobs. Empty or
-  unreadable PR diffs also fall back to all jobs.
+Everything runs on GitHub's free standard runner, `ubuntu-latest` (4 vCPU, 16 GB). A free account runs 20 jobs at once, so one pull request uses at most 18.
 
-PR selection uses a local merge-base diff with rename detection disabled, so
-moving a source file into documentation still selects its original runtime
-path. There is no changed-files API truncation or new action dependency.
+## Workflows
 
-The single `CI` gate keeps the existing required dependencies. It accepts a
-skipped runtime job only when static validation passed and explicitly selected
-the docs-only path. Failures, cancellations, missing selection and unexpected
-skips fail the gate. Existing advisory jobs remain advisory.
+- `.github/workflows/pr.yml` runs on every pull request. Every job runs in parallel; the last job, `CI`, judges them.
+- `.github/workflows/seed.yml` runs on a push to main and saves the install cache for the pull requests that follow.
+- `.github/actions/prepare` is the shared setup: pnpm and Node from `packageManager` and `.nvmrc`, then the cache.
 
-The separate shared-terminal smoke workflow is manual-only: its tests already
-run in the Windows Vitest/Electron jobs.
+`scripts/laterdog-workflows.test.ts` pins exactly these files and what each must satisfy: only `ubuntu-latest`; `pull_request` (never `pull_request_target`) and a push to main for the seeder; read-only contents; no secrets; no `continue-on-error`; no retry wrapper; none of the gate's gap variables; actions pinned to a full commit hash; a blobless full-history checkout (`filter: blob:none`, never shallow).
+
+## Jobs
+
+| job | runs |
+| --- | --- |
+| `scope` | `scripts/ci-scope.mjs`: is the change docs-only |
+| `lint` | `pnpm lint`, then the brand, comment and verification-documentation tests |
+| `typecheck` | `tsc -b --force` and the server project |
+| `build` | `vite build`, `pnpm build:server`, the packaged-server smoke |
+| `electron-broker` | `pnpm test:electron`, `pnpm broker:test` |
+| `suite 1/8` to `suite 8/8` | the main suite, `vitest run --shard=n/8` |
+| `side <dir>` | the tests in `deploy/laterdog/home`, `cloudflare/control-plane`, `deploy/laterdog/computers` |
+| `interface` | the `ui.e2e` tests that drive a real browser (`LATERDOG_UI_E2E=1`) |
+| `CI` | fails if any job above failed, was cancelled, is missing, or was skipped without the docs-only selection |
+
+## Docs-only changes
+
+Root Markdown files, Markdown under `docs/`, and `.github/FUNDING.yml` alone select the docs-only path. `lint`, `typecheck` and `scope` always run; `build`, `electron-broker`, `suite`, `side` and `interface` are skipped, and only then does `CI` accept their skip (`scripts/ci-verdict.mjs`). Any other change, an empty diff or an unreadable diff runs everything. Selection uses a local merge-base diff with rename detection off, so moving a source file into documentation still selects its runtime path.
+
+## Install cache
+
+The cache holds `node_modules` for the root, `cloudflare/control-plane` and the two standalone packages (`deploy/laterdog/home`, `deploy/laterdog/computers`), including the Electron binary the tests need. Its key is runner OS and architecture, `.nvmrc`, the `packageManager` field, and the hash of `pnpm-lock.yaml`, the two standalone lockfiles and `pnpm-workspace.yaml`. There is no fallback key: a hit means the lockfiles are identical.
+
+- On a hit, `pnpm install --frozen-lockfile --offline` runs as a check, and a restore that disagrees with a lockfile fails the job.
+- On a miss, the job installs everything, prepares Electron and saves. Pull requests save only on a miss; `seed.yml` does the same on main so pull requests find a cache from main.
+
+## Concurrency
+
+Pull request runs share a group named by the PR number (`checks-pr-<n>`) with cancel-in-progress, never `github.ref`: a merged PR's closed event reports the base branch as `github.ref`, which made every merge cancel main's checks (October 2026).
 
 ## Vitest shards
 
-The suite runs one file at a time, so a shard takes as long as its files added
-up. Vitest's own `--shard` deals out equal numbers of files, and in October
-2026 that put three of the four slowest e2e files in one shard: about 24
-minutes of tests on Windows against 13 to 16 for the others, and every PR
-waited for it. `scripts/testing/duration-sequencer.ts` deals the files out by
-recorded time instead, slowest first, each to the shard with the least time so
-far. The times are `scripts/testing/vitest-shard-weights.json`: each file's
-median seconds on the Windows runners, for every file over five seconds and
-every e2e file. A file not in it counts one second, or the median e2e time if
-it is an e2e file. Every file still runs exactly once, and each shard job logs
-a `duration-sequencer:` line with its share.
+The suite runs one file at a time, so a shard takes as long as its files added up. Vitest's own `--shard` deals out equal numbers of files, and in October 2026 that put three of the four slowest e2e files in one shard. `scripts/testing/duration-sequencer.ts` deals the files out by recorded time instead, slowest first, each to the shard with the least time so far. The times are `scripts/testing/vitest-shard-weights.json`: each file's median seconds, for every file over five seconds and every e2e file. A file not in it counts one second, or the median e2e time if it is an e2e file. Every file still runs exactly once.
+
+Eight shards, because the recorded times add up to about 3,100 s (the audit's Linux logs show 3,278 s as a lower bound): eight shards is about 400 s each, against 14 to 16 minutes for the four-shard setup in `docs/verification/hosted-checks-audit-2026-11-25.md`. The slowest file is 316 s, so no file holds a shard above the average, and eight matches the shards of `pnpm gate`. With `scope`, `lint`, `typecheck`, `build`, `electron-broker`, three side jobs, `interface` and `CI`, a pull request is 18 jobs of the 20 allowed; more shards would let two pull requests queue behind each other.
 
 Refresh the times from a few recent green runs when shards drift apart:
 
@@ -42,43 +53,6 @@ Refresh the times from a few recent green runs when shards drift apart:
 node scripts/testing/update-shard-weights.mjs --run <run id> --run <run id> --run <run id>
 ```
 
-Deleting or renaming a test file in the weights fails
-`scripts/testing/duration-sequencer.test.ts` until its entry is removed or
-refreshed. A refresh moves some files to other shards; a failure that appears
-only after one is a real ordering dependency between test files.
+Deleting or renaming a test file in the weights fails `scripts/testing/duration-sequencer.test.ts` until its entry is removed or refreshed. A refresh moves some files to other shards; a failure that appears only after one is a real ordering dependency between test files.
 
-## macOS runners
-
-The account runs at most five macOS jobs at a time, and a PR used to queue
-seven (four Vitest shards, two smokes, the iOS job with its hour-long
-simulator suite). With 25 open PRs the macOS jobs waited a median of six and a
-half hours. Now:
-
-- A PR runs the Vitest shards on Ubuntu and Windows; main pushes, merge groups
-  and manual runs add the macOS shards. Only a couple of test blocks are
-  macOS-only.
-- Every PR's macOS checks are one job: the packaged-server smoke and the
-  Electron smokes.
-- `ci-stop-closed.yml` cancels a PR's CI run when the PR is merged or closed. PR runs share a group named by the PR number (`ci-pr-<n>`), never by `github.ref`: a merged PR's closed event reports the base branch as `github.ref`, which made every merge cancel main's CI (fixed Oct 3 2026).
-
-## Main and releases
-
-Main keeps one CI run going and one waiting. Each merge replaces the waiting
-run, and the running one always finishes, so a burst of merges costs two full
-runs instead of one per merge (fifteen queued behind each other in October
-2026, with the release waiting behind them).
-
-`release.yml` ships only a commit whose own `CI` check passed
-(`scripts/release-ci.mjs`, overlapping the platform builds). If main's run for
-that commit was replaced or never ran, the script starts CI on the commit in
-its own lane: a `release-ci/v<version>` branch that no merge can touch,
-deleted afterwards. A red verdict stops the release; re-run the failed CI jobs
-(`gh run rerun <id> --failed`), and the waiting release picks up the new
-attempt. A manual release can skip the wait with `ship_without_ci`, for
-emergencies only.
-
-## Required check
-
-The `main-ci-gate` ruleset requires the single `CI` check (it replaced the
-three legacy `typecheck + test (<os>)` names in September 2026). Renaming the
-`gate` job needs the ruleset updated first, or every PR waits forever.
+Measure a run with `node scripts/ci-audit.mjs <dir of job files>`.

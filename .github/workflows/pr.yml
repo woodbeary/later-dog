@@ -1,0 +1,153 @@
+name: Checks
+on:
+  pull_request:
+permissions:
+  contents: read
+concurrency:
+  group: checks-pr-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+jobs:
+  scope:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      runtime: ${{ steps.scope.outputs.runtime }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          fetch-depth: 0
+          filter: blob:none
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version-file: .nvmrc
+      - name: Select docs-only or runtime checks
+        id: scope
+        run: node scripts/ci-scope.mjs
+  lint:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          fetch-depth: 0
+          filter: blob:none
+      - uses: ./.github/actions/prepare
+      - name: Lint
+        run: pnpm lint
+      - name: Check the brand, comment and verification-documentation rules
+        run: pnpm exec vitest run scripts/brand-links.test.ts scripts/no-comments.test.ts scripts/testing/verification-docs.test.ts
+  typecheck:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          fetch-depth: 0
+          filter: blob:none
+      - uses: ./.github/actions/prepare
+      - name: Typecheck the app and the server
+        run: pnpm exec tsc -b --force && pnpm exec tsc -p tsconfig.server.json
+  build:
+    needs: scope
+    if: needs.scope.outputs.runtime == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          fetch-depth: 0
+          filter: blob:none
+      - uses: ./.github/actions/prepare
+      - name: Build the interface
+        run: pnpm exec vite build
+      - name: Build the packaged server
+        run: pnpm build:server
+      - name: Smoke the packaged server
+        run: node scripts/smoke-packaged-server.mjs
+  electron-broker:
+    needs: scope
+    if: needs.scope.outputs.runtime == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          fetch-depth: 0
+          filter: blob:none
+      - uses: ./.github/actions/prepare
+      - name: Electron node tests
+        run: pnpm test:electron
+      - name: Broker tests
+        run: pnpm broker:test
+  suite:
+    name: suite ${{ matrix.shard }}/8
+    needs: scope
+    if: needs.scope.outputs.runtime == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4, 5, 6, 7, 8]
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          fetch-depth: 0
+          filter: blob:none
+      - uses: ./.github/actions/prepare
+      - name: Main suite, shard ${{ matrix.shard }} of 8
+        run: pnpm exec vitest run --shard=${{ matrix.shard }}/8 --reporter=default --reporter=github-actions
+  side:
+    name: side ${{ matrix.dir }}
+    needs: scope
+    if: needs.scope.outputs.runtime == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        dir: [deploy/laterdog/home, cloudflare/control-plane, deploy/laterdog/computers]
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          fetch-depth: 0
+          filter: blob:none
+      - uses: ./.github/actions/prepare
+      - name: Tests in ${{ matrix.dir }}
+        working-directory: ${{ matrix.dir }}
+        run: pnpm exec vitest run
+  interface:
+    needs: scope
+    if: needs.scope.outputs.runtime == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          fetch-depth: 0
+          filter: blob:none
+      - uses: ./.github/actions/prepare
+      - name: Let Chrome use its sandbox on this runner
+        run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+      - name: Drive the real renderer
+        env:
+          LATERDOG_UI_E2E: "1"
+          TMPDIR: ${{ runner.temp }}
+        run: pnpm exec vitest run ui.e2e.test --maxWorkers=1 --reporter=default --reporter=github-actions
+  CI:
+    needs: [scope, lint, typecheck, build, electron-broker, suite, side, interface]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          fetch-depth: 0
+          filter: blob:none
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version-file: .nvmrc
+      - name: Judge every needed job
+        env:
+          NEEDS: ${{ toJSON(needs) }}
+        run: node scripts/ci-verdict.mjs

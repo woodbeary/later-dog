@@ -1,0 +1,57 @@
+name: Prepare node_modules
+description: Restores node_modules for the root and both standalone packages, installs on a miss, and saves on a miss.
+runs:
+  using: composite
+  steps:
+    - name: Set up pnpm from the packageManager field
+      uses: pnpm/action-setup@a7487c7e89a18df4991f7f222e4898a00d66ddda
+      with:
+        run_install: false
+    - name: Set up Node from .nvmrc
+      uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+      with:
+        node-version-file: .nvmrc
+    - name: Name the cache after the OS, architecture, Node, pnpm and lockfiles
+      id: key
+      shell: bash
+      run: |
+        echo "name=node-modules-${RUNNER_OS}-${RUNNER_ARCH}-$(cat .nvmrc)-$(node -p "require('./package.json').packageManager")-${{ hashFiles('pnpm-lock.yaml', 'pnpm-workspace.yaml', 'deploy/laterdog/home/pnpm-lock.yaml', 'deploy/laterdog/computers/pnpm-lock.yaml') }}" >> "$GITHUB_OUTPUT"
+    - name: Restore node_modules
+      id: restore
+      uses: actions/cache/restore@0400d5f644dc74513175e3cd8d07132dd4860809
+      with:
+        key: ${{ steps.key.outputs.name }}
+        path: |
+          node_modules
+          cloudflare/control-plane/node_modules
+          deploy/laterdog/home/node_modules
+          deploy/laterdog/computers/node_modules
+    - name: Install every package on a cache miss
+      if: steps.restore.outputs.cache-hit != 'true'
+      shell: bash
+      run: |
+        pnpm install --frozen-lockfile
+        pnpm install --ignore-workspace --frozen-lockfile --dir deploy/laterdog/home
+        pnpm install --ignore-workspace --frozen-lockfile --dir deploy/laterdog/computers
+    - name: Prepare Electron test runtime
+      if: steps.restore.outputs.cache-hit != 'true'
+      shell: bash
+      run: node --input-type=commonjs -e "require('electron')"
+    - name: Check the restored install matches the lockfiles
+      if: steps.restore.outputs.cache-hit == 'true'
+      shell: bash
+      run: |
+        pnpm install --frozen-lockfile --offline
+        pnpm install --ignore-workspace --frozen-lockfile --offline --dir deploy/laterdog/home
+        pnpm install --ignore-workspace --frozen-lockfile --offline --dir deploy/laterdog/computers
+        node --input-type=commonjs -e "require('electron')"
+    - name: Save node_modules on a cache miss
+      if: steps.restore.outputs.cache-hit != 'true'
+      uses: actions/cache/save@0400d5f644dc74513175e3cd8d07132dd4860809
+      with:
+        key: ${{ steps.key.outputs.name }}
+        path: |
+          node_modules
+          cloudflare/control-plane/node_modules
+          deploy/laterdog/home/node_modules
+          deploy/laterdog/computers/node_modules
