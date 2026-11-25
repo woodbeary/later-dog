@@ -6,12 +6,12 @@ The principle: evaluate the harness, never the models. A scripted engine replays
 
 ## Run
 
-    pnpm eval                     # all scenarios, JSON + markdown report under evals/reports/runs/
-    pnpm eval --scenario dispatch-supersede
-    pnpm eval --golden            # tier 2: replay redacted golden threads against committed trace baselines
-    pnpm eval --live              # tier 3: opt-in live-model smoke (skips unless LATERDOG_EVAL_LIVE=1)
-    pnpm typecheck && pnpm exec tsc -p evals/tsconfig.json   # evals are also typechecked standalone
-    npx vitest run --config evals/vitest.config.ts   # the same scenarios as a test gate
+    bun run eval                     # all scenarios, JSON + markdown report under evals/reports/runs/
+    bun run eval --scenario dispatch-supersede
+    bun run eval --golden            # tier 2: replay redacted golden threads against committed trace baselines
+    bun run eval --live              # tier 3: opt-in live-model smoke (skips unless LATERDOG_EVAL_LIVE=1)
+    bun run typecheck && bun run tsc -p evals/tsconfig.json   # evals are also typechecked standalone
+    bun run vitest run --config evals/vitest.config.ts   # the same scenarios as a test gate
 
 ## Layout
 
@@ -44,15 +44,15 @@ Turn a real coordination thread into a synthetic fixture, then replay it through
     node --experimental-strip-types evals/golden/redact/redact-cli.ts \
         --input evals/golden/samples/<raw-thread>.json \
         --out evals/golden/scenarios/golden-<name>.json
-    pnpm eval --golden --update-baseline --scenario golden-<name>
+    bun run eval --golden --update-baseline --scenario golden-<name>
 
 The redaction step rewrites ids, names, and free text into stable synthetic placeholders and runs a leak scan before writing anything, so a real thread becomes reviewable, committable data. Commit both the redacted scenario and the regenerated baseline under `evals/golden/baselines/`; replay asserts the stable tool traces and outcomes — turn order, tool-call names, dispatch targets, handoff-tree shape — against that baseline.
 
 ## Tier 3 — opt-in live-model smoke
 
-Live-model runs never execute by default: `pnpm eval --live` prints one skip line and exits 0 unless the gate is open.
+Live-model runs never execute by default: `bun run eval --live` prints one skip line and exits 0 unless the gate is open.
 
-    LATERDOG_EVAL_LIVE=1 LATERDOG_EVAL_LIVE_CONFIG=/path/to/instance.json pnpm eval --live
+    LATERDOG_EVAL_LIVE=1 LATERDOG_EVAL_LIVE_CONFIG=/path/to/instance.json bun run eval --live
 
 The instance file (or inline `LATERDOG_EVAL_LIVE_INSTANCE` JSON) uses the product's own instance shape — `instanceId`, `driver`, `model`, optional `config` and `environmentFrom` — so credential variables are copied from the launching shell (`LATERDOG_EVAL_LIVE_PASS_ENV` lists names to forward) and never inlined. Thresholds live in the committed `evals/live/config.json`: minimum suite score, maximum drift from the last recorded baseline, and turn and judge timeouts. Scenarios run cheap real models with state-based waits, deterministic checks (`botReplied`, tool traces), and a versioned judge whose prompt files are pinned by sha256 in a manifest; drift against the gitignored `evals/live/baselines/` baseline fails the suite.
 

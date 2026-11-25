@@ -1,9 +1,9 @@
 FROM caddy:2.10.2 AS edge
 RUN cp /usr/bin/caddy /caddy
 
-FROM oven/bun:1.4.5 AS bun-runtime
+FROM oven/bun:1.4.5@sha256:3aa040e5445efa09d75bb428a64ba50db13e2b3ac9b6b0c7f145615f62b2ee18 AS bun-runtime
 
-FROM --platform=$BUILDPLATFORM oven/bun:1.4.5 AS bun-tool
+FROM --platform=$BUILDPLATFORM oven/bun:1.4.5@sha256:3aa040e5445efa09d75bb428a64ba50db13e2b3ac9b6b0c7f145615f62b2ee18 AS bun-tool
 
 FROM --platform=$BUILDPLATFORM node:24-bookworm-slim@sha256:a5f4366e834695d5f363b920c104953a535d3a9864d1bdf74566a0ebe01daee5 AS build
 WORKDIR /src

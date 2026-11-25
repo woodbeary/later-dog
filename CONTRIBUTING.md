@@ -24,16 +24,16 @@ merges. If your change is cool and proven it will be merged; if it is proven but
 
 ## Dev setup
 
-Node 24+, pnpm 10.33, and for chatting with a dog at least one provider CLI signed in
+Node 24+, Bun 1.4.5, and for chatting with a dog at least one provider CLI signed in
 (`codex`, `claude` or `grok`).
 
 ```sh
 git clone https://github.com/woodbeary/later-dog.git && cd later-dog
-pnpm install --frozen-lockfile
-pnpm laterdog:dev        # app at http://127.0.0.1:5299, on its own data (~/.laterdog-dev-scripts), never your live dogs; see docs/laterdog/dev-app.md
-pnpm laterdog:package    # unsigned local Mac app → release/mac-arm64/later.dog.app
-pnpm lint && pnpm typecheck && pnpm laterdog:test && pnpm build   # what CI runs
-pnpm laterdog:skills     # re-export canonical skills (edit skills/laterdog/, never the exports)
+bun install --frozen-lockfile --cpu=arm64 --cpu=x64
+bun run laterdog:dev        # app at http://127.0.0.1:5299, on its own data (~/.laterdog-dev-scripts), never your live dogs; see docs/laterdog/dev-app.md
+bun run laterdog:package    # unsigned local Mac app → release/mac-arm64/later.dog.app
+bun run lint && bun run typecheck && bun run laterdog:test && bun run build   # what CI runs
+bun run laterdog:skills     # re-export canonical skills (edit skills/laterdog/, never the exports)
 ```
 
 Everything the project knows about itself is indexed in [`llms.txt`](llms.txt); the rules every agent follows are in
@@ -56,7 +56,7 @@ Everything the project knows about itself is indexed in [`llms.txt`](llms.txt); 
 
 ## Tests
 
-Colocated (`**/*.test.ts`), run with `pnpm exec vitest run <files>`; `pnpm laterdog:test` runs the supervisor's
+Colocated (`**/*.test.ts`), run with `bun run vitest run <files>`; `bun run laterdog:test` runs the supervisor's
 fixtures. House rules: no sleeps (wait on the event that proves the behaviour); never touch the real data directory;
 fake CLIs under `server/testing/` are launched through `spawnCli`, extended by env var modes rather than mocking
 `child_process`. Provider changes keep the contract tests green; new server behaviour brings a test.
@@ -66,7 +66,7 @@ fake CLIs under `server/testing/` are launched through `spawnCli`, extended by e
 User-visible text lives in `src/locales/en.json` and is read with `t("…")`. later.dog's pets are dogs and the UI says
 so (dogs, tricks, fetch, heel/off-leash, packs) with the plain meaning beside each term; model-facing prompts stay
 plain. Text that a dog reads in a tool result, or that the app puts in a chat, says "you" or "the person", never "the user" or "denied by user": dogs repeat the words they are handed, and `server/system-prompt.ts` tells every dog to speak to the person as "you" (by name when it knows it). When you rewrite an English string, delete the stale translations so they fall back, run
-`node scripts/generate-locale.mjs <lang> --accept` for the packs you touched, and `pnpm i18n:check` must pass.
+`node scripts/generate-locale.mjs <lang> --accept` for the packs you touched, and `bun run i18n:check` must pass.
 
 ## House rules
 
@@ -82,7 +82,7 @@ Apache-2.0; by opening a PR you agree your contribution is licensed the same way
 
 ## Before you open the PR
 
-- [ ] `pnpm lint && pnpm typecheck` pass; the tests for what you touched pass; `pnpm i18n:check` if you touched copy
+- [ ] `bun run lint && bun run typecheck` pass; the tests for what you touched pass; `bun run i18n:check` if you touched copy
 - [ ] Server or conversation change: verified with an isolated fixture, output in the PR
 - [ ] Anything a person sees: a screenshot from the built-in browser or the app
 - [ ] Limits stated; no claim the PR did not prove

@@ -31,7 +31,7 @@ function replies(): string[] {
 
 async function main() {
   const staticDir = resolve(option("dist", join(ROOT, "dist")));
-  if (!existsSync(join(staticDir, "index.html"))) throw new Error("build the renderer first: pnpm exec vite build");
+  if (!existsSync(join(staticDir, "index.html"))) throw new Error("build the renderer first: bun run vite build");
   const longTurns = Number(option("long-turns", "120"));
   const otherDogs = Number(option("other-dogs", "5"));
   const otherTurns = Number(option("other-turns", "6"));

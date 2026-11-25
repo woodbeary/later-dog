@@ -25,8 +25,8 @@ Start later.dog, then configure the MCP client to run:
 {
   "mcpServers": {
     "laterdog": {
-      "command": "pnpm",
-      "args": ["--dir", "/absolute/path/to/later.dog", "mcp"]
+      "command": "bun",
+      "args": ["run", "--cwd", "/absolute/path/to/later.dog", "mcp"]
     }
   }
 }
@@ -134,7 +134,7 @@ revoked there. Do not share the token or commit it to a repository.
 ## From the installed desktop app
 
 Release builds bundle `server/mcp-server.js` and can run it with Electron's embedded Node runtime, so users do
-not need Node.js or bun install --cpu=arm64 --cpu=x64ed.
+not need Node.js or Bun installed.
 
 macOS example:
 

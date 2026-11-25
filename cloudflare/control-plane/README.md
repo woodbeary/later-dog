@@ -338,7 +338,7 @@ Install from the repository root, then run:
 ```sh
 bun run control-plane:check
 bun run control-plane:test
-pnpm control-plane:dry-run
+bun run control-plane:dry-run
 ```
 
 For local manual development, copy `.dev.vars.example` to `.dev.vars`, replace

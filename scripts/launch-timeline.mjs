@@ -272,7 +272,7 @@ async function main() {
     process.exit(xvfb.status ?? 1);
   }
   for (const needed of [join(projectRoot, "dist", "index.html"), join(projectRoot, "dist-server", "index.js")]) {
-    if (!existsSync(needed)) throw new Error(`${needed} is missing. Run pnpm exec vite build and pnpm build:server first.`);
+    if (!existsSync(needed)) throw new Error(`${needed} is missing. Run bun run vite build and bun run build:server first.`);
   }
   const parent = realpathSync(mkdtempSync(join(tmpdir(), "laterdog-launch-timeline-")));
   const refused = refusal({ dataRoot: parent });

@@ -28,7 +28,7 @@ async function main(): Promise<number> {
   mkdirSync(dirname(out), { recursive: true });
   writeFileSync(out, serialized);
   console.log(JSON.stringify({ ok: true, out, report }, null, 2));
-  console.log("next: pnpm eval --golden --update-baseline --scenario " + report.scenarioId);
+  console.log("next: bun run eval --golden --update-baseline --scenario " + report.scenarioId);
   return 0;
 }
 

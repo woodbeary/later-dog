@@ -18,9 +18,9 @@ export function loadScenarios(): Scenario[] {
 async function main(): Promise<number> {
   const args = process.argv.slice(2);
   if (args.includes("--help") || args.includes("-h")) {
-    console.log("usage: pnpm eval [--scenario <id>]... [--out <dir>]");
-    console.log("       pnpm eval --golden [--scenario <id>]... [--update-baseline]  # tier 2: replay + trace baselines");
-    console.log("       pnpm eval --live [--out <dir>]                                # tier 3: opt-in live-model smoke (needs LATERDOG_EVAL_LIVE=1)");
+    console.log("usage: bun run eval [--scenario <id>]... [--out <dir>]");
+    console.log("       bun run eval --golden [--scenario <id>]... [--update-baseline]  # tier 2: replay + trace baselines");
+    console.log("       bun run eval --live [--out <dir>]                                # tier 3: opt-in live-model smoke (needs LATERDOG_EVAL_LIVE=1)");
     return 0;
   }
   if (args.includes("--live")) {

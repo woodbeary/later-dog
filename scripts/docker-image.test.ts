@@ -78,10 +78,10 @@ afterEach(() => {
 
 describe("container images", () => {
   it("supplies pinned Bun separately to the native runtime and build-platform tools", () => {
-    expect(all.find((stage) => stage.name === "bun-runtime")?.from).toBe("oven/bun:1.4.5");
-    expect(all.find((stage) => stage.name === "bun-tool")?.from).toBe("oven/bun:1.4.5");
-    expect(dockerfile).toContain("FROM --platform=$BUILDPLATFORM oven/bun:1.4.5 AS bun-tool");
-    expect(dockerfile).toContain("FROM oven/bun:1.4.5 AS bun-runtime");
+    expect(all.find((stage) => stage.name === "bun-runtime")?.from).toBe("oven/bun:1.4.5@sha256:3aa040e5445efa09d75bb428a64ba50db13e2b3ac9b6b0c7f145615f62b2ee18");
+    expect(all.find((stage) => stage.name === "bun-tool")?.from).toBe("oven/bun:1.4.5@sha256:3aa040e5445efa09d75bb428a64ba50db13e2b3ac9b6b0c7f145615f62b2ee18");
+    expect(dockerfile).toContain("FROM --platform=$BUILDPLATFORM oven/bun:1.4.5@sha256:3aa040e5445efa09d75bb428a64ba50db13e2b3ac9b6b0c7f145615f62b2ee18 AS bun-tool");
+    expect(dockerfile).toContain("FROM oven/bun:1.4.5@sha256:3aa040e5445efa09d75bb428a64ba50db13e2b3ac9b6b0c7f145615f62b2ee18 AS bun-runtime");
     for (const [name, source] of [
       ["build", "bun-tool"],
       ["runtime", "bun-runtime"],

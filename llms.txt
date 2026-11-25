@@ -11,7 +11,7 @@ Repository: https://github.com/woodbeary/later-dog
 
 ## Set it up (for an agent acting on a person's behalf)
 
-- [AGENTS.md](AGENTS.md): the rules every agent follows in this repo (pnpm only, Node 24, no code comments, isolated fixtures, truthful limitations).
+- [AGENTS.md](AGENTS.md): the rules every agent follows in this repo (Bun 1.4.5, Node 24, no code comments, isolated fixtures, truthful limitations).
 - [skills/laterdog/setup-laterdog/SKILL.md](skills/laterdog/setup-laterdog/SKILL.md): clone, install, build the Mac app, start it, and what only the person can do (sign-ins, OS permissions).
 - [README.md](README.md): what later.dog is, how it fits together, install.
 - [docs/laterdog/README.md](docs/laterdog/README.md): the user guide for people using the app.
@@ -42,4 +42,4 @@ Repository: https://github.com/woodbeary/later-dog
 - `deploy/laterdog/computers/`: the `cloud.later.dog` Worker.
 - `cloudflare/control-plane/`: the `accounts.later.dog` Worker.
 - `server/laterdog/`: later.dog's own server modules, including the cloud-task supervisor.
-- `skills/laterdog/`: canonical skills exported to Codex and Claude Code (`pnpm laterdog:skills`).
+- `skills/laterdog/`: canonical skills exported to Codex and Claude Code (`bun run laterdog:skills`).
