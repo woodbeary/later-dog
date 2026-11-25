@@ -171,6 +171,10 @@ it("puts the relay and the same CLI version on the computer once, and makes the 
   const script = commands[0]!;
   expect(script).toContain("'@anthropic-ai/claude-code@2.1.316'");
   expect(script).toContain(`test -x '/home/dog/.laterdog-engine/cli/claude-code-2.1.316/node_modules/.bin/claude'`);
+  expect(script).toContain("--allow-build='@anthropic-ai/claude-code'");
+  expect(script).toContain("--version");
+  expect(script).toContain("2.1.316 (Claude Code)");
+  expect(script).toContain("/@anthropic-ai/claude-code/install.cjs");
   expect(script).toContain("sudo -n install -d -o dog -g dog -m 700");
   for (const path of planned.plan.mkdirs) expect(script).toContain(`'${path}'`);
   expect(script).toContain(`test -f '${relayScripts.dir}/.ready'`);

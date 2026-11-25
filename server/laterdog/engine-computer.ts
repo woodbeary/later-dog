@@ -41,10 +41,16 @@ export function prepareScript(plan: ClaudeRemotePlan, relay: EngineScripts): str
   const codex = plan.cli.name === "@openai/codex";
   const binary = codex ? "codex" : "claude";
   const cliDir = `${REMOTE_ENGINE_BASE}/cli/${codex ? "codex" : "claude-code"}-${plan.cli.version}`;
-  const install = `corepack pnpm@10.33.0 --dir ${quote(cliDir)} add --save-exact --ignore-workspace ${quote(`${plan.cli.name}@${plan.cli.version}`)}`;
+  const cli = quote(`${cliDir}/node_modules/.bin/${binary}`);
+  const pnpm = `corepack pnpm@10.33.0 --dir ${quote(cliDir)}`;
+  const install = `${pnpm} add --save-exact --ignore-workspace --allow-build=${quote(plan.cli.name)} ${quote(`${plan.cli.name}@${plan.cli.version}`)}`;
+  const expectedVersion = quote(codex ? `codex-cli ${plan.cli.version}` : `${plan.cli.version} (Claude Code)`);
+  const checked = `test -x ${cli} && actual=$( ${cli} --version 2>/dev/null ) && test "$actual" = ${expectedVersion}`;
+  const repair = codex ? "false" : `node ${quote(`${cliDir}/node_modules/@anthropic-ai/claude-code/install.cjs`)} >/dev/null && engine_ready`;
   const dirs = [...plan.mkdirs, `${REMOTE_ENGINE_BASE}/run`, `${REMOTE_ENGINE_BASE}/state`, `${REMOTE_ENGINE_BASE}/locks`];
   return [
-    `test -x ${quote(`${cliDir}/node_modules/.bin/${binary}`)} || (mkdir -p ${quote(cliDir)} && ${install} >/dev/null) || exit ${CLI_NOT_INSTALLED}`,
+    `engine_ready() { ${checked}; }`,
+    `engine_ready || (mkdir -p ${quote(cliDir)} && ${install} >/dev/null && (engine_ready || (${repair}))) || exit ${CLI_NOT_INSTALLED}`,
     `sudo -n install -d -o dog -g dog -m 700 ${dirs.map(quote).join(" ")} || exit ${FOLDERS_NOT_MADE}`,
     `if test -f ${quote(`${relay.dir}/.ready`)}; then echo ${RELAY_PRESENT}; else mkdir -p ${quote(relay.dir)}; fi`,
   ].join("\n");
