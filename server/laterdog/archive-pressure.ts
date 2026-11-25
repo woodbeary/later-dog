@@ -2,6 +2,7 @@ import { readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { DISK_RUNGS, diskRung } from "./disk-ladder.ts";
 import type { DiskUse } from "./janitor.ts";
+import { freshSaveStatus, readSaveStatus, type SaveStatus } from "./save-status.ts";
 
 const MB = 1024 ** 2;
 const GB = 1024 * MB;
@@ -89,7 +90,8 @@ function sizeOrZero(path: string): number {
   }
 }
 
-export function savesHold(dataDir: string): number {
+export function savesHold(dataDir: string, status: SaveStatus | null = readSaveStatus(), now: number = Date.now()): number {
+  if (freshSaveStatus(status, now)) return status.heldOnDiskBytes + SAVE_COPY_RESERVE_BYTES;
   let names: string[];
   try { names = readdirSync(dataDir); } catch { return 0; }
   const largest = names.filter((name) => DATABASE.test(name))
