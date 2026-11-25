@@ -6,45 +6,78 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const fixture = vi.hoisted(() => ({ state: { connected: false, hydrated: false, restored: false } }));
 vi.mock("@/state/store", () => ({ useStore: () => ({ state: fixture.state }) }));
 vi.mock("@/components/DogAvatar", () => ({ BreedAvatar: () => null }));
-import { LaunchSplash, SPLASH_FADE_MS, SPLASH_MIN_MS } from "./LaunchSplash";
+import { LaunchSplash } from "./LaunchSplash";
 
 let root: Root;
 let host: HTMLDivElement;
 beforeEach(() => {
   vi.useFakeTimers();
+  fixture.state = { connected: false, hydrated: false, restored: false };
   Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
   host = document.createElement("div");
   document.body.append(host);
   root = createRoot(host);
 });
-afterEach(() => { act(() => root.unmount()); host.remove(); vi.useRealTimers(); });
+afterEach(() => {
+  act(() => root.unmount());
+  host.remove();
+  delete document.documentElement.dataset.reducedMotion;
+  vi.useRealTimers();
+});
 
-const splash = () => host.querySelector("[data-launch-splash]")?.getAttribute("data-launch-splash") ?? null;
+const splash = () => host.querySelector("[data-launch-splash]");
+const render = () => act(() => root.render(createElement(LaunchSplash)));
 
 describe("the launch splash", () => {
-  it("stays at least its minimum even when the app is ready at once, then fades out", () => {
+  it("shows the ready app immediately on a first launch", () => {
     fixture.state = { connected: true, hydrated: true, restored: false };
-    act(() => root.render(createElement(LaunchSplash)));
-    expect(splash()).toBe("shown");
-    act(() => { vi.advanceTimersByTime(SPLASH_MIN_MS); });
-    expect(splash()).toBe("leaving");
-    act(() => { vi.advanceTimersByTime(SPLASH_FADE_MS); });
+    render();
     expect(splash()).toBeNull();
   });
 
-  it("waits for a slow start before leaving", () => {
-    fixture.state = { connected: false, hydrated: false, restored: false };
-    act(() => root.render(createElement(LaunchSplash)));
-    act(() => { vi.advanceTimersByTime(SPLASH_MIN_MS * 5); });
-    expect(splash()).toBe("shown");
-    fixture.state = { connected: false, hydrated: true, restored: false };
-    act(() => root.render(createElement(LaunchSplash)));
-    expect(splash()).toBe("leaving");
+  it("uncovers the app as soon as its first data arrives", () => {
+    render();
+    expect(splash()).not.toBeNull();
+    act(() => { vi.advanceTimersByTime(50); });
+    fixture.state = { connected: true, hydrated: true, restored: false };
+    render();
+    expect(splash()).toBeNull();
+  });
+
+  it("keeps the loading cover until data is ready, even after a long connection failure", () => {
+    render();
+    act(() => { vi.advanceTimersByTime(60_000); });
+    expect(splash()).not.toBeNull();
+    fixture.state = { connected: true, hydrated: false, restored: false };
+    render();
+    expect(splash()).not.toBeNull();
+    fixture.state = { connected: true, hydrated: true, restored: false };
+    render();
+    expect(splash()).toBeNull();
   });
 
   it("never shows when the last sidebar was painted from the saved copy", () => {
     fixture.state = { connected: false, hydrated: false, restored: true };
-    act(() => root.render(createElement(LaunchSplash)));
+    render();
+    expect(splash()).toBeNull();
+  });
+
+  it("does not cover an app that was already ready when a connection is lost", () => {
+    fixture.state = { connected: true, hydrated: true, restored: false };
+    render();
+    act(() => { vi.advanceTimersByTime(2_000); });
+    act(() => { vi.advanceTimersByTime(2_000); });
+    fixture.state = { connected: false, hydrated: false, restored: false };
+    render();
+    expect(splash()).toBeNull();
+  });
+
+  it("uncovers ready content without an animation delay with reduced motion", () => {
+    document.documentElement.dataset.reducedMotion = "true";
+    render();
+    expect(splash()).not.toBeNull();
+    fixture.state = { connected: true, hydrated: true, restored: false };
+    render();
     expect(splash()).toBeNull();
   });
 });
