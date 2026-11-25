@@ -637,7 +637,7 @@ export const CodexDriver: ProviderDriver<CodexConfig> = {
     let planWarning: string | undefined;
     let models = plan ? { default: "", options: [] } : config.managed ? { default: config.managed.models[0], options: config.managed.models.map(id => ({ id, label: id })) } : STATIC_CODEX_MODELS;
     const refreshModels = async () => {
-      if (config.managed) return;
+      if (config.managed || disposed) return;
       if (planAuth) {
         const generation = planGeneration;
         models = { default: "", options: [] };

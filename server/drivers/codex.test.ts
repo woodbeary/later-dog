@@ -26,6 +26,7 @@ import {
 import { removeTempDir } from "../testing/cleanup.ts";
 import * as procs from "../procs.ts";
 import { leftoverProgramsNotice } from "../laterdog/unconfirmed-stop.ts";
+import { CLOUD_QUIET_START_MS } from "../laterdog/wait-at-most.ts";
 import { autoVerdict } from "../auto-approve.ts";
 import { QUESTION_DISMISS_MESSAGE } from "../../shared/ask-question.ts";
 
@@ -1844,6 +1845,22 @@ process.stdout.write(JSON.stringify({jsonrpc:'2.0',id:m.id,result})+'\\n');});`)
     expect(instance.models).toEqual({ default: "", options: [] });
     expect(spawn).not.toHaveBeenCalled();
     expect(recorder.events).toEqual([]);
+  });
+
+  it("does not start a deferred model probe after a Cloud account is disposed", async () => {
+    vi.stubEnv("LATERDOG_CLOUD_ROLE", "home");
+    vi.spyOn(process, "uptime").mockReturnValue(0);
+    const spawn = vi.spyOn(procs, "spawnCli").mockImplementation(() => { throw new Error("Unexpected process after disposal"); });
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    try {
+      await create();
+      await instance.dispose();
+      expect(spawn).toHaveBeenCalledTimes(0);
+      await vi.advanceTimersByTimeAsync(CLOUD_QUIET_START_MS);
+      expect(spawn).toHaveBeenCalledTimes(0);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("blocks new ChatGPT turns and sign-in while active tasks stop and credentials revoke", async () => {
