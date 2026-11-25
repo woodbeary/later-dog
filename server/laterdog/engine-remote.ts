@@ -290,7 +290,7 @@ export class EngineProcess extends EventEmitter {
   #closed: Promise<void>;
   #markClosed!: () => void;
 
-  constructor(remote: RemoteSession, fallback: () => ChildProcess, onPlaced?: (where: "computer" | "home", why?: string) => void) {
+  constructor(remote: RemoteSession, fallback?: () => ChildProcess, onPlaced?: (where: "computer" | "home", why?: string) => void) {
     super();
     this.#closed = new Promise((resolve) => { this.#markClosed = resolve; });
     this.stdin.on("error", () => {});
@@ -316,7 +316,8 @@ export class EngineProcess extends EventEmitter {
       if (error instanceof NotDispatched && !remote.launchSent || (error instanceof NotDispatched && error.refused === "spawn_failed")) {
         remote.close();
         this.#remote = null;
-        if (this.#stopRequested) { this.placement = "home"; this.#finish(null, "SIGTERM"); return; }
+        if (this.#stopRequested) { if (fallback) this.placement = "home"; this.#finish(null, "SIGTERM"); return; }
+        if (!fallback) { this.stderr.write(`${error.message}\n`); this.#finish(1, null); return; }
         this.placement = "home";
         onPlaced?.("home", error.message);
         this.#startLocal(fallback);
