@@ -1,5 +1,7 @@
 # Verifying later.dog
 
+The [hosted checks audit](hosted-checks-audit-2026-11-25.md) records how much time each check took. The [desktop launch timeline](launch-timeline-2026-11-25.md) tracks startup through the first usable message box.
+
 Before any merge to `main`, run `pnpm gate` on the branch with `main` merged in and paste its verdict; see `scripts/merge-gate.mjs` for the steps and `LATERDOG_GATE_WRAP` to queue them. `deploy/laterdog/home` and `deploy/laterdog/computers` are outside the pnpm workspace, so set each up once with `pnpm install --ignore-workspace --frozen-lockfile` inside it; a plain `pnpm install` there does nothing.
 
 later.dog has one development control surface: `pnpm control:laterdog`. It is a
