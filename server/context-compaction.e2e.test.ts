@@ -70,6 +70,25 @@ async function setup(hang: boolean, fakeEnv: NodeJS.ProcessEnv) {
   } finally { if (!ready) await session.close(); }
 }
 
+it("serves the plain compaction line for a legacy row in both a snapshot and an earlier page", () => fixture(async f => {
+  const { task } = await f.api(`/api/bots/${f.bot.id}/tasks`, { title: "Legacy transcript" });
+  await f.api(`/api/bots/${f.bot.id}/tasks/${task.threadId}`, {});
+  const old = { id: "fold", at: 1, parentId: null, role: "bot", kind: "compaction",
+    compaction: { summary: "Old model summary\nPrivate context for the next turn", by: "harness", firstKeptId: "", foldedThroughId: "", tokensBefore: 1000 } };
+  const next = { id: "next", at: 2, parentId: old.id, role: "user", kind: "text", text: "Continue" };
+  await f.restart(() => writeFileSync(join(f.session.info.dataDir, `messages-${task.threadId}.json`), JSON.stringify({
+    messages: [old, next], activeLeafId: next.id,
+  })));
+  const snapshot = (await f.api("/api/bots")).bots.find((bot: { id: string }) => bot.id === f.bot.id);
+  expect(snapshot.messages.map((row: { id: string }) => row.id)).toEqual([old.id, next.id]);
+  const earlier = await f.api(`/api/threads/${task.threadId}/messages?limit=1&before=${next.id}`);
+  expect(earlier.messages).toHaveLength(1);
+  for (const row of [snapshot.messages[0], earlier.messages[0]]) {
+    expect(row.id).toBe(old.id);
+    expect(row.compaction.summary).toBe("Earlier messages in this chat were summarized.");
+  }
+}), 60_000);
+
 it.each([1_000_000, 200_000])("persists and serves the native Fable context window %i", (window) => fixture(async f => {
   await f.api(`/api/bots/${f.bot.id}/tasks/${f.thread}`, {
     modelSelection: { instanceId: "claude", model: "claude-fable-5-2" },
