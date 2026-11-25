@@ -131,6 +131,7 @@ import { PhonePerformance } from "./laterdog/phone-perf.ts";
 import { createPhonePerformanceRoutes } from "./routes/phone-perf.ts";
 import { createDogTaskRoute } from "./routes/dog-tasks.ts";
 import { briefStep, pageViewOf, SHOWN_PAGE_ROW_CAP, shownPageStart, type PageView } from "./message-pages.ts";
+import { requestedPageSize, snapshotPageSize } from "./laterdog/snapshot-page.ts";
 import { helperSelection, startedFromTask } from "./laterdog/dog-tasks.ts";
 import { createSharedJoins } from "./laterdog/shared-join.ts";
 import { configuredSpeechKey, SpeechCache } from "./laterdog/speech-cache.ts";
@@ -5301,15 +5302,7 @@ store.onChange((change) => {
   }
 });
 
-const MESSAGE_PAGE_MAX = 200;
 const DEFAULT_PAGE = 50;
-
-function pageSize(raw: string | null): number | null | undefined {
-  if (raw === null) return undefined;
-  const size = Number(raw);
-  if (!Number.isInteger(size) || size < 0) return null;
-  return Math.min(size, MESSAGE_PAGE_MAX);
-}
 
 function slimMessage(stored: Message): Message | Record<string, unknown> {
   const message = rowForApps(exchangeLookup && exchangeIdOf(stored) ? withExchange(stored, exchangeLookup) : stored);
@@ -5318,10 +5311,7 @@ function slimMessage(stored: Message): Message | Record<string, unknown> {
   return { ...rest, hasImage: true };
 }
 
-function messagePage(threadId: string, limit: number | undefined, before?: string | null, view: PageView = {}) {
-  if (limit === undefined) {
-    return { messages: store.messagesFor(threadId).map(rowForApps), activeLeafId: store.activeLeaf(threadId) };
-  }
+function messagePage(threadId: string, limit: number, before?: string | null, view: PageView = {}) {
   const slim = (message: Message) => slimMessage(view.brief ? briefStep(message) : message);
   if (!before) {
     const tail = store.messagesTail(threadId, view.shown ? SHOWN_PAGE_ROW_CAP : limit);
@@ -16634,7 +16624,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
     };
     if (method === "GET" && path === "/api/bots") {
       try { groupUsageReader.refresh(); } catch {}
-      const limit = pageSize(url.searchParams.get("messages"));
+      const limit = snapshotPageSize(url.searchParams.get("messages"));
       if (limit === null) return json(res, 400, { error: "messages must be a non-negative whole number" });
       const shownBots = store.bots.filter((bot) => visible.bot(bot.id));
       const queued = publicBotQueuedMessages();
@@ -16666,7 +16656,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       if (!store.botByThread(threadId) && !store.groupByThread(threadId)) {
         return json(res, 404, { error: "no such conversation" });
       }
-      const limit = pageSize(url.searchParams.get("limit"));
+      const limit = requestedPageSize(url.searchParams.get("limit"));
       if (limit === null) return json(res, 400, { error: "limit must be a non-negative whole number" });
       const before = url.searchParams.get("before");
       const around = url.searchParams.get("around");
@@ -17423,7 +17413,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         return json(res, 409, { error: "this channel is working or waiting on you in another task" });
       }
       const requestedMessages = url.searchParams.get("messages");
-      const switchLimit = pageSize(requestedMessages);
+      const switchLimit = snapshotPageSize(requestedMessages);
       if (switchLimit === null) return json(res, 400, { error: "messages must be a non-negative whole number" });
       const switched = store.switchGroupTask(group.id, m[2]);
       if (!switched) return json(res, 404, { error: "no such channel task" });
@@ -19613,7 +19603,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         return json(res, 409, { error: "this dog is securely saving a credential — try again when it finishes" });
       }
       const requestedMessages = url.searchParams.get("messages");
-      const switchLimit = pageSize(requestedMessages);
+      const switchLimit = snapshotPageSize(requestedMessages);
       if (switchLimit === null) return json(res, 400, { error: "messages must be a non-negative whole number" });
       const switched = store.switchTask(bot.id, m[2]);
       if (!switched) return json(res, 404, { error: "no such task" });
