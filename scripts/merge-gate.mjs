@@ -1,5 +1,13 @@
 import { spawn, spawnSync } from "node:child_process";
-import { createWriteStream, existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import {
+  createWriteStream,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { isAbsolute, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -13,48 +21,148 @@ export const OUTSIDE_WORKSPACE_INSTALL = "pnpm install --ignore-workspace --froz
 
 export function gateSteps(shards = SHARDS) {
   return [
-    { name: "typecheck", kind: "check", command: ["sh", "-c", TYPECHECK], expect: [/^typecheck tsconfig\.json: checked [1-9]\d* files$/m, /^typecheck tsconfig\.server\.json: checked [1-9]\d* files$/m], refuse: [/\bTS\d+\b|\berror\b|<error\b/i] },
-    { name: "lint", kind: "check", command: ["pnpm", "lint", "--format=json"], expect: [/"number_of_files":\s*[1-9]\d*/], refuse: [/"diagnostics":\s*\[\s*\{/] },
-    { name: "electron", kind: "check", command: ["pnpm", "test:electron"], expect: [/^ℹ tests [1-9]/m], refuse: [/^ℹ fail [1-9]/m] },
-    { name: "broker", kind: "vitest", command: ["pnpm", "exec", "vitest", "run", "--config", "cloudflare/composio-broker/vitest.config.ts"] },
-    { name: "packaged-server", kind: "check", command: ["pnpm", "test:packaged-server"], expect: [/packaged backup worker exported an encrypted archive/] },
+    {
+      name: "typecheck",
+      kind: "check",
+      command: ["sh", "-c", TYPECHECK],
+      expect: [
+        /^typecheck tsconfig\.json: checked [1-9]\d* files$/m,
+        /^typecheck tsconfig\.server\.json: checked [1-9]\d* files$/m,
+      ],
+      refuse: [/\bTS\d+\b|\berror\b|<error\b/i],
+    },
+    {
+      name: "lint",
+      kind: "check",
+      command: ["pnpm", "lint", "--format=json"],
+      expect: [/"number_of_files":\s*[1-9]\d*/],
+      refuse: [/"diagnostics":\s*\[\s*\{/],
+    },
+    {
+      name: "electron",
+      kind: "check",
+      command: ["pnpm", "test:electron"],
+      expect: [/^ℹ tests [1-9]/m],
+      refuse: [/^ℹ fail [1-9]/m],
+    },
+    {
+      name: "broker",
+      kind: "vitest",
+      command: [
+        "pnpm",
+        "exec",
+        "vitest",
+        "run",
+        "--config",
+        "cloudflare/composio-broker/vitest.config.ts",
+      ],
+    },
+    {
+      name: "packaged-server",
+      kind: "check",
+      command: ["pnpm", "test:packaged-server"],
+      expect: [/packaged backup worker exported an encrypted archive/],
+    },
     ...Array.from({ length: shards }, (_, index) => ({
-      name: `suite ${index + 1}/${shards}`, kind: "vitest", command: ["pnpm", "exec", "vitest", "run", `--shard=${index + 1}/${shards}`],
+      name: `suite ${index + 1}/${shards}`,
+      kind: "vitest",
+      command: ["pnpm", "exec", "vitest", "run", `--shard=${index + 1}/${shards}`],
     })),
-    { name: "edge", kind: "vitest", cwd: EDGE_DIR, install: OUTSIDE_WORKSPACE_INSTALL, needs: join(EDGE_DIR, "node_modules"), command: ["pnpm", "exec", "vitest", "run"] },
-    { name: "control-plane", kind: "vitest", cwd: CONTROL_PLANE_DIR, needs: join(CONTROL_PLANE_DIR, "node_modules"), command: ["pnpm", "exec", "vitest", "run"] },
-    { name: "computers", kind: "vitest", cwd: COMPUTERS_DIR, install: OUTSIDE_WORKSPACE_INSTALL, needs: join(COMPUTERS_DIR, "node_modules"), command: ["pnpm", "exec", "vitest", "run"] },
+    {
+      name: "edge",
+      kind: "vitest",
+      cwd: EDGE_DIR,
+      install: OUTSIDE_WORKSPACE_INSTALL,
+      needs: join(EDGE_DIR, "node_modules"),
+      command: ["pnpm", "exec", "vitest", "run"],
+    },
+    {
+      name: "control-plane",
+      kind: "vitest",
+      cwd: CONTROL_PLANE_DIR,
+      needs: join(CONTROL_PLANE_DIR, "node_modules"),
+      command: ["pnpm", "exec", "vitest", "run"],
+    },
+    {
+      name: "computers",
+      kind: "vitest",
+      cwd: COMPUTERS_DIR,
+      install: OUTSIDE_WORKSPACE_INSTALL,
+      needs: join(COMPUTERS_DIR, "node_modules"),
+      command: ["pnpm", "exec", "vitest", "run"],
+    },
   ];
 }
 
 export function selectSteps(steps, argv) {
   const at = argv.indexOf("--only");
   const extra = argv.filter((word, index) => index !== at && index !== at + 1);
-  if (at === -1 && argv.length) return { error: `unknown argument${argv.length === 1 ? "" : "s"}: ${argv.join(" ")}; the only option is --only <steps>` };
-  if (at !== -1 && extra.length) return { error: `unknown argument${extra.length === 1 ? "" : "s"}: ${extra.join(" ")}; the only option is --only <steps>` };
+  if (at === -1 && argv.length)
+    return {
+      error: `unknown argument${argv.length === 1 ? "" : "s"}: ${argv.join(" ")}; the only option is --only <steps>`,
+    };
+  if (at !== -1 && extra.length)
+    return {
+      error: `unknown argument${extra.length === 1 ? "" : "s"}: ${extra.join(" ")}; the only option is --only <steps>`,
+    };
   if (at === -1) return { steps, partial: false };
   const value = argv[at + 1];
-  if (!value || value.startsWith("--")) return { error: "--only needs step names separated by commas" };
-  const names = value.split(",").map((name) => name.trim()).filter(Boolean);
-  const matches = (name, step) => step.name === name || (name === "suite" && step.name.startsWith("suite "));
+  if (!value || value.startsWith("--"))
+    return { error: "--only needs step names separated by commas" };
+  const names = value
+    .split(",")
+    .map((name) => name.trim())
+    .filter(Boolean);
+  const matches = (name, step) =>
+    step.name === name || (name === "suite" && step.name.startsWith("suite "));
   const unknown = names.filter((name) => !steps.some((step) => matches(name, step)));
-  if (!names.length || unknown.length) return { error: `unknown step${unknown.length === 1 ? "" : "s"}: ${unknown.join(", ") || value}; steps are ${steps.map((step) => step.name).join(", ")}, or suite for all its parts` };
-  return { steps: steps.filter((step) => names.some((name) => matches(name, step))), partial: true };
+  if (!names.length || unknown.length)
+    return {
+      error: `unknown step${unknown.length === 1 ? "" : "s"}: ${unknown.join(", ") || value}; steps are ${steps.map((step) => step.name).join(", ")}, or suite for all its parts`,
+    };
+  return {
+    steps: steps.filter((step) => names.some((name) => matches(name, step))),
+    partial: true,
+  };
 }
 
 export function unavailableFrom(value, steps) {
-  const names = (value ?? "").split(",").map((name) => name.trim()).filter(Boolean);
+  const names = (value ?? "")
+    .split(",")
+    .map((name) => name.trim())
+    .filter(Boolean);
   const unknown = names.filter((name) => !steps.some((step) => step.name === name && step.needs));
-  if (unknown.length) return { error: `LATERDOG_GATE_UNAVAILABLE names ${unknown.join(", ")}, which is not a step that needs its own dependencies (${steps.filter((step) => step.needs).map((step) => step.name).join(", ")})` };
+  if (unknown.length)
+    return {
+      error: `LATERDOG_GATE_UNAVAILABLE names ${unknown.join(", ")}, which is not a step that needs its own dependencies (${steps
+        .filter((step) => step.needs)
+        .map((step) => step.name)
+        .join(", ")})`,
+    };
   return { names: new Set(names) };
 }
 
 export function notRunHere(step) {
-  return { ...step, code: null, failed: false, failing: [], skippedNoBrowser: [], notRun: true, note: `not run here: ${step.needs} is missing and LATERDOG_GATE_UNAVAILABLE names it` };
+  return {
+    ...step,
+    code: null,
+    failed: false,
+    failing: [],
+    skippedNoBrowser: [],
+    notRun: true,
+    note: `not run here: ${step.needs} is missing and LATERDOG_GATE_UNAVAILABLE names it`,
+  };
 }
 
 export function missingDependencies(step) {
-  return { ...step, code: null, failed: true, failing: [`${step.name} (${step.needs} is missing)`], skippedNoBrowser: [], note: `${step.needs} is missing: run ${step.install ?? "pnpm install"} in ${step.cwd}, or name ${step.name} in LATERDOG_GATE_UNAVAILABLE on a machine meant to go without it` };
+  return {
+    ...step,
+    code: null,
+    failed: true,
+    failing: [`${step.name} (${step.needs} is missing)`],
+    skippedNoBrowser: [],
+    note: `${step.needs} is missing: run ${step.install ?? "pnpm install"} in ${step.cwd}, or name ${step.name} in LATERDOG_GATE_UNAVAILABLE on a machine meant to go without it`,
+  };
 }
 
 export function wrapperFrom(value) {
@@ -80,7 +188,11 @@ export function reportFile(name, root) {
 export function browserSkips(report, root = "") {
   if (!report || !Array.isArray(report.testResults)) return [];
   return report.testResults
-    .filter((file) => NEEDS_BROWSER.test(file.name ?? "") && (file.assertionResults ?? []).some((test) => NOT_RUN.has(test.status)))
+    .filter(
+      (file) =>
+        NEEDS_BROWSER.test(file.name ?? "") &&
+        (file.assertionResults ?? []).some((test) => NOT_RUN.has(test.status)),
+    )
     .map((file) => reportFile(file.name, root));
 }
 
@@ -90,7 +202,9 @@ export function readReport(file, since = 0) {
   try {
     if (statSync(file).mtimeMs < since) return NOT_THIS_RUN;
     return JSON.parse(readFileSync(file, "utf8"));
-  } catch { return null; }
+  } catch {
+    return null;
+  }
 }
 
 export function vitestCounts(log) {
@@ -101,17 +215,28 @@ export function vitestCounts(log) {
 
 export function checkProblems(step, log) {
   return [
-    ...(step.expect ?? []).filter((pattern) => !pattern.test(log)).map((pattern) => `expected ${pattern} in its output`),
-    ...(step.refuse ?? []).filter((pattern) => pattern.test(log)).map((pattern) => `printed ${pattern.exec(log)[0]}`),
+    ...(step.expect ?? [])
+      .filter((pattern) => !pattern.test(log))
+      .map((pattern) => `expected ${pattern} in its output`),
+    ...(step.refuse ?? [])
+      .filter((pattern) => pattern.test(log))
+      .map((pattern) => `printed ${pattern.exec(log)[0]}`),
   ];
 }
 
 export function reportProblems(report, root = "") {
-  if (report === NOT_THIS_RUN) return { files: [], problems: ["its JSON report was not written by this run"] };
+  if (report === NOT_THIS_RUN)
+    return { files: [], problems: ["its JSON report was not written by this run"] };
   if (!report || typeof report !== "object") return { files: [], problems: ["no JSON report"] };
-  const files = (report.testResults ?? []).filter((file) => file.status === "failed").map((file) => reportFile(file.name, root));
+  const files = (report.testResults ?? [])
+    .filter((file) => file.status === "failed")
+    .map((file) => reportFile(file.name, root));
   const problems = [];
-  if ((report.numFailedTests ?? 0) > 0 || (report.numFailedTestSuites ?? 0) > 0 || report.success === false) {
+  if (
+    (report.numFailedTests ?? 0) > 0 ||
+    (report.numFailedTestSuites ?? 0) > 0 ||
+    report.success === false
+  ) {
     if (!files.length) problems.push(`${report.numFailedTests ?? 0} failed test(s) in the report`);
   }
   if (!report.numTotalTests) problems.push("no tests ran");
@@ -124,11 +249,24 @@ export function unhandledErrors(log) {
 
 export function judgeStep(step, code, log, report = null, root = "") {
   const plain = { ...step, code, skippedNoBrowser: [] };
-  if (step.kind === "base") return { ...plain, failed: code !== 0, failing: code === 0 ? [] : [step.name], note: log.trim() };
+  if (step.kind === "base")
+    return {
+      ...plain,
+      failed: code !== 0,
+      failing: code === 0 ? [] : [step.name],
+      note: log.trim(),
+    };
   if (step.kind === "check") {
     const problems = checkProblems(step, log);
     const failed = code !== 0 || problems.length > 0;
-    return { ...plain, failed, failing: failed ? [problems.length ? `${step.name} (${problems.join("; ")})` : step.name] : [], note: "" };
+    return {
+      ...plain,
+      failed,
+      failing: failed
+        ? [problems.length ? `${step.name} (${problems.join("; ")})` : step.name]
+        : [],
+      note: "",
+    };
   }
   const fromReport = reportProblems(report, root);
   const files = [...new Set([...fromReport.files, ...failingFiles(log)])];
@@ -138,24 +276,48 @@ export function judgeStep(step, code, log, report = null, root = "") {
     ...fromReport.problems,
     ...(counts ? [] : ["no test summary"]),
     ...(errors ? [`${errors} unhandled error${errors === 1 ? "" : "s"}`] : []),
-    ...(counts && /\bfailed\b/.test(counts.files) && !files.length ? ["its summary counts failed files"] : []),
-    ...(code !== 0 && !files.length && !fromReport.problems.length && !errors ? [`exit ${code}`] : []),
+    ...(counts && /\bfailed\b/.test(counts.files) && !files.length
+      ? ["its summary counts failed files"]
+      : []),
+    ...(code !== 0 && !files.length && !fromReport.problems.length && !errors
+      ? [`exit ${code}`]
+      : []),
   ];
   const failed = code !== 0 || files.length > 0 || problems.length > 0;
   const failing = [...files, ...(problems.length ? [`${step.name} (${problems.join("; ")})`] : [])];
-  return { ...plain, failed, failing, skippedNoBrowser: browserSkips(report, root), note: counts ? `Test Files ${counts.files}; Tests ${counts.tests}` : "" };
+  return {
+    ...plain,
+    failed,
+    failing,
+    skippedNoBrowser: browserSkips(report, root),
+    note: counts ? `Test Files ${counts.files}; Tests ${counts.tests}` : "",
+  };
 }
 
-export function verdict(results, { noBrowser = false, partial = false, offline = false, unavailable = [] } = {}) {
+export function verdict(
+  results,
+  { noBrowser = false, partial = false, offline = false, unavailable = [] } = {},
+) {
   const failing = [...new Set(results.flatMap((result) => result.failing))];
   const skippedNoBrowser = [...new Set(results.flatMap((result) => result.skippedNoBrowser ?? []))];
   const notRun = results.filter((result) => result.notRun).map((result) => result.name);
   const gaps = [
     ...(offline ? ["not fetched"] : []),
-    ...(noBrowser ? [`interface tests skipped: no browser${skippedNoBrowser.length ? ` (${skippedNoBrowser.length} file${skippedNoBrowser.length === 1 ? "" : "s"})` : " (none skipped this run)"}`] : []),
-    ...(unavailable.length ? [`test sets not run: ${notRun.length ? notRun.join(", ") : `none (LATERDOG_GATE_UNAVAILABLE names ${[...unavailable].join(", ")})`}`] : []),
+    ...(noBrowser
+      ? [
+          `interface tests skipped: no browser${skippedNoBrowser.length ? ` (${skippedNoBrowser.length} file${skippedNoBrowser.length === 1 ? "" : "s"})` : " (none skipped this run)"}`,
+        ]
+      : []),
+    ...(unavailable.length
+      ? [
+          `test sets not run: ${notRun.length ? notRun.join(", ") : `none (LATERDOG_GATE_UNAVAILABLE names ${[...unavailable].join(", ")})`}`,
+        ]
+      : []),
   ];
-  const clean = results.some((result) => result.kind !== "base" && !result.notRun) && failing.length === 0 && (noBrowser || skippedNoBrowser.length === 0);
+  const clean =
+    results.some((result) => result.kind !== "base" && !result.notRun) &&
+    failing.length === 0 &&
+    (noBrowser || skippedNoBrowser.length === 0);
   const label = !clean ? "FAIL" : partial ? "PARTIAL" : gaps.length ? "PASS WITH GAPS" : "PASS";
   return { pass: label === "PASS", label, failing, skippedNoBrowser, notRun, gaps };
 }
@@ -166,20 +328,42 @@ export function exitCode(label) {
 
 export function formatVerdict(results, options = {}) {
   const { label, failing, skippedNoBrowser, gaps } = verdict(results, options);
-  const lines = results.map((result) => result.code === null ? `${result.notRun ? "skip" : "FAIL"} ${result.name}  ${result.note}` : `${result.failed ? "FAIL" : "ok  "} ${result.name} exit ${result.code}${result.note ? `  ${result.note}` : ""}`);
+  const lines = results.map((result) =>
+    result.code === null
+      ? `${result.notRun ? "skip" : "FAIL"} ${result.name}  ${result.note}`
+      : `${result.failed ? "FAIL" : "ok  "} ${result.name} exit ${result.code}${result.note ? `  ${result.note}` : ""}`,
+  );
   if (skippedNoBrowser.length) {
-    lines.push(`Skipped without a browser: ${skippedNoBrowser.length}${options.noBrowser ? " (allowed by LATERDOG_GATE_NO_BROWSER)" : " (set LATERDOG_GATE_NO_BROWSER=1 only on a machine meant to have none)"}`, ...skippedNoBrowser.map((name) => `  ${name}`));
+    lines.push(
+      `Skipped without a browser: ${skippedNoBrowser.length}${options.noBrowser ? " (allowed by LATERDOG_GATE_NO_BROWSER)" : " (set LATERDOG_GATE_NO_BROWSER=1 only on a machine meant to have none)"}`,
+      ...skippedNoBrowser.map((name) => `  ${name}`),
+    );
   }
-  const commits = options.commits ? `  head ${options.commits.head}, ${BASE} ${options.commits.base}` : "";
+  const commits = options.commits
+    ? `  head ${options.commits.head}, ${BASE} ${options.commits.base}`
+    : "";
   const gapWords = gaps.length ? `; gaps: ${gaps.join("; ")}` : "";
-  lines.push(`VERDICT: ${label}${commits}${gapWords}${label === "PARTIAL" ? ` (ran only: ${results.filter((result) => result.kind !== "base").map((result) => result.name).join(", ")}; a merge needs the whole gate)` : ""}`);
+  lines.push(
+    `VERDICT: ${label}${commits}${gapWords}${
+      label === "PARTIAL"
+        ? ` (ran only: ${results
+            .filter((result) => result.kind !== "base")
+            .map((result) => result.name)
+            .join(", ")}; a merge needs the whole gate)`
+        : ""
+    }`,
+  );
   if (failing.length) lines.push("Failing:", ...failing.map((name) => `  ${name}`));
   return lines.join("\n");
 }
 
 function git(root, ...args) {
   const out = spawnSync("git", args, { cwd: root, encoding: "utf8" });
-  return { code: out.status ?? 1, text: (out.stdout ?? "").trim(), error: (out.stderr ?? "").trim() };
+  return {
+    code: out.status ?? 1,
+    text: (out.stdout ?? "").trim(),
+    error: (out.stderr ?? "").trim(),
+  };
 }
 
 export const BASE = "origin/main";
@@ -189,30 +373,62 @@ export function baseCheck(root, { offline = false } = {}) {
   const commits = { head, base: "unknown", offline };
   if (!offline) {
     const fetched = git(root, "fetch", "--quiet", "origin", "main");
-    if (fetched.code !== 0) return { code: 1, commits, log: `head ${head}; could not fetch origin main (${fetched.error.split("\n")[0] || `exit ${fetched.code}`}); set LATERDOG_GATE_OFFLINE=1 only to judge against the origin/main already here` };
+    if (fetched.code !== 0)
+      return {
+        code: 1,
+        commits,
+        log: `head ${head}; could not fetch origin main (${fetched.error.split("\n")[0] || `exit ${fetched.code}`}); set LATERDOG_GATE_OFFLINE=1 only to judge against the origin/main already here`,
+      };
   }
   const base = git(root, "rev-parse", "--verify", "--quiet", "--short", `${BASE}^{commit}`);
   if (base.code !== 0) return { code: 1, commits, log: `head ${head}; ${BASE} is not known here` };
   commits.base = base.text;
   const merged = git(root, "merge-base", "--is-ancestor", BASE, "HEAD").code === 0;
-  const changed = (spawnSync("git", ["status", "--porcelain"], { cwd: root, encoding: "utf8" }).stdout ?? "").split("\n").filter(Boolean);
+  const changed = (
+    spawnSync("git", ["status", "--porcelain"], { cwd: root, encoding: "utf8" }).stdout ?? ""
+  )
+    .split("\n")
+    .filter(Boolean);
   const problems = [
     ...(merged ? [] : [`${BASE} ${base.text} is NOT merged in`]),
-    ...(changed.length ? [`${changed.length} file(s) differ from the commit or are untracked: ${changed.slice(0, 5).map((line) => line.slice(3)).join(", ")}${changed.length > 5 ? ", ..." : ""}`] : []),
+    ...(changed.length
+      ? [
+          `${changed.length} file(s) differ from the commit or are untracked: ${changed
+            .slice(0, 5)
+            .map((line) => line.slice(3))
+            .join(", ")}${changed.length > 5 ? ", ..." : ""}`,
+        ]
+      : []),
   ];
-  return { code: problems.length ? 1 : 0, commits, log: `head ${head}; ${BASE} ${base.text}${offline ? " (offline: not fetched)" : ""}${problems.length ? `; ${problems.join("; ")}` : " is merged in; the tree matches the commit"}` };
+  return {
+    code: problems.length ? 1 : 0,
+    commits,
+    log: `head ${head}; ${BASE} ${base.text}${offline ? " (offline: not fetched)" : ""}${problems.length ? `; ${problems.join("; ")}` : " is merged in; the tree matches the commit"}`,
+  };
 }
 
 function runStep(root, step, wrapper, logFile, reportPath) {
   return new Promise((done) => {
     const cwd = step.cwd ? join(root, step.cwd) : root;
     const out = createWriteStream(logFile);
-    const [command, ...args] = [...wrapper, ...step.command, ...(step.kind === "vitest" ? ["--reporter=default", "--reporter=json", `--outputFile.json=${reportPath}`] : [])];
-    const child = spawn(command, args, { cwd, env: { ...process.env, NO_COLOR: "1", FORCE_COLOR: "0", CI: "1" }, stdio: ["ignore", "pipe", "pipe"] });
+    const [command, ...args] = [
+      ...wrapper,
+      ...step.command,
+      ...(step.kind === "vitest"
+        ? ["--reporter=default", "--reporter=json", `--outputFile.json=${reportPath}`]
+        : []),
+    ];
+    const child = spawn(command, args, {
+      cwd,
+      env: { ...process.env, NO_COLOR: "1", FORCE_COLOR: "0", CI: "1" },
+      stdio: ["ignore", "pipe", "pipe"],
+    });
     child.stdout.pipe(out, { end: false });
     child.stderr.pipe(out, { end: false });
     child.once("error", (error) => out.end(`${error.message}\n`, () => done(127)));
-    child.once("close", (code, signal) => out.end(signal ? `stopped by ${signal}\n` : "", () => done(code ?? 1)));
+    child.once("close", (code, signal) =>
+      out.end(signal ? `stopped by ${signal}\n` : "", () => done(code ?? 1)),
+    );
   });
 }
 
@@ -220,7 +436,9 @@ async function main() {
   const root = git(process.cwd(), "rev-parse", "--show-toplevel").text || process.cwd();
   const major = Number(process.versions.node.split(".")[0]);
   if (major < 24) {
-    console.error(`merge gate: Node ${process.versions.node} is too old; later.dog needs Node 24 or newer`);
+    console.error(
+      `merge gate: Node ${process.versions.node} is too old; later.dog needs Node 24 or newer`,
+    );
     process.exit(2);
   }
   const wrapper = wrapperFrom(process.env.LATERDOG_GATE_WRAP);
@@ -235,20 +453,34 @@ async function main() {
     process.exit(2);
   }
   const offline = process.env.LATERDOG_GATE_OFFLINE === "1";
-  const options = { noBrowser: process.env.LATERDOG_GATE_NO_BROWSER === "1", partial: chosen.partial, offline, unavailable: [...unavailable.names] };
-  const logs = resolve(process.env.LATERDOG_GATE_LOGS || join(tmpdir(), `laterdog-gate-${Date.now()}`));
+  const options = {
+    noBrowser: process.env.LATERDOG_GATE_NO_BROWSER === "1",
+    partial: chosen.partial,
+    offline,
+    unavailable: [...unavailable.names],
+  };
+  const logs = resolve(
+    process.env.LATERDOG_GATE_LOGS || join(tmpdir(), `laterdog-gate-${Date.now()}`),
+  );
   mkdirSync(logs, { recursive: true });
   const results = [];
   const started = Date.now();
   const merged = baseCheck(root, { offline });
   options.commits = merged.commits;
   results.push(judgeStep({ name: `${BASE} merged`, kind: "base" }, merged.code, merged.log));
-  console.log(`merge gate in ${root}; logs in ${logs}${wrapper.length ? `; each step through ${wrapper.join(" ")}` : ""}`);
+  console.log(
+    `merge gate in ${root}; logs in ${logs}${wrapper.length ? `; each step through ${wrapper.join(" ")}` : ""}`,
+  );
   console.log(`${merged.log}`);
   for (const [index, step] of chosen.steps.entries()) {
-    const logFile = join(logs, `${String(index + 1).padStart(2, "0")}-${step.name.replace(/[^a-z0-9]+/gi, "-")}.log`);
+    const logFile = join(
+      logs,
+      `${String(index + 1).padStart(2, "0")}-${step.name.replace(/[^a-z0-9]+/gi, "-")}.log`,
+    );
     if (step.needs && !existsSync(join(root, step.needs))) {
-      const result = unavailable.names.has(step.name) ? notRunHere(step) : missingDependencies(step);
+      const result = unavailable.names.has(step.name)
+        ? notRunHere(step)
+        : missingDependencies(step);
       results.push(result);
       console.log(`${result.notRun ? "skip" : "FAIL"} ${step.name}  ${result.note}`);
       continue;
@@ -257,13 +489,23 @@ async function main() {
     rmSync(reportPath, { force: true });
     const stepStarted = Date.now();
     const code = await runStep(root, step, wrapper, logFile, reportPath);
-    const result = judgeStep(step, code, readFileSync(logFile, "utf8"), step.kind === "vitest" ? readReport(reportPath, stepStarted - 1000) : null, root);
+    const result = judgeStep(
+      step,
+      code,
+      readFileSync(logFile, "utf8"),
+      step.kind === "vitest" ? readReport(reportPath, stepStarted - 1000) : null,
+      root,
+    );
     results.push(result);
-    console.log(`${result.failed ? "FAIL" : "ok  "} ${step.name} exit ${code} in ${Math.round((Date.now() - stepStarted) / 1000)}s${result.note ? `  ${result.note}` : ""}`);
+    console.log(
+      `${result.failed ? "FAIL" : "ok  "} ${step.name} exit ${code} in ${Math.round((Date.now() - stepStarted) / 1000)}s${result.note ? `  ${result.note}` : ""}`,
+    );
   }
   const report = formatVerdict(results, options);
   writeFileSync(join(logs, "verdict.txt"), `${report}\n`);
-  console.log(`\n${report}\nwhole gate ${Math.round((Date.now() - started) / 60_000)} min; logs in ${logs}`);
+  console.log(
+    `\n${report}\nwhole gate ${Math.round((Date.now() - started) / 60_000)} min; logs in ${logs}`,
+  );
   process.exit(exitCode(verdict(results, options).label));
 }
 
