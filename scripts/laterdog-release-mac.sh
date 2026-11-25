@@ -9,15 +9,23 @@ if [[ ! "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-preview\.[0-9]+)?$ ]]; then
 fi
 cd "$(dirname "$0")/.."
 
-if [ -n "$(git status --porcelain --untracked-files=no)" ]; then
-  echo "The checkout has uncommitted changes; release from a clean worktree of main." >&2
-  exit 1
-fi
 SHA="$(git rev-parse HEAD)"
-if ! git branch -r --contains "$SHA" | grep -q 'origin/main$'; then
-  echo "$SHA is not on origin/main yet; push it first." >&2
-  exit 1
-fi
+require_release_source() {
+  local current main changes
+  GIT_TERMINAL_PROMPT=0 git fetch --quiet --no-tags origin refs/heads/main:refs/remotes/origin/main
+  current="$(git rev-parse HEAD)"
+  main="$(git rev-parse refs/remotes/origin/main)"
+  changes="$(git status --porcelain --untracked-files=no)"
+  if [ "$current" != "$SHA" ] || [ "$main" != "$SHA" ]; then
+    echo "Release source must stay at $SHA and match origin/main exactly." >&2
+    exit 1
+  fi
+  if [ -n "$changes" ]; then
+    echo "The checkout has tracked changes; release from a clean worktree of main." >&2
+    exit 1
+  fi
+}
+require_release_source
 if gh release view "$RELEASE_TAG" -R "$REPO" > /dev/null 2>&1; then
   echo "Release $RELEASE_TAG already exists; refusing to replace its binaries." >&2
   exit 1
@@ -72,6 +80,7 @@ echo "== Package $SHA, signed as $IDENTITY"
 rm -rf dist dist-server release out
 bun run laterdog:package
 bun run test:packaged-server
+require_release_source
 
 echo "== Inspect the app"
 APP='release/mac-arm64/later.dog.app'
@@ -144,6 +153,7 @@ assets=(out/later.dog-macOS-arm64.dmg out/later.dog-macOS-arm64.zip out/SHA256SU
 prerelease=()
 [[ "$RELEASE_TAG" == *-preview.* ]] && prerelease=(--prerelease)
 
+require_release_source
 if [ "${LATERDOG_RELEASE_DRY_RUN:-}" = 1 ]; then
   echo "Dry run: built and notarized ${assets[*]} for $RELEASE_TAG; not published."
   exit 0
