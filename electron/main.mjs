@@ -1769,6 +1769,7 @@ function showContextMenu(win, params) {
 }
 
 function createWindow({ deferNavigation = false } = {}) {
+  launchTimeline.mark("create-window");
   const waitsForSkinSync = process.platform === "win32";
   const primary = screen.getPrimaryDisplay();
   const displays = [primary, ...screen.getAllDisplays().filter((display) => display.id !== primary.id)];
@@ -3087,10 +3088,7 @@ app.whenReady().then(async () => {
   launchTimeline.mark("organization-entry-delivered");
   const deliveredCloudEntry = await cloudEntry.ready();
   launchTimeline.mark("cloud-entry-ready");
-  if (!restoredOrganizationEntry && !deliveredOrganizationEntry && !deliveredCloudEntry && (!mainWindow || mainWindow.isDestroyed())) {
-    launchTimeline.mark("create-window");
-    createWindow();
-  }
+  if (!restoredOrganizationEntry && !deliveredOrganizationEntry && !deliveredCloudEntry && (!mainWindow || mainWindow.isDestroyed())) createWindow();
   if (credentialStoreUnavailable) {
     slog("skipping connected-apps registration: the credential store was unreadable this launch");
   }
