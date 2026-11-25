@@ -6,7 +6,7 @@ The baseline for rebuilding later.dog's hosted checks. The repository has had no
 
 - **Sample.** The 150 most recent runs of "later.dog CI" by run id: 41038651070 (created 2026-10-30T10:09Z) to 42467500790 (created 2026-11-08T09:30Z). The run list came from the public REST endpoint `GET /repos/woodbeary/later-dog/actions/runs` (1,031 runs in all: 639 of this workflow, 306 "macOS preview build", 86 cloud-home and dev-build runs).
 - **Job data.** One `GET /actions/runs/{id}/jobs?per_page=100` per run, saved to disk unread, one file per run, plus the run list as `runs.json` (event, conclusion, created and start times). 143 runs returned 11 jobs each; 7 returned none. All 7 were pushes cancelled, so they count in the conclusion table and nowhere else. Where a run was re-run, the jobs are those of the latest attempt and wall time counts from the latest attempt's start.
-- **Buckets.** *Waiting* is job `created_at` to `started_at`. *Setup* is the sum of the steps named Set up job, `actions/checkout`, `pnpm/action-setup`, `actions/setup-node`, any `pnpm install`, "Prepare ... runtime" and "Let Chrome use its sandbox". *Running* is every other step that is not a post step or Complete job, counted only for jobs in which at least one such step finished with success or failure, so jobs whose work was skipped do not pull the percentiles down. Post steps and Complete job are reported as *teardown* so the buckets add up. Step times have one-second resolution, so figures under about five seconds are rounded.
+- **Buckets.** _Waiting_ is job `created_at` to `started_at`. _Setup_ is the sum of the steps named Set up job, `actions/checkout`, `pnpm/action-setup`, `actions/setup-node`, any `pnpm install`, "Prepare ... runtime" and "Let Chrome use its sandbox". _Running_ is every other step that is not a post step or Complete job, counted only for jobs in which at least one such step finished with success or failure, so jobs whose work was skipped do not pull the percentiles down. Post steps and Complete job are reported as _teardown_ so the buckets add up. Step times have one-second resolution, so figures under about five seconds are rounded.
 - **Percentiles.** Nearest rank. The sample size sits beside every percentile (`n` columns).
 - **Per-test durations.** The logs of the vitest shard jobs and the renderer job for the 25 most recent fully successful runs (125 job logs, all downloaded from `GET /actions/jobs/{id}/logs`), parsed for the file lines Vitest prints with a duration.
 
@@ -14,11 +14,11 @@ The baseline for rebuilding later.dog's hosted checks. The repository has had no
 
 Linux is the only runner OS in this sample: every one of the 1,573 jobs ran on `ubuntu-24.04`.
 
-| bucket | n jobs | p50 s | p95 s | share of summed job time |
-| --- | --- | --- | --- | --- |
-| waiting | 1503 | 3 | 6 | 1.0% (1.6 job-hours) |
-| setup | 1573 | 18 | 26 | 4.1% (6.8 job-hours) |
-| running (ran work) | 1539 | 169 | 965 | 94.8% (157.1 job-hours) |
+| bucket             | n jobs | p50 s | p95 s | share of summed job time |
+| ------------------ | ------ | ----- | ----- | ------------------------ |
+| waiting            | 1503   | 3     | 6     | 1.0% (1.6 job-hours)     |
+| setup              | 1573   | 18    | 26    | 4.1% (6.8 job-hours)     |
+| running (ran work) | 1539   | 169   | 965   | 94.8% (157.1 job-hours)  |
 
 Whole-run wall time (run start to last job completed): p50 998 s (16.6 min), p95 1711 s (28.5 min), n = 143 runs. Pull requests: p50 979 s, p95 1070 s, n = 52. Pushes to main: p50 1009 s, p95 1900 s, n = 91.
 
@@ -41,81 +41,80 @@ Of the 143 runs with jobs, 34 jobs never ran a work step: 6 failed in a setup st
 150 runs read, 143 with job data, 7 without.
 
 | conclusion | runs |
-| --- | --- |
-| cancelled | 15 |
-| failure | 51 |
-| success | 84 |
+| ---------- | ---- |
+| cancelled  | 15   |
+| failure    | 51   |
+| success    | 84   |
 
-| event | conclusion | runs |
-| --- | --- | --- |
-| pull_request | cancelled | 8 |
-| pull_request | failure | 14 |
-| pull_request | success | 30 |
-| push | cancelled | 7 |
-| push | failure | 37 |
-| push | success | 54 |
+| event        | conclusion | runs |
+| ------------ | ---------- | ---- |
+| pull_request | cancelled  | 8    |
+| pull_request | failure    | 14   |
+| pull_request | success    | 30   |
+| push         | cancelled  | 7    |
+| push         | failure    | 37   |
+| push         | success    | 54   |
 
 ### Run wall time (seconds, run start to last job completed; a re-run counts from its latest attempt)
 
-| split | value | n runs | p50 s | p95 s | p50 min | p95 min |
-| --- | --- | --- | --- | --- | --- | --- |
-| event | pull_request | 52 | 979 | 1070 | 16.3 | 17.8 |
-| event | push | 91 | 1009 | 1900 | 16.8 | 31.7 |
-| runner OS | Linux | 143 | 998 | 1711 | 16.6 | 28.5 |
-| all | all | 143 | 998 | 1711 | 16.6 | 28.5 |
+| split     | value        | n runs | p50 s | p95 s | p50 min | p95 min |
+| --------- | ------------ | ------ | ----- | ----- | ------- | ------- |
+| event     | pull_request | 52     | 979   | 1070  | 16.3    | 17.8    |
+| event     | push         | 91     | 1009  | 1900  | 16.8    | 31.7    |
+| runner OS | Linux        | 143    | 998   | 1711  | 16.6    | 28.5    |
+| all       | all          | 143    | 998   | 1711  | 16.6    | 28.5    |
 
 ### Buckets per job (seconds)
 
 waiting: created to started; a job whose started time precedes its created time (a re-run keeps the earlier created time) is left out of that bucket. failed in setup: the job's own setup step failed. setup: set up, checkout, package manager, Node, install, runtime preparation. running: every other step, counted only for jobs that ran at least one work step. teardown (post steps, complete job) is listed for reconciliation.
 
-| OS | job | n wait | waiting p50 / p95 | n setup | setup p50 / p95 | n ran work | running p50 / p95 | no work step ran | failed in setup | teardown p50 / p95 |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| Linux | cloudflare-worker | 136 | 3 / 11 | 143 | 8 / 14 | 143 | 5 / 6 | 0 | 0 | 1 / 1 |
-| Linux | computers-worker | 136 | 3 / 6 | 143 | 8 / 16 | 143 | 16 / 17 | 0 | 0 | 1 / 1 |
-| Linux | control-plane | 136 | 3 / 8 | 143 | 18 / 25 | 143 | 35 / 38 | 0 | 0 | 1 / 1 |
-| Linux | home-worker | 137 | 3 / 11 | 143 | 8 / 13 | 143 | 10 / 11 | 0 | 0 | 0 / 1 |
-| Linux | renderer tests (Ubuntu 24.04) | 136 | 3 / 7 | 143 | 18 / 25 | 143 | 179 / 198 | 0 | 0 | 1 / 1 |
-| Linux | supervisor-container | 136 | 3 / 4 | 143 | 4 / 9 | 143 | 32 / 39 | 0 | 0 | 0 / 1 |
-| Linux | verify | 136 | 3 / 8 | 143 | 19 / 27 | 143 | 384 / 423 | 0 | 0 | 1 / 1 |
-| Linux | vitest (shard 1/4) | 139 | 3 / 10 | 143 | 20 / 28 | 133 | 880 / 971 | 10 | 2 | 1 / 1 |
-| Linux | vitest (shard 2/4) | 136 | 3 / 6 | 143 | 20 / 28 | 134 | 825 / 914 | 9 | 2 | 1 / 1 |
-| Linux | vitest (shard 3/4) | 139 | 3 / 8 | 143 | 20 / 28 | 136 | 933 / 1037 | 7 | 1 | 1 / 1 |
-| Linux | vitest (shard 4/4) | 136 | 3 / 8 | 143 | 20 / 29 | 135 | 854 / 991 | 8 | 1 | 0 / 1 |
+| OS    | job                           | n wait | waiting p50 / p95 | n setup | setup p50 / p95 | n ran work | running p50 / p95 | no work step ran | failed in setup | teardown p50 / p95 |
+| ----- | ----------------------------- | ------ | ----------------- | ------- | --------------- | ---------- | ----------------- | ---------------- | --------------- | ------------------ |
+| Linux | cloudflare-worker             | 136    | 3 / 11            | 143     | 8 / 14          | 143        | 5 / 6             | 0                | 0               | 1 / 1              |
+| Linux | computers-worker              | 136    | 3 / 6             | 143     | 8 / 16          | 143        | 16 / 17           | 0                | 0               | 1 / 1              |
+| Linux | control-plane                 | 136    | 3 / 8             | 143     | 18 / 25         | 143        | 35 / 38           | 0                | 0               | 1 / 1              |
+| Linux | home-worker                   | 137    | 3 / 11            | 143     | 8 / 13          | 143        | 10 / 11           | 0                | 0               | 0 / 1              |
+| Linux | renderer tests (Ubuntu 24.04) | 136    | 3 / 7             | 143     | 18 / 25         | 143        | 179 / 198         | 0                | 0               | 1 / 1              |
+| Linux | supervisor-container          | 136    | 3 / 4             | 143     | 4 / 9           | 143        | 32 / 39           | 0                | 0               | 0 / 1              |
+| Linux | verify                        | 136    | 3 / 8             | 143     | 19 / 27         | 143        | 384 / 423         | 0                | 0               | 1 / 1              |
+| Linux | vitest (shard 1/4)            | 139    | 3 / 10            | 143     | 20 / 28         | 133        | 880 / 971         | 10               | 2               | 1 / 1              |
+| Linux | vitest (shard 2/4)            | 136    | 3 / 6             | 143     | 20 / 28         | 134        | 825 / 914         | 9                | 2               | 1 / 1              |
+| Linux | vitest (shard 3/4)            | 139    | 3 / 8             | 143     | 20 / 28         | 136        | 933 / 1037        | 7                | 1               | 1 / 1              |
+| Linux | vitest (shard 4/4)            | 136    | 3 / 8             | 143     | 20 / 29         | 135        | 854 / 991         | 8                | 1               | 0 / 1              |
 
 ### Buckets across all jobs (seconds)
 
-| OS | bucket | n jobs | p50 s | p95 s |
-| --- | --- | --- | --- | --- |
-| Linux | waiting | 1503 | 3 | 6 |
-| Linux | setup | 1573 | 18 | 26 |
-| Linux | running (ran work) | 1539 | 169 | 965 |
+| OS    | bucket             | n jobs | p50 s | p95 s |
+| ----- | ------------------ | ------ | ----- | ----- |
+| Linux | waiting            | 1503   | 3     | 6     |
+| Linux | setup              | 1573   | 18    | 26    |
+| Linux | running (ran work) | 1539   | 169   | 965   |
 
 ### First failed step per failed job
 
-| job | step | jobs |
-| --- | --- | --- |
-| vitest (shard 4/4) | Run pnpm exec vitest run --shard=4/4 --reporter=default --reporter=github-actions | 31 |
-| renderer tests (Ubuntu 24.04) | Drive the real renderer | 25 |
-| vitest (shard 2/4) | Run pnpm exec vitest run --shard=2/4 --reporter=default --reporter=github-actions | 23 |
-| vitest (shard 3/4) | Run pnpm exec vitest run --shard=3/4 --reporter=default --reporter=github-actions | 21 |
-| vitest (shard 1/4) | Run pnpm exec vitest run --shard=1/4 --reporter=default --reporter=github-actions | 17 |
-| verify | Run pnpm laterdog:test && pnpm exec vitest run src/lib/analytics.test.ts src/lib/laterdog-privacy.test.ts scripts/mascot-bodies src/components/Avatar.test.ts server/drivers/acp/grok-device-auth.test.ts | 11 |
-| home-worker | Run pnpm test | 3 |
-| vitest (shard 2/4) | Prepare Electron test runtime | 2 |
-| vitest (shard 1/4) | Prepare Electron test runtime | 2 |
-| verify | Run pnpm lint | 2 |
-| vitest (shard 3/4) | Prepare Electron test runtime | 1 |
-| vitest (shard 4/4) | Prepare Electron test runtime | 1 |
+| job                           | step                                                                                                                                                                                                      | jobs |
+| ----------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---- |
+| vitest (shard 4/4)            | Run pnpm exec vitest run --shard=4/4 --reporter=default --reporter=github-actions                                                                                                                         | 31   |
+| renderer tests (Ubuntu 24.04) | Drive the real renderer                                                                                                                                                                                   | 25   |
+| vitest (shard 2/4)            | Run pnpm exec vitest run --shard=2/4 --reporter=default --reporter=github-actions                                                                                                                         | 23   |
+| vitest (shard 3/4)            | Run pnpm exec vitest run --shard=3/4 --reporter=default --reporter=github-actions                                                                                                                         | 21   |
+| vitest (shard 1/4)            | Run pnpm exec vitest run --shard=1/4 --reporter=default --reporter=github-actions                                                                                                                         | 17   |
+| verify                        | Run pnpm laterdog:test && pnpm exec vitest run src/lib/analytics.test.ts src/lib/laterdog-privacy.test.ts scripts/mascot-bodies src/components/Avatar.test.ts server/drivers/acp/grok-device-auth.test.ts | 11   |
+| home-worker                   | Run pnpm test                                                                                                                                                                                             | 3    |
+| vitest (shard 2/4)            | Prepare Electron test runtime                                                                                                                                                                             | 2    |
+| vitest (shard 1/4)            | Prepare Electron test runtime                                                                                                                                                                             | 2    |
+| verify                        | Run pnpm lint                                                                                                                                                                                             | 2    |
+| vitest (shard 3/4)            | Prepare Electron test runtime                                                                                                                                                                             | 1    |
+| vitest (shard 4/4)            | Prepare Electron test runtime                                                                                                                                                                             | 1    |
 
 ### Share of summed job time
 
-| bucket | job-hours | share |
-| --- | --- | --- |
-| waiting | 1.6 | 1.0% |
-| setup | 6.8 | 4.1% |
-| running | 157.1 | 94.8% |
-| teardown | 0.2 | 0.1% |
-
+| bucket   | job-hours | share |
+| -------- | --------- | ----- |
+| waiting  | 1.6       | 1.0%  |
+| setup    | 6.8       | 4.1%  |
+| running  | 157.1     | 94.8% |
+| teardown | 0.2       | 0.1%  |
 
 ### Slowest test files (from 125 job logs)
 
@@ -123,21 +122,20 @@ Only files Vitest printed a duration for are counted (it prints one above its sl
 
 #### Linux
 
-| file | n logs | p50 s | max s |
-| --- | --- | --- | --- |
-| server/delta-context.e2e.test.ts | 25 | 268.9 | 279.0 |
-| server/room-coordination.e2e.test.ts | 25 | 212.8 | 219.6 |
-| server/direct-coordination.e2e.test.ts | 25 | 173.7 | 206.3 |
-| server/index.test.ts | 25 | 148.0 | 159.4 |
-| server/account-battery.e2e.test.ts | 25 | 147.4 | 151.4 |
-| server/drivers/claude.test.ts | 25 | 88.3 | 105.0 |
-| scripts/testing/control-laterdog-ui.e2e.test.ts | 25 | 79.1 | 83.7 |
-| server/routine-results.e2e.test.ts | 25 | 69.2 | 70.5 |
-| server/cloud-lending-memory.e2e.test.ts | 25 | 60.0 | 70.1 |
-| server/drivers/codex.test.ts | 25 | 59.4 | 62.0 |
-| server/cloud-move.e2e.test.ts | 25 | 52.8 | 55.5 |
-| server/automatic-recovery.e2e.test.ts | 25 | 47.7 | 49.5 |
-
+| file                                            | n logs | p50 s | max s |
+| ----------------------------------------------- | ------ | ----- | ----- |
+| server/delta-context.e2e.test.ts                | 25     | 268.9 | 279.0 |
+| server/room-coordination.e2e.test.ts            | 25     | 212.8 | 219.6 |
+| server/direct-coordination.e2e.test.ts          | 25     | 173.7 | 206.3 |
+| server/index.test.ts                            | 25     | 148.0 | 159.4 |
+| server/account-battery.e2e.test.ts              | 25     | 147.4 | 151.4 |
+| server/drivers/claude.test.ts                   | 25     | 88.3  | 105.0 |
+| scripts/testing/control-laterdog-ui.e2e.test.ts | 25     | 79.1  | 83.7  |
+| server/routine-results.e2e.test.ts              | 25     | 69.2  | 70.5  |
+| server/cloud-lending-memory.e2e.test.ts         | 25     | 60.0  | 70.1  |
+| server/drivers/codex.test.ts                    | 25     | 59.4  | 62.0  |
+| server/cloud-move.e2e.test.ts                   | 25     | 52.8  | 55.5  |
+| server/automatic-recovery.e2e.test.ts           | 25     | 47.7  | 49.5  |
 
 ## What could not be measured
 
