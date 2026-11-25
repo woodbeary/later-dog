@@ -234,12 +234,12 @@ export function planClaudeRemote(input: ClaudePlacement): { plan: ClaudeRemotePl
     { id: "account", path: configDir, writable: false, files: [".claude.json"] },
     { id: "launch", path: stagingDir, writable: false },
   ];
-  if (credential) roots.push({ id: "credential", path: configDir, writable: false, files: [".credentials.json"] });
+  if (credential) roots.push({ id: "credential", path: configDir, writable: false, pushOnly: true, files: [".credentials.json"] });
   const botFolder = botFolderRoot(input.dataDir, input.botId, cwd, configDir, stagingDir);
   if (botFolder) roots.push(botFolder);
   const pushes = credential ? (): PushedFile[] => {
     let bytes: Buffer | null = null;
-    try { bytes = scopedClaudeCredential(readFileSync(credentialFile, "utf8"), 0); } catch {}
+    try { bytes = scopedClaudeCredential(readFileSync(credentialFile, "utf8"), Date.now() - CREDENTIAL_MARGIN_MS); } catch {}
     return bytes ? [{ root: "credential", path: ".credentials.json", bytes, mode: 0o600 }] : [];
   } : undefined;
 

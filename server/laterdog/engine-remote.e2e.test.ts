@@ -14,7 +14,7 @@ import { claudeProjectSlug, planClaudeRemote, spawnPlacedEngine, type ClaudeRemo
 import type { EngineWait } from "./engine-waiting.ts";
 import { placedThreads, preToolGuardDecision } from "./placed-threads.ts";
 import { createClaudeRefreshGate } from "./claude-refresh-lock.ts";
-import { commandLink, type EngineLink } from "./engine-remote.ts";
+import { commandLink, RemoteSession, type EngineLink } from "./engine-remote.ts";
 import { createClaudeRenewer, type ClaudeRenewer } from "./engine-renewal.ts";
 
 const here = (name: string) => fileURLToPath(new URL(name, import.meta.url));
@@ -116,6 +116,17 @@ function turn(engine: { stdin: NodeJS.WritableStream; stdout: NodeJS.ReadableStr
   });
 }
 const closed = (engine: { once(event: "close", listener: (code: number | null) => void): unknown }) => new Promise<number | null>((resolve) => engine.once("close", resolve));
+
+it("keeps the account file on the home when its current sign-in disappears during computer startup", async () => {
+  const w = world();
+  const plan = w.plan();
+  writeFileSync(join(w.configDir, ".credentials.json"), "{}");
+  const relay = w.relay();
+  const session = new RemoteSession(relay, plan.launch);
+  await expect(session.start()).rejects.toThrow("selected sign-in is unavailable");
+  relay.close();
+  expect(existsSync(w.mirror(join(w.configDir, ".credentials.json")))).toBe(false);
+});
 
 it("runs a turn on the computer with home-held tools, hooks and authority, and returns files before the result", async () => {
   const w = world();
