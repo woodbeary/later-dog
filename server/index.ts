@@ -717,7 +717,7 @@ import { EDIT_REFUSAL } from "./laterdog/local-tool-message.ts";
 import { claudeReviewerGrant, ownerAuthority, ownerAutoAnswers, ownerCoordinationAuthority, ownerCoordinationRequestNote, ownerGrantApplies, ownerGrantPrompt, ownerSendsWithoutAsking, reviewerMissingNotice, type OwnerAutoScope } from "./laterdog/owner-auto.ts";
 import { autoReviewOn, ownerTurnMode } from "./laterdog/auto-review.ts";
 import { settleOwnerAutoPermission } from "./laterdog/owner-auto-request.ts";
-import { DELETE_OUTSIDE_WORKSPACE_ALLOW_KEY, ownerGuardRequest, ownerWorkspaceRoots, type OwnerGuardContext, type OwnerGuardRefusal } from "./laterdog/owner-guard.ts";
+import { DELETE_OUTSIDE_WORKSPACE_ALLOW_KEY, ownerGuard, ownerGuardRequest, ownerWorkspaceRoots, type OwnerGuardContext, type OwnerGuardRefusal } from "./laterdog/owner-guard.ts";
 import { ROUTES, dispatchRoutes } from "./routes/table.ts";
 import { createLinkPreviewRoutes } from "./routes/link-preview.ts";
 import { createLaterDogRoutes } from "./routes/laterdog.ts";
@@ -4015,6 +4015,7 @@ function ownerGuardContext(bot: BotRecord, threadId: string, commandCwd: string 
   return {
     cwd: commandCwd ?? task?.cwd ?? bot.cwd,
     workspaceRoots: ownerWorkspaceRoots([task?.cwd, bot.cwd, workspaceDir(bot.id), join(TASK_WORKSPACES_DIR, bot.id)]),
+    ownerFull: fullAccessForSource(bot.id, threadId) && ownerAuthority(ownerAutoScope(threadId)),
   };
 }
 
@@ -7622,6 +7623,23 @@ bus.subscribe(guardTurnEnd((event: RuntimeEvent) => {
           }
         }
       };
+      if (!permission && asker && event.requestId && effectiveApprovalMode === "full" && ownerAuthority(ownerAutoScope(event.threadId, guestDriven))) {
+        const requestId = event.requestId;
+        const picked = autoPickedAnswer({
+          ...(event.questions?.length ? { questionRequest: { questions: event.questions } } : {}),
+          options: event.choices,
+        }, [], { waitedMs: 0, delegated: true });
+        void answerRequest(event.threadId, event.providerInstanceId ?? asker.modelSelection.instanceId, requestId, "answer", picked.engine).then((outcome) => {
+          if (outcome !== "answered") return;
+          appendDecision(DATA_DIR, {
+            threadId: event.threadId, requestId, botId: asker.id, botName: asker.name, tool: event.tool, summary: event.summary,
+            decision: "auto-approved", source: "owner-auto",
+          });
+        }).catch(() => {
+          console.error("[question] Could not deliver the Full access choice.");
+        });
+        break;
+      }
       if (ownerAuto && permission && asker && event.requestId) {
         const requestId = event.requestId;
         const instance = registry.get(event.providerInstanceId ?? asker.modelSelection.instanceId);
@@ -10428,6 +10446,10 @@ const lateAsks = new Set<string>();
 const TOO_LATE = "Too late: the dog stopped waiting for this answer, so nothing ran. It will ask again if it still needs to.";
 
 async function askPersonFirst(bot: BotRecord, threadId: string, request: AlwaysAskRequest, hit: AlwaysAsk, caller: AbortSignal): Promise<string | null> {
+  if (hit.decision === "deny") {
+    appendDecision(DATA_DIR, { threadId, botId: bot.id, botName: bot.name, tool: request.tool, summary: request.command ?? request.tool, decision: "auto-denied", source: "always-asks", rule: hit.id });
+    return hit.refusal;
+  }
   const input = request.input ?? {};
   const detail = [input.command, input.url, input.path].find((value): value is string => typeof value === "string") ?? request.tool;
   let cardId: string | undefined;
@@ -16133,6 +16155,13 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
           : [];
         const opaque = connectorCalls.some(call => call.slug === "COMPOSIO_PROXY_EXECUTE");
         if (opaque && currentSender.connectorTools !== undefined) return refuseOutbound("later.dog cannot verify this code against this bot's tool grants. Use a direct app tool.");
+        if (fullAccessForSource(currentSender.id, internalCapability.threadId) && ownerAuthority(ownerAutoScope(internalCapability.threadId))) {
+          if (opaque) return refuseOutbound("later.dog refused this: it cannot read what this connected-app program sends, pays or deletes. Use the direct app tools.");
+          for (const connector of connectorCalls) {
+            const refusal = await ownerGuard({ tool: connector.slug }, hookGuardContext(currentSender.id, internalCapability.threadId, undefined));
+            if (refusal) return refuseOutbound(refusal.message);
+          }
+        }
         if (outboundTool && call.kind !== "tools") {
           serviceSlugs = await composio.connectedServiceSlugs(cfg).catch(() => []);
           requireActiveInternalCapability();
@@ -16144,7 +16173,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
           connected: serviceSlugs,
           alwaysAllow: botForThread(sender.id, internalCapability.threadId)?.alwaysAllow,
           ownerSends: ownerSendsWithoutAsking(sourceApprovalMode(sender.id, internalCapability.threadId), ownerAutoScope(internalCapability.threadId)),
-          alwaysAsks: connectorAlwaysAsks(outboundCalls) !== null,
+          alwaysAsks: connectorAlwaysAsks(outboundCalls, fullAccessForSource(sender.id, internalCapability.threadId) && ownerAuthority(ownerAutoScope(internalCapability.threadId))) !== null,
           skipped: (toolkit) => connectorSkips.has(internalCapability.threadId, internalCapability.generation, toolkit),
           allowedThisTurn: (toolkit) => connectorAllows.has(internalCapability.threadId, internalCapability.generation, toolkit),
         });

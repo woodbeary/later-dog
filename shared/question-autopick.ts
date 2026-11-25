@@ -21,9 +21,11 @@ export interface AutoPickedAnswer {
 export function autoPickedAnswer(
   card: { questionRequest?: Pick<QuestionRequestCardData, "questions">; options?: readonly string[] },
   kept: readonly (readonly string[])[],
-  context: { waitedMs: number; owner?: string },
+  context: { waitedMs: number; owner?: string; delegated?: boolean },
 ): AutoPickedAnswer {
-  const onTheirOwn = `${context.owner?.trim() || "The person"} didn't answer in time. Use your best judgment and keep going. They can correct you later.`;
+  const onTheirOwn = context.delegated
+    ? "Full access delegates this decision to you. Use your best judgment and keep going. The person can correct you later."
+    : `${context.owner?.trim() || "The person"} didn't answer in time. Use your best judgment and keep going. They can correct you later.`;
   const questions: readonly AskQuestion[] = card.questionRequest?.questions.length
     ? card.questionRequest.questions
     : [{ question: "", options: (card.options ?? []).map((label) => ({ label })) }];
@@ -35,7 +37,7 @@ export function autoPickedAnswer(
     const pick = recommended ?? question.options[0];
     if (!pick) return { engine: onTheirOwn, card: "No answer" };
     return {
-      engine: `No answer after ${waitedWords(context.waitedMs)}; auto-picked the ${recommended ? "recommended" : "first"} option: ${pick.label}`,
+      engine: context.delegated ? pick.label : `No answer after ${waitedWords(context.waitedMs)}; auto-picked the ${recommended ? "recommended" : "first"} option: ${pick.label}`,
       card: pick.label,
     };
   });

@@ -391,3 +391,13 @@ approvals return to `accounts.later.dog` and are passed on to the right home,
 and refresh tokens stay in each home's vault. It is off until the one-time
 setup in [google-setup.md](google-setup.md) is done; the same file gives the
 release order.
+
+## Owner Full access without routine cards (2026-11-25)
+
+Owner Full turns resolve routine permissions and questions immediately. Safe
+cleanup paths are resolved; unknown or protected deletes return a refusal to the
+dog. Sends and payments keep per-action confirmation. The source chat's effective
+access and owner authority determine this behavior. Mac permissions and optional
+routine cards have separate companion changes. Checked behavior and limits are
+in [the verification record](../verification/full-owner-no-asks-2026-11-25.md).
+This change awaits the complete integration gate and release.

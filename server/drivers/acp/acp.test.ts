@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { autoPickedAnswer } from "../../../shared/question-autopick.ts";
 import { chmodSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, unlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -1054,6 +1055,24 @@ describe("ACP turns (fake CLI)", () => {
     const resolved = await recorder.until((e) => e.type === "request.resolved");
     expect(resolved).toMatchObject({ behavior: "answer", source: "user" });
     await recorder.until((e) => e.type === "turn.completed");
+    expect(readFileSync(answer, "utf8")).toBe("green-id");
+  });
+
+  it("delivers a delegated default as the actual ACP option", async () => {
+    const answer = join(scratch, "delegated-question-answer.txt");
+    process.env.FAKE_ACP_PERMISSION_ANSWER = answer;
+    process.env.FAKE_ACP_QUESTION_OPTIONS = JSON.stringify([
+      { optionId: "blue-id", kind: "allow_once", name: "Blue" },
+      { optionId: "green-id", kind: "allow_once", name: "Green (Recommended)" },
+    ]);
+    await create(GrokAgentDriver, "question");
+    await instance.adapter.sendTurn({ threadId: "t-delegated-question", text: "go", approvalMode: "full" });
+    const opened = await recorder.until((event) => event.type === "request.opened");
+    if (opened.type !== "request.opened") throw new Error("Expected a question request.");
+    const picked = autoPickedAnswer({ questionRequest: { questions: opened.questions! } }, [], { waitedMs: 0, delegated: true });
+    expect(await instance.adapter.respondToRequest("t-delegated-question", opened.requestId!, { behavior: "answer", message: picked.engine })).toBe("answered");
+    expect(await recorder.until((event) => event.type === "request.resolved")).toMatchObject({ behavior: "answer" });
+    await recorder.until((event) => event.type === "turn.completed");
     expect(readFileSync(answer, "utf8")).toBe("green-id");
   });
 
