@@ -532,6 +532,24 @@ describe("the cloud computer facade", () => {
     }
   });
 
+  it("can select a previously used size again without restarting the home", async () => {
+    const sizing = vi.spyOn(config, "loadConfig");
+    try {
+      const botId = "resized-repeatedly";
+      const machine = add(botId, "running");
+      machine.size = "standard";
+      for (const size of ["xlarge", "large", "xlarge"] as const) {
+        sizing.mockReturnValue({ box: { size } });
+        await computers.engineComputer(botId);
+        expect(machine.size).toBe(size);
+      }
+      expect(ours().filter(({ method }) => method === "PATCH")).toHaveLength(3);
+      expect(creates()).toHaveLength(0);
+    } finally {
+      sizing.mockRestore();
+    }
+  });
+
   describe("waking a computer for run_on_computer", () => {
     const wakes = () => ours().filter((request) => request.method === "POST" && request.path.endsWith("/wake")).length;
     const sleeping = (botId: string) => { const computer = add(botId, "sleeping"); wakeTo = "starting"; pollStepMs = 10_000; return computer; };

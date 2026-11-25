@@ -29,17 +29,18 @@ export const wantedSize = (cfg: AppConfig): string | undefined => cfg.box?.size 
 export function needsResize(computer: { size?: string }, wanted: string | undefined): boolean {
   return Boolean(wanted && computer.size && computer.size !== wanted);
 }
-const sized = new Set<string>();
+const fittedSizes = new Map<string, string>();
 async function fitSize(client: ComputersClient, cfg: AppConfig, computerId: string): Promise<void> {
   const wanted = wantedSize(cfg);
-  if (!wanted || sized.has(`${computerId}:${wanted}`)) return;
+  if (!wanted || fittedSizes.get(computerId) === wanted) return;
   try {
     const current = await client.get(computerId);
-    if (current && needsResize(current, wanted)) {
+    if (!current) return;
+    if (needsResize(current, wanted)) {
       await client.resize(computerId, wanted);
       console.info(`cloud computer ${computerId}: ${current.size} → ${wanted}, from its next wake`);
     }
-    sized.add(`${computerId}:${wanted}`);
+    fittedSizes.set(computerId, wanted);
   } catch (error) {
     console.warn(`cloud computer ${computerId}: could not change its size: ${error instanceof Error ? error.message : String(error)}`);
   }
@@ -96,7 +97,10 @@ function unavailable(error: unknown): unknown {
 const starts = createStartWatch(() => cloudComputerStartBudgetMs());
 const computerIds = new Map<string, string>();
 const cacheKey = (client: ComputersClient, botId: string) => `${client.api}\0${botId}`;
-const forget = (id: string) => { for (const [key, cached] of computerIds) if (cached === id) computerIds.delete(key); };
+const forget = (id: string) => {
+  fittedSizes.delete(id);
+  for (const [key, cached] of computerIds) if (cached === id) computerIds.delete(key);
+};
 
 async function findOwn(client: ComputersClient, botId: string): Promise<OwnComputer | null> {
   const name = ownName(botId); const key = cacheKey(client, botId);
