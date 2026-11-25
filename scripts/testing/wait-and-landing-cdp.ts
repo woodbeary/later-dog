@@ -48,6 +48,7 @@ export async function openBrowser(executable: string): Promise<Browser> {
   const profile = mkdtempSync(join(tmpdir(), "wait-and-landing-browser-"));
   const child = spawn(executable, [
     "--headless=new", "--no-sandbox", "--disable-gpu", "--hide-scrollbars", "--no-first-run", "--no-default-browser-check",
+    "--blink-settings=primaryHoverType=2,availableHoverTypes=2,primaryPointerType=4,availablePointerTypes=4",
     "--force-color-profile=srgb", "--font-render-hinting=none", "--remote-debugging-port=0", `--user-data-dir=${profile}`, "about:blank",
   ], { stdio: ["ignore", "ignore", "pipe"] });
   const browserUrl = await devtoolsUrl(child);

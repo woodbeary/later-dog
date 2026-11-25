@@ -1,4 +1,3 @@
-import type { DogState } from "../../src/lib/mascot.ts";
 import { ageWords, foldSentence, sideJobsWords, stepPhrase, type ActivityKind, type OutcomeKind } from "../../shared/step-words.ts";
 
 export const PACE = {
@@ -17,6 +16,7 @@ export const SLOT = {
   phone: { height: 44, above: 12, face: 28, gap: 12, text: 17, line: 24 },
 } as const;
 
+export type Face = "idle" | "thinking" | "working" | "searching" | "writing" | "listening" | "alerting" | "sleeping" | "waking";
 export type Tone = "plain" | "asks" | "quiet";
 export type Opens = "work" | "card" | "helper" | "side-jobs" | "account" | "nothing";
 export type Announce = "now" | "if-it-lasts" | "never";
@@ -26,7 +26,7 @@ export interface SlotLine {
   key: string;
   words: string;
   spoken: string;
-  face: DogState;
+  face: Face;
   tone: Tone;
   age: string | null;
   sideJobs: string | null;
@@ -80,7 +80,7 @@ function listed(names: readonly string[]): string {
   return `${names.slice(0, -1).join(", ")} and ${names.at(-1)!}`;
 }
 
-const STEP_FACE: Record<ActivityKind, DogState> = {
+const STEP_FACE: Record<ActivityKind, Face> = {
   thinking: "thinking",
   reading: "searching",
   writing: "writing",
@@ -118,7 +118,7 @@ export function subjectWords(outcome: OutcomeKind, subject: string | undefined):
   }
 }
 
-function make(key: string, words: string, spoken: string, face: DogState, extra: Partial<SlotLine> = {}): SlotLine {
+function make(key: string, words: string, spoken: string, face: Face, extra: Partial<SlotLine> = {}): SlotLine {
   return { key, words, spoken, face, tone: "plain", age: null, sideJobs: null, opens: "work", urgent: false, announce: "never", ...extra };
 }
 
@@ -174,7 +174,7 @@ export function turnStates(example: Example = EXAMPLE): TurnState[] {
   const { name, helper, helpers, account, other, reset } = example;
   const asks = (key: string, words: string, spoken: string, opens: Opens = "card"): SlotLine =>
     make(key, words, spoken, "alerting", { tone: "asks", opens, urgent: true, announce: "now" });
-  const quiet = (key: string, words: string, spoken: string, face: DogState, opens: Opens = "nothing"): SlotLine =>
+  const quiet = (key: string, words: string, spoken: string, face: Face, opens: Opens = "nothing"): SlotLine =>
     make(key, words, spoken, face, { tone: "quiet", opens, announce: "if-it-lasts" });
   const fold = foldSentence({ edit: 1, command: 1 })!;
   const firstFold = foldSentence({ edit: 1 })!;

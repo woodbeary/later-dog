@@ -43,7 +43,9 @@ declare global {
 }
 window.__wl = { land: () => setPage({ landed: true }), at: (ms: number) => setPage({ at: ms }), ready: false };
 
-const FOLD: FoldForm = { words: foldSentence({ edit: 1, command: 1 })!, spoken: "Scout finished." };
+const FOLD: FoldForm = { words: params.get("fold") ?? foldSentence({ edit: 1, command: 1 })!, spoken: "Scout finished." };
+const SEEDED: Array<{ user: string; reply: string; fold: string | null }> = JSON.parse(params.get("history") ?? "[]");
+const BASE = params.get("base") ?? "/.laterdog-evidence/wait-and-landing";
 const PROMPT = params.get("prompt") ?? BUSY_TURN.prompt;
 const GREETING = params.get("greeting") ?? "Hi, I'm Scout. What would you like me to do?";
 const REPLY_PARTS = [
@@ -60,7 +62,7 @@ const LONG_REPLY = [
   "Should I put the new menu on the printed flyer too?",
 ];
 
-interface Row { id: string; side: "user" | "dog"; text: string; dog?: Dog }
+interface Row { id: string; side: "user" | "dog"; text: string; dog?: Dog; fold?: boolean }
 
 const HISTORY: Row[] = [
   { id: "h1", side: "dog", text: "Good morning! The spring menu draft is in the shared folder." },
@@ -149,8 +151,19 @@ function Bubble({ where, row, joinAbove = false, joinBelow = false, label }: { w
   );
 }
 
+function FoldRow({ where, row }: { where: Platform; row: Row }) {
+  return (
+    <div className="wl-slot" data-platform={where} data-row={row.id}>
+      <span className="wl-fold" data-still="">
+        <span className="wl-fold-words">{row.text}</span>
+        <ChevronRight size={where === "mac" ? 12 : 14} aria-hidden="true" className="wl-fold-chevron" />
+      </span>
+    </div>
+  );
+}
+
 function rowsWithJoins(where: Platform, rows: readonly Row[], labels = false): ReactNode[] {
-  return rows.map((row, index) => (
+  return rows.map((row, index) => row.fold ? <FoldRow key={row.id} where={where} row={row} /> : (
     <Bubble
       key={row.id}
       where={where}
@@ -268,9 +281,9 @@ function PhoneWindow({ dog, children }: { dog: Dog; children: ReactNode }) {
   );
 }
 
-function Chat({ where, dog, rows, turn, sidebar = null, scrolledUp = 0, asksAway = null }: { where: Platform; dog: Dog; rows: Row[]; turn: Turn; sidebar?: { words: string; tone: string; face: DogState } | null; scrolledUp?: number; asksAway?: string | null }) {
+function Chat({ where, dog, rows, turn, sidebar = null, scrolledUp = 0, asksAway = null, size }: { where: Platform; dog: Dog; rows: Row[]; turn: Turn; sidebar?: { words: string; tone: string; face: DogState } | null; scrolledUp?: number; asksAway?: string | null; size?: { width: number; height: number } }) {
   const transcript = <Transcript where={where} rows={rows} turn={turn} scrolledUp={scrolledUp} asksAway={asksAway} />;
-  return where === "mac" ? <MacWindow dog={dog} sidebar={sidebar}>{transcript}</MacWindow> : <PhoneWindow dog={dog}>{transcript}</PhoneWindow>;
+  return where === "mac" ? <MacWindow dog={dog} sidebar={sidebar} width={size?.width} height={size?.height}>{transcript}</MacWindow> : <PhoneWindow dog={dog}>{transcript}</PhoneWindow>;
 }
 
 const ALL_STATES = turnStates();
@@ -366,11 +379,19 @@ function BusyView() {
   const landed = at >= BUSY_TURN.landsAt;
   let shown: SlotLine | null = null;
   for (const frame of frames) if (frame.at <= Math.min(at, BUSY_TURN.landsAt - 1)) shown = frame.shown;
-  const rows: Row[] = [{ id: "greeting", side: "dog", text: GREETING }, { id: "prompt", side: "user", text: PROMPT }];
+  const rows: Row[] = [
+    { id: "greeting", side: "dog", text: GREETING },
+    ...SEEDED.flatMap((entry, index): Row[] => [
+      { id: `seed-user-${index}`, side: "user", text: entry.user },
+      ...(entry.fold ? [{ id: `seed-fold-${index}`, side: "dog" as const, text: entry.fold, fold: true }] : []),
+      { id: `seed-reply-${index}`, side: "dog", text: entry.reply, dog: SCOUT },
+    ]),
+    { id: "prompt", side: "user", text: PROMPT },
+  ];
   const turn: Turn = { dog: SCOUT, line: shown, fold: landed ? FOLD : null, replies: [{ id: "reply", side: "dog", text: params.get("reply") ?? BUSY_TURN.reply, dog: SCOUT }], landed };
   const sidebar = landed ? { words: params.get("reply") ?? BUSY_TURN.reply, tone: "plain", face: "idle" as DogState } : shown ? { words: shown.words, tone: shown.tone, face: shown.face } : { words: PROMPT, tone: "plain", face: "idle" as DogState };
   useEffect(() => { window.__wl.ready = true; }, []);
-  return <div className="wl-page p-6" data-view="busy"><Chat where={platform} dog={SCOUT} rows={rows} turn={turn} sidebar={platform === "mac" ? sidebar : null} /></div>;
+  return <div className="wl-page p-6" data-view="busy"><Chat where={platform} dog={SCOUT} rows={rows} turn={turn} sidebar={platform === "mac" ? sidebar : null} size={{ width: 1280, height: 800 }} /></div>;
 }
 
 function BubblesView() {
@@ -395,7 +416,7 @@ function BubblesView() {
 const MOMENTS: Array<[string, string]> = [["sent", "Just sent"], ["working", "A few seconds in"], ["minute", "A minute in"], ["landed", "The reply lands"]];
 
 function CompareView() {
-  const base = "/docs/verification/assets/wait-and-landing";
+  const base = BASE;
   const [loaded, setLoaded] = useState(0);
   useEffect(() => { if (loaded >= MOMENTS.length * 2) window.__wl.ready = true; }, [loaded]);
   return (
@@ -427,7 +448,7 @@ function SheetView() {
       <div className="grid gap-4" style={{ gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))` }}>
         {files.map((file, index) => (
           <figure key={file} className="flex flex-col gap-1.5">
-            <img alt={labels[index] ?? file} src={`/docs/verification/assets/wait-and-landing/${file}`} onLoad={() => setLoaded((count) => count + 1)} onError={() => setLoaded((count) => count + 1)} className="w-full rounded-lg shadow-[0_0_0_0.5px_var(--hairline-default)]" />
+            <img alt={labels[index] ?? file} src={`${BASE}/${file}`} onLoad={() => setLoaded((count) => count + 1)} onError={() => setLoaded((count) => count + 1)} className="w-full rounded-lg shadow-[0_0_0_0.5px_var(--hairline-default)]" />
             <figcaption className="wl-caption">{labels[index]}</figcaption>
           </figure>
         ))}

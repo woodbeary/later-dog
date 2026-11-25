@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { parseArgs } from "node:util";
@@ -9,6 +9,8 @@ import { openBrowser, type Clip, type Page } from "./wait-and-landing-cdp.ts";
 import { BUSY_TURN, busyTimeline, visibleChanges } from "./wait-and-landing-model.ts";
 
 export const ASSETS = join(REPO_ROOT, "docs", "verification", "assets", "wait-and-landing");
+export const WORK = join(REPO_ROOT, ".laterdog-evidence", "wait-and-landing");
+const WORK_URL = "/.laterdog-evidence/wait-and-landing";
 const NO_SERVER = { info: { url: "http://127.0.0.1:9" } };
 const SKINS = [["daylight", "light"], ["midnight", "dark"]] as const;
 const READY = "window.__wl && window.__wl.ready === true";
@@ -74,7 +76,7 @@ async function landNow(page: Page, onFrame?: (t: number) => Promise<void>, times
   return { before, frames, after: await page.evaluate<Snapshot>(SNAPSHOT) };
 }
 
-export interface GridCheck { skin: string; part: string; states: number; mac: number[]; phone: number[] }
+export interface GridCheck { skin: string; part: string; states: number; macSlots: number; phoneSlots: number; mac: number[]; phone: number[] }
 
 async function gridShots(page: Page, url: string): Promise<GridCheck[]> {
   const checks: GridCheck[] = [];
@@ -83,14 +85,14 @@ async function gridShots(page: Page, url: string): Promise<GridCheck[]> {
     for (const part of ["1", "2"]) {
       await page.goto(`${url}?view=grid&skin=${skin}&part=${part}`, READY);
       await settle(page);
-      const sizes = await page.evaluate<{ states: number; mac: number[]; phone: number[]; width: number; height: number }>(`(() => {
+      const sizes = await page.evaluate<{ states: number; macSlots: number; phoneSlots: number; mac: number[]; phone: number[]; width: number; height: number }>(`(() => {
         const heights = (where) => [...new Set([...document.querySelectorAll('[data-turn-slot="' + where + '"]')].map((node) => Math.round(node.getBoundingClientRect().height * 100) / 100))];
         const main = document.querySelector('[data-view="grid"]').getBoundingClientRect();
-        return { states: document.querySelectorAll('[data-state]').length, mac: heights("mac"), phone: heights("phone"), width: Math.ceil(main.width), height: Math.ceil(main.height) };
+        return { states: document.querySelectorAll('[data-state]').length, macSlots: document.querySelectorAll('[data-turn-slot="mac"]').length, phoneSlots: document.querySelectorAll('[data-turn-slot="phone"]').length, mac: heights("mac"), phone: heights("phone"), width: Math.ceil(main.width), height: Math.ceil(main.height) };
       })()`);
       await page.screenshot(join(ASSETS, `states-${part}-${look}.png`), { x: 0, y: 0, width: sizes.width, height: sizes.height });
-      checks.push({ skin: look, part, states: sizes.states, mac: sizes.mac, phone: sizes.phone });
-      console.log(`states-${part}-${look}.png  ${sizes.states} states  mac slot ${sizes.mac.join("/")} px  phone slot ${sizes.phone.join("/")} pt`);
+      checks.push({ skin: look, part, states: sizes.states, macSlots: sizes.macSlots, phoneSlots: sizes.phoneSlots, mac: sizes.mac, phone: sizes.phone });
+      console.log(`states-${part}-${look}.png  ${sizes.states} states  ${sizes.macSlots} mac slots of ${sizes.mac.join("/")} px  ${sizes.phoneSlots} phone slots of ${sizes.phone.join("/")} pt`);
     }
   }
   return checks;
@@ -114,12 +116,20 @@ async function turnRegion(page: Page, fromRow: string): Promise<Clip> {
 }
 
 async function sheet(page: Page, url: string, out: string, files: string[], labels: string[], options: { cols: number; width: number; title: string; note: string }): Promise<void> {
-  const query = new URLSearchParams({ view: "sheet", skin: "daylight", files: files.join(","), labels: labels.join("|"), cols: String(options.cols), title: options.title, note: options.note });
+  const query = new URLSearchParams({ view: "sheet", skin: "daylight", base: WORK_URL, files: files.join(","), labels: labels.join("|"), cols: String(options.cols), title: options.title, note: options.note });
   await page.viewport(options.width, 900, 2);
   await page.goto(`${url}?${query}`, READY);
   await settle(page);
   await page.screenshot(join(ASSETS, out), await page.clip('[data-view="sheet"]'));
   console.log(out);
+}
+
+function quantize(): void {
+  const magick = spawnSync("convert", ["-version"], { stdio: "ignore" });
+  if (magick.status !== 0) return;
+  for (const file of readdirSync(ASSETS).filter((name) => name.endsWith(".png"))) {
+    spawnSync("convert", [join(ASSETS, file), "+dither", "-colors", "256", `PNG8:${join(ASSETS, file)}`], { stdio: "inherit" });
+  }
 }
 
 function gif(out: string, frames: string[], delays: number[]): boolean {
@@ -163,13 +173,13 @@ async function landingShots(page: Page, url: string): Promise<LandingCheck[]> {
         const wantsFrames = kind === "fold" || kind === "split" || kind === "batch";
         const region = wantsFrames ? await turnRegion(page, "prompt") : window;
         const gifFrames: string[] = [];
-        if (!reduced && kind !== "asks-away") await page.screenshot(join(ASSETS, `landing-${tag}-waiting.png`), window);
-        const framesDir = join(ASSETS, "frames");
+        if (!reduced && kind !== "asks-away") await page.screenshot(join(WORK, `landing-${tag}-waiting.png`), window);
+        const framesDir = join(WORK, "frames");
         mkdirSync(framesDir, { recursive: true });
         const gifTimes = Array.from({ length: 21 }, (_, index) => index * 20);
         const times = wantsFrames && !reduced && kind === "fold" ? [...new Set([...gifTimes, ...FRAME_TIMES])].sort((a, b) => a - b) : FRAME_TIMES;
         if (kind === "asks-away") {
-          await page.screenshot(join(ASSETS, `landing-${tag}.png`), window);
+          await page.screenshot(join(where === "mac" ? ASSETS : WORK, `landing-${tag}.png`), window);
           console.log(`landing-${tag}.png`);
           continue;
         }
@@ -179,7 +189,7 @@ async function landingShots(page: Page, url: string): Promise<LandingCheck[]> {
           await page.screenshot(file, region);
           if (t % 20 === 0) gifFrames.push(file);
         }, times);
-        await page.screenshot(join(ASSETS, `landing-${tag}-landed.png`), window);
+        await page.screenshot(join(WORK, `landing-${tag}-landed.png`), window);
         const skip = new Set(kind === "plain" ? ["slot"] : []);
         const shifts = [...result.frames, result.after].map((snapshot) => shift(result.before, snapshot, skip));
         const check: LandingCheck = {
@@ -207,7 +217,7 @@ async function landingShots(page: Page, url: string): Promise<LandingCheck[]> {
     const pick = FRAME_TIMES.map((t) => `frames/landing-${where}-fold-${String(t).padStart(3, "0")}.png`);
     await sheet(page, url, `landing-${where}-sheet.png`, pick, FRAME_TIMES.map((t) => `${t} ms`), { cols: 4, width: where === "mac" ? 2300 : 1700, title: `The landing, ${where === "mac" ? "Mac" : "phone mock"}`, note: "The working line hands over in place: its words and face leave over 100 ms, the fold line fades in over 200 ms, the reply arrives like any message over 200 ms. Nothing above moves." });
     const reducedPick = FRAME_TIMES.map((t) => `frames/landing-${where}-fold-reduced-${String(t).padStart(3, "0")}.png`);
-    if (reducedPick.every((file) => existsSync(join(ASSETS, file)))) {
+    if (reducedPick.every((file) => existsSync(join(WORK, file)))) {
       await sheet(page, url, `landing-${where}-reduced-sheet.png`, reducedPick, FRAME_TIMES.map((t) => `${t} ms`), { cols: 4, width: where === "mac" ? 2300 : 1700, title: `The landing with Reduce Motion, ${where === "mac" ? "Mac" : "phone mock"}`, note: "Only fades of 150 ms; what leaves goes at once." });
     }
   }
@@ -216,10 +226,19 @@ async function landingShots(page: Page, url: string): Promise<LandingCheck[]> {
 
 export interface BusyCheck { at: number; words: string; slotHeight: number | null; promptTop: number | null; greetingTop: number | null }
 
-async function busyShots(page: Page, url: string, texts: { greeting?: string; prompt?: string; reply?: string }): Promise<{ checks: BusyCheck[]; changes: Array<{ at: number; words: string }> }> {
+export interface BeforeTexts { greeting?: string; prompt?: string; reply?: string; fold?: string | null; history?: Array<{ user: string; reply: string; fold: string | null }> }
+
+async function busyShots(page: Page, url: string, texts: BeforeTexts): Promise<{ checks: BusyCheck[]; changes: Array<{ at: number; words: string }> }> {
   const checks: BusyCheck[] = [];
-  const query = new URLSearchParams({ view: "busy", platform: "mac", skin: "daylight", at: "0", ...(texts.greeting ? { greeting: texts.greeting } : {}), ...(texts.prompt ? { prompt: texts.prompt } : {}), ...(texts.reply ? { reply: texts.reply } : {}) });
-  await page.viewport(WINDOWS.mac.width, WINDOWS.mac.height, 2);
+  const query = new URLSearchParams({
+    view: "busy", platform: "mac", skin: "daylight", at: "0",
+    ...(texts.greeting ? { greeting: texts.greeting } : {}),
+    ...(texts.prompt ? { prompt: texts.prompt } : {}),
+    ...(texts.reply ? { reply: texts.reply } : {}),
+    ...(texts.fold ? { fold: texts.fold } : {}),
+    ...(texts.history?.length ? { history: JSON.stringify(texts.history) } : {}),
+  });
+  await page.viewport(1328, 848, 2);
   await page.goto(`${url}?${query}`, READY);
   await settle(page);
   const window = await page.clip('[data-window="mac"]');
@@ -227,7 +246,7 @@ async function busyShots(page: Page, url: string, texts: { greeting?: string; pr
   const times = [400, 1_200, 2_200, 3_000, 4_000, 10_000, 40_000, 62_000, 64_000, 76_500, 77_200, BUSY_TURN.landsAt + 600];
   const files: string[] = [];
   const labels: string[] = [];
-  mkdirSync(join(ASSETS, "frames"), { recursive: true });
+  mkdirSync(join(WORK, "frames"), { recursive: true });
   for (const at of times) {
     await page.evaluate(`(window.__wl.at(${at}), true)`);
     await settle(page);
@@ -239,14 +258,14 @@ async function busyShots(page: Page, url: string, texts: { greeting?: string; pr
     })()`);
     checks.push({ at, ...state });
     const file = `frames/busy-mac-${String(at).padStart(5, "0")}.png`;
-    await page.screenshot(join(ASSETS, file), await turnRegion(page, "greeting"));
+    await page.screenshot(join(WORK, file), await turnRegion(page, "prompt"));
     files.push(file);
     labels.push(`${(at / 1000).toFixed(1)} s · ${at >= BUSY_TURN.landsAt ? "landed" : state.words || "slot reserved"}`);
   }
   for (const [moment, at] of Object.entries(MOMENTS)) {
     await page.evaluate(`(window.__wl.at(${at}), true)`);
     await settle(page);
-    await page.screenshot(join(ASSETS, `after-${moment}.png`), window);
+    await page.screenshot(join(WORK, `after-${moment}.png`), window);
   }
   await sheet(page, url, "busy-mac-sheet.png", files, labels, { cols: 4, width: 2300, title: "One busy turn, 77 seconds, Mac", note: "Read two files, change one, run the tests for a minute and more, write back. The line changes four times; the rows above never move." });
   await page.goto(`${url}?${new URLSearchParams({ ...Object.fromEntries(query), at: "3850" })}`, READY);
@@ -260,7 +279,7 @@ async function busyShots(page: Page, url: string, texts: { greeting?: string; pr
     await page.evaluate(seekNew(t));
     await page.frames(1);
     const file = `frames/swap-mac-${String(t).padStart(3, "0")}.png`;
-    await page.screenshot(join(ASSETS, file), swapRegion);
+    await page.screenshot(join(WORK, file), swapRegion);
     swapFiles.push(file);
   }
   await sheet(page, url, "swap-mac-sheet.png", swapFiles, [0, 50, 100, 150, 200, 300].map((t) => `${t} ms`), { cols: 6, width: 1900, title: "A phrase changing in place", note: "The old words fade out over 100 ms, then the new words rise 4 px and fade in over 200 ms. The face changes pose on its own beat. The slot never changes height." });
@@ -279,22 +298,25 @@ async function bubblesShots(page: Page, url: string): Promise<void> {
 
 async function compareShot(page: Page, url: string): Promise<void> {
   const files = ["sent", "working", "minute", "landed"].flatMap((moment) => [`before-${moment}.png`, `after-${moment}.png`]);
-  if (!files.every((file) => existsSync(join(ASSETS, file)))) {
+  if (!files.every((file) => existsSync(join(WORK, file)))) {
     console.log("before-after.png skipped: run scripts/testing/wait-and-landing-before.ts first");
     return;
   }
   await page.viewport(1700, 1000, 2);
-  await page.goto(`${url}?view=compare&skin=daylight`, READY);
+  await page.goto(`${url}?view=compare&skin=daylight&base=${encodeURIComponent(WORK_URL)}`, READY);
   await settle(page);
   await page.screenshot(join(ASSETS, "before-after.png"), await page.clip('[data-view="compare"]'));
   console.log("before-after.png");
 }
 
+interface BeforeRun { texts?: BeforeTexts; surfaces?: unknown; landing?: unknown }
+
 async function main(): Promise<void> {
   const { values } = parseArgs({ options: { only: { type: "string" } } });
   const only = values.only;
   mkdirSync(ASSETS, { recursive: true });
-  const before = existsSync(join(ASSETS, "before.json")) ? JSON.parse(readFileSync(join(ASSETS, "before.json"), "utf8")) as { texts?: { greeting?: string; prompt?: string; reply?: string } } : {};
+  mkdirSync(join(WORK, "frames"), { recursive: true });
+  const before: BeforeRun = existsSync(join(WORK, "before.json")) ? JSON.parse(readFileSync(join(WORK, "before.json"), "utf8")) as BeforeRun : {};
   const browser = await openBrowser(await browserPath());
   let preview: MountedPreview | undefined;
   const results: Record<string, unknown> = {};
@@ -310,8 +332,10 @@ async function main(): Promise<void> {
     await browser.close();
     await preview?.close();
   }
-  const out = join(ASSETS, only ? `checks-${only}.json` : "checks.json");
+  if (!only && before.landing) results.today = { surfaces: before.surfaces, landing: before.landing };
+  const out = only ? join(WORK, `checks-${only}.json`) : join(ASSETS, "checks.json");
   writeFileSync(out, `${JSON.stringify(results, null, 2)}\n`);
+  if (!only) quantize();
   console.log(out);
 }
 
