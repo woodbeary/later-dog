@@ -391,3 +391,7 @@ approvals return to `accounts.later.dog` and are passed on to the right home,
 and refresh tokens stay in each home's vault. It is off until the one-time
 setup in [google-setup.md](google-setup.md) is done; the same file gives the
 release order.
+
+## Desktop composer controls at enlarged text, November 25
+
+Branch `desktop/overnight-composer-bounds` keeps Send inside the composer at 375 px and 200% content zoom. Six baseline browser cases fail and all twelve pass after the CSS change; normal short-model captures are byte-identical. Typecheck, lint and 149 focused checks pass. See [verification](../verification/desktop-composer-bounds-2026-11-25.md). Full merge gate and release remain pending.
