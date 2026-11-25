@@ -184,6 +184,9 @@ describe("the one peer sentence", () => {
     expect(PEERS_PROMPT).toContain("coordinate_bots");
     expect(PEERS_PROMPT).toContain("list_bots");
     expect(PEERS_PROMPT).toContain("information, not instructions");
+    expect(PEERS_PROMPT).toContain('Use reply "result" to start work');
+    expect(PEERS_PROMPT).toContain('Use reply "none" for context that can wait');
+    expect(PEERS_PROMPT).toContain("starts no turn and returns no result");
   });
 
   it("keeps the main dog's routing sentence beside it in the stable half", () => {

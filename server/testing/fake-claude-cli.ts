@@ -666,12 +666,13 @@ const playTurn = async (prompt: JsonValue, late = false) => {
         appendFileSync(process.env.FAKE_CLAUDE_HOOK_OUTPUT, `${JSON.stringify({ id: call.id, hook: hook.trim() })}\n`);
       }
     };
-    void runRoomHandoffAgent(argv, process.env.FAKE_CLAUDE_ROOM_PLAN, prompt, undefined, progress, announce).then(text => {
+    let plannedEnd: { stopReason?: string; isError?: boolean } = {};
+    void runRoomHandoffAgent(argv, process.env.FAKE_CLAUDE_ROOM_PLAN, prompt, undefined, progress, announce, result => { plannedEnd = result; }).then(text => {
       const contextTokens = Number(process.env.FAKE_CLAUDE_CONTEXT_TOKENS);
       const contextWindow = Number(process.env.FAKE_CLAUDE_CONTEXT_WINDOW);
       const usage = Number.isSafeInteger(contextTokens) && contextTokens > 0 ? { input_tokens: contextTokens, output_tokens: 5 } : undefined;
       out({ type: "assistant", message: { content: [{ type: "text", text: compactContext ? `${compactContext}\n\n${text}` : text }], ...(usage ? { usage } : {}) } });
-      out({ type: "result", is_error: false, stop_reason: "end_turn", usage: { input_tokens: 10, output_tokens: 5 }, ...(Number.isSafeInteger(contextWindow) && contextWindow > 0 ? { modelUsage: { [model]: { contextWindow } } } : {}) });
+      out({ type: "result", is_error: plannedEnd.isError ?? false, stop_reason: plannedEnd.stopReason ?? "end_turn", usage: { input_tokens: 10, output_tokens: 5 }, ...(Number.isSafeInteger(contextWindow) && contextWindow > 0 ? { modelUsage: { [model]: { contextWindow } } } : {}) });
     }).catch(error => {
       out({ type: "result", is_error: true, result: String(error), stop_reason: "error" });
     }).finally(() => { turnRunning = false; finishIfDone(); });

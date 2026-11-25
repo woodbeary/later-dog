@@ -464,7 +464,7 @@ export async function callTool(name: string, args: Json, context: ToolCallContex
       return `- ${b.name}${role}${about} [id: ${b.id}, model: ${b.model}${team}${state ? `, ${state}` : ""}]`;
     });
     return {
-      text: `Reachable teammates:\n${lines.join("\n")}\n\nUse coordinate_bots for advice or concrete work, then end your turn. Busy teammates queue and results resume you automatically; for handoffs, relays and FYIs you don't need back, set reply "none".${rooms ? `\n\n${rooms}` : ""}`,
+      text: `Reachable teammates:\n${lines.join("\n")}\n\nUse coordinate_bots with reply "result" to start work, then end your turn; its result resumes you. Use reply "none" for FYIs and relays that can wait as context in the next real turn; it starts no turn and returns no result.${rooms ? `\n\n${rooms}` : ""}`,
     };
   }
   if (name === "account_usage") {

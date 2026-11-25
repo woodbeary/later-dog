@@ -102,6 +102,52 @@ settings schema: `autoCompactWindow`, `CLAUDE_CODE_AUTO_COMPACT_WINDOW`,
 Codex CLI 0.167.2 (config keys `model_auto_compact_token_limit`,
 `model_context_window`, the `contextCompaction` item).
 
+## Work continuity, 25 November 2026
+
+The working instructions now ask every engine to save a workspace checkpoint
+with the goal, decisions, changed files, check results, blockers and next step.
+After compaction the dog resumes from that checkpoint and its plan. A new
+message from the person steers outstanding work unless it cancels or replaces
+the task.
+
+Commands and teammates have separate waiting rules. A needed command result
+uses the tool's wait or output action; a teammate result resumes the dog after
+it finishes independent work and ends its turn. There is no instruction to
+create a fresh helper just because a conversation is long. Delegation guidance
+is included only when later.dog's team tools are available. Plans and progress
+updates keep their required outcomes with fewer words.
+
+On main `4efafe4ce`, 14 of the 15 new instruction checks failed. After the
+change all 186 focused checks passed, including changed-context delivery,
+Codex instruction updates, model-specific tool deferral, standing rare-tool
+rules, imported-text boundaries and owner-only long work. The working section
+has a 3,700-byte ceiling on each tested engine.
+
+The same invented Linux fixture before and after the change gave these first
+request estimates. Tokens are UTF-8 bytes divided by four, rounded up; these
+are not tokenizer readings and exclude tool schemas, the provider's native
+instructions and conversation history.
+
+| Dog / engine | Before tokens | After tokens |
+| --- | ---: | ---: |
+| Main / Claude | 7,935 | 7,799 |
+| Helper / Claude | 7,258 | 7,122 |
+| Group / Claude | 7,030 | 6,894 |
+| Started / Claude | 7,264 | 7,128 |
+| Main / Codex | 7,787 | 7,616 |
+| Helper / Codex | 7,365 | 7,194 |
+| Group / Codex | 7,137 | 6,966 |
+| Started / Codex | 7,371 | 7,200 |
+
+Standing text saves 544 bytes on Claude and 684 on Codex. First context notes
+and their 100-turn resend totals are unchanged. The Mac fixture has 50 more
+bytes in both standing text and first context because its temporary path is
+longer; it gives the same byte savings.
+
+These checks prove instruction assembly and existing deterministic behavior.
+They do not establish how reliably a live model writes checkpoints or recovers
+a long task. No real multi-hour model run or production rollout is claimed here.
+
 ## Numbers from the measuring scripts
 
 Both scripts run on an invented fixture home and estimate tokens as bytes / 4.
