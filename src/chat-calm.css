@@ -136,3 +136,32 @@
   line-height: 20px;
   font-weight: 600;
 }
+
+[data-composer-surface] [data-composer-actions] {
+  min-width: 0;
+  max-width: 100%;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+[data-composer-surface] [data-composer-actions] > :has([data-chat-ai]) {
+  min-width: 0;
+  max-width: 100%;
+}
+
+[data-composer-surface] [data-chat-ai] {
+  max-width: min(360px, 100%);
+}
+
+[data-composer-surface] [data-chat-ai] .truncate {
+  min-width: 0;
+}
+
+[data-composer-surface] [data-model-account],
+[data-composer-surface] [data-model-effort] {
+  min-width: 0;
+  flex-shrink: 1;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}

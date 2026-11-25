@@ -445,3 +445,7 @@ access and owner authority determine this behavior. Mac permissions and optional
 routine cards have separate companion changes. Checked behavior and limits are
 in [the verification record](../verification/full-owner-no-asks-2026-11-25.md).
 This change awaits the complete integration gate and release.
+
+## Desktop composer controls at enlarged text, November 25
+
+Branch `desktop/overnight-composer-bounds` keeps Send inside the composer at 375 px and 200% content zoom. Six baseline browser cases fail and all twelve pass after the CSS change; normal short-model captures are byte-identical. Typecheck, lint and 149 focused checks pass. See [verification](../verification/desktop-composer-bounds-2026-11-25.md). Full merge gate and release remain pending.
