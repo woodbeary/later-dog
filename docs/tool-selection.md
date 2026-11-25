@@ -78,6 +78,11 @@ Pi sends the selected MCP schemas directly to the model.
 | Claude, Codex, Gemini, Kimi, Droid, Cursor, OpenCode Go, Qwen, Hermes, Custom ACP, Antigravity | App-supplied MCP tools; keep `native:*` in Allow and do not exclude native tools |
 | Boat native | Meaningful tool restrictions are unsupported |
 
+Antigravity gets later.dog's own MCP servers over stdio, so selection works on
+them as it does for the other ACP engines. A custom HTTP server starts agy with
+one worker per session, and a custom SSE server is not passed to agy at all, so
+none of its tools reach it. See [Antigravity](antigravity.md).
+
 Grok CLI's native contract is verified on version **1.0.41**. Other versions
 refuse native restrictions until their contract is verified. Inherited Grok
 profile restrictions still apply. Grok accepts simple `[agent]` name/definition

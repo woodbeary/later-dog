@@ -70,6 +70,20 @@ RUN if [ -n "$CURSOR_VERSION" ]; then \
       && HOME=/tmp/cursor-install cursor-agent --version | grep -qF "$CURSOR_VERSION" \
       && rm -rf /tmp/cursor-install; \
     fi
+ARG AGY_VERSION=1.5.17-4823843970351104
+ARG AGY_SHA512_X64=71a967aa16e0ab5d87196bcd6772130bdab55b2fd768cd24d21b1da401ff9f60280b976cad3dc14a2d646233b0eaf8caf87c490eed73044d54550cbb3d8d67d2
+ARG AGY_SHA512_ARM64=e4f086d0730b325cfd438ea90396ee78eb23a3110ef7f792824c8817b8d0432462b7b5f91b3d933fc1932a6f4ba73de505e2e96f44448c9fb2427292ead716f7
+RUN if [ -n "$AGY_VERSION" ]; then \
+      case "$(uname -m)" in x86_64|amd64) arch=x64; dir=linux-x64; sum="$AGY_SHA512_X64";; arm64|aarch64) arch=arm64; dir=linux-arm; sum="$AGY_SHA512_ARM64";; *) echo "no Antigravity build for $(uname -m)" >&2; exit 1;; esac \
+      && mkdir -p /tmp/agy-install \
+      && curl -fsSL "https://storage.googleapis.com/antigravity-public/antigravity-cli/${AGY_VERSION}/${dir}/cli_linux_${arch}.tar.gz" -o /tmp/agy-install/agy.tar.gz \
+      && echo "${sum}  /tmp/agy-install/agy.tar.gz" | sha512sum -c - \
+      && tar --no-same-owner --no-same-permissions -xzf /tmp/agy-install/agy.tar.gz -C /tmp/agy-install antigravity \
+      && install -m 0755 /tmp/agy-install/antigravity /usr/local/bin/agy \
+      && HOME=/tmp/agy-install agy --version | grep -qF "${AGY_VERSION%%-*}" \
+      && rm -rf /tmp/agy-install; \
+    fi
+ENV AGY_CLI_DISABLE_AUTO_UPDATE=true
 ARG CLOUD_HOME_ENGINES="@anthropic-ai/claude-code@2.1.316 @openai/codex@0.163.0"
 ARG ENGINES_CACHE_TAG=""
 RUN echo "engines: ${CLOUD_HOME_ENGINES:-none} ${ENGINES_CACHE_TAG}" \

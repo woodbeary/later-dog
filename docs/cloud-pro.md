@@ -43,7 +43,8 @@ The home runs on Cloudflare, not Fly. The pieces:
   through AI Gateway), voice (Aura-2, or ElevenLabs when it is switched on)
   and the plan. The home holds an included key for these, so every dog on
   a home gets its own computer and the free AI works with no sign-in. The
-  person can also sign in to Claude, ChatGPT, Grok or Cursor on the home.
+  person can also sign in to Claude, ChatGPT, Grok, Cursor or Antigravity on the
+  home.
 
 The rest of this page is contract version 1, written when the home was a Fly
 machine. The boot variables, the loopback rule, pairing, lending the Mac and
@@ -78,8 +79,8 @@ Contract version: `1` (`cloudContractVersion` on the wire).
 4. The first thing the Cloud shows is its engine sign-in
    (`src/components/CloudEngineSignIn.tsx`). It is the same list the desktop
    shows when no AI can run (`src/components/NoEngines.tsx`), from one place
-   (`src/components/AiChoices.tsx`): the free AI, then Claude, ChatGPT, Grok
-   and Cursor. Each **Sign in** opens the same sign-in sheet as Settings →
+   (`src/components/AiChoices.tsx`): the free AI, then Claude, ChatGPT, Grok,
+   Cursor and Antigravity. Each **Sign in** opens the same sign-in sheet as Settings →
    AI accounts → Add account; an engine this Cloud computer cannot run says
    **Not available here**. API keys stay in Settings.
 
@@ -90,7 +91,7 @@ Contract version: `1` (`cloudContractVersion` on the wire).
    default one, shows this sign-in rather than a chat that fails its first
    turn. Once one can run, the chat takes its place. Sign-ins stay on the
    machine's volume (`~/.claude`, `~/.codex`, `~/.grok`, Cursor's own folder,
-   the server's own config).
+   agy's own folder, the server's own config).
 
    Settings › AI accounts on a Cloud home uses the same sign-ins: the
    **ChatGPT** tile signs in with Codex's device code (`codex login
@@ -100,7 +101,11 @@ Contract version: `1` (`cloudContractVersion` on the wire).
    `grok logout`, then removes `~/.grok/auth.json` if it is still there.
    **Cursor** runs `cursor-agent login` with `NO_OPEN_BROWSER=1`, shows the
    link it prints, and signs out with `cursor-agent logout`. On an older image without the Grok CLI, Grok's setup card says
-   so in one line and offers an xAI key instead.
+   so in one line and offers an xAI key instead. **Antigravity** runs agy's own
+   sign-in (`agy acp --login`) and shows the Google link it prints. The person
+   opens it, then pastes the code Google shows (or the address of the page they
+   land on) back, and the home hands it to agy unchanged. Signing out uses agy's
+   own `logout`. See [Antigravity](antigravity.md).
 
 The Cloud's `GET /api/auth/session` answers `"cloudHome": true` for a paired
 session; that is how the web UI knows to open the engine sign-in instead of
@@ -772,6 +777,16 @@ layers (Node, Chrome's libraries, agent-browser and its Chrome) and adds:
   installer named on 2026-10-16). The build checks `cursor-agent --version`
   prints that version; `--build-arg CURSOR_VERSION=` leaves it out. This pin
   has not yet been built or signed in to on a real Cloud home;
+- Antigravity's CLI (`/usr/local/bin/agy`, root's) from Google's own versioned
+  download for the build's architecture, pinned by `AGY_VERSION` (release and
+  build) and checked against the SHA-512 recorded for that architecture in
+  `AGY_SHA512_X64` and `AGY_SHA512_ARM64`. The build checks that `agy --version`
+  prints the pinned version, and never runs Google's install script, which
+  cannot pin a version and edits shell profiles. The image sets
+  `AGY_CLI_DISABLE_AUTO_UPDATE=true` so agy never replaces itself;
+  `--build-arg AGY_VERSION=` leaves it out. This pin has not yet been built into
+  an image or signed in to on a real Cloud home, and its arm64 build has been
+  checked against its SHA-512 but never run;
 - the engine CLIs from `CLOUD_HOME_ENGINES` (default Claude Code 2.1.316 and
   Codex 0.163.0, pinned so an image build installs known versions);
 - the app files, root's, with `server/cloud-home-start.ts` (bundled to
@@ -784,7 +799,8 @@ docker build --target cloud-home -t laterdog-cloud-home .
 
 The app files are the last layers, so an image built from a later commit
 differs from the previous one only in those (a few MB) unless Chrome, an
-engine, Grok's pin, or the Node base image changed in between.
+engine, the Grok, Cursor or Antigravity pin, or the Node base image changed in
+between.
 
 At boot the launcher, running as root, hands the volume's mount point to the
 `dog` user, binds the volume to this machine as `dog`
@@ -1193,7 +1209,8 @@ section is only what the Cloud adds.
 
 Every push to `main` and every release tag publishes the home machine image as
 `ghcr.io/woodbeary/later-dog-cloud-home`, tagged `latest` (main only), `sha-<commit>` and the release tag.
-It is the `Dockerfile`'s `cloud-home` target for the same commit, with Grok and the current Claude Code and
-Codex installed. The Docker workflow's summary prints the digest. Set it in the Admin as
+It is the `Dockerfile`'s `cloud-home` target for the same commit, with Grok, Cursor and Antigravity at their
+pinned versions and the current Claude Code and Codex installed. The Docker workflow's summary prints the digest.
+Set it in the Admin as
 `LATERDOG_CLOUD_HOME_IMAGE=ghcr.io/woodbeary/later-dog-cloud-home@sha256:…`; changing it rolls the new image
 out to existing machines one at a time, reverting automatically on a failed health check.

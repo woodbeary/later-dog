@@ -134,23 +134,25 @@ model the reviewer supports, or turn Auto-review off, to stop the prompts. With
 Auto-review off your own dogs' Claude sessions start in Manual on purpose;
 later.dog answers each request and shows no notice.
 
-### Antigravity: Ask, Edits, or Auto (full access)
+### Antigravity: Ask, Edits, or Full access
 
 For Antigravity, the composer and bot settings offer **Ask for approval**,
-**Auto-accept edits** (its native `auto_edit` mode), and **Auto (full access)**.
-Auto enables native `yolo` mode and automatically approves remaining
-tool-permission requests for commands, edits, and computer actions, without an
-automatic reviewer. The composer chip reads **Auto**. This uses the existing
+**Auto-accept edits** and **Full access**. They map to agy's own modes:
+`default`, `accept-edits` and `auto`. Full access also has later.dog answer
+every permission request agy sends, so no request waits for you. later.dog never
+starts agy with `--dangerously-skip-permissions` and never sets another agy mode.
+If a session does not offer `auto`, Full access runs it in `default`, and
+later.dog still approves every request itself. Full access uses the existing
 Full access grant and confirmation, not a separate permission setting, and
-applies to every model in that Antigravity instance, including Gemini.
+applies to every model agy offers.
 
-Choose Auto explicitly in the local packaged desktop app. Old Antigravity
-`auto` / `autoApprove` settings still behave as Ask and are displayed as Ask;
-they never become unrestricted access on upgrade. Switching back to Ask
-restores prompts on the next turn. Questions and missing-credential forms
-still require an answer. Another dog
-can delegate work to this bot without downgrading its explicit Auto
-(full access) grant. It does not enable Auto on any other bot.
+Choose Full access explicitly in the local packaged desktop app. There is no
+separate Auto level on this engine: Auto behaves as Ask, and only an explicit
+Full access grant makes a dog unrestricted, never an older saved setting.
+Switching back to Ask restores prompts on the next turn. Questions and
+missing-credential forms still require an answer. Another dog can delegate work
+to this bot without downgrading its explicit Full access grant. It does not
+enable Full access on any other bot. See [Antigravity](antigravity.md).
 
 ## Asking you questions
 
@@ -180,7 +182,7 @@ multi-question card renders its structured form on current apps instead.
 | Codex | `on-request` approvals, `workspace-write` sandbox, you review | not offered (Ask already writes in the workspace) | same sandbox, native `auto_review` reviewer; with Auto-review off, your own dog's turn starts with `user` as reviewer and later.dog answers each request | `never` approvals, `danger-full-access` sandbox |
 | Claude | Native `default` | Native `acceptEdits` | Native `auto`; with Auto-review off, your own dog's turn starts in Native `default` and later.dog answers each request | Native `bypassPermissions` |
 | Cursor | Native default | not offered | Native `--auto-review` | Native `--force` |
-| Antigravity | Native `default` | Native `auto_edit` | Legacy `auto` behaves as Ask; UI Auto selects Full access | Native `yolo` plus automatic approval of remaining tool-permission requests; shown as Auto |
+| Antigravity | Native `default` | Native `accept-edits` | Ask (no reviewer) | Native `auto` when the session offers it, else `default`, plus automatic approval of every permission request |
 | Grok Build | Native `default` | Native `acceptEdits` | Native `--permission-mode auto`; availability of Grok's reviewer depends on its feature rollout | Native `bypassPermissions` plus automatic approval of remaining tool-permission requests |
 | OpenCode | Ask | not offered | Ask | Approve individual ACP permission requests, never task questions |
 | Qwen Code | Native `default` | Native `--approval-mode auto-edit` | Native `--approval-mode auto` (Qwen's LLM classifier approves safe actions, blocks risky ones) | `--yolo`, plus automatic approval of remaining ACP permission requests |
