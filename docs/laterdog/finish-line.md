@@ -83,6 +83,14 @@ nothing above a landing reply moves; no deliberate hold on a splash; on the phon
 switch and no stall over 200 ms, the targets stated on November 10
 ([phone-chat-performance-2026-11-10.md](../verification/phone-chat-performance-2026-11-10.md)).
 
+## Wait and landing design decisions, November 25
+
+PR #261 settles the five design choices under full delegation: one bubble per authored reply,
+40% answer room while following the bottom, no work-line shimmer, no sidebar working dot, and a
+plain long-step subject after one minute. The specification records boundaries and implementation
+checks. This remains a design prototype, with no production wiring. The 30 focused model, brand
+and no-comments checks passed; the complete merge gate has not run.
+
 ## Real account limit, November 14
 
 Draft pull request 199, branch `atelier/real-account-limit`, item 30, server half. One model reaching
