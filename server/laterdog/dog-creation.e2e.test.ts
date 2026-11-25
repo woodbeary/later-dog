@@ -1,5 +1,5 @@
 import { spawn, type ChildProcess } from "node:child_process";
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createInterface } from "node:readline";
@@ -147,3 +147,43 @@ it("lets an ordinary dog create a dog that greets the person, with no per-turn c
     writeFileSync(`${fixture.info.logPath}.dog-creation.json`, JSON.stringify(evidence, null, 2));
   }
 }, 90_000);
+
+it("shared-workspace helpers stay inside the creating chat's folder and cannot acquire the owner-wide Full grant", async () => {
+  const fixture = await launchVerificationServer({ FAKE_CLAUDE_MODE: "hang" });
+  const root = join(fixture.info.dataDir, "shared-project");
+  mkdirSync(root);
+  const api = async (method: string, path: string, body?: unknown) => {
+    const response = await fetch(fixture.info.url + path, {
+      method, headers: { "content-type": "application/json", origin: fixture.info.url },
+      ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+    });
+    return { status: response.status, body: await response.json() as any };
+  };
+  try {
+    expect((await api("PUT", "/api/config", { signIn: { admins: ["one@example.test", "two@example.test"] } })).status).toBe(200);
+    const created = await api("POST", "/api/bots", { name: "Shared creator", settings: { approvalMode: "auto", cwd: root } });
+    expect(created.status).toBe(201);
+    const source = created.body.bot;
+    expect((await api("POST", `/api/bots/${source.id}/messages`, { text: "Create a helper inside our project." })).status).toBe(202);
+    await expect.poll(() => existsSync(fixture.fixtureDumpPath), { timeout: 15_000 }).toBe(true);
+    const mounted = dumpSchema.parse(JSON.parse(readFileSync(fixture.fixtureDumpPath, "utf8"))).mcpConfig.mcpServers.agents;
+    const create = (name: string, cwd?: string | null) => fetch(`${mounted.env.LATERDOG_HARNESS_URL}/api/internal/create-bot`, {
+      method: "POST", headers: { authorization: `Bearer ${mounted.env.LATERDOG_COMMS_TOKEN}`, "content-type": "application/json" },
+      body: JSON.stringify({ name, role: "Shared checks", instructions: "Check this shared task.", cwd, ownerFull: true, fullAccessAll: true }),
+    });
+    const blocked = await create("Outside shared helper", fixture.info.dataDir);
+    expect(blocked.status, await blocked.clone().text()).toBe(403);
+    for (const [index, folder] of [root, null, undefined].entries()) {
+      const response = await create(`Shared helper ${index}`, folder);
+      expect(response.status, await response.clone().text()).toBe(201);
+      const made = await response.json() as { id: string };
+      const dog = (await api("GET", "/api/bots?messages=0")).body.bots.find((bot: any) => bot.id === made.id);
+      expect(dog.approvalMode).not.toBe("full");
+      expect(dog.tasks.every((task: any) => task.approvalMode !== "full")).toBe(true);
+      expect(dog.cwd).toBe(folder ?? undefined);
+    }
+    expect((await api("PUT", "/api/full-access-all", { enabled: true })).status).toBe(404);
+  } finally {
+    await fixture.close();
+  }
+}, 60_000);
