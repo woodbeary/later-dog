@@ -8,7 +8,8 @@ export interface StreamingProcess {
 }
 
 export interface ProcessStreamHost {
-  start(input: ExecInput, stdin: ReadableStream<Uint8Array>): Promise<StreamingProcess>;
+  canKeepEngine?(input: ExecInput): boolean;
+  start(input: ExecInput, stdin: ReadableStream<Uint8Array>, ongoingEngine: boolean): Promise<StreamingProcess>;
   active(): void;
   finished(): void;
 }
@@ -16,6 +17,11 @@ export interface ProcessStreamHost {
 const MAX_FRAME = 1024 * 1024;
 const MAX_QUEUED = 4 * MAX_FRAME;
 const MAX_PROCESS_MS = 2 * 60 * 60_000;
+
+export function engineRelayPath(input: ExecInput): string | undefined {
+  if (input.cwd || input.env) return undefined;
+  return /^exec node '(\/home\/dog\/\.laterdog-engine\/relay\/[a-f0-9]{16}\/engine-relay\.(?:js|ts))'$/.exec(input.command)?.[1];
+}
 
 export function serveProcessStream(request: Request, host: ProcessStreamHost): Response {
   if (request.headers.get("upgrade")?.toLowerCase() !== "websocket") return new Response("Expected a WebSocket upgrade.", { status: 426 });
@@ -82,7 +88,7 @@ export function runProcessStream(socket: StreamSocket, host: ProcessStreamHost):
     if (typeof event.data !== "string" || event.data.length > MAX_FRAME) { stop(); return; }
     lastActive = Date.now();
     host.active();
-    let frame: { channel?: string; data?: string; input?: unknown };
+    let frame: { channel?: string; data?: string; input?: unknown; lifetime?: string };
     try { frame = JSON.parse(event.data); } catch { stop(); return; }
     if (frame.channel === "pong") return;
     if (!started) {
@@ -90,9 +96,11 @@ export function runProcessStream(socket: StreamSocket, host: ProcessStreamHost):
       const parsed = parseExec(frame.input);
       if (!parsed.ok) { send({ channel: "error", message: parsed.refusal.message }); stop(); return; }
       started = true;
+      const ongoingEngine = frame.lifetime === "engine" && host.canKeepEngine?.(parsed.value) === true;
+      if (ongoingEngine) clearTimeout(deadline);
       void (async () => {
         try {
-          child = await host.start(parsed.value, stdin);
+          child = await host.start(parsed.value, stdin, ongoingEngine);
           if (closed) { child.kill(9); return; }
           send({ channel: "started" });
           const pumps = [pump(child.stdout, "stdout"), pump(child.stderr, "stderr")];

@@ -25,7 +25,7 @@ import { type Collected, collect, json, outputText, within } from "./http";
 import { type IdlePolicy, MINUTE, decideIdle, idlePolicy, inactivityTimeoutMs } from "./idle";
 import { type ExecInput, FILE_MAX_BYTES, SIZES, type Size, commandEnv, redact } from "./inputs";
 import { route } from "./routes";
-import { serveProcessStream } from "./process-stream";
+import { engineRelayPath, serveProcessStream } from "./process-stream";
 import { trialPolicy } from "./trial";
 import { trials } from "./trial-registry";
 import { QUIT_BROWSER_SCRIPT, QUIT_BROWSER_WAIT_MS } from "./quit-browser";
@@ -219,6 +219,7 @@ export class DogComputer extends DurableObject<Env> {
   private readonly trialIdle: IdlePolicy = { ...idlePolicy(this.env), idleSleepMs: trialPolicy(this.env).idleSleepMs };
   private readonly viewers = new Map<WebSocket, WebSocket>();
   private inFlight = 0;
+  private engineStreams = 0;
   private deleting = false;
   private lifecycle: Promise<unknown> = Promise.resolve();
   private lastActivityWrite = 0;
@@ -480,12 +481,22 @@ export class DogComputer extends DurableObject<Env> {
     if (record.state !== "running" || !this.ctx.container?.running) return json({ error: { code: "asleep", message: "The computer is not running." } }, 409);
     this.inFlight += 1;
     this.markActive();
+    let engineRunning = false;
     return serveProcessStream(request, {
-      start: (input, stdin) => this.container().exec(["timeout", "--kill-after=5", "7200s", "bash", "-lc", input.command], {
-        env: commandEnv(DOG_ENV, input.env), user: DOG, cwd: input.cwd ?? DOG_HOME, stdin,
-      }),
+      canKeepEngine: input => (!record.trial || Boolean(record.fullAllowance)) && Boolean(engineRelayPath(input)),
+      start: (input, stdin, ongoingEngine) => {
+        const relay = ongoingEngine && engineRelayPath(input);
+        if (relay) { engineRunning = true; this.engineStreams += 1; }
+        return this.container().exec(relay ? ["node", relay] : ["timeout", "--kill-after=5", "7200s", "bash", "-lc", input.command], {
+          env: commandEnv(DOG_ENV, input.env), user: DOG, cwd: input.cwd ?? DOG_HOME, stdin,
+        });
+      },
       active: () => this.markActive(),
-      finished: () => { this.inFlight -= 1; this.markActive(); },
+      finished: () => {
+        if (engineRunning) this.engineStreams -= 1;
+        this.inFlight -= 1;
+        this.markActive();
+      },
     });
   }
 
@@ -933,6 +944,7 @@ export class DogComputer extends DurableObject<Env> {
       awakeSince: record.awakeSince ?? record.lastActiveAt,
       viewers: this.viewers.size,
       inFlight: this.inFlight,
+      engineRunning: this.engineStreams > 0,
       ...(record.budgetEndsAt === undefined ? {} : { budgetEndsAt: record.budgetEndsAt }),
     });
   }

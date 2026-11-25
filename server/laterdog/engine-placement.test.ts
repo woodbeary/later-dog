@@ -339,7 +339,7 @@ it("carries relay lines over the process stream, whole even when a character is 
   socket.send = (data) => { socket.sent.push(JSON.parse(data)); };
   socket.close = () => {};
   const link = processStreamLink(socket as unknown as WebSocket, "exec node relay.js");
-  expect(socket.sent[0]).toEqual({ channel: "start", input: { command: "exec node relay.js" } });
+  expect(socket.sent[0]).toEqual({ channel: "start", lifetime: "engine", input: { command: "exec node relay.js" } });
   const lines: string[] = []; let closed = "";
   link.on("line", (line) => lines.push(line));
   link.on("close", (why) => { closed = why; });

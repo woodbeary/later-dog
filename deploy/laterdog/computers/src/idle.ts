@@ -14,13 +14,14 @@ export interface IdleInput extends IdlePolicy {
   awakeSince: number;
   viewers: number;
   inFlight: number;
+  engineRunning?: boolean;
   budgetEndsAt?: number;
 }
 
 export type IdleDecision = { sleep: true; reason: "idle" | "max_awake" | "budget" } | { sleep: false; checkAt: number };
 
 export function decideIdle(input: IdleInput): IdleDecision {
-  const maxAwakeAt = input.awakeSince + input.maxAwakeMs;
+  const maxAwakeAt = input.engineRunning ? Number.POSITIVE_INFINITY : input.awakeSince + input.maxAwakeMs;
   if (input.now >= maxAwakeAt) return { sleep: true, reason: "max_awake" };
   const budgetEndsAt = input.budgetEndsAt ?? Number.POSITIVE_INFINITY;
   if (input.now >= budgetEndsAt) return { sleep: true, reason: "budget" };

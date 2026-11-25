@@ -81,7 +81,7 @@ export function processStreamLink(socket: WebSocket, command: string): EngineLin
   });
   socket.on("close", () => close("process stream closed"));
   socket.on("error", () => close("process stream failed"));
-  send({ channel: "start", input: { command } });
+  send({ channel: "start", lifetime: "engine", input: { command } });
   link.send = (line) => send({ channel: "stdin", data: Buffer.from(`${line}\n`).toString("base64") });
   link.close = () => { send({ channel: "stop" }); try { socket.close(); } catch {} };
   return link;
