@@ -8,10 +8,13 @@ import { Store } from "../store.ts";
 import { OFFERED_DRIVERS, RETIRED_DRIVERS, retiredEngineMoveText, retiredInstanceIds, withoutRetiredEngines } from "./engine-trim.ts";
 
 describe("the engines later.dog offers", () => {
-  it("registers exactly Claude, ChatGPT, Grok, Cursor, the included AI and the two API-key drivers", () => {
+  it("registers exactly Claude, ChatGPT, Grok, Cursor, Antigravity, the included AI and the two API-key drivers", () => {
     const registered = BUILT_IN_DRIVERS.map((driver) => driver.driverKind).sort();
     expect(registered).toEqual([...OFFERED_DRIVERS].sort());
     for (const engine of SHOWN_ENGINES) expect(registered).toContain(engine);
+    expect(SHOWN_ENGINES).toContain("antigravityAgent");
+    expect(registered).toContain("antigravityAgent");
+    expect(RETIRED_DRIVERS.has("antigravityAgent")).toBe(false);
     for (const driver of RETIRED_DRIVERS) expect(registered).not.toContain(driver);
   });
 
@@ -42,9 +45,11 @@ describe("the engines later.dog offers", () => {
 describe("which saved ids are retired", () => {
   it("names the old built-in ids and every saved id on a retired driver", () => {
     const fresh = retiredInstanceIds(undefined);
-    for (const id of ["kimi", "droid", "antigravity", "opencodeGo", "openaiCompat", "openrouter", "mistral", "cerebras", "qwen", "hermes", "pi"]) {
+    for (const id of ["kimi", "droid", "opencodeGo", "openaiCompat", "openrouter", "mistral", "cerebras", "qwen", "hermes", "pi"]) {
       expect(fresh.has(id), id).toBe(true);
     }
+    expect(fresh.has("antigravity")).toBe(false);
+    expect(retiredInstanceIds({ antigravity: { driver: "antigravityAgent" } }).has("antigravity")).toBe(false);
     expect([...retiredInstanceIds({ claude: { driver: "claudeAgent" }, work: { driver: "geminiAgent" } })]).toContain("work");
   });
 
@@ -56,12 +61,13 @@ describe("which saved ids are retired", () => {
       claude: { driver: "claudeAgent" },
       codex: { driver: "codex" },
       cursor: { driver: "cursorAgent" },
+      antigravity: { driver: "antigravityAgent" },
       grok: { driver: "grokAgent" },
     });
     expect(ids.has("kimi")).toBe(false);
     expect(ids.has("openrouter")).toBe(false);
     expect(ids.has("openaiCompat")).toBe(true);
-    for (const id of ["claude", "codex", "cursor", "grok", "laterdogAi", "laterdogGrok", "openai", "xaiApi", "claudeApi"]) {
+    for (const id of ["claude", "codex", "cursor", "antigravity", "grok", "laterdogAi", "laterdogGrok", "openai", "xaiApi", "claudeApi"]) {
       expect(ids.has(id), id).toBe(false);
     }
   });

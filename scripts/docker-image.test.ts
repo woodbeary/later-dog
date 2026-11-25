@@ -40,6 +40,7 @@ const shipped = () => all.filter(s => s.name !== "build" && s.name !== "edge").f
 const npmInstall = (step: Step) => step.op === "RUN" && /\bnpm install\b/.test(step.args);
 const browserRun = () => chain("runtime").find(step => step.op === "RUN" && step.args.includes("agent-browser install"))!;
 const grokRun = (steps: Step[]) => steps.findIndex(step => step.op === "RUN" && step.args.includes("https://x.ai/cli/install.sh"));
+const agyRun = (steps: Step[]) => steps.findIndex(step => step.op === "RUN" && step.args.includes("https://storage.googleapis.com/antigravity-public/antigravity-cli/"));
 const cursorRun = (steps: Step[]) => steps.findIndex(step => step.op === "RUN" && step.args.includes("https://downloads.cursor.com/lab/"));
 const jq = process.platform === "win32" ? "" : spawnSync("sh", ["-c", "command -v jq"], { encoding: "utf8" }).stdout.trim();
 
@@ -128,13 +129,40 @@ describe("container images", () => {
     expect(cursorRun(chain("server"))).toBe(-1);
   });
 
+  it("installs the pinned Antigravity in Cloud home only, from Google's versioned download, checked against recorded sums, owned by root", () => {
+    const home = chain("cloud-home");
+    const agy = agyRun(home);
+    expect(agy).toBeGreaterThan(-1);
+    expect(home.slice(0, agy)).toContainEqual({ op: "ARG", args: expect.stringMatching(/^AGY_VERSION=\d+\.\d+\.\d+-\d+$/) });
+    expect(home.slice(0, agy)).toContainEqual({ op: "ARG", args: expect.stringMatching(/^AGY_SHA512_X64=[0-9a-f]{128}$/) });
+    expect(home.slice(0, agy)).toContainEqual({ op: "ARG", args: expect.stringMatching(/^AGY_SHA512_ARM64=[0-9a-f]{128}$/) });
+    expect(agy).toBeGreaterThan(cursorRun(home));
+    expect(agy).toBeLessThan(home.findLastIndex(npmInstall));
+    expect(agy).toBeLessThan(home.findIndex(step => step.args.includes("--from=build")));
+    const { args } = home[agy];
+    expect(args).toContain("https://storage.googleapis.com/antigravity-public/antigravity-cli/${AGY_VERSION}/");
+    expect(args).toContain("sha512sum -c -");
+    expect(args).toContain("tar --no-same-owner --no-same-permissions -xzf /tmp/agy-install/agy.tar.gz -C /tmp/agy-install antigravity");
+    expect(args).toContain("install -m 0755 /tmp/agy-install/antigravity /usr/local/bin/agy");
+    expect(args).toContain('HOME=/tmp/agy-install agy --version | grep -qF "${AGY_VERSION%%-*}"');
+    expect(args).toMatch(/ && rm -rf \/tmp\/agy-install; +fi$/);
+    expect(args).not.toContain("install.sh");
+    expect(agyRun(chain("server"))).toBe(-1);
+  });
+
+  it("turns off agy's own updater in Cloud home only, where the binary belongs to root", () => {
+    const envOf = (target: string) => chain(target).filter(step => step.op === "ENV").map(step => step.args).join(" ");
+    expect(envOf("cloud-home")).toContain("AGY_CLI_DISABLE_AUTO_UPDATE=true");
+    expect(envOf("server")).not.toContain("AGY_CLI_DISABLE_AUTO_UPDATE");
+  });
+
   it.skipIf(!publishes)("scans the saved images for every throwaway build directory, and for one Grok", () => {
     const scan = (workflow.jobs["build-and-smoke"].steps as { name?: string; run?: string }[])
       .find(step => step.name?.startsWith("Prove each image ships its files once"))!.run!;
     const cache = new RegExp(/cache = re\.compile\(r"(.*)"\)/.exec(scan)![1]);
     const removed = shipped().flatMap(step => [...step.args.matchAll(/\brm -rf ([^;&|]+)/g)].flatMap(match => match[1].trim().split(/\s+/)));
     const throwaway = [...new Set(removed.filter(path => path.startsWith("/tmp/")))].sort();
-    expect(throwaway).toEqual(["/tmp/cursor-install", "/tmp/grok-install", "/tmp/node-compile-cache", "/tmp/npm-cache", "/tmp/laterdog-build-home"]);
+    expect(throwaway).toEqual(["/tmp/agy-install", "/tmp/cursor-install", "/tmp/grok-install", "/tmp/node-compile-cache", "/tmp/npm-cache", "/tmp/laterdog-build-home"]);
     for (const path of throwaway) expect(cache.test(`${path.slice(1)}/leftover`), path).toBe(true);
     expect(scan).toContain('grok = files["usr/local/bin/grok"]');
   });

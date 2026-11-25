@@ -727,14 +727,52 @@ describe("default fleet", () => {
     expect(map.grok).toMatchObject({ driver: "grokAgent", displayName: "My Grok" });
   });
 
-  it("ships only Claude, ChatGPT, Grok, Cursor, the included AI and the three API-key engines", () => {
+  it("ships only Claude, ChatGPT, Grok, Cursor, Antigravity, the included AI and the three API-key engines", () => {
     expect(Object.keys(instanceConfigs({})).sort()).toEqual(
-      ["chatgpt", "claude", "claudeApi", "codex", "cursor", "grok", "laterdogAi", "laterdogGrok", "openai", "xaiApi"]);
+      ["antigravity", "chatgpt", "claude", "claudeApi", "codex", "cursor", "grok", "laterdogAi", "laterdogGrok", "openai", "xaiApi"]);
   });
 
   it("ships Cursor as a default-fleet subscription engine", () => {
     const map = instanceConfigs({});
     expect(map.cursor).toEqual({ driver: "cursorAgent", environment: {} });
+  });
+
+  it("ships Antigravity as a default-fleet subscription engine", () => {
+    expect(instanceConfigs({}).antigravity).toEqual({ driver: "antigravityAgent", environment: {} });
+  });
+
+  const antigravityIds = (map: ReturnType<typeof instanceConfigs>) =>
+    Object.entries(map).filter(([, entry]) => entry.driver === "antigravityAgent").map(([id]) => id);
+
+  it("keeps one Antigravity account per home, the built-in id first", () => {
+    const crowded = instanceConfigs({ instances: {
+      claude: { driver: "claudeAgent" },
+      work: { driver: "antigravityAgent" },
+      antigravity: { driver: "antigravityAgent" },
+      spare: { driver: "antigravityAgent" },
+    } });
+    expect(antigravityIds(crowded)).toEqual(["antigravity"]);
+    const renamed = instanceConfigs({ instances: { claude: { driver: "claudeAgent" }, work: { driver: "antigravityAgent", displayName: "Gemini" } } });
+    expect(antigravityIds(renamed)).toEqual(["work"]);
+    expect(antigravityIds(instanceConfigs({ instances: { claude: { driver: "claudeAgent" } } }))).toEqual(["antigravity"]);
+  });
+
+  it("moves an old saved Antigravity instance onto the official agy without its old runtime settings", () => {
+    const map = instanceConfigs({ instances: {
+      claude: { driver: "claudeAgent" },
+      antigravity: {
+        driver: "antigravityAgent",
+        displayName: "Gemini",
+        config: { cli: "/data/.laterdog/antigravity/runtime/versions/ab12/agy_acp_server.par", fullAuto: false, workspace: "/work" },
+        environment: { GEMINI_HOME: "/data/.laterdog/antigravity/profiles/antigravity", AGY_ACP_FORCE_FILE_STORAGE: "1", AGY_ACP_DEFAULT_MODEL: "gemini-3.8-flash-high", ANTIGRAVITY_HARNESS_PATH: "/x/localharness_external", BROWSER: "/tmp/capture", KEEP_ME: "1" },
+      },
+    } });
+    expect(map.antigravity).toEqual({ driver: "antigravityAgent", displayName: "Gemini", config: { fullAuto: false, workspace: "/work" }, environment: { KEEP_ME: "1" } });
+  });
+
+  it("keeps a saved path to the official agy", () => {
+    const map = instanceConfigs({ instances: { claude: { driver: "claudeAgent" }, antigravity: { driver: "antigravityAgent", config: { cli: "/home/me/.local/bin/agy" } } } });
+    expect(map.antigravity.config).toEqual({ cli: "/home/me/.local/bin/agy" });
   });
 
   it("carries the saved OpenAI-compatible URL and model into a custom OpenAI-compatible instance", () => {
@@ -913,6 +951,7 @@ describe("default fleet", () => {
     const map = instanceConfigs({ instances: { claude: { driver: "claudeAgent" } } });
     expect(map.claude.driver).toBe("claudeAgent");
     expect(map.cursor?.driver).toBe("cursorAgent");
+    expect(map.antigravity?.driver).toBe("antigravityAgent");
     expect(map.chatgpt?.driver).toBe("codex");
     expect(map.openai?.driver).toBe("openai-compat");
     for (const id of ["qwen", "hermes", "pi", "openaiCompat", "openrouter", "mistral", "cerebras"]) expect(map, id).not.toHaveProperty(id);
