@@ -391,3 +391,19 @@ approvals return to `accounts.later.dog` and are passed on to the right home,
 and refresh tokens stay in each home's vault. It is off until the one-time
 setup in [google-setup.md](google-setup.md) is done; the same file gives the
 release order.
+
+## Desktop conversation shortcut scope, November 25
+
+Branch `desktop/overnight-scrollkeys` keeps End from moving a conversation when a sidebar or menu control owns the key. The two new regressions failed before the change; all 45 keyboard and viewport tests, typecheck, lint, locale checks and no-comments checks pass. Full merge gate and release remain pending. See [evidence](../verification/desktop-end-key-2026-11-25.md).
+
+## Desktop menu keyboard access and bounds, November 25
+
+Branch `desktop/overnight-menus` restores focus to menu triggers, supports scoped keyboard navigation, and keeps long header task menus within the window. Nine keyboard regressions failed before the change; 87 checks, typecheck and lint pass afterward. In a 620 px renderer fixture, the menu bottom moved from 1,401 px to 612 px and task 20 became reachable. Full merge gate and release remain pending.
+
+## Desktop pasted text files, November 25
+
+Branch `desktop/overnight-paste` preserves the existing cutoff of at least 900 UTF-16 code units or 12 lines, creates editable attachment chips, and sends uploaded text files. This is the shared phone/desktop cutoff. It supports common line endings, preserves the draft, and keeps Send waiting while a file uploads. Exact boundaries, uploaded contents, draft preservation and send behavior are checked before merge. See [verification](../verification/desktop-pasted-text-2026-11-25.md). A full passing merge gate is required before release.
+
+## Desktop composer controls at enlarged text, November 25
+
+Branch `desktop/overnight-composer-bounds` keeps Send inside the composer at 375 px and 200% content zoom. Six baseline browser cases fail and all twelve pass after the CSS change; normal short-model captures are byte-identical. Typecheck, lint and 149 focused checks pass. See [verification](../verification/desktop-composer-bounds-2026-11-25.md). Full merge gate and release remain pending.

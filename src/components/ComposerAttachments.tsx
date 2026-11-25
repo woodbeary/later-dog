@@ -140,7 +140,7 @@ export function ComposerAttachments({
                 />
               </div>
             ) : a.kind === "paste" ? (
-              <div key={a.id} role="listitem" title={a.text.slice(0, 4000)} className={chipClass("w-[200px] gap-2 pl-3 pr-7")}>
+              <div key={a.id} role="listitem" title={a.text.slice(0, 4000)} className={chipClass("w-[200px] max-w-full gap-2 pl-3 pr-7")}>
                 <ClipboardPaste size={16} className="shrink-0 text-ink-secondary" aria-hidden="true" />
                 <div className="min-w-0">
                   <div className="truncate text-[12px] text-ink">{pasteSummary(a)}</div>
