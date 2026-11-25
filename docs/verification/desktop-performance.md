@@ -85,6 +85,65 @@ The fake engine streams a reply in pieces when `FAKE_CLAUDE_STREAM_FILE` names
 a JSON file `{ "everyMs": 30, "chars": 10 }`, and reads scripted replies from
 `FAKE_CLAUDE_REPLIES_FILE` when the list is too long for the environment.
 
+## The budget check
+
+`--budget [file]` turns the script into a check. It runs the parts of the script the budget's measures come from, prints one table (measure, budget, target, measured, distance to target, verdict) and exits 0 only if every line holds. The default file is `scripts/desktop-perf.budget.json`.
+
+```sh
+pnpm exec vite build
+node --experimental-strip-types scripts/desktop-perf.ts --playwright /opt/node-tools \
+  --browser /opt/pw-browsers/chromium --label check --out .laterdog-scratch/desktop-perf/check.json --budget
+```
+
+- `--budget-quick` runs only the redraw counts and the landing measures (no cold loads, no timed pass) and lists the lines it skipped. It is the short subset: 90 s against 135 s for the full check on the computer below. It does not cover the frame, task and open-time lines of the timed pass, so it does not qualify a change that could slow typing or switching.
+- `--reference result.json` takes the reference of each ratio line (the calibration) from a saved result instead of this invocation.
+- The comparator is `scripts/desktop-perf-budget.ts` (pure, with tests); the measures a budget can name, and where each is read from the result, are in `scripts/desktop-perf-measures.ts`.
+
+### Two kinds of line
+
+- **Count lines** (commits, components redrawn, tasks over 50 ms, frames over 25 ms, pixels a row moves) compare directly: the line holds when the measured value is at most `budget` plus the optional `tolerance`. The table shows the tolerance as `(+n)`.
+- **Ratio lines** (durations) compare the measured milliseconds divided by the same invocation's calibration, a fixed CPU workload the script times on the same computer (median of five, about 190 ms here; 181 to 211 across the runs here), so a slower computer scales both. A line holds when the ratio is at most `budget`.
+
+Each line also carries a `target`, where the program is heading (a work update redraws only its work row; no task over 50 ms; nothing above a landing reply moves; no frame over 25 ms while typing with a dog working). The table shows how far the run is from it, so a passing run still says how far there is to go. A measure the budget names that the run did not produce fails as `not measured`; it never passes silently.
+
+### Setting the numbers
+
+Budgets are the highest value seen across A1's three baseline runs and this package's seven full runs (one probe, three to set the spread, three that passed) of the same script on the same build, plus a tolerance only where the spread showed one:
+
+| Line | Seen | Budget (tolerance) | Target |
+|---|---|---|---|
+| Working turn: commits | 24 to 27 | 27 (+1) | 1 |
+| Working turn: components redrawn | 5,017 to 5,161 | 5,020 (+150) | 45 |
+| Settings open: commits / components | 18 to 22 / 5,106 to 5,328 | 22 / 5,330 | 1 / 45 |
+| Four other dogs: commits / components | 36 to 51 / 690 to 850 | 51 / 850 | 0 |
+| Typing 119 keys: commits / components | 245 to 247 / 2,775 to 2,779 | 247 (+2) / 2,780 (+20) | 0 |
+| Tasks over 50 ms (working, Settings open, other dogs, landing) | 0 | 0 | 0 |
+| Working turn: frames over 25 ms | 0 to 3 | 3 | 0 |
+| Settings open: frames over 25 ms | 18 to 27 | 27 | 0 |
+| Typing, no dog working: frames over 25 ms | 0 | 0 | 0 |
+| Reply landing, rows above moved: scrolled up / following | 0 and 55.5 here; 48 and 103.5 in the A1 baseline | 48 / 103.5 | 0 |
+| Reply landing, rows in view moved, scrolled up | 0 here; 48 in the A1 baseline | 48 | 0 |
+| Key press to frame p95 / calibration | 0.15 to 0.18 | 0.30 | 0.10 |
+| Open the long chat p50 / calibration | 0.88 to 1.02 | 1.4 | 0.5 |
+| Open a short chat p50 / calibration | 0.27 to 0.30 | 0.5 | 0.2 |
+| Landing longest task / calibration | 0.17 to 0.25 | 0.4 | 0.1 |
+
+The working turn redraws 5,017 to 5,019 components when it takes 26 commits and 5,160 when a 27th small commit joins; the +150 covers that, and is small against the 475-component commits a regression adds. The landing pixel lines use the A1 baseline's 48 and 103.5 px even though every run of this package measured 0 and 55.5 px: those distances are the same in every repetition of a run but differed between the two sessions, so the looser value is kept until the difference is explained. Lowering a line to the lower value is the first tightening to make.
+
+### Left out
+
+- Worst frame with Settings open: 67 to 150 ms across runs, one dropped frame in a short window. The frames-over-25-ms line covers it.
+- Load (first paint, composer ready), own bubble, first reply text: they depend on process start and on the fake engine's delay, and moved by 20% or more between runs.
+- Memory (heap, resident sets): measured per run, but the browser tree moves by 30 MB between identical runs.
+- Idle main-thread busy time, 16 to 19 ms per 3 s: too small a number to compare.
+- Switching and scrolling redraw counts and long tasks (112 commits, 31,461 to 32,535 components, a spread of 3%): they are in the result file; not budgeted yet because no package is aimed at them.
+- Typing with a dog working (`--one-dog-streams`): the target "no frame over 25 ms" exists, but that mode is not part of the default run, so there is no line for it yet.
+- Any run on a computer other than this one, the Mac app, a real engine.
+
+### Tightening
+
+`scripts/desktop-perf-budget-file.test.ts` fails when a line is looser than the same line in the file on `origin/main` (budget plus tolerance; a dropped line or a changed kind also fails; the test skips while the file is not on `origin/main` yet) and when the budget names a measure the script cannot produce. A package that improves a number lowers that line's `budget` in the same change and shows the run.
+
 ## Baseline, 2026-11-25 (replaces the 2026-11-10 tables as the current baseline)
 
 Fixture numbers on Linux x64 (4 vCPU, 16 GB cloud computer) in headless Chrome. Not the Mac app: its launch, its process tree and a sleeping Cloud home are not in them. The 2026-11-10 tables below were measured before two later commits and never re-measured; this section replaces them.
