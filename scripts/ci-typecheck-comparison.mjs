@@ -1,6 +1,7 @@
 import { spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
+import { availableParallelism, totalmem } from 'node:os';
 
 const checker = process.argv[2];
 if (!['tsc', 'bun', 'tsgo'].includes(checker)) throw new Error('Choose tsc, bun or tsgo');
@@ -33,11 +34,11 @@ function phase(label) {
 
 function controls(label) {
   if (existsSync('src/ci-fast-typecheck-probe.ts') || existsSync('server/ci-fast-typecheck-probe.ts')) throw new Error('A probe path already exists');
-  const invalid = 'export const ciFastTypeProbe: number = "type-check-must-fail";\n';
+  const invalid = 'export const ciFastTypeProbe: number = "type-check-must-fail";\nexport const ciFastNullProbe: string = null;\nexport const ciFastArgumentProbe = "".repeat("wrong");\nexport const ciFastPropertyProbe = ({ value: 1 }).missing;\nconst ciFastUnused = 1;\n';
   writeFileSync('src/ci-fast-typecheck-probe.ts', invalid);
   writeFileSync('server/ci-fast-typecheck-probe.ts', invalid);
   try {
-    return phase(label).map((result) => ({ ...result, caughtProbe: result.code !== null && result.code !== 0 && /ci-fast-typecheck-probe\.ts[^\n]*TS2322/.test(result.text) }));
+    return phase(label).map((result) => ({ ...result, caughtProbe: result.code !== null && result.code !== 0 && ['2322', '2345', '2339', '6133'].every((code) => new RegExp('ci-fast-typecheck-probe\\.ts[^\\n]*TS' + code).test(result.text)) }));
   } finally {
     unlinkSync('src/ci-fast-typecheck-probe.ts');
     unlinkSync('server/ci-fast-typecheck-probe.ts');
@@ -60,7 +61,7 @@ if (checker !== 'tsc') {
     writeFileSync('tsconfig.json', config);
   }
 }
-const summary = { checker, version: version.stdout.trim(), node: process.version, head: process.env.GITHUB_SHA, baseline: baseline.map(({ text, ...result }) => result), originalControls: originalControls.map(({ text, ...result }) => result), adjusted: adjusted?.map(({ text, ...result }) => result), adjustedControls: adjustedControls?.map(({ text, ...result }) => result) };
+const summary = { checker, version: version.stdout.trim(), node: process.version, cores: availableParallelism(), memoryBytes: totalmem(), head: process.env.GITHUB_SHA, baseline: baseline.map(({ text, ...result }) => result), originalControls: originalControls.map(({ text, ...result }) => result), adjusted: adjusted?.map(({ text, ...result }) => result), adjustedControls: adjustedControls?.map(({ text, ...result }) => result) };
 writeFileSync(join(output, 'summary.json'), `${JSON.stringify(summary, null, 2)}\n`);
 const originalPassed = baseline.every((result) => result.code === 0) && originalControls.every((result) => result.caughtProbe);
 if (!originalPassed) process.exitCode = 1;
