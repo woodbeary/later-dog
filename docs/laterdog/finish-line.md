@@ -90,6 +90,10 @@ its own weekly limit now rests only that model on the account, and `GET /api/pla
 limit is hit (`limitsHit`). The API-key entry no longer borrows another account's readings. Fixture
 checks only; the phone screen is a separate lane. See [checks](../verification/account-limits-2026-11-14.md).
 
+## Desktop conversation shortcut scope, November 25
+
+Branch `desktop/overnight-scrollkeys` keeps End from moving a conversation when a sidebar or menu control owns the key. The two new regressions failed before the change; all 45 keyboard and viewport tests, typecheck, lint, locale checks and no-comments checks pass. Full merge gate and release remain pending. See [evidence](../verification/desktop-end-key-2026-11-25.md).
+
 ## Desktop 0.3.47 candidate, November 11
 
 The candidate carries main 8395635, including staged chat rendering, fewer store
