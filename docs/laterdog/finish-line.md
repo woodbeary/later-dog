@@ -94,6 +94,14 @@ and no-comments checks passed; the complete merge gate has not run.
 ## Desktop pasted text files, November 25
 
 Branch `desktop/overnight-paste` preserves the shared cutoff of at least 900 UTF-16 code units or 12 lines, creates editable text/plain attachments, and sends the ordinary uploaded-file shape. Final 134 focused checks, types/lint, 224 phone/desktop boundary comparisons, a persisted UTF-8 file send through the actual App/home, and six rendered fit/edit checks passed. Screenshots and limitations are in the [verification record](../verification/desktop-pasted-text-2026-11-25.md). Companion PR274 keeps enlarged controls in bounds. This remains a draft until the final combined merge gate passes and Sol Lead ships it.
+## Login-shell PATH probe lifecycle, November 25
+
+Pending shell probes now belong to the cache generation that started them. Reset
+invalidates and stops the old probe; an obsolete or sealed-fixture callback cannot
+append its PATH to a newer cache. Four deterministic cases fail before the fix;
+all five new cases and the existing PATH checks pass after it. See the
+[lifecycle evidence](../verification/login-shell-path-lifecycle-2026-11-25.md).
+The full clean merge gate remains required. This is not live yet.
 
 ## CI selection contracts, November 25
 

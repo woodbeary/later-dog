@@ -1,4 +1,4 @@
-import { execFile } from "node:child_process";
+import { execFile, type ChildProcess } from "node:child_process";
 import { closeSync, existsSync, openSync, readFileSync, readSync, statSync, readdirSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, delimiter, dirname, extname, join } from "node:path";
@@ -64,6 +64,7 @@ function windowsKnownDirs(): string[] {
 let cached: string | null = null;
 let probed = false;
 let loginShellPath: string | null = null;
+let loginShellProbe: { child: ChildProcess | null } | null = null;
 
 const registeredDirs: string[] = [];
 
@@ -74,6 +75,9 @@ export function registerPathDir(dir: string): void {
 }
 
 export function resetPathCache(): void {
+  const pending = loginShellProbe;
+  loginShellProbe = null;
+  pending?.child?.kill();
   cached = null;
   probed = false;
 }
@@ -101,12 +105,16 @@ function mergePaths(parts: string[]): string {
 
 function probeLoginShellPath(): void {
   const shell = process.env.SHELL || "/bin/zsh";
-  execFile(
+  const probe: { child: ChildProcess | null } = { child: null };
+  loginShellProbe = probe;
+  probe.child = execFile(
     shell,
     ["-l", "-i", "-c", 'printf "__LATERDOG_PATH__%s" "$PATH"'],
     { timeout: 5000 },
     (err, stdout) => {
-      if (err || !stdout) return;
+      if (loginShellProbe !== probe) return;
+      loginShellProbe = null;
+      if (err || !stdout || sealedFixture()) return;
       const m = /__LATERDOG_PATH__([^\n]*)/.exec(stdout);
       if (!m || !m[1]) return;
       loginShellPath = m[1];
@@ -116,8 +124,7 @@ function probeLoginShellPath(): void {
 }
 
 export function resetPathCacheForTests(): void {
-  cached = null;
-  probed = false;
+  resetPathCache();
   loginShellPath = null;
   registeredDirs.length = 0;
 }
