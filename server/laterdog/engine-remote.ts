@@ -2,8 +2,7 @@ import { spawn, type ChildProcess } from "node:child_process";
 import { EventEmitter } from "node:events";
 import { PassThrough } from "node:stream";
 import { createInterface } from "node:readline";
-import { EngineFileReceiver, engineFileKey, engineInventory, type EngineFile, type EngineFileRoot } from "./engine-files.ts";
-import { readEngineFile } from "./engine-files.ts";
+import { ENGINE_FRAME_BYTES, ENGINE_WINDOW_BYTES, EngineFileReceiver, engineFileChunks, engineFileKey, engineInventory, type EngineFile, type EngineFileRoot } from "./engine-files.ts";
 import { createHash } from "node:crypto";
 
 export interface EngineLink extends EventEmitter {
@@ -74,6 +73,8 @@ export class RemoteSession extends EventEmitter {
   exitConfirmed = false;
   #receiver: EngineFileReceiver | null = null;
   #skipping = false;
+  #fileError: string | null = null;
+  #pendingFileBytes = 0;
   #proxies = new Map<string, ChildProcess>();
   #pushed = new Map<string, string>();
   #pushTimer: NodeJS.Timeout | null = null;
@@ -117,6 +118,7 @@ export class RemoteSession extends EventEmitter {
 
   #send(frame: unknown): void { this.#link.send(JSON.stringify(frame)); }
   #request(frame: Record<string, unknown>, timeoutMs: number): Promise<any> {
+    if (this.#closed) return Promise.reject(new Error("The cloud computer connection is closed."));
     const id = ++this.#sequence;
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => { this.#pending.delete(id); reject(new Error(`The engine relay did not answer ${String(frame.type)}.`)); }, timeoutMs);
@@ -127,9 +129,22 @@ export class RemoteSession extends EventEmitter {
   #sendFile(root: string, path: string, bytes: Buffer, mode: number): void {
     const hash = createHash("sha256").update(bytes).digest("hex");
     this.#send({ type: "file_begin", file: { root, path, hash, size: bytes.length, mode } });
-    for (let offset = 0; offset < bytes.length; offset += 32 * 1024) this.#send({ type: "file_chunk", data: bytes.subarray(offset, offset + 32 * 1024).toString("base64") });
+    for (let offset = 0; offset < bytes.length; offset += ENGINE_FRAME_BYTES) this.#send({ type: "file_chunk", data: bytes.subarray(offset, offset + ENGINE_FRAME_BYTES).toString("base64") });
     this.#send({ type: "file_end" });
   }
+  async #sendWorkingFile(root: EngineFileRoot, file: EngineFile): Promise<void> {
+    this.#send({ type: "file_begin", file: { ...file, mode: root.readOnly ? (file.mode & 0o444) | 0o400 : file.mode } });
+    for (const bytes of engineFileChunks(root, file.path)) {
+      this.#send({ type: "file_chunk", data: bytes.toString("base64") });
+      this.#pendingFileBytes += bytes.length;
+      if (this.#pendingFileBytes >= ENGINE_WINDOW_BYTES) {
+        await this.#request({ type: "file_window" }, HANDSHAKE_MS);
+        this.#pendingFileBytes = 0;
+      }
+    }
+    this.#send({ type: "file_end" });
+  }
+
   #pushScoped(remote: Map<string, string>, files = this.#launch.pushes?.() ?? []): void {
     for (const file of files) {
       const key = engineFileKey(file);
@@ -160,15 +175,16 @@ export class RemoteSession extends EventEmitter {
     } catch (error) { throw new NotDispatched((error as Error).message); }
     const remote = new Map(configured.files.map((file) => [engineFileKey(file), file.hash]));
     const present = new Set(home.map(engineFileKey));
-    for (const file of home) {
-      if (remote.get(engineFileKey(file)) === file.hash) continue;
-      const root = launch.roots.find((entry) => entry.id === file.root)!;
-      this.#sendFile(file.root, file.path, readEngineFile(root, file.path), root.readOnly ? (file.mode & 0o444) | 0o400 : file.mode);
-    }
-    for (const file of configured.files) if (!present.has(engineFileKey(file)) && !pushedRoots.has(file.root)) this.#send({ type: "file_remove", file });
-    this.#pushScoped(remote, initialPush);
-    try { await this.#request({ type: "prepared" }, SYNC_REPLY_MS); }
-    catch (error) { throw new NotDispatched((error as Error).message); }
+    try {
+      for (const file of home) {
+        if (remote.get(engineFileKey(file)) === file.hash) continue;
+        const root = launch.roots.find((entry) => entry.id === file.root)!;
+        await this.#sendWorkingFile(root, file);
+      }
+      for (const file of configured.files) if (!present.has(engineFileKey(file)) && !pushedRoots.has(file.root)) this.#send({ type: "file_remove", file });
+      this.#pushScoped(remote, initialPush);
+      await this.#request({ type: "prepared" }, SYNC_REPLY_MS);
+    } catch (error) { throw new NotDispatched((error as Error).message); }
     this.#receiver = new EngineFileReceiver(launch.roots.filter((root) => launch.outputIds.includes(root.id)).map((root) => ({ ...root, writable: true })),
       home.filter((file) => launch.outputIds.includes(file.root)));
     if (this.#closed) throw new NotDispatched("The cloud computer's connection closed before launch.");
@@ -208,11 +224,13 @@ export class RemoteSession extends EventEmitter {
       case "native_error": this.emit("stderr", Buffer.from("The engine reported a process error on the cloud computer.\n")); return;
       case "native_exit": this.#exit(Number.isInteger(frame.code) ? frame.code : null, typeof frame.signal === "string" ? frame.signal : null); return;
       case "file_begin":
+        this.#fileError = null;
         try { this.#receiver!.begin(frame.file); this.#skipping = false; }
-        catch (error) { this.#skipping = true; this.conflicts.push(`${frame.file?.path}: ${(error as Error).message}`); this.emit("conflict", frame.file?.path, (error as Error).message); }
+        catch (error) { this.#skipping = true; this.#fileError = (error as Error).message; this.conflicts.push(`${frame.file?.path}: ${this.#fileError}`); this.emit("conflict", frame.file?.path, this.#fileError); }
         return;
-      case "file_chunk": if (!this.#skipping) try { this.#receiver!.chunk(Buffer.from(frame.data, "base64")); } catch (error) { this.#skipping = true; this.#receiver!.close(); this.conflicts.push((error as Error).message); } return;
-      case "file_end": if (!this.#skipping) try { this.#receiver!.end(); } catch (error) { this.conflicts.push((error as Error).message); } this.#skipping = false; return;
+      case "file_chunk": if (!this.#skipping) try { this.#receiver!.chunk(Buffer.from(frame.data, "base64")); } catch (error) { this.#skipping = true; this.#receiver!.close(); this.#fileError = (error as Error).message; this.conflicts.push(this.#fileError); } return;
+      case "file_end": if (!this.#skipping) try { this.#receiver!.end(); } catch (error) { this.#fileError = (error as Error).message; this.conflicts.push(this.#fileError); } this.#skipping = false; return;
+      case "file_window": this.#send({ type: "ack", id: frame.id, ...(this.#fileError && frame.required ? { error: this.#fileError } : {}) }); return;
       case "file_remove": try { this.#receiver!.remove(frame.file); } catch (error) { this.conflicts.push(`${frame.file?.path}: ${(error as Error).message}`); } return;
       case "checkpoint":
         if (this.#launch.requireCompleteCheckpoint && this.conflicts.length) {

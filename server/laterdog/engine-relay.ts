@@ -5,7 +5,7 @@ import { createServer, type Socket } from "node:net";
 import { dirname } from "node:path";
 import { createInterface } from "node:readline";
 import type { Readable, Writable } from "node:stream";
-import { EngineFileReceiver, engineFileKey, engineInventory, readEngineFile, type EngineFile, type EngineFileRoot } from "./engine-files.ts";
+import { ENGINE_FILE_LIMIT, ENGINE_WINDOW_BYTES, EngineFileReceiver, engineFileChunks, engineFileKey, engineInventory, type EngineFile, type EngineFileRoot } from "./engine-files.ts";
 
 const TEST_ROOT = process.env.LATERDOG_ENGINE_TEST_ROOT ?? "";
 let homeRoots: string[] = [];
@@ -21,7 +21,8 @@ let transportLost = false;
 let stdoutWork = Promise.resolve();
 let checkpointWork = Promise.resolve();
 let sequence = 0;
-const acknowledgements = new Map<number, () => void>();
+let pendingFileBytes = 0;
+const acknowledgements = new Map<number, (reason?: string) => void>();
 const sockets = new Map<string, Socket>();
 const names = new Set<string>();
 let server: ReturnType<typeof createServer> | null = null;
@@ -30,26 +31,43 @@ async function send(frame: unknown): Promise<void> {
   if (transportLost) throw new Error("Engine transport ended");
   if (!process.stdout.write(`${JSON.stringify(frame)}\n`)) await once(process.stdout, "drain");
 }
+async function acknowledged(type: "checkpoint" | "file_window", required = false): Promise<void> {
+  const id = ++sequence;
+  const settled = new Promise<void>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(`Engine ${type} was not acknowledged`)), 30_000);
+    acknowledgements.set(id, reason => {
+      clearTimeout(timer);
+      if (reason) reject(new Error(reason));
+      else resolve();
+    });
+  });
+  try { await Promise.all([settled, send({ type, id, required })]); }
+  finally { acknowledgements.delete(id); }
+}
+
 async function sendFile(file: EngineFile): Promise<void> {
   const root = roots.find(root => root.id === file.root)!;
-  const bytes = readEngineFile(root, file.path);
+  const required = root.transcript === true && file.size > ENGINE_FILE_LIMIT;
   await send({ type: "file_begin", file });
-  for (let offset = 0; offset < bytes.length; offset += 32 * 1024) await send({ type: "file_chunk", data: bytes.subarray(offset, offset + 32 * 1024).toString("base64") });
+  for (const bytes of engineFileChunks(root, file.path)) {
+    await send({ type: "file_chunk", data: bytes.toString("base64") });
+    pendingFileBytes += bytes.length;
+    if (pendingFileBytes >= ENGINE_WINDOW_BYTES) {
+      await acknowledged("file_window", required);
+      pendingFileBytes = 0;
+    }
+  }
   await send({ type: "file_end" });
+  if (required) await acknowledged("file_window", true);
 }
+
 function checkpoint(): Promise<void> {
   const run = checkpointWork.then(async () => {
     const files = engineInventory(outputs);
     const current = new Map(files.map(file => [engineFileKey(file), file]));
     for (const file of files) if (baseline.get(engineFileKey(file))?.hash !== file.hash) await sendFile(file);
     for (const [key, file] of baseline) if (!current.has(key)) await send({ type: "file_remove", file });
-    const id = ++sequence;
-    const acknowledged = new Promise<void>((resolve, reject) => {
-      const timer = setTimeout(() => { acknowledgements.delete(id); reject(new Error("Engine checkpoint was not acknowledged")); }, 30_000);
-      acknowledgements.set(id, () => { clearTimeout(timer); resolve(); });
-    });
-    await send({ type: "checkpoint", id });
-    await acknowledged;
+    await acknowledged("checkpoint");
     baseline = current;
     receiver.resetBudget();
     if (stateFile) writeFileSync(stateFile, JSON.stringify([...baseline.values()]), { mode: 0o600 });
@@ -210,13 +228,14 @@ async function handle(frame: any): Promise<void> {
     case "file_begin": receiver.begin(frame.file); return;
     case "file_chunk": receiver.chunk(Buffer.from(frame.data, "base64")); return;
     case "file_end": receiver.end(); return;
+    case "file_window": await reply(frame.id, { received: true }); return;
     case "file_remove": receiver.remove(frame.file); return;
     case "prepared": await reply(frame.id, { prepared: true }); return;
     case "launch": await launch(frame); return;
     case "stdin": child?.stdin.write(Buffer.from(frame.data, "base64")); return;
     case "end": child?.stdin.end(); return;
     case "stop": kill(); setTimeout(() => kill("SIGKILL"), 3_000).unref(); return;
-    case "ack": acknowledgements.get(frame.id)?.(); acknowledgements.delete(frame.id); return;
+    case "ack": acknowledgements.get(frame.id)?.(frame.error); acknowledgements.delete(frame.id); return;
     case "checkpoint_request":
       await checkpoint();
       await reply(frame.id, { saved: true });
