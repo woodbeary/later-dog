@@ -146,6 +146,7 @@ async function main() {
   let stopping = false;
   let shuttingDown = null;
   const shutdown = (code, signal) => {
+    stopping = true;
     if (shuttingDown) return shuttingDown;
     shuttingDown = (async () => {
       clearInterval(timer);
@@ -195,6 +196,7 @@ async function main() {
       log("the pushed server predates log restoration; keeping the current server");
       return;
     }
+    if (stopping || !alive()) return;
     reloading = true;
     const previous = child;
     const exited = new Promise((resolve) => previous.once("exit", resolve));
@@ -202,7 +204,11 @@ async function main() {
     const late = setTimeout(() => { if (previous.exitCode === null) previous.kill("SIGKILL"); }, STOP_CHILD_MS);
     await exited;
     clearTimeout(late);
-    if (!reloading || stopping) return;
+    if (stopping) {
+      await shutdown(0, null);
+      return;
+    }
+    if (!reloading) return;
     await (running ?? Promise.resolve()).then(() => save());
     if (stopping) {
       await shutdown(0, null);
