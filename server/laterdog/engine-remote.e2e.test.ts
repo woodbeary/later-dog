@@ -14,7 +14,7 @@ import { claudeProjectSlug, planClaudeRemote, spawnPlacedEngine, type ClaudeRemo
 import type { EngineWait } from "./engine-waiting.ts";
 import { placedThreads, preToolGuardDecision } from "./placed-threads.ts";
 import { createClaudeRefreshGate } from "./claude-refresh-lock.ts";
-import { commandLink, RemoteSession, type EngineLink } from "./engine-remote.ts";
+import { commandLink, EngineProcess, RemoteSession, type EngineLink } from "./engine-remote.ts";
 import { createClaudeRenewer, type ClaudeRenewer } from "./engine-renewal.ts";
 
 const here = (name: string) => fileURLToPath(new URL(name, import.meta.url));
@@ -240,6 +240,18 @@ it("runs on the home when the computer surely never started the engine", async (
   await closed(engine);
 }, 60_000);
 
+it("fails a remote-only engine cleanly when the relay cannot start", async () => {
+  const w = world();
+  const engine = new EngineProcess(new RemoteSession(commandLink("/nonexistent/relay", []), w.plan().launch));
+  running.push(engine);
+  const stderr: string[] = [];
+  engine.stderr.on("data", bytes => stderr.push(String(bytes)));
+  expect(await closed(engine)).toBe(1);
+  expect(engine.placement).not.toBe("home");
+  expect(stderr.join("")).toContain("closed before it was ready");
+  expect(w.launches()).toEqual([]);
+}, 60_000);
+
 it("places the engine when the computer takes 95 seconds to wake, because the relay's handshake waits for the link to open", async () => {
   const w = world();
   const waits: EngineWait[] = [];
@@ -345,6 +357,29 @@ createInterface({ input: process.stdin }).on("line", (l) => { const f = JSON.par
   const { engine, placed } = w.start(w.plan(), async () => commandLink(process.execPath, [silent]));
   engine.stdin.write(message("once"));
   expect(await closed(engine)).toBe(1);
+  expect(placed).toEqual(["computer"]);
+  expect(w.localLaunches()).toBe(0);
+}, 60_000);
+
+it("withholds remote success and preserves the newer home file when a required checkpoint conflicts", async () => {
+  const w = world();
+  const planned = w.plan();
+  planned.launch.requireCompleteCheckpoint = true;
+  const { engine, placed } = w.start(planned);
+  await turn(engine, "first remote turn");
+  const conflict = join(w.cwd, "turn-2.txt");
+  writeFileSync(conflict, "newer home file");
+  const stdout: string[] = [];
+  const stderr: string[] = [];
+  engine.stdout.on("data", bytes => stdout.push(String(bytes)));
+  engine.stderr.on("data", bytes => stderr.push(String(bytes)));
+  engine.stdout.resume();
+  const finished = closed(engine);
+  engine.stdin.write(message("remote would overwrite it"));
+  expect(await finished).toBe(1);
+  expect(stdout.join("")).not.toContain('"type":"result"');
+  expect(stderr.join("")).toContain("checkpoint could not be committed");
+  expect(readFileSync(conflict, "utf8")).toBe("newer home file");
   expect(placed).toEqual(["computer"]);
   expect(w.localLaunches()).toBe(0);
 }, 60_000);

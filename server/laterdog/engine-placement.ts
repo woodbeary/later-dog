@@ -112,7 +112,7 @@ export function commandOnPath(command: string, path: string | undefined): string
   return null;
 }
 
-export function claudeCliPackage(resolvedCommand: string, path?: string): { name: string; version: string } | null {
+export function engineCliPackage(resolvedCommand: string, path: string | undefined, packageName: "@openai/codex" | "@anthropic-ai/claude-code"): { name: string; version: string } | null {
   const found = commandOnPath(resolvedCommand, path);
   if (!found) return null;
   let at: string;
@@ -122,7 +122,7 @@ export function claudeCliPackage(resolvedCommand: string, path?: string): { name
     if (!existsSync(file)) continue;
     try {
       const pkg = JSON.parse(readFileSync(file, "utf8")) as { name?: string; version?: string };
-      if (pkg.name === "@anthropic-ai/claude-code" && typeof pkg.version === "string" && /^[\w.+-]+$/.test(pkg.version)) return { name: pkg.name, version: pkg.version };
+      if (pkg.name === packageName && typeof pkg.version === "string" && /^[\w.+-]+$/.test(pkg.version)) return { name: pkg.name, version: pkg.version };
     } catch {}
     return null;
   }
@@ -161,7 +161,9 @@ export interface ClaudePlacement {
   remoteBase?: string;
 }
 
-export interface ClaudeRemotePlan { threadId: string; launch: RemoteLaunch; cli: { name: string; version: string }; stagingDir: string; mkdirs: string[]; renewal?: ClaudeRenewal | null }
+export interface PlacedEnginePlan { threadId: string; launch: RemoteLaunch; cli: { name: string; version: string }; stagingDir: string; mkdirs: string[]; renewal?: ClaudeRenewal | null }
+
+export type ClaudeRemotePlan = PlacedEnginePlan;
 
 export function planClaudeRemote(input: ClaudePlacement): { plan: ClaudeRemotePlan } | { stay: string } {
   if (input.managed) return { stay: "managed account" };
@@ -179,7 +181,7 @@ export function planClaudeRemote(input: ClaudePlacement): { plan: ClaudeRemotePl
     if (HOME_ONLY_CLAUDE_AUTH.some(key => source[key] && source[key] !== "0")) return { stay: "account requires the home's credential provider" };
   }
   if (settings?.apiKeyHelper) return { stay: "account requires the home's credential provider" };
-  const cli = claudeCliPackage(input.cliCommand, input.env.PATH ?? process.env.PATH);
+  const cli = engineCliPackage(input.cliCommand, input.env.PATH ?? process.env.PATH, "@anthropic-ai/claude-code");
   if (!cli) return { stay: "Claude CLI is not an npm install" };
   const home = input.env.HOME || homedir();
   const configDir = resolve(input.env.CLAUDE_CONFIG_DIR || join(home, ".claude"));
@@ -346,7 +348,7 @@ export interface PlacedEngineOptions {
   placed?: PlacedThreads;
 }
 
-export function spawnPlacedEngine(plan: ClaudeRemotePlan, openLink: (plan: ClaudeRemotePlan) => Promise<EngineLink>, local: () => ChildProcess,
+export function spawnPlacedEngine(plan: ClaudeRemotePlan, openLink: (plan: ClaudeRemotePlan) => Promise<EngineLink>, local: (() => ChildProcess) | undefined,
   onPlaced?: (where: "computer" | "home", why?: string) => void, renewer: Pick<typeof claudeRenewer, "hold"> = claudeRenewer, options: PlacedEngineOptions = {}): EngineProcess {
   let opened: Promise<EngineLink>;
   try { opened = openLink(plan); }

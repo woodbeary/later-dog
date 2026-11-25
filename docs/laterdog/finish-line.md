@@ -432,3 +432,7 @@ approvals return to `accounts.later.dog` and are passed on to the right home,
 and refresh tokens stay in each home's vault. It is off until the one-time
 setup in [google-setup.md](google-setup.md) is done; the same file gives the
 release order.
+
+## Native Codex computer placement, November 25
+
+A selected native ChatGPT Codex engine can run on its dog's computer with home-scoped tools and shell checks. Existing native sessions acquire a binding on a home turn before moving. [Relay and signed-in qualification](../verification/codex-engine-relay.md) records the isolated provider run. Managed providers, custom approval configuration, user-configured native MCP, image input, guest-confined work and folders outside the dog's workspace use the home.

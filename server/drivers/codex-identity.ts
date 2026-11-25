@@ -16,6 +16,7 @@ export async function codexAccountEmail(
   cli: string,
   env: Record<string, string | undefined>,
   timeoutMs = 3_000,
+  refreshToken = false,
 ): Promise<string | null> {
   const cwd = env.HOME || env.USERPROFILE || homedir();
   if (!isAbsolute(cwd) || !codexHome(env)) return null;
@@ -73,7 +74,7 @@ export async function codexAccountEmail(
           if (message.error || !message.result) { void finish(null); return; }
           initialized = true;
           send({ method: "initialized", params: {} });
-          send({ id: 2, method: "account/read", params: { refreshToken: false } });
+          send({ id: 2, method: "account/read", params: { refreshToken } });
         } else if (initialized && message?.id === 2) {
           const account = message.error ? null : message.result?.account;
           const email = account?.type === "chatgpt" ? account.email : null;

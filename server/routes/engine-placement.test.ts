@@ -57,7 +57,7 @@ describe("/api/bots/:id/engine-placement", () => {
 
   it("reads and saves where a dog's Claude engine runs, in the data folder the engine reads", async () => {
     const { call, dataDir, file } = await serve();
-    expect(await call("patch")).toEqual({ status: 200, body: { botId: "patch", placement: "home", fromEnvironment: false, engines: ["claude"] } });
+    expect(await call("patch")).toEqual({ status: 200, body: { botId: "patch", placement: "home", fromEnvironment: false, engines: ["claude", "codex"] } });
     expect(await call("patch", "PUT", { placement: "computer" })).toMatchObject({ status: 200, body: { placement: "computer" } });
     expect(await call("nimbus", "PUT", { placement: "computer" })).toMatchObject({ status: 200 });
     expect(JSON.parse(readFileSync(file, "utf8"))).toEqual({ bots: ["patch", "nimbus"] });

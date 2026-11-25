@@ -1,6 +1,6 @@
 import { spawn, type ChildProcessByStdio } from "node:child_process";
 import { once } from "node:events";
-import { closeSync, constants, mkdirSync, openSync, readFileSync, unlinkSync, writeFileSync, writeSync } from "node:fs";
+import { closeSync, constants, mkdirSync, openSync, readFileSync, rmSync, unlinkSync, writeFileSync, writeSync } from "node:fs";
 import { createServer, type Socket } from "node:net";
 import { dirname } from "node:path";
 import { createInterface } from "node:readline";
@@ -50,7 +50,7 @@ function checkpoint(): Promise<void> {
     });
     await send({ type: "checkpoint", id });
     await acknowledged;
-    baseline = new Map(engineInventory(outputs).map(file => [engineFileKey(file), file]));
+    baseline = current;
     receiver.resetBudget();
     if (stateFile) writeFileSync(stateFile, JSON.stringify([...baseline.values()]), { mode: 0o600 });
   });
@@ -75,6 +75,8 @@ function fail(error?: unknown): void {
 const reply = (id: unknown, body: unknown) => send({ type: "reply", id, body });
 
 let lockFile = "";
+let ephemeralCodexHome: string | null = null;
+process.on("exit", () => { if (ephemeralCodexHome) try { rmSync(ephemeralCodexHome, { recursive: true, force: true }); } catch {} });
 function takeLock(path: string): boolean {
   mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
   for (let attempt = 0; attempt < 2; attempt++) {
@@ -102,6 +104,15 @@ process.on("exit", () => { if (lockFile) try { if (readFileSync(lockFile, "utf8"
 
 async function launch(frame: any): Promise<void> {
   if (child) throw new Error("Engine already started");
+  if (frame.ephemeralCodexHome) {
+    const dir = mirrored(frame.ephemeralCodexHome);
+    const allowed = /\/engine-launch\/[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/.test(dir)
+      && frame.env?.CODEX_HOME === frame.ephemeralCodexHome
+      && roots.some(root => root.id === "config" && root.path === dir)
+      && roots.some(root => root.id === "sessions" && root.path === dir + "/sessions");
+    if (!allowed) throw new Error("The temporary Codex directory could not be verified.");
+    ephemeralCodexHome = dir;
+  }
   socketPath = frame.socketPath;
   stateFile = frame.stateFile;
   if (typeof socketPath !== "string" || typeof stateFile !== "string" || typeof frame.lockFile !== "string") throw new Error("Missing engine state paths");

@@ -39,9 +39,12 @@ export interface RemoteLaunch {
   outputIds: string[];
   pushes?: () => PushedFile[];
   pushEveryMs?: number;
+  requireCompleteCheckpoint?: boolean;
+  ephemeralCodexHome?: string;
   mcp: Record<string, StdioSpec>;
   hooks: string[];
   hookEnv: Record<string, string>;
+  proxyEnv?: Record<string, string>;
   socketPath: string;
   stateFile: string;
   lockFile: string;
@@ -173,7 +176,7 @@ export class RemoteSession extends EventEmitter {
     let body: any;
     try {
       body = await this.#request({ type: "launch", cli: launch.cli, args: launch.args, cwd: launch.cwd, env: launch.env,
-        socketPath: launch.socketPath, stateFile: launch.stateFile, lockFile: launch.lockFile }, HANDSHAKE_MS);
+        socketPath: launch.socketPath, stateFile: launch.stateFile, lockFile: launch.lockFile, ephemeralCodexHome: launch.ephemeralCodexHome }, HANDSHAKE_MS);
     } catch (error) {
       throw new Error(`The cloud computer did not confirm the engine started: ${(error as Error).message}`);
     }
@@ -194,6 +197,7 @@ export class RemoteSession extends EventEmitter {
   checkpoint(): Promise<unknown> { return this.#request({ type: "checkpoint_request" }, SYNC_REPLY_MS); }
 
   #line(line: string): void {
+    if (this.#closed) return;
     let frame: any;
     try { frame = JSON.parse(line); } catch { return; }
     switch (frame.type) {
@@ -210,7 +214,17 @@ export class RemoteSession extends EventEmitter {
       case "file_chunk": if (!this.#skipping) try { this.#receiver!.chunk(Buffer.from(frame.data, "base64")); } catch (error) { this.#skipping = true; this.#receiver!.close(); this.conflicts.push((error as Error).message); } return;
       case "file_end": if (!this.#skipping) try { this.#receiver!.end(); } catch (error) { this.conflicts.push((error as Error).message); } this.#skipping = false; return;
       case "file_remove": try { this.#receiver!.remove(frame.file); } catch (error) { this.conflicts.push(`${frame.file?.path}: ${(error as Error).message}`); } return;
-      case "checkpoint": this.#receiver?.resetBudget(); this.emit("checkpoint", frame.id); this.#send({ type: "ack", id: frame.id }); return;
+      case "checkpoint":
+        if (this.#launch.requireCompleteCheckpoint && this.conflicts.length) {
+          this.emit("diagnostic", "The cloud computer's checkpoint could not be committed because files conflicted or failed to transfer.\n");
+          this.#lost("incomplete checkpoint");
+          this.#link.close();
+          return;
+        }
+        this.#receiver?.resetBudget();
+        this.emit("checkpoint", frame.id);
+        this.#send({ type: "ack", id: frame.id });
+        return;
       case "proxy_open": this.#openProxy(String(frame.id), String(frame.name)); return;
       case "proxy_stdin": this.#proxies.get(String(frame.id))?.stdin?.write(Buffer.from(frame.data, "base64")); return;
       case "proxy_end": this.#proxies.get(String(frame.id))?.stdin?.end(); return;
@@ -223,7 +237,7 @@ export class RemoteSession extends EventEmitter {
   #openProxy(id: string, name: string): void {
     const spec = this.#launch.mcp[name];
     if (!spec) { this.#send({ type: "proxy_exit", id, code: 1 }); return; }
-    const child = spawn(spec.command, spec.args ?? [], { cwd: this.#launch.cwd, env: { ...this.#launch.hookEnv, ...spec.env }, stdio: ["pipe", "pipe", "pipe"] });
+    const child = spawn(spec.command, spec.args ?? [], { cwd: this.#launch.cwd, env: { ...(this.#launch.proxyEnv ?? this.#launch.hookEnv), ...spec.env }, stdio: ["pipe", "pipe", "pipe"] });
     this.#proxies.set(id, child);
     child.stdin.on("error", () => {});
     child.stdout.on("data", (bytes) => this.#send({ type: "proxy_stdout", id, data: Buffer.from(bytes).toString("base64") }));
@@ -287,6 +301,7 @@ export class EngineProcess extends EventEmitter {
   exitCode: number | null = null;
   signalCode: NodeJS.Signals | null = null;
   pid: number | undefined;
+  notDispatched = false;
   placement: "pending" | "computer" | "home" = "pending";
   #local: ChildProcess | null = null;
   #remote: RemoteSession | null = null;
@@ -294,7 +309,7 @@ export class EngineProcess extends EventEmitter {
   #closed: Promise<void>;
   #markClosed!: () => void;
 
-  constructor(remote: RemoteSession, fallback: () => ChildProcess, onPlaced?: (where: "computer" | "home", why?: string) => void) {
+  constructor(remote: RemoteSession, fallback?: () => ChildProcess, onPlaced?: (where: "computer" | "home", why?: string) => void) {
     super();
     this.#closed = new Promise((resolve) => { this.#markClosed = resolve; });
     this.stdin.on("error", () => {});
@@ -318,9 +333,11 @@ export class EngineProcess extends EventEmitter {
       if (this.#stopRequested) remote.stop();
     }, (error: Error) => {
       if (error instanceof NotDispatched && !remote.launchSent || (error instanceof NotDispatched && error.refused === "spawn_failed")) {
+        this.notDispatched = true;
         remote.close();
         this.#remote = null;
-        if (this.#stopRequested) { this.placement = "home"; this.#finish(null, "SIGTERM"); return; }
+        if (this.#stopRequested) { if (fallback) this.placement = "home"; this.#finish(null, "SIGTERM"); return; }
+        if (!fallback) { this.stderr.write(`${error.message}\n`); this.#finish(1, null); return; }
         this.placement = "home";
         onPlaced?.("home", error.message);
         this.#startLocal(fallback);

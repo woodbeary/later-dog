@@ -9,12 +9,13 @@ const fromCommand = argUrl !== undefined && argTokenFile !== undefined;
 const url = (fromCommand ? argUrl : process.env.LATERDOG_HOOK_URL) ?? "";
 const tokenFile = (fromCommand ? argTokenFile : process.env.LATERDOG_HOOK_TOKEN_FILE) ?? "";
 
+const unavailable = () => process.exit(process.env.LATERDOG_REQUIRE_HOOK_REPLY === "1" ? 2 : 0);
 const done = (out?: string) => {
   if (out === undefined) process.exit(0);
   process.stdout.write(out, () => process.exit(0));
 };
 process.stdout.on("error", () => process.exit(0));
-const fuse = setTimeout(() => done(), budgetMs);
+const fuse = setTimeout(unavailable, budgetMs);
 fuse.unref();
 
 function readStdin(): Promise<string> {
@@ -24,7 +25,7 @@ function readStdin(): Promise<string> {
     process.stdin.setEncoding("utf8");
     process.stdin.on("data", (chunk: string) => {
       bytes += Buffer.byteLength(chunk);
-      if (bytes > MAX_INPUT_BYTES) return done();
+      if (bytes > MAX_INPUT_BYTES) return unavailable();
       data += chunk;
     });
     process.stdin.on("end", () => resolve(data));
@@ -37,20 +38,20 @@ async function main(): Promise<void> {
   let payload: Record<string, unknown>;
   try {
     const parsed = JSON.parse(raw);
-    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return done();
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return unavailable();
     payload = parsed as Record<string, unknown>;
   } catch {
-    return done();
+    return unavailable();
   }
   const event = typeof payload.hook_event_name === "string" ? payload.hook_event_name : "";
-  if (!event || !/^https?:\/\/127\.0\.0\.1(:\d+)?$/.test(url) || !tokenFile) return done();
+  if (!event || !/^https?:\/\/127\.0\.0\.1(:\d+)?$/.test(url) || !tokenFile) return unavailable();
   let token = "";
   try {
     token = readFileSync(tokenFile, "utf8").trim();
   } catch {
-    return done();
+    return unavailable();
   }
-  if (!token) return done();
+  if (!token) return unavailable();
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), Math.max(200, budgetMs - 300));
   try {
@@ -61,17 +62,18 @@ async function main(): Promise<void> {
       redirect: "error",
       signal: controller.signal,
     });
-    if (!response.ok) return done();
-    const body = (await response.json().catch(() => null)) as { hookSpecificOutput?: unknown; context?: unknown } | null;
+    if (!response.ok) return unavailable();
+    const body = (await response.json().catch(() => null)) as { ok?: unknown; hookSpecificOutput?: unknown; context?: unknown } | null;
     if (body && typeof body === "object" && body.hookSpecificOutput && typeof body.hookSpecificOutput === "object") {
       return done(JSON.stringify({ hookSpecificOutput: body.hookSpecificOutput }));
     }
     if (body && typeof body === "object" && typeof body.context === "string" && body.context && CONTEXT_EVENTS.has(event)) {
       return done(body.context);
     }
-    return done();
+    if (body?.ok === true) return done();
+    return unavailable();
   } catch {
-    return done();
+    return unavailable();
   } finally {
     clearTimeout(timer);
   }
