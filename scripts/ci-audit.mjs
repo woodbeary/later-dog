@@ -4,7 +4,7 @@ import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 const SETUP_STEP =
-  /^(Set up job|Run actions\/(checkout|setup-node|cache|download-artifact)|Run pnpm\/action-setup|Run pnpm install|Prepare .*runtime|Let Chrome use its sandbox)/i;
+  /^(Set up job|Run actions\/(checkout|setup-node|cache|download-artifact)|Run pnpm\/action-setup|Run pnpm install|Run \.\/\.github\/actions\/prepare(?:$|@)|Install$|Install what the desktop fixture runs on$|Prepare .*runtime|Let Chrome use its sandbox)/i;
 const TEARDOWN_STEP = /^(Post Run |Complete job)/i;
 const ANSI = new RegExp(`${String.fromCharCode(27)}\\[[0-9;]*m`, 'g');
 const TEST_FILE_LINE =
@@ -32,7 +32,8 @@ export function runnerOs(labels = []) {
 }
 
 export function splitJob(job) {
-  const waiting = seconds(job.created_at, job.started_at);
+  const measured = (job.steps ?? []).some((step) => ["success", "failure", "cancelled"].includes(step.conclusion));
+  const waiting = measured ? seconds(job.created_at, job.started_at) : null;
   let setup = 0;
   let running = 0;
   let teardown = 0;
@@ -56,9 +57,9 @@ export function splitJob(job) {
     os: runnerOs(job.labels),
     conclusion: job.conclusion,
     waiting,
-    setup,
-    running,
-    teardown,
+    setup: measured ? setup : null,
+    running: measured ? running : null,
+    teardown: measured ? teardown : null,
     ranWork,
     failedInSetup,
     failedStep,
@@ -66,24 +67,26 @@ export function splitJob(job) {
 }
 
 function deriveConclusion(jobs) {
-  if (jobs.some((job) => job.conclusion === 'failure')) return 'failure';
-  if (jobs.some((job) => job.conclusion === 'cancelled')) return 'cancelled';
-  return 'success';
+  const conclusions = jobs.map((job) => job.conclusion);
+  if (conclusions.includes('failure')) return 'failure';
+  const incomplete = conclusions.findIndex((value) => !['success', 'skipped'].includes(value));
+  if (incomplete >= 0) return conclusions[incomplete] || 'in_progress';
+  return conclusions.every((value) => value === 'skipped') ? 'skipped' : 'success';
 }
 
 export function loadRuns(dir) {
   const metaPath = path.join(dir, 'runs.json');
   const meta = fs.existsSync(metaPath) ? JSON.parse(fs.readFileSync(metaPath, 'utf8')) : [];
   const metaById = new Map(meta.map((run) => [String(run.id), run]));
-  const runs = [];
+  const runs = new Map(meta.map((run) => [String(run.id), { id: String(run.id), jobs: [], meta: run }]));
   for (const file of fs.readdirSync(dir).sort()) {
     if (!file.endsWith('.json') || file === 'runs.json') continue;
     const id = file.slice(0, -'.json'.length);
     const body = JSON.parse(fs.readFileSync(path.join(dir, file), 'utf8'));
     const jobs = Array.isArray(body) ? body : (body.jobs ?? []);
-    runs.push({ id, jobs, meta: metaById.get(id) ?? null });
+    runs.set(id, { id, jobs, meta: metaById.get(id) ?? null });
   }
-  return runs;
+  return [...runs.values()].sort((a, b) => a.id.localeCompare(b.id));
 }
 
 export function analyze(runs) {
@@ -99,13 +102,18 @@ export function analyze(runs) {
       .filter(Boolean)
       .sort()
       .at(-1);
+    const active = (run.meta?.status && run.meta.status !== 'completed') || run.jobs.some((job) => ['queued', 'waiting', 'in_progress', 'pending'].includes(job.status));
+    const conclusion = active ? 'in_progress' : run.meta?.conclusion || (jobs.length ? deriveConclusion(run.jobs) : 'unknown');
     runRows.push({
       id: run.id,
+      workflow: run.meta?.name ?? run.meta?.workflowName ?? 'unknown',
+      ranWork: jobs.some(({ split }) => split.ranWork),
+      allJobsPassed: jobs.every(({ job }) => ['success', 'skipped'].includes(job.conclusion)),
       jobCount: jobs.length,
       event: run.meta?.event ?? 'unknown',
-      conclusion: run.meta?.conclusion ?? (jobs.length ? deriveConclusion(run.jobs) : 'unknown'),
+      conclusion,
       os: oses.length === 1 ? oses[0] : oses.length === 0 ? 'none' : 'mixed',
-      wall: jobs.length ? seconds(created, finished) : null,
+      wall: jobs.length && !active ? seconds(created, finished) : null,
     });
   }
   return { jobRows, runRows };
@@ -166,7 +174,7 @@ export function renderReport({ jobRows, runRows }) {
     '',
   );
 
-  out.push(`## Run wall time (seconds, run start to last job completed; a re-run counts from its latest attempt)`, '');
+  out.push(`## Run wall time (seconds, completed attempts including failures and cancellations; latest attempt start to last job completed)`, '');
   const wallRows = [];
   for (const [label, key] of [
     ['event', (run) => run.event],
@@ -180,9 +188,19 @@ export function renderReport({ jobRows, runRows }) {
   }
   out.push(table(['split', 'value', 'n runs', 'p50 s', 'p95 s', 'p50 min', 'p95 min'], wallRows), '');
 
+  out.push('## Successful runs that executed work', '');
+  out.push('Successful attempts with at least one completed work step. Runs with no job data, no executed work, or an unfinished attempt do not qualify. Groups with no successful sample are absent; absence does not meet a budget.', '');
+  const successRows = [];
+  for (const [key, rows] of [...groupBy(runRows.filter((row) => row.conclusion === 'success' && row.allJobsPassed && row.ranWork && row.wall !== null), (row) => `${row.workflow}|${row.event}`).entries()].sort()) {
+    const s = stats(rows.map((row) => row.wall));
+    successRows.push([...key.split('|'), String(s.n), fmt(s.p50), fmt(s.p95)]);
+  }
+  out.push(table(['workflow', 'event', 'n runs', 'p50 s', 'p95 s'], successRows), '');
+
+
   out.push(`## Buckets per job (seconds)`, '');
   out.push(
-    `waiting: created to started; a job whose started time precedes its created time (a re-run keeps the earlier created time) is left out of that bucket. failed in setup: the job's own setup step failed. setup: set up, checkout, package manager, Node, install, runtime preparation. running: every other step, counted only for jobs that ran at least one work step. teardown (post steps, complete job) is listed for reconciliation.`,
+    `waiting: created to started; a job whose started time precedes its created time (a re-run keeps the earlier created time) is left out of that bucket. failed in setup: the job's own setup step failed. setup: set up, checkout, package manager, Node, install, the composite prepare action, runtime preparation. Jobs without any executed steps have no measured timing buckets. running: every other step, counted only for jobs that ran at least one work step. teardown (post steps, complete job) is listed for reconciliation.`,
     '',
   );
   const jobTable = [];
