@@ -131,6 +131,7 @@ import { PhonePerformance } from "./laterdog/phone-perf.ts";
 import { createPhonePerformanceRoutes } from "./routes/phone-perf.ts";
 import { createDogTaskRoute } from "./routes/dog-tasks.ts";
 import { briefStep, pageViewOf, SHOWN_PAGE_ROW_CAP, shownPageStart, type PageView } from "./message-pages.ts";
+import { requestedPageSize, snapshotPageSize } from "./laterdog/snapshot-page.ts";
 import { helperSelection, startedFromTask } from "./laterdog/dog-tasks.ts";
 import { createSharedJoins } from "./laterdog/shared-join.ts";
 import { configuredSpeechKey, SpeechCache } from "./laterdog/speech-cache.ts";
@@ -578,6 +579,7 @@ import { MEMORY_CHECK_MS, orphanIdleHours, readMemoryPressure, reapStrays, under
 import { startHomeUpkeep } from "./laterdog/home-upkeep.ts";
 import { liveSignalScene, signalDecision } from "./laterdog/home-signals.ts";
 import { homeFloorDecision } from "./laterdog/disk-floor.ts";
+import { startSteadyFloor } from "./laterdog/steady-floor.ts";
 import { callerGone, holdForPerson } from "./laterdog/always-ask-hold.ts";
 import { ALWAYS_ASK_PATHS, alwaysAskHook, alwaysAsks, asksAsConnector, connectorAlwaysAsks, internalCallRequest, type AlwaysAsk, type AlwaysAskRequest } from "./laterdog/always-asks.ts";
 import { listenWebhookIngress, webhookCredential, type WebhookIngress } from "./webhook-ingress.ts";
@@ -2875,6 +2877,7 @@ function threadBusy(botId: string, threadId: string): boolean {
 }
 
 const archiveDisk = steadyDisk(() => diskUse(DATA_DIR), () => savesHold(DATA_DIR));
+const floorDisk = CLOUD_HOME ? startSteadyFloor(() => diskUse(DATA_DIR)) : null;
 const archiveBridge = CLOUD_SECRETS.LATERDOG_CLOUD_ARCHIVE_TOKEN && process.env.LATERDOG_CLOUD_ARCHIVE_URL
   ? logArchiveBridge(process.env.LATERDOG_CLOUD_ARCHIVE_URL, CLOUD_SECRETS.LATERDOG_CLOUD_ARCHIVE_TOKEN)
   : null;
@@ -5321,15 +5324,7 @@ store.onChange((change) => {
   }
 });
 
-const MESSAGE_PAGE_MAX = 200;
 const DEFAULT_PAGE = 50;
-
-function pageSize(raw: string | null): number | null | undefined {
-  if (raw === null) return undefined;
-  const size = Number(raw);
-  if (!Number.isInteger(size) || size < 0) return null;
-  return Math.min(size, MESSAGE_PAGE_MAX);
-}
 
 function slimMessage(stored: Message): Message | Record<string, unknown> {
   const message = rowForApps(exchangeLookup && exchangeIdOf(stored) ? withExchange(stored, exchangeLookup) : stored);
@@ -5338,10 +5333,7 @@ function slimMessage(stored: Message): Message | Record<string, unknown> {
   return { ...rest, hasImage: true };
 }
 
-function messagePage(threadId: string, limit: number | undefined, before?: string | null, view: PageView = {}) {
-  if (limit === undefined) {
-    return { messages: store.messagesFor(threadId).map(rowForApps), activeLeafId: store.activeLeaf(threadId) };
-  }
+function messagePage(threadId: string, limit: number, before?: string | null, view: PageView = {}) {
   const slim = (message: Message) => slimMessage(view.brief ? briefStep(message) : message);
   if (!before) {
     const tail = store.messagesTail(threadId, view.shown ? SHOWN_PAGE_ROW_CAP : limit);
@@ -6295,7 +6287,7 @@ function ingestEngineHook(capability: InternalCapability, body: unknown): { ok: 
   }
   if (name === "Stop") return { ok: true };
   if (name === "PreToolUse") {
-    const decision = (CLOUD_HOME ? signalDecision(payload, () => liveSignalScene(threadId, PORT, cloudOwnerOnlyThread(threadId) && !cloudGuestDriven(threadId), () => { restartRequested = true; })) ?? homeFloorDecision(payload, diskUse(DATA_DIR), { computers: computersSelected() }) : null)
+    const decision = (CLOUD_HOME ? signalDecision(payload, () => liveSignalScene(threadId, PORT, cloudOwnerOnlyThread(threadId) && !cloudGuestDriven(threadId), () => { restartRequested = true; })) ?? homeFloorDecision(payload, floorDisk ? floorDisk.reading() : diskUse(DATA_DIR), { computers: computersSelected() }) : null)
       ?? preToolUseDecision(heavyCommandGuard, { active: Boolean(CLOUD_HOME) && computersSelected(), threadId, payload })
       ?? alwaysAskHook(payload, () => hookGuardContext(capability.botId, threadId, typeof payload.cwd === "string" ? payload.cwd : undefined));
     return decision ? { ok: true, hookSpecificOutput: decision } : { ok: true };
@@ -16672,7 +16664,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
     };
     if (method === "GET" && path === "/api/bots") {
       try { groupUsageReader.refresh(); } catch {}
-      const limit = pageSize(url.searchParams.get("messages"));
+      const limit = snapshotPageSize(url.searchParams.get("messages"));
       if (limit === null) return json(res, 400, { error: "messages must be a non-negative whole number" });
       const shownBots = store.bots.filter((bot) => visible.bot(bot.id));
       const queued = publicBotQueuedMessages();
@@ -16704,7 +16696,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       if (!store.botByThread(threadId) && !store.groupByThread(threadId)) {
         return json(res, 404, { error: "no such conversation" });
       }
-      const limit = pageSize(url.searchParams.get("limit"));
+      const limit = requestedPageSize(url.searchParams.get("limit"));
       if (limit === null) return json(res, 400, { error: "limit must be a non-negative whole number" });
       const before = url.searchParams.get("before");
       const around = url.searchParams.get("around");
@@ -17461,7 +17453,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         return json(res, 409, { error: "this channel is working or waiting on you in another task" });
       }
       const requestedMessages = url.searchParams.get("messages");
-      const switchLimit = pageSize(requestedMessages);
+      const switchLimit = snapshotPageSize(requestedMessages);
       if (switchLimit === null) return json(res, 400, { error: "messages must be a non-negative whole number" });
       const switched = store.switchGroupTask(group.id, m[2]);
       if (!switched) return json(res, 404, { error: "no such channel task" });
@@ -19651,7 +19643,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         return json(res, 409, { error: "this dog is securely saving a credential — try again when it finishes" });
       }
       const requestedMessages = url.searchParams.get("messages");
-      const switchLimit = pageSize(requestedMessages);
+      const switchLimit = snapshotPageSize(requestedMessages);
       if (switchLimit === null) return json(res, 400, { error: "messages must be a non-negative whole number" });
       const switched = store.switchTask(bot.id, m[2]);
       if (!switched) return json(res, 404, { error: "no such task" });
@@ -21941,6 +21933,7 @@ if (CLOUD_HOME) {
     home: homedir(),
     workspacesDir: TASK_WORKSPACES_DIR,
     storeChanges: (listener) => { store.onChange(listener); },
+    steadyDisk: floorDisk?.reading,
   });
 }
 

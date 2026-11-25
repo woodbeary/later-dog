@@ -484,7 +484,7 @@ export async function launchVerificationServer(
 
   try {
     const timeout = AbortSignal.timeout(Math.max(1, deadline - Date.now()));
-    const list = await fetch(`${url}/api/bots`, {
+    const list = await fetch(`${url}/api/bots?messages=0`, {
       headers: { origin: url },
       signal: signal ? AbortSignal.any([signal, timeout]) : timeout,
     });
