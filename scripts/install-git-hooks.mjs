@@ -6,14 +6,28 @@ import { fileURLToPath } from "node:url";
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const hooks = join(root, "scripts", "git-hooks");
 
-if (process.env.CI || process.env.LATERDOG_SKIP_HOOKS || !existsSync(join(root, ".git")) || !existsSync(hooks)) {
+if (
+  process.env.CI ||
+  process.env.LATERDOG_SKIP_HOOKS ||
+  !existsSync(join(root, ".git")) ||
+  !existsSync(hooks)
+) {
   process.exit(0);
 }
 try {
-  const current = execFileSync("git", ["config", "--get", "core.hooksPath"], { cwd: root, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim();
+  const current = execFileSync("git", ["config", "--get", "core.hooksPath"], {
+    cwd: root,
+    encoding: "utf8",
+    stdio: ["ignore", "pipe", "ignore"],
+  }).trim();
   if (current === "scripts/git-hooks") process.exit(0);
 } catch {}
 try {
-  execFileSync("git", ["config", "core.hooksPath", "scripts/git-hooks"], { cwd: root, stdio: "ignore" });
-  console.log("git hooks: core.hooksPath -> scripts/git-hooks (pre-push runs lint, typecheck, i18n:check; LATERDOG_SKIP_HOOKS=1 or --no-verify to skip)");
+  execFileSync("git", ["config", "core.hooksPath", "scripts/git-hooks"], {
+    cwd: root,
+    stdio: "ignore",
+  });
+  console.log(
+    "git hooks: core.hooksPath -> scripts/git-hooks (pre-push checks changed-file format, comments and lint, full typecheck and locale; completed checks must fit 9s)",
+  );
 } catch {}
