@@ -113,6 +113,7 @@ export type LogArchiveBridge = {
   restore(paths: string[]): Promise<void>;
   restoreSessions(sessions: string[]): Promise<void>;
   pending?(): Promise<string[]>;
+  restoreContaining?(needles: string[]): Promise<{ restored: number; failed: number }>;
 };
 
 export const ARCHIVE_CALL_MS = 120_000;
@@ -123,7 +124,9 @@ export function archiveCallMs(bytes = 0): number {
   return Math.min(ARCHIVE_CALL_MAX_MS, ARCHIVE_CALL_MS + Math.ceil(bytes / (1024 * 1024)) * ARCHIVE_CALL_MS_PER_MB);
 }
 
-export function logArchiveBridge(url: string, token: string): LogArchiveBridge {
+export type LoopbackArchiveBridge = Required<LogArchiveBridge>;
+
+export function logArchiveBridge(url: string, token: string): LoopbackArchiveBridge {
   const endpoint = new URL(url);
   if (endpoint.protocol !== "http:" || endpoint.hostname !== "127.0.0.1" || endpoint.username || endpoint.password || endpoint.pathname !== "/") {
     throw new Error("archive service must use loopback");
@@ -143,6 +146,10 @@ export function logArchiveBridge(url: string, token: string): LogArchiveBridge {
       if (!response.ok) throw new Error(`archive service refused: ${response.status}`);
       const status = await response.json() as { paths?: unknown };
       return Array.isArray(status.paths) ? status.paths.filter((path): path is string => typeof path === "string") : [];
+    },
+    async restoreContaining(needles) {
+      const result = await call("restore", { contains: needles }, ARCHIVE_CALL_MAX_MS) as unknown as { restored?: number; failed?: number };
+      return { restored: result.restored ?? 0, failed: result.failed ?? 0 };
     },
     async restore(paths) {
       const result = await call("restore-logs", { paths });

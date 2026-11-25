@@ -45,6 +45,30 @@ export function archiveSweep(disk: DiskUse | null): ArchiveSweep {
   return PRESSURE_SWEEPS.reduce((chosen, step) => (rung >= step.from ? step.sweep : chosen), CALM_SWEEP);
 }
 
+export interface WorkFolderSweep {
+  idleMs: number;
+  byteLimit: number;
+  minBytes: number;
+  minFiles: number;
+}
+
+const DAY = 24 * HOUR;
+const WORTH_MOVING = { minBytes: 5 * MB, minFiles: 200 };
+
+export const CALM_WORK_FOLDERS: WorkFolderSweep = { idleMs: 14 * DAY, byteLimit: 256 * MB, ...WORTH_MOVING };
+
+export const PRESSURE_WORK_FOLDERS: ReadonlyArray<{ from: number; sweep: WorkFolderSweep }> = [
+  { from: rungOf("sweep"), sweep: { idleMs: 7 * DAY, byteLimit: 512 * MB, ...WORTH_MOVING } },
+  { from: rungOf("move"), sweep: { idleMs: 3 * DAY, byteLimit: 1024 * MB, ...WORTH_MOVING } },
+  { from: rungOf("refuse"), sweep: { idleMs: 2 * DAY, byteLimit: 2048 * MB, ...WORTH_MOVING } },
+  { from: rungOf("floor"), sweep: { idleMs: DAY, byteLimit: Infinity, ...WORTH_MOVING } },
+];
+
+export function workFolderSweep(disk: DiskUse | null): WorkFolderSweep {
+  const rung = pressureRung(disk);
+  return PRESSURE_WORK_FOLDERS.reduce((chosen, step) => (rung >= step.from ? step.sweep : chosen), CALM_WORK_FOLDERS);
+}
+
 export function roomFor(disk: DiskUse | null, bytes: number): boolean {
   return !disk || disk.totalBytes <= 0 || disk.freeBytes - bytes >= ROOM_KEPT_FREE_BYTES;
 }
