@@ -60,14 +60,14 @@ describe("the row's one dot and its step words", () => {
 
   it("says the same step phrase as the chat line while the dog works", () => {
     const facts = dogRowFacts({ ...quiet, busy: true, activity: "working", step } as Bot, {});
-    expect(facts.step).toBe(stepPhrase(step.kind, step.id));
-    expect(facts.dot).toBe("working");
+    expect(facts.step).toBe(stepPhrase(step.kind, "clover-thread:live"));
+    expect(facts.dot).toBeNull();
   });
 
   it("follows the open task's step, not the dog's main chat", () => {
     const taskStep = { ...step, id: "task-run:read-1", kind: "reading" as const };
     const tasked = { ...quiet, threadId: "task", step, tasks: [{ threadId: "task", title: "Task", createdAt: 1, busy: true, step: taskStep }] } as unknown as Bot;
-    expect(dogRowFacts(tasked, {}).step).toBe(stepPhrase("reading", taskStep.id));
+    expect(dogRowFacts(tasked, {}).step).toBe(stepPhrase("reading", "task:live"));
   });
 
   it("says Working on it while the home has not sent a step yet", () => {
@@ -78,22 +78,22 @@ describe("the row's one dot and its step words", () => {
     expect(dogRowFacts({ ...quiet, step } as Bot, {}).step).toBeNull();
   });
 
-  it("keeps the green dot while only the dog's helpers or side jobs work", () => {
+  it("keeps helper work in the line without a second working mark", () => {
     const facts = dogRowFacts({ ...quiet, waitingForTeammates: true, waitingOn: [{ botId: "otis", name: "Otis", state: "running" }] }, {});
-    expect(facts.dot).toBe("working");
+    expect(facts.dot).toBeNull();
     expect(facts.helperAsk).toBeNull();
   });
 
   it("names the helper that needs your answer", () => {
     const facts = dogRowFacts({ ...quiet, waitingForTeammates: true, waitingOn: [{ botId: "otis", name: "Otis", state: "needsYou" }] }, {});
     expect(facts.helperAsk).toBe(helpersLine([{ name: "Otis", state: "needsYou" }])!.text);
-    expect(facts.dot).toBe("working");
+    expect(facts.dot).toBe("waiting");
   });
 
-  it("shows amber over green, and blue only for a still dog", () => {
+  it("keeps waiting and unread attention while a dog works", () => {
     expect(dogRowFacts(bot(proxy("waiting")), {}).dot).toBe("waiting");
     expect(dogRowFacts({ ...quiet, unread: true }, {}).dot).toBe("unread");
-    expect(dogRowFacts({ ...quiet, unread: true, busy: true }, {}).dot).toBe("working");
+    expect(dogRowFacts({ ...quiet, unread: true, busy: true }, {}).dot).toBe("unread");
     expect(dogRowFacts(quiet, {}).dot).toBeNull();
   });
 });

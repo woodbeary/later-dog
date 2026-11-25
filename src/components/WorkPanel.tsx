@@ -6,9 +6,13 @@ import type { WirePlan } from "../../shared/dog-plan";
 import type { CloudTaskSummary } from "../../shared/cloud-task";
 import type { LiveStep } from "../../shared/step-words";
 import { api } from "@/lib/api";
+import { useTurnReasoning } from "@/lib/turn-reasoning";
+import { useNativeHistoryIncomplete } from "@/lib/native-runs-state";
+import { ageWords } from "../../shared/step-words";
+import { NativeWorkDetail } from "./NativeWork";
 import { useNativeRuns } from "@/lib/native-runs-state";
 import { dogCloudTasks, refreshCloudTask, stopCloudTask } from "@/lib/cloud-tasks";
-import { backWorkPanel, closeWorkPanel, openWorkPanel, useWorkPanel, workPanelCanGoBack, type WorkPanelPage } from "@/lib/work-panel";
+import { backWorkPanel, closeWorkPanel, openWorkPanel, useWorkPanel, workPanelCanGoBack, workPanelOpener, type WorkPanelPage } from "@/lib/work-panel";
 import { helperRows, helpingWords, panelTitle, PANEL_WORDS, sideJobCards, stepDetail, stepRows, todoRows, type HelpingDog, type HelperRow, type SideJobCard } from "@/lib/work-panel-model";
 import { useStoreDispatch, useStoreSelector } from "@/state/store-selectors";
 import { BotAvatar } from "./Avatar";
@@ -27,6 +31,11 @@ export interface WorkPanelData {
   plan?: WirePlan | null;
   helpers: readonly HelpingDog[];
   jobs: readonly CloudTaskSummary[];
+  reasoning?: string;
+  account?: string;
+  model?: string;
+  records?: readonly { id: string; text: string }[];
+  historyIncomplete?: boolean;
 }
 
 export interface WorkPanelActions {
@@ -38,7 +47,7 @@ export interface WorkPanelActions {
 const newest = (runs: readonly NativeRun[]) => [...runs].sort((a, b) => b.startedAt - a.startedAt);
 
 function pickRun(runs: readonly NativeRun[], page: WorkPanelPage): NativeRun | undefined {
-  if ((page.kind === "work" || page.kind === "step") && page.runId) return runs.find(run => run.id === page.runId);
+  if ((page.kind === "work" || page.kind === "step" || page.kind === "puppy") && page.runId) return runs.find(run => run.id === page.runId);
   const sorted = newest(runs);
   return sorted.find(run => run.observation === "live") ?? sorted[0];
 }
@@ -98,14 +107,24 @@ function usePanelData(page: WorkPanelPage | null, botId: string): { data: WorkPa
   const run = page ? pickRun(runs, page) : undefined;
   const activities = useRunActivities(page ? run : undefined);
   const dogs = useStoreSelector(state => state.bots) as unknown as StoreDog[];
+  const groups = useStoreSelector(state => state.groups);
+  const messages = useStoreSelector(state => state.bots.find(dog => dog.id === botId)?.messages);
+  const instances = useStoreSelector(state => state.instances);
+  const reasoning = useTurnReasoning(threadId);
+  const historyIncomplete = useNativeHistoryIncomplete(threadId ?? "");
   const [jobs, refreshJobs] = useDogJobs(botId, threadId ?? "", Boolean(page));
   const now = useClock(Boolean(page));
   const data = useMemo<WorkPanelData>(() => {
     const dog = dogs.find(candidate => candidate.id === botId);
-    const source = dog?.tasks?.find(task => task.threadId === threadId) ?? dog;
-    const helpers = (source?.waitingOn ?? []).map(wait => ({ ...wait, step: dogs.find(candidate => candidate.id === wait.botId)?.step ?? null }));
-    return { now, working: Boolean(source?.busy), run, activities, plan: source?.plan ?? null, helpers, jobs };
-  }, [dogs, botId, threadId, now, run, activities, jobs]);
+    const group = groups.find(candidate => candidate.threadId === threadId);
+    const source = group ?? dog?.tasks?.find(task => task.threadId === threadId) ?? dog;
+    const owner = group ? undefined : source as StoreDog | undefined;
+    const helpers = (owner?.waitingOn ?? []).map(wait => ({ ...wait, step: dogs.find(candidate => candidate.id === wait.botId)?.step ?? null }));
+    const rows = group?.messages ?? messages ?? [];
+    const records = rows.filter(message => message.tool?.carry || message.tool?.statusLine === "live").map(message => ({ id: message.id, text: message.tool?.name.replace(/^notice:\s*/, "") ?? "" }));
+    const parent = run?.actors.find(actor => actor.kind === "parent");
+    return { now, working: group ? Boolean(group.working || group.busyBotId) : Boolean(owner?.busy), run, activities, plan: owner?.plan ?? null, helpers, jobs, reasoning: reasoning.text, account: instances.find(instance => instance.instanceId === run?.providerInstanceId)?.displayName, model: parent?.model, records, historyIncomplete };
+  }, [dogs, groups, messages, instances, reasoning, historyIncomplete, botId, threadId, now, run, activities, jobs]);
   return { data, refreshJobs };
 }
 
@@ -116,8 +135,17 @@ export function WorkPanelView({ page, botName, data, actions, hoveredStep }: { p
   const helpers = helperRows(data.helpers, data.now);
   const activity = page.kind === "step" ? data.activities.find(item => item.id === page.activityId) : undefined;
   const job = page.kind === "side-job" ? [...sideJobs.running, ...sideJobs.finished].find(card => card.id === page.jobId) : undefined;
-  const pushedTitle = page.kind === "step" ? (activity ? stepDetail(activity).title : "") : page.kind === "side-job" ? job?.title : undefined;
-  const title = panelTitle(page, botName, pushedTitle, data.working);
+  const puppy = page.kind === "puppy" ? data.run?.actors.find(actor => actor.id === page.actorId) : undefined;
+  const pushedTitle = page.kind === "puppy" ? puppy?.label : page.kind === "step" ? (activity ? stepDetail(activity).title : "") : page.kind === "side-job" ? job?.title : undefined;
+  const baseTitle = panelTitle(page, botName, pushedTitle, data.working);
+  const age = page.kind === "work" && data.run ? ageWords((data.run.endedAt ?? data.now) - data.run.startedAt) : null;
+  const title = age ? `${baseTitle} · ${age}` : baseTitle;
+  const heading = useRef<HTMLHeadingElement>(null);
+  const focusKey = `${page.kind}:${page.kind === "puppy" ? page.actorId : page.threadId}`;
+  useEffect(() => {
+    const frame = requestAnimationFrame(() => heading.current?.focus());
+    return () => cancelAnimationFrame(frame);
+  }, [focusKey]);
   const back = workPanelCanGoBack();
   const sections = page.kind === "work" ? [todo.length > 0, helpers.length > 0, true].filter(Boolean).length : 0;
   return (
@@ -126,11 +154,20 @@ export function WorkPanelView({ page, botName, data, actions, hoveredStep }: { p
         <button type="button" className="work-panel-close" onClick={back ? backWorkPanel : closeWorkPanel} aria-label={back ? PANEL_WORDS.back : PANEL_WORDS.close}>
           {back ? <ChevronLeft size={16} aria-hidden="true" /> : <X size={16} aria-hidden="true" />}
         </button>
-        <h2 className="work-panel-title">{title}</h2>
+        <h2 ref={heading} tabIndex={-1} className="work-panel-title">{title}</h2>
       </header>
       <div className="work-panel-body">
         {page.kind === "work" && (
           <>
+            {data.reasoning && <details className="work-panel-note"><summary className="cursor-pointer">Thinking</summary><p className="mt-2 whitespace-pre-wrap break-words">{data.reasoning}</p></details>}
+            {Boolean(data.run?.actors.some(actor => actor.kind !== "parent")) && <>
+              <div className="work-panel-section">Puppies</div>
+              <div className="flex flex-col gap-1">
+                {data.run!.actors.filter(actor => actor.kind !== "parent").map(actor => <button key={actor.id} type="button" className="rounded-lg px-2 py-3 text-left text-[14px] hover:bg-raised focus-visible:outline-2 focus-visible:outline-offset-2" onClick={() => openWorkPanel({ kind: "puppy", threadId: page.threadId, runId: data.run!.id, actorId: actor.id })}>
+                  <span className="block break-words">{actor.label}</span><span className="text-[12px] text-ink-secondary">{actor.state === "running" ? "Working" : actor.state === "waiting" ? "Waiting" : actor.state === "done" ? "Done" : actor.state === "failed" ? "Couldn’t finish" : "Stopped"}</span>
+                </button>)}
+              </div>
+            </>}
             {todo.length > 0 && <><div className="work-panel-section">{PANEL_WORDS.todo}</div><WorkTodo rows={todo} /></>}
             {helpers.length > 0 && <><div className="work-panel-section">{helpingWords(botName)}</div><WorkHelpers rows={helpers} face={actions.face} onOpen={actions.openDog} /></>}
             {sections > 1 && <div className="work-panel-section">{PANEL_WORDS.steps}</div>}
@@ -139,9 +176,13 @@ export function WorkPanelView({ page, botName, data, actions, hoveredStep }: { p
               : <p className="work-panel-note">{PANEL_WORDS.noSteps}</p>}
           </>
         )}
+        {page.kind === "puppy" && data.run && <NativeWorkDetail embedded run={data.run} selectedActorId={page.actorId} onSelect={actorId => openWorkPanel({ kind: "puppy", threadId: page.threadId, runId: data.run!.id, actorId })} onClose={backWorkPanel} />}
         {page.kind === "side-jobs" && <SideJobs running={sideJobs.running} finished={sideJobs.finished} onOpen={card => openWorkPanel({ kind: "side-job", threadId: page.threadId, jobId: card.id })} />}
         {page.kind === "step" && <StepPage activity={activity} />}
         {page.kind === "side-job" && <SideJobPage key={page.jobId} card={job} botName={botName} now={data.now} onStop={actions.stopJob} />}
+        {page.kind === "work" && (data.account || data.model) && <p className="work-panel-note">{[data.account, data.model].filter(Boolean).join(" · ")}</p>}
+        {page.kind === "work" && Boolean(data.records?.length) && <details className="work-panel-note"><summary className="cursor-pointer">How it ran</summary>{data.records!.map(record => <p key={record.id} className="mt-2 break-words">{record.text}</p>)}</details>}
+        {data.historyIncomplete && <p className="work-panel-note">Some earlier work is no longer available.</p>}
       </div>
     </aside>
   );
@@ -157,13 +198,15 @@ export function WorkPanel(props: { botId: string; botName: string }) {
   const open = page !== null;
   useEffect(() => {
     if (open) {
-      const active = document.activeElement;
-      returnTo.current = active instanceof HTMLElement && active !== document.body ? active : null;
+      returnTo.current = workPanelOpener();
       return;
     }
     const back = returnTo.current;
     returnTo.current = null;
-    if (back?.isConnected && (document.activeElement === document.body || document.activeElement === null)) back.focus();
+    const frame = requestAnimationFrame(() => {
+      if (back?.isConnected && (document.activeElement === document.body || document.activeElement === null)) back.focus();
+    });
+    return () => cancelAnimationFrame(frame);
   }, [open]);
   useEffect(() => {
     if (shownFor.current !== props.botId) closeWorkPanel();

@@ -3,7 +3,7 @@ import { Window } from "happy-dom";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 
-import { StoreProvider, type Bot, type Group, type Message } from "@/state/store";
+import { BotEditorStore, initialState, StoreProvider, type Bot, type Group, type Message } from "@/state/store";
 
 vi.mock("./DesktopCapabilities", () => ({
   useDesktopCapabilities: () => ({ capabilities: { dictation: { available: false } } }),
@@ -156,20 +156,30 @@ describe("a group chat without the extras", () => {
     expect(markup).toContain(`aria-label="Find in conversation"`);
   });
 
-  it("says in the header who is working, and shows nothing extra from a home that sends no work", () => {
-    const draw = (group: Group) => {
+  it("keeps work and needs-you in one transcript slot without a redundant header badge", () => {
+    const bots = ["Scout", "Biscuit"].map((name): Bot => ({
+      id: name.toLowerCase(), threadId: `${name}-private`, name, title: "", description: "", color: "green",
+      notifications: true, unread: false, busy: false, messages: [], modelSelection: { instanceId: "test", model: "test" },
+    }));
+    const draw = (patch: Partial<Group>) => {
+      const group = { ...room, memberIds: bots.map(bot => bot.id), turnStartedAt: Date.now() - 1_000, ...patch };
+      const value = { state: { ...initialState, bots, groups: [group], selectedId: group.id }, dispatch: vi.fn(), flushBotPatches: async () => null, refreshInstances: async () => {}, refreshModels: async () => {} };
       vi.stubGlobal("window", { laterdog: undefined });
       try {
-        return renderToStaticMarkup(createElement(StoreProvider, null, createElement(GroupView, { group })));
+        const document = new Window().document;
+        document.body.innerHTML = renderToStaticMarkup(createElement(BotEditorStore, { value, children: createElement(GroupView, { group }) }));
+        return document;
       } finally {
         vi.unstubAllGlobals();
       }
     };
-    const working = draw({ ...room, working: true, work: { kind: "running", dogs: [{ id: "scout", name: "Scout" }, { id: "biscuit", name: "Biscuit" }] } });
-    expect(working).toContain("Scout and Biscuit are working");
-    expect(working).toContain('data-work-state="running"');
-    expect(draw({ ...room, working: true })).not.toContain("data-work-state");
-    expect(draw({ ...room, work: { kind: "needs-you", what: "Allow the deploy?" } })).toContain("Needs you: Allow the deploy?");
+    const working = draw({ working: true, work: { kind: "running", dogs: bots.map(({ id, name }) => ({ id, name })) } });
+    expect(working.querySelectorAll("[data-turn-slot]")).toHaveLength(1);
+    expect(working.querySelector("[data-turn-slot]")?.textContent).toContain("Scout and Biscuit");
+    expect(working.querySelector('[data-glass-bar="top"]')?.textContent).not.toContain("are working");
+    expect(working.querySelector("[data-work-state]")).toBeNull();
+    expect(draw({ working: true }).querySelectorAll("[data-turn-slot]")).toHaveLength(1);
+    expect(draw({ work: { kind: "needs-you", what: "Allow the deploy?" } }).querySelector("[data-turn-slot]")?.textContent).toContain("Waiting for your OK");
   });
 
   it("shows an old fetch card as one plain line of its saved text", () => {

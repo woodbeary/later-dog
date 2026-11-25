@@ -1,3 +1,4 @@
+import { STEP_GERUNDS } from "../../shared/step-subject.ts";
 import { redactSecretsInText } from "../../shared/redact.ts";
 import type { WireMessage } from "../../shared/wire.ts";
 import { fileListLedger } from "./list-ledger.ts";
@@ -39,30 +40,13 @@ export interface StatusLineTiming {
   now?: () => number;
 }
 
-const GERUNDS: Readonly<Record<string, string>> = {
-  add: "adding", analyze: "analyzing", apply: "applying", build: "building", call: "calling", capture: "capturing",
-  check: "checking", clean: "cleaning", clone: "cloning", close: "closing", commit: "committing", compare: "comparing",
-  compile: "compiling", confirm: "confirming", convert: "converting", copy: "copying", count: "counting", create: "creating",
-  debug: "debugging", delete: "deleting", deploy: "deploying", download: "downloading", ensure: "ensuring", extract: "extracting",
-  fetch: "fetching", find: "finding", fix: "fixing", format: "formatting", generate: "generating", get: "getting",
-  inspect: "inspecting", install: "installing", kill: "stopping", launch: "launching", lint: "linting", list: "listing",
-  load: "loading", look: "looking", make: "making", measure: "measuring", merge: "merging", move: "moving",
-  open: "opening", parse: "parsing", print: "printing", pull: "pulling", push: "pushing", query: "querying",
-  read: "reading", rebuild: "rebuilding", remove: "removing", rename: "renaming", render: "rendering", rerun: "rerunning",
-  reset: "resetting", resolve: "resolving", restart: "restarting", retry: "retrying", review: "reviewing", run: "running",
-  save: "saving", scan: "scanning", search: "searching", send: "sending", set: "setting", show: "showing",
-  start: "starting", stop: "stopping", summarize: "summarizing", sync: "syncing", take: "taking", test: "testing",
-  trace: "tracing", typecheck: "typechecking", update: "updating", upload: "uploading", validate: "validating",
-  verify: "verifying", view: "viewing", wait: "waiting", watch: "watching", write: "writing",
-};
-
 const UNSAID = new Set(["needs your input", "working on it"]);
 
 export function statusWords(phrase: string): string {
   const flat = phrase.replace(/\s+/g, " ").trim().replace(/[\s.…:;,!]+$/u, "");
   if (!flat || UNSAID.has(flat.toLowerCase())) return "";
   const [first, ...rest] = flat.split(" ");
-  const verb = GERUNDS[first!.toLowerCase()];
+  const verb = STEP_GERUNDS[first!.toLowerCase()];
   return [verb ?? first, ...rest].join(" ");
 }
 

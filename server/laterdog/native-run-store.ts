@@ -139,7 +139,7 @@ export class NativeRunStore {
       run.activityCount = Math.max(run.activityCount, items.length);
       const current = run.observation === "live" ? database.prepare("SELECT json FROM native_run_items WHERE run_id = ? AND json_extract(json, '$.state') IN ('running', 'waiting') ORDER BY CASE json_extract(json, '$.kind') WHEN 'request' THEN 0 ELSE 1 END, sequence DESC LIMIT 1").get(id) as { json: string } | undefined : undefined;
       const selected = current ? JSON.parse(current.json) as NativeActivity : undefined;
-      run.currentActivity = selected ? { id: selected.id, actorId: selected.actorId, kind: selected.kind, label: selected.label, state: selected.state, startedAt: selected.startedAt } : undefined;
+      run.currentActivity = selected ? { id: selected.id, actorId: selected.actorId, kind: selected.kind, label: selected.label, state: selected.state, startedAt: selected.startedAt, ...(selected.subject ? { subject: selected.subject } : {}) } : undefined;
       saveRun(database, run);
       if (ordered) database.prepare("UPDATE native_runs SET event_sequence = ? WHERE id = ?").run(options.sequence!, id);
       if (!checkpoint || options.final) this.capReceipts(database, run.threadId);

@@ -68,7 +68,7 @@ export interface NativeRun {
   truncated?: boolean;
   nativeActivity?: boolean;
   nativeParentActivity?: boolean;
-  currentActivity?: Pick<NativeActivity, "id" | "actorId" | "kind" | "label" | "state"> & Partial<Pick<NativeActivity, "startedAt">>;
+  currentActivity?: Pick<NativeActivity, "id" | "actorId" | "kind" | "label" | "state"> & Partial<Pick<NativeActivity, "startedAt" | "subject">>;
 }
 
 export interface NativeRunDetail {
