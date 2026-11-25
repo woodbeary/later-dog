@@ -11,6 +11,7 @@ import { fixtureApi } from "./testing/preview-fixture.ts";
 import { compare, table, type Budget } from "./desktop-perf-budget.ts";
 import { calibrate, partsNeeded, readMeasures, type PerfResult } from "./desktop-perf-measures.ts";
 import { measureFixtureResponse, type HttpTiming } from "./desktop-home-http.ts";
+import { installComposerProbe } from "./desktop-ready-probe.ts";
 
 const WELCOME_VERSION = 2;
 const WINDOW_ROWS = 120;
@@ -147,7 +148,7 @@ async function seed(api: ReturnType<typeof fixtureApi>, setup: Options): Promise
 
 const PAGE_PROBE = `(() => {
   const realSetTimeout = window.setTimeout.bind(window);
-  const perf = { lastTrigger: null, triggers: [], causes: {}, causing: false, causeNow: null, replyFrameAt: null, landingWatch: null, commits: 0, rendered: 0, counting: false, longTasks: [], frames: [], composerAt: null, keys: [], names: new Map(), watchingStore: false, store: null, storeChanges: [], startedAt: 0, placing: false, storeChangedAt: -1000, storeChangedThisTask: false, placed: {}, placedNow: null, rowsThisCommit: new Set() };
+  const perf = { lastTrigger: null, triggers: [], causes: {}, causing: false, causeNow: null, replyFrameAt: null, landingWatch: null, commits: 0, rendered: 0, counting: false, longTasks: [], frames: [], composerAt: null, composerUncoveredAt: null, keys: [], names: new Map(), watchingStore: false, store: null, storeChanges: [], startedAt: 0, placing: false, storeChangedAt: -1000, storeChangedThisTask: false, placed: {}, placedNow: null, rowsThisCommit: new Set() };
   window.__perf = perf;
   const component = (tag) => tag === 0 || tag === 1 || tag === 11 || tag === 14 || tag === 15;
   const firstElement = (fiber) => {
@@ -312,10 +313,7 @@ const PAGE_PROBE = `(() => {
   let last = null;
   const frame = (at) => { if (last !== null) perf.frames.push(at - last); last = at; requestAnimationFrame(frame); };
   requestAnimationFrame(frame);
-  const seen = new MutationObserver(() => {
-    if (perf.composerAt === null && document.querySelector('textarea[aria-label^="Message "]')) { perf.composerAt = performance.now(); seen.disconnect(); }
-  });
-  document.addEventListener("DOMContentLoaded", () => seen.observe(document.documentElement, { childList: true, subtree: true }));
+  document.addEventListener("DOMContentLoaded", () => (${installComposerProbe.toString()})(perf));
   addEventListener("keydown", (event) => {
     const pressed = event.timeStamp;
     requestAnimationFrame(() => requestAnimationFrame((shown) => perf.keys.push(shown - pressed)));
@@ -1216,11 +1214,8 @@ async function coldLoads(browser: { newContext(options: unknown): Promise<{ addI
       paint: performance.getEntriesByName("first-contentful-paint")[0]?.startTime ?? 0,
     }));
     const uncoveredAt = await page.evaluate(() => {
-      const perf = (window as unknown as { __perf: { until(test: () => boolean, timeoutMs: number): Promise<number> } }).__perf;
-      return perf.until(() => {
-        const composer = document.querySelector<HTMLElement>('textarea[aria-label^="Message "]');
-        return Boolean(composer?.getClientRects().length) && document.visibilityState === "visible" && !document.querySelector("[data-launch-splash]");
-      }, 60_000);
+      const perf = (window as unknown as { __perf: { composerUncoveredAt: number | null; until(test: () => boolean, timeoutMs: number): Promise<number> } }).__perf;
+      return perf.until(() => perf.composerUncoveredAt !== null, 60_000).then(() => perf.composerUncoveredAt!);
     });
     ready.push(seen.composer);
     painted.push(seen.paint);

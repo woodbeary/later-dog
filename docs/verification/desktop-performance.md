@@ -33,8 +33,9 @@ TLS, the edge, container wakes and engine generation.
 Loads retain `composerReadyMs` for textarea insertion and add
 `uncoveredComposerMs`: the first observed visible textarea after the launch
 cover is gone. `composerCoverWaitMs` is the time between insertion and that
-observation, including up to one animation frame of observer delay. The raw
-per-load samples are kept. A new browser profile is not an OS cold launch;
+observation. The page's own mutation observer timestamps both events, so a
+late host read does not add to the result. This is DOM readiness, not a GPU
+presentation timestamp. The raw per-load samples are kept. A new browser profile is not an OS cold launch;
 packaged desktop launch is measured separately by the launch timeline.
 
 Two modes check behaviour instead of timing it, and can be combined in one
