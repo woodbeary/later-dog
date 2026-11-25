@@ -6,7 +6,7 @@ import { pathToFileURL } from 'node:url';
 const SETUP_STEP =
   /^(Set up job|Run actions\/(checkout|setup-node|cache|download-artifact)|Run pnpm\/action-setup|Run pnpm install|Prepare .*runtime|Let Chrome use its sandbox)/i;
 const TEARDOWN_STEP = /^(Post Run |Complete job)/i;
-const ANSI = /\u001b\[[0-9;]*m/g;
+const ANSI = new RegExp(`${String.fromCharCode(27)}\\[[0-9;]*m`, 'g');
 const TEST_FILE_LINE =
   /^\S+Z\s+[✓×❯↓]\s+(\S+\.(?:test|spec)\.\S+)\s+\((\d+) tests?[^)]*\)(?:\s+(\d+)ms)?/;
 
