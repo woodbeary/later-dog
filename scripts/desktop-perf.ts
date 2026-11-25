@@ -378,11 +378,13 @@ const PAGE_PROBE = `(() => {
     } catch {}
     const sample = () => {
       if (watch.stopped) return;
-      const top = log.getBoundingClientRect().top;
+      const anchor = rows.find((entry) => entry.row.isConnected);
+      if (!anchor) { requestAnimationFrame(sample); return; }
+      const anchorTop = boxOf(anchor.row).top;
       for (const entry of rows) {
         if (!entry.row.isConnected) continue;
         const box = boxOf(entry.row);
-        entry.contentEnd = box.top - top - entry.content;
+        entry.contentEnd = box.top - anchorTop - (entry.content - anchor.content);
         entry.viewEnd = box.top - entry.view;
         entry.contentMost = Math.max(entry.contentMost, Math.abs(entry.contentEnd));
         entry.viewMost = Math.max(entry.viewMost, Math.abs(entry.viewEnd));
@@ -412,6 +414,7 @@ const PAGE_PROBE = `(() => {
       replySeen: watch.seenAt !== null,
       bubbleHeightPx: watch.bubbleHeight === null ? null : Math.round(watch.bubbleHeight),
       rowsAbove: watch.rows.length,
+      rowsRemovedFromTop: watch.rows.filter((entry) => !entry.row.isConnected).length,
       content: { rowsMoved: moved(watch.rows.map((entry) => entry.contentMost)), mostPx: most(watch.rows.map((entry) => entry.contentMost)), rowsMovedAtEnd: moved(watch.rows.map((entry) => Math.abs(entry.contentEnd))), mostAtEndPx: most(watch.rows.map((entry) => Math.abs(entry.contentEnd))) },
       viewport: { rowsInView: seen.length, rowsMoved: moved(seen.map((entry) => entry.viewMost)), mostPx: most(seen.map((entry) => entry.viewMost)), rowsMovedAtEnd: moved(seen.map((entry) => Math.abs(entry.viewEnd))), mostAtEndPx: most(seen.map((entry) => Math.abs(entry.viewEnd))) },
       scroll: { fromBottomBeforePx: Math.round(watch.fromBottom), fromBottomAfterPx: Math.round(scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight), scrollTopChangedPx: Math.round(scroller.scrollTop - watch.scrollTop) },
