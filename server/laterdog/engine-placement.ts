@@ -15,6 +15,22 @@ import { placedThreads, type PlacedThreads } from "./placed-threads.ts";
 export const REMOTE_ENGINE_BASE = "/home/dog/.laterdog-engine";
 const CREDENTIAL_MARGIN_MS = 30 * 60_000;
 const LOOPBACK = /^(localhost|127\.\d+\.\d+\.\d+|\[::1\]|::1)$/i;
+const REMOTE_CLAUDE_ENV = new Set([
+  "LANG", "LANGUAGE", "TERM", "TZ", "NO_COLOR", "LC_ALL", "LC_CTYPE", "LC_MESSAGES", "LC_COLLATE", "LC_TIME", "LC_NUMERIC", "LC_MONETARY",
+  "ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_BASE_URL", "ANTHROPIC_CUSTOM_HEADERS", "ANTHROPIC_MODEL", "ANTHROPIC_SMALL_FAST_MODEL",
+  "CLAUDE_CODE_OAUTH_TOKEN", "CLAUDE_CODE_OAUTH_SCOPES", "CLAUDE_CODE_SUBAGENT_MODEL", "CLAUDE_CODE_PROMPT_CACHE_TTL",
+  "CLAUDE_CODE_SILENT_TURN_REMINDER", "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS", "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC",
+  "DISABLE_TELEMETRY", "DISABLE_ERROR_REPORTING", "DISABLE_NON_ESSENTIAL_MODEL_CALLS",
+]);
+const HOME_ONLY_CLAUDE_AUTH = [
+  "CLAUDE_CODE_USE_BEDROCK", "CLAUDE_CODE_USE_VERTEX", "CLAUDE_CODE_USE_FOUNDRY",
+  "CLAUDE_CODE_OAUTH_TOKEN_FILE_DESCRIPTOR", "CLAUDE_CODE_API_KEY_FILE_DESCRIPTOR",
+] as const;
+
+function remoteClaudeEnvironment(env: Record<string, unknown>): Record<string, string> {
+  return Object.fromEntries(Object.entries(env).filter((entry): entry is [string, string] =>
+    typeof entry[1] === "string" && REMOTE_CLAUDE_ENV.has(entry[0])));
+}
 
 export function remoteEngineBots(dataDir: string, env: NodeJS.ProcessEnv = process.env): Set<string> {
   const chosen = new Set<string>();
@@ -101,9 +117,14 @@ export function scopedClaudeCredential(text: string, now = Date.now()): Buffer |
   try {
     const parsed = JSON.parse(text) as { claudeAiOauth?: Record<string, unknown> };
     const oauth = parsed.claudeAiOauth;
-    if (!oauth || typeof oauth.accessToken !== "string" || typeof oauth.expiresAt !== "number" || oauth.expiresAt < now + CREDENTIAL_MARGIN_MS) return null;
-    const { refreshToken: _refresh, refreshTokenExpiresAt: _refreshExpiry, ...rest } = oauth;
-    return Buffer.from(JSON.stringify({ claudeAiOauth: rest }));
+    if (!oauth || typeof oauth.accessToken !== "string" || !oauth.accessToken || typeof oauth.expiresAt !== "number" || !Number.isFinite(oauth.expiresAt) || oauth.expiresAt < now + CREDENTIAL_MARGIN_MS) return null;
+    const { accessToken, expiresAt, scopes, subscriptionType, rateLimitTier } = oauth;
+    return Buffer.from(JSON.stringify({ claudeAiOauth: {
+      accessToken, expiresAt,
+      ...(Array.isArray(scopes) && scopes.every(scope => typeof scope === "string") ? { scopes } : {}),
+      ...(typeof subscriptionType === "string" ? { subscriptionType } : {}),
+      ...(typeof rateLimitTier === "string" ? { rateLimitTier } : {}),
+    } }));
   } catch { return null; }
 }
 
@@ -128,8 +149,20 @@ export interface ClaudeRemotePlan { threadId: string; launch: RemoteLaunch; cli:
 
 export function planClaudeRemote(input: ClaudePlacement): { plan: ClaudeRemotePlan } | { stay: string } {
   if (input.managed) return { stay: "managed account" };
-  const base = input.env.ANTHROPIC_BASE_URL;
-  if (base) { try { if (LOOPBACK.test(new URL(base).hostname)) return { stay: "account reached through the home" }; } catch { return { stay: "unreadable account address" }; } }
+  const args = [...input.args];
+  const at = (flag: string) => { const index = args.indexOf(flag); return index >= 0 && index + 1 < args.length ? index + 1 : -1; };
+  const settingsIndex = at("--settings");
+  const settings = settingsIndex < 0 ? null : JSON.parse(readFileSync(args[settingsIndex], "utf8")) as Record<string, unknown>;
+  const settingsEnv = settings?.env && typeof settings.env === "object" && !Array.isArray(settings.env) ? settings.env as Record<string, unknown> : {};
+  const remoteEnv = remoteClaudeEnvironment(input.env);
+  const remoteSettingsEnv = remoteClaudeEnvironment(settingsEnv);
+  const account = { ...remoteEnv, ...remoteSettingsEnv };
+  for (const source of [input.env, settingsEnv]) {
+    const base = source.ANTHROPIC_BASE_URL;
+    if (typeof base === "string" && base) { try { if (LOOPBACK.test(new URL(base).hostname)) return { stay: "account reached through the home" }; } catch { return { stay: "unreadable account address" }; } }
+    if (HOME_ONLY_CLAUDE_AUTH.some(key => source[key] && source[key] !== "0")) return { stay: "account requires the home's credential provider" };
+  }
+  if (settings?.apiKeyHelper) return { stay: "account requires the home's credential provider" };
   const cli = claudeCliPackage(input.cliCommand, input.env.PATH ?? process.env.PATH);
   if (!cli) return { stay: "Claude CLI is not an npm install" };
   const home = input.env.HOME || homedir();
@@ -138,7 +171,7 @@ export function planClaudeRemote(input: ClaudePlacement): { plan: ClaudeRemotePl
   if (cwd === "/" || cwd === resolve(home) || cwd === resolve(input.dataDir) || within(cwd, configDir) || within(configDir, cwd)) return { stay: "working folder cannot be mirrored" };
   let credential: Buffer | null = null;
   const credentialFile = join(configDir, ".credentials.json");
-  if (!input.env.ANTHROPIC_API_KEY && !input.env.CLAUDE_CODE_OAUTH_TOKEN) {
+  if (!account.ANTHROPIC_API_KEY && !account.ANTHROPIC_AUTH_TOKEN && !account.CLAUDE_CODE_OAUTH_TOKEN) {
     try { credential = scopedClaudeCredential(readFileSync(credentialFile, "utf8"), input.now); } catch {}
     if (!credential) return { stay: "no current sign-in to lend" };
   }
@@ -151,10 +184,8 @@ export function planClaudeRemote(input: ClaudePlacement): { plan: ClaudeRemotePl
   const socketPath = `${remoteBase}/run/${runId}.sock`;
   const proxy = (...rest: string[]) => ["node", input.proxyPath, ...rest];
 
-  const args = [...input.args];
   const mcp: Record<string, StdioSpec> = {};
   const hooks: string[] = [];
-  const at = (flag: string) => { const index = args.indexOf(flag); return index >= 0 && index + 1 < args.length ? index + 1 : -1; };
   const mcpIndex = at("--mcp-config");
   if (mcpIndex >= 0) {
     const servers = (JSON.parse(readFileSync(args[mcpIndex], "utf8")) as { mcpServers?: Record<string, Record<string, unknown>> }).mcpServers ?? {};
@@ -170,9 +201,8 @@ export function planClaudeRemote(input: ClaudePlacement): { plan: ClaudeRemotePl
     writeFileSync(target, JSON.stringify({ mcpServers: rewritten }), { mode: 0o600 });
     args[mcpIndex] = target;
   }
-  const settingsIndex = at("--settings");
-  if (settingsIndex >= 0) {
-    const settings = JSON.parse(readFileSync(args[settingsIndex], "utf8")) as Record<string, unknown>;
+  if (settings) {
+    if (settings.env !== undefined) settings.env = remoteSettingsEnv;
     const events = settings.hooks as Record<string, Array<{ matcher?: string; hooks?: Array<Record<string, unknown>> }>> | undefined;
     for (const entries of Object.values(events ?? {})) for (const entry of entries ?? []) for (const hook of entry.hooks ?? []) {
       if (hook.type !== "command" || typeof hook.command !== "string") continue;
@@ -213,12 +243,6 @@ export function planClaudeRemote(input: ClaudePlacement): { plan: ClaudeRemotePl
     return bytes ? [{ root: "credential", path: ".credentials.json", bytes, mode: 0o600 }] : [];
   } : undefined;
 
-  const remoteEnv: Record<string, string> = {};
-  for (const [key, value] of Object.entries(input.env)) {
-    if (value === undefined) continue;
-    if (/^LATERDOG_(HOOK_|REMOTE_MCP_CONFIG_|GATE_CONFIG_|MCP_HEADER_)/.test(key) || key === "ELECTRON_RUN_AS_NODE" || key === "TMPDIR" || key === "TEMP" || key === "TMP") continue;
-    remoteEnv[key] = value;
-  }
   const cliDir = `${remoteBase}/cli/claude-code-${cli.version}`;
   Object.assign(remoteEnv, { CLAUDE_CONFIG_DIR: configDir, HOME: "/home/dog", PATH: `${cliDir}/node_modules/.bin:/home/dog/.local/bin:/home/dog/.npm-global/bin:/usr/local/bin:/usr/bin:/bin` });
   const hookEnv: Record<string, string> = {};

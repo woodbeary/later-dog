@@ -72,8 +72,37 @@ it("keeps each placement decision in a capped log in the home's data folder", ()
 });
 
 it("lends the computer an access token but never the refresh token", () => {
-  const scoped = JSON.parse(String(scopedClaudeCredential(JSON.stringify({ claudeAiOauth: { accessToken: "a", refreshToken: "r", refreshTokenExpiresAt: 2, expiresAt: Date.now() + 3600_000, scopes: ["x"] } }))));
+  const scoped = JSON.parse(String(scopedClaudeCredential(JSON.stringify({ claudeAiOauth: { accessToken: "a", refreshToken: "r", refreshTokenExpiresAt: 2, expiresAt: Date.now() + 3600_000, scopes: ["x"], addedAuthority: "secret" } }))));
   expect(scoped).toEqual({ claudeAiOauth: { accessToken: "a", expiresAt: expect.any(Number), scopes: ["x"] } });
+});
+
+it("keeps inherited home and store credentials out of both remote launch environments", () => {
+  const { input } = setup();
+  const settings = input.args[input.args.indexOf("--settings") + 1];
+  const authority = {
+    LATERDOG_CLOUD_BOOTSTRAP_SECRET: "fixture-bootstrap",
+    LATERDOG_CLOUD_ARCHIVE_TOKEN: "fixture-archive",
+    LATERDOG_STATE_TOKEN: "fixture-store",
+    LATERDOG_CLOUD_BOAT_TOKEN: "fixture-computer-admin",
+    AWS_SECRET_ACCESS_KEY: "fixture-other-provider",
+    CLAUDE_CODE_OAUTH_REFRESH_TOKEN: "fixture-refresh",
+    LC_SECRET: "fixture-disguised-secret",
+  };
+  writeFileSync(settings, JSON.stringify({ ...JSON.parse(readFileSync(settings, "utf8")), env: { ...authority, ANTHROPIC_AUTH_TOKEN: "fixture-model-token" } }));
+  const planned = planClaudeRemote({ ...input, env: { ...input.env, ...authority, LC_ALL: "C.UTF-8", CLAUDE_CODE_SUBAGENT_MODEL: "haiku" } });
+  if (!("plan" in planned)) throw new Error(planned.stay);
+  const { launch } = planned.plan;
+  const settingsForComputer = JSON.parse(readFileSync(launch.args[launch.args.indexOf("--settings") + 1], "utf8"));
+  for (const name of Object.keys(authority)) expect(launch.env[name]).toBeUndefined();
+  expect(settingsForComputer.env).toEqual({ ANTHROPIC_AUTH_TOKEN: "fixture-model-token" });
+  expect(launch.env).toMatchObject({ LC_ALL: "C.UTF-8", CLAUDE_CODE_SUBAGENT_MODEL: "haiku" });
+  expect(launch.hookEnv.LATERDOG_HOOK_TOKEN_FILE).toBe("/data/t");
+  expect(launch.pushes).toBeUndefined();
+
+  writeFileSync(settings, JSON.stringify({ env: { ANTHROPIC_BASE_URL: "http://localhost:8799" } }));
+  expect(planClaudeRemote(input)).toEqual({ stay: "account reached through the home" });
+  writeFileSync(settings, JSON.stringify({ apiKeyHelper: "read-home-credential" }));
+  expect(planClaudeRemote(input)).toEqual({ stay: "account requires the home's credential provider" });
 });
 
 it("mirrors the same model, effort and session, and keeps tools, hooks and their secrets on the home", () => {
