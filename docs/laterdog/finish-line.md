@@ -46,8 +46,8 @@ Packages so far:
 | A1 Desktop baseline and new measures | `refine/a1-desktop-baseline` | pull request 258, in the first batch (pull request 255) |
 | A2 Budget mode for the desktop performance script | `refine/a2-desktop-budget`, on A1 | pull request 259, in the first batch: 22 lines, each with today's budget and its target |
 | A3 Desktop launch timeline | `refine/a3-launch-timeline` | pull request 257, in the first batch |
-| A4 Phone performance log, Run Check and bundle budget | later-dog-phone `refine/a4-phone-perf-log` | pull request 264 there |
-| B6 Phone shows finished replies only | later-dog-phone `refine/b6-finished-replies`, on A4 | pull request 265 there: reply text in progress changes nothing on screen, the finished reply changes it once; not yet seen on an iPhone |
+| A4 Phone performance log, Run Check and bundle budget | later-dog-phone `refine/a4-phone-perf-log` | merged to later-dog-phone main on November 25 |
+| B6 Phone shows finished replies only | later-dog-phone `refine/b6-finished-replies`, on A4 | merged to later-dog-phone main on November 25 as `86dd5cc`: reply text in progress changes nothing on screen, the finished reply changes it once. Not published as an update and not yet seen on an iPhone or a simulator |
 | E1 and E2 The wait and the landing, design | `refine/e1-wait-and-landing` | in progress, a proposal for the owner |
 | G1 Audit of the last 150 hosted check runs | `refine/g1-hosted-checks-audit` | pull request 256, in the first batch |
 | G2 Hosted checks return on standard runners | `refine/g2-hosted-checks-return`, on G1 | in progress |
