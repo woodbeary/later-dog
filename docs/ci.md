@@ -10,21 +10,21 @@ Everything runs on GitHub's free standard runner, `ubuntu-latest` (4 vCPU, 16 GB
 - `.github/workflows/seed.yml` runs on a push to main and saves the install cache for the pull requests that follow.
 - `.github/actions/prepare` is the shared setup: pnpm and Node from `packageManager` and `.nvmrc`, then the cache.
 
-`scripts/laterdog-workflows.test.ts` pins exactly these files and what each must satisfy: only `ubuntu-latest`; `pull_request` (never `pull_request_target`) and a push to main for the seeder; read-only contents; no secrets; no `continue-on-error`; no retry wrapper; none of the gate's gap variables; actions pinned to a full commit hash; a blobless full-history checkout (`filter: blob:none`, never shallow).
+`scripts/laterdog-workflows.test.ts` pins exactly these files and what each must satisfy: only `ubuntu-latest`; `pull_request` (never `pull_request_target`) and a push to main for the seeder; read-only contents and a read-only Actions token restricted to the final timing inspector; no secrets; no `continue-on-error`; no retry wrapper; none of the gate's gap variables; actions pinned to a full commit hash; a blobless full-history checkout (`filter: blob:none`, never shallow).
 
 ## Jobs
 
-| job | runs |
-| --- | --- |
-| `scope` | `scripts/ci-scope.mjs`: is the change docs-only |
-| `lint` | `pnpm lint`, then the brand, comment and verification-documentation tests |
-| `typecheck` | `pnpm typecheck`, checking both app and server projects with the pinned Bun binary |
-| `build` | `vite build`, `pnpm build:server`, the packaged-server smoke |
-| `electron-broker` | `pnpm test:electron`, `pnpm broker:test` |
-| `suite 1/8` to `suite 8/8` | the main suite, `vitest run --shard=n/8` |
-| `side <dir>` | the tests in `deploy/laterdog/home`, `cloudflare/control-plane`, `deploy/laterdog/computers` |
-| `interface` | the `ui.e2e` tests that drive a real browser (`LATERDOG_UI_E2E=1`) |
-| `CI` | fails if any job above failed, was cancelled, is missing, or was skipped without the docs-only selection |
+| job                        | runs                                                                                                     |
+| -------------------------- | -------------------------------------------------------------------------------------------------------- |
+| `scope`                    | `scripts/ci-scope.mjs`: is the change docs-only                                                          |
+| `lint`                     | `pnpm lint`, then the brand, comment and verification-documentation tests                                |
+| `typecheck`                | `pnpm typecheck`, checking both app and server projects with the pinned Bun binary                       |
+| `build`                    | `vite build`, `pnpm build:server`, the packaged-server smoke                                             |
+| `electron-broker`          | `pnpm test:electron`, `pnpm broker:test`                                                                 |
+| `suite 1/8` to `suite 8/8` | the main suite, `vitest run --shard=n/8`                                                                 |
+| `side <dir>`               | the tests in `deploy/laterdog/home`, `cloudflare/control-plane`, `deploy/laterdog/computers`             |
+| `interface`                | the `ui.e2e` tests that drive a real browser (`LATERDOG_UI_E2E=1`)                                       |
+| `CI`                       | fails if any job above failed, was cancelled, is missing, or was skipped without the docs-only selection |
 
 ## Type checking
 
@@ -77,3 +77,36 @@ node scripts/testing/update-shard-weights.mjs --run <run id> --run <run id> --ru
 Deleting or renaming a test file in the weights fails `scripts/testing/duration-sequencer.test.ts` until its entry is removed or refreshed. A refresh moves some files to other shards; a failure that appears only after one is a real ordering dependency between test files.
 
 Measure a run with `node scripts/ci-audit.mjs <dir of job files>`.
+
+## Time budgets
+
+The final CI job checks every job in the exact current run attempt through the
+[workflow-job API](https://docs.github.com/en/rest/actions/workflow-jobs), then
+judges every needed job even if the timing inspection failed. Only that job
+grants actions:read and passes its default read token to the inspector. It
+never retries a request or job. A denied, incomplete, duplicated or malformed
+response fails the check; unknown timing is never counted as zero. All pages
+and all exact expected matrix members are required. Each test phase must name
+its own shard or side app. Completed job and phase timestamps must be coherent
+and contained inside their job. A first-work anchor is unique and complete,
+except for the final job while the inspector itself is running. API records
+must identify the requested run and attempt. Whole-second API timestamps limit
+measurement precision; limits are not relaxed to compensate.
+
+Waiting must be below ten seconds. Setup must be below thirty seconds, measured
+as job-start to first-work-start wall time so composite action steps cannot be
+counted twice. Lint and both-graph typecheck must each be below five seconds.
+Each root shard, side-app suite, interface suite, Electron/Broker suite,
+repository-contract suite and packaged-server smoke must be below sixty
+seconds. The boundary itself fails. The report lists every violation.
+
+The final job checks its own waiting and setup while it runs; its unfinished
+verdict and post-job teardown have no separate phase budget. Build steps have
+no invented duration limit. Runtime skips are accepted only for the existing
+docs-only selection, and static jobs can never use that exception.
+
+These are enforced targets, not an assertion that the current pipeline meets
+them. Existing serial shards and cold setup exceed them. Their results remain
+red until the underlying work is made faster; no limit, timeout, assertion,
+retry policy or skip directive is relaxed. The unconditional hosted-contract
+step runs scripts/ci-budgets.test.ts even for docs-only changes.
