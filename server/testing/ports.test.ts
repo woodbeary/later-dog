@@ -1,12 +1,12 @@
 import { spawn, spawnSync } from "node:child_process";
-import { existsSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, utimesSync, writeFileSync } from "node:fs";
 import { createServer } from "node:net";
-import { tmpdir } from "node:os";
+import { hostname, tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { leasePort, leasePortBlock, PORT_LEASE_CEILING, PORT_LEASE_FLOOR, releasePortLeases, tryLeasePorts } from "./ports.ts";
+import { FOREIGN_LEASE_MAX_AGE_MS, leasePort, leasePortBlock, PORT_LEASE_CEILING, MALFORMED_LEASE_GRACE_MS, PORT_LEASE_FLOOR, releasePortLeases, tryLeasePorts } from "./ports.ts";
 
 const PORTS_MODULE = pathToFileURL(join(import.meta.dirname, "ports.ts")).href;
 
@@ -118,6 +118,50 @@ describe("port leases", () => {
     writeFileSync(join(leaseDir, `${port}.lease`), `${process.ppid} other-checkout\n`);
     expect(await tryLeasePorts([port])).toBe(false);
     expect(existsSync(join(leaseDir, `${port}.lease`))).toBe(true);
+  });
+
+  async function plantLease(contents: string, ageMs: number): Promise<{ port: number; file: string }> {
+    const port = await leasePort();
+    releasePortLeases([port]);
+    const file = join(leaseDir, `${port}.lease`);
+    writeFileSync(file, contents);
+    const when = new Date(Date.now() - ageMs);
+    utimesSync(file, when, when);
+    return { port, file };
+  }
+
+  it("records the host with the pid in the lease file", async () => {
+    const port = await leasePort();
+    expect(readFileSync(join(leaseDir, `${port}.lease`), "utf8").trim().split(/\s+/)).toEqual([String(process.pid), expect.any(String), hostname()]);
+  });
+
+  it("keeps a recent lease from another host even when its pid is not alive here", async () => {
+    const dead = spawnSync(process.execPath, ["-e", "console.log(process.pid)"], { encoding: "utf8" });
+    const { port, file } = await plantLease(`${Number(dead.stdout.trim())} foreign other-container-host\n`, 5 * 60_000);
+    expect(await tryLeasePorts([port])).toBe(false);
+    expect(existsSync(file)).toBe(true);
+  });
+
+  it("reclaims a lease from another host once it is older than the age limit", async () => {
+    const { port } = await plantLease("999999 foreign other-container-host\n", FOREIGN_LEASE_MAX_AGE_MS + 60_000);
+    expect(await tryLeasePorts([port])).toBe(true);
+  });
+
+  it("does not take a malformed lease that was just written", async () => {
+    for (const contents of ["", "garbage token\n", "NaN\n"]) {
+      const { port, file } = await plantLease(contents, 1_000);
+      expect(await tryLeasePorts([port]), JSON.stringify(contents)).toBe(false);
+      expect(existsSync(file)).toBe(true);
+      rmSync(file);
+    }
+  });
+
+  it("reclaims a malformed lease once it is older than the short grace", async () => {
+    for (const contents of ["", "garbage token\n", "NaN\n"]) {
+      const { port } = await plantLease(contents, MALFORMED_LEASE_GRACE_MS + 5_000);
+      expect(await tryLeasePorts([port]), JSON.stringify(contents)).toBe(true);
+      releasePortLeases([port]);
+    }
   });
 
   it("does not lease a port something already listens on, and leaves no lease behind for it", async () => {

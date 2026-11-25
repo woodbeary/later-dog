@@ -1,6 +1,6 @@
 import { linkSync, mkdirSync, readFileSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { createServer } from "node:http";
-import { tmpdir } from "node:os";
+import { hostname, tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { mcpOAuthRedirectUri } from "../mcp-oauth.ts";
@@ -8,6 +8,11 @@ import { mcpOAuthRedirectUri } from "../mcp-oauth.ts";
 export const PORT_LEASE_FLOOR = 19_600;
 export const PORT_LEASE_CEILING = 32_000;
 const ABANDONED_RECLAIM_MS = 60_000;
+// A lease written by another host (a container sharing /tmp but not our PID namespace) cannot be checked with kill(pid, 0).
+export const FOREIGN_LEASE_MAX_AGE_MS = 2 * 60 * 60_000;
+// A lease with no usable PID may just be mid-write; only reclaim it after this grace.
+export const MALFORMED_LEASE_GRACE_MS = 30_000;
+const thisHost = () => hostname();
 
 interface LeaseRegistry {
   held: Map<number, { path: string; token: string }>;
@@ -44,19 +49,29 @@ function processIsAlive(pid: number): boolean {
   }
 }
 
-function readLease(path: string): { pid: number; token: string } | null {
+interface Lease { pid: number; token: string; host: string }
+
+function readLease(path: string): Lease | null {
   try {
-    const [pid, token] = readFileSync(path, "utf8").trim().split(/\s+/);
-    return { pid: Number(pid), token: token ?? "" };
+    const [pid, token, host] = readFileSync(path, "utf8").trim().split(/\s+/);
+    // Leases written before hosts were recorded have no host; they came from this machine's own PID namespace.
+    return { pid: Number(pid), token: token ?? "", host: host ?? thisHost() };
   } catch (error) {
     if (errorCode(error) === "ENOENT") return null;
     throw error;
   }
 }
 
+function leaseIsLive(lease: Lease, path: string): boolean {
+  const age = Date.now() - modifiedAt(path);
+  if (!Number.isInteger(lease.pid) || lease.pid <= 0) return age <= MALFORMED_LEASE_GRACE_MS;
+  if (lease.host !== thisHost()) return age <= FOREIGN_LEASE_MAX_AGE_MS;
+  return processIsAlive(lease.pid);
+}
+
 function createExclusively(path: string, token: string): boolean {
   const draft = `${path}.${process.pid}.${token}.draft`;
-  writeFileSync(draft, `${process.pid} ${token}\n`, { mode: 0o600 });
+  writeFileSync(draft, `${process.pid} ${token} ${thisHost()}\n`, { mode: 0o600 });
   try {
     linkSync(draft, path);
     return true;
@@ -70,7 +85,7 @@ function createExclusively(path: string, token: string): boolean {
 
 function removeIfStillHeldBy(path: string, holder: { pid: number; token: string }): void {
   const current = readLease(path);
-  if (current && current.pid === holder.pid && current.token === holder.token) {
+  if (current && Object.is(current.pid, holder.pid) && current.token === holder.token) {
     try { unlinkSync(path); } catch (error) { if (errorCode(error) !== "ENOENT") throw error; }
   }
 }
@@ -79,17 +94,17 @@ function reclaimAbandoned(port: number): boolean {
   const path = leasePath(port);
   const seen = readLease(path);
   if (!seen) return true;
-  if (processIsAlive(seen.pid)) return false;
+  if (leaseIsLive(seen, path)) return false;
   const guard = `${path}.reclaim`;
   const token = nextToken();
   if (!createExclusively(guard, token)) {
     const holder = readLease(guard);
-    if (holder && !processIsAlive(holder.pid) && Date.now() - modifiedAt(guard) > ABANDONED_RECLAIM_MS) removeIfStillHeldBy(guard, holder);
+    if (holder && !leaseIsLive(holder, guard) && Date.now() - modifiedAt(guard) > ABANDONED_RECLAIM_MS) removeIfStillHeldBy(guard, holder);
     return false;
   }
   try {
     const current = readLease(path);
-    if (current && !processIsAlive(current.pid)) removeIfStillHeldBy(path, current);
+    if (current && !leaseIsLive(current, path)) removeIfStillHeldBy(path, current);
     return true;
   } finally {
     removeIfStillHeldBy(guard, { pid: process.pid, token });
