@@ -3,7 +3,7 @@ import type { ChildProcess } from "node:child_process";
 import { expect, it, vi } from "vitest";
 import type { CliOptions } from "./cli.ts";
 import { serveUntilStopped } from "./cli.ts";
-import { RESTART_EXIT_CODE, restartPolicy, STABLE_RUN_MS } from "./restart.ts";
+import { keepRunningPolicy, RESTART_EXIT_CODE, restartPolicy, STABLE_RUN_MS } from "./restart.ts";
 import { superviseServer } from "./server-launcher.ts";
 
 it("one policy counts for every launcher: again only on 75, not while stopping, at most five in a row, and a run that stayed up starts the count again", () => {
@@ -98,4 +98,13 @@ it("the container launcher stops on any other exit, and on a 75 that arrives whi
     { signals: signals as unknown as NodeJS.Process, now: () => 0 });
   expect(await looping).toBe(RESTART_EXIT_CODE);
   expect(runs).toBe(6);
+});
+
+it("the cloud home starts a server again when it exits 75, even in its first minute, but not a clean exit 0 until it has run steadily", () => {
+  let clock = 0;
+  expect(keepRunningPolicy(() => clock).again(0)).toBe(false);
+  expect(keepRunningPolicy(() => clock).again(RESTART_EXIT_CODE)).toBe(true);
+  const policy = keepRunningPolicy(() => clock);
+  clock += STABLE_RUN_MS;
+  expect(policy.again(0)).toBe(true);
 });

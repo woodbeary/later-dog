@@ -60,27 +60,174 @@ Two more modes help find a cause rather than a number:
 - `--names` with an unminified build (`bun run vite build --minify false
   --outDir DIR`, then `--dist DIR`) adds the thirty components that redrew most
   in each step.
+- `--landing-only` runs only the landing measures below, `--landing-reps N`
+  (default 3) sets how many times each case repeats.
 - `--profile-switch` prints where the time goes while switching chats, and
   `--probe-remove` prints any single DOM removal that took over 1.5 ms.
 
 ## What it records
 
-| Step               | How                                                                                                                                                                                                              |
-| ------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Load               | First paint and the moment the message box exists, each in a fresh browser profile                                                                                                                               |
-| Chat switching     | Click a sidebar row; stop when the chat's message box and a row of its transcript are on screen for two frames                                                                                                   |
-| Typing             | 119 keys at 35 ms; key press to the second frame after it                                                                                                                                                        |
-| Scrolling          | 90 wheel steps through the long chat                                                                                                                                                                             |
-| A streamed reply   | Enter to the person's own bubble, and to the first words of the reply; frames and long tasks until the dog settles                                                                                               |
-| Other dogs working | Four other dogs take a streamed turn while an idle chat is open                                                                                                                                                  |
-| Redraws            | A second pass counts React commits and components that redrew, through the commit hook                                                                                                                           |
-| Memory             | JS heap after a collection at idle and after the run, DOM nodes, and resident memory of the server tree and the browser tree at idle, at its highest during the timed pass (sampled every second) and at the end |
+| Step               | How                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| ------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Load               | First paint and the moment the message box exists, each in a fresh browser profile                                                                                                                                                                                                                                                                                                                                                                                            |
+| Chat switching     | Click a sidebar row; stop when the chat's message box and a row of its transcript are on screen for two frames                                                                                                                                                                                                                                                                                                                                                                |
+| Typing             | 119 keys at 35 ms; key press to the second frame after it                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| Scrolling          | 90 wheel steps through the long chat                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| A streamed reply   | Enter to the person's own bubble, and to the first words of the reply; frames and long tasks until the dog settles                                                                                                                                                                                                                                                                                                                                                            |
+| Other dogs working | Four other dogs take a streamed turn while an idle chat is open                                                                                                                                                                                                                                                                                                                                                                                                               |
+| Redraws            | A second pass counts React commits and components that redrew, through the commit hook                                                                                                                                                                                                                                                                                                                                                                                        |
+| Landing            | A reply that finishes lands in the open long chat, short and long, once while following the bottom and once scrolled up 1,500 px. Longest main-thread task and blocking time (tasks over 50 ms, the part past 50 ms) from a Chrome trace, from 50 ms before the reply's frame arrives to 500 ms after its bubble is first seen; rows above the new bubble that move (against the first row that is still there, and against the viewport), plus Chrome's layout-shift entries |
+| Redraw causes      | Each commit in a working turn is filed under what ran in the 150 ms before it: a `native.run.updated` frame, a `message.patch`, a new `message`, any other server frame (`workAndRuntime`), a timer, the person's input, an answered request, or nothing recognised (`unattributed`). A commit with more than one cause is its own `mixed:` entry and also counted under each cause in `causeTotals` as `withOthers`                                                          |
+| Settings open      | The working-turn pass again, with Settings open (Ctrl+,) over the long chat and the same scripted reply, sent through the API                                                                                                                                                                                                                                                                                                                                                 |
+| Memory             | JS heap after a collection at idle and after the run, DOM nodes, and resident memory of the server tree and the browser tree at idle, at its highest during the timed pass (sampled every second) and at the end                                                                                                                                                                                                                                                              |
 
 The fake engine streams a reply in pieces when `FAKE_CLAUDE_STREAM_FILE` names
 a JSON file `{ "everyMs": 30, "chars": 10 }`, and reads scripted replies from
 `FAKE_CLAUDE_REPLIES_FILE` when the list is too long for the environment.
 
-## Results, 2026-11-10
+## The budget check
+
+`--budget [file]` turns the script into a check. It runs the parts of the script the budget's measures come from, prints one table (measure, budget, target, measured, distance to target, verdict) and exits 0 only if every line holds. The default file is `scripts/desktop-perf.budget.json`.
+
+```sh
+pnpm exec vite build
+node --experimental-strip-types scripts/desktop-perf.ts --playwright /opt/node-tools \
+  --browser /opt/pw-browsers/chromium --label check --out .laterdog-scratch/desktop-perf/check.json --budget
+```
+
+- `--budget-quick` runs only the redraw counts and the landing measures (no cold loads, no timed pass) and lists the lines it skipped. It is the short subset: 90 s against 135 s for the full check on the computer below. It does not cover the frame, task and open-time lines of the timed pass, so it does not qualify a change that could slow typing or switching.
+- `--reference result.json` takes the reference of each ratio line (the calibration) from a saved result instead of this invocation.
+- The comparator is `scripts/desktop-perf-budget.ts` (pure, with tests); the measures a budget can name, and where each is read from the result, are in `scripts/desktop-perf-measures.ts`.
+
+### Two kinds of line
+
+- **Count lines** (commits, components redrawn, tasks over 50 ms, frames over 25 ms, pixels a row moves) compare directly: the line holds when the measured value is at most `budget` plus the optional `tolerance`. The table shows the tolerance as `(+n)`.
+- **Ratio lines** (durations) compare the measured milliseconds divided by the same invocation's calibration, a fixed CPU workload the script times on the same computer (median of five, about 190 ms here; 181 to 211 across the runs here), so a slower computer scales both. A line holds when the ratio is at most `budget`.
+
+Each line also carries a `target`, where the program is heading (a work update redraws only its work row; no task over 50 ms; nothing above a landing reply moves; no frame over 25 ms while typing with a dog working). The table shows how far the run is from it, so a passing run still says how far there is to go. A measure the budget names that the run did not produce fails as `not measured`; it never passes silently.
+
+### Setting the numbers
+
+Budgets are the highest value seen across A1's three baseline runs and this package's seven full runs (one probe, three to set the spread, three that passed) of the same script on the same build, plus a tolerance only where the spread showed one:
+
+| Line                                                           | Seen                                                            | Budget (tolerance)     | Target |
+| -------------------------------------------------------------- | --------------------------------------------------------------- | ---------------------- | ------ |
+| Working turn: commits                                          | 24 to 27                                                        | 27 (+1)                | 1      |
+| Working turn: components redrawn                               | 5,017 to 5,161                                                  | 5,020 (+150)           | 45     |
+| Settings open: commits / components                            | 18 to 22 / 5,106 to 5,328                                       | 22 / 5,330             | 1 / 45 |
+| Four other dogs: commits / components                          | 36 to 51 / 690 to 850                                           | 51 / 850               | 0      |
+| Typing 119 keys: commits / components                          | 245 to 247 / 2,775 to 2,779                                     | 247 (+2) / 2,780 (+20) | 0      |
+| Tasks over 50 ms (working, Settings open, other dogs, landing) | 0                                                               | 0                      | 0      |
+| Working turn: frames over 25 ms                                | 0 to 3                                                          | 3                      | 0      |
+| Settings open: frames over 25 ms                               | 18 to 27                                                        | 27                     | 0      |
+| Typing, no dog working: frames over 25 ms                      | 0 in nine runs, 1 in the tenth (a slow run, calibration 239 ms) | 2                      | 0      |
+| Reply landing, rows above moved: scrolled up / following       | 0 and 55.5 in every run (A1's 48 and 103.5 not reproduced)      | 0 / 55.5 (+0.5)        | 0      |
+| Reply landing, rows in view moved, scrolled up                 | 0 in every run (A1's 48 not reproduced)                         | 0                      | 0      |
+| Key press to frame p95 / calibration                           | 0.15 to 0.18                                                    | 0.30                   | 0.10   |
+| Open the long chat p50 / calibration                           | 0.88 to 1.02                                                    | 1.4                    | 0.5    |
+| Open a short chat p50 / calibration                            | 0.27 to 0.30                                                    | 0.5                    | 0.2    |
+| Landing longest task / calibration                             | 0.17 to 0.25                                                    | 0.4                    | 0.1    |
+
+The working turn redraws 5,017 to 5,019 components when it takes 26 commits and 5,160 when a 27th small commit joins; the +150 covers that, and is small against the 475-component commits a regression adds. The landing pixel lines are 0 px (scrolled up, rows above and rows in view) and 55.5 px (following, rows above). Those are what every later run measured: the nine runs of the unchanged build in this package, and three more on a third computer, twice with this script and once with A1's own script at 5519707 against the same build, each with all cases agreeing. A1's 48 px and 103.5 px (below, marked) were seen only in A1's own three runs, were not reproduced in those 13 later runs on two other computers with either script version, are unexplained, and are superseded by 0 px and 55.5 px. The 55.5 px when following is the one row the full 120-row transcript window drops from the top (`rowsRemovedFromTop` is 1 in those cases): the 118 rows above move by that row's height. The scrolled-up lines have no tolerance because every repetition was exactly 0; the following line has +0.5 because rows in view moved 8 or 8.3 px between repetitions, so a sub-pixel jitter is seen, while the 55.5 itself never moved.
+
+### Left out
+
+- Worst frame with Settings open: 67 to 150 ms across runs, one dropped frame in a short window. The frames-over-25-ms line covers it.
+- Load (first paint, composer ready), own bubble, first reply text: they depend on process start and on the fake engine's delay, and moved by 20% or more between runs.
+- Memory (heap, resident sets): measured per run, but the browser tree moves by 30 MB between identical runs.
+- Idle main-thread busy time, 16 to 19 ms per 3 s: too small a number to compare.
+- Switching and scrolling redraw counts and long tasks (112 commits, 31,461 to 32,535 components, a spread of 3%): they are in the result file; not budgeted yet because no package is aimed at them.
+- Typing with a dog working (`--one-dog-streams`): the target "no frame over 25 ms" exists, but that mode is not part of the default run, so there is no line for it yet.
+- Any run on a computer other than this one, the Mac app, a real engine.
+
+### Tightening
+
+`scripts/desktop-perf-budget-file.test.ts` fails when a line is looser than the same line in the file on `origin/main` (budget plus tolerance; a dropped line or a changed kind also fails; the test skips while the file is not on `origin/main` yet) and when the budget names a measure the script cannot produce. A package that improves a number lowers that line's `budget` in the same change and shows the run.
+
+## Baseline, 2026-11-25 (replaces the 2026-11-10 tables as the current baseline)
+
+Fixture numbers on Linux x64 (4 vCPU, 16 GB cloud computer) in headless Chrome. Not the Mac app: its launch, its process tree and a sleeping Cloud home are not in them. The 2026-11-10 tables below were measured before two later commits and never re-measured; this section replaces them.
+
+App measured: main 6bc6bb7 (`origin/main` when the runs were made). The script is the version on branch `refine/a1-desktop-baseline`, which changes only `scripts/desktop-perf.ts`. Production build from `pnpm exec vite build` at the same tree. Three full runs, one after another on an otherwise idle computer, 00:46 to 00:53 UTC:
+
+```sh
+node --experimental-strip-types scripts/desktop-perf.ts --playwright /opt/node-tools \
+  --browser /opt/pw-browsers/chromium --label baseline-N --out .laterdog-scratch/desktop-perf/baseline-N.json
+```
+
+Default sizes: a 240-message long chat (120 turns), five other dogs with 6 turns each, 5 cold loads, 8 switches, 3 landing repetitions per case. Median and range are over the three runs. An earlier set of three runs (before the landing-shift measure was fixed) was discarded, and the computer restarted in between; the machine was faster after the restart (open the long chat 154 ms then, 134 ms now), so only the later set is reported and numbers here should not be compared with any other session's.
+
+| Measure                                                       | Median                  | Range (3 runs)                |
+| ------------------------------------------------------------- | ----------------------- | ----------------------------- |
+| Load: first paint, message box ready (p50 of 5 cold loads)    | 164 ms, 250 ms          | 164 to 168, 233 to 253        |
+| Open the long chat, p50 / slowest of 8                        | 134 / 139 ms            | 126 to 139 / 132 to 169       |
+| Open a short chat, p50                                        | 45 ms                   | 38 to 52                      |
+| Long tasks across 16 switches, worst frame                    | 0 (3 in one run), 67 ms | 0 to 3, 67 to 100             |
+| Key press to frame, p50 / p95                                 | 25 / 32 ms              | 25 to 25 / 32 to 33           |
+| Own bubble after Enter                                        | 18 ms                   | 16 to 20                      |
+| First reply text after Enter                                  | 1,022 ms                | 1,018 to 1,046                |
+| Working turn: slow frames (over 25 ms) of frames              | 1 of 98                 | 0 to 2 of 97 to 98            |
+| Working turn: commits / components redrawn                    | 26 / 5,018              | 24 to 26 / 5,017 to 5,019     |
+| Working turn with Settings open: slow frames of frames        | 22 of 22                | 22 to 27 of 22 to 27          |
+| Working turn with Settings open: worst frame                  | 83 ms                   | 67 to 83                      |
+| Working turn with Settings open: commits / components redrawn | 22 / 5,326              | 19 to 22 / 5,111 to 5,328     |
+| Four other dogs working: commits / components redrawn         | 45 / 770                | 43 to 51 / 770 to 850         |
+| Switching 16 times: commits / components redrawn              | 112 / 31,811            | 112 to 113 / 31,555 to 32,535 |
+| Typing 119 keys: commits / components redrawn                 | 247 / 2,779             | 245 to 247 / 2,775 to 2,779   |
+| Main thread busy while idle, per 3 s                          | 16 ms                   | 15 to 19                      |
+| JS heap idle, after the run                                   | 13.2 MB, 27.1 MB        | 13.1 to 13.3, 27.1 to 27.2    |
+| Browser tree resident, highest                                | 1,189 MB                | 1,182 to 1,211                |
+| Server tree resident, highest                                 | 878 MB                  | 878 to 881                    |
+
+### What triggers the redraws of a working turn
+
+Commits in the working turn of the open long chat (medians of three runs; the same turn in the counted pass, 26 commits). A commit with one cause is "alone"; one with several is counted under each in "with others".
+
+| Cause                                               | Alone: commits, components | With others: commits |
+| --------------------------------------------------- | -------------------------- | -------------------- |
+| `native.run.updated`                                | 1 (0 to 1), 4              | 7 (7 to 8)           |
+| Message patches (`message.patch`)                   | 0                          | 2                    |
+| New messages (`message`)                            | 0                          | 3                    |
+| Other server frames (`runtime`, `bot` and the like) | 1, 46                      | 10 (10 to 11)        |
+| Timers                                              | 2 (1 to 2), 66             | 2 (2 to 3)           |
+| The person's input (Enter)                          | 1, 45                      | 0                    |
+| Answered requests                                   | 0                          | 3                    |
+| Unattributed                                        | 10 (9 to 10), 4,754        | 0                    |
+
+Most of the cost is one kind of commit: about ten commits redraw about 475 components each, which is 4,754 of the 5,018. Each of them came 150 to 400 ms after a recognised frame or key press, and none within 150 ms of anything, so they are not attributed (the entry's `triggers` names the nearest earlier frame). They are probably deferred renders of work a frame started; that was not confirmed. Everything the cause list names is small, about 45 components or fewer per commit. With Settings open the same split holds (7 to 8 unattributed commits, 4,590 to 4,688 components), and the open settings panel makes the commits that a new message shares with other causes about ten times larger (241 to 246 components against 22 to 27 for the same three commits). Four other dogs working: 25 to 30 of 43 to 51 commits and 662 to 730 of 770 to 850 components are unattributed in the same way.
+
+The fixture scripts no tool calls (`FAKE_CLAUDE_TOOL_CALLS` is `[]`), so tool chips and cards, the usual `message.patch` source, are not exercised: the patches here come from the turn's own bookkeeping. Timers are the page's `setTimeout` and `setInterval`; animation frames and CSS animations are not counted as causes. How a commit that several things shared splits between them is not decided; both views are in the result file (`causes` and `causeTotals`).
+
+### When a finished reply lands
+
+Open long chat (120 rows in view of the window), reply of 37 characters or of 791 with a list, a code block and a table (729 px tall). Median and range of the three runs, each the worst or median of 3 repetitions as named. Tracing is on in this window and adds a little cost to every number here.
+
+|                                                                | Following the bottom, short                  | Following the bottom, long                   | Scrolled up, short                           | Scrolled up, long                            |
+| -------------------------------------------------------------- | -------------------------------------------- | -------------------------------------------- | -------------------------------------------- | -------------------------------------------- |
+| Longest task, median of 3 / worst of 3                         | 16.1 (15.1 to 17.0) / 17.6 (17.3 to 26.6) ms | 18.2 (15.3 to 20.5) / 21.9 (18.8 to 22.6) ms | 13.6 (13.4 to 16.3) / 15.4 (15.2 to 17.4) ms | 18.9 (18.0 to 20.9) / 22.4 (18.6 to 24.2) ms |
+| Blocking time (tasks over 50 ms), tasks over 50 ms             | 0 ms, 0                                      | 0 ms, 0                                      | 0 ms, 0                                      | 0 ms, 0                                      |
+| Reply frame to bubble seen                                     | 30 ms (17 to 36)                             | 44 ms (29 to 48)                             | 36 ms (30 to 39)                             | 24 ms (21 to 44)                             |
+| Rows in view that moved, most px (against the viewport)        | 8 rows, 8.3 px                               | 11 rows, 697 px (scrolling to follow)        | 4 to 11 rows, 48 px, back to 0 by the end    | 4 rows, 48 px, back to 0 by the end          |
+| Rows above that moved against the first surviving row, most px | 118 rows, 103.5 px                           | 118 rows, 103.5 px                           | 68 rows, 48 px                               | 72 rows, 48 px                               |
+| Scroll position changed                                        | -191 px                                      | 498 px                                       | 48 px                                        | 48 px                                        |
+| Chrome layout-shift entries, largest px                        | 2, 690                                       | 2, 730                                       | 1, 885                                       | 1, 48                                        |
+
+Reading it (the 48 px and 103.5 px figures in this table and below were seen only in A1's own three runs, were not reproduced afterwards and are superseded by 0 px and 55.5 px; they are kept as recorded):
+
+- No task over 50 ms in any run, so blocking time is 0 in every case. The longest single task is 13 to 27 ms; the long reply costs a few ms more than the short one.
+- Following the bottom, rows in view move by about the reply's height because the chat scrolls to follow (697 of 729 px for the long reply); that is the following, not a shift. Scrolled up, the reader's rows jump 48 px for at least one frame and are back where they were at the end, and the scroll position ends 48 px lower. That is the one movement a reader could see; its cause was not identified.
+- The rows-above count and the 103.5 px and 48 px figures are the same for the short and the long reply, so the reply does not cause them. Only 0 or 1 rows left the window at the top (`rowsRemovedFromTop`). With a 40-message chat, whose window does not fill, both are 0. What moves them was not found; the window being full (120 rows) is the one difference known.
+- Chrome's layout-shift sizes are in the file as reported and are of a different kind (they include the scroll); they are listed for completeness, not as a second opinion.
+
+### Not measured
+
+- The Mac app, a real engine, real tool calls, a live provider, a real screen reader, anything on a slower or busier computer. One computer type, one run set.
+- The 80-dog size (`--other-dogs 79 --other-turns 2`) was not run for this baseline.
+- Tool chips and cards (see above), reply text arriving in the chat while a turn runs (the desktop shows a reply only once finished, so the streamed pieces are not a user-visible event), and `--sidebar-rows`, `--sidebar-shots` and `--kept`.
+- Landing was measured through the API send path, not from typing in the box, with the fake engine delaying the reply about 0.8 s so the person's own bubble is already in place. Layout-shift entries and per-frame row positions are sampled once a frame inside the page, which forces a layout of the rows each frame.
+- The full `pnpm gate` has not run for this change.
+
+## Results, 2026-11-10 (superseded by the baseline above)
 
 Both tables below were measured at 456e978, before the review fixes; not
 re-measured. Two later commits change what they time: 51157ef (the fill became

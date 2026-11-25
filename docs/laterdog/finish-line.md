@@ -1,6 +1,8 @@
 # Finish line: desktop, iPhone and Cloud
 
-**Start here (2026-10-24):** [handoff-2026-10-24.md](handoff-2026-10-24.md) says what changed on 2026-10-24 (faster wakes, free-model dogs answering while their home sleeps); [handoff-2026-10-23.md](handoff-2026-10-23.md) says what went live on 2026-10-23. To work on later.dog with hot reload and every log in one file, see [dev-loop.md](dev-loop.md). [handoff-2026-10-20.md](handoff-2026-10-20.md) says what landed after 0.3.42 and what waits on you. [handoff-2026-10-19.md](handoff-2026-10-19.md) covers the 0.3.42 ship.
+**Start here (2026-11-25):** [handoff-2026-11-25.md](handoff-2026-11-25.md) hands the refinement program over: what exists, what is proven and what is not, and every next package with where to look and which number should move.
+
+**Earlier (2026-10-24):** [handoff-2026-10-24.md](handoff-2026-10-24.md) says what changed on 2026-10-24 (faster wakes, free-model dogs answering while their home sleeps); [handoff-2026-10-23.md](handoff-2026-10-23.md) says what went live on 2026-10-23. To work on later.dog with hot reload and every log in one file, see [dev-loop.md](dev-loop.md). [handoff-2026-10-20.md](handoff-2026-10-20.md) says what landed after 0.3.42 and what waits on you. [handoff-2026-10-19.md](handoff-2026-10-19.md) covers the 0.3.42 ship.
 
 Started 2026-10-13. This file is the single place that says what is in progress, what is done, and how to pick up any piece of it. Every gate updates it in the same commit as the work.
 
@@ -13,6 +15,83 @@ with a failing runtime test omitted; adding only the contract wiring makes lint 
 red on the same selector regression. See the
 [contract evidence](../verification/hosted-checks-audit-2026-11-25.md#contracts-independent-of-runtime-selection).
 The full clean merge gate remains required. This is not live yet.
+
+## Refinement program, November 25
+
+One pass over the desktop and the phone for speed, weight and fewer surfaces that say the same thing. Each
+package is one small draft pull request with its numbers taken by the same script on the same machine before and
+after. Nothing merges without the gate's verdict and the owner's yes; no package deploys, releases or publishes.
+One session keeps this section, so packages do not edit it and their numbers go in the pull request and in the
+track's own file under `docs/verification/`. The long form, with every next package, is
+[handoff-2026-11-25.md](handoff-2026-11-25.md).
+
+Decisions that hold for every package:
+
+- A reply arrives finished on both apps. The desktop already waits for the whole reply
+  ([chat-ui.md](../verification/chat-ui.md), "In-flight reply text"); the phone stops showing a reply while it is
+  being written.
+- No Rust component and no new shell unless a step still misses its budget after tracks B to D and a JavaScript
+  fix cannot close it, the same bar as [rust-seams.md](../verification/rust-seams.md). That file's Mac
+  measurements are still owed and are part of track F.
+- Hosted checks return on GitHub's standard runners for this public repository. Signing, notarizing, releases
+  and device checks stay on the owner's Mac. The complete clean `bun run gate` on the Mac remains required.
+- This local tooling candidate pins Bun 1.4.5 for installs, explicit script dispatch and checked whole-graph diagnostics,
+  and Oxfmt 0.80.0 for changed-file formatting. It is not live yet; complete gate and runtime qualification remain required.
+
+| Track                           | What it does                                                                                                                                                                                                                                    | State                                                                                         |
+| ------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------- |
+| A Measure first                 | A current desktop baseline with landing, layout-shift and redraw-cause measures; a budget mode; a launch timeline; phone renders by name, UI-thread frames, cold-start marks and a bundle budget                                                | A1, A3 and A4 are draft pull requests with their first numbers; A2 in progress on A1's branch |
+| B The wait and the landing      | The desktop stops receiving reply text it never shows, a work update redraws only its work row, and network frames commit once per display frame. The phone drops in-progress reply text, steadies its list rows and moves screens to selectors | B6 (phone, finished replies only) in progress on A4's branch                                  |
+| C Open, switch, launch          | The desktop launch chain, one splash instead of two, later loading of heavy panels; chat open on both apps                                                                                                                                      | not started                                                                                   |
+| D Typing, scrolling, keyboard   | The message box apart from store churn, idle timers and animation, the phone's keyboard and composer motion                                                                                                                                     | not started                                                                                   |
+| E One of each                   | One working surface per turn, a landing that moves nothing, and on the phone one sheet system, one message menu and one transcript                                                                                                              | the design for the wait and the landing has started                                           |
+| F Weight                        | Footprint on the Mac, the Mac measurements owed by rust-seams.md, dev-only code out of the phone's release bundle                                                                                                                               | waits for the Mac                                                                             |
+| G Hosted checks                 | An audit of past runs, test files in parallel, the gate split into jobs with one verdict, selection proven by a hidden change                                                                                                                   | G1 is a draft pull request; G3 (port leases) in progress                                      |
+| H What dogs are told and can do | Stop everything in one call, steer a running helper, quieter routine runs and rooms, connector status, exact draft sends, faster browser work                                                                                                   | not started                                                                                   |
+
+Packages so far:
+
+| Package                                               | Branch                                              | State                                                                                                                                                                                                                     |
+| ----------------------------------------------------- | --------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| A1 Desktop baseline and new measures                  | `refine/a1-desktop-baseline`                        | pull request 258, in the first batch (pull request 255)                                                                                                                                                                   |
+| A2 Budget mode for the desktop performance script     | `refine/a2-desktop-budget`, on A1                   | pull request 259, in the first batch: 22 lines, each with today's budget and its target                                                                                                                                   |
+| A3 Desktop launch timeline                            | `refine/a3-launch-timeline`                         | pull request 257, in the first batch                                                                                                                                                                                      |
+| A4 Phone performance log, Run Check and bundle budget | later-dog-phone `refine/a4-phone-perf-log`          | merged to later-dog-phone main on November 25                                                                                                                                                                             |
+| B6 Phone shows finished replies only                  | later-dog-phone `refine/b6-finished-replies`, on A4 | merged to later-dog-phone main on November 25 as `86dd5cc`: reply text in progress changes nothing on screen, the finished reply changes it once. Not published as an update and not yet seen on an iPhone or a simulator |
+| E1 and E2 The wait and the landing, design            | `refine/e1-wait-and-landing`                        | in progress, a proposal for the owner                                                                                                                                                                                     |
+| G1 Audit of the last 150 hosted check runs            | `refine/g1-hosted-checks-audit`                     | pull request 256, in the first batch                                                                                                                                                                                      |
+| G2 Hosted checks return on standard runners           | `refine/g2-hosted-checks-return`, on G1             | in progress                                                                                                                                                                                                               |
+| G3 Port leases so test files can run in parallel      | `refine/g3-port-leases`                             | in progress                                                                                                                                                                                                               |
+
+The first batch is pull request 255: this section, the handoff, G1, A3, A1 and A2 merged together so one gate run
+covers them. It merges on `VERDICT: PASS`.
+
+First numbers, each from its package's own record and none from the Mac app or an iPhone:
+
+- Hosted checks before they were removed (G1, 150 runs, all on Linux): waiting 3 s at the median and 6 s at
+  p95, setup 18 s and 26 s, running 169 s and 965 s. Running was 94.8% of all job time and a whole run took
+  16.6 minutes at the median, because test files ran one at a time; five files are 29% of the per-file time.
+- Desktop launch (A3, Linux, virtual display, unpackaged, 12 launches each): 1,830 ms from spawn to a usable
+  message box on a first launch and 829 ms on a repeat launch. About 1,060 ms of the first launch is the
+  second splash's hold and fade. The window is not created until the whole startup chain has finished.
+- Desktop while a dog works (A1, fixture, headless Chrome, three runs): 26 commits and 5,018 components
+  redrawn per working turn, about 4,750 of them in ten commits no named cause explains yet. With Settings open,
+  22 of 22 frames in the working turn take over 25 ms. A finished reply lands with no task over 50 ms. A1's
+  own runs saw the rows of a person reading older messages move 48 px; thirteen later runs on two other
+  machines saw 0 px, so that reading is unexplained and not counted. When the 120-row transcript is full and
+  following the bottom, the one row dropped from the top moves the rows above by 55.5 px.
+- Phone (A4): the check now reports renders by name, UI-thread frames, a frame budget from the real refresh
+  rate, start marks and a verdict; the bundle is 8,056,387 bytes against a budget of 8,096,768. Nothing in it
+  has run on an iPhone, and the home accepts the new report shape only after a small server change.
+
+The account's usage limit stopped A2, B6, G3 and the design package part-way on November 25; they resumed the
+same day.
+
+Targets, enforced as budgets once A2 lands (counts as they are, timings as a ratio to a baseline on the same
+machine): a work update redraws only its work row; no task over 50 ms while a dog works or when a reply lands;
+nothing above a landing reply moves; no deliberate hold on a splash; on the phone, under 5 renders per chat
+switch and no stall over 200 ms, the targets stated on November 10
+([phone-chat-performance-2026-11-10.md](../verification/phone-chat-performance-2026-11-10.md)).
 
 ## Real account limit, November 14
 
@@ -169,13 +248,13 @@ Draft branch `patch/remote-account-handoff-20261109`: retire the exact idle Clau
 
 2026-11-09 engine relocation hardening (branch `kennel/engine-hardening`, not merged). Remote Claude engines now keep a current sign-in through long turns: the home renews the lent account near expiry with the pinned CLI's `auth status`, serialized through the refresh gate, and the existing push delivers it. The dog's private folder is mirrored read-only and bounded. The owner can set placement through `/api/bots/:id/engine-placement`. A release needs only the server bundle; the relay scripts travel with it. The computers Worker and both images are unchanged. Still open: reattaching after a dropped connection, Codex engines, an app control for placement, and a live observation of a real token renewal. See [engine scaling](../verification/engine-scaling-2026-11-08.md#hardening-before-more-dogs-2026-11-09-branch-kennelengine-hardening).
 
-1. Read `AGENTS.md`. The rules there hold for every lane: Bun 1.4.5, Node 24, no comments in code, new behaviour in new files under `server/laterdog/`, isolated fixtures only.
+1. Read `AGENTS.md`. The rules there hold for every lane: pnpm, Node 24, no comments in code, new behaviour in new files under `server/laterdog/`, isolated fixtures only.
 2. Find your lane below. Check out its branch in its own worktree. Never switch branches in someone else's worktree.
 3. Never touch the person's live data folder or the running app on port 8799. UI evidence comes from `scripts/control-laterdog.ts ui launch` and `ui screenshot` against a fixture.
 4. Never deploy, merge to `main`, publish a release or type a secret. Those wait for the person's own yes.
 5. Commit and push at every green step, and update your lane's row here.
 6. Before every commit, run the no-comments check:
-   - later-dog: `bun run vitest run scripts/no-comments.test.ts`
+   - later-dog: `pnpm exec vitest run scripts/no-comments.test.ts`
    - later-dog-phone: `pnpm test -- no-comments`
 
 2026-11-09 fresh scratch guidance: branch `clover/fresh-scratch-guidance-20261109` adds one sentence to `cloudHomePrompt` telling dogs to use a fresh absolute scratch directory for isolated checks and publishing, and not to delete an existing folder just to reuse its name, after three cleanup waits (TASK `2ec3630c`, Patch `7d9c30ee`, Kennel `39ce73e2`). Model guidance only, not enforcement. Pending independent review and home activation; [record](../verification/fresh-scratch-guidance-2026-11-09.md).

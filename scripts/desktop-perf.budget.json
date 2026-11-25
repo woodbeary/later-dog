@@ -1,0 +1,173 @@
+{
+  "lines": [
+    {
+      "measure": "counted.working.commits",
+      "label": "Working turn: commits",
+      "kind": "count",
+      "budget": 27,
+      "target": 1,
+      "tolerance": 1
+    },
+    {
+      "measure": "counted.working.rendered",
+      "label": "Working turn: components redrawn",
+      "kind": "count",
+      "budget": 5020,
+      "target": 45,
+      "tolerance": 150
+    },
+    {
+      "measure": "counted.workingWithSettings.commits",
+      "label": "Working turn, Settings open: commits",
+      "kind": "count",
+      "budget": 22,
+      "target": 1
+    },
+    {
+      "measure": "counted.workingWithSettings.rendered",
+      "label": "Working turn, Settings open: components redrawn",
+      "kind": "count",
+      "budget": 5330,
+      "target": 45
+    },
+    {
+      "measure": "counted.otherDogsWorking.commits",
+      "label": "Four other dogs working: commits",
+      "kind": "count",
+      "budget": 51,
+      "target": 0
+    },
+    {
+      "measure": "counted.otherDogsWorking.rendered",
+      "label": "Four other dogs working: components redrawn",
+      "kind": "count",
+      "budget": 850,
+      "target": 0
+    },
+    {
+      "measure": "counted.typing.commits",
+      "label": "Typing 119 keys: commits",
+      "kind": "count",
+      "budget": 247,
+      "target": 0,
+      "tolerance": 2
+    },
+    {
+      "measure": "counted.typing.rendered",
+      "label": "Typing 119 keys: components redrawn",
+      "kind": "count",
+      "budget": 2780,
+      "target": 0,
+      "tolerance": 20
+    },
+    {
+      "measure": "timed.working.longTasks",
+      "label": "Working turn: tasks over 50 ms",
+      "kind": "count",
+      "budget": 0,
+      "target": 0
+    },
+    {
+      "measure": "timed.workingWithSettings.longTasks",
+      "label": "Working turn, Settings open: tasks over 50 ms",
+      "kind": "count",
+      "budget": 0,
+      "target": 0
+    },
+    {
+      "measure": "timed.otherDogsWorking.longTasks",
+      "label": "Four other dogs working: tasks over 50 ms",
+      "kind": "count",
+      "budget": 0,
+      "target": 0
+    },
+    {
+      "measure": "landing.tasksOver50Ms",
+      "label": "Reply landing: tasks over 50 ms, all 12 cases",
+      "kind": "count",
+      "budget": 0,
+      "target": 0
+    },
+    {
+      "measure": "timed.working.slowFrames",
+      "label": "Working turn: frames over 25 ms",
+      "kind": "count",
+      "budget": 3,
+      "target": 0,
+      "unit": "frames"
+    },
+    {
+      "measure": "timed.workingWithSettings.slowFrames",
+      "label": "Working turn, Settings open: frames over 25 ms",
+      "kind": "count",
+      "budget": 27,
+      "target": 0,
+      "unit": "frames"
+    },
+    {
+      "measure": "timed.typing.slowFrames",
+      "label": "Typing, no dog working: frames over 25 ms",
+      "kind": "count",
+      "budget": 2,
+      "target": 0,
+      "unit": "frames"
+    },
+    {
+      "measure": "landing.scrolledUp.rowsAboveMovedPx",
+      "label": "Reply lands, reader scrolled up: rows above moved",
+      "kind": "count",
+      "budget": 0,
+      "target": 0,
+      "unit": "px"
+    },
+    {
+      "measure": "landing.scrolledUp.rowsInViewMovedPx",
+      "label": "Reply lands, reader scrolled up: rows in view moved",
+      "kind": "count",
+      "budget": 0,
+      "target": 0,
+      "unit": "px"
+    },
+    {
+      "measure": "landing.following.rowsAboveMovedPx",
+      "label": "Reply lands, following: rows above moved",
+      "kind": "count",
+      "budget": 55.5,
+      "target": 0,
+      "unit": "px",
+      "tolerance": 0.5
+    },
+    {
+      "measure": "timed.typingKeyToFrameMs.p95",
+      "label": "Key press to frame, p95, as a ratio to the reference",
+      "kind": "ratio",
+      "budget": 0.3,
+      "target": 0.1,
+      "reference": "calibration.ms"
+    },
+    {
+      "measure": "timed.switchToLongMs.p50",
+      "label": "Open the long chat, p50, as a ratio to the reference",
+      "kind": "ratio",
+      "budget": 1.4,
+      "target": 0.5,
+      "reference": "calibration.ms"
+    },
+    {
+      "measure": "timed.switchToShortMs.p50",
+      "label": "Open a short chat, p50, as a ratio to the reference",
+      "kind": "ratio",
+      "budget": 0.5,
+      "target": 0.2,
+      "reference": "calibration.ms"
+    },
+    {
+      "measure": "landing.longestTaskMs",
+      "label": "Reply landing: longest task, as a ratio to the reference",
+      "kind": "ratio",
+      "budget": 0.4,
+      "target": 0.1,
+      "reference": "calibration.ms"
+    }
+  ]
+}
