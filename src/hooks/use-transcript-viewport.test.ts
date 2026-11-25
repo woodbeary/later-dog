@@ -208,7 +208,7 @@ beforeEach(() => {
   });
   vi.stubGlobal("HTMLTextAreaElement", class {});
   vi.stubGlobal("HTMLInputElement", class {});
-  vi.stubGlobal("HTMLElement", class {});
+  vi.stubGlobal("HTMLElement", class { closest() { return null; } });
   vi.stubGlobal("Node", class {});
   return () => vi.unstubAllGlobals();
 });
@@ -468,6 +468,29 @@ describe("transcript viewport", () => {
     const reading = scroller.scrollTop;
     view.rerender({ messages: rows(12) });
     expect(scroller.scrollTop).toBe(reading);
+  });
+
+  it("keeps the reader's position when End belongs to another control, and still jumps from the page", () => {
+    vi.stubGlobal("HTMLSelectElement", class {});
+    vi.stubGlobal("document", { ...page, documentElement: { ...page.documentElement, dataset: {} }, querySelector: () => null });
+    const view = mount({ messages: rows(300) });
+    view.act(() => view.current.showEarlier());
+    view.act(() => view.current.scrollHandlers.onWheel({ deltaY: -40 } as never));
+    scroller.scrollTop = 200;
+    const position = scroller.scrollTop;
+    const shown = view.current.windowedMessages.map(row => row.id);
+    const calls = scroller.calls.length;
+    const preventDefault = vi.fn();
+    view.act(() => press("End", new HTMLElement(), { preventDefault }));
+    expect(view.current.following).toBe(false);
+    expect(scroller.scrollTop).toBe(position);
+    expect(scroller.calls).toHaveLength(calls);
+    expect(view.current.windowedMessages.map(row => row.id)).toEqual(shown);
+    expect(preventDefault).not.toHaveBeenCalled();
+    view.act(() => press("End", page.body, { preventDefault }));
+    expect(view.current.following).toBe(true);
+    expect(scroller.scrollTop).toBe(scroller.bottom);
+    expect(preventDefault).toHaveBeenCalledOnce();
   });
 
   it("treats scrollbar grabs, scroll keys and a dragging finger as leaving the bottom", () => {

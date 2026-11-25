@@ -34,11 +34,14 @@ export function scrollBehavior(): ScrollBehavior {
   return globalThis.window?.matchMedia?.("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth";
 }
 
-export function endKeyScrolls(event: Pick<KeyboardEvent, "key" | "metaKey" | "ctrlKey" | "altKey" | "shiftKey" | "defaultPrevented">, target: EventTarget | null): boolean {
+export function endKeyScrolls(event: Pick<KeyboardEvent, "key" | "metaKey" | "ctrlKey" | "altKey" | "shiftKey" | "defaultPrevented">, target: EventTarget | null, scroller: HTMLElement | null = null): boolean {
   if (event.key !== "End" || event.defaultPrevented || event.metaKey || event.ctrlKey || event.altKey || event.shiftKey) return false;
   if (target instanceof HTMLInputElement || target instanceof HTMLSelectElement) return false;
-  if (target instanceof HTMLTextAreaElement) return target.value.length === 0;
-  return !(target instanceof HTMLElement && target.isContentEditable);
+  if (target instanceof HTMLTextAreaElement) return target.value.length === 0 && Boolean(target.closest("[data-composer-surface]"));
+  if (target instanceof HTMLElement && (target.isContentEditable || target.closest("button, a[href], [role=button], [role=menu], [role=listbox], [role=tree], [contenteditable]:not([contenteditable=false])"))) return false;
+  const ownerDocument = scroller?.ownerDocument ?? globalThis.document;
+  if (target === ownerDocument?.body || target === ownerDocument?.documentElement) return true;
+  return Boolean(scroller && target instanceof Node && scroller.contains(target));
 }
 
 export const TYPING_PAUSE_MS = 300;
@@ -219,7 +222,7 @@ export function useTranscriptViewport<T extends { id: string; role?: string }>({
     const onKey = (e: KeyboardEvent) => {
       lastKeyAt.current = performance.now();
       if (scrollKeyLeavesBottom(e, e.target, scrollRef.current)) setBottomFollow(false);
-      if (endKeyScrolls(e, e.target) && !document.querySelector('[role="dialog"][aria-modal="true"]')) {
+      if (endKeyScrolls(e, e.target, scrollRef.current) && !document.querySelector('[role="dialog"][aria-modal="true"]')) {
         e.preventDefault();
         jumpRef.current();
       }
