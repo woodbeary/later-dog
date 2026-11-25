@@ -14,6 +14,7 @@ later.dog 0.3.3 and newer update themselves from the newest GitHub release of `w
    ```
 
    It packages the app, runs the packaged-server smoke test, checks the signature and update feed, notarizes and staples the app and the disk image, then publishes the release. Hosted checks on GitHub's free runners give feedback on pull requests (`docs/ci.md`); signing, notarizing, releases and device checks run from Jacob's Mac. `LATERDOG_RELEASE_DRY_RUN=1` stops before publishing.
+
 5. Check that the release has four files: `later.dog-macOS-arm64.dmg`, `later.dog-macOS-arm64.zip`, `SHA256SUMS.txt` and `latest-mac.yml`. New installs use the disk image, which the Download button on later.dog serves; installed apps update from the zip.
 
 ## What the script refuses

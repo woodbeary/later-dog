@@ -6,7 +6,10 @@ export const RUNTIME_JOBS = ["build", "electron-broker", "suite", "side", "inter
 export function judgeNeeds(needs) {
   const problems = [];
   const docsOnly = needs?.scope?.outputs?.runtime === "false";
-  if (needs?.scope?.result === "success" && !["true", "false"].includes(needs.scope.outputs?.runtime)) {
+  if (
+    needs?.scope?.result === "success" &&
+    !["true", "false"].includes(needs.scope.outputs?.runtime)
+  ) {
     problems.push("scope did not say whether runtime checks are selected");
   }
   for (const name of [...ALWAYS_RUN, ...RUNTIME_JOBS]) {
@@ -29,10 +32,16 @@ export function main(env) {
   }
   const verdict = judgeNeeds(needs);
   if (!verdict.ok) {
-    process.stdout.write(`CI failed:\n${verdict.problems.map((problem) => `  ${problem}`).join("\n")}\n`);
+    process.stdout.write(
+      `CI failed:\n${verdict.problems.map((problem) => `  ${problem}`).join("\n")}\n`,
+    );
     return 1;
   }
-  process.stdout.write(verdict.docsOnly ? "CI passed: docs-only change, runtime jobs skipped by the scope selection\n" : "CI passed: every job succeeded\n");
+  process.stdout.write(
+    verdict.docsOnly
+      ? "CI passed: docs-only change, runtime jobs skipped by the scope selection\n"
+      : "CI passed: every job succeeded\n",
+  );
   return 0;
 }
 
