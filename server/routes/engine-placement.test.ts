@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { json, readBody } from "../harness/http.ts";
-import { remoteEngineBots, remoteEngineChoice, setRemoteEngineBot } from "../laterdog/engine-placement.ts";
+import { remoteEngineBots, remoteEngineChoice, remoteEngineDefault, setRemoteEngineDefault, setRemoteEngineBot } from "../laterdog/engine-placement.ts";
 import { requiredScope, type RequestAuth } from "../request-auth.ts";
 import { createEnginePlacementRoutes } from "./engine-placement.ts";
 import { dispatchRoutes } from "./table.ts";
@@ -24,6 +24,8 @@ async function serve(auth: RequestAuth = OWNER, env: NodeJS.ProcessEnv = {}) {
   const dataDir = realpathSync(mkdtempSync(join(tmpdir(), "laterdog-placement-route-")));
   scratch.push(dataDir);
   const routes = [createEnginePlacementRoutes({
+    readDefault: () => remoteEngineDefault(dataDir),
+    saveDefault: computer => setRemoteEngineDefault(dataDir, computer),
     botExists: (id) => id === "patch" || id === "nimbus",
     read: (id) => remoteEngineChoice(dataDir, id, env),
     save: (id, computer) => setRemoteEngineBot(dataDir, id, computer, env),
@@ -41,7 +43,7 @@ async function serve(auth: RequestAuth = OWNER, env: NodeJS.ProcessEnv = {}) {
   await new Promise<void>((ready) => server.listen(0, "127.0.0.1", ready));
   const base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
   const call = async (bot: string, method = "GET", body?: unknown) => {
-    const response = await fetch(`${base}/api/bots/${bot}/engine-placement`, { method, ...(body === undefined ? {} : { body: typeof body === "string" ? body : JSON.stringify(body) }) });
+    const response = await fetch(bot ? `${base}/api/bots/${bot}/engine-placement` : `${base}/api/engine-placement`, { method, ...(body === undefined ? {} : { body: typeof body === "string" ? body : JSON.stringify(body) }) });
     return { status: response.status, body: await response.json() as Record<string, unknown> };
   };
   return { dataDir, call, file: join(dataDir, "remote-engines.json") };
@@ -62,7 +64,21 @@ describe("/api/bots/:id/engine-placement", () => {
     expect([...remoteEngineBots(dataDir, {})]).toEqual(["patch", "nimbus"]);
     expect(await call("patch")).toMatchObject({ body: { placement: "computer" } });
     expect(await call("patch", "PUT", { placement: "home" })).toMatchObject({ status: 200, body: { placement: "home" } });
-    expect(JSON.parse(readFileSync(file, "utf8"))).toEqual({ bots: ["nimbus"] });
+    expect(JSON.parse(readFileSync(file, "utf8"))).toEqual({ bots: ["nimbus"], homeBots: ["patch"] });
+  });
+
+  it("uses the owner's default for unassigned dogs and retains individual choices through changes", async () => {
+    const { call } = await serve();
+    expect(await call("")).toMatchObject({ body: { placement: "home" } });
+    await call("patch", "PUT", { placement: "home" });
+    expect(await call("", "PUT", { placement: "computer" })).toMatchObject({ status: 200, body: { placement: "computer" } });
+    expect(await call("nimbus")).toMatchObject({ body: { placement: "computer" } });
+    expect(await call("patch")).toMatchObject({ body: { placement: "home" } });
+    await call("nimbus", "PUT", { placement: "computer" });
+    await call("", "PUT", { placement: "home" });
+    expect(await call("nimbus")).toMatchObject({ body: { placement: "computer" } });
+    const { call: asDog } = await serve({ ...OWNER, localTools: true });
+    expect((await asDog("", "PUT", { placement: "computer" })).status).toBe(403);
   });
 
   it("refuses anyone but the owner, unknown dogs and malformed choices, and changes nothing", async () => {

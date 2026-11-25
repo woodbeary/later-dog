@@ -11,6 +11,7 @@ export interface EngineFileRoot {
   files?: string[];
   bounded?: { fileBytes: number; totalBytes: number; exclude?: string[] };
   readOnly?: boolean;
+  pushOnly?: boolean;
 }
 export interface EngineFile { root: string; path: string; hash: string; size: number; mode: number }
 export const ENGINE_FILE_LIMIT = 128 * 1024 * 1024;

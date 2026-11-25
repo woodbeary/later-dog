@@ -130,8 +130,8 @@ export class RemoteSession extends EventEmitter {
     for (let offset = 0; offset < bytes.length; offset += 32 * 1024) this.#send({ type: "file_chunk", data: bytes.subarray(offset, offset + 32 * 1024).toString("base64") });
     this.#send({ type: "file_end" });
   }
-  #pushScoped(remote: Map<string, string>): void {
-    for (const file of this.#launch.pushes?.() ?? []) {
+  #pushScoped(remote: Map<string, string>, files = this.#launch.pushes?.() ?? []): void {
+    for (const file of files) {
       const key = engineFileKey(file);
       const hash = createHash("sha256").update(file.bytes).digest("hex");
       if ((this.#pushed.get(key) ?? remote.get(key)) === hash) continue;
@@ -145,7 +145,11 @@ export class RemoteSession extends EventEmitter {
     const launch = this.#launch;
     let configured: { files: EngineFile[] };
     let home: EngineFile[];
-    const pushedRoots = new Set((launch.pushes?.() ?? []).map((file) => file.root));
+    const pushedRoots = new Set(launch.roots.filter(root => root.pushOnly).map(root => root.id));
+    const initialPush = launch.pushes?.() ?? [];
+    for (const id of pushedRoots) {
+      if (!initialPush.some(file => file.root === id)) throw new NotDispatched("The selected sign-in is unavailable on the home.");
+    }
     try {
       home = engineInventory(launch.roots.filter((root) => !pushedRoots.has(root.id)));
     } catch (error) {
@@ -162,7 +166,7 @@ export class RemoteSession extends EventEmitter {
       this.#sendFile(file.root, file.path, readEngineFile(root, file.path), root.readOnly ? (file.mode & 0o444) | 0o400 : file.mode);
     }
     for (const file of configured.files) if (!present.has(engineFileKey(file)) && !pushedRoots.has(file.root)) this.#send({ type: "file_remove", file });
-    this.#pushScoped(remote);
+    this.#pushScoped(remote, initialPush);
     try { await this.#request({ type: "prepared" }, SYNC_REPLY_MS); }
     catch (error) { throw new NotDispatched((error as Error).message); }
     this.#receiver = new EngineFileReceiver(launch.roots.filter((root) => launch.outputIds.includes(root.id)).map((root) => ({ ...root, writable: true })),

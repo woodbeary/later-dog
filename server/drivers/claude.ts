@@ -8,7 +8,7 @@ import { DATA_DIR, stripWorkspaceCredentialEnv } from "../config.ts";
 import { writeFileAtomic, writeFileAtomicIfChanged } from "../atomic.ts";
 import { augmentedPath } from "../env-path.ts";
 import { brokerSocketPath, describeSpawnFailure, execCli, killCliTree, resolveCli, spawnCli } from "../procs.ts";
-import { engineOpener, notePlacement, planClaudeRemote, remoteEngineBots, spawnPlacedEngine } from "../laterdog/engine-placement.ts";
+import { engineOpener, notePlacement, planClaudeRemote, remoteEngineChoice, spawnPlacedEngine } from "../laterdog/engine-placement.ts";
 import { engineWaitEvent } from "../laterdog/engine-waiting.ts";
 import { claudeResumeRefusal, classifyResumeFailure, mayReplay, recoveryPromptFor } from "../resume-recovery.ts";
 import { ClaudeLoginController } from "./claude-login-auth.ts";
@@ -1392,7 +1392,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
       const commandCwd = permissionLaunchCwd(cwd);
       const unkeyedFlags = new Set<string>(["--mcp-config", "--settings", ...FLAGS_LEARNED_AFTER_LAUNCH]);
       const keyArgs = args.filter((a, i) => a !== "--forward-subagent-text" && !unkeyedFlags.has(a) && !unkeyedFlags.has(args[i - 1] ?? ""));
-      const chosenRemote = Boolean(botId && !turn.guestConfined && remoteEngineBots(DATA_DIR).has(botId));
+      const chosenRemote = Boolean(botId && !turn.guestConfined && remoteEngineChoice(DATA_DIR, botId).computer);
       const argsParts = Object.fromEntries(Object.entries({
         args: keyArgs,
         system: turn.systemStable ?? turn.system ?? null,

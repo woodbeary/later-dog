@@ -907,7 +907,7 @@ import { createAntigravityLeftoverRoutes } from "./routes/antigravity-leftovers.
 import { findAntigravityLeftovers, removeAntigravityLeftovers } from "./drivers/antigravity-temp.ts";
 import { createLiveRoutes } from "./routes/live.ts";
 import { withScopeHint } from "./connector-scope-hint.ts";
-import { remoteEngineChoice, setEngineOpener, setRemoteEngineBot } from "./laterdog/engine-placement.ts";
+import { remoteEngineChoice, remoteEngineDefault, setRemoteEngineDefault, setEngineOpener, setRemoteEngineBot } from "./laterdog/engine-placement.ts";
 import { preToolGuardDecision } from "./laterdog/placed-threads.ts";
 import { carryClaudeSession } from "./laterdog/session-carry.ts";
 import { createEnginePlacementRoutes } from "./routes/engine-placement.ts";
@@ -13861,6 +13861,8 @@ ROUTES.push(createRoomCardRoutes({
   save: (threadId, messageId, card) => store.patchMessage(threadId, messageId, { card }),
 }));
 ROUTES.push(createEnginePlacementRoutes({
+  readDefault: () => remoteEngineDefault(DATA_DIR),
+  saveDefault: computer => setRemoteEngineDefault(DATA_DIR, computer),
   botExists: (id) => Boolean(store.bot(id)),
   read: (id) => remoteEngineChoice(DATA_DIR, id),
   save: (id, computer) => setRemoteEngineBot(DATA_DIR, id, computer),
