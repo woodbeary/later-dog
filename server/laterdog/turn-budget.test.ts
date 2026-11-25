@@ -13,7 +13,9 @@ describe("a helper's bounded turn", () => {
     for (let i = 1; i < HELPER_TURN_TOOL_CALLS; i += 1) budget.toolUsed("t");
     const notice = budget.toolUsed("t", 120_000)!;
     expect(notice).toMatch(/^later\.dog: this helper turn has made 80 tool calls and carries about 120K tokens of context\./);
-    expect(notice).toMatch(/end your turn with a report that begins with partly done: what is finished, what is left and where things are/);
+    expect(notice).toMatch(/save your current plan and workspace notes/);
+    expect(notice).toMatch(/end this turn with a partly done report: what is finished, what is left and where things are/);
+    expect(notice).toMatch(/continues this request from that plan automatically; no new request is needed/);
   });
 
   it("tells it as soon as the context passes 160,000 tokens, however few calls it made", () => {

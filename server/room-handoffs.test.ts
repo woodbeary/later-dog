@@ -1031,7 +1031,7 @@ describe("requests sent without waiting for a reply", () => {
   const relay = (engine: RoomHandoffs, to: string, text = "FYI: the release is live") =>
     engine.enqueue(chief, "turn", undefined, { botId: to, threadId: `${to}-chat` }, to, text, false, false, "", undefined, undefined, undefined, undefined, false, "none").node;
 
-  it("runs the work, reports it, and never resumes the sender", () => fixture(async (engine, hooks) => {
+  it("saves context without running work, reporting a result or resuming the sender", () => fixture(async (engine, hooks) => {
     const child = relay(engine, "patch");
     expect(child.reply).toBe("none");
     engine.sourceSettled("turn", true);
@@ -1040,9 +1040,12 @@ describe("requests sent without waiting for a reply", () => {
     expect(engine.outstandingDirect(chief.threadId)).toEqual([]);
     for (let i = 0; i < 4; i++) { engine.tick(); await flush(); }
     expect(child.status).toBe("completed");
-    expect(hooks.report).toHaveBeenCalledTimes(1);
-    expect(hooks.run).toHaveBeenCalledTimes(1);
-    expect(vi.mocked(hooks.run).mock.calls.map(([node, resumed]) => [node.botId, resumed])).toEqual([["patch", false]]);
+    expect(hooks.report).not.toHaveBeenCalled();
+    expect(hooks.run).not.toHaveBeenCalled();
+    expect(engine.queueOf("patch")).toEqual([]);
+    expect(engine.activeDirect("patch-chat")).toBe(false);
+    expect(engine.pendingContext("patch", "patch-chat")).toEqual([child]);
+    expect(engine.nodes.get("turn")?.executions).toBe(0);
   }));
 
   it("resumes the sender once for the replies it asked for and leaves the no-reply result out", () => fixture(async (engine, hooks) => {
@@ -1058,7 +1061,7 @@ describe("requests sent without waiting for a reply", () => {
     expect(engine.nodes.get("turn")?.status).toBe("completed");
   }));
 
-  it("lets a dog that only relays work finish its own request without waiting, and the relayed work still runs", () => fixture(async (engine, hooks) => {
+  it("lets a dog finish after saving relayed context without starting a recipient turn", () => fixture(async (engine, hooks) => {
     const lead = { botId: "lead", threadId: "lead-chat" };
     let relayed: RoomHandoff | undefined;
     hooks.run = vi.fn(async (node: RoomHandoff, resumed: boolean) => {
@@ -1071,16 +1074,18 @@ describe("requests sent without waiting for a reply", () => {
     for (let i = 0; i < 8; i++) { engine.tick(); await flush(); }
     expect(asked.status).toBe("completed");
     expect(relayed?.status).toBe("completed");
-    expect(vi.mocked(hooks.run).mock.calls.map(([node, resumed]) => [node.botId, resumed])).toEqual([["lead", false], ["tester", false], ["chief", true]]);
+    expect(vi.mocked(hooks.run).mock.calls.map(([node, resumed]) => [node.botId, resumed])).toEqual([["lead", false], ["chief", true]]);
+    expect(engine.pendingContext("tester", "tester-chat")).toEqual([relayed]);
   }));
 
-  it("keeps queued no-reply work after its sender finished and when old trees are pruned", () => fixture(async (engine, hooks) => {
+  it("keeps unread context after its sender finished and when old trees are pruned", () => fixture(async (engine, hooks) => {
     let busy = true;
     hooks.busy = (node) => node.botId === "patch" && busy;
     const child = relay(engine, "patch");
     engine.sourceSettled("turn", true);
     engine.tick(); await flush();
-    expect(child.status).toBe("queued");
+    expect(child.status).toBe("completed");
+    expect(engine.queueOf("patch")).toEqual([]);
     for (let i = 0; i < 1000; i++) engine.nodes.set(`old-${i}`, { id: `old-${i}`, rootId: `old-${i}`, threadId: "old", botId: "old", key: "root", text: "", createdAt: i,
       status: "completed", result: "", reported: true, executions: 0, approvalGranted: false, kind: "work" });
     engine.enqueue({ botId: "other", threadId: "other-chat" }, "later", undefined, { botId: "x", threadId: "x-chat" }, "x", "next");

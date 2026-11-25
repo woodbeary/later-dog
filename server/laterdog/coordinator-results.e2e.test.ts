@@ -34,7 +34,6 @@ it("gives a coordinator its first helpers' results while a slow one works, then 
       [marlow.id]: { when: [
         { includes: SOME_BACK, reply: "Acted on the first two lanes." },
         { includes: ALL_BACK, reply: "All three lanes are in." },
-        { includes: "FIELD_NAMES_NOTE", reply: "Noted the field names." },
         { includes: "Split the fixture work", reply: "Sent three lanes.",
           steps: [lane(pip, "Lane one: check the fixture export."), lane(quill, "Lane two: check the fixture copy."), lane(rook, "Lane three: run the long fixture suite.")] },
       ] },
@@ -43,7 +42,6 @@ it("gives a coordinator its first helpers' results while a slow one works, then 
         note(marlow, "FIELD_NAMES_NOTE for Marlow: Quill has the field names now."),
       ] },
       [quill.id]: { when: [
-        { includes: "FIELD_NAMES_NOTE", reply: "Quill has the field names." },
         { includes: "Lane two", reply: "QUILL_LANE_RESULT" },
       ] },
       [rook.id]: { gateFile: rookGate, reply: "ROOK_LANE_RESULT" },
@@ -65,8 +63,9 @@ it("gives a coordinator its first helpers' results while a slow one works, then 
     const pipTurn = turns().find((turn) => turn.botId === pip.id)!;
     const notes = pipTurn.evidence.filter((entry: any) => entry.step).map((entry: any) => entry.response.result);
     expect(notes.map((result: any) => Boolean(result.isError))).toEqual([false, false]);
-    await expect.poll(() => turns().filter((turn) => turn.botId === quill.id && told(turn).includes("FIELD_NAMES_NOTE")).length, { timeout: 20_000 }).toBe(1);
-    await expect.poll(() => marlowTurns().filter((turn) => told(turn).includes("FIELD_NAMES_NOTE") && !told(turn).includes("downstream room requests")).length, { timeout: 20_000 }).toBe(1);
+    expect(turns().filter((turn) => turn.botId === quill.id)).toHaveLength(1);
+    expect(told(first)).toContain("FIELD_NAMES_NOTE for Marlow");
+    expect(marlowTurns().filter((turn) => told(turn).includes("FIELD_NAMES_NOTE") && !told(turn).includes("downstream room requests"))).toHaveLength(0);
 
     writeFileSync(rookGate, "go");
     expect((await cli("wait", "--bot", marlow.id, "--task", marlow.activeTaskId, "--timeout", "60")).status).toBe("settled");
@@ -78,7 +77,7 @@ it("gives a coordinator its first helpers' results while a slow one works, then 
     const settled = turns().length;
     await new Promise((resolve) => setTimeout(resolve, 3_000));
     expect(turns()).toHaveLength(settled);
-    expect(marlowTurns()).toHaveLength(4);
+    expect(marlowTurns()).toHaveLength(3);
     expect(nodes().every((node) => ["completed", "failed", "cancelled"].includes(node.status))).toBe(true);
     const lines = (await api("GET", `/api/threads/${marlow.activeTaskId}/messages?limit=200`)).messages
       .map((message: any) => message.tool?.name).filter((name: string | undefined) => name?.startsWith("Resumed with"));

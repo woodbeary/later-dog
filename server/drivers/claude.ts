@@ -1953,7 +1953,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
                   ? "update_required"
                   : session.turn?.usageLimited
                     ? "usage_limit"
-                    : o.stop_reason ?? o.terminal_reason ?? null,
+                    : o.stop_reason ?? o.terminal_reason ?? (o.subtype === "error_max_turns" ? "max_turns" : null),
               cost: o.total_cost_usd ?? null,
               ...(o.usage
                 ? {

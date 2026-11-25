@@ -84,6 +84,11 @@ export function queuedChannelMessage(
   return entry.items.find((item) => item.sendId === sendId) ?? null;
 }
 
+export function hasQueuedChannelMessages(groupId: string, threadId: string): boolean {
+  const entry = queues.get(threadId);
+  return entry?.groupId === groupId && entry.items.length > 0;
+}
+
 function namesQueued(item: Pick<ChannelQueueItem, "id" | "sendId"> | undefined, id: string): boolean {
   return item !== undefined && (item.id === id || item.sendId === id);
 }

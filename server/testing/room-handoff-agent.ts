@@ -13,7 +13,8 @@ const readAtLaunch = (path: string) => {
 
 export async function runRoomHandoffAgent(argv: string[], planPath: string, prompt?: unknown,
   launch?: { integration: AgentsIntegration; system: string; evidence?: Record<string, unknown> },
-  progress?: (text: string) => void, announce?: (call: { id: string; name: string; input: unknown; parentToolUseId?: string; agentId?: string }) => void): Promise<string> {
+  progress?: (text: string) => void, announce?: (call: { id: string; name: string; input: unknown; parentToolUseId?: string; agentId?: string }) => void,
+  ended?: (result: { stopReason?: string; isError?: boolean }) => void): Promise<string> {
   const arg = (flag: string) => argv[argv.indexOf(flag) + 1];
   const integration = launch?.integration ?? Object.values(JSON.parse(readAtLaunch(arg("--mcp-config"))).mcpServers as Record<string, AgentsIntegration>)
     .find(s => s.env?.LATERDOG_BOT_ID);
@@ -111,6 +112,7 @@ export async function runRoomHandoffAgent(argv: string[], planPath: string, prom
       if (plan.delayMs) await new Promise(resolve => { delayTimer = setTimeout(resolve, plan.delayMs); });
       if (plan.fail && !resumed) throw new Error("Scripted addressed agent failure");
       if (plan.failResumed && resumed) throw new Error("Scripted failure of a resumed turn");
+      ended?.({ stopReason: plan.stopReason, isError: plan.isError });
       return matched || basePlan.turns ? plan.reply : resumed ? plan.resumeReply ?? `Summary from ${botId}` : plan.reply ?? `Result from ${botId}`;
     })()]);
   } finally {

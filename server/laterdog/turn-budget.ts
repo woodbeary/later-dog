@@ -10,7 +10,7 @@ export interface HelperTurnBounds {
 
 export function partlyDoneNotice(calls: number, contextTokens: number | undefined): string {
   const size = contextTokens ? ` and carries about ${Math.round(contextTokens / 1000)}K tokens of context` : "";
-  return `later.dog: this helper turn has made ${calls} tool calls${size}. Finish the step you are on, then end your turn with a report that begins with partly done: what is finished, what is left and where things are, so the dog that asked can send the rest as a new request in a fresh turn.`;
+  return `later.dog: this helper turn has made ${calls} tool calls${size}. Finish the step you are on, save your current plan and workspace notes, then end this turn with a partly done report: what is finished, what is left and where things are. Keep unfinished plan items open. later.dog continues this request from that plan automatically; no new request is needed.`;
 }
 
 export class HelperTurnBudget {
