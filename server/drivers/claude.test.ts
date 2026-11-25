@@ -4264,6 +4264,7 @@ describe("ClaudeDriver resume recovery (fake CLI)", () => {
     delete process.env.FAKE_CLAUDE_DUMP;
     delete process.env.FAKE_CLAUDE_TEXT_HANG;
     delete process.env.FAKE_CLAUDE_RESUME_RESULT;
+    delete process.env.FAKE_CLAUDE_VERSION;
     delete process.env.FAKE_CLAUDE_ERROR_TEXT;
     recorder?.stop();
     await instance?.dispose();
@@ -4299,6 +4300,33 @@ describe("ClaudeDriver resume recovery (fake CLI)", () => {
     const content = seen.prompt.message.content;
     const text = typeof content === "string" ? content : content.map((c: any) => c.text ?? "").join("");
     expect(text).toBe(REBUILD);
+  });
+
+  it("replays once when a fork is refused with the captured missing-session result", async () => {
+    process.env.FAKE_CLAUDE_MODE = "dead-session-result";
+    process.env.FAKE_CLAUDE_VERSION = "2.1.316";
+    process.env.FAKE_CLAUDE_RESUME_RESULT = join(dirname(FAKE_CLI), "claude-lost-session-result.json");
+    const dump = join(scratch, "fork-recovered.json");
+    process.env.FAKE_CLAUDE_DUMP = dump;
+    const dispatch = await instance.adapter.sendTurn({
+      threadId: "t-dead-fork",
+      text: "what now?",
+      sessionReset: true,
+      fork: { session: "a-session-claude-no-longer-has", at: "the-kept-entry" },
+      recoveryText: REBUILD,
+    });
+    await recorder.until((event) => event.type === "turn.completed");
+    expect(recorder.events.filter((event) => event.type === "turn.completed")).toEqual([
+      expect.objectContaining({ ok: true, turnId: dispatch.turnId }),
+    ]);
+    expect(recorder.events.filter((event) => event.type === "runtime.error")).toEqual([]);
+    expect(recorder.events.find((event) => event.type === "turn.retrying")).toMatchObject({ reason: "resume_rejected" });
+    expect(recorder.events.filter((event) => event.type === "session.started").at(-1)).toMatchObject({ rebuilt: true });
+    const seen = JSON.parse(readFileSync(dump, "utf8"));
+    expect(seen.argv).not.toContain("--resume");
+    expect(seen.argv).not.toContain("--fork-session");
+    expect(seen.prompt.message.content).toBe(REBUILD);
+    expect(seen.prompt.message.content.match(/what now\?/g)).toHaveLength(1);
   });
 
   it("shows an error result it does not handle as a failure carrying the engine's own words", async () => {

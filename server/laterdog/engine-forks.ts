@@ -2,6 +2,7 @@ import { existsSync, readFileSync } from "node:fs";
 
 import type { EngineForkPoint } from "../../shared/runtime-events.ts";
 import { writeFileAtomic } from "../atomic.ts";
+import { handedStateUsable, unseenMessages, type ContextMessage, type HandedState } from "../delta-context.ts";
 import type { Message } from "../store.ts";
 
 export interface EngineForkAnchor extends EngineForkPoint {
@@ -51,7 +52,13 @@ export class EngineForks {
     } catch {}
   }
 
-  record(threadId: string, instanceId: string, point: EngineForkPoint, activePath: readonly Message[]): EngineForkAnchor | null {
+  record(threadId: string, instanceId: string, point: EngineForkPoint, activePath: readonly Message[], handed: HandedState | undefined): EngineForkAnchor | null {
+    const order = activePath.map((message) => message.id);
+    if (!handed || !handedStateUsable(handed, point.session, order)) return null;
+    const messages: ContextMessage[] = activePath.filter(forkSeesMessage).map((message) => ({
+      id: message.id, role: message.role === "user" ? "user" : "assistant", text: message.text ?? "",
+    }));
+    if (unseenMessages(messages, order, handed).length > 0) return null;
     const last = activePath.findLast(forkSeesMessage);
     const anchor = last ? anchorOf({ instanceId, session: point.session, at: point.at, lastMessageId: last.id }) : null;
     if (!anchor) return null;

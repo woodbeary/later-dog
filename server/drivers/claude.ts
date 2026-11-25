@@ -1951,7 +1951,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
               }
               session.helpers.markReported();
             }
-            const refusal = sessionId && session.turn && !session.turn.settled && !session.turn.sawStreamDelta ? claudeResumeRefusal(o) : null;
+            const refusal = (sessionId || turn.fork) && session.turn && !session.turn.settled && !session.turn.sawStreamDelta ? claudeResumeRefusal(o) : null;
             if (refusal) {
               session.resumeRefused = refusal;
               appendNative(threadId, { dir: "out", source: "claude.session", msg: { hold: `result: the saved session was refused (${refusal}); rebuilding when the engine exits` } });
