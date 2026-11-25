@@ -31,3 +31,18 @@ describe("the fixture's computer job checks", () => {
     for (const value of ["", "0", "-5", "1e9", "30s", "1000000000", " 1000"]) expect(childEnv({ LATERDOG_COMPUTER_JOB_CHECK_MS: value }), value).not.toHaveProperty("LATERDOG_COMPUTER_JOB_CHECK_MS");
   });
 });
+
+describe("the fixture's memory budget", () => {
+  it("sets an ample deterministic budget in sealed verification mode", () => {
+    expect(childEnv({ LATERDOG_TEST_SEALED_PATH: "0", NODE_OPTIONS: "--inspect" }))
+      .toMatchObject({ LATERDOG_TEST_SEALED_PATH: "1", LATERDOG_TEST_AVAILABLE_MEMORY_BYTES: String(4 * 1024 ** 3) });
+    expect(childEnv({ NODE_OPTIONS: "--inspect" })).not.toHaveProperty("NODE_OPTIONS");
+  });
+
+  it("allows explicit low-memory fixtures and rejects malformed readings", () => {
+    expect(childEnv({ LATERDOG_TEST_AVAILABLE_MEMORY_BYTES: "0" }).LATERDOG_TEST_AVAILABLE_MEMORY_BYTES).toBe("0");
+    for (const bytes of ["", "-1", " 1000", "1.5", "1e9", "Infinity", "9007199254740992"]) {
+      expect(childEnv({ LATERDOG_TEST_AVAILABLE_MEMORY_BYTES: bytes }).LATERDOG_TEST_AVAILABLE_MEMORY_BYTES).toBe(String(4 * 1024 ** 3));
+    }
+  });
+});

@@ -333,6 +333,9 @@ export function verificationServerEnvironment(parentEnv: NodeJS.ProcessEnv, data
     if (value && platformKeys.has(normalized)) childEnv[normalized] = value;
   }
   const fixtureTemp = join(dataDir, "tmp");
+  const configuredMemory = parentEnv.LATERDOG_TEST_AVAILABLE_MEMORY_BYTES;
+  const fixtureMemory = /^(0|[1-9]\d*)$/.test(configuredMemory ?? "") && Number.isSafeInteger(Number(configuredMemory))
+    ? configuredMemory : String(4 * 1024 ** 3);
   Object.assign(childEnv, {
     HOME: dataDir,
     USERPROFILE: dataDir,
@@ -352,6 +355,7 @@ export function verificationServerEnvironment(parentEnv: NodeJS.ProcessEnv, data
     FAKE_CLAUDE_DUMP: join(dataDir, "fake-claude-dump.json"),
     PATH: sealedFixtureBin(dataDir),
     LATERDOG_TEST_SEALED_PATH: "1",
+    LATERDOG_TEST_AVAILABLE_MEMORY_BYTES: fixtureMemory,
     LATERDOG_TRIAL_API: parentEnv.LATERDOG_TRIAL_API || "off",
   });
   for (const [key, value] of Object.entries(parentEnv)) {

@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { createWarmEngines, ENGINE_BYTES, engineIdleLimit, RESERVE_BYTES, type MemoryGauge } from "./warm-engines.ts";
+import { createWarmEngines, ENGINE_BYTES, engineIdleLimit, engineMemory, RESERVE_BYTES, type MemoryGauge } from "./warm-engines.ts";
 
 const GIB = 1024 ** 3;
 const MIB = 1024 ** 2;
@@ -256,4 +256,44 @@ describe("thread engine ownership across adapters", () => {
     await rejected;
   });
 
+});
+
+describe("memory in a sealed verification server", () => {
+  it("keeps the system gauge unless verification mode is enabled", () => {
+    const system = gauge(0).read;
+    for (const sealed of [undefined, "", "0", "true"]) {
+      const memory = engineMemory({ LATERDOG_TEST_SEALED_PATH: sealed, LATERDOG_TEST_AVAILABLE_MEMORY_BYTES: String(4 * GIB) }, system);
+      expect(memory).toBe(system);
+      const closed: string[] = [];
+      createWarmEngines({ memory }).rest({}, engine("Clover", closed));
+      expect(closed).toEqual(["Clover: low memory"]);
+    }
+    expect(engineMemory({}, null)).toBeNull();
+  });
+
+  it("keeps a fixture engine warm independently of the host's memory", () => {
+    const memory = engineMemory({ LATERDOG_TEST_SEALED_PATH: "1", LATERDOG_TEST_AVAILABLE_MEMORY_BYTES: String(4 * GIB) }, gauge(0).read);
+    expect(memory?.availableBytes()).toBe(4 * GIB);
+    const closed: string[] = [];
+    const warm = createWarmEngines({ memory });
+    const clover = {};
+    warm.rest(clover, engine("Clover", closed));
+    vi.advanceTimersByTime(60_000);
+    expect(closed).toEqual([]);
+    warm.forget(clover);
+  });
+
+  it("still closes a fixture engine when its explicit budget is low", () => {
+    const memory = engineMemory({ LATERDOG_TEST_SEALED_PATH: "1", LATERDOG_TEST_AVAILABLE_MEMORY_BYTES: "0" }, gauge(4 * GIB).read);
+    const closed: string[] = [];
+    createWarmEngines({ memory }).rest({}, engine("Clover", closed));
+    expect(closed).toEqual(["Clover: low memory"]);
+  });
+
+  it("keeps the system gauge for missing or invalid fixture readings", () => {
+    const system = gauge(0).read;
+    for (const bytes of [undefined, "", "-1", " 1000", "1.5", "1e9", "Infinity", "9007199254740992"]) {
+      expect(engineMemory({ LATERDOG_TEST_SEALED_PATH: "1", LATERDOG_TEST_AVAILABLE_MEMORY_BYTES: bytes }, system)).toBe(system);
+    }
+  });
 });
