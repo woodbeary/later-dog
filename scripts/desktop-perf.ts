@@ -8,6 +8,8 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { launchVerificationServer, type VerificationServer } from "./control-laterdog.ts";
 import { fixtureApi } from "./testing/preview-fixture.ts";
+import { compare, table, type Budget } from "./desktop-perf-budget.ts";
+import { calibrate, partsNeeded, readMeasures, type PerfResult } from "./desktop-perf-measures.ts";
 
 const WELCOME_VERSION = 2;
 const WINDOW_ROWS = 120;
@@ -53,7 +55,14 @@ interface Memory {
   browserTreeRssMb: number;
 }
 
+interface CauseBucket {
+  commits: number;
+  rendered: number;
+  triggers: Record<string, number>;
+}
+
 interface Activity {
+  causes?: Record<string, CauseBucket>;
   mainThread?: MainThread;
   ms: number;
   commits: number;
@@ -136,7 +145,8 @@ async function seed(api: ReturnType<typeof fixtureApi>, setup: Options): Promise
 }
 
 const PAGE_PROBE = `(() => {
-  const perf = { commits: 0, rendered: 0, counting: false, longTasks: [], frames: [], composerAt: null, keys: [], names: new Map(), watchingStore: false, store: null, storeChanges: [], startedAt: 0, placing: false, storeChangedAt: -1000, storeChangedThisTask: false, placed: {}, placedNow: null, rowsThisCommit: new Set() };
+  const realSetTimeout = window.setTimeout.bind(window);
+  const perf = { lastTrigger: null, triggers: [], causes: {}, causing: false, causeNow: null, replyFrameAt: null, landingWatch: null, commits: 0, rendered: 0, counting: false, longTasks: [], frames: [], composerAt: null, keys: [], names: new Map(), watchingStore: false, store: null, storeChanges: [], startedAt: 0, placing: false, storeChangedAt: -1000, storeChangedThisTask: false, placed: {}, placedNow: null, rowsThisCommit: new Set() };
   window.__perf = perf;
   const component = (tag) => tag === 0 || tag === 1 || tag === 11 || tag === 14 || tag === 15;
   const firstElement = (fiber) => {
@@ -179,6 +189,7 @@ const PAGE_PROBE = `(() => {
   const visit = (next, previous) => {
     if (component(next.tag) && (next.flags & 1) === 1) {
       perf.rendered += 1;
+      if (perf.causeNow) perf.causeNow.rendered += 1;
       const type = next.type && (next.type.type || next.type.render || next.type);
       const name = (next.type && next.type.displayName) || (type && (type.displayName || type.name)) || "(unnamed)";
       perf.names.set(name, (perf.names.get(name) || 0) + 1);
@@ -227,14 +238,71 @@ const PAGE_PROBE = `(() => {
     if (!perf.placing) return;
     perf.storeChangedAt = performance.now();
     perf.storeChangedThisTask = true;
-    setTimeout(() => { perf.storeChangedThisTask = false; }, 0);
+    realSetTimeout(() => { perf.storeChangedThisTask = false; }, 0);
     tally().storeChanges += 1;
+  };
+  const trigger = (cause, detail) => {
+    perf.lastTrigger = { cause, detail, at: performance.now() };
+    perf.triggers.push(perf.lastTrigger);
+    if (perf.triggers.length > 400) perf.triggers.splice(0, 200);
+  };
+  const frameCause = (kind) => kind === "native.run.updated" ? "nativeRunUpdated" : kind === "message.patch" ? "messagePatch" : kind === "message" ? "messageAdded" : "workAndRuntime";
+  const noteFrame = (data) => {
+    let frame = null;
+    try { frame = JSON.parse(data); } catch { return; }
+    if (!frame || typeof frame.kind !== "string" || frame.kind === "ping" || frame.kind === "hello") return;
+    trigger(frameCause(frame.kind), frame.kind);
+    if (frame.kind === "message" && frame.message && frame.message.role === "bot" && frame.message.kind === "text") {
+      perf.replyFrameAt = performance.now();
+      performance.mark("reply-frame");
+    }
+  };
+  const wrapTimer = (name) => {
+    const real = window[name].bind(window);
+    window[name] = (handler, delay, ...rest) => typeof handler === "function" ? real(function () { trigger("timer", name); return handler.apply(this, arguments); }, delay, ...rest) : real(handler, delay, ...rest);
+  };
+  wrapTimer("setTimeout");
+  wrapTimer("setInterval");
+  for (const type of ["keydown", "pointerdown", "click", "wheel", "input"]) addEventListener(type, () => trigger("input", type), { capture: true, passive: true });
+  const nativeFetch = window.fetch.bind(window);
+  window.fetch = (input, init) => nativeFetch(input, init).then((response) => {
+    let path = "(request)";
+    try { path = new URL(typeof input === "string" ? input : input.url, location.href).pathname.replace(/[0-9a-f]{8,}(?:-[0-9a-f]+)*/g, ":id"); } catch {}
+    trigger("requestAnswered", path);
+    return response;
+  });
+  const NativeSource = window.EventSource;
+  if (NativeSource) {
+    window.EventSource = class extends NativeSource {
+      constructor(url, init) {
+        super(url, init);
+        this.addEventListener("message", (event) => noteFrame(event.data));
+      }
+    };
+  }
+  const CAUSE_WINDOW_MS = 150;
+  const causedCommit = (root) => {
+    const now = performance.now();
+    const recent = perf.triggers.filter((entry) => now - entry.at < CAUSE_WINDOW_MS);
+    perf.triggers.length = 0;
+    const names = [...new Set(recent.map((entry) => entry.cause))].sort();
+    const key = names.length === 0 ? "unattributed" : names.length === 1 ? names[0] : "mixed:" + names.join("+");
+    const held = perf.causes[key] || (perf.causes[key] = { commits: 0, rendered: 0, triggers: {} });
+    for (const detail of new Set(recent.map((entry) => entry.detail))) held.triggers[detail] = (held.triggers[detail] || 0) + 1;
+    if (recent.length === 0 && perf.lastTrigger && now - perf.lastTrigger.at < 1000) {
+      const late = "after " + perf.lastTrigger.detail + " " + (now - perf.lastTrigger.at < 400 ? "150-400 ms" : "400-1000 ms");
+      held.triggers[late] = (held.triggers[late] || 0) + 1;
+    }
+    held.commits += 1;
+    perf.causeNow = held;
+    visit(root.current, root.current.alternate);
+    perf.causeNow = null;
   };
   window.__REACT_DEVTOOLS_GLOBAL_HOOK__ = {
     supportsFiber: true,
     renderers: new Map(),
     inject(renderer) { const id = this.renderers.size + 1; this.renderers.set(id, renderer); return id; },
-    onCommitFiberRoot(_id, root) { perf.commits += 1; if (perf.watchingStore) noteStore(root); if (perf.placing) placedCommit(root); else if (perf.counting) visit(root.current, root.current.alternate); },
+    onCommitFiberRoot(_id, root) { perf.commits += 1; if (perf.watchingStore) noteStore(root); if (perf.placing) placedCommit(root); else if (perf.counting) { if (perf.causing) causedCommit(root); else visit(root.current, root.current.alternate); } },
     onPostCommitFiberRoot() {},
     onCommitFiberUnmount() {},
     checkDCE() {},
@@ -251,7 +319,7 @@ const PAGE_PROBE = `(() => {
     const pressed = event.timeStamp;
     requestAnimationFrame(() => requestAnimationFrame((shown) => perf.keys.push(shown - pressed)));
   }, true);
-  perf.begin = () => { perf.names.clear(); perf.commits = 0; perf.rendered = 0; perf.longTasks.length = 0; perf.frames.length = 0; perf.keys.length = 0; perf.startedAt = performance.now(); };
+  perf.begin = () => { perf.causes = {}; perf.triggers.length = 0; perf.names.clear(); perf.commits = 0; perf.rendered = 0; perf.longTasks.length = 0; perf.frames.length = 0; perf.keys.length = 0; perf.startedAt = performance.now(); };
   perf.end = () => ({
     ms: performance.now() - perf.startedAt,
     commits: perf.commits,
@@ -262,8 +330,99 @@ const PAGE_PROBE = `(() => {
     slowFrames: perf.frames.filter((gap) => gap > 25).length,
     worstFrameMs: perf.frames.reduce((worst, gap) => Math.max(worst, gap), 0),
     keys: [...perf.keys],
+    causes: perf.causes,
     top: [...perf.names.entries()].sort((left, right) => right[1] - left[1]).slice(0, 120).map(([name, count]) => name + " " + count),
   });
+  const boxOf = (row) => {
+    const kids = [...row.children];
+    if (kids.length === 0) return row.getBoundingClientRect();
+    let top = Infinity;
+    let bottom = -Infinity;
+    for (const kid of kids) {
+      const rect = kid.getBoundingClientRect();
+      top = Math.min(top, rect.top);
+      bottom = Math.max(bottom, rect.bottom);
+    }
+    return { top, bottom, height: bottom - top };
+  };
+  perf.watchLanding = () => {
+    const log = document.querySelector('[role="log"]');
+    const scroller = log.parentElement;
+    const logTop = log.getBoundingClientRect().top;
+    const rows = [...log.querySelectorAll("[data-mid]")].map((row) => {
+      const box = boxOf(row);
+      return { row, content: box.top - logTop, view: box.top, visible: box.bottom > 0 && box.top < innerHeight, contentMost: 0, viewMost: 0, contentEnd: 0, viewEnd: 0 };
+    });
+    const watch = {
+      rows,
+      known: new Set(rows.map((entry) => entry.row.getAttribute("data-mid"))),
+      scroller,
+      log,
+      scrollTop: scroller.scrollTop,
+      fromBottom: scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight,
+      seenAt: null,
+      bubbleHeight: null,
+      shifts: [],
+      stopped: false,
+    };
+    perf.landingWatch = watch;
+    perf.replyFrameAt = null;
+    try {
+      const shifts = new PerformanceObserver((list) => {
+        for (const entry of list.getEntries()) {
+          let largest = 0;
+          for (const source of entry.sources || []) largest = Math.max(largest, Math.abs(source.currentRect.y - source.previousRect.y));
+          watch.shifts.push({ value: entry.value, px: largest });
+        }
+      });
+      shifts.observe({ type: "layout-shift" });
+      watch.observer = shifts;
+    } catch {}
+    const sample = () => {
+      if (watch.stopped) return;
+      const anchor = rows.find((entry) => entry.row.isConnected);
+      if (!anchor) { requestAnimationFrame(sample); return; }
+      const anchorTop = boxOf(anchor.row).top;
+      for (const entry of rows) {
+        if (!entry.row.isConnected) continue;
+        const box = boxOf(entry.row);
+        entry.contentEnd = box.top - anchorTop - (entry.content - anchor.content);
+        entry.viewEnd = box.top - entry.view;
+        entry.contentMost = Math.max(entry.contentMost, Math.abs(entry.contentEnd));
+        entry.viewMost = Math.max(entry.viewMost, Math.abs(entry.viewEnd));
+      }
+      if (watch.seenAt === null) {
+        const fresh = [...log.querySelectorAll("[data-mid]")].find((row) => !watch.known.has(row.getAttribute("data-mid")) && (row.textContent || "").length > 0);
+        if (fresh) {
+          watch.seenAt = performance.now();
+          watch.bubbleHeight = boxOf(fresh).height;
+          performance.mark("reply-seen");
+        }
+      }
+      requestAnimationFrame(sample);
+    };
+    requestAnimationFrame(sample);
+  };
+  perf.endLanding = () => {
+    const watch = perf.landingWatch;
+    watch.stopped = true;
+    if (watch.observer) watch.observer.disconnect();
+    const moved = (values) => values.filter((value) => value > 0.5).length;
+    const most = (values) => Math.round(values.reduce((top, value) => Math.max(top, value), 0) * 10) / 10;
+    const seen = watch.rows.filter((entry) => entry.visible);
+    const scroller = watch.scroller;
+    return {
+      replyFrameToSeenMs: watch.seenAt === null || perf.replyFrameAt === null ? null : Math.round(watch.seenAt - perf.replyFrameAt),
+      replySeen: watch.seenAt !== null,
+      bubbleHeightPx: watch.bubbleHeight === null ? null : Math.round(watch.bubbleHeight),
+      rowsAbove: watch.rows.length,
+      rowsRemovedFromTop: watch.rows.filter((entry) => !entry.row.isConnected).length,
+      content: { rowsMoved: moved(watch.rows.map((entry) => entry.contentMost)), mostPx: most(watch.rows.map((entry) => entry.contentMost)), rowsMovedAtEnd: moved(watch.rows.map((entry) => Math.abs(entry.contentEnd))), mostAtEndPx: most(watch.rows.map((entry) => Math.abs(entry.contentEnd))) },
+      viewport: { rowsInView: seen.length, rowsMoved: moved(seen.map((entry) => entry.viewMost)), mostPx: most(seen.map((entry) => entry.viewMost)), rowsMovedAtEnd: moved(seen.map((entry) => Math.abs(entry.viewEnd))), mostAtEndPx: most(seen.map((entry) => Math.abs(entry.viewEnd))) },
+      scroll: { fromBottomBeforePx: Math.round(watch.fromBottom), fromBottomAfterPx: Math.round(scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight), scrollTopChangedPx: Math.round(scroller.scrollTop - watch.scrollTop) },
+      layoutShifts: { entries: watch.shifts.length, largestPx: most(watch.shifts.map((entry) => entry.px)), score: Math.round(watch.shifts.reduce((sum, entry) => sum + entry.value, 0) * 1000) / 1000 },
+    };
+  };
   perf.place = () => { perf.placed = {}; perf.storeChangedAt = -1000; perf.rowsThisCommit.clear(); perf.storeChanges.length = 0; perf.watchingStore = true; perf.placing = true; perf.begin(); };
   perf.endPlacing = () => { perf.placing = false; return perf.placed; };
   perf.until = (test, timeoutMs) => new Promise((done, fail) => {
@@ -450,13 +609,14 @@ function spent(before: MainThread, after: MainThread): MainThread {
   };
 }
 
-async function measured<T>(page: Page, cdp: Cdp, counting: boolean, work: () => Promise<T>): Promise<Activity & { keys: number[]; top: string[]; value: T }> {
+async function measured<T>(page: Page, cdp: Cdp, counting: boolean, work: () => Promise<T>, splitCauses = false): Promise<Activity & { keys: number[]; top: string[]; value: T }> {
   const before = await mainThread(cdp);
-  await page.evaluate((on: boolean) => {
-    const perf = (window as unknown as { __perf: { counting: boolean; begin(): void } }).__perf;
+  await page.evaluate(({ on, causing }: { on: boolean; causing: boolean }) => {
+    const perf = (window as unknown as { __perf: { counting: boolean; causing: boolean; begin(): void } }).__perf;
     perf.counting = on;
+    perf.causing = on && causing;
     perf.begin();
-  }, counting);
+  }, { on: counting, causing: splitCauses });
   const value = await work();
   const result = await page.evaluate(() => (window as unknown as { __perf: { end(): Activity & { keys: number[]; top: string[] } } }).__perf.end());
   return { ...result, mainThread: spent(before, await mainThread(cdp)), value };
@@ -667,6 +827,153 @@ async function devServer(apiUrl: string, scratch: string): Promise<{ url: string
   }
 }
 
+interface TraceEvent {
+  name: string;
+  ph: string;
+  ts: number;
+  dur?: number;
+  pid: number;
+  tid: number;
+}
+
+type TracingCdp = Cdp & {
+  on(event: string, handler: (payload: { value?: TraceEvent[] }) => void): void;
+  off(event: string, handler: (payload: { value?: TraceEvent[] }) => void): void;
+};
+
+async function traced(cdp: Cdp, work: () => Promise<void>): Promise<TraceEvent[]> {
+  const tracing = cdp as TracingCdp;
+  const events: TraceEvent[] = [];
+  const collect = (payload: { value?: TraceEvent[] }) => { events.push(...(payload.value ?? [])); };
+  tracing.on("Tracing.dataCollected", collect);
+  const complete = new Promise<void>((done) => {
+    const finished = () => { tracing.off("Tracing.tracingComplete", finished); done(); };
+    tracing.on("Tracing.tracingComplete", finished);
+  });
+  await cdp.send("Tracing.start", { categories: "disabled-by-default-devtools.timeline,devtools.timeline,blink.user_timing", transferMode: "ReportEvents" });
+  try {
+    await work();
+  } finally {
+    await cdp.send("Tracing.end");
+    await complete;
+    tracing.off("Tracing.dataCollected", collect);
+  }
+  return events;
+}
+
+interface TaskWindow {
+  windowMs: number;
+  tasks: number;
+  longestTaskMs: number;
+  blockingMs: number;
+  longTasks: number;
+}
+
+function tasksAroundLanding(events: readonly TraceEvent[], beforeMs: number, afterMs: number): TaskWindow | null {
+  const frame = events.find((event) => event.name === "reply-frame");
+  const seen = events.find((event) => event.name === "reply-seen");
+  if (!frame || !seen) return null;
+  const from = frame.ts - beforeMs * 1000;
+  const to = seen.ts + afterMs * 1000;
+  const tasks = events.filter((event) => event.name === "RunTask" && event.ph === "X" && event.pid === frame.pid && event.tid === frame.tid && event.ts >= from && event.ts <= to);
+  const durations = tasks.map((event) => (event.dur ?? 0) / 1000);
+  const round = (value: number) => Math.round(value * 10) / 10;
+  return {
+    windowMs: round((to - from) / 1000),
+    tasks: durations.length,
+    longestTaskMs: round(durations.reduce((most, value) => Math.max(most, value), 0)),
+    blockingMs: round(durations.reduce((sum, value) => sum + Math.max(0, value - 50), 0)),
+    longTasks: durations.filter((value) => value > 50).length,
+  };
+}
+
+const LANDING_SHAPES = {
+  short: (text: string) => text.endsWith("Done. Nothing else needed."),
+  long: (text: string) => text.length > longestReply * 0.9,
+} as const;
+
+type LandingShape = keyof typeof LANDING_SHAPES;
+type LandingFollow = "followingTheBottom" | "scrolledUp";
+
+const LANDING_BEFORE_MS = 50;
+const LANDING_AFTER_MS = 500;
+const SCROLLED_UP_PX = 1_500;
+
+async function landingCase(page: Page, cdp: Cdp, api: ReturnType<typeof fixtureApi>, dogs: { long: Dog; others: Dog[] }, files: FixtureFiles, shape: LandingShape, follow: LandingFollow) {
+  await open(page, dogs.others[0]!);
+  await open(page, dogs.long);
+  await page.waitForTimeout(1_500);
+  await page.mouse.move(820, 420);
+  if (follow === "scrolledUp") {
+    await page.mouse.wheel(0, -SCROLLED_UP_PX);
+    await page.waitForTimeout(500);
+  } else {
+    await page.evaluate(() => { const scroller = document.querySelector('[role="log"]')!.parentElement!; scroller.scrollTop = scroller.scrollHeight; });
+    await page.waitForTimeout(300);
+  }
+  const next = Number(readFileSync(files.replyIndex, "utf8")) || 0;
+  const at = scriptedReplies.findIndex((text, index) => index >= next && LANDING_SHAPES[shape](text));
+  writeFileSync(files.replyIndex, String(at));
+  const characters = scriptedReplies[at]!.length;
+  writeFileSync(files.stream, JSON.stringify({ everyMs: 800, chars: characters + 1 }));
+  const token = `landing-${randomUUID().slice(0, 8)}`;
+  let landed: Record<string, unknown> | null = null;
+  const events = await traced(cdp, async () => {
+    await api("POST", `/api/bots/${dogs.long.id}/messages`, { text: `Landing check ${token}`, threadId: dogs.long.threadId, sendId: randomUUID().replaceAll("-", "") });
+    await page.evaluate(async (needle: string) => {
+      const perf = (window as unknown as { __perf: { until(test: () => boolean, timeoutMs: number): Promise<number> } }).__perf;
+      await perf.until(() => Boolean(document.querySelector('[role="log"]')?.textContent?.includes(needle)), 30_000);
+    }, token);
+    await page.waitForTimeout(150);
+    await page.evaluate(() => (window as unknown as { __perf: { watchLanding(): void } }).__perf.watchLanding());
+    await page.evaluate(async () => {
+      const perf = (window as unknown as { __perf: { until(test: () => boolean, timeoutMs: number): Promise<number>; landingWatch: { seenAt: number | null } } }).__perf;
+      await perf.until(() => perf.landingWatch.seenAt !== null, 30_000);
+    });
+    await page.waitForTimeout(LANDING_AFTER_MS);
+    landed = await page.evaluate(() => (window as unknown as { __perf: { endLanding(): Record<string, unknown> } }).__perf.endLanding());
+  });
+  await settled(api, [dogs.long.id]);
+  rmSync(files.stream, { force: true });
+  return { characters, shape, follow, mainThread: tasksAroundLanding(events, LANDING_BEFORE_MS, LANDING_AFTER_MS), ...landed };
+}
+
+async function landing(browser: Browser, url: string, api: ReturnType<typeof fixtureApi>, dogs: { long: Dog; others: Dog[] }, files: FixtureFiles, reps: number) {
+  const context = await browser.newContext({ viewport: VIEWPORT });
+  await context.addInitScript(PAGE_PROBE);
+  const page = await context.newPage();
+  await page.goto(url);
+  await page.waitForSelector('textarea[aria-label^="Message "]', { timeout: 60_000 });
+  await page.waitForTimeout(1_000);
+  const cdp = await page.context().newCDPSession(page);
+  await cdp.send("Performance.enable");
+  await landingCase(page, cdp, api, dogs, files, "short", "followingTheBottom");
+  const cases: Array<Awaited<ReturnType<typeof landingCase>>> = [];
+  for (let rep = 0; rep < reps; rep += 1) {
+    for (const shape of ["short", "long"] as const) {
+      for (const follow of ["followingTheBottom", "scrolledUp"] as const) cases.push(await landingCase(page, cdp, api, dogs, files, shape, follow));
+    }
+  }
+  await context.close();
+  return { window: `from ${LANDING_BEFORE_MS} ms before the reply's frame arrives to ${LANDING_AFTER_MS} ms after its bubble is first seen`, scrolledUpByPx: SCROLLED_UP_PX, tracing: "devtools.timeline on during each case", cases };
+}
+
+async function workingTurnWithSettings(page: Page, cdp: Cdp, api: ReturnType<typeof fixtureApi>, dog: Dog, files: FixtureFiles, replyIndex: number, counting: boolean) {
+  await page.keyboard.press("Control+,");
+  const settingsShown = await page.waitForSelector('[aria-modal="true"]', { timeout: 10_000 }).then(() => true, () => false);
+  await page.waitForTimeout(800);
+  writeFileSync(files.replyIndex, String(replyIndex));
+  const activity = await measured(page, cdp, counting, async () => {
+    await api("POST", `/api/bots/${dog.id}/messages`, { text: "One more pass please, settings open.", threadId: dog.threadId, sendId: randomUUID().replaceAll("-", "") });
+    await new Promise((done) => setTimeout(done, 150));
+    await settled(api, [dog.id]);
+    await page.waitForTimeout(400);
+  }, true);
+  await page.keyboard.press("Escape");
+  await page.waitForTimeout(500);
+  return { activity, replyIndex, settingsShown };
+}
+
 async function pass(browser: { newContext(options: unknown): Promise<{ addInitScript(script: string): Promise<void>; newPage(): Promise<Page>; close(): Promise<void> }> }, fixture: VerificationServer, api: ReturnType<typeof fixtureApi>, dogs: { long: Dog; others: Dog[] }, setup: Options, files: FixtureFiles, counting: boolean) {
   const streamFile = files.stream;
   const context = await browser.newContext({ viewport: VIEWPORT });
@@ -679,7 +986,7 @@ async function pass(browser: { newContext(options: unknown): Promise<{ addInitSc
   await cdp.send("Performance.enable");
   if (process.argv.includes("--css")) await (page as unknown as { addStyleTag(options: { content: string }): Promise<unknown> }).addStyleTag({ content: option("css") });
   const named = process.argv.includes("--names");
-  const trim = ({ keys: _keys, value: _value, top, ...rest }: Activity & { keys: number[]; top: string[]; value: unknown }) => (named && counting ? { ...rest, top } : rest);
+  const trim = ({ keys: _keys, value: _value, top, causes, ...rest }: Activity & { keys: number[]; top: string[]; value: unknown }) => ({ ...rest, ...(counting && causes && Object.keys(causes).length > 0 ? { causes } : {}), ...(named && counting ? { top } : {}) });
   const idle = await heap(page);
   const rendererIdleMb = rendererMemoryMb(process.pid);
   const rendererSeenMb = [rendererIdleMb];
@@ -774,6 +1081,7 @@ async function pass(browser: { newContext(options: unknown): Promise<{ addInitSc
   await page.click(composerOf(dogs.long));
   const token = `streamed-${randomUUID().slice(0, 8)}`;
   await page.keyboard.type(`One more pass please ${token}`, { delay: 5 });
+  const streamedReply = Number(readFileSync(files.replyIndex, "utf8")) || 0;
   const streaming = await measured(page, cdp, counting, async () => {
     const marks = page.evaluate(async (needle: string) => {
       const perf = (window as unknown as { __perf: { until(test: () => boolean, timeoutMs: number): Promise<number> } }).__perf;
@@ -791,7 +1099,10 @@ async function pass(browser: { newContext(options: unknown): Promise<{ addInitSc
     await settled(api, [dogs.long.id]);
     await page.waitForTimeout(400);
     return seen;
-  });
+  }, true);
+  sampleRenderer();
+
+  const settingsOpen = await workingTurnWithSettings(page, cdp, api, dogs.long, files, streamedReply, counting);
   sampleRenderer();
 
   const elsewhere = await measured(page, cdp, counting, async () => {
@@ -799,7 +1110,7 @@ async function pass(browser: { newContext(options: unknown): Promise<{ addInitSc
     await new Promise((done) => setTimeout(done, 150));
     await settled(api, dogs.others.map((dog) => dog.id));
     await page.waitForTimeout(400);
-  });
+  }, true);
   rmSync(streamFile, { force: true });
   sampleRenderer();
 
@@ -826,6 +1137,7 @@ async function pass(browser: { newContext(options: unknown): Promise<{ addInitSc
     scrolling: trim(scrolling),
     send: streaming.value,
     streaming: trim(streaming),
+    streamingWithSettingsOpen: { ...trim(settingsOpen.activity), replyIndex: settingsOpen.replyIndex, settingsShown: settingsOpen.settingsShown },
     otherDogsWorking: trim(elsewhere),
   };
 }
@@ -1710,8 +2022,56 @@ async function oneDogStreams(browser: Browser, url: string, api: ReturnType<type
   };
 }
 
+interface CauseTotals {
+  alone: { commits: number; rendered: number };
+  withOthers: { commits: number; rendered: number };
+}
+
+function causeTotals(causes: Record<string, CauseBucket>): Record<string, CauseTotals> {
+  const totals: Record<string, CauseTotals> = {};
+  const entry = (name: string) => totals[name] ??= { alone: { commits: 0, rendered: 0 }, withOthers: { commits: 0, rendered: 0 } };
+  for (const [key, bucket] of Object.entries(causes)) {
+    const names = key.startsWith("mixed:") ? key.slice("mixed:".length).split("+") : [key];
+    for (const name of names) {
+      const share = entry(name)[names.length === 1 ? "alone" : "withOthers"];
+      share.commits += bucket.commits;
+      share.rendered += bucket.rendered;
+    }
+  }
+  return totals;
+}
+
 function redraws(activity: Activity & { top?: string[] }) {
-  return { commits: activity.commits, rendered: activity.rendered, ...(activity.top ? { top: activity.top } : {}) };
+  return { commits: activity.commits, rendered: activity.rendered, ...(activity.causes ? { causeTotals: causeTotals(activity.causes), causes: activity.causes } : {}), ...(activity.top ? { top: activity.top } : {}) };
+}
+
+const DEFAULT_BUDGET = "scripts/desktop-perf.budget.json";
+
+function budgetRequest() {
+  const index = process.argv.indexOf("--budget");
+  if (index === -1) return null;
+  const next = process.argv[index + 1];
+  const file = resolve(ROOT, next && !next.startsWith("--") ? next : DEFAULT_BUDGET);
+  const budget = JSON.parse(readFileSync(file, "utf8")) as Budget;
+  const quick = process.argv.includes("--budget-quick");
+  const wanted = partsNeeded(budget.lines.flatMap((line) => (line.reference ? [line.measure, line.reference] : [line.measure])));
+  const parts = quick ? new Set([...wanted].filter((part) => part === "counted" || part === "landing")) : wanted;
+  const runnable = (name: string) => [...partsNeeded([name])].every((part) => part === "calibration" || parts.has(part));
+  const lines = quick ? budget.lines.filter((line) => runnable(line.measure) && (!line.reference || runnable(line.reference))) : budget.lines;
+  return { file, budget: { lines }, skipped: budget.lines.filter((line) => !lines.includes(line)), parts };
+}
+
+function checkBudget(request: NonNullable<ReturnType<typeof budgetRequest>>, result: PerfResult): string {
+  const measures = readMeasures(result);
+  const referenceFile = process.argv.includes("--reference") ? resolve(option("reference")) : null;
+  if (referenceFile) {
+    const reference = readMeasures(JSON.parse(readFileSync(referenceFile, "utf8")) as PerfResult);
+    for (const line of request.budget.lines) if (line.reference && reference[line.reference] !== undefined) measures[line.reference] = reference[line.reference];
+  }
+  const comparison = compare(request.budget, measures);
+  process.exitCode = comparison.ok ? 0 : 1;
+  const skipped = request.skipped.length > 0 ? `\nNot run in --budget-quick (${request.skipped.length}): ${request.skipped.map((line) => line.measure).join(", ")}` : "";
+  return `${table(comparison)}${skipped}\nbudget file: ${request.file}`;
 }
 
 async function main() {
@@ -1869,26 +2229,43 @@ async function main() {
       process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
       return;
     }
-    const cold = await coldLoads(browser, fixture.info.url, setup.coldRuns);
-    const timed = await pass(browser, fixture, api, dogs, setup, files, false);
-    const counted = await pass(browser, fixture, api, dogs, setup, files, true);
+    if (process.argv.includes("--landing-only")) {
+      const result = { label: setup.label, at: new Date().toISOString(), landing: await landing(browser, fixture.info.url, api, dogs, files, Number(option("landing-reps", "3"))) };
+      mkdirSync(dirname(setup.out), { recursive: true });
+      writeFileSync(setup.out, `${JSON.stringify(result, null, 2)}\n`);
+      process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+      return;
+    }
+    const budgeting = budgetRequest();
+    const needs = budgeting ? budgeting.parts : new Set(["cold", "timed", "counted", "landing"]);
+    const cold = needs.has("cold") ? await coldLoads(browser, fixture.info.url, setup.coldRuns) : undefined;
+    const timed = needs.has("timed") ? await pass(browser, fixture, api, dogs, setup, files, false) : undefined;
+    const counted = needs.has("counted") ? await pass(browser, fixture, api, dogs, setup, files, true) : undefined;
+    const landed = needs.has("landing") ? await landing(browser, fixture.info.url, api, dogs, files, Number(option("landing-reps", "3"))) : undefined;
     const result = {
       label: setup.label,
       at: new Date().toISOString(),
       setup: { ...setup, seedSeconds, renderer: "production build served by the fixture server", browser: setup.browser, platform: `${process.platform} ${process.arch}`, messagesInLongChat: setup.longTurns * 2 },
       cold,
       timed,
-      counted: {
+      landing: landed,
+      counted: counted && {
         switching: redraws(counted.switching),
         typing: redraws(counted.typing),
         scrolling: redraws(counted.scrolling),
         streaming: redraws(counted.streaming),
+        streamingWithSettingsOpen: redraws(counted.streamingWithSettingsOpen),
         otherDogsWorking: redraws(counted.otherDogsWorking),
       },
-      memory: timed.rssMb,
+      memory: timed?.rssMb,
+      ...(budgeting ? { calibration: { ms: calibrate() } } : {}),
     };
     mkdirSync(dirname(setup.out), { recursive: true });
     writeFileSync(setup.out, `${JSON.stringify(result, null, 2)}\n`);
+    if (budgeting) {
+      process.stdout.write(`${checkBudget(budgeting, result as PerfResult)}\n`);
+      return;
+    }
     process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
   } finally {
     await browser.close();
@@ -1897,7 +2274,7 @@ async function main() {
   }
 }
 
-main().then(() => process.exit(0), (error) => {
+main().then(() => process.exit(process.exitCode ?? 0), (error) => {
   process.stderr.write(`${error instanceof Error ? error.stack : String(error)}\n`);
   process.exit(1);
 });
