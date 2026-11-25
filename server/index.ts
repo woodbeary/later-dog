@@ -6292,7 +6292,7 @@ function ingestEngineHook(capability: InternalCapability, body: unknown): { ok: 
   }
   if (name === "Stop") return { ok: true };
   if (name === "PreToolUse") {
-    const decision = (CLOUD_HOME ? signalDecision(payload, () => liveSignalScene(threadId, PORT)) ?? homeFloorDecision(payload, diskUse(DATA_DIR), { computers: computersSelected() }) : null)
+    const decision = (CLOUD_HOME ? signalDecision(payload, () => liveSignalScene(threadId, PORT, cloudOwnerOnlyThread(threadId) && !cloudGuestDriven(threadId), () => { restartRequested = true; })) ?? homeFloorDecision(payload, diskUse(DATA_DIR), { computers: computersSelected() }) : null)
       ?? preToolUseDecision(heavyCommandGuard, { active: Boolean(CLOUD_HOME) && computersSelected(), threadId, payload })
       ?? alwaysAskHook(payload, () => hookGuardContext(capability.botId, threadId, typeof payload.cwd === "string" ? payload.cwd : undefined));
     return decision ? { ok: true, hookSpecificOutput: decision } : { ok: true };
