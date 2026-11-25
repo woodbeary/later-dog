@@ -16,6 +16,10 @@ remain in the policy selection. Changes to lint configuration or package/lock ma
 full lint, and changes to the comment checker or its config run the full comment scan.
 Deleted ordinary files are not passed to tools that read files.
 
+Source comment checks use pinned Oxc 0.160.0 and reject parsing errors. Directive and licence
+exceptions share the existing classification. The write command keeps its existing TypeScript
+comment removal and token-preservation checks.
+
 Formatting covers changed JS/TS, JSON/JSONC/JSON5, CSS/SCSS/Less, HTML/Vue, Markdown/MDX,
 YAML, TOML and GraphQL paths supported by the pinned formatter. Its checked-in configuration
 excludes generated output, vendored code and lockfiles. It does not reformat the repository

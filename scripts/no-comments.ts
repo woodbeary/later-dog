@@ -1,5 +1,6 @@
 import { execFileSync } from "node:child_process";
 import { readFileSync, writeFileSync } from "node:fs";
+import { parseSync } from "oxc-parser";
 import ts from "typescript";
 import { CONFIG, configComments, dropLines, stripConfig } from "./no-comments-config.ts";
 
@@ -149,6 +150,32 @@ function kept(text: string, comments: ts.CommentRange[]): Set<number> {
   }
   close();
   return keep;
+}
+
+export function checkedComments(file: string, text: string): Array<{ line: number; text: string }> {
+  if (!SOURCE.test(file)) return remainingComments(file, text);
+  const result = parseSync(file, text);
+  if (result.errors.length)
+    throw new Error(
+      `${file}: cannot parse: ${result.errors.map((error) => error.message).join("; ")}`,
+    );
+  const comments = result.comments
+    .filter((comment) => !(comment.start === 0 && text.startsWith("#!")))
+    .map((comment): ts.CommentRange => ({
+      pos: comment.start,
+      end: comment.end,
+      kind:
+        comment.type === "Line"
+          ? ts.SyntaxKind.SingleLineCommentTrivia
+          : ts.SyntaxKind.MultiLineCommentTrivia,
+    }));
+  const keep = kept(text, comments);
+  return comments
+    .filter((comment) => !keep.has(comment.pos))
+    .map((comment) => ({
+      line: text.slice(0, comment.pos).split("\n").length,
+      text: text.slice(comment.pos, comment.end).split("\n")[0]!,
+    }));
 }
 
 export function remainingComments(
@@ -518,6 +545,7 @@ export function strip(file: string, text: string): { text: string; removed: numb
 
 if (import.meta.main) {
   const write = process.argv.includes("--write");
+  const check = process.argv.includes("--check");
   const files = process.argv.slice(2).filter((arg) => !arg.startsWith("--"));
   let total = 0;
   let changed = 0;
@@ -525,7 +553,10 @@ if (import.meta.main) {
   for (const file of files.length ? files : trackedFiles()) {
     const text = readFileSync(file, "utf8");
     try {
-      const result = strip(file, text);
+      const result =
+        check && !write && SOURCE.test(file)
+          ? { text, removed: checkedComments(file, text).length }
+          : strip(file, text);
       if (result.removed) {
         total += result.removed;
         changed++;
@@ -536,7 +567,7 @@ if (import.meta.main) {
     }
   }
   console.log(`${write ? "removed" : "would remove"} ${total} comments in ${changed} files`);
-  if (process.argv.includes("--check") && total) {
+  if (check && total) {
     console.log(
       "later.dog's code has no comments: node scripts/no-comments.ts --write removes them.",
     );
