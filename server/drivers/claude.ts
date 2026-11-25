@@ -59,6 +59,8 @@ import { machineClaudeMemoryExcludes } from "../laterdog/claude-memory-isolation
 import { quietWorkEnvironment } from "../laterdog/work-updates.ts";
 import { ENGINE_BYTES, engineIdleLimit, warmEngines } from "../laterdog/warm-engines.ts";
 import { leftoverProgramsNotice } from "../laterdog/unconfirmed-stop.ts";
+import { placedThreads } from "../laterdog/placed-threads.ts";
+import { sessionIdlePolicy } from "./session-idle.ts";
 import { EngineContextAsk, writeEngineLine } from "../laterdog/engine-context-ask.ts";
 import { extractMcpImages } from "../mcp-tool-images.ts";
 import {
@@ -1157,7 +1159,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
       if (!s || s.helpers.running()) return;
       warmEngines.rest(s, {
         pid: s.child.pid,
-        idleMs: SESSION_IDLE_MS,
+        idleMs: placedThreads.has(threadId) ? sessionIdlePolicy("CLAUDE").idleMs : SESSION_IDLE_MS,
         close: (why) => { if (sessions.get(threadId) === s) closeSession(threadId, why); },
       });
     };

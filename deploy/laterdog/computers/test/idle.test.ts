@@ -6,6 +6,14 @@ const T0 = 1_800_000_000_000;
 const base = { ...policy, now: T0, lastActiveAt: T0, awakeSince: T0, viewers: 0, inFlight: 0 };
 
 describe("decideIdle", () => {
+  it("lets a connected engine finish past the awake limit while respecting a budget deadline", () => {
+    const now = T0 + policy.maxAwakeMs + MINUTE;
+    const active = { ...base, now, engineRunning: true, inFlight: 1 };
+    expect(decideIdle(active)).toEqual({ sleep: false, checkAt: now + MINUTE });
+    expect(decideIdle({ ...active, budgetEndsAt: now })).toEqual({ sleep: true, reason: "budget" });
+    expect(decideIdle({ ...active, engineRunning: false })).toEqual({ sleep: true, reason: "max_awake" });
+  });
+
   it("stays awake while recently active, checking again at most five minutes out", () => {
     expect(decideIdle({ ...base, now: T0 + MINUTE })).toEqual({ sleep: false, checkAt: T0 + MINUTE + HEALTH_CHECK_MS });
     expect(decideIdle({ ...base, now: T0 + 12 * MINUTE })).toEqual({ sleep: false, checkAt: T0 + 15 * MINUTE });
