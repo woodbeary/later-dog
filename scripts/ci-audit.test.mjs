@@ -143,3 +143,58 @@ describe("test durations from logs", () => {
     expect(renderLogReport(result)).toContain("| scripts/testing/thinking-timer-ui.e2e.test.ts | 1 | 47.1 | 47.1 |");
   });
 });
+
+
+describe("current hosted measurements", () => {
+  it("counts the composite preparation action as setup", () => {
+    expect(splitJob(job({ steps: [
+      step("Set up job", "10", "12"),
+      step("Run ./.github/actions/prepare", "12", "44"),
+      step("Lint", "44", "55"),
+    ] }))).toMatchObject({ setup: 34, running: 11 });
+  });
+
+  it("does not report a runner that never executed as zero-second setup", () => {
+    const empty = job({ runner_id: 0, conclusion: "failure", steps: [] });
+    expect(splitJob(empty)).toMatchObject({ waiting: null, setup: null, running: null, teardown: null, ranWork: false });
+    const text = renderReport(analyze([{ id: "empty", jobs: [empty], meta: { event: "pull_request", conclusion: "failure" } }]));
+    expect(text).toContain("| Linux | setup | 0 | - | - |");
+  });
+
+  it("keeps unfinished runs out of completed wall-time samples", () => {
+    const { runRows } = analyze([{ id: "live", jobs: [job()], meta: { status: "in_progress", event: "pull_request", conclusion: null } }]);
+    expect(runRows[0]).toMatchObject({ conclusion: "in_progress", wall: null });
+  });
+
+  it("does not infer success from timeout or unstarted jobs", () => {
+    const result = analyze([
+      { id: "timeout", jobs: [job({ conclusion: "timed_out" })] },
+      { id: "queued", jobs: [job({ conclusion: null, status: "queued", steps: [] })] },
+      { id: "missing", jobs: [job({ conclusion: undefined, steps: [] })] },
+      { id: "skip", jobs: [job({ conclusion: "skipped", steps: [] })] },
+    ]).runRows;
+    expect(result.map((row) => row.conclusion)).toEqual(["timed_out", "in_progress", "in_progress", "skipped"]);
+  });
+
+  it("records an Install failure as setup rather than executed checks", () => {
+    expect(splitJob(job({ steps: [step("Install", "10", "30", "failure"), step("Full tests", "30", "30", "skipped")] })))
+      .toMatchObject({ setup: 20, running: 0, failedInSetup: true, ranWork: false });
+  });
+
+  it("retains listed runs with no downloaded job data", () => {
+    const dir = folder();
+    fs.writeFileSync(path.join(dir, "runs.json"), JSON.stringify([{ id: 99, event: "pull_request", conclusion: "failure" }]));
+    expect(loadRuns(dir)).toEqual([{ id: "99", jobs: [], meta: { id: 99, event: "pull_request", conclusion: "failure" } }]);
+  });
+
+  it("reports completed successful work separately by workflow", () => {
+    const text = renderReport(analyze([
+      { id: "good", jobs: [job()], meta: { name: "Checks", event: "pull_request", conclusion: "success" } },
+      { id: "bad", jobs: [job()], meta: { name: "Checks", event: "pull_request", conclusion: "failure" } },
+      { id: "inconsistent", jobs: [job({ conclusion: "failure" })], meta: { name: "Checks", event: "pull_request", conclusion: "success" } },
+      { id: "empty", jobs: [job({ steps: [] })], meta: { name: "Checks", event: "pull_request", conclusion: "success" } },
+    ]));
+    expect(text).toContain("## Successful runs that executed work");
+    expect(text).toContain("| Checks | pull_request | 1 | 59 | 59 |");
+  });
+});

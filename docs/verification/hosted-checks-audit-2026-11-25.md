@@ -148,6 +148,46 @@ Only files Vitest printed a duration for are counted (it prints one above its sl
 - **Time between a push and the run being created.** The data starts at run creation.
 - **Failed and cancelled runs are in the wall-time percentiles.** A cancelled run ends early, so these understate a complete run; a successful-only split was not made.
 
+## Current all-workflow snapshot
+
+A second sample captured on November 25 reads the latest 150 runs across all workflows,
+including the restored checks, rather than the 150 historical main-check runs above.
+There are 937 job records in 150 runs; 147 runs have job data. One run was still in progress
+at capture. Its unfinished attempt does not enter completed wall-time percentiles.
+
+The audit now recognizes the composite prepare action and explicitly named Install steps
+as setup. Jobs with no executed steps have unknown timing, not zero-second setup. A run
+listed in runs.json stays in the report even if its job file is missing. Without run metadata,
+a timed-out, queued or skipped job cannot be inferred to have succeeded. Completed successful
+work has a separate workflow/event table so an early failure cannot satisfy a speed target.
+
+| sample | n | p50 seconds | p95 seconds |
+| --- | --- | --- | --- |
+| Linux waiting, measured jobs | 858 | 3 | 4 |
+| Linux setup, measured jobs | 871 | 18 | 35 |
+| Linux running, completed work steps | 844 | 164 | 971 |
+| Historical main checks, successful pull requests only | 8 | 988 | 1105 |
+| Restored checks, successful completed pull requests | 0 | unknown | unknown |
+
+The current prepare-action classification matters: for the same three restored lint jobs,
+setup changes from a misleading 4 / 5 seconds to 44 / 47 seconds; running changes from
+63 / 67 to 26 / 27 seconds. This is a measurement correction, not faster CI. Running work
+still dominates: 331,124 seconds across this mixed sample, against 17,511 seconds of setup
+and 4,552 seconds of measured waiting. Separate workflow and job tables are required before
+comparing a future run; this mixed sample is not a claim about one workflow's speed.
+
+The restored checks' two completed first attempts are
+[45546603106](https://github.com/woodbeary/later-dog/actions/runs/45546603106) and
+[45549371601](https://github.com/woodbeary/later-dog/actions/runs/45549371601).
+Their failures remain failures. The newer run
+[45552073986](https://github.com/woodbeary/later-dog/actions/runs/45552073986) had an active
+second attempt when captured, so it has no completed-run timing in this snapshot.
+
+Validation: six new regression cases failed against the previous script; all 15 audit
+checks pass with the correction. No suite, retry policy, timeout, runner, dependency,
+selection rule or publishing command changes in this patch. These focused checks do not
+replace the full merge gate.
+
 ## Repeating it
 
 ```sh
