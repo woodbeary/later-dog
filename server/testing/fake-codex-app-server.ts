@@ -727,7 +727,8 @@ process.stdin.on("data", (chunk) => {
             : { method: "execCommandApproval", params: { command: approvalCommand } };
           out({ jsonrpc: "2.0", id: 100, ...approval });
         } else {
-          finishTurn();
+          if (process.env.FAKE_CODEX_FINISH_GATE) void waitForGate(process.env.FAKE_CODEX_FINISH_GATE).then(finishTurn);
+          else finishTurn();
           if (process.env.FAKE_CODEX_REVIEW_AFTER_COMPLETION) {
             const event = JSON.parse(process.env.FAKE_CODEX_REVIEW_AFTER_COMPLETION);
             out({ jsonrpc: "2.0", method: event.method, params: event.params });

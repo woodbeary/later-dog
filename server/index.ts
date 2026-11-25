@@ -7165,6 +7165,16 @@ function carryOnWaiting(): Record<string, string> {
 }
 
 const runningTurnEngines = new Map<string, NonNullable<ReturnType<typeof registry.get>>>();
+bus.subscribe((event: RuntimeEvent) => {
+  if (shouldIgnoreProviderEvent(event)) return;
+  const instance = runningTurnEngines.get(event.threadId);
+  if (instance?.driverKind !== "codex" || instance.instanceId !== event.providerInstanceId) return;
+  const bot = store.botByThread(event.threadId);
+  if (!bot || !threadBusy(bot.id, event.threadId)) return;
+  const notice = helperTurns.fromNative(event, turnContext.get(event.threadId)?.tokens);
+  if (notice) void instance.adapter.steer?.(event.threadId, notice).catch(() => {});
+});
+
 function runningTurnInstance(bot: BotRecord | null | undefined, threadId: string): ReturnType<typeof registry.get> {
   return runningTurnEngines.get(threadId) ?? (bot ? registry.get(bot.modelSelection.instanceId) : null);
 }
@@ -7948,7 +7958,7 @@ bus.subscribe(guardTurnEnd((event: RuntimeEvent) => {
       const lastContext = turnContext.get(event.threadId);
       turnContext.delete(event.threadId);
       liveContext.forget(event.threadId);
-      helperTurns.end(event.threadId);
+      helperTurns.end(event.threadId, event);
       if (bot) {
         const resourceOwner = turnResourceOwners.get(event.threadId);
         const generation = directTurnGenerationByThread.get(event.threadId);
@@ -9645,7 +9655,7 @@ async function startTurn(
       }
       const computerPromptKind = resolveComputerPromptKind(computerKind);
       const coordinationNode = opts?.coordination ? roomHandoffs.nodes.get(opts.coordination.id) : undefined;
-      if (coordinationNode?.parentId) helperTurns.begin(threadId); else helperTurns.end(threadId);
+      if (coordinationNode?.parentId) helperTurns.begin(threadId, instance.driverKind === "codex" ? instanceId : undefined); else helperTurns.end(threadId);
       if (opts?.coordination && (!coordinationNode || coordinationNode.status !== "running" || roomHandoffProblem(coordinationNode,
         coordinationNode.parentId ? roomHandoffs.nodes.get(coordinationNode.parentId) : undefined))) {
         throw new DirectTurnSetupCancelled("Coordination access changed before dispatch");
@@ -9737,6 +9747,10 @@ async function startTurn(
       if (dispatch.cancelled) {
         retireProviderTurn(dispatch.value.turnId);
         throw new DirectTurnSetupCancelled("turn stopped during provider setup");
+      }
+      if (instance.driverKind === "codex" && directTurnGenerationByThread.get(threadId) === dispatchClaimId &&
+          directTurnClaimIsCurrent(bot.id, dispatchClaimId, threadId)) {
+        helperTurns.bindNative(threadId, instanceId, dispatch.value.turnId);
       }
       if (integrations.agents && instance.adapter.rareToolsOnDemand?.(threadId)) contextBreakdowns.toolsSent(threadId, homeToolSizes(integrations.agents.env, true));
       const requestOwner = directRequestOwners.get(threadId);

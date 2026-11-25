@@ -39,3 +39,82 @@ describe("a helper's bounded turn", () => {
     expect(budget.fromHook("t", null)).toBeNull();
   });
 });
+
+describe("native helper checkpoints", () => {
+  const event = (overrides: Partial<import("../contracts.ts").RuntimeEvent> = {}) => ({
+    eventId: "event", provider: "codex", providerInstanceId: "native", threadId: "t", turnId: "turn",
+    createdAt: "2026-11-25T00:00:00.000Z", type: "item.completed", itemType: "tool", itemId: "tool", ok: true, ...overrides,
+  }) as import("../contracts.ts").RuntimeEvent;
+  const begin = (budget: HelperTurnBudget) => {
+    budget.begin("t", "native");
+    budget.bindNative("t", "native", "turn");
+    expect(budget.fromNative(event({ type: "turn.started" }))).toBeNull();
+  };
+
+  it("counts each identified native completion once and leaves native hooks out of that count", () => {
+    const budget = new HelperTurnBudget({ calls: 2 });
+    begin(budget);
+    expect(budget.fromNative(event())).toBeNull();
+    expect(budget.fromNative(event({ eventId: "duplicate" }))).toBeNull();
+    expect(budget.fromHook("t", { event: "PostToolUse" })).toBeNull();
+    expect(budget.fromNative(event({ itemId: "second" }))).toMatch(/made 2 tool calls/);
+  });
+
+  it("ignores foreign providers, instances, threads and turns, unbound, synthetic and unidentified tools", () => {
+    const budget = new HelperTurnBudget({ calls: 1 });
+    budget.begin("t", "native");
+    expect(budget.fromNative(event())).toBeNull();
+    begin(budget);
+    for (const overrides of [
+      { provider: "claudeAgent" }, { providerInstanceId: "other" }, { threadId: "other" },
+      { turnId: "old" }, { turnId: undefined }, { itemId: undefined }, { synthetic: true },
+      { type: "item.started" as const },
+    ]) expect(budget.fromNative(event(overrides))).toBeNull();
+    expect(budget.fromNative(event())).toMatch(/made 1 tool calls/);
+  });
+
+  it("keeps the current binding across stale starts and ends, then resets for a new helper", () => {
+    const budget = new HelperTurnBudget({ calls: 1 });
+    begin(budget);
+    budget.fromNative(event({ type: "turn.started", turnId: "old" }));
+    budget.end("t", event({ type: "turn.completed", turnId: "old", ok: true }));
+    budget.end("t", event({ type: "turn.completed", providerInstanceId: "other", ok: true }));
+    expect(budget.fromNative(event())).toMatch(/made 1 tool calls/);
+    budget.end("t", event({ type: "turn.completed", ok: true }));
+    expect(budget.fromNative(event({ itemId: "after-end" }))).toBeNull();
+    budget.begin("t", "native");
+    budget.fromNative(event({ type: "turn.started", turnId: "next" }));
+    expect(budget.fromNative(event({ itemId: "late" }))).toBeNull();
+    budget.bindNative("t", "native", "next");
+    budget.end("t", event({ type: "turn.completed", ok: true }));
+    expect(budget.fromNative(event({ turnId: "next" }))).toMatch(/made 1 tool calls/);
+    budget.end("t");
+    expect(budget.fromNative(event({ itemId: "after-stop" }))).toBeNull();
+  });
+
+  it("leaves ordinary turns and the Claude hook counter independent of native events", () => {
+    const budget = new HelperTurnBudget({ calls: 1 });
+    expect(budget.fromNative(event())).toBeNull();
+    budget.begin("t");
+    expect(budget.fromNative(event({ type: "turn.started" }))).toBeNull();
+    expect(budget.fromNative(event())).toBeNull();
+    expect(budget.fromHook("t", { event: "PostToolUse" })?.additionalContext).toMatch(/made 1 tool calls/);
+  });
+});
+
+it("ignores a late stale start preceding the current dispatch binding", () => {
+  const budget = new HelperTurnBudget({ calls: 1 });
+  const event = (turnId: string, started = false) => ({
+    eventId: "late", provider: "codex", providerInstanceId: "native", threadId: "t", turnId,
+    createdAt: "2026-11-25T00:00:00.000Z",
+    ...(started ? { type: "turn.started" } : { type: "item.completed", itemType: "tool", itemId: "tool", ok: true }),
+  }) as import("../contracts.ts").RuntimeEvent;
+  budget.begin("t", "native");
+  budget.fromNative(event("old", true));
+  expect(budget.fromNative(event("old"))).toBeNull();
+  budget.bindNative("t", "native", "current");
+  budget.fromNative(event("old", true));
+  budget.end("t", { ...event("old"), type: "turn.completed", ok: true });
+  expect(budget.fromNative(event("old"))).toBeNull();
+  expect(budget.fromNative(event("current"))).toMatch(/made 1 tool calls/);
+});
