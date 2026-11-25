@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { expect, it } from "vitest";
 import { ARCHIVE_CAPABILITY, archiveCompatible } from "../runtime/archive-capability.mjs";
 
-it("refuses an older pushed bundle, including one that only knows log archives, even when unpacking inherited the image's capability manifest", async () => {
+it("refuses a bundle predating Codex session archives, even when its server and launcher match the manifest", async () => {
   const root = mkdtempSync(join(tmpdir(), "archive-capability-"));
   try {
     const launcher = join(root, "cloud-home-start.js");
@@ -16,8 +16,10 @@ it("refuses an older pushed bundle, including one that only knows log archives, 
     const launcherSha256 = createHash("sha256").update("launcher fixture").digest("hex");
     writeFileSync(join(root, "cloud-home-capabilities.json"), JSON.stringify({ logArchive: 2, indexSha256, launcherSha256 }));
     expect(await archiveCompatible(launcher)).toBe(false);
+    writeFileSync(join(root, "cloud-home-capabilities.json"), JSON.stringify({ logArchive: 3, indexSha256, launcherSha256 }));
+    expect(await archiveCompatible(launcher)).toBe(false);
     writeFileSync(join(root, "cloud-home-capabilities.json"), JSON.stringify({ logArchive: ARCHIVE_CAPABILITY, indexSha256, launcherSha256 }));
-    expect(ARCHIVE_CAPABILITY).toBe(3);
+    expect(ARCHIVE_CAPABILITY).toBe(4);
     expect(await archiveCompatible(launcher)).toBe(true);
     writeFileSync(join(root, "index.js"), "old server without restore");
     expect(await archiveCompatible(launcher)).toBe(false);

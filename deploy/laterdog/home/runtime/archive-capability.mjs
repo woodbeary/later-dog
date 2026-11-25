@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 
-export const ARCHIVE_CAPABILITY = 3;
+export const ARCHIVE_CAPABILITY = 4;
 
 export async function archiveCompatible(launcher) {
   try {

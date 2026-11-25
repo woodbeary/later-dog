@@ -537,3 +537,85 @@ it("does not hang when tar stops part way through bringing a folder back", async
   expect(await f.archive().beforeTurn(BOT, THREAD)).toBe(true);
   expect(readFileSync(join(dir, "README.md"), "utf8")).toBe("# a small project\n");
 });
+
+it("keeps using the disk level the sweep started with even if disk pressure eases mid-sweep", async () => {
+  const f = await fixture();
+  const dir = f.chat(THREAD, { lastActiveAt: Date.now() - 2 * DAY });
+  project(dir);
+  let parts = 0;
+  f.limit({ ...ANY, idleMs: DAY });
+  const bridge: WorkFolderBridge = { ...f.bridge, archive: async (paths, bytes) => {
+    parts += 1;
+    if (parts === 1) f.limit({ ...ANY, idleMs: 14 * DAY });
+    return f.bridge.archive(paths, bytes);
+  } };
+  const archive = f.archive({ bridge });
+  expect(await archive.sweep()).toBeGreaterThan(0);
+  expect(parts).toBeGreaterThan(1);
+  expect(readdirSync(dir)).toEqual([MOVED_OUT_NOTE]);
+  expect(archive.movedOut(BOT, THREAD)).not.toBeNull();
+});
+
+it("still aborts mid-sweep if the chat's lastActiveAt moves forward under the sweep's starting level", async () => {
+  const f = await fixture();
+  const dir = f.chat(THREAD, { lastActiveAt: Date.now() - 2 * DAY });
+  project(dir);
+  const original = tree(dir);
+  let parts = 0;
+  f.limit({ ...ANY, idleMs: DAY });
+  const bridge: WorkFolderBridge = { ...f.bridge, archive: async (paths, bytes) => {
+    parts += 1;
+    if (parts === 1) f.chats.set(THREAD, { ...f.chats.get(THREAD)!, lastActiveAt: Date.now() });
+    return f.bridge.archive(paths, bytes);
+  } };
+  const archive = f.archive({ bridge });
+  expect(await archive.sweep()).toBe(0);
+  expect(parts).toBe(1);
+  expect(tree(dir)).toEqual(original);
+  expect(archive.movedOut(BOT, THREAD)).toBeNull();
+});
+
+it("notifies wait started and ended only when beforeTurn actually restores a moved-out folder", async () => {
+  const f = await fixture();
+  const dir = f.chat(THREAD);
+  project(dir);
+  const events: Array<{ kind: string; botId: string; threadId: string; outcome?: string }> = [];
+  const archive = f.archive({
+    onWaitStarted: (botId, threadId) => events.push({ kind: "started", botId, threadId }),
+    onWaitEnded: (botId, threadId, outcome) => events.push({ kind: "ended", botId, threadId, outcome }),
+  });
+  expect(await archive.beforeTurn(BOT, THREAD)).toBe(true);
+  expect(events).toEqual([]);
+  await archive.sweep();
+  expect(await archive.beforeTurn(BOT, THREAD)).toBe(true);
+  expect(events).toEqual([
+    { kind: "started", botId: BOT, threadId: THREAD },
+    { kind: "ended", botId: BOT, threadId: THREAD, outcome: "acquired" },
+  ]);
+  events.length = 0;
+  await archive.sweep();
+  const outageBridge: WorkFolderBridge = { ...f.bridge, restoreContaining: () => Promise.reject(new Error("fixture outage")) };
+  let checks = 0;
+  const cancelling = f.archive({
+    bridge: outageBridge,
+    onWaitStarted: (botId, threadId) => events.push({ kind: "started", botId, threadId }),
+    onWaitEnded: (botId, threadId, outcome) => events.push({ kind: "ended", botId, threadId, outcome }),
+  });
+  expect(await cancelling.beforeTurn(BOT, THREAD, () => { checks += 1; return checks < 3; })).toBe(false);
+  expect(events).toEqual([
+    { kind: "started", botId: BOT, threadId: THREAD },
+    { kind: "ended", botId: BOT, threadId: THREAD, outcome: "stopped" },
+  ]);
+  events.length = 0;
+  const timedOut = f.archive({
+    bridge: outageBridge,
+    waitMs: 25,
+    onWaitStarted: (botId, threadId) => events.push({ kind: "started", botId, threadId }),
+    onWaitEnded: (botId, threadId, outcome) => events.push({ kind: "ended", botId, threadId, outcome }),
+  });
+  await expect(timedOut.beforeTurn(BOT, THREAD)).rejects.toBeInstanceOf(WorkFolderUnavailable);
+  expect(events).toEqual([
+    { kind: "started", botId: BOT, threadId: THREAD },
+    { kind: "ended", botId: BOT, threadId: THREAD, outcome: "stopped" },
+  ]);
+});

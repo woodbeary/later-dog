@@ -69,6 +69,8 @@ export interface WorkFolderDeps {
   procDir?: string;
   now?: () => number;
   log?(line: string): void;
+  onWaitStarted?(botId: string, threadId: string): void;
+  onWaitEnded?(botId: string, threadId: string, outcome: "acquired" | "stopped", waitedMs: number): void;
   retryMs?: number;
   waitMs?: number;
   partBytes?: number;
@@ -367,7 +369,7 @@ export class WorkFolderArchive {
     return !this.deps.inUse(botId, threadId);
   }
 
-  private moveOut(chat: WorkspaceTask, key: string, before: FolderSize): Promise<number> {
+  private moveOut(chat: WorkspaceTask, key: string, before: FolderSize, limits: WorkFolderLimits): Promise<number> {
     return this.locked(key, async () => {
       const records = this.load();
       if (records[key]) return 0;
@@ -375,7 +377,7 @@ export class WorkFolderArchive {
       const stamp = this.now().toString(36);
       const stillQuiet = () => {
         const current = this.deps.chats().find((candidate) => candidate.dir === chat.dir);
-        return Boolean(current && this.quiet(current, key, this.deps.limits()));
+        return Boolean(current && this.quiet(current, key, limits));
       };
       const parts = await this.tarOut(key, chat.dir, stamp, stillQuiet);
       if (!parts || !stillQuiet() || this.held(chat.dir) || !sameSize(before, await measureFolder(chat.dir))) {
@@ -444,7 +446,7 @@ export class WorkFolderArchive {
       }
       if (size.diskBytes > remaining && remaining !== limits.byteLimit) continue;
       try {
-        const bytes = await this.moveOut(chat, key, size);
+        const bytes = await this.moveOut(chat, key, size, limits);
         if (!bytes) {
           rest();
           continue;
@@ -563,7 +565,7 @@ export class WorkFolderArchive {
     try {
       await this.locked(key, async () => {});
       if (!this.load()[key]) return current();
-      return await this.waitForFolder(key, current);
+      return await this.waitForFolder(botId, threadId, key, current);
     } finally {
       const left = (this.wanted.get(key) ?? 1) - 1;
       if (left > 0) this.wanted.set(key, left);
@@ -571,36 +573,57 @@ export class WorkFolderArchive {
     }
   }
 
-  private async waitForFolder(key: string, current: () => boolean): Promise<boolean> {
+  private async waitForFolder(botId: string, threadId: string, key: string, current: () => boolean): Promise<boolean> {
     const started = this.now();
     let warned = false;
-    while (current()) {
-      const record = this.load()[key];
-      if (!record) return true;
-      try {
-        const need = roomNeeded(record, this.deps.partBytes);
-        if (!this.deps.room(need)) {
-          await this.deps.makeRoom?.();
-          if (!this.deps.room(need)) throw new NoRoom(need);
+    let waiting = false;
+    const stopWaiting = (outcome: "acquired" | "stopped") => {
+      if (!waiting) return;
+      waiting = false;
+      this.deps.onWaitEnded?.(botId, threadId, outcome, Math.max(0, this.now() - started));
+    };
+    try {
+      while (current()) {
+        const record = this.load()[key];
+        if (!record) {
+          stopWaiting("acquired");
+          return true;
         }
-        await this.bringBack(key);
-        return current();
-      } catch (error) {
-        if (this.now() - started >= (this.deps.waitMs ?? ROOM_WAIT_MS)) {
-          this.log(`laterdog home: stopped a turn in ${key.slice(0, 8)}; its work folder could not come back (${error instanceof NoRoom ? `no room for ${mb(error.bytes)}` : said(error)})`);
-          throw new WorkFolderUnavailable(error instanceof NoRoom
-            ? `There is no room on this home's disk to bring back this chat's ${sized(error.bytes)} of files from storage; delete files or chats you no longer need, then send your message again.`
-            : "This chat's files are in storage and did not come back in time; send your message again in a few minutes.");
+        if (!waiting) {
+          waiting = true;
+          this.deps.onWaitStarted?.(botId, threadId);
         }
-        if (!warned) {
-          this.log(error instanceof NoRoom
-            ? `laterdog home: no room to bring ${key.slice(0, 8)}'s work folder back; making room and keeping the pending turn`
-            : `laterdog home: ${key.slice(0, 8)}'s work folder is not back yet (${said(error)}); keeping the pending turn and retrying`);
+        try {
+          const need = roomNeeded(record, this.deps.partBytes);
+          if (!this.deps.room(need)) {
+            await this.deps.makeRoom?.();
+            if (!this.deps.room(need)) throw new NoRoom(need);
+          }
+          await this.bringBack(key);
+          const ok = current();
+          stopWaiting(ok ? "acquired" : "stopped");
+          return ok;
+        } catch (error) {
+          if (this.now() - started >= (this.deps.waitMs ?? ROOM_WAIT_MS)) {
+            this.log(`laterdog home: stopped a turn in ${key.slice(0, 8)}; its work folder could not come back (${error instanceof NoRoom ? `no room for ${mb(error.bytes)}` : said(error)})`);
+            throw new WorkFolderUnavailable(error instanceof NoRoom
+              ? `There is no room on this home's disk to bring back this chat's ${sized(error.bytes)} of files from storage; delete files or chats you no longer need, then send your message again.`
+              : "This chat's files are in storage and did not come back in time; send your message again in a few minutes.");
+          }
+          if (!warned) {
+            this.log(error instanceof NoRoom
+              ? `laterdog home: no room to bring ${key.slice(0, 8)}'s work folder back; making room and keeping the pending turn`
+              : `laterdog home: ${key.slice(0, 8)}'s work folder is not back yet (${said(error)}); keeping the pending turn and retrying`);
+          }
+          warned = true;
+          await delay(this.deps.retryMs ?? 5000);
         }
-        warned = true;
-        await delay(this.deps.retryMs ?? 5000);
       }
+      stopWaiting("stopped");
+      return false;
+    } catch (error) {
+      stopWaiting("stopped");
+      throw error;
     }
-    return false;
   }
 }

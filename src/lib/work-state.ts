@@ -1,10 +1,10 @@
-import type { RuntimeEvent } from "../../shared/runtime-events";
+import { RESTORE_FILES_RESOURCE, type RuntimeEvent } from "../../shared/runtime-events";
 import type { WorkState } from "../../shared/work-state";
 import { activeLocale, t } from "@/lib/i18n";
 import { teammateNames } from "@/lib/waiting-on";
 import { RESUME_REJECTED } from "../../shared/resume-pickup";
 
-const LIVE = new Set<WorkState["kind"]>(["running", "retrying", "waiting-for-computer"]);
+const LIVE = new Set<WorkState["kind"]>(["running", "retrying", "waiting-for-computer", "waiting-for-files"]);
 
 export function workAfterEvent(work: WorkState | undefined, event: RuntimeEvent): WorkState | undefined {
   if (!work) return work;
@@ -13,9 +13,13 @@ export function workAfterEvent(work: WorkState | undefined, event: RuntimeEvent)
       if (event.reason === RESUME_REJECTED) return work;
       return work.kind === "running" || work.kind === "retrying" ? { kind: "retrying", attempt: event.attempt + 1 } : work;
     case "turn.wait_started":
+      if (event.resource === RESTORE_FILES_RESOURCE) {
+        return work.kind === "running" || work.kind === "retrying" || work.kind === "idle" ? { kind: "waiting-for-files" } : work;
+      }
       return work.kind === "running" || work.kind === "retrying"
         ? { kind: "waiting-for-computer", ...(event.holder?.name ? { holder: event.holder.name } : {}) } : work;
     case "turn.wait_ended":
+      if (event.resource === RESTORE_FILES_RESOURCE) return work.kind === "waiting-for-files" ? { kind: "running" } : work;
       return work.kind === "waiting-for-computer" ? { kind: "running" } : work;
     case "session.exited":
       return LIVE.has(work.kind) ? { kind: "stopped", cause: "engine", detail: "closed" } : work;
@@ -54,6 +58,8 @@ export function workLine(work: WorkState | undefined, now: number = Date.now()):
     }
     case "waiting-for-computer":
       return work.holder ? t("work.computerHeld", { name: work.holder }) : t("work.computer");
+    case "waiting-for-files":
+      return t("work.files");
     case "retrying":
       return work.attempt ? t("work.retryingTry", { attempt: work.attempt }) : t("work.retrying");
     case "stopped":

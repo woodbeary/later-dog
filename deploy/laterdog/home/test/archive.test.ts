@@ -163,3 +163,79 @@ it("requires authorization and bounded requests on its loopback bridge", async (
     expect(readFileSync(join(root, PATH), "utf8")).toBe("original transcript");
   } finally { await bridge.close(); }
 });
+
+it("prioritizes restores and status ahead of queued archive calls without breaking serial execution or error isolation", async () => {
+  const root = folder();
+  const store = memory();
+  const firstPath = ".laterdog/events/thread-first111.ndjson";
+  const secondPath = ".laterdog/events/thread-second22.ndjson";
+  const thirdPath = ".laterdog/events/thread-third333.ndjson";
+  const restorePath = ".laterdog/events/thread-restore4.ndjson";
+  for (const path of [firstPath, secondPath, thirdPath, restorePath]) put(root, path, `body:${path}`);
+
+  const archive = createArchiver({ root, store });
+  expect(await archive.archive([restorePath])).toMatchObject({ archived: 1 });
+
+  const order: string[] = [];
+  let inFlight = 0;
+  let maxConcurrent = 0;
+  let releaseFirst!: () => void;
+  let firstEntered!: () => void;
+  const holdFirst = new Promise<void>((resolve) => { releaseFirst = resolve; });
+  const enteredFirst = new Promise<void>((resolve) => { firstEntered = resolve; });
+
+  const putArchived = store.putArchived;
+  const getArchived = store.getArchived;
+  let blockedFirst = false;
+  store.putArchived = async (hash, bytes) => {
+    inFlight += 1;
+    maxConcurrent = Math.max(maxConcurrent, inFlight);
+    try {
+      const text = Buffer.from(bytes).toString("utf8");
+      if (text.includes("thread-first111") && !blockedFirst) {
+        blockedFirst = true;
+        order.push("archive-1:start");
+        firstEntered();
+        await holdFirst;
+        order.push("archive-1:end");
+      } else if (text.includes("thread-second22")) {
+        order.push("archive-2");
+        throw new Error("simulated archive-2 failure");
+      } else if (text.includes("thread-third333")) {
+        order.push("archive-3");
+      }
+      return await putArchived(hash, bytes);
+    } finally {
+      inFlight -= 1;
+    }
+  };
+  store.getArchived = async (hash) => {
+    inFlight += 1;
+    maxConcurrent = Math.max(maxConcurrent, inFlight);
+    try {
+      const bytes = await getArchived(hash);
+      if (Buffer.from(bytes).toString("utf8").includes("thread-restore4")) order.push("restore");
+      return bytes;
+    } finally {
+      inFlight -= 1;
+    }
+  };
+
+  const a1 = archive.archive([firstPath]);
+  await enteredFirst;
+  const a2 = archive.archive([secondPath]);
+  const a3 = archive.archive([thirdPath]);
+  const restored = archive.restore([], [restorePath]);
+  const stat = archive.status().then((value) => { order.push("status"); return value; });
+
+  releaseFirst();
+  const [r1, r2, r3, rr, rs] = await Promise.all([a1, a2, a3, restored, stat]);
+  expect(r1).toMatchObject({ archived: 1 });
+  expect(r2).toMatchObject({ archived: 0, skipped: [{ path: secondPath, why: "failed" }] });
+  expect(r3).toMatchObject({ archived: 1 });
+  expect(rr).toMatchObject({ restored: 1, failed: 0 });
+  expect(rs.files).toBe(1);
+  expect(maxConcurrent).toBe(1);
+  expect(order).toEqual(["archive-1:start", "archive-1:end", "restore", "status", "archive-2", "archive-3"]);
+  expect(readFileSync(join(root, restorePath), "utf8")).toBe(`body:${restorePath}`);
+});

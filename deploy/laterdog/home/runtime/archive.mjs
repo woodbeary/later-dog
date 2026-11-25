@@ -8,8 +8,13 @@ import { CHUNK_BYTES } from "./sync.mjs";
 export const ARCHIVE_VERSION = 1;
 export const ARCHIVE_ROOTS = [".laterdog/events/", ".laterdog/native/", ".laterdog/tool-results/", ".laterdog/checkpoints/"];
 export const SESSION_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+const PROVIDER_FOLDER = "[A-Za-z0-9_][A-Za-z0-9_-]{0,127}";
 const SESSION_NAME = "[A-Za-z0-9_][A-Za-z0-9_.-]{0,199}";
-export const SESSION_PATH = new RegExp(`^(?:\\.claude|\\.laterdog/providers/[A-Za-z0-9_][A-Za-z0-9_-]{0,127})/projects/[A-Za-z0-9-]{1,255}/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})(?:[.]jsonl|/(?:${SESSION_NAME}/){0,2}${SESSION_NAME})$`);
+const SESSION_UUID = "([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})";
+export const CLAUDE_SESSION_PATH = new RegExp(`^(?:\\.claude|\\.laterdog/providers/${PROVIDER_FOLDER})/projects/[A-Za-z0-9-]{1,255}/${SESSION_UUID}(?:[.]jsonl|/(?:${SESSION_NAME}/){0,2}${SESSION_NAME})$`);
+const CODEX_ROOT = `(?:\\.codex|\\.laterdog/providers/(?:${PROVIDER_FOLDER}|hosted/codex|(?:chatgpt-plan|company)/${PROVIDER_FOLDER}/codex))`;
+export const CODEX_SESSION_PATH = new RegExp(`^${CODEX_ROOT}/(?:sessions/\\d{4}/\\d{2}/\\d{2}|archived_sessions(?:/\\d{4}/\\d{2}/\\d{2})?)/rollout-[A-Za-z0-9_.-]{1,80}-${SESSION_UUID}[.]jsonl$`);
+export const SESSION_PATH = new RegExp(`^(?:${CLAUDE_SESSION_PATH.source.slice(1, -1)}|${CODEX_SESSION_PATH.source.slice(1, -1)})$`);
 export const LOG_PATH = /^[.]laterdog\/(?:events|native)\/[A-Za-z0-9_-]{8,200}[.]ndjson$/;
 export const MAX_SESSIONS = 200;
 const LEGACY_SESSION_ROOT = ".claude/projects/";
@@ -21,7 +26,7 @@ const HASH = /^[a-f0-9]{64}$/;
 const NEEDLE = /^[A-Za-z0-9_.-]{8,200}$/;
 
 export function archivable(path) {
-  return safeRelative(path) && (SESSION_PATH.test(path) || ARCHIVE_ROOTS.some((root) => path.startsWith(root) && path.length > root.length));
+  return safeRelative(path) && (CLAUDE_SESSION_PATH.test(path) || CODEX_SESSION_PATH.test(path) || ARCHIVE_ROOTS.some((root) => path.startsWith(root) && path.length > root.length));
 }
 
 function indexable(path) {
@@ -37,7 +42,8 @@ function safeRelative(path) {
 }
 
 export function sessionOf(path) {
-  return archivable(path) ? SESSION_PATH.exec(path)?.[1] ?? null : null;
+  if (!archivable(path)) return null;
+  return CLAUDE_SESSION_PATH.exec(path)?.[1] ?? CODEX_SESSION_PATH.exec(path)?.[1] ?? null;
 }
 
 export function parseIndex(input) {
@@ -95,16 +101,31 @@ async function writeAll(handle, bytes, position) {
   return position + written;
 }
 
-export function createArchiver({ root, store, owner = null, log = () => {}, now = Date.now, canRemove = async () => true }) {
+export function createArchiver({ root, store, owner = null, log = () => {}, now = Date.now, canRemove = async () => true, archiveCodexSessions = false }) {
   let index = null;
-  let queue = Promise.resolve();
+  const highQueue = [];
+  const lowQueue = [];
+  let active = false;
   const counts = { archivedFiles: 0, archivedBytes: 0, sessionFiles: 0, sessionBytes: 0, restoredFiles: 0, restoredBytes: 0, failedFiles: 0 };
 
-  const serial = (work) => {
-    const next = queue.then(work, work);
-    queue = next.catch(() => undefined);
-    return next;
+  const drain = () => {
+    if (active) return;
+    const job = highQueue.shift() ?? lowQueue.shift();
+    if (!job) return;
+    active = true;
+    Promise.resolve()
+      .then(job.work)
+      .then(job.resolve, job.reject)
+      .finally(() => {
+        active = false;
+        drain();
+      });
   };
+
+  const serial = (work, priority = "low") => new Promise((resolve, reject) => {
+    (priority === "high" ? highQueue : lowQueue).push({ work, resolve, reject });
+    drain();
+  });
 
   const load = async () => {
     if (!index) index = parseIndex(await store.archiveIndex());
@@ -152,7 +173,7 @@ export function createArchiver({ root, store, owner = null, log = () => {}, now 
     const results = [];
     const ready = [];
     for (const path of paths) {
-      if (!archivable(path)) {
+      if (!archivable(path) || (!archiveCodexSessions && CODEX_SESSION_PATH.test(path))) {
         results.push({ path, skipped: "refused" });
         continue;
       }
@@ -303,7 +324,7 @@ export function createArchiver({ root, store, owner = null, log = () => {}, now 
       log(`could not record restored files: ${error.message}`);
     }
     return { restored, bytes, failed, paths };
-  });
+  }, "high");
 
 
   const status = () => serial(async () => {
@@ -323,7 +344,7 @@ export function createArchiver({ root, store, owner = null, log = () => {}, now 
       }
     }
     return { files, bytes, paths, sessions, ...counts };
-  });
+  }, "high");
 
   return { archive, restore, restoreSessions, status };
 }

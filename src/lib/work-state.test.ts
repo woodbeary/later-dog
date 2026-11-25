@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { RuntimeEvent } from "../../shared/runtime-events";
+import { RESTORE_FILES_RESOURCE, type RuntimeEvent } from "../../shared/runtime-events";
 import type { WorkState } from "../../shared/work-state";
 import { roomRowLine, sidebarWorkLine, somethingRunsFor, workAfterEvent, workLine } from "./work-state";
 
@@ -30,6 +30,7 @@ describe("the work line", () => {
     [{ kind: "retrying", attempt: 2 }, "Reconnecting to the engine, try 2"],
     [{ kind: "retrying" }, "Reconnecting to the engine"],
     [{ kind: "waiting-for-computer", holder: "Patch" }, "Waiting for the computer while Patch uses it"],
+    [{ kind: "waiting-for-files" }, "Bringing this chat's files back"],
     [{ kind: "needs-you", what: "Allow sending?" }, "Needs you: Allow sending?"],
     [{ kind: "stopped", cause: "you" }, "Stopped by you"],
     [{ kind: "stopped", cause: "infrastructure", detail: "stalled" }, "Stopped: no progress for too long"],
@@ -56,6 +57,11 @@ describe("runtime frames between home updates", () => {
     const waiting = workAfterEvent({ kind: "running" }, event({ type: "turn.wait_started", resource: "mac", holder: { name: "Patch" } }));
     expect(waiting).toEqual({ kind: "waiting-for-computer", holder: "Patch" });
     expect(workAfterEvent(waiting, event({ type: "turn.wait_ended", resource: "mac", waitedMs: 1, outcome: "acquired" }))).toEqual({ kind: "running" });
+    const restoring = workAfterEvent({ kind: "running" }, event({ type: "turn.wait_started", resource: RESTORE_FILES_RESOURCE }));
+    expect(restoring).toEqual({ kind: "waiting-for-files" });
+    expect(workAfterEvent(restoring, event({ type: "turn.wait_ended", resource: RESTORE_FILES_RESOURCE, waitedMs: 1, outcome: "acquired" }))).toEqual({ kind: "running" });
+    expect(workAfterEvent({ kind: "idle" }, event({ type: "turn.wait_started", resource: RESTORE_FILES_RESOURCE }))).toEqual({ kind: "waiting-for-files" });
+    expect(workAfterEvent(restoring, event({ type: "session.exited" }))).toEqual({ kind: "stopped", cause: "engine", detail: "closed" });
   });
 
   it("never outranks a question or invents work for a client with no work state", () => {

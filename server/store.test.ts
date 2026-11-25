@@ -2358,4 +2358,68 @@ describe("soul", () => {
       rmSync(folder, { force: true });
     }
   });
+
+  it("evicts least-recently-used idle threads when the thread cache cap is exceeded and reloads cleanly from SQLite", () => {
+    const store = new Store(selection, undefined, undefined, undefined, { maxThreads: 2, maxMessages: 100 });
+    const bot = store.createBot();
+    const t1 = bot.threadId;
+    const t2 = store.createTask(bot.id, "Two")!.threadId;
+    const t3 = store.createTask(bot.id, "Three")!.threadId;
+    const m1 = store.appendMessage(t1, { role: "user", kind: "text", text: "first" });
+    store.appendMessage(t2, { role: "user", kind: "text", text: "second" });
+    expect(store.hasCachedThread(t1)).toBe(true);
+    expect(store.hasCachedThread(t2)).toBe(true);
+    store.messagesFor(t1);
+    store.appendMessage(t3, { role: "user", kind: "text", text: "third" });
+    expect(store.cachedThreadCount()).toBe(2);
+    expect(store.hasCachedThread(t1)).toBe(true);
+    expect(store.hasCachedThread(t2)).toBe(false);
+    expect(store.hasCachedThread(t3)).toBe(true);
+    expect(store.messagesFor(t2).map((m) => m.text)).toContain("second");
+    expect(store.activeLeaf(t1)).toBe(m1.id);
+  });
+
+  it("does not pin a single huge idle thread in Store.threads and still preserves writes", () => {
+    const seed = new Store(selection);
+    const bot = seed.createBot();
+    for (let i = 0; i < 12; i += 1) seed.appendMessage(bot.threadId, { role: "user", kind: "text", text: `msg-${i}` });
+
+    const store = new Store(selection, undefined, undefined, undefined, { maxThreads: 8, maxMessages: 10 });
+    const history = store.messagesFor(bot.threadId);
+    expect(history.length).toBeGreaterThan(10);
+    expect(store.hasCachedThread(bot.threadId)).toBe(false);
+    expect(store.cachedThreadCount()).toBe(0);
+
+    const added = store.appendMessage(bot.threadId, { role: "user", kind: "text", text: "after-page" });
+    expect(store.hasCachedThread(bot.threadId)).toBe(false);
+    const patched = store.patchMessage(bot.threadId, added.id, { text: "after-page-edited" });
+    expect(patched?.text).toBe("after-page-edited");
+    expect(store.messagesFor(bot.threadId).at(-1)?.text).toBe("after-page-edited");
+  });
+
+  it("keeps busy bot and group threads cached during active turns and evicts once they go idle", () => {
+    const store = new Store(selection, undefined, undefined, undefined, { maxThreads: 1, maxMessages: 5 });
+    const bot = store.createBot();
+    const second = store.createTask(bot.id, "Second")!.threadId;
+    const room = store.createGroup("Room", [bot.id]);
+
+    store.setTaskActivity(bot.id, bot.threadId, "working");
+    for (let i = 0; i < 6; i += 1) store.appendMessage(bot.threadId, { role: "user", kind: "text", text: `busy-${i}` });
+    store.patchGroup(room.id, { busyBotId: bot.id });
+    store.appendMessage(room.threadId, { role: "user", kind: "text", text: "room-busy" });
+    store.appendMessage(second, { role: "user", kind: "text", text: "idle-second" });
+
+    expect(store.hasCachedThread(bot.threadId)).toBe(true);
+    expect(store.hasCachedThread(room.threadId)).toBe(true);
+    expect(store.hasCachedThread(second)).toBe(true);
+
+    store.setTaskActivity(bot.id, bot.threadId, "idle");
+    expect(store.hasCachedThread(bot.threadId)).toBe(false);
+    expect(store.hasCachedThread(room.threadId)).toBe(true);
+
+    store.patchGroup(room.id, { busyBotId: null });
+    expect(store.cachedThreadCount()).toBeLessThanOrEqual(1);
+    expect(store.messagesFor(bot.threadId).map((m) => m.text)).toContain("busy-5");
+    expect(store.messagesFor(room.threadId).map((m) => m.text)).toContain("room-busy");
+  });
 });

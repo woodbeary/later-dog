@@ -3,8 +3,8 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync,
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { afterEach, expect, it } from "vitest";
-import { archivable, createArchiver, serveArchive } from "../runtime/archive.mjs";
-import { LogArchiveCoordinator, SESSION_AGE_MS, claudeSessionIds, findSessionFiles, logArchiveBridge, outsideSessionOwners, type CursorOwner } from "../../../../server/laterdog/log-archive.ts";
+import { archivable, createArchiver, serveArchive, sessionOf } from "../runtime/archive.mjs";
+import { LogArchiveCoordinator, SESSION_AGE_MS, archivedSessionOf, claudeSessionIds, findSessionFiles, logArchiveBridge, outsideSessionOwners, type CursorOwner } from "../../../../server/laterdog/log-archive.ts";
 import { claudeProjectSlug, planClaudeRemote } from "../../../../server/laterdog/engine-placement.ts";
 import { engineInventory } from "../../../../server/laterdog/engine-files.ts";
 
@@ -48,9 +48,9 @@ function memory() {
     async getArchived(hash: string) { const found = blobs.get(hash); if (!found) throw new Error("missing"); return found; },
   };
 }
-async function fixture(root = scratch()) {
+async function fixture(root = scratch(), archiveCodexSessions = false) {
   const store = memory();
-  const archiver = createArchiver({ root, store });
+  const archiver = createArchiver({ root, store, archiveCodexSessions });
   const service = await serveArchive(archiver, { token: "session-archive-fixture" });
   cleanups.push(service.close);
   const bridge = logArchiveBridge(service.url, "session-archive-fixture");
@@ -62,7 +62,7 @@ async function fixture(root = scratch()) {
   const reports: string[] = [];
   const coordinator = (extra: Partial<ConstructorParameters<typeof LogArchiveCoordinator>[0]> = {}) => new LogArchiveCoordinator({
     root, bridge, threads: () => [THREAD, OTHER], idle: id => !busy.has(id), retryMs: 5,
-    sessions: id => claudeSessionIds(cursors[id]), report: message => reports.push(message), ...extra,
+    sessions: id => claudeSessionIds(cursors[id]), report: message => reports.push(message), archiveCodexSessions, ...extra,
   });
   return { root, store, archiver, service, bridge, busy, cursors, reports, coordinator };
 }
@@ -485,4 +485,93 @@ it("keeps a session past a thread's 200-session restore cap, busy or idle", asyn
   f.busy.delete(THREAD);
   await f.coordinator(owners(f)).scan();
   expect(readFileSync(join(f.root, transcriptOf(beyond)), "utf8")).toBe("past the cap\n");
+});
+
+it("keeps the default archive compatible with older images while retaining the ability to read an existing Codex archive", async () => {
+  const f = await fixture();
+  const codex = `.codex/sessions/2026/11/20/rollout-2026-11-20T10-00-00-${SECOND}.jsonl`;
+  put(f.root, TRANSCRIPT);
+  put(f.root, codex, "codex bytes\n");
+  f.cursors[THREAD] = { claude: SESSION, codex: SECOND };
+  await f.coordinator(owners(f)).scan();
+  expect(existsSync(join(f.root, TRANSCRIPT))).toBe(false);
+  expect(readFileSync(join(f.root, codex), "utf8")).toBe("codex bytes\n");
+  expect(await f.archiver.archive([codex])).toMatchObject({ archived: 0, skipped: [{ path: codex, why: "refused" }] });
+  expect(await f.store.archiveIndex()).toMatchObject({ entries: { [TRANSCRIPT]: expect.anything() } });
+  expect(await f.store.archiveIndex()).not.toMatchObject({ entries: { [codex]: expect.anything() } });
+
+  const writer = createArchiver({ root: f.root, store: f.store, archiveCodexSessions: true });
+  expect(await writer.archive([codex])).toMatchObject({ archived: 1 });
+  const reader = createArchiver({ root: f.root, store: f.store });
+  expect(await reader.restoreSessions([SECOND])).toMatchObject({ restored: 1 });
+  expect(readFileSync(join(f.root, codex), "utf8")).toBe("codex bytes\n");
+});
+
+it("archives and restores Codex rollout sessions across default, provider and nested homes while keeping config, auth and sqlite untouched when enabled", async () => {
+  const f = await fixture(scratch(), true);
+  const codexDefault = `.codex/sessions/2026/11/20/rollout-2026-11-20T10-00-00-${SESSION}.jsonl`;
+  const codexProvider = `.laterdog/providers/codex/sessions/2026/11/20/rollout-2026-11-20T11-00-00-${SECOND}.jsonl`;
+  const codexArchived = `.laterdog/providers/codex-work/archived_sessions/rollout-2026-11-20T12-00-00-${ORPHAN}.jsonl`;
+  const codexHosted = `.laterdog/providers/hosted/codex/sessions/2026/11/20/rollout-2026-11-20T13-00-00-${LATER}.jsonl`;
+  const codexPlan = `.laterdog/providers/chatgpt-plan/acct123/codex/sessions/2026/11/20/rollout-2026-11-20T14-00-00-${GROUPED}.jsonl`;
+  const codexBusy = `.laterdog/providers/codex/sessions/2026/11/20/rollout-2026-11-20T15-00-00-${BUSY}.jsonl`;
+  for (const path of [codexDefault, codexProvider, codexArchived, codexHosted, codexPlan, codexBusy]) {
+    expect(archivable(path), path).toBe(true);
+    expect(sessionOf(path), path).toBe(archivedSessionOf(path));
+  }
+  for (const unsafe of [
+    ".codex/auth.json",
+    ".codex/config.toml",
+    ".codex/history.jsonl",
+    ".codex/state_5.sqlite",
+    ".laterdog/providers/codex/auth.json",
+    ".laterdog/providers/codex/config.toml",
+    ".laterdog/providers/codex/state_5.sqlite",
+    `.laterdog/providers/codex/sessions/2026/11/20/not-a-rollout-${SESSION}.jsonl`,
+    `.laterdog/providers/codex/sessions/2026/11/20/rollout-2026-11-20T10-00-00-${SESSION.toUpperCase()}.jsonl`,
+    `.laterdog/providers/codex/sessions/2026/11/../../auth.json`,
+    `.laterdog/providers/codex/sessions/2026/11/20/rollout-auth-${SESSION}.json`,
+  ]) {
+    expect(archivable(unsafe), unsafe).toBe(false);
+    expect(sessionOf(unsafe), unsafe).toBeNull();
+  }
+  put(f.root, codexDefault, "default codex\n");
+  put(f.root, codexProvider, "provider codex\n");
+  put(f.root, codexArchived, "archived orphan codex\n");
+  put(f.root, codexHosted, "hosted orphan codex\n");
+  put(f.root, codexPlan, "plan codex\n");
+  put(f.root, codexBusy, "busy codex\n");
+  put(f.root, ".laterdog/providers/codex/auth.json", "{\"tokens\":{}}");
+  put(f.root, ".laterdog/providers/codex/config.toml", "model = \"o3\"\n");
+  put(f.root, ".laterdog/providers/codex/state_5.sqlite", "sqlite");
+  put(f.root, ".laterdog/providers/codex/history.jsonl", "history\n");
+  put(f.root, "outside-rollout.jsonl", "outside\n");
+  mkdirSync(join(f.root, ".laterdog/providers/codex/sessions/2026/11/21"), { recursive: true });
+  symlinkSync(join(f.root, "outside-rollout.jsonl"), join(f.root, `.laterdog/providers/codex/sessions/2026/11/21/rollout-2026-11-21T00-00-00-${LINKED}.jsonl`));
+
+  f.cursors[THREAD] = { codex: SESSION, "codex-2": SECOND };
+  f.cursors[OTHER] = { codex: BUSY };
+  f.busy.add(OTHER);
+  const coordinator = f.coordinator(owners(f, [GROUPED]));
+  await coordinator.scan();
+
+  for (const archived of [codexDefault, codexProvider, codexArchived, codexHosted]) {
+    expect(existsSync(join(f.root, archived)), archived).toBe(false);
+  }
+  for (const kept of [
+    codexPlan,
+    codexBusy,
+    ".laterdog/providers/codex/auth.json",
+    ".laterdog/providers/codex/config.toml",
+    ".laterdog/providers/codex/state_5.sqlite",
+    ".laterdog/providers/codex/history.jsonl",
+    "outside-rollout.jsonl",
+  ]) {
+    expect(existsSync(join(f.root, kept)), kept).toBe(true);
+  }
+  f.busy.add(THREAD);
+  expect(await coordinator.beforeTurn(THREAD, () => true)).toBe(true);
+  expect(readFileSync(join(f.root, codexDefault), "utf8")).toBe("default codex\n");
+  expect(readFileSync(join(f.root, codexProvider), "utf8")).toBe("provider codex\n");
+  expect(existsSync(join(f.root, codexArchived))).toBe(false);
 });

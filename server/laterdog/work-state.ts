@@ -11,6 +11,7 @@ export interface WorkFacts {
   usageHold?: { account?: string; until?: number };
   waitingOn?: readonly WireWaitingOn[];
   computerWait?: { holder?: string };
+  filesWait?: boolean;
   retry?: { attempt?: number };
   stopped?: { cause: WorkStopCause; detail?: WorkStopDetail };
 }
@@ -46,6 +47,7 @@ export function workState(facts: WorkFacts): WorkState {
     const holder = said(facts.computerWait.holder);
     return { kind: "waiting-for-computer", ...(holder ? { holder } : {}) };
   }
+  if (facts.filesWait) return { kind: "waiting-for-files" };
   if (facts.retry) {
     const attempt = facts.retry.attempt;
     return { kind: "retrying", ...(attempt !== undefined && Number.isInteger(attempt) && attempt > 0 ? { attempt } : {}) };

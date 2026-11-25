@@ -290,6 +290,7 @@ import { entitled } from "./enterprise.ts";
 import { HOSTED_CONTRACT_HEADER, HOSTED_CONTRACT_METADATA, HOSTED_CONTRACT_VERSION } from "./hosted-contract.ts";
 import { describeSpawnFailure, execCli } from "./procs.ts";
 import { blockedTarget, buildNotification, buildSpendNotification, type Notification } from "./notify.ts";
+import { RESTORE_FILES_RESOURCE } from "../shared/runtime-events.ts";
 import {
   isModelVariant,
   TurnNotStartedError,
@@ -2886,17 +2887,38 @@ const floorDisk = CLOUD_HOME ? startSteadyFloor(() => diskUse(DATA_DIR)) : null;
 const archiveBridge = CLOUD_SECRETS.LATERDOG_CLOUD_ARCHIVE_TOKEN && process.env.LATERDOG_CLOUD_ARCHIVE_URL
   ? logArchiveBridge(process.env.LATERDOG_CLOUD_ARCHIVE_URL, CLOUD_SECRETS.LATERDOG_CLOUD_ARCHIVE_TOKEN)
   : null;
+const archiveWaitEventBase = (botId: string, threadId: string) => {
+  const selection = store.bot(botId)?.modelSelection ?? store.botByThread(threadId)?.modelSelection;
+  const instance = selection ? registry.get(selection.instanceId) : null;
+  return {
+    eventId: newId(),
+    provider: instance?.driverKind ?? "harness",
+    ...(instance && selection ? { providerInstanceId: selection.instanceId } : {}),
+    threadId,
+    createdAt: new Date().toISOString(),
+  };
+};
 const logArchive = archiveBridge
   ? new LogArchiveCoordinator({
     root: homedir(),
     bridge: archiveBridge,
-    threads: () => [...new Set(store.bots.flatMap(bot => store.tasks(bot.id).map(task => task.threadId)))].filter(id => !store.groupByThread(id)),
+    threads: () => [
+      ...new Set([
+        ...store.bots.flatMap(bot => store.tasks(bot.id).map(task => task.threadId)),
+        ...store.groups.flatMap(group => [group.threadId, ...(group.tasks ?? []).map(task => task.threadId)]),
+      ]),
+    ],
+    orphanLogs: true,
     idle: id => {
+      if (registry.instances().some(instance => instance.adapter.hasSession(id))) return false;
+      if (store.hasPendingRequest(id)) return false;
+      if (roomHandoffs.activeDirect(id)) return false;
+      if (groupSpeakers.has(id)) return false;
+      const group = store.groupByThread(id);
+      if (group && (Boolean(group.busyBotId) || Boolean(groupTurnOperations.get(group.id)?.size))) return false;
       const owner = store.bots.find(bot => store.tasks(bot.id).some(task => task.threadId === id));
-      return Boolean(owner && !threadBusy(owner.id, id)
-        && !registry.instances().some(instance => instance.adapter.hasSession(id))
-        && !store.hasPendingRequest(id)
-        && !roomHandoffs.activeDirect(id));
+      if (owner && threadBusy(owner.id, id)) return false;
+      return true;
     },
     sessions: id => claudeSessionIds(store.bots.flatMap(bot => store.tasks(bot.id)).find(task => task.threadId === id)?.resumeCursors),
     outsideSessions: () => outsideSessionOwners(store.bots.map(bot => ({ threadId: bot.threadId, resumeCursors: bot.resumeCursors, tasks: store.tasks(bot.id) })), id => Boolean(store.groupByThread(id))),
@@ -2917,6 +2939,22 @@ const workFolders = archiveBridge && logArchive
     makeRoom: async () => {
       await logArchive.scan();
       await workFolders?.sweep();
+    },
+    onWaitStarted: (botId, threadId) => {
+      bus.publish({
+        ...archiveWaitEventBase(botId, threadId),
+        type: "turn.wait_started",
+        resource: RESTORE_FILES_RESOURCE,
+      });
+    },
+    onWaitEnded: (botId, threadId, outcome, waitedMs) => {
+      bus.publish({
+        ...archiveWaitEventBase(botId, threadId),
+        type: "turn.wait_ended",
+        resource: RESTORE_FILES_RESOURCE,
+        waitedMs,
+        outcome,
+      });
     },
     log: line => console.log(line),
   }) : null;
@@ -11189,6 +11227,9 @@ async function runGroupMemberTurn(
     });
     onDispatchError?.(message);
     return true;
+  }
+  if (logArchive) {
+    if (!await logArchive.beforeTurn(threadId, () => !isCancelled?.())) return false;
   }
   if (workFolders && supportsWorkspaceFiles(instance.driverKind) && cloudGuestOpened(threadId)) {
     try {

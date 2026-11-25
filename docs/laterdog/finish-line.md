@@ -6,6 +6,16 @@
 
 Started 2026-10-13. This file is the single place that says what is in progress, what is done, and how to pick up any piece of it. Every gate updates it in the same commit as the work.
 
+## Cloud home storage capacity, November 25
+
+The storage branch carries the deployed one-pass SQLite backup and shutdown fixes. It adds idle
+room and engine-log archiving, makes a chat's folder restore visible, and evicts idle transcripts
+from memory while preserving their SQLite records. Archive capability 4 ties the server to a
+matching home image. The scanner and the archive writer leave Codex session files in place by
+default. The new image can read and restore those sessions from an existing archive. A capability
+3 image cannot read an index containing Codex sessions, so qualify recovery before enabling new
+Codex archive writes. Work folder restores still need space on the shared home.
+
 ## Refinement program, November 25
 
 One pass over the desktop and the phone for speed, weight and fewer surfaces that say the same thing. Each
