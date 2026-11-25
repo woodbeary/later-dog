@@ -1,8 +1,8 @@
-import { BUN_INSTALL } from "../../../../shared/bun-install";
-import { sha256Hex } from "./auth";
-import { MINUTE } from "./idle";
-import type { Parsed } from "./inputs";
-import { DAY } from "./trial";
+import { BUN_INSTALL } from "../../../../shared/bun-install.js";
+import { sha256Hex } from "./auth.js";
+import { MINUTE } from "./idle.js";
+import type { Parsed } from "./inputs.js";
+import { DAY } from "./trial.js";
 
 export const ENVIRONMENT_FORMAT = 1;
 export const SETUP_BUDGET_MS = 5 * MINUTE;
