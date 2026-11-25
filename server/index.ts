@@ -4953,8 +4953,8 @@ function syncDelegatedNeedsYou(node: RoomHandoff): boolean {
     },
   });
 }
-activeCoordinationForThread = threadId => roomHandoffs.activeDirect(threadId);
-teammatesAwaited = threadId => waitingOn(roomHandoffs.outstandingDirect(threadId), (botId) => store.bot(botId)?.name, (node) => {
+activeCoordinationForThread = threadId => roomHandoffs.coordinating(threadId);
+teammatesAwaited = threadId => waitingOn(roomHandoffs.sentStillOpen(threadId), (botId) => store.bot(botId)?.name, (node) => {
   const task = node.threadId ? store.taskByThread(node.botId, node.threadId) : undefined;
   if (task?.activity === "waiting-on-you") return `${store.bot(node.botId)?.name ?? "A teammate"} has a question for you`;
   return personAsk((node as { result?: string }).result, cfg.profile?.name);
