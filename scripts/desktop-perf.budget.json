@@ -116,7 +116,7 @@
       "measure": "landing.scrolledUp.rowsAboveMovedPx",
       "label": "Reply lands, reader scrolled up: rows above moved",
       "kind": "count",
-      "budget": 48,
+      "budget": 0,
       "target": 0,
       "unit": "px"
     },
@@ -124,7 +124,7 @@
       "measure": "landing.scrolledUp.rowsInViewMovedPx",
       "label": "Reply lands, reader scrolled up: rows in view moved",
       "kind": "count",
-      "budget": 48,
+      "budget": 0,
       "target": 0,
       "unit": "px"
     },
@@ -132,9 +132,10 @@
       "measure": "landing.following.rowsAboveMovedPx",
       "label": "Reply lands, following: rows above moved",
       "kind": "count",
-      "budget": 103.5,
+      "budget": 55.5,
       "target": 0,
-      "unit": "px"
+      "unit": "px",
+      "tolerance": 0.5
     },
     {
       "measure": "timed.typingKeyToFrameMs.p95",

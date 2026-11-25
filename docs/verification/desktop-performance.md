@@ -121,14 +121,14 @@ Budgets are the highest value seen across A1's three baseline runs and this pack
 | Working turn: frames over 25 ms | 0 to 3 | 3 | 0 |
 | Settings open: frames over 25 ms | 18 to 27 | 27 | 0 |
 | Typing, no dog working: frames over 25 ms | 0 | 0 | 0 |
-| Reply landing, rows above moved: scrolled up / following | 0 and 55.5 here; 48 and 103.5 in the A1 baseline | 48 / 103.5 | 0 |
-| Reply landing, rows in view moved, scrolled up | 0 here; 48 in the A1 baseline | 48 | 0 |
+| Reply landing, rows above moved: scrolled up / following | 0 and 55.5 in every run (A1's 48 and 103.5 not reproduced) | 0 / 55.5 (+0.5) | 0 |
+| Reply landing, rows in view moved, scrolled up | 0 in every run (A1's 48 not reproduced) | 0 | 0 |
 | Key press to frame p95 / calibration | 0.15 to 0.18 | 0.30 | 0.10 |
 | Open the long chat p50 / calibration | 0.88 to 1.02 | 1.4 | 0.5 |
 | Open a short chat p50 / calibration | 0.27 to 0.30 | 0.5 | 0.2 |
 | Landing longest task / calibration | 0.17 to 0.25 | 0.4 | 0.1 |
 
-The working turn redraws 5,017 to 5,019 components when it takes 26 commits and 5,160 when a 27th small commit joins; the +150 covers that, and is small against the 475-component commits a regression adds. The landing pixel lines use the A1 baseline's 48 and 103.5 px even though every run of this package measured 0 and 55.5 px: those distances are the same in every repetition of a run but differed between the two sessions, so the looser value is kept until the difference is explained. Lowering a line to the lower value is the first tightening to make.
+The working turn redraws 5,017 to 5,019 components when it takes 26 commits and 5,160 when a 27th small commit joins; the +150 covers that, and is small against the 475-component commits a regression adds. The landing pixel lines are 0 px (scrolled up, rows above and rows in view) and 55.5 px (following, rows above). Those are what every later run measured: the nine runs of the unchanged build in this package, and three more on a third computer, twice with this script and once with A1's own script at 5519707 against the same build, each with all cases agreeing. A1's 48 px and 103.5 px (below, marked) were seen only in A1's own three runs, were not reproduced in those 13 later runs on two other computers with either script version, are unexplained, and are superseded by 0 px and 55.5 px. The 55.5 px when following is the one row the full 120-row transcript window drops from the top (`rowsRemovedFromTop` is 1 in those cases): the 118 rows above move by that row's height. The scrolled-up lines have no tolerance because every repetition was exactly 0; the following line has +0.5 because rows in view moved 8 or 8.3 px between repetitions, so a sub-pixel jitter is seen, while the 55.5 itself never moved.
 
 ### Left out
 
@@ -212,7 +212,7 @@ Open long chat (120 rows in view of the window), reply of 37 characters or of 79
 | Scroll position changed | -191 px | 498 px | 48 px | 48 px |
 | Chrome layout-shift entries, largest px | 2, 690 | 2, 730 | 1, 885 | 1, 48 |
 
-Reading it:
+Reading it (the 48 px and 103.5 px figures in this table and below were seen only in A1's own three runs, were not reproduced afterwards and are superseded by 0 px and 55.5 px; they are kept as recorded):
 
 - No task over 50 ms in any run, so blocking time is 0 in every case. The longest single task is 13 to 27 ms; the long reply costs a few ms more than the short one.
 - Following the bottom, rows in view move by about the reply's height because the chat scrolls to follow (697 of 729 px for the long reply); that is the following, not a shift. Scrolled up, the reader's rows jump 48 px for at least one frame and are back where they were at the end, and the scroll position ends 48 px lower. That is the one movement a reader could see; its cause was not identified.
