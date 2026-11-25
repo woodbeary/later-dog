@@ -135,6 +135,7 @@ describe.skipIf(process.platform === "win32")("a question nobody answers in time
       JSON.stringify({
         profile: { name: "Robin" },
         features: { autoReview: false },
+        signIn: { admins: ["robin@example.com"], members: ["teammate@example.com"] },
         instances: {
           claude: {
             driver: "claudeAgent",
