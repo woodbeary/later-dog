@@ -176,6 +176,8 @@ export class RemoteSession extends EventEmitter {
     if (body?.refused === "spawn_failed") throw new NotDispatched("The engine could not start on the cloud computer.", "spawn_failed");
     if (body?.refused === "busy") throw new Error("This chat's engine is still running on the cloud computer; it was not started a second time.");
     if (!body?.started) throw new Error("The cloud computer gave an unexpected answer to the engine launch.");
+    if (this.#exited) return;
+    if (this.#closed) throw new Error("The connection to the cloud computer ended before the engine could be used.");
     this.#started = true;
     this.#pushTimer = setInterval(() => this.#pushScoped(new Map()), launch.pushEveryMs ?? PUSH_EVERY_MS);
     this.#pushTimer.unref();
@@ -295,12 +297,17 @@ export class EngineProcess extends EventEmitter {
     this.stdin.pause();
     this.#remote = remote;
     remote.on("diagnostic", (text: string) => { if (!this.stderr.writableEnded) this.stderr.write(`[cloud computer] ${text}`); });
+    remote.on("stdout", (bytes: Buffer) => { if (!this.stdout.writableEnded) this.stdout.write(bytes); });
+    remote.on("stderr", (bytes: Buffer) => { if (!this.stderr.writableEnded) this.stderr.write(bytes); });
+    let earlyExit: { code: number | null; signal: NodeJS.Signals | null } | null = null;
+    remote.once("native-exit", (code: number | null, signal: NodeJS.Signals | null) => {
+      if (this.placement === "computer") this.#finish(code, signal);
+      else earlyExit = { code, signal };
+    });
     void remote.start().then(() => {
       this.placement = "computer";
       onPlaced?.("computer");
-      remote.on("stdout", (bytes: Buffer) => { if (!this.stdout.writableEnded) this.stdout.write(bytes); });
-      remote.on("stderr", (bytes: Buffer) => { if (!this.stderr.writableEnded) this.stderr.write(bytes); });
-      remote.once("native-exit", (code: number | null, signal: string | null) => this.#finish(code, signal as NodeJS.Signals | null));
+      if (earlyExit) { this.#finish(earlyExit.code, earlyExit.signal); return; }
       this.stdin.on("data", (bytes: Buffer) => remote.write(Buffer.from(bytes)));
       this.stdin.on("end", () => remote.end());
       this.stdin.resume();

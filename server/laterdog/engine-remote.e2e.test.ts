@@ -1,4 +1,5 @@
 import { spawn, type ChildProcess } from "node:child_process";
+import { EventEmitter } from "node:events";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { createServer, type Server } from "node:http";
@@ -336,6 +337,42 @@ createInterface({ input: process.stdin }).on("line", (l) => { const f = JSON.par
   expect(placed).toEqual(["computer"]);
   expect(w.localLaunches()).toBe(0);
 }, 60_000);
+
+it.each(["exit", "disconnect"] as const)("settles a remote %s delivered alongside the launch reply", async (outcome) => {
+  const w = world();
+  const link = new EventEmitter() as EngineLink;
+  const receive = (frame: unknown) => link.emit("line", JSON.stringify(frame));
+  link.close = () => { link.emit("close", "relay closed"); };
+  link.send = (line) => {
+    const frame = JSON.parse(line);
+    if (frame.type === "configure") receive({ type: "reply", id: frame.id, body: { files: [] } });
+    if (frame.type === "prepared") receive({ type: "reply", id: frame.id, body: { prepared: true } });
+    if (frame.type !== "launch") return;
+    receive({ type: "reply", id: frame.id, body: { started: true } });
+    if (outcome === "disconnect") { link.close(); return; }
+    receive({ type: "stdout", data: Buffer.from("native startup output\n").toString("base64") });
+    receive({ type: "stderr", data: Buffer.from("native startup failure\n").toString("base64") });
+    receive({ type: "native_exit", code: 3 });
+  };
+  const { engine, placed } = w.start(w.plan(), async () => {
+    setImmediate(() => receive({ type: "ready" }));
+    return link;
+  });
+  const stdout: string[] = [];
+  const stderr: string[] = [];
+  engine.stdout.on("data", bytes => stdout.push(String(bytes)));
+  engine.stderr.on("data", bytes => stderr.push(String(bytes)));
+  expect(await closed(engine)).toBe(outcome === "exit" ? 3 : 1);
+  expect(placed).toEqual(["computer"]);
+  expect(w.localLaunches()).toBe(0);
+  if (outcome === "exit") {
+    expect(stdout.join("")).toBe("native startup output\n");
+    expect(stderr.join("")).toBe("native startup failure\n");
+  } else {
+    expect(stderr.join("")).toContain("ended before the engine could be used");
+    expect(await killCliTree(engine as unknown as ChildProcess, 0)).toBe(false);
+  }
+});
 
 it("refuses a second engine for a chat whose engine still runs on the computer", async () => {
   const w = world();
