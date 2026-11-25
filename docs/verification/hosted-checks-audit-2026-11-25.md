@@ -198,3 +198,17 @@ node scripts/ci-audit.mjs runs [--logs <dir of <job id>.log files>]
 ```
 
 The directory holds one `<run id>.json` per run in the shape GitHub returns for a run's jobs, and optionally `runs.json` with the run objects for event, conclusion and start time. The raw data is not committed.
+
+## Contracts independent of runtime selection
+
+The pull request lint job now runs `scripts/ci-scope.test.ts`, `scripts/ci-verdict.test.ts` and `scripts/laterdog-workflows.test.ts` alongside the existing repository rules. A workflow contract requires that job to have no condition or dependencies, and requires each contract command to have no step condition. The runtime selection and full merge gate policy are unchanged.
+
+The new workflow contract failed on the unchanged workflow: 1 failed and 15 passed. With the wiring corrected and the selector unchanged, all 76 checks across the six unconditional files passed on the Mac with Node 24.22.1 and pnpm 9.15.3. The deliberate server assertion also failed when run directly.
+
+Disposable [lab PR 273](https://github.com/woodbeary/later-dog/pull/273) is marked MUST NOT MERGE. Its first head, `7108fb0e2dee9ab308cec4c2e7096a63e7e36937`, changes the selector assignment to `runtime = false`, adds a valid TypeScript server test asserting `expect(true).toBe(false)`, and adds the new workflow contract. Its workflow is byte-for-byte the original #260 workflow. [Before run 45585449390](https://github.com/woodbeary/later-dog/actions/runs/45585449390), attempt 1, returned green: scope, lint, typecheck and CI passed while every runtime job was skipped. The actual event base was `903f379f88bf041b8fc78d52db086c1818bf2799`, tree `d3233a9b87a8957cddf5072f779bcc38a7dbc211`.
+
+The second head, `944d623fe08ef8991f8010798b4eae21d40777c6`, changes only the unconditional workflow wiring. The selector regression, failing server test and new workflow contract are identical to the first head. [After run 45589034383](https://github.com/woodbeary/later-dog/actions/runs/45589034383), attempt 1, returned red: 18 selector contracts failed and 58 other checks passed, including all 16 workflow contracts. Lint and the final CI job failed; scope and typecheck passed. The runtime groups remained skipped under the deliberate selector regression. Both actual event bases match the first run exactly, and both checked-out merge trees match their respective lab heads.
+
+The before and after runs took 125 and 102 seconds from creation to final update, one observation each. These are correctness observations, not a median, p95 or speed claim. Both used the existing standard public runners. The lab is closed, with its branch and both runs retained.
+
+The before lab passed its ordinary no-comments, lint, typecheck and locale pre-push hook. The after push used an explicitly authorized `--no-verify` exception for its workflow-only delta, after verifying that all source and test blobs were unchanged, to avoid repeating identical source checks behind the Mac queue. Every hosted check remained enabled. The real fix retains its ordinary local checks. The deliberate selector regression and failing server test exist only on the lab branch. No merge or publication is qualified by these focused checks; the repaired base and a complete clean merge gate remain required.

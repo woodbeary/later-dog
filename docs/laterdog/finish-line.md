@@ -95,6 +95,16 @@ and no-comments checks passed; the complete merge gate has not run.
 
 Branch `desktop/overnight-paste` preserves the shared cutoff of at least 900 UTF-16 code units or 12 lines, creates editable text/plain attachments, and sends the ordinary uploaded-file shape. Final 134 focused checks, types/lint, 224 phone/desktop boundary comparisons, a persisted UTF-8 file send through the actual App/home, and six rendered fit/edit checks passed. Screenshots and limitations are in the [verification record](../verification/desktop-pasted-text-2026-11-25.md). Companion PR274 keeps enlarged controls in bounds. This remains a draft until the final combined merge gate passes and Sol Lead ships it.
 
+## CI selection contracts, November 25
+
+The unconditional lint job now checks the selector, verdict and workflow contracts.
+The new contract fails before the wiring change and all 76 focused checks pass after it.
+The closed disposable hidden-change lab confirms the original workflow returns green
+with a failing runtime test omitted; adding only the contract wiring makes lint and CI
+red on the same selector regression. See the
+[contract evidence](../verification/hosted-checks-audit-2026-11-25.md#contracts-independent-of-runtime-selection).
+The full clean merge gate remains required. This is not live yet.
+
 ## Real account limit, November 14
 
 Draft pull request 199, branch `atelier/real-account-limit`, item 30, server half. One model reaching
