@@ -316,6 +316,12 @@ reports any file that changed in the real later.dog folders.
 
 ## Evidence
 
+The [Linux shard timing record](linux-shard-timings-2026-11-25.md) checks hosted
+timing collection and distinguishes estimated balance from actual elapsed time.
+
+Related records: [hosted checks audit](hosted-checks-audit-2026-11-25.md) and
+[desktop launch timeline](launch-timeline-2026-11-25.md).
+
 The [persistence responsiveness benchmark](persistence-performance.md) measures
 synthetic message/log bursts and history scans, with isolated chat, visibility
 and packaged-worker checks. It is not a production capacity qualification.

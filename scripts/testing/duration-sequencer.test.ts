@@ -112,14 +112,13 @@ describe("update-shard-weights", () => {
     });
   });
 
-  it("keeps each slow or e2e file's median, and drops light and deleted files", () => {
+  it("keeps each measured slow or e2e file's median, and drops light and deleted files", () => {
     const runs = [
       new Map([["server/slow.test.ts", 9], ["server/light.test.ts", 2], ["server/skipped.e2e.test.ts", 0], ["server/gone.test.ts", 60]]),
       new Map([["server/slow.test.ts", 30], ["server/light.test.ts", 3]]),
       new Map([["server/slow.test.ts", 12.4], ["server/light.test.ts", 1]]),
     ];
     expect(buildWeights(runs, (file: string) => file !== "server/gone.test.ts")).toEqual({
-      "server/skipped.e2e.test.ts": 1,
       "server/slow.test.ts": 12,
     });
   });
