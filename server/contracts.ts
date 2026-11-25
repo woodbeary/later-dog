@@ -3,7 +3,7 @@ import type { ApprovalMode } from "../shared/approval-mode.ts";
 import type { ToolScope } from "../shared/tool-scope.ts";
 import type { EffortLevel } from "../shared/wire.ts";
 import type {
-  DriverKind, InstanceId, ModelVariantOption, RuntimeEventListener, ThreadId, TurnId,
+  DriverKind, EngineForkPoint, InstanceId, ModelVariantOption, RuntimeEventListener, ThreadId, TurnId,
 } from "../shared/runtime-events.ts";
 import type { ProviderIcon } from "../shared/provider-icon.ts";
 import type { VolatileSection } from "./laterdog/volatile-sections.ts";
@@ -97,6 +97,7 @@ export interface SendTurnInput {
   startupRecovery?: boolean;
   recoveryText?: string;
   recoveryIsReplay?: boolean;
+  fork?: EngineForkPoint;
   transcript?: Array<{ role: "user" | "assistant"; text: string }>;
   system?: string;
   systemStable?: string;
@@ -179,6 +180,7 @@ export interface ProviderAdapter {
   steer?(threadId: ThreadId, text: string, images?: TurnImageInput[], onRead?: () => void): Promise<SteerOutcome>;
   hasSession(threadId: ThreadId): boolean;
   nativeCompactAt?(): Promise<number | undefined>;
+  forksAtPoint?(): Promise<boolean>;
   compactionSigns?(threadId?: string, folder?: string | null): Promise<CompactionSigns>;
   contextUsage?(threadId: ThreadId): Promise<EngineContextReply>;
   rareToolsOnDemand?(threadId: ThreadId): boolean | undefined;
