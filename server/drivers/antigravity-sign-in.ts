@@ -150,9 +150,12 @@ function lastWords(output: string): string | undefined {
 }
 
 export class AntigravitySignIn {
+  private readonly options: AntigravitySignInOptions;
   private flow: (Flow & { completing?: boolean }) | null = null;
 
-  constructor(private readonly options: AntigravitySignInOptions) {}
+  constructor(options: AntigravitySignInOptions) {
+    this.options = options;
+  }
 
   async start(): Promise<ProviderAuthenticationStart> {
     await this.cancel();

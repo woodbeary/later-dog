@@ -1,3 +1,4 @@
+import { spawnSync } from "node:child_process";
 import { chmodSync, mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -140,5 +141,20 @@ describe("Antigravity sign-in with a pasted Google code", () => {
     const { pid } = json(join(dir, "login.json"));
     await until(async () => (await controller.get(started.flowId!)).phase === "expired");
     await until(() => !alive(pid));
+  });
+});
+
+describe("Antigravity under Node's strip-only TypeScript loader", () => {
+  it("loads the sign-in and the driver the way pnpm dev:server and pnpm laterdog start the server", () => {
+    const [signIn, driver] = ["./antigravity-sign-in.ts", "./antigravity.ts"].map((path) => JSON.stringify(new URL(path, import.meta.url).href));
+    const result = spawnSync(process.execPath, [
+      "--experimental-strip-types",
+      "--input-type=module",
+      "-e",
+      `const { AntigravitySignIn } = await import(${signIn});
+const { AntigravityDriver } = await import(${driver});
+console.log(typeof AntigravitySignIn, typeof AntigravityDriver.create);`,
+    ], { encoding: "utf8", timeout: 15_000 });
+    expect({ status: result.status, stdout: result.stdout, stderr: result.stderr }).toEqual({ status: 0, stdout: "function function\n", stderr: "" });
   });
 });
