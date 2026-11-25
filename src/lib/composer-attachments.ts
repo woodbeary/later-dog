@@ -69,20 +69,11 @@ function validSize(value: unknown): value is number {
   return typeof value === "number" && Number.isFinite(value) && value >= 0;
 }
 
-export const PASTE_CHARS = 2000;
-export const PASTE_LINES = 40;
+export const PASTE_CHARS = 900;
+export const PASTE_LINES = 12;
 
 export function isLongPaste(text: string): boolean {
-  let characters = 0;
-  let lines = 1;
-  let previous = "";
-  for (const character of text) {
-    characters += 1;
-    if (character === "\r" || character === "\n" && previous !== "\r" || character === "\u2028" || character === "\u2029") lines += 1;
-    if (characters > PASTE_CHARS || lines > PASTE_LINES) return true;
-    previous = character;
-  }
-  return false;
+  return text.length >= PASTE_CHARS || countLines(text) >= PASTE_LINES;
 }
 
 export function countLines(text: string): number {

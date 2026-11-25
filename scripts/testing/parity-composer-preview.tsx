@@ -49,7 +49,7 @@ const SCENES: Scene[] = [
   { name: "idle" },
   { name: "draft", draft: "Add a pickup time to the order form" },
   { name: "pasted-text", draft: "Please read this", pasted: "Notes for the next update\n".repeat(50) },
-  { name: "pasted-text-line-breaks", draft: "Please read this", pasted: Array.from({ length: 41 }, (_, index) => `Note ${index + 1}`).join("\r") },
+  { name: "pasted-text-line-breaks", draft: "Please read this", pasted: Array.from({ length: 12 }, (_, index) => `Note ${index + 1}`).join("\r") },
   { name: "working", busy: true },
   { name: "working-draft", busy: true, draft: "Also check it on a small phone" },
   { name: "usage-weekly-75", usage: { weekly: 76, fiveHour: 20 } },

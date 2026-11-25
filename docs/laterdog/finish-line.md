@@ -85,7 +85,7 @@ switch and no stall over 200 ms, the targets stated on November 10
 
 ## Desktop pasted text files, November 25
 
-Branch `desktop/overnight-paste` turns pastes longer than 2,000 Unicode characters or 40 lines into editable attachment chips and sends uploaded text files. It matches the phone cutoff, supports all common line endings, preserves the draft, and keeps Send waiting while a file uploads. The shared-behavior baseline had six failures; all 134 paste, attachment, draft, send and no-comments checks pass, with typecheck and lint. See [verification](../verification/desktop-pasted-text-2026-11-25.md). A full passing merge gate is required before release.
+Branch `desktop/overnight-paste` preserves the existing cutoff of at least 900 UTF-16 code units or 12 lines, creates editable attachment chips, and sends uploaded text files. This is the shared phone/desktop cutoff. It supports common line endings, preserves the draft, and keeps Send waiting while a file uploads. Exact boundaries, uploaded contents, draft preservation and send behavior are checked before merge. See [verification](../verification/desktop-pasted-text-2026-11-25.md). A full passing merge gate is required before release.
 
 ## Real account limit, November 14
 

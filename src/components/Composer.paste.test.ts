@@ -70,7 +70,7 @@ afterEach(async () => {
 describe("pasted text attachments", () => {
   it("leaves short clipboard text to the normal paste action", async () => {
     const field = await mount("Keep this");
-    expect((await paste(field, "a".repeat(2000))).defaultPrevented).toBe(false);
+    expect((await paste(field, "a".repeat(899))).defaultPrevented).toBe(false);
     expect(host.querySelector('[aria-label="Remove pasted text"]')).toBeNull();
   });
 
@@ -89,27 +89,27 @@ describe("pasted text attachments", () => {
     expect(host.querySelector('[aria-label="Remove pasted text"]')).toBeNull();
   });
 
-  it.each(["\n", "\r\n", "\r", "\u2028", "\u2029"])("recognizes forty-one clipboard lines separated by %j", async (separator) => {
-    const text = Array.from({ length: 41 }, (_, index) => `line ${index + 1}`).join(separator);
+  it.each(["\n", "\r\n", "\r", "\u2028", "\u2029"])("recognizes twelve clipboard lines separated by %j", async (separator) => {
+    const text = Array.from({ length: 12 }, (_, index) => `line ${index + 1}`).join(separator);
     const field = await mount("Keep this");
     expect((await paste(field, text)).defaultPrevented).toBe(true);
     expect(field.value).toBe("Keep this");
     expect(host.querySelector('[aria-label="Remove pasted text"]')).not.toBeNull();
-    expect(countLines(text)).toBe(41);
+    expect(countLines(text)).toBe(12);
     expect(pasteAttachment(text).text).toBe(text);
   });
 
   it("replaces the selected draft words without dropping the rest of the draft", async () => {
     const field = await mount("before selected after");
     field.setSelectionRange(7, 15);
-    await paste(field, "x".repeat(2001));
+    await paste(field, "x".repeat(900));
     expect(field.value).toBe("before  after");
     expect(host.querySelectorAll('[aria-label="Remove pasted text"]')).toHaveLength(1);
   });
 
   it("lets the person edit a paste in the box with the existing draft kept", async () => {
     const field = await mount("Please read this");
-    const text = "x".repeat(2001);
+    const text = "x".repeat(900);
     await paste(field, text);
     await act(async () => { (host.querySelector('[aria-label="Display pasted text in chat box"]') as HTMLButtonElement).click(); });
     expect(field.value).toBe(`Please read this\n\n${text}`);
@@ -118,7 +118,7 @@ describe("pasted text attachments", () => {
 
   it("removes a paste while keeping the person's draft", async () => {
     const field = await mount("Keep this");
-    await paste(field, "x".repeat(2001));
+    await paste(field, "x".repeat(900));
     await act(async () => { (host.querySelector('[aria-label="Remove pasted text"]') as HTMLButtonElement).click(); });
     expect(field.value).toBe("Keep this");
     expect(host.querySelector('[aria-label="Remove pasted text"]')).toBeNull();
@@ -131,10 +131,10 @@ describe("pasted text attachments", () => {
       ? new Promise<Response>(resolve => { finish = resolve; })
       : fallback(input, init));
     const field = await mount("Keep this");
-    await paste(field, "x".repeat(2001));
+    await paste(field, "x".repeat(900));
     expect((host.querySelector("[data-composer-send]") as HTMLButtonElement).disabled).toBe(true);
     await act(async () => { (host.querySelector('[aria-label="Remove pasted text"]') as HTMLButtonElement).click(); });
-    await act(async () => { finish(Response.json({ path: "/fixture/pasted.txt", name: "Pasted text.txt", bytes: 2001 })); });
+    await act(async () => { finish(Response.json({ path: "/fixture/pasted.txt", name: "Pasted text.txt", bytes: 900 })); });
     expect(field.value).toBe("Keep this");
     expect(host.querySelector('[aria-label="Remove pasted text"]')).toBeNull();
     expect((host.querySelector("[data-composer-send]") as HTMLButtonElement).disabled).toBe(false);
@@ -142,20 +142,20 @@ describe("pasted text attachments", () => {
 
   it("gives each paste its own file name", async () => {
     const field = await mount();
-    await paste(field, "x".repeat(2001));
-    await paste(field, "y".repeat(2001));
+    await paste(field, "x".repeat(900));
+    await paste(field, "y".repeat(900));
     const names = vi.mocked(fetch).mock.calls.filter(([url]) => String(url).includes("/api/files?"))
       .map(([url]) => new URL(String(url), "http://fixture").searchParams.get("name"));
     expect(names).toEqual(["Pasted text.txt", "Pasted text 2.txt"]);
   });
 
   it("keeps the shared character and line boundaries exact", () => {
-    expect(isLongPaste("x".repeat(2000))).toBe(false);
-    expect(isLongPaste("x".repeat(2001))).toBe(true);
-    expect(isLongPaste(Array(40).fill("x").join("\n"))).toBe(false);
-    expect(isLongPaste(Array(41).fill("x").join("\n"))).toBe(true);
-    expect(isLongPaste("🐕".repeat(2000))).toBe(false);
-    expect(isLongPaste("🐕".repeat(2001))).toBe(true);
+    expect(isLongPaste("x".repeat(899))).toBe(false);
+    expect(isLongPaste("x".repeat(900))).toBe(true);
+    expect(isLongPaste(Array(11).fill("x").join("\n"))).toBe(false);
+    expect(isLongPaste(Array(12).fill("x").join("\n"))).toBe(true);
+    expect(isLongPaste("🐕".repeat(449) + "a")).toBe(false);
+    expect(isLongPaste("🐕".repeat(450))).toBe(true);
     expect(countLines("")).toBe(1);
     const text = "a\r\nb\rc\nd\u2028e\u2029f";
     const attachment = pasteAttachment(text);
