@@ -7,7 +7,7 @@ import { fileURLToPath } from "node:url";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { cloudPairingSignature } from "../cloud-home.ts";
 import { removeTempDir, waitForExit } from "../testing/cleanup.ts";
-import { freePortBlock } from "../testing/ports.ts";
+import { leasePortBlock } from "../testing/ports.ts";
 import { chatgptPlanSignIn } from "./cloud-chatgpt.ts";
 
 const SERVER_DIR = join(dirname(fileURLToPath(import.meta.url)), "..");
@@ -63,7 +63,7 @@ describe.skipIf(process.platform === "win32")("account sign-in on a Cloud home, 
     }));
     mkdirSync(join(home, "web"));
     writeFileSync(join(home, "web", "index.html"), "<!doctype html><title>later.dog</title>");
-    const port = await freePortBlock([0, 1]);
+    const port = await leasePortBlock([0, 1]);
     base = `http://127.0.0.1:${port}`;
     const offlinePrelude = `data:text/javascript,${encodeURIComponent('globalThis.fetch = async () => new Response("offline fixture", { status: 503 });')}`;
     child = spawn(process.execPath, ["--import", offlinePrelude, join(SERVER_DIR, "index.ts")], {

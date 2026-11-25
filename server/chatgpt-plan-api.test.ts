@@ -7,7 +7,7 @@ import { fileURLToPath } from "node:url";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { verificationServerEnvironment } from "../scripts/control-laterdog.ts";
 import { removeTempDir, waitForExit } from "./testing/cleanup.ts";
-import { freePortBlock } from "./testing/ports.ts";
+import { leasePortBlock } from "./testing/ports.ts";
 import { excludedWorkspaceAuthPath } from "./workspace-backup-policy.ts";
 
 const ROOT = fileURLToPath(new URL("..", import.meta.url));
@@ -49,7 +49,7 @@ function expectSignedOut(instance: Record<string, any>) {
 beforeAll(async () => {
   home = mkdtempSync(join(tmpdir(), "laterdog-chatgpt-api-"));
   mkdirSync(join(home, "tmp"));
-  const port = await freePortBlock([0, 1]);
+  const port = await leasePortBlock([0, 1]);
   base = `http://127.0.0.1:${port}`;
   logPath = join(tmpdir(), `laterdog-chatgpt-api-${port}-${process.pid}.log`);
   writeFileSync(join(home, "config.json"), JSON.stringify({ instances: {

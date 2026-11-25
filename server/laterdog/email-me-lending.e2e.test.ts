@@ -11,7 +11,7 @@ import { createComputerSharing } from "../../electron/computer-sharing.mjs";
 import { signedActivityRequest } from "../../deploy/laterdog/home/src/activity.ts";
 import { cloudPairingSignature } from "../cloud-home.ts";
 import { removeTempDir, waitForExit } from "../testing/cleanup.ts";
-import { freePortBlock } from "../testing/ports.ts";
+import { leasePortBlock } from "../testing/ports.ts";
 
 const SERVER_DIR = join(dirname(fileURLToPath(import.meta.url)), "..");
 const HOST = "h0123456789abcdef01234567-home.later.dog";
@@ -105,7 +105,7 @@ await import(${JSON.stringify(pathToFileURL(join(SERVER_DIR, "testing", "fake-cl
   await new Promise<void>((resolve) => mailbox.listen(0, "127.0.0.1", resolve));
   const address = mailbox.address();
   mailboxUrl = `http://127.0.0.1:${typeof address === "object" && address ? address.port : 0}/send`;
-  const port = await freePortBlock([0, 1]);
+  const port = await leasePortBlock([0, 1]);
   base = `http://127.0.0.1:${port}`;
   const offlinePrelude = `data:text/javascript,${encodeURIComponent('const real = globalThis.fetch; globalThis.fetch = async (url, init) => String(url).startsWith("http://127.0.0.1:") ? real(url, init) : new Response("offline fixture", { status: 503 });')}`;
   child = spawn(process.execPath, ["--import", offlinePrelude, join(SERVER_DIR, "index.ts")], {

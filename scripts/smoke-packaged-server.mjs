@@ -6,6 +6,7 @@ import { dirname, isAbsolute, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseArgs, promisify } from "node:util";
 import { browserBundlePaths, browserBundleSpec } from "../server/browser-bundle-release.ts";
+import { leasePortBlock } from "../server/testing/ports.ts";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const { values } = parseArgs({ options: { "browser-bundle": { type: "string" } } });
@@ -26,7 +27,7 @@ if (browserBundle !== undefined) {
 }
 const staging = mkdtempSync(join(tmpdir(), "laterdog-smoke-"));
 const home = mkdtempSync(join(tmpdir(), "laterdog-smoke-home-"));
-const port = 21000 + Math.floor(Math.random() * 9000);
+const port = await leasePortBlock([0, 1]);
 
 try {
   cpSync(process.env.LATERDOG_SMOKE_DIST ?? join(root, "dist-server"), join(staging, "server"), { recursive: true });
@@ -208,7 +209,7 @@ if (listening) {
 let launcherReport = null;
 if (listening && process.platform !== "win32") {
   const launcherHome = mkdtempSync(join(tmpdir(), "laterdog-smoke-launcher-"));
-  const launcherPort = 31000 + Math.floor(Math.random() * 9000);
+  const launcherPort = await leasePortBlock([0, 1]);
   const launcher = spawn(process.execPath, [join(staging, "server", "server-launcher.js")], {
     cwd: staging,
     env: { ...fixtureEnv, HOME: launcherHome, USERPROFILE: launcherHome, LATERDOG_HOME: join(launcherHome, ".laterdog"), LATERDOG_SERVER_PORT: String(launcherPort), LATERDOG_WEBHOOK_PORT: String(launcherPort + 1) },
@@ -256,7 +257,7 @@ if (listening) {
   desktopEntryReport = { starts: [] };
   try {
     for (let round = 0; round < 2; round++) {
-      const entryPort = 41000 + Math.floor(Math.random() * 9000);
+      const entryPort = await leasePortBlock([0, 1]);
       const entry = spawn(process.execPath, [join(staging, "server", "desktop-entry.mjs")], {
         cwd: staging,
         env: { ...fixtureEnv, HOME: entryHome, USERPROFILE: entryHome, LATERDOG_HOME: join(entryHome, ".laterdog"),

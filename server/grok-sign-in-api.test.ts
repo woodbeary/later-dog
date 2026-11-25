@@ -6,7 +6,7 @@ import { fileURLToPath } from "node:url";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { verificationServerEnvironment } from "../scripts/control-laterdog.ts";
 import { removeTempDir, waitForExit } from "./testing/cleanup.ts";
-import { freePortBlock } from "./testing/ports.ts";
+import { leasePortBlock } from "./testing/ports.ts";
 
 const ROOT = fileURLToPath(new URL("..", import.meta.url));
 const FAKE_GROK = join(ROOT, "server/testing/fake-grok-login-cli.ts");
@@ -32,7 +32,7 @@ describe.skipIf(process.platform === "win32")("Grok Build sign-in over HTTP", ()
     chmodSync(FAKE_GROK, 0o755);
     home = mkdtempSync(join(tmpdir(), "laterdog-grok-api-"));
     mkdirSync(join(home, "tmp"));
-    const port = await freePortBlock([0, 1]);
+    const port = await leasePortBlock([0, 1]);
     base = `http://127.0.0.1:${port}`;
     logPath = join(tmpdir(), `laterdog-grok-api-${port}-${process.pid}.log`);
     writeFileSync(join(home, "config.json"), JSON.stringify({ instances: {

@@ -9,7 +9,7 @@ import { CLOUD_IGNORED_KEYS, cloudHomePlaceRefusal, cloudPairingSignature } from
 import { cloudHomePrompt } from "./system-prompt.ts";
 import { DESK_BRAIN_PATH, deskSignature, sha256Hex } from "./laterdog/desk-brain.ts";
 import { removeTempDir, waitForExit } from "./testing/cleanup.ts";
-import { freePortBlock } from "./testing/ports.ts";
+import { leasePortBlock } from "./testing/ports.ts";
 
 const SERVER_DIR = dirname(fileURLToPath(import.meta.url));
 const HOST = "laterdog-t-0123456789ab.fly.dev";
@@ -76,7 +76,7 @@ await import(${JSON.stringify(pathToFileURL(join(SERVER_DIR, "testing", "fake-cl
   }));
   mkdirSync(join(home, "web"));
   writeFileSync(join(home, "web", "index.html"), "<!doctype html><title>later.dog</title>");
-  const port = await freePortBlock([0, 1]);
+  const port = await leasePortBlock([0, 1]);
   base = `http://127.0.0.1:${port}`;
   const offlinePrelude = `data:text/javascript,${encodeURIComponent('globalThis.fetch = async () => new Response("offline fixture", { status: 503 });')}`;
   child = spawn(process.execPath, ["--import", offlinePrelude, join(SERVER_DIR, "index.ts")], {

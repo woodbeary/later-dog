@@ -5,7 +5,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 
-import { freePortBlock } from "./testing/ports.ts";
+import { leasePortBlock } from "./testing/ports.ts";
 import { removeTempDir, waitForExit } from "./testing/cleanup.ts";
 
 import { installLibrarySkill } from "./skill-library.ts";
@@ -32,7 +32,7 @@ describe("bot wire privacy against the real server", () => {
   }
 
   async function start(skillsLibrary: boolean) {
-    const port = await freePortBlock([0, 1]);
+    const port = await leasePortBlock([0, 1]);
     base = `http://127.0.0.1:${port}`;
     output = "";
     writeFileSync(join(data, "config.json"), JSON.stringify({

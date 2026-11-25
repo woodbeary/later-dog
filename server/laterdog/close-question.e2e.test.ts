@@ -8,10 +8,11 @@ import { fileURLToPath } from "node:url";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import { LEGACY_QUESTION_DISMISS_MESSAGE, QUESTION_DISMISS_MESSAGE } from "../../shared/ask-question.ts";
+import { leasePortBlock } from "../testing/ports.ts";
 
 const SERVER_DIR = join(dirname(fileURLToPath(import.meta.url)), "..");
 const FAKE_CLAUDE = join(SERVER_DIR, "testing", "fake-claude-cli.ts");
-const PORT = 18800 + Math.floor(Math.random() * 10_000);
+const PORT = await leasePortBlock([0, 1]);
 const BASE = `http://127.0.0.1:${PORT}`;
 
 describe.skipIf(process.platform === "win32")("the × on a dog's question", () => {

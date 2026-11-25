@@ -8,7 +8,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import { removeTempDir, waitForExit } from "./testing/cleanup.ts";
 import { startControlPlaneStub, type ControlPlaneStub } from "./testing/control-plane-stub.ts";
-import { freePortBlock } from "./testing/ports.ts";
+import { leasePortBlock } from "./testing/ports.ts";
 
 const SERVER_DIR = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(SERVER_DIR, "..");
@@ -87,7 +87,7 @@ async function signIn(email: string, label: string): Promise<{ reply: Reply; coo
 const as = (cookie: string) => (path: string, init: CallInit = {}) => remote(path, { ...init, headers: { cookie, ...init.headers } });
 
 beforeAll(async () => {
-  port = await freePortBlock([0, 1]);
+  port = await leasePortBlock([0, 1]);
   stub = await startControlPlaneStub();
   home = mkdtempSync(join(tmpdir(), "laterdog-people-invite-"));
   const staticDir = join(home, "static");

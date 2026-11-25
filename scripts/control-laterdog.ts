@@ -10,7 +10,7 @@ import { withLocalTools } from "./local-control-token.ts";
 import { handleToolCall, request, validateBaseUrl } from "./mcp-server.ts";
 import { launchUi, runControlLaterDogUi } from "./testing/control-laterdog-ui.ts";
 import { removeTempDir, waitForExit } from "../server/testing/cleanup.ts";
-import { freePortBlock } from "../server/testing/ports.ts";
+import { leasePortBlock, releasePortLeases } from "../server/testing/ports.ts";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 export const FIXTURE_STARTER_BOT_NAME = "Fixture Starter";
@@ -401,8 +401,12 @@ export async function launchVerificationServer(
       throw new ControlLaterDogError("Local VM verification requires an explicit loopback Podman machine");
     }
   }
-  const port = await freePortBlock([0, 1]);
-  if (signal?.aborted) throw new ControlLaterDogError("verification launch cancelled");
+  const port = await leasePortBlock([0, 1]);
+  const leased = [port, port + 1];
+  if (signal?.aborted) {
+    releasePortLeases(leased);
+    throw new ControlLaterDogError("verification launch cancelled");
+  }
   const url = `http://127.0.0.1:${port}`;
   const dataDir = mkdtempSync(join(browser && process.platform !== "win32" ? "/tmp" : tmpdir(), "laterdog-verify-data-"));
   const fixtureTemp = join(dataDir, "tmp");
@@ -478,6 +482,7 @@ export async function launchVerificationServer(
     }
   } catch (error) {
     await waitForExit(child, { signal: "SIGTERM" });
+    releasePortLeases(leased);
     await removeTempDir(dataDir);
     throw error;
   }
@@ -503,6 +508,7 @@ export async function launchVerificationServer(
     if (!rename.ok) throw new Error(`verification starter rename failed (${rename.status}); see ${logPath}`);
   } catch (error) {
     await waitForExit(child, { signal: "SIGTERM" });
+    releasePortLeases(leased);
     await removeTempDir(dataDir);
     throw error;
   }
@@ -516,6 +522,7 @@ export async function launchVerificationServer(
       if (closed) return;
       closed = true;
       await waitForExit(child, { signal: "SIGTERM" });
+      releasePortLeases(leased);
       await removeTempDir(dataDir);
     },
   };
