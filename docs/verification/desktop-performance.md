@@ -90,7 +90,7 @@ a JSON file `{ "everyMs": 30, "chars": 10 }`, and reads scripted replies from
 `--budget [file]` turns the script into a check. It runs the parts of the script the budget's measures come from, prints one table (measure, budget, target, measured, distance to target, verdict) and exits 0 only if every line holds. The default file is `scripts/desktop-perf.budget.json`.
 
 ```sh
-pnpm exec vite build
+bun run vite build
 node --experimental-strip-types scripts/desktop-perf.ts --playwright /opt/node-tools \
   --browser /opt/pw-browsers/chromium --label check --out .laterdog-scratch/desktop-perf/check.json --budget
 ```
