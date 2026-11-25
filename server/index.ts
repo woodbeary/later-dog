@@ -12,7 +12,7 @@ import { writeFileAtomic } from "./atomic.ts";
 import { rm as removeDirectory } from "node:fs/promises";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { ToolResults, TOOL_RESULT_MAX_CHARS } from "./tool-results.ts";
-import { basename, extname, join } from "node:path";
+import { extname, join } from "node:path";
 
 import { z } from "zod";
 import { selectReplay, DEFAULT_REBUILD_BYTES, MAX_SUMMARY_BYTES } from "./context-rebuild.ts";
@@ -564,6 +564,7 @@ import { createTeamManifest, parseTeamManifest } from "./team-manifest.ts";
 import { LogArchiveCoordinator, claudeSessionIds, logArchiveBridge, outsideSessionOwners } from "./laterdog/log-archive.ts";
 import { archiveSweep, roomFor, roomToRestore, savesHold, startArchiveSweeps, steadyDisk, workFolderSweep } from "./laterdog/archive-pressure.ts";
 import { WorkFolderArchive } from "./laterdog/work-folder-archive.ts";
+import { workFolderChats } from "./laterdog/work-folder-chats.ts";
 import { readThreadEvents } from "./thread-events.ts";
 import { describeTool, readBotActivity } from "./activity.ts";
 import { OutboundRequestService } from "./outbound-requests.ts";
@@ -2902,7 +2903,7 @@ const workFolders = archiveBridge && logArchive
     dataDir: DATA_DIR,
     workspacesDir: TASK_WORKSPACES_DIR,
     bridge: archiveBridge,
-    chats: () => janitorWorkspaces().map(chat => ({ ...chat, busy: chat.busy || threadAtWork(basename(chat.dir)) })),
+    chats: () => workFolderChats({ workspacesDir: TASK_WORKSPACES_DIR, bots: store.bots, groups: store.groups, damaged: store.damaged, thread: janitorThread, atWork: threadAtWork }),
     live: () => readProcesses(),
     limits: () => workFolderSweep(archiveDisk()),
     room: bytes => roomFor(archiveDisk(), bytes),
