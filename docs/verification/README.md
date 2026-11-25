@@ -126,6 +126,8 @@ Use only mapped, tested commands:
 - [A device sign-in waits for the person, November 20](device-sign-in-waits.md)
 - [A turn stuck on the same answer ends, November 20](same-answer-ends-turn.md)
 - [Workspace release, November 13: what went live, how it was checked, how to undo it](workspace-release-2026-11-13.md)
+- [Hosted checks audit, November 25](hosted-checks-audit-2026-11-25.md)
+- [Desktop launch timeline, November 25](launch-timeline-2026-11-25.md)
 
 `control-laterdog ui` ([Chat UI, driven headlessly](chat-ui.md)) drives the real
 renderer in a headless Chrome by accessible name, so composer sends, transcript
