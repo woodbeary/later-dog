@@ -6,7 +6,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { runControlLaterDog } from "../scripts/control-laterdog.ts";
-import { freePortBlock } from "./testing/ports.ts";
+import { leasePortBlock } from "./testing/ports.ts";
 import { removeTempDir, waitForExit } from "./testing/cleanup.ts";
 
 const ROOT = fileURLToPath(new URL("..", import.meta.url));
@@ -73,7 +73,7 @@ function install(home: string, boatPort: () => number) {
     return dump();
   };
   async function start() {
-    const port = await freePortBlock([0, 1]);
+    const port = await leasePortBlock([0, 1]);
     base = `http://127.0.0.1:${port}`;
     output = "";
     const proc = spawn(process.execPath, [join(ROOT, "server/index.ts")], {

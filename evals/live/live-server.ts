@@ -5,7 +5,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { verificationServerEnvironment } from "../../scripts/control-laterdog.ts";
 import { removeTempDir, waitForExit } from "../../server/testing/cleanup.ts";
-import { freePortBlock } from "../../server/testing/ports.ts";
+import { leasePortBlock } from "../../server/testing/ports.ts";
 import type { LiveInstance } from "./types.ts";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
@@ -32,7 +32,7 @@ export async function spawnLiveServer(
   instance: LiveInstance,
   passEnvNames: string[],
 ): Promise<LiveServerSession> {
-  const port = await freePortBlock([0, 1]);
+  const port = await leasePortBlock([0, 1]);
   const dataDir = mkdtempSync(join(tmpdir(), "laterdog-live-eval-"));
   const fixtureTemp = join(dataDir, "tmp");
   mkdirSync(fixtureTemp, { recursive: true });

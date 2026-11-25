@@ -9,10 +9,11 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { removeTempDir, waitForExit } from "./testing/cleanup.ts";
 import { startControlPlaneStub, type ControlPlaneStub } from "./testing/control-plane-stub.ts";
 import { openSse } from "./testing/sse.ts";
+import { leasePortBlock } from "./testing/ports.ts";
 
 const SERVER_DIR = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(SERVER_DIR, "..");
-const PORT = 24000 + Math.floor(Math.random() * 5000);
+const PORT = await leasePortBlock([0, 1]);
 const HOST = "agentada.test";
 
 let home: string;

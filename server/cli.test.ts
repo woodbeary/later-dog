@@ -9,6 +9,7 @@ import { formatSessions, pairingBlock, parseArgs, qrToString, runAccess, runOnbo
 import { readAdminActivityRange } from "./admin-activity.ts";
 import { SetupCancelled } from "./cli-prompts.ts";
 import { removeTempDir, waitForExit } from "./testing/cleanup.ts";
+import { leasePortBlock } from "./testing/ports.ts";
 
 const SERVER_DIR = dirname(fileURLToPath(import.meta.url));
 const setup = vi.hoisted(() => ({ runSetup: vi.fn(), isSetupComplete: vi.fn(), readCliStartup: vi.fn(), saveCliStartup: vi.fn() }));
@@ -94,7 +95,7 @@ describe("laterdog command line", () => {
 
   it("serve: starts the server, prints the pairing link, and stops on SIGTERM", async () => {
     const home = mkdtempSync(join(tmpdir(), "laterdog-cli-serve-"));
-    const port = 21000 + Math.floor(Math.random() * 9000);
+    const port = await leasePortBlock([0, 1]);
     const child = spawn(process.execPath, ["--experimental-strip-types", join(SERVER_DIR, "laterdog.ts"), "serve", "--port", String(port), "--data-dir", join(home, "data"), "--label", "cli test", "--public-url", "https://mini.example"], {
       cwd: join(SERVER_DIR, ".."),
       env: { PATH: process.env.PATH ?? "", HOME: home, USERPROFILE: home, LATERDOG_WEBHOOK_PORT: String(port + 1), LATERDOG_BROWSER_CONNECTION: join(home, "browser-connection.json") },
@@ -297,7 +298,7 @@ describe.skipIf(process.platform === "win32")("serve --domain", () => {
     mkdirSync(dataDir, { recursive: true });
     const fake = join(home, "fake-caddy");
     writeFileSync(fake, `#!/bin/sh\necho "$@" > "${join(home, "caddy-args.txt")}"\necho $$ > "${join(home, "caddy.pid")}"\nexec sleep 300\n`, { mode: 0o755 });
-    const port = 21000 + Math.floor(Math.random() * 9000);
+    const port = await leasePortBlock([0, 1]);
     const child = spawn(process.execPath, ["--experimental-strip-types", join(SERVER_DIR, "laterdog.ts"), "serve", "--domain", "laterdog.example.test", "--port", String(port), "--data-dir", dataDir], {
       cwd: join(SERVER_DIR, ".."),
       env: { PATH: process.env.PATH ?? "", HOME: home, USERPROFILE: home, LATERDOG_WEBHOOK_PORT: String(port + 1), LATERDOG_BROWSER_CONNECTION: join(home, "browser-connection.json"), LATERDOG_CADDY_PATH: fake },

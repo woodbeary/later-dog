@@ -11,7 +11,7 @@ import { cloudPairingSignature } from "./cloud-home.ts";
 import { RESTART_EXIT_CODE } from "./restart.ts";
 import { removeTempDir, waitForExit } from "./testing/cleanup.ts";
 import { stageWorkspaceBackup } from "./workspace-backup.ts";
-import { freePortBlock } from "./testing/ports.ts";
+import { leasePortBlock } from "./testing/ports.ts";
 
 const SERVER_DIR = dirname(fileURLToPath(import.meta.url));
 const HOST = "laterdog-t-0123456789ab.fly.dev";
@@ -83,7 +83,7 @@ await import(${JSON.stringify(pathToFileURL(join(SERVER_DIR, "testing", "fake-cl
     mkdirSync(join(dataDir, "providers", "fixture"), { recursive: true });
     writeFileSync(join(dataDir, "providers", "fixture", ".credentials.json"), JSON.stringify({ token: SOURCE_SECRETS.provider }), { mode: 0o600 });
   }
-  const port = await freePortBlock([0, 1]);
+  const port = await leasePortBlock([0, 1]);
   const env: NodeJS.ProcessEnv = {
     PATH: process.env.PATH,
     ...(process.env.PATHEXT ? { PATHEXT: process.env.PATHEXT } : {}),

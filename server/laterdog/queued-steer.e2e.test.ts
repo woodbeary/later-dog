@@ -7,10 +7,11 @@ import { fileURLToPath } from "node:url";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import { stillStoppingReason } from "./queued-steer.ts";
+import { leasePortBlock } from "../testing/ports.ts";
 
 const SERVER_DIR = join(dirname(fileURLToPath(import.meta.url)), "..");
 const FAKE_ACP = join(SERVER_DIR, "testing", "fake-acp-cli.ts");
-const PORT = 18800 + Math.floor(Math.random() * 10_000);
+const PORT = await leasePortBlock([0, 1]);
 const BASE = `http://127.0.0.1:${PORT}`;
 
 describe.skipIf(process.platform === "win32")("Steer on a turn that will not stop", () => {

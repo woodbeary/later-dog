@@ -8,7 +8,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { afterAll, afterEach, beforeAll, expect, it } from "vitest";
 import { cloudPairingSignature } from "../cloud-home.ts";
 import { removeTempDir, waitForExit } from "../testing/cleanup.ts";
-import { freePortBlock } from "../testing/ports.ts";
+import { leasePortBlock } from "../testing/ports.ts";
 import { runKey } from "./computer-runs.ts";
 
 const SERVER_DIR = dirname(dirname(fileURLToPath(import.meta.url)));
@@ -138,7 +138,7 @@ await import(${JSON.stringify(pathToFileURL(join(SERVER_DIR, "testing", "fake-cl
     },
   }));
   computersApi = await computersService();
-  port = await freePortBlock([0, 1]);
+  port = await leasePortBlock([0, 1]);
   base = `http://127.0.0.1:${port}`;
   await startHome();
 }, 90_000);

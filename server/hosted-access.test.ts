@@ -6,7 +6,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { removeTempDir, waitForExit } from "./testing/cleanup.ts";
-import { freePortBlock } from "./testing/ports.ts";
+import { leasePortBlock } from "./testing/ports.ts";
 import { SessionRegistry } from "./sessions.ts";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
@@ -67,7 +67,7 @@ async function refuseFullTask() {
 }
 
 beforeAll(async () => {
-  PORT = await freePortBlock([0, 1], 35_000, 5_000);
+  PORT = await leasePortBlock([0, 1]);
   home = mkdtempSync(join(tmpdir(), "laterdog-hosted-server-"));
   const data = join(home, ".laterdog");
   mkdirSync(join(home, "static"));

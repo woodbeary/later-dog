@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { removeTempDir, waitForExit } from "../../server/testing/cleanup.ts";
-import { freePortBlock } from "../../server/testing/ports.ts";
+import { leasePortBlock } from "../../server/testing/ports.ts";
 import type { Scenario, Step } from "../types.ts";
 import { buildScriptedPlan } from "../providers/mock/scripted-plan.ts";
 import { BaseWorld, type WorldContext } from "./base-world.ts";
@@ -42,7 +42,7 @@ export class LocalVmWorld extends BaseWorld {
         },
       },
     }));
-    const port = await freePortBlock([0, 1]);
+    const port = await leasePortBlock([0, 1]);
     const hooks = pathToFileURL(join(ROOT, "server", "testing", "group-local-vm-hooks.mjs")).href;
     const env: NodeJS.ProcessEnv = {
       PATH: dirname(process.execPath),

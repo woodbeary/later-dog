@@ -20,7 +20,7 @@ import { z } from "zod";
 import { removeTempDir, waitForExit } from "./testing/cleanup.ts";
 import { startFakeHttpMcp } from "./testing/fake-http-mcp-server.ts";
 import { startFakeOAuth } from "./testing/fake-oauth-server.ts";
-import { freePortBlock, withFreeSignInPort } from "./testing/ports.ts";
+import { leasePort, leasePortBlock, withFreeSignInPort } from "./testing/ports.ts";
 import { openSse } from "./testing/sse.ts";
 import { MAIN_DOG_ROUTING } from "./laterdog/main-dog-prompt.ts";
 import { FILE_MAX_BYTES, IMAGE_MAX_BYTES } from "./attachments.ts";
@@ -35,9 +35,9 @@ const SERVER_DIR = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(SERVER_DIR, "..");
 const FAKE_CLAUDE_CLI = join(SERVER_DIR, "testing", "fake-claude-cli.ts");
 const FAKE_MCP_SERVER = join(SERVER_DIR, "testing", "fake-mcp-server.ts");
-const PORT = 18800 + Math.floor(Math.random() * 10_000);
+const PORT = await leasePortBlock([0, 1]);
 const BASE = `http://127.0.0.1:${PORT}`;
-const WEBHOOK_PORT = 39000 + Math.floor(Math.random() * 10_000);
+const WEBHOOK_PORT = await leasePort();
 const WEBHOOK_BASE = `http://127.0.0.1:${WEBHOOK_PORT}`;
 const TEST_CAPABILITY_KEY = "index-fixture-internal-capability";
 
@@ -1284,7 +1284,7 @@ describe("harness HTTP API", () => {
     const isolatedStatic = join(isolatedHome, "static");
     const isolatedDump = join(isolatedHome, "fake-claude-dump.json");
     const isolatedFinishGate = join(isolatedHome, "fake-claude-finish-gate");
-    const isolatedPort = await freePortBlock([0, 1]);
+    const isolatedPort = await leasePortBlock([0, 1]);
     mkdirSync(join(isolatedStatic, "assets"), { recursive: true });
     mkdirSync(isolatedData, { recursive: true });
     writeFileSync(join(isolatedStatic, "index.html"), "<!doctype html><title>Question restart test</title>");
@@ -1607,7 +1607,7 @@ describe("harness HTTP API", () => {
   });
 
   it("refuses a second live server that shares the same data directory", async () => {
-    const contenderPort = await freePortBlock([0]);
+    const contenderPort = await leasePortBlock([0, 1]);
     let contenderStderr = "";
     const contender = spawn(process.execPath, [join(SERVER_DIR, "index.ts")], {
       cwd: ROOT,
@@ -4725,7 +4725,7 @@ describe("harness HTTP API", () => {
     const isolatedHome = mkdtempSync(join(tmpdir(), "laterdog-trusted-mode-model-"));
     const isolatedData = join(isolatedHome, ".laterdog");
     const isolatedStatic = join(isolatedHome, "static");
-    const isolatedPort = await freePortBlock([0, 1]);
+    const isolatedPort = await leasePortBlock([0, 1]);
     mkdirSync(join(isolatedStatic, "assets"), { recursive: true });
     mkdirSync(isolatedData, { recursive: true });
     writeFileSync(join(isolatedStatic, "index.html"), "<!doctype html><title>Trusted mode model test</title>");
@@ -5613,7 +5613,7 @@ describe("harness HTTP API", () => {
     const isolatedData = join(isolatedHome, ".laterdog");
     const isolatedStatic = join(isolatedHome, "static");
     const isolatedGate = join(isolatedHome, "credential-gate");
-    const isolatedPort = await freePortBlock([0, 1]);
+    const isolatedPort = await leasePortBlock([0, 1]);
     const isolatedDump = join(isolatedHome, "fake-claude-dump.json");
     const releaseFile = join(isolatedGate, "release");
     mkdirSync(join(isolatedStatic, "assets"), { recursive: true });
@@ -7685,7 +7685,7 @@ describe("harness HTTP API", () => {
     const isolatedData = join(isolatedHome, ".laterdog");
     const isolatedStatic = join(isolatedHome, "static");
     const gate = join(isolatedHome, "desktop-gate");
-    const isolatedPort = await freePortBlock([0, 1]);
+    const isolatedPort = await leasePortBlock([0, 1]);
     const dump = join(isolatedHome, "fake-claude-dump.json");
     mkdirSync(join(isolatedStatic, "assets"), { recursive: true });
     mkdirSync(isolatedData, { recursive: true });
@@ -7873,7 +7873,7 @@ describe("harness HTTP API", () => {
     const isolatedHome = mkdtempSync(join(tmpdir(), "laterdog-always-unreadable-"));
     const isolatedData = join(isolatedHome, ".laterdog");
     const isolatedStatic = join(isolatedHome, "static");
-    const isolatedPort = await freePortBlock([0, 1]);
+    const isolatedPort = await leasePortBlock([0, 1]);
     mkdirSync(join(isolatedStatic, "assets"), { recursive: true });
     mkdirSync(isolatedData, { recursive: true });
     writeFileSync(join(isolatedStatic, "index.html"), "<!doctype html><title>Always unreadable test</title>");
@@ -8109,7 +8109,7 @@ describe("harness HTTP API", () => {
     const isolatedHome = mkdtempSync(join(tmpdir(), "laterdog-auto-review-start-"));
     const isolatedData = join(isolatedHome, ".laterdog");
     const isolatedStatic = join(isolatedHome, "static");
-    const isolatedPort = await freePortBlock([0, 1]);
+    const isolatedPort = await leasePortBlock([0, 1]);
     mkdirSync(join(isolatedStatic, "assets"), { recursive: true });
     mkdirSync(isolatedData, { recursive: true });
     writeFileSync(join(isolatedStatic, "index.html"), "<!doctype html><title>Auto-review start test</title>");
@@ -8786,7 +8786,7 @@ describe("harness HTTP API", () => {
     const isolatedHome = mkdtempSync(join(tmpdir(), "laterdog-browser-cleanup-restart-"));
     const isolatedData = join(isolatedHome, ".laterdog");
     const isolatedStatic = join(isolatedHome, "static");
-    const isolatedPort = await freePortBlock([0, 1]);
+    const isolatedPort = await leasePortBlock([0, 1]);
     mkdirSync(join(isolatedStatic, "assets"), { recursive: true });
     mkdirSync(isolatedData, { recursive: true });
     writeFileSync(join(isolatedStatic, "index.html"), "<!doctype html><title>Cleanup restart test</title>");
