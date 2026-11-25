@@ -7,7 +7,7 @@ The hook must be executable. CI does not install local hooks.
 The pre-push hook checks changed supported files with Oxfmt 0.80.0, the comment checker
 and Oxlint. It always runs the public `pnpm typecheck` command on both complete application
 and server graphs, and `pnpm i18n:check`. These checks run concurrently and every failure is
-reported. The completed invocation fails if it takes more than nine seconds. The budget
+reported. The completed invocation must finish below nine seconds. The budget
 does not terminate running checks; a hung command still needs to be stopped.
 
 The selection is the union of every updated remote-to-local range. A new ref uses the merge

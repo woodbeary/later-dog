@@ -5,7 +5,7 @@ Keep native backend limitations visible; fixture success does not qualify a live
 
 The installed pre-push hook checks changed-file format, comments and lint together with full
 application/server types and locale validation. It requires a clean HEAD checkout with no hidden
-index flags or tracked symlinks, handles HEAD release tags, and fails completed checks over nine
+index flags or tracked symlinks, handles HEAD release tags, and requires completed checks below nine
 seconds. See [`docs/laterdog/pre-push.md`](docs/laterdog/pre-push.md) for selection and limits.
 Run `pnpm exec vitest run scripts/git-hooks` after changing the hook. Local success never replaces
 the complete clean merge gate below.

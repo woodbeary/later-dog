@@ -169,10 +169,12 @@ export function finishPushChecks(
   const failures = results.filter((result) => result.error);
   for (const result of failures)
     stderr.write(`pre-push: ${result.label} failed with ${result.error}\n`);
-  if (seconds > BUDGET_SECONDS)
-    stderr.write(`pre-push: ${seconds.toFixed(2)}s exceeds the ${BUDGET_SECONDS}s budget\n`);
+  if (seconds >= BUDGET_SECONDS)
+    stderr.write(
+      `pre-push: ${seconds.toFixed(2)}s reaches or exceeds the ${BUDGET_SECONDS}s budget\n`,
+    );
   stdout.write(`pre-push: ${fileCount} changed files checked in ${seconds.toFixed(2)}s\n`);
-  return failures.length || seconds > BUDGET_SECONDS ? 1 : 0;
+  return failures.length || seconds >= BUDGET_SECONDS ? 1 : 0;
 }
 
 export async function checkPush(input, cwd = process.cwd()) {

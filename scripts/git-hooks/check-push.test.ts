@@ -136,7 +136,10 @@ describe("push check failures", () => {
         output += text;
       },
     };
-    expect(finishPushChecks([{ label: "typecheck", error: null }], 9, 1, stream, stream)).toBe(0);
+    expect(finishPushChecks([{ label: "typecheck", error: null }], 8.999, 1, stream, stream)).toBe(
+      0,
+    );
+    expect(finishPushChecks([{ label: "typecheck", error: null }], 9, 1, stream, stream)).toBe(1);
     expect(finishPushChecks([{ label: "typecheck", error: null }], 9.001, 1, stream, stream)).toBe(
       1,
     );
