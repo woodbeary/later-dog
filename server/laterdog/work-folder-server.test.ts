@@ -9,7 +9,7 @@ import { verificationServerEnvironment } from "../../scripts/control-laterdog.ts
 import { cloudPairingSignature } from "../cloud-home.ts";
 import { markLeftBehind } from "../testing/cloud-left-behind.ts";
 import { removeTempDir, waitForExit } from "../testing/cleanup.ts";
-import { freePortBlock } from "../testing/ports.ts";
+import { leasePortBlock } from "../testing/ports.ts";
 import { logArchiveBridge } from "./log-archive.ts";
 import { MOVED_OUT_NOTE, WORK_FOLDER_RECORDS, WorkFolderArchive } from "./work-folder-archive.ts";
 
@@ -33,7 +33,7 @@ it("keeps missing known chat folders through the production background sweep and
   const dataDir = join(home, ".laterdog");
   mkdirSync(dataDir, { mode: 0o700 });
   mkdirSync(join(home, "tmp"), { mode: 0o700 });
-  const port = await freePortBlock([0, 1]);
+  const port = await leasePortBlock([0, 1]);
   const base = `http://127.0.0.1:${port}`;
   const host = "laterdog-t-0123456789ab.fly.dev";
   const secret = randomBytes(32).toString("base64url");
