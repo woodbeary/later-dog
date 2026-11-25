@@ -101,6 +101,10 @@ notarization and publication are pending. Native window rendering and Mac
 timing remain unverified. The older-copy issue after a home stops remains open.
 No home image or edge release is part of this desktop release.
 
+## Desktop menu keyboard access and bounds, November 25
+
+Branch `desktop/overnight-menus` restores focus to menu triggers, supports scoped keyboard navigation, and keeps long header task menus within the window. Nine keyboard regressions failed before the change; 87 checks, typecheck and lint pass afterward. In a 620 px renderer fixture, the menu bottom moved from 1,401 px to 612 px and task 20 became reachable. Full merge gate and release remain pending.
+
 ## Pinned account routing, November 10
 
 The account routing repair removes early moves at five percent remaining and
