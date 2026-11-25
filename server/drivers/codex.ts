@@ -108,6 +108,13 @@ export class CodexRpcError extends Error {
   }
 }
 
+export function codexForkEndsAt(forked: unknown, lastTurnId: string): forked is { thread: { id: string; turns: Array<{ id: string }> }; model?: unknown } {
+  const thread = (forked as { thread?: { id?: unknown; turns?: unknown } } | null)?.thread;
+  if (!thread || typeof thread.id !== "string" || !thread.id || !Array.isArray(thread.turns) || thread.turns.length === 0) return false;
+  const last = thread.turns.at(-1) as { id?: unknown } | undefined;
+  return last?.id === lastTurnId;
+}
+
 export function missingNativeCodexThread(error: unknown, cursor: string): boolean {
   if (!(error instanceof CodexRpcError) || error.code !== -32600) return false;
   const message = error.message.trim();
@@ -980,7 +987,8 @@ export const CodexDriver: ProviderDriver<CodexConfig> = {
           nativeActivity.finish(ok);
           const stoppedLine = helpersStoppedLine({ helpers: helpers.stop(), commands: 0 });
           if (stoppedLine) emit({ ...base(threadId, turnId), type: "runtime.error", message: stoppedLine });
-          emit({ ...base(threadId, turnId), type: "turn.completed", ok, stopReason, cost: null, ...(state.usage ? { usage: state.usage } : {}) });
+          const forkPoint = ok && codexThreadId && codexTurnId ? { session: codexThreadId, at: codexTurnId } : undefined;
+          emit({ ...base(threadId, turnId), type: "turn.completed", ok, stopReason, cost: null, ...(state.usage ? { usage: state.usage } : {}), ...(forkPoint ? { forkPoint } : {}) });
         };
         completeStoppedTurn = complete;
         if (!(await stop()) && !rootExited()) {
@@ -1645,6 +1653,31 @@ export const CodexDriver: ProviderDriver<CodexConfig> = {
             promptText = rebuild.text;
           }
         }
+        if (!cursor && !codexThreadId && turn.fork) {
+          try {
+            const forked = await request("thread/fork", {
+              ...selectionConfig,
+              threadId: turn.fork.session,
+              lastTurnId: turn.fork.at,
+              developerInstructions,
+              model: selection.model,
+              ...(selection.modelProvider ? { modelProvider: selection.modelProvider } : {}),
+              ...approvalParams.thread,
+            });
+            if (!codexForkEndsAt(forked, turn.fork.at)) throw new Error("Codex did not fork the conversation at the kept point");
+            approvalParams = withResolvedSandbox(approvalParams, forked);
+            codexThreadId = forked.thread.id;
+            startedModel = typeof forked.model === "string" ? forked.model : null;
+            resumedNativeThread = true;
+          } catch (error) {
+            if (stopRequested || state.settled) throw error;
+            codexThreadId = null;
+            if (turn.recoveryText?.trim()) {
+              promptText = turn.recoveryText;
+              rebuiltFromReplay = true;
+            }
+          }
+        }
         if (!codexThreadId) {
           const startThread = () => request("thread/start", {
               ...selectionConfig,
@@ -1864,6 +1897,7 @@ export const CodexDriver: ProviderDriver<CodexConfig> = {
       },
       hasSession: (threadId) => active.has(threadId),
       compactionSigns: async () => ({ managed: Boolean(config.managed), switchedOff: false }),
+      forksAtPoint: async () => true,
       stopAll: async () => {
         await Promise.all([...active.values()].map(({ stop }) => stop()));
       },

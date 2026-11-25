@@ -125,6 +125,7 @@ Use only mapped, tested commands:
 - [A failed turn in plain words, November 13](plain-failures.md)
 - [A device sign-in waits for the person, November 20](device-sign-in-waits.md)
 - [A turn stuck on the same answer ends, November 20](same-answer-ends-turn.md)
+- [An edit forks the engine's own session, November 20](rewind-native-fork.md)
 - [Workspace release, November 13: what went live, how it was checked, how to undo it](workspace-release-2026-11-13.md)
 
 `control-laterdog ui` ([Chat UI, driven headlessly](chat-ui.md)) drives the real

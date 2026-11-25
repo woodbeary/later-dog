@@ -31,6 +31,7 @@ import { GUARDED_TOOLS } from "../../shared/always-asks.ts";
 import { canUseMcpServer } from "../../shared/tool-scope.ts";
 import { assertToolScopeSupported } from "../../shared/tool-scope-support.ts";
 import { newEventId, newId } from "../contracts.ts";
+import type { EngineForkPoint } from "../../shared/runtime-events.ts";
 import { askInputSummary, commandSummary, toolDetailPreview } from "../tool-summary.ts";
 import { classifyError, computeBackoff, interruptibleDelay, RETRY_MAX_ATTEMPTS } from "./retry.ts";
 import { ClaudeTasks, helperStep } from "./claude-tasks.ts";
@@ -557,6 +558,15 @@ export function claudeUnansweredError(frame: { is_error?: unknown; errors?: unkn
 }
 
 export const CLAUDE_POST_COMPACT_HOOK: ClaudeCliVersion = [2, 1, 316];
+export const CLAUDE_FORKS_AT_POINT: ClaudeCliVersion = [2, 1, 316];
+
+export function claudeForksAtPoint(version: ClaudeCliVersion | null): boolean {
+  return version !== null && versionAtLeast(version, CLAUDE_FORKS_AT_POINT);
+}
+
+export function claudeForkArgs(fork: EngineForkPoint, sessionId: string): string[] {
+  return ["--resume", fork.session, "--fork-session", "--session-id", sessionId, "--resume-session-at", fork.at];
+}
 
 export interface ClaudeHookTarget {
   url: string;
@@ -1063,6 +1073,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
       volatile: string | null;
       sessionId: string | null;
       sawInit: boolean;
+      lastChainUuid?: string;
       passedHelperFlag: boolean;
       resumeRefused?: string;
       nativePermissionMode: string | null;
@@ -1237,7 +1248,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
       if (controlsHost && permissionMode === "bypassPermissions" && turn.approvalMode !== "full") {
         throw new Error("local computer control requires the interactive approval broker");
       }
-      const promptMsg = claudeUserMessage(turn.text, turn.images);
+      let promptMsg = claudeUserMessage(turn.text, turn.images);
       const turnId = logicalTurnId ?? newId();
       const retryAbort = new AbortController();
       const retry = retryState.get(threadId) ?? { attempt: 0, cancelled: false };
@@ -1265,6 +1276,11 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
       else if (config.tools !== undefined) args.push("--tools", config.tools.join(","));
       const turnEnvironment = environment();
       await learnCliFlags(turnEnvironment);
+      const forking = turn.fork && claudeForksAtPoint(cliVersion) ? turn.fork : undefined;
+      if (turn.fork && !forking) {
+        turn = { ...turn, fork: undefined, text: turn.recoveryText?.trim() ? turn.recoveryText : turn.text, recoveryText: undefined };
+        promptMsg = claudeUserMessage(turn.text, turn.images);
+      }
       if (turn.guestConfined && !claudeCliSupports(cliVersion, "--restricted")) {
         throw new Error(withWhy("This Claude Code is too old to run this turn without a shell. Update Claude Code.", turn.confinedWhy));
       }
@@ -1391,7 +1407,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
       const commandCwd = permissionLaunchCwd(cwd);
       const unkeyedFlags = new Set<string>(["--mcp-config", "--settings", ...FLAGS_LEARNED_AFTER_LAUNCH]);
       const keyArgs = args.filter((a, i) => a !== "--forward-subagent-text" && !unkeyedFlags.has(a) && !unkeyedFlags.has(args[i - 1] ?? ""));
-      const chosenRemote = Boolean(botId && !turn.guestConfined && remoteEngineBots(DATA_DIR).has(botId));
+      const chosenRemote = Boolean(botId && !turn.guestConfined && !forking && remoteEngineBots(DATA_DIR).has(botId));
       const argsParts = Object.fromEntries(Object.entries({
         args: keyArgs,
         system: turn.systemStable ?? turn.system ?? null,
@@ -1544,7 +1560,8 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
         if (authSettingsPath) {
           writeFileSync(authSettingsPath, JSON.stringify(settings), { mode: 0o600 });
         }
-        if (sessionId) args.push("--resume", sessionId);
+        if (forking) args.push(...claudeForkArgs(forking, newSessionId!));
+        else if (sessionId) args.push("--resume", sessionId);
         else args.push("--session-id", newSessionId!);
       } catch (error) {
         cleanupUnownedLaunch();
@@ -1654,7 +1671,8 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
         if (stopReason === "update_required") closeSession(threadId, "update required");
         const cost = turnCostFromRunningTotal(total, session.costTotal ?? null);
         if (total !== null) session.costTotal = total;
-        emit({ ...base(threadId, t.turnId), type: "turn.completed", ok, stopReason, cost, ...(usage ? { usage } : {}) });
+        const forkPoint = ok && session.sessionId && session.lastChainUuid ? { session: session.sessionId, at: session.lastChainUuid } : undefined;
+        emit({ ...base(threadId, t.turnId), type: "turn.completed", ok, stopReason, cost, ...(usage ? { usage } : {}), ...(forkPoint ? { forkPoint } : {}) });
         if (session.child.exitCode === null && !session.closing) armIdle(threadId);
       };
       const settleResult = (result: NativeTurnResult) => settle(result.ok, result.stopReason, result.cost, result.usage);
@@ -1725,6 +1743,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
           }
           return;
         }
+        if ((o.type === "assistant" || o.type === "user") && typeof o.uuid === "string" && o.uuid) session.lastChainUuid = o.uuid;
         if (session.turn?.continuationSilence && !(o.type === "system" && o.subtype === "init") && !(o.type === "user" && o.isReplay === true)) {
           clearTimeout(session.turn.continuationSilence);
           session.turn.continuationSilence = null;
@@ -1932,7 +1951,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
               }
               session.helpers.markReported();
             }
-            const refusal = sessionId && session.turn && !session.turn.settled && !session.turn.sawStreamDelta ? claudeResumeRefusal(o) : null;
+            const refusal = (sessionId || turn.fork) && session.turn && !session.turn.settled && !session.turn.sawStreamDelta ? claudeResumeRefusal(o) : null;
             if (refusal) {
               session.resumeRefused = refusal;
               appendNative(threadId, { dir: "out", source: "claude.session", msg: { hold: `result: the saved session was refused (${refusal}); rebuilding when the engine exits` } });
@@ -2132,7 +2151,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
               active.set(threadId, { stop: () => { retry.cancelled = true; retryAbort.abort(); }, turnId });
               try {
                 const cursor = session.sessionId ?? sessionId ?? undefined;
-                await sendTurn(refusedHelperFlag ? turn : { ...turn, sessionReset: false, resumeCursor: cursor }, turnId);
+                await sendTurn(refusedHelperFlag || (turn.fork && !session.sawInit) ? turn : { ...turn, fork: undefined, sessionReset: false, resumeCursor: cursor }, turnId);
               } catch (e) {
                 if (active.get(threadId)?.turnId === turnId) active.delete(threadId);
                 retryState.delete(threadId);
@@ -2153,7 +2172,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
             return;
           }
           const resumeFailure = classifyResumeFailure({
-            attempted: Boolean(sessionId),
+            attempted: Boolean(sessionId || turn.fork),
             rejected: refusedResume || !session.sawInit,
             promptSubmitted: session.sawInit && !refusedResume,
             producedOutput: session.turn.sawStreamDelta,
@@ -2190,7 +2209,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
             });
             void (async () => {
               try {
-                await sendTurn({ ...turn, resumeCursor: undefined, recoveryText: undefined, text: recovery.text }, turnId);
+                await sendTurn({ ...turn, fork: undefined, resumeCursor: undefined, recoveryText: undefined, text: recovery.text }, turnId);
               } catch (e) {
                 if (active.get(threadId)?.turnId === turnId) active.delete(threadId);
                 retryState.delete(threadId);
@@ -2443,6 +2462,10 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
             switchedOff: claudeCompactionSwitchedOff(env, inherited) || claudeCompactionSwitchedOff({}, project),
             customEndpoint: !config.managed && localModelEndpoint(env.ANTHROPIC_BASE_URL),
           };
+        },
+        forksAtPoint: async () => {
+          await learnCliFlags(environment());
+          return claudeForksAtPoint(cliVersion);
         },
         nativeCompactAt: async () => {
           const env = environment();
