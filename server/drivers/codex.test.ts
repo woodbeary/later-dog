@@ -3125,19 +3125,16 @@ process.stdout.write(JSON.stringify({jsonrpc:'2.0',id:m.id,result})+'\\n');});`)
   }, 20_000);
 
 
-  it("retries a transient app-server crash before the turn starts", async () => {
+  it("leaves a submitted turn alone when the connection drops before its acknowledgement", async () => {
     process.env.FAKE_CODEX_LAUNCH_CRASHES = "1";
     process.env.FAKE_CODEX_STATE = join(scratch, "codex-launch-crash");
     process.env.FAKE_CODEX_RETRY_SCALE = "0.001";
     try {
       await create();
       await instance.adapter.sendTurn({ threadId: "t-codex-launch-crash", text: "hi" });
-      await recorder.until((e) => e.type === "turn.completed" && e.ok === true);
-      const retries = recorder.events.filter((e) => e.type === "turn.retrying");
-      expect(retries.map((e) => e.attempt)).toEqual([1]);
-      expect(recorder.events.filter((e) => e.type === "turn.started")).toHaveLength(1);
-      const replies = recorder.events.filter((e) => e.type === "item.completed" && e.itemType === "assistant_text");
-      expect(replies).toHaveLength(1);
+      await recorder.until((e) => e.type === "turn.completed" && e.ok === false);
+      expect(recorder.events.filter((e) => e.type === "turn.retrying")).toHaveLength(0);
+      expect(readFileSync(process.env.FAKE_CODEX_STATE, "utf8")).toBe("1");
     } finally {
       delete process.env.FAKE_CODEX_LAUNCH_CRASHES;
       delete process.env.FAKE_CODEX_STATE;

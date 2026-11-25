@@ -146,7 +146,8 @@ function fakeComputer(options: { failWith?: number } = {}) {
   const commands: string[] = []; const written: string[] = [];
   let ready = false;
   const box = {
-    exec: async (command: string) => {
+    exec: async (command: string, timeoutMs = 600_000) => {
+      if (timeoutMs > 600_000) throw new Error("Cloud computer command timeout exceeds 600000ms");
       commands.push(command);
       if (command.startsWith("touch")) { ready = true; return { exitCode: 0, stdout: "", stderr: "" }; }
       if (options.failWith) return { exitCode: options.failWith, stdout: "", stderr: "" };
@@ -186,7 +187,7 @@ it("prepares a warm computer in one round trip and still checks the CLI, the fol
   await prepareEngineComputer(box, planned.plan, relayScripts);
   expect(commands).toHaveLength(1);
   expect(written).toEqual([]);
-  expect(commands[0]).toMatch(/npm install[\s\S]*sudo -n install -d[\s\S]*\.ready/);
+  expect(commands[0]).toMatch(/corepack pnpm@10[\s\S]*sudo -n install -d[\s\S]*\.ready/);
 });
 
 it("names what failed while preparing the computer", async () => {

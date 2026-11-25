@@ -40,9 +40,11 @@ export interface RemoteLaunch {
   pushes?: () => PushedFile[];
   pushEveryMs?: number;
   requireCompleteCheckpoint?: boolean;
+  ephemeralCodexHome?: string;
   mcp: Record<string, StdioSpec>;
   hooks: string[];
   hookEnv: Record<string, string>;
+  proxyEnv?: Record<string, string>;
   socketPath: string;
   stateFile: string;
   lockFile: string;
@@ -170,7 +172,7 @@ export class RemoteSession extends EventEmitter {
     let body: any;
     try {
       body = await this.#request({ type: "launch", cli: launch.cli, args: launch.args, cwd: launch.cwd, env: launch.env,
-        socketPath: launch.socketPath, stateFile: launch.stateFile, lockFile: launch.lockFile }, HANDSHAKE_MS);
+        socketPath: launch.socketPath, stateFile: launch.stateFile, lockFile: launch.lockFile, ephemeralCodexHome: launch.ephemeralCodexHome }, HANDSHAKE_MS);
     } catch (error) {
       throw new Error(`The cloud computer did not confirm the engine started: ${(error as Error).message}`);
     }
@@ -231,7 +233,7 @@ export class RemoteSession extends EventEmitter {
   #openProxy(id: string, name: string): void {
     const spec = this.#launch.mcp[name];
     if (!spec) { this.#send({ type: "proxy_exit", id, code: 1 }); return; }
-    const child = spawn(spec.command, spec.args ?? [], { cwd: this.#launch.cwd, env: { ...this.#launch.hookEnv, ...spec.env }, stdio: ["pipe", "pipe", "pipe"] });
+    const child = spawn(spec.command, spec.args ?? [], { cwd: this.#launch.cwd, env: { ...(this.#launch.proxyEnv ?? this.#launch.hookEnv), ...spec.env }, stdio: ["pipe", "pipe", "pipe"] });
     this.#proxies.set(id, child);
     child.stdin.on("error", () => {});
     child.stdout.on("data", (bytes) => this.#send({ type: "proxy_stdout", id, data: Buffer.from(bytes).toString("base64") }));
@@ -295,6 +297,7 @@ export class EngineProcess extends EventEmitter {
   exitCode: number | null = null;
   signalCode: NodeJS.Signals | null = null;
   pid: number | undefined;
+  notDispatched = false;
   placement: "pending" | "computer" | "home" = "pending";
   #local: ChildProcess | null = null;
   #remote: RemoteSession | null = null;
@@ -326,6 +329,7 @@ export class EngineProcess extends EventEmitter {
       if (this.#stopRequested) remote.stop();
     }, (error: Error) => {
       if (error instanceof NotDispatched && !remote.launchSent || (error instanceof NotDispatched && error.refused === "spawn_failed")) {
+        this.notDispatched = true;
         remote.close();
         this.#remote = null;
         if (this.#stopRequested) { if (fallback) this.placement = "home"; this.#finish(null, "SIGTERM"); return; }

@@ -59,7 +59,11 @@ import { CALL_TOOL, DESCRIBE_TOOL, SEARCH_TOOL, directoryCallTarget } from "../m
 import { readEngineModels } from "../laterdog/wait-at-most.ts";
 import { SteerReads } from "./steer-reads.ts";
 import { prepareCodexShellGuard } from "../laterdog/codex-shell-guard.ts";
-import { redactCodexExternalAuthFrame } from "../laterdog/codex-external-auth.ts";
+import { codexPendingDispatch, type codexCheckpoint } from "../laterdog/codex-checkpoint.ts";
+import { verifiedCodexGuard } from "../laterdog/codex-computer-guard.ts";
+import { planCodexRemote } from "../laterdog/codex-placement.ts";
+import { DEFAULT_ENGINE_OPEN_BUDGET_MS, engineOpener, notePlacement, remoteEngineChoice, spawnPlacedEngine } from "../laterdog/engine-placement.ts";
+import { codexExternalAuthChannel, redactCodexExternalAuthFrame } from "../laterdog/codex-external-auth.ts";
 import { chatEngineEnvironment } from "../laterdog/chat-environment.ts";
 import { codexToolTouch } from "../laterdog/tool-touches.ts";
 import { codexCompactionEvent } from "../laterdog/native-compaction.ts";
@@ -757,11 +761,29 @@ export const CodexDriver: ProviderDriver<CodexConfig> = {
 
       const chatgptTurn = ownLogin &&
         decodeCodexSelection(turn.model || models.default).modelProvider === OFFICIAL_CODEX_PROVIDER;
-      const launchAttempt = async (attempt: number): Promise<void> => {
+      const failOpening = (error: unknown) => {
+        if (active.get(threadId)?.turnId === turnId) active.delete(threadId);
+        emit({ ...base(threadId, turnId), type: "runtime.error", message: error instanceof Error ? error.message : "Codex could not open the selected session." });
+        emit({ ...base(threadId, turnId), type: "turn.completed", ok: false, stopReason: "engine_open_failed", cost: null });
+      };
+      const pendingDispatch = turn.botId ? codexPendingDispatch(DATA_DIR, turn.botId, threadId, turnId) : null;
+      if (turn.startupRecovery && pendingDispatch?.has()) throw new Error("The previous Codex turn was sent to the computer. Check its work before sending another message.");
+      let startedNoticeSent = false;
+      let binding: ReturnType<typeof codexCheckpoint> | undefined;
+      const launchAttempt = async (attempt: number, homeOnly = false): Promise<void> => {
         const env = childEnv();
         prepareCodexShellGuard(env, threadId, turn.integrations?.hooks);
         Object.assign(env, chatEngineEnvironment(threadId, env));
         if (planToken) env.LATERDOG_CHATGPT_TOKEN = planToken;
+        const opener = engineOpener();
+        const chosen = turn.botId && remoteEngineChoice(DATA_DIR, turn.botId).computer;
+        const remoteChoice = !homeOnly && chosen && opener && chatgptTurn && !turn.guestConfined && approvalMode !== "custom" && turn.cwd && !turn.images?.length && !codexConfigMcpServerNames(env).size
+          ? planCodexRemote({ dataDir: DATA_DIR, botId: turn.botId!, threadId, instanceId, cli: config.cli, cwd: turn.cwd, env,
+            cursor: typeof turn.resumeCursor === "string" ? turn.resumeCursor : undefined, opener, guardShell: turn.integrations?.hooks?.guardShell === true,
+            refresh: async () => { if (!await codexAccountEmail(config.cli, env, 30_000, true)) throw new Error("The home could not refresh the selected account."); } }) : undefined;
+        if (remoteChoice?.binding) binding = remoteChoice.binding;
+        const remote = remoteChoice?.plan ? remoteChoice : undefined;
+        if (chosen && !remote) notePlacement(DATA_DIR, `[engine] Codex for ${threadId} on home: ${remoteChoice?.stay ?? "this account, tool, or working folder requires the home"}`);
         const appServerArgs = ["app-server", ...(plan ? chatgptPlanCodexArgs() : config.managed ? managedCodexArgs(config.managed) : codexLocalProviderArgs(env, turn.model)), ...codexToolSurfaceArgs(),
           ...(turn.toolScope === undefined ? [] : ["-c", "features.shell_snapshot=false"]),
           ...(turn.guestConfined ? GUEST_CONFINED_CODEX_ARGS : [])];
@@ -792,13 +814,18 @@ export const CodexDriver: ProviderDriver<CodexConfig> = {
           return { command: proxy.command, args: proxy.args ?? [], env: shared };
         };
         const mountSelected = (name: string, mountName: string, server: McpServerSpec, preApproved = true) => {
-          const selected = scopedServer(name, mountName, server);
+          const scoped = scopedServer(name, mountName, server);
+          const selected = remote && scoped ? remote.proxy(mountName, scoped) : scoped;
           if (selected) {
             selectedMcp.set(mountName, selected);
             selectedApprovals.set(mountName, preApproved);
-            mountMcpServer(appServerArgs, env, mountName, selected, preApproved, literalEnvs.get(mountName), mountedNames);
+            mountMcpServer(appServerArgs, env, mountName, selected, preApproved, remote ? undefined : literalEnvs.get(mountName), mountedNames);
             appServerArgs.push("-c", `mcp_servers.${mountName}.tool_timeout_sec=${toolTimeoutSec}`);
-            if (turn.toolScope !== undefined && !preApproved) appServerArgs.push("-c", `mcp_servers.${mountName}.default_tools_approval_mode="prompt"`);
+            if (remote) {
+              appServerArgs.push("-c", `mcp_servers.${mountName}.startup_timeout_sec=90`);
+              if (preApproved) appServerArgs.push("-c", `mcp_servers.${mountName}.required=true`);
+            }
+            if ((remote || turn.toolScope !== undefined) && !preApproved) appServerArgs.push("-c", `mcp_servers.${mountName}.default_tools_approval_mode="prompt"`);
           }
         };
         if (turn.integrations?.composio) {
@@ -837,25 +864,31 @@ export const CodexDriver: ProviderDriver<CodexConfig> = {
         const provenPrivateEnv = turn.toolScope !== undefined || directoryMounts.size > 0;
         if (privateEnv.length && turn.toolScope === undefined) appServerArgs.push("-c", "features.shell_snapshot=false");
 
-        const selectionConfig: { config?: Record<string, unknown> } = turn.toolScope === undefined ? {} : { config: { mcp_servers: Object.fromEntries(
+        const selectionConfig: { config?: Record<string, unknown> } = turn.toolScope === undefined && !remote ? {} : { config: { mcp_servers: Object.fromEntries(
           [...selectedMcp].map(([name, server]) => [name, "command" in server ? {
             command: server.command, args: server.args, env_vars: Object.keys(server.env), env: {}, default_tools_approval_mode: selectedApprovals.get(name) ? "auto" : "prompt",
-            tool_timeout_sec: toolTimeoutSec,
+            tool_timeout_sec: toolTimeoutSec, ...(remote ? { startup_timeout_sec: 90, required: Boolean(selectedApprovals.get(name)) } : {}),
           } : {}]),
         ) } };
 
         const commandCwd = permissionLaunchCwd(turn.cwd ?? homedir());
-        const child = spawnCli(config.cli, appServerArgs, {
+        if (remote) remote.plan.launch.args = appServerArgs;
+        const placedChild = remote && opener ? spawnPlacedEngine(remote.plan, value => opener.open(turn.botId!, value), undefined,
+          (where, why) => notePlacement(DATA_DIR, `[engine] Codex for ${threadId} on ${where}${why ? `: ${why}` : ""}`), undefined, { openBudgetMs: opener.openBudgetMs }) : undefined;
+        const child = (placedChild as unknown as ReturnType<typeof spawnCli> | undefined) ?? spawnCli(config.cli, appServerArgs, {
           cwd: turn.cwd ?? homedir(),
           env,
           stdio: ["pipe", "pipe", "pipe"],
         });
 
+      const externalAuth = remote ? codexExternalAuthChannel(remote.account, child.stdin) : undefined;
+      let nativePath: string | undefined;
       let abandoned = false;
       let codexThreadId: string | null = null;
       let codexTurnId: string | null = null;
       const steerReads = new SteerReads();
       let startingNativeTurn = false;
+      let unconfirmedTurnStart = false;
       let compacted = false;
       const earlyNotifications: any[] = [];
       const helpers = new CodexHelpers(helper => emit({ ...base(threadId, turnId), type: "helper.updated", helper }));
@@ -906,6 +939,7 @@ export const CodexDriver: ProviderDriver<CodexConfig> = {
               clearTimeout(timer);
               if (method === "thread/start" || method === "thread/resume") {
                 const returnedId = v?.thread?.id;
+                if (typeof v?.thread?.path === "string") nativePath = v.thread.path;
                 const requestedId = method === "thread/resume"
                   && params && typeof params === "object" && "threadId" in params
                   ? params.threadId : null;
@@ -917,6 +951,7 @@ export const CodexDriver: ProviderDriver<CodexConfig> = {
                   reject(new Error("Codex did not return a native turn id"));
                   return;
                 }
+                unconfirmedTurnStart = false;
                 codexTurnId = v.turn.id;
                 if (codexThreadId) nativeActivity.start(codexThreadId, codexTurnId!);
                 startingNativeTurn = false;
@@ -929,6 +964,10 @@ export const CodexDriver: ProviderDriver<CodexConfig> = {
             },
             reject: (e) => {
               clearTimeout(timer);
+              if (method === "turn/start" && e instanceof CodexRpcError) {
+                unconfirmedTurnStart = false;
+                if (remote) pendingDispatch?.clear();
+              }
               reject(e);
             },
           });
@@ -936,7 +975,7 @@ export const CodexDriver: ProviderDriver<CodexConfig> = {
         });
 
       let stopping: Promise<boolean> | undefined;
-      const terminate = () => stopping ??= killCliTree(child).then((stopped) => {
+      const terminate = () => stopping ??= killCliTree(child as ReturnType<typeof spawnCli>).then((stopped) => {
         if (!stopped) stopping = undefined;
         return stopped;
       });
@@ -982,6 +1021,10 @@ export const CodexDriver: ProviderDriver<CodexConfig> = {
         const complete = () => {
           if (active.get(threadId)?.stop !== stop) return;
           active.delete(threadId);
+          if (ok && !remote && binding && codexThreadId && nativePath) {
+            try { binding.rememberHome(codexThreadId, nativePath); }
+            catch { notePlacement(DATA_DIR, `[engine] Codex for ${threadId} needs a complete home checkpoint before moving.`); }
+          }
           nativeActivity.finish(ok);
           const stoppedLine = helpersStoppedLine({ helpers: helpers.stop(), commands: 0 });
           if (stoppedLine) emit({ ...base(threadId, turnId), type: "runtime.error", message: stoppedLine });
@@ -994,7 +1037,7 @@ export const CodexDriver: ProviderDriver<CodexConfig> = {
       };
 
       const steerActiveTurn = async (text: string, images?: TurnImageInput[], onRead?: () => void): Promise<SteerOutcome> => {
-        if (state.settled || abandoned || stopRequested || !codexThreadId || !codexTurnId) return "refused";
+        if (state.settled || abandoned || stopRequested || !codexThreadId || !codexTurnId || (remote && images?.length)) return "refused";
         if (child.exitCode !== null || child.signalCode !== null) return "refused";
         const forget = steerReads.expect(text, onRead);
         try {
@@ -1389,12 +1432,23 @@ export const CodexDriver: ProviderDriver<CodexConfig> = {
             if (reviewWarning && !timedOutReview) reviewNotice("warning");
             const t = p.turn ?? {};
             if (t.status === "completed") {
+              if (remote) {
+                try {
+                  if (!codexThreadId || !codexTurnId || !nativePath) throw new Error("The native engine did not identify its completed checkpoint.");
+                  remote.publish(codexThreadId, nativePath, codexTurnId);
+                } catch (error) {
+                  turnError({ message: error instanceof Error ? error.message : "The native Codex checkpoint was unavailable." });
+                  void settle(false, "checkpoint_failed");
+                  break;
+                }
+              }
               if (chatgptTurn) loginAccepted();
             } else if (typeof t.error?.message === "string") {
               turnError(t.error);
             } else if (t.status === "failed" && !state.lastError && state.retryError) {
               turnError({ message: state.retryError });
             }
+            if (remote) pendingDispatch?.clear();
             void settle(t.status === "completed", t.status === "completed" ? null : state.usageLimited ? "usage_limit" :
               (classifyError({ text: state.lastError }).reason === "provider_safety" ? "provider_safety" : (state.lastError || t.status || "failed")));
             break;
@@ -1435,6 +1489,7 @@ export const CodexDriver: ProviderDriver<CodexConfig> = {
             continue;
           }
           stderrSinceOutput = "";
+          if (externalAuth?.receive(msg)) continue;
           const loggedMessage = codexNativeIncomingLogMessage(msg, sensitiveResponseIds);
           appendNative(threadId, { dir: "in", source: "codex.app-server", msg: loggedMessage });
           if (msg.id !== undefined && (msg.result !== undefined || msg.error !== undefined)) {
@@ -1466,6 +1521,7 @@ export const CodexDriver: ProviderDriver<CodexConfig> = {
         void settle(false, "spawn_error");
       });
       child.on("close", (code, signal) => {
+        externalAuth?.close();
         if (abandoned) return;
         if (state.settled) {
           void stop();
@@ -1475,6 +1531,14 @@ export const CodexDriver: ProviderDriver<CodexConfig> = {
           void settle(false, "interrupted");
           return;
         }
+        if (placedChild?.notDispatched && !promptSubmitted) {
+          abandoned = true;
+          for (const p of rpcPending.values()) p.reject(new Error("The computer did not start the engine."));
+          rpcPending.clear();
+          notePlacement(DATA_DIR, `[engine] Codex for ${threadId} is moving to the home before any remote prompt was sent.`);
+          void launchAttempt(attempt, true).catch(failOpening);
+          return;
+        }
         const recentStderr = stderrSinceOutput.trim();
         const hadStreamedOutput = codexTurnId !== null || state.sawStreamDelta;
         const verdict =
@@ -1482,7 +1546,7 @@ export const CodexDriver: ProviderDriver<CodexConfig> = {
             ? { transient: false, reason: "interrupted" }
             : classifyError({ exitCode: code, stderr: recentStderr });
         if (
-          !stopRequested && codexTurnId === null && earlyNotifications.length === 0 &&
+          !stopRequested && !unconfirmedTurnStart && codexTurnId === null && earlyNotifications.length === 0 &&
           verdict.transient && attempt < RETRY_MAX_ATTEMPTS - 1
         ) {
           const delayMs = computeBackoff(attempt);
@@ -1503,7 +1567,7 @@ export const CodexDriver: ProviderDriver<CodexConfig> = {
             }
             await interruptibleDelay(Math.max(1, Math.round(delayMs * retryScale)), stopSignal.signal).promise;
             if (!stopRequested) {
-              void launchAttempt(attempt).catch(() => {});
+              void launchAttempt(attempt, homeOnly).catch(failOpening);
             } else {
               await settle(false, "interrupted");
             }
@@ -1530,16 +1594,20 @@ export const CodexDriver: ProviderDriver<CodexConfig> = {
         await request("turn/interrupt", target, 10_000);
       };
       active.set(threadId, { stop, stopNativeActor, turnId, asks, steer: steerActiveTurn });
-      if (attempt === 0) emit({ ...base(threadId, turnId), type: "turn.started" });
+      if (!startedNoticeSent) { startedNoticeSent = true; emit({ ...base(threadId, turnId), type: "turn.started" }); }
       nativeActivity.capabilities();
 
       try {
         const initialized = await request("initialize", {
           clientInfo: { name: "laterdog", title: "later.dog", version: serverVersion() },
           capabilities: { experimentalApi: true },
-        });
+        }, remote ? (opener?.openBudgetMs ?? DEFAULT_ENGINE_OPEN_BUDGET_MS) + 60_000 : 60_000);
         nativeActivity.capabilities(typeof initialized?.userAgent === "string" ? initialized.userAgent.match(/\b\d+\.\d+\.\d+(?:[-+][^\s()]+)?/)?.[0] : undefined);
         send({ jsonrpc: "2.0", method: "initialized", params: {} });
+        if (remote?.plan.launch.hooks.length && !verifiedCodexGuard(await request("configRequirements/read", {}))) {
+          throw new Error("Codex could not verify the home shell guard on its computer.");
+        }
+        if (externalAuth) await externalAuth.signIn();
         let effectiveConfig: unknown;
         try {
           const configured = await request("config/read", {
@@ -1569,16 +1637,17 @@ export const CodexDriver: ProviderDriver<CodexConfig> = {
           selectionConfig.config = { ...selectionConfig.config,
             ...extendShellExclusions((rawPolicy ?? {}) as Record<string, unknown>, [...(plan ? ["LATERDOG_CHATGPT_TOKEN"] : []), ...privateEnv]) };
         }
-        if (turn.toolScope !== undefined) {
+        if (remote || turn.toolScope !== undefined) {
           const catalog = (effectiveConfig as { mcp_servers?: unknown } | null)?.mcp_servers;
           if (!catalog || typeof catalog !== "object" || Array.isArray(catalog)) throw new Error("Codex could not confirm its selected MCP configuration. No prompt was sent.");
           for (const [name, entry] of Object.entries(catalog)) {
             if (entry && typeof entry === "object" && (entry as { enabled?: unknown }).enabled === false) continue;
             const expected = selectedMcp.get(name);
             const actual = entry as { command?: unknown; args?: unknown; env_vars?: unknown; env?: unknown; default_tools_approval_mode?: unknown; tools?: unknown } | null;
+            const envVars = remote && actual?.env_vars == null ? [] : actual?.env_vars;
             if (!expected || !("command" in expected) || actual?.command !== expected.command
               || JSON.stringify(actual?.args ?? []) !== JSON.stringify(expected.args ?? [])
-              || !Array.isArray(actual?.env_vars) || JSON.stringify([...actual.env_vars].sort()) !== JSON.stringify(Object.keys(expected.env).sort())
+              || !Array.isArray(envVars) || JSON.stringify([...envVars].sort()) !== JSON.stringify(Object.keys(expected.env).sort())
               || actual.default_tools_approval_mode !== (selectedApprovals.get(name) ? "auto" : "prompt")
               || (actual.env != null && (typeof actual.env !== "object" || Array.isArray(actual.env) || Object.keys(actual.env).length > 0))
               || (actual.tools != null && (typeof actual.tools !== "object" || Array.isArray(actual.tools) || Object.keys(actual.tools).length > 0))) {
@@ -1642,7 +1711,7 @@ export const CodexDriver: ProviderDriver<CodexConfig> = {
               promptSubmitted,
               producedOutput: state.sawStreamDelta,
             });
-            if (recoveredMissingSession || stopRequested || state.settled ||
+            if (remote || recoveredMissingSession || stopRequested || state.settled ||
                 !turn.recoveryText?.trim() || !missingNativeCodexThread(error, cursor) || !mayReplay(failure)) throw error;
             recoveredMissingSession = true;
             const rebuild = recoveryPromptFor({ recoveryText: turn.recoveryText, currentText: turn.text, failure });
@@ -1691,8 +1760,10 @@ export const CodexDriver: ProviderDriver<CodexConfig> = {
           ...(turn.images ?? []).map((image) => ({ type: "localImage" as const, path: image.path })),
         ];
         const startTurn = () => {
+          if (remote) pendingDispatch?.start();
           promptSubmitted = true;
           startingNativeTurn = true;
+          unconfirmedTurnStart = true;
           return request("turn/start", {
             threadId: codexThreadId,
             input: turnInput,
@@ -1716,7 +1787,7 @@ export const CodexDriver: ProviderDriver<CodexConfig> = {
         const message = refused ? codexSignInExpired(raw) : codexUserError(raw, plan);
         const needsAuth = refused || /(?:\b401\b|unauthorized|missing bearer|authentication required)/i.test(message);
         const verdict = classifyError(failure);
-        if (!state.settled && !abandoned && !recoveredMissingSession && !stopRequested && !needsAuth && verdict.transient && attempt < RETRY_MAX_ATTEMPTS - 1 && state.sawStreamDelta === false) {
+        if (!state.settled && !abandoned && !unconfirmedTurnStart && !codexTurnId && !earlyNotifications.length && !recoveredMissingSession && !stopRequested && !needsAuth && verdict.transient && attempt < RETRY_MAX_ATTEMPTS - 1 && state.sawStreamDelta === false) {
           const delayMs = computeBackoff(attempt);
           attempt++;
           emit({
@@ -1733,7 +1804,7 @@ export const CodexDriver: ProviderDriver<CodexConfig> = {
           }
           await interruptibleDelay(Math.max(1, Math.round(delayMs * retryScale)), stopSignal.signal).promise;
           if (!stopRequested) {
-            void launchAttempt(attempt).catch(() => {});
+            void launchAttempt(attempt, homeOnly).catch(failOpening);
           } else {
             await settle(false, "interrupted");
           }
@@ -1752,7 +1823,7 @@ export const CodexDriver: ProviderDriver<CodexConfig> = {
       }
     };
 
-    void launchAttempt(0).catch(() => {});
+    void launchAttempt(0).catch(failOpening);
     return { turnId };
   };
 

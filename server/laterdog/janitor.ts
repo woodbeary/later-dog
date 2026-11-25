@@ -2,6 +2,9 @@ import { lstatSync, readdirSync, rmdirSync, rmSync, statfsSync, unlinkSync } fro
 import { basename, dirname, join } from "node:path";
 import { trimThreadLog } from "../thread-log-rotation.ts";
 
+import { BUILD_OUTPUT_DIRS, SCRATCH_CHILD, SCRATCH_PARENT } from "./build-output-path.ts";
+export { BUILD_OUTPUT_DIRS, isGeneratedPath } from "./build-output-path.ts";
+
 const DAY_MS = 24 * 60 * 60 * 1000;
 const MB = 1024 * 1024;
 
@@ -12,20 +15,6 @@ export const IDLE_WORKSPACE_DAYS = 3;
 export const LOW_DISK_BYTES = 2 * 1024 * MB;
 export const DISK_CHECK_MS = 10 * 60 * 1000;
 export const JANITOR_EVERY_MS = 6 * 60 * 60 * 1000;
-
-export const BUILD_OUTPUT_DIRS: ReadonlySet<string> = new Set([
-  "node_modules", ".open-next", ".next", ".nuxt", ".svelte-kit", ".turbo", ".parcel-cache", ".vite", ".cache",
-  "__pycache__", ".pytest_cache", ".mypy_cache", ".ruff_cache",
-]);
-
-const SCRATCH_PARENT = ".wrangler";
-const SCRATCH_CHILD = "tmp";
-
-export function isGeneratedPath(path: string): boolean {
-  const parts = path.split("/");
-  return parts.some((part, index) => BUILD_OUTPUT_DIRS.has(part) || part === SCRATCH_CHILD && parts[index - 1] === SCRATCH_PARENT);
-}
-
 
 export function buildOutputProject(buildDir: string): string {
   const parent = dirname(buildDir);

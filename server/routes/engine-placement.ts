@@ -17,7 +17,7 @@ const wire = (choice: RemoteEngineChoice) => ({
   botId: choice.botId,
   placement: choice.computer ? "computer" : "home",
   fromEnvironment: choice.fromEnvironment,
-  engines: ["claude"],
+  engines: ["claude", "codex"],
 });
 
 export function createEnginePlacementRoutes(deps: EnginePlacementRouteDeps): RouteHandler {

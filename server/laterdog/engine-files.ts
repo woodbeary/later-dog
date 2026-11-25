@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { chmodSync, closeSync, constants, existsSync, fstatSync, lstatSync, mkdirSync, openSync, readdirSync, readFileSync, renameSync, unlinkSync, writeSync } from "node:fs";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 
-import { isGeneratedPath } from "./janitor.ts";
+import { isGeneratedPath } from "./build-output-path.ts";
 
 export interface EngineFileRoot {
   id: string;
