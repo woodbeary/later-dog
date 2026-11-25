@@ -73,23 +73,25 @@ describe("the guidance every dog gets", () => {
     expect(guidanceEngine(undefined)).toBe("other");
   });
 
-  it("covers the eight things the person needs from every dog", () => {
+  it("covers the working rules every dog needs", () => {
     const text = dogGuidance({ engine: "claude", agents: true, model: "claude-opus-5-5" });
-    expect(ANSWER_FIRST).toMatch(/say in one line what you are doing before your first tool call/);
-    expect(ANSWER_FIRST).toMatch(/not what you do not know yet, and never fill the gap with an answer you have not checked/);
-    expect(ANSWER_FIRST).toMatch(/one-line update at natural points/);
-    expect(ANSWER_FIRST).toMatch(/If you stop before the work is done, say why in plain words/);
-    expect(PLAN_PROMPT).toMatch(/^Keep your plan with set_plan; the person sees it in the app\. Add each thing they ask for before you start it, including what they want later \(as pending\)\. Mark an item in progress when work begins, and done only after it was checked and they were told\./);
-    expect(PLAN_PROMPT).toMatch(/Update it the moment what you are doing changes, before your next tool call: on every new message, when you turn to something it does not show, and when a helper or a background command finishes\./);
-    expect(PLAN_PROMPT).toMatch(/ Only the item you are on is in progress, and steps you dropped come off the list\. Make checking the last item\./);
+    expect(ANSWER_FIRST).toMatch(/say in one line what you are doing before the first call/);
+    expect(ANSWER_FIRST).toMatch(/give facts only after checking/);
+    expect(ANSWER_FIRST).toMatch(/Update on results, decisions, blockers or changed direction/);
+    expect(ANSWER_FIRST).toMatch(/If work stops unfinished, name the reason/);
+    expect(PLAN_PROMPT).toMatch(/set_plan.*several steps.*every request.*later work pending/);
+    expect(PLAN_PROMPT).toMatch(/one item in progress and checking last/);
+    expect(PLAN_PROMPT).toMatch(/before the next tool call when scope or state changes.*new message or completed job/);
+    expect(PLAN_PROMPT).toMatch(/done only after checking and telling the person/);
+    expect(PLAN_PROMPT).toMatch(/Remove dropped steps/);
+    expect(PLAN_PROMPT).toMatch(/done, in progress and not started from the plan/);
     expect(PLAN_PROMPT).toMatch(/"not live yet"/);
-    expect(PLAN_PROMPT).toMatch(/When they ask where things stand \(a status, a checkpoint, "where are we"\), answer from it: done, in progress, not started/);
-    expect(PLAN_PROMPT).toMatch(/a single quick question needs no plan\.$/);
+    expect(PLAN_PROMPT).toMatch(/Quick answers need no plan/);
     expect(PLAN_PROMPT).not.toMatch(/TodoWrite|update_plan/);
     expect(DECIDE_DONT_ASK).toMatch(/Make engineering choices yourself with current best practice/);
     expect(DECIDE_DONT_ASK).toMatch(/a secret, a tap on their device, money, or a preference/);
-    expect(EVIDENCE_FIRST).toMatch(/this chat and its files, your memory and past chats .*, connected apps, the web, the signed-in browser, your computer/);
-    expect(EVIDENCE_FIRST).toMatch(/ask the person last/);
+    expect(EVIDENCE_FIRST).toMatch(/this chat and its files, memory and session_search.*connected apps, web, signed-in browser, then computer/);
+    expect(EVIDENCE_FIRST).toMatch(/Ask the person last, only for a required gap/);
     expect(CHECK_WORK).toMatch(/look at visual work yourself at its real size before you show it/);
     expect(CHECK_WORK).toMatch(/say plainly what you verified and what you assumed/);
     expect(CHECK_WORK).toMatch(/^Check your work before calling it done/);
@@ -120,34 +122,30 @@ describe("the guidance every dog gets", () => {
     expect(dogGuidance({ engine: "claude", model: "kimi-k2.6" })).not.toContain(ANSWER_IN_FIRST_SENTENCE);
   });
 
-  it("keeps the dog free to answer, briefs helpers well and stops everything on stop", () => {
-    expect(STAY_FREE).toMatch(/if waiting on something would keep you from answering the person/);
-    expect(STAY_FREE).toMatch(/say in one line that it started, and stay available; you are woken when it finishes/);
-    expect(STAY_FREE).toMatch(/Send follow-ups on the same work to the same helper, and do quick things yourself/);
-    expect(STAY_FREE).toMatch(/Do not watch or wait for helpers or teammates inside your own turn: end it; their results wake you by themselves\.$/);
-    expect(STAY_FREE).not.toMatch(/\bruns\b/);
-    expect(HELPER_BRIEF).not.toMatch(/one or two sentences/);
+  it("keeps the chat responsive and stops everything on stop", () => {
+    expect(STAY_FREE).toMatch(/start slow commands in the background when supported and continue independent work/);
+    expect(STAY_FREE).toMatch(/Announce meaningful background work once/);
+    expect(STAY_FREE).toMatch(/running job has not finished the task.*collect its result before reporting completion/);
     expect(STOP_MEANS_STOP).toMatch(/stop your helpers and background commands first, and say it has stopped only when nothing is still running/);
     expect(PRECEDENCE).toBe("A tool's description says how to use it; these instructions say when.");
   });
 
-  it("tells every dog in three sentences to wait with one call, read parts of a file and start a long step small", () => {
-    expect(LONG_WORK.split(/(?<=\.) /)).toHaveLength(3);
+  it("waits for a needed command result without polling or rereading whole files", () => {
     for (const engine of ["claude", "codex", "other"] as const) expect(dogGuidance({ engine, agents: true, model: "claude-opus-5-5" })).toContain(LONG_WORK);
-    expect(LONG_WORK).toMatch(/^When your next step needs a job, wait with one call until it ends; if a person is waiting on you, wait in short calls and answer between them\./);
-    expect(LONG_WORK).toMatch(/not the whole file again/);
-    expect(LONG_WORK).toMatch(/hand the next step to a fresh helper\.$/);
-    expect(LONG_WORK).not.toMatch(/fresh turn/);
+    expect(LONG_WORK).toMatch(/command's result.*wait\/output tool/);
+    expect(LONG_WORK).toMatch(/avoid sleep loops and repeated short polls/);
+    expect(LONG_WORK).toMatch(/Keep waits short when the person is present/);
+    expect(LONG_WORK).toMatch(/Read only the needed file section/);
+    expect(LONG_WORK).not.toMatch(/fresh helper/);
   });
 
-  it("makes every dog with tools coordinate large work by itself: keep the judgment, hand off complete briefs, pick models by difficulty, check results", () => {
-    const sentences = HELPER_BRIEF.split(/(?<=\.) /);
-    expect(sentences).toHaveLength(4);
-    expect(sentences[0]).toMatch(/^Coordinate large work yourself: keep the planning and the judgment, and hand each well-defined part to a helper or another dog with everything it needs to finish alone: the goal, the context with exact names and values, the steps, the constraints, the form of the answer and what done means\.$/);
-    expect(sentences[1]).toBe("It cannot ask the person anything and only its last message reaches you.");
-    expect(sentences[2]).toMatch(/hard judgment to the strongest model and well-defined execution to a cheaper capable one, never the smallest for real work/);
-    expect(sentences[3]).toBe("Check what comes back before you rely on it.");
-    expect(HELPER_BRIEF).not.toMatch(/\b(may|can|allowed|permitted)\b(?! ask)/);
+  it("briefs delegated work completely and reuses the helper", () => {
+    expect(HELPER_BRIEF).toMatch(/goal, exact context and paths, constraints, expected result and checks/);
+    expect(HELPER_BRIEF).toMatch(/Helpers cannot ask the person.*finish alone/);
+    expect(HELPER_BRIEF).toMatch(/Keep the judgment and verify the result/);
+    expect(HELPER_BRIEF).toMatch(/Reuse the helper for follow-ups.*strong model for judgment.*cheaper capable one.*never the smallest/);
+    expect(HELPER_BRIEF).toMatch(/After coordinate_bots, finish independent work and end the turn/);
+    expect(HELPER_BRIEF).toMatch(/Never poll or sleep for another dog's result/);
     for (const engine of ["claude", "codex", "other"] as const) expect(dogGuidance({ engine, agents: true, model: "x" })).toContain(HELPER_BRIEF);
   });
 
