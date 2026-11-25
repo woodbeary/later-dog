@@ -48,7 +48,7 @@ const issuedHere = (id: string | undefined): id is string => typeof id === "stri
 export const servedByComputers = (id: string): boolean => issuedHere(id);
 const sha256 = (value: string) => createHash("sha256").update(value).digest("hex");
 const pause = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
-const PROVISION_BUDGET_MS = 90_000;
+export const PROVISION_BUDGET_MS = 90_000;
 const JOIN_BUDGET_MS = 90_000;
 const EXEC_BUDGET_MS = 60_000;
 export const WAKE_POLL_MS = 400;

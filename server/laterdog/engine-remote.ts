@@ -7,6 +7,7 @@ import { readEngineFile } from "./engine-files.ts";
 import { createHash } from "node:crypto";
 
 export interface EngineLink extends EventEmitter {
+  opening?: boolean;
   send(line: string): void;
   close(): void;
 }
@@ -80,9 +81,28 @@ export class RemoteSession extends EventEmitter {
     this.#link = link;
     this.#launch = launch;
     this.#ready = new Promise<void>((resolve, reject) => {
-      const timer = setTimeout(() => reject(new NotDispatched("The cloud computer's engine relay did not answer.")), HANDSHAKE_MS);
-      this.once("relay-ready", () => { clearTimeout(timer); resolve(); });
-      this.once("link-closed", () => { clearTimeout(timer); reject(new NotDispatched("The cloud computer's engine relay closed before it was ready.")); });
+      let timer: NodeJS.Timeout | null = null;
+      const cleanup = () => {
+        if (timer) clearTimeout(timer);
+        timer = null;
+        link.off("open", arm);
+        this.off("relay-ready", onReady);
+        this.off("link-closed", onClosed);
+      };
+      const arm = () => {
+        timer = setTimeout(() => {
+          cleanup();
+          reject(new NotDispatched("The cloud computer's engine relay did not answer."));
+        }, HANDSHAKE_MS);
+      };
+      const onReady = () => { cleanup(); resolve(); };
+      const onClosed = (why: string) => {
+        cleanup();
+        reject(new NotDispatched(link.opening && why ? why : "The cloud computer's engine relay closed before it was ready."));
+      };
+      if (link.opening) link.once("open", arm); else arm();
+      this.once("relay-ready", onReady);
+      this.once("link-closed", onClosed);
     });
     this.#ready.catch(() => {});
     link.on("line", (line: string) => this.#line(line));
@@ -232,7 +252,7 @@ export class RemoteSession extends EventEmitter {
   #lost(why: string): void {
     if (this.#closed) return;
     this.#closed = true;
-    this.emit("link-closed");
+    this.emit("link-closed", why);
     for (const pending of this.#pending.values()) pending.reject(new Error(`The cloud computer connection ended (${why}).`));
     this.#pending.clear();
     if (this.#started && !this.#exited) {
@@ -340,13 +360,18 @@ export class EngineProcess extends EventEmitter {
     if (this.exitCode !== null || this.signalCode !== null) return !this.#remote || this.#remote.exitConfirmed;
     this.#stopRequested = true;
     if (this.#local) return stopLocal(this.#local, timeoutMs);
+    if (this.#remote && !this.#remote.launchSent) {
+      this.#remote.close();
+      await Promise.race([this.#closed, new Promise<void>((resolve) => setTimeout(resolve, 6_000).unref())]);
+      return !this.#remote || this.#remote.exitConfirmed;
+    }
     this.#remote?.stop();
     const ended = await Promise.race([this.#closed.then(() => true), new Promise<boolean>((resolve) => setTimeout(() => resolve(false), Math.max(timeoutMs, 0) + 8_000).unref())]);
     if (!ended) {
       this.#remote?.close();
       await Promise.race([this.#closed, new Promise<void>((resolve) => setTimeout(resolve, 6_000).unref())]);
     }
-    return Boolean(this.#remote?.exitConfirmed);
+    return !this.#remote || this.#remote.exitConfirmed;
   }
 
   kill(): boolean { void this.stopTree(5_000, async (child) => child.kill("SIGTERM")); return true; }

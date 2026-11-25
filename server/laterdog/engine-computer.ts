@@ -29,20 +29,32 @@ export interface EngineBox {
   write(path: string, bytes: Uint8Array): Promise<unknown>;
 }
 
-export async function prepareEngineComputer(box: EngineBox, plan: ClaudeRemotePlan, relay = engineScripts()): Promise<void> {
-  const present = await box.exec(`test -f ${quote(`${relay.dir}/.ready`)} && echo present || true`, 20_000);
-  if (!present.stdout.includes("present")) {
-    await box.exec(`mkdir -p ${quote(relay.dir)}`, 20_000);
-    for (const file of relay.files) await box.write(`${relay.dir}/${file.name}`, file.bytes);
-    const marked = await box.exec(`touch ${quote(`${relay.dir}/.ready`)}`, 20_000);
-    if (marked.exitCode !== 0) throw new Error("The engine relay could not be put on the cloud computer.");
-  }
+export const ENGINE_STEP_BUDGET_MS = 60_000;
+export const ENGINE_INSTALL_BUDGET_MS = 10 * 60_000;
+export const ENGINE_PREPARE_BUDGET_MS = ENGINE_INSTALL_BUDGET_MS + 2 * ENGINE_STEP_BUDGET_MS;
+const CLI_NOT_INSTALLED = 41;
+const FOLDERS_NOT_MADE = 42;
+const RELAY_PRESENT = "relay-present";
+
+export function prepareScript(plan: ClaudeRemotePlan, relay: EngineScripts): string {
   const cliDir = `${REMOTE_ENGINE_BASE}/cli/claude-code-${plan.cli.version}`;
-  const installed = await box.exec(`test -x ${quote(`${cliDir}/node_modules/.bin/claude`)} || (mkdir -p ${quote(cliDir)} && npm install --prefix ${quote(cliDir)} --no-audit --no-fund --loglevel=error ${quote(`${plan.cli.name}@${plan.cli.version}`)} >/dev/null)`, 10 * 60_000);
-  if (installed.exitCode !== 0) throw new Error(`Claude Code ${plan.cli.version} could not be installed on the cloud computer.`);
   const dirs = [...plan.mkdirs, `${REMOTE_ENGINE_BASE}/run`, `${REMOTE_ENGINE_BASE}/state`, `${REMOTE_ENGINE_BASE}/locks`];
-  const made = await box.exec(`sudo -n install -d -o dog -g dog -m 700 ${dirs.map(quote).join(" ")}`, 60_000);
-  if (made.exitCode !== 0) throw new Error("The mirrored folders could not be made on the cloud computer.");
+  return [
+    `test -x ${quote(`${cliDir}/node_modules/.bin/claude`)} || (mkdir -p ${quote(cliDir)} && npm install --prefix ${quote(cliDir)} --no-audit --no-fund --loglevel=error ${quote(`${plan.cli.name}@${plan.cli.version}`)} >/dev/null) || exit ${CLI_NOT_INSTALLED}`,
+    `sudo -n install -d -o dog -g dog -m 700 ${dirs.map(quote).join(" ")} || exit ${FOLDERS_NOT_MADE}`,
+    `if test -f ${quote(`${relay.dir}/.ready`)}; then echo ${RELAY_PRESENT}; else mkdir -p ${quote(relay.dir)}; fi`,
+  ].join("\n");
+}
+
+export async function prepareEngineComputer(box: EngineBox, plan: ClaudeRemotePlan, relay = engineScripts()): Promise<void> {
+  const prepared = await box.exec(prepareScript(plan, relay), ENGINE_INSTALL_BUDGET_MS + ENGINE_STEP_BUDGET_MS);
+  if (prepared.exitCode === CLI_NOT_INSTALLED) throw new Error(`Claude Code ${plan.cli.version} could not be installed on the cloud computer.`);
+  if (prepared.exitCode === FOLDERS_NOT_MADE) throw new Error("The mirrored folders could not be made on the cloud computer.");
+  if (prepared.exitCode !== 0) throw new Error("The cloud computer could not be prepared for the engine.");
+  if (prepared.stdout.split(/\r?\n/).includes(RELAY_PRESENT)) return;
+  for (const file of relay.files) await box.write(`${relay.dir}/${file.name}`, file.bytes);
+  const marked = await box.exec(`touch ${quote(`${relay.dir}/.ready`)}`, ENGINE_STEP_BUDGET_MS);
+  if (marked.exitCode !== 0) throw new Error("The engine relay could not be put on the cloud computer.");
 }
 
 export function processStreamLink(socket: WebSocket, command: string): EngineLink {
