@@ -1,6 +1,8 @@
 import { spawn, type ChildProcess } from "node:child_process";
+import { createHash } from "node:crypto";
+import { tmpdir } from "node:os";
 import { EventEmitter } from "node:events";
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, closeSync, existsSync, mkdirSync, mkdtempSync, openSync, readFileSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync, writeSync } from "node:fs";
 import { join } from "node:path";
 import { createServer, type Server } from "node:http";
 import { createInterface } from "node:readline";
@@ -14,6 +16,7 @@ import { claudeProjectSlug, planClaudeRemote, spawnPlacedEngine, type ClaudeRemo
 import type { EngineWait } from "./engine-waiting.ts";
 import { placedThreads, preToolGuardDecision } from "./placed-threads.ts";
 import { createClaudeRefreshGate } from "./claude-refresh-lock.ts";
+import { ENGINE_WINDOW_BYTES, engineFileChunks, engineInventory } from "./engine-files.ts";
 import { commandLink, EngineProcess, RemoteSession, type EngineLink } from "./engine-remote.ts";
 import { createClaudeRenewer, type ClaudeRenewer } from "./engine-renewal.ts";
 
@@ -98,12 +101,12 @@ function world(sessionId = "s-1", options: { preToolUse?: string; env?: Record<s
 }
 
 const message = (text: string) => `${JSON.stringify({ type: "user", message: { role: "user", content: [{ type: "text", text }] } })}\n`;
-function turn(engine: { stdin: NodeJS.WritableStream; stdout: NodeJS.ReadableStream }, text: string, onResult?: () => void): Promise<Record<string, any>> {
+function turn(engine: { stdin: NodeJS.WritableStream; stdout: NodeJS.ReadableStream }, text: string, onResult?: () => void, timeoutMs = 30_000): Promise<Record<string, any>> {
   return new Promise((resolve, reject) => {
     const lines = createInterface({ input: engine.stdout });
     let stderr = "";
     (engine as unknown as { stderr: NodeJS.ReadableStream }).stderr.on("data", (bytes) => { stderr += bytes; });
-    const timer = setTimeout(() => reject(new Error(`no result; stderr: ${stderr}`)), 30_000);
+    const timer = setTimeout(() => reject(new Error(`no result; stderr: ${stderr}`)), timeoutMs);
     lines.on("line", (line) => {
       const frame = JSON.parse(line);
       if (frame.type !== "result") return;
@@ -154,6 +157,88 @@ it("runs a turn on the computer with home-held tools, hooks and authority, and r
   expect(w.localLaunches()).toBe(0);
   expect(w.launches()).toHaveLength(1);
 }, 60_000);
+
+it("limits an unacknowledged upload to one window and cancels before dispatch when its connection drops", async () => {
+  const w = world();
+  const launch = w.plan(true).launch;
+  const root = launch.roots.find(entry => entry.id === "session")!;
+  mkdirSync(root.path, { recursive: true });
+  writeFileSync(w.sessionFile, Buffer.alloc(ENGINE_WINDOW_BYTES * 3));
+  launch.roots = [root];
+  launch.pushes = undefined;
+  const link = new EventEmitter() as EngineLink;
+  let received = 0;
+  let launched = false;
+  link.close = () => link.emit("close", "transfer interrupted");
+  link.send = line => {
+    const frame = JSON.parse(line);
+    if (frame.type === "configure") queueMicrotask(() => link.emit("line", JSON.stringify({ type: "reply", id: frame.id, body: { files: [] } })));
+    if (frame.type === "file_chunk") received += Buffer.byteLength(frame.data, "base64");
+    if (frame.type === "file_window") queueMicrotask(() => link.close());
+    if (frame.type === "launch") launched = true;
+  };
+  const session = new RemoteSession(link, launch);
+  link.emit("line", JSON.stringify({ type: "ready" }));
+  await expect(session.start()).rejects.toThrow("transfer interrupted");
+  expect(received).toBe(ENGINE_WINDOW_BYTES);
+  expect(launched).toBe(false);
+});
+
+it("resumes a large Claude transcript on the computer and checkpoints its exact bytes back to the home", async () => {
+  const uuid = "897a56d1-0d58-468a-b772-61ff3035271b";
+  const w = world(uuid);
+  const testDir = realpathSync(mkdtempSync(join(tmpdir(), "ld-transcript-")));
+  scratch.push(testDir);
+  const plan = w.plan(true);
+  const root = plan.launch.roots.find(entry => entry.id === "session")!;
+  root.path = join(testDir, "session");
+  mkdirSync(root.path);
+  const name = root.files![0]!;
+  const path = join(root.path, name);
+  const before = createHash("sha256");
+  const size = 186_930_851;
+  const row = Buffer.from(JSON.stringify({ type: "summary", summary: "large ".repeat(5000) }) + "\n");
+  const fd = openSync(path, "wx", 0o600);
+  try {
+    let remaining = size;
+    while (remaining >= row.length) {
+      writeSync(fd, row);
+      before.update(row);
+      remaining -= row.length;
+    }
+    const tail = Buffer.from("{}" + " ".repeat(remaining - 3) + "\n");
+    writeSync(fd, tail);
+    before.update(tail);
+  } finally { closeSync(fd); }
+  expect(() => engineInventory([{ ...root, transcript: false }])).toThrow("too large");
+  const original = before.copy().digest("hex");
+  const addition = '{"type":"summary","summary":"resumed"}\n';
+  const probe = join(w.base, "check-transcript.mjs");
+  writeFileSync(probe, [
+    'import { createReadStream, appendFileSync } from "node:fs";',
+    'import { createHash } from "node:crypto";',
+    'const [file, hash, addition] = process.argv.slice(2);',
+    'process.stdin.once("data", async () => {',
+    '  const digest = createHash("sha256");',
+    '  for await (const bytes of createReadStream(file)) digest.update(bytes);',
+    '  if (digest.digest("hex") !== hash) process.exit(7);',
+    '  appendFileSync(file, addition);',
+    '  console.log(JSON.stringify({ type: "result", result: JSON.stringify({ resumed: true }) }));',
+    '});',
+  ].join("\n"));
+  plan.launch.cli = process.execPath;
+  plan.launch.args = [probe, path, original, addition];
+  const link = commandLink(process.execPath, [RELAY], { ...process.env, LATERDOG_ENGINE_TEST_ROOT: join(testDir, "computer") });
+  const { engine, placed } = w.start(plan, async () => link, true);
+  expect(await turn(engine, "resume", undefined, 100_000)).toEqual({ resumed: true });
+  engine.stdin.end();
+  expect(await closed(engine)).toBe(0);
+  expect(placed).toContain("computer");
+  expect(statSync(path).size).toBe(size + Buffer.byteLength(addition));
+  const result = createHash("sha256");
+  for (const bytes of engineFileChunks(root, name)) result.update(bytes);
+  expect(result.digest("hex")).toBe(before.update(addition).digest("hex"));
+}, 120_000);
 
 it("reuses project setup in a new session and continues the same native session back on the home", async () => {
   const w = world();

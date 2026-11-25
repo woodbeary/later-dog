@@ -246,7 +246,7 @@ export function planClaudeRemote(input: ClaudePlacement): { plan: ClaudeRemotePl
   const sessionDir = join(configDir, "projects", slug);
   const roots: EngineFileRoot[] = [
     { id: "workspace", path: cwd, writable: true },
-    { id: "session", path: sessionDir, writable: true, files: [`${input.sessionId}.jsonl`] },
+    { id: "session", path: sessionDir, writable: true, transcript: true, files: [`${input.sessionId}.jsonl`] },
     { id: "session-extra", path: join(sessionDir, input.sessionId), writable: true },
     { id: "file-history", path: join(configDir, "file-history", input.sessionId), writable: true },
     { id: "account", path: configDir, writable: false, files: [".claude.json"] },
