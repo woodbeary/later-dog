@@ -7,7 +7,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { removeTempDir, waitForExit } from "./testing/cleanup.ts";
-import { freePortBlock } from "./testing/ports.ts";
+import { leasePortBlock } from "./testing/ports.ts";
 
 const ROOT = fileURLToPath(new URL("..", import.meta.url));
 const FAKE_CLAUDE = join(ROOT, "server/testing/fake-claude-cli.ts");
@@ -156,7 +156,7 @@ describe("a slow cloud computer start", () => {
 
   let relayUrl = "";
   async function launch(startBudgetMs: number) {
-    const port = await freePortBlock([0, 1]);
+    const port = await leasePortBlock([0, 1]);
     base = `http://127.0.0.1:${port}`;
     const relayBase = relayUrl;
     const data = join(home, "data");

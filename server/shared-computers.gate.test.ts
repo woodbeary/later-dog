@@ -6,7 +6,7 @@ import { fileURLToPath } from "node:url";
 import { afterAll, beforeAll, expect, it } from "vitest";
 
 import { removeTempDir, waitForExit } from "./testing/cleanup.ts";
-import { freePortBlock } from "./testing/ports.ts";
+import { leasePortBlock } from "./testing/ports.ts";
 
 const SERVER_DIR = dirname(fileURLToPath(import.meta.url));
 const FAKE_CLAUDE_CLI = join(SERVER_DIR, "testing", "fake-claude-cli.ts");
@@ -61,7 +61,7 @@ const PUBLIC_ROUTES = [
 ];
 
 beforeAll(async () => {
-  const base = await freePortBlock([0, 1]);
+  const base = await leasePortBlock([0, 1]);
   PORT = base;
   WEBHOOK_PORT = base + 1;
   BASE = `http://127.0.0.1:${PORT}`;

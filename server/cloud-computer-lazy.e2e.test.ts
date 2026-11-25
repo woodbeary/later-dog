@@ -7,7 +7,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { removeTempDir, waitForExit } from "./testing/cleanup.ts";
-import { freePortBlock } from "./testing/ports.ts";
+import { leasePortBlock } from "./testing/ports.ts";
 import { openSse, type SseRecorder } from "./testing/sse.ts";
 
 const ROOT = fileURLToPath(new URL("..", import.meta.url));
@@ -183,7 +183,7 @@ describe("a cloud computer starts only when the bot uses it", () => {
         environment: { FAKE_CLAUDE_MODE: "not-logged-in", FAKE_CLAUDE_AUTH: "out" },
       },
     } }));
-    const port = await freePortBlock([0, 1]);
+    const port = await leasePortBlock([0, 1]);
     base = `http://127.0.0.1:${port}`;
     child = spawn(process.execPath, [join(ROOT, "server/index.ts")], {
       cwd: ROOT,

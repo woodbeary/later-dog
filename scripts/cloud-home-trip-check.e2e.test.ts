@@ -7,7 +7,7 @@ import { fileURLToPath } from "node:url";
 import { afterAll, beforeAll, expect, it } from "vitest";
 import { RESTART_EXIT_CODE } from "../server/restart.ts";
 import { removeTempDir, waitForExit } from "../server/testing/cleanup.ts";
-import { freePortBlock } from "../server/testing/ports.ts";
+import { leasePortBlock } from "../server/testing/ports.ts";
 import { checkTrip, TRIP_DOGS } from "./cloud-home-trip-check.mjs";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
@@ -52,7 +52,7 @@ beforeAll(async () => {
       .map((id) => [id, { driver: "not-a-real-driver" }])),
     claude: { driver: "claudeAgent", displayName: "Claude", config: { cli: join(ROOT, "server", "testing", "fake-claude-cli.ts") } },
   } }));
-  const port = await freePortBlock([0, 1]);
+  const port = await leasePortBlock([0, 1]);
   const env: NodeJS.ProcessEnv = {
     PATH: dirname(process.execPath),
     ...(process.env.PATHEXT ? { PATHEXT: process.env.PATHEXT } : {}),

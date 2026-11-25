@@ -9,7 +9,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { afterAll, beforeAll, expect, it } from "vitest";
 import { cloudPairingSignature } from "../cloud-home.ts";
 import { removeTempDir, waitForExit } from "../testing/cleanup.ts";
-import { freePortBlock } from "../testing/ports.ts";
+import { leasePortBlock } from "../testing/ports.ts";
 import { GOOGLE_NEEDS_CLIENT } from "../routes/google.ts";
 
 const SERVER_DIR = join(dirname(fileURLToPath(import.meta.url)), "..");
@@ -133,7 +133,7 @@ await import(${JSON.stringify(pathToFileURL(join(SERVER_DIR, "testing", "fake-cl
   await new Promise<void>((resolve) => fake.listen(0, "127.0.0.1", resolve));
   const address = fake.address();
   fakeBase = `http://127.0.0.1:${typeof address === "object" && address ? address.port : 0}`;
-  const port = await freePortBlock([0, 1]);
+  const port = await leasePortBlock([0, 1]);
   base = `http://127.0.0.1:${port}`;
   const prelude = `data:text/javascript,${encodeURIComponent(`const real = globalThis.fetch; globalThis.fetch = async (url, init) => { const target = String(url instanceof Request ? url.url : url); return target.startsWith("http://127.0.0.1:") ? real(url, init) : real(${JSON.stringify(fakeBase)} + "/outbound?url=" + encodeURIComponent(target), init); };`)}`;
   child = spawn(process.execPath, ["--import", prelude, join(SERVER_DIR, "index.ts")], {

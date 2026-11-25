@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { afterAll, afterEach } from "vitest";
 
 import { removeTempDir } from "./cleanup.ts";
+import { releasePortLeases } from "./ports.ts";
 
 const INHERITED_FROM_A_RUNNING_APP = [
   "CLAUDE_CONFIG_DIR",
@@ -37,6 +38,7 @@ Object.defineProperty(globalThis.navigator, "language", { value: "en", configura
 
 const { closeMessageDb } = await import("../message-db.ts");
 afterEach(closeMessageDb);
+afterAll(() => releasePortLeases());
 
 afterAll(async () => {
   closeMessageDb();

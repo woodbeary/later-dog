@@ -5,7 +5,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
-import { freePortBlock } from "./testing/ports.ts";
+import { leasePortBlock } from "./testing/ports.ts";
 import { removeTempDir, waitForExit } from "./testing/cleanup.ts";
 import { openSse, type SseRecorder } from "./testing/sse.ts";
 
@@ -68,7 +68,7 @@ describe("transcript pages on bot and room frames", () => {
       features: { browser: false },
       instances: { ghost: { driver: "not-a-real-driver", displayName: "Ghost" } },
     }));
-    const port = await freePortBlock([0, 1]);
+    const port = await leasePortBlock([0, 1]);
     base = `http://127.0.0.1:${port}`;
     const proc = spawn(process.execPath, [join(SERVER_DIR, "index.ts")], {
       cwd: ROOT,

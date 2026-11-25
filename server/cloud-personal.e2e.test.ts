@@ -9,7 +9,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { afterAll, beforeAll, expect, it } from "vitest";
 import { cloudPairingSignature } from "./cloud-home.ts";
 import { removeTempDir, waitForExit } from "./testing/cleanup.ts";
-import { freePortBlock } from "./testing/ports.ts";
+import { leasePortBlock } from "./testing/ports.ts";
 
 const SERVER_DIR = dirname(fileURLToPath(import.meta.url));
 const HOST = "laterdog-t-0123456789ab.fly.dev";
@@ -113,7 +113,7 @@ await import(${JSON.stringify(pathToFileURL(join(SERVER_DIR, "testing", "fake-cl
       held: { driver: "claudeAgent", displayName: "Held", config: { cli } },
     },
   }));
-  port = await freePortBlock([0, 1]);
+  port = await leasePortBlock([0, 1]);
   base = `http://127.0.0.1:${port}`;
   await boot(false);
   const pair = async (scopes: string[]) => {

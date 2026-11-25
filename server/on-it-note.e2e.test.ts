@@ -6,7 +6,7 @@ import { fileURLToPath } from "node:url";
 import { afterAll, beforeAll, expect, it } from "vitest";
 import { ON_IT_NOTE } from "./laterdog/work-updates.ts";
 import { removeTempDir, waitForExit } from "./testing/cleanup.ts";
-import { freePortBlock } from "./testing/ports.ts";
+import { leasePortBlock } from "./testing/ports.ts";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const OFFLINE = `data:text/javascript,${encodeURIComponent('globalThis.fetch = async () => new Response("offline fixture", { status: 503 });')}`;
@@ -26,7 +26,7 @@ beforeAll(async () => {
   writeFileSync(join(dataDir, "config.json"), JSON.stringify({ instances: {
     claude: { driver: "claudeAgent", displayName: "Claude", config: { cli: FAKE_CLAUDE } },
   } }));
-  const port = await freePortBlock([0, 1]);
+  const port = await leasePortBlock([0, 1]);
   base = `http://127.0.0.1:${port}`;
   child = spawn(process.execPath, ["--import", OFFLINE, join(ROOT, "server", "index.ts")], {
     cwd: ROOT,

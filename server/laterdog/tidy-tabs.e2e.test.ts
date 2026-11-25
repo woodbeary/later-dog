@@ -7,7 +7,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { removeTempDir, waitForExit } from "../testing/cleanup.ts";
-import { freePortBlock } from "../testing/ports.ts";
+import { leasePort, leasePortBlock } from "../testing/ports.ts";
 import { MAX_TABS_PER_COMPUTER } from "./cloud-tabs.ts";
 
 const ROOT = fileURLToPath(new URL("../..", import.meta.url));
@@ -127,7 +127,7 @@ describe.skipIf(!CHROMIUM)("a dog's cloud computer keeps one tidy browser", () =
     for (const dir of [data, computerHome, bin]) mkdirSync(dir, { recursive: true });
     dumpFile = join(home, "dump.json");
     finishFile = join(home, "finish");
-    cdpPort = await freePortBlock([0], 23_000, 2_000);
+    cdpPort = await leasePort();
     browser = spawn(CHROMIUM!, ["--headless=new", "--disable-gpu", "--no-first-run", "--no-default-browser-check", "--use-mock-keychain", `--remote-debugging-port=${cdpPort}`, `--user-data-dir=${join(home, "profile")}`, "--window-size=1280,800", "about:blank"], { stdio: "ignore" });
     await until(() => fetch(`http://127.0.0.1:${cdpPort}/json/version`).then((response) => response.ok, () => false), Boolean, 20_000);
     writeFileSync(join(bin, "xdg-open"), `#!/bin/sh\nexec curl -s -X PUT "http://127.0.0.1:$LATERDOG_PAGE_CDP_PORT/json/new?$1" >/dev/null\n`);
@@ -186,7 +186,7 @@ describe.skipIf(!CHROMIUM)("a dog's cloud computer keeps one tidy browser", () =
       features: { pageTools: true },
       instances: { claude: { driver: "claudeAgent", config: { cli: FAKE_CLAUDE }, environment: { FAKE_CLAUDE_MODE: "slow", FAKE_CLAUDE_DUMP: dumpFile, FAKE_CLAUDE_SLOW_FINISH_GATE: finishFile } } },
     }));
-    const port = await freePortBlock([0, 1]);
+    const port = await leasePortBlock([0, 1]);
     base = `http://127.0.0.1:${port}`;
     server = spawn(process.execPath, [join(ROOT, "server/index.ts")], {
       cwd: ROOT,

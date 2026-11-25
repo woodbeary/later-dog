@@ -6,9 +6,10 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { leasePortBlock } from "../testing/ports.ts";
 
 const SERVER_DIR = join(dirname(fileURLToPath(import.meta.url)), "..");
-const PORT = 18800 + Math.floor(Math.random() * 10_000);
+const PORT = await leasePortBlock([0, 1]);
 const BASE = `http://127.0.0.1:${PORT}`;
 const KEY = `ldt_${"e".repeat(43)}`;
 const ACCOUNT = "0123456789abcdef0123456789abcdef";

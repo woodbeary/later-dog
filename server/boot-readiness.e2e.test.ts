@@ -7,7 +7,7 @@ import { fileURLToPath } from "node:url";
 import { afterEach, expect, it } from "vitest";
 import { runControlLaterDog, verificationServerEnvironment } from "../scripts/control-laterdog.ts";
 import { removeTempDir, waitForExit } from "./testing/cleanup.ts";
-import { freePortBlock } from "./testing/ports.ts";
+import { leasePortBlock } from "./testing/ports.ts";
 
 const ROOT = fileURLToPath(new URL("..", import.meta.url));
 const FAKE_CLI = join(ROOT, "server/testing/fake-claude-cli.ts");
@@ -31,7 +31,7 @@ function freshHome(): string {
 }
 
 async function boot(home: string, knobs: Record<string, string> = {}) {
-  const port = await freePortBlock([0, 1]);
+  const port = await leasePortBlock([0, 1]);
   const base = `http://127.0.0.1:${port}`;
   const child = spawn(process.execPath, ["--experimental-strip-types", join(ROOT, "server/index.ts")], {
     cwd: ROOT,
