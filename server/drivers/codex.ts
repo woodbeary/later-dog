@@ -59,6 +59,7 @@ import { CALL_TOOL, DESCRIBE_TOOL, SEARCH_TOOL, directoryCallTarget } from "../m
 import { readEngineModels } from "../laterdog/wait-at-most.ts";
 import { SteerReads } from "./steer-reads.ts";
 import { prepareCodexShellGuard } from "../laterdog/codex-shell-guard.ts";
+import { redactCodexExternalAuthFrame } from "../laterdog/codex-external-auth.ts";
 import { chatEngineEnvironment } from "../laterdog/chat-environment.ts";
 import { codexToolTouch } from "../laterdog/tool-touches.ts";
 import { codexCompactionEvent } from "../laterdog/native-compaction.ts";
@@ -487,6 +488,8 @@ function permissionProfileUnsupported(error: unknown): boolean {
 }
 
 function codexNativeLogMessage(message: unknown): unknown {
+  const redacted = redactCodexExternalAuthFrame(message);
+  if (redacted !== message) return redacted;
   if (!message || typeof message !== "object" || Array.isArray(message)) return message;
   const record = message as Record<string, unknown>;
   const params = record.params;
@@ -519,6 +522,8 @@ export function codexNativeIncomingLogMessage(
   message: any,
   sensitiveResponseIds: ReadonlySet<number>,
 ): unknown {
+  const redacted = redactCodexExternalAuthFrame(message);
+  if (redacted !== message) return redacted;
   if (message?.id !== undefined && sensitiveResponseIds.has(message.id)) {
     return {
       jsonrpc: message.jsonrpc,
