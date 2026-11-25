@@ -1,0 +1,56 @@
+name: Typecheck comparison
+on:
+  pull_request:
+    paths:
+      - .github/workflows/typecheck-comparison.yml
+      - scripts/ci-typecheck-comparison.mjs
+permissions:
+  contents: read
+concurrency:
+  group: typecheck-comparison-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+jobs:
+  check:
+    name: Compare ${{ matrix.checker }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        checker: [tsc, bun, tsgo]
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          fetch-depth: 0
+          filter: blob:none
+      - uses: pnpm/action-setup@a7487c7e89a18df4991f7f222e4898a00d66ddda
+        with:
+          run_install: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version-file: .nvmrc
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
+        if: matrix.checker == 'bun'
+        with:
+          bun-version: latest
+      - name: Install the frozen project dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Install the native checker outside the repository
+        if: matrix.checker == 'tsgo'
+        run: |
+          mkdir -p "$RUNNER_TEMP/typecheck-tools"
+          printf '{"private":true}\n' > "$RUNNER_TEMP/typecheck-tools/package.json"
+          pnpm --dir "$RUNNER_TEMP/typecheck-tools" add --save-exact @typescript/native-preview
+          echo "CI_FAST_TSGO=$RUNNER_TEMP/typecheck-tools/node_modules/.bin/tsgo" >> "$GITHUB_ENV"
+      - name: Measure checks and prove intentional type errors fail
+        env:
+          CI_FAST_OUTPUT: ${{ runner.temp }}/typecheck-comparison
+        run: node scripts/ci-typecheck-comparison.mjs ${{ matrix.checker }}
+      - name: Keep diagnostics and exact versions even when a checker fails
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: typecheck-${{ matrix.checker }}
+          path: ${{ runner.temp }}/typecheck-comparison
+          if-no-files-found: error
+          retention-days: 7
