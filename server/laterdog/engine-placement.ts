@@ -1,5 +1,4 @@
 import { createHash, randomUUID } from "node:crypto";
-import { GUARDED_TOOLS } from "../../shared/always-asks.ts";
 import type { ChildProcess } from "node:child_process";
 import { appendFileSync, copyFileSync, existsSync, lstatSync, mkdirSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { writeFileAtomic } from "../atomic.ts";
@@ -10,6 +9,8 @@ import { EventEmitter } from "node:events";
 import type { EngineFileRoot } from "./engine-files.ts";
 import { claudeRenewer, type ClaudeRenewal } from "./engine-renewal.ts";
 import { EngineProcess, RemoteSession, type EngineLink, type PushedFile, type RemoteLaunch, type StdioSpec } from "./engine-remote.ts";
+import { ENGINE_WAIT_NOTICE_MS, watchEngineOpening, type EngineWait } from "./engine-waiting.ts";
+import { placedThreads, type PlacedThreads } from "./placed-threads.ts";
 
 export const REMOTE_ENGINE_BASE = "/home/dog/.laterdog-engine";
 const CREDENTIAL_MARGIN_MS = 30 * 60_000;
@@ -123,7 +124,7 @@ export interface ClaudePlacement {
   remoteBase?: string;
 }
 
-export interface ClaudeRemotePlan { launch: RemoteLaunch; cli: { name: string; version: string }; stagingDir: string; mkdirs: string[]; renewal?: ClaudeRenewal | null }
+export interface ClaudeRemotePlan { threadId: string; launch: RemoteLaunch; cli: { name: string; version: string }; stagingDir: string; mkdirs: string[]; renewal?: ClaudeRenewal | null }
 
 export function planClaudeRemote(input: ClaudePlacement): { plan: ClaudeRemotePlan } | { stay: string } {
   if (input.managed) return { stay: "managed account" };
@@ -173,10 +174,6 @@ export function planClaudeRemote(input: ClaudePlacement): { plan: ClaudeRemotePl
   if (settingsIndex >= 0) {
     const settings = JSON.parse(readFileSync(args[settingsIndex], "utf8")) as Record<string, unknown>;
     const events = settings.hooks as Record<string, Array<{ matcher?: string; hooks?: Array<Record<string, unknown>> }>> | undefined;
-    if (events?.PreToolUse) {
-      events.PreToolUse = events.PreToolUse.filter((entry) => !GUARDED_TOOLS.includes(entry.matcher ?? ""));
-      if (!events.PreToolUse.length) delete events.PreToolUse;
-    }
     for (const entries of Object.values(events ?? {})) for (const entry of entries ?? []) for (const hook of entry.hooks ?? []) {
       if (hook.type !== "command" || typeof hook.command !== "string") continue;
       let index = hooks.indexOf(hook.command);
@@ -236,7 +233,7 @@ export function planClaudeRemote(input: ClaudePlacement): { plan: ClaudeRemotePl
     lockFile: `${remoteBase}/locks/${threadKey}.lock`,
   };
   const renewal = credential ? { command: input.cliCommand, env: hookEnv } : null;
-  return { plan: { launch, cli, stagingDir, mkdirs: [...new Set(roots.map((root) => root.path))], renewal } };
+  return { plan: { threadId: input.threadId, launch, cli, stagingDir, mkdirs: [...new Set(roots.map((root) => root.path))], renewal } };
 }
 
 export const BOT_FOLDER_FILE_BYTES = 8 * 1024 * 1024;
@@ -258,42 +255,83 @@ function stdioSpecFor(server: Record<string, unknown>): StdioSpec | null {
   return null;
 }
 
-export interface EngineOpener { proxyPath: string; remoteBase?: string; open(botId: string, plan: ClaudeRemotePlan): Promise<EngineLink> }
+export interface EngineOpener { proxyPath: string; remoteBase?: string; openBudgetMs?: number; open(botId: string, plan: ClaudeRemotePlan): Promise<EngineLink> }
 let opener: EngineOpener | null = null;
 export function setEngineOpener(value: EngineOpener | null): void { opener = value; }
 export function engineOpener(): EngineOpener | null { return opener; }
 
-export function deferredLink(open: Promise<EngineLink>): EngineLink {
+export const DEFAULT_ENGINE_OPEN_BUDGET_MS = 15 * 60_000;
+
+export function deferredLink(open: Promise<EngineLink>, budgetMs = DEFAULT_ENGINE_OPEN_BUDGET_MS): EngineLink {
   const link = new EventEmitter() as EngineLink;
+  link.opening = true;
   let real: EngineLink | null = null;
   let closed = false;
   const queued: string[] = [];
+  const fail = (why: string) => {
+    if (closed) return;
+    closed = true;
+    clearTimeout(budget);
+    link.emit("diagnostic", why);
+    link.emit("close", why);
+  };
+  const budget = setTimeout(() => fail(`The cloud computer did not wake and get ready within ${Math.ceil(budgetMs / 60_000)} minutes.`), budgetMs);
+  budget.unref?.();
   open.then((ready) => {
     if (closed) { ready.close(); return; }
+    clearTimeout(budget);
     real = ready;
+    link.opening = false;
     ready.on("line", (line) => link.emit("line", line));
     ready.on("diagnostic", (text) => link.emit("diagnostic", text));
-    ready.on("close", (why) => { closed = true; link.emit("close", why); });
-    for (const line of queued.splice(0)) ready.send(line);
-  }, (error: Error) => { if (!closed) { closed = true; link.emit("diagnostic", error.message); link.emit("close", error.message); } });
+    ready.on("close", (why) => { if (closed) return; closed = true; link.emit("close", why); });
+    link.emit("open");
+    for (const line of queued.splice(0)) if (!closed) ready.send(line);
+  }, (error: unknown) => fail(error instanceof Error ? error.message : String(error)));
   link.send = (line) => { if (real) real.send(line); else if (!closed) queued.push(line); };
-  link.close = () => { if (real) real.close(); else if (!closed) { closed = true; link.emit("close", "closed before the computer was ready"); } };
+  link.close = () => {
+    if (real) { real.close(); return; }
+    if (closed) return;
+    closed = true;
+    clearTimeout(budget);
+    link.emit("close", "closed before the computer was ready");
+  };
   return link;
 }
 
+export interface PlacedEngineOptions {
+  openBudgetMs?: number;
+  onWaiting?: (wait: EngineWait) => void;
+  waitNoticeMs?: number;
+  placed?: PlacedThreads;
+}
+
 export function spawnPlacedEngine(plan: ClaudeRemotePlan, openLink: (plan: ClaudeRemotePlan) => Promise<EngineLink>, local: () => ChildProcess,
-  onPlaced?: (where: "computer" | "home", why?: string) => void, renewer: Pick<typeof claudeRenewer, "hold"> = claudeRenewer): EngineProcess {
-  const session = new RemoteSession(deferredLink(openLink(plan)), plan.launch);
+  onPlaced?: (where: "computer" | "home", why?: string) => void, renewer: Pick<typeof claudeRenewer, "hold"> = claudeRenewer, options: PlacedEngineOptions = {}): EngineProcess {
+  let opened: Promise<EngineLink>;
+  try { opened = openLink(plan); }
+  catch (error) { opened = Promise.reject(error instanceof Error ? error : new Error(String(error))); }
+  const link = deferredLink(opened, options.openBudgetMs);
+  if (options.onWaiting) watchEngineOpening(link, options.onWaiting, options.waitNoticeMs ?? ENGINE_WAIT_NOTICE_MS);
+  const session = new RemoteSession(link, plan.launch);
+  const placed = options.placed ?? placedThreads;
   let release: (() => void) | null = null;
+  let unplace: (() => void) | null = null;
   let closed = false;
   const engine = new EngineProcess(session, local, (where, why) => {
-    if (where === "computer" && plan.renewal && !release && !closed) release = renewer.hold(plan.renewal);
+    if (where === "computer" && !closed) {
+      if (plan.renewal && !release) release = renewer.hold(plan.renewal);
+      if (!why && !unplace) unplace = placed.place(plan.threadId);
+    }
+    if (where === "home") { unplace?.(); unplace = null; }
     onPlaced?.(where, why);
   });
   registerTreeStopper(engine, (timeoutMs) => engine.stopTree(timeoutMs, killCliTree));
   engine.once("close", () => {
     closed = true;
     release?.();
+    unplace?.();
+    unplace = null;
     try { rmSync(plan.stagingDir, { recursive: true, force: true }); } catch {}
   });
   return engine;

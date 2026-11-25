@@ -9,6 +9,7 @@ import { writeFileAtomic, writeFileAtomicIfChanged } from "../atomic.ts";
 import { augmentedPath } from "../env-path.ts";
 import { brokerSocketPath, describeSpawnFailure, execCli, killCliTree, resolveCli, spawnCli } from "../procs.ts";
 import { engineOpener, notePlacement, planClaudeRemote, remoteEngineBots, spawnPlacedEngine } from "../laterdog/engine-placement.ts";
+import { engineWaitEvent } from "../laterdog/engine-waiting.ts";
 import { claudeResumeRefusal, classifyResumeFailure, mayReplay, recoveryPromptFor } from "../resume-recovery.ts";
 import { ClaudeLoginController } from "./claude-login-auth.ts";
 
@@ -1559,11 +1560,13 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
       }
 
       let child: ReturnType<typeof spawnCli>;
-      warmEngines.makeRoom(ENGINE_BYTES);
       try {
         checkStart();
         warmEngines.assertVacant(ownershipKey(threadId));
-        const local = () => spawnCli(config.cli, args, { cwd, env, stdio: ["pipe", "pipe", "pipe"] });
+        const local = () => {
+          warmEngines.makeRoom(ENGINE_BYTES);
+          return spawnCli(config.cli, args, { cwd, env, stdio: ["pipe", "pipe", "pipe"] });
+        };
         const opener = engineOpener();
         let remote: ReturnType<typeof planClaudeRemote> | null = null;
         if (chosenRemote && !opener) notePlacement(DATA_DIR, `[engine] ${botId!.slice(0, 8)} ${threadId.slice(0, 8)} stays on the home: no cloud computer opener in this server`);
@@ -1576,7 +1579,8 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
         }
         child = remote && "plan" in remote
           ? spawnPlacedEngine(remote.plan, (plan) => opener!.open(botId!, plan), local, (where, why) =>
-            notePlacement(DATA_DIR, `[engine] ${botId!.slice(0, 8)} ${threadId.slice(0, 8)} runs on the ${where === "computer" ? "dog's cloud computer" : "home"}${why ? ` (${why})` : ""}`)) as unknown as ReturnType<typeof spawnCli>
+            notePlacement(DATA_DIR, `[engine] ${botId!.slice(0, 8)} ${threadId.slice(0, 8)} runs on the ${where === "computer" ? "dog's cloud computer" : "home"}${why ? ` (${why})` : ""}`), undefined,
+            { openBudgetMs: opener!.openBudgetMs, onWaiting: (wait) => emit({ ...base(threadId, turnId), ...engineWaitEvent(wait) }) }) as unknown as ReturnType<typeof spawnCli>
           : local();
       } catch (error) {
         cleanupUnownedLaunch();

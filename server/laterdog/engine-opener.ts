@@ -1,10 +1,13 @@
-import { engineComputer } from "../computers.ts";
-import { engineScripts, prepareEngineComputer, processStreamLink, relayCommand } from "./engine-computer.ts";
+import { engineComputer, PROVISION_BUDGET_MS } from "../computers.ts";
+import { ENGINE_PREPARE_BUDGET_MS, ENGINE_STEP_BUDGET_MS, engineScripts, prepareEngineComputer, processStreamLink, relayCommand } from "./engine-computer.ts";
 import type { EngineOpener } from "./engine-placement.ts";
+
+export const ENGINE_OPEN_BUDGET_MS = PROVISION_BUDGET_MS + ENGINE_PREPARE_BUDGET_MS + ENGINE_STEP_BUDGET_MS;
 
 export function computerEngineOpener(): EngineOpener {
   return {
     get proxyPath() { return engineScripts().proxy; },
+    openBudgetMs: ENGINE_OPEN_BUDGET_MS,
     async open(botId, plan) {
       const relay = engineScripts();
       const { box, stream } = await engineComputer(botId);

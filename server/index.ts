@@ -907,6 +907,7 @@ import { findAntigravityLeftovers, removeAntigravityLeftovers } from "./drivers/
 import { createLiveRoutes } from "./routes/live.ts";
 import { withScopeHint } from "./connector-scope-hint.ts";
 import { remoteEngineChoice, setEngineOpener, setRemoteEngineBot } from "./laterdog/engine-placement.ts";
+import { preToolGuardDecision } from "./laterdog/placed-threads.ts";
 import { carryClaudeSession } from "./laterdog/session-carry.ts";
 import { createEnginePlacementRoutes } from "./routes/engine-placement.ts";
 import { computerEngineOpener } from "./laterdog/engine-opener.ts";
@@ -6291,9 +6292,12 @@ function ingestEngineHook(capability: InternalCapability, body: unknown): { ok: 
   }
   if (name === "Stop") return { ok: true };
   if (name === "PreToolUse") {
-    const decision = (CLOUD_HOME ? signalDecision(payload, () => liveSignalScene(threadId, PORT, cloudOwnerOnlyThread(threadId) && !cloudGuestDriven(threadId), () => { restartRequested = true; })) ?? homeFloorDecision(payload, floorDisk ? floorDisk.reading() : diskUse(DATA_DIR), { computers: computersSelected() }) : null)
-      ?? preToolUseDecision(heavyCommandGuard, { active: Boolean(CLOUD_HOME) && computersSelected(), threadId, payload })
-      ?? alwaysAskHook(payload, () => hookGuardContext(capability.botId, threadId, typeof payload.cwd === "string" ? payload.cwd : undefined));
+    const decision = preToolGuardDecision(threadId, {
+      signal: () => CLOUD_HOME ? signalDecision(payload, () => liveSignalScene(threadId, PORT, cloudOwnerOnlyThread(threadId) && !cloudGuestDriven(threadId), () => { restartRequested = true; })) : null,
+      homeDisk: () => CLOUD_HOME ? homeFloorDecision(payload, floorDisk ? floorDisk.reading() : diskUse(DATA_DIR), { computers: computersSelected() }) : null,
+      homeHeavy: () => preToolUseDecision(heavyCommandGuard, { active: Boolean(CLOUD_HOME) && computersSelected(), threadId, payload }),
+      alwaysAsk: () => alwaysAskHook(payload, () => hookGuardContext(capability.botId, threadId, typeof payload.cwd === "string" ? payload.cwd : undefined)),
+    });
     return decision ? { ok: true, hookSpecificOutput: decision } : { ok: true };
   }
   if (name !== "PostToolUse") return { ok: true, ignored: name || "unknown" };

@@ -1,11 +1,17 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { createServer, type Server } from "node:http";
 import { createInterface } from "node:readline";
 import { fileURLToPath } from "node:url";
-import { afterEach, expect, it } from "vitest";
+import { afterEach, expect, it, vi } from "vitest";
 import { killCliTree } from "../procs.ts";
-import { claudeProjectSlug, planClaudeRemote, spawnPlacedEngine, type ClaudeRemotePlan } from "./engine-placement.ts";
+import { alwaysAskHook } from "./always-asks.ts";
+import { diskFloorDecision } from "./disk-floor.ts";
+import { diskRung } from "./disk-ladder.ts";
+import { claudeProjectSlug, planClaudeRemote, spawnPlacedEngine, type ClaudeRemotePlan, type PlacedEngineOptions } from "./engine-placement.ts";
+import type { EngineWait } from "./engine-waiting.ts";
+import { placedThreads, preToolGuardDecision } from "./placed-threads.ts";
 import { createClaudeRefreshGate } from "./claude-refresh-lock.ts";
 import { commandLink, type EngineLink } from "./engine-remote.ts";
 import { createClaudeRenewer, type ClaudeRenewer } from "./engine-renewal.ts";
@@ -16,12 +22,15 @@ const PROXY = here("./engine-proxy.ts");
 const FAKE = here("../testing/fake-remote-engine.ts");
 const scratch: string[] = [];
 const running: Array<{ kill(): unknown }> = [];
+const servers: Server[] = [];
 afterEach(() => {
+  vi.useRealTimers();
+  for (const server of servers.splice(0)) server.close();
   for (const child of running.splice(0)) try { child.kill(); } catch {}
   for (const path of scratch.splice(0)) rmSync(path, { recursive: true, force: true });
 });
 
-function world(sessionId = "s-1") {
+function world(sessionId = "s-1", options: { preToolUse?: string; env?: Record<string, string> } = {}) {
   const base = realpathSync(mkdtempSync("/tmp/ldeng-"));
   scratch.push(base);
   const cwd = join(base, "home", "work");
@@ -49,10 +58,10 @@ function world(sessionId = "s-1") {
   const mcpPath = join(base, "launch", "mcp.json");
   writeFileSync(mcpPath, JSON.stringify({ mcpServers: { probe: { command: process.execPath, args: [mcpServer], env: { PROBE_SECRET: "home-only" }, alwaysLoad: true } } }));
   const settingsPath = join(base, "launch", "settings.json");
-  writeFileSync(settingsPath, JSON.stringify({ hooks: { PreToolUse: [{ matcher: "Bash", hooks: [{ type: "command", command: "exit 2", timeout: 5 }] }], PostToolUse: [{ matcher: "", hooks: [{ type: "command", command: `"${process.execPath}" "${hookScript}"`, timeout: 5 }] }] } }));
+  writeFileSync(settingsPath, JSON.stringify({ hooks: { PreToolUse: [{ matcher: "Bash", hooks: [{ type: "command", command: options.preToolUse ?? "exit 2", timeout: 5 }] }], PostToolUse: [{ matcher: "", hooks: [{ type: "command", command: `"${process.execPath}" "${hookScript}"`, timeout: 5 }] }] } }));
   const env: NodeJS.ProcessEnv = {
     PATH: process.env.PATH, HOME: join(base, "home"), CLAUDE_CONFIG_DIR: configDir, FAKE_ENGINE_SLUG: claudeProjectSlug(cwd),
-    FAKE_ENGINE_LAUNCHES: join(base, "launches.txt"), LATERDOG_HOOK_TOKEN_FILE: join(base, "token"),
+    FAKE_ENGINE_LAUNCHES: join(base, "launches.txt"), LATERDOG_HOOK_TOKEN_FILE: join(base, "token"), ...options.env,
   };
   const args = (resume: boolean) => ["-p", "--input-format", "stream-json", "--output-format", "stream-json", "--mcp-config", mcpPath, "--settings", settingsPath, resume ? "--resume" : "--session-id", sessionId];
   const plan = (resume = false) => {
@@ -73,11 +82,12 @@ function world(sessionId = "s-1") {
     running.push(child);
     return child;
   };
-  const start = (planned: ClaudeRemotePlan, link: () => Promise<EngineLink> = async () => relay(), resume = false, renewer?: ClaudeRenewer) => {
+  const start = (planned: ClaudeRemotePlan, link: () => Promise<EngineLink> = async () => relay(), resume = false, renewer?: ClaudeRenewer, options?: PlacedEngineOptions) => {
     const placed: string[] = [];
-    const engine = spawnPlacedEngine(planned, link, local(resume), (where) => placed.push(where), renewer);
+    const reasons: Array<string | undefined> = [];
+    const engine = spawnPlacedEngine(planned, link, local(resume), (where, why) => { placed.push(where); reasons.push(why); }, renewer, options);
     running.push(engine);
-    return { engine, placed };
+    return { engine, placed, reasons };
   };
   const mirror = (path: string) => join(remoteRoot, path);
   return { base, cwd, configDir, remoteRoot, remoteBase, plan, start, relay, mirror, relays, localLaunches: () => localLaunches,
@@ -118,7 +128,7 @@ it("runs a turn on the computer with home-held tools, hooks and authority, and r
   expect(JSON.parse(result.mcp).result).toEqual({ secret: "home-only", ran: w.cwd });
   expect(JSON.parse(result.hook).hookSpecificOutput).toEqual({ permissionDecision: "deny", token: true });
   expect(result.hookAuthorityVisible).toBe(false);
-  expect(result.shellGuard).toBe(false);
+  expect(result.shellGuard).toBe(true);
   expect(result).toMatchObject({ credentialAccess: true, credentialRefresh: false });
   expect(readFileSync(join(w.base, "hooks.jsonl"), "utf8")).toContain("pnpm install");
   expect(atResult).toEqual({ turnFile: true, session: true, removed: true });
@@ -215,6 +225,103 @@ it("runs on the home when the computer surely never started the engine", async (
   expect(w.localLaunches()).toBe(1);
   engine.stdin.end();
   await closed(engine);
+}, 60_000);
+
+it("places the engine when the computer takes 95 seconds to wake, because the relay's handshake waits for the link to open", async () => {
+  const w = world();
+  const waits: EngineWait[] = [];
+  vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+  const { engine, placed } = w.start(w.plan(), () => new Promise<EngineLink>((resolve) => setTimeout(() => resolve(w.relay()), 95_000)), false, undefined,
+    { onWaiting: (wait) => waits.push(wait) });
+  await vi.advanceTimersByTimeAsync(95_000);
+  vi.useRealTimers();
+  const result = await turn(engine, "slow wake");
+  expect(placed).toEqual(["computer"]);
+  expect(result.cwd).toBe(w.mirror(w.cwd));
+  expect(waits).toEqual([{ waiting: true }, { waiting: false, opened: true, waitedMs: expect.any(Number) }]);
+  expect(w.localLaunches()).toBe(0);
+  engine.stdin.end();
+  expect(await closed(engine)).toBe(0);
+}, 60_000);
+
+it("runs on the home with the reason when the computer never gets ready within its budget", async () => {
+  const w = world();
+  const waits: EngineWait[] = [];
+  vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+  const { engine, placed, reasons } = w.start(w.plan(), () => new Promise<EngineLink>(() => {}), false, undefined,
+    { openBudgetMs: 13.5 * 60_000, onWaiting: (wait) => waits.push(wait) });
+  await vi.advanceTimersByTimeAsync(13.5 * 60_000);
+  vi.useRealTimers();
+  const result = await turn(engine, "never woke");
+  expect(placed).toEqual(["home"]);
+  expect(reasons).toEqual(["The cloud computer did not wake and get ready within 14 minutes."]);
+  expect(result.cwd).toBe(w.cwd);
+  expect(waits).toEqual([{ waiting: true }, { waiting: false, opened: false, waitedMs: expect.any(Number) }]);
+  expect(w.localLaunches()).toBe(1);
+  engine.stdin.end();
+  await closed(engine);
+}, 60_000);
+
+it("stops immediately and cleanly when cancelled while the computer is still waking", async () => {
+  const w = world();
+  const waits: EngineWait[] = [];
+  const planned = w.plan();
+  const { engine, placed } = w.start(planned, () => new Promise<EngineLink>(() => {}), false, undefined,
+    { onWaiting: (wait) => waits.push(wait), waitNoticeMs: 20 });
+  await new Promise((resolve) => setTimeout(resolve, 60));
+  expect(waits).toEqual([{ waiting: true }]);
+  const before = Date.now();
+  const stopped = await killCliTree(engine as unknown as ChildProcess, 5_000);
+  expect(stopped).toBe(true);
+  expect(Date.now() - before).toBeLessThan(2_000);
+  expect(placed).toEqual([]);
+  expect(w.localLaunches()).toBe(0);
+  expect(placedThreads.has("thread-1")).toBe(false);
+  expect(existsSync(planned.stagingDir)).toBe(false);
+  expect(waits).toEqual([{ waiting: true }, { waiting: false, opened: false, waitedMs: expect.any(Number) }]);
+}, 60_000);
+
+it("gives the home's always-ask checks to a placed engine and leaves the home's disk guard off it", async () => {
+  const GB = 1024 ** 3;
+  const nearlyFull = diskRung({ totalBytes: 19.2 * GB, freeBytes: 0.03 * 19.2 * GB });
+  const decide = (threadId: string, payload: Record<string, unknown>) => preToolGuardDecision(threadId, {
+    signal: () => null,
+    homeDisk: () => diskFloorDecision(payload, nearlyFull, { computers: true }),
+    homeHeavy: () => null,
+    alwaysAsk: () => alwaysAskHook(payload, () => ({ cwd: typeof payload.cwd === "string" ? payload.cwd : undefined, workspaceRoots: [] })),
+  });
+  const seen: Array<{ placed: boolean; command: unknown }> = [];
+  const server = createServer((req, res) => {
+    let body = "";
+    req.on("data", (bytes) => { body += bytes; });
+    req.on("end", () => {
+      const payload = JSON.parse(body) as Record<string, unknown>;
+      seen.push({ placed: placedThreads.has("thread-1"), command: (payload.tool_input as Record<string, unknown>).command });
+      const decision = decide("thread-1", payload);
+      res.end(decision ? JSON.stringify({ hookSpecificOutput: decision }) : "");
+    });
+  });
+  servers.push(server);
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const url = `http://127.0.0.1:${(server.address() as { port: number }).port}/hook`;
+  const base = realpathSync(mkdtempSync("/tmp/ldguard-"));
+  scratch.push(base);
+  const guardHook = join(base, "guard-hook.mjs");
+  writeFileSync(guardHook, `let text = ""; process.stdin.on("data", (b) => text += b); process.stdin.on("end", async () => { const reply = await fetch(process.env.LATERDOG_HOOK_URL, { method: "POST", body: text }); process.stdout.write(await reply.text()); });\n`);
+  const w = world("s-1", { preToolUse: `"${process.execPath}" "${guardHook}"`, env: { LATERDOG_HOOK_URL: url } });
+  expect(decide("thread-1", { tool_name: "Bash", tool_input: { command: "pnpm install" } })?.permissionDecision).toBe("deny");
+  const { engine, placed } = w.start(w.plan());
+  const pushed = await turn(engine, "bash:git push --no-verify origin main");
+  expect(placed).toEqual(["computer"]);
+  expect(JSON.parse(pushed.preToolUse).hookSpecificOutput).toMatchObject({ hookEventName: "PreToolUse", permissionDecision: "ask" });
+  const heavy = await turn(engine, "bash:pnpm install");
+  expect(heavy.preToolUse).toBe("");
+  expect(seen).toEqual([{ placed: true, command: "git push --no-verify origin main" }, { placed: true, command: "pnpm install" }]);
+  expect(heavy.hookAuthorityVisible).toBe(false);
+  engine.stdin.end();
+  expect(await closed(engine)).toBe(0);
+  expect(placedThreads.has("thread-1")).toBe(false);
+  expect(decide("thread-1", { tool_name: "Bash", tool_input: { command: "pnpm install" } })?.permissionDecision).toBe("deny");
 }, 60_000);
 
 it("does not run a turn twice when the launch outcome is unknown", async () => {
