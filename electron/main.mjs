@@ -10,7 +10,7 @@ import { applyVariantEnvironment, dataDirFor, deepLinkPattern, desktopUserDataDi
 const launchTimeline = createLaunchTimeline({ facts: () => ({ packaged: app.isPackaged, variant: variant.id }) });
 launchTimeline.mark("main-imports-done");
 launchTimeline.listen(ipcMain);
-app.on("will-quit", () => launchTimeline.finish("quit-before-message-box"));
+app.on("will-quit", () => launchTimeline.close());
 applyVariantEnvironment(variant);
 app.setName(variant.productName);
 const desktopUserData = desktopUserDataDirFor(variant, app.getPath("appData"), { packaged: app.isPackaged });

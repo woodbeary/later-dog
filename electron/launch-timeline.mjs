@@ -22,7 +22,7 @@ const DISABLED = Object.freeze({
   receive: nothing,
   watchWindow: nothing,
   listen: nothing,
-  finish: () => false,
+  close: () => false,
   rendererArguments: () => [],
 });
 
@@ -56,11 +56,12 @@ export function createLaunchTimeline({
   if (!file) return DISABLED;
   const marks = [{ name: "main-process-start", at: processStart }];
   const seen = new Set(["main-process-start"]);
-  let written = false;
+  let ready = false;
+  let closed = false;
   let watchedWindow = null;
 
   const record = (name, at, detail) => {
-    if (written || seen.has(name) || marks.length >= MAX_MARKS) return;
+    if (closed || seen.has(name) || marks.length >= MAX_MARKS) return;
     seen.add(name);
     const entry = { name, at };
     const kept = cleanDetail(detail);
@@ -68,9 +69,7 @@ export function createLaunchTimeline({
     marks.push(entry);
   };
 
-  const finish = (outcome = "complete") => {
-    if (written) return false;
-    written = true;
+  const save = (outcome) => {
     const ordered = [...marks].sort((a, b) => a.at - b.at);
     const report = {
       version: 1,
@@ -82,6 +81,12 @@ export function createLaunchTimeline({
       marks: ordered.map((entry) => ({ ...entry, sinceStartMs: Math.round((entry.at - processStart) * 10) / 10 })),
     };
     write(file, `${JSON.stringify(report, null, 2)}\n`);
+  };
+
+  const close = () => {
+    if (closed) return false;
+    closed = true;
+    save(ready ? "complete" : "quit-before-message-box");
     return true;
   };
 
@@ -92,7 +97,10 @@ export function createLaunchTimeline({
     const time = typeof at === "number" && Number.isFinite(at) ? at : now();
     record(name, time, detail);
     record(`${name}-received`, now());
-    if (name === LAUNCH_TIMELINE_DONE) finish("complete");
+    if (name === LAUNCH_TIMELINE_DONE && !ready && !closed) {
+      ready = true;
+      save("complete");
+    }
   };
 
   const watchWindow = (win) => {
@@ -116,7 +124,7 @@ export function createLaunchTimeline({
     receive,
     watchWindow,
     listen,
-    finish,
+    close,
     rendererArguments: () => [LAUNCH_TIMELINE_ARGUMENT],
   };
 }

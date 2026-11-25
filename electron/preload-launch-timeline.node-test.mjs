@@ -18,6 +18,7 @@ let mutate = () => {};
 let disconnected = false;
 let paintEntries = () => {};
 const domReady = [];
+const visibilityChanges = [];
 const globals = {
   localStorage: { getItem: (key) => (key === "laterdog-first-paint" ? "{}" : null) },
   PerformanceObserver: class {
@@ -31,7 +32,11 @@ const globals = {
   },
   document: {
     documentElement: {},
-    addEventListener: (name, callback) => { if (name === "DOMContentLoaded") domReady.push(callback); },
+    visibilityState: "hidden",
+    addEventListener: (name, callback) => {
+      if (name === "DOMContentLoaded") domReady.push(callback);
+      if (name === "visibilitychange") visibilityChanges.push(callback);
+    },
     getElementById: (id) => (id === "root" ? { childElementCount: page.rootChildren } : null),
     querySelector: (selector) => {
       if (selector === "[data-launch-splash]") return page.splash ? element({ "data-launch-splash": page.splash }) : null;
@@ -51,7 +56,7 @@ test("without the flag the preload sends no launch marks", () => {
   delete require.cache[require.resolve("./preload.cjs")];
 });
 
-test("with the flag the preload reports paint, splash and the message box once each", () => {
+test("with the flag the preload reports paint, splash and a visible message box once each", () => {
   process.argv.push("--laterdog-launch-timeline=1");
   try {
     require("./preload.cjs");
@@ -71,6 +76,9 @@ test("with the flag the preload reports paint, splash and the message box once e
   mutate();
   page.splash = null;
   mutate();
+  assert.equal(names().includes("renderer-message-box-ready"), false);
+  globalThis.document.visibilityState = "visible";
+  visibilityChanges.forEach((callback) => callback());
   mutate();
   assert.deepEqual(names(), [
     "renderer-started",

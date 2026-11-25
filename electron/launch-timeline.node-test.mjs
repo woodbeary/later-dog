@@ -32,7 +32,7 @@ test("without the variable it records nothing, writes nothing and adds no render
   const ipc = new EventEmitter();
   timeline.listen(ipc);
   timeline.watchWindow(fakeWindow());
-  assert.equal(timeline.finish(), false);
+  assert.equal(timeline.close(), false);
   assert.deepEqual(timeline.rendererArguments(), []);
   assert.equal(ipc.listenerCount(LAUNCH_TIMELINE_CHANNEL), 0);
   assert.deepEqual(writes, []);
@@ -42,7 +42,7 @@ test("a blank variable is the same as no variable", () => {
   assert.equal(createLaunchTimeline({ env: { [LAUNCH_TIMELINE_ENV]: "  " } }).enabled, false);
 });
 
-test("marks are written once, in time order, when the message box is ready", () => {
+test("the record is written in time order when the message box is ready, and again with later marks at quit", () => {
   const time = clock();
   const writes = [];
   const timeline = createLaunchTimeline({
@@ -62,8 +62,7 @@ test("marks are written once, in time order, when the message box is ready", () 
   timeline.receive("not-a-renderer-mark", 1_030);
   time.advance(100);
   timeline.receive("renderer-message-box-ready", 1_140, { snapshot: true, ignored: { nested: 1 } });
-  timeline.mark("too-late");
-  assert.equal(timeline.finish(), false);
+  timeline.receive("renderer-message-box-ready", 1_145);
   assert.equal(writes.length, 1);
   const { file, report } = writes[0];
   assert.equal(file, "/out/run.json");
@@ -81,14 +80,23 @@ test("marks are written once, in time order, when the message box is ready", () 
   ]);
   assert.deepEqual(report.marks.find((entry) => entry.name === "renderer-message-box-ready").detail, { snapshot: true });
   assert.equal(report.marks.find((entry) => entry.name === "create-window").sinceStartMs, 140);
+  time.advance(30);
+  timeline.mark("window-shown");
+  assert.equal(timeline.close(), true);
+  timeline.mark("after-quit");
+  assert.equal(timeline.close(), false);
+  assert.equal(writes.length, 2);
+  assert.equal(writes[1].report.outcome, "complete");
+  assert.deepEqual(writes[1].report.marks.map((entry) => entry.name).slice(-2), ["renderer-message-box-ready-received", "window-shown"]);
 });
 
 test("a launch that ends before the message box still leaves a partial record", () => {
   const writes = [];
   const timeline = createLaunchTimeline({ env: { [LAUNCH_TIMELINE_ENV]: "/out/run.json" }, now: () => 5, processStart: 1, write: (_file, text) => writes.push(JSON.parse(text)) });
   timeline.mark("app-ready");
-  assert.equal(timeline.finish("quit-before-ready"), true);
-  assert.equal(writes[0].outcome, "quit-before-ready");
+  assert.equal(timeline.close(), true);
+  assert.equal(writes.length, 1);
+  assert.equal(writes[0].outcome, "quit-before-message-box");
 });
 
 test("window events and renderer messages from the watched window become marks", () => {
@@ -128,7 +136,7 @@ test("the default writer leaves one complete file and no partial", () => {
     const file = join(folder, "nested", "run.json");
     const timeline = createLaunchTimeline({ env: { [LAUNCH_TIMELINE_ENV]: file } });
     timeline.mark("app-ready");
-    assert.equal(timeline.finish(), true);
+    assert.equal(timeline.close(), true);
     const report = JSON.parse(readFileSync(file, "utf8"));
     assert.equal(report.marks.at(-1).name, "app-ready");
     assert.ok(report.marks.every((entry) => entry.sinceStartMs >= 0));

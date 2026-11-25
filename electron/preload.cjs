@@ -409,11 +409,12 @@ if (isLocalPage && process.argv.includes("--laterdog-launch-timeline=1")) {
     const splash = document.querySelector("[data-launch-splash]");
     if (splash) markOnce("renderer-launch-splash-shown");
     if (splash?.getAttribute("data-launch-splash") === "leaving") markOnce("renderer-launch-splash-leaving");
-    if (!splash && document.querySelector("[data-composer-surface] textarea")) {
+    if (!splash && document.visibilityState === "visible" && document.querySelector("[data-composer-surface] textarea")) {
       observer.disconnect();
       markOnce("renderer-message-box-ready", undefined, { snapshot });
     }
   };
+  document.addEventListener("visibilitychange", () => look());
   document.addEventListener("DOMContentLoaded", () => {
     observer.observe(document.documentElement, { childList: true, subtree: true, attributes: true, attributeFilter: ["data-launch-splash"] });
     look();
