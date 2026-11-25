@@ -76,6 +76,7 @@ Use only mapped, tested commands:
 - [Channels](channels.md)
 - [In-chat team coordination](room-coordination.md)
 - [Engines and Doctor](engines.md)
+- [Login-shell PATH probe lifecycle](login-shell-path-lifecycle-2026-11-25.md)
 - [Claude coordination and turn-scoped tools](claude-tool-lifecycle.md)
 - [Codex bot instructions](codex-instructions.md)
 - [Harness tuning and what dogs are told](harness-and-instructions.md)

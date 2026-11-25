@@ -152,8 +152,8 @@ each job's whole process group on its computer (`ComputerRuns.stop`), then any p
 job's marker (one that started its own session), and removes the job only once none is left. Where the
 computer cannot list processes by the marker, a dead group still removes the job and the chat says "part
 of it may still be running". A job on a sleeping computer is left to the watch, which ends it quietly. A job
-whose computer is neither running nor asleep (missing, in an error state, starting, or not answering) ends
-here as stopped, since nothing can be done to it there. If a running computer's stop cannot be confirmed,
+on a confirmed gone computer ends here. An error, starting or unanswering computer does not confirm
+that a command ended. If its status or a running computer's stop cannot be confirmed,
 the chat keeps showing the job and says "Scout's command on its computer could not be stopped, so it is
 still running. Press Stop again to try once more.". The two Stop lines are written as failures
 (`error:`), the not-woken and no-result lines as `notice:`, so both apps show all four: the desktop shows
@@ -219,11 +219,11 @@ With these agreeing, the phone can read `work` alone and drop its rebuild from t
   back to the home) and the chat settles idle with exactly one wake line. A home restart with a job alive:
   after the restart the chat shows `running` from the ledger, and the dog is woken once when it ends. A
   job that ends while the home is down wakes the dog once after the restart. The person's Stop ends the
-  command itself for three shapes (a plain command, one followed by more, one inside another shell): the
-  process is gone, nobody is woken and the ledger is empty; so does a Stop sent without the chat's id. A
-  Stop on a computer that reports an error ends the job with no "still running" line. When the stand-in
-  refuses the stop, the chat gets "error: … could not be stopped …" and keeps running, and a second Stop
-  ends it. A job whose processes are killed with no exit record ends with "notice: … ended without a
+  command itself for four shapes (a plain command, one followed by more, one inside another shell, and
+  one that starts its own session): the process is gone, nobody is woken and the ledger is empty; so does
+  a Stop sent without the chat's id. A Stop on a computer that reports an error keeps the job with an
+  "error: … could not be stopped …" line; a later confirmed Stop ends it. When the stand-in refuses the
+  stop, the chat also keeps running until a second Stop confirms that it ended. A job whose processes are killed with no exit record ends with "notice: … ended without a
   result." and no wake-up. The commands are short sleepers tagged with a marker unique to the run, and
   every test ends that marker's processes afterwards.
 - `server/laterdog/work-state-model-rest.e2e.test.ts`: on one account with only Fable resting, the Fable
