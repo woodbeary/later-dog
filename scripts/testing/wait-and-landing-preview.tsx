@@ -62,8 +62,24 @@ const LONG_REPLY = [
 
 interface Row { id: string; side: "user" | "dog"; text: string; dog?: Dog }
 
+const HISTORY: Row[] = [
+  { id: "h1", side: "dog", text: "Good morning! The spring menu draft is in the shared folder." },
+  { id: "h2", side: "user", text: "Thanks. Can you make the soup sound a bit fancier?" },
+  { id: "h3", side: "dog", text: "Sure: “Spring pea soup with mint and crème fraîche.”" },
+  { id: "h4", side: "user", text: "Perfect. Put it up." },
+];
+
+const OLDER_DAY: Row[] = [
+  { id: "o1", side: "user", text: "Can you check which suppliers still owe us an invoice?" },
+  { id: "o2", side: "dog", text: "Two do: the bakery and the farm. I sent both a reminder." },
+  { id: "o3", side: "user", text: "Thanks. And the fridge repair?" },
+  { id: "o4", side: "dog", text: "Booked for Thursday at nine. The technician will call first." },
+  { id: "o5", side: "user", text: "Great. Let's do the spring menu next." },
+  { id: "o6", side: "dog", text: "Happy to. I'll start a draft and put it in the shared folder." },
+];
+
 const EARLIER: Row[] = [
-  { id: "e1", side: "dog", text: "Morning! The spring menu is up on the website." },
+  { id: "e1", side: "dog", text: "Done. The spring menu is up on the website." },
   { id: "e2", side: "user", text: "Lovely. A few people say they can't order though." },
   { id: "e3", side: "dog", text: "I can look into it whenever you like." },
   { id: "prompt", side: "user", text: PROMPT },
@@ -320,13 +336,13 @@ function landingTurn(kind: string, landed: boolean): { dog: Dog; turn: Turn; scr
     case "long":
       return { dog: SCOUT, scrolledUp: 0, asksAway: null, turn: { dog: SCOUT, line: writing, fold: FOLD, replies: [reply("r1", LONG_REPLY.join("\n\n"))], landed } };
     case "reading":
-      return { dog: SCOUT, scrolledUp: 320, asksAway: null, turn: { dog: SCOUT, line: writing, fold: FOLD, replies: [reply("r1", REPLY_PARTS.join("\n\n"))], landed } };
+      return { dog: SCOUT, scrolledUp: 100_000, asksAway: null, turn: { dog: SCOUT, line: writing, fold: FOLD, replies: [reply("r1", REPLY_PARTS.join("\n\n"))], landed } };
     case "batch":
       return { dog: PEBBLE, scrolledUp: 0, asksAway: null, turn: { dog: PEBBLE, line: stateLine("room-many"), fold: null, labels: true, replies: [reply("r1", "The flyer can take the new menu by Friday.", PEBBLE), reply("r2", "And I can bring a draft over tomorrow morning.", PEBBLE), reply("r3", "I'll proofread it once it's in.", THISTLE)], landed } };
     case "split":
       return { dog: SCOUT, scrolledUp: 0, asksAway: null, turn: { dog: SCOUT, line: writing, fold: FOLD, replies: REPLY_PARTS.map((text, index) => reply(`r${index + 1}`, text)), landed } };
     case "asks-away":
-      return { dog: SCOUT, scrolledUp: 300, asksAway: "Waiting for your OK", turn: { dog: SCOUT, line: stateLine("needs-ok"), fold: null, replies: [], landed: false } };
+      return { dog: SCOUT, scrolledUp: 100_000, asksAway: "Waiting for your OK", turn: { dog: SCOUT, line: stateLine("needs-ok"), fold: null, replies: [], landed: false } };
     default:
       return { dog: SCOUT, scrolledUp: 0, asksAway: null, turn: { dog: SCOUT, line: writing, fold: FOLD, replies: [reply("r1", REPLY_PARTS.join("\n\n"))], landed } };
   }
@@ -341,7 +357,7 @@ function LandingView() {
   const kind = params.get("case") ?? "fold";
   const { dog, turn, scrolledUp, asksAway } = landingTurn(kind, landed);
   const rows: Row[] = kind === "batch" ? [...EARLIER.slice(0, 3), { id: "prompt", side: "user", text: "Can someone get the new menu onto the flyer?" }] : EARLIER;
-  return <div className="wl-page p-6" data-view="landing"><Chat where={platform} dog={dog} rows={rows} turn={turn} scrolledUp={scrolledUp} asksAway={asksAway} /></div>;
+  return <div className="wl-page p-6" data-view="landing"><Chat where={platform} dog={dog} rows={[...(kind === "reading" || kind === "asks-away" ? OLDER_DAY : []), ...HISTORY, ...rows]} turn={turn} scrolledUp={scrolledUp} asksAway={asksAway} /></div>;
 }
 
 function BusyView() {
@@ -390,15 +406,38 @@ function CompareView() {
       {MOMENTS.map(([id, title]) => (
         <Fragment key={id}>
           <div className="wl-caption"><b>{title}</b></div>
-          <img alt={`Today: ${title}`} src={`${base}/before-${id}.png`} onLoad={() => setLoaded((count) => count + 1)} />
-          <img alt={`Proposed: ${title}`} src={`${base}/after-${id}.png`} onLoad={() => setLoaded((count) => count + 1)} />
+          <img alt={`Today: ${title}`} src={`${base}/before-${id}.png`} onLoad={() => setLoaded((count) => count + 1)} onError={() => setLoaded((count) => count + 1)} />
+          <img alt={`Proposed: ${title}`} src={`${base}/after-${id}.png`} onLoad={() => setLoaded((count) => count + 1)} onError={() => setLoaded((count) => count + 1)} />
         </Fragment>
       ))}
     </main>
   );
 }
 
+function SheetView() {
+  const files = (params.get("files") ?? "").split(",").filter(Boolean);
+  const labels = (params.get("labels") ?? "").split("|");
+  const columns = Number(params.get("cols") ?? 4);
+  const [loaded, setLoaded] = useState(0);
+  useEffect(() => { if (loaded >= files.length) window.__wl.ready = true; }, [loaded, files.length]);
+  return (
+    <main className="wl-page p-6" data-view="sheet">
+      {params.get("title") && <div className="wl-grid-title mb-1">{params.get("title")}</div>}
+      {params.get("note") && <div className="wl-caption mb-4">{params.get("note")}</div>}
+      <div className="grid gap-4" style={{ gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))` }}>
+        {files.map((file, index) => (
+          <figure key={file} className="flex flex-col gap-1.5">
+            <img alt={labels[index] ?? file} src={`/docs/verification/assets/wait-and-landing/${file}`} onLoad={() => setLoaded((count) => count + 1)} onError={() => setLoaded((count) => count + 1)} className="w-full rounded-lg shadow-[0_0_0_0.5px_var(--hairline-default)]" />
+            <figcaption className="wl-caption">{labels[index]}</figcaption>
+          </figure>
+        ))}
+      </div>
+    </main>
+  );
+}
+
 function Root() {
+  if (view === "sheet") return <SheetView />;
   if (view === "landing") return <LandingView />;
   if (view === "busy") return <BusyView />;
   if (view === "bubbles") return <BubblesView />;
