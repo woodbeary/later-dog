@@ -8,6 +8,8 @@ Job logs come from the Actions job-log API: `gh run view --log` returned an empt
 successful response for these runs, while the API returned complete logs.
 
 Existing weights survive when a sample has no positive duration for a file.
+New files without a positive finite measurement stay unlisted, preserving the
+sequencer's median e2e fallback.
 Measured light files and files that no longer exist still leave the weight table.
 This prevents partial or skipped samples from silently replacing known durations
 with the sequencer's one-second fallback.
@@ -35,21 +37,21 @@ The four unobserved files are `scripts/desktop-perf-budget-file.test.ts`,
 ## Estimates, not a hosted speed result
 
 A candidate table uses the median positive file duration across the two runs,
-retaining existing weights for unmeasured files. It contains 218 weighted files.
+retaining existing weights for unmeasured files. It contains 214 weighted files.
 The same 1,486-file set is passed to `planShards` with eight shards for both
 the old 133-entry table and the candidate table. Each assignment is scored by
 summing the same real per-file durations; no unmeasured time is invented.
 
 | Shard | Old assignment, median measured seconds | Candidate assignment, median measured seconds |
 | --- | ---: | ---: |
-| 1 | 538.294 | 678.431 |
-| 2 | 617.179 | 678.502 |
-| 3 | 496.225 | 684.200 |
-| 4 | 1,133.899 | 688.528 |
-| 5 | 384.465 | 686.993 |
-| 6 | 667.281 | 697.590 |
-| 7 | 1,170.634 | 684.388 |
-| 8 | 476.384 | 685.732 |
+| 1 | 538.294 | 694.190 |
+| 2 | 617.179 | 677.082 |
+| 3 | 496.225 | 698.235 |
+| 4 | 1,133.899 | 675.041 |
+| 5 | 384.465 | 683.957 |
+| 6 | 667.281 | 686.139 |
+| 7 | 1,170.634 | 677.682 |
+| 8 | 476.384 | 692.037 |
 
 These are sums of Vitest file durations, fitted and evaluated on the same two
 runs. They exclude queueing, runner setup, transform/collection overhead and
@@ -82,7 +84,10 @@ On the unchanged updater, the two weight-retention regression tests fail: the
 60-second unobserved weight disappears, and the skipped 40-second weight becomes
 one second. The original CLI also rejects run 45549371601 because it has no
 Windows vitest jobs; the updated collector reads 1,483 files from that live run
-using its Linux default. With the change, all 18 updater/sequencer tests pass, focused
+using its Linux default. Review added five regressions for a new e2e file with
+zero, NaN, infinite, negative or missing duration: before the correction each
+received a one-second weight; after it stays unlisted and uses the median fallback.
+With the change, all 24 updater/sequencer tests pass, focused
 oxlint reports no warnings or errors, and `pnpm typecheck` passes on Node 24.
 The full merge gate remains required;
 these focused checks do not qualify a merge.

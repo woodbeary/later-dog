@@ -40,12 +40,12 @@ export function buildWeights(samples, exists, previous = {}) {
   for (const file of [...new Set([...seen.keys(), ...Object.keys(previous)])].sort()) {
     if (!exists(file)) continue;
     const values = (seen.get(file) ?? []).filter((seconds) => Number.isFinite(seconds) && seconds > 0).sort((a, b) => a - b);
-    if (values.length === 0 && Object.hasOwn(previous, file)) {
-      weights[file] = previous[file];
+    if (values.length === 0) {
+      if (Object.hasOwn(previous, file)) weights[file] = previous[file];
       continue;
     }
     const middle = Math.floor(values.length / 2);
-    const median = values.length === 0 ? 0 : values.length % 2 ? values[middle] : (values[middle - 1] + values[middle]) / 2;
+    const median = values.length % 2 ? values[middle] : (values[middle - 1] + values[middle]) / 2;
     if (median >= HEAVY_SECONDS || E2E.test(file)) weights[file] = Math.max(1, Math.round(median));
   }
   return weights;

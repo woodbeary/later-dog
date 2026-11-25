@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { planShards } from "./duration-sequencer.ts";
 import * as updater from "./update-shard-weights.mjs";
 
 function ghFor(jobs: { name: string; databaseId: number }[]) {
@@ -64,6 +65,24 @@ describe("hosted shard timings", () => {
     expect(updater.buildWeights([new Map([["server/skipped.e2e.test.ts", 0]])], () => true, {
       "server/skipped.e2e.test.ts": 40,
     })).toEqual({ "server/skipped.e2e.test.ts": 40 });
+  });
+
+  it.each([0, Number.NaN, Number.POSITIVE_INFINITY, -1, undefined])("leaves a new e2e file unweighted without a positive finite duration (%s)", (duration) => {
+    const weights = updater.buildWeights([new Map([["server/new.e2e.test.ts", duration]])], () => true);
+    expect(weights).toEqual({});
+    expect(planShards(["server/new.e2e.test.ts"], {
+      "server/a.e2e.test.ts": 10,
+      "server/b.e2e.test.ts": 30,
+      ...weights,
+    }, 1).loads).toEqual([20]);
+  });
+
+  it("uses positive finite timings when a file also has unmeasured samples", () => {
+    expect(updater.buildWeights([
+      new Map([["server/new.e2e.test.ts", 0]]),
+      new Map([["server/new.e2e.test.ts", Number.NaN]]),
+      new Map([["server/new.e2e.test.ts", 8]]),
+    ], () => true)).toEqual({ "server/new.e2e.test.ts": 8 });
   });
 
   it("replaces an old slow-file weight when measured runs are now light", () => {
