@@ -22,6 +22,22 @@ Chrome binary (default `/usr/bin/chromium`). `--dist` serves another build,
 size the run. The fixture serves the build because the launcher passes
 `LATERDOG_TEST_STATIC_DIR` through to the server as its static folder.
 
+`--loads-only` records fresh-profile loads and fixture HTTP reads without the
+interaction passes. `--http-runs N` (default 20) sets the HTTP samples per route.
+Each route gets one discarded warm-up, then health, dog-list and 200-message
+transcript reads alternate their order. The report keeps every sample, status,
+body size, response-header duration and complete-body duration. Non-success
+responses and redirects fail the run. These are loopback HTTP timings, excluding
+TLS, the edge, container wakes and engine generation.
+
+Loads retain `composerReadyMs` for textarea insertion and add
+`uncoveredComposerMs`: the first observed visible textarea after the launch
+cover is gone. `composerCoverWaitMs` is the time between insertion and that
+observation. The page's own mutation observer timestamps both events, so a
+late host read does not add to the result. This is DOM readiness, not a GPU
+presentation timestamp. The raw per-load samples are kept. A new browser profile is not an OS cold launch;
+packaged desktop launch is measured separately by the launch timeline.
+
 Two modes check behaviour instead of timing it, and can be combined in one
 run:
 
@@ -69,7 +85,8 @@ Two more modes help find a cause rather than a number:
 
 | Step | How |
 |---|---|
-| Load | First paint and the moment the message box exists, each in a fresh browser profile |
+| Load | First paint, message-box insertion and visible uncovered message box, each in a fresh browser profile |
+| Home HTTP | Health, dog list and long transcript reads from the isolated fixture; response headers and full body timed separately, with all raw samples |
 | Chat switching | Click a sidebar row; stop when the chat's message box and a row of its transcript are on screen for two frames |
 | Typing | 119 keys at 35 ms; key press to the second frame after it |
 | Scrolling | 90 wheel steps through the long chat |
@@ -79,7 +96,12 @@ Two more modes help find a cause rather than a number:
 | Landing | A reply that finishes lands in the open long chat, short and long, once while following the bottom and once scrolled up 1,500 px. Longest main-thread task and blocking time (tasks over 50 ms, the part past 50 ms) from a Chrome trace, from 50 ms before the reply's frame arrives to 500 ms after its bubble is first seen; rows above the new bubble that move (against the first row that is still there, and against the viewport), plus Chrome's layout-shift entries |
 | Redraw causes | Each commit in a working turn is filed under what ran in the 150 ms before it: a `native.run.updated` frame, a `message.patch`, a new `message`, any other server frame (`workAndRuntime`), a timer, the person's input, an answered request, or nothing recognised (`unattributed`). A commit with more than one cause is its own `mixed:` entry and also counted under each cause in `causeTotals` as `withOthers` |
 | Settings open | The working-turn pass again, with Settings open (Ctrl+,) over the long chat and the same scripted reply, sent through the API |
-| Memory | JS heap after a collection at idle and after the run, DOM nodes, and resident memory of the server tree and the browser tree at idle, at its highest during the timed pass (sampled every second) and at the end |
+| Memory | JS heap after a collection at idle and after the run, DOM nodes, and resident memory of the server tree and the headless Chrome tree at idle, at its highest during the timed pass (sampled every second) and at the end |
+
+The browser tree is not the packaged Electron app's process tree. RSS can count
+shared pages more than once. The soak mode's renderer reading uses Linux
+anonymous memory plus swap where available, with RSS as its fallback on other
+platforms. Each report records Node, CPU, core count, RAM, OS and load average.
 
 The fake engine streams a reply in pieces when `FAKE_CLAUDE_STREAM_FILE` names
 a JSON file `{ "everyMs": 30, "chars": 10 }`, and reads scripted replies from
