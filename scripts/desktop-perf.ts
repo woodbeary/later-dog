@@ -3,13 +3,15 @@ import { randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { createServer } from "node:net";
-import { tmpdir } from "node:os";
+import { cpus, loadavg, release, tmpdir, totalmem } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { launchVerificationServer, type VerificationServer } from "./control-laterdog.ts";
 import { fixtureApi } from "./testing/preview-fixture.ts";
 import { compare, table, type Budget } from "./desktop-perf-budget.ts";
 import { calibrate, partsNeeded, readMeasures, type PerfResult } from "./desktop-perf-measures.ts";
+import { measureFixtureResponse, type HttpTiming } from "./desktop-home-http.ts";
+import { installComposerProbe } from "./desktop-ready-probe.ts";
 
 const WELCOME_VERSION = 2;
 const WINDOW_ROWS = 120;
@@ -146,7 +148,7 @@ async function seed(api: ReturnType<typeof fixtureApi>, setup: Options): Promise
 
 const PAGE_PROBE = `(() => {
   const realSetTimeout = window.setTimeout.bind(window);
-  const perf = { lastTrigger: null, triggers: [], causes: {}, causing: false, causeNow: null, replyFrameAt: null, landingWatch: null, commits: 0, rendered: 0, counting: false, longTasks: [], frames: [], composerAt: null, keys: [], names: new Map(), watchingStore: false, store: null, storeChanges: [], startedAt: 0, placing: false, storeChangedAt: -1000, storeChangedThisTask: false, placed: {}, placedNow: null, rowsThisCommit: new Set() };
+  const perf = { lastTrigger: null, triggers: [], causes: {}, causing: false, causeNow: null, replyFrameAt: null, landingWatch: null, commits: 0, rendered: 0, counting: false, longTasks: [], frames: [], composerAt: null, composerUncoveredAt: null, keys: [], names: new Map(), watchingStore: false, store: null, storeChanges: [], startedAt: 0, placing: false, storeChangedAt: -1000, storeChangedThisTask: false, placed: {}, placedNow: null, rowsThisCommit: new Set() };
   window.__perf = perf;
   const component = (tag) => tag === 0 || tag === 1 || tag === 11 || tag === 14 || tag === 15;
   const firstElement = (fiber) => {
@@ -311,10 +313,7 @@ const PAGE_PROBE = `(() => {
   let last = null;
   const frame = (at) => { if (last !== null) perf.frames.push(at - last); last = at; requestAnimationFrame(frame); };
   requestAnimationFrame(frame);
-  const seen = new MutationObserver(() => {
-    if (perf.composerAt === null && document.querySelector('textarea[aria-label^="Message "]')) { perf.composerAt = performance.now(); seen.disconnect(); }
-  });
-  document.addEventListener("DOMContentLoaded", () => seen.observe(document.documentElement, { childList: true, subtree: true }));
+  document.addEventListener("DOMContentLoaded", () => (${installComposerProbe.toString()})(perf));
   addEventListener("keydown", (event) => {
     const pressed = event.timeStamp;
     requestAnimationFrame(() => requestAnimationFrame((shown) => perf.keys.push(shown - pressed)));
@@ -1202,6 +1201,8 @@ async function switchProfile(browser: { newContext(options: unknown): Promise<{ 
 async function coldLoads(browser: { newContext(options: unknown): Promise<{ addInitScript(script: string): Promise<void>; newPage(): Promise<Page>; close(): Promise<void> }> }, url: string, runs: number) {
   const ready: number[] = [];
   const painted: number[] = [];
+  const uncovered: number[] = [];
+  const coverWait: number[] = [];
   for (let run = 0; run < runs; run += 1) {
     const context = await browser.newContext({ viewport: { width: 1440, height: 900 } });
     await context.addInitScript(PAGE_PROBE);
@@ -1212,11 +1213,47 @@ async function coldLoads(browser: { newContext(options: unknown): Promise<{ addI
       composer: (window as unknown as { __perf: { composerAt: number | null } }).__perf.composerAt ?? performance.now(),
       paint: performance.getEntriesByName("first-contentful-paint")[0]?.startTime ?? 0,
     }));
+    const uncoveredAt = await page.evaluate(() => {
+      const perf = (window as unknown as { __perf: { composerUncoveredAt: number | null; until(test: () => boolean, timeoutMs: number): Promise<number> } }).__perf;
+      return perf.until(() => perf.composerUncoveredAt !== null, 60_000).then(() => perf.composerUncoveredAt!);
+    });
     ready.push(seen.composer);
     painted.push(seen.paint);
+    uncovered.push(uncoveredAt);
+    coverWait.push(Math.max(0, uncoveredAt - seen.composer));
     await context.close();
   }
-  return { firstPaintMs: distribution(painted), composerReadyMs: distribution(ready) };
+  return {
+    firstPaintMs: distribution(painted),
+    composerReadyMs: distribution(ready),
+    uncoveredComposerMs: distribution(uncovered),
+    composerCoverWaitMs: distribution(coverWait),
+    samples: ready.map((composerMs, index) => ({ firstPaintMs: painted[index], composerReadyMs: composerMs, uncoveredComposerMs: uncovered[index], composerCoverWaitMs: coverWait[index] })),
+  };
+}
+
+async function homeHttp(url: string, dog: Dog, runs: number) {
+  if (!Number.isInteger(runs) || runs < 1) throw new Error("--http-runs takes a positive whole number");
+  const paths = ["/api/health", "/api/bots", `/api/threads/${encodeURIComponent(dog.threadId)}/messages?limit=200`];
+  const rows = paths.map((path) => ({ path, samples: [] as HttpTiming[] }));
+  for (const row of rows) await measureFixtureResponse(`${url}${row.path}`);
+  for (let run = 0; run < runs; run++) {
+    for (let index = 0; index < rows.length; index++) {
+      const row = rows[(run + index) % rows.length]!;
+      row.samples.push(await measureFixtureResponse(`${url}${row.path}`));
+    }
+  }
+  return {
+    transport: "isolated loopback HTTP; no TLS, edge, container wake or engine generation",
+    warmupPerRoute: 1,
+    runs,
+    routes: rows.map((row) => ({
+      path: row.path,
+      responseHeadersMs: distribution(row.samples.map((sample) => sample.responseHeadersMs)),
+      bodyCompleteMs: distribution(row.samples.map((sample) => sample.bodyCompleteMs)),
+      ...row,
+    })),
+  };
 }
 
 type Browser = { newContext(options: unknown): Promise<{ addInitScript(script: string): Promise<void>; newPage(): Promise<Page>; close(): Promise<void> }> };
@@ -2237,8 +2274,9 @@ async function main() {
       return;
     }
     const budgeting = budgetRequest();
-    const needs = budgeting ? budgeting.parts : new Set(["cold", "timed", "counted", "landing"]);
+    const needs = budgeting ? budgeting.parts : new Set(process.argv.includes("--loads-only") ? ["cold", "http"] : ["cold", "http", "timed", "counted", "landing"]);
     const cold = needs.has("cold") ? await coldLoads(browser, fixture.info.url, setup.coldRuns) : undefined;
+    const http = needs.has("http") ? await homeHttp(fixture.info.url, dogs.long, Number(option("http-runs", "20"))) : undefined;
     const timed = needs.has("timed") ? await pass(browser, fixture, api, dogs, setup, files, false) : undefined;
     const counted = needs.has("counted") ? await pass(browser, fixture, api, dogs, setup, files, true) : undefined;
     const landed = needs.has("landing") ? await landing(browser, fixture.info.url, api, dogs, files, Number(option("landing-reps", "3"))) : undefined;
@@ -2247,6 +2285,8 @@ async function main() {
       at: new Date().toISOString(),
       setup: { ...setup, seedSeconds, renderer: "production build served by the fixture server", browser: setup.browser, platform: `${process.platform} ${process.arch}`, messagesInLongChat: setup.longTurns * 2 },
       cold,
+      homeHttp: http,
+      machine: { node: process.version, cpu: cpus()[0]?.model, cores: cpus().length, memoryGb: Math.round(totalmem() / 2 ** 30), release: release(), loadAverage: loadavg() },
       timed,
       landing: landed,
       counted: counted && {
