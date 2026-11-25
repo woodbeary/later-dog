@@ -1627,6 +1627,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
         if (session.helperTimer) clearTimeout(session.helperTimer);
         session.helperTimer = null;
         if (session.helpers.running()) {
+          session.nativeActivity.stopAll();
           closeSession(threadId, "helpers stopped at turn end");
           stopSession(session);
         }
@@ -2049,6 +2050,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
         if (session.helperTimer) clearTimeout(session.helperTimer);
         session.helperTimer = null;
         const stoppedLine = helpersStoppedLine(session.helpers.stopAll());
+        session.nativeActivity.stopAll();
         if (stoppedLine) emit({ ...base(threadId, currentTurnId()), type: "runtime.error", message: stoppedLine });
         if (session.turn?.stopRequested && !session.turn.settled) {
           settle(false, "interrupted");

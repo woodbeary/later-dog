@@ -104,6 +104,14 @@ export class ClaudeNativeActivity {
     this.emit({ kind: "capabilities", version: this.version, handlesParentActivity: true, limitations: [...this.limitations] });
   }
 
+  stopAll(): void {
+    const at = this.now();
+    for (const actor of this.actors.values()) {
+      if (actor.kind !== "parent" && !terminal(actor.state)) this.actor({ ...actor, state: "stopped", endedAt: actor.endedAt ?? at, activity: "Stopped when the session ended" });
+    }
+    this.liveBackground.clear();
+  }
+
   actorForTool(toolUseId: unknown): string | undefined {
     return typeof toolUseId === "string" ? this.tools.get(toolUseId)?.actorId : undefined;
   }
