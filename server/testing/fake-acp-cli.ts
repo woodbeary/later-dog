@@ -511,7 +511,7 @@ function handle(msg: any) {
         sessionId: "fake-acp-session",
         ...(opts ? { configOptions: opts } : {}),
         ...(mdls ? { models: mdls } : {}),
-        ...(sessionModes() ?? {}),
+        ...sessionModes(),
       }, "session/new", "fake-acp-session");
       break;
     }
@@ -565,7 +565,7 @@ function handle(msg: any) {
       const opts = configOptions();
       const mdls = sessionModels();
       liveSession = typeof msg.params?.sessionId === "string" ? msg.params.sessionId : liveSession;
-      result(msg.id, { ...(opts ? { configOptions: opts } : {}), ...(mdls ? { models: mdls } : {}), ...(sessionModes() ?? {}) });
+      result(msg.id, { ...(opts ? { configOptions: opts } : {}), ...(mdls ? { models: mdls } : {}), ...sessionModes() });
       break;
     }
     case "session/set_mode":
