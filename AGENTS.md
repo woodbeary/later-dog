@@ -3,6 +3,13 @@
 Always use pnpm instead of npm. Node 24+ is required.
 Keep native backend limitations visible; fixture success does not qualify a live provider.
 
+The installed pre-push hook checks changed-file format, comments and lint together with full
+application/server types and locale validation. It requires a clean HEAD checkout with no hidden
+index flags or tracked symlinks, handles HEAD release tags, and requires completed checks below nine
+seconds. See [`docs/laterdog/pre-push.md`](docs/laterdog/pre-push.md) for selection and limits.
+Run `pnpm exec vitest run scripts/git-hooks` after changing the hook. Local success never replaces
+the complete clean merge gate below.
+
 Use `cf` for Cloudflare account and zone work (DNS, rules, zone settings, gateways) and
 Wrangler for container Workers. Change a container Worker only with a full `wrangler deploy`,
 never by patching its settings through the API.
@@ -17,7 +24,6 @@ with it (an engine it runs, an app that connects to it), never as a model to fol
 comparison, and never cite studies, captures or reference material. That holds for code,
 tests, docs, commit messages and pull requests. `scripts/brand-links.test.ts` keeps known
 names out; the attribution the licence requires stays in NOTICE.
-
 
 Work in progress, its gates, and how to resume any lane: [`docs/laterdog/finish-line.md`](docs/laterdog/finish-line.md). Read it before starting.
 
