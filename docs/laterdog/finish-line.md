@@ -41,12 +41,13 @@ In flight:
 | Package | Branch | State |
 | --- | --- | --- |
 | A1 Desktop baseline and new measures | `refine/a1-desktop-baseline` | draft pull request 258 |
-| A2 Budget mode for the desktop performance script | `refine/a2-desktop-budget`, on A1 | in progress |
+| A2 Budget mode for the desktop performance script | `refine/a2-desktop-budget`, on A1 | draft pull request 259: 22 lines, each with today's budget and its target |
 | A3 Desktop launch timeline | `refine/a3-launch-timeline` | draft pull request 257 |
 | A4 Phone performance log, Run Check and bundle budget | later-dog-phone `refine/a4-phone-perf-log` | draft pull request 264 there |
-| B6 Phone shows finished replies only | later-dog-phone `refine/b6-finished-replies`, on A4 | in progress |
-| E1 and E2 The wait and the landing, design | `refine/e1-wait-and-landing` | started, waiting for a slot |
+| B6 Phone shows finished replies only | later-dog-phone `refine/b6-finished-replies`, on A4 | draft pull request 265 there: reply text in progress changes nothing on screen, the finished reply changes it once |
+| E1 and E2 The wait and the landing, design | `refine/e1-wait-and-landing` | in progress |
 | G1 Audit of the last 150 hosted check runs | `refine/g1-hosted-checks-audit` | draft pull request 256 |
+| G2 Hosted checks return on standard runners | `refine/g2-hosted-checks-return`, on G1 | in progress |
 | G3 Port leases so test files can run in parallel | `refine/g3-port-leases` | in progress |
 
 First numbers, each from its package's own record and none from the Mac app or an iPhone:
@@ -59,8 +60,10 @@ First numbers, each from its package's own record and none from the Mac app or a
   second splash's hold and fade. The window is not created until the whole startup chain has finished.
 - Desktop while a dog works (A1, fixture, headless Chrome, three runs): 26 commits and 5,018 components
   redrawn per working turn, about 4,750 of them in ten commits no named cause explains yet. With Settings open,
-  22 of 22 frames in the working turn take over 25 ms. A finished reply lands with no task over 50 ms, but
-  moves the rows of a person reading older messages by 48 px for at least one frame.
+  22 of 22 frames in the working turn take over 25 ms. A finished reply lands with no task over 50 ms. A1's
+  own runs saw the rows of a person reading older messages move 48 px; thirteen later runs on two other
+  machines saw 0 px, so that reading is unexplained and not counted. When the 120-row transcript is full and
+  following the bottom, the one row dropped from the top moves the rows above by 55.5 px.
 - Phone (A4): the check now reports renders by name, UI-thread frames, a frame budget from the real refresh
   rate, start marks and a verdict; the bundle is 8,056,387 bytes against a budget of 8,096,768. Nothing in it
   has run on an iPhone, and the home accepts the new report shape only after a small server change.
