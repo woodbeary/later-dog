@@ -32,6 +32,8 @@ exception: `LATERDOG_OPENAI_LIVE_URL` crosses when it is a loopback
 and `LATERDOG_OPENAI_LIVE_KEY` crosses only with it, so that key can only ever
 reach the fake.
 
+The sealed fake-engine server uses a deterministic 4 GiB available-memory reading so host pressure cannot silently end its idle test sessions. A trusted fixture caller may set `LATERDOG_TEST_AVAILABLE_MEMORY_BYTES` to a nonnegative safe integer, including zero to check eviction. The override requires the existing sealed verification mode; ordinary servers keep their system reading, and message bodies cannot change it. No production memory threshold changes.
+
 Pass the printed URL explicitly from a second terminal:
 
 ```sh
@@ -59,6 +61,7 @@ Use only mapped, tested commands:
 - [Desktop progress and teammate names](desktop-polish.md)
 - [Conversation End shortcut scope](desktop-end-key-2026-11-25.md)
 - [Enlarged composer controls](desktop-composer-bounds-2026-11-25.md)
+- [Sidebar and readable work panels](desktop-work-panel-fit-2026-11-25.md)
 - [Editable pasted text files](desktop-pasted-text-2026-11-25.md)
 - [Helper folders and guest provenance](helper-folders-2026-11-25.md)
 - [Stored conversation folders and recovery](stored-work-folders-2026-11-25.md)
