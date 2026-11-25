@@ -8,7 +8,10 @@ const scene: SignalScene = {
   home: new Set([1, 7, SERVER]),
   markOf: (pid) => (pid in marks ? marks[pid] : undefined),
   serverPort: 8787,
+  owner: false,
+  server: SERVER,
 };
+const ownerScene: SignalScene = { ...scene, owner: true };
 const refused = (command: string) => signalRefusal(command, scene) !== null;
 
 describe("a dog can never signal the home's server", () => {
@@ -62,6 +65,61 @@ describe("a dog can never signal another dog's processes", () => {
 
   it("refuses a pid that belongs to another chat", () => {
     expect(signalRefusal("kill 50", scene)).toMatch(/belongs to another chat/);
+  });
+});
+
+describe("a dog of the home's owner can stop another dog and restart the home", () => {
+  const ownerRefusal = (command: string) => signalRefusal(command, ownerScene);
+
+  it("allows stopping a process that carries another chat's mark, which a guest's dog may not", () => {
+    for (const command of ["kill 50", "kill -9 50", "kill 40 50", "sudo kill 50", `bash -c "kill 50"`]) {
+      expect(ownerRefusal(command), command).toBeNull();
+      expect(signalRefusal(command, scene), command).toMatch(/belongs to another chat/);
+    }
+  });
+
+  it("allows a plain or terminating kill of the server, which a guest's dog may not", () => {
+    for (const command of [`kill ${SERVER}`, `kill -TERM ${SERVER}`, `kill -15 ${SERVER}`, `kill -s SIGTERM ${SERVER}`, `kill -INT ${SERVER}`, `sudo kill ${SERVER}`, `bash -c "kill ${SERVER}"`]) {
+      expect(ownerRefusal(command), command).toBeNull();
+      expect(signalRefusal(command, scene), command).toMatch(/home's own/);
+    }
+  });
+
+  it("asks the server to restart itself only when it lets the kill of the server through", () => {
+    const payload = (command: string) => ({ tool_name: "Bash", tool_input: { command } });
+    const asked: string[] = [];
+    const live = { ...ownerScene, restart: () => { asked.push("restart"); } };
+    expect(signalDecision(payload(`kill ${SERVER}`), () => live)).toBeNull();
+    expect(asked).toEqual(["restart"]);
+    expect(signalDecision(payload("kill 50"), () => live)).toBeNull();
+    expect(signalDecision(payload(`kill -9 ${SERVER}`), () => live)).toMatchObject({ permissionDecision: "deny" });
+    expect(signalDecision(payload(`kill ${SERVER} 1`), () => live)).toMatchObject({ permissionDecision: "deny" });
+    expect(signalDecision(payload(`kill ${SERVER}`), () => ({ ...scene, restart: live.restart }))).toMatchObject({ permissionDecision: "deny" });
+    expect(asked).toEqual(["restart"]);
+  });
+
+  it("still refuses any signal that would leave the server stopped", () => {
+    for (const command of [`kill -9 ${SERVER}`, `kill -KILL ${SERVER}`, `kill -HUP ${SERVER}`, `kill -s STOP ${SERVER}`, `kill --signal KILL ${SERVER}`]) {
+      expect(ownerRefusal(command), command).toMatch(/only a plain kill/);
+    }
+  });
+
+  it("still refuses pid 1 and the launcher, which would not bring the home back", () => {
+    for (const command of ["kill 1", "kill -9 1", "kill 7", "kill -TERM 7", `kill ${SERVER} 7`]) {
+      expect(ownerRefusal(command), command).toMatch(/starts and watches the home/);
+    }
+  });
+
+  it("still refuses groups, names, and finding the server by name or port", () => {
+    for (const command of ["kill -9 -1", "kill -- -1", "kill 0", `kill -- -${SERVER}`, "pkill node", "killall node", `kill $(pgrep -f node)`, "kill $(lsof -t -i:8787)", "fuser -k 8787/tcp", "pgrep laterdog | xargs kill"]) {
+      expect(ownerRefusal(command), command).toMatch(/nothing to start it again|finds|by its port|by name/);
+    }
+  });
+
+  it("still refuses an unmarked process outside the home, and allows its own and dead pids", () => {
+    expect(ownerRefusal("kill 60")).toMatch(/home's own/);
+    expect(ownerRefusal("kill 40")).toBeNull();
+    expect(ownerRefusal("kill 99999")).toBeNull();
   });
 });
 
