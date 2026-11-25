@@ -167,7 +167,7 @@ export function SimpleModelPane({
                         onClick={() => onPick(option.id)}
                         className={cn(row, "font-medium text-ink", current ? "bg-raised-hover" : "hover:bg-control/60")}
                       >
-                        <span className="min-w-0 flex-1 truncate">{option.label}</span>
+                        <span className="min-w-0 flex-1 break-words">{option.label}</span>
                         {route && (
                           <span data-simple-route className="max-w-[45%] shrink-0 truncate text-[11.5px] font-normal text-ink-secondary">{route}</span>
                         )}
@@ -211,8 +211,7 @@ export function SimpleModelPane({
         {variantsRow ?? (effort && effort.levels.length > 0 && (
           <div
             data-simple-effort
-            className="grid w-full gap-1 rounded-xl bg-inset p-1"
-            style={{ gridTemplateColumns: `repeat(${effort.levels.length}, minmax(0, 1fr))` }}
+            className="flex w-full flex-wrap gap-1 rounded-xl bg-inset p-1"
             role="group"
             aria-label={t("model.simple.effort")}
           >
@@ -224,7 +223,7 @@ export function SimpleModelPane({
                 title={effortNote(level)}
                 onClick={() => effort.onPick(level)}
                 className={cn(
-                  "truncate rounded-lg px-1 py-1.5 text-[12.5px] font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus",
+                  "min-w-fit flex-1 basis-0 whitespace-nowrap rounded-lg px-1.5 py-1.5 text-[12.5px] font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus",
                   effort.current === level ? "bg-raised text-ink shadow-sm" : "text-ink-secondary hover:text-ink",
                 )}
               >
