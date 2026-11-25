@@ -1,0 +1,26 @@
+[data-pasted-text] {
+  container-type: inline-size;
+  height: auto;
+  min-height: 56px;
+  padding-block: 8px;
+}
+
+@container (max-width: 140px) {
+  [data-pasted-text] [data-paste-icon],
+  [data-pasted-text] [data-paste-edit] svg {
+    display: none;
+  }
+
+  [data-pasted-text] [data-paste-summary],
+  [data-pasted-text] [data-paste-edit] span {
+    overflow: visible;
+    white-space: normal;
+    overflow-wrap: anywhere;
+    text-overflow: clip;
+  }
+
+  [data-pasted-text] [data-paste-edit] {
+    text-align: left;
+    align-items: flex-start;
+  }
+}

@@ -85,7 +85,7 @@ switch and no stall over 200 ms, the targets stated on November 10
 
 ## Desktop pasted text files, November 25
 
-Branch `desktop/overnight-paste` preserves the existing cutoff of at least 900 UTF-16 code units or 12 lines, creates editable attachment chips, and sends uploaded text files. This is the shared phone/desktop cutoff. It supports common line endings, preserves the draft, and keeps Send waiting while a file uploads. Exact boundaries, uploaded contents, draft preservation and send behavior are checked before merge. See [verification](../verification/desktop-pasted-text-2026-11-25.md). A full passing merge gate is required before release.
+Branch `desktop/overnight-paste` preserves the shared cutoff of at least 900 UTF-16 code units or 12 lines, creates editable text/plain attachments, and sends the ordinary uploaded-file shape. Final 134 focused checks, types/lint, 224 phone/desktop boundary comparisons, a persisted UTF-8 file send through the actual App/home, and six rendered fit/edit checks passed. Screenshots and limitations are in the [verification record](../verification/desktop-pasted-text-2026-11-25.md). Companion PR274 keeps enlarged controls in bounds. This remains a draft until the final combined merge gate passes and Sol Lead ships it.
 
 ## Real account limit, November 14
 

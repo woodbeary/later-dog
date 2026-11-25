@@ -111,7 +111,7 @@ describe("pasted text attachments", () => {
     const field = await mount("Please read this");
     const text = "x".repeat(900);
     await paste(field, text);
-    await act(async () => { (host.querySelector('[aria-label="Display pasted text in chat box"]') as HTMLButtonElement).click(); });
+    await act(async () => { (host.querySelector('[aria-label="Edit text in chat box"]') as HTMLButtonElement).click(); });
     expect(field.value).toBe(`Please read this\n\n${text}`);
     expect(host.querySelector('[aria-label="Remove pasted text"]')).toBeNull();
   });

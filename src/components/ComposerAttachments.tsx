@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import "./ComposerAttachments.css";
 import { createPortal } from "react-dom";
 import { ClipboardPaste, File as FileIcon, LoaderCircle, MessageSquareText, X } from "lucide-react";
 import { cn } from "@/lib/cn";
@@ -140,18 +141,19 @@ export function ComposerAttachments({
                 />
               </div>
             ) : a.kind === "paste" ? (
-              <div key={a.id} role="listitem" title={a.text.slice(0, 4000)} className={chipClass("w-[200px] max-w-full gap-2 pl-3 pr-7")}>
-                <ClipboardPaste size={16} className="shrink-0 text-ink-secondary" aria-hidden="true" />
+              <div key={a.id} role="listitem" data-pasted-text title={a.text.slice(0, 4000)} className={chipClass("w-[200px] max-w-full gap-2 pl-3 pr-7")}>
+                <ClipboardPaste data-paste-icon size={16} className="shrink-0 text-ink-secondary" aria-hidden="true" />
                 <div className="min-w-0">
-                  <div className="truncate text-[12px] text-ink">{pasteSummary(a)}</div>
+                  <div data-paste-summary className="truncate text-[12px] text-ink">{pasteSummary(a)}</div>
                   <button
                     type="button"
                     onClick={() => onDisplayInChatBox(a)}
                     className="flex max-w-full items-center gap-1 text-[11px] text-accent-text hover:underline focus-visible:underline focus-visible:outline-none"
-                    aria-label="Display pasted text in chat box"
+                    aria-label="Edit text in chat box"
+                    data-paste-edit
                   >
                     <MessageSquareText size={11} className="shrink-0" aria-hidden="true" />
-                    <span className="truncate">Display in chat box</span>
+                    <span className="truncate">Edit text</span>
                   </button>
                 </div>
                 <RemoveButton label="Remove pasted text" onClick={() => onRemove(a.id)} />
