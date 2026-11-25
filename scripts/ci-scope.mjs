@@ -11,7 +11,7 @@ export function selectCiScope(files) {
       return { runtime: true };
     }
     if (/^(?:[^/]+\.md|docs\/.+\.md|\.github\/FUNDING\.yml)$/.test(file)) continue;
-    runtime = true;
+    runtime = false;
   }
   return { runtime };
 }
