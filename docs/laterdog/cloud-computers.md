@@ -120,8 +120,13 @@ disk the others need. A dog sends that kind of command to its own cloud computer
   sends only the files that changed and removes the ones deleted here. Installed packages stay on the computer.
 - The command runs detached (`setsid nohup`) with pnpm on the path, so it outlives the call that started it. One call
   waits up to 4 minutes; after that the dog gets a run id and calls again to keep waiting. A run stops after 2 hours.
-- When it ends, every file the command created or changed comes back, up to 512 MB, except build output. A file that
-  was changed here while the command ran is kept, and the dog is told which.
+- By default, newly created and changed files come back when the command ends, up to 512 MiB. Build output stays on
+  the computer. A file changed at home during the run is kept, and the dog is told which.
+- For checks and scratch work, set `outputs: "remote"` when starting the command. The run leaves its files on the
+  computer and returns the exit code and the end of the output. Later commands for the same folder can reuse those
+  files while that computer retains them. A retry with the same `run_id` reads the saved result after the home has
+  recorded completion, even if the computer is asleep. The receipt records the exit code and output tail. Files
+  follow the computer's existing storage lifetime, so bring home or publish any result you need to keep.
 - After a call the computer stays awake, so the next call reuses it without another boot. The computers service puts
   it to sleep under its own idle policy (10 idle minutes, at most 8 awake hours; trials 5 minutes), which counts every
   command, file transfer and open viewer as activity. later.dog does not put it to sleep itself (changed 2026-11-10).

@@ -3,7 +3,7 @@ import { lstatSync } from "node:fs";
 import { homedir } from "node:os";
 import { isAbsolute, join, normalize, relative, resolve } from "node:path";
 import type { ComputerJob, ComputerJobLedger } from "./computer-jobs.ts";
-import { ComputerRuns, type RunBox, type RunOutcome, type RunRecord } from "./computer-runs.ts";
+import { completedRemoteRun, type ComputerRuns, type RunBox, type RunOutcome, type RunRecord } from "./computer-runs.ts";
 import { BAD_WAIT_TEXT, stillRunningTail, waitWindowMs } from "./run-wait.ts";
 
 export interface ComputerRunRequest {
@@ -50,7 +50,9 @@ export const WROTE_BEFORE_START_TEXT = "A new message arrived while the folder w
 export function stoppedWaitText(outcome: RunOutcome): string {
   const still = outcome.state === "running" && outcome.exitCode === null;
   const count = outcome.broughtBack.length;
-  const brought = `its files were brought back to your folder (${count ? `${count} changed file${count === 1 ? "" : "s"}` : "no changed files"})`;
+  const brought = outcome.outputs === "remote"
+    ? "its files were kept on your cloud computer"
+    : `its files were brought back to your folder (${count ? `${count} changed file${count === 1 ? "" : "s"}` : "no changed files"})`;
   const job = still ? `The job had not finished (run_id ${outcome.id}), and a Stop from the person stops it too.` : outcome.state === "finished" ? `The job finished with exit code ${outcome.exitCode} (run_id ${outcome.id}) and ${brought}.` : outcome.exitCode !== null ? `The job had finished with exit code ${outcome.exitCode} (run_id ${outcome.id}); its files were not brought back.` : `The job stopped on your cloud computer (run_id ${outcome.id}).`;
   return `The wait ended because this turn was stopped. ${job} Call run_on_computer with that run_id to check on it later.`;
 }
@@ -74,7 +76,8 @@ export function outcomeText(outcome: RunOutcome): string {
   else if (outcome.state === "failed") lines.push(`Stopped on your cloud computer (run_id ${outcome.id}).`);
   else lines.push(`Finished on your cloud computer with exit code ${outcome.exitCode} (run_id ${outcome.id}).`);
   if (outcome.sentFiles) lines.push(`Sent ${outcome.sentFiles} changed file(s), ${Math.max(1, Math.round(outcome.sentBytes / 1024))} KB.`);
-  if (outcome.broughtBack.length) lines.push(`Brought back ${outcome.broughtBack.length} file(s): ${outcome.broughtBack.slice(0, 20).join(", ")}${outcome.broughtBack.length > 20 ? ", …" : ""}.`);
+  if (outcome.outputs === "remote") lines.push("Files were kept on your cloud computer under its normal storage lifetime. Read or reuse them there.");
+  else if (outcome.broughtBack.length) lines.push(`Brought back ${outcome.broughtBack.length} file(s): ${outcome.broughtBack.slice(0, 20).join(", ")}${outcome.broughtBack.length > 20 ? ", …" : ""}.`);
   else if (outcome.state === "finished") lines.push("It changed no files here.");
   if (outcome.note) lines.push(outcome.note);
   const stillGoing = outcome.state === "running" && outcome.exitCode === null;
@@ -87,6 +90,9 @@ export async function handleComputerRun(request: ComputerRunRequest, deps: Compu
   const command = typeof request.body.command === "string" ? request.body.command.trim() : "";
   const record = runId ? deps.runs.record(request.botId, runId) : null;
   if (runId && !record) return { status: 404, error: `No run ${runId} for this dog.` };
+  const outputs = request.body.outputs;
+  if (outputs !== undefined && outputs !== "home" && outputs !== "remote") return { status: 400, error: 'outputs must be "home" or "remote".' };
+  if (record && outputs !== undefined && outputs !== (record.outputs ?? "home")) return { status: 409, error: "This run's output location was fixed when it started." };
   if (!record && !command) return { status: 400, error: "Give a command to run, or the run_id of a run that is still going." };
   if (command.length > 4000) return { status: 400, error: "The command is longer than 4,000 characters; put it in a script file in the folder and run that." };
   const folder = record ? record.folder : allowedFolder(typeof request.body.folder === "string" ? request.body.folder : "", request);
@@ -105,15 +111,18 @@ export async function handleComputerRun(request: ComputerRunRequest, deps: Compu
   if (record && jobs) releases.push(jobs.hold(record.id));
   const recordJob = (run: RunRecord) => { if (!jobs) return; releases.push(jobs.hold(run.id)); jobs.started(job(run)); };
   try {
-    const repository = record ? null : (deps.repositoryOf ?? repositoryOf)(folder);
-    const now = deps.now ?? Date.now;
-    const started = now();
-    const computer = await deps.computer(request.botId, { ...(repository ? { repository } : {}), ...(request.active ? { wanted: request.active } : {}), budgetMs: asked });
-    if (request.active && !request.active()) return { status: 409, error: ENDED_TEXT };
-    const left = () => stopped() || wrote() ? 0 : started + windowMs - now();
-    const outcome = record
-      ? await deps.runs.finish(computer.box, record, undefined, left)
-      : await deps.runs.run(computer.box, { botId: request.botId, folder, subdir, command, left, started: recordJob, ...(request.active ? { active: request.active } : {}) });
+    let outcome = record ? completedRemoteRun(record) : null;
+    if (!outcome) {
+      const repository = record ? null : (deps.repositoryOf ?? repositoryOf)(folder);
+      const now = deps.now ?? Date.now;
+      const started = now();
+      const computer = await deps.computer(request.botId, { ...(repository ? { repository } : {}), ...(request.active ? { wanted: request.active } : {}), budgetMs: asked });
+      if (stopped()) return { status: 409, error: ENDED_TEXT };
+      const left = () => stopped() || wrote() ? 0 : started + windowMs - now();
+      outcome = record
+        ? await deps.runs.finish(computer.box, record, undefined, left)
+        : await deps.runs.run(computer.box, { botId: request.botId, folder, subdir, command, left, started: recordJob, ...(outputs === "remote" ? { outputs } : {}), ...(request.active ? { active: request.active } : {}) });
+    }
     if (jobs) {
       const stillGoing = outcome.state === "running" && outcome.exitCode === null;
       if (!stillGoing) jobs.ended(outcome.id);

@@ -389,11 +389,12 @@ const TOOL_DEFINITIONS = [
   {
     name: "run_on_computer",
     description:
-      "Run a heavy command (install, build, typecheck, test suite, browser test, media processing) on your own cloud computer so it can't freeze the home all dogs share. Copies the folder there (changes only, no node_modules or build output), runs it, brings back the files it made or changed, and shows the end of the output. Packages stay installed there between runs. One call waits until the command ends, up to wait_minutes (default 4, at most 60). A run still going then keeps going and gives you its run_id. later.dog checks it every 30 seconds, which keeps your computer awake while it runs, up to its 8-hour limit (less on a trial), and may wake you when it ends. Do your other work first, then call again with only run_id when you need the result. That call itself waits up to its wait_minutes (default 4), so never sleep or loop before it.",
+      'Run a heavy command (install, build, typecheck, test suite, browser test, media processing) on your own cloud computer so it can\'t freeze the home all dogs share. Copies the folder there (changes only, no node_modules or build output), runs it, and shows the end of the output. Use outputs "remote" for checks or scratch work whose files should stay on the computer. The default "home" brings back files it made or changed. Packages stay installed there between runs. One call waits until the command ends, up to wait_minutes (default 4, at most 60). A run still going then keeps going and gives you its run_id. later.dog checks it every 30 seconds, which keeps your computer awake while it runs, up to its 8-hour limit (less on a trial), and may wake you when it ends. Do your other work first, then call again with only run_id when you need the result. That call itself waits up to its wait_minutes (default 4), so never sleep or loop before it.',
     inputSchema: { type: "object", additionalProperties: false, properties: {
       command: { type: "string", maxLength: 4000, description: "Shell command run with bash in the folder." },
       folder: { type: "string", description: "Absolute project folder here, e.g. /data/site. Default: your working folder." },
       subdir: { type: "string", description: "Subfolder of folder to run in." },
+      outputs: { type: "string", enum: ["home", "remote"], description: "Set on the first call. home (default) brings back changed files. remote keeps files on the cloud computer under its normal storage lifetime." },
       run_id: { type: "string", description: "Keep waiting for a run still going." },
       wait_minutes: { type: "integer", minimum: 1, maximum: 60, description: "How long this call may wait for the command to end. Default 4." },
     } },
