@@ -20,8 +20,8 @@ edits them.
 ## Checks
 
 ```sh
-pnpm exec vitest run server/team-lifecycle.e2e.test.ts server/section-context.test.ts server/store.test.ts server/routes/sidebar-section-order.test.ts --maxWorkers=2
-pnpm exec vitest run src/lib/sidebar-layout.test.ts src/lib/section-drop.test.ts src/components/AddDogSheet.test.ts src/components/Sidebar.header-menus.test.ts src/components/SidebarSectionHeader.test.ts
+bun run vitest run server/team-lifecycle.e2e.test.ts server/section-context.test.ts server/store.test.ts server/routes/sidebar-section-order.test.ts --maxWorkers=2
+bun run vitest run src/lib/sidebar-layout.test.ts src/lib/section-drop.test.ts src/components/AddDogSheet.test.ts src/components/Sidebar.header-menus.test.ts src/components/SidebarSectionHeader.test.ts
 ```
 
 The server test uses `launchVerificationServer`: it creates an empty section,
@@ -46,8 +46,8 @@ routes under `/api/team-computers` and their tests still exist, so an old box
 can still be found until Settings lists it:
 
 ```sh
-pnpm exec vitest run server/team-computers.test.ts scripts/testing/team-computers-fixture.test.ts
-pnpm exec vitest run server/index.test.ts -t "creates team computers|keeps every dog on its own computer" --maxWorkers=1
+bun run vitest run server/team-computers.test.ts scripts/testing/team-computers-fixture.test.ts
+bun run vitest run server/index.test.ts -t "creates team computers|keeps every dog on its own computer" --maxWorkers=1
 ```
 
 ## The owner API

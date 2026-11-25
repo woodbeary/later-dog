@@ -59,7 +59,7 @@ run without a terminal offer no task-list tool of their own.
 
 On isolated fixtures only, with the scripted fake engine:
 
-- `pnpm exec vitest run server/dog-plan.e2e.test.ts` launches a fresh home with
+- `bun run vitest run server/dog-plan.e2e.test.ts` launches a fresh home with
   `launchVerificationServer`. A dog sets a plan through the real tool server;
   the tool list carries `set_plan` loaded up front; `/api/bots` and the `bot`
   frame carry the plan; after the server is stopped and started again on the

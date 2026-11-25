@@ -13,19 +13,19 @@ API key. Four things need the person's hands; everything else is yours.
 
 ## Rules
 
-- Follow `AGENTS.md`: pnpm only, Node 24+, never verify against the person's live data when a fixture will do.
+- Follow `AGENTS.md`: Bun 1.4.5, Node 24+, never verify against the person's live data when a fixture will do.
 - Never type, read aloud or move a credential. Device codes, OAuth consents, macOS permission prompts and GitHub tokens
   are the person's; you prepare the exact step and say when it is their turn.
 - Say what you verified and what you did not. "Fixture success does not qualify a live provider."
 
 ## Procedure
 
-1. **Prerequisites.** `git`, Node 24 (`nvm` is fine: the repo has `.nvmrc`), pnpm 10.33 (`corepack enable && corepack
-   prepare pnpm@10.33.0 --activate`). The provider CLIs the person will use: Codex (`npm i -g @openai/codex@0.154.0`),
+1. **Prerequisites.** `git`, Node 24 (`nvm` is fine: the repo has `.nvmrc`), Bun 1.4.5 (install the exact version from https://bun.sh/docs/installation
+   and check `bun --version`). The provider CLIs the person will use: Codex (`npm i -g @openai/codex@0.154.0`),
    Claude Code (`npm i -g @anthropic-ai/claude-code`). Install them under the newest
    Node the machine has: a GUI launch searches nvm's bin directories newest first.
-2. **Get the code.** `git clone https://github.com/woodbeary/later-dog.git && cd later-dog && pnpm install --frozen-lockfile`.
-3. **Build and install the app.** `pnpm laterdog:package` → `release/mac-arm64/later.dog.app`; then
+2. **Get the code.** `git clone https://github.com/woodbeary/later-dog.git && cd later-dog && bun install --cpu=arm64 --cpu=x64 --frozen-lockfile`.
+3. **Build and install the app.** `bun run laterdog:package` → `release/mac-arm64/later.dog.app`; then
    `ditto release/mac-arm64/later.dog.app /Applications/later.dog.app && open -a later.dog`. If `swiftc` fails on this
    Mac the build still completes without voice dictation; say so. (Or use a release zip from GitHub: unzip, drag to
    Applications and open it. Releases are signed with an Apple Developer ID and notarized, so macOS only asks once.)
@@ -40,15 +40,15 @@ API key. Four things need the person's hands; everything else is yours.
    comes back; if the reply is a sign-in card, go back to step 4.
 7. **Optional: the self-hosted supervisor (not part of the 0.3.3 release).** Skip it unless they ask for it. Follow
    `docs/laterdog/cloudflare.md` (their Cloudflare account, `wrangler login` is their click; the app secrets
-   `LATERDOG_TOKEN` and `LATERDOG_BACKUP_KEY` you may generate with `openssl rand`; **GitHub: run `pnpm laterdog:github` (or use Workspace → Connect GitHub) — it prints a code from GitHub's device sign-in
+   `LATERDOG_TOKEN` and `LATERDOG_BACKUP_KEY` you may generate with `openssl rand`; **GitHub: run `bun run laterdog:github` (or use Workspace → Connect GitHub) — it prints a code from GitHub's device sign-in
    inside the container; the person enters it at github.com/login/device and authorizes; never move their token yourself**). Save `~/.laterdog/supervisor.json`
-   (`{ "url": "https://…workers.dev", "tokenFile": "~/.laterdog/supervisor-token" }`), run `pnpm laterdog:login` (device
-   code, theirs), then `pnpm laterdog:doctor` must show `profile.authenticated: true` and `github.authenticated: true`.
+   (`{ "url": "https://…workers.dev", "tokenFile": "~/.laterdog/supervisor-token" }`), run `bun run laterdog:login` (device
+   code, theirs), then `bun run laterdog:doctor` must show `profile.authenticated: true` and `github.authenticated: true`.
    Register a repository in Workspace with its published Codex Cloud environment ID (from the Codex web UI, theirs).
 
 ## Prove it
 
-- `pnpm laterdog:doctor` output (when a supervisor is connected), the About dialog's version, and one real reply from a
+- `bun run laterdog:doctor` output (when a supervisor is connected), the About dialog's version, and one real reply from a
   dog. Keep screenshots or the exact command output; do not describe what you did not see.
 - Leave the person a short list: what works now, which of steps 4, 5 and 7 are still theirs, and the one command to
   restart the app.

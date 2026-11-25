@@ -3,8 +3,8 @@
 Run the focused regression tests and the isolated HTTP workflows:
 
 ```sh
-pnpm exec vitest run server/peer-approval.test.ts
-pnpm exec vitest run server/thread-aware-bots.e2e.test.ts server/room-coordination.e2e.test.ts --maxWorkers=1 -t "approval"
+bun run vitest run server/peer-approval.test.ts
+bun run vitest run server/thread-aware-bots.e2e.test.ts server/room-coordination.e2e.test.ts --maxWorkers=1 -t "approval"
 ```
 
 The owner's own dogs never get a peer-approval card: in the owner's workspace,

@@ -33,7 +33,12 @@ export function bucketFor(url) {
 }
 
 export function watchedChange(file) {
-  return Boolean(file) && /\.(?:ts|mjs|json|ya?ml)$/.test(file) && !file.endsWith(".test.ts") && !file.includes("node_modules");
+  return (
+    Boolean(file) &&
+    /\.(?:ts|mjs|json|ya?ml)$/.test(file) &&
+    !file.endsWith(".test.ts") &&
+    !file.includes("node_modules")
+  );
 }
 
 function say(line) {
@@ -42,17 +47,24 @@ function say(line) {
 
 function readSessionFile(file) {
   const saved = JSON.parse(readFileSync(file, "utf8"));
-  if (typeof saved?.url !== "string" || typeof saved?.token !== "string") throw new Error(`${file} is not a later.dog home session`);
+  if (typeof saved?.url !== "string" || typeof saved?.token !== "string")
+    throw new Error(`${file} is not a later.dog home session`);
   return { url: saved.url.replace(/\/+$/, ""), token: saved.token };
 }
 
 async function wrangler(args) {
-  await run(process.execPath, [join(homeWorker, "node_modules", "wrangler", "bin", "wrangler.js"), ...args], { cwd: homeWorker, maxBuffer: 16 * 1024 * 1024 });
+  await run(
+    process.execPath,
+    [join(homeWorker, "node_modules", "wrangler", "bin", "wrangler.js"), ...args],
+    { cwd: homeWorker, maxBuffer: 16 * 1024 * 1024 },
+  );
 }
 
 async function label() {
   const { stdout } = await run("git", ["rev-parse", "--short", "HEAD"], { cwd: root });
-  const { stdout: dirty } = await run("git", ["status", "--porcelain", "--", ...WATCHED], { cwd: root });
+  const { stdout: dirty } = await run("git", ["status", "--porcelain", "--", ...WATCHED], {
+    cwd: root,
+  });
   return `${stdout.trim()}${dirty.trim() ? "+local" : ""}`;
 }
 
@@ -66,7 +78,10 @@ function session(account) {
 
 async function serverPid(home) {
   try {
-    const response = await fetch(`${home.url}/api/health`, { headers: { authorization: `Bearer ${home.token}` }, signal: AbortSignal.timeout(5_000) });
+    const response = await fetch(`${home.url}/api/health`, {
+      headers: { authorization: `Bearer ${home.token}` },
+      signal: AbortSignal.timeout(5_000),
+    });
     if (!response.ok) return null;
     const body = await response.json();
     return typeof body?.pid === "number" ? body.pid : null;
@@ -75,14 +90,30 @@ async function serverPid(home) {
   }
 }
 
-const pause = (ms, signal) => new Promise((resolve, reject) => {
-  if (signal?.aborted) return reject(new Error("stopped before the home switched"));
-  const timer = setTimeout(() => { signal?.removeEventListener("abort", onAbort); resolve(); }, ms);
-  const onAbort = () => { clearTimeout(timer); reject(new Error("stopped before the home switched")); };
-  signal?.addEventListener("abort", onAbort, { once: true });
-});
+const pause = (ms, signal) =>
+  new Promise((resolve, reject) => {
+    if (signal?.aborted) return reject(new Error("stopped before the home switched"));
+    const timer = setTimeout(() => {
+      signal?.removeEventListener("abort", onAbort);
+      resolve();
+    }, ms);
+    const onAbort = () => {
+      clearTimeout(timer);
+      reject(new Error("stopped before the home switched"));
+    };
+    signal?.addEventListener("abort", onAbort, { once: true });
+  });
 
-export async function waitForNewServer({ read, before, since, timeoutMs = READY_TIMEOUT_MS, now = Date.now, wait = pause, signal, everyMs = 1_000 }) {
+export async function waitForNewServer({
+  read,
+  before,
+  since,
+  timeoutMs = READY_TIMEOUT_MS,
+  now = Date.now,
+  wait = pause,
+  signal,
+  everyMs = 1_000,
+}) {
   if (before === null || before === undefined) return null;
   while (now() - since < timeoutMs) {
     if (signal?.aborted) throw new Error("stopped before the home switched");
@@ -98,33 +129,69 @@ export async function publish({ account, note, sessionFile } = {}) {
   const started = Date.now();
   const home = sessionFile ? readSessionFile(sessionFile) : account ? session(account) : null;
   const bucket = sessionFile ? bucketFor(home.url) : DEV_BUCKET;
-  await run(process.execPath, [join(root, "scripts", "bundle-server.mjs")], { cwd: root, maxBuffer: 16 * 1024 * 1024 });
+  await run(process.execPath, [join(root, "scripts", "bundle-server.mjs")], {
+    cwd: root,
+    maxBuffer: 16 * 1024 * 1024,
+  });
   const archive = join(await mkdtemp(join(tmpdir(), "laterdog-dev-code-")), "server.tgz");
   await run("tar", ["-czf", archive, "-C", join(root, "dist-server"), "."]);
   const bytes = await readFile(archive);
   const hash = createHash("sha256").update(bytes).digest("hex");
-  await wrangler(["r2", "object", "put", `${bucket}/${bundleKey(hash)}`, "--file", archive, "--remote"]);
+  await wrangler([
+    "r2",
+    "object",
+    "put",
+    `${bucket}/${bundleKey(hash)}`,
+    "--file",
+    archive,
+    "--remote",
+  ]);
   const pointerFile = join(tmpdir(), `laterdog-dev-pointer-${hash.slice(0, 12)}.json`);
   const name = note ?? (await label());
   writeFileSync(pointerFile, JSON.stringify(pointerFor(hash, name)));
   const before = home ? await serverPid(home) : null;
-  await wrangler(["r2", "object", "put", `${bucket}/${POINTER_KEY}`, "--file", pointerFile, "--content-type", "application/json", "--remote"]);
+  await wrangler([
+    "r2",
+    "object",
+    "put",
+    `${bucket}/${POINTER_KEY}`,
+    "--file",
+    pointerFile,
+    "--content-type",
+    "application/json",
+    "--remote",
+  ]);
   const published = Date.now();
-  say(`pushed ${hash.slice(0, 12)} (${name}, ${Math.round(bytes.length / 1024)} KB) in ${Math.round((published - started) / 1000)} s`);
-  return { hash, home, before, published, who: account ?? (home ? new URL(home.url).hostname : null) };
+  say(
+    `pushed ${hash.slice(0, 12)} (${name}, ${Math.round(bytes.length / 1024)} KB) in ${Math.round((published - started) / 1000)} s`,
+  );
+  return {
+    hash,
+    home,
+    before,
+    published,
+    who: account ?? (home ? new URL(home.url).hostname : null),
+  };
 }
 
-export async function confirmSwitch({ hash, home, before, published, who }, { signal, read = () => serverPid(home), log = say, ...timing } = {}) {
+export async function confirmSwitch(
+  { hash, home, before, published, who },
+  { signal, read = () => serverPid(home), log = say, ...timing } = {},
+) {
   if (!home) return { hash };
   if (before === null) {
-    log(`${who} did not answer before the push, so a switch cannot be confirmed; the home picks the code up once no dog is working or after ${DEV_CODE_MAX_WAIT_MS / 60_000} min`);
+    log(
+      `${who} did not answer before the push, so a switch cannot be confirmed; the home picks the code up once no dog is working or after ${DEV_CODE_MAX_WAIT_MS / 60_000} min`,
+    );
     return { hash };
   }
   const pid = await waitForNewServer({ read, before, since: published, signal, ...timing });
   const seconds = Math.round(((timing.now ?? Date.now)() - published) / 1000);
-  log(pid === null
-    ? `${who} switch not confirmed ${seconds} s after the push; it switches once no dog is working or after ${DEV_CODE_MAX_WAIT_MS / 60_000} min`
-    : `${who} server pid changed to ${pid} ${seconds} s after the push; that this exact code (${hash.slice(0, 12)}) is the one running needs separate qualification`);
+  log(
+    pid === null
+      ? `${who} switch not confirmed ${seconds} s after the push; it switches once no dog is working or after ${DEV_CODE_MAX_WAIT_MS / 60_000} min`
+      : `${who} server pid changed to ${pid} ${seconds} s after the push; that this exact code (${hash.slice(0, 12)}) is the one running needs separate qualification`,
+  );
   return pid === null ? { hash } : { hash, pid };
 }
 
@@ -135,7 +202,9 @@ export async function push(options = {}) {
 export async function off({ sessionFile } = {}) {
   const bucket = sessionFile ? bucketFor(readSessionFile(sessionFile).url) : DEV_BUCKET;
   await wrangler(["r2", "object", "delete", `${bucket}/${POINTER_KEY}`, "--remote"]);
-  say(`${bucket === DEV_BUCKET ? "test homes stop" : "the home stops"} picking up pushed code; one already running it keeps it until it restarts`);
+  say(
+    `${bucket === DEV_BUCKET ? "test homes stop" : "the home stops"} picking up pushed code; one already running it keeps it until it restarts`,
+  );
 }
 
 export function pushOnSave(pushNow, { settleMs = SETTLE_MS, log = say } = {}) {
@@ -143,11 +212,20 @@ export function pushOnSave(pushNow, { settleMs = SETTLE_MS, log = say } = {}) {
   let running = null;
   let again = false;
   const run = () => {
-    if (running) { again = true; return; }
-    running = Promise.resolve().then(pushNow).catch((error) => log(`push failed: ${error.message}`)).finally(() => {
-      running = null;
-      if (again) { again = false; run(); }
-    });
+    if (running) {
+      again = true;
+      return;
+    }
+    running = Promise.resolve()
+      .then(pushNow)
+      .catch((error) => log(`push failed: ${error.message}`))
+      .finally(() => {
+        running = null;
+        if (again) {
+          again = false;
+          run();
+        }
+      });
   };
   return () => {
     clearTimeout(timer);
@@ -171,9 +249,11 @@ function watchAndPush({ account, sessionFile }) {
       if (watchedChange(file)) schedule();
     });
   }
-  say(sessionFile
-    ? `watching ${WATCHED.join(", ")}; every save goes to ${new URL(readSessionFile(sessionFile).url).hostname} at once and the home switches when no dog is working or after ${DEV_CODE_MAX_WAIT_MS / 60_000} min`
-    : `watching ${WATCHED.join(", ")}; every save is pushed to the test homes${account ? ` and checked on ${account}` : ""}`);
+  say(
+    sessionFile
+      ? `watching ${WATCHED.join(", ")}; every save goes to ${new URL(readSessionFile(sessionFile).url).hostname} at once and the home switches when no dog is working or after ${DEV_CODE_MAX_WAIT_MS / 60_000} min`
+      : `watching ${WATCHED.join(", ")}; every save is pushed to the test homes${account ? ` and checked on ${account}` : ""}`,
+  );
   if (!sessionFile) schedule();
 }
 
@@ -186,7 +266,9 @@ async function main() {
   if (command === "push") return push({ account, sessionFile });
   if (command === "watch") return watchAndPush({ account, sessionFile });
   if (command === "off") return off({ sessionFile });
-  process.stderr.write("usage: pnpm dev:home <push|watch|off> [--account test-<name> | --session <home session file>]\n");
+  process.stderr.write(
+    "usage: bun run dev:home <push|watch|off> [--account test-<name> | --session <home session file>]\n",
+  );
   process.exitCode = 2;
 }
 
@@ -196,4 +278,3 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
     process.exitCode = 1;
   });
 }
-

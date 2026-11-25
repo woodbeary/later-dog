@@ -16,28 +16,28 @@ Keep the current runtime. No Rust component ships, and the shell stays.
 
 Per seam:
 
-| Seam | Decision | Reason |
-| --- | --- | --- |
-| Home save: listing and hashing the home | Keep Node | Rust takes the step from 1.8 s to 0.45 s, but the save around it takes 5.5 s on the fixture and 20 to 25 s on the real home, because of the database copy and the uploads; it runs in the background once a minute and the server stalls the same 30 ms either way. |
-| Markdown parsing for long chats | Keep the JavaScript parser | Rust as WebAssembly parses the 30 rows a chat opens with in 4.5 ms instead of 14.6 ms. That is 10 ms of an open that takes 128 to 173 ms, and one of the twelve syntax samples (inline maths) came out as a different element tree. |
-| Reading a chat from the database | Keep Node | A Rust helper kept running reads the 50 rows a chat opens with in 0.17 ms against Node's 0.16 ms, and one started for each open takes 3.9 ms; either way the read is about a thousandth of the 128 to 173 ms the window takes to show the chat. |
-| Local server memory | Keep Node | The server idles at 210 MB in one Node process, and every Rust helper measured here is a further process of 4 to 139 MB beside it, so a helper adds memory and only rewriting the server's 126,000 lines could take any away. |
-| Clean-sheet shell | Keep Electron | 410 MB against 310 MB idle, 347 to 483 ms against 128 to 173 ms to open the long chat, on Linux. Everything in [What a new shell has to bring](#what-a-new-shell-has-to-bring) would be rebuilt for that. |
+| Seam                                    | Decision                   | Reason                                                                                                                                                                                                                                                              |
+| --------------------------------------- | -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Home save: listing and hashing the home | Keep Node                  | Rust takes the step from 1.8 s to 0.45 s, but the save around it takes 5.5 s on the fixture and 20 to 25 s on the real home, because of the database copy and the uploads; it runs in the background once a minute and the server stalls the same 30 ms either way. |
+| Markdown parsing for long chats         | Keep the JavaScript parser | Rust as WebAssembly parses the 30 rows a chat opens with in 4.5 ms instead of 14.6 ms. That is 10 ms of an open that takes 128 to 173 ms, and one of the twelve syntax samples (inline maths) came out as a different element tree.                                 |
+| Reading a chat from the database        | Keep Node                  | A Rust helper kept running reads the 50 rows a chat opens with in 0.17 ms against Node's 0.16 ms, and one started for each open takes 3.9 ms; either way the read is about a thousandth of the 128 to 173 ms the window takes to show the chat.                     |
+| Local server memory                     | Keep Node                  | The server idles at 210 MB in one Node process, and every Rust helper measured here is a further process of 4 to 139 MB beside it, so a helper adds memory and only rewriting the server's 126,000 lines could take any away.                                       |
+| Clean-sheet shell                       | Keep Electron              | 410 MB against 310 MB idle, 347 to 483 ms against 128 to 173 ms to open the long chat, on Linux. Everything in [What a new shell has to bring](#what-a-new-shell-has-to-bring) would be rebuilt for that.                                                           |
 
 ## The three options, against what Jacob asked
 
 Each cell says where it comes from: measured (on the Linux cloud computer, against a fixture), release (read off the published 0.3.46 release), read in code, or not measured. Nothing in this table was measured on a Mac.
 
-| Asked | 1. Improved current desktop | 2. One small Rust component | 3. Clean-sheet shell |
-| --- | --- | --- | --- |
-| Memory of the process tree | Window: 310 MB idle and 445 MB after the long chat, in 6 processes. Local server: 210 MB idle in 1 process, and 511 MB in 7 processes once six dogs have answered, 273 MB of it the server. Window and server together idle at about 520 MB (added from the two). All measured, shared pages counted once. Sizing the save's buffer to the file takes the save's peak from 347 MB to 148 MB (measured). | The same window and server, plus one process per helper: 4.4 MB for a chat reader, 27 to 52 MB for the save step on the home fixture, 139 MB on the crowded home (measured). The save's own tree is 137 MB against 347 MB today and 148 MB with the Node fix. A WebAssembly parser adds no process; its memory inside the window was not measured. | Window: 410 MB idle and 539 MB after the long chat, in 3 processes (measured). The server is the same process either way, so about 620 MB together. |
-| Something Jacob waits for | Opening the long chat: 173 ms the first time, 128 ms again. Launch to the composer: 921 ms (measured). Pull request #160 halves the save's listing, which nobody waits for. | Opening a chat: the database read is 0.16 ms in Node and 0.17 ms through a helper, so nothing (measured). The markdown parse is 14.6 ms in JavaScript and 4.5 ms through WebAssembly, so about 10 ms of 128 to 173 ms (measured in Node, not in the window). The save is not waited for. | Opening the long chat: 483 ms the first time, 347 ms again. Launch to the composer: 1,204 ms (measured). |
-| Size | The 0.3.46 download is 249 MB as a disk image and 251 MB as the update archive, arm64 only (release). The bare shell is 316 MB on disk on Linux (measured). | Adds 0.6 MB for the save step or 2.3 MB for a chat reader, per architecture, or 0.45 MB of WebAssembly once (measured, Linux builds). | A 0.8 MB shell, plus a 127 MB Node runtime it now has to bring (measured, Linux), plus the renderer, the server and the helpers shipped today. About 190 MB less on disk. No package was built. |
-| Signing and notarising on macOS | Unchanged. `scripts/laterdog-release-mac.sh` signs with the Developer ID identity and the hardened runtime, notarises and staples the app and the disk image, and checks both with `spctl` (read in code). | A native binary goes under `extraResources`, where electron-builder signs it with the app, the way the computer-use driver ships (read in code). It is one more executable for the notary to accept. Not tried. WebAssembly needs no signing. | A new bundle layout, entitlements and signing order, and the release script's checks rewritten for it. Not tried. |
-| Universal build | There is none. `electron-builder.yml` lists arm64 and x64 as separate builds, and the release script builds and publishes arm64 only (read in code, release). | One binary per architecture under `dist-native/${arch}`, each from its own Rust target, or the two joined with `lipo`. WebAssembly is one file for every platform. Not built for a Mac. | A shell and a Node runtime per architecture. Not built. |
-| Updater | electron-updater reads `latest-mac.yml` from the latest release and installs the archive; an update receipt is kept (read in code). | Unchanged. The component sits inside the app and updates with it. | A new updater, and one release of today's app whose update is the new app. Not tried. |
-| Migration | Ordinary pull requests with tests. Pull request #160 is one. | Ship it switched off, run it in shadow beside the Node path and log any difference, then switch it on with the Node path as the fallback. | A second app built until it matches everything in [What a new shell has to bring](#what-a-new-shell-has-to-bring), then the bridging release. |
-| Taking a bad release back | Apps never move to an older version (`docs/laterdog/releasing.md`), so it is a newer release with the commit reverted. The saved formats do not change. | Switch the setting off. The Node path is still there and still tested, and the saved formats are the same under both. | Nothing. Once people have updated, only a newer release of the new shell reaches them. |
+| Asked                           | 1. Improved current desktop                                                                                                                                                                                                                                                                                                                                                                             | 2. One small Rust component                                                                                                                                                                                                                                                                                                                        | 3. Clean-sheet shell                                                                                                                                                                            |
+| ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Memory of the process tree      | Window: 310 MB idle and 445 MB after the long chat, in 6 processes. Local server: 210 MB idle in 1 process, and 511 MB in 7 processes once six dogs have answered, 273 MB of it the server. Window and server together idle at about 520 MB (added from the two). All measured, shared pages counted once. Sizing the save's buffer to the file takes the save's peak from 347 MB to 148 MB (measured). | The same window and server, plus one process per helper: 4.4 MB for a chat reader, 27 to 52 MB for the save step on the home fixture, 139 MB on the crowded home (measured). The save's own tree is 137 MB against 347 MB today and 148 MB with the Node fix. A WebAssembly parser adds no process; its memory inside the window was not measured. | Window: 410 MB idle and 539 MB after the long chat, in 3 processes (measured). The server is the same process either way, so about 620 MB together.                                             |
+| Something Jacob waits for       | Opening the long chat: 173 ms the first time, 128 ms again. Launch to the composer: 921 ms (measured). Pull request #160 halves the save's listing, which nobody waits for.                                                                                                                                                                                                                             | Opening a chat: the database read is 0.16 ms in Node and 0.17 ms through a helper, so nothing (measured). The markdown parse is 14.6 ms in JavaScript and 4.5 ms through WebAssembly, so about 10 ms of 128 to 173 ms (measured in Node, not in the window). The save is not waited for.                                                           | Opening the long chat: 483 ms the first time, 347 ms again. Launch to the composer: 1,204 ms (measured).                                                                                        |
+| Size                            | The 0.3.46 download is 249 MB as a disk image and 251 MB as the update archive, arm64 only (release). The bare shell is 316 MB on disk on Linux (measured).                                                                                                                                                                                                                                             | Adds 0.6 MB for the save step or 2.3 MB for a chat reader, per architecture, or 0.45 MB of WebAssembly once (measured, Linux builds).                                                                                                                                                                                                              | A 0.8 MB shell, plus a 127 MB Node runtime it now has to bring (measured, Linux), plus the renderer, the server and the helpers shipped today. About 190 MB less on disk. No package was built. |
+| Signing and notarising on macOS | Unchanged. `scripts/laterdog-release-mac.sh` signs with the Developer ID identity and the hardened runtime, notarises and staples the app and the disk image, and checks both with `spctl` (read in code).                                                                                                                                                                                              | A native binary goes under `extraResources`, where electron-builder signs it with the app, the way the computer-use driver ships (read in code). It is one more executable for the notary to accept. Not tried. WebAssembly needs no signing.                                                                                                      | A new bundle layout, entitlements and signing order, and the release script's checks rewritten for it. Not tried.                                                                               |
+| Universal build                 | There is none. `electron-builder.yml` lists arm64 and x64 as separate builds, and the release script builds and publishes arm64 only (read in code, release).                                                                                                                                                                                                                                           | One binary per architecture under `dist-native/${arch}`, each from its own Rust target, or the two joined with `lipo`. WebAssembly is one file for every platform. Not built for a Mac.                                                                                                                                                            | A shell and a Node runtime per architecture. Not built.                                                                                                                                         |
+| Updater                         | electron-updater reads `latest-mac.yml` from the latest release and installs the archive; an update receipt is kept (read in code).                                                                                                                                                                                                                                                                     | Unchanged. The component sits inside the app and updates with it.                                                                                                                                                                                                                                                                                  | A new updater, and one release of today's app whose update is the new app. Not tried.                                                                                                           |
+| Migration                       | Ordinary pull requests with tests. Pull request #160 is one.                                                                                                                                                                                                                                                                                                                                            | Ship it switched off, run it in shadow beside the Node path and log any difference, then switch it on with the Node path as the fallback.                                                                                                                                                                                                          | A second app built until it matches everything in [What a new shell has to bring](#what-a-new-shell-has-to-bring), then the bridging release.                                                   |
+| Taking a bad release back       | Apps never move to an older version (`docs/laterdog/releasing.md`), so it is a newer release with the commit reverted. The saved formats do not change.                                                                                                                                                                                                                                                 | Switch the setting off. The Node path is still there and still tested, and the saved formats are the same under both.                                                                                                                                                                                                                              | Nothing. Once people have updated, only a newer release of the new shell reaches them.                                                                                                          |
 
 Steps and details for the last two rows are in [Migration and rollback](#migration-and-rollback); packaging for a component is in [Packaging a Rust component, had one won](#packaging-a-rust-component-had-one-won).
 
@@ -57,13 +57,13 @@ A time is a median with the lowest and highest run in brackets. Memory is peak r
 
 All synthetic, built by the scripts in `prototypes/rust-seam/`. No real home, chat or account was read.
 
-| Fixture | Built by | What it holds |
-| --- | --- | --- |
-| Home | `save-walk/make-home.mjs build` | A 630 MB `messages.db` in WAL mode and 20,000 files of 0.5 to 256 KB in 80 dog folders: 21,443 entries, 1,015 MB. Between saves 300 files and the database change. |
-| Crowded home | `save-walk/make-home.mjs tiny` | 140,000 one-line files in 800 dog folders: 171,198 entries. Between saves 300 files change. |
-| Long chat | `markdown-wasm/bench-markdown.mjs`, `shell/hold-fixture.ts` | 240 messages (120 asks, 120 answers) with prose, lists, a code block and a table: 57,364 characters. |
-| Chat database | `chat-open/make-chat-db.mjs` | A 718 MB `messages.db` with the server's own table and index: 131,491 rows in 401 chats. The 240-message long chat is spread through it. |
-| Running server | `shell/hold-fixture.ts` | A disposable later.dog server with the repository's fake engine, the long chat and five other dogs with 12 messages each. |
+| Fixture        | Built by                                                    | What it holds                                                                                                                                                      |
+| -------------- | ----------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Home           | `save-walk/make-home.mjs build`                             | A 630 MB `messages.db` in WAL mode and 20,000 files of 0.5 to 256 KB in 80 dog folders: 21,443 entries, 1,015 MB. Between saves 300 files and the database change. |
+| Crowded home   | `save-walk/make-home.mjs tiny`                              | 140,000 one-line files in 800 dog folders: 171,198 entries. Between saves 300 files change.                                                                        |
+| Long chat      | `markdown-wasm/bench-markdown.mjs`, `shell/hold-fixture.ts` | 240 messages (120 asks, 120 answers) with prose, lists, a code block and a table: 57,364 characters.                                                               |
+| Chat database  | `chat-open/make-chat-db.mjs`                                | A 718 MB `messages.db` with the server's own table and index: 131,491 rows in 401 chats. The 240-message long chat is spread through it.                           |
+| Running server | `shell/hold-fixture.ts`                                     | A disposable later.dog server with the repository's fake engine, the long chat and five other dogs with 12 messages each.                                          |
 
 ## Home save
 
@@ -73,24 +73,24 @@ The home saves itself every 60 s (`deploy/laterdog/home/runtime/run.mjs`). A sav
 
 Measured. Home fixture, 7 runs each.
 
-| Path | Time | Peak memory | Longest stall of the Node event loop | Correct |
-| --- | ---: | ---: | ---: | --- |
-| Node before: one file asked about at a time | 1,213 ms (1,099 to 1,868) | 87 MB | 2 ms | reference |
-| Node now: a folder's files 32 at a time (pull request #160) | 613 ms (539 to 654) | 89 MB | 2 ms | yes |
-| Node: synchronous calls in a worker thread | 435 ms (382 to 452) | 109 MB | 25 ms | yes |
-| Node: synchronous calls on the main thread | 340 ms (318 to 374) | 92 MB | 335 ms | yes |
-| Rust alone, nothing handed to Node | 158 ms (151 to 175) | 8 MB | none | not compared |
-| Rust child process, listing parsed in Node | 232 ms (216 to 242) | 73 MB + 8 MB | 16 ms | yes |
+| Path                                                        |                      Time |  Peak memory | Longest stall of the Node event loop | Correct      |
+| ----------------------------------------------------------- | ------------------------: | -----------: | -----------------------------------: | ------------ |
+| Node before: one file asked about at a time                 | 1,213 ms (1,099 to 1,868) |        87 MB |                                 2 ms | reference    |
+| Node now: a folder's files 32 at a time (pull request #160) |       613 ms (539 to 654) |        89 MB |                                 2 ms | yes          |
+| Node: synchronous calls in a worker thread                  |       435 ms (382 to 452) |       109 MB |                                25 ms | yes          |
+| Node: synchronous calls on the main thread                  |       340 ms (318 to 374) |        92 MB |                               335 ms | yes          |
+| Rust alone, nothing handed to Node                          |       158 ms (151 to 175) |         8 MB |                                 none | not compared |
+| Rust child process, listing parsed in Node                  |       232 ms (216 to 242) | 73 MB + 8 MB |                                16 ms | yes          |
 
 Crowded home, 5 runs each.
 
-| Path | Time | Peak memory | Longest stall | Correct |
-| --- | ---: | ---: | ---: | --- |
-| Node before | 16.6 s (12.5 to 17.7) | 215 MB | 12 ms | reference |
-| Node now (pull request #160) | 8.0 s (6.3 to 9.1) | 216 MB | 11 ms | yes |
-| Node: synchronous calls in a worker thread | 3.3 s (3.2 to 3.3) | 280 MB | 180 ms | yes |
-| Rust alone | 1.6 s (1.6 to 1.6) | 44 MB | none | not compared |
-| Rust child process, listing parsed in Node | 2.5 s (2.4 to 2.7), a later session | 158 MB + 139 MB | 151 ms | yes |
+| Path                                       |                                Time |     Peak memory | Longest stall | Correct      |
+| ------------------------------------------ | ----------------------------------: | --------------: | ------------: | ------------ |
+| Node before                                |               16.6 s (12.5 to 17.7) |          215 MB |         12 ms | reference    |
+| Node now (pull request #160)               |                  8.0 s (6.3 to 9.1) |          216 MB |         11 ms | yes          |
+| Node: synchronous calls in a worker thread |                  3.3 s (3.2 to 3.3) |          280 MB |        180 ms | yes          |
+| Rust alone                                 |                  1.6 s (1.6 to 1.6) |           44 MB |          none | not compared |
+| Rust child process, listing parsed in Node | 2.5 s (2.4 to 2.7), a later session | 158 MB + 139 MB |        151 ms | yes          |
 
 The same Rust walk took 1.6 s in one session and 2.3 s in the next, after the machine restarted. Two Node rows that run the same code (a folder's files 32 at a time, once from `sync.mjs` and once from `walk-variants.mjs`) came out at 613 ms and 774 ms. Differences under about a quarter are noise here.
 
@@ -98,23 +98,23 @@ The same Rust walk took 1.6 s in one session and 2.3 s in the next, after the ma
 
 Measured. Home fixture, 7 runs each, variants taking turns. 301 files changed, 379 pieces hashed, the 630 MB database hashed where it lies.
 
-| Path | Time | Peak memory of the tree | Longest stall | Correct |
-| --- | ---: | ---: | ---: | --- |
-| Node before | 2,179 ms (2,119 to 3,764) | 330 MB | 29 ms | yes |
-| Node now (pull request #160) | 1,756 ms (1,465 to 2,249) | 347 MB | 33 ms | reference |
-| Node now, each file read into a buffer of its own size | 1,606 ms (1,275 to 1,926) | 148 MB | 14 ms | yes |
-| Rust child process, 1 thread, listing parsed in Node | 823 ms (820 to 867) | 85 MB + 27 MB | 30 ms | yes |
-| Rust child process, 4 threads, listing parsed in Node | 453 ms (420 to 466) | 85 MB + 52 MB | 34 ms | yes |
+| Path                                                   |                      Time | Peak memory of the tree | Longest stall | Correct   |
+| ------------------------------------------------------ | ------------------------: | ----------------------: | ------------: | --------- |
+| Node before                                            | 2,179 ms (2,119 to 3,764) |                  330 MB |         29 ms | yes       |
+| Node now (pull request #160)                           | 1,756 ms (1,465 to 2,249) |                  347 MB |         33 ms | reference |
+| Node now, each file read into a buffer of its own size | 1,606 ms (1,275 to 1,926) |                  148 MB |         14 ms | yes       |
+| Rust child process, 1 thread, listing parsed in Node   |       823 ms (820 to 867) |           85 MB + 27 MB |         30 ms | yes       |
+| Rust child process, 4 threads, listing parsed in Node  |       453 ms (420 to 466) |           85 MB + 52 MB |         34 ms | yes       |
 
 Crowded home, 5 runs each. 300 files changed.
 
-| Path | Time | Peak memory of the tree | Longest stall | Correct |
-| --- | ---: | ---: | ---: | --- |
-| Node before | 16.6 s (13.4 to 26.3) | 395 MB | 135 ms | yes |
-| Node now (pull request #160) | 8.8 s (8.0 to 15.0) | 571 MB | 149 ms | reference |
-| Node now, each file read into a buffer of its own size | 8.4 s (6.8 to 9.7) | 367 MB | 141 ms | yes |
-| Rust child process, 1 thread, listing parsed in Node | 3.1 s (2.9 to 3.2) | 219 MB + 139 MB | 265 ms | yes |
-| Rust child process, 4 threads, listing parsed in Node | 3.0 s (3.0 to 3.1) | 219 MB + 139 MB | 259 ms | yes |
+| Path                                                   |                  Time | Peak memory of the tree | Longest stall | Correct   |
+| ------------------------------------------------------ | --------------------: | ----------------------: | ------------: | --------- |
+| Node before                                            | 16.6 s (13.4 to 26.3) |                  395 MB |        135 ms | yes       |
+| Node now (pull request #160)                           |   8.8 s (8.0 to 15.0) |                  571 MB |        149 ms | reference |
+| Node now, each file read into a buffer of its own size |    8.4 s (6.8 to 9.7) |                  367 MB |        141 ms | yes       |
+| Rust child process, 1 thread, listing parsed in Node   |    3.1 s (2.9 to 3.2) |         219 MB + 139 MB |        265 ms | yes       |
+| Rust child process, 4 threads, listing parsed in Node  |    3.0 s (3.0 to 3.1) |         219 MB + 139 MB |        259 ms | yes       |
 
 Starting the Rust binary from Node and waiting for it to end costs 3 ms (50 runs), against 2 ms for `/bin/true`. Parsing the crowded home's 30 MB listing is what stalls Node for 260 ms.
 
@@ -122,11 +122,11 @@ Starting the Rust binary from Node and waiting for it to end costs 3 ms (50 runs
 
 Measured. Home fixture, 7 runs each, a fresh process per run. Each row adds one thing to the row above. 301 files changed, 379 pieces checked against the store, 302 uploaded (20.7 MB).
 
-| What the save does | Time | Peak memory | Longest stall |
-| --- | ---: | ---: | ---: |
-| List, compare, hash, with the store in memory | 1,670 ms (1,472 to 2,088) | 323 MB | 29 ms |
-| The same, plus the copy of the 630 MB database (SQLite's backup into scratch) | 4,648 ms (4,514 to 5,079) | 296 MB | 22 ms |
-| The same, with the store asked over HTTP on the same machine | 5,470 ms (5,325 to 5,982) | 385 MB | 22 ms |
+| What the save does                                                            |                      Time | Peak memory | Longest stall |
+| ----------------------------------------------------------------------------- | ------------------------: | ----------: | ------------: |
+| List, compare, hash, with the store in memory                                 | 1,670 ms (1,472 to 2,088) |      323 MB |         29 ms |
+| The same, plus the copy of the 630 MB database (SQLite's backup into scratch) | 4,648 ms (4,514 to 5,079) |      296 MB |         22 ms |
+| The same, with the store asked over HTTP on the same machine                  | 5,470 ms (5,325 to 5,982) |      385 MB |         22 ms |
 
 A fourth row, with a store that answers each request after 30 ms, was cut off by a restart of the machine and is not reported.
 
@@ -145,11 +145,11 @@ The renderer parses each message with the JavaScript markdown parser and five pl
 
 Measured in Node, not in the app's renderer. 40 passes each after warming.
 
-| Messages parsed | JavaScript: parse | JavaScript: parse, then to elements | Rust: parse to a tree | Rust: tree, then to elements |
-| --- | ---: | ---: | ---: | ---: |
-| All 240 | 80.9 ms (67.8 to 117.4) | 96.3 ms (85.3 to 128.4) | 21.0 ms (18.2 to 39.2) | 34.9 ms (25.1 to 43.8) |
-| The newest 120 | 39.2 ms (34.0 to 57.6) | 48.1 ms (41.5 to 87.7) | 10.9 ms (9.1 to 13.5) | 17.9 ms (15.1 to 26.7) |
-| The newest 30, what a chat opens with | 12.4 ms (9.3 to 23.1) | 14.6 ms (9.9 to 38.8) | 2.8 ms (2.5 to 4.1) | 4.5 ms (4.3 to 5.0) |
+| Messages parsed                       |       JavaScript: parse | JavaScript: parse, then to elements |  Rust: parse to a tree | Rust: tree, then to elements |
+| ------------------------------------- | ----------------------: | ----------------------------------: | ---------------------: | ---------------------------: |
+| All 240                               | 80.9 ms (67.8 to 117.4) |             96.3 ms (85.3 to 128.4) | 21.0 ms (18.2 to 39.2) |       34.9 ms (25.1 to 43.8) |
+| The newest 120                        |  39.2 ms (34.0 to 57.6) |              48.1 ms (41.5 to 87.7) |  10.9 ms (9.1 to 13.5) |       17.9 ms (15.1 to 26.7) |
+| The newest 30, what a chat opens with |   12.4 ms (9.3 to 23.1) |               14.6 ms (9.9 to 38.8) |    2.8 ms (2.5 to 4.1) |          4.5 ms (4.3 to 5.0) |
 
 One message, median over the 120 answers: 0.56 ms in JavaScript and 0.18 ms through Rust, both to elements.
 
@@ -157,10 +157,10 @@ In a fresh process, 15 processes: the first 30 messages take 57.8 ms (35.8 to 98
 
 Correctness, against the JavaScript parser:
 
-| Texts | Same node types | Same tree, empty fields ignored | Same positions | Same elements after the plugins |
-| --- | ---: | ---: | ---: | ---: |
-| The 240 fixture messages | 240 | 240 | 200 | 240 |
-| 12 syntax samples (maths, task lists, footnotes, links, nested lists, HTML, images, tables, accents) | 12 | 11 | 9 | 11 |
+| Texts                                                                                                | Same node types | Same tree, empty fields ignored | Same positions | Same elements after the plugins |
+| ---------------------------------------------------------------------------------------------------- | --------------: | ------------------------------: | -------------: | ------------------------------: |
+| The 240 fixture messages                                                                             |             240 |                             240 |            200 |                             240 |
+| 12 syntax samples (maths, task lists, footnotes, links, nested lists, HTML, images, tables, accents) |              12 |                              11 |              9 |                              11 |
 
 The sample that differs is inline maths: the Rust tree carries no rendering hint, so `rehype-katex` leaves it as text. One sample with accented letters and an emoji reports a different end column.
 
@@ -176,12 +176,12 @@ Opening a chat asks the local server for the newest rows of one thread: one inde
 
 Measured. Chat database fixture, 7 fresh processes per row, the four paths taking turns. Each process opens the 240-message chat 200 times (30 times where a process is started for every open). A cell is the median open inside a process, then the median, lowest and highest of the 7 processes. The first open of every row was compared with Node's answer and was deeply equal.
 
-| Path | The newest 50 rows (17.5 KB) | The whole chat, 240 rows (81.5 KB) | First open in a fresh process, 50 rows | Peak memory of the tree |
-| --- | ---: | ---: | ---: | ---: |
-| Node today: a statement prepared on every open | 0.155 ms (0.147 to 0.170) | 0.567 ms (0.493 to 0.614) | 1.6 ms (1.4 to 32.2) | 60 MB |
-| Node with its three statements prepared once | 0.143 ms (0.104 to 0.172) | 0.537 ms (0.457 to 0.564) | 1.6 ms (1.4 to 1.7) | 60 MB |
-| Rust: a child process started for every open | 3.885 ms (3.670 to 4.171) | 6.037 ms (4.855 to 6.304) | 8.0 ms (6.8 to 15.3) | 58 MB, child not read |
-| Rust: one child process kept running, asked over a pipe | 0.172 ms (0.164 to 0.181) | 0.619 ms (0.552 to 0.635) | 6.8 ms (5.9 to 9.2) | 55 MB + 4 MB |
+| Path                                                    | The newest 50 rows (17.5 KB) | The whole chat, 240 rows (81.5 KB) | First open in a fresh process, 50 rows | Peak memory of the tree |
+| ------------------------------------------------------- | ---------------------------: | ---------------------------------: | -------------------------------------: | ----------------------: |
+| Node today: a statement prepared on every open          |    0.155 ms (0.147 to 0.170) |          0.567 ms (0.493 to 0.614) |                   1.6 ms (1.4 to 32.2) |                   60 MB |
+| Node with its three statements prepared once            |    0.143 ms (0.104 to 0.172) |          0.537 ms (0.457 to 0.564) |                    1.6 ms (1.4 to 1.7) |                   60 MB |
+| Rust: a child process started for every open            |    3.885 ms (3.670 to 4.171) |          6.037 ms (4.855 to 6.304) |                   8.0 ms (6.8 to 15.3) |   58 MB, child not read |
+| Rust: one child process kept running, asked over a pipe |    0.172 ms (0.164 to 0.181) |          0.619 ms (0.552 to 0.635) |                    6.8 ms (5.9 to 9.2) |            55 MB + 4 MB |
 
 The same measurement before the machine restarted, 7 processes again, gave 0.172, 0.154, 4.247 and 0.170 ms for the newest 50 rows and 0.660, 0.625, 7.551 and 0.728 ms for the whole chat, in the same row order. The kept-running helper is level with Node at best and a tenth slower otherwise. It is never faster.
 
@@ -200,13 +200,13 @@ The local server is one Node process that holds every route, the database and th
 
 Measured. 5 runs, each with a fresh server and a fresh data folder. Memory is read from `/proc/*/smaps_rollup` for the server and every process under it.
 
-| When | Processes | Shared pages counted once (PSS) | Resident (RSS) |
-| --- | ---: | ---: | ---: |
-| A bare Node process doing nothing, for scale | 1 | 26 MB (26 to 26) | 45 MB (45 to 45) |
-| Fresh server, idle | 1 | 210 MB (208 to 212) | 247 MB (246 to 249) |
-| While the dogs answer, at the tree's largest | up to 10 | 535 MB (517 to 562) | 956 MB (931 to 1,024) |
-| Idle again, five seconds after the last answer | 7 | 511 MB (507 to 512) | 838 MB (834 to 840) |
-| Of that, the server process alone | 1 | 273 MB (269 to 274) | 322 MB (319 to 323) |
+| When                                           | Processes | Shared pages counted once (PSS) |        Resident (RSS) |
+| ---------------------------------------------- | --------: | ------------------------------: | --------------------: |
+| A bare Node process doing nothing, for scale   |         1 |                26 MB (26 to 26) |      45 MB (45 to 45) |
+| Fresh server, idle                             |         1 |             210 MB (208 to 212) |   247 MB (246 to 249) |
+| While the dogs answer, at the tree's largest   |  up to 10 |             535 MB (517 to 562) | 956 MB (931 to 1,024) |
+| Idle again, five seconds after the last answer |         7 |             511 MB (507 to 512) |   838 MB (834 to 840) |
+| Of that, the server process alone              |         1 |             273 MB (269 to 274) |   322 MB (319 to 323) |
 
 The other six processes after the chats are the fake engine, one per dog, at 39 to 41 MB each (first run). The server's own peak resident memory was 324 MB (321 to 325). The 150 answers took 12.3 s (12.1 to 13.0).
 
@@ -231,17 +231,17 @@ No app was built. A 0.8 MB Rust shell that opens one window on the system webvie
 
 Measured. 7 launches each, each with a fresh profile. Memory is the whole process tree, read from `/proc/*/smaps_rollup` five seconds after the composer appeared and again after the long chat was opened twice.
 
-| | Electron | Rust shell on the system webview |
-| --- | ---: | ---: |
-| Processes | 6 | 3 |
-| Idle memory, shared pages counted once (PSS) | 310 MB (308 to 311) | 410 MB (408 to 410) |
-| Idle memory, resident (RSS) | 644 MB (642 to 645) | 639 MB (637 to 640) |
-| After the long chat, PSS | 445 MB (418 to 448) | 539 MB (533 to 548) |
-| After the long chat, RSS | 792 MB (766 to 796) | 768 MB (762 to 777) |
-| Launch to the composer | 921 ms (882 to 1,176) | 1,204 ms (1,079 to 1,461) |
-| Open the long chat, first time | 173 ms (147 to 196) | 483 ms (416 to 589) |
-| Open the long chat, again | 128 ms (116 to 175) | 347 ms (244 to 668) |
-| Shell on disk | 316 MB | 0.8 MB, plus the system's 129 MB of webview libraries |
+|                                              |              Electron |                      Rust shell on the system webview |
+| -------------------------------------------- | --------------------: | ----------------------------------------------------: |
+| Processes                                    |                     6 |                                                     3 |
+| Idle memory, shared pages counted once (PSS) |   310 MB (308 to 311) |                                   410 MB (408 to 410) |
+| Idle memory, resident (RSS)                  |   644 MB (642 to 645) |                                   639 MB (637 to 640) |
+| After the long chat, PSS                     |   445 MB (418 to 448) |                                   539 MB (533 to 548) |
+| After the long chat, RSS                     |   792 MB (766 to 796) |                                   768 MB (762 to 777) |
+| Launch to the composer                       | 921 ms (882 to 1,176) |                             1,204 ms (1,079 to 1,461) |
+| Open the long chat, first time               |   173 ms (147 to 196) |                                   483 ms (416 to 589) |
+| Open the long chat, again                    |   128 ms (116 to 175) |                                   347 ms (244 to 668) |
+| Shell on disk                                |                316 MB | 0.8 MB, plus the system's 129 MB of webview libraries |
 
 Limits of this measurement:
 
@@ -253,18 +253,18 @@ Limits of this measurement:
 
 All read in code unless marked.
 
-| What | Today | With a new shell |
-| --- | --- | --- |
-| Signing and notarising | `scripts/laterdog-release-mac.sh` runs on Jacob's Mac. electron-builder signs with the Developer ID identity and the hardened runtime, then `xcrun notarytool`, `stapler`, `spctl`. Only arm64 is released. | A new bundle layout, entitlements and nested signing order, written and proven from nothing. |
-| Build tools on the Mac | The command line tools are enough: `codesign`, `notarytool`, `swiftc`, `lipo`. | A Rust shell adds a Rust toolchain per architecture (692 MB here, measured). An AppKit shell needs Xcode. Atelier's brief says Jacob's Mac has no Xcode; no file in the repository says so and the Mac was offline. Not checked. |
-| Updates | electron-updater, bundled by `scripts/bundle-updater.mjs`, reads `latest-mac.yml` from the latest release and installs through Electron (`electron/updater.mjs`). An update receipt is kept. | A new updater, and one release of today's app that updates into the new one. Not tried. |
-| Undoing a release | There is none: "apps never move to an older version" (`docs/laterdog/releasing.md`). | The same, and the first new-shell release could not be undone by an older one either. |
-| Accessibility and Screen Recording | Checked and asked for in `electron/mac-permissions.mjs`; computer use needs both (`electron/cua-grant.mjs`). Usage strings in `electron-builder.yml`. | Re-implemented. Whether the Mac keeps Jacob's grants for a differently built app with the same identifier was not checked. |
-| Dictation | A Swift helper app built with `swiftc` and `lipo` (`electron/build-speech-helper.mjs`), started with `open`, talking through files (`electron/speech.mjs`). | Reusable as it is. The glue is rewritten. |
-| Shortcuts, tray, links, one instance, window state | Menu shortcuts (`electron/menu.mjs`), two tray icons, the `laterdog://` link, the single-instance lock and saved window state (`electron/main.mjs`). No global shortcut and no start-at-login was found. | Each rebuilt. |
-| The local server | Runs on Electron's own Node (`utilityProcess.fork`), and the supervisor and tools start with `ELECTRON_RUN_AS_NODE` (`electron/laterdog-supervisor.mjs`, `server/index.ts`). No separate Node is bundled. | A Node runtime bundled and signed per architecture: 127 MB on this machine (measured). The server stays Node either way. |
-| Engines | Command-line programs found on the person's `PATH` (`server/procs.ts`, `server/env-path.ts`). | Unchanged. They are not part of the shell. |
-| The shell's own code | 104 files and about 17,170 lines in `electron/`, with 105 test files. | Rewritten, with its tests. |
+| What                                               | Today                                                                                                                                                                                                       | With a new shell                                                                                                                                                                                                                 |
+| -------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Signing and notarising                             | `scripts/laterdog-release-mac.sh` runs on Jacob's Mac. electron-builder signs with the Developer ID identity and the hardened runtime, then `xcrun notarytool`, `stapler`, `spctl`. Only arm64 is released. | A new bundle layout, entitlements and nested signing order, written and proven from nothing.                                                                                                                                     |
+| Build tools on the Mac                             | The command line tools are enough: `codesign`, `notarytool`, `swiftc`, `lipo`.                                                                                                                              | A Rust shell adds a Rust toolchain per architecture (692 MB here, measured). An AppKit shell needs Xcode. Atelier's brief says Jacob's Mac has no Xcode; no file in the repository says so and the Mac was offline. Not checked. |
+| Updates                                            | electron-updater, bundled by `scripts/bundle-updater.mjs`, reads `latest-mac.yml` from the latest release and installs through Electron (`electron/updater.mjs`). An update receipt is kept.                | A new updater, and one release of today's app that updates into the new one. Not tried.                                                                                                                                          |
+| Undoing a release                                  | There is none: "apps never move to an older version" (`docs/laterdog/releasing.md`).                                                                                                                        | The same, and the first new-shell release could not be undone by an older one either.                                                                                                                                            |
+| Accessibility and Screen Recording                 | Checked and asked for in `electron/mac-permissions.mjs`; computer use needs both (`electron/cua-grant.mjs`). Usage strings in `electron-builder.yml`.                                                       | Re-implemented. Whether the Mac keeps Jacob's grants for a differently built app with the same identifier was not checked.                                                                                                       |
+| Dictation                                          | A Swift helper app built with `swiftc` and `lipo` (`electron/build-speech-helper.mjs`), started with `open`, talking through files (`electron/speech.mjs`).                                                 | Reusable as it is. The glue is rewritten.                                                                                                                                                                                        |
+| Shortcuts, tray, links, one instance, window state | Menu shortcuts (`electron/menu.mjs`), two tray icons, the `laterdog://` link, the single-instance lock and saved window state (`electron/main.mjs`). No global shortcut and no start-at-login was found.    | Each rebuilt.                                                                                                                                                                                                                    |
+| The local server                                   | Runs on Electron's own Node (`utilityProcess.fork`), and the supervisor and tools start with `ELECTRON_RUN_AS_NODE` (`electron/laterdog-supervisor.mjs`, `server/index.ts`). No separate Node is bundled.   | A Node runtime bundled and signed per architecture: 127 MB on this machine (measured). The server stays Node either way.                                                                                                         |
+| Engines                                            | Command-line programs found on the person's `PATH` (`server/procs.ts`, `server/env-path.ts`).                                                                                                               | Unchanged. They are not part of the shell.                                                                                                                                                                                       |
+| The shell's own code                               | 104 files and about 17,170 lines in `electron/`, with 105 test files.                                                                                                                                       | Rewritten, with its tests.                                                                                                                                                                                                       |
 
 ### Decision: keep Electron
 
@@ -274,23 +274,23 @@ The one saving a system-webview shell offers is disk: about 190 MB once a Node r
 
 Nothing here was built into a package. Sizes and build times are measured on the Linux machine; the rest is read in code.
 
-| | A native binary beside the server | A WebAssembly module in the renderer |
-| --- | --- | --- |
-| Size | 575 KB (save), 2.3 MB (chat open, with its own SQLite) | 453 KB, 109 KB with Brotli |
-| Builds | One per target: macOS arm64 (and x64 if it is released again), Windows x64, Linux x64 for the desktop, and Linux x64 for the home image. | One for every platform. |
-| Clean build | 10 s (save), 85 s (chat open, compiles SQLite), 21 s (markdown) | |
-| Universal build on a Mac | Two builds, `aarch64-apple-darwin` and `x86_64-apple-darwin`, kept apart under `dist-native/${arch}` as today's native pieces are, or joined with `lipo`. Only arm64 is released today. Not built. | The one file. |
-| Into the desktop bundle | A line under `extraResources` in `electron-builder.yml` from `dist-native/${arch}`, the way the computer-use driver ships. electron-builder signs it with the app. | Bundled by Vite like any asset. No signing. |
-| Into the home image | `deploy/laterdog/home/Dockerfile` copies only the `runtime/` folder onto a `node:24-bookworm-slim` base. A binary needs a build stage or a pinned download, and has to be built against that base's C library, which is older than this machine's. | Does not apply. |
-| Where it is built | There are no build workflows in this checkout; releases are made on Jacob's Mac (`docs/laterdog/releasing.md`). The Mac would need a Rust toolchain, or the binary would be built elsewhere and pinned by checksum. | The same toolchain question, once. |
+|                          | A native binary beside the server                                                                                                                                                                                                                  | A WebAssembly module in the renderer        |
+| ------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------- |
+| Size                     | 575 KB (save), 2.3 MB (chat open, with its own SQLite)                                                                                                                                                                                             | 453 KB, 109 KB with Brotli                  |
+| Builds                   | One per target: macOS arm64 (and x64 if it is released again), Windows x64, Linux x64 for the desktop, and Linux x64 for the home image.                                                                                                           | One for every platform.                     |
+| Clean build              | 10 s (save), 85 s (chat open, compiles SQLite), 21 s (markdown)                                                                                                                                                                                    |                                             |
+| Universal build on a Mac | Two builds, `aarch64-apple-darwin` and `x86_64-apple-darwin`, kept apart under `dist-native/${arch}` as today's native pieces are, or joined with `lipo`. Only arm64 is released today. Not built.                                                 | The one file.                               |
+| Into the desktop bundle  | A line under `extraResources` in `electron-builder.yml` from `dist-native/${arch}`, the way the computer-use driver ships. electron-builder signs it with the app.                                                                                 | Bundled by Vite like any asset. No signing. |
+| Into the home image      | `deploy/laterdog/home/Dockerfile` copies only the `runtime/` folder onto a `node:24-bookworm-slim` base. A binary needs a build stage or a pinned download, and has to be built against that base's C library, which is older than this machine's. | Does not apply.                             |
+| Where it is built        | There are no build workflows in this checkout; releases are made on Jacob's Mac (`docs/laterdog/releasing.md`). The Mac would need a Rust toolchain, or the binary would be built elsewhere and pinned by checksum.                                | The same toolchain question, once.          |
 
 ## Migration and rollback
 
-| Option | Getting there | Getting back |
-| --- | --- | --- |
-| Improved Node path | An ordinary pull request with tests. Pull request #160 is this. | Revert the commit. The saved format does not change. |
+| Option             | Getting there                                                                                                                                                                                                                                                                                                     | Getting back                                                                                                            |
+| ------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
+| Improved Node path | An ordinary pull request with tests. Pull request #160 is this.                                                                                                                                                                                                                                                   | Revert the commit. The saved format does not change.                                                                    |
 | One Rust component | Ship the binary switched off behind a setting. Run it in shadow first: Node does the work, Rust does it too, and any difference is logged. Then switch it on, falling back to the Node path on a missing binary, a non-zero exit, output that does not parse, or a timeout. The Node path stays and stays tested. | Switch the setting off. The Node path is still there, and the manifest and the database are the same format under both. |
-| New shell | A parallel app until it matches the table above, then one release of today's app that updates into it. | None once people have updated. A newer release of the new shell is the only fix. |
+| New shell          | A parallel app until it matches the table above, then one release of today's app that updates into it.                                                                                                                                                                                                            | None once people have updated. A newer release of the new shell is the only fix.                                        |
 
 ## To measure on the Mac
 
@@ -355,7 +355,7 @@ Disk: the Rust toolchain was 692 MB on Linux and the four builds 677 MB. The Mac
 
    ```sh
    cd ../..
-   pnpm exec vite build --outDir ~/rust-mac/dist
+   bun run vite build --outDir ~/rust-mac/dist
    node prototypes/rust-seam/server-memory/bench-server.mjs --dist ~/rust-mac/dist --runs 5 --out ~/rust-mac/server-memory.json
    ```
 
@@ -396,7 +396,7 @@ node markdown-wasm/bench-markdown.mjs
 node chat-open/make-chat-db.mjs ~/rust-lane/chat/messages.db
 node chat-open/bench-chat-open.mjs --db ~/rust-lane/chat/messages.db --runs 7
 cd ../..
-pnpm exec vite build --outDir ~/rust-lane/dist
+bun run vite build --outDir ~/rust-lane/dist
 node prototypes/rust-seam/server-memory/bench-server.mjs --dist ~/rust-lane/dist --runs 5
 node prototypes/rust-seam/shell/bench-shell.mjs --dist ~/rust-lane/dist --electron node_modules/electron/dist/electron --wry prototypes/rust-seam/shell/wry-shell/target/release/wry-shell --runs 7
 ```

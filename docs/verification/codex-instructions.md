@@ -49,9 +49,9 @@ permission profiles and older-server fallback.
 ## Checks
 
 ```sh
-pnpm exec vitest run server/drivers/codex.test.ts server/drivers/codex-instructions.test.ts
-pnpm typecheck
-pnpm test
+bun run vitest run server/drivers/codex.test.ts server/drivers/codex-instructions.test.ts
+bun run typecheck
+bun run test
 node --experimental-strip-types scripts/verify-codex-instructions.mjs
 PROBE_BEFORE=1 node --experimental-strip-types scripts/verify-codex-instructions.mjs
 ```

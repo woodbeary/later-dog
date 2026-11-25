@@ -5,8 +5,8 @@ Installing dependencies runs `scripts/install-git-hooks.mjs`. It sets the relati
 The hook must be executable. CI does not install local hooks.
 
 The pre-push hook checks changed supported files with Oxfmt 0.80.0, the comment checker
-and Oxlint. It always runs the public `pnpm typecheck` command on both complete application
-and server graphs, and `pnpm i18n:check`. These checks run concurrently and every failure is
+and Oxlint. It always runs the public `bun run typecheck` command on both complete application
+and server graphs, and `bun run i18n:check`. These checks run concurrently and every failure is
 reported. The completed invocation must finish below nine seconds. An early Node entry
 uses process uptime, including Node bootstrap, module initialization and the complete shell
 ref/cwd preamble. The shell launcher only locates and execs this entry; its initial exec
@@ -40,11 +40,11 @@ protect against another process editing files during the checks.
 A valid deletion-only push needs no Node or package dependencies. Malformed or incomplete
 records fail before this shortcut. Multi-ref pushes never discard an unsupported update.
 
-Local checks do not qualify a merge. The complete clean `pnpm gate` is still required by
+Local checks do not qualify a merge. The complete clean `bun run gate` is still required by
 [`AGENTS.md`](../../AGENTS.md). The public gate, typecheck and emitting server build commands
 are unchanged by this hook.
 
-Focused checks: `pnpm exec vitest run scripts/git-hooks`. The suite includes actual Git
+Focused checks: `bun run vitest run scripts/git-hooks`. The suite includes actual Git
 repositories, annotated tags, hidden index flags, deleted config paths, the real comment
 checker, literal formatter paths/configuration, linked worktree installation and collected
 child failures. Tests use temporary repositories and do not push to the project remote.

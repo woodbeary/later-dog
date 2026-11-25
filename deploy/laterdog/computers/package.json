@@ -14,17 +14,21 @@
     "deploy": "wrangler deploy",
     "deploy:worker": "wrangler deploy --containers-rollout=none",
     "smoke": "node scripts/smoke.mjs",
-    "tail": "wrangler tail laterdog-computers"
+    "tail": "wrangler tail laterdog-computers",
+    "preinstall": "node scripts/check-package-manager.mjs"
   },
   "devDependencies": {
     "typescript": "^5.9.3",
     "vitest": "^5.0.3",
     "wrangler": "^4.148.0"
   },
-  "pnpm": {
-    "onlyBuiltDependencies": [
-      "esbuild",
-      "workerd"
-    ]
-  }
+  "packageManager": "bun@1.4.5",
+  "engines": {
+    "node": ">=24",
+    "bun": "1.4.5"
+  },
+  "trustedDependencies": [
+    "esbuild",
+    "workerd"
+  ]
 }

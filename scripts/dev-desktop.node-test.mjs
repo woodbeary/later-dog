@@ -5,7 +5,16 @@ import test from "node:test";
 import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { appBundleOf, desktopPlan, devSigningIdentity, disclaimedElectron, runDesktop, stablySign, DEV_APP_IDENTIFIER, DEV_DISCLAIM_IDENTIFIER } from "./dev-desktop.mjs";
+import {
+  appBundleOf,
+  desktopPlan,
+  devSigningIdentity,
+  disclaimedElectron,
+  runDesktop,
+  stablySign,
+  DEV_APP_IDENTIFIER,
+  DEV_DISCLAIM_IDENTIFIER,
+} from "./dev-desktop.mjs";
 
 const fixtureHome = "/Users/desktop-fixture";
 const ROOT = "/fixtures/laterdog";
@@ -22,7 +31,14 @@ function fakeProcesses(plan, { delayServiceClose = false, failSpawnAt, emitSpawn
     calls.push(call);
     if (calls.length === failSpawnAt) throw new Error("fixture spawn failed");
     const child = new EventEmitter();
-    Object.assign(child, { pid: pid++, exitCode: null, signalCode: null, killed: false, signals: [], closed: false });
+    Object.assign(child, {
+      pid: pid++,
+      exitCode: null,
+      signalCode: null,
+      killed: false,
+      signals: [],
+      closed: false,
+    });
     child.finish = (code = 0, signal = null, close = true) => {
       if (child.exitCode === null && child.signalCode === null) {
         child.exitCode = code;
@@ -37,7 +53,9 @@ function fakeProcesses(plan, { delayServiceClose = false, failSpawnAt, emitSpawn
     child.kill = (signal = "SIGTERM") => {
       child.signals.push(signal);
       child.killed = true;
-      queueMicrotask(() => child.finish(null, signal, !(delayServiceClose && services.has(signature(call)))));
+      queueMicrotask(() =>
+        child.finish(null, signal, !(delayServiceClose && services.has(signature(call)))),
+      );
       return true;
     };
     children.push({ call, child });
@@ -50,9 +68,15 @@ function fakeProcesses(plan, { delayServiceClose = false, failSpawnAt, emitSpawn
     return child;
   };
   return {
-    calls, children, spawnProcess,
-    get electron() { return children.find(({ call }) => signature(call) === signature(plan.electron))?.child; },
-    get services() { return children.filter(({ call }) => services.has(signature(call))).map(({ child }) => child); },
+    calls,
+    children,
+    spawnProcess,
+    get electron() {
+      return children.find(({ call }) => signature(call) === signature(plan.electron))?.child;
+    },
+    get services() {
+      return children.filter(({ call }) => services.has(signature(call))).map(({ child }) => child);
+    },
   };
 }
 
@@ -65,7 +89,13 @@ async function until(predicate) {
 }
 
 function lifecycleOptions(processes, changes = {}) {
-  return { spawnProcess: processes.spawnProcess, assertPorts: async () => {}, waitReady: async () => {}, signals: new EventEmitter(), ...changes };
+  return {
+    spawnProcess: processes.spawnProcess,
+    assertPorts: async () => {},
+    waitReady: async () => {},
+    signals: new EventEmitter(),
+    ...changes,
+  };
 }
 
 test("one desktop plan keeps renderer, API and supervisor on the isolated Dev target", () => {
@@ -85,26 +115,52 @@ test("one desktop plan keeps renderer, API and supervisor on the isolated Dev ta
   assert.equal(plan.services.length, 3);
   const vite = plan.services.find(({ args }) => args.some((arg) => arg.includes("vite")));
   assert.ok(vite, "Vite starts with the other owned services");
-  assert.ok(vite.args.includes("--strictPort"), "Vite cannot silently move away from Electron's origin");
+  assert.ok(
+    vite.args.includes("--strictPort"),
+    "Vite cannot silently move away from Electron's origin",
+  );
 });
 
 test("the later.dog Dev app can name the Electron that shows the window, in both modes", () => {
-  assert.equal(planFor().electron.file, `${ROOT}/node_modules/electron/dist/${process.platform === "darwin" ? "Electron.app/Contents/MacOS/Electron" : process.platform === "win32" ? "electron.exe" : "electron"}`);
+  assert.equal(
+    planFor().electron.file,
+    `${ROOT}/node_modules/electron/dist/${process.platform === "darwin" ? "Electron.app/Contents/MacOS/Electron" : process.platform === "win32" ? "electron.exe" : "electron"}`,
+  );
   const renamed = "/Users/desktop-fixture/Applications/later.dog Dev.app/Contents/MacOS/Electron";
   assert.equal(planFor({ LATERDOG_DEV_ELECTRON: renamed }).electron.file, renamed);
-  assert.equal(planFor({ LATERDOG_DEV_ELECTRON: renamed, LATERDOG_DEV_HOME_SESSION: "/fixture/home.session.json" }).electron.file, renamed);
+  assert.equal(
+    planFor({
+      LATERDOG_DEV_ELECTRON: renamed,
+      LATERDOG_DEV_HOME_SESSION: "/fixture/home.session.json",
+    }).electron.file,
+    renamed,
+  );
   assert.deepEqual(planFor({ LATERDOG_DEV_ELECTRON: renamed }).electron.args, [ROOT]);
 });
 
 test("inherited release connections cannot redirect the Dev launch", () => {
-  const deleted = ["LATERDOG_URL", "LATERDOG_SUPERVISOR_URL", "LATERDOG_TOKEN", "LATERDOG_TOKEN_FILE", "LATERDOG_DATA_DIR", "LATERDOG_HARNESS_URL", "LATERDOG_COMPANION_DIR", "LATERDOG_WEBHOOK_PORT", "ELECTRON_RUN_AS_NODE"];
+  const deleted = [
+    "LATERDOG_URL",
+    "LATERDOG_SUPERVISOR_URL",
+    "LATERDOG_TOKEN",
+    "LATERDOG_TOKEN_FILE",
+    "LATERDOG_DATA_DIR",
+    "LATERDOG_HARNESS_URL",
+    "LATERDOG_COMPANION_DIR",
+    "LATERDOG_WEBHOOK_PORT",
+    "ELECTRON_RUN_AS_NODE",
+  ];
   const plan = planFor({
     ...Object.fromEntries(deleted.map((name) => [name, "release-fixture"])),
-    LATERDOG_VARIANT: "release", LATERDOG_APP_VARIANT: "release",
-    LATERDOG_SERVER_PORT: "8799", LATERDOG_PORT: "9010",
+    LATERDOG_VARIANT: "release",
+    LATERDOG_APP_VARIANT: "release",
+    LATERDOG_SERVER_PORT: "8799",
+    LATERDOG_PORT: "9010",
     LATERDOG_USER_DATA: `${fixtureHome}/Library/Application Support/later.dog`,
-    LATERDOG_BRIDGE_DIR: `${fixtureHome}/.laterdog/bridge`, LATERDOG_BIND: "0.0.0.0",
-    ELECTRON_START_URL: "http://127.0.0.1:8799", KEEP_FIXTURE: "kept",
+    LATERDOG_BRIDGE_DIR: `${fixtureHome}/.laterdog/bridge`,
+    LATERDOG_BIND: "0.0.0.0",
+    ELECTRON_START_URL: "http://127.0.0.1:8799",
+    KEEP_FIXTURE: "kept",
   });
   for (const name of deleted) assert.equal(plan.env[name], undefined, name);
   assert.equal(plan.env.LATERDOG_SERVER_PORT, "8999");
@@ -118,19 +174,33 @@ test("inherited release connections cannot redirect the Dev launch", () => {
 });
 
 test("each isolated workspace has its own desktop profile despite inherited overrides", () => {
-  const first = planFor({ LATERDOG_HOME: `${fixtureHome}/experiment-one`, LATERDOG_USER_DATA: `${fixtureHome}/Library/Application Support/later.dog` });
-  const second = planFor({ LATERDOG_HOME: `${fixtureHome}/experiment-two`, LATERDOG_USER_DATA: first.env.LATERDOG_USER_DATA });
+  const first = planFor({
+    LATERDOG_HOME: `${fixtureHome}/experiment-one`,
+    LATERDOG_USER_DATA: `${fixtureHome}/Library/Application Support/later.dog`,
+  });
+  const second = planFor({
+    LATERDOG_HOME: `${fixtureHome}/experiment-two`,
+    LATERDOG_USER_DATA: first.env.LATERDOG_USER_DATA,
+  });
   assert.equal(first.env.LATERDOG_USER_DATA, `${fixtureHome}/experiment-one/desktop`);
   assert.equal(second.env.LATERDOG_USER_DATA, `${fixtureHome}/experiment-two/desktop`);
   assert.notEqual(first.env.LATERDOG_USER_DATA, second.env.LATERDOG_USER_DATA);
 });
 
 test("the desktop launcher refuses release data and live-data opt-in", () => {
-  for (const name of [".laterdog", ".laterdog/profiles/example", ".laterdog-profiles/example", ".laterdog-v0"]) {
+  for (const name of [
+    ".laterdog",
+    ".laterdog/profiles/example",
+    ".laterdog-profiles/example",
+    ".laterdog-v0",
+  ]) {
     assert.throws(() => planFor({ LATERDOG_HOME: `${fixtureHome}/${name}` }), undefined, name);
   }
   assert.throws(() => planFor({ LATERDOG_USE_MY_LIVE_DOGS: "1" }));
-  assert.equal(planFor({ LATERDOG_HOME: `${fixtureHome}/isolated-experiment` }).env.LATERDOG_HOME, `${fixtureHome}/isolated-experiment`);
+  assert.equal(
+    planFor({ LATERDOG_HOME: `${fixtureHome}/isolated-experiment` }).env.LATERDOG_HOME,
+    `${fixtureHome}/isolated-experiment`,
+  );
 });
 
 test("a custom renderer port stays aligned and invalid or reserved ports fail before spawning", () => {
@@ -139,99 +209,175 @@ test("a custom renderer port stays aligned and invalid or reserved ports fail be
   assert.equal(plan.env.ELECTRON_START_URL, plan.uiUrl);
   assert.equal(plan.env.LATERDOG_UI_PORT, "5399");
   assert.deepEqual(plan.ports, [8999, 9000, 9110, 5399]);
-  for (const port of ["0", "-1", "65536", "12.5", "5299junk", "8799", "8999", "9000", "9010", "9110"]) {
+  for (const port of [
+    "0",
+    "-1",
+    "65536",
+    "12.5",
+    "5299junk",
+    "8799",
+    "8999",
+    "9000",
+    "9010",
+    "9110",
+  ]) {
     assert.throws(() => planFor({ LATERDOG_UI_PORT: port }), undefined, port);
   }
 });
 
-test("Electron starts only after all owned services are ready and quitting cleans them up", { timeout: 5_000 }, async () => {
-  const plan = planFor();
-  const processes = fakeProcesses(plan);
-  const checked = [];
-  const signals = new EventEmitter();
-  const result = runDesktop(plan, lifecycleOptions(processes, {
-    signals,
-    assertPorts: async (ports) => { assert.deepEqual(ports, plan.ports); assert.equal(processes.calls.length, 0); },
-    waitReady: async (url) => {
-      assert.equal(processes.services.length, 3);
-      assert.equal(processes.electron, undefined);
-      checked.push(url);
-    },
-  }));
-  await until(() => processes.electron);
-  assert.deepEqual(new Set(checked), new Set([`${plan.supervisorUrl}/v1/workspace`, `${plan.serverUrl}/api/health`, `${plan.uiUrl}/@vite/client`]));
-  for (const { call } of processes.children) {
-    assert.equal(call.options.cwd, plan.root);
-    assert.equal(call.options.env.LATERDOG_HOME, plan.env.LATERDOG_HOME);
-    assert.equal(call.options.env.LATERDOG_USER_DATA, `${fixtureHome}/.laterdog-dev/desktop`);
-  }
-  processes.electron.finish(0);
-  assert.equal(await result, 0);
-  for (const child of processes.services) {
-    assert.ok(child.signals.includes("SIGTERM"));
-    assert.equal(child.closed, true);
-  }
-  assert.equal(signals.listenerCount("SIGINT"), 0);
-  assert.equal(signals.listenerCount("SIGTERM"), 0);
-});
+test(
+  "Electron starts only after all owned services are ready and quitting cleans them up",
+  { timeout: 5_000 },
+  async () => {
+    const plan = planFor();
+    const processes = fakeProcesses(plan);
+    const checked = [];
+    const signals = new EventEmitter();
+    const result = runDesktop(
+      plan,
+      lifecycleOptions(processes, {
+        signals,
+        assertPorts: async (ports) => {
+          assert.deepEqual(ports, plan.ports);
+          assert.equal(processes.calls.length, 0);
+        },
+        waitReady: async (url) => {
+          assert.equal(processes.services.length, 3);
+          assert.equal(processes.electron, undefined);
+          checked.push(url);
+        },
+      }),
+    );
+    await until(() => processes.electron);
+    assert.deepEqual(
+      new Set(checked),
+      new Set([
+        `${plan.supervisorUrl}/v1/workspace`,
+        `${plan.serverUrl}/api/health`,
+        `${plan.uiUrl}/@vite/client`,
+      ]),
+    );
+    for (const { call } of processes.children) {
+      assert.equal(call.options.cwd, plan.root);
+      assert.equal(call.options.env.LATERDOG_HOME, plan.env.LATERDOG_HOME);
+      assert.equal(call.options.env.LATERDOG_USER_DATA, `${fixtureHome}/.laterdog-dev/desktop`);
+    }
+    processes.electron.finish(0);
+    assert.equal(await result, 0);
+    for (const child of processes.services) {
+      assert.ok(child.signals.includes("SIGTERM"));
+      assert.equal(child.closed, true);
+    }
+    assert.equal(signals.listenerCount("SIGINT"), 0);
+    assert.equal(signals.listenerCount("SIGTERM"), 0);
+  },
+);
 
-test("on a later.dog Cloud home the window waits only for the local proxy and renderer, never a sleeping home", { timeout: 5_000 }, async () => {
-  const session = "/fixture/home.session.json";
-  const plan = planFor({ LATERDOG_DEV_HOME_SESSION: session });
-  assert.equal(plan.supervisorUrl, null);
-  assert.equal(plan.readyUrl, `${plan.serverUrl}/__dev-home-proxy/ready`);
-  assert.deepEqual(plan.ports, [8999, 5299]);
-  assert.equal(plan.env.LATERDOG_DEV_API_URL, plan.serverUrl);
-  assert.deepEqual(plan.services.map(({ args, optional }) => ({ args, optional: optional === true })), [
-    { args: [`${ROOT}/scripts/dev-home-proxy.mjs`, session, "8999"], optional: false },
-    { args: [`${ROOT}/node_modules/vite/bin/vite.js`, "--host", "127.0.0.1", "--port", "5299", "--strictPort"], optional: false },
-    { args: [`${ROOT}/scripts/dev-mac.mjs`, session, `${fixtureHome}/.laterdog-dev`], optional: true },
-    { args: [`${ROOT}/scripts/dev-home.mjs`, "watch", "--session", session], optional: true },
-  ]);
-  const processes = fakeProcesses(plan);
-  const checked = [];
-  const result = runDesktop(plan, lifecycleOptions(processes, { waitReady: async (url) => { checked.push(url); } }));
-  await until(() => processes.electron);
-  assert.deepEqual(new Set(checked), new Set([plan.readyUrl, `${plan.uiUrl}/@vite/client`]));
-  processes.electron.finish(0);
-  assert.equal(await result, 0);
-});
+test(
+  "on a later.dog Cloud home the window waits only for the local proxy and renderer, never a sleeping home",
+  { timeout: 5_000 },
+  async () => {
+    const session = "/fixture/home.session.json";
+    const plan = planFor({ LATERDOG_DEV_HOME_SESSION: session });
+    assert.equal(plan.supervisorUrl, null);
+    assert.equal(plan.readyUrl, `${plan.serverUrl}/__dev-home-proxy/ready`);
+    assert.deepEqual(plan.ports, [8999, 5299]);
+    assert.equal(plan.env.LATERDOG_DEV_API_URL, plan.serverUrl);
+    assert.deepEqual(
+      plan.services.map(({ args, optional }) => ({ args, optional: optional === true })),
+      [
+        { args: [`${ROOT}/scripts/dev-home-proxy.mjs`, session, "8999"], optional: false },
+        {
+          args: [
+            `${ROOT}/node_modules/vite/bin/vite.js`,
+            "--host",
+            "127.0.0.1",
+            "--port",
+            "5299",
+            "--strictPort",
+          ],
+          optional: false,
+        },
+        {
+          args: [`${ROOT}/scripts/dev-mac.mjs`, session, `${fixtureHome}/.laterdog-dev`],
+          optional: true,
+        },
+        { args: [`${ROOT}/scripts/dev-home.mjs`, "watch", "--session", session], optional: true },
+      ],
+    );
+    const processes = fakeProcesses(plan);
+    const checked = [];
+    const result = runDesktop(
+      plan,
+      lifecycleOptions(processes, {
+        waitReady: async (url) => {
+          checked.push(url);
+        },
+      }),
+    );
+    await until(() => processes.electron);
+    assert.deepEqual(new Set(checked), new Set([plan.readyUrl, `${plan.uiUrl}/@vite/client`]));
+    processes.electron.finish(0);
+    assert.equal(await result, 0);
+  },
+);
 
-test("completion waits for owned service close events, not merely their exit events", { timeout: 5_000 }, async () => {
-  const plan = planFor();
-  const processes = fakeProcesses(plan, { delayServiceClose: true });
-  let settled = false;
-  const result = runDesktop(plan, lifecycleOptions(processes)).then((code) => { settled = true; return code; });
-  await until(() => processes.electron);
-  processes.electron.finish(0);
-  await until(() => processes.services.every((child) => child.killed));
-  await nextTurn();
-  assert.equal(settled, false);
-  for (const child of processes.services) child.finish(null, "SIGTERM");
-  assert.equal(await result, 0);
-});
+test(
+  "completion waits for owned service close events, not merely their exit events",
+  { timeout: 5_000 },
+  async () => {
+    const plan = planFor();
+    const processes = fakeProcesses(plan, { delayServiceClose: true });
+    let settled = false;
+    const result = runDesktop(plan, lifecycleOptions(processes)).then((code) => {
+      settled = true;
+      return code;
+    });
+    await until(() => processes.electron);
+    processes.electron.finish(0);
+    await until(() => processes.services.every((child) => child.killed));
+    await nextTurn();
+    assert.equal(settled, false);
+    for (const child of processes.services) child.finish(null, "SIGTERM");
+    assert.equal(await result, 0);
+  },
+);
 
 test("a port conflict starts no preparation or service process", { timeout: 5_000 }, async () => {
   const plan = planFor();
   const processes = fakeProcesses(plan);
-  const code = await runDesktop(plan, lifecycleOptions(processes, {
-    assertPorts: async () => { throw new Error("fixture port is occupied"); },
-  }));
+  const code = await runDesktop(
+    plan,
+    lifecycleOptions(processes, {
+      assertPorts: async () => {
+        throw new Error("fixture port is occupied");
+      },
+    }),
+  );
   assert.notEqual(code, 0);
   assert.equal(processes.calls.length, 0);
 });
 
-test("a readiness failure closes all owned services without launching Electron", { timeout: 5_000 }, async () => {
-  const plan = planFor();
-  const processes = fakeProcesses(plan);
-  const code = await runDesktop(plan, lifecycleOptions(processes, {
-    waitReady: async () => { throw new Error("fixture never became ready"); },
-  }));
-  assert.notEqual(code, 0);
-  assert.equal(processes.electron, undefined);
-  assert.equal(processes.services.length, 3);
-  for (const child of processes.services) assert.equal(child.closed, true);
-});
+test(
+  "a readiness failure closes all owned services without launching Electron",
+  { timeout: 5_000 },
+  async () => {
+    const plan = planFor();
+    const processes = fakeProcesses(plan);
+    const code = await runDesktop(
+      plan,
+      lifecycleOptions(processes, {
+        waitReady: async () => {
+          throw new Error("fixture never became ready");
+        },
+      }),
+    );
+    assert.notEqual(code, 0);
+    assert.equal(processes.electron, undefined);
+    assert.equal(processes.services.length, 3);
+    for (const child of processes.services) assert.equal(child.closed, true);
+  },
+);
 
 for (const option of ["failSpawnAt", "emitSpawnErrorAt"]) {
   test(`${option} cleans up previously started services`, { timeout: 5_000 }, async () => {
@@ -244,51 +390,76 @@ for (const option of ["failSpawnAt", "emitSpawnErrorAt"]) {
   });
 }
 
-test("a service crash stops Electron and every other owned service", { timeout: 5_000 }, async () => {
-  const plan = planFor();
-  const processes = fakeProcesses(plan);
-  const result = runDesktop(plan, lifecycleOptions(processes));
-  await until(() => processes.electron);
-  processes.services[1].finish(7);
-  assert.notEqual(await result, 0);
-  assert.equal(processes.electron.closed, true);
-  for (const child of processes.services) assert.equal(child.closed, true);
-});
+test(
+  "a service crash stops Electron and every other owned service",
+  { timeout: 5_000 },
+  async () => {
+    const plan = planFor();
+    const processes = fakeProcesses(plan);
+    const result = runDesktop(plan, lifecycleOptions(processes));
+    await until(() => processes.electron);
+    processes.services[1].finish(7);
+    assert.notEqual(await result, 0);
+    assert.equal(processes.electron.closed, true);
+    for (const child of processes.services) assert.equal(child.closed, true);
+  },
+);
 
-test("an error from a running child retains ownership until that child closes", { timeout: 5_000 }, async () => {
-  const plan = planFor();
-  const processes = fakeProcesses(plan, { delayServiceClose: true });
-  let settled = false;
-  const result = runDesktop(plan, lifecycleOptions(processes)).then((code) => { settled = true; return code; });
-  await until(() => processes.electron);
-  const failed = processes.services[0];
-  failed.emit("error", new Error("fixture child operation failed"));
-  await nextTurn();
-  assert.ok(failed.signals.includes("SIGTERM"), "the running child with the error still needs cleanup");
-  assert.equal(settled, false);
-  for (const child of processes.services.slice(1)) child.finish(null, "SIGTERM");
-  await nextTurn();
-  assert.equal(settled, false, "the errored child has not closed yet");
-  failed.finish(null, "SIGTERM");
-  assert.notEqual(await result, 0);
-});
+test(
+  "an error from a running child retains ownership until that child closes",
+  { timeout: 5_000 },
+  async () => {
+    const plan = planFor();
+    const processes = fakeProcesses(plan, { delayServiceClose: true });
+    let settled = false;
+    const result = runDesktop(plan, lifecycleOptions(processes)).then((code) => {
+      settled = true;
+      return code;
+    });
+    await until(() => processes.electron);
+    const failed = processes.services[0];
+    failed.emit("error", new Error("fixture child operation failed"));
+    await nextTurn();
+    assert.ok(
+      failed.signals.includes("SIGTERM"),
+      "the running child with the error still needs cleanup",
+    );
+    assert.equal(settled, false);
+    for (const child of processes.services.slice(1)) child.finish(null, "SIGTERM");
+    await nextTurn();
+    assert.equal(settled, false, "the errored child has not closed yet");
+    failed.finish(null, "SIGTERM");
+    assert.notEqual(await result, 0);
+  },
+);
 
-test("interruption during port checks launches nothing and removes signal listeners", { timeout: 5_000 }, async () => {
-  const plan = planFor();
-  const processes = fakeProcesses(plan);
-  const signals = new EventEmitter();
-  let releaseCheck;
-  const result = runDesktop(plan, lifecycleOptions(processes, {
-    signals, assertPorts: () => new Promise((resolve) => { releaseCheck = resolve; }),
-  }));
-  await until(() => releaseCheck);
-  signals.emit("SIGINT");
-  releaseCheck();
-  await result;
-  assert.equal(processes.calls.length, 0);
-  assert.equal(signals.listenerCount("SIGINT"), 0);
-  assert.equal(signals.listenerCount("SIGTERM"), 0);
-});
+test(
+  "interruption during port checks launches nothing and removes signal listeners",
+  { timeout: 5_000 },
+  async () => {
+    const plan = planFor();
+    const processes = fakeProcesses(plan);
+    const signals = new EventEmitter();
+    let releaseCheck;
+    const result = runDesktop(
+      plan,
+      lifecycleOptions(processes, {
+        signals,
+        assertPorts: () =>
+          new Promise((resolve) => {
+            releaseCheck = resolve;
+          }),
+      }),
+    );
+    await until(() => releaseCheck);
+    signals.emit("SIGINT");
+    releaseCheck();
+    await result;
+    assert.equal(processes.calls.length, 0);
+    assert.equal(signals.listenerCount("SIGINT"), 0);
+    assert.equal(signals.listenerCount("SIGTERM"), 0);
+  },
+);
 
 test("SIGINT shuts down the owned app and services", { timeout: 5_000 }, async () => {
   const plan = planFor();
@@ -308,32 +479,73 @@ test("on macOS Electron starts through dev-disclaim so the mic permission is its
   const home = mkdtempSync(join(tmpdir(), "disclaim-"));
   const electron = { file: "/Apps/Dev.app/Contents/MacOS/Electron", args: ["/repo"] };
   const built = [];
-  const build = (_clang, args) => { built.push(args); writeFileSync(args[2], ""); };
+  const build = (_clang, args) => {
+    built.push(args);
+    writeFileSync(args[2], "");
+  };
   const signs = [];
-  const wrapped = disclaimedElectron(electron, { platform: "darwin", home, build, identity: () => "Apple Development: Dev", sign: (input) => signs.push(input) });
+  const wrapped = disclaimedElectron(electron, {
+    platform: "darwin",
+    home,
+    build,
+    identity: () => "Apple Development: Dev",
+    sign: (input) => signs.push(input),
+  });
   assert.equal(signs[0].identity, "Apple Development: Dev");
   assert.equal(signs[0].helper, wrapped.file);
   assert.match(wrapped.file, /dev-disclaim-[0-9a-f]{12}$/);
   assert.deepEqual(wrapped.args, [electron.file, "/repo"]);
-  assert.equal(disclaimedElectron(electron, { platform: "darwin", home, build, sign: () => false }).file, wrapped.file);
+  assert.equal(
+    disclaimedElectron(electron, { platform: "darwin", home, build, sign: () => false }).file,
+    wrapped.file,
+  );
   assert.equal(built.length, 1);
   assert.equal(disclaimedElectron(electron, { platform: "linux", home, build }), electron);
-  const failed = disclaimedElectron(electron, { platform: "darwin", home: join(home, "other"), build: () => { throw new Error("no clang"); }, sign: () => false });
+  const failed = disclaimedElectron(electron, {
+    platform: "darwin",
+    home: join(home, "other"),
+    build: () => {
+      throw new Error("no clang");
+    },
+    sign: () => false,
+  });
   assert.equal(failed, electron);
 });
 
 test("the Dev app and its disclaim helper are signed once with a stable identity, so a macOS grant survives rebuilds", () => {
   const ran = [];
   const ids = new Map();
-  const inspect = (_file, args) => ({ stdout: "", stderr: ids.has(args[1]) ? `Executable=x\nIdentifier=${ids.get(args[1])}\n` : "Executable=x\nIdentifier=Electron\n" });
-  const run = (_file, args) => { ran.push(args); ids.set(args.at(-1), args[args.indexOf("--identifier") + 1]); };
-  const input = { electronFile: "/Applications/later.dog Dev.app/Contents/MacOS/Electron", helper: "/h/dev-disclaim-abc", identity: "Apple Development: Dev (X)", run, inspect, exists: () => true };
+  const inspect = (_file, args) => ({
+    stdout: "",
+    stderr: ids.has(args[1])
+      ? `Executable=x\nIdentifier=${ids.get(args[1])}\n`
+      : "Executable=x\nIdentifier=Electron\n",
+  });
+  const run = (_file, args) => {
+    ran.push(args);
+    ids.set(args.at(-1), args[args.indexOf("--identifier") + 1]);
+  };
+  const input = {
+    electronFile: "/Applications/later.dog Dev.app/Contents/MacOS/Electron",
+    helper: "/h/dev-disclaim-abc",
+    identity: "Apple Development: Dev (X)",
+    run,
+    inspect,
+    exists: () => true,
+  };
   assert.equal(appBundleOf(input.electronFile), "/Applications/later.dog Dev.app");
   assert.equal(stablySign(input), true);
-  assert.deepEqual(ran.map((args) => [args.at(-1), args[args.indexOf("--identifier") + 1], args.includes("--deep")]), [
-    ["/h/dev-disclaim-abc", DEV_DISCLAIM_IDENTIFIER, false],
-    ["/Applications/later.dog Dev.app", DEV_APP_IDENTIFIER, true],
-  ]);
+  assert.deepEqual(
+    ran.map((args) => [
+      args.at(-1),
+      args[args.indexOf("--identifier") + 1],
+      args.includes("--deep"),
+    ]),
+    [
+      ["/h/dev-disclaim-abc", DEV_DISCLAIM_IDENTIFIER, false],
+      ["/Applications/later.dog Dev.app", DEV_APP_IDENTIFIER, true],
+    ],
+  );
   assert.equal(stablySign(input), false);
   assert.equal(ran.length, 2);
   assert.equal(stablySign({ ...input, identity: null }), false);
@@ -341,14 +553,32 @@ test("the Dev app and its disclaim helper are signed once with a stable identity
 
 test("the Dev signing identity comes from the environment or the first Apple Development certificate", () => {
   assert.equal(devSigningIdentity({ env: { LATERDOG_DEV_SIGN_IDENTITY: "Mine" } }), "Mine");
-  const listed = '  1) AAA "Apple Development: Jacob (6C5)"\n  2) BBB "Developer ID Application: Co (5JA)"\n';
-  assert.equal(devSigningIdentity({ env: {}, run: () => listed }), "Apple Development: Jacob (6C5)");
-  assert.equal(devSigningIdentity({ env: {}, run: () => { throw new Error("no security"); } }), null);
+  const listed =
+    '  1) AAA "Apple Development: Jacob (6C5)"\n  2) BBB "Developer ID Application: Co (5JA)"\n';
+  assert.equal(
+    devSigningIdentity({ env: {}, run: () => listed }),
+    "Apple Development: Jacob (6C5)",
+  );
+  assert.equal(
+    devSigningIdentity({
+      env: {},
+      run: () => {
+        throw new Error("no security");
+      },
+    }),
+    null,
+  );
 });
 
 test("nothing is signed while the app bundle to sign is absent, so a signing warning cannot hide the missing files", () => {
   const ran = [];
-  const input = { electronFile: "/checkout/node_modules/electron/dist/Electron.app/Contents/MacOS/Electron", helper: "/h/dev-disclaim-abc", identity: "Apple Development: Dev (X)", run: (_file, args) => ran.push(args), inspect: () => ({ stdout: "", stderr: "Identifier=Electron" }) };
+  const input = {
+    electronFile: "/checkout/node_modules/electron/dist/Electron.app/Contents/MacOS/Electron",
+    helper: "/h/dev-disclaim-abc",
+    identity: "Apple Development: Dev (X)",
+    run: (_file, args) => ran.push(args),
+    inspect: () => ({ stdout: "", stderr: "Identifier=Electron" }),
+  };
   assert.equal(stablySign({ ...input, exists: () => false }), false);
   assert.deepEqual(ran, []);
   assert.equal(stablySign({ ...input, exists: () => true }), true);
@@ -361,9 +591,25 @@ test("a start in a checkout without its dependencies stops with that sentence, b
   const root = realpathSync(mkdtempSync(join(tmpdir(), "dev-desktop-missing-")));
   mkdirSync(join(root, "scripts"));
   mkdirSync(join(root, "electron"));
-  for (const file of ["scripts/dev-desktop.mjs", "scripts/dev-app.mjs", "scripts/dev-safe.mjs", "scripts/dev-home-proxy.mjs", "electron/app-variant.mjs", "electron/app-variant.cjs"]) copyFileSync(join(import.meta.dirname, "..", file), join(root, file));
-  const result = spawnSync(process.execPath, [join(root, "scripts/dev-desktop.mjs")], { encoding: "utf8", env: { ...process.env, HOME: root } });
+  for (const file of [
+    "scripts/dev-desktop.mjs",
+    "scripts/dev-app.mjs",
+    "scripts/dev-safe.mjs",
+    "scripts/dev-home-proxy.mjs",
+    "electron/app-variant.mjs",
+    "electron/app-variant.cjs",
+  ])
+    copyFileSync(join(import.meta.dirname, "..", file), join(root, file));
+  const result = spawnSync(process.execPath, [join(root, "scripts/dev-desktop.mjs")], {
+    encoding: "utf8",
+    env: { ...process.env, HOME: root },
+  });
   assert.notEqual(result.status, 0);
-  assert.match(result.stderr, new RegExp(`later\\.dog Dev's dependencies are missing in ${root.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\. Run pnpm install --frozen-lockfile`));
+  assert.match(
+    result.stderr,
+    new RegExp(
+      `later\\.dog Dev's dependencies are missing in ${root.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\. Run bun install --cpu=arm64 --cpu=x64 --frozen-lockfile`,
+    ),
+  );
   assert.doesNotMatch(result.stderr, /sign/);
 });

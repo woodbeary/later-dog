@@ -173,7 +173,7 @@ describe("later.dog's hosted checks run on free standard runners and release sta
     ]) {
       const steps = lint?.steps?.filter(
         (step) =>
-          step.run?.startsWith("pnpm exec vitest run ") && step.run.split(/\s+/).includes(file),
+          step.run?.startsWith("bun run vitest run ") && step.run.split(/\s+/).includes(file),
       );
       expect(steps).toHaveLength(1);
       expect(steps?.[0].if).toBeUndefined();
@@ -204,7 +204,7 @@ describe("later.dog's hosted checks run on free standard runners and release sta
     expect(job?.if).toBeUndefined();
     expect(job?.needs).toBeUndefined();
     expect(job?.steps?.filter((step) => step.run).map((step) => step.run)).toEqual([
-      "pnpm typecheck",
+      "bun run typecheck",
     ]);
   });
 
@@ -218,13 +218,13 @@ describe("later.dog's hosted checks run on free standard runners and release sta
       "RUNNER_ARCH",
       ".nvmrc",
       "packageManager",
-      "pnpm-lock.yaml",
-      "pnpm-workspace.yaml",
-      "deploy/laterdog/home/pnpm-lock.yaml",
-      "deploy/laterdog/computers/pnpm-lock.yaml",
+      "bun.lock",
+      "bunfig.toml",
+      "deploy/laterdog/home/bun.lock",
+      "deploy/laterdog/computers/bun.lock",
     ])
       expect(text).toContain(part);
-    expect(text).toContain("pnpm install --frozen-lockfile --offline");
+    expect(text).toContain("bun install --frozen-lockfile --offline --cpu=arm64 --cpu=x64");
     const save = prepare.data.runs.steps.find((step) =>
       step.uses?.startsWith("actions/cache/save@"),
     ) as (Step & { if?: string }) | undefined;

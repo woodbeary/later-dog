@@ -5,10 +5,10 @@
 Settings → General → **Dogs** → **Auto-review** decides how every one of your
 own dogs works. There is no per-dog Heel or Off-leash picker any more.
 
-| Auto-review | What your dogs do |
-| --- | --- |
-| **On** | The engine's own AI reviewer checks each step (Codex `auto_review`, Claude `auto`, Cursor `--auto-review`, Grok `auto`). You see a card only for what the reviewer leaves for you. Engines without a reviewer (the free Kimi and Grok models, OpenAI-compatible chat engines) card each request, and the chat says so once; the chat engines still use the dog's own cloud computer and browser with no card, and a computer the person has taken over refuses the dog's call. |
-| **Off** | No asks. Claude Code starts without its reviewer, in Manual, and Codex starts with `user` as its approvals reviewer in place of `auto_review`, so each of their requests comes to later.dog, which answers it at once with no card. A turn a webhook started, and work it hands to other dogs, still starts with the reviewer. Other engines still start with their reviewer, and later.dog answers whatever it leaves for you at once, with no card. The decision log records each one with source `owner-auto`. |
+| Auto-review | What your dogs do                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| ----------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **On**      | The engine's own AI reviewer checks each step (Codex `auto_review`, Claude `auto`, Cursor `--auto-review`, Grok `auto`). You see a card only for what the reviewer leaves for you. Engines without a reviewer (the free Kimi and Grok models, OpenAI-compatible chat engines) card each request, and the chat says so once; the chat engines still use the dog's own cloud computer and browser with no card, and a computer the person has taken over refuses the dog's call.                                    |
+| **Off**     | No asks. Claude Code starts without its reviewer, in Manual, and Codex starts with `user` as its approvals reviewer in place of `auto_review`, so each of their requests comes to later.dog, which answers it at once with no card. A turn a webhook started, and work it hands to other dogs, still starts with the reviewer. Other engines still start with their reviewer, and later.dog answers whatever it leaves for you at once, with no card. The decision log records each one with source `owner-auto`. |
 
 The switch is saved in the config as `features.autoReview` and changed with
 `PATCH /api/config`. It is off unless you turn it on: the first start that has
@@ -69,11 +69,11 @@ still needs `acknowledgeLocalAuto: true`.
 Each Mac connected to your Cloud home has its own choice, under Settings →
 Computer → **Your Macs**:
 
-| Choice | What happens when a dog wants to use that Mac |
-| --- | --- |
-| **Always allow** (the default) | It goes ahead with no card. |
-| **Ask every time** | A card names the Mac and what the dog wants (the folder, file, command or app). **Allow once** covers that kind of action for the rest of the same request, **Always allow** switches that Mac to Always allow, and **Never** switches it to Never and refuses this one. These are the only three choices. In a group chat the card offers Allow once and Never. |
-| **Never** | The call is refused with no card, and the dog says so in one line. |
+| Choice                         | What happens when a dog wants to use that Mac                                                                                                                                                                                                                                                                                                                    |
+| ------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Always allow** (the default) | It goes ahead with no card.                                                                                                                                                                                                                                                                                                                                      |
+| **Ask every time**             | A card names the Mac and what the dog wants (the folder, file, command or app). **Allow once** covers that kind of action for the rest of the same request, **Always allow** switches that Mac to Always allow, and **Never** switches it to Never and refuses this one. These are the only three choices. In a group chat the card offers Allow once and Never. |
+| **Never**                      | The call is refused with no card, and the dog says so in one line.                                                                                                                                                                                                                                                                                               |
 
 The choice is saved in `mac-access.json` (`{ version: 2, mode, computers }`,
 where `mode` is the choice for a Mac with none of its own) and read and changed
@@ -92,13 +92,13 @@ Each level is one of the provider's own permission modes, passed through. The
 switch above runs your dogs as **Off-leash** (`auto`); the others stay for
 guests, shared workspaces and dogs that already use them.
 
-| Level | Behavior |
-| --- | --- |
-| **Heel** (Ask for approval) | Requests approval for commands and file changes, the way the provider's supervised mode does. |
-| **Auto-accept edits** | Approves file edits automatically; other actions can still require approval. Offered where the provider has such a mode (Claude, Grok, Antigravity). |
-| **Off-leash** (Approve for me) | Uses the provider's automatic review on Codex, Claude, Cursor, and Grok to approve routine actions and ask about others. |
-| **Full access** | Enables the provider's permissive mode for commands, edits, and selected-computer actions, including potentially destructive or sensitive work. Residual native permission prompts are answered for you. later.dog profile changes, routine actions, team setup, bot deletion, and enabled skill authoring apply without a second approval. Actual questions and missing credentials still need your input. |
-| **Custom (`config.toml`)** | Codex only. later.dog reads and reapplies the effective approval and sandbox settings from your Codex configuration. |
+| Level                          | Behavior                                                                                                                                                                                                                                                                                                                                                                                                    |
+| ------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Heel** (Ask for approval)    | Requests approval for commands and file changes, the way the provider's supervised mode does.                                                                                                                                                                                                                                                                                                               |
+| **Auto-accept edits**          | Approves file edits automatically; other actions can still require approval. Offered where the provider has such a mode (Claude, Grok, Antigravity).                                                                                                                                                                                                                                                        |
+| **Off-leash** (Approve for me) | Uses the provider's automatic review on Codex, Claude, Cursor, and Grok to approve routine actions and ask about others.                                                                                                                                                                                                                                                                                    |
+| **Full access**                | Enables the provider's permissive mode for commands, edits, and selected-computer actions, including potentially destructive or sensitive work. Residual native permission prompts are answered for you. later.dog profile changes, routine actions, team setup, bot deletion, and enabled skill authoring apply without a second approval. Actual questions and missing credentials still need your input. |
+| **Custom (`config.toml`)**     | Codex only. later.dog reads and reapplies the effective approval and sandbox settings from your Codex configuration.                                                                                                                                                                                                                                                                                        |
 
 Full access is an elevated-risk standing approval. Full and Custom can only be
 enabled from a packaged local desktop app, where the choice crosses a private
@@ -158,13 +158,13 @@ Every engine can stop and ask, and no approval level answers a question for
 you: Ask, Auto-accept edits, Auto, and Full access all leave a question card
 for a person. What differs per engine is only how the ask travels:
 
-| Engine family | How an ask travels | Multiple questions at once |
-| --- | --- | --- |
-| Claude Code | Structured round-trip (its own `AskUserQuestion`) | Yes — capped at 4 by the CLI |
-| Codex | Structured round-trip | Yes — up to 6 |
-| Grok Build, Minimax, OpenAI-compatible endpoints | The injected `ask_user` tool | Yes — up to 6 |
+| Engine family                                                         | How an ask travels                                    | Multiple questions at once                         |
+| --------------------------------------------------------------------- | ----------------------------------------------------- | -------------------------------------------------- |
+| Claude Code                                                           | Structured round-trip (its own `AskUserQuestion`)     | Yes — capped at 4 by the CLI                       |
+| Codex                                                                 | Structured round-trip                                 | Yes — up to 6                                      |
+| Grok Build, Minimax, OpenAI-compatible endpoints                      | The injected `ask_user` tool                          | Yes — up to 6                                      |
 | ACP engines (Cursor, Antigravity, Gemini CLI, Qwen Code, OpenCode, …) | Option-match round-trip on the ACP permission request | One at a time — the request carries one choice set |
-| Pi | Free-text round-trip over `extension_ui_request` | One at a time |
+| Pi                                                                    | Free-text round-trip over `extension_ui_request`      | One at a time                                      |
 
 Older conversations may still hold a question the removed Computer engine
 parsed out of model-authored output rather than a real tool call. Those
@@ -175,17 +175,17 @@ multi-question card renders its structured form on current apps instead.
 
 ## Provider mappings
 
-| Provider | Ask | Auto-accept edits | Auto | Full access |
-| --- | --- | --- | --- | --- |
-| Codex | `on-request` approvals, `workspace-write` sandbox, you review | not offered (Ask already writes in the workspace) | same sandbox, native `auto_review` reviewer; with Auto-review off, your own dog's turn starts with `user` as reviewer and later.dog answers each request | `never` approvals, `danger-full-access` sandbox |
-| Claude | Native `default` | Native `acceptEdits` | Native `auto`; with Auto-review off, your own dog's turn starts in Native `default` and later.dog answers each request | Native `bypassPermissions` |
-| Cursor | Native default | not offered | Native `--auto-review` | Native `--force` |
-| Antigravity | Native `default` | Native `auto_edit` | Legacy `auto` behaves as Ask; UI Auto selects Full access | Native `yolo` plus automatic approval of remaining tool-permission requests; shown as Auto |
-| Grok Build | Native `default` | Native `acceptEdits` | Native `--permission-mode auto`; availability of Grok's reviewer depends on its feature rollout | Native `bypassPermissions` plus automatic approval of remaining tool-permission requests |
-| OpenCode | Ask | not offered | Ask | Approve individual ACP permission requests, never task questions |
-| Qwen Code | Native `default` | Native `--approval-mode auto-edit` | Native `--approval-mode auto` (Qwen's LLM classifier approves safe actions, blocks risky ones) | `--yolo`, plus automatic approval of remaining ACP permission requests |
-| Gemini CLI | Native `default` | Native `--approval-mode auto_edit` | Ask (no reviewer) | `--yolo`, plus automatic approval of remaining ACP permission requests |
-| Other/custom engines | Ask | not offered | Ask | Not offered until a provider mapping is implemented |
+| Provider             | Ask                                                           | Auto-accept edits                                 | Auto                                                                                                                                                     | Full access                                                                                |
+| -------------------- | ------------------------------------------------------------- | ------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------ |
+| Codex                | `on-request` approvals, `workspace-write` sandbox, you review | not offered (Ask already writes in the workspace) | same sandbox, native `auto_review` reviewer; with Auto-review off, your own dog's turn starts with `user` as reviewer and later.dog answers each request | `never` approvals, `danger-full-access` sandbox                                            |
+| Claude               | Native `default`                                              | Native `acceptEdits`                              | Native `auto`; with Auto-review off, your own dog's turn starts in Native `default` and later.dog answers each request                                   | Native `bypassPermissions`                                                                 |
+| Cursor               | Native default                                                | not offered                                       | Native `--auto-review`                                                                                                                                   | Native `--force`                                                                           |
+| Antigravity          | Native `default`                                              | Native `auto_edit`                                | Legacy `auto` behaves as Ask; UI Auto selects Full access                                                                                                | Native `yolo` plus automatic approval of remaining tool-permission requests; shown as Auto |
+| Grok Build           | Native `default`                                              | Native `acceptEdits`                              | Native `--permission-mode auto`; availability of Grok's reviewer depends on its feature rollout                                                          | Native `bypassPermissions` plus automatic approval of remaining tool-permission requests   |
+| OpenCode             | Ask                                                           | not offered                                       | Ask                                                                                                                                                      | Approve individual ACP permission requests, never task questions                           |
+| Qwen Code            | Native `default`                                              | Native `--approval-mode auto-edit`                | Native `--approval-mode auto` (Qwen's LLM classifier approves safe actions, blocks risky ones)                                                           | `--yolo`, plus automatic approval of remaining ACP permission requests                     |
+| Gemini CLI           | Native `default`                                              | Native `--approval-mode auto_edit`                | Ask (no reviewer)                                                                                                                                        | `--yolo`, plus automatic approval of remaining ACP permission requests                     |
+| Other/custom engines | Ask                                                           | not offered                                       | Ask                                                                                                                                                      | Not offered until a provider mapping is implemented                                        |
 
 These settings apply on each turn, including resumed conversations. Switching
 to a different provider while elevated requires leaving Full/Custom first;
@@ -222,7 +222,7 @@ The [Full Access workflow recipe](verification/full-access.md) tests immediate
 profile, routine, team, skill, and peer actions through the real server and MCP
 proxy. Its fixture also verifies that explicit Ask sibling threads still wait.
 
-Run `pnpm exec electron scripts/smoke-approval-modes.cjs` to exercise the real
+Run `bun run electron scripts/smoke-approval-modes.cjs` to exercise the real
 private desktop-to-server grant protocol in a disposable fixture. It verifies
 HTTP elevation rejection, Full → Auto → Ask on resumed Claude turns, and
 Full applied to existing Claude, Codex and Grok threads. It also checks that

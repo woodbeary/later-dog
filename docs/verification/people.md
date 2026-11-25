@@ -29,7 +29,7 @@
 ## Driving it
 
 ```sh
-pnpm exec vitest run server/people-invite.test.ts server/email-signin.test.ts server/cli.test.ts src/lib/session.test.ts
+bun run vitest run server/people-invite.test.ts server/email-signin.test.ts server/cli.test.ts src/lib/session.test.ts
 ```
 
 `server/people-invite.test.ts` boots the real server with no sign-in list and a

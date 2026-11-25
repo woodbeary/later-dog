@@ -191,7 +191,7 @@ this Mac for now." for any that did not come.
 
 ## Dev variant
 
-`pnpm dev:desktop` runs source services and Vite with renderer hot reload. Its
+`bun run dev:desktop` runs source services and Vite with renderer hot reload. Its
 workspace and native profile are isolated from the installed app. Main-process
 changes require restarting the dev command.
 
@@ -208,7 +208,7 @@ node --test electron/cloud-sign-in.node-test.mjs electron/cloud-auto-move.node-t
   electron/cloud-default-home.node-test.mjs electron/cloud-account.node-test.mjs \
   electron/cloud-account-ipc.node-test.mjs electron/cloud-move.node-test.mjs \
   electron/cloud-ai-accounts.node-test.mjs
-pnpm exec vitest run src/components/CloudSignInGate.dom.test.ts \
+bun run vitest run src/components/CloudSignInGate.dom.test.ts \
   src/components/CloudQuietLine.dom.test.ts src/components/CloudAccountSettings.dom.test.ts \
   src/lib/cloud-sign-in-view.test.ts src/lib/cloud-move-line.test.ts \
   server/laterdog/claude-keychain.test.ts server/laterdog/mac-accounts.test.ts \

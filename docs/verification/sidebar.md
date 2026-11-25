@@ -64,7 +64,7 @@ Those paths are covered by the computer-section and server Boat inventory tests.
   the printed key on any keyboard layout.
 
 ```sh
-pnpm exec vitest run src/components/Sidebar.layout.test.ts src/components/CommandPalette.test.ts src/lib/app-shortcuts.test.ts src/components/MoreUnreadsPills.test.ts src/components/Sidebar.one-row.test.ts src/components/SidebarProfileMenu.test.ts server/routes/sidebar-section-order.test.ts src/components/Sidebar.rename.test.ts electron/menu.test.mjs
+bun run vitest run src/components/Sidebar.layout.test.ts src/components/CommandPalette.test.ts src/lib/app-shortcuts.test.ts src/components/MoreUnreadsPills.test.ts src/components/Sidebar.one-row.test.ts src/components/SidebarProfileMenu.test.ts server/routes/sidebar-section-order.test.ts src/components/Sidebar.rename.test.ts electron/menu.test.mjs
 ```
 
 Hidden is a list filter only. On the server a hidden dog keeps working: it

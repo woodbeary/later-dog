@@ -135,6 +135,7 @@ describe("real pushed objects and bytes", () => {
     expect(files).toContain("third.ts");
     const checks = pushChecks(files, new Set<string>(), f.root);
     expect(checks.find((check: { label: string }) => check.label === "lint")?.args).toEqual([
+      "run",
       "lint",
     ]);
     expect(checks.find((check: { label: string }) => check.label === "format")?.args).not.toContain(
@@ -150,6 +151,7 @@ describe("real pushed objects and bytes", () => {
     const files = changedPushFiles(record(head, f.base), f.root);
     const checks = pushChecks(files, new Set<string>(), f.root);
     expect(checks.find((check: { label: string }) => check.label === "lint")?.args).toEqual([
+      "run",
       "lint",
     ]);
     expect(checks.find((check: { label: string }) => check.label === "format")?.args).not.toContain(

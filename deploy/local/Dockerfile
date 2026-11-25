@@ -1,6 +1,9 @@
 ARG BASE_IMAGE=ghcr.io/woodbeary/later-dog:latest
+FROM oven/bun:1.4.5 AS bun-tool
 FROM ${BASE_IMAGE}
 USER root
+COPY --from=bun-tool /usr/local/bin/bun /usr/local/bin/bun
+RUN test "$(bun --version)" = 1.4.5
 ARG ENGINES="@anthropic-ai/claude-code @openai/codex"
 RUN if [ -n "$ENGINES" ]; then npm install -g $ENGINES; fi
 ARG GROK_VERSION=1.0.41

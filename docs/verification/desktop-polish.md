@@ -26,11 +26,11 @@ controls, the quiet exchange lines, sidebar identity, generated titles,
 aliases, catalog exposure and the existing question flow:
 
 ```sh
-pnpm exec vitest run src/lib/quiet-lines.test.ts server/drivers/agents-catalog-wire.test.ts
+bun run vitest run src/lib/quiet-lines.test.ts server/drivers/agents-catalog-wire.test.ts
 ```
 
-Commands use pnpm. The Vite build uses `pnpm exec vite build --configLoader runner`
-and Vitest uses `pnpm exec vitest run --cache=false --configLoader runner` so
+Commands use pnpm. The Vite build uses `bun run vite build --configLoader runner`
+and Vitest uses `bun run vitest run --cache=false --configLoader runner` so
 shared dependency folders do not need writable caches. No live data or running
 app state was changed.
 

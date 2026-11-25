@@ -24,7 +24,7 @@ nothing but its snapshot. Waking it restores the files.
   unquoted size test printed `[: 67108864: unexpected operator` from dash at every Chromium launch; `chromium-flags`
   already passes `--disable-dev-shm-usage`, which was all the file did. On a throwaway Worker the image started
   Chromium with no such line, `chrome://policy` listed `DiskCacheSize` 104857600 OK, and a clipboard paste reached a
-  page. The next `pnpm run deploy` puts it live.
+  page. The next `bun run deploy` puts it live.
 - The key is in `~/.laterdog/computers-key` and the base URL in `~/.laterdog/computers.json` (both mode 600).
 - later.dog's server uses these computers instead of Boat as soon as `~/.laterdog/computers.json` exists
   (`server/laterdog/cloud-computers.ts`). Delete that file to go back to Boat.
@@ -34,16 +34,16 @@ nothing but its snapshot. Waking it restores the files.
 Live runs on 2026-10-08, size `standard`: four runs of `pnpm run smoke`, one idle-policy run, two delete runs and one
 run in a real browser. Times are from the client unless marked "inside": those come from the Durable Object's own log.
 
-| What | Time |
-| --- | --- |
-| Create to `running` | 6.6 s, 6.7 s and 6.6 s in the last three smoke runs. POST answers in 1.2 to 1.4 s. Inside: ready 4.4 to 7.0 s after start in six of eight boots. |
-| Create to `running`, slow boots | 18.6 s for the first boot after the deploy (POST took 16.4 s). Inside: 18.2 s and 15.1 s, two of eight boots. Probably a host fetching the image (not confirmed). |
-| Sleep (snapshot, then stop) | 4.9 to 5.0 s (5.7 s once). Inside: the snapshot took 4.2 to 4.9 s for 1.6 MB of changes. |
-| Wake to `running` (from the snapshot) | 5.6 to 5.8 s. POST answers in 1.3 to 1.6 s. Inside: ready 4.6 to 5.3 s after start. |
-| exec round trip (`uname -a && whoami && echo $DISPLAY`) | 110 to 180 ms |
-| File PUT / GET | about 100 ms / 130 to 350 ms |
-| Screenshot (1280×800 JPEG, about 84 KB) | 140 to 270 ms |
-| Viewer WebSocket to the VNC greeting | 0.3 to 0.5 s |
+| What                                                    | Time                                                                                                                                                              |
+| ------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Create to `running`                                     | 6.6 s, 6.7 s and 6.6 s in the last three smoke runs. POST answers in 1.2 to 1.4 s. Inside: ready 4.4 to 7.0 s after start in six of eight boots.                  |
+| Create to `running`, slow boots                         | 18.6 s for the first boot after the deploy (POST took 16.4 s). Inside: 18.2 s and 15.1 s, two of eight boots. Probably a host fetching the image (not confirmed). |
+| Sleep (snapshot, then stop)                             | 4.9 to 5.0 s (5.7 s once). Inside: the snapshot took 4.2 to 4.9 s for 1.6 MB of changes.                                                                          |
+| Wake to `running` (from the snapshot)                   | 5.6 to 5.8 s. POST answers in 1.3 to 1.6 s. Inside: ready 4.6 to 5.3 s after start.                                                                               |
+| exec round trip (`uname -a && whoami && echo $DISPLAY`) | 110 to 180 ms                                                                                                                                                     |
+| File PUT / GET                                          | about 100 ms / 130 to 350 ms                                                                                                                                      |
+| Screenshot (1280×800 JPEG, about 84 KB)                 | 140 to 270 ms                                                                                                                                                     |
+| Viewer WebSocket to the VNC greeting                    | 0.3 to 0.5 s                                                                                                                                                      |
 
 Those numbers are from before the readiness change below. `running` then meant the XFCE panel and wallpaper were on
 screen. Now it means the screen answers (see Waking and readiness).
@@ -93,33 +93,40 @@ Errors are JSON `{ "error": { "code": "…", "message": "…" } }` with a matchi
 A computer looks like:
 
 ```json
-{ "id": "cmp_k3v9q2m7x4ab", "name": "Rex", "size": "standard", "state": "running", "desktopAvailable": true,
-  "createdAt": "2026-10-08T19:02:11.412Z", "lastActiveAt": "2026-10-08T19:05:40.003Z",
-  "snapshotAt": "2026-10-08T18:40:02.950Z" }
+{
+  "id": "cmp_k3v9q2m7x4ab",
+  "name": "Rex",
+  "size": "standard",
+  "state": "running",
+  "desktopAvailable": true,
+  "createdAt": "2026-10-08T19:02:11.412Z",
+  "lastActiveAt": "2026-10-08T19:05:40.003Z",
+  "snapshotAt": "2026-10-08T18:40:02.950Z"
+}
 ```
 
 `state` is `starting`, `running`, `sleeping`, `stopping` or `error` (then `error` says why). `snapshotAt` appears once
 the computer has slept. `desktopAvailable` is `true` once the desktop is drawn: a `running` computer whose desktop is
 still drawing has it `false` (see Waking and readiness).
 
-| Request | Answer |
-| --- | --- |
-| `POST /computers` `{ "name"?, "size"?: "small" \| "standard" \| "large" \| "xlarge", "repository"?: "owner/name" }`, optional `Idempotency-Key` header | 201 `{ computer }` in state `starting`. With `repository`, a new computer starts from that repository's saved environment when one is ready (see Saved repository environments), and builds one for the next computer when there is none. It answers once Cloudflare has placed the container (1 to 16 s measured). Sizes: `standard-1` (½ vCPU, 4 GiB, 8 GB disk), `standard-2` (1 vCPU, 6 GiB, 12 GB; the default), `standard-3` (2 vCPU, 8 GiB, 16 GB) and `standard-4` (4 vCPU, 12 GiB, 20 GB). The same key within 24 hours returns the same computer, with header `Idempotent-Replayed: true`. |
-| `GET /computers` | `{ computers: [...] }` |
-| `GET /computers/:id` | `{ computer }` or 404 |
-| `PATCH /computers/:id` `{ "name" }` | `{ computer }` |
-| `DELETE /computers/:id` | `{ deleted: true }`. Destroys the container and forgets the computer. |
-| `POST /computers/:id/wake` `{ "repository"? }` | `{ computer }` in state `starting`. Boots from the latest snapshot, or, if it has none, from the repository's saved environment when one is ready, or from the image. Poll `GET` until `running`. |
-| `POST /environments` `{ "repository", "setupScript"? }` | 202 `{ environment }`. Saves a custom setup script for the repository (`null` puts the default back) and builds its environment if it is missing or due. 403 `environments_not_in_trial` for a free trial key. |
-| `GET /environments` | `{ environments: [...] }`: key, repository, `state` (`none`, `building`, `fresh`, `stale`, `expiring`, `uncached`, `failed`), `builtAt`, `rebuildAt`, `expiresAt`, `setupMs`, `lastOutcome` and `error`. |
-| `POST /computers/:id/sleep` | `{ computer }` in state `sleeping`. Snapshots the disk, then stops the container. Answers when done. |
-| `POST /computers/:id/reset` | `{ computer }` in state `starting`. Throws away everything since the last sleep and boots from the latest snapshot (or the image if it never slept). Desktop links end. 409 `updating` during an update. |
-| `POST /computers/:id/update` | `{ computer }` in state `starting`. Moves a running computer to the current image and brings `/home/dog` along (files and logins; apps and packages installed elsewhere are gone). It first snapshots the computer, packs `/home/dog` (without `.cache` or Chromium's session locks, up to 1 GB, 413 `too_large` above) into Durable Object storage, boots the image, unpacks, and snapshots the updated computer before it reports `running`, so a later reset or wake starts from the updated computer with its files. If the files cannot be put back, or the updated computer cannot be saved, it boots the snapshot taken before the update instead. 409 `asleep` unless `running`; 409 `updating` while one is under way. |
-| `POST /computers/:id/exec` `{ "command", "timeoutMs"? (default 120000, max 600000), "cwd"?, "env"? }` | `{ exitCode, stdout, stderr, timedOut }`. Runs `bash -lc command` as `dog` in `/home/dog` with `DISPLAY=:0`. Each stream keeps its first 1 MiB. On timeout the command and everything it started are killed (exit 124). 409 `asleep` unless `running`. Exec never wakes a computer. `env` is described below. |
-| `GET /computers/:id/files?path=` | The file's bytes, 404 if missing, 413 over 16 MB. Relative paths start at `/home/dog`. |
-| `PUT /computers/:id/files?path=` raw body | `{ ok: true }`. Up to 16 MB. Creates missing folders. New files and folders belong to `dog`. |
-| `GET /computers/:id/screenshot` | `image/jpeg` of the whole screen, pointer included. |
-| `POST /computers/:id/desktop` | `{ url, expiresAt }`: a viewer link valid for 2 hours. It is signed (HMAC-SHA256, secret `DESKTOP_SIGNING_KEY`) over the id, the expiry and the boot count, so it also dies when the computer sleeps. Anyone holding it can watch and take over: share it only with the person. Works while the computer is `starting` too: the page shows "Connecting…" and the screen connects as soon as it answers. 409 `asleep` unless `running` or `starting`. |
+| Request                                                                                                                                                | Answer                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| ------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `POST /computers` `{ "name"?, "size"?: "small" \| "standard" \| "large" \| "xlarge", "repository"?: "owner/name" }`, optional `Idempotency-Key` header | 201 `{ computer }` in state `starting`. With `repository`, a new computer starts from that repository's saved environment when one is ready (see Saved repository environments), and builds one for the next computer when there is none. It answers once Cloudflare has placed the container (1 to 16 s measured). Sizes: `standard-1` (½ vCPU, 4 GiB, 8 GB disk), `standard-2` (1 vCPU, 6 GiB, 12 GB; the default), `standard-3` (2 vCPU, 8 GiB, 16 GB) and `standard-4` (4 vCPU, 12 GiB, 20 GB). The same key within 24 hours returns the same computer, with header `Idempotent-Replayed: true`.                                                                                                                            |
+| `GET /computers`                                                                                                                                       | `{ computers: [...] }`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| `GET /computers/:id`                                                                                                                                   | `{ computer }` or 404                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| `PATCH /computers/:id` `{ "name" }`                                                                                                                    | `{ computer }`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| `DELETE /computers/:id`                                                                                                                                | `{ deleted: true }`. Destroys the container and forgets the computer.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| `POST /computers/:id/wake` `{ "repository"? }`                                                                                                         | `{ computer }` in state `starting`. Boots from the latest snapshot, or, if it has none, from the repository's saved environment when one is ready, or from the image. Poll `GET` until `running`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| `POST /environments` `{ "repository", "setupScript"? }`                                                                                                | 202 `{ environment }`. Saves a custom setup script for the repository (`null` puts the default back) and builds its environment if it is missing or due. 403 `environments_not_in_trial` for a free trial key.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| `GET /environments`                                                                                                                                    | `{ environments: [...] }`: key, repository, `state` (`none`, `building`, `fresh`, `stale`, `expiring`, `uncached`, `failed`), `builtAt`, `rebuildAt`, `expiresAt`, `setupMs`, `lastOutcome` and `error`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| `POST /computers/:id/sleep`                                                                                                                            | `{ computer }` in state `sleeping`. Snapshots the disk, then stops the container. Answers when done.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| `POST /computers/:id/reset`                                                                                                                            | `{ computer }` in state `starting`. Throws away everything since the last sleep and boots from the latest snapshot (or the image if it never slept). Desktop links end. 409 `updating` during an update.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| `POST /computers/:id/update`                                                                                                                           | `{ computer }` in state `starting`. Moves a running computer to the current image and brings `/home/dog` along (files and logins; apps and packages installed elsewhere are gone). It first snapshots the computer, packs `/home/dog` (without `.cache` or Chromium's session locks, up to 1 GB, 413 `too_large` above) into Durable Object storage, boots the image, unpacks, and snapshots the updated computer before it reports `running`, so a later reset or wake starts from the updated computer with its files. If the files cannot be put back, or the updated computer cannot be saved, it boots the snapshot taken before the update instead. 409 `asleep` unless `running`; 409 `updating` while one is under way. |
+| `POST /computers/:id/exec` `{ "command", "timeoutMs"? (default 120000, max 600000), "cwd"?, "env"? }`                                                  | `{ exitCode, stdout, stderr, timedOut }`. Runs `bash -lc command` as `dog` in `/home/dog` with `DISPLAY=:0`. Each stream keeps its first 1 MiB. On timeout the command and everything it started are killed (exit 124). 409 `asleep` unless `running`. Exec never wakes a computer. `env` is described below.                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| `GET /computers/:id/files?path=`                                                                                                                       | The file's bytes, 404 if missing, 413 over 16 MB. Relative paths start at `/home/dog`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| `PUT /computers/:id/files?path=` raw body                                                                                                              | `{ ok: true }`. Up to 16 MB. Creates missing folders. New files and folders belong to `dog`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| `GET /computers/:id/screenshot`                                                                                                                        | `image/jpeg` of the whole screen, pointer included.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| `POST /computers/:id/desktop`                                                                                                                          | `{ url, expiresAt }`: a viewer link valid for 2 hours. It is signed (HMAC-SHA256, secret `DESKTOP_SIGNING_KEY`) over the id, the expiry and the boot count, so it also dies when the computer sleeps. Anyone holding it can watch and take over: share it only with the person. Works while the computer is `starting` too: the page shows "Connecting…" and the screen connects as soon as it answers. 409 `asleep` unless `running` or `starting`.                                                                                                                                                                                                                                                                            |
 
 ### Saved repository environments
 
@@ -237,13 +244,13 @@ Measured locally on 2026-10-14 (Colima VM on an M-series Mac, the container limi
 to each step, medians of 7 boots with a warm image, milliseconds from the container starting). Cloudflare's `standard-1`
 is ½ vCPU and `standard-2` is 1 vCPU, but this is not their hardware or their image pull: see Limitations.
 
-| Step | before, 1 CPU | after, 1 CPU | before, ½ CPU | after, ½ CPU |
-| --- | --- | --- | --- | --- |
-| websockify answers HTTP | 1732 | 362 | 2336 | 663 |
-| First RFB banner through the WebSocket (`running`) | 2403 | 1289 | 3620 | 2077 |
-| Window manager up | 2648 | 1941 | 3465 | 3650 |
-| Panel window mapped | 3248 | 1953 | 4431 | 3691 |
-| Panel painted (`desktopAvailable`) | 4343 | 2028 | 5829 | 4685 |
+| Step                                               | before, 1 CPU | after, 1 CPU | before, ½ CPU | after, ½ CPU |
+| -------------------------------------------------- | ------------- | ------------ | ------------- | ------------ |
+| websockify answers HTTP                            | 1732          | 362          | 2336          | 663          |
+| First RFB banner through the WebSocket (`running`) | 2403          | 1289         | 3620          | 2077         |
+| Window manager up                                  | 2648          | 1941         | 3465          | 3650         |
+| Panel window mapped                                | 3248          | 1953         | 4431          | 3691         |
+| Panel painted (`desktopAvailable`)                 | 4343          | 2028         | 5829          | 4685         |
 
 Before, `running` meant the panel window was mapped (3248 ms at 1 CPU), but its content was painted 1.1 s later, so a
 viewer that connected at once saw a black strip. The two changes that matter: websockify no longer imports numpy
@@ -412,7 +419,7 @@ allowance per key and one for all keys together, reset at midnight UTC and kept 
   `finish_reason` `content_filter`. Tokens count against the same chat allowance, and also against
   `ANTHROPIC_TOKENS_PER_DAY` (40,000,000 by default), one daily total of Claude tokens for all keys together.
   When that total is used up, Claude is skipped and Kimi answers; `0` turns Claude off without a flag change. That
-  total and the gateway's per-provider spend limit are what cap the Anthropic bill. `pnpm run eval:haiku` replays recorded chat, tool and computer turns against
+  total and the gateway's per-provider spend limit are what cap the Anthropic bill. `bun run eval:haiku` replays recorded chat, tool and computer turns against
   Kimi and Claude and fails unless Claude matches Kimi on every turn and the run is valid (see Checks).
 - When the rate limiter (`INCLUDED_LIMIT`, `TRIAL_FORM_LIMIT`) cannot be reached, chat, speech, dictation and trial
   starts are refused with 429 rather than allowed. Decisions, typing suggestions and the computers API stay open.
@@ -494,18 +501,18 @@ Who gets one:
   network (secret `TRIAL_NETWORK_KEY`), never the address, and forgets it when the window ends.
 - At most `TRIALS_PER_DAY` (default 20) new trials per UTC day for the whole deployment.
 
-| Request | Answer |
-| --- | --- |
-| `GET /v1/trials`, no key | `{ offered, minutes, days }`. Like the rest of the API, refused with an `Origin` header. |
-| `GET /v1/trial` | `{ trial: { state, minutes, minutesLeft, expiresAt } }`. `state` is `active`, or `used_up` with under a minute left. 401 once the trial has ended, or before it starts. 404 `no_trial` for the owner's key. |
-| `DELETE /v1/trial` | `{ ended: true }`. Deletes the trial's computers and ends it now. Its network stays used until the window ends. |
-| `POST /v1/trials/start`, no key | Body `{ "claim": "<64 hex>", "turnstile": "<token>" }`. Starts a trial for an app that ran the Turnstile check itself, with the same checks as the page: the token must pass siteverify for this hostname, the action `trial` and this claim. 201 with `{ trial, included }`, 200 when that claim already has one, 403 `check_needed` without a token (the app then opens `/trial` instead), 403 `check_failed`, 429 when the network or the day is used up or the rate limiter is down, 502 when siteverify cannot be reached. |
-| `POST /v1/trials/grant`, owner's key | Body `{ "claim": "<64 hex>" }`, the claim from a trial link. Starts that trial without the browser check and without using a network's trial or the day's count, for gifting a trial or testing the whole flow. 201 with `{ trial }`, 200 when that claim already has one, 403 `owner_only` for a trial key. |
+| Request                                  | Answer                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| ---------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `GET /v1/trials`, no key                 | `{ offered, minutes, days }`. Like the rest of the API, refused with an `Origin` header.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| `GET /v1/trial`                          | `{ trial: { state, minutes, minutesLeft, expiresAt } }`. `state` is `active`, or `used_up` with under a minute left. 401 once the trial has ended, or before it starts. 404 `no_trial` for the owner's key.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| `DELETE /v1/trial`                       | `{ ended: true }`. Deletes the trial's computers and ends it now. Its network stays used until the window ends.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| `POST /v1/trials/start`, no key          | Body `{ "claim": "<64 hex>", "turnstile": "<token>" }`. Starts a trial for an app that ran the Turnstile check itself, with the same checks as the page: the token must pass siteverify for this hostname, the action `trial` and this claim. 201 with `{ trial, included }`, 200 when that claim already has one, 403 `check_needed` without a token (the app then opens `/trial` instead), 403 `check_failed`, 429 when the network or the day is used up or the rate limiter is down, 502 when siteverify cannot be reached.                                                                                                                                                                                                                                                                                                               |
+| `POST /v1/trials/grant`, owner's key     | Body `{ "claim": "<64 hex>" }`, the claim from a trial link. Starts that trial without the browser check and without using a network's trial or the day's count, for gifting a trial or testing the whole flow. 201 with `{ trial }`, 200 when that claim already has one, 403 `owner_only` for a trial key.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
 | `POST /v1/complete`, a trial or plan key | Typing suggestions. Body `{ prefix, dog?, messages?: [{ role: "person" \| "dog", text }], phrasing?: string[] }`: the text typed so far, the dog's name, at most 6 recent messages (400 characters each) and at most 3 of the person's own phrases. It answers `{ completion, model }`, where `completion` is the next few words (empty when the model has nothing to add). It runs `TYPING_AI_MODEL` (default `@cf/meta/llama-3.2-3b-instruct`) on Workers AI through the AI Gateway with 20 output tokens and temperature 0.2, logs and stores no text, and counts one `completions` use per call against `COMPLETIONS_PER_DAY` (4,000) per installation. 401 without a live key, 403 with an `Origin`, 413 over 16 KB, 422 for a bad body, 429 over the day's allowance, 502 when the model does not answer, 503 without the `AI` binding. |
-| `GET /trial?claim=` | The page with the check (HTML). |
-| `POST /trial` | The form. It answers with a page: 200 when the trial started, else 400, 403, 413, 415, 429 (the network had a trial, or the day's trials are taken), 502 (siteverify could not be reached) or 503 (trials are off). |
+| `GET /trial?claim=`                      | The page with the check (HTML).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| `POST /trial`                            | The form. It answers with a page: 200 when the trial started, else 400, 403, 413, 415, 429 (the network had a trial, or the day's trials are taken), 502 (siteverify could not be reached) or 503 (trials are off).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
 
-The kill switch is `TRIALS_ENABLED`. Set it to `"false"` and run `pnpm run deploy:worker`. The page then answers 503, and
+The kill switch is `TRIALS_ENABLED`. Set it to `"false"` and run `bun run deploy:worker`. The page then answers 503, and
 creating or waking a trial computer answers 503 `trials_off`. Trial computers already awake keep running until their
 minutes or their idle time run out, then sleep. A trial can still be read, put to sleep and ended. The owner's
 computers are not affected.
@@ -546,12 +553,12 @@ Containers bill only while running, per 10 ms, on Workers Paid. Cloudflare's rat
 - Asleep: no container charges. Snapshot storage has no published price, so it is not included here.
 - Workers Paid includes 25 GiB-hours of memory, 375 vCPU-minutes and 200 GB-hours of disk a month.
 
-| Size | Awake, CPU idle | Awake, CPU flat out |
-| --- | --- | --- |
-| small (`standard-1`: ½ vCPU, 4 GiB, 8 GB) | about $0.038 per hour | about $0.074 per hour |
-| standard (`standard-2`: 1 vCPU, 6 GiB, 12 GB) | about $0.057 per hour | about $0.13 per hour |
-| large (`standard-3`: 2 vCPU, 8 GiB, 16 GB) | about $0.076 per hour | about $0.22 per hour |
-| xlarge (`standard-4`: 4 vCPU, 12 GiB, 20 GB) | about $0.113 per hour | about $0.40 per hour |
+| Size                                          | Awake, CPU idle       | Awake, CPU flat out   |
+| --------------------------------------------- | --------------------- | --------------------- |
+| small (`standard-1`: ½ vCPU, 4 GiB, 8 GB)     | about $0.038 per hour | about $0.074 per hour |
+| standard (`standard-2`: 1 vCPU, 6 GiB, 12 GB) | about $0.057 per hour | about $0.13 per hour  |
+| large (`standard-3`: 2 vCPU, 8 GiB, 16 GB)    | about $0.076 per hour | about $0.22 per hour  |
+| xlarge (`standard-4`: 4 vCPU, 12 GiB, 20 GB)  | about $0.113 per hour | about $0.40 per hour  |
 
 An idle XFCE desktop uses little CPU. So a standard computer costs about 6 cents per awake hour and nothing while asleep.
 The 8-hour backstop caps a forgotten computer at about 45 cents. Worker requests and Durable Object time are billed
@@ -560,7 +567,7 @@ separately and are small next to the container.
 ## Deploy to your own Cloudflare account
 
 You need a Workers Paid account with Containers, a domain on that account, `wrangler login`, a running Docker engine,
-Node 24 and pnpm. The image is built locally for linux/amd64. On Apple silicon that build is emulated and takes several
+Node 24 and Bun 1.4.5. The image is built locally for linux/amd64. On Apple silicon that build is emulated and takes several
 minutes the first time.
 
 `wrangler.jsonc` pins `images.desktop` to the image later.dog's deployment runs, by digest in the account's registry,
@@ -569,10 +576,10 @@ so a deploy never rebuilds or drops it. For your own account, or to ship a chang
 
 ```sh
 cd deploy/laterdog/computers
-pnpm run setup
+bun run setup
 ```
 
-`pnpm run setup` runs `scripts/deploy.sh`. It:
+`bun run setup` runs `scripts/deploy.sh`. It:
 
 1. installs this package on its own (`--ignore-workspace`);
 2. runs `wrangler deploy`, which builds and pushes the image and deploys the Worker;
@@ -585,7 +592,7 @@ pnpm run setup
 Secrets go to wrangler on stdin and are never printed. Run it again to redeploy; it keeps the key. On 2026-10-08 it took
 2 minutes 29 seconds with Docker's build cache warm.
 
-For Worker-only changes, `pnpm run deploy:worker` (`--containers-rollout=none`) redeploys without building the image.
+For Worker-only changes, `bun run deploy:worker` (`--containers-rollout=none`) redeploys without building the image.
 It keeps the image the last deploy prepared. It took 7 seconds.
 
 ### Turning on free trials
@@ -598,14 +605,15 @@ Trials stay off until all of this is done. Nothing here prints a secret.
 2. Set the two secrets. Paste the widget's secret key when wrangler asks for it:
 
    ```sh
-   pnpm exec wrangler secret put TURNSTILE_SECRET_KEY
-   openssl rand -base64 48 | tr -d '\n' | pnpm exec wrangler secret put TRIAL_NETWORK_KEY
+   bun run wrangler secret put TURNSTILE_SECRET_KEY
+   openssl rand -base64 48 | tr -d '\n' | bun run wrangler secret put TRIAL_NETWORK_KEY
    ```
 
    Changing `TRIAL_NETWORK_KEY` later forgets which networks have had a trial.
+
 3. To limit countries, set `TRIAL_COUNTRIES` to two-letter codes, such as `"US,CA"`. A request whose country is not
    known is then refused.
-4. Set `TRIALS_ENABLED` to `"true"` and run `pnpm run deploy:worker`.
+4. Set `TRIALS_ENABLED` to `"true"` and run `bun run deploy:worker`.
 5. `curl -s https://<your domain>/v1/trials` should answer `{"offered":true,...}`.
 6. To offer trials from your own fork of the app, set `DEFAULT_TRIAL_API` in `server/laterdog/cloud-trial.ts` to your
    service, `https://<your domain>/v1`, change the test that names it, and release. To try it first, start later.dog
@@ -624,7 +632,7 @@ ones with `wrangler containers images delete <image:tag>`.
 
 ## Checks
 
-- `pnpm test`: unit tests for the pure logic. API key check, desktop link signing, ids, routing, input validation,
+- `bun run test`: unit tests for the pure logic. API key check, desktop link signing, ids, routing, input validation,
   output capture, the idle policy and the free-trial rules. `test/exec-env.test.ts` covers exec's `env` (the rules,
   the merge, and that values stay out of the record, the logs and error bodies) and the `xlarge` size;
   `test/entrypoint.test.ts` covers the `ComputersApi` entrypoint and that the public route still needs the key.
@@ -635,8 +643,8 @@ ones with `wrangler containers images delete <image:tag>`.
   `test/trial-flow.test.ts`, `test/trial-registry.test.ts` and those two also run the Worker's own request handling and Durable Object classes against in-memory stand-ins (`test/fakes.ts`:
   SQLite from `node:sqlite`, a fake container and a clock that fires alarms). The stand-ins are not Cloudflare, so
   passing them says nothing about the live platform.
-- `pnpm run eval:haiku`: the Claude Haiku against Kimi parity eval (`test/haiku-parity.ts`), live and never part of
-  `pnpm test`. Six recorded later.dog turns with the real computer tools: a plain answer, picking `computer_list`,
+- `bun run eval:haiku`: the Claude Haiku against Kimi parity eval (`test/haiku-parity.ts`), live and never part of
+  `bun run test`. Six recorded later.dog turns with the real computer tools: a plain answer, picking `computer_list`,
   filling `computer_exec`'s arguments, waking a sleeping computer after a list, clicking the green button on a
   generated screenshot, and answering in words after a tool result. The two turns with tool history carry Kimi-style
   tool-call ids (`functions.computer_list:0`). Each runs `HAIKU_PARITY_RUNS` times (3) per model;
@@ -647,13 +655,13 @@ ones with `wrangler containers images delete <image:tag>`.
   `AI_GATEWAY_ID` (`laterdog`) with the Anthropic key stored on that gateway. Kimi is called on the Workers AI
   REST API, Claude on the gateway's Anthropic endpoint, both with the same request translation the Worker uses.
   `test/haiku-parity.test.ts` checks the eval itself against a fake upstream.
-- `pnpm run check`: `wrangler types` and `tsc --noEmit`.
-- `pnpm exec oxlint --deny-warnings deploy/laterdog/computers`, from the repository root.
-- `pnpm run dry-run`: `wrangler deploy --dry-run`. This builds the image too.
+- `bun run check`: `wrangler types` and `tsc --noEmit`.
+- `bun run oxlint --deny-warnings deploy/laterdog/computers`, from the repository root.
+- `bun run dry-run`: `wrangler deploy --dry-run`. This builds the image too.
 - Local image smoke test (native arch): `docker build -t laterdog-computer:dev container && docker run --rm -p 6080:6080 laterdog-computer:dev`,
   then open http://localhost:6080/vnc.html. Chromium runs with `--no-sandbox` there when the Docker engine refuses
   user namespaces (`container/chromium-flags` adds the flag only then); the managed policy hides its warning bar.
-- `pnpm run smoke`: `scripts/smoke.mjs` against the deployed Worker, 34 checks. Auth; create and boot; exec as `dog` on
+- `bun run smoke`: `scripts/smoke.mjs` against the deployed Worker, 34 checks. Auth; create and boot; exec as `dog` on
   `:0`; files; Chromium; screenshot; the viewer page and noVNC through the signed path; the raw WebSocket upgrade (HTTP
   101, then the `RFB 003.008` greeting as a binary frame, then a round trip to the VNC server); a forged link; exec
   timeout; sleep; wake; the file survives; the old link dies; the desktop is drawn again; delete. It reads the key from
@@ -663,7 +671,7 @@ ones with `wrangler containers images delete <image:tag>`.
 
 Seen working on 2026-10-08:
 
-- everything `pnpm run smoke` checks;
+- everything `bun run smoke` checks;
 - the idle sleep and the open-viewer rule, with a 1-minute idle time;
 - in a real browser: the viewer showing the live desktop; **Take over** (a click opened a terminal, and typed keys
   created a file the API then found); **Hand back** (clicks stopped reaching the desktop);

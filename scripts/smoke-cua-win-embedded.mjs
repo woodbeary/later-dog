@@ -19,20 +19,29 @@ const background = join(stage, "cua-driver-background.exe");
 const bundle = join(stage, "cua-sdk", "cua-sdk.mjs");
 const dll = join(stage, "cua-sdk", "native", "cua_driver_sdk.dll");
 
-for (const [label, file] of [["cua-driver.exe", binary], ["background daemon", background], ["cua-sdk bundle", bundle], ["sdk dll", dll]]) {
+for (const [label, file] of [
+  ["cua-driver.exe", binary],
+  ["background daemon", background],
+  ["cua-sdk bundle", bundle],
+  ["sdk dll", dll],
+]) {
   if (!existsSync(file)) {
-    console.error(`staged ${label} is missing at ${file} — run pnpm build:cua:win first`);
+    console.error(`staged ${label} is missing at ${file} — run bun run build:cua:win first`);
     process.exit(1);
   }
 }
 
 if (!createBackgroundExecutable(readFileSync(binary)).equals(readFileSync(background))) {
-  throw new Error("background daemon does not match the CLI's executable sections and derived PE headers");
+  throw new Error(
+    "background daemon does not match the CLI's executable sections and derived PE headers",
+  );
 }
 
 const bundledSource = readFileSync(bundle, "utf8");
 if (!bundledSource.includes("LATERDOG_CUA_SDK_LIBRARY")) {
-  console.error("staged cua-sdk.mjs lacks the LATERDOG_CUA_SDK_LIBRARY resolver patch — re-run pnpm build:cua:win");
+  console.error(
+    "staged cua-sdk.mjs lacks the LATERDOG_CUA_SDK_LIBRARY resolver patch — re-run bun run build:cua:win",
+  );
   process.exit(1);
 }
 
@@ -44,7 +53,13 @@ const watchdog = setTimeout(() => {
 }, 30_000);
 
 async function checkNoConsole(pid) {
-  await promisify(execFile)("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", `
+  await promisify(execFile)(
+    "powershell.exe",
+    [
+      "-NoProfile",
+      "-NonInteractive",
+      "-Command",
+      `
 Add-Type -TypeDefinition @'
 using System.Runtime.InteropServices;
 public static class ConsoleProbe {
@@ -57,7 +72,14 @@ $attached = [ConsoleProbe]::AttachConsole([uint32]$env:LATERDOG_SMOKE_DAEMON_PID
 $failure = [Runtime.InteropServices.Marshal]::GetLastWin32Error()
 if ($attached) { [ConsoleProbe]::FreeConsole() | Out-Null; throw 'Background daemon has a console' }
 if ($failure -ne 6) { throw "Console probe failed with unexpected Windows error $failure" }
-`], { windowsHide: true, timeout: 10_000, env: { ...process.env, LATERDOG_SMOKE_DAEMON_PID: String(pid) } });
+`,
+    ],
+    {
+      windowsHide: true,
+      timeout: 10_000,
+      env: { ...process.env, LATERDOG_SMOKE_DAEMON_PID: String(pid) },
+    },
+  );
   console.log("Windows confirms the background daemon has no console");
 }
 
@@ -69,42 +91,66 @@ if (typeof sdk.EmbeddedCuaDriverHost !== "function") {
 
 async function checkProxy(socketPath) {
   const child = spawn(binary, ["mcp", "--embedded", "--socket", socketPath], {
-    windowsHide: true, stdio: ["pipe", "pipe", "pipe"],
+    windowsHide: true,
+    stdio: ["pipe", "pipe", "pipe"],
     env: { ...process.env, CUA_DRIVER_EMBEDDED: "1", CUA_DRIVER_HOST_BUNDLE_ID: "dog.later.app" },
   });
   const lines = createInterface({ input: child.stdout });
   let stderr = "";
-  child.stderr.on("data", bytes => { stderr = (stderr + bytes).slice(-4096); });
+  child.stderr.on("data", (bytes) => {
+    stderr = (stderr + bytes).slice(-4096);
+  });
   const pending = new Map();
-  const rejectAll = error => { for (const item of pending.values()) item.reject(error); pending.clear(); };
+  const rejectAll = (error) => {
+    for (const item of pending.values()) item.reject(error);
+    pending.clear();
+  };
   child.on("error", rejectAll);
   child.on("exit", () => rejectAll(new Error(`MCP proxy exited: ${stderr}`)));
-  lines.on("line", line => {
+  lines.on("line", (line) => {
     let message;
-    try { message = JSON.parse(line); } catch { return; }
+    try {
+      message = JSON.parse(line);
+    } catch {
+      return;
+    }
     const item = pending.get(message.id);
     if (!item) return;
     pending.delete(message.id);
     if (message.error) item.reject(new Error(JSON.stringify(message.error)));
     else item.resolve(message.result);
   });
-  const send = message => child.stdin.write(JSON.stringify({ jsonrpc: "2.0", ...message }) + "\n");
-  const request = (id, method, params) => new Promise((resolve, reject) => {
-    const timer = setTimeout(() => { pending.delete(id); reject(new Error(`MCP ${method} timed out`)); }, 5000);
-    pending.set(id, {
-      resolve: result => { clearTimeout(timer); resolve(result); },
-      reject: error => { clearTimeout(timer); reject(error); },
+  const send = (message) =>
+    child.stdin.write(JSON.stringify({ jsonrpc: "2.0", ...message }) + "\n");
+  const request = (id, method, params) =>
+    new Promise((resolve, reject) => {
+      const timer = setTimeout(() => {
+        pending.delete(id);
+        reject(new Error(`MCP ${method} timed out`));
+      }, 5000);
+      pending.set(id, {
+        resolve: (result) => {
+          clearTimeout(timer);
+          resolve(result);
+        },
+        reject: (error) => {
+          clearTimeout(timer);
+          reject(error);
+        },
+      });
+      send({ id, method, params });
     });
-    send({ id, method, params });
-  });
   try {
     const initialized = await request(1, "initialize", {
-      protocolVersion: "2024-11-05", capabilities: {}, clientInfo: { name: "laterdog-smoke", version: "1" },
+      protocolVersion: "2024-11-05",
+      capabilities: {},
+      clientInfo: { name: "laterdog-smoke", version: "1" },
     });
     if (!initialized?.serverInfo) throw new Error("MCP initialization missing serverInfo");
     send({ method: "notifications/initialized" });
     const list = await request(2, "tools/list", {});
-    if (!Array.isArray(list?.tools) || !list.tools.length) throw new Error("MCP proxy returned no tools");
+    if (!Array.isArray(list?.tools) || !list.tools.length)
+      throw new Error("MCP proxy returned no tools");
     console.log(`CLI proxy connected to background daemon: ${list.tools.length} tools`);
   } finally {
     lines.close();
@@ -131,8 +177,13 @@ try {
   host.uniffiDestroy?.();
   if (!Number.isInteger(conn.pid) || conn.pid <= 0) throw new Error("missing daemon PID");
   const running = () => {
-    try { process.kill(conn.pid, 0); return true; }
-    catch (error) { if (error.code === "ESRCH") return false; throw error; }
+    try {
+      process.kill(conn.pid, 0);
+      return true;
+    } catch (error) {
+      if (error.code === "ESRCH") return false;
+      throw error;
+    }
   };
   for (let attempt = 0; attempt < 50 && running(); attempt++) await delay(100);
   if (running()) throw new Error("owned daemon survived host.stop()");

@@ -11,9 +11,9 @@ are partial overlays that fall back to English for missing keys.
 2. Keep every key identical to an English key and preserve placeholders such
    as `{name}` exactly, including repeated placeholders.
 3. Register a new pack in `src/locales/index.ts`.
-4. Run `pnpm i18n:check` and test the language from **Settings → General**.
+4. Run `bun run i18n:check` and test the language from **Settings → General**.
 
-`pnpm i18n:check` is deterministic. It validates JSON structure, unknown or
+`bun run i18n:check` is deterministic. It validates JSON structure, unknown or
 empty entries, locale filename casing, placeholder parity, and the English
 source hash attached to every translated value. If English copy changes, the
 old translation fails the check instead of silently looking current. Missing
@@ -42,7 +42,7 @@ each present value translates:
 
 ```sh
 node scripts/generate-locale.mjs pt-br --accept
-pnpm i18n:check
+bun run i18n:check
 ```
 
 Commit `src/locales/source-hashes.json` with the catalog. The hash contains no

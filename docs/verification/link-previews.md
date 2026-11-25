@@ -9,7 +9,7 @@ node --experimental-strip-types scripts/verify-link-previews.ts
 It prints the fixture's `url`. Point a renderer at it:
 
 ```sh
-LATERDOG_DEV_API_URL=<url> pnpm exec vite --host 127.0.0.1 --port 5296 --strictPort
+LATERDOG_DEV_API_URL=<url> bun run vite --host 127.0.0.1 --port 5296 --strictPort
 ```
 
 Open the app, skip the tour, and open the dog named **Links**. Its persisted

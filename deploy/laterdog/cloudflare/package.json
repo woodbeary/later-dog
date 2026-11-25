@@ -9,7 +9,8 @@
     "check": "wrangler types && tsc --noEmit",
     "dry-run": "wrangler deploy --dry-run --containers-rollout=none",
     "deploy": "wrangler deploy",
-    "tail": "wrangler tail laterdog-supervisor"
+    "tail": "wrangler tail laterdog-supervisor",
+    "preinstall": "node scripts/check-package-manager.mjs"
   },
   "dependencies": {
     "@cloudflare/containers": "^0.3.7"
@@ -18,10 +19,13 @@
     "typescript": "^5.9.3",
     "wrangler": "^4.148.0"
   },
-  "pnpm": {
-    "onlyBuiltDependencies": [
-      "esbuild",
-      "workerd"
-    ]
-  }
+  "packageManager": "bun@1.4.5",
+  "engines": {
+    "node": ">=24",
+    "bun": "1.4.5"
+  },
+  "trustedDependencies": [
+    "esbuild",
+    "workerd"
+  ]
 }

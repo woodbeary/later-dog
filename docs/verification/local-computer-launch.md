@@ -8,7 +8,7 @@ and focuses the existing later.dog window instead of answering MCP requests.
 Run the isolated regression:
 
 ```sh
-pnpm exec vitest run server/local-computer.test.ts \
+bun run vitest run server/local-computer.test.ts \
   server/local-computer-proxy.test.ts server/mcp-bridge.test.ts \
   server/system-prompt.test.ts server/local-routing.test.ts
 ```
@@ -29,7 +29,7 @@ background-input guarantee.
 
 ## Responsive desktop startup
 
-`pnpm exec vitest run electron/cua-launch.test.mjs` checks the desktop CUA
+`bun run vitest run electron/cua-launch.test.mjs` checks the desktop CUA
 startup boundary without native permissions or controlling a real app. Electron
 and the CUA SDK are mocked; every subprocess is redirected to an inert Node
 child in a disposable home. The checks cover responsive asynchronous launch,
@@ -53,7 +53,7 @@ OpenClaw's application-specific gateway or unrestricted authorization policy.
 
 ## Windows local control
 
-`pnpm build:cua:win && pnpm smoke:cua-win` on Windows x64 stages the pinned
+`bun run build:cua:win && bun run smoke:cua-win` on Windows x64 stages the pinned
 0.28.2 executable and matching SDK, loads the packaged native-library bundle,
 starts an embedded host, then proves its child exits after Stop. CI runs this
 on a disposable Windows runner with telemetry disabled and a bounded timeout.
@@ -81,11 +81,11 @@ silently falling back to the console binary.
 The portable conversion checks use synthetic inert PE data:
 
 ```sh
-pnpm exec vitest run scripts/cua-windows-background.test.mjs \
+bun run vitest run scripts/cua-windows-background.test.mjs \
   electron/cua-windows-isolation.test.mjs electron/cua-launch.test.mjs
 ```
 
-`pnpm exec vitest run electron/cua-windows-isolation.test.mjs` exercises the
+`bun run vitest run electron/cua-windows-isolation.test.mjs` exercises the
 Windows branch with a disposable directory and mocked SDK: private embedded
 startup, failed host, cancellation, replacement isolation, shutdown,
 and development binary discovery. It refuses macOS permission imports and any
@@ -120,7 +120,7 @@ Do not use the operator's later.dog data or authenticated browser profiles as fi
 
 ## Source Mac driver lookup and Dev's closed screen
 
-`pnpm exec vitest run electron/cua-driver-path.test.mjs electron/cua-launch.test.mjs scripts/dev-mac.test.ts`
+`bun run vitest run electron/cua-driver-path.test.mjs electron/cua-launch.test.mjs scripts/dev-mac.test.ts`
 checks, with a temporary stage and no Mac data, that an unpackaged app resolves
 `dist-native/<arch>/cua-driver` for its own architecture only, that a directory in
 its place is rejected, that `CUA_DRIVER_PATH` wins, that a packaged app never reads

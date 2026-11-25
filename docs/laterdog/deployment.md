@@ -5,7 +5,7 @@ The supervisor stores jobs, repository policy, attempts, immutable input refs, p
 ## Remote supervisor on Cloudflare
 
 The supported hosted option is a Cloudflare Container; see [cloudflare.md](cloudflare.md) for the budget, the secrets that must
-exist before the first deploy, the in-container `codex login --device-auth` flow (`pnpm laterdog:login`), restarts and backups.
+exist before the first deploy, the in-container `codex login --device-auth` flow (`bun run laterdog:login`), restarts and backups.
 
 ## Remote supervisor on a Docker host
 
@@ -29,13 +29,13 @@ LATERDOG_SUPERVISOR_URL=https://your-supervisor.example
 LATERDOG_TOKEN_FILE=/absolute/private/laterdog-token
 ```
 
-or, so a packaged app launched from Finder and a plain `pnpm laterdog:dev` find it without any variables, by saving `~/.laterdog/supervisor.json` (beside the local supervisor's own `supervisor/` directory):
+or, so a packaged app launched from Finder and a plain `bun run laterdog:dev` find it without any variables, by saving `~/.laterdog/supervisor.json` (beside the local supervisor's own `supervisor/` directory):
 
 ```json
 { "url": "https://your-supervisor.example", "tokenFile": "~/.laterdog/supervisor-token" }
 ```
 
-Environment variables win over the file. While either is present the desktop starts no local supervisor, the Workspace, the `laterdog` MCP tools and `pnpm laterdog:doctor` all talk to the hosted one, and a missing token file is reported as such rather than silently producing 401s. For an SSH tunnel use the loopback HTTP origin instead. A native remote host can run `pnpm laterdog:supervisor` with `LATERDOG_PUBLISHING_HOST=remote`; that setting is an operator assertion about placement, not hardware attestation. The service must actually run remotely.
+Environment variables win over the file. While either is present the desktop starts no local supervisor, the Workspace, the `laterdog` MCP tools and `bun run laterdog:doctor` all talk to the hosted one, and a missing token file is reported as such rather than silently producing 401s. For an SSH tunnel use the loopback HTTP origin instead. A native remote host can run `bun run laterdog:supervisor` with `LATERDOG_PUBLISHING_HOST=remote`; that setting is an operator assertion about placement, not hardware attestation. The service must actually run remotely.
 
 The desktop-owned supervisor defaults to local and refuses repository publishing/verification. To run heavy verification, use a native remote supervisor with Docker installed. The supplied supervisor container intentionally has no Docker socket mount: mounting it would give repository commands control of the host. With that container, configure the names of actual behavioral GitHub CI checks (in the Workspace, or from an agent connected with the admin token through configure_verification_recipe, which cannot change merge authority; a dog's own token cannot change them), or configure a separately isolated container runtime before adding command verification. `verify.Dockerfile` is a starting image; target-specific offline dependencies are required because verifier commands run with networking disabled.
 
@@ -66,18 +66,18 @@ Use the app's remote-server connection (Settings) to view that workspace. Conver
 
 ## What a dog's token reaches
 
-Each bot ("dog") reaches the supervisor through its built-in `laterdog` MCP server, mounted only once the person has connected a repository and offering a dog just `delegate_cloud_job`, `inspect_cloud_job` and `publish_cloud_job` (the person's own MCP client, without a dog id, keeps every supervisor tool). The desktop starts it with that dog's own token, never the admin token: `base64url(HMAC-SHA256(admin token, "laterdog-dog:<bot id>"))`, sent with `X-LaterDog-Bot: <bot id>` (`server/laterdog/dog-access.ts`). The supervisor and the Cloudflare Worker recompute it from the admin token they already hold, so nothing new is stored, and the admin token is also kept out of every engine's inherited environment. The Workspace, `pnpm laterdog:doctor`, `pnpm laterdog:login`, `pnpm laterdog:github` and an operator's own `pnpm laterdog:mcp` send no bot header and keep the admin token's full access.
+Each bot ("dog") reaches the supervisor through its built-in `laterdog` MCP server, mounted only once the person has connected a repository and offering a dog just `delegate_cloud_job`, `inspect_cloud_job` and `publish_cloud_job` (the person's own MCP client, without a dog id, keeps every supervisor tool). The desktop starts it with that dog's own token, never the admin token: `base64url(HMAC-SHA256(admin token, "laterdog-dog:<bot id>"))`, sent with `X-LaterDog-Bot: <bot id>` (`server/laterdog/dog-access.ts`). The supervisor and the Cloudflare Worker recompute it from the admin token they already hold, so nothing new is stored, and the admin token is also kept out of every engine's inherited environment. The Workspace, `bun run laterdog:doctor`, `bun run laterdog:login`, `bun run laterdog:github` and an operator's own `bun run laterdog:mcp` send no bot header and keep the admin token's full access.
 
-A dog's token reaches only what those tools call: delegating jobs, inspecting them, and the job actions they send. Underneath, the supervisor still scopes the token's HTTP routes to that dog's jobs (the workspace snapshot, collected diffs, the other job actions, provider access and task listing, and observations stay reachable for a token but no dog tool calls them). It acts only on jobs whose `botId` is that dog (corrections and reviews inherit it), reads jobs nobody owns without changing them, and never sees another dog's jobs; the provider's own task list (`list_provider_tasks`, needed to reconcile an uncertain submission) is account-wide and not filtered. Repositories, verification checks, provider and GitHub logins, paired devices and local-assistance requests, and the Worker's `/admin/*` levers are refused with one sentence the dog can repeat; the person does those in the Workspace or with the `pnpm laterdog:*` commands.
+A dog's token reaches only what those tools call: delegating jobs, inspecting them, and the job actions they send. Underneath, the supervisor still scopes the token's HTTP routes to that dog's jobs (the workspace snapshot, collected diffs, the other job actions, provider access and task listing, and observations stay reachable for a token but no dog tool calls them). It acts only on jobs whose `botId` is that dog (corrections and reviews inherit it), reads jobs nobody owns without changing them, and never sees another dog's jobs; the provider's own task list (`list_provider_tasks`, needed to reconcile an uncertain submission) is account-wide and not filtered. Repositories, verification checks, provider and GitHub logins, paired devices and local-assistance requests, and the Worker's `/admin/*` levers are refused with one sentence the dog can repeat; the person does those in the Workspace or with the `bun run laterdog:*` commands.
 
-Limits: dog tokens do not expire, and rotating the admin token is the only way to revoke them (all at once). The scoped token takes the admin token out of what every dog is handed; it does not sandbox a dog whose engine can run commands as your user, which can still read the admin token file in `~/.laterdog/`, and can call the desktop's own `/api/laterdog/*` proxy (which presents the admin token) wherever a loopback caller is trusted: reads in the packaged app, everything under `pnpm laterdog:dev`.
+Limits: dog tokens do not expire, and rotating the admin token is the only way to revoke them (all at once). The scoped token takes the admin token out of what every dog is handed; it does not sandbox a dog whose engine can run commands as your user, which can still read the admin token file in `~/.laterdog/`, and can call the desktop's own `/api/laterdog/*` proxy (which presents the admin token) wherever a loopback caller is trusted: reads in the packaged app, everything under `bun run laterdog:dev`.
 
 ## Pair the Mac
 
 In Workspace choose **Pair this computer**, specify exact absolute repository roots and optionally allow local-bot assistance. Save its single-use five-minute code to a private file, then run:
 
 ```sh
-pnpm laterdog:bridge --url https://your-supervisor.example --pair-code-file /private/pairing-code --label 'My Mac'
+bun run laterdog:bridge --url https://your-supervisor.example --pair-code-file /private/pairing-code --label 'My Mac'
 ```
 
 Remove the now-used pairing file. The bridge stores its private device credential in `~/.laterdog/bridge/device.json`; the remote service stores a hash. With an already configured local assistance bot add `--bot-id BOT_ID --workspace-url http://127.0.0.1:LOCAL_WORKSPACE_PORT`. That local bot owns its normal CUA/browser permissions. A separate bridge remains usable while the desktop views a remote server, but does not start a local CUA harness by itself.

@@ -29,10 +29,10 @@ server log is retained.
 ## Focused regression checks
 
 ```sh
-pnpm exec vitest run src/lib/rich-cards.test.ts src/lib/diagram-export.test.ts src/components/RichCard.test.ts server/system-prompt.test.ts
-pnpm typecheck
-pnpm lint
-pnpm i18n:check
+bun run vitest run src/lib/rich-cards.test.ts src/lib/diagram-export.test.ts src/components/RichCard.test.ts server/system-prompt.test.ts
+bun run typecheck
+bun run lint
+bun run i18n:check
 ```
 
 Every dog's instructions carry the formats in the Replies section

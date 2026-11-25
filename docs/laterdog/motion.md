@@ -21,14 +21,14 @@ millisecond value, a `cubic-bezier(...)`, a pixel radius or a shadow on a surfac
 
 ## Durations
 
-| Token | Value | Used for |
-| --- | --- | --- |
-| `--duration-instant` | 50 ms | Reserved for state flips that must feel immediate (no surface uses it yet). |
-| `--duration-fast` | 100 ms | A control answering the pointer: hover and press colours, the press squish going down, a presence dot appearing, the computer panel's tab pill. Alias: `--motion-micro`. |
-| `--duration-normal` | 150 ms | Cards and tiles changing colour or border on hover; every entrance under reduced motion (a fade). |
-| `--duration-slow` | 200 ms | Something appearing in place: a menu or popover growing (`pop-in`), a message or card sliding in, a backdrop fading in, the composer's corners easing when it grows, the pane behind a tab. Alias: `--motion-base`. |
-| `--duration-slower` | 300 ms | Something settling: the mascot at the tail of a turn, the answer growing out of it, a tour beat, a spotlight moving, the mascot's ears easing into a new pose. Alias: `--motion-enter`. |
-| `--duration-exit` | 300 ms | Anything leaving: a closing menu (`pop-out`). `MENU_MOTION_MS` keeps a closing menu mounted for exactly this long. |
+| Token                | Value  | Used for                                                                                                                                                                                                            |
+| -------------------- | ------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `--duration-instant` | 50 ms  | Reserved for state flips that must feel immediate (no surface uses it yet).                                                                                                                                         |
+| `--duration-fast`    | 100 ms | A control answering the pointer: hover and press colours, the press squish going down, a presence dot appearing, the computer panel's tab pill. Alias: `--motion-micro`.                                            |
+| `--duration-normal`  | 150 ms | Cards and tiles changing colour or border on hover; every entrance under reduced motion (a fade).                                                                                                                   |
+| `--duration-slow`    | 200 ms | Something appearing in place: a menu or popover growing (`pop-in`), a message or card sliding in, a backdrop fading in, the composer's corners easing when it grows, the pane behind a tab. Alias: `--motion-base`. |
+| `--duration-slower`  | 300 ms | Something settling: the mascot at the tail of a turn, the answer growing out of it, a tour beat, a spotlight moving, the mascot's ears easing into a new pose. Alias: `--motion-enter`.                             |
+| `--duration-exit`    | 300 ms | Anything leaving: a closing menu (`pop-out`). `MENU_MOTION_MS` keeps a closing menu mounted for exactly this long.                                                                                                  |
 
 Loops take whole multiples of these: the working dots step through their opacity holds every five `slower` beats (1.5 s)
 with each dot one `slow` beat behind the last; the alert ears overshoot across two `slower` beats. The reply's "emerged"
@@ -37,11 +37,11 @@ over one `slower` beat and cross-fades the rest over one `slow` beat.
 
 ## Curves
 
-| Token | Value | Used for |
-| --- | --- | --- |
-| `--ease-enter` | `cubic-bezier(0.16, 1, 0.3, 1)` | Entrances and settles: arrives fast, lands softly. Alias: `--ease-out-soft`. |
-| `--ease-exit` | `cubic-bezier(0.4, 0, 1, 1)` | Exits, and the press squish going down. |
-| `--ease-loop` | `cubic-bezier(0.45, 0, 0.55, 1)` | Loops that must not show a seam: breathing, flopping, swaying. Alias: `--ease-in-out-soft`. |
+| Token          | Value                            | Used for                                                                                    |
+| -------------- | -------------------------------- | ------------------------------------------------------------------------------------------- |
+| `--ease-enter` | `cubic-bezier(0.16, 1, 0.3, 1)`  | Entrances and settles: arrives fast, lands softly. Alias: `--ease-out-soft`.                |
+| `--ease-exit`  | `cubic-bezier(0.4, 0, 1, 1)`     | Exits, and the press squish going down.                                                     |
+| `--ease-loop`  | `cubic-bezier(0.45, 0, 0.55, 1)` | Loops that must not show a seam: breathing, flopping, swaying. Alias: `--ease-in-out-soft`. |
 
 ## Springs
 
@@ -49,11 +49,11 @@ A spring is mass, stiffness and damping. `src/lib/motion.ts` turns each one into
 time it takes to come to rest (`springDuration`, within 1% of the target); `src/tokens.css` carries the result as
 `--spring-<name>` and `--spring-<name>-duration`, and the test checks the two agree.
 
-| Name | Mass, stiffness, damping | Rests after | Used for |
-| --- | --- | --- | --- |
-| `standard` | 1, 175, 26 | 485 ms | Sheets and dialogs rising (`sheet-in`), the side panel sliding in (`panel-in`). |
-| `slow` | 1, 100, 20 | 665 ms | Reserved for large, calm moves (nothing uses it yet). |
-| `bounce` | 1, 175, 18.5 | 500 ms | A pressed control springing back; it overshoots by about 5%. |
+| Name       | Mass, stiffness, damping | Rests after | Used for                                                                        |
+| ---------- | ------------------------ | ----------- | ------------------------------------------------------------------------------- |
+| `standard` | 1, 175, 26               | 485 ms      | Sheets and dialogs rising (`sheet-in`), the side panel sliding in (`panel-in`). |
+| `slow`     | 1, 100, 20               | 665 ms      | Reserved for large, calm moves (nothing uses it yet).                           |
+| `bounce`   | 1, 175, 18.5             | 500 ms      | A pressed control springing back; it overshoots by about 5%.                    |
 
 ## Press
 
@@ -67,29 +67,29 @@ It leaves alone: disabled controls, anything inside `data-no-press`, and surface
 
 ## Corners
 
-| Token | Value | Used for |
-| --- | --- | --- |
-| `--radius-bubble` (`rounded-bubble`) | 18 px | Chat bubbles, user and dog, in chats and groups; the error and plain-text bubbles. |
-| `--radius-card` (`rounded-card`) | 16 px | Cards in the transcript: approvals, connectors, secrets, requests, routine runs, cloud tasks, screens, the composer's attachment tray. |
-| `--radius-question` (`rounded-question`) | 24 px | Question and option cards, the one raised surface in a chat. |
-| `--radius-menu` (`rounded-menu`) | 12 px | Menus and popovers: the composer's `+`, command and mention lists, model picker, effort, approval mode, send choice, export, task picker, API keys, call menus. |
-| `--radius-sheet` (`rounded-sheet`) | 24 px | Sheets and dialogs: settings, plugins, triggers, voice setup, team pages, confirmations. |
-| `--radius-control` (`rounded-control`) | 8 px | `.ui-button` and `.ui-icon-button`. |
-| `--radius-composer`, `--radius-composer-expanded` | 22 px, 20 px | The message box, resting and with several lines. |
+| Token                                             | Value        | Used for                                                                                                                                                        |
+| ------------------------------------------------- | ------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `--radius-bubble` (`rounded-bubble`)              | 18 px        | Chat bubbles, user and dog, in chats and groups; the error and plain-text bubbles.                                                                              |
+| `--radius-card` (`rounded-card`)                  | 16 px        | Cards in the transcript: approvals, connectors, secrets, requests, routine runs, cloud tasks, screens, the composer's attachment tray.                          |
+| `--radius-question` (`rounded-question`)          | 24 px        | Question and option cards, the one raised surface in a chat.                                                                                                    |
+| `--radius-menu` (`rounded-menu`)                  | 12 px        | Menus and popovers: the composer's `+`, command and mention lists, model picker, effort, approval mode, send choice, export, task picker, API keys, call menus. |
+| `--radius-sheet` (`rounded-sheet`)                | 24 px        | Sheets and dialogs: settings, plugins, triggers, voice setup, team pages, confirmations.                                                                        |
+| `--radius-control` (`rounded-control`)            | 8 px         | `.ui-button` and `.ui-icon-button`.                                                                                                                             |
+| `--radius-composer`, `--radius-composer-expanded` | 22 px, 20 px | The message box, resting and with several lines.                                                                                                                |
 
 ## Shadows and hairlines
 
 Every shadow ends in a 1 px ring at 5% of the ink colour, so surfaces keep an edge on any skin.
 
-| Token | Shape | Used for |
-| --- | --- | --- |
-| `--shadow-control` | 0 1px 3px | Small raised controls (available). |
-| `--shadow-inline` | 0 4px 12px, 0 2px 4px | Lifted inline surfaces (available). |
-| `--shadow-elevated` | inline lift plus an inset 0.5 px hairline | Question and option cards. |
-| `--shadow-popover` | 0 10px 20px | Menus and popovers. |
-| `--shadow-modal` | 0 20px 32px | Sheets, dialogs and the glass surface. |
-| `--shadow-window` | 0 22px 70px | Windows floating over everything (available). |
-| `--shadow-composer` | 0 2px 8px, 0 1px 2px | The message box and its tray (its edge is a ring, not a shadow). |
+| Token               | Shape                                     | Used for                                                         |
+| ------------------- | ----------------------------------------- | ---------------------------------------------------------------- |
+| `--shadow-control`  | 0 1px 3px                                 | Small raised controls (available).                               |
+| `--shadow-inline`   | 0 4px 12px, 0 2px 4px                     | Lifted inline surfaces (available).                              |
+| `--shadow-elevated` | inline lift plus an inset 0.5 px hairline | Question and option cards.                                       |
+| `--shadow-popover`  | 0 10px 20px                               | Menus and popovers.                                              |
+| `--shadow-modal`    | 0 20px 32px                               | Sheets, dialogs and the glass surface.                           |
+| `--shadow-window`   | 0 22px 70px                               | Windows floating over everything (available).                    |
+| `--shadow-composer` | 0 2px 8px, 0 1px 2px                      | The message box and its tray (its edge is a ring, not a shadow). |
 
 Hairlines are 0.5 px wide (`--hairline-width`) in four strengths of the ink colour: `--hairline-subtle` 5%,
 `--hairline-weak` 10%, `--hairline-default` 15%, `--hairline-strong` 30%.
@@ -131,21 +131,21 @@ eyes out of a round head; at sidebar size those dogs read as bears and fish.)
   face) and Chihuahua (huge flared ears on an apple-dome head, big eyes, a short pale snout). The body catalog lists the
   breeds first (round fallback outlines for the native apps); the older abstract shapes stay available under **Shapes**.
 - **The mark.** The app icon and the logo are the Retriever drawn from the same data in fixed golden tones on the green
-  tile: `node scripts/laterdog-mark.ts && pnpm laterdog:icons` regenerates them, so the icon never drifts from the dogs.
+  tile: `node scripts/laterdog-mark.ts && bun run laterdog:icons` regenerates them, so the icon never drifts from the dogs.
 - **Moods.** Every app state maps to one of ten moods, each a still pose plus an optional loop:
 
-| Mood | States | Pose (also the reduced-motion picture) | Loop |
-| --- | --- | --- | --- |
-| rest | idle, humming, orbit | ears at rest | breathe 3.8s; right ear flicks twice every 7s; blink every 5.4s |
-| listen | listening, dictating, receiving, curious | head tilted 5°, ears perked, eyes 10% wider | gentle sway |
-| think | thinking, confused, suspicious | eyes up and to the right, one brow raised, one ear raised | head tilts side to side, 3.4s |
-| work | working, writing, sending, uploading, loading, dragging, progress | eyes narrowed | bob with squash, 0.72s; ears flop in time |
-| search | searching, radar | — | eyes scan, head looks left and right, 1.8s |
-| alert | alerting, notifying, scared, surprised, waking, spawning | ears up, eyes wide | one hop with overshoot |
-| happy | happy, excited, laughing, playful, celebrate, bouncing, proud | squinting ^ ^ eyes, tongue out | wag 0.5s; ears flop |
-| sleep | sleeping, drowsy, powering-down, bored | eyes closed, ears down | slow breath, 5s |
-| sad | sad, shy | brows raised at the middle, eyes lowered, ears down | slow breath |
-| angry | angry | brows drawn down, eyes narrowed, ears pinned back | a quick shake every 2.2s |
+| Mood   | States                                                            | Pose (also the reduced-motion picture)                    | Loop                                                            |
+| ------ | ----------------------------------------------------------------- | --------------------------------------------------------- | --------------------------------------------------------------- |
+| rest   | idle, humming, orbit                                              | ears at rest                                              | breathe 3.8s; right ear flicks twice every 7s; blink every 5.4s |
+| listen | listening, dictating, receiving, curious                          | head tilted 5°, ears perked, eyes 10% wider               | gentle sway                                                     |
+| think  | thinking, confused, suspicious                                    | eyes up and to the right, one brow raised, one ear raised | head tilts side to side, 3.4s                                   |
+| work   | working, writing, sending, uploading, loading, dragging, progress | eyes narrowed                                             | bob with squash, 0.72s; ears flop in time                       |
+| search | searching, radar                                                  | —                                                         | eyes scan, head looks left and right, 1.8s                      |
+| alert  | alerting, notifying, scared, surprised, waking, spawning          | ears up, eyes wide                                        | one hop with overshoot                                          |
+| happy  | happy, excited, laughing, playful, celebrate, bouncing, proud     | squinting ^ ^ eyes, tongue out                            | wag 0.5s; ears flop                                             |
+| sleep  | sleeping, drowsy, powering-down, bored                            | eyes closed, ears down                                    | slow breath, 5s                                                 |
+| sad    | sad, shy                                                          | brows raised at the middle, eyes lowered, ears down       | slow breath                                                     |
+| angry  | angry                                                             | brows drawn down, eyes narrowed, ears pinned back         | a quick shake every 2.2s                                        |
 
 Floppy ears hinge at their root and lift outward; upright ears stand taller to listen and fold back and down when the dog
 sleeps, sulks or is cross. The pointer moves the eyes and, a little further, the nose — a parallax that reads as the head
@@ -169,7 +169,7 @@ it by specificity.
 
 ## Checks
 
-`pnpm gen:bodies` twice with no diff; `pnpm exec vitest run scripts/mascot-bodies src/components/Avatar.test.ts
+`bun run gen:bodies` twice with no diff; `bun run vitest run scripts/mascot-bodies src/components/Avatar.test.ts
 src/components/BotIdentityAvatars.test.ts src/components/BotProfileAvatarCard.test.ts src/components/onboarding
-src/lib/motion.test.ts src/lib/arrivals.test.ts`; `pnpm typecheck`; `pnpm lint`. Screenshots of the preview
+src/lib/motion.test.ts src/lib/arrivals.test.ts`; `bun run typecheck`; `bun run lint`. Screenshots of the preview
 (`/mascot-preview.html`) and a chat with a row arriving live under `.laterdog-evidence/motion-<date>/`.

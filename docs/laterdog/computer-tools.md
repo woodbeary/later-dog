@@ -6,10 +6,10 @@ Clef verdict on that screenshot in the same tool result.
 
 There are two ways in, and they expose the same nine tools:
 
-| | Where it runs | Key |
-| --- | --- | --- |
-| **Remote** | `POST https://cloud.later.dog/mcp` on the computers Worker (`deploy/laterdog/computers`) | The bearer key you already use for the computers API: a free trial or later.dog Cloud key (`ldt_...`), or the operator's `ldc_...` key |
-| **Local** | `scripts/mcp-server.ts`, the desktop app's stdio MCP server, as a thin proxy to the same endpoint | The key this Mac already holds (below). No key to paste |
+|            | Where it runs                                                                                     | Key                                                                                                                                    |
+| ---------- | ------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
+| **Remote** | `POST https://cloud.later.dog/mcp` on the computers Worker (`deploy/laterdog/computers`)          | The bearer key you already use for the computers API: a free trial or later.dog Cloud key (`ldt_...`), or the operator's `ldc_...` key |
+| **Local**  | `scripts/mcp-server.ts`, the desktop app's stdio MCP server, as a thin proxy to the same endpoint | The key this Mac already holds (below). No key to paste                                                                                |
 
 ## Add the remote server
 
@@ -37,7 +37,7 @@ The key file is where the app keeps the free trial key. If you run your own comp
 
 ## Use the local server instead
 
-`pnpm mcp` and the bundled `mcp-server.js` (see [the MCP server](../mcp-server.md)) list the same tools after the team
+`bun run mcp` and the bundled `mcp-server.js` (see [the MCP server](../mcp-server.md)) list the same tools after the team
 tools. They call the Worker for you with the key the app already holds, so nothing needs pasting, and the key is not copied
 into another tool's config. Where they find it is the way the desktop's own server already calls the computers service
 (`computersConnection()` and `computersKey()` in `server/laterdog/cloud-computers.ts`): the `computers.json` and
@@ -50,17 +50,17 @@ refuses a service address that is not HTTPS (or loopback), does not follow redir
 
 ## The tools
 
-| Tool | What it does |
-| --- | --- |
-| `computer_list` | Your computers: id, name, size, state. |
-| `computer_create` | A new Linux desktop (Xfce, Chromium, git, Node). `name` and `size` are optional. Size is `small` (standard-1), the default, `standard`, `large` or `xlarge`; a free trial always gets `standard`, so it is the default for a trial key. Returns while the computer is starting. |
-| `computer_wake` | Starts a sleeping computer or waits for a new one: returns when it is running and its desktop is drawn, or says it is still starting after 30 seconds and to call again. |
-| `computer_sleep` | Snapshots and stops it. Files stay; open programs do not. |
-| `computer_screenshot` | The whole screen as a JPEG, pointer included. |
-| `computer_action` | `click`, `double_click`, `type`, `key`, `scroll` or `drag` through `xdotool`, then a fresh screenshot and a Clef screen check. |
-| `computer_exec` | A shell command (bash, as the desktop user) with `timeout_ms` (1 s to 10 min, default 30 s) and an optional `cwd`. Returns exit code, stdout, stderr, `timedOut` as one JSON text; each stream is cut at 100,000 characters, and says so when it is. |
-| `computer_viewer_link` | A signed, expiring link where a person watches the screen and takes over. |
-| `decide` | Needs a key with an active later.dog Cloud plan. A Jev-format Clef question: a `state`, one to four `choice`, `score` or `noul` questions, up to four images, and `model` `clef` (default) or `clef-flash`. `computer_id` adds a fresh screenshot as the last image. |
+| Tool                   | What it does                                                                                                                                                                                                                                                                    |
+| ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `computer_list`        | Your computers: id, name, size, state.                                                                                                                                                                                                                                          |
+| `computer_create`      | A new Linux desktop (Xfce, Chromium, git, Node). `name` and `size` are optional. Size is `small` (standard-1), the default, `standard`, `large` or `xlarge`; a free trial always gets `standard`, so it is the default for a trial key. Returns while the computer is starting. |
+| `computer_wake`        | Starts a sleeping computer or waits for a new one: returns when it is running and its desktop is drawn, or says it is still starting after 30 seconds and to call again.                                                                                                        |
+| `computer_sleep`       | Snapshots and stops it. Files stay; open programs do not.                                                                                                                                                                                                                       |
+| `computer_screenshot`  | The whole screen as a JPEG, pointer included.                                                                                                                                                                                                                                   |
+| `computer_action`      | `click`, `double_click`, `type`, `key`, `scroll` or `drag` through `xdotool`, then a fresh screenshot and a Clef screen check.                                                                                                                                                  |
+| `computer_exec`        | A shell command (bash, as the desktop user) with `timeout_ms` (1 s to 10 min, default 30 s) and an optional `cwd`. Returns exit code, stdout, stderr, `timedOut` as one JSON text; each stream is cut at 100,000 characters, and says so when it is.                            |
+| `computer_viewer_link` | A signed, expiring link where a person watches the screen and takes over.                                                                                                                                                                                                       |
+| `decide`               | Needs a key with an active later.dog Cloud plan. A Jev-format Clef question: a `state`, one to four `choice`, `score` or `noul` questions, up to four images, and `model` `clef` (default) or `clef-flash`. `computer_id` adds a fresh screenshot as the last image.            |
 
 Every tool has a strict schema (no unknown arguments) and every argument problem comes back as a tool error in plain words,
 such as `"computer_id" is not in the expected format.` or `click needs x and y.`, so the agent can correct itself.
@@ -76,7 +76,13 @@ One text part (JSON) and one image part. The JSON:
 {
   "computer_id": "cmp_abcdefghij23",
   "did": "click at (640, 400)",
-  "screen_check": { "screen": "ready", "confidence": 0.97, "changed": 0.95, "matches_expectation": 0.9, "looks": 1 }
+  "screen_check": {
+    "screen": "ready",
+    "confidence": 0.97,
+    "changed": 0.95,
+    "matches_expectation": 0.9,
+    "looks": 1
+  }
 }
 ```
 
@@ -127,7 +133,7 @@ The check is a guess from a small model. It is there to save a round trip, not t
 
 ## Deploy
 
-See the pull request for the exact steps. In short, only the Worker changes: `pnpm run deploy:worker` in
+See the pull request for the exact steps. In short, only the Worker changes: `bun run deploy:worker` in
 `deploy/laterdog/computers` (`--containers-rollout=none`, no new image; the container needs `xdotool` and `scrot`, which it already has).
 
 ## What was verified, and what was not

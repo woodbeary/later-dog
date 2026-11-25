@@ -25,7 +25,7 @@ Send the starter dog one message, then read `GET /api/threads/<thread>/messages`
 With `FAKE_CLAUDE_REPEAT_ANSWER=changing` the same fixture runs all thirty calls and replies
 `Finished checking fixture-cli auth status 30 times.` with no stop line.
 
-`pnpm exec vitest run server/same-answer-loop.e2e.test.ts` runs both and writes
+`bun run vitest run server/same-answer-loop.e2e.test.ts` runs both and writes
 `.laterdog-evidence/same-answer-loop/`.
 
 ## Limits

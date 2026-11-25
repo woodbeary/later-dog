@@ -8,10 +8,10 @@ A visible, expandable note explains what was summarized, even with tool chips of
 ## Exercise the real path
 
 ```sh
-pnpm exec vitest run server/context-compaction.e2e.test.ts
-pnpm exec vitest run server/context-rebuild.test.ts server/compaction-summary.test.ts server/context-budget.test.ts server/delta-context.e2e.test.ts
-pnpm exec vitest run server/store.test.ts server/config.test.ts src/components/DigestChip.test.ts
-pnpm test:packaged-server
+bun run vitest run server/context-compaction.e2e.test.ts
+bun run vitest run server/context-rebuild.test.ts server/compaction-summary.test.ts server/context-budget.test.ts server/delta-context.e2e.test.ts
+bun run vitest run server/store.test.ts server/config.test.ts src/components/DigestChip.test.ts
+bun run test:packaged-server
 ```
 
 The API fixture launches the shared isolated server and fake engine. It uses
@@ -74,8 +74,8 @@ runs these hooks alongside the person's own, and that a slow or failing hook
 never holds up its compaction. The fake engine cannot show either.
 
 ```sh
-pnpm exec vitest run server/laterdog/native-compaction.test.ts server/laterdog/native-compaction.e2e.test.ts
-pnpm exec vitest run server/laterdog/rebuild-summary.test.ts server/laterdog/engine-summaries.test.ts server/laterdog/cache-lifetime.test.ts
+bun run vitest run server/laterdog/native-compaction.test.ts server/laterdog/native-compaction.e2e.test.ts
+bun run vitest run server/laterdog/rebuild-summary.test.ts server/laterdog/engine-summaries.test.ts server/laterdog/cache-lifetime.test.ts
 ```
 
 ## Bounds and limitations
@@ -122,9 +122,9 @@ while it runs, which is also the working line, then "Compacted the conversation 
 "Couldn't compact the conversation" with the engine's reason, secrets redacted.
 
 ```sh
-pnpm exec vitest run server/laterdog/compaction-live.test.ts server/drivers/claude-compaction.test.ts server/thread-events.test.ts
-pnpm exec vitest run server/drivers/claude.test.ts -t "compacting"
-pnpm exec vitest run server/hooks.e2e.test.ts -t "compaction"
+bun run vitest run server/laterdog/compaction-live.test.ts server/drivers/claude-compaction.test.ts server/thread-events.test.ts
+bun run vitest run server/drivers/claude.test.ts -t "compacting"
+bun run vitest run server/hooks.e2e.test.ts -t "compaction"
 ```
 
 The engine's stream (the repeating `compacting` status, its result and the

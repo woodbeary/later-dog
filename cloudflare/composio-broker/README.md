@@ -10,10 +10,10 @@ only on demand and are never persisted in chat messages.
 
 Deployment for this repository:
 
-1. `pnpm broker:types`
-2. `pnpm exec wrangler d1 migrations apply laterdog-composio --remote --config cloudflare/composio-broker/wrangler.jsonc`
-3. For an existing Worker, run `pnpm exec wrangler secret put COMPOSIO_API_KEY --config cloudflare/composio-broker/wrangler.jsonc`, then `pnpm broker:deploy`.
-4. For the very first deploy, put `COMPOSIO_API_KEY=...` in the ignored `.dev.vars.production` file and run `pnpm exec wrangler deploy --config cloudflare/composio-broker/wrangler.jsonc --secrets-file .dev.vars.production`. Delete the file immediately afterward.
+1. `bun run broker:types`
+2. `bun run wrangler d1 migrations apply laterdog-composio --remote --config cloudflare/composio-broker/wrangler.jsonc`
+3. For an existing Worker, run `bun run wrangler secret put COMPOSIO_API_KEY --config cloudflare/composio-broker/wrangler.jsonc`, then `bun run broker:deploy`.
+4. For the very first deploy, put `COMPOSIO_API_KEY=...` in the ignored `.dev.vars.production` file and run `bun run wrangler deploy --config cloudflare/composio-broker/wrangler.jsonc --secrets-file .dev.vars.production`. Delete the file immediately afterward.
 
 Forks should create their own D1 database and rate-limit namespaces, replace
 the IDs in `wrangler.jsonc`, deploy under their own Worker name, and set

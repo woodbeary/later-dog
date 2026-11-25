@@ -7,38 +7,38 @@ there is something to do, what. The engine's own text is kept under **Details**.
 One function, `plainFailure` in `shared/plain-failure.ts`, turns the raw cause into
 the sentence; `failedTurnTool` in `shared/failed-turn.ts` writes it.
 
-| Raw shape (from the drivers and the server) | What the person reads |
-| --- | --- |
-| `claude exited <code> before result[: <error tail>]`, `codex exited <code> [(signal X)] before turn/completed…`, `<engine> ACP exited <code or signal>.`, `pi turn failed`, `turn failed` | Scout stopped before it finished. |
-| `Claude began a steered message but went silent; the turn was closed.` | Scout went quiet after your new message, so the turn was stopped. |
-| `no activity for N minutes — the turn was stopped` | Scout showed no progress for N minutes, so the turn was stopped. |
-| `` `cli` isn't installed, or isn't on this app's PATH `` | Scout could not start because a program it needs is missing on this computer. |
-| `` `cli` isn't executable — … `` | Scout could not start because a program it needs is not allowed to run on this computer. |
-| `` `cli` received too much launch data … `` | Scout could not start because the request was too large. Try a shorter message. |
-| `spawn failed: …` | Scout could not start. Try again. |
-| `<engine> initialization timed out …` | Scout did not start in time. Try again. |
-| any other `… timed out` (not an automatic review) | Scout did not get an answer in time. Try again. |
-| `could not deliver approval to the provider; …` | Your answer did not reach Scout. Try the task again. |
-| `queued [channel ]message could not start — …` | Your waiting message could not start. Send it again. |
-| `Could not carry on with <account>: …` | Could not carry on with <account>. Try again. |
-| `Could not continue on <account>: …` | Could not continue on <account>. Try again. |
-| `MCP server could not start…` / `exited…` / `startup timed out` / `request timed out…` | A connected tool could not start. Check its settings. / stopped before the turn ended. / did not start in time. Try again. / did not answer in time, so it is not clear whether it finished. |
-| `<engine> did not shut down after it was asked to stop.` | Scout did not stop when asked, so some of its work may still be running. |
-| `HTTP 5xx…`, `503 Service Unavailable`, `API Error: 529 Overloaded…` | The service behind Scout's account is busy or briefly unavailable. Try again in a moment. |
-| a JSON body with a message | the message, as before |
-| anything else | unchanged |
+| Raw shape (from the drivers and the server)                                                                                                                                               | What the person reads                                                                                                                                                                        |
+| ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `claude exited <code> before result[: <error tail>]`, `codex exited <code> [(signal X)] before turn/completed…`, `<engine> ACP exited <code or signal>.`, `pi turn failed`, `turn failed` | Scout stopped before it finished.                                                                                                                                                            |
+| `Claude began a steered message but went silent; the turn was closed.`                                                                                                                    | Scout went quiet after your new message, so the turn was stopped.                                                                                                                            |
+| `no activity for N minutes — the turn was stopped`                                                                                                                                        | Scout showed no progress for N minutes, so the turn was stopped.                                                                                                                             |
+| `` `cli` isn't installed, or isn't on this app's PATH ``                                                                                                                                  | Scout could not start because a program it needs is missing on this computer.                                                                                                                |
+| `` `cli` isn't executable — … ``                                                                                                                                                          | Scout could not start because a program it needs is not allowed to run on this computer.                                                                                                     |
+| `` `cli` received too much launch data … ``                                                                                                                                               | Scout could not start because the request was too large. Try a shorter message.                                                                                                              |
+| `spawn failed: …`                                                                                                                                                                         | Scout could not start. Try again.                                                                                                                                                            |
+| `<engine> initialization timed out …`                                                                                                                                                     | Scout did not start in time. Try again.                                                                                                                                                      |
+| any other `… timed out` (not an automatic review)                                                                                                                                         | Scout did not get an answer in time. Try again.                                                                                                                                              |
+| `could not deliver approval to the provider; …`                                                                                                                                           | Your answer did not reach Scout. Try the task again.                                                                                                                                         |
+| `queued [channel ]message could not start — …`                                                                                                                                            | Your waiting message could not start. Send it again.                                                                                                                                         |
+| `Could not carry on with <account>: …`                                                                                                                                                    | Could not carry on with <account>. Try again.                                                                                                                                                |
+| `Could not continue on <account>: …`                                                                                                                                                      | Could not continue on <account>. Try again.                                                                                                                                                  |
+| `MCP server could not start…` / `exited…` / `startup timed out` / `request timed out…`                                                                                                    | A connected tool could not start. Check its settings. / stopped before the turn ended. / did not start in time. Try again. / did not answer in time, so it is not clear whether it finished. |
+| `<engine> did not shut down after it was asked to stop.`                                                                                                                                  | Scout did not stop when asked, so some of its work may still be running.                                                                                                                     |
+| `HTTP 5xx…`, `503 Service Unavailable`, `API Error: 529 Overloaded…`                                                                                                                      | The service behind Scout's account is busy or briefly unavailable. Try again in a moment.                                                                                                    |
+| a JSON body with a message                                                                                                                                                                | the message, as before                                                                                                                                                                       |
+| anything else                                                                                                                                                                             | unchanged                                                                                                                                                                                    |
 
 When the engine's error tail, or the text after the colon or dash, gives a reason the
 app already knows, the sentence says that reason instead of the generic one, in the
 words used elsewhere in the app:
 
-| Reason in the raw text | Exit or time-out | Waiting message | Carry on / continue on X |
-| --- | --- | --- | --- |
-| not logged in, `/login`, invalid key, 401, expired or unrefreshable token, "needs … sign in" | Scout stopped because its account needs you to sign in again. | Your waiting message could not start: Scout's account needs you to sign in again. | Could not carry on with X: it needs you to sign in again. |
-| usage limit, out of usage, resting (with "until/at/resets <time>" when given) | Scout stopped because its account is out of usage until 5pm. (or "for now") | …: Scout's account is out of usage until 5pm. | …: it is out of usage for now. |
-| "<account> is turned off" | Scout stopped because its account is turned off. Turn it back on or pick another account. | same | …: it is turned off. Turn it back on or pick another account. |
-| no space left, disk full, insufficient disk space | Scout stopped (or could not start) because this computer is almost out of space. Free up some space and try again. | same | same |
-| 5xx, overloaded, rate limit | Scout stopped because the service behind its account is busy or briefly unavailable. Try again in a moment. | same | same |
+| Reason in the raw text                                                                       | Exit or time-out                                                                                                   | Waiting message                                                                   | Carry on / continue on X                                      |
+| -------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------- | ------------------------------------------------------------- |
+| not logged in, `/login`, invalid key, 401, expired or unrefreshable token, "needs … sign in" | Scout stopped because its account needs you to sign in again.                                                      | Your waiting message could not start: Scout's account needs you to sign in again. | Could not carry on with X: it needs you to sign in again.     |
+| usage limit, out of usage, resting (with "until/at/resets <time>" when given)                | Scout stopped because its account is out of usage until 5pm. (or "for now")                                        | …: Scout's account is out of usage until 5pm.                                     | …: it is out of usage for now.                                |
+| "<account> is turned off"                                                                    | Scout stopped because its account is turned off. Turn it back on or pick another account.                          | same                                                                              | …: it is turned off. Turn it back on or pick another account. |
+| no space left, disk full, insufficient disk space                                            | Scout stopped (or could not start) because this computer is almost out of space. Free up some space and try again. | same                                                                              | same                                                          |
+| 5xx, overloaded, rate limit                                                                  | Scout stopped because the service behind its account is busy or briefly unavailable. Try again in a moment.        | same                                                                              | same                                                          |
 
 A sign-in reason also sets `setup` on the row, so the desktop shows the sign-in
 button it shows for every other sign-in row. A usage-limit reason is said in
@@ -83,12 +83,12 @@ pickup's answered check, status lines and digests.
 
 ## Stopped, in the header and the sidebar
 
-| Work state | Before | Now |
-| --- | --- | --- |
-| `stopped`, cause `you` | Stopped by you | Stopped by you |
-| `stopped`, detail `stalled` | Stopped: no progress for too long | Stopped: no progress for too long |
-| `stopped`, detail `closed` | Stopped: the engine closed | Stopped before it finished |
-| `stopped`, cause `engine` or `infrastructure` | Stopped: the engine reported an error | Stopped before it finished |
+| Work state                                    | Before                                | Now                               |
+| --------------------------------------------- | ------------------------------------- | --------------------------------- |
+| `stopped`, cause `you`                        | Stopped by you                        | Stopped by you                    |
+| `stopped`, detail `stalled`                   | Stopped: no progress for too long     | Stopped: no progress for too long |
+| `stopped`, detail `closed`                    | Stopped: the engine closed            | Stopped before it finished        |
+| `stopped`, cause `engine` or `infrastructure` | Stopped: the engine reported an error | Stopped before it finished        |
 
 The phone should use the same words for the same states.
 
@@ -144,7 +144,7 @@ label.
 Unit tests:
 
 ```sh
-pnpm exec vitest run shared/plain-failure.test.ts shared/failed-turn.test.ts \
+bun run vitest run shared/plain-failure.test.ts shared/failed-turn.test.ts \
   server/laterdog/helpers-stopped.test.ts server/drivers/claude-tasks.test.ts \
   server/laterdog/stall-watch.test.ts server/laterdog/stall-watch-raw.test.ts \
   src/lib/recovered-fold.test.ts src/lib/quiet-lines.test.ts src/lib/work-state.test.ts
@@ -176,12 +176,12 @@ FAKE_CLAUDE_MODE=api-error \
   node --experimental-strip-types scripts/control-laterdog.ts ui launch
 ```
 
-| Case | Stored row | What the screen showed |
-| --- | --- | --- |
-| Engine failing three launches with a 503 | `error: Pepper stopped because the service behind its account is busy or briefly unavailable. Try again in a moment.`, `detail: "claude exited 5 before result: claude: API error (503): …"` | The sentence, Details (the raw line), Retry; the header and the sidebar said "Stopped before it finished". |
-| The same, after the stall watch carried on with its default timings | the failure row, then `recovery: … carrying on by itself.` (`pickup: "watch"`), then the answer | The recovery line with Details, the answer, one "View work". No failure row and no "Issue recorded". Details opened the failure row and the failed attempt's own "View work". |
-| `api-error` mode (`API Error: 529 Overloaded. …`) | one failure row, no reply from the dog | "The service behind Pepper's account is busy or briefly unavailable. Try again in a moment." with Details (the raw line) and Retry; no bubble with the raw text. |
-| A sign-in failure, a helpers line, then a recovery line | fixed data in `scripts/testing/failure-fold-preview.tsx`, rows made by `failedTurnTool` | Both failure rows stay on screen above the recovery line; nothing is folded. |
+| Case                                                                | Stored row                                                                                                                                                                                   | What the screen showed                                                                                                                                                        |
+| ------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Engine failing three launches with a 503                            | `error: Pepper stopped because the service behind its account is busy or briefly unavailable. Try again in a moment.`, `detail: "claude exited 5 before result: claude: API error (503): …"` | The sentence, Details (the raw line), Retry; the header and the sidebar said "Stopped before it finished".                                                                    |
+| The same, after the stall watch carried on with its default timings | the failure row, then `recovery: … carrying on by itself.` (`pickup: "watch"`), then the answer                                                                                              | The recovery line with Details, the answer, one "View work". No failure row and no "Issue recorded". Details opened the failure row and the failed attempt's own "View work". |
+| `api-error` mode (`API Error: 529 Overloaded. …`)                   | one failure row, no reply from the dog                                                                                                                                                       | "The service behind Pepper's account is busy or briefly unavailable. Try again in a moment." with Details (the raw line) and Retry; no bubble with the raw text.              |
+| A sign-in failure, a helpers line, then a recovery line             | fixed data in `scripts/testing/failure-fold-preview.tsx`, rows made by `failedTurnTool`                                                                                                      | Both failure rows stay on screen above the recovery line; nothing is folded.                                                                                                  |
 
 The fixed-data preview is loaded into a launched `ui` page with
 `ui eval --js "document.body.innerHTML = '<div id=\"root\"></div>'; import('/scripts/testing/failure-fold-preview.tsx')"`.

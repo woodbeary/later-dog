@@ -9,7 +9,7 @@ and bundling executables never overrides that switch.
 
 ## Package layout and lookup
 
-`pnpm package:prepare` runs `pnpm build:browser`. It downloads verified vendor
+`bun run package:prepare` runs `bun run build:browser`. It downloads verified vendor
 archives and stages `dist-native/browser/PLATFORM-ARCH`, copied as
 `Resources/browser-engine` on macOS or `resources/browser-engine` elsewhere.
 Each package includes only its target architecture: macOS ARM64/x64,

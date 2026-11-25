@@ -40,7 +40,7 @@ Sources:
 Regression checks:
 
 ```sh
-pnpm exec vitest run server/drivers/claude.test.ts server/drivers/agents-proxy.test.ts server/harness-mcp-proxy.test.ts
+bun run vitest run server/drivers/claude.test.ts server/drivers/agents-proxy.test.ts server/harness-mcp-proxy.test.ts
 ```
 
 The turn boundary itself — a capability whose owning turn has been replaced
@@ -63,7 +63,7 @@ turn that made it) are counted by the harness for each turn, not by the
 proxy, which a warm engine keeps across turns.
 
 ```sh
-pnpm exec vitest run server/session-credentials.e2e.test.ts server/vps-routing.test.ts
+bun run vitest run server/session-credentials.e2e.test.ts server/vps-routing.test.ts
 ```
 
 A message steered into a running Claude turn is folded in only before a
@@ -91,9 +91,9 @@ model call extends the turn into its continuation the same way. The CLI's
 figure; per-turn token usage adds up.
 
 ```sh
-pnpm exec vitest run server/drivers/claude.test.ts -t "could not fold"
-pnpm exec vitest run server/drivers/claude.test.ts -t "queued_turn_count|tool result did not take in|echoed as taken in|does not echo|held window|stays silent|steered continuation|whole grace"
-pnpm exec vitest run server/steer-e2e.test.ts -t "internal tool pass"
+bun run vitest run server/drivers/claude.test.ts -t "could not fold"
+bun run vitest run server/drivers/claude.test.ts -t "queued_turn_count|tool result did not take in|echoed as taken in|does not echo|held window|stays silent|steered continuation|whole grace"
+bun run vitest run server/steer-e2e.test.ts -t "internal tool pass"
 ```
 
 For end-to-end verification, launch the isolated fixture described in
@@ -111,8 +111,8 @@ resuming the current session. A transient retry after a reset resumes the
 replacement session, not the abandoned one.
 
 ```sh
-pnpm exec vitest run server/drivers/claude.test.ts server/turn-context.test.ts server/resume-recovery.test.ts
-pnpm exec vitest run server/delta-context.e2e.test.ts -t "resets Claude's native context"
+bun run vitest run server/drivers/claude.test.ts server/turn-context.test.ts server/resume-recovery.test.ts
+bun run vitest run server/delta-context.e2e.test.ts -t "resets Claude's native context"
 ```
 
 The second command launches a disposable server and fake CLI through the

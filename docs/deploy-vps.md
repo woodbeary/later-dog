@@ -1,16 +1,16 @@
 # Deploy later.dog on a VPS
 
-> **Not published yet.** later.dog has no npm package yet, so `npx laterdog` and `npm install -g laterdog` do not work today. Run the server from a clone instead (`pnpm install && pnpm build`, then `node dist-server/laterdog.js`).
+> **Not published yet.** later.dog has no npm package yet, so `npx laterdog` and `npm install -g laterdog` do not work today. Run the server from a clone instead (`bun install --cpu=arm64 --cpu=x64 && bun run build`, then `node dist-server/laterdog.js`).
 
 From a blank Linux server to later.dog running on it around the clock, reachable from your laptop, the desktop app and your phone, with your bots working while every laptop is closed. It assumes nothing beyond being able to open a terminal and paste commands. About twenty minutes, most of it waiting.
 
 Three ways to make the server reachable are covered. Pick one; the rest of the guide is the same.
 
-| | You need | Who can reach it | Best for |
-|---|---|---|---|
-| **A. Public address, no domain** (`serve --tunnel`) | a later.dog account (email code) | anyone with a pairing code, over HTTPS | the fastest path; a phone on cellular |
-| **B. Your own domain** (Docker + Caddy) | a domain name, ports 80/443 | anyone with a pairing code, over HTTPS | a permanent address you own |
-| **C. Your Tailscale network** (`serve --tailscale`) | Tailscale on the server and your devices | only your tailnet | the most private; nothing public at all |
+|                                                     | You need                                 | Who can reach it                       | Best for                                |
+| --------------------------------------------------- | ---------------------------------------- | -------------------------------------- | --------------------------------------- |
+| **A. Public address, no domain** (`serve --tunnel`) | a later.dog account (email code)         | anyone with a pairing code, over HTTPS | the fastest path; a phone on cellular   |
+| **B. Your own domain** (Docker + Caddy)             | a domain name, ports 80/443              | anyone with a pairing code, over HTTPS | a permanent address you own             |
+| **C. Your Tailscale network** (`serve --tailscale`) | Tailscale on the server and your devices | only your tailnet                      | the most private; nothing public at all |
 
 Whichever you pick, the login is the same: you **pair** each device once with a short code and it stays signed in. A session lasts 30 days; using it with half that or less left renews it to a full 30, up to 180 days from pairing (`LATERDOG_SESSION_TTL_DAYS` and `LATERDOG_SESSION_MAX_DAYS` change both numbers). There is no password.
 
@@ -48,6 +48,7 @@ Needs the desktop app instead: dictation and controlling the server's own deskto
    ```
 
    Path B uses Docker instead and needs no Node on the host.
+
 3. **Your engine accounts.** Bots run on the same engine CLIs you use on your laptop, with your subscriptions. You sign them in on the server once, the same way.
 
 Connect to the server for everything below:
@@ -270,6 +271,7 @@ same release without an npm install prompt or an implicit upgrade.
   Check that installation succeeded before starting. A service restart by itself
   does not update the installed package. For foreground `npx` usage, specify the
   desired release as `npx --yes laterdog@X.Y.Z serve --tunnel`.
+
 - **Path B:** `cd later-dog/deploy && docker compose up -d --build`.
 
 Routines and queued work survive a restart; a turn running at that moment does not, so update between runs.

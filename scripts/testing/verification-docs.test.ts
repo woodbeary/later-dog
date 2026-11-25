@@ -7,41 +7,68 @@ import { HELP } from "../control-laterdog.ts";
 
 const ROOT = fileURLToPath(new URL("../..", import.meta.url));
 const DOCS = join(ROOT, "docs", "verification");
-const recipes = readdirSync(DOCS).filter((name) => name.endsWith(".md")).sort();
+const recipes = readdirSync(DOCS)
+  .filter((name) => name.endsWith(".md"))
+  .sort();
 const text = (recipe: string) => readFileSync(join(DOCS, recipe), "utf8");
 const withoutUrls = (markdown: string) => markdown.replace(/https?:\/\/\S+/g, " ");
 const cited = (pattern: RegExp) => {
   const hits: string[] = [];
   for (const recipe of recipes) {
-    for (const match of withoutUrls(text(recipe)).matchAll(pattern)) hits.push(`${recipe}: ${match[1]!}`);
+    for (const match of withoutUrls(text(recipe)).matchAll(pattern))
+      hits.push(`${recipe}: ${match[1]!}`);
   }
   return hits;
 };
 const target = (hit: string) => hit.slice(hit.indexOf(": ") + 2);
 
-const helpVerbs = new Set([...HELP.matchAll(/^ {2}([a-z][\w-]*)(?= |$)/gm)].map((match) => match[1]!).filter((verb) => verb !== "node"));
+const helpVerbs = new Set(
+  [...HELP.matchAll(/^ {2}([a-z][\w-]*)(?= |$)/gm)]
+    .map((match) => match[1]!)
+    .filter((verb) => verb !== "node"),
+);
 helpVerbs.add("help");
 
-const sourceModules = (dir: string) => readdirSync(dir).filter((name) => name.endsWith(".ts") && !name.endsWith(".test.ts")).sort().map((name) => join(dir, name));
-const serverSource = [join(ROOT, "server", "index.ts"), ...sourceModules(join(ROOT, "server", "routes")), ...sourceModules(join(ROOT, "server", "laterdog"))]
-  .map((file) => readFileSync(file, "utf8")).join("\n");
+const sourceModules = (dir: string) =>
+  readdirSync(dir)
+    .filter((name) => name.endsWith(".ts") && !name.endsWith(".test.ts"))
+    .sort()
+    .map((name) => join(dir, name));
+const serverSource = [
+  join(ROOT, "server", "index.ts"),
+  ...sourceModules(join(ROOT, "server", "routes")),
+  ...sourceModules(join(ROOT, "server", "laterdog")),
+]
+  .map((file) => readFileSync(file, "utf8"))
+  .join("\n");
 const hooksSource = readFileSync(join(ROOT, "server", "webhook-ingress.ts"), "utf8");
-const routePatterns = [...serverSource.matchAll(/\/(\^\\\/api\\\/(?:\[(?:[^\]\\]|\\.)*\]|[^/\\\n[]|\\.)*)\/[a-z]*/g)].map((match) => new RegExp(match[1]!));
+const routePatterns = [
+  ...serverSource.matchAll(/\/(\^\\\/api\\\/(?:\[(?:[^\]\\]|\\.)*\]|[^/\\\n[]|\\.)*)\/[a-z]*/g),
+].map((match) => new RegExp(match[1]!));
 const PLACEHOLDER = /^(ID|:[\w-]+|<[^>]+>|\{[^}]+\})$/;
 
-const slug = (heading: string) => heading.trim().toLowerCase().replace(/[^\w\- ]/g, "").replace(/\s+/g, "-");
+const slug = (heading: string) =>
+  heading
+    .trim()
+    .toLowerCase()
+    .replace(/[^\w\- ]/g, "")
+    .replace(/\s+/g, "-");
 
 describe("docs/verification recipes cite things that exist", () => {
   it("use control:laterdog verbs that help lists", () => {
-    const used = cited(/pnpm control:laterdog ([a-z][\w-]*)/g);
+    const used = cited(/(?:bun run|pnpm) control:laterdog ([a-z][\w-]*)/g);
     expect(used.length).toBeGreaterThan(0);
     expect(used.filter((hit) => !helpVerbs.has(target(hit)))).toEqual([]);
     const direct = cited(/scripts\/control-laterdog\.ts ([a-z][\w-]*)/g);
-    expect(direct.filter((hit) => target(hit) !== "launch" && !helpVerbs.has(target(hit)))).toEqual([]);
+    expect(direct.filter((hit) => target(hit) !== "launch" && !helpVerbs.has(target(hit)))).toEqual(
+      [],
+    );
   });
 
   it("cite source files that exist", () => {
-    const refs = cited(/(?<![\w/.-])((?:scripts|server|src|shared|electron|companion)\/[\w./-]+\.(?:ts|tsx|mjs|cjs|py))(?![\w/])/g);
+    const refs = cited(
+      /(?<![\w/.-])((?:scripts|server|src|shared|electron|companion)\/[\w./-]+\.(?:ts|tsx|mjs|cjs|py))(?![\w/])/g,
+    );
     expect(refs.length).toBeGreaterThan(50);
     expect([...new Set(refs.filter((hit) => !existsSync(join(ROOT, target(hit)))))]).toEqual([]);
   });
@@ -60,17 +87,29 @@ describe("docs/verification recipes cite things that exist", () => {
       const source = path.startsWith("/hooks/") ? hooksSource : serverSource;
       const segments = path.split("/").slice(1);
       const literal = segments.findIndex((segment) => PLACEHOLDER.test(segment));
-      if (literal === -1) return source.includes(`"${path}"`) || routePatterns.some((pattern) => pattern.test(path));
+      if (literal === -1)
+        return source.includes(`"${path}"`) || routePatterns.some((pattern) => pattern.test(path));
       const prefix = `/${segments.slice(0, Math.min(2, literal)).join("/")}`;
-      return source.includes(`"${prefix}`) || source.includes(`${prefix}/`)
-        || routePatterns.some((pattern) => pattern.test(segments.map((segment) => PLACEHOLDER.test(segment) ? "x-1" : segment).join("/").replace(/^/, "/")));
+      return (
+        source.includes(`"${prefix}`) ||
+        source.includes(`${prefix}/`) ||
+        routePatterns.some((pattern) =>
+          pattern.test(
+            segments
+              .map((segment) => (PLACEHOLDER.test(segment) ? "x-1" : segment))
+              .join("/")
+              .replace(/^/, "/"),
+          ),
+        )
+      );
     };
     expect([...new Set(refs.filter((hit) => !registered(target(hit))))]).toEqual([]);
   });
 
-
   it("are all reachable from README.md", () => {
-    const linked = new Set([...text("README.md").matchAll(/\]\(([^)#\s]+\.md)/g)].map((match) => match[1]!));
+    const linked = new Set(
+      [...text("README.md").matchAll(/\]\(([^)#\s]+\.md)/g)].map((match) => match[1]!),
+    );
     expect(recipes.filter((recipe) => recipe !== "README.md" && !linked.has(recipe))).toEqual([]);
   });
 
@@ -81,9 +120,14 @@ describe("docs/verification recipes cite things that exist", () => {
         if (/^(https?:|mailto:|#)/.test(link!)) continue;
         const [file, anchor] = link!.split("#");
         const resolved = resolve(DOCS, file!);
-        if (!existsSync(resolved)) { broken.push(`${recipe}: ${link}`); continue; }
+        if (!existsSync(resolved)) {
+          broken.push(`${recipe}: ${link}`);
+          continue;
+        }
         if (anchor && resolved.endsWith(".md")) {
-          const headings = [...readFileSync(resolved, "utf8").matchAll(/^#+\s+(.+)$/gm)].map((match) => slug(match[1]!));
+          const headings = [...readFileSync(resolved, "utf8").matchAll(/^#+\s+(.+)$/gm)].map(
+            (match) => slug(match[1]!),
+          );
           if (!headings.includes(anchor)) broken.push(`${recipe}: ${link} (no such heading)`);
         }
       }

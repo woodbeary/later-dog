@@ -7,23 +7,23 @@ key_file="$dir/computers-key"
 mkdir -p "$dir"
 chmod 700 "$dir"
 
-pnpm install --ignore-workspace --frozen-lockfile
-pnpm exec wrangler types >/dev/null
+bun install --frozen-lockfile
+bun run wrangler types >/dev/null
 
 url="${LATERDOG_COMPUTERS_URL:-https://cloud.later.dog}"
 url="${url%/}"
-pnpm exec wrangler deploy
+bun run wrangler deploy
 
 if [ ! -s "$key_file" ]; then
   (umask 077 && printf 'ldc_%s' "$(openssl rand -hex 32)" > "$key_file")
   echo "Created a new API key in $key_file"
 fi
 chmod 600 "$key_file"
-tr -d '\n' < "$key_file" | shasum -a 256 | cut -d ' ' -f 1 | tr -d '\n' | pnpm exec wrangler secret put COMPUTERS_KEY_SHA256
+tr -d '\n' < "$key_file" | shasum -a 256 | cut -d ' ' -f 1 | tr -d '\n' | bun run wrangler secret put COMPUTERS_KEY_SHA256
 
-secrets="$(pnpm exec wrangler secret list --format json)" || { echo "Could not list the Worker's secrets, so DESKTOP_SIGNING_KEY was left alone." >&2; exit 1; }
+secrets="$(bun run wrangler secret list --format json)" || { echo "Could not list the Worker's secrets, so DESKTOP_SIGNING_KEY was left alone." >&2; exit 1; }
 if ! grep -q '"DESKTOP_SIGNING_KEY"' <<<"$secrets"; then
-  openssl rand -base64 48 | tr -d '\n' | pnpm exec wrangler secret put DESKTOP_SIGNING_KEY
+  openssl rand -base64 48 | tr -d '\n' | bun run wrangler secret put DESKTOP_SIGNING_KEY
 fi
 
 status=000

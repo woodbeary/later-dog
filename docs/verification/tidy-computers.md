@@ -9,14 +9,14 @@ left on screen, and nothing else it opened. How it works is in "A tidy computer"
 Unit and behaviour tests, no browser:
 
 ```sh
-pnpm exec vitest run server/laterdog/cloud-tabs.test.ts server/laterdog/tab-keeper.test.ts server/laterdog/computer-upkeep.test.ts server/cloud-computer-tools.test.ts server/laterdog/page-tools.test.ts server/system-prompt.test.ts
+bun run vitest run server/laterdog/cloud-tabs.test.ts server/laterdog/tab-keeper.test.ts server/laterdog/computer-upkeep.test.ts server/cloud-computer-tools.test.ts server/laterdog/page-tools.test.ts server/system-prompt.test.ts
 ```
 
 With a real Chromium (any Chromium or Chrome binary; on a Mac, Google Chrome's):
 
 ```sh
 LATERDOG_BROWSER_STEPS_CHROMIUM=/path/to/chromium LATERDOG_TIDY_TABS_RECEIPT=/tmp/tidy-receipt.json \
-  pnpm exec vitest run scripts/browser-steps/page-tabs.test.ts server/laterdog/tidy-tabs.e2e.test.ts
+  bun run vitest run scripts/browser-steps/page-tabs.test.ts server/laterdog/tidy-tabs.e2e.test.ts
 ```
 
 Both are skipped when no Chromium is found. On a Mac, point `LATERDOG_BROWSER_STEPS_CHROMIUM` at a two-line wrapper
@@ -41,12 +41,12 @@ waits on the keychain and pages never load (this is also why `scripts/browser-st
 The fixture, on 2026-11-20 at this branch's head (macOS, headless Google Chrome, three turns of one dog). Browser
 memory is the resident memory of every process under the browser, which counts shared pages more than once:
 
-| Turn | Code | Tabs at the start | Most tabs during the turn | Tabs after the turn | Browser memory, most during | Browser memory, after |
-| --- | --- | ---: | ---: | ---: | ---: | ---: |
-| five pages, one after another | `main` | 1 | 6 | 6 | 1,275 MB | 1,053 MB |
-| five pages, one after another | this change | 1 | 1 | 1 | 880 MB | 884 MB |
-| two pages side by side | this change | 1 | 2 | 1 | 1,179 MB | 1,067 MB |
-| eight new tabs, one kept | this change | 1 | 4 | 2 | 1,429 MB | 1,194 MB |
+| Turn                          | Code        | Tabs at the start | Most tabs during the turn | Tabs after the turn | Browser memory, most during | Browser memory, after |
+| ----------------------------- | ----------- | ----------------: | ------------------------: | ------------------: | --------------------------: | --------------------: |
+| five pages, one after another | `main`      |                 1 |                         6 |                   6 |                    1,275 MB |              1,053 MB |
+| five pages, one after another | this change |                 1 |                         1 |                   1 |                      880 MB |                884 MB |
+| two pages side by side        | this change |                 1 |                         2 |                   1 |                    1,179 MB |              1,067 MB |
+| eight new tabs, one kept      | this change |                 1 |                         4 |                   2 |                    1,429 MB |              1,194 MB |
 
 `main` is 2a70df9ff, where the second and third turns cannot run: its `open_url` has no `new_tab` or `keep_open`.
 
@@ -57,15 +57,15 @@ through the owner route `POST /api/bots/:id/computer/exec`, so this server's cod
 (the page agent's `go`, `closeTabsScript`, `computerUpkeepScript()`). "Memory used" is `free -m`; "Chromium" is the
 proportional memory (`Pss`) of all its processes.
 
-| Step | Tabs | Chromium processes | Chromium memory | Memory used | Browser cache |
-| --- | ---: | ---: | ---: | ---: | ---: |
-| As found (new computer, browser not started) | 0 | 0 | 0 | 383 MB | 0 |
-| Old: a turn with 5 × `open_url` | 5 | 14 | not measured | 951 MB | 4.1 MB |
-| Old: a second turn, 5 more | 10 | 19 | 929 MB | 1,070 MB | 7.0 MB |
-| Old: after sleep and wake, one `open_url` | 11 | 12 | 562 MB | 709 MB | 7.3 MB |
-| New: the turn-end tidy on those 11 | 1 | 10 | 507 MB | 672 MB | 7.4 MB |
-| New: a turn with 5 × `open_url` | 1 | 10 | 701 MB | 860 MB | 7.4 MB |
-| New: after that turn ended | 1 | 10 | 698 MB | 860 MB | 7.4 MB |
+| Step                                         | Tabs | Chromium processes | Chromium memory | Memory used | Browser cache |
+| -------------------------------------------- | ---: | -----------------: | --------------: | ----------: | ------------: |
+| As found (new computer, browser not started) |    0 |                  0 |               0 |      383 MB |             0 |
+| Old: a turn with 5 × `open_url`              |    5 |                 14 |    not measured |      951 MB |        4.1 MB |
+| Old: a second turn, 5 more                   |   10 |                 19 |          929 MB |    1,070 MB |        7.0 MB |
+| Old: after sleep and wake, one `open_url`    |   11 |                 12 |          562 MB |      709 MB |        7.3 MB |
+| New: the turn-end tidy on those 11           |    1 |                 10 |          507 MB |      672 MB |        7.4 MB |
+| New: a turn with 5 × `open_url`              |    1 |                 10 |          701 MB |      860 MB |        7.4 MB |
+| New: after that turn ended                   |    1 |                 10 |          698 MB |      860 MB |        7.4 MB |
 
 The restored tabs after the wake were not loaded yet, which is why 11 tabs used less memory than 10. One tab after
 five pages still holds some of the earlier pages in the browser's back-forward cache.

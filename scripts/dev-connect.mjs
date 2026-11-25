@@ -32,7 +32,11 @@ export function nextWait(error, wait) {
 async function cloud(route, { method = "GET", body, token } = {}) {
   const response = await fetch(`${ORIGIN}/api/cloud/desktop/${route}`, {
     method,
-    headers: { accept: "application/json", ...(body ? { "content-type": "application/json" } : {}), ...(token ? { authorization: `Bearer ${token}` } : {}) },
+    headers: {
+      accept: "application/json",
+      ...(body ? { "content-type": "application/json" } : {}),
+      ...(token ? { authorization: `Bearer ${token}` } : {}),
+    },
     ...(body ? { body: JSON.stringify(body) } : {}),
     signal: AbortSignal.timeout(20_000),
   });
@@ -51,14 +55,15 @@ async function approvedToken(start) {
   while (Date.now() < deadline) {
     await new Promise((resolve) => setTimeout(resolve, wait));
     try {
-      return (await cloud("token", { method: "POST", body: { deviceCode: start.deviceCode } })).accessToken;
+      return (await cloud("token", { method: "POST", body: { deviceCode: start.deviceCode } }))
+        .accessToken;
     } catch (error) {
       const next = nextWait(error, wait);
       if (next === null) throw error;
       wait = next;
     }
   }
-  throw new Error("the sign-in code expired before it was approved; run pnpm dev:connect again");
+  throw new Error("the sign-in code expired before it was approved; run bun run dev:connect again");
 }
 
 function keptAccount() {
@@ -72,24 +77,46 @@ function keptAccount() {
 
 async function accountToken() {
   const kept = keptAccount();
-  if (kept && (await cloud("session", { token: kept }).then(() => true, () => false))) return kept;
-  const start = await cloud("authorize", { method: "POST", body: { deviceName: DEVICE_NAME, platform: process.platform } });
+  if (
+    kept &&
+    (await cloud("session", { token: kept }).then(
+      () => true,
+      () => false,
+    ))
+  )
+    return kept;
+  const start = await cloud("authorize", {
+    method: "POST",
+    body: { deviceName: DEVICE_NAME, platform: process.platform },
+  });
   say(`Approve "${DEVICE_NAME}" in the browser that just opened (code ${start.userCode}).`);
   say(start.verificationUriComplete);
   execFile("open", [start.verificationUriComplete], () => {});
   const token = await approvedToken(start);
   mkdirSync(DEV_DIR, { recursive: true, mode: 0o700 });
-  writeFileSync(PENDING_ACCOUNT, JSON.stringify({ token, expiresAt: Date.now() + 24 * 3_600_000 }), { mode: 0o600 });
+  writeFileSync(
+    PENDING_ACCOUNT,
+    JSON.stringify({ token, expiresAt: Date.now() + 24 * 3_600_000 }),
+    { mode: 0o600 },
+  );
   return token;
 }
 
-export async function pairingGrant(ask, { waitMs = PAIR_WAIT_MS, retryMs = PAIR_RETRY_MS, onWait = () => {} } = {}) {
+export async function pairingGrant(
+  ask,
+  { waitMs = PAIR_WAIT_MS, retryMs = PAIR_RETRY_MS, onWait = () => {} } = {},
+) {
   const deadline = Date.now() + waitMs;
   for (;;) {
     try {
       return await ask();
     } catch (error) {
-      if (!(error instanceof CloudRefusal) || error.code !== "not_ready" || Date.now() + retryMs > deadline) throw error;
+      if (
+        !(error instanceof CloudRefusal) ||
+        error.code !== "not_ready" ||
+        Date.now() + retryMs > deadline
+      )
+        throw error;
       onWait();
       await new Promise((resolve) => setTimeout(resolve, retryMs));
     }
@@ -100,11 +127,18 @@ export async function connect() {
   const account = await accountToken();
   const session = await cloud("session", { token: account });
   const origin = session?.cloud?.origin;
-  if (!["ready", "stopped"].includes(session?.cloud?.state) || typeof origin !== "string") throw new Error("your Cloud home is not ready yet; open later.dog once and try again");
+  if (!["ready", "stopped"].includes(session?.cloud?.state) || typeof origin !== "string")
+    throw new Error("your Cloud home is not ready yet; open later.dog once and try again");
   let told = false;
-  const grant = await pairingGrant(() => cloud("pairing", { method: "POST", body: {}, token: account }), {
-    onWait: () => { if (!told) say("Waking your home…"); told = true; },
-  });
+  const grant = await pairingGrant(
+    () => cloud("pairing", { method: "POST", body: {}, token: account }),
+    {
+      onWait: () => {
+        if (!told) say("Waking your home…");
+        told = true;
+      },
+    },
+  );
   const paired = await fetch(`${origin}/api/auth/pair`, {
     method: "POST",
     headers: { accept: "application/json", "content-type": "application/json" },
@@ -112,10 +146,17 @@ export async function connect() {
     signal: AbortSignal.timeout(120_000),
   });
   const body = await paired.json().catch(() => null);
-  if (!paired.ok || typeof body?.token !== "string" || !SESSION.test(body.token)) throw new Error(`your home did not pair (${paired.status})`);
+  if (!paired.ok || typeof body?.token !== "string" || !SESSION.test(body.token))
+    throw new Error(`your home did not pair (${paired.status})`);
   mkdirSync(DEV_DIR, { recursive: true, mode: 0o700 });
-  writeFileSync(MY_HOME_SESSION, `${JSON.stringify({ url: origin, token: body.token, account: session.account?.email ?? null })}\n`, { mode: 0o600 });
-  say(`Paired with ${origin} as "${DEVICE_NAME}". Saved to ${MY_HOME_SESSION} (only you can read it).`);
+  writeFileSync(
+    MY_HOME_SESSION,
+    `${JSON.stringify({ url: origin, token: body.token, account: session.account?.email ?? null })}\n`,
+    { mode: 0o600 },
+  );
+  say(
+    `Paired with ${origin} as "${DEVICE_NAME}". Saved to ${MY_HOME_SESSION} (only you can read it).`,
+  );
   say("Sign it out any time from Settings, Account, signed-in devices.");
   await cloud("session", { method: "DELETE", body: {}, token: account }).catch(() => {});
   rmSync(PENDING_ACCOUNT, { force: true });

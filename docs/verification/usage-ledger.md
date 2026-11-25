@@ -37,7 +37,7 @@ no included key or is not the owner's.
 ## Driving it
 
 ```sh
-pnpm exec vitest run --no-file-parallelism server/usage-ledger-api.test.ts server/usage-attribution.e2e.test.ts
+bun run vitest run --no-file-parallelism server/usage-ledger-api.test.ts server/usage-attribution.e2e.test.ts
 ```
 
 The test launches a fresh `control-laterdog` fixture with the repository's fake
@@ -65,9 +65,9 @@ For the same by hand:
 
 ```sh
 node --experimental-strip-types scripts/control-laterdog.ts launch
-pnpm control:laterdog new-bot --name Probe --url http://127.0.0.1:PORT
-pnpm control:laterdog send --bot BOT_ID --text "hello" --url http://127.0.0.1:PORT
-pnpm control:laterdog wait --bot BOT_ID --timeout 30 --url http://127.0.0.1:PORT
+bun run control:laterdog new-bot --name Probe --url http://127.0.0.1:PORT
+bun run control:laterdog send --bot BOT_ID --text "hello" --url http://127.0.0.1:PORT
+bun run control:laterdog wait --bot BOT_ID --timeout 30 --url http://127.0.0.1:PORT
 cat DATA_DIR/usage/$(date -u +%Y-%m).jsonl
 ```
 
@@ -77,8 +77,8 @@ the turn appears under **Bot** and under **Person** as "This computer".
 ## Unit regressions
 
 ```sh
-pnpm exec vitest run server/usage-ledger.test.ts src/components/UsageHistory.test.ts server/request-auth.test.ts
-pnpm exec vitest run server/routes/included-usage.test.ts src/lib/included-usage.test.ts src/components/UsageSection.test.ts src/components/OwnerDashboard.test.ts src/components/SettingsModal.pages.test.ts
+bun run vitest run server/usage-ledger.test.ts src/components/UsageHistory.test.ts server/request-auth.test.ts
+bun run vitest run server/routes/included-usage.test.ts src/lib/included-usage.test.ts src/components/UsageSection.test.ts src/components/OwnerDashboard.test.ts src/components/SettingsModal.pages.test.ts
 ```
 
 These cover month files and 0600 modes, torn lines, clamped tokens, a blocked

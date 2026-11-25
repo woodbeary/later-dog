@@ -6,10 +6,10 @@ not read the user's later.dog data or connect a real mail account.
 ## Repeatable automated checks
 
 ```sh
-pnpm exec vitest run shared/tool-scope.test.ts server/mcp-gate.test.ts server/mcp-gate-config.test.ts server/mcp-remote-proxy.test.ts
-pnpm exec vitest run server/store.test.ts server/tool-scope.e2e.test.ts server/drivers/tool-scope-coverage.test.ts server/drivers/acp/tool-scope.test.ts
-pnpm exec vitest run server/drivers/chat-mcp-tools.test.ts server/drivers/openai-chat.test.ts server/openai-tools.e2e.test.ts
-pnpm exec vitest run src/state/store.test.ts
+bun run vitest run shared/tool-scope.test.ts server/mcp-gate.test.ts server/mcp-gate-config.test.ts server/mcp-remote-proxy.test.ts
+bun run vitest run server/store.test.ts server/tool-scope.e2e.test.ts server/drivers/tool-scope-coverage.test.ts server/drivers/acp/tool-scope.test.ts
+bun run vitest run server/drivers/chat-mcp-tools.test.ts server/drivers/openai-chat.test.ts server/openai-tools.e2e.test.ts
+bun run vitest run src/state/store.test.ts
 ```
 
 Bot settings no longer have an Access page, so there is no control for
@@ -100,11 +100,11 @@ CLI commit `1017bcb`, llama.cpp Metal backend **2.48.0**. Model:
 `0bfe35afc9f05b7fac3fa04925e051ac7939a42a8a17ea11afc99701bea826cc`.
 The loaded-model report confirmed 8192 context and one parallel request.
 
-| Real turn | Pi schemas / JSON bytes | Grok schemas / JSON bytes | Execution evidence |
-| --- | --- | --- | --- |
-| Drafting | 3 / 2297 | 3 / 3516 | Actual model wrote the requested disposable file |
-| Selected mail read | 1 / 182 | 2 native helpers / 2840 | Only `read_notes` appears in the MCP receipt |
-| Explicit no tools | 0 / 2 | 0 / 2 | No terminal marker and no additional MCP call |
+| Real turn          | Pi schemas / JSON bytes | Grok schemas / JSON bytes | Execution evidence                               |
+| ------------------ | ----------------------- | ------------------------- | ------------------------------------------------ |
+| Drafting           | 3 / 2297                | 3 / 3516                  | Actual model wrote the requested disposable file |
+| Selected mail read | 1 / 182                 | 2 native helpers / 2840   | Only `read_notes` appears in the MCP receipt     |
+| Explicit no tools  | 0 / 2                   | 0 / 2                     | No terminal marker and no additional MCP call    |
 
 Grok separately sends a session-title request (one schema, 388 bytes), which
 is excluded from main-turn counts. Its synthetic default-catalog comparison
@@ -123,13 +123,13 @@ reasoning in completion tokens. Grok's auxiliary title usage was not supplied.
 These totals are not a per-request context size or a monetary saving estimate.
 
 | Engine / turn | Main requests | Prompt tokens, summed | Completion tokens, summed |
-| --- | --- | --- | --- |
-| Pi drafting | 2 | 3374 | 229 |
-| Pi mail | 2 | 1748 | 307 |
-| Pi no tools | 1 | 608 | 123 |
-| Grok drafting | 3 | 9444 | 266 |
-| Grok mail | 5 | 14748 | 493 |
-| Grok no tools | 2 | 4240 | 426 |
+| ------------- | ------------- | --------------------- | ------------------------- |
+| Pi drafting   | 2             | 3374                  | 229                       |
+| Pi mail       | 2             | 1748                  | 307                       |
+| Pi no tools   | 1             | 608                   | 123                       |
+| Grok drafting | 3             | 9444                  | 266                       |
+| Grok mail     | 5             | 14748                 | 493                       |
+| Grok no tools | 2             | 4240                  | 426                       |
 
 The largest individual prompt was 1819 tokens for Pi and 3434 for Grok.
 The fixture answered two Pi and three Grok approval requests for its own
@@ -144,8 +144,8 @@ the disposable agent data removed afterward.
 
 ## Required repository checks and limits
 
-Run `pnpm typecheck`, `pnpm lint`, `pnpm test`, `pnpm check:electron` and
-`pnpm i18n:check`. On a Mac with Node installed outside standard locations,
+Run `bun run typecheck`, `bun run lint`, `bun run test`, `bun run check:electron` and
+`bun run i18n:check`. On a Mac with Node installed outside standard locations,
 the installer tests' fake PATH may not find Node. A temporary link to Node
 in pnpm's existing `node_modules/.bin` can supply it through `LATERDOG_EXTRA_PATH`.
 First verify that directory contains no npm executable, so the fixture's fake
@@ -156,7 +156,7 @@ npm installation or change application code to repair the machine's PATH.
 
 ### Completed contribution checks
 
-`pnpm typecheck`, `pnpm lint`, `pnpm check:electron` (145 modules), and
+`bun run typecheck`, `bun run lint`, `bun run check:electron` (145 modules), and
 `pnpm i18n:check` (10 languages) passed. One final review found two material
 issues; failing regressions reproduced them before the fixes. The final affected
 checks passed 349 tests. A later test-only Windows teardown correction passed

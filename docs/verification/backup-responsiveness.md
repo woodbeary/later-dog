@@ -28,9 +28,9 @@ are involved. This is method-level pressure, not a production capacity test.
 Two serial comparisons on macOS arm64, Node 26.7.0, 2026-09-26:
 
 | Export | In-process duration | Worker duration | In-process longest loop pause | Worker longest loop pause |
-| --- | ---: | ---: | ---: | ---: |
-| Pair 1 | 6,083 ms | 5,811 ms | 5,440 ms | 10.81 ms |
-| Pair 2 | 5,994 ms | 5,947 ms | 5,419 ms | 7.95 ms |
+| ------ | ------------------: | --------------: | ----------------------------: | ------------------------: |
+| Pair 1 |            6,083 ms |        5,811 ms |                      5,440 ms |                  10.81 ms |
+| Pair 2 |            5,994 ms |        5,947 ms |                      5,419 ms |                   7.95 ms |
 
 A separate CPU profile attributed about 4.9 seconds to filesystem syncing.
 The result justifies moving the whole export off the request loop, not removing
@@ -45,14 +45,14 @@ them as frequent stalls.
 ## Verification
 
 ```sh
-pnpm exec vitest run server/workspace-backup-worker.test.ts \
+bun run vitest run server/workspace-backup-worker.test.ts \
   server/workspace-backup.test.ts server/workspace-backup-policy.test.ts \
   server/workspace-backup-http.test.ts server/workspace-backup-maintenance.test.ts \
   server/workspace-backup-workflow.test.ts \
   server/webhook-ingress.test.ts server/request-auth.test.ts
-pnpm lint
-pnpm typecheck
-pnpm test:packaged-server
+bun run lint
+bun run typecheck
+bun run test:packaged-server
 ```
 
 The worker regression observes a parent timer while the snapshot is partially

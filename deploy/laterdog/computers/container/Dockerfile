@@ -1,5 +1,10 @@
-FROM node:24-trixie-slim
+FROM oven/bun:1.4.5 AS bun-tool
 
+FROM node:24-trixie-slim
+COPY --from=bun-tool /usr/local/bin/bun /usr/local/bin/bun
+RUN test "$(bun --version)" = 1.4.5
+
+ENV PATH=/home/dog/.local/bin:$PATH
 ENV DEBIAN_FRONTEND=noninteractive LANG=C.UTF-8 TZ=UTC NO_AT_BRIDGE=1
 
 RUN mkdir -p /tmp/nodejs/DEBIAN \

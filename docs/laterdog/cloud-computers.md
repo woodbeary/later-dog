@@ -127,7 +127,7 @@ disk the others need. A dog sends that kind of command to its own cloud computer
   command, file transfer and open viewer as activity. later.dog does not put it to sleep itself (changed 2026-11-10).
 
 `scripts/verify-computer-runs.ts` proves it against a real computer: it creates a throwaway one, sends a 30 MB project,
-runs `pnpm install && pnpm build && pnpm test`, checks only the report came back, checks the second run sends one
+runs `bun install --cpu=arm64 --cpu=x64 && bun run build && bun run test`, checks only the report came back, checks the second run sends one
 file, checks a 2.5-minute command finishes after the call that started it returns, and deletes the computer.
 
 ### Reusing a project's packages, and the shell guard (2026-11-08)

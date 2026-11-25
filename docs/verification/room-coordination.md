@@ -12,8 +12,8 @@ behavior. This does not add restart replay or remove task capacity limits.
 Regression checks (all use disposable fixtures):
 
 ```sh
-pnpm exec vitest run server/room-handoffs.test.ts server/direct-coordination.e2e.test.ts server/room-coordination.e2e.test.ts
-LATERDOG_UI_E2E=1 pnpm exec vitest run scripts/testing/direct-coordination-ui.e2e.test.ts
+bun run vitest run server/room-handoffs.test.ts server/direct-coordination.e2e.test.ts server/room-coordination.e2e.test.ts
+LATERDOG_UI_E2E=1 bun run vitest run scripts/testing/direct-coordination-ui.e2e.test.ts
 ```
 
 Gated fake-model turns prove a teammate starts before the lead settles,
@@ -101,13 +101,13 @@ conversation.
 ### Broader coordination checks
 
 ```sh
-pnpm exec vitest run server/peer-roster.test.ts server/room-handoffs.test.ts server/room-coordination.e2e.test.ts src/components/GroupView.test.ts src/lib/room-activity.test.ts --maxWorkers=2
-pnpm exec vitest run server/drivers/agents-proxy.test.ts --maxWorkers=2
-pnpm exec vitest run server/room-recovery.e2e.test.ts server/testing/room-handoff-agent.test.ts
-pnpm exec vitest run server/direct-coordination.e2e.test.ts --maxWorkers=1
-pnpm exec vitest run server/turn-dispatch-guard.test.ts
-pnpm exec vitest run server/thread-aware-bots.e2e.test.ts server/routine-delegation.e2e.test.ts server/routine-results.e2e.test.ts server/independent-threads-api.test.ts server/peer-allowlist.e2e.test.ts server/steer-queue.test.ts
-LATERDOG_UI_E2E=1 pnpm exec vitest run scripts/testing/direct-coordination-ui.e2e.test.ts
+bun run vitest run server/peer-roster.test.ts server/room-handoffs.test.ts server/room-coordination.e2e.test.ts src/components/GroupView.test.ts src/lib/room-activity.test.ts --maxWorkers=2
+bun run vitest run server/drivers/agents-proxy.test.ts --maxWorkers=2
+bun run vitest run server/room-recovery.e2e.test.ts server/testing/room-handoff-agent.test.ts
+bun run vitest run server/direct-coordination.e2e.test.ts --maxWorkers=1
+bun run vitest run server/turn-dispatch-guard.test.ts
+bun run vitest run server/thread-aware-bots.e2e.test.ts server/routine-delegation.e2e.test.ts server/routine-results.e2e.test.ts server/independent-threads-api.test.ts server/peer-allowlist.e2e.test.ts server/steer-queue.test.ts
+LATERDOG_UI_E2E=1 bun run vitest run scripts/testing/direct-coordination-ui.e2e.test.ts
 ```
 
 The integration suite launches the disposable control fixture and drives the
@@ -243,14 +243,14 @@ New teammate work is refused with a plain message once less than 10 minutes of t
 
 Each ended request records why in `endedBy` in `room-handoffs.json`, and the words every reader sees follow it:
 
-| `endedBy` | Teammate chip | Text the asking dog reads |
-| --- | --- | --- |
-| `person` | "Scout stopped" | The person stopped this work. |
-| `idle`, `capped` | "Scout ran out of time" | Nothing moved for 20 minutes… / Ran out of time after 4 hours. |
-| `interrupted` | "Scout was interrupted" | Interrupted before it finished. |
-| `origin` | "Scout never got started" | The request that started this ended before it could begin. |
-| `timeout`, `ceiling` | "Scout ran out of time" | Its turn timed out twice… / Stopped after 12 hours… |
-| `restart`, `deleted`, `limit`, `problem` | "Scout couldn't finish" | each in plain words |
+| `endedBy`                                | Teammate chip             | Text the asking dog reads                                      |
+| ---------------------------------------- | ------------------------- | -------------------------------------------------------------- |
+| `person`                                 | "Scout stopped"           | The person stopped this work.                                  |
+| `idle`, `capped`                         | "Scout ran out of time"   | Nothing moved for 20 minutes… / Ran out of time after 4 hours. |
+| `interrupted`                            | "Scout was interrupted"   | Interrupted before it finished.                                |
+| `origin`                                 | "Scout never got started" | The request that started this ended before it could begin.     |
+| `timeout`, `ceiling`                     | "Scout ran out of time"   | Its turn timed out twice… / Stopped after 12 hours…            |
+| `restart`, `deleted`, `limit`, `problem` | "Scout couldn't finish"   | each in plain words                                            |
 
 Only the Stop buttons (a conversation, a room, or a guarded request) say it was stopped by the person. A change that interrupts a dog's turn (switching its engine, tightening its permissions) now says "interrupted".
 

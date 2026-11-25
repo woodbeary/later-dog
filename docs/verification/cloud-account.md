@@ -65,9 +65,9 @@ Device polling completes browser approval automatically. The existing
 
 ```sh
 node --test electron/cloud-account.node-test.mjs electron/cloud-account-ipc.node-test.mjs electron/organization-reopen.node-test.mjs
-pnpm exec tsc --noEmit
-pnpm check:electron
-pnpm i18n:check
+bun run tsc --noEmit
+bun run check:electron
+bun run i18n:check
 ```
 
 Client tests launch their own loopback HTTP server. They cover optional startup,

@@ -1,8 +1,8 @@
 # Verifying later.dog
 
-Before any merge to `main`, run `pnpm gate` on the branch with `main` merged in and paste its verdict; see `scripts/merge-gate.mjs` for the steps and `LATERDOG_GATE_WRAP` to queue them. `deploy/laterdog/home` and `deploy/laterdog/computers` are outside the pnpm workspace, so set each up once with `pnpm install --ignore-workspace --frozen-lockfile` inside it; a plain `pnpm install` there does nothing.
+Before any merge to `main`, run `bun run gate` on the branch with `main` merged in and paste its verdict; see `scripts/merge-gate.mjs` for the steps and `LATERDOG_GATE_WRAP` to queue them. The three packages under `deploy/laterdog/` install independently of the control-plane workspace: run `bun install --cwd deploy/laterdog/home --frozen-lockfile` and the equivalent for computers and cloudflare. A root install does not install those packages.
 
-later.dog has one development control surface: `pnpm control:laterdog`. It is a
+later.dog has one development control surface: `bun run control:laterdog`. It is a
 thin command-line adapter over `scripts/mcp-server.ts`, so verification uses
 the same URL validation, task pinning, bounded transcripts, wait states, and
 redaction as external MCP clients.
@@ -15,7 +15,7 @@ Start a fixture in one terminal:
 node --experimental-strip-types scripts/control-laterdog.ts launch
 ```
 
-Run the foreground launcher directly rather than through `pnpm`; this ensures
+Run the foreground launcher directly rather than through a package-manager wrapper; this ensures
 it receives Ctrl-C and can stop its child before removing the temporary data.
 
 It gives the child a temporary data directory and home, chooses a free
@@ -35,7 +35,7 @@ reach the fake.
 Pass the printed URL explicitly from a second terminal:
 
 ```sh
-pnpm control:laterdog doctor --url http://127.0.0.1:PORT
+bun run control:laterdog doctor --url http://127.0.0.1:PORT
 ```
 
 Mutating commands refuse silent port discovery. This prevents a verification

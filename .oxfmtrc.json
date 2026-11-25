@@ -2,6 +2,7 @@
   "$schema": "./node_modules/oxfmt/configuration_schema.json",
   "sortPackageJson": false,
   "ignorePatterns": [
+    "**/bun.lock",
     "**/pnpm-lock.yaml",
     "**/package-lock.json",
     ".verify/**",

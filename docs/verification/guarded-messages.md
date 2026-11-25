@@ -35,7 +35,7 @@ to return the original accepted action before rechecking admission conditions.
 Run the permanent isolated HTTP checks:
 
 ```sh
-pnpm exec vitest run server/guarded-messages-api.test.ts
+bun run vitest run server/guarded-messages-api.test.ts
 ```
 
 Each case launches the prescribed `control-laterdog` verification server in a fresh
@@ -110,8 +110,8 @@ tools.
 Run the isolated request/continuation checks:
 
 ```sh
-pnpm exec vitest run server/guarded-requests.test.ts server/guarded-messages-api.test.ts server/direct-coordination.e2e.test.ts server/turn-dispatch-guard.test.ts server/request-auth.test.ts
-pnpm exec tsc -p tsconfig.server.json --noEmit
+bun run vitest run server/guarded-requests.test.ts server/guarded-messages-api.test.ts server/direct-coordination.e2e.test.ts server/turn-dispatch-guard.test.ts server/request-auth.test.ts
+bun run tsc -p tsconfig.server.json --noEmit
 ```
 
 These checks include immutable Stop targets, the null-provider-ID setup race,
@@ -149,7 +149,7 @@ shared task.
 Run the operator-policy and Full/Ask workflow checks:
 
 ```sh
-pnpm exec vitest run server/enterprise.test.ts server/hosted-access.test.ts server/full-access-workflows.e2e.test.ts server/store.test.ts
+bun run vitest run server/enterprise.test.ts server/hosted-access.test.ts server/full-access-workflows.e2e.test.ts server/store.test.ts
 ```
 
 The hosted-access tests exercise the real hosted authorization route with an

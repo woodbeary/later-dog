@@ -18,8 +18,8 @@ desktop and the phone agree without their own rule.
 ## Check it
 
 ```sh
-pnpm exec vitest run shared/main-dog.test.ts server/store.test.ts -t "main dog"
-pnpm exec vitest run server/index.test.ts -t "main dog"
+bun run vitest run shared/main-dog.test.ts server/store.test.ts -t "main dog"
+bun run vitest run server/index.test.ts -t "main dog"
 ```
 
 On an isolated fixture (`node --experimental-strip-types scripts/control-laterdog.ts launch`),
@@ -39,7 +39,7 @@ badge moves. There is no "Make Chief of Staff" item on any dog. When the main
 dog is pinned it leads the pinned grid.
 
 ```sh
-pnpm exec vitest run src/components/MainDog.test.ts src/components/SidebarBotListItem.test.ts src/lib/sidebar-layout.test.ts src/components/ChatView.controls.test.ts
+bun run vitest run src/components/MainDog.test.ts src/components/SidebarBotListItem.test.ts src/lib/sidebar-layout.test.ts src/components/ChatView.controls.test.ts
 ```
 
 In an isolated `control-laterdog ui launch` app (2026-10-18, finalize slice
@@ -47,8 +47,7 @@ In an isolated `control-laterdog ui launch` app (2026-10-18, finalize slice
 "Pin | Move to | Mark as Unread | Edit Profile | Duplicate | Copy conversation ID |
 Archive | Replace with different dog…" while another dog's ended in Delete;
 choosing Pepper in the picker moved `chiefOfStaff` to Pepper over the API, the
-old main dog's menu got Delete back, and `DELETE /api/bots/<Pepper>` returned
-409. Evidence: `/Volumes/laterdog-phone/tmp/finalize-2026-10-18/d3-chief-packs-teams/`
+old main dog's menu got Delete back, and `DELETE /api/bots/<Pepper>` returned 409. Evidence: `/Volumes/laterdog-phone/tmp/finalize-2026-10-18/d3-chief-packs-teams/`
 (`03-main-dog-menu.png`, `07-choose-main-dog.png`, `08-after-replace.png`,
 `09-menus-after-replace.txt`).
 The menu now reads "Pin | Move to | Mark as Unread | Rename Dog | Copy conversation ID |

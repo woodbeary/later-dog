@@ -1,18 +1,25 @@
 FROM caddy:2.10.2 AS edge
 RUN cp /usr/bin/caddy /caddy
 
+FROM oven/bun:1.4.5 AS bun-runtime
+
+FROM --platform=$BUILDPLATFORM oven/bun:1.4.5 AS bun-tool
+
 FROM --platform=$BUILDPLATFORM node:24-bookworm-slim@sha256:a5f4366e834695d5f363b920c104953a535d3a9864d1bdf74566a0ebe01daee5 AS build
 WORKDIR /src
-RUN npm install -g pnpm@10.33.0
+COPY --from=bun-tool /usr/local/bin/bun /usr/local/bin/bun
+RUN test "$(bun --version)" = 1.4.5
 ENV ELECTRON_SKIP_BINARY_DOWNLOAD=1
-COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+COPY package.json bun.lock bunfig.toml .bun-version ./
 COPY cloudflare/control-plane/package.json ./cloudflare/control-plane/package.json
-COPY scripts/install-git-hooks.mjs ./scripts/install-git-hooks.mjs
-RUN pnpm install --frozen-lockfile
+COPY scripts/install-git-hooks.mjs scripts/check-package-manager.mjs ./scripts/
+RUN bun install --frozen-lockfile --cpu=arm64 --cpu=x64
 COPY . .
-RUN pnpm build:server && pnpm exec vite build && chmod -R go-w dist dist-server
+RUN bun run build:server && bun run vite build && chmod -R go-w dist dist-server
 
 FROM node:24-bookworm-slim@sha256:a5f4366e834695d5f363b920c104953a535d3a9864d1bdf74566a0ebe01daee5 AS runtime
+COPY --from=bun-runtime /usr/local/bin/bun /usr/local/bin/bun
+RUN test "$(bun --version)" = 1.4.5
 RUN apt-get update \
   && apt-get install -y --no-install-recommends ca-certificates curl git tini \
     libxcb-shm0 libx11-xcb1 libx11-6 libxcb1 libxext6 libxrandr2 \

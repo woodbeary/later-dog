@@ -11,13 +11,15 @@ const ALL_OS = JSON.stringify(["macos-latest", "ubuntu-latest", "windows-latest"
 const PR_OS = JSON.stringify(["ubuntu-latest", "windows-latest"]);
 const temporaryDirectories: string[] = [];
 afterEach(() => {
-  for (const directory of temporaryDirectories.splice(0)) rmSync(directory, { recursive: true, force: true });
+  for (const directory of temporaryDirectories.splice(0))
+    rmSync(directory, { recursive: true, force: true });
 });
 
 function fixture(source = "src/page.ts") {
   const directory = mkdtempSync(join(tmpdir(), "laterdog-ci-scope-"));
   temporaryDirectories.push(directory);
-  const git = (...args: string[]) => execFileSync("git", args, { cwd: directory, encoding: "utf8" }).trim();
+  const git = (...args: string[]) =>
+    execFileSync("git", args, { cwd: directory, encoding: "utf8" }).trim();
   git("init", "--quiet");
   git("config", "user.name", "CI fixture");
   git("config", "user.email", "ci@example.invalid");
@@ -36,7 +38,12 @@ function run(directory: string, event: string, payload: unknown) {
   writeFileSync(eventPath, JSON.stringify(payload));
   const result = spawnSync(process.execPath, [script], {
     cwd: directory,
-    env: { ...process.env, GITHUB_EVENT_NAME: event, GITHUB_EVENT_PATH: eventPath, GITHUB_OUTPUT: outputPath },
+    env: {
+      ...process.env,
+      GITHUB_EVENT_NAME: event,
+      GITHUB_EVENT_PATH: eventPath,
+      GITHUB_OUTPUT: outputPath,
+    },
     encoding: "utf8",
     timeout: 5_000,
   });
@@ -47,13 +54,21 @@ function run(directory: string, event: string, payload: unknown) {
 
 describe("CI path scope", () => {
   it("skips the runtime suite only for explicit documentation and metadata", () => {
-    expect(selectCiScope(["README.md", "AGENTS.md", "docs/guide.md", "docs/nested/guide.md", ".github/FUNDING.yml"]))
-      .toEqual({ runtime: false });
+    expect(
+      selectCiScope([
+        "README.md",
+        "AGENTS.md",
+        "docs/guide.md",
+        "docs/nested/guide.md",
+        ".github/FUNDING.yml",
+      ]),
+    ).toEqual({ runtime: false });
   });
 
   it("keeps runtime checks for renderer-only changes mixed with docs", () => {
-    expect(selectCiScope(["src/App.tsx", "public/icon.svg", "index.html", "docs/guide.md"]))
-      .toEqual({ runtime: true });
+    expect(
+      selectCiScope(["src/App.tsx", "public/icon.svg", "index.html", "docs/guide.md"]),
+    ).toEqual({ runtime: true });
   });
 
   it("keeps filenames containing newlines as one source path", () => {
@@ -61,16 +76,30 @@ describe("CI path scope", () => {
   });
 
   it.each([
-    [], [""], ["docs/../server/file.md"],
-    [".github/workflows/ci.yml"], ["scripts/ci-scope.mjs"], [".gitattributes"],
+    [],
+    [""],
+    ["docs/../server/file.md"],
+    [".github/workflows/ci.yml"],
+    ["scripts/ci-scope.mjs"],
+    [".gitattributes"],
   ])("runs everything conservatively for %j", (...files) => {
     expect(selectCiScope(files)).toEqual({ runtime: true });
   });
 
   it.each([
-    ["server/index.ts"], ["shared/types.ts"], ["electron/main.mjs"],
-    ["package.json"], ["pnpm-lock.yaml"], ["vite.config.ts"], [".github/workflows/release.yml"],
-    ["docs/fixture.json"], ["unknown/file"], ["src/App.tsx", "server/index.ts"],
+    ["server/index.ts"],
+    ["shared/types.ts"],
+    ["electron/main.mjs"],
+    ["package.json"],
+    ["pnpm-lock.yaml"],
+    ["bun.lock"],
+    ["bunfig.toml"],
+    [".bun-version"],
+    ["vite.config.ts"],
+    [".github/workflows/release.yml"],
+    ["docs/fixture.json"],
+    ["unknown/file"],
+    ["src/App.tsx", "server/index.ts"],
   ])("runs the runtime suite for %j", (...files) => {
     expect(selectCiScope(files)).toEqual({ runtime: true });
   });
@@ -128,15 +157,27 @@ describe("CI scope CLI", () => {
     expect(output).toBe(`runtime=true\nvitest_os=${PR_OS}\n`);
   });
 
-  it.each(["missing", "invalid", "unavailable", "empty"])("falls back loudly for a %s diff", (kind) => {
-    const { directory, base } = fixture();
-    const payload = kind === "missing" ? {} : {
-      pull_request: { base: { sha: base }, head: { sha: kind === "invalid" ? "--help" : kind === "unavailable" ? "f".repeat(40) : base } },
-    };
-    const { output, stderr } = run(directory, "pull_request", payload);
-    expect(output).toBe(`runtime=true\nvitest_os=${ALL_OS}\n`);
-    expect(stderr).toContain("using all checks");
-  });
+  it.each(["missing", "invalid", "unavailable", "empty"])(
+    "falls back loudly for a %s diff",
+    (kind) => {
+      const { directory, base } = fixture();
+      const payload =
+        kind === "missing"
+          ? {}
+          : {
+              pull_request: {
+                base: { sha: base },
+                head: {
+                  sha:
+                    kind === "invalid" ? "--help" : kind === "unavailable" ? "f".repeat(40) : base,
+                },
+              },
+            };
+      const { output, stderr } = run(directory, "pull_request", payload);
+      expect(output).toBe(`runtime=true\nvitest_os=${ALL_OS}\n`);
+      expect(stderr).toContain("using all checks");
+    },
+  );
 
   it.each(["push", "merge_group", "workflow_dispatch"])("runs everything for %s", (event) => {
     const { directory } = fixture();

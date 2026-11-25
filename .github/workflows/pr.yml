@@ -33,9 +33,9 @@ jobs:
           filter: blob:none
       - uses: ./.github/actions/prepare
       - name: Lint
-        run: pnpm lint
+        run: bun run lint
       - name: Check repository rules and hosted-check contracts
-        run: pnpm exec vitest run scripts/brand-links.test.ts scripts/no-comments.test.ts scripts/testing/verification-docs.test.ts scripts/ci-scope.test.ts scripts/ci-verdict.test.ts scripts/laterdog-workflows.test.ts scripts/ci-budgets.test.ts
+        run: bun run vitest run scripts/brand-links.test.ts scripts/no-comments.test.ts scripts/testing/verification-docs.test.ts scripts/ci-scope.test.ts scripts/ci-verdict.test.ts scripts/laterdog-workflows.test.ts scripts/ci-budgets.test.ts
   typecheck:
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -46,7 +46,7 @@ jobs:
           filter: blob:none
       - uses: ./.github/actions/prepare
       - name: Typecheck the app and the server
-        run: pnpm typecheck
+        run: bun run typecheck
   build:
     needs: scope
     if: needs.scope.outputs.runtime == 'true'
@@ -59,9 +59,9 @@ jobs:
           filter: blob:none
       - uses: ./.github/actions/prepare
       - name: Build the interface
-        run: pnpm exec vite build
+        run: bun run vite build
       - name: Build the packaged server
-        run: pnpm build:server
+        run: bun run build:server
       - name: Smoke the packaged server
         run: node scripts/smoke-packaged-server.mjs
   electron-broker:
@@ -76,9 +76,9 @@ jobs:
           filter: blob:none
       - uses: ./.github/actions/prepare
       - name: Electron node tests
-        run: pnpm test:electron
+        run: bun run test:electron
       - name: Broker tests
-        run: pnpm broker:test
+        run: bun run broker:test
   suite:
     name: suite ${{ matrix.shard }}/8
     needs: scope
@@ -98,7 +98,7 @@ jobs:
       - name: Let Chrome use its sandbox on this runner
         run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
       - name: Main suite, shard ${{ matrix.shard }} of 8
-        run: pnpm exec vitest run --shard=${{ matrix.shard }}/8 --reporter=default --reporter=github-actions
+        run: bun run vitest run --shard=${{ matrix.shard }}/8 --reporter=default --reporter=github-actions
   side:
     name: side ${{ matrix.dir }}
     needs: scope
@@ -117,7 +117,7 @@ jobs:
       - uses: ./.github/actions/prepare
       - name: Tests in ${{ matrix.dir }}
         working-directory: ${{ matrix.dir }}
-        run: pnpm exec vitest run
+        run: bun run vitest run
   interface:
     needs: scope
     if: needs.scope.outputs.runtime == 'true'
@@ -135,7 +135,7 @@ jobs:
         env:
           LATERDOG_UI_E2E: "1"
           TMPDIR: ${{ runner.temp }}
-        run: pnpm exec vitest run ui.e2e.test --maxWorkers=1 --reporter=default --reporter=github-actions
+        run: bun run vitest run ui.e2e.test --maxWorkers=1 --reporter=default --reporter=github-actions
   CI:
     permissions:
       contents: read

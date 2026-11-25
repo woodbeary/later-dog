@@ -6,10 +6,10 @@ domain, or configuration to verify these controls.
 ## Automated checks
 
 ```sh
-pnpm exec vitest run server/custom-domain.test.ts server/provider-auth-sessions.test.ts server/drivers/codex-device-auth.test.ts server/drivers/acp/grok-device-auth.test.ts server/grok-sign-in-api.test.ts server/request-auth.test.ts server/config.test.ts src/components/DeviceSignIn.test.ts src/components/EngineSetup.test.ts
-pnpm typecheck
-pnpm build
-pnpm build:server
+bun run vitest run server/custom-domain.test.ts server/provider-auth-sessions.test.ts server/drivers/codex-device-auth.test.ts server/drivers/acp/grok-device-auth.test.ts server/grok-sign-in-api.test.ts server/request-auth.test.ts server/config.test.ts src/components/DeviceSignIn.test.ts src/components/EngineSetup.test.ts
+bun run typecheck
+bun run build
+bun run build:server
 node scripts/smoke-packaged-server.mjs
 ```
 

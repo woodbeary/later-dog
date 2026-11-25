@@ -33,10 +33,10 @@ the controller/provider during logout, unknown auth-status results, and the
 renderer using the confirmed response without a second catalog request.
 
 ```sh
-pnpm exec vitest run --no-file-parallelism server/drivers/claude-login-auth.test.ts server/drivers/claude.test.ts server/provider-auth-sessions.test.ts server/request-auth.test.ts src/components/AccountsPanel.test.ts
-pnpm typecheck
-pnpm i18n:check
-pnpm build
+bun run vitest run --no-file-parallelism server/drivers/claude-login-auth.test.ts server/drivers/claude.test.ts server/provider-auth-sessions.test.ts server/request-auth.test.ts src/components/AccountsPanel.test.ts
+bun run typecheck
+bun run i18n:check
+bun run build
 ```
 
 ## UI evidence

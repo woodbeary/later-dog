@@ -4,10 +4,10 @@ Run from the repository root:
 
 ```sh
 node --experimental-strip-types scripts/verify-connected-apps.ts
-pnpm exec vitest run server/composio.test.ts server/composio-availability.test.ts src/lib/connector-oauth.test.ts src/components/PluginsPanel.navigation.test.ts src/components/PluginsPanel.i18n.test.ts
-pnpm exec vitest run server/index.test.ts -t 'second-account cards|retries abandoned connector OAuth'
-pnpm broker:test
-pnpm broker:check
+bun run vitest run server/composio.test.ts server/composio-availability.test.ts src/lib/connector-oauth.test.ts src/components/PluginsPanel.navigation.test.ts src/components/PluginsPanel.i18n.test.ts
+bun run vitest run server/index.test.ts -t 'second-account cards|retries abandoned connector OAuth'
+bun run broker:test
+bun run broker:check
 ```
 
 The renderer recipe launches a disposable fake-engine workspace and mounts the

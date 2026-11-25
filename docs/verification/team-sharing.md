@@ -10,7 +10,7 @@ described in [../team-sharing.md](../team-sharing.md).
 ## HTTP round trip
 
 ```sh
-pnpm exec vitest run server/team-share.e2e.test.ts --silent=false
+bun run vitest run server/team-share.e2e.test.ts --silent=false
 ```
 
 This launches and cleans its own fake-engine fixture through
@@ -33,7 +33,7 @@ The printed JSON line names each fixture's data directory and server log.
 ## Format, export and import units
 
 ```sh
-pnpm exec vitest run shared/package-format.test.ts server/package-export.test.ts server/package-import.test.ts server/bot-package.test.ts
+bun run vitest run shared/package-format.test.ts server/package-export.test.ts server/package-import.test.ts server/bot-package.test.ts
 ```
 
 These are unchanged by the move to one-dog sharing: format parsing and
@@ -43,7 +43,7 @@ rollback, policy refusals and organization path.
 ## Renderer
 
 ```sh
-pnpm exec vitest run src/lib/dog-share.test.ts src/components/AddDogSheet.test.ts src/lib/team-import.test.ts
+bun run vitest run src/lib/dog-share.test.ts src/components/AddDogSheet.test.ts src/lib/team-import.test.ts
 ```
 
 `src/lib/dog-share.test.ts` covers the one-dog request body, the starter-notes

@@ -24,7 +24,7 @@ later.dog's connection. No dog does any of it.
    `https://accounts.later.dog/google-oauth/callback`, and no other.
 4. The client ID goes into `GOOGLE_CLIENT_ID` in
    `cloudflare/control-plane/wrangler.production.json`. The secret goes in with
-   `pnpm exec wrangler secret put GOOGLE_CLIENT_SECRET --config wrangler.production.json`
+   `bun run wrangler secret put GOOGLE_CLIENT_SECRET --config wrangler.production.json`
    from `cloudflare/control-plane`, typed by a person, never printed, never
    committed.
 
@@ -67,8 +67,7 @@ Jacob's Google account as a test user, so Google refuses anyone else's approval.
 Google's published rules limit an unverified app that asks for a restricted
 scope, and Gmail read-only is one, to 100 users in total. Publishing the app
 ("In production") does not lift that limit; only Google's verification does.
-With one client for every later.dog, every home's people count against the same
-100. Once it is reached, nobody on any home can connect. Anyone with a later.dog
+With one client for every later.dog, every home's people count against the same 100. Once it is reached, nobody on any home can connect. Anyone with a later.dog
 account can also use it up on purpose by approving with throwaway Google
 accounts. The setup above is not finished while the app is unverified.
 

@@ -33,7 +33,9 @@ opens on the main dog, which is the fixture's starter dog), waits for
   "ui": "/tmp/laterdog-verify-data-XXXXXX/ui.json",
   "url": "http://127.0.0.1:PORT",
   "previewUrl": "http://127.0.0.1:5178/__threads.html",
-  "botId": "…", "dataDir": "…", "logPath": "…"
+  "botId": "…",
+  "dataDir": "…",
+  "logPath": "…"
 }
 ```
 
@@ -46,13 +48,13 @@ a browser it did not launch.
 
 ```sh
 H=/tmp/laterdog-verify-data-XXXXXX/ui.json
-pnpm control:laterdog ui flag --ui $H --set features.showToolCalls=true --dry-run
-pnpm control:laterdog ui flag --ui $H --set features.showToolCalls=true
-pnpm control:laterdog ui snapshot --ui $H --interactive
-pnpm control:laterdog ui type --ui $H --name "Message Pepper" --text hello
-pnpm control:laterdog ui press --ui $H --keys Enter
-pnpm control:laterdog ui wait-settle --ui $H --timeout 60
-pnpm control:laterdog ui snapshot --ui $H
+bun run control:laterdog ui flag --ui $H --set features.showToolCalls=true --dry-run
+bun run control:laterdog ui flag --ui $H --set features.showToolCalls=true
+bun run control:laterdog ui snapshot --ui $H --interactive
+bun run control:laterdog ui type --ui $H --name "Message Pepper" --text hello
+bun run control:laterdog ui press --ui $H --keys Enter
+bun run control:laterdog ui wait-settle --ui $H --timeout 60
+bun run control:laterdog ui snapshot --ui $H
 ```
 
 `snapshot` returns the accessibility tree with `@eN` refs and a `refs` table
@@ -75,9 +77,9 @@ too, so read the transcript landmark, not the whole tree.
 ## Evidence
 
 ```sh
-pnpm control:laterdog ui screenshot --ui $H --out .laterdog-scratch/verify-evidence/chat-ui.png
-pnpm control:laterdog ui console --ui $H
-pnpm control:laterdog ui eval --ui $H --js "document.title"
+bun run control:laterdog ui screenshot --ui $H --out .laterdog-scratch/verify-evidence/chat-ui.png
+bun run control:laterdog ui console --ui $H
+bun run control:laterdog ui eval --ui $H --js "document.title"
 ```
 
 Keep the `wait-settle` JSON, both snapshots, the screenshot and the printed
@@ -89,7 +91,7 @@ greeting, the sent "hello", a passed Bash chip and the fake reply.
 The permanent form of this recipe is `scripts/testing/control-laterdog-ui.e2e.test.ts`:
 
 ```sh
-LATERDOG_UI_E2E=1 pnpm exec vitest run scripts/testing/control-laterdog-ui.e2e.test.ts
+LATERDOG_UI_E2E=1 bun run vitest run scripts/testing/control-laterdog-ui.e2e.test.ts
 ```
 
 The asserted recipe also runs a real fixture health check and verifies that
@@ -132,7 +134,7 @@ Names are read by dog id, and the server keeps a dog's earlier names
 exchange header, room labels) while old message text stays as written.
 
 ```sh
-pnpm exec vitest run src/lib/quiet-lines.test.ts src/lib/dog-refs.test.ts \
+bun run vitest run src/lib/quiet-lines.test.ts src/lib/dog-refs.test.ts \
   src/components/QuietLines.test.ts src/components/ApprovalCard.test.ts \
   src/components/PendingApproval.command-allowlist.test.ts src/components/SidebarBotListItem.test.ts \
   src/lib/mentions.test.ts server/laterdog/rename-everywhere.test.ts \
@@ -166,7 +168,7 @@ mid-turn and holds the resumed readout to the same claim stamp, keeping a
 second screenshot.
 
 ```sh
-LATERDOG_UI_E2E=1 pnpm exec vitest run scripts/testing/thinking-timer-ui.e2e.test.ts
+LATERDOG_UI_E2E=1 bun run vitest run scripts/testing/thinking-timer-ui.e2e.test.ts
 ```
 
 ## In-flight reply text
@@ -179,7 +181,7 @@ delta leaves the store state unchanged. `src/components/ChatView.follow.test.ts`
 checks that the finished reply still moves a following transcript to its end.
 
 ```sh
-pnpm exec vitest run src/state/store.test.ts src/components/ChatView.follow.test.ts
+bun run vitest run src/state/store.test.ts src/components/ChatView.follow.test.ts
 ```
 
 ## MCP access
@@ -235,8 +237,8 @@ launch has stopped.
 With a fresh `ui launch` handle in `$H`, run:
 
 ```sh
-pnpm control:laterdog ui eval --ui "$H" --js "$(cat scripts/testing/voice-button.js)"
-pnpm control:laterdog ui eval --ui "$H" --js "$(cat scripts/testing/dictation-escape.js)"
+bun run control:laterdog ui eval --ui "$H" --js "$(cat scripts/testing/voice-button.js)"
+bun run control:laterdog ui eval --ui "$H" --js "$(cat scripts/testing/dictation-escape.js)"
 ```
 
 `voice-button.js` opens Pepper and checks that the composer shows exactly one

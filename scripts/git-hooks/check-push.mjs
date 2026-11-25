@@ -11,7 +11,7 @@ const FORMAT =
   /\.(?:[cm]?[jt]sx?|jsonc?|json5|css|scss|less|html|vue|mdx?|ya?ml|toml|graphql|gql)$/;
 const LINT = /\.[cm]?[jt]sx?$/;
 const LINT_CONFIG =
-  /(?:^|\/)(?:\.oxlintrc\.jsonc?|oxlint\.config\.[cm]?[jt]s|package\.json)$|^(?:pnpm-lock\.yaml|pnpm-workspace\.yaml)$/;
+  /(?:^|\/)(?:\.oxlintrc\.jsonc?|oxlint\.config\.[cm]?[jt]s|package\.json)$|(?:^|\/)(?:bun\.lock|bunfig\.toml|\.bun-version)$|^(?:pnpm-lock\.yaml|pnpm-workspace\.yaml)$/;
 const COMMENT_CONFIG = /^scripts\/no-comments(?:-config)?\.ts$/;
 const BUDGET_SECONDS = 9;
 
@@ -107,8 +107,8 @@ export function pushChecks(files, commentFiles, cwd = process.cwd()) {
       ? [
           {
             label: "format",
-            command: "pnpm",
-            args: ["exec", "oxfmt", "--check", "--", ...formatted],
+            command: "bun",
+            args: ["run", "oxfmt", "--check", "--", ...formatted],
           },
         ]
       : []),
@@ -122,18 +122,18 @@ export function pushChecks(files, commentFiles, cwd = process.cwd()) {
         ]
       : []),
     ...(files.some((file) => LINT_CONFIG.test(file))
-      ? [{ label: "lint", command: "pnpm", args: ["lint"] }]
+      ? [{ label: "lint", command: "bun", args: ["run", "lint"] }]
       : linted.length
         ? [
             {
               label: "lint",
-              command: "pnpm",
-              args: ["exec", "oxlint", "--deny-warnings", "--", ...linted],
+              command: "bun",
+              args: ["run", "oxlint", "--deny-warnings", "--", ...linted],
             },
           ]
         : []),
-    { label: "typecheck", command: "pnpm", args: ["typecheck"] },
-    { label: "locale", command: "pnpm", args: ["i18n:check"] },
+    { label: "typecheck", command: "bun", args: ["run", "typecheck"] },
+    { label: "locale", command: "bun", args: ["run", "i18n:check"] },
   ];
 }
 

@@ -18,14 +18,14 @@ The focused tests cover the card's one atomic remember-and-allow action,
 owner/admin gating and the existing once/session/peer choices:
 
 ```sh
-pnpm exec vitest run src/components/PendingApproval.command-allowlist.test.ts
+bun run vitest run src/components/PendingApproval.command-allowlist.test.ts
 ```
 
 ## Server and provider verification
 
 ```sh
-pnpm exec vitest run server/command-allowlist.e2e.test.ts server/command-allowlist.test.ts server/auto-approve.test.ts server/workspace-backup-policy.test.ts
-pnpm exec vitest run server/drivers/claude.test.ts server/drivers/codex.test.ts server/drivers/acp/acp.test.ts
+bun run vitest run server/command-allowlist.e2e.test.ts server/command-allowlist.test.ts server/auto-approve.test.ts server/workspace-backup-policy.test.ts
+bun run vitest run server/drivers/claude.test.ts server/drivers/codex.test.ts server/drivers/acp/acp.test.ts
 ```
 
 The first test launches the real server in an isolated home, sends prompts to
