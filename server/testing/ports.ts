@@ -8,9 +8,7 @@ import { mcpOAuthRedirectUri } from "../mcp-oauth.ts";
 export const PORT_LEASE_FLOOR = 19_600;
 export const PORT_LEASE_CEILING = 32_000;
 const ABANDONED_RECLAIM_MS = 60_000;
-// A lease written by another host (a container sharing /tmp but not our PID namespace) cannot be checked with kill(pid, 0).
 export const FOREIGN_LEASE_MAX_AGE_MS = 2 * 60 * 60_000;
-// A lease with no usable PID may just be mid-write; only reclaim it after this grace.
 export const MALFORMED_LEASE_GRACE_MS = 30_000;
 const thisHost = () => hostname();
 
@@ -54,7 +52,6 @@ interface Lease { pid: number; token: string; host: string }
 function readLease(path: string): Lease | null {
   try {
     const [pid, token, host] = readFileSync(path, "utf8").trim().split(/\s+/);
-    // Leases written before hosts were recorded have no host; they came from this machine's own PID namespace.
     return { pid: Number(pid), token: token ?? "", host: host ?? thisHost() };
   } catch (error) {
     if (errorCode(error) === "ENOENT") return null;
