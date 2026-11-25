@@ -1,0 +1,371 @@
+{
+  "grid": [
+    {
+      "skin": "light",
+      "part": "1",
+      "states": 28,
+      "macSlots": 28,
+      "phoneSlots": 28,
+      "mac": [
+        32
+      ],
+      "phone": [
+        44
+      ]
+    },
+    {
+      "skin": "light",
+      "part": "2",
+      "states": 21,
+      "macSlots": 20,
+      "phoneSlots": 20,
+      "mac": [
+        32
+      ],
+      "phone": [
+        44
+      ]
+    },
+    {
+      "skin": "dark",
+      "part": "1",
+      "states": 28,
+      "macSlots": 28,
+      "phoneSlots": 28,
+      "mac": [
+        32
+      ],
+      "phone": [
+        44
+      ]
+    },
+    {
+      "skin": "dark",
+      "part": "2",
+      "states": 21,
+      "macSlots": 20,
+      "phoneSlots": 20,
+      "mac": [
+        32
+      ],
+      "phone": [
+        44
+      ]
+    }
+  ],
+  "landing": [
+    {
+      "platform": "mac",
+      "case": "fold",
+      "reduced": false,
+      "rowsChecked": 9,
+      "maxRowShift": 0,
+      "scrollTopShift": 0,
+      "contentGrowth": 0,
+      "slotHeight": 32,
+      "answerTopMinusSlotTop": null
+    },
+    {
+      "platform": "mac",
+      "case": "plain",
+      "reduced": false,
+      "rowsChecked": 8,
+      "maxRowShift": 0,
+      "scrollTopShift": 0,
+      "contentGrowth": 0,
+      "slotHeight": 32,
+      "answerTopMinusSlotTop": 0
+    },
+    {
+      "platform": "mac",
+      "case": "long",
+      "reduced": false,
+      "rowsChecked": 9,
+      "maxRowShift": 0,
+      "scrollTopShift": 0,
+      "contentGrowth": 221,
+      "slotHeight": 32,
+      "answerTopMinusSlotTop": null
+    },
+    {
+      "platform": "mac",
+      "case": "reading",
+      "reduced": false,
+      "rowsChecked": 15,
+      "maxRowShift": 0,
+      "scrollTopShift": 0,
+      "contentGrowth": 0,
+      "slotHeight": 32,
+      "answerTopMinusSlotTop": null
+    },
+    {
+      "platform": "mac",
+      "case": "batch",
+      "reduced": false,
+      "rowsChecked": 8,
+      "maxRowShift": 0,
+      "scrollTopShift": 0,
+      "contentGrowth": 0,
+      "slotHeight": 32,
+      "answerTopMinusSlotTop": null
+    },
+    {
+      "platform": "mac",
+      "case": "split",
+      "reduced": false,
+      "rowsChecked": 9,
+      "maxRowShift": 0,
+      "scrollTopShift": 0,
+      "contentGrowth": 0,
+      "slotHeight": 32,
+      "answerTopMinusSlotTop": null
+    },
+    {
+      "platform": "mac",
+      "case": "fold",
+      "reduced": true,
+      "rowsChecked": 9,
+      "maxRowShift": 0,
+      "scrollTopShift": 0,
+      "contentGrowth": 0,
+      "slotHeight": 32,
+      "answerTopMinusSlotTop": null
+    },
+    {
+      "platform": "phone",
+      "case": "fold",
+      "reduced": false,
+      "rowsChecked": 9,
+      "maxRowShift": 0,
+      "scrollTopShift": 0,
+      "contentGrowth": 0,
+      "slotHeight": 44,
+      "answerTopMinusSlotTop": null
+    },
+    {
+      "platform": "phone",
+      "case": "plain",
+      "reduced": false,
+      "rowsChecked": 8,
+      "maxRowShift": 0,
+      "scrollTopShift": 0,
+      "contentGrowth": 0,
+      "slotHeight": 44,
+      "answerTopMinusSlotTop": 0
+    },
+    {
+      "platform": "phone",
+      "case": "long",
+      "reduced": false,
+      "rowsChecked": 9,
+      "maxRowShift": 0,
+      "scrollTopShift": 0,
+      "contentGrowth": 450,
+      "slotHeight": 44,
+      "answerTopMinusSlotTop": null
+    },
+    {
+      "platform": "phone",
+      "case": "reading",
+      "reduced": false,
+      "rowsChecked": 15,
+      "maxRowShift": 0,
+      "scrollTopShift": 0,
+      "contentGrowth": 0,
+      "slotHeight": 44,
+      "answerTopMinusSlotTop": null
+    },
+    {
+      "platform": "phone",
+      "case": "batch",
+      "reduced": false,
+      "rowsChecked": 8,
+      "maxRowShift": 0,
+      "scrollTopShift": 0,
+      "contentGrowth": 0,
+      "slotHeight": 44,
+      "answerTopMinusSlotTop": null
+    },
+    {
+      "platform": "phone",
+      "case": "split",
+      "reduced": false,
+      "rowsChecked": 9,
+      "maxRowShift": 0,
+      "scrollTopShift": 0,
+      "contentGrowth": 14,
+      "slotHeight": 44,
+      "answerTopMinusSlotTop": null
+    },
+    {
+      "platform": "phone",
+      "case": "fold",
+      "reduced": true,
+      "rowsChecked": 9,
+      "maxRowShift": 0,
+      "scrollTopShift": 0,
+      "contentGrowth": 0,
+      "slotHeight": 44,
+      "answerTopMinusSlotTop": null
+    }
+  ],
+  "busy": {
+    "checks": [
+      {
+        "at": 400,
+        "words": "Sorting it out",
+        "slotHeight": 32,
+        "promptTop": 381,
+        "greetingTop": -287
+      },
+      {
+        "at": 1200,
+        "words": "Sorting it out",
+        "slotHeight": 32,
+        "promptTop": 381,
+        "greetingTop": -287
+      },
+      {
+        "at": 2200,
+        "words": "Sorting it out",
+        "slotHeight": 32,
+        "promptTop": 381,
+        "greetingTop": -287
+      },
+      {
+        "at": 3000,
+        "words": "Sorting it out",
+        "slotHeight": 32,
+        "promptTop": 381,
+        "greetingTop": -287
+      },
+      {
+        "at": 4000,
+        "words": "Trying it out",
+        "slotHeight": 32,
+        "promptTop": 381,
+        "greetingTop": -287
+      },
+      {
+        "at": 10000,
+        "words": "Trying it out",
+        "slotHeight": 32,
+        "promptTop": 381,
+        "greetingTop": -287
+      },
+      {
+        "at": 40000,
+        "words": "Trying it out",
+        "slotHeight": 32,
+        "promptTop": 381,
+        "greetingTop": -287
+      },
+      {
+        "at": 62000,
+        "words": "Trying it out",
+        "slotHeight": 32,
+        "promptTop": 381,
+        "greetingTop": -287
+      },
+      {
+        "at": 64000,
+        "words": "Running the order form tests · for 1 min",
+        "slotHeight": 32,
+        "promptTop": 381,
+        "greetingTop": -287
+      },
+      {
+        "at": 76500,
+        "words": "Running the order form tests · for 1 min",
+        "slotHeight": 32,
+        "promptTop": 381,
+        "greetingTop": -287
+      },
+      {
+        "at": 77200,
+        "words": "Writing back",
+        "slotHeight": 32,
+        "promptTop": 381,
+        "greetingTop": -287
+      },
+      {
+        "at": 78100,
+        "words": "Made 1 change and looked at 2 things",
+        "slotHeight": 32,
+        "promptTop": 381,
+        "greetingTop": -287
+      }
+    ],
+    "changes": [
+      {
+        "at": 300,
+        "words": "Sorting it out"
+      },
+      {
+        "at": 3900,
+        "words": "Trying it out"
+      },
+      {
+        "at": 63900,
+        "words": "Running the order form tests · for 1 min"
+      },
+      {
+        "at": 77000,
+        "words": "Writing back"
+      }
+    ]
+  },
+  "today": {
+    "surfaces": {
+      "workLineTexts": [
+        "Checking the result",
+        "Checking the result · for 1 min"
+      ],
+      "workLineHeights": [
+        0,
+        32
+      ],
+      "headerDotSeen": true,
+      "sidebarDots": [
+        null,
+        "working"
+      ],
+      "receipts": [
+        null
+      ],
+      "sendingTrackSeen": true,
+      "promptTops": [
+        676.88,
+        637.5
+      ]
+    },
+    "landing": {
+      "rowsChecked": 14,
+      "maxRowShift": 68,
+      "scrollTopShift": 68,
+      "foldLineAfter": "Made 1 change and looked at 2 things",
+      "settling": [
+        {
+          "t": 0,
+          "maxRowShift": 68,
+          "scrollTop": 198
+        },
+        {
+          "t": 300,
+          "maxRowShift": 68,
+          "scrollTop": 198
+        },
+        {
+          "t": 1000,
+          "maxRowShift": 68,
+          "scrollTop": 198
+        },
+        {
+          "t": 2500,
+          "maxRowShift": 68,
+          "scrollTop": 198
+        }
+      ]
+    }
+  }
+}
