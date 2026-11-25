@@ -4,6 +4,15 @@
 
 Started 2026-10-13. This file is the single place that says what is in progress, what is done, and how to pick up any piece of it. Every gate updates it in the same commit as the work.
 
+## Login-shell PATH probe lifecycle, November 25
+
+Pending shell probes now belong to the cache generation that started them. Reset
+invalidates and stops the old probe; an obsolete or sealed-fixture callback cannot
+append its PATH to a newer cache. Four deterministic cases fail before the fix;
+all five new cases and the existing PATH checks pass after it. See the
+[lifecycle evidence](../verification/login-shell-path-lifecycle-2026-11-25.md).
+The full clean merge gate remains required. This is not live yet.
+
 ## CI selection contracts, November 25
 
 The unconditional lint job now checks the selector, verdict and workflow contracts.
