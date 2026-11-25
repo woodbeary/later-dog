@@ -1,6 +1,8 @@
 # Finish line: desktop, iPhone and Cloud
 
-**Start here (2026-10-24):** [handoff-2026-10-24.md](handoff-2026-10-24.md) says what changed on 2026-10-24 (faster wakes, free-model dogs answering while their home sleeps); [handoff-2026-10-23.md](handoff-2026-10-23.md) says what went live on 2026-10-23. To work on later.dog with hot reload and every log in one file, see [dev-loop.md](dev-loop.md). [handoff-2026-10-20.md](handoff-2026-10-20.md) says what landed after 0.3.42 and what waits on you. [handoff-2026-10-19.md](handoff-2026-10-19.md) covers the 0.3.42 ship.
+**Start here (2026-11-25):** [handoff-2026-11-25.md](handoff-2026-11-25.md) hands the refinement program over: what exists, what is proven and what is not, and every next package with where to look and which number should move.
+
+**Earlier (2026-10-24):** [handoff-2026-10-24.md](handoff-2026-10-24.md) says what changed on 2026-10-24 (faster wakes, free-model dogs answering while their home sleeps); [handoff-2026-10-23.md](handoff-2026-10-23.md) says what went live on 2026-10-23. To work on later.dog with hot reload and every log in one file, see [dev-loop.md](dev-loop.md). [handoff-2026-10-20.md](handoff-2026-10-20.md) says what landed after 0.3.42 and what waits on you. [handoff-2026-10-19.md](handoff-2026-10-19.md) covers the 0.3.42 ship.
 
 Started 2026-10-13. This file is the single place that says what is in progress, what is done, and how to pick up any piece of it. Every gate updates it in the same commit as the work.
 
@@ -10,7 +12,8 @@ One pass over the desktop and the phone for speed, weight and fewer surfaces tha
 package is one small draft pull request with its numbers taken by the same script on the same machine before and
 after. Nothing merges without the gate's verdict and the owner's yes; no package deploys, releases or publishes.
 One session keeps this section, so packages do not edit it and their numbers go in the pull request and in the
-track's own file under `docs/verification/`.
+track's own file under `docs/verification/`. The long form, with every next package, is
+[handoff-2026-11-25.md](handoff-2026-11-25.md).
 
 Decisions that hold for every package:
 
@@ -36,19 +39,22 @@ Decisions that hold for every package:
 | G Hosted checks | An audit of past runs, test files in parallel, the gate split into jobs with one verdict, selection proven by a hidden change | G1 is a draft pull request; G3 (port leases) in progress |
 | H What dogs are told and can do | Stop everything in one call, steer a running helper, quieter routine runs and rooms, connector status, exact draft sends, faster browser work | not started |
 
-In flight:
+Packages so far:
 
 | Package | Branch | State |
 | --- | --- | --- |
-| A1 Desktop baseline and new measures | `refine/a1-desktop-baseline` | draft pull request 258 |
-| A2 Budget mode for the desktop performance script | `refine/a2-desktop-budget`, on A1 | draft pull request 259: 22 lines, each with today's budget and its target |
-| A3 Desktop launch timeline | `refine/a3-launch-timeline` | draft pull request 257 |
-| A4 Phone performance log, Run Check and bundle budget | later-dog-phone `refine/a4-phone-perf-log` | draft pull request 264 there |
-| B6 Phone shows finished replies only | later-dog-phone `refine/b6-finished-replies`, on A4 | draft pull request 265 there: reply text in progress changes nothing on screen, the finished reply changes it once |
-| E1 and E2 The wait and the landing, design | `refine/e1-wait-and-landing` | in progress |
-| G1 Audit of the last 150 hosted check runs | `refine/g1-hosted-checks-audit` | draft pull request 256 |
+| A1 Desktop baseline and new measures | `refine/a1-desktop-baseline` | pull request 258, in the first batch (pull request 255) |
+| A2 Budget mode for the desktop performance script | `refine/a2-desktop-budget`, on A1 | pull request 259, in the first batch: 22 lines, each with today's budget and its target |
+| A3 Desktop launch timeline | `refine/a3-launch-timeline` | pull request 257, in the first batch |
+| A4 Phone performance log, Run Check and bundle budget | later-dog-phone `refine/a4-phone-perf-log` | pull request 264 there |
+| B6 Phone shows finished replies only | later-dog-phone `refine/b6-finished-replies`, on A4 | pull request 265 there: reply text in progress changes nothing on screen, the finished reply changes it once; not yet seen on an iPhone |
+| E1 and E2 The wait and the landing, design | `refine/e1-wait-and-landing` | in progress, a proposal for the owner |
+| G1 Audit of the last 150 hosted check runs | `refine/g1-hosted-checks-audit` | pull request 256, in the first batch |
 | G2 Hosted checks return on standard runners | `refine/g2-hosted-checks-return`, on G1 | in progress |
 | G3 Port leases so test files can run in parallel | `refine/g3-port-leases` | in progress |
+
+The first batch is pull request 255: this section, the handoff, G1, A3, A1 and A2 merged together so one gate run
+covers them. It merges on `VERDICT: PASS`.
 
 First numbers, each from its package's own record and none from the Mac app or an iPhone:
 
