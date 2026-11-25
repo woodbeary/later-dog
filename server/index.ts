@@ -578,6 +578,7 @@ import { MEMORY_CHECK_MS, orphanIdleHours, readMemoryPressure, reapStrays, under
 import { startHomeUpkeep } from "./laterdog/home-upkeep.ts";
 import { liveSignalScene, signalDecision } from "./laterdog/home-signals.ts";
 import { homeFloorDecision } from "./laterdog/disk-floor.ts";
+import { startSteadyFloor } from "./laterdog/steady-floor.ts";
 import { callerGone, holdForPerson } from "./laterdog/always-ask-hold.ts";
 import { ALWAYS_ASK_PATHS, alwaysAskHook, alwaysAsks, asksAsConnector, connectorAlwaysAsks, internalCallRequest, type AlwaysAsk, type AlwaysAskRequest } from "./laterdog/always-asks.ts";
 import { listenWebhookIngress, webhookCredential, type WebhookIngress } from "./webhook-ingress.ts";
@@ -2875,6 +2876,7 @@ function threadBusy(botId: string, threadId: string): boolean {
 }
 
 const archiveDisk = steadyDisk(() => diskUse(DATA_DIR), () => savesHold(DATA_DIR));
+const floorDisk = CLOUD_HOME ? startSteadyFloor(() => diskUse(DATA_DIR)) : null;
 const logArchive = CLOUD_SECRETS.LATERDOG_CLOUD_ARCHIVE_TOKEN && process.env.LATERDOG_CLOUD_ARCHIVE_URL
   ? new LogArchiveCoordinator({
     root: homedir(),
@@ -6265,7 +6267,7 @@ function ingestEngineHook(capability: InternalCapability, body: unknown): { ok: 
   }
   if (name === "Stop") return { ok: true };
   if (name === "PreToolUse") {
-    const decision = (CLOUD_HOME ? signalDecision(payload, () => liveSignalScene(threadId, PORT, cloudOwnerOnlyThread(threadId) && !cloudGuestDriven(threadId), () => { restartRequested = true; })) ?? homeFloorDecision(payload, diskUse(DATA_DIR), { computers: computersSelected() }) : null)
+    const decision = (CLOUD_HOME ? signalDecision(payload, () => liveSignalScene(threadId, PORT, cloudOwnerOnlyThread(threadId) && !cloudGuestDriven(threadId), () => { restartRequested = true; })) ?? homeFloorDecision(payload, floorDisk ? floorDisk.reading() : diskUse(DATA_DIR), { computers: computersSelected() }) : null)
       ?? preToolUseDecision(heavyCommandGuard, { active: Boolean(CLOUD_HOME) && computersSelected(), threadId, payload })
       ?? alwaysAskHook(payload, () => hookGuardContext(capability.botId, threadId, typeof payload.cwd === "string" ? payload.cwd : undefined));
     return decision ? { ok: true, hookSpecificOutput: decision } : { ok: true };
@@ -21870,6 +21872,7 @@ if (CLOUD_HOME) {
     home: homedir(),
     workspacesDir: TASK_WORKSPACES_DIR,
     storeChanges: (listener) => { store.onChange(listener); },
+    steadyDisk: floorDisk?.reading,
   });
 }
 

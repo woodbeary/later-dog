@@ -5,7 +5,7 @@ import { DELETED_CHAT_FOLDERS, removeDeletedChatFolders, startDeletedChatFolders
 import { floorWatch } from "./disk-floor.ts";
 import { fileLadderStore, startDiskLadder } from "./disk-ladder.ts";
 import { openPaths, readHomeProcesses } from "./home-processes.ts";
-import { diskUse, type WorkspaceTask } from "./janitor.ts";
+import { diskUse, type DiskUse, type WorkspaceTask } from "./janitor.ts";
 import { readProcesses } from "./process-reaper.ts";
 import { REPO_CACHE_ROOT, sweepUnsharedCaches } from "./shared-clones.ts";
 import { pruneCaches } from "./space-maker.ts";
@@ -22,6 +22,7 @@ export interface HomeUpkeepDeps {
   storeChanges(listener: (change: { type: string; threadId?: string }) => void): void;
   tempRoot?: string;
   log?: (line: string) => void;
+  steadyDisk?: () => DiskUse | null;
 }
 
 const mb = (bytes: number) => `${Math.round(bytes / 1024 ** 2)} MB`;
@@ -67,5 +68,6 @@ export function startHomeUpkeep(deps: HomeUpkeepDeps): { warning(): string | nul
     log,
     store: fileLadderStore(join(deps.dataDir, "disk-ladder.json")),
   }, undefined, floor.climbed);
-  return { warning: () => floor.warning(diskUse(deps.dataDir)) };
+  const steady = deps.steadyDisk ?? (() => diskUse(deps.dataDir));
+  return { warning: () => floor.warning(steady()) };
 }
