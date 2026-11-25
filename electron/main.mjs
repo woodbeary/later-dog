@@ -5,7 +5,12 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { createLaunchTimeline } from "./launch-timeline.mjs";
 import { applyVariantEnvironment, dataDirFor, deepLinkPattern, desktopUserDataDirFor, logsDirFor, serverPortRange, tempName, variant } from "./app-variant.mjs";
+const launchTimeline = createLaunchTimeline({ facts: () => ({ packaged: app.isPackaged, variant: variant.id }) });
+launchTimeline.mark("main-imports-done");
+launchTimeline.listen(ipcMain);
+app.on("will-quit", () => launchTimeline.finish("quit-before-message-box"));
 applyVariantEnvironment(variant);
 app.setName(variant.productName);
 const desktopUserData = desktopUserDataDirFor(variant, app.getPath("appData"), { packaged: app.isPackaged });
@@ -1780,13 +1785,14 @@ function createWindow({ deferNavigation = false } = {}) {
     webPreferences: {
       contextIsolation: true,
       preload: path.join(__dirname, "preload.cjs"),
-      additionalArguments: [`--laterdog-local-origin=${rendererOrigin()}`,
+      additionalArguments: [`--laterdog-local-origin=${rendererOrigin()}`, ...launchTimeline.rendererArguments(),
         ...(app.isPackaged ? ["--laterdog-company-desktop=1"] : []),
         ...(app.isPackaged && configuredCloudOrigin() ? ["--laterdog-cloud-account=1"] : []),
         ...(adminPortalOrigin() ? [`--laterdog-admin-origin=${adminPortalOrigin()}`] : [])],
     },
   });
   mainWindow = win;
+  launchTimeline.watchWindow(win);
   win.on("show", () => desktopTray?.windowShown(win));
   win.on("close", (event) => {
     if (process.platform === "win32" && !desktopShutdownStarted && desktopTray) {
@@ -2896,13 +2902,16 @@ setCuaStateListener((connection) => {
 });
 
 app.whenReady().then(async () => {
+  launchTimeline.mark("app-ready");
   if (await offerMoveToApplications({ app, dialog, log: slog })) return;
+  launchTimeline.mark("move-to-applications-checked");
   await evictStartupCacheOnce({
     userData: app.getPath("userData"),
     currentVersion: app.getVersion(),
     clearCache: () => session.defaultSession.clearCache(),
     log: slog,
   });
+  launchTimeline.mark("startup-cache-checked");
   if (process.platform === "win32") {
     try {
       desktopTray = createSystemTray({
@@ -2920,9 +2929,12 @@ app.whenReady().then(async () => {
     onHide: desktopTray ? (win) => desktopTray.hide(win) : undefined,
     isHidden: () => desktopTray?.isHidden() ?? false,
     onShow: (win) => desktopTray?.windowShown(win),
-    onFinished: () => { startupScreen = null; },
+    onFinished: () => { startupScreen = null; launchTimeline.mark("native-splash-closed"); },
   });
+  launchTimeline.mark("native-splash-created");
+  startupScreen.window.once("show", () => launchTimeline.mark("native-splash-shown"));
   await startupScreen.ready;
+  launchTimeline.mark("native-splash-ready");
   if (desktopShutdownStarted) return;
   session.defaultSession.on("will-download", (_event, item) => {
     item.setSavePath(collisionFreeDownloadPath(app.getPath("downloads"), item.getFilename()));
@@ -2947,7 +2959,9 @@ app.whenReady().then(async () => {
     installDesktopMutationHeader();
   }
   if (process.platform === "darwin") app.dock.setIcon(APP_ICON);
+  launchTimeline.mark("credentials-loading");
   secureCredentials = await loadSecureCredentials();
+  launchTimeline.mark("credentials-loaded");
   if (secureCredentials && Object.hasOwn(secureCredentials, "assemblyAiApiKey") && !credentialStoreUnavailable) {
     try {
       const { assemblyAiApiKey: _removed, ...rest } = secureCredentials;
@@ -2959,7 +2973,9 @@ app.whenReady().then(async () => {
   }
   if (app.isPackaged) {
     await secureComposioConfig();
+    launchTimeline.mark("composio-config-secured");
     await secureWorkspaceConfig();
+    launchTimeline.mark("workspace-config-secured");
   }
   secureCredentialState = createSecureCredentialState(secureCredentials, saveSecureCredentials, {
     writable: !credentialStoreUnavailable,
@@ -3022,6 +3038,7 @@ app.whenReady().then(async () => {
       { useSystemPicker: false },
     );
   }
+  launchTimeline.mark("credential-state-ready");
   registerCuaIpc();
   registerUpdaterIpc({ pageAllowed: updaterPageAllowed, cloudPage: event => cloudPageAsking(event) === "cloud" });
   cuaReady =
@@ -3031,11 +3048,14 @@ app.whenReady().then(async () => {
           return { mode: "unavailable", reason: String(e) };
         })
       : Promise.resolve({ mode: "unavailable", reason: "unsupported-platform" });
+  launchTimeline.mark("server-starting");
   if (app.isPackaged) await startServerPackaged();
+  launchTimeline.mark("server-started", { started: app.isPackaged });
   if (app.isPackaged && serverReady) {
     const supervisor = await startLaterDogSupervisor({ app, dataDir: desktopDataDir(), port: SERVER_PORT, ownerToken: desktopMutationToken, log: slog });
     if (supervisor) app.once("will-quit", () => supervisor.kill("SIGTERM"));
   }
+  launchTimeline.mark("supervisor-started");
   if (desktopShutdownStarted) return;
   if (app.isPackaged) void ensureManagedDesktop().start().then(() => companyBackupSchedule.start()).catch(() => {});
   if (app.isPackaged && configuredCloudOrigin()) {
@@ -3059,11 +3079,18 @@ app.whenReady().then(async () => {
     void cloudAccountStarted.then(() => computerSharing?.cloudChanged());
   });
   let restoredOrganizationEntry = false;
+  launchTimeline.mark("organization-restoring");
   await workspaceMenuAction(async () => { restoredOrganizationEntry = await organizationEntry.restore(); });
+  launchTimeline.mark("organization-restored");
   organizationEntryReady = true;
   const deliveredOrganizationEntry = await deliverOrganizationEntry();
+  launchTimeline.mark("organization-entry-delivered");
   const deliveredCloudEntry = await cloudEntry.ready();
-  if (!restoredOrganizationEntry && !deliveredOrganizationEntry && !deliveredCloudEntry && (!mainWindow || mainWindow.isDestroyed())) createWindow();
+  launchTimeline.mark("cloud-entry-ready");
+  if (!restoredOrganizationEntry && !deliveredOrganizationEntry && !deliveredCloudEntry && (!mainWindow || mainWindow.isDestroyed())) {
+    launchTimeline.mark("create-window");
+    createWindow();
+  }
   if (credentialStoreUnavailable) {
     slog("skipping connected-apps registration: the credential store was unreadable this launch");
   }
