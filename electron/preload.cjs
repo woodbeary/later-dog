@@ -385,3 +385,38 @@ contextBridge.exposeInMainWorld(
   "laterdog",
   isLocalPage ? bridge : Object.fromEntries(Object.entries(bridge).filter(([key]) => remoteKeys.has(key))),
 );
+
+if (isLocalPage && process.argv.includes("--laterdog-launch-timeline=1")) {
+  const sent = new Set();
+  const markOnce = (name, at = performance.timeOrigin + performance.now(), detail) => {
+    if (sent.has(name)) return;
+    sent.add(name);
+    ipcRenderer.send("launch-timeline:mark", name, at, detail);
+  };
+  let snapshot = false;
+  try { snapshot = localStorage.getItem("laterdog-first-paint") !== null; } catch {}
+  markOnce("renderer-started", undefined, { snapshot });
+  try {
+    new PerformanceObserver((list) => {
+      for (const entry of list.getEntries()) {
+        if (entry.name === "first-contentful-paint") markOnce("renderer-first-paint", performance.timeOrigin + entry.startTime);
+      }
+    }).observe({ type: "paint", buffered: true });
+  } catch {}
+  const observer = new MutationObserver(() => look());
+  const look = () => {
+    if (document.getElementById("root")?.childElementCount) markOnce("renderer-root-filled");
+    const splash = document.querySelector("[data-launch-splash]");
+    if (splash) markOnce("renderer-launch-splash-shown");
+    if (splash?.getAttribute("data-launch-splash") === "leaving") markOnce("renderer-launch-splash-leaving");
+    if (!splash && document.visibilityState === "visible" && document.querySelector("[data-composer-surface] textarea")) {
+      observer.disconnect();
+      markOnce("renderer-message-box-ready", undefined, { snapshot });
+    }
+  };
+  document.addEventListener("visibilitychange", () => look());
+  document.addEventListener("DOMContentLoaded", () => {
+    observer.observe(document.documentElement, { childList: true, subtree: true, attributes: true, attributeFilter: ["data-launch-splash"] });
+    look();
+  }, { once: true });
+}

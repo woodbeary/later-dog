@@ -6,6 +6,9 @@ export interface SignalScene {
   home: ReadonlySet<number>;
   markOf(pid: number): string | null | undefined;
   serverPort: number | null;
+  owner: boolean;
+  server: number;
+  restart?: () => void;
 }
 
 const KILLERS = new Set(["kill", "/bin/kill", "/usr/bin/kill"]);
@@ -204,19 +207,27 @@ export function commandText(command: string): string {
 const LIVENESS_FLAGS = new Set(["-0", "-SIG0"]);
 const LIVENESS_SIGNALS = new Set(["0", "SIG0"]);
 
-function killTargets(args: readonly string[]): string[] {
+const RESTARTING_SIGNALS = new Set(["TERM", "INT", "15", "2"]);
+
+const signalName = (word: string) => word.replace(/^-/, "").replace(/^SIG/, "");
+
+function killTargets(args: readonly string[]): { signal: string; targets: string[] } {
   const rest = [...args];
-  if (rest[0] === "-l" || rest[0] === "-L") return [];
-  if (LIVENESS_FLAGS.has(rest[0] ?? "")) return [];
-  if ((rest[0] === "-s" || rest[0] === "-n") && LIVENESS_SIGNALS.has(rest[1] ?? "")) return [];
-  if (rest[0] === "-s" || rest[0] === "-n") rest.splice(0, 2);
-  else if (rest[0]?.startsWith("-") && rest[0] !== "--") rest.splice(0, 1);
+  let signal = "TERM";
+  if (rest[0] === "-l" || rest[0] === "-L") return { signal, targets: [] };
+  if (LIVENESS_FLAGS.has(rest[0] ?? "")) return { signal, targets: [] };
+  if ((rest[0] === "-s" || rest[0] === "-n") && LIVENESS_SIGNALS.has(rest[1] ?? "")) return { signal, targets: [] };
+  if (rest[0] === "-s" || rest[0] === "-n") { signal = signalName(rest[1] ?? ""); rest.splice(0, 2); }
+  else if (rest[0]?.startsWith("-") && rest[0] !== "--") { signal = signalName(rest[0]); rest.splice(0, 1); }
   if (rest[0] === "--") rest.splice(0, 1);
-  return rest;
+  return { signal, targets: rest };
 }
 
-const WHY_BY_NAME = "it stops processes by name, and every dog in this home shares one machine, so it would stop other dogs' work or the home itself";
-const WHY_GROUP = "it signals a whole group of processes or every process, which includes the home itself";
+const WHY_BY_NAME = "it stops processes by name, and every dog in this home shares one machine, so it could take the home down with nothing to start it again";
+const WHY_GROUP = "it signals a whole group of processes or every process, which takes the home down with nothing to start it again";
+const WHY_LAUNCHER = "that process starts and watches the home, so stopping it takes the home down with nothing to start it again. To restart the home, kill the server's own pid with a plain kill";
+const WHY_SIGNAL = "only a plain kill or kill -TERM lets the home shut down cleanly and start again; any other signal to the home's server would leave it stopped";
+const WHY_PORT = "it finds the home's server by its port, and a kill that way is not recognised as a restart. To restart the home, kill the server's own pid with a plain kill";
 const WHY_HOME = "that process is the home's own, and stopping it cuts off every dog and the person";
 const WHY_OTHER = "that process belongs to another chat, not to you";
 const WHY_FOUND = "it finds the processes to stop by name, which can match the home or other dogs' work";
@@ -225,38 +236,56 @@ function refusal(why: string): string {
   return `later.dog refused this: ${why}. To stop your own process, find its pid with ps, or with lsof -ti :<port> for a port, then run kill <pid>.`;
 }
 
-export function signalRefusal(command: string, scene: SignalScene, depth = 0): string | null {
+interface Verdict { why: string | null; restart: boolean }
+
+function verdict(command: string, scene: SignalScene, depth: number): Verdict {
   const parts = segments(commandText(command)).map(commandWords).filter((part) => part.length > 0);
+  let restart = false;
   for (const [head, ...args] of parts) {
     const flag = args.findIndex((arg) => /^-[a-z]*c[a-z]*$/.test(arg));
     if (!isShell(head) || flag === -1 || depth >= 3) continue;
-    const nested = signalRefusal(args[flag + 1] ?? "", scene, depth + 1);
-    if (nested) return nested;
+    const nested = verdict(args[flag + 1] ?? "", scene, depth + 1);
+    if (nested.why) return nested;
+    restart ||= nested.restart;
   }
   const stops = parts.some(([head, ...args]) => KILLERS.has(head!) || (head === "xargs" && args.some((arg) => KILLERS.has(arg))));
   for (const [head, ...args] of parts) {
-    if (BY_NAME.has(head!)) return refusal(WHY_BY_NAME);
-    if (head === "fuser" && args.some((arg) => /^-[a-zA-Z]*k/.test(arg))) return refusal(WHY_FOUND);
-    if (head === "xargs" && args.some((arg) => KILLERS.has(arg) || BY_NAME.has(arg))) return refusal(WHY_FOUND);
-    if (stops && FINDERS.has(head!)) return refusal(WHY_FOUND);
-    if (stops && scene.serverPort !== null && (head === "lsof" || head === "fuser") && args.some((arg) => new RegExp(`(?:^|[:=])${scene.serverPort}(?:/tcp)?$`).test(arg))) return refusal(WHY_HOME);
+    if (BY_NAME.has(head!)) return { why: refusal(WHY_BY_NAME), restart: false };
+    if (head === "fuser" && args.some((arg) => /^-[a-zA-Z]*k/.test(arg))) return { why: refusal(WHY_FOUND), restart: false };
+    if (head === "xargs" && args.some((arg) => KILLERS.has(arg) || BY_NAME.has(arg))) return { why: refusal(WHY_FOUND), restart: false };
+    if (stops && FINDERS.has(head!)) return { why: refusal(WHY_FOUND), restart: false };
+    if (stops && scene.serverPort !== null && (head === "lsof" || head === "fuser") && args.some((arg) => new RegExp(`(?:^|[:=])${scene.serverPort}(?:/tcp)?$`).test(arg))) return { why: refusal(scene.owner ? WHY_PORT : WHY_HOME), restart: false };
     if (!KILLERS.has(head!)) continue;
-    for (const target of killTargets(args)) {
+    const { signal, targets } = killTargets(args);
+    for (const target of targets) {
       if (!/^-?\d+$/.test(target)) continue;
       const pid = Number(target);
-      if (pid <= 0) return refusal(WHY_GROUP);
-      if (scene.home.has(pid)) return refusal(WHY_HOME);
+      if (pid <= 0) return { why: refusal(WHY_GROUP), restart: false };
+      if (scene.owner && pid === scene.server) {
+        if (!RESTARTING_SIGNALS.has(signal)) return { why: refusal(WHY_SIGNAL), restart: false };
+        restart = true;
+        continue;
+      }
+      if (scene.home.has(pid)) return { why: refusal(scene.owner ? WHY_LAUNCHER : WHY_HOME), restart: false };
       const mark = scene.markOf(pid);
       if (mark === undefined || mark === scene.mark) continue;
-      return refusal(mark === null ? WHY_HOME : WHY_OTHER);
+      if (mark === null) return { why: refusal(WHY_HOME), restart: false };
+      if (!scene.owner) return { why: refusal(WHY_OTHER), restart: false };
     }
   }
-  return null;
+  return { why: null, restart };
 }
 
-export function liveSignalScene(mark: string, serverPort: number | null, self = process.pid, procDir = "/proc"): SignalScene {
+export function signalRefusal(command: string, scene: SignalScene): string | null {
+  return verdict(command, scene, 0).why;
+}
+
+export function liveSignalScene(mark: string, serverPort: number | null, owner: boolean, restart?: () => void, self = process.pid, procDir = "/proc"): SignalScene {
   return {
     mark,
+    owner,
+    server: self,
+    restart,
     home: homeAncestors(self, readHomeProcesses(procDir)),
     markOf: (pid) => {
       const found = readHomeProcess(pid, procDir);
@@ -271,6 +300,8 @@ export function signalDecision(payload: Record<string, unknown>, scene: () => Si
   const input = payload.tool_input;
   const command = input && typeof input === "object" ? (input as Record<string, unknown>).command : undefined;
   if (typeof command !== "string" || !/\b(?:kill|pkill|killall|fuser)\b/.test(command)) return null;
-  const why = signalRefusal(command, scene());
+  const live = scene();
+  const { why, restart } = verdict(command, live, 0);
+  if (restart) live.restart?.();
   return why ? { hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: why } : null;
 }
