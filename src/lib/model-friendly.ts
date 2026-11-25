@@ -40,7 +40,10 @@ export function recommendedEffort(levels: readonly EffortLevel[], preferred?: Ef
   return levels.includes("medium") ? "medium" : undefined;
 }
 
-export function simpleEffortLevels(levels: readonly EffortLevel[], current: EffortLevel | undefined): EffortLevel[] {
+const EVERY_EFFORT_LEVEL: ReadonlySet<string> = new Set(["antigravityAgent"]);
+
+export function simpleEffortLevels(levels: readonly EffortLevel[], current: EffortLevel | undefined, driverKind?: string): EffortLevel[] {
+  if (EVERY_EFFORT_LEVEL.has(driverKind ?? "")) return [...levels];
   const top: EffortLevel = levels.includes("max") ? "max" : "xhigh";
   const preferred: EffortLevel[] = ["low", "medium", "high", top, "ultra"];
   let shown = preferred.filter((level) => levels.includes(level));

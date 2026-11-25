@@ -30,6 +30,12 @@ describe("simple effort levels", () => {
   it("returns nothing for an engine without effort levels", () => {
     expect(simpleEffortLevels([], undefined)).toEqual([]);
   });
+
+  it("keeps every level Antigravity's server sends, in its order", () => {
+    expect(simpleEffortLevels(["low", "medium", "high", "xhigh", "max"], undefined, "antigravityAgent")).toEqual(["low", "medium", "high", "xhigh", "max"]);
+    expect(simpleEffortLevels(["none", "low", "medium", "high", "xhigh", "max", "ultra"], "low", "antigravityAgent")).toEqual(["none", "low", "medium", "high", "xhigh", "max", "ultra"]);
+    expect(simpleEffortLevels(["low", "medium", "high", "xhigh", "max"], undefined, "claudeAgent")).toEqual(["low", "medium", "high", "max"]);
+  });
 });
 
 describe("effort names", () => {

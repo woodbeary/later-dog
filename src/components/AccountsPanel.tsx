@@ -8,8 +8,8 @@ import { cn } from "@/lib/cn";
 import { requestAccountSignIn, requestAddAccount, type AddAccountKind } from "@/lib/add-account-request";
 import { useModalDialog } from "@/hooks/use-modal-dialog";
 import { Switch } from "./SettingsPrimitives";
-import { ClaudeMark, CodexMark, CursorMark, GrokMark } from "./ProviderIcons";
-import { ClaudeSignIn } from "./ClaudeSignIn";
+import { AntigravityMark, ClaudeMark, CodexMark, CursorMark, GrokMark } from "./ProviderIcons";
+import { ClaudeSignIn, pasteSignInProvider } from "./ClaudeSignIn";
 import { EngineSetup } from "./EngineSetup";
 import { DeviceSignIn, deviceSignInProvider } from "./DeviceSignIn";
 import { IncludedAiAccount } from "./IncludedAiAccount";
@@ -19,6 +19,7 @@ import { AccountCharge } from "./AccountBattery";
 import { useAccountDrag, type AccountDrag } from "./account-drag";
 import { pill } from "./account-pill";
 import { plainClientError } from "@/lib/plain-client-error";
+import type { LocaleKey } from "@/locales";
 
 type Battery = NonNullable<ConfigStatus["accountBattery"]>;
 type Rest = NonNullable<Battery["resting"]>[string];
@@ -29,12 +30,15 @@ export const ACCOUNT_ENGINES: ReadonlyArray<{ kind: AccountKind; name: string; r
   { kind: "codex", name: "ChatGPT", route: "/api/instances/chatgpt-accounts", defaultId: "chatgpt" },
   { kind: "grokAgent", name: "Grok", defaultId: "grok" },
   { kind: "cursorAgent", name: "Cursor", defaultId: "cursor" },
+  { kind: "antigravityAgent", name: "Antigravity", defaultId: "antigravity" },
 ];
 
 const CARRY_ON_KINDS: readonly AccountKind[] = ["claudeAgent", "codex"];
 const ALL_KINDS: readonly AccountKind[] = ACCOUNT_ENGINES.map((engine) => engine.kind);
 
-const DEFAULT_ACCOUNT_IDS = new Set(["claude", "chatgpt", "codex", "grok", "cursor"]);
+const DEFAULT_ACCOUNT_IDS = new Set(["claude", "chatgpt", "codex", "grok", "cursor", "antigravity"]);
+
+const ACCOUNT_NOTE: Partial<Record<string, LocaleKey>> = { antigravityAgent: "accounts.antigravityNote" };
 
 const carriesOn = (instance: InstanceInfo) => (CARRY_ON_KINDS as readonly string[]).includes(instance.driverKind);
 
@@ -179,6 +183,7 @@ export function AccountMark({ kind, size = 20 }: { kind: string; size?: number }
   if (kind === "codex") return <CodexMark size={size} />;
   if (kind === "grokAgent") return <GrokMark size={size} />;
   if (kind === "cursorAgent") return <CursorMark size={size} />;
+  if (kind === "antigravityAgent") return <AntigravityMark size={size} />;
   return <ClaudeMark size={size} />;
 }
 
@@ -201,11 +206,12 @@ function AccountRow({ instance, provider, rest, now, only, drag, onSignIn, onGon
   const refocus = useRef(false);
   const isSignedIn = signedIn(instance);
   const email = isSignedIn ? instance.snapshot.account?.email : undefined;
-  const plan = provider?.plan ?? (instance.snapshot.chatgptPlan ? "ChatGPT" : null);
+  const note = ACCOUNT_NOTE[instance.driverKind];
+  const plan = note ? null : provider?.plan ?? (instance.snapshot.chatgptPlan ? "ChatGPT" : null);
   const signsOut = isSignedIn && instance.authentication?.signOut === true;
   const canRemove = removable(instance) || !isSignedIn || signsOut;
-  const usage = isSignedIn ? rowUsage(provider, rest, now) : null;
-  const credits = creditsLine(provider);
+  const usage = isSignedIn && !note ? rowUsage(provider, rest, now) : null;
+  const credits = note ? null : creditsLine(provider);
   const name = instance.displayName;
   const id = encodeURIComponent(instance.instanceId);
   const dragRow = drag.row(instance.instanceId);
@@ -341,12 +347,14 @@ function AccountRow({ instance, provider, rest, now, only, drag, onSignIn, onGon
               <p className="h-4 truncate text-[12px] leading-4 text-ink-secondary">
                 {instance.enabled === false ? t("accounts.off") : isSignedIn ? [email, plan].filter(Boolean).join(" · ") || t("accounts.signedIn") : t("accounts.signedOut")}
               </p>
-              <p data-account-resets className="mt-0.5 h-4 truncate text-[11px] leading-4 text-ink-secondary">{provider?.ok ?
+              {note ? isSignedIn && (
+                <p data-account-note className="mt-0.5 text-[12px] leading-4 text-ink-secondary">{t(note)}</p>
+              ) : <p data-account-resets className="mt-0.5 h-4 truncate text-[11px] leading-4 text-ink-secondary">{provider?.ok ?
                 ([[t("planUsage.fiveHour"), provider.fiveHour], [t("planUsage.weekly"), provider.weekly]] as const).flatMap(([label, window]) => {
                   const when = window.available ? resetDistance(window.resetsAt, now) : null;
                   return when ? [`${label} ${t("planUsage.resetsIn", { when })}`] : [];
                 }).join(" · ") : ""
-              }</p>
+              }</p>}
             </div>
             {usage && (
               <span data-account-usage title={usage.detail} className="shrink-0">
@@ -419,6 +427,7 @@ export function AddAccountSheet({ sheet, instances, onStep, onClose, onSignedIn 
   }, [stepKey]);
   const engine = sheet.step === "name" ? ACCOUNT_ENGINES.find((candidate) => candidate.kind === sheet.kind) : undefined;
   const instance = sheet.step === "signIn" ? instances.find((candidate) => candidate.instanceId === sheet.instanceId) : undefined;
+  const pasteProvider = instance ? pasteSignInProvider(instance.driverKind) : null;
   const tiles = accountTiles(instances);
 
   const create = async (event: FormEvent) => {
@@ -496,8 +505,8 @@ export function AddAccountSheet({ sheet, instances, onStep, onClose, onSignedIn 
               <p role="alert" className="text-[13px] text-danger">{t("accounts.sheet.gone")}</p>
             ) : instance.snapshot.state !== "available" ? (
               <InstallFirst instance={instance} onCancel={onClose} />
-            ) : instance.driverKind === "claudeAgent" ? (
-              <ClaudeSignIn key={instance.instanceId} instanceId={instance.instanceId} autoStart compact onSignedIn={() => onSignedIn(instance.instanceId)} onCancelled={onClose} />
+            ) : pasteProvider ? (
+              <ClaudeSignIn key={instance.instanceId} instanceId={instance.instanceId} provider={pasteProvider} autoStart compact onSignedIn={() => onSignedIn(instance.instanceId)} onCancelled={onClose} />
             ) : instance.authentication?.method === "device-code" && !deviceSignInProvider(instance.driverKind) ? (
               <EngineSetup instance={instance} unframed />
             ) : (

@@ -40,6 +40,7 @@ const signedOut = [
   engine("chatgpt", "codex", { authentication: { method: "browser-pkce" } }),
   engine("grok", "grokAgent"),
   engine("cursor", "cursorAgent"),
+  engine("antigravity", "antigravityAgent", { authentication: { method: "paste-code" } }),
 ];
 
 let host: HTMLDivElement;
@@ -64,11 +65,11 @@ async function show(component: FunctionComponent) {
   return [...host.querySelectorAll<HTMLElement>("[data-ai-choice]")];
 }
 
-it("shows one list on the Mac and on a Cloud home: the free AI, then Claude, ChatGPT, Grok and Cursor", async () => {
+it("shows one list on the Mac and on a Cloud home: the free AI, then Claude, ChatGPT, Grok, Cursor and Antigravity", async () => {
   for (const page of [NoEngines, CloudEngineSignIn]) {
     const rows = await show(page);
-    expect(rows.map((row) => row.dataset.aiChoice)).toEqual(["free-ai", "claudeAgent", "codex", "grokAgent", "cursorAgent"]);
-    expect(rows.map((row) => row.querySelector("button")?.textContent)).toEqual(["Try free", "Sign in", "Sign in", "Sign in", "Sign in"]);
+    expect(rows.map((row) => row.dataset.aiChoice)).toEqual(["free-ai", "claudeAgent", "codex", "grokAgent", "cursorAgent", "antigravityAgent"]);
+    expect(rows.map((row) => row.querySelector("button")?.textContent)).toEqual(["Try free", "Sign in", "Sign in", "Sign in", "Sign in", "Sign in"]);
     expect(host.textContent).not.toMatch(/API key card|Use an Anthropic API key|Set up My Cloud/);
   }
   expect(host.querySelector("[data-cloud-sign-in] [role=note]")?.textContent).toContain("Your AI plan's limits apply");
@@ -76,9 +77,9 @@ it("shows one list on the Mac and on a Cloud home: the free AI, then Claude, Cha
 
 it("signs in on the person's own default account through the one sign-in sheet", async () => {
   const rows = await show(NoEngines);
-  for (const [kind, instanceId] of [["claudeAgent", "claude"], ["codex", "chatgpt"], ["grokAgent", "grok"], ["cursorAgent", "cursor"]] as const) {
+  for (const [kind, instanceId] of [["claudeAgent", "claude"], ["codex", "chatgpt"], ["grokAgent", "grok"], ["cursorAgent", "cursor"], ["antigravityAgent", "antigravity"]] as const) {
     const button = rows.find((row) => row.dataset.aiChoice === kind)!.querySelector("button")!;
-    expect(button.getAttribute("aria-label")).toBe(`Sign in to ${{ claudeAgent: "Claude", codex: "ChatGPT", grokAgent: "Grok", cursorAgent: "Cursor" }[kind]}`);
+    expect(button.getAttribute("aria-label")).toBe(`Sign in to ${{ claudeAgent: "Claude", codex: "ChatGPT", grokAgent: "Grok", cursorAgent: "Cursor", antigravityAgent: "Antigravity" }[kind]}`);
     await act(async () => button.click());
     expect(fixture.signIn).toHaveBeenLastCalledWith(instanceId);
   }
@@ -92,7 +93,7 @@ it("says plainly when this computer cannot run an engine, and installs first whe
   const choices = aiChoices([...signedOut.filter((instance) => !["grok", "cursor"].includes(instance.instanceId)), missingGrok, installableCursor]);
   expect(choices.find((choice) => choice.kind === "grokAgent")).toEqual({ kind: "grokAgent", name: "Grok", status: "unavailable" });
   expect(choices.find((choice) => choice.kind === "cursorAgent")).toEqual({ kind: "cursorAgent", name: "Cursor", status: "signIn", instanceId: "cursor" });
-  expect(aiChoices([kimi]).map((choice) => choice.status)).toEqual(["unavailable", "unavailable", "unavailable", "unavailable"]);
+  expect(aiChoices([kimi]).map((choice) => choice.status)).toEqual(["unavailable", "unavailable", "unavailable", "unavailable", "unavailable"]);
 });
 
 it("never offers a local-model, read-only, Company or policy-blocked engine as the person's account", () => {

@@ -38,14 +38,16 @@ describe("needsCli / needsSignIn", () => {
   });
 });
 
-describe("managed engine setup errors", () => {
+describe("Antigravity setup errors", () => {
+  const INSTALL = "curl -fsSL https://antigravity.google/cli/install.sh | bash";
   function managed(snapshot: InstanceInfo["snapshot"]): InstanceInfo {
     return {
       ...instance(snapshot),
       instanceId: "antigravity",
       driverKind: "antigravityAgent",
       displayName: "Antigravity",
-      install: { managed: { label: "Install official Antigravity", downloadBytes: 1024 } },
+      authentication: { method: "paste-code", signOut: true },
+      install: { command: { darwin: INSTALL } },
     };
   }
 
@@ -60,7 +62,7 @@ describe("managed engine setup errors", () => {
     const markup = render(engine);
     expect(markup).toContain(reason);
     expect(markup).toContain('role="alert"');
-    expect(markup).toContain("Install official Antigravity");
+    expect(markup).toContain(INSTALL);
     expect(engineStatus(engine)).toBe("Setup required");
     expect(markup).not.toMatch(/CLI not found|Not installed/);
   });
@@ -71,12 +73,13 @@ describe("managed engine setup errors", () => {
     expect(engineStatus(engine)).toBe("Setup required");
   });
 
-  it("preserves the installed engine's sign-in flow", () => {
-    const engine = managed({ state: "available", authenticated: false, version: "1.1.1" });
+  it("signs in with Google once agy is installed", () => {
+    const engine = managed({ state: "available", authenticated: false, version: "1.5.17" });
     const markup = render(engine);
     expect(engineStatus(engine)).toBe("Sign-in required");
     expect(markup).toContain("Sign in with Google");
-    expect(markup).not.toContain("Install official Antigravity");
+    expect(markup).not.toContain(INSTALL);
+    expect(markup).not.toContain("Claude");
   });
 });
 
