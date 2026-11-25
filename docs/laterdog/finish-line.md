@@ -4,6 +4,16 @@
 
 Started 2026-10-13. This file is the single place that says what is in progress, what is done, and how to pick up any piece of it. Every gate updates it in the same commit as the work.
 
+## CI selection contracts, November 25
+
+The unconditional lint job now checks the selector, verdict and workflow contracts.
+The new contract fails before the wiring change and all 76 focused checks pass after it.
+The closed disposable hidden-change lab confirms the original workflow returns green
+with a failing runtime test omitted; adding only the contract wiring makes lint and CI
+red on the same selector regression. See the
+[contract evidence](../verification/hosted-checks-audit-2026-11-25.md#contracts-independent-of-runtime-selection).
+The full clean merge gate remains required. This is not live yet.
+
 ## Real account limit, November 14
 
 Draft pull request 199, branch `atelier/real-account-limit`, item 30, server half. One model reaching

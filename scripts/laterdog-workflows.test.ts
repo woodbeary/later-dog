@@ -4,8 +4,8 @@ import { parse } from "yaml";
 
 const root = new URL("../", import.meta.url);
 
-type Step = { uses?: string; run?: string; with?: Record<string, unknown>; "continue-on-error"?: unknown };
-type Job = { "runs-on"?: unknown; steps?: Step[]; "continue-on-error"?: unknown; permissions?: unknown };
+type Step = { uses?: string; run?: string; if?: unknown; with?: Record<string, unknown>; "continue-on-error"?: unknown };
+type Job = { "runs-on"?: unknown; if?: unknown; needs?: unknown; steps?: Step[]; "continue-on-error"?: unknown; permissions?: unknown };
 type Workflow = { on?: unknown; permissions?: unknown; concurrency?: { group?: string; "cancel-in-progress"?: unknown }; jobs?: Record<string, Job> };
 
 const ALLOWED_WORKFLOWS = ["pr.yml", "seed.yml"];
@@ -95,6 +95,19 @@ describe("later.dog's hosted checks run on free standard runners and release sta
     const jobs = data.jobs ?? {};
     const needs = (jobs.CI as unknown as { needs: string[] }).needs;
     expect([...needs].sort()).toEqual(Object.keys(jobs).filter((name) => name !== "CI").sort());
+  });
+
+  it("runs the selection, verdict and workflow contracts even when runtime checks are omitted", () => {
+    const { data } = workflows()[0];
+    const lint = data.jobs?.lint;
+    expect(lint).toBeDefined();
+    expect(lint?.if).toBeUndefined();
+    expect(lint?.needs).toBeUndefined();
+    for (const file of ["scripts/ci-scope.test.ts", "scripts/ci-verdict.test.ts", "scripts/laterdog-workflows.test.ts"]) {
+      const steps = lint?.steps?.filter((step) => step.run?.startsWith("pnpm exec vitest run ") && step.run.split(/\s+/).includes(file));
+      expect(steps).toHaveLength(1);
+      expect(steps?.[0].if).toBeUndefined();
+    }
   });
 
   it("keeps the cache written by the seeder and by misses only, keyed on the lockfiles", () => {
