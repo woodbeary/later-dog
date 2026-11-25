@@ -11498,7 +11498,13 @@ async function runGroupMemberTurn(
   const worksInWorkspace = supportsWorkspaceFiles(instance.driverKind);
   const workspace = worksInWorkspace ? ensureWorkspace(bot.id) : undefined;
   if (workspace && bot.memoryEnabled !== false) beginMemoryTurn(bot.id, threadId);
-  if (workFolders && workspace && cloudGuestOpened(threadId)) await workFolders.beforeTurn(bot.id, threadId);
+  if (workFolders && workspace && cloudGuestOpened(threadId)) {
+    const restoreIsCurrent = () => roomSetupIsCurrent() &&
+      store.group(readyGroup.id)?.memberIds.includes(readyBot.id) === true &&
+      store.bot(readyBot.id)?.busy === true &&
+      store.group(readyGroup.id)?.busyBotId === readyBot.id;
+    if (!await workFolders.beforeTurn(bot.id, threadId, restoreIsCurrent)) return false;
+  }
   const cwd = workspace && cloudGuestOpened(threadId)
     ? ensureTaskWorkspace(bot.id, threadId)
     : groupTurnCwd(workspace, () => store.pinGroupCwd(readyGroup.id, threadId));

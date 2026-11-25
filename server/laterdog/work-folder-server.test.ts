@@ -114,12 +114,14 @@ await import(${JSON.stringify(new URL("../testing/fake-claude-cli.ts", import.me
     for (const dir of paths) { mkdirSync(dir, { recursive: true }); writeFileSync(join(dir, "result.txt"), bytes.get(dir)!, { mode: 0o640 }); }
     const blobs = new Map<string, Uint8Array>();
     let index: unknown = null;
+    let unavailable = false;
+    let downloadAttempts = 0;
     service = await serveArchive(createArchiver({ root: home, store: {
       archiveIndex: async () => structuredClone(index),
       putArchiveIndex: async next => { index = structuredClone(next); },
       hasArchived: async hash => blobs.has(hash),
       putArchived: async (hash, value) => { blobs.set(hash, new Uint8Array(value)); },
-      getArchived: async hash => { const value = blobs.get(hash); if (!value) throw new Error("missing synthetic archive bytes"); return value; },
+      getArchived: async hash => { downloadAttempts += 1; if (unavailable) throw new Error("synthetic storage outage"); const value = blobs.get(hash); if (!value) throw new Error("missing synthetic archive bytes"); return value; },
     } }), { token });
     const archived = new WorkFolderArchive({
       home, dataDir, workspacesDir, bridge: logArchiveBridge(service.url, token),
@@ -147,6 +149,19 @@ await import(${JSON.stringify(new URL("../testing/fake-claude-cli.ts", import.me
     const expected = threads.map(thread => `${bot.id}/${thread}`).sort();
     console.info(JSON.stringify({ backgroundSweep: true, missingLocalFolders: paths.every(dir => !existsSync(dir)), retainedRecords: records, expectedRecords: expected, logPath }));
     expect(records).toEqual(expected);
+    const stoppedText = "STOP_WHILE_RESTORING_GUEST_WORK";
+    downloadAttempts = 0;
+    unavailable = true;
+    await request("POST", `/api/groups/${group.id}/tasks/${groupTask.threadId}`, {});
+    await request("POST", `/api/groups/${group.id}/messages`, { text: stoppedText, threadId: groupTask.threadId });
+    await expect.poll(() => downloadAttempts, { timeout: 30_000 }).toBeGreaterThan(0);
+    await request("POST", `/api/groups/${group.id}/interrupt`, { threadId: groupTask.threadId });
+    await expect.poll(async () => (await request<{ groups: Group[] }>("GET", "/api/bots?messages=0")).groups.find(value => value.id === group.id)?.working, { timeout: 30_000 }).toBe(false);
+    expect(downloadAttempts).toBe(1);
+    expect(JSON.parse(readFileSync(recordPath, "utf8"))[`${bot.id}/${groupTask.threadId}`]).toBeDefined();
+    expect(existsSync(prompts) && readFileSync(prompts, "utf8").includes(stoppedText)).toBe(false);
+    unavailable = false;
+    console.info(JSON.stringify({ stoppedGuestRestoreSettled: true, outageAttempts: downloadAttempts, pendingRecordPreserved: true }));
     for (const threadId of threads) {
       const text = `RESTORE_WORK_${threadId}`;
       if (threadId === bot.threadId || threadId === task.threadId) {
