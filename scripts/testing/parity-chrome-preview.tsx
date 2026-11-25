@@ -3,7 +3,7 @@ import { createRoot } from "react-dom/client";
 import { Copy, MessageCircle, Moon, Pencil, Settings, Trash2, Users } from "lucide-react";
 import { BotListItem, botRowProps } from "../../src/components/Sidebar";
 import { SidebarPopoverMenu } from "../../src/components/SidebarPopoverMenu";
-import { ChatHeaderTasks } from "../../src/components/ChatHeaderTasks";
+import { ChatHeaderMenu } from "../../src/components/ChatHeaderTasks";
 import { MessageActions } from "../../src/components/MessageActions";
 import { StoreChannelContext, type StoreChannel } from "../../src/state/store-channel";
 import { initialState, type Bot } from "../../src/state/store";
@@ -86,7 +86,7 @@ function OpenOtherMenus() {
   }, []);
   return <StoreChannelContext.Provider value={channel}>
     <div className="flex gap-24 p-8">
-      <div ref={header} data-preview="chat-header-menu" className="relative w-[300px]"><div className="flex justify-end"><ChatHeaderTasks bot={juniperWithTasks} /></div></div>
+      <div ref={header} data-preview="chat-header-menu" className="relative w-[300px]"><div className="flex justify-end"><ChatHeaderMenu bot={juniperWithTasks} messages={[]} onFind={noop} /></div></div>
       <div ref={message} data-preview="message-menu" className="group relative mt-4 flex w-[300px] flex-col items-start">
         <div className="rounded-bubble bg-card px-4 py-2.5 text-[15px]">Your trip notes are ready to read.</div>
         <MessageActions side="bot" forceOpen more={[
