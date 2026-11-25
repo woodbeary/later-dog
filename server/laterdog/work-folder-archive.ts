@@ -1,20 +1,33 @@
 import { spawn } from "node:child_process";
-import { createReadStream, existsSync, readFileSync } from "node:fs";
-import { lstat, mkdir, open, readdir, rm, rmdir, writeFile } from "node:fs/promises";
+import { randomUUID } from "node:crypto";
+import { createReadStream, existsSync, readFileSync, readdirSync, readlinkSync } from "node:fs";
+import { chmod, lstat, mkdir, open, readFile, readdir, realpath, rename, rm, rmdir, writeFile } from "node:fs/promises";
 import { join, relative, sep } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { writeFileAtomic } from "../atomic.ts";
-import { hasLiveWork } from "./disk-ladder.ts";
+import { LEAST_IDLE_MS } from "./archive-pressure.ts";
 import type { WorkspaceTask } from "./janitor.ts";
 import type { ArchiveSkip } from "./log-archive.ts";
-import type { ProcessInfo } from "./process-reaper.ts";
 
 export const WORK_FOLDER_PARTS = ".laterdog/checkpoints/work-folders";
 export const WORK_FOLDER_RECORDS = "work-folders.json";
 export const MOVED_OUT_NOTE = "MOVED-OUT.md";
+export const RESTORING_PREFIX = ".laterdog-restoring-";
 export const PART_BYTES = 32 * 1024 * 1024;
+export const ROOM_WAIT_MS = 3 * 60_000;
+export const SPARSE_GAP_BYTES = 256 * 1024 * 1024;
+export const LEFT_ALONE_MS = 10 * 60_000;
 
 const ID = /^[A-Za-z0-9_-]{1,128}$/;
+const MAPPED = /^\S+\s+\S+\s+\S+\s+\S+\s+\d+\s+(\S.*)$/;
+
+export function packArgs(dir: string): string[] {
+  return ["-c", "-f", "-", "-C", dir, "."];
+}
+
+export function unpackArgs(dir: string): string[] {
+  return ["-x", "-p", "-f", "-", "-C", dir];
+}
 
 export interface MovedOutPart {
   name: string;
@@ -25,6 +38,7 @@ export interface MovedOut {
   stamp: string;
   parts: MovedOutPart[];
   bytes: number;
+  diskBytes?: number;
   files: number;
   movedAt: number;
   cleared: boolean;
@@ -48,13 +62,15 @@ export interface WorkFolderDeps {
   workspacesDir: string;
   bridge: WorkFolderBridge;
   chats(): WorkspaceTask[];
-  live(): ProcessInfo[];
+  inUse(botId: string, threadId: string): boolean;
   limits(): WorkFolderLimits;
   room(bytes: number): boolean;
   makeRoom?(): Promise<void>;
+  procDir?: string;
   now?: () => number;
   log?(line: string): void;
   retryMs?: number;
+  waitMs?: number;
   partBytes?: number;
   tar?: string;
 }
@@ -62,16 +78,19 @@ export interface WorkFolderDeps {
 export interface FolderSize {
   files: number;
   bytes: number;
+  diskBytes: number;
   newestMs: number;
 }
 
 export async function measureFolder(dir: string): Promise<FolderSize> {
-  const size: FolderSize = { files: 0, bytes: 0, newestMs: 0 };
+  const root = await lstat(dir);
+  const size: FolderSize = { files: 0, bytes: 0, diskBytes: 0, newestMs: Math.max(root.mtimeMs, root.ctimeMs) };
   const walk = async (path: string): Promise<void> => {
     for (const entry of await readdir(path, { withFileTypes: true })) {
       const full = join(path, entry.name);
       const info = await lstat(full);
-      size.newestMs = Math.max(size.newestMs, info.mtimeMs);
+      size.newestMs = Math.max(size.newestMs, info.mtimeMs, info.ctimeMs);
+      size.diskBytes += info.blocks * 512;
       if (info.isDirectory()) await walk(full);
       else {
         size.files += 1;
@@ -83,9 +102,31 @@ export async function measureFolder(dir: string): Promise<FolderSize> {
   return size;
 }
 
+export function folderHeld(dir: string, procDir = "/proc"): boolean {
+  let pids: string[];
+  try { pids = readdirSync(procDir).filter((name) => /^\d+$/.test(name)); } catch { return true; }
+  const inside = (path: string) => path === dir || path.startsWith(`${dir}/`);
+  const link = (path: string) => { try { return readlinkSync(path); } catch { return ""; } };
+  for (const pid of pids) {
+    const base = join(procDir, pid);
+    if (inside(link(join(base, "cwd"))) || inside(link(join(base, "exe")))) return true;
+    let fds: string[] = [];
+    try { fds = readdirSync(join(base, "fd")); } catch {}
+    if (fds.some((fd) => inside(link(join(base, "fd", fd))))) return true;
+    try {
+      if (readFileSync(join(base, "cmdline"), "utf8").split("\0").some(inside)) return true;
+    } catch {}
+    try {
+      if (readFileSync(join(base, "maps"), "utf8").split("\n").some((line) => inside(MAPPED.exec(line)?.[1] ?? ""))) return true;
+    } catch {}
+  }
+  return false;
+}
+
 const sameSize = (left: FolderSize, right: FolderSize) => left.files === right.files && left.bytes === right.bytes && left.newestMs === right.newestMs;
 const mb = (bytes: number) => `${Math.round(bytes / 1024 ** 2)} MB`;
 const said = (error: unknown) => (error instanceof Error ? error.message : String(error));
+const sized = (bytes: number) => (bytes >= 1024 ** 3 ? `${(bytes / 1024 ** 3).toFixed(1)} GB` : mb(bytes));
 
 export function movedOutNote(record: Pick<MovedOut, "movedAt" | "bytes" | "files">): string {
   return [
@@ -97,14 +138,87 @@ export function movedOutNote(record: Pick<MovedOut, "movedAt" | "bytes" | "files
   ].join("\n");
 }
 
-class NoRoom extends Error {}
+export function roomNeeded(record: Pick<MovedOut, "parts" | "diskBytes">, partBytes = PART_BYTES): number {
+  const packed = record.parts.reduce((sum, part) => sum + part.bytes, 0);
+  return Math.max(packed, record.diskBytes ?? 0) + Math.min(partBytes, packed);
+}
+
+export class WorkFolderUnavailable extends Error {}
+
+class NoRoom extends Error {
+  readonly bytes: number;
+  constructor(bytes: number) {
+    super("no room");
+    this.bytes = bytes;
+  }
+}
 class Woke extends Error {}
+
+async function writable<T>(dir: string, action: () => Promise<T>): Promise<T> {
+  const info = await lstat(dir);
+  if (!info.isDirectory() || (info.mode & 0o300) === 0o300) return action();
+  await chmod(dir, info.mode | 0o700);
+  try {
+    return await action();
+  } finally {
+    await chmod(dir, info.mode & 0o7777).catch(() => {});
+  }
+}
+
+async function openUp(dir: string): Promise<void> {
+  const info = await lstat(dir);
+  if (!info.isDirectory()) return;
+  if ((info.mode & 0o700) !== 0o700) await chmod(dir, info.mode | 0o700);
+  for (const entry of await readdir(dir, { withFileTypes: true })) if (entry.isDirectory()) await openUp(join(dir, entry.name));
+}
+
+async function openUpKeepingModes(root: string, at = ""): Promise<Map<string, number>> {
+  const modes = new Map<string, number>();
+  for (const entry of await readdir(join(root, at), { withFileTypes: true })) {
+    if (!entry.isDirectory()) continue;
+    const rel = at ? `${at}/${entry.name}` : entry.name;
+    const mode = (await lstat(join(root, rel))).mode & 0o7777;
+    modes.set(rel, mode);
+    if ((mode & 0o700) !== 0o700) await chmod(join(root, rel), mode | 0o700);
+    for (const [inner, innerMode] of await openUpKeepingModes(root, rel)) modes.set(inner, innerMode);
+  }
+  return modes;
+}
+
+async function mergeInto(from: string, to: string, at: string, moved: string[]): Promise<void> {
+  for (const name of await readdir(from)) {
+    const source = join(from, name);
+    const target = join(to, name);
+    const rel = at ? `${at}/${name}` : name;
+    const there = await lstat(target).catch(() => null);
+    const here = await lstat(source);
+    if (!there) {
+      await writable(to, () => rename(source, target));
+      moved.push(rel);
+    } else if (here.isDirectory() && there.isDirectory()) {
+      await mergeInto(source, target, rel, moved);
+    }
+  }
+}
+
+async function mergeKeepingModes(staging: string, dir: string): Promise<void> {
+  await chmod(staging, 0o700);
+  const modes = await openUpKeepingModes(staging);
+  const moved: string[] = [];
+  await mergeInto(staging, dir, "", moved);
+  const fromStaging = (rel: string) => moved.some((root) => rel === root || rel.startsWith(`${root}/`));
+  const deepestFirst = [...modes].filter(([rel]) => fromStaging(rel)).sort(([left], [right]) => right.split("/").length - left.split("/").length);
+  for (const [rel, mode] of deepestFirst) await chmod(join(dir, rel), mode);
+}
 
 export class WorkFolderArchive {
   private records: Record<string, MovedOut> | null = null;
   private locks = new Map<string, Promise<unknown>>();
   private sweeping: Promise<number> | null = null;
   private totals = { movedOut: 0, movedOutBytes: 0, broughtBack: 0, broughtBackBytes: 0, lastSweepAt: null as number | null };
+  private sinceSweep = { broughtBack: 0, broughtBackBytes: 0 };
+  private wanted = new Map<string, number>();
+  private leftAlone = new Map<string, number>();
   private readonly deps: WorkFolderDeps;
   private readonly now: () => number;
   private readonly log: (line: string) => void;
@@ -149,6 +263,18 @@ export class WorkFolderArchive {
     return `${WORK_FOLDER_PARTS}/${key.split("/")[0]}/${name}`;
   }
 
+  private async realFolder(key: string): Promise<boolean> {
+    const dir = this.dirOf(key);
+    const info = await lstat(dir).catch(() => null);
+    if (!info?.isDirectory()) return false;
+    const base = await realpath(this.deps.workspacesDir).catch(() => null);
+    return Boolean(base) && (await realpath(dir).catch(() => null)) === join(base!, ...key.split("/"));
+  }
+
+  private held(dir: string): boolean {
+    return folderHeld(dir, this.deps.procDir);
+  }
+
   private locked<T>(key: string, action: () => Promise<T>): Promise<T> {
     const previous = this.locks.get(key) ?? Promise.resolve();
     const next = previous.catch(() => {}).then(action);
@@ -175,7 +301,7 @@ export class WorkFolderArchive {
     const partBytes = this.deps.partBytes ?? PART_BYTES;
     const folder = join(this.deps.home, WORK_FOLDER_PARTS, key.split("/")[0]!);
     await mkdir(folder, { recursive: true, mode: 0o700 });
-    const child = spawn(this.deps.tar ?? "tar", ["-cf", "-", "-C", dir, "."], { stdio: ["ignore", "pipe", "pipe"] });
+    const child = spawn(this.deps.tar ?? "tar", packArgs(dir), { stdio: ["ignore", "pipe", "pipe"] });
     let complaint = "";
     child.stderr.on("data", (chunk: Buffer) => { complaint = (complaint + chunk.toString()).slice(-400); });
     const ended = new Promise<number | null>((resolve) => child.once("close", (code) => resolve(code)));
@@ -222,39 +348,49 @@ export class WorkFolderArchive {
     }
   }
 
-  private async clear(dir: string, record: MovedOut): Promise<void> {
+  private async clear(key: string, record: MovedOut): Promise<void> {
+    if (!await this.realFolder(key)) throw new Error("the work folder is not a plain folder inside the workspaces");
+    const dir = this.dirOf(key);
+    await openUp(dir);
     for (const name of await readdir(dir)) await rm(join(dir, name), { recursive: true, force: true });
     await writeFile(join(dir, MOVED_OUT_NOTE), movedOutNote(record), { mode: 0o600 });
   }
 
-  private eligible(chat: WorkspaceTask, limits: WorkFolderLimits, live: readonly ProcessInfo[]): boolean {
-    if (chat.busy || chat.lastActiveAt === null || chat.lastActiveAt > this.now() - limits.idleMs) return false;
-    return !hasLiveWork(chat, live);
+  private idleEnough(chat: WorkspaceTask, limits: WorkFolderLimits): boolean {
+    const idleMs = Math.max(limits.idleMs, LEAST_IDLE_MS);
+    return !chat.busy && chat.lastActiveAt !== null && chat.lastActiveAt <= this.now() - idleMs;
+  }
+
+  private quiet(chat: WorkspaceTask, key: string, limits: WorkFolderLimits): boolean {
+    if (!this.idleEnough(chat, limits) || this.wanted.has(key)) return false;
+    const [botId, threadId] = key.split("/") as [string, string];
+    return !this.deps.inUse(botId, threadId);
   }
 
   private moveOut(chat: WorkspaceTask, key: string, before: FolderSize): Promise<number> {
     return this.locked(key, async () => {
       const records = this.load();
       if (records[key]) return 0;
+      if (!await this.realFolder(key) || this.held(chat.dir)) return 0;
       const stamp = this.now().toString(36);
       const stillQuiet = () => {
         const current = this.deps.chats().find((candidate) => candidate.dir === chat.dir);
-        return Boolean(current && this.eligible(current, this.deps.limits(), this.deps.live()));
+        return Boolean(current && this.quiet(current, key, this.deps.limits()));
       };
       const parts = await this.tarOut(key, chat.dir, stamp, stillQuiet);
-      if (!parts || !stillQuiet() || !sameSize(before, await measureFolder(chat.dir))) {
-        this.log(`laterdog home: left ${key.slice(0, 8)}'s work folder on the disk; the chat woke or the folder changed while it was being stored`);
+      if (!parts || !stillQuiet() || this.held(chat.dir) || !sameSize(before, await measureFolder(chat.dir))) {
+        this.log(`laterdog home: left ${key.slice(0, 8)}'s work folder on the disk; the chat woke, a program opened it, or it changed while it was being stored`);
         return 0;
       }
-      const record: MovedOut = { stamp, parts, bytes: before.bytes, files: before.files, movedAt: this.now(), cleared: false };
+      const record: MovedOut = { stamp, parts, bytes: before.bytes, diskBytes: before.diskBytes, files: before.files, movedAt: this.now(), cleared: false };
       records[key] = record;
       this.save();
-      await this.clear(chat.dir, record);
+      await this.clear(key, record);
       record.cleared = true;
       this.save();
       this.totals.movedOut += 1;
-      this.totals.movedOutBytes += before.bytes;
-      return before.bytes;
+      this.totals.movedOutBytes += before.diskBytes;
+      return before.diskBytes;
     });
   }
 
@@ -270,6 +406,7 @@ export class WorkFolderArchive {
     this.totals.lastSweepAt = this.now();
     const chats = this.deps.chats();
     const known = new Set(chats.map((chat) => this.keyOf(chat.dir)));
+    for (const [key, until] of this.leftAlone) if (until <= this.now() || !known.has(key)) this.leftAlone.delete(key);
     let forgotten = 0;
     for (const key of Object.keys(records)) {
       if (known.has(key) && existsSync(this.dirOf(key))) continue;
@@ -277,9 +414,8 @@ export class WorkFolderArchive {
       forgotten += 1;
     }
     if (forgotten) this.save();
-    const live = this.deps.live();
     const waiting = chats
-      .filter((chat) => this.eligible(chat, limits, live))
+      .filter((chat) => this.idleEnough(chat, limits))
       .sort((left, right) => (left.lastActiveAt ?? 0) - (right.lastActiveAt ?? 0));
     let remaining = limits.byteLimit;
     let freed = 0;
@@ -287,19 +423,32 @@ export class WorkFolderArchive {
     let failures = 0;
     for (const chat of waiting) {
       const key = this.keyOf(chat.dir);
-      if (!key || remaining <= 0 || failures >= 3) break;
+      if (remaining <= 0 || failures >= 3) break;
+      if (!key || !this.quiet(chat, key, limits)) continue;
       const record = records[key];
       if (record) {
-        if (!record.cleared) await this.locked(key, async () => { await this.clear(chat.dir, record); record.cleared = true; this.save(); }).catch(() => {});
+        if (!record.cleared && !this.held(chat.dir)) {
+          await this.locked(key, async () => { await this.clear(key, record); record.cleared = true; this.save(); }).catch(() => {});
+        }
         continue;
       }
+      if ((this.leftAlone.get(key) ?? 0) > this.now()) continue;
+      if (!await this.realFolder(key)) continue;
+      const rest = () => { this.leftAlone.set(key, this.now() + LEFT_ALONE_MS); };
       let size: FolderSize;
-      try { size = await measureFolder(chat.dir); } catch { continue; }
-      if (size.bytes < limits.minBytes && size.files < limits.minFiles) continue;
-      if (size.bytes > remaining && remaining !== limits.byteLimit) continue;
+      try { size = await measureFolder(chat.dir); } catch { rest(); continue; }
+      if (size.diskBytes < limits.minBytes && size.files < limits.minFiles) continue;
+      if (size.bytes - size.diskBytes > SPARSE_GAP_BYTES) {
+        rest();
+        continue;
+      }
+      if (size.diskBytes > remaining && remaining !== limits.byteLimit) continue;
       try {
         const bytes = await this.moveOut(chat, key, size);
-        if (!bytes) continue;
+        if (!bytes) {
+          rest();
+          continue;
+        }
         remaining -= bytes;
         freed += bytes;
         moved += 1;
@@ -309,7 +458,11 @@ export class WorkFolderArchive {
         this.log(`laterdog home: could not store ${key.slice(0, 8)}'s work folder: ${said(error)}`);
       }
     }
-    if (moved) this.log(`laterdog home: moved ${moved} quiet chat(s)' work folders into storage, freed ${mb(freed)}`);
+    const back = this.sinceSweep;
+    this.sinceSweep = { broughtBack: 0, broughtBackBytes: 0 };
+    if (moved || back.broughtBack) {
+      this.log(`laterdog home: work folder sweep: ${moved} folder(s), ${mb(freed)} left the disk; ${back.broughtBack} folder(s), ${mb(back.broughtBackBytes)} came back since the last sweep`);
+    }
     return freed;
   }
 
@@ -325,49 +478,80 @@ export class WorkFolderArchive {
     return full;
   }
 
+  private async unpack(key: string, record: MovedOut, staging: string): Promise<void> {
+    const child = spawn(this.deps.tar ?? "tar", unpackArgs(staging), { stdio: ["pipe", "ignore", "pipe"] });
+    let complaint = "";
+    child.stderr.on("data", (chunk: Buffer) => { complaint = (complaint + chunk.toString()).slice(-400); });
+    const ended = new Promise<number | null>((resolve) => child.once("close", (code) => resolve(code)));
+    child.stdin.on("error", () => {});
+    const restored: string[] = [];
+    const stopped = ended.then((code) => ({ code }));
+    try {
+      for (const [index, part] of record.parts.entries()) {
+        const full = await this.restorePart(key, part);
+        restored.push(full);
+        const source = createReadStream(full);
+        const piped = new Promise<null>((resolve, reject) => {
+          source.once("error", reject);
+          source.once("end", () => resolve(null));
+          source.pipe(child.stdin, { end: false });
+        });
+        const early = await Promise.race([piped, stopped]);
+        if (early) {
+          source.destroy();
+          if (early.code !== 0 || index !== record.parts.length - 1) {
+            throw new Error(`tar stopped early with code ${early.code ?? "none"}: ${complaint.trim().split("\n").at(-1) ?? ""}`);
+          }
+        }
+        await rm(full, { force: true });
+      }
+      child.stdin.end();
+      const code = await ended;
+      if (code !== 0) throw new Error(`tar stopped with code ${code ?? "none"}: ${complaint.trim().split("\n").at(-1) ?? ""}`);
+    } catch (error) {
+      child.kill("SIGKILL");
+      for (const full of restored) await rm(full, { force: true }).catch(() => {});
+      throw error;
+    }
+  }
+
+  private async dropStaging(dir: string): Promise<void> {
+    for (const name of await readdir(dir)) {
+      if (!name.startsWith(RESTORING_PREFIX)) continue;
+      await openUp(join(dir, name)).catch(() => {});
+      await rm(join(dir, name), { recursive: true, force: true });
+    }
+  }
+
   private bringBack(key: string): Promise<boolean> {
     return this.locked(key, async () => {
       const records = this.load();
       const record = records[key];
       if (!record) return false;
-      if (!this.deps.room(record.bytes)) {
-        await this.deps.makeRoom?.();
-        if (!this.deps.room(record.bytes)) throw new NoRoom();
-      }
+      const need = roomNeeded(record, this.deps.partBytes);
+      if (!this.deps.room(need)) throw new NoRoom(need);
       const dir = this.dirOf(key);
       await mkdir(dir, { recursive: true, mode: 0o700 });
-      const child = spawn(this.deps.tar ?? "tar", ["-xf", "-", "--keep-newer-files", "-C", dir], { stdio: ["pipe", "ignore", "pipe"] });
-      let complaint = "";
-      child.stderr.on("data", (chunk: Buffer) => { complaint = (complaint + chunk.toString()).slice(-400); });
-      const ended = new Promise<number | null>((resolve) => child.once("close", (code) => resolve(code)));
-      child.stdin.on("error", () => {});
-      const restored: string[] = [];
+      if (!await this.realFolder(key)) throw new Error("the work folder is not a plain folder inside the workspaces");
+      await this.dropStaging(dir);
+      const note = join(dir, MOVED_OUT_NOTE);
+      const staging = join(dir, `${RESTORING_PREFIX}${randomUUID()}`);
+      await mkdir(staging, { mode: 0o700 });
       try {
-        for (const part of record.parts) {
-          const full = await this.restorePart(key, part);
-          restored.push(full);
-          await new Promise<void>((resolve, reject) => {
-            const source = createReadStream(full);
-            source.once("error", reject);
-            source.once("end", resolve);
-            source.pipe(child.stdin, { end: false });
-          });
-          await rm(full, { force: true });
-        }
-        child.stdin.end();
-        const code = await ended;
-        if (code !== 0) throw new Error(`tar stopped with code ${code ?? "none"}: ${complaint.trim().split("\n").at(-1) ?? ""}`);
-      } catch (error) {
-        child.kill("SIGKILL");
-        for (const full of restored) await rm(full, { force: true }).catch(() => {});
-        throw error;
+        await this.unpack(key, record, staging);
+        if (await readFile(note, "utf8").catch(() => null) === movedOutNote(record)) await rm(note, { force: true });
+        await mergeKeepingModes(staging, dir);
+      } finally {
+        await openUp(staging).catch(() => {});
+        await rm(staging, { recursive: true, force: true });
       }
-      await rm(join(dir, MOVED_OUT_NOTE), { force: true });
       delete records[key];
       this.save();
       await rmdir(join(this.deps.home, WORK_FOLDER_PARTS, key.split("/")[0]!)).catch(() => {});
       this.totals.broughtBack += 1;
-      this.totals.broughtBackBytes += record.bytes;
+      this.totals.broughtBackBytes += record.diskBytes ?? record.bytes;
+      this.sinceSweep.broughtBack += 1;
+      this.sinceSweep.broughtBackBytes += record.diskBytes ?? record.bytes;
       this.log(`laterdog home: brought ${key.slice(0, 8)}'s work folder back from storage, ${mb(record.bytes)}`);
       return true;
     });
@@ -375,13 +559,39 @@ export class WorkFolderArchive {
 
   async beforeTurn(botId: string, threadId: string, current: () => boolean = () => true): Promise<boolean> {
     const key = `${botId}/${threadId}`;
+    this.wanted.set(key, (this.wanted.get(key) ?? 0) + 1);
+    try {
+      await this.locked(key, async () => {});
+      if (!this.load()[key]) return current();
+      return await this.waitForFolder(key, current);
+    } finally {
+      const left = (this.wanted.get(key) ?? 1) - 1;
+      if (left > 0) this.wanted.set(key, left);
+      else this.wanted.delete(key);
+    }
+  }
+
+  private async waitForFolder(key: string, current: () => boolean): Promise<boolean> {
+    const started = this.now();
     let warned = false;
     while (current()) {
-      if (!this.load()[key]) return true;
+      const record = this.load()[key];
+      if (!record) return true;
       try {
+        const need = roomNeeded(record, this.deps.partBytes);
+        if (!this.deps.room(need)) {
+          await this.deps.makeRoom?.();
+          if (!this.deps.room(need)) throw new NoRoom(need);
+        }
         await this.bringBack(key);
         return current();
       } catch (error) {
+        if (this.now() - started >= (this.deps.waitMs ?? ROOM_WAIT_MS)) {
+          this.log(`laterdog home: stopped a turn in ${key.slice(0, 8)}; its work folder could not come back (${error instanceof NoRoom ? `no room for ${mb(error.bytes)}` : said(error)})`);
+          throw new WorkFolderUnavailable(error instanceof NoRoom
+            ? `There is no room on this home's disk to bring back this chat's ${sized(error.bytes)} of files from storage; delete files or chats you no longer need, then send your message again.`
+            : "This chat's files are in storage and did not come back in time; send your message again in a few minutes.");
+        }
         if (!warned) {
           this.log(error instanceof NoRoom
             ? `laterdog home: no room to bring ${key.slice(0, 8)}'s work folder back; making room and keeping the pending turn`

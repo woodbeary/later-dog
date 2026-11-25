@@ -55,13 +55,13 @@ export interface WorkFolderSweep {
 const DAY = 24 * HOUR;
 const WORTH_MOVING = { minBytes: 5 * MB, minFiles: 200 };
 
-export const CALM_WORK_FOLDERS: WorkFolderSweep = { idleMs: 3 * DAY, byteLimit: 256 * MB, ...WORTH_MOVING };
+export const CALM_WORK_FOLDERS: WorkFolderSweep = { idleMs: 14 * DAY, byteLimit: 256 * MB, ...WORTH_MOVING };
 
 export const PRESSURE_WORK_FOLDERS: ReadonlyArray<{ from: number; sweep: WorkFolderSweep }> = [
-  { from: rungOf("sweep"), sweep: { idleMs: DAY, byteLimit: 512 * MB, ...WORTH_MOVING } },
-  { from: rungOf("move"), sweep: { idleMs: 6 * HOUR, byteLimit: 1024 * MB, ...WORTH_MOVING } },
-  { from: rungOf("refuse"), sweep: { idleMs: HOUR, byteLimit: 2048 * MB, ...WORTH_MOVING } },
-  { from: rungOf("floor"), sweep: { idleMs: 15 * MINUTE, byteLimit: Infinity, ...WORTH_MOVING } },
+  { from: rungOf("sweep"), sweep: { idleMs: 7 * DAY, byteLimit: 512 * MB, ...WORTH_MOVING } },
+  { from: rungOf("move"), sweep: { idleMs: 3 * DAY, byteLimit: 1024 * MB, ...WORTH_MOVING } },
+  { from: rungOf("refuse"), sweep: { idleMs: 2 * DAY, byteLimit: 2048 * MB, ...WORTH_MOVING } },
+  { from: rungOf("floor"), sweep: { idleMs: DAY, byteLimit: Infinity, ...WORTH_MOVING } },
 ];
 
 export function workFolderSweep(disk: DiskUse | null): WorkFolderSweep {

@@ -12,7 +12,7 @@ import { writeFileAtomic } from "./atomic.ts";
 import { rm as removeDirectory } from "node:fs/promises";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { ToolResults, TOOL_RESULT_MAX_CHARS } from "./tool-results.ts";
-import { basename, extname, join } from "node:path";
+import { extname, join } from "node:path";
 
 import { z } from "zod";
 import { selectReplay, DEFAULT_REBUILD_BYTES, MAX_SUMMARY_BYTES } from "./context-rebuild.ts";
@@ -574,7 +574,7 @@ import { CLOUD_THREAD_LOG_MAX_BYTES, CLOUD_THREAD_LOG_RETENTION_DAYS, DISK_CHECK
 import { TAB_SWEEP_MS } from "./laterdog/cloud-tabs.ts";
 import { TabKeeper } from "./laterdog/tab-keeper.ts";
 import { computerUpkeepScript } from "./laterdog/computer-upkeep.ts";
-import { MEMORY_CHECK_MS, orphanIdleHours, readMemoryPressure, readProcesses, reapStrays, underMemoryPressure, type ThreadState as ReaperThreadState } from "./laterdog/process-reaper.ts";
+import { MEMORY_CHECK_MS, orphanIdleHours, readMemoryPressure, reapStrays, underMemoryPressure, type ThreadState as ReaperThreadState } from "./laterdog/process-reaper.ts";
 import { startHomeUpkeep } from "./laterdog/home-upkeep.ts";
 import { liveSignalScene, signalDecision } from "./laterdog/home-signals.ts";
 import { homeFloorDecision } from "./laterdog/disk-floor.ts";
@@ -2902,11 +2902,14 @@ const workFolders = archiveBridge && logArchive
     dataDir: DATA_DIR,
     workspacesDir: TASK_WORKSPACES_DIR,
     bridge: archiveBridge,
-    chats: () => janitorWorkspaces().map(chat => ({ ...chat, busy: chat.busy || threadAtWork(basename(chat.dir)) })),
-    live: () => readProcesses(),
+    chats: () => janitorWorkspaces(),
+    inUse: (botId, threadId) => chatInUse(botId, threadId),
     limits: () => workFolderSweep(archiveDisk()),
     room: bytes => roomFor(archiveDisk(), bytes),
-    makeRoom: () => logArchive.scan(),
+    makeRoom: async () => {
+      await logArchive.scan();
+      await workFolders?.sweep();
+    },
     log: line => console.log(line),
   }) : null;
 
@@ -11187,6 +11190,21 @@ async function runGroupMemberTurn(
     onDispatchError?.(message);
     return true;
   }
+  if (workFolders && supportsWorkspaceFiles(instance.driverKind) && cloudGuestOpened(threadId)) {
+    try {
+      if (!await workFolders.beforeTurn(bot.id, threadId, () => !isCancelled?.())) return false;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      store.appendMessage(threadId, {
+        role: "bot",
+        kind: "activity",
+        from: { botId: bot.id, name: bot.name, color: bot.color },
+        tool: failedTurnTool(message),
+      });
+      onDispatchError?.(message);
+      return true;
+    }
+  }
   if (instance.adapter.capabilities.customMcp === true) {
     const custom = await withMcpSignIn(engineMcpServers(bot, await repositoriesForTurn()), mcpOAuth);
     if (Object.keys(custom).length) integrations.custom = custom;
@@ -11456,7 +11474,6 @@ async function runGroupMemberTurn(
   const worksInWorkspace = supportsWorkspaceFiles(instance.driverKind);
   const workspace = worksInWorkspace ? ensureWorkspace(bot.id) : undefined;
   if (workspace && bot.memoryEnabled !== false) beginMemoryTurn(bot.id, threadId);
-  if (workFolders && workspace && cloudGuestOpened(threadId)) await workFolders.beforeTurn(bot.id, threadId);
   const cwd = workspace && cloudGuestOpened(threadId)
     ? ensureTaskWorkspace(bot.id, threadId)
     : groupTurnCwd(workspace, () => store.pinGroupCwd(readyGroup.id, threadId));
@@ -21853,6 +21870,18 @@ function threadAtWork(threadId: string): boolean {
   const bot = store.botByThread(threadId);
   return runningTurnEngines.has(threadId) || Boolean(bot && threadBusy(bot.id, threadId)) || Boolean(store.groupByThread(threadId)?.busyBotId)
     || helperBoard.running(threadId) || nativeRuns.running(threadId);
+}
+
+const OPEN_CARD_TAIL = 40;
+const openCard = (message: Message) => requestNeedsInput(message) || message.needsYou?.status === "waiting"
+  || Boolean(message.kind === "options" && message.card && !message.card.answered && !message.card.dismissed && !message.card.expired);
+
+function chatInUse(botId: string, threadId: string): boolean {
+  return threadAtWork(threadId) || threadBusy(botId, threadId) || directTurnDispatchClaims.has(threadId)
+    || hasQueuedSteeredMessages(botId, threadId) || limitHold.holds(threadId) || pendingComputerResumes.has(threadId)
+    || store.hasPendingRequest(threadId) || roomHandoffs.activeDirect(threadId) || roomHandoffs.handedOut(threadId).length > 0
+    || registry.instances().some(instance => instance.adapter.hasSession(threadId))
+    || store.messagesTail(threadId, OPEN_CARD_TAIL).messages.some(openCard);
 }
 
 let lastJanitorRun: JanitorRun | null = null;
