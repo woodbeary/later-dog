@@ -2,7 +2,12 @@ import { describe, expect, it } from "vitest";
 import { ALWAYS_RUN, RUNTIME_JOBS, judgeNeeds, main } from "./ci-verdict.mjs";
 
 const needs = (overrides: Record<string, string> = {}, runtime = "true") =>
-  Object.fromEntries([...ALWAYS_RUN, ...RUNTIME_JOBS].map((name) => [name, { result: overrides[name] ?? "success", outputs: name === "scope" ? { runtime } : {} }]));
+  Object.fromEntries(
+    [...ALWAYS_RUN, ...RUNTIME_JOBS].map((name) => [
+      name,
+      { result: overrides[name] ?? "success", outputs: name === "scope" ? { runtime } : {} },
+    ]),
+  );
 
 describe("the CI verdict", () => {
   it("passes when every job succeeded", () => {

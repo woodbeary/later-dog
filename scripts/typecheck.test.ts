@@ -5,14 +5,26 @@ import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import { typecheck } from "./typecheck.mjs";
 
-const clean = { status: 0, signal: null, stdout: "", stderr: "No type errors in 10 files [1.00ms]\n" };
+const clean = {
+  status: 0,
+  signal: null,
+  stdout: "",
+  stderr: "No type errors in 10 files [1.00ms]\n",
+};
 
-function check(responses: object[] = [clean, clean], version: object = { ...clean, stdout: "1.4.5\n", stderr: "" }) {
+function check(
+  responses: object[] = [clean, clean],
+  version: object = { ...clean, stdout: "1.4.5\n", stderr: "" },
+) {
   const stdout: string[] = [];
   const stderr: string[] = [];
   const run = vi.fn().mockReturnValueOnce(version);
   for (const response of responses) run.mockReturnValueOnce(response);
-  const code = typecheck({ run, stdout: (text: string) => stdout.push(text), stderr: (text: string) => stderr.push(text) });
+  const code = typecheck({
+    run,
+    stdout: (text: string) => stdout.push(text),
+    stderr: (text: string) => stderr.push(text),
+  });
   return { code, run, stdout: stdout.join(""), stderr: stderr.join("") };
 }
 
@@ -21,13 +33,25 @@ describe("the pinned type checker", () => {
     const root = mkdtempSync(join(tmpdir(), "laterdog-typecheck-test-"));
     try {
       mkdirSync(join(root, "scripts"));
-      copyFileSync(new URL("./typecheck.mjs", import.meta.url), join(root, "scripts", "typecheck.mjs"));
-      writeFileSync(join(root, "package.json"), JSON.stringify({ devDependencies: { bun: "1.4.5" } }));
+      copyFileSync(
+        new URL("./typecheck.mjs", import.meta.url),
+        join(root, "scripts", "typecheck.mjs"),
+      );
+      writeFileSync(
+        join(root, "package.json"),
+        JSON.stringify({ devDependencies: { bun: "1.4.5" } }),
+      );
       for (const project of ["app", "server"]) {
         writeFileSync(join(root, `${project}.ts`), `export const ${project} = 1;\n`);
-        writeFileSync(join(root, project === "app" ? "tsconfig.json" : "tsconfig.server.json"), JSON.stringify({ files: [`${project}.ts`] }));
+        writeFileSync(
+          join(root, project === "app" ? "tsconfig.json" : "tsconfig.server.json"),
+          JSON.stringify({ files: [`${project}.ts`] }),
+        );
       }
-      const result = spawnSync(process.execPath, [join(root, "scripts", "typecheck.mjs")], { cwd: root, encoding: "utf8" });
+      const result = spawnSync(process.execPath, [join(root, "scripts", "typecheck.mjs")], {
+        cwd: root,
+        encoding: "utf8",
+      });
       expect(result.error).toBeUndefined();
       expect(result.status).toBe(1);
       expect(result.stderr).toContain("pinned Bun 1.4.5 is unavailable");
@@ -85,7 +109,15 @@ describe("the pinned type checker", () => {
   });
 
   it("does not let an app pass hide a failing server or discard its diagnostics", () => {
-    const result = check([clean, { ...clean, status: 1, stdout: "server.ts(1,1): error TS2339: missing\n", stderr: "server diagnostic\n" }]);
+    const result = check([
+      clean,
+      {
+        ...clean,
+        status: 1,
+        stdout: "server.ts(1,1): error TS2339: missing\n",
+        stderr: "server diagnostic\n",
+      },
+    ]);
     expect(result.code).toBe(1);
     expect(result.stdout).toContain("server.ts(1,1): error TS2339: missing");
     expect(result.stderr).toContain("server diagnostic");

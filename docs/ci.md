@@ -14,17 +14,17 @@ Everything runs on GitHub's free standard runner, `ubuntu-latest` (4 vCPU, 16 GB
 
 ## Jobs
 
-| job | runs |
-| --- | --- |
-| `scope` | `scripts/ci-scope.mjs`: is the change docs-only |
-| `lint` | `pnpm lint`, then the brand, comment and verification-documentation tests |
-| `typecheck` | `pnpm typecheck`, checking both app and server projects with the pinned Bun binary |
-| `build` | `vite build`, `pnpm build:server`, the packaged-server smoke |
-| `electron-broker` | `pnpm test:electron`, `pnpm broker:test` |
-| `suite 1/8` to `suite 8/8` | the main suite, `vitest run --shard=n/8` |
-| `side <dir>` | the tests in `deploy/laterdog/home`, `cloudflare/control-plane`, `deploy/laterdog/computers` |
-| `interface` | the `ui.e2e` tests that drive a real browser (`LATERDOG_UI_E2E=1`) |
-| `CI` | fails if any job above failed, was cancelled, is missing, or was skipped without the docs-only selection |
+| job                        | runs                                                                                                     |
+| -------------------------- | -------------------------------------------------------------------------------------------------------- |
+| `scope`                    | `scripts/ci-scope.mjs`: is the change docs-only                                                          |
+| `lint`                     | `pnpm lint`, then the brand, comment and verification-documentation tests                                |
+| `typecheck`                | `pnpm typecheck`, checking both app and server projects with the pinned Bun binary                       |
+| `build`                    | `vite build`, `pnpm build:server`, the packaged-server smoke                                             |
+| `electron-broker`          | `pnpm test:electron`, `pnpm broker:test`                                                                 |
+| `suite 1/8` to `suite 8/8` | the main suite, `vitest run --shard=n/8`                                                                 |
+| `side <dir>`               | the tests in `deploy/laterdog/home`, `cloudflare/control-plane`, `deploy/laterdog/computers`             |
+| `interface`                | the `ui.e2e` tests that drive a real browser (`LATERDOG_UI_E2E=1`)                                       |
+| `CI`                       | fails if any job above failed, was cancelled, is missing, or was skipped without the docs-only selection |
 
 ## Type checking
 
