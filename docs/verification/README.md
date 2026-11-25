@@ -64,6 +64,7 @@ Use only mapped, tested commands:
 - [A tidy cloud computer: one tab, closed at turn end, a cap, a lean machine](tidy-computers.md)
 - [Chat UI, driven headlessly](chat-ui.md)
 - [Desktop performance, measured against a fixture](desktop-performance.md)
+- [Desktop launch timeline, November 25](launch-timeline-2026-11-25.md)
 - [Welcome flow](onboarding.md)
 - [Channels](channels.md)
 - [In-chat team coordination](room-coordination.md)

@@ -3,8 +3,8 @@ import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync 
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { ENVIRONMENT_PRELUDE } from "../../deploy/laterdog/computers/src/environments";
-import { AUTO_SETUP_SCRIPT } from "./cloud-task-files";
+import { ENVIRONMENT_PRELUDE } from "../../deploy/laterdog/computers/src/environments.js";
+import { AUTO_SETUP_SCRIPT } from "./cloud-task-files.js";
 
 const made: string[] = [];
 afterEach(() => {

@@ -531,9 +531,7 @@ type Page = {
   };
   mouse: { move(x: number, y: number): Promise<void>; wheel(x: number, y: number): Promise<void> };
   context(): {
-    newCDPSession(
-      page: Page,
-    ): Promise<{
+    newCDPSession(page: Page): Promise<{
       send(
         method: string,
         params?: unknown,
@@ -925,9 +923,7 @@ function growthPerCycle(
 
 async function soak(
   browser: {
-    newContext(
-      options: unknown,
-    ): Promise<{
+    newContext(options: unknown): Promise<{
       addInitScript(script: string): Promise<void>;
       newPage(): Promise<Page>;
       close(): Promise<void>;
@@ -1026,9 +1022,7 @@ async function soak(
 
 async function hotReloadStorm(
   browser: {
-    newContext(
-      options: unknown,
-    ): Promise<{
+    newContext(options: unknown): Promise<{
       addInitScript(script: string): Promise<void>;
       newPage(): Promise<Page>;
       close(): Promise<void>;
@@ -1398,9 +1392,7 @@ async function workingTurnWithSettings(
 
 async function pass(
   browser: {
-    newContext(
-      options: unknown,
-    ): Promise<{
+    newContext(options: unknown): Promise<{
       addInitScript(script: string): Promise<void>;
       newPage(): Promise<Page>;
       close(): Promise<void>;
@@ -1634,15 +1626,13 @@ async function pass(
     counting,
     async () => {
       await Promise.all(
-        dogs.others
-          .slice(0, 4)
-          .map((dog) =>
-            api("POST", `/api/bots/${dog.id}/messages`, {
-              text: "Run the checks again and show me the table.",
-              threadId: dog.threadId,
-              sendId: randomUUID().replaceAll("-", ""),
-            }),
-          ),
+        dogs.others.slice(0, 4).map((dog) =>
+          api("POST", `/api/bots/${dog.id}/messages`, {
+            text: "Run the checks again and show me the table.",
+            threadId: dog.threadId,
+            sendId: randomUUID().replaceAll("-", ""),
+          }),
+        ),
       );
       await new Promise((done) => setTimeout(done, 150));
       await settled(
@@ -1700,9 +1690,7 @@ interface ProfileNode {
 
 async function switchProfile(
   browser: {
-    newContext(
-      options: unknown,
-    ): Promise<{
+    newContext(options: unknown): Promise<{
       addInitScript(script: string): Promise<void>;
       newPage(): Promise<Page>;
       close(): Promise<void>;
@@ -1801,9 +1789,7 @@ async function switchProfile(
 
 async function coldLoads(
   browser: {
-    newContext(
-      options: unknown,
-    ): Promise<{
+    newContext(options: unknown): Promise<{
       addInitScript(script: string): Promise<void>;
       newPage(): Promise<Page>;
       close(): Promise<void>;
@@ -1834,9 +1820,7 @@ async function coldLoads(
 }
 
 type Browser = {
-  newContext(
-    options: unknown,
-  ): Promise<{
+  newContext(options: unknown): Promise<{
     addInitScript(script: string): Promise<void>;
     newPage(): Promise<Page>;
     close(): Promise<void>;
@@ -2717,15 +2701,13 @@ async function storeChanges(
   writeFileSync(streamFile, JSON.stringify({ everyMs: 30, chars: 10 }));
   const otherDogsWorking = await watched(async () => {
     await Promise.all(
-      dogs.others
-        .slice(0, 4)
-        .map((dog) =>
-          api("POST", `/api/bots/${dog.id}/messages`, {
-            text: "Run the checks again and show me the table.",
-            threadId: dog.threadId,
-            sendId: randomUUID().replaceAll("-", ""),
-          }),
-        ),
+      dogs.others.slice(0, 4).map((dog) =>
+        api("POST", `/api/bots/${dog.id}/messages`, {
+          text: "Run the checks again and show me the table.",
+          threadId: dog.threadId,
+          sendId: randomUUID().replaceAll("-", ""),
+        }),
+      ),
     );
     await new Promise((done) => setTimeout(done, 150));
     await settled(
@@ -3136,12 +3118,8 @@ async function main() {
   });
   const { chromium } = createRequire(join(setup.playwright, "package.json"))("playwright-core") as {
     chromium: {
-      launch(
-        options: unknown,
-      ): Promise<{
-        newContext(
-          options: unknown,
-        ): Promise<{
+      launch(options: unknown): Promise<{
+        newContext(options: unknown): Promise<{
           addInitScript(script: string): Promise<void>;
           newPage(): Promise<Page>;
           close(): Promise<void>;
