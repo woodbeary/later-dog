@@ -563,6 +563,7 @@ import { BOT_PACKAGE_MAX_SKILLS, isBotPackage, packageSummary, parsePackageDocum
 import { createTeamManifest, parseTeamManifest } from "./team-manifest.ts";
 import { LogArchiveCoordinator, claudeSessionIds, logArchiveBridge, outsideSessionOwners } from "./laterdog/log-archive.ts";
 import { archiveSweep, roomToRestore, savesHold, startArchiveSweeps, steadyDisk } from "./laterdog/archive-pressure.ts";
+import { savesForStorage } from "./laterdog/save-status.ts";
 import { readThreadEvents } from "./thread-events.ts";
 import { describeTool, readBotActivity } from "./activity.ts";
 import { OutboundRequestService } from "./outbound-requests.ts";
@@ -21914,6 +21915,7 @@ function cloudStorage() {
     archive: logArchive?.status() ?? { enabled: false },
     janitor: lastJanitorRun ? { at: lastJanitorRun.at, freedBytes: lastJanitorRun.freedBytes, stopped: lastJanitorRun.reaped } : null,
     breakdown: diskBreakdown.last(),
+    saves: savesForStorage(),
   };
 }
 

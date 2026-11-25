@@ -9,11 +9,13 @@ import { join } from "node:path";
 import { devCodeWatcher, homeIdle } from "./dev-code.mjs";
 import { noteHomeHealth, outputTail, pushedCodeFellBack } from "./home-health.mjs";
 import { seedIncluded } from "./included.mjs";
+import { SAVE_STATUS_PATH, saveRecorder, slowCopies, writeSaveStatus } from "./save-status.mjs";
 import { RESTORE_POINTS, appRelease, upgradeFrom, upgradeKeeper } from "./restore-points.mjs";
 import { FINAL_SAVE_MS, collectGarbageWithin, createHttpStore, restore, settleWithin, snapshot } from "./sync.mjs";
 
 const DATA = process.env.HOME || "/data";
 const SCRATCH = "/tmp/laterdog-sync";
+const MEMORY_SCRATCH = "/run/laterdog-sync";
 const SERVER_DIR = "/app/dist-server";
 const LAUNCHER = join(SERVER_DIR, "cloud-home-start.js");
 const DEV_CODE_DIR = "/tmp/laterdog-dev-server";
@@ -103,12 +105,18 @@ async function main() {
   let cleanupLeft = false;
   let resumeAfter;
   const restorePoints = upgradeKeeper(store, upgraded, { app: APP, limit: KEPT_RESTORE_POINTS, log });
+  const saveStatus = saveRecorder({ write: (status) => writeSaveStatus(SAVE_STATUS_PATH, status) });
   const save = ({ final = false } = {}) => {
     if (!store) return Promise.resolve();
     if (running) return running;
     running = restorePoints.keep()
-      .then(() => snapshot(DATA, store, manifest, { scratch: SCRATCH, app: APP, budgetMs: final ? FINAL_SAVE_BUDGET_MS : SAVE_BUDGET_MS, resumeAfter }))
+      .then(() => {
+        void saveStatus.started({ final });
+        return snapshot(DATA, store, manifest, { scratch: SCRATCH, memoryScratch: MEMORY_SCRATCH, onCopy: (copy) => void saveStatus.copying(copy), app: APP, budgetMs: final ? FINAL_SAVE_BUDGET_MS : SAVE_BUDGET_MS, resumeAfter });
+      })
       .then(async (result) => {
+        void saveStatus.finished(result);
+        for (const line of slowCopies(result.copies)) log(line);
         manifest = result.manifest;
         resumeAfter = result.resumeAfter;
         if (result.written) log(`saved (${result.uploaded} changed files)`);
@@ -124,7 +132,10 @@ async function main() {
           log(`cleanup failed: ${error.message}`);
         }
       })
-      .catch((error) => log(`save failed: ${error.message}`))
+      .catch((error) => {
+        void saveStatus.failed(error);
+        log(`save failed: ${error.message}`);
+      })
       .finally(() => {
         running = null;
       });

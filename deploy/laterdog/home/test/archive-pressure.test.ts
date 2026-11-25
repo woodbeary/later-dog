@@ -8,6 +8,7 @@ import {
   roomFor, roomToRestore, savesHold, startArchiveSweeps, steadyDisk,
 } from "../../../../server/laterdog/archive-pressure.ts";
 import { DISK_RUNGS } from "../../../../server/laterdog/disk-ladder.ts";
+import { SAVE_STATUS_FRESH_MS, freshSaveStatus, readSaveStatus, savesForStorage, type SaveStatus } from "../../../../server/laterdog/save-status.ts";
 import {
   ARCHIVE_BATCH_BYTES, ARCHIVE_BATCH_PATHS, ARCHIVE_CALL_MAX_MS, ARCHIVE_CALL_MS, LogArchiveCoordinator, SWEEP_FAILURES_IN_A_ROW,
   archiveBatches, archiveCallMs, archivedSessionOf, claudeSessionIds, logArchiveBridge, threadLogPaths, type LogArchiveBridge,
@@ -132,6 +133,55 @@ it("counts the copy a save makes of the largest database, and its reserve, as sp
   writeFileSync(join(root, "notes.txt"), Buffer.alloc(9000));
   mkdirSync(join(root, "folder.db"));
   expect(savesHold(root)).toBe(3500 + SAVE_COPY_RESERVE_BYTES);
+});
+
+function saveStatus(fields: Partial<SaveStatus> = {}): SaveStatus {
+  return { version: 1, state: "saved", final: false, startedAt: 1_000, updatedAt: 2_000, endedAt: 2_000, durationMs: 1_000, heldOnDiskBytes: 0, heldInMemoryBytes: 1_070 * MB, copies: [], ...fields };
+}
+
+it("holds only the reserve while the last save, recent, copied its databases to memory", () => {
+  const root = scratch();
+  writeFileSync(join(root, "messages.db"), Buffer.alloc(3000));
+  writeFileSync(join(root, "messages.db-wal"), Buffer.alloc(500));
+  const now = 2_000 + SAVE_STATUS_FRESH_MS;
+  expect(savesHold(root, saveStatus(), now)).toBe(SAVE_COPY_RESERVE_BYTES);
+  expect(savesHold(root, saveStatus({ state: "saving", heldOnDiskBytes: 0 }), now)).toBe(SAVE_COPY_RESERVE_BYTES);
+  expect(savesHold(join(root, "missing"), saveStatus(), now)).toBe(SAVE_COPY_RESERVE_BYTES);
+});
+
+it("holds what a recent save copied to disk, including a save still copying", () => {
+  const root = scratch();
+  writeFileSync(join(root, "messages.db"), Buffer.alloc(3000));
+  expect(savesHold(root, saveStatus({ heldOnDiskBytes: 567 * MB }), 2_000)).toBe(567 * MB + SAVE_COPY_RESERVE_BYTES);
+  expect(savesHold(root, saveStatus({ state: "saving", copying: "messages.db", heldOnDiskBytes: 1_070 * MB }), 2_000)).toBe(1_070 * MB + SAVE_COPY_RESERVE_BYTES);
+});
+
+it("falls back to the largest database when the save status is missing, stale, failed, from the future or unreadable", () => {
+  const root = scratch();
+  writeFileSync(join(root, "messages.db"), Buffer.alloc(3000));
+  writeFileSync(join(root, "messages.db-wal"), Buffer.alloc(500));
+  const today = 3500 + SAVE_COPY_RESERVE_BYTES;
+  expect(savesHold(root, null, 2_000)).toBe(today);
+  expect(savesHold(root, saveStatus(), 2_000 + SAVE_STATUS_FRESH_MS + 1)).toBe(today);
+  expect(savesHold(root, saveStatus({ state: "failed" }), 2_000)).toBe(today);
+  expect(savesHold(root, saveStatus({ updatedAt: 2_000 + SAVE_STATUS_FRESH_MS + 1 }), 0)).toBe(today);
+  const file = join(root, "save-status.json");
+  expect(readSaveStatus(file)).toBeNull();
+  for (const body of ["not json", "{}", JSON.stringify({ ...saveStatus(), version: 2 }), JSON.stringify({ ...saveStatus(), heldOnDiskBytes: -1 }), JSON.stringify({ ...saveStatus(), state: "done" }), JSON.stringify({ ...saveStatus(), copies: null })]) {
+    writeFileSync(file, body);
+    expect(readSaveStatus(file)).toBeNull();
+    expect(savesHold(root, readSaveStatus(file), 2_000)).toBe(today);
+  }
+  expect(freshSaveStatus(null)).toBe(false);
+});
+
+it("shows the last save in the storage status, marked fresh or not", () => {
+  const root = scratch();
+  const file = join(root, "save-status.json");
+  expect(savesForStorage(file, 2_000)).toBeNull();
+  writeFileSync(file, JSON.stringify(saveStatus()));
+  expect(savesForStorage(file, 2_000)).toEqual({ ...saveStatus(), fresh: true });
+  expect(savesForStorage(file, 2_000 + SAVE_STATUS_FRESH_MS + 1)).toMatchObject({ state: "saved", fresh: false });
 });
 
 it("reads the disk as it stands between saves: the most free space of the last minute and a half, less what saves hold", () => {

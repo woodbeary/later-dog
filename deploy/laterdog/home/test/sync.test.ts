@@ -1,11 +1,12 @@
 import { createHash, randomBytes } from "node:crypto";
-import { appendFileSync, existsSync, lstatSync, mkdtempSync, mkdirSync, readdirSync, readFileSync, readlinkSync, rmSync, statSync, symlinkSync, utimesSync, writeFileSync } from "node:fs";
+import { appendFileSync, chmodSync, existsSync, lstatSync, mkdtempSync, mkdirSync, readdirSync, readFileSync, readlinkSync, rmSync, statSync, symlinkSync, utimesSync, writeFileSync } from "node:fs";
 import { lstat, open } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, relative } from "node:path";
-import { DatabaseSync } from "node:sqlite";
+import { backup, DatabaseSync } from "node:sqlite";
+import { Worker } from "node:worker_threads";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { CHUNK_BYTES, chunksOf, CLEANUP_PARALLEL, collectGarbage, collectGarbageWithin, createHttpStore, heldLock, LISTING_PARALLEL, parseManifest, referencedBlobs, restore, resumeOrder, SAVE_PARALLEL, scan, settleWithin, skipped, skippedPath, snapshot, walkOrder, SNAPSHOT_RESERVE_BYTES, StoreRefused, transient } from "../runtime/sync.mjs";
+import { CHUNK_BYTES, chunksOf, CLEANUP_PARALLEL, collectGarbage, collectGarbageWithin, createHttpStore, heldLock, LISTING_PARALLEL, parseManifest, referencedBlobs, restore, resumeOrder, SAVE_PARALLEL, scan, settleWithin, skipped, skippedPath, snapshot, walkOrder, SNAPSHOT_RESERVE_BYTES, StoreRefused, transient, MEMORY_MARGIN_BYTES } from "../runtime/sync.mjs";
 
 function memoryStore() {
   const blobs = new Map<string, Uint8Array>();
@@ -1207,5 +1208,258 @@ describe("reading a file into pieces", () => {
     const whole = await chunksOf(join(home, "whole"), memoryStore());
     expect(grown).toEqual(whole);
     expect(grown).toHaveLength(2);
+  });
+});
+
+describe("database copies", () => {
+  function entryPaths(manifest: { entries: Array<{ path: string }> }): string[] {
+    return manifest.entries.map((entry) => entry.path);
+  }
+
+  function chatDatabase(source: string, rows: number): void {
+    const database = new DatabaseSync(join(source, "messages.db"));
+    database.exec("PRAGMA journal_mode = WAL; CREATE TABLE notes (id INTEGER PRIMARY KEY, body BLOB);");
+    const insert = database.prepare("INSERT INTO notes (body) VALUES (randomblob(4000))");
+    database.exec("BEGIN");
+    for (let row = 0; row < rows; row += 1) insert.run();
+    database.exec("COMMIT");
+    database.close();
+  }
+
+  function restoredRows(root: string): number {
+    const copy = new DatabaseSync(join(root, "messages.db"));
+    try {
+      expect(copy.prepare("PRAGMA integrity_check").get()).toEqual({ integrity_check: "ok" });
+      return (copy.prepare("SELECT count(*) AS rows FROM notes").get() as { rows: number }).rows;
+    } finally {
+      copy.close();
+    }
+  }
+
+  function busyWriter(path: string): { stop(): Promise<number> } {
+    const worker = new Worker(`
+      const { DatabaseSync } = require("node:sqlite");
+      const { parentPort } = require("node:worker_threads");
+      const database = new DatabaseSync(${JSON.stringify(path)});
+      database.exec("PRAGMA busy_timeout = 5000");
+      const update = database.prepare("UPDATE notes SET body = randomblob(4000) WHERE id = ?");
+      let writes = 0;
+      let stopping = false;
+      parentPort.on("message", () => { stopping = true; });
+      const burst = () => {
+        const until = Date.now() + 20;
+        while (Date.now() < until) { update.run(1 + (writes % 500)); writes += 1; }
+        if (stopping) { database.close(); parentPort.postMessage(writes); } else setImmediate(burst);
+      };
+      parentPort.postMessage(-1);
+      burst();
+    `, { eval: true });
+    const ready = new Promise((resolve) => worker.once("message", resolve));
+    return {
+      async stop() {
+        await ready;
+        const writes = new Promise<number>((resolve) => worker.on("message", (value: number) => { if (value >= 0) resolve(value); }));
+        worker.postMessage("stop");
+        const counted = await writes;
+        await worker.terminate();
+        return counted;
+      },
+    };
+  }
+
+  it("copies a database another connection keeps writing in one pass, where page-by-page steps start over", async () => {
+    const source = folder();
+    chatDatabase(source, 5_000);
+    const path = join(source, "messages.db");
+    const writer = busyWriter(path);
+    await pause(100);
+    const stepped = new DatabaseSync(path);
+    let steps = 0;
+    let restarts = 0;
+    let left = Infinity;
+    const steppedCopy = backup(stepped, join(folder(), "stepped.sqlite"), {
+      rate: 100,
+      progress: ({ remainingPages }) => {
+        steps += 1;
+        if (remainingPages > left) restarts += 1;
+        left = remainingPages;
+      },
+    });
+    expect(await settleWithin(steppedCopy, 3_000)).toBe("late");
+    const store = memoryStore();
+    const started = Date.now();
+    const saved = await snapshot(source, store, null, { scratch: folder() });
+    const tookMs = Date.now() - started;
+    const writes = await writer.stop();
+    await steppedCopy;
+    stepped.close();
+    expect(restarts).toBeGreaterThan(0);
+    expect(steps).toBeGreaterThan(50);
+    expect(writes).toBeGreaterThan(100);
+    expect(saved.unsaved).toEqual([]);
+    expect(saved.copies).toEqual([expect.objectContaining({ path: "messages.db", place: "disk" })]);
+    expect(tookMs).toBeLessThan(15_000);
+    const target = folder();
+    await restore(target, store, null);
+    expect(restoredRows(target)).toBe(5_000);
+  }, 30_000);
+
+  const GB = 1024 ** 3;
+
+  function copyRoom(memory: string, seen: string[] = []) {
+    return async (path: string) => {
+      seen.push(path === memory ? "memory" : "disk");
+      return 100 * GB;
+    };
+  }
+
+  it("copies a database to the memory folder when memory stays above the margin, and leaves neither folder holding a copy", async () => {
+    const source = folder();
+    chatDatabase(source, 200);
+    writeFileSync(join(source, "notes.txt"), "plain file");
+    const disk = folder();
+    const memory = join(folder(), "laterdog-sync");
+    const placed: Array<{ path: string; place: string; bytes: number }> = [];
+    const seen: string[] = [];
+    let tick = 0;
+    const store = memoryStore();
+    const saved = await snapshot(source, store, null, {
+      scratch: disk,
+      memoryScratch: memory,
+      freeBytes: copyRoom(memory, seen),
+      availableMemory: () => 8 * GB,
+      onCopy: (copy: { path: string; place: string; bytes: number }) => placed.push(copy),
+      clock: () => (tick += 1_000),
+    });
+    const bytes = statSync(join(source, "messages.db")).size;
+    expect(placed).toEqual([{ path: "messages.db", place: "memory", bytes }]);
+    expect(seen).toEqual(["memory"]);
+    expect(saved.copies).toEqual([{ path: "messages.db", place: "memory", bytes, copyMs: 1_000, hashMs: 1_000 }]);
+    expect(saved.heldOnDiskBytes).toBe(0);
+    expect(saved.heldInMemoryBytes).toBe(bytes);
+    expect(readdirSync(memory)).toEqual([]);
+    expect(readdirSync(disk)).toEqual([]);
+    const target = folder();
+    await restore(target, store, null);
+    expect(restoredRows(target)).toBe(200);
+  });
+
+  it("copies to disk when the copy would leave less memory than the margin", async () => {
+    const source = folder();
+    chatDatabase(source, 200);
+    const memory = join(folder(), "laterdog-sync");
+    const bytes = statSync(join(source, "messages.db")).size;
+    const saved = await snapshot(source, memoryStore(), null, {
+      scratch: folder(),
+      memoryScratch: memory,
+      freeBytes: copyRoom(memory),
+      availableMemory: () => bytes + MEMORY_MARGIN_BYTES - 1,
+    });
+    expect(saved.copies).toEqual([expect.objectContaining({ place: "disk", bytes })]);
+    expect(saved.heldOnDiskBytes).toBe(bytes);
+    expect(saved.heldInMemoryBytes).toBe(0);
+    const roomy = await snapshot(source, memoryStore(), null, {
+      scratch: folder(),
+      memoryScratch: memory,
+      freeBytes: copyRoom(memory),
+      availableMemory: () => bytes + MEMORY_MARGIN_BYTES,
+    });
+    expect(roomy.copies).toEqual([expect.objectContaining({ place: "memory" })]);
+  });
+
+  it("copies to disk without failing the save when the memory folder is missing, unwritable, full or memory cannot be read", async () => {
+    const source = folder();
+    chatDatabase(source, 50);
+    const blocked = join(folder(), "not-a-folder");
+    writeFileSync(blocked, "");
+    const readOnly = folder();
+    chmodSync(readOnly, 0o500);
+    const cases = [
+      { memoryScratch: join(blocked, "laterdog-sync"), availableMemory: () => 8 * GB },
+      { memoryScratch: readOnly, availableMemory: () => 8 * GB },
+      { memoryScratch: join(folder(), "laterdog-sync"), availableMemory: () => { throw new Error("no meminfo"); } },
+      { memoryScratch: join(folder(), "laterdog-sync"), availableMemory: () => Number.NaN },
+    ];
+    try {
+      for (const options of cases) {
+        const store = memoryStore();
+        const saved = await snapshot(source, store, null, { scratch: folder(), freeBytes: async () => 100 * GB, ...options });
+        expect(saved.unsaved).toEqual([]);
+        expect(saved.copies).toEqual([expect.objectContaining({ place: "disk" })]);
+        const target = folder();
+        await restore(target, store, null);
+        expect(restoredRows(target)).toBe(50);
+      }
+      const memory = join(folder(), "laterdog-sync");
+      const full = await snapshot(source, memoryStore(), null, {
+        scratch: folder(),
+        memoryScratch: memory,
+        availableMemory: () => 8 * GB,
+        freeBytes: async (path: string) => (path === memory ? 1 : 100 * GB),
+      });
+      expect(full.copies).toEqual([expect.objectContaining({ place: "disk" })]);
+    } finally {
+      chmodSync(readOnly, 0o700);
+    }
+  });
+
+  it("keeps the last saved database when the memory copy fails and the disk has no room for a second try", async () => {
+    const source = folder();
+    chatDatabase(source, 50);
+    const readOnly = folder();
+    chmodSync(readOnly, 0o500);
+    const store = memoryStore();
+    try {
+      const saved = await snapshot(source, store, null, {
+        scratch: folder(),
+        memoryScratch: readOnly,
+        availableMemory: () => 8 * GB,
+        freeBytes: async (path: string) => (path === readOnly ? 100 * GB : 1),
+      });
+      expect(saved.unsaved).toEqual(["messages.db"]);
+      expect(saved.copies).toEqual([]);
+      expect(entryPaths(saved.manifest)).not.toContain("messages.db");
+    } finally {
+      chmodSync(readOnly, 0o700);
+    }
+  });
+
+  it("clears copies an interrupted save left in its folders before copying again", async () => {
+    const source = folder();
+    chatDatabase(source, 20);
+    const disk = folder();
+    const memory = folder();
+    const stale = `${"a".repeat(64)}.sqlite`;
+    writeFileSync(join(disk, stale), "left by a save that stopped");
+    writeFileSync(join(memory, stale), "left by a save that stopped");
+    writeFileSync(join(memory, "keep.txt"), "not a copy");
+    await snapshot(source, memoryStore(), null, { scratch: disk, memoryScratch: memory, freeBytes: async () => 100 * GB, availableMemory: () => 8 * GB });
+    expect(readdirSync(disk)).toEqual([]);
+    expect(readdirSync(memory)).toEqual(["keep.txt"]);
+  });
+
+  it("holds one copy at a time, so the peak is the largest database rather than the sum", async () => {
+    const source = folder();
+    for (const [name, rows] of [["a.db", 30], ["b.db", 90], ["c.db", 60]] as const) {
+      const database = new DatabaseSync(join(source, name));
+      database.exec("CREATE TABLE notes (body BLOB)");
+      const insert = database.prepare("INSERT INTO notes VALUES (randomblob(4000))");
+      for (let row = 0; row < rows; row += 1) insert.run();
+      database.close();
+    }
+    const memory = folder();
+    const held: number[] = [];
+    const saved = await snapshot(source, memoryStore(), null, {
+      scratch: folder(),
+      memoryScratch: memory,
+      availableMemory: () => 8 * GB,
+      freeBytes: async (path: string) => {
+        if (path === memory) held.push(readdirSync(memory).length);
+        return 100 * GB;
+      },
+    });
+    expect(held).toEqual([0, 0, 0]);
+    expect(saved.copies).toHaveLength(3);
+    expect(saved.heldInMemoryBytes).toBe(statSync(join(source, "b.db")).size);
   });
 });
