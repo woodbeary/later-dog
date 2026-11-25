@@ -42,11 +42,13 @@ it("binds a resumed cursor to the dog's native account, chat and exact saved che
 it("keeps an unconfirmed remote dispatch across restart until its own completion", () => {
   const scratch = mkdtempSync(join(tmpdir(), "codex-dispatch-"));
   onTestFinished(() => rmSync(scratch, { recursive: true, force: true }));
-  const first = codexPendingDispatch(scratch, "dog", "chat", "first");
-  const second = codexPendingDispatch(scratch, "dog", "chat", "second");
+  const first = codexPendingDispatch(scratch, "dog", "chat", "first", "original-message");
+  const second = codexPendingDispatch(scratch, "dog", "chat", "second", "new-message");
   expect(first.has()).toBe(false);
   first.start();
   expect(second.has()).toBe(true);
+  expect(second.sameSource()).toBe(false);
+  expect(codexPendingDispatch(scratch, "dog", "chat", "restart", "original-message").sameSource()).toBe(true);
   second.clear();
   expect(first.has()).toBe(true);
   second.start();

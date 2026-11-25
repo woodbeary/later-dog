@@ -76,7 +76,12 @@ const reply = (id: unknown, body: unknown) => send({ type: "reply", id, body });
 
 let lockFile = "";
 let ephemeralCodexHome: string | null = null;
-process.on("exit", () => { if (ephemeralCodexHome) try { rmSync(ephemeralCodexHome, { recursive: true, force: true }); } catch {} });
+function removeEphemeralCodexHome(): void {
+  if (!ephemeralCodexHome) return;
+  rmSync(ephemeralCodexHome, { recursive: true, force: true });
+  ephemeralCodexHome = null;
+}
+process.on("exit", () => { try { removeEphemeralCodexHome(); } catch {} });
 function takeLock(path: string): boolean {
   mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
   for (let attempt = 0; attempt < 2; attempt++) {
@@ -179,6 +184,7 @@ async function launch(frame: any): Promise<void> {
       if (transportLost) { kill("SIGKILL"); process.exit(1); }
       await stdoutWork;
       await checkpoint();
+      removeEphemeralCodexHome();
       await send({ type: "native_exit", code, signal });
       receiver.close();
       for (const socket of sockets.values()) socket.destroy();
