@@ -453,3 +453,78 @@ it("on a Cloud home the owner's answer to an options card is recorded as the own
   expect(answered.status, JSON.stringify(answered.body)).toBe(200);
   expect(answered.body.message.card).toMatchObject({ answered: "Yes", answeredBy: { kind: "session", person: expect.stringMatching(/^p_/) } });
 }, 60_000);
+
+async function createDogFromAgents(agents: Spawn["mcpConfig"]["mcpServers"]["agents"], name: string, flags: Record<string, boolean>) {
+  const response = await fetch(`${agents.env.LATERDOG_HARNESS_URL}/api/internal/create-bot`, {
+    method: "POST",
+    headers: { authorization: `Bearer ${agents.env.LATERDOG_COMMS_TOKEN}`, "content-type": "application/json" },
+    body: JSON.stringify({ name, role: "Checking results", instructions: "Check the result and carry on.", ...flags }),
+  });
+  expect(response.status, await response.clone().text()).toBe(201);
+  return await response.json() as { id: string };
+}
+
+it.each(["ask", "auto"] as const)("new owner dogs start on Full while their busy %s creator awaits migration", async (sourceMode) => {
+  expect((await api("PUT", "/api/full-access-all", { token: owner, body: { enabled: false } })).status).toBe(200);
+  const creator = (await api("POST", "/api/bots", { token: owner, body: {
+    name: `${sourceMode} creator`, settings: { approvalMode: sourceMode }, modelSelection: { instanceId: "claude", model: "claude-sonnet-5" },
+  } })).body.bot;
+  expect(creator.approvalMode).toBe(sourceMode);
+  const agents = await agentsFor(async () => {
+    expect((await api("POST", `/api/bots/${creator.id}/messages`, { token: owner, body: { text: "Create a helper for this owner task." } })).status).toBe(202);
+  }, creator.id);
+  expect((await api("PUT", "/api/full-access-all", { token: owner, body: { enabled: true } })).status).toBe(200);
+  const made = await createDogFromAgents(agents, `${sourceMode} source helper`, { fullAccessAll: false, ownerFullAccessAll: false });
+  const dogs = (await api("GET", "/api/bots", { token: owner })).body.bots;
+  const newDog = dogs.find((bot: any) => bot.id === made.id);
+  const unchangedCreator = dogs.find((bot: any) => bot.id === creator.id);
+  expect(newDog).toMatchObject({ approvalMode: "full", autoApprove: false });
+  expect(newDog.tasks.length).toBeGreaterThan(0);
+  expect(newDog.tasks.every((task: any) => task.approvalMode === "full" && task.autoApprove === false)).toBe(true);
+  expect(unchangedCreator.approvalMode).toBe(sourceMode);
+  expect(unchangedCreator.tasks.every((task: any) => task.approvalMode !== "full")).toBe(true);
+  await agentsFor(async () => {
+    expect((await api("POST", `/api/bots/${made.id}/messages`, { token: owner, body: { text: "Start this first job now." } })).status).toBe(202);
+  }, made.id);
+  const modeAt = lastSpawn!.argv.indexOf("--permission-mode");
+  expect(lastSpawn!.argv[modeAt + 1]).toBe("bypassPermissions");
+  for (const title of ["Second chat", "Third chat"]) {
+    const added = await api("POST", `/api/bots/${made.id}/tasks`, { token: owner, body: { title } });
+    expect(added.status).toBe(201);
+    expect(added.body.task).toMatchObject({ approvalMode: "full", autoApprove: false });
+  }
+}, 60_000);
+
+it("new owner API dogs return on Full and launch their first job before the migration timer", async () => {
+  expect((await api("PUT", "/api/full-access-all", { token: owner, body: { enabled: true } })).status).toBe(200);
+  const made = await api("POST", "/api/bots", { token: owner, body: {
+    name: "Owner API helper", settings: { approvalMode: "ask" }, fullAccessAll: false, ownerFullAccessAll: false,
+    modelSelection: { instanceId: "claude", model: "claude-sonnet-5" },
+  } });
+  expect(made.status, JSON.stringify(made.body)).toBe(201);
+  expect(made.body.bot).toMatchObject({ approvalMode: "full", autoApprove: false });
+  expect(made.body.bot.tasks.length).toBeGreaterThan(0);
+  expect(made.body.bot.tasks.every((task: any) => task.approvalMode === "full" && task.autoApprove === false)).toBe(true);
+  await agentsFor(async () => {
+    expect((await api("POST", `/api/bots/${made.body.bot.id}/messages`, { token: owner, body: { text: "Start the first API-created job now." } })).status).toBe(202);
+  }, made.body.bot.id);
+  const modeAt = lastSpawn!.argv.indexOf("--permission-mode");
+  expect(lastSpawn!.argv[modeAt + 1]).toBe("bypassPermissions");
+}, 60_000);
+
+it("creation request flags cannot enable the saved owner-wide Full grant", async () => {
+  expect((await api("PUT", "/api/full-access-all", { token: owner, body: { enabled: false } })).status).toBe(200);
+  const made = await api("POST", "/api/bots", { token: owner, body: {
+    name: "Unchanged API helper", settings: { approvalMode: "ask" }, fullAccessAll: true, ownerFullAccessAll: true,
+    modelSelection: { instanceId: "claude", model: "claude-sonnet-5" },
+  } });
+  expect(made.status, JSON.stringify(made.body)).toBe(201);
+  expect(made.body.bot.approvalMode).toBe("ask");
+  const agents = await agentsFor(async () => {
+    expect((await api("POST", `/api/bots/${made.body.bot.id}/messages`, { token: owner, body: { text: "Create a helper without changing permissions." } })).status).toBe(202);
+  }, made.body.bot.id);
+  const child = await createDogFromAgents(agents, "Unchanged internal helper", { fullAccessAll: true, ownerFullAccessAll: true });
+  const newDog = (await api("GET", "/api/bots", { token: owner })).body.bots.find((bot: any) => bot.id === child.id);
+  expect(newDog.approvalMode).toBe("ask");
+  expect(newDog.tasks.every((task: any) => task.approvalMode !== "full")).toBe(true);
+}, 60_000);

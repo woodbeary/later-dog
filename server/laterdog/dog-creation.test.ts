@@ -169,3 +169,45 @@ describe("dogMadeDogAccess", () => {
     expect(dogMadeDogAccess({ approvalMode: "edits" }, "edits", "auto", (mode) => mode !== "edits")).toMatchObject({ approvalMode: "ask", autoApprove: false });
   });
 });
+
+describe("Full access for new dogs under the owner's saved switch", () => {
+  const policy = { cloudHome: true, fullAccessAll: true, sharedWorkspace: false, guestDriven: false };
+  const supported = () => true;
+
+  it.each(["ask", "auto", "full", "custom"] as const)("starts the new owner dog on Full while leaving the %s creator unchanged", (sourceMode) => {
+    const creator = {
+      approvalMode: sourceMode, composio: false, connectorTools: { gmail: { tools: [] as string[] } },
+      mcpServers: ["files"], toolScope: { deny: ["native:Bash"] }, alwaysAllow: ["WebFetch"], browser: false,
+    };
+    const before = structuredClone(creator);
+    const access = dogMadeDogAccess(creator, sourceMode, "auto", supported, policy);
+    expect(access).toEqual({
+      approvalMode: "full", autoApprove: false, approvePeerComms: false, composio: false,
+      connectorTools: { gmail: { tools: [] } }, mcpServers: ["files"], toolScope: { deny: ["native:Bash"] },
+      alwaysAllow: [], browser: false,
+    });
+    expect(creator).toEqual(before);
+    expect(access.connectorTools).not.toBe(creator.connectorTools);
+    expect(access.mcpServers).not.toBe(creator.mcpServers);
+    expect(access.toolScope).not.toBe(creator.toolScope);
+  });
+
+  it.each([
+    ["outside a Cloud home", { cloudHome: false }],
+    ["when the saved switch is off", { fullAccessAll: false }],
+    ["in a shared workspace", { sharedWorkspace: true }],
+    ["for a guest source", { guestDriven: true }],
+  ])("keeps the existing cap %s", (_label, changes) => {
+    expect(dogMadeDogAccess({ approvalMode: "full" }, "full", "auto", supported, { ...policy, ...changes }).approvalMode).toBe("auto");
+    expect(dogMadeDogAccess({ approvalMode: "ask" }, "ask", "auto", supported, { ...policy, ...changes }).approvalMode).toBe("ask");
+  });
+
+  it("keeps engine support and existing fallback levels", () => {
+    expect(dogMadeDogAccess({ approvalMode: "full" }, "full", "auto", (mode) => mode !== "full", policy))
+      .toMatchObject({ approvalMode: "auto", autoApprove: true });
+    expect(dogMadeDogAccess({ approvalMode: "ask" }, "ask", "auto", (mode) => mode !== "full", policy))
+      .toMatchObject({ approvalMode: "ask", autoApprove: false });
+    expect(dogMadeDogAccess({ approvalMode: "full" }, "full", "auto", () => false, policy))
+      .toMatchObject({ approvalMode: "ask", autoApprove: false });
+  });
+});

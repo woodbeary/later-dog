@@ -32,3 +32,9 @@ A native engine fixture first rejected a prefixed automatic answer. It then sele
 A fake connected-app broker first demonstrated a protected repository deletion being relayed. The route now checks protected actions before forwarding a Full call and refuses unreadable proxy execution directly.
 
 The source and fixture tests are checked on disposable homes with fake engines and a loopback app broker. No real payment, message send, account consent or production deletion is used as test evidence. The merge pull request must record the complete gate verdict for its exact integrated commit; focused checks alone do not qualify a merge.
+
+## New dogs use the saved owner-wide grant immediately
+
+On a Cloud home with the saved Full-for-all switch enabled, a new owner dog and its first chat start on Full before its greeting, first job or API response. An Ask or Auto creator awaiting idle migration stays unchanged; the independent saved owner grant applies to the new dog. Shared workspaces and guest-driven sources keep their inherited cap. Tool and connector restrictions remain copied, Always keys remain empty, and unsupported engines retain their prior fallback. Body flags cannot enable or disable the persisted setting.
+
+Seven creation regressions failed before the change. Both complete modified creation files pass30checks, and ten related files pass193more, with no skips; the first real fake-CLI child uses bypassPermissions. Full typecheck and lint pass. Existing explicit Full/custom API input remains refused through its separate permission-setting flow. These fixtures do not prove a live provider or UI. A clean combined full merge gate and release are still required.

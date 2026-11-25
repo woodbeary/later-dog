@@ -459,3 +459,7 @@ This change awaits the complete integration gate and release.
 ## Desktop composer controls at enlarged text, November 25
 
 Branch `desktop/overnight-composer-bounds` keeps Send inside the composer at 375 px and 200% content zoom. Six baseline browser cases fail and all twelve pass after the CSS change; normal short-model captures are byte-identical. Typecheck, lint and 149 focused checks pass. See [verification](../verification/desktop-composer-bounds-2026-11-25.md). Full merge gate and release remain pending.
+
+## New owner dogs start on saved Full access, November25
+
+New owner dogs use the persisted Cloud-home Full-for-all grant immediately, including their first chat and job. Busy Ask/Auto creators stay unchanged; guest/shared sources and unsupported engines keep their previous caps. Seven cases fail before;223focused checks, full types and lint pass after. Full integration gate and release remain pending; see [owner access](../verification/full-owner-no-asks-2026-11-25.md#new-dogs-use-the-saved-owner-wide-grant-immediately).

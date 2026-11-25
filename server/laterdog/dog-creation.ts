@@ -49,18 +49,27 @@ function inheritedLevel(mode: ApprovalMode | undefined): (typeof INHERITED_LEVEL
 export type DogAccessSource = Pick<BotRecord, "approvalMode" | "autoApprove" | "approvalGrant" | "composio" | "connectorTools"
   | "mcpServers" | "toolScope" | "browser">;
 
+export interface DogCreationAccessPolicy {
+  cloudHome: boolean;
+  fullAccessAll: boolean;
+  sharedWorkspace: boolean;
+  guestDriven: boolean;
+}
+
 export function dogMadeDogAccess(
   creator: DogAccessSource,
   creatorThreadMode: ApprovalMode,
   newDogMode: ApprovalMode | undefined,
   supported: (mode: ApprovalMode) => boolean,
+  policy?: DogCreationAccessPolicy,
 ): Partial<BotRecord> {
   const cap = Math.min(
     INHERITED_LEVELS.indexOf(inheritedLevel(approvalModeFor(creator))),
     INHERITED_LEVELS.indexOf(inheritedLevel(creatorThreadMode)),
     INHERITED_LEVELS.indexOf(inheritedLevel(newDogMode)),
   );
-  const level = INHERITED_LEVELS[cap]!;
+  const level = policy?.cloudHome && policy.fullAccessAll && !policy.sharedWorkspace && !policy.guestDriven && supported("full")
+    ? "full" : INHERITED_LEVELS[cap]!;
   const approvalMode = supported(level) ? level : "ask";
   const copy = <T>(value: T): T => (value === undefined ? value : structuredClone(value));
   return {

@@ -15895,7 +15895,9 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
           sourceApprovalMode(creator.id, fromThreadId),
           newBotDefaultsOrBuiltIn(cfg.newBotDefaults).profile.approvalMode,
           (mode) => supportsApprovalMode(created.modelSelection, mode),
+          { cloudHome: Boolean(CLOUD_HOME), fullAccessAll: fullAccessAll.enabled(), sharedWorkspace: ownerWorkspaceShared(), guestDriven: cloudGuestDriven(fromThreadId) },
         ))!;
+        if (safeBot.approvalMode === "full") store.setAllThreadApprovalMode(safeBot.id, "full");
         internalCapability.createdBots += 1;
         const greeted = greetNewDog(store, safeBot, { creatorName: creator.name, threadId: fromThreadId, profileName: cfg.profile?.name });
         return json(res, 201, {
@@ -18075,6 +18077,9 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
           const created = routines!.create({ ...routine, botId: bot.id, enabled: false });
           createdRoutines.push({ id: created.id, enabled: routine.enabled !== false });
           if (ownersRoutines) cloudRoutineAuthors?.wrote(created.id, ownersRoutines);
+        }
+        if (CLOUD_HOME && cloudOwnerSession(auth) && !ownerWorkspaceShared() && fullAccessAll.enabled() && dogSupportsFull(bot)) {
+          store.setAllThreadApprovalMode(bot.id, "full");
         }
       } catch (error) {
         for (const routine of createdRoutines) routines!.remove(routine.id);
