@@ -119,6 +119,7 @@ export interface SendTurnInput {
     custom?: Record<string, McpServerSpec>;
   };
   cwd?: string;
+  extraFolders?: string[];
   mcpFromUserConfig?: boolean;
   mcpCallTimeoutMs?: number;
 }

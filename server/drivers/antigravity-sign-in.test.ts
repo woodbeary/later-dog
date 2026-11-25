@@ -7,7 +7,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { ensureDirs } from "../config.ts";
 import type { ProviderInstance } from "../contracts.ts";
 import { removeTempDir } from "../testing/cleanup.ts";
-import { AntigravityDriver } from "./antigravity.ts";
+import { AntigravityDriver, antigravityHome } from "./antigravity.ts";
 import { AntigravitySignIn } from "./antigravity-sign-in.ts";
 
 const FAKE_CLI = join(dirname(fileURLToPath(import.meta.url)), "..", "testing", "fake-acp-cli.ts");
@@ -86,11 +86,11 @@ describe("Antigravity sign-in with a pasted Google code", () => {
     const link = new URL(started.authorizationUrl!);
     expect([link.protocol, link.host, link.pathname]).toEqual(["https:", "accounts.google.com", "/o/oauth2/auth"]);
     const login = json(join(dir, "login.json"));
-    expect(login.argv).toEqual(["acp", "--gemini-dir", join(dir, ".gemini"), "--login"]);
+    expect(login.argv).toEqual(["acp", ...antigravityHome({ HOME: dir }).args, "--login"]);
     expect(login.env.DISPLAY).toBeUndefined();
     expect(login.env.WAYLAND_DISPLAY).toBeUndefined();
     expect(login.env.BROWSER).toBeUndefined();
-    expect(login.env).toMatchObject({ AGY_CLI_FORCE_FILE_TOKEN_STORAGE: "true", AGY_CLI_DISABLE_AUTO_UPDATE: "true" });
+    expect(login.env).toMatchObject(antigravityHome({ HOME: dir }).env);
     expect(json(join(dir, "dump.json.initialize.json")).clientCapabilities.auth).toEqual({ terminal: true });
     await instance.completeAuthentication!(started.flowId!, landing);
     expect(readFileSync(join(dir, "pasted.txt"), "utf8")).toBe(`${landing}\n`);

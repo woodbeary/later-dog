@@ -30,6 +30,8 @@ import type {
   ProviderDriver,
   ProviderInstance,
   ProviderSnapshot,
+  ProviderAuthenticationStart,
+  ProviderAuthenticationStatus,
   ModelCatalog,
   ModelVariantOption,
   RuntimeEvent,
@@ -144,6 +146,7 @@ interface AcpSession {
   sessionKey: string | null;
   sessionId: string | null;
   sessionConfigResult: any;
+  sessionModes: unknown;
   initResult: any;
   authenticated: boolean;
   closing: boolean;
@@ -152,6 +155,22 @@ interface AcpSession {
   current: AcpTurn | null;
   fallbackNotice?: string;
   launchModel?: string;
+}
+
+export interface PasteSignIn {
+  start(): Promise<ProviderAuthenticationStart>;
+  get(flowId: string): Promise<ProviderAuthenticationStatus>;
+  complete(flowId: string, code: string): Promise<void>;
+  cancel(): Promise<void>;
+  signOut(): Promise<void>;
+  dispose(): Promise<void>;
+}
+
+export interface PasteSignInContext {
+  environment: () => Record<string, string | undefined>;
+  config: AcpConfig;
+  instanceId: string;
+  changed: () => Promise<void>;
 }
 
 export interface AcpSupport {
@@ -177,6 +196,10 @@ export interface AcpSupport {
   loginNote: string;
   install?: EngineInstall;
   deviceSignIn?: DeviceSignIn;
+  pasteSignIn?(context: PasteSignInContext): PasteSignIn;
+  terminalAuth?: boolean;
+  additionalDirectories?: boolean;
+  observeSessionConfig?(result: unknown, instanceId: string): ModelCatalog | null;
   spawnArgs(config: AcpConfig, turn: SendTurnInput): string[];
   credentialEnv?: readonly string[];
   selectModel?: { configId: string };
@@ -235,6 +258,8 @@ export interface AcpSupport {
     turn: SendTurnInput;
     sessionModels: Array<{ modelId?: string; name?: string }>;
     currentModelId?: string;
+    sessionConfig?: unknown;
+    sessionModes?: unknown;
   }): Promise<void>;
 }
 
@@ -440,6 +465,17 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
       const deviceSignIn = support.deviceSignIn
         ? new DeviceAuthController(support.deviceSignIn, { cli: config.cli, environment: () => childEnv(), onAuthenticated: refreshModels })
         : null;
+      const pasteSignIn = support.pasteSignIn?.({
+        environment: () => childEnv(),
+        config,
+        instanceId,
+        changed: async () => {
+          for (const threadId of Array.from(sessions.keys())) {
+            if (!active.has(threadId)) closeSession(threadId, "account-changed");
+          }
+          await refreshModels();
+        },
+      }) ?? null;
       const listeners = new Set<RuntimeEventListener>();
       interface Turn {
         stop: () => void;
@@ -1069,6 +1105,7 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
           sessionKey: null,
           sessionId: null,
           sessionConfigResult: null,
+          sessionModes: null,
           initResult: null,
           authenticated: false,
           closing: false,
@@ -1229,7 +1266,8 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
           launchedThisTurn = true;
           return opened;
         };
-        const sessionKey = JSON.stringify([mcpServers, turn.toolScope ?? null, inheritedScopeFingerprint]);
+        const extraFolders = support.additionalDirectories ? [...new Set(turn.extraFolders ?? [])] : [];
+        const sessionKey = JSON.stringify([mcpServers, turn.toolScope ?? null, inheritedScopeFingerprint, ...(extraFolders.length ? [extraFolders] : [])]);
 
         if (turn.sessionReset) {
           closeSession(threadId, "reset");
@@ -1278,6 +1316,9 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
         };
         const receiveModelVariants = (result: any) => {
           session.sessionConfigResult = result;
+          if (result?.modes) session.sessionModes = result.modes;
+          const observed = support.observeSessionConfig?.(result, instanceId);
+          if (observed?.options.length) models = observed;
           if (!support.modelVariants) return;
           const nativeModel = modelOf(result) ?? cliTurn.model;
           if (!nativeModel) return;
@@ -1367,6 +1408,7 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
                         writeTextFile: support.clientFileSystem === true,
                       },
                       terminal: false,
+                      ...(support.terminalAuth ? { auth: { terminal: true } } : {}),
                     },
                   },
                   INIT_TIMEOUT,
@@ -1412,8 +1454,12 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
               }
               const sessionServers = mcpServers.filter((server) =>
                 !("type" in server) || init?.agentCapabilities?.mcpCapabilities?.[server.type] === true);
-              const selectionParams = narrowsNativeTools(turn.toolScope)
-                ? support.toolScopeSessionParams!(turn, init, sessionServers.length > 0, { config: turnConfig, env, cwd }) : {};
+              const selectionParams = {
+                ...(narrowsNativeTools(turn.toolScope)
+                  ? support.toolScopeSessionParams!(turn, init, sessionServers.length > 0, { config: turnConfig, env, cwd }) : {}),
+                ...(extraFolders.length && init?.agentCapabilities?.sessionCapabilities?.additionalDirectories
+                  ? { additionalDirectories: extraFolders } : {}),
+              };
               let loaded = false;
               if (cursor) {
                 try {
@@ -1539,6 +1585,8 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
                     ? sessionResult.models.availableModels
                     : [],
                   currentModelId: session.sessionConfigResult?.models?.currentModelId,
+                  sessionConfig: session.sessionConfigResult,
+                  sessionModes: session.sessionModes,
                 });
                 approvalUnconfirmed = false;
                 if (!selectedModel && cliTurn.model) selectedModel = cliTurn.model;
@@ -1745,6 +1793,13 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
           cancelAuthentication: () => deviceSignIn.cancel(),
           ...(deviceSignIn.canSignOut ? { signOut: () => deviceSignIn.signOut() } : {}),
         } : {}),
+        ...(pasteSignIn ? {
+          startAuthentication: () => pasteSignIn.start(),
+          getAuthentication: (flowId: string) => pasteSignIn.get(flowId),
+          completeAuthentication: (flowId: string, code: string) => pasteSignIn.complete(flowId, code),
+          cancelAuthentication: () => pasteSignIn.cancel(),
+          signOut: () => pasteSignIn.signOut(),
+        } : {}),
         snapshot,
         adapter: {
           provider: DRIVER_KIND,
@@ -1784,6 +1839,7 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
         },
         dispose: async () => {
           await deviceSignIn?.dispose();
+          await pasteSignIn?.dispose();
           for (const { stop } of active.values()) stop();
           for (const threadId of Array.from(sessions.keys())) closeSession(threadId, "dispose");
           for (const [threadId, children] of retiring) {

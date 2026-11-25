@@ -85,6 +85,10 @@ function memoryEntryStat(path: string) {
   return regularMemoryFilesOnly ? lstatSync(path) : statSync(path);
 }
 
+export function dogFolders(botId: string, cwd: string | undefined, botCwd?: string): string[] {
+  return [...new Set([workspaceDir(botId), botCwd].filter((folder): folder is string => Boolean(folder) && folder !== cwd))];
+}
+
 export function workspaceLocationsPrompt(botId: string, cwd: string | undefined, botCwd?: string, ownChatFolder?: string | null): string {
   const workingFolder = cwd ?? "Provider default; inspect the working directory before using relative paths";
   const folders = {

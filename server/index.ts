@@ -424,7 +424,7 @@ import { TurnResources, type TurnOwner } from "./turn-resources.ts";
 import {
   ensureWorkspace,
   ensureTaskWorkspace,
-  workspaceLocationsPrompt,
+  dogFolders, workspaceLocationsPrompt,
   supportsWorkspaceFiles,
   updateMemory,
   appendMemoryLog,
@@ -896,8 +896,6 @@ import { createDeviceRoutes } from "./routes/devices.ts";
 import { dispatchInternalRoutes, INTERNAL_ROUTES } from "./routes/internal.ts";
 import { createDesktopViewer, desktopViewerUrl } from "./routes/desktop-viewer.ts";
 import { localDesktopTarget, localVmViewerStatus, viewerTargetId } from "./desktop-viewer-targets.ts";
-import { createAntigravityLeftoverRoutes } from "./routes/antigravity-leftovers.ts";
-import { findAntigravityLeftovers, removeAntigravityLeftovers } from "./drivers/antigravity-temp.ts";
 import { createLiveRoutes } from "./routes/live.ts";
 import { withScopeHint } from "./connector-scope-hint.ts";
 import { remoteEngineChoice, setEngineOpener, setRemoteEngineBot } from "./laterdog/engine-placement.ts";
@@ -9677,6 +9675,7 @@ async function startTurn(
         mcpFromUserConfig: claudeUserMcpEnabled(cfg) && !managedPolicy.restrictsMcp(),
         mcpCallTimeoutMs: mcpCallTimeoutMinutes(cfg) * 60_000,
         cwd,
+        extraFolders: worksInWorkspace && !cloudGuestOpened(threadId) ? dogFolders(bot.id, cwd, liveBot?.cwd ?? bot.cwd) : undefined,
       }), () => !directTurnClaimExists(bot.id, dispatchClaimId, threadId), async () => {
         await instance.adapter.interruptTurn(threadId).catch(() => {});
       });
@@ -11601,6 +11600,7 @@ async function runGroupMemberTurn(
         systemVolatile: roomSystem.volatile,
         systemVolatileSections: roomSystem.volatileSections,
         cwd,
+        extraFolders: workspace && !cloudGuestOpened(threadId) ? dogFolders(bot.id, cwd, readyBot.cwd) : undefined,
         integrations,
         mcpFromUserConfig: claudeUserMcpEnabled(cfg) && !managedPolicy.restrictsMcp(),
         mcpCallTimeoutMs: mcpCallTimeoutMinutes(cfg) * 60_000,
@@ -13504,7 +13504,6 @@ async function describeInstances() {
       ...described, ...policy, readOnly: true, managed: managedDesktop.info(instance.instanceId),
       install: undefined, authentication: undefined, cli: undefined, cliCandidates: [],
     };
-    if (instance.driverKind === "antigravityAgent" && process.platform === "win32") return { ...described, ...policy, freeUpSpace: true };
     if (entry?.driver !== "claudeAgent") return { ...described, ...policy };
     if (instance.instanceId === CLAUDE_API_INSTANCE) {
       return { ...described, ...policy, authentication: undefined, install: { ...instance.install, signInCommand: undefined } };
@@ -14384,12 +14383,6 @@ INTERNAL_ROUTES.push(createTakeoverRequestRoute({
   },
   messages: store,
   notify: (sender, threadId, detail, room) => notify(buildNotification("takeover", sender, threadId, detail, { group: room })),
-}));
-ROUTES.push(createAntigravityLeftoverRoutes({
-  hosted: Boolean(hostedModels),
-  isAntigravity: (instanceId) => registry.get(instanceId)?.driverKind === "antigravityAgent",
-  find: () => findAntigravityLeftovers(),
-  remove: () => removeAntigravityLeftovers(),
 }));
 
 ROUTES.push(desktopViewer.route);

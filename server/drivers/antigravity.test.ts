@@ -105,8 +105,8 @@ describe("Antigravity on the official agy", () => {
     const instance = await antigravity(dir);
     expect(await run(instance, { text: "hi", cwd: dir })).toMatchObject({ ok: true });
     const seen = json(join(dir, "dump.json"));
-    expect(seen.argv).toEqual(["acp", "--gemini-dir", join(dir, ".gemini")]);
-    expect(seen.env).toMatchObject({ AGY_CLI_FORCE_FILE_TOKEN_STORAGE: "true", AGY_CLI_DISABLE_AUTO_UPDATE: "true" });
+    expect(seen.argv).toEqual(["acp", ...antigravityHome({ HOME: dir }).args]);
+    expect(seen.env).toMatchObject(antigravityHome({ HOME: dir }).env);
     for (const key of ["BROWSER", "GEMINI_HOME", "AGY_ACP_FORCE_FILE_STORAGE"]) expect(seen.env[key], key).toBeUndefined();
     expect(json(join(dir, "dump.json.initialize.json")).clientCapabilities.auth).toEqual({ terminal: true });
     expect(json(join(dir, "rpc.json"))).not.toContain("authenticate");
@@ -121,7 +121,7 @@ describe("Antigravity on the official agy", () => {
     expect(json(join(dir, "dump.json.mcp.json"))).toContainEqual({ name: "agents", command: "node", args: ["agents.js"], env: [{ name: "LATERDOG_TOKEN", value: "t" }] });
     const remote = { type: "http" as const, url: "https://mcp.example.test/mcp", headers: {} };
     await run(instance, { threadId: "t-http", text: "hi", cwd: dir, integrations: { agents, custom: { remote } } });
-    expect(json(join(dir, "dump.json")).argv).toEqual(["acp", "--gemini-dir", join(dir, ".gemini"), "--process-per-session"]);
+    expect(json(join(dir, "dump.json")).argv).toEqual(["acp", ...antigravityHome({ HOME: dir }).args, "--process-per-session"]);
     expect(json(join(dir, "dump.json.mcp.json"))).toContainEqual({ type: "http", name: "remote", url: remote.url, headers: [] });
   });
 
@@ -164,8 +164,9 @@ describe("Antigravity on the official agy", () => {
     for (const approvalMode of ["edits", "full", "ask"] as const) {
       expect(await run(instance, { text: "go", cwd: dir, approvalMode, resumeCursor: "fake-acp-session" })).toMatchObject({ ok: true });
     }
-    const modes = configCalls(dir).filter((call) => call.params.configId === "mode").map((call) => call.params.value);
-    expect(modes).toEqual(["accept-edits", "auto", "default"]);
+    const prompts = readFileSync(join(dir, "dump.json.prompts.jsonl"), "utf8").trim().split("\n").map((line) => JSON.parse(line));
+    expect(prompts.map((prompt) => prompt.mode)).toEqual(["accept-edits", "auto", "default"]);
+    expect(configCalls(dir).at(-1)?.params).toMatchObject({ configId: "mode", value: "default" });
     expect(JSON.stringify(configCalls(dir))).not.toMatch(/yolo|auto_edit/);
     expect(json(join(dir, "dump.json")).argv).not.toContain("--dangerously-skip-permissions");
   });
@@ -173,9 +174,11 @@ describe("Antigravity on the official agy", () => {
   it("uses session/set_mode when agy lists its modes outside the config options", async () => {
     const dir = scratch();
     const instance = await antigravity(dir, { FAKE_ACP_SESSION_MODES: "default,accept-edits,plan" });
+    const setModes = () => configCalls(dir).filter((call) => call.method === "session/set_mode").map((call) => call.params.modeId);
     await run(instance, { text: "go", cwd: dir, approvalMode: "full" });
+    expect(setModes()).toEqual(["default"]);
     await run(instance, { text: "go", cwd: dir, approvalMode: "edits", resumeCursor: "fake-acp-session" });
-    expect(configCalls(dir).filter((call) => call.method === "session/set_mode").map((call) => call.params.modeId)).toEqual(["default", "accept-edits"]);
+    expect(setModes().at(-1)).toBe("accept-edits");
   });
 
   it("sends Full access permission requests to later.dog instead of a skip-permissions flag", async () => {
@@ -191,7 +194,7 @@ describe("Antigravity on the official agy", () => {
     } finally {
       recorder.stop();
     }
-    expect(json(join(dir, "dump.json")).argv).toEqual(["acp", "--gemini-dir", join(dir, ".gemini")]);
+    expect(json(join(dir, "dump.json")).argv).toEqual(["acp", ...antigravityHome({ HOME: dir }).args]);
   });
 
   it("lists agy's models and effort levels unfiltered, sends no model until one is picked and remembers the last list", async () => {
