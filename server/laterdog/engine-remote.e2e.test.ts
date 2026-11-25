@@ -13,7 +13,7 @@ import { claudeProjectSlug, planClaudeRemote, spawnPlacedEngine, type ClaudeRemo
 import type { EngineWait } from "./engine-waiting.ts";
 import { placedThreads, preToolGuardDecision } from "./placed-threads.ts";
 import { createClaudeRefreshGate } from "./claude-refresh-lock.ts";
-import { commandLink, type EngineLink } from "./engine-remote.ts";
+import { commandLink, EngineProcess, RemoteSession, type EngineLink } from "./engine-remote.ts";
 import { createClaudeRenewer, type ClaudeRenewer } from "./engine-renewal.ts";
 
 const here = (name: string) => fileURLToPath(new URL(name, import.meta.url));
@@ -226,6 +226,18 @@ it("runs on the home when the computer surely never started the engine", async (
   expect(w.localLaunches()).toBe(1);
   engine.stdin.end();
   await closed(engine);
+}, 60_000);
+
+it("fails a remote-only engine cleanly when the relay cannot start", async () => {
+  const w = world();
+  const engine = new EngineProcess(new RemoteSession(commandLink("/nonexistent/relay", []), w.plan().launch));
+  running.push(engine);
+  const stderr: string[] = [];
+  engine.stderr.on("data", bytes => stderr.push(String(bytes)));
+  expect(await closed(engine)).toBe(1);
+  expect(engine.placement).not.toBe("home");
+  expect(stderr.join("")).toContain("closed before it was ready");
+  expect(w.launches()).toEqual([]);
 }, 60_000);
 
 it("places the engine when the computer takes 95 seconds to wake, because the relay's handshake waits for the link to open", async () => {

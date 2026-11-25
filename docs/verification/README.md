@@ -75,6 +75,7 @@ Use only mapped, tested commands:
 - [A chat never shows idle while something runs for it](work-state-truth.md)
 - [Codex browser routing and native search](codex-browser-routing.md)
 - [Codex helper event isolation](codex-helpers.md)
+- [Native Codex engine relay](codex-engine-relay.md)
 - [Team backups](team-backups.md)
 - [Sharing one dog](team-sharing.md)
 - [Sections](sections.md)
