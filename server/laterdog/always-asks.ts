@@ -18,6 +18,7 @@ export interface AlwaysAsk {
   id: AlwaysAskId;
   ask: string;
   refusal: string;
+  decision?: "deny";
 }
 
 const WHAT: Record<AlwaysAskId, string> = {
@@ -468,12 +469,12 @@ function actsAsYou(tool: string): AlwaysAskId | null {
   return REPOSITORY_APPS.has(appOf(tool)) ? null : "sends-for-you";
 }
 
-export function connectorAlwaysAsks(calls: readonly (string | ConnectorCall)[]): AlwaysAsk | null {
+export function connectorAlwaysAsks(calls: readonly (string | ConnectorCall)[], ownerFull = false): AlwaysAsk | null {
   const each = calls.map((call) => (typeof call === "string" ? { slug: call } : call));
   const ids = each.map((call) => actsAsYou(call.slug));
   if (ids.includes("pays")) return found("pays");
   if (ids.includes("sends-for-you")) return found("sends-for-you");
-  return each.some((call) => callDeletesOrShares(call.slug, call.arguments)) ? found("deletes-or-shares") : null;
+  return !ownerFull && each.some((call) => callDeletesOrShares(call.slug, call.arguments)) ? found("deletes-or-shares") : null;
 }
 
 function macGuard(cwd: string | undefined): OwnerGuardContext {
@@ -498,7 +499,8 @@ const RULES: Record<AlwaysAskId, Rule> = {
   "delete-outside-workspace": ({ shell, place, deletes }, guard) => {
     if (place === "own-computer") return false;
     if (deletes.length) return `This deletes ${deletes.join(", ")} on your Mac.`;
-    return (shell !== undefined && deletesOutsideWorkspace(shell, guard())?.ask) || false;
+    const refusal = shell !== undefined ? deletesOutsideWorkspace(shell, guard()) : null;
+    return refusal?.ask ?? refusal?.message ?? false;
   },
   "sends-for-you": ({ tool }) => actsAsYou(tool) === "sends-for-you",
   "pays": ({ tool }) => actsAsYou(tool) === "pays",
@@ -507,10 +509,25 @@ const RULES: Record<AlwaysAskId, Rule> = {
 
 export function alwaysAsks(request: AlwaysAskRequest, guard: () => OwnerGuardContext): AlwaysAsk | null {
   const seen = seenOf(request);
-  const guardFor = () => (seen.place === "mac" ? macGuard(seen.cwd) : guard());
+  const context = guard();
+  const guardFor = () => (seen.place === "mac" ? { ...macGuard(seen.cwd), ownerFull: context.ownerFull } : context);
   for (const id of ALWAYS_ASK_IDS) {
+    if (context.ownerFull && (id === "cloud-credential" || id === "deletes-or-shares")) continue;
     const hit = RULES[id](seen, guardFor);
-    if (hit) return found(id, typeof hit === "string" ? hit : undefined);
+    if (!hit) continue;
+    if (context.ownerFull && (id === "delete-outside-workspace" || id === "push-skips-checks")) {
+      const refusal = id === "delete-outside-workspace" && seen.shell !== undefined
+        ? deletesOutsideWorkspace(seen.shell, guardFor())?.message
+        : undefined;
+      return {
+        ...found(id),
+        decision: "deny",
+        refusal: refusal ?? (id === "push-skips-checks"
+          ? "later.dog refused this: it bypasses the repository's checks. Run the checks and push without bypassing them."
+          : "later.dog refused this: the delete target is outside the dog's own folders. Write a literal path inside a lent folder or the dog's scratch folder."),
+      };
+    }
+    return found(id, typeof hit === "string" ? hit : undefined);
   }
   return null;
 }
@@ -520,7 +537,7 @@ export function alwaysAskHook(payload: Record<string, unknown>, guard: () => Own
   const input = payload.tool_input && typeof payload.tool_input === "object" ? (payload.tool_input as Record<string, unknown>) : undefined;
   if (!tool || !input) return null;
   const hit = alwaysAsks({ tool, input }, guard);
-  return hit ? { hookEventName: "PreToolUse", permissionDecision: "ask", permissionDecisionReason: hit.ask } : null;
+  return hit ? { hookEventName: "PreToolUse", permissionDecision: hit.decision ?? "ask", permissionDecisionReason: hit.decision === "deny" ? hit.refusal : hit.ask } : null;
 }
 
 const objectOf = (value: unknown): Record<string, unknown> => (value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : {});

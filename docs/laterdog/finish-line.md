@@ -423,3 +423,13 @@ routines. Four fail-first regressions were reproduced; all 87 focused checks, li
 and locale validation passed on the checking computer with source hashes matching the Mac. This is
 not live; the primary lane's complete merge gate and Sol Lead's release remain required.
 [Checks and limits](../verification/optional-cards-full-access-2026-11-25.md).
+
+## Owner Full access without routine cards (2026-11-25)
+
+Owner Full turns resolve routine permissions and questions immediately. Safe
+cleanup paths are resolved; unknown or protected deletes return a refusal to the
+dog. Sends and payments keep per-action confirmation. The source chat's effective
+access and owner authority determine this behavior. Mac permissions and optional
+routine cards have separate companion changes. Checked behavior and limits are
+in [the verification record](../verification/full-owner-no-asks-2026-11-25.md).
+This change awaits the complete integration gate and release.

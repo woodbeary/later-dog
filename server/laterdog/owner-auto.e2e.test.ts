@@ -178,6 +178,87 @@ async function startTurn(bot: { id: string }, text: string) {
   return attach(bot, threadId);
 }
 
+it("Full owner work settles cleanup and choices immediately without cards while preserving send and pay confirmation", async () => {
+  await autoReview(true);
+  const dog = await newDog("Delegated", "auto");
+  expect((await api("PUT", "/api/full-access-all", { enabled: true })).status).toBe(200);
+  const turn = await startTurn(dog, "Finish the cleanup and choose the sensible defaults.");
+  const safe = turn.ask("Bash", { command: 'target="$PWD/build"; rm -rf "$target"' });
+  const unknown = turn.ask("Bash", { command: 'rm -rf "$unknown"' });
+  const skipped = turn.ask("Bash", { command: "git push --no-verify origin main" });
+  const credentials = turn.ask("Bash", { command: "gcloud iam service-accounts keys create k.json --iam-account=a" });
+  const choice = turn.ask("AskUserQuestion", { questions: [
+    { question: "Which check?", options: [{ label: "Skip it" }, { label: "Run it (Recommended)" }] },
+    { question: "Which branch?", options: [{ label: "main" }, { label: "dev" }] },
+  ] }, "question");
+  const judgment = turn.ask("AskUserQuestion", { questions: [{ question: "How should the work continue?", options: [] }] }, "question");
+  for (const requestId of [safe, credentials]) {
+    await expect.poll(() => turn.answers.get(requestId)?.behavior, { timeout: 10_000 }).toBe("allow");
+    expect(await turn.card(requestId)).toBeUndefined();
+  }
+  for (const requestId of [unknown, skipped]) {
+    await expect.poll(() => turn.answers.get(requestId)?.behavior, { timeout: 10_000 }).toBe("deny");
+    expect(await turn.card(requestId)).toBeUndefined();
+    expect(turn.answers.get(requestId).message).not.toMatch(/person.s yes|ask them/i);
+  }
+  await expect.poll(() => turn.answers.get(choice)?.behavior, { timeout: 10_000 }).toBe("answer");
+  expect(turn.answers.get(choice).message).toBe("Q: Which check?\nA: Run it (Recommended)\n\nQ: Which branch?\nA: main");
+  await expect.poll(() => turn.answers.get(judgment)?.behavior, { timeout: 10_000 }).toBe("answer");
+  expect(turn.answers.get(judgment).message).toContain("Full access delegates this decision to you");
+  expect(await turn.card(choice)).toBeUndefined();
+  expect(await turn.card(judgment)).toBeUndefined();
+  const decisions = (await api("GET", "/api/decisions?limit=500")).body.decisions as Array<{ requestId?: string; decision: string }>;
+  expect(decisions.filter((entry) => [safe, unknown, skipped, credentials, choice, judgment].some((requestId) => requestId === entry.requestId) && entry.decision === "card-shown")).toEqual([]);
+  const agentToken = await mint(dog.id, turn.threadId, "agents");
+  const macDelete = await fetch(`${base}/api/internal/shared-computers`, {
+    method: "POST",
+    headers: { "content-type": "application/json", authorization: `Bearer ${agentToken}` },
+    body: JSON.stringify({ action: "run_command", command: 'rm -rf "$unknown"' }),
+  });
+  expect(macDelete.status).toBe(403);
+  expect((await macDelete.json() as { error: string }).error).toContain("Write the literal path");
+  expect((await turn.messages()).filter((message) => message.card && !message.card.answered && !message.card.dismissed)).toEqual([]);
+  const mail = turn.ask("mcp__mail__send_email", {});
+  const pay = turn.ask("mcp__shop__chargeCard", {});
+  for (const requestId of [mail, pay]) {
+    await expect.poll(() => turn.card(requestId), { timeout: 10_000 }).toMatchObject({ requestType: "permission" });
+    expect(turn.answers.has(requestId)).toBe(false);
+  }
+  await turn.stop();
+  expect((await api("PUT", "/api/full-access-all", { enabled: false })).status).toBe(200);
+  await autoReview(false);
+}, 90_000);
+
+it("Full owner connected-app changes run without cards and unreadable or repository deletes are refused", async () => {
+  await autoReview(false);
+  const dog = await newDog("Full apps", "auto");
+  expect((await api("PUT", "/api/full-access-all", { enabled: true })).status).toBe(200);
+  try {
+    const token = await mintConnectors(dog.id, dog.threadId);
+    const before = relayed.length;
+    const cleaned = await relay(token, "GMAIL_DELETE_MESSAGE", { message_id: "example-message" });
+    expect(cleaned.body.result.isError).toBeFalsy();
+    expect(relayed).toHaveLength(before + 1);
+    const repository = await relay(token, "GITHUB_DELETE_A_REPOSITORY", { owner: "example", repo: "example" });
+    expect(repository.body.result.isError).toBe(true);
+    expect(repository.body.result.content[0].text).toContain("deleting a remote repository");
+    const unreadable = await relay(token, "COMPOSIO_PROXY_EXECUTE", { code: "opaque fixture program" });
+    expect(unreadable.body.result.isError).toBe(true);
+    expect(unreadable.body.result.content[0].text).toContain("Use the direct app tools");
+    expect(relayed).toHaveLength(before + 1);
+    expect(await sendCards(dog.threadId)).toEqual([]);
+    const pending = relay(token, "GMAIL_SEND_EMAIL", { to: "friend@example.test", body: "Example message." });
+    await expect.poll(async () => (await sendCards(dog.threadId)).length, { timeout: 10_000 }).toBe(1);
+    const [card] = await sendCards(dog.threadId);
+    await api("POST", `/api/threads/${dog.threadId}/respond`, { requestId: card.card.requestId, behavior: "deny" });
+    expect((await pending).body.result.isError).toBe(true);
+    expect(relayed).toHaveLength(before + 1);
+  } finally {
+    expect((await api("PUT", "/api/full-access-all", { enabled: false })).status).toBe(200);
+    await autoReview(false);
+  }
+}, 60_000);
+
 it("starts with Auto-review off for a home whose dogs never worked Off-leash", async () => {
   expect((await api("GET", "/api/config")).body.features.autoReview).toBe(false);
   expect(JSON.parse(readFileSync(join(home, ".laterdog", "config.json"), "utf8")).features.autoReview).toBe(false);

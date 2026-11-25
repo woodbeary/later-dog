@@ -26,7 +26,7 @@ export function ownerGrantApplies(mode: ApprovalMode, scope: OwnerScope): boolea
 }
 
 export function ownerAutoAnswers(mode: ApprovalMode, scope: OwnerAutoScope): boolean {
-  return !scope.autoReview && ownerGrantApplies(mode, scope);
+  return ownerAuthority(scope) && (mode === "full" || (!scope.autoReview && ownerGrantApplies(mode, scope)));
 }
 
 export function ownerSendsWithoutAsking(mode: ApprovalMode, scope: OwnerAutoScope): boolean {
