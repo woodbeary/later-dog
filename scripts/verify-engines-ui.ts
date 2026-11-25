@@ -9,7 +9,7 @@ const instances: InstanceInfo[] = [
   ["codex", "codex", "Codex", true, "0.122.0"],
   ["grok", "grokAgent", "Grok", true, "grok"],
   ["opencode", "opencodeGo", "OpenCode", true, "1.18.25"],
-  ["antigravity", "antigravityAgent", "Antigravity", false, "0.1.0"],
+  ["antigravity", "antigravityAgent", "Antigravity", false, "1.5.17"],
   ["kimi", "kimiAgent", "Kimi", false, ""],
   ["droid", "droidAgent", "Droid", false, ""],
   ["cursor", "cursorAgent", "Cursor", false, ""],
@@ -27,7 +27,7 @@ instances[0].snapshot.account = { email: "personal@example.test" };
 instances[0].claudeAccount = { configDir: "", isDefault: true, signInCommand: "echo 'Preview only'", signInShell: "sh" };
 instances[1].authentication = { method: "device-code", signOut: true };
 instances[1].snapshot.account = { email: "work@example.test" };
-instances[4].install = { managed: { label: "Install Antigravity", downloadBytes: 200_000_000 } };
+instances[4].authentication = { method: "paste-code", signOut: true };
 instances[5].install!.server = { package: "kimi-fixture" };
 instances[3].install!.server = { package: "opencode-fixture" };
 instances[3].snapshot.update = { title: "OpenCode update available", message: "A sample update for this isolated preview.", command: "echo 'Preview only'" };
