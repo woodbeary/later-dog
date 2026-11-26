@@ -272,7 +272,7 @@ def migration_scenario(directory, transport):
     current_rows = {
         k: v
         for k, v in original_rows.items()
-        if k != ARCHIVE and not k.startswith(".laterdog/checkpoints")
+        if k != ARCHIVE and not k.startswith((".laterdog/checkpoints", ".laterdog/workspaces", ".laterdog/task-workspaces"))
     }
     baseline_ref = {
         "v": 1,
@@ -351,6 +351,17 @@ def migration_scenario(directory, transport):
         == 201,
         "Current coordinator state failed to save",
     )
+    conflict = entry(".laterdog/workspaces", "link", 0o777, target="/private")
+    collision = encode({**old, "entries": [*current_rows.values(), conflict]})
+    require(transport.admin("manifest.json", "PUT", collision)[0] == 201, "Fixture collision was not recorded")
+    try:
+        reconstruct(package, hot, transport, 3)
+    except ValueError as error:
+        require("non-directory ancestor" in str(error), "A different projection check failed")
+    else:
+        raise ValueError("An existing coordinator link was overwritten")
+    require(transport.admin("manifest.json")[2] == collision, "Rejected rollback changed the active coordinator")
+    require(transport.admin("manifest.json", "PUT", encode({**old, "entries": list(current_rows.values())}))[0] == 201, "Compact coordinator could not be restored")
     backlayout, backclaims, projection = reconstruct(package, hot, transport, 3)
     back = prepare_cutover(
         "legacy",
@@ -363,6 +374,8 @@ def migration_scenario(directory, transport):
     rollback = activate(back, transport, 3, projection)
     restored = json.loads(transport.admin("manifest.json")[2])
     rows = {e["path"]: e for e in restored["entries"]}
+    for parent in (".laterdog/workspaces", ".laterdog/task-workspaces", ".laterdog/task-workspaces/fixtureA"):
+        require(rows[parent] == original_rows[parent], "Original workspace container metadata differs")
     require(
         rows[ARCHIVE]["chunks"] == [updated]
         and REFERENCE not in rows

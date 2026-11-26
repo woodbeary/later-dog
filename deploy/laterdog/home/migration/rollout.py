@@ -3,6 +3,7 @@ import os
 import pathlib
 import tempfile
 from legacy import (
+    DOGS,
     LEDGER,
     TASKS,
     digest,
@@ -353,6 +354,30 @@ def reconstruct(package, hot, transport, workers, observed_layout=None):
     if layout.get("loose"):
         layout["loose"]["names"] = sorted(loose_names)
 
+    structural = {".laterdog", DOGS.rstrip("/"), TASKS.rstrip("/")}
+    structural.update(TASKS + dog for dog in layout["tasks"])
+    allowed_ancestors = set()
+    for prefix in scopes.values():
+        parent = prefix.rpartition("/")[0]
+        while parent and parent not in allowed_ancestors:
+            allowed_ancestors.add(parent)
+            parent = parent.rpartition("/")[0]
+    checked = set()
+    for path in projected:
+        parent = path.rpartition("/")[0]
+        while parent and parent not in checked:
+            ancestor = retained.get(parent) or projected.get(parent)
+            if ancestor is None:
+                require(parent in allowed_ancestors, "Missing compatible non-working parent")
+                ancestor = original_rows.get(parent)
+                if ancestor is None:
+                    require(parent in structural, "Missing original project parent")
+                    ancestor = {"path": parent, "type": "dir", "mode": 0o700, "mtimeMs": 0}
+                retained[parent] = ancestor
+            require(ancestor["type"] == "dir", "A working folder conflicts with a non-directory ancestor")
+            checked.add(parent)
+            parent = parent.rpartition("/")[0]
+
     def requests():
         by_scope = {}
         for h, scope in blobs.items():
@@ -395,21 +420,6 @@ def reconstruct(package, hot, transport, workers, observed_layout=None):
                 "Compatible cold ledger was not saved",
             )
             retained[LEDGER] = {**row, "size": len(b), "chunks": [h]}
-    for path in list(projected):
-        parent = path.rpartition("/")[0]
-        while parent and parent not in retained and parent not in projected:
-            require(
-                parent.startswith(".laterdog")
-                and (TASKS.startswith(parent + "/") or parent.startswith(TASKS)),
-                "Missing compatible non-working parent",
-            )
-            retained[parent] = {
-                "path": parent,
-                "type": "dir",
-                "mode": 0o700,
-                "mtimeMs": 0,
-            }
-            parent = parent.rpartition("/")[0]
     retained.update(projected)
     source["entries"] = [retained[p] for p in sorted(retained)]
     output = encode(source)
