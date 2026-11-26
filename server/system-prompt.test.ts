@@ -129,7 +129,7 @@ describe("buildSystemPrompt", () => {
     expect(built.text).toContain("likes tea");
     expect(built.text).toContain("@Fig");
 
-    expect(built.stable).toBe(`You are Kiwi.${REPLIES()}${tagged("tools_and_places", "Search past sessions.")}`);
+    expect(built.stable).toBe(`You are Kiwi.${REPLIES()}${tagged("recall", "Search past sessions.")}`);
     expect(built.volatile).toContain("likes tea");
     expect(built.volatile).toContain("@Fig");
     expect(built.volatile).toContain("today 20:48");
@@ -182,7 +182,7 @@ describe("buildSystemPrompt", () => {
       { id: "memory", label: "Memory", text: " Your memory file is X." },
     ];
     const built = buildSystemPrompt("You are Kiwi.", "", parts);
-    expect(built.text).toBe(`You are Kiwi.${REPLIES()}${tagged("tools_and_places", "You can act on the computer.")} Your memory file is X.`);
+    expect(built.text).toBe(`You are Kiwi.${REPLIES()}${tagged("computer", "You can act on the computer.")} Your memory file is X.`);
     expect(built.sections.map((s) => s.id)).toEqual(["persona", "voice", "replies", "computer", "memory"]);
   });
 
@@ -207,12 +207,12 @@ describe("buildSystemPrompt", () => {
       { id: "credential", label: "Credentials", text: " Use the vault." },
     ]);
     expect(built.stable).toBe("You are Kiwi.\n\nYou are a dog." + REPLIES() + tagged("the_person", "The owner lets you act for them.")
-      + tagged("tools_and_places", "Use the browser tools.\nUse the vault.") + tagged("team", "Ask other dogs with coordinate_bots.")
+      + tagged("browser", "Use the browser tools.") + tagged("sign_ins", "Use the vault.") + tagged("team", "Ask other dogs with coordinate_bots.")
       + tagged("progress", "Run long jobs in the background."));
     expect(buildSystemPrompt("You are Kiwi.", "", [
       { id: "credential", label: "Credentials", text: " Use the vault." },
       { id: "browser", label: "Browser", text: " Use the browser tools." },
-    ]).stable).toContain("Use the vault.\nUse the browser tools.");
+    ]).stable).toContain("<browser>\nUse the browser tools.\n</browser>\n\n<sign_ins>\nUse the vault.\n</sign_ins>");
     const souled = buildSystemPrompt("You are Kiwi.", "Be brief.", [{ id: "guide", label: "How to work", text: "You are a dog." }]).stable;
     expect(souled).toContain("--- END STANDING INSTRUCTIONS ---\n\nYou are a dog.");
   });
@@ -296,15 +296,14 @@ describe("shared sentences", () => {
     );
   });
 
-  it("configuration prompts follow actual applied or pending results without elevating another bot", () => {
+  it("configuration prompts follow actual applied or pending results, and Full access applies a change for another dog too", () => {
     expect(PROFILE_PROMPT).toContain("propose_profile");
     for (const prompt of [PROPOSAL_RESULT_PROMPT]) {
       expect(prompt).toContain("a change to your own routines, skills, profile or model, and a routine you set up for another of the owner's dogs, applies immediately");
-      expect(prompt).toContain("Any other change for another bot may wait for the person");
+      expect(prompt).toContain("On Full access a change for another dog applies too; otherwise it may wait for the person.");
       expect(prompt).toContain("continue the requested work without asking for another confirmation");
       expect(prompt).toContain("If it reports a pending review, end the turn and wait");
       expect(prompt).toContain("Never claim success before an applied result");
-      expect(prompt).toContain("Full Access does not grant another bot broader permissions");
       expect(prompt).not.toContain("nothing changes until the user confirms");
     }
     expect(LEARN_PROMPT).toContain("only when the user explicitly asks to revise that exact name");
@@ -356,11 +355,11 @@ describe("cloudHomePrompt", () => {
       const text = cloudHomePrompt(tools, "claude");
       expect(text).toMatch(/^ You run on the user's My Cloud, their always-on later\.dog in the cloud, not on their own computer\./);
       expect(text.startsWith(` You run on ${CLOUD_HOME_PLACE}.`)).toBe(true);
-      expect(text).toContain("Offer what works here: their cloud computer, a desktop in the cloud with its own browser, where you can sign in to sites and do things on the web for them. Call it their cloud computer, as the app does.");
+      expect(text).toContain("Their cloud computer is a desktop in the cloud with its own browser, where you can sign in to sites and do things on the web for them; call it their cloud computer");
       expect(text).not.toContain("built-in browser");
       expect(text).not.toMatch(/\blaterdog\b|\bBoat\b|\bbox\b/);
-      expect(text).toContain("Never ask them to set up this computer or a Local VM; neither exists here.");
-      expect(text).toContain("$TMPDIR is this chat's own and is emptied when your turn ends, so keep anything you need later in your workspace. Anything that must keep running after your turn has to be started with the shell tool's own background option; anything started with &, nohup, setsid or tmux may be stopped when the turn ends.");
+      expect(text).toContain("never ask them to set up this computer or a Local VM.");
+      expect(text).toContain("$TMPDIR is this chat's own and is emptied when your turn ends, so keep what you need in your workspace, and never delete an earlier folder just to reuse its name. Anything that must keep running after your turn has to be started with the shell tool's own background option; anything started with &, nohup, setsid or tmux may be stopped when the turn ends.");
       expect(text).not.toMatch(/Computer panel|container runtime|configure/i);
     }
   });
@@ -368,7 +367,7 @@ describe("cloudHomePrompt", () => {
   it("promises the shell tool's background option only to dogs on the engine where it was checked", () => {
     for (const engine of ["codex", "other"] as const) {
       const text = cloudHomePrompt(true, engine);
-      expect(text).toContain("$TMPDIR is this chat's own and is emptied when your turn ends, so keep anything you need later in your workspace. Anything you leave running may be stopped when your turn ends. Offer");
+      expect(text).toContain("$TMPDIR is this chat's own and is emptied when your turn ends, so keep what you need in your workspace, and never delete an earlier folder just to reuse its name. Anything you leave running may be stopped when your turn ends. Their cloud computer");
       expect(text).not.toMatch(/background option|nohup|setsid|tmux/);
     }
   });
@@ -391,11 +390,11 @@ describe("cloudHomePrompt", () => {
     ]);
     expect(built.stable).not.toContain("today is");
     expect(built.volatile).toContain("today is Thursday, October 29, 2026");
-    expect(built.text.endsWith(`${cloudHomePrompt(false, "claude").trim()}\n</tools_and_places>${built.volatile}`)).toBe(true);
+    expect(built.text.endsWith(`${cloudHomePrompt(false, "claude").trim()}\n</my_cloud>${built.volatile}`)).toBe(true);
   });
 
   it("points to the person's Mac only when the turn has the shared-computer tools", () => {
-    expect(cloudHomePrompt(true, "claude")).toContain("use shared_computer: it reaches the Mac where later.dog is open and signed in to this account. Just use it; if they set that Mac to ask first, later.dog shows them a card and your call waits for the answer.");
+    expect(cloudHomePrompt(true, "claude")).toContain("use shared_computer: it reaches the Mac where later.dog is open and signed in to this account, and shows them a card first if they set that Mac to ask.");
     expect(cloudHomePrompt(true, "claude")).not.toMatch(/approve it on a card/);
     expect(cloudHomePrompt(true, "claude")).toContain("they install later.dog on the Mac and sign in with the same email, and it connects by itself");
     expect(cloudHomePrompt(true, "claude")).not.toMatch(/Let My Cloud use this Mac|lend/);

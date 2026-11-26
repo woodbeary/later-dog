@@ -9,6 +9,7 @@ describe("the one sign-in passage", () => {
     const box = signInPassage({ secureForm: true });
     expect(box).toContain("When they ask you to sign in somewhere, do it straight away without asking why");
     expect(box).toContain("call request_secure_form for only what they know (an email or username, a password, a one-time code)");
+    expect(box.split("\n").every((line) => line === line.trim() && line.length > 0)).toBe(true);
     expect(box).toContain("never ask them to sign in themselves when a form can do it");
     expect(box).toContain("never a reason to refuse or stop, and passwords, codes and keys never belong in chat");
     expect(box).not.toContain(SESSION_SIGN_IN);
@@ -28,7 +29,7 @@ describe("the one sign-in passage", () => {
       expect(passage.startsWith(EXISTING_ACCESS)).toBe(true);
       expect(passage).toContain("ask only for the missing step");
       expect(passage).toContain("Respect a denied or disconnected Mac: do not work around it or require it.");
-      expect(passage).toContain(CREDENTIAL_RULES + TAKEOVER_PROMPT + DEVICE_APPROVAL_PROMPT);
+      expect(passage).toContain([CREDENTIAL_RULES, TAKEOVER_PROMPT.trim(), DEVICE_APPROVAL_PROMPT.trim()].join("\n"));
       expect(passage.endsWith(SECRETS_AND_CARDS)).toBe(true);
       expect(passage).toContain("secure credential request");
       expect(passage).toContain("never echo, cat, print or generate a secret in your own commands or replies");
@@ -36,6 +37,6 @@ describe("the one sign-in passage", () => {
       expect(passage.split("request_takeover").length - 1).toBe(1);
       expect(passage).not.toMatch(/\bthe user\b|\bbots?\b/);
     }
-    expect(SECURE_FORM_SIGN_IN.startsWith(" ")).toBe(true);
+    expect(SECURE_FORM_SIGN_IN.startsWith(" ")).toBe(false);
   });
 });

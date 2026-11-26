@@ -531,6 +531,13 @@ export async function callTool(name: string, args: Json, context: ToolCallContex
       text: `Created @${newName} in ${r.section ?? "General"} [id: ${r.id}].${r.modelSelection ? ` Model: ${JSON.stringify(r.modelSelection)}.` : ""} It is in the person's sidebar now${r.greeted === true ? ", greeting them in its own chat" : ""}. Tell them so in one sentence, for example: "I've created ${newName}, and it should be in your sidebar now." If they gave it a job, hand that job over now with coordinate_bots so it starts working; otherwise leave it to greet them.`,
     };
   }
+  if (name === "delete_bot") {
+    const botId = String(args.bot_id ?? "").trim();
+    if (!botId) return { text: "delete_bot needs bot_id (list_bots has the ids).", isError: true };
+    const r = await api(`/api/internal/delete-bot`, { method: "POST", body: JSON.stringify({ botId }) });
+    if (r.error) return { text: `Couldn't delete that dog: ${r.error}`, isError: true };
+    return { text: `Deleted ${String(r.name ?? "the dog")}. Tell the person in one line.` };
+  }
   if (name === "create_room") {
     if (args.section !== undefined) return { text: "Room sections are fixed to your own section; ask the person to move rooms.", isError: true };
     const roomName = String(args.name ?? "").trim();

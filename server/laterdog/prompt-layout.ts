@@ -9,13 +9,30 @@ const GROUP_OF: Readonly<Record<string, string>> = {
   "user-profile": "the_person",
   "ask-first": "the_person",
   "owner-grant": "the_person",
+  files: "files",
+  computer: "computer",
+  plan: "computer",
+  browser: "browser",
+  "cloud-home": "my_cloud",
+  composio: "connected_apps",
+  mcp: "connected_apps",
+  credential: "sign_ins",
+  recall: "recall",
+  "cross-recall": "recall",
+  routine: "routines",
+  "routine-execution": "routines",
+  profile: "changing_yourself",
+  learn: "changing_yourself",
+  proposals: "changing_yourself",
+  skills: "skills",
+  "skill-instructions": "skills",
   coordination: "team",
   assignment: "team",
   mentions: "team",
   updates: "progress",
 };
 
-const GROUP_ORDER: readonly string[] = ["", "replies", "the_person", "tools_and_places", "team", "progress"];
+const GROUP_ORDER: readonly string[] = ["", "replies", "the_person", "files", "computer", "browser", "my_cloud", "connected_apps", "sign_ins", "recall", "routines", "changing_yourself", "skills", "tools_and_places", "team", "progress"];
 const LEAD_ORDER: readonly string[] = ["persona", "soul", "guide"];
 
 export function sectionGroup(id: string): string {
