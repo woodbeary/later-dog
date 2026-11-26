@@ -27,6 +27,9 @@ def arguments():
             "publish",
             "preload",
             "retain-legacy",
+            "retain-cold",
+            "repair-cold",
+            "plan",
             "activate",
             "rollback",
             "abort",
@@ -100,6 +103,17 @@ def main():
             args.action == "repair-legacy",
         )
     package = Package(args.package)
+    if args.action in ("retain-cold", "repair-cold"):
+        from legacy import encode
+        from retention import retain_snapshot
+
+        data = encode(package.load("cold-archive-map-v1"))
+        return retain_snapshot(
+            transport,
+            data,
+            args.workers,
+            "archive" if args.action == "repair-cold" else False,
+        )
     folder = args.journal or args.package / "release"
     folder.mkdir(parents=True, exist_ok=True, mode=0o700)
     with (folder / "process.lock").open("a") as lock:
@@ -161,6 +175,15 @@ def main():
                 and receipt["source"] == package.load("source"),
                 "Published receipt belongs to another source or home",
             )
+            from legacy import encode
+            from retention import retain_snapshot
+
+            cold = package.load("cold-archive-map-v1")
+            sealed = (
+                retain_snapshot(transport, encode(cold), args.workers)["snapshot"]
+                if cold["entries"]
+                else None
+            )
             plan = prepare_cutover(
                 "folders",
                 package.authorized_layout(),
@@ -168,6 +191,7 @@ def main():
                 receipt["claims"],
                 transport,
                 path,
+                sealed,
             )
         elif args.action == "rollback":
             layout, claims, projection = reconstruct(
@@ -195,6 +219,12 @@ def main():
                 )
             fence(plan, transport, True, args.workers)
             return {"released": True}
+        if args.action == "plan":
+            return {
+                "verification": plan["next"]["verification"],
+                "baseline": plan["next"]["baselineManifest"],
+                "plan": str(path),
+            }
         target = activate(plan, transport, args.workers, projection)
         write_once(folder / (name + "-complete.json"), {"placement": target})
         return {"placement": target, "mode": plan["next"]["mode"]}

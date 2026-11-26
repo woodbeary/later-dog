@@ -56,6 +56,24 @@ describe("a cloud work folder", () => {
     const retired = await gone.json() as { revision: string };
     expect(await (await make()).json()).toMatchObject({ parent: retired.revision, state: "live" });
   });
+  it("releases the original archive read before writing a full retained chunk and can repair its legacy archive name", async () => {
+    const f = fixture(), data = new Uint8Array(8 * 1024 * 1024);
+    data[data.length - 1] = 41;
+    const id = hex(await sha256(data)), root = hex(await sha256(JSON.stringify(["leaf", [id]])));
+    const prefix = "homes/" + f.stable + "/", archive = prefix + "archive/blobs/" + id;
+    await f.bucket.put(archive, data, { onlyIf: { etagDoesNotMatch: "*" } });
+    const bucket: WorkFolderBucket = { ...f.bucket, async put(key, value, opts) {
+      expect(value).not.toBeInstanceOf(ReadableStream);
+      return f.bucket.put(key, value, opts);
+    } };
+    const hold = (op: string) => handleWorkFolderPlacement(new Request("http://state.r2/work-folders/retention/" + op + "/" + root, { method:"POST", body:JSON.stringify({hashes:[id]}) }), bucket, f.stable);
+    expect((await hold("leaf")).status).toBe(200);
+    f.objects.delete(archive);
+    expect((await hold("repair-archive")).status).toBe(200);
+    expect(hex(await sha256(f.objects.get(archive)!.bytes))).toBe(id);
+    expect(f.objects.has(prefix + "blobs/" + id)).toBe(false);
+  });
+
   it("verifies the private latest-backup receipt during independent recovery without exporting tenant keys", async () => {
     const { bucket, stable, bootstrap, call } = fixture();
     const url = "https://state.r2/work-folders/verify-previous-backup";

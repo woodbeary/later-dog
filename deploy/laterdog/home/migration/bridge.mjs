@@ -1,5 +1,6 @@
 import { createHash, randomBytes } from "node:crypto";
-import { readFile, writeFile, unlink } from "node:fs/promises";
+import { readFile, writeFile, unlink, stat } from "node:fs/promises";
+import { enrolledPublication, validateCutoverBinding } from "./cutover-publication.mjs";
 import { createServer } from "node:http";
 import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
@@ -8,13 +9,16 @@ import { authorizedState, handleState } from "../src/state.ts";
 import { handleWorkFolder } from "../src/work-folder-store.ts";
 import { handleWorkFolderPlacement, workFolderControlPath } from "../src/work-folder-placement.ts";
 
-const [configPath, account, bucketName, stable, rawPort, output] = process.argv.slice(2);
+const [configPath, account, bucketName, stable, rawPort, output, cutoverFile] = process.argv.slice(2);
 if (!configPath || !/^[a-f0-9]{32}$/.test(account) || !/^[a-z0-9][a-z0-9-]+$/.test(bucketName) || !/^[a-f0-9]{64}$/.test(stable) || !/^\d+$/.test(rawPort) || !output) {
   throw new Error("Expected config.json, account ID, bucket name, stable home namespace, fixed local port and exclusive private authority file");
 }
 const config = JSON.parse(await readFile(configPath, "utf8"));
 const bindings = config.r2_buckets;
 if (config.account_id !== account || !Array.isArray(bindings) || bindings.length !== 1 || bindings[0].binding !== "STATE" || bindings[0].bucket_name !== bucketName || bindings[0].remote !== true) throw new Error("Remote R2 account or bucket differs from the requested scope");
+if (cutoverFile && ((await stat(cutoverFile)).mode & 0o077)) throw new Error("Cutover authority must be private");
+const cutover = cutoverFile ? JSON.parse(await readFile(cutoverFile, "utf8")) : null;
+validateCutoverBinding(config, cutover);
 const port = Number(rawPort);
 if (!Number.isSafeInteger(port) || port < 1024 || port > 65535) throw new Error("Invalid local migration port");
 const origin = "http://127.0.0.1:" + port;
@@ -40,7 +44,10 @@ async function handle(req) {
     return handleWorkFolder(req, bucket, stable, origin, bootstrap);
   }
   if (!await authorizedState(req, controlToken)) return new Response(null, { status: 401 });
-  if (workFolderControlPath(url.pathname)) return handleWorkFolderPlacement(req, bucket, stable);
+  if (workFolderControlPath(url.pathname)) {
+    const publication = await enrolledPublication(req, bucket, stable, proxy.env.CUTOVER, cutover);
+    return publication ?? handleWorkFolderPlacement(req, bucket, stable);
+  }
   if ((req.method === "GET" || req.method === "HEAD") && ["/manifest.json", "/archive/index.json"].includes(url.pathname)) return handleState(req, bucket, stable);
   if (/^\/(?:archive\/)?blobs\/[a-f0-9]{64}$/.test(url.pathname) && ["GET", "HEAD", "PUT"].includes(req.method)) return handleState(req, bucket, stable);
   return new Response(null, { status: 404 });

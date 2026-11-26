@@ -86,7 +86,9 @@ def current_placement(transport):
     return decoded(status, raw), digest(raw), headers["etag"]
 
 
-def prepare_cutover(mode, layout, baseline, claims, transport, journal):
+def prepare_cutover(
+    mode, layout, baseline, claims, transport, journal, cold_snapshot=None
+):
     placement, previous, etag = current_placement(transport)
     if mode == "legacy":
         require(
@@ -105,6 +107,8 @@ def prepare_cutover(mode, layout, baseline, claims, transport, journal):
         "layoutSha256": layout_checksum(layout),
         "scopes": sorted(claims, key=lambda c: c["scope"]),
     }
+    if cold_snapshot:
+        proof["coldArchiveManifest"] = hash_name(cold_snapshot)
     verification = digest(encode(proof))
     plan = {
         "v": 1,
@@ -156,7 +160,19 @@ def activate(plan, transport, workers, projection=None):
     proposed = plan["next"]
     placement, previous, _ = current_placement(transport)
     target = digest(encode(proposed))
+    headers = (
+        {"if-match": plan["previousEtag"]}
+        if plan["previousEtag"]
+        else {"if-none-match": "*"}
+    )
     if previous == target:
+        status, _, receipt = transport.admin(
+            "work-folders/placement", "PUT", proposed, headers
+        )
+        require(
+            decoded(status, receipt)["revision"] == target,
+            "Previously visible placement lacks its committed release receipt",
+        )
         fence(plan, transport, True, workers)
         return target
     require(
@@ -205,11 +221,6 @@ def activate(plan, transport, workers, projection=None):
             {"if-match": original_etag},
         )
         decoded(st, raw)
-    headers = (
-        {"if-match": plan["previousEtag"]}
-        if plan["previousEtag"]
-        else {"if-none-match": "*"}
-    )
     st, _, raw = transport.admin("work-folders/placement", "PUT", proposed, headers)
     require(decoded(st, raw)["revision"] == target, "Placement receipt differs")
     value, actual, _ = current_placement(transport)

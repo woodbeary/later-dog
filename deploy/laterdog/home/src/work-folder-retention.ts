@@ -7,7 +7,7 @@ const identity = (kind: string, ids: string[]) => sha256(JSON.stringify([kind, i
 const reply = (error: string, status: number) => Response.json({ error }, { status });
 
 export const LEGACY_RETENTION = "work-folders/legacy-retention";
-export const legacyHoldRoute = /^\/work-folders\/retention\/(leaf|branch|seal|repair)\/([a-f0-9]{64})$/;
+export const legacyHoldRoute = /^\/work-folders\/retention\/(leaf|branch|seal|repair|repair-archive)\/([a-f0-9]{64})$/;
 
 async function* chunkReferences(input: ReadableStream<Uint8Array>): AsyncGenerator<string> {
   const reader = input.getReader(), decoder = new TextDecoder("utf-8", { fatal: true, ignoreBOM: false });
@@ -70,12 +70,14 @@ async function referenceRoot(input: ReadableStream<Uint8Array>): Promise<string>
   return level[0]!;
 }
 
-async function ensureCopy(bucket: WorkFolderBucket, source: string, destination: string, hash: string): Promise<boolean> {
+async function ensureCopy(bucket: WorkFolderBucket, source: string, destination: string, hash: string, fallback?: string): Promise<boolean> {
   const kept = await bucket.get(destination);
   if (kept) return await sha256Stream(kept.body) === hash;
-  const object = await bucket.get(source);
+  const object = await bucket.get(source) ?? (fallback ? await bucket.get(fallback) : null);
   if (!object) return false;
-  await bucket.put(destination, object.body, { onlyIf: { etagDoesNotMatch: "*" }, sha256: hash });
+  if (object.size > 8 * 1024 * 1024) { await object.body.cancel(); return false; }
+  const bytes = await new Response(object.body).arrayBuffer();
+  await bucket.put(destination, bytes, { onlyIf: { etagDoesNotMatch: "*" }, sha256: hash });
   const latest = await bucket.get(destination);
   return Boolean(latest && await sha256Stream(latest.body) === hash);
 }
@@ -98,18 +100,19 @@ export async function handleLegacyHold(request: Request, bucket: WorkFolderBucke
   }
   const ids = body?.hashes;
   if (!Array.isArray(ids) || ids.length > pageSize || !ids.every(h => typeof h === "string" && objectId.test(h))) return reply("invalid_references", 400);
-  const kind = mode === "repair" ? "leaf" : mode;
+  const repair = mode === "repair" || mode === "repair-archive";
+  const kind = repair ? "leaf" : mode;
   if (await identity(kind, ids) !== hash || mode === "branch" && !ids.length) return reply("page_checksum_differs", 422);
-  if (mode !== "repair" && await bucket.head(base + "nodes/" + hash)) return Response.json({ revision: hash });
-  if (mode === "repair" && !await bucket.head(base + "nodes/" + hash)) return reply("unverified_recovery_page", 422);
-  for (let i = 0; i < ids.length; i += 8) {
-    const passed = await Promise.all(ids.slice(i, i + 8).map(async id => {
+  if (!repair && await bucket.head(base + "nodes/" + hash)) return Response.json({ revision: hash });
+  if (repair && !await bucket.head(base + "nodes/" + hash)) return reply("unverified_recovery_page", 422);
+  for (let i = 0; i < ids.length; i += 3) {
+    const passed = await Promise.all(ids.slice(i, i + 3).map(async id => {
       if (mode === "branch") return Boolean(await bucket.head(base + "nodes/" + id));
-      const active = prefix + "blobs/" + id, retained = base + "blobs/" + id;
-      return mode === "repair" ? ensureCopy(bucket, retained, active, id) : ensureCopy(bucket, active, retained, id);
+      const active = prefix + "blobs/" + id, archive = prefix + "archive/blobs/" + id, retained = base + "blobs/" + id;
+      return repair ? ensureCopy(bucket, retained, mode === "repair-archive" ? archive : active, id) : ensureCopy(bucket, active, retained, id, archive);
     }));
     if (passed.includes(false)) return reply("missing_or_corrupt_legacy_blob", 422);
   }
-  if (mode !== "repair") await bucket.put(base + "nodes/" + hash, JSON.stringify([kind, ids]), { onlyIf: { etagDoesNotMatch: "*" } });
+  if (!repair) await bucket.put(base + "nodes/" + hash, JSON.stringify([kind, ids]), { onlyIf: { etagDoesNotMatch: "*" } });
   return Response.json({ revision: hash });
 }

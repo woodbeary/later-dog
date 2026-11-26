@@ -132,6 +132,12 @@ def migration_scenario(directory, transport):
             transport.admin("blobs/" + h, "PUT", (hot / h).read_bytes())[0] == 201,
             "Missing fixture coordinator data",
         )
+    for fp in archived.iterdir():
+        require(
+            transport.admin("archive/blobs/" + fp.name, "PUT", fp.read_bytes())[0]
+            == 201,
+            "Missing original archived fixture data",
+        )
     original_root = entry("")
     extra = b"uncached original working data"
     missing = file("node_modules/result", extra)
@@ -169,6 +175,11 @@ def migration_scenario(directory, transport):
     )
     layout = package.authorized_layout()
     claims = publish(package, hot, transport, 3)
+    from retention import retain_snapshot
+
+    cold_map = encode(package.load("cold-archive-map-v1"))
+    cold_receipt = retain_snapshot(transport, cold_map, 3)
+    require(cold_receipt["unique"] == 1, "Historical archived content was not pinned")
     forward = prepare_cutover(
         "folders",
         layout,
@@ -176,6 +187,36 @@ def migration_scenario(directory, transport):
         claims,
         transport,
         directory / "activate.json",
+        cold_receipt["snapshot"],
+    )
+    from candidate_plan import pack, upload
+    import gzip
+
+    plans = directory / "candidate"
+    packaged = pack(package, forward, plans)
+    require(
+        pack(package, forward, plans) == packaged and packaged["scopes"] == 4,
+        "Repacked candidate plan is not deterministic",
+    )
+    require(
+        upload(packaged, plans, transport, 3)["verified"],
+        "Candidate plan did not survive remote readback",
+    )
+    plan_index = json.loads((plans / packaged["index"]).read_bytes())
+    project_plan = next(r for r in plan_index["scopes"] if "/project-" in r["scope"])
+    row_map = {
+        r["path"]: r
+        for r in json.loads(
+            gzip.decompress((plans / project_plan["sha256"]).read_bytes())
+        )["rows"]
+    }
+    require(
+        row_map["report"]["chunks"] == [digest(b"first version")]
+        and row_map["report-copy"]["hardlink"] == "report"
+        and row_map["outside"]["target"] == "/etc/hostname"
+        and b"first version"
+        not in gzip.decompress((plans / project_plan["sha256"]).read_bytes()),
+        "Candidate metadata changed or included file payload",
     )
     activation = activate(forward, transport, 3)
     project = "fixtureA/project-" + digest(b"/data/project")
@@ -389,6 +430,7 @@ def migration_scenario(directory, transport):
         "A stale writer published after rollback",
     )
     return {
+        "retainedColdArchive": cold_receipt,
         "signedPreviousBackup": updated,
         "supplementalHash": digest(extra),
         "closure": closure,
