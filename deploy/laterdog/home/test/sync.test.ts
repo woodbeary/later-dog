@@ -4,7 +4,6 @@ import { lstat, open } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, relative } from "node:path";
 import { backup, DatabaseSync } from "node:sqlite";
-import { Worker } from "node:worker_threads";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { CHUNK_BYTES, chunksOf, CLEANUP_PARALLEL, collectGarbage, collectGarbageWithin, createHttpStore, heldLock, LISTING_PARALLEL, parseManifest, referencedBlobs, restore, resumeOrder, SAVE_PARALLEL, scan, settleWithin, skipped, skippedPath, snapshot, walkOrder, SNAPSHOT_RESERVE_BYTES, StoreRefused, transient, MEMORY_MARGIN_BYTES } from "../runtime/sync.mjs";
 
@@ -1264,69 +1263,48 @@ describe("database copies", () => {
     }
   }
 
-  function busyWriter(path: string): { stop(): Promise<number> } {
-    const worker = new Worker(`
-      const { DatabaseSync } = require("node:sqlite");
-      const { parentPort } = require("node:worker_threads");
-      const database = new DatabaseSync(${JSON.stringify(path)});
-      database.exec("PRAGMA busy_timeout = 5000");
-      const update = database.prepare("UPDATE notes SET body = randomblob(4000) WHERE id = ?");
-      let writes = 0;
-      let stopping = false;
-      parentPort.on("message", () => { stopping = true; });
-      const burst = () => {
-        const until = Date.now() + 20;
-        while (Date.now() < until) { update.run(1 + (writes % 500)); writes += 1; }
-        if (stopping) { database.close(); parentPort.postMessage(writes); } else setImmediate(burst);
-      };
-      parentPort.postMessage(-1);
-      burst();
-    `, { eval: true });
-    const ready = new Promise((resolve) => worker.once("message", resolve));
-    return {
-      async stop() {
-        await ready;
-        const writes = new Promise<number>((resolve) => worker.on("message", (value: number) => { if (value >= 0) resolve(value); }));
-        worker.postMessage("stop");
-        const counted = await writes;
-        await worker.terminate();
-        return counted;
-      },
-    };
-  }
-
   it("copies a database another connection keeps writing in one pass, where page-by-page steps start over", async () => {
     const source = folder();
     chatDatabase(source, 5_000);
     const path = join(source, "messages.db");
-    const writer = busyWriter(path);
-    await pause(100);
     const stepped = new DatabaseSync(path);
+    const writer = new DatabaseSync(path);
+    const write = writer.prepare("UPDATE notes SET body = randomblob(4000) WHERE id = 1");
+    const restarting = Promise.withResolvers<void>();
     let steps = 0;
     let restarts = 0;
     let left = Infinity;
+    let writing = true;
     const steppedCopy = backup(stepped, join(folder(), "stepped.sqlite"), {
       rate: 100,
       progress: ({ remainingPages }) => {
         steps += 1;
-        if (remainingPages > left) restarts += 1;
+        if (remainingPages > left) {
+          restarts += 1;
+          if (restarts === 10) restarting.resolve();
+        }
         left = remainingPages;
+        if (writing && steps % 2 === 0) write.run();
       },
     });
-    expect(await settleWithin(steppedCopy, 3_000)).toBe("late");
     const store = memoryStore();
-    const started = Date.now();
-    const saved = await snapshot(source, store, null, { scratch: folder() });
-    const tookMs = Date.now() - started;
-    const writes = await writer.stop();
-    await steppedCopy;
-    stepped.close();
-    expect(restarts).toBeGreaterThan(0);
-    expect(steps).toBeGreaterThan(50);
-    expect(writes).toBeGreaterThan(100);
-    expect(saved.unsaved).toEqual([]);
-    expect(saved.copies).toEqual([expect.objectContaining({ path: "messages.db", place: "disk" })]);
-    expect(tookMs).toBeLessThan(15_000);
+    try {
+      await Promise.race([restarting.promise, steppedCopy.then(() => {
+        throw new Error("The stepped backup finished before repeated writes restarted it");
+      })]);
+      const during = restarts;
+      const saving = snapshot(source, store, null, { scratch: folder() });
+      expect(await settleWithin(saving, 15_000)).toBe("done");
+      const saved = await saving;
+      expect(restarts).toBeGreaterThan(during);
+      expect(saved.unsaved).toEqual([]);
+      expect(saved.copies).toEqual([expect.objectContaining({ path: "messages.db", place: "disk" })]);
+    } finally {
+      writing = false;
+      await steppedCopy;
+      writer.close();
+      stepped.close();
+    }
     const target = folder();
     await restore(target, store, null);
     expect(restoredRows(target)).toBe(5_000);
