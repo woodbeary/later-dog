@@ -1,10 +1,11 @@
 import { createHash, randomBytes } from "node:crypto";
-import { createReadStream, existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, statfsSync, writeFileSync } from "node:fs";
+import { createReadStream, existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { open } from "node:fs/promises";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { writeFileAtomic } from "./atomic.ts";
 import { settleReceivedMove } from "./laterdog/cloud-move-received.ts";
+import { TRANSFER_SPACE_MARGIN } from "./laterdog/volume-space.ts";
 import { presentEntry, presentNames } from "./laterdog/present-entries.ts";
 import { type WorkspaceBackupProfile } from "./laterdog/cloud-move-profile.ts";
 import {
@@ -16,7 +17,7 @@ export const CLOUD_MOVE_PART_BYTES = 16 * 1024 ** 2;
 export const CLOUD_MOVE_MAX_PART_BYTES = 64 * 1024 ** 2;
 export const CLOUD_MOVE_MAX_BYTES = MAX_WORKSPACE_BACKUP_UPLOAD_BYTES;
 export const CLOUD_MOVE_MAX_FILES = MAX_WORKSPACE_BACKUP_FILES;
-export const CLOUD_MOVE_SPACE_MARGIN = 256 * 1024 ** 2;
+export { TRANSFER_SPACE_MARGIN as CLOUD_MOVE_SPACE_MARGIN, freeVolumeBytes, totalVolumeBytes } from "./laterdog/volume-space.ts";
 const MIN_BYTES = 60;
 const SHA256 = /^[a-f0-9]{64}$/;
 const UPLOAD_STALE_MS = 24 * 3600_000;
@@ -70,18 +71,6 @@ export function workspaceMoveSize(dataDir: string, profile?: WorkspaceBackupProf
   return { bytes, files };
 }
 
-export function freeVolumeBytes(path: string): number {
-  const disk = statfsSync(path, { bigint: true });
-  const free = disk.bavail * disk.bsize;
-  return free > BigInt(Number.MAX_SAFE_INTEGER) ? Number.MAX_SAFE_INTEGER : Number(free);
-}
-
-export function totalVolumeBytes(path: string): number {
-  const disk = statfsSync(path, { bigint: true });
-  const total = disk.blocks * disk.bsize;
-  return total > BigInt(Number.MAX_SAFE_INTEGER) ? Number.MAX_SAFE_INTEGER : Number(total);
-}
-
 export function enabledRoutineCount(dataDir: string): number {
   try {
     const value: unknown = JSON.parse(readFileSync(join(dataDir, "routines.json"), "utf8"));
@@ -91,7 +80,7 @@ export function enabledRoutineCount(dataDir: string): number {
 }
 
 export function moveSpaceNeeded(upload: number, current: number, replacing: boolean): number {
-  return 3 * upload + (replacing ? 2 * current : 0) + CLOUD_MOVE_SPACE_MARGIN;
+  return 3 * upload + (replacing ? 2 * current : 0) + TRANSFER_SPACE_MARGIN;
 }
 
 function privateFolder(path: string): string {

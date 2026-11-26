@@ -165,7 +165,7 @@ it("drains the old account before a second account launches the same remote thre
     const send = link.send;
     link.send = (line) => {
       const frame = JSON.parse(line);
-      if (frame.type === "launch") {
+      if (frame.type === "configure") {
         expect(existsSync(frame.lockFile), "the previous relay released its lock before launch").toBe(false);
         locks.push(frame.lockFile);
       }
