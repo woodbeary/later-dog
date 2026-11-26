@@ -22,7 +22,8 @@
     "bindings": [
       { "name": "COMPUTER", "class_name": "DogComputer" },
       { "name": "REGISTRY", "class_name": "ComputerRegistry" },
-      { "name": "TRIALS", "class_name": "TrialRegistry" }
+      { "name": "TRIALS", "class_name": "TrialRegistry" },
+      { "name": "TASK_LINE", "class_name": "TaskLine" }
     ]
   },
   "ratelimits": [
@@ -34,11 +35,13 @@
   "exports": {
     "DogComputer": { "type": "durable-object", "storage": "sqlite" },
     "ComputerRegistry": { "type": "durable-object", "storage": "sqlite" },
-    "TrialRegistry": { "type": "durable-object", "storage": "sqlite" }
+    "TrialRegistry": { "type": "durable-object", "storage": "sqlite" },
+    "TaskLine": { "type": "durable-object", "storage": "sqlite" }
   },
   "vars": {
     "IDLE_SLEEP_MINUTES": "10",
     "MAX_AWAKE_HOURS": "8",
+    "TASK_MACHINES_MAX": "100",
     "TRIALS_ENABLED": "true",
     "TRIAL_MINUTES": "30",
     "TRIAL_DAYS": "7",

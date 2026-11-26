@@ -12,7 +12,9 @@ import { FILE_MAX_BYTES, JSON_MAX_BYTES, parseCreate, parseExec, parseIdempotenc
 import { type McpBackend, handleMcp } from "./mcp";
 import { parseEnvironmentRequest, plannerName, repositoryField } from "./environments";
 import type { ComputerRegistry } from "./registry";
-import { type ComputerOp, type TrialOp, route } from "./routes";
+import { type ComputerOp, type TaskLineOp, type TrialOp, route } from "./routes";
+import type { TaskLine } from "./task-line";
+import { machinesMax, parseSettings, parseTicketRequest, parseWaitSeconds } from "./task-line-policy";
 import {
   DAY,
   TRIAL_CLAIM,
@@ -45,6 +47,7 @@ import type { Tier } from "./gateway";
 export { DogComputer } from "./computer";
 export { ComputerRegistry } from "./registry";
 export { TrialRegistry } from "./trial-registry";
+export { TaskLine } from "./task-line";
 
 declare global {
   interface Env {
@@ -166,6 +169,48 @@ async function environmentsRequest(op: "list" | "prepare", request: Request, env
   const name = registryName(caller);
   const planner = env.COMPUTER.get(env.COMPUTER.idFromName(plannerName(name)));
   return answer(await planner.prepareEnvironment({ ...input.value, registry: name }), (value) => json({ environment: value }, 202));
+}
+
+const NO_TASK_LINE: Refusal = { status: 403, code: "task_line_not_in_trial", message: "Task machines come with later.dog Cloud, not the free trial." };
+const NO_TICKET: Refusal = { status: 404, code: "not_found", message: "No ticket with that id." };
+
+function taskLine(env: Env, home: string): DurableObjectStub<TaskLine> {
+  return env.TASK_LINE.get(env.TASK_LINE.idFromName(`task-line:${home}`));
+}
+
+async function taskLineRequest(op: TaskLineOp, id: string | undefined, request: Request, env: Env, url: URL, caller: Caller): Promise<Response> {
+  if (trialLimited(caller)) return apiError(NO_TASK_LINE);
+  const home = registryName(caller);
+  const line = taskLine(env, home);
+  switch (op) {
+    case "line":
+      return json({ line: await line.line(home) });
+    case "settings":
+      return json({ settings: await line.currentSettings(home), max: machinesMax(env) });
+    case "save_settings": {
+      const body = await readJson(request);
+      if (!body.ok) return body.response;
+      const parsed = parseSettings(body.value, await line.currentSettings(home), machinesMax(env));
+      if (!parsed.ok) return apiError(parsed.refusal);
+      return json({ line: await line.configure(home, parsed.value) });
+    }
+    case "take": {
+      const body = await readJson(request);
+      if (!body.ok) return body.response;
+      const parsed = parseTicketRequest(body.value);
+      if (!parsed.ok) return apiError(parsed.refusal);
+      const taken = await line.take(home, parsed.value);
+      return json({ ticket: taken.ticket }, taken.replayed ? 200 : 201, taken.replayed ? { "idempotent-replayed": "true" } : {});
+    }
+    case "ticket": {
+      const ticket = await line.ticket(id!, parseWaitSeconds(url.searchParams.get("wait")));
+      return ticket ? json({ ticket }) : apiError(NO_TICKET);
+    }
+    case "drop": {
+      const ticket = await line.drop(id!);
+      return ticket ? json({ ticket }) : apiError(NO_TICKET);
+    }
+  }
 }
 
 async function listComputers(caller: Caller): Promise<Response> {
@@ -1096,6 +1141,7 @@ async function serve(request: Request, env: Env, via: Via, ctx?: ExecutionContex
       case "home_grant":
         if (via !== "binding") return apiError(NO_ENDPOINT);
         return await grantHome(request, env);
+      case "task_line":
       case "trial":
       case "trial_grant":
       case "collection":
@@ -1104,6 +1150,7 @@ async function serve(request: Request, env: Env, via: Via, ctx?: ExecutionContex
         const identified = await identify(request, env, via);
         if (!identified.ok) return identified.response;
         const { caller } = identified;
+        if (target.kind === "task_line") return await taskLineRequest(target.op, target.id, request, env, url, caller);
         if (target.kind === "trial") return await trialRequest(target.op, env, caller);
         if (target.kind === "trial_grant") return await grantTrial(request, env, caller);
         if (target.kind === "collection") return target.op === "list" ? await listComputers(caller) : await createComputer(request, env, caller);

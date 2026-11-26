@@ -4,12 +4,15 @@ export type CollectionOp = "list" | "create";
 export type TrialOp = "status" | "end";
 export type ComputerOp = "get" | "rename" | "delete" | "wake" | "sleep" | "reset" | "update" | "exec" | "process" | "readFile" | "writeFile" | "screenshot" | "desktop";
 
+export type TaskLineOp = "line" | "settings" | "save_settings" | "take" | "ticket" | "drop";
+
 export type DesktopResource = { type: "page" } | { type: "status" } | { type: "socket" };
 
 export type Route =
   | { kind: "health" }
   | { kind: "collection"; op: CollectionOp }
   | { kind: "environments"; op: "list" | "prepare" }
+  | { kind: "task_line"; op: TaskLineOp; id?: string }
   | { kind: "computer"; op: ComputerOp; id: string }
   | { kind: "desktop"; id: string; token: string; resource: DesktopResource }
   | { kind: "redirect"; location: string }
@@ -50,6 +53,23 @@ const ACTIONS: Record<string, Record<string, ComputerOp>> = {
   desktop: { POST: "desktop" },
 };
 
+const TICKET_PATH = /^\/v1\/task-line\/tickets\/(tkt_[a-z2-7]{16})$/;
+
+function taskLineRoute(method: string, pathname: string): Route | undefined {
+  if (pathname === "/v1/task-line") return method === "GET" ? { kind: "task_line", op: "line" } : { kind: "method_not_allowed", allow: ["GET"] };
+  if (pathname === "/v1/task-line/settings") {
+    const op = method === "GET" ? "settings" : method === "PUT" ? "save_settings" : undefined;
+    return op ? { kind: "task_line", op } : { kind: "method_not_allowed", allow: ["GET", "PUT"] };
+  }
+  if (pathname === "/v1/task-line/tickets") return method === "POST" ? { kind: "task_line", op: "take" } : { kind: "method_not_allowed", allow: ["POST"] };
+  const ticket = TICKET_PATH.exec(pathname);
+  if (ticket) {
+    const op = method === "GET" ? "ticket" : method === "DELETE" ? "drop" : undefined;
+    return op ? { kind: "task_line", op, id: ticket[1]! } : { kind: "method_not_allowed", allow: ["GET", "DELETE"] };
+  }
+  return undefined;
+}
+
 const API_PATH = /^\/v1\/computers(?:\/([^/]+)(?:\/([^/]+))?)?\/?$/;
 const DESKTOP_PATH = /^\/desktop\/([^/]+)\/([^/]+)(\/.*)?$/;
 const VOICE_PATH = /^\/v1\/voice\/text-to-speech\/([A-Za-z0-9]{1,64})$/;
@@ -87,6 +107,10 @@ export function route(method: string, pathname: string): Route {
   if (pathname === "/v1/environments") {
     const op = method === "GET" ? "list" : method === "POST" ? "prepare" : undefined;
     return op ? { kind: "environments", op } : { kind: "method_not_allowed", allow: ["GET", "POST"] };
+  }
+  if (pathname.startsWith("/v1/task-line")) {
+    const found = taskLineRoute(method, pathname);
+    if (found) return found;
   }
   if (pathname === "/v1/trial") {
     const op = allow(TRIAL, method) as TrialOp | undefined;

@@ -147,6 +147,30 @@ clone and the first package install are already done.
   and no longer used. A failed build is retried after an hour.
 - **Free trial.** Not offered; a trial's computers start from the image as before.
 
+### Task line
+
+One `TaskLine` Durable Object (SQLite) per home key decides which task conversations get a short-lived machine now and
+which wait. It keeps the books only: starting, stopping and saving a task machine belong to the task kind of computer.
+
+| Call | Answer |
+| --- | --- |
+| `GET /v1/task-line` | `{ line: { settings, max, running, waiting } }` |
+| `GET /v1/task-line/settings` | `{ settings: { cap, idleMinutes, sizes }, max }` |
+| `PUT /v1/task-line/settings` `{ cap?, idleMinutes?, sizes? }` | the line after the change; a raised cap admits waiting work at once, a lowered one lets running work finish |
+| `POST /v1/task-line/tickets` `{ key, thread, dog?, size, class }` | 201 `{ ticket }`, `admitted` with `machine: { id, size, computerSize, reused }` or `queued` with `place` and `ahead`; the same `key` answers 200 with the same ticket |
+| `GET /v1/task-line/tickets/:id?wait=20` | the ticket; with `wait`, held up to 25 s until its state or place changes. Polling renews an admitted ticket's 2-minute lease |
+| `DELETE /v1/task-line/tickets/:id` | `cancelled` while queued (Stop while waiting); `released` once admitted, and its machine turns idle |
+
+- **Admission.** While machines are fewer than `cap` (default 20, at most `TASK_MACHINES_MAX`, 100). The person's own
+  messages (`person`) go first, then dog-started tasks and swarm parts (`task`), then routines (`routine`); first come,
+  first served inside a class.
+- **One machine per thread.** A thread's machine is named from the home, dog, thread and size, shaped like a computer id.
+  A thread whose machine is idle gets it back at once, even at the cap; a new size replaces it.
+- **Reclaim.** At the cap with work waiting, the longest-idle machine nobody in line is waiting for is stopped first.
+  A machine idle for `idleMinutes` (default 5, 2 to 30) is stopped too.
+- **Expiry.** A queued ticket nobody polled for 60 s is dropped; an admitted ticket whose lease ran out turns its machine
+  idle. An alarm every 30 s, while anything waits or runs, does both.
+
 ### MCP
 
 `POST /mcp` is the same computers and decisions as nine MCP tools (`computer_list`, `computer_create`, `computer_wake`,
