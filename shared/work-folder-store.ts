@@ -3,16 +3,17 @@ export const WORK_FOLDER_PAGE_SIZE = 64;
 export const WORK_FOLDER_ROUTE = "/api/work-folders/v1/";
 export const WORK_FOLDER_ACCESS_MS = 15 * 60_000;
 
-export type WorkFolderEntry =
+export type WorkFolderEntry = (
   | { path: string; kind: "dir"; mode: number }
   | { path: string; kind: "link"; target: string; scopedTarget?: string | null }
-  | { path: string; kind: "file"; mode: number; size: number; sha256: string; contents: string };
+  | { path: string; kind: "file"; mode: number; size: number; sha256: string; contents: string }
+) & { mtimeMs?: number };
 
 export type WorkFolderNode =
   | { v: 1; kind: "chunks"; hashes: string[] }
   | { v: 1; kind: "entries"; entries: WorkFolderEntry[] }
   | { v: 1; kind: "pages"; of: "entries" | "chunks"; children: string[] }
-  | { v: 1; kind: "root"; mode: number; entries: string };
+  | { v: 1; kind: "root"; mode: number; entries: string; mtimeMs?: number };
 
 export interface WorkFolderHead {
   revision: string;

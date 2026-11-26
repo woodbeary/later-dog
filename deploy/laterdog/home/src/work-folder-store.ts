@@ -34,6 +34,7 @@ const validSize = (value: unknown): value is number => typeof value === "number"
 const validMode = (value: unknown): value is number => validSize(value) && value <= 0o7777;
 const record = (v: unknown): v is Record<string, unknown> => v !== null && typeof v === "object" && !Array.isArray(v);
 const exact = (v: Record<string, unknown>, keys: string[]) => Object.keys(v).length === keys.length && keys.every(k => Object.hasOwn(v, k));
+const withTime = (v: Record<string, unknown>, keys: string[]) => v.mtimeMs === undefined ? exact(v, keys) : typeof v.mtimeMs === "number" && Number.isFinite(v.mtimeMs) && Math.abs(v.mtimeMs) <= 8.64e15 && exact(v, [...keys, "mtimeMs"]);
 const guestPattern = /^cmp_[a-z0-9]{1,64}$/;
 const generationPattern = /^[A-Za-z0-9_-]{22}$/;
 const json = (body: unknown, status = 200) => Response.json(body, { status, headers: { "cache-control": "no-store" } });
@@ -112,12 +113,12 @@ async function validateNode(scope: Scope, node: Record<string, unknown>): Promis
     for (const e of entries) {
       if (!safeWorkFolderPath(e.path) || (previous !== undefined && compareWorkFolderPaths(previous, e.path) >= 0)) return invalid("Invalid or unsorted work folder path");
       previous = e.path;
-      if (e.kind === "dir" && exact(e, ["kind", "path", "mode"]) && validMode(e.mode)) continue;
+      if (e.kind === "dir" && withTime(e, ["kind", "path", "mode"]) && validMode(e.mode)) continue;
       if (e.kind === "link" && typeof e.target === "string" && e.target.length > 0 && !e.target.includes("\0")) {
-        if (exact(e, ["kind", "path", "target"]) && safeWorkFolderLink(e.path, e.target)) continue;
-        if (exact(e, ["kind", "path", "target", "scopedTarget"]) && (e.scopedTarget === null || safeWorkFolderLink(e.path, e.scopedTarget))) continue;
+        if (withTime(e, ["kind", "path", "target"]) && safeWorkFolderLink(e.path, e.target)) continue;
+        if (withTime(e, ["kind", "path", "target", "scopedTarget"]) && (e.scopedTarget === null || safeWorkFolderLink(e.path, e.scopedTarget))) continue;
       }
-      if (e.kind === "file" && exact(e, ["kind", "path", "mode", "size", "sha256", "contents"]) && validMode(e.mode) && validSize(e.size) && validHash(e.sha256) && validHash(e.contents)) continue;
+      if (e.kind === "file" && withTime(e, ["kind", "path", "mode", "size", "sha256", "contents"]) && validMode(e.mode) && validSize(e.size) && validHash(e.sha256) && validHash(e.contents)) continue;
       return invalid("Invalid work folder entry");
     }
     const files = entries.filter(e => e.kind === "file");
@@ -143,7 +144,7 @@ async function validateNode(scope: Scope, node: Record<string, unknown>): Promis
     }
     return { self: { of: node.of, bytes, count, ...(last ? { first: children[0]!.first, last } : {}) }, children };
   }
-  if (node.kind === "root" && exact(node, ["v", "kind", "mode", "entries"]) && validMode(node.mode) && validHash(node.entries)) {
+  if (node.kind === "root" && withTime(node, ["v", "kind", "mode", "entries"]) && validMode(node.mode) && validHash(node.entries)) {
     const info = (await summary(scope, node.entries)).self;
     if (info.of !== "entries") return invalid("Root has no entry page");
     return { self: { ...info, of: "root" }, children: [{ hash: node.entries, ...info }] };
