@@ -2,7 +2,7 @@ import { spawn, type ChildProcess } from "node:child_process";
 import { EventEmitter } from "node:events";
 import { PassThrough } from "node:stream";
 import { createInterface } from "node:readline";
-import { ENGINE_FRAME_BYTES, ENGINE_WINDOW_BYTES, EngineFileReceiver, engineFileChunks, engineFileKey, engineInventory, matchingTranscriptPrefix, type EngineFile, type EngineFileRoot } from "./engine-files.ts";
+import { ENGINE_FRAME_BYTES, ENGINE_WINDOW_BYTES, EngineFileReceiver, decodeEngineChunk, engineFileChunks, engineFileKey, inventoryWork, runFileWork, transcriptPrefixWork, selectEngineTranscript, selectedTranscript, type EngineFile, type EngineFileRoot } from "./engine-files.ts";
 import { createHash } from "node:crypto";
 
 export interface EngineLink extends EventEmitter {
@@ -66,6 +66,9 @@ export class RemoteSession extends EventEmitter {
   #pending = new Map<number, Pending>();
   #sequence = 0;
   #ready: Promise<void>;
+  #incoming: Promise<void> = Promise.resolve();
+  #fileAbort = new AbortController();
+  #onFileProgress = () => { this.checkpointProgressAt = Date.now(); };
   #closed = false;
   #launchSent = false;
   #started = false;
@@ -110,9 +113,11 @@ export class RemoteSession extends EventEmitter {
       this.once("link-closed", onClosed);
     });
     this.#ready.catch(() => {});
-    link.on("line", (line: string) => this.#line(line));
+    link.on("line", (line: string) => {
+      this.#incoming = this.#incoming.then(() => this.#line(line)).catch(() => { this.#lost("invalid engine transfer"); this.#link.close(); });
+    });
     link.on("diagnostic", (text: string) => this.emit("diagnostic", text));
-    link.on("close", (why: string) => this.#lost(why));
+    link.on("close", (why: string) => { this.#fileAbort.abort(); void this.#incoming.then(() => this.#lost(why)); });
   }
 
   get started(): boolean { return this.#started; }
@@ -134,8 +139,12 @@ export class RemoteSession extends EventEmitter {
     this.#send({ type: "file_end" });
   }
   async #sendWorkingFile(root: EngineFileRoot, file: EngineFile, before?: EngineFile): Promise<void> {
-    const prefix = matchingTranscriptPrefix(root, file, before);
-    this.#send({ type: "file_begin", prefix, file: { ...file, mode: root.readOnly ? (file.mode & 0o444) | 0o400 : file.mode } });
+    const prefix = await runFileWork(transcriptPrefixWork(root, file, before), this.#fileAbort.signal);
+    const begin = { type: "file_begin", prefix, file: { ...file, mode: root.readOnly ? (file.mode & 0o444) | 0o400 : file.mode } };
+    if (selectedTranscript(root, file.path)) {
+      const reply = await this.#request(begin, SYNC_REPLY_MS);
+      if (!reply?.accepted) throw new Error(reply?.error ?? "The computer could not accept its native transcript");
+    } else this.#send(begin);
     for (const bytes of engineFileChunks(root, file.path, ENGINE_FRAME_BYTES, prefix?.size, file.size)) {
       this.#send({ type: "file_chunk", data: bytes.toString("base64") });
       this.#pendingFileBytes += bytes.length;
@@ -160,7 +169,7 @@ export class RemoteSession extends EventEmitter {
   async start(): Promise<void> {
     await this.#ready;
     const launch = this.#launch;
-    let configured: { files: EngineFile[] };
+    let configured: { files: EngineFile[]; refused?: string; transcripts?: { root: string; path: string; before: EngineFile | null }[] };
     let home: EngineFile[];
     const pushedRoots = new Set(launch.roots.filter(root => root.pushOnly).map(root => root.id));
     const initialPush = launch.pushes?.() ?? [];
@@ -168,14 +177,30 @@ export class RemoteSession extends EventEmitter {
       if (!initialPush.some(file => file.root === id)) throw new NotDispatched("The selected sign-in is unavailable on the home.");
     }
     try {
-      home = engineInventory(launch.roots.filter((root) => !pushedRoots.has(root.id)));
+      home = await runFileWork(inventoryWork(launch.roots.filter((root) => !pushedRoots.has(root.id))), this.#fileAbort.signal);
     } catch (error) {
       throw new NotDispatched(`The working files cannot move to the cloud computer: ${(error as Error).message}`);
     }
     try {
-      configured = await this.#request({ type: "configure", roots: launch.roots.map((root) => ({ ...root, writable: true })), outputIds: launch.outputIds, names: Object.keys(launch.mcp) }, SYNC_REPLY_MS);
+      configured = await this.#request({ type: "configure", stateFile: launch.stateFile, lockFile: launch.lockFile, ephemeralCodexHome: launch.ephemeralCodexHome, roots: launch.roots.map((root) => ({ ...root, writable: true })), outputIds: launch.outputIds, names: Object.keys(launch.mcp) }, SYNC_REPLY_MS);
     } catch (error) { throw new NotDispatched((error as Error).message); }
+    if (configured.refused === "busy") throw new Error("This chat's engine is still running on the cloud computer; it was not started a second time.");
     const remote = new Map(configured.files.map((file) => [engineFileKey(file), file]));
+    const outputRoots = launch.roots.filter(root => launch.outputIds.includes(root.id));
+    this.#receiver = new EngineFileReceiver(outputRoots, home.filter(file => launch.outputIds.includes(file.root)));
+    for (const receipt of configured.transcripts ?? []) {
+      const root = outputRoots.find(root => root.id === receipt.root);
+      if (!root || !selectedTranscript(root, receipt.path)) throw new Error("Unexpected native transcript recovery path");
+      const key = engineFileKey(receipt);
+      const local = this.#receiver.baseline.get(key);
+      const guest = remote.get(key);
+      if (local?.hash === guest?.hash || guest?.hash === receipt.before?.hash) continue;
+      if (local?.hash !== receipt.before?.hash) throw new Error("Native transcript changed on both the home and computer. Both copies were preserved.");
+      const recovery = await this.#request({ type: "recover_transcript", root: root.id, path: receipt.path, hash: guest?.hash }, SYNC_REPLY_MS);
+      if (!recovery?.recovered || this.#receiver.baseline.get(key)?.hash !== guest?.hash) throw new Error("The newer computer transcript could not be recovered. Both copies were preserved.");
+      home = home.filter(file => engineFileKey(file) !== key);
+      if (guest) home.push(guest);
+    }
     const present = new Set(home.map(engineFileKey));
     try {
       for (const file of home) {
@@ -188,8 +213,6 @@ export class RemoteSession extends EventEmitter {
       this.#pushScoped(new Map([...remote].map(([key, file]) => [key, file.hash])), initialPush);
       await this.#request({ type: "prepared" }, SYNC_REPLY_MS);
     } catch (error) { throw new NotDispatched((error as Error).message); }
-    this.#receiver = new EngineFileReceiver(launch.roots.filter((root) => launch.outputIds.includes(root.id)).map((root) => ({ ...root, writable: true })),
-      home.filter((file) => launch.outputIds.includes(file.root)));
     if (this.#closed) throw new NotDispatched("The cloud computer's connection closed before launch.");
     this.#launchSent = true;
     let body: any;
@@ -213,9 +236,17 @@ export class RemoteSession extends EventEmitter {
   end(): void { if (this.#started && !this.#closed) this.#send({ type: "end" }); }
   stop(): void { if (!this.#closed) this.#send({ type: "stop" }); }
   close(): void { this.#link.close(); }
+  async selectTranscript(id: string, name: string): Promise<boolean> {
+    if (!this.#started) return false;
+    const root = this.#receiver?.roots.get(id);
+    selectEngineTranscript(root, name);
+    const reply = await this.#request({ type: "select_transcript", root: id, path: name }, HANDSHAKE_MS);
+    return reply?.selected === true;
+  }
+
   checkpoint(): Promise<unknown> { return this.#request({ type: "checkpoint_request" }, SYNC_REPLY_MS); }
 
-  #line(line: string): void {
+  async #line(line: string): Promise<void> {
     if (this.#closed) return;
     let frame: any;
     try { frame = JSON.parse(line); } catch { return; }
@@ -228,13 +259,13 @@ export class RemoteSession extends EventEmitter {
       case "native_exit": this.#exit(Number.isInteger(frame.code) ? frame.code : null, typeof frame.signal === "string" ? frame.signal : null); return;
       case "file_begin":
         this.#fileError = null;
-        try { this.#receiver!.begin(frame.file, frame.prefix); this.#skipping = false; }
+        try { await runFileWork(this.#receiver!.beginWork(frame.file, frame.prefix), this.#fileAbort.signal, this.#onFileProgress); this.#skipping = false; }
         catch (error) { this.#skipping = true; this.#fileError = (error as Error).message; this.conflicts.push(`${frame.file?.path}: ${this.#fileError}`); this.emit("conflict", frame.file?.path, this.#fileError); }
         return;
-      case "file_chunk": if (!this.#skipping) try { this.#receiver!.chunk(Buffer.from(frame.data, "base64")); this.checkpointProgressAt = Date.now(); } catch (error) { this.#skipping = true; this.#receiver!.close(); this.#fileError = (error as Error).message; this.conflicts.push(this.#fileError); } return;
-      case "file_end": if (!this.#skipping) try { this.#receiver!.end(); } catch (error) { this.#fileError = (error as Error).message; this.conflicts.push(this.#fileError); } this.#skipping = false; return;
+      case "file_chunk": if (!this.#skipping) try { this.#receiver!.chunk(decodeEngineChunk(frame.data)); this.#onFileProgress(); } catch (error) { this.#skipping = true; this.#receiver!.close(); this.#fileError = (error as Error).message; this.conflicts.push(this.#fileError); } return;
+      case "file_end": if (!this.#skipping) try { await runFileWork(this.#receiver!.endWork(), this.#fileAbort.signal, this.#onFileProgress); } catch (error) { this.#fileError = (error as Error).message; this.conflicts.push(this.#fileError); } this.#skipping = false; return;
       case "file_window": this.#send({ type: "ack", id: frame.id, ...(this.#fileError && frame.required ? { error: this.#fileError } : {}) }); return;
-      case "file_remove": try { this.#receiver!.remove(frame.file); } catch (error) { this.conflicts.push(`${frame.file?.path}: ${(error as Error).message}`); } return;
+      case "file_remove": this.#fileError = null; try { await runFileWork(this.#receiver!.removeWork(frame.file), this.#fileAbort.signal, this.#onFileProgress); } catch (error) { this.#fileError = (error as Error).message; this.conflicts.push(`${frame.file?.path}: ${(error as Error).message}`); } return;
       case "checkpoint":
         if (this.#launch.requireCompleteCheckpoint && this.conflicts.length) {
           this.emit("diagnostic", "The cloud computer's checkpoint could not be committed because files conflicted or failed to transfer.\n");
@@ -293,6 +324,7 @@ export class RemoteSession extends EventEmitter {
   #lost(why: string): void {
     if (this.#closed) return;
     this.#closed = true;
+    this.#fileAbort.abort();
     this.emit("link-closed", why);
     for (const pending of this.#pending.values()) pending.reject(new Error(`The cloud computer connection ended (${why}).`));
     this.#pending.clear();
@@ -405,6 +437,10 @@ export class EngineProcess extends EventEmitter {
     }
   }
 
+  async selectTranscript(id: string, name: string): Promise<boolean> {
+    return this.placement === "computer" && this.#remote !== null && this.#remote.selectTranscript(id, name);
+  }
+
   async stopTree(timeoutMs: number, stopLocal: (child: ChildProcess, timeoutMs: number) => Promise<boolean>): Promise<boolean> {
     if (this.exitCode !== null || this.signalCode !== null) return !this.#remote || this.#remote.exitConfirmed;
     this.#stopRequested = true;
@@ -417,13 +453,12 @@ export class EngineProcess extends EventEmitter {
     this.#remote?.stop();
     const stoppedAt = Date.now();
     const grace = Math.max(timeoutMs, 0) + 8_000;
-    const deadline = stoppedAt + Math.max(SYNC_REPLY_MS, grace);
     let ended = false;
     let remaining = grace;
     while (!ended && remaining > 0) {
       ended = await Promise.race([this.#closed.then(() => true), new Promise<boolean>((resolve) => setTimeout(() => resolve(false), remaining).unref())]);
       const lastProgress = Math.max(stoppedAt, this.#remote?.checkpointProgressAt ?? 0);
-      remaining = Math.min(deadline, lastProgress + grace) - Date.now();
+      remaining = lastProgress + grace - Date.now();
     }
     if (!ended) {
       this.#remote?.close();

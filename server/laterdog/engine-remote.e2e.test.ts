@@ -3,7 +3,7 @@ import { createHash } from "node:crypto";
 import { tmpdir } from "node:os";
 import { EventEmitter } from "node:events";
 import { chmodSync, closeSync, existsSync, mkdirSync, mkdtempSync, openSync, readFileSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync, writeSync } from "node:fs";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { createServer, type Server } from "node:http";
 import { createInterface } from "node:readline";
 import { fileURLToPath } from "node:url";
@@ -173,6 +173,7 @@ it("limits an unacknowledged upload to one window and cancels before dispatch wh
   link.send = line => {
     const frame = JSON.parse(line);
     if (frame.type === "configure") queueMicrotask(() => link.emit("line", JSON.stringify({ type: "reply", id: frame.id, body: { files: [] } })));
+    if (frame.type === "file_begin") queueMicrotask(() => link.emit("line", JSON.stringify({ type: "reply", id: frame.id, body: { accepted: true } })));
     if (frame.type === "file_chunk") received += Buffer.byteLength(frame.data, "base64");
     if (frame.type === "file_window") queueMicrotask(() => link.close());
     if (frame.type === "launch") launched = true;
@@ -182,6 +183,75 @@ it("limits an unacknowledged upload to one window and cancels before dispatch wh
   await expect(session.start()).rejects.toThrow("transfer interrupted");
   expect(received).toBe(ENGINE_WINDOW_BYTES);
   expect(launched).toBe(false);
+});
+
+it("parks a selected rollout after loss and recovers only that file into the next ephemeral native home", async () => {
+  const w = world();
+  const name = "2026/11/25/rollout-selected.jsonl";
+  const firstDir = join(w.base, "engine-launch", "9bc2c5b1-691f-4451-9245-ee205927ce68");
+  const nextDir = join(w.base, "engine-launch", "6ef7fa24-458c-42ba-8ffc-2a77e38ee800");
+  const start = (dir: string, files: string[]) => {
+    const plan = w.plan();
+    const sessions = { id: "sessions", path: join(dir, "sessions"), writable: true, transcript: true, files };
+    mkdirSync(sessions.path, { recursive: true });
+    plan.launch.roots.push({ id: "config", path: dir, writable: false, files: ["config.toml"] }, sessions);
+    plan.launch.outputIds.push("sessions");
+    plan.launch.ephemeralCodexHome = dir;
+    plan.launch.env.CODEX_HOME = dir;
+    const remote = new RemoteSession(w.relay(), plan.launch);
+    return remote;
+  };
+  const first = start(firstDir, []);
+  await first.start();
+  await expect(first.selectTranscript("sessions", name)).resolves.toBe(true);
+  await expect(first.selectTranscript("sessions", "another.jsonl")).rejects.toThrow("selection cannot be changed");
+  const resident = w.mirror(join(firstDir, "sessions", name));
+  mkdirSync(dirname(resident), { recursive: true });
+  writeFileSync(resident, "unacknowledged native history\n");
+  writeFileSync(w.mirror(join(firstDir, "auth.json")), "scoped fixture token");
+  const lost = new Promise<void>(resolve => first.once("link-closed", resolve));
+  first.close();
+  await lost;
+  await expect.poll(() => existsSync(w.mirror(firstDir)), { timeout: 12_000 }).toBe(false);
+  expect(existsSync(join(firstDir, "sessions", name))).toBe(false);
+  const next = start(nextDir, [name]);
+  await next.start();
+  expect(readFileSync(join(nextDir, "sessions", name), "utf8")).toBe("unacknowledged native history\n");
+  expect(existsSync(w.mirror(join(nextDir, "auth.json")))).toBe(false);
+  const done = new Promise<void>(resolve => next.once("link-closed", resolve));
+  next.close();
+  await done;
+}, 30_000);
+
+it("recovers a later guest transcript before dispatch and preserves both copies on a two-sided edit", async () => {
+  const w = world();
+  const first = w.start(w.plan());
+  await turn(first.engine, "first turn");
+  const finished = closed(first.engine);
+  first.engine.stdin.end();
+  await finished;
+  const guest = w.mirror(w.sessionFile);
+  const before = readFileSync(guest);
+  expect(readFileSync(w.sessionFile)).toEqual(before);
+  const newer = Buffer.concat([before, Buffer.from("\n")]);
+  writeFileSync(guest, newer);
+  const resumed = w.start(w.plan(true));
+  await turn(resumed.engine, "continue after recovery");
+  expect(readFileSync(w.sessionFile).subarray(0, newer.length)).toEqual(newer);
+  const closedAgain = closed(resumed.engine);
+  resumed.engine.stdin.end();
+  await closedAgain;
+  writeFileSync(w.sessionFile, "home revision");
+  writeFileSync(guest, "computer revision");
+  const conflict = w.start(w.plan(true));
+  const diagnostics: string[] = [];
+  conflict.engine.stderr.on("data", chunk => diagnostics.push(String(chunk)));
+  expect(await closed(conflict.engine)).toBe(1);
+  expect(diagnostics.join("")).toContain("Both copies were preserved");
+  expect(readFileSync(w.sessionFile, "utf8")).toBe("home revision");
+  expect(readFileSync(guest, "utf8")).toBe("computer revision");
+  expect(w.localLaunches()).toBe(0);
+  expect(w.launches()).toHaveLength(2);
 });
 
 it("resumes a large Claude transcript on the computer and checkpoints its exact bytes back to the home", async () => {
