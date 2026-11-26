@@ -14,6 +14,7 @@ export interface EngineFileRoot {
   pushOnly?: boolean;
   transcript?: boolean;
 }
+export type EngineFilePrefix = { size: number; hash: string };
 export interface EngineFile { root: string; path: string; hash: string; size: number; mode: number }
 export const ENGINE_FILE_LIMIT = 128 * 1024 * 1024;
 export const ENGINE_TRANSFER_LIMIT = 512 * 1024 * 1024;
@@ -50,29 +51,36 @@ function fileLimit(root: EngineFileRoot, name: string): number {
   return root.transcript && root.files?.length === 1 && root.files[0] === name ? ENGINE_TRANSFER_LIMIT : ENGINE_FILE_LIMIT;
 }
 
-export function* engineFileChunks(root: EngineFileRoot, name: string, chunkSize = ENGINE_FRAME_BYTES): Generator<Buffer> {
+export function* engineFileChunks(root: EngineFileRoot, name: string, chunkSize = ENGINE_FRAME_BYTES, start = 0, end?: number): Generator<Buffer> {
   const path = engineFilePath(root, name);
   const fd = openSync(path, constants.O_RDONLY | constants.O_NOFOLLOW);
   try {
     const stat = fstatSync(fd);
     if (!stat.isFile() || stat.size > fileLimit(root, name)) throw new Error("Engine file cannot be transferred safely");
-    const buffer = Buffer.allocUnsafe(Math.min(chunkSize, stat.size));
-    let offset = 0;
-    while (offset < stat.size) {
-      const count = readSync(fd, buffer, 0, Math.min(buffer.length, stat.size - offset), offset);
+    const limit = end ?? stat.size;
+    if (start < 0 || start > limit || limit > stat.size) throw new Error("Engine file no longer covers its checkpoint");
+    const buffer = Buffer.allocUnsafe(Math.min(chunkSize, limit - start));
+    let offset = start;
+    while (offset < limit) {
+      const count = readSync(fd, buffer, 0, Math.min(buffer.length, limit - offset), offset);
       if (!count) throw new Error("Engine file shortened during transfer");
       offset += count;
       yield buffer.subarray(0, count);
     }
     const after = fstatSync(fd);
-    if (after.size !== stat.size || after.mtimeMs !== stat.mtimeMs || after.ctimeMs !== stat.ctimeMs) throw new Error("Engine file changed during transfer");
+    if (end === undefined && (after.size !== stat.size || after.mtimeMs !== stat.mtimeMs || after.ctimeMs !== stat.ctimeMs)) throw new Error("Engine file changed during transfer");
   } finally { closeSync(fd); }
 }
 
-function fileHash(root: EngineFileRoot, name: string): string {
+function fileHash(root: EngineFileRoot, name: string, end?: number): string {
   const hash = createHash("sha256");
-  for (const chunk of engineFileChunks(root, name, ENGINE_WINDOW_BYTES)) hash.update(chunk);
+  for (const chunk of engineFileChunks(root, name, ENGINE_WINDOW_BYTES, 0, end)) hash.update(chunk);
   return hash.digest("hex");
+}
+
+export function matchingTranscriptPrefix(root: EngineFileRoot, file: EngineFile, before?: EngineFile): EngineFilePrefix | undefined {
+  if (!root.transcript || file.size <= ENGINE_FILE_LIMIT || !before || !Number.isSafeInteger(before.size) || before.size <= 0 || before.size >= file.size) return;
+  if (fileHash(root, file.path, before.size) === before.hash) return { size: before.size, hash: before.hash };
 }
 
 export function engineInventory(roots: readonly EngineFileRoot[]): EngineFile[] {
@@ -124,7 +132,7 @@ export class EngineFileReceiver {
     for (const file of baseline) this.baseline.set(engineFileKey(file), file);
   }
 
-  begin(file: EngineFile): void {
+  begin(file: EngineFile, prefix?: EngineFilePrefix): void {
     if (this.#open) throw new Error("Engine file transfer already in progress");
     const root = this.roots.get(file.root);
     if (!root || !root.writable || (root.files && !root.files.includes(file.path))) throw new Error("Engine file is outside the writable selection");
@@ -133,14 +141,24 @@ export class EngineFileReceiver {
     if (this.#received > ENGINE_TRANSFER_LIMIT) throw new Error("Engine checkpoint exceeds its limit");
     const path = engineFilePath(root, file.path);
     const before = this.baseline.get(engineFileKey(file));
-    if (existsSync(path)) {
+    if (prefix && (!root.transcript || !before || !Number.isSafeInteger(prefix.size) || prefix.size <= 0 || prefix.size >= file.size || prefix.size !== before.size || prefix.hash !== before.hash)) throw new Error("Invalid engine transcript prefix");
+    if (existsSync(path) && !prefix) {
       const actual = fileHash(root, file.path);
       if (actual !== before?.hash && actual !== file.hash) throw new Error("Engine file conflicts with a newer home copy");
-    } else if (before) throw new Error("Engine file was removed on the home");
+    } else if (before && !existsSync(path)) throw new Error("Engine file was removed on the home");
     mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
     const temp = `${path}.engine-${process.pid}-${Date.now()}`;
     const fd = openSync(temp, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW, 0o600);
     this.#open = { fd, path, temp, file, size: 0, hash: createHash("sha256") };
+    if (prefix) {
+      try {
+        for (const bytes of engineFileChunks(root, file.path, ENGINE_WINDOW_BYTES, 0, prefix.size)) this.chunk(bytes);
+        if (this.#open.hash.copy().digest("hex") !== prefix.hash) throw new Error("Engine transcript conflicts with a newer copy");
+      } catch (error) {
+        this.close();
+        throw error;
+      }
+    }
   }
 
   chunk(bytes: Buffer): void {

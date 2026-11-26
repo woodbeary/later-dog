@@ -2,7 +2,7 @@ import { spawn, type ChildProcess } from "node:child_process";
 import { EventEmitter } from "node:events";
 import { PassThrough } from "node:stream";
 import { createInterface } from "node:readline";
-import { ENGINE_FRAME_BYTES, ENGINE_WINDOW_BYTES, EngineFileReceiver, engineFileChunks, engineFileKey, engineInventory, type EngineFile, type EngineFileRoot } from "./engine-files.ts";
+import { ENGINE_FRAME_BYTES, ENGINE_WINDOW_BYTES, EngineFileReceiver, engineFileChunks, engineFileKey, engineInventory, matchingTranscriptPrefix, type EngineFile, type EngineFileRoot } from "./engine-files.ts";
 import { createHash } from "node:crypto";
 
 export interface EngineLink extends EventEmitter {
@@ -71,6 +71,7 @@ export class RemoteSession extends EventEmitter {
   #started = false;
   #exited = false;
   exitConfirmed = false;
+  checkpointProgressAt = 0;
   #receiver: EngineFileReceiver | null = null;
   #skipping = false;
   #fileError: string | null = null;
@@ -132,9 +133,10 @@ export class RemoteSession extends EventEmitter {
     for (let offset = 0; offset < bytes.length; offset += ENGINE_FRAME_BYTES) this.#send({ type: "file_chunk", data: bytes.subarray(offset, offset + ENGINE_FRAME_BYTES).toString("base64") });
     this.#send({ type: "file_end" });
   }
-  async #sendWorkingFile(root: EngineFileRoot, file: EngineFile): Promise<void> {
-    this.#send({ type: "file_begin", file: { ...file, mode: root.readOnly ? (file.mode & 0o444) | 0o400 : file.mode } });
-    for (const bytes of engineFileChunks(root, file.path)) {
+  async #sendWorkingFile(root: EngineFileRoot, file: EngineFile, before?: EngineFile): Promise<void> {
+    const prefix = matchingTranscriptPrefix(root, file, before);
+    this.#send({ type: "file_begin", prefix, file: { ...file, mode: root.readOnly ? (file.mode & 0o444) | 0o400 : file.mode } });
+    for (const bytes of engineFileChunks(root, file.path, ENGINE_FRAME_BYTES, prefix?.size, file.size)) {
       this.#send({ type: "file_chunk", data: bytes.toString("base64") });
       this.#pendingFileBytes += bytes.length;
       if (this.#pendingFileBytes >= ENGINE_WINDOW_BYTES) {
@@ -173,16 +175,17 @@ export class RemoteSession extends EventEmitter {
     try {
       configured = await this.#request({ type: "configure", roots: launch.roots.map((root) => ({ ...root, writable: true })), outputIds: launch.outputIds, names: Object.keys(launch.mcp) }, SYNC_REPLY_MS);
     } catch (error) { throw new NotDispatched((error as Error).message); }
-    const remote = new Map(configured.files.map((file) => [engineFileKey(file), file.hash]));
+    const remote = new Map(configured.files.map((file) => [engineFileKey(file), file]));
     const present = new Set(home.map(engineFileKey));
     try {
       for (const file of home) {
-        if (remote.get(engineFileKey(file)) === file.hash) continue;
+        const before = remote.get(engineFileKey(file));
+        if (before?.hash === file.hash) continue;
         const root = launch.roots.find((entry) => entry.id === file.root)!;
-        await this.#sendWorkingFile(root, file);
+        await this.#sendWorkingFile(root, file, before);
       }
       for (const file of configured.files) if (!present.has(engineFileKey(file)) && !pushedRoots.has(file.root)) this.#send({ type: "file_remove", file });
-      this.#pushScoped(remote, initialPush);
+      this.#pushScoped(new Map([...remote].map(([key, file]) => [key, file.hash])), initialPush);
       await this.#request({ type: "prepared" }, SYNC_REPLY_MS);
     } catch (error) { throw new NotDispatched((error as Error).message); }
     this.#receiver = new EngineFileReceiver(launch.roots.filter((root) => launch.outputIds.includes(root.id)).map((root) => ({ ...root, writable: true })),
@@ -225,10 +228,10 @@ export class RemoteSession extends EventEmitter {
       case "native_exit": this.#exit(Number.isInteger(frame.code) ? frame.code : null, typeof frame.signal === "string" ? frame.signal : null); return;
       case "file_begin":
         this.#fileError = null;
-        try { this.#receiver!.begin(frame.file); this.#skipping = false; }
+        try { this.#receiver!.begin(frame.file, frame.prefix); this.#skipping = false; }
         catch (error) { this.#skipping = true; this.#fileError = (error as Error).message; this.conflicts.push(`${frame.file?.path}: ${this.#fileError}`); this.emit("conflict", frame.file?.path, this.#fileError); }
         return;
-      case "file_chunk": if (!this.#skipping) try { this.#receiver!.chunk(Buffer.from(frame.data, "base64")); } catch (error) { this.#skipping = true; this.#receiver!.close(); this.#fileError = (error as Error).message; this.conflicts.push(this.#fileError); } return;
+      case "file_chunk": if (!this.#skipping) try { this.#receiver!.chunk(Buffer.from(frame.data, "base64")); this.checkpointProgressAt = Date.now(); } catch (error) { this.#skipping = true; this.#receiver!.close(); this.#fileError = (error as Error).message; this.conflicts.push(this.#fileError); } return;
       case "file_end": if (!this.#skipping) try { this.#receiver!.end(); } catch (error) { this.#fileError = (error as Error).message; this.conflicts.push(this.#fileError); } this.#skipping = false; return;
       case "file_window": this.#send({ type: "ack", id: frame.id, ...(this.#fileError && frame.required ? { error: this.#fileError } : {}) }); return;
       case "file_remove": try { this.#receiver!.remove(frame.file); } catch (error) { this.conflicts.push(`${frame.file?.path}: ${(error as Error).message}`); } return;
@@ -412,7 +415,16 @@ export class EngineProcess extends EventEmitter {
       return !this.#remote || this.#remote.exitConfirmed;
     }
     this.#remote?.stop();
-    const ended = await Promise.race([this.#closed.then(() => true), new Promise<boolean>((resolve) => setTimeout(() => resolve(false), Math.max(timeoutMs, 0) + 8_000).unref())]);
+    const stoppedAt = Date.now();
+    const grace = Math.max(timeoutMs, 0) + 8_000;
+    const deadline = stoppedAt + Math.max(SYNC_REPLY_MS, grace);
+    let ended = false;
+    let remaining = grace;
+    while (!ended && remaining > 0) {
+      ended = await Promise.race([this.#closed.then(() => true), new Promise<boolean>((resolve) => setTimeout(() => resolve(false), remaining).unref())]);
+      const lastProgress = Math.max(stoppedAt, this.#remote?.checkpointProgressAt ?? 0);
+      remaining = Math.min(deadline, lastProgress + grace) - Date.now();
+    }
     if (!ended) {
       this.#remote?.close();
       await Promise.race([this.#closed, new Promise<void>((resolve) => setTimeout(resolve, 6_000).unref())]);
