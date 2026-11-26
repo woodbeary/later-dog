@@ -9355,7 +9355,7 @@ async function startTurn(
           ? store.pinTaskCwd(bot.id, threadId, privateWorkspace, { privateOnly: cloudGuestOpened(threadId) })
           : null;
       const cwd = assignedCwd(mountedFolderLayout, DATA_DIR, bot.id, pinnedCwd);
-      const checkpointCwd = cwd && cwd !== privateWorkspace ? cwd : undefined;
+      const checkpointCwd = cwd && (mountedFolderLayout || cwd !== privateWorkspace) ? cwd : undefined;
       const cloudBackend = opts?.runOn === "cloud" || bot.cloudBackend !== "vps" ? "box" : "vps";
       const mountsComputerMcp = instance.adapter.capabilities.computerMcp === true;
       const mountsLocalComputer = instance.adapter.capabilities.localComputerMcp === true;
@@ -15304,6 +15304,18 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
           boxId: () => internalCapability.boxId ?? claimedBoatId(internalCapability),
           gate: () => computerCallGate(internalCapability),
           assertActive: requireActiveInternalCapability,
+          workingFolder: assignedJobFolders ? async boxId => {
+            const task = store.taskByThread(internalSender.id, internalCapability.threadId);
+            if (!task) throw new Error("The task's working folder is unavailable.");
+            const selected = task.cwd ?? ensureTaskWorkspace(internalSender.id, internalCapability.threadId);
+            const cwd = assignedJobFolders.path(internalSender.id, selected);
+            const scope = assignedJobFolders.resolve(internalSender.id, cwd);
+            if (!scope) throw new Error("The task's working folder is outside this dog's assignment.");
+            const guest = await boat.jobComputer(internalSender.id);
+            if (guest.state !== "running" || guest.box.computerId !== boxId) throw new Error("The task's computer assignment changed.");
+            await assignedJobFolders.sync(guest.box, internalSender.id, scope, "hydrate");
+            return { cwd, save: () => assignedJobFolders.sync(guest.box, internalSender.id, scope, "checkpoint") };
+          } : undefined,
           secureForms: secureForms.desk(internalSender.id, internalCapability.threadId),
           tabs: (boxId, tool) => cloudTabs.watch({ botId: internalSender.id, threadId: internalCapability.threadId }, boxId, tool),
           vault: vaultItemsFor(internalCapability),

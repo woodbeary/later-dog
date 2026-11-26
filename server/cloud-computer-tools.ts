@@ -75,6 +75,7 @@ export async function runCloudComputerTool(
   vault?: VaultItems,
   ownExec?: RemoteExec,
   checkpoint?: () => Promise<string | null>,
+  commandCwd?: string,
 ): Promise<CloudComputerResult> {
   const exec: RemoteExec = ownExec ?? ((command, abort) => runCommand(cfg, boxId, isolatedRemoteCommand(command), { signal: abort }));
   const fullSize = !ownExec && !servedByComputers(boxId);
@@ -132,8 +133,9 @@ export async function runCloudComputerTool(
     case "scroll": command = scaled(`${mouse} && xdotool click --repeat ${a.amount ?? 3} --delay 80 ${scrollButtons[String(a.direction)]}`, fullSize); break;
     case "open_url": command = openUrlCommand(String(a.url), tabs ? choose(tabs) : undefined, a.new_tab === true); break;
     case "exec": {
-      if (a.vault === undefined && a.vault_capture === undefined) { command = String(a.command); break; }
-      return execWithVault(cfg, boxId, a, signal, vault);
+      command = commandCwd ? "cd -- " + quote(commandCwd) + " || exit 1\n" + String(a.command) : String(a.command);
+      if (a.vault === undefined && a.vault_capture === undefined) break;
+      return execWithVault(cfg, boxId, { ...a, command }, signal, vault);
     }
     default: return { isError: true, content: [{ type: "text", text: "Unknown cloud computer tool." }] };
   }
@@ -207,6 +209,7 @@ export async function cloudComputerRpc(
     secureForms?: SecureFormDesk;
     tabs?: (boxId: string, tool: string) => TabWatch;
     vault?: VaultItems;
+    workingFolder?(boxId: string): Promise<{ cwd: string; save(): Promise<void> }>;
   },
 ): Promise<{ tools: typeof CLOUD_COMPUTER_TOOLS } | CloudComputerResult> {
   if (request?.method === "tools/list") {
@@ -253,8 +256,14 @@ export async function cloudComputerRpc(
     deps.assertActive();
     return now.held ? now.blockedReason || CONTROL_REFUSAL_PLAIN : null;
   };
-  const result = await runCloudComputerTool(deps.cfg, boxId, params.name as string, args as Record<string, unknown>, deps.signal,
-    deps.tabs?.(boxId, params.name as string), deps.vault, undefined, checkpoint);
-  deps.assertActive();
-  return result;
+  const folder = params.name === "exec" ? await deps.workingFolder?.(boxId) : undefined;
+  try {
+    if (folder) deps.assertActive();
+    const result = await runCloudComputerTool(deps.cfg, boxId, params.name as string, args as Record<string, unknown>, deps.signal,
+      deps.tabs?.(boxId, params.name as string), deps.vault, undefined, checkpoint, folder?.cwd);
+    deps.assertActive();
+    return result;
+  } finally {
+    await folder?.save();
+  }
 }
