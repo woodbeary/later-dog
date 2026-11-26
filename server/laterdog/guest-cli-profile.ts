@@ -3,6 +3,7 @@ import { mkdir, mkdtemp, rm, statfs, symlink, writeFile } from "node:fs/promises
 import { rmSync } from "node:fs";
 import { basename, dirname, isAbsolute, join } from "node:path";
 import type { AnyProviderDriver, DriverCreateInput, SendTurnInput } from "../contracts.ts";
+import { CustomAcpDriver } from "../drivers/acp/custom.ts";
 import { CursorAgentDriver } from "../drivers/acp/cursor.ts";
 import { GrokAgentDriver } from "../drivers/acp/grok.ts";
 import { GeminiAgentDriver } from "../drivers/acp/gemini.ts";
@@ -15,6 +16,7 @@ import { guestCliSessions } from "./guest-cli-sessions.ts";
 import type { GuestProviderProfile } from "./guest-provider-types.ts";
 
 const descriptors = new Map<string, { driver: AnyProviderDriver; defaultCli: string; profile: string; sessions: string }>([
+  ["customAcp", { driver: CustomAcpDriver, defaultCli: "", profile: ".acp", sessions: "sessions" }],
   ["grokAgent", { driver: GrokAgentDriver, defaultCli: "grok", profile: ".grok", sessions: "sessions" }],
   ["cursorAgent", { driver: CursorAgentDriver, defaultCli: "cursor-agent", profile: ".cursor", sessions: "chats" }],
   ["geminiAgent", { driver: GeminiAgentDriver, defaultCli: "gemini", profile: ".gemini", sessions: "tmp" }],
@@ -31,6 +33,7 @@ const accessFile: Record<string, { key: keyof GuestCliCredentials["files"]; name
 };
 
 function runtimeFor(kind: string, command: string, defaultCli: string, path?: string): GuestDriverRuntime {
+  if (kind === "customAcp") return { kind: "installed", binary: command };
   if (kind === "geminiAgent") {
     const pkg = engineCliPackage(command, path, "@google/gemini-cli");
     if (pkg) return { kind: "package", ...pkg, binary: "gemini" };
@@ -86,7 +89,8 @@ export function guestCliDriver(driverKind: string): AnyProviderDriver | null {
         await symlink(profile.sessionPath, join(directory, descriptor.sessions), "dir");
         const access = accessFile[driverKind];
         if (profile.file && access) await writeFile(join(directory, access.name), profile.file, { mode: 0o600, flag: "wx" });
-        const environment: Record<string, string> = { HOME: home, USERPROFILE: home };
+        const nativeHome = driverKind === "customAcp" ? profile.sessionPath : home;
+        const environment: Record<string, string> = { HOME: nativeHome, USERPROFILE: nativeHome };
         for (const key of allowedEnvironment[driverKind] ?? []) if (input.environment[key]) environment[key] = input.environment[key]!;
         if (driverKind === "grokAgent") environment.GROK_HOME = directory;
         if (driverKind === "cursorAgent") environment.CURSOR_CONFIG_DIR = directory;
