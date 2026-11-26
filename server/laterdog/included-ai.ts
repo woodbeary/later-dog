@@ -79,8 +79,8 @@ export const IncludedAiDriver = includedDriver(INCLUDED_AI_DRIVER, "Kimi", KIMI_
 export const IncludedGrokDriver = includedDriver(INCLUDED_GROK_DRIVER, "Grok (free)", GROK_MODELS, false);
 
 
-export function includedGuestDriver(kind: string, api: string, token: string) {
-  const account = () => ({ api, token, included: true as const });
+export function includedGuestDriver(kind: string, api: string, readToken: () => string) {
+  const account = () => ({ api, token: readToken(), included: true as const });
   return kind === INCLUDED_AI_DRIVER ? includedDriver(kind, "Kimi", KIMI_MODELS, true, account)
     : kind === INCLUDED_GROK_DRIVER ? includedDriver(kind, "Grok (free)", GROK_MODELS, false, account) : null;
 }

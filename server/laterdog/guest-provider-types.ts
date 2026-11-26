@@ -8,6 +8,7 @@ export interface GuestProviderProfile {
   runtime?: GuestDriverRuntime;
   roots?: EngineFileRoot[];
   mkdirs?: string[];
+  renew?: () => Promise<string>;
 }
 
 export type GuestRequest =
@@ -17,6 +18,7 @@ export type GuestRequest =
   | { op: "answer"; requestId: string; decision: Parameters<ProviderAdapter["respondToRequest"]>[2] }
   | { op: "steer"; text: string; images?: SendTurnInput["images"] }
   | { op: "stopActor"; actor: Parameters<NonNullable<ProviderAdapter["stopNativeActor"]>>[1] }
+  | { op: "renew"; token: string }
   | { op: "generate"; prompt: string; model?: string }
   | { op: "context" }
   | { op: "dispose" };

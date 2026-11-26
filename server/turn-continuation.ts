@@ -6,7 +6,7 @@ import type { RuntimeEvent } from "./contracts.ts";
 import type { Store } from "./store.ts";
 
 export function handoffDir(): string {
-  return join(process.env.LATERDOG_HOME || join(homedir(), ".laterdog"), "handoffs");
+  return process.env.LATERDOG_HANDOFF_DIR || join(process.env.LATERDOG_HOME || join(homedir(), ".laterdog"), "handoffs");
 }
 
 export interface HandoffInput {

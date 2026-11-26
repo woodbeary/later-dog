@@ -709,6 +709,7 @@ export const CodexDriver: ProviderDriver<CodexConfig> = {
     });
 
     const sendTurn = async (turn: SendTurnInput) => {
+      if (!turn.botId && remoteEngineChoice(DATA_DIR, "").required) throw new Error("This cloud engine needs its dog to select the computer.");
       turn = { ...turn, toolScope: assertToolScopeSupported(DRIVER_KIND, turn.toolScope) };
       const generation = planGeneration;
       const assertPlanCurrent = () => {

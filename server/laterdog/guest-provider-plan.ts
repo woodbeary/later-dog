@@ -32,6 +32,7 @@ function guestIntegrations(turn: SendTurnInput, proxy: string, socket: string) {
 
 export function guestProviderPlan(dataDir: string, driver: string, profile: GuestProviderProfile, turn: SendTurnInput, opener: EngineOpener) {
   if (!turn.botId || !/^[\w-]{1,128}$/.test(turn.botId)) throw new Error("The engine needs a dog to select its computer.");
+  if (!/^[\w-]{1,160}$/.test(turn.threadId)) throw new Error("The engine needs a valid chat identity.");
   const programs = opener.guestProvider;
   if (!programs) throw new Error("The dog's computer is missing its provider runtime.");
   const base = opener.remoteBase ?? REMOTE_ENGINE_BASE;
@@ -63,7 +64,7 @@ export function guestProviderPlan(dataDir: string, driver: string, profile: Gues
       mkdirs: [...new Set([...roots.map(root => root.path), ...(profile.mkdirs ?? [])])],
       launch: {
         cli: "node", args: [programs.entry], cwd, roots, outputIds: roots.filter(root => root.writable).map(root => root.id),
-        env: { HOME: "/home/dog", PATH: "/home/dog/.local/bin:/usr/local/bin:/usr/bin:/bin", LATERDOG_HOME: join(base, "providers", threadKey), ...profile.env },
+        env: { HOME: "/home/dog", PATH: "/home/dog/.local/bin:/usr/local/bin:/usr/bin:/bin", LATERDOG_HOME: join(base, "providers", threadKey), LATERDOG_HANDOFF_DIR: join(dataDir, "handoffs"), ...profile.env },
         mcp, hooks: [], hookEnv: {}, proxyEnv: { PATH: process.env.PATH ?? "", HOME: homedir() },
         socketPath, stateFile: join(base, "state", threadKey + ".json"), lockFile: join(base, "locks", threadKey + ".lock"),
         acknowledgedInput: true, requireCompleteCheckpoint: roots.some(root => root.writable),

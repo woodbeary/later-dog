@@ -1198,6 +1198,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
 
     const rareLaunches = new Map<string, boolean>();
     const sendTurn = async (turn: SendTurnInput, logicalTurnId?: string) => {
+      if (!turn.botId && remoteEngineChoice(DATA_DIR, "").required) throw new Error("This cloud engine needs its dog to select the computer.");
       const controller = new AbortController();
       starting.get(turn.threadId)?.abort();
       starting.set(turn.threadId, controller);

@@ -1,3 +1,6 @@
+import { mkdirSync, writeFileSync } from "node:fs";
+import { basename, join } from "node:path";
+import { appendNative, type NativeEntry } from "../drivers/native.ts";
 import { createInterface } from "node:readline";
 import { newEventId, type RuntimeEvent, type RuntimeEventListener, type SendTurnInput } from "../contracts.ts";
 import type { GuestRequest } from "./guest-provider-types.ts";
@@ -17,14 +20,16 @@ export class GuestProviderChannel {
   private readonly driver: string;
   private readonly instanceId: string;
   private readonly threadId: string;
+  private readonly dataDir: string;
   readonly turn: SendTurnInput;
   private readonly publish: RuntimeEventListener;
 
-  constructor(engine: EngineProcess, driver: string, instanceId: string, threadId: string, turn: SendTurnInput, publish: RuntimeEventListener) {
+  constructor(engine: EngineProcess, driver: string, instanceId: string, threadId: string, dataDir: string, turn: SendTurnInput, publish: RuntimeEventListener) {
     this.engine = engine;
     this.driver = driver;
     this.instanceId = instanceId;
     this.threadId = threadId;
+    this.dataDir = dataDir;
     this.turn = turn;
     this.publish = publish;
     const lines = createInterface({ input: engine.stdout });
@@ -47,11 +52,30 @@ export class GuestProviderChannel {
   }
 
   private receive(line: string) {
-    let frame: { id?: number; read?: number; event?: RuntimeEvent; value?: unknown; error?: string };
+    let frame: { native?: NativeEntry; handoff?: string; id?: number; read?: number; event?: RuntimeEvent; value?: unknown; error?: string };
     try { frame = JSON.parse(line); } catch { return; }
+    if (frame.native) {
+      const { dir, source, msg } = frame.native;
+      if ((dir === "in" || dir === "out") && typeof source === "string") appendNative(this.threadId, { dir, source, msg });
+      return;
+    }
     const event = frame.event;
     if (event) {
       if (event.threadId !== this.threadId || event.provider !== this.driver || (event.providerInstanceId && event.providerInstanceId !== this.instanceId)) return;
+      if (event.type === "cap.exhausted") {
+        const name = basename(event.handoffPath);
+        const folder = join(this.dataDir, "handoffs");
+        if (!event.turnId || !name.startsWith("cap-" + this.threadId.slice(0, 8) + "-" + event.turnId.slice(0, 8) + "-") ||
+          !/^[\w.-]+\.md$/.test(name) || typeof frame.handoff !== "string" || Buffer.byteLength(frame.handoff) > 1024 * 1024) return;
+        try {
+          mkdirSync(folder, { mode: 0o700, recursive: true });
+          writeFileSync(join(folder, name), frame.handoff, { mode: 0o600, flag: "wx" });
+          this.publish({ ...event, handoffPath: join(folder, name), providerInstanceId: this.instanceId });
+        } catch {
+          this.publish({ ...event, type: "runtime.error", message: "The computer could not save the continuation file at home.", terminal: false });
+        }
+        return;
+      }
       if (event.type === "turn.started") this.turnId = event.turnId;
       if (event.type === "turn.completed") {
         this.completion = { ...event, providerInstanceId: this.instanceId };

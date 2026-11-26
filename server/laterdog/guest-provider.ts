@@ -33,7 +33,7 @@ export function placeProvider(instance: ProviderInstance, input: DriverCreateInp
     if (!opener) throw new Error("The engine cannot reach the dog's computer.");
     const prepared = guestProviderPlan(dataDir, driver, profile, turn, opener);
     const proc = spawnPlacedEngine(prepared.plan, (plan, signal) => opener.open(turn.botId!, plan, signal), undefined, undefined, undefined, { openBudgetMs: opener.openBudgetMs });
-    const channel = new GuestProviderChannel(proc, driver, instance.instanceId, turn.threadId, prepared.turn, event => {
+    const channel = new GuestProviderChannel(proc, driver, instance.instanceId, turn.threadId, dataDir, prepared.turn, event => {
       if (event.type === "turn.started") log(turn, "computer");
       for (const listener of listeners) listener(event);
     });
@@ -42,6 +42,24 @@ export function placeProvider(instance: ProviderInstance, input: DriverCreateInp
     try {
       await channel.request({ op: "open", driver, input: profile.input, threadId: turn.threadId });
       if (state.stopped) throw new Error("The turn was interrupted while the computer was starting.");
+      if (profile.renew) {
+        const renew = profile.renew;
+        let timer: NodeJS.Timeout;
+        let ended = false;
+        const schedule = (delay: number) => {
+          if (ended) return;
+          timer = setTimeout(async () => {
+            try {
+              const token = await renew();
+              if (!ended) await channel.request({ op: "renew", token });
+              schedule(40 * 60_000);
+            } catch { schedule(60_000); }
+          }, delay);
+          timer.unref();
+        };
+        schedule(30 * 60_000);
+        void channel.closed.then(() => { ended = true; clearTimeout(timer); });
+      }
       state.ready = true;
       return channel;
     } catch (error) {
