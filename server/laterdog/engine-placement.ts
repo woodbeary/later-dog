@@ -1,3 +1,4 @@
+import type { GuestDriverRuntime } from "./guest-cli-runtime.ts";
 import { createHash, randomUUID } from "node:crypto";
 import type { ChildProcess } from "node:child_process";
 import { appendFileSync, copyFileSync, existsSync, lstatSync, mkdirSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
@@ -113,7 +114,7 @@ export function commandOnPath(command: string, path: string | undefined): string
   return null;
 }
 
-export function engineCliPackage(resolvedCommand: string, path: string | undefined, packageName: "@openai/codex" | "@anthropic-ai/claude-code"): { name: string; version: string } | null {
+export function engineCliPackage(resolvedCommand: string, path: string | undefined, packageName: string): { name: string; version: string } | null {
   const found = commandOnPath(resolvedCommand, path);
   if (!found) return null;
   let at: string;
@@ -162,7 +163,7 @@ export interface ClaudePlacement {
   remoteBase?: string;
 }
 
-export interface PlacedEnginePlan { threadId: string; launch: RemoteLaunch; cli: { name: string; version: string }; stagingDir: string; mkdirs: string[]; renewal?: ClaudeRenewal | null }
+export interface PlacedEnginePlan { threadId: string; launch: RemoteLaunch; cli: { name: string; version: string }; stagingDir: string; mkdirs: string[]; guestRuntime?: { kind: "node" } | { kind: "acp"; cli: GuestDriverRuntime }; renewal?: ClaudeRenewal | null }
 
 export type ClaudeRemotePlan = PlacedEnginePlan;
 
