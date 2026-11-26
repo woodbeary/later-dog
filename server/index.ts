@@ -569,6 +569,7 @@ import { createTeamManifest, parseTeamManifest } from "./team-manifest.ts";
 import { LogArchiveCoordinator, claudeSessionIds, logArchiveBridge, outsideSessionOwners } from "./laterdog/log-archive.ts";
 import { archiveSweep, roomFor, roomToRestore, savesHold, startArchiveSweeps, steadyDisk, workFolderSweep } from "./laterdog/archive-pressure.ts";
 import { WorkFolderArchive } from "./laterdog/work-folder-archive.ts";
+import { managedDeviceApproval } from "./laterdog/managed-device-approval.ts";
 import { managedJobFolders } from "./laterdog/managed-job-folders.ts";
 import { mountedWorkFolders as jobFolderLayout } from "./laterdog/work-folder-locations.ts";
 import { homeMountPaths } from "./laterdog/work-folder-maintenance.ts";
@@ -892,7 +893,7 @@ import {
   type GoogleClient,
   type PendingGoogleAuth,
 } from "./laterdog/google.ts";
-import { DeviceApprovalWatcher, deviceApprovalOutcome, deviceApprovalResumePrompt, processAlive, runDeviceCheck } from "./laterdog/device-approval.ts";
+import { DeviceApprovalWatcher, deviceApprovalOutcome, deviceApprovalResumePrompt } from "./laterdog/device-approval.ts";
 import { deviceApprovalExpiredNotice, deviceApprovalNeedsYou, deviceApprovalRenewPrompt, deviceApprovalRenewable } from "./laterdog/device-approval-wait.ts";
 import { isOpenDeviceApproval, type DeviceApprovalCardData, type DeviceApprovalEndedBy } from "../shared/device-approval.ts";
 import { createSecureFormRoutes } from "./routes/secure-forms.ts";
@@ -3270,10 +3271,12 @@ function connectedAppsIntegration(bot: Pick<BotRecord, "id" | "connectorTools">,
 
 const computerControlRevision = new Map<string, number>();
 const takeoverWaits = new TakeoverWaits();
+const assignedJobFolders = managedJobFolders(jobFolderLayout(), CLOUD_HOME, DATA_DIR);
+const approvalPlace = managedDeviceApproval(assignedJobFolders, botId => remoteEngineChoice(DATA_DIR, botId).computer, boat.jobComputer);
 const deviceApprovals = new DeviceApprovalWatcher({
   now: () => Date.now(),
-  runCheck: runDeviceCheck,
-  alive: processAlive,
+  runCheck: approvalPlace.runCheck,
+  alive: approvalPlace.alive,
   settle: (wait, endedBy) => endDeviceApproval(wait.botId, wait.threadId, wait.messageId, endedBy),
 });
 const computerControl = new ComputerControl((key, snapshot) => {
@@ -14325,7 +14328,6 @@ INTERNAL_ROUTES.push(createSwitchAccountRoute({
   preferred: (threadId) => accountBattery.preferredFor(threadId),
   timeZone: () => process.env.TZ,
 }));
-const assignedJobFolders = managedJobFolders(jobFolderLayout(), CLOUD_HOME, DATA_DIR);
 const computerRuns = new ComputerRuns(join(DATA_DIR, "computer-runs"), { syncFolder: assignedJobFolders?.sync });
 const checkComputerJobs = () => void computerJobs.check({
   computer: (botId) => boat.jobComputer(botId),
@@ -14454,6 +14456,7 @@ const googleRouteDeps: GoogleRouteDeps = {
 INTERNAL_ROUTES.push(createGoogleRoute(googleRouteDeps));
 
 INTERNAL_ROUTES.push(createDeviceApprovalRequestRoute({
+  watchComputer: approvalPlace.watchComputer,
   owner: connectorThread,
   mayRunCheck: (sender, threadId) => {
     const threadBot = store.projectBotForTask(sender.id, threadId) ?? sender;
