@@ -2474,6 +2474,10 @@ describe("ClaudeDriver turns (fake CLI)", () => {
     await recorder.until(e => e.type === "turn.completed");
     expect(recorder.events.filter(e => e.type === "helper.updated" && e.helper.state === "stopped")).toHaveLength(2);
     expect(recorder.events).toContainEqual(expect.objectContaining({ type: "runtime.error", message: "2 helpers stopped when this turn ended." }));
+    const ended = recorder.events.findIndex(e => e.type === "turn.completed");
+    const nativeStates = new Map(recorder.events.slice(0, ended).flatMap(e => e.type === "native.observed" && e.observation.kind === "actor" && e.observation.actor.kind !== "parent" ? [[e.observation.actor.id, e.observation.actor.state] as const] : []));
+    expect(nativeStates.size).toBeGreaterThan(1);
+    expect([...nativeStates.values()]).toEqual(Array(nativeStates.size).fill("stopped"));
   });
 
   it("does not end the current turn or its approvals on a background-task result", async () => {

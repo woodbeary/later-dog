@@ -6,6 +6,7 @@ import { RoomHandoffs, type RoomHandoff, type RoomHandoffHooks } from "../room-h
 import type { HandoffRunResult } from "./long-work.ts";
 import { removeTempDir } from "../testing/cleanup.ts";
 import { handoffWait, handoffWorkDone, olderWorkFields } from "./chat-work.ts";
+import { TURNLESS_MS } from "./turnless-requests.ts";
 import { waitingOn } from "./waiting-on.ts";
 import { workState } from "./work-state.ts";
 
@@ -14,15 +15,20 @@ afterAll(() => removeTempDir(dir));
 const flush = () => new Promise<void>((resolve) => setImmediate(resolve));
 const chief = { botId: "chief", threadId: "chief-chat" };
 const scout = { botId: "scout", threadId: "scout-chat" };
-const NAMES: Record<string, string> = { chief: "Chief", scout: "Scout" };
+const patch = { botId: "patch", threadId: "patch-chat" };
+const NAMES: Record<string, string> = { chief: "Chief", scout: "Scout", patch: "Patch" };
 
-function handoffs(name: string, busy: (botId: string) => boolean, run: RoomHandoffHooks["run"] = () => new Promise(() => {})) {
-  const hooks: RoomHandoffHooks = { validate: () => undefined, busy: (node) => busy(node.botId), run, report: () => {}, changed: () => {} };
-  return new RoomHandoffs(join(dir, `${name}.json`), hooks);
+function handoffs(name: string, busy: (botId: string) => boolean, run: RoomHandoffHooks["run"] = () => new Promise(() => {}), more: Partial<RoomHandoffHooks> = {}, now?: () => number) {
+  const hooks: RoomHandoffHooks = { validate: () => undefined, busy: (node) => busy(node.botId), run, report: () => {}, changed: () => {}, ...more };
+  return new RoomHandoffs(join(dir, `${name}.json`), hooks, now);
+}
+
+function tell(record: RoomHandoffs, to: { botId: string; threadId: string }, text: string, turn = "turn") {
+  return record.enqueue(chief, turn, undefined, to, text, text, false, false, "", undefined, undefined, undefined, undefined, false, "none").node;
 }
 
 function chatAsTheWireSees(record: RoomHandoffs, threadId: string, busy: boolean) {
-  const handoff = handoffWait(busy, record.activeDirect(threadId), () => waitingOn(record.outstandingDirect(threadId), (botId) => NAMES[botId]));
+  const handoff = handoffWait(busy, record.coordinating(threadId), () => waitingOn(record.sentStillOpen(threadId), (botId) => NAMES[botId]));
   const work = workState({ busy, ...(handoff.waitingOn ? { waitingOn: handoff.waitingOn } : {}) });
   return { work, older: olderWorkFields(busy, busy ? "working" : "idle", handoff) };
 }
@@ -34,15 +40,16 @@ function scoutFinishes() {
 }
 
 describe("a chat's handoffs, from the handoff record", () => {
-  it("a handoff waiting in line for a busy dog is not shown as waiting on anyone, in either chat", async () => {
+  it("a dog that sent work with no reply wanted waits on the busy dog it is in line for, and that dog's own chat waits on no one", async () => {
     const record = handoffs("queued", (botId) => botId === "scout");
-    record.enqueue(chief, "turn", undefined, scout, "fyi", "Ship it", false, false, "", undefined, undefined, undefined, undefined, false, "none");
+    tell(record, scout, "Ship it");
     record.sourceSettled("turn", true);
     record.tick(); await flush();
     expect(record.activeDirect(scout.threadId)).toBe(true);
-    for (const threadId of [chief.threadId, scout.threadId]) {
-      expect(chatAsTheWireSees(record, threadId, false).work).toEqual({ kind: "idle" });
-    }
+    const sent = chatAsTheWireSees(record, chief.threadId, false);
+    expect(sent.work).toEqual({ kind: "waiting-on-dog", dogs: [{ id: "scout", name: "Scout" }] });
+    expect(sent.older.waitingOn).toEqual([expect.objectContaining({ botId: "scout", state: "queued" })]);
+    expect(chatAsTheWireSees(record, scout.threadId, false).work).toEqual({ kind: "idle" });
   });
 
   it("the dog that asked for a reply waits on its teammate by name", async () => {
@@ -53,6 +60,94 @@ describe("a chat's handoffs, from the handoff record", () => {
     const asked = chatAsTheWireSees(record, chief.threadId, false);
     expect(asked.work).toEqual({ kind: "waiting-on-dog", dogs: [{ id: "scout", name: "Scout" }] });
     expect(asked.older).toMatchObject({ waitingForTeammates: true, waitingOn: [expect.objectContaining({ botId: "scout", name: "Scout" })] });
+  });
+});
+
+describe("work a chat sent with no reply wanted", () => {
+  it("keeps the chat waiting on that dog by name while the work runs, and clears when the work ends", async () => {
+    const scoutRun = scoutFinishes();
+    const record = handoffs("fyi-runs", () => false, scoutRun.run);
+    const sent = tell(record, scout, "Ship it");
+    record.sourceSettled("turn", true);
+    record.tick(); await flush();
+    expect(sent.status).toBe("running");
+    const working = chatAsTheWireSees(record, chief.threadId, false);
+    expect(working.work).toEqual({ kind: "waiting-on-dog", dogs: [{ id: "scout", name: "Scout" }] });
+    expect(working.older).toMatchObject({ waitingForTeammates: true, waitingOn: [expect.objectContaining({ botId: "scout", state: "running" })] });
+    expect(chatAsTheWireSees(record, chief.threadId, true).work).toEqual({ kind: "running" });
+    scoutRun.finish("Shipped.");
+    await flush();
+    record.tick(); await flush();
+    expect(sent.status).toBe("completed");
+    const done = chatAsTheWireSees(record, chief.threadId, false);
+    expect(done.work).toEqual({ kind: "idle" });
+    expect(done.older.waitingForTeammates).toBe(false);
+  });
+
+  it("tells the chat that sent the work when that work changes, not only the chat doing it", async () => {
+    const scoutRun = scoutFinishes();
+    const heard: string[][] = [];
+    const record = handoffs("fyi-heard", () => false, scoutRun.run, {
+      needsYou: (node) => node.botId === "scout" && node.result === "Which tag?",
+      changed: (_groups, threads) => { heard.push([...threads]); },
+    });
+    const sent = tell(record, scout, "Ship it");
+    record.sourceSettled("turn", true);
+    record.tick(); await flush();
+    heard.length = 0;
+    scoutRun.finish("Which tag?");
+    await flush();
+    expect(sent.status).toBe("needs-you");
+    expect(heard.flat()).toContain(chief.threadId);
+    expect(chatAsTheWireSees(record, chief.threadId, false).older.waitingOn).toEqual([expect.objectContaining({ botId: "scout", state: "needsYou" })]);
+  });
+
+  it("lets go of it when the person stops the chat, without ending it, names all of it, started or still in line, and keeps waiting when the home stops the chat", async () => {
+    const record = handoffs("fyi-stop", (botId) => botId === "patch");
+    const toScout = tell(record, scout, "Ship it");
+    const toPatch = tell(record, patch, "Tag it");
+    record.sourceSettled("turn", true);
+    record.tick(); await flush();
+    expect([toScout.status, toPatch.status]).toEqual(["running", "queued"]);
+    expect(record.stopAwaitingDirect(chief.threadId, "interrupted")).toEqual([]);
+    expect(chatAsTheWireSees(record, chief.threadId, false).work).toEqual({ kind: "waiting-on-dog", dogs: [{ id: "scout", name: "Scout" }, { id: "patch", name: "Patch" }] });
+    expect(record.stopAwaitingDirect(chief.threadId, "person").map((node) => node.botId)).toEqual(["scout", "patch"]);
+    expect([toScout.status, toPatch.status]).toEqual(["running", "queued"]);
+    const stopped = chatAsTheWireSees(record, chief.threadId, false);
+    expect(stopped.work).toEqual({ kind: "idle" });
+    expect(stopped.older.waitingForTeammates).toBe(false);
+    expect(record.stopAwaitingDirect(chief.threadId, "person")).toEqual([]);
+    const reopened = handoffs("fyi-stop", () => false, undefined, { longWork: () => true });
+    expect([...reopened.nodes.values()].filter((node) => node.parentId).map((node) => node.status)).toEqual(["running", "queued"]);
+    expect(chatAsTheWireSees(reopened, chief.threadId, false).work).toEqual({ kind: "idle" });
+  });
+
+  it("ends with a restart when it cannot carry on, and the chat stops waiting", async () => {
+    const record = handoffs("fyi-restart", () => false);
+    tell(record, scout, "Ship it");
+    record.sourceSettled("turn", true);
+    record.tick(); await flush();
+    expect(chatAsTheWireSees(record, chief.threadId, false).work.kind).toBe("waiting-on-dog");
+    const reopened = handoffs("fyi-restart", () => false, undefined, { longWork: () => false });
+    reopened.tick(); await flush();
+    expect([...reopened.nodes.values()].find((node) => node.botId === "scout")).toMatchObject({ status: "failed", endedBy: "restart" });
+    expect(chatAsTheWireSees(reopened, chief.threadId, false).work).toEqual({ kind: "idle" });
+  });
+
+  it("is settled by the home once its dog has had no turn for ten minutes, and the chat stops waiting", async () => {
+    let at = 1_000_000;
+    let scoutTurn = true;
+    const record = handoffs("fyi-turnless", () => false, undefined, { turnRunning: () => scoutTurn, lastWords: () => "Shipped." }, () => at);
+    const sent = tell(record, scout, "Ship it");
+    record.sourceSettled("turn", true);
+    record.tick(); await flush();
+    scoutTurn = false;
+    record.tick(); await flush();
+    expect(chatAsTheWireSees(record, chief.threadId, false).work.kind).toBe("waiting-on-dog");
+    at += TURNLESS_MS;
+    record.tick(); await flush();
+    expect(sent).toMatchObject({ status: "completed", endedBy: "home" });
+    expect(chatAsTheWireSees(record, chief.threadId, false).work).toEqual({ kind: "idle" });
   });
 });
 

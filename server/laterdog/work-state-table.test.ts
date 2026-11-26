@@ -65,7 +65,7 @@ async function project(row: Row) {
   if (row.restart) board = new HelperBoard();
 
   const busy = Boolean(row.turn);
-  const handoff = handoffWait(busy, handoffs.activeDirect(CHAT), () => waitingOn(handoffs.outstandingDirect(CHAT), (botId) => NAMES[botId]));
+  const handoff = handoffWait(busy, handoffs.coordinating(CHAT), () => waitingOn(handoffs.sentStillOpen(CHAT), (botId) => NAMES[botId]));
   const work = workState({
     busy,
     helpers: busy ? 0 : board.runningCount(CHAT),
@@ -89,9 +89,9 @@ const TABLE: Array<[string, Row, WorkKind]> = [
   ["waiting for a teammate's reply", { awaits: true }, "waiting-on-dog"],
   ["waiting for a reply while its own turn still runs", { awaits: true, turn: true }, "running"],
   ["a reply awaited while a computer job runs", { awaits: true, job: true }, "waiting-on-dog"],
-  ["sent work with no reply wanted", { sentNoReply: true }, "idle"],
+  ["work it sent with no reply wanted still runs", { sentNoReply: true }, "waiting-on-dog"],
   ["sent work with no reply wanted, turn still running", { sentNoReply: true, turn: true }, "running"],
-  ["sent work with no reply wanted, a job still running", { sentNoReply: true, job: true }, "running"],
+  ["work sent with no reply wanted while a computer job runs", { sentNoReply: true, job: true }, "waiting-on-dog"],
   ["a question for the person outranks everything", { needsYou: true, turn: true, job: true, awaits: true, usage: true }, "needs-you"],
   ["a question with a job still running", { needsYou: true, job: true }, "needs-you"],
   ["a usage hold outranks a reply awaited", { usage: true, awaits: true }, "waiting-for-usage"],
@@ -107,7 +107,8 @@ const HANDOFF: Array<[string, Row, boolean]> = [
   ["a teammate's reply is back but not yet handed to the dog", { handedBack: true }, true],
   ["the turn that takes the reply runs", { handedBack: true, turn: true }, false],
   ["the person stopped the dog while its teammate still works", { askerStopped: true }, false],
-  ["sent work with no reply wanted", { sentNoReply: true }, false],
+  ["work it sent with no reply wanted still runs", { sentNoReply: true }, true],
+  ["work it sent with no reply wanted, while its own turn runs", { sentNoReply: true, turn: true }, false],
   ["nothing sent", {}, false],
 ];
 
@@ -133,11 +134,12 @@ describe("one work state per chat, from every fact the home knows", () => {
       const label = JSON.stringify(row);
       if (alive) expect(work.kind, label).not.toBe("idle");
       if (work.kind === "running") expect(alive, label).toBe(true);
-      if (work.kind === "waiting-on-dog") expect(row.awaits && !row.turn, label).toBe(true);
-      if (row.sentNoReply && !row.awaits) expect(work.kind, label).not.toBe("waiting-on-dog");
-      expect(older.waitingForTeammates, label).toBe(Boolean(!row.turn && row.awaits));
+      const sent = row.awaits || row.sentNoReply;
+      if (work.kind === "waiting-on-dog") expect(sent && !row.turn, label).toBe(true);
+      if (row.sentNoReply && !row.turn && !row.needsYou && !row.usage) expect(work.kind, label).toBe("waiting-on-dog");
+      expect(older.waitingForTeammates, label).toBe(Boolean(!row.turn && sent));
       if (work.kind === "waiting-on-dog") expect(older.waitingForTeammates && older.waitingOn!.length > 0, label).toBe(true);
-      expect(Boolean(older.waitingOn?.length), label).toBe(Boolean(row.awaits && !row.turn));
+      expect(Boolean(older.waitingOn?.length), label).toBe(Boolean(sent && !row.turn));
       expect(older.activity === "waiting-on-you", label).toBe(work.kind === "needs-you");
       expect(Boolean(older.helpersWorking), label).toBe(Boolean(!row.turn && row.helpers && !row.restart));
     }

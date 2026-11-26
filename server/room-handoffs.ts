@@ -41,6 +41,7 @@ const nodeSchema = z.object({
   contextAt: z.number().optional(),
   replacedBy: z.string().optional(),
   results: turnResultsSchema.optional(),
+  letGo: z.boolean().optional(),
 });
 export type RoomHandoff = z.infer<typeof nodeSchema>;
 export type RoomAddress = Pick<RoomHandoff, "groupId" | "threadId" | "botId">;
@@ -138,8 +139,12 @@ export class RoomHandoffs {
   private save() { writeFileAtomic(this.file, JSON.stringify([...this.nodes.values()].map(storedEnd)), { mode: 0o600 }); }
   private publish(...nodes: RoomHandoff[]) {
     this.save();
+    const senders = nodes.flatMap(node => {
+      const parent = node.parentId ? this.nodes.get(node.parentId) : undefined;
+      return parent && !parent.groupId ? [parent.threadId] : [];
+    });
     this.hooks.changed(new Set(nodes.flatMap(node => node.groupId ? [node.groupId] : [])),
-      new Set(nodes.filter(node => !node.groupId).map(node => node.threadId)));
+      new Set([...nodes.filter(node => !node.groupId).map(node => node.threadId), ...senders]));
   }
   children(id: string) { return [...this.nodes.values()].filter(n => n.parentId === id); }
   awaited(id: string) { return this.children(id).filter(awaitsReply); }
@@ -464,6 +469,16 @@ export class RoomHandoffs {
       return Boolean(parent && !parent.groupId && parent.threadId === threadId);
     });
   }
+  sentStillOpen(threadId: string): RoomHandoff[] {
+    return [...this.nodes.values()].filter(node => {
+      if (terminal(node) || !node.parentId || node.letGo) return false;
+      const parent = this.nodes.get(node.parentId);
+      return Boolean(parent && !parent.groupId && parent.threadId === threadId && (!terminal(parent) || parent.status === "completed"));
+    });
+  }
+  coordinating(threadId: string): boolean {
+    return this.activeDirect(threadId) || this.sentStillOpen(threadId).length > 0;
+  }
   handedOut(threadId: string): RoomHandoff[] {
     return [...this.nodes.values()].filter(node => {
       if (!node.parentId || !awaitsReply(node)) return false;
@@ -475,7 +490,9 @@ export class RoomHandoffs {
   stopAwaitingDirect(threadId: string, by: HandoffEnd = "person", only: (node: RoomHandoff) => boolean = () => true): RoomHandoff[] {
     const left: RoomHandoff[] = [];
     for (const node of this.nodes.values()) {
-      if (node.groupId || node.threadId !== threadId || terminal(node) || !only(node)) continue;
+      if (node.groupId || node.threadId !== threadId || !only(node)) continue;
+      if (node.status === "completed" && (by === "person" || by === "api")) left.push(...this.letGo(node));
+      if (terminal(node)) continue;
       for (const child of this.children(node.id)) {
         if (terminal(child)) continue;
         if (child.status === "queued") this.cancelTree(child, endWords(by, this.limits, true), "cancelled", by);
@@ -487,6 +504,13 @@ export class RoomHandoffs {
       this.publish(node);
     }
     return left;
+  }
+
+  private letGo(parent: RoomHandoff): RoomHandoff[] {
+    const open = this.children(parent.id).filter(child => !terminal(child) && !child.letGo);
+    for (const child of open) child.letGo = true;
+    if (open.length) this.publish(parent, ...open);
+    return open;
   }
 
   private continuesOnItsOwn(old: RoomHandoff): boolean {

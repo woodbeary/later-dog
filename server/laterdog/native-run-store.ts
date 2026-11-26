@@ -160,12 +160,12 @@ export class NativeRunStore {
 
   recoverInterrupted(now = Date.now()): void {
     this.access.write(database => {
-      const rows = database.prepare("SELECT json FROM native_runs WHERE json_extract(json, '$.observation') = 'live' OR json_extract(json, '$.state') IN ('running', 'waiting', 'paused')").all() as Array<{ json: string }>;
+      const rows = database.prepare("SELECT json FROM native_runs WHERE json_extract(json, '$.observation') IN ('live', 'partial') OR json_extract(json, '$.state') IN ('running', 'waiting', 'paused')").all() as Array<{ json: string }>;
       const threads = new Set<string>();
       for (const row of rows) {
         const run = JSON.parse(row.json) as NativeRun;
         threads.add(run.threadId);
-        if (run.observation === "live") run.observation = "interrupted";
+        if (run.observation === "live" || run.observation === "partial") run.observation = "interrupted";
         run.currentActivity = undefined;
         run.revision += 1;
         if (openState(run.state)) { run.state = "stopped"; run.endedAt ??= now; }

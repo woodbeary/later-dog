@@ -181,6 +181,22 @@ describe("Claude native activity", () => {
     expect(f.latestActor("shell").state).toBe("stopped");
   });
 
+  it("stops every helper still open when its session ends and keeps finished outcomes", () => {
+    const f = fixture();
+    f.native.receive(start("agent-a", "run-01", { is_backgrounded: true }));
+    f.native.receive(start("agent-b", "run-01", { is_backgrounded: true }));
+    f.native.receive(start("agent-c", "run-01"));
+    f.native.receive({ type: "system", subtype: "task_notification", task_id: "agent-c", run_id: "run-01", status: "completed", summary: "Found it" });
+    f.native.receive({ type: "system", subtype: "background_tasks_changed", tasks: [{ task_id: "agent-a", run_id: "run-01", task_type: "local_agent" }, { task_id: "agent-b", run_id: "run-01", task_type: "local_agent" }] });
+    f.native.receive({ type: "system", subtype: "background_tasks_changed", tasks: [{ task_id: "agent-a", run_id: "run-01", task_type: "local_agent" }] });
+    expect(f.latestActor("agent-b").state).toBe("waiting");
+    f.native.stopAll();
+    expect(f.latestActor("agent-a")).toMatchObject({ state: "stopped", background: true, endedAt: 100 });
+    expect(f.latestActor("agent-b")).toMatchObject({ state: "stopped", endedAt: 100 });
+    expect(f.latestActor("agent-c")).toMatchObject({ state: "done", summary: "Found it" });
+    expect(f.actors().filter(row => row.nativeId === "agent-c")).toHaveLength(2);
+  });
+
   it("keeps startup failures, retries and hook progress observable", () => {
     const f = fixture();
     f.native.receive({ type: "system", subtype: "init", uuid: "init", model: "test", plugin_errors: [{ plugin: "review", message: "Dependency missing" }], mcp_server_errors: [{ name: "search", message: "Invalid config" }] });

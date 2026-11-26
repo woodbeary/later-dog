@@ -115,6 +115,54 @@ describe("durable native execution", () => {
     expect(projector.running("chat")).toBe(false);
   });
 
+  it("keeps counting a background helper that outlives its turn until it ends", () => {
+    const { projector } = fixture();
+    projector.observe(observed({ kind: "actor", actor: { ...actor("digger"), background: true } }));
+    projector.observe(observed({ kind: "actor", actor: actor("foreground") }));
+    projector.observe(observed({ kind: "actor", actor: { ...actor("resting", "paused"), background: true } }));
+    expect(projector.observe(event({ type: "turn.completed", ok: true } as RuntimeEvent))!.observation).toBe("partial");
+    expect(projector.running("chat")).toBe(true);
+    expect(projector.runningCount("chat")).toBe(1);
+    expect(projector.snapshot(() => true).helpers.chat).toEqual([expect.objectContaining({ label: "digger", state: "running", background: true })]);
+    projector.observe(observed({ kind: "actor", actor: { ...actor("digger", "done"), background: true } }));
+    expect(projector.running("chat")).toBe(false);
+    expect(projector.runningCount("chat")).toBe(0);
+    expect(projector.snapshot(() => true).helpers.chat).toEqual([]);
+  });
+
+  it("stops counting a helper that left the native background list and counts a helper seen again in a new turn once", () => {
+    const { projector } = fixture();
+    const background = (id: string, state: NativeActor["state"] = "running"): NativeActor => ({ ...actor(id, state), background: true });
+    const later = (data: RuntimeEvent): RuntimeEvent => ({ ...data, turnId: "turn-2", createdAt: "2026-10-16T10:05:00Z" });
+    projector.observe(observed({ kind: "actor", actor: background("digger") }));
+    projector.observe(observed({ kind: "actor", actor: background("dropped") }));
+    projector.observe(event({ type: "turn.completed", ok: true } as RuntimeEvent));
+    expect(projector.runningCount("chat")).toBe(2);
+    projector.observe(observed({ kind: "actor", actor: { ...background("dropped", "waiting"), activity: "No longer in the native background list; outcome not reported" } }));
+    expect(projector.runningCount("chat")).toBe(1);
+    projector.observe(later(event({ type: "turn.started" })));
+    projector.observe(later(observed({ kind: "actor", actor: background("digger") })));
+    expect(projector.runningCount("chat")).toBe(1);
+    expect(projector.snapshot(() => true).helpers.chat).toHaveLength(1);
+    projector.observe(later(event({ type: "turn.completed", ok: true } as RuntimeEvent)));
+    expect(projector.runningCount("chat")).toBe(1);
+    projector.observe(later(observed({ kind: "actor", actor: background("digger", "done") })));
+    expect(projector.running("chat")).toBe(false);
+    expect(projector.snapshot(() => true).helpers.chat).toEqual([]);
+  });
+
+  it("closes the helpers of a partial run on restart so none of them still counts as working", () => {
+    const { projector, access } = fixture();
+    projector.observe(observed({ kind: "actor", actor: { ...actor("digger"), background: true } }));
+    const run = projector.observe(event({ type: "turn.completed", ok: true } as RuntimeEvent))!;
+    expect(run.observation).toBe("partial");
+    const reopened = new NativeRunStore(access);
+    reopened.recoverInterrupted();
+    expect(reopened.get(run.id)).toMatchObject({ observation: "interrupted", state: "done" });
+    expect(reopened.get(run.id)!.actors.find(row => row.id === "digger")).toMatchObject({ state: "stopped", canStop: false });
+    expect(new NativeRunProjector(reopened, () => undefined).runningCount("chat")).toBe(0);
+  });
+
   it("redacts secrets and bounds content before persistence and publication", () => {
     const { projector, store, database, published } = fixture();
     const run = projector.observe(observed({ kind: "activity", activity: { id: "secret", actorId: "parent", kind: "tool", label: "Read", state: "done", startedAt: 1, input: "API_KEY=sk-secret-value-that-must-not-leak", output: "a".repeat(30_000), links: [{ title: "Bad", url: "javascript:alert(1)" }] } }))!;
