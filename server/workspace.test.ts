@@ -7,6 +7,7 @@ import { closeMessageDb, recallMemory } from "./message-db.ts";
 
 import {
   appendMemoryLog,
+  appendMemoryLogInBackground,
   ensureWorkspace,
   ensureTaskWorkspace,
   listMemoryLogs,
@@ -492,6 +493,22 @@ describe("workspace", () => {
     expect(appendMemoryLog(BOT, "  ")).toMatchObject({ ok: false, code: "invalid" });
     expect(readMemoryLog(BOT, "../MEMORY.md")).toBeNull();
     expect(readMemoryLog("never-ran", "2026-09-10.md")).toBeNull();
+  });
+
+  it("writes the end-of-turn log line in the background, in order, searchable and in the same file as direct lines", async () => {
+    const now = new Date(2026, 8, 10, 14, 3);
+    appendMemoryLog(BOT, "first by hand", { now });
+    const later = [
+      appendMemoryLogInBackground(BOT, "answered the deploy question", { source: 'chat "Deploy"', now: new Date(2026, 8, 10, 14, 4) }),
+      appendMemoryLogInBackground(BOT, "fixed the flaky lighthouse check", { now: new Date(2026, 8, 10, 14, 5) }),
+    ];
+    expect(await Promise.all(later)).toMatchObject([{ ok: true, file: "memory/log/2026-09-10.md" }, { ok: true }]);
+    expect(readMemoryLog(BOT, "2026-09-10.md")).toBe(
+      '- 14:03 · first by hand\n- 14:04 · from chat "Deploy" · answered the deploy question\n- 14:05 · fixed the flaky lighthouse check\n',
+    );
+    if (process.platform !== "win32") expect(statSync(join(workspaceDir(BOT), "memory", "log", "2026-09-10.md")).mode & 0o777).toBe(0o600);
+    expect(recallMemory("lighthouse", BOT).map((hit) => hit.file)).toEqual(["memory/log/2026-09-10.md"]);
+    expect(await appendMemoryLogInBackground(BOT, "  ")).toMatchObject({ ok: false, code: "invalid" });
   });
 
   it("makes every memory file searchable for its own bot only, in step with server writes and hand edits", () => {
