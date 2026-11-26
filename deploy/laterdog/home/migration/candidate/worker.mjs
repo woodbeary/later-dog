@@ -49,6 +49,7 @@ export class CandidateReader extends WorkerEntrypoint {
       object = await this.env.STATE.get(root + "work-folders/cutover-plans/" + p.verification + "/" + sha);
     }
     object ??= await this.env.STATE.get(root + path);
+    if (!object && fields[0] === "legacy") object = await this.env.STATE.get(root + "work-folders/legacy-blobs/" + fields[1]);
     return object ? new Response(object.body, { headers: { "content-length": String(object.size) } }) : notFound();
   }
 }

@@ -1,3 +1,4 @@
+import type { ReverseRequest } from "./work-folder-reverse.ts";
 import { WorkFolderCutover, cutoverMutable, type CutoverRequest } from "./work-folder-cutover.ts";
 import { workFolderCensus, type FolderCensusRequest } from "./work-folder-census.ts";
 import { handleWorkFolderPlacement, previousBackupVerification, workFolderControlPath } from "./work-folder-placement.ts";
@@ -146,6 +147,12 @@ export class CloudHomeHost extends Container<Env> {
       } catch { return null; }
     },
     disk: () => this.ctx.container,
+    cold: () => !this.ctx.container?.running && !this.booting && !this.admittedRequests && !this.delivering && !this.outbox.length && !this.answering.size,
+    stop: () => {
+      if (this.signalled) return;
+      this.signalled = true;
+      this.ctx.waitUntil(this.stop().catch(error => { this.signalled = false; throw error; }));
+    },
     storage: this.ctx.storage,
     idle: async () => Boolean(this.record && !this.booting && !this.delivering && !this.outbox.length &&
       !this.admittedRequests && !this.answering.size && (await this.activity(this.record))?.busy === false),
@@ -233,6 +240,11 @@ export class CloudHomeHost extends Container<Env> {
     if (!record) throw new Error("This home has no owner yet.");
     const namespace = homeNamespace(this.env, otherSize(this.size));
     return namespace.get(namespace.idFromName(record.machineId));
+  }
+
+  async controlWorkFolderReverse(machineId: string, nonce: string, request: ReverseRequest) {
+    if (this.removed || !this.record || this.record.machineId !== machineId || !this.handover.holds()) throw Error("No mounted source home");
+    return this.cutover.reverseControl(this.stateHome(machineId), machineId, nonce, request);
   }
 
   async controlWorkFolderCutover(machineId: string, nonce: string, request: CutoverRequest) {
