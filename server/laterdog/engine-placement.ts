@@ -9,13 +9,14 @@ import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { EventEmitter } from "node:events";
 import type { EngineFileRoot } from "./engine-files.ts";
 import { claudeRenewer, type ClaudeRenewal } from "./engine-renewal.ts";
+import { CLAUDE_LEND_MIN_LEFT_MS, claudeSignInRefresh, plainEnvironment } from "./claude-sign-in-refresh.ts";
+import { claudeSignInAgainMessage } from "./claude-refresh-lock.ts";
 import { EngineProcess, RemoteSession, type EngineLink, type PushedFile, type RemoteLaunch, type StdioSpec } from "./engine-remote.ts";
 import { ENGINE_WAIT_NOTICE_MS, watchEngineOpening, type EngineWait } from "./engine-waiting.ts";
 import { claudeProjectSlug, claudeSessionWorkspace, physicalClaudePath } from "./claude-project.ts";
 import { placedThreads, type PlacedThreads } from "./placed-threads.ts";
 
 export const REMOTE_ENGINE_BASE = "/home/dog/.laterdog-engine";
-const CREDENTIAL_MARGIN_MS = 30 * 60_000;
 const LOOPBACK = /^(localhost|127\.\d+\.\d+\.\d+|\[::1\]|::1)$/i;
 const REMOTE_CLAUDE_ENV = new Set([
   "LANG", "LANGUAGE", "TERM", "TZ", "NO_COLOR", "LC_ALL", "LC_CTYPE", "LC_MESSAGES", "LC_COLLATE", "LC_TIME", "LC_NUMERIC", "LC_MONETARY",
@@ -141,11 +142,16 @@ export function engineCliPackage(resolvedCommand: string, path: string | undefin
   return null;
 }
 
-export function scopedClaudeCredential(text: string, now = Date.now()): Buffer | null {
+export async function lendableClaudeSignIn(instanceId: string, cliCommand: string, env: NodeJS.ProcessEnv, account?: string): Promise<void> {
+  const outcome = await claudeSignInRefresh.ensure(instanceId, { command: cliCommand, env: plainEnvironment(env) });
+  if (outcome === "signed-out") throw new Error(`${claudeSignInAgainMessage(account)} No prompt was sent.`);
+}
+
+export function scopedClaudeCredential(text: string, now = Date.now(), minLeftMs = CLAUDE_LEND_MIN_LEFT_MS): Buffer | null {
   try {
     const parsed = JSON.parse(text) as { claudeAiOauth?: Record<string, unknown> };
     const oauth = parsed.claudeAiOauth;
-    if (!oauth || typeof oauth.accessToken !== "string" || !oauth.accessToken || typeof oauth.expiresAt !== "number" || !Number.isFinite(oauth.expiresAt) || oauth.expiresAt < now + CREDENTIAL_MARGIN_MS) return null;
+    if (!oauth || typeof oauth.accessToken !== "string" || !oauth.accessToken || typeof oauth.expiresAt !== "number" || !Number.isFinite(oauth.expiresAt) || oauth.expiresAt < now + minLeftMs) return null;
     const { accessToken, expiresAt, scopes, subscriptionType, rateLimitTier } = oauth;
     return Buffer.from(JSON.stringify({ claudeAiOauth: {
       accessToken, expiresAt,
@@ -277,7 +283,7 @@ export function planClaudeRemote(input: ClaudePlacement): { plan: ClaudeRemotePl
   if (botFolder) roots.push(botFolder);
   const pushes = credential ? (): PushedFile[] => {
     let bytes: Buffer | null = null;
-    try { bytes = scopedClaudeCredential(readFileSync(credentialFile, "utf8"), Date.now() - CREDENTIAL_MARGIN_MS); } catch {}
+    try { bytes = scopedClaudeCredential(readFileSync(credentialFile, "utf8"), Date.now(), 0); } catch {}
     return bytes ? [{ root: "credential", path: ".credentials.json", bytes, mode: 0o600 }] : [];
   } : undefined;
 
