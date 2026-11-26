@@ -5,7 +5,7 @@ export const WORK_FOLDER_ACCESS_MS = 15 * 60_000;
 
 export type WorkFolderEntry = (
   | { path: string; kind: "dir"; mode: number }
-  | { path: string; kind: "link"; target: string; scopedTarget?: string | null }
+  | { path: string; kind: "link"; target: string; mode?: number; scopedTarget?: string | null }
   | { path: string; kind: "file"; mode: number; size: number; sha256: string; contents: string }
 ) & { mtimeMs?: number };
 
@@ -67,7 +67,7 @@ export function compareWorkFolderPaths(a: string, b: string): number {
 }
 
 export function safeWorkFolderPath(path: unknown): path is string {
-  return typeof path === "string" && path.length > 0 && !path.includes("\0") && path.split("/").every(part => part && part !== "." && part !== "..");
+  return typeof path === "string" && path.length > 0 && !/[\uD800-\uDFFF]/u.test(path) && !path.includes("\0") && path.split("/").every(part => part && part !== "." && part !== "..");
 }
 
 export function safeWorkFolderLink(path: string, target: unknown): target is string {
