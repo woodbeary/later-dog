@@ -5,6 +5,7 @@ import { join } from "node:path";
 import type WebSocket from "ws";
 import { SERVER_ROOT } from "../proxy-paths.ts";
 import type { EngineLink } from "./engine-remote.ts";
+import { CODEX_GUARD_REQUIREMENTS, CODEX_MANAGED_HOOKS } from "./codex-computer-guard.ts";
 import { REMOTE_ENGINE_BASE, type ClaudeRemotePlan } from "./engine-placement.ts";
 
 export interface EngineScripts { files: Array<{ name: string; bytes: Buffer }>; dir: string; relay: string; proxy: string }
@@ -13,7 +14,7 @@ let scripts: EngineScripts | null = null;
 export function engineScripts(): EngineScripts {
   if (scripts) return scripts;
   const bundled = existsSync(join(SERVER_ROOT, "laterdog", "engine-relay.js")) && !existsSync(join(SERVER_ROOT, "laterdog", "engine-relay.ts"));
-  const names = bundled ? ["engine-relay.js", "engine-proxy.js"] : ["engine-relay.ts", "engine-proxy.ts", "engine-files.ts"];
+  const names = bundled ? ["engine-relay.js", "engine-proxy.js"] : ["engine-relay.ts", "engine-proxy.ts", "engine-files.ts", "build-output-path.ts"];
   const files = names.map((name) => ({ name, bytes: readFileSync(join(SERVER_ROOT, "laterdog", name)) }));
   const hash = createHash("sha256");
   for (const file of files) hash.update(file.name).update("\0").update(file.bytes);
@@ -29,20 +30,65 @@ export interface EngineBox {
   write(path: string, bytes: Uint8Array): Promise<unknown>;
 }
 
-export async function prepareEngineComputer(box: EngineBox, plan: ClaudeRemotePlan, relay = engineScripts()): Promise<void> {
-  const present = await box.exec(`test -f ${quote(`${relay.dir}/.ready`)} && echo present || true`, 20_000);
-  if (!present.stdout.includes("present")) {
-    await box.exec(`mkdir -p ${quote(relay.dir)}`, 20_000);
-    for (const file of relay.files) await box.write(`${relay.dir}/${file.name}`, file.bytes);
-    const marked = await box.exec(`touch ${quote(`${relay.dir}/.ready`)}`, 20_000);
-    if (marked.exitCode !== 0) throw new Error("The engine relay could not be put on the cloud computer.");
-  }
-  const cliDir = `${REMOTE_ENGINE_BASE}/cli/claude-code-${plan.cli.version}`;
-  const installed = await box.exec(`test -x ${quote(`${cliDir}/node_modules/.bin/claude`)} || (mkdir -p ${quote(cliDir)} && npm install --prefix ${quote(cliDir)} --no-audit --no-fund --loglevel=error ${quote(`${plan.cli.name}@${plan.cli.version}`)} >/dev/null)`, 10 * 60_000);
-  if (installed.exitCode !== 0) throw new Error(`Claude Code ${plan.cli.version} could not be installed on the cloud computer.`);
+export const ENGINE_STEP_BUDGET_MS = 60_000;
+export const ENGINE_INSTALL_BUDGET_MS = 10 * 60_000;
+export const ENGINE_PREPARE_BUDGET_MS = ENGINE_INSTALL_BUDGET_MS + 2 * ENGINE_STEP_BUDGET_MS;
+const CLI_NOT_INSTALLED = 41;
+const FOLDERS_NOT_MADE = 42;
+const RELAY_PRESENT = "relay-present";
+
+export function prepareScript(plan: ClaudeRemotePlan, relay: EngineScripts): string {
+  const codex = plan.cli.name === "@openai/codex";
+  const binary = codex ? "codex" : "claude";
+  const cliDir = `${REMOTE_ENGINE_BASE}/cli/${codex ? "codex" : "claude-code"}-${plan.cli.version}`;
+  const cli = quote(`${cliDir}/node_modules/.bin/${binary}`);
+  const pnpm = `corepack pnpm@10.33.0 --dir ${quote(cliDir)}`;
+  const install = `${pnpm} add --save-exact --ignore-workspace --allow-build=${quote(plan.cli.name)} ${quote(`${plan.cli.name}@${plan.cli.version}`)}`;
+  const expectedVersion = quote(codex ? `codex-cli ${plan.cli.version}` : `${plan.cli.version} (Claude Code)`);
+  const checked = `test -x ${cli} && actual=$( ${cli} --version 2>/dev/null ) && test "$actual" = ${expectedVersion}`;
+  const repair = codex ? "false" : `node ${quote(`${cliDir}/node_modules/@anthropic-ai/claude-code/install.cjs`)} >/dev/null && engine_ready`;
   const dirs = [...plan.mkdirs, `${REMOTE_ENGINE_BASE}/run`, `${REMOTE_ENGINE_BASE}/state`, `${REMOTE_ENGINE_BASE}/locks`];
-  const made = await box.exec(`sudo -n install -d -o dog -g dog -m 700 ${dirs.map(quote).join(" ")}`, 60_000);
-  if (made.exitCode !== 0) throw new Error("The mirrored folders could not be made on the cloud computer.");
+  return [
+    `engine_ready() { ${checked}; }`,
+    `engine_ready || (mkdir -p ${quote(cliDir)} && ${install} >/dev/null && (engine_ready || (${repair}))) || exit ${CLI_NOT_INSTALLED}`,
+    `sudo -n install -d -o dog -g dog -m 700 ${dirs.map(quote).join(" ")} || exit ${FOLDERS_NOT_MADE}`,
+    `if test -f ${quote(`${relay.dir}/.ready`)}; then echo ${RELAY_PRESENT}; else mkdir -p ${quote(relay.dir)}; fi`,
+  ].join("\n");
+}
+
+function codexGuardInstall(): string {
+  const files = [
+    [`${CODEX_MANAGED_HOOKS}/guard.cjs`, readFileSync(join(SERVER_ROOT, "laterdog", "codex-computer-guard.cjs"))],
+    ["/etc/codex/requirements.toml", Buffer.from(CODEX_GUARD_REQUIREMENTS)],
+  ] as const;
+  return [
+    "set -eu",
+    `sudo -n mkdir -p ${quote(CODEX_MANAGED_HOOKS)}`,
+    "tmp=$(sudo -n mktemp /etc/codex/.guard.XXXXXXXX)",
+    `trap 'sudo -n rm -f "$tmp"' EXIT`,
+    ...files.flatMap(([target, bytes]) => [
+      `echo ${quote(bytes.toString("base64"))} | base64 -d | sudo -n tee "$tmp" >/dev/null`,
+      'sudo -n chmod 644 "$tmp"',
+      `if test -e ${quote(target)}; then sudo -n cmp -s "$tmp" ${quote(target)}; else sudo -n ln "$tmp" ${quote(target)} || sudo -n cmp -s "$tmp" ${quote(target)}; fi`,
+      'sudo -n rm -f "$tmp"',
+      'tmp=$(sudo -n mktemp /etc/codex/.guard.XXXXXXXX)',
+    ]),
+  ].join("\n");
+}
+
+export async function prepareEngineComputer(box: EngineBox, plan: ClaudeRemotePlan, relay = engineScripts()): Promise<void> {
+  const prepared = await box.exec(prepareScript(plan, relay), ENGINE_INSTALL_BUDGET_MS);
+  if (prepared.exitCode === CLI_NOT_INSTALLED) throw new Error(`${plan.cli.name === "@openai/codex" ? "Codex" : "Claude Code"} ${plan.cli.version} could not be installed on the cloud computer.`);
+  if (prepared.exitCode === FOLDERS_NOT_MADE) throw new Error("The mirrored folders could not be made on the cloud computer.");
+  if (prepared.exitCode !== 0) throw new Error("The cloud computer could not be prepared for the engine.");
+  if (plan.cli.name === "@openai/codex" && plan.launch.hooks.length) {
+    const guarded = await box.exec(codexGuardInstall(), ENGINE_STEP_BUDGET_MS);
+    if (guarded.exitCode !== 0) throw new Error("The computer could not install the native Codex shell guard.");
+  }
+  if (prepared.stdout.split(/\r?\n/).includes(RELAY_PRESENT)) return;
+  for (const file of relay.files) await box.write(`${relay.dir}/${file.name}`, file.bytes);
+  const marked = await box.exec(`touch ${quote(`${relay.dir}/.ready`)}`, ENGINE_STEP_BUDGET_MS);
+  if (marked.exitCode !== 0) throw new Error("The engine relay could not be put on the cloud computer.");
 }
 
 export function processStreamLink(socket: WebSocket, command: string): EngineLink {
@@ -69,7 +115,7 @@ export function processStreamLink(socket: WebSocket, command: string): EngineLin
   });
   socket.on("close", () => close("process stream closed"));
   socket.on("error", () => close("process stream failed"));
-  send({ channel: "start", input: { command } });
+  send({ channel: "start", lifetime: "engine", input: { command } });
   link.send = (line) => send({ channel: "stdin", data: Buffer.from(`${line}\n`).toString("base64") });
   link.close = () => { send({ channel: "stop" }); try { socket.close(); } catch {} };
   return link;

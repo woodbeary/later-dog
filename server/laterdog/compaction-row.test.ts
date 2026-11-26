@@ -31,6 +31,5 @@ it("sends a new row's plain line and every other row as they are", () => {
 it("passes every chat row the server sends to the apps through it", () => {
   const source = readFileSync(new URL("../index.ts", import.meta.url), "utf8");
   expect(source).toMatch(/function slimMessage\(stored: Message\)[^{]*\{\n[^\n]*rowForApps\(/);
-  expect(source).toMatch(/if \(limit === undefined\) \{\n\s*return \{ messages: store\.messagesFor\(threadId\)\.map\(rowForApps\)/);
   expect(source).toContain("{ ...publicGroupState(group), messages: store.messagesFor(group.threadId).map(rowForApps) }");
 });

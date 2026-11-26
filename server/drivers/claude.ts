@@ -8,7 +8,8 @@ import { DATA_DIR, stripWorkspaceCredentialEnv } from "../config.ts";
 import { writeFileAtomic, writeFileAtomicIfChanged } from "../atomic.ts";
 import { augmentedPath } from "../env-path.ts";
 import { brokerSocketPath, describeSpawnFailure, execCli, killCliTree, resolveCli, spawnCli } from "../procs.ts";
-import { engineOpener, notePlacement, planClaudeRemote, remoteEngineBots, spawnPlacedEngine } from "../laterdog/engine-placement.ts";
+import { engineOpener, notePlacement, planClaudeRemote, remoteEngineChoice, spawnPlacedEngine } from "../laterdog/engine-placement.ts";
+import { engineWaitEvent } from "../laterdog/engine-waiting.ts";
 import { claudeResumeRefusal, classifyResumeFailure, mayReplay, recoveryPromptFor } from "../resume-recovery.ts";
 import { ClaudeLoginController } from "./claude-login-auth.ts";
 
@@ -58,6 +59,8 @@ import { machineClaudeMemoryExcludes } from "../laterdog/claude-memory-isolation
 import { quietWorkEnvironment } from "../laterdog/work-updates.ts";
 import { ENGINE_BYTES, engineIdleLimit, warmEngines } from "../laterdog/warm-engines.ts";
 import { leftoverProgramsNotice } from "../laterdog/unconfirmed-stop.ts";
+import { placedThreads } from "../laterdog/placed-threads.ts";
+import { sessionIdlePolicy } from "./session-idle.ts";
 import { EngineContextAsk, writeEngineLine } from "../laterdog/engine-context-ask.ts";
 import { extractMcpImages } from "../mcp-tool-images.ts";
 import {
@@ -1156,7 +1159,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
       if (!s || s.helpers.running()) return;
       warmEngines.rest(s, {
         pid: s.child.pid,
-        idleMs: SESSION_IDLE_MS,
+        idleMs: placedThreads.has(threadId) ? sessionIdlePolicy("CLAUDE").idleMs : SESSION_IDLE_MS,
         close: (why) => { if (sessions.get(threadId) === s) closeSession(threadId, why); },
       });
     };
@@ -1391,7 +1394,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
       const commandCwd = permissionLaunchCwd(cwd);
       const unkeyedFlags = new Set<string>(["--mcp-config", "--settings", ...FLAGS_LEARNED_AFTER_LAUNCH]);
       const keyArgs = args.filter((a, i) => a !== "--forward-subagent-text" && !unkeyedFlags.has(a) && !unkeyedFlags.has(args[i - 1] ?? ""));
-      const chosenRemote = Boolean(botId && !turn.guestConfined && remoteEngineBots(DATA_DIR).has(botId));
+      const chosenRemote = Boolean(botId && !turn.guestConfined && remoteEngineChoice(DATA_DIR, botId).computer);
       const argsParts = Object.fromEntries(Object.entries({
         args: keyArgs,
         system: turn.systemStable ?? turn.system ?? null,
@@ -1559,11 +1562,13 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
       }
 
       let child: ReturnType<typeof spawnCli>;
-      warmEngines.makeRoom(ENGINE_BYTES);
       try {
         checkStart();
         warmEngines.assertVacant(ownershipKey(threadId));
-        const local = () => spawnCli(config.cli, args, { cwd, env, stdio: ["pipe", "pipe", "pipe"] });
+        const local = () => {
+          warmEngines.makeRoom(ENGINE_BYTES);
+          return spawnCli(config.cli, args, { cwd, env, stdio: ["pipe", "pipe", "pipe"] });
+        };
         const opener = engineOpener();
         let remote: ReturnType<typeof planClaudeRemote> | null = null;
         if (chosenRemote && !opener) notePlacement(DATA_DIR, `[engine] ${botId!.slice(0, 8)} ${threadId.slice(0, 8)} stays on the home: no cloud computer opener in this server`);
@@ -1575,8 +1580,9 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
           if ("stay" in remote) notePlacement(DATA_DIR, `[engine] ${botId!.slice(0, 8)} ${threadId.slice(0, 8)} stays on the home: ${remote.stay}`);
         }
         child = remote && "plan" in remote
-          ? spawnPlacedEngine(remote.plan, (plan) => opener!.open(botId!, plan), local, (where, why) =>
-            notePlacement(DATA_DIR, `[engine] ${botId!.slice(0, 8)} ${threadId.slice(0, 8)} runs on the ${where === "computer" ? "dog's cloud computer" : "home"}${why ? ` (${why})` : ""}`)) as unknown as ReturnType<typeof spawnCli>
+          ? spawnPlacedEngine(remote.plan, (plan, signal) => opener!.open(botId!, plan, signal), local, (where, why) =>
+            notePlacement(DATA_DIR, `[engine] ${botId!.slice(0, 8)} ${threadId.slice(0, 8)} runs on the ${where === "computer" ? "dog's cloud computer" : "home"}${why ? ` (${why})` : ""}`), undefined,
+            { openBudgetMs: opener!.openBudgetMs, onWaiting: (wait) => emit({ ...base(threadId, turnId), ...engineWaitEvent(wait) }) }) as unknown as ReturnType<typeof spawnCli>
           : local();
       } catch (error) {
         cleanupUnownedLaunch();

@@ -6,6 +6,24 @@
 
 Started 2026-10-13. This file is the single place that says what is in progress, what is done, and how to pick up any piece of it. Every gate updates it in the same commit as the work.
 
+## Cloud engine capacity, November 25
+
+The owner can set the home's default engine placement at `/api/engine-placement`. Individual dog choices take precedence. An eligible dog opens its own computer when a turn starts. The home keeps conversation history and serves tools. A connected native engine on a full-allowance computer can work across the two-hour command deadline and the normal awake limit. Its stream closes when the home disconnects. A resting Claude session releases its computer after the configured idle interval.
+
+Two disposable Cloudflare computers qualified the native provider paths on November 25. Claude returned the requested marker. Codex called a home tool and resumed the same native conversation on a second turn. The production rollout and repository gate have separate receipts.
+
+## Cloud home storage capacity, November 25
+
+The storage branch carries the deployed one-pass SQLite backup and shutdown fixes. It adds idle
+room and engine-log archiving, makes a chat's folder restore visible, and evicts idle transcripts
+from memory while preserving their SQLite records. Archive capability 4 ties the server to a
+matching home image. The scanner and the archive writer leave Codex session files in place by
+default. The Worker enables writes for the homes in `CODEX_ARCHIVE_ACCOUNTS`. The previous
+capability 4 image reads and restores those sessions with writes off. Use that image for
+rollback once a home archives its first Codex session. A capability 3 image cannot read an
+index containing Codex sessions. Work folder restores still need space on the shared home.
+All 423 home fixture tests passed, including restart recovery with a fake engine.
+
 ## Refinement program, November 25
 
 One pass over the desktop and the phone for speed, weight and fewer surfaces that say the same thing. Each
@@ -82,6 +100,36 @@ machine): a work update redraws only its work row; no task over 50 ms while a do
 nothing above a landing reply moves; no deliberate hold on a splash; on the phone, under 5 renders per chat
 switch and no stall over 200 ms, the targets stated on November 10
 ([phone-chat-performance-2026-11-10.md](../verification/phone-chat-performance-2026-11-10.md)).
+
+## Cloud capacity, November 25
+
+The Home owns chats, permissions, scheduling, and recovery. Each dog's computer
+owns its execution and can keep job outputs beside the workspace that produced
+them. A Cloud task can still use a disposable computer under the supervisor's
+job policy. Interactive engine placement uses the dog's existing computer so
+its native session can survive a wake without cloning the Home.
+
+Resizing the Home can buy recovery headroom, but leaves each engine and workspace
+competing on the same disk. Sending every chat to a new job computer would give
+the job and Home competing authority over the interactive turn and its native
+session. The per-dog computer keeps one execution owner and the Home retains
+turn authority. The provider and Home keep their account credentials. A computer
+receives only the scoped inputs its engine and relay require.
+
+The Home's selected computer size applies when a dog starts an engine or heavy
+command on its computer. Existing computers change size at their next wake.
+The fixture checks the creation request and the order of resize and wake on a
+saved computer. Scaling proof uses distinct real computers, concurrent work,
+and separate file receipts after sleep and wake. Provider qualification requires
+a named native turn, an execution receipt on the computer, and a resumed turn
+on the same thread. A process relay fixture can prove transport and checkpointing
+with an isolated provider.
+
+Keep the verified November 25 save and shutdown fixes in any candidate image.
+Check a fresh backup and keep the existing restore point before changing
+production. After activation, verify the exact running image or server bundle,
+chat retention, completed backups during work, and actual placements. A saved
+placement setting shows intent. The engine receipt shows where it ran.
 
 ## Real account limit, November 14
 
@@ -391,3 +439,7 @@ approvals return to `accounts.later.dog` and are passed on to the right home,
 and refresh tokens stay in each home's vault. It is off until the one-time
 setup in [google-setup.md](google-setup.md) is done; the same file gives the
 release order.
+
+## Native Codex computer placement, November 25
+
+A selected native ChatGPT Codex engine can run on its dog's computer with home-scoped tools and shell checks. Existing native sessions acquire a binding on a home turn before moving. [Relay and signed-in qualification](../verification/codex-engine-relay.md) records the isolated provider run. Managed providers, custom approval configuration, user-configured native MCP, image input, guest-confined work and folders outside the dog's workspace use the home.

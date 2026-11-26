@@ -21,6 +21,7 @@ export interface WorkLineInput {
 const WAITING: Partial<Record<WorkState["kind"], LocaleKey>> = {
   "waiting-for-usage": "workLine.usage",
   "waiting-for-computer": "workLine.computer",
+  "waiting-for-files": "workLine.files",
   retrying: "workLine.retrying",
 };
 

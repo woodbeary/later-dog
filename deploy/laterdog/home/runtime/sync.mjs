@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
-import { chmod, lchown, lstat, mkdir, open, readdir, readlink, rename, rm, statfs, symlink, utimes } from "node:fs/promises";
+import { constants } from "node:fs";
+import { access, chmod, lchown, lstat, mkdir, open, readdir, readFile, readlink, rename, rm, stat, statfs, symlink, utimes } from "node:fs/promises";
 import { dirname, join, relative } from "node:path";
 import { backup, DatabaseSync } from "node:sqlite";
 
@@ -10,6 +11,9 @@ export const REQUEST_TIMEOUT_MS = 60_000;
 export const UPLOAD_TIMEOUT_MS = 120_000;
 export const FINAL_SAVE_MS = 120_000;
 export const SNAPSHOT_RESERVE_BYTES = 256 * 1024 * 1024;
+export const MEMORY_MARGIN_BYTES = 2 * 1024 * 1024 * 1024;
+export const WHOLE_DATABASE_PAGES = 2_147_483_647;
+const COPY_NAME = /^[a-f0-9]{64}\.sqlite(?:-journal)?$/;
 const RESTORING_PREFIX = ".laterdog-restoring-";
 const SQLITE = /\.(?:sqlite3?|db)$/;
 const SKIPPED_NAMES = new Set(["node_modules", ".cache", ".tmp", ".npm", ".pnpm-store", "Cache", "Code Cache", "GPUCache", "ShaderCache", "Crashpad", ".Trash", "lost+found"]);
@@ -297,12 +301,56 @@ async function diskFree(path) {
   return stats.bavail * stats.bsize;
 }
 
-async function roomForCopy(path, entry, scratch, freeBytes) {
-  const free = await Promise.resolve().then(() => freeBytes(scratch)).catch(() => null);
-  if (typeof free !== "number" || !Number.isFinite(free)) return false;
+async function logBytes(path) {
   const wal = await lstat(`${path}-wal`).catch((error) => (error?.code === "ENOENT" ? { size: 0 } : null));
-  if (!wal) return false;
-  return free >= entry.size + wal.size + SNAPSHOT_RESERVE_BYTES;
+  return wal ? wal.size : null;
+}
+
+async function measured(read) {
+  const value = await Promise.resolve().then(read).catch(() => null);
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+export async function memoryAvailable() {
+  const info = await readFile("/proc/meminfo", "utf8").catch(() => null);
+  const kilobytes = info ? Number(/^MemAvailable:\s+(\d+)/m.exec(info)?.[1]) : Number.NaN;
+  return Number.isFinite(kilobytes) ? kilobytes * 1024 : process.availableMemory();
+}
+
+async function usableFolder(folder) {
+  try {
+    await mkdir(folder, { recursive: true, mode: 0o700 });
+    if (((await stat(folder)).mode & 0o222) === 0) return false;
+    await access(folder, constants.W_OK | constants.X_OK);
+    for (const name of await readdir(folder)) if (COPY_NAME.test(name)) await rm(join(folder, name), { force: true });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export function copyPlaces({ scratch, memoryScratch, freeBytes, availableMemory, memoryMarginBytes }) {
+  let memoryFolder;
+  const memoryReady = () => (memoryFolder ??= usableFolder(memoryScratch));
+  const inMemory = async (bytes) => {
+    if (!memoryScratch) return false;
+    const available = await measured(availableMemory);
+    if (available === null || available - bytes < memoryMarginBytes) return false;
+    if (!(await memoryReady())) return false;
+    const free = await measured(() => freeBytes(memoryScratch));
+    return free !== null && free >= bytes;
+  };
+  const onDisk = async (bytes) => {
+    const free = await measured(() => freeBytes(scratch));
+    return free !== null && free >= bytes + SNAPSHOT_RESERVE_BYTES;
+  };
+  return async (path, entry) => {
+    const wal = await logBytes(path);
+    if (wal === null) return [];
+    const bytes = entry.size + wal;
+    if (await inMemory(bytes)) return [{ place: "memory", folder: memoryScratch, bytes }, { place: "disk", folder: scratch, bytes, check: onDisk }];
+    return (await onDisk(bytes)) ? [{ place: "disk", folder: scratch, bytes }] : [];
+  };
 }
 
 async function databaseCopy(path, scratch) {
@@ -310,7 +358,7 @@ async function databaseCopy(path, scratch) {
   await rm(copy, { force: true });
   const source = new DatabaseSync(path);
   try {
-    await backup(source, copy);
+    await backup(source, copy, { rate: WHOLE_DATABASE_PAGES });
   } catch (error) {
     await rm(copy, { force: true }).catch(() => {});
     throw error;
@@ -318,6 +366,21 @@ async function databaseCopy(path, scratch) {
     source.close();
   }
   return copy;
+}
+
+async function copiedSomewhere(path, places, onCopy, entryPath) {
+  let failure = null;
+  for (const target of places) {
+    if (target.check && !(await target.check(target.bytes))) break;
+    onCopy?.({ path: entryPath, place: target.place, bytes: target.bytes });
+    try {
+      return { copy: await databaseCopy(path, target.folder), place: target.place };
+    } catch (error) {
+      failure = error;
+    }
+  }
+  if (failure) throw failure;
+  return null;
 }
 
 export const SAVE_PARALLEL = 8;
@@ -339,7 +402,7 @@ export function resumeOrder(waiting, resumeAfter) {
   return start <= 0 ? waiting : [...waiting.slice(start), ...waiting.slice(0, start)];
 }
 
-export async function snapshot(root, store, previous, { scratch, now = Date.now, app, budgetMs = Infinity, freeBytes = diskFree, resumeAfter, parallel = SAVE_PARALLEL } = {}) {
+export async function snapshot(root, store, previous, { scratch, memoryScratch, now = Date.now, clock = () => performance.now(), app, budgetMs = Infinity, freeBytes = diskFree, availableMemory = memoryAvailable, memoryMarginBytes = MEMORY_MARGIN_BYTES, onCopy, resumeAfter, parallel = SAVE_PARALLEL } = {}) {
   const known = new Map((previous?.entries ?? []).filter((entry) => entry.type === "file").map((entry) => [entry.path, entry]));
   const unsaved = [];
   let unsavedReason;
@@ -352,6 +415,11 @@ export async function snapshot(root, store, previous, { scratch, now = Date.now,
   let deferred = 0;
   const deadline = now() + budgetMs;
   if (scratch) await mkdir(scratch, { recursive: true, mode: 0o700 });
+  if (scratch) await usableFolder(scratch);
+  const placesFor = copyPlaces({ scratch, memoryScratch, freeBytes, availableMemory, memoryMarginBytes });
+  const copies = [];
+  let heldOnDiskBytes = 0;
+  let heldInMemoryBytes = 0;
   const scanned = await scan(root);
   const slots = Array.from({ length: scanned.length }, () => null);
   const waiting = [];
@@ -374,15 +442,30 @@ export async function snapshot(root, store, previous, { scratch, now = Date.now,
     const path = join(root, entry.path);
     let copy = null;
     try {
+      let timing;
       if (database && scratch) {
-        if (!(await roomForCopy(path, entry, scratch, freeBytes))) {
+        const places = await placesFor(path, entry);
+        if (places.length === 0) {
           if (before) slots[index] = before;
           cannotSave(entry.path, "no room for a copy");
           return;
         }
-        copy = await databaseCopy(path, scratch);
+        const copyStarted = clock();
+        const copied = await copiedSomewhere(path, places, onCopy, entry.path);
+        if (!copied) {
+          if (before) slots[index] = before;
+          cannotSave(entry.path, "no room for a copy");
+          return;
+        }
+        copy = copied.copy;
+        const bytes = (await stat(copy)).size;
+        if (copied.place === "disk") heldOnDiskBytes = Math.max(heldOnDiskBytes, bytes);
+        else heldInMemoryBytes = Math.max(heldInMemoryBytes, bytes);
+        timing = { path: entry.path, place: copied.place, bytes, copyMs: Math.round(clock() - copyStarted) };
       }
+      const hashStarted = clock();
       const chunks = await chunksOf(copy ?? path, store, { keep });
+      if (timing) copies.push({ ...timing, hashMs: Math.round(clock() - hashStarted) });
       slots[index] = { ...entry, ...(stamp ? { stamp } : {}), chunks };
       uploaded += 1;
     } catch (error) {
@@ -422,9 +505,9 @@ export async function snapshot(root, store, previous, { scratch, now = Date.now,
   const manifest = { version: MANIFEST_VERSION, createdAt: now(), ...(app ? { app } : {}), entries };
   if (uploaded > 0 || !previous || (app && previous.app !== app) || previous.entries.length !== entries.length || changedShape(previous.entries, entries)) {
     await store.putManifest(manifest);
-    return { manifest, written: true, uploaded, unsaved, unsavedReason, deferred, resumeAfter: carryOn };
+    return { manifest, written: true, uploaded, unsaved, unsavedReason, deferred, resumeAfter: carryOn, copies, heldOnDiskBytes, heldInMemoryBytes };
   }
-  return { manifest: previous, written: false, uploaded, unsaved, unsavedReason, deferred, resumeAfter: carryOn };
+  return { manifest: previous, written: false, uploaded, unsaved, unsavedReason, deferred, resumeAfter: carryOn, copies, heldOnDiskBytes, heldInMemoryBytes };
 }
 
 export function settleWithin(work, ms) {
@@ -485,7 +568,7 @@ async function readChunk(store, hash, stop, { attempts, retryMs }) {
 
 async function alreadyRestored(path, entry) {
   const existing = await lstat(path).catch(() => null);
-  return existing?.isFile() === true && existing.size === entry.size && Math.trunc(existing.mtimeMs) === Math.trunc(entry.mtimeMs);
+  return existing?.isFile() === true && existing.size === entry.size && Math.round(existing.mtimeMs) === Math.trunc(entry.mtimeMs);
 }
 
 async function download(entry, store, staging, stop, retries) {

@@ -47,7 +47,8 @@ if lsof -nP -iTCP:8799 -sTCP:LISTEN >/dev/null 2>&1; then
   echo "something already serves on port 8799 (a running later.dog?); quit it first"
   exit 1
 fi
-REAL_HOME=$(dscl . -read "/Users/$USER" NFSHomeDirectory | awk '{print $2}')
+ACCOUNT_RECORD=$(dscl . -read "/Users/$USER" NFSHomeDirectory)
+REAL_HOME=${ACCOUNT_RECORD#NFSHomeDirectory: }
 
 mkdir -p "$ROOT/dl" "$ROOT/verify" "$ROOT/run" "$SEALED/tmp" "$SEALED/.laterdog"
 if [ -n "${LATERDOG_TRIAL_GRANT_KEY_FILE:-}" ]; then

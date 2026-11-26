@@ -52,7 +52,7 @@ const SERVER_ENV_NAMES = new Set([
   "PATH", "SHELL", "HOSTNAME", "LANG", "LANGUAGE", "TZ", "TERM", "TMPDIR", "NO_COLOR", "NODE_ENV", "NODE_EXTRA_CA_CERTS", "SSL_CERT_FILE", "SSL_CERT_DIR",
   "AGENT_BROWSER_EXECUTABLE_PATH", "LATERDOG_STATIC_DIR", "LATERDOG_HOME",
   "LATERDOG_CLOUD_ROLE", "LATERDOG_CLOUD_MACHINE_ID", "LATERDOG_CLOUD_ADMIN_URL", "LATERDOG_CLOUD_IMAGE", "LATERDOG_PUBLIC_URL", "LATERDOG_WEBHOOK_PUBLIC_URL",
-  "LATERDOG_CLOUD_ARCHIVE_URL", "LATERDOG_CLOUD_BOAT_URL", "LATERDOG_CLOUD_VOICE_URL", "LATERDOG_CLOUD_DECIDER_URL", "LATERDOG_CLOUD_EMAIL_URL", "LATERDOG_CLOUD_GOOGLE_URL", "LATERDOG_TTS_DEFAULT_VOICE",
+  "LATERDOG_ARCHIVE_CODEX_SESSIONS", "LATERDOG_CLOUD_ARCHIVE_URL", "LATERDOG_CLOUD_BOAT_URL", "LATERDOG_CLOUD_VOICE_URL", "LATERDOG_CLOUD_DECIDER_URL", "LATERDOG_CLOUD_EMAIL_URL", "LATERDOG_CLOUD_GOOGLE_URL", "LATERDOG_TTS_DEFAULT_VOICE",
 ]);
 export function serverEnvironmentAllowed(name: string): boolean {
   return SERVER_ENV_NAMES.has(name) || name.startsWith("LC_");
@@ -183,11 +183,12 @@ export function startCloudHome(env: NodeJS.ProcessEnv = process.env) {
   runEdge();
   listenForArchiveOwnership();
   const asked = (signal: NodeJS.Signals) => {
+    if (stopping) return;
     record(`cloud home: asked to stop (${signal}); stopping the server and the edge`);
     stop(false);
   };
-  process.once("SIGTERM", () => asked("SIGTERM"));
-  process.once("SIGINT", () => asked("SIGINT"));
+  process.on("SIGTERM", () => asked("SIGTERM"));
+  process.on("SIGINT", () => asked("SIGINT"));
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {

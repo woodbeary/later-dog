@@ -8,6 +8,8 @@ export type InstanceId = string;
 export type ThreadId = string;
 export type TurnId = string;
 
+export const RESTORE_FILES_RESOURCE = "work-folder";
+
 export interface ModelVariantOption {
   id: string;
   label: string;

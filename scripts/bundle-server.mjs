@@ -96,3 +96,5 @@ const piMcpExtDest = join(root, "dist-server", "drivers", "pi-mcp-extension.ts")
 mkdirSync(dirname(piMcpExtDest), { recursive: true });
 await build({ ...nodeEsmBuild, entryPoints: [piMcpExtSrc], outfile: piMcpExtDest,
   target: "node24", external: ["typebox"], });
+
+copyFileSync(join(server, "laterdog", "codex-computer-guard.cjs"), join(root, "dist-server", "laterdog", "codex-computer-guard.cjs"));

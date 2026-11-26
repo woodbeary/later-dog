@@ -228,6 +228,31 @@ describe("one run_on_computer call with the real run store", () => {
     expect(execs.some((exec) => exec.command.includes("python3 -c"))).toBe(true);
   });
 
+  it("remembers remote outputs across the wait window, records a background completion, and retries without provisioning", async () => {
+    const { root, clock, runs, ask } = setup();
+    const going = fakeBox();
+    const request = ask();
+    const first = await handleComputerRun({ ...request, body: { ...request.body, outputs: "remote" } }, {
+      runs, computer: async () => ({ box: going.box }), now: () => clock.at,
+    });
+    expect(first.text).toContain("Still running");
+    expect(launched(going.execs)).toBe(1);
+    const runId = /run_id ([0-9a-f]{8})/.exec(first.text!)![1];
+    const record = runs.record("dog", runId)!;
+    expect(record.outputs).toBe("remote");
+    const finished = fakeBox({ exitCode: 0 });
+    await expect(runs.ended(finished.box, record)).resolves.toMatchObject({ exitCode: 0 });
+
+    const afterRestart = new RealComputerRuns(join(root, "state"));
+    const offline = async () => { throw new Error("the computer must stay asleep"); };
+    const resumed = await handleComputerRun({ ...request, body: { run_id: runId } }, { runs: afterRestart, computer: offline });
+    expect(resumed).toMatchObject({ status: 200, failed: false });
+    expect(resumed.text).toContain("Files were kept on your cloud computer");
+    expect(resumed.text).not.toContain("It changed no files here.");
+    expect(finished.execs.some((exec) => exec.command.includes("python3 -c"))).toBe(false);
+    expect((await handleComputerRun({ ...request, body: { run_id: runId, outputs: "home" } }, { runs: afterRestart, computer: offline })).status).toBe(409);
+  });
+
   it("keeps a run that outlives its call counted for its chat until a later call brings it back", async () => {
     const { clock, runs, ask } = setup();
     const jobs = new ComputerJobs(null, { now: () => clock.at });

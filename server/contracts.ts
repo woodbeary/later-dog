@@ -77,6 +77,7 @@ export type RequestOutcome = "allowed-once" | "rejected" | "answered" | "unavail
 
 export interface SendTurnInput {
   threadId: ThreadId;
+  sourceMessageId?: string;
   botId?: string;
   text: string;
   approvalMode?: ApprovalMode;

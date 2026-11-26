@@ -1,5 +1,5 @@
-import { describe, expect, it } from "vitest";
-import { runProcessStream, type StreamingProcess, type StreamSocket } from "../src/process-stream";
+import { describe, expect, it, vi } from "vitest";
+import { engineRelayPath, runProcessStream, type StreamingProcess, type StreamSocket } from "../src/process-stream";
 import { route } from "../src/routes";
 
 class Socket implements StreamSocket {
@@ -67,6 +67,30 @@ describe("process stream", () => {
     socket.emit("close");
     expect(child.killed).toEqual([15]);
     expect(finished).toBe(1);
+  });
+
+  it("keeps the attached engine across the command deadline and stops it when the home disconnects", async () => {
+    vi.useFakeTimers();
+    try {
+      const socket = new Socket();
+      const child = fakeProcess();
+      const start = vi.fn(async () => child.process);
+      const command = "exec node '/home/dog/.laterdog-engine/relay/1234567890abcdef/engine-relay.js'";
+      const input = { command, timeoutMs: 30_000 };
+      expect(engineRelayPath(input)).toBe("/home/dog/.laterdog-engine/relay/1234567890abcdef/engine-relay.js");
+      expect(engineRelayPath({ ...input, command: command + " extra" })).toBeUndefined();
+      runProcessStream(socket, { canKeepEngine: entry => Boolean(engineRelayPath(entry)), start, active: () => {}, finished: () => {} });
+      socket.frame({ channel: "start", lifetime: "engine", input: { command } });
+      await Promise.resolve();
+      const pong = setInterval(() => socket.frame({ channel: "pong" }), 15_000);
+      vi.advanceTimersByTime(2 * 60 * 60_000 + 15_000);
+      clearInterval(pong);
+      expect(start.mock.calls).toHaveLength(1);
+      expect(child.killed).toEqual([]);
+      vi.advanceTimersByTime(60_000);
+      expect(socket.closed).toBe(true);
+      expect(child.killed).toContain(15);
+    } finally { vi.useRealTimers(); }
   });
 
   it("refuses input before the process is started", async () => {

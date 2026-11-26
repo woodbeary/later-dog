@@ -1,7 +1,5 @@
-import { readFileSync } from "node:fs";
+import { readContainerFile as read } from "./container-file";
 import { describe, expect, it } from "vitest";
-
-const read = (path: string) => readFileSync(new URL(path, import.meta.url), "utf8");
 
 describe("the computer's Chromium policy", () => {
   it("caps the browser's disk cache at 100 MB and still reopens the page left on screen after a sleep", () => {

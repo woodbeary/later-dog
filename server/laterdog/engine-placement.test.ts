@@ -1,13 +1,15 @@
 import { EventEmitter } from "node:events";
 import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { afterEach, expect, it } from "vitest";
+import { afterEach, expect, it, vi } from "vitest";
 import type WebSocket from "ws";
 import { prepareEngineComputer, processStreamLink, type EngineScripts } from "./engine-computer.ts";
-import { BOT_FOLDER_FILE_BYTES, botFolderRoot, commandOnPath, ENGINE_PLACEMENT_LOG, notePlacement, planClaudeRemote, remoteEngineBots, remoteEngineChoice, scopedClaudeCredential, setRemoteEngineBot, type ClaudePlacement } from "./engine-placement.ts";
+import { BOT_FOLDER_FILE_BYTES, botFolderRoot, commandOnPath, deferredLink, ENGINE_PLACEMENT_LOG, notePlacement, planClaudeRemote, remoteEngineBots, remoteEngineChoice, scopedClaudeCredential, setRemoteEngineBot, type ClaudePlacement } from "./engine-placement.ts";
+import { NotDispatched, RemoteSession, type EngineLink } from "./engine-remote.ts";
+import { ENGINE_COMPUTER_RESOURCE, engineWaitEvent, watchEngineOpening, type EngineWait } from "./engine-waiting.ts";
 
 const scratch: string[] = [];
-afterEach(() => { for (const path of scratch.splice(0)) rmSync(path, { recursive: true, force: true }); });
+afterEach(() => { vi.useRealTimers(); for (const path of scratch.splice(0)) rmSync(path, { recursive: true, force: true }); });
 
 function setup(overrides: Partial<ClaudePlacement> = {}, credential: Record<string, unknown> = { accessToken: "a", refreshToken: "r", refreshTokenExpiresAt: 1, expiresAt: Date.now() + 3600_000 }) {
   const base = realpathSync(mkdtempSync("/tmp/ldplan-"));
@@ -70,8 +72,52 @@ it("keeps each placement decision in a capped log in the home's data folder", ()
 });
 
 it("lends the computer an access token but never the refresh token", () => {
-  const scoped = JSON.parse(String(scopedClaudeCredential(JSON.stringify({ claudeAiOauth: { accessToken: "a", refreshToken: "r", refreshTokenExpiresAt: 2, expiresAt: Date.now() + 3600_000, scopes: ["x"] } }))));
+  const scoped = JSON.parse(String(scopedClaudeCredential(JSON.stringify({ claudeAiOauth: { accessToken: "a", refreshToken: "r", refreshTokenExpiresAt: 2, expiresAt: Date.now() + 3600_000, scopes: ["x"], addedAuthority: "secret" } }))));
   expect(scoped).toEqual({ claudeAiOauth: { accessToken: "a", expiresAt: expect.any(Number), scopes: ["x"] } });
+});
+
+it("keeps inherited home and store credentials out of both remote launch environments", () => {
+  const { input } = setup();
+  const settings = input.args[input.args.indexOf("--settings") + 1];
+  const authority = {
+    LATERDOG_CLOUD_BOOTSTRAP_SECRET: "fixture-bootstrap",
+    LATERDOG_CLOUD_ARCHIVE_TOKEN: "fixture-archive",
+    LATERDOG_STATE_TOKEN: "fixture-store",
+    LATERDOG_CLOUD_BOAT_TOKEN: "fixture-computer-admin",
+    AWS_SECRET_ACCESS_KEY: "fixture-other-provider",
+    CLAUDE_CODE_OAUTH_REFRESH_TOKEN: "fixture-refresh",
+    LC_SECRET: "fixture-disguised-secret",
+  };
+  writeFileSync(settings, JSON.stringify({ ...JSON.parse(readFileSync(settings, "utf8")), env: { ...authority, ANTHROPIC_AUTH_TOKEN: "fixture-model-token" } }));
+  const planned = planClaudeRemote({ ...input, env: { ...input.env, ...authority, LC_ALL: "C.UTF-8", CLAUDE_CODE_SUBAGENT_MODEL: "haiku" } });
+  if (!("plan" in planned)) throw new Error(planned.stay);
+  const { launch } = planned.plan;
+  const settingsForComputer = JSON.parse(readFileSync(launch.args[launch.args.indexOf("--settings") + 1], "utf8"));
+  for (const name of Object.keys(authority)) expect(launch.env[name]).toBeUndefined();
+  expect(settingsForComputer.env).toEqual({ ANTHROPIC_AUTH_TOKEN: "fixture-model-token" });
+  expect(launch.env).toMatchObject({ LC_ALL: "C.UTF-8", CLAUDE_CODE_SUBAGENT_MODEL: "haiku" });
+  expect(launch.hookEnv.LATERDOG_HOOK_TOKEN_FILE).toBe("/data/t");
+  expect(launch.pushes).toBeUndefined();
+
+  writeFileSync(settings, JSON.stringify({ env: { ANTHROPIC_BASE_URL: "http://localhost:8799" } }));
+  expect(planClaudeRemote(input)).toEqual({ stay: "account reached through the home" });
+  writeFileSync(settings, JSON.stringify({ apiKeyHelper: "read-home-credential" }));
+  expect(planClaudeRemote(input)).toEqual({ stay: "account requires the home's credential provider" });
+});
+
+it.each(["physical", "legacy"])("places a resumed Claude account in the %s workspace that owns its native transcript", (spelling) => {
+  const { base, cwd, config, input } = setup();
+  const alias = join(base, "workspace-alias");
+  symlinkSync(cwd, alias, "dir");
+  const native = spelling === "physical" ? cwd : alias;
+  const sessionId = "a15cf3dd-3672-4248-8e17-e384c464d3c2";
+  const project = join(config, "projects", native.replace(/[^a-zA-Z0-9]/g, "-"));
+  mkdirSync(project, { recursive: true });
+  writeFileSync(join(project, `${sessionId}.jsonl`), "prior session");
+  const result = planClaudeRemote({ ...input, cwd: alias, sessionId });
+  if (!("plan" in result)) throw Error(result.stay);
+  expect(result.plan.launch.cwd).toBe(native);
+  expect(result.plan.launch.roots.find(root => root.id === "session")?.path).toBe(project);
 });
 
 it("mirrors the same model, effort and session, and keeps tools, hooks and their secrets on the home", () => {
@@ -88,7 +134,8 @@ it("mirrors the same model, effort and session, and keeps tools, hooks and their
   expect(launch.mcp.agents.env).toEqual({ LATERDOG_TOKEN: "home-token" });
   expect(launch.mcp.dog.args).toEqual(["/app/permission-proxy.js", "/data/perm.sock"]);
   const settings = JSON.parse(readFileSync(launch.args[launch.args.indexOf("--settings") + 1], "utf8"));
-  expect(settings.hooks.PreToolUse).toBeUndefined();
+  expect(settings.hooks.PreToolUse.map((entry: { matcher: string }) => entry.matcher)).toEqual(["Bash", "Write", "Edit", "MultiEdit", "NotebookEdit"]);
+  for (const entry of settings.hooks.PreToolUse) expect(entry.hooks[0]).toEqual({ type: "command", command: `node ${input.proxyPath} hook 0`, timeout: 30 });
   expect(settings.hooks.Stop[0].hooks[0]).toEqual({ type: "command", command: `node ${input.proxyPath} hook 0`, timeout: 30 });
   expect(settings.fastMode).toBe(true);
   expect(launch.hooks).toEqual(["node /app/hooks/laterdog-hook.js"]);
@@ -110,25 +157,202 @@ it("reads the chosen dogs from the environment and the data folder", () => {
   expect([...remoteEngineBots(join(base, "missing"), {})]).toEqual([]);
 });
 
+function fakeComputer(options: { failWith?: number } = {}) {
+  const commands: string[] = []; const written: string[] = [];
+  let ready = false;
+  const box = {
+    exec: async (command: string, timeoutMs = 600_000) => {
+      if (timeoutMs > 600_000) throw new Error("Cloud computer command timeout exceeds 600000ms");
+      commands.push(command);
+      if (command.startsWith("touch")) { ready = true; return { exitCode: 0, stdout: "", stderr: "" }; }
+      if (options.failWith) return { exitCode: options.failWith, stdout: "", stderr: "" };
+      return { exitCode: 0, stdout: ready ? "relay-present\n" : "", stderr: "" };
+    },
+    write: async (path: string) => { written.push(path); },
+  };
+  return { box, commands, written };
+}
+
+const relayScripts: EngineScripts = { files: [{ name: "engine-relay.js", bytes: Buffer.from("r") }, { name: "engine-proxy.js", bytes: Buffer.from("p") }], dir: "/home/dog/.laterdog-engine/relay/abc", relay: "/home/dog/.laterdog-engine/relay/abc/engine-relay.js", proxy: "/home/dog/.laterdog-engine/relay/abc/engine-proxy.js" };
+
 it("puts the relay and the same CLI version on the computer once, and makes the mirrored folders", async () => {
   const { input } = setup();
   const planned = planClaudeRemote(input);
   if (!("plan" in planned)) throw new Error(planned.stay);
-  const commands: string[] = []; const written: string[] = [];
-  const files = new Set<string>();
-  const box = {
-    exec: async (command: string) => { commands.push(command); if (command.startsWith("touch")) files.add("ready"); return { exitCode: 0, stdout: command.startsWith("test -f") && files.has("ready") ? "present\n" : "", stderr: "" }; },
-    write: async (path: string) => { written.push(path); },
-  };
-  const relay: EngineScripts = { files: [{ name: "engine-relay.js", bytes: Buffer.from("r") }, { name: "engine-proxy.js", bytes: Buffer.from("p") }], dir: "/home/dog/.laterdog-engine/relay/abc", relay: "/home/dog/.laterdog-engine/relay/abc/engine-relay.js", proxy: "/home/dog/.laterdog-engine/relay/abc/engine-proxy.js" };
-  await prepareEngineComputer(box, planned.plan, relay);
-  await prepareEngineComputer(box, planned.plan, relay);
-  expect(written).toEqual([`${relay.dir}/engine-relay.js`, `${relay.dir}/engine-proxy.js`]);
-  expect(commands.filter((command) => command.includes("npm install"))[0]).toContain("'@anthropic-ai/claude-code@2.1.316'");
-  const mkdirs = commands.find((command) => command.startsWith("sudo -n install -d -o dog -g dog"))!;
-  for (const path of planned.plan.mkdirs) expect(mkdirs).toContain(`'${path}'`);
-  const failing = { ...box, exec: async (command: string) => ({ exitCode: command.includes("npm install") ? 1 : 0, stdout: "present", stderr: "" }) };
-  await expect(prepareEngineComputer(failing, planned.plan, relay)).rejects.toThrow("could not be installed");
+  const { box, commands, written } = fakeComputer();
+  await prepareEngineComputer(box, planned.plan, relayScripts);
+  expect(written).toEqual([`${relayScripts.dir}/engine-relay.js`, `${relayScripts.dir}/engine-proxy.js`]);
+  expect(commands).toHaveLength(2);
+  const script = commands[0]!;
+  expect(script).toContain("'@anthropic-ai/claude-code@2.1.316'");
+  expect(script).toContain(`test -x '/home/dog/.laterdog-engine/cli/claude-code-2.1.316/node_modules/.bin/claude'`);
+  expect(script).toContain("--allow-build='@anthropic-ai/claude-code'");
+  expect(script).toContain("--version");
+  expect(script).toContain("2.1.316 (Claude Code)");
+  expect(script).toContain("/@anthropic-ai/claude-code/install.cjs");
+  expect(script).toContain("sudo -n install -d -o dog -g dog -m 700");
+  for (const path of planned.plan.mkdirs) expect(script).toContain(`'${path}'`);
+  expect(script).toContain(`test -f '${relayScripts.dir}/.ready'`);
+  expect(commands[1]).toBe(`touch '${relayScripts.dir}/.ready'`);
+});
+
+it("prepares a warm computer in one round trip and still checks the CLI, the folders and the relay", async () => {
+  const { input } = setup();
+  const planned = planClaudeRemote(input);
+  if (!("plan" in planned)) throw new Error(planned.stay);
+  const { box, commands, written } = fakeComputer();
+  await prepareEngineComputer(box, planned.plan, relayScripts);
+  commands.length = 0; written.length = 0;
+  await prepareEngineComputer(box, planned.plan, relayScripts);
+  expect(commands).toHaveLength(1);
+  expect(written).toEqual([]);
+  expect(commands[0]).toMatch(/corepack pnpm@10[\s\S]*sudo -n install -d[\s\S]*\.ready/);
+});
+
+it("names what failed while preparing the computer", async () => {
+  const { input } = setup();
+  const planned = planClaudeRemote(input);
+  if (!("plan" in planned)) throw new Error(planned.stay);
+  await expect(prepareEngineComputer(fakeComputer({ failWith: 41 }).box, planned.plan, relayScripts)).rejects.toThrow("Claude Code 2.1.316 could not be installed");
+  await expect(prepareEngineComputer(fakeComputer({ failWith: 42 }).box, planned.plan, relayScripts)).rejects.toThrow("mirrored folders could not be made");
+  await expect(prepareEngineComputer(fakeComputer({ failWith: 1 }).box, planned.plan, relayScripts)).rejects.toThrow("could not be prepared");
+  const unmarked = fakeComputer();
+  const box = { ...unmarked.box, exec: async (command: string) => command.startsWith("touch") ? { exitCode: 1, stdout: "", stderr: "" } : unmarked.box.exec(command) };
+  await expect(prepareEngineComputer(box, planned.plan, relayScripts)).rejects.toThrow("relay could not be put");
+  const noisy = fakeComputer();
+  const noisyBox = { ...noisy.box, exec: async (command: string) => command.startsWith("touch") ? noisy.box.exec(command) : { exitCode: 0, stdout: "not-relay-present\n", stderr: "" } };
+  await prepareEngineComputer(noisyBox, planned.plan, relayScripts);
+  expect(noisy.written).toEqual([`${relayScripts.dir}/engine-relay.js`, `${relayScripts.dir}/engine-proxy.js`]);
+});
+
+function fakeLink() {
+  const link = new EventEmitter() as EngineLink & { sent: string[]; closed: boolean };
+  link.sent = []; link.closed = false;
+  link.send = (line) => { link.sent.push(line); };
+  link.close = () => { link.closed = true; };
+  return link;
+}
+
+it("opens the deferred link only once the computer is ready, keeps what was sent meanwhile, and says so", async () => {
+  vi.useFakeTimers();
+  let ready!: (link: EngineLink) => void;
+  const link = deferredLink(new Promise<EngineLink>((resolve) => { ready = resolve; }), 15 * 60_000);
+  const events: string[] = [];
+  link.on("open", () => events.push("open"));
+  link.on("close", (why) => events.push(`close ${why}`));
+  expect(link.opening).toBe(true);
+  link.send("early");
+  await vi.advanceTimersByTimeAsync(95_000);
+  const real = fakeLink();
+  ready(real);
+  await vi.advanceTimersByTimeAsync(0);
+  expect(link.opening).toBe(false);
+  expect(events).toEqual(["open"]);
+  expect(real.sent).toEqual(["early"]);
+  link.send("late");
+  expect(real.sent).toEqual(["early", "late"]);
+  real.emit("line", "{}");
+  await vi.advanceTimersByTimeAsync(20 * 60_000);
+  expect(events).toEqual(["open"]);
+});
+
+it("closes a deferred link with the reason when the computer fails or never gets ready within its budget", async () => {
+  vi.useFakeTimers();
+  const failed = deferredLink(Promise.reject(new Error("The dog's cloud computer could not start.")), 60_000);
+  const failure: string[] = [];
+  failed.on("close", (why) => failure.push(why));
+  await vi.advanceTimersByTimeAsync(0);
+  expect(failure).toEqual(["The dog's cloud computer could not start."]);
+  const late = fakeLink();
+  let ready!: (link: EngineLink) => void;
+  const stuck = deferredLink(new Promise<EngineLink>((resolve) => { ready = resolve; }), 13.5 * 60_000);
+  const closes: string[] = [];
+  stuck.on("close", (why) => closes.push(why));
+  await vi.advanceTimersByTimeAsync(13.5 * 60_000);
+  expect(closes).toEqual(["The cloud computer did not wake and get ready within 14 minutes."]);
+  ready(late);
+  await vi.advanceTimersByTimeAsync(0);
+  expect(late.closed).toBe(true);
+  expect(stuck.opening).toBe(true);
+  let resolveCancelled!: (link: EngineLink) => void;
+  const boot = new AbortController();
+  const cancelled = deferredLink(new Promise<EngineLink>((resolve) => { resolveCancelled = resolve; }), 60_000, () => boot.abort());
+  const cancelCloses: string[] = [];
+  cancelled.on("close", (why) => cancelCloses.push(why));
+  cancelled.close();
+  expect(boot.signal.aborted).toBe(true);
+  expect(cancelCloses).toEqual(["closed before the computer was ready"]);
+  const arrivedLate = fakeLink();
+  resolveCancelled(arrivedLate);
+  await vi.advanceTimersByTimeAsync(60_000);
+  expect(arrivedLate.closed).toBe(true);
+  expect(cancelCloses).toEqual(["closed before the computer was ready"]);
+});
+
+it("arms the relay handshake timeout only after the link opens and cleans up listeners", async () => {
+  vi.useFakeTimers();
+  const { input } = setup();
+  const planned = planClaudeRemote(input);
+  if (!("plan" in planned)) throw new Error(planned.stay);
+  const opening = fakeLink();
+  opening.opening = true;
+  const session = new RemoteSession(opening, planned.plan.launch);
+  const started = session.start();
+  const outcome = started.then(() => null, (error: unknown) => error);
+  await vi.advanceTimersByTimeAsync(90_000);
+  opening.opening = false;
+  opening.emit("open");
+  await vi.advanceTimersByTimeAsync(29_000);
+  opening.emit("line", JSON.stringify({ type: "ready" }));
+  await vi.advanceTimersByTimeAsync(2_000);
+  opening.emit("close", "done");
+  await outcome;
+  const silent = fakeLink();
+  silent.opening = true;
+  const timedOut = new RemoteSession(silent, planned.plan.launch);
+  const timeoutOutcome = timedOut.start().then(() => null, (error: unknown) => error);
+  await vi.advanceTimersByTimeAsync(90_000);
+  silent.opening = false;
+  silent.emit("open");
+  await vi.advanceTimersByTimeAsync(30_000);
+  const err = await timeoutOutcome;
+  expect(err).toBeInstanceOf(NotDispatched);
+  expect((err as Error).message).toContain("did not answer");
+  const aborted = fakeLink();
+  aborted.opening = true;
+  new RemoteSession(aborted, planned.plan.launch);
+  expect(aborted.listenerCount("open")).toBe(1);
+  aborted.emit("close", "cancelled");
+  expect(aborted.listenerCount("open")).toBe(0);
+});
+
+it("tells the chat it is waiting on the computer only when opening takes a while, and when the wait ends", async () => {
+  vi.useFakeTimers();
+  let clock = 0;
+  const waits: EngineWait[] = [];
+  const quick = fakeLink(); quick.opening = true;
+  watchEngineOpening(quick, (wait) => waits.push(wait), 2_000, () => clock);
+  clock = 500; quick.opening = false; quick.emit("open");
+  await vi.advanceTimersByTimeAsync(5_000);
+  expect(waits).toEqual([]);
+  const slow = fakeLink(); slow.opening = true;
+  watchEngineOpening(slow, (wait) => waits.push(wait), 2_000, () => clock);
+  await vi.advanceTimersByTimeAsync(2_000);
+  expect(waits).toEqual([{ waiting: true }]);
+  clock = 95_500; slow.emit("open");
+  expect(waits).toEqual([{ waiting: true }, { waiting: false, opened: true, waitedMs: 95_000 }]);
+  const lost = fakeLink(); lost.opening = true;
+  watchEngineOpening(lost, (wait) => waits.push(wait), 2_000, () => clock);
+  await vi.advanceTimersByTimeAsync(2_000);
+  lost.emit("close", "gone");
+  expect(waits.at(-1)).toEqual({ waiting: false, opened: false, waitedMs: 0 });
+  const open = fakeLink();
+  watchEngineOpening(open, (wait) => waits.push(wait), 0);
+  await vi.advanceTimersByTimeAsync(10);
+  expect(waits).toHaveLength(4);
+  expect(engineWaitEvent({ waiting: true })).toEqual({ type: "turn.wait_started", resource: ENGINE_COMPUTER_RESOURCE });
+  expect(engineWaitEvent({ waiting: false, opened: true, waitedMs: 9 })).toEqual({ type: "turn.wait_ended", resource: ENGINE_COMPUTER_RESOURCE, waitedMs: 9, outcome: "acquired" });
+  expect(engineWaitEvent({ waiting: false, opened: false, waitedMs: 9 })).toMatchObject({ outcome: "gave_up" });
 });
 
 it("carries relay lines over the process stream, whole even when a character is split", () => {
@@ -137,7 +361,7 @@ it("carries relay lines over the process stream, whole even when a character is 
   socket.send = (data) => { socket.sent.push(JSON.parse(data)); };
   socket.close = () => {};
   const link = processStreamLink(socket as unknown as WebSocket, "exec node relay.js");
-  expect(socket.sent[0]).toEqual({ channel: "start", input: { command: "exec node relay.js" } });
+  expect(socket.sent[0]).toEqual({ channel: "start", lifetime: "engine", input: { command: "exec node relay.js" } });
   const lines: string[] = []; let closed = "";
   link.on("line", (line) => lines.push(line));
   link.on("close", (why) => { closed = why; });

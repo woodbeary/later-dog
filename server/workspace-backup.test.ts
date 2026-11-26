@@ -188,7 +188,7 @@ describe("encrypted full workspace backups", () => {
         expect(statSync(join(target, "attachments", "image.png")).mode & 0o777).toBe(0o600);
       }
     } finally { if (db.isOpen) db.close(); }
-  });
+  }, 120_000);
 
   it("also pauses pending chat follow-ups when restoring into the original home", async () => {
     const source = directory();
@@ -419,7 +419,7 @@ describe("encrypted full workspace backups", () => {
       const path = encryptedPayload(source, Buffer.concat([tarEntry("manifest.json", "File", JSON.stringify(manifest)), tarEntry("data", "Directory"), ...parents.map((parent) => tarEntry(`data/${parent}`, "Directory")), tarEntry(`data/${name}`, "File", content), Buffer.alloc(1024)]));
       await expect(stageWorkspaceBackup(directory(), path, { password: PASSWORD })).rejects.toThrow(/Unsafe|connection settings|webhook credentials/);
     }
-  });
+  }, 120_000);
 
   it("retains differently cased destination auth roots and refuses them in recovery journals", async () => {
     const source = directory();

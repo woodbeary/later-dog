@@ -53,7 +53,7 @@ function Fixture() {
   }, [state.bots, dispatch]);
   const readSaved = async () => {
     if (bot) await flushBotPatches(bot.id);
-    const result = await api("/api/bots") as { bots: Bot[] };
+    const result = await api("/api/bots?messages=0") as { bots: Bot[] };
     setSaved(result.bots);
   };
   return <main className="min-h-screen bg-panel p-8 text-ink">

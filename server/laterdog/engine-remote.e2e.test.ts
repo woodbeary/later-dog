@@ -1,13 +1,23 @@
 import { spawn, type ChildProcess } from "node:child_process";
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { createHash } from "node:crypto";
+import { tmpdir } from "node:os";
+import { EventEmitter } from "node:events";
+import { chmodSync, closeSync, existsSync, mkdirSync, mkdtempSync, openSync, readFileSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync, writeSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { createServer, type Server } from "node:http";
 import { createInterface } from "node:readline";
 import { fileURLToPath } from "node:url";
-import { afterEach, expect, it } from "vitest";
+import { afterEach, expect, it, vi } from "vitest";
 import { killCliTree } from "../procs.ts";
-import { claudeProjectSlug, planClaudeRemote, spawnPlacedEngine, type ClaudeRemotePlan } from "./engine-placement.ts";
+import { alwaysAskHook } from "./always-asks.ts";
+import { diskFloorDecision } from "./disk-floor.ts";
+import { diskRung } from "./disk-ladder.ts";
+import { claudeProjectSlug, planClaudeRemote, spawnPlacedEngine, type ClaudeRemotePlan, type PlacedEngineOptions } from "./engine-placement.ts";
+import type { EngineWait } from "./engine-waiting.ts";
+import { placedThreads, preToolGuardDecision } from "./placed-threads.ts";
 import { createClaudeRefreshGate } from "./claude-refresh-lock.ts";
-import { commandLink, type EngineLink } from "./engine-remote.ts";
+import { ENGINE_WINDOW_BYTES, engineFileChunks, engineInventory } from "./engine-files.ts";
+import { commandLink, EngineProcess, RemoteSession, type EngineLink } from "./engine-remote.ts";
 import { createClaudeRenewer, type ClaudeRenewer } from "./engine-renewal.ts";
 
 const here = (name: string) => fileURLToPath(new URL(name, import.meta.url));
@@ -16,12 +26,15 @@ const PROXY = here("./engine-proxy.ts");
 const FAKE = here("../testing/fake-remote-engine.ts");
 const scratch: string[] = [];
 const running: Array<{ kill(): unknown }> = [];
+const servers: Server[] = [];
 afterEach(() => {
+  vi.useRealTimers();
+  for (const server of servers.splice(0)) server.close();
   for (const child of running.splice(0)) try { child.kill(); } catch {}
   for (const path of scratch.splice(0)) rmSync(path, { recursive: true, force: true });
 });
 
-function world(sessionId = "s-1") {
+function world(sessionId = "s-1", options: { preToolUse?: string; env?: Record<string, string> } = {}) {
   const base = realpathSync(mkdtempSync("/tmp/ldeng-"));
   scratch.push(base);
   const cwd = join(base, "home", "work");
@@ -49,16 +62,17 @@ function world(sessionId = "s-1") {
   const mcpPath = join(base, "launch", "mcp.json");
   writeFileSync(mcpPath, JSON.stringify({ mcpServers: { probe: { command: process.execPath, args: [mcpServer], env: { PROBE_SECRET: "home-only" }, alwaysLoad: true } } }));
   const settingsPath = join(base, "launch", "settings.json");
-  writeFileSync(settingsPath, JSON.stringify({ hooks: { PreToolUse: [{ matcher: "Bash", hooks: [{ type: "command", command: "exit 2", timeout: 5 }] }], PostToolUse: [{ matcher: "", hooks: [{ type: "command", command: `"${process.execPath}" "${hookScript}"`, timeout: 5 }] }] } }));
+  writeFileSync(settingsPath, JSON.stringify({ hooks: { PreToolUse: [{ matcher: "Bash", hooks: [{ type: "command", command: options.preToolUse ?? "exit 2", timeout: 5 }] }], PostToolUse: [{ matcher: "", hooks: [{ type: "command", command: `"${process.execPath}" "${hookScript}"`, timeout: 5 }] }] } }));
   const env: NodeJS.ProcessEnv = {
     PATH: process.env.PATH, HOME: join(base, "home"), CLAUDE_CONFIG_DIR: configDir, FAKE_ENGINE_SLUG: claudeProjectSlug(cwd),
-    FAKE_ENGINE_LAUNCHES: join(base, "launches.txt"), LATERDOG_HOOK_TOKEN_FILE: join(base, "token"),
+    FAKE_ENGINE_LAUNCHES: join(base, "launches.txt"), LATERDOG_HOOK_TOKEN_FILE: join(base, "token"), ...options.env,
   };
   const args = (resume: boolean) => ["-p", "--input-format", "stream-json", "--output-format", "stream-json", "--mcp-config", mcpPath, "--settings", settingsPath, resume ? "--resume" : "--session-id", sessionId];
   const plan = (resume = false) => {
     const planned = planClaudeRemote({ botId: "bot-1", threadId: "thread-1", sessionId, cliCommand: join(pkg, "bin", "claude"), args: args(resume), cwd, env,
       managed: false, dataDir: join(base, "data"), proxyPath: PROXY, remoteBase });
     if (!("plan" in planned)) throw new Error(planned.stay);
+    Object.assign(planned.plan.launch.env, { FAKE_ENGINE_SLUG: env.FAKE_ENGINE_SLUG, FAKE_ENGINE_LAUNCHES: env.FAKE_ENGINE_LAUNCHES });
     return planned.plan;
   };
   const relays: ChildProcess[] = [];
@@ -73,11 +87,12 @@ function world(sessionId = "s-1") {
     running.push(child);
     return child;
   };
-  const start = (planned: ClaudeRemotePlan, link: () => Promise<EngineLink> = async () => relay(), resume = false, renewer?: ClaudeRenewer) => {
+  const start = (planned: ClaudeRemotePlan, link: () => Promise<EngineLink> = async () => relay(), resume = false, renewer?: ClaudeRenewer, options?: PlacedEngineOptions) => {
     const placed: string[] = [];
-    const engine = spawnPlacedEngine(planned, link, local(resume), (where) => placed.push(where), renewer);
+    const reasons: Array<string | undefined> = [];
+    const engine = spawnPlacedEngine(planned, link, local(resume), (where, why) => { placed.push(where); reasons.push(why); }, renewer, options);
     running.push(engine);
-    return { engine, placed };
+    return { engine, placed, reasons };
   };
   const mirror = (path: string) => join(remoteRoot, path);
   return { base, cwd, configDir, remoteRoot, remoteBase, plan, start, relay, mirror, relays, localLaunches: () => localLaunches,
@@ -86,12 +101,12 @@ function world(sessionId = "s-1") {
 }
 
 const message = (text: string) => `${JSON.stringify({ type: "user", message: { role: "user", content: [{ type: "text", text }] } })}\n`;
-function turn(engine: { stdin: NodeJS.WritableStream; stdout: NodeJS.ReadableStream }, text: string, onResult?: () => void): Promise<Record<string, any>> {
+function turn(engine: { stdin: NodeJS.WritableStream; stdout: NodeJS.ReadableStream }, text: string, onResult?: () => void, timeoutMs = 30_000): Promise<Record<string, any>> {
   return new Promise((resolve, reject) => {
     const lines = createInterface({ input: engine.stdout });
     let stderr = "";
     (engine as unknown as { stderr: NodeJS.ReadableStream }).stderr.on("data", (bytes) => { stderr += bytes; });
-    const timer = setTimeout(() => reject(new Error(`no result; stderr: ${stderr}`)), 30_000);
+    const timer = setTimeout(() => reject(new Error(`no result; stderr: ${stderr}`)), timeoutMs);
     lines.on("line", (line) => {
       const frame = JSON.parse(line);
       if (frame.type !== "result") return;
@@ -104,6 +119,17 @@ function turn(engine: { stdin: NodeJS.WritableStream; stdout: NodeJS.ReadableStr
   });
 }
 const closed = (engine: { once(event: "close", listener: (code: number | null) => void): unknown }) => new Promise<number | null>((resolve) => engine.once("close", resolve));
+
+it("keeps the account file on the home when its current sign-in disappears during computer startup", async () => {
+  const w = world();
+  const plan = w.plan();
+  writeFileSync(join(w.configDir, ".credentials.json"), "{}");
+  const relay = w.relay();
+  const session = new RemoteSession(relay, plan.launch);
+  await expect(session.start()).rejects.toThrow("selected sign-in is unavailable");
+  relay.close();
+  expect(existsSync(w.mirror(join(w.configDir, ".credentials.json")))).toBe(false);
+});
 
 it("runs a turn on the computer with home-held tools, hooks and authority, and returns files before the result", async () => {
   const w = world();
@@ -118,7 +144,7 @@ it("runs a turn on the computer with home-held tools, hooks and authority, and r
   expect(JSON.parse(result.mcp).result).toEqual({ secret: "home-only", ran: w.cwd });
   expect(JSON.parse(result.hook).hookSpecificOutput).toEqual({ permissionDecision: "deny", token: true });
   expect(result.hookAuthorityVisible).toBe(false);
-  expect(result.shellGuard).toBe(false);
+  expect(result.shellGuard).toBe(true);
   expect(result).toMatchObject({ credentialAccess: true, credentialRefresh: false });
   expect(readFileSync(join(w.base, "hooks.jsonl"), "utf8")).toContain("pnpm install");
   expect(atResult).toEqual({ turnFile: true, session: true, removed: true });
@@ -131,6 +157,198 @@ it("runs a turn on the computer with home-held tools, hooks and authority, and r
   expect(w.localLaunches()).toBe(0);
   expect(w.launches()).toHaveLength(1);
 }, 60_000);
+
+it("keeps a progressing checkpoint open beyond its original reply deadline and times out after progress stops", async () => {
+  const w = world();
+  const launch = w.plan().launch;
+  const link = new EventEmitter() as EngineLink;
+  let request = 0;
+  link.send = line => { request = JSON.parse(line).id; };
+  link.close = () => link.emit("close", "fixture ended");
+  const session = new RemoteSession(link, launch);
+  link.emit("line", JSON.stringify({ type: "ready" }));
+  await Promise.resolve();
+  vi.useFakeTimers();
+  try {
+    const interval = 10 * 60_000;
+    const ack = session.checkpoint();
+    await vi.advanceTimersByTimeAsync(interval - 1);
+    session.checkpointProgressAt = Date.now();
+    await vi.advanceTimersByTimeAsync(2);
+    link.emit("line", JSON.stringify({ type: "reply", id: request, body: { saved: true } }));
+    await expect(ack).resolves.toEqual({ saved: true });
+    const expired = expect(session.checkpoint()).rejects.toThrow("did not answer checkpoint_request");
+    await vi.advanceTimersByTimeAsync(interval);
+    await expired;
+  } finally { vi.useRealTimers(); link.close(); }
+});
+
+it("limits an unacknowledged upload to one window and cancels before dispatch when its connection drops", async () => {
+  const w = world();
+  const launch = w.plan(true).launch;
+  const root = launch.roots.find(entry => entry.id === "session")!;
+  mkdirSync(root.path, { recursive: true });
+  writeFileSync(w.sessionFile, Buffer.alloc(ENGINE_WINDOW_BYTES * 3));
+  launch.roots = [root];
+  launch.pushes = undefined;
+  const link = new EventEmitter() as EngineLink;
+  let received = 0;
+  let launched = false;
+  link.close = () => link.emit("close", "transfer interrupted");
+  link.send = line => {
+    const frame = JSON.parse(line);
+    if (frame.type === "configure") queueMicrotask(() => link.emit("line", JSON.stringify({ type: "reply", id: frame.id, body: { files: [] } })));
+    if (frame.type === "file_begin") queueMicrotask(() => link.emit("line", JSON.stringify({ type: "reply", id: frame.id, body: { accepted: true } })));
+    if (frame.type === "file_chunk") received += Buffer.byteLength(frame.data, "base64");
+    if (frame.type === "file_window") queueMicrotask(() => link.close());
+    if (frame.type === "launch") launched = true;
+  };
+  const session = new RemoteSession(link, launch);
+  link.emit("line", JSON.stringify({ type: "ready" }));
+  await expect(session.start()).rejects.toThrow("transfer interrupted");
+  expect(received).toBe(ENGINE_WINDOW_BYTES);
+  expect(launched).toBe(false);
+});
+
+it("parks a selected rollout after loss and recovers only that file into the next ephemeral native home", async () => {
+  const w = world();
+  const name = "2026/11/25/rollout-selected.jsonl";
+  const firstDir = join(w.base, "engine-launch", "9bc2c5b1-691f-4451-9245-ee205927ce68");
+  const nextDir = join(w.base, "engine-launch", "6ef7fa24-458c-42ba-8ffc-2a77e38ee800");
+  const start = (dir: string, files: string[]) => {
+    const plan = w.plan();
+    const sessions = { id: "sessions", path: join(dir, "sessions"), writable: true, transcript: true, files };
+    mkdirSync(sessions.path, { recursive: true });
+    plan.launch.roots.push({ id: "config", path: dir, writable: false, files: ["config.toml"] }, sessions);
+    plan.launch.outputIds.push("sessions");
+    plan.launch.ephemeralCodexHome = dir;
+    plan.launch.env.CODEX_HOME = dir;
+    const remote = new RemoteSession(w.relay(), plan.launch);
+    return remote;
+  };
+  const first = start(firstDir, []);
+  await first.start();
+  await expect(first.selectTranscript("sessions", name)).resolves.toBe(true);
+  await expect(first.selectTranscript("sessions", "another.jsonl")).rejects.toThrow("selection cannot be changed");
+  const resident = w.mirror(join(firstDir, "sessions", name));
+  mkdirSync(dirname(resident), { recursive: true });
+  writeFileSync(resident, "unacknowledged native history\n");
+  writeFileSync(w.mirror(join(firstDir, "auth.json")), "scoped fixture token");
+  const lost = new Promise<void>(resolve => first.once("link-closed", resolve));
+  first.close();
+  await lost;
+  await expect.poll(() => existsSync(w.mirror(firstDir)), { timeout: 12_000 }).toBe(false);
+  expect(existsSync(join(firstDir, "sessions", name))).toBe(false);
+  const next = start(nextDir, [name]);
+  await next.start();
+  expect(readFileSync(join(nextDir, "sessions", name), "utf8")).toBe("unacknowledged native history\n");
+  expect(existsSync(w.mirror(join(nextDir, "auth.json")))).toBe(false);
+  const done = new Promise<void>(resolve => next.once("link-closed", resolve));
+  next.close();
+  await done;
+}, 30_000);
+
+it("recovers a later guest transcript before dispatch and preserves both copies on a two-sided edit", async () => {
+  const w = world();
+  const first = w.start(w.plan());
+  await turn(first.engine, "first turn");
+  const finished = closed(first.engine);
+  first.engine.stdin.end();
+  await finished;
+  const guest = w.mirror(w.sessionFile);
+  const before = readFileSync(guest);
+  expect(readFileSync(w.sessionFile)).toEqual(before);
+  const newer = Buffer.concat([before, Buffer.from("\n")]);
+  writeFileSync(guest, newer);
+  const resumed = w.start(w.plan(true));
+  await turn(resumed.engine, "continue after recovery");
+  expect(readFileSync(w.sessionFile).subarray(0, newer.length)).toEqual(newer);
+  const closedAgain = closed(resumed.engine);
+  resumed.engine.stdin.end();
+  await closedAgain;
+  writeFileSync(w.sessionFile, "home revision");
+  writeFileSync(guest, "computer revision");
+  const conflict = w.start(w.plan(true));
+  const diagnostics: string[] = [];
+  conflict.engine.stderr.on("data", chunk => diagnostics.push(String(chunk)));
+  expect(await closed(conflict.engine)).toBe(1);
+  expect(diagnostics.join("")).toContain("Both copies were preserved");
+  expect(readFileSync(w.sessionFile, "utf8")).toBe("home revision");
+  expect(readFileSync(guest, "utf8")).toBe("computer revision");
+  expect(w.localLaunches()).toBe(0);
+  expect(w.launches()).toHaveLength(2);
+});
+
+it("resumes a large Claude transcript on the computer and checkpoints its exact bytes back to the home", async () => {
+  const uuid = "897a56d1-0d58-468a-b772-61ff3035271b";
+  const w = world(uuid);
+  const testDir = realpathSync(mkdtempSync(join(tmpdir(), "ld-transcript-")));
+  scratch.push(testDir);
+  const plan = w.plan(true);
+  const root = plan.launch.roots.find(entry => entry.id === "session")!;
+  root.path = join(testDir, "session");
+  mkdirSync(root.path);
+  const name = root.files![0]!;
+  const path = join(root.path, name);
+  const before = createHash("sha256");
+  const size = 186_930_851;
+  const row = Buffer.from(JSON.stringify({ type: "summary", summary: "large ".repeat(5000) }) + "\n");
+  const fd = openSync(path, "wx", 0o600);
+  try {
+    let remaining = size;
+    while (remaining >= row.length) {
+      writeSync(fd, row);
+      before.update(row);
+      remaining -= row.length;
+    }
+    const tail = Buffer.from("{}" + " ".repeat(remaining - 3) + "\n");
+    writeSync(fd, tail);
+    before.update(tail);
+  } finally { closeSync(fd); }
+  expect(() => engineInventory([{ ...root, transcript: false }])).toThrow("too large");
+  const original = before.copy().digest("hex");
+  const addition = '{"type":"summary","summary":"resumed"}\n';
+  const probe = join(w.base, "check-transcript.mjs");
+  writeFileSync(probe, [
+    'import { createReadStream, appendFileSync } from "node:fs";',
+    'import { createHash } from "node:crypto";',
+    'const [file, hash, addition] = process.argv.slice(2);',
+    'process.stdin.on("end", () => appendFileSync(file, addition));',
+    'process.stdin.once("data", async () => {',
+    '  const digest = createHash("sha256");',
+    '  for await (const bytes of createReadStream(file)) digest.update(bytes);',
+    '  if (digest.digest("hex") !== hash) process.exit(7);',
+    '  appendFileSync(file, addition);',
+    '  console.log(JSON.stringify({ type: "result", result: JSON.stringify({ resumed: true }) }));',
+    '});',
+  ].join("\n"));
+  plan.launch.cli = process.execPath;
+  plan.launch.args = [probe, path, original, addition];
+  const link = commandLink(process.execPath, [RELAY], { ...process.env, LATERDOG_ENGINE_TEST_ROOT: join(testDir, "computer") });
+  const prefixes: number[] = [];
+  let received = 0;
+  let transcript = false;
+  link.on("line", line => {
+    const frame = JSON.parse(line);
+    if (frame.type === "file_begin") {
+      transcript = frame.file.root === "session";
+      if (transcript && frame.prefix) prefixes.push(frame.prefix.size);
+    }
+    if (transcript && frame.type === "file_chunk") received += Buffer.byteLength(frame.data, "base64");
+    if (frame.type === "file_end") transcript = false;
+  });
+  const { engine, placed } = w.start(plan, async () => link, true);
+  expect(await turn(engine, "resume", undefined, 100_000)).toEqual({ resumed: true });
+  engine.stdin.end();
+  expect(await closed(engine)).toBe(0);
+  expect(placed).toContain("computer");
+  expect(prefixes).toEqual([size, size + Buffer.byteLength(addition)]);
+  expect(received).toBe(Buffer.byteLength(addition) * 2);
+  expect(statSync(path).size).toBe(size + received);
+  const result = createHash("sha256");
+  for (const bytes of engineFileChunks(root, name)) result.update(bytes);
+  expect(result.digest("hex")).toBe(before.update(addition).update(addition).digest("hex"));
+}, 120_000);
 
 it("reuses project setup in a new session and continues the same native session back on the home", async () => {
   const w = world();
@@ -217,6 +435,115 @@ it("runs on the home when the computer surely never started the engine", async (
   await closed(engine);
 }, 60_000);
 
+it("fails a remote-only engine cleanly when the relay cannot start", async () => {
+  const w = world();
+  const engine = new EngineProcess(new RemoteSession(commandLink("/nonexistent/relay", []), w.plan().launch));
+  running.push(engine);
+  const stderr: string[] = [];
+  engine.stderr.on("data", bytes => stderr.push(String(bytes)));
+  expect(await closed(engine)).toBe(1);
+  expect(engine.placement).not.toBe("home");
+  expect(stderr.join("")).toContain("closed before it was ready");
+  expect(w.launches()).toEqual([]);
+}, 60_000);
+
+it("places the engine when the computer takes 95 seconds to wake, because the relay's handshake waits for the link to open", async () => {
+  const w = world();
+  const waits: EngineWait[] = [];
+  vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+  const { engine, placed } = w.start(w.plan(), () => new Promise<EngineLink>((resolve) => setTimeout(() => resolve(w.relay()), 95_000)), false, undefined,
+    { onWaiting: (wait) => waits.push(wait) });
+  await vi.advanceTimersByTimeAsync(95_000);
+  vi.useRealTimers();
+  const result = await turn(engine, "slow wake");
+  expect(placed).toEqual(["computer"]);
+  expect(result.cwd).toBe(w.mirror(w.cwd));
+  expect(waits).toEqual([{ waiting: true }, { waiting: false, opened: true, waitedMs: expect.any(Number) }]);
+  expect(w.localLaunches()).toBe(0);
+  engine.stdin.end();
+  expect(await closed(engine)).toBe(0);
+}, 60_000);
+
+it("runs on the home with the reason when the computer never gets ready within its budget", async () => {
+  const w = world();
+  const waits: EngineWait[] = [];
+  vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+  const { engine, placed, reasons } = w.start(w.plan(), () => new Promise<EngineLink>(() => {}), false, undefined,
+    { openBudgetMs: 13.5 * 60_000, onWaiting: (wait) => waits.push(wait) });
+  await vi.advanceTimersByTimeAsync(13.5 * 60_000);
+  vi.useRealTimers();
+  const result = await turn(engine, "never woke");
+  expect(placed).toEqual(["home"]);
+  expect(reasons).toEqual(["The cloud computer did not wake and get ready within 14 minutes."]);
+  expect(result.cwd).toBe(w.cwd);
+  expect(waits).toEqual([{ waiting: true }, { waiting: false, opened: false, waitedMs: expect.any(Number) }]);
+  expect(w.localLaunches()).toBe(1);
+  engine.stdin.end();
+  await closed(engine);
+}, 60_000);
+
+it("stops immediately and cleanly when cancelled while the computer is still waking", async () => {
+  const w = world();
+  const waits: EngineWait[] = [];
+  const planned = w.plan();
+  const { engine, placed } = w.start(planned, () => new Promise<EngineLink>(() => {}), false, undefined,
+    { onWaiting: (wait) => waits.push(wait), waitNoticeMs: 20 });
+  await new Promise((resolve) => setTimeout(resolve, 60));
+  expect(waits).toEqual([{ waiting: true }]);
+  const before = Date.now();
+  const stopped = await killCliTree(engine as unknown as ChildProcess, 5_000);
+  expect(stopped).toBe(true);
+  expect(Date.now() - before).toBeLessThan(2_000);
+  expect(placed).toEqual([]);
+  expect(w.localLaunches()).toBe(0);
+  expect(placedThreads.has("thread-1")).toBe(false);
+  expect(existsSync(planned.stagingDir)).toBe(false);
+  expect(waits).toEqual([{ waiting: true }, { waiting: false, opened: false, waitedMs: expect.any(Number) }]);
+}, 60_000);
+
+it("gives the home's always-ask checks to a placed engine and leaves the home's disk guard off it", async () => {
+  const GB = 1024 ** 3;
+  const nearlyFull = diskRung({ totalBytes: 19.2 * GB, freeBytes: 0.03 * 19.2 * GB });
+  const decide = (threadId: string, payload: Record<string, unknown>) => preToolGuardDecision(threadId, {
+    signal: () => null,
+    homeDisk: () => diskFloorDecision(payload, nearlyFull, { computers: true }),
+    homeHeavy: () => null,
+    alwaysAsk: () => alwaysAskHook(payload, () => ({ cwd: typeof payload.cwd === "string" ? payload.cwd : undefined, workspaceRoots: [] })),
+  });
+  const seen: Array<{ placed: boolean; command: unknown }> = [];
+  const server = createServer((req, res) => {
+    let body = "";
+    req.on("data", (bytes) => { body += bytes; });
+    req.on("end", () => {
+      const payload = JSON.parse(body) as Record<string, unknown>;
+      seen.push({ placed: placedThreads.has("thread-1"), command: (payload.tool_input as Record<string, unknown>).command });
+      const decision = decide("thread-1", payload);
+      res.end(decision ? JSON.stringify({ hookSpecificOutput: decision }) : "");
+    });
+  });
+  servers.push(server);
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const url = `http://127.0.0.1:${(server.address() as { port: number }).port}/hook`;
+  const base = realpathSync(mkdtempSync("/tmp/ldguard-"));
+  scratch.push(base);
+  const guardHook = join(base, "guard-hook.mjs");
+  writeFileSync(guardHook, `let text = ""; process.stdin.on("data", (b) => text += b); process.stdin.on("end", async () => { const reply = await fetch(process.env.LATERDOG_HOOK_URL, { method: "POST", body: text }); process.stdout.write(await reply.text()); });\n`);
+  const w = world("s-1", { preToolUse: `"${process.execPath}" "${guardHook}"`, env: { LATERDOG_HOOK_URL: url } });
+  expect(decide("thread-1", { tool_name: "Bash", tool_input: { command: "pnpm install" } })?.permissionDecision).toBe("deny");
+  const { engine, placed } = w.start(w.plan());
+  const pushed = await turn(engine, "bash:git push --no-verify origin main");
+  expect(placed).toEqual(["computer"]);
+  expect(JSON.parse(pushed.preToolUse).hookSpecificOutput).toMatchObject({ hookEventName: "PreToolUse", permissionDecision: "ask" });
+  const heavy = await turn(engine, "bash:pnpm install");
+  expect(heavy.preToolUse).toBe("");
+  expect(seen).toEqual([{ placed: true, command: "git push --no-verify origin main" }, { placed: true, command: "pnpm install" }]);
+  expect(heavy.hookAuthorityVisible).toBe(false);
+  engine.stdin.end();
+  expect(await closed(engine)).toBe(0);
+  expect(placedThreads.has("thread-1")).toBe(false);
+  expect(decide("thread-1", { tool_name: "Bash", tool_input: { command: "pnpm install" } })?.permissionDecision).toBe("deny");
+}, 60_000);
+
 it("does not run a turn twice when the launch outcome is unknown", async () => {
   const w = world();
   const silent = join(w.base, "silent-relay.mjs");
@@ -228,6 +555,65 @@ createInterface({ input: process.stdin }).on("line", (l) => { const f = JSON.par
   expect(placed).toEqual(["computer"]);
   expect(w.localLaunches()).toBe(0);
 }, 60_000);
+
+it("withholds remote success and preserves the newer home file when a required checkpoint conflicts", async () => {
+  const w = world();
+  const planned = w.plan();
+  planned.launch.requireCompleteCheckpoint = true;
+  const { engine, placed } = w.start(planned);
+  await turn(engine, "first remote turn");
+  const conflict = join(w.cwd, "turn-2.txt");
+  writeFileSync(conflict, "newer home file");
+  const stdout: string[] = [];
+  const stderr: string[] = [];
+  engine.stdout.on("data", bytes => stdout.push(String(bytes)));
+  engine.stderr.on("data", bytes => stderr.push(String(bytes)));
+  engine.stdout.resume();
+  const finished = closed(engine);
+  engine.stdin.write(message("remote would overwrite it"));
+  expect(await finished).toBe(1);
+  expect(stdout.join("")).not.toContain('"type":"result"');
+  expect(stderr.join("")).toContain("checkpoint could not be committed");
+  expect(readFileSync(conflict, "utf8")).toBe("newer home file");
+  expect(placed).toEqual(["computer"]);
+  expect(w.localLaunches()).toBe(0);
+}, 60_000);
+
+it.each(["exit", "disconnect"] as const)("settles a remote %s delivered alongside the launch reply", async (outcome) => {
+  const w = world();
+  const link = new EventEmitter() as EngineLink;
+  const receive = (frame: unknown) => link.emit("line", JSON.stringify(frame));
+  link.close = () => { link.emit("close", "relay closed"); };
+  link.send = (line) => {
+    const frame = JSON.parse(line);
+    if (frame.type === "configure") receive({ type: "reply", id: frame.id, body: { files: [] } });
+    if (frame.type === "prepared") receive({ type: "reply", id: frame.id, body: { prepared: true } });
+    if (frame.type !== "launch") return;
+    receive({ type: "reply", id: frame.id, body: { started: true } });
+    if (outcome === "disconnect") { link.close(); return; }
+    receive({ type: "stdout", data: Buffer.from("native startup output\n").toString("base64") });
+    receive({ type: "stderr", data: Buffer.from("native startup failure\n").toString("base64") });
+    receive({ type: "native_exit", code: 3 });
+  };
+  const { engine, placed } = w.start(w.plan(), async () => {
+    setImmediate(() => receive({ type: "ready" }));
+    return link;
+  });
+  const stdout: string[] = [];
+  const stderr: string[] = [];
+  engine.stdout.on("data", bytes => stdout.push(String(bytes)));
+  engine.stderr.on("data", bytes => stderr.push(String(bytes)));
+  expect(await closed(engine)).toBe(outcome === "exit" ? 3 : 1);
+  expect(placed).toEqual(["computer"]);
+  expect(w.localLaunches()).toBe(0);
+  if (outcome === "exit") {
+    expect(stdout.join("")).toBe("native startup output\n");
+    expect(stderr.join("")).toBe("native startup failure\n");
+  } else {
+    expect(stderr.join("")).toContain("ended before the engine could be used");
+    expect(await killCliTree(engine as unknown as ChildProcess, 0)).toBe(false);
+  }
+});
 
 it("refuses a second engine for a chat whose engine still runs on the computer", async () => {
   const w = world();

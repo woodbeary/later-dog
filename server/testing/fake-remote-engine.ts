@@ -39,11 +39,14 @@ createInterface({ input: process.stdin }).on("line", async (raw) => {
   const settings = JSON.parse(readFileSync(after("--settings")!, "utf8"));
   const hookCommand = settings.hooks.PostToolUse[0].hooks[0].command;
   const hook = await line("/bin/sh", ["-c", hookCommand], JSON.stringify({ hook_event_name: "PostToolUse", tool_input: { command: "pnpm install" } }));
+  const shell = text.startsWith("bash:") ? text.slice(5) : null;
+  const guardCommand = shell === null ? undefined : settings.hooks.PreToolUse?.find((entry: { matcher?: string }) => entry.matcher === "Bash")?.hooks?.[0]?.command;
+  const preToolUse = guardCommand ? await line("/bin/sh", ["-c", guardCommand], JSON.stringify({ hook_event_name: "PreToolUse", tool_name: "Bash", tool_input: { command: shell }, cwd: process.cwd() })) : null;
   let credential: Record<string, unknown> = {};
   try { credential = JSON.parse(readFileSync(join(configDir, ".credentials.json"), "utf8")).claudeAiOauth; } catch {}
   emit({ type: "result", subtype: "success", result: JSON.stringify({
     input: existsSync("input.txt") ? readFileSync("input.txt", "utf8") : null,
-    mcp: mcp.out, hook: hook.out, hookCode: hook.code, reused, shellGuard: Boolean(settings.hooks.PreToolUse),
+    mcp: mcp.out, hook: hook.out, hookCode: hook.code, preToolUse: preToolUse?.out ?? null, reused, shellGuard: Boolean(settings.hooks.PreToolUse),
     sessionLines: readFileSync(sessionFile, "utf8").trim().split("\n").length,
     credentialRefresh: "refreshToken" in credential, credentialAccess: typeof credential.accessToken === "string",
     hookAuthorityVisible: Boolean(process.env.LATERDOG_HOOK_TOKEN_FILE || process.env.PROBE_SECRET),

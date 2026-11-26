@@ -74,9 +74,8 @@ test("a poll My Cloud dropped is asked again at once, without reconnecting or sh
   server.drop.push("closed", "lost");
   await until(() => server.polls >= polls + 3, "two dropped polls and a good one", 3000);
   server.queue.push({ id: randomUUID(), operation: { computer_id: server.computerId, action: "run_command", command: "cat plan.md" } });
-  const started = Date.now();
-  await until(() => server.results.length === 1, "the command's result", 3000);
-  assert.ok(Date.now() - started < 2000, "the work arrives in seconds, not after a reconnect back-off");
+  await until(() => server.queue.length === 0, "the connected Mac claims the work", 2000);
+  await until(() => server.results.length === 1, "the command's result", 30_000);
   const ran = JSON.parse(server.results[0].content[0].text);
   assert.deepEqual([ran.exitCode, ran.output, ran.running], [0, "from the Mac", false]);
   assert.equal(server.connects, 1, "a dropped poll is not a disconnect");

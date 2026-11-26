@@ -158,11 +158,18 @@ const settle = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
 
 async function jobThatOutlivesItsTurn(bot: { id: string; threadId: string }, seconds: number, marker: string, command = `sleep ${seconds}; echo ${marker} > ${marker}.txt`) {
   writeFileSync(runFile(), JSON.stringify({ command, folder: join(home, "site") }));
-  const before = (await messages(bot.threadId)).length;
   const sent = await api("POST", `/api/bots/${bot.id}/messages`, { text: `Run the ${marker} build on your computer`, threadId: bot.threadId });
-  expect(sent.status, JSON.stringify(sent.body)).toBeLessThan(400);
-  await until(async () => (await messages(bot.threadId)).slice(before),
-    (rows) => rows.some((row) => row.role === "bot" && row.kind === "text"), "the dog's reply");
+  expect(sent.status, JSON.stringify(sent.body)).toBe(202);
+  expect(sent.body).toMatchObject({ message: { id: expect.any(String), role: "user" } });
+  const rows = await until(async () => (await messages(bot.threadId)).filter((row) => row.requestMessageId === sent.body.message.id),
+    (turn) => turn.some((row) => row.turnTerminal === true), "the submitted turn to finish");
+  const tool = rows.find((row) => row.tool?.name === "mcp__agents__run_on_computer")?.tool;
+  const evidence = JSON.stringify(rows);
+  expect(tool, evidence).toMatchObject({ ok: true, output: expect.any(String) });
+  expect(JSON.parse(tool.input), evidence).toMatchObject({ command });
+  const runId = /^Still running on your cloud computer \(run_id ([0-9a-f]{8})\)\./.exec(tool.output)?.[1];
+  expect(runId, evidence).toBeDefined();
+  expect(ledger(), evidence).toContainEqual(expect.objectContaining({ id: runId, botId: bot.id, threadId: bot.threadId }));
   writeFileSync(runFile(), "");
   return until(() => botNow(bot.id), (now) => now && !now.busy, "the turn to end");
 }

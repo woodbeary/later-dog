@@ -20,6 +20,7 @@ export type WorkState =
   | { kind: "needs-you"; what?: string; hold?: AccountHold }
   | { kind: "waiting-for-usage"; account?: string; until?: number }
   | { kind: "waiting-for-computer"; holder?: string }
+  | { kind: "waiting-for-files" }
   | { kind: "retrying"; attempt?: number }
   | { kind: "stopped"; cause: WorkStopCause; detail?: WorkStopDetail }
   | { kind: "idle" };
@@ -27,5 +28,5 @@ export type WorkState =
 export type WorkKind = WorkState["kind"];
 
 export const WORK_PRIORITY: readonly WorkKind[] = [
-  "needs-you", "waiting-for-usage", "waiting-on-dog", "waiting-for-computer", "retrying", "running", "stopped", "idle",
+  "needs-you", "waiting-for-usage", "waiting-on-dog", "waiting-for-computer", "waiting-for-files", "retrying", "running", "stopped", "idle",
 ];

@@ -1,10 +1,10 @@
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, truncateSync, writeFileSync } from "node:fs";
 import { realpathSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, expect, it } from "vitest";
-import { EngineFileReceiver, engineInventory, engineFilePath, type EngineFile } from "./engine-files.ts";
+import { ENGINE_FILE_LIMIT, ENGINE_TRANSFER_LIMIT, EngineFileReceiver, engineInventory, engineFilePath, matchingTranscriptPrefix, type EngineFile } from "./engine-files.ts";
 
 const scratch: string[] = [];
 function folder() { const path = realpathSync(mkdtempSync(join(tmpdir(), "laterdog-engine-files-"))); scratch.push(path); return path; }
@@ -40,6 +40,58 @@ it("checks again after bytes arrive so a concurrent home edit survives", () => {
   writeFileSync(join(path, "result.txt"), "during transfer");
   expect(() => receiver.end()).toThrow("changed while");
   expect(readFileSync(join(path, "result.txt"), "utf8")).toBe("during transfer");
+});
+
+it("admits the selected native file by available disk and keeps ordinary inventory bounded", () => {
+  const path = folder();
+  const session = { id: "session", path, writable: true, transcript: true, files: ["selected.jsonl"] };
+  writeFileSync(join(path, "selected.jsonl"), "");
+  truncateSync(join(path, "selected.jsonl"), ENGINE_TRANSFER_LIMIT + 1);
+  writeFileSync(join(path, "other.dat"), "workspace input");
+  const ordinary = { id: "workspace", path, writable: true, files: ["other.dat"] };
+  const inventory = engineInventory([session, ordinary]);
+  expect(inventory.map(file => file.size)).toEqual([ENGINE_TRANSFER_LIMIT + 1, 15]);
+  expect(() => engineInventory([{ ...session, files: ["selected.jsonl", "other.dat"] }])).toThrow("too large");
+  const receiver = new EngineFileReceiver([session], inventory);
+  expect(() => receiver.begin({ ...inventory[0], size: Number.MAX_SAFE_INTEGER })).toThrow("Insufficient disk space");
+  expect(() => receiver.begin({ ...inventory[0], size: Number.MAX_SAFE_INTEGER + 1 })).toThrow("Invalid engine file metadata");
+  expect(readdirSync(path).sort()).toEqual(["other.dat", "selected.jsonl"]);
+});
+
+it("chooses a full checkpoint for rewritten or truncated transcripts", () => {
+  const path = folder();
+  const before = file("previous", "session.jsonl");
+  const root = { id: "workspace", path, writable: true, transcript: true, files: [before.path] };
+  const selected = join(path, before.path);
+  writeFileSync(selected, "previous with an appended turn");
+  truncateSync(selected, ENGINE_FILE_LIMIT + 1);
+  const [grown] = engineInventory([root]);
+  expect(matchingTranscriptPrefix(root, grown, before)).toEqual({ size: before.size, hash: before.hash });
+  writeFileSync(selected, "rewritten");
+  truncateSync(selected, ENGINE_FILE_LIMIT + 1);
+  expect(matchingTranscriptPrefix(root, grown, before)).toBeUndefined();
+  truncateSync(selected, 3);
+  const [truncated] = engineInventory([root]);
+  expect(matchingTranscriptPrefix(root, truncated, grown)).toBeUndefined();
+});
+
+it("verifies transcript prefixes, refuses concurrent changes, and cleans up interrupted suffixes", () => {
+  const path = folder();
+  const root = { id: "workspace", path, writable: true, transcript: true, files: ["result.jsonl"] };
+  const before = file("prefix", "result.jsonl");
+  writeFileSync(join(path, before.path), "prefix");
+  const receiver = new EngineFileReceiver([root], [before]);
+  receiver.begin(file("prefixsuffix", "result.jsonl"), before);
+  receiver.chunk(Buffer.from("suf"));
+  receiver.close();
+  expect(readFileSync(join(path, before.path), "utf8")).toBe("prefix");
+  receiver.begin(file("prefixsuffix", "result.jsonl"), before);
+  receiver.chunk(Buffer.from("suffix"));
+  writeFileSync(join(path, before.path), "newer");
+  expect(() => receiver.end()).toThrow("changed while");
+  expect(readFileSync(join(path, before.path), "utf8")).toBe("newer");
+  expect(() => receiver.begin(file("prefixsuffix", "result.jsonl"), before)).toThrow();
+  expect(readdirSync(path)).toEqual(["result.jsonl"]);
 });
 
 it("rejects traversal, read-only files and symlink escapes", () => {

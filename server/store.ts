@@ -477,6 +477,14 @@ function taskCountsAsBotUnread(task: { unread?: boolean; routineRunId?: string }
   return Boolean(task.unread) && !task.routineRunId;
 }
 
+export const DEFAULT_THREAD_CACHE_MAX_THREADS = 64;
+export const DEFAULT_THREAD_CACHE_MAX_MESSAGES = 10_000;
+
+export interface ThreadCacheLimits {
+  maxThreads?: number;
+  maxMessages?: number;
+}
+
 interface ThreadState {
   messages: Message[];
   activeLeafId: string | null;
@@ -486,6 +494,8 @@ export class Store {
   bots: BotRecord[] = [];
   groups: GroupRecord[] = [];
   private threads = new Map<string, ThreadState>();
+  private readonly maxCachedThreads: number;
+  private readonly maxCachedMessages: number;
   private defaultSelection: () => ModelSelection;
   private completeNewBotSelection: (selection: ModelSelection) => ModelSelection;
   private driverKindOf: (instanceId: string) => string | undefined;
@@ -501,7 +511,10 @@ export class Store {
     completeNewBotSelection: (selection: ModelSelection) => ModelSelection = (selection) => selection,
     driverKindOf: (instanceId: string) => string | undefined = () => undefined,
     newDogComputer: () => BotRecord["computer"] = () => undefined,
+    threadCacheLimits: ThreadCacheLimits = {},
   ) {
+    this.maxCachedThreads = Math.max(1, threadCacheLimits.maxThreads ?? DEFAULT_THREAD_CACHE_MAX_THREADS);
+    this.maxCachedMessages = Math.max(1, threadCacheLimits.maxMessages ?? DEFAULT_THREAD_CACHE_MAX_MESSAGES);
     this.defaultSelection = defaultSelection;
     this.completeNewBotSelection = completeNewBotSelection;
     this.driverKindOf = driverKindOf;
@@ -1077,6 +1090,9 @@ export class Store {
       Boolean(group.dm),
     );
     this.saveGroups();
+    if (Object.prototype.hasOwnProperty.call(patch, "busyBotId") && !patch.busyBotId && previousBusyBotId) {
+      this.evictThreads();
+    }
     this.emit({ type: "group", groupId: group.id });
     return group;
   }
@@ -1233,9 +1249,45 @@ export class Store {
     return this.patchMessage(threadId, messageId, { reactions: next.length ? next : undefined });
   }
 
+  private isThreadBusy(threadId: string): boolean {
+    for (const bot of this.bots) {
+      const task = bot.tasks?.find((candidate) => candidate.threadId === threadId);
+      if (task) return Boolean(task.busy);
+      if (bot.threadId === threadId) return Boolean(bot.busy);
+    }
+    const group = this.groupByThread(threadId);
+    return Boolean(group?.busyBotId);
+  }
+
+  private touchCachedThread(threadId: string, state: ThreadState): ThreadState {
+    this.threads.delete(threadId);
+    this.threads.set(threadId, state);
+    return state;
+  }
+
+  private evictThreads(keepThreadId?: string): void {
+    let totalMessages = 0;
+    for (const state of this.threads.values()) totalMessages += state.messages.length;
+    if (this.threads.size <= this.maxCachedThreads && totalMessages <= this.maxCachedMessages) return;
+    for (const [id, state] of this.threads) {
+      if (this.threads.size <= this.maxCachedThreads && totalMessages <= this.maxCachedMessages) break;
+      if (id === keepThreadId || this.isThreadBusy(id)) continue;
+      this.threads.delete(id);
+      totalMessages -= state.messages.length;
+    }
+  }
+
+  cachedThreadCount(): number {
+    return this.threads.size;
+  }
+
+  hasCachedThread(threadId: string): boolean {
+    return this.threads.has(threadId);
+  }
+
   private thread(threadId: string): ThreadState {
     const t = this.threads.get(threadId);
-    if (t) return t;
+    if (t) return this.touchCachedThread(threadId, t);
     return this.cacheThread(threadId, mdb.readThread(threadId, messagesFile(threadId)));
   }
 
@@ -1249,7 +1301,12 @@ export class Store {
     }
     if (!activeLeafId) activeLeafId = messages.at(-1)?.id ?? null;
     const t = { messages, activeLeafId };
-    this.threads.set(threadId, t);
+    if (messages.length > this.maxCachedMessages && !this.isThreadBusy(threadId)) {
+      this.threads.delete(threadId);
+      return t;
+    }
+    this.touchCachedThread(threadId, t);
+    this.evictThreads(threadId);
     return t;
   }
 
@@ -1265,7 +1322,9 @@ export class Store {
 
   messagesTail(threadId: string, limit: number): { messages: Message[]; hasMore: boolean; activeLeafId: string | null } {
     let state = this.threads.get(threadId);
-    if (!state) {
+    if (state) {
+      this.touchCachedThread(threadId, state);
+    } else {
       const tail = mdb.readThreadTail(threadId, messagesFile(threadId), limit);
       const legacyRows = tail.hasMore !== undefined && tail.messages.some((m) => m.parentId === undefined);
       if (tail.hasMore !== true || legacyRows) {
@@ -1331,6 +1390,9 @@ export class Store {
       }
     }
     this.noteThreadActivity(threadId, full.at);
+    if (this.threads.has(threadId)) {
+      this.evictThreads(t.messages.length > this.maxCachedMessages ? undefined : threadId);
+    }
     this.emit({ type: "message", threadId, message: full });
     if (full.role === "user" && full.kind === "text") this.dismissOnboardingCard(threadId);
     return full;
@@ -1351,6 +1413,9 @@ export class Store {
       }
     }
     this.noteThreadActivity(threadId, full.at);
+    if (this.threads.has(threadId)) {
+      this.evictThreads(t.messages.length > this.maxCachedMessages ? undefined : threadId);
+    }
     this.emit({ type: "message", threadId, message: full });
     for (const child of children) this.patchMessage(threadId, child.id, { parentId: full.id });
     return full;
@@ -1399,6 +1464,9 @@ export class Store {
     t.activeLeafId = full.id;
     mdb.appendMessage(threadId, full);
     this.noteThreadActivity(threadId, full.at);
+    if (this.threads.has(threadId)) {
+      this.evictThreads(t.messages.length > this.maxCachedMessages ? undefined : threadId);
+    }
     this.emit({ type: "message", threadId, message: full });
     this.emit({ type: "thread", threadId, activeLeafId: full.id });
     return full;
@@ -1769,6 +1837,7 @@ export class Store {
     if ((this.legacyActivities.get(botId) ?? "idle") === activity) return bot;
     this.legacyActivities.set(botId, activity);
     this.refreshBotActivity(bot);
+    if (!ACTIVITY_BUSY.has(activity)) this.evictThreads();
     this.emit({ type: "bot", botId });
     return bot;
   }
@@ -1792,6 +1861,7 @@ export class Store {
       this.saveBots();
     }
     this.refreshBotActivity(bot);
+    if (!busy && wasBusy) this.evictThreads();
     this.emit({ type: "bot", botId });
     return bot;
   }

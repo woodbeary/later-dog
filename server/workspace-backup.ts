@@ -259,6 +259,34 @@ function databaseCounts(path: string): { threads: number; messages: number } {
   } finally { db.close(); }
 }
 
+const STORED_CHAT_FILES = "Some chat files are still in storage. Restore them on the original home before making or restoring a backup.";
+const UNCHECKED_CHAT_FILES = "Saved chat-file information could not be checked. Repair it before making or restoring a backup.";
+const CHANGED_CHAT_FILES = "Chat file storage changed during this backup. Try again when all files are back on this home.";
+
+function workFolderStorageState(dataDir: string): string {
+  const path = join(dataDir, "work-folders.json");
+  let fd: number;
+  try { fd = openSync(path, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK); }
+  catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return "missing";
+    throw new Error(UNCHECKED_CHAT_FILES, { cause: error });
+  }
+  try {
+    const before = fstatSync(fd, { bigint: true });
+    if (!before.isFile() || before.size > BigInt(MAX_METADATA_BYTES)) throw new Error(UNCHECKED_CHAT_FILES);
+    const state: unknown = JSON.parse(readFileSync(fd, "utf8"));
+    if (!record(state)) throw new Error(UNCHECKED_CHAT_FILES);
+    if (Object.keys(state).length) throw new Error(STORED_CHAT_FILES);
+    const current = lstatSync(path, { bigint: true });
+    if (!current.isFile() || before.dev !== current.dev || before.ino !== current.ino || before.size !== current.size
+      || before.ctimeNs !== current.ctimeNs || before.mtimeNs !== current.mtimeNs) throw new Error(CHANGED_CHAT_FILES);
+    return [before.dev, before.ino, before.size, before.ctimeNs, before.mtimeNs].join(":");
+  } catch (error) {
+    if (error instanceof SyntaxError || (error as NodeJS.ErrnoException).code) throw new Error(UNCHECKED_CHAT_FILES, { cause: error });
+    throw error;
+  } finally { closeSync(fd); }
+}
+
 export async function createWorkspaceBackup(dataDir: string, options: CreateWorkspaceBackupOptions): Promise<CreatedWorkspaceBackup> {
   const source = new URL("./workspace-backup.worker.ts", import.meta.url);
   const jobId = randomUUID();
@@ -289,6 +317,7 @@ export async function createWorkspaceBackup(dataDir: string, options: CreateWork
 export async function createWorkspaceBackupSnapshot(dataDir: string, options: CreateWorkspaceBackupOptions, jobId?: string): Promise<CreatedWorkspaceBackup> {
   if (Object.hasOwn(options, "credentials")) throw new Error("Workspace backups do not transfer credentials.");
   assertLocalAuthOutsideSnapshot(dataDir);
+  const storedFiles = workFolderStorageState(dataDir);
   const salt = randomBytes(16);
   const key = await passwordKey(options.password, salt);
   const job = newJob(dataDir, jobId);
@@ -371,6 +400,7 @@ export async function createWorkspaceBackupSnapshot(dataDir: string, options: Cr
       }
     };
     walk(root);
+    if (workFolderStorageState(root) !== storedFiles) throw new Error(CHANGED_CHAT_FILES);
     if (skippedLinks) warnings.push(`${skippedLinks} managed skill discovery link(s) were omitted and are recreated by the app.`);
     if (skippedDependencies) warnings.push(`${skippedDependencies} installed dependency folder(s) (node_modules) were omitted; reinstall them in the project after restoring.`);
     if (skippedWorkLinks) warnings.push(`${skippedWorkLinks} symbolic link(s) in conversation work folders were omitted; what they point to is outside this backup.`);
@@ -538,6 +568,7 @@ function validateStaged(directory: string, expected?: Map<string, { type: string
     chmodSync(path, entry.mode);
   }
   const data = join(directory, "data");
+  workFolderStorageState(data);
   if (countJsonArray(join(data, "bots.json")) !== manifest.summary.bots || countJsonArray(join(data, "groups.json")) !== manifest.summary.groups) throw new Error("The backup roster does not match its summary.");
   if (existsSync(join(data, "config.json"))) {
     const config = privateJson(join(data, "config.json"));

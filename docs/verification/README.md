@@ -1,5 +1,7 @@
 # Verifying later.dog
 
+The [hosted checks audit](hosted-checks-audit-2026-11-25.md) records how much time each check took. The [desktop launch timeline](launch-timeline-2026-11-25.md) tracks startup through the first usable message box.
+
 Before any merge to `main`, run `pnpm gate` on the branch with `main` merged in and paste its verdict; see `scripts/merge-gate.mjs` for the steps and `LATERDOG_GATE_WRAP` to queue them. `deploy/laterdog/home` and `deploy/laterdog/computers` are outside the pnpm workspace, so set each up once with `pnpm install --ignore-workspace --frozen-lockfile` inside it; a plain `pnpm install` there does nothing.
 
 later.dog has one development control surface: `pnpm control:laterdog`. It is a
@@ -75,6 +77,7 @@ Use only mapped, tested commands:
 - [A chat never shows idle while something runs for it](work-state-truth.md)
 - [Codex browser routing and native search](codex-browser-routing.md)
 - [Codex helper event isolation](codex-helpers.md)
+- [Native Codex engine relay](codex-engine-relay.md)
 - [Team backups](team-backups.md)
 - [Sharing one dog](team-sharing.md)
 - [Sections](sections.md)
@@ -107,6 +110,7 @@ Use only mapped, tested commands:
 - [Engine session archive, 2026-11-09](session-archive-2026-11-09.md)
 - [Session archive production release, 2026-11-09](session-archive-release-2026-11-09.md)
 - [Archive untracked engine sessions (2026-11-10)](session-archive-untracked-2026-11-10.md)
+- [Stored conversation folders and recovery (2026-11-25)](stored-work-folders-2026-11-25.md)
 - [Conversation stall repair, November 9](stall-recovery-2026-11-09.md)
 - [Home save: database copy headroom and scratch cleanup (2026-11-10)](sync-snapshot-headroom-2026-11-10.md)
 - [Home reliability release, November 10](home-reliability-release-2026-11-10.md)

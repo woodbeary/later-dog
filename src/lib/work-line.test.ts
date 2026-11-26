@@ -53,11 +53,13 @@ describe("the working line under the last message", () => {
     const words = en as Record<string, string>;
     expect(words["workLine.usage"]).toBe("Waiting for usage");
     expect(words["workLine.computer"]).toBe("Waiting for its computer");
+    expect(words["workLine.files"]).toBe("Bringing this chat's files back");
     expect(words["workLine.retrying"]).toBe("Trying again");
     expect(words["workLine.sideJobs"]).toBe("Waiting on {sideJobs}");
     expect(workLine({ working: true, run: waiting, sideJobs: 2, now: 0 })).toEqual({ kind: "waiting", text: "Waiting on 2 side jobs" });
     expect(workLine({ working: true, work: { kind: "waiting-for-usage" }, sideJobs: 0, now: 0 })).toEqual({ kind: "waiting", text: "Waiting for usage" });
     expect(workLine({ working: true, work: { kind: "waiting-for-computer" }, sideJobs: 0, now: 0 })).toEqual({ kind: "waiting", text: "Waiting for its computer" });
+    expect(workLine({ working: true, work: { kind: "waiting-for-files" }, sideJobs: 0, now: 0 })).toEqual({ kind: "waiting", text: "Bringing this chat's files back" });
     expect(workLine({ working: true, work: { kind: "retrying" }, sideJobs: 0, now: 0 })).toEqual({ kind: "waiting", text: "Trying again" });
   });
 

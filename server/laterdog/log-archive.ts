@@ -2,8 +2,9 @@ import { lstat, readdir, statfs } from "node:fs/promises";
 import { join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 
+export const LOG_THREAD_ID = /^[\w-]{8,200}$/;
 export const threadLogPaths = (id: string) => {
-  if (!/^[\w-]{8,200}$/.test(id)) throw new Error("invalid archive thread");
+  if (!LOG_THREAD_ID.test(id)) throw new Error("invalid archive thread");
   return [`.laterdog/events/${id}.ndjson`, `.laterdog/native/${id}.ndjson`];
 };
 
@@ -12,11 +13,15 @@ const SESSION_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12
 const PROJECT_SLUG = /^[A-Za-z0-9-]{1,255}$/;
 const PROVIDER_FOLDER = /^[A-Za-z0-9_][A-Za-z0-9_-]{0,127}$/;
 const SESSION_NAME = /^[A-Za-z0-9_][A-Za-z0-9_.-]{0,199}$/;
+const CODEX_ROLLOUT = /^rollout-[A-Za-z0-9_.-]{1,80}-([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\.jsonl$/;
+const YEAR_DIR = /^\d{4}$/;
+const TWO_DIGIT_DIR = /^\d{2}$/;
 const PROTECTED_NAME = /^(?:auth|credentials|secrets|tokens?)(?:[.-]|$)/i;
 const SESSION_FOLDER_DEPTH = 3;
 const SESSION_SCAN_ENTRIES = 50_000;
 const MAX_SESSIONS = 200;
 const MAX_ARCHIVE_PATHS = 2000;
+const LOG_DIRS = [".laterdog/events", ".laterdog/native"] as const;
 
 export function claudeSessionIds(cursors: Record<string, unknown> | undefined): string[] {
   const found = new Set<string>();
@@ -46,7 +51,7 @@ type SessionFile = { path: string; size: number; mtimeMs: number };
 export type SessionFiles = Map<string, { files: SessionFile[]; unsafe: boolean }>;
 type SessionGroup = { files: SessionFile[]; unsafe: boolean };
 
-export async function findSessionFiles(root: string, wanted: ReadonlySet<string> | ((id: string) => boolean), entryLimit = SESSION_SCAN_ENTRIES): Promise<SessionFiles> {
+export async function findSessionFiles(root: string, wanted: ReadonlySet<string> | ((id: string) => boolean), entryLimit = SESSION_SCAN_ENTRIES, archiveCodexSessions = false): Promise<SessionFiles> {
   const found: SessionFiles = new Map();
   const accepts = typeof wanted === "function" ? (id: string) => SESSION_ID.test(id) && wanted(id) : (id: string) => wanted.has(id);
   if (typeof wanted !== "function" && !wanted.size) return found;
@@ -82,9 +87,23 @@ export async function findSessionFiles(root: string, wanted: ReadonlySet<string>
     }
   };
   const configs = [".claude"];
+  const codexHomes = archiveCodexSessions ? [".codex"] : [];
   if (await folder(".laterdog/providers")) {
     for (const entry of await list(".laterdog/providers") ?? []) {
-      if (entry.isDirectory() && PROVIDER_FOLDER.test(entry.name)) configs.push(`.laterdog/providers/${entry.name}`);
+      if (!entry.isDirectory() || !PROVIDER_FOLDER.test(entry.name)) continue;
+      const providerPath = `.laterdog/providers/${entry.name}`;
+      configs.push(providerPath);
+      if (!archiveCodexSessions) continue;
+      codexHomes.push(providerPath);
+      if (entry.name === "hosted") {
+        if (await folder(`${providerPath}/codex`)) codexHomes.push(`${providerPath}/codex`);
+      } else if (entry.name === "chatgpt-plan" || entry.name === "company") {
+        for (const nested of await list(providerPath) ?? []) {
+          if (!nested.isDirectory() || !PROVIDER_FOLDER.test(nested.name)) continue;
+          const codexPath = `${providerPath}/${nested.name}/codex`;
+          if (await folder(codexPath)) codexHomes.push(codexPath);
+        }
+      }
     }
   }
   for (const config of configs) {
@@ -102,8 +121,68 @@ export async function findSessionFiles(root: string, wanted: ReadonlySet<string>
       }
     }
   }
+  const scanCodexYear = async (yearPath: string): Promise<void> => {
+    if (!await folder(yearPath)) return;
+    for (const month of await list(yearPath) ?? []) {
+      if (!month.isDirectory() || !TWO_DIGIT_DIR.test(month.name)) continue;
+      const monthPath = `${yearPath}/${month.name}`;
+      if (!await folder(monthPath)) continue;
+      for (const day of await list(monthPath) ?? []) {
+        if (!day.isDirectory() || !TWO_DIGIT_DIR.test(day.name)) continue;
+        const dayPath = `${monthPath}/${day.name}`;
+        if (!await folder(dayPath)) continue;
+        for (const entry of await list(dayPath) ?? []) {
+          const match = CODEX_ROLLOUT.exec(entry.name);
+          if (!match) continue;
+          const id = match[1]!;
+          if (!accepts(id)) continue;
+          await record(id, `${dayPath}/${entry.name}`);
+        }
+      }
+    }
+  };
+  for (const codexHome of codexHomes) {
+    if (!await folder(codexHome)) continue;
+    const sessionsDir = `${codexHome}/sessions`;
+    if (await folder(sessionsDir)) {
+      for (const year of await list(sessionsDir) ?? []) {
+        if (year.isDirectory() && YEAR_DIR.test(year.name)) await scanCodexYear(`${sessionsDir}/${year.name}`);
+      }
+    }
+    const archivedDir = `${codexHome}/archived_sessions`;
+    if (await folder(archivedDir)) {
+      for (const entry of await list(archivedDir) ?? []) {
+        const match = CODEX_ROLLOUT.exec(entry.name);
+        if (match) {
+          const id = match[1]!;
+          if (accepts(id)) await record(id, `${archivedDir}/${entry.name}`);
+          continue;
+        }
+        if (entry.isDirectory() && YEAR_DIR.test(entry.name)) await scanCodexYear(`${archivedDir}/${entry.name}`);
+      }
+    }
+  }
   if (entries > entryLimit) for (const value of found.values()) value.unsafe = true;
   return found;
+}
+
+export async function findOrphanLogThreads(root: string, known: ReadonlySet<string>, entryLimit = SESSION_SCAN_ENTRIES): Promise<string[]> {
+  const found = new Set<string>();
+  let entries = 0;
+  for (const dir of LOG_DIRS) {
+    const info = await lstat(join(root, dir)).catch(() => null);
+    if (!info?.isDirectory() || info.isSymbolicLink()) continue;
+    const listed = await readdir(join(root, dir), { withFileTypes: true }).catch(() => null);
+    if (!listed) continue;
+    entries += listed.length;
+    if (entries > entryLimit) return [];
+    for (const entry of listed) {
+      if (!entry.name.endsWith(".ndjson") || !entry.isFile() || entry.isSymbolicLink()) continue;
+      const id = entry.name.slice(0, -".ndjson".length);
+      if (LOG_THREAD_ID.test(id) && !known.has(id)) found.add(id);
+    }
+  }
+  return [...found].sort();
 }
 
 export type ArchiveSkip = { path: string; why: string };
@@ -113,6 +192,7 @@ export type LogArchiveBridge = {
   restore(paths: string[]): Promise<void>;
   restoreSessions(sessions: string[]): Promise<void>;
   pending?(): Promise<string[]>;
+  restoreContaining?(needles: string[]): Promise<{ restored: number; failed: number }>;
 };
 
 export const ARCHIVE_CALL_MS = 120_000;
@@ -123,7 +203,9 @@ export function archiveCallMs(bytes = 0): number {
   return Math.min(ARCHIVE_CALL_MAX_MS, ARCHIVE_CALL_MS + Math.ceil(bytes / (1024 * 1024)) * ARCHIVE_CALL_MS_PER_MB);
 }
 
-export function logArchiveBridge(url: string, token: string): LogArchiveBridge {
+export type LoopbackArchiveBridge = Required<LogArchiveBridge>;
+
+export function logArchiveBridge(url: string, token: string): LoopbackArchiveBridge {
   const endpoint = new URL(url);
   if (endpoint.protocol !== "http:" || endpoint.hostname !== "127.0.0.1" || endpoint.username || endpoint.password || endpoint.pathname !== "/") {
     throw new Error("archive service must use loopback");
@@ -143,6 +225,10 @@ export function logArchiveBridge(url: string, token: string): LogArchiveBridge {
       if (!response.ok) throw new Error(`archive service refused: ${response.status}`);
       const status = await response.json() as { paths?: unknown };
       return Array.isArray(status.paths) ? status.paths.filter((path): path is string => typeof path === "string") : [];
+    },
+    async restoreContaining(needles) {
+      const result = await call("restore", { contains: needles }, ARCHIVE_CALL_MAX_MS) as unknown as { restored?: number; failed?: number };
+      return { restored: result.restored ?? 0, failed: result.failed ?? 0 };
     },
     async restore(paths) {
       const result = await call("restore-logs", { paths });
@@ -169,6 +255,8 @@ type Options = {
   bridge: LogArchiveBridge;
   threads(): string[];
   idle(threadId: string): boolean;
+  orphanLogs?: boolean;
+  archiveCodexSessions?: boolean;
   sessions?(threadId: string): string[];
   outsideSessions?(): string[];
   now?: () => number;
@@ -230,10 +318,11 @@ export function archiveBatches<T extends { size: number }>(files: readonly T[], 
   return batches;
 }
 
-const ARCHIVED_SESSION = /^(?:\.claude|\.laterdog\/providers\/[A-Za-z0-9_][A-Za-z0-9_-]{0,127})\/projects\/[A-Za-z0-9-]{1,255}\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})(?:[.]jsonl$|\/)/;
+const ARCHIVED_CLAUDE_SESSION = /^(?:\.claude|\.laterdog\/providers\/[A-Za-z0-9_][A-Za-z0-9_-]{0,127})\/projects\/[A-Za-z0-9-]{1,255}\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})(?:[.]jsonl$|\/)/;
+const ARCHIVED_CODEX_SESSION = /^(?:\.codex|\.laterdog\/providers\/(?:[A-Za-z0-9_][A-Za-z0-9_-]{0,127}|hosted\/codex|(?:chatgpt-plan|company)\/[A-Za-z0-9_][A-Za-z0-9_-]{0,127}\/codex))\/(?:sessions\/\d{4}\/\d{2}\/\d{2}|archived_sessions(?:\/\d{4}\/\d{2}\/\d{2})?)\/rollout-[A-Za-z0-9_.-]{1,80}-([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})[.]jsonl$/;
 
 export function archivedSessionOf(path: string): string | null {
-  return ARCHIVED_SESSION.exec(path)?.[1] ?? null;
+  return ARCHIVED_CLAUDE_SESSION.exec(path)?.[1] ?? ARCHIVED_CODEX_SESSION.exec(path)?.[1] ?? null;
 }
 
 const MINUTE_MS = 60_000;
@@ -247,6 +336,7 @@ export class LogArchiveCoordinator {
   private gates = new Map<string, Promise<unknown>>();
   private scanning: Promise<void> | null = null;
   private cursor = 0;
+  private orphanLogCursor = "";
   private sessionCursor = "";
   private waiting: string | null = null;
   private touched = new Map<string, number>();
@@ -452,8 +542,11 @@ export class LogArchiveCoordinator {
     const held = new Set(known.filter(id => !idle(id)).flatMap(id => this.sessionsOf(id)));
     const wanted = new Set(batch.filter(id => idle(id)).flatMap(id => this.sessionsOf(id)).filter(id => !held.has(id)));
     if (this.waiting && tracked.has(this.waiting)) wanted.add(this.waiting);
-    const sessionFiles = await findSessionFiles(root, wanted);
-    const orphanFiles = this.options.outsideSessions ?await findSessionFiles(root, id => !tracked.has(id)) : new Map() as SessionFiles;
+    const archiveCodexSessions = this.options.archiveCodexSessions ?? false;
+    const sessionFiles = await findSessionFiles(root, wanted, SESSION_SCAN_ENTRIES, archiveCodexSessions);
+    const orphanFiles = this.options.outsideSessions
+      ? await findSessionFiles(root, id => !tracked.has(id), SESSION_SCAN_ENTRIES, archiveCodexSessions)
+      : new Map() as SessionFiles;
     const waiting = this.waiting;
     if (waiting) {
       this.waiting = null;
@@ -492,6 +585,39 @@ export class LogArchiveCoordinator {
       const id = known[this.cursor++ % known.length];
       if (resting(id)) continue;
       await attempt(id, () => visit(id));
+    }
+    if (this.options.orphanLogs && remaining > 0 && !failing()) {
+      const knownSet = new Set(known);
+      const orphanLogs = await findOrphanLogThreads(root, knownSet);
+      const logStart = orphanLogs.findIndex(id => id > this.orphanLogCursor);
+      const orderedLogs = logStart < 0 ? orphanLogs : [...orphanLogs.slice(logStart), ...orphanLogs.slice(0, logStart)];
+      let orphanVisited = 0;
+      for (const id of orderedLogs) {
+        if (orphanVisited >= limits.threadLimit || remaining <= 0 || failing()) break;
+        orphanVisited += 1;
+        if (resting(id)) continue;
+        await attempt(id, () => this.gate(id, async () => {
+          if (new Set(threads()).has(id) || !idle(id)) return;
+          const paths: string[] = [];
+          let size = 0;
+          for (const path of threadLogPaths(id)) {
+            const info = await lstat(join(root, path)).catch(() => null);
+            if (!info?.isFile() || info.isSymbolicLink() || this.now() - info.mtimeMs < limits.ageMs || info.size > remaining) continue;
+            remaining -= info.size;
+            size += info.size;
+            paths.push(path);
+          }
+          if (paths.length && idle(id) && !new Set(threads()).has(id)) {
+            const result = await bridge.archive(paths, size);
+            archived += result.archived;
+            bytes += result.bytes;
+            this.totals.archivedFiles += result.archived;
+            this.totals.archivedBytes += result.bytes;
+            tally.add(result.skipped);
+          }
+          this.orphanLogCursor = id;
+        }));
+      }
     }
     const orphans = [...orphanFiles.keys()].sort();
     const start = orphans.findIndex(id => id > this.sessionCursor);

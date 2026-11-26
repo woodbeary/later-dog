@@ -1,10 +1,10 @@
 import { createHash } from "node:crypto";
 
 import * as boat from "./boat.ts";
-import { cloudComputerStartBudgetMs } from "./laterdog/cloud-start.ts";
+import { CLOUD_COMPUTER_BOOT_MS, cloudComputerStartBudgetMs } from "./laterdog/cloud-start.ts";
 import { REFUSED_START_SPACING_MS, REFUSED_START_TRIES, START_REFUSED_CODE, bootFailure, createStartWatch, didNotStart } from "./laterdog/computer-start.ts";
 import type { BoatIdentityInspection, ManagedBoatInventory, ManagedBoatInventoryInstance, ManagedBoatMutationClaim, ManagedBoatOwner } from "./boat.ts";
-import { DATA_DIR, type AppConfig } from "./config.ts";
+import { DATA_DIR, loadConfig, type AppConfig } from "./config.ts";
 import { loadEnvironmentId } from "./environment.ts";
 import type { ServiceCredential } from "./included-services.ts";
 import {
@@ -19,27 +19,29 @@ export type { BoatIdentityInspection, BoatTurnLifecycleAction, ManagedBoatInvent
 const BOAT_STATE: Record<string, string> = { running: "running", sleeping: "archived", starting: "starting", stopping: "archiving", error: "error" };
 const asBoatState = (state: string) => BOAT_STATE[state] ?? "unknown";
 const STATE_WORDS: Record<string, string> = { archived: "asleep", archiving: "going to sleep", starting: "starting", error: "in an error state" };
-interface OwnComputer { id: string; name: string; state: string; generation?: number }
+interface OwnComputer { durableJobs?: boolean; id: string; name: string; state: string; generation?: number }
 const own = (computer: Computer): OwnComputer => {
   const state = asBoatState(computer.state);
   if (state === "running") starts.settled(computer.id);
-  return { id: computer.id, name: computer.name, state, ...(computer.lastStart?.generation !== undefined ? { generation: computer.lastStart.generation } : {}) };
+  return { id: computer.id, name: computer.name, state, ...(computer.durableJobs === undefined ? {} : { durableJobs: computer.durableJobs }), ...(computer.lastStart?.generation !== undefined ? { generation: computer.lastStart.generation } : {}) };
 };
 export const wantedSize = (cfg: AppConfig): string | undefined => cfg.box?.size ?? undefined;
 export function needsResize(computer: { size?: string }, wanted: string | undefined): boolean {
   return Boolean(wanted && computer.size && computer.size !== wanted);
 }
-const sized = new Set<string>();
-async function fitSize(client: ComputersClient, cfg: AppConfig, computerId: string): Promise<void> {
+const fittedSizes = new Map<string, string>();
+async function fitSize(client: ComputersClient, cfg: AppConfig, computerId: string, signal?: AbortSignal): Promise<void> {
   const wanted = wantedSize(cfg);
-  if (!wanted || sized.has(`${computerId}:${wanted}`)) return;
+  if (!wanted || fittedSizes.get(computerId) === wanted) return;
   try {
-    const current = await client.get(computerId);
-    if (current && needsResize(current, wanted)) {
+    const current = await client.get(computerId, { signal });
+    signal?.throwIfAborted();
+    if (!current) return;
+    if (needsResize(current, wanted)) {
       await client.resize(computerId, wanted);
       console.info(`cloud computer ${computerId}: ${current.size} → ${wanted}, from its next wake`);
     }
-    sized.add(`${computerId}:${wanted}`);
+    fittedSizes.set(computerId, wanted);
   } catch (error) {
     console.warn(`cloud computer ${computerId}: could not change its size: ${error instanceof Error ? error.message : String(error)}`);
   }
@@ -48,7 +50,8 @@ const issuedHere = (id: string | undefined): id is string => typeof id === "stri
 export const servedByComputers = (id: string): boolean => issuedHere(id);
 const sha256 = (value: string) => createHash("sha256").update(value).digest("hex");
 const pause = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
-const PROVISION_BUDGET_MS = 90_000;
+export const PROVISION_BUDGET_MS = 90_000;
+export const ENGINE_BOOT_BUDGET_MS = CLOUD_COMPUTER_BOOT_MS + 60_000;
 const JOIN_BUDGET_MS = 90_000;
 const EXEC_BUDGET_MS = 60_000;
 export const WAKE_POLL_MS = 400;
@@ -96,7 +99,10 @@ function unavailable(error: unknown): unknown {
 const starts = createStartWatch(() => cloudComputerStartBudgetMs());
 const computerIds = new Map<string, string>();
 const cacheKey = (client: ComputersClient, botId: string) => `${client.api}\0${botId}`;
-const forget = (id: string) => { for (const [key, cached] of computerIds) if (cached === id) computerIds.delete(key); };
+const forget = (id: string) => {
+  fittedSizes.delete(id);
+  for (const [key, cached] of computerIds) if (cached === id) computerIds.delete(key);
+};
 
 async function findOwn(client: ComputersClient, botId: string): Promise<OwnComputer | null> {
   const name = ownName(botId); const key = cacheKey(client, botId);
@@ -115,13 +121,17 @@ async function findOwn(client: ComputersClient, botId: string): Promise<OwnCompu
   return own(named[0]);
 }
 
-async function waitRunning(client: ComputersClient, id: string, budgetMs: number, repository?: string, watch: boat.WakeWatch = {}): Promise<OwnComputer | null> {
+async function waitRunning(client: ComputersClient, id: string, budgetMs: number, repository?: string, watch: boat.WakeWatch = {}, signal?: AbortSignal): Promise<OwnComputer | null> {
   const { wanted, wake = true } = watch;
   const deadline = Date.now() + budgetMs;
-  const untilDeadline = () => AbortSignal.timeout(Math.max(1, deadline - Date.now()));
+  const untilDeadline = () => {
+    const timeout = AbortSignal.timeout(Math.max(1, deadline - Date.now()));
+    return signal ? AbortSignal.any([signal, timeout]) : timeout;
+  };
   let woke = false; let failure: unknown = null; let seenStarting = false; let refused = 0; let wakeAfter = 0;
   try {
     while (Date.now() < deadline) {
+      signal?.throwIfAborted();
       if (wanted && !wanted()) return null;
       let current: Computer | null | undefined;
       try { current = await client.get(id, { signal: untilDeadline() }); }
@@ -134,7 +144,7 @@ async function waitRunning(client: ComputersClient, id: string, budgetMs: number
       if (current) {
         const state = asBoatState(current.state);
         if (state === "running") return own(current);
-        if (state === "starting") { seenStarting = true; starts.starting(id, current.lastStart?.generation); }
+        if (state === "starting") { failure = null; seenStarting = true; starts.starting(id, current.lastStart?.generation); }
         if (state === "error" && (woke || (wanted && seenStarting))) return null;
         if ((state === "archived" || state === "error") && Date.now() >= wakeAfter) {
           if (!wake || (wanted && !wanted())) return null;
@@ -167,6 +177,7 @@ async function waitRunning(client: ComputersClient, id: string, budgetMs: number
   } catch (error) {
     if (!(error instanceof Error && error.name === "TimeoutError")) throw error;
   }
+  signal?.throwIfAborted();
   if (failure) throw failure;
   return null;
 }
@@ -486,10 +497,22 @@ export function startDidNotFinish(botId: string, since?: number): void {
   if (id) starts.exhaust(id, since);
 }
 
+async function workComputer(client: ComputersClient, botId: string, repository?: string, signal?: AbortSignal): Promise<OwnComputer> {
+  signal?.throwIfAborted();
+  const cfg = ownComputersChosen() ? loadConfig() : {};
+  const found = await findOwn(client, botId);
+  signal?.throwIfAborted();
+  if (found) {
+    await fitSize(client, cfg, found.id, signal);
+    return found;
+  }
+  return createOwn(client, botId, ownName(botId), wantedSize(cfg), repository);
+}
+
 export async function heavyRunBox(botId: string, options: { repository?: string; wanted?: () => boolean; budgetMs?: number } = {}): Promise<{ box: RunBox }> {
   if (!computersSelected()) throw Object.assign(new Error("Cloud computers are not set up here, so run it in your own folder instead."), { status: 409 });
   const client = ownClient();
-  const computer = await findOwn(client, botId) ?? await createOwn(client, botId, ownName(botId), undefined, options.repository);
+  const computer = await workComputer(client, botId, options.repository);
   const entry = computer.state;
   const refusedStart = entry === "running" ? undefined : starts.failure(computer.id);
   if (refusedStart !== undefined) throw didNotStart(refusedStart);
@@ -518,6 +541,7 @@ export async function heavyRunBox(botId: string, options: { repository?: string;
   }
   starts.settled(computer.id);
   const box: RunBox = {
+    computerId: ready.id, durableJobs: ready.durableJobs === true,
     exec: (command, timeoutMs) => runOwn(client, ready.id, command, { timeoutMs }),
     write: (path, bytes) => client.writeFile(ready.id, path, bytes),
     read: (path) => client.readFile(ready.id, path),
@@ -528,29 +552,35 @@ export async function heavyRunBox(botId: string, options: { repository?: string;
 export async function jobComputer(botId: string): Promise<JobComputer> {
   if (!computersSelected()) return { state: "unsure" };
   const client = ownClient();
-  const computer = await findOwn(client, botId);
+  let computer = await findOwn(client, botId);
+  if (computer?.state === "running" && computer.durableJobs === undefined) {
+    const current = await client.get(computer.id);
+    computer = current && current.name === computer.name ? own(current) : null;
+  }
   if (!computer) return { state: "gone" };
   if (computer.state === "archived") return { state: "asleep" };
   if (computer.state !== "running") return { state: "unsure" };
   return { state: "running", box: {
+    computerId: computer.id, durableJobs: computer.durableJobs === true,
     exec: (command, timeoutMs) => runOwn(client, computer.id, command, { timeoutMs }),
     write: (path, bytes) => client.writeFile(computer.id, path, bytes),
     read: (path) => client.readFile(computer.id, path),
   } };
 }
 
-export async function engineComputer(botId: string): Promise<{ box: RunBox; stream: () => ReturnType<ComputersClient["process"]> }> {
+export async function engineComputer(botId: string, signal?: AbortSignal): Promise<{ box: RunBox; stream: () => ReturnType<ComputersClient["process"]> }> {
   if (!computersSelected()) throw new Error("Cloud computers are not configured.");
   const client = ownClient();
-  const computer = await findOwn(client, botId) ?? await createOwn(client, botId, ownName(botId));
-  const ready = await waitRunning(client, computer.id, PROVISION_BUDGET_MS);
+  const computer = await workComputer(client, botId, undefined, signal);
+  const ready = await waitRunning(client, computer.id, ENGINE_BOOT_BUDGET_MS, undefined, { wanted: () => !signal?.aborted }, signal);
+  signal?.throwIfAborted();
   if (!ready) throw new Error("The dog's cloud computer could not start.");
   return {
     box: {
-      exec: (command, timeoutMs) => runOwn(client, ready.id, command, { timeoutMs }),
-      write: (path, bytes) => client.writeFile(ready.id, path, bytes),
-      read: (path) => client.readFile(ready.id, path),
+      exec: (command, timeoutMs) => runOwn(client, ready.id, command, { timeoutMs, signal }),
+      write: (path, bytes) => client.writeFile(ready.id, path, bytes, { signal }),
+      read: (path) => client.readFile(ready.id, path, { signal }),
     },
-    stream: () => client.process(ready.id),
+    stream: () => { signal?.throwIfAborted(); return client.process(ready.id); },
   };
 }

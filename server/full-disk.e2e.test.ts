@@ -1,9 +1,9 @@
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { closeSync, existsSync, fsyncSync, mkdtempSync, openSync, rmSync, statfsSync, writeFileSync, writeSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { launchVerificationServer } from "../scripts/control-laterdog.ts";
 
 const enabled = process.platform === "darwin" && process.env.LATERDOG_FULL_DISK_CHECK === "1";
@@ -12,7 +12,7 @@ const PLAIN_FULL = /^Your Mac is almost out of space, so later\.dog couldn't sav
 
 async function onSmallDisk(
   engine: NodeJS.ProcessEnv,
-  run: (disk: { url: string; fill(): void; free(): void; call(method: string, path: string, body?: unknown): Promise<{ status: number; body: any }> }) => Promise<void>,
+  run: (disk: { mount: string; fill(): void; free(): void; call(method: string, path: string, body?: unknown): Promise<{ status: number; body: any }> }) => Promise<void>,
 ): Promise<void> {
   const scratch = mkdtempSync(join(tmpdir(), "laterdog-full-disk-"));
   const image = join(scratch, "small.dmg");
@@ -29,9 +29,31 @@ async function onSmallDisk(
     expect(fixture.info.dataDir.startsWith(mount)).toBe(true);
     const { url } = fixture.info;
     await run({
-      url,
-      fill: () => { try { execFileSync("dd", ["if=/dev/zero", `of=${filler}`, "bs=64k"], { stdio: "pipe" }); } catch {} },
-      free: () => rmSync(filler, { force: true }),
+      mount,
+      fill: () => {
+        const block = Buffer.alloc(statfsSync(mount).bsize);
+        const fd = openSync(filler, "wx");
+        try {
+          expect(() => {
+            while (true) writeSync(fd, block);
+          }).toThrow(expect.objectContaining({ code: "ENOSPC" }));
+          fsyncSync(fd);
+          expect(() => {
+            const probe = openSync(join(mount, "allocation-probe"), "wx");
+            try {
+              while (true) writeSync(probe, block);
+            } finally {
+              closeSync(probe);
+            }
+          }).toThrow(expect.objectContaining({ code: "ENOSPC" }));
+        } finally {
+          closeSync(fd);
+        }
+      },
+      free: () => {
+        rmSync(filler, { force: true });
+        rmSync(join(mount, "allocation-probe"), { force: true });
+      },
       call: async (method, path, body) => {
         const response = await fetch(url + path, {
           method, headers: { origin: url, "content-type": "application/json" },
@@ -56,12 +78,13 @@ describe.skipIf(!enabled)("a full disk", () => {
     await onSmallDisk({}, async ({ fill, free, call }) => {
       const bot = (await call("POST", "/api/bots", { name: "Full disk" })).body.bot;
       expect((await call("POST", `/api/bots/${bot.id}/messages`, { text: "before it fills", threadId: bot.threadId, sendId: "full_disk_before_0001" })).status).toBe(202);
-      await delay(2_500);
+      await expect.poll(async () => (await call("GET", `/api/threads/${bot.threadId}/messages?limit=50`)).body.messages.some((row: any) => row.turnTerminal), { timeout: 45_000 }).toBe(true);
 
       fill();
 
       const sendId = "full_disk_while_full_001";
-      const refused = await call("POST", `/api/bots/${bot.id}/messages`, { text: "while it is full", threadId: bot.threadId, sendId });
+      const text = "while it is full ".repeat(8_192);
+      const refused = await call("POST", `/api/bots/${bot.id}/messages`, { text, threadId: bot.threadId, sendId });
       expect(refused.status).toBe(500);
       expect(refused.body.error).toMatch(PLAIN_FULL);
       const rename = await call("PATCH", `/api/bots/${bot.id}`, { name: "Renamed while full" });
@@ -71,24 +94,49 @@ describe.skipIf(!enabled)("a full disk", () => {
       expect(userTexts((await call("GET", `/api/threads/${bot.threadId}/messages?limit=50`)).body.messages)).toEqual(["before it fills"]);
 
       free();
-      await delay(1_000);
-      expect((await call("POST", `/api/bots/${bot.id}/messages`, { text: "while it is full", threadId: bot.threadId, sendId })).status).toBe(202);
-      await delay(2_500);
-      expect(userTexts((await call("GET", `/api/threads/${bot.threadId}/messages?limit=50`)).body.messages)).toEqual(["before it fills", "while it is full"]);
+      expect((await call("POST", `/api/bots/${bot.id}/messages`, { text, threadId: bot.threadId, sendId })).status).toBe(202);
+      expect(userTexts((await call("GET", `/api/threads/${bot.threadId}/messages?limit=50`)).body.messages)).toEqual(["before it fills", text.trim()]);
     });
-  }, 120_000);
+  }, 180_000);
+
+  it("persists a growing provider reply through a full disk and a database reopen", async () => {
+    await onSmallDisk({}, async ({ mount, fill, free }) => {
+      const directory = mkdtempSync(join(mount, "update-"));
+      vi.stubEnv("LATERDOG_HOME", directory);
+      vi.resetModules();
+      const db = await import("./message-db.ts");
+      try {
+        const partial = { id: "answer", at: 1, role: "bot", kind: "text", text: "beginning" } as const;
+        const thread = "growing-answer";
+        db.appendMessage(thread, partial);
+        fill();
+        const text = "the complete native answer ".repeat(4_096);
+        db.updateMessage(thread, { ...partial, text, turnTerminal: true });
+        db.closeMessageDb();
+        free();
+        expect(db.readThread(thread, join(directory, "legacy.json")).messages).toEqual([
+          expect.objectContaining({ id: "answer", text, turnTerminal: true }),
+        ]);
+      } finally {
+        db.closeMessageDb();
+        vi.unstubAllEnvs();
+        vi.resetModules();
+      }
+    });
+  }, 180_000);
 
   it("does not take the server down when a turn ends while it is full", async () => {
     const gate = join(mkdtempSync(join(tmpdir(), "laterdog-full-disk-gate-")), "gate");
+    const prompts = `${gate}-prompts`;
     try {
-      await onSmallDisk({ FAKE_CLAUDE_MODE: "hang", FAKE_CLAUDE_FINISH_GATE: gate }, async ({ fill, free, call }) => {
+      await onSmallDisk({ FAKE_CLAUDE_MODE: "hang", FAKE_CLAUDE_FINISH_GATE: gate, FAKE_CLAUDE_PROMPTS: prompts }, async ({ fill, free, call }) => {
         const bot = (await call("POST", "/api/bots", { name: "Full mid turn" })).body.bot;
         expect((await call("POST", `/api/bots/${bot.id}/messages`, { text: "work", threadId: bot.threadId })).status).toBe(202);
-        await delay(2_500);
+        await expect.poll(() => existsSync(prompts), { timeout: 45_000 }).toBe(true);
 
         fill();
         writeFileSync(gate, "go");
-        await delay(4_000);
+        await expect.poll(async () => (await call("GET", `/api/threads/${bot.threadId}/messages?limit=50`)).body.messages.some((row: any) => row.turnTerminal && row.text === "fixture turn completed"), { timeout: 45_000 }).toBe(true);
         expect((await call("GET", "/api/health")).status).toBe(200);
 
         free();
@@ -98,13 +146,16 @@ describe.skipIf(!enabled)("a full disk", () => {
         const next = await call("POST", `/api/bots/${bot.id}/messages`, { text: "again", threadId: bot.threadId });
         expect(next.status).toBe(202);
         expect(next.body.queued).toBeUndefined();
-        await delay(2_500);
+        await expect.poll(async () => (await call("GET", `/api/threads/${bot.threadId}/messages?limit=50`)).body.messages.filter((row: any) => row.turnTerminal && row.text === "fixture turn completed").length, { timeout: 45_000 }).toBe(2);
         const messages = (await call("GET", `/api/threads/${bot.threadId}/messages?limit=50`)).body.messages;
         expect(userTexts(messages)).toEqual(["work", "again"]);
-        expect(messages.filter((message: any) => message.role === "bot" && message.text === "fixture turn completed")).toHaveLength(2);
+        const answers = messages.filter((message: any) => message.role === "bot" && message.text === "fixture turn completed");
+        expect(answers.map((message: any) => message.requestMessageId)).toEqual(
+          messages.filter((message: any) => message.role === "user").map((message: any) => message.id),
+        );
       });
     } finally {
       rmSync(join(gate, ".."), { recursive: true, force: true });
     }
-  }, 120_000);
+  }, 180_000);
 });

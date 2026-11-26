@@ -227,7 +227,7 @@ describe.skipIf(process.platform === "win32")("a question nobody answers in time
   }, 60_000);
 
   it("leaves an approval waiting for the person", async () => {
-    const { bot, requestId, replies } = await dogAsks({ tool: "Bash", input: { command: "git push --no-verify origin fix/login" } });
+    const { bot, requestId, replies } = await dogAsks({ tool: "Bash", input: { command: "git push --no-verify origin main" } });
     const open = await card(bot.threadId, requestId);
     expect(open.requestType).toBe("permission");
     expect(open.autoAnswerAt).toBeUndefined();

@@ -7,7 +7,7 @@ import { ensureDirs } from "../config.ts";
 import { recordEvents } from "../testing/events.ts";
 import { ClaudeDriver } from "./claude.ts";
 import { ClaudeTasks } from "./claude-tasks.ts";
-import { setEngineOpener } from "../laterdog/engine-placement.ts";
+import { setEngineOpener, type ClaudeRemotePlan } from "../laterdog/engine-placement.ts";
 import { commandLink } from "../laterdog/engine-remote.ts";
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -32,6 +32,12 @@ function fakePackage(at: string): string {
   return join(pkg, "bin", "claude");
 }
 
+function fakeRelay(plan: ClaudeRemotePlan, remoteRoot: string) {
+  const controls = Object.entries(plan.launch.hookEnv).filter(([name]) => name.startsWith("FAKE_CLAUDE_"));
+  Object.assign(plan.launch.env, Object.fromEntries(controls));
+  return commandLink(process.execPath, [RELAY], { ...process.env, LATERDOG_ENGINE_TEST_ROOT: remoteRoot });
+}
+
 it("runs a chosen dog's Claude turn on its computer with the same model and session, and leaves other dogs on the home", async () => {
   ensureDirs();
   const base = realpathSync(mkdtempSync("/tmp/ldclaude-"));
@@ -47,7 +53,7 @@ it("runs a chosen dog's Claude turn on its computer with the same model and sess
   chmodSync(join(remoteBin, "claude"), 0o755);
   symlinkSync(process.execPath, join(remoteBin, "node"));
   const opened: string[] = [];
-  setEngineOpener({ proxyPath: PROXY, remoteBase, open: async (botId) => { opened.push(botId); return commandLink(process.execPath, [RELAY], { ...process.env, LATERDOG_ENGINE_TEST_ROOT: remoteRoot }); } });
+  setEngineOpener({ proxyPath: PROXY, remoteBase, open: async (botId, plan) => { opened.push(botId); return fakeRelay(plan, remoteRoot); } });
   process.env.LATERDOG_REMOTE_ENGINE_BOTS = "dog-remote";
   const logs: string[] = [];
   vi.spyOn(console, "log").mockImplementation((...parts: unknown[]) => { logs.push(parts.join(" ")); });
@@ -95,7 +101,7 @@ it("places a dog launched by bare name through PATH, as on a Linux Cloud home, a
   chmodSync(join(remoteBin, "claude"), 0o755);
   symlinkSync(process.execPath, join(remoteBin, "node"));
   const opened: string[] = [];
-  setEngineOpener({ proxyPath: PROXY, remoteBase, open: async (botId) => { opened.push(botId); return commandLink(process.execPath, [RELAY], { ...process.env, LATERDOG_ENGINE_TEST_ROOT: remoteRoot }); } });
+  setEngineOpener({ proxyPath: PROXY, remoteBase, open: async (botId, plan) => { opened.push(botId); return fakeRelay(plan, remoteRoot); } });
   vi.spyOn(console, "log").mockImplementation(() => {});
   const pathBefore = process.env.PATH;
   process.env.PATH = `${bin}:${pathBefore}`;
@@ -153,13 +159,13 @@ it("drains the old account before a second account launches the same remote thre
   symlinkSync(process.execPath, join(remoteBin, "node"));
   const opened: string[] = [];
   const locks: string[] = [];
-  setEngineOpener({ proxyPath: PROXY, remoteBase, open: async (botId) => {
+  setEngineOpener({ proxyPath: PROXY, remoteBase, open: async (botId, plan) => {
     opened.push(botId);
-    const link = commandLink(process.execPath, [RELAY], { ...process.env, LATERDOG_ENGINE_TEST_ROOT: remoteRoot });
+    const link = fakeRelay(plan, remoteRoot);
     const send = link.send;
     link.send = (line) => {
       const frame = JSON.parse(line);
-      if (frame.type === "launch") {
+      if (frame.type === "configure") {
         expect(existsSync(frame.lockFile), "the previous relay released its lock before launch").toBe(false);
         locks.push(frame.lockFile);
       }

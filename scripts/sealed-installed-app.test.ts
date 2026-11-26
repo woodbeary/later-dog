@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process";
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { createServer } from "node:net";
 import { tmpdir, userInfo } from "node:os";
 import { join } from "node:path";
@@ -7,8 +7,7 @@ import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
 
 const SCRIPT = fileURLToPath(new URL("./sealed-installed-app.sh", import.meta.url));
-const REAL_HOME = userInfo().homedir;
-const DENIED = [".laterdog", "Library/Application Support/later.dog", ".claude", ".codex"].map(path => join(REAL_HOME, path));
+const PRIVATE_DIRECTORIES = [".laterdog", "Library/Application Support/later.dog", ".claude", ".codex"];
 const SYSTEM_PATH = "/usr/bin:/bin:/usr/sbin:/sbin";
 
 const workspaces: string[] = [];
@@ -35,12 +34,17 @@ function workspace(port8799Busy: boolean) {
   const app = join(dir, "build", "later.dog.app");
   const report = join(dir, "report.txt");
   const probes = join(dir, "probes.txt");
+  const accountHome = join(realpathSync(dir), "account home");
+  const denied = PRIVATE_DIRECTORIES.map(path => join(accountHome, path));
+  for (const path of denied) mkdirSync(path, { recursive: true });
   mkdirSync(parent);
   mkdirSync(bin);
   mkdirSync(join(app, "Contents", "MacOS"), { recursive: true });
   writeFileSync(join(bin, "lsof"), `#!/bin/sh\nexit ${port8799Busy ? 0 : 1}\n`);
   chmodSync(join(bin, "lsof"), 0o755);
-  writeFileSync(probes, [...DENIED, dir].join("\n") + "\n");
+  writeFileSync(join(bin, "dscl"), `#!/bin/sh\nprintf 'NFSHomeDirectory: %s\\n' "$FIXTURE_ACCOUNT_HOME"\n`);
+  chmodSync(join(bin, "dscl"), 0o755);
+  writeFileSync(probes, [...denied, dir].join("\n") + "\n");
   writeFileSync(join(app, "Contents", "MacOS", "later.dog"), `#!/bin/bash
 port="\${3#--remote-debugging-port=}"
 {
@@ -56,14 +60,14 @@ for _ in 1 2; do
 done
 `);
   chmodSync(join(app, "Contents", "MacOS", "later.dog"), 0o755);
-  return { dir, parent, bin, app, report };
+  return { dir, parent, bin, app, report, accountHome, denied };
 }
 
 function runLocal(space: ReturnType<typeof workspace>, port: number) {
   return spawnSync("/bin/bash", [SCRIPT, "--local", space.app, String(port)], {
     encoding: "utf8",
     timeout: 60_000,
-    env: { PATH: `${space.bin}:${SYSTEM_PATH}`, USER: userInfo().username, LATERDOG_SEALED_PARENT: space.parent, SEALED_TEST_LEAK: "leaked" },
+    env: { PATH: `${space.bin}:${SYSTEM_PATH}`, USER: userInfo().username, FIXTURE_ACCOUNT_HOME: space.accountHome, LATERDOG_SEALED_PARENT: space.parent, SEALED_TEST_LEAK: "leaked" },
   });
 }
 
@@ -98,9 +102,7 @@ describe.skipIf(process.platform === "win32")("sealed launcher with a local buil
     expect(env.has("SEALED_TEST_LEAK")).toBe(false);
     expect(report).toContain(`args=--no-sandbox --use-mock-keychain --remote-debugging-port=${port}`);
 
-    const present = DENIED.filter(path => existsSync(path));
-    expect(present.length).toBeGreaterThan(0);
-    for (const path of present) expect(report).toContain(`blocked:${path}:ls: ${path}: Operation not permitted`);
+    for (const path of space.denied) expect(report).toContain(`blocked:${path}:ls: ${path}: Operation not permitted`);
     expect(report).toContain(`read:${space.dir}`);
     expect(readdirSync(space.parent)).toEqual([]);
     expect(existsSync(join(space.app, "Contents", "MacOS", "later.dog"))).toBe(true);

@@ -206,3 +206,61 @@ it("does not remove a file changed during the ownership check", async () => {
   expect(await archive.archive([PATH])).toMatchObject({ archived: 0 });
   expect(readFileSync(join(root, PATH), "utf8")).toBe("newer data");
 });
+
+it("archives idle room and orphan thread logs when orphanLogs is enabled, keeping young, active or symlinked logs", async () => {
+  const f = await fixture();
+  const room = "room-thread-123456";
+  const orphanEvents = "orphan-events-123456";
+  const orphanNative = "orphan-native-123456";
+  const orphanBusy = "orphan-busy-123456";
+  const orphanFresh = "orphan-fresh-123456";
+  const orphanLink = "orphan-link-123456";
+  put(f.root, threadLogPaths(room)[0], "room log\n");
+  put(f.root, threadLogPaths(orphanEvents)[0], "orphan events\n");
+  put(f.root, threadLogPaths(orphanNative)[1], "orphan native\n");
+  put(f.root, threadLogPaths(orphanBusy)[0], "orphan busy\n");
+  put(f.root, threadLogPaths(orphanFresh)[0], "orphan fresh\n");
+  utimesSync(join(f.root, threadLogPaths(orphanFresh)[0]), new Date(), new Date());
+  put(f.root, "elsewhere.ndjson", "outside\n");
+  const { symlinkSync } = await import("node:fs");
+  symlinkSync(join(f.root, "elsewhere.ndjson"), join(f.root, threadLogPaths(orphanLink)[0]));
+  const busy = new Set([orphanBusy]);
+  const coordinator = new LogArchiveCoordinator({
+    root: f.root,
+    bridge: f.bridge,
+    threads: () => [ID, room],
+    orphanLogs: true,
+    idle: id => !busy.has(id),
+    retryMs: 5,
+  });
+  await coordinator.scan();
+  expect(existsSync(join(f.root, threadLogPaths(room)[0]))).toBe(false);
+  expect(existsSync(join(f.root, threadLogPaths(orphanEvents)[0]))).toBe(false);
+  expect(existsSync(join(f.root, threadLogPaths(orphanNative)[1]))).toBe(false);
+  expect(existsSync(join(f.root, threadLogPaths(orphanBusy)[0]))).toBe(true);
+  expect(existsSync(join(f.root, threadLogPaths(orphanFresh)[0]))).toBe(true);
+  expect(readFileSync(join(f.root, "elsewhere.ndjson"), "utf8")).toBe("outside\n");
+  expect(await coordinator.beforeTurn(room, () => true)).toBe(true);
+  expect(readFileSync(join(f.root, threadLogPaths(room)[0]), "utf8")).toBe("room log\n");
+  expect(await coordinator.read(orphanEvents, () => readFileSync(join(f.root, threadLogPaths(orphanEvents)[0]), "utf8"))).toBe("orphan events\n");
+});
+
+it("rotates orphan log sweeps across threadLimit without starving later orphans", async () => {
+  const f = await fixture();
+  const ids = ["orphan-aaa-123456", "orphan-bbb-123456", "orphan-ccc-123456"];
+  for (const id of ids) put(f.root, threadLogPaths(id)[0], `${id}\n`);
+  const coordinator = new LogArchiveCoordinator({
+    root: f.root,
+    bridge: f.bridge,
+    threads: () => [],
+    orphanLogs: true,
+    idle: () => true,
+    threadLimit: 1,
+  });
+  await coordinator.scan();
+  expect(ids.map(id => existsSync(join(f.root, threadLogPaths(id)[0])))).toEqual([false, true, true]);
+  await coordinator.scan();
+  expect(ids.map(id => existsSync(join(f.root, threadLogPaths(id)[0])))).toEqual([false, false, true]);
+  await coordinator.scan();
+  expect(ids.map(id => existsSync(join(f.root, threadLogPaths(id)[0])))).toEqual([false, false, false]);
+});

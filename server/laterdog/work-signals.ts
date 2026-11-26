@@ -1,8 +1,8 @@
-import type { RuntimeEvent } from "../../shared/runtime-events.ts";
+import { RESTORE_FILES_RESOURCE, type RuntimeEvent } from "../../shared/runtime-events.ts";
 import { RESUME_REJECTED } from "../../shared/resume-pickup.ts";
 import type { WorkFacts } from "./work-state.ts";
 
-type Signals = Pick<WorkFacts, "computerWait" | "retry" | "stopped">;
+type Signals = Pick<WorkFacts, "computerWait" | "filesWait" | "retry" | "stopped">;
 
 const PERSON_STOPS = new Set(["interrupted", "cancelled"]);
 const NOT_A_STOP = new Set(["usage_limit"]);
@@ -21,7 +21,7 @@ export class WorkSignals {
   }
 
   stalled(threadId: string): boolean {
-    return this.set(threadId, { ...this.facts(threadId), retry: undefined, computerWait: undefined, stopped: { cause: "infrastructure", detail: "stalled" } });
+    return this.set(threadId, { ...this.facts(threadId), retry: undefined, computerWait: undefined, filesWait: undefined, stopped: { cause: "infrastructure", detail: "stalled" } });
   }
 
   forget(threadId: string): void {
@@ -45,8 +45,10 @@ export class WorkSignals {
       case "item.completed":
         return current.retry ? this.set(event.threadId, { ...current, retry: undefined }) : false;
       case "turn.wait_started":
+        if (event.resource === RESTORE_FILES_RESOURCE) return this.set(event.threadId, { ...current, filesWait: true });
         return this.set(event.threadId, { ...current, computerWait: event.holder?.name ? { holder: event.holder.name } : {} });
       case "turn.wait_ended":
+        if (event.resource === RESTORE_FILES_RESOURCE) return this.set(event.threadId, { ...current, filesWait: undefined });
         if (event.outcome === "parked") this.parked.add(event.threadId);
         return this.set(event.threadId, { ...current, computerWait: undefined });
       case "session.exited":

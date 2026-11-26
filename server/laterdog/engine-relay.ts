@@ -1,11 +1,13 @@
 import { spawn, type ChildProcessByStdio } from "node:child_process";
+import { createHash } from "node:crypto";
+import { writeFileAtomic } from "../atomic.ts";
 import { once } from "node:events";
-import { closeSync, constants, mkdirSync, openSync, readFileSync, unlinkSync, writeFileSync, writeSync } from "node:fs";
+import { closeSync, constants, existsSync, linkSync, mkdirSync, openSync, readFileSync, renameSync, rmSync, unlinkSync, writeFileSync, writeSync } from "node:fs";
 import { createServer, type Socket } from "node:net";
-import { dirname } from "node:path";
+import { dirname, join } from "node:path";
 import { createInterface } from "node:readline";
 import type { Readable, Writable } from "node:stream";
-import { EngineFileReceiver, engineFileKey, engineInventory, readEngineFile, type EngineFile, type EngineFileRoot } from "./engine-files.ts";
+import { ENGINE_FRAME_BYTES, ENGINE_WINDOW_BYTES, EngineFileReceiver, decodeEngineChunk, engineFileChunks, engineFileKey, engineFilePath, engineInventory, matchingTranscriptPrefix, selectEngineTranscript, selectedTranscript, type EngineFile, type EngineFileRoot } from "./engine-files.ts";
 
 const TEST_ROOT = process.env.LATERDOG_ENGINE_TEST_ROOT ?? "";
 let homeRoots: string[] = [];
@@ -21,7 +23,8 @@ let transportLost = false;
 let stdoutWork = Promise.resolve();
 let checkpointWork = Promise.resolve();
 let sequence = 0;
-const acknowledgements = new Map<number, () => void>();
+let pendingFileBytes = 0;
+const acknowledgements = new Map<number, (reason?: string) => void>();
 const sockets = new Map<string, Socket>();
 const names = new Set<string>();
 let server: ReturnType<typeof createServer> | null = null;
@@ -30,27 +33,70 @@ async function send(frame: unknown): Promise<void> {
   if (transportLost) throw new Error("Engine transport ended");
   if (!process.stdout.write(`${JSON.stringify(frame)}\n`)) await once(process.stdout, "drain");
 }
-async function sendFile(file: EngineFile): Promise<void> {
-  const root = roots.find(root => root.id === file.root)!;
-  const bytes = readEngineFile(root, file.path);
-  await send({ type: "file_begin", file });
-  for (let offset = 0; offset < bytes.length; offset += 32 * 1024) await send({ type: "file_chunk", data: bytes.subarray(offset, offset + 32 * 1024).toString("base64") });
-  await send({ type: "file_end" });
+async function acknowledged(type: "checkpoint" | "file_window", required = false): Promise<void> {
+  const id = ++sequence;
+  const settled = new Promise<void>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(`Engine ${type} was not acknowledged`)), 30_000);
+    acknowledgements.set(id, reason => {
+      clearTimeout(timer);
+      if (reason) reject(new Error(reason));
+      else resolve();
+    });
+  });
+  try { await Promise.all([settled, send({ type, id, required })]); }
+  finally { acknowledgements.delete(id); }
 }
+
+function transcriptReceipt(root: EngineFileRoot, name: string): string {
+  const key = createHash("sha256").update(ephemeralCodexHome && root.id === "sessions" ? root.id : root.path).update("\0").update(name).digest("hex");
+  return `${stateFile}.${key}.json`;
+}
+
+function readTranscriptReceipts(): { root: string; path: string; before: EngineFile | null }[] {
+  return outputs.flatMap(root => (root.files ?? []).filter(name => selectedTranscript(root, name)).flatMap(name => {
+    try {
+      const before: EngineFile | null = JSON.parse(readFileSync(transcriptReceipt(root, name), "utf8"));
+      if (before !== null && (before.root !== root.id || before.path !== name || !/^[a-f0-9]{64}$/.test(before.hash) || !Number.isSafeInteger(before.size) || before.size < 0)) throw new Error("Invalid native transcript checkpoint receipt");
+      return [{ root: root.id, path: name, before }];
+    } catch (error) { if ((error as NodeJS.ErrnoException).code === "ENOENT") return []; throw error; }
+  }));
+}
+
+function saveTranscriptReceipts(): void {
+  for (const root of outputs) for (const name of root.files ?? []) {
+    if (selectedTranscript(root, name)) writeFileAtomic(transcriptReceipt(root, name), JSON.stringify(baseline.get(engineFileKey({ root: root.id, path: name })) ?? null), { mode: 0o600 });
+  }
+}
+
+async function sendFile(file: EngineFile, before = baseline.get(engineFileKey(file))): Promise<void> {
+  const root = roots.find(root => root.id === file.root)!;
+  const required = selectedTranscript(root, file.path);
+  const prefix = matchingTranscriptPrefix(root, file, before);
+  await send({ type: "file_begin", file, prefix });
+  for (const bytes of engineFileChunks(root, file.path, ENGINE_FRAME_BYTES, prefix?.size, file.size)) {
+    await send({ type: "file_chunk", data: bytes.toString("base64") });
+    pendingFileBytes += bytes.length;
+    if (pendingFileBytes >= ENGINE_WINDOW_BYTES) {
+      await acknowledged("file_window", required);
+      pendingFileBytes = 0;
+    }
+  }
+  await send({ type: "file_end" });
+  if (required) await acknowledged("file_window", true);
+}
+
 function checkpoint(): Promise<void> {
   const run = checkpointWork.then(async () => {
     const files = engineInventory(outputs);
     const current = new Map(files.map(file => [engineFileKey(file), file]));
     for (const file of files) if (baseline.get(engineFileKey(file))?.hash !== file.hash) await sendFile(file);
-    for (const [key, file] of baseline) if (!current.has(key)) await send({ type: "file_remove", file });
-    const id = ++sequence;
-    const acknowledged = new Promise<void>((resolve, reject) => {
-      const timer = setTimeout(() => { acknowledgements.delete(id); reject(new Error("Engine checkpoint was not acknowledged")); }, 30_000);
-      acknowledgements.set(id, () => { clearTimeout(timer); resolve(); });
-    });
-    await send({ type: "checkpoint", id });
-    await acknowledged;
-    baseline = new Map(engineInventory(outputs).map(file => [engineFileKey(file), file]));
+    for (const [key, file] of baseline) if (!current.has(key)) {
+      await send({ type: "file_remove", file });
+      if (outputs.some(root => root.id === file.root && selectedTranscript(root, file.path))) await acknowledged("file_window", true);
+    }
+    await acknowledged("checkpoint");
+    baseline = current;
+    saveTranscriptReceipts();
     receiver.resetBudget();
     if (stateFile) writeFileSync(stateFile, JSON.stringify([...baseline.values()]), { mode: 0o600 });
   });
@@ -75,6 +121,37 @@ function fail(error?: unknown): void {
 const reply = (id: unknown, body: unknown) => send({ type: "reply", id, body });
 
 let lockFile = "";
+let ephemeralCodexHome: string | null = null;
+function bindEphemeralCodexHome(path: string): void {
+  const dir = mirrored(path);
+  if (!/\/engine-launch\/[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/.test(dir) || !roots.some(root => root.id === "config" && root.path === dir) || !outputs.some(root => root.id === "sessions" && root.path === join(dir, "sessions"))) throw new Error("The temporary Codex directory could not be verified.");
+  mkdirSync(join(dirname(dir), ".transcript-recovery"), { recursive: true, mode: 0o700 });
+  ephemeralCodexHome = dir;
+}
+function parkedTranscript(root: EngineFileRoot, name: string): string | undefined {
+  if (!ephemeralCodexHome || root.id !== "sessions" || !selectedTranscript(root, name)) return;
+  const key = createHash("sha256").update(stateFile).update("\0").update(name).digest("hex");
+  return join(dirname(ephemeralCodexHome), ".transcript-recovery", `${key}.jsonl`);
+}
+function removeEphemeralCodexHome(completed = false): void {
+  if (!ephemeralCodexHome) return;
+  rmSync(join(ephemeralCodexHome, "auth.json"), { force: true });
+  for (const root of outputs) for (const name of root.files ?? []) {
+    const parked = parkedTranscript(root, name);
+    if (!parked) continue;
+    if (completed) rmSync(parked, { force: true });
+    else {
+      const resident = engineFilePath(root, name);
+      if (existsSync(resident)) {
+        mkdirSync(dirname(parked), { recursive: true, mode: 0o700 });
+        renameSync(resident, parked);
+      }
+    }
+  }
+  rmSync(ephemeralCodexHome, { recursive: true, force: true });
+  ephemeralCodexHome = null;
+}
+process.on("exit", () => { try { removeEphemeralCodexHome(); } catch {} });
 function takeLock(path: string): boolean {
   mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
   for (let attempt = 0; attempt < 2; attempt++) {
@@ -102,10 +179,11 @@ process.on("exit", () => { if (lockFile) try { if (readFileSync(lockFile, "utf8"
 
 async function launch(frame: any): Promise<void> {
   if (child) throw new Error("Engine already started");
+  if (frame.ephemeralCodexHome && (!ephemeralCodexHome || frame.env?.CODEX_HOME !== frame.ephemeralCodexHome)) throw new Error("Unexpected temporary Codex home");
   socketPath = frame.socketPath;
   stateFile = frame.stateFile;
   if (typeof socketPath !== "string" || typeof stateFile !== "string" || typeof frame.lockFile !== "string") throw new Error("Missing engine state paths");
-  if (!takeLock(frame.lockFile)) { await reply(frame.id, { refused: "busy" }); return; }
+  if (!lockFile && !takeLock(frame.lockFile)) { await reply(frame.id, { refused: "busy" }); return; }
   mkdirSync(dirname(socketPath), { recursive: true, mode: 0o700 });
   mkdirSync(dirname(stateFile), { recursive: true, mode: 0o700 });
   try { unlinkSync(socketPath); } catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; }
@@ -138,6 +216,7 @@ async function launch(frame: any): Promise<void> {
   });
   await new Promise<void>((resolve, reject) => { server!.once("error", reject); server!.listen(socketPath, resolve); });
   baseline = new Map(engineInventory(outputs).map(file => [engineFileKey(file), file]));
+  saveTranscriptReceipts();
   receiver.baseline.clear();
   for (const file of engineInventory(roots)) receiver.baseline.set(engineFileKey(file), file);
   try {
@@ -168,6 +247,7 @@ async function launch(frame: any): Promise<void> {
       if (transportLost) { kill("SIGKILL"); process.exit(1); }
       await stdoutWork;
       await checkpoint();
+      removeEphemeralCodexHome(true);
       await send({ type: "native_exit", code, signal });
       receiver.close();
       for (const socket of sockets.values()) socket.destroy();
@@ -182,24 +262,60 @@ async function handle(frame: any): Promise<void> {
   switch (frame.type) {
     case "configure":
       if (receiver || child) throw new Error("Engine already configured");
+      if (!takeLock(frame.lockFile)) { await reply(frame.id, { refused: "busy" }); return; }
+      stateFile = frame.stateFile;
       homeRoots = frame.roots.map((root: EngineFileRoot) => root.path);
       roots = frame.roots.map((root: EngineFileRoot) => ({ ...root, path: mirrored(root.path) }));
       outputs = roots.filter(root => frame.outputIds.includes(root.id));
+      if (frame.ephemeralCodexHome) bindEphemeralCodexHome(frame.ephemeralCodexHome);
+      for (const root of outputs) for (const name of root.files ?? []) {
+        const parked = parkedTranscript(root, name);
+        if (!parked || !existsSync(parked)) continue;
+        const target = engineFilePath(root, name);
+        if (existsSync(target)) throw new Error("Unexpected resident Codex recovery target");
+        mkdirSync(dirname(target), { recursive: true, mode: 0o700 });
+        linkSync(parked, target);
+      }
       for (const name of frame.names) names.add(name);
       for (const root of roots) mkdirSync(root.path, { recursive: true, mode: 0o700 });
-      receiver = new EngineFileReceiver(roots.map(root => ({ ...root, writable: true })), engineInventory(roots));
-      await reply(frame.id, { files: engineInventory(roots) });
+      const files = engineInventory(roots);
+      receiver = new EngineFileReceiver(roots, files);
+      await reply(frame.id, { files, transcripts: readTranscriptReceipts() });
       return;
-    case "file_begin": receiver.begin(frame.file); return;
-    case "file_chunk": receiver.chunk(Buffer.from(frame.data, "base64")); return;
+    case "recover_transcript": {
+      const root = outputs.find(root => root.id === frame.root);
+      if (child || !root || !selectedTranscript(root, frame.path)) throw new Error("Invalid transcript recovery selection");
+      const file = engineInventory([root]).find(file => file.path === frame.path);
+      if (file?.hash !== frame.hash) throw new Error("Native transcript changed before recovery");
+      if (file) await sendFile(file, readTranscriptReceipts().find(item => item.root === root.id && item.path === frame.path)?.before ?? undefined);
+      else { await send({ type: "file_remove", file: { root: root.id, path: frame.path } }); await acknowledged("file_window", true); }
+      await reply(frame.id, { recovered: true });
+      return;
+    }
+    case "select_transcript": {
+      if (!child) throw new Error("Native process is not running");
+      const root = outputs.find(root => root.id === frame.root);
+      selectEngineTranscript(root, frame.path);
+      saveTranscriptReceipts();
+      await reply(frame.id, { selected: true });
+      return;
+    }
+    case "file_begin":
+      if (frame.id !== undefined) {
+        try { receiver.begin(frame.file, frame.prefix); await reply(frame.id, { accepted: true }); }
+        catch (error) { await reply(frame.id, { error: (error as Error).message }); }
+      } else receiver.begin(frame.file, frame.prefix);
+      return;
+    case "file_chunk": receiver.chunk(decodeEngineChunk(frame.data)); return;
     case "file_end": receiver.end(); return;
+    case "file_window": await reply(frame.id, { received: true }); return;
     case "file_remove": receiver.remove(frame.file); return;
     case "prepared": await reply(frame.id, { prepared: true }); return;
     case "launch": await launch(frame); return;
     case "stdin": child?.stdin.write(Buffer.from(frame.data, "base64")); return;
     case "end": child?.stdin.end(); return;
     case "stop": kill(); setTimeout(() => kill("SIGKILL"), 3_000).unref(); return;
-    case "ack": acknowledgements.get(frame.id)?.(); acknowledgements.delete(frame.id); return;
+    case "ack": acknowledgements.get(frame.id)?.(frame.error); acknowledgements.delete(frame.id); return;
     case "checkpoint_request":
       await checkpoint();
       await reply(frame.id, { saved: true });

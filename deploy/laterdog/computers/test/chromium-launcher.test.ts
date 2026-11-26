@@ -1,7 +1,5 @@
-import { readFileSync } from "node:fs";
+import { readContainerFile as read } from "./container-file";
 import { describe, expect, it } from "vitest";
-
-const read = (path: string) => readFileSync(new URL(path, import.meta.url), "utf8");
 
 const chromiumInstallStep = (dockerfile: string) =>
   dockerfile.split(/\n(?=RUN |COPY |FROM |ENV |EXPOSE |ENTRYPOINT )/).find((step) => /\bchromium\b/.test(step) && step.startsWith("RUN ")) ?? "";

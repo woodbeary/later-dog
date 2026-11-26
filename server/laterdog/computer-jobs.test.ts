@@ -5,6 +5,7 @@ import { afterAll, describe, expect, it } from "vitest";
 import { removeTempDir } from "../testing/cleanup.ts";
 import { cloudComputerStartBudgetMs } from "./cloud-start.ts";
 import { ComputerJobs, JOB_CHECK_MS, UNREADABLE_MS, type ComputerJob, type ComputerJobProbe, type JobComputer } from "./computer-jobs.ts";
+import { whyNotWoken } from "./job-wake.ts";
 import { MAX_RUN_MS, type RunBox } from "./computer-runs.ts";
 
 const dir = mkdtempSync(join(tmpdir(), "computer-jobs-"));
@@ -15,6 +16,48 @@ const job = (over: Partial<ComputerJob> = {}): ComputerJob => ({ id: "abcd1234",
 const probe = (over: Partial<ComputerJobProbe> = {}): ComputerJobProbe => ({ computer: async () => running, exit: async () => null, liveness: async () => "alive", stop: async () => "gone", ...over });
 
 describe("jobs a dog left running on its computer", () => {
+  it("reconciles a restored full-allowance job after nine hours, an outage and a home restart, then wakes on its actual exit", async () => {
+    const file = join(dir, "legacy-durable.json");
+    writeFileSync(file, JSON.stringify([job()]));
+    let now = 9 * 3_600_000;
+    let jobs = new ComputerJobs(file, { now: () => now });
+    const unsure = probe({ computer: async () => ({ state: "unsure" }) });
+    await jobs.check(unsure);
+    now += UNREADABLE_MS + 1;
+    expect(await jobs.check(unsure)).toEqual([]);
+    const box = { durableJobs: true, computerId: "first" } as RunBox;
+    let stops = 0;
+    const reads = probe({ computer: async () => ({ state: "running", box }), stop: async () => { stops++; return "gone"; } });
+    expect(await jobs.check({ ...reads, liveness: async () => "unsure" })).toEqual([]);
+    expect(jobs.live("t1")[0].computerId).toBeUndefined();
+    expect(await jobs.check(reads)).toEqual([]);
+    expect(jobs.live("t1")[0]).toMatchObject({ durable: true, computerId: "first" });
+    jobs = new ComputerJobs(file, { now: () => now });
+    await jobs.check(unsure);
+    now += UNREADABLE_MS * 2;
+    expect(await jobs.check(unsure)).toEqual([]);
+    expect(await jobs.check({ ...reads, exit: async () => ({ exitCode: 0, at: now }) })).toEqual(["abcd1234"]);
+    const [done] = jobs.unannounced();
+    expect(done.end.how).toBe("finished");
+    expect(whyNotWoken(done, now)).toBeNull();
+    expect(stops).toBe(0);
+  });
+
+  it("checks current entitlement and the issuing computer before applying a job deadline", async () => {
+    const jobs = new ComputerJobs(null, { now: () => MAX_RUN_MS * 5 });
+    jobs.started(job({ durable: true, computerId: "original" }));
+    let touches = 0;
+    const other = probe({ computer: async () => ({ state: "running", box: { durableJobs: true, computerId: "replacement" } as RunBox }),
+      exit: async () => { touches++; return null; }, stop: async () => { touches++; return "gone"; } });
+    await jobs.check(other);
+    expect(await jobs.check(other)).toEqual(["abcd1234"]);
+    expect(jobs.unannounced()[0].end.how).toBe("gone");
+    expect(touches).toBe(0);
+    jobs.started(job({ durable: true, computerId: "original" }));
+    await jobs.check(probe({ computer: async () => ({ state: "running", box: { durableJobs: false, computerId: "original" } as RunBox }) }));
+    expect(jobs.unannounced()[0]).toMatchObject({ durable: false, end: { how: "overdue" } });
+  });
+
   it("counts a job for its chat until it ends, and tells the chat each time", () => {
     const changed: string[] = [];
     const jobs = new ComputerJobs(null, { changed: (id) => changed.push(id) });

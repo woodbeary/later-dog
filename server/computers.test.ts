@@ -9,7 +9,7 @@ import { RETRY_FAILED_START_AFTER_MS } from "./laterdog/computer-start.ts";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 type State = "starting" | "running" | "sleeping" | "stopping" | "error";
-type FakeComputer = { id: string; name: string; state: State; error?: string; lastStart?: { generation: number; outcome: string; at?: string; ms?: number } };
+type FakeComputer = { id: string; name: string; state: State; size?: string; error?: string; lastStart?: { generation: number; outcome: string; at?: string; ms?: number } };
 type Recorded = { method: string; path: string; headers: IncomingMessage["headers"]; body: string };
 
 const KEY = `ldc_${"f".repeat(48)}`;
@@ -27,6 +27,7 @@ describe("the cloud computer facade", () => {
   let environmentId = "";
   let computers: typeof import("./computers.ts");
   let boat: typeof import("./boat.ts");
+  let config: typeof import("./config.ts");
   const fleet = new Map<string, FakeComputer>();
   const keys = new Map<string, FakeComputer>();
   const requests: Recorded[] = [];
@@ -99,7 +100,7 @@ describe("the cloud computer facade", () => {
           if (runsAt && computer.state === "starting" && Date.now() >= runsAt) computer.state = "running";
           return send(200, { computer });
         }
-        if (!action && method === "PATCH") { computer.name = JSON.parse(body).name; return send(200, { computer }); }
+        if (!action && method === "PATCH") { Object.assign(computer, JSON.parse(body)); return send(200, { computer }); }
         if (!action && method === "DELETE") { fleet.delete(computer.id); return send(200, { deleted: true }); }
         if (action === "wake") { computer.state = wakeTo; return send(200, { computer }); }
         if (action === "sleep") { computer.state = "sleeping"; return send(200, { computer }); }
@@ -122,8 +123,8 @@ describe("the cloud computer facade", () => {
     vi.resetModules();
     computers = await import("./computers.ts");
     boat = await import("./boat.ts");
-    const { DATA_DIR } = await import("./config.ts");
-    environmentId = (await import("./environment.ts")).loadEnvironmentId(DATA_DIR);
+    config = await import("./config.ts");
+    environmentId = (await import("./environment.ts")).loadEnvironmentId(config.DATA_DIR);
   });
 
   beforeEach(() => {
@@ -500,11 +501,86 @@ describe("the cloud computer facade", () => {
     expect(await computers.findBoat(noBoat, "dog-next-door")).toMatchObject({ state: "running" });
   });
 
+  it.each(["command", "engine"] as const)("uses the owner's chosen size when a %s starts the dog's first computer", async (purpose) => {
+    const sizing = vi.spyOn(config, "loadConfig").mockReturnValue({ box: { size: "xlarge" } });
+    try {
+      const botId = `sized-${purpose}`;
+      if (purpose === "command") await computers.heavyRunBox(botId, { repository: "owner/repo" });
+      else await computers.engineComputer(botId);
+      expect(creates().map(({ body }) => JSON.parse(body))).toEqual([{
+        name: nameFor(botId), size: "xlarge", ...(purpose === "command" ? { repository: "owner/repo" } : {}),
+      }]);
+    } finally {
+      sizing.mockRestore();
+    }
+  });
+
+  it("applies an engine computer's new size before it wakes without replacing it", async () => {
+    const sizing = vi.spyOn(config, "loadConfig").mockReturnValue({ box: { size: "xlarge" } });
+    try {
+      const botId = "resize-sleeping-engine";
+      const machine = add(botId, "sleeping");
+      machine.size = "standard";
+      await computers.engineComputer(botId);
+      expect(creates()).toHaveLength(0);
+      expect(ours().filter(({ method }) => method !== "GET").map(({ method, path, body }) => ({ method, path, body }))).toEqual([
+        { method: "PATCH", path: `/v1/computers/${machine.id}`, body: '{"size":"xlarge"}' },
+        { method: "POST", path: `/v1/computers/${machine.id}/wake`, body: "{}" },
+      ]);
+    } finally {
+      sizing.mockRestore();
+    }
+  });
+
+  it("can select a previously used size again without restarting the home", async () => {
+    const sizing = vi.spyOn(config, "loadConfig");
+    try {
+      const botId = "resized-repeatedly";
+      const machine = add(botId, "running");
+      machine.size = "standard";
+      for (const size of ["xlarge", "large", "xlarge"] as const) {
+        sizing.mockReturnValue({ box: { size } });
+        await computers.engineComputer(botId);
+        expect(machine.size).toBe(size);
+      }
+      expect(ours().filter(({ method }) => method === "PATCH")).toHaveLength(3);
+      expect(creates()).toHaveLength(0);
+    } finally {
+      sizing.mockRestore();
+    }
+  });
+
   describe("waking a computer for run_on_computer", () => {
     const wakes = () => ours().filter((request) => request.method === "POST" && request.path.endsWith("/wake")).length;
     const sleeping = (botId: string) => { const computer = add(botId, "sleeping"); wakeTo = "starting"; pollStepMs = 10_000; return computer; };
     beforeEach(() => { vi.useFakeTimers({ toFake: ["Date"] }); vi.setSystemTime(new Date("2026-11-10T01:00:00Z")); });
     afterEach(() => { vi.useRealTimers(); });
+
+    it("opens one native engine after a 184-second snapshot boot without replacing or rewaking its computer", async () => {
+      const bot = "dog-native-cold";
+      const computer = sleeping(bot);
+      pollStepMs = 23_000;
+      const began = Date.now();
+      runsAt = began + 184_000;
+      const { box } = await computers.engineComputer(bot);
+      expect(Date.now() - began).toBeGreaterThanOrEqual(184_000);
+      await box.exec("native dispatch", 10_000);
+      expect(ours().filter(request => request.path === `/v1/computers/${computer.id}/exec`)).toHaveLength(1);
+      expect(wakes()).toBe(1);
+      expect(creates()).toHaveLength(0);
+    });
+
+    it("stops waiting for a cancelled native engine before dispatch", async () => {
+      const bot = "dog-cancelled-engine";
+      sleeping(bot);
+      const abort = new AbortController();
+      const opening = computers.engineComputer(bot, abort.signal);
+      await vi.waitFor(() => expect(wakes()).toBe(1));
+      abort.abort();
+      await expect(opening).rejects.toMatchObject({ name: "AbortError" });
+      expect(ours().filter(request => request.path.endsWith("/exec"))).toHaveLength(0);
+      expect(creates()).toHaveLength(0);
+    });
 
     it.each([95_000, 240_000])("waits for a snapshot boot of %i ms with one wake and no create", async (bootMs) => {
       const computer = sleeping("dog-heavy-boot");

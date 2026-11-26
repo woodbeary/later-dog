@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { WORK_PRIORITY, type WorkKind } from "../../shared/work-state.ts";
-import type { RuntimeEvent } from "../../shared/runtime-events.ts";
+import { RESTORE_FILES_RESOURCE, type RuntimeEvent } from "../../shared/runtime-events.ts";
 import { LimitHold } from "./limit-hold.ts";
 import { WorkSignals } from "./work-signals.ts";
 import { openAsk, workState, type WorkFacts } from "./work-state.ts";
@@ -16,6 +16,7 @@ const every: Required<WorkFacts> = {
   usageHold: { account: "Work account", until: 1_800_000_000_000 },
   waitingOn: [scout],
   computerWait: { holder: "Patch" },
+  filesWait: true,
   retry: { attempt: 2 },
   stopped: { cause: "engine" },
 };
@@ -39,6 +40,7 @@ describe("one work state per chat", () => {
     ["another dog", { busy: false, waitingOn: [scout, { ...scout, ask: undefined }] }, { kind: "waiting-on-dog", dogs: [{ id: "scout", name: "Scout", ask: "Check the invoice totals" }] }],
     ["a nameless teammate is not invented", { busy: false, waitingOn: [{ botId: "x", name: " " }] }, { kind: "idle" }],
     ["the computer", { busy: true, computerWait: { holder: "Patch" } }, { kind: "waiting-for-computer", holder: "Patch" }],
+    ["archived files coming back", { busy: true, filesWait: true }, { kind: "waiting-for-files" }],
     ["a retry", { busy: true, retry: { attempt: 2 } }, { kind: "retrying", attempt: 2 }],
     ["a retry with no count", { busy: true, retry: { attempt: 0 } }, { kind: "retrying" }],
     ["a stop", { busy: false, stopped: { cause: "you" } }, { kind: "stopped", cause: "you" }],
@@ -49,7 +51,7 @@ describe("one work state per chat", () => {
   it.each(WORK_PRIORITY.slice(0, -1).map((kind, index) => [kind, index] as const))("%s wins over everything after it", (kind, index) => {
     const order: Array<[WorkKind, keyof WorkFacts]> = [
       ["needs-you", "needsYou"], ["waiting-for-usage", "usageHold"], ["waiting-on-dog", "waitingOn"],
-      ["waiting-for-computer", "computerWait"], ["retrying", "retry"], ["running", "busy"], ["stopped", "stopped"],
+      ["waiting-for-computer", "computerWait"], ["waiting-for-files", "filesWait"], ["retrying", "retry"], ["running", "busy"], ["stopped", "stopped"],
     ];
     const above = order.slice(0, index).map(([, key]) => key);
     const facts = without(...above);
@@ -95,6 +97,17 @@ describe("signals the home records from runtime events", () => {
     expect(workState({ busy: true, ...signals.facts("t1") })).toEqual({ kind: "waiting-for-computer", holder: "Patch" });
     signals.observe(event({ type: "turn.wait_ended", resource: "mac", waitedMs: 5, outcome: "acquired" }));
     expect(workState({ busy: true, ...signals.facts("t1") })).toEqual({ kind: "running" });
+  });
+
+  it("a files restore wait shows waiting-for-files and clears when acquired or stopped", () => {
+    const signals = new WorkSignals();
+    expect(signals.observe(event({ type: "turn.wait_started", resource: RESTORE_FILES_RESOURCE }))).toBe(true);
+    expect(workState({ busy: true, ...signals.facts("t1") })).toEqual({ kind: "waiting-for-files" });
+    expect(signals.observe(event({ type: "turn.wait_ended", resource: RESTORE_FILES_RESOURCE, waitedMs: 120, outcome: "acquired" }))).toBe(true);
+    expect(workState({ busy: true, ...signals.facts("t1") })).toEqual({ kind: "running" });
+    signals.observe(event({ type: "turn.wait_started", resource: RESTORE_FILES_RESOURCE }));
+    signals.stalled("t1");
+    expect(signals.facts("t1")).toEqual({ stopped: { cause: "infrastructure", detail: "stalled" } });
   });
 
   it("a failed turn is an engine stop, a person's stop is yours, and a usage limit is not a stop", () => {

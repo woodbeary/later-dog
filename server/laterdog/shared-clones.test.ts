@@ -139,9 +139,11 @@ describe("one copy of a repository's history", () => {
   it("falls back to a plain clone when the cache is missing an object, leaving nothing half made", () => {
     clone(url, "one");
     const cache = join(cacheRoot, `${cacheKey(url)}.git`);
-    for (const pack of packs(cache)) rmSync(pack);
-    for (const name of readdirSync(join(cache, "objects", "pack"))) rmSync(join(cache, "objects", "pack", name));
-    git(cache, "update-ref", "refs/heads/trunk", git(join(work, "one"), "rev-parse", "HEAD"));
+    const head = git(join(work, "one"), "rev-parse", "HEAD");
+    expect(git(cache, "rev-parse", "refs/heads/trunk")).toBe(head);
+    rmSync(join(cache, "objects"), { recursive: true });
+    mkdirSync(join(cache, "objects", "pack"), { recursive: true });
+    expect(() => git(cache, "cat-file", "-e", head)).toThrow();
     const seed = join(root, "seed");
     writeFileSync(join(seed, "more.txt"), "more\n");
     git(seed, "add", ".");
@@ -149,7 +151,7 @@ describe("one copy of a repository's history", () => {
     git(seed, "push", "-q", remote, "trunk");
     const result = clone(url, "two");
     whole(join(work, "two"));
-    expect(result.status).toBe(0);
+    expect(result).toEqual({ outcome: "plain", status: 0 });
     expect(git(join(work, "two"), "log", "--oneline", "-1")).toMatch(/more/);
   });
 

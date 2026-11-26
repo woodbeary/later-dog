@@ -7,13 +7,15 @@ import { spawn } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { devCodeWatcher, homeIdle } from "./dev-code.mjs";
-import { noteHomeHealth, outputTail, pushedCodeFellBack } from "./home-health.mjs";
+import { noteHomeHealth, outputTail, pushedCodeFellBack, shouldFallBackFromPushed } from "./home-health.mjs";
 import { seedIncluded } from "./included.mjs";
+import { SAVE_STATUS_PATH, saveRecorder, slowCopies, writeSaveStatus } from "./save-status.mjs";
 import { RESTORE_POINTS, appRelease, upgradeFrom, upgradeKeeper } from "./restore-points.mjs";
 import { FINAL_SAVE_MS, collectGarbageWithin, createHttpStore, restore, settleWithin, snapshot } from "./sync.mjs";
 
 const DATA = process.env.HOME || "/data";
 const SCRATCH = "/tmp/laterdog-sync";
+const MEMORY_SCRATCH = "/run/laterdog-sync";
 const SERVER_DIR = "/app/dist-server";
 const LAUNCHER = join(SERVER_DIR, "cloud-home-start.js");
 const DEV_CODE_DIR = "/tmp/laterdog-dev-server";
@@ -74,7 +76,8 @@ async function main() {
   if (included === "seeded" || included === "replaced") log("included later.dog AI, voice and decisions are ready");
   if (store && !await archiveCompatible(LAUNCHER)) throw new Error("this image predates safe log restoration; rebuild the home image");
   const environment = { ...process.env };
-  const archive = store ? await serveArchive(createArchiver({ root: DATA, store, owner: dogOwner(), log, canRemove: async (file, entry) => {
+  const archiveCodexSessions = process.env.LATERDOG_ARCHIVE_CODEX_SESSIONS === "1";
+  const archive = store ? await serveArchive(createArchiver({ root: DATA, store, owner: dogOwner(), log, archiveCodexSessions, canRemove: async (file, entry) => {
     const launcher = child;
     if (!await launcherOwnsNoFile(launcher, entry)) return false;
     const clear = await fileIsUnopened(file, { asOwner: dogOwner(), launcherPid: launcher.pid, maxDescriptors: 50_000 });
@@ -103,12 +106,18 @@ async function main() {
   let cleanupLeft = false;
   let resumeAfter;
   const restorePoints = upgradeKeeper(store, upgraded, { app: APP, limit: KEPT_RESTORE_POINTS, log });
+  const saveStatus = saveRecorder({ write: (status) => writeSaveStatus(SAVE_STATUS_PATH, status) });
   const save = ({ final = false } = {}) => {
     if (!store) return Promise.resolve();
     if (running) return running;
     running = restorePoints.keep()
-      .then(() => snapshot(DATA, store, manifest, { scratch: SCRATCH, app: APP, budgetMs: final ? FINAL_SAVE_BUDGET_MS : SAVE_BUDGET_MS, resumeAfter }))
+      .then(() => {
+        void saveStatus.started({ final });
+        return snapshot(DATA, store, manifest, { scratch: SCRATCH, memoryScratch: MEMORY_SCRATCH, onCopy: (copy) => void saveStatus.copying(copy), app: APP, budgetMs: final ? FINAL_SAVE_BUDGET_MS : SAVE_BUDGET_MS, resumeAfter });
+      })
       .then(async (result) => {
+        void saveStatus.finished(result);
+        for (const line of slowCopies(result.copies)) log(line);
         manifest = result.manifest;
         resumeAfter = result.resumeAfter;
         if (result.written) log(`saved (${result.uploaded} changed files)`);
@@ -124,7 +133,10 @@ async function main() {
           log(`cleanup failed: ${error.message}`);
         }
       })
-      .catch((error) => log(`save failed: ${error.message}`))
+      .catch((error) => {
+        void saveStatus.failed(error);
+        log(`save failed: ${error.message}`);
+      })
       .finally(() => {
         running = null;
       });
@@ -132,7 +144,23 @@ async function main() {
   };
   const timer = setInterval(() => void save(), INTERVAL_MS);
   const alive = () => child && child.exitCode === null && child.signalCode === null;
+  let stopping = false;
+  let shuttingDown = null;
+  const shutdown = (code, signal) => {
+    stopping = true;
+    if (shuttingDown) return shuttingDown;
+    shuttingDown = (async () => {
+      clearInterval(timer);
+      devCode?.stop();
+      await archive?.close();
+      const finished = await settleWithin((running ?? Promise.resolve()).then(() => save({ final: true })), FINAL_SAVE_MS);
+      if (finished === "late") log(`the last save did not finish within ${FINAL_SAVE_MS / 1000} seconds; stopping anyway`);
+      process.exit(code ?? (signal ? 1 : 0));
+    })();
+    return shuttingDown;
+  };
   const forward = (signal) => () => {
+    stopping = true;
     reloading = false;
     if (alive()) child.kill(signal);
   };
@@ -142,7 +170,7 @@ async function main() {
   const stderrTail = outputTail();
   const stopped = async (code, signal) => {
     if (reloading) return;
-    if (launcher !== LAUNCHER && code !== 0 && Date.now() - startedAt < PUSHED_CODE_GRACE_MS) {
+    if (launcher !== LAUNCHER && shouldFallBackFromPushed({ stopping, code, signal, elapsedMs: Date.now() - startedAt, graceMs: PUSHED_CODE_GRACE_MS })) {
       const said = pushedCodeFellBack({ code, signal, tail: stderrTail.text() });
       log(said);
       noteHomeHealth(HEALTH_DIR, said, { owner: dogOwner() });
@@ -151,12 +179,7 @@ async function main() {
       return;
     }
     log(`the launcher stopped (exit code ${code ?? "none"}, signal ${signal ?? "none"})`);
-    clearInterval(timer);
-    devCode?.stop();
-    await archive?.close();
-    const finished = await settleWithin((running ?? Promise.resolve()).then(() => save({ final: true })), FINAL_SAVE_MS);
-    if (finished === "late") log(`the last save did not finish within ${FINAL_SAVE_MS / 1000} seconds; stopping anyway`);
-    process.exit(code ?? (signal ? 1 : 0));
+    await shutdown(code, signal);
   };
   const start = () => {
     startedAt = Date.now();
@@ -169,10 +192,12 @@ async function main() {
     child.on("exit", stopped);
   };
   const reload = async (next) => {
+    if (stopping) return;
     if (archive && !await archiveCompatible(next.launcher)) {
       log("the pushed server predates log restoration; keeping the current server");
       return;
     }
+    if (stopping || !alive()) return;
     reloading = true;
     const previous = child;
     const exited = new Promise((resolve) => previous.once("exit", resolve));
@@ -180,8 +205,16 @@ async function main() {
     const late = setTimeout(() => { if (previous.exitCode === null) previous.kill("SIGKILL"); }, STOP_CHILD_MS);
     await exited;
     clearTimeout(late);
+    if (stopping) {
+      await shutdown(0, null);
+      return;
+    }
     if (!reloading) return;
     await (running ?? Promise.resolve()).then(() => save());
+    if (stopping) {
+      await shutdown(0, null);
+      return;
+    }
     launcher = next.launcher;
     reloading = false;
     log(`running pushed server code ${next.hash.slice(0, 12)}${next.label ? ` (${next.label})` : ""}`);
