@@ -124,7 +124,7 @@ function readLastStart(raw: unknown): LastStart | undefined {
   };
   return Object.keys(start).length ? start : undefined;
 }
-const computerSchema = z.object({ id: z.string().regex(COMPUTER_ID), name: z.string().min(1).max(200).regex(/^[^\r\n]*$/), state: z.string().min(1).max(40), size: z.string().max(20).optional(), error: z.string().optional().transform(shortReason),
+const computerSchema = z.object({ durableJobs: z.boolean().optional(), id: z.string().regex(COMPUTER_ID), name: z.string().min(1).max(200).regex(/^[^\r\n]*$/), state: z.string().min(1).max(40), size: z.string().max(20).optional(), error: z.string().optional().transform(shortReason),
   lastStart: z.unknown().optional().transform(readLastStart) });
 export type Computer = z.infer<typeof computerSchema>;
 const computerBody = z.object({ computer: computerSchema });

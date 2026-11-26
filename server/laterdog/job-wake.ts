@@ -98,7 +98,7 @@ export type NotWoken = "lost" | "stale" | "long" | "handoff" | "bound";
 export function whyNotWoken(job: EndedComputerJob, now: number): NotWoken | null {
   if (job.end.how === "lost") return "lost";
   if (now - job.end.at > WAKE_FRESH_MS) return "stale";
-  if (job.end.how === "overdue" || job.end.at - job.startedAt > MAX_RUN_MS) return "long";
+  if (job.end.how === "overdue" || (!job.durable && job.end.at - job.startedAt > MAX_RUN_MS)) return "long";
   return null;
 }
 
