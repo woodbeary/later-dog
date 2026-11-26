@@ -32,9 +32,13 @@ export async function enrolledPublication(request, bucket, stable, api, authorit
   const match = request.headers.get("if-match"), none = request.headers.get("if-none-match");
   if (placement.previous === null ? match || none !== "*" : !match || none) return denied("missing_placement_precondition");
   const expected = createHash("sha256").update(body).digest("hex");
-  const proposal = { op: "publish", placement, precondition: match ? { "if-match": match } : { "if-none-match": "*" }, candidate: authority.candidate };
-  const receipt = await api.cutover(authority.accountId, authority.nonce, proposal);
-  if (receipt?.phase !== "committed" || receipt.revision !== expected) return denied("unconfirmed_enrolled_cutover");
+  if (enrollment.retired === true) {
+    if (enrollment.retiredRevision !== expected) return denied("source_retired_with_different_placement");
+  } else {
+    const proposal = { op: "publish", placement, precondition: match ? { "if-match": match } : { "if-none-match": "*" }, candidate: authority.candidate };
+    const receipt = await api.cutover(authority.accountId, authority.nonce, proposal);
+    if (receipt?.phase !== "committed" || receipt.revision !== expected) return denied("unconfirmed_enrolled_cutover");
+  }
   const current = await bucket.get(prefix + "placement");
   if (!current || createHash("sha256").update(new Uint8Array(await new Response(current.body).arrayBuffer())).digest("hex") !== expected) return denied("unconfirmed_enrolled_storage");
   return Response.json({ revision: expected });
