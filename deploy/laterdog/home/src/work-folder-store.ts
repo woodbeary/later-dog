@@ -230,9 +230,10 @@ async function folderFence(scope: Scope, request: Request, release: boolean): Pr
   const body = parse(await payload(request, 2048));
   if (!exact(body, ["fence", "revision"]) || !validHash(body.fence) || !validHash(body.revision)) return invalid("Invalid migration fence");
   const key = scope.prefix + "head", current = await jsonRecord<SavedHead>(scope.bucket, key);
+  if (release && !current?.value.fence) return json({ released: true });
   if (!current || current.value.revision !== body.revision) return json({ error: "head_changed" }, 409);
   if (current.value.fence && current.value.fence !== body.fence) return json({ error: "other_migration" }, 409);
-  if ((release && !current.value.fence) || (!release && current.value.fence === body.fence)) return json(versionOf(current.value));
+  if (!release && current.value.fence === body.fence) return json(versionOf(current.value));
   const next = release ? versionOf(current.value) : { ...versionOf(current.value), fence: body.fence };
   const wrote = await scope.bucket.put(key, JSON.stringify(next), { onlyIf: { etagMatches: current.etag } });
   return wrote ? json(next) : json({ error: "head_changed" }, 409);
@@ -320,8 +321,10 @@ export async function handleWorkFolder(request: Request, bucket: WorkFolderBucke
     if (route === "grant" || route === "revoke") return !id && request.method === "POST" && owner ? await grant(scope, request, route === "revoke") : json({ error: "forbidden" }, 403);
     if ((route === "fence" || route === "unfence") && !id) return owner && request.method === "POST" ? await folderFence(scope, request, route === "unfence") : json({ error: "forbidden" }, 403);
     if (route === "batch" && !id) return owner && request.method === "POST" ? await migrateBatch(scope, request) : json({ error: "forbidden" }, 403);
-    if (route === "commit" && !id && request.method === "POST") {
-      if (!owner && (await readWorkFolderPlacement(bucket, stableId))?.mode === "legacy") return json({ error: "legacy_work_folder" }, 423);
+    if ((route === "commit" || route === "migration-commit") && !id && request.method === "POST") {
+      if (route === "migration-commit" && !owner) return json({ error: "forbidden" }, 403);
+      const mode = (await readWorkFolderPlacement(bucket, stableId))?.mode;
+      if (route === "commit" && mode === "legacy" || route === "migration-commit" && mode === "folders") return json({ error: "inactive_writer" }, 423);
       return await commit(scope, request);
     }
     if (route === "head" && !id && request.method === "GET") {

@@ -1,3 +1,4 @@
+import { LEGACY_RETENTION } from "./work-folder-retention.ts";
 import { sha256 } from "./encoding.ts";
 
 export const STATE_HOST = "state.r2";
@@ -16,9 +17,9 @@ const CONTAINER_ID = /^[a-f0-9]{16,128}$/;
 export interface StateBucket {
   head(key: string): Promise<unknown | null>;
   get(key: string): Promise<{ body: ReadableStream; httpEtag: string } | null>;
-  put(key: string, value: ArrayBuffer, options?: { httpMetadata?: { contentType?: string } }): Promise<unknown>;
+  put(key: string, value: ArrayBuffer, options?: { httpMetadata?: { contentType?: string }; onlyIf?: { etagDoesNotMatch: string }; sha256?: string }): Promise<unknown>;
   delete(keys: string | string[]): Promise<void>;
-  list(options: { prefix: string; cursor?: string; limit?: number }): Promise<{ objects: Array<{ key: string }>; truncated: boolean; cursor?: string }>;
+  list(options: { prefix: string; cursor?: string; limit?: number }): Promise<{ objects: Array<{ key: string; uploaded?: Date }>; truncated: boolean; cursor?: string }>;
 }
 
 export function homePrefix(containerId: string): string {
@@ -58,12 +59,22 @@ async function archiveBody(request: Request): Promise<ArrayBuffer | null> {
   return bytes.buffer;
 }
 
+function uploaded(value: unknown): number | undefined {
+  if (!value || typeof value !== "object" || !("uploaded" in value) || !(value.uploaded instanceof Date)) return undefined;
+  return value.uploaded.getTime();
+}
+
+function collectible(object: unknown, watermark: unknown): boolean {
+  return !watermark || (uploaded(object) ?? 0) > (uploaded(watermark) ?? Infinity);
+}
+
 export async function handleState(request: Request, bucket: StateBucket, containerId: string): Promise<Response> {
   const url = new URL(request.url);
   if ((url.pathname === BLOB_LIST_PATH || url.pathname === ARCHIVE_BLOB_LIST_PATH) && request.method === "GET") {
     const prefix = `${homePrefix(containerId)}${url.pathname.slice(1)}`;
     const page = await bucket.list({ prefix, cursor: url.searchParams.get("cursor") || undefined, limit: 1000 });
-    const hashes = page.objects.map((object) => object.key.slice(prefix.length)).filter((hash) => BLOB_HASH.test(hash));
+    const watermark = url.pathname === BLOB_LIST_PATH ? await bucket.head(homePrefix(containerId) + LEGACY_RETENTION) : null;
+    const hashes = page.objects.filter(object => collectible(object, watermark)).map((object) => object.key.slice(prefix.length)).filter((hash) => BLOB_HASH.test(hash));
     return Response.json({ hashes, ...(page.truncated && page.cursor ? { cursor: page.cursor } : {}) });
   }
   if (url.pathname === RESTORE_POINT_LIST_PATH && request.method === "GET") {
@@ -80,10 +91,16 @@ export async function handleState(request: Request, bucket: StateBucket, contain
   if (request.method === "PUT") {
     const bytes = key.includes("/archive/") ? await archiveBody(request) : await request.arrayBuffer();
     if (bytes === null) return new Response("Archive upload too large", { status: 413 });
-    await bucket.put(key, bytes, { httpMetadata: { contentType: "application/octet-stream" } });
+    if (BLOB_KEY.test(key) && !key.includes("/archive/")) {
+      await bucket.put(key, bytes, { sha256: key.slice(-64), onlyIf: { etagDoesNotMatch: "*" }, httpMetadata: { contentType: "application/octet-stream" } });
+    } else await bucket.put(key, bytes, { httpMetadata: { contentType: "application/octet-stream" } });
     return new Response("Stored", { status: 201 });
   }
   if (request.method === "DELETE" && !key.includes("/archive/") && (BLOB_KEY.test(key) || RESTORE_POINT_KEY.test(key))) {
+    if (BLOB_KEY.test(key)) {
+      const watermark = await bucket.head(homePrefix(containerId) + LEGACY_RETENTION);
+      if (watermark && !collectible(await bucket.head(key), watermark)) return new Response(null, { status: 204 });
+    }
     await bucket.delete(key);
     return new Response(null, { status: 204 });
   }

@@ -53,8 +53,9 @@ export async function registeredPage(bucket: WorkFolderBucket, prefix: string, c
 
 export async function registryFence(bucket: WorkFolderBucket, prefix: string, body: { revision: string | null; fence: string }, release: boolean): Promise<boolean> {
   const key = prefix + "registry", old = await read<Registry>(bucket, key);
+  if (release && !old?.value.fence) return true;
   if ((old?.value.page ?? null) !== body.revision || old?.value.fence && old.value.fence !== body.fence) return false;
-  if (release ? !old?.value.fence : old?.value.fence === body.fence) return true;
+  if (!release && old?.value.fence === body.fence) return true;
   const next: Registry = release ? { page: body.revision } : { page: body.revision, fence: body.fence };
   return Boolean(await bucket.put(key, JSON.stringify(next), { onlyIf: old ? { etagMatches: old.etag } : { etagDoesNotMatch: "*" } }));
 }
