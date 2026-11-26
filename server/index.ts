@@ -1,3 +1,4 @@
+import { homeRuntimeBuild } from "./laterdog/home-runtime-build.ts";
 import { forwardNeedsYou } from "./laterdog/delegated-needs-you.ts";
 import { createExecutionReceiptsRoute } from "./routes/execution-receipts.ts";
 import { ExecutionEvidenceTracker } from "./laterdog/execution-evidence.ts";
@@ -973,6 +974,7 @@ const CLOUD_SECRETS = BOOT_CLOUD_SECRETS;
 const CLOUD_ENV: NodeJS.ProcessEnv = { ...process.env, ...CLOUD_SECRETS };
 const deliverOwnerEmail = cloudEmailDelivery(CLOUD_ENV.LATERDOG_CLOUD_EMAIL_URL, CLOUD_ENV.LATERDOG_CLOUD_EMAIL_TOKEN);
 const CLOUD_HOME = cloudHomeConfiguration(CLOUD_ENV);
+const cloudHomeBuild = CLOUD_HOME ? homeRuntimeBuild(import.meta.url) : null;
 if (CLOUD_HOME) installHomeServerLog({ dir: join(DATA_DIR, HOME_SERVER_LOG_DIR) });
 if (CLOUD_HOME) startHomeHealthLog({ file: join(DATA_DIR, HOME_HEALTH_FILE) });
 if (CLOUD_HOME) startMemoryGuard();
@@ -20240,7 +20242,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
     }
 
     if (method === "GET" && path === "/api/health") {
-      return json(res, 200, { app: "laterdog", pid: process.pid, static: Boolean(STATIC_DIR), capabilities: {
+      return json(res, 200, { app: "laterdog", pid: process.pid, static: Boolean(STATIC_DIR), ...(CLOUD_HOME ? { cloudHomeBuild: await cloudHomeBuild } : {}), capabilities: {
         guardedMessages: 1, rewindForgets: 1, guardedRequests: 1, guardedFullAccess: 1, guardedOnBehalfOf: 1,
         ...(sharedWorkspaceFullAccessEnabled() ? { sharedWorkspaceFullAccess: 1 } : {}),
       } });
