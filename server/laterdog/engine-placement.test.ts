@@ -105,6 +105,21 @@ it("keeps inherited home and store credentials out of both remote launch environ
   expect(planClaudeRemote(input)).toEqual({ stay: "account requires the home's credential provider" });
 });
 
+it.each(["physical", "legacy"])("places a resumed Claude account in the %s workspace that owns its native transcript", (spelling) => {
+  const { base, cwd, config, input } = setup();
+  const alias = join(base, "workspace-alias");
+  symlinkSync(cwd, alias, "dir");
+  const native = spelling === "physical" ? cwd : alias;
+  const sessionId = "a15cf3dd-3672-4248-8e17-e384c464d3c2";
+  const project = join(config, "projects", native.replace(/[^a-zA-Z0-9]/g, "-"));
+  mkdirSync(project, { recursive: true });
+  writeFileSync(join(project, `${sessionId}.jsonl`), "prior session");
+  const result = planClaudeRemote({ ...input, cwd: alias, sessionId });
+  if (!("plan" in result)) throw Error(result.stay);
+  expect(result.plan.launch.cwd).toBe(native);
+  expect(result.plan.launch.roots.find(root => root.id === "session")?.path).toBe(project);
+});
+
 it("mirrors the same model, effort and session, and keeps tools, hooks and their secrets on the home", () => {
   const { cwd, config, input } = setup();
   const planned = planClaudeRemote(input);
