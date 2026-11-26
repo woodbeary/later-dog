@@ -34,7 +34,7 @@ it("holds upstream credentials on the home and enforces the selected tool on the
     expect(prepared.turn.integrations.browser).toBeUndefined();
     expect(Object.keys(prepared.turn.integrations.custom!)).toEqual(["custom"]);
     expect(JSON.stringify(prepared.turn)).not.toContain("home-fixture");
-    const gate = spawn(home.agents.command, home.agents.args, { env: { ...prepared.plan.launch.proxyEnv, ...home.agents.env }, stdio: ["pipe", "pipe", "inherit"] });
+    const gate = spawn(home.agents.command, home.agents.args ?? [], { env: { ...prepared.plan.launch.proxyEnv, ...home.agents.env }, stdio: ["pipe", "pipe", "inherit"] });
     const responses = createInterface({ input: gate.stdout })[Symbol.asyncIterator]();
     const request = async (id: number, method: string, params?: { name: string }) => {
       gate.stdin.write(JSON.stringify({ jsonrpc: "2.0", id, method, params }) + "\n");
