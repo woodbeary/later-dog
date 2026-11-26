@@ -873,7 +873,7 @@ export const CodexDriver: ProviderDriver<CodexConfig> = {
 
         const commandCwd = permissionLaunchCwd(turn.cwd ?? homedir());
         if (remote) remote.plan.launch.args = appServerArgs;
-        const placedChild = remote && opener ? spawnPlacedEngine(remote.plan, value => opener.open(turn.botId!, value), undefined,
+        const placedChild = remote && opener ? spawnPlacedEngine(remote.plan, (value, signal) => opener.open(turn.botId!, value, signal), undefined,
           (where, why) => notePlacement(DATA_DIR, `[engine] Codex for ${threadId} on ${where}${why ? `: ${why}` : ""}`), undefined, { openBudgetMs: opener.openBudgetMs }) : undefined;
         const child = (placedChild as unknown as ReturnType<typeof spawnCli> | undefined) ?? spawnCli(config.cli, appServerArgs, {
           cwd: turn.cwd ?? homedir(),

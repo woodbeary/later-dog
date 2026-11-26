@@ -303,14 +303,14 @@ function stdioSpecFor(server: Record<string, unknown>): StdioSpec | null {
   return null;
 }
 
-export interface EngineOpener { proxyPath: string; remoteBase?: string; openBudgetMs?: number; open(botId: string, plan: ClaudeRemotePlan): Promise<EngineLink> }
+export interface EngineOpener { proxyPath: string; remoteBase?: string; openBudgetMs?: number; open(botId: string, plan: ClaudeRemotePlan, signal?: AbortSignal): Promise<EngineLink> }
 let opener: EngineOpener | null = null;
 export function setEngineOpener(value: EngineOpener | null): void { opener = value; }
 export function engineOpener(): EngineOpener | null { return opener; }
 
 export const DEFAULT_ENGINE_OPEN_BUDGET_MS = 15 * 60_000;
 
-export function deferredLink(open: Promise<EngineLink>, budgetMs = DEFAULT_ENGINE_OPEN_BUDGET_MS): EngineLink {
+export function deferredLink(open: Promise<EngineLink>, budgetMs = DEFAULT_ENGINE_OPEN_BUDGET_MS, cancel?: () => void): EngineLink {
   const link = new EventEmitter() as EngineLink;
   link.opening = true;
   let real: EngineLink | null = null;
@@ -320,6 +320,7 @@ export function deferredLink(open: Promise<EngineLink>, budgetMs = DEFAULT_ENGIN
     if (closed) return;
     closed = true;
     clearTimeout(budget);
+    cancel?.();
     link.emit("diagnostic", why);
     link.emit("close", why);
   };
@@ -342,6 +343,7 @@ export function deferredLink(open: Promise<EngineLink>, budgetMs = DEFAULT_ENGIN
     if (closed) return;
     closed = true;
     clearTimeout(budget);
+    cancel?.();
     link.emit("close", "closed before the computer was ready");
   };
   return link;
@@ -354,12 +356,13 @@ export interface PlacedEngineOptions {
   placed?: PlacedThreads;
 }
 
-export function spawnPlacedEngine(plan: ClaudeRemotePlan, openLink: (plan: ClaudeRemotePlan) => Promise<EngineLink>, local: (() => ChildProcess) | undefined,
+export function spawnPlacedEngine(plan: ClaudeRemotePlan, openLink: (plan: ClaudeRemotePlan, signal: AbortSignal) => Promise<EngineLink>, local: (() => ChildProcess) | undefined,
   onPlaced?: (where: "computer" | "home", why?: string) => void, renewer: Pick<typeof claudeRenewer, "hold"> = claudeRenewer, options: PlacedEngineOptions = {}): EngineProcess {
   let opened: Promise<EngineLink>;
-  try { opened = openLink(plan); }
+  const abort = new AbortController();
+  try { opened = openLink(plan, abort.signal); }
   catch (error) { opened = Promise.reject(error instanceof Error ? error : new Error(String(error))); }
-  const link = deferredLink(opened, options.openBudgetMs);
+  const link = deferredLink(opened, options.openBudgetMs, () => abort.abort());
   if (options.onWaiting) watchEngineOpening(link, options.onWaiting, options.waitNoticeMs ?? ENGINE_WAIT_NOTICE_MS);
   const session = new RemoteSession(link, plan.launch);
   const placed = options.placed ?? placedThreads;

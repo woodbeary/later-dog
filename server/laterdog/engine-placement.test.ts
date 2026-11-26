@@ -275,10 +275,12 @@ it("closes a deferred link with the reason when the computer fails or never gets
   expect(late.closed).toBe(true);
   expect(stuck.opening).toBe(true);
   let resolveCancelled!: (link: EngineLink) => void;
-  const cancelled = deferredLink(new Promise<EngineLink>((resolve) => { resolveCancelled = resolve; }), 60_000);
+  const boot = new AbortController();
+  const cancelled = deferredLink(new Promise<EngineLink>((resolve) => { resolveCancelled = resolve; }), 60_000, () => boot.abort());
   const cancelCloses: string[] = [];
   cancelled.on("close", (why) => cancelCloses.push(why));
   cancelled.close();
+  expect(boot.signal.aborted).toBe(true);
   expect(cancelCloses).toEqual(["closed before the computer was ready"]);
   const arrivedLate = fakeLink();
   resolveCancelled(arrivedLate);

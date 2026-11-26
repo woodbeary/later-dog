@@ -556,6 +556,32 @@ describe("the cloud computer facade", () => {
     beforeEach(() => { vi.useFakeTimers({ toFake: ["Date"] }); vi.setSystemTime(new Date("2026-11-10T01:00:00Z")); });
     afterEach(() => { vi.useRealTimers(); });
 
+    it("opens one native engine after a 184-second snapshot boot without replacing or rewaking its computer", async () => {
+      const bot = "dog-native-cold";
+      const computer = sleeping(bot);
+      pollStepMs = 23_000;
+      const began = Date.now();
+      runsAt = began + 184_000;
+      const { box } = await computers.engineComputer(bot);
+      expect(Date.now() - began).toBeGreaterThanOrEqual(184_000);
+      await box.exec("native dispatch", 10_000);
+      expect(ours().filter(request => request.path === `/v1/computers/${computer.id}/exec`)).toHaveLength(1);
+      expect(wakes()).toBe(1);
+      expect(creates()).toHaveLength(0);
+    });
+
+    it("stops waiting for a cancelled native engine before dispatch", async () => {
+      const bot = "dog-cancelled-engine";
+      sleeping(bot);
+      const abort = new AbortController();
+      const opening = computers.engineComputer(bot, abort.signal);
+      await vi.waitFor(() => expect(wakes()).toBe(1));
+      abort.abort();
+      await expect(opening).rejects.toMatchObject({ name: "AbortError" });
+      expect(ours().filter(request => request.path.endsWith("/exec"))).toHaveLength(0);
+      expect(creates()).toHaveLength(0);
+    });
+
     it.each([95_000, 240_000])("waits for a snapshot boot of %i ms with one wake and no create", async (bootMs) => {
       const computer = sleeping("dog-heavy-boot");
       runsAt = Date.now() + bootMs;
