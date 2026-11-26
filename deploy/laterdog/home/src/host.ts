@@ -1,3 +1,6 @@
+import { handleWorkFolderPlacement, workFolderControlPath } from "./work-folder-placement.ts";
+import { handleWorkFolder } from "./work-folder-store.ts";
+import { WORK_FOLDER_ROUTE } from "../../../../shared/work-folder-store.ts";
 import { Container, type OutboundHandlerContext } from "@cloudflare/containers";
 import { parseActivity, signedActivityRequest, sleepDecision, type HomeActivity } from "./activity.ts";
 import { grantedAsHome, includedKeyDue } from "./included.ts";
@@ -444,6 +447,9 @@ export class CloudHomeHost extends Container<Env> {
   override async fetch(request: Request): Promise<Response> {
     const record = this.record;
     if (!record || this.removed) return new Response("Not found", { status: 404 });
+    if (new URL(request.url).pathname.startsWith(WORK_FOLDER_ROUTE)) {
+      return handleWorkFolder(request, this.env.STATE, this.stateHome(record.machineId), record.origin, await bootstrapSecret(this.env.HOME_SECRET, record.machineId));
+    }
     const background = isBackground(request);
     const credential = background ? null : wakeCredential(request);
     const key = credential ? await wakerKey(credential) : null;
@@ -993,7 +999,8 @@ export class CloudHomeHost extends Container<Env> {
 CloudHomeHost.outboundHandlers = {
   state: async (request: Request, env: Env, context: OutboundHandlerContext<{ token: string; home?: string; devCode?: boolean }>) => {
     if (!(await authorizedState(request, context.params?.token))) return new Response("Unauthorized", { status: 401 });
-    const devCode = context.params?.devCode === true || devCodeOn(env.DEV_CODE) ? await handleDevCode(request, env.STATE, env.HOME_HOST_SUFFIX === "-hometest.later.dog" ? context.params?.home : undefined) : null;
+    if (workFolderControlPath(new URL(request.url).pathname)) return handleWorkFolderPlacement(request, env.STATE, stateOwner(context));
+    const devCode = context.params?.devCode === true || devCodeOn(env.DEV_CODE) ? await handleDevCode(request, env.STATE, String(env.HOME_HOST_SUFFIX) === "-hometest.later.dog" ? context.params?.home : undefined) : null;
     return devCode ?? handleState(request, env.STATE, stateOwner(context));
   },
   email: async (request: Request, env: Env, context: OutboundHandlerContext<{ token: string; accountId: string }>) =>

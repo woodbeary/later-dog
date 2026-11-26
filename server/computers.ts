@@ -578,6 +578,7 @@ export async function engineComputer(botId: string, signal?: AbortSignal): Promi
   if (!ready) throw new Error("The dog's cloud computer could not start.");
   return {
     box: {
+      computerId: ready.id,
       exec: (command, timeoutMs) => runOwn(client, ready.id, command, { timeoutMs, signal }),
       write: (path, bytes) => client.writeFile(ready.id, path, bytes, { signal }),
       read: (path) => client.readFile(ready.id, path, { signal }),
