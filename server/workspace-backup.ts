@@ -1293,9 +1293,26 @@ export async function applyPendingWorkspaceRestoreAtBoot(
   const revision = record(saved) ? Number(saved.revision) : await client.revision();
   if (!saved) writeJson(receipt, { id, generation: access.generation, revision });
   const job = jobPath(dataDir, id);
-  const staged = join(job, "staged"),
+  const abandonBeforeFileChanges = async (error: unknown): Promise<WorkspaceRestoreResult> => {
+    const status = await client.job({ op: "status" });
+    if (status?.status === "finished") throw Error("The completed history restore needs its matching local files");
+    if (status) await close("undo");
+    writeJson(join(job, "restore-error.json"), { error: error instanceof Error ? error.message : String(error) });
+    rmSync(join(root, "pending-restore.json"), { force: true });
+    rmSync(receipt, { force: true });
+    return { restored: false, rolledBack: true, id };
+  };
+  if (remote?.status === "undone")
+    return abandonBeforeFileChanges(new Error("The previous conversation workspace was retained"));
+  const staged = join(job, "staged");
+  let prepared: string;
+  let incoming: { proofs: [string, string][] };
+  try {
     prepared = prepareRestore(dataDir, id, validateStaged(staged));
-  const incoming = await client.prepare(job, prepared, revision);
+    incoming = await client.prepare(job, prepared, revision);
+  } catch (error) {
+    return abandonBeforeFileChanges(error);
+  }
   let state = await client.job({ op: "switch", proofs: incoming.proofs });
   while (state?.status === "fencing") state = await client.job({ op: "switch", proofs: incoming.proofs });
   if (state?.status !== "switched") throw Error("Conversation restore did not reach the checked revision");
@@ -1307,7 +1324,7 @@ export async function applyPendingWorkspaceRestoreAtBoot(
     return result;
   } catch (error) {
     const last = existsSync(localJournal) ? readJournal(localJournal) : null;
-    if (last?.id === id && last.phase === "rolled-back") await close("undo");
+    if (last?.id !== id || last.phase === "rolled-back") return abandonBeforeFileChanges(error);
     throw error;
   }
 }

@@ -56,7 +56,15 @@ try {
     case "publish": {
       if (
         !wrangler.services?.some(
-          (x) => x.binding === "HOME_CONTROL" && x.remote === true,
+          (x) =>
+            x.binding === "HOME_CONTROL" &&
+            x.entrypoint === "HistoryHomeMigrationApi" &&
+            x.service ===
+              (cfg.bucket === "laterdog-homes"
+                ? "laterdog-home"
+                : "laterdog-home-test") &&
+            ["laterdog-homes", "laterdog-homes-test"].includes(cfg.bucket) &&
+            x.remote === true,
         )
       )
         throw Error("Missing source home control binding");
