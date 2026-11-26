@@ -1,4 +1,4 @@
-import { readFileSync, unlinkSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -115,29 +115,41 @@ describe("a routine asking another dog through the isolated harness", () => {
     evidence.push({ waitedForBusyPeer: true, resumedRoutine: run.id, threadId: run.threadId, transcript, exchange: exchangeLines, peerTranscript });
   }, 60_000);
 
-  it("hands work off without waiting: the run finishes at once and the peer's result never resumes it", async () => {
+  it("saves an FYI without starting the peer and keeps its later real turn out of the routine", async () => {
     const run = await start();
     const launched = await dump(run.threadId);
     const result = await api("POST", "/api/internal/coordinate-bots", { botIds: [peer.id], message: "FYI: pass this on.", reply: "none" },
       launched.mcpConfig.mcpServers.agents.env.LATERDOG_COMMS_TOKEN);
-    expect(result.message).toContain("will not come back to you");
+    expect(result.message).toContain("These notes do not start turns or send results back to you");
     const receipt = result.receipts[0];
-    expect(handoff(receipt.requestId).reply).toBe("none");
+    expect(receipt.outcome).toBe("saved");
+    expect(handoff(receipt.requestId)).toMatchObject({ reply: "none", status: "completed", contextOnly: true, reported: true });
     finish(run.threadId);
     await expect.poll(async () => (await runState(run.id))?.status, { timeout: 15_000 }).toBe("completed");
+    const finished = await runState(run.id);
     const peerThread = await peerThreadId();
-    await expect.poll(() => handoff(receipt.requestId).status, { timeout: 15_000 }).toBe("running");
+    expect(existsSync(file(peerThread, "json"))).toBe(false);
+    const saved = (await messages(run.threadId)).find(message => message.tool?.name === "Saved context for Routine peer");
+    expect(saved.comm).toMatchObject({ withBotId: peer.id, direction: "to" });
+    const exchange = (await api("GET", "/api/bots?messages=0")).groups.find((group: any) => group.id === saved.comm.groupId);
+    const before = await messages(exchange.threadId);
+    expect(before).toHaveLength(1);
+    expect(before[0]).toMatchObject({ text: "FYI: pass this on.", from: { botId: source.id } });
+    await control(["send", "--bot", peer.id, "--task", peerThread, "--text", "Review the saved FYI in this real turn."]);
     const peerLaunch = await dump(peerThread);
-    expect(JSON.stringify(peerLaunch)).toContain("The sender is not waiting for your reply");
+    expect(JSON.stringify(peerLaunch)).toContain("no reply was requested");
+    expect(JSON.stringify(peerLaunch)).toContain("FYI: pass this on.");
+    expect(handoff(receipt.requestId).contextAt).toEqual(expect.any(Number));
     finish(peerThread);
-    await expect.poll(() => handoff(receipt.requestId).status, { timeout: 30_000 }).toBe("completed");
-    await expect.poll(async () => (await messages(run.threadId)).some((message) => message.tool?.name === "Routine peer done"), { timeout: 15_000 }).toBe(true);
+    expect((await control(["wait", "--bot", peer.id, "--task", peerThread, "--timeout", "30"]) as any).status).toBe("settled");
+    expect(handoff(receipt.requestId).status).toBe("completed");
     const transcript = await messages(run.threadId);
     expect(transcript.some((message) => message.roomRequest?.phase === "result")).toBe(false);
     expect(transcript.some((message) => message.tool?.name?.startsWith("Resumed with"))).toBe(false);
-    expect(transcript.find((message) => message.tool?.name === "Routine peer done")?.comm).toMatchObject({ withBotId: peer.id, direction: "from" });
-    expect((await runState(run.id)).status).toBe("completed");
-    evidence.push({ noReply: true, run: run.id, transcript });
+    expect(transcript.some((message) => message.tool?.name === "Routine peer done")).toBe(false);
+    expect(await messages(exchange.threadId)).toEqual(before);
+    expect(await runState(run.id)).toEqual(finished);
+    evidence.push({ noReply: true, passive: true, deliveredInRealTurn: true, run: run.id, transcript });
   }, 60_000);
 
   it("coordinates a new user request on a completed routine's thread without changing its recorded result", async () => {

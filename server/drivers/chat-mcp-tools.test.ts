@@ -454,6 +454,12 @@ describe("Chat MCP schema validation", () => {
     await expect(session.execute("audit_write", { value: "large" }, f.controller.signal)).rejects.toThrow(/frame|limit/i);
   });
 
+  it("counts UTF-8 bytes across a fragmented MCP response", async () => {
+    const f = fixture('if(message.method === "tools/call") { const data = Buffer.from(JSON.stringify({jsonrpc:"2.0",id:message.id,result:{content:[{type:"text",text:"😀".repeat(512*1024+1)}]}})+"\\n"); for(let offset=0;offset<data.length;offset+=8193) process.stdout.write(data.subarray(offset,offset+8193)); continue; }');
+    const session = await f.mount();
+    await expect(session.execute("audit_write", { value: "large Unicode response" }, f.controller.signal)).rejects.toThrow("MCP response exceeds the frame limit");
+  });
+
   it("rejects malformed image results without claiming execution success", async () => {
     const f = fixture('if(message.method === "tools/call") { reply(message,{content:[{type:"image",mimeType:"image/png",data:"not-base64"}]}); continue; }');
     const session = await f.mount(true);
