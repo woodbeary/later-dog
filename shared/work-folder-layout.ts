@@ -13,6 +13,7 @@ export const workFolderLayoutSchema = z.object({
     members: z.array(identifier),
     names: z.array(z.string().min(1).refine(name => !name.startsWith(".") && !name.includes("/") && !name.includes("\0"))),
   }).strict().optional(),
+  links: z.record(z.string().regex(/^[A-Za-z0-9][A-Za-z0-9_-]{0,127}\/[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/), z.array(absoluteDirectory)).optional(),
   projects: z.array(z.object({ path: absoluteDirectory, owner: identifier, members: z.array(identifier) }).strict()),
 }).strict();
 
