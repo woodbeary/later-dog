@@ -219,8 +219,24 @@ describe("thread engine ownership across adapters", () => {
     await expect(warm.launch("thread", {}, new AbortController().signal, launch)).rejects.toThrow("stop unconfirmed");
     await expect(warm.launch("thread", {}, new AbortController().signal, launch)).rejects.toThrow("stop unconfirmed");
     expect(() => warm.assertVacant("thread")).toThrow("stop was not confirmed");
-    expect(drain).toHaveBeenCalledTimes(1);
+    expect(drain).toHaveBeenCalledTimes(2);
     expect(launch).not.toHaveBeenCalled();
+  });
+
+  it("rechecks a completed drain that left its owner behind", async () => {
+    const warm = createWarmEngines({ memory: null });
+    const old = {};
+    let attempts = 0;
+    const drain = vi.fn(async () => {
+      if (++attempts === 2) warm.release("thread", old);
+    });
+    warm.own("thread", old, { adapter: {}, idle: () => true, drain });
+    const launch = vi.fn(async () => {});
+    await expect(warm.launch("thread", {}, new AbortController().signal, launch)).rejects.toThrow("stop was not confirmed");
+    expect(launch).not.toHaveBeenCalled();
+    await expect(warm.launch("thread", {}, new AbortController().signal, launch)).resolves.toBeUndefined();
+    expect(drain).toHaveBeenCalledTimes(2);
+    expect(launch).toHaveBeenCalledTimes(1);
   });
 
   it("lets Stop and a newer start win while the old idle owner drains", async () => {

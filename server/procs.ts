@@ -112,7 +112,14 @@ async function stopCliTree(child: ChildProcess, pid: number, timeoutMs: number):
   if (process.platform !== "win32") {
     const group = cliGroups.has(child);
     const settled = () => {
-      if (!exited()) return false;
+      if (!exited()) {
+        try {
+          process.kill(pid, 0);
+          return false;
+        } catch (error) {
+          if ((error as NodeJS.ErrnoException).code !== "ESRCH") return false;
+        }
+      }
       if (!group) return true;
       try {
         process.kill(-pid, 0);

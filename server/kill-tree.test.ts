@@ -33,6 +33,40 @@ function alive(pid: number): boolean {
 }
 
 describe("killCliTree", () => {
+  it.skipIf(process.platform === "win32").each([false, true])("confirms a vanished process before exit metadata arrives (tracked group: %s)", async (tracked) => {
+    const child = tracked
+      ? spawnCli(process.execPath, ["-e", "process.exit(0)"], { stdio: ["pipe", "pipe", "pipe"] })
+      : spawn(process.execPath, ["-e", "process.exit(0)"], { stdio: ["pipe", "pipe", "pipe"] });
+    await once(child, "close");
+    const code = child.exitCode;
+    child.exitCode = null;
+    child.signalCode = null;
+    try {
+      await expect(killCliTree(child, 0)).resolves.toBe(true);
+    } finally {
+      child.exitCode = code;
+    }
+  });
+
+  it.skipIf(process.platform === "win32")("does not confuse a missing group with a vanished live root", async () => {
+    const child = spawnCli(process.execPath, ["-e", STUBBORN], { stdio: ["pipe", "pipe", "pipe"] });
+    const closed = once(child, "close");
+    await reportedPid(child.stdout);
+    const kill = process.kill.bind(process);
+    const signals = vi.spyOn(process, "kill").mockImplementation((pid, signal) => {
+      if (pid === -child.pid! && signal === 0) throw Object.assign(new Error("missing group"), { code: "ESRCH" });
+      return kill(pid, signal);
+    });
+    try {
+      await expect(killCliTree(child, 30)).resolves.toBe(true);
+      await closed;
+      expect(child.signalCode).toBe("SIGKILL");
+    } finally {
+      signals.mockRestore();
+      await killCliTree(child, 0);
+    }
+  });
+
   it("owns stdin pipe errors before a CLI can be force-stopped", async () => {
     const child = spawnCli(process.execPath, ["-e", IDLE], { stdio: ["pipe", "pipe", "pipe"] });
     try {
