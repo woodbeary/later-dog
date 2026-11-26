@@ -39,8 +39,71 @@ function checkedEntry(entry: WorkFolderEntry): WorkFolderEntry {
   throw new Error("Invalid working folder manifest entry");
 }
 
-export class FolderStore {
-  readonly #pages = new Map<string, WorkFolderNode>();
+export abstract class FolderTreeReader {
+  protected readonly cachedPages = new Map<string, WorkFolderNode>();
+  abstract read(kind: "manifests" | "blobs", hash: string): Promise<Buffer>;
+  async #page(hash: string): Promise<WorkFolderNode> {
+    let page = this.cachedPages.get(hash);
+    if (!page) {
+      page = JSON.parse((await this.read("manifests", hash)).toString()) as WorkFolderNode;
+      if (!page || page.v !== 1) throw new Error("Invalid working folder object version");
+      this.cachedPages.set(hash, page);
+    }
+    return page;
+  }
+
+  async *leaves(hash: string, of: Category, depth = 0): AsyncGenerator<WorkFolderEntry | string> {
+    const page = await this.#page(hash);
+    if (depth > 64) throw new Error("Working folder manifest nesting is invalid");
+    if (
+      page.kind === "pages" &&
+      page.of === of &&
+      Array.isArray(page.children) &&
+      page.children.length > 0 &&
+      page.children.length <= WORK_FOLDER_PAGE_SIZE &&
+      page.children.every(validFolderHash)
+    ) {
+      for (const id of page.children) yield* this.leaves(id, of, depth + 1);
+    } else if (
+      of === "entries" &&
+      page.kind === "entries" &&
+      Array.isArray(page.entries) &&
+      page.entries.length <= WORK_FOLDER_PAGE_SIZE
+    ) {
+      for (const entry of page.entries) yield checkedEntry(entry);
+    } else if (
+      of === "chunks" &&
+      page.kind === "chunks" &&
+      Array.isArray(page.hashes) &&
+      page.hashes.length <= WORK_FOLDER_PAGE_SIZE &&
+      page.hashes.every(validFolderHash)
+    ) {
+      yield* page.hashes;
+    } else throw new Error("Working folder manifest page has an unexpected shape");
+  }
+
+  async tree(manifest: string): Promise<FolderTree> {
+    const root = await this.#page(manifest);
+    if (root.kind !== "root" || !validMode(root.mode) || !validFolderHash(root.entries))
+      throw new Error("Invalid working folder root");
+    const entries = new Map<string, WorkFolderEntry>();
+    let previous = "";
+    for await (const value of this.leaves(root.entries, "entries")) {
+      const e = value as WorkFolderEntry;
+      if (compareWorkFolderPaths(previous, e.path) >= 0)
+        throw new Error("Working folder paths are duplicated or unordered");
+      const slash = e.path.lastIndexOf("/");
+      if (slash !== -1 && entries.get(e.path.slice(0, slash))?.kind !== "dir")
+        throw new Error("Missing working folder parent directory");
+      previous = e.path;
+      entries.set(e.path, e);
+    }
+    return { mode: root.mode, mtimeMs: root.mtimeMs, entries };
+  }
+
+}
+
+export class FolderStore extends FolderTreeReader {
   #refreshing?: Promise<void>;
   readonly progress: () => void;
   grant: WorkFolderGrant;
@@ -52,6 +115,7 @@ export class FolderStore {
     signal?: AbortSignal,
     progress = () => {},
   ) {
+    super();
     this.progress = progress;
     this.#renewed = renewed;
     this.#signal = signal;
@@ -171,92 +235,15 @@ export class FolderStore {
   async #putPage(node: WorkFolderNode): Promise<string> {
     const bytes = Buffer.from(JSON.stringify(node)),
       hash = folderHash(bytes);
-    if (!this.#pages.has(hash)) {
+    if (!this.cachedPages.has(hash)) {
       await this.put("manifests", bytes);
-      this.#pages.set(hash, node);
+      this.cachedPages.set(hash, node);
     }
     return hash;
   }
 
-  async #page(hash: string): Promise<WorkFolderNode> {
-    let page = this.#pages.get(hash);
-    if (!page) {
-      page = JSON.parse((await this.read("manifests", hash)).toString()) as WorkFolderNode;
-      if (!page || page.v !== 1) throw new Error("Invalid working folder object version");
-      this.#pages.set(hash, page);
-    }
-    return page;
-  }
-
-  async *leaves(hash: string, of: Category, depth = 0): AsyncGenerator<WorkFolderEntry | string> {
-    const page = await this.#page(hash);
-    if (depth > 64) throw new Error("Working folder manifest nesting is invalid");
-    if (
-      page.kind === "pages" &&
-      page.of === of &&
-      Array.isArray(page.children) &&
-      page.children.length > 0 &&
-      page.children.length <= WORK_FOLDER_PAGE_SIZE &&
-      page.children.every(validFolderHash)
-    ) {
-      for (const id of page.children) yield* this.leaves(id, of, depth + 1);
-    } else if (
-      of === "entries" &&
-      page.kind === "entries" &&
-      Array.isArray(page.entries) &&
-      page.entries.length <= WORK_FOLDER_PAGE_SIZE
-    ) {
-      for (const entry of page.entries) yield checkedEntry(entry);
-    } else if (
-      of === "chunks" &&
-      page.kind === "chunks" &&
-      Array.isArray(page.hashes) &&
-      page.hashes.length <= WORK_FOLDER_PAGE_SIZE &&
-      page.hashes.every(validFolderHash)
-    ) {
-      yield* page.hashes;
-    } else throw new Error("Working folder manifest page has an unexpected shape");
-  }
-
   async pages(of: Category, items: string[] | WorkFolderEntry[]): Promise<string> {
-    let pending: string[] = [];
-    for (let n = 0; n < Math.max(1, items.length); n += WORK_FOLDER_PAGE_SIZE) {
-      pending.push(
-        await this.#putPage(
-          of === "chunks"
-            ? { v: 1, kind: "chunks", hashes: items.slice(n, n + WORK_FOLDER_PAGE_SIZE) as string[] }
-            : { v: 1, kind: "entries", entries: items.slice(n, n + WORK_FOLDER_PAGE_SIZE) as WorkFolderEntry[] },
-        ),
-      );
-    }
-    while (pending.length > 1) {
-      const upper: string[] = [];
-      for (let n = 0; n < pending.length; n += WORK_FOLDER_PAGE_SIZE)
-        upper.push(
-          await this.#putPage({ v: 1, kind: "pages", of, children: pending.slice(n, n + WORK_FOLDER_PAGE_SIZE) }),
-        );
-      pending = upper;
-    }
-    return pending[0];
-  }
-
-  async tree(manifest: string): Promise<FolderTree> {
-    const root = await this.#page(manifest);
-    if (root.kind !== "root" || !validMode(root.mode) || !validFolderHash(root.entries))
-      throw new Error("Invalid working folder root");
-    const entries = new Map<string, WorkFolderEntry>();
-    let previous = "";
-    for await (const value of this.leaves(root.entries, "entries")) {
-      const e = value as WorkFolderEntry;
-      if (compareWorkFolderPaths(previous, e.path) >= 0)
-        throw new Error("Working folder paths are duplicated or unordered");
-      const slash = e.path.lastIndexOf("/");
-      if (slash !== -1 && entries.get(e.path.slice(0, slash))?.kind !== "dir")
-        throw new Error("Missing working folder parent directory");
-      previous = e.path;
-      entries.set(e.path, e);
-    }
-    return { mode: root.mode, mtimeMs: root.mtimeMs, entries };
+    return folderManifestPages(of, items, node => this.#putPage(node));
   }
 
   async removeEmpty(head: WorkFolderHead): Promise<void> {
@@ -286,4 +273,26 @@ export class FolderStore {
     const head = await this.head();
     return head?.manifest === manifest ? head : null;
   }
+}
+
+export async function folderManifestPages(of: Category, items: string[] | WorkFolderEntry[], putPage: (node:WorkFolderNode) => Promise<string>): Promise<string> {
+    let pending: string[] = [];
+    for (let n = 0; n < Math.max(1, items.length); n += WORK_FOLDER_PAGE_SIZE) {
+      pending.push(
+        await putPage(
+          of === "chunks"
+            ? { v: 1, kind: "chunks", hashes: items.slice(n, n + WORK_FOLDER_PAGE_SIZE) as string[] }
+            : { v: 1, kind: "entries", entries: items.slice(n, n + WORK_FOLDER_PAGE_SIZE) as WorkFolderEntry[] },
+        ),
+      );
+    }
+    while (pending.length > 1) {
+      const upper: string[] = [];
+      for (let n = 0; n < pending.length; n += WORK_FOLDER_PAGE_SIZE)
+        upper.push(
+          await putPage({ v: 1, kind: "pages", of, children: pending.slice(n, n + WORK_FOLDER_PAGE_SIZE) }),
+        );
+      pending = upper;
+    }
+    return pending[0];
 }

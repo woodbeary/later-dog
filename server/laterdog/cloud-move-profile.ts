@@ -32,10 +32,11 @@ function folderBytes(path: string): number {
   return bytes;
 }
 
-export function measureLeftOnComputer(dataDir: string, profile?: WorkspaceBackupProfile): LeftOnComputer[] {
+export function measureLeftOnComputer(dataDir: string, profile?: WorkspaceBackupProfile, mounted: ReadonlySet<string> = new Set()): LeftOnComputer[] {
   if (profile !== CLOUD_MOVE_PROFILE) return [];
   const left: LeftOnComputer[] = [];
   for (const name of CLOUD_MOVE_LEFT_BEHIND) {
+    if (mounted.has(join(dataDir, name))) continue;
     try {
       const stat = lstatSync(join(dataDir, name));
       if (stat.isDirectory() && !stat.isSymbolicLink()) left.push({ name, bytes: folderBytes(join(dataDir, name)) });

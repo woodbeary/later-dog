@@ -28,7 +28,7 @@ import {
   type WorkFolderEntry,
 } from "../../shared/work-folder-store.ts";
 import { freeVolumeBytes, TRANSFER_SPACE_MARGIN } from "./volume-space.ts";
-import { FolderStore, type FolderTree } from "./engine-folder-store.ts";
+import { FolderStore, type FolderTreeReader, type FolderTree } from "./engine-folder-store.ts";
 
 export interface FolderVisit {
   tree: FolderTree;
@@ -331,7 +331,7 @@ export function equalTree(a: FolderTree, b: FolderTree): boolean {
 }
 
 export async function applyFolder(
-  store: FolderStore,
+  store: FolderTreeReader,
   folder: string,
   local: FolderVisit,
   wanted: FolderTree,
