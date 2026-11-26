@@ -143,7 +143,7 @@ import { startMemoryGuard } from "./laterdog/memory-guard.ts";
 import { parseHelperModelChoice } from "./laterdog/helper-model.ts";
 import { makeSpace } from "./laterdog/space-maker.ts";
 import type { HistoryStartupFacts } from "../shared/history-startup.ts";
-import { prepareHistoryTails, historyWindow } from "./laterdog/history-snapshots.ts";
+import { prepareHistoryTails, historyWindow,preloadWorkAttention,remoteAttention } from "./laterdog/history-snapshots.ts";
 import type { HistoryTail } from "./laterdog/history-snapshot-cache.ts";
 import { historyExecute,historyManyAsync, isRemoteHistory, preloadHistoryActivity } from "./laterdog/history-client.ts";
 import { liveStepsFrom } from "./laterdog/live-step.ts";
@@ -3918,8 +3918,11 @@ const workSignals = new WorkSignals();
 let exchangeLookup: ExchangeLookup | undefined;
 let waitingOnPerson = (_threadId: string): boolean => false;
 let stallFacts = (_threadId: string): StallFacts => ({});
+function workAttention(threadId:string){
+  return isRemoteHistory()?store.cachedMessagesTail(threadId,60)??remoteAttention(threadId):store.messagesTail(threadId,60).messages;
+}
 function chatWork(threadId: string, busy: boolean, activity: BotActivity | undefined, waitingOn: WireWaitingOn[] | undefined, selection: ModelSelection): WorkState {
-  const signIn = busy ? undefined : deviceApprovalNeedsYou(store.messagesTail(threadId, 60).messages);
+  const signIn = busy ? undefined : deviceApprovalNeedsYou(workAttention(threadId));
   const asking = activity === "waiting-on-you" || delegatedNeedsYou(threadId) || waitingOnPerson(threadId) || signIn !== undefined;
   const until = limitHold.heldUntil(threadId);
   const usageWait = until !== undefined || (!busy && usageStranded(threadId));
@@ -3928,7 +3931,7 @@ function chatWork(threadId: string, busy: boolean, activity: BotActivity | undef
   const account = kept ? accountNeedsYou({ carriesOn: carriesOnByItself(threadId), choice: accountBattery.decide(chatSelection(threadId) ?? selection, batteryAccounts(), threadId), name: (id) => registry.get(id)?.displayName }) : undefined;
   return workState({
     busy, helpers: busy ? 0 : helpersWorkingIn(threadId), ...(busy ? {} : computerJobs.facts(threadId)), waitingOn, ...workSignals.facts(threadId), ...(stall.stopped ? { stopped: stall.stopped } : {}),
-    ...(asking ? { needsYou: { what: signIn ?? openAsk(store.messagesTail(threadId, 60).messages) } } : stall.needsYou ? { needsYou: stall.needsYou } : account ? { needsYou: account } : {}),
+    ...(asking ? { needsYou: { what: signIn ?? openAsk(workAttention(threadId)) } } : stall.needsYou ? { needsYou: stall.needsYou } : account ? { needsYou: account } : {}),
     ...(usageWait ? { usageHold: { account: registry.get(selection.instanceId)?.displayName, ...(until !== undefined ? { until } : {}) } } : {}),
   });
 }
@@ -5147,7 +5150,7 @@ function roomWork(group: GroupRecord): WorkState {
     name: botId => store.bot(botId)?.name,
     turnBotIds: id => new Set([...(groupTurnOperations.get(id) ?? [])].filter(op => !op.cancelled).flatMap(op => [...op.botIds]).concat(store.group(id)?.busyBotId ?? [])),
     threadIds: id => [...new Set([store.group(id)?.threadId ?? "", ...store.groupTasks(id).map(task => task.threadId)].filter(Boolean))],
-    tail: threadId => store.messagesTail(threadId, 60).messages,
+    tail: workAttention,
     heldUntil: threadId => limitHold.heldUntil(threadId),
     holdAccount: id => {
       const room = store.group(id);
@@ -16840,9 +16843,10 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       const preview = pageViewOf(url.searchParams);
       const groups=store.groups.filter(group=>visible.group(group.id));
       recoverHistoryCommands();
+      const attentionThreads=[...shownBots.flatMap(bot=>[bot.threadId,...store.tasks(bot.id).map(task=>task.threadId)]),...groups.flatMap(group=>[group.threadId,...store.groupTasks(group.id).map(task=>task.threadId)])];
       const [prepared]=await Promise.all([
         prepareHistoryTails([...shownBots,...groups].map(item=>item.threadId),preview.shown?SHOWN_PAGE_ROW_CAP:limit),
-        preloadHistoryActivity([...shownBots.flatMap(bot=>[bot.threadId,...store.tasks(bot.id).map(task=>task.threadId)]),...groups.map(group=>group.threadId)])
+        preloadHistoryActivity(attentionThreads),preloadWorkAttention(attentionThreads)
       ]);
       return json(res, 200, {
         bots: shownBots.map((bot) => memberBot({

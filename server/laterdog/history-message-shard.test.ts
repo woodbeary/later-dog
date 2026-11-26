@@ -191,3 +191,16 @@ it("preserves all startup flags on ordinary, spilled and earlier spilled rows",(
     }
   }finally{db.close();}
 });
+it("preserves work indicator order while leaving conversation bodies off an idle inventory read",()=>{
+  const {db,run}=fixture();
+  try{
+    const values=Array.from({length:64},(_,i)=>({id:String(i),at:i,role:i%2?"bot":"user",kind:"text",text:"private message "+i}));
+    run({op:"messages.import",messages:values,leaf:"63"});
+    for(const [id,patch] of [["61",{kind:"options",card:{requestId:"a",title:"still waiting",deviceApproval:{service:"service",status:"waiting"}}}],["63",{needsYou:{status:"waiting",label:"incoming"},text:"x".repeat(500000)}]] as const)
+      run({op:"messages.update",message:{...values[Number(id)],...patch}});
+    const rows=run({op:"messages.attentionTail"}) as {id:string;role:string;kind:string;card?:{title:string};needsYou?:{label:string}}[];
+    expect(rows.map(m=>m.id)).toEqual(["61","62","63"]);
+    expect(rows[0].card?.title).toBe("still waiting");expect(rows[2].needsYou?.label).toBe("incoming");
+    expect(JSON.stringify(rows)).not.toContain("private message");expect(JSON.stringify(rows).length).toBeLessThan(1000);
+  }finally{db.close();}
+});

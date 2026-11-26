@@ -1,7 +1,7 @@
 import type { Message } from "../store.ts";
 import type { HistoryOperation } from "../../shared/history-shard-types.ts";
 import type { BranchVersion } from "./rewind.ts";
-import { historyExecuteAsync, historyManyAsync, isRemoteHistory } from "./history-client.ts";
+import { historyExecute, historyExecuteAsync, historyManyAsync, isRemoteHistory } from "./history-client.ts";
 import { overviewHistory, type HistoryTail } from "./history-snapshot-cache.ts";
 type WirePage = HistoryTail & { next: string | null };
 async function fill(thread: string, limit: number, first: WirePage) {
@@ -80,4 +80,24 @@ export async function historyWindow(thread: string, limit: number, before: strin
     const window = await loadWindow(thread, limit, before, around);
     if (overviewHistory.valid(thread, original)) return window;
   }
+}
+
+export async function preloadWorkAttention(threads: readonly string[]) {
+  if (!isRemoteHistory()) return;
+  const states = new Map(Array.from(new Set(threads), (thread) => [thread, overviewHistory.witness(thread)] as const));
+  const missing = Array.from(states)
+    .filter(([, state]) => !state.attention)
+    .map(([thread]) => thread);
+  if (!missing.length) return;
+  for (const { threadId, result } of await historyManyAsync<Message[]>(missing, { op: "messages.attentionTail" })) {
+    const state = states.get(threadId)!;
+    if (overviewHistory.valid(threadId, state)) overviewHistory.saveAttention(state, result);
+  }
+}
+export function remoteAttention(thread: string): Message[] {
+  const state = overviewHistory.witness(thread);
+  if (state.attention) return state.attention;
+  const rows = historyExecute<Message[]>(thread, { op: "messages.attentionTail" });
+  overviewHistory.saveAttention(state, rows);
+  return rows;
 }

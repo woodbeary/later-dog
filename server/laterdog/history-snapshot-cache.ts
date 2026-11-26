@@ -1,9 +1,33 @@
 import type { Message } from "../store.ts";
 export type HistoryTail = { messages: Message[]; activeLeafId: string | null; hasMore: boolean };
-type State = { summary?: HistoryTail; page?: { raw: string; bytes: number; limit: number } };
+type State = {
+  attention?: Message[];
+  attentionBytes?: number;
+  summary?: HistoryTail;
+  page?: { raw: string; bytes: number; limit: number };
+};
 export class HistorySnapshotCache {
   private states = new Map<string, State>();
   private retained = 0;
+  private attentionBytes = 0;
+  private dropAttention(state: State) {
+    this.attentionBytes -= state.attentionBytes ?? 0;
+    delete state.attention;
+    delete state.attentionBytes;
+  }
+  saveAttention(state: State, rows: Message[]) {
+    const bytes = Buffer.byteLength(JSON.stringify(rows));
+    this.dropAttention(state);
+    if (bytes > 128 * 1024) return;
+    state.attention = rows;
+    state.attentionBytes = bytes;
+    this.attentionBytes += bytes;
+    if (this.attentionBytes > 4 * 1024 * 1024)
+      for (const item of this.states.values()) {
+        this.dropAttention(item);
+        if (this.attentionBytes < 3 * 1024 * 1024) break;
+      }
+  }
   private dropPage(state: State) {
     if (state.page) {
       this.retained -= state.page.bytes;
@@ -12,7 +36,10 @@ export class HistorySnapshotCache {
   }
   invalidate(thread: string) {
     const state = this.states.get(thread);
-    if (state) this.dropPage(state);
+    if (state) {
+      this.dropPage(state);
+      this.dropAttention(state);
+    }
     this.states.delete(thread);
   }
   witness(thread: string): State {

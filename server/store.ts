@@ -1326,6 +1326,8 @@ export class Store {
       : mdb.hasPendingRequest(threadId, messagesFile(threadId));
   }
 
+  cachedMessagesTail(threadId:string,limit:number):Message[]|undefined {return this.cachedThread(threadId)?.messages.slice(-limit);}
+
   messagesFor(threadId: string): Message[] {
     return this.thread(threadId).messages;
   }
