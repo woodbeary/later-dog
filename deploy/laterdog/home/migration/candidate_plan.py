@@ -101,17 +101,31 @@ def pack(package, forward, directory):
     terms = {"v": 1, "verification": verification, "scopes": index}
     packed = encode(terms)
     index_hash = immutable(directory, packed)
+    proof_hash = immutable(directory, encode(proof))
+    next_hash = immutable(directory, encode(forward["next"]))
+    require(proof_hash == verification, "Candidate proof hash changed")
     receipt = {
         "v": 1,
         "verification": verification,
         "index": index_hash,
+        "proofSha256": proof_hash,
+        "placementSha256": next_hash,
         "scopes": len(index),
         "entries": sum(r["entries"] for r in index),
         "files": sum(r["files"] for r in index),
         "bytes": sum(r["bytes"] for r in index),
         "packedBytes": sum(r["packedBytes"] for r in index),
     }
-    write_once(directory / "index.json", receipt)
+    legacy_index = directory / "index.json"
+    if not legacy_index.exists():
+        write_once(legacy_index, receipt)
+    else:
+        prior = json.loads(legacy_index.read_bytes())
+        require(
+            all(receipt.get(k) == v for k, v in prior.items()),
+            "Historical candidate index differs",
+        )
+    write_once(directory / "candidate.json", receipt)
     return receipt
 
 
@@ -140,6 +154,8 @@ def upload(receipt, directory, transport, workers):
         )
 
     parallel((row["sha256"] for row in index["scopes"]), send, workers)
+    send(hash_name(receipt["proofSha256"]))
+    send(hash_name(receipt["placementSha256"]))
     send(index_hash)
     return {**receipt, "verified": True, "origin": transport.identity}
 
@@ -179,7 +195,7 @@ def main():
         config.get("identity"),
     )
     return upload(
-        json.loads((args.directory / "index.json").read_bytes()),
+        json.loads((args.directory / "candidate.json").read_bytes()),
         args.directory,
         transport,
         args.workers,

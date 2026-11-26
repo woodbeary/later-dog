@@ -31,8 +31,10 @@ def build(directory, destination):
         all(receipt.get(k) == v for k, v in policy.items()),
         "The completion receipt belongs to another catalog",
     )
+    wal = directory / "readback.sqlite-wal"
+    mode = "?mode=ro" if wal.exists() and wal.stat().st_size else "?mode=ro&immutable=1"
     source = sqlite3.connect(
-        (directory / "readback.sqlite").absolute().as_uri() + "?mode=ro", uri=True
+        (directory / "readback.sqlite").absolute().as_uri() + mode, uri=True
     )
     jobs = [
         json.loads(line)
