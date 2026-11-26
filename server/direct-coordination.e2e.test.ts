@@ -1,11 +1,13 @@
+import { spawn, type ChildProcess } from "node:child_process";
 import { randomBytes, randomUUID } from "node:crypto";
-import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { closeSync, existsSync, mkdtempSync, openSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { expect, it } from "vitest";
-import { launchVerificationServer, runControlLaterDog } from "../scripts/control-laterdog.ts";
+import { launchVerificationServer, runControlLaterDog, verificationServerEnvironment } from "../scripts/control-laterdog.ts";
 import { request } from "../scripts/mcp-server.ts";
-import { removeTempDir } from "./testing/cleanup.ts";
+import { removeTempDir, waitForExit } from "./testing/cleanup.ts";
 import { openSse } from "./testing/sse.ts";
 
 const told = (turn: any): string => {
@@ -750,14 +752,43 @@ it("answers the person as a normal reply when they write into a teammate's reque
   }
 }), 60_000);
 
-it("keeps the person's answer out of the exchange when the sender asked for no reply", () => fixture(async f => {
+it("keeps the person's answer out of the exchange for previously started no-reply work", () => fixture(async f => {
   const ready = join(f.session.info.dataDir, "lead-ready");
   const gate = join(f.session.info.dataDir, "lead-gate");
+  const oldReady = join(f.session.info.dataDir, "previous-lead-ready");
+  const oldGate = join(f.session.info.dataDir, "previous-lead-gate");
   const answer = "PERSON_FACING Nothing else is live yet.";
-  f.plan[f.chief.id] = { steps: [{ arguments: { bot_ids: [f.lead.id], message: "FYI the CSV export shipped", reply: "none" } }], reply: "Told Engineering" };
-  f.plan[f.lead.id] = { readyFile: ready, gateFile: gate, reply: answer };
+  f.plan[f.lead.id] = { turns: [
+    { readyFile: oldReady, gateFile: oldGate, reply: "The interrupted turn must not answer" },
+    { readyFile: ready, gateFile: gate, reply: answer },
+  ] };
+  await f.api("/api/config", { features: { autoReview: false } }, "PUT");
+  await f.api(`/api/bots/${f.lead.id}`, { approvalMode: "auto" }, "PATCH");
+  let restarted: ChildProcess | undefined;
   try {
     await f.start();
+    await expect.poll(() => existsSync(oldReady), { timeout: 15_000 }).toBe(true);
+    await waitForExit(f.session.child, { signal: "SIGKILL" });
+    expect(f.session.child.signalCode).toBe("SIGKILL");
+    writeFileSync(oldGate, "finish the interrupted fixture after its server exited");
+    await expect.poll(() => f.evidence().filter((turn: any) => turn.botId === f.lead.id).length, { timeout: 10_000 }).toBe(1);
+    const saved = f.nodes();
+    const previous = saved.find((node: any) => node.parentId && node.botId === f.lead.id);
+    expect(previous).toMatchObject({ status: "running", startedAt: expect.any(Number) });
+    expect(previous.contextOnly).toBeUndefined();
+    previous.reply = "none";
+    writeFileSync(join(f.session.info.dataDir, "room-handoffs.json"), JSON.stringify(saved));
+    const log = openSync(f.session.info.logPath, "a", 0o600);
+    try {
+      restarted = spawn(process.execPath, ["--experimental-strip-types", fileURLToPath(new URL("./index.ts", import.meta.url))], {
+        cwd: fileURLToPath(new URL("..", import.meta.url)),
+        env: verificationServerEnvironment(process.env, f.session.info.dataDir, Number(new URL(f.session.info.url).port)),
+        stdio: ["ignore", log, log],
+      });
+    } finally { closeSync(log); }
+    await expect.poll(async () => {
+      try { return (await f.api("/api/health")).app === "laterdog"; } catch { return false; }
+    }, { timeout: 10_000 }).toBe(true);
     await expect.poll(() => existsSync(ready), { timeout: 15_000 }).toBe(true);
     const receipt = await f.api(`/api/bots/${f.lead.id}/messages`, { text: "What's live now?", threadId: f.lead.activeTaskId });
     expect(receipt.steered).toBe(true);
@@ -773,6 +804,40 @@ it("keeps the person's answer out of the exchange when the sender asked for no r
     expect(lines.at(-1)).toMatchObject({ kind: "activity", from: { botId: f.lead.id }, tool: { name: "Engineering lead done", ok: true } });
     await expect.poll(async () => (await f.messages(f.chief.activeTaskId)).some((m: any) => m.tool?.name === "Engineering lead done"), { timeout: 10_000 }).toBe(true);
   } finally {
+    writeFileSync(oldGate, "go");
     writeFileSync(gate, "go");
+    await waitForExit(restarted, { signal: "SIGTERM" });
   }
+}), 60_000);
+
+it("keeps an FYI passive and a later person's reply out of its exchange", () => fixture(async f => {
+  const ready = join(f.session.info.dataDir, "lead-ready");
+  const gate = join(f.session.info.dataDir, "lead-gate");
+  const answer = "PERSON_FACING The CSV export is live.";
+  const note = "FYI the CSV export shipped";
+  f.plan[f.chief.id] = { steps: [{ arguments: { bot_ids: [f.lead.id], message: note, reply: "none" } }], reply: "Told Engineering" };
+  f.plan[f.lead.id] = { readyFile: ready, gateFile: gate, reply: answer, expectContextIncludes: [note] };
+  try {
+    await f.start();
+    expect((await f.wait()).status).toBe("settled");
+    const saved = f.nodes().find((node: any) => node.parentId && node.botId === f.lead.id);
+    expect(saved).toMatchObject({ status: "completed", contextOnly: true, reported: true, reply: "none" });
+    expect(existsSync(ready)).toBe(false);
+    expect(f.evidence().filter((turn: any) => turn.botId === f.lead.id)).toHaveLength(0);
+    const exchange = (await f.api("/api/bots")).groups.find((group: any) => group.memberIds.includes(f.chief.id) && group.memberIds.includes(f.lead.id));
+    const before = await f.messages(exchange.threadId);
+    expect(before).toHaveLength(1);
+    expect(before[0].text).toBe(note);
+    await f.cli("send", "--bot", f.lead.id, "--task", f.lead.activeTaskId, "--text", "What's live now?");
+    await expect.poll(() => existsSync(ready), { timeout: 15_000 }).toBe(true);
+    const receipt = await f.api(`/api/bots/${f.lead.id}/messages`, { text: "Tell me about the CSV export.", threadId: f.lead.activeTaskId });
+    expect(receipt.steered).toBe(true);
+    writeFileSync(gate, "go");
+    expect((await f.cli("wait", "--bot", f.lead.id, "--task", f.lead.activeTaskId, "--timeout", "30")).status).toBe("settled");
+    const reply = (await f.messages(f.lead.activeTaskId)).find((message: any) => message.role === "bot" && message.text === answer);
+    expect(reply).toBeDefined();
+    expect(reply.roomRequest).toBeUndefined();
+    expect(await f.messages(exchange.threadId)).toEqual(before);
+    expect((await f.messages(f.chief.activeTaskId)).some((message: any) => message.roomRequest?.phase === "result" || message.tool?.name === "Engineering lead done")).toBe(false);
+  } finally { writeFileSync(gate, "go"); }
 }), 60_000);
