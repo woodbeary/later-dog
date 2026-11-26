@@ -776,14 +776,24 @@ export const CodexDriver: ProviderDriver<CodexConfig> = {
         Object.assign(env, chatEngineEnvironment(threadId, env));
         if (planToken) env.LATERDOG_CHATGPT_TOKEN = planToken;
         const opener = engineOpener();
-        const chosen = turn.botId && remoteEngineChoice(DATA_DIR, turn.botId).computer;
-        const remoteChoice = !homeOnly && chosen && opener && chatgptTurn && !turn.guestConfined && approvalMode !== "custom" && turn.cwd && !turn.images?.length && !codexConfigMcpServerNames(env).size
+        const placement = turn.botId ? remoteEngineChoice(DATA_DIR, turn.botId) : undefined;
+        const required = placement?.required === true;
+        const unavailable = !opener ? "The computers service is unavailable."
+          : !chatgptTurn ? "This Codex account cannot provide a scoped sign-in for its computer."
+          : approvalMode === "custom" ? "This Codex approval profile is configured only on the home."
+          : !turn.cwd ? "The chat has no assigned working folder."
+          : codexConfigMcpServerNames(env).size ? "This account has native MCP servers that cannot be carried to its computer."
+          : undefined;
+        const remoteChoice = !homeOnly && placement?.computer && !unavailable && opener && turn.cwd &&
+            (required || (!turn.guestConfined && !turn.images?.length))
           ? await planCodexRemote({ dataDir: DATA_DIR, botId: turn.botId!, threadId, instanceId, cli: config.cli, cwd: turn.cwd, env,
-            cursor: typeof turn.resumeCursor === "string" ? turn.resumeCursor : undefined, opener, guardShell: turn.integrations?.hooks?.guardShell === true,
+            cursor: typeof turn.resumeCursor === "string" ? turn.resumeCursor : undefined, opener, required, images: turn.images,
+            guardShell: turn.integrations?.hooks?.guardShell === true,
             refresh: async () => { if (!await codexAccountEmail(config.cli, env, 30_000, true)) throw new Error("The home could not refresh the selected account."); } }) : undefined;
         if (remoteChoice?.binding) binding = remoteChoice.binding;
         const remote = remoteChoice?.plan ? remoteChoice : undefined;
-        if (chosen && !remote) notePlacement(DATA_DIR, `[engine] Codex for ${threadId} on home: ${remoteChoice?.stay ?? "this account, tool, or working folder requires the home"}`);
+        if (required && !remote) throw new Error(`Codex could not start on this dog's computer. ${remoteChoice?.stay ?? unavailable ?? "The selected session could not be placed."} No prompt was sent.`);
+        if (placement?.computer && !remote) notePlacement(DATA_DIR, `[engine] Codex for ${threadId} on home: ${remoteChoice?.stay ?? unavailable ?? "this turn requires the home"}`);
         const appServerArgs = ["app-server", ...(plan ? chatgptPlanCodexArgs() : config.managed ? managedCodexArgs(config.managed) : codexLocalProviderArgs(env, turn.model)), ...codexToolSurfaceArgs(),
           ...(turn.toolScope === undefined ? [] : ["-c", "features.shell_snapshot=false"]),
           ...(turn.guestConfined ? GUEST_CONFINED_CODEX_ARGS : [])];
@@ -939,6 +949,10 @@ export const CodexDriver: ProviderDriver<CodexConfig> = {
               clearTimeout(timer);
               if (method === "thread/start" || method === "thread/resume") {
                 const returnedId = v?.thread?.id;
+                if (required && remote && (v?.cwd ?? v?.thread?.cwd) !== remote.plan.launch.cwd) {
+                  reject(new Error("The native Codex thread did not open its assigned working folder. No prompt was sent."));
+                  return;
+                }
                 if (typeof v?.thread?.path === "string") nativePath = v.thread.path;
                 const requestedId = method === "thread/resume"
                   && params && typeof params === "object" && "threadId" in params
@@ -1534,7 +1548,7 @@ export const CodexDriver: ProviderDriver<CodexConfig> = {
           void settle(false, "interrupted");
           return;
         }
-        if (placedChild?.notDispatched && !promptSubmitted) {
+        if (!required && placedChild?.notDispatched && !promptSubmitted) {
           abandoned = true;
           for (const p of rpcPending.values()) p.reject(new Error("The computer did not start the engine."));
           rpcPending.clear();
@@ -1690,6 +1704,7 @@ export const CodexDriver: ProviderDriver<CodexConfig> = {
           const resumeThread = () => request("thread/resume", {
             ...selectionConfig,
             threadId: cursor,
+            ...(required && remote ? { cwd: remote.plan.launch.cwd } : {}),
             developerInstructions,
             model: selection.model,
             ...(selection.modelProvider ? { modelProvider: selection.modelProvider } : {}),
@@ -1766,7 +1781,7 @@ export const CodexDriver: ProviderDriver<CodexConfig> = {
         emit({ ...base(threadId, turnId), type: "session.started", sessionId: codexThreadId, model: startedModel ?? turn.model ?? null, ...(rebuiltFromReplay ? { rebuilt: true } : {}) });
         const turnInput = [
           ...(promptText ? [{ type: "text" as const, text: promptText }] : []),
-          ...(turn.images ?? []).map((image) => ({ type: "localImage" as const, path: image.path })),
+          ...(remote?.imagePaths ?? turn.images?.map(image => image.path) ?? []).map(path => ({ type: "localImage" as const, path })),
         ];
         const startTurn = () => {
           if (remote) pendingDispatch?.start();

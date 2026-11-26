@@ -292,6 +292,7 @@ export interface TextGenerationUsage {
 }
 
 export interface TextGenerationOptions {
+  botId?: string;
   model?: string;
   signal?: AbortSignal;
   onUsage?: (usage: TextGenerationUsage) => void;
