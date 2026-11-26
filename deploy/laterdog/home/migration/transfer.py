@@ -339,6 +339,21 @@ def publish(package, hot, transport, workers, reuse=None, expected=None):
             )
             historic[old["scope"]] = old
 
+    def preserved(scope, prior, manifest):
+        revision = prior["revision"] if prior else None
+        visited = set()
+        while revision:
+            require(revision not in visited, "Working folder version history is cyclic")
+            visited.add(revision)
+            st, _, raw = transport.folder(scope, "versions/" + hash_name(revision))
+            version = decoded(st, raw)
+            parent, saved = version["parent"], version["manifest"]
+            require(version["revision"] == revision == digest(encode([1, parent, saved])), "Stored working folder version changed")
+            if saved == manifest:
+                return True
+            revision = parent
+        return False
+
     def install(scope, parent, manifest):
         st, _, raw = transport.folder(
             scope, "migration-commit", "POST", {"parent": parent, "manifest": manifest}
@@ -356,9 +371,9 @@ def publish(package, hot, transport, workers, reuse=None, expected=None):
         parent = prior["revision"] if prior else None
         prior_manifest = prior["manifest"] if prior else None
         if not active and original and original[0]:
-            if not prior or prior_manifest != original[0]:
+            if prior_manifest != original[0] and not preserved(scope, prior, original[0]):
                 parent = install(scope, parent, original[0])
-            prior_manifest = original[0]
+                prior_manifest = original[0]
             require(
                 read_tree(transport, scope, original[0], package)["checksum"]
                 == original[1],

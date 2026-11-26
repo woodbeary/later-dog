@@ -1,4 +1,7 @@
-import { WorkFolderReverse, type ReverseRequest } from "./work-folder-reverse.ts";
+import {
+  WorkFolderReverse,
+  type ReverseRequest,
+} from "./work-folder-reverse.ts";
 import freezeProgram from "./work-folder-freeze.program.txt";
 import saveProgram from "./work-folder-frozen-save.program.txt";
 import { hex, sha256, sha256Stream } from "./encoding.ts";
@@ -38,6 +41,7 @@ interface Hold {
   target?: string;
   candidate?: string;
   publication?: { raw: string; precondition: Record<string, string> };
+  reverseReturn?: { lease: string; revision: string };
 }
 export type CutoverRequest =
   | { op: "begin" | "renew" | "status" | "abort" | "snapshot" }
@@ -104,13 +108,127 @@ export class WorkFolderCutover {
   private hold: Hold | null = null;
   private queued: Promise<unknown> = Promise.resolve();
   private readonly reverse;
+  private sealedSource: { leaseSha256: string; previous: string } | null = null;
   constructor(private readonly hooks: Hooks) {
-    this.reverse = new WorkFolderReverse({ ...hooks, cold: hooks.cold ?? (() => !hooks.disk()?.running), stop: hooks.stop ?? (() => { throw Error("Mounted home cannot be stopped"); }) });
+    this.reverse = new WorkFolderReverse({
+      ...hooks,
+      sealed: () => this.sealedSource,
+      cold: hooks.cold ?? (() => !hooks.disk()?.running),
+      stop:
+        hooks.stop ??
+        (() => {
+          throw Error("Mounted home cannot be stopped");
+        }),
+    });
   }
-  reverseControl(stable: string, machine: string, lease: string, request: ReverseRequest) {
-    return this.serialized(() => {
-      if (this.hold) throw Error("Original disk migration is active");
-      return this.reverse.request(stable, machine, lease, request);
+
+  private async withOriginal<T>(
+    h: Hold | null,
+    action: () => Promise<T>,
+  ): Promise<T> {
+    if (!h) return action();
+    if (h.phase !== "committed" || !h.target || !h.baselineManifest || !h.disk)
+      throw Error("Original forward placement has not committed");
+    if (this.hooks.disk()?.running) {
+      const disk = await this.command("status", h.lease);
+      if (
+        disk.phase !== "sealed" ||
+        disk.boot !== h.disk.boot ||
+        disk.mountId !== h.disk.mountId ||
+        disk.stopped !== h.disk.stopped
+      )
+        throw Error(
+          "The retained original source is neither sealed nor retired",
+        );
+    }
+    this.sealedSource = {
+      leaseSha256: hex(await sha256(h.lease)),
+      previous: h.target,
+    };
+    try {
+      return await action();
+    } finally {
+      this.sealedSource = null;
+    }
+  }
+
+  private async completeReturn(h: Hold) {
+    if (!h.reverseReturn)
+      throw Error("Missing approved original image recovery");
+    const ended = await this.reverse.request(
+      h.stable,
+      h.machineId,
+      h.reverseReturn.lease,
+      { op: "finish" },
+    );
+    if (
+      ended.phase !== "finished" ||
+      ended.revision !== h.reverseReturn.revision
+    )
+      throw Error("The projected original home is missing");
+    await this.finishRetirement(h);
+    return ended;
+  }
+
+  reverseControl(
+    stable: string,
+    machine: string,
+    lease: string,
+    request: ReverseRequest,
+  ) {
+    return this.serialized(async () => {
+      let h = this.hold;
+      if (h && (h.stable !== stable || h.machineId !== machine))
+        throw Error("Another source owns this maintenance window");
+      return this.withOriginal(h, async () => {
+        if (!h) return this.reverse.request(stable, machine, lease, request);
+        const authority = await jsonObject<{
+          lease: string;
+          sourceLeaseSha256?: string;
+          previousImage?: string;
+          previous?: string;
+        }>(
+          this.hooks.bucket,
+          homePrefix(stable) + "work-folders/reverse-enrollment",
+        );
+        if (
+          authority?.lease !== lease ||
+          lease === h.lease ||
+          authority.sourceLeaseSha256 !== this.sealedSource?.leaseSha256 ||
+          authority.previous !== h.target ||
+          !digest.test(authority.previousImage ?? "")
+        )
+          throw Error("Recovery not enrolled for this retained source");
+        if (h.reverseReturn) {
+          if (h.reverseReturn.lease !== lease)
+            throw Error("Another return to the original image is pending");
+          return this.completeReturn(h);
+        }
+        if (request.op !== "finish")
+          return this.reverse.request(stable, machine, lease, request);
+        const state = await this.reverse.request(stable, machine, lease, {
+          op: "status",
+        });
+        if (
+          state.phase !== "committed" ||
+          !state.revision ||
+          !(await this.selectedImage(
+            {
+              ...h,
+              lease,
+              image: authority.previousImage!,
+              target: state.revision,
+            },
+            request.selection,
+          ))
+        )
+          throw Error(
+            "The original image and complete legacy projection must be selected",
+          );
+        h = { ...h, reverseReturn: { lease, revision: state.revision } };
+        await this.write(h);
+        return this.completeReturn(h);
+      });
     });
   }
   async load() {
@@ -148,7 +266,12 @@ export class WorkFolderCutover {
         return new Response("Retired home writer", { status: 401 });
       if (this.reverse.closed()) {
         const path = new URL(request.url).pathname;
-        const saving = request.method === "PUT" && (path === "/manifest.json" || path === "/archive/index.json" || path.startsWith("/archive/blobs/") || path.startsWith("/restore-points/"));
+        const saving =
+          request.method === "PUT" &&
+          (path === "/manifest.json" ||
+            path === "/archive/index.json" ||
+            path.startsWith("/archive/blobs/") ||
+            path.startsWith("/restore-points/"));
         if (!this.reverse.permitsFinalSave() || !saving)
           return new Response("Mounted home writes are held", { status: 423 });
       }
@@ -203,7 +326,8 @@ export class WorkFolderCutover {
     lease: string,
     r: CutoverRequest,
   ) {
-    if (this.reverse.closed()) throw Error("Mounted home migration is active");
+    if (this.reverse.closed() && r.op !== "status")
+      throw Error("Mounted home migration is active");
     if (!digest.test(lease)) throw Error("Invalid cutover authorization");
     const prefix = homePrefix(stable) + "work-folders/";
     const permit = await jsonObject<{
@@ -267,7 +391,8 @@ export class WorkFolderCutover {
       );
     }
     return this.serialized(async () => {
-      if (this.reverse.closed()) throw Error("Mounted home migration is active");
+      if (this.reverse.closed() && r.op !== "status")
+        throw Error("Mounted home migration is active");
       let h = this.hold;
       if (
         h &&
@@ -415,13 +540,21 @@ export class WorkFolderCutover {
       if (original && disk.phase !== "sealed")
         throw Error("The original disk is no longer sealed");
     }
-    await this.hooks.retire(original);
     const enrollment = await this.hooks.bucket.get(key);
-    const enrolled = enrollment
-      ? await enrollment.json<{ lease: string }>()
-      : null;
-    if (enrollment && enrolled?.lease === h.lease)
-      await this.hooks.bucket.put(
+    const enrolled = await enrollment?.json<{
+      lease: string;
+      retired?: boolean;
+      retiredRevision?: string;
+    }>();
+    if (
+      !enrollment ||
+      enrolled?.lease !== h.lease ||
+      (enrolled.retired && enrolled.retiredRevision !== h.target)
+    )
+      throw Error("Original enrollment changed before retirement");
+    await this.hooks.retire(original);
+    if (!enrolled.retired) {
+      const recorded = await this.hooks.bucket.put(
         key,
         JSON.stringify({
           ...enrolled,
@@ -430,6 +563,19 @@ export class WorkFolderCutover {
         }),
         { onlyIf: { etagMatches: enrollment.etag } },
       );
+      if (!recorded) {
+        const reread = await jsonObject<typeof enrolled>(
+          this.hooks.bucket,
+          key,
+        );
+        if (
+          !reread?.retired ||
+          reread.lease !== h.lease ||
+          reread.retiredRevision !== h.target
+        )
+          throw Error("Original retirement receipt changed");
+      }
+    }
     await this.write(null);
     return { phase: "retired", revision: h.target };
   }
@@ -632,8 +778,14 @@ export class WorkFolderCutover {
   }
   async recover() {
     return this.serialized(async () => {
-      await this.reverse.recover();
       const h = this.hold;
+      if (this.reverse.closed() || h?.reverseReturn) {
+        await this.withOriginal(h, async () => {
+          if (h?.reverseReturn) await this.completeReturn(h);
+          else await this.reverse.recover();
+        });
+        return;
+      }
       if (!h) return;
       if (h.phase === "committed") return;
       await this.hooks.schedule();

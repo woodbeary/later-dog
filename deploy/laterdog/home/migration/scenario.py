@@ -175,6 +175,9 @@ def migration_scenario(directory, transport):
     )
     layout = package.authorized_layout()
     claims = publish(package, hot, transport, 3)
+    expected = {"origin": transport.identity, "claims": claims}
+    repeated = publish(package, hot, transport, 3, expected=expected)
+    require(repeated == claims, "Repeated dormant publication changed a verified working folder version")
     from retention import retain_snapshot
 
     cold_map = encode(package.load("cold-archive-map-v1"))
