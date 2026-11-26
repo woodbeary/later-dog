@@ -2,6 +2,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { userHome } from "../../env-path.ts";
+import { googleUsageLimit } from "./google-limits.ts";
 import { createAcpDriver, type AcpSupport } from "./core.ts";
 
 const AUTH_PREFERENCE = ["gemini-api-key", "oauth-personal", "vertex-ai"];
@@ -67,6 +68,8 @@ const support: AcpSupport = {
   authFailure: "continue",
 
   isAuthenticated: geminiIsAuthenticated,
+
+  usageLimit: (error) => googleUsageLimit(error, "gemini"),
 
   buildPromptText: (turn) => (turn.system ? `${turn.system}\n\n${turn.text}` : turn.text),
 };

@@ -84,6 +84,12 @@ function zonedInstant(zone: string, year: number, month: number, day: number, ho
   return asUtc - offset(first);
 }
 
+export function nextMidnightIn(zone: string, now: number = Date.now()): string | undefined {
+  const tz = zoneOrLocal(zone);
+  const today = wallClock(tz, now);
+  return resetInstant(zonedInstant(tz, today.year, today.month, today.day + 1, 0, 0), now);
+}
+
 const RESET_WORDS = /(?:\bresets?\s+(?:at\s+|on\s+)?|\btry again (?:at|on)\s+)(?:(?<month>jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\.?\s+(?<day>\d{1,2})(?:st|nd|rd|th)?,?\s+(?:\d{4},?\s+)?(?:at\s+)?)?(?<hour>\d{1,2})(?::(?<minute>\d{2}))?\s*(?<meridiem>am|pm)\b(?:\s*\((?<zone>[^)\n]{1,64})\))?/i;
 
 export function parseResetWords(text: string, now: number = Date.now()): string | undefined {
