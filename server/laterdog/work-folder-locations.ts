@@ -19,6 +19,11 @@ function below(root: string, path: string): string[] | null {
 
 export function scopeForPath(layout: WorkFolderLayout, dataDir: string, path: string, botId?: string): FolderScope | null {
   if (!isAbsolute(path) || resolve(path) !== path || path.includes("\0")) return null;
+  const visible = visibleWorkspace(dataDir);
+  if (layout.loose && below(visible, path) !== null) {
+    if (botId && layout.loose.owner !== botId && !layout.loose.members.includes(botId)) return null;
+    return { owner: layout.loose.owner, id: "loose", path: visible };
+  }
   const dogs = join(dataDir, "workspaces");
   const tasks = join(dataDir, "task-workspaces");
   const dogParts = below(dogs, path);
@@ -76,5 +81,46 @@ export function engineFolderScopes(layout: WorkFolderLayout, dataDir: string, in
       throw new Error("The selected working folder has no storage assigned to this dog.");
     }
   }
-  return [...scopes.values()];
+  for (const scope of scopes.values()) {
+    for (const project of linkedProjects(layout, dataDir, scope, input.botId)) scopes.set(project.path, project);
+  }
+  return [...scopes.values()].sort((a, b) => Number(b.id.startsWith("project-")) - Number(a.id.startsWith("project-")));
+}
+
+export function linkedProjects(layout: WorkFolderLayout, dataDir: string, scope: FolderScope, botId: string): FolderScope[] {
+  const targets = scope.id === "loose" ? visibleAliases(layout, botId).map(alias => alias.target)
+    : layout.links?.[scope.owner + "/" + scope.id] ?? [];
+  const projects = new Map<string, FolderScope>();
+  for (const target of targets) {
+    if (target === scope.path) continue;
+    const project = scopeForPath(layout, dataDir, target, botId);
+    if (project?.path === target && project.id.startsWith("project-")) projects.set(target, project);
+  }
+  return [...projects.values()];
+}
+
+export function projectLink(layout: WorkFolderLayout, dataDir: string, scope: FolderScope, inside: string, target: string): string | null {
+  if (!target || target.includes("\0")) return null;
+  const destination = resolve(scope.path, inside, "..", target);
+  for (const allowed of linkedProjects(layout, dataDir, scope, scope.owner)) {
+    const suffix = below(allowed.path, destination);
+    if (suffix) return join("/run/laterdog-work-folders/tree", allowed.id, ...suffix);
+  }
+  return null;
+}
+
+export function visibleWorkspace(dataDir: string): string {
+  return resolve(dataDir, "..", ".laterdog-owned-work", "visible");
+}
+
+export function assignedCwd(layout: WorkFolderLayout | null, dataDir: string, botId: string, cwd: string | null | undefined): string | undefined {
+  if (!layout || !cwd || cwd !== resolve(dataDir, "..")) return cwd ?? undefined;
+  if (!layout.loose || (layout.loose.owner !== botId && !layout.loose.members.includes(botId))) throw new Error("Choose this dog's working folder before starting a task.");
+  return visibleWorkspace(dataDir);
+}
+
+export function visibleAliases(layout: WorkFolderLayout, botId: string) {
+  return layout.projects.filter(p => p.owner === botId || p.members.includes(botId)).map(p => ({
+    name: p.path.slice(p.path.lastIndexOf("/") + 1), target: p.path,
+  }));
 }

@@ -1,9 +1,9 @@
 import { createHash } from "node:crypto";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, it } from "vitest";
-import { ARCHIVE_CAPABILITY, archiveCompatible } from "../runtime/archive-capability.mjs";
+import { ARCHIVE_CAPABILITY, WORK_FOLDER_PROGRAMS, archiveCompatible } from "../runtime/archive-capability.mjs";
 
 it("refuses a bundle predating Codex session archives, even when its server and launcher match the manifest", async () => {
   const root = mkdtempSync(join(tmpdir(), "archive-capability-"));
@@ -21,6 +21,16 @@ it("refuses a bundle predating Codex session archives, even when its server and 
     writeFileSync(join(root, "cloud-home-capabilities.json"), JSON.stringify({ logArchive: ARCHIVE_CAPABILITY, indexSha256, launcherSha256 }));
     expect(ARCHIVE_CAPABILITY).toBe(4);
     expect(await archiveCompatible(launcher)).toBe(true);
+    expect(await archiveCompatible(launcher, { workFolders: true })).toBe(false);
+    mkdirSync(join(root, "laterdog"));
+    const workFolderHashes = Object.fromEntries(WORK_FOLDER_PROGRAMS.map(name => {
+      writeFileSync(join(root, name), name);
+      return [name, createHash("sha256").update(name).digest("hex")];
+    }));
+    writeFileSync(join(root, "cloud-home-capabilities.json"), JSON.stringify({ logArchive: ARCHIVE_CAPABILITY, indexSha256, launcherSha256, workFolders: 1, workFolderHashes }));
+    expect(await archiveCompatible(launcher, { workFolders: true })).toBe(true);
+    writeFileSync(join(root, WORK_FOLDER_PROGRAMS[1]!), "stale program");
+    expect(await archiveCompatible(launcher, { workFolders: true })).toBe(false);
     writeFileSync(join(root, "index.js"), "old server without restore");
     expect(await archiveCompatible(launcher)).toBe(false);
     writeFileSync(join(root, "cloud-home-capabilities.json"), "{broken");

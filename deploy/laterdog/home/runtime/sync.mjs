@@ -74,6 +74,12 @@ export function createHttpStore(baseUrl, token, fetcher = globalThis.fetch, { bl
     return fetcher(`${base}/${path}`, { ...init, signal, headers: { ...headers, ...init.headers } });
   };
   return {
+    async workFolderPlacement() {
+      const response = await call("work-folders/placement");
+      if (response.status === 404) return null;
+      if (!response.ok) throw new Error(`work folder placement read failed: ${response.status}`);
+      return response.json();
+    },
     async manifest() {
       const response = await call("manifest.json");
       if (response.status === 404) return null;
@@ -205,14 +211,14 @@ async function inspectedTogether(paths, inspect) {
   return all;
 }
 
-async function walk(root, directory, found, inspect) {
+async function walk(root, directory, found, inspect, exclude) {
   let names;
   try {
     names = await readdir(directory);
   } catch {
     return;
   }
-  const kept = names.sort().filter((name) => !skipped(name, "dir") && !skippedPath(relative(root, join(directory, name))));
+  const kept = names.sort().filter((name) => !skipped(name, "dir") && !skippedPath(relative(root, join(directory, name))) && !exclude?.(relative(root, join(directory, name))));
   const listed = await inspectedTogether(kept.map((name) => join(directory, name)), inspect);
   for (const [index, name] of kept.entries()) {
     if (!listed[index]) continue;
@@ -223,7 +229,7 @@ async function walk(root, directory, found, inspect) {
     if (info.isDirectory()) {
       if (heldLock(name, "dir")) continue;
       found.push({ ...entry, type: "dir" });
-      await walk(root, path, found, inspect);
+      await walk(root, path, found, inspect, exclude);
     } else if (info.isSymbolicLink()) {
       found.push({ ...entry, type: "link", target });
     } else if (info.isFile()) {
@@ -232,9 +238,9 @@ async function walk(root, directory, found, inspect) {
   }
 }
 
-export async function scan(root, { inspect = lstat } = {}) {
+export async function scan(root, { inspect = lstat, exclude } = {}) {
   const found = [];
-  await walk(root, root, found, inspect);
+  await walk(root, root, found, inspect, exclude);
   return found;
 }
 
@@ -402,7 +408,7 @@ export function resumeOrder(waiting, resumeAfter) {
   return start <= 0 ? waiting : [...waiting.slice(start), ...waiting.slice(0, start)];
 }
 
-export async function snapshot(root, store, previous, { scratch, memoryScratch, now = Date.now, clock = () => performance.now(), app, budgetMs = Infinity, freeBytes = diskFree, availableMemory = memoryAvailable, memoryMarginBytes = MEMORY_MARGIN_BYTES, onCopy, resumeAfter, parallel = SAVE_PARALLEL } = {}) {
+export async function snapshot(root, store, previous, { scratch, memoryScratch, now = Date.now, clock = () => performance.now(), app, budgetMs = Infinity, freeBytes = diskFree, availableMemory = memoryAvailable, memoryMarginBytes = MEMORY_MARGIN_BYTES, onCopy, resumeAfter, parallel = SAVE_PARALLEL, exclude } = {}) {
   const known = new Map((previous?.entries ?? []).filter((entry) => entry.type === "file").map((entry) => [entry.path, entry]));
   const unsaved = [];
   let unsavedReason;
@@ -420,7 +426,7 @@ export async function snapshot(root, store, previous, { scratch, memoryScratch, 
   const copies = [];
   let heldOnDiskBytes = 0;
   let heldInMemoryBytes = 0;
-  const scanned = await scan(root);
+  const scanned = await scan(root, { exclude });
   const slots = Array.from({ length: scanned.length }, () => null);
   const waiting = [];
   for (const [index, entry] of scanned.entries()) {
@@ -592,11 +598,11 @@ async function clearForFile(path) {
   if (existing?.isDirectory()) await rm(path, { recursive: true, force: true });
 }
 
-export async function restore(root, store, owner, { chunkAttempts = CHUNK_ATTEMPTS, chunkRetryMs = CHUNK_RETRY_MS, finished = new Set() } = {}) {
+export async function restore(root, store, owner, { chunkAttempts = CHUNK_ATTEMPTS, chunkRetryMs = CHUNK_RETRY_MS, finished = new Set(), exclude } = {}) {
   const retries = { attempts: chunkAttempts, retryMs: chunkRetryMs };
   const manifest = await store.manifest();
   if (!manifest) return { manifest: null, files: 0 };
-  const kept = manifest.entries.filter((entry) => !transient(entry));
+  const kept = manifest.entries.filter((entry) => !transient(entry) && !exclude?.(entry.path));
   let files = 0;
   const own = async (path) => {
     if (owner) await lchown(path, owner.uid, owner.gid);
