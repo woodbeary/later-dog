@@ -7,6 +7,17 @@ import { compact, reconstruct } from "./projection.mjs";
 import { exportFrozen, publishCatalog } from "./transfer.mjs";
 
 process.umask(0o077);
+const repeatableAdmin = new Set(["status", "list", "shardStatus", "watermark", "commands", "barrier"]);
+async function retrying(operation, attempts = 6) {
+  for (let attempt = 1; ; attempt++) {
+    try {
+      return await operation();
+    } catch (error) {
+      if (attempt >= attempts) throw error;
+      await new Promise((done) => setTimeout(done, Math.min(8000, 500 * 2 ** attempt)));
+    }
+  }
+}
 const [action, configPath] = process.argv.slice(2);
 const cfg = JSON.parse(await readFile(configPath, "utf8"));
 const local = (key) => resolve(dirname(resolve(configPath)), cfg[key]);
@@ -35,21 +46,38 @@ async function remote() {
   });
   const admin = proxy.env.HISTORY_ADMIN;
   const args = (q) => ({ generation: cfg.generation, ...q });
+  const bytes = async (body) => new Uint8Array(await new Response(body).arrayBuffer());
   const api = {
-    admin: (q) => admin.admin(cfg.stable, args(q)),
-    receiptBatch: (q) => admin.receiptBatch(cfg.stable, cfg.generation, q),
-    putReceiptPack: (meta, body) => admin.putReceiptPack(cfg.stable,cfg.generation,meta,body),
-    getReceipt: (sha) => admin.getReceipt(cfg.stable, cfg.generation, sha),
-    putReceipt: (sha, body) =>
-      admin.putReceipt(cfg.stable, cfg.generation, sha, body),
+    admin: (q) =>
+      repeatableAdmin.has(q.op)
+        ? retrying(() => admin.admin(cfg.stable, args(q)))
+        : admin.admin(cfg.stable, args(q)),
+    receiptBatch: (q) =>
+      retrying(() => admin.receiptBatch(cfg.stable, cfg.generation, q)),
+    async putReceiptPack(meta, body) {
+      const content = await bytes(body);
+      return retrying(() =>
+        admin.putReceiptPack(cfg.stable, cfg.generation, meta, new Blob([content]).stream()),
+      );
+    },
+    getReceipt: (sha) =>
+      retrying(async () =>
+        new Blob([await bytes(await admin.getReceipt(cfg.stable, cfg.generation, sha))]).stream(),
+      ),
+    async putReceipt(sha, body) {
+      const content = await bytes(body);
+      return retrying(() =>
+        admin.putReceipt(cfg.stable, cfg.generation, sha, new Blob([content]).stream()),
+      );
+    },
     importStream: (req, stream) =>
       admin.importStream(cfg.stable, args(req), stream),
     async page(req) {
       const { op, ...body } = req;
       if (op !== "page") throw Error("Invalid history page request");
-      return new Response(
-        await admin.pageStream(cfg.stable, args(body)),
-      ).json();
+      return retrying(async () =>
+        new Response(await admin.pageStream(cfg.stable, args(body))).json(),
+      );
     },
   };
   return { api, close: () => proxy.dispose() };
