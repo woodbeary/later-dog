@@ -5,7 +5,7 @@ export const WORK_FOLDER_ACCESS_MS = 15 * 60_000;
 
 export type WorkFolderEntry =
   | { path: string; kind: "dir"; mode: number }
-  | { path: string; kind: "link"; target: string }
+  | { path: string; kind: "link"; target: string; scopedTarget?: string | null }
   | { path: string; kind: "file"; mode: number; size: number; sha256: string; contents: string };
 
 export type WorkFolderNode =
@@ -77,4 +77,12 @@ export function safeWorkFolderLink(path: string, target: unknown): target is str
     else if (part && part !== ".") depth++;
   }
   return true;
+}
+
+export function materializedWorkFolderLink(entry: Extract<WorkFolderEntry, { kind: "link" }>): string {
+  if (!safeWorkFolderPath(entry.path) || !entry.target || entry.target.includes("\0")) throw new Error("Invalid working folder link");
+  if (entry.scopedTarget === null) return entry.path.slice(entry.path.lastIndexOf("/") + 1);
+  const target = entry.scopedTarget ?? entry.target;
+  if (!safeWorkFolderLink(entry.path, target)) throw new Error("Working folder link escapes its scope");
+  return target;
 }

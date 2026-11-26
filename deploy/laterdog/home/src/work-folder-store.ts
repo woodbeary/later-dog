@@ -113,7 +113,10 @@ async function validateNode(scope: Scope, node: Record<string, unknown>): Promis
       if (!safeWorkFolderPath(e.path) || (previous !== undefined && compareWorkFolderPaths(previous, e.path) >= 0)) return invalid("Invalid or unsorted work folder path");
       previous = e.path;
       if (e.kind === "dir" && exact(e, ["kind", "path", "mode"]) && validMode(e.mode)) continue;
-      if (e.kind === "link" && exact(e, ["kind", "path", "target"]) && safeWorkFolderLink(e.path, e.target)) continue;
+      if (e.kind === "link" && typeof e.target === "string" && e.target.length > 0 && !e.target.includes("\0")) {
+        if (exact(e, ["kind", "path", "target"]) && safeWorkFolderLink(e.path, e.target)) continue;
+        if (exact(e, ["kind", "path", "target", "scopedTarget"]) && (e.scopedTarget === null || safeWorkFolderLink(e.path, e.scopedTarget))) continue;
+      }
       if (e.kind === "file" && exact(e, ["kind", "path", "mode", "size", "sha256", "contents"]) && validMode(e.mode) && validSize(e.size) && validHash(e.sha256) && validHash(e.contents)) continue;
       return invalid("Invalid work folder entry");
     }
