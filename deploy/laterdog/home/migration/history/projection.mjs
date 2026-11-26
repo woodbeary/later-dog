@@ -1,3 +1,5 @@
+import { overlayCommands } from "./accepted.mjs";
+import { compactReceipts, expandReceipts } from "./receipts.mjs";
 import { DatabaseSync } from "node:sqlite";
 import { randomUUID } from "node:crypto";
 import { chmodSync, linkSync, mkdirSync, rmSync, statSync } from "node:fs";
@@ -57,7 +59,7 @@ async function project(source, target, fn, expectedSource) {
     try {
       db.exec("PRAGMA journal_mode=DELETE");
       verifySchema(db);
-      proof = fn(db, sourceSha256);
+      proof = await fn(db, sourceSha256);
       checkIndexes(db);
       if (db.prepare("PRAGMA integrity_check").get().integrity_check !== "ok")
         throw Error("Projected SQLite integrity check failed");
@@ -99,6 +101,7 @@ export async function compact(
     verifyControls(db, catalog.controls);
     db.exec("BEGIN IMMEDIATE");
     clearHistory(db);
+    compactReceipts(db, directory, catalog.receipts, generation);
     ensureNativeRuns(db);
     db.exec(
       "CREATE TABLE history_control_generation(singleton INTEGER PRIMARY KEY CHECK(singleton=1),generation TEXT NOT NULL)",
@@ -112,7 +115,12 @@ export async function compact(
       throw Error(
         "Coordinator compaction lost allocator state or retained history",
       );
-    return { generation, catalog: catalogSha256, controls: catalog.controls };
+    return {
+      generation,
+      catalog: catalogSha256,
+      controls: catalog.controls,
+      legacy: catalog.legacy,
+    };
   });
 }
 
@@ -122,14 +130,21 @@ export async function reconstruct(
   catalogSha256,
   target,
   generation,
+  receiptAccess,
 ) {
+  if (
+    statSync(dirname(source) + "/history-pending.json", {
+      throwIfNoEntry: false,
+    })
+  )
+    throw Error("Pending conversation history must drain before rollback");
   const catalog = readCatalog(directory, catalogSha256);
   if (catalog.generation !== generation || catalog.fence === undefined)
     throw Error("Rollback requires a frozen shard capture");
   return project(
     source,
     target,
-    (db) => {
+    async (db) => {
       if (
         !tableExists(db, marker) ||
         db
@@ -146,8 +161,10 @@ export async function reconstruct(
         db.prepare("SELECT 1 FROM history_outbox LIMIT 1").get()
       )
         throw Error("Uncommitted history operations must drain before export");
-      const controls = controlProof(db);
       db.exec("BEGIN IMMEDIATE");
+      const accepted = overlayCommands(db, directory, catalog.shards);
+      const controls = controlProof(db);
+      await expandReceipts(db, generation, receiptAccess);
       const insert = Object.fromEntries(
         HISTORY_TABLES.map((t) => [t, insertRow(db, t)]),
       );
@@ -181,6 +198,7 @@ export async function reconstruct(
         generation,
         catalog: catalogSha256,
         controls,
+        accepted,
         threads: catalog.shards.length,
         eventSequence: eventSequence(db),
         fenceSha256: digest(JSON.stringify(catalog.fence)),

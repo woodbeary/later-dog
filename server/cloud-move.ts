@@ -1,3 +1,4 @@
+import { activeHistoryBackup, portableHistorySize } from "./laterdog/portable-history.ts";
 import { PREVIOUS_BACKUP_REFERENCE, previousBackupBridge, previousBackupReference } from "./laterdog/previous-cloud-archive.ts";
 import { mountedWorkFolders } from "./laterdog/work-folder-locations.ts";
 import { createHash, randomBytes } from "node:crypto";
@@ -36,10 +37,11 @@ function rosterLength(path: string): number {
   } catch { return 0; }
 }
 
-export function workspaceContents(dataDir: string): WorkspaceContents {
+export function workspaceContents(dataDir: string,remoteChats?:number): WorkspaceContents {
   let chats = 0;
   const database = join(dataDir, "messages.db");
-  if (existsSync(database)) {
+  if (remoteChats !== undefined) chats=remoteChats;
+  else if (existsSync(database)) {
     const db = new DatabaseSync(database, { timeout: 5_000 });
     try {
       const columns = db.prepare("SELECT name FROM pragma_table_info('messages')").all().map((row) => String(row.name));
@@ -50,6 +52,37 @@ export function workspaceContents(dataDir: string): WorkspaceContents {
     } finally { db.close(); }
   }
   return { bots: rosterLength(join(dataDir, "bots.json")), rooms: rosterLength(join(dataDir, "groups.json")), chats };
+}
+
+export async function currentWorkspaceContents(dataDir: string) {
+  const source = activeHistoryBackup();
+  return workspaceContents(dataDir, source ? (await portableHistorySize(source)).chats : undefined);
+}
+
+export async function currentMoveEstimate(dataDir: string, profile?: WorkspaceBackupProfile) {
+  const local = workspaceMoveSize(dataDir, profile);
+  const access = activeHistoryBackup();
+  if (!access) return { ...local, ...workspaceContents(dataDir) };
+  const history = await portableHistorySize(access);
+  const control = join(dataDir, "history-control.db");
+  const db = new DatabaseSync(control, { readOnly: true, timeout: 5000 });
+  let payload = 0;
+  try {
+    if (db.prepare("SELECT 1 FROM sqlite_schema WHERE name='history_receipt_sizing'").get()) {
+      const baseline = db.prepare("SELECT rows,payload_bytes FROM history_receipt_sizing WHERE singleton=1").get();
+      if (baseline && Number(baseline.rows) > 0) {
+        const n = Number(db.prepare("SELECT COUNT(*) n FROM command_receipts").get()?.n ?? 0);
+        payload = Math.ceil((Number(baseline.payload_bytes) * n) / Number(baseline.rows));
+      }
+    }
+  } finally {
+    db.close();
+  }
+  return {
+    ...workspaceContents(dataDir, history.chats),
+    files: local.files + 1,
+    bytes: local.bytes + lstatSync(control).size + history.bytes + payload,
+  };
 }
 
 export function isEmptyWorkspace(contents: WorkspaceContents): boolean {
@@ -223,7 +256,7 @@ export function previousCloud(dataDir: string): PreviousCloud | null {
 
 export async function prepareNextPreviousCloud(dataDir: string, restoreId: string, create: (password: string) => Promise<{ id: string; path: string }>): Promise<Omit<PreviousCloud, "bytes">> {
   const password = randomBytes(32).toString("base64url");
-  const contents = workspaceContents(dataDir);
+  const contents = await currentWorkspaceContents(dataDir);
   const created = await create(password);
   const next = nextPreviousFolder(dataDir);
   try {

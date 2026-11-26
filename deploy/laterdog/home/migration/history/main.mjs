@@ -36,6 +36,10 @@ async function remote() {
   const args = (q) => ({ generation: cfg.generation, ...q });
   const api = {
     admin: (q) => admin.admin(cfg.stable, args(q)),
+    receiptBatch: (q) => admin.receiptBatch(cfg.stable, cfg.generation, q),
+    getReceipt: (sha) => admin.getReceipt(cfg.stable, cfg.generation, sha),
+    putReceipt: (sha, body) =>
+      admin.putReceipt(cfg.stable, cfg.generation, sha, body),
     importStream: (req, stream) =>
       admin.importStream(cfg.stable, args(req), stream),
     async page(req) {
@@ -58,21 +62,36 @@ else if (action === "compact")
     local("output"),
     cfg.generation,
   );
-else if (action === "reconstruct")
-  receipt = await reconstruct(
-    local("source"),
-    data,
-    cfg.catalog,
-    local("output"),
-    cfg.generation,
-  );
-else if (action === "import" || action === "export-frozen") {
+else if (
+  ["status", "reconstruct", "import", "export-frozen"].includes(action)
+) {
   const { api, close } = await remote();
   try {
-    receipt =
-      action === "import"
-        ? await publishCatalog(api, data, cfg.catalog, local("journal"), cfg)
-        : await exportFrozen(api, data, cfg);
+    if (action === "status") {
+      const placement = await api.admin({ op: "status" });
+      receipt = {
+        mode: await placement.mode,
+        revision: await placement.revision,
+        generation: await placement.generation,
+      };
+    } else if (action === "reconstruct")
+      receipt = await reconstruct(
+        local("source"),
+        data,
+        cfg.catalog,
+        local("output"),
+        cfg.generation,
+        api,
+      );
+    else if (action === "import")
+      receipt = await publishCatalog(
+        api,
+        data,
+        cfg.catalog,
+        local("journal"),
+        cfg,
+      );
+    else receipt = await exportFrozen(api, data, cfg);
   } finally {
     await close();
   }

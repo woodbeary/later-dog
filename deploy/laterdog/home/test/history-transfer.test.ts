@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { it, expect } from "vitest";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -41,7 +42,22 @@ function binding() {
     }
     return { count: req.rows.length };
   }
+  const receipts = new Map();
   const api = {
+    async receiptBatch({ op, items }) {
+      return {
+        items: items.map((item) => {
+          if (op === "put") {
+            receipts.set(item.sha256, item.value);
+            return {
+              sha256: item.sha256,
+              bytes: Buffer.byteLength(item.value),
+            };
+          }
+          return { sha256: item.sha256, value: receipts.get(item.sha256) };
+        }),
+      };
+    },
     async admin(q) {
       const s = target(q.threadId);
       switch (q.op) {
@@ -52,6 +68,25 @@ function binding() {
           return { threads: [...shards.keys()].sort(), next: null };
         case "barrier":
           return { held: control.barrier, threads: shards.size };
+        case "commands":
+          return {
+            rows:
+              q.threadId === "one"
+                ? [
+                    {
+                      sequence: "1",
+                      rowid: "8",
+                      kind: "remote",
+                      key: "accepted",
+                      at: "80",
+                      resultRef:
+                        "history:v1:" +
+                        createHash("sha256").update("new").digest("hex"),
+                    },
+                  ]
+                : [],
+            next: null,
+          };
         case "watermark":
           return { nativeEventSequence: "1099511627779" };
         case "shardStatus":
@@ -90,7 +125,7 @@ function binding() {
       return append({ ...req, rows: [await new Response(stream).json()] });
     },
   };
-  return { api, shards, counters, control };
+  return { api, shards, counters, control, receipts };
 }
 
 it("reconciles a lost response, a vanished shard, a changed shard and late controls, then rebuilds each current raw row", async () => {
@@ -135,9 +170,11 @@ it("reconciles a lost response, a vanished shard, a changed shard and late contr
     expect(env.shards.get("three").rows.messages.size).toBe(0);
     await compact(source, data, frozen.sha256, coord, "test");
     const live = new DatabaseSync(coord);
-    live.exec(
-      "INSERT INTO command_receipts VALUES('operation','after',2,'new')",
-    );
+    const sha = createHash("sha256").update("new").digest("hex");
+    env.receipts.set(sha, "new");
+    live
+      .prepare("INSERT INTO command_receipts VALUES('operation','after',2,?)")
+      .run("history:v1:" + sha);
     live.close();
     const high = "1099511627781",
       one = env.shards.get("one").rows;
@@ -164,7 +201,7 @@ it("reconciles a lost response, a vanished shard, a changed shard and late contr
     const remote = await exportFrozen(env.api, data, held);
     expect(readCatalog(data, remote.sha256).shards).toHaveLength(3);
     const out = join(dir, "restored.db");
-    await reconstruct(coord, data, remote.sha256, out, "test");
+    await reconstruct(coord, data, remote.sha256, out, "test", env.api);
     const restore = new DatabaseSync(out, { readOnly: true });
     try {
       expect(
@@ -189,7 +226,7 @@ it("reconciles a lost response, a vanished shard, a changed shard and late contr
       ).toBe(0);
       expect(
         restore.prepare("SELECT count(*) n FROM command_receipts").get()?.n,
-      ).toBe(2);
+      ).toBe(3);
       expect(
         restore
           .prepare(

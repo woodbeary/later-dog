@@ -1,11 +1,10 @@
+import { captureReceipts } from "./receipts.mjs";
 import { createHash, randomUUID } from "node:crypto";
 import {
   existsSync,
-  linkSync,
   mkdirSync,
   readFileSync,
   rmSync,
-  writeFileSync,
   readdirSync,
 } from "node:fs";
 import { dirname, join } from "node:path";
@@ -30,36 +29,22 @@ import {
 
 export const hex = /^[a-f0-9]{64}$/;
 const CHUNK = 512 * 1024;
-export function writeOnce(path, data) {
-  mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
-  const temp = path + "." + randomUUID() + ".part";
-  writeFileSync(temp, data, { mode: 0o600, flag: "wx" });
-  try {
-    try {
-      linkSync(temp, path);
-    } catch (error) {
-      if (
-        error.code !== "EEXIST" ||
-        !Buffer.from(data).equals(readFileSync(path))
-      )
-        throw error;
-    }
-  } finally {
-    rmSync(temp, { force: true });
-  }
+export { writeOnce, saveJson } from "./artifact.mjs";
+import { writeOnce } from "./artifact.mjs";
+export function verifiedRows(directory, thread, table, shard) {
+  return verifiedLines(
+    directory,
+    shard.proof.tables[table],
+    shard.chunks[table],
+    (row, last) => validateImportRow(thread, table, row, last),
+  );
 }
-
-export function saveJson(path, value) {
-  writeOnce(path, Buffer.from(JSON.stringify(value)));
-}
-
-export function* verifiedRows(directory, thread, table, shard) {
-  const spec = shard.proof.tables[table];
+export function* verifiedLines(directory, spec, chunks, validate) {
   const hash = createHash("sha256");
   let count = 0,
     bytes = 0,
     last = null;
-  for (const block of shard.chunks[table]) {
+  for (const block of chunks) {
     if (!hex.test(block)) throw Error("Invalid history chunk hash");
     const part = gunzipSync(readFileSync(join(directory, "rows", block)));
     if (digest(part) !== block || part.at(-1) !== 10)
@@ -68,7 +53,7 @@ export function* verifiedRows(directory, thread, table, shard) {
     bytes += part.length;
     for (const line of part.toString("utf8").slice(0, -1).split("\n")) {
       const row = JSON.parse(line);
-      validateImportRow(thread, table, row, last);
+      validate(row, last);
       if (JSON.stringify(row) !== line) throw Error("Noncanonical history row");
       last = row[0];
       count++;
@@ -224,7 +209,7 @@ export function importLegacy(db, directory) {
 export async function capture(
   source,
   directory,
-  { legacyDirectory = dirname(source) } = {},
+  { legacyDirectory = dirname(source), portable = false } = {},
 ) {
   mkdirSync(directory, { recursive: true, mode: 0o700 });
   const file = join(directory, randomUUID() + ".sqlite.part");
@@ -236,7 +221,7 @@ export async function capture(
       verifySchema(db);
       const legacy = importLegacy(db, legacyDirectory);
       const shards = threads(db).map((thread) =>
-        collectThread(db, thread, directory, { importing: true }),
+        collectThread(db, thread, directory, { importing: !portable }),
       );
       const value = {
         v: 1,
@@ -244,9 +229,11 @@ export async function capture(
         legacy,
         eventSequence: eventSequence(db),
         controls: controlProof(db),
+        receipts: captureReceipts(db, directory),
         shards,
       };
       if (
+        !portable &&
         value.eventSequence !== null &&
         BigInt(value.eventSequence) >= 2n ** 40n
       )

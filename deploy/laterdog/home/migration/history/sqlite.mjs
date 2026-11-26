@@ -1,3 +1,4 @@
+import { receiptDigest } from "../../../../../shared/history-receipt.ts";
 import { createHash } from "node:crypto";
 import { createReadStream } from "node:fs";
 import { DatabaseSync, backup } from "node:sqlite";
@@ -49,6 +50,8 @@ const names = (db, table) =>
     .map((row) => row.name);
 
 export function verifySchema(db) {
+  if (db.prepare("PRAGMA encoding").get().encoding !== "UTF-8")
+    throw Error("History migration requires SQLite UTF-8 text encoding");
   if (db.prepare("PRAGMA quick_check").get().quick_check !== "ok")
     throw Error("SQLite quick_check failed");
   if (!tableExists(db, "messages") || !tableExists(db, "thread_state"))
@@ -162,6 +165,9 @@ export function controlProof(db) {
       .map((c) => "typeof(" + c + "),hex(CAST(" + c + " AS BLOB))");
     const hash = createHash("sha256");
     let count = 0;
+    const resultIndex =
+      table === "command_receipts" ? 2 + 2 * cols.indexOf("result") : -1;
+    const marked = tableExists(db, "history_receipt_generation");
     for (const row of arrays(
       db,
       "SELECT CAST(rowid AS TEXT)," +
@@ -170,6 +176,14 @@ export function controlProof(db) {
         table +
         " ORDER BY rowid",
     ).iterate()) {
+      if (resultIndex >= 2) {
+        if (row[resultIndex - 1] !== "text")
+          throw Error("Invalid command receipt encoding");
+        const bytes = Buffer.from(row[resultIndex], "hex");
+        row[resultIndex] = marked
+          ? receiptDigest(utf8.decode(bytes))
+          : digest(bytes);
+      }
       hash.update(JSON.stringify(row) + "\n");
       count++;
     }

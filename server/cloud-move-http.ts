@@ -5,7 +5,7 @@ import {
   backupsBytes, beginUpload, CLOUD_MOVE_MAX_BYTES, CLOUD_MOVE_MAX_PART_BYTES, CLOUD_MOVE_PART_BYTES, completedUpload, discardNextPreviousCloud,
   discardUpload, enabledRoutineCount, forgetMoveRestore, freeVolumeBytes, isEmptyWorkspace, moveSpaceNeeded, noteMoveRestore, prepareNextPreviousCloud,
   previousCloud, previousCloudArchiveBytes, removeMoveFiles, stagePreviousCloud, tidyCloudMoveStorage, totalVolumeBytes, uploadStatus, validUploadDeclaration,
-  workspaceContents, workspaceMoveSize, writeUploadPart, type PreviousCloud, type WorkspaceContents,
+  currentWorkspaceContents, currentMoveEstimate, writeUploadPart, type PreviousCloud, type WorkspaceContents,
 } from "./cloud-move.ts";
 import { estimateAssignedFiles, commitPendingWorkspaceRestore, createWorkspaceBackup, stageWorkspaceBackup } from "./workspace-backup.ts";
 import { CLOUD_MOVE_PROFILE, parseBackupProfile } from "./laterdog/cloud-move-profile.ts";
@@ -96,9 +96,9 @@ export function createCloudMoveRoutes(options: {
       }
     }
   };
-  const refuseUnlessEmpty = (requireEmpty: boolean) => {
+  const refuseUnlessEmpty = async (requireEmpty: boolean) => {
     if (!requireEmpty) return;
-    const contents = workspaceContents(options.dataDir);
+    const contents = await currentWorkspaceContents(options.dataDir);
     if (!isEmptyWorkspace(contents)) throw notEmpty(contents);
   };
   async function replaceWith(id: string, req: IncomingMessage, auth: RequestAuth, requireEmpty = false) {
@@ -106,7 +106,7 @@ export function createCloudMoveRoutes(options: {
     try {
       return await quietly(async () => {
         check(req, auth);
-        refuseUnlessEmpty(requireEmpty);
+        await refuseUnlessEmpty(requireEmpty);
         const previous = await prepareNextPreviousCloud(options.dataDir, id, (password) =>
           createWorkspaceBackup(options.dataDir, { password, appVersion: options.appVersion }));
         return { committed: commitPendingWorkspaceRestore(options.dataDir, id), previous };
@@ -118,8 +118,8 @@ export function createCloudMoveRoutes(options: {
       throw error;
     } finally { staged.delete(id); }
   }
-  const roomFor = (archive: number, already = 0) => {
-    const needed = moveSpaceNeeded(archive, workspaceMoveSize(options.dataDir).bytes, true) - already;
+  const roomFor = async (archive: number, already = 0) => {
+    const needed = moveSpaceNeeded(archive, (await currentMoveEstimate(options.dataDir)).bytes, true) - already;
     const free = freeBytes(options.dataDir);
     return free >= needed ? null : { error: "This server does not have enough free space for this.", freeBytes: free, neededBytes: needed };
   };
@@ -132,8 +132,8 @@ export function createCloudMoveRoutes(options: {
       if (!auth.scopes.includes("admin")) throw failure("Only the owner can copy a workspace.", 403);
       if (method === "GET" && path === `${CLOUD_MOVE_PREFIX}/estimate`) {
         const profile = parseBackupProfile(new URL(req.url ?? "/", "http://cloud-move.invalid").searchParams.get("profile"));
-        const local=workspaceMoveSize(options.dataDir,profile),assigned=await estimateAssignedFiles(options.dataDir);
-        json(res, 200, { ...workspaceContents(options.dataDir), files:local.files+assigned.files,bytes:local.bytes+assigned.bytes, routines: enabledRoutineCount(options.dataDir), maxBytes: CLOUD_MOVE_MAX_BYTES, ...identity });
+        const local=await currentMoveEstimate(options.dataDir,profile),assigned=await estimateAssignedFiles(options.dataDir);
+        json(res, 200, { ...local, files:local.files+assigned.files,bytes:local.bytes+assigned.bytes, routines: enabledRoutineCount(options.dataDir), maxBytes: CLOUD_MOVE_MAX_BYTES, ...identity });
         return true;
       }
       if (auth.kind !== "session") throw failure("Copying a workspace needs the owner's signed-in app.", 403);
@@ -142,7 +142,7 @@ export function createCloudMoveRoutes(options: {
       }
       check(req, auth);
       if (method === "GET" && path === CLOUD_MOVE_PREFIX) {
-        const contents = workspaceContents(options.dataDir);
+        const contents = await currentWorkspaceContents(options.dataDir);
         if (!held || held.at + HELD_CACHE_MS < Date.now()) held = { at: Date.now(), bytes: backupsBytes(options.dataDir) };
         json(res, 200, {
           contents, empty: isEmptyWorkspace(contents), freeBytes: freeBytes(options.dataDir), volumeBytes: volumeBytes(options.dataDir), maxBytes: CLOUD_MOVE_MAX_BYTES,
@@ -160,7 +160,7 @@ export function createCloudMoveRoutes(options: {
         const declared = validUploadDeclaration(z.object({ sha256: z.unknown(), bytes: z.unknown(), files: z.unknown().optional() }).parse(await options.readBody(req, 4096)));
         ready();
         dropStaged();
-        const refused = roomFor(declared.bytes, uploadStatus(options.dataDir)?.received ?? 0);
+        const refused = await roomFor(declared.bytes, uploadStatus(options.dataDir)?.received ?? 0);
         if (refused) { json(res, 507, refused); return true; }
         check(req, auth);
         held = null;
@@ -221,7 +221,7 @@ export function createCloudMoveRoutes(options: {
         ready();
         if (!staged.has(body.id)) throw failure("This copy is no longer ready on this server. Start it again.", 404);
         const requireEmpty = body.requireEmpty === true;
-        refuseUnlessEmpty(requireEmpty);
+        await refuseUnlessEmpty(requireEmpty);
         start("restore", async () => {
           const { committed, previous } = await replaceWith(body.id, req, auth, requireEmpty);
           const from = stagedFrom.get(body.id);
@@ -235,7 +235,7 @@ export function createCloudMoveRoutes(options: {
         await options.readBody(req, 4096);
         ready();
         if (!previousCloud(options.dataDir)) throw failure("There is nothing on this server to swap back to.", 404);
-        const refused = roomFor(previousCloudArchiveBytes(options.dataDir));
+        const refused = await roomFor(previousCloudArchiveBytes(options.dataDir));
         if (refused) { json(res, 507, refused); return true; }
         dropStaged();
         start("undo", async () => {

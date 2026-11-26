@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { afterEach, expect, it } from "vitest";
 import { DatabaseSync } from "node:sqlite";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
@@ -102,7 +103,10 @@ it("captures the committed live WAL and exact rows, fork, native payload and all
       ).toBe("g1");
       expect(
         compacted.prepare("SELECT result FROM command_receipts").get()?.result,
-      ).toBe('{"ok":true}');
+      ).toBe(
+        "history:v1:" +
+          createHash("sha256").update('{"ok":true}').digest("hex"),
+      );
       expect(
         compacted.prepare("SELECT seq FROM sqlite_sequence").get()?.seq,
       ).toBe(31);

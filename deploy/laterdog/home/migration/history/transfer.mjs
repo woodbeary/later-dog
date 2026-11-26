@@ -1,3 +1,5 @@
+import { acceptedCommands } from "./accepted.mjs";
+import { transferReceipts } from "./receipts.mjs";
 import { randomUUID } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -121,7 +123,7 @@ export async function mapLimit(values, limit, fn) {
   return results;
 }
 
-async function importTable(api, base, rows) {
+export async function importTable(api, base, rows) {
   let batch = [],
     bytes = 0;
   const flush = async () => {
@@ -162,6 +164,13 @@ export async function publishCatalog(
   saveJson(join(journal, "target.json"), identity);
   const started = await api.admin({ op: "begin", expectedRevision });
   assert(started.generation === generation, "Unexpected migration generation");
+  const receipts = await transferReceipts(
+    api,
+    directory,
+    source.receipts,
+    journal,
+    identity,
+  );
   const byId = new Map(source.shards.map((s) => [s.proof.threadId, s]));
   const remoteIds = await listThreads(api);
   for (const thread of remoteIds)
@@ -252,6 +261,7 @@ export async function publishCatalog(
     v: 1,
     ...identity,
     catalog: catalogSha256,
+    receipts,
     shards: results.sort((a, b) =>
       Buffer.compare(Buffer.from(a[0]), Buffer.from(b[0])),
     ),
@@ -295,6 +305,10 @@ export async function exportFrozen(
   assert(ids.length === before.threads, "Incomplete frozen shard directory");
   const shards = await mapLimit(ids, concurrency, async (threadId) => {
     const shard = await fetchThread(api, threadId, directory);
+    shard.commands = await acceptedCommands(
+      (q) => api.admin({ ...q, threadId, op: "commands" }),
+      directory,
+    );
     const value = (await api.admin({ op: "watermark", threadId }))
       .nativeEventSequence;
     assert(
