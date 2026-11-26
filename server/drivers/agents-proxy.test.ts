@@ -630,7 +630,8 @@ describe("agents-proxy MCP surface", () => {
     const text = res.result.content[0].text;
     expect(text).toContain("Helper");
     expect(text).toContain("bot-helper");
-    expect(text).toContain("Use coordinate_bots for advice or concrete work");
+    expect(text).toContain('Use coordinate_bots with reply "result" to start work, then end your turn; its result resumes you.');
+    expect(text).toContain('Use reply "none" for FYIs and relays that can wait as context in the next real turn; it starts no turn and returns no result.');
     expect(lastAuth).toBe(`Bearer ${TOKEN}`);
   });
 
