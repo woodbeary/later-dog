@@ -2,6 +2,7 @@ export type KeptSignIn = "fresh" | "renewed" | "signed-out" | "unrenewed";
 export type KeepSignIn = () => Promise<KeptSignIn>;
 
 export const ACCOUNT_KEEPER_EVERY_MS = 60_000;
+export const ACCOUNT_KEEPER_RETRY_MS = 10 * 60_000;
 
 export interface AccountKeeper {
   keep(instanceId: string, renew: KeepSignIn): Promise<KeptSignIn>;
@@ -11,8 +12,11 @@ export interface AccountKeeper {
   onChange(listener: (instanceId: string, outcome: KeptSignIn) => void): void;
 }
 
-export function createAccountKeeper(options: { everyMs?: number; enabled?: () => boolean } = {}): AccountKeeper {
+export function createAccountKeeper(options: { everyMs?: number; retryMs?: number; enabled?: () => boolean; now?: () => number } = {}): AccountKeeper {
   const everyMs = options.everyMs ?? ACCOUNT_KEEPER_EVERY_MS;
+  const retryMs = options.retryMs ?? ACCOUNT_KEEPER_RETRY_MS;
+  const now = options.now ?? Date.now;
+  const failedAt = new Map<string, number>();
   const enabled = options.enabled ?? (() => true);
   const running = new Map<string, Promise<KeptSignIn>>();
   const watched = new Map<string, KeepSignIn>();
@@ -26,6 +30,8 @@ export function createAccountKeeper(options: { everyMs?: number; enabled?: () =>
     last.set(instanceId, outcome);
     if (outcome === "signed-out") out.add(instanceId);
     else if (outcome !== "unrenewed") out.delete(instanceId);
+    if (outcome === "signed-out" || outcome === "unrenewed") failedAt.set(instanceId, now());
+    else failedAt.delete(instanceId);
     if (was !== outcome && !(was === undefined && outcome === "fresh")) for (const listener of listeners) listener(instanceId, outcome);
     return outcome;
   };
@@ -42,7 +48,7 @@ export function createAccountKeeper(options: { everyMs?: number; enabled?: () =>
 
   const check = async () => {
     if (!enabled()) return;
-    await Promise.all([...watched].map(([instanceId, renew]) => keep(instanceId, renew)));
+    await Promise.all([...watched].filter(([instanceId]) => now() - (failedAt.get(instanceId) ?? -Infinity) >= retryMs).map(([instanceId, renew]) => keep(instanceId, renew)));
   };
 
   return {
@@ -59,6 +65,7 @@ export function createAccountKeeper(options: { everyMs?: number; enabled?: () =>
         watched.delete(instanceId);
         out.delete(instanceId);
         last.delete(instanceId);
+        failedAt.delete(instanceId);
         if (!watched.size && timer) { clearInterval(timer); timer = null; }
       };
     },

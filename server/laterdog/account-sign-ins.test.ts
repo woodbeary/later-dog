@@ -78,3 +78,19 @@ it("checks every watched account on its schedule, one renewal per account at a t
   stop();
   expect(keeper.signedOut("grok")).toBe(false);
 });
+
+it("waits ten minutes before the schedule tries an account again after a failed renewal, while a turn may still try at once", async () => {
+  let clock = 0;
+  const keeper = createAccountKeeper({ now: () => clock });
+  let runs = 0;
+  const stop = keeper.watch("chatgpt", async () => { runs += 1; return "unrenewed"; });
+  await keeper.check();
+  await keeper.check();
+  expect(runs).toBe(1);
+  await keeper.keep("chatgpt", async () => { runs += 1; return "unrenewed"; });
+  expect(runs).toBe(2);
+  clock += 10 * 60_000;
+  await keeper.check();
+  expect(runs).toBe(3);
+  stop();
+});
