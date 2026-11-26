@@ -23,6 +23,7 @@ import {
   mergeFolder,
   uploadChanged,
   visitFolder,
+  validateFolderHardlinks,
   type FolderVisit,
 } from "./engine-folder-files.ts";
 
@@ -81,6 +82,7 @@ function ensureRealDirectory(path: string): void {
 }
 
 function validateLinks(tree: FolderTree): void {
+  validateFolderHardlinks(tree);
   for (const e of tree.entries.values()) {
     if (e.kind !== "link") continue;
     const cwd = e.path.split("/").slice(0, -1),
