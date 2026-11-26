@@ -81,6 +81,22 @@ const frames = (text: string) => text.split("\n").filter((line) => line.startsWi
 const chat = (stream: boolean, extra: Record<string, unknown> = {}) => ({ model: "later-dog", stream, messages: [{ role: "user", content: "hello" }], ...extra });
 
 describe("the included AI", () => {
+  it("lends only expiring chat access to a computer and meters its original account", async () => {
+    const { w, key, gatewayRun } = await ai();
+    const grant = await w.fetch(apiRequest("POST", "/v1/ai/grant", key));
+    expect(grant.status).toBe(200);
+    const { token } = await grant.json() as { token: string };
+    expect(token).not.toContain(key);
+    const ask = (credential: string) => w.fetch(apiRequest("POST", "/v1/ai/chat/completions", credential, { body: chat(false) }));
+    expect((await ask(token)).status).toBe(200);
+    expect(gatewayRun.mock.calls[0]![0]).toMatchObject({ headers: { "cf-aig-metadata": JSON.stringify((await viaGateway(key)).gateway.metadata) } });
+    expect((await w.fetch(apiRequest("POST", "/v1/ai/grant", token))).status).toBe(401);
+    expect((await w.fetch(apiRequest("GET", "/v1/usage", token))).status).toBe(401);
+    expect((await ask(token.replace(/\d+(?=\.[A-Za-z0-9_-]+$)/, "1"))).status).toBe(401);
+    vi.spyOn(Date, "now").mockReturnValue(Date.now() + 3_601_000);
+    expect((await ask(token)).status).toBe(401);
+  });
+
   it("answers a trial's chat with Grok through the AI Gateway on the included model, and counts its tokens", async () => {
     const { w, key, gateway, gatewayRun, used } = await ai();
     const response = await w.fetch(apiRequest("POST", "/v1/ai/chat/completions", key, { body: chat(false, { api_key: "x", n: 5, max_tokens: 900_000 }) }));

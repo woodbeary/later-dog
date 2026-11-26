@@ -3,7 +3,7 @@ import { randomUUID } from "node:crypto";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { expect, it, onTestFinished } from "vitest";
-import { codexComputerWorkspace } from "./codex-placement.ts";
+import { codexComputerWorkspace, planCodexRemote } from "./codex-placement.ts";
 import { codexCheckpoint, codexPendingDispatch } from "./codex-checkpoint.ts";
 
 it("binds a resumed cursor to the dog's native account, chat and exact saved checkpoint", async () => {
@@ -38,6 +38,75 @@ it("binds a resumed cursor to the dog's native account, chat and exact saved che
   await expect(bound.publish(cursor, remote, name, saved, turn)).rejects.toThrow("newer home checkpoint");
   expect(readFileSync(target, "utf8")).toBe(meta + last + "\n");
   await expect(bound.rememberHome(cursor, join(account, name))).rejects.toThrow("unexpected");
+});
+
+it("enrolls an existing selected account rollout before the first guest turn and refuses conflicting history", async () => {
+  const scratch = mkdtempSync(join(tmpdir(), "codex-existing-rollout-"));
+  onTestFinished(() => rmSync(scratch, { recursive: true, force: true }));
+  const data = join(scratch, "data");
+  const account = join(scratch, "account");
+  const workspace = join(data, "task-workspaces", "dog", "chat", "a sufficiently long directory to exercise native metadata parsing");
+  const binding = codexCheckpoint(data, account, "dog", "chat", "instance", "account");
+  const cursor = randomUUID();
+  const name = `2026/11/25/rollout-2026-11-25T12-00-00-${cursor}.jsonl`;
+  const source = join(account, "sessions", name);
+  const contents = JSON.stringify({ type: "session_meta", payload: { id: cursor, cwd: workspace } }) + "\n" +
+    JSON.stringify({ type: "response_item", payload: { type: "message", content: [{ text: "original conversation" }] } }) + "\n";
+  mkdirSync(dirname(source), { recursive: true });
+  writeFileSync(source, contents);
+  expect(await binding.lookup(cursor)).toBeNull();
+  await expect(binding.bindSaved(cursor, workspace + "-other")).rejects.toThrow("another session or working folder");
+  const otherAccount = codexCheckpoint(data, join(scratch, "another-account"), "dog", "chat", "other-instance", "other-account");
+  await expect(otherAccount.bindSaved(cursor, workspace)).rejects.toThrow("missing from its selected account");
+  const duplicate = join(account, "sessions", name.replace("2026/11/25", "2026/11/24"));
+  mkdirSync(dirname(duplicate), { recursive: true });
+  writeFileSync(duplicate, contents);
+  await expect(binding.bindSaved(cursor, workspace)).rejects.toThrow("ambiguous or unsafe");
+  rmSync(duplicate);
+  symlinkSync(source, duplicate);
+  await expect(binding.bindSaved(cursor, workspace)).rejects.toThrow("ambiguous or unsafe");
+  rmSync(duplicate);
+  const bound = await binding.bindSaved(cursor, workspace);
+  expect(bound.path).toBe(name);
+  await binding.stage(cursor, join(scratch, "guest"), bound);
+  expect(readFileSync(join(scratch, "guest", name), "utf8")).toBe(contents);
+  expect(await binding.lookup(cursor)).toEqual(bound);
+  await expect(otherAccount.bindSaved(cursor, workspace)).rejects.toThrow("bound to another");
+  appendFileSync(source, "\n");
+  await expect(binding.bindSaved(cursor, workspace)).rejects.toThrow("changed");
+});
+
+it("prepares the saved session and only the supplied image for a required computer without a home turn", async () => {
+  const scratch = mkdtempSync(join(tmpdir(), "codex-required-plan-"));
+  onTestFinished(() => rmSync(scratch, { recursive: true, force: true }));
+  const workspace = join(scratch, "task-workspaces", "dog", "chat");
+  const account = join(scratch, "account");
+  const pkg = join(scratch, "node_modules", "@openai", "codex");
+  for (const path of [workspace, account, join(pkg, "bin")]) mkdirSync(path, { recursive: true });
+  const cli = join(pkg, "bin", "codex.js");
+  writeFileSync(cli, "");
+  writeFileSync(join(pkg, "package.json"), JSON.stringify({ name: "@openai/codex", version: "0.163.0" }));
+  writeFileSync(join(account, "auth.json"), JSON.stringify({ tokens: { account_id: "selected", access_token: "scoped", refresh_token: "only-home" } }));
+  const cursor = randomUUID();
+  const name = `2026/11/25/rollout-2026-11-25T12-00-00-${cursor}.jsonl`;
+  const path = join(account, "sessions", name);
+  mkdirSync(dirname(path), { recursive: true });
+  writeFileSync(path, JSON.stringify({ type: "session_meta", payload: { id: cursor, cwd: workspace } }) + "\n");
+  const image = join(scratch, "original.png");
+  writeFileSync(image, "image");
+  const input = { dataDir: scratch, botId: "dog", threadId: "chat", instanceId: "provider", cli, cwd: workspace, env: { CODEX_HOME: account },
+    cursor, opener: { proxyPath: "/proxy", open: async () => { throw new Error("unnecessary"); } }, guardShell: false, refresh: async () => {} };
+  expect((await planCodexRemote(input)).stay).toContain("saving the current native session on the home");
+  const placed = await planCodexRemote({ ...input, required: true, images: [{ path: image, mime: "image/png", bytes: 5 }] });
+  if (!placed.plan) throw new Error(placed.stay);
+  const sessions = placed.plan.launch.roots.find(root => root.id === "sessions")!;
+  expect(sessions.files).toEqual([name]);
+  expect(readFileSync(join(sessions.path, name))).toEqual(readFileSync(path));
+  expect(placed.selectedRollout(cursor, join(sessions.path, name))).toEqual({ name, needsSelection: false });
+  expect(() => placed.selectedRollout(randomUUID(), join(sessions.path, name))).toThrow();
+  expect(readFileSync(placed.imagePaths[0]!, "utf8")).toBe("image");
+  expect(placed.plan.launch.roots.find(root => root.id === "images")).toMatchObject({ files: ["0.png"], readOnly: true, writable: false });
+  expect(JSON.stringify(placed.plan)).not.toContain("only-home");
 });
 
 it("stages a large selected Codex rollout and atomically publishes only the matching completed turn", async () => {

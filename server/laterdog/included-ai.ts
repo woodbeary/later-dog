@@ -40,7 +40,7 @@ export function includedAiError(status: number, body: string): string | undefine
 
 const notReady = () => (savedTrial()?.ended ? ended() : onCloudHome() ? HOME_SETTING_UP : NOT_STARTED);
 
-function includedDriver(driverKind: string, displayName: string, models: typeof KIMI_MODELS, reasonsInContent: boolean): ProviderDriver<Record<string, never>> {
+function includedDriver(driverKind: string, displayName: string, models: typeof KIMI_MODELS, reasonsInContent: boolean, account = trialAi): ProviderDriver<Record<string, never>> {
   return {
     driverKind,
     metadata: { displayName, supportsMultipleInstances: false },
@@ -52,8 +52,8 @@ function includedDriver(driverKind: string, displayName: string, models: typeof 
       return createOpenAIChatRuntime({
         input,
         driverKind,
-        apiKey: () => trialAi()?.token ?? "",
-        apiUrl: trialAi()?.api ?? FALLBACK_URL,
+        apiKey: () => account()?.token ?? "",
+        apiUrl: account()?.api ?? FALLBACK_URL,
         models: () => models,
         requestBody: (model, messages, stream) => ({ model, messages, stream }),
         httpErrorLabel: displayName,
@@ -77,3 +77,10 @@ function includedDriver(driverKind: string, displayName: string, models: typeof 
 
 export const IncludedAiDriver = includedDriver(INCLUDED_AI_DRIVER, "Kimi", KIMI_MODELS, true);
 export const IncludedGrokDriver = includedDriver(INCLUDED_GROK_DRIVER, "Grok (free)", GROK_MODELS, false);
+
+
+export function includedGuestDriver(kind: string, api: string, token: string) {
+  const account = () => ({ api, token, included: true as const });
+  return kind === INCLUDED_AI_DRIVER ? includedDriver(kind, "Kimi", KIMI_MODELS, true, account)
+    : kind === INCLUDED_GROK_DRIVER ? includedDriver(kind, "Grok (free)", GROK_MODELS, false, account) : null;
+}

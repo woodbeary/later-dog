@@ -8,6 +8,7 @@ import { recordEvents } from "../testing/events.ts";
 import { ClaudeDriver } from "./claude.ts";
 import { ClaudeTasks } from "./claude-tasks.ts";
 import { setEngineOpener, type ClaudeRemotePlan } from "../laterdog/engine-placement.ts";
+import * as placement from "../laterdog/engine-placement.ts";
 import { commandLink } from "../laterdog/engine-remote.ts";
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -37,6 +38,71 @@ function fakeRelay(plan: ClaudeRemotePlan, remoteRoot: string) {
   Object.assign(plan.launch.env, Object.fromEntries(controls));
   return commandLink(process.execPath, [RELAY], { ...process.env, LATERDOG_ENGINE_TEST_ROOT: remoteRoot });
 }
+
+it("keeps a required cloud turn off the home when its computer is unavailable", async () => {
+  ensureDirs();
+  const base = realpathSync(mkdtempSync("/tmp/ldclaude-required-"));
+  scratch.push(base);
+  const config = join(base, "config");
+  const cwd = join(base, "work");
+  for (const dir of [config, cwd]) mkdirSync(dir);
+  writeFileSync(join(config, ".credentials.json"), JSON.stringify({ claudeAiOauth: { accessToken: "fixture", expiresAt: Date.now() + 3600_000 } }));
+  const dump = join(base, "local-prompt.json");
+  process.env.FAKE_CLAUDE_DUMP = dump;
+  vi.spyOn(placement, "remoteEngineChoice").mockImplementation((_dir, botId) => ({ botId, computer: true, fromEnvironment: false, required: true }));
+  const open = vi.fn(async () => { throw new Error("The fixture computer is offline."); });
+  setEngineOpener({ proxyPath: PROXY, open });
+  const instance = await ClaudeDriver.create({ instanceId: "claude-required", displayName: "Claude", enabled: true,
+    environment: { CLAUDE_CONFIG_DIR: config, FAKE_CLAUDE_VERSION: "2.1.316" }, config: { cli: fakePackage(join(base, "lib")), permissionMode: "auto" } });
+  onTestFinished(() => instance.dispose());
+  const recorder = recordEvents(instance.adapter);
+  await instance.adapter.sendTurn({ threadId: "required-thread", botId: "required-dog", text: "local execution would write the dump", cwd });
+  const done = await recorder.until(event => event.type === "turn.completed");
+  expect(done).toMatchObject({ ok: false });
+  expect(recorder.events.some(event => event.type === "runtime.error" && event.message.includes("offline"))).toBe(true);
+  expect(open).toHaveBeenCalledTimes(1);
+  expect(existsSync(dump)).toBe(false);
+  const missing = "11111111-2222-4333-8444-555555555555";
+  await expect(instance.adapter.sendTurn({ threadId: "required-legacy", botId: "required-dog", text: "never rebuild silently",
+    resumeCursor: missing, recoveryText: "partial context", cwd })).rejects.toThrow("saved Claude session is missing");
+  expect(open).toHaveBeenCalledTimes(1);
+  expect(existsSync(dump)).toBe(false);
+}, 30_000);
+
+it("generates auxiliary text on its owning computer with the selected model, usage and no chat tools", async () => {
+  ensureDirs();
+  const base = realpathSync(mkdtempSync("/tmp/ldclaude-helper-"));
+  scratch.push(base);
+  const config = join(base, "config");
+  const remoteRoot = join(base, "remote");
+  const remoteBase = join(base, "rb");
+  for (const dir of [config, remoteRoot]) mkdirSync(dir);
+  writeFileSync(join(config, ".credentials.json"), JSON.stringify({ claudeAiOauth: { accessToken: "fixture", expiresAt: Date.now() + 3600_000 } }));
+  vi.spyOn(placement, "remoteEngineChoice").mockImplementation((_dir, botId) => ({ botId, computer: true, fromEnvironment: false, required: true }));
+  const bin = join(remoteBase, "cli", "claude-code-2.1.316", "node_modules", ".bin");
+  mkdirSync(bin, { recursive: true });
+  symlinkSync(fakePackage(join(base, "remote-cli")), join(bin, "claude"));
+  const launches: string[] = [];
+  setEngineOpener({ proxyPath: PROXY, remoteBase, open: async (dog, plan) => {
+    launches.push(dog);
+    expect(plan.launch.outputIds).toEqual([]);
+    expect(plan.launch.roots.map(root => root.id)).toEqual(["workspace", "account", "launch", "credential"]);
+    expect(plan.launch.roots[0]).toMatchObject({ files: [], writable: false });
+    expect(plan.launch.mcp).toEqual({});
+    expect(plan.launch.args).toEqual(expect.arrayContaining(["--no-session-persistence", "--tools", "", "--strict-mcp-config"]));
+    mkdirSync(remoteRoot + plan.launch.cwd, { recursive: true });
+    return fakeRelay(plan, remoteRoot);
+  } });
+  const provider = await ClaudeDriver.create({ instanceId: "claude-helper", displayName: "Claude", enabled: true,
+    environment: { CLAUDE_CONFIG_DIR: config, FAKE_CLAUDE_VERSION: "2.1.316" }, config: { cli: fakePackage(join(base, "home-cli")), permissionMode: "auto" } });
+  onTestFinished(() => provider.dispose());
+  const usage = vi.fn();
+  await expect(provider.generateText!("name this conversation", { model: "haiku", botId: "helper-owner", onUsage: usage })).resolves.toBe("fake generated text");
+  expect(usage).toHaveBeenCalledWith(expect.objectContaining({ model: "haiku" }));
+  await expect(provider.generateText!("missing owner")).rejects.toThrow("requires the dog");
+  await expect(provider.generateText!("cancelled", { botId: "helper-owner", signal: AbortSignal.abort() })).rejects.toThrow("aborted");
+  expect(launches).toEqual(["helper-owner"]);
+}, 30_000);
 
 it("runs a chosen dog's Claude turn on its computer with the same model and session, and leaves other dogs on the home", async () => {
   ensureDirs();

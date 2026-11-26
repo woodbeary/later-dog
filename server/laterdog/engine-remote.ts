@@ -39,6 +39,7 @@ export interface RemoteLaunch {
   pushes?: () => PushedFile[];
   pushEveryMs?: number;
   requireCompleteCheckpoint?: boolean;
+  acknowledgedInput?: boolean;
   ephemeralCodexHome?: string;
   mcp: Record<string, StdioSpec>;
   hooks: string[];
@@ -67,6 +68,7 @@ export class RemoteSession extends EventEmitter {
   #sequence = 0;
   #ready: Promise<void>;
   #incoming: Promise<void> = Promise.resolve();
+  #written: Promise<void> = Promise.resolve();
   #fileAbort = new AbortController();
   #onFileProgress = () => { this.checkpointProgressAt = Date.now(); };
   #closed = false;
@@ -239,8 +241,18 @@ export class RemoteSession extends EventEmitter {
     this.#pushTimer.unref();
   }
 
-  write(bytes: Buffer): void { if (this.#started && !this.#closed) this.#send({ type: "stdin", data: bytes.toString("base64") }); }
-  end(): void { if (this.#started && !this.#closed) this.#send({ type: "end" }); }
+  write(bytes: Buffer): void {
+    if (!this.#started || this.#closed) return;
+    if (!this.#launch.acknowledgedInput) { this.#send({ type: "stdin", data: bytes.toString("base64") }); return; }
+    this.#written = this.#written.then(async () => {
+      for (let offset = 0; offset < bytes.length; offset += 256 * 1024) {
+        await this.#request({ type: "stdin", data: bytes.subarray(offset, offset + 256 * 1024).toString("base64") }, SYNC_REPLY_MS);
+      }
+    }).catch(() => { this.#lost("engine input interrupted"); this.#link.close(); });
+  }
+  end(): void {
+    void this.#written.then(() => { if (this.#started && !this.#closed) this.#send({ type: "end" }); });
+  }
   stop(): void { if (!this.#closed) this.#send({ type: "stop" }); }
   close(): void { this.#link.close(); }
   async selectTranscript(id: string, name: string): Promise<boolean> {

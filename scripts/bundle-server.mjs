@@ -56,6 +56,7 @@ const ENTRY_POINTS = [
   "drivers/agents-proxy.ts",
   "laterdog/engine-relay.ts",
   "laterdog/engine-proxy.ts",
+  "laterdog/provider-guest.ts",
 ];
 
 await build({

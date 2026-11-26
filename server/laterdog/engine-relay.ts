@@ -312,7 +312,14 @@ async function handle(frame: any): Promise<void> {
     case "file_remove": receiver.remove(frame.file); return;
     case "prepared": await reply(frame.id, { prepared: true }); return;
     case "launch": await launch(frame); return;
-    case "stdin": child?.stdin.write(Buffer.from(frame.data, "base64")); return;
+    case "stdin": {
+      if (frame.id === undefined) { child?.stdin.write(Buffer.from(frame.data, "base64")); return; }
+      if (!child || !child.stdin.writable) throw new Error("Engine input closed.");
+      const stdin = child.stdin;
+      await new Promise<void>((resolve, reject) => stdin.write(Buffer.from(frame.data, "base64"), error => error ? reject(error) : resolve()));
+      await reply(frame.id, { received: true });
+      return;
+    }
     case "end": child?.stdin.end(); return;
     case "stop": kill(); setTimeout(() => kill("SIGKILL"), 3_000).unref(); return;
     case "ack": acknowledgements.get(frame.id)?.(frame.error); acknowledgements.delete(frame.id); return;

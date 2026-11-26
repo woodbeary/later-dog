@@ -4,7 +4,7 @@ import { open } from "node:fs/promises";
 import { dirname, join, relative } from "node:path";
 import { renameWithRetry, writeFileAtomic } from "../atomic.ts";
 import { engineFilePath, type EngineFileRoot } from "./engine-files.ts";
-import { inspectCodexRollout, validatedCodexRollout } from "./codex-rollout.ts";
+import { findSelectedCodexRollout, inspectCodexRollout, validatedCodexRollout } from "./codex-rollout.ts";
 
 const digest = (bytes: Buffer | string) => createHash("sha256").update(bytes).digest("hex");
 export function codexPendingDispatch(dataDir: string, botId: string, threadId: string, turnId: string, sourceMessageId?: string) {
@@ -57,6 +57,14 @@ export function codexCheckpoint(dataDir: string, accountHome: string, bot: strin
   };
   return {
     key, lookup,
+    async bindSaved(cursor: string, workspace: string) {
+      const saved = await lookup(cursor);
+      if (saved) return saved;
+      const name = await findSelectedCodexRollout(sessions, cursor);
+      const verified = await inspectCodexRollout(sessions, name, cursor, undefined, undefined, workspace);
+      remember(cursor, name, verified.hash);
+      return { path: name, ...verified };
+    },
     async rememberHome(cursor: string, nativePath: string) {
       const name = relative(sessions.path, nativePath);
       remember(cursor, name, (await inspectCodexRollout(sessions, name, cursor)).hash);
