@@ -147,7 +147,7 @@ else if (
       );
     else receipt = await exportFrozen(api, data, cfg);
   } finally {
-    await close();
+    await bounded(close, 30_000).catch(() => {});
   }
 } else
   throw Error(
