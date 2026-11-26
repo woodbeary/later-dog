@@ -24,6 +24,7 @@ const nodeSchema = z.object({
   approvalGranted: z.boolean().default(false),
   requestedBy: z.string().optional(),
   lender: z.string().optional(),
+  macLender: z.string().nullable().optional(),
   routineRunId: z.string().optional(),
   kind: z.enum(["work", "assignment"]).default("work"),
   endedBy: z.enum(HANDOFF_ENDS).optional(),
@@ -271,7 +272,7 @@ export class RoomHandoffs {
   enqueue(source: RoomAddress, generation: string, parentId: string | undefined,
     target: RoomAddress, key: string, text: string, approvalGranted = false,
     rework = false, sourceText = "", requestBatchKey?: string, requestedBy?: string, routineRunId?: string,
-    lender?: string, urgent = false, reply: "none" | "result" = "result"): { node: RoomHandoff; duplicate: boolean } {
+    lender?: string, urgent = false, reply: "none" | "result" = "result", macLender?: string | null): { node: RoomHandoff; duplicate: boolean } {
     if (this.loadError) throw new Error(this.loadError);
     this.settleRestart();
     let parent = parentId ? this.nodes.get(parentId) : this.nodes.get(generation);
@@ -281,7 +282,7 @@ export class RoomHandoffs {
     }
     const fresh = !parent;
     parent ??= { ...source, id: generation, rootId: generation, key: "root", text: sourceText.slice(0, 12_000), createdAt: this.now(), status: "source", result: "", reported: true, executions: 0, approvalGranted: false, kind: "work",
-      ...(requestedBy ? { requestedBy } : {}), ...(lender ? { lender } : {}) };
+      ...(requestedBy ? { requestedBy } : {}), ...(lender ? { lender } : {}), ...(macLender !== undefined ? { macLender } : {}) };
     const kind = target.groupId && target.groupId === source.groupId ? "assignment" : "work";
     const path = this.path(parent);
     if (reply === "result" && path.some(n => n.botId === target.botId && (!n.groupId || !target.groupId || n.groupId === target.groupId))) {
@@ -313,7 +314,7 @@ export class RoomHandoffs {
     }
     const node: RoomHandoff = { ...target, id: randomUUID(), rootId: parent.rootId, parentId: parent.id,
       key, text, createdAt: this.now(), status: "queued", result: "", reported: false, executions: 0, approvalGranted,
-      kind, ...(target.groupId && requestBatchKey ? { requestBatchKey } : {}), ...(lender ? { lender } : {}), ...(reply === "none" ? { reply } : {}) };
+      kind, ...(target.groupId && requestBatchKey ? { requestBatchKey } : {}), ...(lender ? { lender } : {}), ...(reply === "none" ? { reply } : {}), ...(macLender !== undefined ? { macLender } : {}) };
     if (urgent) {
       node.urgent = true;
       const ahead = this.waitingFor(target.botId, target.threadId).filter(n => this.senderOf(n) === source.botId);
@@ -323,6 +324,7 @@ export class RoomHandoffs {
     if (problem) throw new Error(problem);
     if (routineRunId) root.routineRunId ??= routineRunId;
     if (!parentId && !lender) delete root.lender;
+    if (!parentId && macLender === null) root.macLender = null;
     if (fresh) this.nodes.set(parent.id, parent);
     this.nodes.set(node.id, node);
     if (awaitsReply(node)) delete parent.settledRow;
@@ -490,7 +492,8 @@ export class RoomHandoffs {
     const created: string[] = [];
     const root: RoomHandoff = { ...source, id: generation, rootId: generation, key: "root", text: old.text, createdAt: this.now(),
       firstCreatedAt: old.firstCreatedAt ?? old.createdAt, status: "source", result: "", reported: true, executions: 0, approvalGranted: false, kind: "work",
-      ...(old.requestedBy ? { requestedBy: old.requestedBy } : {}), ...(old.lender ? { lender: old.lender } : {}) };
+      ...(old.requestedBy ? { requestedBy: old.requestedBy } : {}), ...(old.lender ? { lender: old.lender } : {}),
+      ...(old.macLender !== undefined ? { macLender: old.macLender } : {}) };
     this.nodes.set(root.id, root);
     created.push(root.id);
     let resent = 0; let kept = 0;
@@ -505,7 +508,7 @@ export class RoomHandoffs {
       for (const child of children.filter(c => c.status !== "completed")) {
         const { node } = this.enqueue(source, generation, undefined, addressOf(child), child.key,
           `${child.text.replace(CONTINUE_NOTE, "")}${CONTINUE_NOTE}`, child.approvalGranted, true, old.text, child.requestBatchKey,
-          undefined, undefined, child.lender);
+          undefined, undefined, child.lender, false, "result", child.macLender);
         created.push(node.id);
         resent++;
       }

@@ -92,6 +92,20 @@ describe("addressed room request tree", () => {
     expect(new RoomHandoffs(file, hooks).nodes.get(child.id)?.lender).toBe("cloud-home");
     expect(new RoomHandoffs(file, hooks).nodes.get("turn")?.lender).toBeUndefined();
   }));
+  it.each(["cloud-home", null])("persists separate Mac authority without broadening owner authority: %s", macLender => fixture((engine, hooks, file) => {
+    const chief = { botId: "chief", threadId: "chief-chat" };
+    const child = engine.enqueue(chief, "turn", undefined, { botId: "patch", threadId: "patch-chat" }, "fix", "Fix it",
+      false, false, "", undefined, undefined, undefined, undefined, false, "result", macLender).node;
+    expect(child.lender).toBeUndefined();
+    expect(child.macLender).toBe(macLender);
+    const restored = new RoomHandoffs(file, hooks);
+    expect(restored.nodes.get(child.id)?.lender).toBeUndefined();
+    expect(restored.nodes.get(child.id)?.macLender).toBe(macLender);
+    expect(restored.nodes.get("turn")?.macLender).toBe(macLender);
+    engine.enqueue(chief, "turn", undefined, { botId: "scout", threadId: "scout-chat" }, "look", "Look",
+      false, false, "", undefined, undefined, undefined, undefined, false, "result", null);
+    expect(new RoomHandoffs(file, hooks).nodes.get("turn")?.macLender).toBeNull();
+  }));
   it("keeps same-room work queued until the current speaker settles", () => fixture(async (engine, hooks) => {
     const child = engine.enqueue(addr("A"), "turn", undefined, { ...addr("A"), botId: "peer" }, "review", "Review it").node;
     engine.tick(); await flush();
@@ -642,15 +656,17 @@ describe("room handoff continue", () => {
       expect(engine.continuable("stop")).toBe(false);
     }, () => nowMs);
   });
-  it("resumes the same work: finished answers carry over and only the unfinished request goes out again", async () => {
+  it.each(["cloud-home", null])("resumes the same work with its separate Mac authority: %s", async macLender => {
     let nowMs = 0;
-    await fixture(async (engine, hooks) => {
+    await fixture(async (engine, hooks, file) => {
       const { slow, done, source } = await timedOut(engine, hooks, ms => { nowMs = ms; });
       expect(engine.continuable("turn")).toBe(true);
       hooks.run = vi.fn(async node => ({ ok: true, text: `${node.key} finished` }));
       nowMs += MIN;
       slow.lender = "cloud-home";
+      slow.macLender = macLender;
       engine.nodes.get("turn")!.lender = "cloud-home";
+      engine.nodes.get("turn")!.macLender = macLender;
       const result = engine.continueTree("turn");
       expect(result).toMatchObject({ resent: 1, kept: 1 });
       const root = engine.nodes.get(result.rootId)!;
@@ -662,6 +678,9 @@ describe("room handoff continue", () => {
       expect(again.text).toContain("Build it");
       expect(again.text).toContain("Continuing");
       expect(again.lender).toBe("cloud-home");
+      expect(again.macLender).toBe(macLender);
+      expect(root.macLender).toBe(macLender);
+      expect(new RoomHandoffs(file, hooks).nodes.get(again.id)?.macLender).toBe(macLender);
       expect(copies.find(n => n.key === "scout")?.result).toBe(done.result);
       expect(engine.nodes.get("turn")?.continuedAs).toBe(root.id);
       expect(engine.continuable("turn")).toBe(false);

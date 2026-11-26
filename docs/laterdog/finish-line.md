@@ -391,3 +391,10 @@ approvals return to `accounts.later.dog` and are passed on to the right home,
 and refresh tokens stay in each home's vault. It is off until the one-time
 setup in [google-setup.md](google-setup.md) is done; the same file gives the
 release order.
+
+## Mac access after own-dog reports (2026-11-25)
+
+Own-dog messages and automatic records no longer count as another human in the
+Mac lending check. Explicit foreign human senders and answers remain blocked;
+computer grants and stopped-turn checks still apply. See the
+[behavior and release record](../verification/mac-dog-reports-2026-11-25.md).

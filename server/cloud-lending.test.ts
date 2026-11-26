@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { cloudHomeLendingRefusal, createCloudRoutineAuthors, ownerOnlyConversation, reportFromOthers, routineFingerprint, routineReportMark, type CloudLendingTurn } from "./cloud-lending.ts";
+import { cloudHomeMacLendingRefusal, cloudHomeLendingRefusal, createCloudRoutineAuthors, ownerOnlyConversation, reportFromOthers, routineFingerprint, routineReportMark, type CloudLendingTurn } from "./cloud-lending.ts";
 
 const OWNER = "p_owner", GUEST = "p_guest";
 const ownerPerson = (person: string | undefined) => person === OWNER;
@@ -17,6 +17,41 @@ const run = (overrides: Partial<ReturnType<CloudLendingTurn["routineRun"]> & obj
 const mayLend = (lending: CloudLendingTurn) => cloudHomeLendingRefusal(lending) === null;
 
 describe("who may use a Mac lent to a Cloud home (review: guests, webhooks)", () => {
+  it("an owner's dog report remains trusted without the owner-only-home shortcut", () => {
+    const thread = [said("m1", OWNER), said("p1", undefined, { peerAsk: { botId: "aide", name: "Aide" } })];
+    expect(cloudHomeMacLendingRefusal(turn({ thread, ownersOwnDogs: false }))).toBeNull();
+    expect(cloudHomeMacLendingRefusal(turn({ thread: [...thread, said("g1", GUEST)], ownersOwnDogs: false }))).toBe("someone-else");
+    expect(cloudHomeMacLendingRefusal(turn({ thread: [said("p2", GUEST, { peerAsk: { botId: "aide", name: "Aide" } })], ownersOwnDogs: false }))).toBe("someone-else");
+    expect(ownerOnlyConversation(thread, ownerPerson, cardAnswerer)).toBe(false);
+  });
+  it.each([
+    { thread: [said("m1", OWNER), said("p1", undefined, { peerAsk: { botId: "aide" } })] },
+    { thread: [said("m1", OWNER), said("p1")] },
+    { reportsFromOthers: true },
+    { thread: [said("m1", OWNER), { id: "c1", role: "bot", card: { answered: "answer", answeredText: "Continue", answeredBy: { kind: "auto" } } }] },
+  ])("dog messages and automated records do not introduce a different human: %j", extra => {
+    expect(cloudHomeMacLendingRefusal(turn(extra))).toBeNull();
+  });
+  it.each<Partial<CloudLendingTurn>>([
+    { thread: [said("m1", OWNER), said("g1", GUEST)] },
+    { thread: [said("g1", GUEST, { peerAsk: { botId: "aide" } }), said("m1", OWNER)] },
+    { thread: [said("m1", OWNER), { id: "c1", role: "bot", card: { answered: "allow", answeredBy: { kind: "session", person: GUEST } } }] },
+    { guestDriven: true },
+    { starters: [GUEST] },
+    { request: request("m1", { stopped: true }) },
+    { handoff: { ownerSent: false } },
+    { request: request("m1", { automation: "webhook" }), routineRun: run() },
+    { request: request("m1", { automation: "schedule" }), routineRun: run({ ownerAuthored: false }) },
+    { request: request("m1", { automation: "manual" }), routineRun: run({ triggerSource: "manual", ownerStarted: false }) },
+  ])("Mac access still refuses non-owner authority: %j", extra => {
+    expect(cloudHomeMacLendingRefusal(turn(extra))).not.toBeNull();
+  });
+  it("Mac handoff authority does not grant memory or phone authority", () => {
+    const lending = turn({ handoff: { ownerSent: false, macOwnerSent: true } });
+    expect(cloudHomeMacLendingRefusal(lending)).toBeNull();
+    expect(cloudHomeLendingRefusal(lending)).toBe("not-owner");
+    expect(cloudHomeMacLendingRefusal(turn({ handoff: { ownerSent: true, macOwnerSent: false } }))).toBe("not-owner");
+  });
   it("the owner's own conversation from one of their devices may", () => {
     expect(mayLend(turn({}))).toBe(true);
   });

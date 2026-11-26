@@ -22,7 +22,7 @@ import { createMacScreenPoller } from "./mac-screen-poller.ts";
 import { completeSharedOperation, provenRequestPerson, SharedComputers, sharedActionsHeader, sharedComputerOperation, sharedComputerOperationProblem, sharedComputerRegistration, sharedComputerScopeRefusal, type SharedComputerOperation, type SharedComputerRegistration } from "./shared-computers.ts";
 import { MAC_ALLOW_KEY, MacApprovals, type MacLasting } from "./mac-approval.ts";
 import { createOwnerRunNowScope, legacyCancelledStatusIsNeutral } from "./laterdog/routine-provenance.ts";
-import { cloudHomeLendingRefusal, createCloudRoutineAuthors, ownerOnlyConversation, reportFromOthers, routineReportMark, type CloudLendingRefusal, type CloudLendingTurn } from "./cloud-lending.ts";
+import { cloudHomeMacLendingRefusal, cloudHomeLendingRefusal, createCloudRoutineAuthors, ownerOnlyConversation, reportFromOthers, routineReportMark, type CloudLendingRefusal, type CloudLendingTurn } from "./cloud-lending.ts";
 import { SharedComputerControl } from "./shared-computer-control.ts";
 import { RoomHandoffs, awaitsReply, type RoomHandoff } from "./room-handoffs.ts";
 import { allResultsIn, resultsTurn, sessionHolds, settledNames } from "./laterdog/handoff-results.ts";
@@ -1192,10 +1192,10 @@ function threadPersonKey(threadId: string): string | undefined {
   return linePersonKey(request) ?? threadStarters.get(threadId);
 }
 
-function sharedComputerPrincipal(capability: Pick<InternalCapability, "botId" | "threadId" | "generation">): string | null {
-  if (CLOUD_HOME) return cloudLendingRefusal(capability) === null ? CLOUD_HOME_LENDER : null;
+function sharedComputerPrincipal(capability: Pick<InternalCapability, "botId" | "threadId" | "generation">, mac = false): string | null {
+  if (CLOUD_HOME) return (mac ? cloudHomeMacLendingRefusal : cloudHomeLendingRefusal)(cloudLendingTurn(capability)) === null ? CLOUD_HOME_LENDER : null;
   const request = directRequestOwners.get(capability.threadId);
-  if (request?.handoff) return !request.stopped && request.generations.has(capability.generation) ? request.handoff.lender ?? null : null;
+  if (request?.handoff) return !request.stopped && request.generations.has(capability.generation) ? (mac && request.handoff.macLender !== undefined ? request.handoff.macLender : request.handoff.lender ?? null) : null;
   return provenRequestPerson(request, capability.generation,
     (messageId) => linePersonKey(store.messagesFor(capability.threadId).find((message) => message.id === messageId)));
 }
@@ -1204,8 +1204,9 @@ function cloudLendingTurn(capability: Pick<InternalCapability, "botId" | "thread
   const request = directRequestOwners.get(capability.threadId);
   const directHandoff = request?.generations.has(capability.generation) ? request.handoff : undefined;
   const roomHandoff = roomTurnHandoffs.get(capability.threadId);
-  const handoff = directHandoff ? { ownerSent: directHandoff.lender === CLOUD_HOME_LENDER }
-    : roomHandoff?.generation === capability.generation ? { ownerSent: roomHandoff.ownerSent } : undefined;
+  const handoff = directHandoff ? { ownerSent: directHandoff.lender === CLOUD_HOME_LENDER,
+    macOwnerSent: (directHandoff.macLender === undefined ? directHandoff.lender : directHandoff.macLender) === CLOUD_HOME_LENDER }
+    : roomHandoff?.generation === capability.generation ? { ownerSent: roomHandoff.ownerSent, macOwnerSent: roomHandoff.macOwnerSent } : undefined;
   return {
     request,
     ...(handoff ? { handoff } : {}),
@@ -1261,12 +1262,12 @@ function macRequestMessageId(capability: Pick<InternalCapability, "threadId" | "
 
 function macLendingNotice(capability: Pick<InternalCapability, "botId" | "threadId" | "generation">, principal: string | null): string | null {
   if (!CLOUD_HOME || principal) return null;
-  const why = cloudLendingRefusal(capability);
+  const why = cloudHomeMacLendingRefusal(cloudLendingTurn(capability));
   return why === "someone-else" ? LENDING_SOMEONE_ELSE : null;
 }
 
 function ownerMacs(capability: InternalCapability): KnownMac[] {
-  const principal = sharedComputerPrincipal(capability);
+  const principal = sharedComputerPrincipal(capability, true);
   if (!principal || macLendingNotice(capability, principal)) return [];
   return sharedComputers.known(principal).map((computer) => ({ name: computer.name, online: computer.online }));
 }
@@ -1276,7 +1277,7 @@ function macKnown(): boolean {
 }
 
 async function macListing(capability: InternalCapability): Promise<Record<string, unknown>> {
-  const principal = sharedComputerPrincipal(capability);
+  const principal = sharedComputerPrincipal(capability, true);
   const unavailable = macKnown() ? macLendingNotice(capability, principal) : null;
   if (unavailable) return { computers: [], unavailable };
   if (CLOUD_HOME && principal && sharedComputers.list(principal).length === 0 && sharedComputers.known(principal).length > 0) {
@@ -1315,7 +1316,7 @@ function vaultItemsFor(capability: InternalCapability): VaultItems {
 }
 
 async function useMac(requested: SharedComputerOperation, capability: InternalCapability, personSaidYes = false): Promise<unknown> {
-  const principal = sharedComputerPrincipal(capability);
+  const principal = sharedComputerPrincipal(capability, true);
   const unavailable = macLendingNotice(capability, principal);
   if (unavailable) throw Object.assign(new Error(unavailable), { status: 403 });
   const active = () => lendingEnabled() && internalCapabilityIsActive(capability);
@@ -1398,7 +1399,7 @@ async function approveMac(capability: InternalCapability, target: SharedComputer
 }
 
 async function messagesMac(capability: InternalCapability, computerId: string | undefined): Promise<MessagesMac> {
-  const principal = sharedComputerPrincipal(capability);
+  const principal = sharedComputerPrincipal(capability, true);
   const unavailable = macLendingNotice(capability, principal);
   if (unavailable) throw Object.assign(new Error(unavailable), { status: 403 });
   const active = () => lendingEnabled() && internalCapabilityIsActive(capability);
@@ -1559,7 +1560,7 @@ function cloudGuestOpened(threadId: string): boolean {
 }
 
 const guestDrivenTurns = new Map<string, string>();
-const roomTurnHandoffs = new Map<string, { generation: string; ownerSent: boolean }>();
+const roomTurnHandoffs = new Map<string, { generation: string; ownerSent: boolean; macOwnerSent: boolean }>();
 
 function cloudGuestDrivenHandoff(nodeId: string | undefined): boolean {
   if (!CLOUD_HOME || !nodeId) return false;
@@ -2698,7 +2699,7 @@ const routineTurnOwners = new Map<string, { runId: string; messageId?: string; g
 
 const directRequestOwners = new Map<string, {
   generation: string; messageId?: string; generations: Set<string>; turnId: string | null; stopped?: boolean;
-  automation?: RoutineRunTrigger; handoff?: { lender?: string; messageId?: string };
+  automation?: RoutineRunTrigger; handoff?: { lender?: string; macLender?: string | null; messageId?: string };
 }>();
 function provenRequestMessageId(threadId: string, turnId: string | undefined): string | undefined {
   const owner = directRequestOwners.get(threadId);
@@ -4902,9 +4903,9 @@ const roomHandoffs = new RoomHandoffs(join(DATA_DIR, "room-handoffs.json"), {
       if (signal.aborted) { abort(); return; }
       const routineRunId = node.id === node.rootId ? node.routineRunId : undefined;
       const sameRequest = directRequestOwners.get(node.threadId)?.generations.has(node.rootId) === true;
-      const handoff = node.parentId ? { lender: node.lender, messageId: store.messagesFor(node.threadId)
+      const handoff = node.parentId ? { lender: node.lender, macLender: node.macLender, messageId: store.messagesFor(node.threadId)
         .findLast(m => m.roomRequest?.id === request.id && m.roomRequest.phase === "request")?.id }
-        : CLOUD_HOME && resumed && !sameRequest && node.lender ? { lender: node.lender } : undefined;
+        : CLOUD_HOME && resumed && !sameRequest && (node.lender || node.macLender !== undefined) ? { lender: node.lender, macLender: node.macLender } : undefined;
       void startTurn(bot.id, turnText, {
         threadId: node.threadId, cardContinuation: true, commsDepth: MAX_COMMS_DEPTH,
         ...(routineRunId ? { routineRunId } : {}),
@@ -8825,7 +8826,7 @@ async function startTurn(
     continuationSourceGenerations?: string[];
     automaticRecoveryIndex?: number;
     onTurnSettled?: () => void;
-    coordination?: { id: string; resumed: boolean; named?: string[]; settle: (outcome: DirectTurnOutcome) => void; handoff?: { lender?: string; messageId?: string } };
+    coordination?: { id: string; resumed: boolean; named?: string[]; settle: (outcome: DirectTurnOutcome) => void; handoff?: { lender?: string; macLender?: string | null; messageId?: string } };
     lentBy?: string;
   },
 ) {
@@ -11069,7 +11070,8 @@ async function runGroupMemberTurn(
   const internalGeneration = beginInternalCapabilityGeneration(threadId);
   if (roomGuestConfined) guestDrivenTurns.set(threadId, internalGeneration);
   const handedIn = orchestration?.roomHandoffId ? roomHandoffs.nodes.get(orchestration.roomHandoffId) : undefined;
-  if (handedIn?.parentId) roomTurnHandoffs.set(threadId, { generation: internalGeneration, ownerSent: handedIn.lender === CLOUD_HOME_LENDER });
+  if (handedIn?.parentId) roomTurnHandoffs.set(threadId, { generation: internalGeneration, ownerSent: handedIn.lender === CLOUD_HOME_LENDER,
+    macOwnerSent: (handedIn.macLender === undefined ? handedIn.lender : handedIn.macLender) === CLOUD_HOME_LENDER });
   const roomForeign = Boolean(CLOUD_HOME) && cloudHomeLendingRefusal(cloudLendingTurn({ botId, threadId, generation: internalGeneration })) !== null;
   const resourceOwner: TurnOwner = { threadId, generation: internalGeneration };
   turnResourceOwners.set(threadId, resourceOwner);
@@ -15728,6 +15730,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
           }
           const requestBatchKey = destination ? randomUUID() : undefined;
           const lender = sharedComputerPrincipal(internalCapability) ?? undefined;
+          const macLender = sharedComputerPrincipal(internalCapability, true);
           const receipts: PeerDeliveryReceipt[] = [];
           const refused: string[] = [];
           for (const target of targets) {
@@ -15745,7 +15748,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
               const routineRun = destination || internalCapability.roomHandoffId ? undefined : routineRunForTurn(address.threadId);
               const { node, duplicate } = roomHandoffs.enqueue(address, internalCapability.generation, internalCapability.roomHandoffId,
                 target, target.botId, parsed.data.message, approvalGranted, parsed.data.rework, [...store.messagesFor(address.threadId)].reverse().find(m => m.role === "user" && m.kind === "text")?.text ?? "",
-                requestBatchKey, threadPersonKey(address.threadId), routineRun?.id, lender, parsed.data.urgent, parsed.data.reply);
+                requestBatchKey, threadPersonKey(address.threadId), routineRun?.id, lender, parsed.data.urgent, parsed.data.reply, macLender);
               if (duplicate && createdThread) store.deleteTask(target.botId, createdThread);
               createdThread = undefined;
               const recipientName = destination ? undefined : store.bot(node.botId)?.name;

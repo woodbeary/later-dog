@@ -4,6 +4,7 @@ import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFi
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { connect } from "node:net";
+import { DatabaseSync } from "node:sqlite";
 import { createInterface } from "node:readline";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { afterAll, beforeAll, expect, it } from "vitest";
@@ -331,6 +332,16 @@ it("a room only the owner writes in is theirs: its dogs may use the Mac and writ
   const guestTools = await post(guestsRoom, "Everyone: note today's plan.");
   expect(heldTold()).toContain(READ_ONLY);
   expect((await sees(guestTools)).unavailable).toContain("Someone else wrote in this conversation");
+  for (const operation of [
+    { action: "run_command", command: "printf blocked" },
+    { action: "write_file", path: "foreign-room.md", content: "blocked" },
+    { action: "computer_call", tool_name: "screenshot", arguments: {} },
+  ]) {
+    const blocked = await guestTools("shared_computer", { computer_id: lentId, ...operation });
+    expect(blocked.isError, JSON.stringify(blocked)).toBe(true);
+    expect(JSON.stringify(blocked)).toContain("Someone else wrote in this conversation");
+  }
+  expect(existsSync(join(macHome, "foreign-room.md"))).toBe(false);
   const refused = await guestTools("memory_update", { action: "append", text: INJECTED });
   expect(refused.isError).toBe(true);
   expect(await memoryText(bot)).not.toContain(INJECTED);
@@ -356,6 +367,78 @@ it("work the owner's dog hands to a teammate in a room is the owner's: the teamm
   expect((await api("POST", `/api/groups/${room.id}/interrupt`, { token: owner, body: {} })).status).toBe(200);
   await expect.poll(async () => ((await api("GET", "/api/bots", { token: owner })).body.bots as any[])
     .filter((candidate) => candidate.id === lead.id || candidate.id === aide.id).some((candidate) => candidate.busy), { timeout: 15_000 }).toBe(false);
+}, 90_000);
+
+it("a teammate report in an owner's routine conversation keeps Mac commands and files available", async () => {
+  const lead = await newBot("Routine lead", "lead");
+  const aide = await newBot("Routine aide", "aide");
+  const created = await api("POST", "/api/routines", { token: owner, body: {
+    name: "Owner's check", prompt: "Ask Aide to check the plan.", botId: lead.id, enabled: false,
+    schedule: { type: "interval", everyMinutes: 60, anchorAt: Date.now() + 3_600_000 },
+  } });
+  expect(created.status, JSON.stringify(created.body)).toBe(201);
+  let runId = "";
+  const leadTools = await toolsFor(async () => {
+    const started = await api("POST", `/api/routines/${created.body.routine.id}/run`, { token: owner });
+    expect(started.status, JSON.stringify(started.body)).toBe(201);
+    runId = started.body.run.id;
+  });
+  let mine = "";
+  await expect.poll(async () => {
+    mine = ((await api("GET", "/api/routines", { token: owner })).body.runs as any[]).find(run => run.id === runId)?.threadId ?? "";
+    return Boolean(mine);
+  }).toBe(true);
+  await toolsFor(async () => {
+    const sent = await leadTools("coordinate_bots", { bot_ids: [aide.id], message: "Check the plan." });
+    expect(sent.isError, JSON.stringify(sent)).toBeFalsy();
+  });
+  await release("lead", lead, mine);
+  await toolsFor(async () => writeFileSync(releaseOf("aide"), ""));
+  rmSync(releaseOf("aide"));
+  const messages = (await api("GET", `/api/threads/${mine}/messages`, { token: owner })).body.messages;
+  expect(messages.some((message: any) => message.from?.botId === aide.id && message.roomRequest?.phase === "result")).toBe(true);
+  await stop(lead, mine);
+  for (const proxy of proxies.splice(0)) proxy.kill();
+  await waitForExit(child, { signal: "SIGTERM" });
+  const saved = new DatabaseSync(join(home, ".laterdog", "messages.db"));
+  const previous = saved.prepare("SELECT active_leaf_id AS id FROM thread_state WHERE thread_id = ?").get(mine) as { id: string };
+  const report = { id: randomUUID(), role: "user", kind: "text", text: "Aide checked the plan.",
+    peerAsk: { botId: aide.id, name: "Routine aide" }, aside: true, at: Date.now(), parentId: previous.id };
+  saved.prepare("INSERT INTO messages (thread_id, id, at, role, kind, text, json) VALUES (?, ?, ?, ?, ?, ?, ?)")
+    .run(mine, report.id, report.at, report.role, report.kind, report.text, JSON.stringify(report));
+  saved.prepare("UPDATE thread_state SET active_leaf_id = ? WHERE thread_id = ?").run(report.id, mine);
+  saved.close();
+  await boot();
+  macAway = true;
+  const following = await toolsFor(async () => {
+    expect((await api("POST", `/api/routines/${created.body.routine.id}/run`, { token: owner })).status).toBe(201);
+  });
+  await macOnline();
+  const command = await following("shared_computer", { computer_id: lentId, action: "run_command", command: "cat plan.md" });
+  expect(command.isError, JSON.stringify(command)).toBeFalsy();
+  expect(JSON.parse(command.content[0].text).output).toContain("from the Mac");
+  expect(JSON.parse((await reads(following)).content[0].text).content).toBe("from the Mac");
+  const written = await following("shared_computer", { computer_id: lentId, folder_id: folderId, action: "write_file", path: "report.md", content: "checked" });
+  expect(written.isError, JSON.stringify(written)).toBeFalsy();
+  expect(readFileSync(join(macHome, "report.md"), "utf8")).toBe("checked");
+  const screen = await following("shared_computer", { computer_id: lentId, action: "computer_call", tool_name: "screenshot", arguments: {} });
+  expect(JSON.stringify(screen)).not.toContain("Someone else wrote in this conversation");
+  const memory = await following("memory_update", { action: "append", text: "MAC-REPORT-DOES-NOT-GRANT-MEMORY" });
+  expect(memory.isError, JSON.stringify(memory)).toBe(true);
+  expect(await memoryText(lead)).not.toContain("MAC-REPORT-DOES-NOT-GRANT-MEMORY");
+  const helper = await newBot("Report helper", "held");
+  const delegated = await toolsFor(async () => {
+    const sent = await following("coordinate_bots", { bot_ids: [helper.id], message: "Read the plan from the Mac." });
+    expect(sent.isError, JSON.stringify(sent)).toBeFalsy();
+  });
+  expect((await sees(delegated)).computers).toHaveLength(1);
+  expect(JSON.parse((await reads(delegated)).content[0].text).content).toBe("from the Mac");
+  const delegatedMemory = await delegated("memory_update", { action: "append", text: "MAC-DELEGATION-DOES-NOT-GRANT-MEMORY" });
+  expect(delegatedMemory.isError, JSON.stringify(delegatedMemory)).toBe(true);
+  expect(await memoryText(helper)).not.toContain("MAC-DELEGATION-DOES-NOT-GRANT-MEMORY");
+  expect(heldTold()).toContain(READ_ONLY);
+  await stop(lead, mine);
+  await stop(helper, helper.threadId);
 }, 90_000);
 
 it("results that come back after the owner wrote again resume as the owner's own turn: the Mac stays in reach and it may write memory", async () => {
