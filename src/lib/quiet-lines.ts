@@ -321,14 +321,24 @@ export function exchangeSummary(item: Pick<ExchangeItem, "messages" | "rows">, t
   return thread ? exchangeGist(item, thread, working) : null;
 }
 
+function ownRequest(item: Pick<ExchangeItem, "messages" | "rows">, after: readonly Message[]): Message | undefined {
+  const withBotId = item.rows[0]?.withBotId;
+  for (const message of after.slice(1)) {
+    if (message.roomRequest?.phase === "request") return !message.from || message.from.botId === withBotId ? message : undefined;
+    if (item.messages.some((mine) => mine.id === message.id)) continue;
+    if (exchangeRow(message) || message.role === "user") return undefined;
+  }
+  return undefined;
+}
+
 export function exchangeGist(item: Pick<ExchangeItem, "messages" | "rows">, thread: readonly Message[], working: boolean): ExchangeSummary {
   const first = item.messages[0];
   const start = first ? thread.findIndex((message) => message.id === first.id) : -1;
   const after = start >= 0 ? thread.slice(start) : [];
-  const request = after.find((message) => message.roomRequest?.phase === "request");
+  const request = ownRequest(item, after);
   const id = request?.roomRequest?.id;
-  const line = (request?.text ?? "").replace(/^(?:@\S+\s+)+/, "").replace(/\s+/g, " ").trim();
-  const gist = line ? (line.length > 90 ? `${line.slice(0, 89)}…` : line) : null;
+  const record = request?.exchange?.id === id ? request?.exchange : request?.exchanges?.find((exchange) => exchange.id === id);
+  const gist = gistOf(record?.request ?? request?.text);
   const lead = item.rows[0];
   if (lead?.direction === "from" && lead.message.roomRequest?.phase === "reply") return { gist, state: "Wrote while working" };
   const answered = after.some((message) => (id && message.roomRequest?.id === id && message.roomRequest.phase !== "request")

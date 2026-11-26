@@ -721,3 +721,57 @@ it("forwards a child's credential card to its delegator and retains Needs you af
     expect((await f.messages(f.lead.activeTaskId)).filter((m: any) => m.secret)).toHaveLength(1);
   } finally { stream.close(); }
 }), 90_000);
+
+it("answers the person as a normal reply when they write into a teammate's request, and still reports back", () => fixture(async f => {
+  const ready = join(f.session.info.dataDir, "lead-ready");
+  const gate = join(f.session.info.dataDir, "lead-gate");
+  const answer = "PERSON_FACING The export is built and it is UTF-8.";
+  f.plan[f.lead.id] = { readyFile: ready, gateFile: gate, reply: answer };
+  const stream = await openSse(`${f.session.info.url}/api/events`);
+  try {
+    await f.start();
+    await expect.poll(() => existsSync(ready), { timeout: 15_000 }).toBe(true);
+    const receipt = await f.api(`/api/bots/${f.lead.id}/messages`, { text: "Is the export UTF-8?", threadId: f.lead.activeTaskId });
+    expect(receipt.steered).toBe(true);
+    writeFileSync(gate, "go");
+    expect((await f.wait()).status).toBe("settled");
+    const lead = await f.messages(f.lead.activeTaskId);
+    const reply = lead.find((m: any) => m.role === "bot" && m.text === answer);
+    expect(reply).toBeDefined();
+    expect(reply.roomRequest).toBeUndefined();
+    const report = (await f.messages(f.chief.activeTaskId)).find((m: any) => m.roomRequest?.phase === "result");
+    expect(report).toMatchObject({ from: { botId: f.lead.id }, tool: { ok: true, output: answer } });
+    await expect.poll(() => stream.frames.some((frame: any) => frame.kind === "notify" && frame.notification?.botId === f.lead.id &&
+      String(frame.notification?.body ?? "").includes("PERSON_FACING")), { timeout: 10_000 }).toBe(true);
+  } finally {
+    stream.close();
+    writeFileSync(gate, "go");
+  }
+}), 60_000);
+
+it("keeps the person's answer out of the exchange when the sender asked for no reply", () => fixture(async f => {
+  const ready = join(f.session.info.dataDir, "lead-ready");
+  const gate = join(f.session.info.dataDir, "lead-gate");
+  const answer = "PERSON_FACING Nothing else is live yet.";
+  f.plan[f.chief.id] = { steps: [{ arguments: { bot_ids: [f.lead.id], message: "FYI the CSV export shipped", reply: "none" } }], reply: "Told Engineering" };
+  f.plan[f.lead.id] = { readyFile: ready, gateFile: gate, reply: answer };
+  try {
+    await f.start();
+    await expect.poll(() => existsSync(ready), { timeout: 15_000 }).toBe(true);
+    const receipt = await f.api(`/api/bots/${f.lead.id}/messages`, { text: "What's live now?", threadId: f.lead.activeTaskId });
+    expect(receipt.steered).toBe(true);
+    writeFileSync(gate, "go");
+    await expect.poll(() => f.nodes().find((n: any) => n.botId === f.lead.id)?.status, { timeout: 20_000 }).toBe("completed");
+    const reply = (await f.messages(f.lead.activeTaskId)).find((m: any) => m.role === "bot" && m.text === answer);
+    expect(reply).toBeDefined();
+    expect(reply.roomRequest).toBeUndefined();
+    const exchange = (await f.api("/api/bots")).groups.find((g: any) => g.memberIds.includes(f.chief.id) && g.memberIds.includes(f.lead.id));
+    await expect.poll(async () => (await f.messages(exchange.threadId)).length, { timeout: 10_000 }).toBe(2);
+    const lines = await f.messages(exchange.threadId);
+    expect(lines.some((m: any) => String(m.text ?? "").includes("PERSON_FACING"))).toBe(false);
+    expect(lines.at(-1)).toMatchObject({ kind: "activity", from: { botId: f.lead.id }, tool: { name: "Engineering lead done", ok: true } });
+    await expect.poll(async () => (await f.messages(f.chief.activeTaskId)).some((m: any) => m.tool?.name === "Engineering lead done"), { timeout: 10_000 }).toBe(true);
+  } finally {
+    writeFileSync(gate, "go");
+  }
+}), 60_000);
