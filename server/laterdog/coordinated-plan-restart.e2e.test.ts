@@ -167,7 +167,9 @@ it("resumes the same coordinated unfinished room plan after a real server restar
             const response = await fetch(`${url}/api/health`, {
               signal: AbortSignal.timeout(1_000),
             });
-            return response.ok && (await response.json()).app === "laterdog";
+            if (!response.ok) return false;
+            const body: unknown = await response.json();
+            return body !== null && typeof body === "object" && "app" in body && body.app === "laterdog";
           } catch {
             return false;
           }

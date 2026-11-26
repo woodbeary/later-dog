@@ -60,6 +60,8 @@ function fixture(kind: "direct" | "group", threadIds = ["first"]) {
   }
   const context = vm.createContext({
     providerFleetReloading: false, companyShutdown: false, providerInstancesChanging: new Set(),
+    planContinuations: { cancel() {} }, planLimitRunners: new Map(),
+    planLimitFailures: new Map(), helperLimitReached: new Set(),
     providerAuthSessions: { clearInstance() {} }, bus: { detach: (id: string) => detached.push(id) },
     store: {
       get bots() { return [...bots.values()]; },
