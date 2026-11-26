@@ -25,6 +25,7 @@ it("keeps the selected account's own native tool restrictions on its computer", 
     expect(native.toolConfig.tools).toEqual([{ id: "GrokBuild:read_file", name_override: "read_file" }]);
     expect(native.disallowedTools).toContain("write");
     expect(() => guestGrokPolicy("grok", { ...env, GROK_AGENT: "custom-native-account" }, home)).toThrow(/existing agent profile/);
+    expect(() => guestGrokPolicy("grok", { ...env, GROK_SANDBOX: "account-network-policy" }, home)).toThrow(/cannot preserve/);
     await writeFile(original, "---\n" + JSON.stringify({ name: "custom", description: "test", privateSettings: { secret: "fixture" } }) + "\n---\n");
     expect(() => guestGrokPolicy("grok", env, home)).toThrow(/cannot preserve/);
   } finally { await rm(home, { recursive: true, force: true }); }
