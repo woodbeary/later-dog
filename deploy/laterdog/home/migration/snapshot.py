@@ -150,11 +150,30 @@ class Package:
         scopes = scopes_for(layout)
         links = {}
         counts = {"within": 0, "crossProject": 0, "outside": 0}
-        for scope, data in self.db.execute(
-            "SELECT o.scope,n.data FROM objects o JOIN nodes n ON o.hash=n.hash WHERE o.rank=64"
+
+        def stored(h):
+            return json.loads(
+                self.db.execute("SELECT data FROM nodes WHERE hash=?", (h,)).fetchone()[
+                    0
+                ]
+            )
+
+        def leaves(h):
+            node = stored(h)
+            if node["kind"] == "entries":
+                yield from node["entries"]
+            else:
+                require(
+                    node["kind"] == "pages" and node["of"] == "entries",
+                    "Invalid directory metadata",
+                )
+                for child in node["children"]:
+                    yield from leaves(child)
+
+        for scope, root in self.db.execute(
+            "SELECT scope,root FROM scopes WHERE root<>''"
         ):
-            page = json.loads(data)
-            for entry in page.get("entries", []):
+            for entry in leaves(stored(root)["entries"]):
                 if entry["kind"] != "link":
                     continue
                 if entry.get("scopedTarget", "") is not None:

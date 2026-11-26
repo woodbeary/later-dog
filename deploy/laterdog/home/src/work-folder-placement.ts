@@ -1,3 +1,4 @@
+import { derivePreviousBackupKey, verifyPreviousBackupSignatureWithKey } from "../runtime/previous-backup-signature.mjs";
 import { handleLegacyHold, legacyHoldRoute, LEGACY_RETENTION } from "./work-folder-retention.ts";
 import { registeredPage, registryFence, verifiedMembership } from "./work-folder-registry.ts";
 import { workFolderLayoutRecord, workFolderPlacementSchema, type WorkFolderLayout, type WorkFolderPlacement } from "../../../../shared/work-folder-layout.ts";
@@ -8,6 +9,7 @@ import type { WorkFolderBucket } from "./work-folder-store.ts";
 const hash = /^[a-f0-9]{64}$/;
 const registered = "/work-folders/scopes";
 const registryLock = /^\/work-folders\/registry-(unfence|fence)$/;
+export const previousBackupVerification = "/work-folders/verify-previous-backup";
 const placement = "/work-folders/placement";
 const evidence = /^\/work-folders\/verification\/([a-f0-9]{64})$/;
 const legacySnapshot = /^\/work-folders\/legacy-manifests\/([a-f0-9]{64})$/;
@@ -18,7 +20,7 @@ const result = (value: unknown, status: number) => Response.json(value, { status
 const checksum = async (value: string | Uint8Array) => hex(await sha256(value));
 
 export function workFolderControlPath(path: string): boolean {
-  return path === placement || path === registered || legacyHoldRoute.test(path) || registryLock.test(path) || path === projection || path === legacyBlobs || legacySnapshot.test(path) || evidence.test(path) || history.test(path);
+  return path === previousBackupVerification || path === placement || path === registered || legacyHoldRoute.test(path) || registryLock.test(path) || path === projection || path === legacyBlobs || legacySnapshot.test(path) || evidence.test(path) || history.test(path);
 }
 
 export async function readWorkFolderPlacement(bucket: WorkFolderBucket, stable: string): Promise<WorkFolderPlacement | null> {
@@ -169,10 +171,33 @@ async function projectBlobs(request: Request, bucket: WorkFolderBucket, prefix: 
   return result({ verified: body.hashes }, 200);
 }
 
-export async function handleWorkFolderPlacement(request: Request, bucket: WorkFolderBucket, stable: string): Promise<Response> {
+async function verifyPreviousBackup(request: Request, bucket: WorkFolderBucket, scope: string, bootstrap?: string): Promise<Response> {
+  if (request.method !== "POST") return result({ error: "method_not_allowed" }, 405);
+  const data = await bytesOf(request);
+  if (!data) return result({ error: "oversized_descriptor" }, 413);
+  let descriptor: unknown;
+  try { descriptor = JSON.parse(new TextDecoder().decode(data)); } catch { return result({ error: "invalid_descriptor" }, 400); }
+  const key = scope + "work-folders/previous-backup-verifier";
+  const existing = await bucket.get(key);
+  if (existing) {
+    const bytes = new Uint8Array(await new Response(existing.body).arrayBuffer());
+    if (bytes.length !== 32) return result({ error: "verifier_unavailable" }, 503);
+    return await verifyPreviousBackupSignatureWithKey(bytes, descriptor) ? result({ verified: true }, 200) : result({ error: "invalid_signature" }, 403);
+  }
+  if (!bootstrap) return result({ error: "verifier_unavailable" }, 503);
+  const derived = await derivePreviousBackupKey(bootstrap);
+  if (!await verifyPreviousBackupSignatureWithKey(derived, descriptor)) return result({ error: "invalid_signature" }, 403);
+  await bucket.put(key, new Uint8Array(derived), { onlyIf: { etagDoesNotMatch: "*" }, sha256: await checksum(derived) });
+  const durable = await bucket.get(key);
+  if (!durable || !await verifyPreviousBackupSignatureWithKey(new Uint8Array(await new Response(durable.body).arrayBuffer()), descriptor)) return result({ error: "verifier_unavailable" }, 503);
+  return result({ verified: true }, 200);
+}
+
+export async function handleWorkFolderPlacement(request: Request, bucket: WorkFolderBucket, stable: string, bootstrap?: string): Promise<Response> {
   const path = new URL(request.url).pathname;
   if (!workFolderControlPath(path)) return result({ error: "not_found" }, 404);
   const scope = homePrefix(stable), key = scope + path.slice(1);
+  if (path === previousBackupVerification) return verifyPreviousBackup(request, bucket, scope, bootstrap);
   const retention = legacyHoldRoute.exec(path);
   if (retention) return handleLegacyHold(request, bucket, scope, retention[1]!, retention[2]!);
   if (path === registered) {

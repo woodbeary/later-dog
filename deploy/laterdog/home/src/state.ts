@@ -82,9 +82,10 @@ export async function handleState(request: Request, bucket: StateBucket, contain
   }
   const key = stateKey(containerId, request.url);
   if (!key) return new Response("Invalid state key", { status: 400 });
-  if (request.method === "HEAD") return new Response(null, { status: (await bucket.head(key)) ? 200 : 404 });
+  const retained = BLOB_KEY.test(key) && !key.includes("/archive/") ? homePrefix(containerId) + "work-folders/legacy-blobs/" + key.slice(-64) : null;
+  if (request.method === "HEAD") return new Response(null, { status: await bucket.head(key) || retained && await bucket.head(retained) ? 200 : 404 });
   if (request.method === "GET") {
-    const object = await bucket.get(key);
+    const object = await bucket.get(key) ?? (retained ? await bucket.get(retained) : null);
     if (!object) return new Response("Not found", { status: 404 });
     return new Response(object.body, { headers: { "content-type": "application/octet-stream", etag: object.httpEtag } });
   }

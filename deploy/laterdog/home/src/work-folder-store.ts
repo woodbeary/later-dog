@@ -7,7 +7,7 @@ import { homePrefix } from "./state.ts";
 type WriteOptions = { onlyIf: { etagMatches: string } | { etagDoesNotMatch: string }; sha256?: string; httpMetadata?: { contentType: string } };
 type ObjectData = { etag: string; size: number; body: ReadableStream<Uint8Array> };
 export interface WorkFolderBucket {
-  list(options: { prefix: string; cursor?: string; limit: number }): Promise<{ objects: { key: string }[]; truncated: boolean; cursor?: string }>;
+  list?(options: { prefix: string; cursor?: string; limit: number }): Promise<{ objects: { key: string }[]; truncated: boolean; cursor?: string }>;
   get(key: string): Promise<ObjectData | null>;
   head(key: string): Promise<{ size: number } | null>;
   put(key: string, value: string | ArrayBuffer | Uint8Array | ReadableStream<Uint8Array>, options: WriteOptions): Promise<unknown | null>;

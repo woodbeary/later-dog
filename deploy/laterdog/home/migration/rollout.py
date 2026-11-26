@@ -14,6 +14,7 @@ from legacy import (
     scopes_for,
     split_entries,
 )
+from previous_backup import restore_reference, stage_reference
 from retention import retain_snapshot
 from snapshot import canonical_digest
 from transfer import decoded, parallel, read_tree
@@ -171,6 +172,7 @@ def activate(plan, transport, workers, projection=None):
         if digest(prior) == projection[0]:
             retain_snapshot(transport, prior, workers)
         retain_snapshot(transport, projection[2], workers)
+        retain_snapshot(transport, projection[2], workers, repair=True)
     else:
         st, _, legacy = transport.admin("manifest.json")
         require(
@@ -178,6 +180,7 @@ def activate(plan, transport, workers, projection=None):
             "The saved legacy source has changed",
         )
         retain_snapshot(transport, legacy, workers)
+        stage_reference(transport, legacy)
     st, _, raw = transport.admin(
         "work-folders/verification/" + proposed["verification"], "PUT", plan["proof"]
     )
@@ -243,6 +246,32 @@ def reconstruct(package, hot, transport, workers, observed_layout=None):
     source = json.loads(old)
     scopes, _, other = split_entries(source["entries"], layout)
     retained = {r["path"]: r for r in other}
+    baseline = hash_name(current["baselineManifest"])
+    st, _, original = transport.admin("work-folders/legacy-manifests/" + baseline)
+    require(
+        st == 200 and digest(original) == baseline,
+        "The original coordinator snapshot is missing",
+    )
+    checkpoints = ".laterdog/checkpoints"
+    original_rows = {row["path"]: row for row in json.loads(original)["entries"]}
+    restore_paths = {
+        p for p in original_rows if p == checkpoints or p.startswith(checkpoints + "/")
+    }
+    restore_reference(retained, baseline, original_rows, transport)
+    for path in sorted(restore_paths):
+        current_path = path
+        while current_path:
+            if current_path not in retained and current_path in original_rows:
+                retained[current_path] = original_rows[current_path]
+            current_path = current_path.rpartition("/")[0]
+    for path in restore_paths:
+        ancestor = path.rpartition("/")[0]
+        while ancestor:
+            require(
+                retained.get(ancestor, {}).get("type") == "dir",
+                "A retained checkpoint conflicts with a newer coordinator path",
+            )
+            ancestor = ancestor.rpartition("/")[0]
     claims = []
     projected = {}
     blobs = {}
