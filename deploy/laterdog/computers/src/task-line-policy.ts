@@ -213,7 +213,7 @@ export function settle(snapshot: Snapshot, nameMachine: MachineNamer): Settlemen
   }
 
   const idleMs = settings.idleMinutes * MINUTE;
-  for (const machine of [...machines.values()]) {
+  for (const machine of machines.values()) {
     if (machine.ticketId === undefined && machine.idleSince !== undefined && now - machine.idleSince >= idleMs) {
       machines.delete(machine.id);
       out.stop.push(machine.id);
