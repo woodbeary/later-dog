@@ -1,8 +1,9 @@
 import { randomUUID } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, lstatSync, mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { copyFile } from "node:fs/promises";
 import { isAbsolute, join, relative, resolve } from "node:path";
 import { codexHome } from "../drivers/codex-identity.ts";
-import type { McpServerSpec } from "../contracts.ts";
+import type { McpServerSpec, TurnImageInput } from "../contracts.ts";
 import { mcpStdioServer } from "../mcp-gate-config.ts";
 import { SPAWNED_PROXIES } from "../proxy-paths.ts";
 import { ChangedCodexCheckpoint, codexCheckpoint } from "./codex-checkpoint.ts";
@@ -29,6 +30,7 @@ export function codexComputerWorkspace(dataDir: string, bot: string, thread: str
 export interface CodexPlacement {
   dataDir: string; botId: string; threadId: string; instanceId: string; cli: string; cwd: string;
   env: NodeJS.ProcessEnv; cursor?: string; opener: EngineOpener; guardShell: boolean;
+  required?: boolean; images?: TurnImageInput[];
   refresh(): Promise<unknown>;
 }
 
@@ -41,15 +43,16 @@ export async function planCodexRemote(input: CodexPlacement) {
   if (typeof accountId !== "string" || !accountId) return { stay: "no selected native account" } as const;
   const binding = codexCheckpoint(input.dataDir, home, input.botId, input.threadId, input.instanceId, accountId);
   let bound: Awaited<ReturnType<typeof binding.lookup>> = null;
-  if (input.cursor) {
+  if (input.cursor && !input.required) {
     try { bound = await binding.lookup(input.cursor); }
     catch (error) { if (!(error instanceof ChangedCodexCheckpoint) && (error as NodeJS.ErrnoException).code !== "ENOENT") throw error; }
+    if (!bound) return { stay: "saving the current native session on the home before moving it", binding } as const;
   }
-  if (input.cursor && !bound) return { stay: "saving the current native session on the home before moving it", binding } as const;
   const cli = engineCliPackage(input.cli, input.env.PATH, "@openai/codex");
   if (!cli) return { stay: "the selected Codex CLI package could not be identified" } as const;
   const cwd = resolve(input.cwd);
   if (!codexComputerWorkspace(input.dataDir, input.botId, input.threadId, cwd)) return { stay: "this working folder is outside the dog's cloud workspace" } as const;
+  if (input.cursor && input.required) bound = await binding.bindSaved(input.cursor, cwd);
   const run = randomUUID();
   const remoteBase = input.opener.remoteBase ?? REMOTE_ENGINE_BASE;
   const stagingDir = join(input.dataDir, "engine-launch", run);
@@ -75,14 +78,31 @@ export async function planCodexRemote(input: CodexPlacement) {
     plan.launch.roots.push(botRoot);
     plan.mkdirs.push(botRoot.path);
   }
+  const imagePaths: string[] = [];
   try {
     mkdirSync(sessions, { recursive: true, mode: 0o700 });
     writeFileSync(join(stagingDir, "config.toml"), 'cli_auth_credentials_store = "ephemeral"\n', { mode: 0o600 });
+    if (input.images?.length) {
+      const root = { id: "images", path: join(stagingDir, "images"), writable: false, readOnly: true, files: [] as string[] };
+      mkdirSync(root.path, { mode: 0o700 });
+      for (const [index, image] of input.images.entries()) {
+        const extension = { "image/png": "png", "image/jpeg": "jpeg", "image/webp": "webp", "image/gif": "gif" }[image.mime];
+        const source = lstatSync(image.path);
+        if (!extension || !source.isFile() || source.size !== image.bytes) throw new Error("The selected image attachment has changed.");
+        const name = `${index}.${extension}`;
+        const path = join(root.path, name);
+        await copyFile(image.path, path);
+        root.files.push(name);
+        imagePaths.push(path);
+      }
+      plan.launch.roots.push(root);
+      plan.mkdirs.push(root.path);
+    }
     if (bound && input.cursor) await binding.stage(input.cursor, sessions, bound);
   } catch (error) { rmSync(stagingDir, { recursive: true, force: true }); throw error; }
   let selectedPath: string | undefined;
   return {
-    plan, binding,
+    plan, binding, imagePaths,
     selectedRollout(cursor: string, nativePath: string) {
       const name = validatedCodexRollout(relative(sessions, nativePath), cursor);
       if (nativePath !== join(sessions, name)) throw new Error("The native Codex checkpoint path is not canonical.");

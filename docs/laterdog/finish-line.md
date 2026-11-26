@@ -443,3 +443,7 @@ release order.
 ## Native Codex computer placement, November 25
 
 A selected native ChatGPT Codex engine can run on its dog's computer with home-scoped tools and shell checks. Existing native sessions acquire a binding on a home turn before moving. [Relay and signed-in qualification](../verification/codex-engine-relay.md) records the isolated provider run. Managed providers, custom approval configuration, user-configured native MCP, image input, guest-confined work and folders outside the dog's workspace use the home.
+
+## Required native computer placement, November 25
+
+On a cloud home with owner-wide computer placement, signed-in native turns and Claude text helpers now require the dog's computer. A saved Codex chat can establish its first checkpoint from the exact account's rollout and continue directly on the computer. The isolated driver tests cover unavailable computers, session identity, selected folders and attachments, and auxiliary text with usage reporting. Live provider acceptance belongs to the combined test-home qualification.

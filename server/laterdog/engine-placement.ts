@@ -158,6 +158,8 @@ export interface ClaudePlacement {
   cwd: string;
   env: NodeJS.ProcessEnv;
   managed: boolean;
+  required?: boolean;
+  textOnly?: boolean;
   dataDir: string;
   proxyPath: string;
   now?: number;
@@ -190,6 +192,7 @@ export function planClaudeRemote(input: ClaudePlacement): { plan: ClaudeRemotePl
   const configDir = resolve(input.env.CLAUDE_CONFIG_DIR || join(home, ".claude"));
   const logical = resolve(input.cwd);
   const workspace = claudeSessionWorkspace(logical, configDir, input.sessionId);
+  if (input.required && args.includes("--resume") && !workspace.source) return { stay: "the saved Claude session is missing from its selected account and working folder" };
   const cwd = workspace.source ?? workspace.physical;
   const physicalConfig = physicalClaudePath(configDir);
   if (logical === resolve(home) || logical === resolve(input.dataDir) || within(logical, configDir) || within(configDir, logical) ||
@@ -253,7 +256,7 @@ export function planClaudeRemote(input: ClaudePlacement): { plan: ClaudeRemotePl
   const slug = claudeProjectSlug(cwd);
   const sessionDir = join(configDir, "projects", slug);
   const roots: EngineFileRoot[] = [
-    { id: "workspace", path: cwd, writable: true },
+    { id: "workspace", path: cwd, writable: !input.textOnly, ...(input.textOnly ? { files: [] } : {}) },
     { id: "session", path: sessionDir, writable: true, transcript: true, files: [`${input.sessionId}.jsonl`] },
     { id: "session-extra", path: join(sessionDir, input.sessionId), writable: true },
     { id: "file-history", path: join(configDir, "file-history", input.sessionId), writable: true },
@@ -261,7 +264,7 @@ export function planClaudeRemote(input: ClaudePlacement): { plan: ClaudeRemotePl
     { id: "launch", path: stagingDir, writable: false },
   ];
   if (credential) roots.push({ id: "credential", path: configDir, writable: false, pushOnly: true, files: [".credentials.json"] });
-  const botFolder = botFolderRoot(input.dataDir, input.botId, cwd, configDir, stagingDir);
+  const botFolder = !input.textOnly && botFolderRoot(input.dataDir, input.botId, cwd, configDir, stagingDir);
   if (botFolder) roots.push(botFolder);
   const pushes = credential ? (): PushedFile[] => {
     let bytes: Buffer | null = null;
@@ -276,14 +279,14 @@ export function planClaudeRemote(input: ClaudePlacement): { plan: ClaudeRemotePl
 
   const launch: RemoteLaunch = {
     cli: `${cliDir}/node_modules/.bin/claude`,
-    args, cwd, env: remoteEnv, roots,
-    outputIds: ["workspace", "session", "session-extra", "file-history"],
+    args, cwd, env: remoteEnv, roots: input.textOnly ? roots.filter(root => ["workspace", "account", "credential", "launch"].includes(root.id)) : roots,
+    outputIds: input.textOnly ? [] : ["workspace", "session", "session-extra", "file-history"],
     pushes, mcp, hooks, hookEnv, socketPath,
     stateFile: `${remoteBase}/state/${threadKey}.json`,
     lockFile: `${remoteBase}/locks/${threadKey}.lock`,
   };
   const renewal = credential ? { command: input.cliCommand, env: hookEnv } : null;
-  return { plan: { threadId: input.threadId, launch, cli, stagingDir, mkdirs: [...new Set(roots.map((root) => root.path))], renewal } };
+  return { plan: { threadId: input.threadId, launch, cli, stagingDir, mkdirs: [...new Set([cwd, ...launch.roots.map(root => root.path)])], renewal } };
 }
 
 export const BOT_FOLDER_FILE_BYTES = 8 * 1024 * 1024;
