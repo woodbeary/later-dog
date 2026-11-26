@@ -15,6 +15,29 @@ import (
 	"golang.org/x/sys/unix"
 )
 
+const (
+	metadataCallTimeout = 15 * time.Second
+	dataCallTimeout     = 60 * time.Second
+)
+
+func callTimeout(op string) time.Duration {
+	switch op {
+	case "read", "write", "flush", "fsync", "release", "create", "open":
+		return dataCallTimeout
+	}
+	return metadataCallTimeout
+}
+
+func stoppedCall(err error) syscall.Errno {
+	if errors.Is(err, context.DeadlineExceeded) {
+		return unix.ETIMEDOUT
+	}
+	if errors.Is(err, context.Canceled) {
+		return unix.EINTR
+	}
+	return unix.EIO
+}
+
 type adapter struct {
 	root   string
 	client *http.Client
@@ -26,15 +49,17 @@ func newAdapter(socket, root string) *adapter {
 		DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
 			return (&net.Dialer{}).DialContext(ctx, "unix", socket)
 		}}
-	return &adapter{root: root, client: &http.Client{Transport: transport, Timeout: 6 * time.Minute, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}, limit: make(chan struct{}, 32)}
+	return &adapter{root: root, client: &http.Client{Transport: transport, Timeout: 2 * time.Minute, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}, limit: make(chan struct{}, 32)}
 }
 
-func (a *adapter) call(ctx context.Context, v request) (response, syscall.Errno) {
+func (a *adapter) call(parent context.Context, v request) (response, syscall.Errno) {
+	ctx, cancel := context.WithTimeout(parent, callTimeout(v.Op))
+	defer cancel()
 	select {
 	case a.limit <- struct{}{}:
 		defer func() { <-a.limit }()
 	case <-ctx.Done():
-		return response{}, unix.EINTR
+		return response{}, stoppedCall(ctx.Err())
 	}
 	v.Root = a.root
 	data, err := json.Marshal(v)
@@ -48,17 +73,17 @@ func (a *adapter) call(ctx context.Context, v request) (response, syscall.Errno)
 	req.Header.Set("Content-Type", "application/json")
 	res, err := a.client.Do(req)
 	if err != nil {
-		if errors.Is(err, context.Canceled) {
-			return response{}, unix.EINTR
-		}
-		return response{}, unix.EIO
+		return response{}, stoppedCall(err)
 	}
 	defer res.Body.Close()
 	if res.StatusCode != 200 {
 		return response{}, unix.EIO
 	}
 	body, err := io.ReadAll(io.LimitReader(res.Body, maxFrame+1))
-	if err != nil || len(body) > maxFrame {
+	if err != nil {
+		return response{}, stoppedCall(err)
+	}
+	if len(body) > maxFrame {
 		return response{}, unix.EIO
 	}
 	var result response

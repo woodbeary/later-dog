@@ -16,7 +16,7 @@ const CONTAINER_ID = /^[a-f0-9]{16,128}$/;
 
 export interface StateBucket {
   head(key: string): Promise<unknown | null>;
-  get(key: string): Promise<{ body: ReadableStream; httpEtag: string } | null>;
+  get(key: string): Promise<{ body: ReadableStream; httpEtag: string; size: number } | null>;
   put(key: string, value: ArrayBuffer, options?: { httpMetadata?: { contentType?: string }; onlyIf?: { etagDoesNotMatch: string }; sha256?: string }): Promise<unknown>;
   delete(keys: string | string[]): Promise<void>;
   list(options: { prefix: string; cursor?: string; limit?: number }): Promise<{ objects: Array<{ key: string; uploaded?: Date }>; truncated: boolean; cursor?: string }>;
@@ -87,7 +87,7 @@ export async function handleState(request: Request, bucket: StateBucket, contain
   if (request.method === "GET") {
     const object = await bucket.get(key) ?? (retained ? await bucket.get(retained) : null);
     if (!object) return new Response("Not found", { status: 404 });
-    return new Response(object.body, { headers: { "content-type": "application/octet-stream", etag: object.httpEtag } });
+    return new Response(object.body, { headers: { "content-type": "application/octet-stream", "content-length": String(object.size), etag: object.httpEtag } });
   }
   if (request.method === "PUT") {
     const bytes = key.includes("/archive/") ? await archiveBody(request) : await request.arrayBuffer();
