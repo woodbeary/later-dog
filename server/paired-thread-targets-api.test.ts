@@ -22,7 +22,8 @@ describe("paired thread targets through an isolated HTTP fixture", () => {
   const selection = (model: string) => ({ instanceId: "claude", model });
   const botState = async (id: string) => (await api("GET", "/api/bots?messages=30")).body.bots.find((bot: any) => bot.id === id);
   const page = async (id: string) => (await api("GET", `/api/threads/${id}/messages?limit=100`)).body;
-  const idle = (id: string) => expect.poll(async () => (await botState(id)).busy, { timeout: 15_000 }).toBe(false);
+  const idle = (id: string, threadId: string) => expect.poll(async () => (await botState(id)).tasks
+    .find((task: any) => task.threadId === threadId)?.busy, { timeout: 15_000 }).toBe(false);
 
   beforeAll(async () => {
     fixture = await launchVerificationServer();
@@ -48,7 +49,7 @@ describe("paired thread targets through an isolated HTTP fixture", () => {
     const bot = (await api("POST", "/api/bots", { name: "Pinned phone", modelSelection: selection(models[0]) })).body.bot;
     const threadA = bot.threadId;
     expect((await paired("POST", `/api/bots/${bot.id}/messages`, { text: "Original A", threadId: threadA })).status).toBe(202);
-    await idle(bot.id);
+    await idle(bot.id, threadA);
     const beforeA = await page(threadA);
     const userA = beforeA.messages.find((message: any) => message.role === "user" && message.text === "Original A");
     expect(userA).toBeTruthy();
@@ -91,11 +92,12 @@ describe("paired thread targets through an isolated HTTP fixture", () => {
     expect(model.body.bot.threadId).toBe(threadB);
     expect(model.body.bot.modelSelection).toEqual(selection(models[0]));
     expect((await paired("POST", `/api/bots/${bot.id}/messages`, { threadId: threadA, text: "Captured A" })).status).toBe(202);
-    await idle(bot.id);
+    await idle(bot.id, threadA);
     expect((await page(threadA)).messages.some((message: any) => message.text === "Captured A")).toBe(true);
     expect((await page(threadB)).messages).toEqual(beforeB.messages);
-    expect((await paired("POST", `/api/bots/${bot.id}/messages/${userA.id}/edit`, { threadId: threadA, text: "Edited A" })).status).toBe(202);
-    await idle(bot.id);
+    const edited = await paired("POST", `/api/bots/${bot.id}/messages/${userA.id}/edit`, { threadId: threadA, text: "Edited A" });
+    expect(edited.status, JSON.stringify(edited.body)).toBe(202);
+    await idle(bot.id, threadA);
     expect((await page(threadB)).messages).toEqual(beforeB.messages);
     const missingGrant = await paired("POST", `/api/bots/${bot.id}/always-allow`, { threadId: threadA, allowKey: "Bash:ls" });
     expect(missingGrant.status).toBe(409);
@@ -109,7 +111,7 @@ describe("paired thread targets through an isolated HTTP fixture", () => {
     const bot = (await api("POST", "/api/bots", { name: "Single thread", modelSelection: selection(models[0]) })).body.bot;
     expect((await paired("PATCH", `/api/bots/${bot.id}/model`, selection(models[1]))).status).toBe(200);
     expect((await paired("POST", `/api/bots/${bot.id}/messages`, { text: "Single-thread legacy send" })).status).toBe(202);
-    await idle(bot.id);
+    await idle(bot.id, bot.threadId);
     expect((await paired("POST", `/api/bots/${bot.id}/read`)).status).toBe(200);
     expect((await paired("POST", `/api/bots/${bot.id}/interrupt`)).status).toBe(200);
     const before = await page(bot.threadId);

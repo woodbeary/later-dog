@@ -23,6 +23,7 @@ import { startFakeOAuth } from "./testing/fake-oauth-server.ts";
 import { freePortBlock, withFreeSignInPort } from "./testing/ports.ts";
 import { openSse } from "./testing/sse.ts";
 import { MAIN_DOG_ROUTING } from "./laterdog/main-dog-prompt.ts";
+import { ANSWER_FIRST } from "./laterdog/dog-guidance.ts";
 import { FILE_MAX_BYTES, IMAGE_MAX_BYTES } from "./attachments.ts";
 import { computerPrompt, SIGN_IN_PROMPT } from "./system-prompt.ts";
 import {
@@ -104,6 +105,7 @@ let boatStubPort = 0;
 const boatRouteCalls: Array<{ method: string; path: string }> = [];
 const boatPromptBodies: Array<Record<string, unknown>> = [];
 let boatSlowRequestCount = 0;
+let boatSlowRequestGate: DeferredGate | null = null;
 let managedBoatRows: Array<Record<string, unknown>> = [];
 let managedBoatListRowsOverride: Array<Record<string, unknown>> | null = null;
 let managedBoatListStatus = 200;
@@ -973,7 +975,9 @@ beforeAll(async () => {
       && new URL(req.url ?? "/", "http://box.invalid").pathname === "/boxes"
     ) {
       boatSlowRequestCount += 1;
-      await new Promise((resolve) => setTimeout(resolve, 150));
+      const gate = boatSlowRequestGate;
+      if (gate) { gate.enter(); await gate.wait; }
+      else await new Promise((resolve) => setTimeout(resolve, 150));
     }
     if (
       req.headers.authorization === "Bearer box_route" ||
@@ -8423,7 +8427,7 @@ describe("harness HTTP API", () => {
       })).status).toBe(200);
       expect(await updates()).toContain("between your one-line updates do not narrate each step");
       const quiet = await turn("plan my week");
-      expect(quiet.systemPrompt).toContain("say in one line what you are doing before your first tool call");
+      expect(quiet.systemPrompt).toContain(ANSWER_FIRST);
       expect(quiet.systemPrompt).toContain("Leave out time estimates");
       expect(quiet.env.CLAUDE_CODE_SILENT_TURN_REMINDER).toBe("0");
 
@@ -8434,7 +8438,7 @@ describe("harness HTTP API", () => {
       const still = await turn("and next week");
       expect(still.systemPrompt).toContain("do not narrate each step");
       expect(still.systemPrompt).not.toContain("before each meaningful step");
-      expect(still.systemPrompt).toContain("one-line update at natural points");
+      expect(still.systemPrompt).toContain(ANSWER_FIRST);
       expect(still.env.CLAUDE_CODE_SILENT_TURN_REMINDER).toBe("0");
     } finally {
       await api("PATCH", "/api/config", { features: { stepUpdates: false } });
@@ -10788,7 +10792,8 @@ describe("section context API", () => {
   it("serves the brief of a section whose only dog is hidden", async () => {
     const quiet = (await api("POST", "/api/bots")).body.bot;
     try {
-      expect((await api("PATCH", `/api/bots/${quiet.id}`, { section: "Hidden pack", hidden: true })).status).toBe(200);
+      const hidden = await api("PATCH", `/api/bots/${quiet.id}`, { section: "Hidden pack", hidden: true });
+      expect(hidden.status, JSON.stringify(hidden.body)).toBe(200);
       expect((await api("PUT", "/api/section-context?section=Hidden%20pack", { text: "Keep going." })).status).toBe(200);
       expect((await api("GET", "/api/section-context?section=Hidden%20pack")).body.text).toBe("Keep going.");
       expect((await api("PUT", "/api/section-context?section=Hidden%20pack", { text: "" })).status).toBe(200);
@@ -12226,7 +12231,7 @@ describe("instance CLI override API", () => {
 
   it("updates only the configured Claude instance and verifies its version", async () => {
     const res = await api("POST", "/api/instances/claude/claude-update", {});
-    expect(res.status).toBe(200);
+    expect(res.status, JSON.stringify(res.body)).toBe(200);
     expect(res.body).toEqual({ ok: true, version: "2.1.232 (Claude Code)" });
 
     expect((await api("POST", "/api/instances/ghost/claude-update", {})).status).toBe(400);
@@ -12240,11 +12245,19 @@ describe("instance CLI override API", () => {
   });
 
   it("rejects overlapping provider configuration writes", async () => {
+    const gate = deferredGate();
+    boatSlowRequestGate = gate;
     const slowConfigWrite = api("PUT", "/api/config", { box: { token: "box_slow" } });
-    await new Promise((resolve) => setTimeout(resolve, 30));
-    const overlapping = await api("PATCH", "/api/instances/ghost", { cli: "/tmp/ghost-overlap" });
-    expect(overlapping.status).toBe(409);
-    expect((await slowConfigWrite).status).toBe(200);
+    try {
+      await gate.entered;
+      const overlapping = await api("PATCH", "/api/instances/ghost", { cli: "/tmp/ghost-overlap" });
+      expect(overlapping.status, JSON.stringify(overlapping.body)).toBe(409);
+      expect(overlapping.body.error).toBe("provider settings are already being updated");
+    } finally {
+      gate.release();
+      boatSlowRequestGate = null;
+      expect((await slowConfigWrite).status).toBe(200);
+    }
   });
 });
 
