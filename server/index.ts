@@ -20506,6 +20506,8 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       if (parsedLimit !== undefined && (!Number.isInteger(parsedLimit) || parsedLimit <= 0)) {
         return json(res, 400, { error: "limit must be a positive whole number" });
       }
+      await flushDecisionLog(DATA_DIR);
+      await flushDecisionLog(DATA_DIR);
       return json(res, 200, { decisions: readDecisions(DATA_DIR, parsedLimit ?? 200) });
     }
     if (method === "GET" && (path === "/api/admin-activity" || path === "/api/admin-activity.csv")) {
