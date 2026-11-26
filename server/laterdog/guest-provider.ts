@@ -1,7 +1,9 @@
 import { randomUUID } from "node:crypto";
 import { DATA_DIR } from "../config.ts";
+import { newEventId } from "../contracts.ts";
 import type { DriverCreateInput, ProviderAdapter, ProviderInstance, RuntimeEventListener, SendTurnInput, TextGenerationOptions, TextGenerationUsage } from "../contracts.ts";
 import { engineOpener, notePlacement, remoteEngineChoice, spawnPlacedEngine } from "./engine-placement.ts";
+import { engineWaitEvent } from "./engine-waiting.ts";
 import { GuestProviderChannel } from "./guest-provider-channel.ts";
 import { guestProviderPlan } from "./guest-provider-plan.ts";
 import { guestCliProfile } from "./guest-cli-profile.ts";
@@ -32,7 +34,14 @@ export function placeProvider(instance: ProviderInstance, input: DriverCreateInp
     const opener = engineOpener();
     if (!opener) throw new Error("The engine cannot reach the dog's computer.");
     const prepared = guestProviderPlan(dataDir, driver, profile, turn, opener);
-    const proc = spawnPlacedEngine(prepared.plan, (plan, signal) => opener.open(turn.botId!, plan, signal), undefined, undefined, undefined, { openBudgetMs: opener.openBudgetMs });
+    const proc = spawnPlacedEngine(prepared.plan, (plan, signal) => opener.open(turn.botId!, plan, signal), undefined, undefined, undefined, {
+      openBudgetMs: opener.openBudgetMs,
+      onWaiting: wait => {
+        if (turn.threadId.startsWith("writing-")) return;
+        const event = { eventId: newEventId(), createdAt: new Date().toISOString(), provider: driver, providerInstanceId: instance.instanceId, threadId: turn.threadId, ...engineWaitEvent(wait) };
+        for (const listener of listeners) listener(event);
+      },
+    });
     const channel = new GuestProviderChannel(proc, driver, instance.instanceId, turn.threadId, dataDir, prepared.turn, event => {
       if (event.type === "turn.started") log(turn, "computer");
       for (const listener of listeners) listener(event);

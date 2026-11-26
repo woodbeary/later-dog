@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { basename, join } from "node:path";
 import { appendNative, type NativeEntry } from "../drivers/native.ts";
@@ -8,6 +9,7 @@ import type { EngineProcess } from "./engine-remote.ts";
 
 export class GuestProviderChannel {
   private sequence = 0;
+  private readonly eventScope = randomUUID();
   private readonly pending = new Map<number, { done: (value: unknown) => void; fail: (error: Error) => void; read?: () => void }>();
   private ended = false;
   private turnId?: string;
@@ -62,6 +64,7 @@ export class GuestProviderChannel {
     const event = frame.event;
     if (event) {
       if (event.threadId !== this.threadId || event.provider !== this.driver || (event.providerInstanceId && event.providerInstanceId !== this.instanceId)) return;
+      event.eventId = this.eventScope + "-" + event.eventId;
       if (event.type === "cap.exhausted") {
         const name = basename(event.handoffPath);
         const folder = join(this.dataDir, "handoffs");
