@@ -776,6 +776,7 @@ import { LiveContext } from "./laterdog/live-context.ts";
 import { createUsageWatch } from "./laterdog/usage-watch.ts";
 import { openAsk, workState } from "./laterdog/work-state.ts";
 import { exchangeIdOf, exchangeThreads, withExchange, type ExchangeLookup } from "./laterdog/room-exchange.ts";
+import { personInRequest } from "./laterdog/person-in-request.ts";
 import { roomWorkFor } from "./laterdog/room-work.ts";
 import { WorkSignals } from "./laterdog/work-signals.ts";
 import { turnReceipt } from "./laterdog/turn-receipt.ts";
@@ -4689,12 +4690,14 @@ function openPeerExchange(sender: BotRecord, recipient: BotRecord, text: string)
   return exchange;
 }
 
-function closePeerExchange(sender: BotRecord, recipient: BotRecord, child: RoomHandoff, problem: string | undefined): GroupRecord {
+function closePeerExchange(sender: BotRecord, recipient: BotRecord, child: RoomHandoff, problem: string | undefined, forPerson = false): GroupRecord {
   const exchange = getOrCreateChannel(store, sender, recipient);
   const from = { botId: recipient.id, name: recipient.name, color: recipient.color };
-  const reply = child.status === "completed" && !problem ? redactSecretsInText(child.result.trim()) : "";
+  const ok = child.status === "completed" && !problem;
+  const reply = ok && !forPerson ? redactSecretsInText(child.result.trim()) : "";
+  const name = forPerson ? teammateDoneLabel(recipient.name, child.status, child.endedBy) : teammateResultLabel(recipient.name, child.status, problem, undefined, child.endedBy);
   store.appendMessage(exchange.threadId, reply ? { role: "bot", kind: "text", text: reply, from }
-    : { role: "bot", kind: "activity", from, tool: { name: teammateResultLabel(recipient.name, child.status, problem, undefined, child.endedBy), ok: child.status === "completed" && !problem } });
+    : { role: "bot", kind: "activity", from, tool: { name, ok } });
   return exchange;
 }
 
@@ -4810,6 +4813,7 @@ const roomHandoffs = new RoomHandoffs(join(DATA_DIR, "room-handoffs.json"), {
     store.appendMessage(root.threadId, { role: "bot", kind: "activity", tool: continueNoticeTool(root.id, end, roomHandoffLimits(cfg)) });
   },
   report: (child, parent) => {
+    const forPerson = !child.groupId && personAnswers.delete(`${child.threadId}:${roomHandoffs.sharedRequest(child).id}`);
     if (child.kind === "assignment" && child.status === "completed") return;
     const group = parent.groupId ? store.group(parent.groupId) : undefined;
     if (parent.groupId ? !group || !store.groupTaskByThread(group.id, parent.threadId) : !store.taskByThread(parent.botId, parent.threadId)) return;
@@ -4817,7 +4821,7 @@ const roomHandoffs = new RoomHandoffs(join(DATA_DIR, "room-handoffs.json"), {
     if (!awaitsReply(child)) {
       const problem = roomHandoffProblem(child, parent);
       const sender = store.bot(parent.botId);
-      const exchange = !child.groupId && bot && sender ? closePeerExchange(sender, bot, child, problem) : undefined;
+      const exchange = !child.groupId && bot && sender ? closePeerExchange(sender, bot, child, problem, forPerson) : undefined;
       store.appendMessage(parent.threadId, { role: "bot", kind: "activity",
         from: bot ? { botId: bot.id, name: bot.name, color: bot.color } : undefined,
         tool: { name: teammateDoneLabel(bot?.name ?? "Teammate", child.status, child.endedBy), ok: child.status === "completed" && !problem },
@@ -6403,6 +6407,8 @@ function isUnattended(botId?: string | null, threadId?: string): boolean {
 }
 
 const internalTurnThreads = new Set<string>();
+const answeringPerson = new Set<string>();
+const personAnswers = new Set<string>();
 
 function markInternalTurn(threadId: string) {
   internalTurnThreads.add(threadId);
@@ -7415,7 +7421,13 @@ bus.subscribe(guardTurnEnd((event: RuntimeEvent) => {
     const routed = group && m.role === "bot" && m.kind === "text" ? routedRoomReplies.get(event.threadId) : undefined;
     const routedBy = routed && speaker && routed.botId === speaker.botId ? routed.routedBy : undefined;
     if (routedBy) routedRoomReplies.delete(event.threadId);
-    const answering = !group && bot && m.role === "bot" && m.kind === "text" && !m.roomRequest ? peerRequestRunning(bot.id, event.threadId) : undefined;
+    const running = !group && bot && m.role === "bot" && m.kind === "text" && !m.roomRequest ? peerRequestRunning(bot.id, event.threadId) : undefined;
+    const forPerson = running !== undefined && personInRequest(store.messagesFor(event.threadId), running);
+    if (forPerson) {
+      answeringPerson.add(event.threadId);
+      personAnswers.add(`${event.threadId}:${running}`);
+    }
+    const answering = forPerson ? undefined : running;
     const marked = answering ? { ...m, roomRequest: { id: answering, phase: "reply" as const } } : m;
     const message = store.appendMessage(event.threadId, group && m.role === "bot" ? { ...marked, from: speaker, ...(routedBy ? { routedBy } : {}) }
       : requestMessageId ? { ...marked, requestMessageId } : marked);
@@ -7826,6 +7838,7 @@ bus.subscribe(guardTurnEnd((event: RuntimeEvent) => {
       }
       settleWaitingOnPersonChips(event.threadId);
       const internal = isInternalTurn(event.threadId);
+      const quiet = internal && !answeringPerson.delete(event.threadId);
       clearInternalTurn(event.threadId);
       const generatedKey = turnAttachmentKey(event.threadId, event.turnId);
       const generated = turnAttachmentsByTurn.get(generatedKey) ?? [];
@@ -7936,7 +7949,7 @@ bus.subscribe(guardTurnEnd((event: RuntimeEvent) => {
             drainSecretResumes();
             drainTakeoverResumes();
           }
-          if (event.ok && completedTurnId && !internal && !routineRun && !carryingOn && !nextAccount) promiseNudges.settled(event.threadId, completedTurnId);
+          if (event.ok && completedTurnId && !quiet && !routineRun && !carryingOn && !nextAccount) promiseNudges.settled(event.threadId, completedTurnId);
           settleTrackedRequest(event.threadId);
         };
         const tokens = event.usage ?? lastReported;
@@ -7991,8 +8004,8 @@ bus.subscribe(guardTurnEnd((event: RuntimeEvent) => {
         if (resourceOwner) settlingResourceOwners.set(resourceOwner.threadId, resourceOwner.generation);
         liveTurnByThread.delete(event.threadId);
         const routineReportThread = routineRun ? routineSourceThread(routineRun) : null;
-        if (!routineReportThread && !internal) store.patchTask(bot.id, event.threadId, { unread: true });
-        if (!carryingOn && (!routineRun || routineRun.status === "completed") && !internal && !computerSelectionTurns.get(event.threadId)?.selected) {
+        if (!routineReportThread && !quiet) store.patchTask(bot.id, event.threadId, { unread: true });
+        if (!carryingOn && (!routineRun || routineRun.status === "completed") && !quiet && !computerSelectionTurns.get(event.threadId)?.selected) {
           const completionDetail = routineRun
             ? reply || routineRun.output || routineRun.routineName
             : reply;
@@ -8901,6 +8914,7 @@ async function startTurn(
   const commsDepth = opts?.commsDepth ?? 0;
   if (commsDepth > 0) markInternalTurn(threadId);
   else clearInternalTurn(threadId);
+  answeringPerson.delete(threadId);
   if (resolvedImages.text.trim() && !opts?.cardContinuation && !opts?.automationSource) {
     const titled = store.titleTaskFromFirstMessage(bot.id, resolvedImages.text, threadId);
     const snippet = titled?.title;

@@ -46,6 +46,14 @@ describe("dog-to-dog traffic in a dog's chat", () => {
     expect(exchangeGist(fold, [fromClover, long], false).gist).toHaveLength(90);
   });
 
+  it("takes the gist only from the row's own request, never from a later dog's", () => {
+    const sol: Message = { ...fromClover, id: "c9", at: at(20), turnId: undefined, tool: { name: "Message from Sol Lead", ok: true }, comm: { ...comm, groupId: "g9", withBotId: "sol", withName: "Sol Lead" } };
+    const solAsk: Message = { ...request, id: "r9", at: at(21), turnId: undefined, text: "@Patch Shipping order adopted", roomRequest: { id: "q9", phase: "request" }, from: { botId: "sol", name: "Sol Lead", color: "purple" } };
+    expect(exchangeGist(singleExchange(report)!, [report, answer, sol, solAsk], false).gist).toBeNull();
+    expect(exchangeGist(singleExchange(sent)!, [sent, sol, solAsk], false).gist).toBeNull();
+    expect(exchangeGist(singleExchange(sol)!, [report, sol, solAsk], false).gist).toBe("Shipping order adopted");
+  });
+
   it("marks a message to another dog done once its report comes back", () => {
     const fold = singleExchange(sent)!;
     expect(exchangeGist(fold, [sent], true).state).toBe("Working");
