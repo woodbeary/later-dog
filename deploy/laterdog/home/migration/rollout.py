@@ -197,7 +197,7 @@ def activate(plan, transport, workers, projection=None):
             "The saved legacy source has changed",
         )
         retain_snapshot(transport, legacy, workers)
-        stage_reference(transport, legacy)
+        stage_reference(transport, legacy, retain=True)
     st, _, raw = transport.admin(
         "work-folders/verification/" + proposed["verification"], "PUT", plan["proof"]
     )

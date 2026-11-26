@@ -189,6 +189,17 @@ def migration_scenario(directory, transport):
         directory / "activate.json",
         cold_receipt["snapshot"],
     )
+    from previous_backup import stage_reference
+
+    inert = object()
+    stage_reference(inert, encode({"entries": []}), retain=True)
+    stage_reference(inert, encode({"entries": [{"path": ARCHIVE}, {"path": DESCRIPTION}, {"path": REFERENCE}]}), retain=True)
+    ordinary_marker = encode({"v": 1, "source": "baseline", "baseline": digest(encode(old)), "size": len(b"original previous backup")})
+    marker_key = "blobs/" + digest(ordinary_marker)
+    stage_reference(transport, encode(old))
+    require(transport.admin(marker_key)[2] == ordinary_marker, "Previous backup compatibility marker changed")
+    stage_reference(transport, encode(old), retain=True)
+    require(transport.admin(marker_key, "DELETE")[0] == 204 and transport.admin(marker_key)[2] == ordinary_marker, "Garbage collection lost the previous backup marker")
     from candidate_plan import pack, upload
     import gzip
 
