@@ -422,7 +422,7 @@ import { NativeRunProjector } from "./laterdog/native-run-projector.ts";
 import { NativeRunPublisher } from "./laterdog/native-run-publisher.ts";
 import { NativeRunStore } from "./laterdog/native-run-store.ts";
 import { threadsPastRetention } from "./laterdog/native-run-retention.ts";
-import { nativeRunDatabase } from "./message-db.ts";
+import { nativeRunDatabase, recoverHistoryCommands } from "./message-db.ts";
 import { createNativeRunRoutes } from "./routes/native-runs.ts";
 import { TurnWatchdog } from "./turn-watchdog.ts";
 import { TurnResources, type TurnOwner } from "./turn-resources.ts";
@@ -977,6 +977,7 @@ if (existsSync(join(DATA_DIR, ".backups"))) {
     workspaceRestore = readLastWorkspaceRestore(DATA_DIR) ?? workspaceRestore;
   }
 }
+recoverHistoryCommands();
 const workspaceMaintenance = new WorkspaceBackupMaintenance();
 const cloudHold = new CloudHold(join(DATA_DIR, "cloud-hold.json"));
 const ENVIRONMENT_ID = loadEnvironmentId(DATA_DIR);

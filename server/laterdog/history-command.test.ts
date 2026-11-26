@@ -14,6 +14,7 @@ import {
   closeMessageDb,
   initializeMessageDatabase,
   readCommandReceipt,
+  recoverHistoryCommands,
   readThread,
   withCommandReceipt,
 } from "../message-db.ts";
@@ -33,6 +34,9 @@ vi.mock("./history-client.ts", async (load) => {
     isRemoteHistory: () => true,
     remoteHistoryGeneration: () => "fixed",
     historyExecute: (thread: string, op: HistoryOperation, id: string) => remote.send!(thread, op, id),
+    historyMany: (_threads: string[], op: HistoryOperation) => [
+      { threadId: "thread", result: remote.send!("thread", op, "") },
+    ],
     storeHistoryReceipt: (raw: string) => {
       const sha = createHash("sha256").update(raw).digest("hex");
       remote.objects.set(sha, raw);
@@ -61,7 +65,7 @@ it("keeps the first accepted command and newer leaf across lost acknowledgment, 
     if (requestId && accepted.has(requestId)) return accepted.get(requestId);
     const result = executeHistoryOperation(sql, thread, op, () => String(seq++));
     if (requestId) accepted.set(requestId, result);
-    if (lose) {
+    if (lose && ["messages.command", "messages.append"].includes(op.op)) {
       lose = false;
       throw Error("lost acknowledgment");
     }
@@ -80,6 +84,11 @@ it("keeps the first accepted command and newer leaf across lost acknowledgment, 
         table +
         " VALUES(1,'fixed')",
     );
+  for (const position of ["-42", "9007199254741133", "9223372036854775807"]) {
+    init
+      .prepare("INSERT INTO command_receipts(rowid,kind,key,at,result) VALUES(CAST(? AS INTEGER),'unrelated',?,0,?)")
+      .run(position, position, HISTORY_RECEIPT_PREFIX + "0".repeat(64));
+  }
   init.close();
   copyFileSync(control, prior);
   const message = (id: string): Message => ({
@@ -107,6 +116,20 @@ it("keeps the first accepted command and newer leaf across lost acknowledgment, 
     appendMessage("thread", message("newer"));
     closeMessageDb();
     copyFileSync(prior, control);
+    recoverHistoryCommands();
+    expect(readCommandReceipt("digest.append", "stable")?.result).toBe(JSON.stringify(message("original")));
+    const restored = new DatabaseSync(control, { readOnly: true });
+    const source = shard.prepare("SELECT position FROM history_command_journal").get()!.position;
+    expect(
+      restored.prepare("SELECT CAST(rowid AS TEXT) rid FROM command_receipts WHERE kind='digest.append'").get()?.rid,
+    ).toBe(source);
+    expect(
+      restored
+        .prepare("SELECT CAST(rowid AS TEXT) rid FROM command_receipts WHERE kind='unrelated' ORDER BY rowid")
+        .all()
+        .map((row) => row.rid),
+    ).toEqual(["-42", "9007199254741133", "9223372036854775807"]);
+    restored.close();
     expect(save("regenerated")).toEqual({ result: JSON.stringify(message("original")), replayed: true });
     expect(readThread("thread", "/missing")).toMatchObject({
       activeLeafId: "newer",
@@ -121,7 +144,7 @@ it("keeps the first accepted command and newer leaf across lost acknowledgment, 
     expect(readFileSync(control).includes(Buffer.from("Private conversation output"))).toBe(false);
     const check = new DatabaseSync(control, { readOnly: true });
     try {
-      expect(check.prepare("SELECT result FROM command_receipts").get()?.result).toBe(
+      expect(check.prepare("SELECT result FROM command_receipts WHERE kind='digest.append'").get()?.result).toBe(
         HISTORY_RECEIPT_PREFIX +
           createHash("sha256")
             .update(JSON.stringify(message("original")))

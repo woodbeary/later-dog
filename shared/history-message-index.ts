@@ -1,7 +1,9 @@
+import { initializeHistoryCommands } from "./history-command-journal.ts";
 import type { HistoryRow } from "./history-migration.ts";
 import { readHistoryValue, storeHistoryValue, type HistorySql } from "./history-values.ts";
 
 export function initializeHistoryMessageIndex(sql: HistorySql): void {
+  initializeHistoryCommands(sql);
   sql.exec(
     "CREATE TABLE IF NOT EXISTS history_command_results(command TEXT NOT NULL,part INTEGER NOT NULL,result BLOB NOT NULL,PRIMARY KEY(command,part)) WITHOUT ROWID",
   );

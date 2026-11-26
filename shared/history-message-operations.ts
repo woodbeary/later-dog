@@ -1,3 +1,4 @@
+import { acceptedHistoryCommand, historyCommandHead, historyCommandPage, journalHistoryCommand } from "./history-command-journal.ts";
 import { historyRecallStats, rankedHistoryRecall, type RecallCorpus } from "./history-recall.ts";
 import { HISTORY_TABLES, type HistoryRow } from "./history-migration.ts";
 import { clearHistoryValues, readHistoryValue, type HistorySql } from "./history-values.ts";
@@ -150,9 +151,17 @@ export function executeHistoryOperation(
       for (const m of o.messages) write(sql, thread, m, false, allocate);
       setLeaf(sql, thread, o.leaf == null ? null : text(o.leaf), allocate);
       return null;
+    case "messages.commandHead": return historyCommandHead(sql);
+    case "messages.commandPage": return historyCommandPage(sql,o);
     case "messages.command": {
       const key = text(o.key);
       if (!/^[a-f0-9]{64}$/.test(key)) throw Error("Invalid conversation command identity");
+      if(o.rowid!==undefined){
+        const accepted=acceptedHistoryCommand(sql,key);
+        if(accepted)return accepted;
+        executeHistoryOperation(sql,thread,{op:"messages.batch",operations:o.operations},allocate);
+        return journalHistoryCommand(sql,o);
+      }
       const decoder = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true });
       const saved = Array.from(
         sql.exec<{ result: ArrayBuffer }>(

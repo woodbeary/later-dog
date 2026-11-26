@@ -1,3 +1,4 @@
+import type { HistoryCommandRow, HistoryCommandPage } from "../shared/history-command-journal.ts";
 import { createHash, randomUUID } from "node:crypto";
 import { writeFileAtomic } from "./atomic.ts";
 import { receiptDigest } from "../shared/history-receipt.ts";
@@ -32,7 +33,7 @@ function open(): DatabaseSync {
   mkdirSync(DATA_DIR, { recursive: true, mode: 0o700 });
   const file = DB_FILE();
   if (isRemoteHistory() && !existsSync(file)) throw Error("The compact conversation history control is missing");
-  closeSync(openSync(file, "a", 0o600));
+  closeSync(openSync(file, isRemoteHistory() ? "r+" : "a", 0o600));
   try {
     chmodSync(file, 0o600);
   } catch {}
@@ -42,6 +43,7 @@ function open(): DatabaseSync {
       db.close();
       throw Error("The compact conversation history control belongs to another generation");
     }
+    db.exec("CREATE TABLE IF NOT EXISTS history_command_watermarks(thread_id TEXT PRIMARY KEY,sequence TEXT NOT NULL)");
     db.exec("PRAGMA secure_delete=ON");
     db.exec("CREATE TABLE IF NOT EXISTS history_outbox(id TEXT PRIMARY KEY,thread_id TEXT NOT NULL,operation TEXT NOT NULL)");
   }
@@ -208,89 +210,228 @@ export function historyCacheRevision(): number {
   return cacheRevision;
 }
 
-const standaloneIntent = () => join(DATA_DIR,"history-pending.json");
+const standaloneIntent = () => join(DATA_DIR, "history-pending.json");
 
-function flushStandaloneIntent():void {
-  const file=standaloneIntent();
-  if(!existsSync(file))return;
-  const row=JSON.parse(readFileSync(file,"utf8"));
-  if(row.generation!==remoteHistoryGeneration()||typeof row.threadId!=="string"||typeof row.id!=="string"||!row.operation)throw Error("Unrecognized conversation history intent");
-  try {historyExecute(row.threadId,row.operation,row.id);unlinkSync(file);}
-  catch(error){cacheRevision++;throw error;}
+function flushStandaloneIntent(): void {
+  const file = standaloneIntent();
+  if (!existsSync(file)) return;
+  const row = JSON.parse(readFileSync(file, "utf8"));
+  if (
+    row.generation !== remoteHistoryGeneration() ||
+    typeof row.threadId !== "string" ||
+    typeof row.id !== "string" ||
+    !row.operation
+  )
+    throw Error("Unrecognized conversation history intent");
+  try {
+    historyExecute(row.threadId, row.operation, row.id);
+    unlinkSync(file);
+  } catch (error) {
+    cacheRevision++;
+    throw error;
+  }
 }
+let reconciledHistory: DatabaseSync | null = null;
+
+function mergeCommandReceipt(connection: DatabaseSync, row: HistoryCommandRow): void {
+  receiptDigest(row.resultRef);
+  const existing = connection
+    .prepare(
+      "SELECT CAST(rowid AS TEXT) rowid,kind,key,CAST(at AS TEXT) at,result FROM command_receipts WHERE rowid=CAST(? AS INTEGER) OR (kind=? AND key=?)",
+    )
+    .all(row.rowid, row.kind, row.key);
+  if (existing.length) {
+    if (
+      existing.length !== 1 ||
+      existing[0].rowid !== row.rowid ||
+      existing[0].kind !== row.kind ||
+      existing[0].key !== row.key ||
+      existing[0].at !== row.at ||
+      existing[0].result !== row.resultRef
+    )
+      throw Error("Conflicting conversation command receipt in the restored home");
+  } else {
+    connection
+      .prepare(
+        "INSERT INTO command_receipts(rowid,kind,key,at,result) VALUES(CAST(? AS INTEGER),?,?,CAST(? AS INTEGER),?)",
+      )
+      .run(row.rowid, row.kind, row.key, row.at, row.resultRef);
+  }
+}
+function rememberJournal(connection: DatabaseSync, thread: string, sequence: string): void {
+  connection
+    .prepare(
+      "INSERT INTO history_command_watermarks(thread_id,sequence) VALUES(?,?) ON CONFLICT(thread_id) DO UPDATE SET sequence=excluded.sequence WHERE CAST(excluded.sequence AS INTEGER)>CAST(history_command_watermarks.sequence AS INTEGER)",
+    )
+    .run(thread, sequence);
+}
+function reconcileHistoryCommands(database: DatabaseSync): void {
+  if (reconciledHistory === database) return;
+  const heads = historyMany<string | null>(undefined, { op: "messages.commandHead" });
+  for (const { threadId, result: head } of heads) {
+    if (head === null) continue;
+    let cursor = String(
+      database.prepare("SELECT sequence FROM history_command_watermarks WHERE thread_id=?").get(threadId)?.sequence ??
+        "0",
+    );
+    if (BigInt(cursor) > BigInt(head)) throw Error("The compact command cursor is newer than its history shard");
+    while (cursor !== head) {
+      const page: HistoryCommandPage = historyExecute(threadId, { op: "messages.commandPage", after: cursor });
+      if (!page.rows.length) throw Error("A conversation command journal page is missing");
+      transaction((connection) => {
+        for (const row of page.rows) {
+          if (BigInt(row.sequence) <= BigInt(cursor) || BigInt(row.sequence) > BigInt(head))
+            throw Error("The command journal advanced during recovery");
+          mergeCommandReceipt(connection, row);
+          cursor = row.sequence;
+        }
+        rememberJournal(connection, threadId, cursor);
+      });
+    }
+  }
+  reconciledHistory = database;
+}
+export function recoverHistoryCommands(): void {
+  if (isRemoteHistory()) flushHistoryOutbox();
+}
+
 function flushHistoryOutbox(): void {
   if (!isRemoteHistory() || transactionDepth) return;
   flushStandaloneIntent();
   const database = db();
   for (;;) {
-    const row = database.prepare("SELECT id,thread_id,operation FROM history_outbox ORDER BY rowid LIMIT 1").get() as {id:string;thread_id:string;operation:string}|undefined;
-    if (!row) return;
-    const operation:HistoryOperation = JSON.parse(row.operation);
-    if(operation.op==="messages.command" && Array.isArray(operation.operations)){
-      operation.operations=operation.operations.map(decodePendingOperation);
-    } else if(operation.op==="history.intent") {
-      Object.assign(operation,decodePendingOperation(operation));
+    const row = database.prepare("SELECT id,thread_id,operation FROM history_outbox ORDER BY rowid LIMIT 1").get() as
+      | { id: string; thread_id: string; operation: string }
+      | undefined;
+    if (!row) {
+      reconcileHistoryCommands(database);
+      return;
+    }
+    const operation: HistoryOperation = JSON.parse(row.operation);
+    if (operation.op === "messages.command" && Array.isArray(operation.operations)) {
+      operation.operations = operation.operations.map(decodePendingOperation);
+    } else if (operation.op === "history.intent") {
+      Object.assign(operation, decodePendingOperation(operation));
     }
     try {
       const result = historyExecute(row.thread_id, operation, row.id);
-      transaction(connection => {
-        if(operation.op === "messages.command") {
-          if(typeof result !== "string" || typeof operation.kind !== "string" || typeof operation.commandKey !== "string") throw Error("Conversation command receipt is incomplete");
-          receiptDigest(result);
-          connection.prepare("UPDATE command_receipts SET result=? WHERE kind=? AND key=?").run(result,operation.kind,operation.commandKey);
-          if(result !== operation.result)cacheRevision++;
+      transaction((connection) => {
+        if (operation.op === "messages.command") {
+          const command = result as HistoryCommandRow;
+          if (!command || command.kind !== operation.kind || command.key !== operation.commandKey)
+            throw Error("Conversation command receipt is incomplete");
+          const local = connection
+            .prepare(
+              "SELECT CAST(rowid AS TEXT) rid,CAST(at AS TEXT) at,result FROM command_receipts WHERE kind=? AND key=?",
+            )
+            .get(command.kind, command.key);
+          if (
+            local &&
+            local.rid === operation.rowid &&
+            local.at === operation.at &&
+            local.result === operation.result &&
+            (local.rid !== command.rowid || local.at !== command.at || local.result !== command.resultRef)
+          ) {
+            connection.prepare("DELETE FROM command_receipts WHERE kind=? AND key=?").run(command.kind, command.key);
+            cacheRevision++;
+          }
+          mergeCommandReceipt(connection, command);
+          if (reconciledHistory === connection) rememberJournal(connection, row.thread_id, command.sequence);
         }
         connection.prepare("DELETE FROM history_outbox WHERE id=?").run(row.id);
       });
-    } catch(error) {
+    } catch (error) {
       cacheRevision++;
       throw error;
     }
   }
 }
 
-type PendingWrite = {threadId:string; operation:HistoryOperation};
-let commandWrites: PendingWrite[]|undefined;
+type PendingWrite = { threadId: string; operation: HistoryOperation };
+let commandWrites: PendingWrite[] | undefined;
 
-function encodePendingOperation(operation:HistoryOperation, result?:{raw:string;ref:string}):HistoryOperation {
-  if(operation.op==="messages.leaf")return operation;
-  if(result && operation.message && JSON.stringify(operation.message)===result.raw) return {op:operation.op,messageRef:result.ref};
-  return {op:"history.intent",ref:storeHistoryReceipt(JSON.stringify(operation))};
+function encodePendingOperation(operation: HistoryOperation, result?: { raw: string; ref: string }): HistoryOperation {
+  if (operation.op === "messages.leaf") return operation;
+  if (result && operation.message && JSON.stringify(operation.message) === result.raw)
+    return { op: operation.op, messageRef: result.ref };
+  return { op: "history.intent", ref: storeHistoryReceipt(JSON.stringify(operation)) };
 }
 
-function decodePendingOperation(value:HistoryOperation):HistoryOperation {
-  if(value.op==="history.intent")return JSON.parse(readHistoryReceipt(String(value.ref)));
-  if(typeof value.messageRef==="string")return {op:value.op,message:JSON.parse(readHistoryReceipt(value.messageRef))};
+function decodePendingOperation(value: HistoryOperation): HistoryOperation {
+  if (value.op === "history.intent") return JSON.parse(readHistoryReceipt(String(value.ref)));
+  if (typeof value.messageRef === "string")
+    return { op: value.op, message: JSON.parse(readHistoryReceipt(value.messageRef)) };
   return value;
 }
 
-function queueHistoryIntent(database:DatabaseSync,threadId:string,operation:HistoryOperation):void {
-  database.prepare("INSERT INTO history_outbox(id,thread_id,operation) VALUES(?,?,?)").run(randomUUID(),threadId,JSON.stringify(operation));
+function queueHistoryIntent(database: DatabaseSync, threadId: string, operation: HistoryOperation): void {
+  database
+    .prepare("INSERT INTO history_outbox(id,thread_id,operation) VALUES(?,?,?)")
+    .run(randomUUID(), threadId, JSON.stringify(operation));
 }
 
-function writeRemoteMessage(threadId:string,operation:HistoryOperation):void {
-  if(commandWrites){commandWrites.push({threadId,operation});return;}
-  if(transactionDepth){queueHistoryIntent(db(),threadId,encodePendingOperation(operation));return;}
+function writeRemoteMessage(threadId: string, operation: HistoryOperation): void {
+  if (commandWrites) {
+    commandWrites.push({ threadId, operation });
+    return;
+  }
+  if (transactionDepth) {
+    queueHistoryIntent(db(), threadId, encodePendingOperation(operation));
+    return;
+  }
   flushHistoryOutbox();
-  const value={generation:remoteHistoryGeneration(),threadId,id:randomUUID(),operation};
-  writeFileAtomic(standaloneIntent(),JSON.stringify(value),{mode:0o600});
+  const value = { generation: remoteHistoryGeneration(), threadId, id: randomUUID(), operation };
+  writeFileAtomic(standaloneIntent(), JSON.stringify(value), { mode: 0o600 });
   flushStandaloneIntent();
 }
 
-function collectCommandWrites(database:DatabaseSync, kind:string,key:string,apply:()=>string):{result:string;stored:string} {
-  const outer=commandWrites;
-  const writes:PendingWrite[]=[];
-  commandWrites=writes;
-  let result:string;
-  try {result=apply();} finally {commandWrites=outer;}
-  const stored=storeHistoryReceipt(result),thread=writes[0]?.threadId;
-  if(thread && writes.every(w=>w.threadId===thread && ["messages.insert","messages.append","messages.update","messages.leaf"].includes(w.operation.op))){
-    const operations=writes.map(w=>encodePendingOperation(w.operation,{raw:result,ref:stored}));
-    queueHistoryIntent(database,thread,{op:"messages.command",key:createHash("sha256").update(JSON.stringify([kind,key])).digest("hex"),kind,commandKey:key,result:stored,operations});
-  }else{
-    for(const w of writes)queueHistoryIntent(database,w.threadId,encodePendingOperation(w.operation));
+function collectCommandWrites(
+  database: DatabaseSync,
+  kind: string,
+  key: string,
+  at: number,
+  apply: () => string,
+): string {
+  const outer = commandWrites;
+  const writes: PendingWrite[] = [];
+  commandWrites = writes;
+  let result: string;
+  try {
+    result = apply();
+  } finally {
+    commandWrites = outer;
   }
-  return {result,stored};
+  const stored = storeHistoryReceipt(result),
+    thread = writes[0]?.threadId;
+  database.prepare("INSERT INTO command_receipts(kind,key,at,result) VALUES(?,?,?,?)").run(kind, key, at, stored);
+  const position = database
+    .prepare("SELECT CAST(rowid AS TEXT) rowid,CAST(at AS TEXT) at FROM command_receipts WHERE kind=? AND key=?")
+    .get(kind, key)!;
+  if (
+    thread &&
+    writes.every(
+      (w) =>
+        w.threadId === thread &&
+        ["messages.insert", "messages.append", "messages.update", "messages.leaf"].includes(w.operation.op),
+    )
+  ) {
+    const operations = writes.map((w) => encodePendingOperation(w.operation, { raw: result, ref: stored }));
+    queueHistoryIntent(database, thread, {
+      op: "messages.command",
+      key: createHash("sha256")
+        .update(JSON.stringify([kind, key]))
+        .digest("hex"),
+      kind,
+      commandKey: key,
+      result: stored,
+      rowid: position.rowid,
+      at: position.at,
+      operations,
+    });
+  } else {
+    for (const w of writes) queueHistoryIntent(database, w.threadId, encodePendingOperation(w.operation));
+  }
+  return result;
 }
 
 export interface FollowupPayload {
@@ -360,10 +501,9 @@ export function withCommandReceipt(
       .prepare("SELECT result FROM command_receipts WHERE kind = ? AND key = ?")
       .get(kind, key) as { result: string } | undefined;
     if (existing) return { result: isRemoteHistory() ? readHistoryReceipt(existing.result) : existing.result, replayed:true };
-    const {result,stored}=isRemoteHistory()?collectCommandWrites(database,kind,key,apply):(()=>{const result=apply();return {result,stored:result};})();
-    database
-      .prepare("INSERT INTO command_receipts(kind, key, at, result) VALUES (?, ?, ?, ?)")
-      .run(kind, key, at, stored);
+    if(isRemoteHistory())return {result:collectCommandWrites(database,kind,key,at,apply),replayed:false};
+    const result=apply();
+    database.prepare("INSERT INTO command_receipts(kind,key,at,result) VALUES(?,?,?,?)").run(kind,key,at,result);
     return { result, replayed: false };
   });
   flushHistoryOutbox();
@@ -462,13 +602,12 @@ export function readThreadTail(threadId: string, legacyFile: string, limit: numb
       .prepare("SELECT active_leaf_id FROM thread_state WHERE thread_id = ?")
       .get(threadId) as { active_leaf_id: string | null } | undefined;
     const result = { messages: rows.map(rowToMessage), activeLeafId: state?.active_leaf_id ?? null, hasMore };
-    if (limit>0 && limit<=64) checkDualHistory(threadId,{op:"messages.page",backward:true,limit},value=>{
-      const page=value as {messages:Message[];activeLeafId:string|null;hasMore:boolean};
-      return page.activeLeafId===result.activeLeafId && page.messages.every((m,i)=>JSON.stringify(m)===JSON.stringify(result.messages[result.messages.length-i-1]));
-    });
+    checkDualHistory(threadId,result,limit);
     return result;
   }
-  return importLegacy(threadId, legacyFile);
+  const result=importLegacy(threadId, legacyFile);
+  checkDualHistory(threadId,result,limit);
+  return result;
 }
 
 function importLegacy(threadId: string, legacyFile: string): ThreadRows {
@@ -511,6 +650,17 @@ export function insertMessage(threadId: string, message: Message): void {
   db()
     .prepare(UPSERT_MESSAGE)
     .run(threadId, message.id, message.at, message.role, message.kind, message.text ?? null, JSON.stringify(message));
+}
+
+export function insertMessageWithChildren(threadId:string,message:Message,children:Message[]):void {
+  if(isRemoteHistory()){
+    writeRemoteMessage(threadId,{op:"messages.batch",operations:[{op:"messages.insert",message},...children.map(child=>({op:"messages.update",message:child}))]});
+    return;
+  }
+  transaction(()=>{
+    insertMessage(threadId,message);
+    for(const child of children)updateMessage(threadId,child);
+  });
 }
 
 export function importThread(threadId: string, messages: Message[], activeLeafId: string | null): void {
@@ -922,6 +1072,7 @@ export function closeMessageDb(): void {
     handle?.close();
   } catch {}
   handle = null;
+  reconciledHistory=null;
   handlePath = null;
 }
 

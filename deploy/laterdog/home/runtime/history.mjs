@@ -74,6 +74,7 @@ function confinedFile(root, relativeName) {
 
 export function verifyHistoryControl(data, generation, manifest) {
   const root = resolve(data);
+  if(!lstatSync(root).isDirectory() || lstatSync(root).isSymbolicLink())throw Error("Unsafe compact conversation history directory");
   const inManifest = (path) =>
     manifest.entries.some((entry) => entry.path === ".laterdog/" + path && entry.type === "file");
   const control = "history-control.db";

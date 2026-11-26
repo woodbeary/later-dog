@@ -12,6 +12,8 @@ const url = process.env.LATERDOG_HISTORY_URL;
 const token = BOOT_CLOUD_SECRETS.LATERDOG_HISTORY_TOKEN;
 let worker: Worker | undefined;
 export function isRemoteHistory() {
+  if (mode && !["legacy", "dual", "remote"].includes(mode))
+    throw Error("Conversation history is unavailable in this placement");
   return mode === "remote";
 }
 export function remoteHistoryGeneration() {
@@ -118,17 +120,49 @@ export async function historyManyAsync<T>(threadIds: readonly string[] | undefin
   } while (after);
   return items;
 }
+type ComparisonPage = { messages: unknown[]; activeLeafId: string | null; hasMore: boolean; next: string | null };
+export async function compareHistoryTail(
+  local: { messages: unknown[]; activeLeafId: string | null; hasMore?: boolean },
+  limit: number,
+  fetchPage: (remaining: number, after: string | null) => Promise<ComparisonPage>,
+): Promise<boolean> {
+  const expected = local.messages.slice(-limit).reverse();
+  const more = local.messages.length > limit || !!local.hasMore;
+  let after: string | null = null,
+    index = 0;
+  const seen = new Set<string>();
+  for (;;) {
+    const page = await fetchPage(limit - index, after);
+    if (page.activeLeafId !== local.activeLeafId || page.messages.length > limit - index) return false;
+    for (const message of page.messages) {
+      if (index >= expected.length || JSON.stringify(message) !== JSON.stringify(expected[index++])) return false;
+    }
+    if (index === limit || !page.hasMore) return expected.length === index && more === page.hasMore;
+    if (!page.next || seen.has(page.next) || !page.messages.length) throw Error("Invalid conversation history page");
+    after = page.next;
+    seen.add(after);
+  }
+}
 export function checkDualHistory(
   threadId: string,
-  operation: HistoryOperation,
-  compare: (result: unknown) => boolean,
+  local: { messages: unknown[]; activeLeafId: string | null; hasMore?: boolean },
+  requested: number,
 ): void {
-  if (mode !== "dual") return;
-  const { url, token } = endpoint();
-  void historyRequest<{ result: unknown }>(url, token, "execute", { generation, threadId, operation }).then(
-    ({ result }) => {
-      if (!compare(result)) console.warn("[history] dual read differs for " + threadId);
-    },
-    () => console.warn("[history] dual read unavailable for " + threadId),
+  if (mode !== "dual" || requested <= 0) return;
+  const operation = "messages.page";
+  function report(outcome: "match" | "mismatch" | "unavailable") {
+    console.info("[history_dual_read] " + JSON.stringify({ mode, generation, threadId, operation, outcome }));
+  }
+  void compareHistoryTail(local, Math.min(64, requested), async (limit, after) => {
+    const { url, token } = endpoint();
+    const { result } = await historyRequest<{ result: ComparisonPage }>(url, token, "execute", {
+      generation,
+      threadId,
+      operation: { op: operation, backward: true, limit, after },
+    });
+    return result;
+  }).then(
+    (equal) => report(equal ? "match" : "mismatch"),
+    () => report("unavailable"),
   );
 }
