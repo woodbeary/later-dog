@@ -33,5 +33,9 @@ export function workFolderLayoutRecord(layout: WorkFolderLayout): string {
   const tasks = Object.keys(layout.tasks).sort().map(owner => [owner, layout.tasks[owner]]);
   const loose = layout.loose ? [layout.loose.owner, layout.loose.members, layout.loose.names] : null;
   const projects = layout.projects.map(p => [p.path, p.owner, p.members]);
-  return JSON.stringify([layout.dogs, tasks, loose, projects]);
+  const record: unknown[] = [layout.dogs, tasks, loose, projects];
+  if (layout.links && Object.keys(layout.links).length) {
+    record.push(Object.keys(layout.links).sort().map(scope => [scope, layout.links![scope]]));
+  }
+  return JSON.stringify(record);
 }

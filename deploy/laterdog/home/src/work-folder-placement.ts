@@ -1,3 +1,4 @@
+import { handleLegacyHold, legacyHoldRoute, LEGACY_RETENTION } from "./work-folder-retention.ts";
 import { registeredPage, registryFence, verifiedMembership } from "./work-folder-registry.ts";
 import { workFolderLayoutRecord, workFolderPlacementSchema, type WorkFolderLayout, type WorkFolderPlacement } from "../../../../shared/work-folder-layout.ts";
 import { hex, sha256, sha256Stream } from "./encoding.ts";
@@ -17,7 +18,7 @@ const result = (value: unknown, status: number) => Response.json(value, { status
 const checksum = async (value: string | Uint8Array) => hex(await sha256(value));
 
 export function workFolderControlPath(path: string): boolean {
-  return path === placement || path === registered || registryLock.test(path) || path === projection || path === legacyBlobs || legacySnapshot.test(path) || evidence.test(path) || history.test(path);
+  return path === placement || path === registered || legacyHoldRoute.test(path) || registryLock.test(path) || path === projection || path === legacyBlobs || legacySnapshot.test(path) || evidence.test(path) || history.test(path);
 }
 
 export async function readWorkFolderPlacement(bucket: WorkFolderBucket, stable: string): Promise<WorkFolderPlacement | null> {
@@ -88,6 +89,7 @@ async function checked(scope: string, bucket: WorkFolderBucket, next: WorkFolder
     }));
     if (matched.includes(false)) return false;
   }
+  if (!await bucket.head(scope + "work-folders/legacy-seals/" + v.baselineManifest)) return false;
   if (!baseline) return true;
   const current = await bucket.get(scope + "manifest.json");
   if (!current) return false;
@@ -139,6 +141,7 @@ async function projectLegacy(request: Request, bucket: WorkFolderBucket, scope: 
   if (!await checked(scope, bucket, next, false)) return result({ error: "unverified_projection" }, 422);
   const restored = await bucket.get(scope + "work-folders/legacy-manifests/" + next.baselineManifest);
   if (!restored) return result({ error: "missing_reconstructed_manifest" }, 422);
+  if (!await bucket.head(scope + "work-folders/legacy-seals/" + body.source)) return result({ error: "prior_legacy_snapshot_unverified" }, 422);
   await pinLegacy(bucket, scope, body.source);
   const saved = await bucket.put(scope + "manifest.json", restored.body, { onlyIf: { etagMatches: current.etag }, sha256: next.baselineManifest, httpMetadata: { contentType: "application/json" } });
   return saved ? result({ revision: next.baselineManifest }, 201) : result({ error: "legacy_changed" }, 409);
@@ -170,6 +173,8 @@ export async function handleWorkFolderPlacement(request: Request, bucket: WorkFo
   const path = new URL(request.url).pathname;
   if (!workFolderControlPath(path)) return result({ error: "not_found" }, 404);
   const scope = homePrefix(stable), key = scope + path.slice(1);
+  const retention = legacyHoldRoute.exec(path);
+  if (retention) return handleLegacyHold(request, bucket, scope, retention[1]!, retention[2]!);
   if (path === registered) {
     if (request.method !== "GET") return result({ error: "method_not_allowed" }, 405);
     const cursor = new URL(request.url).searchParams.get("cursor");
@@ -219,6 +224,12 @@ export async function handleWorkFolderPlacement(request: Request, bucket: WorkFo
   if (parsed.data.previous !== previous || (old ? request.headers.get("if-match") !== '"' + old.etag + '"' : request.headers.get("if-none-match") !== "*")) return result({ error: "placement_changed" }, 409);
   if (!await checked(scope, bucket, parsed.data)) return result({ error: "unverified_placement" }, 422);
   await pinLegacy(bucket, scope, parsed.data.baselineManifest);
+  const watermark = scope + LEGACY_RETENTION;
+  for (;;) {
+    const last = await bucket.get(watermark);
+    if (last) await last.body.cancel();
+    if (await bucket.put(watermark, id, { onlyIf: last ? { etagMatches: last.etag } : { etagDoesNotMatch: "*" } })) break;
+  }
   if (oldBytes && previous) await bucket.put(scope + "work-folders/placements/" + previous, oldBytes, { ...options, onlyIf: { etagDoesNotMatch: "*" } });
   const wrote = await bucket.put(key, data, { ...options, onlyIf: old ? { etagMatches: old.etag } : { etagDoesNotMatch: "*" } });
   if (!wrote) return result({ error: "placement_changed" }, 409);

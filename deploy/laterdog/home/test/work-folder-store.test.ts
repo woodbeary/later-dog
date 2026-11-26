@@ -23,7 +23,7 @@ function fixture() {
   };
   const base = workFolderBaseUrl(origin, "dog_A", "task-thread");
   const authority = workFolderAuthority(bootstrap, "dog_A", "task-thread");
-  const call = async (path: string, method = "GET", data?: unknown, token?: string, now = 1000, url = base) => handleWorkFolder(new Request(url + "/" + path, { method, headers: { authorization: "Bearer " + (token ?? await authority) }, body: typeof data === "string" ? data : data === undefined ? undefined : JSON.stringify(data) }), bucket, stable, origin, bootstrap, now);
+  const call = async (path: string, method = "GET", data?: unknown, token?: string, now = 1000, url = base) => handleWorkFolder(new Request(url + "/" + path, { method, headers: { authorization: "Bearer " + (token ?? await authority) }, ...(data === undefined ? {} : { body: typeof data === "string" ? data : JSON.stringify(data) }) }), bucket, stable, origin, bootstrap, now);
   const put = async (kind: string, body: unknown) => {
     const text = typeof body === "string" ? body : JSON.stringify(body), id = hex(await sha256(text));
     const r = await call(kind + "/" + id, "PUT", text);
@@ -98,7 +98,7 @@ describe("a cloud work folder", () => {
     expect((await f.call("grant", "POST", { guestId: "../outside" })).status).toBe(400);
   });
   it("requires a verified, current, fenced snapshot before switching ownership and revokes former project membership", async () => {
-    const f = fixture(), baseline = "legacy manifest bytes", baselineKey = "homes/" + f.stable + "/manifest.json";
+    const f = fixture(), baseline = JSON.stringify({ version: 1, entries: [] }), baselineKey = "homes/" + f.stable + "/manifest.json";
     await f.bucket.put(baselineKey, baseline, { onlyIf: { etagDoesNotMatch: "*" } });
     const project = "/data/shared", projectId = "project-" + hex(await sha256(project));
     const scope = workFolderBaseUrl(f.origin, "dog_A", projectId), authority = await workFolderAuthority(f.bootstrap, "dog_A", projectId);
@@ -109,6 +109,11 @@ describe("a cloud work folder", () => {
     expect((await internal("placement")).status).toBe(404);
     const head = await (await call("commit", { parent: null, manifest: null })).json();
     const baselineManifest = hex(await sha256(baseline));
+    const hold = (path: string, body: unknown) => handleWorkFolderPlacement(new Request("http://state.r2/work-folders/retention/" + path, { method: "POST", body: JSON.stringify(body) }), f.bucket, f.stable);
+    const leaf = hex(await sha256(JSON.stringify(["leaf", []])));
+    expect((await internal("legacy-manifests/" + baselineManifest, JSON.parse(baseline))).status).toBe(201);
+    expect((await hold("leaf/" + leaf, { hashes: [] })).status).toBe(200);
+    expect((await hold("seal/" + baselineManifest, { root: leaf })).status).toBe(200);
     let previous: string | null = null, oldEtag: string | null = null;
     for (const members of [["dog_A","dog_B"], ["dog_A"]]) {
       const layout = { dogs: [], tasks: {}, projects: [{ path: project, owner: "dog_A", members }] };
@@ -139,6 +144,24 @@ describe("a cloud work folder", () => {
       }
     }
     expect((await call("grant", { guestId: "cmp_stranger", granteeBotId: "outsider" })).status).toBe(403);
+  });
+
+  it("rejects incomplete retained snapshot proofs and can repair an original blob after an older collector removes it", async () => {
+    const f = fixture();
+    const data = "saved bytes", id = hex(await sha256(data)), prefix = "homes/" + f.stable + "/";
+    const hold = (path: string, body: unknown) => handleWorkFolderPlacement(new Request("http://state.r2/work-folders/retention/" + path, { method:"POST", body:JSON.stringify(body) }),f.bucket,f.stable);
+    const snapshot = JSON.stringify({version:1,entries:[{path:"chunks",type:"file",chunks:[id,id]}]});
+    const sha = hex(await sha256(snapshot));
+    await f.bucket.put(prefix + "work-folders/legacy-manifests/" + sha, snapshot, {onlyIf:{etagDoesNotMatch:"*"}});
+    await f.bucket.put(prefix + "blobs/" + id, data, {onlyIf:{etagDoesNotMatch:"*"}});
+    const wrong = hex(await sha256(JSON.stringify(["leaf",[id]]))), good = hex(await sha256(JSON.stringify(["leaf",[id,id]])));
+    expect((await hold("leaf/" + wrong,{hashes:[id]})).status).toBe(200);
+    expect((await hold("seal/" + sha,{root:wrong})).status).toBe(422);
+    expect((await hold("leaf/" + good,{hashes:[id,id]})).status).toBe(200);
+    expect((await hold("seal/" + sha,{root:good})).status).toBe(200);
+    f.objects.delete(prefix + "blobs/" + id);
+    expect((await hold("repair/" + good,{hashes:[id,id]})).status).toBe(200);
+    expect(new TextDecoder().decode(f.objects.get(prefix + "blobs/" + id)!.bytes)).toBe(data);
   });
 
 });

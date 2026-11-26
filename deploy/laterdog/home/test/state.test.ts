@@ -135,4 +135,19 @@ describe("cold archives in the home state store", () => {
     expect(response.status).toBe(413);
     expect(bucket.objects.size).toBe(0);
   });
+  it("keeps every original blob through a retained snapshot while later unreferenced uploads can be collected", async () => {
+    const bucket = memoryBucket(), base = "homes/" + CONTAINER + "/";
+    const older = "1".repeat(64), later = "2".repeat(64), cutoff = base + "work-folders/legacy-retention";
+    const times = new Map([[base + "blobs/" + older, new Date(100)], [cutoff, new Date(101)], [base + "blobs/" + later, new Date(102)]]);
+    for (const key of times.keys()) bucket.objects.set(key, new ArrayBuffer(1));
+    bucket.head = async key => bucket.objects.has(key) ? { uploaded: times.get(key) } : null;
+    bucket.list = async ({prefix}) => ({ truncated:false, objects:[...bucket.objects.keys()].filter(key => key.startsWith(prefix)).map(key => ({key, uploaded:times.get(key)})) });
+    const call = (path: string, method: string) => handleState(new Request("http://state.r2/blobs/" + path, {method}), bucket, CONTAINER);
+    expect(await (await call("", "GET")).json()).toEqual({hashes:[later]});
+    expect((await call(older, "DELETE")).status).toBe(204);
+    expect((await call(older, "GET")).status).toBe(200);
+    expect((await call(later, "DELETE")).status).toBe(204);
+    expect((await call(later, "GET")).status).toBe(404);
+  });
+
 });
