@@ -3,10 +3,11 @@ import type { WorkFolderLayout } from "../../shared/work-folder-layout.ts";
 import type { RunBox, SyncRunFolder } from "./computer-runs.ts";
 import { syncComputerWorkFolder } from "./engine-opener.ts";
 
-export function managedJobFolders(layout: WorkFolderLayout | null, home: { publicOrigin: string; bootstrapSecret: string } | null, dataDir: string) {
+export function managedJobFolders(layout: WorkFolderLayout | null, home: { publicOrigin: string; bootstrapSecret: string } | null, dataDir: string, changing = (_id: string) => false) {
   if (!layout) return null;
   if (!home) throw new Error("Missing cloud home authority for assigned work folders.");
   const sync: SyncRunFolder = async (box: RunBox, botId: string, scope: FolderScope, action) => {
+    if (changing(botId)) throw new Error("The dog’s shared project access is changing.");
     if (!box.computerId || !box.stream) throw new Error("The selected computer cannot open this work folder.");
     const assigned = scopeForPath(layout, dataDir, scope.path, botId);
     if (assigned?.owner !== scope.owner || assigned?.id !== scope.id || assigned?.path !== scope.path) throw new Error("This work folder is no longer assigned to the dog.");

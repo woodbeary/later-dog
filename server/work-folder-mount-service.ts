@@ -1,8 +1,9 @@
+import { ProjectAccessController } from "./laterdog/project-access.ts";
 import { chmod, chown, rm } from "node:fs/promises";
 import { createServer } from "node:http";
 import { basename } from "node:path";
 import { workFolderAuthority, workFolderBaseUrl, type WorkFolderHead } from "../shared/work-folder-store.ts";
-import { mountedWorkFolders, folderGrant, linkedProjects, projectLink, visibleAliases, visibleWorkspace, type FolderScope } from "./laterdog/work-folder-locations.ts";
+import { rememberProjectAccess, mountedWorkFolders, folderGrant, linkedProjects, projectLink, visibleAliases, visibleWorkspace, type FolderScope } from "./laterdog/work-folder-locations.ts";
 import { WorkFolderNamespace, folderError } from "./laterdog/work-folder-namespace.ts";
 import { openGuestFolder, type FsRequest } from "./laterdog/work-folder-guest-fs.ts";
 import { WorkFolderMountRouter } from "./laterdog/work-folder-mount-router.ts";
@@ -23,9 +24,12 @@ async function main() {
   const secret = env.LATERDOG_CLOUD_BOOTSTRAP_SECRET;
   const uid = Number(env.LATERDOG_WORK_FOLDER_UID), gid = Number(env.LATERDOG_WORK_FOLDER_GID);
   if (!layout || !dataDir || !origin || !secret || !checkpoint || basename(checkpoint) !== "checkpoint.sock" || !socket || basename(socket) !== "mount.sock" || !Number.isSafeInteger(uid) || !Number.isSafeInteger(gid)) throw new Error("Incomplete work folder mount environment");
+  const permissions = layout.projects.length ? new ProjectAccessController(layout, dataDir, origin, secret, rememberProjectAccess) : null;
+  await permissions?.refresh();
   delete env.LATERDOG_CLOUD_BOOTSTRAP_SECRET;
   const names = new WorkFolderNamespace(layout, dataDir, visibleWorkspace(dataDir));
   const open = (scope: FolderScope) => openGuestFolder(scope, async id => {
+    await permissions?.refresh();
     const projects = linkedProjects(layout, dataDir, scope, scope.owner);
     const grantFor = (s: FolderScope) => folderGrant(origin, secret, s, scope.owner, id);
     return {
@@ -92,6 +96,7 @@ async function main() {
         parts.push(part);
       }
       const operation = JSON.parse(Buffer.concat(parts).toString("utf8")) as FsRequest;
+      if (operation.op === "readlink") await permissions?.refresh();
       response.setHeader("content-type", "application/json");
       response.end(JSON.stringify(await router.dispatch(operation)));
     } catch (error) {
@@ -106,7 +111,7 @@ async function main() {
   const checkpoints = createServer(async (request, response) => {
     if (request.method !== "POST" || (request.url !== "/v1/checkpoint" && request.url !== "/v1/reload")) { response.writeHead(404).end(); return; }
     try {
-      if (request.url === "/v1/reload") await router.reload();
+      if (request.url === "/v1/reload") { await router.reload(); await permissions?.refresh(); }
       else await router.checkpoint();
       response.writeHead(204).end();
     } catch (error) {

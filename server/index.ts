@@ -571,7 +571,7 @@ import { archiveSweep, roomFor, roomToRestore, savesHold, startArchiveSweeps, st
 import { WorkFolderArchive } from "./laterdog/work-folder-archive.ts";
 import { managedDeviceApproval } from "./laterdog/managed-device-approval.ts";
 import { managedJobFolders } from "./laterdog/managed-job-folders.ts";
-import { mountedWorkFolders as jobFolderLayout } from "./laterdog/work-folder-locations.ts";
+
 import { homeMountPaths } from "./laterdog/work-folder-maintenance.ts";
 import { workFolderChats } from "./laterdog/work-folder-chats.ts";
 import { savesForStorage } from "./laterdog/save-status.ts";
@@ -644,7 +644,6 @@ import { createGracefulShutdown } from "./graceful-shutdown.ts";
 import { acquireDataDirLeaseForProcess } from "./data-dir-lease.ts";
 import { createWorkspaceAccess, describeEdition, editionStatus, hostedWorkspaceConfiguration, hostedWorkspaceConfigured, editionForMembers, LICENSE_WARN_DAYS, licenseWarning, sharedWorkspaceFullAccessConfigured, loadEnterpriseLayer, workspaceMembership, type EditionStatus, type WorkspaceAccess } from "./enterprise.ts";
 import { environmentDescriptor, loadEnvironmentId, serverVersion } from "./environment.ts";
-import { checkpointAssignedFolders } from "./laterdog/portable-work-folders.ts";
 import { WorkspaceBackupMaintenance } from "./workspace-backup-maintenance.ts";
 import { createWorkspaceBackupRoutes, isWorkspaceBackupSessionControl } from "./workspace-backup-http.ts";
 import { applyPendingWorkspaceRestoreAtBoot, readLastWorkspaceRestore, type WorkspaceRestoreResult } from "./workspace-backup.ts";
@@ -918,15 +917,24 @@ import { remoteEngineChoice, remoteEngineDefault, setRemoteEngineDefault, setEng
 import { preToolGuardDecision } from "./laterdog/placed-threads.ts";
 import { carryClaudeSession } from "./laterdog/session-carry.ts";
 import { createEnginePlacementRoutes } from "./routes/engine-placement.ts";
-import { assignedCwd, engineFolderScopes, folderGrant, mountedWorkFolders, visibleAliases } from "./laterdog/work-folder-locations.ts";
+import { ProjectAccessController, type ProjectSelection } from "./laterdog/project-access.ts";
+import { retireMemberProjects } from "./laterdog/project-member-retirement.ts";
+import { checkpointAssignedFolders } from "./laterdog/portable-work-folders.ts";
+import { assignedCwd, engineFolderScopes, folderGrant, mountedWorkFolders, rememberProjectAccess, visibleAliases } from "./laterdog/work-folder-locations.ts";
 import { computerEngineOpener } from "./laterdog/engine-opener.ts";
 
 const mountedFolderLayout = mountedWorkFolders();
+const folderBootstrap = BOOT_CLOUD_SECRETS.LATERDOG_CLOUD_BOOTSTRAP_SECRET ?? process.env.LATERDOG_CLOUD_BOOTSTRAP_SECRET;
+const projectAccess = mountedFolderLayout ? new ProjectAccessController(mountedFolderLayout, DATA_DIR, process.env.LATERDOG_PUBLIC_URL!, folderBootstrap!, rememberProjectAccess) : null;
+const changingProjectMembers = new Set<string>();
+const projectSelectionLocks = new Set<string>();
+if (projectAccess?.layout.projects.length) await projectAccess.refresh();
 setEngineOpener(computerEngineOpener(mountedFolderLayout ? {
   workFolders: async input => {
+    if (changingProjectMembers.has(input.botId)) throw new Error("This dog's shared project access is being updated.");
     const folders = engineFolderScopes(mountedFolderLayout, DATA_DIR, input);
     return Promise.all(folders.map(async scope => ({ path: scope.path, ...(scope.id === "loose" ? { aliases: visibleAliases(mountedFolderLayout, input.botId) } : {}), grant: await folderGrant(
-      process.env.LATERDOG_PUBLIC_URL!, BOOT_CLOUD_SECRETS.LATERDOG_CLOUD_BOOTSTRAP_SECRET!, scope, input.botId, input.computerId,
+      process.env.LATERDOG_PUBLIC_URL!, folderBootstrap!, scope, input.botId, input.computerId,
     ) })));
   },
 } : {}));
@@ -3281,7 +3289,7 @@ function connectedAppsIntegration(bot: Pick<BotRecord, "id" | "connectorTools">,
 
 const computerControlRevision = new Map<string, number>();
 const takeoverWaits = new TakeoverWaits();
-const assignedJobFolders = managedJobFolders(jobFolderLayout(), CLOUD_HOME, DATA_DIR);
+const assignedJobFolders = managedJobFolders(mountedFolderLayout, CLOUD_HOME, DATA_DIR, id => changingProjectMembers.has(id));
 const checkpoints = turnFileCheckpoints(assignedJobFolders);
 const approvalPlace = managedDeviceApproval(assignedJobFolders, botId => remoteEngineChoice(DATA_DIR, botId).computer, boat.jobComputer);
 const deviceApprovals = new DeviceApprovalWatcher({
@@ -3803,6 +3811,56 @@ if (cfg.features?.autoReview === undefined) {
   cfg.features = { ...cfg.features, autoReview: false };
 }
 store.seedIfEmpty();
+if (projectAccess?.layout.projects.length) await projectAccess.initialize(projectSelections());
+function projectSelections(): ProjectSelection[] {
+  return [
+    ...store.bots.map((b) => ({ subject: "dog:" + b.id, cwd: b.cwd, members: [b.id] })),
+    ...store.groups.map((g) => ({ subject: "room:" + g.id, cwd: g.pinnedCwd ?? g.cwd, members: g.memberIds })),
+  ];
+}
+async function selectProjects(owner: boolean, selections: ProjectSelection[], removeMember?: string) {
+  if (!projectAccess) return;
+  if (!projectAccess.layout.projects.length) {
+    for (const s of selections) projectAccess.binding(s);
+    return;
+  }
+  const locks = new Set(
+    selections.flatMap((selection) => [selection.subject, ...selection.members.map((id) => "member:" + id)]),
+  );
+  if (removeMember) locks.add("member:" + removeMember);
+  if ([...locks].some((key) => projectSelectionLocks.has(key)))
+    throw Object.assign(new Error("Another change to this project selection is still being saved."), { status: 409 });
+  for (const key of locks) projectSelectionLocks.add(key);
+  try {
+    await projectAccess.change(
+      owner,
+      selections,
+      projectSelections,
+      async (loss, commit) => {
+        const ids = [...new Set(loss.map((row) => row.member))];
+        if (
+          ids.some((id) => store.bot(id)?.busy || activeGroupTurnForBot(id)) ||
+          ids.some((id) => computerJobs.hasActiveWork(id))
+        )
+          throw Object.assign(new Error("Finish the affected computer work before removing project access."), {
+            status: 409,
+          });
+        for (const id of ids) changingProjectMembers.add(id);
+        try {
+          await checkpointAssignedFolders(process.env.LATERDOG_WORK_FOLDER_CHECKPOINT_SOCKET, "reload");
+          await retireMemberProjects(loss, process.env.LATERDOG_PUBLIC_URL!, folderBootstrap!);
+          await commit();
+        } finally {
+          for (const id of ids) changingProjectMembers.delete(id);
+        }
+      },
+      removeMember,
+    );
+  } finally {
+    for (const key of locks) projectSelectionLocks.delete(key);
+  }
+}
+
 hostedModels?.reconcile(store);
 if (skillsLibraryEnabled(cfg)) {
   try {
@@ -4606,7 +4664,7 @@ function createChannel(value: unknown): GroupRecord {
   return store.createGroup(name, memberIds, false, section, setup ?? (deciderReady(cfg, "roomRouting") ? { defaultResponder: { kind: "auto" } } : undefined));
 }
 
-function updateChannel(groupId: string, value: unknown): GroupRecord {
+async function updateChannel(groupId: string, value: unknown, owner = false): Promise<GroupRecord> {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     throw Object.assign(new Error("body must be a JSON object"), { status: 400 });
   }
@@ -4702,6 +4760,9 @@ function updateChannel(groupId: string, value: unknown): GroupRecord {
   if (resetAudience) {
     if (body.resetAudience !== true) throw Object.assign(new Error("resetAudience must be true"), { status: 400 });
     patch.audienceFloor = undefined;
+  }
+  if (Object.hasOwn(patch,"cwd") || Object.hasOwn(patch,"memberIds")) {
+    await selectProjects(owner, [{subject:"room:"+groupId,cwd:Object.hasOwn(patch,"cwd") ? patch.cwd as string | undefined : existing.pinnedCwd ?? existing.cwd, members:(patch.memberIds as string[] | undefined) ?? existing.memberIds}]);
   }
   const group = store.patchGroup(groupId, patch);
   if (resetAudience) audienceChanged();
@@ -10312,7 +10373,7 @@ const routineRequests = new RoutineRequestService({
     return null;
   },
 });
-async function deleteBotWithLifecycle(botId: string, revalidate: () => void = () => {}) {
+async function deleteBotWithLifecycle(botId: string, owner: boolean, revalidate: () => void = () => {}) {
   const deletionResponse = (status: number, body: { error?: string; ok?: boolean }) => ({ status, body });
       revalidate();
       const bot = store.bot(botId);
@@ -10408,6 +10469,7 @@ async function deleteBotWithLifecycle(botId: string, revalidate: () => void = ()
 
         revalidate();
         if (bot.id === store.mainBotId()) return deletionResponse(409, { error: MAIN_DOG_DELETE_REFUSAL });
+        await selectProjects(owner, [], bot.id);
         const browserCleanupRequest = browserCleanup.prepare("bot", bot.id);
         try {
           for (const instance of ownedBoatComputers) {
@@ -16063,7 +16125,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
           if (!allowedRoster(next)) return json(res, 403, { error: "keep yourself in the room; only the person can take you out of it" });
           patch.memberIds = next;
         }
-        const updated = updateChannel(room.id, patch);
+        const updated = await updateChannel(room.id, patch);
         return json(res, 200, { ok: true, memberIds: updated.memberIds, memberCount: updated.memberIds.length, message: `Updated room “${updated.name}”.` });
       }
       if (method === "POST" && path === "/api/internal/mcp-servers") {
@@ -17380,6 +17442,10 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
           const validated = validateBotCwd(requested);
           if (!validated.ok) return json(res, 400, { error: validated.error });
           projectCwd = validated.cwd;
+          if (projectAccess && projectCwd) {
+            const assignment = projectAccess.binding({ subject:"room:selection", cwd:projectCwd, members:["selection"] });
+            if (!assignment || !cloudOwnerSession(auth)) return json(res, 403, {error:"Choose an existing shared project as the cloud home owner."});
+          }
         }
       }
       const rawVisibility = url.searchParams.get("visibility");
@@ -17418,6 +17484,8 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         return json(res, 400, { error: error instanceof Error ? error.message : "Invalid bot package" });
       }
       const deps = packageImportDeps(await defaultSelection());
+      let revertProjectImport: (()=>void) | undefined;
+      if (projectAccess && projectCwd) deps.onPrepared = undo => { revertProjectImport=undo; };
       const options = {
         mode: importMode as "add" | "project",
         cwd: projectCwd,
@@ -17431,6 +17499,10 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
           : importTeamManifest(manifest!, options, deps);
         if (result.alreadyAdded) return json(res, 200, result);
         imported = result;
+        if (projectCwd) {
+          try { await selectProjects(cloudOwnerSession(auth), imported.groups.filter(g=>g.cwd).map(g=>({subject:"room:"+g.id,cwd:g.cwd,members:g.memberIds}))); }
+          catch (error) { revertProjectImport?.(); throw error; }
+        }
       } catch (error) {
         if (error instanceof PackageImportError) return json(res, error.status, { error: error.message, code: error.code });
         throw error;
@@ -17478,6 +17550,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       } else {
         patch.setupSkippedAt = Date.now();
       }
+      if (Object.hasOwn(patch,"cwd")) await selectProjects(cloudOwnerSession(auth), [{subject:"room:"+group.id, cwd:patch.cwd, members:group.memberIds}]);
       const updated = store.patchGroup(m[1], patch);
       if (!updated) return json(res, 404, { error: "no such room" });
       return json(res, 200, { group: publicGroupState(updated) });
@@ -17629,7 +17702,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         const notYours = cloudThreadRefusal(auth, renamed.threadId);
         if (notYours) return json(res, 403, { error: notYours });
       }
-      const group = updateChannel(m[1], body);
+      const group = await updateChannel(m[1], body, cloudOwnerSession(auth));
       return json(res, 200, { group: publicGroupState(group) });
     }
     m = path.match(/^\/api\/groups\/([\w-]+)\/read$/);
@@ -17656,6 +17729,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         clearTurnDigestState(threadId);
       }
       routines!.disableForGroup(group.id);
+      await selectProjects(cloudOwnerSession(auth), [{subject:"room:"+group.id, members:[]}]);
       store.deleteGroup(group.id);
       rejectDeletedThreadSkillStages(stagedSkillCleanups);
       return json(res, 200, { ok: true });
@@ -18157,6 +18231,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
           createdRoutines.push({ id: created.id, enabled: routine.enabled !== false });
           if (ownersRoutines) cloudRoutineAuthors?.wrote(created.id, ownersRoutines);
         }
+        if (checkedCwd.cwd) await selectProjects(cloudOwnerSession(auth), [{subject:"dog:"+bot.id, cwd:checkedCwd.cwd, members:[bot.id]}]);
       } catch (error) {
         for (const routine of createdRoutines) routines!.remove(routine.id);
         store.deleteBot(bot.id);
@@ -18744,6 +18819,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
           (freshBrowserBot.busy || browserRuntime.heldBy(currentBrowserSession(freshBrowserBot.id, freshBrowserBot.browserProfile)))) {
         return json(res, 409, { error: "Stop the dog and release browser control before changing its profile." });
       }
+      if (body.cwd !== undefined) await selectProjects(cloudOwnerSession(auth), [{subject:"dog:"+m[1],cwd:patch.cwd as string | undefined,members:[m[1]]}]);
       if (profile.patch.soul !== undefined) {
         const runtimePatch = { ...patch };
         for (const field of Object.keys(profile.patch)) delete runtimePatch[field];
@@ -18808,7 +18884,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
     }
     m = path.match(/^\/api\/bots\/([\w-]+)$/);
     if (m && method === "DELETE") {
-      const result = await deleteBotWithLifecycle(m[1]);
+      const result = await deleteBotWithLifecycle(m[1],cloudOwnerSession(auth));
       return json(res, result.status, result.body);
     }
 

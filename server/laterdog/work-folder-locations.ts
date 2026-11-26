@@ -1,3 +1,4 @@
+import { membershipFor, type ProjectAccess } from "../../shared/work-folder-project-access.ts";
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { isAbsolute, join, relative, resolve, sep } from "node:path";
@@ -45,11 +46,21 @@ export function scopeForPath(layout: WorkFolderLayout, dataDir: string, path: st
   return { owner: project.owner, id: projectFolderId(project.path), path: project.path };
 }
 
+let mountedProjectAccess: { verification: string; access: ProjectAccess | null } | undefined;
+export function rememberProjectAccess(verification: string, access: ProjectAccess | null) {
+  const path = process.env.LATERDOG_WORK_FOLDER_LAYOUT;
+  if (path) {
+    const placement = workFolderPlacementSchema.parse(JSON.parse(readFileSync(path, "utf8")));
+    if (placement.mode !== "folders" || placement.verification !== verification)
+      throw new Error("The mounted home and its project authority have different placements.");
+  }
+  mountedProjectAccess = { verification, access };
+}
 export function mountedWorkFolders(env: NodeJS.ProcessEnv = process.env): WorkFolderLayout | null {
   if (env.LATERDOG_CLOUD_ROLE !== "home" || !env.LATERDOG_WORK_FOLDER_LAYOUT) return null;
   const placement = workFolderPlacementSchema.parse(JSON.parse(readFileSync(env.LATERDOG_WORK_FOLDER_LAYOUT, "utf8")));
   if (placement.mode !== "folders") throw new Error("The mounted folder layout is inactive.");
-  return placement.layout;
+  return membershipFor(placement.layout, mountedProjectAccess?.verification === placement.verification ? mountedProjectAccess.access : null);
 }
 
 export async function folderGrant(origin: string, bootstrap: string, scope: FolderScope, botId: string, computerId: string): Promise<WorkFolderGrant> {
