@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { workFolderLayoutRecord } from "../../../../shared/work-folder-layout.ts";
 import { workFolderAuthority, workFolderBaseUrl, WORK_FOLDER_ACCESS_MS } from "../../../../shared/work-folder-store.ts";
 import { handleWorkFolderPlacement, layoutScopes } from "../src/work-folder-placement.ts";
 import { handleWorkFolder, type WorkFolderBucket } from "../src/work-folder-store.ts";
@@ -9,6 +10,7 @@ function fixture() {
   const objects = new Map<string, { bytes: Uint8Array; etag: string }>();
   let failVersion = false;
   const bucket: WorkFolderBucket = {
+    async list({ prefix }) { return { objects: [...objects.keys()].filter(key => key.startsWith(prefix)).map(key => ({ key })), truncated: false }; },
     async head(k) { const o = objects.get(k); return o ? { size: o.bytes.length } : null; },
     async get(k) { const o = objects.get(k); return o ? { body: new Response(o.bytes as BodyInit).body!, size: o.bytes.length, etag: o.etag } : null; },
     async put(k, data, opts) {
@@ -111,12 +113,15 @@ describe("a cloud work folder", () => {
     for (const members of [["dog_A","dog_B"], ["dog_A"]]) {
       const layout = { dogs: [], tasks: {}, projects: [{ path: project, owner: "dog_A", members }] };
       const [subject] = await layoutScopes(layout);
-      const checked = { v: 1, mode: "folders", baselineManifest, layoutSha256: hex(await sha256(JSON.stringify(layout))), scopes: [{ scope: subject, revision: head.revision, manifest: null, sourceTree: baselineManifest, restoredTree: baselineManifest }] };
+      const checked = { v: 1, mode: "folders", baselineManifest, layoutSha256: hex(await sha256(workFolderLayoutRecord(layout))), scopes: [{ scope: subject, revision: head.revision, manifest: null, sourceTree: baselineManifest, restoredTree: baselineManifest }] };
       const verification = hex(await sha256(JSON.stringify(checked)));
       expect((await internal("verification/" + verification, checked)).status).toBe(201);
       const next = { v: 1, mode: "folders", previous, baselineManifest, verification, layout };
       const condition = oldEtag ? { "if-match": oldEtag } : { "if-none-match": "*" };
       expect((await internal("placement", next, condition)).status).toBe(422);
+      const { revision } = await (await internal("scopes")).json();
+      const lock = (op: string) => handleWorkFolderPlacement(new Request("http://state.r2/work-folders/registry-" + op, { method: "POST", body: JSON.stringify({ revision, fence: verification }) }), f.bucket, f.stable);
+      expect((await lock("fence")).status).toBe(200);
       expect((await call("fence", { revision: head.revision, fence: verification })).status).toBe(200);
       expect((await call("commit", { parent: head.revision, manifest: null })).status).toBe(423);
       expect((await internal("placement", next, condition)).status).toBe(201);
@@ -125,6 +130,7 @@ describe("a cloud work folder", () => {
       oldEtag = (await internal("placement")).headers.get("etag");
       expect(await (await internal("placements/" + previous)).json()).toEqual(next);
       expect((await call("unfence", { revision: head.revision, fence: verification })).status).toBe(200);
+      expect((await lock("unfence")).status).toBe(200);
       const guest = await call("grant", assignment);
       expect(guest.status).toBe(members.length === 2 ? 200 : 403);
       if (guest.ok) {

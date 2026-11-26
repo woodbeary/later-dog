@@ -20,6 +20,7 @@ export interface ComputerRunRequest {
 }
 
 export interface ComputerRunDeps {
+  managedPath?(botId:string,path:string):string;
   managedScope?(botId: string, path: string): FolderScope | null;
   runs: ComputerRuns;
   computer(botId: string, options?: { repository?: string; wanted?: () => boolean; budgetMs?: number; expectedId?: string }): Promise<{ box: RunBox }>;
@@ -100,9 +101,10 @@ export async function handleComputerRun(request: ComputerRunRequest, deps: Compu
   if (command.length > 4000) return { status: 400, error: "The command is longer than 4,000 characters; put it in a script file in the folder and run that." };
   const requested = typeof request.body.folder === "string" ? request.body.folder : "";
   const candidate = requested || request.workingFolder;
-  const selected = candidate && isAbsolute(candidate) ? resolve(candidate) : null;
+  const resolveAssigned = (path: string) => deps.managedPath?.(request.botId, resolve(path)) ?? resolve(path);
+  const selected = candidate && isAbsolute(candidate) ? resolveAssigned(candidate) : null;
   const managedFolder = record?.managedFolder ?? (!record && selected ? deps.managedScope?.(request.botId, selected) : null);
-  if (!record && deps.managedScope && (!managedFolder || !selected || !request.allowedRoots.some(root => inside(selected, root)) && !managedFolder.id.startsWith("project-"))) {
+  if (!record && deps.managedScope && (!managedFolder || !selected || !request.allowedRoots.some(root => inside(selected, resolveAssigned(root))) && !managedFolder.id.startsWith("project-"))) {
     return { status: 403, error: "Choose a work folder assigned to this conversation or a project shared with this dog." };
   }
   const folder = record ? record.folder : managedFolder ? selected : allowedFolder(requested, request);

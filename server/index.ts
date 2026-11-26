@@ -918,9 +918,18 @@ import { remoteEngineChoice, remoteEngineDefault, setRemoteEngineDefault, setEng
 import { preToolGuardDecision } from "./laterdog/placed-threads.ts";
 import { carryClaudeSession } from "./laterdog/session-carry.ts";
 import { createEnginePlacementRoutes } from "./routes/engine-placement.ts";
+import { assignedCwd, engineFolderScopes, folderGrant, mountedWorkFolders, visibleAliases } from "./laterdog/work-folder-locations.ts";
 import { computerEngineOpener } from "./laterdog/engine-opener.ts";
 
-setEngineOpener(computerEngineOpener());
+const mountedFolderLayout = mountedWorkFolders();
+setEngineOpener(computerEngineOpener(mountedFolderLayout ? {
+  workFolders: async input => {
+    const folders = engineFolderScopes(mountedFolderLayout, DATA_DIR, input);
+    return Promise.all(folders.map(async scope => ({ path: scope.path, ...(scope.id === "loose" ? { aliases: visibleAliases(mountedFolderLayout, input.botId) } : {}), grant: await folderGrant(
+      process.env.LATERDOG_PUBLIC_URL!, BOOT_CLOUD_SECRETS.LATERDOG_CLOUD_BOOTSTRAP_SECRET!, scope, input.botId, input.computerId,
+    ) })));
+  },
+} : {}));
 
 const PORT = Number(process.env.LATERDOG_SERVER_PORT || 8799);
 const WEBHOOK_PORT = Number(process.env.LATERDOG_WEBHOOK_PORT || PORT + 1);
@@ -2935,7 +2944,7 @@ const logArchive = archiveBridge
     room: () => roomToRestore(archiveDisk()),
     report: message => console.log(`[log archive] ${message}`),
   }) : null;
-const workFolders = archiveBridge && logArchive
+const workFolders = !mountedFolderLayout && archiveBridge && logArchive
   ? new WorkFolderArchive({
     home: homedir(),
     dataDir: DATA_DIR,
@@ -9283,7 +9292,7 @@ async function startTurn(
         privateWorkspace
           ? store.pinTaskCwd(bot.id, threadId, privateWorkspace, { privateOnly: cloudGuestOpened(threadId) })
           : null;
-      const cwd = pinnedCwd ?? undefined;
+      const cwd = assignedCwd(mountedFolderLayout, DATA_DIR, bot.id, pinnedCwd);
       const checkpointCwd = cwd && cwd !== privateWorkspace ? cwd : undefined;
       const cloudBackend = opts?.runOn === "cloud" || bot.cloudBackend !== "vps" ? "box" : "vps";
       const mountsComputerMcp = instance.adapter.capabilities.computerMcp === true;
@@ -11532,9 +11541,9 @@ async function runGroupMemberTurn(
   const worksInWorkspace = supportsWorkspaceFiles(instance.driverKind);
   const workspace = worksInWorkspace ? ensureWorkspace(bot.id) : undefined;
   if (workspace && bot.memoryEnabled !== false) beginMemoryTurn(bot.id, threadId);
-  const cwd = workspace && cloudGuestOpened(threadId)
+  const cwd = assignedCwd(mountedFolderLayout, DATA_DIR, bot.id, workspace && cloudGuestOpened(threadId)
     ? ensureTaskWorkspace(bot.id, threadId)
-    : groupTurnCwd(workspace, () => store.pinGroupCwd(readyGroup.id, threadId));
+    : groupTurnCwd(workspace, () => store.pinGroupCwd(readyGroup.id, threadId)));
   {
     const drift = checkSoulDrift(bot.id, bot.soul ?? "", bot.soulHash ?? "");
     if (drift.drift !== Boolean(bot.soulDrift)) store.patchBot(bot.id, { soulDrift: drift.drift });
@@ -14347,6 +14356,7 @@ INTERNAL_ROUTES.push(createComputerRunRoute({
   ...(Number(process.env.LATERDOG_COMPUTER_RUN_WAIT_MS) > 0 ? { windowMs: Number(process.env.LATERDOG_COMPUTER_RUN_WAIT_MS) } : {}),
   computer: boat.heavyRunBox,
   managedScope: assignedJobFolders?.resolve,
+  managedPath: assignedJobFolders?.path,
   active: (capability) => internalCapabilityIsActive(capability as InternalCapability),
   maxWaitMs: (threadId) => waitCapMs(runningTurnEngines.get(threadId)?.driverKind, mcpCallTimeoutMinutes(cfg)),
   personWrote: (_botId, threadId, since) => store.activePath(threadId).some((message) => message.role === "user" && message.at >= since),

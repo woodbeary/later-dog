@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { join, relative } from "node:path";
 import { backup, DatabaseSync } from "node:sqlite";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { folderExclusions, folderMounts } from "../runtime/work-folder-mounts.mjs";
 import { CHUNK_BYTES, chunksOf, CLEANUP_PARALLEL, collectGarbage, collectGarbageWithin, createHttpStore, heldLock, LISTING_PARALLEL, parseManifest, referencedBlobs, restore, resumeOrder, SAVE_PARALLEL, scan, settleWithin, skipped, skippedPath, snapshot, walkOrder, SNAPSHOT_RESERVE_BYTES, StoreRefused, transient, MEMORY_MARGIN_BYTES } from "../runtime/sync.mjs";
 
 function memoryStore() {
@@ -1469,4 +1470,29 @@ describe("database copies", () => {
     expect(saved.copies).toHaveLength(3);
     expect(saved.heldInMemoryBytes).toBe(statSync(join(source, "b.db")).size);
   });
+});
+
+it("keeps mounted folders out of home restoration and save traversal", async () => {
+  const home = folder(), fresh = folder();
+  const store = memoryStore();
+  mkdirSync(join(home, ".laterdog", "workspaces", "dog"), { recursive: true });
+  mkdirSync(join(home, "project"));
+  writeFileSync(join(home, "project", "code"), "project contents");
+  writeFileSync(join(home, ".laterdog", "workspaces", "dog", "note"), "dog contents");
+  writeFileSync(join(home, "keep"), "coordinator contents");
+  const original = await snapshot(home, store, null);
+  const exclude = folderExclusions(folderMounts(home, {
+    v: 1, mode: "folders", layout: { dogs: [], tasks: {}, projects: [{ path: join(home, "project"), owner: "dog", members: [] }] },
+    baselineManifest: "a".repeat(64), verification: "b".repeat(64),
+  }));
+  const visited: string[] = [];
+  await scan(home, { exclude, inspect: async (path: string) => { visited.push(relative(home, path)); return lstat(path); } });
+  expect(visited).toContain("keep");
+  expect(visited.some(path => exclude(path))).toBe(false);
+  await restore(fresh, store, undefined, { exclude });
+  expect(existsSync(join(fresh, "project"))).toBe(false);
+  expect(existsSync(join(fresh, ".laterdog", "workspaces"))).toBe(false);
+  expect(readFileSync(join(fresh, "keep"), "utf8")).toBe("coordinator contents");
+  const next = await snapshot(home, store, original.manifest, { exclude });
+  expect(next.manifest.entries.map((entry: {path:string}) => entry.path)).toEqual([".laterdog","keep"]);
 });

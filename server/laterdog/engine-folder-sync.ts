@@ -23,6 +23,7 @@ import {
   mergeFolder,
   uploadChanged,
   visitFolder,
+  validateFolderHardlinks,
   type FolderVisit,
 } from "./engine-folder-files.ts";
 
@@ -81,6 +82,7 @@ function ensureRealDirectory(path: string): void {
 }
 
 function validateLinks(tree: FolderTree): void {
+  validateFolderHardlinks(tree);
   for (const e of tree.entries.values()) {
     if (e.kind !== "link") continue;
     const cwd = e.path.split("/").slice(0, -1),
@@ -113,6 +115,8 @@ function requireProject(binding: EngineWorkFolder, state: string, project: strin
   const known = existsSync(identity) ? read<EngineWorkFolder>(identity) : null;
   if (
     !known ||
+    !existsSync(project) ||
+    realpathSync(project) !== project ||
     known.path !== project ||
     known.grant.guestId !== binding.grant.guestId ||
     new URL(known.grant.baseUrl).origin !== new URL(binding.grant.baseUrl).origin ||
@@ -201,7 +205,15 @@ export async function syncFolder(
     if (entry.scopedTarget !== null) return inert;
     const from = dirname(join(binding.path, entry.path)),
       to = resolve(from, entry.target);
-    return projects.some((p) => p === to || to.startsWith(p + sep)) ? relative(from, to) : inert;
+    const project = projects.find((p) => p === to || to.startsWith(p + sep));
+    if (!project) return inert;
+    try {
+      const actual = realpathSync(to);
+      return actual === project || actual.startsWith(project + sep) ? relative(from, to) : inert;
+    } catch (error) {
+      if (["ENOENT", "ELOOP", "ENOTDIR"].includes((error as NodeJS.ErrnoException).code ?? "")) return inert;
+      throw error;
+    }
   };
   const aliases = aliasEntries(binding, state, dataRoot);
   const store = new FolderStore(binding.grant, (grant) => write(identity, { ...binding, grant }), signal, progress);

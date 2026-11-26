@@ -3,6 +3,7 @@ import { constants } from "node:fs";
 import {
   chmod,
   lstat,
+  lchmod,
   mkdir,
   mkdtemp,
   open,
@@ -19,6 +20,7 @@ import {
 } from "node:fs/promises";
 import { dirname, join, isAbsolute, relative, resolve } from "node:path";
 import {
+  compareWorkFolderPaths,
   safeWorkFolderLink,
   safeWorkFolderPath,
   materializedWorkFolderLink,
@@ -88,7 +90,14 @@ export function sameFolderEntry(a?: WorkFolderEntry, b?: WorkFolderEntry): boole
       a.target === b.target &&
       a.scopedTarget === b.scopedTarget
     );
-  return a.kind === "file" && b.kind === "file" && a.mode === b.mode && a.size === b.size && a.sha256 === b.sha256;
+  return (
+    a.kind === "file" &&
+    b.kind === "file" &&
+    a.mode === b.mode &&
+    a.size === b.size &&
+    a.sha256 === b.sha256 &&
+    a.hardlink === b.hardlink
+  );
 }
 
 async function diskPath(folder: string, name: string): Promise<string> {
@@ -153,6 +162,7 @@ export async function visitFolder(
   const root = await statPhysical(folder);
   if (!root.isDirectory()) throw new Error("Working folder is not a physical directory");
   const rematerialize = new Set<string>();
+  const hardlinks = new Map<string, Extract<WorkFolderEntry, { kind: "file" }>[]>();
   const stamps = new Map<string, string>(),
     entries = new Map<string, WorkFolderEntry>();
   async function walk(at: string): Promise<void> {
@@ -180,10 +190,8 @@ export async function visitFolder(
         const bytes = await readlink(path, { encoding: "buffer" }),
           target = bytes.toString("utf8");
         if (!Buffer.from(target).equals(bytes)) throw new Error("Working folder link cannot be represented in UTF-8");
-        e = {
-          ...recordedLink(name, target, folder, known?.tree.entries.get(name) ?? reference?.entries.get(name)),
-          mode: mode(s),
-        };
+        e = recordedLink(name, target, folder, known?.tree.entries.get(name) ?? reference?.entries.get(name));
+        if (process.platform !== "linux" || e.mode === undefined) e.mode = mode(s);
         if (target !== linkFor(e)) rematerialize.add(name);
       } else if (s.isFile()) {
         const cached = known?.tree.entries.get(name);
@@ -192,6 +200,12 @@ export async function visitFolder(
             ? { sha256: cached.sha256, contents: cached.contents }
             : await scanFile(path, s, undefined, progress);
         e = { path: name, kind: "file", size: Number(s.size), mode: mode(s), ...contents };
+        if (s.nlink > 1n) {
+          const key = s.dev + ":" + s.ino,
+            group = hardlinks.get(key);
+          if (group) group.push(e);
+          else hardlinks.set(key, [e]);
+        }
       } else throw new Error("Unsupported special file in working folder: " + name);
       e.mtimeMs = mtime(s);
       entries.set(name, e);
@@ -199,7 +213,32 @@ export async function visitFolder(
     }
   }
   await walk("");
+  for (const group of hardlinks.values()) {
+    if (group.length < 2) continue;
+    group.sort((a, b) => compareWorkFolderPaths(a.path, b.path));
+    for (const member of group.slice(1)) member.hardlink = group[0].path;
+  }
   return { tree: { mode: mode(root), mtimeMs: mtime(root), entries }, stamps, rematerialize };
+}
+
+export function validateFolderHardlinks(tree: FolderTree): void {
+  for (const entry of tree.entries.values()) {
+    if (entry.kind !== "file" || entry.hardlink === undefined) continue;
+    const source = tree.entries.get(entry.hardlink);
+    if (
+      !safeWorkFolderPath(entry.hardlink) ||
+      compareWorkFolderPaths(entry.hardlink, entry.path) >= 0 ||
+      source?.kind !== "file" ||
+      source.hardlink !== undefined ||
+      source.sha256 !== entry.sha256 ||
+      source.mode !== entry.mode ||
+      source.size !== entry.size ||
+      !sameTime(source.mtimeMs, entry.mtimeMs) ||
+      (source.contents && entry.contents && source.contents !== entry.contents)
+    ) {
+      throw new Error("Working folder hard link does not match its assigned original file: " + entry.path);
+    }
+  }
 }
 
 export function mergeFolder(base: FolderTree | undefined, local: FolderTree, remote: FolderTree): FolderTree {
@@ -311,12 +350,14 @@ export async function applyFolder(
     sameTime(local.tree.mtimeMs, wanted.mtimeMs)
   )
     return;
-  const required = changed.reduce((n, e) => n + (e.kind === "file" ? e.size : 0), 0);
+  const required = changed.reduce((n, e) => n + (e.kind === "file" && !e.hardlink ? e.size : 0), 0);
   if (required > 0 && freeVolumeBytes(dirname(folder)) < required + TRANSFER_SPACE_MARGIN)
     throw new Error("The computer has insufficient free space for the working folder update");
   const staging = await mkdtemp(join(dirname(folder), ".laterdog-work-update-"));
   const material = new Map<string, string>();
   let changedOriginal = false;
+  const movedInodes = new Set<string>();
+  const inodeKey = (s: Stat) => s.dev + ":" + s.ino;
   const backups = new Map(
     [...removed, ...changed]
       .filter((e) => local.tree.entries.has(e.path))
@@ -324,7 +365,7 @@ export async function applyFolder(
   );
   try {
     await parallel(
-      changed.filter((e) => e.kind !== "dir"),
+      changed.filter((e) => e.kind !== "dir" && !(e.kind === "file" && e.hardlink)),
       async (e) => {
         const tmp = join(staging, randomUUID());
         if (e.kind === "link") {
@@ -368,6 +409,7 @@ export async function applyFolder(
       } else {
         const tmp = join(staging, backups.get(e.path)!);
         await rename(path, tmp);
+        movedInodes.add(inodeKey(s));
         changedOriginal = true;
         const moved = await statPhysical(tmp);
         if (
@@ -392,16 +434,41 @@ export async function applyFolder(
     async function install(e: WorkFolderEntry, path: string) {
       if (e.kind === "link") {
         await symlink(linkFor(e), path);
+        if (process.platform === "darwin" && e.mode !== undefined) await lchmod(path, e.mode);
         if (e.mtimeMs !== undefined) await lutimes(path, fileTime(e.mtimeMs), fileTime(e.mtimeMs));
+      } else if (e.kind === "file" && e.hardlink) {
+        const src = material.get(e.hardlink) ?? (await diskPath(folder, e.hardlink));
+        const current = await statPhysical(src);
+        if (
+          !current.isFile() ||
+          Number(current.size) !== e.size ||
+          mode(current) !== e.mode ||
+          !sameTime(mtime(current), e.mtimeMs)
+        )
+          throw new Error("Working folder hard link source changed during checkout: " + e.hardlink);
+        await link(src, path);
+        movedInodes.add(inodeKey(current));
       } else await link(material.get(e.path)!, path);
     }
-    for (const e of changed.filter((e) => e.kind !== "dir")) {
+    for (const e of changed
+      .filter((e) => e.kind !== "dir")
+      .sort((a, b) => Number(a.kind === "file" && !!a.hardlink) - Number(b.kind === "file" && !!b.hardlink))) {
       const path = await diskPath(folder, e.path),
         s = await existing(path);
       if (s) {
-        if (local.stamps.get(e.path) !== stamp(s)) throw new Error("Working file changed during checkout: " + e.path);
+        const expected = local.stamps.get(e.path),
+          current = stamp(s);
+        if (
+          expected !== current &&
+          !(
+            movedInodes.has(inodeKey(s)) &&
+            expected?.slice(0, expected.lastIndexOf(":")) === current.slice(0, current.lastIndexOf(":"))
+          )
+        )
+          throw new Error("Working file changed during checkout: " + e.path);
         const backup = join(staging, backups.get(e.path)!);
         await rename(path, backup);
+        movedInodes.add(inodeKey(s));
         changedOriginal = true;
         const moved = await statPhysical(backup);
         if (moved.dev !== s.dev || moved.ino !== s.ino || moved.size !== s.size || moved.mtimeNs !== s.mtimeNs) {

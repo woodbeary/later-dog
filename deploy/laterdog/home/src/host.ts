@@ -1,3 +1,4 @@
+import { workFolderCensus, type FolderCensusRequest } from "./work-folder-census.ts";
 import { handleWorkFolderPlacement, workFolderControlPath } from "./work-folder-placement.ts";
 import { handleWorkFolder } from "./work-folder-store.ts";
 import { WORK_FOLDER_ROUTE } from "../../../../shared/work-folder-store.ts";
@@ -204,6 +205,11 @@ export class CloudHomeHost extends Container<Env> {
 
   async release(): Promise<boolean> {
     return this.handover.release();
+  }
+
+  async readWorkFolderCensus(machineId: string, nonce: string, request: FolderCensusRequest): Promise<ReadableStream> {
+    if (!this.record || this.record.machineId !== machineId || !this.handover.holds() || this.removed) throw new Error("No active source home");
+    return workFolderCensus(this.env.STATE, this.stateHome(machineId), machineId, this.ctx.container, nonce, request);
   }
 
   async standing(): Promise<HomeStanding> {

@@ -1,3 +1,4 @@
+import type { FolderCensusRequest } from "./work-folder-census.ts";
 import { ContainerProxy } from "@cloudflare/containers";
 import { WorkerEntrypoint } from "cloudflare:workers";
 import { CloudHomeHost, CloudHomeHostLarge, type HomeSummary, type PairOutcome } from "./host.ts";
@@ -32,6 +33,13 @@ async function hostForMachine(env: Env, machineId: string) {
   const stub = hostFor(env, "large", machineId);
   await stub.adopt(owner);
   return stub;
+}
+
+export class WorkFolderMigrationApi extends WorkerEntrypoint<Env> {
+  async census(accountId: string, nonce: string, request: FolderCensusRequest): Promise<ReadableStream> {
+    const { identity, stub } = await homeFor(this.env, accountId);
+    return stub.readWorkFolderCensus(identity.machineId, nonce, request);
+  }
 }
 
 export class HomesApi extends WorkerEntrypoint<Env> {
