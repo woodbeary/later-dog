@@ -82,7 +82,7 @@ async function execute(
 
 type RestoreRequest = { jobId: string; generation: string } & (
   | { op: "status" | "finish" | "undo" }
-  | { op: "begin"; expectedRevision: number; eventSequence?:string }
+  | { op: "begin"; expectedRevision: number; eventSequence?: string }
   | { op: "switch"; proofs: [string, string][] }
   | ({ threadId: string } & (
       | ImportCommand
@@ -124,7 +124,9 @@ export class HistoryApi extends WorkerEntrypoint<HistoryEnvironment> {
       case "status":
         return Response.json(await dir.restoreStatus(key));
       case "begin":
-        return Response.json(await dir.restoreBegin(key, req.expectedRevision,req.eventSequence));
+        return Response.json(
+          await dir.restoreBegin(key, req.expectedRevision, req.eventSequence),
+        );
       case "undo":
       case "finish":
         return Response.json(await dir.restoreClose(key, req.op));
@@ -320,7 +322,7 @@ export class HistoryApi extends WorkerEntrypoint<HistoryEnvironment> {
       ? 64
       : 12;
     let threads: string[], next: string | null;
-    const recorded = new Map<string, string | boolean | null>();
+    const recorded = new Map<string, unknown>();
     if (query.threadIds) {
       if (!Array.isArray(query.threadIds)) throw Error("Invalid thread list");
       query.threadIds.forEach(requireThread);
@@ -332,7 +334,8 @@ export class HistoryApi extends WorkerEntrypoint<HistoryEnvironment> {
     } else if (
       query.operation.op === "native.recover" ||
       query.operation.op === "messages.commandHead" ||
-      query.operation.op === "messages.hasCards"
+      query.operation.op === "messages.hasCards" ||
+      query.operation.op === "messages.startupFacts"
     ) {
       const page = await dir.recoveryPage(
         query.generation,
@@ -349,6 +352,14 @@ export class HistoryApi extends WorkerEntrypoint<HistoryEnvironment> {
         for (const row of page.rows)
           if (!row.uncertain && row.cards !== null)
             recorded.set(row.thread, !!row.cards);
+      if (query.operation.op === "messages.startupFacts")
+        for (const row of page.rows)
+          if (!row.uncertain && row.facts !== null)
+            recorded.set(row.thread, {
+              waiting: !!(row.facts & 1),
+              permission: !!(row.facts & 2),
+              countdown: !!(row.facts & 4),
+            });
     } else
       ({ threads, next } = await dir.list(
         query.generation,
@@ -388,7 +399,7 @@ type Admin =
       op: "begin" | "hold" | "abandon";
       generation: string;
       expectedRevision: number;
-      eventSequence?:string;
+      eventSequence?: string;
     }
   | { op: "list"; generation: string; after?: string }
   | { op: "barrier"; generation: string; revision: number }
@@ -452,7 +463,11 @@ export class HistoryMigrationApi extends WorkerEntrypoint<HistoryEnvironment> {
       case "abandon":
         return dir.abandon(req.generation, req.expectedRevision);
       case "begin":
-        return dir.begin(req.generation, req.expectedRevision,req.eventSequence);
+        return dir.begin(
+          req.generation,
+          req.expectedRevision,
+          req.eventSequence,
+        );
       case "hold":
         return dir.hold(req.generation, req.expectedRevision);
       case "barrier":

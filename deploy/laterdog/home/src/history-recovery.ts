@@ -3,11 +3,13 @@ export interface RecoveryState {
   recoverable: number;
   head: string | null;
   cards?: number;
+  facts?: number;
 }
 export type RecoveryQuery =
   | "native.recover"
   | "messages.commandHead"
-  | "messages.hasCards";
+  | "messages.hasCards"
+  | "messages.startupFacts";
 export class HistoryRecovery {
   constructor(private readonly sql: SqlStorage) {
     sql.exec(
@@ -20,13 +22,20 @@ export class HistoryRecovery {
         .some((row) => row.name === "cards")
     )
       sql.exec("ALTER TABLE history_recovery ADD COLUMN cards INTEGER");
+    if (
+      !sql
+        .exec<{ name: string }>("PRAGMA table_info(history_recovery)")
+        .toArray()
+        .some((row) => row.name === "facts")
+    )
+      sql.exec("ALTER TABLE history_recovery ADD COLUMN facts INTEGER");
     sql.exec(
       "CREATE TABLE IF NOT EXISTS history_recovery_intents (generation TEXT NOT NULL,thread TEXT NOT NULL,token TEXT NOT NULL,PRIMARY KEY(generation,thread,token))",
     );
   }
   initialize(generation: string, thread: string) {
     this.sql.exec(
-      "INSERT OR IGNORE INTO history_recovery VALUES(?,?,0,0,NULL,0)",
+      "INSERT OR IGNORE INTO history_recovery VALUES(?,?,0,0,NULL,0,0)",
       generation,
       thread,
     );
@@ -41,13 +50,14 @@ export class HistoryRecovery {
   }
   private save(generation: string, thread: string, state: RecoveryState) {
     this.sql.exec(
-      "INSERT INTO history_recovery VALUES(?,?,?,?,?,?) ON CONFLICT(generation,thread) DO UPDATE SET version=excluded.version,recoverable=excluded.recoverable,head=excluded.head,cards=excluded.cards WHERE excluded.version>=history_recovery.version",
+      "INSERT INTO history_recovery VALUES(?,?,?,?,?,?,?) ON CONFLICT(generation,thread) DO UPDATE SET version=excluded.version,recoverable=excluded.recoverable,head=excluded.head,cards=excluded.cards,facts=excluded.facts WHERE excluded.version>=history_recovery.version",
       generation,
       thread,
       state.version,
       state.recoverable,
       state.head,
       state.cards ?? null,
+      state.facts ?? null,
     );
   }
   settle(
@@ -92,15 +102,18 @@ export class HistoryRecovery {
         ? "recoverable=1"
         : operation === "messages.hasCards"
           ? "cards IS NULL OR cards=1"
-          : "head IS NOT NULL";
+          : operation === "messages.startupFacts"
+            ? "facts IS NULL OR facts<>0"
+            : "head IS NOT NULL";
     const rows = this.sql
       .exec<{
         thread: string;
         uncertain: number;
         head: string | null;
         cards: number | null;
+        facts: number | null;
       }>(
-        "WITH candidates AS (SELECT s.thread,r.head,r.recoverable,r.cards,(r.thread IS NULL OR EXISTS (SELECT 1 FROM history_recovery_intents i WHERE i.generation=s.generation AND i.thread=s.thread)) uncertain FROM shards s LEFT JOIN history_recovery r ON r.generation=s.generation AND r.thread=s.thread WHERE s.generation=? AND s.thread>?) SELECT thread,uncertain,head,cards FROM candidates WHERE uncertain OR " +
+        "WITH candidates AS (SELECT s.thread,r.head,r.recoverable,r.cards,r.facts,(r.thread IS NULL OR EXISTS (SELECT 1 FROM history_recovery_intents i WHERE i.generation=s.generation AND i.thread=s.thread)) uncertain FROM shards s LEFT JOIN history_recovery r ON r.generation=s.generation AND r.thread=s.thread WHERE s.generation=? AND s.thread>?) SELECT thread,uncertain,head,cards,facts FROM candidates WHERE uncertain OR " +
           condition +
           " ORDER BY thread LIMIT ?",
         generation,

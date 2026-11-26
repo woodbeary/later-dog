@@ -1,5 +1,5 @@
 import { historyStartupFacts } from "./history-startup.ts";
-import { historyUnansweredCardSql } from "./history-card-filter.ts";
+import { historyHasUnansweredCards } from "./history-card-filter.ts";
 import { historyNavigation } from "./history-navigation.ts";
 import { acceptedHistoryCommand, historyCommandHead, historyCommandPage, journalHistoryCommand } from "./history-command-journal.ts";
 import { historyRecallStats, rankedHistoryRecall, type RecallCorpus } from "./history-recall.ts";
@@ -232,13 +232,7 @@ export function executeHistoryOperation(
         )?.at ?? null
       );
     case "messages.startupFacts":return historyStartupFacts(sql,thread);
-    case "messages.hasCards":{
-      for(const row of sql.exec<{rid:string;json:string}>("SELECT CAST(rowid AS TEXT) rid,json FROM messages WHERE thread_id=? AND "+historyUnansweredCardSql,thread)){
-        const card=JSON.parse(readHistoryValue(sql,"messages",row.rid,"json",row.json)).card;
-        if(card&&!card.answered&&!card.dismissed)return true;
-      }
-      return false;
-    }
+    case "messages.hasCards": return historyHasUnansweredCards(sql,thread);
     case "messages.cards": {
       const where = o.permission
         ? "json_extract(json,'$.card.requestType')='permission' AND json_extract(json,'$.card.answered') IS NULL AND COALESCE(json_extract(json,'$.card.dismissed'),0)=0 AND COALESCE(json_extract(json,'$.card.expired'),0)=0"

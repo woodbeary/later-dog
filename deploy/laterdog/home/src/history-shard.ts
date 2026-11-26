@@ -1,4 +1,5 @@
-import { historyUnansweredCardSql } from "../../../../shared/history-card-filter.ts";
+import { historyStartupFacts } from "../../../../shared/history-startup.ts";
+import { historyHasUnansweredCards } from "../../../../shared/history-card-filter.ts";
 import {
   historyCommandHead,
   historyCommandPage,
@@ -462,22 +463,29 @@ export class HistoryShard extends DurableObject<{
       return proof;
     });
   }
-  private recoveryState() {
-    return this.sql
+  private recoveryState(threadId: string) {
+    const state = this.sql
       .exec<{
         version: number;
         recoverable: number;
-        cards: number;
         head: string | null;
-      }>(
-        "SELECT version,EXISTS(SELECT 1 FROM native_runs WHERE json_extract(json,'$.observation')='live' OR json_extract(json,'$.state') IN ('running','waiting','paused')) recoverable,EXISTS(SELECT 1 FROM messages WHERE " +
-          historyUnansweredCardSql +
-          ") cards,(SELECT CAST(MAX(sequence) AS TEXT) FROM history_command_journal) head FROM history_config WHERE singleton=1",
-      )
+      }>("SELECT version,EXISTS(SELECT 1 FROM native_runs WHERE json_extract(json,'$.observation')='live' OR json_extract(json,'$.state') IN ('running','waiting','paused')) recoverable,(SELECT CAST(MAX(sequence) AS TEXT) FROM history_command_journal) head FROM history_config WHERE singleton=1")
       .one();
+    const facts = historyStartupFacts(this.sql, threadId);
+    return {
+      ...state,
+      cards: Number(historyHasUnansweredCards(this.sql, threadId)),
+      facts:
+        Number(facts.waiting) +
+        2 * Number(facts.permission) +
+        4 * Number(facts.countdown),
+    };
   }
   fenceForRecovery(grant: Grant) {
-    return { proof: this.fence(grant), recovery: this.recoveryState() };
+    return {
+      proof: this.fence(grant),
+      recovery: this.recoveryState(grant.threadId),
+    };
   }
   private allocate(grant: Grant, table: HistoryTable): string {
     if (!grant.ordinal) throw Error("History thread is unregistered");
@@ -575,15 +583,17 @@ export class HistoryShard extends DurableObject<{
       );
       return { result };
     });
-    return Response.json(
-      reply,
-      reportRecovery
-        ? {
-            headers: {
-              "x-history-recovery": JSON.stringify(this.recoveryState()),
-            },
-          }
-        : undefined,
-    );
+    const headers = new Headers();
+    if (reportRecovery) {
+      try {
+        headers.set(
+          "x-history-recovery",
+          JSON.stringify(this.recoveryState(grant.threadId)),
+        );
+      } catch {
+        console.warn("history_recovery_index_pending");
+      }
+    }
+    return Response.json(reply, { headers });
   }
 }
