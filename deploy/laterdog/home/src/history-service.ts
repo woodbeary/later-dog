@@ -1,9 +1,4 @@
-import {
-  getReceipt,
-  putReceipt,
-  receiptBatch,
-  type ReceiptBatch,
-} from "./history-receipts.ts";
+import type { ReceiptBatch } from "./history-receipts.ts";
 import { WorkerEntrypoint } from "cloudflare:workers";
 import {
   historyOperationWrites,
@@ -98,6 +93,12 @@ type RestoreRequest = { jobId: string; generation: string } & (
     ))
 );
 export class HistoryApi extends WorkerEntrypoint<HistoryEnvironment> {
+  async eraseHome(stable:string, removalId:string) {
+    return directory(this.env,stable).eraseHome(stable,removalId);
+  }
+  async reopenHome(stable:string, removalId:string) {
+    return directory(this.env,stable).reopenHome(stable,removalId);
+  }
   async neverActivated(stable: string, generation: string) {
     return directory(this.env, stable).neverActivated(generation);
   }
@@ -197,19 +198,13 @@ export class HistoryApi extends WorkerEntrypoint<HistoryEnvironment> {
           return new Response("History placement changed", { status: 409 });
         if (request.method === "GET")
           return new Response(
-            await getReceipt(this.env.RECEIPTS, stable, receipt[1], receipt[2]),
+            await dir.readReceipt(stable, receipt[1], receipt[2], false),
           );
         if (request.method !== "PUT" || !request.body)
           return new Response(null, { status: 405 });
         try {
           return Response.json(
-            await putReceipt(
-              this.env.RECEIPTS,
-              stable,
-              receipt[1],
-              receipt[2],
-              request.body,
-            ),
+            await dir.writeReceipt(stable,receipt[1],receipt[2],request.body,false),
             { status: 201 },
           );
         } catch (error) {
@@ -229,7 +224,7 @@ export class HistoryApi extends WorkerEntrypoint<HistoryEnvironment> {
       )
         return new Response("History placement changed", { status: 409 });
       return Response.json(
-        await receiptBatch(this.env.RECEIPTS, stable, batch),
+        await dir.receipts(stable,batch,false),
       );
     }
     if (url.pathname === "/history/status" && request.method === "GET")
@@ -409,14 +404,8 @@ type Admin =
   | ((PageCommand | ImportCommand) & { generation: string; threadId: string });
 
 export class HistoryMigrationApi extends WorkerEntrypoint<HistoryEnvironment> {
-  private async receiptScope(stable: string, generation: string) {
-    const p = await directory(this.env, stable).status();
-    if (p.generation !== generation)
-      throw Error("History receipt generation changed");
-  }
   async getReceipt(stable: string, generation: string, sha: string) {
-    await this.receiptScope(stable, generation);
-    return getReceipt(this.env.RECEIPTS, stable, generation, sha);
+    return directory(this.env, stable).readReceipt(stable,generation,sha,true);
   }
   async putReceipt(
     stable: string,
@@ -424,16 +413,14 @@ export class HistoryMigrationApi extends WorkerEntrypoint<HistoryEnvironment> {
     sha: string,
     body: ReadableStream<Uint8Array>,
   ) {
-    await this.receiptScope(stable, generation);
-    return putReceipt(this.env.RECEIPTS, stable, generation, sha, body);
+    return directory(this.env, stable).writeReceipt(stable,generation,sha,body,true);
   }
   async receiptBatch(
     stable: string,
     generation: string,
     req: Omit<ReceiptBatch, "generation">,
   ) {
-    await this.receiptScope(stable, generation);
-    return receiptBatch(this.env.RECEIPTS, stable, { ...req, generation });
+    return directory(this.env,stable).receipts(stable,{...req,generation},true);
   }
   async admin(stable: string, req: Admin) {
     const dir = directory(this.env, stable);

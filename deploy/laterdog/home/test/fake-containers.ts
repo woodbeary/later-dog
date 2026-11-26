@@ -79,7 +79,11 @@ export class FakeStorage {
   async put(key: string, value: unknown): Promise<void> {
     this.values.set(key, structuredClone(value));
   }
-  async delete(key: string): Promise<boolean> {
+  async list({limit=128,startAfter=""}: {limit?:number;startAfter?:string} = {}) {
+    return new Map([...this.values.entries()].filter(([key])=>key>startAfter).sort(([a],[b])=>a<b?-1:1).slice(0,limit));
+  }
+  async delete(key: string | string[]): Promise<boolean | number> {
+    if (Array.isArray(key)) return key.filter(item => this.values.delete(item)).length;
     return this.values.delete(key);
   }
   async deleteAll(): Promise<void> {

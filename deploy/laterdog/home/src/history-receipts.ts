@@ -27,20 +27,20 @@ export async function putReceipt(
       : new Uint8Array(await new Response(body).arrayBuffer());
   if (hex(await sha256(data)) !== sha)
     throw Error("History receipt checksum mismatch");
-  const object = await bucket.put(path, data, {
-    sha256: sha,
+  const reserved = await bucket.put(path, crypto.getRandomValues(new Uint8Array(32)), {
     onlyIf: { etagDoesNotMatch: "*" },
-    httpMetadata: { contentType: "application/octet-stream" },
+    customMetadata: { historyReceipt: "reservation" },
   });
-  if (!object) {
-    const prior = await bucket.head(path);
-    if (
-      !prior ||
-      prior.size !== data.length ||
-      !prior.checksums.sha256 ||
-      hex(new Uint8Array(prior.checksums.sha256)) !== sha
-    )
-      throw Error("Existing history receipt differs");
+  const guard = reserved ?? await bucket.head(path);
+  const matches = (object: R2Object | null) => object?.size === data.length && !!object.checksums.sha256 && hex(new Uint8Array(object.checksums.sha256)) === sha;
+  if (!matches(guard)) {
+    if (!guard || guard.customMetadata?.historyReceipt !== "reservation") throw Error("Existing history receipt differs");
+    const object = await bucket.put(path, data, {
+      sha256: sha,
+      onlyIf: { etagMatches: guard.etag },
+      httpMetadata: { contentType: "application/octet-stream" },
+    });
+    if (!object && !matches(await bucket.head(path))) throw Error("History receipt upload was fenced");
   }
   return { sha256: sha, bytes: data.length };
 }
@@ -74,7 +74,7 @@ export async function receiptBatch(
   const records: { sha256: string; bytes?: number; value?: string }[] = [];
   let returnedBytes = 0;
   for (let i = 0; i < req.items.length; i += 8) {
-    const part = await Promise.all(
+    const part = await Promise.allSettled(
       req.items.slice(i, i + 8).map(async (item) => {
         if (req.op === "get") {
           const object = await bucket.get(
@@ -111,7 +111,10 @@ export async function receiptBatch(
         );
       }),
     );
-    records.push(...part);
+    for (const item of part) {
+      if (item.status === "rejected") throw item.reason;
+      records.push(item.value);
+    }
   }
   return { items: records };
 }

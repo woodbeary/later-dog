@@ -2,6 +2,7 @@ import {
   historyCommandHead,
   historyCommandPage,
 } from "../../../../shared/history-command-journal.ts";
+import type { HistoryDirectory } from "./history-directory.ts";
 import { createHash } from "node:crypto";
 import { DurableObject } from "cloudflare:workers";
 import {
@@ -64,13 +65,27 @@ function sourceColumns(table: HistoryTable): string {
   ].join(",");
 }
 
-export class HistoryShard extends DurableObject<unknown> {
+export class HistoryShard extends DurableObject<{
+  DIRECTORY: DurableObjectNamespace<HistoryDirectory>;
+}> {
+  private retired = false;
   private get sql() {
+    if (this.retired) throw Error("History shard was retired");
     return this.ctx.storage.sql;
   }
-  constructor(ctx: DurableObjectState, env: unknown) {
+  constructor(ctx: DurableObjectState, env: { DIRECTORY: DurableObjectNamespace<HistoryDirectory> }) {
     super(ctx, env);
-    initializeHistoryShard(this.sql);
+    void ctx.blockConcurrencyWhile(async () => {
+      const [stable, generation] = JSON.parse(ctx.id.name ?? "null") ?? [];
+      if (typeof stable !== "string" || typeof generation !== "string")
+        throw Error("Missing physical history allocation");
+      this.retired = !(await env.DIRECTORY.getByName(stable).permitsPhysical(generation));
+      if (!this.retired) initializeHistoryShard(this.sql);
+    });
+  }
+  async eraseHome() {
+    this.retired = true;
+    await this.ctx.storage.deleteAll();
   }
   private configure(grant: Grant): Config {
     let c = this.sql

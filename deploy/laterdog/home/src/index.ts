@@ -88,9 +88,7 @@ export class HomesApi extends WorkerEntrypoint<Env> {
   async remove(accountId: string): Promise<{ removed: number }> {
     const { identity, size } = await homeFor(this.env, accountId);
     const standard = hostFor(this.env, "standard", identity.machineId);
-    await standard.bury();
-    if (size === "large" || (await standard.standing()) === "released") await hostFor(this.env, "large", identity.machineId).forget();
-    return standard.remove();
+    return standard.remove(identity.machineId, size === "large");
   }
 }
 

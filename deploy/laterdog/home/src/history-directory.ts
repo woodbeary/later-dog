@@ -1,3 +1,7 @@
+import { HistoryErasure } from "./history-erasure.ts";
+import { getReceipt, putReceipt, receiptBatch, type ReceiptBatch } from "./history-receipts.ts";
+import type { HistoryShard } from "./history-shard.ts";
+import { requireTenant, shardName } from "./history-routing.ts";
 import {
   HistoryRecovery,
   type RecoveryQuery,
@@ -29,26 +33,110 @@ type ThreadRow = {
   fenced: number;
 };
 
-export class HistoryDirectory extends DurableObject<unknown> {
-  private readonly recovery: HistoryRecovery;
-  private readonly restores: RestoreJournal;
+type Environment = { RECEIPTS: R2Bucket; THREADS: DurableObjectNamespace<HistoryShard> };
+export class HistoryDirectory extends DurableObject<Environment> {
+  private readonly erasure: HistoryErasure;
+  private readonly recoveryIndex: HistoryRecovery;
+  private get recovery() { this.erasure.assertServing(); return this.recoveryIndex; }
+  private readonly restoreJournal: RestoreJournal;
+  private get restores() {
+    this.erasure.assertServing();
+    return this.restoreJournal;
+  }
   private get sql() {
+    this.erasure.assertServing();
     return this.ctx.storage.sql;
   }
-  constructor(ctx: DurableObjectState, env: unknown) {
+  constructor(ctx: DurableObjectState, env: Environment) {
     super(ctx, env);
-    this.sql.exec(
+    this.erasure = new HistoryErasure(ctx.storage);
+    const sql = ctx.storage.sql;
+    sql.exec(
       "CREATE TABLE IF NOT EXISTS placement (singleton INTEGER PRIMARY KEY,mode TEXT NOT NULL,generation TEXT,revision INTEGER NOT NULL)",
     );
-    this.restores = new RestoreJournal(this.sql);
-    this.recovery = new HistoryRecovery(this.sql);
-    this.sql.exec("INSERT OR IGNORE INTO placement VALUES(1,'legacy',NULL,0)");
-    this.sql.exec(
+    this.restoreJournal = new RestoreJournal(sql);
+    this.recoveryIndex = new HistoryRecovery(sql);
+    sql.exec("INSERT OR IGNORE INTO placement VALUES(1,'legacy',NULL,0)");
+    sql.exec(
       "CREATE TABLE IF NOT EXISTS generations (name TEXT PRIMARY KEY,activated INTEGER NOT NULL DEFAULT 0)",
     );
-    this.sql.exec(
+    sql.exec(
       "CREATE TABLE IF NOT EXISTS shards (ordinal INTEGER PRIMARY KEY AUTOINCREMENT,generation TEXT NOT NULL,thread TEXT NOT NULL,proof TEXT,fenced INTEGER NOT NULL DEFAULT 0,UNIQUE(generation,thread))",
     );
+  }
+  permitsPhysical(generation: string) {
+    if (!this.erasure.serving()) return false;
+    return (
+      this.sql
+        .exec(
+          "SELECT 1 FROM generations WHERE name=? UNION ALL SELECT 1 FROM history_restores WHERE target=? LIMIT 1",
+          generation,
+          generation,
+        )
+        .toArray().length > 0
+    );
+  }
+  eraseHome(stable: string, token: string) {
+    this.checkTenant(stable);
+    return this.erasure.batch(stable, token, this.env.RECEIPTS, ({ generation, thread }) =>
+      this.env.THREADS.getByName(shardName(stable, generation, thread)).eraseHome(),
+    );
+  }
+  reopenHome(stable: string, token: string) {
+    this.checkTenant(stable);
+    this.erasure.reopen(token);
+  }
+  private checkTenant(stable: string) {
+    requireTenant(stable);
+    if (this.ctx.id.name !== stable) throw Error("History directory identity changed");
+  }
+  private checkReceipt(stable: string, generation: string, admin: boolean) {
+    this.checkTenant(stable);
+    const state = this.status();
+    if (state.generation !== generation || (!admin && state.mode !== "remote"))
+      throw Error("History receipt generation changed");
+  }
+  async readReceipt(stable: string, generation: string, hash: string, admin: boolean) {
+    this.checkReceipt(stable, generation, admin);
+    const reader = (await getReceipt(this.env.RECEIPTS, stable, generation, hash)).getReader();
+    const permitted = () => this.checkReceipt(stable, generation, admin);
+    return new ReadableStream<Uint8Array>({
+      async pull(controller) {
+        try {
+          permitted();
+          const part = await reader.read();
+          permitted();
+          if (part.done) controller.close();
+          else controller.enqueue(part.value);
+        } catch (error) {
+          await reader.cancel().catch(() => {});
+          controller.error(error);
+        }
+      },
+      cancel: (reason) => reader.cancel(reason),
+    });
+  }
+  async writeReceipt(
+    stable: string,
+    generation: string,
+    hash: string,
+    body: ReadableStream<Uint8Array>,
+    admin: boolean,
+  ) {
+    this.checkReceipt(stable, generation, admin);
+    const bytes = new Uint8Array(await new Response(body).arrayBuffer());
+    return this.erasure.admitReceipt(async () => {
+      this.checkReceipt(stable, generation, admin);
+      return putReceipt(this.env.RECEIPTS, stable, generation, hash, bytes);
+    });
+  }
+  receipts(stable: string, batch: ReceiptBatch, admin: boolean) {
+    return this.erasure.admitReceipt(async () => {
+      this.checkReceipt(stable, batch.generation, admin);
+      const result = await receiptBatch(this.env.RECEIPTS, stable, batch);
+      this.checkReceipt(stable, batch.generation, admin);
+      return result;
+    });
   }
   status(): Placement {
     return this.sql
@@ -59,6 +147,7 @@ export class HistoryDirectory extends DurableObject<unknown> {
   }
   begin(generation: string, expectedRevision: number): Placement {
     requireGeneration(generation);
+    this.erasure.allowGeneration(generation);
     return this.ctx.storage.transactionSync(() => {
       const p = this.status();
       if (
