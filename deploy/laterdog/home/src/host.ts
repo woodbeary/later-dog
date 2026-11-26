@@ -190,6 +190,7 @@ export class CloudHomeHost extends Container<Env> {
   constructor(ctx: DurableObjectState<{}>, env: Env) {
     super(ctx, env);
     void ctx.blockConcurrencyWhile(async () => {
+      await this.cutover.load();
       this.record = (await ctx.storage.get<HomeRecord>(RECORD_KEY)) ?? null;
       this.storedStanding = (await ctx.storage.get<HomeStanding>(STANDING_KEY)) ?? null;
       this.removed = (await ctx.storage.get<boolean>(REMOVED_KEY)) === true;

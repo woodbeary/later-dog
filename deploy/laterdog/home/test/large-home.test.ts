@@ -83,6 +83,22 @@ function host(namespace: InstanceType<typeof FakeNamespace<Host>>, machineId: st
 beforeEach(() => resetWorld());
 
 describe("which computer a home runs on", () => {
+  it("retains the committed original disk hold when the home worker is replaced", async () => {
+    const { env, HOMES, api, settle } = cloud();
+    const machineId = await machineOf(OWNER);
+    await api.open(OWNER);
+    await settle();
+    const id = HOMES.idFromName(machineId), ctx = HOMES.contexts.get(id.toString())!;
+    await ctx.storage.put("workFolderCutover", { phase: "committed", lease: "a".repeat(64), machineId, stable: id.toString() });
+    const replacement = new CloudHomeHost(ctx as never, env as never);
+    await settle();
+    const response = await replacement.fetch(new Request("https://" + machineId + SUFFIX + "/api/bots", { headers: OWNER_HEADERS }));
+    expect(response.status).toBe(503);
+    expect(await replacement.release()).toBe(false);
+    await replacement.recoverWorkFolderCutover();
+    expect((await ctx.storage.get<{phase:string}>("workFolderCutover"))?.phase).toBe("committed");
+  });
+
   it("keeps every home on the standard computer when nobody is listed", async () => {
     const { HOMES, HOMES_LARGE, api, settle, visit } = cloud();
     await api.open(OWNER);
