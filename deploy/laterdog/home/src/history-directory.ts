@@ -1,4 +1,9 @@
 import {
+  HistoryRecovery,
+  type RecoveryQuery,
+  type RecoveryState,
+} from "./history-recovery.ts";
+import {
   RestoreJournal,
   type RestoreKey,
   type HistoryGrant,
@@ -25,6 +30,7 @@ type ThreadRow = {
 };
 
 export class HistoryDirectory extends DurableObject<unknown> {
+  private readonly recovery: HistoryRecovery;
   private readonly restores: RestoreJournal;
   private get sql() {
     return this.ctx.storage.sql;
@@ -35,6 +41,7 @@ export class HistoryDirectory extends DurableObject<unknown> {
       "CREATE TABLE IF NOT EXISTS placement (singleton INTEGER PRIMARY KEY,mode TEXT NOT NULL,generation TEXT,revision INTEGER NOT NULL)",
     );
     this.restores = new RestoreJournal(this.sql);
+    this.recovery = new HistoryRecovery(this.sql);
     this.sql.exec("INSERT OR IGNORE INTO placement VALUES(1,'legacy',NULL,0)");
     this.sql.exec(
       "CREATE TABLE IF NOT EXISTS generations (name TEXT PRIMARY KEY,activated INTEGER NOT NULL DEFAULT 0)",
@@ -74,6 +81,7 @@ export class HistoryDirectory extends DurableObject<unknown> {
     generation: string,
     threadId: string,
     purpose: "stage" | "read" | "write" | "export",
+    recoveryToken?: string | null,
   ): HistoryGrant {
     requireGeneration(generation);
     requireThread(threadId);
@@ -88,12 +96,50 @@ export class HistoryDirectory extends DurableObject<unknown> {
     const active = this.restores.active();
     if (active && (active.status === "fencing" || active.status === "switched"))
       throw Error("History restore is applying");
-    return this.address(
+    const grant = this.address(
       this.restores.physical(generation),
       threadId,
       purpose === "stage" || purpose === "write",
       p.revision,
       p.mode === "remote" ? "remote" : "dual",
+    );
+    if (purpose === "write" && recoveryToken !== null)
+      this.recovery.reserve(
+        grant.generation,
+        threadId,
+        recoveryToken ?? crypto.randomUUID(),
+      );
+    return grant;
+  }
+  recoverySettled(
+    generation: string,
+    thread: string,
+    token: string,
+    state: RecoveryState,
+  ) {
+    this.ctx.storage.transactionSync(() =>
+      this.recovery.settle(generation, thread, token, state),
+    );
+  }
+  recoveryPage(
+    generation: string,
+    operation: RecoveryQuery,
+    after: string | undefined,
+    limit: number,
+  ) {
+    const p = this.status(),
+      active = this.restores.active();
+    if (
+      p.mode !== "remote" ||
+      p.generation !== generation ||
+      (active && ["fencing", "switched"].includes(active.status))
+    )
+      throw Error("Active history changed during recovery");
+    return this.recovery.page(
+      this.restores.physical(generation),
+      operation,
+      after,
+      limit,
     );
   }
   private address(
@@ -119,6 +165,7 @@ export class HistoryDirectory extends DurableObject<unknown> {
           threadId,
         )
         .one();
+      if (mode === "remote") this.recovery.initialize(generation, threadId);
       if (row.ordinal > 8387583) throw Error("History rowid ranges exhausted");
     }
     return {
@@ -235,6 +282,7 @@ export class HistoryDirectory extends DurableObject<unknown> {
     thread: string,
     revision: number,
     proof: string | null,
+    recovery?: RecoveryState,
   ): void {
     const p = this.status();
     if (
@@ -243,6 +291,8 @@ export class HistoryDirectory extends DurableObject<unknown> {
       p.revision !== revision
     )
       throw Error("History hold changed");
+    if (recovery)
+      this.recovery.fence(this.restores.physical(generation), thread, recovery);
     this.sql.exec(
       "UPDATE shards SET fenced=?,proof=? WHERE generation=? AND thread=?",
       revision,
@@ -401,7 +451,10 @@ export class HistoryDirectory extends DurableObject<unknown> {
         .exec<{
           thread: string;
           proof: string | null;
-        }>("SELECT thread,proof FROM shards WHERE generation=?", job.physicalGeneration)
+        }>(
+          "SELECT thread,proof FROM shards WHERE generation=?",
+          job.physicalGeneration,
+        )
         .toArray();
       const expected = new Map(proofs);
       if (
@@ -425,14 +478,23 @@ export class HistoryDirectory extends DurableObject<unknown> {
     const outstanding = this.sql
       .exec<{
         thread: string;
-      }>("SELECT thread FROM shards WHERE generation=? AND fenced<>? ORDER BY thread LIMIT 17", side === "previous" ? job.previous : job.physicalGeneration, revision)
+      }>(
+        "SELECT thread FROM shards WHERE generation=? AND fenced<>? ORDER BY thread LIMIT 17",
+        side === "previous" ? job.previous : job.physicalGeneration,
+        revision,
+      )
       .toArray();
     return {
       threads: outstanding.slice(0, 16).map((r) => r.thread),
       next: outstanding.length > 16 ? outstanding[15].thread : null,
     };
   }
-  restoreFenced(key: RestoreKey, grant: HistoryGrant, proof: string | null) {
+  restoreFenced(
+    key: RestoreKey,
+    grant: HistoryGrant,
+    proof: string | null,
+    recovery?: RecoveryState,
+  ) {
     const job = this.restores.get(key),
       p = this.status();
     if (
@@ -445,11 +507,17 @@ export class HistoryDirectory extends DurableObject<unknown> {
       const staged = this.sql
         .exec<{
           proof: string | null;
-        }>("SELECT proof FROM shards WHERE generation=? AND thread=?", grant.generation, grant.threadId)
+        }>(
+          "SELECT proof FROM shards WHERE generation=? AND thread=?",
+          grant.generation,
+          grant.threadId,
+        )
         .one().proof;
       if (!proof || proof !== staged)
         throw Error("Restore shard changed after preparation");
     }
+    if (recovery)
+      this.recovery.fence(grant.generation, grant.threadId, recovery);
     this.sql.exec(
       "UPDATE shards SET fenced=? WHERE generation=? AND thread=?",
       grant.revision,

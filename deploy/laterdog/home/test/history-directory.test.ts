@@ -69,6 +69,81 @@ describe("per-home history activation", () => {
       db.close();
     }
   });
+  it("tracks unsettled history writes and isolates cold recovery by physical generation", () => {
+    const { db, open } = database();
+    try {
+      const dir = open();
+      dir.begin("first", 0);
+      for (const thread of ["a", "b", "old"])
+        dir.open("first", thread, "stage");
+      dir.hold("first", 1);
+      for (const thread of ["a", "b"])
+        dir.fenced("first", thread, 2, checksum, {
+          version: 1,
+          recoverable: 0,
+          head: null,
+        });
+      dir.fenced("first", "old", 2, checksum);
+      dir.finish(
+        "first",
+        2,
+        "remote",
+        ["a", "b", "old"].map((thread) => [thread, checksum]),
+      );
+      const active = () =>
+        open()
+          .recoveryPage("first", "native.recover", undefined, 32)
+          .rows.map((r) => r.thread);
+      expect(active()).toEqual(["old"]);
+      dir.open("first", "b", "write", "one");
+      dir.open("first", "b", "write", "two");
+      expect(active()).toEqual(["b", "old"]);
+      open().recoverySettled("first", "b", "two", {
+        version: 3,
+        recoverable: 0,
+        head: "20",
+      });
+      expect(active()).toEqual(["b", "old"]);
+      open().recoverySettled("first", "b", "one", {
+        version: 2,
+        recoverable: 1,
+        head: "10",
+      });
+      expect(active()).toEqual(["old"]);
+      expect(
+        open().recoveryPage("first", "messages.commandHead", undefined, 1),
+      ).toEqual({
+        rows: [{ thread: "b", uncertain: 0, head: "20" }],
+        next: "b",
+      });
+      dir.open("first", "a", "write");
+      expect(active()).toEqual(["a", "old"]);
+      dir.open("first", "new", "write", null);
+      expect(active()).toEqual(["a", "old"]);
+      dir.hold("first", 3);
+      expect(() =>
+        open().recoveryPage("first", "messages.commandHead", undefined, 32),
+      ).toThrow();
+      dir.fenced("first", "a", 4, checksum, {
+        version: 10,
+        recoverable: 0,
+        head: null,
+      });
+      open().recoverySettled("first", "a", "stale", {
+        version: 11,
+        recoverable: 1,
+        head: "999",
+      });
+      const rows = db
+        .prepare(
+          "SELECT recoverable,head FROM history_recovery WHERE thread='a'",
+        )
+        .all();
+      expect(rows).toEqual([{ recoverable: 0, head: null }]);
+    } finally {
+      db.close();
+    }
+  });
   it("remembers a cancelled enrollment across a cold open", () => {
     const { db, open } = database();
     try {

@@ -442,6 +442,18 @@ export class HistoryShard extends DurableObject<unknown> {
       return proof;
     });
   }
+  private recoveryState() {
+    return this.sql
+      .exec<{
+        version: number;
+        recoverable: number;
+        head: string | null;
+      }>("SELECT version,EXISTS(SELECT 1 FROM native_runs WHERE json_extract(json,'$.observation')='live' OR json_extract(json,'$.state') IN ('running','waiting','paused')) recoverable,(SELECT CAST(MAX(sequence) AS TEXT) FROM history_command_journal) head FROM history_config WHERE singleton=1")
+      .one();
+  }
+  fenceForRecovery(grant: Grant) {
+    return { proof: this.fence(grant), recovery: this.recoveryState() };
+  }
   private allocate(grant: Grant, table: HistoryTable): string {
     if (!grant.ordinal) throw Error("History thread is unregistered");
     const { offset } = this.sql
@@ -463,6 +475,7 @@ export class HistoryShard extends DurableObject<unknown> {
     mode: "dual" | "remote",
     operation: HistoryOperation,
     requestId?: string,
+    reportRecovery = false,
   ): Response {
     const reply = this.ctx.storage.transactionSync(() => {
       const c = this.configure(grant);
@@ -537,6 +550,15 @@ export class HistoryShard extends DurableObject<unknown> {
       );
       return { result };
     });
-    return Response.json(reply);
+    return Response.json(
+      reply,
+      reportRecovery
+        ? {
+            headers: {
+              "x-history-recovery": JSON.stringify(this.recoveryState()),
+            },
+          }
+        : undefined,
+    );
   }
 }

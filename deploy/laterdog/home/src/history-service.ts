@@ -51,20 +51,41 @@ async function execute(
   env: HistoryEnvironment,
   stable: string,
   query: Query,
+  background: (promise: Promise<unknown>) => void,
 ): Promise<Response> {
   const dir = directory(env, stable);
   const write = historyOperationWrites(query.operation);
+  const reports =
+    write &&
+    (query.operation.op.startsWith("native.") ||
+      ["messages.command", "messages.delete"].includes(query.operation.op));
+  const token = reports ? crypto.randomUUID() : null;
   const grant = await dir.open(
     query.generation,
     query.threadId,
     write ? "write" : "read",
+    token,
   );
-  return shard(env, stable, grant).execute(
+  const response = await shard(env, stable, grant).execute(
     grant,
     grant.mode,
     query.operation,
     query.requestId,
+    reports,
   );
+  if (token) {
+    const raw = response.headers.get("x-history-recovery");
+    if (raw)
+      background(
+        dir.recoverySettled(
+          grant.generation,
+          grant.threadId,
+          token,
+          JSON.parse(raw),
+        ),
+      );
+  }
+  return response;
 }
 
 type RestoreRequest = { jobId: string; generation: string } & (
@@ -143,10 +164,12 @@ export class HistoryApi extends WorkerEntrypoint<HistoryEnvironment> {
                 side,
                 job.previousRevision + 1,
               );
-              const checksum = await shard(this.env, stable, grant).fence(
+              const { proof, recovery } = await shard(
+                this.env,
+                stable,
                 grant,
-              );
-              await dir.restoreFenced(key, grant, checksum);
+              ).fenceForRecovery(grant);
+              await dir.restoreFenced(key, grant, proof, recovery);
             }),
           );
           return page.next !== null;
@@ -281,7 +304,9 @@ export class HistoryApi extends WorkerEntrypoint<HistoryEnvironment> {
       return Response.json({ items });
     }
     if (url.pathname === "/history/execute")
-      return execute(this.env, stable, await request.json<Query>());
+      return execute(this.env, stable, await request.json<Query>(), (promise) =>
+        this.ctx.waitUntil(promise),
+      );
     if (url.pathname !== "/history/many")
       return new Response(null, { status: 404 });
     const query = await request.json<Many>();
@@ -299,6 +324,7 @@ export class HistoryApi extends WorkerEntrypoint<HistoryEnvironment> {
       ? 64
       : 12;
     let threads: string[], next: string | null;
+    const recorded = new Map<string, string | null>();
     if (query.threadIds) {
       if (!Array.isArray(query.threadIds)) throw Error("Invalid thread list");
       query.threadIds.forEach(requireThread);
@@ -307,6 +333,21 @@ export class HistoryApi extends WorkerEntrypoint<HistoryEnvironment> {
         .filter((thread) => query.after == null || thread > query.after);
       threads = ids.slice(0, pageSize);
       next = ids.length > threads.length ? threads.at(-1)! : null;
+    } else if (
+      query.operation.op === "native.recover" ||
+      query.operation.op === "messages.commandHead"
+    ) {
+      const page = await dir.recoveryPage(
+        query.generation,
+        query.operation.op,
+        query.after,
+        query.operation.op === "messages.commandHead" ? 128 : pageSize,
+      );
+      threads = page.rows.map((row) => row.thread);
+      next = page.next;
+      if (query.operation.op === "messages.commandHead")
+        for (const row of page.rows)
+          if (!row.uncertain) recorded.set(row.thread, row.head);
     } else
       ({ threads, next } = await dir.list(
         query.generation,
@@ -317,12 +358,19 @@ export class HistoryApi extends WorkerEntrypoint<HistoryEnvironment> {
     for (let start = 0; start < threads.length; start += 8) {
       const batch = await Promise.all(
         threads.slice(start, start + 8).map(async (threadId) => {
-          const reply = await execute(this.env, stable, {
-            generation: query.generation,
-            threadId,
-            operation: query.operation,
-            requestId: query.requestId,
-          });
+          if (recorded.has(threadId))
+            return { threadId, result: recorded.get(threadId) };
+          const reply = await execute(
+            this.env,
+            stable,
+            {
+              generation: query.generation,
+              threadId,
+              operation: query.operation,
+              requestId: query.requestId,
+            },
+            (promise) => this.ctx.waitUntil(promise),
+          );
           const { result } = await reply.json<{ result: unknown }>();
           return { threadId, result };
         }),
@@ -412,8 +460,18 @@ export class HistoryMigrationApi extends WorkerEntrypoint<HistoryEnvironment> {
             const grant = await dir.open(req.generation, thread, "export");
             if (grant.revision !== req.revision)
               throw Error("History fence changed");
-            const proof = await shard(this.env, stable, grant).fence(grant);
-            await dir.fenced(req.generation, thread, req.revision, proof);
+            const { proof, recovery } = await shard(
+              this.env,
+              stable,
+              grant,
+            ).fenceForRecovery(grant);
+            await dir.fenced(
+              req.generation,
+              thread,
+              req.revision,
+              proof,
+              recovery,
+            );
           }),
         );
         return page;

@@ -41,6 +41,9 @@ export function initializeHistoryShard(sql: HistorySql): void {
     "CREATE TABLE IF NOT EXISTS native_runs (id TEXT PRIMARY KEY,thread_id TEXT NOT NULL,started_at INTEGER NOT NULL,json TEXT NOT NULL,event_sequence INTEGER NOT NULL DEFAULT 0,sealed INTEGER NOT NULL DEFAULT 0)",
   );
   sql.exec(
+    "CREATE INDEX IF NOT EXISTS history_native_recoverable ON native_runs(id) WHERE json_extract(json,'$.observation')='live' OR json_extract(json,'$.state') IN ('running','waiting','paused')",
+  );
+  sql.exec(
     "CREATE INDEX IF NOT EXISTS native_runs_thread ON native_runs(thread_id,started_at,id)",
   );
   sql.exec(
