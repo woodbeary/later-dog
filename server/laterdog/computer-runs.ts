@@ -2,6 +2,7 @@ import { spawn } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
 import { lstatSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join, relative } from "node:path";
+import { stripVTControlCharacters } from "node:util";
 import { BUILD_OUTPUT_DIRS, isGeneratedPath } from "./janitor.ts";
 
 export const PART_BYTES = 12 * 1024 * 1024;
@@ -42,6 +43,8 @@ export interface BoxExec {
 }
 
 export interface RunBox {
+  computerId?: string;
+  durableJobs?: boolean;
   exec(command: string, timeoutMs: number): Promise<BoxExec>;
   write(path: string, bytes: Uint8Array): Promise<void>;
   read(path: string): Promise<Buffer>;
@@ -61,6 +64,8 @@ interface RemoteRunReceipt {
 }
 
 export interface RunRecord {
+  computerId?: string;
+  durable?: boolean;
   id: string;
   botId: string;
   key: string;
@@ -314,7 +319,7 @@ export class ComputerRuns {
     if (input.left && input.left() <= 0) throw Object.assign(new Error("the call's time ran out before the command started, so nothing was run"), { code: "window_ended" });
     const detached = `nohup bash -lc ${quote(script)} > /dev/null 2>&1 < /dev/null &`;
     must(await box.exec(`exec 9> "$HOME/runs/.logs/${id}.lock" || exit 1; if command -v setsid > /dev/null; then setsid ${detached} else set -m; ${detached} fi; echo started`, 30_000), "starting the command");
-    const record: RunRecord = { id, botId: input.botId, key, folder: input.folder, subdir, command: input.command, startedAt: this.#now(), sent: now, marked: true, ...(reusedSetup ? { reusedSetup: true } : {}), ...(input.outputs ? { outputs: input.outputs } : {}) };
+    const record: RunRecord = { id, botId: input.botId, key, folder: input.folder, subdir, command: input.command, startedAt: this.#now(), sent: now, marked: true, ...(box.computerId ? { computerId: box.computerId } : {}), ...(box.durableJobs ? { durable: true } : {}), ...(reusedSetup ? { reusedSetup: true } : {}), ...(input.outputs ? { outputs: input.outputs } : {}) };
     this.#writeJson(this.#runPath(input.botId, id), record);
     input.started?.(record);
     return { ...record, sentFiles: changed.length, sentBytes };
@@ -322,6 +327,13 @@ export class ComputerRuns {
 
   record(botId: string, id: string): RunRecord | null {
     return /^[0-9a-f]{8}$/.test(id) ? this.#readJson<RunRecord>(this.#runPath(botId, id)) : null;
+  }
+
+  #bindConfirmedRun(box: RunBox, job: Pick<RunRecord, "id" | "botId">): void {
+    if (!box.computerId) return;
+    const current = this.record(job.botId, job.id);
+    if (!current || current.computerId) return;
+    this.#writeJson(this.#runPath(job.botId, job.id), { ...current, computerId: box.computerId, durable: box.durableJobs === true }, true);
   }
 
   async poll(box: RunBox, record: RunRecord, timeoutMs = POLL_EXEC_MS): Promise<{ done: boolean; exitCode: number | null; output: string }> {
@@ -336,13 +348,15 @@ export class ComputerRuns {
     return !(await this.poll(box, record)).done;
   }
 
-  async ended(box: RunBox, job: Pick<RunRecord, "botId" | "id">): Promise<{ exitCode: number; at?: number } | null> {
+  async ended(box: RunBox, job: Pick<RunRecord, "botId" | "id" | "computerId">): Promise<{ exitCode: number; at?: number } | null> {
+    if (job.computerId && job.computerId !== box.computerId) return null;
     const record = /^[0-9a-f]{8}$/.test(job.id) ? this.record(job.botId, job.id) : null;
-    if (!record) return null;
+    if (!record || (record.computerId && record.computerId !== box.computerId)) return null;
     if (record.outputs === "remote" && record.receipt) return { exitCode: record.receipt.exitCode, at: record.receipt.at };
     const state = await this.poll(box, record);
     if (!state.done || state.exitCode === null || !Number.isInteger(state.exitCode)) return null;
-    const stamp = Number((await box.exec(`date -r runs/.logs/${record.id}.exit +%s`, 10_000).catch(() => ({ stdout: "" }))).stdout.trim());
+    if (!record.computerId) this.#bindConfirmedRun(box, job);
+    const stamp = Number(stripVTControlCharacters((await box.exec(`date -r runs/.logs/${record.id}.exit +%s`, 10_000).catch(() => ({ stdout: "" }))).stdout).trim());
     const at = Number.isFinite(stamp) && stamp > 0 ? stamp * 1000 : undefined;
     if (record.outputs === "remote") {
       const receipt = this.#recordRemoteReceipt(record, state.exitCode, state.output, at);
@@ -351,25 +365,28 @@ export class ComputerRuns {
     return { exitCode: state.exitCode, ...(at !== undefined ? { at } : {}) };
   }
 
-  async stop(box: RunBox, record: Pick<RunRecord, "id">): Promise<RunStop> {
+  async stop(box: RunBox, record: Pick<RunRecord, "id" | "computerId">): Promise<RunStop> {
+    if (record.computerId && record.computerId !== box.computerId) return "gone";
     if (!/^[0-9a-f]{8}$/.test(record.id)) return "alive";
     const script = `${groupOf(record.id)} S() { ${survivorsOf(record.id)}; }; `
       + `if [ -n "$pg" ]; then kill -TERM -- -$pg 2>/dev/null; for i in 1 2 3 4 5; do kill -0 -- -$pg 2>/dev/null || break; sleep 1; done; kill -KILL -- -$pg 2>/dev/null; sleep 0.5; fi; `
       + `left=$(S); if [ "$left" = "unsure" ]; then if [ -n "$pg" ] && ! kill -0 -- -$pg 2>/dev/null; then echo partial; else echo alive; fi; exit 0; fi; `
       + `for round in 1 2 3; do [ -z "$left" ] && break; kill -TERM $left 2>/dev/null; sleep 1; left=$(S); [ -n "$left" ] && kill -KILL $left 2>/dev/null; sleep 0.5; left=$(S); done; `
       + `if [ -n "$pg" ] && kill -0 -- -$pg 2>/dev/null; then echo alive; elif [ -n "$left" ]; then echo alive; else echo gone; fi`;
-    const said = (await box.exec(script, 30_000)).stdout.trim();
+    const said = stripVTControlCharacters((await box.exec(script, 30_000)).stdout).trim();
     return said === "gone" || said === "partial" ? said : "alive";
   }
 
-  async liveness(box: RunBox, record: Pick<RunRecord, "id" | "botId" | "marked">): Promise<RunLiveness> {
+  async liveness(box: RunBox, record: Pick<RunRecord, "id" | "botId" | "marked" | "computerId">): Promise<RunLiveness> {
+    if (record.computerId && record.computerId !== box.computerId) return "dead";
     if (!/^[0-9a-f]{8}$/.test(record.id)) return "unsure";
     if (!(record.marked ?? this.record(record.botId, record.id)?.marked)) return "unsure";
     const logs = `runs/.logs/${record.id}`;
     const script = `if [ -f ${logs}.exit ]; then echo exited; exit 0; fi; ${groupOf(record.id)} `
       + `if [ -n "$pg" ] && kill -0 -- -$pg 2>/dev/null; then echo alive; exit 0; fi; left=$(${survivorsOf(record.id)}); `
       + `if [ "$left" = "unsure" ]; then [ -n "$pg" ] && echo dead || echo unsure; elif [ -n "$left" ]; then echo alive; else echo dead; fi`;
-    const said = (await box.exec(script, 30_000)).stdout.trim();
+    const said = stripVTControlCharacters((await box.exec(script, 30_000)).stdout).trim();
+    if (!record.computerId && (said === "exited" || said === "alive")) this.#bindConfirmedRun(box, record);
     return said === "exited" || said === "alive" || said === "dead" ? said : "unsure";
   }
 
@@ -383,7 +400,7 @@ export class ComputerRuns {
       const state = await this.poll(box, record, Math.min(POLL_EXEC_MS, Math.max(LEAST_POLL_EXEC_MS, left())));
       if (state.done) return { ...state, lost: false };
       if (await this.gone(box, record)) return { ...state, lost: true };
-      if (left() <= 0 || this.#now() - record.startedAt >= MAX_RUN_MS) return { ...state, lost: false };
+      if (left() <= 0 || (!box.durableJobs && this.#now() - record.startedAt >= MAX_RUN_MS)) return { ...state, lost: false };
       await this.#sleep(Math.min(POLL_MS, left()));
     }
   }
@@ -418,11 +435,13 @@ export class ComputerRuns {
       const completed = completedRemoteRun(this.record(record.botId, record.id) ?? record, sent);
       if (completed) return completed;
     }
+    if (record.computerId && record.computerId !== box.computerId) return { id: record.id, state: "failed", exitCode: null, output: "", broughtBack: [], skipped: [], ...sent,
+      note: "The computer that started this command is no longer assigned to this dog." };
     const state = await this.wait(box, record, left);
     if (state.lost) return { id: record.id, state: "failed", exitCode: null, output: state.output, broughtBack: [], skipped: [], ...sent,
       note: "It stopped before finishing and left no exit code. Run it again if you still need its result." };
     if (!state.done) {
-      const overdue = this.#now() - record.startedAt >= MAX_RUN_MS;
+      const overdue = !box.durableJobs && this.#now() - record.startedAt >= MAX_RUN_MS;
       if (overdue) await this.stop(box, record).catch(() => "alive");
       return { id: record.id, state: overdue ? "failed" : "running", exitCode: null, output: state.output, broughtBack: [], skipped: [], ...sent,
         note: overdue ? "Stopped after 2 hours." : `Still running. Call run_on_computer again with run_id "${record.id}" to keep waiting. That call waits up to its wait_minutes (default 4).` };

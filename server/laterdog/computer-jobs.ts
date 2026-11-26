@@ -8,6 +8,8 @@ const jobSchema = z.object({
   id: z.string(), botId: z.string(), threadId: z.string(), command: z.string(), startedAt: z.number(),
   end: endSchema.optional(),
   quiet: z.boolean().optional(),
+  durable: z.boolean().optional(),
+  computerId: z.string().optional(),
 });
 export type ComputerJob = z.infer<typeof jobSchema>;
 export type ComputerJobEnd = z.infer<typeof endSchema>;
@@ -52,6 +54,7 @@ export class ComputerJobs implements ComputerJobLedger {
   readonly #held = new Map<string, number>();
   #checking = false;
   readonly #seen = new Map<string, Sighting>();
+  readonly #unverifiedLegacy = new Set<string>();
   readonly #unreadableSince = new Map<string, number>();
 
   constructor(file: string | null, options: ComputerJobsOptions = {}) {
@@ -62,7 +65,10 @@ export class ComputerJobs implements ComputerJobLedger {
     let raw: string;
     try { raw = readFileSync(file, "utf8"); } catch { return; }
     try {
-      for (const job of z.array(jobSchema).parse(JSON.parse(raw))) this.#jobs.set(job.id, job);
+      for (const job of z.array(jobSchema).parse(JSON.parse(raw))) {
+        this.#jobs.set(job.id, job);
+        if (!job.end && job.durable === undefined) this.#unverifiedLegacy.add(job.id);
+      }
     } catch (error) {
       const aside = `${file}.corrupt-${this.#now()}`;
       try { renameSync(file, aside); } catch {}
@@ -72,6 +78,7 @@ export class ComputerJobs implements ComputerJobLedger {
 
   started(job: ComputerJob): void {
     this.#jobs.set(job.id, job);
+    this.#unverifiedLegacy.delete(job.id);
     this.#save();
     this.#changed(job.threadId);
   }
@@ -171,21 +178,34 @@ export class ComputerJobs implements ComputerJobLedger {
       try {
         const computer = await probe.computer(job.botId);
         if (computer.state === "asleep" || computer.state === "gone") sighting = computer.state;
-        if (computer.state === "running") {
+        if (computer.state === "running" && job.computerId && job.computerId !== computer.box.computerId) sighting = "gone";
+        else if (computer.state === "running") {
+          const durable = computer.box.durableJobs === true;
+          if (computer.box.durableJobs !== undefined && job.durable !== durable) {
+            job.durable = durable;
+            this.#save();
+          }
+          if (computer.box.durableJobs !== undefined) this.#unverifiedLegacy.delete(job.id);
           const exit = await probe.exit(computer.box, job);
           if (exit && Number.isInteger(exit.exitCode)) {
+            job.computerId ??= computer.box.computerId;
             this.#unreadableSince.delete(job.id);
             ends.set(job.id, jobEnd(exit.exitCode, exit.at !== undefined && Number.isFinite(exit.at) ? Math.min(exit.at, this.#now()) : this.#now()));
             continue;
           }
           const liveness = probe.liveness(computer.box, job);
-          if (this.#now() - job.startedAt >= MAX_RUN_MS && await liveness.catch((): RunLiveness => "unsure") !== "dead") {
+          if (!durable && this.#now() - job.startedAt >= MAX_RUN_MS && await liveness.catch((): RunLiveness => "unsure") !== "dead") {
             this.#unreadableSince.delete(job.id);
             const stop = await probe.stop(computer.box, job).catch((): RunStop => "alive");
             ends.set(job.id, { how: "overdue", stop, at: this.#now() });
             continue;
           }
-          if (await liveness === "dead") sighting = "dead";
+          const state = await liveness;
+          if (state === "dead") sighting = "dead";
+          if ((state === "alive" || state === "exited") && !job.computerId && computer.box.computerId) {
+            job.computerId = computer.box.computerId;
+            this.#save();
+          }
         }
         readable = computer.state !== "unsure";
       } catch {
@@ -193,6 +213,7 @@ export class ComputerJobs implements ComputerJobLedger {
       }
       if (readable) this.#unreadableSince.delete(job.id);
       else {
+        if (job.durable || this.#unverifiedLegacy.has(job.id)) continue;
         const since = this.#unreadableSince.get(job.id) ?? this.#now();
         this.#unreadableSince.set(job.id, since);
         if (this.#now() - since >= UNREADABLE_MS) ends.set(job.id, { how: "lost", at: this.#now() });
@@ -203,6 +224,7 @@ export class ComputerJobs implements ComputerJobLedger {
       ends.set(job.id, { how: sighting === "dead" ? "lost" : sighting, at: this.#now() });
     }
     for (const [id, end] of ends) if (!this.#held.has(id)) this.finished(id, end);
+    for (const id of this.#unverifiedLegacy) if (!this.#jobs.has(id) || this.#jobs.get(id)?.end) this.#unverifiedLegacy.delete(id);
     for (const id of this.#seen.keys()) if (!this.#jobs.has(id)) this.#seen.delete(id);
     for (const id of this.#unreadableSince.keys()) {
       const job = this.#jobs.get(id);

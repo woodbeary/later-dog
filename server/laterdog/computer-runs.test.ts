@@ -241,6 +241,24 @@ describe("a heavy command on the dog's own computer", () => {
     expect(await runs.gone(box, record)).toBe(false);
   });
 
+  it("returns an aged full-allowance run to its caller without killing it or running it again", async () => {
+    const { state } = project();
+    const runs = new ComputerRuns(state, { now: () => 9 * 3_600_000 });
+    const record = { id: "abcd1234", botId: "dog", startedAt: 0, marked: true, computerId: "original" } as RunRecord;
+    const commands: string[] = [];
+    const box = { durableJobs: true, computerId: "original", exec: async (cmd: string) => {
+      commands.push(cmd);
+      return { exitCode: 0, stdout: cmd.includes(".pgid") ? "alive\n\u001b[3J" : "<<<\nlog", stderr: "" };
+    } } as RunBox;
+    expect(await runs.finish(box, record, undefined, () => 0)).toMatchObject({ state: "running", exitCode: null });
+    expect(await runs.liveness(box, record)).toBe("alive");
+    expect(commands.length).toBeGreaterThan(0);
+    expect(commands.some(command => command.includes("kill -TERM") || command.includes("nohup"))).toBe(false);
+    const before = commands.length;
+    expect(await runs.finish({ ...box, computerId: "new" }, record)).toMatchObject({ state: "failed" });
+    expect(commands).toHaveLength(before);
+  });
+
   it("never reads a run started before this home updated as gone while it still runs", async () => {
     const { folder, computer, state } = project();
     mkdirSync(join(computer, "runs/.logs"), { recursive: true });

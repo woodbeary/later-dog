@@ -106,7 +106,12 @@ export async function handleComputerRun(request: ComputerRunRequest, deps: Compu
   const wrote = () => Boolean(request.interrupted?.());
   const threadId = request.threadId;
   const jobs = threadId ? deps.jobs : undefined;
-  const job = (run: RunRecord): ComputerJob => ({ id: run.id, botId: run.botId, threadId: threadId!, command: run.command, startedAt: run.startedAt });
+  let assignedBox: RunBox | undefined;
+  const job = (run: RunRecord): ComputerJob => ({
+    durable: assignedBox?.durableJobs ?? run.durable ?? false,
+    computerId: run.computerId,
+    id: run.id, botId: run.botId, threadId: threadId!, command: run.command, startedAt: run.startedAt,
+  });
   const releases: Array<() => void> = [];
   if (record && jobs) releases.push(jobs.hold(record.id));
   const recordJob = (run: RunRecord) => { if (!jobs) return; releases.push(jobs.hold(run.id)); jobs.started(job(run)); };
@@ -117,6 +122,7 @@ export async function handleComputerRun(request: ComputerRunRequest, deps: Compu
       const now = deps.now ?? Date.now;
       const started = now();
       const computer = await deps.computer(request.botId, { ...(repository ? { repository } : {}), ...(request.active ? { wanted: request.active } : {}), budgetMs: asked });
+      assignedBox = computer.box;
       if (stopped()) return { status: 409, error: ENDED_TEXT };
       const left = () => stopped() || wrote() ? 0 : started + windowMs - now();
       outcome = record

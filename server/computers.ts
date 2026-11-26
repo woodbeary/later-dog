@@ -19,11 +19,11 @@ export type { BoatIdentityInspection, BoatTurnLifecycleAction, ManagedBoatInvent
 const BOAT_STATE: Record<string, string> = { running: "running", sleeping: "archived", starting: "starting", stopping: "archiving", error: "error" };
 const asBoatState = (state: string) => BOAT_STATE[state] ?? "unknown";
 const STATE_WORDS: Record<string, string> = { archived: "asleep", archiving: "going to sleep", starting: "starting", error: "in an error state" };
-interface OwnComputer { id: string; name: string; state: string; generation?: number }
+interface OwnComputer { durableJobs?: boolean; id: string; name: string; state: string; generation?: number }
 const own = (computer: Computer): OwnComputer => {
   const state = asBoatState(computer.state);
   if (state === "running") starts.settled(computer.id);
-  return { id: computer.id, name: computer.name, state, ...(computer.lastStart?.generation !== undefined ? { generation: computer.lastStart.generation } : {}) };
+  return { id: computer.id, name: computer.name, state, ...(computer.durableJobs === undefined ? {} : { durableJobs: computer.durableJobs }), ...(computer.lastStart?.generation !== undefined ? { generation: computer.lastStart.generation } : {}) };
 };
 export const wantedSize = (cfg: AppConfig): string | undefined => cfg.box?.size ?? undefined;
 export function needsResize(computer: { size?: string }, wanted: string | undefined): boolean {
@@ -541,6 +541,7 @@ export async function heavyRunBox(botId: string, options: { repository?: string;
   }
   starts.settled(computer.id);
   const box: RunBox = {
+    computerId: ready.id, durableJobs: ready.durableJobs === true,
     exec: (command, timeoutMs) => runOwn(client, ready.id, command, { timeoutMs }),
     write: (path, bytes) => client.writeFile(ready.id, path, bytes),
     read: (path) => client.readFile(ready.id, path),
@@ -551,11 +552,16 @@ export async function heavyRunBox(botId: string, options: { repository?: string;
 export async function jobComputer(botId: string): Promise<JobComputer> {
   if (!computersSelected()) return { state: "unsure" };
   const client = ownClient();
-  const computer = await findOwn(client, botId);
+  let computer = await findOwn(client, botId);
+  if (computer?.state === "running" && computer.durableJobs === undefined) {
+    const current = await client.get(computer.id);
+    computer = current && current.name === computer.name ? own(current) : null;
+  }
   if (!computer) return { state: "gone" };
   if (computer.state === "archived") return { state: "asleep" };
   if (computer.state !== "running") return { state: "unsure" };
   return { state: "running", box: {
+    computerId: computer.id, durableJobs: computer.durableJobs === true,
     exec: (command, timeoutMs) => runOwn(client, computer.id, command, { timeoutMs }),
     write: (path, bytes) => client.writeFile(computer.id, path, bytes),
     read: (path) => client.readFile(computer.id, path),

@@ -119,7 +119,7 @@ disk the others need. A dog sends that kind of command to its own cloud computer
   API takes 16 MiB). It never sends `node_modules`, package caches or other build output, and after the first run it
   sends only the files that changed and removes the ones deleted here. Installed packages stay on the computer.
 - The command runs detached (`setsid nohup`) with pnpm on the path, so it outlives the call that started it. One call
-  waits up to 4 minutes; after that the dog gets a run id and calls again to keep waiting. A run stops after 2 hours.
+  waits up to 4 minutes; after that the dog gets a run id and calls again to keep waiting. On a full-allowance computer, a detached job continues until it exits or you stop it. Other computers retain the two-hour job limit.
 - By default, newly created and changed files come back when the command ends, up to 512 MiB. Build output stays on
   the computer. A file changed at home during the run is kept, and the dog is told which.
 - For checks and scratch work, set `outputs: "remote"` when starting the command. The run leaves its files on the
