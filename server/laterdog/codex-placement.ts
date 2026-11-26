@@ -67,7 +67,7 @@ export async function planCodexRemote(input: CodexPlacement) {
     cli, threadId: input.threadId, stagingDir, mkdirs: [cwd, sessions],
     launch: {
       cli: `${bin}/codex`, args: [], cwd, env: { PATH: `${bin}:/usr/local/bin:/usr/bin:/bin`, HOME: "/home/dog", CODEX_HOME: stagingDir },
-      roots: [{ id: "workspace", path: cwd, writable: true }, { id: "config", path: stagingDir, writable: false, files: ["config.toml"] }, { id: "sessions", path: sessions, writable: true, transcript: true, files: bound ? [bound.path] : [] }],
+      roots: [{ id: "workspace", path: cwd, writable: true, streamedTree: input.required }, { id: "config", path: stagingDir, writable: false, files: ["config.toml"] }, { id: "sessions", path: sessions, writable: true, transcript: true, files: bound ? [bound.path] : [] }],
       outputIds: ["workspace", "sessions"], requireCompleteCheckpoint: true, ephemeralCodexHome: stagingDir, mcp, hookEnv, proxyEnv,
       hooks: input.guardShell ? [`${quoted(process.execPath)} ${quoted(SPAWNED_PROXIES.hook)}`] : [],
       socketPath, stateFile: `${remoteBase}/state/${binding.key}.json`, lockFile: `${remoteBase}/locks/${binding.key}.lock`,
