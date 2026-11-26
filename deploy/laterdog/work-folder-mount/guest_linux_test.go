@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"testing"
 
 	"golang.org/x/sys/unix"
@@ -93,6 +94,12 @@ func TestCannotFollowEscapingNamesOrSymlinks(t *testing.T) {
 			t.Fatal(r.Op)
 		}
 	}
+	if got := invoke(t, g, request{Op: "readlinkMetadata", Path: "outside"}); got.Target != ".." || got.Projected {
+		t.Fatal(got)
+	}
+	if _, err := g.execute(request{Op: "readlinkMetadata", Root: "dog", Path: "outside/secret"}); err == nil {
+		t.Fatal("opened parent outside the assigned root")
+	}
 	if out, err := os.ReadFile(filepath.Join(base, "secret")); err != nil || string(out) != "outside" {
 		t.Fatal(err)
 	}
@@ -146,5 +153,19 @@ func TestDirectoryPagesAndScopedStdio(t *testing.T) {
 	}
 	if e := dec.Decode(&one); e != io.EOF {
 		t.Fatal(e)
+	}
+}
+
+func TestAllowOnlyCanonicalProjectedProjectNames(t *testing.T) {
+	root := "/run/laterdog-work-folders/tree/project-" + strings.Repeat("a", 64)
+	for _, name := range []string{root, root + "/sub/ok"} {
+		if !projectedTarget(name) {
+			t.Fatal(name)
+		}
+	}
+	for _, name := range []string{root + "/", root + "/../bad", root + "/./bad", root + "//bad", root + "/bad/../leaf", root + "F/sub", root[0:len(root)-1] + "bX", "/etc/shadow", "../../target"} {
+		if projectedTarget(name) {
+			t.Fatal(name)
+		}
 	}
 }

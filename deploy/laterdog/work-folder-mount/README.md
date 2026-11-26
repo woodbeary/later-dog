@@ -34,7 +34,7 @@ Each process announces `{"ready":true,"version":1}` on standard output after sta
 
 The home mount sends JSON in `POST /v1/fs` over the Unix socket. The adapter maps the authorized root to its guest. Each guest input line contains `{"id":1,"request":{...}}`. Each response line contains the same ID plus `"response"`. Reply to the home HTTP request with status 200 and the response object. Only a successful operation has `"ok":true`. Failure has `{"ok":false,"errno":"ENOENT"}` or another Linux errno. Do not retry an ambiguous mutation after receiving a disconnect.
 
-Requests contain `op`, `root` and `path`. The root path is the empty string. Other paths use valid UTF-8 components separated by a single slash. Each component is at most 255 bytes. Directory traversal, escaping links and crossing nested mounts are rejected. Scoped relative symlinks retain their target text. An existing unshareable link stays on the guest. Absolute and out-of-root link targets cannot be followed through the mount.
+Requests contain `op`, `root` and `path`. The root path is the empty string. Other paths use valid UTF-8 components separated by a single slash. Each component is at most 255 bytes. Directory traversal, escaping links and crossing nested mounts are rejected. Scoped relative symlinks retain their target text. An existing unshareable link stays on the guest. The guest rejects traversals outside its assigned root. For a link into another authorized project, the trusted home adapter can inspect the raw link and verify the destination against its project membership. It must return `projected: true` with a canonical absolute path under `/run/laterdog-work-folders/tree/project-<64 lowercase hex>`. The kernel client checks this shape and each component before returning the link.
 
 | Operation | Extra request fields | Response fields |
 | --- | --- | --- |
@@ -48,6 +48,7 @@ Requests contain `op`, `root` and `path`. The root path is the empty string. Oth
 | release, releasedir | handle | success |
 | mkdir | mode | attr |
 | symlink, readlink | target on symlink | attr on creation, target on readlink |
+| readlinkMetadata (guest stdio only) | none | original raw link text in target, read from the link itself without traversal |
 | link | source root-relative path; path names the new link | attr |
 | rename | newPath, Linux flags for replace, no-replace or exchange | success |
 | unlink, rmdir | none | success |
