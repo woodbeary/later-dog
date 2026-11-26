@@ -10,7 +10,8 @@
     "noEmit": true,
     "skipLibCheck": true,
     "types": [
-      "./worker-configuration.d.ts"
+      "./worker-configuration.d.ts",
+      "node"
     ],
     "allowImportingTsExtensions": true
   },

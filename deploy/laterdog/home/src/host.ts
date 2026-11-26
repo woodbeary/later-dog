@@ -7,7 +7,7 @@ import { WORK_FOLDER_ROUTE } from "../../../../shared/work-folder-store.ts";
 import { Container, type OutboundHandlerContext } from "@cloudflare/containers";
 import { parseActivity, signedActivityRequest, sleepDecision, type HomeActivity } from "./activity.ts";
 import { grantedAsHome, includedKeyDue } from "./included.ts";
-import { hex, randomToken, sha256 } from "./encoding.ts";
+import { hex, hmacSha256, randomToken, sha256 } from "./encoding.ts";
 import { bootstrapSecret, type HomeIdentity } from "./identity.ts";
 import { parsePairingGrant, signedPairingRequest, type PairingGrant } from "./pairing.ts";
 import { handleOwnerEmail, type OwnerMail } from "./email.ts";
@@ -256,6 +256,16 @@ export class CloudHomeHost extends Container<Env> {
     await this.cutover.recover();
   }
 
+  async handleHistoryRequest(stable: string, token: string, request: Request): Promise<Response> {
+    if (!this.record || this.removed || !this.handover.holds() || stable !== this.stateHome(this.record.machineId) || token !== this.record.stateToken)
+      return new Response("Retired history writer", {status: 401});
+    if (this.cutover.closed())
+      return new Response("Home history is held", {status: 423, headers: {"retry-after": "5"}});
+    const history = this.env.HISTORY as unknown as {handle(stable: string, request: Request): Promise<Response>};
+    const forwarded = new Request(request.url,{method:request.method,body:request.body,headers:{"content-type":"application/json"}});
+    return history.handle(stable,forwarded);
+  }
+
   async mutateHomeState(stable: string, token: string, request: Request) {
     if (!this.record || stable !== this.stateHome(this.record.machineId) || !cutoverMutable(request)) {
       return new Response("Invalid home mutation", { status: 403 });
@@ -306,6 +316,8 @@ export class CloudHomeHost extends Container<Env> {
       LATERDOG_PUBLIC_URL: record.origin,
       LATERDOG_STATE_URL: `http://${STATE_HOST}`,
       LATERDOG_STATE_TOKEN: record.stateToken,
+      LATERDOG_HISTORY_URL: `http://${STATE_HOST}/history`,
+      LATERDOG_HISTORY_TOKEN: hex(await hmacSha256(record.stateToken,"laterdog history v1")),
       ...(record.emailToken ? { LATERDOG_CLOUD_EMAIL_URL: `http://${EMAIL_HOST}/send`, LATERDOG_CLOUD_EMAIL_TOKEN: record.emailToken } : {}),
       ...(record.googleToken ? { LATERDOG_CLOUD_GOOGLE_URL: `http://${GOOGLE_HOST}`, LATERDOG_CLOUD_GOOGLE_TOKEN: record.googleToken } : {}),
       ...(record.includedKey ? { LATERDOG_INCLUDED_KEY: record.includedKey, LATERDOG_INCLUDED_API: this.env.INCLUDED_API } : {}),
@@ -1092,6 +1104,14 @@ export class CloudHomeHost extends Container<Env> {
 
 CloudHomeHost.outboundHandlers = {
   state: async (request: Request, env: Env, context: OutboundHandlerContext<{ token: string; machineId?: string; home?: string; devCode?: boolean }>) => {
+    if (new URL(request.url).pathname.startsWith("/history/")) {
+      const token = context.params?.token;
+      if (!token || !await authorizedState(request,hex(await hmacSha256(token,"laterdog history v1"))))
+        return new Response("Unauthorized", {status: 401});
+      const stable = stateOwner(context);
+      const ns = stable === context.containerId ? env.HOMES : env.HOMES_LARGE;
+      return ns.get(ns.idFromString(context.containerId)).handleHistoryRequest(stable,token,request);
+    }
     if (!(await authorizedState(request, context.params?.token))) return new Response("Unauthorized", { status: 401 });
     if (cutoverMutable(request)) {
       const stable = stateOwner(context);

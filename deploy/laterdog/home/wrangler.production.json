@@ -72,6 +72,11 @@
       "binding": "ACCOUNTS",
       "service": "laterdog-control-plane",
       "entrypoint": "AccountsApi"
+    },
+    {
+      "binding": "HISTORY",
+      "service": "laterdog-history",
+      "entrypoint": "HistoryApi"
     }
   ],
   "vars": {
