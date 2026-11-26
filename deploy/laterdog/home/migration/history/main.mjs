@@ -20,7 +20,7 @@ function bounded(operation, ms = 180_000) {
 async function retrying(operation, attempts = 6) {
   for (let attempt = 1; ; attempt++) {
     try {
-      return await bounded(operation);
+      return await bounded(operation, 60_000);
     } catch (error) {
       if (attempt >= attempts) throw error;
       await new Promise((done) => setTimeout(done, Math.min(8000, 500 * 2 ** attempt)));
