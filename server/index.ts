@@ -580,7 +580,7 @@ import { CLOUD_THREAD_LOG_MAX_BYTES, CLOUD_THREAD_LOG_RETENTION_DAYS, DISK_CHECK
 import { TAB_SWEEP_MS } from "./laterdog/cloud-tabs.ts";
 import { TabKeeper } from "./laterdog/tab-keeper.ts";
 import { computerUpkeepScript } from "./laterdog/computer-upkeep.ts";
-import { MEMORY_CHECK_MS, orphanIdleHours, readMemoryPressure, readProcesses, reapStrays, underMemoryPressure, type ThreadState as ReaperThreadState } from "./laterdog/process-reaper.ts";
+import { MEMORY_CHECK_MS, orphanIdleHours, readMemoryPressure, reapStrays, underMemoryPressure, type ThreadState as ReaperThreadState } from "./laterdog/process-reaper.ts";
 import { startHomeUpkeep } from "./laterdog/home-upkeep.ts";
 import { liveSignalScene, signalDecision } from "./laterdog/home-signals.ts";
 import { homeFloorDecision } from "./laterdog/disk-floor.ts";
