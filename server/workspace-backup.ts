@@ -1,4 +1,4 @@
-import { createCipheriv, createDecipheriv, createHash, randomBytes, randomUUID, scrypt } from "node:crypto";
+import { createCipheriv, createDecipheriv, createHash, createHmac, randomBytes, randomUUID, scrypt } from "node:crypto";
 import {
   chmodSync, closeSync, constants, cpSync, createReadStream, createWriteStream, existsSync,
   fstatSync, fsyncSync, lstatSync, mkdirSync, openSync, readFileSync, readdirSync,
@@ -8,6 +8,7 @@ import { isAbsolute, join, parse, posix, relative, resolve, win32 } from "node:p
 import { homedir } from "node:os";
 import { backup, DatabaseSync } from "node:sqlite";
 import { pipeline } from "node:stream/promises";
+import { Readable, Transform } from "node:stream";
 import { Worker } from "node:worker_threads";
 import * as tar from "tar";
 import { presentEntry, presentNames, unlessGone } from "./laterdog/present-entries.ts";
@@ -17,6 +18,13 @@ import { escapeAttribute, splitTranscriptAttachments } from "../src/lib/composer
 import { WORKSPACE_BACKUP_CLIENT_KEYS } from "../shared/workspace-backup-client.ts";
 import { ephemeralWorkspaceTokenPath, excludedWorkspaceAuthPath, portableWorkspaceConfig, redownloadedOrgLibraryPath, restoredWorkspaceConfig } from "./workspace-backup-policy.ts";
 import { leftBehindByProfile, measureLeftOnComputer, validLeftOnComputer, CLOUD_MOVE_PROFILE, type WorkspaceBackupProfile } from "./laterdog/cloud-move-profile.ts";
+import { mountedWorkFolders } from "./laterdog/work-folder-locations.ts";
+import { homeMountPaths } from "./laterdog/work-folder-maintenance.ts";
+import { backupFolderAccess, currentBackupLayout, exportPortableFolders, portableFolderScopes, type BackupFolderAccess, type PortableAuthority, PortableFolderReader, countAssignedFolder, emptyFolderTotals, type FolderTotals } from "./laterdog/portable-work-folders.ts";
+import { applyAssignedHeads, installLocalFolders, restoreFoldersLocally, stageAssignedFolders } from "./laterdog/portable-work-folder-restore.ts";
+import { archivedManagedPath, LegacyFolderImport } from "./laterdog/legacy-work-folder-import.ts";
+import { cloudHomeConfiguration } from "./cloud-home.ts";
+import type { WorkFolderLayout } from "../shared/work-folder-layout.ts";
 import type { WorkspaceBackupClientState, WorkspaceBackupPrivateMetadata, WorkspaceBackupSummary } from "../shared/workspace-backup.ts";
 
 export type { WorkspaceBackupSummary, WorkspaceBackupPrivateMetadata } from "../shared/workspace-backup.ts";
@@ -50,7 +58,11 @@ const EXCLUSION_NOTES = [
 const RESTORE_WARNING = "Restoring pauses routines, webhooks and calendar calls, and does not resume pending delegations, queued chat messages or queued runs. Definitions and historical receipts are retained; review before enabling them again.";
 
 type Entry = { path: string; type: "file" | "directory"; size: number; mode: number; sha256?: string };
+const PORTABLE_FOLDERS = "assigned-work-folders.pack";
+const annexKey = (key: Buffer) => createHmac("sha256", key).update("laterdog-portable-working-folders-v1").digest();
+
 interface Manifest extends WorkspaceBackupPrivateMetadata {
+  assignedWorkFolders?: FolderTotals;
   sourceDataDir: string;
   entries: Entry[];
 }
@@ -60,7 +72,9 @@ interface RestoreJournal {
   existing: string[];
   incoming: string[];
 }
+interface FolderBackupSource { layout: WorkFolderLayout; access: BackupFolderAccess[] }
 export interface CreateWorkspaceBackupOptions {
+  folderSource?: FolderBackupSource;
   password: string;
   clientState?: WorkspaceBackupClientState;
   appVersion?: string;
@@ -287,6 +301,25 @@ function workFolderStorageState(dataDir: string): string {
   } finally { closeSync(fd); }
 }
 
+type FolderDestination = { layout: WorkFolderLayout; authority: PortableAuthority };
+
+async function activeFolderDestination(dataDir: string): Promise<FolderDestination | undefined> {
+  const initial = mountedWorkFolders();
+  if (!initial) return undefined;
+  const { BOOT_CLOUD_SECRETS } = await import("./cloud-secrets-boot.ts");
+  const cloud = cloudHomeConfiguration({ ...process.env, ...BOOT_CLOUD_SECRETS });
+  if (!cloud) throw new Error("The assigned work folder store is unavailable.");
+  return { layout:currentBackupLayout(dataDir,initial),authority:{origin:cloud.publicOrigin,bootstrap:cloud.bootstrapSecret} };
+}
+
+async function assignedFolderSource(dataDir: string): Promise<FolderBackupSource | undefined> {
+  const destination=await activeFolderDestination(dataDir);
+  if (!destination) return undefined;
+  const {layout,authority}=destination;
+  const access=await Promise.all(portableFolderScopes(layout).map(scope=>backupFolderAccess(authority,scope)));
+  return {layout,access};
+}
+
 export async function createWorkspaceBackup(dataDir: string, options: CreateWorkspaceBackupOptions): Promise<CreatedWorkspaceBackup> {
   const source = new URL("./workspace-backup.worker.ts", import.meta.url);
   const jobId = randomUUID();
@@ -294,7 +327,7 @@ export async function createWorkspaceBackup(dataDir: string, options: CreateWork
   let completed = false;
   try {
     worker = new Worker(existsSync(source) ? source : new URL("./workspace-backup.worker.js", import.meta.url), {
-      workerData: { dataDir, options, jobId }, execArgv: [],
+      workerData: { dataDir, options: { ...options, folderSource: options.folderSource ?? await assignedFolderSource(dataDir) }, jobId }, execArgv: [],
     });
     const result = await new Promise<CreatedWorkspaceBackup>((resolveBackup, reject) => {
       const failed = () => reject(new Error("The backup worker stopped before completing. Try again."));
@@ -317,6 +350,8 @@ export async function createWorkspaceBackup(dataDir: string, options: CreateWork
 export async function createWorkspaceBackupSnapshot(dataDir: string, options: CreateWorkspaceBackupOptions, jobId?: string): Promise<CreatedWorkspaceBackup> {
   if (Object.hasOwn(options, "credentials")) throw new Error("Workspace backups do not transfer credentials.");
   assertLocalAuthOutsideSnapshot(dataDir);
+  const remote = options.folderSource ?? await assignedFolderSource(dataDir);
+  const mounted = new Set(remote ? homeMountPaths(resolve(dataDir), homedir(), remote.layout) : []);
   const storedFiles = workFolderStorageState(dataDir);
   const salt = randomBytes(16);
   const key = await passwordKey(options.password, salt);
@@ -326,6 +361,8 @@ export async function createWorkspaceBackupSnapshot(dataDir: string, options: Cr
   const entries: Entry[] = [];
   const warnings = ["Stop external editors and managed desktops before exporting; files written outside this server cannot be frozen by the backup gate.", "Conversation text and user files are not redacted and may contain secrets you pasted. Keep the encrypted backup private.", RESTORE_WARNING];
   let bytes = 0;
+  let folderTotals:FolderTotals | undefined;
+  let annexSize=0;
   let skippedLinks = 0;
   let skippedDependencies = 0;
   let skippedWorkLinks = 0;
@@ -343,6 +380,7 @@ export async function createWorkspaceBackupSnapshot(dataDir: string, options: Cr
     }
     const walk = (directory: string, prefix = "") => {
       for (const name of presentNames(directory).sort()) {
+        if (mounted.has(join(root, prefix, name))) continue;
         if (!prefix && (excluded(name) || leftBehindByProfile(name, options.profile))) continue;
         const path = prefix ? `${prefix}/${name}` : name;
         if (excludedWorkspaceAuthPath(path) || ephemeralWorkspaceTokenPath(path) || redownloadedOrgLibraryPath(path)) continue;
@@ -400,21 +438,34 @@ export async function createWorkspaceBackupSnapshot(dataDir: string, options: Cr
       }
     };
     walk(root);
+    if (remote) {
+      if (entries.some(entry => entry.path.toLowerCase() === PORTABLE_FOLDERS)) throw new Error("A workspace file conflicts with the assigned work folder backup.");
+      const annex = join(snapshot, "data", PORTABLE_FOLDERS);
+      const keyForFolders = annexKey(key);
+      try {
+        const {size,totals} = await exportPortableFolders(annex, remote.layout, remote.access, keyForFolders, MAX_WORKSPACE_BACKUP_BYTES - bytes, MAX_WORKSPACE_BACKUP_FILES - entries.length);
+        folderTotals=totals;
+        annexSize=size;
+        entries.push({ path:PORTABLE_FOLDERS, type:"file", size, mode:0o600, sha256:hashFile(annex) });
+        bytes += size;
+      } finally { keyForFolders.fill(0); }
+      warnings.push("Assigned work folders include their committed revisions, shared projects and link metadata. External editors must finish saving before export.");
+    }
     if (workFolderStorageState(root) !== storedFiles) throw new Error(CHANGED_CHAT_FILES);
     if (skippedLinks) warnings.push(`${skippedLinks} managed skill discovery link(s) were omitted and are recreated by the app.`);
     if (skippedDependencies) warnings.push(`${skippedDependencies} installed dependency folder(s) (node_modules) were omitted; reinstall them in the project after restoring.`);
     if (skippedWorkLinks) warnings.push(`${skippedWorkLinks} symbolic link(s) in conversation work folders were omitted; what they point to is outside this backup.`);
     const summary: WorkspaceBackupSummary = {
       format: "laterdog.workspace-backup", version: 1, id: job.id, createdAt: new Date().toISOString(),
-      appVersion: options.appVersion ?? "unknown", files: entries.filter((entry) => entry.type === "file").length,
-      directories: entries.filter((entry) => entry.type === "directory").length, bytes,
+      appVersion: options.appVersion ?? "unknown", files: entries.filter((entry) => entry.type === "file").length + (folderTotals ? folderTotals.files-1 : 0),
+      directories: entries.filter((entry) => entry.type === "directory").length+(folderTotals?.directories??0), bytes:bytes-annexSize+(folderTotals?.bytes??0),
       bots: countJsonArray(join(snapshot, "data", "bots.json")), groups: countJsonArray(join(snapshot, "data", "groups.json")),
       ...databaseCounts(join(snapshot, "data", "messages.db")),
-      exclusions: EXCLUSION_NOTES, warnings,
-      ...(options.profile ? { profile: options.profile, leftOnComputer: measureLeftOnComputer(root, options.profile) } : {}),
+      exclusions: remote ? EXCLUSION_NOTES.filter(note => !note.startsWith("External project folders") && !note.startsWith("VM/container")) : EXCLUSION_NOTES, warnings,
+      ...(options.profile ? { profile: options.profile, leftOnComputer: measureLeftOnComputer(root, options.profile, mounted) } : {}),
     };
     const manifest: Manifest = {
-      summary, sourceDataDir: resolve(dataDir), clientState: options.clientState ?? {}, entries,
+      summary, ...(folderTotals ? { assignedWorkFolders: folderTotals } : {}), sourceDataDir: resolve(dataDir), clientState: options.clientState ?? {}, entries,
     };
     writeJson(join(snapshot, "manifest.json"), manifest);
     validateManifest(privateJson(join(snapshot, "manifest.json")));
@@ -443,7 +494,7 @@ function validateManifest(value: unknown): Manifest {
     value.sourceDataDir.length > 4096 || value.sourceDataDir.includes("\0") ||
     value.sourceDataDir === posix.parse(value.sourceDataDir).root || value.sourceDataDir === win32.parse(value.sourceDataDir).root ||
     value.sourceDataDir.replaceAll("\\", "/").split("/").some((part) => part === "." || part === "..") ||
-    Object.keys(value).some((key) => !["summary", "sourceDataDir", "clientState", "entries"].includes(key)) ||
+    Object.keys(value).some((key) => !["summary", "sourceDataDir", "clientState", "entries", "assignedWorkFolders"].includes(key)) ||
     Object.keys(value.summary).some((key) => !["format", "version", "id", "createdAt", "appVersion", "files", "directories", "bytes", "bots", "groups", "threads", "messages", "exclusions", "warnings", "profile", "leftOnComputer"].includes(key)) || !record(value.clientState) ||
     !Object.values(value.clientState).every((item) => typeof item === "string") || !Array.isArray(value.entries) ||
     value.entries.length > MAX_WORKSPACE_BACKUP_FILES) throw new Error("Invalid or unsupported workspace backup metadata.");
@@ -457,6 +508,8 @@ function validateManifest(value: unknown): Manifest {
   for (const key of ["exclusions", "warnings"] as const) {
     if (!Array.isArray(value.summary[key]) || !value.summary[key].every((item) => typeof item === "string")) throw new Error("Invalid workspace backup summary.");
   }
+  const remote=value.assignedWorkFolders;
+  if(remote!==undefined && (!record(remote) || Object.keys(remote).length!==3 || !["files","bytes","directories"].every(k=>Number.isSafeInteger(remote[k]) && Number(remote[k])>=0))) throw new Error("Invalid assigned work folder summary.");
   const names = new Map<string, string>();
   let bytes = 0;
   let files = 0;
@@ -472,8 +525,16 @@ function validateManifest(value: unknown): Manifest {
       files++;
     } else if (raw.size !== 0) throw new Error("A backup directory has an invalid size.");
   }
-  if (bytes > MAX_WORKSPACE_BACKUP_BYTES || bytes !== value.summary.bytes || files !== value.summary.files ||
-    names.size - files !== value.summary.directories) {
+  let directories=names.size-files;
+  if(record(remote)){
+    if(names.get(PORTABLE_FOLDERS)!=="file")throw new Error("Missing assigned work folder backup.");
+    const packed=(value.entries as Entry[]).find(e=>e.path===PORTABLE_FOLDERS)!;
+    bytes+=Number(remote.bytes)-packed.size;
+    files+=Number(remote.files)-1;
+    directories+=Number(remote.directories);
+  }
+  if (bytes > MAX_WORKSPACE_BACKUP_BYTES || files+directories>MAX_WORKSPACE_BACKUP_FILES || bytes !== value.summary.bytes || files !== value.summary.files ||
+    directories !== value.summary.directories) {
     throw new Error("Workspace backup contents do not match their summary or exceed the limit.");
   }
   for (const path of names.keys()) {
@@ -483,27 +544,44 @@ function validateManifest(value: unknown): Manifest {
   return value as unknown as Manifest;
 }
 
-async function decryptArchive(inputPath: string, plaintext: string, password: string): Promise<void> {
-  const fd = openSync(inputPath, constants.O_RDONLY | constants.O_NOFOLLOW);
-  let key: Buffer | undefined;
+async function openBackupArchive(inputPath: string,password:string) {
+  const fd=openSync(inputPath,constants.O_RDONLY|constants.O_NOFOLLOW);
   try {
-    const stat = fstatSync(fd);
-    if (!stat.isFile() || stat.size < HEADER_BYTES + TAG_BYTES || stat.size > MAX_WORKSPACE_BACKUP_UPLOAD_BYTES) throw new Error("Invalid or oversized workspace backup file.");
-    const header = Buffer.alloc(HEADER_BYTES);
-    const tag = Buffer.alloc(TAG_BYTES);
-    if (readSync(fd, header, 0, header.length, 0) !== header.length || !header.subarray(0, MAGIC.length).equals(MAGIC) ||
-      readSync(fd, tag, 0, tag.length, stat.size - TAG_BYTES) !== tag.length) throw new Error("This is not a supported encrypted workspace backup.");
-    key = await passwordKey(password, header.subarray(MAGIC.length, MAGIC.length + 16));
-    const decipher = createDecipheriv("aes-256-gcm", key, header.subarray(MAGIC.length + 16));
-    decipher.setAAD(header);
-    decipher.setAuthTag(tag);
-    try {
-      await pipeline(createReadStream(inputPath, { fd, autoClose: false, start: HEADER_BYTES, end: stat.size - TAG_BYTES - 1 }), decipher,
-        createWriteStream(plaintext, { flags: "wx", mode: 0o600 }));
-    } catch {
-      throw new Error("The backup password is incorrect, or the backup file is damaged. Nothing was restored.");
+    const stat=fstatSync(fd);
+    if (!stat.isFile() || stat.size<HEADER_BYTES+TAG_BYTES || stat.size>MAX_WORKSPACE_BACKUP_UPLOAD_BYTES) throw new Error("Invalid or oversized workspace backup file.");
+    const header=Buffer.alloc(HEADER_BYTES),tag=Buffer.alloc(TAG_BYTES);
+    if(readSync(fd,header,0,header.length,0)!==header.length || !header.subarray(0,MAGIC.length).equals(MAGIC) ||
+      readSync(fd,tag,0,tag.length,stat.size-TAG_BYTES)!==tag.length) throw new Error("This is not a supported encrypted workspace backup.");
+    const key=await passwordKey(password,header.subarray(MAGIC.length,MAGIC.length+16));
+    async function* plaintext() {
+      const decipher=createDecipheriv("aes-256-gcm",key,header.subarray(MAGIC.length+16));
+      decipher.setAAD(header);decipher.setAuthTag(tag);
+      const stream=createReadStream(inputPath,{fd,autoClose:false,start:HEADER_BYTES,end:stat.size-TAG_BYTES-1});
+      for await(const bytes of stream)yield decipher.update(bytes as Buffer);
+      try {const tail=decipher.final();if(tail.length)yield tail;}
+      catch {throw new Error("The backup password is incorrect, or the backup file is damaged. Nothing was restored.");}
     }
-  } finally { key?.fill(0); closeSync(fd); }
+    return {plaintext:()=>Readable.from(plaintext()),folderKey:()=>annexKey(key),close:()=>{key.fill(0);closeSync(fd);}};
+  } catch(error){closeSync(fd);throw error;}
+}
+type BackupArchive=Awaited<ReturnType<typeof openBackupArchive>>;
+
+async function archiveEntries(archive:BackupArchive, consume:(entry:tar.ReadEntry)=>Promise<void>) {
+  let active:Promise<void>=Promise.resolve();
+  const parser=new tar.Parser({strict:true,brotli:false,zstd:false,onReadEntry(entry){
+    const operation=active.then(()=>consume(entry));
+    active=operation;
+    void operation.catch(error=>parser.abort(error));
+  }});
+  let first=true;
+  const uncompressed=new Transform({transform(chunk,_encoding,done){
+    if(first && (chunk[0]===0x1f && chunk[1]===0x8b || chunk.subarray(0,4).equals(Buffer.from([0x28,0xb5,0x2f,0xfd])))) {
+      done(new Error("Compressed payloads are not supported in this workspace backup version."));return;
+    }
+    first=false;done(null,chunk);
+  }});
+  await pipeline(archive.plaintext(),uncompressed,parser);
+  await active;
 }
 
 async function inspectTar(path: string): Promise<Map<string, { type: string; size: number }>> {
@@ -513,11 +591,17 @@ async function inspectTar(path: string): Promise<Map<string, { type: string; siz
   if ((signature[0] === 0x1f && signature[1] === 0x8b) || signature.equals(Buffer.from([0x28, 0xb5, 0x2f, 0xfd]))) {
     throw new Error("Compressed payloads are not supported in this workspace backup version.");
   }
+  const inventory=tarInventory();
+  await tar.t({ file:path,strict:true,brotli:false,zstd:false,onReadEntry:inventory.add });
+  return inventory.finish();
+}
+
+function tarInventory() {
   const entries = new Map<string, { type: string; size: number }>();
   const names = new Set<string>();
   let bytes = 0;
   let problem = "";
-  await tar.t({ file: path, strict: true, brotli: false, zstd: false, onReadEntry(entry) {
+  function add(entry:tar.ReadEntry) {
     const name = entry.type === "Directory" ? entry.path.replace(/\/$/, "") : entry.path;
     const expectedRoot = name === "manifest.json" || name === "data" || name.startsWith("data/");
     if (entry.header.path?.includes("\\") || !validRelative(name) || !expectedRoot || !["File", "Directory"].includes(entry.type) ||
@@ -531,7 +615,9 @@ async function inspectTar(path: string): Promise<Map<string, { type: string; siz
     if (bytes > MAX_WORKSPACE_BACKUP_BYTES + MAX_METADATA_BYTES) problem ||= "The archive exceeds the extracted size limit.";
     names.add(name.toLowerCase());
     entries.set(name, { type: entry.type, size: entry.size });
-  } });
+  }
+  function finish() {
+
   if (problem) throw new Error(problem);
   if (entries.get("data")?.type !== "Directory" || entries.get("manifest.json")?.type !== "File") throw new Error("The archive has no workspace data or manifest.");
   for (const name of entries.keys()) {
@@ -539,6 +625,8 @@ async function inspectTar(path: string): Promise<Map<string, { type: string; siz
     for (let i = 1; i < parts.length; i++) if (entries.get(parts.slice(0, i).join("/"))?.type !== "Directory") throw new Error("An archive entry has an unsafe parent.");
   }
   return entries;
+  }
+  return {add,finish};
 }
 function validateStaged(directory: string, expected?: Map<string, { type: string; size: number }>): Manifest {
   const manifest = validateManifest(privateJson(join(directory, "manifest.json")));
@@ -583,16 +671,85 @@ function validateStaged(directory: string, expected?: Map<string, { type: string
   return manifest;
 }
 
-export async function stageWorkspaceBackup(dataDir: string, archivePath: string, options: { password: string; currentAppVersion?: string }) {
+async function stageManagedTar(archive:BackupArchive,job:{directory:string;id:string}, dest:FolderDestination) {
+  const staged=join(job.directory,"staged");
+  folder(join(staged,"data"));
+  const inventory=tarInventory();
+  let manifestBytes:Buffer|undefined;
+  await archiveEntries(archive, async entry=>{
+    inventory.add(entry);
+    if(entry.path==="manifest.json" && entry.type==="File" && entry.size<=MAX_METADATA_BYTES) {
+      const parts:Buffer[]=[];for await(const part of entry) parts.push(part as Buffer);
+      manifestBytes=Buffer.concat(parts);
+    } else { for await(const _ of entry) { void _; } }
+  });
+  const expected=inventory.finish(), manifest=validateManifest(JSON.parse(manifestBytes!.toString()));
+  if(expected.size!==manifest.entries.length+2)throw new Error("Archive entries do not match the backup manifest.");
+  const declared=new Map(manifest.entries.map(e=>[e.path,e]));
+  const legacy=new LegacyFolderImport(dest.authority,dest.layout);
+  for(const e of manifest.entries) {
+    const tree=expected.get("data/"+e.path);
+    if(!tree || tree.type!==(e.type==="file"?"File":"Directory") || tree.size!==e.size)throw new Error("Archive contents do not match the backup manifest.");
+    if(manifest.assignedWorkFolders && archivedManagedPath(e.path)) throw new Error("Conflicting local and assigned work folder contents.");
+    if(e.type==="directory" && !archivedManagedPath(e.path))folder(join(staged,"data",e.path));
+  }
+  await archiveEntries(archive,async item=>{
+    const path=item.path.replace(/\/$/,"").replace(/^data\//,"");
+    const entry=item.path.startsWith("data/")?declared.get(path):undefined;
+    if(!entry) {for await(const _ of item){void _;}return;}
+    if(archivedManagedPath(path)) {
+      await legacy.accept(entry,item as AsyncIterable<Buffer>);
+      if(entry.type==="directory")item.resume();
+    } else if(entry.type==="directory") item.resume();
+    else {
+      const target=join(staged,"data",path);
+      await pipeline(item,createWriteStream(target,{flags:"wx",mode:entry.mode}));
+    }
+  });
+  if(!manifest.assignedWorkFolders) {
+    const names=legacy.names();
+    const steps=await legacy.stage();
+    writeJson(join(job.directory,"assigned-restore.json"),steps);
+    writeJson(join(job.directory,"assigned-names.json"),names);
+    manifest.entries=manifest.entries.filter(e=>!archivedManagedPath(e.path));
+    manifest.summary={...manifest.summary,files:manifest.entries.filter(e=>e.type==="file").length,directories:manifest.entries.filter(e=>e.type==="directory").length,bytes:manifest.entries.reduce((n,e)=>n+e.size,0)};
+  }
+  writeJson(join(staged,"manifest.json"),manifest);
+  return validateStaged(staged);
+}
+
+export async function stageWorkspaceBackup(dataDir: string, archivePath: string, options: { password: string; currentAppVersion?: string; folderDestination?:FolderDestination }) {
   const job = newJob(dataDir);
-  const plaintext = join(job.directory, "archive.tar");
+  const plaintext = join(job.directory, "archive.tar"),staged=join(job.directory,"staged");
   try {
-    await decryptArchive(archivePath, plaintext, options.password);
-    const expected = await inspectTar(plaintext);
-    const staged = join(job.directory, "staged");
-    folder(staged);
-    await tar.x({ file: plaintext, cwd: staged, strict: true, preservePaths: false, umask: 0o077, noChmod: true, brotli: false, zstd: false });
-    const manifest = validateStaged(staged, expected);
+    const archive=await openBackupArchive(archivePath,options.password);
+    let manifest:Manifest;
+    try {
+      const destination=options.folderDestination ?? await activeFolderDestination(dataDir);
+      if(destination) manifest=await stageManagedTar(archive,job,destination);
+      else {
+        await pipeline(archive.plaintext(),createWriteStream(plaintext,{flags:"wx",mode:0o600}));
+        const expected=await inspectTar(plaintext);
+        folder(staged);
+        await tar.x({file:plaintext,cwd:staged,strict:true,preservePaths:false,umask:0o077,noChmod:true,brotli:false,zstd:false});
+        manifest=validateStaged(staged,expected);
+      }
+      if(manifest.assignedWorkFolders) {
+        const key=archive.folderKey();
+        try {
+          const reader=new PortableFolderReader(join(staged,"data",PORTABLE_FOLDERS),key);
+          try {
+            const totals=emptyFolderTotals();
+            for(const folder of reader.catalog.folders) if(folder.manifest) await countAssignedFolder(reader,folder.manifest,totals,{bytes:MAX_WORKSPACE_BACKUP_BYTES,entries:MAX_WORKSPACE_BACKUP_FILES});
+            if(!(["files","bytes","directories"] as const).every(k=>totals[k]===manifest.assignedWorkFolders?.[k])) throw new Error("Working folder contents do not match the backup summary.");
+            if(destination) {
+              writeJson(join(job.directory,"assigned-restore.json"),await stageAssignedFolders(reader,destination.authority,destination.layout));
+              writeJson(join(job.directory,"assigned-names.json"),{dogs:reader.catalog.layout.dogs,tasks:reader.catalog.layout.tasks});
+            } else await restoreFoldersLocally(job.directory,job.id,reader);
+          }finally {reader.close();}
+        }finally{key.fill(0);}
+      }
+    } finally{archive.close();}
     const versions = [manifest.summary.appVersion, options.currentAppVersion ?? ""].map((version) => /^(\d+)\.(\d+)\.(\d+)(?:[-+].*)?$/.exec(version)?.slice(1).map(Number));
     if (versions[0] && versions[1]) {
       for (let i = 0; i < 3; i++) {
@@ -600,7 +757,7 @@ export async function stageWorkspaceBackup(dataDir: string, archivePath: string,
         if (versions[0][i] < versions[1][i]) break;
       }
     }
-    rmSync(plaintext);
+    rmSync(plaintext,{force:true});
     writeJson(join(job.directory, "ready.json"), { id: job.id, summary: manifest.summary });
     return { id: job.id, summary: manifest.summary };
   } catch (error) {
@@ -719,7 +876,7 @@ function prepareRestore(dataDir: string, id: string, manifest: Manifest): string
   const prepared = join(job, "apply", "data");
   if (existsSync(join(job, "apply"))) rmSync(join(job, "apply"), { recursive: true, force: true });
   folder(prepared);
-  const installed = manifest.entries.filter((entry) => !ephemeralWorkspaceTokenPath(entry.path) && !keptOnEachComputer(entry.path));
+  const installed = manifest.entries.filter((entry) => !(manifest.assignedWorkFolders && entry.path === PORTABLE_FOLDERS) && !ephemeralWorkspaceTokenPath(entry.path) && !keptOnEachComputer(entry.path));
   for (const entry of installed.filter((entry) => entry.type === "directory")) folder(join(prepared, entry.path));
   for (const entry of installed) {
     const destination = join(prepared, entry.path);
@@ -733,7 +890,14 @@ function prepareRestore(dataDir: string, id: string, manifest: Manifest): string
     writeJson(path, value);
   };
   for (const name of ["bots.json", "groups.json", "config.json", "routines.json", "calendar-calls.json"]) {
-    changeJson(name, (value) => rebaseFields(value, manifest.sourceDataDir, resolve(dataDir)));
+    changeJson(name, (value) => {
+      rebaseFields(value, manifest.sourceDataDir, resolve(dataDir));
+      const mappedPaths=join(job,"assigned-paths.json");
+      if (existsSync(mappedPaths)) for(const pair of privateJson(mappedPaths) as {source:string;relative:string}[]) {
+        if (!validRelative(pair.relative)) throw new Error("Invalid restored project location.");
+        rebaseFields(value,pair.source,join(dataDir,pair.relative));
+      }
+    });
   }
   changeJson("bots.json", (value) => {
     if (!Array.isArray(value)) throw new Error("Invalid bot definitions in workspace backup.");
@@ -820,6 +984,9 @@ function prepareRestore(dataDir: string, id: string, manifest: Manifest): string
       db.exec("COMMIT");
     } finally { db.close(); }
   }
+  installLocalFolders(job,prepared);
+  const names=join(job,"assigned-names.json");
+  if(existsSync(names))writeJson(join(prepared,"work-folder-names.json"),privateJson(names));
   return prepared;
 }
 
@@ -849,6 +1016,32 @@ function finishRestore(dataDir: string, id: string, consumePending = true): Last
   return result;
 }
 
+export async function applyPendingWorkspaceRestoreAtBoot(dataDir:string,destination?:FolderDestination):Promise<WorkspaceRestoreResult> {
+  const pending=readPendingWorkspaceRestoreMetadata(dataDir);
+  if (!pending) return applyPendingWorkspaceRestore(dataDir);
+  const job=jobPath(dataDir,pending.id);
+  if(!existsSync(join(job,"assigned-restore.json"))) return applyPendingWorkspaceRestore(dataDir);
+  const storage=destination??await activeFolderDestination(dataDir);
+  if(!storage) throw new Error("The restored computer cannot access its assigned work folder storage.");
+  const root=backupRoot(dataDir),journalFile=join(root,"restore-journal.json");
+  const journal=existsSync(journalFile)?readJournal(journalFile):null;
+  if(journal?.id===pending.id && journal.phase==="applying") {
+    await applyAssignedHeads(job,storage.authority,"rollback");
+    return applyPendingWorkspaceRestore(dataDir);
+  }
+  try {
+    await applyAssignedHeads(job,storage.authority,"apply");
+    return applyPendingWorkspaceRestore(dataDir);
+  } catch (error) {
+    await applyAssignedHeads(job,storage.authority,"rollback");
+    const detail=error instanceof Error?error.message:String(error);
+    writeJson(join(job,"restore-error.json"),{error:detail});
+    console.warn("Workspace restore preserved the previous work folders: "+detail);
+    rmSync(join(root,"pending-restore.json"),{force:true});
+    return {restored:false,rolledBack:true,id:pending.id};
+  }
+}
+
 export function applyPendingWorkspaceRestore(dataDir: string): WorkspaceRestoreResult {
   const root = backupRoot(dataDir);
   const journalFile = join(root, "restore-journal.json");
@@ -876,10 +1069,12 @@ export function applyPendingWorkspaceRestore(dataDir: string): WorkspaceRestoreR
   const safetyCopyPath = join(root, `safety-${pending.id}`);
   if (existsSync(safetyCopyPath)) throw new Error("A safety copy already exists for this restore. Original files have not been changed.");
   folder(join(safetyCopyPath, "data"));
+  const managed=existsSync(join(jobPath(dataDir,pending.id),"assigned-restore.json"));
+  const mountName=(name:string)=>managed && (name==="workspaces" || name==="task-workspaces");
   const journal: RestoreJournal = {
     id: pending.id, phase: "applying",
-    existing: readdirSync(dataDir).filter((name) => !keptInPlace(name)).sort(),
-    incoming: readdirSync(prepared).sort(),
+    existing: readdirSync(dataDir).filter((name) => !keptInPlace(name) && !mountName(name)).sort(),
+    incoming: readdirSync(prepared).filter(name=>!mountName(name)).sort(),
   };
   for (const name of [...journal.existing, ...journal.incoming]) {
     if (!validRelative(name) || name.includes("/") || preserved(name)) throw new Error("Unsafe workspace restore target.");

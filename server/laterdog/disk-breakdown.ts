@@ -123,7 +123,10 @@ class PlanBuilder {
   readonly labels = new Map<string, Area>();
   private readonly device: number | null;
 
-  constructor(device: number | null, private readonly remotePaths: readonly string[]) {
+  private readonly remotePaths: readonly string[];
+
+  constructor(device: number | null, remotePaths: readonly string[]) {
+    this.remotePaths = remotePaths;
     this.device = device;
   }
 
