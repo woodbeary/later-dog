@@ -3914,7 +3914,7 @@ const wireBot = (bot: BotRecord): WireBot => {
   const visible = approvalGrant && !approvalGrant.threadOnly
     ? { ...rest, approvalMode: "ask" as const, autoApprove: false }
     : rest;
-  const busy = threadBusy(bot.id, bot.threadId) || planContinuations.pending(bot.threadId);
+  const busy = threadBusy(bot.id, bot.threadId) || Boolean(activeGroupTurnForBot(bot.id)) || planContinuations.pending(bot.threadId);
   const activity = delegatedNeedsYou(bot.threadId) ? "waiting-on-you" as const : planContinuations.pending(bot.threadId) ? "working" as const : visible.activity;
   const handoff = handoffWait(busy, activeCoordinationForThread(bot.threadId), () => teammatesAwaited(bot.threadId));
   const work = chatWork(bot.threadId, busy, activity, handoff.waitingOn, bot.modelSelection);
