@@ -796,8 +796,9 @@ import { removableAccount, renamableAccount } from "./laterdog/account-edit.ts";
 import { removalCandidateOf, replacementAccount, selectionMovedTo, type RemovalCandidate } from "./laterdog/account-removal.ts";
 import { forgetAccountFolder } from "./laterdog/account-folder.ts";
 import { newChatGptAccount } from "./laterdog/chatgpt-accounts.ts";
+import { newAntigravityAccount } from "./laterdog/google-accounts.ts";
 import {
-  AccountBattery, BATTERY_DRIVERS, SETUP_STOP, CONTINUE_AFTER_SWITCH, CONTINUE_AFTER_RESET, carryOnNotice, checkBatteryConfig, crossEngineNotice, limitRowToReplace, planResetAt, recharges, selectionOnAccount, signedInReading, switchNotice, withoutAccount,
+  AccountBattery, BATTERY_DRIVERS, SETUP_STOP, CONTINUE_AFTER_SWITCH, CONTINUE_AFTER_RESET, carryOnNotice, checkBatteryConfig, crossEngineNotice, googleKeyUse, limitRowToReplace, planResetAt, recharges, selectionOnAccount, signedInReading, switchNotice, withoutAccount,
   type BatteryAccount, type BatteryRerun,
 } from "./laterdog/account-battery.ts";
 import { carriesOn, carryOnAfterReset, type CarryOnInput } from "./laterdog/carry-on.ts";
@@ -1198,7 +1199,9 @@ function batteryAccounts(): BatteryAccount[] {
       instanceId: instance.instanceId, driverKind: instance.driverKind, displayName: instance.displayName || instance.driverKind,
       enabled: instance.enabled,
       eligible: instance.instanceId !== CLAUDE_API_INSTANCE && !managedDesktop.owns(instance.instanceId) && !policyModelRefusal(instance) &&
-        (configs[instance.instanceId]?.access ?? registry.access(instance.instanceId)) === "subscription" && snapshot?.account?.method !== "api-key",
+        (instance.driverKind === "geminiAgent"
+          ? googleKeyUse(cfg.accountBattery, instance.instanceId) !== undefined
+          : (configs[instance.instanceId]?.access ?? registry.access(instance.instanceId)) === "subscription" && snapshot?.account?.method !== "api-key"),
       ...(snapshot ? signedInReading(snapshot) : {}),
       ...(claudeSignInRefresh.signedOut(instance.instanceId) ? { signedIn: false } : {}),
       ...(snapshot?.account?.email ? { email: snapshot.account.email } : {}),
@@ -20949,6 +20952,19 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       providerConfigBusy = true;
       try {
         const { instanceId, instances } = newChatGptAccount(persistableInstanceConfigs(cfg), parsed.data.displayName, { cloudHome: Boolean(CLOUD_HOME), dataDir: DATA_DIR });
+        await persistProviderInstance(instanceId, instances);
+        return json(res, 201, { instanceId, instances: await describeInstances() });
+      } finally { providerConfigBusy = false; }
+    }
+
+    if (method === "POST" && path === "/api/instances/antigravity-accounts") {
+      if (!String(req.headers["content-type"] ?? "").toLowerCase().startsWith("application/json")) return json(res, 415, { error: "content-type must be application/json" });
+      const parsed = createClaudeAccountSchema.pick({ displayName: true }).safeParse(await readBody(req, 8192));
+      if (!parsed.success) return json(res, 400, { error: "Enter an account name (up to 80 characters)." });
+      if (providerConfigBusy) return json(res, 409, { error: "provider settings are already being updated" });
+      providerConfigBusy = true;
+      try {
+        const { instanceId, instances } = newAntigravityAccount(persistableInstanceConfigs(cfg), parsed.data.displayName);
         await persistProviderInstance(instanceId, instances);
         return json(res, 201, { instanceId, instances: await describeInstances() });
       } finally { providerConfigBusy = false; }

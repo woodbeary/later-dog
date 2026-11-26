@@ -8,7 +8,7 @@ import { Store } from "../store.ts";
 import { OFFERED_DRIVERS, RETIRED_DRIVERS, retiredEngineMoveText, retiredInstanceIds, withoutRetiredEngines } from "./engine-trim.ts";
 
 describe("the engines later.dog offers", () => {
-  it("registers exactly Claude, ChatGPT, Grok, Cursor, the included AI and the two API-key drivers", () => {
+  it("registers exactly Claude, ChatGPT, Grok, Cursor, Gemini, Antigravity, the included AI and the two API-key drivers", () => {
     const registered = BUILT_IN_DRIVERS.map((driver) => driver.driverKind).sort();
     expect(registered).toEqual([...OFFERED_DRIVERS].sort());
     for (const engine of SHOWN_ENGINES) expect(registered).toContain(engine);
@@ -19,7 +19,7 @@ describe("the engines later.dog offers", () => {
     const saved: AppConfig = {
       instances: {
         claude: { driver: "claudeAgent" },
-        gemini: { driver: "geminiAgent" },
+        gemini: { driver: "kimiAgent" },
         kimi: { driver: "kimiAgent" },
         myPi: { driver: "piAgent", displayName: "My Pi" },
         openrouter: { driver: "openai-compat", config: { url: "https://openrouter.ai/api/v1" } },
@@ -42,10 +42,16 @@ describe("the engines later.dog offers", () => {
 describe("which saved ids are retired", () => {
   it("names the old built-in ids and every saved id on a retired driver", () => {
     const fresh = retiredInstanceIds(undefined);
-    for (const id of ["kimi", "droid", "antigravity", "opencodeGo", "openaiCompat", "openrouter", "mistral", "cerebras", "qwen", "hermes", "pi"]) {
+    for (const id of ["kimi", "droid", "opencodeGo", "openaiCompat", "openrouter", "mistral", "cerebras", "qwen", "hermes", "pi"]) {
       expect(fresh.has(id), id).toBe(true);
     }
-    expect([...retiredInstanceIds({ claude: { driver: "claudeAgent" }, work: { driver: "geminiAgent" } })]).toContain("work");
+    expect([...retiredInstanceIds({ claude: { driver: "claudeAgent" }, work: { driver: "qwenAgent" } })]).toContain("work");
+  });
+
+  it("keeps Gemini and Antigravity accounts, which the battery now manages", () => {
+    const ids = retiredInstanceIds({ gemini: { driver: "geminiAgent" }, antigravity: { driver: "antigravityAgent" } });
+    expect(ids.has("gemini")).toBe(false);
+    expect(ids.has("antigravity")).toBe(false);
   });
 
   it("keeps an old built-in id the person reused for an offered engine, and never names an offered one", () => {
@@ -80,13 +86,13 @@ describe("moving saved dogs off a retired engine", () => {
   const included = { instanceId: "laterdogAi", model: "kimi-k2.6" };
   const chatOnly = { driverKind: "laterdogAi", canWorkOnCloud: false, keepCloud: () => false };
 
-  it("moves a dog saved on Gemini onto the included AI, keeps its history, and leaves a Claude dog alone", () => {
+  it("moves a dog saved on Kimi onto the included AI, keeps its history, and leaves a Claude dog alone", () => {
     const store = new Store(newBotDefault);
     const gemini = store.createBot({ modelSelection: { instanceId: "gemini", model: "gemini-3-pro" } }, { seedMessages: false });
     store.appendMessage(gemini.threadId, { role: "user", kind: "text", text: "REMEMBER_BEFORE_TRIM" });
     store.patchBot(gemini.id, { fallback: [{ instanceId: "openrouter", model: "x" }, { instanceId: "claude", model: "claude-model" }] });
     const claude = store.createBot({ modelSelection: { instanceId: "claude", model: "claude-model" } }, { seedMessages: false });
-    const retired = retiredInstanceIds({ claude: { driver: "claudeAgent" }, gemini: { driver: "geminiAgent" } });
+    const retired = retiredInstanceIds({ claude: { driver: "claudeAgent" }, gemini: { driver: "kimiAgent" } });
 
     const moves = store.retireInstances(retired, included, chatOnly);
     expect(moves).toEqual([{ botId: gemini.id, threadId: gemini.threadId, scope: "bot", cloud: false, noComputer: false, askNow: false }]);

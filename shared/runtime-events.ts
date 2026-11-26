@@ -133,7 +133,7 @@ export type RuntimeEvent = RuntimeEventBase &
       }
     | {
         type: "runtime.error"; message: string; setup?: boolean; terminal?: boolean; claudeUpdate?: boolean;
-        quota?: { resetsAt?: string; kind?: string };
+        quota?: { resetsAt?: string; kind?: string; scope?: "model" };
       }
     | { type: "runtime.notice"; message: string }
     | { type: "model.changed"; from: string; to: string; cause: "safeguards" | "unavailable"; scope?: string }
