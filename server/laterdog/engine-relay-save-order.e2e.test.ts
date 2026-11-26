@@ -14,8 +14,10 @@ afterEach(() => {
 });
 
 const FOLDER_CLI = `
-import { appendFileSync, cpSync, mkdirSync } from "node:fs";
-const [action, path] = process.argv.slice(2);
+import { appendFileSync, cpSync, mkdirSync, writeFileSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { join } from "node:path";
+const [action, path, state] = process.argv.slice(2);
 const log = process.env.FOLDER_LOG;
 for await (const _ of process.stdin) {}
 mkdirSync(path, { recursive: true });
@@ -25,6 +27,11 @@ if (action === "checkpoint") {
   cpSync(path, process.env.DURABLE, { recursive: true });
 }
 appendFileSync(log, action + "-end\\n");
+if (process.env.RECORD_CHECKOUT === "1") {
+  const dir = join(state, createHash("sha256").update(path).digest("hex"));
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(join(dir, "checked.json"), "{}");
+}
 process.stdout.write(JSON.stringify({ revision: "r", manifest: "m", changed: action === "checkpoint" }) + "\\n");
 `;
 
@@ -38,7 +45,7 @@ require("node:readline").createInterface({ input: process.stdin }).on("line", ()
 });
 `;
 
-function fixture(saveMs: number) {
+function fixture(saveMs: number, recordCheckout = false) {
   const base = realpathSync(mkdtempSync(join(tmpdir(), "ldsave-")));
   scratch.push(base);
   const remote = join(base, "remote");
@@ -47,7 +54,7 @@ function fixture(saveMs: number) {
   writeFileSync(cli, FOLDER_CLI);
   const log = join(base, "folder.log");
   const durable = join(base, "durable");
-  const env = { ...process.env, LATERDOG_ENGINE_TEST_ROOT: remote, LATERDOG_ENGINE_FOLDER_TEST_CLI: cli, FOLDER_LOG: log, SAVE_MS: String(saveMs), DURABLE: durable };
+  const env = { ...process.env, LATERDOG_ENGINE_TEST_ROOT: remote, LATERDOG_ENGINE_FOLDER_TEST_CLI: cli, FOLDER_LOG: log, SAVE_MS: String(saveMs), DURABLE: durable, RECORD_CHECKOUT: recordCheckout ? "1" : "0" };
   const open = () => {
     const session = new RemoteSession(commandLink(process.execPath, [RELAY], env), {
       cli: process.execPath, args: ["-e", ENGINE], cwd: work, env: { PATH: process.env.PATH ?? "" },
@@ -109,4 +116,17 @@ it("keeps the turn's files on the computer when the home goes away during the sa
   await second.session.start();
   expect(f.steps().slice(-2)).toEqual(["hydrate-start", "hydrate-end"]);
   expect(readFileSync(f.guestFile("turn-1.txt"), "utf8")).toBe("done 1");
+}, 60_000);
+
+it("skips the checkout before a prompt when the folder was checked out or saved moments ago", async () => {
+  const f = fixture(200, true);
+  const { session, results } = f.open();
+  await session.start();
+  ask(session);
+  await until(() => results.includes(1));
+  ask(session);
+  await until(() => results.includes(2));
+  await until(() => f.steps().filter(step => step === "checkpoint-end").length === 2);
+  expect(f.steps()).toEqual(["hydrate-start", "hydrate-end", "checkpoint-start", "checkpoint-end", "checkpoint-start", "checkpoint-end"]);
+  expect(readFileSync(f.durableFile("turn-2.txt"), "utf8")).toBe("done 2");
 }, 60_000);
