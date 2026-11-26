@@ -216,7 +216,10 @@ describe("independent bot tasks through the isolated control surface", () => {
     const project = join(session.info.dataDir, "task-workspaces", botId, threadId, "result.txt");
     writeFileSync(project, "Generated project files are retained.");
     await control(["interrupt", "--bot", botId, "--task", threadId]);
-    await expect.poll(async () => (await botState(botId)).busy, { timeout: 10_000 }).toBe(false);
+    await expect.poll(async () => {
+      const bot = await botState(botId);
+      return { selected: bot.busy, task: bot.tasks.find((item: { taskId: string }) => item.taskId === threadId)?.busy };
+    }, { timeout: 10_000 }).toEqual({ selected: false, task: false });
     expect((await api("DELETE", `/api/bots/${botId}/tasks/${threadId}`)).status).toBe(200);
     expect((await api("DELETE", `/api/bots/${botId}`)).status).toBe(200);
     expect(readFileSync(project, "utf8")).toBe("Generated project files are retained.");
