@@ -1,4 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
+import { existsSync } from "node:fs";
 import { chmod, mkdir, rm } from "node:fs/promises";
 import { createServer, request } from "node:http";
 import { join } from "node:path";
@@ -64,6 +65,7 @@ export async function parkLauncher(child, timeoutMs = 30_000) {
 
 export function verifyDrainedHistory(home, mode) {
   if (mode !== "remote") return;
+  if (existsSync(join(home, "history-pending.json"))) throw Error("A conversation write still needs delivery");
   const db = new DatabaseSync(join(home, "history-control.db"), { readOnly: true });
   try {
     if (db.prepare("SELECT 1 FROM history_outbox LIMIT 1").get())

@@ -26,3 +26,23 @@ it("requires the original launcher to acknowledge this shutdown and exit cleanly
     else await expect(parkLauncher(child)).rejects.toThrow("complete shutdown");
   }
 });
+
+it("refuses to park a remote home while a standalone conversation write still needs delivery", async () => {
+  const { mkdtempSync, rmSync, writeFileSync } = await import("node:fs");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  const { DatabaseSync } = await import("node:sqlite");
+  const { verifyDrainedHistory } = await import("../runtime/history-park.mjs");
+  const home = mkdtempSync(join(tmpdir(), "history-park-pending-"));
+  try {
+    const db = new DatabaseSync(join(home, "history-control.db"));
+    db.exec("CREATE TABLE history_outbox(id TEXT PRIMARY KEY)");
+    db.close();
+    expect(() => verifyDrainedHistory(home, "remote")).not.toThrow();
+    writeFileSync(join(home, "history-pending.json"), "{}");
+    expect(() => verifyDrainedHistory(home, "remote")).toThrow("still needs delivery");
+    expect(() => verifyDrainedHistory(home, "legacy")).not.toThrow();
+  } finally {
+    rmSync(home, { recursive: true, force: true });
+  }
+});

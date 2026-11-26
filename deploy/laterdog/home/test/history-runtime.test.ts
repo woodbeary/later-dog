@@ -20,6 +20,12 @@ it("selects the authorized generation before restore and excludes only retired d
   expect(historyExclusion("remote", ".laterdog/history-control.db")).toBe(false);
   expect(historyExclusion("remote", ".laterdog/history-pending.json")).toBe(false);
   expect(historyExclusion("legacy", ".laterdog/messages.db")).toBe(false);
+  for (const mode of ["legacy", "dual", "remote"]) {
+    expect(historyExclusion(mode, ".laterdog/.backups/job-1/snapshot/data/messages.db")).toBe(true);
+    expect(historyExclusion(mode, ".laterdog/.backups/job-1/snapshot")).toBe(true);
+    expect(historyExclusion(mode, ".laterdog/.backups/cloud-previous/workspace.dogbackup")).toBe(false);
+    expect(historyExclusion(mode, ".laterdog/.backups/restore-journal.json")).toBe(false);
+  }
 });
 it("requires the scoped saved compact database or the exact verified original while portable recovery is applying", () => {
   const root = mkdtempSync(join(tmpdir(), "history-recovery-"));

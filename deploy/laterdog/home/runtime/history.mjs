@@ -31,6 +31,7 @@ export async function bootHistory(env, request = fetch) {
   return value;
 }
 export function historyExclusion(mode, path) {
+  if (/^\.laterdog\/\.backups\/[^/]+\/snapshot(?:\/|$)/.test(path)) return true;
   if (/^\.laterdog\/history-pending\.json\.[0-9]+\.[a-z0-9-]+\.tmp$/.test(path)) return true;
   if (mode !== "remote" && path === ".laterdog/history-pending.json") return true;
   return mode === "remote"
