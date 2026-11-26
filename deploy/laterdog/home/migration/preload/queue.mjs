@@ -1,7 +1,8 @@
 import { WorkerEntrypoint } from "cloudflare:workers";
 import policy from "./catalog.generated.json";
 
-const allowed = new Set(policy.batches), prefix = "private-immutable-readbacks/" + policy.catalog + "/";
+const allowed = new Set(policy.batches);
+const prefixFor = env => (policy.fixture && env.COPY_QUEUE_SHARDS ? "private-multiqueue-qualification/" : "private-immutable-readbacks/") + policy.catalog + "/";
 const digest = async value => Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(JSON.stringify(value)))), n => n.toString(16).padStart(2,"0")).join("");
 
 async function matches(job) {
@@ -17,20 +18,30 @@ export class PrivateCopyQueue extends WorkerEntrypoint {
 
   async enqueue(jobs) {
     if (!Array.isArray(jobs) || !jobs.length || jobs.length > 24 || !(await Promise.all(jobs.map(matches))).every(Boolean)) throw new Error("Invalid immutable batch submission");
-    await this.env.JOBS.sendBatch(jobs.map(body => ({body})));
+    const shards = Number(this.env.COPY_QUEUE_SHARDS || "1");
+    const batches = new Map();
+    for (const job of jobs) {
+      const number = parseInt(job.id.slice(0, 8), 16) % shards;
+      if (!batches.has(number)) batches.set(number, []);
+      batches.get(number).push({ body: job });
+    }
+    await Promise.all([...batches].map(([number, messages]) => {
+      const queue = shards === 1 ? this.env.JOBS : this.env["JOBS_" + number];
+      return queue.sendBatch(messages);
+    }));
     return { accepted: jobs.map(job=>job.id) };
   }
 
   async list(cursor) {
-    const page = await this.env.RECEIPTS.list({ prefix, limit:1000, cursor:cursor||undefined, include:["customMetadata"] });
-    return { rows:page.objects.map(object=>[object.key.slice(prefix.length), object.customMetadata]), cursor:page.truncated?page.cursor:null };
+    const page = await this.env.RECEIPTS.list({ prefix:prefixFor(this.env), limit:1000, cursor:cursor||undefined, include:["customMetadata"] });
+    return { rows:page.objects.map(object=>[object.key.slice(prefixFor(this.env).length), object.customMetadata]), cursor:page.truncated?page.cursor:null };
   }
 }
 
 async function processMessage(env, message) {
   const job = message.body;
   if (!await matches(job)) { message.ack(); return; }
-  const key = prefix + job.id;
+  const key = prefixFor(env) + job.id;
   if (await env.RECEIPTS.head(key)) { message.ack();return; }
   try {
     const copied = await env.COPY.process("copy", job.scope, job.objects);
