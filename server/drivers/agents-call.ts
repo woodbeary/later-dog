@@ -534,9 +534,16 @@ export async function callTool(name: string, args: Json, context: ToolCallContex
   if (name === "delete_bot") {
     const botId = String(args.bot_id ?? "").trim();
     if (!botId) return { text: "delete_bot needs bot_id (list_bots has the ids).", isError: true };
-    const r = await api(`/api/internal/delete-bot`, { method: "POST", body: JSON.stringify({ botId }) });
+    const r = await api(`/api/internal/delete-bot`, { method: "POST", body: JSON.stringify({ fromBotId: BOT_ID, fromThreadId: THREAD_ID, targetId: botId }) });
     if (r.error) return { text: `Couldn't delete that dog: ${r.error}`, isError: true };
-    return { text: `Deleted ${String(r.name ?? "the dog")}. Tell the person in one line.` };
+    return { text: `Moved ${String(r.name ?? "the dog")} to Recently deleted, with its chats, memory and files kept; restore_bot brings it back, and it is deleted for good after 30 days. Tell the person in one line.` };
+  }
+  if (name === "restore_bot") {
+    const wanted = String(args.name_or_id ?? "").trim();
+    const r = await api(`/api/internal/restore-bot`, { method: "POST", body: JSON.stringify({ fromBotId: BOT_ID, fromThreadId: THREAD_ID, targetId: wanted }) });
+    if (r.error) return { text: `Couldn't restore that dog: ${r.error}`, isError: true };
+    if (!wanted) return { text: JSON.stringify(r.deleted ?? []) };
+    return { text: `Restored ${String(r.name ?? "the dog")} with its chats, memory, files and routines. Tell the person in one line.` };
   }
   if (name === "create_room") {
     if (args.section !== undefined) return { text: "Room sections are fixed to your own section; ask the person to move rooms.", isError: true };

@@ -1,7 +1,7 @@
 {
   "direct": {
-    "bytes": 43252,
-    "sha256": "20be1b038c10e0815ab03af41b55d980160a348da7c450d9b780fd93afc7113f",
+    "bytes": 43630,
+    "sha256": "408f12b53a94cd3361e3b5e0ab79a6aa7a1a688e4d1ba75dd42938a80378270c",
     "tools": [
       "execution_advice",
       "tool_result_read",
@@ -17,6 +17,7 @@
       "attach_file",
       "create_bot",
       "delete_bot",
+      "restore_bot",
       "create_room",
       "manage_room",
       "request_credential",
@@ -37,8 +38,8 @@
     ]
   },
   "direct+voice": {
-    "bytes": 43993,
-    "sha256": "38bfff84caeb543a24b800b66ff7665f9febead183d0c8b80d47cefa6db297f2",
+    "bytes": 44371,
+    "sha256": "b7d00c356946d5b411665a58d201c66a3e9c4c66b05150ab5a28b398e77bd8f4",
     "tools": [
       "execution_advice",
       "tool_result_read",
@@ -54,6 +55,7 @@
       "attach_file",
       "create_bot",
       "delete_bot",
+      "restore_bot",
       "create_room",
       "manage_room",
       "request_credential",
@@ -75,8 +77,8 @@
     ]
   },
   "direct+shared": {
-    "bytes": 48281,
-    "sha256": "a9514d6e26612c6766c188fac42df5c2b0c0144c5b8402d68bed7c656636994c",
+    "bytes": 48659,
+    "sha256": "6010c1450bb4eb422d90d6cd9f192df29d2b95a3aeda948558672b2bc4b9e8a7",
     "tools": [
       "execution_advice",
       "tool_result_read",
@@ -94,6 +96,7 @@
       "attach_file",
       "create_bot",
       "delete_bot",
+      "restore_bot",
       "create_room",
       "manage_room",
       "request_credential",
@@ -114,8 +117,8 @@
     ]
   },
   "direct+shared+voice": {
-    "bytes": 49022,
-    "sha256": "b432829355ad1eeb14ef8c79f5176a007c589d7cddb4ba8f787cb392af2591d8",
+    "bytes": 49400,
+    "sha256": "f483eeadb43e3b6dc54b5858b2b31504722ea1c066af82e0504fc54c7ef327d7",
     "tools": [
       "execution_advice",
       "tool_result_read",
@@ -133,6 +136,7 @@
       "attach_file",
       "create_bot",
       "delete_bot",
+      "restore_bot",
       "create_room",
       "manage_room",
       "request_credential",
@@ -154,8 +158,8 @@
     ]
   },
   "direct+skills": {
-    "bytes": 45116,
-    "sha256": "9f0bf0fd89eb727f4747318b0b4c388521f88569558d4f9c063687d88dabc92e",
+    "bytes": 45494,
+    "sha256": "50784aa67a6e2cd6e524944fd1fd2144408c4ed4a3afbf62497cbcc82544ee0e",
     "tools": [
       "execution_advice",
       "tool_result_read",
@@ -171,6 +175,7 @@
       "attach_file",
       "create_bot",
       "delete_bot",
+      "restore_bot",
       "create_room",
       "manage_room",
       "request_credential",
@@ -193,8 +198,8 @@
     ]
   },
   "direct+skills+voice": {
-    "bytes": 45857,
-    "sha256": "433997461e5666624f37069498717a67b1b271aeab86039877ea30e052013d95",
+    "bytes": 46235,
+    "sha256": "5e609ed39f4a4500d54fdf159d6f114bc58219176aee1bc17b8a134a23c7f035",
     "tools": [
       "execution_advice",
       "tool_result_read",
@@ -210,6 +215,7 @@
       "attach_file",
       "create_bot",
       "delete_bot",
+      "restore_bot",
       "create_room",
       "manage_room",
       "request_credential",
@@ -233,8 +239,8 @@
     ]
   },
   "direct+skills+shared": {
-    "bytes": 50145,
-    "sha256": "ec5f8c4aec030363fdf487de04ac49376d04e0b78e8935f8f634aeddc59b37a8",
+    "bytes": 50523,
+    "sha256": "b0502d03bde3c34339e23a9d5b3fceb5823c05e07d9c2421a6717b5fc7de46f9",
     "tools": [
       "execution_advice",
       "tool_result_read",
@@ -252,6 +258,7 @@
       "attach_file",
       "create_bot",
       "delete_bot",
+      "restore_bot",
       "create_room",
       "manage_room",
       "request_credential",
@@ -274,8 +281,8 @@
     ]
   },
   "direct+skills+shared+voice": {
-    "bytes": 50886,
-    "sha256": "19de3667e9fbafdad7ac2fbc50d60fc42ea649c9ea240dc51a33602718b99422",
+    "bytes": 51264,
+    "sha256": "963b33f02c3c95d88675a13c91735cbc2437a9566a78d7f83617bf13c97360d4",
     "tools": [
       "execution_advice",
       "tool_result_read",
@@ -293,6 +300,7 @@
       "attach_file",
       "create_bot",
       "delete_bot",
+      "restore_bot",
       "create_room",
       "manage_room",
       "request_credential",
@@ -316,8 +324,8 @@
     ]
   },
   "direct+skills+shared+voice+cloud-home": {
-    "bytes": 57806,
-    "sha256": "309a898e7f7f90eb6f2b15471d8fab1fe1a016306f7ec3ee8ab556139d2cfe6b",
+    "bytes": 58184,
+    "sha256": "2febd87e004c9837519b0a5913474559ad24079baa411aa19cbb1950a18466bb",
     "tools": [
       "execution_advice",
       "tool_result_read",
@@ -339,6 +347,7 @@
       "attach_file",
       "create_bot",
       "delete_bot",
+      "restore_bot",
       "create_room",
       "manage_room",
       "request_credential",
@@ -366,8 +375,8 @@
     ]
   },
   "direct+skills+shared+voice+cloud-home+phone": {
-    "bytes": 61836,
-    "sha256": "930a8c2c04f99d7ef8136c6109fd55f5fd3e2224816ccad2737646999c25df5f",
+    "bytes": 62214,
+    "sha256": "02e9c1b0bc7208d8c0337debc5b5b14bed153c9f39200802af055c35167696c4",
     "tools": [
       "execution_advice",
       "tool_result_read",
@@ -393,6 +402,7 @@
       "attach_file",
       "create_bot",
       "delete_bot",
+      "restore_bot",
       "create_room",
       "manage_room",
       "request_credential",
