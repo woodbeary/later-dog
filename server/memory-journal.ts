@@ -440,7 +440,7 @@ export function endMemoryTurn(threadId: string): MemoryJournalEntry[] {
   return rows;
 }
 
-export function beginMemoryTurnInBackground(botId: string, threadId: string): Promise<void> {
+export function beginMemoryTurnInBackground(botId: string, threadId: string): Promise<ReadonlyMap<string, string> | null> {
   let bots = turnBots.get(threadId);
   if (!bots) {
     bots = new Set();
@@ -448,8 +448,8 @@ export function beginMemoryTurnInBackground(botId: string, threadId: string): Pr
   }
   bots.add(botId);
   return currentDocsInBackground(botId)
-    .then((docs) => { reconcile(botId, "person", "disk", undefined, false, docs); })
-    .catch((error) => console.error(`memory-journal: could not snapshot ${botId}:`, error instanceof Error ? error.message : error));
+    .then((docs) => { reconcile(botId, "person", "disk", undefined, false, docs); return docs; })
+    .catch((error) => { console.error(`memory-journal: could not snapshot ${botId}:`, error instanceof Error ? error.message : error); return null; });
 }
 
 export async function endMemoryTurnInBackground(threadId: string): Promise<MemoryJournalEntry[]> {

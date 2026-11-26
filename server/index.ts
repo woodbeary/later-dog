@@ -436,6 +436,7 @@ import {
   appendMemoryLog,
   appendMemoryLogInBackground,
   memorySystemPrompt,
+  readMemoryFromSnapshot,
   memoryTrimmed,
   memorySourceLabel,
   searchMemoryFiles,
@@ -9216,7 +9217,8 @@ async function startTurn(
 
   void (async () => {
     let snapshotHead: EarlySnapshot<string> | null = null;
-    let memoryHead: Promise<void> | null = null;
+    let memoryHead: Promise<ReadonlyMap<string, string> | null> | null = null;
+    let memoryDocs: ReadonlyMap<string, string> | null = null;
     if (mountedFolderLayout && remoteEngineChoice(DATA_DIR, bot.id).computer) void boat.engineComputer(bot.id).catch(() => {});
     try {
       if (logArchive && !await logArchive.beforeTurn(threadId, () => directTurnClaimIsCurrent(bot.id, dispatchClaimId, threadId))) {
@@ -9722,7 +9724,7 @@ async function startTurn(
 
       turnPhases.mark(threadId, "computer and prompt");
       if (memoryHead) {
-        await memoryHead;
+        memoryDocs = await memoryHead;
         turnPhases.mark(threadId, "memory snapshot wait");
       }
       if (checkpointCwd && snapshotHead) {
@@ -9770,6 +9772,8 @@ async function startTurn(
       const computerSelection = computerSelectionTurns.get(threadId);
       if (computerSelection) computerSelection.mounted = mountedComputer ?? (integrations.browser ? "browser" : undefined);
       await pendingCancelledProviderHandshakes.waitForClear(threadId);
+      turnPhases.mark(threadId, "browser and handshakes");
+      if (memoryDocs) readMemoryFromSnapshot(bot.id, memoryDocs);
       if (!markDirectTurnDispatching(bot.id, dispatchClaimId, threadId)) {
         throw new DirectTurnSetupCancelled("turn stopped before dispatch");
       }
@@ -9782,9 +9786,16 @@ async function startTurn(
       }
       const ownerGrant = ownerGrantFor(approvalModeForTurn(bot, commsDepth > 0, threadId), threadId);
       const ownerAnswers = ownerAnswersFor(bot.id, approvalModeForTurn(bot, commsDepth > 0, threadId), threadId);
+      const memoryText = memorySystemPrompt(bot.id, { managedWrites: Boolean(integrations.agents), fileTools: worksInWorkspace, enabled: bot.memoryEnabled !== false, readOnly: foreignTurn });
+      turnPhases.mark(threadId, "memory prompt");
+      const skillsText = privateWorkspace ? skillsSystemPrompt(bot.id, skillsLibraryEnabled(cfg) ? (store.bot(bot.id)?.assignedSkills ?? bot.assignedSkills) : undefined) : "";
+      turnPhases.mark(threadId, "skills prompt");
+      const recentText = recentWorkPrompt(recentWork(recentWorkSources(bot), bot, { userName: cfg.profile?.name?.trim() || "User", currentThreadId: threadId, ...recentWorkFilter() }));
+      const conversation = conversationText(threadId, providerText);
+      turnPhases.mark(threadId, "recent work");
       const prompt = buildSystemPrompt(persona, liveBot?.soul ?? bot.soul ?? "", [
         ...guidanceParts({ engine: guidanceEngine(instance.driverKind), agents: Boolean(integrations.agents), model, role: { main: bot.id === store.mainBotId(), title: bot.title },
-          background: instance.adapter.capabilities.backgroundWork === true, conversation: conversationText(threadId, providerText), kit: homeKit({
+          background: instance.adapter.capabilities.backgroundWork === true, conversation, kit: homeKit({
           cloudHome: Boolean(CLOUD_HOME), agents: Boolean(integrations.agents), vault: vaultStore.available, macsOnline: sharedComputers.list(CLOUD_HOME_LENDER).length,
           google: credentialPrompt.includes("gmail_search"),
         }) }),
@@ -9808,13 +9819,14 @@ async function startTurn(
         { id: "profile", label: "Profile changes", text: profilePrompt },
         { id: "learn", label: "Skill authoring", text: learnPrompt },
         { id: "updates", label: "Progress updates", text: workUpdatesPrompt({ background: instance.adapter.capabilities.backgroundWork === true, react: Boolean(integrations.agents), engine: guidanceEngine(instance.driverKind) }) },
-        { id: "recent", label: "Recent work", text: recentWorkPrompt(recentWork(recentWorkSources(bot), bot, { userName: cfg.profile?.name?.trim() || "User", currentThreadId: threadId, ...recentWorkFilter() })) },
-        { id: "memory", label: "Memory", text: memorySystemPrompt(bot.id, { managedWrites: Boolean(integrations.agents), fileTools: worksInWorkspace, enabled: bot.memoryEnabled !== false, readOnly: foreignTurn }) },
-        { id: "skills", label: "Skills index", text: privateWorkspace ? skillsSystemPrompt(bot.id, skillsLibraryEnabled(cfg) ? (store.bot(bot.id)?.assignedSkills ?? bot.assignedSkills) : undefined) : "" },
+        { id: "recent", label: "Recent work", text: recentText },
+        { id: "memory", label: "Memory", text: memoryText },
+        { id: "skills", label: "Skills index", text: skillsText },
         { id: "skill-instructions", label: "Skill instructions", text: skillInstructions },
         { id: "webhook", label: "Webhook provenance", text: opts?.automationSource === "webhook" ? WEBHOOK_PROMPT : "" },
         { id: "mentions", label: "Mentions", text: mentionPrompt(tagged) },
       ], cfg.profile?.name);
+      turnPhases.mark(threadId, "prompt");
       turnPromptBytes.set(threadId, { stable: Buffer.byteLength(prompt.stable), volatile: Buffer.byteLength(prompt.volatile) });
       contextBreakdowns.dispatched(threadId, { driverKind: instance.driverKind, instanceId, sections: prompt.sections, tools: homeToolSizes(integrations.agents?.env) });
       compactionCarry.remember(bot.id, threadId, prompt.volatileSections);
@@ -9837,7 +9849,7 @@ async function startTurn(
         handOff: fromPerson && !fromLocalTool && instance.adapter.capabilities.backgroundWork === true && instance.driverKind === "claudeAgent",
       });
       handoffs.dispatching(threadId, dispatchClaimId, dispatchContext.handoff);
-      turnPhases.mark(threadId, "tools and recall");
+      turnPhases.mark(threadId, "recall");
       const dispatch = await guardTurnDispatch(instance.adapter.sendTurn({
         threadId,
         botId: bot.id,

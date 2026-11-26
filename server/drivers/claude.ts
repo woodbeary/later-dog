@@ -11,6 +11,7 @@ import { brokerSocketPath, describeSpawnFailure, execCli, killCliTree, resolveCl
 import { acceptedEnginePlacement, engineOpener, lendableClaudeSignIn, notePlacement, recordEngineTurn, planClaudeRemote, remoteEngineChoice, spawnPlacedEngine } from "../laterdog/engine-placement.ts";
 import { claudeSignInRefresh, plainEnvironment } from "../laterdog/claude-sign-in-refresh.ts";
 import { engineWaitEvent } from "../laterdog/engine-waiting.ts";
+import { createTurnPhases } from "../laterdog/turn-head-start.ts";
 import { claudeResumeRefusal, classifyResumeFailure, mayReplay, recoveryPromptFor } from "../resume-recovery.ts";
 import { ClaudeLoginController } from "./claude-login-auth.ts";
 
@@ -1130,6 +1131,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
       deliveredVolatile.set(threadId, { sessionId: s.sessionId, volatile: s.volatile });
     };
     const SESSION_IDLE_MS = engineIdleLimit("CLAUDE");
+    const startPhases = createTurnPhases({ log: (line) => console.log(line), name: "claude turn start" });
     const DISPOSE_STOP_MS = 2_000;
 
     const stopSession = (session: Session) => {
@@ -1218,6 +1220,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
       }
     };
     const sendOwnedTurn = async (turn: SendTurnInput, logicalTurnId: string | undefined, checkStart: () => void) => {
+      startPhases.begin(turn.threadId);
       turn = { ...turn, toolScope: assertToolScopeSupported(DRIVER_KIND, turn.toolScope) };
       if (config.managedModels && (!turn.model || !config.managedModels.includes(turn.model))) throw new Error("This model is not assigned to this workspace.");
       if (config.requireApiKey && !input.environment.ANTHROPIC_API_KEY) throw new Error(NO_ANTHROPIC_KEY);
@@ -1269,7 +1272,9 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
       if (turn.guestConfined) args.push("--restricted", "--tools", GUEST_CLAUDE_TOOLS.join(","));
       else if (config.tools !== undefined) args.push("--tools", config.tools.join(","));
       const turnEnvironment = environment();
+      startPhases.mark(turn.threadId, "setup");
       await learnCliFlags(turnEnvironment);
+      startPhases.mark(turn.threadId, "cli flags");
       if (turn.guestConfined && !claudeCliSupports(cliVersion, "--restricted")) {
         throw new Error(withWhy("This Claude Code is too old to run this turn without a shell. Update Claude Code.", turn.confinedWhy));
       }
@@ -1292,6 +1297,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
         args.push("--system-prompt-snapshot", "off");
       }
       const turnModel = config.managed ? turn.model : await resolveClaudeTurnModel(turn.model, turnEnvironment);
+      startPhases.mark(turn.threadId, "model");
       const injected = config.managed ? { model: turnModel ?? null, injected: false } : applyClaudeInject({ ...turnEnvironment }, turnModel);
       if (injected.model) args.push("--model", injected.model);
       if (turn.effort) args.push("--effort", claudeEffortArg(turn.effort));
@@ -1437,7 +1443,9 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
       };
 
       try {
+        startPhases.mark(threadId, "launch files");
         await claudeRefreshGate.enter(env);
+        startPhases.mark(threadId, "sign-in gate");
         checkStart();
         const live = sessions.get(threadId);
         if (!turn.sessionReset && live && !live.turn && !live.closing && live.child.exitCode === null && live.argsKey === argsKey && (!sessionId || sessionId === live.sessionId)) {
@@ -1460,6 +1468,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
           rememberVolatile(threadId, live);
           const running = live.turn;
           if (!(await writeUser(live, threadId, message)) && !running?.stopRequested) closeSession(threadId, "stdin write failed");
+          startPhases.end(threadId, "prompt sent to warm engine");
           if (mcpConfigPath) {
             try {
               rmSync(dirname(mcpConfigPath), { recursive: true, force: true });
