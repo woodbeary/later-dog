@@ -1,6 +1,5 @@
 export const RESTORE_BACKOFF_STEP_MS = 2_000;
 export const RESTORE_BACKOFF_MAX_MS = 30_000;
-export const RESTORE_GIVE_UP_MS = 45 * 60_000;
 export const RESTORE_NOTES_KEPT = 20;
 
 export function restoreBackoff(attempt) {
@@ -15,7 +14,7 @@ export function describeRestoreFailure(error) {
 
 const pause = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
-export async function restoreUntilDone(attemptRestore, { finished = new Set(), log = () => {}, now = Date.now, wait = pause, giveUpMs = RESTORE_GIVE_UP_MS } = {}) {
+export async function restoreUntilDone(attemptRestore, { finished = new Set(), log = () => {}, now = Date.now, wait = pause, giveUpMs = Infinity } = {}) {
   const started = now();
   const notes = [];
   for (let attempt = 1; ; attempt += 1) {

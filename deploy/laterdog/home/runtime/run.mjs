@@ -15,6 +15,7 @@ import { SAVE_STATUS_PATH, saveRecorder, slowCopies, writeSaveStatus } from "./s
 import { RESTORE_POINTS, appRelease, upgradeFrom, upgradeKeeper } from "./restore-points.mjs";
 import { FINAL_SAVE_MS, collectGarbageWithin, createHttpStore, restore, settleWithin, snapshot } from "./sync.mjs";
 import { restoreUntilDone } from "./restore-until-done.mjs";
+import { holdStopsWhileRestoring } from "./restore-signals.mjs";
 
 const DATA = process.env.HOME || "/data";
 const SCRATCH = "/tmp/laterdog-sync";
@@ -63,12 +64,14 @@ async function main() {
       return current && projectPreviousCloudBackup(current, placement);
     } } : store;
     const owner = dogOwner();
+    const held = holdStopsWhileRestoring({ log });
     const restored = await restoreUntilDone((finished) => restore(DATA, restoreStore, owner, { finished, exclude, exactScope }), { log });
+    const signalled = held.release();
     manifest = restored.manifest;
     upgraded = upgradeFrom(manifest, APP);
     const restoredLine = restored.manifest ? `restored ${restored.files} files in ${Math.round(restored.ms / 1000)} s after ${restored.attempts} attempt(s)` : "a new home: nothing to restore";
     log(restoredLine);
-    for (const note of [...restored.notes, restoredLine]) noteHomeHealth(HEALTH_DIR, note, { owner });
+    for (const note of [...restored.notes, ...signalled.map(({ signal, at }) => `${signal} arrived ${Math.round((at - Date.now() + restored.ms) / 1000)} s into the restore and was held until it finished`), restoredLine]) noteHomeHealth(HEALTH_DIR, note, { owner });
     if (upgraded) log(`${APP} replaces ${upgraded.app ?? "an earlier version"}; keeping a restore point before the first save`);
   } else {
     log("no state store: this home keeps nothing across restarts");
