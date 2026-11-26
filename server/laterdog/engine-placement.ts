@@ -1,3 +1,4 @@
+import type { GuestDriverRuntime } from "./guest-cli-runtime.ts";
 import { createHash, randomUUID } from "node:crypto";
 import type { ChildProcess } from "node:child_process";
 import { appendFileSync, copyFileSync, existsSync, lstatSync, mkdirSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
@@ -35,7 +36,7 @@ function remoteClaudeEnvironment(env: Record<string, unknown>): Record<string, s
 
 export const REMOTE_ENGINES_FILE = "remote-engines.json";
 
-export interface RemoteEngineChoice { botId: string; computer: boolean; fromEnvironment: boolean }
+export interface RemoteEngineChoice { botId: string; computer: boolean; fromEnvironment: boolean; required?: boolean }
 
 const environmentBots = (env: NodeJS.ProcessEnv) => new Set((env.LATERDOG_REMOTE_ENGINE_BOTS ?? "").split(",").map((id) => id.trim()).filter(Boolean));
 const botIds = (value: unknown): string[] => Array.isArray(value) ? value.filter((id): id is string => typeof id === "string" && id.length > 0) : [];
@@ -70,8 +71,9 @@ export function setRemoteEngineDefault(dataDir: string, computer: boolean): bool
 }
 
 export function remoteEngineChoice(dataDir: string, botId: string, env: NodeJS.ProcessEnv = process.env): RemoteEngineChoice {
-  const saved = placementSettings(dataDir);
+  const saved = placementSettings(dataDir, env.LATERDOG_CLOUD_ROLE === "home");
   const fromEnvironment = environmentBots(env).has(botId);
+  if (env.LATERDOG_CLOUD_ROLE === "home" && saved.placement === "computer") return { botId, computer: true, fromEnvironment, required: true };
   const computer = fromEnvironment || botIds(saved.bots).includes(botId) || (saved.placement === "computer" && !botIds(saved.homeBots).includes(botId));
   return { botId, computer, fromEnvironment };
 }
@@ -100,6 +102,15 @@ export function notePlacement(dataDir: string, line: string, now = new Date()): 
   } catch {}
 }
 
+export function recordEngineTurn(dataDir: string, driver: string, account: string, turn: { botId?: string; threadId: string; sourceMessageId?: string }, turnId: string, placement: "home" | "computer"): void {
+  if (process.env.LATERDOG_CLOUD_ROLE !== "home") return;
+  notePlacement(dataDir, "[engine-dispatch] " + JSON.stringify({ driver, account, botId: turn.botId, threadId: turn.threadId, messageId: turn.sourceMessageId, turnId, placement }));
+}
+
+export function acceptedEnginePlacement(process: unknown): "home" | "computer" {
+  return process instanceof EngineProcess && process.placement !== "home" ? "computer" : "home";
+}
+
 export { claudeProjectSlug };
 
 export function commandOnPath(command: string, path: string | undefined): string | null {
@@ -113,7 +124,7 @@ export function commandOnPath(command: string, path: string | undefined): string
   return null;
 }
 
-export function engineCliPackage(resolvedCommand: string, path: string | undefined, packageName: "@openai/codex" | "@anthropic-ai/claude-code"): { name: string; version: string } | null {
+export function engineCliPackage(resolvedCommand: string, path: string | undefined, packageName: string): { name: string; version: string } | null {
   const found = commandOnPath(resolvedCommand, path);
   if (!found) return null;
   let at: string;
@@ -156,13 +167,15 @@ export interface ClaudePlacement {
   cwd: string;
   env: NodeJS.ProcessEnv;
   managed: boolean;
+  required?: boolean;
+  textOnly?: boolean;
   dataDir: string;
   proxyPath: string;
   now?: number;
   remoteBase?: string;
 }
 
-export interface PlacedEnginePlan { threadId: string; launch: RemoteLaunch; cli: { name: string; version: string }; stagingDir: string; mkdirs: string[]; renewal?: ClaudeRenewal | null }
+export interface PlacedEnginePlan { threadId: string; launch: RemoteLaunch; cli: { name: string; version: string }; stagingDir: string; mkdirs: string[]; guestRuntime?: { kind: "node" } | { kind: "acp"; cli: GuestDriverRuntime }; renewal?: ClaudeRenewal | null }
 
 export type ClaudeRemotePlan = PlacedEnginePlan;
 
@@ -188,6 +201,7 @@ export function planClaudeRemote(input: ClaudePlacement): { plan: ClaudeRemotePl
   const configDir = resolve(input.env.CLAUDE_CONFIG_DIR || join(home, ".claude"));
   const logical = resolve(input.cwd);
   const workspace = claudeSessionWorkspace(logical, configDir, input.sessionId);
+  if (input.required && args.includes("--resume") && !workspace.source) return { stay: "the saved Claude session is missing from its selected account and working folder" };
   const cwd = workspace.source ?? workspace.physical;
   const physicalConfig = physicalClaudePath(configDir);
   if (logical === resolve(home) || logical === resolve(input.dataDir) || within(logical, configDir) || within(configDir, logical) ||
@@ -251,7 +265,7 @@ export function planClaudeRemote(input: ClaudePlacement): { plan: ClaudeRemotePl
   const slug = claudeProjectSlug(cwd);
   const sessionDir = join(configDir, "projects", slug);
   const roots: EngineFileRoot[] = [
-    { id: "workspace", path: cwd, writable: true },
+    { id: "workspace", path: cwd, writable: !input.textOnly, streamedTree: input.required && !input.textOnly, ...(input.textOnly ? { files: [] } : {}) },
     { id: "session", path: sessionDir, writable: true, transcript: true, files: [`${input.sessionId}.jsonl`] },
     { id: "session-extra", path: join(sessionDir, input.sessionId), writable: true },
     { id: "file-history", path: join(configDir, "file-history", input.sessionId), writable: true },
@@ -259,7 +273,7 @@ export function planClaudeRemote(input: ClaudePlacement): { plan: ClaudeRemotePl
     { id: "launch", path: stagingDir, writable: false },
   ];
   if (credential) roots.push({ id: "credential", path: configDir, writable: false, pushOnly: true, files: [".credentials.json"] });
-  const botFolder = botFolderRoot(input.dataDir, input.botId, cwd, configDir, stagingDir);
+  const botFolder = !input.textOnly && botFolderRoot(input.dataDir, input.botId, cwd, configDir, stagingDir);
   if (botFolder) roots.push(botFolder);
   const pushes = credential ? (): PushedFile[] => {
     let bytes: Buffer | null = null;
@@ -274,14 +288,14 @@ export function planClaudeRemote(input: ClaudePlacement): { plan: ClaudeRemotePl
 
   const launch: RemoteLaunch = {
     cli: `${cliDir}/node_modules/.bin/claude`,
-    args, cwd, env: remoteEnv, roots,
-    outputIds: ["workspace", "session", "session-extra", "file-history"],
-    pushes, mcp, hooks, hookEnv, socketPath,
+    args, cwd, env: remoteEnv, roots: input.textOnly ? roots.filter(root => ["workspace", "account", "credential", "launch"].includes(root.id)) : roots,
+    outputIds: input.textOnly ? [] : ["workspace", "session", "session-extra", "file-history"],
+    pushes, mcp, hooks, hookEnv, socketPath, requireCompleteCheckpoint: input.required,
     stateFile: `${remoteBase}/state/${threadKey}.json`,
     lockFile: `${remoteBase}/locks/${threadKey}.lock`,
   };
   const renewal = credential ? { command: input.cliCommand, env: hookEnv } : null;
-  return { plan: { threadId: input.threadId, launch, cli, stagingDir, mkdirs: [...new Set(roots.map((root) => root.path))], renewal } };
+  return { plan: { threadId: input.threadId, launch, cli, stagingDir, mkdirs: [...new Set([cwd, ...launch.roots.map(root => root.path)])], renewal } };
 }
 
 export const BOT_FOLDER_FILE_BYTES = 8 * 1024 * 1024;
@@ -303,7 +317,7 @@ function stdioSpecFor(server: Record<string, unknown>): StdioSpec | null {
   return null;
 }
 
-export interface EngineOpener { proxyPath: string; remoteBase?: string; openBudgetMs?: number; open(botId: string, plan: ClaudeRemotePlan, signal?: AbortSignal): Promise<EngineLink> }
+export interface EngineOpener { proxyPath: string; guestProvider?: { entry: string; proxy: string }; remoteBase?: string; openBudgetMs?: number; open(botId: string, plan: ClaudeRemotePlan, signal?: AbortSignal): Promise<EngineLink> }
 let opener: EngineOpener | null = null;
 export function setEngineOpener(value: EngineOpener | null): void { opener = value; }
 export function engineOpener(): EngineOpener | null { return opener; }

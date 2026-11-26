@@ -8,7 +8,7 @@ Started 2026-10-13. This file is the single place that says what is in progress,
 
 ## Cloud engine capacity, November 25
 
-The owner can set the home's default engine placement at `/api/engine-placement`. Individual dog choices take precedence. An eligible dog opens its own computer when a turn starts. The home keeps conversation history and serves tools. A connected native engine on a full-allowance computer can work across the two-hour command deadline and the normal awake limit. Its stream closes when the home disconnects. A resting Claude session releases its computer after the configured idle interval.
+The owner can set the home's default engine placement at `/api/engine-placement`. On a cloud home with computer placement enabled, every dog uses its assigned computer. Individual dog choices still apply on personal installations. An eligible dog opens its own computer when a turn starts. The home keeps conversation history, queues messages while an engine wakes, and serves the tools approved for each turn. Native sessions and the other provider adapters run on the computer, including the loop that calls tools and returns their results. A connected native engine on a full-allowance computer can work across the two-hour command deadline and the normal awake limit. Its stream closes when the home disconnects. A resting Claude session releases its computer after the configured idle interval.
 
 Two disposable Cloudflare computers qualified the native provider paths on November 25. Claude returned the requested marker. Codex called a home tool and resumed the same native conversation on a second turn. The production rollout and repository gate have separate receipts.
 
@@ -443,3 +443,7 @@ release order.
 ## Native Codex computer placement, November 25
 
 A selected native ChatGPT Codex engine can run on its dog's computer with home-scoped tools and shell checks. Existing native sessions acquire a binding on a home turn before moving. [Relay and signed-in qualification](../verification/codex-engine-relay.md) records the isolated provider run. Managed providers, custom approval configuration, user-configured native MCP, image input, guest-confined work and folders outside the dog's workspace use the home.
+
+## Required native computer placement, November 25
+
+On a cloud home with owner-wide computer placement, signed-in native turns and Claude text helpers now require the dog's computer. A saved Codex chat can establish its first checkpoint from the exact account's rollout and continue directly on the computer. The isolated driver tests cover unavailable computers, session identity, selected folders and attachments, and auxiliary text with usage reporting. Live provider acceptance belongs to the combined test-home qualification.

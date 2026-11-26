@@ -1,5 +1,6 @@
 import { expect, it, vi } from "vitest";
 
+import type { TextGenerationOptions } from "../contracts.ts";
 import { STATIC_CLAUDE_MODELS } from "../drivers/claude.ts";
 import { dogWriter } from "./dog-writer.ts";
 import { HISTORY_SUMMARY_PURPOSE, reportingUsage, summaryUsageRow } from "./summary-usage.ts";
@@ -15,15 +16,21 @@ it("books a summary's usage to the chat and the account that paid, marked as a s
   expect(summaryUsageRow(payer, { model: "m" })).toMatchObject({ input: 0, output: 0, costUsd: null });
 });
 
-it("asks the engine to report usage on every call and keeps the writer's model", async () => {
-  const generateText = vi.fn(async () => "text");
-  const seen: unknown[] = [];
-  const write = reportingUsage(dogWriter({ models: STATIC_CLAUDE_MODELS, generateText }, "claude-sonnet-5-5"), (usage) => seen.push(usage))!;
-  expect(write.model).toBe("claude-sonnet-5-5");
-  await write("prompt", { signal: new AbortController().signal });
-  const options = (generateText.mock.calls[0] as unknown as [string, { onUsage: (usage: unknown) => void; model: string }])[1];
-  options.onUsage({ model: "x" });
-  expect(options.model).toBe("claude-sonnet-5-5");
-  expect(seen).toEqual([{ model: "x" }]);
+it("keeps the summary on the paying dog's model and books the usage reported by its engine", async () => {
+  const usage = { model: "claude-sonnet-5-5", input: 20, output: 6 };
+  const generateText = vi.fn(async (_prompt: string, options?: TextGenerationOptions) => {
+    options?.onUsage?.(usage);
+    return "text";
+  });
+  const book = vi.fn();
+  const write = reportingUsage(dogWriter({ models: STATIC_CLAUDE_MODELS, generateText }, usage.model, payer.bot.id),
+    (reported) => book(summaryUsageRow(payer, reported)))!;
+  const signal = new AbortController().signal;
+  expect(write.model).toBe(usage.model);
+  await expect(write("prompt", { signal, botId: "another-dog" })).resolves.toBe("text");
+  expect(generateText).toHaveBeenCalledWith("prompt", { signal, model: usage.model, botId: payer.bot.id, onUsage: expect.any(Function) });
+  expect(book).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({
+    botId: payer.bot.id, instanceId: payer.instance.instanceId, threadId: payer.threadId, ...usage, purpose: HISTORY_SUMMARY_PURPOSE,
+  }));
   expect(reportingUsage(undefined, () => {})).toBeUndefined();
 });

@@ -39,6 +39,16 @@ describe("server code pushed to test homes", () => {
     expect(devCodeKey("http://state.r2/dev-code/../manifest.json")).toBeNull();
   });
 
+  it("offers a private test build only to its own test home", async () => {
+    const home = "a".repeat(64);
+    const store = bucket({ "dev-code/current.json": "shared", ["dev-code/test/" + home + "/current.json"]: "private" });
+    const read = async (id?: string) => (await handleDevCode(new Request("http://state.r2/dev-code.json"), store, id))?.text();
+    expect(await read(home)).toBe("private");
+    expect(await read("c".repeat(64))).toBe("shared");
+    expect(await read("../" + home)).toBe("shared");
+    expect(await read()).toBe("shared");
+  });
+
   it("serves the pointer, refuses writes and leaves other paths to the state store", async () => {
     const store = bucket({ "dev-code/current.json": JSON.stringify({ hash: HASH }) });
     const pointer = await handleDevCode(new Request("http://state.r2/dev-code.json"), store);

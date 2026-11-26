@@ -15,11 +15,13 @@ export function devCodeKey(url: string): string | null {
   return match[1] ? `${DEV_CODE_PREFIX}${match[1]}.tgz` : `${DEV_CODE_PREFIX}current.json`;
 }
 
-export async function handleDevCode(request: Request, bucket: StateBucket): Promise<Response | null> {
+export async function handleDevCode(request: Request, bucket: StateBucket, testHome?: string): Promise<Response | null> {
   const key = devCodeKey(request.url);
   if (!key) return null;
   if (request.method !== "GET") return new Response("Method not allowed", { status: 405 });
-  const object = await bucket.get(key);
+  const privatePointer = key === DEV_CODE_PREFIX + "current.json" && testHome && /^[a-f0-9]{64}$/.test(testHome)
+    ? await bucket.get(DEV_CODE_PREFIX + "test/" + testHome + "/current.json") : null;
+  const object = privatePointer ?? await bucket.get(key);
   if (!object) return new Response("Not found", { status: 404 });
   return new Response(object.body, { headers: { "content-type": "application/octet-stream", etag: object.httpEtag } });
 }

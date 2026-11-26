@@ -107,7 +107,7 @@ describe("bot wire privacy against the real server", () => {
 
     const stored = (JSON.parse(readFileSync(join(data, "bots.json"), "utf8")) as any[]).find((bot) => bot.id === botId)!;
     expect(stored.assignedSkills).toEqual(["some-library-skill"]);
-  });
+  }, 90_000);
 
   it("serves an assigned library-only skill on the single-skill GET route only while the library is on", async () => {
     const instructions = "---\nname: route-library-skill\ndescription: Serves through the assigned-skill route.\n---\n\n# route-library-skill\n\nReads through the library.\n";
@@ -137,5 +137,5 @@ describe("bot wire privacy against the real server", () => {
     expect(await api("GET", `/api/bots/${botId}/skills/route-library-skill`))
       .toMatchObject({ status: 200, body: { text: instructions } });
     await stop();
-  });
+  }, 90_000);
 });

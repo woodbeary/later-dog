@@ -1007,7 +1007,7 @@ const deskVerify = CLOUD_HOME ? createDeskVerifier({ secret: CLOUD_HOME.bootstra
 const deskPrompts = CLOUD_HOME ? createDeskPrompts(join(DATA_DIR, "desk-prompts.json")) : null;
 const deskBrainRoute = deskVerify && deskPrompts ? createDeskBrainRoute({
   verify: deskVerify,
-  dogs: () => deskDogs({
+  dogs: () => remoteEngineChoice(DATA_DIR, "").required ? [] : deskDogs({
     bots: store.bots,
     prompt: (threadId) => deskPrompts.get(threadId),
     path: (threadId) => store.activePath(threadId),
@@ -6159,7 +6159,7 @@ const memoryUpkeep = createMemoryUpkeep({
     const instance = bot ? registry.get(bot.modelSelection.instanceId) : undefined;
     if (!bot || !instance || policyModelRefusal(instance)) return null;
     const generate = dogWriter(instance, memoryWriterModel(instance.driverKind, bot.modelSelection.model,
-      { custom: Boolean((providerConfigs()[instance.instanceId]?.config as { managed?: boolean } | undefined)?.managed) || decodeInjectId(bot.modelSelection.model) !== null }));
+      { custom: Boolean((providerConfigs()[instance.instanceId]?.config as { managed?: boolean } | undefined)?.managed) || decodeInjectId(bot.modelSelection.model) !== null }), bot.id);
     return generate ? {
       generateText: async (prompt, options) => {
         assertWithinBudget(cfg, DATA_DIR);
@@ -8357,7 +8357,7 @@ async function compactConversation(input: {
   const controller = new AbortController();
   compactionControllers.set(threadId, { generation, controller });
   try {
-    const written = await writeHistorySummary(fold.folded, { signal: controller.signal, write: reportingUsage(dogWriter(instance, model),
+    const written = await writeHistorySummary(fold.folded, { signal: controller.signal, write: reportingUsage(dogWriter(instance, model, bot.id),
       (usage) => bookTurnUsage(summaryUsageRow({ bot, threadId, instance }, usage), usage.input !== undefined && usage.output !== undefined, threadId)) });
     if (written.rejected.length) console.warn(`[compaction] summary for ${threadId} not kept (${written.rejected.join("; ")}); ${written.by === "model" ? "the retry was" : "excerpts are"} used`);
     const moved = Boolean(task.lastInstanceId && !isExternalContextMarker(task.lastInstanceId) && task.lastInstanceId !== instance.instanceId);
@@ -8829,8 +8829,9 @@ async function finalScreenFrame(_botId: string, threadId: string): Promise<Frame
 }
 
 async function generateThreadTitle(
-  provider: { generateText?: (prompt: string, options?: { signal?: AbortSignal }) => Promise<string> },
+  provider: { generateText?: (prompt: string, options?: { signal?: AbortSignal; botId?: string }) => Promise<string> },
   text: string,
+  botId: string,
   source: ThreadTitleSource = "first-message",
 ): Promise<string | null> {
   const prompt = threadTitlePrompt(text, source);
@@ -8838,7 +8839,7 @@ async function generateThreadTitle(
   let timer: ReturnType<typeof setTimeout> | undefined;
   try {
     const reply = await Promise.race([
-      provider.generateText!(prompt, { signal: expiry.signal }),
+      provider.generateText!(prompt, { signal: expiry.signal, botId }),
       new Promise<never>((_, reject) => {
         timer = setTimeout(() => {
           expiry.abort();
@@ -8967,7 +8968,7 @@ async function startTurn(
     const titled = store.titleTaskFromFirstMessage(bot.id, resolvedImages.text, threadId);
     const snippet = titled?.title;
     if (titled && snippet && !titled.openedBy?.botId && llmThreadTitlesEnabled(cfg) && instance.generateText) {
-      void generateThreadTitle(instance, resolvedImages.text)
+      void generateThreadTitle(instance, resolvedImages.text, bot.id)
         .then((title) => {
           if (title) store.retitleTask(bot.id, threadId, snippet, title);
         })
@@ -12061,7 +12062,7 @@ function startGroupTurn(
   const startTitle = (titleBot: (typeof members)[number]) => {
     const titleInstance = registry.get(titleBot.modelSelection.instanceId);
     if (titled && snippet && titleText.trim() && llmThreadTitlesEnabled(cfg) && titleInstance?.generateText && !policyModelRefusal(titleInstance)) {
-      void generateThreadTitle(titleInstance, titleText)
+      void generateThreadTitle(titleInstance, titleText, titleBot.id)
         .then((title) => {
           if (title) store.retitleGroupTask(group.id, threadId, snippet, title);
         })
@@ -19898,7 +19899,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       const startedFrom = store.taskByThread(m[1], m[2])!.title;
       titleRegenerations.add(m[2]);
       try {
-        const title = await generateThreadTitle(instance, excerpt, "conversation") ?? openingWordsTitle(store.activePath(m[2]));
+        const title = await generateThreadTitle(instance, excerpt, m[1], "conversation") ?? openingWordsTitle(store.activePath(m[2]));
         if (!title) return json(res, 502, { error: "couldn't generate a title — try again, or rename the thread" });
         const task = store.retitleTask(m[1], m[2], startedFrom, title) ?? store.taskByThread(m[1], m[2]);
         if (!task) return json(res, 404, { error: "no such task" });

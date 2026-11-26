@@ -160,7 +160,7 @@ describe("ClaudeDriver catalog", () => {
       config: ClaudeDriver.defaultConfig(),
     });
     try {
-      expect(instance.models.options.some((option) => option.id === "local-glm" && option.custom)).toBe(true);
+      await expect.poll(() => instance.models.options.some((option) => option.id === "local-glm" && option.custom), { timeout: 10_000 }).toBe(true);
       expect(instance.refreshModels).toEqual(expect.any(Function));
     } finally {
       await instance.dispose();

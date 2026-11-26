@@ -8,7 +8,7 @@ import { DATA_DIR, stripWorkspaceCredentialEnv } from "../config.ts";
 import { writeFileAtomic, writeFileAtomicIfChanged } from "../atomic.ts";
 import { augmentedPath } from "../env-path.ts";
 import { brokerSocketPath, describeSpawnFailure, execCli, killCliTree, resolveCli, spawnCli } from "../procs.ts";
-import { engineOpener, notePlacement, planClaudeRemote, remoteEngineChoice, spawnPlacedEngine } from "../laterdog/engine-placement.ts";
+import { acceptedEnginePlacement, engineOpener, notePlacement, recordEngineTurn, planClaudeRemote, remoteEngineChoice, spawnPlacedEngine } from "../laterdog/engine-placement.ts";
 import { engineWaitEvent } from "../laterdog/engine-waiting.ts";
 import { claudeResumeRefusal, classifyResumeFailure, mayReplay, recoveryPromptFor } from "../resume-recovery.ts";
 import { ClaudeLoginController } from "./claude-login-auth.ts";
@@ -1073,6 +1073,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
       turn: {
         turnId: string;
         input: SendTurnInput;
+        dispatchRecorded?: boolean;
         retryAbort: AbortController;
         settled: boolean;
         sawStreamDelta: boolean;
@@ -1198,6 +1199,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
 
     const rareLaunches = new Map<string, boolean>();
     const sendTurn = async (turn: SendTurnInput, logicalTurnId?: string) => {
+      if (!turn.botId && remoteEngineChoice(DATA_DIR, "").required) throw new Error("This cloud engine needs its dog to select the computer.");
       const controller = new AbortController();
       starting.get(turn.threadId)?.abort();
       starting.set(turn.threadId, controller);
@@ -1394,7 +1396,9 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
       const commandCwd = permissionLaunchCwd(cwd);
       const unkeyedFlags = new Set<string>(["--mcp-config", "--settings", ...FLAGS_LEARNED_AFTER_LAUNCH]);
       const keyArgs = args.filter((a, i) => a !== "--forward-subagent-text" && !unkeyedFlags.has(a) && !unkeyedFlags.has(args[i - 1] ?? ""));
-      const chosenRemote = Boolean(botId && !turn.guestConfined && remoteEngineChoice(DATA_DIR, botId).computer);
+      const placement = botId ? remoteEngineChoice(DATA_DIR, botId) : undefined;
+      const required = placement?.required === true;
+      const chosenRemote = placement?.computer && (required || !turn.guestConfined);
       const argsParts = Object.fromEntries(Object.entries({
         args: keyArgs,
         system: turn.systemStable ?? turn.system ?? null,
@@ -1408,7 +1412,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
         quiet: Boolean(turn.quietWork),
         helpers: env.CLAUDE_CODE_SUBAGENT_MODEL ?? null,
         reviewerGrant: permissionMode === "auto" ? turn.reviewerGrant ?? null : null,
-        placement: chosenRemote ? "computer" : "home",
+        placement: required ? "required-computer" : chosenRemote ? "computer" : "home",
         auth: createHash("sha256").update(JSON.stringify({
           settings: authSettings,
           env: Object.fromEntries(CLAUDE_ACCOUNT_ENV_KEYS.map((key) => [key, env[key]])),
@@ -1571,16 +1575,18 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
         };
         const opener = engineOpener();
         let remote: ReturnType<typeof planClaudeRemote> | null = null;
+        if (required && !opener) throw new Error("Claude could not start on this dog's computer. The computers service is unavailable. No prompt was sent.");
         if (chosenRemote && !opener) notePlacement(DATA_DIR, `[engine] ${botId!.slice(0, 8)} ${threadId.slice(0, 8)} stays on the home: no cloud computer opener in this server`);
         if (opener && chosenRemote) {
           try {
             remote = planClaudeRemote({ botId: botId!, threadId, sessionId: (sessionId ?? newSessionId)!, cliCommand: resolveCli(config.cli, args, env).command,
-              args, cwd, env, managed: Boolean(config.managed), dataDir: DATA_DIR, proxyPath: opener.proxyPath, remoteBase: opener.remoteBase });
+              args, cwd, env, managed: Boolean(config.managed), required, dataDir: DATA_DIR, proxyPath: opener.proxyPath, remoteBase: opener.remoteBase });
           } catch (error) { remote = { stay: `launch could not be mirrored: ${(error as Error).message}` }; }
+          if (required && "stay" in remote) throw new Error(`Claude could not start on this dog's computer. ${remote.stay}. No prompt was sent.`);
           if ("stay" in remote) notePlacement(DATA_DIR, `[engine] ${botId!.slice(0, 8)} ${threadId.slice(0, 8)} stays on the home: ${remote.stay}`);
         }
         child = remote && "plan" in remote
-          ? spawnPlacedEngine(remote.plan, (plan, signal) => opener!.open(botId!, plan, signal), local, (where, why) =>
+          ? spawnPlacedEngine(remote.plan, (plan, signal) => opener!.open(botId!, plan, signal), required ? undefined : local, (where, why) =>
             notePlacement(DATA_DIR, `[engine] ${botId!.slice(0, 8)} ${threadId.slice(0, 8)} runs on the ${where === "computer" ? "dog's cloud computer" : "home"}${why ? ` (${why})` : ""}`), undefined,
             { openBudgetMs: opener!.openBudgetMs, onWaiting: (wait) => emit({ ...base(threadId, turnId), ...engineWaitEvent(wait) }) }) as unknown as ReturnType<typeof spawnCli>
           : local();
@@ -1731,6 +1737,10 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
           }
           return;
         }
+        if (session.turn && !session.turn.dispatchRecorded && (o.type === "assistant" || o.type === "stream_event" || o.type === "result")) {
+          session.turn.dispatchRecorded = true;
+          recordEngineTurn(DATA_DIR, DRIVER_KIND, instanceId, session.turn.input, session.turn.turnId, acceptedEnginePlacement(session.child));
+        }
         if (session.turn?.continuationSilence && !(o.type === "system" && o.subtype === "init") && !(o.type === "user" && o.isReplay === true)) {
           clearTimeout(session.turn.continuationSilence);
           session.turn.continuationSilence = null;
@@ -1760,6 +1770,13 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
               const tools: unknown[] = Array.isArray(o.tools) ? o.tools : [];
               if (session.turn?.input.guestConfined && (o.permissionMode !== "default" || tools.some((tool) => typeof tool === "string" && GUEST_FORBIDDEN_TOOLS.has(tool)))) {
                 emit({ ...base(threadId, currentTurnId()), type: "runtime.error", message: withWhy("This Claude Code kept its shell, so it can't run this turn. Update Claude Code.", session.turn?.input.confinedWhy) });
+                session.closing = true;
+                stopSession(session);
+                break;
+              }
+              if (required && o.session_id !== session.sessionId) {
+                emit({ ...base(threadId, currentTurnId()), type: "runtime.error", message: "Claude opened a different native session on its computer. The chat was stopped." });
+                settle(false, "session_mismatch");
                 session.closing = true;
                 stopSession(session);
                 break;
@@ -2083,6 +2100,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
           const refusedHelperFlag = !session.sawInit && helperFlagRefused(config.cli, cliVersion?.join(".") ?? null, session.stderr, session.passedHelperFlag);
           if (
             !refusedResume &&
+            (!required || refusedHelperFlag) &&
             !retry.cancelled &&
             (endedBeforeTurn || refusedHelperFlag || (
               code !== 0 &&
@@ -2164,7 +2182,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
             promptSubmitted: session.sawInit && !refusedResume,
             producedOutput: session.turn.sawStreamDelta,
           });
-          if (mayReplay(resumeFailure) && !retry.cancelled) {
+          if (!required && mayReplay(resumeFailure) && !retry.cancelled) {
             const recovery = recoveryPromptFor({
               recoveryText: turn.recoveryText,
               currentText: turn.text,
@@ -2294,7 +2312,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
     };
 
     const quickModel = config.managedModels?.[0] ?? APPROVAL_REVIEW_MODEL;
-    const generateReview = (prompt: string, model: string, signal?: AbortSignal, onUsage?: TextGenerationOptions["onUsage"]): Promise<string> =>
+    const generateReview = (prompt: string, model: string, signal?: AbortSignal, onUsage?: TextGenerationOptions["onUsage"], botId?: string): Promise<string> =>
       new Promise((resolve, reject) => {
         if (config.requireApiKey && !input.environment.ANTHROPIC_API_KEY) {
           reject(new Error(NO_ANTHROPIC_KEY));
@@ -2302,14 +2320,47 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
         }
         const oneShotEnvironment = environment(model);
         const compactWindow = cliHasAutocompact === true ? autoCompactWindow(oneShotEnvironment, claudeKeepsTunedWindow(cliVersion, config.managed)) : null;
-        const child = spawnCli(
-          config.cli,
-          ["-p", "--model", model, "--output-format", onUsage ? "json" : "text", ...(compactWindow ? ["--autocompact", compactWindow] : [])],
-          {
-            stdio: ["pipe", "pipe", "pipe"],
-            env: oneShotEnvironment,
-          },
-        );
+        if (signal?.aborted) { reject(new Error("Claude review aborted")); return; }
+        const args = ["-p", "--model", model, "--output-format", onUsage ? "json" : "text", ...(compactWindow ? ["--autocompact", compactWindow] : [])];
+        const required = remoteEngineChoice(DATA_DIR, botId ?? "").required === true;
+        let child: ReturnType<typeof spawnCli>;
+        let timer: ReturnType<typeof setTimeout> | undefined;
+        const startDeadline = () => {
+          timer = setTimeout(() => {
+            void killCliTree(child);
+            finish(new Error("Claude review timed out"));
+          }, 60_000);
+          timer.unref?.();
+        };
+        if (required) {
+          if (!botId) throw new Error("Claude text generation requires the dog that owns this work.");
+          const opener = engineOpener();
+          if (!opener) throw new Error("Claude text generation could not start on this dog's computer. The computers service is unavailable.");
+          const sessionId = newId();
+          const directory = join(DATA_DIR, "engine-helper-work");
+          const auth = readClaudeAuthSettings(oneShotEnvironment, input.environment);
+          mkdirSync(directory, { recursive: true, mode: 0o700 });
+          const files = mkdtempSync(join(directory, "request-"));
+          try {
+            args.push("--no-session-persistence", "--tools", "", "--strict-mcp-config");
+            if (Object.keys(auth).length) {
+              const file = join(files, "settings.json");
+              writeFileSync(file, JSON.stringify(auth), { mode: 0o600 });
+              args.push("--settings", file);
+            }
+            const result = planClaudeRemote({ botId, threadId: sessionId, sessionId, cliCommand: resolveCli(config.cli, args, oneShotEnvironment).command,
+              args, cwd: join(directory, "empty"), env: oneShotEnvironment, managed: Boolean(config.managed), dataDir: DATA_DIR,
+              required: true, textOnly: true, proxyPath: opener.proxyPath, remoteBase: opener.remoteBase });
+            if ("stay" in result) throw new Error(`Claude text generation could not start on this dog's computer. ${result.stay}.`);
+            child = spawnPlacedEngine(result.plan, (plan, cancel) => opener.open(botId, plan, cancel), undefined, (where, why) => {
+              if (where === "computer" && !why) startDeadline();
+              notePlacement(DATA_DIR, `[engine] Claude text generation for ${botId} on ${where}${why ? `: ${why}` : ""}`);
+            }, undefined, { openBudgetMs: opener.openBudgetMs }) as unknown as ReturnType<typeof spawnCli>;
+          } finally { rmSync(files, { recursive: true, force: true }); }
+        } else {
+          child = spawnCli(config.cli, args, { stdio: ["pipe", "pipe", "pipe"], env: oneShotEnvironment });
+          startDeadline();
+        }
         let stdout = "";
         let stderr = "";
         let settled = false;
@@ -2325,11 +2376,6 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
           killCliTree(child);
           finish(new Error("Claude review aborted"));
         };
-        const timer = setTimeout(() => {
-          killCliTree(child);
-          finish(new Error("Claude review timed out"));
-        }, 60_000);
-        timer.unref?.();
         child.stdout.setEncoding("utf8");
         child.stderr.setEncoding("utf8");
         child.stdout.on("data", (chunk: string) => {
@@ -2345,6 +2391,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
         child.on("error", (error) => finish(error));
         child.on("close", (code) => {
           if (settled) return;
+          if (code !== 0 && !stdout.trim()) { finish(new Error(stderr.trim() || `Claude review exited ${code}`)); return; }
           if (onUsage) {
             try {
               const result = JSON.parse(stdout);
@@ -2468,7 +2515,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
       generateText: async (prompt, options) => {
         await claudeRefreshGate.enter(environment());
         await learnCliFlags(environment());
-        return generateReview(prompt, options?.model ?? quickModel, options?.signal, options?.onUsage);
+        return generateReview(prompt, options?.model ?? quickModel, options?.signal, options?.onUsage, options?.botId);
       },
       reviewPermission: async (prompt, signal) => {
         await claudeRefreshGate.enter(environment());

@@ -1,3 +1,4 @@
+import { signDesktopToken, verifyDesktopToken } from "./desktop-token";
 
 import { WorkerEntrypoint } from "cloudflare:workers";
 import { BROWSER_ORIGIN, type Refusal, bearerToken, refuseApiRequest, sha256Hex } from "./auth";
@@ -913,11 +914,30 @@ function deliverChat(result: ChatAnswer, reservation: Reservation, waitUntil: Wa
   return new Response(toClient, { headers: { "content-type": "text/event-stream", "cache-control": "no-store" } });
 }
 
-async function chatRequestHandler(request: Request, env: Env, waitUntil: (work: Promise<unknown>) => void): Promise<Response> {
-  if (request.headers.has("origin")) return apiError(BROWSER_ORIGIN);
+async function chatGrant(request: Request, env: Env): Promise<Response> {
   const token = includedKey(request);
   if (!token) return apiError(NO_TRIAL, CHALLENGE);
-  const keySha256 = await sha256Hex(token);
+  if (!env.DESKTOP_SIGNING_KEY) return apiError(NOT_INCLUDED);
+  const account = await sha256Hex(token);
+  if (!(await allowed(env.INCLUDED_LIMIT, account, "refuse"))) return apiError(TOO_MANY);
+  if (!(await trials(env).tierFor(account))) return apiError(NO_TRIAL, CHALLENGE);
+  const expiry = Math.floor(Date.now() / 1000) + 60 * 60;
+  const proof = await signDesktopToken(env.DESKTOP_SIGNING_KEY, "included-ai/" + account, 0, expiry);
+  return json({ token: "chat1." + account + "." + proof }, 200, { "cache-control": "no-store" });
+}
+
+async function chatAccount(request: Request, env: Env): Promise<string | null> {
+  const owner = includedKey(request);
+  if (owner) return sha256Hex(owner);
+  const grant = /^chat1\.([a-f0-9]{64})\.(\d{1,12}\.[A-Za-z0-9_-]{43})$/.exec(bearerToken(request.headers.get("authorization")) ?? "");
+  if (!grant || !env.DESKTOP_SIGNING_KEY) return null;
+  return await verifyDesktopToken(env.DESKTOP_SIGNING_KEY, "included-ai/" + grant[1], 0, grant[2]!, Math.floor(Date.now() / 1000)) === "valid" ? grant[1]! : null;
+}
+
+async function chatRequestHandler(request: Request, env: Env, waitUntil: (work: Promise<unknown>) => void): Promise<Response> {
+  if (request.headers.has("origin")) return apiError(BROWSER_ORIGIN);
+  const keySha256 = await chatAccount(request, env);
+  if (!keySha256) return apiError(NO_TRIAL, CHALLENGE);
   if (!(await allowed(env.INCLUDED_LIMIT, keySha256, "refuse"))) return apiError(TOO_MANY);
   if (!env.AI) return apiError(NOT_INCLUDED);
   const body = await readBody(request, AI_MAX_BODY_BYTES);
@@ -1055,6 +1075,8 @@ async function serve(request: Request, env: Env, via: Via, ctx?: ExecutionContex
         return await planRequest(target.op, request, env, url);
       case "plan_done":
         return await planDonePage(env, url);
+      case "chat_grant":
+        return await chatGrant(request, env);
       case "chat":
         return await chatRequestHandler(request, env, (work) => (ctx ? ctx.waitUntil(work) : void work));
       case "complete":

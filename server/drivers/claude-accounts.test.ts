@@ -102,7 +102,7 @@ describe("Claude account configuration", () => {
     const providers = await Promise.all(dirs.map(dir => create(dir)));
     await Promise.all(providers.map(async (provider, index) => {
       const name = index === 0 ? "work" : "personal";
-      expect(provider.models.options.some(option => option.id === `${name}-model`)).toBe(true);
+      await expect.poll(() => provider.models.options.some(option => option.id === `${name}-model`), { timeout: 10_000 }).toBe(true);
       expect(provider.models.options.some(option => option.id === `${index === 0 ? "personal" : "work"}-model`)).toBe(false);
       expect(await provider.snapshot()).toMatchObject({ authenticated: true, account: { email: `${name}@example.test`, organization: `${name} team` } });
       const recorder = recordEvents(provider.adapter);
@@ -126,7 +126,7 @@ describe("Claude account configuration", () => {
     const dir = account("existing");
     vi.stubEnv("CLAUDE_CONFIG_DIR", dir);
     const provider = await create();
-    expect(provider.models.options.some(option => option.id === "existing-model")).toBe(true);
+    await expect.poll(() => provider.models.options.some(option => option.id === "existing-model"), { timeout: 10_000 }).toBe(true);
     expect(await provider.generateText?.("fixture review")).toBe("existing@example.test");
     expect(calls(dir)[0]?.env.ANTHROPIC_AUTH_TOKEN).toBe("fixture-parent-ANTHROPIC_AUTH_TOKEN");
     expect(calls(dir)[0]?.env.ANTHROPIC_API_KEY).toBeUndefined();

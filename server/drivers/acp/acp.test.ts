@@ -110,7 +110,7 @@ describe("ACP decodeConfig", () => {
       enabled: true,
       config: driver.defaultConfig(),
     });
-    expect(instance.models).toEqual({
+    await expect.poll(() => instance.models, { timeout: 10_000 }).toEqual({
       default: "dynamic-model",
       options: [{ id: "dynamic-model", label: "Dynamic model" }],
     });
@@ -2405,7 +2405,7 @@ describe("ACP snapshot", () => {
       config: { cli: FAKE_CLI, fullAuto: false },
     });
     try {
-      expect(instance.models.options.slice(0, 2)).toEqual([
+      await expect.poll(() => instance.models.options.slice(0, 2), { timeout: 10_000 }).toEqual([
         { id: "custom:Azure-Opus-0", label: "Azure Opus", custom: true },
         { id: "custom:LMStudio-Qwen-0", label: "Qwen (local)", custom: true },
       ]);

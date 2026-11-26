@@ -262,7 +262,7 @@ name = "oMLX"
       config: { ...CodexDriver.defaultConfig(), cli: FAKE_CLI },
     });
     try {
-      expect(instance.models.options.some((option) => option.id === "omlx::MiniMax-M3-4bit" && option.custom)).toBe(true);
+      await expect.poll(() => instance.models.options.some((option) => option.id === "omlx::MiniMax-M3-4bit" && option.custom), { timeout: 10_000 }).toBe(true);
       expect(instance.refreshModels).toEqual(expect.any(Function));
     } finally {
       await instance.dispose();

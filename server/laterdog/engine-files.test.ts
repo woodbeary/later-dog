@@ -1,10 +1,10 @@
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, truncateSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, truncateSync, unlinkSync, writeFileSync } from "node:fs";
 import { realpathSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, expect, it } from "vitest";
-import { ENGINE_FILE_LIMIT, ENGINE_TRANSFER_LIMIT, EngineFileReceiver, engineInventory, engineFilePath, matchingTranscriptPrefix, type EngineFile } from "./engine-files.ts";
+import { ENGINE_FILE_LIMIT, ENGINE_TRANSFER_LIMIT, EngineFileReceiver, engineInventory, engineFilePath, streamedTree, workspaceRecovery, matchingTranscriptPrefix, type EngineFile } from "./engine-files.ts";
 
 const scratch: string[] = [];
 function folder() { const path = realpathSync(mkdtempSync(join(tmpdir(), "laterdog-engine-files-"))); scratch.push(path); return path; }
@@ -18,6 +18,39 @@ it("copies exact bytes across a checkpoint and can receive a later change", () =
     receiver.begin(file(text)); receiver.chunk(Buffer.from(text)); receiver.end();
     expect(readFileSync(join(path, "result.txt"), "utf8")).toBe(text);
   }
+});
+
+it("synchronizes all regular files of an assigned workspace within real disk headroom", () => {
+  const path = folder();
+  const root = { id: "workspace", path, writable: true, streamedTree: true };
+  for (const name of [".git/objects/pack/work.pack", "dist/results.txt", ".cache/important.txt", "coverage/actual.txt"]) {
+    mkdirSync(join(path, name, ".."), { recursive: true });
+    writeFileSync(join(path, name), name);
+  }
+  expect(engineInventory([root]).filter(f => !f.directory).map(f => f.path).sort()).toEqual([".cache/important.txt", ".git/objects/pack/work.pack", "coverage/actual.txt", "dist/results.txt"]);
+  const receiver = new EngineFileReceiver([root]);
+  expect(() => receiver.begin({ ...file("outside capacity"), size: Number.MAX_SAFE_INTEGER })).toThrow("Insufficient disk space");
+  for (const unsafe of [{ ...root, id: "account" }, { ...root, files: ["selected"] }, { ...root, readOnly: true }, { ...root, writable: false }]) {
+    expect(streamedTree(unsafe)).toBe(false);
+  }
+  symlinkSync("dist/results.txt", join(path, "result"));
+  expect(engineInventory([root]).find(file => file.path === "result")?.link).toBe("dist/results.txt");
+  symlinkSync("../another-workspace", join(path, "unsafe"));
+  expect(() => engineInventory([root])).toThrow("leaves its assigned working folder");
+});
+
+it("recovers independent guest work, respects home edits, and leaves ambiguous bytes and permissions intact", () => {
+  const saved = file("saved");
+  const local = file("new home");
+  const guest = file("new guest");
+  expect(workspaceRecovery("workspace", [saved], [guest], [saved])).toEqual([{ root: "workspace", path: guest.path, hash: guest.hash, mode: guest.mode }]);
+  expect(workspaceRecovery("workspace", [local], [saved], [saved])).toEqual([]);
+  expect(workspaceRecovery("workspace", [], [guest], [])).toHaveLength(1);
+  expect(workspaceRecovery("workspace", [saved], [], [saved])).toEqual([{ root: "workspace", path: saved.path, hash: undefined, mode: undefined }]);
+  expect(() => workspaceRecovery("workspace", [local], [guest], [saved])).toThrow("Both copies were preserved");
+  expect(() => workspaceRecovery("workspace", [local], [guest], [])).toThrow("Both copies were preserved");
+  expect(() => workspaceRecovery("workspace", [local], [], [saved])).toThrow("Both copies were preserved");
+  expect(() => workspaceRecovery("workspace", [{ ...saved, mode: 0o755 }], [guest], [saved])).toThrow("Both copies were preserved");
 });
 
 it("keeps a newer home edit and refuses a conflicting deletion", () => {
@@ -154,7 +187,37 @@ it("excludes generated paths in walking and explicit root.files while retaining 
   const kept = ["nested/.wrangler/state/db", "nested/.wrangler/cache/db", "src/a", "results/check.txt", ".git/HEAD"];
   for (const name of [...generated, ...kept]) { mkdirSync(join(path, name, ".."), { recursive: true }); writeFileSync(join(path, name), "x"); }
   const root = { id: "workspace", path, writable: true };
-  expect(engineInventory([root]).map(f => f.path).sort()).toEqual([...kept].sort());
+  expect(engineInventory([root]).filter(f => !f.directory).map(f => f.path).sort()).toEqual([...kept].sort());
   expect(engineInventory([{ ...root, files: [...generated, ...kept] }]).map(f => f.path).sort()).toEqual([...kept].sort());
   expect(() => engineInventory([{ ...root, files: [".open-next/../escape"] }])).toThrow("Invalid engine file path");
+});
+
+it("preserves empty working directories and leaves concurrently added entries intact", () => {
+  const home = { id: "workspace", path: folder(), writable: true, streamedTree: true };
+  const guest = { ...home, path: folder() };
+  mkdirSync(join(home.path, "..local", "empty"), { recursive: true });
+  const records = engineInventory([home]);
+  expect(records.map(f => [f.path, f.directory])).toEqual([["..local", true], ["..local/empty", true]]);
+  const receiver = new EngineFileReceiver([guest]);
+  for (const entry of records) { receiver.begin(entry); receiver.end(); }
+  expect(engineInventory([guest])).toEqual(records);
+  writeFileSync(join(guest.path, "..local", "empty", "new"), "guest");
+  expect(() => receiver.remove(records[1])).toThrow();
+  expect(readFileSync(join(guest.path, "..local", "empty", "new"), "utf8")).toBe("guest");
+  unlinkSync(join(guest.path, "..local", "empty", "new"));
+  for (const entry of records.reverse()) receiver.remove(entry);
+  expect(readdirSync(guest.path)).toEqual([]);
+});
+
+it("preserves a concurrent file to link replacement even with identical bytes and permissions", () => {
+  const root = { id: "workspace", path: folder(), writable: true, streamedTree: true };
+  const name = join(root.path, "result.txt");
+  writeFileSync(name, "target"); chmodSync(name, 0o777);
+  const [before] = engineInventory([root]);
+  const receiver = new EngineFileReceiver([root], [before]);
+  receiver.begin(file("updated")); receiver.chunk(Buffer.from("updated"));
+  unlinkSync(name); symlinkSync("target", name);
+  expect(() => receiver.end()).toThrow("changed while");
+  expect(() => receiver.remove(before)).toThrow("newer home copy");
+  expect(engineInventory([root]).find(f => f.path === "result.txt")?.link).toBe("target");
 });

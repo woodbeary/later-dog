@@ -25,6 +25,7 @@ import {
 } from "./codex.ts";
 import { removeTempDir } from "../testing/cleanup.ts";
 import * as procs from "../procs.ts";
+import * as placement from "../laterdog/engine-placement.ts";
 import { leftoverProgramsNotice } from "../laterdog/unconfirmed-stop.ts";
 import { autoVerdict } from "../auto-approve.ts";
 import { QUESTION_DISMISS_MESSAGE } from "../../shared/ask-question.ts";
@@ -361,6 +362,19 @@ process.stdout.write(JSON.stringify({jsonrpc:'2.0',id:m.id,result})+'\\n');});`)
       }
     }
     expect(readFileSync(receipt, "utf8")).toBe("agents:list_bots\nnotes:read_notes\nagents:list_bots\nnotes:read_notes\n");
+  });
+
+  it("reports a required computer outage without launching a home Codex app-server", async () => {
+    const choice = vi.spyOn(placement, "remoteEngineChoice").mockImplementation((_dir, botId) => ({ botId, computer: true, fromEnvironment: false, required: true }));
+    try {
+      await create();
+      const dump = join(scratch, "strict-computer.json");
+      process.env.FAKE_CODEX_DUMP = dump;
+      await instance.adapter.sendTurn({ threadId: "strict-thread", botId: "strict-dog", text: "cannot run on the home", cwd: scratch });
+      expect(await recorder.until(event => event.type === "turn.completed")).toMatchObject({ ok: false, stopReason: "engine_open_failed" });
+      expect(recorder.events.some(event => event.type === "runtime.error" && event.message.includes("No prompt was sent"))).toBe(true);
+      expect(existsSync(dump)).toBe(false);
+    } finally { choice.mockRestore(); }
   });
 
   afterEach(async () => {
@@ -2859,7 +2873,7 @@ process.stdout.write(JSON.stringify({jsonrpc:'2.0',id:m.id,result})+'\\n');});`)
     process.env.FAKE_CODEX_ASTRA = "1";
     await create();
 
-    expect(instance.models.options.map((model) => model.id)).toContain("gpt-6-astra");
+    await expect.poll(() => instance.models.options.map((model) => model.id), { timeout: 10_000 }).toContain("gpt-6-astra");
     expect((await instance.snapshot()).update?.title).toBe("Update Codex to 0.156.1");
   });
 

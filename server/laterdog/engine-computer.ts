@@ -1,7 +1,9 @@
+import { guestCliPreparation } from "./guest-cli-runtime.ts";
 import { createHash } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import { EventEmitter } from "node:events";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
+import { createRequire } from "node:module";
 import type WebSocket from "ws";
 import { SERVER_ROOT } from "../proxy-paths.ts";
 import type { EngineLink } from "./engine-remote.ts";
@@ -9,18 +11,33 @@ import { CODEX_GUARD_REQUIREMENTS, CODEX_MANAGED_HOOKS } from "./codex-computer-
 import { REMOTE_ENGINE_BASE, type ClaudeRemotePlan } from "./engine-placement.ts";
 
 export interface EngineScripts { files: Array<{ name: string; bytes: Buffer }>; dir: string; relay: string; proxy: string }
-let scripts: EngineScripts | null = null;
+const scripts = new Map<boolean, EngineScripts>();
 
-export function engineScripts(): EngineScripts {
-  if (scripts) return scripts;
-  const bundled = existsSync(join(SERVER_ROOT, "laterdog", "engine-relay.js")) && !existsSync(join(SERVER_ROOT, "laterdog", "engine-relay.ts"));
-  const names = bundled ? ["engine-relay.js", "engine-proxy.js"] : ["engine-relay.ts", "engine-proxy.ts", "engine-files.ts", "build-output-path.ts"];
-  const files = names.map((name) => ({ name, bytes: readFileSync(join(SERVER_ROOT, "laterdog", name)) }));
+export function engineScripts(provider = false): EngineScripts {
+  const cached = scripts.get(provider);
+  if (cached) return cached;
+  const packaged = !existsSync(join(SERVER_ROOT, "laterdog", "engine-relay.ts"));
+  const dist = packaged ? SERVER_ROOT : join(SERVER_ROOT, "..", "dist-server");
+  const entries = ["laterdog/engine-relay", "laterdog/engine-proxy", ...(provider ? ["laterdog/provider-guest", "mcp-gate"] : [])];
+  const sourceLoader = createRequire(import.meta.url);
+  const files = entries.map(entry => {
+    const name = entry.split("/").at(-1)! + (entry === "laterdog/provider-guest" ? ".mjs" : ".js");
+    const output = join(dist, entry + ".js");
+    if (packaged || existsSync(output)) return { name, bytes: readFileSync(output) };
+    const esbuild: typeof import("esbuild") = sourceLoader("esbuild");
+    const built = esbuild.buildSync({
+      entryPoints: [join(SERVER_ROOT, entry + ".ts")], write: false, bundle: true, platform: "node", target: "node24", format: "esm",
+      alias: { yaml: join(dirname(sourceLoader.resolve("yaml/package.json")), "browser", "index.js") },
+      banner: { js: 'import { createRequire as __createRequire } from "node:module"; const require = __createRequire(import.meta.url);' },
+    });
+    return { name, bytes: Buffer.from(built.outputFiles[0].contents) };
+  });
   const hash = createHash("sha256");
   for (const file of files) hash.update(file.name).update("\0").update(file.bytes);
   const dir = `${REMOTE_ENGINE_BASE}/relay/${hash.digest("hex").slice(0, 16)}`;
-  scripts = { files, dir, relay: `${dir}/${names[0]}`, proxy: `${dir}/${names[1]}` };
-  return scripts;
+  const result = { files, dir, relay: `${dir}/${files[0].name}`, proxy: `${dir}/${files[1].name}` };
+  scripts.set(provider, result);
+  return result;
 }
 
 const quote = (value: string) => `'${value.replace(/'/g, `'\\''`)}'`;
@@ -48,9 +65,14 @@ export function prepareScript(plan: ClaudeRemotePlan, relay: EngineScripts): str
   const checked = `test -x ${cli} && actual=$( ${cli} --version 2>/dev/null ) && test "$actual" = ${expectedVersion}`;
   const repair = codex ? "false" : `node ${quote(`${cliDir}/node_modules/@anthropic-ai/claude-code/install.cjs`)} >/dev/null && engine_ready`;
   const dirs = [...plan.mkdirs, `${REMOTE_ENGINE_BASE}/run`, `${REMOTE_ENGINE_BASE}/state`, `${REMOTE_ENGINE_BASE}/locks`];
+  const prepare = plan.guestRuntime?.kind === "node" ? "command -v node >/dev/null"
+    : plan.guestRuntime?.kind === "acp" ? "bash -e -c " + quote(guestCliPreparation(plan.guestRuntime.cli))
+    : `engine_ready() { ${checked}; }
+engine_ready || (mkdir -p ${quote(cliDir)} && ${install} >/dev/null && (engine_ready || (${repair})))`;
   return [
-    `engine_ready() { ${checked}; }`,
-    `engine_ready || (mkdir -p ${quote(cliDir)} && ${install} >/dev/null && (engine_ready || (${repair}))) || exit ${CLI_NOT_INSTALLED}`,
+    `(
+${prepare}
+) || exit ${CLI_NOT_INSTALLED}`,
     `sudo -n install -d -o dog -g dog -m 700 ${dirs.map(quote).join(" ")} || exit ${FOLDERS_NOT_MADE}`,
     `if test -f ${quote(`${relay.dir}/.ready`)}; then echo ${RELAY_PRESENT}; else mkdir -p ${quote(relay.dir)}; fi`,
   ].join("\n");
@@ -78,7 +100,10 @@ function codexGuardInstall(): string {
 
 export async function prepareEngineComputer(box: EngineBox, plan: ClaudeRemotePlan, relay = engineScripts()): Promise<void> {
   const prepared = await box.exec(prepareScript(plan, relay), ENGINE_INSTALL_BUDGET_MS);
-  if (prepared.exitCode === CLI_NOT_INSTALLED) throw new Error(`${plan.cli.name === "@openai/codex" ? "Codex" : "Claude Code"} ${plan.cli.version} could not be installed on the cloud computer.`);
+  if (prepared.exitCode === CLI_NOT_INSTALLED) {
+    const name = plan.guestRuntime ? plan.cli.name : plan.cli.name === "@openai/codex" ? "Codex" : "Claude Code";
+    throw new Error(`${name} ${plan.cli.version} could not be installed on the cloud computer.`);
+  }
   if (prepared.exitCode === FOLDERS_NOT_MADE) throw new Error("The mirrored folders could not be made on the cloud computer.");
   if (prepared.exitCode !== 0) throw new Error("The cloud computer could not be prepared for the engine.");
   if (plan.cli.name === "@openai/codex" && plan.launch.hooks.length) {

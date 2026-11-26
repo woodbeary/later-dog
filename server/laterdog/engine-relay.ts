@@ -2,12 +2,12 @@ import { spawn, type ChildProcessByStdio } from "node:child_process";
 import { createHash } from "node:crypto";
 import { writeFileAtomic } from "../atomic.ts";
 import { once } from "node:events";
-import { closeSync, constants, existsSync, linkSync, mkdirSync, openSync, readFileSync, renameSync, rmSync, unlinkSync, writeFileSync, writeSync } from "node:fs";
+import { closeSync, constants, existsSync, lstatSync, linkSync, mkdirSync, openSync, readFileSync, renameSync, rmSync, unlinkSync, writeFileSync, writeSync } from "node:fs";
 import { createServer, type Socket } from "node:net";
 import { dirname, join } from "node:path";
 import { createInterface } from "node:readline";
 import type { Readable, Writable } from "node:stream";
-import { ENGINE_FRAME_BYTES, ENGINE_WINDOW_BYTES, EngineFileReceiver, decodeEngineChunk, engineFileChunks, engineFileKey, engineFilePath, engineInventory, matchingTranscriptPrefix, selectEngineTranscript, selectedTranscript, type EngineFile, type EngineFileRoot } from "./engine-files.ts";
+import { ENGINE_FRAME_BYTES, ENGINE_WINDOW_BYTES, EngineFileReceiver, sameEngineFile, streamedTree, decodeEngineChunk, engineFileChunks, engineFileKey, engineFilePath, engineInventory, inventoryWork, runFileWork, matchingTranscriptPrefix, selectEngineTranscript, selectedTranscript, type EngineFile, type EngineFileRoot } from "./engine-files.ts";
 
 const TEST_ROOT = process.env.LATERDOG_ENGINE_TEST_ROOT ?? "";
 let homeRoots: string[] = [];
@@ -68,11 +68,37 @@ function saveTranscriptReceipts(): void {
   }
 }
 
-async function sendFile(file: EngineFile, before = baseline.get(engineFileKey(file))): Promise<void> {
+function workspaceReceiptFile(root: EngineFileRoot): string {
+  return `${stateFile}.workspace-${createHash("sha256").update(root.path).digest("hex")}.json`;
+}
+
+function readWorkspaceReceipt(root: EngineFileRoot): EngineFile[] {
+  try {
+    const files: EngineFile[] = JSON.parse(readFileSync(workspaceReceiptFile(root), "utf8"));
+    if (!Array.isArray(files) || !files.every(file => file.root === root.id && typeof file.path === "string" && /^[a-f0-9]{64}$/.test(file.hash))) throw new Error("Invalid working folder checkpoint receipt");
+    return files;
+  } catch (error) { if ((error as NodeJS.ErrnoException).code === "ENOENT") return []; throw error; }
+}
+
+function saveWorkspaceReceipt() {
+  for (const root of outputs.filter(streamedTree)) writeFileAtomic(workspaceReceiptFile(root), JSON.stringify([...baseline.values()].filter(file => file.root === root.id)), { mode: 0o600 });
+}
+
+async function inventory(roots: EngineFileRoot[]) {
+  let nextNotice = Date.now() + 5000;
+  return runFileWork(inventoryWork(roots), undefined, () => {
+    if (Date.now() < nextNotice) return;
+    nextNotice = Date.now() + 5000;
+    void send({ type: "file_progress" }).catch(() => {});
+  });
+}
+
+async function sendFile(file: EngineFile, before = baseline.get(engineFileKey(file)), recovery = false): Promise<void> {
   const root = roots.find(root => root.id === file.root)!;
-  const required = selectedTranscript(root, file.path);
+  const required = recovery || selectedTranscript(root, file.path);
   const prefix = matchingTranscriptPrefix(root, file, before);
   await send({ type: "file_begin", file, prefix });
+  pendingFileBytes += 256 + Buffer.byteLength(file.path);
   for (const bytes of engineFileChunks(root, file.path, ENGINE_FRAME_BYTES, prefix?.size, file.size)) {
     await send({ type: "file_chunk", data: bytes.toString("base64") });
     pendingFileBytes += bytes.length;
@@ -82,21 +108,25 @@ async function sendFile(file: EngineFile, before = baseline.get(engineFileKey(fi
     }
   }
   await send({ type: "file_end" });
-  if (required) await acknowledged("file_window", true);
+  if (required || pendingFileBytes >= ENGINE_WINDOW_BYTES) {
+    await acknowledged("file_window", required);
+    pendingFileBytes = 0;
+  }
 }
 
 function checkpoint(): Promise<void> {
   const run = checkpointWork.then(async () => {
-    const files = engineInventory(outputs);
+    const files = await inventory(outputs);
     const current = new Map(files.map(file => [engineFileKey(file), file]));
-    for (const file of files) if (baseline.get(engineFileKey(file))?.hash !== file.hash) await sendFile(file);
-    for (const [key, file] of baseline) if (!current.has(key)) {
+    for (const file of files) if (!sameEngineFile(baseline.get(engineFileKey(file)), file)) await sendFile(file);
+    for (const file of [...baseline.values()].reverse()) if (!current.has(engineFileKey(file))) {
       await send({ type: "file_remove", file });
       if (outputs.some(root => root.id === file.root && selectedTranscript(root, file.path))) await acknowledged("file_window", true);
     }
     await acknowledged("checkpoint");
     baseline = current;
     saveTranscriptReceipts();
+    saveWorkspaceReceipt();
     receiver.resetBudget();
     if (stateFile) writeFileSync(stateFile, JSON.stringify([...baseline.values()]), { mode: 0o600 });
   });
@@ -215,10 +245,17 @@ async function launch(frame: any): Promise<void> {
     socket.on("close", () => { sockets.delete(id); void send({ type: "proxy_close", id }).catch(() => {}); });
   });
   await new Promise<void>((resolve, reject) => { server!.once("error", reject); server!.listen(socketPath, resolve); });
-  baseline = new Map(engineInventory(outputs).map(file => [engineFileKey(file), file]));
+  const installed = await inventory(roots);
+  const outputIds = new Set(outputs.map(root => root.id));
+  const strict = new Set(outputs.filter(streamedTree).map(root => root.id));
+  const selected = [...receiver.baseline.values()].filter(file => strict.has(file.root));
+  baseline = new Map([...installed.filter(file => outputIds.has(file.root) && !strict.has(file.root)), ...selected].map(file => [engineFileKey(file), file]));
+  saveWorkspaceReceipt();
+  const resident = installed.filter(file => strict.has(file.root));
+  if (resident.length !== selected.length || resident.some(file => !sameEngineFile(baseline.get(engineFileKey(file)), file))) throw new Error("The working folder changed during preparation. Its copies were preserved.");
   saveTranscriptReceipts();
   receiver.baseline.clear();
-  for (const file of engineInventory(roots)) receiver.baseline.set(engineFileKey(file), file);
+  for (const file of installed) receiver.baseline.set(engineFileKey(file), file);
   try {
     const env = Object.fromEntries(Object.entries(frame.env as Record<string, string>).map(([key, value]) => [key, mirrored(value)]));
     child = spawn(frame.cli, (frame.args as string[]).map(mirrored), { cwd: mirrored(frame.cwd), env: { ...env, LATERDOG_ENGINE_SOCKET: socketPath }, stdio: ["pipe", "pipe", "pipe"], detached: true });
@@ -265,7 +302,7 @@ async function handle(frame: any): Promise<void> {
       if (!takeLock(frame.lockFile)) { await reply(frame.id, { refused: "busy" }); return; }
       stateFile = frame.stateFile;
       homeRoots = frame.roots.map((root: EngineFileRoot) => root.path);
-      roots = frame.roots.map((root: EngineFileRoot) => ({ ...root, path: mirrored(root.path) }));
+      roots = frame.roots.map((root: EngineFileRoot) => ({ ...root, logicalPath: root.path, path: mirrored(root.path) }));
       outputs = roots.filter(root => frame.outputIds.includes(root.id));
       if (frame.ephemeralCodexHome) bindEphemeralCodexHome(frame.ephemeralCodexHome);
       for (const root of outputs) for (const name of root.files ?? []) {
@@ -278,10 +315,36 @@ async function handle(frame: any): Promise<void> {
       }
       for (const name of frame.names) names.add(name);
       for (const root of roots) mkdirSync(root.path, { recursive: true, mode: 0o700 });
-      const files = engineInventory(roots);
+      const files = await inventory(roots);
       receiver = new EngineFileReceiver(roots, files);
-      await reply(frame.id, { files, transcripts: readTranscriptReceipts() });
+      const trees = outputs.filter(streamedTree);
+      if (trees.length) {
+        const prior = trees.flatMap(readWorkspaceReceipt);
+        for (const [kind, items] of [["resident", files], ["previous", prior]] as const) {
+          for (let i = 0; i < items.length; i += 128) await send({ type: "inventory_page", kind, files: items.slice(i, i + 128) });
+        }
+      }
+      await reply(frame.id, { files: trees.length ? [] : files, trees: trees.map(root => root.id), transcripts: readTranscriptReceipts() });
       return;
+    case "recover_workspace": {
+      if (child || !Array.isArray(frame.files) || frame.files.length > 64) throw new Error("Invalid working folder recovery selection");
+      for (const expected of frame.files) {
+        const workspace = outputs.find(root => root.id === expected.root && streamedTree(root));
+        if (!workspace) throw new Error("Invalid working folder recovery root");
+        const item = { root: workspace.id, path: expected.path };
+        engineFilePath(workspace, item.path, true);
+        const resident = receiver.baseline.get(engineFileKey(item));
+        if (!sameEngineFile(resident, expected)) throw new Error("Working file changed before recovery");
+        if (resident) await sendFile(resident, undefined, true);
+        else {
+          if (lstatSync(engineFilePath(workspace, item.path, true), { throwIfNoEntry: false })) throw new Error("A new working file appeared before recovery");
+          await send({ type: "file_remove", file: item });
+          await acknowledged("file_window", true);
+        }
+      }
+      await reply(frame.id, { recovered: true });
+      return;
+    }
     case "recover_transcript": {
       const root = outputs.find(root => root.id === frame.root);
       if (child || !root || !selectedTranscript(root, frame.path)) throw new Error("Invalid transcript recovery selection");
@@ -312,7 +375,14 @@ async function handle(frame: any): Promise<void> {
     case "file_remove": receiver.remove(frame.file); return;
     case "prepared": await reply(frame.id, { prepared: true }); return;
     case "launch": await launch(frame); return;
-    case "stdin": child?.stdin.write(Buffer.from(frame.data, "base64")); return;
+    case "stdin": {
+      if (frame.id === undefined) { child?.stdin.write(Buffer.from(frame.data, "base64")); return; }
+      if (!child || !child.stdin.writable) throw new Error("Engine input closed.");
+      const stdin = child.stdin;
+      await new Promise<void>((resolve, reject) => stdin.write(Buffer.from(frame.data, "base64"), error => error ? reject(error) : resolve()));
+      await reply(frame.id, { received: true });
+      return;
+    }
     case "end": child?.stdin.end(); return;
     case "stop": kill(); setTimeout(() => kill("SIGKILL"), 3_000).unref(); return;
     case "ack": acknowledgements.get(frame.id)?.(frame.error); acknowledgements.delete(frame.id); return;

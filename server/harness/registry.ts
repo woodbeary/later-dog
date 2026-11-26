@@ -1,3 +1,4 @@
+import { placeProvider } from "../laterdog/guest-provider.ts";
 import { findCliCandidates } from "../env-path.ts";
 import { installNpmEngine, npmAvailable, serverInstallFor } from "../engine-install.ts";
 import { installNative, nativeInstallFor } from "../laterdog/native-install.ts";
@@ -122,14 +123,15 @@ export class ProviderRegistry {
       const config = entry.config === undefined ? driver.defaultConfig() : driver.decodeConfig(entry.config);
       const rawCli = cliOfRaw(entry.config);
       if (rawCli) this.cliByInstance.set(instanceId, rawCli);
-      const live = await driver.create({
+      const input = {
         instanceId,
         displayName: entry.displayName ?? driver.metadata.displayName,
         environment: entry.environment ?? {},
         enabled: entry.enabled ?? true,
         config,
-      });
-      const guarded = refusedWhileOff(live);
+      };
+      const live = await driver.create(input);
+      const guarded = refusedWhileOff(placeProvider(live, input));
       return { instanceId, live: decorate ? decorate(guarded) : guarded };
     } catch (e) {
       return {

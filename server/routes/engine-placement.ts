@@ -19,7 +19,7 @@ const wire = (choice: RemoteEngineChoice) => ({
   botId: choice.botId,
   placement: choice.computer ? "computer" : "home",
   fromEnvironment: choice.fromEnvironment,
-  engines: ["claude", "codex"],
+  ...(choice.required ? { required: true, engines: ["claude", "codex", "grokAgent", "cursorAgent", "laterdogAi", "laterdogGrok", "grok", "openai-compat"] } : { engines: ["claude", "codex"] }),
 });
 
 export function createEnginePlacementRoutes(deps: EnginePlacementRouteDeps): RouteHandler {
@@ -40,6 +40,7 @@ export function createEnginePlacementRoutes(deps: EnginePlacementRouteDeps): Rou
       catch (error) { return json(res, 500, { error: (error as Error).message }); }
     }
     const current = deps.read(botId);
+    if (current.required && parsed.data.placement === "home") return json(res, 409, { error: "The cloud home places every dog’s engine on its computer. Change the home-wide placement first." });
     if (current.fromEnvironment && parsed.data.placement === "home") {
       return json(res, 409, { error: "This dog's engine is placed on its computer by the home's environment, so it cannot be changed here." });
     }
