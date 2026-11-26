@@ -110,6 +110,7 @@ Use only mapped, tested commands:
 - [Engine session archive, 2026-11-09](session-archive-2026-11-09.md)
 - [Session archive production release, 2026-11-09](session-archive-release-2026-11-09.md)
 - [Archive untracked engine sessions (2026-11-10)](session-archive-untracked-2026-11-10.md)
+- [Stored conversation folders and recovery (2026-11-25)](stored-work-folders-2026-11-25.md)
 - [Conversation stall repair, November 9](stall-recovery-2026-11-09.md)
 - [Home save: database copy headroom and scratch cleanup (2026-11-10)](sync-snapshot-headroom-2026-11-10.md)
 - [Home reliability release, November 10](home-reliability-release-2026-11-10.md)
