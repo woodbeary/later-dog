@@ -1,6 +1,7 @@
 import {
   mkdtempSync,
   mkdirSync,
+  linkSync,
   writeFileSync,
   readFileSync,
   rmSync,
@@ -33,6 +34,7 @@ async function fixture() {
   garbage.push(dir);
   const objects = new Map<string, { bytes: Uint8Array; etag: string }>();
   const bucket: WorkFolderBucket = {
+    async list({prefix}){return {objects:[...objects.keys()].filter(k=>k.startsWith(prefix)).map(key=>({key})),truncated:false};},
     async head(k) {
       const hit = objects.get(k);
       return hit ? { size: hit.bytes.byteLength } : null;
@@ -217,6 +219,50 @@ describe("assigned working folders on guest computers", () => {
     writeFileSync(join(loose, "reflow"), "owned conflicting file");
     await expect(checkout({ ...l, aliases })).rejects.toThrow("conflicts");
     expect(readFileSync(join(loose, "reflow"), "utf8")).toBe("owned conflicting file");
+  });
+  it("restores a linked set to a single inode, preserves independent identical files, and can split and rejoin its records", async () => {
+    const f = await fixture();
+    const d = join(f.src, "nested");
+    mkdirSync(d);
+    const original = join(f.src, "a"),
+      outside = join(f.dir, "outside-link");
+    writeFileSync(original, "linked");
+    linkSync(original, join(d, "b"));
+    linkSync(original, join(d, "c"));
+    linkSync(original, outside);
+    writeFileSync(join(f.src, "other"), "linked");
+    const head = await publishInitialWorkFolder(f.src, f.store);
+    const manifest = await f.store.tree(head.manifest!);
+    expect(manifest.entries.get("nested/b")).toMatchObject({ hardlink: "a" });
+    expect(manifest.entries.get("other")).not.toHaveProperty("hardlink");
+    await f.syncA();
+    const inode = (base: string, path: string) => statSync(join(base, path)).ino;
+    expect(inode(f.left, "a")).toBe(inode(f.left, "nested/c"));
+    expect(statSync(join(f.left, "a")).nlink).toBe(3);
+    expect(inode(f.left, "a")).not.toBe(inode(f.left, "other"));
+    writeFileSync(join(f.left, "nested/b"), "new-content");
+    await f.syncA();
+    await f.syncB();
+    expect(readFileSync(join(f.right, "a"), "utf8")).toBe("new-content");
+    expect(inode(f.right, "a")).toBe(inode(f.right, "nested/b"));
+    rmSync(join(f.left, "nested/b"));
+    writeFileSync(join(f.left, "nested/b"), "new-content");
+    await f.syncA();
+    await f.syncB();
+    expect(inode(f.right, "nested/b")).not.toBe(inode(f.right, "a"));
+    rmSync(join(f.left, "nested/b"));
+    linkSync(join(f.left, "a"), join(f.left, "nested/b"));
+    await f.syncA();
+    await f.syncB();
+    expect(inode(f.right, "nested/b")).toBe(inode(f.right, "a"));
+    const tip = await f.store.head(),
+      tree = await f.store.tree(tip!.manifest!);
+    const b = tree.entries.get("nested/b");
+    if (b?.kind !== "file") throw Error("Fixture missing file");
+    b.sha256 = "f".repeat(64);
+    expect(await f.store.publish(tree, tip!.revision)).toBeTruthy();
+    await expect(f.syncB()).rejects.toThrow("hard link");
+    expect(inode(f.right, "a")).toBe(inode(f.right, "nested/b"));
   });
   it("refuses a branch whose remote file bytes do not match the published hash, preserving the resident copy", async () => {
     const f = await fixture();
