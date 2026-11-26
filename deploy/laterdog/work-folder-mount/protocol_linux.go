@@ -15,23 +15,24 @@ const maxFrame = 256 << 10
 const pageSize = 64
 
 type request struct {
-	Op      string  `json:"op"`
-	Root    string  `json:"root"`
-	Path    string  `json:"path"`
-	NewPath string  `json:"newPath,omitempty"`
-	Target  string  `json:"target,omitempty"`
-	Source  string  `json:"source,omitempty"`
-	Handle  string  `json:"handle,omitempty"`
-	Cursor  string  `json:"cursor,omitempty"`
-	Flags   uint32  `json:"flags,omitempty"`
-	Offset  int64   `json:"offset,string,omitempty"`
-	Size    *int64  `json:"size,string,omitempty"`
-	Mode    *uint32 `json:"mode,omitempty"`
-	UID     *uint32 `json:"uid,omitempty"`
-	GID     *uint32 `json:"gid,omitempty"`
-	Atime   *int64  `json:"atimeNs,string,omitempty"`
-	Mtime   *int64  `json:"mtimeNs,string,omitempty"`
-	Data    []byte  `json:"data,omitempty"`
+	Op        string  `json:"op"`
+	Root      string  `json:"root"`
+	Path      string  `json:"path"`
+	NewPath   string  `json:"newPath,omitempty"`
+	Target    string  `json:"target,omitempty"`
+	Projected bool    `json:"projected,omitempty"`
+	Source    string  `json:"source,omitempty"`
+	Handle    string  `json:"handle,omitempty"`
+	Cursor    string  `json:"cursor,omitempty"`
+	Flags     uint32  `json:"flags,omitempty"`
+	Offset    int64   `json:"offset,string,omitempty"`
+	Size      *int64  `json:"size,string,omitempty"`
+	Mode      *uint32 `json:"mode,omitempty"`
+	UID       *uint32 `json:"uid,omitempty"`
+	GID       *uint32 `json:"gid,omitempty"`
+	Atime     *int64  `json:"atimeNs,string,omitempty"`
+	Mtime     *int64  `json:"mtimeNs,string,omitempty"`
+	Data      []byte  `json:"data,omitempty"`
 }
 
 type attr struct {
@@ -65,16 +66,17 @@ type space struct {
 }
 
 type response struct {
-	OK      bool    `json:"ok"`
-	Errno   string  `json:"errno,omitempty"`
-	Attr    *attr   `json:"attr,omitempty"`
-	Handle  string  `json:"handle,omitempty"`
-	Target  string  `json:"target,omitempty"`
-	Data    []byte  `json:"data,omitempty"`
-	Written int     `json:"written,omitempty"`
-	Entries []entry `json:"entries,omitempty"`
-	Next    string  `json:"next,omitempty"`
-	Space   *space  `json:"space,omitempty"`
+	OK        bool    `json:"ok"`
+	Errno     string  `json:"errno,omitempty"`
+	Attr      *attr   `json:"attr,omitempty"`
+	Handle    string  `json:"handle,omitempty"`
+	Target    string  `json:"target,omitempty"`
+	Projected bool    `json:"projected,omitempty"`
+	Data      []byte  `json:"data,omitempty"`
+	Written   int     `json:"written,omitempty"`
+	Entries   []entry `json:"entries,omitempty"`
+	Next      string  `json:"next,omitempty"`
+	Space     *space  `json:"space,omitempty"`
 }
 
 func component(name string) bool {
@@ -103,6 +105,19 @@ func safeTarget(name, target string) bool {
 	}
 	end := path.Join(path.Dir(name), target)
 	return end != ".." && !strings.HasPrefix(end, "../")
+}
+
+func projectedTarget(target string) bool {
+	const prefix = "/run/laterdog-work-folders/tree/project-"
+	rest, matched := strings.CutPrefix(target, prefix)
+	if !matched || len(target) > 4095 {
+		return false
+	}
+	hash, tail, hasTail := strings.Cut(rest, "/")
+	if len(hash) != 64 || strings.Trim(hash, "0123456789abcdef") != "" {
+		return false
+	}
+	return !hasTail || tail != "" && validPath(tail)
 }
 
 var errnoByName = func() map[string]syscall.Errno {

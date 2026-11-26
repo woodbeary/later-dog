@@ -170,14 +170,14 @@ func (g *guest) entryOperation(r request) (response, error) {
 			return response{}, unix.EACCES
 		}
 		err = unix.Symlinkat(r.Target, parent, leaf)
-	case "readlink":
+	case "readlink", "readlinkMetadata":
 		var b [4096]byte
 		n, e := unix.Readlinkat(parent, leaf, b[:])
 		if e != nil {
 			return response{}, e
 		}
 		target := string(b[:n])
-		if !safeTarget(r.Path, target) {
+		if r.Op == "readlink" && !safeTarget(r.Path, target) {
 			return response{}, unix.EACCES
 		}
 		return response{Target: target}, nil
@@ -321,7 +321,7 @@ func (g *guest) execute(r request) (response, error) {
 		return g.change(r)
 	case "open", "create", "opendir":
 		return g.openHandle(r)
-	case "mkdir", "unlink", "rmdir", "rename", "link", "symlink", "readlink":
+	case "mkdir", "unlink", "rmdir", "rename", "link", "symlink", "readlink", "readlinkMetadata":
 		return g.entryOperation(r)
 	case "statfs":
 		var s unix.Statfs_t

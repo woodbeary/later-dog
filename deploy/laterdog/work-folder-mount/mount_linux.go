@@ -135,7 +135,7 @@ func (n *node) Readlink(ctx context.Context) ([]byte, syscall.Errno) {
 	if e != 0 {
 		return nil, e
 	}
-	if !safeTarget(n.name(), r.Target) {
+	if !safeTarget(n.name(), r.Target) && !(r.Projected && projectedTarget(r.Target)) {
 		return nil, unix.EACCES
 	}
 	return []byte(r.Target), 0
