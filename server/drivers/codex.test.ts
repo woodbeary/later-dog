@@ -2873,7 +2873,7 @@ process.stdout.write(JSON.stringify({jsonrpc:'2.0',id:m.id,result})+'\\n');});`)
     process.env.FAKE_CODEX_ASTRA = "1";
     await create();
 
-    expect(instance.models.options.map((model) => model.id)).toContain("gpt-6-astra");
+    await expect.poll(() => instance.models.options.map((model) => model.id), { timeout: 10_000 }).toContain("gpt-6-astra");
     expect((await instance.snapshot()).update?.title).toBe("Update Codex to 0.156.1");
   });
 

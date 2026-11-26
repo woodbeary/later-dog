@@ -111,7 +111,7 @@ describe("QwenAgentDriver catalog", () => {
       config: QwenAgentDriver.defaultConfig(),
     });
     try {
-      expect(instance.models.default).toBe("configured-qwen(openai)");
+      await expect.poll(() => instance.models.default, { timeout: 10_000 }).toBe("configured-qwen(openai)");
       expect(instance.models.options).toContainEqual({
         id: "configured-qwen(openai)",
         label: "configured-qwen — Configured Qwen",
@@ -148,7 +148,7 @@ describe("QwenAgentDriver catalog", () => {
       config: QwenAgentDriver.defaultConfig(),
     });
     try {
-      expect(instance.models.default).toBe("cloud-qwen(openai)");
+      await expect.poll(() => instance.models.default, { timeout: 10_000 }).toBe("cloud-qwen(openai)");
       expect(instance.models.options.map((option) => option.id)).toEqual([
         "cloud-qwen(openai)",
         "omlx::local-qwen",
@@ -212,7 +212,7 @@ describe("Qwen route selection", () => {
     const instance = await QwenAgentDriver.create({ instanceId: "qwen-default", displayName: "Qwen", enabled: true,
       environment: { ...homeEnv(home), LATERDOG_PROBE_LOCAL_INJECT: "1" }, config: { cli: FAKE_CLI, fullAuto: false } });
     try {
-      expect(instance.models.default).toBe("omlx::local-qwen");
+      await expect.poll(() => instance.models.default, { timeout: 10_000 }).toBe("omlx::local-qwen");
       expect(instance.models.options).toHaveLength(2);
       expect(instance.models.options.map((option) => option.id)).toContain(instance.models.default);
     } finally {

@@ -1017,9 +1017,8 @@ describe("live Custom lists on every local CLI harness", () => {
         }),
       );
       for (const instance of instances) {
-        expect(instance.models.options.some((option) => option.id === "omlx::GLM-5.2-fp8" && option.custom)).toBe(
-          true,
-        );
+        await expect.poll(() => instance.models.options, { timeout: 10_000 })
+          .toContainEqual(expect.objectContaining({ id: "omlx::GLM-5.2-fp8", custom: true }));
       }
     } finally {
       globalThis.fetch = previous;

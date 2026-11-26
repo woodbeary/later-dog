@@ -104,7 +104,7 @@ describe("GrokAgentDriver catalog", () => {
       config: GrokAgentDriver.defaultConfig(),
     });
     try {
-      expect(instance.models.options.some((o) => o.id === "local-glm" && o.label === "GLM local")).toBe(true);
+      await expect.poll(() => instance.models.options.some((o) => o.id === "local-glm" && o.label === "GLM local"), { timeout: 10_000 }).toBe(true);
       expect(instance.refreshModels).toEqual(expect.any(Function));
     } finally {
       await instance.dispose();

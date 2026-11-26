@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { ensureDirs, NATIVE_DIR } from "../../config.ts";
+import { execCli } from "../../procs.ts";
 import { recordEvents } from "../../testing/events.ts";
 import { removeTempDir } from "../../testing/cleanup.ts";
 import {
@@ -137,7 +138,12 @@ describe("CursorAgentDriver", () => {
 
   it("refreshes the catalog from `cursor-agent models` on the instance CLI", async () => {
     chmodSync(FAKE_CLI, 0o755);
-    const driver = createCursorAgentDriver();
+    let allowDiscovery!: () => void;
+    const ready = new Promise<void>((resolve) => { allowDiscovery = resolve; });
+    const driver = createCursorAgentDriver(async (...args) => {
+      await ready;
+      return execCli(...args);
+    });
     const instance = await driver.create({
       instanceId: "cursor-catalog",
       displayName: "Cursor",
@@ -146,9 +152,12 @@ describe("CursorAgentDriver", () => {
       config: { cli: FAKE_CLI, fullAuto: false },
     });
     try {
-      expect(instance.models.options.some((option) => option.id === "cursor-live")).toBe(true);
+      expect(instance.models.options.some((option) => option.id === "cursor-live")).toBe(false);
+      allowDiscovery();
+      await expect.poll(() => instance.models.options.map((option) => option.id), { timeout: 10_000 }).toContain("cursor-live");
       expect(instance.models.default).toBe("auto");
     } finally {
+      allowDiscovery();
       await instance.dispose();
     }
   });
