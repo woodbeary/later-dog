@@ -1,0 +1,82 @@
+import { createHash } from "node:crypto";
+import { lstat, mkdir, open, readFile, readlink, readdir, rm, writeFile } from "node:fs/promises";
+import { dirname, join } from "node:path";
+import { CHUNK_BYTES, parseManifest, restore, transient } from "/app/cloud/runtime/sync.mjs";
+import { folderExclusions, folderMounts } from "/app/cloud/runtime/work-folder-mounts.mjs";
+import { projectPreviousCloudBackup } from "/app/cloud/runtime/previous-backup-compat.mjs";
+
+const permit = await (await fetch("http://restore.r2/permit")).json();
+const sum = bytes => createHash("sha256").update(bytes).digest("hex");
+async function checked(path, hash) {
+  const r = await fetch("http://restore.r2/" + path, { signal: AbortSignal.timeout(90_000) });
+  if (!r.ok) throw Error("Missing coordinator restore object " + r.status);
+  const b = Buffer.from(await r.arrayBuffer());
+  if (sum(b) !== hash) throw Error("Coordinator object checksum changed");
+  return b;
+}
+const base = parseManifest(JSON.parse(await checked("baseline", permit.baselineManifest)));
+const placement = JSON.parse(await checked("placement", permit.placement));
+if (placement.baselineManifest !== permit.baselineManifest || placement.verification !== permit.verification || placement.mode !== "folders") throw Error("Unexpected source placement");
+const exclude = folderExclusions(folderMounts("/data", placement));
+const manifest = projectPreviousCloudBackup(base, placement);
+const root = "/candidate-disk/coordinator";
+const previous = "/candidate-disk/previous-coordinator.json";
+await mkdir(root, { recursive: true, mode: 0o700 });
+const wanted = new Map();
+for (const row of manifest.entries) {
+  if (exclude(row.path) || transient(row)) continue;
+  const fields = row.path.split("/");
+  if (fields.some(part => !part || part === ".." || part === "." || part.includes("\0")) || wanted.has(row.path)) throw Error("Invalid coordinator path");
+  wanted.set(row.path, row);
+}
+for (const row of wanted.values()) {
+  const parent = dirname(row.path);
+  if (parent !== "." && wanted.get(parent)?.type !== "dir") throw Error("Missing coordinator parent directory");
+}
+async function clean(dir = "") {
+  for (const child of await readdir(join(root, dir), { withFileTypes: true })) {
+    const name = join(dir, child.name), desired = wanted.get(name);
+    const actual = child.isFile() ? "file" : child.isSymbolicLink() ? "link" : child.isDirectory() ? "dir" : "";
+    if (!desired || actual !== desired.type) await rm(join(root, name), { force: true, recursive: true });
+    else if (actual === "dir") await clean(name);
+  }
+}
+await clean();
+const last = JSON.parse(await readFile(previous, "utf8").catch(error => { if (error.code === "ENOENT") return "{}"; throw error; }));
+const signatures = new Map([...wanted].filter(([,row]) => row.type === "file").map(([path, row]) => [path, sum(JSON.stringify(row))]));
+const finished = new Set([...signatures].filter(([path, SHA]) => last[path] === SHA).map(([path]) => path));
+const store = { async manifest() { return manifest; }, async get(hash) { return checked("legacy/" + hash, hash); } };
+const { files } = await restore(root, store, null, { exclude, finished });
+let bytes = 0, verified = 0;
+const buffer = Buffer.alloc(CHUNK_BYTES);
+for (const row of wanted.values()) {
+  const path = join(root, row.path), st = await lstat(path);
+  if (row.type === "link") {
+    if (!st.isSymbolicLink() || await readlink(path) !== row.target) throw Error("Coordinator link changed");
+    continue;
+  }
+  if ((st.mode & 0o7777) !== row.mode) throw Error("Coordinator file permissions changed");
+  if (row.type === "dir") { if (!st.isDirectory()) throw Error("Coordinator directory changed"); continue; }
+  if (!st.isFile() || st.size !== row.size) throw Error("Coordinator file size changed");
+  const fd = await open(path, "r");
+  try {
+    let position = 0;
+    for (const hash of row.chunks) {
+      const size = Math.min(st.size - position, buffer.length);
+      let at = 0;
+      while (at < size) {
+        const { bytesRead } = await fd.read(buffer, at, size - at, position + at);
+        if (!bytesRead) throw Error("Coordinator file ended early");
+        at += bytesRead;
+      }
+      if (sum(buffer.subarray(0, size)) !== hash) throw Error("Coordinator file checksum changed");
+      position += size;
+    }
+    if (position !== st.size) throw Error("Coordinator file length changed");
+  } finally { await fd.close(); }
+  bytes += st.size;
+  verified++;
+}
+if (verified !== files) throw Error("Coordinator restore count differs from its disk audit");
+await writeFile(previous, JSON.stringify(Object.fromEntries(signatures)), { mode: 0o600 });
+process.stdout.write(JSON.stringify({ files: verified, bytes }));
