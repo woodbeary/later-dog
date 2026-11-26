@@ -16,6 +16,9 @@ export class WorkFolderMountRouter {
   private channels = new Map<string, Channel>();
   private handles = new Map<string, Cursor>();
   private mutations = 0;
+  private rootChanges = new Set<string>();
+  private scopeOperations = new Map<string, number>();
+  private readonly makeRoot?: (scope: FolderScope, mode: number) => Promise<void>;
   private checkpointing = false;
   private reloading = false;
   private operations = 0;
@@ -36,6 +39,7 @@ export class WorkFolderMountRouter {
     report: WorkFolderMountRouter["report"],
     coldView?: WorkFolderMountRouter["coldView"],
     projectedLink?: WorkFolderMountRouter["projectedLink"],
+    makeRoot?: WorkFolderMountRouter["makeRoot"],
   ) {
     this.names = names;
     this.open = open;
@@ -45,6 +49,7 @@ export class WorkFolderMountRouter {
     this.report = report;
     this.coldView = coldView;
     this.projectedLink = projectedLink;
+    this.makeRoot = makeRoot;
   }
   private attr(path: string) { return directoryAttr(this.names.resolve(path)?.scope.path ?? path, this.uid, this.gid); }
   private readlink(scope: FolderScope, path: string, target: string, local?: string | null): FsReply {
@@ -134,10 +139,28 @@ export class WorkFolderMountRouter {
   async dispatch(request: FsRequest): Promise<FsReply> {
     const writing = changed.has(request.op) || request.op === "open" && Boolean(Number(request.flags) & (3 | 512));
     if (this.reloading || writing && this.checkpointing) throw folderError("EBUSY");
+    const scopeRoot = (path?: string) => {
+      if (!path) return "";
+      const parts = path.split("/");
+      if (parts[0] === "dogs" && parts.length >= 2) return parts.slice(0, 2).join("/");
+      if (parts[0] === "tasks" && parts.length >= 3) return parts.slice(0, 3).join("/");
+      return "";
+    };
+    const roots = new Set([request.path, request.newPath, request.source].map(scopeRoot).filter(Boolean));
+    const rootChange = roots.has(request.path) && (request.op === "mkdir" || request.op === "rmdir");
+    if ([...roots].some(root => this.rootChanges.has(root)) || rootChange && this.scopeOperations.has(request.path)) throw folderError("EBUSY");
+    if (rootChange) this.rootChanges.add(request.path);
+    for (const root of roots) this.scopeOperations.set(root, (this.scopeOperations.get(root) ?? 0) + 1);
     if (writing) this.mutations++;
     this.operations++;
     try { return await this.operate(request); }
     finally {
+      if (rootChange) this.rootChanges.delete(request.path);
+      for (const root of roots) {
+        const count = this.scopeOperations.get(root)! - 1;
+        if (count) this.scopeOperations.set(root, count);
+        else this.scopeOperations.delete(root);
+      }
       this.operations--;
       if (writing) this.mutations--;
     }
@@ -169,6 +192,8 @@ export class WorkFolderMountRouter {
     const location = this.names.resolve(request.path);
     if (!location && !cursor) {
       if (request.op === "mkdir" || request.op === "rmdir") {
+        const scope = request.op === "mkdir" ? this.names.newRoot(request.path) : null;
+        if (scope) await this.makeRoot?.(scope, Number(request.mode ?? 0o700) & 0o7777);
         this.names.update(request.path, request.op === "mkdir");
         return { ok: true, attr: this.attr(request.path) };
       }
@@ -208,6 +233,11 @@ export class WorkFolderMountRouter {
       if (live && (live.active || live.handles)) throw folderError("EBUSY");
       if (live) await this.save(live);
       await this.remove(scope);
+      if (live) {
+        clearTimeout(live.timer);
+        (await live.access).channel.close();
+        this.channels.delete(scope.path);
+      }
       this.names.update(request.path, false);
       return { ok: true };
     }

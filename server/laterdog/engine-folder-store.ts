@@ -259,6 +259,16 @@ export class FolderStore {
     return { mode: root.mode, mtimeMs: root.mtimeMs, entries };
   }
 
+  async removeEmpty(head: WorkFolderHead): Promise<void> {
+    if (head.state === "tombstone") return;
+    const range = await this.#request("/ranges/" + head.manifest);
+    if (!range.ok) throw new Error("Could not read the directory before removing it");
+    const page = await range.json() as { self: { of: string; count: number } };
+    if (page.self.of !== "root" || page.self.count !== 0) throw Object.assign(new Error("Folder contains files"), { code: "ENOTEMPTY" });
+    const result = await this.#request("/commit", "POST", JSON.stringify({ parent: head.revision, manifest: null }));
+    if (!result.ok || (await this.head())?.state !== "tombstone") throw Object.assign(new Error("Folder changed during removal"), { code: "EBUSY" });
+  }
+
   async publish(tree: FolderTree, parent: string | null): Promise<WorkFolderHead | null> {
     const entries = await this.pages(
       "entries",

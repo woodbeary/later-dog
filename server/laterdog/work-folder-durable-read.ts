@@ -77,10 +77,8 @@ export class DurableFolderRead {
   }
   async lookup(path: string): Promise<Leaf> {
     const head = await this.head();
-    if (!head?.manifest) {
-      if (path) throw folderError("ENOENT");
-      return { revision: "", item: { kind: "dir", path, mode: 0o700 } };
-    }
+    if (!head) throw folderError("EIO");
+    if (!head.manifest) throw folderError("ENOENT");
     const root = await this.root(head.manifest);
     if (!path) return { revision: head.manifest, item: { kind: "dir", path, mode: root.mode, mtimeMs: root.mtimeMs } };
     for await (const item of this.entries(root.entries, path, path + "\0")) {

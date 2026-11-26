@@ -1,4 +1,5 @@
 import {
+  existsSync,
   mkdtempSync,
   mkdirSync,
   linkSync,
@@ -18,7 +19,7 @@ import { handleWorkFolder, type WorkFolderBucket } from "../../deploy/laterdog/h
 import { workFolderAuthority, type WorkFolderGrant } from "../../shared/work-folder-store.ts";
 import { folderHash, FolderStore } from "./engine-folder-store.ts";
 import { publishInitialWorkFolder } from "./engine-folder-files.ts";
-import { syncFolder } from "./engine-folder-sync.ts";
+import { retireEmptyGuestFolder, syncFolder } from "./engine-folder-sync.ts";
 
 const garbage: string[] = [];
 afterEach(() => {
@@ -100,6 +101,20 @@ async function fixture() {
 }
 
 describe("assigned working folders on guest computers", () => {
+  it("removes only an empty directory and preserves an unpublished file written directly on the computer", async () => {
+    const f = await fixture();
+    await publishInitialWorkFolder(f.src, f.store);
+    await f.syncA();
+    const path = join(f.left, "unsaved");
+    writeFileSync(path, "keep this");
+    await expect(retireEmptyGuestFolder(f.left, f.state)).rejects.toHaveProperty("code", "ENOTEMPTY");
+    expect((await f.store.head())?.state).toBe("live");
+    expect(readFileSync(path, "utf8")).toBe("keep this");
+    rmSync(path);
+    expect(await retireEmptyGuestFolder(f.left, f.state)).toBe(true);
+    expect((await f.store.head())?.state).toBe("tombstone");
+    expect(existsSync(f.left)).toBe(false);
+  });
   it("hydrates exact durable data and permissions, refreshes a scoped token, checkpoints and restores an evicted guest tree", async () => {
     const f = await fixture();
     mkdirSync(join(f.src, "empty"), { mode: 0o751 });

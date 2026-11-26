@@ -71,6 +71,13 @@ export class WorkFolderNamespace {
     const fields = path.split("/");
     return fields[0] === "dogs" && fields.length === 2 || fields[0] === "tasks" && fields.length === 3;
   }
+  newRoot(path: string): FolderScope | null {
+    if (!this.isFolderRoot(path) || !safeWorkFolderPath(path)) return null;
+    const [kind, dog, thread] = path.split("/") as [string, string, string?];
+    const id = thread ? "task-" + thread : "dog";
+    if (!validWorkFolderScope(dog, id) || kind === "tasks" && !this.tasks.has(dog)) throw folderError("ENOENT");
+    return { owner: dog, id, path: thread ? join(this.dataDir, "task-workspaces", dog, thread) : join(this.dataDir, "workspaces", dog) };
+  }
   resolve(path: string): FolderLocation | null {
     if (!path) return null;
     if (!safeWorkFolderPath(path)) throw folderError("EINVAL");

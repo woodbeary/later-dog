@@ -3,6 +3,8 @@ import {
   lstatSync,
   mkdirSync,
   readFileSync,
+  rmSync,
+  rmdirSync,
   realpathSync,
   readlinkSync,
   symlinkSync,
@@ -173,6 +175,27 @@ function reconcileAliases(
       changed = true;
     }
   if (changed) utimesSync(path, Number(old.atimeNs / 1000n) / 1e6, Number(old.mtimeNs / 1000n) / 1e6);
+}
+
+export async function retireEmptyGuestFolder(path: string, state = ENGINE_FOLDER_STATE, onlyIfDeleted = false): Promise<boolean> {
+  const directory = guestFolderDir(path, state);
+  const identity = join(directory, "grant.json");
+  const saved = read<EngineWorkFolder>(identity);
+  if (saved.path !== path) throw new Error("Working folder registration differs");
+  const store = new FolderStore(saved.grant, grant => write(identity, { ...saved, grant }));
+  const head = await store.head();
+  if (!head || onlyIfDeleted && head.state !== "tombstone") return false;
+  const entry = lstatSync(path, { throwIfNoEntry: false });
+  if (entry && !entry.isDirectory()) throw new Error("Working folder root changed");
+  if (entry) rmdirSync(path);
+  try {
+    await store.removeEmpty(head);
+  } catch (error) {
+    if (entry) ensureRealDirectory(path);
+    throw error;
+  }
+  for (const name of ["checked.json", "rebuilding.json", "grant.json"]) rmSync(join(directory, name), { force: true });
+  return true;
 }
 
 export async function syncFolder(

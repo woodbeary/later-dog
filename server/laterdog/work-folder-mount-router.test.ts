@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -46,12 +47,23 @@ it("allows a new empty cold folder to be listed and removed without starting a c
   const names = new WorkFolderNamespace(layout, dir, join(dir, "visible"));
   const open = vi.fn(async () => { throw Error("unexpected computer start"); });
   const remove = vi.fn(async () => {});
-  vi.stubGlobal("fetch", vi.fn(async () => new Response(null, { status: 404 })));
-  const router = new WorkFolderMountRouter(names, open, remove, 1000, 1000, () => {}, async () => new DurableFolderRead("https://test.invalid", "scoped", 1000, 1000));
+  const entries = JSON.stringify({ v: 1, kind: "entries", entries: [] });
+  const hash = (value: string) => createHash("sha256").update(value).digest("hex");
+  const manifest = JSON.stringify({ v: 1, kind: "root", mode: 0o700, entries: hash(entries) });
+  const head = { manifest: hash(manifest) };
+  const create = vi.fn(async () => {});
+  vi.stubGlobal("fetch", vi.fn(async (url: string) => {
+    if (url.endsWith("/head")) return Response.json(head);
+    if (url.endsWith(hash(manifest))) return new Response(manifest);
+    if (url.endsWith(hash(entries))) return new Response(entries);
+    throw Error("Unexpected cold read");
+  }));
+  const router = new WorkFolderMountRouter(names, open, remove, 1000, 1000, () => {}, async () => new DurableFolderRead("https://test.invalid", "scoped", 1000, 1000), undefined, create);
   const path = "dogs/new";
   const send = (op: string, handle?: string) => router.dispatch({ op, path, root: "work-folders", handle });
   const made = await send("mkdir");
   expect(made.ok).toBe(true);
+  expect(create).toHaveBeenCalledOnce();
   await expect(send("mkdir")).rejects.toHaveProperty("code", "EEXIST");
   expect((await send("getattr")).attr).toMatchObject({ ino: (made.attr as {ino:string}).ino });
   const handle = (await send("opendir")).handle;

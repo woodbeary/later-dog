@@ -1,8 +1,8 @@
 import { spawn } from "node:child_process";
-import { existsSync, mkdirSync, readdirSync, readFileSync } from "node:fs";
+import { existsSync, lstatSync, mkdirSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { ENGINE_FOLDER_STATE, guestFolderDir, syncFolder, type EngineWorkFolder } from "./engine-folder-sync.ts";
+import { ENGINE_FOLDER_STATE, guestFolderDir, retireEmptyGuestFolder, syncFolder, type EngineWorkFolder } from "./engine-folder-sync.ts";
 
 const entry = fileURLToPath(import.meta.url);
 
@@ -41,6 +41,15 @@ async function runLocked(path: string, state: string, input: string): Promise<vo
 
 async function main() {
   const [, , action, path, state = ENGINE_FOLDER_STATE] = process.argv;
+  if (action === "retire-empty" && path) {
+    try {
+      if (!await retireEmptyGuestFolder(path, state)) throw new Error("Missing working folder head");
+      process.stdout.write(JSON.stringify({ ok: true }) + "\n");
+    } catch (error) {
+      process.stdout.write(JSON.stringify({ ok: false, errno: (error as NodeJS.ErrnoException).code ?? "EIO" }) + "\n");
+    }
+    return;
+  }
   if (action === "turn-files" && path && /^[a-zA-Z0-9_-]{1,16000}$/.test(path)) {
     const { runGuestCheckpoint } = await import("./engine-turn-files.ts");
     const result = await runGuestCheckpoint(JSON.parse(Buffer.from(path, "base64url").toString("utf8")));
@@ -69,6 +78,7 @@ async function main() {
   }
   if (action === "locked") {
     const file = join(guestFolderDir(path, state), "grant.json");
+    if (!input && (!existsSync(file) || !lstatSync(path, { throwIfNoEntry: false }) && await retireEmptyGuestFolder(path, state, true))) return;
     const payload = input ? JSON.parse(input) : undefined;
     const binding: EngineWorkFolder = input
       ? {

@@ -318,6 +318,23 @@ export async function handleWorkFolder(request: Request, bucket: WorkFolderBucke
     }
     const owner = token.startsWith("wfa_") && await sameToken(token, scope.authority);
     if (!owner && !await guest(scope, token, false)) return json({ error: "unauthorized" }, 401);
+    if (route === "mkdir" && !id && request.method === "POST") {
+      if (!owner || !(scope.folderId === "dog" || scope.folderId.startsWith("task-"))) return json({ error: "forbidden" }, 403);
+      const data = parse(await payload(request, 256));
+      if (!exact(data, ["mode"]) || !validMode(data.mode)) return invalid("Invalid working folder mode");
+      if ((await readWorkFolderPlacement(bucket, stableId))?.mode !== "folders") return json({ error: "inactive_writer" }, 423);
+      const head = await jsonRecord<SavedHead>(bucket, scope.prefix + "head");
+      if (head?.value.fence) return json({ error: "folder_in_migration" }, 423);
+      if (head?.value.state === "live") return json(versionOf(head.value));
+      const page = async (value: unknown) => {
+        const bytes = new TextEncoder().encode(JSON.stringify(value)), hash = await digest(bytes);
+        await storeObject(scope, "manifests", hash, bytes);
+        return hash;
+      };
+      const entries = await page({ v: 1, kind: "entries", entries: [] });
+      const manifest = await page({ v: 1, kind: "root", mode: data.mode, entries });
+      return commit(scope, new Request(request.url, { method: "POST", body: JSON.stringify({ parent: head?.value.revision ?? null, manifest }) }));
+    }
     if (route === "grant" || route === "revoke") return !id && request.method === "POST" && owner ? await grant(scope, request, route === "revoke") : json({ error: "forbidden" }, 403);
     if ((route === "fence" || route === "unfence") && !id) return owner && request.method === "POST" ? await folderFence(scope, request, route === "unfence") : json({ error: "forbidden" }, 403);
     if (route === "batch" && !id) return owner && request.method === "POST" ? await migrateBatch(scope, request) : json({ error: "forbidden" }, 403);

@@ -6,6 +6,8 @@ import { mountedWorkFolders, folderGrant, linkedProjects, projectLink, visibleAl
 import { WorkFolderNamespace, folderError } from "./laterdog/work-folder-namespace.ts";
 import { openGuestFolder, type FsRequest } from "./laterdog/work-folder-guest-fs.ts";
 import { WorkFolderMountRouter } from "./laterdog/work-folder-mount-router.ts";
+import { GUEST_FOLDER_HELPER } from "./laterdog/engine-folder-process.ts";
+import { guestFolderDir } from "./laterdog/engine-folder-sync.ts";
 import { jobComputer } from "./computers.ts";
 import { DurableFolderRead } from "./laterdog/work-folder-durable-read.ts";
 import { syncComputerWorkFolder } from "./laterdog/engine-opener.ts";
@@ -34,15 +36,39 @@ async function main() {
       },
     };
   }, syncComputerWorkFolder);
-  const remove = async (scope: FolderScope) => {
+  const storage = async (scope: FolderScope) => {
     const base = workFolderBaseUrl(origin, scope.owner, scope.id);
     const headers = { authorization: "Bearer " + await workFolderAuthority(secret, scope.owner, scope.id), "content-type": "application/json" };
-    const call = (path: string, options: RequestInit = {}) => fetch(base + path, { ...options, headers, redirect: "error", signal: AbortSignal.timeout(30_000) });
+    return (path: string, options: RequestInit = {}) => fetch(base + path, { ...options, headers, redirect: "error", signal: AbortSignal.timeout(30_000) });
+  };
+  const makeRoot = async (scope: FolderScope, mode: number) => {
+    const call = await storage(scope);
+    const response = await call("/mkdir", { method: "POST", body: JSON.stringify({ mode }) });
+    if (!response.ok) throw folderError(response.status === 409 || response.status === 423 ? "EBUSY" : "EIO");
+  };
+  const remove = async (scope: FolderScope) => {
+    const call = await storage(scope);
     const reply = await call("/head");
     if (reply.status === 404) return;
     if (!reply.ok) throw folderError("EIO");
     const head = await reply.json() as WorkFolderHead;
     if (head.state === "tombstone") return;
+    const guest = await jobComputer(scope.owner);
+    if (guest.state === "unsure") throw folderError("EBUSY");
+    if (guest.state === "running") {
+      const session = await open(scope);
+      session.channel.close();
+      const owned = await jobComputer(scope.owner);
+      if (owned.state !== "running" || owned.box.computerId !== guest.box.computerId) throw folderError("EBUSY");
+      const quote = (value: string) => "'" + value.replaceAll("'", "'\\''") + "'";
+      const lock = guestFolderDir(scope.path) + "/checkout.lock";
+      const result = await owned.box.exec("flock -w 125 " + quote(lock) + " node " + quote(GUEST_FOLDER_HELPER) + " retire-empty " + quote(scope.path), 150_000);
+      const row = result.stdout.trim().split("\n").at(-1);
+      if (result.exitCode !== 0 || !row) throw folderError("EIO");
+      const receipt = JSON.parse(row);
+      if (receipt.ok !== true) throw folderError(["EBUSY", "ENOTEMPTY"].includes(receipt.errno) ? receipt.errno : "EIO");
+      return;
+    }
     const range = await call("/ranges/" + head.manifest);
     if (!range.ok) throw folderError("EIO");
     const summary = await range.json() as {self:{count:number;of:string}};
@@ -54,7 +80,7 @@ async function main() {
     const guest = await jobComputer(scope.owner);
     if (guest.state !== "asleep" && guest.state !== "gone") return null;
     return new DurableFolderRead(workFolderBaseUrl(origin, scope.owner, scope.id), await workFolderAuthority(secret, scope.owner, scope.id), uid, gid);
-  }, (scope, inside, target) => projectLink(layout, dataDir, scope, inside, target));
+  }, (scope, inside, target) => projectLink(layout, dataDir, scope, inside, target), makeRoot);
   const http = createServer(async (request, response) => {
     if (request.method !== "POST" || request.url !== "/v1/fs") { response.writeHead(404).end(); return; }
     try {

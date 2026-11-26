@@ -39,6 +39,22 @@ function fixture() {
 }
 
 describe("a cloud work folder", () => {
+  it("creates a durable directory for a new task, retries without overwriting it and permits an explicit recreation", async () => {
+    const f = fixture();
+    const make = () => f.call("mkdir", "POST", { mode: 0o750 });
+    expect((await make()).status).toBe(423);
+    const place = { v: 1, previous: null, mode: "folders", baselineManifest: "0".repeat(64), verification: "1".repeat(64), layout: { dogs: [], tasks: {}, projects: [] } };
+    await f.bucket.put("homes/" + f.stable + "/work-folders/placement", JSON.stringify(place), { onlyIf: { etagDoesNotMatch: "*" } });
+    const made = await make();
+    expect(made.status).toBe(201);
+    const first = await made.json() as { revision: string; manifest: string };
+    expect(await (await make()).json()).toEqual(first);
+    expect(await (await f.call("manifests/" + first.manifest)).json()).toMatchObject({ kind: "root", mode: 0o750 });
+    const gone = await f.call("commit", "POST", { parent: first.revision, manifest: null });
+    expect(gone.status).toBe(201);
+    const retired = await gone.json() as { revision: string };
+    expect(await (await make()).json()).toMatchObject({ parent: retired.revision, state: "live" });
+  });
   it("publishes only fully uploaded chunk graphs, serves UTF-8 path ranges, bytes and permissions", async () => {
     const f = fixture(), blob = await f.put("blobs", "file\0contents");
     expect(blob.r.status).toBe(201);
