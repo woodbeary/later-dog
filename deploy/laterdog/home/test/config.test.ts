@@ -4,6 +4,8 @@ import { describe, expect, it } from "vitest";
 const here = new URL("../", import.meta.url);
 const OWNER = "7eaec07f-4e74-4682-81c2-d3bf10549606";
 
+const productionCapacityHomes = [OWNER, "test-capacity-placement-261126"].join(",");
+
 function config(name: string) {
   return JSON.parse(readFileSync(new URL(name, here), "utf8"));
 }
@@ -31,8 +33,8 @@ describe.each(["wrangler.jsonc", "wrangler.production.json", "wrangler.bootstrap
     expect(worker.migrations).toBeUndefined();
   });
 
-  it("gives the large computer to the owner's home in production and to nobody elsewhere", () => {
-    expect(worker.vars.LARGE_HOME_ACCOUNTS).toBe(name === "wrangler.production.json" ? OWNER : "");
+  it("preserves the production owner and capacity test home placements", () => {
+    expect(worker.vars.LARGE_HOME_ACCOUNTS).toBe(name === "wrangler.production.json" ? productionCapacityHomes : "");
   });
 
   it("keeps a tenth of the Worker's logs", () => {
@@ -66,7 +68,7 @@ describe("home image promotion", () => {
   it("enables Codex archival only for the owner and the staging writer", () => {
     expect(production.vars.CODEX_ARCHIVE_ACCOUNTS).toBe(OWNER);
     expect(staging.vars.CODEX_ARCHIVE_ACCOUNTS).toBe("test-cold-codex-writer");
-    expect(staging.vars.LARGE_HOME_ACCOUNTS).toBe(staging.vars.CODEX_ARCHIVE_ACCOUNTS);
+    expect(staging.vars.LARGE_HOME_ACCOUNTS).toBe("test-cold-codex-writer,test-capacity-bundle-nov26");
     expect(config("wrangler.jsonc").vars.CODEX_ARCHIVE_ACCOUNTS).toBe("");
     expect(config("wrangler.bootstrap.json").vars.CODEX_ARCHIVE_ACCOUNTS).toBe("");
   });
@@ -79,8 +81,8 @@ describe.each(["wrangler.jsonc", "wrangler.bootstrap.json"])("%s dev code", (nam
 });
 
 describe("wrangler.production.json dev code", () => {
-  it("runs server code pushed from later.dog Dev on the owner's home only", () => {
-    expect(config("wrangler.production.json").vars.DEV_CODE).toBe(OWNER);
+  it("runs server code pushed from later.dog Dev on the enrolled production homes", () => {
+    expect(config("wrangler.production.json").vars.DEV_CODE).toBe(productionCapacityHomes);
   });
 });
 
