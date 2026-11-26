@@ -27,3 +27,10 @@ export const workFolderPlacementSchema = z.object({
 
 export type WorkFolderLayout = z.infer<typeof workFolderLayoutSchema>;
 export type WorkFolderPlacement = z.infer<typeof workFolderPlacementSchema>;
+
+export function workFolderLayoutRecord(layout: WorkFolderLayout): string {
+  const tasks = Object.keys(layout.tasks).sort().map(owner => [owner, layout.tasks[owner]]);
+  const loose = layout.loose ? [layout.loose.owner, layout.loose.members, layout.loose.names] : null;
+  const projects = layout.projects.map(p => [p.path, p.owner, p.members]);
+  return JSON.stringify([layout.dogs, tasks, loose, projects]);
+}

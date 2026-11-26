@@ -1,3 +1,4 @@
+import { registerFolder } from "./work-folder-registry.ts";
 import { eligibleSharedFolder, readWorkFolderPlacement } from "./work-folder-placement.ts";
 import { compareWorkFolderPaths, safeWorkFolderLink, safeWorkFolderPath, validWorkFolderScope, workFolderAuthority, workFolderBaseUrl, WORK_FOLDER_ACCESS_MS, WORK_FOLDER_BLOB_BYTES, WORK_FOLDER_PAGE_SIZE, WORK_FOLDER_ROUTE, type WorkFolderHead, type WorkFolderPageInfo } from "../../../../shared/work-folder-store.ts";
 import { hex, hmacSha256, randomToken, sha256, sha256Stream } from "./encoding.ts";
@@ -6,6 +7,7 @@ import { homePrefix } from "./state.ts";
 type WriteOptions = { onlyIf: { etagMatches: string } | { etagDoesNotMatch: string }; sha256?: string; httpMetadata?: { contentType: string } };
 type ObjectData = { etag: string; size: number; body: ReadableStream<Uint8Array> };
 export interface WorkFolderBucket {
+  list(options: { prefix: string; cursor?: string; limit: number }): Promise<{ objects: { key: string }[]; truncated: boolean; cursor?: string }>;
   get(key: string): Promise<ObjectData | null>;
   head(key: string): Promise<{ size: number } | null>;
   put(key: string, value: string | ArrayBuffer | Uint8Array | ReadableStream<Uint8Array>, options: WriteOptions): Promise<unknown | null>;
@@ -117,6 +119,7 @@ async function validateNode(scope: Scope, node: Record<string, unknown>): Promis
     for (const e of entries) {
       if (!safeWorkFolderPath(e.path) || (previous !== undefined && compareWorkFolderPaths(previous, e.path) >= 0)) return invalid("Invalid or unsorted work folder path");
       previous = e.path;
+      if (scope.folderId === "loose" && (e.path.includes("/") || e.path.startsWith(".") || e.kind === "dir")) return invalid("Invalid loose working file");
       if (e.kind === "dir" && withTime(e, ["kind", "path", "mode"]) && validMode(e.mode)) continue;
       if (e.kind === "link" && typeof e.target === "string" && e.target.length > 0 && !e.target.includes("\0")) {
         const fields = ["kind", "path", "target"];
@@ -235,12 +238,16 @@ async function commit(scope: Scope, request: Request): Promise<Response> {
   const revision = await digest(JSON.stringify([1,parent,manifest]));
   const next: WorkFolderHead = { revision, parent, manifest, state: manifest === null ? "tombstone" : "live" };
   const key = scope.prefix + "head", current = await jsonRecord<SavedHead>(scope.bucket, key);
-  if (current?.value.revision === revision) return json(next);
+  if (current?.value.revision === revision) {
+    if (!await registerFolder(scope.bucket, homePrefix(scope.stable) + "work-folders/", scope.owner + "/" + scope.folderId)) return json({ error: "folder_creation_frozen" }, 423);
+    return json(next);
+  }
   const priorKey = scope.prefix + "versions/" + revision;
   if (await scope.bucket.head(priorKey)) return json(next);
   if (current?.value.fence) return json({ error: "folder_in_migration" }, 423);
   if ((current?.value.revision ?? null) !== parent) return json({ error: "head_changed", current: current?.value ?? null }, 409);
   if (manifest !== null && (await summary(scope, manifest)).self.of !== "root") return invalid("Expected a directory root");
+  if (!current && !await registerFolder(scope.bucket, homePrefix(scope.stable) + "work-folders/", scope.owner + "/" + scope.folderId)) return json({ error: "folder_creation_frozen" }, 423);
   if (current) await immutable(scope.bucket, scope.prefix + "versions/" + current.value.revision, JSON.stringify(versionOf(current.value)), "application/json");
   const data = JSON.stringify(next);
   const wrote = await scope.bucket.put(key, data, { onlyIf: current ? { etagMatches: current.etag } : { etagDoesNotMatch: "*" } });
@@ -306,7 +313,10 @@ export async function handleWorkFolder(request: Request, bucket: WorkFolderBucke
     if (route === "grant" || route === "revoke") return !id && request.method === "POST" && owner ? await grant(scope, request, route === "revoke") : json({ error: "forbidden" }, 403);
     if ((route === "fence" || route === "unfence") && !id) return owner && request.method === "POST" ? await folderFence(scope, request, route === "unfence") : json({ error: "forbidden" }, 403);
     if (route === "batch" && !id) return owner && request.method === "POST" ? await migrateBatch(scope, request) : json({ error: "forbidden" }, 403);
-    if (route === "commit" && !id && request.method === "POST") return await commit(scope, request);
+    if (route === "commit" && !id && request.method === "POST") {
+      if (!owner && (await readWorkFolderPlacement(bucket, stableId))?.mode === "legacy") return json({ error: "legacy_work_folder" }, 423);
+      return await commit(scope, request);
+    }
     if (route === "head" && !id && request.method === "GET") {
       const head = await jsonRecord<WorkFolderHead>(bucket, scope.prefix + "head");
       return head ? json(head.value) : json({ error: "never_published" }, 404);

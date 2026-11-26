@@ -1,9 +1,12 @@
-import { workFolderPlacementSchema, type WorkFolderLayout, type WorkFolderPlacement } from "../../../../shared/work-folder-layout.ts";
+import { registeredPage, registryFence, verifiedMembership } from "./work-folder-registry.ts";
+import { workFolderLayoutRecord, workFolderPlacementSchema, type WorkFolderLayout, type WorkFolderPlacement } from "../../../../shared/work-folder-layout.ts";
 import { hex, sha256, sha256Stream } from "./encoding.ts";
 import { homePrefix } from "./state.ts";
 import type { WorkFolderBucket } from "./work-folder-store.ts";
 
 const hash = /^[a-f0-9]{64}$/;
+const registered = "/work-folders/scopes";
+const registryLock = /^\/work-folders\/registry-(unfence|fence)$/;
 const placement = "/work-folders/placement";
 const evidence = /^\/work-folders\/verification\/([a-f0-9]{64})$/;
 const legacySnapshot = /^\/work-folders\/legacy-manifests\/([a-f0-9]{64})$/;
@@ -14,7 +17,7 @@ const result = (value: unknown, status: number) => Response.json(value, { status
 const checksum = async (value: string | Uint8Array) => hex(await sha256(value));
 
 export function workFolderControlPath(path: string): boolean {
-  return path === placement || path === projection || path === legacyBlobs || legacySnapshot.test(path) || evidence.test(path) || history.test(path);
+  return path === placement || path === registered || registryLock.test(path) || path === projection || path === legacyBlobs || legacySnapshot.test(path) || evidence.test(path) || history.test(path);
 }
 
 export async function readWorkFolderPlacement(bucket: WorkFolderBucket, stable: string): Promise<WorkFolderPlacement | null> {
@@ -72,9 +75,10 @@ async function checked(scope: string, bucket: WorkFolderBucket, next: WorkFolder
   const bytes = new Uint8Array(await new Response(object.body).arrayBuffer());
   if (await checksum(bytes) !== next.verification) return false;
   const v: unknown = JSON.parse(new TextDecoder().decode(bytes));
-  if (!proof(v) || next.mode !== v.mode || next.baselineManifest !== v.baselineManifest || await checksum(JSON.stringify(next.layout)) !== v.layoutSha256) return false;
+  if (!proof(v) || next.mode !== v.mode || next.baselineManifest !== v.baselineManifest || await checksum(workFolderLayoutRecord(next.layout)) !== v.layoutSha256) return false;
   const expected = await layoutScopes(next.layout), claims = [...v.scopes].sort((a,b) => a.scope < b.scope ? -1 : a.scope > b.scope ? 1 : 0);
   if (expected.length !== claims.length || expected.some((s,i) => s !== claims[i]?.scope)) return false;
+  if (!await verifiedMembership(bucket, scope + "work-folders/", expected, next.verification)) return false;
   for (let i = 0; i < claims.length; i += 16) {
     const matched = await Promise.all(claims.slice(i, i + 16).map(async claim => {
       const head = await bucket.get(scope + "work-folders/v1/" + claim.scope + "/head");
@@ -166,6 +170,22 @@ export async function handleWorkFolderPlacement(request: Request, bucket: WorkFo
   const path = new URL(request.url).pathname;
   if (!workFolderControlPath(path)) return result({ error: "not_found" }, 404);
   const scope = homePrefix(stable), key = scope + path.slice(1);
+  if (path === registered) {
+    if (request.method !== "GET") return result({ error: "method_not_allowed" }, 405);
+    const cursor = new URL(request.url).searchParams.get("cursor");
+    if (cursor !== null && !hash.test(cursor)) return result({ error: "invalid_cursor" }, 400);
+    return result(await registeredPage(bucket, scope + "work-folders/", cursor), 200);
+  }
+  const lock = registryLock.exec(path)?.[1];
+  if (lock) {
+    if (request.method !== "POST") return result({ error: "method_not_allowed" }, 405);
+    const data = await bytesOf(request);
+    if (!data) return result({ error: "oversized_request" }, 413);
+    let b;
+    try { b = JSON.parse(new TextDecoder().decode(data)); } catch { return result({ error: "invalid_registry_fence" }, 400); }
+    if (!b || b.revision !== null && !hash.test(b.revision ?? "") || !hash.test(b.fence ?? "")) return result({ error: "invalid_registry_fence" }, 400);
+    return await registryFence(bucket, scope + "work-folders/", b, lock === "unfence") ? result({ revision: b.revision }, 200) : result({ error: "registry_changed" }, 409);
+  }
   if (path === projection) return request.method === "POST" ? projectLegacy(request, bucket, scope) : result({ error: "method_not_allowed" }, 405);
   if (path === legacyBlobs) return request.method === "POST" ? projectBlobs(request, bucket, scope) : result({ error: "method_not_allowed" }, 405);
   const snapshot = legacySnapshot.exec(path)?.[1];
