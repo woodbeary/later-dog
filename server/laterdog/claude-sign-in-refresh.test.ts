@@ -2,7 +2,9 @@ import { chmodSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, 
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, expect, it } from "vitest";
-import { CLAUDE_SIGN_IN_CHECK_ARGS, createClaudeSignInRefresh, readSavedClaudeSignIn, runClaudeSignInCheck, type ClaudeAccountRenewal } from "./claude-sign-in-refresh.ts";
+import { createAccountKeeper } from "./account-keeper.ts";
+import { keepSignIn } from "./account-sign-ins.ts";
+import { CLAUDE_SIGN_IN_CHECK_ARGS, claudeSignIn, readSavedClaudeSignIn, runClaudeSignInCheck, type ClaudeAccountRenewal } from "./claude-sign-in-refresh.ts";
 
 const scratch: string[] = [];
 afterEach(() => { for (const path of scratch.splice(0)) rmSync(path, { recursive: true, force: true }); });
@@ -20,13 +22,20 @@ function account(expiresAt: number, refreshToken = "refresh") {
 }
 const HOUR = 3600_000;
 
+function keeperWith(run: (renewal: ClaudeAccountRenewal) => Promise<void>, changed?: (id: string, outcome: string) => void) {
+  const keeper = createAccountKeeper({ everyMs: 60_000 });
+  if (changed) keeper.onChange(changed);
+  const renew = (renewal: ClaudeAccountRenewal) => keepSignIn(claudeSignIn(renewal, run));
+  return { keeper, ensure: (id: string, renewal: ClaudeAccountRenewal) => keeper.keep(id, () => renew(renewal)), renew };
+}
+
 it("lends a sign-in that is not near expiry without running the CLI", async () => {
   const a = account(Date.now() + 3 * HOUR);
   let runs = 0;
-  const refresh = createClaudeSignInRefresh({ run: async () => { runs += 1; } });
-  expect(await refresh.ensure("adam", a.renewal)).toBe("fresh");
+  const { keeper, ensure } = keeperWith(async () => { runs += 1; });
+  expect(await ensure("adam", a.renewal)).toBe("fresh");
   expect(runs).toBe(0);
-  expect(refresh.signedOut("adam")).toBe(false);
+  expect(keeper.signedOut("adam")).toBe(false);
 });
 
 it("renews an expired sign-in once for two turns that start together, and both lend the renewed one", async () => {
@@ -34,36 +43,35 @@ it("renews an expired sign-in once for two turns that start together, and both l
   let runs = 0;
   let release!: () => void;
   const gate = new Promise<void>((resolve) => { release = resolve; });
-  const refresh = createClaudeSignInRefresh({ run: async () => { runs += 1; await gate; a.save(Date.now() + 8 * HOUR, "rotated", "renewed"); } });
-  const both = Promise.all([refresh.ensure("daniel", a.renewal), refresh.ensure("daniel", a.renewal)]);
+  const { ensure } = keeperWith(async () => { runs += 1; await gate; a.save(Date.now() + 8 * HOUR, "rotated", "renewed"); });
+  const both = Promise.all([ensure("daniel", a.renewal), ensure("daniel", a.renewal)]);
   await new Promise((resolve) => setTimeout(resolve, 20));
   release();
   expect(await both).toEqual(["renewed", "renewed"]);
   expect(runs).toBe(1);
   expect(JSON.parse(readFileSync(a.file, "utf8")).claudeAiOauth.accessToken).toBe("renewed");
-  expect(await refresh.ensure("daniel", a.renewal)).toBe("fresh");
+  expect(await ensure("daniel", a.renewal)).toBe("fresh");
   expect(runs).toBe(1);
 });
 
 it("marks an account signed out when its refresh token is revoked, and clears it once the person signs in again", async () => {
   const a = account(Date.now() - 60_000);
   const changed: string[] = [];
-  const refresh = createClaudeSignInRefresh({ run: async () => { writeFileSync(a.file, JSON.stringify({ claudeAiOauth: { accessToken: "", refreshToken: "", expiresAt: 0 } })); }, changed: (id) => changed.push(id) });
-  expect(await refresh.ensure("daniel", a.renewal)).toBe("signed-out");
-  expect(refresh.signedOut("daniel")).toBe(true);
-  expect(changed).toEqual(["daniel"]);
+  const { keeper, ensure } = keeperWith(async () => { writeFileSync(a.file, JSON.stringify({ claudeAiOauth: { accessToken: "", refreshToken: "", expiresAt: 0 } })); }, (id, outcome) => changed.push(id + " " + outcome));
+  expect(await ensure("daniel", a.renewal)).toBe("signed-out");
+  expect(keeper.signedOut("daniel")).toBe(true);
   a.save(Date.now() + 8 * HOUR);
-  expect(refresh.signedOut("daniel")).toBe(false);
-  expect(await refresh.ensure("daniel", a.renewal)).toBe("fresh");
-  expect(changed).toEqual(["daniel", "daniel"]);
+  expect(await ensure("daniel", a.renewal)).toBe("fresh");
+  expect(keeper.signedOut("daniel")).toBe(false);
+  expect(changed).toEqual(["daniel signed-out", "daniel fresh"]);
 });
 
 it("keeps an account signed in when a renewal fails for a passing reason, so the battery does not drop it", async () => {
   const a = account(Date.now() - 60_000);
   let runs = 0;
-  const refresh = createClaudeSignInRefresh({ run: async () => { runs += 1; } });
-  expect(await refresh.ensure("adam", a.renewal)).toBe("unrenewed");
-  expect(refresh.signedOut("adam")).toBe(false);
+  const { keeper, ensure } = keeperWith(async () => { runs += 1; });
+  expect(await ensure("adam", a.renewal)).toBe("unrenewed");
+  expect(keeper.signedOut("adam")).toBe(false);
   expect(runs).toBe(1);
 });
 
@@ -72,17 +80,17 @@ it("treats a missing sign-in or an expired one without a refresh token as signed
   const missing = account(Date.now() + HOUR);
   rmSync(missing.file);
   let runs = 0;
-  const refresh = createClaudeSignInRefresh({ run: async () => { runs += 1; } });
-  expect(await refresh.ensure("lent", lent.renewal)).toBe("signed-out");
-  expect(await refresh.ensure("missing", missing.renewal)).toBe("signed-out");
+  const { ensure } = keeperWith(async () => { runs += 1; });
+  expect(await ensure("lent", lent.renewal)).toBe("signed-out");
+  expect(await ensure("missing", missing.renewal)).toBe("signed-out");
   expect(runs).toBe(0);
 });
 
 it("leaves accounts that sign in with a key or a token in the environment alone", async () => {
   const a = account(Date.now() - 60_000);
   let runs = 0;
-  const refresh = createClaudeSignInRefresh({ run: async () => { runs += 1; } });
-  expect(await refresh.ensure("keyed", { ...a.renewal, env: { ...a.renewal.env, ANTHROPIC_API_KEY: "k" } })).toBe("fresh");
+  const { ensure } = keeperWith(async () => { runs += 1; });
+  expect(await ensure("keyed", { ...a.renewal, env: { ...a.renewal.env, ANTHROPIC_API_KEY: "k" } })).toBe("fresh");
   expect(runs).toBe(0);
 });
 
@@ -90,24 +98,25 @@ it("keeps watched accounts fresh in the background, renewing only those inside t
   const near = account(Date.now() + 3 * 60_000);
   const far = account(Date.now() + 5 * HOUR);
   const ran: string[] = [];
-  const refresh = createClaudeSignInRefresh({ everyMs: 60_000, run: async (renewal) => { ran.push(renewal.env.CLAUDE_CONFIG_DIR!); near.save(Date.now() + 8 * HOUR); } });
-  const stopNear = refresh.watch("near", () => near.renewal);
-  const stopFar = refresh.watch("far", () => far.renewal);
-  await refresh.check();
+  const { keeper, renew } = keeperWith(async (renewal) => { ran.push(renewal.env.CLAUDE_CONFIG_DIR!); near.save(Date.now() + 8 * HOUR); });
+  const stopNear = keeper.watch("near", () => renew(near.renewal));
+  const stopFar = keeper.watch("far", () => renew(far.renewal));
+  await keeper.check();
   expect(ran).toEqual([near.config]);
-  await refresh.check();
+  await keeper.check();
   expect(ran).toEqual([near.config]);
   stopNear();
   stopFar();
 });
 
-it("does nothing in the background where the home does not lend sign-ins", async () => {
+it("does nothing where the home does not lend sign-ins", async () => {
   const near = account(Date.now() + 60_000);
   let runs = 0;
-  const refresh = createClaudeSignInRefresh({ enabled: () => false, run: async () => { runs += 1; } });
-  const stop = refresh.watch("near", () => near.renewal);
-  await refresh.check();
-  expect(await refresh.ensure("near", near.renewal)).toBe("fresh");
+  const keeper = createAccountKeeper({ enabled: () => false });
+  const renew = (renewal: ClaudeAccountRenewal) => keepSignIn(claudeSignIn(renewal, async () => { runs += 1; }));
+  const stop = keeper.watch("near", () => renew(near.renewal));
+  await keeper.check();
+  expect(await keeper.keep("near", () => renew(near.renewal))).toBe("fresh");
   expect(runs).toBe(0);
   stop();
 });

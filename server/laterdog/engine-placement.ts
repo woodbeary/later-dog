@@ -8,8 +8,8 @@ import { homedir } from "node:os";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { EventEmitter } from "node:events";
 import type { EngineFileRoot } from "./engine-files.ts";
-import { claudeRenewer, type ClaudeRenewal } from "./engine-renewal.ts";
-import { CLAUDE_LEND_MIN_LEFT_MS, claudeSignInRefresh, plainEnvironment } from "./claude-sign-in-refresh.ts";
+import { CLAUDE_LEND_MIN_LEFT_MS, plainEnvironment, renewClaudeSignIn } from "./claude-sign-in-refresh.ts";
+import { accountKeeper } from "./account-keeper.ts";
 import { claudeSignInAgainMessage } from "./claude-refresh-lock.ts";
 import { EngineProcess, RemoteSession, type EngineLink, type PushedFile, type RemoteLaunch, type StdioSpec } from "./engine-remote.ts";
 import { ENGINE_WAIT_NOTICE_MS, watchEngineOpening, type EngineWait } from "./engine-waiting.ts";
@@ -143,7 +143,8 @@ export function engineCliPackage(resolvedCommand: string, path: string | undefin
 }
 
 export async function lendableClaudeSignIn(instanceId: string, cliCommand: string, env: NodeJS.ProcessEnv, account?: string): Promise<void> {
-  const outcome = await claudeSignInRefresh.ensure(instanceId, { command: cliCommand, env: plainEnvironment(env) });
+  const renewal = { command: cliCommand, env: plainEnvironment(env) };
+  const outcome = await accountKeeper.keep(instanceId, () => renewClaudeSignIn(renewal));
   if (outcome === "signed-out") throw new Error(`${claudeSignInAgainMessage(account)} No prompt was sent.`);
 }
 
@@ -181,7 +182,7 @@ export interface ClaudePlacement {
   remoteBase?: string;
 }
 
-export interface PlacedEnginePlan { threadId: string; launch: RemoteLaunch; cli: { name: string; version: string }; stagingDir: string; mkdirs: string[]; guestRuntime?: { kind: "node" } | { kind: "acp"; cli: GuestDriverRuntime }; renewal?: ClaudeRenewal | null }
+export interface PlacedEnginePlan { threadId: string; launch: RemoteLaunch; cli: { name: string; version: string }; stagingDir: string; mkdirs: string[]; guestRuntime?: { kind: "node" } | { kind: "acp"; cli: GuestDriverRuntime } }
 
 export type ClaudeRemotePlan = PlacedEnginePlan;
 
@@ -300,8 +301,7 @@ export function planClaudeRemote(input: ClaudePlacement): { plan: ClaudeRemotePl
     stateFile: `${remoteBase}/state/${threadKey}.json`,
     lockFile: `${remoteBase}/locks/${threadKey}.lock`,
   };
-  const renewal = credential ? { command: input.cliCommand, env: hookEnv } : null;
-  return { plan: { threadId: input.threadId, launch, cli, stagingDir, mkdirs: [...new Set([cwd, ...launch.roots.map(root => root.path)])], renewal } };
+  return { plan: { threadId: input.threadId, launch, cli, stagingDir, mkdirs: [...new Set([cwd, ...launch.roots.map(root => root.path)])] } };
 }
 
 export const BOT_FOLDER_FILE_BYTES = 8 * 1024 * 1024;
@@ -377,7 +377,7 @@ export interface PlacedEngineOptions {
 }
 
 export function spawnPlacedEngine(plan: ClaudeRemotePlan, openLink: (plan: ClaudeRemotePlan, signal: AbortSignal) => Promise<EngineLink>, local: (() => ChildProcess) | undefined,
-  onPlaced?: (where: "computer" | "home", why?: string) => void, renewer: Pick<typeof claudeRenewer, "hold"> = claudeRenewer, options: PlacedEngineOptions = {}): EngineProcess {
+  onPlaced?: (where: "computer" | "home", why?: string) => void, options: PlacedEngineOptions = {}): EngineProcess {
   let opened: Promise<EngineLink>;
   const abort = new AbortController();
   try { opened = openLink(plan, abort.signal); }
@@ -386,21 +386,16 @@ export function spawnPlacedEngine(plan: ClaudeRemotePlan, openLink: (plan: Claud
   if (options.onWaiting) watchEngineOpening(link, options.onWaiting, options.waitNoticeMs ?? ENGINE_WAIT_NOTICE_MS);
   const session = new RemoteSession(link, plan.launch);
   const placed = options.placed ?? placedThreads;
-  let release: (() => void) | null = null;
   let unplace: (() => void) | null = null;
   let closed = false;
   const engine = new EngineProcess(session, local, (where, why) => {
-    if (where === "computer" && !closed) {
-      if (plan.renewal && !release) release = renewer.hold(plan.renewal);
-      if (!why && !unplace) unplace = placed.place(plan.threadId);
-    }
+    if (where === "computer" && !closed && !why && !unplace) unplace = placed.place(plan.threadId);
     if (where === "home") { unplace?.(); unplace = null; }
     onPlaced?.(where, why);
   });
   registerTreeStopper(engine, (timeoutMs) => engine.stopTree(timeoutMs, killCliTree));
   engine.once("close", () => {
     closed = true;
-    release?.();
     unplace?.();
     unplace = null;
     try { rmSync(plan.stagingDir, { recursive: true, force: true }); } catch {}

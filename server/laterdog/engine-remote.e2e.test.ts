@@ -15,10 +15,8 @@ import { diskRung } from "./disk-ladder.ts";
 import { claudeProjectSlug, planClaudeRemote, spawnPlacedEngine, type ClaudeRemotePlan, type PlacedEngineOptions } from "./engine-placement.ts";
 import type { EngineWait } from "./engine-waiting.ts";
 import { placedThreads, preToolGuardDecision } from "./placed-threads.ts";
-import { createClaudeRefreshGate } from "./claude-refresh-lock.ts";
 import { ENGINE_WINDOW_BYTES, engineFileChunks, engineInventory } from "./engine-files.ts";
 import { commandLink, EngineProcess, RemoteSession, type EngineLink } from "./engine-remote.ts";
-import { createClaudeRenewer, type ClaudeRenewer } from "./engine-renewal.ts";
 
 const here = (name: string) => fileURLToPath(new URL(name, import.meta.url));
 const RELAY = here("./engine-relay.ts");
@@ -87,10 +85,10 @@ function world(sessionId = "s-1", options: { preToolUse?: string; env?: Record<s
     running.push(child);
     return child;
   };
-  const start = (planned: ClaudeRemotePlan, link: () => Promise<EngineLink> = async () => relay(), resume = false, renewer?: ClaudeRenewer, options?: PlacedEngineOptions) => {
+  const start = (planned: ClaudeRemotePlan, link: () => Promise<EngineLink> = async () => relay(), resume = false, options?: PlacedEngineOptions) => {
     const placed: string[] = [];
     const reasons: Array<string | undefined> = [];
-    const engine = spawnPlacedEngine(planned, link, local(resume), (where, why) => { placed.push(where); reasons.push(why); }, renewer, options);
+    const engine = spawnPlacedEngine(planned, link, local(resume), (where, why) => { placed.push(where); reasons.push(why); }, options);
     running.push(engine);
     return { engine, placed, reasons };
   };
@@ -451,7 +449,7 @@ it("places the engine when the computer takes 95 seconds to wake, because the re
   const w = world();
   const waits: EngineWait[] = [];
   vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
-  const { engine, placed } = w.start(w.plan(), () => new Promise<EngineLink>((resolve) => setTimeout(() => resolve(w.relay()), 95_000)), false, undefined,
+  const { engine, placed } = w.start(w.plan(), () => new Promise<EngineLink>((resolve) => setTimeout(() => resolve(w.relay()), 95_000)), false,
     { onWaiting: (wait) => waits.push(wait) });
   await vi.advanceTimersByTimeAsync(95_000);
   vi.useRealTimers();
@@ -468,7 +466,7 @@ it("runs on the home with the reason when the computer never gets ready within i
   const w = world();
   const waits: EngineWait[] = [];
   vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
-  const { engine, placed, reasons } = w.start(w.plan(), () => new Promise<EngineLink>(() => {}), false, undefined,
+  const { engine, placed, reasons } = w.start(w.plan(), () => new Promise<EngineLink>(() => {}), false,
     { openBudgetMs: 13.5 * 60_000, onWaiting: (wait) => waits.push(wait) });
   await vi.advanceTimersByTimeAsync(13.5 * 60_000);
   vi.useRealTimers();
@@ -486,7 +484,7 @@ it("stops immediately and cleanly when cancelled while the computer is still wak
   const w = world();
   const waits: EngineWait[] = [];
   const planned = w.plan();
-  const { engine, placed } = w.start(planned, () => new Promise<EngineLink>(() => {}), false, undefined,
+  const { engine, placed } = w.start(planned, () => new Promise<EngineLink>(() => {}), false,
     { onWaiting: (wait) => waits.push(wait), waitNoticeMs: 20 });
   await new Promise((resolve) => setTimeout(resolve, 60));
   expect(waits).toEqual([{ waiting: true }]);
@@ -657,44 +655,22 @@ it("mirrors the dog's private folder read-only and bounded, and never brings cha
   expect(await closed(engine)).toBe(0);
 }, 60_000);
 
-it("renews a near-expiry sign-in on the home during a long remote turn and brings it to the computer without its refresh token", async () => {
+it("brings a sign-in renewed on the home to the computer during a long remote turn, without its refresh token", async () => {
   const w = world();
   const planned = w.plan();
   planned.launch.pushEveryMs = 50;
-  const ahead = 2 * 3600_000 - 60_000;
-  const shifted = () => Date.now() + ahead;
-  const renewed: string[] = [];
-  const renewer = createClaudeRenewer({ now: shifted, gate: createClaudeRefreshGate({ platform: "linux", now: shifted, pollMs: 5 }), checkMs: 20, run: async (renewal) => {
-    renewed.push(renewal.env.CLAUDE_CONFIG_DIR!);
-    writeFileSync(join(renewal.env.CLAUDE_CONFIG_DIR!, ".credentials.json"), JSON.stringify({ claudeAiOauth: { accessToken: "renewed-access", refreshToken: "renewed-refresh", expiresAt: Date.now() + 8 * 3600_000 } }));
-    return true;
-  } });
-  expect(renewer.held()).toEqual([]);
-  const { engine, placed } = w.start(planned, undefined, false, renewer);
+  const { engine, placed } = w.start(planned);
   engine.stdin.write(message("hang"));
   const remoteCredential = w.mirror(join(w.configDir, ".credentials.json"));
+  const opened = Date.now() + 10_000;
+  while (Date.now() < opened && !existsSync(remoteCredential)) await new Promise((resolve) => setTimeout(resolve, 25));
+  writeFileSync(join(w.configDir, ".credentials.json"), JSON.stringify({ claudeAiOauth: { accessToken: "renewed-access", refreshToken: "renewed-refresh", expiresAt: Date.now() + 8 * 3600_000 } }));
   const deadline = Date.now() + 10_000;
-  while (Date.now() < deadline && !(existsSync(remoteCredential) && readFileSync(remoteCredential, "utf8").includes("renewed-access"))) await new Promise((resolve) => setTimeout(resolve, 25));
+  while (Date.now() < deadline && !readFileSync(remoteCredential, "utf8").includes("renewed-access")) await new Promise((resolve) => setTimeout(resolve, 25));
   expect(placed).toEqual(["computer"]);
-  expect(renewer.held()).toEqual([join(w.configDir, ".credentials.json")]);
-  expect(renewed).toEqual([w.configDir]);
   const arrived = readFileSync(remoteCredential, "utf8");
   expect(arrived).toContain("renewed-access");
   expect(arrived).not.toContain("renewed-refresh");
-  expect(readFileSync(join(w.configDir, ".credentials.json"), "utf8")).toContain("renewed-refresh");
   expect(await killCliTree(engine as unknown as ChildProcess, 2_000)).toBe(true);
-  await new Promise((resolve) => setTimeout(resolve, 50));
-  expect(renewer.held()).toEqual([]);
   expect(w.localLaunches()).toBe(0);
-}, 60_000);
-
-it("never renews for an engine that ran on the home", async () => {
-  const w = world();
-  const renewer = createClaudeRenewer({ now: () => Date.now() + 2 * 3600_000, gate: { claim: async () => true }, run: async () => { throw new Error("renewed for a home engine"); } });
-  const { engine, placed } = w.start(w.plan(), async () => commandLink("/nonexistent/relay", []), false, renewer);
-  await turn(engine, "fallback");
-  expect(placed).toEqual(["home"]);
-  expect(renewer.held()).toEqual([]);
-  engine.stdin.end();
-  await closed(engine);
 }, 60_000);

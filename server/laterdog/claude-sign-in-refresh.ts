@@ -3,6 +3,7 @@ import { lstatSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname } from "node:path";
 import { claudeCredentialsFile } from "./claude-keychain.ts";
+import { keepSignIn, type SignInKeep } from "./account-sign-ins.ts";
 
 export interface ClaudeAccountRenewal { command: string; env: Record<string, string> }
 
@@ -13,13 +14,11 @@ export const CLAUDE_SIGN_IN_CHECK_ARGS: readonly string[] = [
 ];
 export const CLAUDE_RENEW_WHEN_LEFT_MS = 4.5 * 60_000;
 export const CLAUDE_LEND_MIN_LEFT_MS = 2 * 60_000;
-export const CLAUDE_KEEP_FRESH_EVERY_MS = 60_000;
 export const CLAUDE_SIGN_IN_CHECK_TIMEOUT_MS = 90_000;
 const CREDENTIALS_LIMIT = 64 * 1024;
 const ACCOUNT_TOKEN_ENV = ["CLAUDE_CODE_OAUTH_TOKEN", "CLAUDE_CODE_OAUTH_TOKEN_FILE_DESCRIPTOR", "ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "CLAUDE_CODE_API_KEY_FILE_DESCRIPTOR"] as const;
 
 export type SavedClaudeSignIn = { kind: "none" } | { kind: "token"; expiresAt: number; refreshable: boolean };
-export type ClaudeSignInOutcome = "fresh" | "renewed" | "signed-out" | "unrenewed";
 
 export function readSavedClaudeSignIn(file: string): SavedClaudeSignIn {
   try {
@@ -55,116 +54,17 @@ export function plainEnvironment(env: NodeJS.ProcessEnv): Record<string, string>
   return Object.fromEntries(Object.entries(env).filter((entry): entry is [string, string] => typeof entry[1] === "string"));
 }
 
-export interface ClaudeSignInRefreshOptions {
-  run?: (renewal: ClaudeAccountRenewal) => Promise<void>;
-  read?: (file: string) => SavedClaudeSignIn;
-  now?: () => number;
-  renewWhenLeftMs?: number;
-  lendMinLeftMs?: number;
-  everyMs?: number;
-  enabled?: () => boolean;
-  changed?: (instanceId: string) => void;
-}
-
-export interface ClaudeSignInRefresh {
-  ensure(instanceId: string, renewal: ClaudeAccountRenewal): Promise<ClaudeSignInOutcome>;
-  watch(instanceId: string, renewal: () => ClaudeAccountRenewal | null): () => void;
-  check(): Promise<void>;
-  signedOut(instanceId: string): boolean;
-  onChange(listener: (instanceId: string) => void): void;
-}
-
-export function createClaudeSignInRefresh(options: ClaudeSignInRefreshOptions = {}): ClaudeSignInRefresh {
-  const run = options.run ?? (renewal => runClaudeSignInCheck(renewal));
-  const read = options.read ?? readSavedClaudeSignIn;
-  const now = options.now ?? Date.now;
-  const renewWhenLeftMs = options.renewWhenLeftMs ?? CLAUDE_RENEW_WHEN_LEFT_MS;
-  const lendMinLeftMs = options.lendMinLeftMs ?? CLAUDE_LEND_MIN_LEFT_MS;
-  const everyMs = options.everyMs ?? CLAUDE_KEEP_FRESH_EVERY_MS;
-  const enabled = options.enabled ?? (() => true);
-  const running = new Map<string, Promise<ClaudeSignInOutcome>>();
-  const outOf = new Map<string, string>();
-  const watched = new Map<string, () => ClaudeAccountRenewal | null>();
-  const listeners = new Set<(instanceId: string) => void>();
-  if (options.changed) listeners.add(options.changed);
-  let timer: NodeJS.Timeout | null = null;
-
-  const record = (instanceId: string, file: string, outcome: ClaudeSignInOutcome) => {
-    const was = outOf.get(instanceId) === file;
-    if (outcome === "signed-out") outOf.set(instanceId, file);
-    else if (outcome !== "unrenewed") outOf.delete(instanceId);
-    if (was !== (outOf.get(instanceId) === file)) for (const listener of listeners) listener(instanceId);
-    return outcome;
-  };
-
-  const judge = (saved: SavedClaudeSignIn): ClaudeSignInOutcome | null => {
-    if (saved.kind === "none") return "signed-out";
-    if (saved.expiresAt - now() > renewWhenLeftMs) return "fresh";
-    if (!saved.refreshable) return saved.expiresAt - now() > lendMinLeftMs ? "fresh" : "signed-out";
-    return null;
-  };
-
-  const renew = (file: string, renewal: ClaudeAccountRenewal): Promise<ClaudeSignInOutcome> => {
-    const current = running.get(file);
-    if (current) return current;
-    const started = (async (): Promise<ClaudeSignInOutcome> => {
-      const before = judge(read(file));
-      if (before) return before;
-      try { await run(renewal); } catch {}
-      const after = read(file);
-      const settled = judge(after);
-      if (settled === "fresh") return "renewed";
-      if (settled === "signed-out" || after.kind === "none" || (after.kind === "token" && !after.refreshable)) return "signed-out";
-      return "unrenewed";
-    })().finally(() => { if (running.get(file) === started) running.delete(file); });
-    running.set(file, started);
-    return started;
-  };
-
-  const ensure = async (instanceId: string, renewal: ClaudeAccountRenewal): Promise<ClaudeSignInOutcome> => {
-    const file = enabled() ? claudeAccountFile(renewal) : null;
-    if (!file) return "fresh";
-    return record(instanceId, file, await renew(file, renewal));
-  };
-
-  const check = async () => {
-    if (!enabled()) return;
-    await Promise.all([...watched].map(async ([instanceId, renewalFor]) => {
-      let renewal: ClaudeAccountRenewal | null;
-      try { renewal = renewalFor(); } catch { return; }
-      const file = renewal && claudeAccountFile(renewal);
-      if (!renewal || !file) return;
-      const saved = read(file);
-      if (saved.kind === "none") return;
-      await ensure(instanceId, renewal);
-    }));
-  };
-
+export function claudeSignIn(renewal: ClaudeAccountRenewal, run: (renewal: ClaudeAccountRenewal) => Promise<void> = runClaudeSignInCheck): SignInKeep {
+  const file = claudeAccountFile(renewal);
   return {
-    ensure,
-    check,
-    watch(instanceId, renewal) {
-      watched.set(instanceId, renewal);
-      if (!timer) {
-        timer = setInterval(() => { void check(); }, everyMs);
-        timer.unref?.();
-      }
-      return () => {
-        if (watched.get(instanceId) === renewal) watched.delete(instanceId);
-        outOf.delete(instanceId);
-        if (!watched.size && timer) { clearInterval(timer); timer = null; }
-      };
+    leftMs: CLAUDE_RENEW_WHEN_LEFT_MS,
+    async read() {
+      if (!file) return { kind: "key" };
+      const saved = readSavedClaudeSignIn(file);
+      return saved.kind === "none" ? saved : { kind: "token", expiresAt: saved.expiresAt, refreshable: saved.refreshable };
     },
-    onChange(listener) { listeners.add(listener); },
-    signedOut(instanceId) {
-      const file = outOf.get(instanceId);
-      if (!file) return false;
-      const saved = read(file);
-      return saved.kind === "none" || saved.expiresAt - now() <= lendMinLeftMs;
-    },
+    renew: () => run(renewal),
   };
 }
 
-export const claudeSignInRefresh = createClaudeSignInRefresh({
-  enabled: () => process.env.LATERDOG_CLOUD_ROLE === "home" && process.platform === "linux",
-});
+export const renewClaudeSignIn = (renewal: ClaudeAccountRenewal) => keepSignIn(claudeSignIn(renewal));

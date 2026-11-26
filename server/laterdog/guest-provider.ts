@@ -8,6 +8,9 @@ import { GuestProviderChannel } from "./guest-provider-channel.ts";
 import { guestProviderPlan } from "./guest-provider-plan.ts";
 import { guestCliProfile } from "./guest-cli-profile.ts";
 import { guestHttpProfile } from "./guest-http-profile.ts";
+import { accountKeeper } from "./account-keeper.ts";
+import { grokSignIn, keepSignIn } from "./account-sign-ins.ts";
+import { guestGrokPolicy } from "./guest-grok-policy.ts";
 
 interface ActiveChannel {
   opening: Promise<GuestProviderChannel>;
@@ -24,6 +27,11 @@ export function placeProvider(instance: ProviderInstance, input: DriverCreateInp
   const driver = instance.driverKind;
   if (process.env.LATERDOG_CLOUD_ROLE !== "home" || driver === "claudeAgent" || driver === "codex") return instance;
   const local = instance.adapter;
+  const keepSignedIn = driver !== "grokAgent" ? () => {} : accountKeeper.watch(instance.instanceId, () => {
+    const environment = input.environment as Record<string, string>;
+    const cli = (input.config as { cli?: unknown } | undefined)?.cli;
+    return keepSignIn(grokSignIn(guestGrokPolicy(typeof cli === "string" && cli ? cli : "grok", environment).binary, environment));
+  });
   const active = new Map<string, ActiveChannel>();
   const listeners = new Set<RuntimeEventListener>();
   const log = (turn: SendTurnInput, result: string) => notePlacement(dataDir, "[engine] " + JSON.stringify({ driver, account: instance.instanceId, botId: turn.botId, threadId: turn.threadId, messageId: turn.sourceMessageId, placement: result }));
@@ -34,7 +42,7 @@ export function placeProvider(instance: ProviderInstance, input: DriverCreateInp
     const opener = engineOpener();
     if (!opener) throw new Error("The engine cannot reach the dog's computer.");
     const prepared = guestProviderPlan(dataDir, driver, profile, turn, opener);
-    const proc = spawnPlacedEngine(prepared.plan, (plan, signal) => opener.open(turn.botId!, plan, signal), undefined, undefined, undefined, {
+    const proc = spawnPlacedEngine(prepared.plan, (plan, signal) => opener.open(turn.botId!, plan, signal), undefined, undefined, {
       openBudgetMs: opener.openBudgetMs,
       onWaiting: wait => {
         if (turn.threadId.startsWith("writing-")) return;
@@ -161,5 +169,5 @@ export function placeProvider(instance: ProviderInstance, input: DriverCreateInp
       active.delete(turn.threadId);
     }
   });
-  return withMembers(instance, { adapter, ...(generateText ? { generateText } : {}), dispose: async () => { await stopAll(); await instance.dispose(); } });
+  return withMembers(instance, { adapter, ...(generateText ? { generateText } : {}), dispose: async () => { keepSignedIn(); await stopAll(); await instance.dispose(); } });
 }

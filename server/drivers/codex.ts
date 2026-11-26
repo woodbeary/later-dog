@@ -68,6 +68,8 @@ import { chatEngineEnvironment } from "../laterdog/chat-environment.ts";
 import { codexToolTouch } from "../laterdog/tool-touches.ts";
 import { codexCompactionEvent } from "../laterdog/native-compaction.ts";
 import { helpersStoppedLine } from "../laterdog/helpers-stopped.ts";
+import { accountKeeper } from "../laterdog/account-keeper.ts";
+import { codexSignIn, keepSignIn } from "../laterdog/account-sign-ins.ts";
 
 export { decodeCodexSelection, readCodexModelCatalog, STATIC_CODEX_MODELS } from "./codex-catalog.ts";
 
@@ -639,7 +641,17 @@ export const CodexDriver: ProviderDriver<CodexConfig> = {
       return env;
     };
     const catalogEnv = childEnv();
+    let renewing: Promise<string | null> | undefined;
+    const renewSignIn = (env: Record<string, string | undefined>) => renewing ??= codexAccountEmail(config.cli, env, 30_000, true).finally(() => { renewing = undefined; });
     const planAuth = plan ? new ChatGptPlanAuthController({ directory: planDirectory }) : null;
+    const keepSignedIn = config.managed ? () => {} : accountKeeper.watch(instanceId, async () => {
+      if (!planAuth) {
+        const env = childEnv();
+        return keepSignIn(codexSignIn(env, () => renewSignIn(env)));
+      }
+      try { await planAuth.accessToken(); return "fresh"; }
+      catch { return (await planAuth.snapshot()).authenticated ? "unrenewed" : "signed-out"; }
+    });
     let planGeneration = 0;
     let planSigningOut = false;
     let disposed = false;
@@ -790,7 +802,7 @@ export const CodexDriver: ProviderDriver<CodexConfig> = {
           ? await planCodexRemote({ dataDir: DATA_DIR, botId: turn.botId!, threadId, instanceId, cli: config.cli, cwd: turn.cwd, env,
             cursor: typeof turn.resumeCursor === "string" ? turn.resumeCursor : undefined, opener, required, images: turn.images,
             guardShell: turn.integrations?.hooks?.guardShell === true,
-            refresh: async () => { if (!await codexAccountEmail(config.cli, env, 30_000, true)) throw new Error("The home could not refresh the selected account."); } }) : undefined;
+            refresh: async () => { if (!await renewSignIn(env)) throw new Error("The home could not refresh the selected account."); } }) : undefined;
         if (remoteChoice?.binding) binding = remoteChoice.binding;
         const remote = remoteChoice?.plan ? remoteChoice : undefined;
         if (required && !remote) throw new Error(`Codex could not start on this dog's computer. ${remoteChoice?.stay ?? unavailable ?? "The selected session could not be placed."} No prompt was sent.`);
@@ -885,7 +897,7 @@ export const CodexDriver: ProviderDriver<CodexConfig> = {
         const commandCwd = permissionLaunchCwd(turn.cwd ?? homedir());
         if (remote) remote.plan.launch.args = appServerArgs;
         const placedChild = remote && opener ? spawnPlacedEngine(remote.plan, (value, signal) => opener.open(turn.botId!, value, signal), undefined,
-          (where, why) => notePlacement(DATA_DIR, `[engine] Codex for ${threadId} on ${where}${why ? `: ${why}` : ""}`), undefined, { openBudgetMs: opener.openBudgetMs }) : undefined;
+          (where, why) => notePlacement(DATA_DIR, `[engine] Codex for ${threadId} on ${where}${why ? `: ${why}` : ""}`), { openBudgetMs: opener.openBudgetMs }) : undefined;
         const child = (placedChild as unknown as ReturnType<typeof spawnCli> | undefined) ?? spawnCli(config.cli, appServerArgs, {
           cwd: turn.cwd ?? homedir(),
           env,
@@ -1982,6 +1994,7 @@ export const CodexDriver: ProviderDriver<CodexConfig> = {
     },
     dispose: async () => {
       disposed = true;
+      keepSignedIn();
       planGeneration++;
       await authentication.dispose();
       await planAuth?.dispose();

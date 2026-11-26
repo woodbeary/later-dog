@@ -401,16 +401,6 @@ it("lends the dog's private folder read-only and bounded, never overlapping the 
   expect(botFolderRoot(input.dataDir, "bot", join(base, "elsewhere"), config, staging)).toBeNull();
 });
 
-it("gives the home's sign-in renewal the same CLI and the home environment only when a sign-in is lent", () => {
-  const { config, input } = setup();
-  const planned = planClaudeRemote(input);
-  if (!("plan" in planned)) throw new Error(planned.stay);
-  expect(planned.plan.renewal).toEqual({ command: input.cliCommand, env: expect.objectContaining({ CLAUDE_CONFIG_DIR: config, HOME: input.env.HOME }) });
-  const keyed = planClaudeRemote({ ...input, env: { ...input.env, ANTHROPIC_API_KEY: "sk-ant-fixture" } });
-  if (!("plan" in keyed)) throw new Error(keyed.stay);
-  expect(keyed.plan.renewal).toBeNull();
-});
-
 it("saves a dog's placement atomically, keeps other dogs and fields, and never rewrites a file it cannot read", () => {
   const base = realpathSync(mkdtempSync("/tmp/ldplan-")); scratch.push(base);
   const file = join(base, "remote-engines.json");

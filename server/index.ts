@@ -922,7 +922,7 @@ import { retireMemberProjects } from "./laterdog/project-member-retirement.ts";
 import { checkpointAssignedFolders } from "./laterdog/portable-work-folders.ts";
 import { assignedCwd, engineFolderScopes, folderGrant, mountedWorkFolders, rememberProjectAccess, visibleAliases } from "./laterdog/work-folder-locations.ts";
 import { computerEngineOpener } from "./laterdog/engine-opener.ts";
-import { claudeSignInRefresh } from "./laterdog/claude-sign-in-refresh.ts";
+import { accountKeeper } from "./laterdog/account-keeper.ts";
 
 const mountedFolderLayout = mountedWorkFolders();
 const folderBootstrap = BOOT_CLOUD_SECRETS.LATERDOG_CLOUD_BOOTSTRAP_SECRET ?? process.env.LATERDOG_CLOUD_BOOTSTRAP_SECRET;
@@ -1111,7 +1111,10 @@ function customDomainStatus() {
 const HELD_ACCOUNTS_FILE = join(DATA_DIR, "providers", "held-accounts.json");
 const registry = new ProviderRegistry(BUILT_IN_DRIVERS, { held: (instanceId) => heldAccountReason(HELD_ACCOUNTS_FILE, instanceId), snapshotFile: join(DATA_DIR, "account-snapshots.json") });
 const supportsApprovalMode = createApprovalModeSupport(registry);
-claudeSignInRefresh.onChange((instanceId) => registry.forgetSnapshot(instanceId));
+accountKeeper.onChange((instanceId, outcome) => {
+  registry.forgetSnapshot(instanceId);
+  console.log(`[accounts] ${registry.get(instanceId)?.displayName ?? instanceId}: ${outcome === "signed-out" ? "needs signing in again" : outcome === "unrenewed" ? "could not renew its sign-in this time" : "signed in"}`);
+});
 registerEnginesBinDir();
 registerNativeBinDir();
 
@@ -1152,7 +1155,7 @@ function batteryAccounts(): BatteryAccount[] {
       eligible: instance.instanceId !== CLAUDE_API_INSTANCE && !managedDesktop.owns(instance.instanceId) && !policyModelRefusal(instance) &&
         (configs[instance.instanceId]?.access ?? registry.access(instance.instanceId)) === "subscription" && snapshot?.account?.method !== "api-key",
       ...(snapshot ? signedInReading(snapshot) : {}),
-      ...(claudeSignInRefresh.signedOut(instance.instanceId) ? { signedIn: false } : {}),
+      ...(accountKeeper.signedOut(instance.instanceId) ? { signedIn: false } : {}),
       ...(snapshot?.account?.email ? { email: snapshot.account.email } : {}),
       models: instance.models.options.map((option) => option.id), defaultModel: instance.models.default,
     };

@@ -9,7 +9,8 @@ import { writeFileAtomic, writeFileAtomicIfChanged } from "../atomic.ts";
 import { augmentedPath } from "../env-path.ts";
 import { brokerSocketPath, describeSpawnFailure, execCli, killCliTree, resolveCli, spawnCli } from "../procs.ts";
 import { acceptedEnginePlacement, engineOpener, lendableClaudeSignIn, notePlacement, recordEngineTurn, planClaudeRemote, remoteEngineChoice, spawnPlacedEngine } from "../laterdog/engine-placement.ts";
-import { claudeSignInRefresh, plainEnvironment } from "../laterdog/claude-sign-in-refresh.ts";
+import { plainEnvironment, renewClaudeSignIn } from "../laterdog/claude-sign-in-refresh.ts";
+import { accountKeeper } from "../laterdog/account-keeper.ts";
 import { engineWaitEvent } from "../laterdog/engine-waiting.ts";
 import { claudeResumeRefusal, classifyResumeFailure, mayReplay, recoveryPromptFor } from "../resume-recovery.ts";
 import { ClaudeLoginController } from "./claude-login-auth.ts";
@@ -1594,7 +1595,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
         }
         child = remote && "plan" in remote
           ? spawnPlacedEngine(remote.plan, (plan, signal) => opener!.open(botId!, plan, signal), required ? undefined : local, (where, why) =>
-            notePlacement(DATA_DIR, `[engine] ${botId!.slice(0, 8)} ${threadId.slice(0, 8)} runs on the ${where === "computer" ? "dog's cloud computer" : "home"}${why ? ` (${why})` : ""}`), undefined,
+            notePlacement(DATA_DIR, `[engine] ${botId!.slice(0, 8)} ${threadId.slice(0, 8)} runs on the ${where === "computer" ? "dog's cloud computer" : "home"}${why ? ` (${why})` : ""}`),
             { openBudgetMs: opener!.openBudgetMs, onWaiting: (wait) => emit({ ...base(threadId, turnId), ...engineWaitEvent(wait) }) }) as unknown as ReturnType<typeof spawnCli>
           : local();
       } catch (error) {
@@ -2367,7 +2368,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
             child = spawnPlacedEngine(result.plan, (plan, cancel) => opener.open(botId, plan, cancel), undefined, (where, why) => {
               if (where === "computer" && !why) startDeadline();
               notePlacement(DATA_DIR, `[engine] Claude text generation for ${botId} on ${where}${why ? `: ${why}` : ""}`);
-            }, undefined, { openBudgetMs: opener.openBudgetMs }) as unknown as ReturnType<typeof spawnCli>;
+            }, { openBudgetMs: opener.openBudgetMs }) as unknown as ReturnType<typeof spawnCli>;
           } finally { rmSync(files, { recursive: true, force: true }); }
         } else {
           child = spawnCli(config.cli, args, { stdio: ["pipe", "pipe", "pipe"], env: oneShotEnvironment });
@@ -2438,9 +2439,9 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
           child.stdin.end(prompt);
         }
       }));
-    const keepSignedIn = config.managed || config.requireApiKey ? () => {} : claudeSignInRefresh.watch(instanceId, () => {
+    const keepSignedIn = config.managed || config.requireApiKey ? () => {} : accountKeeper.watch(instanceId, () => {
       const env = environment();
-      return { command: resolveCli(config.cli, [], env).command, env: plainEnvironment(env) };
+      return renewClaudeSignIn({ command: resolveCli(config.cli, [], env).command, env: plainEnvironment(env) });
     });
 
     return {

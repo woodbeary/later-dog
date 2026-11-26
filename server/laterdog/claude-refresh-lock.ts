@@ -83,7 +83,6 @@ export interface ClaudeRefreshGateOptions {
 
 export interface ClaudeRefreshGate {
   enter(env: NodeJS.ProcessEnv): Promise<void>;
-  claim(env: NodeJS.ProcessEnv): Promise<boolean>;
 }
 
 export function createClaudeRefreshGate(options: ClaudeRefreshGateOptions = {}): ClaudeRefreshGate {
@@ -127,14 +126,6 @@ export function createClaudeRefreshGate(options: ClaudeRefreshGateOptions = {}):
       const running = leads.get(file);
       if (running) return running;
       if (due(file)) lead(file);
-    },
-    async claim(env) {
-      const file = fileFor(env);
-      if (!file) return false;
-      for (let running = leads.get(file); running; running = leads.get(file)) await running;
-      if (!due(file)) return false;
-      lead(file);
-      return true;
     },
   };
 }
