@@ -27,6 +27,7 @@ export interface OwnerGuardContext {
   home?: string;
   git?: GitLookup;
   repositoryRoot?: (cwd: string) => string | null;
+  fullAccess?: boolean;
 }
 
 export interface OwnerGuardRequest {
