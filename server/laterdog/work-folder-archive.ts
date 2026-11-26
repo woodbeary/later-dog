@@ -1,11 +1,13 @@
 import { spawn } from "node:child_process";
-import { randomUUID } from "node:crypto";
-import { createReadStream, existsSync, readFileSync, readdirSync, readlinkSync } from "node:fs";
-import { chmod, lstat, mkdir, open, readFile, readdir, realpath, rename, rm, rmdir, writeFile } from "node:fs/promises";
-import { join, relative, sep } from "node:path";
+import { createHash, randomUUID } from "node:crypto";
+import { closeSync, createReadStream, fsyncSync, lstatSync, mkdirSync, openSync, readFileSync, readdirSync, readlinkSync, realpathSync } from "node:fs";
+import { chmod, link, lstat, mkdir, mkdtemp, open, readdir, readlink, realpath, rm, rmdir, symlink, writeFile } from "node:fs/promises";
+import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { writeFileAtomic } from "../atomic.ts";
 import { LEAST_IDLE_MS } from "./archive-pressure.ts";
+import { hasLiveWork } from "./disk-ladder.ts";
+import type { ProcessInfo } from "./process-reaper.ts";
 import type { WorkspaceTask } from "./janitor.ts";
 import type { ArchiveSkip } from "./log-archive.ts";
 
@@ -30,6 +32,7 @@ export function unpackArgs(dir: string): string[] {
 }
 
 export interface MovedOutPart {
+  sha256?: string;
   name: string;
   bytes: number;
 }
@@ -62,7 +65,9 @@ export interface WorkFolderDeps {
   workspacesDir: string;
   bridge: WorkFolderBridge;
   chats(): WorkspaceTask[];
-  inUse(botId: string, threadId: string): boolean;
+  syncDirectory?(dir: string): Promise<void>;
+  live?(): ProcessInfo[];
+  inUse?(botId: string, threadId: string): boolean;
   limits(): WorkFolderLimits;
   room(bytes: number): boolean;
   makeRoom?(): Promise<void>;
@@ -82,25 +87,30 @@ export interface FolderSize {
   bytes: number;
   diskBytes: number;
   newestMs: number;
+  fingerprint: string;
 }
 
 export async function measureFolder(dir: string): Promise<FolderSize> {
   const root = await lstat(dir);
-  const size: FolderSize = { files: 0, bytes: 0, diskBytes: 0, newestMs: Math.max(root.mtimeMs, root.ctimeMs) };
+  const size: FolderSize = { files: 0, bytes: 0, diskBytes: 0, newestMs: Math.max(root.mtimeMs, root.ctimeMs), fingerprint: "" };
+  const fingerprint = createHash("sha256");
   const walk = async (path: string): Promise<void> => {
-    for (const entry of await readdir(path, { withFileTypes: true })) {
+    for (const entry of (await readdir(path, { withFileTypes: true })).sort((left, right) => left.name.localeCompare(right.name))) {
       const full = join(path, entry.name);
       const info = await lstat(full);
       size.newestMs = Math.max(size.newestMs, info.mtimeMs, info.ctimeMs);
+      fingerprint.update(JSON.stringify([relative(dir, full), info.mode, info.ino, info.dev, info.size, info.mtimeMs, info.ctimeMs, info.isSymbolicLink() ? await readlink(full) : null]));
       size.diskBytes += info.blocks * 512;
       if (info.isDirectory()) await walk(full);
       else {
+        if (!info.isFile() && !info.isSymbolicLink()) throw new Error("unsupported work folder entry");
         size.files += 1;
         if (info.isFile()) size.bytes += info.size;
       }
     }
   };
   await walk(dir);
+  size.fingerprint = fingerprint.digest("hex");
   return size;
 }
 
@@ -125,7 +135,7 @@ export function folderHeld(dir: string, procDir = "/proc"): boolean {
   return false;
 }
 
-const sameSize = (left: FolderSize, right: FolderSize) => left.files === right.files && left.bytes === right.bytes && left.newestMs === right.newestMs;
+const sameSize = (left: FolderSize, right: FolderSize) => left.files === right.files && left.bytes === right.bytes && left.newestMs === right.newestMs && left.fingerprint === right.fingerprint;
 const mb = (bytes: number) => `${Math.round(bytes / 1024 ** 2)} MB`;
 const said = (error: unknown) => (error instanceof Error ? error.message : String(error));
 const sized = (bytes: number) => (bytes >= 1024 ** 3 ? `${(bytes / 1024 ** 3).toFixed(1)} GB` : mb(bytes));
@@ -138,6 +148,31 @@ export function movedOutNote(record: Pick<MovedOut, "movedAt" | "bytes" | "files
     "They come back by themselves when the chat's next turn starts. Nothing was deleted.",
     "",
   ].join("\n");
+}
+
+function validKey(key: string): boolean {
+  const parts = key.split("/");
+  return parts.length === 2 && parts.every(part => ID.test(part));
+}
+
+function validRecord(key: string, value: unknown): value is MovedOut {
+  if (!validKey(key) || !value || typeof value !== "object" || Array.isArray(value)) return false;
+  const record = value as MovedOut;
+  const count = (number: unknown) => typeof number === "number" && Number.isSafeInteger(number) && number >= 0;
+  if (typeof record.stamp !== "string" || !/^[a-z0-9-]{1,80}$/.test(record.stamp)
+    || (record.diskBytes !== undefined && !count(record.diskBytes)) || !count(record.bytes) || !count(record.files) || !count(record.movedAt) || typeof record.cleared !== "boolean"
+    || !Array.isArray(record.parts) || !record.parts.length) return false;
+  const thread = key.split("/")[1]!;
+  return record.parts.every((part, index) => part && typeof part === "object"
+    && part.name === `wf-${thread}-${record.stamp}-${String(index + 1).padStart(4, "0")}.tar`
+    && count(part.bytes) && part.bytes > 0 && part.bytes <= PART_BYTES
+    && (part.sha256 === undefined && /^[a-z0-9]+$/.test(record.stamp) || typeof part.sha256 === "string" && /^[a-f0-9]{64}$/.test(part.sha256)));
+}
+
+async function fileHash(path: string): Promise<string> {
+  const hash = createHash("sha256");
+  for await (const bytes of createReadStream(path)) hash.update(bytes);
+  return hash.digest("hex");
 }
 
 export function roomNeeded(record: Pick<MovedOut, "parts" | "diskBytes">, partBytes = PART_BYTES): number {
@@ -174,45 +209,6 @@ async function openUp(dir: string): Promise<void> {
   for (const entry of await readdir(dir, { withFileTypes: true })) if (entry.isDirectory()) await openUp(join(dir, entry.name));
 }
 
-async function openUpKeepingModes(root: string, at = ""): Promise<Map<string, number>> {
-  const modes = new Map<string, number>();
-  for (const entry of await readdir(join(root, at), { withFileTypes: true })) {
-    if (!entry.isDirectory()) continue;
-    const rel = at ? `${at}/${entry.name}` : entry.name;
-    const mode = (await lstat(join(root, rel))).mode & 0o7777;
-    modes.set(rel, mode);
-    if ((mode & 0o700) !== 0o700) await chmod(join(root, rel), mode | 0o700);
-    for (const [inner, innerMode] of await openUpKeepingModes(root, rel)) modes.set(inner, innerMode);
-  }
-  return modes;
-}
-
-async function mergeInto(from: string, to: string, at: string, moved: string[]): Promise<void> {
-  for (const name of await readdir(from)) {
-    const source = join(from, name);
-    const target = join(to, name);
-    const rel = at ? `${at}/${name}` : name;
-    const there = await lstat(target).catch(() => null);
-    const here = await lstat(source);
-    if (!there) {
-      await writable(to, () => rename(source, target));
-      moved.push(rel);
-    } else if (here.isDirectory() && there.isDirectory()) {
-      await mergeInto(source, target, rel, moved);
-    }
-  }
-}
-
-async function mergeKeepingModes(staging: string, dir: string): Promise<void> {
-  await chmod(staging, 0o700);
-  const modes = await openUpKeepingModes(staging);
-  const moved: string[] = [];
-  await mergeInto(staging, dir, "", moved);
-  const fromStaging = (rel: string) => moved.some((root) => rel === root || rel.startsWith(`${root}/`));
-  const deepestFirst = [...modes].filter(([rel]) => fromStaging(rel)).sort(([left], [right]) => right.split("/").length - left.split("/").length);
-  for (const [rel, mode] of deepestFirst) await chmod(join(dir, rel), mode);
-}
-
 export class WorkFolderArchive {
   private records: Record<string, MovedOut> | null = null;
   private locks = new Map<string, Promise<unknown>>();
@@ -229,27 +225,52 @@ export class WorkFolderArchive {
     this.deps = deps;
     this.now = deps.now ?? Date.now;
     this.log = deps.log ?? (() => {});
+    if (!Number.isSafeInteger(deps.partBytes ?? PART_BYTES) || (deps.partBytes ?? PART_BYTES) < 1 || (deps.partBytes ?? PART_BYTES) > PART_BYTES) throw new Error("invalid work folder part size");
   }
 
   private file(): string {
     return join(this.deps.dataDir, WORK_FOLDER_RECORDS);
   }
 
+  private safeDir(dir: string, make = false): void {
+    const home = resolve(this.deps.home);
+    const path = relative(home, resolve(dir));
+    if (realpathSync(home) !== home || isAbsolute(path) || path.split(sep).some(part => part === "..")) throw new Error("unsafe work folder path");
+    let at = home;
+    for (const part of path.split(sep).filter(Boolean)) {
+      at = join(at, part);
+      if (make) {
+        try { mkdirSync(at, { mode: 0o700 }); } catch (error) { if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error; }
+      }
+      const info = lstatSync(at);
+      if (!info.isDirectory() || info.isSymbolicLink()) throw new Error("unsafe work folder parent");
+    }
+  }
+
   private load(): Record<string, MovedOut> {
     if (this.records) return this.records;
-    let found: Record<string, MovedOut> = {};
+    this.safeDir(this.deps.dataDir);
+    let parsed: unknown;
     try {
-      const parsed = JSON.parse(readFileSync(this.file(), "utf8")) as unknown;
-      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) found = parsed as Record<string, MovedOut>;
-    } catch {
-      found = {};
+      const file = this.file();
+      const info = lstatSync(file);
+      if (!info.isFile() || info.isSymbolicLink()) throw new Error("invalid work folder record file");
+      parsed = JSON.parse(readFileSync(file, "utf8")) as unknown;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+      parsed = {};
     }
-    this.records = found;
-    return found;
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)
+      || !Object.entries(parsed).every(([key, value]) => validRecord(key, value))) throw new Error("invalid work folder record");
+    this.records = Object.assign(Object.create(null) as Record<string, MovedOut>, parsed);
+    return this.records;
   }
 
   private save(): void {
+    this.safeDir(this.deps.dataDir);
     writeFileAtomic(this.file(), JSON.stringify(this.load()), { mode: 0o600 });
+    const fd = openSync(this.deps.dataDir, "r");
+    try { fsyncSync(fd); } finally { closeSync(fd); }
   }
 
   private keyOf(dir: string): string | null {
@@ -258,10 +279,12 @@ export class WorkFolderArchive {
   }
 
   private dirOf(key: string): string {
+    if (!validKey(key)) throw new Error("invalid work folder key");
     return join(this.deps.workspacesDir, ...key.split("/"));
   }
 
   private partPath(key: string, name: string): string {
+    if (!validKey(key) || !/^[A-Za-z0-9_-]+[.]tar$/.test(name)) throw new Error("invalid work folder part path");
     return `${WORK_FOLDER_PARTS}/${key.split("/")[0]}/${name}`;
   }
 
@@ -302,23 +325,29 @@ export class WorkFolderArchive {
   private async tarOut(key: string, dir: string, stamp: string, stillQuiet: () => boolean): Promise<MovedOutPart[] | null> {
     const partBytes = this.deps.partBytes ?? PART_BYTES;
     const folder = join(this.deps.home, WORK_FOLDER_PARTS, key.split("/")[0]!);
-    await mkdir(folder, { recursive: true, mode: 0o700 });
+    this.safeDir(folder, true);
+    this.safeDir(dir);
     const child = spawn(this.deps.tar ?? "tar", packArgs(dir), { stdio: ["ignore", "pipe", "pipe"] });
     let complaint = "";
     child.stderr.on("data", (chunk: Buffer) => { complaint = (complaint + chunk.toString()).slice(-400); });
+    let spawnError: Error | null = null;
+    child.once("error", error => { spawnError = error; });
     const ended = new Promise<number | null>((resolve) => child.once("close", (code) => resolve(code)));
     const parts: MovedOutPart[] = [];
     const thread = key.split("/")[1]!;
     let handle: Awaited<ReturnType<typeof open>> | null = null;
     let written = 0;
+    let hash = createHash("sha256");
     const nameOf = (index: number) => `wf-${thread}-${stamp}-${String(index).padStart(4, "0")}.tar`;
     const finish = async () => {
       if (!handle) return;
+      await handle.sync();
       await handle.close();
       handle = null;
       const name = nameOf(parts.length + 1);
       await this.archivePart(key, name, written);
-      parts.push({ name, bytes: written });
+      parts.push({ name, bytes: written, sha256: hash.digest("hex") });
+      hash = createHash("sha256");
       written = 0;
     };
     try {
@@ -327,7 +356,8 @@ export class WorkFolderArchive {
         while (rest.length) {
           handle ??= await open(join(folder, nameOf(parts.length + 1)), "wx", 0o600);
           const take = rest.subarray(0, partBytes - written);
-          await handle.write(take);
+          await handle.writeFile(take);
+          hash.update(take);
           written += take.length;
           rest = rest.subarray(take.length);
           if (written >= partBytes) {
@@ -338,23 +368,33 @@ export class WorkFolderArchive {
       }
       await finish();
       const code = await ended;
+      if (spawnError) throw spawnError;
       if (code !== 0) throw new Error(`tar stopped with code ${code ?? "none"}: ${complaint.trim().split("\n").at(-1) ?? ""}`);
       return parts;
     } catch (error) {
       child.kill("SIGKILL");
+      await ended;
       const unfinished = handle as { close(): Promise<void> } | null;
       if (unfinished) await unfinished.close().catch(() => {});
-      await rm(join(folder, nameOf(parts.length + 1)), { force: true }).catch(() => {});
+      try {
+        this.safeDir(folder);
+        await rm(join(folder, nameOf(parts.length + 1)), { force: true });
+      } catch {}
       if (error instanceof Woke) return null;
       throw error;
     }
   }
 
-  private async clear(key: string, record: MovedOut): Promise<void> {
-    if (!await this.realFolder(key)) throw new Error("the work folder is not a plain folder inside the workspaces");
-    const dir = this.dirOf(key);
-    await openUp(dir);
-    for (const name of await readdir(dir)) await rm(join(dir, name), { recursive: true, force: true });
+  private async clear(dir: string, record: MovedOut, stillQuiet: () => boolean): Promise<void> {
+    this.safeDir(dir);
+    for (const name of await readdir(dir)) {
+      if (!stillQuiet()) throw new Woke();
+      this.safeDir(dir);
+      await openUp(join(dir, name));
+      if (!stillQuiet()) throw new Woke();
+      await rm(join(dir, name), { recursive: true, force: true });
+    }
+    this.safeDir(dir);
     await writeFile(join(dir, MOVED_OUT_NOTE), movedOutNote(record), { mode: 0o600 });
   }
 
@@ -366,7 +406,7 @@ export class WorkFolderArchive {
   private quiet(chat: WorkspaceTask, key: string, limits: WorkFolderLimits): boolean {
     if (!this.idleEnough(chat, limits) || this.wanted.has(key)) return false;
     const [botId, threadId] = key.split("/") as [string, string];
-    return !this.deps.inUse(botId, threadId);
+    return !this.deps.inUse?.(botId, threadId) && !hasLiveWork(chat, this.deps.live?.() ?? []);
   }
 
   private moveOut(chat: WorkspaceTask, key: string, before: FolderSize, limits: WorkFolderLimits): Promise<number> {
@@ -374,11 +414,12 @@ export class WorkFolderArchive {
       const records = this.load();
       if (records[key]) return 0;
       if (!await this.realFolder(key) || this.held(chat.dir)) return 0;
-      const stamp = this.now().toString(36);
+      const stamp = `${this.now().toString(36)}-${randomUUID()}`;
       const stillQuiet = () => {
         const current = this.deps.chats().find((candidate) => candidate.dir === chat.dir);
         return Boolean(current && this.quiet(current, key, limits));
       };
+      if (!stillQuiet()) return 0;
       const parts = await this.tarOut(key, chat.dir, stamp, stillQuiet);
       if (!parts || !stillQuiet() || this.held(chat.dir) || !sameSize(before, await measureFolder(chat.dir))) {
         this.log(`laterdog home: left ${key.slice(0, 8)}'s work folder on the disk; the chat woke, a program opened it, or it changed while it was being stored`);
@@ -387,7 +428,7 @@ export class WorkFolderArchive {
       const record: MovedOut = { stamp, parts, bytes: before.bytes, diskBytes: before.diskBytes, files: before.files, movedAt: this.now(), cleared: false };
       records[key] = record;
       this.save();
-      await this.clear(key, record);
+      await this.clear(chat.dir, record, () => stillQuiet() && !this.held(chat.dir));
       record.cleared = true;
       this.save();
       this.totals.movedOut += 1;
@@ -411,7 +452,7 @@ export class WorkFolderArchive {
     for (const [key, until] of this.leftAlone) if (until <= this.now() || !known.has(key)) this.leftAlone.delete(key);
     let forgotten = 0;
     for (const key of Object.keys(records)) {
-      if (known.has(key) && existsSync(this.dirOf(key))) continue;
+      if (known.has(key)) continue;
       delete records[key];
       forgotten += 1;
     }
@@ -427,13 +468,7 @@ export class WorkFolderArchive {
       const key = this.keyOf(chat.dir);
       if (remaining <= 0 || failures >= 3) break;
       if (!key || !this.quiet(chat, key, limits)) continue;
-      const record = records[key];
-      if (record) {
-        if (!record.cleared && !this.held(chat.dir)) {
-          await this.locked(key, async () => { await this.clear(key, record); record.cleared = true; this.save(); }).catch(() => {});
-        }
-        continue;
-      }
+      if (records[key]) continue;
       if ((this.leftAlone.get(key) ?? 0) > this.now()) continue;
       if (!await this.realFolder(key)) continue;
       const rest = () => { this.leftAlone.set(key, this.now() + LEFT_ALONE_MS); };
@@ -470,14 +505,119 @@ export class WorkFolderArchive {
 
   private async restorePart(key: string, part: MovedOutPart): Promise<string> {
     const full = join(this.deps.home, this.partPath(key, part.name));
-    const present = await lstat(full).catch(() => null);
-    if (!present) {
-      const result = await this.deps.bridge.restoreContaining([part.name]);
-      if (result.failed) throw new Error(`${part.name} did not come back from storage`);
+    this.safeDir(dirname(full), true);
+    let present = await lstat(full).catch(() => null);
+    if (present && !present.isFile()) throw new Error("unsafe work folder part");
+    let preserved: string | undefined;
+    if (present && (present.size !== part.bytes || part.sha256 === undefined || await fileHash(full) !== part.sha256)) {
+      this.safeDir(dirname(full));
+      if (part.sha256 === undefined) {
+        preserved = `${full}.unverified-${randomUUID()}`;
+        await link(full, preserved);
+      }
+      await rm(full);
+      present = null;
     }
-    const info = await lstat(full).catch(() => null);
-    if (!info?.isFile() || info.size !== part.bytes) throw new Error(`${part.name} came back incomplete`);
+    try {
+      if (!present) {
+        const result = await this.deps.bridge.restoreContaining([part.name]);
+        if (result.failed || (!part.sha256 && result.restored !== 1)) throw new Error(`${part.name} did not come back from storage`);
+      }
+      this.safeDir(dirname(full));
+      const info = await lstat(full).catch(() => null);
+      if (!info?.isFile() || info.size !== part.bytes || (part.sha256 !== undefined && await fileHash(full) !== part.sha256)) throw new Error(`${part.name} came back incomplete`);
+    } catch (error) {
+      if (preserved) {
+        this.safeDir(dirname(full));
+        await link(preserved, full).then(() => rm(preserved!)).catch(() => {});
+      }
+      throw error;
+    }
+    if (preserved) await rm(preserved);
     return full;
+  }
+
+  private async syncDirectory(dir: string): Promise<void> {
+    this.safeDir(dir);
+    if (this.deps.syncDirectory) return this.deps.syncDirectory(dir);
+    const handle = await open(dir, "r");
+    try { await handle.sync(); } finally { await handle.close(); }
+  }
+
+  private async syncParents(dir: string): Promise<void> {
+    let at = resolve(dir);
+    const home = resolve(this.deps.home);
+    for (;;) {
+      await this.syncDirectory(at);
+      if (at === home) return;
+      at = dirname(at);
+    }
+  }
+
+  private async syncTree(dir: string): Promise<void> {
+    this.safeDir(dir);
+    for (const entry of await readdir(dir, { withFileTypes: true })) {
+      const path = join(dir, entry.name);
+      if (entry.isDirectory()) await this.syncTree(path);
+      else if (entry.isFile()) {
+        const handle = await open(path, "r");
+        try { await handle.sync(); } finally { await handle.close(); }
+      }
+    }
+    await this.syncDirectory(dir);
+  }
+
+  private async mergeRestored(source: string, target: string, names?: readonly string[]): Promise<void> {
+    this.safeDir(source);
+    this.safeDir(target);
+    for (const entry of await readdir(source, { withFileTypes: true })) {
+      if (names && !names.includes(entry.name)) continue;
+      const from = join(source, entry.name);
+      const to = join(target, entry.name);
+      if (entry.isDirectory()) {
+        let made = false;
+        try { await writable(target, () => mkdir(to, { mode: 0o700 })); made = true; } catch (error) { if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error; }
+        this.safeDir(to);
+        await this.mergeRestored(from, to);
+        if (made) {
+          await chmod(to, (await lstat(from)).mode & 0o777);
+          await this.syncDirectory(to);
+        }
+      } else {
+        this.safeDir(target);
+        try {
+          if (entry.isSymbolicLink()) {
+            const path = await readlink(from);
+            await writable(target, () => symlink(path, to));
+          } else if (entry.isFile()) await writable(target, () => link(from, to));
+          else throw new Error("unsupported restored work folder entry");
+        } catch (error) {
+          if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+        }
+      }
+    }
+    this.safeDir(target);
+    await this.syncDirectory(target);
+  }
+
+  private async restoreNote(dir: string, scratch: string, record: MovedOut): Promise<void> {
+    this.safeDir(scratch);
+    const pending = join(scratch, "storage-note");
+    const handle = await open(pending, "wx", 0o600);
+    try {
+      await handle.writeFile(movedOutNote(record));
+      await handle.sync();
+    } finally {
+      await handle.close();
+    }
+    this.safeDir(dir);
+    try {
+      await link(pending, join(dir, MOVED_OUT_NOTE));
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "EEXIST") return;
+      throw error;
+    }
+    await this.syncDirectory(dir);
   }
 
   private async unpack(key: string, record: MovedOut, staging: string): Promise<void> {
@@ -487,6 +627,8 @@ export class WorkFolderArchive {
     const ended = new Promise<number | null>((resolve) => child.once("close", (code) => resolve(code)));
     child.stdin.on("error", () => {});
     const restored: string[] = [];
+    let spawnError: Error | null = null;
+    child.once("error", error => { spawnError = error; });
     const stopped = ended.then((code) => ({ code }));
     try {
       for (const [index, part] of record.parts.entries()) {
@@ -505,21 +647,27 @@ export class WorkFolderArchive {
             throw new Error(`tar stopped early with code ${early.code ?? "none"}: ${complaint.trim().split("\n").at(-1) ?? ""}`);
           }
         }
+        this.safeDir(dirname(full));
         await rm(full, { force: true });
       }
       child.stdin.end();
       const code = await ended;
+      if (spawnError) throw spawnError;
       if (code !== 0) throw new Error(`tar stopped with code ${code ?? "none"}: ${complaint.trim().split("\n").at(-1) ?? ""}`);
     } catch (error) {
       child.kill("SIGKILL");
-      for (const full of restored) await rm(full, { force: true }).catch(() => {});
+      await ended;
+      for (const full of restored) {
+        this.safeDir(dirname(full));
+        await rm(full, { force: true }).catch(() => {});
+      }
       throw error;
     }
   }
 
   private async dropStaging(dir: string): Promise<void> {
     for (const name of await readdir(dir)) {
-      if (!name.startsWith(RESTORING_PREFIX)) continue;
+      if (!name.startsWith(RESTORING_PREFIX) || !/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/.test(name.slice(RESTORING_PREFIX.length))) continue;
       await openUp(join(dir, name)).catch(() => {});
       await rm(join(dir, name), { recursive: true, force: true });
     }
@@ -533,22 +681,45 @@ export class WorkFolderArchive {
       const need = roomNeeded(record, this.deps.partBytes);
       if (!this.deps.room(need)) throw new NoRoom(need);
       const dir = this.dirOf(key);
-      await mkdir(dir, { recursive: true, mode: 0o700 });
-      if (!await this.realFolder(key)) throw new Error("the work folder is not a plain folder inside the workspaces");
+      const existed = await lstat(dir).catch(() => null);
+      this.safeDir(dir, true);
       await this.dropStaging(dir);
-      const note = join(dir, MOVED_OUT_NOTE);
-      const staging = join(dir, `${RESTORING_PREFIX}${randomUUID()}`);
+      const scratch = await mkdtemp(join(dirname(dir), `.restoring-${key.split("/")[1]}-`));
+      const staging = join(scratch, "files");
       await mkdir(staging, { mode: 0o700 });
+      let removedNote = false;
       try {
         await this.unpack(key, record, staging);
-        if (await readFile(note, "utf8").catch(() => null) === movedOutNote(record)) await rm(note, { force: true });
-        await mergeKeepingModes(staging, dir);
+        await this.syncTree(staging);
+        const names = (await readdir(staging)).filter(name => name !== MOVED_OUT_NOTE);
+        await this.mergeRestored(staging, dir, names);
+        await this.syncParents(dir);
+        const note = join(dir, MOVED_OUT_NOTE);
+        if ((await lstat(note).catch(() => null))?.isFile() && readFileSync(note, "utf8") === movedOutNote(record)) {
+          this.safeDir(dir);
+          await rm(note);
+          removedNote = true;
+        }
+        await this.mergeRestored(staging, dir, [MOVED_OUT_NOTE]);
+        if (!existed) await chmod(dir, (await lstat(staging)).mode & 0o777);
+        await this.syncParents(dir);
+        this.safeDir(dir);
+        delete records[key];
+        this.save();
+      } catch (error) {
+        if (!records[key]) {
+          records[key] = record;
+          try { this.save(); } catch (saveError) { this.log(`laterdog home: could not keep restore record: ${said(saveError)}`); }
+        }
+        if (removedNote) {
+          await this.restoreNote(dir, scratch, record).catch(noteError => this.log(`laterdog home: could not put storage note back: ${said(noteError)}`));
+        }
+        throw error;
       } finally {
-        await openUp(staging).catch(() => {});
-        await rm(staging, { recursive: true, force: true });
+        this.safeDir(dirname(scratch));
+        await openUp(scratch).catch(() => {});
+        await rm(scratch, { recursive: true, force: true }).catch(error => this.log(`laterdog home: could not remove restore scratch: ${said(error)}`));
       }
-      delete records[key];
-      this.save();
       await rmdir(join(this.deps.home, WORK_FOLDER_PARTS, key.split("/")[0]!)).catch(() => {});
       this.totals.broughtBack += 1;
       this.totals.broughtBackBytes += record.diskBytes ?? record.bytes;
@@ -561,6 +732,7 @@ export class WorkFolderArchive {
 
   async beforeTurn(botId: string, threadId: string, current: () => boolean = () => true): Promise<boolean> {
     const key = `${botId}/${threadId}`;
+    if (!validKey(key)) throw new Error("invalid work folder key");
     this.wanted.set(key, (this.wanted.get(key) ?? 0) + 1);
     try {
       await this.locked(key, async () => {});

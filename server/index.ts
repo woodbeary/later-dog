@@ -568,6 +568,7 @@ import { createTeamManifest, parseTeamManifest } from "./team-manifest.ts";
 import { LogArchiveCoordinator, claudeSessionIds, logArchiveBridge, outsideSessionOwners } from "./laterdog/log-archive.ts";
 import { archiveSweep, roomFor, roomToRestore, savesHold, startArchiveSweeps, steadyDisk, workFolderSweep } from "./laterdog/archive-pressure.ts";
 import { WorkFolderArchive } from "./laterdog/work-folder-archive.ts";
+import { workFolderChats } from "./laterdog/work-folder-chats.ts";
 import { savesForStorage } from "./laterdog/save-status.ts";
 import { readThreadEvents } from "./thread-events.ts";
 import { describeTool, readBotActivity } from "./activity.ts";
@@ -579,7 +580,7 @@ import { CLOUD_THREAD_LOG_MAX_BYTES, CLOUD_THREAD_LOG_RETENTION_DAYS, DISK_CHECK
 import { TAB_SWEEP_MS } from "./laterdog/cloud-tabs.ts";
 import { TabKeeper } from "./laterdog/tab-keeper.ts";
 import { computerUpkeepScript } from "./laterdog/computer-upkeep.ts";
-import { MEMORY_CHECK_MS, orphanIdleHours, readMemoryPressure, reapStrays, underMemoryPressure, type ThreadState as ReaperThreadState } from "./laterdog/process-reaper.ts";
+import { MEMORY_CHECK_MS, orphanIdleHours, readMemoryPressure, readProcesses, reapStrays, underMemoryPressure, type ThreadState as ReaperThreadState } from "./laterdog/process-reaper.ts";
 import { startHomeUpkeep } from "./laterdog/home-upkeep.ts";
 import { liveSignalScene, signalDecision } from "./laterdog/home-signals.ts";
 import { homeFloorDecision } from "./laterdog/disk-floor.ts";
@@ -2933,7 +2934,7 @@ const workFolders = archiveBridge && logArchive
     dataDir: DATA_DIR,
     workspacesDir: TASK_WORKSPACES_DIR,
     bridge: archiveBridge,
-    chats: () => janitorWorkspaces(),
+    chats: () => workFolderChats({ workspacesDir: TASK_WORKSPACES_DIR, bots: store.bots, groups: store.groups, damaged: store.damaged, thread: janitorThread, atWork: threadAtWork }),
     inUse: (botId, threadId) => chatInUse(botId, threadId),
     limits: () => workFolderSweep(archiveDisk()),
     room: bytes => roomFor(archiveDisk(), bytes),
@@ -11233,21 +11234,6 @@ async function runGroupMemberTurn(
   if (logArchive) {
     if (!await logArchive.beforeTurn(threadId, () => !isCancelled?.())) return false;
   }
-  if (workFolders && supportsWorkspaceFiles(instance.driverKind) && cloudGuestOpened(threadId)) {
-    try {
-      if (!await workFolders.beforeTurn(bot.id, threadId, () => !isCancelled?.())) return false;
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      store.appendMessage(threadId, {
-        role: "bot",
-        kind: "activity",
-        from: { botId: bot.id, name: bot.name, color: bot.color },
-        tool: failedTurnTool(message),
-      });
-      onDispatchError?.(message);
-      return true;
-    }
-  }
   if (instance.adapter.capabilities.customMcp === true) {
     const custom = await withMcpSignIn(engineMcpServers(bot, await repositoriesForTurn()), mcpOAuth);
     if (Object.keys(custom).length) integrations.custom = custom;
@@ -11389,6 +11375,25 @@ async function runGroupMemberTurn(
   const roomSetupIsCurrent = () => !isCancelled?.() &&
     groupSpeakers.get(threadId) === roomSpeaker &&
     activeInternalGenerationByThread.get(threadId) === internalGeneration;
+  if (workFolders && supportsWorkspaceFiles(instance.driverKind) && cloudGuestOpened(threadId)) {
+    const restoreIsCurrent = () => roomSetupIsCurrent() &&
+      store.group(readyGroup.id)?.memberIds.includes(readyBot.id) === true &&
+      store.bot(readyBot.id)?.busy === true &&
+      store.group(readyGroup.id)?.busyBotId === readyBot.id;
+    try {
+      if (!await workFolders.beforeTurn(bot.id, threadId, restoreIsCurrent)) return false;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      store.appendMessage(threadId, {
+        role: "bot",
+        kind: "activity",
+        from: { botId: bot.id, name: bot.name, color: bot.color },
+        tool: failedTurnTool(message),
+      });
+      onDispatchError?.(message);
+      return true;
+    }
+  }
   const showClaimedScreen = (capture: () => Promise<{ png: string; format: string }>) => {
     if (roomSetupIsCurrent() && store.group(readyGroup.id)?.busyBotId === readyBot.id) {
       roomScreenBotId = readyBot.id;
@@ -21982,7 +21987,7 @@ if (CLOUD_HOME) {
   homeUpkeep = startHomeUpkeep({
     subscribe: (listener) => bus.subscribe((event: RuntimeEvent) => { if (!shouldIgnoreProviderEvent(event)) listener(event); }),
     atWork: threadAtWork,
-    chats: () => janitorWorkspaces(),
+    chats: () => workFolderChats({ workspacesDir: TASK_WORKSPACES_DIR, bots: store.bots, groups: store.groups, damaged: store.damaged, thread: janitorThread, atWork: threadAtWork }),
     dataDir: DATA_DIR,
     home: homedir(),
     workspacesDir: TASK_WORKSPACES_DIR,
