@@ -1,7 +1,8 @@
+import { historyRecallStats, rankedHistoryRecall, type RecallCorpus } from "./history-recall.ts";
 import { HISTORY_TABLES, type HistoryRow } from "./history-migration.ts";
 import { clearHistoryValues, readHistoryValue, type HistorySql } from "./history-values.ts";
 import type { HistoryAllocator, HistoryOperation } from "./history-shard-types.ts";
-import { deleteHistoryMessageIndex, storeHistoryMessageValues } from "./history-message-index.ts";
+import { deleteHistoryMessageIndex, messageIndexFields, storeHistoryMessageValues } from "./history-message-index.ts";
 export {
   deleteHistoryMessageIndex,
   initializeHistoryMessageIndex,
@@ -242,13 +243,14 @@ export function executeHistoryOperation(
     case "messages.text": {
       const r = first(list(sql, thread, "AND id=? AND kind='text' AND text IS NOT NULL", text(o.id)));
       if (!r) return null;
+      const m=messageIndexFields(sql,r.rid,r.json);
       return {
         id: r.id,
         at: r.at,
         role: r.role,
         text: readHistoryValue(sql, "messages", r.rid, "text", r.text!),
-        from: hydrate(sql, r).from?.name,
-        peer: hydrate(sql, r).peerAsk?.name,
+        from: m.from?.name,
+        peer: m.peerAsk?.name,
       };
     }
     default:
@@ -268,11 +270,11 @@ function queryMessages(sql: HistorySql, thread: string, o: HistoryOperation) {
     for (const r of list(
       sql,
       thread,
-      `AND ((kind='text' AND (lower(text) LIKE ? ESCAPE '\\' OR EXISTS (SELECT 1 FROM history_values WHERE relation='messages' AND entry=CAST(messages.rowid AS TEXT) AND field='text'))) OR (kind='activity' AND lower(json_extract(json,'$.tool.name')) LIKE ? ESCAPE '\\')) ORDER BY at DESC,rowid`,
+      `AND ((kind='text' AND (lower(text) LIKE ? ESCAPE '\\' OR EXISTS (SELECT 1 FROM history_values WHERE relation='messages' AND entry=CAST(messages.rowid AS TEXT) AND field='text'))) OR (kind='activity' AND (json_extract(json,'$.extendedIndex')=1 OR lower(json_extract(json,'$.tool.name')) LIKE ? ESCAPE '\\'))) ORDER BY at DESC,rowid`,
       pattern,
       pattern,
     )) {
-      const m = JSON.parse(r.json);
+      const m = messageIndexFields(sql,r.rid,r.json);
       const hay =
         r.kind === "activity"
           ? String(m.tool?.name ?? "")
@@ -286,6 +288,7 @@ function queryMessages(sql: HistorySql, thread: string, o: HistoryOperation) {
       const folded = needle.replace(/\s+/g, " "),
         index = snippet.toLowerCase().indexOf(folded);
       hits.push({
+        rid: r.rid,
         threadId: thread,
         messageId: r.id,
         at: r.at,
@@ -317,12 +320,13 @@ function queryMessages(sql: HistorySql, thread: string, o: HistoryOperation) {
         latest ? 1 : limit,
       ),
     ].map((r) => {
-      const m = JSON.parse(r.json),
+      const m = messageIndexFields(sql,r.rid,r.json),
         head = (r.text ?? "")
           .slice(0, latest ? 400 : 240)
           .replace(/\s+/g, " ")
           .trim();
       return {
+        rid: r.rid,
         threadId: thread,
         messageId: r.id,
         at: r.at,
@@ -333,56 +337,20 @@ function queryMessages(sql: HistorySql, thread: string, o: HistoryOperation) {
       };
     });
   }
-  if (o.op === "messages.recall") {
-    type Match = {
-      id: string;
-      at: number;
-      role: string;
-      kind: string;
-      head: string;
-      name: string | null;
-      peer: string | null;
-      snippet: string;
-      score: number;
-    };
-    const match = text(o.match);
-    const normal = [
-      ...sql.exec<Match>(
-        "SELECT m.id,m.at,m.role,m.kind,substr(m.text,1,160) head,json_extract(m.json,'$.from.name') name,json_extract(m.json,'$.peerAsk.name') peer,snippet(messages_fts,0,'[',']','…',48) snippet,bm25(messages_fts) score FROM messages_fts JOIN messages m ON m.rowid=messages_fts.rowid WHERE messages_fts MATCH ? AND m.thread_id=? AND m.at BETWEEN ? AND ? AND m.kind IN ('text','digest') ORDER BY (m.kind='digest'),score,m.at DESC LIMIT ?",
-        match,
-        thread,
-        min,
-        max,
-        limit,
-      ),
-    ];
-    const byId = new Map(normal.map((r) => [r.id, r]));
+  if (o.op === "messages.recall" || o.op === "messages.recallStats") {
     const terms = Array.isArray(o.terms) ? o.terms.map(text) : [];
-    const found = new Map<string, { row: Match; terms: Set<string> }>();
-    for (const term of terms) {
-      for (const r of sql.exec<Match>(
-        "SELECT m.id,m.at,m.role,m.kind,substr(m.text,1,160) head,json_extract(m.json,'$.from.name') name,json_extract(m.json,'$.peerAsk.name') peer,snippet(history_text_parts,0,'[',']','…',48) snippet,bm25(history_text_parts) score FROM history_text_parts JOIN messages m ON m.rowid=CAST(history_text_parts.entry AS INTEGER) WHERE history_text_parts MATCH ? AND m.thread_id=? AND m.at BETWEEN ? AND ? AND m.kind IN ('text','digest')",
-        term,
-        thread,
-        min,
-        max,
-      )) {
-        let hit = found.get(r.id);
-        if (!hit) {
-          hit = { row: r, terms: new Set() };
-          found.set(r.id, hit);
-        }
-        if (r.score < hit.row.score) hit.row = r;
-        hit.terms.add(term);
-      }
-    }
-    for (const [id, x] of found)
-      if (o.any || x.terms.size === new Set(terms).size) {
-        if (!byId.has(id)) byId.set(id, x.row);
-      }
-    return [...byId.values()]
-      .sort((a, b) => Number(a.kind === "digest") - Number(b.kind === "digest") || a.score - b.score || b.at - a.at)
-      .slice(0, limit);
+    if (o.op === "messages.recallStats") return historyRecallStats(sql, terms);
+    return rankedHistoryRecall(
+      sql,
+      thread,
+      text(o.match),
+      terms,
+      Boolean(o.any),
+      min,
+      max,
+      limit,
+      o.corpus as RecallCorpus | undefined,
+    );
   }
   throw Error("Unknown message history operation");
 }

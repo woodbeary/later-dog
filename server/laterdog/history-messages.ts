@@ -1,3 +1,4 @@
+import { combinedRecallStats, type RecallCorpus } from "../../shared/history-recall.ts";
 import type { Message } from "../store.ts";
 import type { ThreadTailRows, RecallHit, RecallRange, SearchMode, ThreadLatest } from "../message-db.ts";
 import type { SearchHit } from "../message-search-query.ts";
@@ -38,11 +39,17 @@ export function remoteLatest(ids: readonly string[], person: boolean) {
     ),
   );
 }
-function searchHits(rows: { result: SearchHit[] }[], limit: number) {
+function chronological(a: { at: number; rid?: string }, b: { at: number; rid?: string }) {
+  return (
+    b.at - a.at || (BigInt(a.rid ?? 0) < BigInt(b.rid ?? 0) ? -1 : BigInt(a.rid ?? 0) > BigInt(b.rid ?? 0) ? 1 : 0)
+  );
+}
+function searchHits(rows: { result: (SearchHit & { rid?: string })[] }[], limit: number) {
   return rows
     .flatMap((r) => r.result)
-    .sort((a, b) => b.at - a.at)
-    .slice(0, limit);
+    .sort(chronological)
+    .slice(0, limit)
+    .map(({ rid: _, ...hit }) => hit);
 }
 export function remoteSearch(query: string, limit: number, thread?: string) {
   return searchHits(
@@ -83,6 +90,7 @@ export function remoteRecall(
 ): RecallHit[] {
   type Row = {
     id: string;
+    rid: string;
     at: number;
     role: string;
     kind: string;
@@ -92,9 +100,23 @@ export function remoteRecall(
     snippet: string;
     score: number;
   };
-  return historyMany<Row[]>(threads, { op: "messages.recall", match, terms, any: mode === "any", ...range, limit })
+  const corpus = combinedRecallStats(
+    historyMany<RecallCorpus>(undefined, { op: "messages.recallStats", terms }).map((x) => x.result),
+    terms.length,
+  );
+  return historyMany<Row[]>(threads, {
+    op: "messages.recall",
+    match,
+    terms,
+    corpus,
+    any: mode === "any",
+    ...range,
+    limit,
+  })
     .flatMap(({ threadId, result }) => result.map((r) => ({ ...r, threadId })))
-    .sort((a, b) => Number(a.kind === "digest") - Number(b.kind === "digest") || a.score - b.score || b.at - a.at)
+    .sort(
+      (a, b) => Number(a.kind === "digest") - Number(b.kind === "digest") || a.score - b.score || chronological(a, b),
+    )
     .slice(0, limit)
     .map((r) => {
       const peer = r.peer ?? peerProvenanceAuthor(r.head);
@@ -117,7 +139,7 @@ export function remoteRecent(threads: readonly string[], range: RecallRange, lim
     limit,
   })
     .flatMap((x) => x.result)
-    .sort((a, b) => b.at - a.at)
+    .sort(chronological)
     .slice(0, limit)
     .map((r) => {
       const peer = r.peer ?? peerProvenanceAuthor(r.head);
@@ -140,7 +162,7 @@ export function remoteLatestBot(
 ): ThreadLatest[] {
   return historyMany<ThreadLatest[]>(threads, { op: "messages.latestBot", botId, since, limit })
     .flatMap((x) => x.result)
-    .sort((a, b) => b.at - a.at)
+    .sort(chronological)
     .slice(0, limit)
     .map(({ threadId, messageId, at, head }) => ({ threadId, messageId, at, head }));
 }

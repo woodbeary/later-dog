@@ -1,3 +1,4 @@
+import { combinedRecallStats, type RecallCorpus } from "../../shared/history-recall.ts";
 import { DatabaseSync } from "node:sqlite";
 import { describe, expect, it } from "vitest";
 import { initializeHistoryShard } from "../../deploy/laterdog/home/src/history-schema.ts";
@@ -75,6 +76,43 @@ describe("sharded conversation operations", () => {
       activeLeafId: "newer",
     });
     db.close();
+  });
+  it("merges sharded full-text rankings in the same order and with the same scores as one SQLite corpus", () => {
+    const legacy = fixture(),
+      small = fixture(),
+      large = fixture();
+    const docs = [
+      ["small", "one", "rare common"],
+      ["small", "two", "rare common common common"],
+      ["large", "three", "rare rare common"],
+      ["large", "four", "rare common detail detail detail"],
+    ];
+    for (let i = 0; i < 100; i++)
+      docs.push(["large", "extra-" + i, "common ".repeat((i % 4) + 1) + "other ".repeat(i % 9)]);
+    for (const [group, id, body] of docs) {
+      const doc = { op: "messages.insert", message: message(id, body) };
+      legacy.run(doc);
+      (group === "small" ? small : large).run(doc);
+    }
+    try {
+      const terms = ['"rare"', '"common"'],
+        op = { op: "messages.recallStats", terms };
+      const corpus = combinedRecallStats([small.run(op), large.run(op)] as RecallCorpus[], terms.length);
+      const query = { op: "messages.recall", terms, match: terms.join(" "), corpus };
+      type Hit = { id: string; score: number };
+      const hits = [...(small.run(query) as Hit[]), ...(large.run(query) as Hit[])].sort((a, b) => a.score - b.score);
+      const reference = legacy.db
+        .prepare(
+          "SELECT m.id,bm25(messages_fts) score FROM messages_fts JOIN messages m ON m.rowid=messages_fts.rowid WHERE messages_fts MATCH ? ORDER BY score",
+        )
+        .all(terms.join(" "));
+      expect(hits.map((x) => x.id)).toEqual(reference.map((x) => x.id));
+      for (let i = 0; i < hits.length; i++) expect(hits[i].score).toBeCloseTo(Number(reference[i].score), 10);
+    } finally {
+      legacy.db.close();
+      small.db.close();
+      large.db.close();
+    }
   });
   it("finds both ends of an oversized Unicode message, verifies its exact raw JSON and can later make it small", () => {
     const { db, sql, run } = fixture();

@@ -1,5 +1,5 @@
 import type { HistoryRow } from "./history-migration.ts";
-import { storeHistoryValue, type HistorySql } from "./history-values.ts";
+import { readHistoryValue, storeHistoryValue, type HistorySql } from "./history-values.ts";
 
 export function initializeHistoryMessageIndex(sql: HistorySql): void {
   sql.exec(
@@ -15,21 +15,23 @@ export function deleteHistoryMessageIndex(sql: HistorySql, rowid?: string): void
   else sql.exec("DELETE FROM history_text_parts WHERE entry=?", rowid);
 }
 
-function indexedJson(raw: string): string {
-  const m = JSON.parse(raw);
+export function messageIndexFields(sql:HistorySql,rowid:string,raw:string) {
+  const indexed=JSON.parse(raw);
+  return indexed?.extendedIndex ? JSON.parse(readHistoryValue(sql,"messages",rowid,"json",raw)) : indexed;
+}
+
+function indexedJson(raw:string):string {
+  if(raw.length < 96000)return "";
+  const m=JSON.parse(raw);
+  let extendedIndex=false;
+  const name=(value:unknown)=>{
+    if(typeof value!=="string" || value.length<=4096)return value;
+    extendedIndex=true;return value.slice(0,4096);
+  };
   return JSON.stringify({
-    requestPending: m.requestPending,
-    requestCancelled: m.requestCancelled,
-    card: m.card && {
-      requestType: m.card.requestType,
-      answered: m.card.answered == null ? null : true,
-      dismissed: m.card.dismissed,
-      expired: m.card.expired,
-      autoAnswerAt: m.card.autoAnswerAt,
-    },
-    from: m.from && { name: m.from.name, botId: m.from.botId },
-    peerAsk: m.peerAsk && { name: m.peerAsk.name },
-    tool: m.tool && { name: m.tool.name },
+    requestPending:m?.requestPending===true,requestCancelled:m?.requestCancelled===true,
+    card:m?.card&&{requestType:m.card.requestType==="permission"?"permission":null,answered:m.card.answered==null?null:true,dismissed:m.card.dismissed===true,expired:m.card.expired===true,autoAnswerAt:m.card.autoAnswerAt==null?null:true},
+    from:m?.from&&{name:name(m.from.name),botId:name(m.from.botId)},peerAsk:m?.peerAsk&&{name:name(m.peerAsk.name)},tool:m?.tool&&{name:name(m.tool.name)},extendedIndex
   });
 }
 
