@@ -48,7 +48,7 @@ export const HOME_PORT = 8080;
 const RECORD_KEY = "home";
 const SLOW_SETUP_MS = 3 * 60_000;
 export const BOOT_PORT_TIMEOUT_MS = 3 * 60_000;
-export const PAIR_WAKE_WAIT_MS = 15_000;
+export const FOREGROUND_WAKE_WAIT_MS = 15_000;
 const BUSY_MEMORY_MS = 10_000;
 const STARTED_KEY = "started-included-key";
 const STANDING_KEY = "standing";
@@ -185,12 +185,7 @@ export class CloudHomeHost extends Container<Env> {
       this.deleteSchedules("recoverHistoryHome");
       await this.schedule(15, "recoverHistoryHome");
     },
-    placement: async stable => {
-      const history = (this.env as unknown as { HISTORY: { handle(stable:string,request:Request):Promise<Response> } }).HISTORY;
-      const response = await history.handle(stable,new Request("http://state.r2/history/status"));
-      if (!response.ok) throw Error("Cannot verify conversation history placement");
-      return response.json<HomeHistoryPlacement>();
-    },
+    placement: stable => this.historyPlacement(stable),
     neverActivated: (stable, generation) => {
       const history = (this.env as unknown as { HISTORY: { neverActivated(stable:string,generation:string): Promise<boolean> } }).HISTORY;
       return history.neverActivated(stable,generation);
@@ -308,6 +303,20 @@ export class CloudHomeHost extends Container<Env> {
       if (this.historyHold.closed()) throw Error("Coordinator history migration is holding the home");
       return this.cutover.control(this.stateHome(machineId), machineId, nonce, request);
     });
+  }
+
+  private async historyPlacement(stable: string): Promise<HomeHistoryPlacement> {
+    const history = this.env.HISTORY as unknown as { handle(stable: string, request: Request): Promise<Response> };
+    const response = await history.handle(stable, new Request("http://state.r2/history/status"));
+    if (!response.ok) throw Error("Cannot verify conversation history placement");
+    return response.json<HomeHistoryPlacement>();
+  }
+
+  private async needsLiveHistory(record: HomeRecord, request: Request, key: string | null): Promise<boolean> {
+    if (!key || !this.knownDevice(key) || !this.env.HISTORY || request.method !== "GET" ||
+      !/^\/api\/threads\/[\w-]+\/messages$/.test(new URL(request.url).pathname)) return false;
+    const placement = await this.historyPlacement(this.stateHome(record.machineId)).catch(() => null);
+    return placement?.mode !== "legacy" && placement?.mode !== "dual";
   }
 
   async controlHistoryHome(machineId: string, nonce: string, request: HomeHistoryRequest) {
@@ -536,7 +545,7 @@ export class CloudHomeHost extends Container<Env> {
     const record = this.record;
     const summary = await this.summary();
     if (!record || summary?.state !== "ready") return { ok: false, summary };
-    if (!(await this.awake(record, PAIR_WAKE_WAIT_MS))) {
+    if (!(await this.awake(record, FOREGROUND_WAKE_WAIT_MS))) {
       return { ok: false, summary: { state: "setting_up", origin: record.origin, setup: { step: "starting" } }, status: 503 };
     }
     const secret = await bootstrapSecret(this.env.HOME_SECRET, record.machineId);
@@ -696,8 +705,9 @@ export class CloudHomeHost extends Container<Env> {
     const credential = background ? null : wakeCredential(request);
     const key = credential ? await wakerKey(credential) : null;
     const state = await this.machineState();
-    const running = state === "serving";
-    const wakes = !background && (await this.mayWake(key, !running));
+    const wakes = !background && (await this.mayWake(key, state !== "serving"));
+    const liveHistory = state !== "serving" && await this.needsLiveHistory(record, request, key);
+    const running = state === "serving" || (liveHistory && wakes && await this.awake(record, FOREGROUND_WAKE_WAIT_MS));
     if (wakes) this.sleepAfter = personSleepAfter(this.env.HOME_SLEEP_AFTER);
     if (wakes && alwaysOn(this.env.ALWAYS_ON_ACCOUNTS, record.accountId)) await this.armKeepUp();
     if (running) {
@@ -715,9 +725,9 @@ export class CloudHomeHost extends Container<Env> {
       if (credential && key) this.learn(record, credential, key, response);
       return kind ? this.keepAnswer(record, kind, key, request, response) : response;
     }
-    if (wakes && state === "stopped") this.boot(record, true);
+    if (wakes && state === "stopped" && !liveHistory) this.boot(record, true);
     if (deskEvents(request) && key && remembered(this.wakers, key, Date.now())) return this.openDeskStream();
-    const saved = await this.answerAsleep(record, request, key);
+    const saved = liveHistory ? null : await this.answerAsleep(record, request, key);
     if (saved) return saved;
     const busy = this.lastStart?.wake === "busy" && Date.now() - this.lastStart.at < BUSY_MEMORY_MS;
     return wakeResponse(request, busy ? "busy" : wakes || this.booting || state === "starting" ? "waking" : "asleep");
