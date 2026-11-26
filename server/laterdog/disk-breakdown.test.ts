@@ -252,3 +252,17 @@ describe("the measured breakdown", () => {
     expect(createDiskBreakdown({ dataDir: data, home, scratch: [], dogName: () => null }).last()).toBeNull();
   });
 });
+
+it("excludes mounted chat trees and shared project paths from local disk estimates", async () => {
+  const { home, data } = tree();
+  const folder = join(home, "my-project");
+  const nested = join(home, ".local", "bin");
+  const taskRoot = join(data, "task-workspaces");
+  const remotePaths = [taskRoot, join(data, "workspaces"), folder, nested];
+  const plan = await planBreakdown({ dataDir: data, home, scratch: [], remotePaths });
+  expect(plan.dogs).toEqual([]);
+  expect(plan.roots.flatMap(root => root.paths)).not.toContain(folder);
+  expect(plan.roots.flatMap(root => root.paths).some(path => path.startsWith(taskRoot))).toBe(false);
+  expect(plan.roots.find(root => root.paths.includes(join(home, ".local")))?.skip).toContain(nested);
+  expect(plan.roots.find(root => root.key === "database")?.paths).toContain(join(data, "messages.db"));
+});

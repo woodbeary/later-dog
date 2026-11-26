@@ -23,6 +23,7 @@ export interface DeviceApprovalRequestDeps {
   owner(botId: string, threadId: string): { group?: Room } | null;
   mayRunCheck(sender: BotRecord, threadId: string): boolean;
   cwd(sender: BotRecord, threadId: string): string | undefined;
+  watchComputer?(botId: string, cwd: string): Promise<string | undefined>;
   messages: Pick<Store, "activePath" | "patchMessage" | "appendMessage">;
   watch(wait: DeviceApprovalWait): void;
   unwatch(wait: Pick<DeviceApprovalWait, "threadId" | "messageId">): void;
@@ -50,6 +51,10 @@ export function createDeviceApprovalRequestRoute(deps: DeviceApprovalRequestDeps
     if (input.check && !deps.mayRunCheck(sender, threadId)) return json(res, 403, { error: CHECK_NEEDS_UNATTENDED });
     const hold = deviceApprovalHold(deps.messages.activePath(threadId), sender.id, Boolean(owner.group));
     if (hold) return json(res, 409, { error: deviceApprovalHeldText(hold) });
+    const cwd = input.check || input.pid ? deps.cwd(sender, threadId) : undefined;
+    let computerId: string | undefined;
+    try { if (cwd) computerId = await deps.watchComputer?.(sender.id, cwd); }
+    catch { return json(res, 409, { error: "The sign-in computer could not be verified. Ask for approval again on the computer running the sign-in." }); }
     const card = deviceApprovalCard(input);
     const shown = { title: deviceApprovalTitle(card), subtitle: deviceApprovalSubtitle(card), options: [], deviceApproval: card };
     const open = openDeviceApproval(deps.messages.activePath(threadId), sender.id, Boolean(owner.group));
@@ -65,7 +70,8 @@ export function createDeviceApprovalRequestRoute(deps: DeviceApprovalRequestDeps
     }).id;
     deps.watch({
       botId: sender.id, threadId, messageId, expiresAt: card.expiresAt,
-      ...(input.check ? { check: input.check, cwd: deps.cwd(sender, threadId) } : {}),
+      ...(input.check ? { check: input.check, cwd } : {}),
+      ...(computerId ? { computerId, cwd } : {}),
       ...(input.pid && !input.check ? { pid: input.pid } : {}),
     });
     deps.notify(sender, threadId, `${deviceApprovalTitle(card)}${card.code ? `: code ${card.code}` : ""}`, owner.group);

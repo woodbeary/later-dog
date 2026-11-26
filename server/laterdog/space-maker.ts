@@ -10,6 +10,7 @@ const INSTALLER = /(?:^|[\s/])(?:pnpm|npm|npx|yarn|bun|pip3?|uv)(?:\s|$)/;
 export interface SpaceMakerDeps {
   home: string;
   workspacesDir: string;
+  remotePaths?: readonly string[];
   busyDirs: readonly string[];
   processes?: () => ProcessInfo[];
 }
@@ -22,11 +23,11 @@ export function inUse(buildDir: string, busyDirs: readonly string[], live: reado
   return live.some((proc) => within(proc.cwd, project) || proc.argv.includes(project));
 }
 
-export function rebuildableOutput(home: string, workspacesDir: string): string[] {
+export function rebuildableOutput(home: string, workspacesDir: string, remotePaths: readonly string[] = []): string[] {
   let names: string[] = [];
   try { names = readdirSync(home); } catch {}
   const roots = names.filter((name) => !name.startsWith(".")).map((name) => join(home, name));
-  return roots.flatMap((root) => findBuildOutput(root, 7)).filter((path) => !within(path, workspacesDir));
+  return roots.flatMap((root) => findBuildOutput(root, 7, remotePaths)).filter((path) => !within(path, workspacesDir));
 }
 
 function pnpmStorePrune(home: string): void {
@@ -73,7 +74,7 @@ export function pruneCaches(deps: Pick<SpaceMakerDeps, "home" | "processes"> & {
 export function makeSpace(deps: SpaceMakerDeps): { freed: number; cleared: string[] } {
   const live = liveWork(deps);
   const { clear, result } = clearer();
-  for (const path of rebuildableOutput(deps.home, deps.workspacesDir)) if (!inUse(path, deps.busyDirs, live)) clear(path);
+  for (const path of rebuildableOutput(deps.home, deps.workspacesDir, deps.remotePaths)) if (!inUse(path, deps.busyDirs, live)) clear(path);
   const output = result();
   const caches = clearRebuiltCaches(deps.home, live);
   return { freed: output.freed + caches.freed, cleared: [...output.cleared, ...caches.cleared] };
