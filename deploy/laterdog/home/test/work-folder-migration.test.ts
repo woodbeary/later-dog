@@ -13,7 +13,8 @@ import { authorizedState, handleState } from "../src/state.ts";
 
 it("migrates the resident and archived working folders and restores the newest guest work to a compatible home", async () => {
   const bytes = new Map<string, { data: Buffer; etag: string; uploaded: Date }>();
-  const bucket: WorkFolderBucket = {
+  const bucket: WorkFolderBucket & { delete(key: string): Promise<void> } = {
+    async delete(key) { bytes.delete(key); },
     async get(key) {
       const value = bytes.get(key);
       return value ? { ...value, size:value.data.length, httpEtag:'"' + value.etag + '"', body:new Response(value.data).body! } : null;
