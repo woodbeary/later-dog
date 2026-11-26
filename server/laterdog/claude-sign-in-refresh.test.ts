@@ -54,10 +54,12 @@ it("renews an expired sign-in once for two turns that start together, and both l
   expect(runs).toBe(1);
 });
 
-it("marks an account signed out when its refresh token is revoked, and clears it once the person signs in again", async () => {
+it("marks an account signed out on the second signal after its refresh token is revoked, and clears it once the person signs in again", async () => {
   const a = account(Date.now() - 60_000);
   const changed: string[] = [];
   const { keeper, ensure } = keeperWith(async () => { writeFileSync(a.file, JSON.stringify({ claudeAiOauth: { accessToken: "", refreshToken: "", expiresAt: 0 } })); }, (id, outcome) => changed.push(id + " " + outcome));
+  expect(await ensure("daniel", a.renewal)).toBe("signed-out");
+  expect(keeper.signedOut("daniel")).toBe(false);
   expect(await ensure("daniel", a.renewal)).toBe("signed-out");
   expect(keeper.signedOut("daniel")).toBe(true);
   a.save(Date.now() + 8 * HOUR);

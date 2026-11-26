@@ -73,6 +73,8 @@ it("checks every watched account on its schedule, one renewal per account at a t
   release();
   await Promise.all([first, second]);
   expect(runs).toBe(1);
+  expect(keeper.signedOut("grok")).toBe(false);
+  expect(await keeper.keep("grok", async () => "signed-out")).toBe("signed-out");
   expect(keeper.signedOut("grok")).toBe(true);
   expect(changes).toEqual(["grok signed-out"]);
   stop();
@@ -93,4 +95,19 @@ it("waits ten minutes before the schedule tries an account again after a failed 
   await keeper.check();
   expect(runs).toBe(3);
   stop();
+});
+
+it("drops a renewal result that finishes after the account was replaced, so an old sign-in never marks the new one", async () => {
+  const keeper = createAccountKeeper();
+  let finish!: (outcome: "signed-out") => void;
+  const stopOld = keeper.watch("adam", async () => "fresh");
+  const late = keeper.keep("adam", () => new Promise((resolve) => { finish = resolve; }));
+  stopOld();
+  const stopNew = keeper.watch("adam", async () => "fresh");
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  finish("signed-out");
+  await late;
+  expect(await keeper.keep("adam", async () => "signed-out")).toBe("signed-out");
+  expect(keeper.signedOut("adam")).toBe(false);
+  stopNew();
 });
