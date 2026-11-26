@@ -173,7 +173,7 @@ export function readCatalog(directory, sha256) {
   return value;
 }
 
-function importLegacy(db, directory) {
+export function importLegacy(db, directory) {
   const imported = [];
   for (const file of readdirSync(directory, { withFileTypes: true })
     .filter((f) => /^messages-(.+)\.json$/.test(f.name))
