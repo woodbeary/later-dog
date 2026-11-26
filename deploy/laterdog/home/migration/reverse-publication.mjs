@@ -23,7 +23,10 @@ export async function reversePublication(request, bucket, prefix, api, authority
     if (!hash.test(enrollment.completedRevision) || !await verifies(bucket, prefix + "placements/" + enrollment.completedRevision, enrollment.completedRevision)) return denied("unverified_reverse_completion");
     if (authority?.direction !== "reverse") return null;
   } else {
-    if (!forward || forward.v !== 1 || forward.retired !== true || forward.machineId !== enrollment.machineId || !matches(forward.retiredRevision, previous) || !await verifies(bucket, prefix + "placements/" + previous, previous)) return denied("forward_retirement_changed");
+    if (forward?.v !== 1 || forward.machineId !== enrollment.machineId || !await verifies(bucket, prefix + "placements/" + previous, previous)) return denied("forward_source_changed");
+    const retired = forward.retired === true && matches(forward.retiredRevision, previous);
+    const sealed = forward.retired === undefined && forward.retiredRevision === undefined && hash.test(forward.lease) && matches(enrollment.sourceLeaseSha256, digest(forward.lease)) && matches(authority?.sourceLeaseSha256, enrollment.sourceLeaseSha256) && matches(authority?.previousImage, enrollment.previousImage);
+    if (!retired && !sealed) return denied("unverified_forward_source");
   }
   if (!api || authority?.direction !== "reverse" || authority.machineId !== enrollment.machineId || authority.nonce !== enrollment.lease || !matches(authority.previous, previous)) return denied("enrolled_reverse_requires_coordinated_publication");
   const projecting = new URL(request.url).pathname === "/work-folders/project-legacy";
