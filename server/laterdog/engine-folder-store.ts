@@ -105,6 +105,7 @@ export abstract class FolderTreeReader {
 
 export class FolderStore extends FolderTreeReader {
   #refreshing?: Promise<void>;
+  #publishRouteMissing = false;
   readonly progress: () => void;
   grant: WorkFolderGrant;
   readonly #renewed: (grant: WorkFolderGrant) => void;
@@ -257,6 +258,33 @@ export class FolderStore extends FolderTreeReader {
   }
 
   async publish(tree: FolderTree, parent: string | null): Promise<WorkFolderHead | null> {
+    if (!this.#publishRouteMissing) {
+      const fresh: { sha256: string; json: string; node: WorkFolderNode }[] = [];
+      const collect = async (node: WorkFolderNode) => {
+        const json = JSON.stringify(node), hash = folderHash(json);
+        if (!this.cachedPages.has(hash) && !fresh.some((page) => page.sha256 === hash)) fresh.push({ sha256: hash, json, node });
+        return hash;
+      };
+      const entries = await folderManifestPages("entries", [...tree.entries.values()].sort((a, b) => compareWorkFolderPaths(a.path, b.path)), collect);
+      const manifest = await collect({ v: 1, kind: "root", mode: tree.mode, ...(tree.mtimeMs === undefined ? {} : { mtimeMs: tree.mtimeMs }), entries });
+      const body = JSON.stringify({ parent, manifest, pages: fresh.map(({ sha256, json }) => ({ sha256, json })) });
+      if (fresh.length <= PUBLISH_PAGES && Buffer.byteLength(body) <= WORK_FOLDER_BLOB_BYTES) {
+        const res = await this.#request("/publish", "POST", body);
+        if (res.status === 404) {
+          await res.body?.cancel();
+          this.#publishRouteMissing = true;
+        } else {
+          if (res.status !== 409 && !res.ok) throw new Error(`Publishing working folder returned ${res.status}`);
+          for (const page of fresh) this.cachedPages.set(page.sha256, page.node);
+          if (res.status === 409) {
+            await res.body?.cancel();
+            return null;
+          }
+          const head = (await res.json()) as WorkFolderHead;
+          return head?.manifest === manifest && typeof head.revision === "string" ? head : null;
+        }
+      }
+    }
     const entries = await this.pages(
       "entries",
       [...tree.entries.values()].sort((a, b) => compareWorkFolderPaths(a.path, b.path)),
@@ -274,6 +302,8 @@ export class FolderStore extends FolderTreeReader {
     return head?.manifest === manifest ? head : null;
   }
 }
+
+const PUBLISH_PAGES = 256;
 
 export async function folderManifestPages(of: Category, items: string[] | WorkFolderEntry[], putPage: (node:WorkFolderNode) => Promise<string>): Promise<string> {
     let pending: string[] = [];
