@@ -407,12 +407,25 @@ export function archiveHandler(archiver, token) {
 }
 
 export function serveArchive(archiver, { token, host = "127.0.0.1", port = 0 }) {
-  const server = createServer(archiveHandler(archiver, token));
+  const handle = archiveHandler(archiver, token);
+  const running = new Set();
+  let parked = false;
+  const server = createServer((req, res) => {
+    if (parked) { res.writeHead(503).end(); return; }
+    const job = handle(req, res);
+    running.add(job);
+    void job.finally(() => running.delete(job));
+  });
   return new Promise((resolve, reject) => {
     server.once("error", reject);
     server.listen(port, host, () => {
       const address = server.address();
-      resolve({ url: `http://${host}:${address.port}`, close: () => new Promise((done) => server.close(() => done())) });
+      resolve({
+        url: `http://${host}:${address.port}`,
+        pause: async () => { parked = true; await Promise.allSettled(running); },
+        resume: () => { parked = false; },
+        close: () => new Promise((done) => server.close(() => done())),
+      });
     });
   });
 }

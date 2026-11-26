@@ -640,7 +640,7 @@ import {
   isTurnAdmissionBlocked,
   isTurnEventQuarantined,
 } from "./turn-dispatch-guard.ts";
-import { createGracefulShutdown } from "./graceful-shutdown.ts";
+import { createGracefulShutdown, listenForVerifiedShutdown } from "./graceful-shutdown.ts";
 import { acquireDataDirLeaseForProcess } from "./data-dir-lease.ts";
 import { createWorkspaceAccess, describeEdition, editionStatus, hostedWorkspaceConfiguration, hostedWorkspaceConfigured, editionForMembers, LICENSE_WARN_DAYS, licenseWarning, sharedWorkspaceFullAccessConfigured, loadEnterpriseLayer, workspaceMembership, type EditionStatus, type WorkspaceAccess } from "./enterprise.ts";
 import { environmentDescriptor, loadEnvironmentId, serverVersion } from "./environment.ts";
@@ -22281,6 +22281,8 @@ const gracefulShutdown = createGracefulShutdown({
     process.exit(restartRequested && code === 0 ? RESTART_EXIT_CODE : code);
   },
 });
+
+listenForVerifiedShutdown(gracefulShutdown);
 
 for (const signal of ["SIGINT", "SIGTERM"] as const) {
   process.on(signal, gracefulShutdown);

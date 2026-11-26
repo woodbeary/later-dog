@@ -1,4 +1,4 @@
-import { spawn, type ChildProcess } from "node:child_process";
+import { spawn, type ChildProcess, type StdioOptions } from "node:child_process";
 import { chownSync, readFileSync, statSync, type Stats } from "node:fs";
 import { dirname, join, posix, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -95,8 +95,10 @@ export function codeTrustProblem(files: readonly string[], home: string, stat: (
 }
 
 export function spawnWithSecrets(command: string, args: string[], env: NodeJS.ProcessEnv, secrets: Record<string, string>,
-  ids?: { uid: number; gid: number } | null): ChildProcess {
-  const child = spawn(command, args, { env, stdio: ["inherit", "inherit", "inherit", "pipe"], ...(ids ? { uid: ids.uid, gid: ids.gid } : {}) });
+  ids?: { uid: number; gid: number } | null, supervised = false): ChildProcess {
+  const stdio: StdioOptions = ["inherit", "inherit", "inherit", "pipe"];
+  if (supervised) stdio.push("ipc");
+  const child = spawn(command, args, { env, stdio, ...(ids ? { uid: ids.uid, gid: ids.gid } : {}) });
   const pipe = child.stdio[SECRETS_FD] as NodeJS.WritableStream | null;
   pipe?.on("error", () => {});
   pipe?.end(JSON.stringify(secrets));
@@ -135,11 +137,18 @@ export function startCloudHome(env: NodeJS.ProcessEnv = process.env) {
   };
   const children = new Map<ChildProcess, string>();
   let stopping = false;
+  let parkId: string | null = null;
+  let parkAcknowledged = false;
+  let appChild: ChildProcess | null = null;
   const stop = (failed: boolean) => {
     if (stopping) return;
     stopping = true;
     process.exitCode = failed ? 1 : 0;
-    for (const child of children.keys()) if (child.exitCode === null) child.kill("SIGTERM");
+    for (const child of children.keys()) {
+      if (child.exitCode !== null) continue;
+      if (parkId && child === appChild && child.connected) child.send({ type: "history.home.stop", id: parkId }, () => {});
+      else child.kill("SIGTERM");
+    }
     const force = setTimeout(() => {
       for (const [child, name] of children) {
         if (child.exitCode !== null) continue;
@@ -158,6 +167,9 @@ export function startCloudHome(env: NodeJS.ProcessEnv = process.env) {
     });
     child.once("exit", (code, signal) => {
       children.delete(child);
+      if (child === appChild && parkId) {
+        process.send?.({ type: "history.home.parked", id: parkId, clean: parkAcknowledged && code === 0 && !signal });
+      }
       const restarting = again?.(code) ?? false;
       record(childExitLine(name, code, signal, (Date.now() - started) / 1000, restarting, oomKillCount(readSystemFile(KERNEL_VMSTAT))));
       if (!restarting) stop(true);
@@ -166,7 +178,13 @@ export function startCloudHome(env: NodeJS.ProcessEnv = process.env) {
   const policy = keepRunningPolicy();
   const runServer = () => {
     asServiceUser(ids, () => pruneFatalErrorReports(reports));
-    watch("the server", spawnWithSecrets(process.execPath, cloudHomeServerArguments(here, reports), server, secrets, ids), (code) => {
+    const app = spawnWithSecrets(process.execPath, cloudHomeServerArguments(here, reports), server, secrets, ids, true);
+    appChild = app;
+    app.on("message", message => {
+      const ack = message as { type?: string; id?: string } | null;
+      if (parkId && app === appChild && ack?.type === "history.home.stopping" && ack.id === parkId) parkAcknowledged = true;
+    });
+    watch("the server", app, (code) => {
       if (!policy.again(code, stopping)) return false;
       runServer();
       return true;
@@ -183,6 +201,12 @@ export function startCloudHome(env: NodeJS.ProcessEnv = process.env) {
     });
   };
   runEdge();
+  process.on("message", message => {
+    const request = message as { type?: string; id?: string } | null;
+    if (stopping || request?.type !== "history.home.park" || typeof request.id !== "string" || request.id.length !== 36) return;
+    parkId = request.id;
+    stop(false);
+  });
   listenForArchiveOwnership();
   const asked = (signal: NodeJS.Signals) => {
     if (stopping) return;

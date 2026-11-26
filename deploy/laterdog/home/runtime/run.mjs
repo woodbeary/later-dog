@@ -1,4 +1,5 @@
 import { bootHistory, historyExclusion, verifyHistoryControl, rootHistorySecrets } from "./history.mjs";
+import { checkHistorySnapshot, openHistoryPark, parkLauncher, parkRequest, verifyDrainedHistory } from "./history-park.mjs";
 import { folderExclusions, folderMounts, legacyWorkFolderScope, startWorkFolderMounts } from "./work-folder-mounts.mjs";
 import { projectPreviousCloudBackup } from "./previous-backup-compat.mjs";
 import { randomBytes } from "node:crypto";
@@ -136,24 +137,34 @@ async function main() {
   let saves = 0;
   let cleanupLeft = false;
   let resumeAfter;
+  let pendingMaintenance;
+  const stagedStore = store && { ...store, putManifest: async () => {} };
   const restorePoints = upgradeKeeper(store, upgraded, { app: APP, limit: KEPT_RESTORE_POINTS, log });
   const saveStatus = saveRecorder({ write: (status) => writeSaveStatus(SAVE_STATUS_PATH, status) });
-  const save = ({ final = false } = {}) => {
+  const save = ({ final = false, maintenance = false } = {}) => {
     if (!store) return Promise.resolve();
     if (running) return running;
     running = restorePoints.keep()
       .then(() => {
         void saveStatus.started({ final });
-        return snapshot(DATA, store, manifest, { scratch: SCRATCH, memoryScratch: MEMORY_SCRATCH, onCopy: (copy) => void saveStatus.copying(copy), exclude, exactScope, app: APP, budgetMs: final ? FINAL_SAVE_BUDGET_MS : SAVE_BUDGET_MS, resumeAfter });
+        return snapshot(DATA, maintenance ? stagedStore : store, maintenance ? pendingMaintenance ?? manifest : manifest, { scratch: SCRATCH, memoryScratch: MEMORY_SCRATCH, onCopy: (copy) => void saveStatus.copying(copy), exclude, exactScope, app: APP, budgetMs: final ? FINAL_SAVE_BUDGET_MS : SAVE_BUDGET_MS, resumeAfter });
       })
       .then(async (result) => {
         void saveStatus.finished(result);
         for (const line of slowCopies(result.copies)) log(line);
-        manifest = result.manifest;
+        if (maintenance) pendingMaintenance = result.manifest;
+        else manifest = result.manifest;
         resumeAfter = result.resumeAfter;
         if (result.written) log(`saved (${result.uploaded} changed files)`);
         if (result.unsaved.length) log(`could not save ${result.unsaved.length} file(s) this time, first ${result.unsaved[0]} (${result.unsavedReason}); the next save tries again`);
         if (result.deferred) log(`${result.deferred} changed file(s) wait for the next save, which carries on where this one stopped`);
+        if (maintenance) {
+          checkHistorySnapshot(history.mode, result);
+          await store.putManifest(result.manifest);
+          manifest = result.manifest;
+          pendingMaintenance = undefined;
+          return result;
+        }
         saves += 1;
         if (final || (!cleanupLeft && saves % GC_EVERY_SAVES !== 0)) return;
         try {
@@ -167,13 +178,15 @@ async function main() {
       .catch((error) => {
         void saveStatus.failed(error);
         log(`save failed: ${error.message}`);
+        if (maintenance) throw error;
       })
       .finally(() => {
         running = null;
       });
     return running;
   };
-  const timer = setInterval(() => void save(), INTERVAL_MS);
+  let park;
+  const timer = setInterval(() => { if (!park?.active()) void save(); }, INTERVAL_MS);
   const alive = () => child && child.exitCode === null && child.signalCode === null;
   let stopping = false;
   let shuttingDown = null;
@@ -195,13 +208,18 @@ async function main() {
     stopping = true;
     reloading = false;
     if (alive()) child.kill(signal);
+    else if (park?.saved()) {
+      clearInterval(timer);
+      devCode?.stop();
+      void Promise.all([archive?.close(), folderMount?.stop(), park.close()]).then(() => process.exit(0));
+    }
   };
   process.on("SIGTERM", forward("SIGTERM"));
   process.on("SIGINT", forward("SIGINT"));
   let startedAt = 0;
   const stderrTail = outputTail();
   const stopped = async (code, signal) => {
-    if (reloading) return;
+    if (reloading || park?.active()) return;
     if (launcher !== LAUNCHER && shouldFallBackFromPushed({ stopping, code, signal, elapsedMs: Date.now() - startedAt, graceMs: PUSHED_CODE_GRACE_MS })) {
       const said = pushedCodeFellBack({ code, signal, tail: stderrTail.text() });
       log(said);
@@ -224,12 +242,12 @@ async function main() {
     child.on("exit", stopped);
   };
   const reload = async (next) => {
-    if (stopping) return;
+    if (stopping || park?.active()) return;
     if (archive && !await archiveCompatible(next.launcher, capabilities)) {
       log("the pushed server cannot serve the active home storage format; keeping the current server");
       return;
     }
-    if (stopping || !alive()) return;
+    if (stopping || park?.active() || !alive()) return;
     reloading = true;
     const previous = child;
     const exited = new Promise((resolve) => previous.once("exit", resolve));
@@ -252,6 +270,35 @@ async function main() {
     log(`running pushed server code ${next.hash.slice(0, 12)}${next.label ? ` (${next.label})` : ""}`);
     start();
   };
+  let stoppedForMaintenance;
+  if (store) park = await openHistoryPark({
+    mode: history.mode, generation: history.generation,
+    canPark: () => !reloading && !stopping && alive(),
+    stopChild: async () => {
+      if (child === stoppedForMaintenance) return;
+      const source = child;
+      await parkLauncher(source);
+      stoppedForMaintenance = source;
+    },
+    save: async () => {
+      await running;
+      await archive?.pause();
+      if (folderMount) await parkRequest(folderMount.checkpoint, "/v1/checkpoint", "POST");
+      verifyDrainedHistory(HEALTH_DIR, history.mode);
+      return save({ final: true, maintenance: true });
+    },
+    resume: async () => {
+      if (alive()) {
+        const source = child;
+        const exited = new Promise(resolve => source.once("exit", resolve));
+        source.kill("SIGTERM");
+        if (await settleWithin(exited, STOP_CHILD_MS + 5000) === "late") throw Error("The original launcher is still stopping");
+      }
+      pendingMaintenance = undefined;
+      archive?.resume();
+      start();
+    },
+  });
   start();
   devCode?.start();
 }

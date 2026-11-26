@@ -31,6 +31,20 @@ describe("createGracefulShutdown", () => {
     await vi.waitFor(() => expect(exit).toHaveBeenCalledWith(0));
   });
 
+  it("requires successful cleanup of every job for a requested migration stop", async () => {
+    const exit = vi.fn();
+    const accepted = vi.fn();
+    const shutdown = createGracefulShutdown({ cleanup: [async () => { throw Error("Write pending"); }], exit });
+    shutdown.verified(accepted);
+    shutdown.verified(accepted);
+    await vi.waitFor(() => expect(exit).toHaveBeenCalledWith(1));
+    expect(accepted).toHaveBeenCalledOnce();
+    const late = createGracefulShutdown({ cleanup: [() => new Promise<void>(() => {})], exit, timeoutMs: 5 });
+    late.verified();
+    await vi.waitFor(() => expect(exit).toHaveBeenCalledTimes(2));
+    expect(exit).toHaveBeenLastCalledWith(1);
+  });
+
   it("uses the deadline when cleanup is wedged", async () => {
     vi.useFakeTimers();
     try {
