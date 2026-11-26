@@ -147,6 +147,25 @@ async function manyPages<T>(threadIds: readonly string[] | undefined, operation:
   return items;
 }
 export async function historyManyAsync<T>(threadIds: readonly string[] | undefined, operation: HistoryOperation) {
+  if (!threadIds && operation.op === "messages.search") {
+    const { url, token } = endpoint(),
+      ids: string[] = [];
+    let after: string | null = null;
+    do {
+      const query = new URLSearchParams({ generation: generation!, limit: "256" });
+      if (after) query.set("after", after);
+      const page: { threads: string[]; next: string | null } = await historyRequest(
+        url,
+        token,
+        "threads?" + query,
+        undefined,
+      );
+      if (page.next !== null && page.next === after) throw Error("Directory returned a repeated conversation page");
+      ids.push(...page.threads);
+      after = page.next;
+    } while (after);
+    threadIds = ids;
+  }
   if (!threadIds) return manyPages<T>(undefined, operation);
   const ids = Array.from(new Set(threadIds)).sort(),
     pages: Array<Array<{ threadId: string; result: T }>> = [];
