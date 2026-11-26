@@ -181,6 +181,7 @@ describe("assigned working folders on guest computers", () => {
     writeFileSync(join(projectSeed, "fixtures", "answer"), "project proof");
     const original = join(project, "fixtures", "answer");
     symlinkSync(original, join(f.src, "shared"));
+    symlinkSync(join(project, "transient-link", "outside"), join(f.src, "indirect"));
     symlinkSync("/etc/hostname", join(f.src, "system"));
     for (const [path, b] of [
       [f.src, t],
@@ -191,11 +192,14 @@ describe("assigned working folders on guest computers", () => {
     const enabled = { ...t, linkProjects: [project] };
     await expect(checkout(enabled)).rejects.toThrow("verified checkout");
     await checkout(p);
+    writeFileSync(join(f.dir, "outside"), "out of scope");
+    symlinkSync(f.dir, join(project, "transient-link"));
     await checkout(t);
     expect(readlinkSync(join(task, "shared"))).toBe("shared");
     const originalRevision = await checkout(enabled);
     expect(readFileSync(join(task, "shared"), "utf8")).toBe("project proof");
     expect(readlinkSync(join(task, "system"))).toBe("system");
+    expect(readlinkSync(join(task, "indirect"))).toBe("indirect");
     const disabled = await checkout({ ...t, linkProjects: [] });
     expect(disabled.revision).toBe(originalRevision.revision);
     expect(readlinkSync(join(task, "shared"))).toBe("shared");
