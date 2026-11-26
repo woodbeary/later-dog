@@ -51,7 +51,7 @@ export async function guestCliProfile(driverKind: string, input: DriverCreateInp
   if (!descriptor) return null;
   const config = descriptor.driver.decodeConfig(input.config) as { cli: string; fullAuto: boolean };
   const runtime = runtimeFor(driverKind, config.cli, descriptor.defaultCli, input.environment.PATH ?? process.env.PATH);
-  const credentials = await guestCliCredentials(driverKind, input.instanceId, input.environment);
+  const credentials = await guestCliCredentials(driverKind, input.instanceId, input.environment, Date.now(), driverKind === "grokAgent" ? config.cli : undefined);
   const sessionPath = await guestCliSessions(driverKind, input.instanceId, input.environment, turn);
   const access = accessFile[driverKind];
   const privateProfile: PrivateProfile = { sessionPath, ...(access && credentials.files[access.key] ? { file: credentials.files[access.key] } : {}) };

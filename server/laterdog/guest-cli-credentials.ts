@@ -1,6 +1,7 @@
 import { constants } from "node:fs";
 import { open } from "node:fs/promises";
 import { join } from "node:path";
+import { currentGrokLogin } from "./guest-grok-login.ts";
 import { userHome } from "../env-path.ts";
 import { antigravityProfileDirectory } from "../drivers/antigravity-acp.ts";
 
@@ -33,7 +34,7 @@ function selected(record: Record<string, unknown>, keys: string[]) {
   return Object.fromEntries(keys.filter(key => typeof record[key] === "string" || typeof record[key] === "number" || typeof record[key] === "boolean").map(key => [key, record[key]]));
 }
 
-export async function guestCliCredentials(driver: string, instanceId: string, environment: Record<string, string>, now = Date.now()): Promise<GuestCliCredentials> {
+export async function guestCliCredentials(driver: string, instanceId: string, environment: Record<string, string>, now = Date.now(), refreshCli?: string): Promise<GuestCliCredentials> {
   const home = userHome(environment);
   const out: GuestCliCredentials = { environment: {}, files: {} };
   const scoped = (keys: string[]) => {
@@ -41,7 +42,13 @@ export async function guestCliCredentials(driver: string, instanceId: string, en
     return false;
   };
   if (driver === "grokAgent") {
-    const file = await accountJson(join(environment.GROK_HOME || join(home, ".grok"), "auth.json"));
+    const path = join(environment.GROK_HOME || join(home, ".grok"), "auth.json");
+    let file: Record<string, unknown> | null;
+    try { file = JSON.parse(await currentGrokLogin(path, refreshCli, now)) as Record<string, unknown>; }
+    catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw new Error("The selected Grok login could not be read safely.");
+      file = null;
+    }
     const entries = Object.entries(file ?? {}).flatMap(([issuer, value]) => {
       if (!/^https:\/\/(?:auth\.x\.ai(?:::[a-zA-Z0-9-]+)?|accounts\.x\.ai\/sign-in)$/.test(issuer) || !value || typeof value !== "object" || Array.isArray(value)) return [];
       const record = value as Record<string, unknown>;
