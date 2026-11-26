@@ -309,7 +309,11 @@ export class HistoryShard extends DurableObject<unknown> {
             this.sql
               .exec<{
                 id: string;
-              }>("SELECT CAST(rowid AS TEXT) id FROM " + table + " ORDER BY rowid DESC LIMIT 1")
+              }>(
+                "SELECT CAST(rowid AS TEXT) id FROM " +
+                  table +
+                  " ORDER BY rowid DESC LIMIT 1",
+              )
               .toArray()[0]?.id ?? "0",
           );
           if (high > maximum) maximum = high;
@@ -358,6 +362,7 @@ export class HistoryShard extends DurableObject<unknown> {
       threadId: grant.threadId,
       version,
       hasUserMessage,
+      bytes: this.sql.databaseSize,
       ...this.watermark(grant),
     };
   }
