@@ -42,7 +42,7 @@ type Config = {
   fence: number;
   dirty: number;
 };
-type Grant = ShardAddress & { revision: number };
+type Grant = ShardAddress & { revision: number; base: string };
 const digest = (value: string | Uint8Array) =>
   createHash("sha256").update(value).digest("hex");
 
@@ -182,8 +182,8 @@ export class HistoryShard extends DurableObject<unknown> {
     table: HistoryTable,
     row: HistoryRow,
   ): void {
-    if (!validHistoryRow(table, row) || BigInt(row[0]) >= 2n ** 40n)
-      throw Error("Invalid imported history row or reserved rowid");
+    if (!validHistoryRow(table, row))
+      throw Error("Invalid imported history row");
     const prior = this.sql
       .exec(
         "SELECT " +
@@ -303,7 +303,18 @@ export class HistoryShard extends DurableObject<unknown> {
           "UPDATE history_config SET sealed=? WHERE singleton=1",
           proof.sha256,
         );
-        return { sha256: proof.sha256 };
+        let maximum = 0n;
+        for (const table of HISTORY_TABLES) {
+          const high = BigInt(
+            this.sql
+              .exec<{
+                id: string;
+              }>("SELECT CAST(rowid AS TEXT) id FROM " + table + " ORDER BY rowid DESC LIMIT 1")
+              .toArray()[0]?.id ?? "0",
+          );
+          if (high > maximum) maximum = high;
+        }
+        return { sha256: proof.sha256, maximum: String(maximum) };
       }
       if (state.sealed) throw Error("This history import is sealed");
       const table = tableName(command.table);
@@ -339,8 +350,16 @@ export class HistoryShard extends DurableObject<unknown> {
         version: number;
       }>("SELECT version FROM history_config WHERE singleton=1")
       .one().version;
-    const hasUserMessage = this.sql.exec("SELECT 1 FROM messages WHERE role='user' LIMIT 1").toArray().length > 0;
-    return { threadId: grant.threadId, version, hasUserMessage, ...this.watermark(grant) };
+    const hasUserMessage =
+      this.sql
+        .exec("SELECT 1 FROM messages WHERE role='user' LIMIT 1")
+        .toArray().length > 0;
+    return {
+      threadId: grant.threadId,
+      version,
+      hasUserMessage,
+      ...this.watermark(grant),
+    };
   }
   exportPage(grant: Grant, version: number, command: PageCommand) {
     if (this.exportCheck(grant).version !== version)
@@ -357,15 +376,19 @@ export class HistoryShard extends DurableObject<unknown> {
       this.sql
         .exec<{
           value: string;
-        }>("SELECT CAST(seq AS TEXT) value FROM sqlite_sequence WHERE name='native_run_events'")
+        }>(
+          "SELECT CAST(seq AS TEXT) value FROM sqlite_sequence WHERE name='native_run_events'",
+        )
         .toArray()[0]?.value ?? "0";
     const offset = this.sql
       .exec<{
         offset: number;
-      }>("SELECT offset FROM history_sequence WHERE relation='native_run_events'")
+      }>(
+        "SELECT offset FROM history_sequence WHERE relation='native_run_events'",
+      )
       .toArray()[0]?.offset;
     const reserved = offset
-      ? BigInt(2 ** 40 + c.ordinal * 2 ** 30 + offset)
+      ? BigInt(grant.base) + BigInt(c.ordinal) * 2n ** 30n + BigInt(offset)
       : 0n;
     return {
       nativeEventSequence: String(
@@ -378,7 +401,10 @@ export class HistoryShard extends DurableObject<unknown> {
     if (!c.ordinal || grant.revision < c.fence)
       throw Error("Stale history fence");
     return this.ctx.storage.transactionSync(() => {
-      const proof = c.dirty ? this.proofs(grant.threadId).sha256 : c.sealed;
+      const proof =
+        c.dirty || (!c.load_id && !c.sealed)
+          ? this.proofs(grant.threadId).sha256
+          : c.sealed;
       this.sql.exec(
         "UPDATE history_config SET fence=?,sealed=?,dirty=0 WHERE singleton=1",
         grant.revision,
@@ -387,15 +413,19 @@ export class HistoryShard extends DurableObject<unknown> {
       return proof;
     });
   }
-  private allocate(ordinal: number, table: HistoryTable): string {
-    if (!ordinal) throw Error("History thread is unregistered");
+  private allocate(grant: Grant, table: HistoryTable): string {
+    if (!grant.ordinal) throw Error("History thread is unregistered");
     const { offset } = this.sql
       .exec<{
         offset: number;
-      }>("INSERT INTO history_sequence(relation,offset) VALUES(?,1) ON CONFLICT(relation) DO UPDATE SET offset=offset+1 RETURNING offset", tableName(table))
+      }>(
+        "INSERT INTO history_sequence(relation,offset) VALUES(?,1) ON CONFLICT(relation) DO UPDATE SET offset=offset+1 RETURNING offset",
+        tableName(table),
+      )
       .one();
-    const value = 2 ** 40 + ordinal * 2 ** 30 + offset;
-    if (offset >= 2 ** 30 || !Number.isSafeInteger(value))
+    const value =
+      BigInt(grant.base) + BigInt(grant.ordinal) * 2n ** 30n + BigInt(offset);
+    if (offset >= 2 ** 30 || value >= 2n ** 63n)
       throw Error("History shard rowid allocation exceeded its range");
     return String(value);
   }
@@ -458,7 +488,7 @@ export class HistoryShard extends DurableObject<unknown> {
       }
       const result =
         executeHistoryOperation(this.sql, grant.threadId, operation, (table) =>
-          this.allocate(grant.ordinal, table),
+          this.allocate(grant, table),
         ) ?? null;
       const bytes = new TextEncoder().encode(JSON.stringify(result));
       this.sql.exec(

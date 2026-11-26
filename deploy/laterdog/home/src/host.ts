@@ -261,9 +261,9 @@ export class CloudHomeHost extends Container<Env> {
       return new Response("Retired history writer", {status: 401});
     if (this.cutover.closed())
       return new Response("Home history is held", {status: 423, headers: {"retry-after": "5"}});
-    const history = this.env.HISTORY as unknown as {handle(stable: string, request: Request): Promise<Response>};
+    const history = this.env.HISTORY as unknown as {handle(stable: string, request: Request): Promise<Response>;restore(stable:string,request:Request):Promise<Response>};
     const forwarded = new Request(request.url,{method:request.method,body:request.body,headers:{"content-type":"application/json"}});
-    return history.handle(stable,forwarded);
+    return ["/history/restore","/history/restore-row"].includes(new URL(request.url).pathname) ? history.restore(stable,forwarded) : history.handle(stable,forwarded);
   }
 
   async mutateHomeState(stable: string, token: string, request: Request) {
@@ -318,6 +318,7 @@ export class CloudHomeHost extends Container<Env> {
       LATERDOG_STATE_TOKEN: record.stateToken,
       LATERDOG_HISTORY_URL: `http://${STATE_HOST}/history`,
       LATERDOG_HISTORY_TOKEN: hex(await hmacSha256(record.stateToken,"laterdog history v1")),
+      LATERDOG_HISTORY_RESTORE_TOKEN: hex(await hmacSha256(record.stateToken,"laterdog history restore v1")),
       ...(record.emailToken ? { LATERDOG_CLOUD_EMAIL_URL: `http://${EMAIL_HOST}/send`, LATERDOG_CLOUD_EMAIL_TOKEN: record.emailToken } : {}),
       ...(record.googleToken ? { LATERDOG_CLOUD_GOOGLE_URL: `http://${GOOGLE_HOST}`, LATERDOG_CLOUD_GOOGLE_TOKEN: record.googleToken } : {}),
       ...(record.includedKey ? { LATERDOG_INCLUDED_KEY: record.includedKey, LATERDOG_INCLUDED_API: this.env.INCLUDED_API } : {}),
@@ -1106,7 +1107,8 @@ CloudHomeHost.outboundHandlers = {
   state: async (request: Request, env: Env, context: OutboundHandlerContext<{ token: string; machineId?: string; home?: string; devCode?: boolean }>) => {
     if (new URL(request.url).pathname.startsWith("/history/")) {
       const token = context.params?.token;
-      if (!token || !await authorizedState(request,hex(await hmacSha256(token,"laterdog history v1"))))
+      const restore = ["/history/restore","/history/restore-row"].includes(new URL(request.url).pathname);
+      if (!token || !await authorizedState(request,hex(await hmacSha256(token,restore?"laterdog history restore v1":"laterdog history v1"))))
         return new Response("Unauthorized", {status: 401});
       const stable = stateOwner(context);
       const ns = stable === context.containerId ? env.HOMES : env.HOMES_LARGE;

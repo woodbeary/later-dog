@@ -36,5 +36,11 @@
       "type": "durable-object",
       "storage": "sqlite"
     }
-  }
+  },
+  "r2_buckets": [
+    {
+      "binding": "RECEIPTS",
+      "bucket_name": "laterdog-homes-test"
+    }
+  ]
 }

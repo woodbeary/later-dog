@@ -1,3 +1,9 @@
+import {
+  getReceipt,
+  putReceipt,
+  receiptBatch,
+  type ReceiptBatch,
+} from "./history-receipts.ts";
 import { WorkerEntrypoint } from "cloudflare:workers";
 import {
   historyOperationWrites,
@@ -17,6 +23,7 @@ import {
 
 export { HistoryDirectory, HistoryShard };
 interface HistoryEnvironment {
+  RECEIPTS: R2Bucket;
   DIRECTORY: DurableObjectNamespace<HistoryDirectory>;
   THREADS: DurableObjectNamespace<HistoryShard>;
 }
@@ -60,10 +67,148 @@ async function execute(
   );
 }
 
+type RestoreRequest = { jobId: string; generation: string } & (
+  | { op: "status" | "finish" | "undo" }
+  | { op: "begin"; expectedRevision: number }
+  | { op: "switch"; proofs: [string, string][] }
+  | ({ threadId: string } & (
+      | ImportCommand
+      | (Omit<PageCommand, "op"> & { op: "read" })
+    ))
+);
 export class HistoryApi extends WorkerEntrypoint<HistoryEnvironment> {
+  async neverActivated(stable: string, generation: string) {
+    return directory(this.env, stable).neverActivated(generation);
+  }
+  async restore(stable: string, request: Request): Promise<Response> {
+    const dir = directory(this.env, stable),
+      url = new URL(request.url);
+    if (request.method !== "POST") return new Response(null, { status: 405 });
+    if (url.pathname === "/history/restore-row") {
+      const value = (key: string) => url.searchParams.get(key) ?? "";
+      const key = { generation: value("generation"), jobId: value("jobId") };
+      const grant = await dir.restoreAddress(key, value("threadId"), "stage");
+      if (!request.body) throw Error("No history restore row");
+      return Response.json(
+        await shard(this.env, stable, grant).importStream(
+          grant,
+          { loadId: value("loadId"), table: value("table") as HistoryTable },
+          request.body,
+        ),
+      );
+    }
+    if (url.pathname !== "/history/restore")
+      return new Response(null, { status: 404 });
+    const req = await request.json<RestoreRequest>(),
+      key = { jobId: req.jobId, generation: req.generation };
+    switch (req.op) {
+      case "status":
+        return Response.json(await dir.restoreStatus(key));
+      case "begin":
+        return Response.json(await dir.restoreBegin(key, req.expectedRevision));
+      case "undo":
+      case "finish":
+        return Response.json(await dir.restoreClose(key, req.op));
+      case "reset":
+      case "import":
+      case "seal":
+      case "read": {
+        const grant = await dir.restoreAddress(key, req.threadId, "stage"),
+          stub = shard(this.env, stable, grant);
+        if (req.op === "read")
+          return new Response(
+            await stub.pageStream(grant, { ...req, op: "page" }),
+            { headers: { "content-type": "application/json" } },
+          );
+        const result = await stub.importRows(grant, req);
+        if (req.op !== "import")
+          await dir.restoreRecord(
+            key,
+            req.threadId,
+            result.sha256 ?? null,
+            result.maximum,
+          );
+        return Response.json(result);
+      }
+      case "switch": {
+        const job = await dir.restoreFreeze(key, req.proofs);
+        if (job.status !== "fencing") return Response.json(job);
+        const stageFence = async (side: "previous" | "target") => {
+          const page = await dir.restorePage(key, side);
+          await Promise.all(
+            page.threads.map(async (thread) => {
+              const grant = await dir.restoreAddress(
+                key,
+                thread,
+                side,
+                job.previousRevision + 1,
+              );
+              const checksum = await shard(this.env, stable, grant).fence(
+                grant,
+              );
+              await dir.restoreFenced(key, grant, checksum);
+            }),
+          );
+          return page.next !== null;
+        };
+        const [previousPending, targetPending] = await Promise.all([
+          stageFence("previous"),
+          stageFence("target"),
+        ]);
+        if (previousPending || targetPending) return Response.json(job);
+        return Response.json(await dir.restoreSwitch(key));
+      }
+    }
+  }
   async handle(stable: string, request: Request): Promise<Response> {
     const url = new URL(request.url),
       dir = directory(this.env, stable);
+    const receipt =
+      /^\/history\/receipts\/([A-Za-z0-9_-]+)\/([0-9a-f]{64})$/.exec(
+        url.pathname,
+      );
+    if (receipt || url.pathname === "/history/receipts-batch") {
+      const placement = await dir.status();
+      if (receipt) {
+        if (placement.generation !== receipt[1] || placement.mode !== "remote")
+          return new Response("History placement changed", { status: 409 });
+        if (request.method === "GET")
+          return new Response(
+            await getReceipt(this.env.RECEIPTS, stable, receipt[1], receipt[2]),
+          );
+        if (request.method !== "PUT" || !request.body)
+          return new Response(null, { status: 405 });
+        try {
+          return Response.json(
+            await putReceipt(
+              this.env.RECEIPTS,
+              stable,
+              receipt[1],
+              receipt[2],
+              request.body,
+            ),
+            { status: 201 },
+          );
+        } catch (error) {
+          if (
+            error instanceof Error &&
+            error.message === "History receipt checksum mismatch"
+          )
+            return new Response(error.message, { status: 422 });
+          throw error;
+        }
+      }
+      if (request.method !== "POST") return new Response(null, { status: 405 });
+      const batch = await request.json<ReceiptBatch>();
+      if (
+        placement.generation !== batch.generation ||
+        placement.mode !== "remote"
+      )
+        return new Response("History placement changed", { status: 409 });
+      return Response.json(
+        await receiptBatch(this.env.RECEIPTS, stable, batch),
+      );
+    }
     if (url.pathname === "/history/status" && request.method === "GET")
       return Response.json(await dir.status());
     if (url.pathname === "/history/threads" && request.method === "GET")
@@ -177,6 +322,32 @@ type Admin =
   | ((PageCommand | ImportCommand) & { generation: string; threadId: string });
 
 export class HistoryMigrationApi extends WorkerEntrypoint<HistoryEnvironment> {
+  private async receiptScope(stable: string, generation: string) {
+    const p = await directory(this.env, stable).status();
+    if (p.generation !== generation)
+      throw Error("History receipt generation changed");
+  }
+  async getReceipt(stable: string, generation: string, sha: string) {
+    await this.receiptScope(stable, generation);
+    return getReceipt(this.env.RECEIPTS, stable, generation, sha);
+  }
+  async putReceipt(
+    stable: string,
+    generation: string,
+    sha: string,
+    body: ReadableStream<Uint8Array>,
+  ) {
+    await this.receiptScope(stable, generation);
+    return putReceipt(this.env.RECEIPTS, stable, generation, sha, body);
+  }
+  async receiptBatch(
+    stable: string,
+    generation: string,
+    req: Omit<ReceiptBatch, "generation">,
+  ) {
+    await this.receiptScope(stable, generation);
+    return receiptBatch(this.env.RECEIPTS, stable, { ...req, generation });
+  }
   async admin(stable: string, req: Admin) {
     const dir = directory(this.env, stable);
     switch (req.op) {
@@ -232,6 +403,7 @@ export class HistoryMigrationApi extends WorkerEntrypoint<HistoryEnvironment> {
             req.threadId,
             grant.revision,
             result.sha256 ?? null,
+            result.maximum,
           );
         return result;
       }
