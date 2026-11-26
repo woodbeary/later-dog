@@ -2,7 +2,7 @@ import { mkdirSync, mkdtempSync, rmSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { ALWAYS_ASK_IDS, alwaysAskHook, alwaysAsks, asksAsConnector, connectorAlwaysAsks, internalCallRequest, type AlwaysAskId } from "./always-asks.ts";
+import { ALWAYS_ASK_IDS, alwaysAskHook, alwaysAsks, FULL_ACCESS_STILL_ASKS, asksAsConnector, connectorAlwaysAsks, internalCallRequest, type AlwaysAskId } from "./always-asks.ts";
 import { connectorAllowKey, connectorSendDecision } from "./connector-ask.ts";
 import { connectorCallsIn } from "../../shared/outbound.ts";
 import { defaultTempRoots, ownerGuard, type OwnerGuardContext } from "./owner-guard.ts";
@@ -1192,5 +1192,17 @@ describe("routine dev commands on Full access run without a card", () => {
   it("holds a worktree removal outside the workspace on a home dog and allows one inside", () => {
     expectAll(null, ["git worktree remove --force /srv/dogs/ada/work/wt", "git worktree remove wt"]);
     expectAll("delete-outside-workspace", ["git worktree remove /srv/dogs/other/wt", "git worktree remove --force ~/Documents/wt"]);
+  });
+});
+
+describe("Full access", () => {
+  const full = (): OwnerGuardContext => ({ ...guard(), fullAccess: true });
+  it("asks only before a payment, never before a push, a key, a delete, a send or a share", () => {
+    expect(alwaysAsks({ tool: "Bash", command: "git push --no-verify origin main" }, full)).toBeNull();
+    expect(alwaysAsks({ tool: "Bash", command: "rm -rf /etc/hosts" }, full)).toBeNull();
+    expect(alwaysAsks({ tool: "mcp__mail__send_email" }, full)).toBeNull();
+    expect(alwaysAsks({ tool: "mcp__mail__send_email" }, guard)?.id).toBe("sends-for-you");
+    expect(alwaysAsks({ tool: "mcp__shop__chargeCard" }, full)?.id).toBe("pays");
+    expect(FULL_ACCESS_STILL_ASKS).toEqual(new Set(["pays"]));
   });
 });

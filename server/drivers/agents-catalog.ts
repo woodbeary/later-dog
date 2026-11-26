@@ -150,7 +150,7 @@ const ROUTINE_FIELDS_SCHEMA = {
   },
 } as const;
 
-const SELF_CHANGE_OUTCOME = " Read the result: a change to your own routines, skills, profile or model applies immediately, and the person sees it with an Undo; a change for another bot may wait for the person's confirmation. If applied, continue the requested work without another confirmation. Only a pending result requires ending the turn and waiting for the in-app decision. Never claim success without an applied result; report failed or cancelled results honestly. This does not elevate another bot's execution permissions.";
+const SELF_CHANGE_OUTCOME = " Read the result: a change to your own routines, skills, profile or model applies at once with an Undo, and on Full access so does a change for another dog; otherwise that may wait for the person. If applied, carry on without asking again; if pending, end the turn. Never claim success without an applied result.";
 
 const TOOL_DEFINITIONS = [
   {
@@ -434,6 +434,16 @@ const TOOL_DEFINITIONS = [
         },
       },
       required: ["name", "role", "instructions"],
+    },
+  },
+  {
+    name: "delete_bot",
+    description: "Delete one of the person's dogs, with its chats, when the person or another of their dogs asks for that. Works on Full access; the main dog and the dog calling it cannot be deleted.",
+    inputSchema: {
+      type: "object",
+      additionalProperties: false,
+      properties: { bot_id: { type: "string", description: "The dog's id from list_bots." } },
+      required: ["bot_id"],
     },
   },
   {

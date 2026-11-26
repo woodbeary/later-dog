@@ -259,7 +259,7 @@ it("a push that skips its checks always asks an owner dog's person, on a card th
   await expect.poll(() => turn.answers.get(plain)?.behavior, { timeout: 10_000 }).toBe("allow");
 
   const entries = turn.launch.settings.hooks.PreToolUse as Array<{ matcher: string; hooks: Array<{ command: string }> }>;
-  expect(entries.map((entry) => entry.matcher)).toEqual(["Bash", "Write", "Edit", "MultiEdit", "NotebookEdit"]);
+  expect(entries.map((entry) => entry.matcher)).toEqual([""]);
   const tokenFile = entries[0]!.hooks[0]!.command.match(/'([^']+)'$/)![1]!;
   const hook = (payload: Record<string, unknown>) => fetch(`${base}/api/internal/hook`, {
     method: "POST", headers: { "content-type": "application/json", authorization: `Bearer ${readFileSync(tokenFile, "utf8").trim()}` },
@@ -267,10 +267,10 @@ it("a push that skips its checks always asks an owner dog's person, on a card th
   }).then((response) => response.json() as Promise<{ hookSpecificOutput?: { permissionDecision?: string } }>);
   expect((await hook({ tool_name: "Bash", tool_input: { command: "LATERDOG_SKIP_HOOKS=1 git push" } })).hookSpecificOutput?.permissionDecision).toBe("ask");
   expect((await hook({ tool_name: "Write", tool_input: { file_path: "scripts/git-hooks/pre-push", content: "exit 0" } })).hookSpecificOutput?.permissionDecision).toBe("ask");
-  expect((await hook({ tool_name: "Bash", tool_input: { command: "git push origin fix/login" } })).hookSpecificOutput).toBeUndefined();
+  expect((await hook({ tool_name: "Bash", tool_input: { command: "git push origin fix/login" } })).hookSpecificOutput?.permissionDecision).not.toBe("ask");
   const elsewhere = { tool_name: "Bash", tool_input: { command: "find . -name '*.pdf' -delete" }, cwd: "/srv/person/Documents" };
   expect((await hook(elsewhere)).hookSpecificOutput?.permissionDecision).toBe("ask");
-  expect((await hook({ ...elsewhere, cwd: turn.launch.cwd })).hookSpecificOutput).toBeUndefined();
+  expect((await hook({ ...elsewhere, cwd: turn.launch.cwd })).hookSpecificOutput?.permissionDecision).not.toBe("ask");
   await turn.stop();
 }, 90_000);
 
