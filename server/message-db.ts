@@ -7,6 +7,7 @@ import { peerProvenanceAuthor } from "./peer-provenance.ts";
 import type { ResolvedSender, SteerQueueReason } from "../shared/wire.ts";
 import type { Message } from "./store.ts";
 import type { UsageTrigger } from "./usage-ledger.ts";
+import { ReplyDiskReserve } from "./laterdog/reply-disk-reserve.ts";
 import { rollbackQuietly } from "./laterdog/safe-rollback.ts";
 import { ensureNativeRuns, deleteNativeRuns } from "./laterdog/native-run-store.ts";
 import { MessageSearchWorker } from "./message-search-worker.ts";
@@ -15,6 +16,7 @@ export type { SearchHit } from "./message-search-query.ts";
 
 const DB_FILE = () => join(DATA_DIR, "messages.db");
 
+const replyReserve = new ReplyDiskReserve();
 let handle: DatabaseSync | null = null;
 let handlePath: string | null = null;
 let searchWorker: MessageSearchWorker | null = null;
@@ -143,7 +145,9 @@ function db(): DatabaseSync {
   try {
     handle?.close();
   } catch {}
+  replyReserve.close();
   handle = open();
+  replyReserve.prepare(DATA_DIR);
   handlePath = DB_FILE();
   return handle;
 }
@@ -392,17 +396,23 @@ export function importThread(threadId: string, messages: Message[], activeLeafId
   });
 }
 
+function writeMessage(message: Message, write: () => void): void {
+  if (message.role === "bot" && message.kind === "text") replyReserve.save(write);
+  else write();
+}
+
 export function appendMessage(threadId: string, message: Message): void {
-  transaction(() => {
+  writeMessage(message, () => transaction(() => {
     insertMessage(threadId, message);
     setActiveLeaf(threadId, message.id);
-  });
+  }));
+  if (message.role === "user") replyReserve.prepare(DATA_DIR);
 }
 
 export function updateMessage(threadId: string, message: Message): void {
-  db()
+  writeMessage(message, () => db()
     .prepare("UPDATE messages SET at = ?, role = ?, kind = ?, text = ?, json = ? WHERE thread_id = ? AND id = ?")
-    .run(message.at, message.role, message.kind, message.text ?? null, JSON.stringify(message), threadId, message.id);
+    .run(message.at, message.role, message.kind, message.text ?? null, JSON.stringify(message), threadId, message.id));
 }
 
 export function openPermissionCards(): Array<{ threadId: string; message: Message }> {
@@ -762,6 +772,7 @@ export async function closeMessageSearch(): Promise<void> {
 }
 
 export function closeMessageDb(): void {
+  replyReserve.close();
   void closeMessageSearch();
   try {
     handle?.close();

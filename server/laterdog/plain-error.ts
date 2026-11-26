@@ -49,7 +49,9 @@ function checkedFields(raw: string): string | null {
   return lines.slice(0, 3).join("; ");
 }
 
-function isOutOfSpace(failure: Failure, message: string): boolean {
+export function isOutOfSpace(error: unknown): boolean {
+  const failure = (error && typeof error === "object" ? error : {}) as Failure;
+  const message = saidBy(error);
   return (typeof failure.code === "string" && OUT_OF_SPACE_CODES.has(failure.code))
     || failure.errcode === SQLITE_FULL
     || OUT_OF_SPACE_WORDS.test(message)
@@ -89,7 +91,7 @@ export function plainFailure(error: unknown, platform: NodeJS.Platform = process
   if (limit) {
     return { status, internal: false, message: tooBigMessage(limit[1] as "file" | "image" | "audio", Number(limit[2])) };
   }
-  if (isOutOfSpace(failure, raw)) {
+  if (isOutOfSpace(error)) {
     return { status, internal: true, message: `${thisComputer(platform)} is almost out of space, so later.dog couldn't save that. Free up some space and try again.` };
   }
   if (typeof failure.code === "string" && NOT_ALLOWED_CODES.has(failure.code)) {
