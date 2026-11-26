@@ -438,12 +438,21 @@ const TOOL_DEFINITIONS = [
   },
   {
     name: "delete_bot",
-    description: "Delete one of the person's dogs, with its chats, when the person or another of their dogs asks for that. Works on Full access; the main dog and the dog calling it cannot be deleted.",
+    description: "Delete one of the person's dogs when the person or another of their dogs asks. It moves to Recently deleted with its chats, memory and files kept, and is deleted for good after 30 days. Works on Full access; never the main dog or yourself.",
     inputSchema: {
       type: "object",
       additionalProperties: false,
       properties: { bot_id: { type: "string", description: "The dog's id from list_bots." } },
       required: ["bot_id"],
+    },
+  },
+  {
+    name: "restore_bot",
+    description: "Bring a dog back from Recently deleted, with its chats, memory, files and routines. Without name_or_id it lists the dogs there.",
+    inputSchema: {
+      type: "object",
+      additionalProperties: false,
+      properties: { name_or_id: { type: "string", description: "The deleted dog's name or id." } },
     },
   },
   {

@@ -152,6 +152,7 @@ import { createJobWake } from "./laterdog/job-wake.ts";
 import { waitCapMs } from "./laterdog/run-wait.ts";
 import { HelperTurnBudget } from "./laterdog/turn-budget.ts";
 import { DECIDE_YOURSELF, REPLY_FIRST_HELD, TurnShape } from "./laterdog/turn-shape.ts";
+import { DogRestStore, findRest, purgeDue, REST_REFUSALS, restRefusal } from "./laterdog/dog-rest.ts";
 import { HeavyCommandGuard, preToolUseDecision } from "./laterdog/heavy-commands.ts";
 import { computersSelected } from "./laterdog/cloud-computers.ts";
 import { createComputerRunRoute } from "./routes/computer-run.ts";
@@ -5878,7 +5879,43 @@ const liveContext = new LiveContext();
 const helperTurns = new HelperTurnBudget();
 const turnShape = new TurnShape();
 const DOG_SETUP_QUESTIONS_MS = 30 * 60_000;
-const DOG_DELETE_PAUSED = "Deleting dogs is being made recoverable; ask again shortly. Nothing was deleted.";
+const dogRests = new DogRestStore(join(DATA_DIR, "dog-rests.json"));
+
+async function restDog(bot: BotRecord, by: string): Promise<void> {
+  const enabledRoutines = routines!.listRoutines().filter((routine) => routine.botId === bot.id && routine.enabled).map((routine) => routine.id);
+  const enabledWebhooks = webhooks.list().filter((webhook) => webhook.botId === bot.id && webhook.enabled).map((webhook) => webhook.id);
+  dogRests.put({ botId: bot.id, name: bot.name, at: Date.now(), by, hiddenBefore: bot.hidden === true, routines: enabledRoutines, webhooks: enabledWebhooks });
+  routines!.disableForBot(bot.id);
+  webhooks.disableForBot(bot.id);
+  await interruptAllDirectThreads(bot.id).catch(() => {});
+  const hidden = store.patchBot(bot.id, { hidden: true });
+  if (hidden) broadcast({ kind: "bot", bot: wireBot(hidden) });
+  console.log(`[dogs] ${by.slice(0, 8)} moved dog ${bot.id.slice(0, 8)} to Recently deleted`);
+}
+
+function restoreDog(botId: string): BotRecord | null {
+  const rest = dogRests.take(botId);
+  const bot = store.bot(botId);
+  if (!rest || !bot) return null;
+  const shown = store.patchBot(botId, { hidden: rest.hiddenBefore });
+  for (const id of rest.routines) routines!.update(id, { enabled: true });
+  for (const id of rest.webhooks) webhooks.update(id, { enabled: true });
+  if (shown) broadcast({ kind: "bot", bot: wireBot(shown) });
+  console.log(`[dogs] restored dog ${botId.slice(0, 8)} from Recently deleted`);
+  return shown;
+}
+
+async function purgeRestedDogs(now = Date.now()): Promise<void> {
+  for (const rest of purgeDue(dogRests.list(), now)) {
+    if (!store.bot(rest.botId)) { dogRests.take(rest.botId); continue; }
+    const result = await deleteBotWithLifecycle(rest.botId, true);
+    if (result.status === 200) {
+      dogRests.take(rest.botId);
+      console.log(`[dogs] deleted dog ${rest.botId.slice(0, 8)} for good after 30 days in Recently deleted`);
+    }
+  }
+}
+setInterval(() => void purgeRestedDogs().catch((error) => console.error(`[dogs] purge failed: ${(error as Error).message}`)), 60 * 60_000).unref();
 function conversationText(threadId: string, current: string): string {
   return [...store.messagesTail(threadId, 40).messages.filter(isPersonText).slice(-12).map((message) => message.text ?? ""), current].join("\n");
 }
@@ -16039,9 +16076,28 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
           });
         }
       }
-      if (method === "POST" && path === "/api/internal/delete-bot") {
-        await readInternalBody();
-        return json(res, 409, { error: DOG_DELETE_PAUSED });
+      if (method === "POST" && (path === "/api/internal/delete-bot" || path === "/api/internal/restore-bot")) {
+        const body = await readInternalBody();
+        const fromThreadId = internalCapability.threadId;
+        if (!connectorThread(internalSender.id, fromThreadId) || cloudGuestDriven(fromThreadId)) {
+          return json(res, 403, { error: "source conversation does not belong to sender" });
+        }
+        if (path === "/api/internal/restore-bot") {
+          const wanted = String(body.targetId ?? "").trim();
+          if (!wanted) return json(res, 200, { deleted: dogRests.list().map((rest) => ({ id: rest.botId, name: rest.name, at: rest.at })) });
+          const rest = findRest(dogRests.list(), wanted);
+          if (!rest) return json(res, 404, { error: "no dog by that name or id is in Recently deleted" });
+          const restored = restoreDog(rest.botId);
+          return restored ? json(res, 200, { ok: true, name: restored.name }) : json(res, 404, { error: "that dog was deleted for good" });
+        }
+        if (approvalModeFor(store.projectBotForTask(internalSender.id, fromThreadId) ?? internalSender) !== "full") {
+          return json(res, 403, { error: "deleting a dog needs Full access; the person can turn it on in Settings or delete the dog from the sidebar" });
+        }
+        const target = store.bot(String(body.targetId ?? "")) ?? null;
+        const refusal = restRefusal({ target, caller: internalSender.id, main: store.mainBotId(), resting: Boolean(target && dogRests.get(target.id)) });
+        if (refusal) return json(res, refusal === "missing" ? 404 : 409, { error: REST_REFUSALS[refusal] });
+        await restDog(target!, internalSender.id);
+        return json(res, 200, { ok: true, name: target!.name, restorable: true });
       }
       if (method === "POST" && path === "/api/internal/create-bot") {
         const body = await readInternalBody();
