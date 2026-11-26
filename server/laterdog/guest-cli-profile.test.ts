@@ -1,4 +1,4 @@
-import { mkdtemp, mkdir, readFile, rm, symlink, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, readdir, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
@@ -127,4 +127,22 @@ it("preserves a newer home login when the selected account changes during renewa
     await writeFile(join(isolated, ".grok", "auth.json"), JSON.stringify({ [scope]: { ...old, key: "current", expires_at: 7 } }));
   })).rejects.toThrow(/changed during renewal/);
   expect(await readFile(source, "utf8")).toBe(replacement);
+});
+
+it("adopts the already renewed private credential after storage prevented publication", async () => {
+  const scope = "https://auth.x.ai::abc";
+  const original = JSON.stringify({ [scope]: { key: "old", refresh_token: "old-refresh", expires_at: 2, user_id: "one" } });
+  const next = { [scope]: { key: "new", refresh_token: "rotated", expires_at: 9, user_id: "one" } };
+  const source = await file(".grok/auth.json", original);
+  let count = 0;
+  const refresh = async (_cli: string, isolated: string) => {
+    count++;
+    await writeFile(join(isolated, ".grok", "auth.json"), JSON.stringify(next));
+  };
+  await expect(currentGrokLogin(source, "grok", 3000, refresh, () => { throw Object.assign(new Error("No space left"), { code: "ENOSPC" }); })).rejects.toMatchObject({ code: "ENOSPC" });
+  expect(await readFile(source, "utf8")).toBe(original);
+  expect(JSON.parse(await currentGrokLogin(source, "grok", 3000, refresh))).toEqual(next);
+  expect(JSON.parse(await readFile(source, "utf8"))).toEqual(next);
+  expect(count).toBe(1);
+  expect(await readdir(join(dirname(source), ".laterdog-renewals"))).toEqual([]);
 });

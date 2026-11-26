@@ -1,7 +1,7 @@
+import { createHash } from "node:crypto";
 import { constants } from "node:fs";
-import { mkdir, mkdtemp, open, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { lstat, mkdir, mkdtemp, open, readdir, rm, writeFile } from "node:fs/promises";
+import { dirname, join } from "node:path";
 import { writeFileAtomic } from "../atomic.ts";
 import { execCli } from "../procs.ts";
 
@@ -39,30 +39,52 @@ const refreshNative: NativeRefresh = (cli, home) => new Promise<void>(resolve =>
 
 const pending = new Map<string, Promise<string>>();
 
-export async function currentGrokLogin(file: string, cli: string | undefined, now = Date.now(), refresh: NativeRefresh = refreshNative): Promise<string> {
+export async function currentGrokLogin(file: string, cli: string | undefined, now = Date.now(), refresh: NativeRefresh = refreshNative, publish = writeFileAtomic): Promise<string> {
   const raw = await readLogin(file);
   const saved = account(raw);
   if (!cli || !saved || saved.at > now || !saved.value.refresh_token) return raw;
   const previous = pending.get(file);
   if (previous) return previous;
   const run = (async () => {
-    const isolated = await mkdtemp(join(tmpdir(), "laterdog-grok-login-"));
+    const privateDir = join(dirname(file), ".laterdog-renewals");
+    await mkdir(privateDir, { recursive: true, mode: 0o700 });
+    const info = await lstat(privateDir);
+    if (!info.isDirectory() || (info.mode & 0o077) || (process.getuid && info.uid !== process.getuid())) throw new Error("Grok renewal needs a private account folder.");
+    const prefix = createHash("sha256").update(raw).digest("hex") + "-";
+    const accept = async (isolated: string) => {
+      let renewed;
+      try { renewed = account(await readLogin(join(isolated, ".grok", "auth.json"))); } catch { return; }
+      if (!renewed || renewed.scope !== saved.scope || !(renewed.at > now) || renewed.value.key === saved.value.key) return;
+      for (const id of ["principal_id", "user_id", "team_id"]) if (saved.value[id] !== undefined && renewed.value[id] !== saved.value[id]) return;
+      return JSON.stringify({ ...saved.all, [saved.scope]: renewed.value }, null, 2);
+    };
+    const commit = async (isolated: string, updated: string) => {
+      if (await readLogin(file) !== raw) {
+        await rm(isolated, { recursive: true, force: true });
+        throw new Error("The selected Grok sign-in changed during renewal. Start the turn again.");
+      }
+      publish(file, updated, { mode: 0o600 });
+      await rm(isolated, { recursive: true, force: true });
+      return updated;
+    };
+    for (const entry of await readdir(privateDir, { withFileTypes: true })) {
+      if (!entry.isDirectory() || !entry.name.startsWith(prefix)) continue;
+      const previous = join(privateDir, entry.name);
+      const updated = await accept(previous);
+      if (updated) return commit(previous, updated);
+    }
+    const isolated = await mkdtemp(join(privateDir, prefix));
+    let updated;
     try {
       const isolatedDir = join(isolated, ".grok");
       await mkdir(isolatedDir, { mode: 0o700 });
-      const isolatedFile = join(isolatedDir, "auth.json");
-      await writeFile(isolatedFile, JSON.stringify({ [saved.scope]: saved.value }), { mode: 0o600 });
+      await writeFile(join(isolatedDir, "auth.json"), JSON.stringify({ [saved.scope]: saved.value }), { mode: 0o600 });
       await refresh(cli, isolated);
-      let renewed;
-      try { renewed = account(await readLogin(isolatedFile)); } catch { return raw; }
-      if (!renewed || renewed.scope !== saved.scope || !(renewed.at > now) || renewed.value.key === saved.value.key) return raw;
-      for (const id of ["principal_id", "user_id", "team_id"]) if (saved.value[id] !== undefined && renewed.value[id] !== saved.value[id]) return raw;
-      const original = await readLogin(file);
-      if (original !== raw) throw new Error("The selected Grok sign-in changed during renewal. Start the turn again.");
-      const updated = JSON.stringify({ ...saved.all, [saved.scope]: renewed.value }, null, 2);
-      writeFileAtomic(file, updated, { mode: 0o600 });
-      return updated;
-    } finally { await rm(isolated, { recursive: true, force: true }); }
+      updated = await accept(isolated);
+    } finally {
+      if (!updated) await rm(isolated, { recursive: true, force: true });
+    }
+    return updated ? commit(isolated, updated) : raw;
   })().finally(() => pending.delete(file));
   pending.set(file, run);
   return run;
