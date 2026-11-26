@@ -3,7 +3,8 @@ import { copyFileSync, mkdirSync, mkdtempSync, realpathSync, rmSync } from "node
 import { homedir } from "node:os";
 import { join, parse, sep } from "node:path";
 import type { McpServerSpec, SendTurnInput, StdioMcpSpec } from "../contracts.ts";
-import { mcpStdioServer } from "../mcp-gate-config.ts";
+import { canUseMcpServer, parseToolScope } from "../../shared/tool-scope.ts";
+import { gateServer, mcpStdioServer } from "../mcp-gate-config.ts";
 import type { GuestProviderProfile } from "./guest-provider-types.ts";
 import { REMOTE_ENGINE_BASE, type EngineOpener, type PlacedEnginePlan } from "./engine-placement.ts";
 import type { StdioSpec } from "./engine-remote.ts";
@@ -12,20 +13,26 @@ function guestIntegrations(turn: SendTurnInput, proxy: string, socket: string) {
   const source = turn.integrations ?? {};
   const mcp: Record<string, StdioSpec> = Object.create(null);
   const integrations: NonNullable<SendTurnInput["integrations"]> = {};
-  const pipe = (name: string, original: McpServerSpec): StdioMcpSpec => {
-    const spec = mcpStdioServer(original);
+  const parsed = parseToolScope(turn.toolScope);
+  if (!parsed.ok) throw new Error(parsed.error);
+  const scope = parsed.scope;
+  const names = new Set<string>();
+  const pipe = (name: string, original: McpServerSpec, handle = name): StdioMcpSpec => {
+    names.add(name);
+    const spec = scope ? gateServer({ name, server: original, threadId: turn.threadId, budget: 0, toolScope: scope, nodeEnv: { ELECTRON_RUN_AS_NODE: "1" } }) : mcpStdioServer(original);
     if (!spec) throw new Error("The computer could not carry the selected tool connection.");
-    mcp[name] = { command: spec.command, args: spec.args ?? [], env: spec.env };
-    return { command: "node", args: [proxy, "mcp", socket, name], env: {} };
+    mcp[handle] = { command: spec.command, args: spec.args ?? [], env: spec.env };
+    return { command: "node", args: [proxy, "mcp", socket, handle], env: {} };
   };
   for (const key of ["agents", "composio", "browser"] as const) {
-    if (source[key]) integrations[key] = pipe(key, source[key]);
+    if (source[key] && canUseMcpServer(scope, key)) integrations[key] = pipe(key, source[key]);
   }
-  if (source.localComputer) {
+  if (source.localComputer && canUseMcpServer(scope, "computer")) {
     const { platform, scope, generation } = source.localComputer;
-    integrations.localComputer = { ...pipe("localComputer", source.localComputer), platform, scope, generation };
+    integrations.localComputer = { ...pipe("computer", source.localComputer, "localComputer"), platform, scope, generation };
   }
-  if (source.custom) integrations.custom = Object.fromEntries(Object.entries(source.custom).map(([name, original], i) => [name, pipe("custom-" + i, original)]));
+  if (source.custom) integrations.custom = Object.fromEntries(Object.entries(source.custom).flatMap(([name, original], i) =>
+    !names.has(name) && canUseMcpServer(scope, name) ? [[name, pipe(name, original, "custom-" + i)]] : []));
   if (source.hooks) throw new Error("This engine requires a hook connection that cannot be carried to the dog's computer.");
   return { integrations, mcp };
 }
