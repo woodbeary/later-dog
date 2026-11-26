@@ -54,7 +54,7 @@ it("stages a large selected Codex rollout and atomically publishes only the matc
   mkdirSync(dirname(path), { recursive: true });
   const out = openSync(path, "wx");
   try {
-    writeFileSync(out, JSON.stringify({ type: "session_meta", payload: { id: cursor } }) + "\n");
+    writeFileSync(out, JSON.stringify({ type: "session_meta", payload: { instructions: "x".repeat(1024 * 1024), id: cursor } }) + "\n");
     const block = Buffer.from(JSON.stringify({ type: "response_item", payload: { content: "x".repeat(1024 * 1024) } }) + "\n");
     for (let i = 0; i < 129; i++) writeSync(out, block);
   } finally { closeSync(out); }
