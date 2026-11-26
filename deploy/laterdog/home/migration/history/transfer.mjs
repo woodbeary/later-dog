@@ -105,7 +105,7 @@ export async function mapLimit(values, limit, fn) {
     "Invalid history parallelism",
   );
   let offset = 0;
-  const results = new Array(values.length);
+  const results = Array.from({ length: values.length });
   let problem;
   await Promise.all(
     Array.from({ length: Math.min(values.length, limit) }, async () => {
