@@ -1,5 +1,5 @@
 import { workFolderCensus, type FolderCensusRequest } from "./work-folder-census.ts";
-import { handleWorkFolderPlacement, workFolderControlPath } from "./work-folder-placement.ts";
+import { handleWorkFolderPlacement, previousBackupVerification, workFolderControlPath } from "./work-folder-placement.ts";
 import { handleWorkFolder } from "./work-folder-store.ts";
 import { WORK_FOLDER_ROUTE } from "../../../../shared/work-folder-store.ts";
 import { Container, type OutboundHandlerContext } from "@cloudflare/containers";
@@ -62,7 +62,7 @@ const DESK_GIVE_UP_MS = 60 * 60 * 1000;
 const BRAIN_KEY = "desk-brain";
 const BRAIN_REFRESH_MS = 5 * 60 * 1000;
 const PAIRING_OPEN_KEY = "pairing-open-until";
-const STATE_ROUTE_DEV_CODE_KEY = "state-route-dev-code";
+const STATE_ROUTE_DEV_CODE_KEY = "state-route-machine-and-dev-code";
 const GOOGLE_ROUTE_KEY = "google-route";
 const ANSWER_KEY = "answering";
 const KEEP_UP_DUE_KEY = "keep-up-due";
@@ -178,7 +178,7 @@ export class CloudHomeHost extends Container<Env> {
   private async routeState(record: HomeRecord, { always = false } = {}): Promise<void> {
     const devCode = devCodeOn(this.env.DEV_CODE, record.accountId);
     if (!always && (await this.ctx.storage.get<boolean>(STATE_ROUTE_DEV_CODE_KEY)) === devCode) return;
-    await this.setOutboundByHost(STATE_HOST, "state", { token: record.stateToken, home: this.stateHome(record.machineId), ...(devCode ? { devCode: true } : {}) });
+    await this.setOutboundByHost(STATE_HOST, "state", { token: record.stateToken, machineId: record.machineId, home: this.stateHome(record.machineId), ...(devCode ? { devCode: true } : {}) });
     await this.ctx.storage.put(STATE_ROUTE_DEV_CODE_KEY, devCode);
   }
 
@@ -1003,9 +1003,14 @@ export class CloudHomeHost extends Container<Env> {
 }
 
 CloudHomeHost.outboundHandlers = {
-  state: async (request: Request, env: Env, context: OutboundHandlerContext<{ token: string; home?: string; devCode?: boolean }>) => {
+  state: async (request: Request, env: Env, context: OutboundHandlerContext<{ token: string; machineId?: string; home?: string; devCode?: boolean }>) => {
     if (!(await authorizedState(request, context.params?.token))) return new Response("Unauthorized", { status: 401 });
-    if (workFolderControlPath(new URL(request.url).pathname)) return handleWorkFolderPlacement(request, env.STATE, stateOwner(context));
+    const path = new URL(request.url).pathname;
+    if (workFolderControlPath(path)) {
+      const machineId = context.params?.machineId;
+      const bootstrap = path === previousBackupVerification && machineId ? await bootstrapSecret(env.HOME_SECRET, machineId) : undefined;
+      return handleWorkFolderPlacement(request, env.STATE, stateOwner(context), bootstrap);
+    }
     const devCode = context.params?.devCode === true || devCodeOn(env.DEV_CODE) ? await handleDevCode(request, env.STATE, String(env.HOME_HOST_SUFFIX) === "-hometest.later.dog" ? context.params?.home : undefined) : null;
     return devCode ?? handleState(request, env.STATE, stateOwner(context));
   },

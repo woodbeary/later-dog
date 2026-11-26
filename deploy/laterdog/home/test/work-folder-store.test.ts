@@ -1,3 +1,4 @@
+import { signPreviousBackup } from "../runtime/previous-backup-signature.mjs";
 import { describe, expect, it } from "vitest";
 import { workFolderLayoutRecord } from "../../../../shared/work-folder-layout.ts";
 import { workFolderAuthority, workFolderBaseUrl, WORK_FOLDER_ACCESS_MS } from "../../../../shared/work-folder-store.ts";
@@ -55,6 +56,23 @@ describe("a cloud work folder", () => {
     const retired = await gone.json() as { revision: string };
     expect(await (await make()).json()).toMatchObject({ parent: retired.revision, state: "live" });
   });
+  it("verifies the private latest-backup receipt during independent recovery without exporting tenant keys", async () => {
+    const { bucket, stable, bootstrap, call } = fixture();
+    const url = "https://state.r2/work-folders/verify-previous-backup";
+    const body = { v: 1, source: "archive", size: 1, sha256: "a".repeat(64), chunks: ["a".repeat(64)], signature: "" };
+    body.signature = await signPreviousBackup(bootstrap, body);
+    const verify = (descriptor: unknown, tenant = stable, seed?: string) => handleWorkFolderPlacement(new Request(url, { method: "POST", body: JSON.stringify(descriptor) }), bucket, tenant, seed);
+    expect((await verify(body)).status).toBe(503);
+    expect((await verify(body, stable, "another-tenant")).status).toBe(403);
+    expect(await (await verify(body, stable, bootstrap)).json()).toEqual({ verified: true });
+    expect(await (await verify(body)).json()).toEqual({ verified: true });
+    expect((await verify({ ...body, sha256: "b".repeat(64) })).status).toBe(403);
+    expect((await verify(body, "0".repeat(64))).status).toBe(503);
+    expect((await handleWorkFolderPlacement(new Request(url), bucket, stable)).status).toBe(405);
+    expect((await handleWorkFolderPlacement(new Request("https://state.r2/work-folders/previous-backup-verifier"), bucket, stable)).status).toBe(404);
+    expect((await call("verify-previous-backup", "POST", body)).status).toBe(404);
+  });
+
   it("publishes only fully uploaded chunk graphs, serves UTF-8 path ranges, bytes and permissions", async () => {
     const f = fixture(), blob = await f.put("blobs", "file\0contents");
     expect(blob.r.status).toBe(201);

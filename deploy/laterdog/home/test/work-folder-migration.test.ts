@@ -41,7 +41,7 @@ it("migrates the resident and archived working folders and restores the newest g
       const path=new URL(request.url).pathname;
       const response=path.startsWith("/api/work-folders/v1/") ? await handleWorkFolder(request,bucket,stable,origin,"migration-fixture")
         : !await authorizedState(request,"control-fixture") ? new Response(null,{status:401})
-        : workFolderControlPath(path) ? await handleWorkFolderPlacement(request,bucket,stable)
+        : workFolderControlPath(path) ? await handleWorkFolderPlacement(request,bucket,stable,"migration-fixture")
         : await handleState(request,bucket as Parameters<typeof handleState>[1],stable);
       res.writeHead(response.status,Object.fromEntries(response.headers));
       res.end(Buffer.from(await response.arrayBuffer()));
@@ -53,7 +53,7 @@ it("migrates the resident and archived working folders and restores the newest g
     origin="http://127.0.0.1:"+address.port;
     const migration=new URL("../migration/",import.meta.url);
     const result=await promisify(execFile)("python3",["-c","import json,pathlib,sys; from scenario import migration_scenario; from transfer import Transport; print(json.dumps(migration_scenario(pathlib.Path(sys.argv[2]),Transport(sys.argv[1],'migration-fixture',sys.argv[1],'control-fixture'))))",origin,dir],{cwd:migration,env:{...process.env,PYTHONDONTWRITEBYTECODE:"1"}});
-    expect(JSON.parse(result.stdout)).toMatchObject({scopes:4,rollbackScopes:5,closure:{references:6,unique:5},latestBytes:createHash("sha256").update("new bytes from another guest\0").digest("hex")});
+    expect(JSON.parse(result.stdout)).toMatchObject({scopes:4,rollbackScopes:5,closure:{references:9,unique:8},latestBytes:createHash("sha256").update("new bytes from another guest\0").digest("hex")});
   } finally {
     await new Promise<void>(resolve=>server.close(()=>resolve()));
     await rm(dir,{recursive:true,force:true});

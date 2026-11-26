@@ -74,7 +74,22 @@ def migration_scenario(directory, transport):
             }
         },
     }
+    from previous_backup import (
+        ARCHIVE,
+        DIRECTORY,
+        DESCRIPTION,
+        REFERENCE,
+        restore_reference,
+    )
+
     entries = [
+        entry(".laterdog/.backups"),
+        entry(DIRECTORY.rstrip("/")),
+        file(ARCHIVE, b"original previous backup"),
+        file(DESCRIPTION, b"original backup description"),
+        entry(".laterdog/checkpoints"),
+        entry(".laterdog/checkpoints/repo"),
+        file(".laterdog/checkpoints/repo/HEAD", b"original checkpoint"),
         entry(".laterdog"),
         entry(".laterdog/workspaces"),
         entry(".laterdog/workspaces/fixtureA"),
@@ -212,6 +227,89 @@ def migration_scenario(directory, transport):
         == 201,
         "Post-cutover task was not created",
     )
+    original_rows = {r["path"]: r for r in entries}
+    current_rows = {
+        k: v
+        for k, v in original_rows.items()
+        if k != ARCHIVE and not k.startswith(".laterdog/checkpoints")
+    }
+    baseline_ref = {
+        "v": 1,
+        "source": "baseline",
+        "baseline": digest(encode(old)),
+        "size": len(b"original previous backup"),
+    }
+    current_rows[REFERENCE] = file(REFERENCE, encode(baseline_ref))
+    baseline_projection = dict(current_rows)
+    restore_reference(
+        baseline_projection, baseline_ref["baseline"], original_rows, transport
+    )
+    require(
+        baseline_projection[ARCHIVE] == original_rows[ARCHIVE],
+        "Historical previous backup was not reconstructed",
+    )
+    removed = {
+        k: v for k, v in current_rows.items() if k not in (REFERENCE, DESCRIPTION)
+    }
+    restore_reference(removed, baseline_ref["baseline"], original_rows, transport)
+    require(ARCHIVE not in removed, "A removed previous backup was resurrected")
+    import hmac
+
+    current_backup = b"updated private previous backup"
+    updated = digest(current_backup)
+    size = len(current_backup)
+    ref = {
+        "v": 1,
+        "source": "archive",
+        "sha256": updated,
+        "size": size,
+        "chunks": [updated],
+    }
+    signing = hmac.digest(
+        transport.bootstrap.encode(),
+        b"laterdog.previous-cloud-signing-key.v1",
+        "sha256",
+    )
+    ref["signature"] = hmac.digest(
+        signing,
+        encode(["laterdog.previous-cloud-archive.v1", size, updated, [updated]]),
+        "sha256",
+    ).hex()
+    verify_path = "work-folders/verify-previous-backup"
+    require(
+        transport.admin(verify_path, "POST", {**ref, "signature": "0" * 64})[0] == 403,
+        "Bad signature verified",
+    )
+    st, _, body = transport.admin(verify_path, "POST", ref)
+    require(
+        decoded(st, body) == {"verified": True},
+        "Private previous backup could not be verified",
+    )
+    require(
+        transport.admin(verify_path, "POST", {**ref, "sha256": "e" * 64})[0] == 403,
+        "Modified private previous backup verified",
+    )
+    require(
+        transport.admin("archive/blobs/" + updated, "PUT", current_backup)[0] == 201,
+        "New private previous backup could not be saved",
+    )
+    current_rows[REFERENCE] = file(REFERENCE, encode(ref))
+    current_rows[DESCRIPTION] = file(DESCRIPTION, b"new user-selected backup")
+    for cy in (REFERENCE, DESCRIPTION):
+        b = (hot / current_rows[cy]["chunks"][0]).read_bytes()
+        require(
+            transport.admin("blobs/" + digest(b), "PUT", b)[0] == 201,
+            "Current metadata upload failed",
+        )
+    require(
+        transport.admin(
+            "manifest.json",
+            "PUT",
+            encode({**old, "entries": list(current_rows.values())}),
+        )[0]
+        == 201,
+        "Current coordinator state failed to save",
+    )
     backlayout, backclaims, projection = reconstruct(package, hot, transport, 3)
     back = prepare_cutover(
         "legacy",
@@ -224,6 +322,18 @@ def migration_scenario(directory, transport):
     rollback = activate(back, transport, 3, projection)
     restored = json.loads(transport.admin("manifest.json")[2])
     rows = {e["path"]: e for e in restored["entries"]}
+    require(
+        rows[ARCHIVE]["chunks"] == [updated]
+        and REFERENCE not in rows
+        and rows[DESCRIPTION] == current_rows[DESCRIPTION]
+        and transport.admin("blobs/" + updated)[2] == current_backup,
+        "Rollback lost the newest signed previous backup",
+    )
+    require(
+        rows[".laterdog/checkpoints/repo/HEAD"]
+        == original_rows[".laterdog/checkpoints/repo/HEAD"],
+        "Git checkpoint missing from rollback",
+    )
     require(
         rows["project/report"]["chunks"] == [bh]
         and rows["project/report-copy"]["hardlink"] == "project/report"
@@ -279,6 +389,7 @@ def migration_scenario(directory, transport):
         "A stale writer published after rollback",
     )
     return {
+        "signedPreviousBackup": updated,
         "supplementalHash": digest(extra),
         "closure": closure,
         "scopes": len(claims),

@@ -153,6 +153,12 @@ def batch(transport, scope, action, group):
     status, _, raw = transport.folder(
         scope, "batch", "POST", {"op": action, "objects": objects}
     )
+    if (
+        action == "verify"
+        and status == 404
+        and json.loads(raw).get("error") == "Missing verification object"
+    ):
+        raise FileNotFoundError("Acknowledged working folder object is missing")
     require(
         decoded(status, raw)["verified"] == [o["sha256"] for o in objects],
         "Batch acknowledgment differs",
@@ -194,13 +200,23 @@ def preload(package, hot, transport, workers, reuse=None):
     package.db.execute(
         "CREATE TABLE IF NOT EXISTS receipts(origin TEXT,scope TEXT,op TEXT,hash TEXT,PRIMARY KEY(origin,scope,op,hash))"
     )
-    package.db.execute("CREATE TABLE IF NOT EXISTS witnessed(origin TEXT,scope TEXT,op TEXT,kind TEXT,hash TEXT,PRIMARY KEY(origin,scope,op,kind,hash))")
+    package.db.execute(
+        "CREATE TABLE IF NOT EXISTS witnessed(origin TEXT,scope TEXT,op TEXT,kind TEXT,hash TEXT,PRIMARY KEY(origin,scope,op,kind,hash))"
+    )
     destination = transport.identity
     if reuse:
         other = (reuse / "index.sqlite").resolve()
-        require(other.exists() and other != (package.directory / "index.sqlite").resolve(), "Invalid previous package")
-        package.db.execute("ATTACH DATABASE ? AS previous", (other.as_uri()+"?mode=ro",))
-        package.db.execute("INSERT OR IGNORE INTO witnessed SELECT origin,scope,op,kind,hash FROM previous.witnessed WHERE origin=?",(destination,))
+        require(
+            other.exists() and other != (package.directory / "index.sqlite").resolve(),
+            "Invalid previous package",
+        )
+        package.db.execute(
+            "ATTACH DATABASE ? AS previous", (other.as_uri() + "?mode=ro",)
+        )
+        package.db.execute(
+            "INSERT OR IGNORE INTO witnessed SELECT origin,scope,op,kind,hash FROM previous.witnessed WHERE origin=?",
+            (destination,),
+        )
         package.db.commit()
         package.db.execute("DETACH DATABASE previous")
     lock = threading.Lock()
@@ -234,13 +250,39 @@ def preload(package, hot, transport, workers, reuse=None):
 
     def execute(item):
         scope, group, identity = item
-        batch(transport, scope, op, group)
+        try:
+            batch(transport, scope, op, group)
+        except FileNotFoundError:
+            require(
+                op == "verify",
+                "Expected an acknowledged upload before checking presence",
+            )
+            with lock:
+                restored = []
+                for kind, h, _ in group:
+                    if kind == "manifests":
+                        data = receipt_db.execute(
+                            "SELECT data FROM nodes WHERE hash=?", (h,)
+                        ).fetchone()[0]
+                    else:
+                        file = hot / h
+                        data = (
+                            file if file.exists() else package.blobs / h
+                        ).read_bytes()
+                    require(digest(data) == h, "Prepared repair bytes changed")
+                    restored.append((kind, h, data))
+            for kind, h, data in restored:
+                batch(transport, scope, "put", [(kind, h, data)])
+            batch(transport, scope, "verify", group)
         with lock:
             receipt_db.execute(
                 "INSERT OR IGNORE INTO receipts VALUES(?,?,?,?)",
                 (destination, scope, op, identity),
             )
-            receipt_db.executemany("INSERT OR IGNORE INTO witnessed VALUES(?,?,?,?,?)", [(destination,scope,op,kind,h) for kind,h,_ in group])
+            receipt_db.executemany(
+                "INSERT OR IGNORE INTO witnessed VALUES(?,?,?,?,?)",
+                [(destination, scope, op, kind, h) for kind, h, _ in group],
+            )
             receipt_db.commit()
 
     receipt_db = sqlite3.connect(
@@ -251,15 +293,15 @@ def preload(package, hot, transport, workers, reuse=None):
         for r in package.db.execute("SELECT DISTINCT rank FROM objects ORDER BY rank")
     ]
     try:
-        for op in ("put", "verify"):
-            for rank in ranks:
+        for rank in ranks:
+            for op in ("put", "verify"):
                 parallel(queue(op, rank), execute, workers)
     finally:
         receipt_db.close()
 
 
 def publish(package, hot, transport, workers, reuse=None, expected=None):
-    preload(package,hot,transport,workers,reuse)
+    preload(package, hot, transport, workers, reuse)
     status, _, placement_bytes = transport.admin("work-folders/placement")
     active = False
     if status == 404:
@@ -281,12 +323,21 @@ def publish(package, hot, transport, workers, reuse=None, expected=None):
         historic = {s["scope"]: s for s in json.loads(proof)["scopes"]}
 
     if expected:
-        require(not active and expected["origin"]==transport.identity,"Expected heads belong to another home or the home is already active")
+        require(
+            not active and expected["origin"] == transport.identity,
+            "Expected heads belong to another home or the home is already active",
+        )
         for old in expected["claims"]:
-            st,_,bytes_of_version=transport.folder(old["scope"],"versions/"+hash_name(old["revision"]))
-            verified=decoded(st,bytes_of_version)
-            require(verified["revision"]==old["revision"] and verified["manifest"]==old["manifest"],"Prior staging receipt differs from recorded history")
-            historic[old["scope"]]=old
+            st, _, bytes_of_version = transport.folder(
+                old["scope"], "versions/" + hash_name(old["revision"])
+            )
+            verified = decoded(st, bytes_of_version)
+            require(
+                verified["revision"] == old["revision"]
+                and verified["manifest"] == old["manifest"],
+                "Prior staging receipt differs from recorded history",
+            )
+            historic[old["scope"]] = old
 
     def install(scope, parent, manifest):
         st, _, raw = transport.folder(

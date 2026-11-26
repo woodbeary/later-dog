@@ -7,6 +7,33 @@ def retain_snapshot(transport, data, workers, repair=False):
     source = digest(data)
     manifest = json.loads(data)
     require(manifest["version"] == 1, "Unsupported root manifest")
+    chunks = [
+        hash_name(h) for entry in manifest["entries"] for h in entry.get("chunks", [])
+    ]
+    groups = [chunks[n : n + 64] for n in range(0, len(chunks), 64)] or [[]]
+
+    level = [digest(encode(["leaf", g])) for g in groups]
+    branches = []
+    while len(level) > 1:
+        parents = [level[n : n + 64] for n in range(0, len(level), 64)]
+        branches.append(parents)
+        level = [digest(encode(["branch", g])) for g in parents]
+    expected = {
+        "snapshot": source,
+        "root": level[0],
+        "references": len(chunks),
+        "unique": len(set(chunks)),
+    }
+    endpoint = "work-folders/retention/seal/" + source
+    if not repair:
+        status, _, sealed = transport.admin(endpoint, "POST", {"root": level[0]})
+        if status == 200:
+            require(
+                decoded(status, sealed)["root"] == level[0],
+                "Retained original checksum differs",
+            )
+            return expected
+        require(status == 422, "Retained original could not be inspected")
     path = "work-folders/legacy-manifests/" + source
     if not repair:
         st, _, response = transport.admin(path, "PUT", data)
@@ -14,10 +41,6 @@ def retain_snapshot(transport, data, workers, repair=False):
             decoded(st, response)["revision"] == source,
             "Legacy snapshot was not pinned",
         )
-    chunks = [
-        hash_name(h) for entry in manifest["entries"] for h in entry.get("chunks", [])
-    ]
-    groups = [chunks[n : n + 64] for n in range(0, len(chunks), 64)] or [[]]
 
     def page(kind, group):
         h = digest(encode([kind, group]))
@@ -32,12 +55,9 @@ def retain_snapshot(transport, data, workers, repair=False):
         return h
 
     parallel(groups, lambda g: page("leaf", g), workers)
-    level = [digest(encode(["leaf", g])) for g in groups]
-    while len(level) > 1:
-        parents = [level[n : n + 64] for n in range(0, len(level), 64)]
-        if not repair:
+    if not repair:
+        for parents in branches:
             parallel(parents, lambda g: page("branch", g), workers)
-        level = [digest(encode(["branch", g])) for g in parents]
     st, _, response = transport.admin(
         "work-folders/retention/seal/" + source, "POST", {"root": level[0]}
     )
@@ -45,9 +65,4 @@ def retain_snapshot(transport, data, workers, repair=False):
         decoded(st, response)["root"] == level[0],
         "Legacy snapshot closure could not be verified",
     )
-    return {
-        "snapshot": source,
-        "root": level[0],
-        "references": len(chunks),
-        "unique": len(set(chunks)),
-    }
+    return expected

@@ -88,23 +88,39 @@ def main():
         config["controlToken"],
         config.get("identity"),
     )
-    if args.action in ("repair-legacy","retain-legacy"):
+    if args.action in ("repair-legacy", "retain-legacy"):
         from retention import retain_snapshot
         from snapshot import bytes_from
 
         require(args.manifest, "A checksummed retained manifest is required")
-        return retain_snapshot(transport, bytes_from(args.manifest), args.workers, args.action=="repair-legacy")
+        return retain_snapshot(
+            transport,
+            bytes_from(args.manifest),
+            args.workers,
+            args.action == "repair-legacy",
+        )
     package = Package(args.package)
     folder = args.journal or args.package / "release"
     folder.mkdir(parents=True, exist_ok=True, mode=0o700)
     with (folder / "process.lock").open("a") as lock:
         fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
         if args.action == "preload":
-            preload(package,args.hot,transport,args.workers,args.reuse)
-            return {"source":package.load("source"),"objects":package.db.execute("SELECT count(*) FROM objects").fetchone()[0]}
+            preload(package, args.hot, transport, args.workers, args.reuse)
+            return {
+                "source": package.load("source"),
+                "objects": package.db.execute(
+                    "SELECT count(*) FROM objects"
+                ).fetchone()[0],
+            }
         if args.action == "publish":
-            expected=json.loads(args.expected_heads.read_bytes()) if args.expected_heads else None
-            claims = publish(package, args.hot, transport, args.workers,args.reuse,expected)
+            expected = (
+                json.loads(args.expected_heads.read_bytes())
+                if args.expected_heads
+                else None
+            )
+            claims = publish(
+                package, args.hot, transport, args.workers, args.reuse, expected
+            )
             write_once(
                 folder / "published.json",
                 {
@@ -116,12 +132,17 @@ def main():
             return {"scopes": len(claims), "source": package.load("source")}
         name = "rollback" if args.action == "rollback" else "activate"
         if args.action == "abort":
+            pending = [
+                item
+                for item in ("activate", "rollback")
+                if (folder / (item + ".json")).exists()
+                and not (folder / (item + "-complete.json")).exists()
+            ]
             require(
-                (folder / "rollback.json").exists()
-                != (folder / "activate.json").exists(),
-                "Use the release-specific journal",
+                len(pending) == 1,
+                "There is no single unfinished placement change in this journal",
             )
-            name = "rollback" if (folder / "rollback.json").exists() else "activate"
+            name = pending[0]
         path = folder / (name + ".json")
         projection = None
         if path.exists():
