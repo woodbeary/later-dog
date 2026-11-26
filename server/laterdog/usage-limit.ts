@@ -3,6 +3,7 @@ import { MODEL_CREDITS } from "./account-limits.ts";
 export interface UsageLimit {
   resetsAt?: string;
   kind?: string;
+  scope?: "model";
 }
 
 type Frame = Record<string, unknown>;

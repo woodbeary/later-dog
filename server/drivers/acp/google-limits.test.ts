@@ -109,19 +109,19 @@ describe("Google exhaustion shapes", () => {
 
   it("rests an Antigravity account until the time it reports", () => {
     const weekly = googleUsageLimit(sample(ANTIGRAVITY_SAMPLES, "weekly lockout with a reset time"), "antigravity", NOW);
-    expect(weekly).toEqual({ resetsAt: new Date(NOW + 53 * HOUR + 16 * 60_000 + 34_000).toISOString(), kind: "weekly" });
+    expect(weekly).toEqual({ resetsAt: new Date(NOW + 53 * HOUR + 16 * 60_000 + 34_000).toISOString(), kind: "weekly", scope: "model" });
     const session = googleUsageLimit(sample(ANTIGRAVITY_SAMPLES, "session lockout with a reset time"), "antigravity", NOW);
-    expect(session).toEqual({ resetsAt: new Date(NOW + 4 * HOUR + 59 * 60_000).toISOString(), kind: "session" });
+    expect(session).toEqual({ resetsAt: new Date(NOW + 4 * HOUR + 59 * 60_000).toISOString(), kind: "session", scope: "model" });
   });
 
   it("leaves the rest time to the battery when Antigravity reports none", () => {
-    expect(googleUsageLimit(sample(ANTIGRAVITY_SAMPLES, "bare exhausted body"), "antigravity", NOW)).toEqual({});
+    expect(googleUsageLimit(sample(ANTIGRAVITY_SAMPLES, "bare exhausted body"), "antigravity", NOW)).toEqual({ scope: "model" });
   });
 
   it("rests a Gemini CLI account until midnight Pacific for a daily quota", () => {
     const midnight = new Date("2026-11-27T08:00:00Z").toISOString();
-    expect(googleUsageLimit(sample(GEMINI_SAMPLES, "daily quota message"), "gemini", NOW)).toEqual({ resetsAt: midnight, kind: "daily" });
-    expect(googleUsageLimit(sample(GEMINI_SAMPLES, "daily quota with structured details"), "gemini", NOW)).toEqual({ resetsAt: midnight, kind: "daily" });
+    expect(googleUsageLimit(sample(GEMINI_SAMPLES, "daily quota message"), "gemini", NOW)).toEqual({ resetsAt: midnight, kind: "daily", scope: "model" });
+    expect(googleUsageLimit(sample(GEMINI_SAMPLES, "daily quota with structured details"), "gemini", NOW)).toEqual({ resetsAt: midnight, kind: "daily", scope: "model" });
   });
 
   it("follows Pacific daylight time at the day boundary", () => {
@@ -135,7 +135,7 @@ describe("Google exhaustion shapes", () => {
   });
 
   it("rests for a retry delay past five minutes", () => {
-    expect(googleUsageLimit(sample(GEMINI_SAMPLES, "long retry delay"), "gemini", NOW)).toEqual({ resetsAt: new Date(NOW + 2 * HOUR).toISOString() });
+    expect(googleUsageLimit(sample(GEMINI_SAMPLES, "long retry delay"), "gemini", NOW)).toEqual({ resetsAt: new Date(NOW + 2 * HOUR).toISOString(), scope: "model" });
   });
 
   it("never rests an account for model capacity", () => {
@@ -148,7 +148,7 @@ describe("Google exhaustion shapes", () => {
 
   it("rests briefly for the bare wrapper Gemini CLI sends over ACP", () => {
     expect(googleUsageLimit(sample(GEMINI_SAMPLES, "ACP wrapper for any 429 after retries"), "gemini", NOW))
-      .toEqual({ resetsAt: new Date(NOW + UNREPORTED_GEMINI_REST_MS).toISOString() });
+      .toEqual({ resetsAt: new Date(NOW + UNREPORTED_GEMINI_REST_MS).toISOString(), scope: "model" });
   });
 
   it("ignores errors that are not limits", () => {
