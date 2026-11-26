@@ -322,7 +322,7 @@ export class WorkFolderReverse {
           (await this.object(h.stable, "work-folders/placement")).sha ===
             h.previous
         ) {
-          const { target, raw, ...original } = h;
+          const { target: _target, raw: _raw, ...original } = h;
           await this.save({ ...original, phase: "held" });
         }
         throw Error("Conditional reverse " + path + " was refused");
