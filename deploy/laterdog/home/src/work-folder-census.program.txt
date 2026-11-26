@@ -1,0 +1,139 @@
+import { createHash } from "node:crypto";
+import { constants } from "node:fs";
+import { lstat, open, readdir, readlink } from "node:fs/promises";
+import { once } from "node:events";
+
+const selection = JSON.parse(process.argv[1]);
+const home = process.env.LATERDOG_CENSUS_ROOT || "/data";
+const noFollow = constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK;
+const digest = data => createHash("sha256").update(data).digest("hex");
+const summary = createHash("sha256");
+const blockSize = 8 * 1024 * 1024;
+let count = 0;
+
+async function row(value) {
+  const bytes = Buffer.from(JSON.stringify(value) + "\n");
+  summary.update(bytes);
+  count++;
+  if (!process.stdout.write(bytes)) await once(process.stdout, "drain");
+}
+
+async function names(path) {
+  const entries = await readdir(path, { encoding: "buffer" });
+  return entries.sort(Buffer.compare).map(bytes => {
+    const name = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(bytes);
+    if (!name || name === "." || name === ".." || name.includes("/")) throw Error("Invalid file name");
+    return name;
+  });
+}
+
+function descriptor(handle) { return "/proc/self/fd/" + handle.fd; }
+function same(a, b) {
+  return a.dev === b.dev && a.ino === b.ino && a.size === b.size && a.mode === b.mode &&
+    a.ctimeNs === b.ctimeNs && a.mtimeNs === b.mtimeNs;
+}
+
+async function block(file, index, size) {
+  const position = index * blockSize;
+  if (!Number.isSafeInteger(position) || position < 0 || position >= size) throw Error("Invalid file block");
+  const bytes = Buffer.allocUnsafe(Math.min(blockSize, size - position));
+  let done = 0;
+  while (done < bytes.length) {
+    const read = await file.read(bytes, done, bytes.length - done, position + done);
+    if (!read.bytesRead) throw Error("File changed during census");
+    done += read.bytesRead;
+  }
+  return bytes;
+}
+
+async function scan(path, relative) {
+  const start = await lstat(path, { bigint: true });
+  const meta = { path: relative, mode: Number(start.mode & 4095n), mtimeMs: Math.floor(Number(start.mtimeNs) / 1e6) };
+  if (start.isSymbolicLink()) {
+    const target = await readlink(path);
+    if (!same(start, await lstat(path, { bigint: true }))) throw Error("Link changed during census");
+    await row({ ...meta, type: "link", target });
+    return;
+  }
+  if (!start.isDirectory() && !start.isFile()) throw Error("Unsupported entry type in selected working folder");
+  const file = await open(path, noFollow | (start.isDirectory() ? constants.O_DIRECTORY : 0));
+  try {
+    if (!same(start, await file.stat({ bigint: true }))) throw Error("Entry replaced during census");
+    if (start.isDirectory()) {
+      await row({ ...meta, type: "dir" });
+      for (const name of await names(descriptor(file))) await scan(descriptor(file) + "/" + name, relative ? relative + "/" + name : name);
+    } else {
+      const size = Number(start.size);
+      if (!Number.isSafeInteger(size)) throw Error("Invalid file size");
+      const chunks = [];
+      const contents = createHash("sha256");
+      for (let index = 0; index * blockSize < size; index++) {
+        const bytes = await block(file, index, size);
+        chunks.push(digest(bytes));
+        contents.update(bytes);
+      }
+      await row({ ...meta, type: "file", size, chunks, sha256: contents.digest("hex"),
+        ...(start.nlink > 1n ? { device: String(start.dev), inode: String(start.ino), links: Number(start.nlink) } : {}) });
+    }
+    if (!same(start, await file.stat({ bigint: true })) || !same(start, await lstat(path, { bigint: true }))) throw Error("Entry changed during census");
+  } finally { await file.close(); }
+}
+
+async function descend(directory, parts, visit) {
+  if (!parts.length) return visit(descriptor(directory), true);
+  const [name, ...rest] = parts;
+  if (!name || name === "." || name === ".." || name.includes("/") || name.includes("\0")) throw Error("Invalid selection");
+  const path = descriptor(directory) + "/" + name;
+  if (!rest.length) return visit(path, false);
+  const child = await open(path, noFollow | constants.O_DIRECTORY);
+  try { return await descend(child, rest, visit); } finally { await child.close(); }
+}
+
+const root = await open(home, noFollow | constants.O_DIRECTORY);
+try {
+  if (selection.op === "roots") {
+    await row({ visible: (await names(descriptor(root))).filter(name => !name.startsWith(".")) });
+    for (const folder of ["workspaces", "task-workspaces"]) {
+      const container = await open(descriptor(root) + "/.laterdog", noFollow | constants.O_DIRECTORY);
+      try {
+        const sub = await open(descriptor(container) + "/" + folder, noFollow | constants.O_DIRECTORY).catch(error => {
+          if (error.code !== "ENOENT") throw error;
+          return null;
+        });
+        if (!sub) continue;
+        try {
+          for (const dog of await names(descriptor(sub))) {
+            if (folder === "workspaces") await row({ dog });
+            else {
+              const owner = await open(descriptor(sub) + "/" + dog, noFollow | constants.O_DIRECTORY);
+              try { await row({ dog, tasks: await names(descriptor(owner)) }); } finally { await owner.close(); }
+            }
+          }
+        } finally { await sub.close(); }
+      } finally { await container.close(); }
+    }
+  } else {
+    const parts = selection.root.split("/");
+    if (selection.op === "piece" && selection.path) parts.push(...selection.path.split("/"));
+    await descend(root, parts, async path => {
+      if (selection.op === "scan") {
+        try { await lstat(path); } catch (error) {
+          if (error.code !== "ENOENT") throw error;
+          await row({ missingRoot: true });
+          return;
+        }
+        return scan(path, "");
+      }
+      if (selection.op !== "piece") throw Error("Unknown operation");
+      const file = await open(path, noFollow);
+      try {
+        const start = await file.stat({ bigint: true });
+        if (!start.isFile()) throw Error("Invalid file selection");
+        const bytes = await block(file, selection.index, Number(start.size));
+        if (digest(bytes) !== selection.hash || !same(start, await file.stat({ bigint: true }))) throw Error("File block changed");
+        if (!process.stdout.write(bytes)) await once(process.stdout, "drain");
+      } finally { await file.close(); }
+    });
+  }
+  if (selection.op !== "piece") process.stdout.write(JSON.stringify({ complete: true, count, sha256: summary.digest("hex") }) + "\n");
+} finally { await root.close(); }
