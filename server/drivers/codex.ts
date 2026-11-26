@@ -940,10 +940,16 @@ export const CodexDriver: ProviderDriver<CodexConfig> = {
         new Promise<any>((resolve, reject) => {
           const id = nextId++;
           if (method === "config/read") sensitiveResponseIds.add(id);
-          const timer = setTimeout(() => {
+          const began = Date.now();
+          const expire = () => {
+            if (method === "initialize" && placedChild) {
+              const remaining = Math.max(began, placedChild.preparationProgressAt) + timeoutMs - Date.now();
+              if (remaining > 0) { timer = setTimeout(expire, remaining); timer.unref(); return; }
+            }
             if (rpcPending.delete(id)) reject(new Error(`codex ${method} timed out after ${timeoutMs}ms`));
-          }, timeoutMs);
-          if (typeof timer.unref === "function") timer.unref();
+          };
+          let timer = setTimeout(expire, timeoutMs);
+          timer.unref();
           rpcPending.set(id, {
             resolve: (v) => {
               clearTimeout(timer);
