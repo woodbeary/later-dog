@@ -232,13 +232,12 @@ export class HistoryApi extends WorkerEntrypoint<HistoryEnvironment> {
     }
     if (url.pathname === "/history/status" && request.method === "GET")
       return Response.json(await dir.status());
-    if (url.pathname === "/history/threads" && request.method === "GET")
-      return Response.json(
-        await dir.list(
-          url.searchParams.get("generation") ?? "",
-          url.searchParams.get("after") ?? undefined,
-        ),
-      );
+    if (url.pathname === "/history/threads" && request.method === "GET") {
+      const raw = url.searchParams.get("limit");
+      const limit = raw === null ? 32 : Number(raw);
+      if (!Number.isInteger(limit) || limit < 1 || limit > 256) return new Response("Invalid history page size", { status: 400 });
+      return Response.json(await dir.list(url.searchParams.get("generation") ?? "", url.searchParams.get("after") ?? undefined,limit));
+    }
     if (request.method !== "POST") return new Response(null, { status: 405 });
     if (
       url.pathname === "/history/export-commands" ||
