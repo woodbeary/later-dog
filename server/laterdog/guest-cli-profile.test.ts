@@ -146,3 +146,19 @@ it("adopts the already renewed private credential after storage prevented public
   expect(count).toBe(1);
   expect(await readdir(join(dirname(source), ".laterdog-renewals"))).toEqual([]);
 });
+
+it("streams only the selected private native chat directory for each dog, account and thread", async () => {
+  const input = { instanceId: "one", enabled: true, displayName: "Fixture", config: { cli: "cursor-agent" }, environment: { HOME: home, CURSOR_API_KEY: "own-access" } };
+  const data = join(home, "data");
+  const chat = { botId: "dog", threadId: "chat", text: "continue" };
+  const profile = await guestCliProfile("cursorAgent", input, chat, data);
+  expect(profile?.roots).toEqual([{ id: "providerSessions", path: expect.stringMatching(/guest-cli-sessions[/][0-9a-f]{64}$/), writable: true, streamedTree: true }]);
+  const root = profile!.roots![0].path;
+  expect(dirname(dirname(root))).toBe(data);
+  const other = await Promise.all([
+    guestCliProfile("cursorAgent", { ...input, instanceId: "two" }, chat, data),
+    guestCliProfile("cursorAgent", input, { ...chat, botId: "other" }, data),
+    guestCliProfile("cursorAgent", input, { ...chat, threadId: "other" }, data),
+  ]);
+  expect(new Set([root, ...other.map(p => p!.roots![0].path)])).toHaveLength(4);
+});

@@ -12,6 +12,7 @@ import { antigravityProfileDirectory } from "../drivers/antigravity-acp.ts";
 import { engineCliPackage } from "./engine-placement.ts";
 import { guestCliBinary, type GuestDriverRuntime } from "./guest-cli-runtime.ts";
 import { guestCliCredentials, type GuestCliCredentials } from "./guest-cli-credentials.ts";
+import { guestGrokPolicy } from "./guest-grok-policy.ts";
 import { guestCliSessions } from "./guest-cli-sessions.ts";
 import type { GuestProviderProfile } from "./guest-provider-types.ts";
 
@@ -23,7 +24,7 @@ const descriptors = new Map<string, { driver: AnyProviderDriver; defaultCli: str
   ["antigravityAgent", { driver: AntigravityDriver, defaultCli: "agy", profile: "antigravity-acp", sessions: "sessions" }],
 ]);
 
-type PrivateProfile = { sessionPath: string; file?: string };
+type PrivateProfile = { sessionPath: string; file?: string; grokPolicy?: ReturnType<typeof guestGrokPolicy>["policy"] };
 const INTERNAL_PROFILE = "LATERDOG_GUEST_CLI_PROFILE";
 const allowedEnvironment: Record<string, string[]> = {
   cursorAgent: ["CURSOR_API_KEY", "CURSOR_AUTH_TOKEN"], geminiAgent: ["GEMINI_API_KEY", "GOOGLE_API_KEY"],
@@ -46,19 +47,20 @@ function runtimeFor(kind: string, command: string, defaultCli: string, path?: st
   return { kind: "antigravity" };
 }
 
-export async function guestCliProfile(driverKind: string, input: DriverCreateInput<unknown>, turn: SendTurnInput): Promise<GuestProviderProfile | null> {
+export async function guestCliProfile(driverKind: string, input: DriverCreateInput<unknown>, turn: SendTurnInput, dataDir?: string): Promise<GuestProviderProfile | null> {
   const descriptor = descriptors.get(driverKind);
   if (!descriptor) return null;
   const config = descriptor.driver.decodeConfig(input.config) as { cli: string; fullAuto: boolean };
-  const runtime = runtimeFor(driverKind, config.cli, descriptor.defaultCli, input.environment.PATH ?? process.env.PATH);
-  const credentials = await guestCliCredentials(driverKind, input.instanceId, input.environment, Date.now(), driverKind === "grokAgent" ? config.cli : undefined);
-  const sessionPath = await guestCliSessions(driverKind, input.instanceId, input.environment, turn);
+  const grok = driverKind === "grokAgent" ? guestGrokPolicy(config.cli, input.environment, turn.cwd) : undefined;
+  const runtime = runtimeFor(driverKind, grok?.binary ?? config.cli, descriptor.defaultCli, input.environment.PATH ?? process.env.PATH);
+  const credentials = await guestCliCredentials(driverKind, input.instanceId, input.environment, Date.now(), grok?.binary);
+  const sessionPath = await guestCliSessions(driverKind, input.instanceId, input.environment, turn, dataDir);
   const access = accessFile[driverKind];
-  const privateProfile: PrivateProfile = { sessionPath, ...(access && credentials.files[access.key] ? { file: credentials.files[access.key] } : {}) };
+  const privateProfile: PrivateProfile = { sessionPath, ...(grok?.policy ? { grokPolicy: grok.policy } : {}), ...(access && credentials.files[access.key] ? { file: credentials.files[access.key] } : {}) };
   const environment = { ...credentials.environment, [INTERNAL_PROFILE]: JSON.stringify(privateProfile) };
   return {
     input: { instanceId: input.instanceId, displayName: input.displayName, enabled: input.enabled, config: { cli: guestCliBinary(runtime), fullAuto: config.fullAuto }, environment },
-    runtime, roots: [{ id: "providerSessions", path: sessionPath, writable: true }],
+    runtime, roots: [{ id: "providerSessions", path: sessionPath, writable: true, streamedTree: true }],
     ...(driverKind === "antigravityAgent" ? { env: { LATERDOG_HOME: "/dev/shm/laterdog-acp-" + randomUUID() } } : {}),
   };
 }
@@ -94,7 +96,13 @@ export function guestCliDriver(driverKind: string): AnyProviderDriver | null {
         for (const key of allowedEnvironment[driverKind] ?? []) if (input.environment[key]) environment[key] = input.environment[key]!;
         if (driverKind === "grokAgent") environment.GROK_HOME = directory;
         if (driverKind === "cursorAgent") environment.CURSOR_CONFIG_DIR = directory;
-        const native = await driver.create({ ...input, environment });
+        const config = driver.decodeConfig(input.config) as { cli: string; fullAuto: boolean; nativeAgentProfile?: string };
+        if (driverKind === "grokAgent" && profile.grokPolicy) {
+          const path = join(directory, "selected-agent.md");
+          await writeFile(path, "---\n" + JSON.stringify(profile.grokPolicy) + "\n---\n", { mode: 0o600, flag: "wx" });
+          config.nativeAgentProfile = path;
+        }
+        const native = await driver.create({ ...input, config, environment });
         return { ...native, get models() { return native.models; }, async dispose() { try { await native.dispose(); } finally { dispose(); } } };
       } catch (error) { dispose(); throw error; }
     },
