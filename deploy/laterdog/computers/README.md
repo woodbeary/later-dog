@@ -297,6 +297,24 @@ undone:
 The dogs' tools do not depend on any of it: `exec` runs `bash -lc` as `dog` and talks to the X server directly (`xdotool`,
 `scrot`, `xclip`), and the readiness and screenshot commands need only the panel, the desktop and Xvfb.
 
+## The task image
+
+`node scripts/task-image.mjs --to registry.cloudflare.com/<account>/<repository>:<tag>` builds the image short-lived
+task machines start from: the desktop image this Worker pins plus one appended layer holding the engine CLIs at
+`/home/dog/.laterdog-engine/cli/<engine>-<version>`, the paths the machine's prepare step checks, so a turn skips the
+install. The versions are the home image's `CLOUD_HOME_ENGINES` pin, read from the root `Dockerfile` or, with
+`--home-image <ref>`, from a built home image's history. It needs no Docker: pnpm installs the Linux x64 glibc packages
+into a staging folder, `tar` writes the layer owned by `dog`, and `crane append` pushes it (sign in first with
+`wrangler containers registries credentials registry.cloudflare.com --push --pull --json`). `--engines
+claude-code,codex,antigravity` adds the pinned Antigravity release; `--gemini <version>` adds Gemini CLI; `--measure`
+counts the unpacked bytes of every layer.
+
+Measured on Nov 26, 2026 (Claude Code 2.1.316 and Codex 0.163.0): the layer is 758 MB unpacked, 310 MB compressed; with
+the 1.42 GB desktop image the root filesystem is 2.18 GB. A `small` (standard-1) computer from it was running in 15.9 s
+with 6.1 GB of 7.5 GB free; `xlarge` (standard-4) in 13.2 s with 18 GB of 19 GB free. Both CLIs answered `--version`
+and their first run without a sign-in. Antigravity 1.1.1 would add 2.0 GB unpacked, about 3.8 GB left on standard-1
+by the same count.
+
 ## What survives sleep and wake
 
 Sleep takes a snapshot of the disk, not of memory; wake starts the container from it, so the desktop starts fresh.
