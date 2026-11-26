@@ -27,20 +27,37 @@ export async function putReceipt(
       : new Uint8Array(await new Response(body).arrayBuffer());
   if (hex(await sha256(data)) !== sha)
     throw Error("History receipt checksum mismatch");
-  const reserved = await bucket.put(path, crypto.getRandomValues(new Uint8Array(32)), {
-    onlyIf: { etagDoesNotMatch: "*" },
-    customMetadata: { historyReceipt: "reservation" },
-  });
-  const guard = reserved ?? await bucket.head(path);
-  const matches = (object: R2Object | null) => object?.size === data.length && !!object.checksums.sha256 && hex(new Uint8Array(object.checksums.sha256)) === sha;
+  return putReceiptObject(bucket,path,sha,data);
+}
+export async function putReceiptObject(
+  bucket: R2Bucket,
+  path: string,
+  sha: string,
+  data: Uint8Array,
+) {
+  const reserved = await bucket.put(
+    path,
+    crypto.getRandomValues(new Uint8Array(32)),
+    {
+      onlyIf: { etagDoesNotMatch: "*" },
+      customMetadata: { historyReceipt: "reservation" },
+    },
+  );
+  const guard = reserved ?? (await bucket.head(path));
+  const matches = (object: R2Object | null) =>
+    object?.size === data.length &&
+    !!object.checksums.sha256 &&
+    hex(new Uint8Array(object.checksums.sha256)) === sha;
   if (!matches(guard)) {
-    if (!guard || guard.customMetadata?.historyReceipt !== "reservation") throw Error("Existing history receipt differs");
+    if (!guard || guard.customMetadata?.historyReceipt !== "reservation")
+      throw Error("Existing history receipt differs");
     const object = await bucket.put(path, data, {
       sha256: sha,
       onlyIf: { etagMatches: guard.etag },
       httpMetadata: { contentType: "application/octet-stream" },
     });
-    if (!object && !matches(await bucket.head(path))) throw Error("History receipt upload was fenced");
+    if (!object && !matches(await bucket.head(path)))
+      throw Error("History receipt upload was fenced");
   }
   return { sha256: sha, bytes: data.length };
 }
@@ -63,6 +80,7 @@ export async function receiptBatch(
   bucket: R2Bucket,
   stable: string,
   req: ReceiptBatch,
+  packed?: (member:string,inline:number)=>Promise<{sha256:string,bytes:number,value?:string}|null>,
 ) {
   if (
     !["get", "put"].includes(req.op) ||
@@ -77,6 +95,11 @@ export async function receiptBatch(
     const part = await Promise.allSettled(
       req.items.slice(i, i + 8).map(async (item) => {
         if (req.op === "get") {
+          const cached = packed && await packed(item.sha256,384*1024-returnedBytes);
+          if (cached) {
+            if (cached.value!==undefined && returnedBytes+cached.bytes<=384*1024) { returnedBytes+=cached.bytes;return cached; }
+            return {sha256:cached.sha256,bytes:cached.bytes};
+          }
           const object = await bucket.get(
             key(stable, req.generation, item.sha256),
           );

@@ -1,3 +1,4 @@
+import { HistoryReceiptPacks, type ReceiptPack } from "./history-receipt-packs.ts";
 import { HistoryErasure } from "./history-erasure.ts";
 import { getReceipt, putReceipt, receiptBatch, type ReceiptBatch } from "./history-receipts.ts";
 import type { HistoryShard } from "./history-shard.ts";
@@ -35,9 +36,13 @@ type ThreadRow = {
 
 type Environment = { RECEIPTS: R2Bucket; THREADS: DurableObjectNamespace<HistoryShard> };
 export class HistoryDirectory extends DurableObject<Environment> {
+  private readonly packs: HistoryReceiptPacks;
   private readonly erasure: HistoryErasure;
   private readonly recoveryIndex: HistoryRecovery;
-  private get recovery() { this.erasure.assertServing(); return this.recoveryIndex; }
+  private get recovery() {
+    this.erasure.assertServing();
+    return this.recoveryIndex;
+  }
   private readonly restoreJournal: RestoreJournal;
   private get restores() {
     this.erasure.assertServing();
@@ -50,6 +55,7 @@ export class HistoryDirectory extends DurableObject<Environment> {
   constructor(ctx: DurableObjectState, env: Environment) {
     super(ctx, env);
     this.erasure = new HistoryErasure(ctx.storage);
+    this.packs = new HistoryReceiptPacks(ctx.storage, env.RECEIPTS);
     const sql = ctx.storage.sql;
     sql.exec(
       "CREATE TABLE IF NOT EXISTS placement (singleton INTEGER PRIMARY KEY,mode TEXT NOT NULL,generation TEXT,revision INTEGER NOT NULL)",
@@ -78,8 +84,14 @@ export class HistoryDirectory extends DurableObject<Environment> {
   }
   eraseHome(stable: string, token: string) {
     this.checkTenant(stable);
-    return this.erasure.batch(stable, token, this.env.RECEIPTS, ({ generation, thread }) =>
-      this.env.THREADS.getByName(shardName(stable, generation, thread)).eraseHome(),
+    return this.erasure.batch(
+      stable,
+      token,
+      this.env.RECEIPTS,
+      ({ generation, thread }) =>
+        this.env.THREADS.getByName(
+          shardName(stable, generation, thread),
+        ).eraseHome(),
     );
   }
   reopenHome(stable: string, token: string) {
@@ -88,7 +100,8 @@ export class HistoryDirectory extends DurableObject<Environment> {
   }
   private checkTenant(stable: string) {
     requireTenant(stable);
-    if (this.ctx.id.name !== stable) throw Error("History directory identity changed");
+    if (this.ctx.id.name !== stable)
+      throw Error("History directory identity changed");
   }
   private checkReceipt(stable: string, generation: string, admin: boolean) {
     this.checkTenant(stable);
@@ -96,9 +109,34 @@ export class HistoryDirectory extends DurableObject<Environment> {
     if (state.generation !== generation || (!admin && state.mode !== "remote"))
       throw Error("History receipt generation changed");
   }
-  async readReceipt(stable: string, generation: string, hash: string, admin: boolean) {
+  putReceiptPack(
+    stable: string,
+    generation: string,
+    pack: ReceiptPack,
+    body: ReadableStream<Uint8Array>,
+  ) {
+    const check = () => {
+      this.checkReceipt(stable, generation, true);
+      if (this.status().mode !== "dual")
+        throw Error("History receipt pack import is closed");
+    };
+    check();
+    return this.erasure.admitReceipt(() =>
+      this.packs.publish(stable, generation, pack, body, check),
+    );
+  }
+  async readReceipt(
+    stable: string,
+    generation: string,
+    hash: string,
+    admin: boolean,
+  ) {
     this.checkReceipt(stable, generation, admin);
-    const reader = (await getReceipt(this.env.RECEIPTS, stable, generation, hash)).getReader();
+    const body =
+      (await this.packs.read(stable, generation, hash)) ??
+      (await getReceipt(this.env.RECEIPTS, stable, generation, hash));
+    this.checkReceipt(stable, generation, admin);
+    const reader = body.getReader();
     const permitted = () => this.checkReceipt(stable, generation, admin);
     return new ReadableStream<Uint8Array>({
       async pull(controller) {
@@ -133,7 +171,12 @@ export class HistoryDirectory extends DurableObject<Environment> {
   receipts(stable: string, batch: ReceiptBatch, admin: boolean) {
     return this.erasure.admitReceipt(async () => {
       this.checkReceipt(stable, batch.generation, admin);
-      const result = await receiptBatch(this.env.RECEIPTS, stable, batch);
+      const result = await receiptBatch(
+        this.env.RECEIPTS,
+        stable,
+        batch,
+        this.packs.batch(stable, batch.generation),
+      );
       this.checkReceipt(stable, batch.generation, admin);
       return result;
     });
@@ -145,14 +188,30 @@ export class HistoryDirectory extends DurableObject<Environment> {
       )
       .one();
   }
-  private reserveEventSequence(generation: string, sequence?: string, finalized = false) {
+  private reserveEventSequence(
+    generation: string,
+    sequence?: string,
+    finalized = false,
+  ) {
     if (sequence === undefined) return;
-    if (typeof sequence !== "string" || !/^(0|[1-9][0-9]{0,18})$/.test(sequence) || BigInt(sequence) >= 2n ** 63n)
+    if (
+      typeof sequence !== "string" ||
+      !/^(0|[1-9][0-9]{0,18})$/.test(sequence) ||
+      BigInt(sequence) >= 2n ** 63n
+    )
       throw Error("Invalid native history event sequence");
-    if (finalized && BigInt(sequence) >= BigInt(this.restores.range(generation))) throw Error("The restore event range is already sealed");
+    if (
+      finalized &&
+      BigInt(sequence) >= BigInt(this.restores.range(generation))
+    )
+      throw Error("The restore event range is already sealed");
     this.restores.reserve(generation, sequence);
   }
-  begin(generation: string, expectedRevision: number,eventSequence?:string): Placement {
+  begin(
+    generation: string,
+    expectedRevision: number,
+    eventSequence?: string,
+  ): Placement {
     requireGeneration(generation);
     this.erasure.allowGeneration(generation);
     return this.ctx.storage.transactionSync(() => {
@@ -161,10 +220,13 @@ export class HistoryDirectory extends DurableObject<Environment> {
         p.mode === "dual" &&
         p.generation === generation &&
         p.revision === expectedRevision + 1
-      ) { this.reserveEventSequence(generation,eventSequence); return p; }
+      ) {
+        this.reserveEventSequence(generation, eventSequence);
+        return p;
+      }
       if (p.mode !== "legacy" || p.revision !== expectedRevision)
         throw Error("History placement changed before preparation");
-      this.reserveEventSequence(generation,eventSequence);
+      this.reserveEventSequence(generation, eventSequence);
       this.sql.exec("INSERT INTO generations(name) VALUES(?)", generation);
       this.sql.exec(
         "UPDATE placement SET mode='dual',generation=?,revision=revision+1 WHERE singleton=1",
@@ -475,15 +537,28 @@ export class HistoryDirectory extends DurableObject<Environment> {
   restoreStatus(key: RestoreKey) {
     return this.restores.get(key);
   }
-  restoreBegin(key: RestoreKey, expectedRevision: number,eventSequence?:string) {
+  restoreBegin(
+    key: RestoreKey,
+    expectedRevision: number,
+    eventSequence?: string,
+  ) {
     return this.ctx.storage.transactionSync(() => {
       const old = this.restores.get(key);
       if (!old) {
         const p = this.status();
-        if(p.mode!=="remote" || p.generation!==key.generation || p.revision!==expectedRevision) throw Error("History changed before restore");
+        if (
+          p.mode !== "remote" ||
+          p.generation !== key.generation ||
+          p.revision !== expectedRevision
+        )
+          throw Error("History changed before restore");
       }
-      const job = this.restores.begin(key,expectedRevision);
-      this.reserveEventSequence(job.physicalGeneration,eventSequence,job.status!=="preparing");
+      const job = this.restores.begin(key, expectedRevision);
+      this.reserveEventSequence(
+        job.physicalGeneration,
+        eventSequence,
+        job.status !== "preparing",
+      );
       return job;
     });
   }

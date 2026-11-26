@@ -1,5 +1,5 @@
 import { acceptedCommands } from "./accepted.mjs";
-import { transferReceipts } from "./receipts.mjs";
+import { transferReceipts, transferPackedReceipts } from "./receipts.mjs";
 import { randomUUID } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -157,7 +157,7 @@ export async function publishCatalog(
   directory,
   catalogSha256,
   journal,
-  { stable, generation, expectedRevision, concurrency = 4 },
+  { stable, generation, expectedRevision, concurrency = 4, packedReceipts = false },
 ) {
   const source = readCatalog(directory, catalogSha256);
   const identity = { stable, generation, expectedRevision };
@@ -170,7 +170,7 @@ export async function publishCatalog(
       : { eventSequence: source.eventSequence }),
   });
   assert(started.generation === generation, "Unexpected migration generation");
-  const receipts = await transferReceipts(
+  const receipts = await (packedReceipts ? transferPackedReceipts : transferReceipts)(
     api,
     directory,
     source.receipts,

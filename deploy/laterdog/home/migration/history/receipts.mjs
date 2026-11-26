@@ -240,6 +240,112 @@ export async function transferReceipts(
   };
 }
 
+export async function transferPackedReceipts(
+  api,
+  directory,
+  catalog,
+  journal,
+  identity,
+  parallel = 4,
+) {
+  const witnessDir = join(
+    journal,
+    "receipts",
+    digest(JSON.stringify(identity)),
+  );
+  function* groups() {
+    let group = [],
+      size = 0,
+      count = 0;
+    for (const block of catalog.blocks) {
+      const witness = { ...identity, block },
+        path = join(witnessDir, block);
+      if (existsSync(path)) {
+        assert(
+          isDeepStrictEqual(JSON.parse(readFileSync(path)), witness),
+          "Invalid receipt verification journal",
+        );
+        continue;
+      }
+      const items = readBlock(directory, block),
+        bytes = items.reduce((n, item) => n + utf8(item.value), 0);
+      if (
+        group.length &&
+        (size + bytes > 2 * 1024 * 1024 || count + items.length > 1024)
+      ) {
+        yield group;
+        group = [];
+        size = 0;
+        count = 0;
+      }
+      group.push({ block, items, bytes });
+      size += bytes;
+      count += items.length;
+    }
+    if (group.length) yield group;
+  }
+  const queue = groups();
+  let problem;
+  const run = async () => {
+    while (!problem) {
+      const job = queue.next();
+      if (job.done) return;
+      try {
+        const group = job.value,
+          all = group.flatMap((block) => block.items);
+        if (all.length === 1 && utf8(all[0].value) > 2 * 1024 * 1024) {
+          await transferReceipts(
+            api,
+            directory,
+            { ...catalog, blocks: [group[0].block] },
+            journal,
+            identity,
+            1,
+          );
+          continue;
+        }
+        const bytes = Buffer.concat(all.map((item) => Buffer.from(item.value)));
+        const meta = {
+          sha256: digest(bytes),
+          items: all.map((item) => ({
+            sha256: item.sha256,
+            bytes: utf8(item.value),
+          })),
+        };
+        const ack = await api.putReceiptPack(meta, new Blob([bytes]).stream());
+        assert(
+          ack.sha256 === meta.sha256 &&
+            ack.bytes === bytes.length &&
+            ack.count === all.length,
+          "Incomplete history receipt pack import",
+        );
+        for (let n = 0; n < group.length; n += 4) {
+          await Promise.all(
+            group.slice(n, n + 4).map(async ({ block, items }) => {
+              await getReceiptValues(
+                api,
+                items.map((item) => item.sha256),
+              );
+              saveJson(join(witnessDir, block), { ...identity, block });
+            }),
+          );
+        }
+      } catch (error) {
+        problem = error;
+      }
+    }
+  };
+  await Promise.all(
+    Array.from({ length: Math.min(Math.max(1, parallel), 8) }, run),
+  );
+  if (problem) throw problem;
+  return {
+    distinct: catalog.distinct,
+    bytes: catalog.bytes,
+    blocks: catalog.blocks.length,
+  };
+}
+
 export async function expandReceipts(db, generation, api) {
   assert(
     receiptGeneration(db) === generation,

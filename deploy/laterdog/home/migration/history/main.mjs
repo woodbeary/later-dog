@@ -1,7 +1,8 @@
 import { readFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { getPlatformProxy } from "wrangler";
-import { capture, hex } from "./package.mjs";
+import { capture, hex, readCatalog } from "./package.mjs";
+import { transferPackedReceipts } from "./receipts.mjs";
 import { compact, reconstruct } from "./projection.mjs";
 import { exportFrozen, publishCatalog } from "./transfer.mjs";
 
@@ -37,6 +38,7 @@ async function remote() {
   const api = {
     admin: (q) => admin.admin(cfg.stable, args(q)),
     receiptBatch: (q) => admin.receiptBatch(cfg.stable, cfg.generation, q),
+    putReceiptPack: (meta, body) => admin.putReceiptPack(cfg.stable,cfg.generation,meta,body),
     getReceipt: (sha) => admin.getReceipt(cfg.stable, cfg.generation, sha),
     putReceipt: (sha, body) =>
       admin.putReceipt(cfg.stable, cfg.generation, sha, body),
@@ -66,7 +68,7 @@ else if (action === "compact")
     cfg.generation,
   );
 else if (
-  ["status", "reconstruct", "import", "export-frozen"].includes(action)
+  ["status", "reconstruct", "import", "export-frozen", "pack-receipts"].includes(action)
 ) {
   const { api, close } = await remote();
   try {
@@ -77,6 +79,18 @@ else if (
         revision: await placement.revision,
         generation: await placement.generation,
       };
+    } else if (action === "pack-receipts") {
+      const source = readCatalog(data, cfg.catalog);
+      const placement = await api.admin({ op: "status" });
+      if (
+        (await placement.mode) !== "dual" ||
+        (await placement.generation) !== cfg.generation ||
+        (await placement.revision) !== cfg.expectedRevision + 1
+      ) throw Error("History preparation changed before packed receipt upload");
+      const identity = {stable: cfg.stable, generation: cfg.generation, expectedRevision: cfg.expectedRevision};
+      const target = JSON.parse(await readFile(resolve(local("journal"),"target.json")));
+      if (target.stable !== identity.stable || target.generation !== identity.generation || target.expectedRevision !== identity.expectedRevision) throw Error("Packed receipt journal belongs to a different target");
+      receipt = await transferPackedReceipts(api,data,source.receipts,local("journal"),identity,cfg.concurrency ?? 4);
     } else if (action === "reconstruct")
       receipt = await reconstruct(
         local("source"),
@@ -100,6 +114,6 @@ else if (
   }
 } else
   throw Error(
-    "Expected capture, compact, import, export-frozen or reconstruct",
+    "Expected capture, compact, import, export-frozen, pack-receipts or reconstruct",
   );
 console.log(JSON.stringify(receipt));

@@ -1,3 +1,4 @@
+import type { ReceiptPack } from "./history-receipt-packs.ts";
 import type { ReceiptBatch } from "./history-receipts.ts";
 import { WorkerEntrypoint } from "cloudflare:workers";
 import {
@@ -421,6 +422,19 @@ type Admin =
   | ((PageCommand | ImportCommand) & { generation: string; threadId: string });
 
 export class HistoryMigrationApi extends WorkerEntrypoint<HistoryEnvironment> {
+  putReceiptPack(
+    stable: string,
+    generation: string,
+    pack: ReceiptPack,
+    body: ReadableStream<Uint8Array>,
+  ) {
+    return directory(this.env, stable).putReceiptPack(
+      stable,
+      generation,
+      pack,
+      body,
+    );
+  }
   async getReceipt(stable: string, generation: string, sha: string) {
     return directory(this.env, stable).readReceipt(
       stable,
