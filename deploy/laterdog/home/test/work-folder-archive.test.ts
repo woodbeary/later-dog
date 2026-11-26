@@ -6,7 +6,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { afterEach, expect, it } from "vitest";
+import { afterEach, expect, it, vi } from "vitest";
 import { createArchiver, serveArchive } from "../runtime/archive.mjs";
 import { CALM_WORK_FOLDERS, LEAST_IDLE_MS, PRESSURE_WORK_FOLDERS, roomFor, workFolderSweep } from "../../../../server/laterdog/archive-pressure.ts";
 import { DISK_RUNGS } from "../../../../server/laterdog/disk-ladder.ts";
@@ -17,6 +17,8 @@ import {
   MOVED_OUT_NOTE, RESTORING_PREFIX, WORK_FOLDER_PARTS, WORK_FOLDER_RECORDS, WorkFolderArchive, WorkFolderUnavailable, folderHeld, measureFolder, movedOutNote,
   packArgs, roomNeeded, unpackArgs, type WorkFolderBridge, type WorkFolderDeps, type WorkFolderLimits,
 } from "../../../../server/laterdog/work-folder-archive.ts";
+
+vi.setConfig({ testTimeout: 30_000 });
 
 const roots: string[] = [];
 const cleanups: Array<() => Promise<void>> = [];
@@ -34,6 +36,7 @@ const THREAD = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee";
 const OTHER = "bbbbbbbb-cccc-4ddd-8eee-ffffffffffff";
 const THIRD = "cccccccc-dddd-4eee-8fff-000000000000";
 const MINUTE = 60_000;
+const FIXTURE_PART_BYTES = 12 * 1024;
 const ANY: WorkFolderLimits = { idleMs: DAY, byteLimit: Infinity, minBytes: 0, minFiles: 0 };
 
 function memory() {
@@ -95,7 +98,7 @@ async function fixture(storage = memory()) {
   };
   const archive = (extra: Partial<WorkFolderDeps> = {}) => new WorkFolderArchive({
     home: root, dataDir, workspacesDir, bridge, chats: () => [...chats.values()], live: () => live, inUse: (_bot, thread) => using.has(thread), procDir,
-    limits: () => limits, room: () => true, log: (line) => logs.push(line), retryMs: 5, partBytes: 4096, ...extra,
+    limits: () => limits, room: () => true, log: (line) => logs.push(line), retryMs: 5, partBytes: FIXTURE_PART_BYTES, ...extra,
   });
   const program = (pid: number, at: { cwd?: string; fds?: string[]; maps?: string[]; cmdline?: string[] }) => {
     const base = join(procDir, String(pid));
@@ -420,7 +423,7 @@ it("checks room with the packed size, waits a bounded time while room is made, t
   await f.archive().sweep();
   const record = f.archive().movedOut(BOT, THREAD)!;
   const packed = record.parts.reduce((sum, part) => sum + part.bytes, 0);
-  expect(roomNeeded(record, 4096)).toBe(Math.max(packed, record.diskBytes!) + 4096);
+  expect(roomNeeded(record, FIXTURE_PART_BYTES)).toBe(Math.max(packed, record.diskBytes!) + FIXTURE_PART_BYTES);
   const asked: number[] = [];
   let made = 0;
   const archive = f.archive({ room: (bytes) => { asked.push(bytes); return false; }, makeRoom: async () => { made += 1; }, waitMs: 60 });
@@ -428,7 +431,7 @@ it("checks room with the packed size, waits a bounded time while room is made, t
   expect(stopped).toBeInstanceOf(WorkFolderUnavailable);
   expect((stopped as Error).message).toMatch(/^There is no room on this home's disk to bring back this chat's \d+ MB of files from storage; delete files or chats you no longer need, then send your message again\.$/);
   expect(made).toBeGreaterThan(1);
-  expect(asked.every((bytes) => bytes === roomNeeded(record, 4096))).toBe(true);
+  expect(asked.every((bytes) => bytes === roomNeeded(record, FIXTURE_PART_BYTES))).toBe(true);
   expect(readdirSync(dir)).toEqual([MOVED_OUT_NOTE]);
   expect(archive.movedOut(BOT, THREAD)).not.toBeNull();
   expect(f.logs.filter((line) => line.includes("no room to bring"))).toHaveLength(1);

@@ -126,7 +126,7 @@ export function folderHeld(dir: string, procDir = "/proc"): boolean {
     try { fds = readdirSync(join(base, "fd")); } catch {}
     if (fds.some((fd) => inside(link(join(base, "fd", fd))))) return true;
     try {
-      if (readFileSync(join(base, "cmdline"), "utf8").split("\0").some(inside)) return true;
+      if (readFileSync(join(base, "cmdline"), "utf8").split("\0").some(arg => inside(arg) || arg.includes(dir))) return true;
     } catch {}
     try {
       if (readFileSync(join(base, "maps"), "utf8").split("\n").some((line) => inside(MAPPED.exec(line)?.[1] ?? ""))) return true;
