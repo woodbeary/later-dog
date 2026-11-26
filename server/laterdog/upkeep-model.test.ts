@@ -31,6 +31,6 @@ it("keeps the dog's own model on a company-managed account or a custom endpoint"
 
 it("is the model memory upkeep writes with, and the summary on a move keeps the chat's own", () => {
   const source = readFileSync(new URL("../index.ts", import.meta.url), "utf8");
-  expect(source).toMatch(/memoryUpkeep = createMemoryUpkeep\([\s\S]{0,600}dogWriter\(instance, memoryWriterModel\(instance\.driverKind, bot\.modelSelection\.model,[\s\S]{0,300}managed[\s\S]{0,100}decodeInjectId/);
-  expect(source).toMatch(/write: reportingUsage\(dogWriter\(instance, model\)/);
+  expect(source).toMatch(/memoryUpkeep = createMemoryUpkeep\([\s\S]{0,600}dogWriter\(instance, memoryWriterModel\(instance\.driverKind, bot\.modelSelection\.model,[\s\S]{0,300}managed[\s\S]{0,100}decodeInjectId\(bot\.modelSelection\.model\) !== null \}\), bot\.id\)/);
+  expect(source).toMatch(/write: reportingUsage\(dogWriter\(instance, model, bot\.id\)/);
 });
