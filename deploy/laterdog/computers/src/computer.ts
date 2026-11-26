@@ -1,4 +1,5 @@
 
+import { DETACHED_JOB_PROBE } from "./detached-jobs";
 import { DurableObject } from "cloudflare:workers";
 import type { Refusal } from "./auth";
 import { DESKTOP_LINK_TTL_SECONDS, signDesktopToken, verifyDesktopToken } from "./desktop-token";
@@ -35,6 +36,7 @@ import { messagePage, newNonce, pageHeaders, viewerPage } from "./viewer";
 export type State = "starting" | "running" | "sleeping" | "stopping" | "error";
 
 export interface ComputerView {
+  durableJobs?: true;
   id: string;
   name: string;
   size: Size;
@@ -150,12 +152,17 @@ const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 const describeError = (error: unknown) => (error instanceof Error ? error.message : String(error));
 const iso = (ms: number) => new Date(ms).toISOString();
 
+function hasDurableJobs(record: ComputerRecord): boolean {
+  return !record.trial || record.fullAllowance === true;
+}
+
 function view(record: ComputerRecord): ComputerView {
   return {
     id: record.id,
     name: record.name,
     size: record.size,
     state: record.state,
+    ...(hasDurableJobs(record) ? { durableJobs: true } : {}),
     desktopAvailable: record.state === "running" && record.desktopDrawn !== false,
     createdAt: iso(record.createdAt),
     lastActiveAt: iso(record.lastActiveAt),
@@ -928,12 +935,28 @@ export class DogComputer extends DurableObject<Env> {
       await this.ctx.storage.setAlarm(decision.checkAt);
       return;
     }
+    const budgetEndsAt = record.budgetEndsAt ?? Infinity;
+    if (decision.reason !== "budget" && hasDurableJobs(record) && Date.now() < budgetEndsAt && await this.hasDetachedJob()) {
+      await this.ctx.storage.setAlarm(Math.min(Date.now() + MINUTE, budgetEndsAt));
+      return;
+    }
     console.log(`laterdog computers: ${record.id} is going to sleep (${decision.reason})`);
     const slept = await this.sleep(decision.reason);
     if (slept.ok) return;
     const overdue = decision.reason === "budget" && Date.now() - (record.budgetEndsAt ?? Date.now()) >= BUDGET_GRACE_MS;
     if (overdue) await this.stopUnsaved("This free trial ran out of minutes and the computer could not be saved, so it was stopped.");
     else await this.ctx.storage.setAlarm(Date.now() + 5 * MINUTE);
+  }
+
+  private async hasDetachedJob(): Promise<boolean> {
+    try {
+      const result = await this.run(["python3", "-c", DETACHED_JOB_PROBE], { user: DOG, cwd: DOG_HOME, timeoutMs: 10_000, cap: 64 });
+      if (result.exitCode === 0) return outputText(result.stdout).trim() === "running";
+      throw new Error(`exit ${result.exitCode}`);
+    } catch (error) {
+      console.warn(`laterdog computers: will recheck detached jobs before sleeping: ${describeError(error)}`);
+      return true;
+    }
   }
 
   private idleDecision(record: ComputerRecord) {

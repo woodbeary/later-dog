@@ -1,3 +1,4 @@
+import { DETACHED_JOB_PROBE } from "../src/detached-jobs";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { sha256Hex } from "../src/auth";
 import { MINUTE } from "../src/idle";
@@ -387,12 +388,49 @@ describe("free trials, end to end", () => {
     expect(await shown(await startTrial(w, trialKey("b")))).toEqual({ status: 429, title: "Too many tries", message: "Wait a minute, then try again." });
   });
 
+  it("keeps an entitled detached command past eight hours and saves the idle computer after it exits", async () => {
+    const w = await world();
+    const id = await createdId(w, OWNER_KEY);
+    const container = w.containers.get(id)!;
+    let running = true;
+    container.reply = (cmd) => cmd.includes(DETACHED_JOB_PROBE) ? { stdout: running ? "running" : "" } : undefined;
+    await w.advance(9 * HOUR);
+    expect(await inspect(w, OWNER_KEY, id)).toMatchObject({ state: "running", durableJobs: true });
+    expect(container.snapshots).toBe(0);
+    running = false;
+    await w.advance(MINUTE);
+    expect(await inspect(w, OWNER_KEY, id)).toMatchObject({ state: "sleeping" });
+    expect(container.snapshots).toBe(1);
+  });
+
+  it("honors explicit sleep and real budget while a detached command is running", async () => {
+    const w = await world();
+    const owner = await createdId(w, OWNER_KEY);
+    w.containers.get(owner)!.reply = (cmd) => cmd.includes(DETACHED_JOB_PROBE) ? { stdout: "running" } : undefined;
+    await w.advance(20 * MINUTE);
+    expect((await w.fetch(apiRequest("POST", `/v1/computers/${owner}/sleep`, OWNER_KEY))).status).toBe(200);
+    expect(await inspect(w, OWNER_KEY, owner)).toMatchObject({ state: "sleeping" });
+    siteverify();
+    const key = trialKey("a");
+    await startTrial(w, key);
+    const holder = await w.trials.named("trials").holder(await sha256Hex(key));
+    const computer = await w.computers.named("cmp_aaaaabbbbbcc").init({ id: "cmp_aaaaabbbbbcc", name: "Included", size: "standard", trial: holder!.trial.id, fullAllowance: true });
+    expect(computer.ok && computer.value.durableJobs).toBe(true);
+    const included = w.computers.named("cmp_aaaaabbbbbcc");
+    w.containers.get("cmp_aaaaabbbbbcc")!.reply = (cmd) => cmd.includes(DETACHED_JOB_PROBE) ? { stdout: "running" } : undefined;
+    await w.advance(31 * MINUTE);
+    const status = await included.describe();
+    expect(status.ok && status.value.state).toBe("sleeping");
+    expect(w.logs).toHaveBeenCalledWith("laterdog computers: cmp_aaaaabbbbbcc is going to sleep (budget)");
+  });
+
   it("puts a trial computer to sleep when the trial's minutes run out", async () => {
     const w = await world({ TRIAL_IDLE_SLEEP_MINUTES: "60" });
     siteverify();
     const key = trialKey("a");
     await startTrial(w, key);
     const id = await createdId(w, key);
+    expect((await inspect(w, key, id)).durableJobs).toBeUndefined();
     const fired = firings(w, w.computers.slots.get(id)!);
 
     await w.advance(10 * MINUTE);
