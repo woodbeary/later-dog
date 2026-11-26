@@ -121,6 +121,11 @@ async function sendFile(file: EngineFile, before = baseline.get(engineFileKey(fi
   }
 }
 
+function afterCheckpoint(work: () => Promise<void>): Promise<void> {
+  const run = checkpointWork.then(work);
+  checkpointWork = run.catch(() => {});
+  return run;
+}
 function checkpoint(): Promise<void> {
   const run = checkpointWork.then(async () => {
     await syncWorkFolders("checkpoint");
@@ -282,8 +287,11 @@ async function launch(frame: any): Promise<void> {
     stdoutWork = stdoutWork.then(async () => {
       let event: any;
       try { event = JSON.parse(line); } catch {}
-      if (event?.type === "result" || event?.method === "turn/completed" || (workFolders.length && event?.event?.type === "turn.completed")) await checkpoint();
+      const turnEnded = event?.type === "result" || event?.method === "turn/completed" || (workFolders.length && event?.event?.type === "turn.completed");
+      const savesAfterReply = workFolders.length > 0;
+      if (turnEnded && !savesAfterReply) await checkpoint();
       await send({ type: "stdout", data: Buffer.from(`${line}\n`).toString("base64") });
+      if (turnEnded && savesAfterReply) await checkpoint();
     }).catch(fail);
   });
   child.stderr.on("data", bytes => { void send({ type: "stderr", data: Buffer.from(bytes).toString("base64") }).catch(fail); });
@@ -308,7 +316,7 @@ async function handle(frame: any): Promise<void> {
   switch (frame.type) {
     case "refresh_folders":
       if(!child)throw new Error("Cannot refresh a working folder without an active engine");
-      try {await syncWorkFolders("hydrate");await reply(frame.id,{ready:true});}
+      try {await afterCheckpoint(() => syncWorkFolders("hydrate"));await reply(frame.id,{ready:true});}
       catch(error){await reply(frame.id,{error:(error as Error).message});}
       return;
     case "guest_folder_once": {

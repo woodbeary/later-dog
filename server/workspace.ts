@@ -1,4 +1,5 @@
 import { closeSync, constants, existsSync, fstatSync, lstatSync, mkdirSync, openSync, readdirSync, readFileSync, statSync } from "node:fs";
+import { lstat, mkdir, readFile, rename, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
 import { writeFileAtomic } from "./atomic.ts";
@@ -398,26 +399,58 @@ export type MemoryLogResult =
   | { ok: true; file: string; line: string }
   | { ok: false; code: "invalid"; error: string };
 
-export function appendMemoryLog(botId: string, text: string, opts: MemoryUpdateOptions = {}): MemoryLogResult {
-  if (typeof text !== "string" || !text.trim()) {
-    return { ok: false, code: "invalid", error: "memory_log needs the text of what happened." };
-  }
+function memoryLogEntry(text: string, opts: MemoryUpdateOptions) {
   const now = opts.now ?? new Date();
   const pad = (n: number) => String(n).padStart(2, "0");
   const source = cleanSource(opts.source);
   const line = `- ${pad(now.getHours())}:${pad(now.getMinutes())}${SEP}${source ? `from ${source}${SEP}` : ""}${normaliseEntryText(redactSecretsInText(text))}`;
+  const file = `${memoryDate(now)}.md`;
+  return { line, file, relativePath: `memory/${MEMORY_LOG_DIR}/${file}` };
+}
+
+const withLine = (current: string, line: string) => `${current}${current && !current.endsWith("\n") ? "\n" : ""}${line}\n`;
+
+export function appendMemoryLog(botId: string, text: string, opts: MemoryUpdateOptions = {}): MemoryLogResult {
+  if (typeof text !== "string" || !text.trim()) {
+    return { ok: false, code: "invalid", error: "memory_log needs the text of what happened." };
+  }
+  const { line, file, relativePath } = memoryLogEntry(text, opts);
   const dir = join(ensureWorkspace(botId), "memory", MEMORY_LOG_DIR);
   mkdirSync(dir, { recursive: true, mode: 0o700 });
-  const file = `${memoryDate(now)}.md`;
   const path = join(dir, file);
   let current = "";
   try {
     current = readMemoryText(path);
   } catch (error) { checkWorkspaceRead(error); }
-  writeFileAtomic(path, `${current}${current && !current.endsWith("\n") ? "\n" : ""}${line}\n`, { mode: 0o600 });
-  const relativePath = `memory/${MEMORY_LOG_DIR}/${file}`;
+  writeFileAtomic(path, withLine(current, line), { mode: 0o600 });
   indexWrittenMemoryFile(botId, relativePath);
   return { ok: true, file: relativePath, line };
+}
+
+const memoryLogsWriting = new Map<string, Promise<unknown>>();
+
+export function appendMemoryLogInBackground(botId: string, text: string, opts: MemoryUpdateOptions = {}): Promise<MemoryLogResult> {
+  const run = (memoryLogsWriting.get(botId) ?? Promise.resolve()).then(async (): Promise<MemoryLogResult> => {
+    if (!text.trim()) return { ok: false, code: "invalid", error: "memory_log needs the text of what happened." };
+    const { line, file, relativePath } = memoryLogEntry(text, opts);
+    const dir = join(workspaceDir(botId), "memory", MEMORY_LOG_DIR);
+    await mkdir(dir, { recursive: true, mode: 0o700 });
+    const path = join(dir, file);
+    let current = "";
+    try {
+      if (regularMemoryFilesOnly && !(await lstat(path)).isFile()) throw Object.assign(new Error(`not a regular file: ${path}`), { code: "EINVAL" });
+      current = await readFile(path, "utf8");
+    } catch (error) { checkWorkspaceRead(error); }
+    const next = withLine(current, line);
+    const temporary = `${path}.${process.pid}.${Date.now()}.tmp`;
+    await writeFile(temporary, next, { mode: 0o600 });
+    await rename(temporary, path);
+    const written = await stat(path);
+    indexMemoryFile(botId, relativePath, searchableMemoryText(relativePath, next), { mtimeMs: written.mtimeMs, bytes: written.size });
+    return { ok: true, file: relativePath, line };
+  });
+  memoryLogsWriting.set(botId, run.catch(() => {}));
+  return run;
 }
 
 export function writeMemoryLog(botId: string, name: string, text: string): void {

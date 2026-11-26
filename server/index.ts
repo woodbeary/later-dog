@@ -433,6 +433,7 @@ import {
   supportsWorkspaceFiles,
   updateMemory,
   appendMemoryLog,
+  appendMemoryLogInBackground,
   memorySystemPrompt,
   memorySourceLabel,
   searchMemoryFiles,
@@ -763,6 +764,7 @@ import { createHomeActivityRoute } from "./routes/home-activity.ts";
 import { createDeskPrompts, createDeskVerifier, deskDogs, deskReplyFrom } from "./laterdog/desk-brain.ts";
 import { createDeskBrainRoute, recordDeskExchange } from "./laterdog/desk-exchange.ts";
 import { createTurnTiming } from "./laterdog/turn-timing.ts";
+import { createTurnPhases, earlySnapshot, type EarlySnapshot } from "./laterdog/turn-head-start.ts";
 import { instanceTouchedBy } from "./laterdog/snapshot-cache.ts";
 import { createEmailMeRoute } from "./routes/email-me.ts";
 import { createNearbyPlacesRoute } from "./routes/nearby-places.ts";
@@ -1025,6 +1027,7 @@ const homeActivityRoute = CLOUD_HOME ? createHomeActivityRoute(createHomeActivit
   activity: () => withWaitingRuns(homeActivityFrom(routines?.wakeHold(HOME_ACTIVITY_HORIZON_MS) ?? { hold: false }, pickingUpAfterRestart || store.bots.some((bot) => botHasActiveTurn(bot.id))), limitHold.nextAt()),
 })) : null;
 const turnTiming = createTurnTiming({ log: (line) => console.log(line) });
+const turnPhases = createTurnPhases({ log: (line) => console.log(line) });
 const deskVerify = CLOUD_HOME ? createDeskVerifier({ secret: CLOUD_HOME.bootstrapSecret }) : null;
 const deskPrompts = CLOUD_HOME ? createDeskPrompts(join(DATA_DIR, "desk-prompts.json")) : null;
 const deskBrainRoute = deskVerify && deskPrompts ? createDeskBrainRoute({
@@ -6336,13 +6339,13 @@ bus.subscribe((event: RuntimeEvent) => {
     const room = store.groupByThread(event.threadId);
     if (room && !roomFeedsBot(room, bot)) return;
     if (CLOUD_HOME && (room || !cloudOwnerOnlyThread(event.threadId))) return;
-    appendMemoryLog(bot.id, line, {
+    void appendMemoryLogInBackground(bot.id, line, {
       source: memorySourceLabel({
         room,
         task: store.taskByThread(bot.id, event.threadId),
         threadId: event.threadId,
       }),
-    });
+    }).catch(() => {});
   } catch {}
 });
 const turnStartedAt = new Map<string, number>();
@@ -9067,6 +9070,7 @@ async function startTurn(
     throw Object.assign(new Error("this provider account is being updated — try again shortly"), { status: 409 });
   }
   turnTiming.asked(threadId, instance.driverKind);
+  turnPhases.begin(threadId);
   const model = bot.modelSelection.model;
   const chosenEffort = bot.modelSelection.effort;
   const variant = bot.modelSelection.variant;
@@ -9193,6 +9197,8 @@ async function startTurn(
   turnContext.delete(threadId);
 
   void (async () => {
+    let snapshotHead: EarlySnapshot<string> | null = null;
+    if (mountedFolderLayout && remoteEngineChoice(DATA_DIR, bot.id).computer) void boat.engineComputer(bot.id).catch(() => {});
     try {
       if (logArchive && !await logArchive.beforeTurn(threadId, () => directTurnClaimIsCurrent(bot.id, dispatchClaimId, threadId))) {
         throw new DirectTurnSetupCancelled("turn stopped while saved logs were restored");
@@ -9356,6 +9362,10 @@ async function startTurn(
           : null;
       const cwd = assignedCwd(mountedFolderLayout, DATA_DIR, bot.id, pinnedCwd);
       const checkpointCwd = cwd && (mountedFolderLayout || cwd !== privateWorkspace) ? cwd : undefined;
+      turnPhases.mark(threadId, "setup");
+      if (checkpointCwd) snapshotHead = earlySnapshot(
+        () => checkpoints.snapshot(bot.id, checkpointCwd, `turn ${threadId.slice(0, 8)}`, undefined, { pin: dispatchClaimId }),
+        () => void checkpoints.release(bot.id, checkpointCwd, dispatchClaimId));
       const cloudBackend = opts?.runOn === "cloud" || bot.cloudBackend !== "vps" ? "box" : "vps";
       const mountsComputerMcp = instance.adapter.capabilities.computerMcp === true;
       const mountsLocalComputer = instance.adapter.capabilities.localComputerMcp === true;
@@ -9687,8 +9697,10 @@ async function startTurn(
       const crossRecallPrompt = integrations.agents && crossDogRecallAllowed(bot, threadId) ? CROSS_DOG_RECALL_PROMPT : "";
       const learnPrompt = skillAuthoring ? LEARN_PROMPT : "";
 
-      if (checkpointCwd) {
-        const before = await checkpoints.snapshot(bot.id, checkpointCwd, `turn ${threadId.slice(0, 8)}`, undefined, { pin: dispatchClaimId });
+      turnPhases.mark(threadId, "computer and prompt");
+      if (checkpointCwd && snapshotHead) {
+        const before = await snapshotHead.claim();
+        turnPhases.mark(threadId, "file snapshot wait");
         if (!directTurnClaimIsCurrent(bot.id, dispatchClaimId, threadId)) {
           if (before) void checkpoints.release(bot.id, checkpointCwd, dispatchClaimId);
           throw new DirectTurnSetupCancelled("turn stopped during checkpoint");
@@ -9789,6 +9801,7 @@ async function startTurn(
         userName: cfg.profile?.name?.trim() || "User",
       }) : "";
       handoffs.dispatching(threadId, dispatchClaimId, dispatchContext.handoff);
+      turnPhases.mark(threadId, "tools and recall");
       const dispatch = await guardTurnDispatch(instance.adapter.sendTurn({
         threadId,
         botId: bot.id,
@@ -9825,6 +9838,7 @@ async function startTurn(
       }), () => !directTurnClaimExists(bot.id, dispatchClaimId, threadId), async () => {
         await instance.adapter.interruptTurn(threadId).catch(() => {});
       });
+      turnPhases.end(threadId, "engine start");
       if (dispatch.cancelled) {
         retireProviderTurn(dispatch.value.turnId);
         throw new DirectTurnSetupCancelled("turn stopped during provider setup");
@@ -9866,6 +9880,7 @@ async function startTurn(
         drainTakeoverResumes();
       }
     } catch (cause) {
+      snapshotHead?.abandon();
       let e = cause;
       const mayRecover = e instanceof TurnNotStartedError &&
         directTurnClaimIsCurrent(bot.id, dispatchClaimId, threadId);
