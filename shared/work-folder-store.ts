@@ -6,7 +6,7 @@ export const WORK_FOLDER_ACCESS_MS = 15 * 60_000;
 export type WorkFolderEntry = (
   | { path: string; kind: "dir"; mode: number }
   | { path: string; kind: "link"; target: string; mode?: number; scopedTarget?: string | null }
-  | { path: string; kind: "file"; mode: number; size: number; sha256: string; contents: string }
+  | { path: string; kind: "file"; mode: number; size: number; sha256: string; contents: string; hardlink?: string }
 ) & { mtimeMs?: number };
 
 export type WorkFolderNode =

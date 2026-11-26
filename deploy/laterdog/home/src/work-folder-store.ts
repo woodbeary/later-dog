@@ -130,7 +130,14 @@ async function validateNode(scope: Scope, node: Record<string, unknown>): Promis
         if (withTime(e, fields) && safeWorkFolderLink(e.path, e.target)) continue;
         if (withTime(e, [...fields, "scopedTarget"]) && (e.scopedTarget === null || safeWorkFolderLink(e.path, e.scopedTarget))) continue;
       }
-      if (e.kind === "file" && withTime(e, ["kind", "path", "mode", "size", "sha256", "contents"]) && validMode(e.mode) && validSize(e.size) && validHash(e.sha256) && validHash(e.contents)) continue;
+      if (e.kind === "file" && validMode(e.mode) && validSize(e.size) && validHash(e.sha256) && validHash(e.contents)) {
+        const fields = ["kind", "path", "mode", "size", "sha256", "contents"];
+        if (e.hardlink !== undefined) {
+          if (!safeWorkFolderPath(e.hardlink) || compareWorkFolderPaths(e.hardlink, e.path) >= 0) return invalid("Invalid working folder hard link");
+          fields.push("hardlink");
+        }
+        if (withTime(e, fields)) continue;
+      }
       return invalid("Invalid work folder entry");
     }
     const files = entries.filter(e => e.kind === "file");
