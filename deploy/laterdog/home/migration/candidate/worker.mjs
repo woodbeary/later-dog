@@ -43,7 +43,12 @@ export class CandidateReader extends WorkerEntrypoint {
       if (fields[0] === "versions") path = "work-folders/v1/" + fields.slice(1, 3).join("/") + "/versions/" + fields[3];
     }
     if (!path) return notFound();
-    const object = await this.env.STATE.get(root + path);
+    let object;
+    if (u.pathname === "/placement" || u.pathname === "/proof") {
+      const sha = u.pathname === "/placement" ? p.placement : p.verification;
+      object = await this.env.STATE.get(root + "work-folders/cutover-plans/" + p.verification + "/" + sha);
+    }
+    object ??= await this.env.STATE.get(root + path);
     return object ? new Response(object.body, { headers: { "content-length": String(object.size) } }) : notFound();
   }
 }
@@ -59,6 +64,25 @@ child.unref();fs.closeSync(fd);
 `;
 
 export class RestoreDisk extends DurableObject {
+  monitoring = false;
+  observe() {
+    if (this.monitoring || !this.ctx.container?.running) return;
+    this.monitoring = true;
+    this.ctx.waitUntil(this.ctx.container.monitor().then(
+      () => this.ctx.storage.put("exit", { at: Date.now(), reason: "exited" }),
+      error => this.ctx.storage.put("exit", { at: Date.now(), reason: String(error.message).slice(0, 150), code: error.exitCode ?? null }),
+    ).finally(() => { this.monitoring = false; }));
+  }
+  async alarm() {
+    if (!this.ctx.container?.running) return;
+    this.observe();
+    const status = await this.status();
+    if (["failed", "verified"].includes(status.state)) {
+      await this.ctx.storage.put("terminal", status);
+      return;
+    }
+    await this.ctx.storage.setAlarm(Date.now() + 30_000);
+  }
   async start(runId) {
     const disk = this.ctx.container, run = await permit(this.env, runId);
     if (this.ctx.id.toString() !== this.env.DISKS.idFromName(this.env.TENANT).toString()) throw Error("Unexpected candidate disk");
@@ -71,6 +95,8 @@ export class RestoreDisk extends DurableObject {
     if (!disk.running) disk.start({ image: disk.images.base, enableInternet: false, entrypoint: ["/bin/sh", "-c", "exec /bin/sleep infinity"] });
     await disk.setInactivityTimeout(60 * 60_000);
     if (disk.images.base && !disk.images.base.includes(this.env.IMAGE_HASH) && !(await disk.inspect())?.image?.includes(this.env.IMAGE_HASH)) throw Error("Unexpected candidate image");
+    this.observe();
+    await this.ctx.storage.setAlarm(Date.now() + 30_000);
     const proc = await disk.exec(["node", "-e", launch, diskProgram, coordinatorProgram, runId, this.ctx.id.toString()], { user: "root", stderr: "ignore" });
     if ((await proc.output()).exitCode !== 0) throw Error("Could not start the restore check");
     await this.ctx.storage.put("run", runId);
@@ -78,7 +104,8 @@ export class RestoreDisk extends DurableObject {
   }
   async status() {
     const disk = this.ctx.container;
-    if (!disk.running) return { state: "stopped" };
+    if (!disk.running) return { state: "stopped", last: await this.ctx.storage.get("terminal") ?? null, exit: await this.ctx.storage.get("exit") ?? null };
+    this.observe();
     const child = await disk.exec(["cat", "/run/folder-restore/status.json"], { stderr: "ignore" });
     const result = await child.output();
     return result.exitCode === 0 ? JSON.parse(new TextDecoder().decode(result.stdout)) : { state: "starting" };
