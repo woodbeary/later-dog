@@ -265,6 +265,7 @@ import { ComputerControl } from "./computer-control.ts";
 import { augmentedPath, findCliCandidates, resetPathCache } from "./env-path.ts";
 import { registerEnginesBinDir } from "./engine-install.ts";
 import { registerNativeBinDir } from "./laterdog/native-install.ts";
+import { cacheLine } from "./laterdog/cache-line.ts";
 import { appendUsage, parseUsageRange, readUsage, summarizeUsage, usageCsv, USAGE_GROUPINGS, flushUsageLedger, type UsageGroupBy, type UsageRow, type UsageTrigger } from "./usage-ledger.ts";
 import { latestPlanRow, latestPlanRowAt, loadPlanUsage, planAccountsFromInstances } from "./plan-usage.ts";
 import { createAccountUsageRoute } from "./routes/account-usage.ts";
@@ -2315,6 +2316,8 @@ const executionEvidence = new ExecutionEvidenceTracker();
 function bookTurnUsage(row: Omit<UsageRow, "at" | "costSource">, tokensReported = true, notificationThreadId = row.threadId): void {
   const cost = tokensReported || row.costUsd !== null ? ledgerCost(row, operatorPrices()) : { costUsd: null };
   const booked = { ...row, ...cost, at: new Date().toISOString() };
+  const cache = cacheLine(booked);
+  if (cache) console.log(cache);
   noteSpend(DATA_DIR, booked, appendUsage(DATA_DIR, booked));
   const state = spendState(cfg, DATA_DIR);
   const alert = takeSpendAlert(DATA_DIR, state);
@@ -5984,7 +5987,7 @@ const groupSpeakers = new Map<string, { botId: string; name: string; color: stri
 type RoutedBy = NonNullable<Message["routedBy"]>;
 const routedRoomReplies = new Map<string, { botId: string; routedBy: RoutedBy }>();
 
-const turnUsage = new Map<string, { input: number; output: number; cachedInput?: number }>();
+const turnUsage = new Map<string, { input: number; output: number; cachedInput?: number; cachedWrite?: number }>();
 const turnContext = new Map<string, { tokens?: number; window?: number }>();
 const liveContext = new LiveContext();
 const helperTurns = new HelperTurnBudget();
@@ -8115,7 +8118,7 @@ bus.subscribe(guardTurnEnd((event: RuntimeEvent) => {
       }
       break;
     case "thread.token-usage.updated":
-      turnUsage.set(event.threadId, { input: event.input, output: event.output, cachedInput: event.cachedInput });
+      turnUsage.set(event.threadId, { input: event.input, output: event.output, cachedInput: event.cachedInput, cachedWrite: event.cachedWrite });
       if (event.contextTokens !== undefined || event.contextWindow !== undefined) {
         turnContext.set(event.threadId, { tokens: event.contextTokens, window: event.contextWindow });
       }
@@ -8277,6 +8280,7 @@ bus.subscribe(guardTurnEnd((event: RuntimeEvent) => {
           input: tokens?.input ?? 0,
           output: tokens?.output ?? 0,
           ...(typeof tokens?.cachedInput === "number" ? { cachedInput: tokens.cachedInput } : {}),
+          ...(typeof tokens?.cachedWrite === "number" ? { cachedWrite: tokens.cachedWrite } : {}),
           ...(promptBytes ? { promptBytes } : {}),
           costUsd: event.cost ?? null,
           trigger: routineRun
@@ -8343,6 +8347,7 @@ bus.subscribe(guardTurnEnd((event: RuntimeEvent) => {
           input: tokens?.input ?? 0,
           output: tokens?.output ?? 0,
           ...(typeof tokens?.cachedInput === "number" ? { cachedInput: tokens.cachedInput } : {}),
+          ...(typeof tokens?.cachedWrite === "number" ? { cachedWrite: tokens.cachedWrite } : {}),
           ...(promptBytes ? { promptBytes } : {}),
           costUsd: event.cost ?? null,
           trigger: routineRun
