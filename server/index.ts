@@ -4576,15 +4576,15 @@ type GroupRoutineRun = {
 
 const groupTurnOperations = new Map<string, Set<GroupTurnOperation>>();
 
-function pendingGroupPlanBots(group: GroupRecord): string[] {
+function pendingGroupPlanBots(group: GroupRecord, admitting?: RoomHandoff): string[] {
   return [group.threadId, ...store.groupTasks(group.id).map(task => task.threadId)].flatMap(threadId => {
     const entry = planContinuations.get(threadId);
-    return entry?.pending && entry.groupId === group.id ? [entry.botId] : [];
+    return entry?.pending && entry.groupId === group.id && !(admitting && entry.coordinationId === admitting.id && entry.threadId === admitting.threadId && entry.botId === admitting.botId) ? [entry.botId] : [];
   });
 }
 
-function groupIsWorking(group: GroupRecord): boolean {
-  return Boolean(group.busyBotId) || Boolean(groupTurnOperations.get(group.id)?.size) || pendingGroupPlanBots(group).length > 0;
+function groupIsWorking(group: GroupRecord, admitting?: RoomHandoff): boolean {
+  return Boolean(group.busyBotId) || Boolean(groupTurnOperations.get(group.id)?.size) || pendingGroupPlanBots(group, admitting).length > 0;
 }
 
 function groupPlanCanContinue(groupId: string, threadId: string, botId: string, sourceId: string, coordinationId?: string): boolean {
@@ -4926,7 +4926,7 @@ const roomHandoffs: RoomHandoffs = new RoomHandoffs(join(DATA_DIR, "room-handoff
       (parent && sender && !node.approvalGranted && peerReviewRequired(sender, parent.threadId) ? "Sender now requires peer approval; submit a new approved request" : undefined);
   },
   busy: n => {
-    if (n.groupId) return Boolean(store.bot(n.botId)?.busy || (store.group(n.groupId) && groupIsWorking(store.group(n.groupId)!)));
+    if (n.groupId) return Boolean(store.bot(n.botId)?.busy || (store.group(n.groupId) && groupIsWorking(store.group(n.groupId)!, n)));
     const slot = threadBusy(n.botId, n.threadId) || botAtThreadCapacity(n.botId) || Boolean(activeGroupTurnForBot(n.botId)) ||
       batteryContinuationPending(n.threadId) || limitHold.holds(n.threadId);
     return n.status === "resume" ? slot : slot || recipientAwaitingPerson(n.botId, n.threadId);
@@ -22082,8 +22082,8 @@ function janitorWorkspaces(): WorkspaceTask[] {
 
 function threadAtWork(threadId: string): boolean {
   const bot = store.botByThread(threadId);
-  return runningTurnEngines.has(threadId) || Boolean(bot && threadBusy(bot.id, threadId)) || Boolean(store.groupByThread(threadId)?.busyBotId)
-    || helperBoard.running(threadId) || nativeRuns.running(threadId);
+  return planContinuations.pending(threadId) || runningTurnEngines.has(threadId) || Boolean(bot && threadBusy(bot.id, threadId)) || Boolean(store.groupByThread(threadId)?.busyBotId)
+    || helpersWorkingIn(threadId) > 0 || helperBoard.running(threadId) || nativeRuns.running(threadId);
 }
 
 const OPEN_CARD_TAIL = 40;

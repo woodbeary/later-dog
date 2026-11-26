@@ -8,11 +8,11 @@ A recognized turn size, context or tool limit continues automatically when the c
 
 `plan-continuations.json` keeps the recovery obligation through successor setup and across a home restart. Stop, a newer queued human request, an unanswered card, a removed task or revoked route cancels the continuation. Pending continuations remain working on the wire; they do not count as an active provider process for admission. A successor still has to pass the ordinary model, approval, tool and computer checks.
 
-Three successive continuation turns without another completed plan step stop the loop with an explanation. A request also has an overall limit of twenty continuations, even when its plan keeps changing. Its unfinished plan and notes stay available. A new request starts a new count.
+Continuation has no terminal attempt count or unchanged completed-step count. Attempts and unchanged completed-step counts remain durable diagnostics; they never end the authorized work. A new request resets the diagnostics.
 
 ## Checks
 
-The isolated real-server fixtures use scripted engine processes and disposable data. They cover direct and group limit endings, delegated results, saved FYI receipts, idle/busy recipients, ordinary work order, waiting cards, Stop, queued human precedence and bounded no-progress recovery. Unit checks cover persistence through successor setup, duplicate events, generation mismatch, admission retry and the overall bound.
+The isolated real-server fixtures use scripted engine processes and disposable data. They cover direct and group limit endings, delegated results, saved FYI receipts, idle/busy recipients, ordinary work order, waiting cards, Stop, queued human precedence and persistent continuation before verification completes. Unit checks cover persistence through successor setup, duplicate events, generation mismatch, admission retry and repeated limits across restarts.
 
 Baseline failures were captured on `4efafe4ce938f485e23bdbd531c184f246249c5c`: FYIs made an idle recipient busy and occupied queue positions; direct and delegated limit endings stopped after one turn. A separate group fixture failed to reach its successor before group support was added. These checks exercise the home's recovery decisions and native protocol frames. They do not qualify an injected failure against a live provider.
 
