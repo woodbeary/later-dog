@@ -1,4 +1,5 @@
-import { randomUUID } from "node:crypto";
+import { HISTORY_RECEIPT_PREFIX, receiptDigest } from "../../shared/history-receipt.ts";
+import { createHash, randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
 import { MessageChannel, receiveMessageOnPort, Worker } from "node:worker_threads";
 import { BOOT_CLOUD_SECRETS } from "../cloud-secrets-boot.ts";
@@ -50,6 +51,37 @@ function request<T>(route: string, body: unknown): T {
     port1.close();
   }
 }
+const receiptCache = new Map<string, string>();
+let cachedBytes = 0;
+function cacheReceipt(hash: string, value: string) {
+  if (receiptCache.has(hash) || Buffer.byteLength(value) > 1024 * 1024) return;
+  receiptCache.set(hash, value);
+  cachedBytes += Buffer.byteLength(value);
+  while (cachedBytes > 4 * 1024 * 1024 || receiptCache.size > 128) {
+    const oldest = receiptCache.keys().next().value!;
+    cachedBytes -= Buffer.byteLength(receiptCache.get(oldest)!);
+    receiptCache.delete(oldest);
+  }
+}
+export function storeHistoryReceipt(value: string): string {
+  const hash = createHash("sha256").update(value).digest("hex");
+  const route = "receipts/" + encodeURIComponent(generation!) + "/" + hash;
+  if (!receiptCache.has(hash)) {
+    request(route, value);
+    cacheReceipt(hash, value);
+  }
+  return HISTORY_RECEIPT_PREFIX + hash;
+}
+export function readHistoryReceipt(reference: string): string {
+  const hash = receiptDigest(reference),
+    cached = receiptCache.get(hash);
+  if (cached !== undefined) return cached;
+  const value = request<string>("receipts/" + encodeURIComponent(generation!) + "/" + hash, undefined);
+  if (typeof value !== "string" || createHash("sha256").update(value).digest("hex") !== hash)
+    throw Error("Conversation receipt checksum mismatch");
+  cacheReceipt(hash, value);
+  return value;
+}
 export function historyExecute<T>(
   threadId: string,
   operation: HistoryOperation,
@@ -61,7 +93,7 @@ type Page<T> = { items: { threadId: string; result: T }[]; next: string | null }
 export function historyMany<T>(
   threadIds: readonly string[] | undefined,
   operation: HistoryOperation,
-  requestId?: string,
+  requestId: string = randomUUID(),
 ): { threadId: string; result: T }[] {
   if (threadIds?.length === 0) return [];
   const items: { threadId: string; result: T }[] = [];

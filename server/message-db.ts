@@ -1,8 +1,10 @@
 import { createHash, randomUUID } from "node:crypto";
+import { writeFileAtomic } from "./atomic.ts";
+import { receiptDigest } from "../shared/history-receipt.ts";
 import type { HistoryOperation } from "../shared/history-shard-types.ts";
-import { checkDualHistory, historyExecute, historyMany, isRemoteHistory, remoteHistoryGeneration } from "./laterdog/history-client.ts";
+import { checkDualHistory, historyExecute, historyMany, isRemoteHistory, readHistoryReceipt, remoteHistoryGeneration, storeHistoryReceipt } from "./laterdog/history-client.ts";
 import { remoteThread, remoteCards, remoteLatest, remoteSearch, remoteSearchAsync, remoteText, remoteRecall, remoteRecent, remoteLatestBot } from "./laterdog/history-messages.ts";
-import { chmodSync, closeSync, existsSync, mkdirSync, openSync, readFileSync, renameSync } from "node:fs";
+import { chmodSync, closeSync, existsSync, mkdirSync, openSync, readFileSync, renameSync, unlinkSync } from "node:fs";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 
@@ -36,14 +38,20 @@ function open(): DatabaseSync {
   } catch {}
   const db = new DatabaseSync(file);
   if (isRemoteHistory()) {
-    if(db.prepare("SELECT generation FROM history_control_generation WHERE singleton=1").get()?.generation !== remoteHistoryGeneration()) {
+    if(["history_control_generation","history_receipt_generation"].some(table=>db.prepare("SELECT generation FROM "+table+" WHERE singleton=1").get()?.generation !== remoteHistoryGeneration())) {
       db.close();
       throw Error("The compact conversation history control belongs to another generation");
     }
+    db.exec("PRAGMA secure_delete=ON");
     db.exec("CREATE TABLE IF NOT EXISTS history_outbox(id TEXT PRIMARY KEY,thread_id TEXT NOT NULL,operation TEXT NOT NULL)");
   }
   db.exec("PRAGMA journal_mode = WAL");
   db.exec("PRAGMA synchronous = NORMAL");
+  initializeMessageDatabase(db);
+  return db;
+}
+
+export function initializeMessageDatabase(db:DatabaseSync):void {
   db.exec(`
     CREATE TABLE IF NOT EXISTS messages (
       thread_id TEXT NOT NULL,
@@ -81,7 +89,6 @@ function open(): DatabaseSync {
   ensureRecallIndex(db);
   ensureMemoryIndex(db);
   ensureNativeRuns(db);
-  return db;
 }
 
 function ensureMemoryIndex(db: DatabaseSync): void {
@@ -201,18 +208,35 @@ export function historyCacheRevision(): number {
   return cacheRevision;
 }
 
+const standaloneIntent = () => join(DATA_DIR,"history-pending.json");
+
+function flushStandaloneIntent():void {
+  const file=standaloneIntent();
+  if(!existsSync(file))return;
+  const row=JSON.parse(readFileSync(file,"utf8"));
+  if(row.generation!==remoteHistoryGeneration()||typeof row.threadId!=="string"||typeof row.id!=="string"||!row.operation)throw Error("Unrecognized conversation history intent");
+  try {historyExecute(row.threadId,row.operation,row.id);unlinkSync(file);}
+  catch(error){cacheRevision++;throw error;}
+}
 function flushHistoryOutbox(): void {
   if (!isRemoteHistory() || transactionDepth) return;
+  flushStandaloneIntent();
   const database = db();
   for (;;) {
     const row = database.prepare("SELECT id,thread_id,operation FROM history_outbox ORDER BY rowid LIMIT 1").get() as {id:string;thread_id:string;operation:string}|undefined;
     if (!row) return;
     const operation:HistoryOperation = JSON.parse(row.operation);
+    if(operation.op==="messages.command" && Array.isArray(operation.operations)){
+      operation.operations=operation.operations.map(decodePendingOperation);
+    } else if(operation.op==="history.intent") {
+      Object.assign(operation,decodePendingOperation(operation));
+    }
     try {
       const result = historyExecute(row.thread_id, operation, row.id);
       transaction(connection => {
         if(operation.op === "messages.command") {
           if(typeof result !== "string" || typeof operation.kind !== "string" || typeof operation.commandKey !== "string") throw Error("Conversation command receipt is incomplete");
+          receiptDigest(result);
           connection.prepare("UPDATE command_receipts SET result=? WHERE kind=? AND key=?").run(result,operation.kind,operation.commandKey);
           if(result !== operation.result)cacheRevision++;
         }
@@ -225,20 +249,48 @@ function flushHistoryOutbox(): void {
   }
 }
 
-function writeRemoteMessage(threadId:string,operation:HistoryOperation):void {
-  if (!transactionDepth) flushHistoryOutbox();
-  db().prepare("INSERT INTO history_outbox(id,thread_id,operation) VALUES(?,?,?)").run(randomUUID(),threadId,JSON.stringify(operation));
-  if (!transactionDepth) flushHistoryOutbox();
+type PendingWrite = {threadId:string; operation:HistoryOperation};
+let commandWrites: PendingWrite[]|undefined;
+
+function encodePendingOperation(operation:HistoryOperation, result?:{raw:string;ref:string}):HistoryOperation {
+  if(operation.op==="messages.leaf")return operation;
+  if(result && operation.message && JSON.stringify(operation.message)===result.raw) return {op:operation.op,messageRef:result.ref};
+  return {op:"history.intent",ref:storeHistoryReceipt(JSON.stringify(operation))};
 }
 
-function bindCommandWrites(database:DatabaseSync, since:number, kind:string,key:string,result:string):void {
-  const rows = database.prepare("SELECT id,thread_id,operation FROM history_outbox WHERE rowid>? ORDER BY rowid").all(since) as Array<{id:string;thread_id:string;operation:string}>;
-  const thread = rows[0]?.thread_id;
-  if(!thread || !rows.every(r=>r.thread_id===thread))return;
-  const operations=rows.map(r=>JSON.parse(r.operation) as HistoryOperation);
-  if(!operations.every(o=>["messages.insert","messages.append","messages.update","messages.leaf"].includes(o.op)))return;
-  for(const r of rows)database.prepare("DELETE FROM history_outbox WHERE id=?").run(r.id);
-  writeRemoteMessage(thread,{op:"messages.command",key:createHash("sha256").update(JSON.stringify([kind,key])).digest("hex"),kind,commandKey:key,result,operations});
+function decodePendingOperation(value:HistoryOperation):HistoryOperation {
+  if(value.op==="history.intent")return JSON.parse(readHistoryReceipt(String(value.ref)));
+  if(typeof value.messageRef==="string")return {op:value.op,message:JSON.parse(readHistoryReceipt(value.messageRef))};
+  return value;
+}
+
+function queueHistoryIntent(database:DatabaseSync,threadId:string,operation:HistoryOperation):void {
+  database.prepare("INSERT INTO history_outbox(id,thread_id,operation) VALUES(?,?,?)").run(randomUUID(),threadId,JSON.stringify(operation));
+}
+
+function writeRemoteMessage(threadId:string,operation:HistoryOperation):void {
+  if(commandWrites){commandWrites.push({threadId,operation});return;}
+  if(transactionDepth){queueHistoryIntent(db(),threadId,encodePendingOperation(operation));return;}
+  flushHistoryOutbox();
+  const value={generation:remoteHistoryGeneration(),threadId,id:randomUUID(),operation};
+  writeFileAtomic(standaloneIntent(),JSON.stringify(value),{mode:0o600});
+  flushStandaloneIntent();
+}
+
+function collectCommandWrites(database:DatabaseSync, kind:string,key:string,apply:()=>string):{result:string;stored:string} {
+  const outer=commandWrites;
+  const writes:PendingWrite[]=[];
+  commandWrites=writes;
+  let result:string;
+  try {result=apply();} finally {commandWrites=outer;}
+  const stored=storeHistoryReceipt(result),thread=writes[0]?.threadId;
+  if(thread && writes.every(w=>w.threadId===thread && ["messages.insert","messages.append","messages.update","messages.leaf"].includes(w.operation.op))){
+    const operations=writes.map(w=>encodePendingOperation(w.operation,{raw:result,ref:stored}));
+    queueHistoryIntent(database,thread,{op:"messages.command",key:createHash("sha256").update(JSON.stringify([kind,key])).digest("hex"),kind,commandKey:key,result:stored,operations});
+  }else{
+    for(const w of writes)queueHistoryIntent(database,w.threadId,encodePendingOperation(w.operation));
+  }
+  return {result,stored};
 }
 
 export interface FollowupPayload {
@@ -292,6 +344,7 @@ export function readCommandReceipt(kind: string, key: string): StoredCommandRece
   const row = db()
     .prepare("SELECT kind, key, at, result FROM command_receipts WHERE kind = ? AND key = ?")
     .get(kind, key) as StoredCommandReceipt | undefined;
+  if (row && isRemoteHistory()) return {...row,result:readHistoryReceipt(row.result)};
   return row ?? null;
 }
 
@@ -306,13 +359,11 @@ export function withCommandReceipt(
     const existing = database
       .prepare("SELECT result FROM command_receipts WHERE kind = ? AND key = ?")
       .get(kind, key) as { result: string } | undefined;
-    if (existing) return { result: existing.result, replayed: true };
-    const start = isRemoteHistory() ? Number(database.prepare("SELECT COALESCE(MAX(rowid),0) AS n FROM history_outbox").get()?.n) : null;
-    const result = apply();
-    if (start!==null) bindCommandWrites(database,start,kind,key,result);
+    if (existing) return { result: isRemoteHistory() ? readHistoryReceipt(existing.result) : existing.result, replayed:true };
+    const {result,stored}=isRemoteHistory()?collectCommandWrites(database,kind,key,apply):(()=>{const result=apply();return {result,stored:result};})();
     database
       .prepare("INSERT INTO command_receipts(kind, key, at, result) VALUES (?, ?, ?, ?)")
-      .run(kind, key, at, result);
+      .run(kind, key, at, stored);
     return { result, replayed: false };
   });
   flushHistoryOutbox();

@@ -81,8 +81,7 @@ async function main() {
     const restored = await restoreWithRetries(restoreStore, dogOwner(), exclude, exactScope);
     manifest = restored.manifest;
     if (history.mode === "remote") {
-      if (!manifest?.entries.some(entry => entry.path === ".laterdog/history-control.db" && entry.type === "file")) throw Error("The compact conversation history control is missing from the saved home");
-      verifyHistoryControl(HEALTH_DIR,history.generation);
+      verifyHistoryControl(HEALTH_DIR,history.generation,manifest ?? {entries:[]});
     }
     upgraded = upgradeFrom(manifest, APP);
     log(restored.manifest ? `restored ${restored.files} files` : "a new home: nothing to restore");
