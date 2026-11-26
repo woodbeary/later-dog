@@ -50,7 +50,7 @@ export function guestProviderPlan(dataDir: string, driver: string, profile: Gues
       return cwd === owned || cwd.startsWith(owned + sep);
     })) throw new Error("The selected folder is outside this dog's workspaces.");
     const roots = [...(profile.roots ?? [])];
-    if (turn.cwd) roots.push({ id: "workspace", path: cwd, writable: true });
+    if (turn.cwd) roots.push({ id: "workspace", path: cwd, writable: true, streamedTree: true });
     const images = turn.images?.map((image, i) => {
       const path = join(stagingDir, "attachment-" + i + "." + image.mime.split("/")[1]);
       copyFileSync(image.path, path);

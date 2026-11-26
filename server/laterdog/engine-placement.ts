@@ -256,7 +256,7 @@ export function planClaudeRemote(input: ClaudePlacement): { plan: ClaudeRemotePl
   const slug = claudeProjectSlug(cwd);
   const sessionDir = join(configDir, "projects", slug);
   const roots: EngineFileRoot[] = [
-    { id: "workspace", path: cwd, writable: !input.textOnly, ...(input.textOnly ? { files: [] } : {}) },
+    { id: "workspace", path: cwd, writable: !input.textOnly, streamedTree: input.required && !input.textOnly, ...(input.textOnly ? { files: [] } : {}) },
     { id: "session", path: sessionDir, writable: true, transcript: true, files: [`${input.sessionId}.jsonl`] },
     { id: "session-extra", path: join(sessionDir, input.sessionId), writable: true },
     { id: "file-history", path: join(configDir, "file-history", input.sessionId), writable: true },
@@ -281,7 +281,7 @@ export function planClaudeRemote(input: ClaudePlacement): { plan: ClaudeRemotePl
     cli: `${cliDir}/node_modules/.bin/claude`,
     args, cwd, env: remoteEnv, roots: input.textOnly ? roots.filter(root => ["workspace", "account", "credential", "launch"].includes(root.id)) : roots,
     outputIds: input.textOnly ? [] : ["workspace", "session", "session-extra", "file-history"],
-    pushes, mcp, hooks, hookEnv, socketPath,
+    pushes, mcp, hooks, hookEnv, socketPath, requireCompleteCheckpoint: input.required,
     stateFile: `${remoteBase}/state/${threadKey}.json`,
     lockFile: `${remoteBase}/locks/${threadKey}.lock`,
   };
