@@ -23,11 +23,43 @@ import {
   applyFolder,
   equalTree,
   mergeFolder,
+  sameFolderEntry,
   uploadChanged,
   visitFolder,
   validateFolderHardlinks,
   type FolderVisit,
 } from "./engine-folder-files.ts";
+
+function preserveUntrackedMemoryMirror(local: FolderTree, remote: FolderTree) {
+  const entries = new Map(local.entries);
+  const originalPaths = new Map<string, string>();
+  const archive = ".laterdog-preserved-memory";
+  const linked = new Set([...local.entries.values(), ...remote.entries.values()].flatMap(entry =>
+    entry.kind === "file" && entry.hardlink ? [entry.path, entry.hardlink] : [],
+  ));
+  for (const [path, mirror] of local.entries) {
+    if (path !== "MEMORY.md" && !/^memory\/.+\.md$/.test(path)) continue;
+    const primary = remote.entries.get(path);
+    if (mirror.kind !== "file" || primary?.kind !== "file" || linked.has(path) ||
+        !(primary.mode & 0o200) || mirror.mode !== ((primary.mode & 0o444) | 0o400)) continue;
+    entries.delete(path);
+    const version = folderHash(JSON.stringify([path, mirror.sha256, mirror.mode, mirror.mtimeMs]));
+    const preserved = archive + "/" + version + "/" + path;
+    const copy = { ...mirror, path: preserved };
+    const existing = entries.get(preserved) ?? remote.entries.get(preserved);
+    if (existing && !sameFolderEntry(existing, copy)) throw new Error("A preserved memory file differs from the original");
+    if (!existing) {
+      for (let dir = dirname(preserved); dir !== "."; dir = dirname(dir)) {
+        const known = entries.get(dir) ?? remote.entries.get(dir);
+        if (known && known.kind !== "dir") throw new Error("A preserved memory path is not a directory");
+        if (!known) entries.set(dir, { kind: "dir", path: dir, mode: 0o700 });
+      }
+      entries.set(preserved, copy);
+      originalPaths.set(preserved, path);
+    }
+  }
+  return { tree: { ...local, entries }, originalPaths };
+}
 
 export const ENGINE_FOLDER_STATE = "/home/dog/.laterdog-engine/work-folders";
 export interface EngineWorkFolder {
@@ -280,11 +312,15 @@ export async function syncFolder(
     const local = await visitFolder(binding.path, before, progress, remote, aliases, linkFor);
     validateLinks(local.tree);
     const replaced = existsSync(rebuilding) || Boolean(saved?.rootId && saved.rootId !== rootId);
-    const next = mergeFolder(replaced ? undefined : before?.tree, local.tree, remote);
+    const owner = new URL(binding.grant.baseUrl).pathname.match(/\/api\/work-folders\/v1\/([^/]+)\/dog$/)?.[1];
+    const priorMirror = !before && owner && binding.path === join(dataRoot, ".laterdog", "workspaces", owner)
+      ? preserveUntrackedMemoryMirror(local.tree, remote)
+      : undefined;
+    const next = mergeFolder(replaced ? undefined : before?.tree, priorMirror?.tree ?? local.tree, remote);
     validateLinks(next);
     let current = head;
     if (!equalTree(next, remote)) {
-      await uploadChanged(store, binding.path, local, next, remote);
+      await uploadChanged(store, binding.path, local, next, remote, priorMirror?.originalPaths);
       const after = await visitFolder(binding.path, local, progress, undefined, aliases, linkFor);
       if (!equalTree(after.tree, local.tree))
         throw new Error("Working folder changed while a checkpoint was being prepared");

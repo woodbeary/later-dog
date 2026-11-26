@@ -137,6 +137,56 @@ describe("assigned working folders on guest computers", () => {
     expect(readFileSync(join(f.right, "dist", "report"), "utf8")).toBe("updated");
     expect(readlinkSync(join(f.right, "alias"))).toBe("dist/report");
   });
+  it("retains older read-only memory mirrors in durable storage and opens the current memory on first checkout", async () => {
+    const f = await fixture();
+    const data = join(f.dir, "data");
+    const workspace = join(data, ".laterdog", "workspaces", "dog");
+    const grant = await f.grant("cmp_alpha", "dog");
+    const store = new FolderStore(grant, () => {});
+    mkdirSync(join(f.src, "memory"));
+    mkdirSync(join(workspace, "memory"), { recursive: true });
+    writeFileSync(join(f.src, "MEMORY.md"), "current memory", { mode: 0o600 });
+    writeFileSync(join(f.src, "memory", "topic.md"), "current topic", { mode: 0o640 });
+    writeFileSync(join(workspace, "MEMORY.md"), "older memory", { mode: 0o400 });
+    writeFileSync(join(workspace, "memory", "topic.md"), "older topic", { mode: 0o440 });
+    await publishInitialWorkFolder(f.src, store);
+    const checkout = () => syncFolder({ path: workspace, grant }, f.state, undefined, undefined, data);
+
+    const first = await checkout();
+    expect(readFileSync(join(workspace, "MEMORY.md"), "utf8")).toBe("current memory");
+    expect(readFileSync(join(workspace, "memory", "topic.md"), "utf8")).toBe("current topic");
+    const files = [...(await store.tree(first.manifest)).entries.values()].filter(entry =>
+      entry.kind === "file" && entry.path.startsWith(".laterdog-preserved-memory/"),
+    );
+    expect(files).toHaveLength(2);
+    for (const entry of files) {
+      expect(readFileSync(join(workspace, entry.path), "utf8")).toBe(
+        entry.path.endsWith("/MEMORY.md") ? "older memory" : "older topic",
+      );
+    }
+    expect((await checkout()).revision).toBe(first.revision);
+    rmSync(workspace, { recursive: true });
+    expect((await checkout()).revision).toBe(first.revision);
+    for (const entry of files) expect(existsSync(join(workspace, entry.path))).toBe(true);
+  });
+
+  it("preserves an untracked writable memory conflict without choosing either copy", async () => {
+    const f = await fixture();
+    const data = join(f.dir, "data");
+    const workspace = join(data, ".laterdog", "workspaces", "dog");
+    const grant = await f.grant("cmp_alpha", "dog");
+    const store = new FolderStore(grant, () => {});
+    mkdirSync(workspace, { recursive: true });
+    writeFileSync(join(f.src, "MEMORY.md"), "published", { mode: 0o600 });
+    writeFileSync(join(workspace, "MEMORY.md"), "local edit", { mode: 0o600 });
+    await publishInitialWorkFolder(f.src, store);
+    const before = await store.head();
+
+    await expect(syncFolder({ path: workspace, grant }, f.state, undefined, undefined, data)).rejects.toThrow("changed on both");
+    expect(await store.head()).toEqual(before);
+    expect(readFileSync(join(workspace, "MEMORY.md"), "utf8")).toBe("local edit");
+  });
+
   it("merges disjoint writers and preserves conflicting working files and durable history across retries", async () => {
     const f = await fixture();
     writeFileSync(join(f.src, "same"), "base");
