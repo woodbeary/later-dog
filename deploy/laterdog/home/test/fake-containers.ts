@@ -225,6 +225,12 @@ export class FakeNamespace<T> {
     return new FakeId(this.name, name);
   }
 
+  idFromString(value: string): FakeId {
+    const id = this.contexts.get(value)?.id;
+    if (!id) throw new Error("Unknown physical home");
+    return id;
+  }
+
   get(id: FakeId): T {
     const key = id.toString();
     const known = this.objects.get(key);

@@ -1,3 +1,4 @@
+import { WorkFolderCutover, cutoverMutable, type CutoverRequest } from "./work-folder-cutover.ts";
 import { workFolderCensus, type FolderCensusRequest } from "./work-folder-census.ts";
 import { handleWorkFolderPlacement, previousBackupVerification, workFolderControlPath } from "./work-folder-placement.ts";
 import { handleWorkFolder } from "./work-folder-store.ts";
@@ -135,6 +136,36 @@ export class CloudHomeHost extends Container<Env> {
   private readonly checking = new Map<string, Promise<void>>();
   private readonly refused = new Set<string>();
   private readonly refusedMidCheck = new Map<string, () => void>();
+  private admittedRequests = 0;
+  private readonly cutover = new WorkFolderCutover({
+    bucket: this.env.STATE,
+    physicalId: this.ctx.id.toString(),
+    configuredImage: () => {
+      try {
+        return this.ctx.container?.images.base?.match(/(?:^|@)sha256:([a-f0-9]{64})$/)?.[1] ?? null;
+      } catch { return null; }
+    },
+    disk: () => this.ctx.container,
+    storage: this.ctx.storage,
+    idle: async () => Boolean(this.record && !this.booting && !this.delivering && !this.outbox.length &&
+      !this.admittedRequests && !this.answering.size && (await this.activity(this.record))?.busy === false),
+    schedule: async () => {
+      this.deleteSchedules("recoverWorkFolderCutover");
+      await this.schedule(15, "recoverWorkFolderCutover");
+    },
+    writerEpoch: async () => hex(await sha256(this.record?.stateToken ?? "")),
+    revokeWriter: async original => {
+      if (!this.record) throw Error("The original home has no owner");
+      const next = hex(await sha256(this.record.stateToken)) === original ? { ...this.record, stateToken: randomToken(32) } : this.record;
+      await this.ctx.storage.put(RECORD_KEY, next);
+      this.record = next;
+      await this.routeState(next, { always: true });
+      this.envVars = await this.environment(next);
+    },
+    retire: async originalDisk => {
+      if (originalDisk && this.ctx.container?.running) await this.destroy();
+    },
+  });
   private readonly handover = new Handover({
     standing: () => this.storedStanding ?? (this.size === "standard" ? "holding" : "released"),
     stand: async (standing) => {
@@ -203,8 +234,30 @@ export class CloudHomeHost extends Container<Env> {
     return namespace.get(namespace.idFromName(record.machineId));
   }
 
+  async controlWorkFolderCutover(machineId: string, nonce: string, request: CutoverRequest) {
+    if (this.removed || !this.record || this.record.machineId !== machineId || !this.handover.holds()) throw Error("No original source home");
+    return this.cutover.control(this.stateHome(machineId), machineId, nonce, request);
+  }
+
+  async recoverWorkFolderCutover() {
+    await this.cutover.recover();
+  }
+
+  async mutateHomeState(stable: string, token: string, request: Request) {
+    if (!this.record || stable !== this.stateHome(this.record.machineId) || !cutoverMutable(request)) {
+      return new Response("Invalid home mutation", { status: 403 });
+    }
+    return this.cutover.mutation(request, () => this.record?.stateToken === token, () => {
+      if (workFolderControlPath(new URL(request.url).pathname)) return handleWorkFolderPlacement(request, this.env.STATE, stable);
+      return handleState(request, this.env.STATE, stable);
+    });
+  }
+
   async release(): Promise<boolean> {
-    return this.handover.release();
+    if (this.cutover.closed()) return false;
+    const released = await this.handover.release();
+    if (released) await this.cutover.drain();
+    return released;
   }
 
   async readWorkFolderCensus(machineId: string, nonce: string, request: FolderCensusRequest): Promise<ReadableStream> {
@@ -217,6 +270,7 @@ export class CloudHomeHost extends Container<Env> {
   }
 
   private async quiet(): Promise<void> {
+    if (this.cutover.closed()) return;
     this.deleteSchedules("maintain");
     this.deleteSchedules("wakeForRoutine");
     if (!this.ctx.container?.running || this.signalled) return;
@@ -225,6 +279,7 @@ export class CloudHomeHost extends Container<Env> {
   }
 
   override startAndWaitForPorts(...args: Parameters<Container<Env>["startAndWaitForPorts"]>): Promise<void> {
+    if (this.cutover.closed()) return Promise.reject(new Error("Original home disk is held"));
     if (this.removed) return Promise.reject(new Error(REMOVED));
     return this.handover.launch(() => super.startAndWaitForPorts(...args));
   }
@@ -247,11 +302,13 @@ export class CloudHomeHost extends Container<Env> {
   }
 
   async bury(): Promise<void> {
+    if (this.cutover.closed()) throw Error("Original home disk is held");
     this.removed = true;
     await this.ctx.storage.put(REMOVED_KEY, true);
   }
 
   async reopen(): Promise<void> {
+    if (this.cutover.closed()) throw Error("Original home disk is held");
     this.removed = false;
     await this.ctx.storage.delete(REMOVED_KEY);
   }
@@ -274,6 +331,7 @@ export class CloudHomeHost extends Container<Env> {
   }
 
   async maintain(): Promise<void> {
+    if (this.cutover.closed()) return;
     const known = this.record;
     if (!known) return;
     if (!this.handover.holds()) {
@@ -289,6 +347,7 @@ export class CloudHomeHost extends Container<Env> {
   }
 
   async keepUp(): Promise<void> {
+    if (this.cutover.closed()) return;
     const record = this.record;
     if (!record || this.removed || !alwaysOn(this.env.ALWAYS_ON_ACCOUNTS, record.accountId)) {
       this.deleteSchedules("keepUp");
@@ -373,6 +432,7 @@ export class CloudHomeHost extends Container<Env> {
   }
 
   async pair(input: { label: string; ttlSeconds: number }): Promise<PairOutcome> {
+    if (this.cutover.closed()) throw Error("Original home disk is held");
     const record = this.record;
     const summary = await this.summary();
     if (!record || summary?.state !== "ready") return { ok: false, summary };
@@ -388,6 +448,7 @@ export class CloudHomeHost extends Container<Env> {
   }
 
   async remove(): Promise<{ removed: number }> {
+    if (this.cutover.closed()) throw Error("Original home disk is held");
     const home = this.record ? this.stateHome(this.record.machineId) : this.size === "standard" ? this.ctx.id.toString() : null;
     await this.bury();
     await this.silence();
@@ -397,6 +458,7 @@ export class CloudHomeHost extends Container<Env> {
   }
 
   async forget(): Promise<void> {
+    if (this.cutover.closed()) throw Error("Original home disk is held");
     await this.bury();
     await this.silence();
     await this.erase();
@@ -419,6 +481,10 @@ export class CloudHomeHost extends Container<Env> {
   }
 
   override async onActivityExpired(): Promise<void> {
+    if (this.cutover.closed()) {
+      this.renewActivityTimeout();
+      return;
+    }
     const record = this.record;
     if (!record || !this.handover.holds()) return super.onActivityExpired();
     if (alwaysOn(this.env.ALWAYS_ON_ACCOUNTS, record.accountId)) {
@@ -438,6 +504,7 @@ export class CloudHomeHost extends Container<Env> {
   }
 
   async wakeForRoutine(): Promise<void> {
+    if (this.cutover.closed()) return;
     if (!this.record || this.removed || !this.handover.holds()) return;
     this.sleepAfter = ROUTINE_SLEEP_AFTER;
     this.boot(this.record, false);
@@ -456,6 +523,13 @@ export class CloudHomeHost extends Container<Env> {
     if (new URL(request.url).pathname.startsWith(WORK_FOLDER_ROUTE)) {
       return handleWorkFolder(request, this.env.STATE, this.stateHome(record.machineId), record.origin, await bootstrapSecret(this.env.HOME_SECRET, record.machineId));
     }
+    if (this.cutover.closed()) return new Response("Working folder transfer is in progress", { status: 503, headers: { "retry-after": "5" } });
+    this.admittedRequests++;
+    try { return await this.serveAdmitted(request, record); }
+    finally { this.admittedRequests--; }
+  }
+
+  private async serveAdmitted(request: Request, record: HomeRecord): Promise<Response> {
     const background = isBackground(request);
     const credential = background ? null : wakeCredential(request);
     const key = credential ? await wakerKey(credential) : null;
@@ -728,6 +802,7 @@ export class CloudHomeHost extends Container<Env> {
   }
 
   async deliverQueued(): Promise<void> {
+    if (this.cutover.closed()) return;
     const record = this.record;
     if (!record || this.removed || !this.outbox.length) return;
     await this.delivering;
@@ -1005,6 +1080,11 @@ export class CloudHomeHost extends Container<Env> {
 CloudHomeHost.outboundHandlers = {
   state: async (request: Request, env: Env, context: OutboundHandlerContext<{ token: string; machineId?: string; home?: string; devCode?: boolean }>) => {
     if (!(await authorizedState(request, context.params?.token))) return new Response("Unauthorized", { status: 401 });
+    if (cutoverMutable(request)) {
+      const stable = stateOwner(context);
+      const namespace = stable === context.containerId ? env.HOMES : env.HOMES_LARGE;
+      return namespace.get(namespace.idFromString(context.containerId)).mutateHomeState(stable, context.params!.token, request);
+    }
     const path = new URL(request.url).pathname;
     if (workFolderControlPath(path)) {
       const machineId = context.params?.machineId;

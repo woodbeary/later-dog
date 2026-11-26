@@ -1,3 +1,4 @@
+import type { CutoverRequest } from "./work-folder-cutover.ts";
 import type { FolderCensusRequest } from "./work-folder-census.ts";
 import { ContainerProxy } from "@cloudflare/containers";
 import { WorkerEntrypoint } from "cloudflare:workers";
@@ -36,6 +37,11 @@ async function hostForMachine(env: Env, machineId: string) {
 }
 
 export class WorkFolderMigrationApi extends WorkerEntrypoint<Env> {
+  async cutover(accountId: string, nonce: string, request: CutoverRequest) {
+    const { identity, stub } = await homeFor(this.env, accountId);
+    return stub.controlWorkFolderCutover(identity.machineId, nonce, request);
+  }
+
   async census(accountId: string, nonce: string, request: FolderCensusRequest): Promise<ReadableStream> {
     const { identity, stub } = await homeFor(this.env, accountId);
     return stub.readWorkFolderCensus(identity.machineId, nonce, request);
