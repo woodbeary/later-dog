@@ -11,6 +11,7 @@ const registered = "/work-folders/scopes";
 const registryLock = /^\/work-folders\/registry-(unfence|fence)$/;
 export const previousBackupVerification = "/work-folders/verify-previous-backup";
 const placement = "/work-folders/placement";
+const candidatePlan = /^\/work-folders\/cutover-plans\/([a-f0-9]{64})\/([a-f0-9]{64})$/;
 const evidence = /^\/work-folders\/verification\/([a-f0-9]{64})$/;
 const legacySnapshot = /^\/work-folders\/legacy-manifests\/([a-f0-9]{64})$/;
 const projection = "/work-folders/project-legacy";
@@ -20,7 +21,7 @@ const result = (value: unknown, status: number) => Response.json(value, { status
 const checksum = async (value: string | Uint8Array) => hex(await sha256(value));
 
 export function workFolderControlPath(path: string): boolean {
-  return path === previousBackupVerification || path === placement || path === registered || legacyHoldRoute.test(path) || registryLock.test(path) || path === projection || path === legacyBlobs || legacySnapshot.test(path) || evidence.test(path) || history.test(path);
+  return candidatePlan.test(path) || path === previousBackupVerification || path === placement || path === registered || legacyHoldRoute.test(path) || registryLock.test(path) || path === projection || path === legacyBlobs || legacySnapshot.test(path) || evidence.test(path) || history.test(path);
 }
 
 export async function readWorkFolderPlacement(bucket: WorkFolderBucket, stable: string): Promise<WorkFolderPlacement | null> {
@@ -61,6 +62,7 @@ export interface WorkFolderVerification {
   mode: "folders" | "legacy";
   baselineManifest: string;
   layoutSha256: string;
+  coldArchiveManifest?: string;
   scopes: ScopeProof[];
 }
 
@@ -79,6 +81,7 @@ async function checked(scope: string, bucket: WorkFolderBucket, next: WorkFolder
   if (await checksum(bytes) !== next.verification) return false;
   const v: unknown = JSON.parse(new TextDecoder().decode(bytes));
   if (!proof(v) || next.mode !== v.mode || next.baselineManifest !== v.baselineManifest || await checksum(workFolderLayoutRecord(next.layout)) !== v.layoutSha256) return false;
+  if (v.coldArchiveManifest !== undefined && (!hash.test(v.coldArchiveManifest) || !await bucket.head(scope + "work-folders/legacy-seals/" + v.coldArchiveManifest))) return false;
   const expected = await layoutScopes(next.layout), claims = [...v.scopes].sort((a,b) => a.scope < b.scope ? -1 : a.scope > b.scope ? 1 : 0);
   if (expected.length !== claims.length || expected.some((s,i) => s !== claims[i]?.scope)) return false;
   if (!await verifiedMembership(bucket, scope + "work-folders/", expected, next.verification)) return false;
@@ -197,6 +200,21 @@ export async function handleWorkFolderPlacement(request: Request, bucket: WorkFo
   const path = new URL(request.url).pathname;
   if (!workFolderControlPath(path)) return result({ error: "not_found" }, 404);
   const scope = homePrefix(stable), key = scope + path.slice(1);
+  const candidate = candidatePlan.exec(path);
+  if (candidate) {
+    if (request.method === "GET" || request.method === "HEAD") {
+      const object = await bucket.get(key);
+      if (!object) return result({ error: "not_found" }, 404);
+      const headers = { "content-type": "application/octet-stream", "content-length": String(object.size) };
+      if (request.method === "HEAD") { await object.body.cancel(); return new Response(null, { headers }); }
+      return new Response(object.body, { headers });
+    }
+    if (request.method !== "PUT" || !request.body) return result({ error: "method_not_allowed" }, 405);
+    const id = candidate[2]!;
+    await bucket.put(key, request.body, { sha256: id, onlyIf: { etagDoesNotMatch: "*" } });
+    const object = await bucket.get(key);
+    return object && await sha256Stream(object.body) === id ? result({ sha256: id }, 201) : result({ error: "candidate_checksum_differs" }, 422);
+  }
   if (path === previousBackupVerification) return verifyPreviousBackup(request, bucket, scope, bootstrap);
   const retention = legacyHoldRoute.exec(path);
   if (retention) return handleLegacyHold(request, bucket, scope, retention[1]!, retention[2]!);

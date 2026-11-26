@@ -418,6 +418,30 @@ def prepare(
                 "Supplemented tree does not match the frozen census",
             )
         package.build(scope, folder, rows, read, deleted=bool(delta and not rows))
+    archive_rows = []
+    for key, record in sorted(ledger.items()):
+        dog, thread = key.split("/")
+        checksums = package.load("cold:" + dog + "/task-" + thread)["parts"]
+        for ordinal, part in enumerate(record["parts"], 1):
+            name = f"wf-{thread}-{record['stamp']}-{ordinal:04}.tar"
+            path = ".laterdog/checkpoints/work-folders/" + dog + "/" + name
+            require(name == part["name"], "Unexpected old archive part")
+            data = index["entries"].get(path) or source_rows.get(path)
+            require(
+                data and data["size"] == part["bytes"], "Historical archive map differs"
+            )
+            archive_rows.append(
+                {
+                    **data,
+                    "path": path,
+                    "type": "file",
+                    "partSha256": checksums[ordinal - 1],
+                }
+            )
+    package.metadata(
+        "cold-archive-map-v1",
+        {"version": 1, "archiveIndex": digest(archive), "entries": archive_rows},
+    )
     package.metadata("prepared", True)
     package.db.commit()
     return package

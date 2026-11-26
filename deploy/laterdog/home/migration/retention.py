@@ -44,7 +44,9 @@ def retain_snapshot(transport, data, workers, repair=False):
 
     def page(kind, group):
         h = digest(encode([kind, group]))
-        method = "repair" if repair else kind
+        method = (
+            ("repair-archive" if repair == "archive" else "repair") if repair else kind
+        )
         st, _, response = transport.admin(
             "work-folders/retention/" + method + "/" + h, "POST", {"hashes": group}
         )
