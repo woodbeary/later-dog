@@ -4,10 +4,11 @@ import { dirname, join } from "node:path";
 import { afterEach, expect, it, vi } from "vitest";
 import { createArchiver, serveArchive } from "../runtime/archive.mjs";
 import {
-  CALM_SWEEP, FIRST_SWEEP_MS, PLENTY_FREE_BYTES, PRESSURE_SWEEPS, SAVE_COPY_RESERVE_BYTES, STEADY_WINDOW_MS, SWEEP_CHECK_MS, archiveSweep, pressureRung,
+  CALM_SWEEP, FIRST_SWEEP_MS, LEAST_IDLE_MS, PLENTY_FREE_BYTES, PRESSURE_SWEEPS, ROOM_KEPT_FREE_BYTES, SAVE_COPY_RESERVE_BYTES, STEADY_WINDOW_MS, SWEEP_CHECK_MS, archiveSweep, pressureRung,
   roomFor, roomToRestore, savesHold, startArchiveSweeps, steadyDisk,
 } from "../../../../server/laterdog/archive-pressure.ts";
 import { DISK_RUNGS } from "../../../../server/laterdog/disk-ladder.ts";
+import { SAVE_STATUS_FRESH_MS, freshSaveStatus, readSaveStatus, savesForStorage, type SaveStatus } from "../../../../server/laterdog/save-status.ts";
 import {
   ARCHIVE_BATCH_BYTES, ARCHIVE_BATCH_PATHS, ARCHIVE_CALL_MAX_MS, ARCHIVE_CALL_MS, LogArchiveCoordinator, SWEEP_FAILURES_IN_A_ROW,
   archiveBatches, archiveCallMs, archivedSessionOf, claudeSessionIds, logArchiveBridge, threadLogPaths, type LogArchiveBridge,
@@ -90,17 +91,27 @@ it("sweeps as it always did while the disk is calm, and harder at every lower ru
     expect(harder.quietMs, `quiet at step ${at}`).toBeLessThanOrEqual(milder.quietMs);
   }
   expect(archiveSweep({ totalBytes: 19.2 * GB, freeBytes: 2.7 * GB })).toBe(ladder[2]);
-  expect(archiveSweep({ totalBytes: 19.2 * GB, freeBytes: 0.3 * GB })).toMatchObject({ ageMs: 0, sessionAgeMs: 0, byteLimit: Infinity, sessionByteLimit: Infinity });
+  expect(archiveSweep({ totalBytes: 19.2 * GB, freeBytes: 0.3 * GB })).toMatchObject({ ageMs: LEAST_IDLE_MS, sessionAgeMs: HOUR, byteLimit: Infinity, sessionByteLimit: Infinity });
 });
 
-it("says there is room to bring files back while a gigabyte stays free, whatever the size of the disk", () => {
+it("never takes what a chat used in the last half hour, however full the disk is", () => {
+  expect(LEAST_IDLE_MS).toBe(30 * MINUTE);
+  for (const sweep of [CALM_SWEEP, ...PRESSURE_SWEEPS.map((step) => step.sweep)]) {
+    expect(sweep.ageMs).toBeGreaterThanOrEqual(LEAST_IDLE_MS);
+    expect(sweep.sessionAgeMs).toBeGreaterThanOrEqual(LEAST_IDLE_MS);
+  }
+  expect(archiveSweep({ totalBytes: 19.2 * GB, freeBytes: 0 })).toMatchObject({ ageMs: LEAST_IDLE_MS, sessionAgeMs: HOUR });
+});
+
+it("says there is room to bring files back while a quarter of a gigabyte stays free, whatever the size of the disk", () => {
+  expect(ROOM_KEPT_FREE_BYTES).toBe(256 * MB);
   expect(roomToRestore(null)).toBe(true);
   expect(roomToRestore(disk(0.5))).toBe(true);
-  expect(roomToRestore({ totalBytes: 19.2 * GB, freeBytes: 1.1 * GB })).toBe(true);
-  expect(roomToRestore({ totalBytes: 19.2 * GB, freeBytes: 0.9 * GB })).toBe(false);
+  expect(roomToRestore({ totalBytes: 19.2 * GB, freeBytes: 0.3 * GB })).toBe(true);
+  expect(roomToRestore({ totalBytes: 19.2 * GB, freeBytes: 0.2 * GB })).toBe(false);
   expect(roomToRestore({ totalBytes: 228 * GB, freeBytes: 11 * GB })).toBe(true);
-  expect(roomFor({ totalBytes: 19.2 * GB, freeBytes: 3 * GB }, 1.5 * GB)).toBe(true);
-  expect(roomFor({ totalBytes: 19.2 * GB, freeBytes: 3 * GB }, 2.5 * GB)).toBe(false);
+  expect(roomFor({ totalBytes: 19.2 * GB, freeBytes: 3 * GB }, 2.5 * GB)).toBe(true);
+  expect(roomFor({ totalBytes: 19.2 * GB, freeBytes: 3 * GB }, 2.8 * GB)).toBe(false);
 });
 
 it("treats a disk with plenty of free space as calm however small its free share is", () => {
@@ -124,6 +135,55 @@ it("counts the copy a save makes of the largest database, and its reserve, as sp
   expect(savesHold(root)).toBe(3500 + SAVE_COPY_RESERVE_BYTES);
 });
 
+function saveStatus(fields: Partial<SaveStatus> = {}): SaveStatus {
+  return { version: 1, state: "saved", final: false, startedAt: 1_000, updatedAt: 2_000, endedAt: 2_000, durationMs: 1_000, heldOnDiskBytes: 0, heldInMemoryBytes: 1_070 * MB, copies: [], ...fields };
+}
+
+it("holds only the reserve while the last save, recent, copied its databases to memory", () => {
+  const root = scratch();
+  writeFileSync(join(root, "messages.db"), Buffer.alloc(3000));
+  writeFileSync(join(root, "messages.db-wal"), Buffer.alloc(500));
+  const now = 2_000 + SAVE_STATUS_FRESH_MS;
+  expect(savesHold(root, saveStatus(), now)).toBe(SAVE_COPY_RESERVE_BYTES);
+  expect(savesHold(root, saveStatus({ state: "saving", heldOnDiskBytes: 0 }), now)).toBe(SAVE_COPY_RESERVE_BYTES);
+  expect(savesHold(join(root, "missing"), saveStatus(), now)).toBe(SAVE_COPY_RESERVE_BYTES);
+});
+
+it("holds what a recent save copied to disk, including a save still copying", () => {
+  const root = scratch();
+  writeFileSync(join(root, "messages.db"), Buffer.alloc(3000));
+  expect(savesHold(root, saveStatus({ heldOnDiskBytes: 567 * MB }), 2_000)).toBe(567 * MB + SAVE_COPY_RESERVE_BYTES);
+  expect(savesHold(root, saveStatus({ state: "saving", copying: "messages.db", heldOnDiskBytes: 1_070 * MB }), 2_000)).toBe(1_070 * MB + SAVE_COPY_RESERVE_BYTES);
+});
+
+it("falls back to the largest database when the save status is missing, stale, failed, from the future or unreadable", () => {
+  const root = scratch();
+  writeFileSync(join(root, "messages.db"), Buffer.alloc(3000));
+  writeFileSync(join(root, "messages.db-wal"), Buffer.alloc(500));
+  const today = 3500 + SAVE_COPY_RESERVE_BYTES;
+  expect(savesHold(root, null, 2_000)).toBe(today);
+  expect(savesHold(root, saveStatus(), 2_000 + SAVE_STATUS_FRESH_MS + 1)).toBe(today);
+  expect(savesHold(root, saveStatus({ state: "failed" }), 2_000)).toBe(today);
+  expect(savesHold(root, saveStatus({ updatedAt: 2_000 + SAVE_STATUS_FRESH_MS + 1 }), 0)).toBe(today);
+  const file = join(root, "save-status.json");
+  expect(readSaveStatus(file)).toBeNull();
+  for (const body of ["not json", "{}", JSON.stringify({ ...saveStatus(), version: 2 }), JSON.stringify({ ...saveStatus(), heldOnDiskBytes: -1 }), JSON.stringify({ ...saveStatus(), state: "done" }), JSON.stringify({ ...saveStatus(), copies: null })]) {
+    writeFileSync(file, body);
+    expect(readSaveStatus(file)).toBeNull();
+    expect(savesHold(root, readSaveStatus(file), 2_000)).toBe(today);
+  }
+  expect(freshSaveStatus(null)).toBe(false);
+});
+
+it("shows the last save in the storage status, marked fresh or not", () => {
+  const root = scratch();
+  const file = join(root, "save-status.json");
+  expect(savesForStorage(file, 2_000)).toBeNull();
+  writeFileSync(file, JSON.stringify(saveStatus()));
+  expect(savesForStorage(file, 2_000)).toEqual({ ...saveStatus(), fresh: true });
+  expect(savesForStorage(file, 2_000 + SAVE_STATUS_FRESH_MS + 1)).toMatchObject({ state: "saved", fresh: false });
+});
+
 it("reads the disk as it stands between saves: the most free space of the last minute and a half, less what saves hold", () => {
   const MIB = 1024 ** 2;
   let clock = 1_000_000;
@@ -140,7 +200,8 @@ it("reads the disk as it stands between saves: the most free space of the last m
   expect(read()!.freeBytes).toBe(0);
   expect(steadyDisk(() => null)()).toBeNull();
   expect(archiveSweep(steadyDisk(() => ({ totalBytes: 19_200 * MIB, freeBytes: 2700 * MIB }), () => 1230 * MIB)())).toBe(archiveSweep(disk(0.08)));
-  expect(roomToRestore(steadyDisk(() => ({ totalBytes: 19_200 * MIB, freeBytes: 2000 * MIB }), () => 1230 * MIB)())).toBe(false);
+  expect(roomToRestore(steadyDisk(() => ({ totalBytes: 19_200 * MIB, freeBytes: 2000 * MIB }), () => 1230 * MIB)())).toBe(true);
+  expect(roomToRestore(steadyDisk(() => ({ totalBytes: 19_200 * MIB, freeBytes: 1400 * MIB }), () => 1230 * MIB)())).toBe(false);
 });
 
 it("gives one archive call more time the more bytes it carries, up to a ceiling", () => {
@@ -188,6 +249,44 @@ it("archives younger logs and sessions only when the sweep it is given asks for 
   expect(await coordinator.beforeTurn(THREADS[0]!, () => true)).toBe(true);
   expect(readFileSync(join(f.root, eventsOf(THREADS[0]!)), "utf8")).toBe("three hours old\n");
   expect(readFileSync(join(f.root, transcript(SESSION)), "utf8")).toBe("eight hours old\n");
+});
+
+it("keeps a chat that worked minutes ago on a nearly full disk, and archives its log after half an hour idle and its session after an hour", async () => {
+  const f = await fixture();
+  let clock = Date.now();
+  f.cursors[THREADS[0]!] = { claude: SESSION };
+  put(f.root, eventsOf(THREADS[0]!), "a turn ended three minutes ago\n", 3 * MINUTE);
+  put(f.root, transcript(SESSION), "and so did its engine session\n", 3 * MINUTE);
+  const coordinator = f.coordinator({ now: () => clock, sweep: () => archiveSweep(disk(0.02)) });
+  await coordinator.scan();
+  expect(here(f.root, eventsOf(THREADS[0]!))).toBe(true);
+  expect(here(f.root, transcript(SESSION))).toBe(true);
+  clock += 20 * MINUTE;
+  await coordinator.scan();
+  expect(here(f.root, eventsOf(THREADS[0]!))).toBe(true);
+  expect(here(f.root, transcript(SESSION))).toBe(true);
+  clock += 10 * MINUTE;
+  await coordinator.scan();
+  expect(here(f.root, eventsOf(THREADS[0]!))).toBe(false);
+  expect(here(f.root, transcript(SESSION))).toBe(true);
+  clock += 30 * MINUTE;
+  await coordinator.scan();
+  expect(here(f.root, transcript(SESSION))).toBe(false);
+});
+
+it("starts a turn at once on a home with two gigabytes free beside a one-gigabyte database, bringing the chat's archived log back", async () => {
+  const f = await fixture();
+  put(f.root, eventsOf(THREADS[0]!), "archived while the chat was idle\n", 30 * HOUR);
+  await f.coordinator().scan();
+  expect(here(f.root, eventsOf(THREADS[0]!))).toBe(false);
+  const GIB = 1024 ** 3;
+  const home = steadyDisk(() => ({ totalBytes: 17.91 * GIB, freeBytes: 2.02 * GIB }), () => 1.26 * GIB);
+  expect(archiveSweep(home())).toBe(PRESSURE_SWEEPS.at(-1)!.sweep);
+  const coordinator = f.coordinator({ room: () => roomToRestore(home()), sweep: () => archiveSweep(home()) });
+  f.busy.add(THREADS[0]!);
+  expect(await coordinator.beforeTurn(THREADS[0]!, () => true)).toBe(true);
+  expect(readFileSync(join(f.root, eventsOf(THREADS[0]!)), "utf8")).toBe("archived while the chat was idle\n");
+  expect(f.reports.filter((line) => line.startsWith("no room"))).toEqual([]);
 });
 
 it("leaves a chat alone for the quiet time after someone read it or a turn began, then archives it", async () => {

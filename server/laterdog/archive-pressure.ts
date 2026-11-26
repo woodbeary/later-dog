@@ -2,6 +2,7 @@ import { readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { DISK_RUNGS, diskRung } from "./disk-ladder.ts";
 import type { DiskUse } from "./janitor.ts";
+import { freshSaveStatus, readSaveStatus, type SaveStatus } from "./save-status.ts";
 
 const MB = 1024 ** 2;
 const GB = 1024 * MB;
@@ -24,15 +25,17 @@ export const CALM_SWEEP: ArchiveSweep = {
   ageMs: 24 * HOUR, sessionAgeMs: 72 * HOUR, byteLimit: 64 * MB, sessionByteLimit: 128 * MB, threadLimit: 100, quietMs: 30 * MINUTE, everyMs: 5 * MINUTE,
 };
 
+export const LEAST_IDLE_MS = 30 * MINUTE;
+
 export const PRESSURE_SWEEPS: ReadonlyArray<{ from: number; sweep: ArchiveSweep }> = [
   { from: rungOf("sweep"), sweep: { ageMs: 12 * HOUR, sessionAgeMs: 24 * HOUR, byteLimit: 256 * MB, sessionByteLimit: 512 * MB, threadLimit: 200, quietMs: 30 * MINUTE, everyMs: 5 * MINUTE } },
   { from: rungOf("move"), sweep: { ageMs: 2 * HOUR, sessionAgeMs: 6 * HOUR, byteLimit: 1024 * MB, sessionByteLimit: 1024 * MB, threadLimit: 400, quietMs: 15 * MINUTE, everyMs: 2 * MINUTE } },
-  { from: rungOf("refuse"), sweep: { ageMs: 30 * MINUTE, sessionAgeMs: HOUR, byteLimit: 2048 * MB, sessionByteLimit: 2048 * MB, threadLimit: 1000, quietMs: 10 * MINUTE, everyMs: MINUTE } },
-  { from: rungOf("floor"), sweep: { ageMs: 0, sessionAgeMs: 0, byteLimit: Infinity, sessionByteLimit: Infinity, threadLimit: Infinity, quietMs: 2 * MINUTE, everyMs: 30_000 } },
+  { from: rungOf("refuse"), sweep: { ageMs: HOUR, sessionAgeMs: 2 * HOUR, byteLimit: 2048 * MB, sessionByteLimit: 2048 * MB, threadLimit: 1000, quietMs: 10 * MINUTE, everyMs: MINUTE } },
+  { from: rungOf("floor"), sweep: { ageMs: LEAST_IDLE_MS, sessionAgeMs: HOUR, byteLimit: Infinity, sessionByteLimit: Infinity, threadLimit: Infinity, quietMs: 10 * MINUTE, everyMs: 30_000 } },
 ];
 
 export const PLENTY_FREE_BYTES = 8 * GB;
-export const ROOM_KEPT_FREE_BYTES = GB;
+export const ROOM_KEPT_FREE_BYTES = 256 * MB;
 
 export function pressureRung(disk: DiskUse | null): number {
   return disk && disk.freeBytes >= PLENTY_FREE_BYTES ? 0 : diskRung(disk);
@@ -41,6 +44,30 @@ export function pressureRung(disk: DiskUse | null): number {
 export function archiveSweep(disk: DiskUse | null): ArchiveSweep {
   const rung = pressureRung(disk);
   return PRESSURE_SWEEPS.reduce((chosen, step) => (rung >= step.from ? step.sweep : chosen), CALM_SWEEP);
+}
+
+export interface WorkFolderSweep {
+  idleMs: number;
+  byteLimit: number;
+  minBytes: number;
+  minFiles: number;
+}
+
+const DAY = 24 * HOUR;
+const WORTH_MOVING = { minBytes: 5 * MB, minFiles: 200 };
+
+export const CALM_WORK_FOLDERS: WorkFolderSweep = { idleMs: 14 * DAY, byteLimit: 256 * MB, ...WORTH_MOVING };
+
+export const PRESSURE_WORK_FOLDERS: ReadonlyArray<{ from: number; sweep: WorkFolderSweep }> = [
+  { from: rungOf("sweep"), sweep: { idleMs: 7 * DAY, byteLimit: 512 * MB, ...WORTH_MOVING } },
+  { from: rungOf("move"), sweep: { idleMs: 3 * DAY, byteLimit: 1024 * MB, ...WORTH_MOVING } },
+  { from: rungOf("refuse"), sweep: { idleMs: 2 * DAY, byteLimit: 2048 * MB, ...WORTH_MOVING } },
+  { from: rungOf("floor"), sweep: { idleMs: DAY, byteLimit: Infinity, ...WORTH_MOVING } },
+];
+
+export function workFolderSweep(disk: DiskUse | null): WorkFolderSweep {
+  const rung = pressureRung(disk);
+  return PRESSURE_WORK_FOLDERS.reduce((chosen, step) => (rung >= step.from ? step.sweep : chosen), CALM_WORK_FOLDERS);
 }
 
 export function roomFor(disk: DiskUse | null, bytes: number): boolean {
@@ -63,7 +90,8 @@ function sizeOrZero(path: string): number {
   }
 }
 
-export function savesHold(dataDir: string): number {
+export function savesHold(dataDir: string, status: SaveStatus | null = readSaveStatus(), now: number = Date.now()): number {
+  if (freshSaveStatus(status, now)) return status.heldOnDiskBytes + SAVE_COPY_RESERVE_BYTES;
   let names: string[];
   try { names = readdirSync(dataDir); } catch { return 0; }
   const largest = names.filter((name) => DATABASE.test(name))

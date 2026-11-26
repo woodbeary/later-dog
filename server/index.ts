@@ -131,11 +131,13 @@ import { PhonePerformance } from "./laterdog/phone-perf.ts";
 import { createPhonePerformanceRoutes } from "./routes/phone-perf.ts";
 import { createDogTaskRoute } from "./routes/dog-tasks.ts";
 import { briefStep, pageViewOf, SHOWN_PAGE_ROW_CAP, shownPageStart, type PageView } from "./message-pages.ts";
+import { requestedPageSize, snapshotPageSize } from "./laterdog/snapshot-page.ts";
 import { helperSelection, startedFromTask } from "./laterdog/dog-tasks.ts";
 import { createSharedJoins } from "./laterdog/shared-join.ts";
 import { configuredSpeechKey, SpeechCache } from "./laterdog/speech-cache.ts";
 import { mp3DurationMs } from "./laterdog/mp3-duration.ts";
 import { HOME_HEALTH_FILE, startHomeHealthLog } from "./laterdog/home-health-log.ts";
+import { HOME_SERVER_LOG_DIR, installHomeServerLog } from "./laterdog/home-server-log.ts";
 import { startMemoryGuard } from "./laterdog/memory-guard.ts";
 import { parseHelperModelChoice } from "./laterdog/helper-model.ts";
 import { makeSpace } from "./laterdog/space-maker.ts";
@@ -152,6 +154,7 @@ import { HeavyCommandGuard, preToolUseDecision } from "./laterdog/heavy-commands
 import { computersSelected } from "./laterdog/cloud-computers.ts";
 import { createComputerRunRoute } from "./routes/computer-run.ts";
 import { createStorageRoutes } from "./routes/storage.ts";
+import { createHomeLogRoutes } from "./routes/home-log.ts";
 import * as boat from "./computers.ts";
 import { cloudComputerRpc } from "./cloud-computer-tools.ts";
 import { pageToolsEnabled } from "./laterdog/page-tools.ts";
@@ -562,7 +565,9 @@ import { fetchGithubTeam, fetchLibraryTeam, fetchTeamCatalog } from "./team-libr
 import { BOT_PACKAGE_MAX_SKILLS, isBotPackage, packageSummary, parsePackageDocument, renderBotPackageMarkdown, type PackageDocument } from "./bot-package.ts";
 import { createTeamManifest, parseTeamManifest } from "./team-manifest.ts";
 import { LogArchiveCoordinator, claudeSessionIds, logArchiveBridge, outsideSessionOwners } from "./laterdog/log-archive.ts";
-import { archiveSweep, roomToRestore, savesHold, startArchiveSweeps, steadyDisk } from "./laterdog/archive-pressure.ts";
+import { archiveSweep, roomFor, roomToRestore, savesHold, startArchiveSweeps, steadyDisk, workFolderSweep } from "./laterdog/archive-pressure.ts";
+import { WorkFolderArchive } from "./laterdog/work-folder-archive.ts";
+import { savesForStorage } from "./laterdog/save-status.ts";
 import { readThreadEvents } from "./thread-events.ts";
 import { describeTool, readBotActivity } from "./activity.ts";
 import { OutboundRequestService } from "./outbound-requests.ts";
@@ -577,6 +582,7 @@ import { MEMORY_CHECK_MS, orphanIdleHours, readMemoryPressure, reapStrays, under
 import { startHomeUpkeep } from "./laterdog/home-upkeep.ts";
 import { liveSignalScene, signalDecision } from "./laterdog/home-signals.ts";
 import { homeFloorDecision } from "./laterdog/disk-floor.ts";
+import { startSteadyFloor } from "./laterdog/steady-floor.ts";
 import { callerGone, holdForPerson } from "./laterdog/always-ask-hold.ts";
 import { ALWAYS_ASK_PATHS, alwaysAskHook, alwaysAsks, asksAsConnector, connectorAlwaysAsks, internalCallRequest, type AlwaysAsk, type AlwaysAskRequest } from "./laterdog/always-asks.ts";
 import { listenWebhookIngress, webhookCredential, type WebhookIngress } from "./webhook-ingress.ts";
@@ -964,6 +970,7 @@ const CLOUD_SECRETS = BOOT_CLOUD_SECRETS;
 const CLOUD_ENV: NodeJS.ProcessEnv = { ...process.env, ...CLOUD_SECRETS };
 const deliverOwnerEmail = cloudEmailDelivery(CLOUD_ENV.LATERDOG_CLOUD_EMAIL_URL, CLOUD_ENV.LATERDOG_CLOUD_EMAIL_TOKEN);
 const CLOUD_HOME = cloudHomeConfiguration(CLOUD_ENV);
+if (CLOUD_HOME) installHomeServerLog({ dir: join(DATA_DIR, HOME_SERVER_LOG_DIR) });
 if (CLOUD_HOME) startHomeHealthLog({ file: join(DATA_DIR, HOME_HEALTH_FILE) });
 if (CLOUD_HOME) startMemoryGuard();
 const vaultStore = new VaultStore(join(DATA_DIR, "vault.json"), CLOUD_HOME
@@ -2874,10 +2881,14 @@ function threadBusy(botId: string, threadId: string): boolean {
 }
 
 const archiveDisk = steadyDisk(() => diskUse(DATA_DIR), () => savesHold(DATA_DIR));
-const logArchive = CLOUD_SECRETS.LATERDOG_CLOUD_ARCHIVE_TOKEN && process.env.LATERDOG_CLOUD_ARCHIVE_URL
+const floorDisk = CLOUD_HOME ? startSteadyFloor(() => diskUse(DATA_DIR)) : null;
+const archiveBridge = CLOUD_SECRETS.LATERDOG_CLOUD_ARCHIVE_TOKEN && process.env.LATERDOG_CLOUD_ARCHIVE_URL
+  ? logArchiveBridge(process.env.LATERDOG_CLOUD_ARCHIVE_URL, CLOUD_SECRETS.LATERDOG_CLOUD_ARCHIVE_TOKEN)
+  : null;
+const logArchive = archiveBridge
   ? new LogArchiveCoordinator({
     root: homedir(),
-    bridge: logArchiveBridge(process.env.LATERDOG_CLOUD_ARCHIVE_URL, CLOUD_SECRETS.LATERDOG_CLOUD_ARCHIVE_TOKEN),
+    bridge: archiveBridge,
     threads: () => [...new Set(store.bots.flatMap(bot => store.tasks(bot.id).map(task => task.threadId)))].filter(id => !store.groupByThread(id)),
     idle: id => {
       const owner = store.bots.find(bot => store.tasks(bot.id).some(task => task.threadId === id));
@@ -2891,6 +2902,22 @@ const logArchive = CLOUD_SECRETS.LATERDOG_CLOUD_ARCHIVE_TOKEN && process.env.LAT
     sweep: () => archiveSweep(archiveDisk()),
     room: () => roomToRestore(archiveDisk()),
     report: message => console.log(`[log archive] ${message}`),
+  }) : null;
+const workFolders = archiveBridge && logArchive
+  ? new WorkFolderArchive({
+    home: homedir(),
+    dataDir: DATA_DIR,
+    workspacesDir: TASK_WORKSPACES_DIR,
+    bridge: archiveBridge,
+    chats: () => janitorWorkspaces(),
+    inUse: (botId, threadId) => chatInUse(botId, threadId),
+    limits: () => workFolderSweep(archiveDisk()),
+    room: bytes => roomFor(archiveDisk(), bytes),
+    makeRoom: async () => {
+      await logArchive.scan();
+      await workFolders?.sweep();
+    },
+    log: line => console.log(line),
   }) : null;
 
 function parksBehindCoordination(botId: string, threadId: string): boolean {
@@ -5301,15 +5328,7 @@ store.onChange((change) => {
   }
 });
 
-const MESSAGE_PAGE_MAX = 200;
 const DEFAULT_PAGE = 50;
-
-function pageSize(raw: string | null): number | null | undefined {
-  if (raw === null) return undefined;
-  const size = Number(raw);
-  if (!Number.isInteger(size) || size < 0) return null;
-  return Math.min(size, MESSAGE_PAGE_MAX);
-}
 
 function slimMessage(stored: Message): Message | Record<string, unknown> {
   const message = rowForApps(exchangeLookup && exchangeIdOf(stored) ? withExchange(stored, exchangeLookup) : stored);
@@ -5318,10 +5337,7 @@ function slimMessage(stored: Message): Message | Record<string, unknown> {
   return { ...rest, hasImage: true };
 }
 
-function messagePage(threadId: string, limit: number | undefined, before?: string | null, view: PageView = {}) {
-  if (limit === undefined) {
-    return { messages: store.messagesFor(threadId).map(rowForApps), activeLeafId: store.activeLeaf(threadId) };
-  }
+function messagePage(threadId: string, limit: number, before?: string | null, view: PageView = {}) {
   const slim = (message: Message) => slimMessage(view.brief ? briefStep(message) : message);
   if (!before) {
     const tail = store.messagesTail(threadId, view.shown ? SHOWN_PAGE_ROW_CAP : limit);
@@ -6275,7 +6291,7 @@ function ingestEngineHook(capability: InternalCapability, body: unknown): { ok: 
   }
   if (name === "Stop") return { ok: true };
   if (name === "PreToolUse") {
-    const decision = (CLOUD_HOME ? signalDecision(payload, () => liveSignalScene(threadId, PORT, cloudOwnerOnlyThread(threadId) && !cloudGuestDriven(threadId), () => { restartRequested = true; })) ?? homeFloorDecision(payload, diskUse(DATA_DIR), { computers: computersSelected() }) : null)
+    const decision = (CLOUD_HOME ? signalDecision(payload, () => liveSignalScene(threadId, PORT, cloudOwnerOnlyThread(threadId) && !cloudGuestDriven(threadId), () => { restartRequested = true; })) ?? homeFloorDecision(payload, floorDisk ? floorDisk.reading() : diskUse(DATA_DIR), { computers: computersSelected() }) : null)
       ?? preToolUseDecision(heavyCommandGuard, { active: Boolean(CLOUD_HOME) && computersSelected(), threadId, payload })
       ?? alwaysAskHook(payload, () => hookGuardContext(capability.botId, threadId, typeof payload.cwd === "string" ? payload.cwd : undefined));
     return decision ? { ok: true, hookSpecificOutput: decision } : { ok: true };
@@ -9056,6 +9072,9 @@ async function startTurn(
       if (logArchive && !await logArchive.beforeTurn(threadId, () => directTurnClaimIsCurrent(bot.id, dispatchClaimId, threadId))) {
         throw new DirectTurnSetupCancelled("turn stopped while saved logs were restored");
       }
+      if (workFolders && !await workFolders.beforeTurn(bot.id, threadId, () => directTurnClaimIsCurrent(bot.id, dispatchClaimId, threadId))) {
+        throw new DirectTurnSetupCancelled("turn stopped while its work folder came back from storage");
+      }
       if (logArchive) watchdog.watch(threadId, bot.id);
       if (enginesRead) {
         await enginesRead;
@@ -11166,6 +11185,21 @@ async function runGroupMemberTurn(
     });
     onDispatchError?.(message);
     return true;
+  }
+  if (workFolders && supportsWorkspaceFiles(instance.driverKind) && cloudGuestOpened(threadId)) {
+    try {
+      if (!await workFolders.beforeTurn(bot.id, threadId, () => !isCancelled?.())) return false;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      store.appendMessage(threadId, {
+        role: "bot",
+        kind: "activity",
+        from: { botId: bot.id, name: bot.name, color: bot.color },
+        tool: failedTurnTool(message),
+      });
+      onDispatchError?.(message);
+      return true;
+    }
   }
   if (instance.adapter.capabilities.customMcp === true) {
     const custom = await withMcpSignIn(engineMcpServers(bot, await repositoriesForTurn()), mcpOAuth);
@@ -13788,6 +13822,7 @@ ROUTES.push(createEnginePlacementRoutes({
 }));
 ROUTES.push(createStreamWatchRoutes({ clients: () => sseClients }));
 ROUTES.push(createStorageRoutes({ storage: () => cloudStorage(), clean: () => runJanitorNow("low-disk"), measure: () => diskBreakdown.measure() }));
+ROUTES.push(createHomeLogRoutes({ dir: () => (CLOUD_HOME ? join(DATA_DIR, HOME_SERVER_LOG_DIR) : null) }));
 ROUTES.push(createLinkPreviewRoutes());
 ROUTES.push(createBotMemoryRoutes({
   bot: (id) => store.bot(id),
@@ -16634,7 +16669,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
     };
     if (method === "GET" && path === "/api/bots") {
       try { groupUsageReader.refresh(); } catch {}
-      const limit = pageSize(url.searchParams.get("messages"));
+      const limit = snapshotPageSize(url.searchParams.get("messages"));
       if (limit === null) return json(res, 400, { error: "messages must be a non-negative whole number" });
       const shownBots = store.bots.filter((bot) => visible.bot(bot.id));
       const queued = publicBotQueuedMessages();
@@ -16666,7 +16701,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       if (!store.botByThread(threadId) && !store.groupByThread(threadId)) {
         return json(res, 404, { error: "no such conversation" });
       }
-      const limit = pageSize(url.searchParams.get("limit"));
+      const limit = requestedPageSize(url.searchParams.get("limit"));
       if (limit === null) return json(res, 400, { error: "limit must be a non-negative whole number" });
       const before = url.searchParams.get("before");
       const around = url.searchParams.get("around");
@@ -17423,7 +17458,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         return json(res, 409, { error: "this channel is working or waiting on you in another task" });
       }
       const requestedMessages = url.searchParams.get("messages");
-      const switchLimit = pageSize(requestedMessages);
+      const switchLimit = snapshotPageSize(requestedMessages);
       if (switchLimit === null) return json(res, 400, { error: "messages must be a non-negative whole number" });
       const switched = store.switchGroupTask(group.id, m[2]);
       if (!switched) return json(res, 404, { error: "no such channel task" });
@@ -19613,7 +19648,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         return json(res, 409, { error: "this dog is securely saving a credential — try again when it finishes" });
       }
       const requestedMessages = url.searchParams.get("messages");
-      const switchLimit = pageSize(requestedMessages);
+      const switchLimit = snapshotPageSize(requestedMessages);
       if (switchLimit === null) return json(res, 400, { error: "messages must be a non-negative whole number" });
       const switched = store.switchTask(bot.id, m[2]);
       if (!switched) return json(res, 404, { error: "no such task" });
@@ -21828,6 +21863,24 @@ function janitorWorkspaces(): WorkspaceTask[] {
   return tasks;
 }
 
+function threadAtWork(threadId: string): boolean {
+  const bot = store.botByThread(threadId);
+  return runningTurnEngines.has(threadId) || Boolean(bot && threadBusy(bot.id, threadId)) || Boolean(store.groupByThread(threadId)?.busyBotId)
+    || helperBoard.running(threadId) || nativeRuns.running(threadId);
+}
+
+const OPEN_CARD_TAIL = 40;
+const openCard = (message: Message) => requestNeedsInput(message) || message.needsYou?.status === "waiting"
+  || Boolean(message.kind === "options" && message.card && !message.card.answered && !message.card.dismissed && !message.card.expired);
+
+function chatInUse(botId: string, threadId: string): boolean {
+  return threadAtWork(threadId) || threadBusy(botId, threadId) || directTurnDispatchClaims.has(threadId)
+    || hasQueuedSteeredMessages(botId, threadId) || limitHold.holds(threadId) || pendingComputerResumes.has(threadId)
+    || store.hasPendingRequest(threadId) || roomHandoffs.activeDirect(threadId) || roomHandoffs.handedOut(threadId).length > 0
+    || registry.instances().some(instance => instance.adapter.hasSession(threadId))
+    || store.messagesTail(threadId, OPEN_CARD_TAIL).messages.some(openCard);
+}
+
 let lastJanitorRun: JanitorRun | null = null;
 let homeUpkeep: ReturnType<typeof startHomeUpkeep> | null = null;
 const diskBreakdown = createDiskBreakdown({ dataDir: DATA_DIR, home: CLOUD_HOME ? homedir() : null, scratch: CLOUD_HOME ? [tmpdir()] : [], dogName: (id) => store.bot(id)?.name ?? null });
@@ -21856,7 +21909,16 @@ function runJanitorNow(reason: JanitorRun["reason"]): JanitorRun | null {
   }
 }
 
-if (logArchive) startArchiveSweeps({ scan: () => logArchive.scan(), disk: archiveDisk, warn: line => console.warn(line) });
+if (logArchive) {
+  startArchiveSweeps({
+    scan: async () => {
+      await logArchive.scan();
+      await workFolders?.sweep();
+    },
+    disk: archiveDisk,
+    warn: line => console.warn(line),
+  });
+}
 
 if (CLOUD_HOME) {
   setTimeout(() => { runJanitorNow("startup"); if (!diskBreakdown.last()) diskBreakdown.measure(); }, 2 * 60_000).unref();
@@ -21870,16 +21932,13 @@ if (CLOUD_HOME) {
   }, MEMORY_CHECK_MS).unref();
   homeUpkeep = startHomeUpkeep({
     subscribe: (listener) => bus.subscribe((event: RuntimeEvent) => { if (!shouldIgnoreProviderEvent(event)) listener(event); }),
-    atWork: (threadId) => {
-      const bot = store.botByThread(threadId);
-      return runningTurnEngines.has(threadId) || Boolean(bot && threadBusy(bot.id, threadId)) || Boolean(store.groupByThread(threadId)?.busyBotId)
-        || helperBoard.running(threadId) || nativeRuns.running(threadId);
-    },
+    atWork: threadAtWork,
     chats: () => janitorWorkspaces(),
     dataDir: DATA_DIR,
     home: homedir(),
     workspacesDir: TASK_WORKSPACES_DIR,
     storeChanges: (listener) => { store.onChange(listener); },
+    steadyDisk: floorDisk?.reading,
   });
 }
 
@@ -21912,8 +21971,10 @@ function cloudStorage() {
     low: isLowDisk(disk),
     warning: homeUpkeep?.warning() ?? null,
     archive: logArchive?.status() ?? { enabled: false },
+    workFolders: workFolders?.status() ?? { enabled: false },
     janitor: lastJanitorRun ? { at: lastJanitorRun.at, freedBytes: lastJanitorRun.freedBytes, stopped: lastJanitorRun.reaped } : null,
     breakdown: diskBreakdown.last(),
+    saves: savesForStorage(),
   };
 }
 

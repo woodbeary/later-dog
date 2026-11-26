@@ -11722,10 +11722,10 @@ describe("message pages", () => {
     return after.body.groups.find((g: { id: string }) => g.id === groupId);
   };
 
-  it("returns the whole transcript when nothing is asked for", async () => {
+  it("returns the apps' page when nothing is asked for", async () => {
     const room = await seedRoom(6);
     expect(room.messages).toHaveLength(6);
-    expect(room).not.toHaveProperty("hasMore");
+    expect(room.hasMore).toBe(false);
   });
 
   it("returns only the newest n when asked", async () => {
@@ -11799,7 +11799,7 @@ describe("message pages", () => {
     await api("POST", `/api/groups/${full.id}/tasks/${created.body.task.threadId}`);
     const whole = await api("POST", `/api/groups/${full.id}/tasks/${full.threadId}`);
     expect(whole.body.group.messages).toHaveLength(6);
-    expect(whole.body.group).not.toHaveProperty("hasMore");
+    expect(whole.body.group.hasMore).toBe(false);
 
     await api("POST", `/api/groups/${full.id}/tasks/${created.body.task.threadId}`);
     const parked = (await api("GET", "/api/bots?messages=0")).body.groups.find((g: { id: string }) => g.id === full.id).threadId;

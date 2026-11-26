@@ -42,14 +42,14 @@ describe("transcript pages on bot and room frames", () => {
     return stream.frames.slice(start);
   }
 
-  async function longBot(): Promise<{ id: string; threadId: string }> {
+  async function longBot(length = LONG): Promise<{ id: string; threadId: string }> {
     const source = (await api("POST", "/api/bots", { name: "Long Source" })).body.bot;
     const backup = (await api("POST", "/api/teams/export", { format: "backup", name: "Fixture" })).body;
     const bot = backup.bots.find((candidate: { name: string }) => candidate.name === source.name);
-    const messages = Array.from({ length: LONG }, (_, i) => ({
+    const messages = Array.from({ length }, (_, i) => ({
       id: `m${i}`, role: i % 2 ? "bot" : "user", text: `message ${i}`, at: 1_700_000_000_000 + i, parentId: i ? `m${i - 1}` : null,
     }));
-    bot.tasks = [{ key: "long", title: "Long thread", createdAt: 1_700_000_000_000, activeLeafId: `m${LONG - 1}`, messages }];
+    bot.tasks = [{ key: "long", title: "Long thread", createdAt: 1_700_000_000_000, activeLeafId: `m${length - 1}`, messages }];
     bot.activeTask = "long";
     const imported = await api("POST", "/api/teams/import", { ...backup, bots: [bot], groups: [], routines: [] });
     expect(imported.status, JSON.stringify(imported.body)).toBe(201);
@@ -224,7 +224,7 @@ describe("transcript pages on bot and room frames", () => {
     expect(texts(deleted[0].messages)).toEqual(newestPage);
   });
 
-  it("answers thread and folder routes with the newest page, and a switch without ?messages with the whole thread", async () => {
+  it("answers thread and folder routes with the newest page, and a switch without ?messages with the apps' page", async () => {
     const bot = await longBot();
     const renamed = await api("PATCH", `/api/bots/${bot.id}/tasks/${bot.threadId}`, { title: "Again" });
     expect(renamed.status).toBe(200);
@@ -238,6 +238,20 @@ describe("transcript pages on bot and room frames", () => {
     expect((await api("POST", `/api/bots/${bot.id}/tasks`, {})).status).toBe(201);
     const whole = await api("POST", `/api/bots/${bot.id}/tasks/${bot.threadId}`);
     expect(whole.body.bot.messages).toHaveLength(LONG);
-    expect(whole.body.bot).not.toHaveProperty("hasMore");
+    expect(whole.body.bot.hasMore).toBe(false);
+  });
+
+  it("never loads a whole long chat for a snapshot or a switch that asks for no size", async () => {
+    const length = 250;
+    const bot = await longBot(length);
+    const appsPage = Array.from({ length: 200 }, (_, i) => `message ${length - 200 + i}`);
+    const snapshot = (await api("GET", "/api/bots")).body.bots.find((candidate: { id: string }) => candidate.id === bot.id);
+    expect(texts(snapshot.messages)).toEqual(appsPage);
+    expect(snapshot.hasMore).toBe(true);
+
+    expect((await api("POST", `/api/bots/${bot.id}/tasks`, {})).status).toBe(201);
+    const switched = await api("POST", `/api/bots/${bot.id}/tasks/${bot.threadId}`);
+    expect(texts(switched.body.bot.messages)).toEqual(appsPage);
+    expect(switched.body.bot.hasMore).toBe(true);
   });
 });
