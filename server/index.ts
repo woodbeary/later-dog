@@ -15234,6 +15234,8 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       if (method === "POST" && path === "/api/internal/hook") {
         const body = await readInternalBody();
         const hookName = body && typeof body === "object" ? (body as { event?: unknown }).event : undefined;
+        const guarded = hookName === "PreToolUse" ? ingestEngineHook(internalCapability, body) : null;
+        if (guarded?.hookSpecificOutput) return json(res, 200, guarded);
         if (hookName === "PreToolUse") {
           const threadId = internalCapability.threadId;
           for (let waited = 0; waited < 600 && turnShape.awaitsReply(threadId, body); waited += 100) await new Promise((resolve) => setTimeout(resolve, 100));
@@ -15244,7 +15246,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
           }
         }
         if (hookName === "PostToolUse") turnShape.afterTool(internalCapability.threadId, body);
-        const answer = ingestEngineHook(internalCapability, body);
+        const answer = guarded ?? ingestEngineHook(internalCapability, body);
         const notice = answer.hookSpecificOutput ? null : helperTurns.fromHook(internalCapability.threadId, body, turnContext.get(internalCapability.threadId)?.tokens);
         return json(res, 200, notice ? { ...answer, hookSpecificOutput: notice } : answer);
       }

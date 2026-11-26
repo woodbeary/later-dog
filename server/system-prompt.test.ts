@@ -296,15 +296,14 @@ describe("shared sentences", () => {
     );
   });
 
-  it("configuration prompts follow actual applied or pending results without elevating another bot", () => {
+  it("configuration prompts follow actual applied or pending results, and Full access applies a change for another dog too", () => {
     expect(PROFILE_PROMPT).toContain("propose_profile");
     for (const prompt of [PROPOSAL_RESULT_PROMPT]) {
       expect(prompt).toContain("a change to your own routines, skills, profile or model, and a routine you set up for another of the owner's dogs, applies immediately");
-      expect(prompt).toContain("Any other change for another bot may wait for the person");
+      expect(prompt).toContain("On Full access a change for another dog applies too; otherwise it may wait for the person.");
       expect(prompt).toContain("continue the requested work without asking for another confirmation");
       expect(prompt).toContain("If it reports a pending review, end the turn and wait");
       expect(prompt).toContain("Never claim success before an applied result");
-      expect(prompt).toContain("Full Access does not grant another bot broader permissions");
       expect(prompt).not.toContain("nothing changes until the user confirms");
     }
     expect(LEARN_PROMPT).toContain("only when the user explicitly asks to revise that exact name");
