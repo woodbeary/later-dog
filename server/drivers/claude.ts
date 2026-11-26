@@ -12,6 +12,7 @@ import { acceptedEnginePlacement, engineOpener, lendableClaudeSignIn, notePlacem
 import { claudeSignInRefresh, plainEnvironment } from "../laterdog/claude-sign-in-refresh.ts";
 import { engineWaitEvent } from "../laterdog/engine-waiting.ts";
 import { createTurnPhases } from "../laterdog/turn-head-start.ts";
+import { keepWarm } from "../laterdog/keep-warm.ts";
 import { claudeResumeRefusal, classifyResumeFailure, mayReplay, recoveryPromptFor } from "../resume-recovery.ts";
 import { ClaudeLoginController } from "./claude-login-auth.ts";
 
@@ -1162,7 +1163,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
       if (!s || s.helpers.running()) return;
       warmEngines.rest(s, {
         pid: s.child.pid,
-        idleMs: placedThreads.has(threadId) ? sessionIdlePolicy("CLAUDE").idleMs : SESSION_IDLE_MS,
+        idleMs: placedThreads.has(threadId) ? keepWarm.idleMs(threadId, sessionIdlePolicy("CLAUDE").idleMs) : SESSION_IDLE_MS,
         close: (why) => { if (sessions.get(threadId) === s) closeSession(threadId, why); },
       });
     };

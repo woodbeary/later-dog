@@ -771,6 +771,7 @@ import { createDeskPrompts, createDeskVerifier, deskDogs, deskReplyFrom } from "
 import { createDeskBrainRoute, recordDeskExchange } from "./laterdog/desk-exchange.ts";
 import { createTurnTiming } from "./laterdog/turn-timing.ts";
 import { createTurnPhases, earlySnapshot, type EarlySnapshot } from "./laterdog/turn-head-start.ts";
+import { keepWarm } from "./laterdog/keep-warm.ts";
 import { instanceTouchedBy } from "./laterdog/snapshot-cache.ts";
 import { createEmailMeRoute } from "./routes/email-me.ts";
 import { createNearbyPlacesRoute } from "./routes/nearby-places.ts";
@@ -9133,6 +9134,7 @@ async function startTurn(
   if (!opts?.cardContinuation) {
     if (commsDepth === 0 && opts?.automationSource === undefined && !opts?.unattended && !userMessage.peerAsk) {
       personAskAt.set(threadId, userMessage.at);
+      keepWarm.personAsked(bot.id, threadId, userMessage.at);
       if (task.routineRunId) store.patchTask(bot.id, threadId, { routineRunId: undefined });
     } else {
       personAskAt.delete(threadId);
