@@ -145,7 +145,14 @@ export class HistoryDirectory extends DurableObject<Environment> {
       )
       .one();
   }
-  begin(generation: string, expectedRevision: number): Placement {
+  private reserveEventSequence(generation: string, sequence?: string, finalized = false) {
+    if (sequence === undefined) return;
+    if (typeof sequence !== "string" || !/^(0|[1-9][0-9]{0,18})$/.test(sequence) || BigInt(sequence) >= 2n ** 63n)
+      throw Error("Invalid native history event sequence");
+    if (finalized && BigInt(sequence) >= BigInt(this.restores.range(generation))) throw Error("The restore event range is already sealed");
+    this.restores.reserve(generation, sequence);
+  }
+  begin(generation: string, expectedRevision: number,eventSequence?:string): Placement {
     requireGeneration(generation);
     this.erasure.allowGeneration(generation);
     return this.ctx.storage.transactionSync(() => {
@@ -154,10 +161,10 @@ export class HistoryDirectory extends DurableObject<Environment> {
         p.mode === "dual" &&
         p.generation === generation &&
         p.revision === expectedRevision + 1
-      )
-        return p;
+      ) { this.reserveEventSequence(generation,eventSequence); return p; }
       if (p.mode !== "legacy" || p.revision !== expectedRevision)
         throw Error("History placement changed before preparation");
+      this.reserveEventSequence(generation,eventSequence);
       this.sql.exec("INSERT INTO generations(name) VALUES(?)", generation);
       this.sql.exec(
         "UPDATE placement SET mode='dual',generation=?,revision=revision+1 WHERE singleton=1",
@@ -468,17 +475,17 @@ export class HistoryDirectory extends DurableObject<Environment> {
   restoreStatus(key: RestoreKey) {
     return this.restores.get(key);
   }
-  restoreBegin(key: RestoreKey, expectedRevision: number) {
-    const old = this.restores.get(key);
-    if (old) return this.restores.begin(key, expectedRevision);
-    const p = this.status();
-    if (
-      p.mode !== "remote" ||
-      p.generation !== key.generation ||
-      p.revision !== expectedRevision
-    )
-      throw Error("History changed before restore");
-    return this.restores.begin(key, expectedRevision);
+  restoreBegin(key: RestoreKey, expectedRevision: number,eventSequence?:string) {
+    return this.ctx.storage.transactionSync(() => {
+      const old = this.restores.get(key);
+      if (!old) {
+        const p = this.status();
+        if(p.mode!=="remote" || p.generation!==key.generation || p.revision!==expectedRevision) throw Error("History changed before restore");
+      }
+      const job = this.restores.begin(key,expectedRevision);
+      this.reserveEventSequence(job.physicalGeneration,eventSequence,job.status!=="preparing");
+      return job;
+    });
   }
   restoreAddress(
     key: RestoreKey,

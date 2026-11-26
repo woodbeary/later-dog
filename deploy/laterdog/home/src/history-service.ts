@@ -82,7 +82,7 @@ async function execute(
 
 type RestoreRequest = { jobId: string; generation: string } & (
   | { op: "status" | "finish" | "undo" }
-  | { op: "begin"; expectedRevision: number }
+  | { op: "begin"; expectedRevision: number; eventSequence?:string }
   | { op: "switch"; proofs: [string, string][] }
   | ({ threadId: string } & (
       | ImportCommand
@@ -124,7 +124,7 @@ export class HistoryApi extends WorkerEntrypoint<HistoryEnvironment> {
       case "status":
         return Response.json(await dir.restoreStatus(key));
       case "begin":
-        return Response.json(await dir.restoreBegin(key, req.expectedRevision));
+        return Response.json(await dir.restoreBegin(key, req.expectedRevision,req.eventSequence));
       case "undo":
       case "finish":
         return Response.json(await dir.restoreClose(key, req.op));
@@ -388,6 +388,7 @@ type Admin =
       op: "begin" | "hold" | "abandon";
       generation: string;
       expectedRevision: number;
+      eventSequence?:string;
     }
   | { op: "list"; generation: string; after?: string }
   | { op: "barrier"; generation: string; revision: number }
@@ -451,7 +452,7 @@ export class HistoryMigrationApi extends WorkerEntrypoint<HistoryEnvironment> {
       case "abandon":
         return dir.abandon(req.generation, req.expectedRevision);
       case "begin":
-        return dir.begin(req.generation, req.expectedRevision);
+        return dir.begin(req.generation, req.expectedRevision,req.eventSequence);
       case "hold":
         return dir.hold(req.generation, req.expectedRevision);
       case "barrier":

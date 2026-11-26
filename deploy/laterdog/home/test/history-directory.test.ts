@@ -144,6 +144,22 @@ describe("per-home history activation", () => {
       db.close();
     }
   });
+  it("reserves deleted event rowids on initial import and portable restore", () => {
+    const { db,open } = database();
+    try {
+      const dir = open();
+      expect(()=>dir.begin("first",0,"9223372036854775807")).toThrow();
+      expect(dir.status().mode).toBe("legacy");
+      dir.begin("first",0,"9007199254740995");
+      expect(BigInt(dir.open("first","t","stage").base)).toBeGreaterThan(9007199254740995n);
+      dir.hold("first",1);
+      dir.fenced("first","t",2,checksum);
+      dir.finish("first",2,"remote",[["t",checksum]]);
+      const key={generation:"first",jobId:"replace"};
+      dir.restoreBegin(key,3,"18014398509481990");
+      expect(BigInt(dir.restoreAddress(key,"t","stage").base)).toBeGreaterThan(18014398509481990n);
+    } finally {db.close();}
+  });
   it("remembers a cancelled enrollment across a cold open", () => {
     const { db, open } = database();
     try {
