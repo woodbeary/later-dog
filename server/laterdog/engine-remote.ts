@@ -95,7 +95,7 @@ export class RemoteSession extends EventEmitter {
         timer = null;
         link.off("open", arm);
         this.off("relay-ready", onReady);
-        this.off("link-closed", onClosed);
+        link.off("close", onClosed);
       };
       const arm = () => {
         timer = setTimeout(() => {
@@ -110,7 +110,7 @@ export class RemoteSession extends EventEmitter {
       };
       if (link.opening) link.once("open", arm); else arm();
       this.once("relay-ready", onReady);
-      this.once("link-closed", onClosed);
+      link.once("close", onClosed);
     });
     this.#ready.catch(() => {});
     link.on("line", (line: string) => {
