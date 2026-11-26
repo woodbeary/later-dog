@@ -17,13 +17,14 @@ function bounded(operation, ms = 180_000) {
     }),
   ]).finally(() => clearTimeout(timer));
 }
-async function retrying(operation, attempts = 6) {
+async function retrying(operation, reconnect, attempts = 6) {
   for (let attempt = 1; ; attempt++) {
     try {
       return await bounded(operation, 60_000);
     } catch (error) {
       if (attempt >= attempts) throw error;
       await new Promise((done) => setTimeout(done, Math.min(8000, 500 * 2 ** attempt)));
+      if (attempt >= 2) await reconnect();
     }
   }
 }
@@ -47,35 +48,55 @@ async function remote() {
     service.remote !== true
   )
     throw Error("Unexpected migration binding");
-  const proxy = await getPlatformProxy({
-    configPath,
-    remoteBindings: true,
-    persist: false,
-    envFiles: [],
-  });
-  const admin = proxy.env.HISTORY_ADMIN;
+  const connect = () =>
+    getPlatformProxy({
+      configPath,
+      remoteBindings: true,
+      persist: false,
+      envFiles: [],
+    });
+  let proxy = await connect();
+  let admin = proxy.env.HISTORY_ADMIN;
+  let reconnecting = null;
+  const reconnect = () => {
+    const stale = proxy;
+    reconnecting ??= bounded(connect, 120_000)
+      .then((fresh) => {
+        if (proxy === stale) {
+          proxy = fresh;
+          admin = fresh.env.HISTORY_ADMIN;
+          bounded(() => stale.dispose(), 30_000).catch(() => {});
+        } else bounded(() => fresh.dispose(), 30_000).catch(() => {});
+      })
+      .catch(() => {})
+      .finally(() => {
+        reconnecting = null;
+      });
+    return reconnecting;
+  };
+  const again = (operation) => retrying(operation, reconnect);
   const args = (q) => ({ generation: cfg.generation, ...q });
   const bytes = async (body) => new Uint8Array(await new Response(body).arrayBuffer());
   const api = {
     admin: (q) =>
       repeatableAdmin.has(q.op)
-        ? retrying(() => admin.admin(cfg.stable, args(q)))
+        ? again(() => admin.admin(cfg.stable, args(q)))
         : bounded(() => admin.admin(cfg.stable, args(q))),
     receiptBatch: (q) =>
-      retrying(() => admin.receiptBatch(cfg.stable, cfg.generation, q)),
+      again(() => admin.receiptBatch(cfg.stable, cfg.generation, q)),
     async putReceiptPack(meta, body) {
       const content = await bytes(body);
-      return retrying(() =>
+      return again(() =>
         admin.putReceiptPack(cfg.stable, cfg.generation, meta, new Blob([content]).stream()),
       );
     },
     getReceipt: (sha) =>
-      retrying(async () =>
+      again(async () =>
         new Blob([await bytes(await admin.getReceipt(cfg.stable, cfg.generation, sha))]).stream(),
       ),
     async putReceipt(sha, body) {
       const content = await bytes(body);
-      return retrying(() =>
+      return again(() =>
         admin.putReceipt(cfg.stable, cfg.generation, sha, new Blob([content]).stream()),
       );
     },
@@ -84,7 +105,7 @@ async function remote() {
     async page(req) {
       const { op, ...body } = req;
       if (op !== "page") throw Error("Invalid history page request");
-      return retrying(async () =>
+      return again(async () =>
         new Response(await admin.pageStream(cfg.stable, args(body))).json(),
       );
     },
