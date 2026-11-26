@@ -509,10 +509,11 @@ async function workComputer(client: ComputersClient, botId: string, repository?:
   return createOwn(client, botId, ownName(botId), wantedSize(cfg), repository);
 }
 
-export async function heavyRunBox(botId: string, options: { repository?: string; wanted?: () => boolean; budgetMs?: number } = {}): Promise<{ box: RunBox }> {
+export async function heavyRunBox(botId: string, options: { repository?: string; wanted?: () => boolean; budgetMs?: number; expectedId?: string } = {}): Promise<{ box: RunBox }> {
   if (!computersSelected()) throw Object.assign(new Error("Cloud computers are not set up here, so run it in your own folder instead."), { status: 409 });
   const client = ownClient();
-  const computer = await workComputer(client, botId, options.repository);
+  const computer = options.expectedId ? await findOwn(client, botId) : await workComputer(client, botId, options.repository);
+  if (!computer || options.expectedId && computer.id !== options.expectedId) throw new Error("The computer which started this job is no longer assigned to its dog.");
   const entry = computer.state;
   const refusedStart = entry === "running" ? undefined : starts.failure(computer.id);
   if (refusedStart !== undefined) throw didNotStart(refusedStart);
@@ -541,7 +542,7 @@ export async function heavyRunBox(botId: string, options: { repository?: string;
   }
   starts.settled(computer.id);
   const box: RunBox = {
-    computerId: ready.id, durableJobs: ready.durableJobs === true,
+    computerId: ready.id, durableJobs: ready.durableJobs === true, stream: () => client.process(ready.id),
     exec: (command, timeoutMs) => runOwn(client, ready.id, command, { timeoutMs }),
     write: (path, bytes) => client.writeFile(ready.id, path, bytes),
     read: (path) => client.readFile(ready.id, path),
@@ -561,7 +562,7 @@ export async function jobComputer(botId: string): Promise<JobComputer> {
   if (computer.state === "archived") return { state: "asleep" };
   if (computer.state !== "running") return { state: "unsure" };
   return { state: "running", box: {
-    computerId: computer.id, durableJobs: computer.durableJobs === true,
+    computerId: computer.id, durableJobs: computer.durableJobs === true, stream: () => client.process(computer.id),
     exec: (command, timeoutMs) => runOwn(client, computer.id, command, { timeoutMs }),
     write: (path, bytes) => client.writeFile(computer.id, path, bytes),
     read: (path) => client.readFile(computer.id, path),

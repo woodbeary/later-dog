@@ -1,7 +1,9 @@
+import type { FolderScope } from "./work-folder-locations.ts";
+import type { ComputersClient } from "./cloud-computers.ts";
 import { spawn } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
 import { lstatSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
-import { dirname, join, relative } from "node:path";
+import { isAbsolute, dirname, join, relative } from "node:path";
 import { stripVTControlCharacters } from "node:util";
 import { BUILD_OUTPUT_DIRS, isGeneratedPath } from "./janitor.ts";
 
@@ -43,6 +45,7 @@ export interface BoxExec {
 }
 
 export interface RunBox {
+  stream?: () => ReturnType<ComputersClient["process"]>;
   computerId?: string;
   durableJobs?: boolean;
   exec(command: string, timeoutMs: number): Promise<BoxExec>;
@@ -64,6 +67,7 @@ interface RemoteRunReceipt {
 }
 
 export interface RunRecord {
+  managedFolder?: FolderScope;
   computerId?: string;
   durable?: boolean;
   id: string;
@@ -81,6 +85,7 @@ export interface RunRecord {
 }
 
 export interface RunOutcome {
+  savedWorkFolder?: true;
   id: string;
   state: "finished" | "running" | "failed";
   exitCode: number | null;
@@ -93,7 +98,10 @@ export interface RunOutcome {
   note?: string;
 }
 
+export type SyncRunFolder = (box: RunBox, botId: string, scope: FolderScope, action: "hydrate" | "checkpoint") => Promise<void>;
+
 type RunInput = {
+  managedFolder?: FolderScope;
   botId: string;
   folder: string;
   subdir?: string;
@@ -112,14 +120,15 @@ function remoteRunOutcome(record: RunRecord, receipt: RemoteRunReceipt, sent: Pi
     output: receipt.output,
     broughtBack: [],
     skipped: [],
-    outputs: "remote",
+    ...(record.outputs ? { outputs: record.outputs } : {}),
+    ...(record.managedFolder ? { savedWorkFolder: true as const } : {}),
     ...sent,
     ...(record.reusedSetup ? { note: "Reused the packages already installed for another copy of this project on your computer." } : {}),
   };
 }
 
 export function completedRemoteRun(record: RunRecord, sent = { sentFiles: 0, sentBytes: 0 }): RunOutcome | null {
-  return record.outputs === "remote" && record.receipt ? remoteRunOutcome(record, record.receipt, sent) : null;
+  return (record.managedFolder || record.outputs === "remote") && record.receipt ? remoteRunOutcome(record, record.receipt, sent) : null;
 }
 
 const quote = (value: string) => `'${value.replace(/'/g, `'\\''`)}'`;
@@ -244,7 +253,11 @@ export class ComputerRuns {
   readonly #now: () => number;
   readonly #sleep: (ms: number) => Promise<void>;
 
-  constructor(stateDir: string, options: { now?: () => number; sleep?: (ms: number) => Promise<void> } = {}) {
+  readonly #syncFolder?: SyncRunFolder;
+  readonly #checkpoints = new Map<string, Promise<RemoteRunReceipt>>();
+
+  constructor(stateDir: string, options: { now?: () => number; sleep?: (ms: number) => Promise<void>; syncFolder?: SyncRunFolder } = {}) {
+    this.#syncFolder = options.syncFolder;
     this.#stateDir = stateDir;
     this.#now = options.now ?? Date.now;
     this.#sleep = options.sleep ?? ((ms) => new Promise((done) => setTimeout(done, ms)));
@@ -280,9 +293,25 @@ export class ComputerRuns {
     return receipt;
   }
 
-  async start(box: RunBox, input: RunInput): Promise<RunRecord & { sentFiles: number; sentBytes: number }> {
-    const key = runKey(input.folder);
-    const id = randomUUID().slice(0, 8);
+  async #prepareRunFolder(box: RunBox, input: RunInput, key: string, id: string, subdir: string) {
+    if (input.managedFolder) {
+      if (!box.computerId || !this.#syncFolder) throw new Error("The assigned work folder computer is unavailable.");
+      await this.#syncFolder(box, input.botId, input.managedFolder, "hydrate");
+      const workDir = subdir ? join(input.folder, subdir) : input.folder;
+      const scope = input.managedFolder.path;
+      const rel = relative(scope, workDir);
+      if (rel === ".." || rel.startsWith("../") || isAbsolute(rel)) throw new Error("The command folder lies outside its assigned work folder.");
+      const inside = `case "$PWD/" in "$scope"/*) true;; *) exit 1;; esac`;
+      const components = subdir.split("/").filter(Boolean);
+      if (components.some(part => part === "." || part === "..")) throw new Error("Invalid job subdirectory.");
+      const descend = components.map(part => {
+        const name = quote(part);
+        return `{ test -e ${name} || test -L ${name} || mkdir -- ${name}; } && cd -P -- ${name} && ${inside}`;
+      });
+      const prepare = [`mkdir -p runs/.logs`, `scope=$(cd -P -- ${quote(scope)} && pwd -P)`, `cd -P -- ${quote(input.folder)}`, inside, ...descend];
+      must(await box.exec(prepare.join(" && "), 30_000), "opening the command's assigned work folder");
+      return { workDir, remember: "", now: {} as FolderStamps, reusedSetup: false, sentFiles: 0, sentBytes: 0 };
+    }
     const remote = `runs/${key}`;
     const now = stampFolder(input.folder);
     const before = this.#readJson<FolderStamps>(this.#sentPath(input.botId, key));
@@ -290,7 +319,6 @@ export class ComputerRuns {
     const { changed, removed } = changesSince(present && before ? before : {}, now);
     const sentBytes = changed.reduce((sum, path) => sum + now[path].size, 0);
     if (sentBytes > MAX_SEND_BYTES) throw new Error(`that folder has ${Math.round(sentBytes / 1024 / 1024)} MB to send; the most is ${MAX_SEND_BYTES / 1024 / 1024} MB. Pick a smaller folder.`);
-    const subdir = (input.subdir ?? "").replace(/^\/+|\/+$/g, "");
     const workDir = subdir ? `${remote}/${subdir}` : remote;
     must(await box.exec(`mkdir -p ${quote(remote)} ${quote(workDir)} runs/.in runs/.logs && rm -f runs/.in/${id}.*`, 30_000), "preparing the folder");
     if (changed.length) {
@@ -314,15 +342,26 @@ export class ComputerRuns {
     const remember = setup
       ? `if [ $rc = 0 ] && [ -d "$HOME"/${quote(`${workDir}/node_modules`)} ]; then mkdir -p "$HOME/runs/.setup" && echo ${key} > "$HOME/runs/.setup/${setup}.${id}" && mv -f "$HOME/runs/.setup/${setup}.${id}" "$HOME/runs/.setup/${setup}"; fi; `
       : "";
-    const script = `export ${RUN_MARKER}=${id}; ps -o pgid= -p $$ | tr -cd 0-9 > "$HOME/runs/.logs/${id}.pgid"; export PATH="$HOME/.local/bin:$PATH"; command -v pnpm > /dev/null || npm install -g --prefix "$HOME/.local" pnpm > /dev/null 2>&1; cd ${quote(workDir)} && touch "$HOME/runs/.logs/${id}.start" && ( ${input.command} ) > "$HOME/runs/.logs/${id}.log" 2>&1; rc=$?; ${remember}echo $rc > "$HOME/runs/.logs/${id}.exit"`;
+    return { workDir, remember, now, reusedSetup, sentFiles: changed.length, sentBytes };
+  }
+
+  async start(box: RunBox, input: RunInput): Promise<RunRecord & { sentFiles: number; sentBytes: number }> {
+    const key = runKey(input.folder);
+    const id = randomUUID().slice(0, 8);
+    const subdir = (input.subdir ?? "").replace(/^\/+|\/+$/g, "");
+    const { workDir, remember, now, reusedSetup, sentFiles, sentBytes } = await this.#prepareRunFolder(box, input, key, id, subdir);
+    const enter = input.managedFolder
+      ? `scope=$(cd -P -- ${quote(input.managedFolder.path)} && pwd -P) && cd -P -- ${quote(workDir)} && case "$PWD/" in "$scope"/*) true;; *) false;; esac`
+      : `cd ${quote(workDir)}`;
+    const script = `export ${RUN_MARKER}=${id}; ps -o pgid= -p $$ | tr -cd 0-9 > "$HOME/runs/.logs/${id}.pgid"; export PATH="$HOME/.local/bin:$PATH"; command -v pnpm > /dev/null || npm install -g --prefix "$HOME/.local" pnpm > /dev/null 2>&1; ${enter} && touch "$HOME/runs/.logs/${id}.start" && ( ${input.command} ) > "$HOME/runs/.logs/${id}.log" 2>&1; rc=$?; ${remember}echo $rc > "$HOME/runs/.logs/${id}.exit"`;
     if (input.active && !input.active()) throw Object.assign(new Error("the turn ended before the command started, so nothing was run"), { code: "cancelled" });
     if (input.left && input.left() <= 0) throw Object.assign(new Error("the call's time ran out before the command started, so nothing was run"), { code: "window_ended" });
     const detached = `nohup bash -lc ${quote(script)} > /dev/null 2>&1 < /dev/null &`;
     must(await box.exec(`exec 9> "$HOME/runs/.logs/${id}.lock" || exit 1; if command -v setsid > /dev/null; then setsid ${detached} else set -m; ${detached} fi; echo started`, 30_000), "starting the command");
-    const record: RunRecord = { id, botId: input.botId, key, folder: input.folder, subdir, command: input.command, startedAt: this.#now(), sent: now, marked: true, ...(box.computerId ? { computerId: box.computerId } : {}), ...(box.durableJobs ? { durable: true } : {}), ...(reusedSetup ? { reusedSetup: true } : {}), ...(input.outputs ? { outputs: input.outputs } : {}) };
+    const record: RunRecord = { ...(input.managedFolder ? { managedFolder: input.managedFolder } : {}), id, botId: input.botId, key, folder: input.folder, subdir, command: input.command, startedAt: this.#now(), sent: now, marked: true, ...(box.computerId ? { computerId: box.computerId } : {}), ...(box.durableJobs ? { durable: true } : {}), ...(reusedSetup ? { reusedSetup: true } : {}), ...(input.outputs ? { outputs: input.outputs } : {}) };
     this.#writeJson(this.#runPath(input.botId, id), record);
     input.started?.(record);
-    return { ...record, sentFiles: changed.length, sentBytes };
+    return { ...record, sentFiles, sentBytes };
   }
 
   record(botId: string, id: string): RunRecord | null {
@@ -348,18 +387,34 @@ export class ComputerRuns {
     return !(await this.poll(box, record)).done;
   }
 
+  async #saveOutput(box: RunBox, record: RunRecord, exitCode: number, output: string, at?: number): Promise<RemoteRunReceipt> {
+    const existing = this.record(record.botId, record.id)?.receipt;
+    if (existing) return existing;
+    if (!record.managedFolder) return this.#recordRemoteReceipt(record, exitCode, output, at);
+    const key = `${record.botId}/${record.id}`;
+    const pending = this.#checkpoints.get(key);
+    if (pending) return pending;
+    if (!this.#syncFolder || !record.computerId || record.computerId !== box.computerId) throw new Error("Cannot save this job on a different computer.");
+    const save = this.#syncFolder(box, record.botId, record.managedFolder, "checkpoint")
+      .then(() => this.#recordRemoteReceipt(record, exitCode, output, at), error => {
+        throw new Error(`The command finished (run_id ${record.id}). Call run_on_computer with that run_id to retry saving the working folder.`, { cause: error });
+      });
+    this.#checkpoints.set(key, save);
+    try { return await save; } finally { this.#checkpoints.delete(key); }
+  }
+
   async ended(box: RunBox, job: Pick<RunRecord, "botId" | "id" | "computerId">): Promise<{ exitCode: number; at?: number } | null> {
     if (job.computerId && job.computerId !== box.computerId) return null;
     const record = /^[0-9a-f]{8}$/.test(job.id) ? this.record(job.botId, job.id) : null;
     if (!record || (record.computerId && record.computerId !== box.computerId)) return null;
-    if (record.outputs === "remote" && record.receipt) return { exitCode: record.receipt.exitCode, at: record.receipt.at };
+    if ((record.managedFolder || record.outputs === "remote") && record.receipt) return { exitCode: record.receipt.exitCode, at: record.receipt.at };
     const state = await this.poll(box, record);
     if (!state.done || state.exitCode === null || !Number.isInteger(state.exitCode)) return null;
     if (!record.computerId) this.#bindConfirmedRun(box, job);
     const stamp = Number(stripVTControlCharacters((await box.exec(`date -r runs/.logs/${record.id}.exit +%s`, 10_000).catch(() => ({ stdout: "" }))).stdout).trim());
     const at = Number.isFinite(stamp) && stamp > 0 ? stamp * 1000 : undefined;
-    if (record.outputs === "remote") {
-      const receipt = this.#recordRemoteReceipt(record, state.exitCode, state.output, at);
+    if (record.managedFolder || record.outputs === "remote") {
+      const receipt = await this.#saveOutput(box, record, state.exitCode, state.output, at);
       return { exitCode: receipt.exitCode, at: receipt.at };
     }
     return { exitCode: state.exitCode, ...(at !== undefined ? { at } : {}) };
@@ -431,7 +486,7 @@ export class ComputerRuns {
   }
 
   async finish(box: RunBox, record: RunRecord, sent = { sentFiles: 0, sentBytes: 0 }, left: () => number = this.window()): Promise<RunOutcome> {
-    if (record.outputs === "remote") {
+    if (record.managedFolder || record.outputs === "remote") {
       const completed = completedRemoteRun(this.record(record.botId, record.id) ?? record, sent);
       if (completed) return completed;
     }
@@ -446,9 +501,9 @@ export class ComputerRuns {
       return { id: record.id, state: overdue ? "failed" : "running", exitCode: null, output: state.output, broughtBack: [], skipped: [], ...sent,
         note: overdue ? "Stopped after 2 hours." : `Still running. Call run_on_computer again with run_id "${record.id}" to keep waiting. That call waits up to its wait_minutes (default 4).` };
     }
-    if (record.outputs === "remote") {
+    if (record.managedFolder || record.outputs === "remote") {
       if (state.exitCode === null || !Number.isInteger(state.exitCode)) throw new Error("The cloud computer returned an invalid exit code.");
-      const receipt = this.#recordRemoteReceipt(record, state.exitCode, state.output);
+      const receipt = await this.#saveOutput(box, record, state.exitCode, state.output);
       return remoteRunOutcome(record, receipt, sent);
     }
     if (left() <= 0) return { id: record.id, state: "running", exitCode: state.exitCode, output: state.output, broughtBack: [], skipped: [], ...sent,

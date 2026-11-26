@@ -547,3 +547,35 @@ describe("generated transfer paths", () => {
   });
 
 });
+
+it("runs in the assigned guest folder, records its checkpoint before completion, and retries without executing twice", async () => {
+  const { folder, computer, state } = project();
+  mkdirSync(computer);
+  const local = localBox(computer);
+  const box = { ...local.box, computerId: "cmp-fixture", durableJobs: true,
+    write: async () => { throw new Error("managed folders must not be packed through home"); },
+    read: async () => { throw new Error("managed folders must not be fetched back through home"); } };
+  const scope = { owner: "dog", id: "task-chat", path: folder };
+  const actions: string[] = [];
+  let rejectCheckpoint = true;
+  const options = { ...fast, syncFolder: async (_box: RunBox, dog: string, bound: typeof scope, action: "hydrate" | "checkpoint") => {
+    expect(dog).toBe("dog");
+    expect(bound).toEqual(scope);
+    actions.push(action);
+    if (action === "checkpoint" && rejectCheckpoint) throw new Error("store offline");
+  } };
+  const runs = new ComputerRuns(state, options);
+  const started = await runs.start(box, { botId: "dog", managedFolder: scope, folder, subdir: "reports/new", command: "printf x >> result" });
+  expect(started).toMatchObject({ sentFiles: 0, sentBytes: 0, computerId: "cmp-fixture" });
+  await expect(runs.finish(box, started)).rejects.toThrow(started.id);
+  expect(runs.record("dog", started.id)?.receipt).toBeUndefined();
+  const resumed = new ComputerRuns(state, options);
+  rejectCheckpoint = false;
+  const done = await resumed.finish(box, resumed.record("dog", started.id)!);
+  expect(done).toMatchObject({ state: "finished", exitCode: 0, savedWorkFolder: true, sentFiles: 0, broughtBack: [] });
+  expect(readFileSync(join(folder, "reports", "new", "result"), "utf8")).toBe("x");
+  expect(actions).toEqual(["hydrate", "checkpoint", "checkpoint"]);
+  expect(local.commands.some(command => command.includes("tar -") || command.includes("python3 -c"))).toBe(false);
+  expect(await resumed.ended(box, started)).toMatchObject({ exitCode: 0 });
+  expect(actions).toHaveLength(3);
+});
