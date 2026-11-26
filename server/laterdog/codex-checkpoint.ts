@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
-import { constants, existsSync, lstatSync, mkdirSync, readFileSync, unlinkSync } from "node:fs";
+import { constants, existsSync, lstatSync, mkdirSync, readFileSync, rmSync, unlinkSync } from "node:fs";
 import { open } from "node:fs/promises";
 import { dirname, join, relative } from "node:path";
 import { renameWithRetry, writeFileAtomic } from "../atomic.ts";
@@ -96,7 +96,7 @@ export function codexCheckpoint(dataDir: string, accountHome: string, bot: strin
         }
         remember(cursor, name, hash);
       } finally {
-        try { unlinkSync(temp); } catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; }
+        rmSync(temp, { force: true });
       }
     },
   };
