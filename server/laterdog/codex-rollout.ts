@@ -8,7 +8,6 @@ import { engineFilePath, type EngineFileRoot } from "./engine-files.ts";
 export const CODEX_UUID = /^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/;
 const ROLLOUT = /^(?:\d{4}\/\d{2}\/\d{2}\/rollout-[a-zA-Z0-9_.-]+)-([a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12})\.jsonl$/;
 const BLOCK = 1024 * 1024;
-const MAX_HEADER = 1024 * 1024;
 
 export function validatedCodexRollout(name: string, cursor: string): string {
   if (!CODEX_UUID.test(cursor) || ROLLOUT.exec(name)?.[1] !== cursor) throw new Error("Codex returned an unexpected checkpoint path.");
@@ -25,7 +24,7 @@ async function* blocks(fd: FileHandle, start: number, end: number, size = BLOCK)
   }
 }
 
-async function completedRow(fd: FileHandle, start: number, end: number, turnId: string): Promise<boolean> {
+async function matchesRow(fd: FileHandle, start: number, end: number, rowType: string, identityKey: string, identity: string, eventType?: string): Promise<boolean> {
   const parse = jsonParser({ packValues: false, streamKeys: true, streamStrings: true, streamNumbers: false });
   const decoder = new StringDecoder("utf8");
   let depth = 0, payload = false, key = "", value = "", type = "", event = "", turn = "";
@@ -50,18 +49,18 @@ async function completedRow(fd: FileHandle, start: number, end: number, turnId: 
         if (depth === 1 && key === "type") type = "";
         if (depth === 1 && key === "payload") { event = ""; turn = ""; }
         if (depth === 2 && payload && key === "type") event = "";
-        if (depth === 2 && payload && key === "turn_id") turn = "";
+        if (depth === 2 && payload && key === identityKey) turn = "";
       } else if (token.name === "endString") {
         if (depth === 1 && key === "type") type = value;
         if (depth === 2 && payload && key === "type") event = value;
-        if (depth === 2 && payload && key === "turn_id") turn = value;
+        if (depth === 2 && payload && key === identityKey) turn = value;
         key = "";
       }
     }
   };
   for await (const piece of blocks(fd, start, end, 32 * 1024)) read(decoder.write(piece));
   read(decoder.end() + "\n");
-  return depth === 0 && type === "event_msg" && event === "task_complete" && turn === turnId;
+  return depth === 0 && type === rowType && (!eventType || event === eventType) && turn === identity;
 }
 
 export async function inspectCodexRollout(root: EngineFileRoot, name: string, cursor: string, output?: FileHandle, turnId?: string) {
@@ -71,16 +70,14 @@ export async function inspectCodexRollout(root: EngineFileRoot, name: string, cu
   try {
     const stat = await fd.stat();
     if (!stat.isFile()) throw new Error("The native Codex checkpoint is not a regular file.");
-    const header = Buffer.allocUnsafe(Math.min(MAX_HEADER + 1, stat.size));
-    let headerBytes = 0;
-    for await (const bytes of blocks(fd, 0, header.length)) {
-      bytes.copy(header, headerBytes);
-      headerBytes += bytes.length;
+    let headerEnd = 0;
+    for await (const bytes of blocks(fd, 0, stat.size, 32 * 1024)) {
+      const newline = bytes.indexOf(10);
+      headerEnd += newline < 0 ? bytes.length : newline;
+      if (newline >= 0) break;
     }
-    const newline = header.indexOf(10);
-    if (newline < 1) throw new Error("The native Codex checkpoint is incomplete.");
-    const first = JSON.parse(header.toString("utf8", 0, newline));
-    if (first.type !== "session_meta" || first.payload?.id !== cursor) throw new Error("The native Codex checkpoint belongs to another session.");
+    if (headerEnd < 1 || headerEnd === stat.size) throw new Error("The native Codex checkpoint is incomplete.");
+    if (!await matchesRow(fd, 0, headerEnd, "session_meta", "id", cursor)) throw new Error("The native Codex checkpoint belongs to another session.");
     const hash = createHash("sha256");
     const marker = turnId ? Buffer.from(turnId) : null;
     let offset = 0, rowStart = 0, matched = false, complete = false;
@@ -98,7 +95,7 @@ export async function inspectCodexRollout(root: EngineFileRoot, name: string, cu
             if (end === -1) tail = Buffer.from(Buffer.concat([tail, part.subarray(Math.max(0, part.length - marker.length + 1))]).subarray(1 - marker.length));
           }
           if (end === -1) break;
-          if (matched && await completedRow(fd, rowStart, offset + end, turnId)) { complete = true; break; }
+          if (matched && await matchesRow(fd, rowStart, offset + end, "event_msg", "turn_id", turnId, "task_complete")) { complete = true; break; }
           rowStart = offset + end + 1;
           tail = Buffer.alloc(0);
           matched = false;
