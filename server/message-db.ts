@@ -1,3 +1,7 @@
+import { randomUUID } from "node:crypto";
+import type { HistoryOperation } from "../shared/history-shard-types.ts";
+import { checkDualHistory, historyExecute, historyMany, isRemoteHistory, remoteHistoryGeneration } from "./laterdog/history-client.ts";
+import { remoteThread, remoteCards, remoteLatest, remoteSearch, remoteSearchAsync, remoteText, remoteRecall, remoteRecent, remoteLatestBot } from "./laterdog/history-messages.ts";
 import { chmodSync, closeSync, existsSync, mkdirSync, openSync, readFileSync, renameSync } from "node:fs";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
@@ -14,7 +18,7 @@ import { MessageSearchWorker } from "./message-search-worker.ts";
 import { searchMessagesInDatabase, type SearchHit } from "./message-search-query.ts";
 export type { SearchHit } from "./message-search-query.ts";
 
-const DB_FILE = () => join(DATA_DIR, "messages.db");
+const DB_FILE = () => join(DATA_DIR, isRemoteHistory() ? "history-control.db" : "messages.db");
 
 const replyReserve = new ReplyDiskReserve();
 let handle: DatabaseSync | null = null;
@@ -25,11 +29,19 @@ let closingSearch: Promise<void> = Promise.resolve();
 function open(): DatabaseSync {
   mkdirSync(DATA_DIR, { recursive: true, mode: 0o700 });
   const file = DB_FILE();
+  if (isRemoteHistory() && !existsSync(file)) throw Error("The compact conversation history control is missing");
   closeSync(openSync(file, "a", 0o600));
   try {
     chmodSync(file, 0o600);
   } catch {}
   const db = new DatabaseSync(file);
+  if (isRemoteHistory()) {
+    if(db.prepare("SELECT generation FROM history_control_generation WHERE singleton=1").get()?.generation !== remoteHistoryGeneration()) {
+      db.close();
+      throw Error("The compact conversation history control belongs to another generation");
+    }
+    db.exec("CREATE TABLE IF NOT EXISTS history_outbox(id TEXT PRIMARY KEY,thread_id TEXT NOT NULL,operation TEXT NOT NULL)");
+  }
   db.exec("PRAGMA journal_mode = WAL");
   db.exec("PRAGMA synchronous = NORMAL");
   db.exec(`
@@ -183,6 +195,23 @@ function transaction<T>(fn: (database: DatabaseSync) => T): T {
   }
 }
 
+function flushHistoryOutbox(): void {
+  if (!isRemoteHistory() || transactionDepth) return;
+  const database = db();
+  for (;;) {
+    const row = database.prepare("SELECT id,thread_id,operation FROM history_outbox ORDER BY rowid LIMIT 1").get() as {id:string;thread_id:string;operation:string}|undefined;
+    if (!row) return;
+    historyExecute(row.thread_id,JSON.parse(row.operation),row.id);
+    database.prepare("DELETE FROM history_outbox WHERE id=?").run(row.id);
+  }
+}
+
+function writeRemoteMessage(threadId:string,operation:HistoryOperation):void {
+  if (!transactionDepth) flushHistoryOutbox();
+  db().prepare("INSERT INTO history_outbox(id,thread_id,operation) VALUES(?,?,?)").run(randomUUID(),threadId,JSON.stringify(operation));
+  if (!transactionDepth) flushHistoryOutbox();
+}
+
 export interface FollowupPayload {
   text: string;
   prompt?: string;
@@ -230,6 +259,7 @@ export interface StoredCommandReceipt {
 }
 
 export function readCommandReceipt(kind: string, key: string): StoredCommandReceipt | null {
+  flushHistoryOutbox();
   const row = db()
     .prepare("SELECT kind, key, at, result FROM command_receipts WHERE kind = ? AND key = ?")
     .get(kind, key) as StoredCommandReceipt | undefined;
@@ -242,7 +272,8 @@ export function withCommandReceipt(
   apply: () => string,
   at: number,
 ): { result: string; replayed: boolean } {
-  return transaction((database) => {
+  flushHistoryOutbox();
+  const saved = transaction((database) => {
     const existing = database
       .prepare("SELECT result FROM command_receipts WHERE kind = ? AND key = ?")
       .get(kind, key) as { result: string } | undefined;
@@ -253,6 +284,8 @@ export function withCommandReceipt(
       .run(kind, key, at, result);
     return { result, replayed: false };
   });
+  flushHistoryOutbox();
+  return saved;
 }
 
 export function saveChatFollowup(followup: Omit<ChatFollowup, "status">): void {
@@ -300,6 +333,7 @@ export interface ThreadRows {
 }
 
 export function readThread(threadId: string, legacyFile: string): ThreadRows {
+  if (isRemoteHistory()) { flushHistoryOutbox(); return remoteThread(threadId); }
   const rows = db()
     .prepare("SELECT json FROM messages WHERE thread_id = ? ORDER BY rowid")
     .all(threadId) as Array<{ json: string }>;
@@ -317,6 +351,7 @@ export interface ThreadTailRows extends ThreadRows {
 }
 
 export function hasPendingRequest(threadId: string, legacyFile: string): boolean {
+  if (isRemoteHistory()) { flushHistoryOutbox(); return historyExecute(threadId,{op:"messages.pending"}); }
   const database = db();
   const pending = database.prepare(
     "SELECT 1 FROM messages WHERE thread_id = ? AND role = 'user' " +
@@ -329,6 +364,7 @@ export function hasPendingRequest(threadId: string, legacyFile: string): boolean
 }
 
 export function readThreadTail(threadId: string, legacyFile: string, limit: number): ThreadTailRows {
+  if (isRemoteHistory()) { flushHistoryOutbox(); return remoteThread(threadId, limit); }
   const rows = db()
     .prepare("SELECT json FROM messages WHERE thread_id = ? ORDER BY rowid DESC LIMIT ?")
     .all(threadId, limit + 1) as Array<{ json: string }>;
@@ -339,7 +375,12 @@ export function readThreadTail(threadId: string, legacyFile: string, limit: numb
     const state = db()
       .prepare("SELECT active_leaf_id FROM thread_state WHERE thread_id = ?")
       .get(threadId) as { active_leaf_id: string | null } | undefined;
-    return { messages: rows.map(rowToMessage), activeLeafId: state?.active_leaf_id ?? null, hasMore };
+    const result = { messages: rows.map(rowToMessage), activeLeafId: state?.active_leaf_id ?? null, hasMore };
+    if (limit>0 && limit<=64) checkDualHistory(threadId,{op:"messages.page",backward:true,limit},value=>{
+      const page=value as {messages:Message[];activeLeafId:string|null;hasMore:boolean};
+      return page.activeLeafId===result.activeLeafId && page.messages.every((m,i)=>JSON.stringify(m)===JSON.stringify(result.messages[result.messages.length-i-1]));
+    });
+    return result;
   }
   return importLegacy(threadId, legacyFile);
 }
@@ -380,12 +421,14 @@ function importLegacy(threadId: string, legacyFile: string): ThreadRows {
 }
 
 export function insertMessage(threadId: string, message: Message): void {
+  if (isRemoteHistory()) return writeRemoteMessage(threadId, {op:"messages.insert", message});
   db()
     .prepare(UPSERT_MESSAGE)
     .run(threadId, message.id, message.at, message.role, message.kind, message.text ?? null, JSON.stringify(message));
 }
 
 export function importThread(threadId: string, messages: Message[], activeLeafId: string | null): void {
+  if (isRemoteHistory()) { flushHistoryOutbox(); historyExecute(threadId,{op:"messages.import",messages,leaf:activeLeafId}); return; }
   transaction((database) => {
     if (database.prepare("SELECT 1 FROM messages WHERE thread_id = ? LIMIT 1").get(threadId) ||
         database.prepare("SELECT 1 FROM thread_state WHERE thread_id = ?").get(threadId)) {
@@ -402,6 +445,7 @@ function writeMessage(message: Message, write: () => void): void {
 }
 
 export function appendMessage(threadId: string, message: Message): void {
+  if (isRemoteHistory()) return writeRemoteMessage(threadId,{op:"messages.append",message});
   writeMessage(message, () => transaction(() => {
     insertMessage(threadId, message);
     setActiveLeaf(threadId, message.id);
@@ -410,12 +454,14 @@ export function appendMessage(threadId: string, message: Message): void {
 }
 
 export function updateMessage(threadId: string, message: Message): void {
+  if (isRemoteHistory()) return writeRemoteMessage(threadId,{op:"messages.update",message});
   writeMessage(message, () => db()
     .prepare("UPDATE messages SET at = ?, role = ?, kind = ?, text = ?, json = ? WHERE thread_id = ? AND id = ?")
     .run(message.at, message.role, message.kind, message.text ?? null, JSON.stringify(message), threadId, message.id));
 }
 
 export function openPermissionCards(): Array<{ threadId: string; message: Message }> {
+  if (isRemoteHistory()) { flushHistoryOutbox(); return remoteCards(true); }
   const rows = db()
     .prepare(
       "SELECT thread_id, json FROM messages " +
@@ -429,6 +475,7 @@ export function openPermissionCards(): Array<{ threadId: string; message: Messag
 }
 
 export function questionCardsCountingDown(): Array<{ threadId: string; message: Message }> {
+  if (isRemoteHistory()) { flushHistoryOutbox(); return remoteCards(false); }
   const rows = db()
     .prepare(
       "SELECT thread_id, json FROM messages " +
@@ -439,6 +486,7 @@ export function questionCardsCountingDown(): Array<{ threadId: string; message: 
 }
 
 export function setActiveLeaf(threadId: string, leafId: string | null): void {
+  if (isRemoteHistory()) return writeRemoteMessage(threadId,{op:"messages.leaf",leaf:leafId});
   db()
     .prepare(
       "INSERT INTO thread_state (thread_id, active_leaf_id) VALUES (?, ?) " +
@@ -456,6 +504,7 @@ export function latestPersonMessageAts(threadIds: readonly string[]): Map<string
 }
 
 function latestAtsWhere(threadIds: readonly string[], condition: string): Map<string, number> {
+  if (isRemoteHistory()) { flushHistoryOutbox(); return remoteLatest(threadIds,!!condition); }
   const ids = [...new Set(threadIds.filter((id) => id.length > 0))];
   const out = new Map<string, number>();
   const chunk = 400;
@@ -473,6 +522,7 @@ function latestAtsWhere(threadIds: readonly string[], condition: string): Map<st
 }
 
 export function deleteThread(threadId: string): void {
+  if (isRemoteHistory()) { transaction(connection=>{ writeRemoteMessage(threadId,{op:"messages.delete"}); connection.prepare("DELETE FROM chat_followups WHERE thread_id=?").run(threadId); }); flushHistoryOutbox(); return; }
   writeFollowups((connection) => {
     deleteNativeRuns(connection, threadId);
     connection.prepare("DELETE FROM chat_followups WHERE thread_id = ?").run(threadId);
@@ -482,21 +532,25 @@ export function deleteThread(threadId: string): void {
 }
 
 export const nativeRunDatabase = {
+  history: { enabled:isRemoteHistory, execute:historyExecute, many:historyMany },
   read: <T>(read: (database: DatabaseSync) => T): T => read(db()),
   write: <T>(write: (database: DatabaseSync) => T): T => transaction(write),
 };
 
 export function threadsReferencing(fragment: string): string[] {
   if (!fragment) return [];
+  if(isRemoteHistory()) {flushHistoryOutbox();return historyMany<boolean>(undefined,{op:"messages.references",fragment}).filter(x=>x.result).map(x=>x.threadId);}
   const rows = db().prepare("SELECT DISTINCT thread_id FROM messages WHERE instr(json, ?) > 0").all(fragment) as Array<{ thread_id: string }>;
   return rows.map((row) => row.thread_id);
 }
 
 export function searchMessages(query: string, limit = 40, threadId?: string): SearchHit[] {
+  if (isRemoteHistory()) { flushHistoryOutbox(); return remoteSearch(query,limit,threadId); }
   return searchMessagesInDatabase(db(), query, limit, threadId);
 }
 
 export function searchMessagesAsync(query: string, limit = 40, threadId?: string): Promise<SearchHit[]> {
+  if (isRemoteHistory()) { flushHistoryOutbox(); return remoteSearchAsync(query,limit,threadId); }
   if (!query.trim()) return Promise.resolve([]);
   db();
   searchWorker ??= new MessageSearchWorker(DB_FILE());
@@ -569,6 +623,7 @@ export function readMessageText(
   threadId: string,
   messageId: string,
 ): { threadId: string; messageId: string; at: number; role: string; text: string; from?: string; peer?: string } | null {
+  if(isRemoteHistory()) {flushHistoryOutbox();return remoteText(threadId,messageId);}
   const row = db()
     .prepare(
       "SELECT at, role, text, json_extract(json, '$.from.name') AS from_name, " +
@@ -613,6 +668,7 @@ function rangeClause(range: RecallRange | undefined, column: string): { sql: str
 export function recallMessages(query: string, threadIds: readonly string[], limit = 12, range?: RecallRange, mode: SearchMode = "all"): RecallHit[] {
   const match = ftsQuery(query, mode);
   if (!match || !threadIds.length) return [];
+  if(isRemoteHistory()) {flushHistoryOutbox();return remoteRecall(threadIds,match,match.match(/"[^"]+"\*?/g)??[],mode,range,limit);}
   const placeholders = threadIds.map(() => "?").join(", ");
   const window = rangeClause(range, "m.at");
   const rows = db()
@@ -653,6 +709,7 @@ export function recallMessages(query: string, threadIds: readonly string[], limi
 const RECENT_HEAD_CHARS = 240;
 
 export function recentMessages(threadIds: readonly string[], range: RecallRange, limit = 12): RecallHit[] {
+  if (isRemoteHistory()) { flushHistoryOutbox(); return remoteRecent(threadIds,range,limit); }
   if (!threadIds.length) return [];
   const placeholders = threadIds.map(() => "?").join(", ");
   const window = rangeClause(range, "m.at");
@@ -695,6 +752,7 @@ export interface ThreadLatest {
 }
 
 export function latestSaidByBot(threadIds: readonly string[], botId: string, since: number, limit = 20): ThreadLatest[] {
+  if (isRemoteHistory()) { flushHistoryOutbox(); return remoteLatestBot(threadIds,botId,since,limit); }
   if (!threadIds.length) return [];
   const placeholders = threadIds.map(() => "?").join(", ");
   const rows = db()

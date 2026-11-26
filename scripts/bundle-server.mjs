@@ -35,6 +35,7 @@ const ENTRY_POINTS = [
   "laterdog/bridge.ts",
   "index.ts",
   "message-search.worker.ts",
+  "history-transport.worker.ts",
   "laterdog.ts",
   "pair-cli.ts",
   "workspace-backup.worker.ts",
@@ -88,6 +89,8 @@ const bundleHash = name => createHash("sha256").update(readFileSync(join(root, "
 writeFileSync(join(root, "dist-server", "cloud-home-capabilities.json"), JSON.stringify({
   logArchive: ARCHIVE_CAPABILITY,
   workFolders: 1,
+  history: 1,
+  historyTransportSha256: bundleHash("history-transport.worker.js"),
   workFolderHashes: Object.fromEntries(WORK_FOLDER_PROGRAMS.map(name => [name, bundleHash(name)])),
   launcherSha256: bundleHash("cloud-home-start.js"),
   indexSha256: bundleHash("index.js"),

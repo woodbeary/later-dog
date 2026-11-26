@@ -1,3 +1,4 @@
+import { bootHistory, historyExclusion, verifyHistoryControl } from "./history.mjs";
 import { folderExclusions, folderMounts, legacyWorkFolderScope, startWorkFolderMounts } from "./work-folder-mounts.mjs";
 import { projectPreviousCloudBackup } from "./previous-backup-compat.mjs";
 import { randomBytes } from "node:crypto";
@@ -65,8 +66,10 @@ async function main() {
   const store = url && token ? createHttpStore(url, token) : null;
   const placement = store ? await store.workFolderPlacement() : null;
   const mounts = folderMounts(DATA, placement);
-  const capabilities = { workFolders: mounts.length > 0 };
-  const exclude = mounts.length ? folderExclusions(mounts) : undefined;
+  const history = await bootHistory(process.env);
+  const capabilities = { workFolders: mounts.length > 0, history: history.mode === "remote" || history.mode === "dual" };
+  const excludeFolders = folderExclusions(mounts);
+  const exclude = path => historyExclusion(history.mode,path) || excludeFolders(path);
   const exactScope = legacyWorkFolderScope(DATA, placement);
   let manifest = null;
   let upgraded = null;
@@ -77,6 +80,10 @@ async function main() {
     } } : store;
     const restored = await restoreWithRetries(restoreStore, dogOwner(), exclude, exactScope);
     manifest = restored.manifest;
+    if (history.mode === "remote") {
+      if (!manifest?.entries.some(entry => entry.path === ".laterdog/history-control.db" && entry.type === "file")) throw Error("The compact conversation history control is missing from the saved home");
+      verifyHistoryControl(HEALTH_DIR,history.generation);
+    }
     upgraded = upgradeFrom(manifest, APP);
     log(restored.manifest ? `restored ${restored.files} files` : "a new home: nothing to restore");
     if (upgraded) log(`${APP} replaces ${upgraded.app ?? "an earlier version"}; keeping a restore point before the first save`);
@@ -86,7 +93,8 @@ async function main() {
   const included = await seedIncluded(process.env.LATERDOG_HOME || join(DATA, ".laterdog"), { key: process.env.LATERDOG_INCLUDED_KEY, api: process.env.LATERDOG_INCLUDED_API }, dogOwner());
   if (included === "seeded" || included === "replaced") log("included later.dog AI, voice and decisions are ready");
   if (store && !await archiveCompatible(LAUNCHER, capabilities)) throw new Error("the image cannot serve the active home storage format");
-  const environment = { ...process.env };
+  const environment = { ...process.env, LATERDOG_HISTORY_MODE: history.mode };
+  if (history.generation) environment.LATERDOG_HISTORY_GENERATION = history.generation;
   const archiveCodexSessions = process.env.LATERDOG_ARCHIVE_CODEX_SESSIONS === "1";
   const archive = store ? await serveArchive(createArchiver({ root: DATA, store, owner: dogOwner(), log, archiveCodexSessions, canRemove: async (file, entry) => {
     const launcher = child;
