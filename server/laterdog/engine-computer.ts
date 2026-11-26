@@ -2,7 +2,8 @@ import { guestCliPreparation } from "./guest-cli-runtime.ts";
 import { createHash } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import { EventEmitter } from "node:events";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
+import { createRequire } from "node:module";
 import type WebSocket from "ws";
 import { SERVER_ROOT } from "../proxy-paths.ts";
 import type { EngineLink } from "./engine-remote.ts";
@@ -17,17 +18,24 @@ export function engineScripts(provider = false): EngineScripts {
   if (cached) return cached;
   const packaged = !existsSync(join(SERVER_ROOT, "laterdog", "engine-relay.ts"));
   const dist = packaged ? SERVER_ROOT : join(SERVER_ROOT, "..", "dist-server");
-  const bundled = packaged || provider || existsSync(join(dist, "laterdog", "engine-relay.js"));
-  const names = bundled ? ["engine-relay.js", "engine-proxy.js"] : ["engine-relay.ts", "engine-proxy.ts", "engine-files.ts", "build-output-path.ts"];
-  const files = names.map((name) => ({ name, bytes: readFileSync(join(bundled ? dist : SERVER_ROOT, "laterdog", name)) }));
-  if (provider) files.push(
-    { name: "provider-guest.mjs", bytes: readFileSync(join(dist, "laterdog", "provider-guest.js")) },
-    { name: "mcp-gate.js", bytes: readFileSync(join(dist, "mcp-gate.js")) },
-  );
+  const entries = ["laterdog/engine-relay", "laterdog/engine-proxy", ...(provider ? ["laterdog/provider-guest", "mcp-gate"] : [])];
+  const sourceLoader = createRequire(import.meta.url);
+  const files = entries.map(entry => {
+    const name = entry.split("/").at(-1)! + (entry === "laterdog/provider-guest" ? ".mjs" : ".js");
+    const output = join(dist, entry + ".js");
+    if (packaged || existsSync(output)) return { name, bytes: readFileSync(output) };
+    const esbuild: typeof import("esbuild") = sourceLoader("esbuild");
+    const built = esbuild.buildSync({
+      entryPoints: [join(SERVER_ROOT, entry + ".ts")], write: false, bundle: true, platform: "node", target: "node24", format: "esm",
+      alias: { yaml: join(dirname(sourceLoader.resolve("yaml/package.json")), "browser", "index.js") },
+      banner: { js: 'import { createRequire as __createRequire } from "node:module"; const require = __createRequire(import.meta.url);' },
+    });
+    return { name, bytes: Buffer.from(built.outputFiles[0].contents) };
+  });
   const hash = createHash("sha256");
   for (const file of files) hash.update(file.name).update("\0").update(file.bytes);
   const dir = `${REMOTE_ENGINE_BASE}/relay/${hash.digest("hex").slice(0, 16)}`;
-  const result = { files, dir, relay: `${dir}/${names[0]}`, proxy: `${dir}/${names[1]}` };
+  const result = { files, dir, relay: `${dir}/${files[0].name}`, proxy: `${dir}/${files[1].name}` };
   scripts.set(provider, result);
   return result;
 }
