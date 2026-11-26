@@ -569,6 +569,7 @@ import { createTeamManifest, parseTeamManifest } from "./team-manifest.ts";
 import { LogArchiveCoordinator, claudeSessionIds, logArchiveBridge, outsideSessionOwners } from "./laterdog/log-archive.ts";
 import { archiveSweep, roomFor, roomToRestore, savesHold, startArchiveSweeps, steadyDisk, workFolderSweep } from "./laterdog/archive-pressure.ts";
 import { WorkFolderArchive } from "./laterdog/work-folder-archive.ts";
+import { homeMountPaths } from "./laterdog/work-folder-maintenance.ts";
 import { workFolderChats } from "./laterdog/work-folder-chats.ts";
 import { savesForStorage } from "./laterdog/save-status.ts";
 import { readThreadEvents } from "./thread-events.ts";
@@ -21905,7 +21906,10 @@ function janitorThread(botId: string, threadId: string): ReaperThreadState {
   };
 }
 
+const mountedHomePaths = homeMountPaths(DATA_DIR, homedir());
+
 function janitorWorkspaces(): WorkspaceTask[] {
+  if (mountedHomePaths.length) return [];
   const tasks: WorkspaceTask[] = [];
   let bots: string[] = [];
   try { bots = readdirSync(TASK_WORKSPACES_DIR); } catch { return tasks; }
@@ -21940,7 +21944,7 @@ function chatInUse(botId: string, threadId: string): boolean {
 
 let lastJanitorRun: JanitorRun | null = null;
 let homeUpkeep: ReturnType<typeof startHomeUpkeep> | null = null;
-const diskBreakdown = createDiskBreakdown({ dataDir: DATA_DIR, home: CLOUD_HOME ? homedir() : null, scratch: CLOUD_HOME ? [tmpdir()] : [], dogName: (id) => store.bot(id)?.name ?? null });
+const diskBreakdown = createDiskBreakdown({ dataDir: DATA_DIR, remotePaths: mountedHomePaths, home: CLOUD_HOME ? homedir() : null, scratch: CLOUD_HOME ? [tmpdir()] : [], dogName: (id) => store.bot(id)?.name ?? null });
 let janitorRunning = false;
 
 function runJanitorNow(reason: JanitorRun["reason"]): JanitorRun | null {
@@ -21954,9 +21958,9 @@ function runJanitorNow(reason: JanitorRun["reason"]): JanitorRun | null {
       sweepRetention: sweepThreadEventLogsNow,
       toolResultsDir: TOOL_RESULTS_DIR,
       workspaceTasks: janitorWorkspaces,
-      reap: () => reapStrays({ roots: [TASK_WORKSPACES_DIR], thread: janitorThread, orphanIdleHours: orphanIdleHours(readMemoryPressure()) }).length,
+      reap: () => mountedHomePaths.length ? 0 : reapStrays({ roots: [TASK_WORKSPACES_DIR], thread: janitorThread, orphanIdleHours: orphanIdleHours(readMemoryPressure()) }).length,
       vacuum: () => reclaimFreePages(diskUse(DATA_DIR)?.freeBytes ?? 0),
-      makeSpace: () => makeSpace({ home: homedir(), workspacesDir: TASK_WORKSPACES_DIR, busyDirs: janitorWorkspaces().filter((task) => task.busy).map((task) => task.dir) }).freed,
+      makeSpace: () => makeSpace({ home: homedir(), workspacesDir: TASK_WORKSPACES_DIR, remotePaths: mountedHomePaths, busyDirs: janitorWorkspaces().filter((task) => task.busy).map((task) => task.dir) }).freed,
     }, reason);
     lastJanitorRun = run;
     if (run.freedBytes > 0 || run.reaped > 0) console.log(`[janitor] ${reason}: freed ${Math.round(run.freedBytes / 1024 / 1024)} MB, stopped ${run.reaped} stray process(es)`);
@@ -21983,14 +21987,15 @@ if (CLOUD_HOME) {
   setInterval(() => { if (isLowDisk(diskUse(DATA_DIR))) runJanitorNow("low-disk"); }, DISK_CHECK_MS).unref();
   setInterval(() => {
     const pressure = readMemoryPressure();
-    if (!underMemoryPressure(pressure)) return;
+    if (mountedHomePaths.length || !underMemoryPressure(pressure)) return;
     const stopped = reapStrays({ roots: [TASK_WORKSPACES_DIR], thread: janitorThread, orphanIdleHours: orphanIdleHours(pressure) });
     if (stopped.length) console.log(`[janitor] memory pressure: stopped ${stopped.length} stray process(es)`);
   }, MEMORY_CHECK_MS).unref();
   homeUpkeep = startHomeUpkeep({
     subscribe: (listener) => bus.subscribe((event: RuntimeEvent) => { if (!shouldIgnoreProviderEvent(event)) listener(event); }),
     atWork: threadAtWork,
-    chats: () => workFolderChats({ workspacesDir: TASK_WORKSPACES_DIR, bots: store.bots, groups: store.groups, damaged: store.damaged, thread: janitorThread, atWork: threadAtWork }),
+    remoteWorkFolders: mountedHomePaths.length > 0,
+    chats: () => mountedHomePaths.length ? [] : workFolderChats({ workspacesDir: TASK_WORKSPACES_DIR, bots: store.bots, groups: store.groups, damaged: store.damaged, thread: janitorThread, atWork: threadAtWork }),
     dataDir: DATA_DIR,
     home: homedir(),
     workspacesDir: TASK_WORKSPACES_DIR,

@@ -104,3 +104,15 @@ describe("making space on a full Cloud home", () => {
     expect(inUse("/w/dog/t/node_modules", ["/w/dog/t"], [])).toBe(true);
   });
 });
+
+it("leaves mounted project output untouched during local scratch cleanup", () => {
+  const home = mkdtempSync(join(tmpdir(), "mounted-dog-projects-"));
+  const remote = join(home, "projects", "shared");
+  const local = join(home, "projects", "local", "node_modules");
+  fill(join(remote, "node_modules"));
+  fill(local);
+  const result = makeSpace({ home, workspacesDir: join(home, ".laterdog", "task-workspaces"), remotePaths: [remote], busyDirs: [], processes: () => [] });
+  expect(existsSync(join(remote, "node_modules", "blob"))).toBe(true);
+  expect(existsSync(local)).toBe(false);
+  expect(result.cleared).toContain(local);
+});

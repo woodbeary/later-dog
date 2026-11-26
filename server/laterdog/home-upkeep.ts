@@ -19,6 +19,7 @@ export interface HomeUpkeepDeps {
   dataDir: string;
   home: string;
   workspacesDir: string;
+  remoteWorkFolders?: boolean;
   storeChanges(listener: (change: { type: string; threadId?: string }) => void): void;
   tempRoot?: string;
   log?: (line: string) => void;
@@ -53,7 +54,7 @@ export function startHomeUpkeep(deps: HomeUpkeepDeps): { warning(): string | nul
   deps.subscribe(turnUpkeep({ atWork: deps.atWork, endLeftovers: (mark) => endLeftovers({ mark, mode: LEFTOVER_MODE }), mode: LEFTOVER_MODE, emptyTemp, log }));
   const floor = floorWatch();
   const aside = join(deps.dataDir, DELETED_CHAT_FOLDERS);
-  startDeletedChatFolders({ changes: deps.storeChanges, workspaces: deps.workspacesDir, aside, log });
+  startDeletedChatFolders({ changes: deps.remoteWorkFolders ? () => {} : deps.storeChanges, workspaces: deps.workspacesDir, aside, log });
   startDiskLadder({
     disk: () => diskUse(deps.dataDir),
     chats: () => deps.chats().map((chat) => ({ ...chat, busy: chat.busy || deps.atWork(basename(chat.dir)) })),

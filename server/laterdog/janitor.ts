@@ -114,19 +114,24 @@ export function workspaceIsIdle(task: WorkspaceTask, now = Date.now(), idleDays 
   return task.lastActiveAt !== null && task.lastActiveAt < now - idleDays * DAY_MS;
 }
 
-export function findBuildOutput(root: string, maxDepth = 6): string[] {
+export function findBuildOutput(root: string, maxDepth = 6, remotePaths: readonly string[] = []): string[] {
   const found: string[] = [];
   const walk = (at: string, depth: number) => {
-    if (depth > maxDepth) return;
+    if (depth > maxDepth || remotePaths.some(remote => at === remote || at.startsWith(remote + "/"))) return;
     for (const name of filesIn(at)) {
       if (name === ".git") continue;
       const path = join(at, name);
+      if (remotePaths.includes(path)) continue;
       let entry;
       try { entry = lstatSync(path); } catch { continue; }
       if (!entry.isDirectory() || entry.isSymbolicLink()) continue;
-      if (BUILD_OUTPUT_DIRS.has(name)) { found.push(path); continue; }
+      if (BUILD_OUTPUT_DIRS.has(name)) {
+        if (!remotePaths.some(remote => remote.startsWith(path + "/"))) found.push(path);
+        continue;
+      }
       if (name === SCRATCH_PARENT) {
         const scratch = join(path, SCRATCH_CHILD);
+        if (remotePaths.some(remote => remote === scratch || remote.startsWith(scratch + "/"))) continue;
         try { if (lstatSync(scratch).isDirectory()) found.push(scratch); } catch {}
         continue;
       }
