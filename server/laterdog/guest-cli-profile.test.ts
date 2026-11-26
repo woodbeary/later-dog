@@ -4,6 +4,7 @@ import { dirname, join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { createHash } from "node:crypto";
 import { afterEach, beforeEach, expect, it } from "vitest";
+import { currentGrokLogin } from "./guest-grok-login.ts";
 import { guestCliCredentials } from "./guest-cli-credentials.ts";
 import { guestCliSessions } from "./guest-cli-sessions.ts";
 import { guestCliBinary, guestCliPreparation } from "./guest-cli-runtime.ts";
@@ -82,4 +83,48 @@ it("refuses unrelated executables and leaves unknown engines out of native regis
   expect(guestCliPreparation({ kind: "cursor" })).toContain("sha256sum -c");
   expect(guestCliDriver("unregistered")).toBeNull();
   expect(await guestCliProfile("unregistered", { instanceId: "no", displayName: undefined, enabled: true, config: {}, environment: {} }, { threadId: "chat", text: "" })).toBeNull();
+});
+
+it("keeps the exact stored account when the native renewal discards an invalid refresh token", async () => {
+  const scope = "https://auth.x.ai::abc";
+  const input = JSON.stringify({ [scope]: { key: "expired", refresh_token: "invalid", expires_at: 2 } }, null, 2);
+  const source = await file(".grok/auth.json", input);
+  let count = 0;
+  const native = async (_command: string, isolated: string) => {
+    count++;
+    expect(isolated).not.toBe(home);
+    await rm(join(isolated, ".grok", "auth.json"));
+  };
+  const results = await Promise.all([currentGrokLogin(source, "grok", 3000, native), currentGrokLogin(source, "grok", 3000, native)]);
+  expect(results).toEqual([input, input]);
+  expect(count).toBe(1);
+  expect(await readFile(source, "utf8")).toBe(input);
+});
+
+it("publishes a refreshed access and rotated refresh token only for the same selected account", async () => {
+  const scope = "https://auth.x.ai::abc";
+  const old = { key: "old", refresh_token: "old-refresh", expires_at: 2, user_id: "first" };
+  const renewed = { ...old, key: "current", refresh_token: "rotated", expires_at: 7 };
+  const source = await file(".grok/auth.json", JSON.stringify({ [scope]: old, untouched: { private: true } }));
+  await currentGrokLogin(source, "grok", 3000, async (_command, isolated) => {
+    const path = join(isolated, ".grok", "auth.json");
+    expect(JSON.parse(await readFile(path, "utf8"))).toEqual({ [scope]: old });
+    await writeFile(path, JSON.stringify({ [scope]: renewed }));
+  });
+  expect(JSON.parse(await readFile(source, "utf8"))).toEqual({ [scope]: renewed, untouched: { private: true } });
+  const safe = await guestCliCredentials("grokAgent", "first", { HOME: home }, 3000);
+  expect(JSON.stringify(safe)).toContain("current");
+  expect(JSON.stringify(safe)).not.toContain("rotated");
+});
+
+it("preserves a newer home login when the selected account changes during renewal", async () => {
+  const scope = "https://auth.x.ai::abc";
+  const old = { key: "old", refresh_token: "old-refresh", expires_at: 2, user_id: "first" };
+  const replacement = JSON.stringify({ [scope]: { key: "different", user_id: "other", expires_at: 9 } });
+  const source = await file(".grok/auth.json", JSON.stringify({ [scope]: old }));
+  await expect(currentGrokLogin(source, "grok", 3000, async (_command, isolated) => {
+    await writeFile(source, replacement);
+    await writeFile(join(isolated, ".grok", "auth.json"), JSON.stringify({ [scope]: { ...old, key: "current", expires_at: 7 } }));
+  })).rejects.toThrow(/changed during renewal/);
+  expect(await readFile(source, "utf8")).toBe(replacement);
 });

@@ -306,7 +306,7 @@ export class RemoteSession extends EventEmitter {
   }
 
   #openProxy(id: string, name: string): void {
-    const spec = this.#launch.mcp[name];
+    const spec = Object.hasOwn(this.#launch.mcp, name) ? this.#launch.mcp[name] : undefined;
     if (!spec) { this.#send({ type: "proxy_exit", id, code: 1 }); return; }
     const child = spawn(spec.command, spec.args ?? [], { cwd: this.#launch.cwd, env: { ...(this.#launch.proxyEnv ?? this.#launch.hookEnv), ...spec.env }, stdio: ["pipe", "pipe", "pipe"] });
     this.#proxies.set(id, child);
