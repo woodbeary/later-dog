@@ -467,6 +467,7 @@ it("keeps resuming a stored conversation with a handoff record when a result arr
   expect(count(f.prompt(turn), "restarted while this was running")).toBe(1);
   expect(f.prompt(turn)).not.toContain("ORCHID_7Q");
   expect(f.launches().at(-1).resume).not.toBeNull();
+  expect(f.launches().at(-1).resume).toBe(f.launches()[0].sessionId);
 }), 90_000);
 
 const leadRunning = async (f: any, launches = 1) => {

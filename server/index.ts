@@ -8353,6 +8353,11 @@ function sessionResumesExactly(bot: BotRecord, threadId: string, task: NonNullab
 }
 
 function markTaskContextExternallyUpdated(bot: BotRecord, threadId: string): void {
+  if (enginesRead) {
+    void enginesRead.then(() => markTaskContextExternallyUpdated(bot, threadId))
+      .catch(error => console.error("teammate context:", error));
+    return;
+  }
   const task = store.taskByThread(bot.id, threadId);
   if (!task) return;
   if (sessionResumesExactly(bot, threadId, task)) {
