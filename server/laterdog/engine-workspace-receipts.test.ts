@@ -24,7 +24,7 @@ afterEach(() => {
 });
 
 function fixture() {
-  const dir = mkdtempSync(join(tmpdir(), "workspace-ack-"));
+  const dir = mkdtempSync(join(tmpdir(), "ws-"));
   directories.push(dir);
   const state = join(dir, "state");
   mkdirSync(state);
@@ -215,9 +215,13 @@ it("commits independent relay processes against the same prior generation withou
   const peers = rows.map((files, i) => spawn(process.execPath, [
     "--input-type=module", "-e", script, moduleUrl, JSON.stringify([scope, taskState(state, "actor-" + i), files]),
   ], { stdio: ["ignore", "ignore", "pipe", "ipc"] }));
-  const closed = Promise.all(peers.map(peer => once(peer, "close")));
+  const exits = peers.map(peer => once(peer, "close"));
+  const closed = Promise.all(exits);
   try {
-    const parents = await Promise.all(peers.map(peer => once(peer, "message")));
+    const parents = await Promise.all(peers.map((peer, index) => Promise.race([
+      once(peer, "message"),
+      exits[index]!.then((): never => { throw Error("Writer exited before reading its workspace receipt"); }),
+    ])));
     expect(parents.map(([prior]) => prior)).toEqual([common, common]);
     for (const peer of peers) peer.send("save");
     expect((await closed).map(([code]) => code)).toEqual([0, 0]);
