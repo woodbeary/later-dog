@@ -69,7 +69,7 @@ export type RuntimeEvent = RuntimeEventBase &
         stopReason?: string | null;
         cost?: number | null;
         denials?: string[];
-        usage?: { input: number; output: number; cachedInput?: number };
+        usage?: { input: number; output: number; cachedInput?: number; cachedWrite?: number };
       }
     | {
         type: "cap.exhausted";
@@ -128,7 +128,7 @@ export type RuntimeEvent = RuntimeEventBase &
         approvalScope?: "local-computer";
       }
     | {
-        type: "thread.token-usage.updated"; input: number; output: number; cachedInput?: number;
+        type: "thread.token-usage.updated"; input: number; output: number; cachedInput?: number; cachedWrite?: number;
         contextTokens?: number; contextWindow?: number;
       }
     | {

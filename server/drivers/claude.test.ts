@@ -127,6 +127,12 @@ describe("ClaudeDriver.decodeConfig", () => {
     expect(ClaudeDriver.decodeConfig(undefined)).toEqual({ cli: "claude", permissionMode: "acceptEdits" });
   });
 
+  it("adds up written cache tokens across a steered continuation", () => {
+    const first = { ok: true, stopReason: "end_turn", cost: 0.01, usage: { input: 12, output: 5, cachedInput: 2, cachedWrite: 6 } };
+    expect(sumNativeTurnResults(first, { ok: true, stopReason: "end_turn", cost: 0.03, usage: { input: 3, output: 4, cachedWrite: 1 } }).usage)
+      .toEqual({ input: 15, output: 9, cachedInput: 2, cachedWrite: 7 });
+  });
+
   it("bills a steered continuation's native results as one turn", () => {
     const first = { ok: true, stopReason: "end_turn", cost: 0.01, usage: { input: 12, output: 5, cachedInput: 2 } };
     expect(sumNativeTurnResults(null, first)).toEqual(first);
