@@ -24,6 +24,7 @@ interface Scope {
   authority: string;
   bucket: WorkFolderBucket;
   now: number;
+  known?: Map<string, Summary>;
 }
 
 interface Summary {
@@ -96,6 +97,8 @@ function collection(value: unknown, check: (v: unknown) => boolean): unknown[] {
 }
 
 async function summary(scope: Scope, hash: string): Promise<Summary> {
+  const known = scope.known?.get(hash);
+  if (known) return known;
   const row = await jsonRecord<Summary>(scope.bucket, scope.prefix + "summaries/" + hash);
   if (!row) throw new FolderError(422, "Missing manifest dependency");
   return row.value;
@@ -306,8 +309,33 @@ async function storeObject(scope: Scope, route: "blobs" | "manifests", id: strin
     return;
   }
   const info = await validateNode(scope, parse(data));
-  await immutable(scope.bucket, scope.prefix + route + "/" + id, data, "application/json");
-  await immutable(scope.bucket, scope.prefix + "summaries/" + id, JSON.stringify(info), "application/json");
+  await Promise.all([
+    immutable(scope.bucket, scope.prefix + route + "/" + id, data, "application/json"),
+    immutable(scope.bucket, scope.prefix + "summaries/" + id, JSON.stringify(info), "application/json"),
+  ]);
+}
+
+const PUBLISH_PAGES = 256;
+
+async function publish(scope: Scope, request: Request): Promise<Response> {
+  const body = parse(await payload(request, WORK_FOLDER_BLOB_BYTES));
+  if (!exact(body, ["parent", "manifest", "pages"]) || !Array.isArray(body.pages) || body.pages.length > PUBLISH_PAGES || !validHash(body.manifest)) return invalid("Invalid publication");
+  const known = new Map<string, Summary>();
+  const pages: { hash: string; bytes: Uint8Array; info: Summary }[] = [];
+  const reading: Scope = { ...scope, known };
+  for (const page of body.pages) {
+    if (!record(page) || !exact(page, ["sha256", "json"]) || !validHash(page.sha256) || typeof page.json !== "string") return invalid("Invalid publication page");
+    const bytes = new TextEncoder().encode(page.json);
+    if (await digest(bytes) !== page.sha256) throw new FolderError(422, "checksum_mismatch");
+    const info = await validateNode(reading, parse(bytes));
+    known.set(page.sha256, info);
+    pages.push({ hash: page.sha256, bytes, info });
+  }
+  await Promise.all(pages.flatMap(({ hash, bytes, info }) => [
+    immutable(scope.bucket, scope.prefix + "manifests/" + hash, bytes, "application/json"),
+    immutable(scope.bucket, scope.prefix + "summaries/" + hash, JSON.stringify(info), "application/json"),
+  ]));
+  return commit(reading, new Request(request.url, { method: "POST", body: JSON.stringify({ parent: body.parent, manifest: body.manifest }) }));
 }
 
 async function migrateBatch(scope: Scope, request: Request): Promise<Response> {
@@ -393,6 +421,10 @@ export async function handleWorkFolder(request: Request, bucket: WorkFolderBucke
     if (route === "grant" || route === "revoke") return !id && request.method === "POST" && owner ? await grant(scope, request, route === "revoke") : json({ error: "forbidden" }, 403);
     if ((route === "fence" || route === "unfence") && !id) return owner && request.method === "POST" ? await folderFence(scope, request, route === "unfence") : json({ error: "forbidden" }, 403);
     if (route === "batch" && !id) return owner && request.method === "POST" ? await migrateBatch(scope, request) : json({ error: "forbidden" }, 403);
+    if (route === "publish" && !id && request.method === "POST") {
+      if ((await readWorkFolderPlacement(bucket, stableId))?.mode === "legacy") return json({ error: "inactive_writer" }, 423);
+      return await publish(scope, request);
+    }
     if ((route === "commit" || route === "migration-commit") && !id && request.method === "POST") {
       if (route === "migration-commit" && !owner) return json({ error: "forbidden" }, 403);
       const mode = (await readWorkFolderPlacement(bucket, stableId))?.mode;
