@@ -41,6 +41,12 @@ async function runLocked(path: string, state: string, input: string): Promise<vo
 
 async function main() {
   const [, , action, path, state = ENGINE_FOLDER_STATE] = process.argv;
+  if (action === "turn-files" && path && /^[a-zA-Z0-9_-]{1,16000}$/.test(path)) {
+    const { runGuestCheckpoint } = await import("./engine-turn-files.ts");
+    const result = await runGuestCheckpoint(JSON.parse(Buffer.from(path, "base64url").toString("utf8")));
+    process.stdout.write(JSON.stringify({ result: result ?? null }) + "\n");
+    return;
+  }
   if (action === "flush-all") {
     if (!existsSync(ENGINE_FOLDER_STATE)) return;
     for (const name of readdirSync(ENGINE_FOLDER_STATE)) {

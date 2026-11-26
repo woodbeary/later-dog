@@ -54,6 +54,7 @@ export function legacyWorkFolderScope(home, placement) {
 
 export function folderExclusions(mounts) {
   const excluded = new Set(mounts.map(mount => mount.path));
+  if (mounts.length) excluded.add(".laterdog/checkpoints");
   return path => {
     if (excluded.has(path)) return true;
     const levels = path.split("/");

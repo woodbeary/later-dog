@@ -76,7 +76,7 @@ import {
   type BrowserCleanupRequest,
   type BrowserCleanupWireRequest,
 } from "./browser-lifecycle-cleanup.ts";
-import * as checkpoints from "./checkpoints.ts";
+import { turnFileCheckpoints } from "./laterdog/guest-turn-checkpoints.ts";
 import { commandReceipt } from "./commands.ts";
 import { buildTurnDigest, coverageForDriver, digestPromptLine, renderDigest, toolEvidence } from "./digest.ts";
 import { appendDecision, bindDecisionRetention, boundRetentionDays, decisionRetentionDays, decisionsCsv, flushDecisionLog, pruneDecisions, readDecisionRange, readDecisions, withDecisionActor, type DecisionActor } from "./decision-log.ts";
@@ -3281,6 +3281,7 @@ function connectedAppsIntegration(bot: Pick<BotRecord, "id" | "connectorTools">,
 const computerControlRevision = new Map<string, number>();
 const takeoverWaits = new TakeoverWaits();
 const assignedJobFolders = managedJobFolders(jobFolderLayout(), CLOUD_HOME, DATA_DIR);
+const checkpoints = turnFileCheckpoints(assignedJobFolders);
 const approvalPlace = managedDeviceApproval(assignedJobFolders, botId => remoteEngineChoice(DATA_DIR, botId).computer, boat.jobComputer);
 const deviceApprovals = new DeviceApprovalWatcher({
   now: () => Date.now(),
@@ -6442,7 +6443,7 @@ async function scheduleTurnDigest(input: {
     try {
       files = await Promise.race([
         capture(),
-        new Promise<null>(resolve => { timer = setTimeout(() => { controller.abort(); resolve(null); }, 3_000); }),
+        new Promise<null>(resolve => { timer = setTimeout(() => { controller.abort(); resolve(null); }, assignedJobFolders ? 150_000 : 3_000); }),
       ]);
     } finally {
       clearTimeout(timer!);
