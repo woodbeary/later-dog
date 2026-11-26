@@ -74,17 +74,21 @@ describe("keeping a cloud computer lean after a dog's turn", () => {
 
   it("stops a process that has spun a CPU for half an hour, never the desktop, the browser or one still young or quiet", async () => {
     const box = sandbox();
-    const start = () => {
-      const child = spawn("sleep", ["60"], { stdio: "ignore" });
+    const start = (managed = false) => {
+      const env = { ...process.env };
+      if (managed) env.LATERDOG_RUN_ID = "upkeep-fixture";
+      else delete env.LATERDOG_RUN_ID;
+      const child = spawn("sleep", ["60"], { stdio: "ignore", env });
       children.push(child);
       return child;
     };
-    const [spinner, browser, young, quiet] = [start(), start(), start(), start()];
+    const [spinner, browser, young, quiet, managed] = [start(), start(), start(), start(), start(true)];
     const ps = [
       `${spinner.pid} ${45 * 60} 99.5 node`,
       `${browser.pid} ${45 * 60} 99.5 chromium`,
       `${young.pid} 120 99.5 python3`,
       `${quiet.pid} ${45 * 60} 3.0 node`,
+      `${managed.pid} ${45 * 60} 99.5 node`,
     ].join("\n");
     writeFileSync(join(box.bin, "ps"), `#!/bin/sh\nprintf '%s\\n' ${quote(ps)}\n`);
     chmodSync(join(box.bin, "ps"), 0o755);
@@ -93,7 +97,7 @@ describe("keeping a cloud computer lean after a dog's turn", () => {
     expect(ran.status, ran.stderr).toBe(0);
     expect(readUpkeepReport(ran.stdout)?.stopped).toBe(1);
     expect(await exited).toBe("SIGTERM");
-    for (const child of [browser, young, quiet]) expect(child.exitCode === null && child.signalCode === null).toBe(true);
+    for (const child of [browser, young, quiet, managed]) expect(child.exitCode === null && child.signalCode === null).toBe(true);
   });
 
   it("spares run_on_computer jobs and touches nothing outside the dog's own downloads, temporary files and caches", () => {

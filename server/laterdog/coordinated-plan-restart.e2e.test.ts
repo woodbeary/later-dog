@@ -59,7 +59,9 @@ it("resumes the same coordinated unfinished room plan after a real server restar
   const roomState = async () =>
     (await api("/api/bots?messages=0")).groups.find((group: any) => group.id === room?.id);
   try {
+    await request("/api/config", { method: "PUT", body: JSON.stringify({ features: { autoReview: false } }) }, url);
     helper = (await cli("new-bot", "--name", "Room helper")).bot;
+    await request(`/api/bots/${helper.id}`, { method: "PATCH", body: JSON.stringify({ approvalMode: "auto" }) }, url);
     lead = (await cli("new-bot", "--name", "Lead")).bot;
     room = (await tool("create_channel", { name: "Restart repair room", member_ids: [helper.id] }))
       .channel;

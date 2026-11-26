@@ -5,7 +5,7 @@ import { expect, it } from "vitest";
 import { removeTempDir } from "./cleanup.ts";
 import { runRoomHandoffAgent } from "./room-handoff-agent.ts";
 
-async function withMcp(script: string, test: (run: () => Promise<string>, dir: string) => Promise<void>) {
+async function withMcp(script: string, test: (run: (message?: unknown) => Promise<string>, dir: string) => Promise<void>) {
   const dir = mkdtempSync(join(tmpdir(), "laterdog-handoff-process-"));
   const config = join(dir, "mcp.json");
   const prompt = join(dir, "system.txt");
@@ -15,7 +15,7 @@ async function withMcp(script: string, test: (run: () => Promise<string>, dir: s
   } } }));
   writeFileSync(prompt, "Only this disposable test fixture.");
   writeFileSync(plan, JSON.stringify({ fixture: { reply: "Completed fixture" } }));
-  try { await test(() => runRoomHandoffAgent(["--mcp-config", config, "--append-system-prompt-file", prompt], plan), dir); }
+  try { await test((message) => runRoomHandoffAgent(["--mcp-config", config, "--append-system-prompt-file", prompt], plan, message), dir); }
   finally { await removeTempDir(dir); }
 }
 
@@ -41,4 +41,18 @@ it("reaps the MCP process even if it ignores graceful shutdown", () => withMcp(`
   await expect(run()).resolves.toBe("Completed fixture");
   const pid = Number(readFileSync(join(dir, "pid"), "utf8"));
   expect(() => process.kill(pid, 0)).toThrow();
+}));
+
+it("keeps the context already received by a continuing native fixture session", () => withMcp(`
+  require("node:readline").createInterface({ input: process.stdin }).on("line", line => {
+    const request = JSON.parse(line);
+    process.stdout.write(JSON.stringify({ jsonrpc: "2.0", id: request.id, result: {} }) + "\\n");
+  });
+`, async (run, dir) => {
+  writeFileSync(join(dir, "plan.json"), JSON.stringify({ fixture: { turns: [
+    { reply: "Saved the first checkpoint." },
+    { expectContextIncludes: ["Repair the original output.", "Continue from the saved checkpoint."], reply: "Verified the repair." },
+  ] } }));
+  await expect(run({ message: { content: "Repair the original output." } })).resolves.toBe("Saved the first checkpoint.");
+  await expect(run({ message: { content: "Continue from the saved checkpoint." } })).resolves.toBe("Verified the repair.");
 }));

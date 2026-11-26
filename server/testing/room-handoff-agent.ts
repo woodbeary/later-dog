@@ -6,6 +6,7 @@ import { waitForExit } from "./cleanup.ts";
 type AgentsIntegration = { command: string; args: string[]; env: Record<string, string> };
 
 const launchFiles = new Map<string, string>();
+const receivedContext = new Map<string, string[]>();
 const readAtLaunch = (path: string) => {
   if (!launchFiles.has(path)) launchFiles.set(path, readFileSync(path, "utf8"));
   return launchFiles.get(path)!;
@@ -36,6 +37,11 @@ export async function runRoomHandoffAgent(argv: string[], planPath: string, prom
   const botId = integration.env.LATERDOG_BOT_ID;
   const system = launch?.system ?? readAtLaunch(arg("--append-system-prompt-file"));
   const turnContext = `${system}\n${JSON.stringify(prompt)}`;
+  const sessionKey = JSON.stringify([planPath, integration.env.LATERDOG_THREAD_ID ?? botId]);
+  const received = receivedContext.get(sessionKey) ?? [];
+  received.push(turnContext);
+  receivedContext.set(sessionKey, received);
+  const conversationContext = received.join("\n");
   const resumed = /your downstream room requests have settled\./i.test(turnContext);
   const basePlan = JSON.parse(readFileSync(planPath, "utf8"))[botId] ?? {};
   const previous = existsSync(`${planPath}.evidence.jsonl`) ? readFileSync(`${planPath}.evidence.jsonl`, "utf8").trim().split("\n").filter(Boolean).map(line => JSON.parse(line)) : [];
@@ -46,7 +52,7 @@ export async function runRoomHandoffAgent(argv: string[], planPath: string, prom
   const plan = matched ?? (basePlan.turns ? basePlan.turns[turnIndex] : basePlan);
   if (!plan) throw new Error(`Unexpected extra fixture turn ${turnIndex} for ${botId}`);
   for (const expected of plan.expectSystemIncludes ?? []) if (!system.includes(expected)) throw new Error(`Missing discussion context: ${expected}`);
-  for (const expected of plan.expectContextIncludes ?? []) if (!turnContext.includes(expected)) throw new Error(`Missing conversation context: ${expected}`);
+  for (const expected of plan.expectContextIncludes ?? []) if (!conversationContext.includes(expected)) throw new Error(`Missing conversation context: ${expected}`);
   const steps = matched || basePlan.turns ? plan.steps ?? [] : resumed ? plan.resumeSteps ?? [] : plan.steps ?? [];
   const child = spawn(integration.command, integration.args, { env: { ...process.env, ...integration.env }, stdio: ["pipe", "pipe", "pipe"] });
   const pending = new Map<number, { resolve: (value: any) => void; reject: (error: Error) => void }>();
@@ -119,6 +125,7 @@ export async function runRoomHandoffAgent(argv: string[], planPath: string, prom
     closing = true;
     clearTimeout(timer); clearTimeout(delayTimer); clearInterval(gateTimer); lines.close(); child.stdin.destroy();
     await waitForExit(child, { signal: "SIGTERM", graceMs: 500 });
+    received.push(JSON.stringify(evidence));
     appendFileSync(`${planPath}.evidence.jsonl`, JSON.stringify({ botId, turnIndex, threadId: integration.env.LATERDOG_THREAD_ID,
       model: argv.includes("--model") ? arg("--model") : undefined,
       permissionMode: argv.includes("--permission-mode") ? arg("--permission-mode") : undefined,
