@@ -143,7 +143,7 @@ import { startMemoryGuard } from "./laterdog/memory-guard.ts";
 import { parseHelperModelChoice } from "./laterdog/helper-model.ts";
 import { makeSpace } from "./laterdog/space-maker.ts";
 import type { HistoryStartupFacts } from "../shared/history-startup.ts";
-import { prepareHistoryTails, historyWindow,preloadWorkAttention,remoteAttention } from "./laterdog/history-snapshots.ts";
+import { prepareHistoryTails, historyWindow,preloadWorkAttention,remoteAttention,prepareStallWindows } from "./laterdog/history-snapshots.ts";
 import type { HistoryTail } from "./laterdog/history-snapshot-cache.ts";
 import { historyExecute,historyManyAsync, isRemoteHistory, preloadHistoryActivity } from "./laterdog/history-client.ts";
 import { liveStepsFrom } from "./laterdog/live-step.ts";
@@ -6165,16 +6165,23 @@ function teammateCanRun(botId: string, threadId: string): boolean {
   if (store.taskByThread(botId, threadId)?.activity === "dead") return false;
   return teammateAccountRuns(chatAccountFacts(bot, threadId));
 }
-const stallWatch = createStallWatch({
-  chats: () => store.bots.flatMap((bot) => store.tasks(bot.id)
+const stallChats=() => store.bots.flatMap((bot) => store.tasks(bot.id)
     .filter((task) => !task.archivedAt && !store.groupByThread(task.threadId) && (task.updatedAt ?? task.createdAt) > Date.now() - STALL_LOOKBACK_MS)
-    .map((task) => ({ botId: bot.id, threadId: task.threadId }))),
+    .map((task) => ({ botId: bot.id, threadId: task.threadId })));
+let preparedStall:Awaited<ReturnType<typeof prepareStallWindows>>|undefined;
+const stallWatch = createStallWatch({
+  chats:stallChats,
+  ...(isRemoteHistory()?{prepareSweep:async(run:()=>void)=>{
+    const threads=stallChats().map(task=>task.threadId);
+    preparedStall=await prepareStallWindows(threads,Date.now()-STALL_LOOKBACK_MS);
+    try{run();}finally{preparedStall=undefined;}
+  }}:{}),
   look: (botId, threadId) => {
     const bot = store.bot(botId);
     if (!bot) return null;
     const now = Date.now();
     return {
-      name: bot.name, path: store.messagesTail(threadId, 160).messages, now,
+      name: bot.name,...(preparedStall?.(threadId)??{path:store.messagesTail(threadId,160).messages}),now,
       busy: threadBusy(botId, threadId) || watchdog.watching(threadId) || directTurnDispatchClaims.has(threadId),
       requestOpen: watchdog.snapshot(threadId)?.waitingOnHuman === true || delegatedNeedsYou(threadId),
       helpers: helpersWorkingIn(threadId) + computerJobs.count(threadId),

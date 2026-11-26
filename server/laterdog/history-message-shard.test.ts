@@ -212,3 +212,12 @@ it("marks search results on the same active branch as the normal conversation pa
     expect((run({op:"messages.search",query:"find me",activePath:true}) as Array<{messageId:string;onActivePath:boolean}>).map(h=>[h.messageId,h.onActivePath])).toEqual([["three",false],["two",true],["one",true]]);
   }finally{db.close();}
 });
+it("preserves the latest pending takeover and the newest timestamp in the recent stall window",()=>{
+  const {run,db}=fixture();
+  try{
+    run({op:"messages.import",messages:Array.from({length:162},(_,i)=>({id:"s"+i,at:i===0?1000:i,role:"bot",kind:i===5||i===157?"options":"text",card:i===5?{takeoverRequest:{status:"waiting"}}:i===157?{takeoverRequest:{status:"closed"}}:undefined})),leaf:"s161"});
+    expect(run({op:"messages.stallWindow"})).toEqual({waitingOnTakeover:false,lastAt:161});
+    run({op:"messages.update",message:{id:"s157",at:157,role:"bot",kind:"options",card:{takeoverRequest:{status:"in-control"}},text:"x".repeat(500000)}});
+    expect(run({op:"messages.stallWindow"})).toEqual({waitingOnTakeover:true,lastAt:161});
+  }finally{db.close();}
+});

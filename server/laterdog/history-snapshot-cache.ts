@@ -1,7 +1,9 @@
+import type { HistoryStallWindow } from "../../shared/history-attention.ts";
 import type { Message } from "../store.ts";
 export type HistoryTail = { messages: Message[]; activeLeafId: string | null; hasMore: boolean };
 type State = {
   attention?: Message[];
+  stall?: HistoryStallWindow;
   attentionBytes?: number;
   summary?: HistoryTail;
   page?: { raw: string; bytes: number; limit: number };

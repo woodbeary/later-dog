@@ -1,3 +1,4 @@
+import type { HistoryStallWindow } from "../../shared/history-attention.ts";
 import type { Message } from "../store.ts";
 import type { HistoryOperation } from "../../shared/history-shard-types.ts";
 import type { BranchVersion } from "./rewind.ts";
@@ -100,4 +101,29 @@ export function remoteAttention(thread: string): Message[] {
   const rows = historyExecute<Message[]>(thread, { op: "messages.attentionTail" });
   overviewHistory.saveAttention(state, rows);
   return rows;
+}
+
+export async function prepareStallWindows(threads: readonly string[], since: number) {
+  const states = new Map(threads.map((thread) => [thread, overviewHistory.witness(thread)] as const));
+  const missing = Array.from(states)
+    .filter(([, state]) => !state.stall)
+    .map(([thread]) => thread);
+  if (missing.length)
+    for (const { threadId, result } of await historyManyAsync<HistoryStallWindow>(missing, {
+      op: "messages.stallWindow",
+    })) {
+      const state = states.get(threadId)!;
+      if (overviewHistory.valid(threadId, state)) state.stall = result;
+    }
+  const recent = Array.from(states)
+    .filter(([, state]) => state.stall && state.stall.lastAt >= since && !state.stall.waitingOnTakeover)
+    .map(([thread]) => thread);
+  const tails = await prepareHistoryTails(recent, 160);
+  return (thread: string) => {
+    const state = states.get(thread);
+    if (!state?.stall || !overviewHistory.valid(thread, state)) return undefined;
+    if (state.stall.lastAt < since || state.stall.waitingOnTakeover) return { path: [], history: state.stall };
+    const tail = tails(thread);
+    return tail ? { path: tail.messages, history: state.stall } : undefined;
+  };
 }

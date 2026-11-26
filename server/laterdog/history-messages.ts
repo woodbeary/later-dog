@@ -27,7 +27,7 @@ export function remoteThread(thread: string, limit?: number): ThreadTailRows {
     ? { messages, activeLeafId: leaf }
     : { messages: messages.reverse(), activeLeafId: leaf, hasMore: more };
 }
-export function remoteCards(permission: boolean,threads?:readonly string[]) {
+export function remoteCards(permission: boolean, threads?: readonly string[]) {
   return historyMany<Message[]>(threads, { op: "messages.cards", permission }).flatMap(({ threadId, result }) =>
     result.map((message) => ({ threadId, message })),
   );
@@ -49,17 +49,26 @@ function searchHits(rows: { result: (SearchHit & { rid?: string })[] }[], limit:
     .flatMap((r) => r.result)
     .sort(chronological)
     .slice(0, limit)
-    .map(({ rid: _, ...hit }) => hit);
+    .map((hit) => {
+      const result = { ...hit };
+      delete result.rid;
+      return result;
+    });
 }
 export function remoteSearch(query: string, limit: number, thread?: string) {
   return searchHits(
-    historyMany<SearchHit[]>(thread ? [thread] : undefined, { op: "messages.search", query, limit,activePath:true }),
+    historyMany<SearchHit[]>(thread ? [thread] : undefined, { op: "messages.search", query, limit, activePath: true }),
     limit,
   );
 }
 export async function remoteSearchAsync(query: string, limit: number, thread?: string) {
   return searchHits(
-    await historyManyAsync<SearchHit[]>(thread ? [thread] : undefined, { op: "messages.search", query, limit,activePath:true }),
+    await historyManyAsync<SearchHit[]>(thread ? [thread] : undefined, {
+      op: "messages.search",
+      query,
+      limit,
+      activePath: true,
+    }),
     limit,
   );
 }

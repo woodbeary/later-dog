@@ -1,4 +1,4 @@
-import { historyAttentionTail } from "./history-attention.ts";
+import { historyAttentionTail,historyStallWindow } from "./history-attention.ts";
 import { historyStartupFacts } from "./history-startup.ts";
 import { historyHasUnansweredCards } from "./history-card-filter.ts";
 import { activeHistoryIds, historyNavigation } from "./history-navigation.ts";
@@ -232,6 +232,7 @@ export function executeHistoryOperation(
           ),
         )?.at ?? null
       );
+    case "messages.stallWindow":return historyStallWindow(sql,thread);
     case "messages.attentionTail":return historyAttentionTail(sql,thread);
     case "messages.startupFacts":return historyStartupFacts(sql,thread);
     case "messages.hasCards": return historyHasUnansweredCards(sql,thread);

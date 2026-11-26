@@ -63,3 +63,31 @@ export function historyAttentionTail(sql: HistorySql, thread: string) {
   }
   return result.reverse();
 }
+export interface HistoryStallWindow {
+  lastAt: number;
+  waitingOnTakeover: boolean;
+}
+export function historyStallWindow(sql: HistorySql, thread: string): HistoryStallWindow {
+  const rows = sql.exec<{ rid: string; at: number; state: string | null; large: number }>(
+    "SELECT CAST(m.rowid AS TEXT) rid,at,json_extract(json,'$.card.takeoverRequest.status') state,EXISTS(SELECT 1 FROM history_values WHERE relation='messages' AND entry=CAST(m.rowid AS TEXT) AND field='json' AND part=0) large FROM messages m WHERE thread_id=? ORDER BY rowid DESC LIMIT 160",
+    thread,
+  );
+  let lastAt = 0,
+    found = false,
+    waitingOnTakeover = false;
+  for (const r of rows) {
+    lastAt = Math.max(lastAt, r.at);
+    if (found) continue;
+    let status = r.state;
+    if (r.large) {
+      const card = JSON.parse(readHistoryValue(sql, "messages", r.rid, "json", "")).card;
+      if (card?.takeoverRequest) {
+        found = true;
+        status = card.takeoverRequest.status;
+      }
+    }
+    if (status != null) found = true;
+    if (found) waitingOnTakeover = status === "waiting" || status === "in-control";
+  }
+  return { lastAt, waitingOnTakeover };
+}
