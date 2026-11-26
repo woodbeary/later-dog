@@ -97,11 +97,14 @@ export function createWarmEngines({
     if (!held || held.engine !== engine) return Promise.reject(new Error("The engine owner changed."));
     if (!held.draining) {
       if (!held.idle()) return Promise.reject(new Error("This chat's engine is still working."));
-      held.draining = held.drain();
+      const draining: Promise<void> = held.drain().then(() => {
+        if (owners.get(key) === held) throw new Error("The previous engine stop was not confirmed.");
+      }).finally(() => {
+        if (held.draining === draining) held.draining = undefined;
+      });
+      held.draining = draining;
     }
-    return held.draining.then(() => {
-      if (owners.get(key) === held) throw new Error("The previous engine stop was not confirmed.");
-    });
+    return held.draining;
   };
 
   return {

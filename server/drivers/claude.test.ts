@@ -2862,7 +2862,7 @@ describe("ClaudeDriver turns (fake CLI)", () => {
     }));
   });
 
-  it.each([false, true])("ends a stopped turn once, with one plain notice, when Claude Code's programs cannot be confirmed closed (retained: %s)", async (retained) => {
+  it.each([false, true])("rechecks an unconfirmed stop before the next turn, with one plain notice (retained: %s)", async (retained) => {
     const gate = join(scratch, "unconfirmed-stop.gate");
     await create("slow", { FAKE_CLAUDE_SLOW_FINISH_GATE: gate });
     const threadId = `t-unconfirmed-stop-${retained}`;
@@ -2885,6 +2885,8 @@ describe("ClaudeDriver turns (fake CLI)", () => {
       expect(done).toMatchObject({ ok: false, stopReason: "interrupted" });
       expect(instance.adapter.hasSession(threadId)).toBe(false);
       await instance.adapter.interruptTurn(threadId);
+      await expect(instance.adapter.sendTurn({ threadId, text: "retry while the stop is unconfirmed" }))
+        .rejects.toThrow("The previous engine stop was not confirmed.");
     } finally {
       unconfirmed.mockRestore();
     }
