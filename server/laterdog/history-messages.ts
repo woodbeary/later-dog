@@ -27,8 +27,8 @@ export function remoteThread(thread: string, limit?: number): ThreadTailRows {
     ? { messages, activeLeafId: leaf }
     : { messages: messages.reverse(), activeLeafId: leaf, hasMore: more };
 }
-export function remoteCards(permission: boolean) {
-  return historyMany<Message[]>(undefined, { op: "messages.cards", permission }).flatMap(({ threadId, result }) =>
+export function remoteCards(permission: boolean,threads?:readonly string[]) {
+  return historyMany<Message[]>(threads, { op: "messages.cards", permission }).flatMap(({ threadId, result }) =>
     result.map((message) => ({ threadId, message })),
   );
 }

@@ -1,9 +1,11 @@
+import { initializeHistoryStartup } from "./history-startup.ts";
 import { initializeHistoryCommands } from "./history-command-journal.ts";
 import type { HistoryRow } from "./history-migration.ts";
 import { readHistoryValue, storeHistoryValue, type HistorySql } from "./history-values.ts";
 
 export function initializeHistoryMessageIndex(sql: HistorySql): void {
   initializeHistoryCommands(sql);
+  initializeHistoryStartup(sql);
   sql.exec(
     "CREATE TABLE IF NOT EXISTS history_command_results(command TEXT NOT NULL,part INTEGER NOT NULL,result BLOB NOT NULL,PRIMARY KEY(command,part)) WITHOUT ROWID",
   );
@@ -31,7 +33,7 @@ function indexedJson(raw:string):string {
     extendedIndex=true;return value.slice(0,4096);
   };
   return JSON.stringify({
-    requestPending:m?.requestPending===true,requestCancelled:m?.requestCancelled===true,
+    historyIndexVersion:1,needsYou:m?.needsYou?{status:m.needsYou.status==="waiting"?"waiting":null}:undefined,requestPending:m?.requestPending===true,requestCancelled:m?.requestCancelled===true,
     card:m?.card&&{requestType:m.card.requestType==="permission"?"permission":null,answered:m.card.answered==null?null:true,dismissed:m.card.dismissed===true,expired:m.card.expired===true,autoAnswerAt:m.card.autoAnswerAt==null?null:true},
     from:m?.from&&{name:name(m.from.name),botId:name(m.from.botId)},peerAsk:m?.peerAsk&&{name:name(m.peerAsk.name)},tool:m?.tool&&{name:name(m.tool.name)},extendedIndex
   });

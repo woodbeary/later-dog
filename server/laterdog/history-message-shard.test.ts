@@ -176,3 +176,18 @@ it("finds stale approval candidates and derives anchored windows and branch vers
     expect(run({op:"messages.hasCards"})).toBe(false);
   }finally{db.close();}
 });
+
+it("preserves all startup flags on ordinary, spilled and earlier spilled rows",()=>{
+  const {sql,db,run}=fixture();
+  try{
+    for(const [i,size] of [0,500000].entries()){
+      const id="receipt-"+i,original={id,at:i,role:"bot",kind:"options",text:"x".repeat(size),needsYou:{status:"waiting"},card:{requestType:"permission",autoAnswerAt:123}};
+      run({op:"messages.append",message:original});
+      expect(run({op:"messages.startupFacts"})).toEqual({waiting:true,permission:true,countdown:true});
+      if(size){sql.exec("UPDATE messages SET json=json_remove(json,'$.historyIndexVersion','$.needsYou') WHERE id=?",id);
+        expect(run({op:"messages.startupFacts"})).toEqual({waiting:true,permission:true,countdown:true});}
+      run({op:"messages.update",message:{...original,needsYou:{status:"complete"},card:{answered:"allow"}}});
+      expect(run({op:"messages.startupFacts"})).toEqual({waiting:false,permission:false,countdown:false});
+    }
+  }finally{db.close();}
+});

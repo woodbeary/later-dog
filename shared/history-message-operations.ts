@@ -1,3 +1,4 @@
+import { historyStartupFacts } from "./history-startup.ts";
 import { historyUnansweredCardSql } from "./history-card-filter.ts";
 import { historyNavigation } from "./history-navigation.ts";
 import { acceptedHistoryCommand, historyCommandHead, historyCommandPage, journalHistoryCommand } from "./history-command-journal.ts";
@@ -230,6 +231,7 @@ export function executeHistoryOperation(
           ),
         )?.at ?? null
       );
+    case "messages.startupFacts":return historyStartupFacts(sql,thread);
     case "messages.hasCards":{
       for(const row of sql.exec<{rid:string;json:string}>("SELECT CAST(rowid AS TEXT) rid,json FROM messages WHERE thread_id=? AND "+historyUnansweredCardSql,thread)){
         const card=JSON.parse(readHistoryValue(sql,"messages",row.rid,"json",row.json)).card;

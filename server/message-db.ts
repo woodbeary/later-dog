@@ -700,8 +700,8 @@ export function updateMessage(threadId: string, message: Message): void {
     .run(message.at, message.role, message.kind, message.text ?? null, JSON.stringify(message), threadId, message.id));
 }
 
-export function openPermissionCards(): Array<{ threadId: string; message: Message }> {
-  if (isRemoteHistory()) { flushHistoryOutbox(); return remoteCards(true); }
+export function openPermissionCards(threads?:readonly string[]): Array<{ threadId: string; message: Message }> {
+  if (isRemoteHistory()) { flushHistoryOutbox(); return remoteCards(true,threads); }
   const rows = db()
     .prepare(
       "SELECT thread_id, json FROM messages " +
@@ -714,8 +714,8 @@ export function openPermissionCards(): Array<{ threadId: string; message: Messag
   return rows.map((row) => ({ threadId: row.thread_id, message: JSON.parse(row.json) as Message }));
 }
 
-export function questionCardsCountingDown(): Array<{ threadId: string; message: Message }> {
-  if (isRemoteHistory()) { flushHistoryOutbox(); return remoteCards(false); }
+export function questionCardsCountingDown(threads?:readonly string[]): Array<{ threadId: string; message: Message }> {
+  if (isRemoteHistory()) { flushHistoryOutbox(); return remoteCards(false,threads); }
   const rows = db()
     .prepare(
       "SELECT thread_id, json FROM messages " +

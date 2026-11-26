@@ -142,9 +142,10 @@ import { HOME_SERVER_LOG_DIR, installHomeServerLog } from "./laterdog/home-serve
 import { startMemoryGuard } from "./laterdog/memory-guard.ts";
 import { parseHelperModelChoice } from "./laterdog/helper-model.ts";
 import { makeSpace } from "./laterdog/space-maker.ts";
+import type { HistoryStartupFacts } from "../shared/history-startup.ts";
 import { prepareHistoryTails, historyWindow } from "./laterdog/history-snapshots.ts";
 import type { HistoryTail } from "./laterdog/history-snapshot-cache.ts";
-import { historyManyAsync, isRemoteHistory, preloadHistoryActivity } from "./laterdog/history-client.ts";
+import { historyExecute,historyManyAsync, isRemoteHistory, preloadHistoryActivity } from "./laterdog/history-client.ts";
 import { liveStepsFrom } from "./laterdog/live-step.ts";
 import { createDiskBreakdown } from "./laterdog/disk-breakdown.ts";
 import { ComputerRuns } from "./laterdog/computer-runs.ts";
@@ -3903,9 +3904,14 @@ let teammatesAwaited = (_threadId: string): WireWaitingOn[] => [];
 let liveStatusLine = (_threadId: string): string | undefined => undefined;
 let helpersWorkingIn = (_threadId: string): number => 0;
 const computerJobs = new ComputerJobs(join(DATA_DIR, "computer-jobs.json"), { changed: (threadId) => announceHelpersChanged(threadId) });
-const delegatedWaiting = new Map<string, boolean>();
+const startupHistoryFacts=isRemoteHistory()?await historyManyAsync<HistoryStartupFacts>(undefined,{op:"messages.startupFacts"}):undefined;
+const delegatedWaiting = new Map<string, boolean>(startupHistoryFacts?.map(row=>[row.threadId,row.result.waiting] as const));
+const dirtyDelegations=new Set<string>();
 function delegatedNeedsYou(threadId: string): boolean {
-  if (!delegatedWaiting.has(threadId)) delegatedWaiting.set(threadId, store.messagesFor(threadId).some(message => message.needsYou?.status === "waiting"));
+  if (!delegatedWaiting.has(threadId)) {
+    const waiting=isRemoteHistory()?dirtyDelegations.has(threadId)&&historyExecute<HistoryStartupFacts>(threadId,{op:"messages.startupFacts"}).waiting:store.messagesFor(threadId).some(message=>message.needsYou?.status==="waiting");
+    delegatedWaiting.set(threadId,waiting);dirtyDelegations.delete(threadId);
+  }
   return delegatedWaiting.get(threadId)!;
 }
 const workSignals = new WorkSignals();
@@ -6049,7 +6055,7 @@ const inflightTurns = createInflightTurns(fileInflightLedger(join(DATA_DIR, "tur
 let pickingUpAfterRestart = true;
 store.onChange((change) => {
   if ((change.type === "message" || change.type === "message.patch") && change.message.needsYou) {
-    delegatedWaiting.delete(change.threadId);
+    dirtyDelegations.add(change.threadId);delegatedWaiting.delete(change.threadId);
     const owner = store.botByThread(change.threadId);
     if (owner) broadcast({ kind: "bot", bot: wireBot(owner) });
   }
@@ -22206,7 +22212,7 @@ restoreChannelMessages();
 
 try {
   expireStaleApprovals({
-    cards: openPermissionCards,
+    cards: () => openPermissionCards(startupHistoryFacts?.filter(row=>row.result.permission).map(row=>row.threadId)),
     owns: (threadId) => Boolean(store.botByThread(threadId) || store.groupByThread(threadId)),
     patch: (threadId, messageId, patch) => store.patchMessage(threadId, messageId, patch),
   });
@@ -22215,7 +22221,7 @@ try {
 }
 
 try {
-  for (const { threadId, message } of questionCardsCountingDown()) {
+  for (const { threadId, message } of questionCardsCountingDown(startupHistoryFacts?.filter(row=>row.result.countdown).map(row=>row.threadId))) {
     if (message.card) store.patchMessage(threadId, message.id, { card: { ...message.card, autoAnswerAt: undefined } });
   }
 } catch (error) {
