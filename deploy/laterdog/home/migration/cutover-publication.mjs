@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { reversePublication } from "./reverse-publication.mjs";
 
 const hash = /^[a-f0-9]{64}$/;
 const denied = reason => Response.json({ error: reason }, { status: 423 });
@@ -9,7 +10,9 @@ export function validateCutoverBinding(config, authority) {
     return;
   }
   const matches = config.services?.filter(binding => binding.binding === "CUTOVER" && binding.service === authority.service && binding.entrypoint === "WorkFolderMigrationApi" && binding.remote === true);
-  if (matches?.length !== 1 || !authority.accountId || !/^h[a-f0-9]{24}$/.test(authority.machineId) || ![authority.nonce, authority.candidate, authority.verification, authority.baselineManifest, authority.image].every(id => hash.test(id))) throw new Error("Invalid tenant cutover binding or authority");
+  const sources = authority.direction === "reverse" ? [authority.previous, authority.sourceManifest] : [authority.image, authority.candidate];
+  if (authority.direction !== undefined && authority.direction !== "forward" && authority.direction !== "reverse") throw new Error("Unknown tenant cutover direction");
+  if (matches?.length !== 1 || !authority.accountId || !/^h[a-f0-9]{24}$/.test(authority.machineId) || ![authority.nonce, authority.verification, authority.baselineManifest, ...sources].every(id => hash.test(id))) throw new Error("Invalid tenant cutover binding or authority");
 }
 
 export async function enrolledPublication(request, bucket, stable, api, authority) {
@@ -17,8 +20,10 @@ export async function enrolledPublication(request, bucket, stable, api, authorit
   if (!(path === "/work-folders/placement" && request.method === "PUT" || path === "/work-folders/project-legacy" && request.method === "POST")) return null;
   const prefix = "homes/" + stable + "/work-folders/";
   const held = await bucket.get(prefix + "cutover-enrollment");
-  if (!held) return authority ? denied("source_enrollment_missing") : null;
-  const enrollment = await new Response(held.body).json();
+  const enrollment = held ? await new Response(held.body).json() : null;
+  const reverse = await reversePublication(request, bucket, prefix, api, authority, enrollment, await bucket.get(prefix + "reverse-enrollment"));
+  if (reverse) return reverse;
+  if (!enrollment) return authority ? denied("source_enrollment_missing") : null;
   if (enrollment.v === 1 && enrollment.retired === true && hash.test(enrollment.retiredRevision)) {
     const record = await bucket.get(prefix + "placements/" + enrollment.retiredRevision);
     if (!record || createHash("sha256").update(await new Response(record.body).text()).digest("hex") !== enrollment.retiredRevision) return denied("unverified_source_retirement");

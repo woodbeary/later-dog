@@ -1,3 +1,4 @@
+import type { ReverseRequest } from "./work-folder-reverse.ts";
 import type { CutoverRequest } from "./work-folder-cutover.ts";
 import type { FolderCensusRequest } from "./work-folder-census.ts";
 import { ContainerProxy } from "@cloudflare/containers";
@@ -37,6 +38,10 @@ async function hostForMachine(env: Env, machineId: string) {
 }
 
 export class WorkFolderMigrationApi extends WorkerEntrypoint<Env> {
+  async reverse(accountId: string, nonce: string, request: ReverseRequest) {
+    const { identity, stub } = await homeFor(this.env, accountId);
+    return stub.controlWorkFolderReverse(identity.machineId, nonce, request);
+  }
   async cutover(accountId: string, nonce: string, request: CutoverRequest) {
     const { identity, stub } = await homeFor(this.env, accountId);
     return stub.controlWorkFolderCutover(identity.machineId, nonce, request);
