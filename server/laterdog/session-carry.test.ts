@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -34,6 +34,31 @@ describe("carrying a Claude session to another Claude account", () => {
     expect(readFileSync(join(toProject, `${SESSION}.jsonl`), "utf8")).toContain("the whole history");
     expect(existsSync(join(toProject, SESSION, "subagents", "helper.jsonl"))).toBe(true);
     expect(readFileSync(join(to, "file-history", SESSION, "edit-1"), "utf8")).toBe("before");
+  });
+
+  it.each(["physical", "logical"])("carries a %s native project from an aliased workspace into the next account's native project", (spelling) => {
+    const root = scratch();
+    const physical = join(root, "real-workspace"), alias = join(root, "workspace-alias");
+    mkdirSync(physical);
+    symlinkSync(physical, alias, "dir");
+    const from = join(root, "account-one"), to = join(root, "account-two");
+    const source = join(from, "projects", claudeProjectSlug(spelling === "physical" ? realpathSync(physical) : alias));
+    mkdirSync(source, { recursive: true });
+    writeFileSync(join(source, `${SESSION}.jsonl`), "original history");
+    expect(carryClaudeSession({ sessionId: SESSION, cwd: alias, fromConfigDir: from, toConfigDir: to })?.sessionId).toBe(SESSION);
+    expect(readFileSync(join(to, "projects", claudeProjectSlug(realpathSync(physical)), `${SESSION}.jsonl`), "utf8")).toBe("original history");
+  });
+
+  it("leaves a linked destination project and its outside transcript untouched", () => {
+    const { cwd, from, to, project, toProject } = accounts();
+    const outside = join(scratch(), "outside");
+    mkdirSync(outside);
+    writeFileSync(join(outside, `${SESSION}.jsonl`), "unrelated");
+    mkdirSync(join(to, "projects"), { recursive: true });
+    symlinkSync(outside, toProject, "dir");
+    expect(carryClaudeSession({ sessionId: SESSION, cwd, fromConfigDir: from, toConfigDir: to })).toBeUndefined();
+    expect(readFileSync(join(outside, `${SESSION}.jsonl`), "utf8")).toBe("unrelated");
+    expect(readFileSync(join(project, `${SESSION}.jsonl`), "utf8")).toContain("whole history");
   });
 
   it("replaces an older copy on the account it goes back to with the newer history", () => {

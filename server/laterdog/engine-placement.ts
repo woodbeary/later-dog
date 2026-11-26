@@ -10,6 +10,7 @@ import type { EngineFileRoot } from "./engine-files.ts";
 import { claudeRenewer, type ClaudeRenewal } from "./engine-renewal.ts";
 import { EngineProcess, RemoteSession, type EngineLink, type PushedFile, type RemoteLaunch, type StdioSpec } from "./engine-remote.ts";
 import { ENGINE_WAIT_NOTICE_MS, watchEngineOpening, type EngineWait } from "./engine-waiting.ts";
+import { claudeProjectSlug, claudeSessionWorkspace, physicalClaudePath } from "./claude-project.ts";
 import { placedThreads, type PlacedThreads } from "./placed-threads.ts";
 
 export const REMOTE_ENGINE_BASE = "/home/dog/.laterdog-engine";
@@ -99,7 +100,7 @@ export function notePlacement(dataDir: string, line: string, now = new Date()): 
   } catch {}
 }
 
-export function claudeProjectSlug(cwd: string): string { return cwd.replace(/[^a-zA-Z0-9]/g, "-"); }
+export { claudeProjectSlug };
 
 export function commandOnPath(command: string, path: string | undefined): string | null {
   if (isAbsolute(command)) return command;
@@ -185,8 +186,13 @@ export function planClaudeRemote(input: ClaudePlacement): { plan: ClaudeRemotePl
   if (!cli) return { stay: "Claude CLI is not an npm install" };
   const home = input.env.HOME || homedir();
   const configDir = resolve(input.env.CLAUDE_CONFIG_DIR || join(home, ".claude"));
-  const cwd = resolve(input.cwd);
-  if (cwd === "/" || cwd === resolve(home) || cwd === resolve(input.dataDir) || within(cwd, configDir) || within(configDir, cwd)) return { stay: "working folder cannot be mirrored" };
+  const logical = resolve(input.cwd);
+  const workspace = claudeSessionWorkspace(logical, configDir, input.sessionId);
+  const cwd = workspace.source ?? workspace.physical;
+  const physicalConfig = physicalClaudePath(configDir);
+  if (logical === resolve(home) || logical === resolve(input.dataDir) || within(logical, configDir) || within(configDir, logical) ||
+      workspace.physical === "/" || workspace.physical === physicalClaudePath(resolve(home)) || workspace.physical === physicalClaudePath(resolve(input.dataDir)) ||
+      within(workspace.physical, physicalConfig) || within(physicalConfig, workspace.physical)) return { stay: "working folder cannot be mirrored" };
   let credential: Buffer | null = null;
   const credentialFile = join(configDir, ".credentials.json");
   if (!account.ANTHROPIC_API_KEY && !account.ANTHROPIC_AUTH_TOKEN && !account.CLAUDE_CODE_OAUTH_TOKEN) {

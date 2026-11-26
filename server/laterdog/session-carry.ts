@@ -1,8 +1,6 @@
 import { cpSync, lstatSync, mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { claudeProjectSlug } from "./engine-placement.ts";
-
-const SESSION_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+import { claudeProjectSlug, claudeSessionWorkspace } from "./claude-project.ts";
 
 export interface CarriedSession {
   sessionId: string;
@@ -21,17 +19,27 @@ function plainEntry(path: string): "file" | "folder" | undefined {
 
 export function carryClaudeSession(input: { sessionId: unknown; cwd: string; fromConfigDir: string; toConfigDir: string }): CarriedSession | undefined {
   const { sessionId, cwd, fromConfigDir, toConfigDir } = input;
-  if (typeof sessionId !== "string" || !SESSION_ID.test(sessionId) || fromConfigDir === toConfigDir) return undefined;
-  const slug = claudeProjectSlug(cwd);
-  const transcript = join("projects", slug, `${sessionId}.jsonl`);
-  if (plainEntry(join(fromConfigDir, transcript)) !== "file") return undefined;
+  if (typeof sessionId !== "string" || fromConfigDir === toConfigDir) return undefined;
+  const { physical, source } = claudeSessionWorkspace(cwd, fromConfigDir, sessionId);
+  if (!source) return undefined;
+  const project = join("projects", claudeProjectSlug(physical));
+  const sourceProject = join("projects", claudeProjectSlug(source));
+  for (const folder of ["projects", project, "file-history"]) {
+    const entry = lstatSync(join(toConfigDir, folder), { throwIfNoEntry: false });
+    if (entry && !entry.isDirectory()) return undefined;
+  }
   const copied: string[] = [];
-  for (const piece of [transcript, join("projects", slug, sessionId), join("file-history", sessionId)]) {
-    const from = join(fromConfigDir, piece);
-    if (!plainEntry(from)) continue;
+  for (const [fromPiece, piece] of [
+    [join(sourceProject, `${sessionId}.jsonl`), join(project, `${sessionId}.jsonl`)],
+    [join(sourceProject, sessionId), join(project, sessionId)],
+    [join("file-history", sessionId), join("file-history", sessionId)],
+  ] as const) {
+    const from = join(fromConfigDir, fromPiece);
+    if (plainEntry(dirname(from)) !== "folder" || !plainEntry(from)) continue;
     const to = join(toConfigDir, piece);
+    if (lstatSync(to, { throwIfNoEntry: false })?.isSymbolicLink()) return undefined;
     mkdirSync(dirname(to), { recursive: true, mode: 0o700 });
-    cpSync(from, to, { recursive: true, force: true, preserveTimestamps: true, filter: (source) => plainEntry(source) !== undefined });
+    cpSync(from, to, { recursive: true, force: true, preserveTimestamps: true, filter: (source, destination) => plainEntry(source) !== undefined && !lstatSync(destination, { throwIfNoEntry: false })?.isSymbolicLink() });
     copied.push(piece);
   }
   return { sessionId, copied };
