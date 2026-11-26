@@ -123,11 +123,18 @@ export class RemoteSession extends EventEmitter {
   get started(): boolean { return this.#started; }
 
   #send(frame: unknown): void { this.#link.send(JSON.stringify(frame)); }
-  #request(frame: Record<string, unknown>, timeoutMs: number): Promise<any> {
+  #request(frame: Record<string, unknown>, timeoutMs: number, trackCheckpoint = false): Promise<any> {
     if (this.#closed) return Promise.reject(new Error("The cloud computer connection is closed."));
     const id = ++this.#sequence;
+    const began = Date.now();
     return new Promise((resolve, reject) => {
-      const timer = setTimeout(() => { this.#pending.delete(id); reject(new Error(`The engine relay did not answer ${String(frame.type)}.`)); }, timeoutMs);
+      const expire = () => {
+        const remaining = trackCheckpoint ? Math.max(began, this.checkpointProgressAt) + timeoutMs - Date.now() : 0;
+        if (remaining > 0) { timer = setTimeout(expire, remaining); return; }
+        this.#pending.delete(id);
+        reject(new Error(`The engine relay did not answer ${String(frame.type)}.`));
+      };
+      let timer = setTimeout(expire, timeoutMs);
       this.#pending.set(id, { resolve: (body) => { clearTimeout(timer); resolve(body); }, reject: (error) => { clearTimeout(timer); reject(error); } });
       this.#send({ ...frame, id });
     });
@@ -196,7 +203,7 @@ export class RemoteSession extends EventEmitter {
       const guest = remote.get(key);
       if (local?.hash === guest?.hash || guest?.hash === receipt.before?.hash) continue;
       if (local?.hash !== receipt.before?.hash) throw new Error("Native transcript changed on both the home and computer. Both copies were preserved.");
-      const recovery = await this.#request({ type: "recover_transcript", root: root.id, path: receipt.path, hash: guest?.hash }, SYNC_REPLY_MS);
+      const recovery = await this.#request({ type: "recover_transcript", root: root.id, path: receipt.path, hash: guest?.hash }, SYNC_REPLY_MS, true);
       if (!recovery?.recovered || this.#receiver.baseline.get(key)?.hash !== guest?.hash) throw new Error("The newer computer transcript could not be recovered. Both copies were preserved.");
       home = home.filter(file => engineFileKey(file) !== key);
       if (guest) home.push(guest);
@@ -226,7 +233,7 @@ export class RemoteSession extends EventEmitter {
     if (body?.refused === "busy") throw new Error("This chat's engine is still running on the cloud computer; it was not started a second time.");
     if (!body?.started) throw new Error("The cloud computer gave an unexpected answer to the engine launch.");
     if (this.#exited) return;
-    if (this.#closed) throw new Error("The connection to the cloud computer ended before the engine could be used.");
+    if (this.#closed || this.#fileAbort.signal.aborted) throw new Error("The connection to the cloud computer ended before the engine could be used.");
     this.#started = true;
     this.#pushTimer = setInterval(() => this.#pushScoped(new Map()), launch.pushEveryMs ?? PUSH_EVERY_MS);
     this.#pushTimer.unref();
@@ -244,7 +251,7 @@ export class RemoteSession extends EventEmitter {
     return reply?.selected === true;
   }
 
-  checkpoint(): Promise<unknown> { return this.#request({ type: "checkpoint_request" }, SYNC_REPLY_MS); }
+  checkpoint(): Promise<unknown> { return this.#request({ type: "checkpoint_request" }, SYNC_REPLY_MS, true); }
 
   async #line(line: string): Promise<void> {
     if (this.#closed) return;
