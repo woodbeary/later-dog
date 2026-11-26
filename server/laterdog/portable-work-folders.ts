@@ -1,4 +1,4 @@
-import { createCipheriv, createDecipheriv, randomBytes } from "node:crypto";
+import { createCipheriv, createDecipheriv, createHash, randomBytes } from "node:crypto";
 import {
   closeSync,
   constants,
@@ -23,6 +23,7 @@ import {
   type WorkFolderNode,
 } from "../../shared/work-folder-store.ts";
 import { FolderTreeReader, folderHash } from "./engine-folder-store.ts";
+import { validateFolderHardlinks } from "./engine-folder-files.ts";
 import { projectFolderId } from "./work-folder-locations.ts";
 
 const hashId = z.string().regex(/^[0-9a-f]{64}$/);
@@ -73,16 +74,36 @@ export async function countAssignedFolder(
   if (totals.bytes > limit.bytes || totals.files + totals.directories > limit.entries)
     throw new Error("Assigned work folders exceed the portable backup size or file limit.");
 }
+export async function verifyWorkingFileContents(reader: FolderTreeReader, manifest: string) {
+  const tree = await reader.tree(manifest);
+  validateFolderHardlinks(tree);
+  for (const file of tree.entries.values()) {
+    if (file.kind !== "file" || file.hardlink) continue;
+    const sha = createHash("sha256");
+    let bytes = 0;
+    for await (const hash of reader.leaves(file.contents, "chunks")) {
+      const chunk = await reader.read("blobs", String(hash));
+      bytes += chunk.length;
+      if (bytes > file.size) throw new Error("Portable work file exceeds its declared length.");
+      sha.update(chunk);
+    }
+    if (bytes !== file.size || sha.digest("hex") !== file.sha256)
+      throw new Error("Portable work file failed its checksum.");
+  }
+}
 type ReadObject = (kind: ObjectKind, hash: string) => Promise<Buffer>;
 
-export async function checkpointAssignedFolders(socketPath: string | undefined) {
+export async function checkpointAssignedFolders(
+  socketPath: string | undefined,
+  action: "checkpoint" | "reload" = "checkpoint",
+) {
   if (!socketPath) throw new Error("The mounted work folder checkpoint service is unavailable.");
   await new Promise<void>((resolve, reject) => {
-    const call = request({ socketPath, method: "POST", path: "/v1/checkpoint" }, (response) => {
+    const call = request({ socketPath, method: "POST", path: "/v1/" + action }, (response) => {
       response.resume();
       response.once("error", reject);
       response.once("end", () => {
-        if (response.statusCode === 200) resolve();
+        if (response.statusCode === 204 || response.statusCode === 200) resolve();
         else
           reject(
             Object.assign(new Error("Could not checkpoint working folders. Finish open file writes and try again."), {

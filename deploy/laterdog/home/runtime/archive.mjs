@@ -3,6 +3,7 @@ import { createServer } from "node:http";
 import { constants } from "node:fs";
 import { chmod, lchown, link, lstat, mkdir, open, rm, unlink, utimes } from "node:fs/promises";
 import { dirname, join, normalize, relative } from "node:path";
+import { previousBackupHandler } from "./previous-backup.mjs";
 import { CHUNK_BYTES } from "./sync.mjs";
 
 export const ARCHIVE_VERSION = 1;
@@ -101,7 +102,7 @@ async function writeAll(handle, bytes, position) {
   return position + written;
 }
 
-export function createArchiver({ root, store, owner = null, log = () => {}, now = Date.now, canRemove = async () => true, archiveCodexSessions = false }) {
+export function createArchiver({ root, store, owner = null, log = () => {}, now = Date.now, canRemove = async () => true, archiveCodexSessions = false, previousBackupSecret=process.env.LATERDOG_CLOUD_BOOTSTRAP_SECRET }) {
   let index = null;
   const highQueue = [];
   const lowQueue = [];
@@ -346,7 +347,7 @@ export function createArchiver({ root, store, owner = null, log = () => {}, now 
     return { files, bytes, paths, sessions, ...counts };
   }, "high");
 
-  return { archive, restore, restoreSessions, status };
+  return { archive, restore, restoreSessions, status, previousBackup: previousBackupHandler(store,previousBackupSecret) };
 }
 
 function authorized(request, token) {
@@ -384,6 +385,7 @@ export function archiveHandler(archiver, token) {
     try {
       if (!token || !authorized(request, token)) return reply(401, { error: "unauthorized" });
       const path = new URL(request.url ?? "/", "http://archive").pathname;
+      if (path.startsWith("/previous-cloud/") && archiver.previousBackup) return await archiver.previousBackup(path,request,response);
       if (request.method === "GET" && path === "/status") return reply(200, await archiver.status());
       if (request.method === "POST" && path === "/archive") return reply(200, await archiver.archive(strings((await body(request)).paths, MAX_PATHS)));
       if (request.method === "POST" && path === "/restore-logs") {

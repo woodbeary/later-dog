@@ -74,6 +74,20 @@ export function createHttpStore(baseUrl, token, fetcher = globalThis.fetch, { bl
     return fetcher(`${base}/${path}`, { ...init, signal, headers: { ...headers, ...init.headers } });
   };
   return {
+    async verifyPreviousBackup(descriptor) {
+      const response = await call("work-folders/verify-previous-backup", {
+        method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(descriptor)
+      });
+      if (!response.ok || (await response.json()).verified !== true) throw new Error("The retained previous backup could not be independently verified.");
+    },
+    async legacyManifest(hash) {
+      if (!HASH.test(hash)) throw new Error("Invalid pinned home snapshot.");
+      const response = await call("work-folders/legacy-manifests/" + hash);
+      if (!response.ok) throw new Error("The pinned home snapshot is unavailable.");
+      const bytes = Buffer.from(await response.arrayBuffer());
+      if (createHash("sha256").update(bytes).digest("hex") !== hash) throw new Error("Pinned home snapshot checksum mismatch.");
+      return parseManifest(JSON.parse(bytes.toString("utf8")));
+    },
     async workFolderPlacement() {
       const response = await call("work-folders/placement");
       if (response.status === 404) return null;
