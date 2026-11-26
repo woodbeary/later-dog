@@ -265,14 +265,12 @@ function queryMessages(sql: HistorySql, thread: string, o: HistoryOperation) {
   if (o.op === "messages.search") {
     const needle = text(o.query).trim().toLowerCase();
     if (!needle || !limit) return [];
-    const pattern = "%" + needle.replace(/([\\%_])/g, "\\$1") + "%";
     const hits = [];
     for (const r of list(
       sql,
       thread,
-      `AND ((kind='text' AND (lower(text) LIKE ? ESCAPE '\\' OR EXISTS (SELECT 1 FROM history_values WHERE relation='messages' AND entry=CAST(messages.rowid AS TEXT) AND field='text'))) OR (kind='activity' AND (json_extract(json,'$.extendedIndex')=1 OR lower(json_extract(json,'$.tool.name')) LIKE ? ESCAPE '\\'))) ORDER BY at DESC,rowid`,
-      pattern,
-      pattern,
+      "AND ((kind='text' AND (instr(lower(text),?)>0 OR EXISTS (SELECT 1 FROM history_values WHERE relation='messages' AND entry=CAST(messages.rowid AS TEXT) AND field='text'))) OR (kind='activity' AND (json_extract(json,'$.extendedIndex')=1 OR instr(lower(json_extract(json,'$.tool.name')),?)>0))) ORDER BY at DESC,rowid",
+      needle,needle,
     )) {
       const m = messageIndexFields(sql,r.rid,r.json);
       const hay =

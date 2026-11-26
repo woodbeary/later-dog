@@ -114,6 +114,15 @@ describe("sharded conversation operations", () => {
       large.db.close();
     }
   });
+  it("treats long search strings, underscore and percent as literals without the runtime LIKE pattern limit",()=>{
+    const {db,run}=fixture();
+    const query="correlation_"+("later.dog%".repeat(12))+"🦮";
+    run({op:"messages.append",message:message("first","prefix "+query+" suffix")});
+    run({op:"messages.append",message:message("second","other")});
+    expect(run({op:"messages.search",query})).toMatchObject([{messageId:"first",matchLength:query.length}]);
+    expect(run({op:"messages.search",query:query.replaceAll("%","_")})).toEqual([]);
+    db.close();
+  });
   it("finds both ends of an oversized Unicode message, verifies its exact raw JSON and can later make it small", () => {
     const { db, sql, run } = fixture();
     const body = "anchor " + "quoted 🐕 🦮 漢字 ".repeat(100000) + " finalneedle";
