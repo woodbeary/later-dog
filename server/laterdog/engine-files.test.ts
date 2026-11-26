@@ -1,10 +1,10 @@
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, truncateSync, writeFileSync } from "node:fs";
 import { realpathSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, expect, it } from "vitest";
-import { EngineFileReceiver, engineInventory, engineFilePath, type EngineFile } from "./engine-files.ts";
+import { ENGINE_FILE_LIMIT, EngineFileReceiver, engineInventory, engineFilePath, matchingTranscriptPrefix, type EngineFile } from "./engine-files.ts";
 
 const scratch: string[] = [];
 function folder() { const path = realpathSync(mkdtempSync(join(tmpdir(), "laterdog-engine-files-"))); scratch.push(path); return path; }
@@ -40,6 +40,42 @@ it("checks again after bytes arrive so a concurrent home edit survives", () => {
   writeFileSync(join(path, "result.txt"), "during transfer");
   expect(() => receiver.end()).toThrow("changed while");
   expect(readFileSync(join(path, "result.txt"), "utf8")).toBe("during transfer");
+});
+
+it("chooses a full checkpoint for rewritten or truncated transcripts", () => {
+  const path = folder();
+  const before = file("previous", "session.jsonl");
+  const root = { id: "workspace", path, writable: true, transcript: true, files: [before.path] };
+  const selected = join(path, before.path);
+  writeFileSync(selected, "previous with an appended turn");
+  truncateSync(selected, ENGINE_FILE_LIMIT + 1);
+  const [grown] = engineInventory([root]);
+  expect(matchingTranscriptPrefix(root, grown, before)).toEqual({ size: before.size, hash: before.hash });
+  writeFileSync(selected, "rewritten");
+  truncateSync(selected, ENGINE_FILE_LIMIT + 1);
+  expect(matchingTranscriptPrefix(root, grown, before)).toBeUndefined();
+  truncateSync(selected, 3);
+  const [truncated] = engineInventory([root]);
+  expect(matchingTranscriptPrefix(root, truncated, grown)).toBeUndefined();
+});
+
+it("verifies transcript prefixes, refuses concurrent changes, and cleans up interrupted suffixes", () => {
+  const path = folder();
+  const root = { id: "workspace", path, writable: true, transcript: true, files: ["result.txt"] };
+  const before = file("prefix");
+  writeFileSync(join(path, before.path), "prefix");
+  const receiver = new EngineFileReceiver([root], [before]);
+  receiver.begin(file("prefixsuffix"), before);
+  receiver.chunk(Buffer.from("suf"));
+  receiver.close();
+  expect(readFileSync(join(path, before.path), "utf8")).toBe("prefix");
+  receiver.begin(file("prefixsuffix"), before);
+  receiver.chunk(Buffer.from("suffix"));
+  writeFileSync(join(path, before.path), "newer");
+  expect(() => receiver.end()).toThrow("changed while");
+  expect(readFileSync(join(path, before.path), "utf8")).toBe("newer");
+  expect(() => receiver.begin(file("prefixsuffix"), before)).toThrow();
+  expect(readdirSync(path)).toEqual(["result.txt"]);
 });
 
 it("rejects traversal, read-only files and symlink escapes", () => {

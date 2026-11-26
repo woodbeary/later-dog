@@ -218,6 +218,7 @@ it("resumes a large Claude transcript on the computer and checkpoints its exact 
     'import { createReadStream, appendFileSync } from "node:fs";',
     'import { createHash } from "node:crypto";',
     'const [file, hash, addition] = process.argv.slice(2);',
+    'process.stdin.on("end", () => appendFileSync(file, addition));',
     'process.stdin.once("data", async () => {',
     '  const digest = createHash("sha256");',
     '  for await (const bytes of createReadStream(file)) digest.update(bytes);',
@@ -229,15 +230,29 @@ it("resumes a large Claude transcript on the computer and checkpoints its exact 
   plan.launch.cli = process.execPath;
   plan.launch.args = [probe, path, original, addition];
   const link = commandLink(process.execPath, [RELAY], { ...process.env, LATERDOG_ENGINE_TEST_ROOT: join(testDir, "computer") });
+  const prefixes: number[] = [];
+  let received = 0;
+  let transcript = false;
+  link.on("line", line => {
+    const frame = JSON.parse(line);
+    if (frame.type === "file_begin") {
+      transcript = frame.file.root === "session";
+      if (transcript && frame.prefix) prefixes.push(frame.prefix.size);
+    }
+    if (transcript && frame.type === "file_chunk") received += Buffer.byteLength(frame.data, "base64");
+    if (frame.type === "file_end") transcript = false;
+  });
   const { engine, placed } = w.start(plan, async () => link, true);
   expect(await turn(engine, "resume", undefined, 100_000)).toEqual({ resumed: true });
   engine.stdin.end();
   expect(await closed(engine)).toBe(0);
   expect(placed).toContain("computer");
-  expect(statSync(path).size).toBe(size + Buffer.byteLength(addition));
+  expect(prefixes).toEqual([size, size + Buffer.byteLength(addition)]);
+  expect(received).toBe(Buffer.byteLength(addition) * 2);
+  expect(statSync(path).size).toBe(size + received);
   const result = createHash("sha256");
   for (const bytes of engineFileChunks(root, name)) result.update(bytes);
-  expect(result.digest("hex")).toBe(before.update(addition).digest("hex"));
+  expect(result.digest("hex")).toBe(before.update(addition).update(addition).digest("hex"));
 }, 120_000);
 
 it("reuses project setup in a new session and continues the same native session back on the home", async () => {

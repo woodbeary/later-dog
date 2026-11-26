@@ -5,7 +5,7 @@ import { createServer, type Socket } from "node:net";
 import { dirname } from "node:path";
 import { createInterface } from "node:readline";
 import type { Readable, Writable } from "node:stream";
-import { ENGINE_FILE_LIMIT, ENGINE_WINDOW_BYTES, EngineFileReceiver, engineFileChunks, engineFileKey, engineInventory, type EngineFile, type EngineFileRoot } from "./engine-files.ts";
+import { ENGINE_FILE_LIMIT, ENGINE_FRAME_BYTES, ENGINE_WINDOW_BYTES, EngineFileReceiver, engineFileChunks, engineFileKey, engineInventory, matchingTranscriptPrefix, type EngineFile, type EngineFileRoot } from "./engine-files.ts";
 
 const TEST_ROOT = process.env.LATERDOG_ENGINE_TEST_ROOT ?? "";
 let homeRoots: string[] = [];
@@ -48,8 +48,9 @@ async function acknowledged(type: "checkpoint" | "file_window", required = false
 async function sendFile(file: EngineFile): Promise<void> {
   const root = roots.find(root => root.id === file.root)!;
   const required = root.transcript === true && file.size > ENGINE_FILE_LIMIT;
-  await send({ type: "file_begin", file });
-  for (const bytes of engineFileChunks(root, file.path)) {
+  const prefix = matchingTranscriptPrefix(root, file, baseline.get(engineFileKey(file)));
+  await send({ type: "file_begin", file, prefix });
+  for (const bytes of engineFileChunks(root, file.path, ENGINE_FRAME_BYTES, prefix?.size, file.size)) {
     await send({ type: "file_chunk", data: bytes.toString("base64") });
     pendingFileBytes += bytes.length;
     if (pendingFileBytes >= ENGINE_WINDOW_BYTES) {
@@ -225,7 +226,7 @@ async function handle(frame: any): Promise<void> {
       receiver = new EngineFileReceiver(roots.map(root => ({ ...root, writable: true })), engineInventory(roots));
       await reply(frame.id, { files: engineInventory(roots) });
       return;
-    case "file_begin": receiver.begin(frame.file); return;
+    case "file_begin": receiver.begin(frame.file, frame.prefix); return;
     case "file_chunk": receiver.chunk(Buffer.from(frame.data, "base64")); return;
     case "file_end": receiver.end(); return;
     case "file_window": await reply(frame.id, { received: true }); return;
