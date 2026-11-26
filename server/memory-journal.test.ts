@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -8,7 +8,9 @@ import {
   DIFF_CAP,
   JOURNAL_DIR,
   beginMemoryTurn,
+  beginMemoryTurnInBackground,
   endMemoryTurn,
+  endMemoryTurnInBackground,
   flushMemoryJournal,
   journalFile,
   journalMemoryDelete,
@@ -241,6 +243,35 @@ describe("turn boundary", () => {
     expect(endMemoryTurn("thread-b")).toEqual([]);
     await flushMemoryJournal(bot);
     expect(readMemoryJournal(bot, 10)).toHaveLength(3);
+  });
+
+  it("records a turn's memory changes in the background without reading unchanged files again", async () => {
+    const bot = freshBot();
+    ensureWorkspace(bot);
+    writeFileSync(join(workspaceDir(bot), "memory", "existing.md"), "was here\n");
+    writeFileSync(join(workspaceDir(bot), "memory", "doomed.md"), "x\n");
+    await beginMemoryTurnInBackground(bot, "thread-a");
+    writeFileSync(join(workspaceDir(bot), "MEMORY.md"), "- user prefers short replies\n");
+    writeFileSync(join(workspaceDir(bot), "memory", "existing.md"), "was here\nand more\n");
+    rmSync(join(workspaceDir(bot), "memory", "doomed.md"));
+    mkdirSync(join(workspaceDir(bot), "memory", "log"), { recursive: true });
+    writeFileSync(join(workspaceDir(bot), "memory", "log", "2026-09-10.md"), "- did a thing\n");
+    const rows = await endMemoryTurnInBackground("thread-a");
+    expect(rows.map((r) => [r.path, r.kind, r.actor, r.via, r.threadId]).sort()).toEqual([
+      [MEMORY_INDEX, "edited", "bot", "turn", "thread-a"],
+      ["memory/doomed.md", "deleted", "bot", "turn", "thread-a"],
+      ["memory/existing.md", "edited", "bot", "turn", "thread-a"],
+      ["memory/log/2026-09-10.md", "created", "bot", "turn", "thread-a"],
+    ]);
+    expect(await endMemoryTurnInBackground("thread-a")).toEqual([]);
+    await beginMemoryTurnInBackground(bot, "thread-b");
+    expect(await endMemoryTurnInBackground("thread-b")).toEqual([]);
+    rmSync(join(workspaceDir(bot), "memory", "log"), { recursive: true });
+    symlinkSync(join(workspaceDir(bot), "memory"), join(workspaceDir(bot), "memory", "log"));
+    await beginMemoryTurnInBackground(bot, "thread-c");
+    expect(await endMemoryTurnInBackground("thread-c")).toEqual([]);
+    await flushMemoryJournal(bot);
+    expect(readMemoryJournal(bot, 10).map((r) => [r.path, r.kind, r.actor])).toContainEqual(["memory/log/2026-09-10.md", "deleted", "person"]);
   });
 
   it("attributes an edit made outside the app between turns to the person, via disk", async () => {
