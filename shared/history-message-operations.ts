@@ -84,6 +84,7 @@ export function historyOperationWrites(o: HistoryOperation): boolean {
     "messages.leaf",
     "messages.delete",
     "messages.batch",
+    "messages.command",
   ].includes(o.op);
 }
 function hydrate(sql: HistorySql, r: Row) {
@@ -148,6 +149,31 @@ export function executeHistoryOperation(
       for (const m of o.messages) write(sql, thread, m, false, allocate);
       setLeaf(sql, thread, o.leaf == null ? null : text(o.leaf), allocate);
       return null;
+    case "messages.command": {
+      const key = text(o.key);
+      if (!/^[a-f0-9]{64}$/.test(key)) throw Error("Invalid conversation command identity");
+      const decoder = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true });
+      const saved = Array.from(
+        sql.exec<{ result: ArrayBuffer }>(
+          "SELECT result FROM history_command_results WHERE command=? ORDER BY part",
+          key,
+        ),
+        (row) => decoder.decode(row.result, { stream: true }),
+      );
+      if (saved.length) return saved.join("") + decoder.decode();
+      const value = text(o.result),
+        bytes = new TextEncoder().encode(value);
+      executeHistoryOperation(sql, thread, { op: "messages.batch", operations: o.operations }, allocate);
+      for (let start = 0; start < bytes.length || start === 0; start += 384 * 1024) {
+        sql.exec(
+          "INSERT INTO history_command_results(command,part,result) VALUES(?,?,?)",
+          key,
+          start / (384 * 1024),
+          bytes.slice(start, start + 384 * 1024).buffer,
+        );
+      }
+      return value;
+    }
     case "messages.batch":
       if (
         !Array.isArray(o.operations) ||

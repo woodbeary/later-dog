@@ -494,6 +494,7 @@ export class Store {
   bots: BotRecord[] = [];
   groups: GroupRecord[] = [];
   private threads = new Map<string, ThreadState>();
+  private historyRevision = mdb.historyCacheRevision();
   private readonly maxCachedThreads: number;
   private readonly maxCachedMessages: number;
   private defaultSelection: () => ModelSelection;
@@ -1285,8 +1286,17 @@ export class Store {
     return this.threads.has(threadId);
   }
 
+  private cachedThread(threadId:string):ThreadState|undefined {
+    const revision = mdb.historyCacheRevision();
+    if (revision !== this.historyRevision) {
+      this.threads.clear();
+      this.historyRevision = revision;
+    }
+    return this.threads.get(threadId);
+  }
+
   private thread(threadId: string): ThreadState {
-    const t = this.threads.get(threadId);
+    const t = this.cachedThread(threadId);
     if (t) return this.touchCachedThread(threadId, t);
     return this.cacheThread(threadId, mdb.readThread(threadId, messagesFile(threadId)));
   }
@@ -1311,7 +1321,7 @@ export class Store {
   }
 
   hasPendingRequest(threadId: string): boolean {
-    const cached = this.threads.get(threadId);
+    const cached = this.cachedThread(threadId);
     return cached ? cached.messages.some(message => message.requestPending === true && !message.requestCancelled)
       : mdb.hasPendingRequest(threadId, messagesFile(threadId));
   }
@@ -1321,7 +1331,7 @@ export class Store {
   }
 
   messagesTail(threadId: string, limit: number): { messages: Message[]; hasMore: boolean; activeLeafId: string | null } {
-    let state = this.threads.get(threadId);
+    let state = this.cachedThread(threadId);
     if (state) {
       this.touchCachedThread(threadId, state);
     } else {

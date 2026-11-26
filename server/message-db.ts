@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import type { HistoryOperation } from "../shared/history-shard-types.ts";
 import { checkDualHistory, historyExecute, historyMany, isRemoteHistory, remoteHistoryGeneration } from "./laterdog/history-client.ts";
 import { remoteThread, remoteCards, remoteLatest, remoteSearch, remoteSearchAsync, remoteText, remoteRecall, remoteRecent, remoteLatestBot } from "./laterdog/history-messages.ts";
@@ -195,14 +195,33 @@ function transaction<T>(fn: (database: DatabaseSync) => T): T {
   }
 }
 
+let cacheRevision = 0;
+
+export function historyCacheRevision(): number {
+  return cacheRevision;
+}
+
 function flushHistoryOutbox(): void {
   if (!isRemoteHistory() || transactionDepth) return;
   const database = db();
   for (;;) {
     const row = database.prepare("SELECT id,thread_id,operation FROM history_outbox ORDER BY rowid LIMIT 1").get() as {id:string;thread_id:string;operation:string}|undefined;
     if (!row) return;
-    historyExecute(row.thread_id,JSON.parse(row.operation),row.id);
-    database.prepare("DELETE FROM history_outbox WHERE id=?").run(row.id);
+    const operation:HistoryOperation = JSON.parse(row.operation);
+    try {
+      const result = historyExecute(row.thread_id, operation, row.id);
+      transaction(connection => {
+        if(operation.op === "messages.command") {
+          if(typeof result !== "string" || typeof operation.kind !== "string" || typeof operation.commandKey !== "string") throw Error("Conversation command receipt is incomplete");
+          connection.prepare("UPDATE command_receipts SET result=? WHERE kind=? AND key=?").run(result,operation.kind,operation.commandKey);
+          if(result !== operation.result)cacheRevision++;
+        }
+        connection.prepare("DELETE FROM history_outbox WHERE id=?").run(row.id);
+      });
+    } catch(error) {
+      cacheRevision++;
+      throw error;
+    }
   }
 }
 
@@ -210,6 +229,16 @@ function writeRemoteMessage(threadId:string,operation:HistoryOperation):void {
   if (!transactionDepth) flushHistoryOutbox();
   db().prepare("INSERT INTO history_outbox(id,thread_id,operation) VALUES(?,?,?)").run(randomUUID(),threadId,JSON.stringify(operation));
   if (!transactionDepth) flushHistoryOutbox();
+}
+
+function bindCommandWrites(database:DatabaseSync, since:number, kind:string,key:string,result:string):void {
+  const rows = database.prepare("SELECT id,thread_id,operation FROM history_outbox WHERE rowid>? ORDER BY rowid").all(since) as Array<{id:string;thread_id:string;operation:string}>;
+  const thread = rows[0]?.thread_id;
+  if(!thread || !rows.every(r=>r.thread_id===thread))return;
+  const operations=rows.map(r=>JSON.parse(r.operation) as HistoryOperation);
+  if(!operations.every(o=>["messages.insert","messages.append","messages.update","messages.leaf"].includes(o.op)))return;
+  for(const r of rows)database.prepare("DELETE FROM history_outbox WHERE id=?").run(r.id);
+  writeRemoteMessage(thread,{op:"messages.command",key:createHash("sha256").update(JSON.stringify([kind,key])).digest("hex"),kind,commandKey:key,result,operations});
 }
 
 export interface FollowupPayload {
@@ -278,13 +307,19 @@ export function withCommandReceipt(
       .prepare("SELECT result FROM command_receipts WHERE kind = ? AND key = ?")
       .get(kind, key) as { result: string } | undefined;
     if (existing) return { result: existing.result, replayed: true };
+    const start = isRemoteHistory() ? Number(database.prepare("SELECT COALESCE(MAX(rowid),0) AS n FROM history_outbox").get()?.n) : null;
     const result = apply();
+    if (start!==null) bindCommandWrites(database,start,kind,key,result);
     database
       .prepare("INSERT INTO command_receipts(kind, key, at, result) VALUES (?, ?, ?, ?)")
       .run(kind, key, at, result);
     return { result, replayed: false };
   });
   flushHistoryOutbox();
+  if(isRemoteHistory() && !transactionDepth) {
+    const canonical = readCommandReceipt(kind,key);
+    if(canonical && canonical.result!==saved.result)return {result:canonical.result,replayed:true};
+  }
   return saved;
 }
 

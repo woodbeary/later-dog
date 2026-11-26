@@ -3,6 +3,9 @@ import { storeHistoryValue, type HistorySql } from "./history-values.ts";
 
 export function initializeHistoryMessageIndex(sql: HistorySql): void {
   sql.exec(
+    "CREATE TABLE IF NOT EXISTS history_command_results(command TEXT NOT NULL,part INTEGER NOT NULL,result BLOB NOT NULL,PRIMARY KEY(command,part)) WITHOUT ROWID",
+  );
+  sql.exec(
     "CREATE VIRTUAL TABLE IF NOT EXISTS history_text_parts USING fts5(text,entry UNINDEXED,tokenize='unicode61')",
   );
 }
