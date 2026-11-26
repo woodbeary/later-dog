@@ -39,12 +39,12 @@ describe("killCliTree", () => {
       : spawn(process.execPath, ["-e", "process.exit(0)"], { stdio: ["pipe", "pipe", "pipe"] });
     await once(child, "close");
     const code = child.exitCode;
-    child.exitCode = null;
-    child.signalCode = null;
+    Object.defineProperty(child, "exitCode", { value: null });
+    Object.defineProperty(child, "signalCode", { value: null });
     try {
       await expect(killCliTree(child, 0)).resolves.toBe(true);
     } finally {
-      child.exitCode = code;
+      Object.defineProperty(child, "exitCode", { value: code });
     }
   });
 
