@@ -436,11 +436,13 @@ export class HistoryMigrationApi extends WorkerEntrypoint<HistoryEnvironment> {
     );
   }
   async getReceipt(stable: string, generation: string, sha: string) {
-    return directory(this.env, stable).readReceipt(
-      stable,
-      generation,
-      sha,
-      true,
+    return localStream(
+      await directory(this.env, stable).readReceipt(
+        stable,
+        generation,
+        sha,
+        true,
+      ),
     );
   }
   async putReceipt(
@@ -584,11 +586,17 @@ export class HistoryMigrationApi extends WorkerEntrypoint<HistoryEnvironment> {
       req.threadId,
       "export",
     );
-    return shard(this.env, stable, grant).pageStream(grant, {
-      ...req,
-      op: "page",
-    });
+    return localStream(
+      await shard(this.env, stable, grant).pageStream(grant, {
+        ...req,
+        op: "page",
+      }),
+    );
   }
+}
+
+async function localStream(body: ReadableStream<Uint8Array>) {
+  return new Blob([await new Response(body).arrayBuffer()]).stream();
 }
 
 export default { fetch: () => new Response(null, { status: 404 }) };
