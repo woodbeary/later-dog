@@ -124,6 +124,7 @@
     "remark-gfm": "^4.0.1",
     "remark-math": "^6.0.0",
     "shiki": "^4.4.3",
+    "stream-json": "3.9.0",
     "tailwind-merge": "^3.3.1",
     "tar": "7.5.22",
     "yaml": "^2.9.0",

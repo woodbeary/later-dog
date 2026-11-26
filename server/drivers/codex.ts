@@ -778,7 +778,7 @@ export const CodexDriver: ProviderDriver<CodexConfig> = {
         const opener = engineOpener();
         const chosen = turn.botId && remoteEngineChoice(DATA_DIR, turn.botId).computer;
         const remoteChoice = !homeOnly && chosen && opener && chatgptTurn && !turn.guestConfined && approvalMode !== "custom" && turn.cwd && !turn.images?.length && !codexConfigMcpServerNames(env).size
-          ? planCodexRemote({ dataDir: DATA_DIR, botId: turn.botId!, threadId, instanceId, cli: config.cli, cwd: turn.cwd, env,
+          ? await planCodexRemote({ dataDir: DATA_DIR, botId: turn.botId!, threadId, instanceId, cli: config.cli, cwd: turn.cwd, env,
             cursor: typeof turn.resumeCursor === "string" ? turn.resumeCursor : undefined, opener, guardShell: turn.integrations?.hooks?.guardShell === true,
             refresh: async () => { if (!await codexAccountEmail(config.cli, env, 30_000, true)) throw new Error("The home could not refresh the selected account."); } }) : undefined;
         if (remoteChoice?.binding) binding = remoteChoice.binding;
@@ -988,7 +988,9 @@ export const CodexDriver: ProviderDriver<CodexConfig> = {
           leftoversNoted = true;
           emit({ ...base(threadId, turnId), type: "runtime.notice", message: leftoverProgramsNotice("Codex") });
         }
-        completeStoppedTurn();
+        const complete = completeStoppedTurn;
+        completeStoppedTurn = undefined;
+        complete();
       };
       let interruptRequested = false;
       const stop = async () => {
@@ -1018,13 +1020,24 @@ export const CodexDriver: ProviderDriver<CodexConfig> = {
         for (const finish of Array.from(asks.values())) finish("deny", "later.dog: the turn ended", "system");
         for (const p of rpcPending.values()) p.reject(new Error("turn settled"));
         rpcPending.clear();
-        const complete = () => {
+        if (ok && remote) {
+          try {
+            if (!codexThreadId || !codexTurnId || !nativePath) throw new Error("The native engine did not identify its completed checkpoint.");
+            await remote.publish(codexThreadId, nativePath, codexTurnId);
+            pendingDispatch?.clear();
+          } catch (error) {
+            turnError({ message: error instanceof Error ? error.message : "The native Codex checkpoint was unavailable." });
+            ok = false;
+            stopReason = "checkpoint_failed";
+          }
+        }
+        const complete = async () => {
           if (active.get(threadId)?.stop !== stop) return;
-          active.delete(threadId);
           if (ok && !remote && binding && codexThreadId && nativePath) {
-            try { binding.rememberHome(codexThreadId, nativePath); }
+            try { await binding.rememberHome(codexThreadId, nativePath); }
             catch { notePlacement(DATA_DIR, `[engine] Codex for ${threadId} needs a complete home checkpoint before moving.`); }
           }
+          active.delete(threadId);
           nativeActivity.finish(ok);
           const stoppedLine = helpersStoppedLine({ helpers: helpers.stop(), commands: 0 });
           if (stoppedLine) emit({ ...base(threadId, turnId), type: "runtime.error", message: stoppedLine });
@@ -1432,23 +1445,13 @@ export const CodexDriver: ProviderDriver<CodexConfig> = {
             if (reviewWarning && !timedOutReview) reviewNotice("warning");
             const t = p.turn ?? {};
             if (t.status === "completed") {
-              if (remote) {
-                try {
-                  if (!codexThreadId || !codexTurnId || !nativePath) throw new Error("The native engine did not identify its completed checkpoint.");
-                  remote.publish(codexThreadId, nativePath, codexTurnId);
-                } catch (error) {
-                  turnError({ message: error instanceof Error ? error.message : "The native Codex checkpoint was unavailable." });
-                  void settle(false, "checkpoint_failed");
-                  break;
-                }
-              }
               if (chatgptTurn) loginAccepted();
             } else if (typeof t.error?.message === "string") {
               turnError(t.error);
             } else if (t.status === "failed" && !state.lastError && state.retryError) {
               turnError({ message: state.retryError });
             }
-            if (remote) pendingDispatch?.clear();
+            if (remote && t.status !== "completed") pendingDispatch?.clear();
             void settle(t.status === "completed", t.status === "completed" ? null : state.usageLimited ? "usage_limit" :
               (classifyError({ text: state.lastError }).reason === "provider_safety" ? "provider_safety" : (state.lastError || t.status || "failed")));
             break;
@@ -1702,6 +1705,7 @@ export const CodexDriver: ProviderDriver<CodexConfig> = {
               resumed = await resumeThread();
             }
             approvalParams = withResolvedSandbox(approvalParams, resumed);
+            if (remote && resumed?.thread?.id !== cursor) throw new Error("The resumed native Codex thread did not match its selected checkpoint.");
             codexThreadId = resumed?.thread?.id ?? cursor;
             resumedNativeThread = true;
           } catch (error) {
@@ -1743,6 +1747,11 @@ export const CodexDriver: ProviderDriver<CodexConfig> = {
           startedModel = started?.model ?? null;
         }
         if (!codexThreadId) throw new Error("Codex did not return a native thread id");
+        if (remote && placedChild) {
+          if (!nativePath) throw new Error("Codex did not report a native rollout path.");
+          const selected = remote.selectedRollout(codexThreadId, nativePath);
+          if (selected.needsSelection && !await placedChild.selectTranscript("sessions", selected.name)) throw new Error("The computer did not acknowledge the native Codex checkpoint path.");
+        }
         const { note: volatileNote, commitVolatile } = await syncCodexInstructions(
           threadId,
           codexThreadId,
