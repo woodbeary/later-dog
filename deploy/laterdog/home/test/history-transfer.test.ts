@@ -22,6 +22,7 @@ function binding() {
     generation: "test",
     revision: 1,
     failOnAppend: true,
+    reservedEventSequence: null as string | null,
     barrier: true,
   };
   function target(id) {
@@ -62,6 +63,8 @@ function binding() {
       const s = target(q.threadId);
       switch (q.op) {
         case "begin":
+          control.reservedEventSequence = q.eventSequence ?? null;
+          return control;
         case "status":
           return control;
         case "list":
@@ -237,6 +240,34 @@ it("reconciles a lost response, a vanished shard, a changed shard and late contr
     } finally {
       restore.close();
     }
+  } finally {
+    db.close();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+it("reserves the original event cursor even when a previously sharded database has deleted every event", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "history-event-watermark-"));
+  const source = join(dir, "messages.db"),
+    pack = join(dir, "pack");
+  const db = new DatabaseSync(source);
+  try {
+    db.exec(
+      "CREATE TABLE messages(thread_id TEXT,id TEXT,at INTEGER,role TEXT,kind TEXT,text TEXT,json TEXT,PRIMARY KEY(thread_id,id)); CREATE TABLE thread_state(thread_id TEXT PRIMARY KEY,active_leaf_id TEXT)",
+    );
+    ensureNativeRuns(db);
+    db.exec(
+      "INSERT INTO sqlite_sequence(name,seq) VALUES('native_run_events',9007199254740995)",
+    );
+    const snap = await capture(source, pack, { portable: true });
+    const env = binding();
+    await publishCatalog(env.api, pack, snap.sha256, join(dir, "journal"), {
+      stable: "a".repeat(64),
+      generation: "test",
+      expectedRevision: 0,
+    });
+    expect(env.control.reservedEventSequence).toBe("9007199254740995");
+    expect(env.shards.size).toBe(0);
   } finally {
     db.close();
     rmSync(dir, { recursive: true, force: true });

@@ -16,7 +16,13 @@ export async function stagePortableHistory(api, job, prepared, identity) {
   const catalog = readCatalog(pack, snapshot.sha256);
   const approved = { ...identity, catalog: snapshot.sha256 };
   saveJson(join(pack, "approved.json"), approved);
-  const stage = await api.admin({ op: "begin", expectedRevision });
+  const stage = await api.admin({
+    op: "begin",
+    expectedRevision,
+    ...(catalog.eventSequence === null
+      ? {}
+      : { eventSequence: catalog.eventSequence }),
+  });
   if (
     stage.jobId !== jobId ||
     stage.generation !== generation ||

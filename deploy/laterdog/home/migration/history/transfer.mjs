@@ -162,7 +162,13 @@ export async function publishCatalog(
   const source = readCatalog(directory, catalogSha256);
   const identity = { stable, generation, expectedRevision };
   saveJson(join(journal, "target.json"), identity);
-  const started = await api.admin({ op: "begin", expectedRevision });
+  const started = await api.admin({
+    op: "begin",
+    expectedRevision,
+    ...(source.eventSequence === null
+      ? {}
+      : { eventSequence: source.eventSequence }),
+  });
   assert(started.generation === generation, "Unexpected migration generation");
   const receipts = await transferReceipts(
     api,
