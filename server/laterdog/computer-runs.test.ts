@@ -283,6 +283,25 @@ describe("a heavy command on the dog's own computer", () => {
     }
   });
 
+  it.each(["finish", "stop"])("can %s the same detached command after a home restart before it records its process group", async (action) => {
+    const { folder, computer, state } = project();
+    mkdirSync(computer);
+    const { box } = localBox(computer);
+    writeFileSync(join(computer, "wait-for-release"), 'for i in $(seq 1 200); do [ ! -f "$HOME/release" ] || exec "$@"; sleep 0.1; done; exit 1');
+    const delayed = { ...box, exec: (command: string, timeout: number) => box.exec(command.replaceAll("nohup bash -lc", "nohup sh ./wait-for-release bash -lc"), timeout) };
+    const started = await new ComputerRuns(state, fast).start(delayed, { botId: "dog", folder, outputs: "remote", command: "echo finished" });
+    const resumed = new ComputerRuns(state, fast);
+    const record = resumed.record("dog", started.id)!;
+    try {
+      expect(existsSync(join(computer, "runs/.logs", `${record.id}.pgid`))).toBe(false);
+      expect(await resumed.liveness(box, record)).toBe("alive");
+      expect(await resumed.finish(box, record, undefined, () => 0)).toMatchObject({ id: started.id, state: "running" });
+      if (action === "stop") expect(await resumed.stop(box, record)).toBe("gone");
+    } finally { writeFileSync(join(computer, "release"), ""); }
+    if (action === "stop") expect(await resumed.liveness(box, record)).toBe("dead");
+    else expect(await resumed.finish(box, record)).toMatchObject({ id: started.id, state: "finished", output: "finished\n" });
+  });
+
   it("reads a run this home started as lost when its wrapper died before it wrote its group id", async () => {
     const { folder, computer, state } = project();
     mkdirSync(computer);

@@ -309,11 +309,11 @@ export class ComputerRuns {
     const remember = setup
       ? `if [ $rc = 0 ] && [ -d "$HOME"/${quote(`${workDir}/node_modules`)} ]; then mkdir -p "$HOME/runs/.setup" && echo ${key} > "$HOME/runs/.setup/${setup}.${id}" && mv -f "$HOME/runs/.setup/${setup}.${id}" "$HOME/runs/.setup/${setup}"; fi; `
       : "";
-    const script = `export ${RUN_MARKER}=${id}; exec 9> "$HOME/runs/.logs/${id}.lock"; ps -o pgid= -p $$ | tr -cd 0-9 > "$HOME/runs/.logs/${id}.pgid"; export PATH="$HOME/.local/bin:$PATH"; command -v pnpm > /dev/null || npm install -g --prefix "$HOME/.local" pnpm > /dev/null 2>&1; cd ${quote(workDir)} && touch "$HOME/runs/.logs/${id}.start" && ( ${input.command} ) > "$HOME/runs/.logs/${id}.log" 2>&1; rc=$?; ${remember}echo $rc > "$HOME/runs/.logs/${id}.exit"`;
+    const script = `export ${RUN_MARKER}=${id}; ps -o pgid= -p $$ | tr -cd 0-9 > "$HOME/runs/.logs/${id}.pgid"; export PATH="$HOME/.local/bin:$PATH"; command -v pnpm > /dev/null || npm install -g --prefix "$HOME/.local" pnpm > /dev/null 2>&1; cd ${quote(workDir)} && touch "$HOME/runs/.logs/${id}.start" && ( ${input.command} ) > "$HOME/runs/.logs/${id}.log" 2>&1; rc=$?; ${remember}echo $rc > "$HOME/runs/.logs/${id}.exit"`;
     if (input.active && !input.active()) throw Object.assign(new Error("the turn ended before the command started, so nothing was run"), { code: "cancelled" });
     if (input.left && input.left() <= 0) throw Object.assign(new Error("the call's time ran out before the command started, so nothing was run"), { code: "window_ended" });
     const detached = `nohup bash -lc ${quote(script)} > /dev/null 2>&1 < /dev/null &`;
-    must(await box.exec(`if command -v setsid > /dev/null; then setsid ${detached} else set -m; ${detached} fi; echo started`, 30_000), "starting the command");
+    must(await box.exec(`exec 9> "$HOME/runs/.logs/${id}.lock" || exit 1; if command -v setsid > /dev/null; then setsid ${detached} else set -m; ${detached} fi; echo started`, 30_000), "starting the command");
     const record: RunRecord = { id, botId: input.botId, key, folder: input.folder, subdir, command: input.command, startedAt: this.#now(), sent: now, marked: true, ...(reusedSetup ? { reusedSetup: true } : {}), ...(input.outputs ? { outputs: input.outputs } : {}) };
     this.#writeJson(this.#runPath(input.botId, id), record);
     input.started?.(record);
