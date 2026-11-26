@@ -2,7 +2,8 @@ import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:f
 import { tmpdir } from "node:os";
 import { dirname, isAbsolute, join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import * as engineModelReads from "../laterdog/wait-at-most.ts";
 
 import { CodexDriver } from "./codex.ts";
 import {
@@ -17,6 +18,7 @@ const scratchDirs: string[] = [];
 const FAKE_CLI = join(dirname(fileURLToPath(import.meta.url)), "..", "testing", "fake-codex-app-server.ts");
 
 afterEach(() => {
+  vi.restoreAllMocks();
   for (const dir of scratchDirs.splice(0)) rmSync(dir, { recursive: true, force: true });
 });
 
@@ -243,7 +245,7 @@ name = "oMLX"
 });
 
 describe("CodexDriver catalog", () => {
-  it("loads the config catalog when the instance is created", async () => {
+  it("starts the config catalog read when the instance is created and keeps its result", async () => {
     chmodSync(FAKE_CLI, 0o755);
     const home = scratchHome({
       "config.toml": `
@@ -254,6 +256,12 @@ model = "MiniMax-M3-4bit"
 name = "oMLX"
 `,
     });
+    const realReadEngineModels = engineModelReads.readEngineModels;
+    let catalogRead: Promise<unknown> | undefined;
+    const startupRead = vi.spyOn(engineModelReads, "readEngineModels").mockImplementationOnce(read => realReadEngineModels(() => {
+      catalogRead = read();
+      return catalogRead;
+    }, { quietMs: 0 }));
     const instance = await CodexDriver.create({
       instanceId: "codex-catalog",
       displayName: "Codex",
@@ -262,6 +270,9 @@ name = "oMLX"
       config: { ...CodexDriver.defaultConfig(), cli: FAKE_CLI },
     });
     try {
+      expect(startupRead).toHaveBeenCalledOnce();
+      expect(catalogRead).toBeDefined();
+      await catalogRead;
       expect(instance.models.options.some((option) => option.id === "omlx::MiniMax-M3-4bit" && option.custom)).toBe(true);
       expect(instance.refreshModels).toEqual(expect.any(Function));
     } finally {

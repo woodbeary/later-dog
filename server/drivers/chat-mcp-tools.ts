@@ -54,7 +54,8 @@ export function chatMcpEnvironment(serverEnv: Record<string, string>, source: No
 class ChatMcpClient {
   private readonly frameBytes: number;
   private child: ReturnType<typeof spawnCli>;
-  private buffer = "";
+  private buffer: string[] = [];
+  private bufferBytes = 0;
   private nextId = 1;
   private frames = 0;
   private closed = false;
@@ -89,7 +90,8 @@ class ChatMcpClient {
     this.closed = true;
     for (const entry of this.pending.values()) entry.reject(new Error("MCP session closed"));
     this.pending.clear();
-    this.buffer = "";
+    this.buffer = [];
+    this.bufferBytes = 0;
     this.closing = killCliTree(this.child, 5_000).then((stopped) => {
       if (!stopped) throw new Error("MCP server shutdown could not be confirmed; execution outcome may be uncertain");
     });
@@ -105,13 +107,19 @@ class ChatMcpClient {
 
   private onData(chunk: string): void {
     if (this.closed) return;
-    this.buffer += chunk;
-    let newline: number;
-    while ((newline = this.buffer.indexOf("\n")) !== -1) {
-      const line = this.buffer.slice(0, newline);
-      this.buffer = this.buffer.slice(newline + 1);
+    let offset = 0;
+    while (offset < chunk.length) {
+      const newline = chunk.indexOf("\n", offset);
+      const part = chunk.slice(offset, newline === -1 ? undefined : newline);
+      this.bufferBytes += Buffer.byteLength(part);
+      if (this.bufferBytes > this.frameBytes) return this.fail(new Error("MCP response exceeds the frame limit"));
+      if (part) this.buffer.push(part);
+      if (newline === -1) return;
+      const line = this.buffer.join("");
+      this.buffer = [];
+      this.bufferBytes = 0;
+      offset = newline + 1;
       if (++this.frames > MAX_FRAMES) return this.fail(new Error("MCP session exceeded the response frame count limit"));
-      if (Buffer.byteLength(line) > this.frameBytes) return this.fail(new Error("MCP response exceeds the frame limit"));
       if (!line.trim()) continue;
       let message: unknown;
       try { message = JSON.parse(line); }
@@ -132,7 +140,6 @@ class ChatMcpClient {
       else if (!("result" in message)) entry.reject(new Error("MCP response has no result"));
       else entry.resolve(message.result);
     }
-    if (Buffer.byteLength(this.buffer) > this.frameBytes) this.fail(new Error("MCP response exceeds the frame limit"));
   }
 
   async call(method: string, params: unknown, signal: AbortSignal, timeout: number): Promise<unknown> {
