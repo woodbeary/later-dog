@@ -1,17 +1,21 @@
+import { eligibleSharedFolder, readWorkFolderPlacement } from "./work-folder-placement.ts";
 import { compareWorkFolderPaths, safeWorkFolderLink, safeWorkFolderPath, validWorkFolderScope, workFolderAuthority, workFolderBaseUrl, WORK_FOLDER_ACCESS_MS, WORK_FOLDER_BLOB_BYTES, WORK_FOLDER_PAGE_SIZE, WORK_FOLDER_ROUTE, type WorkFolderHead, type WorkFolderPageInfo } from "../../../../shared/work-folder-store.ts";
-import { hex, hmacSha256, randomToken, sha256 } from "./encoding.ts";
+import { hex, hmacSha256, randomToken, sha256, sha256Stream } from "./encoding.ts";
 import { homePrefix } from "./state.ts";
 
-type WriteOptions = { onlyIf: { etagMatches: string } | { etagDoesNotMatch: string }; httpMetadata?: { contentType: string } };
+type WriteOptions = { onlyIf: { etagMatches: string } | { etagDoesNotMatch: string }; sha256?: string; httpMetadata?: { contentType: string } };
 type ObjectData = { etag: string; size: number; body: ReadableStream<Uint8Array> };
 export interface WorkFolderBucket {
   get(key: string): Promise<ObjectData | null>;
   head(key: string): Promise<{ size: number } | null>;
-  put(key: string, value: string | ArrayBuffer | Uint8Array, options: WriteOptions): Promise<unknown | null>;
+  put(key: string, value: string | ArrayBuffer | Uint8Array | ReadableStream<Uint8Array>, options: WriteOptions): Promise<unknown | null>;
 }
 
 interface Scope {
   prefix: string;
+  stable: string;
+  owner: string;
+  folderId: string;
   baseUrl: string;
   authority: string;
   bucket: WorkFolderBucket;
@@ -115,8 +119,13 @@ async function validateNode(scope: Scope, node: Record<string, unknown>): Promis
       previous = e.path;
       if (e.kind === "dir" && withTime(e, ["kind", "path", "mode"]) && validMode(e.mode)) continue;
       if (e.kind === "link" && typeof e.target === "string" && e.target.length > 0 && !e.target.includes("\0")) {
-        if (withTime(e, ["kind", "path", "target"]) && safeWorkFolderLink(e.path, e.target)) continue;
-        if (withTime(e, ["kind", "path", "target", "scopedTarget"]) && (e.scopedTarget === null || safeWorkFolderLink(e.path, e.scopedTarget))) continue;
+        const fields = ["kind", "path", "target"];
+        if (e.mode !== undefined) {
+          if (!validMode(e.mode)) return invalid("Invalid link mode");
+          fields.push("mode");
+        }
+        if (withTime(e, fields) && safeWorkFolderLink(e.path, e.target)) continue;
+        if (withTime(e, [...fields, "scopedTarget"]) && (e.scopedTarget === null || safeWorkFolderLink(e.path, e.scopedTarget))) continue;
       }
       if (e.kind === "file" && withTime(e, ["kind", "path", "mode", "size", "sha256", "contents"]) && validMode(e.mode) && validSize(e.size) && validHash(e.sha256) && validHash(e.contents)) continue;
       return invalid("Invalid work folder entry");
@@ -159,7 +168,13 @@ async function sameToken(a: string, b: string): Promise<boolean> {
   return diff === 0;
 }
 
-interface GuestAccess { generation: string; active: boolean }
+interface GuestAccess { generation: string; active: boolean; grantee: string }
+
+async function allowedGrantee(scope: Scope, grantee: string): Promise<boolean> {
+  if (grantee === scope.owner) return true;
+  const layout = await readWorkFolderPlacement(scope.bucket, scope.stable);
+  return layout?.mode === "folders" && await eligibleSharedFolder(layout.layout, scope.owner, scope.folderId, grantee);
+}
 async function issued(scope: Scope, guest: string, generation: string) {
   const expiresAt = scope.now + WORK_FOLDER_ACCESS_MS;
   const sign = async (stem: string) => stem + "." + hex(await hmacSha256(scope.authority, stem));
@@ -174,22 +189,43 @@ async function guest(scope: Scope, token: string, refresh: boolean): Promise<{ g
   const signature = fields.pop()!, expected = hex(await hmacSha256(scope.authority, fields.join(".")));
   if (!validHash(signature) || !(await sameToken(signature, expected))) return null;
   const grant = await jsonRecord<GuestAccess>(scope.bucket, scope.prefix + "grants/" + fields[1]);
-  return grant?.value.active && grant.value.generation === fields[2] ? { guestId: fields[1]!, generation: fields[2]! } : null;
+  return grant?.value.active && grant.value.generation === fields[2] && await allowedGrantee(scope, grant.value.grantee) ? { guestId: fields[1]!, generation: fields[2]! } : null;
 }
 
 async function grant(scope: Scope, request: Request, revoke: boolean): Promise<Response> {
   const value = parse(await payload(request, 2048));
-  if (!exact(value, ["guestId"]) || typeof value.guestId !== "string" || !guestPattern.test(value.guestId)) return invalid("Invalid assigned guest");
+  if (!(exact(value, ["guestId"]) || exact(value, ["guestId", "granteeBotId"])) || typeof value.guestId !== "string" || !guestPattern.test(value.guestId)) return invalid("Invalid assigned guest");
+  const grantee = value.granteeBotId ?? scope.owner;
+  if (typeof grantee !== "string" || !validWorkFolderScope(grantee, scope.folderId)) return invalid("Invalid guest owner");
+  if (!revoke && !await allowedGrantee(scope, grantee)) return json({ error: "forbidden" }, 403);
   const key = scope.prefix + "grants/" + value.guestId;
   for (let n = 0; n < 4; n++) {
     const old = await jsonRecord<GuestAccess>(scope.bucket, key);
     if (revoke && !old?.value.active) return new Response(null, { status: 204 });
-    if (!revoke && old?.value.active) return json(await issued(scope, value.guestId, old.value.generation));
-    const next = { generation: randomToken(16), active: !revoke };
+    if (!revoke && old?.value.active) return old.value.grantee === grantee ? json(await issued(scope, value.guestId, old.value.generation)) : json({ error: "guest_already_assigned" }, 409);
+    const next = { generation: randomToken(16), active: !revoke, grantee };
     const wrote = await scope.bucket.put(key, JSON.stringify(next), { onlyIf: old ? { etagMatches: old.etag } : { etagDoesNotMatch: "*" } });
     if (wrote) return revoke ? new Response(null, { status: 204 }) : json(await issued(scope, value.guestId, next.generation));
   }
   return json({ error: "grant_changed" }, 409);
+}
+
+type SavedHead = WorkFolderHead & { fence?: string };
+
+function versionOf(head: SavedHead): WorkFolderHead {
+  return { revision: head.revision, parent: head.parent, manifest: head.manifest, state: head.state };
+}
+
+async function folderFence(scope: Scope, request: Request, release: boolean): Promise<Response> {
+  const body = parse(await payload(request, 2048));
+  if (!exact(body, ["fence", "revision"]) || !validHash(body.fence) || !validHash(body.revision)) return invalid("Invalid migration fence");
+  const key = scope.prefix + "head", current = await jsonRecord<SavedHead>(scope.bucket, key);
+  if (!current || current.value.revision !== body.revision) return json({ error: "head_changed" }, 409);
+  if (current.value.fence && current.value.fence !== body.fence) return json({ error: "other_migration" }, 409);
+  if ((release && !current.value.fence) || (!release && current.value.fence === body.fence)) return json(versionOf(current.value));
+  const next = release ? versionOf(current.value) : { ...versionOf(current.value), fence: body.fence };
+  const wrote = await scope.bucket.put(key, JSON.stringify(next), { onlyIf: { etagMatches: current.etag } });
+  return wrote ? json(next) : json({ error: "head_changed" }, 409);
 }
 
 async function commit(scope: Scope, request: Request): Promise<Response> {
@@ -198,13 +234,14 @@ async function commit(scope: Scope, request: Request): Promise<Response> {
   const { parent, manifest } = value;
   const revision = await digest(JSON.stringify([1,parent,manifest]));
   const next: WorkFolderHead = { revision, parent, manifest, state: manifest === null ? "tombstone" : "live" };
-  const key = scope.prefix + "head", current = await jsonRecord<WorkFolderHead>(scope.bucket, key);
+  const key = scope.prefix + "head", current = await jsonRecord<SavedHead>(scope.bucket, key);
   if (current?.value.revision === revision) return json(next);
   const priorKey = scope.prefix + "versions/" + revision;
   if (await scope.bucket.head(priorKey)) return json(next);
+  if (current?.value.fence) return json({ error: "folder_in_migration" }, 423);
   if ((current?.value.revision ?? null) !== parent) return json({ error: "head_changed", current: current?.value ?? null }, 409);
   if (manifest !== null && (await summary(scope, manifest)).self.of !== "root") return invalid("Expected a directory root");
-  if (current) await immutable(scope.bucket, scope.prefix + "versions/" + current.value.revision, JSON.stringify(current.value), "application/json");
+  if (current) await immutable(scope.bucket, scope.prefix + "versions/" + current.value.revision, JSON.stringify(versionOf(current.value)), "application/json");
   const data = JSON.stringify(next);
   const wrote = await scope.bucket.put(key, data, { onlyIf: current ? { etagMatches: current.etag } : { etagDoesNotMatch: "*" } });
   if (!wrote) {
@@ -216,12 +253,47 @@ async function commit(scope: Scope, request: Request): Promise<Response> {
   return json(next, 201);
 }
 
+async function storeObject(scope: Scope, route: "blobs" | "manifests", id: string, data: Uint8Array): Promise<void> {
+  if (await digest(data) !== id) throw new FolderError(422, "checksum_mismatch");
+  if (route === "blobs") {
+    await immutable(scope.bucket, scope.prefix + route + "/" + id, data, "application/octet-stream");
+    return;
+  }
+  const info = await validateNode(scope, parse(data));
+  await immutable(scope.bucket, scope.prefix + route + "/" + id, data, "application/json");
+  await immutable(scope.bucket, scope.prefix + "summaries/" + id, JSON.stringify(info), "application/json");
+}
+
+async function migrateBatch(scope: Scope, request: Request): Promise<Response> {
+  const batch = parse(await payload(request, WORK_FOLDER_BLOB_BYTES));
+  if (!exact(batch, ["op", "objects"]) || !(batch.op === "verify" || batch.op === "put") || !Array.isArray(batch.objects) || !batch.objects.length || batch.objects.length > 64) return invalid("Invalid migration batch");
+  const items = batch.objects;
+  for (let offset = 0; offset < items.length; offset += 4) {
+    await Promise.all(items.slice(offset, offset + 4).map(async item => {
+      if (!record(item) || !(item.kind === "blobs" || item.kind === "manifests") || !validHash(item.sha256)) return invalid("Invalid migration item");
+      if (batch.op === "verify") {
+        if (!exact(item, ["kind", "sha256"])) return invalid("Invalid verification item");
+        const row = await scope.bucket.get(scope.prefix + item.kind + "/" + item.sha256);
+        if (!row) throw new FolderError(404, "Missing verification object");
+        if (await sha256Stream(row.body) !== item.sha256) throw new FolderError(422, "Stored work object checksum differs");
+      } else {
+        if (!exact(item, ["kind", "sha256", "base64"]) || typeof item.base64 !== "string") return invalid("Invalid migration content");
+        let bytes: Uint8Array;
+        try { bytes = Uint8Array.from(atob(item.base64), c => c.charCodeAt(0)); }
+        catch { return invalid("Invalid migration encoding"); }
+        await storeObject(scope, item.kind, item.sha256, bytes);
+      }
+    }));
+  }
+  return json({ verified: items.map(i => i.sha256) });
+}
+
 export async function handleWorkFolder(request: Request, bucket: WorkFolderBucket, stableId: string, origin: string, bootstrap: string, now = Date.now()): Promise<Response> {
   const url = new URL(request.url);
   if (url.origin !== origin || !url.pathname.startsWith(WORK_FOLDER_ROUTE)) return absent();
   const [botId, folderId, route, id, ...rest] = url.pathname.slice(WORK_FOLDER_ROUTE.length).split("/");
   if (!botId || !folderId || !validWorkFolderScope(botId, folderId) || rest.length || !route) return absent();
-  const scope: Scope = { prefix: homePrefix(stableId) + "work-folders/v1/" + botId + "/" + folderId + "/", baseUrl: workFolderBaseUrl(origin, botId, folderId), authority: await workFolderAuthority(bootstrap, botId, folderId), bucket, now };
+  const scope: Scope = { stable: stableId, owner: botId, folderId, prefix: homePrefix(stableId) + "work-folders/v1/" + botId + "/" + folderId + "/", baseUrl: workFolderBaseUrl(origin, botId, folderId), authority: await workFolderAuthority(bootstrap, botId, folderId), bucket, now };
   const token = /^Bearer (\S{1,512})$/.exec(request.headers.get("authorization") ?? "")?.[1];
   if (!token) return json({ error: "unauthorized" }, 401);
   try {
@@ -232,6 +304,8 @@ export async function handleWorkFolder(request: Request, bucket: WorkFolderBucke
     const owner = token.startsWith("wfa_") && await sameToken(token, scope.authority);
     if (!owner && !await guest(scope, token, false)) return json({ error: "unauthorized" }, 401);
     if (route === "grant" || route === "revoke") return !id && request.method === "POST" && owner ? await grant(scope, request, route === "revoke") : json({ error: "forbidden" }, 403);
+    if ((route === "fence" || route === "unfence") && !id) return owner && request.method === "POST" ? await folderFence(scope, request, route === "unfence") : json({ error: "forbidden" }, 403);
+    if (route === "batch" && !id) return owner && request.method === "POST" ? await migrateBatch(scope, request) : json({ error: "forbidden" }, 403);
     if (route === "commit" && !id && request.method === "POST") return await commit(scope, request);
     if (route === "head" && !id && request.method === "GET") {
       const head = await jsonRecord<WorkFolderHead>(bucket, scope.prefix + "head");
@@ -260,14 +334,7 @@ export async function handleWorkFolder(request: Request, bucket: WorkFolderBucke
     }
     if (request.method !== "PUT") return json({ error: "method_not_allowed" }, 405);
     const data = await payload(request, WORK_FOLDER_BLOB_BYTES);
-    if (await digest(data) !== id) return json({ error: "checksum_mismatch" }, 422);
-    if (route === "blobs") {
-      await immutable(bucket, key, data, "application/octet-stream");
-    } else {
-      const info = await validateNode(scope, parse(data));
-      await immutable(bucket, key, data, "application/json");
-      await immutable(bucket, scope.prefix + "summaries/" + id, JSON.stringify(info), "application/json");
-    }
+    await storeObject(scope, route, id, data);
     return new Response(null, { status: 201 });
   } catch (e) {
     if (e instanceof FolderError) return json({ error: e.message }, e.status);

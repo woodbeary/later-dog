@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { workFolderAuthority, workFolderBaseUrl, WORK_FOLDER_ACCESS_MS } from "../../../../shared/work-folder-store.ts";
+import { handleWorkFolderPlacement, layoutScopes } from "../src/work-folder-placement.ts";
 import { handleWorkFolder, type WorkFolderBucket } from "../src/work-folder-store.ts";
 import { hex, sha256 } from "../src/encoding.ts";
 
@@ -12,7 +13,7 @@ function fixture() {
     async get(k) { const o = objects.get(k); return o ? { body: new Response(o.bytes as BodyInit).body!, size: o.bytes.length, etag: o.etag } : null; },
     async put(k, data, opts) {
       if (failVersion && k.includes("/versions/")) { failVersion = false; throw Error("lost version write"); }
-      const b = typeof data === "string" ? new TextEncoder().encode(data) : new Uint8Array(data);
+      const b = typeof data === "string" ? new TextEncoder().encode(data) : new Uint8Array(await new Response(data as BodyInit).arrayBuffer());
       const existing = objects.get(k), cond = opts.onlyIf;
       if ("etagMatches" in cond ? existing?.etag !== cond.etagMatches : existing) return null;
       objects.set(k, { bytes: b, etag: crypto.randomUUID() }); return {};
@@ -32,7 +33,7 @@ function fixture() {
     const root = await put("manifests", { v: 1, kind: "root", mode: 0o750, entries: e.id });
     expect(root.r.status).toBe(201); return root.id;
   };
-  return { origin, base, call, put, empty, objects, loseVersion: () => { failVersion = true; } };
+  return { origin, base, bucket, stable, bootstrap, call, put, empty, objects, loseVersion: () => { failVersion = true; } };
 }
 
 describe("a cloud work folder", () => {
@@ -94,4 +95,44 @@ describe("a cloud work folder", () => {
     expect(replacement.refreshToken).not.toBe(issued.refreshToken);
     expect((await f.call("grant", "POST", { guestId: "../outside" })).status).toBe(400);
   });
+  it("requires a verified, current, fenced snapshot before switching ownership and revokes former project membership", async () => {
+    const f = fixture(), baseline = "legacy manifest bytes", baselineKey = "homes/" + f.stable + "/manifest.json";
+    await f.bucket.put(baselineKey, baseline, { onlyIf: { etagDoesNotMatch: "*" } });
+    const project = "/data/shared", projectId = "project-" + hex(await sha256(project));
+    const scope = workFolderBaseUrl(f.origin, "dog_A", projectId), authority = await workFolderAuthority(f.bootstrap, "dog_A", projectId);
+    const call = (path: string, data: unknown, token = authority) => f.call(path, "POST", data, token, 1000, scope);
+    const internal = (path: string, value?: unknown, condition: Record<string, string> = {}) => handleWorkFolderPlacement(new Request("http://state.r2/work-folders/" + path, { method: value === undefined ? "GET" : "PUT", body: value === undefined ? undefined : JSON.stringify(value), headers: condition }), f.bucket, f.stable);
+    const assignment = { guestId: "cmp_teammate", granteeBotId: "dog_B" };
+    expect((await call("grant", assignment)).status).toBe(403);
+    expect((await internal("placement")).status).toBe(404);
+    const head = await (await call("commit", { parent: null, manifest: null })).json();
+    const baselineManifest = hex(await sha256(baseline));
+    let previous: string | null = null, oldEtag: string | null = null;
+    for (const members of [["dog_A","dog_B"], ["dog_A"]]) {
+      const layout = { dogs: [], tasks: {}, projects: [{ path: project, owner: "dog_A", members }] };
+      const [subject] = await layoutScopes(layout);
+      const checked = { v: 1, mode: "folders", baselineManifest, layoutSha256: hex(await sha256(JSON.stringify(layout))), scopes: [{ scope: subject, revision: head.revision, manifest: null, sourceTree: baselineManifest, restoredTree: baselineManifest }] };
+      const verification = hex(await sha256(JSON.stringify(checked)));
+      expect((await internal("verification/" + verification, checked)).status).toBe(201);
+      const next = { v: 1, mode: "folders", previous, baselineManifest, verification, layout };
+      const condition = oldEtag ? { "if-match": oldEtag } : { "if-none-match": "*" };
+      expect((await internal("placement", next, condition)).status).toBe(422);
+      expect((await call("fence", { revision: head.revision, fence: verification })).status).toBe(200);
+      expect((await call("commit", { parent: head.revision, manifest: null })).status).toBe(423);
+      expect((await internal("placement", next, condition)).status).toBe(201);
+      expect((await internal("placement", next, condition)).status).toBe(200);
+      previous = hex(await sha256(JSON.stringify(next)));
+      oldEtag = (await internal("placement")).headers.get("etag");
+      expect(await (await internal("placements/" + previous)).json()).toEqual(next);
+      expect((await call("unfence", { revision: head.revision, fence: verification })).status).toBe(200);
+      const guest = await call("grant", assignment);
+      expect(guest.status).toBe(members.length === 2 ? 200 : 403);
+      if (guest.ok) {
+        const access = (await guest.json()).accessToken;
+        expect((await call("fence", { revision: head.revision, fence: verification }, access)).status).toBe(403);
+      }
+    }
+    expect((await call("grant", { guestId: "cmp_stranger", granteeBotId: "outsider" })).status).toBe(403);
+  });
+
 });

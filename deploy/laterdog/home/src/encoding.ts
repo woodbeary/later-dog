@@ -23,3 +23,12 @@ export async function sha256(data: string | Uint8Array): Promise<Uint8Array> {
 export function randomToken(byteLength: number): string {
   return base64url(crypto.getRandomValues(new Uint8Array(byteLength)));
 }
+
+export async function sha256Stream(body: ReadableStream<Uint8Array>): Promise<string> {
+  if (crypto.DigestStream) {
+    const digest = new crypto.DigestStream("SHA-256");
+    await body.pipeTo(digest);
+    return hex(new Uint8Array(await digest.digest));
+  }
+  return hex(await sha256(new Uint8Array(await new Response(body).arrayBuffer())));
+}
