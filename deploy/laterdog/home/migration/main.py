@@ -220,6 +220,14 @@ def main():
             fence(plan, transport, True, args.workers)
             return {"released": True}
         if args.action == "plan":
+            from previous_backup import stage_reference
+
+            status, _, legacy = transport.admin("manifest.json")
+            require(
+                status == 200 and digest(legacy) == plan["next"]["baselineManifest"],
+                "The saved legacy source changed before preparing ordinary candidate recovery references",
+            )
+            stage_reference(transport, legacy)
             return {
                 "verification": plan["next"]["verification"],
                 "baseline": plan["next"]["baselineManifest"],
