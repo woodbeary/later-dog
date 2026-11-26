@@ -460,7 +460,8 @@ import { listMemoryTopics, memoryDate, readMemoryFile, readMemoryTopic, writeMem
 import { mountedFolderGate } from "./laterdog/mounted-folder-gate.ts";
 import {
   beginMemoryTurn,
-  endMemoryTurn,
+  beginMemoryTurnInBackground,
+  endMemoryTurnInBackground,
   flushAllMemoryJournals,
   journalMemoryWrite,
   type MemoryJournalEntry,
@@ -6271,15 +6272,14 @@ bus.subscribe((event: RuntimeEvent) => {
   else if (event.type === "turn.completed" && event.ok) accountBattery.recovered(event.providerInstanceId, turnStartedAt.get(event.threadId), model);
 });
 
-const memoryRowsByThread = new Map<string, MemoryJournalEntry[]>();
+const memoryRowsByThread = new Map<string, Promise<MemoryJournalEntry[]>>();
 bus.subscribe((event: RuntimeEvent) => {
   if (shouldIgnoreProviderEvent(event)) return;
   if (event.type === "turn.completed" || event.type === "session.exited") {
     runningTurnEngines.delete(event.threadId);
-    const rows = endMemoryTurn(event.threadId);
-    if (rows.length && (store.botByThread(event.threadId) || store.groupByThread(event.threadId))) {
-      memoryRowsByThread.set(event.threadId, rows);
-    } else memoryRowsByThread.delete(event.threadId);
+    const threadId = event.threadId;
+    memoryRowsByThread.set(threadId, endMemoryTurnInBackground(threadId).then((rows) =>
+      rows.length && (store.botByThread(threadId) || store.groupByThread(threadId)) ? rows : []));
   }
 });
 
@@ -6518,9 +6518,10 @@ async function scheduleTurnDigest(input: {
   turnStartedAt.delete(input.threadId);
   const checkpoint = turnCheckpoints.get(input.threadId);
   turnCheckpoints.delete(input.threadId);
-  const memory = memoryRowsByThread.get(input.threadId) ?? [];
+  const memoryRows = memoryRowsByThread.get(input.threadId);
   memoryRowsByThread.delete(input.threadId);
   try {
+    const memory = await (memoryRows ?? []);
     if (!input.isCurrent()) return;
     const activities = store.activePath(input.threadId);
     const digest = buildTurnDigest({
@@ -9253,6 +9254,7 @@ async function startTurn(
 
   void (async () => {
     let snapshotHead: EarlySnapshot<string> | null = null;
+    let memoryHead: Promise<void> | null = null;
     if (mountedFolderLayout && remoteEngineChoice(DATA_DIR, bot.id).computer) void boat.engineComputer(bot.id).catch(() => {});
     try {
       if (logArchive && !await logArchive.beforeTurn(threadId, () => directTurnClaimIsCurrent(bot.id, dispatchClaimId, threadId))) {
@@ -9273,10 +9275,12 @@ async function startTurn(
         }
         if (!readiness.ready) throw new Error(readiness.reason ?? "The cloud computer is not ready");
       }
+      turnPhases.mark(threadId, "saved logs");
       carrySessionAcross(bot.id, threadId, instance);
       await compactConversation({ bot, threadId, generation: dispatchClaimId, instance, model,
         excludedIds: new Set([userMessage.id, ...(opts?.excludeMessageIds ?? [])]), manual: opts?.compactOnly === true });
       if (!directTurnClaimIsCurrent(bot.id, dispatchClaimId, threadId)) throw new DirectTurnSetupCancelled("turn stopped during context setup");
+      turnPhases.mark(threadId, "context");
       if (opts?.compactOnly) {
         clearDirectTurnDispatch(threadId, dispatchClaimId);
         revokeInternalCapabilityGeneration(threadId, dispatchClaimId);
@@ -9402,11 +9406,12 @@ async function startTurn(
         const custom = await withMcpSignIn(engineMcpServers(bot, await repositoriesForTurn()), mcpOAuth);
         if (Object.keys(custom).length) integrations.custom = custom;
       }
+      turnPhases.mark(threadId, "connections");
       const worksInWorkspace = supportsWorkspaceFiles(instance.driverKind);
       if (worksInWorkspace) {
         await mountedFolderGate.require(workspaceDir(bot.id));
         ensureWorkspace(bot.id);
-        if (bot.memoryEnabled !== false) beginMemoryTurn(bot.id, threadId);
+        if (bot.memoryEnabled !== false) memoryHead = beginMemoryTurnInBackground(bot.id, threadId);
       }
       const privateWorkspace = worksInWorkspace ? ensureTaskWorkspace(bot.id, threadId) : undefined;
       const skillInstructions = renderSkillInstructions(selectedSkills, {
@@ -9418,7 +9423,7 @@ async function startTurn(
           : null;
       const cwd = assignedCwd(mountedFolderLayout, DATA_DIR, bot.id, pinnedCwd);
       const checkpointCwd = cwd && (mountedFolderLayout || cwd !== privateWorkspace) ? cwd : undefined;
-      turnPhases.mark(threadId, "setup");
+      turnPhases.mark(threadId, "folders");
       if (checkpointCwd) snapshotHead = earlySnapshot(
         () => checkpoints.snapshot(bot.id, checkpointCwd, `turn ${threadId.slice(0, 8)}`, undefined, { pin: dispatchClaimId }),
         () => void checkpoints.release(bot.id, checkpointCwd, dispatchClaimId));
@@ -9754,6 +9759,10 @@ async function startTurn(
       const learnPrompt = skillAuthoring ? LEARN_PROMPT : "";
 
       turnPhases.mark(threadId, "computer and prompt");
+      if (memoryHead) {
+        await memoryHead;
+        turnPhases.mark(threadId, "memory snapshot wait");
+      }
       if (checkpointCwd && snapshotHead) {
         const before = await snapshotHead.claim();
         turnPhases.mark(threadId, "file snapshot wait");
@@ -9962,7 +9971,7 @@ async function startTurn(
       releaseTurnResources(resourceOwner);
       if (ownsLatestGeneration) {
         runningTurnEngines.delete(threadId);
-        endMemoryTurn(threadId);
+        void endMemoryTurnInBackground(threadId);
         clearTurnDigestState(threadId);
         releaseLocalVmThread(threadId);
         vpsThreadEnded(bot.id, threadId);
