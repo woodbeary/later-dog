@@ -274,6 +274,16 @@ export class HistoryApi extends WorkerEntrypoint<HistoryEnvironment> {
     const write = historyOperationWrites(query.operation);
     if (write && !query.requestId)
       throw Error("A fan-out history write requires a request ID");
+    const pageSize = [
+      "messages.latest",
+      "messages.pending",
+      "messages.references",
+      "messages.recallStats",
+      "native.recover",
+      "native.prune",
+    ].includes(query.operation.op)
+      ? 64
+      : 12;
     let threads: string[], next: string | null;
     if (query.threadIds) {
       if (!Array.isArray(query.threadIds)) throw Error("Invalid thread list");
@@ -281,22 +291,30 @@ export class HistoryApi extends WorkerEntrypoint<HistoryEnvironment> {
       const ids = Array.from(new Set(query.threadIds))
         .sort()
         .filter((thread) => query.after == null || thread > query.after);
-      threads = ids.slice(0, 12);
+      threads = ids.slice(0, pageSize);
       next = ids.length > threads.length ? threads.at(-1)! : null;
     } else
-      ({ threads, next } = await dir.list(query.generation, query.after, 12));
-    const items = await Promise.all(
-      threads.map(async (threadId) => {
-        const reply = await execute(this.env, stable, {
-          generation: query.generation,
-          threadId,
-          operation: query.operation,
-          requestId: query.requestId,
-        });
-        const { result } = await reply.json<{ result: unknown }>();
-        return { threadId, result };
-      }),
-    );
+      ({ threads, next } = await dir.list(
+        query.generation,
+        query.after,
+        pageSize,
+      ));
+    const items: { threadId: string; result: unknown }[] = [];
+    for (let start = 0; start < threads.length; start += 8) {
+      const batch = await Promise.all(
+        threads.slice(start, start + 8).map(async (threadId) => {
+          const reply = await execute(this.env, stable, {
+            generation: query.generation,
+            threadId,
+            operation: query.operation,
+            requestId: query.requestId,
+          });
+          const { result } = await reply.json<{ result: unknown }>();
+          return { threadId, result };
+        }),
+      );
+      items.push(...batch);
+    }
     return Response.json({ items, next });
   }
 }
